@@ -27,12 +27,15 @@ local function build_tree2(items, is_lexer, lowercase)
 			child_type = "uint32_t"
 		end
 
-		local node_type = ffi.typeof([[
+		local node_type = ffi.typeof(
+			[[
 			struct {
 				$ children[256];
 				uint8_t end_marker;
 			}
-		]], ffi.typeof(child_type))
+		]],
+			ffi.typeof(child_type)
+		)
 		local node_array_type = ffi.typeof("$[?]", node_type)
 		local nodes = ffi.new(node_array_type, max_nodes)
 		local string_storage = {}

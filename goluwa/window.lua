@@ -116,6 +116,7 @@ function Window:OnLostFocus()
 	input.ReleaseAll("Key", function(key, press)
 		event.Call("KeyInput", key, press)
 	end)
+
 	return b
 end
 
@@ -237,6 +238,7 @@ function Window:OnMouseScroll(dir)
 
 	return event.Call("MouseScroll", dir)
 end
+
 if jit.os == "OSX" then
 	import("goluwa/window_implementations/macos.lua")(Window)
 elseif jit.os == "Windows" then
@@ -251,15 +253,12 @@ function Window.New(width, height, title, flags)
 	self:SetTitle(title)
 
 	if width and height then self:SetSize(Vec2(width, height)) end
-	system.RegisterWindow(self)
 
+	system.RegisterWindow(self)
 	self.key_trigger = input.SetupInputEvent("Key")
 	self.mouse_trigger = input.SetupInputEvent("Mouse")
-
 	event.Call("WindowOpened", self)
-
 	self:AddGlobalEvent("Update") -- calls :OnUpdate
-
 	return self
 end
 

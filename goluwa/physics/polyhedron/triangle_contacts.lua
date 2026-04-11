@@ -148,7 +148,14 @@ local function should_try_sat_fallback(collider, v0, v1, v2, options)
 
 	local half_extents = collider.GetHalfExtents and collider:GetHalfExtents() or nil
 	local radius = half_extents and half_extents:GetLength() or 1
-	local margin = (collider.GetCollisionMargin and collider:GetCollisionMargin() or 0) + (options.triangle_slop or DEFAULT_TRIANGLE_SLOP)
+	local margin = (
+			collider.GetCollisionMargin and
+			collider:GetCollisionMargin() or
+			0
+		) + (
+			options.triangle_slop or
+			DEFAULT_TRIANGLE_SLOP
+		)
 	return center_separation.distance <= radius + margin + 0.1
 end
 
@@ -314,7 +321,9 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 	local epsilon = options.epsilon or DEFAULT_EPSILON
 	local triangle_slop = options.triangle_slop or DEFAULT_TRIANGLE_SLOP
 
-	if not (poly_vertices and poly_vertices[1] and collider_position) then return nil end
+	if not (poly_vertices and poly_vertices[1] and collider_position) then
+		return nil
+	end
 
 	local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
 	local center_delta = collider_position - triangle_center
@@ -339,13 +348,15 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 		initial_direction = center_delta,
 	})
 
-	if not (
-		penetration and
-		penetration.intersect and
-		penetration.normal and
-		penetration.depth and
-		penetration.depth > epsilon
-	) then
+	if
+		not (
+			penetration and
+			penetration.intersect and
+			penetration.normal and
+			penetration.depth and
+			penetration.depth > epsilon
+		)
+	then
 		return nil
 	end
 
@@ -365,7 +376,8 @@ end
 function polyhedron_triangle_contacts.FindPenetration(collider, polyhedron, v0, v1, v2, options)
 	options = options or {}
 	return find_penetration(
-		options.poly_vertices or polyhedron_cache.GetPolyhedronWorldVertices(collider, polyhedron),
+		options.poly_vertices or
+			polyhedron_cache.GetPolyhedronWorldVertices(collider, polyhedron),
 		options.collider_position or collider:GetPosition(),
 		v0,
 		v1,
@@ -384,7 +396,8 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	local epsilon = options.epsilon or DEFAULT_EPSILON
 	local triangle_slop = options.triangle_slop or DEFAULT_TRIANGLE_SLOP
 	local manifold_merge_distance = options.manifold_merge_distance or DEFAULT_MANIFOLD_MERGE_DISTANCE
-	local poly_vertices = options.poly_vertices or polyhedron_cache.GetPolyhedronWorldVertices(collider, polyhedron)
+	local poly_vertices = options.poly_vertices or
+		polyhedron_cache.GetPolyhedronWorldVertices(collider, polyhedron)
 
 	if not poly_vertices[1] then return nil end
 
@@ -402,7 +415,6 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	local overlap = penetration.overlap
 	local contacts = nil
 	local chosen = nil
-
 	chosen = build_face_candidate(
 		collider,
 		polyhedron,

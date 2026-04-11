@@ -97,13 +97,7 @@ do
 		end
 
 		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)
-		local clip = world_to_screen_matrix:MultiplyVector(
-			position.x,
-			position.y,
-			position.z,
-			1,
-			world_to_screen_clip
-		)
+		local clip = world_to_screen_matrix:MultiplyVector(position.x, position.y, position.z, 1, world_to_screen_clip)
 		local w = clip.m03
 
 		if math.abs(w) < 1e-6 then return Vec2(0, 0), 1 end
@@ -116,9 +110,12 @@ do
 		local vis
 
 		if
-			ndc_x < -1 or ndc_x > 1 or
-			ndc_y < -1 or ndc_y > 1 or
-			ndc_z < 0 or ndc_z > 1
+			ndc_x < -1 or
+			ndc_x > 1 or
+			ndc_y < -1 or
+			ndc_y > 1 or
+			ndc_z < 0 or
+			ndc_z > 1
 		then
 			vis = 0
 		else
@@ -128,7 +125,8 @@ do
 		return Vec2(
 			viewport_x + (ndc_x * 0.5 + 0.5) * viewport_width,
 			viewport_y + (ndc_y * 0.5 + 0.5) * viewport_height
-		), vis
+		),
+		vis
 	end
 
 	function META:ScreenToWorldDirection(screen_pos, screen_width, screen_height)
@@ -153,11 +151,7 @@ do
 		world_to_screen_matrix:GetInverse(screen_to_world_inverse)
 		local near_pos = screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 0, 1, screen_to_world_near)
 		local far_pos = screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 1, 1, screen_to_world_far)
-		return Vec3(
-			far_pos.m00 - near_pos.m00,
-			far_pos.m01 - near_pos.m01,
-			far_pos.m02 - near_pos.m02
-		):GetNormalized()
+		return Vec3(far_pos.m00 - near_pos.m00, far_pos.m01 - near_pos.m01, far_pos.m02 - near_pos.m02):GetNormalized()
 	end
 end
 

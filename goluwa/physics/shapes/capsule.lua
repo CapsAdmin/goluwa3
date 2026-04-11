@@ -59,15 +59,12 @@ local function collect_capsule_support_contact(context, collider, point, fallbac
 	end
 
 	local ground_body = fallback_hit.rigid_body
-	local ground_shape = ground_body and ground_body.GetPhysicsShape and ground_body:GetPhysicsShape() or nil
+	local ground_shape = ground_body and
+		ground_body.GetPhysicsShape and
+		ground_body:GetPhysicsShape() or
+		nil
 
-	if
-		not (
-			ground_body and
-			ground_shape and
-			ground_shape.Heightmap ~= nil
-		)
-	then
+	if not (ground_body and ground_shape and ground_shape.Heightmap ~= nil) then
 		return
 	end
 
@@ -256,7 +253,6 @@ get_ground_normal = function(body)
 
 	return normal:GetNormalized()
 end
-
 get_capsule_axis_world = function(body)
 	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0))
 
@@ -312,7 +308,10 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 	local ground_body = hit and hit.rigid_body or nil
-	local ground_shape = ground_body and ground_body.GetPhysicsShape and ground_body:GetPhysicsShape() or nil
+	local ground_shape = ground_body and
+		ground_body.GetPhysicsShape and
+		ground_body:GetPhysicsShape() or
+		nil
 
 	if ground_shape and ground_shape.Heightmap ~= nil then
 		CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point = nil
@@ -348,7 +347,10 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	if not dt or dt <= 0 then return end
 
 	local ground_body = body.GetGroundBody and body:GetGroundBody() or nil
-	local ground_shape = ground_body and ground_body.GetPhysicsShape and ground_body:GetPhysicsShape() or nil
+	local ground_shape = ground_body and
+		ground_body.GetPhysicsShape and
+		ground_body:GetPhysicsShape() or
+		nil
 	local pair_friction = 0
 	local ground_friction = ground_body and ground_body.GetFriction and ground_body:GetFriction() or 0
 
@@ -356,7 +358,12 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		pair_friction = physics.solver:GetPairFriction(body, ground_body) or 0
 	end
 
-	local friction = math.max(body:GetGroundRollingFriction() or 0, body:GetFriction() or 0, pair_friction, ground_friction)
+	local friction = math.max(
+		body:GetGroundRollingFriction() or 0,
+		body:GetFriction() or 0,
+		pair_friction,
+		ground_friction
+	)
 
 	if friction <= 0 then return end
 
@@ -378,7 +385,10 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		local terrain_like_ground = ground_body and
 			(
 				ground_body.WorldGeometry == true or
-				(ground_body.GetShapeType and ground_body:GetShapeType() == "mesh")
+				(
+					ground_body.GetShapeType and
+					ground_body:GetShapeType() == "mesh"
+				)
 			)
 		local slenderness = self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON)
 
@@ -407,7 +417,10 @@ function META:OnGroundedVelocityUpdate(body, dt)
 					math.max(0, (upright_alignment - 0.84) / 0.15)
 				)
 				local topple_speed = friction * instability * math.max(slenderness - 1, 0) * 1.6
-				topple_speed = math.min(topple_speed, 0.45 + side_alignment * 0.4 + (upright_alignment >= 0.9 and 0.1 or 0))
+				topple_speed = math.min(
+					topple_speed,
+					0.45 + side_alignment * 0.4 + (upright_alignment >= 0.9 and 0.1 or 0)
+				)
 				local topple_component = body.AngularVelocity:Dot(topple_axis)
 
 				if topple_component < topple_speed then
@@ -428,7 +441,14 @@ function META:OnGroundedVelocityUpdate(body, dt)
 			allow_full_settling = false
 		end
 
-		if tangent_speed > 0.0001 and allow_full_settling and (flat_ground or tangent_speed <= 0.25) then
+		if
+			tangent_speed > 0.0001 and
+			allow_full_settling and
+			(
+				flat_ground or
+				tangent_speed <= 0.25
+			)
+		then
 			local tangent_damping = math.exp(-(friction * (1.5 + upright_alignment * 3.5)) * dt)
 			tangent_velocity = tangent_velocity * tangent_damping
 
@@ -491,15 +511,13 @@ function META:OnGroundedVelocityUpdate(body, dt)
 
 			if topple_axis:GetLength() > EPSILON then
 				topple_axis = topple_axis:GetNormalized()
-				local lever_arm = math.max(
-					(support_metrics.minor_footprint_span or 0) * 0.5,
-					self:GetRadius() * 0.5,
-					EPSILON
-				)
+				local lever_arm = math.max((support_metrics.minor_footprint_span or 0) * 0.5, self:GetRadius() * 0.5, EPSILON)
 				local instability = math.min(1, overhang_length / lever_arm)
 				local gravity_strength = physics.Gravity and physics.Gravity:GetLength() or 28
 				local desired_topple = math.min(
-					gravity_strength * body:GetGravityScale() * dt * instability * (0.45 + support_coverage * 0.75),
+					gravity_strength * body:GetGravityScale() * dt * instability * (
+							0.45 + support_coverage * 0.75
+						),
 					0.65
 				)
 				local topple_component = body.AngularVelocity:Dot(topple_axis)
@@ -514,7 +532,14 @@ function META:OnGroundedVelocityUpdate(body, dt)
 
 	local allow_full_settling = stable_support and support_coverage >= 0.14 and angular_speed <= 0.45
 
-	if tangent_speed > 0.0001 and allow_full_settling and (flat_ground or tangent_speed <= 0.25) then
+	if
+		tangent_speed > 0.0001 and
+		allow_full_settling and
+		(
+			flat_ground or
+			tangent_speed <= 0.25
+		)
+	then
 		local tangent_damping = math.exp(-(friction * (1.35 + support_coverage * 3.65)) * dt)
 		tangent_velocity = tangent_velocity * tangent_damping
 
@@ -533,7 +558,14 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		off_axis_angular = off_axis_angular * off_axis_damping
 
 		if off_axis_angular:GetLength() < 0.03 then off_axis_angular = Vec3(0, 0, 0) end
-	elseif nearly_stationary and (support.count or 0) > 0 and off_axis_angular:GetLength() > 0.0001 then
+	elseif
+		nearly_stationary and
+		(
+			support.count or
+			0
+		) > 0 and
+		off_axis_angular:GetLength() > 0.0001
+	then
 		local off_axis_damping = math.exp(-(friction * (1.6 + support_coverage * 4.5)) * dt)
 		off_axis_angular = off_axis_angular * off_axis_damping
 
@@ -557,12 +589,17 @@ end
 
 function META:ShouldForceGroundedSleep(body)
 	local ground_body = body.GetGroundBody and body:GetGroundBody() or nil
-	local ground_shape = ground_body and ground_body.GetPhysicsShape and ground_body:GetPhysicsShape() or nil
+	local ground_shape = ground_body and
+		ground_body.GetPhysicsShape and
+		ground_body:GetPhysicsShape() or
+		nil
 
 	if not (ground_shape and ground_shape.Heightmap ~= nil) then
 		local ground_normal = get_ground_normal(body)
 
-		if ground_normal.y < math.max(body:GetMinGroundNormalY() or 0, 0.8) then return false end
+		if ground_normal.y < math.max(body:GetMinGroundNormalY() or 0, 0.8) then
+			return false
+		end
 
 		local axis = get_capsule_axis_world(body)
 		return math.abs(axis:Dot(ground_normal)) >= 0.96
@@ -574,7 +611,12 @@ function META:ShouldForceGroundedSleep(body)
 
 	if metrics.support_width_coverage >= 0.72 then return true end
 
-	return (metrics.support.count or 0) >= 2 and metrics.min_coverage >= 0.16 and metrics.area_coverage >= 0.04
+	return (
+			metrics.support.count or
+			0
+		) >= 2 and
+		metrics.min_coverage >= 0.16 and
+		metrics.area_coverage >= 0.04
 end
 
 function META:ShouldUseGroundedVelocityConstraints(body, stable)
@@ -583,18 +625,26 @@ function META:ShouldUseGroundedVelocityConstraints(body, stable)
 	if not (body and body.GetGrounded and body:GetGrounded()) then return false end
 
 	local ground_body = body.GetGroundBody and body:GetGroundBody() or nil
-	local ground_shape = ground_body and ground_body.GetPhysicsShape and ground_body:GetPhysicsShape() or nil
+	local ground_shape = ground_body and
+		ground_body.GetPhysicsShape and
+		ground_body:GetPhysicsShape() or
+		nil
 
 	if not ground_body then return false end
 
 	local is_world_geometry = ground_body.WorldGeometry == true or
-		(ground_body.GetShapeType and ground_body:GetShapeType() == "mesh")
+		(
+			ground_body.GetShapeType and
+			ground_body:GetShapeType() == "mesh"
+		)
 
 	if not is_world_geometry then return false end
 
 	local ground_normal = get_ground_normal(body)
 
-	if ground_normal.y < math.max(body:GetMinGroundNormalY() or 0, 0.45) then return false end
+	if ground_normal.y < math.max(body:GetMinGroundNormalY() or 0, 0.45) then
+		return false
+	end
 
 	if not (ground_shape and ground_shape.Heightmap ~= nil) then
 		local axis = get_capsule_axis_world(body)

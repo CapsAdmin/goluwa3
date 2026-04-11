@@ -49,6 +49,7 @@ local function add_contact_sample_entry(seen, entries, local_point, is_support)
 
 	if existing then
 		if is_support then existing.is_support = true end
+
 		return
 	end
 
@@ -67,7 +68,11 @@ local function get_cached_contact_sample_entries(body)
 	local support_points = body:GetSupportLocalPoints() or false
 	local cache = body._PhysicsMeshPolyhedronContactSampleCache
 
-	if cache and cache.collision_points == collision_points and cache.support_points == support_points then
+	if
+		cache and
+		cache.collision_points == collision_points and
+		cache.support_points == support_points
+	then
 		return cache.entries
 	end
 
@@ -146,11 +151,31 @@ local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	return false
 end
 
-function mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, poly_body, samples, v0, v1, v2, triangle_index, polygon, use_local_space, support_only)
+function mesh_polyhedron_contacts.AccumulateSampleContacts(
+	state,
+	mesh_body,
+	poly_body,
+	samples,
+	v0,
+	v1,
+	v2,
+	triangle_index,
+	polygon,
+	use_local_space,
+	support_only
+)
 	if not samples[1] then return state, false end
 
 	local combined_margin = SOLVE_MESH_POLYHEDRON_CONTEXT.combined_margin or
-		((poly_body:GetCollisionMargin() or 0) + (mesh_body:GetCollisionMargin() or 0))
+		(
+			(
+				poly_body:GetCollisionMargin() or
+				0
+			) + (
+				mesh_body:GetCollisionMargin() or
+				0
+			)
+		)
 	local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
 	local triangle_center_world = use_local_space and mesh_body:LocalToWorld(triangle_center) or triangle_center
 	local found_contact = false
@@ -165,7 +190,9 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, pol
 
 		if result then
 			local position = use_local_space and mesh_body:LocalToWorld(result.position) or result.position
-			local face_normal = use_local_space and mesh_body:GetRotation():VecMul(result.face_normal):GetNormalized() or result.face_normal
+			local face_normal = use_local_space and
+				mesh_body:GetRotation():VecMul(result.face_normal):GetNormalized() or
+				result.face_normal
 			local normal = select(
 				1,
 				mesh_contact_common.SelectTriangleNormal(
@@ -271,7 +298,14 @@ end
 function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_body, mesh_shape, dt)
 	local polyhedron = poly_body:GetBodyPolyhedron()
 
-	if not (polyhedron and polyhedron.vertices and polyhedron.faces and polyhedron.faces[1]) then
+	if
+		not (
+			polyhedron and
+			polyhedron.vertices and
+			polyhedron.faces and
+			polyhedron.faces[1]
+		)
+	then
 		return false
 	end
 
@@ -291,7 +325,6 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	SOLVE_MESH_POLYHEDRON_CONTEXT.samples = samples
 	SOLVE_MESH_POLYHEDRON_CONTEXT.use_local_space = use_local_space
 	SOLVE_MESH_POLYHEDRON_CONTEXT.combined_margin = combined_margin
-
 	mesh_contact_common.ForEachOverlappingMeshTriangle(
 		mesh_body,
 		mesh_shape,

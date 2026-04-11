@@ -59,7 +59,7 @@ local function load_windows_tls()
 		uint32_t dwSessionLifespan;
 		uint32_t dwFlags;
 		uint32_t dwCredFormat;
-	}]] )
+	}]])
 	local SecBuffer1 = ffi.typeof("$[1]", SecBuffer)
 	local SecBuffer2 = ffi.typeof("$[2]", SecBuffer)
 	local SecBuffer4 = ffi.typeof("$[4]", SecBuffer)
@@ -250,7 +250,8 @@ local function load_windows_tls()
 					local complete_status = secur32.CompleteAuthToken(hContext, outBufferDesc)
 
 					if complete_status ~= SEC_E_OK then
-						return nil, "CompleteAuthToken failed: " .. get_security_error_string(complete_status)
+						return nil,
+						"CompleteAuthToken failed: " .. get_security_error_string(complete_status)
 					end
 				end
 
@@ -449,7 +450,8 @@ local function load_windows_tls()
 							return nil, "tryagain"
 						end
 
-						return nil, "recv failed while waiting for complete message: " .. get_wsa_error_string(err)
+						return nil,
+						"recv failed while waiting for complete message: " .. get_wsa_error_string(err)
 					end
 				else
 					return nil, "DecryptMessage failed: " .. get_security_error_string(status)

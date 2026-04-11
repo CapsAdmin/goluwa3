@@ -78,13 +78,10 @@ function UDPClient:OnRemove()
 	self:RemoveFromSocketPool()
 	self.connected = false
 	self.connecting = false
-
 	local socket = self.socket
 	self.socket = nil
 
-	if socket and socket.fd and socket.fd >= 0 then
-		socket:close()
-	end
+	if socket and socket.fd and socket.fd >= 0 then socket:close() end
 end
 
 function UDPClient:Close(reason)
@@ -197,7 +194,8 @@ function UDPClient:HandleConnectReady()
 				ok == ljsocket.errno.EINPROGRESS or
 				ok == ljsocket.errno.EWOULDBLOCK
 			then
-				-- Keep waiting until getpeername/getsockname reports a real connected socket.
+
+			-- Keep waiting until getpeername/getsockname reports a real connected socket.
 			elseif ok and ok ~= 0 then
 				self:Error(ljsocket.socket.lasterror(ok))
 			end

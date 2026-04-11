@@ -352,5 +352,4 @@ import("goluwa/sockets/http/request.lua")
 import("goluwa/sockets/http/api.lua")
 import("goluwa/sockets/http/uri.lua")
 import("goluwa/sockets/http/download.lua")
-
 return http

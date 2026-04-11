@@ -39,9 +39,9 @@ function render.Shutdown()
 	render.shutting_down = true
 	event.RemoveListener("WindowFramebufferResized", "window_resized")
 	event.RemoveListener("Update", "window_update")
-	if render.target:IsValid() then
-		render.target:Remove()
-	end
+
+	if render.target:IsValid() then render.target:Remove() end
+
 	if vulkan_instance:IsValid() then vulkan_instance:Remove() end
 
 	render.command_buffer_stack = {}
@@ -51,7 +51,6 @@ function render.Shutdown()
 	vulkan_instance = NULL
 	render.cached_samplers = {}
 	sync_fence = NULL
-
 	render.shutting_down = false
 end
 

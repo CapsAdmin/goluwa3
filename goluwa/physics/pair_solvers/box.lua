@@ -364,7 +364,6 @@ local function build_face_contacts(body_a, body_b, candidate)
 	end
 
 	ranked_contacts = convex_face_clipping.SelectFaceContactEntries(ranked_contacts, reference_face, 4, BOX_FACE_CONTACT_SCRATCH)
-
 	local contacts = BOX_CONTACT_OUTPUT_SCRATCH.face_contacts
 
 	for i = 1, #contacts do
@@ -685,8 +684,8 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 
 		if
 			is_outside_static_support_face(body_a, body_b, best.normal) and
-			is_support_contact_near_static_face_edge(body_a, body_b, best.normal, contacts)
-			and math.abs(best.normal.y) < 0.35
+			is_support_contact_near_static_face_edge(body_a, body_b, best.normal, contacts) and
+			math.abs(best.normal.y) < 0.35
 		then
 			resolve_options = {
 				skip_friction = true,

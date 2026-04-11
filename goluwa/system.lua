@@ -3,9 +3,7 @@ local get_time = import("goluwa/bindings/time.lua")
 local event = import("goluwa/event.lua")
 local system = library()
 import.loaded["goluwa/system.lua"] = system
-
 local Window = import("goluwa/window.lua")
-
 ffi.cdef([[
 	int fflush(void *stream);
 	int _exit(int status);
@@ -40,10 +38,8 @@ do
 	function os.realexit(code)
 		-- Flush stdout pipe before exiting so any pending output is captured
 		local output = import("goluwa/output.lua")
-
 		output.Flush()
 		output.Shutdown()
-
 		io.flush()
 		ffi.C.fflush(nil)
 

@@ -40,11 +40,11 @@ function capsule_geometry.GetSegmentWorld(body, position, rotation)
 	local shape = capsule_geometry.GetCapsuleShape(body)
 
 	if not shape then return nil, nil, 0 end
+
 	local half_height = capsule_geometry.GetCylinderHalfHeight(shape)
 	local local_points = CAPSULE_LOCAL_SEGMENT_POINTS
 	local_points.bottom.y = -half_height
 	local_points.top.y = half_height
-
 	return body:LocalToWorld(local_points.bottom, position, rotation),
 	body:LocalToWorld(local_points.top, position, rotation),
 	shape:GetRadius()

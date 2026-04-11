@@ -326,8 +326,11 @@ local function visit_polygon_leaf(node, context, result)
 
 		if user_context then user_context.entry = entry end
 
-		if triangle_mesh.ForEachOverlappingTriangle(entry.polygon, context.local_bounds, context.callback, context.user_context) then
+		if
+			triangle_mesh.ForEachOverlappingTriangle(entry.polygon, context.local_bounds, context.callback, context.user_context)
+		then
 			if user_context then user_context.entry = previous_entry end
+
 			return true
 		end
 	end
@@ -634,8 +637,11 @@ function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
 
 			if context then context.entry = entry end
 
-			if triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_bounds, callback, context) then
+			if
+				triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_bounds, callback, context)
+			then
 				if context then context.entry = previous_entry end
+
 				return true
 			end
 

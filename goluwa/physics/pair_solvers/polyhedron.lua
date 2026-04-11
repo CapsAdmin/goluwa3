@@ -60,15 +60,7 @@ local function build_polyhedron_contacts(vertices_a, vertices_b, normal)
 	)
 end
 
-local function build_face_contacts_from_features(
-	body_a,
-	poly_a,
-	rotation_a,
-	body_b,
-	poly_b,
-	rotation_b,
-	candidate
-)
+local function build_face_contacts_from_features(body_a, poly_a, rotation_a, body_b, poly_b, rotation_b, candidate)
 	local reference_is_a = candidate.reference_body == "a"
 	local reference_body = reference_is_a and body_a or body_b
 	local reference_poly = reference_is_a and poly_a or poly_b

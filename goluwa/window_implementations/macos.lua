@@ -44,7 +44,6 @@ return function(META)
 		self.mouse_inside = false
 		self.is_minimized = self.cocoa_window:IsMinimized()
 		self.is_maximized = self.cocoa_window:IsMaximized()
-
 		return true
 	end
 
@@ -62,9 +61,7 @@ return function(META)
 				end
 
 				-- Fire character input if available
-				if event.char and event.char ~= "" then
-					self:OnCharInput(event.char)
-				end
+				if event.char and event.char ~= "" then self:OnCharInput(event.char) end
 			elseif event.type == "key_release" then
 				self:OnKeyInput(event.key, false)
 			elseif event.type == "mouse_button" then
@@ -95,11 +92,7 @@ return function(META)
 		if focused ~= self.focused then
 			self.focused = focused
 
-			if focused then
-				self:OnGainedFocus()
-			else
-				self:OnLostFocus()
-			end
+			if focused then self:OnGainedFocus() else self:OnLostFocus() end
 		end
 
 		local pos = self.cocoa_window:GetPosition()
@@ -127,8 +120,7 @@ return function(META)
 
 		local mouse_pos = self.cocoa_window:GetMousePosition()
 		local size = self:GetSize()
-		local mouse_inside =
-			mouse_pos.x >= 0 and
+		local mouse_inside = mouse_pos.x >= 0 and
 			mouse_pos.y >= 0 and
 			mouse_pos.x <= size.x and
 			mouse_pos.y <= size.y
@@ -142,7 +134,6 @@ return function(META)
 				self:OnCursorLeave()
 			end
 		end
-
 	end
 
 	function META:OnRemove()
@@ -153,6 +144,7 @@ return function(META)
 			end
 
 			self.cocoa_window:Destroy()
+
 			-- Window cleanup would go here if cocoa exposed it
 			if base_on_remove then base_on_remove(self) end
 		end
@@ -184,8 +176,8 @@ return function(META)
 
 	function META:SetCursor(mode)
 		if not self.Cursors[mode] then mode = "arrow" end
-		mode = normalize_cursor_mode(mode)
 
+		mode = normalize_cursor_mode(mode)
 		self.Cursor = mode
 		self.cocoa_window:SetCursor(mode)
 	end

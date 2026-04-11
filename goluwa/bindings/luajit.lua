@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
 local LuaState = {}
 LuaState.__index = LuaState
-
 ffi.cdef[[
     typedef struct lua_State lua_State;
     lua_State *luaL_newstate(void);
@@ -32,7 +31,9 @@ end
 
 function LuaState:GetTopString()
 	local out = ffi.C.lua_tolstring(self.lua_state, -1, nil)
+
 	if out == nil then return nil end
+
 	return ffi.string(out)
 end
 
@@ -46,7 +47,6 @@ function LuaState.New()
 	if L == nil then error("Failed to create new Lua state: Out of memory", 2) end
 
 	ffi.C.luaL_openlibs(L)
-
 	return setmetatable({
 		lua_state = L,
 	}, LuaState)
@@ -54,7 +54,6 @@ end
 
 function LuaState:Run(source, args)
 	self:Load(source)
-
 	local nargs = 0
 
 	if args ~= nil then
@@ -75,12 +74,12 @@ function LuaState:Run(source, args)
 	ffi.C.lua_settop(self.lua_state, -2)
 	return result
 end
+
 function LuaState:Close()
 	if not self.lua_state then return true end
 
 	ffi.C.lua_close(self.lua_state)
-    
-    self.lua_state = nil
+	self.lua_state = nil
 	self.func_ptr = nil
 	return true
 end

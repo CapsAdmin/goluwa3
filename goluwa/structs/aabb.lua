@@ -119,10 +119,15 @@ function META.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 		local z = point.z
 
 		if x < local_min_x then local_min_x = x end
+
 		if y < local_min_y then local_min_y = y end
+
 		if z < local_min_z then local_min_z = z end
+
 		if x > local_max_x then local_max_x = x end
+
 		if y > local_max_y then local_max_y = y end
+
 		if z > local_max_z then local_max_z = z end
 	end
 

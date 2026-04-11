@@ -559,12 +559,25 @@ function gjk_epa.Penetration(vertices_a, vertices_b, options)
 	if not gjk_result then return nil end
 
 	if not (gjk_result.intersect and gjk_result.simplex) then
-		local distance_result = gjk_epa.Distance(vertices_a, vertices_b, {
-			initial_direction = options.initial_direction,
-			gjk_max_iterations = options.gjk_max_iterations,
-		})
+		local distance_result = gjk_epa.Distance(
+			vertices_a,
+			vertices_b,
+			{
+				initial_direction = options.initial_direction,
+				gjk_max_iterations = options.gjk_max_iterations,
+			}
+		)
 
-		if not distance_result or (not distance_result.intersect and (distance_result.distance or math.huge) > EPSILON) then
+		if
+			not distance_result or
+			(
+				not distance_result.intersect and
+				(
+					distance_result.distance or
+					math.huge
+				) > EPSILON
+			)
+		then
 			return {
 				intersect = false,
 				gjk = gjk_result,
@@ -614,7 +627,17 @@ function gjk_epa.Penetration(vertices_a, vertices_b, options)
 	end
 
 	for iteration = 1, options.epa_max_iterations or EPA_MAX_ITERATIONS do
-		if #faces > (options.epa_max_faces or EPA_MAX_FACES) or #vertices > (options.epa_max_vertices or EPA_MAX_VERTICES) then
+		if
+			#faces > (
+				options.epa_max_faces or
+				EPA_MAX_FACES
+			)
+			or
+			#vertices > (
+				options.epa_max_vertices or
+				EPA_MAX_VERTICES
+			)
+		then
 			break
 		end
 

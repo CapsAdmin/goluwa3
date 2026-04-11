@@ -1257,7 +1257,9 @@ do
 	end
 
 	function meta:close()
-		if self._closed or self.fd == nil or is_invalid_socket(self.fd) then return true end
+		if self._closed or self.fd == nil or is_invalid_socket(self.fd) then
+			return true
+		end
 
 		local fd = self.fd
 		self._closed = true
@@ -1594,9 +1596,7 @@ do
 				local addr_len = math.max(tonumber(ai_addrlen_res[0]) or 0, 0)
 				local addr_storage = ffi.new("uint8_t[?]", math.max(addr_len, 1))
 
-				if addr_len > 0 then
-					ffi.copy(addr_storage, src_address, addr_len)
-				end
+				if addr_len > 0 then ffi.copy(addr_storage, src_address, addr_len) end
 
 				addrinfo = M.addressinfo(
 					addrinfo_out{

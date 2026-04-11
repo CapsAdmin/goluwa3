@@ -1870,7 +1870,9 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 	event.AddListener("TextureRemoved", self, function(removed_tex)
 		if not render.GetDevice():IsValid() then return end
+
 		if render.shutting_down then return end
+
 		local set_index = #self.descriptor_set_layouts > 1 and 1 or 0
 		self:ReleaseTextureIndex(removed_tex, set_index)
 	end)

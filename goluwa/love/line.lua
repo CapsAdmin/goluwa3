@@ -360,7 +360,10 @@ function line.RunGame(folder, ...)
 			(
 				type(request) == "table" or
 				type(threads) == "table" or
-				(type(task_channel) == "table" and type(data_pull_channel) == "table")
+				(
+					type(task_channel) == "table" and
+					type(data_pull_channel) == "table"
+				)
 			)
 		then
 			love._line_env.update_modules = love._line_env.update_modules or {}
@@ -370,7 +373,6 @@ function line.RunGame(folder, ...)
 			end
 
 			list.insert(love._line_env.update_modules, value)
-
 			local set_update_mode = rawget(value, "setUpdateMode")
 
 			if type(set_update_mode) == "function" and rawget(value, "updateModeChannel") ~= nil then
@@ -388,7 +390,6 @@ function line.RunGame(folder, ...)
 	local function line_require(name)
 		local function finalize_required_module(module_name, value)
 			register_async_update_module(value)
-
 			return value
 		end
 
@@ -648,6 +649,7 @@ event.AddListener("WindowDrop", "line", function(wnd, paths)
 			line.RunGame(path)
 
 			if menu then menu.Close() end
+
 			break
 		end
 	end

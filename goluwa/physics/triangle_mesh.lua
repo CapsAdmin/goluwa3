@@ -412,7 +412,9 @@ local function visit_triangle_leaf(node, context, result)
 	for i = node.first, node.last do
 		local triangle = triangles[i]
 
-		if callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, user_context) then
+		if
+			callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, user_context)
+		then
 			return true
 		end
 	end
@@ -437,7 +439,9 @@ function triangle_mesh.ForEachOverlappingTriangle(poly, local_bounds, callback, 
 		local triangle = triangles[i]
 
 		if triangle_bounds_overlap(local_bounds, triangle) then
-			if callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, context) then return true end
+			if callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, context) then
+				return true
+			end
 		end
 	end
 end

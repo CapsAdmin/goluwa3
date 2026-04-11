@@ -179,6 +179,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 		if friction_scale ~= nil then
 			friction = friction * math.max(friction_scale, 0)
 		end
+
 		local tangent_inverse_mass = inverse_mass_sum
 
 		if point_a or point_b then

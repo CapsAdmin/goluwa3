@@ -29,7 +29,6 @@ local function get_quad_uv_rect(drawable, quad)
 	sample_y = sample_y + inset_y
 	sample_w = math.max(sample_w - (inset_x * 2), 0)
 	sample_h = math.max(sample_h - (inset_y * 2), 0)
-
 	return sample_x, sample_y, sample_w, sample_h
 end
 

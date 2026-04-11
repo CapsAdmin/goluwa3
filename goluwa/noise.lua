@@ -347,7 +347,8 @@ do
 			F = (math.sqrt(3) - 1) / 2
 			G = (3 - math.sqrt(3)) / 6
 			G2 = 2 * G - 1
-		]] -- Skew the input space to determine which simplex cell we are in.
+		]]
+		-- Skew the input space to determine which simplex cell we are in.
 		local s = (x + y) * 0.366025403 -- F
 		local ix, iy = floor(x + s), floor(y + s)
 		-- Unskew the cell origin back to (x, y) space.
@@ -367,7 +368,8 @@ do
 			else
 				iy, y1 = iy + 1, y1 - 1
 			end
-		]] local xi = rshift(floor(y0 - x0), 31) -- x0 >= y0
+		]]
+		local xi = rshift(floor(y0 - x0), 31) -- x0 >= y0
 		local n1 = GetN(ix + xi, iy + (1 - xi), x0 + 0.211324865 - xi, y0 - 0.788675135 + xi) -- x0 + G - xi, y0 + G - (1 - xi)
 		-- Add contributions from each corner to get the final noise value.
 		-- The result is scaled to return values in the interval [-1,1].
@@ -390,7 +392,8 @@ do
 	end
 -- v.off()
 	printf("Simplex2D: time / call = %.9f, min = %f, max = %f", (os.clock() - t1) / (5001 * 5001), fmin, fmax)
---]] end
+--]]
+end
 
 do
 	-- 3D weight contribution
@@ -414,7 +417,8 @@ do
 			G = 1 / 6
 			G2 = 2 * G
 			G3 = 3 * G - 1
-		]] -- Skew the input space to determine which simplex cell we are in.
+		]]
+		-- Skew the input space to determine which simplex cell we are in.
 		local s = (x + y + z) * 0.333333333 -- F
 		local ix, iy, iz = floor(x + s), floor(y + s), floor(z + s)
 		-- Unskew the cell origin back to (x, y, z) space.
@@ -454,7 +458,8 @@ do
 					iy, ix2, y1, x2 = iy + 1, ix + 1, y1 - 1, x2 - 1
 				end
 			end		
-		]] local yx = rshift(floor(y0 - x0), 31) -- x0 >= y0
+		]]
+		local yx = rshift(floor(y0 - x0), 31) -- x0 >= y0
 		local zy = rshift(floor(z0 - y0), 31) -- y0 >= z0
 		local zx = rshift(floor(z0 - x0), 31) -- x0 >= z0
 		local i1 = band(yx, bor(zy, zx)) -- x >= y and (y >= z or x >= z)
@@ -502,7 +507,8 @@ do
 	end
 -- v.off()
 	printf("Simplex3D: time / call = %.9f, min = %f, max = %f", (os.clock() - t1) / (101 * 101 * 101), fmin, fmax)
---]] end
+--]]
+end
 
 do
 	-- Gradients for 4D case --
@@ -643,7 +649,8 @@ do
 			G2 = 2 * G
 			G3 = 3 * G
 			G4 = 4 * G - 1
-		]] -- Skew the input space to determine which simplex cell we are in.
+		]]
+		-- Skew the input space to determine which simplex cell we are in.
 		local s = (x + y + z + w) * 0.309016994 -- F
 		local ix, iy, iz, iw = floor(x + s), floor(y + s), floor(z + s), floor(w + s)
 		-- Unskew the cell origin back to (x, y, z) space.
@@ -753,7 +760,8 @@ do
 	end
 -- v.off()
 	printf("Simplex4D: time / call = %.9f, min = %f, max = %f", (os.clock() - t1) / (51 * 51 * 51 * 51), fmin, fmax)
---]] end
+--]]
+end
 
 -- For testing, uncomment this:
 -- printf("%.9f", os.clock() - t1) -- Total test time
@@ -793,5 +801,6 @@ if F then
 --]]
 	F:close()
 end
---]=] -- Export the module.
+--]=]
+-- Export the module.
 return M

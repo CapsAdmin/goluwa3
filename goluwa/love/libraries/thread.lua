@@ -281,7 +281,9 @@ local function decode_native_error(native_thread)
 
 	local data = native_thread.input_data
 
-	if native_threads.get_status(native_thread) ~= native_threads.STATUS_ERROR then return nil end
+	if native_threads.get_status(native_thread) ~= native_threads.STATUS_ERROR then
+		return nil
+	end
 
 	local result = native_threads.pointer_decode(data.output_buffer, data.output_buffer_len)
 	return result and result[2] or nil

@@ -1059,7 +1059,9 @@ do
 		function fs.fd_read(fd, size)
 			if jit.os == "Windows" then
 				local handle = ffi.C._get_osfhandle(fd)
-				local file_type = handle ~= ffi.cast("void *", -1) and ffi.C.GetFileType(handle) or fs.FILE_TYPE_UNKNOWN
+				local file_type = handle ~= ffi.cast("void *", -1) and
+					ffi.C.GetFileType(handle) or
+					fs.FILE_TYPE_UNKNOWN
 
 				if file_type == fs.FILE_TYPE_PIPE then
 					local avail = ffi.new("uint32_t[1]")

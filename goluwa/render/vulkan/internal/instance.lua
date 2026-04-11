@@ -213,7 +213,6 @@ do
 		self.debug_callback_ptr = nil
 		ffi.C.lua_close(self.lua_state)
 		self.lua_state = nil
-
 		self.context = nil
 		self.main_state = nil
 	end

@@ -1,12 +1,12 @@
 local line = import("goluwa/love/line.lua")
 local event = import("goluwa/event.lua")
-
 return function(name)
 	local love = assert(line.CreateLoveEnv(), "failed to create Love environment")
 	local loaded = false
 
 	local function ensure_loaded()
 		if loaded then return end
+
 		loaded = true
 
 		if love.load then love.load() end

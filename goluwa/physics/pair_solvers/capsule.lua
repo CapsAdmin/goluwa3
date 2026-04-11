@@ -554,7 +554,9 @@ local function get_capsule_box_best_contact(box_body, samples, previous_samples,
 end
 
 local function get_capsule_polyhedron_contact(polyhedron_body, polyhedron, point, radius, position, rotation, movement_world)
-	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then return nil end
+	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then
+		return nil
+	end
 
 	local scratch = polyhedron_body._PhysicsCapsulePolyhedronContactScratch or {}
 	polyhedron_body._PhysicsCapsulePolyhedronContactScratch = scratch
@@ -581,11 +583,7 @@ local function get_capsule_polyhedron_contact(polyhedron_body, polyhedron, point
 	if best_normal:GetLength() <= EPSILON then
 		best_normal = select(
 			1,
-			pair_solver_helpers.GetSafeCollisionNormal(
-				point - position,
-				movement_world,
-				scratch.last_normal
-			)
+			pair_solver_helpers.GetSafeCollisionNormal(point - position, movement_world, scratch.last_normal)
 		)
 	end
 
@@ -604,7 +602,15 @@ local function get_capsule_polyhedron_contact(polyhedron_body, polyhedron, point
 	}
 end
 
-local function get_capsule_polyhedron_best_contact(polyhedron_body, polyhedron, samples, previous_samples, radius, position, rotation)
+local function get_capsule_polyhedron_best_contact(
+	polyhedron_body,
+	polyhedron,
+	samples,
+	previous_samples,
+	radius,
+	position,
+	rotation
+)
 	local best_contact = nil
 
 	for i, sample in ipairs(samples) do
@@ -648,7 +654,10 @@ local function solve_swept_capsule_polyhedron_collision(dynamic_body, static_bod
 	local dynamic_sweep = pair_solver_helpers.GetBodySweepMotion(dynamic_body)
 	local static_sweep = pair_solver_helpers.GetBodySweepMotion(static_body)
 
-	if dynamic_sweep.movement:GetLength() <= EPSILON and static_sweep.movement:GetLength() <= EPSILON then
+	if
+		dynamic_sweep.movement:GetLength() <= EPSILON and
+		static_sweep.movement:GetLength() <= EPSILON
+	then
 		return false
 	end
 
@@ -725,9 +734,14 @@ end
 
 local function solve_capsule_polyhedron_collision(capsule_body, polyhedron_body, dt)
 	local polyhedron_shape = polyhedron_body:GetPhysicsShape()
-	local polyhedron = polyhedron_shape and polyhedron_shape.GetPolyhedron and polyhedron_shape:GetPolyhedron(polyhedron_body) or nil
+	local polyhedron = polyhedron_shape and
+		polyhedron_shape.GetPolyhedron and
+		polyhedron_shape:GetPolyhedron(polyhedron_body) or
+		nil
 
-	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then return false end
+	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then
+		return false
+	end
 
 	local points, radius = iterate_capsule_points(capsule_body, nil, nil, CAPSULE_POLYHEDRON_CONTACT_SCRATCH.current)
 	local previous_points = iterate_capsule_points(

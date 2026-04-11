@@ -1,9 +1,7 @@
 local ffi = require("ffi")
-
 local installed_handlers = {}
 local installed = false
 local crash_trace = {}
-
 local write_stderr
 
 if ffi.os == "Windows" then
@@ -41,7 +39,6 @@ if ffi.os == "Windows" then
 		BOOL TerminateProcess(HANDLE hProcess, unsigned int uExitCode);
 		WORD RtlCaptureStackBackTrace(DWORD frames_to_skip, DWORD frames_to_capture, void **backtrace, DWORD *backtrace_hash);
 	]])
-
 	local kernel32 = ffi.load("kernel32")
 	local STDERR_HANDLE = ffi.cast("DWORD", -12)
 	local EXCEPTION_CONTINUE_SEARCH = 0
@@ -63,7 +60,6 @@ if ffi.os == "Windows" then
 		[0xC0000095] = true,
 		[0xC00000FD] = true,
 	}
-
 	write_stderr = function(str)
 		local stderr_handle = kernel32.GetStdHandle(STDERR_HANDLE)
 
@@ -112,9 +108,7 @@ if ffi.os == "Windows" then
 		local name = exception_codes[code] or string.format("0x%08X", code)
 		write_stderr("\nreceived structured exception " .. name)
 
-		if address ~= nil then
-			write_stderr(string.format(" at %p", address))
-		end
+		if address ~= nil then write_stderr(string.format(" at %p", address)) end
 
 		write_stderr("\n")
 		write_lua_trace("Lua stack traceback:")
@@ -147,7 +141,6 @@ else
 	}
 	local crash_signals = {"SIGSEGV", "SIGILL", "SIGFPE", "SIGABRT"}
 	local term_signals = {"SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"}
-
 	ffi.cdef([[ 
 		typedef void (*sighandler_t)(int32_t);
 		sighandler_t signal(int32_t signum, sighandler_t handler);
@@ -157,7 +150,6 @@ else
 		void backtrace_symbols_fd(void *const *buffer, int size, int fd);
 		intptr_t write(int fd, const void *buf, size_t count);
 	]])
-
 	write_stderr = function(str)
 		ffi.C.write(2, str, #str)
 	end
@@ -171,10 +163,8 @@ else
 
 		for _, what in ipairs(crash_signals) do
 			local signum = signals[what]
-
 			installed_handlers[what] = ffi.cast("sighandler_t", function(received)
 				write_stderr("\nreceived signal " .. what .. "\n")
-
 				local ok, trace = pcall(debug.traceback, "Lua stack traceback:", 2)
 
 				if ok and trace and trace ~= "" then write_stderr(trace .. "\n") end
@@ -186,18 +176,15 @@ else
 				reset_signal(received)
 				ffi.C.kill(ffi.C.getpid(), received)
 			end)
-
 			ffi.C.signal(signum, installed_handlers[what])
 		end
 
 		for _, what in ipairs(term_signals) do
 			local signum = signals[what]
-
 			installed_handlers[what] = ffi.cast("sighandler_t", function(received)
 				write_stderr("\nreceived signal " .. what .. ", exiting\n")
 				os.exit(128 + received)
 			end)
-
 			ffi.C.signal(signum, installed_handlers[what])
 		end
 
@@ -208,14 +195,10 @@ end
 function crash_trace.Run(func, ...)
 	crash_trace.Install()
 	local args = {...}
-
 	local result = {
-		xpcall(
-		function()
+		xpcall(function()
 			return func(unpack(args))
-		end,
-		debug.traceback
-		)
+		end, debug.traceback),
 	}
 
 	if result[1] then return unpack(result, 2) end

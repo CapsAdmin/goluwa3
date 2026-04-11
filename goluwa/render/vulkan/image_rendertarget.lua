@@ -198,13 +198,14 @@ local function create_swapchain(self)
 	local present_mode = self.config.present_mode or "fifo_khr"
 
 	if not supported_present_modes[present_mode] then
-		for _, fallback in ipairs({"mailbox_khr", "immediate_khr", "fifo_relaxed_khr", "fifo_khr"}) do
+		for _, fallback in ipairs{"mailbox_khr", "immediate_khr", "fifo_relaxed_khr", "fifo_khr"} do
 			if supported_present_modes[fallback] then
 				if fallback ~= present_mode then
 					logn("Present mode " .. present_mode .. " not supported; using " .. fallback)
 				end
 
 				present_mode = fallback
+
 				break
 			end
 		end

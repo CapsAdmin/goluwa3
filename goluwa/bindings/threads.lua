@@ -5,7 +5,6 @@ local LuaState = import("goluwa/bindings/luajit.lua")
 local threads = {}
 local live_threads = {}
 local pool_signal_fields
-
 ffi.cdef[[
 	void *malloc(size_t size);
 	void free(void *ptr);
@@ -23,15 +22,15 @@ end
 
 local function is_thread_dead(thread)
 	if not thread or thread.id == nil then return false end
+
 	if not thread.input_data then return false end
+
 	return threads.get_status(thread) ~= threads.STATUS_UNDEFINED
 end
 
 local function release_dead_threads()
 	for thread in pairs(live_threads) do
-		if is_thread_dead(thread) then
-			release_thread(thread)
-		end
+		if is_thread_dead(thread) then release_thread(thread) end
 	end
 end
 
@@ -128,7 +127,6 @@ if ffi.os == "Windows" then
 	local INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
 	local WAIT_FAILED = 0xFFFFFFFF -- as Lua number, for comparison with tonumber() result
 	local THREAD_ALL_ACCESS = 0x1F03FF
-
 	-- Main-thread handle to the worker mutex. This serializes state creation
 	-- and destruction in the main thread with worker execution, preventing
 	-- concurrent access to LuaJIT's non-thread-safe x64 allocator.
@@ -149,6 +147,7 @@ if ffi.os == "Windows" then
 
 	function init_thread_signal(data)
 		data.completed_event = kernel32.CreateEventA(nil, 1, 0, nil)
+
 		if data.completed_event == nil then check_win_error(0) end
 	end
 
@@ -158,23 +157,32 @@ if ffi.os == "Windows" then
 
 	function is_thread_signal_done(data)
 		if data == nil or data.completed_event == nil then return false end
+
 		local result = tonumber(kernel32.WaitForSingleObject(data.completed_event, 0))
+
 		if result == WAIT_OBJECT_0 then return true end
+
 		if result == WAIT_TIMEOUT then return false end
+
 		check_win_error(0)
 		return false
 	end
 
 	function close_thread_signal(data)
 		if data == nil or data.completed_event == nil then return end
+
 		if kernel32.CloseHandle(data.completed_event) == 0 then check_win_error(0) end
+
 		data.completed_event = nil
 	end
 
 	function init_pool_signals(control)
 		control.work_ready_event = kernel32.CreateEventA(nil, 0, 0, nil)
+
 		if control.work_ready_event == nil then check_win_error(0) end
+
 		control.work_done_event = kernel32.CreateEventA(nil, 1, 1, nil)
+
 		if control.work_done_event == nil then
 			kernel32.CloseHandle(control.work_ready_event)
 			control.work_ready_event = nil
@@ -188,6 +196,7 @@ if ffi.os == "Windows" then
 
 	function wait_pool_work(control)
 		local result = tonumber(kernel32.WaitForSingleObject(control.work_ready_event, INFINITE))
+
 		if result ~= WAIT_OBJECT_0 then check_win_error(0) end
 	end
 
@@ -201,17 +210,22 @@ if ffi.os == "Windows" then
 
 	function wait_pool_done(control)
 		local result = tonumber(kernel32.WaitForSingleObject(control.work_done_event, INFINITE))
+
 		if result ~= WAIT_OBJECT_0 then check_win_error(0) end
 	end
 
 	function close_pool_signals(control)
 		if control.work_ready_event ~= nil then
-			if kernel32.CloseHandle(control.work_ready_event) == 0 then check_win_error(0) end
+			if kernel32.CloseHandle(control.work_ready_event) == 0 then
+				check_win_error(0)
+			end
+
 			control.work_ready_event = nil
 		end
 
 		if control.work_done_event ~= nil then
 			if kernel32.CloseHandle(control.work_done_event) == 0 then check_win_error(0) end
+
 			control.work_done_event = nil
 		end
 	end
@@ -221,16 +235,16 @@ if ffi.os == "Windows" then
 		local start_routine = ffi.cast("LPTHREAD_START_ROUTINE", func_ptr)
 		local handle = kernel32.CreateThread(nil, 0, start_routine, udata, 0, thread_id)
 
-		if handle == nil then
-			check_win_error(0)
-		end
+		if handle == nil then check_win_error(0) end
 
 		return {handle = handle, id = thread_id[0]}
 	end
 
 	function threads.join_thread(thread_data)
 		local handle = thread_data.handle
+
 		if handle == nil then error("join_thread: handle is nil", 2) end
+
 		local wait_result = tonumber(kernel32.WaitForSingleObject(handle, INFINITE))
 
 		if wait_result == WAIT_FAILED then check_win_error(0) end
@@ -319,6 +333,7 @@ else
 	function threads.sleep(ms)
 		ffi.C.usleep(ms * 1000)
 	end
+
 	local pollfd_t = ffi.typeof[[
 		struct {
 			int fd;
@@ -326,14 +341,16 @@ else
 			short revents;
 		}
 	]]
-
-	ffi.cdef([[
+	ffi.cdef(
+		[[
 		int poll_thread($ *fds, unsigned long nfds, int timeout) asm("poll");
 		int pipe(int pipefd[2]);
 		long read(int fd, void *buf, size_t count);
 		long write(int fd, const void *buf, size_t count);
 		int close(int fd);
-	]], pollfd_t)
+	]],
+		pollfd_t
+	)
 	local POLLIN = 0x0001
 	local signal_byte = ffi.new("uint8_t[1]", 1)
 	local drain_byte = ffi.new("uint8_t[1]")
@@ -345,12 +362,15 @@ else
 	]]
 	local pollfd_array_t = ffi.typeof("$[?]", pollfd_t)
 	local pollfd_ptr_t = ffi.typeof("$*", pollfd_t)
+
 	local function poll_fd(fd, timeout)
 		local pfd = ffi.new(pollfd_array_t, 1)
 		pfd[0].fd = fd
 		pfd[0].events = POLLIN
 		local ret = ffi.C.poll_thread(pfd, 1, timeout)
+
 		if ret < 0 then error("poll failed while synchronizing thread state", 2) end
+
 		return ret > 0 and bit.band(pfd[0].revents, POLLIN) ~= 0
 	end
 
@@ -368,7 +388,9 @@ else
 
 	function init_thread_signal(data)
 		local pipefd = ffi.new("int[2]")
+
 		if ffi.C.pipe(pipefd) ~= 0 then error("failed to create completion pipe", 2) end
+
 		data.completed_read_fd = pipefd[0]
 		data.completed_write_fd = pipefd[1]
 	end
@@ -379,15 +401,18 @@ else
 
 	function is_thread_signal_done(data)
 		if data == nil or data.completed_read_fd < 0 then return false end
+
 		return poll_fd(data.completed_read_fd, 0)
 	end
 
 	function close_thread_signal(data)
 		if data == nil then return end
+
 		if data.completed_read_fd >= 0 then
 			ffi.C.close(data.completed_read_fd)
 			data.completed_read_fd = -1
 		end
+
 		if data.completed_write_fd >= 0 then
 			ffi.C.close(data.completed_write_fd)
 			data.completed_write_fd = -1
@@ -396,13 +421,19 @@ else
 
 	function init_pool_signals(control)
 		local work_pipe = ffi.new("int[2]")
-		if ffi.C.pipe(work_pipe) ~= 0 then error("failed to create pool work pipe", 2) end
+
+		if ffi.C.pipe(work_pipe) ~= 0 then
+			error("failed to create pool work pipe", 2)
+		end
+
 		local done_pipe = ffi.new("int[2]")
+
 		if ffi.C.pipe(done_pipe) ~= 0 then
 			ffi.C.close(work_pipe[0])
 			ffi.C.close(work_pipe[1])
 			error("failed to create pool completion pipe", 2)
 		end
+
 		control.work_read_fd = work_pipe[0]
 		control.work_write_fd = work_pipe[1]
 		control.done_read_fd = done_pipe[0]
@@ -432,10 +463,25 @@ else
 	end
 
 	function close_pool_signals(control)
-		if control.work_read_fd >= 0 then ffi.C.close(control.work_read_fd) control.work_read_fd = -1 end
-		if control.work_write_fd >= 0 then ffi.C.close(control.work_write_fd) control.work_write_fd = -1 end
-		if control.done_read_fd >= 0 then ffi.C.close(control.done_read_fd) control.done_read_fd = -1 end
-		if control.done_write_fd >= 0 then ffi.C.close(control.done_write_fd) control.done_write_fd = -1 end
+		if control.work_read_fd >= 0 then
+			ffi.C.close(control.work_read_fd)
+			control.work_read_fd = -1
+		end
+
+		if control.work_write_fd >= 0 then
+			ffi.C.close(control.work_write_fd)
+			control.work_write_fd = -1
+		end
+
+		if control.done_read_fd >= 0 then
+			ffi.C.close(control.done_read_fd)
+			control.done_read_fd = -1
+		end
+
+		if control.done_write_fd >= 0 then
+			ffi.C.close(control.done_write_fd)
+			control.done_write_fd = -1
+		end
 	end
 end
 
@@ -468,6 +514,7 @@ end
 
 function threads.pointer_free(ptr)
 	if ptr == nil then return end
+
 	ffi.C.free(ptr)
 end
 
@@ -625,14 +672,18 @@ do
 				self.input_data.output_buffer = nil
 				self.input_data.output_buffer_len = 0
 			end
+
 			close_thread_signal(self.input_data)
 			self.input_data = nil
 		end
 
 		if self.thread_state then
 			if acquire_worker_mutex then acquire_worker_mutex() end
+
 			self.thread_state:Close()
+
 			if release_worker_mutex then release_worker_mutex() end
+
 			self.thread_state = nil
 		end
 	end
@@ -642,16 +693,18 @@ do
 		local self = setmetatable({}, meta)
 
 		if acquire_worker_mutex then acquire_worker_mutex() end
+
 		self.thread_state = LuaState.New()
 		local ptr = self.thread_state:Run(worker_bootstrap, worker_source)
+
 		if release_worker_mutex then release_worker_mutex() end
 
 		if ffi.os == "Windows" then
 			self.func_ptr = ffi.cast("thread_callback", ptr)
 		else
-			self.func_ptr = ffi.cast("void *(*)(void *)", ptr)	
+			self.func_ptr = ffi.cast("void *(*)(void *)", ptr)
 		end
-	
+
 		return self
 	end
 
@@ -661,25 +714,38 @@ do
 		if shared_ptr then
 			self.buffer = nil
 			self.shared_ptr_ref = obj
-			self.input_data = thread_data_t{shared_pointer = ffi.cast("void *", obj), completed_read_fd = -1, completed_write_fd = -1}
+			self.input_data = thread_data_t{
+				shared_pointer = ffi.cast("void *", obj),
+				completed_read_fd = -1,
+				completed_write_fd = -1,
+			}
 			self.shared_mode = true
 		else
 			local buf, ptr, len = threads.pointer_encode(obj)
 			self.buffer = buf
-			self.input_data = thread_data_t{input_buffer = ptr, input_buffer_len = len, completed_read_fd = -1, completed_write_fd = -1}
+			self.input_data = thread_data_t{
+				input_buffer = ptr,
+				input_buffer_len = len,
+				completed_read_fd = -1,
+				completed_write_fd = -1,
+			}
 			self.shared_mode = false
 		end
 
 		init_thread_signal(self.input_data)
-
 		retain_thread(self)
 		self.id = threads.run_thread(self.func_ptr, self.input_data)
 	end
 
 	function threads.get_status(thread)
 		if not thread or not thread.input_data then return nil end
+
 		if thread.id == nil then return tonumber(thread.input_data.status) end
-		if not is_thread_signal_done(thread.input_data) then return threads.STATUS_UNDEFINED end
+
+		if not is_thread_signal_done(thread.input_data) then
+			return threads.STATUS_UNDEFINED
+		end
+
 		return tonumber(thread.input_data.status)
 	end
 
@@ -688,9 +754,7 @@ do
 
 		local done = threads.get_status(self) ~= threads.STATUS_UNDEFINED
 
-		if done then
-			release_thread(self)
-		end
+		if done then release_thread(self) end
 
 		return done
 	end
@@ -704,8 +768,15 @@ do
 		local status = tonumber(self.input_data.status)
 		local thread_error
 
-		if status == threads.STATUS_UNDEFINED and tonumber(exit_code) ~= 0 and self.thread_state then
-			thread_error = self.thread_state:GetTopString() or ("worker thread failed with lua_pcall status " .. tonumber(exit_code))
+		if
+			status == threads.STATUS_UNDEFINED and
+			tonumber(exit_code) ~= 0 and
+			self.thread_state
+		then
+			thread_error = self.thread_state:GetTopString() or
+				(
+					"worker thread failed with lua_pcall status " .. tonumber(exit_code)
+				)
 			status = threads.STATUS_ERROR
 		end
 
@@ -749,6 +820,7 @@ do
 
 			if status == threads.STATUS_ERROR then
 				if result ~= nil then return result[1], result[2] end
+
 				return nil, thread_error or "worker thread terminated without reporting status"
 			end
 
@@ -763,8 +835,11 @@ do
 
 		if self.thread_state then
 			if acquire_worker_mutex then acquire_worker_mutex() end
+
 			self.thread_state:Close()
+
 			if release_worker_mutex then release_worker_mutex() end
+
 			self.thread_state = nil
 		end
 
@@ -821,7 +896,6 @@ do
 			ctrl.result_data = nil
 			ctrl.result_data_len = 0
 			ctrl.thread_id = i + 1 -- 1-based for Lua
-
 			if ffi.os ~= "Windows" then
 				ctrl.work_read_fd = -1
 				ctrl.work_write_fd = -1
@@ -899,7 +973,6 @@ do
 		local idx = thread_id - 1
 		wait_pool_done(self.control[idx])
 		self.busy[thread_id] = false
-
 		local result = threads.pointer_decode(self.control[idx].result_data, self.control[idx].result_data_len)
 		threads.pointer_free(self.control[idx].result_data)
 		self.control[idx].result_data = nil
@@ -950,6 +1023,7 @@ do
 				self.control[i].result_data = nil
 				self.control[i].result_data_len = 0
 			end
+
 			close_pool_signals(self.control[i])
 		end
 

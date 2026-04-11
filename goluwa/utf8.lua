@@ -263,6 +263,7 @@ function utf8.codepoint(str, i, j)
 	j = j or i
 
 	if i < 0 then i = #str + i + 1 end
+
 	if j < 0 then j = #str + j + 1 end
 
 	local out = {}
@@ -278,7 +279,6 @@ end
 
 function utf8.codes(str)
 	local pos = 1
-
 	return function()
 		if pos > #str then return nil end
 
@@ -325,6 +325,7 @@ function utf8.offset(str, n, i)
 	end
 
 	i = i or (#str + 1)
+
 	for _ = n, -1 do
 		i = i - 1
 

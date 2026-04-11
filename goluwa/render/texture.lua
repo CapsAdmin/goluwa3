@@ -160,8 +160,8 @@ local fallback_texture = NULL
 
 local function create_fallback_texture()
 	if fallback_texture:IsValid() then return fallback_texture end
-	fallback_texture = NULL
 
+	fallback_texture = NULL
 	-- Create 8x8 pink/black checkerboard pattern
 	local size = 8
 	local buffer = ffi.new("uint8_t[?]", size * size * 4)

@@ -27,6 +27,7 @@ local function parse_file_uri(uri)
 	local host, path = uri:match("^file://([^/]*)(/.*)$")
 
 	if not path then return nil end
+
 	if host ~= "" and host ~= "localhost" then return nil end
 
 	return decode_uri_component(path)
@@ -74,6 +75,7 @@ local function extract_dropped_paths(dragging_info)
 
 	return nil
 end
+
 local function setup_window_delegate()
 	if WindowDelegate then return WindowDelegate end
 
@@ -174,8 +176,14 @@ local function init_cocoa()
 	local bounds = contentView:GetProperty("bounds")
 	local dropView = DropView:Call("alloc"):Call("initWithFrame:", bounds)
 	local dragged_types = objc.Class("NSMutableArray"):Call("array")
-	dragged_types:Call("addObject:", objc.Class("NSString"):Call("stringWithUTF8String:", "NSFilenamesPboardType"))
-	dragged_types:Call("addObject:", objc.Class("NSString"):Call("stringWithUTF8String:", "public.file-url"))
+	dragged_types:Call(
+		"addObject:",
+		objc.Class("NSString"):Call("stringWithUTF8String:", "NSFilenamesPboardType")
+	)
+	dragged_types:Call(
+		"addObject:",
+		objc.Class("NSString"):Call("stringWithUTF8String:", "public.file-url")
+	)
 	dropView:Call("registerForDraggedTypes:", dragged_types)
 	window:Call("setContentView:", dropView)
 	contentView = window:GetProperty("contentView")

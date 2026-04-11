@@ -22,7 +22,5 @@ end)
 event.AddListener("KeyInput", "profiler_toggle", function(key, press)
 	if not press then return end
 
-	if key == "p" then
-		toggle()
-	end
+	if key == "p" then toggle() end
 end)

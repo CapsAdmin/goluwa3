@@ -688,7 +688,9 @@ function META:ResolveGlyphData(glyph_data)
 	local get_glyph_data = self.font and self.font.GetGlyphData
 
 	for _, component in ipairs(glyph_data.components or {}) do
-		local comp_data = get_glyph_data and self:ResolveGlyphData(get_glyph_data(self.font, component.glyph_index)) or nil
+		local comp_data = get_glyph_data and
+			self:ResolveGlyphData(get_glyph_data(self.font, component.glyph_index)) or
+			nil
 
 		if comp_data and comp_data.points then
 			local m = component.matrix

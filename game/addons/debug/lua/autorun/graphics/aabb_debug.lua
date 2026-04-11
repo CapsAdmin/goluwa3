@@ -22,13 +22,13 @@ event.AddListener(
 			local aabb = model.GetWorldAABB and model:GetWorldAABB() or nil
 
 			if aabb and aabb.min_x ~= math.huge then
-				debug_draw.DrawWireAABB({
+				debug_draw.DrawWireAABB{
 					id = "aabb_debug_" .. tostring(i) .. "_" .. tostring(model),
 					aabb = aabb,
 					color = {1, 1, 1, 0.9},
 					width = 1,
 					time = dt or 0.05,
-				})
+				}
 			end
 		end
 	end,

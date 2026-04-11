@@ -483,21 +483,23 @@ local function invoke_overlapping_mesh_triangle(v0, v1, v2, triangle_index, cont
 	local previous_entry = user_context and user_context.entry or nil
 
 	if user_context then user_context.entry = context.entry end
+
 	local stop = false
 
 	if user_context and user_context.use_local_space then
 		stop = context.callback(v0, v1, v2, triangle_index, user_context) == true
 	else
 		stop = context.callback(
-			mesh_body:LocalToWorld(v0),
-			mesh_body:LocalToWorld(v1),
-			mesh_body:LocalToWorld(v2),
-			triangle_index,
-			user_context
-		) == true
+				mesh_body:LocalToWorld(v0),
+				mesh_body:LocalToWorld(v1),
+				mesh_body:LocalToWorld(v2),
+				triangle_index,
+				user_context
+			) == true
 	end
 
 	if user_context then user_context.entry = previous_entry end
+
 	return stop
 end
 
@@ -584,6 +586,7 @@ function mesh_contact_common.ForEachCachedMeshTriangle(mesh_body, other_body, ca
 	end
 
 	if context then context.entry = previous_entry end
+
 	return count
 end
 

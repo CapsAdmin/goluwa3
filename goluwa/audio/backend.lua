@@ -166,10 +166,7 @@ function module.Attach(audio)
 		end
 
 		import("goluwa/timer.lua").Delay(0.1, function()
-			if
-				audio.thread and
-				threads.get_status(audio.thread) == threads.STATUS_ERROR
-			then
+			if audio.thread and threads.get_status(audio.thread) == threads.STATUS_ERROR then
 				local ok2, err = audio.thread:join()
 
 				if not ok2 and err then

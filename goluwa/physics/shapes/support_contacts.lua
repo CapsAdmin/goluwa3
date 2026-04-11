@@ -2,12 +2,19 @@ local support_contacts = {}
 local physics = import("goluwa/physics.lua")
 
 local function apply_support_grounding_metadata(body, hit, normal)
-	if not (body and hit and normal and normal.y >= body:GetMinGroundNormalY()) then return end
+	if not (body and hit and normal and normal.y >= body:GetMinGroundNormalY()) then
+		return
+	end
 
 	local ground_body = hit.rigid_body
 	local rolling_friction = 0
 
-	if ground_body and physics and physics.solver and physics.solver.GetPairRollingFriction then
+	if
+		ground_body and
+		physics and
+		physics.solver and
+		physics.solver.GetPairRollingFriction
+	then
 		rolling_friction = physics.solver:GetPairRollingFriction(body, ground_body) or 0
 	end
 

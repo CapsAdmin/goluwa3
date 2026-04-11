@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local Vec2 = import("goluwa/structs/vec2.lua")
-
 ffi.cdef([[ 
 	void *GetModuleHandleW(const uint16_t *name);
 	uint16_t RegisterClassExW(const void *wndclass);
@@ -46,7 +45,6 @@ ffi.cdef([[
 	uint32_t DragQueryFileW(void *drop, uint32_t index, uint16_t *buffer, uint32_t length);
 	void DragFinish(void *drop);
 ]])
-
 return function(META)
 	local user32 = ffi.load("user32")
 	local kernel32 = ffi.load("kernel32")
@@ -66,7 +64,7 @@ return function(META)
 		const uint16_t *lpszMenuName;
 		const uint16_t *lpszClassName;
 		void *hIconSm;
-	}]] )
+	}]])
 	local WNDCLASSEXW_BOX_T = ffi.typeof("$[1]", WNDCLASSEXW_T)
 	local MSG_T = ffi.typeof([[struct {
 		void *hwnd;
@@ -79,7 +77,7 @@ return function(META)
 			long y;
 		} pt;
 		uint32_t lPrivate;
-	}]] )
+	}]])
 	local MSG_BOX_T = ffi.typeof("$[1]", MSG_T)
 	local POINT_T = ffi.typeof("struct { long x; long y; }")
 	local POINT_BOX_T = ffi.typeof("$[1]", POINT_T)
@@ -90,7 +88,7 @@ return function(META)
 		uint32_t dwFlags;
 		void *hwndTrack;
 		uint32_t dwHoverTime;
-	}]] )
+	}]])
 	local TRACKMOUSEEVENT_BOX_T = ffi.typeof("$[1]", TRACKMOUSEEVENT_T)
 	local UTF16_BUFFER_T = ffi.typeof("uint16_t[?]")
 	local active_windows = {}
@@ -221,6 +219,7 @@ return function(META)
 
 	local function normalize_cursor_mode(mode)
 		if mode == "trapped" then return "hidden" end
+
 		return mode
 	end
 
@@ -242,13 +241,17 @@ return function(META)
 
 	local function loword_signed(value)
 		local out = loword_unsigned(value)
+
 		if out >= 0x8000 then out = out - 0x10000 end
+
 		return out
 	end
 
 	local function hiword_signed(value)
 		local out = hiword_unsigned(value)
+
 		if out >= 0x8000 then out = out - 0x10000 end
+
 		return out
 	end
 
@@ -289,10 +292,24 @@ return function(META)
 				codepoint = (byte - 0xC0) * 0x40 + (str:byte(index + 1) - 0x80)
 				index = index + 2
 			elseif byte < 0xF0 then
-				codepoint = (byte - 0xE0) * 0x1000 + (str:byte(index + 1) - 0x80) * 0x40 + (str:byte(index + 2) - 0x80)
+				codepoint = (
+						byte - 0xE0
+					) * 0x1000 + (
+						str:byte(index + 1) - 0x80
+					) * 0x40 + (
+						str:byte(index + 2) - 0x80
+					)
 				index = index + 3
 			else
-				codepoint = (byte - 0xF0) * 0x40000 + (str:byte(index + 1) - 0x80) * 0x1000 + (str:byte(index + 2) - 0x80) * 0x40 + (str:byte(index + 3) - 0x80)
+				codepoint = (
+						byte - 0xF0
+					) * 0x40000 + (
+						str:byte(index + 1) - 0x80
+					) * 0x1000 + (
+						str:byte(index + 2) - 0x80
+					) * 0x40 + (
+						str:byte(index + 3) - 0x80
+					)
 				index = index + 4
 			end
 
@@ -323,10 +340,12 @@ return function(META)
 			if length and index >= length then break end
 
 			local unit = tonumber(buffer[index])
+
 			if not length and unit == 0 then break end
 
 			if unit >= 0xD800 and unit <= 0xDBFF then
 				local low = tonumber(buffer[index + 1])
+
 				if low and low >= 0xDC00 and low <= 0xDFFF then
 					local codepoint = 0x10000 + (unit - 0xD800) * 0x400 + (low - 0xDC00)
 					parts[#parts + 1] = codepoint_to_utf8(codepoint)
@@ -346,20 +365,27 @@ return function(META)
 
 	local function get_cursor_handle(mode)
 		mode = normalize_cursor_mode(mode)
+
 		if mode == "hidden" then return nil end
 
 		local handle = cursor_cache[mode]
+
 		if handle ~= nil then return handle end
 
 		local cursor_id = cursor_ids[mode] or cursor_ids.arrow
 		handle = user32.LoadCursorW(nil, make_int_resource(cursor_id))
-		if handle == nil then handle = user32.LoadCursorW(nil, make_int_resource(cursor_ids.arrow)) end
+
+		if handle == nil then
+			handle = user32.LoadCursorW(nil, make_int_resource(cursor_ids.arrow))
+		end
+
 		cursor_cache[mode] = handle
 		return handle
 	end
 
 	local function translate_virtual_key(vk, lparam)
 		if vk >= 0x41 and vk <= 0x5A then return string.char(vk + 32) end
+
 		if vk >= 0x30 and vk <= 0x39 then return string.char(vk) end
 
 		if vk == 0x10 then
@@ -434,7 +460,14 @@ return function(META)
 			table.insert(wnd.events, {type = "window_focus", focused = false})
 			return 0
 		elseif msg == constants.WM_MOVE then
-			table.insert(wnd.events, {type = "window_move", x = loword_signed(lparam_num), y = hiword_signed(lparam_num)})
+			table.insert(
+				wnd.events,
+				{
+					type = "window_move",
+					x = loword_signed(lparam_num),
+					y = hiword_signed(lparam_num),
+				}
+			)
 			return 0
 		elseif msg == constants.WM_SIZE then
 			local size_type = wparam_num
@@ -490,7 +523,14 @@ return function(META)
 			)
 			return 0
 		elseif msg == constants.WM_KEYUP or msg == constants.WM_SYSKEYUP then
-			table.insert(wnd.events, {type = "key", pressed = false, key = translate_virtual_key(wparam_num, lparam_num)})
+			table.insert(
+				wnd.events,
+				{
+					type = "key",
+					pressed = false,
+					key = translate_virtual_key(wparam_num, lparam_num),
+				}
+			)
 			return 0
 		elseif msg == constants.WM_MOUSEMOVE then
 			local x = loword_signed(lparam_num)
@@ -506,30 +546,75 @@ return function(META)
 				table.insert(wnd.events, {type = "cursor_enter"})
 			end
 
-			table.insert(wnd.events, {type = "mouse_move", x = x, y = y, delta_x = delta_x, delta_y = delta_y})
+			table.insert(
+				wnd.events,
+				{type = "mouse_move", x = x, y = y, delta_x = delta_x, delta_y = delta_y}
+			)
 			return 0
 		elseif msg == constants.WM_MOUSELEAVE then
 			wnd.mouse_inside = false
 			table.insert(wnd.events, {type = "cursor_leave"})
 			return 0
 		elseif msg == constants.WM_LBUTTONDOWN or msg == constants.WM_LBUTTONUP then
-			table.insert(wnd.events, {type = "mouse_button", button = "button_1", pressed = msg == constants.WM_LBUTTONDOWN})
+			table.insert(
+				wnd.events,
+				{
+					type = "mouse_button",
+					button = "button_1",
+					pressed = msg == constants.WM_LBUTTONDOWN,
+				}
+			)
 			return 0
 		elseif msg == constants.WM_RBUTTONDOWN or msg == constants.WM_RBUTTONUP then
-			table.insert(wnd.events, {type = "mouse_button", button = "button_2", pressed = msg == constants.WM_RBUTTONDOWN})
+			table.insert(
+				wnd.events,
+				{
+					type = "mouse_button",
+					button = "button_2",
+					pressed = msg == constants.WM_RBUTTONDOWN,
+				}
+			)
 			return 0
 		elseif msg == constants.WM_MBUTTONDOWN or msg == constants.WM_MBUTTONUP then
-			table.insert(wnd.events, {type = "mouse_button", button = "button_3", pressed = msg == constants.WM_MBUTTONDOWN})
+			table.insert(
+				wnd.events,
+				{
+					type = "mouse_button",
+					button = "button_3",
+					pressed = msg == constants.WM_MBUTTONDOWN,
+				}
+			)
 			return 0
 		elseif msg == constants.WM_XBUTTONDOWN or msg == constants.WM_XBUTTONUP then
 			local button = hiword_unsigned(wparam_num) == 1 and "button_4" or "button_5"
-			table.insert(wnd.events, {type = "mouse_button", button = button, pressed = msg == constants.WM_XBUTTONDOWN})
+			table.insert(
+				wnd.events,
+				{
+					type = "mouse_button",
+					button = button,
+					pressed = msg == constants.WM_XBUTTONDOWN,
+				}
+			)
 			return 1
 		elseif msg == constants.WM_MOUSEWHEEL then
-			table.insert(wnd.events, {type = "mouse_scroll", delta_x = 0, delta_y = hiword_signed(wparam_num) / constants.WHEEL_DELTA})
+			table.insert(
+				wnd.events,
+				{
+					type = "mouse_scroll",
+					delta_x = 0,
+					delta_y = hiword_signed(wparam_num) / constants.WHEEL_DELTA,
+				}
+			)
 			return 0
 		elseif msg == constants.WM_MOUSEHWHEEL then
-			table.insert(wnd.events, {type = "mouse_scroll", delta_x = hiword_signed(wparam_num) / constants.WHEEL_DELTA, delta_y = 0})
+			table.insert(
+				wnd.events,
+				{
+					type = "mouse_scroll",
+					delta_x = hiword_signed(wparam_num) / constants.WHEEL_DELTA,
+					delta_y = 0,
+				}
+			)
 			return 0
 		elseif msg == constants.WM_DROPFILES then
 			push_drop_event(wnd, ffi.cast("void*", wparam))
@@ -558,7 +643,6 @@ return function(META)
 		class_info[0].lpszMenuName = nil
 		class_info[0].lpszClassName = class_name
 		class_info[0].hIconSm = nil
-
 		assert(user32.RegisterClassExW(class_info) ~= 0, "RegisterClassExW failed")
 		class_registered = true
 	end
@@ -685,10 +769,12 @@ return function(META)
 		if not self.hwnd then return end
 
 		if self.mouse_captured then self:ReleaseMouse() end
+
 		active_windows[hwnd_key(self.hwnd)] = nil
 		user32.DestroyWindow(self.hwnd)
 		self.hwnd = nil
 		maybe_unregister_class()
+
 		if base_on_remove then base_on_remove(self) end
 	end
 
@@ -738,9 +824,11 @@ return function(META)
 
 	function META:SetCursor(mode)
 		if not self.Cursors[mode] then mode = "arrow" end
+
 		mode = normalize_cursor_mode(mode)
 		self.Cursor = mode
 		self.cursor_handle = get_cursor_handle(mode)
+
 		if self.mouse_inside then user32.SetCursor(self.cursor_handle) end
 	end
 
@@ -798,6 +886,7 @@ return function(META)
 
 	function META:SetTitle(title)
 		self.title_buffer = utf8_to_wide(tostring(title or ""))
+
 		if self.hwnd then user32.SetWindowTextW(self.hwnd, self.title_buffer) end
 	end
 

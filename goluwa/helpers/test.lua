@@ -45,6 +45,7 @@ local collecting_test_definitions = nil
 
 local function flush_output_stream(handle)
 	if handle and handle.flush then pcall(handle.flush, handle) end
+
 	io.flush()
 end
 
@@ -70,7 +71,7 @@ local function write_crash_marker(kind, file_name, test_name)
 
 	io_write(line)
 	flush_output_stream(nil)
-	end
+end
 
 local function traceback(msg, co_lines)
 	local sep = "\n  "
@@ -976,6 +977,7 @@ function test.RunUntil(condition, timeout)
 	if active_task then
 		while system.GetElapsedTime() < end_time do
 			if condition() then return true end
+
 			tasks.Wait(0.016)
 		end
 

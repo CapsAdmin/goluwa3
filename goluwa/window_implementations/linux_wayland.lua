@@ -136,7 +136,6 @@ local cursor_map = {
 }
 return function(META)
 	local base_on_remove = META.OnRemove or META.OnRemoved
-
 	-- Button translation from wayland to window system
 	local button_translate = {
 		[0x110] = "button_1", -- BTN_LEFT
@@ -145,7 +144,8 @@ return function(META)
 	}
 
 	local function normalize_requested_size(size)
-		return math.max(1, math.floor(tonumber(size.x) or 0)), math.max(1, math.floor(tonumber(size.y) or 0))
+		return math.max(1, math.floor(tonumber(size.x) or 0)),
+		math.max(1, math.floor(tonumber(size.y) or 0))
 	end
 
 	local function request_window_size(self, width, height)
@@ -161,6 +161,7 @@ return function(META)
 		self.pending_size_request = Vec2(width, height)
 
 		if self.surface_proxy then self.surface_proxy:commit() end
+
 		if self.display then wayland.wl_client.wl_display_flush(self.display) end
 	end
 
@@ -184,6 +185,7 @@ return function(META)
 
 	local function commit_surface(self)
 		if self.surface_proxy then self.surface_proxy:commit() end
+
 		if self.display then wayland.wl_client.wl_display_flush(self.display) end
 	end
 
@@ -204,9 +206,11 @@ return function(META)
 	end
 
 	local function decode_uri_component(str)
-		return (str:gsub("%%(%x%x)", function(hex)
-			return string.char(tonumber(hex, 16))
-		end))
+		return (
+			str:gsub("%%(%x%x)", function(hex)
+				return string.char(tonumber(hex, 16))
+			end)
+		)
 	end
 
 	local function parse_file_uri(uri)
@@ -215,6 +219,7 @@ return function(META)
 		local host, path = uri:match("^file://([^/]*)(/.*)$")
 
 		if not path then return nil end
+
 		if host ~= "" and host ~= "localhost" then return nil end
 
 		path = decode_uri_component(path)
@@ -254,7 +259,6 @@ return function(META)
 		if not offer then return end
 
 		local key = tonumber(ffi.cast("intptr_t", offer))
-
 		self.current_drag_offer = nil
 		self.current_drag_serial = nil
 		self.drag_offer_mime_types[key] = nil
@@ -281,7 +285,6 @@ return function(META)
 		ffi.C.close(fds[1])
 		wayland.wl_client.wl_display_flush(self.display)
 		wayland.wl_client.wl_display_roundtrip(self.display)
-
 		local pollfd = ffi.new("struct pollfd[1]")
 		pollfd[0].fd = fds[0]
 		pollfd[0].events = 1
@@ -406,12 +409,13 @@ return function(META)
 		self.cached_size = nil
 		self.cached_fb_size = nil
 		self.last_mouse_pos = Vec2(0, 0)
-
 		return true
 	end
 
 	function META:ensure_data_device()
-		if self.data_device or not self.data_device_manager or not self.seat then return end
+		if self.data_device or not self.data_device_manager or not self.seat then
+			return
+		end
 
 		self.data_device = self.data_device_manager:get_data_device(self.seat)
 		self.data_device = ffi.cast("struct wl_data_device*", self.data_device)
@@ -498,7 +502,11 @@ return function(META)
 						wnd.width = width
 						wnd.height = height
 
-						if wnd.pending_size_request and wnd.pending_size_request.x == width and wnd.pending_size_request.y == height then
+						if
+							wnd.pending_size_request and
+							wnd.pending_size_request.x == width and
+							wnd.pending_size_request.y == height
+						then
 							xdg_toplevel:set_min_size(0, 0)
 							xdg_toplevel:set_max_size(0, 0)
 							wnd.pending_size_request = nil
@@ -597,7 +605,6 @@ return function(META)
 
 					wnd.current_drag_serial = serial
 					wnd.current_drag_offer = offer ~= nil and ffi.cast("struct wl_data_offer*", offer) or nil
-
 					local mime_type = get_drop_offer_mime_type(wnd, wnd.current_drag_offer)
 
 					if mime_type and wnd.current_drag_offer then
@@ -839,9 +846,7 @@ return function(META)
 				end
 
 				-- Fire character input if available
-				if event.char and event.char ~= "" then
-					self:OnCharInput(event.char)
-				end
+				if event.char and event.char ~= "" then self:OnCharInput(event.char) end
 			elseif event.type == "key_release" then
 				self:OnKeyInput(event.key, false)
 			elseif event.type == "mouse_button" then
@@ -889,7 +894,6 @@ return function(META)
 				self:OnCursorLeave()
 			end
 		end
-
 	-- Note: Wayland doesn't support cursor warping, so trapped cursor
 	-- relies on the compositor's pointer constraints protocol.
 	-- For now, mouse capture works via delta tracking and cursor hiding.
@@ -1000,8 +1004,8 @@ return function(META)
 
 	function META:SetCursor(mode)
 		if not self.Cursors[mode] then mode = "arrow" end
-		mode = normalize_cursor_mode(mode)
 
+		mode = normalize_cursor_mode(mode)
 		self.Cursor = mode
 
 		if mode == "hidden" then
