@@ -5,6 +5,7 @@ local Color = import("goluwa/structs/color.lua")
 local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
 local base_font = import("goluwa/render2d/fonts/base.lua")
 local sdf_font = import("goluwa/render2d/fonts/sdf.lua")
+local raster_font = import("goluwa/render2d/fonts/raster.lua")
 local fonts = library()
 -- Font management
 local current_font = nil
@@ -17,18 +18,44 @@ function fonts.New(props)
 	props.Padding = props.Padding or 1
 	props.Spread = props.Spread or 16
 	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
+	local mode = props.Mode
+
+	if mode == nil and props.SDF ~= nil then
+		mode = props.SDF and "sdf" or "raster"
+	end
+
+	mode = mode or "sdf"
 
 	if props.Path then
 		local ext = tostring(props.Path):match("%.([^%.]+)$")
 
 		if ext == "ttf" or ext == "otf" then
-			local f = sdf_font.New(ttf_font.New(props.Path), props.Spread)
-			f:SetPadding(props.Padding)
-			f:SetSize(props.Size)
-			return f
+			local base = ttf_font.New(props.Path)
+
+			if mode == "vector" then
+				base:SetSize(props.Size)
+				return base
+			elseif mode == "raster" then
+				local f = raster_font.New(base)
+				f:SetPadding(props.Padding)
+				f:SetSize(props.Size)
+				return f
+			else
+				local f = sdf_font.New(base, props.Spread)
+				f:SetPadding(props.Padding)
+				f:SetSize(props.Size)
+				return f
+			end
 		end
 	elseif props.Name then
-		local font = sdf_font.New(base_font.New(), props.Spread)
+		local font
+
+		if mode == "raster" then
+			font = raster_font.New(base_font.New())
+		else
+			font = sdf_font.New(base_font.New(), props.Spread)
+		end
+
 		font:SetPadding(props.Padding)
 		font:SetSize(props.Size)
 		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
