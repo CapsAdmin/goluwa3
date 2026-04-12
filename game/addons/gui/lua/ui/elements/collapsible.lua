@@ -46,12 +46,17 @@ return function(props)
 			return
 		end
 
+		local clip_w = clip_panel.transform:GetWidth()
+
+		if body_panel.transform:GetWidth() ~= clip_w then
+			body_panel.transform:SetWidth(clip_w)
+		end
+
 		local h = body_panel.transform:GetHeight()
 		local target_h = h * open_fraction
 		clip_panel.transform:SetHeight(target_h)
 		clip_panel.gui_element:SetVisible(open_fraction > 0.001)
 		body_panel.transform:SetY(-(h - target_h))
-		body_panel.transform:SetWidth(clip_panel.transform:GetWidth())
 		container.layout:InvalidateLayout()
 	end
 
@@ -136,6 +141,7 @@ return function(props)
 			Floating = true,
 		},
 		transform = true,
+		gui_element = true,
 		Events = {
 			OnLayoutUpdated = function()
 				update_height()
@@ -146,6 +152,10 @@ return function(props)
 		IsInternal = true,
 		Name = "ClipContainer",
 		OnSetProperty = theme.OnSetProperty,
+		Ref = function(self)
+			self:AddLocalListener("OnTransformChanged", update_height)
+			self:AddLocalListener("OnLayoutUpdated", update_height)
+		end,
 		transform = {
 			Size = Vec2(0, 0),
 		},
