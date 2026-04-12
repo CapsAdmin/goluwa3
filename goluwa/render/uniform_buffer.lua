@@ -63,8 +63,9 @@ function UniformBuffer.New(decl)
 	self.size = ffi.sizeof(struct)
 	-- Align to 256 for maximum compatibility across GPUs (standard for dynamic offsets)
 	self.aligned_size = math.ceil(self.size / 256) * 256
-	-- Allocate enough space for 1024 unique uploads per frame (assuming 3 frames in flight)
-	self.max_uploads = 1024
+	-- 2D text/UI can legitimately exceed 1k uniform uploads in a single frame.
+	-- Wrapping this ring buffer inside the frame corrupts earlier draw constants.
+	self.max_uploads = 8192
 	self.frame_count = 3
 	self.ring_size = self.aligned_size * self.max_uploads * self.frame_count
 	self.data = struct()
