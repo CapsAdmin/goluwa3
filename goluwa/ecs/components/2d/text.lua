@@ -350,8 +350,6 @@ function META:Measure(available_width, available_height)
 		local wrapped = font:WrapString(text, width)
 		local w, h = font:GetTextSize(wrapped)
 
-		if self:GetAlignX() == "justify" then w = math.max(w, width) end
-
 		if self.Owner.layout then
 			local p = self.Owner.layout:GetPadding()
 			w = w + p.x + p.w
@@ -417,11 +415,6 @@ function META:GetWrappedSize(width)
 	if self:GetWrap() then
 		local wrapped = font:WrapString(text, width or self.Owner.transform.Size.x)
 		local w, h = font:GetTextSize(wrapped)
-
-		if self:GetAlignX() == "justify" then
-			w = math.max(w, width or self.Owner.transform.Size.x)
-		end
-
 		return Vec2(w, h)
 	end
 

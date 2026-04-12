@@ -58,6 +58,31 @@ T.Test("layout - grow", function()
 	parent:Remove()
 end)
 
+T.Test("layout - shrink", function()
+	local parent = NewBox("Parent", Vec2(120, 100))
+	parent:AddComponent("layout")
+	parent.layout:SetDirection("x")
+	parent.layout:SetPadding(Rect(0, 0, 0, 0))
+	parent.layout:SetChildGap(0)
+
+	local child1 = NewBox("Child1", Vec2(50, 50))
+	child1:SetParent(parent)
+	child1:AddComponent("layout")
+	child1.layout:SetMinSize(Vec2(50, 0))
+
+	local child2 = NewBox("Child2", Vec2(100, 50))
+	child2:SetParent(parent)
+	child2:AddComponent("layout")
+	child2.layout:SetGrowWidth(1)
+	child2.layout:SetShrinkWidth(1)
+
+	parent.layout:UpdateLayout()
+	T(child1.transform:GetWidth())["=="](50)
+	T(child2.transform:GetWidth())["=="](70)
+	T(child2.transform:GetX())["=="](50)
+	parent:Remove()
+end)
+
 T.Test("layout - alignment", function()
 	local parent = NewBox("Parent", Vec2(200, 200))
 	parent:AddComponent("layout")
@@ -269,6 +294,21 @@ T.Test("layout - text wrapping", function()
 			if text == "A\nB\nC" then return 20, 60 end
 
 			return 60, 20
+		end,
+		MeasureText = function(self, text)
+			return self:GetTextSize(text)
+		end,
+		GetLineHeight = function()
+			return 20
+		end,
+		GetSpaceAdvance = function()
+			return 20
+		end,
+		GetTabAdvance = function(_, space_width, tab_size)
+			return (space_width or 20) * (tab_size or 4)
+		end,
+		GetGlyphAdvance = function()
+			return 20
 		end,
 		WrapString = function(self, text, width)
 			if width <= 30 then return "A\nB\nC" end

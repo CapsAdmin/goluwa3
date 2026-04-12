@@ -12,11 +12,12 @@ return {
 				GrowWidth = 1,
 				ChildGap = 20,
 				Padding = Rect() + 20,
-				AlignmentX = "start",
+				AlignmentX = "stretch",
 			},
 		}{
 			Text{
 				Text = "A single dedicated text edit element with built-in scrolling.",
+				Wrap = true,
 				FontName = "body",
 				FontSize = "L",
 			},

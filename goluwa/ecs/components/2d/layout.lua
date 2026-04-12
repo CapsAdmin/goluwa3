@@ -158,11 +158,29 @@ function META:Measure()
 			local w, h = font:GetTextSize(text)
 
 			if self.Owner.text:GetWrap() then
-				-- If wrapping is enabled, the intrinsic width should be the current width
-				-- to avoid shrinking feedback loops.
-				-- We must subtract our own padding from the transform size to compare correctly.
+				-- Wrapped text should measure against the current inner width constraint,
+				-- not the widest stale wrapped line, otherwise parent layouts can get stuck
+				-- widening to an old unwrapped width and never shrink again.
 				local current_inner_width = math.max(0, tr_size.x - padding.x - padding.w)
-				w = math.max(w, current_inner_width)
+
+				if self.Owner.text:GetWrapToParent() then
+					local parent = self.Owner:GetParent()
+
+					if parent and parent:IsValid() and parent.transform then
+						current_inner_width = parent.transform:GetSize().x
+
+						if parent.layout then
+							local parent_padding = parent.layout:GetPadding()
+							current_inner_width = current_inner_width - parent_padding.x - parent_padding.w
+						end
+
+						current_inner_width = math.max(0, current_inner_width)
+					end
+				end
+
+				local wrapped = self.Owner.text:GetWrappedSize(current_inner_width)
+				w = current_inner_width
+				h = wrapped.y
 			end
 
 			intrinsic.x = w + padding.x + padding.w
@@ -177,6 +195,10 @@ function META:Measure()
 	local parent = self.Owner:GetParent()
 	local is_being_managed_x = self:GetFitWidth() or self:GetGrowWidth() > 0
 	local is_being_managed_y = self:GetFitHeight() or self:GetGrowHeight() > 0
+
+	if self.Owner.text and self.Owner.text:GetWrap() and self.Owner.text:GetWrapToParent() then
+		is_being_managed_x = true
+	end
 
 	if parent and parent:IsValid() and parent.layout then
 		local pl = parent.layout
@@ -222,6 +244,7 @@ function META:Arrange()
 	local children = self.Owner:GetChildren()
 	local layout_children = {}
 	local total_grow = 0
+	local total_shrink = 0
 	local fixed_main_size = 0
 
 	for _, child in ipairs(children) do
@@ -242,27 +265,36 @@ function META:Arrange()
 			local l = child.layout
 			local margin = l and l:GetMargin() or Rect(0, 0, 0, 0)
 			local grow = 0
+			local shrink = 0
 			local base_size = 0
+			local min_main = 0
 
 			if l then
 				grow = (dir == "x") and l:GetGrowWidth() or l:GetGrowHeight()
+				shrink = (dir == "x") and l:GetShrinkWidth() or l:GetShrinkHeight()
 				local sz = l.intrinsic_size or l:Measure()
 				base_size = sz[axis.main]
+				min_main = l:GetMinSize()[axis.main] or 0
 			else
 				base_size = child.transform:GetSize()[axis.main]
 			end
+
+			if shrink <= 0 and grow > 0 then shrink = grow end
 
 			table.insert(
 				layout_children,
 				{
 					entity = child,
 					grow = grow,
+					shrink = shrink,
 					margin = margin,
 					base_size = base_size,
+					min_main = min_main,
 					cross_size = (l and l.intrinsic_size or child.transform:GetSize())[axis.cross],
 				}
 			)
 			total_grow = total_grow + grow
+			total_shrink = total_shrink + shrink
 			fixed_main_size = fixed_main_size + base_size + margin[axis.main_margin_start] + margin[axis.main_margin_end]
 		end
 	end
@@ -272,7 +304,9 @@ function META:Arrange()
 	end
 
 	local available_main = actual_size[axis.main] - padding[axis.main_margin_start] - padding[axis.main_margin_end]
-	local extra_space = math.max(0, available_main - fixed_main_size)
+	local main_space_delta = available_main - fixed_main_size
+	local extra_space = math.max(0, main_space_delta)
+	local shrink_space = math.max(0, -main_space_delta)
 	-- Position children
 	local current_main = padding[axis.main_margin_start]
 
@@ -289,12 +323,19 @@ function META:Arrange()
 
 	for i, c in ipairs(layout_children) do
 		local grow_size = 0
+		local shrink_size = 0
 
-		if total_grow > 0 and c.grow > 0 then
+		if extra_space > 0 and total_grow > 0 and c.grow > 0 then
 			grow_size = extra_space * (c.grow / total_grow)
 		end
 
-		local final_main = c.base_size + grow_size
+		if shrink_space > 0 and total_shrink > 0 and c.shrink > 0 then
+			local requested = shrink_space * (c.shrink / total_shrink)
+			local max_shrink = math.max(0, c.base_size - c.min_main)
+			shrink_size = math.min(requested, max_shrink)
+		end
+
+		local final_main = c.base_size + grow_size - shrink_size
 		local child_tr = c.entity.transform
 		-- Position on main axis
 		current_main = current_main + c.margin[axis.main_margin_start]

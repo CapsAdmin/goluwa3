@@ -1,3 +1,4 @@
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
 local Column = import("../elements/column.lua")
@@ -19,7 +20,10 @@ local function paragraph_card(title, align_x)
 			Radius = 8,
 		},
 		layout = {
-			GrowWidth = 1,
+			Direction = "y",
+			AlignmentX = "stretch",
+			MinSize = Vec2(280, 0),
+			MaxSize = Vec2(280, 0),
 			FitHeight = true,
 		},
 	}{
@@ -43,6 +47,7 @@ local function paragraph_card(title, align_x)
 			Text{
 				Text = ARTICLE,
 				Wrap = true,
+				WrapToParent = true,
 				AlignX = align_x,
 				layout = {
 					GrowWidth = 1,
@@ -67,6 +72,7 @@ return {
 			Text{
 				Text = "Wrap + justify for plain text. The left column is normal ragged wrapping; the right column stretches interior spaces to fill the width.",
 				Wrap = true,
+				WrapToParent = true,
 				layout = {
 					GrowWidth = 1,
 				},
@@ -77,7 +83,7 @@ return {
 					GrowWidth = 1,
 					FitHeight = true,
 					ChildGap = 14,
-					AlignmentX = "stretch",
+					AlignmentX = "center",
 				},
 			}{
 				paragraph_card("Ragged wrap", "left"),

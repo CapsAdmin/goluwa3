@@ -131,3 +131,51 @@ T.Test("text component justified hit testing respects stretched spaces", functio
 
 	pnl:Remove()
 end)
+
+T.Test("wrapped text layout measure respects current width", function()
+	local pnl = Panel.New{
+		Name = "wrapped_text_layout_measure",
+		transform = true,
+		layout = true,
+		text = true,
+	}
+
+	pnl.text:SetFont(new_mock_font())
+	pnl.text:SetWrap(true)
+	pnl.text:SetText("wrap should not widen the parent layout to the full sentence")
+	pnl.transform:SetSize(Vec2(60, 64))
+
+	local size = pnl.layout:Measure()
+	T(size.x)["=="](60)
+	assert(size.y > 8, "expected wrapped text height to grow beyond one line")
+
+	pnl:Remove()
+end)
+
+T.Test("wrapped text layout measure respects parent width when WrapToParent is enabled", function()
+	local parent = Panel.New{
+		Name = "wrapped_text_parent",
+		transform = true,
+		layout = true,
+	}
+	local child = Panel.New{
+		Name = "wrapped_text_child",
+		transform = true,
+		layout = true,
+		text = true,
+	}
+
+	parent:AddChild(child)
+	child.text:SetFont(new_mock_font())
+	child.text:SetWrap(true)
+	child.text:SetWrapToParent(true)
+	child.text:SetText("wrap should follow the parent width")
+	parent.transform:SetSize(Vec2(120, 80))
+
+	local size = child.layout:Measure()
+	T(size.x)["=="](120)
+	assert(size.y > 8, "expected wrapped text height to grow beyond one line")
+
+	child:Remove()
+	parent:Remove()
+end)

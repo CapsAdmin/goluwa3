@@ -15,6 +15,7 @@ return function(props)
 			text = {
 				Font = props.Font or props.FontName or "body",
 				FontSize = props.FontSize or "M",
+				WrapToParent = props.Wrap and props.WrapToParent ~= false,
 				Color = "text_foreground",
 			},
 			layout = {

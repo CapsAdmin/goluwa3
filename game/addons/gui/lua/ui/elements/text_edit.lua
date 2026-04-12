@@ -6,7 +6,9 @@ local ScrollablePanel = import("lua/ui/elements/scrollable_panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	props = props or {}
-	local size = props.Size or props.MinSize or props.MaxSize or Vec2(400, 180)
+	local size = props.Size or Vec2(400, 180)
+	local min_size = props.MinSize or Vec2(100, size.y)
+	local max_size = props.MaxSize or Vec2(0, size.y)
 	local panel_color = props.PanelColor or "card"
 	local background_color = props.BackgroundColor or "surface"
 	return Panel.New{
@@ -18,8 +20,8 @@ return function(props)
 		layout = {
 			Direction = "y",
 			GrowWidth = 1,
-			MinSize = props.MinSize or size,
-			MaxSize = props.MaxSize or size,
+			MinSize = min_size,
+			MaxSize = max_size,
 			props.layout,
 		},
 		gui_element = {

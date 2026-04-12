@@ -130,8 +130,13 @@ function META:OnUpdate()
 	local min_size = self:GetMinimumSize():Copy()
 
 	if self.Owner.layout and self.Owner.layout.content_size then
-		min_size.x = math.max(min_size.x, self.Owner.layout.content_size.x)
-		min_size.y = math.max(min_size.y, self.Owner.layout.content_size.y)
+		if self.Owner.layout:GetFitWidth() then
+			min_size.x = math.max(min_size.x, self.Owner.layout.content_size.x)
+		end
+
+		if self.Owner.layout:GetFitHeight() then
+			min_size.y = math.max(min_size.y, self.Owner.layout.content_size.y)
+		end
 	end
 
 	if loc == "right" or loc == "top_right" or loc == "bottom_right" then
