@@ -343,6 +343,127 @@ function utf8.offset(str, n, i)
 	return i
 end
 
+do
+	local glue_codepoints = {
+		[0x00A0] = true,
+		[0x202F] = true,
+		[0x2060] = true,
+		[0xFEFF] = true,
+	}
+	local kinsoku_start_chars = {
+		[","] = true,
+		["."] = true,
+		[":"] = true,
+		[";"] = true,
+		[")"] = true,
+		["]"] = true,
+		["}"] = true,
+		["%"] = true,
+		["?"] = true,
+		["!"] = true,
+		["，"] = true,
+		["。"] = true,
+		["、"] = true,
+		["．"] = true,
+		["："] = true,
+		["；"] = true,
+		["！"] = true,
+		["？"] = true,
+		["」"] = true,
+		["』"] = true,
+		["】"] = true,
+		["）"] = true,
+		["］"] = true,
+		["｝"] = true,
+		["〉"] = true,
+		["》"] = true,
+		["〕"] = true,
+		["〗"] = true,
+		["〙"] = true,
+		["〛"] = true,
+	}
+	local kinsoku_end_chars = {
+		["("] = true,
+		["["] = true,
+		["{"] = true,
+		["$"] = true,
+		["#"] = true,
+		["“"] = true,
+		["‘"] = true,
+		["「"] = true,
+		["『"] = true,
+		["【"] = true,
+		["（"] = true,
+		["［"] = true,
+		["｛"] = true,
+		["〈"] = true,
+		["《"] = true,
+		["〔"] = true,
+		["〖"] = true,
+		["〘"] = true,
+		["〚"] = true,
+	}
+	local cjk_ranges = {
+		{0x1100, 0x11FF},
+		{0x2E80, 0x2FDF},
+		{0x2FF0, 0x303F},
+		{0x3040, 0x30FF},
+		{0x3100, 0x312F},
+		{0x3130, 0x318F},
+		{0x31A0, 0x31BF},
+		{0x31C0, 0x31EF},
+		{0x31F0, 0x31FF},
+		{0x3400, 0x4DBF},
+		{0x4E00, 0x9FFF},
+		{0xA960, 0xA97F},
+		{0xAC00, 0xD7AF},
+		{0xF900, 0xFAFF},
+		{0xFE10, 0xFE1F},
+		{0xFE30, 0xFE6F},
+		{0xFF00, 0xFFEF},
+		{0x20000, 0x2EBEF},
+		{0x30000, 0x3134F},
+	}
+
+	local function in_ranges(codepoint, ranges)
+		for i = 1, #ranges do
+			local range = ranges[i]
+
+			if codepoint >= range[1] and codepoint <= range[2] then return true end
+		end
+
+		return false
+	end
+
+	function utf8.is_glue(char)
+		return glue_codepoints[utf8.uint32(char)] or false
+	end
+
+	function utf8.is_zero_width_break(char)
+		return utf8.uint32(char) == 0x200B
+	end
+
+	function utf8.is_soft_hyphen(char)
+		return utf8.uint32(char) == 0x00AD
+	end
+
+	function utf8.is_cjk(char)
+		local codepoint = utf8.uint32(char)
+
+		if codepoint < 0 then return false end
+
+		return in_ranges(codepoint, cjk_ranges)
+	end
+
+	function utf8.is_kinsoku_start(char)
+		return kinsoku_start_chars[char] or false
+	end
+
+	function utf8.is_kinsoku_end(char)
+		return kinsoku_end_chars[char] or false
+	end
+end
+
 for name, func in pairs(utf8) do
 	string["utf8_" .. name] = func
 end

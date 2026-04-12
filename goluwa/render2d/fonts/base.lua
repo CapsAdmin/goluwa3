@@ -298,8 +298,9 @@ function META:WrapString(str, max_width)
 	return pretext.wrap_font_text(self, str, max_width)
 end
 
-function META:DrawString(str, x, y, spacing)
+function META:DrawString(str, x, y, spacing, extra_space_advance)
 	spacing = spacing or 0
+	extra_space_advance = extra_space_advance or 0
 	render2d.PushTexture()
 	render2d.SetTexture(self.tex)
 	render2d.PushUV()
@@ -317,6 +318,8 @@ function META:DrawString(str, x, y, spacing)
 			render2d.SetUV2(glyph.u1, glyph.v1, glyph.u2, glyph.v2)
 			render2d.DrawRect(current_x, current_y, glyph.w, glyph.h)
 			current_x = current_x + glyph.w + spacing
+
+			if char == 32 then current_x = current_x + extra_space_advance end
 		end
 	end
 

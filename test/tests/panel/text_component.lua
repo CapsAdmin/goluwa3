@@ -107,3 +107,27 @@ T.Test("text component wrapped hit testing uses layout", function()
 
 	pnl:Remove()
 end)
+
+T.Test("text component justified hit testing respects stretched spaces", function()
+	local pnl = Panel.New{
+		Name = "justified_text_hit_test",
+		transform = true,
+		text = true,
+	}
+
+	pnl.text:SetFont(new_mock_font())
+	pnl.text:SetWrap(true)
+	pnl.text:SetAlignX("justify")
+	pnl.text:SetText("a b c d e f g h")
+	pnl.transform:SetSize(Vec2(60, 64))
+
+	local lx, ly = pnl.text:GetTextOffset()
+	local line = pnl.text.wrap_layout_info.display_lines[1]
+	assert(line and line.justified, "expected first line to be justified")
+
+	local x_between_c_and_d = lx + line.positions[7] - 1
+	local index = pnl.text:GetIndexAtPosition(x_between_c_and_d, ly + 4)
+	T(index)["=="](7)
+
+	pnl:Remove()
+end)

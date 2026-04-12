@@ -25,6 +25,86 @@ META:GetSet("Color", Color(1, 1, 1, 1))
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
 META:EndStorable()
 
+local function count_expandable_spaces(text)
+	local count = 0
+
+	for _, char in ipairs(utf8.to_list(text)) do
+		if char == " " then count = count + 1 end
+	end
+
+	return count
+end
+
+local function build_display_line(font, line_text, natural_width, target_width, justify)
+	local chars = utf8.to_list(line_text)
+	local positions = {0}
+	local chunks = {}
+	local space_count = count_expandable_spaces(line_text)
+	local extra_per_space = 0
+	local justified = false
+	local prefix = {}
+	local extra_seen = 0
+	local chunk_start = nil
+	local chunk_buffer = {}
+
+	if justify and space_count > 0 and natural_width < target_width then
+		extra_per_space = (target_width - natural_width) / space_count
+		justified = extra_per_space > 0
+	end
+
+	local function flush_chunk(stop_col)
+		if #chunk_buffer == 0 or not chunk_start then return end
+
+		chunks[#chunks + 1] = {
+			text = table.concat(chunk_buffer),
+			x = positions[chunk_start] or 0,
+			start_col = chunk_start,
+			stop_col = stop_col,
+		}
+
+		for i = #chunk_buffer, 1, -1 do
+			chunk_buffer[i] = nil
+		end
+
+		chunk_start = nil
+	end
+
+	for i, char in ipairs(chars) do
+		if char ~= " " then
+			if not chunk_start then chunk_start = i end
+
+			chunk_buffer[#chunk_buffer + 1] = char
+		else
+			flush_chunk(i)
+			extra_seen = extra_seen + 1
+		end
+
+		prefix[#prefix + 1] = char
+		positions[i + 1] = font:GetTextSize(table.concat(prefix)) + extra_per_space * extra_seen
+	end
+
+	flush_chunk(#chars + 1)
+	return {
+		text = line_text,
+		positions = positions,
+		chunks = chunks,
+		natural_width = natural_width,
+		width = positions[#chars + 1] or natural_width,
+		extra_per_space = extra_per_space,
+		justified = justified,
+	}
+end
+
+local function get_line_column_offset(font, line_text, col, display_line)
+	if display_line and display_line.positions then
+		local max_col = #display_line.positions
+		local clamped = math.max(1, math.min(col, max_col))
+		return display_line.positions[clamped] or 0
+	end
+
+	return font:GetTextSize(utf8.sub(line_text, 1, col - 1))
+end
+
 local function get_wrap_width(self, available_width)
 	local width = self.Owner.transform.Size.x
 
@@ -53,10 +133,13 @@ local function build_wrap_layout(self, font, text, width)
 	local raw_length = utf8.length(text)
 	local lines = {}
 	local ranges = {}
+	local display_lines = {}
+	local justify = self:GetAlignX() == "justify"
 
 	if #layout.lines == 0 then
 		lines[1] = ""
 		ranges[1] = {text = "", start = 1, stop = raw_length + 1, width = 0}
+		display_lines[1] = build_display_line(font, "", 0, width, false)
 	else
 		for i, line in ipairs(layout.lines) do
 			lines[i] = line.text
@@ -67,11 +150,17 @@ local function build_wrap_layout(self, font, text, width)
 				stop_index = pretext.cursor_to_text_index(prepared, layout.lines[i + 1].start)
 			end
 
+			local ends_paragraph = stop_index > 1 and utf8.sub(text, stop_index - 1, stop_index - 1) == "\n"
+			local should_justify = justify and i < #layout.lines and not ends_paragraph
+			local display_line = build_display_line(font, line.text, line.width, width, should_justify)
+			display_lines[i] = display_line
 			ranges[i] = {
 				text = line.text,
 				start = start_index,
 				stop = stop_index,
 				width = line.width,
+				display_width = display_line.width,
+				justified = display_line.justified,
 			}
 		end
 	end
@@ -81,9 +170,11 @@ local function build_wrap_layout(self, font, text, width)
 		layout = layout,
 		lines = lines,
 		ranges = ranges,
+		display_lines = display_lines,
 		text = table.concat(lines, "\n"),
 		raw_length = raw_length,
 		line_height = line_height,
+		width = width,
 	}
 end
 
@@ -259,6 +350,8 @@ function META:Measure(available_width, available_height)
 		local wrapped = font:WrapString(text, width)
 		local w, h = font:GetTextSize(wrapped)
 
+		if self:GetAlignX() == "justify" then w = math.max(w, width) end
+
 		if self.Owner.layout then
 			local p = self.Owner.layout:GetPadding()
 			w = w + p.x + p.w
@@ -324,6 +417,11 @@ function META:GetWrappedSize(width)
 	if self:GetWrap() then
 		local wrapped = font:WrapString(text, width or self.Owner.transform.Size.x)
 		local w, h = font:GetTextSize(wrapped)
+
+		if self:GetAlignX() == "justify" then
+			w = math.max(w, width or self.Owner.transform.Size.x)
+		end
+
 		return Vec2(w, h)
 	end
 
@@ -370,6 +468,11 @@ function META:OnDraw()
 	local text = self.wrapped_text or self:GetText()
 	local lx, ly = self:GetTextOffset()
 	local tw, th = font:GetTextSize(text)
+
+	if self.wrap_layout_info and self:GetAlignX() == "justify" then
+		tw = math.max(tw, self.wrap_layout_info.width or 0)
+	end
+
 	local masked, clip_x1, clip_y1, clip_x2, clip_y2 = transform:BeginScrollViewportMask(lx, ly, tw, th)
 
 	if masked == nil then return end
@@ -390,10 +493,11 @@ function META:OnDraw()
 				local line_text = lines[i] or ""
 				local c_start = (i == line_start) and col_start or 1
 				local c_stop = (i == line_stop) and col_stop or utf8.length(line_text) + 1
-				local prefix = utf8.sub(line_text, 1, c_start - 1)
-				local middle = utf8.sub(line_text, c_start, math.max(c_start, c_stop - 1))
-				local x_offset = font:GetTextSize(prefix)
-				local width = font:GetTextSize(middle)
+				local display_line = self.wrap_layout_info and
+					self.wrap_layout_info.display_lines and
+					self.wrap_layout_info.display_lines[i]
+				local x_offset = get_line_column_offset(font, line_text, c_start, display_line)
+				local width = get_line_column_offset(font, line_text, c_stop, display_line) - x_offset
 
 				if i < line_stop then width = math.max(width, 5) end
 
@@ -405,7 +509,16 @@ function META:OnDraw()
 	render2d.SetColor(self:GetColor():Unpack())
 
 	for i = visible_start, visible_stop do
-		font:DrawText(lines[i] or "", lx, ly + (i - 1) * vertical_step, 0)
+		local y = ly + (i - 1) * vertical_step
+		local display_line = self.wrap_layout_info and
+			self.wrap_layout_info.display_lines and
+			self.wrap_layout_info.display_lines[i]
+
+		if display_line and display_line.justified then
+			font:DrawText(lines[i] or "", lx, y, 0, nil, nil, display_line.extra_per_space)
+		else
+			font:DrawText(lines[i] or "", lx, y, 0)
+		end
 	end
 
 	if
@@ -419,8 +532,10 @@ function META:OnDraw()
 
 		if found_line >= visible_start and found_line <= visible_stop then
 			local line_text = lines[found_line] or ""
-			local prefix = utf8.sub(line_text, 1, found_col - 1)
-			local cw = font:GetTextSize(prefix)
+			local display_line = self.wrap_layout_info and
+				self.wrap_layout_info.display_lines and
+				self.wrap_layout_info.display_lines[found_line]
+			local cw = get_line_column_offset(font, line_text, found_col, display_line)
 			render2d.SetColor(self:GetColor():Unpack())
 			render2d.SetTexture(nil)
 			render2d.DrawRect(lx + cw, ly + (found_line - 1) * vertical_step, 2, line_height)
@@ -464,6 +579,11 @@ function META:GetTextOffset()
 	end
 
 	local tw, th = font:GetTextSize(text)
+
+	if self.wrap_layout_info and ax == "justify" then
+		tw = math.max(tw, self.wrap_layout_info.width or 0)
+	end
+
 	local lx, ly = x, y
 
 	if type(ax) == "number" then
@@ -498,8 +618,11 @@ function META:MoveCaretVertical(delta)
 	local line_height = font:GetLineHeight()
 	local vertical_step = line_height + font:GetSpacing()
 	local line_text = self.wrap_layout_info.lines[line] or ""
-	local prefix = utf8.sub(line_text, 1, col - 1)
-	local preferred_x = self.preferred_caret_x or (lx + font:GetTextSize(prefix))
+	local display_line = self.wrap_layout_info.display_lines and self.wrap_layout_info.display_lines[line]
+	local preferred_x = self.preferred_caret_x or
+		(
+			lx + get_line_column_offset(font, line_text, col, display_line)
+		)
 	local target_line = math.max(1, math.min(#self.wrap_layout_info.lines, line + delta))
 	local target_y = ly + (target_line - 1) * vertical_step + line_height * 0.5
 	local index = self:GetIndexAtPosition(preferred_x, target_y)
@@ -529,20 +652,35 @@ function META:GetIndexAtPosition(mx, my)
 		end
 
 		local line_text = ranges[line_idx] and ranges[line_idx].text or ""
-		local char_idx_in_line = 1
-		local cumulative_w = 0
+		local display_line = self.wrap_layout_info.display_lines and
+			self.wrap_layout_info.display_lines[line_idx]
+		local char_idx_in_line = utf8.length(line_text) + 1
 
-		for i, char in ipairs(utf8.to_list(line_text)) do
-			local cw = font:GetTextSize(char)
+		if display_line and display_line.positions then
+			for i = 1, #display_line.positions - 1 do
+				local mid = (display_line.positions[i] + display_line.positions[i + 1]) * 0.5
 
-			if rx < cumulative_w + cw / 2 then
-				char_idx_in_line = i
+				if rx < mid then
+					char_idx_in_line = i
 
-				break
+					break
+				end
 			end
+		else
+			local cumulative_w = 0
 
-			cumulative_w = cumulative_w + cw
-			char_idx_in_line = i + 1
+			for i, char in ipairs(utf8.to_list(line_text)) do
+				local cw = font:GetTextSize(char)
+
+				if rx < cumulative_w + cw / 2 then
+					char_idx_in_line = i
+
+					break
+				end
+
+				cumulative_w = cumulative_w + cw
+				char_idx_in_line = i + 1
+			end
 		end
 
 		local line_range = ranges[line_idx]

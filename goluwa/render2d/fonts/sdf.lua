@@ -739,11 +739,12 @@ function META:GetTextSizeNotCached(str)
 	return X * self.Scale.x, Y * self.Scale.y
 end
 
-function META:DrawPass(str, x, y, spacing, atlas)
+function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 	local X, Y = 0, 0
 	local i = 1
 	local len = #str
 	local last_texture
+	extra_space_advance = extra_space_advance or 0
 
 	while i <= len do
 		local char_code = utf8.uint32(str, i)
@@ -752,7 +753,7 @@ function META:DrawPass(str, x, y, spacing, atlas)
 			X = 0
 			Y = Y + self:GetLineHeight() + spacing
 		elseif char_code == 32 then -- space
-			X = X + self.Size / 2
+			X = X + self.Size / 2 + extra_space_advance
 		elseif char_code == 9 then -- \t
 			local data = self.chars[32] or self:GetChar(32)
 
@@ -815,7 +816,7 @@ function META:DrawPass(str, x, y, spacing, atlas)
 	end
 end
 
-function META:DrawString(str, x, y, spacing)
+function META:DrawString(str, x, y, spacing, extra_space_advance)
 	if not self:IsReady() then return end
 
 	str = tostring(str)
@@ -823,14 +824,14 @@ function META:DrawString(str, x, y, spacing)
 	spacing = spacing or self.Spacing
 	render2d.PushUV()
 	render2d.PushSDFMode(true)
-	self:DrawPass(str, x, y, spacing, self.texture_atlas)
+	self:DrawPass(str, x, y, spacing, self.texture_atlas, extra_space_advance)
 	render2d.PopSDFMode()
 	render2d.PopUV()
 end
 
 do
 	-- Drawing functions
-	function META:DrawText(str, x, y, spacing, align_x, align_y)
+	function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance)
 		if align_x or align_y then
 			local w, h = self:GetTextSize(str)
 
@@ -853,7 +854,7 @@ do
 			end
 		end
 
-		self:DrawString(str, x, y, spacing)
+		self:DrawString(str, x, y, spacing, extra_space_advance)
 	end
 
 	function META:GetTextSize(str)

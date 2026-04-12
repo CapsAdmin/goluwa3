@@ -849,7 +849,7 @@ function META:WrapString(str, max_width)
 	return pretext.wrap_font_text(self, str, max_width)
 end
 
-function META:DrawText(str, x, y, spacing, align_x, align_y)
+function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance)
 	if align_x or align_y then
 		local w, h = self:GetTextSize(str)
 
@@ -872,13 +872,14 @@ function META:DrawText(str, x, y, spacing, align_x, align_y)
 		end
 	end
 
-	self:DrawString(str, x, y, spacing)
+	self:DrawString(str, x, y, spacing, extra_space_advance)
 end
 
-function META:DrawString(str, x, y, spacing)
+function META:DrawString(str, x, y, spacing, extra_space_advance)
 	-- TTF fonts can be drawn directly but it's slower than using rasterized_font
 	-- For best performance, wrap in rasterized_font for texture atlas rendering
 	spacing = spacing or 0
+	extra_space_advance = extra_space_advance or 0
 	local X, Y = 0, 0
 
 	for i, char in ipairs(utf8.to_list(str)) do
@@ -900,7 +901,7 @@ function META:DrawString(str, x, y, spacing)
 			render2d.PopMatrix()
 			X = X + glyph.x_advance + spacing
 		elseif char == " " then
-			X = X + self.Size / 2
+			X = X + self.Size / 2 + extra_space_advance
 		end
 	end
 end
