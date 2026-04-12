@@ -253,14 +253,14 @@ do
 	)
 	GraphicsPipeline:GetSet("ViewportX", 0, {path = "viewport.x", validate = "number"})
 	GraphicsPipeline:GetSet("ViewportY", 0, {path = "viewport.y", validate = "number"})
-	GraphicsPipeline:GetSet("ViewportWidth", 800, {path = "viewport.w", validate = "number"})
-	GraphicsPipeline:GetSet("ViewportHeight", 600, {path = "viewport.h", validate = "number"})
+	GraphicsPipeline:GetSet("ViewportWidth", nil, {path = "viewport.w", validate = "number"})
+	GraphicsPipeline:GetSet("ViewportHeight", nil, {path = "viewport.h", validate = "number"})
 	GraphicsPipeline:GetSet("ViewportMinDepth", 0, {path = "viewport.min_depth", validate = "number"})
 	GraphicsPipeline:GetSet("ViewportMaxDepth", 1, {path = "viewport.max_depth", validate = "number"})
 	GraphicsPipeline:GetSet("ScissorX", 0, {path = "scissor.x", validate = "number"})
 	GraphicsPipeline:GetSet("ScissorY", 0, {path = "scissor.y", validate = "number"})
-	GraphicsPipeline:GetSet("ScissorWidth", 800, {path = "scissor.w", validate = "number"})
-	GraphicsPipeline:GetSet("ScissorHeight", 600, {path = "scissor.h", validate = "number"})
+	GraphicsPipeline:GetSet("ScissorWidth", nil, {path = "scissor.w", validate = "number"})
+	GraphicsPipeline:GetSet("ScissorHeight", nil, {path = "scissor.h", validate = "number"})
 	GraphicsPipeline:GetSet(
 		"RasterizationSamples",
 		"1",
@@ -1518,11 +1518,21 @@ local function build_internal_pipeline(vulkan_instance, pipeline_layout, config,
 
 	local multisampling_config = config.multisampling or {}
 	multisampling_config.rasterization_samples = config.RasterizationSamples or "1"
+	local pipeline_extent = config.extent
+
+	if pipeline_extent == nil and render.target and render.target:IsValid() then
+		local target_extent = render.target:GetExtent()
+		pipeline_extent = {
+			width = tonumber(target_extent.width),
+			height = tonumber(target_extent.height),
+		}
+	end
+
 	local pipeline = InternalGraphicsPipeline.New(
 		vulkan_instance.device,
 		{
 			shaderModules = shader_modules,
-			extent = config.extent,
+			extent = pipeline_extent,
 			vertexBindings = vertex_bindings,
 			vertexAttributes = vertex_attributes,
 			input_assembly = config.input_assembly,

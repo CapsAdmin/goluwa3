@@ -191,8 +191,6 @@ function render.EndFrame()
 end
 
 function render.GetRenderImageSize()
-	if not render.target:IsValid() then return Vec2(800, 600) end
-
 	return Vec2(render.target.config.width, render.target.config.height)
 end
 

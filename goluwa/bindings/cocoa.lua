@@ -162,12 +162,12 @@ local function CGRectMake(x, y, width, height)
 end
 
 -- Initialize Cocoa application and create window
-local function init_cocoa()
+local function init_cocoa(width, height)
 	local pool = objc.Class("NSAutoreleasePool"):Call("alloc"):Call("init")
 	local app = objc.Class("NSApplication"):Call("sharedApplication")
 	app:Call("setActivationPolicy:", 0)
 	app:Call("activateIgnoringOtherApps:", true)
-	local frame = CGRectMake(100, 100, 800, 600)
+	local frame = CGRectMake(100, 100, width, height)
 	local styleMask = bit.bor(1, 2, 4, 8)
 	local window = objc.Class("NSWindow"):Call("alloc"):Call("initWithContentRect:styleMask:backing:defer:", frame, styleMask, 2, false)
 	setup_drop_view()
@@ -575,9 +575,9 @@ end
 local meta = {}
 meta.__index = meta
 
-function cocoa.window()
+function cocoa.window(width, height)
 	local self = setmetatable({}, meta)
-	self.window, self.metal_layer, self.content_view = init_cocoa()
+	self.window, self.metal_layer, self.content_view = init_cocoa(width, height)
 	self.last_width = nil
 	self.last_height = nil
 	self.cursor_hidden = false

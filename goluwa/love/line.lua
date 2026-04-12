@@ -519,8 +519,6 @@ function line.RunGame(folder, ...)
 			window = {},
 			modules = {},
 			identity = false,
-			height = 600,
-			width = 800,
 			title = "LINE no title",
 			author = "who knows",
 		}
@@ -543,8 +541,8 @@ function line.RunGame(folder, ...)
 	--check if config.screen exists
 	if not config.screen then config.screen = {} end
 
-	local w = config.screen.width or config.window.width or 800
-	local h = config.screen.height or config.window.height or 600
+	local w = config.screen.width or config.window.width
+	local h = config.screen.height or config.window.height
 
 	if
 		(
@@ -563,8 +561,8 @@ function line.RunGame(folder, ...)
 		w = preferred and preferred.width or 1280
 		h = preferred and preferred.height or 720
 	elseif w == nil or w <= 1 or h == nil or h <= 1 then
-		w = config.width or 800
-		h = config.height or 600
+		w = config.width
+		h = config.height
 	end
 
 	local title = config.title or "Line"

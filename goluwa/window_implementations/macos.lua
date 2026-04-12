@@ -21,7 +21,7 @@ return function(META)
 
 	function META:Initialize()
 		-- Create the cocoa window wrapper
-		self.cocoa_window = cocoa.window()
+		self.cocoa_window = cocoa.window(self.Size.x, self.Size.y)
 		self.cocoa_window:Initialize()
 
 		-- Set initial title and size if provided

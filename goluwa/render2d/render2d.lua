@@ -1242,7 +1242,7 @@ do
 				local sw, sh = render2d.GetSize()
 				render2d.PushMatrix()
 				render2d.SetWorldMatrix(Matrix44())
-				render2d.DrawRect(0, 0, sw or 800, sh or 600)
+				render2d.DrawRect(0, 0, sw, sh)
 				render2d.PopMatrix()
 				render2d.SetStencilMode(old_mode, old_ref)
 			end

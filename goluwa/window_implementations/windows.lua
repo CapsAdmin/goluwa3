@@ -660,8 +660,8 @@ return function(META)
 		self.cached_pos = nil
 		self.cached_size = nil
 		self.cached_fb_size = nil
-		self.width = (self.Size and self.Size.x > 0) and self.Size.x or 800
-		self.height = (self.Size and self.Size.y > 0) and self.Size.y or 600
+		self.width = self.Size.x
+		self.height = self.Size.y
 		self.last_mouse_pos = Vec2(0, 0)
 		self.focused = false
 		self.mouse_inside = false

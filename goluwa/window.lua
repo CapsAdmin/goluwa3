@@ -249,11 +249,12 @@ end
 
 function Window.New(width, height, title, flags)
 	local self = Window:CreateObject()
+
+	if title ~= nil then self.Title = title end
+
+	if width ~= nil and height ~= nil then self.Size = Vec2(width, height) end
+
 	self:Initialize()
-	self:SetTitle(title)
-
-	if width and height then self:SetSize(Vec2(width, height)) end
-
 	system.RegisterWindow(self)
 	self.key_trigger = input.SetupInputEvent("Key")
 	self.mouse_trigger = input.SetupInputEvent("Mouse")

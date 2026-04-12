@@ -333,8 +333,8 @@ return function(META)
 		self.drag_offers = {}
 		self.xkb_context = wayland.xkb.xkb_context_new(wayland.XKB_CONTEXT_NO_FLAGS)
 		self.events = {}
-		self.width = (self.Size and self.Size.x > 0) and self.Size.x or 800
-		self.height = (self.Size and self.Size.y > 0) and self.Size.y or 600
+		self.width = self.Size.x
+		self.height = self.Size.y
 		self.configured = false
 		self.focused = false
 		self.is_maximized = false
@@ -446,6 +446,7 @@ return function(META)
 			self.decoration:set_mode(2) --ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 		end
 
+		request_window_size(self, self.width, self.height)
 		-- Commit
 		self.surface_proxy:commit()
 		wayland.wl_client.wl_display_roundtrip(self.display)

@@ -76,20 +76,24 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	end
 
 	config.viewport = config.viewport or {}
+	local viewport_width = tonumber(config.viewport.w or (config.extent and config.extent.width))
+	local viewport_height = tonumber(config.viewport.h or (config.extent and config.extent.height))
 	local viewport = vulkan.vk.VkViewport{
 		x = config.viewport.x or 0.0,
 		y = config.viewport.y or 0.0,
-		width = config.viewport.w or 800,
-		height = config.viewport.h or 600,
+		width = viewport_width,
+		height = viewport_height,
 		minDepth = config.viewport.min_depth or 0.0,
 		maxDepth = config.viewport.max_depth or 1.0,
 	}
 	config.scissor = config.scissor or {}
+	local scissor_width = tonumber(config.scissor.w or (config.extent and config.extent.width))
+	local scissor_height = tonumber(config.scissor.h or (config.extent and config.extent.height))
 	local scissor = vulkan.vk.VkRect2D{
 		offset = {x = config.scissor.x or 0, y = config.scissor.y or 0},
 		extent = {
-			width = config.scissor.w or 800,
-			height = config.scissor.h or 600,
+			width = scissor_width,
+			height = scissor_height,
 		},
 	}
 	-- TODO: support more than one viewport/scissor
