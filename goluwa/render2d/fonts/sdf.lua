@@ -73,6 +73,12 @@ META:GetSet("LoadSpeed", 10)
 META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
 
+function META:GetEffectiveSpread()
+	local spread = math.max(1, self:GetSpread())
+	local size_limited = math.max(2, math.floor(self:GetSize() * 0.4 + 0.5))
+	return math.min(spread, size_limited)
+end
+
 function META:GetAtlasFormat()
 	return render.target:GetColorFormat()
 end
@@ -401,6 +407,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local p = self:GetJFAPipelines()
 	local size = Vec2(sw, sh)
 	local max_dim = math.max(sw, sh)
+	local spread = self:GetEffectiveSpread()
 
 	local function get_next_pow2(n)
 		local r = 1
@@ -425,9 +432,9 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	p.init.current_jfa_size = size
 	p.step.current_jfa_size = size
 	p.final.current_jfa_size = size
-	-- Ensure enough distance range for smooth blur. Use at least 8 output-space
-	-- pixels so that shadows/outlines have room to fade, even with small spread.
-	local max_dist = math.max(8, self:GetSpread()) * SUPER_SAMPLING_SCALE
+	-- Keep the encoded distance range aligned with the actual glyph padding while
+	-- still leaving a small minimum margin for blur and outline effects.
+	local max_dist = math.max(4, spread) * SUPER_SAMPLING_SCALE
 	p.final.current_jfa_max_dist = max_dist
 	p.combine.current_jfa_max_dist = max_dist
 
@@ -503,7 +510,7 @@ function META:LoadGlyph(code, temp_fbs)
 		end
 
 		local scale = SUPER_SAMPLING_SCALE
-		local spread = self:GetSpread()
+		local spread = self:GetEffectiveSpread()
 		local sw = (glyph.w + spread * 2) * scale
 		local sh = (glyph.h + spread * 2) * scale
 		local used_temp_fbs = {}
@@ -566,8 +573,8 @@ function META:LoadGlyph(code, temp_fbs)
 			self.texture_atlas:Insert(
 				code,
 				{
-					w = glyph.w + self:GetSpread() * 2,
-					h = glyph.h + self:GetSpread() * 2,
+					w = glyph.w + spread * 2,
+					h = glyph.h + spread * 2,
 					texture = glyph.texture,
 					flip_y = glyph.flip_y,
 				}
@@ -593,8 +600,8 @@ function META:LoadGlyph(code, temp_fbs)
 	self.texture_atlas:Insert(
 		code,
 		{
-			w = glyph.w + self:GetSpread() * 2,
-			h = glyph.h + self:GetSpread() * 2,
+			w = glyph.w + self:GetEffectiveSpread() * 2,
+			h = glyph.h + self:GetEffectiveSpread() * 2,
 			texture = glyph.texture,
 			flip_y = glyph.flip_y,
 		}
@@ -773,28 +780,29 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 				local atlas_data = atlas.textures[char_code]
 
 				if atlas_data and atlas_data.page then
+					local spread = self:GetEffectiveSpread()
 					local texture = atlas_data.page.texture
 					render2d.PushTexture(texture)
 					local uv = atlas_data.page_uv_normalized
 					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
 					render2d.DrawRectf(
-						x + (X + data.bitmap_left - self:GetSpread()) * self.Scale.x,
-						y + (Y + data.bitmap_top - self:GetSpread()) * self.Scale.y,
+						x + (X + data.bitmap_left - spread) * self.Scale.x,
+						y + (Y + data.bitmap_top - spread) * self.Scale.y,
 						atlas_data.w * self.Scale.x,
 						atlas_data.h * self.Scale.y,
 						nil,
 						nil,
 						nil,
-						self:GetSpread() * self.Scale.x
+						spread * self.Scale.x
 					)
 
 					if self.debug then
 						render2d.PushTexture(nil)
 						render2d.PushColor(1, 0, 0, 0.25)
 						render2d.DrawRect(
-							x + (X - self:GetSpread()) * self.Scale.x,
-							y + (Y - self:GetSpread()) * self.Scale.y,
-							(data.x_advance + self:GetSpread() * 2) * self.Scale.x,
+							x + (X - spread) * self.Scale.x,
+							y + (Y - spread) * self.Scale.y,
+							(data.x_advance + spread * 2) * self.Scale.x,
 							self:GetLineHeight() * self.Scale.y
 						)
 						render2d.PopColor()
@@ -824,7 +832,9 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	spacing = spacing or self.Spacing
 	render2d.PushUV()
 	render2d.PushSDFMode(true)
+	render2d.PushSDFTexelRange(self:GetEffectiveSpread())
 	self:DrawPass(str, x, y, spacing, self.texture_atlas, extra_space_advance)
+	render2d.PopSDFTexelRange()
 	render2d.PopSDFMode()
 	render2d.PopUV()
 end

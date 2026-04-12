@@ -24,6 +24,7 @@ local FragmentConstants = ffi.typeof([[
         float outline_width;
         float rect_size[2];
         float sdf_threshold;
+		float sdf_texel_range;
         int gradient_texture_index;
         int nine_patch_x_count;
         int nine_patch_y_count;
@@ -379,6 +380,13 @@ function render2d.Initialize()
 							end,
 						},
 						{
+							"sdf_texel_range",
+							"float",
+							function(self, block, key)
+								block[key] = fragment_constants.sdf_texel_range
+							end,
+						},
+						{
 							"gradient_texture_index",
 							"int",
 							function(self, block, key)
@@ -513,6 +521,35 @@ function render2d.Initialize()
 						return (lp - 1.0) * inset;
 					}
 				}
+
+				float sample_tex_sdf_raw(int texture_index, vec2 sdf_uv) {
+					return texture(TEXTURE(texture_index), sdf_uv).r;
+				}
+
+				float tex_sdf_screen_px_range(int texture_index, vec2 sdf_uv, float sdf_texel_range) {
+					vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
+					vec2 uv_dx = dFdx(sdf_uv);
+					vec2 uv_dy = dFdy(sdf_uv);
+					vec2 screen_tex_size = vec2(1.0) / max(abs(uv_dx) + abs(uv_dy), vec2(0.0001));
+					vec2 unit_range = vec2(max(sdf_texel_range, 1.0)) / max(tex_size, vec2(1.0));
+					return max(0.5 * dot(unit_range, screen_tex_size)*1.5, 1.0);
+				}
+
+				float sample_tex_sdf_filtered(int texture_index, vec2 sdf_uv) {
+					vec2 uv_dx = dFdx(sdf_uv);
+					vec2 uv_dy = dFdy(sdf_uv);
+					float center = sample_tex_sdf_raw(texture_index, sdf_uv);
+					float sx0 = sample_tex_sdf_raw(texture_index, sdf_uv - uv_dx * 0.25);
+					float sx1 = sample_tex_sdf_raw(texture_index, sdf_uv + uv_dx * 0.25);
+					float sy0 = sample_tex_sdf_raw(texture_index, sdf_uv - uv_dy * 0.25);
+					float sy1 = sample_tex_sdf_raw(texture_index, sdf_uv + uv_dy * 0.25);
+					return center * 0.7 + (sx0 + sx1 + sy0 + sy1) * 0.075;
+				}
+
+				float tex_sdf_distance(int texture_index, float sdf_threshold, float sdf_texel_range, vec2 sdf_uv) {
+					float dist = sample_tex_sdf_filtered(texture_index, sdf_uv);
+					return (sdf_threshold - dist) * tex_sdf_screen_px_range(texture_index, sdf_uv, sdf_texel_range);
+				}
 			]],
 			shader = [[
 				void main() 
@@ -548,25 +585,24 @@ function render2d.Initialize()
 
 					float d = 1e10;
 					bool has_sdf = false;
+					bool has_rect_sdf = false;
+					bool has_tex_sdf = false;
 
 					if (U.sdf_rect_size.x > 0.0 && U.sdf_rect_size.y > 0.0) {
 						d = sd_rect(in_uv, U.rect_size, U.sdf_rect_size, U.border_radius);
 						has_sdf = true;
+						has_rect_sdf = true;
 					}
 
 					if (is_sdf_tex) {
 						vec2 sdf_uv = uv * U.uv_scale + U.uv_offset;
-						float dist = texture(TEXTURE(U.texture_index), sdf_uv).r;
-						float fw = length(vec2(dFdx(dist), dFdy(dist)));
-						float d_tex = (U.sdf_threshold - dist) / max(fw, 0.01);
+						float d_tex = tex_sdf_distance(U.texture_index, U.sdf_threshold, U.sdf_texel_range, sdf_uv);
 						d = has_sdf ? max(d, d_tex) : d_tex;
 						has_sdf = true;
+						has_tex_sdf = true;
 					}
 
 					if (has_sdf) {
-						float smoothing = max(U.blur.x, U.blur.y);
-						smoothing = max(0.75, smoothing);
-
 						vec4 fill_color = color;
 						if (U.gradient_texture_index >= 0) {
 							float gy = in_uv.y;
@@ -578,9 +614,22 @@ function render2d.Initialize()
 							fill_color *= texture(TEXTURE(U.gradient_texture_index), vec2(gy, 0.5));
 						}
 
-						float f_alpha = (U.outline_width > 0.0) ? 
-							(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + U.outline_width)) : 
-							smoothstep(smoothing, -smoothing, d);
+						float f_alpha;
+						if (has_tex_sdf && !has_rect_sdf) {
+							float bias = -0.015;
+							float gamma = 1.1;
+							float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
+							f_alpha = (U.outline_width > 0.0) ?
+								(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+								clamp((d + bias) / softness + 0.5, 0.0, 1.0);
+							f_alpha = pow(max(f_alpha, 0.0), gamma);
+						} else {
+							float smoothing = max(U.blur.x, U.blur.y);
+							smoothing = max(0.75, smoothing);
+							f_alpha = (U.outline_width > 0.0) ?
+								(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + U.outline_width)) :
+								smoothstep(smoothing, -smoothing, d);
+						}
 						
 						out_color = fill_color;
 						out_color.a *= f_alpha;
@@ -604,10 +653,13 @@ function render2d.Initialize()
 					if (U.subpixel_mode != 0) {
 						float d = 1e10;
 						bool has_sdf = false;
+						bool has_rect_sdf = false;
+						bool has_tex_sdf = false;
 
 						if (U.sdf_rect_size.x > 0.0 && U.sdf_rect_size.y > 0.0) {
 							d = sd_rect(in_uv, U.rect_size, U.sdf_rect_size, U.border_radius);
 							has_sdf = true;
+							has_rect_sdf = true;
 						}
 
 						if (U.texture_index >= 0 && U.swizzle_mode == 10) {
@@ -623,17 +675,13 @@ function render2d.Initialize()
 								}
 							}
 							vec2 sdf_uv = uv * U.uv_scale + U.uv_offset;
-							float dist = texture(TEXTURE(U.texture_index), sdf_uv).r;
-							float fw = length(vec2(dFdx(dist), dFdy(dist)));
-							float d_tex = (U.sdf_threshold - dist) / max(fw, 0.02);
+							float d_tex = tex_sdf_distance(U.texture_index, U.sdf_threshold, U.sdf_texel_range, sdf_uv);
 							d = has_sdf ? max(d, d_tex) : d_tex;
 							has_sdf = true;
+							has_tex_sdf = true;
 						}
 
 						if (has_sdf) {
-							float smoothing = max(U.blur.x, U.blur.y);
-							smoothing = max(0.7, smoothing);
-
 							vec3 sub_d;
 							float shift = U.subpixel_amount;
 							if (U.subpixel_mode == 1 || U.subpixel_mode == 2) { // RGB or BGR
@@ -653,9 +701,22 @@ function render2d.Initialize()
 								sub_d = mix(sub_d, vec3(sub4_d.y), 0.5);
 							}
 
-							vec3 sub_alpha = (U.outline_width > 0.0) ? 
-								(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + U.outline_width)) : 
-								smoothstep(smoothing, -smoothing, sub_d);
+							vec3 sub_alpha;
+							if (has_tex_sdf && !has_rect_sdf) {
+								float bias = -0.015;
+								float gamma = 1.1;
+								float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
+								sub_alpha = (U.outline_width > 0.0) ?
+									(clamp((sub_d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((sub_d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+									clamp((sub_d + bias) / softness + 0.5, 0.0, 1.0);
+								sub_alpha = pow(max(sub_alpha, vec3(0.0)), vec3(gamma));
+							} else {
+								float smoothing = max(U.blur.x, U.blur.y);
+								smoothing = max(0.7, smoothing);
+								sub_alpha = (U.outline_width > 0.0) ?
+									(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + U.outline_width)) :
+									smoothstep(smoothing, -smoothing, sub_d);
+							}
 							
 							if (dot(color.rgb, vec3(1.0)) < 0.5) {
 								out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
@@ -718,6 +779,7 @@ function render2d.ResetState()
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
 	fragment_constants.sdf_threshold = 0
+	fragment_constants.sdf_texel_range = 1
 	fragment_constants.gradient_texture_index = -1
 	fragment_constants.nine_patch_x_count = 0
 	fragment_constants.nine_patch_y_count = 0
@@ -799,6 +861,16 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFThreshold")
+
+			function render2d.SetSDFTexelRange(range)
+				fragment_constants.sdf_texel_range = range or 1
+			end
+
+			function render2d.GetSDFTexelRange()
+				return fragment_constants.sdf_texel_range
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFTexelRange")
 			render2d.subpixel_modes = {
 				none = 0,
 				rgb = 1,

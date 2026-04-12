@@ -9,6 +9,11 @@ local font_small = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 14}
 local font_medium = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 24}
 local font_large = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 48}
 local font_sdf = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 64}
+local font_monoton = fonts.New{Name = "Monoton", Weight = "Regular", Size = 42}
+local font_noto_light = fonts.New{Name = "Noto Sans", Weight = "Light", Size = 11}
+local font_noto_regular = fonts.New{Name = "Noto Sans", Weight = "Regular", Size = 12}
+local font_noto_medium = fonts.New{Name = "Noto Sans", Weight = "Medium", Size = 13}
+local font_noto_bold = fonts.New{Name = "Noto Sans", Weight = "Bold", Size = 14}
 local gold_gradient = render2d.CreateGradient{
 	mode = "linear",
 	stops = {
@@ -64,7 +69,19 @@ event.AddListener("Draw2D", "text_demo", function()
 	draw_debug_text(font_medium, "Medium Font (24px)", x, y)
 	y = y + 50
 	draw_debug_text(font_large, "Large Font (48px)", x, y)
-	y = y + 80
+	y = y + 90
+	font_small:DrawText("Google Fonts", x, y)
+	y = y + 26
+	draw_debug_text(font_monoton, "Monoton Display", x, y)
+	y = y + 54
+	draw_debug_text(font_noto_light, "Noto Sans Light 11px: small text sample", x, y)
+	y = y + 20
+	draw_debug_text(font_noto_regular, "Noto Sans Regular 12px: small text sample", x, y)
+	y = y + 22
+	draw_debug_text(font_noto_medium, "Noto Sans Medium 13px: small text sample", x, y)
+	y = y + 24
+	draw_debug_text(font_noto_bold, "Noto Sans Bold 14px: small text sample", x, y)
+	y = y + 50
 	-- Alignment demo
 	local align_y_pos = y + 50
 	render2d.SetColor(0.5, 0.5, 0.5, 0.5)
