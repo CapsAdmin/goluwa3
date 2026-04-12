@@ -25,7 +25,7 @@ local _Download = callback.WrapKeyedTask(function(self, key, options)
 	local reject = self.callbacks.reject
 	-- Construct URL for CSS API v1
 	local url = (
-		"http://fonts.googleapis.com/css?family=%s:%d"
+		"https://fonts.googleapis.com/css?family=%s:%d"
 	):format(name:gsub(" ", "+"), weight)
 	-- We need to spoof the User-Agent to get TTF files. 
 	-- Android 2.2 User-Agent is known to return TTF.
@@ -43,8 +43,17 @@ local _Download = callback.WrapKeyedTask(function(self, key, options)
 			end
 
 			local body = res.body
-			-- Look for src: url(https://...) - can have quotes or not
-			local ttf_url = body:match("src:%s*url%(%s*['\"]?(https?://[^'\")]+)['\"]?%s*%)")
+			local ttf_url = body:match("src:%s*url%(%s*['\"]?(https?://[^'\")]+%.ttf[^'\")]*)['\"]?%s*%)")
+
+			if not ttf_url then
+				for src in body:gmatch("src:%s*url%(%s*['\"]?(https?://[^'\")]+)['\"]?%s*%)") do
+					if src:find("%.ttf") or body:find(src, 1, true) then
+						ttf_url = src
+
+						break
+					end
+				end
+			end
 
 			if not ttf_url then
 				reject("Could not find TTF URL in Google Fonts CSS response")

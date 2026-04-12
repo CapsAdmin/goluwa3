@@ -17,7 +17,6 @@ function fonts.New(props)
 	props.Size = props.Size or 16
 	props.Padding = props.Padding or 1
 	props.Spread = props.Spread or 16
-	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
 	local mode = props.Mode
 
 	if mode == nil and props.SDF ~= nil then
@@ -25,6 +24,33 @@ function fonts.New(props)
 	end
 
 	mode = mode or "sdf"
+
+	if props.Name then
+		local font
+		local fallback_base = ttf_font.New(fonts.GetDefaultSystemFontPath())
+
+		if mode == "raster" then
+			font = raster_font.New(fallback_base)
+		else
+			font = sdf_font.New(fallback_base, props.Spread)
+		end
+
+		font:SetPadding(props.Padding)
+		font:SetSize(props.Size)
+		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
+
+		gfonts.Download{name = props.Name, weight = props.Weight}:Then(function(path)
+			local new_ttf = ttf_font.New(path)
+			new_ttf:SetSize(font:GetSize())
+			font:SetFonts({new_ttf})
+		end):Catch(function(err)
+			wlog("Failed to load Google Font " .. props.Name .. ": " .. err)
+		end)
+
+		return font
+	end
+
+	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
 
 	if props.Path then
 		local ext = tostring(props.Path):match("%.([^%.]+)$")
@@ -47,28 +73,6 @@ function fonts.New(props)
 				return f
 			end
 		end
-	elseif props.Name then
-		local font
-
-		if mode == "raster" then
-			font = raster_font.New(base_font.New())
-		else
-			font = sdf_font.New(base_font.New(), props.Spread)
-		end
-
-		font:SetPadding(props.Padding)
-		font:SetSize(props.Size)
-		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
-
-		gfonts.Download{name = props.Name, weight = props.Weight}:Then(function(path)
-			local new_ttf = ttf_font.New(path)
-			new_ttf:SetSize(font:GetSize())
-			font:SetFonts({new_ttf})
-		end):Catch(function(err)
-			wlog("Failed to load Google Font " .. props.Name .. ": " .. err)
-		end)
-
-		return font
 	end
 
 	return fonts.GetDefaultFont()
