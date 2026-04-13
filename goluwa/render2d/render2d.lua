@@ -450,7 +450,7 @@ function render2d.Initialize()
 					},
 				},
 			},
-			custom_declarations = [[
+			shader = [[
 				float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
 				{
 					if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
@@ -550,181 +550,201 @@ function render2d.Initialize()
 					float dist = sample_tex_sdf_filtered(texture_index, sdf_uv);
 					return (sdf_threshold - dist) * tex_sdf_screen_px_range(texture_index, sdf_uv, sdf_texel_range);
 				}
-			]],
-			shader = [[
-				void main() 
-				{						
+
+				bool has_rect_sdf_enabled() {
+					return U.sdf_rect_size.x > 0.0 && U.sdf_rect_size.y > 0.0;
+				}
+
+				bool has_texture_sdf_enabled() {
+					return U.texture_index >= 0 && U.swizzle_mode == 10;
+				}
+
+				vec4 apply_swizzle(vec4 tex) {
+					if (U.swizzle_mode == 1) return vec4(tex.rrr, 1.0);
+					if (U.swizzle_mode == 2) return vec4(tex.ggg, 1.0);
+					if (U.swizzle_mode == 3) return vec4(tex.bbb, 1.0);
+					if (U.swizzle_mode == 4) return vec4(tex.aaa, 1.0);
+					if (U.swizzle_mode == 5) return vec4(tex.rgb, 1.0);
+					return tex;
+				}
+
+				vec2 resolve_fragment_uv(vec2 coords) {
+					vec2 uv = coords;
+
+					if (U.texture_index >= 0 && (U.nine_patch_x_count > 0 || U.nine_patch_y_count > 0)) {
+						vec2 tex_size = vec2(textureSize(TEXTURE(U.texture_index), 0));
+						vec2 p_logical = (coords - 0.5) * U.rect_size + U.sdf_rect_size * 0.5;
+
+						if (U.nine_patch_x_count > 0) {
+							uv.x = map_nine_patch(p_logical.x, U.sdf_rect_size.x, tex_size.x, U.nine_patch_x_stretch, U.nine_patch_x_count);
+						}
+
+						if (U.nine_patch_y_count > 0) {
+							uv.y = map_nine_patch(p_logical.y, U.sdf_rect_size.y, tex_size.y, U.nine_patch_y_stretch, U.nine_patch_y_count);
+						}
+					}
+
+					return uv;
+				}
+
+				vec4 sample_fragment_color(vec2 uv, bool is_sdf_tex) {
 					vec4 color = in_color * U.global_color;
-					bool is_sdf_tex = (U.texture_index >= 0 && U.swizzle_mode == 10);
-					vec2 uv = in_uv;
 
-					if (U.texture_index >= 0) {
-						if (U.nine_patch_x_count > 0 || U.nine_patch_y_count > 0) {
-							vec2 tex_size = vec2(textureSize(TEXTURE(U.texture_index), 0));
-							vec2 p_logical = (in_uv - 0.5) * U.rect_size + U.sdf_rect_size * 0.5;
-							
-							if (U.nine_patch_x_count > 0) {
-								uv.x = map_nine_patch(p_logical.x, U.sdf_rect_size.x, tex_size.x, U.nine_patch_x_stretch, U.nine_patch_x_count);
-							}
-							if (U.nine_patch_y_count > 0) {
-								uv.y = map_nine_patch(p_logical.y, U.sdf_rect_size.y, tex_size.y, U.nine_patch_y_stretch, U.nine_patch_y_count);
-							}
-						}
-
-						if (!is_sdf_tex) {
-							vec4 tex = texture(TEXTURE(U.texture_index), uv * U.uv_scale + U.uv_offset);
-							
-							if (U.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
-							else if (U.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
-							else if (U.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
-							else if (U.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
-							else if (U.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
-							color *= tex;
-						}
+					if (U.texture_index >= 0 && !is_sdf_tex) {
+						vec4 tex = texture(TEXTURE(U.texture_index), uv * U.uv_scale + U.uv_offset);
+						color *= apply_swizzle(tex);
 					}
 
+					return color;
+				}
+
+				float compute_fragment_distance(vec2 coords, vec2 uv, bool has_rect_sdf, bool has_tex_sdf) {
 					float d = 1e10;
-					bool has_sdf = false;
-					bool has_rect_sdf = false;
-					bool has_tex_sdf = false;
 
-					if (U.sdf_rect_size.x > 0.0 && U.sdf_rect_size.y > 0.0) {
-						d = sd_rect(in_uv, U.rect_size, U.sdf_rect_size, U.border_radius);
-						has_sdf = true;
-						has_rect_sdf = true;
+					if (has_rect_sdf) {
+						d = sd_rect(coords, U.rect_size, U.sdf_rect_size, U.border_radius);
 					}
 
-					if (is_sdf_tex) {
+					if (has_tex_sdf) {
 						vec2 sdf_uv = uv * U.uv_scale + U.uv_offset;
 						float d_tex = tex_sdf_distance(U.texture_index, U.sdf_threshold, U.sdf_texel_range, sdf_uv);
-						d = has_sdf ? max(d, d_tex) : d_tex;
-						has_sdf = true;
-						has_tex_sdf = true;
+						d = has_rect_sdf ? max(d, d_tex) : d_tex;
 					}
 
+					return d;
+				}
+
+				vec4 apply_fragment_gradient(vec2 coords, vec4 color) {
+					if (U.gradient_texture_index >= 0) {
+						float gy = coords.y;
+
+						if (U.sdf_rect_size.y > 0.0) {
+							gy = (coords.y - 0.5) * (U.rect_size.y / U.sdf_rect_size.y) + 0.5;
+						}
+
+						gy = clamp(gy, 0.0, 1.0);
+						color *= texture(TEXTURE(U.gradient_texture_index), vec2(gy, 0.5));
+					}
+
+					return color;
+				}
+
+				float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
+					if (has_tex_sdf && !has_rect_sdf) {
+						float bias = -0.015;
+						float gamma = 1.1;
+						float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
+						float alpha = (U.outline_width > 0.0) ?
+							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
+						return pow(max(alpha, 0.0), gamma);
+					}
+
+					float smoothing = max(U.blur.x, U.blur.y);
+					smoothing = max(0.75, smoothing);
+					return (U.outline_width > 0.0) ?
+						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + U.outline_width)) :
+						smoothstep(smoothing, -smoothing, d);
+				}
+
+				vec3 compute_sdf_alpha(vec3 d, bool has_tex_sdf, bool has_rect_sdf) {
+					if (has_tex_sdf && !has_rect_sdf) {
+						float bias = -0.015;
+						float gamma = 1.1;
+						float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
+						vec3 alpha = (U.outline_width > 0.0) ?
+							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
+						return pow(max(alpha, vec3(0.0)), vec3(gamma));
+					}
+
+					float smoothing = max(U.blur.x, U.blur.y);
+					smoothing = max(0.7, smoothing);
+					return (U.outline_width > 0.0) ?
+						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + U.outline_width)) :
+						smoothstep(smoothing, -smoothing, d);
+				}
+
+				float compute_blur_alpha(vec2 coords) {
+					vec2 p = (coords - 0.5) * U.rect_size;
+					vec2 b = max(vec2(0.0), (U.rect_size - U.blur * 2.0) * 0.5);
+					vec2 q = abs(p) - b;
+					float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+					float max_blur = max(U.blur.x, U.blur.y);
+					return smoothstep(max_blur, 0.0, dist);
+				}
+
+				vec4 shade_fragment(vec2 coords, out vec4 color, out float d) {
+					bool has_rect_sdf = has_rect_sdf_enabled();
+					bool has_tex_sdf = has_texture_sdf_enabled();
+					bool has_sdf = has_rect_sdf || has_tex_sdf;
+					vec2 uv = resolve_fragment_uv(coords);
+					color = sample_fragment_color(uv, has_tex_sdf);
+					d = compute_fragment_distance(coords, uv, has_rect_sdf, has_tex_sdf);
+					vec4 shaded = color;
+
 					if (has_sdf) {
-						vec4 fill_color = color;
-						if (U.gradient_texture_index >= 0) {
-							float gy = in_uv.y;
-							if (U.sdf_rect_size.y > 0.0) {
-								gy = (in_uv.y - 0.5) * (U.rect_size.y / U.sdf_rect_size.y) + 0.5;
-							}
-							gy = clamp(gy, 0.0, 1.0);
-
-							fill_color *= texture(TEXTURE(U.gradient_texture_index), vec2(gy, 0.5));
-						}
-
-						float f_alpha;
-						if (has_tex_sdf && !has_rect_sdf) {
-							float bias = -0.015;
-							float gamma = 1.1;
-							float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
-							f_alpha = (U.outline_width > 0.0) ?
-								(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
-								clamp((d + bias) / softness + 0.5, 0.0, 1.0);
-							f_alpha = pow(max(f_alpha, 0.0), gamma);
-						} else {
-							float smoothing = max(U.blur.x, U.blur.y);
-							smoothing = max(0.75, smoothing);
-							f_alpha = (U.outline_width > 0.0) ?
-								(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + U.outline_width)) :
-								smoothstep(smoothing, -smoothing, d);
-						}
-						
-						out_color = fill_color;
-						out_color.a *= f_alpha;
-					} else {
-						out_color = color;
+						shaded = apply_fragment_gradient(coords, color);
+						shaded.a *= compute_sdf_alpha(d, has_tex_sdf, has_rect_sdf);
 					}
 
 					if ((U.blur.x > 0.0 || U.blur.y > 0.0) && U.sdf_rect_size.x <= 0.0) {
-						vec2 p = (in_uv - 0.5) * U.rect_size;
-						vec2 b = max(vec2(0.0), (U.rect_size - U.blur * 2.0) * 0.5);
-						vec2 q = abs(p) - b;
-						float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-						
-						float max_blur = max(U.blur.x, U.blur.y);
-						out_color.a *= smoothstep(max_blur, 0.0, dist);
+						shaded.a *= compute_blur_alpha(coords);
 					}
 
+					shaded.a *= U.alpha_multiplier;
+					return shaded;
+				}
 
-					out_color.a *= U.alpha_multiplier;						
+				void main() 
+				{
+					bool has_rect_sdf = has_rect_sdf_enabled();
+					bool has_tex_sdf = has_texture_sdf_enabled();
+					bool has_sdf = has_rect_sdf || has_tex_sdf;
+					vec4 color;
+					float d;
+					out_color = shade_fragment(in_uv, color, d);
 
-					if (U.subpixel_mode != 0) {
-						float d = 1e10;
-						bool has_sdf = false;
-						bool has_rect_sdf = false;
-						bool has_tex_sdf = false;
+					if (U.subpixel_mode != 0 && has_sdf) {
+						vec3 sub_d = vec3(d);
+						vec4 sample_color;
+						float sample_d;
+						float shift = U.subpixel_amount;
 
-						if (U.sdf_rect_size.x > 0.0 && U.sdf_rect_size.y > 0.0) {
-							d = sd_rect(in_uv, U.rect_size, U.sdf_rect_size, U.border_radius);
-							has_sdf = true;
-							has_rect_sdf = true;
+						if (U.subpixel_mode == 1 || U.subpixel_mode == 2) {
+							shade_fragment(in_uv + vec2(-shift, 0.0), sample_color, sample_d);
+							sub_d.x = sample_d;
+							shade_fragment(in_uv + vec2(shift, 0.0), sample_color, sample_d);
+							sub_d.z = sample_d;
+
+							if (U.subpixel_mode == 2) sub_d = sub_d.zyx;
+						} else if (U.subpixel_mode == 3 || U.subpixel_mode == 4) {
+							shade_fragment(in_uv + vec2(0.0, -shift), sample_color, sample_d);
+							sub_d.x = sample_d;
+							shade_fragment(in_uv + vec2(0.0, shift), sample_color, sample_d);
+							sub_d.z = sample_d;
+
+							if (U.subpixel_mode == 4) sub_d = sub_d.zyx;
+						} else if (U.subpixel_mode == 5) {
+							float d0;
+							float d1;
+							float d2;
+							float d3;
+							shade_fragment(in_uv + vec2(-1.5 * shift, 0.0), sample_color, d0);
+							shade_fragment(in_uv + vec2(-0.5 * shift, 0.0), sample_color, d1);
+							shade_fragment(in_uv + vec2(0.5 * shift, 0.0), sample_color, d2);
+							shade_fragment(in_uv + vec2(1.5 * shift, 0.0), sample_color, d3);
+							sub_d = mix(vec3(d0, d2, d3), vec3(d1), 0.5);
 						}
 
-						if (U.texture_index >= 0 && U.swizzle_mode == 10) {
-							vec2 uv = in_uv;
-							if (U.nine_patch_x_count > 0 || U.nine_patch_y_count > 0) {
-								vec2 tex_size = vec2(textureSize(TEXTURE(U.texture_index), 0));
-								vec2 p_logical = (in_uv - 0.5) * U.rect_size + U.sdf_rect_size * 0.5;
-								if (U.nine_patch_x_count > 0) {
-									uv.x = map_nine_patch(p_logical.x, U.sdf_rect_size.x, tex_size.x, U.nine_patch_x_stretch, U.nine_patch_x_count);
-								}
-								if (U.nine_patch_y_count > 0) {
-									uv.y = map_nine_patch(p_logical.y, U.sdf_rect_size.y, tex_size.y, U.nine_patch_y_stretch, U.nine_patch_y_count);
-								}
-							}
-							vec2 sdf_uv = uv * U.uv_scale + U.uv_offset;
-							float d_tex = tex_sdf_distance(U.texture_index, U.sdf_threshold, U.sdf_texel_range, sdf_uv);
-							d = has_sdf ? max(d, d_tex) : d_tex;
-							has_sdf = true;
-							has_tex_sdf = true;
-						}
+						vec3 sub_alpha = compute_sdf_alpha(sub_d, has_tex_sdf, has_rect_sdf);
 
-						if (has_sdf) {
-							vec3 sub_d;
-							float shift = U.subpixel_amount;
-							if (U.subpixel_mode == 1 || U.subpixel_mode == 2) { // RGB or BGR
-								float dx = dFdx(d);
-								sub_d = d + vec3(-shift, 0.0, shift) * dx;
-								if (U.subpixel_mode == 2) sub_d = sub_d.zyx;
-							} else if (U.subpixel_mode == 3 || U.subpixel_mode == 4) { // VRGB or VBGR
-								float dy = dFdy(d);
-								sub_d = d + vec3(-shift, 0.0, shift) * dy;
-								if (U.subpixel_mode == 4) sub_d = sub_d.zyx;
-							} else if (U.subpixel_mode == 5) { // RWGB
-								float dx = dFdx(d);
-								vec4 sub4_d = d + vec4(-1.5, -0.5, 0.5, 1.5) * shift * dx;
-								sub_d.r = sub4_d.x;
-								sub_d.g = sub4_d.z;
-								sub_d.b = sub4_d.w;
-								sub_d = mix(sub_d, vec3(sub4_d.y), 0.5);
-							}
-
-							vec3 sub_alpha;
-							if (has_tex_sdf && !has_rect_sdf) {
-								float bias = -0.015;
-								float gamma = 1.1;
-								float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
-								sub_alpha = (U.outline_width > 0.0) ?
-									(clamp((sub_d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((sub_d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
-									clamp((sub_d + bias) / softness + 0.5, 0.0, 1.0);
-								sub_alpha = pow(max(sub_alpha, vec3(0.0)), vec3(gamma));
-							} else {
-								float smoothing = max(U.blur.x, U.blur.y);
-								smoothing = max(0.7, smoothing);
-								sub_alpha = (U.outline_width > 0.0) ?
-									(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + U.outline_width)) :
-									smoothstep(smoothing, -smoothing, sub_d);
-							}
-							
-							if (dot(color.rgb, vec3(1.0)) < 0.5) {
-								out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
-								out_color.a = 1.0;
-							} else {
-								out_color.rgb = color.rgb * sub_alpha;
-								out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
-							}
+						if (dot(color.rgb, vec3(1.0)) < 0.5) {
+							out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
+							out_color.a = 1.0;
+						} else {
+							out_color.rgb = color.rgb * sub_alpha;
+							out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
 						}
 					}
 				}
