@@ -151,7 +151,7 @@ end
 local function DrawNeonText(x, y)
 	render2d.PushColor(1, 1, 1, 1)
 	render2d.PushBlur(15) -- SDF Blur for glow
-	render2d.PushSDFThreshold(0.2)
+	render2d.PushSDFThreshold(0.8)
 	gfont:DrawText("NEON LIGHTS", x, y)
 	render2d.PopSDFThreshold()
 	render2d.PopBlur()
