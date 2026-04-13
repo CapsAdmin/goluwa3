@@ -461,14 +461,15 @@ function META:OnDraw()
 	local text = self.wrapped_text or self:GetText()
 	local lx, ly = self:GetTextOffset()
 	local tw, th = font:GetTextSize(text)
+	local descent = font:GetDescent()
 
 	if self.wrap_layout_info and self:GetAlignX() == "justify" then
 		tw = math.max(tw, self.wrap_layout_info.width or 0)
 	end
 
-	local masked, clip_x1, clip_y1, clip_x2, clip_y2 = transform:BeginScrollViewportMask(lx, ly, tw, th)
+	local clip_x1, clip_y1, clip_x2, clip_y2 = transform:GetVisibleLocalRect(lx, ly, tw, th + descent)
 
-	if masked == nil then return end
+	if clip_x1 == nil then return end
 
 	local source_lines = self.wrap_layout_info and self.wrap_layout_info.lines or text
 	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(source_lines, font, lx, ly, clip_y1, clip_y2)
@@ -534,8 +535,6 @@ function META:OnDraw()
 			render2d.DrawRect(lx + cw, ly + (found_line - 1) * vertical_step, 2, line_height)
 		end
 	end
-
-	transform:EndScrollViewportMask(masked, clip_x1, clip_y1, clip_x2, clip_y2)
 end
 
 function META:GetTextOffset()
