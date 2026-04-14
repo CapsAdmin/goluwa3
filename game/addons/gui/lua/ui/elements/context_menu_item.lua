@@ -5,11 +5,32 @@ local Clickable = import("lua/ui/elements/clickable.lua")
 local Text = import("lua/ui/elements/text.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
-	return Clickable{
+	local item
+
+	local function close_context_menu()
+		local current = item
+
+		while current and current.IsValid and current:IsValid() do
+			if current:GetName() == "ContextMenuContainer" then
+				current:Remove()
+				return
+			end
+
+			current = current:GetParent()
+		end
+	end
+
+	item = Clickable{
 		Size = props.Size or "M",
 		Active = props.Active,
 		Disabled = props.Disabled,
-		OnClick = props.OnClick,
+		OnClick = function(...)
+			close_context_menu()
+
+			if props.OnClick then
+				return props.OnClick(...)
+			end
+		end,
 		layout = {
 			Direction = "x",
 			AlignmentY = "center",
@@ -28,4 +49,6 @@ return function(props)
 			Color = props.Disabled and "text_disabled" or "text_foreground",
 		},
 	}
+
+	return item
 end

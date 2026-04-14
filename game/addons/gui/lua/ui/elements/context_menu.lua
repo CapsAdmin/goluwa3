@@ -8,6 +8,10 @@ local theme = import("lua/ui/theme.lua")
 return function(props)
 	local menu_ent = NULL
 	local is_closing = false
+	local container_props = {
+		Key = props.Key,
+		SourceDropdown = props.SourceDropdown,
+	}
 
 	local function UpdateAnimations(ent)
 		if not menu_ent:IsValid() then return end
@@ -55,6 +59,7 @@ return function(props)
 	end
 
 	return Panel.New{
+		container_props,
 		{
 			OnSetProperty = theme.OnSetProperty,
 			PreChildAdd = function(self, child)

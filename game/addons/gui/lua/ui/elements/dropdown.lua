@@ -5,6 +5,7 @@ local Panel = import("goluwa/ecs/panel.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local Text = import("lua/ui/elements/text.lua")
 local event = import("goluwa/event.lua")
+local timer = import("goluwa/timer.lua")
 local ContextMenu = import("lua/ui/elements/context_menu.lua")
 local MenuItem = import("lua/ui/elements/context_menu_item.lua")
 local theme = import("lua/ui/theme.lua")
@@ -13,9 +14,38 @@ return function(props)
 	local on_select = props.OnSelect
 	local label_ent
 	local dropdown
+	local suppress_next_open = false
+	local selected_text = props.Text or "Select..."
+
+	for _, opt in ipairs(options) do
+		local text = type(opt) == "table" and opt.Text or tostring(opt)
+		local val = type(opt) == "table" and opt.Value or opt
+
+		if props.Value ~= nil and val == props.Value then
+			selected_text = text
+			break
+		end
+	end
 
 	local function open_menu(self)
 		local world_panel = Panel.World
+
+		if suppress_next_open then
+			suppress_next_open = false
+			return
+		end
+
+		local active = world_panel:GetKeyed("ActiveContextMenu")
+
+		if active and active:IsValid() then
+			if active.SourceDropdown == dropdown then
+				active:Remove()
+				return
+			end
+
+			active:Remove()
+		end
+
 		local x, y = self.transform:GetWorldMatrix():GetTranslation()
 		local menu_items = {}
 
@@ -28,10 +58,21 @@ return function(props)
 				MenuItem{
 					Text = text,
 					OnClick = function()
+						suppress_next_open = true
+						timer.Delay(0, function()
+							suppress_next_open = false
+						end)
+
 						-- Close the context menu
 						local active = world_panel:GetKeyed("ActiveContextMenu")
 
-						if active then active:Remove() end
+						if active and active:IsValid() then active:Remove() end
+
+						selected_text = text
+
+						if label_ent and label_ent:IsValid() and not props.GetText then
+							label_ent.text:SetText(selected_text)
+						end
 
 						if on_select then on_select(val, text, i) end
 					end,
@@ -46,6 +87,7 @@ return function(props)
 
 		local context_menu = ContextMenu{
 			Key = "ActiveContextMenu",
+			SourceDropdown = dropdown,
 			OnClose = function(ent)
 				ent:Remove()
 			end,
@@ -74,7 +116,7 @@ return function(props)
 	}{
 		Text{
 			IsInternal = true,
-			Text = props.Text or "Select...",
+			Text = selected_text,
 			Ref = function(self)
 				label_ent = self
 			end,
@@ -89,7 +131,6 @@ return function(props)
 			transform = {
 				Size = Vec2(16, 16),
 			},
-			layout = {FitWidth = true, FitHeight = true},
 			gui_element = {
 				OnDraw = function(self)
 					theme.icons.dropdown_indicator(self.Owner, {
@@ -129,7 +170,7 @@ return function(props)
 	end
 
 	if props.GetText then
-		dropdown.gui_element:AddLocalListener("OnDraw", function()
+		dropdown:AddLocalListener("OnDraw", function()
 			if label_ent and label_ent:IsValid() then
 				local txt = props.GetText()
 

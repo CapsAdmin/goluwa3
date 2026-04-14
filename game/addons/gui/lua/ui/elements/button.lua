@@ -12,14 +12,18 @@ return function(props)
 		layout = {
 			FitWidth = true,
 			FitHeight = true,
+			props.layout,
 		},
 		OnClick = props.OnClick,
-		Padding = "XS",
+		Padding = props.Padding or "XS",
 	}(
 		Text{
 			Text = props.Text,
 			IgnoreMouseInput = true,
 			Color = props.Disabled and "text_disabled" or "text_foreground",
+			AlignX = props.AlignX or "center",
+			AlignY = props.AlignY or "center",
+			layout = props.TextLayout,
 		}
 	)
 end

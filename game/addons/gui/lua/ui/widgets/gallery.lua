@@ -113,7 +113,13 @@ local function build_gallery(props)
 				end,
 				layout = {
 					GrowWidth = 1,
+					FitWidth = false,
 				},
+				TextLayout = {
+					GrowWidth = 1,
+					FitWidth = false,
+				},
+				AlignX = "left",
 			}
 		)
 	end
