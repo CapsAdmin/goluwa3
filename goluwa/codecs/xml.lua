@@ -317,31 +317,4 @@ function xml.parse_file(filename)
 	return nil, err
 end
 
-local PROFILE = false
-
-if PROFILE then
-	local fs = import("goluwa/fs.lua")
-	local files = {}
-
-	for i, v in ipairs(fs.walk("goluwa/bindings/wayland/")) do
-		if v:ends_with(".xml") then files[#files + 1] = fs.read_file(v) end
-	end
-
-	local profiler = import("goluwa/profiler.lua")
-
-	do
-		profiler.Start("XML")
-		local max = #files
-
-		for i = 1, 1000 do
-			for i, v in ipairs(files) do
-				--io.write("parsing file ", i, " of ", max, "\n")
-				assert(xml.parse(v))
-			end
-		end
-
-		profiler.Stop()
-	end
-end
-
 return xml

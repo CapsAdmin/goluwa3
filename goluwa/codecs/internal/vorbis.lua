@@ -2036,16 +2036,4 @@ function vorbis.DecodePacket(packet, info, setup, state)
 	return pcm, output_n
 end
 
-if HOTRELOAD and false then
-	import.loaded["goluwa/codecs/internal/vorbis.lua"] = vorbis
-	import.loaded["goluwa/codecs/ogg.lua"] = nil
-	local profiler = import("goluwa/profiler.lua")
-	profiler.Start("ogg")
-	local fs = import("goluwa/fs.lua")
-	local ogg = import("goluwa/codecs/ogg.lua")
-	local f = fs.read_file("./test.ogg")
-	local res = assert(ogg.Decode(f))
-	profiler.Stop()
-end
-
 return vorbis

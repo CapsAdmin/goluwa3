@@ -679,11 +679,7 @@ do
 		shown_running_line = false
 		has_failed_tests = false
 
-		if _G.STARTUP_PROFILE then profiler.StopSection() end
-
-		if PROFILING and not _G.STARTUP_PROFILE then
-			profiler.Start(profiling_mode)
-		end
+		if PROFILING then profiler.Start(profiling_mode) end
 
 		-- Set up the callback for test completion
 		on_test_file_complete = function(

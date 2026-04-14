@@ -28,8 +28,6 @@ if _G.AUDIO then vfs.AutorunAddons("audio/") end
 
 if _G.GRAPHICS then
 	print("autorunning graphics addons")
-	local Profiler = import("goluwa/profiler.lua")
-	Profiler.Start("glw")
 	vfs.AutorunAddons("graphics/")
 end
 
