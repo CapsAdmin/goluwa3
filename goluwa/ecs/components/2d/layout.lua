@@ -20,6 +20,8 @@ META:GetSet("FitWidth", false, {callback = "InvalidateLayout"})
 META:GetSet("FitHeight", false, {callback = "InvalidateLayout"})
 META:GetSet("AlignmentX", "stretch", {callback = "InvalidateLayout"})
 META:GetSet("AlignmentY", "stretch", {callback = "InvalidateLayout"})
+META:GetSet("SelfAlignmentX", "auto", {callback = "InvalidateLayout"})
+META:GetSet("SelfAlignmentY", "auto", {callback = "InvalidateLayout"})
 META:GetSet("Floating", false, {callback = "InvalidateLayout"})
 META:GetSet("Dirty", false)
 META:GetSet("LastSize", Vec2(0, 0))
@@ -90,6 +92,23 @@ local axis_map = {
 		cross_margin_end = "w",
 	},
 }
+
+local function get_child_cross_alignment(parent_layout, child_layout)
+	local parent_dir = parent_layout:GetDirection()
+	local self_alignment
+
+	if parent_dir == "x" then
+		self_alignment = child_layout:GetSelfAlignmentY()
+	else
+		self_alignment = child_layout:GetSelfAlignmentX()
+	end
+
+	if self_alignment ~= "auto" then return self_alignment end
+
+	if parent_dir == "x" then return parent_layout:GetAlignmentY() end
+
+	return parent_layout:GetAlignmentX()
+end
 
 function META:Measure()
 	local dir = self:GetDirection()
@@ -196,18 +215,26 @@ function META:Measure()
 	local is_being_managed_x = self:GetFitWidth() or self:GetGrowWidth() > 0
 	local is_being_managed_y = self:GetFitHeight() or self:GetGrowHeight() > 0
 
-	if self.Owner.text and self.Owner.text:GetWrap() and self.Owner.text:GetWrapToParent() then
+	if
+		self.Owner.text and
+		self.Owner.text:GetWrap() and
+		self.Owner.text:GetWrapToParent()
+	then
 		is_being_managed_x = true
 	end
 
 	if parent and parent:IsValid() and parent.layout then
 		local pl = parent.layout
 		local pdir = pl:GetDirection()
+		local self_alignment_x = self:GetSelfAlignmentX()
+		local self_alignment_y = self:GetSelfAlignmentY()
+		local effective_alignment_x = self_alignment_x ~= "auto" and self_alignment_x or pl:GetAlignmentX()
+		local effective_alignment_y = self_alignment_y ~= "auto" and self_alignment_y or pl:GetAlignmentY()
 
 		if pdir == "x" then
-			if pl:GetAlignmentY() == "stretch" then is_being_managed_y = true end
+			if effective_alignment_y == "stretch" then is_being_managed_y = true end
 		else
-			if pl:GetAlignmentX() == "stretch" then is_being_managed_x = true end
+			if effective_alignment_x == "stretch" then is_being_managed_x = true end
 		end
 	end
 
@@ -342,7 +369,16 @@ function META:Arrange()
 		child_tr["Set" .. axis.main_size](child_tr, final_main)
 		child_tr:SetAxisPosition(axis.main, current_main)
 		-- Position on cross axis
-		local cross_alignment = (dir == "x") and self:GetAlignmentY() or self:GetAlignmentX()
+		local cross_alignment = c.entity.layout and
+			get_child_cross_alignment(self, c.entity.layout) or
+			(
+				(
+					dir == "x"
+				)
+				and
+				self:GetAlignmentY() or
+				self:GetAlignmentX()
+			)
 		local available_cross = actual_size[axis.cross] - padding[axis.cross_margin_start] - padding[axis.cross_margin_end]
 		local child_total_cross = c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
 		local cross_pos = padding[axis.cross_margin_start] + c.margin[axis.cross_margin_start]

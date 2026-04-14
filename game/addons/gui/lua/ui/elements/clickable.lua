@@ -35,6 +35,8 @@ return function(props)
 			},
 			layout = {
 				Padding = "XXS",
+				AlignmentX = "center",
+				AlignmentY = "center",
 				props.layout,
 			},
 			gui_element = {

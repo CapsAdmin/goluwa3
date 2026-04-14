@@ -108,10 +108,10 @@ return function(props)
 					Name = "CloseIcon",
 					OnSetProperty = theme.OnSetProperty,
 					layout = {
-						Floating = true,
+						MinSize = Vec2(12, 12),
+						MaxSize = Vec2(12, 12),
 					},
 					transform = {
-						Position = Vec2(6, 6),
 						Size = Vec2(12, 12),
 					},
 					gui_element = {
@@ -119,7 +119,7 @@ return function(props)
 							theme.icons.close(
 								self.Owner,
 								{
-									size = 8,
+									size = 10,
 									thickness = 2,
 									color = theme.GetColor("text_button"),
 								}
