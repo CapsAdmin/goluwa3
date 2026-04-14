@@ -286,7 +286,6 @@ function META:DrawGlyph(glyph)
 
 	local contours = {}
 	local start_idx = 1
-	local original_contour_count = #glyph.end_pts_of_contours
 
 	for ci, end_idx in ipairs(glyph.end_pts_of_contours) do
 		end_idx = end_idx + 1
@@ -301,25 +300,12 @@ function META:DrawGlyph(glyph)
 		if #raw_points >= 2 then
 			local flattened = get_contour_points(self, glyph, raw_points)
 
-			if #flattened >= 6 then table.insert(contours, flattened) end
-		end
-	end
+			if #flattened >= 6 then
+				local split_contours = split_self_intersecting(flattened)
 
-	-- Only apply self-intersection splitting for single-contour glyphs
-	-- Multi-contour glyphs already have separate shell/hole contours
-	local was_split = false
-	local original_contour = nil
-
-	if original_contour_count == 1 and #contours == 1 then
-		original_contour = contours[1] -- Save for even-odd filtering
-		local split_contours = split_self_intersecting(contours[1])
-
-		if #split_contours > 1 then
-			was_split = true
-			contours = {}
-
-			for _, c in ipairs(split_contours) do
-				if #c >= 6 then table.insert(contours, c) end
+				for _, contour in ipairs(split_contours) do
+					if #contour >= 6 then table.insert(contours, contour) end
+				end
 			end
 		end
 	end
@@ -347,138 +333,6 @@ function META:DrawGlyph(glyph)
 	end
 
 	contours = unique_contours
-
-	-- For split self-intersecting contours, use signed area to determine shell vs hole
-	-- Then use the normal shell/hole bridging logic
-	if was_split then
-		-- Separate contours by signed area: positive = shell, negative = hole
-		local split_shells = {}
-		local split_holes = {}
-
-		for _, c in ipairs(contours) do
-			local area = math2d.GetPolygonArea(c)
-
-			if area > 0 then
-				table.insert(split_shells, {points = c, area = area})
-			elseif area < 0 then
-				table.insert(split_holes, {points = c, area = area})
-			end
-		end
-
-		-- Sort shells by area (largest first)
-		table.sort(split_shells, function(a, b)
-			return a.area > b.area
-		end)
-
-		local final_triangles = {}
-
-		-- For the largest shell, merge all holes into it
-		if #split_shells > 0 then
-			local main_shell = split_shells[1]
-			local merged = main_shell.points
-
-			-- Merge each hole into the shell
-			for _, hole_info in ipairs(split_holes) do
-				local hole = hole_info.points
-
-				-- Reverse hole winding if needed
-				if hole_info.area < 0 == (main_shell.area < 0) then
-					hole = math2d.ReversePolygon(hole)
-				end
-
-				-- Find closest points between shell and hole
-				local best_dist = math.huge
-				local s_vertex_idx, h_vertex_idx = 1, 1
-
-				for si = 1, #merged / 2 do
-					for hi = 1, #hole / 2 do
-						local si_coord = (si - 1) * 2 + 1
-						local hi_coord = (hi - 1) * 2 + 1
-						local dx = merged[si_coord] - hole[hi_coord]
-						local dy = merged[si_coord + 1] - hole[hi_coord + 1]
-						local d = dx * dx + dy * dy
-
-						if d < best_dist then
-							best_dist = d
-							s_vertex_idx, h_vertex_idx = si, hi
-						end
-					end
-				end
-
-				-- Build merged polygon with bridge
-				local new_points = {}
-				local shell_count = #merged / 2
-				local hole_count = #hole / 2
-
-				for vi = 1, s_vertex_idx do
-					local idx = (vi - 1) * 2 + 1
-					table.insert(new_points, merged[idx])
-					table.insert(new_points, merged[idx + 1])
-				end
-
-				for vi = 0, hole_count - 1 do
-					local idx = ((h_vertex_idx - 1 + vi) % hole_count) * 2 + 1
-					table.insert(new_points, hole[idx])
-					table.insert(new_points, hole[idx + 1])
-				end
-
-				local h_coord = (h_vertex_idx - 1) * 2 + 1
-				table.insert(new_points, hole[h_coord])
-				table.insert(new_points, hole[h_coord + 1])
-				local s_coord = (s_vertex_idx - 1) * 2 + 1
-				table.insert(new_points, merged[s_coord])
-				table.insert(new_points, merged[s_coord + 1])
-
-				for vi = s_vertex_idx + 1, shell_count do
-					local idx = (vi - 1) * 2 + 1
-					table.insert(new_points, merged[idx])
-					table.insert(new_points, merged[idx + 1])
-				end
-
-				merged = new_points
-			end
-
-			-- Triangulate the merged polygon
-			local triangles = math2d.TriangulateCoordinates(merged)
-
-			for i = 1, #triangles do
-				table.insert(final_triangles, triangles[i])
-			end
-
-			-- Also triangulate any additional shells (smaller positive-area contours)
-			for i = 2, #split_shells do
-				local tris = math2d.TriangulateCoordinates(split_shells[i].points)
-
-				for j = 1, #tris do
-					table.insert(final_triangles, tris[j])
-				end
-			end
-		end
-
-		if #final_triangles > 0 then
-			render2d.SetTexture(nil)
-			local poly = Polygon2D.New(#final_triangles / 2)
-			poly:SetColor(1, 1, 1, 1)
-
-			for tri_idx = 1, #final_triangles / 6 do
-				local base = (tri_idx - 1) * 6
-				poly:SetTriangle(
-					tri_idx,
-					final_triangles[base + 1],
-					final_triangles[base + 2],
-					final_triangles[base + 3],
-					final_triangles[base + 4],
-					final_triangles[base + 5],
-					final_triangles[base + 6]
-				)
-			end
-
-			glyph.poly = poly
-			poly:Draw()
-		end
-
-		return
-	end
 
 	if #contours == 0 then return end
 
@@ -587,9 +441,8 @@ function META:DrawGlyph(glyph)
 				table.insert(final_triangles, triangles[i])
 			end
 		else
-			-- Has holes - need to merge them properly
+			-- Has holes - merge them into the shell before triangulation.
 			for _, hole in ipairs(shell_info.holes) do
-				-- Find closest points between shell and hole
 				local merged = shell_info.points
 				local best_dist = math.huge
 				local s_vertex_idx, h_vertex_idx = 1, 1
@@ -609,35 +462,29 @@ function META:DrawGlyph(glyph)
 					end
 				end
 
-				-- Build merged polygon with proper bridge
 				local new_points = {}
 				local shell_count = #merged / 2
 				local hole_count = #hole / 2
 
-				-- Add shell vertices from 1 to connection point (inclusive)
 				for vi = 1, s_vertex_idx do
 					local idx = (vi - 1) * 2 + 1
 					table.insert(new_points, merged[idx])
 					table.insert(new_points, merged[idx + 1])
 				end
 
-				-- Add all hole vertices starting from connection, going around the entire hole
 				for vi = 0, hole_count - 1 do
 					local idx = ((h_vertex_idx - 1 + vi) % hole_count) * 2 + 1
 					table.insert(new_points, hole[idx])
 					table.insert(new_points, hole[idx + 1])
 				end
 
-				-- Bridge back: return to hole connection point, then back to shell connection
 				local h_coord = (h_vertex_idx - 1) * 2 + 1
 				table.insert(new_points, hole[h_coord])
 				table.insert(new_points, hole[h_coord + 1])
-				-- Add shell connection point again (bridge back)
 				local s_coord = (s_vertex_idx - 1) * 2 + 1
 				table.insert(new_points, merged[s_coord])
 				table.insert(new_points, merged[s_coord + 1])
 
-				-- Continue with remaining shell vertices after connection
 				for vi = s_vertex_idx + 1, shell_count do
 					local idx = (vi - 1) * 2 + 1
 					table.insert(new_points, merged[idx])
