@@ -7,16 +7,19 @@ local event = import("goluwa/event.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
+	local mode = props.Mode or "horizontal"
 	local state = {
-		mode = props.Mode or "horizontal",
-		is_dragging = false,
-		is_hovered = false,
-		glow_alpha = 0,
-		knob_scale = 1,
-		last_hovered = false,
+		mode = mode,
+		hovered = false,
+		dragging = false,
+		anim = {
+			glow_alpha = 0,
+			knob_scale = 1,
+			last_hovered = false,
+		},
 	}
 
-	if state.mode == "2d" then
+	if mode == "2d" then
 		state.value = props.Value or Vec2(0.5, 0.5)
 		state.min = props.Min or Vec2(0, 0)
 		state.max = props.Max or Vec2(1, 1)
@@ -91,7 +94,7 @@ return function(props)
 			OnMouseInput = function(self, button, press, local_pos)
 				if button == "button_1" then
 					if press then
-						state.is_dragging = true
+						state.dragging = true
 						SetValueFromPosition(self.Owner, local_pos)
 					end
 
@@ -99,19 +102,19 @@ return function(props)
 				end
 			end,
 			OnGlobalMouseInput = function(self, button, press, mouse_pos)
-				if button == "button_1" and not press and state.is_dragging then
-					state.is_dragging = false
+				if button == "button_1" and not press and state.dragging then
+					state.dragging = false
 					return true
 				end
 			end,
 			OnHover = function(self, hovered)
-				state.is_hovered = hovered
+				state.hovered = hovered
 				theme.UpdateSliderAnimations(self.Owner, state)
 			end,
 		},
 		gui_element = {
 			OnDraw = function(self)
-				if state.is_dragging then
+				if state.dragging then
 					local mpos = system.GetWindow():GetMousePosition()
 					local lpos = self.Owner.transform:GlobalToLocal(mpos)
 					SetValueFromPosition(self.Owner, lpos)

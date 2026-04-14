@@ -82,12 +82,26 @@ return function(props)
 			layout = {GrowWidth = 1, FitHeight = true},
 			Color = props.Disabled and "text_disabled" or "text_foreground",
 		},
-		Text{
+		Panel.New{
 			IsInternal = true,
-			Text = " ▼",
-			IgnoreMouseInput = true,
+			Name = "DropdownIndicator",
+			OnSetProperty = theme.OnSetProperty,
+			transform = {
+				Size = Vec2(16, 16),
+			},
 			layout = {FitWidth = true, FitHeight = true},
-			Color = props.Disabled and "text_disabled" or "text_foreground",
+			gui_element = {
+				OnDraw = function(self)
+					theme.icons.dropdown_indicator(self.Owner, {
+						size = 8,
+						thickness = 2,
+						color = theme.GetColor(props.Disabled and "text_disabled" or "text_foreground"),
+					})
+				end,
+			},
+			mouse_input = {
+				IgnoreMouseInput = true,
+			},
 		},
 	}
 

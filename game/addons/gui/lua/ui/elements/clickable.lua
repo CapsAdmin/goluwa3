@@ -8,16 +8,19 @@ local Texture = import("goluwa/render/texture.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	local state = {
-		press_scale = 0,
-		glow_alpha = 0,
-		last_hovered = false,
-		last_active = false,
-		last_tilting = false,
-		is_pressed = false,
-		is_hovered = false,
-		is_disabled = props.Disabled,
-		active_prop = props.Active,
+		hovered = false,
+		pressed = false,
+		disabled = not not props.Disabled,
+		active = not not props.Active,
 		mode = props.Mode or "filled",
+		anim = {
+			glow_alpha = 0,
+			press_scale = 0,
+			last_hovered = false,
+			last_pressed = false,
+			last_active = false,
+			last_tilting = false,
+		},
 	}
 	return Panel.New{
 		props,
@@ -59,12 +62,12 @@ return function(props)
 					if props.Disabled then return end
 
 					if button == "button_1" then
-						state.is_pressed = press
+						state.pressed = press
 						theme.UpdateButtonAnimations(self.Owner, state)
 					end
 				end,
 				OnHover = function(self, hovered)
-					state.is_hovered = hovered
+					state.hovered = hovered
 					theme.UpdateButtonAnimations(self.Owner, state)
 				end,
 			},

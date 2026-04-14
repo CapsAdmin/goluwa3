@@ -4,8 +4,7 @@ local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Frame = import("lua/ui/elements/frame.lua")
 local Text = import("lua/ui/elements/text.lua")
-local Button = import("lua/ui/elements/button.lua")
-local TextButton = import("lua/ui/elements/text_button.lua")
+local Clickable = import("lua/ui/elements/clickable.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	local content
@@ -82,10 +81,12 @@ return function(props)
 					FitHeight = true,
 				},
 			},
-			Button{
+			Clickable{
 				Name = "CloseButton",
-				Size = Vec2(20, 20),
+				Mode = "filled",
+				Size = Vec2(24, 24),
 				Color = theme.GetColor("negative"),
+				Padding = "XXXS",
 				OnClick = function(self)
 					print("Close button clicked", props.OnClose, "?")
 
@@ -96,8 +97,38 @@ return function(props)
 					end
 				end,
 				layout = {
+					MinSize = Vec2(24, 24),
+					MaxSize = Vec2(24, 24),
 					FitWidth = false,
 					FitHeight = false,
+				},
+			}{
+				Panel.New{
+					IsInternal = true,
+					Name = "CloseIcon",
+					OnSetProperty = theme.OnSetProperty,
+					layout = {
+						Floating = true,
+					},
+					transform = {
+						Position = Vec2(6, 6),
+						Size = Vec2(12, 12),
+					},
+					gui_element = {
+						OnDraw = function(self)
+							theme.icons.close(
+								self.Owner,
+								{
+									size = 8,
+									thickness = 2,
+									color = theme.GetColor("text_button"),
+								}
+							)
+						end,
+					},
+					mouse_input = {
+						IgnoreMouseInput = true,
+					},
 				},
 			},
 		},

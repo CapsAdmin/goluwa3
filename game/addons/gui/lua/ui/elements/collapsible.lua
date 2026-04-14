@@ -5,7 +5,6 @@ local Panel = import("goluwa/ecs/panel.lua")
 local Text = import("lua/ui/elements/text.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local theme = import("lua/ui/theme.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
 return function(props)
 	local collapsed = props.Collapsed or false
 	local body_panel = NULL
@@ -100,15 +99,12 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					local size = 10
-					local center = self.Owner.transform:GetSize() / 2
-					render2d.PushMatrix()
-					render2d.Translatef(center.x, center.y)
-					render2d.Rotate(math.rad(open_fraction * 90))
-					render2d.SetColor(theme.GetColor("text_foreground"):Unpack())
-					render2d.SetTexture(nil)
-					theme.DrawArrow(0, 0, size)
-					render2d.PopMatrix()
+					theme.icons.disclosure(self.Owner, {
+						size = 10,
+						thickness = 2,
+						open_fraction = open_fraction,
+						color = theme.GetColor("text_foreground"),
+					})
 				end,
 			},
 			mouse_input = {

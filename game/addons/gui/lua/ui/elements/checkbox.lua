@@ -3,15 +3,17 @@ local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
-local Text = import("lua/ui/elements/text.lua")
 return function(props)
+	local value = props.Value ~= nil and props.Value or false
 	local state = {
-		value = props.Value or false,
-		is_hovered = false,
-		glow_alpha = 0,
-		check_anim = props.Value and 1 or 0,
-		last_hovered = false,
-		last_value = props.Value or false,
+		hovered = false,
+		value = value,
+		anim = {
+			glow_alpha = 0,
+			check_anim = value and 1 or 0,
+			last_hovered = false,
+			last_value = value,
+		},
 	}
 	return Panel.New{
 		Name = "checkbox_graphic",
@@ -35,7 +37,7 @@ return function(props)
 				end
 			end,
 			OnHover = function(self, hovered)
-				state.is_hovered = hovered
+				state.hovered = hovered
 				theme.UpdateCheckboxAnimations(self.Owner, state)
 			end,
 		},
