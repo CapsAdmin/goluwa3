@@ -14,8 +14,8 @@
           name = "luajit";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "659a61693aa3b87661864ad0f12eee14c865cd7f";
-            sha256 = "sha256-4iqMh8QDhprKqwElZ2EKmRc8ycSH1nq4qjwa5syXa+o=";
+            rev = "18b087cd2cd4ddc4a79782bf155383a689d5093d";
+            sha256 = "sha256-9i6hxqb109kMpW3sizMb6UuV3moFRQwes4Eg+F24r3o=";
           };
 
           buildInputs = [pkgs.makeWrapper];
@@ -42,9 +42,37 @@
           name = "luajit-debug";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "659a61693aa3b87661864ad0f12eee14c865cd7f";
-            sha256 = "sha256-4iqMh8QDhprKqwElZ2EKmRc8ycSH1nq4qjwa5syXa+o=";
+            rev = "18b087cd2cd4ddc4a79782bf155383a689d5093d";
+            sha256 = "sha256-9i6hxqb109kMpW3sizMb6UuV3moFRQwes4Eg+F24r3o=";
           };
+
+          dontStrip = true;
+
+          buildInputs = [pkgs.makeWrapper];
+
+          buildPhase = ''
+            make amalg PREFIX=$out \
+              XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" \
+              CCDEBUG="-g3" \
+              BUILDMODE=static
+          '';
+
+          installPhase = ''
+            make install PREFIX=$out
+            mv $out/bin/luajit-2.1.ROLLING $out/bin/luajit_debug
+            rm -f $out/bin/luajit
+          '';
+        };
+
+        luajit-debug-assert = pkgs.stdenv.mkDerivation {
+          name = "luajit-debug-assert";
+          src = pkgs.fetchgit {
+            url = "https://github.com/LuaJIT/LuaJIT.git";
+            rev = "18b087cd2cd4ddc4a79782bf155383a689d5093d";
+            sha256 = "sha256-9i6hxqb109kMpW3sizMb6UuV3moFRQwes4Eg+F24r3o=";
+          };
+
+          dontStrip = true;
 
           buildInputs = [pkgs.makeWrapper];
 
@@ -57,7 +85,7 @@
 
           installPhase = ''
             make install PREFIX=$out
-            mv $out/bin/luajit-2.1.ROLLING $out/bin/luajit_debug
+            mv $out/bin/luajit-2.1.ROLLING $out/bin/luajit_assert_debug
             rm -f $out/bin/luajit
           '';
         };
@@ -69,6 +97,7 @@
             # Lua runtime
             luajit
             luajit-debug
+            luajit-debug-assert
 
             # Vulkan development
             vulkan-headers
@@ -114,9 +143,17 @@
             }
 
             ljgdb() {
+              PYTHONWARNINGS="ignore::SyntaxWarning" \
               PYTHONPATH="${openresty-gdb-utils}:$PYTHONPATH" gdb -q \
                 -ex "source ${openresty-gdb-utils}/luajit21.py" \
                 --args luajit_debug "$@"
+            }
+
+            ljgdb_assert() {
+              PYTHONWARNINGS="ignore::SyntaxWarning" \
+              PYTHONPATH="${openresty-gdb-utils}:$PYTHONPATH" gdb -q \
+                -ex "source ${openresty-gdb-utils}/luajit21.py" \
+                --args luajit_assert_debug "$@"
             }
           '';
         };
@@ -129,6 +166,7 @@
             # Lua runtime
             luajit
             luajit-debug
+            luajit-debug-assert
             
             # Vulkan development
             vulkan-headers
@@ -169,9 +207,17 @@
             export OPENRESTY_GDB="${openresty-gdb-utils}"
             
             ljgdb() {
+              PYTHONWARNINGS="ignore::SyntaxWarning" \
               PYTHONPATH="${openresty-gdb-utils}:$PYTHONPATH" gdb -q \
                 -ex "source ${openresty-gdb-utils}/luajit21.py" \
                 --args luajit_debug "$@"
+            }
+
+            ljgdb_assert() {
+              PYTHONWARNINGS="ignore::SyntaxWarning" \
+              PYTHONPATH="${openresty-gdb-utils}:$PYTHONPATH" gdb -q \
+                -ex "source ${openresty-gdb-utils}/luajit21.py" \
+                --args luajit_assert_debug "$@"
             }
           '';
         };
