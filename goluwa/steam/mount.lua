@@ -447,11 +447,27 @@ return function(steam)
 				return cache_mounted[game_info.filesystem.steamappid]
 			end
 
+			local function skip_gmod_extra_path(path)
+				if game_info.game ~= "Garry's Mod" or not skip_addons then return false end
+
+				local lower_path = path:lower()
+
+				return
+					lower_path:find("/garrysmod/addons/", nil, true) or
+					lower_path:find("/garrysmod/download/", nil, true) or
+					lower_path:find("/maps/workshop/", nil, true) or
+					lower_path:find("/workshop/content/", nil, true)
+			end
+
 			steam.UnmountSourceGame(game_info)
 
 			for _, path in ipairs(game_info.filesystem.searchpaths) do
+				if skip_gmod_extra_path(path) then goto continue end
+
 				if path:ends_with("*") then
 					for _, path in ipairs(vfs.Find(path:sub(0, -2), true)) do
+						if skip_gmod_extra_path(path) then goto continue_inner end
+
 						if vfs.IsDirectory(path) then
 							if
 								game_info.game == "Garry's Mod" and
@@ -466,12 +482,18 @@ return function(steam)
 								vfs.Delete("cache/source_games")
 							end
 						end
+
+						::continue_inner::
 					end
 				else
 					if not path:ends_with(".vpk/") then
 						for _, v in ipairs(vfs.Find(path .. "/maps/workshop/")) do
+							if skip_gmod_extra_path(path .. "/maps/workshop/" .. v) then goto continue_workshop_map end
+
 							llog("mounting workshop map %s", v)
 							vfs.Mount(path .. "/maps/workshop/" .. v, "maps/", game_info)
+
+							::continue_workshop_map::
 						end
 					end
 
@@ -483,14 +505,18 @@ return function(steam)
 						vfs.Delete("cache/source_games")
 					end
 				end
+
+				::continue::
 			end
 
-			for _, lib_folder in ipairs(steam.GetLibraryFolders()) do
-				for _, path in ipairs(
-					vfs.Find(lib_folder .. "workshop/content/" .. game_info.filesystem.steamappid .. "/", true)
-				) do
-					for _, file_name in ipairs(vfs.Find(path .. "/")) do
-						vfs.Mount(path .. "/" .. file_name, nil, game_info)
+			if not (game_info.game == "Garry's Mod" and skip_addons) then
+				for _, lib_folder in ipairs(steam.GetLibraryFolders()) do
+					for _, path in ipairs(
+						vfs.Find(lib_folder .. "workshop/content/" .. game_info.filesystem.steamappid .. "/", true)
+					) do
+						for _, file_name in ipairs(vfs.Find(path .. "/")) do
+							vfs.Mount(path .. "/" .. file_name, nil, game_info)
+						end
 					end
 				end
 			end
