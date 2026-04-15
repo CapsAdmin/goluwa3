@@ -130,6 +130,10 @@ local function apply_sampler_state(self, sampler_config, mip_levels)
 	if sampler_config.flags ~= nil then self.SamplerFlags = sampler_config.flags end
 end
 
+local function is_valid_vulkan_format(format)
+	return type(format) == "string" and format ~= "" and format ~= "undefined"
+end
+
 local function get_bytes_per_pixel(format)
 	if
 		format == "r8g8b8a8_unorm" or
@@ -157,6 +161,14 @@ end
 
 -- Fallback checkerboard texture (pink and black)
 local fallback_texture = NULL
+
+local function decode_texture_file(path)
+	local decoded, err = codec.DecodeFile(path)
+
+	if decoded ~= nil then return decoded end
+
+	error(err or ("no texture decoder accepted " .. tostring(path)))
+end
 
 local function create_fallback_texture()
 	if fallback_texture:IsValid() then return fallback_texture end
@@ -277,6 +289,20 @@ function Texture.New(config)
 			end
 		end
 
+		if not is_valid_vulkan_format(format) then
+			if img_or_err and img_or_err.vulkan_format ~= nil then
+				wlog(
+					"render texture fallback: unsupported decoded Vulkan format %s for %s",
+					tostring(img_or_err.vulkan_format),
+					tostring(config.path or config.cache_key or "<decoded>")
+				)
+			end
+
+			self:MakeReady()
+			self.reflectivity = reflectivity
+			return
+		end
+
 		-- Create or use image
 		local image
 
@@ -293,10 +319,23 @@ function Texture.New(config)
 
 			if is_compressed then default_usage = {"sampled", "transfer_dst"} end
 
+			local image_format = image_config.format or format
+
+			if not is_valid_vulkan_format(image_format) then
+				wlog(
+					"render texture fallback: refusing to create image with invalid format %s for %s",
+					tostring(image_format),
+					tostring(config.path or config.cache_key or "<decoded>")
+				)
+				self:MakeReady()
+				self.reflectivity = reflectivity
+				return
+			end
+
 			image = render.CreateImage{
 				width = image_config.width or width,
 				height = image_config.height or height,
-				format = image_config.format or format,
+				format = image_format,
 				usage = image_config.usage or default_usage,
 				properties = image_config.properties or "device_local",
 				samples = image_config.samples,
@@ -415,7 +454,7 @@ function Texture.New(config)
 		self.sampler = fallback.sampler
 
 		resource.Download(config.path):Then(function(p)
-			local ok, img_or_err = pcall(codec.DecodeFile, p)
+			local ok, img_or_err = pcall(decode_texture_file, p)
 
 			if ok and img_or_err then
 				load(img_or_err)

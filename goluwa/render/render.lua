@@ -199,9 +199,21 @@ function render.CreateBuffer(config)
 end
 
 function render.CreateTextureFromPath(path, config)
+	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.device then
+		return nil
+	end
+
 	config = config or {}
 	config.path = path
 	return Texture.New(config)
+end
+
+function render.GetErrorTexture()
+	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.device then
+		return nil
+	end
+
+	return Texture.GetFallback()
 end
 
 function render.CreateFrameBuffer(size, config)
@@ -210,6 +222,18 @@ function render.CreateFrameBuffer(size, config)
 	if size then
 		config.width = config.width or size.x or size.w
 		config.height = config.height or size.y or size.h
+	end
+
+	config.width = math.floor(tonumber(config.width) or 0)
+	config.height = math.floor(tonumber(config.height) or 0)
+
+	if config.width <= 0 or config.height <= 0 then
+		error(
+			(
+				"render.CreateFrameBuffer: invalid size %sx%s"
+			):format(tostring(config.width), tostring(config.height)),
+			2
+		)
 	end
 
 	if config.min_filter == nil and config.mag_filter ~= nil then
@@ -228,6 +252,15 @@ function render.CreateOcclusionQuery()
 end
 
 function render.CreateImage(config)
+	if
+		not config or
+		type(config.format) ~= "string" or
+		config.format == "" or
+		config.format == "undefined"
+	then
+		error("render.CreateImage: invalid format " .. tostring(config and config.format), 2)
+	end
+
 	config.device = vulkan_instance.device
 	return Image.New(config)
 end
