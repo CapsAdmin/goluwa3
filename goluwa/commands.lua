@@ -52,6 +52,7 @@ do
 		boolean = function(arg)
 			if type(arg) == "boolean" then return arg end
 
+			arg = tostring(arg):trim()
 			arg = arg:lower()
 
 			if arg == "1" or arg == "true" or arg == "on" or arg == "yes" or arg == "y" then
