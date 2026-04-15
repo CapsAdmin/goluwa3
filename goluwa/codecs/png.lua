@@ -6,6 +6,7 @@ local Buffer = import("goluwa/structs/buffer.lua")
 local deflate = import("goluwa/codecs/deflate.lua")
 local png = library()
 png.file_extensions = {"png"}
+png.magic_headers = {"\137PNG\r\n\26\n"}
 
 local function getDataIHDR(buffer, length)
 	return {

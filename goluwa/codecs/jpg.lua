@@ -4,6 +4,7 @@ local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
 local jpg = library()
 jpg.file_extensions = {"jpg", "jpeg"}
+jpg.magic_headers = {"\255\216\255"}
 local bit_band = bit.band
 local bit_bor = bit.bor
 local bit_lshift = bit.lshift

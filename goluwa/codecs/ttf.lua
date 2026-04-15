@@ -3,6 +3,11 @@ local Buffer = import("goluwa/structs/buffer.lua")
 local ttf = library()
 ttf.file_extensions = {"ttf", "otf"}
 
+function ttf.CanDecodeData(data)
+	local tag = data:sub(1, 4)
+	return tag == "OTTO" or tag == "ttcf" or tag == "true" or tag == "\0\1\0\0"
+end
+
 local function read_tag(buffer)
 	return buffer:ReadBytes(4)
 end

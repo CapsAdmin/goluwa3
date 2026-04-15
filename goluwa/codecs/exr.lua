@@ -4,6 +4,7 @@ local Buffer = import("goluwa/structs/buffer.lua")
 local deflate = import("goluwa/codecs/deflate.lua")
 local exr = library()
 exr.file_extensions = {"exr"}
+exr.magic_headers = {"v/1\1"}
 
 local function half_to_float(h)
 	local s = bit.band(bit.rshift(h, 15), 0x00000001)
@@ -92,6 +93,8 @@ local function reorder(data, size)
 end
 
 function exr.DecodeBuffer(inputBuffer)
+	return nil, "EXR decoding is disabled"
+
 	if inputBuffer:ReadU32LE() ~= 0x01312f76 then error("Not an EXR file") end
 
 	local version_field = inputBuffer:ReadU32LE()

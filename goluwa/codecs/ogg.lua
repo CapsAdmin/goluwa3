@@ -6,6 +6,7 @@ local ogg = library()
 local ffi_copy = ffi.copy
 local float_size = ffi.sizeof("float")
 ogg.file_extensions = {"ogg"}
+ogg.magic_headers = {"OggS"}
 
 --[[
 	Ogg Page Header:

@@ -39,18 +39,18 @@ function audio.Decode(source, lib)
 		return nil, 0, nil, "unsupported audio source"
 	end
 
+	local contents = file:ReadAll()
+
+	if not contents then return nil, 0, nil, "file is empty" end
+
 	local decoder = lib and
 		import("goluwa/codecs/" .. lib .. ".lua") or
 		(
 			path and
-			codec.GuessFormatFromPath(path)
+			codec.GuessFormat(path, contents)
 		)
 
 	if not decoder then return nil, 0, nil, "no decoder found" end
-
-	local contents = file:ReadAll()
-
-	if not contents then return nil, 0, nil, "file is empty" end
 
 	local decode = decoder.decode_buffer or decoder.DecodeBuffer
 	local decoded, err

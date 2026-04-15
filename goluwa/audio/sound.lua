@@ -260,14 +260,6 @@ function module.Attach(audio)
 		end
 
 		resource.Download(path):Then(function(full_path)
-			local decoder = codec.GuessFormatFromPath(full_path)
-
-			if not decoder then
-				print("failed to decode sound:", full_path, "no decoder")
-				self:MakeReady()
-				return
-			end
-
 			local decoded, err = codec.DecodeFile(full_path)
 
 			if not decoded then

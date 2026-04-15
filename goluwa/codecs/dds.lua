@@ -6,6 +6,7 @@ local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
 local dds = library()
 dds.file_extensions = {"dds"}
+dds.magic_headers = {"DDS "}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
 -- DDS magic number
 local DDS_MAGIC = 0x20534444 -- "DDS "

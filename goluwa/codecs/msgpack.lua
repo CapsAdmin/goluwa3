@@ -34,7 +34,13 @@ local sbuffer_init = function(self)
 	self.data = ffi.cast("unsigned char *", ffi.C.malloc(MSGPACK_SBUFFER_INIT_SIZE))
 end
 local sbuffer_destroy = function(self)
-	ffi.C.free(buffer.data)
+	if self.data ~= nil then
+		ffi.C.free(self.data)
+		self.data = nil
+	end
+
+	self.size = 0
+	self.alloc = 0
 end
 local sbuffer_realloc = function(self, len)
 	if self.alloc - self.size < len then

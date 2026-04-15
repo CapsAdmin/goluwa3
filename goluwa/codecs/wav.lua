@@ -6,6 +6,11 @@ local WAVE_FORMAT_IEEE_FLOAT = 0x0003
 local WAVE_FORMAT_EXTENSIBLE = 0xFFFE
 wav.file_extensions = {"wav", "wave"}
 
+function wav.CanDecodeData(data)
+	local container = data:sub(1, 4)
+	return (container == "RIFF" or container == "RIFX") and data:sub(9, 12) == "WAVE"
+end
+
 local function read_s24le(buffer)
 	local b1 = buffer:ReadByte()
 	local b2 = buffer:ReadByte()
