@@ -1,6 +1,7 @@
 local utility = import("goluwa/utility.lua")
 local fs = import("goluwa/fs.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
+local event = import("goluwa/event.lua")
 vfs.files_ran_ = vfs.files_ran_ or {}
 
 local function store_run_file_path(path)
@@ -40,8 +41,7 @@ local function loadfile(path, chunkname)
 	local full_path = vfs.GetAbsolutePath(path, false)
 
 	if full_path then
-		if event then full_path = event.Call("PreLoadFile", full_path) or full_path end
-
+		full_path = event.Call("PreLoadFile", full_path) or full_path
 		local res, err = vfs.Read(full_path)
 
 		if not res and not err then res = "" end
@@ -50,7 +50,7 @@ local function loadfile(path, chunkname)
 
 		res = "local SCRIPT_PATH=[[" .. full_path .. "]];" .. res
 
-		if event then
+		do
 			local newcode, err = event.Call("PreLoadString", res, full_path)
 
 			if (newcode == nil or newcode == false) and type(err) == "string" then
@@ -71,9 +71,7 @@ local function loadfile(path, chunkname)
 
 		res, err = loadstring(res, chunkname)
 
-		if event and res then
-			res = event.Call("PostLoadString", res, full_path) or res
-		end
+		if res then res = event.Call("PostLoadString", res, full_path) or res end
 
 		store_run_file_path(full_path)
 		return res, err, full_path
