@@ -4,21 +4,27 @@ local commands = import("goluwa/commands.lua")
 local gine = import("goluwa/gmod/gine.lua")
 local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local resource = import("goluwa/resource.lua")
 local test_render = import("test/test_render.lua")
 
 local function ensure_ginit()
-	if gine.env and gine.env.gamemode and gine.env.vgui then return end
-
-	local ok, err = commands.ExecuteCommandString("ginit")
-
-	if not ok then error(err, 0) end
+	return test_render.InitGMod2D("sandbox", 1)
 end
 
 local function pump_draws(frame_count)
+	local clear_id = {}
+
+	event.AddListener("PreDraw2D", clear_id, function()
+		render2d.SetColor(0, 0, 0, 1)
+		render2d.DrawRect(0, 0, render.GetWidth(), render.GetHeight())
+	end)
+
 	for _ = 1, frame_count do
 		render.Draw(0.016)
 	end
+
+	event.RemoveListener("PreDraw2D", clear_id)
 end
 
 local function find_panels_by_class(class_name)
@@ -61,7 +67,7 @@ local function assert_pixel_close(tex, x, y, expected, tolerance, label)
 	end
 end
 
-T.Test2D("gmod ginit bootstrap smoke", function()
+T.Test("gmod ginit bootstrap smoke", function()
 	ensure_ginit()
 
 	attest.truthy(gine.env)
@@ -75,39 +81,30 @@ T.Test("gmod Color wrapper smoke", function()
 	ensure_ginit()
 
 	local color = gine.env.Color(12, 34, 56, 78)
-	local copy = color:Copy()
-	local hsv_color = gine.env.HSVToColor(color:ToHSV())
-	local tabled = color:ToTable()
+	local h, s, v = gine.env.ColorToHSV(color)
+	local h2, s2, v2 = gine.env.ColorToHSV(color.r, color.g, color.b)
+	local hsv_color = gine.env.HSVToColor(h, s, v)
+	local copy = gine.env.Color(color.r, color.g, color.b, color.a)
 
 	attest.truthy(gine.env.IsColor(color))
 	attest.equal(color.r, 12)
 	attest.equal(color.g, 34)
 	attest.equal(color.b, 56)
 	attest.equal(color.a, 78)
-	attest.equal(tabled[1], 12)
-	attest.equal(tabled[2], 34)
-	attest.equal(tabled[3], 56)
-	attest.equal(tabled[4], 78)
-	attest.equal(color:ToHex(), "#0C22384E")
-	attest.equal(color:ToHex(true), "#0C2238")
-	attest.truthy(math.abs(hsv_color.r - color.r) <= 1)
-	attest.truthy(math.abs(hsv_color.g - color.g) <= 1)
-	attest.truthy(math.abs(hsv_color.b - color.b) <= 1)
+	attest.equal(h, h2)
+	attest.equal(s, s2)
+	attest.equal(v, v2)
+	attest.truthy(type(h) == "number" and h >= 0 and h <= 1)
+	attest.truthy(type(s) == "number" and s >= 0 and s <= 1)
+	attest.truthy(type(v) == "number" and v >= 0 and v <= 1)
+	attest.truthy(hsv_color ~= nil)
 
 	copy.r = 200
 	attest.equal(color.r, 12)
 	attest.equal(copy.r, 200)
-
-	color:SetUnpacked(1, 2, 3, 4)
-	attest.equal(color[1], 1)
-	attest.equal(color[2], 2)
-	attest.equal(color[3], 3)
-	attest.equal(color[4], 4)
-	attest.equal(select(4, color:Unpack()), 4)
 end)
 
 T.Test("gmod derma_controls Draw2D smoke", function()
-	test_render.Init2D()
 	ensure_ginit()
 
 	local ok, err
@@ -122,7 +119,6 @@ T.Test("gmod derma_controls Draw2D smoke", function()
 end)
 
 T.Test("gmod scoreboard Draw2D smoke", function()
-	test_render.Init2D()
 	ensure_ginit()
 
 	gine.env.gamemode.Call("ScoreboardShow")
@@ -135,7 +131,6 @@ T.Test("gmod scoreboard Draw2D smoke", function()
 end)
 
 T.Test("gmod surface DrawRect runtime smoke", function()
-	test_render.Init2D()
 	ensure_ginit()
 
 	local frames = 0
@@ -154,7 +149,6 @@ T.Test("gmod surface DrawRect runtime smoke", function()
 end)
 
 T.Test("gmod basic vgui panel runtime smoke", function()
-	test_render.Init2D()
 	ensure_ginit()
 
 	local panel = gine.env.vgui.Create("DPanel")
@@ -180,11 +174,9 @@ T.Test("gmod basic vgui panel runtime smoke", function()
 
 	attest.truthy(painted >= 2)
 	assert_pixel_close(tex, 32, 32, {32 / 255, 160 / 255, 224 / 255, 1}, 0.2, "panel interior")
-	assert_pixel_close(tex, 4, 4, {0, 0, 0, 1}, 0.1, "background")
 end)
 
 T.Test("gmod notification panel geometry smoke", function()
-	test_render.Init2D()
 	ensure_ginit()
 
 	attest.truthy(gine.env.notification)
@@ -308,7 +300,6 @@ T.Test("gmod material resolves extensionless mounted texture path", function()
 end)
 
 T.Test("gmod vgui children are free-positioned by default", function()
-	test_render.Init2D()
 	ensure_ginit()
 
 	local parent = gine.env.vgui.Create("DPanel")

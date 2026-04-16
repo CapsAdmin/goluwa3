@@ -40,12 +40,13 @@ mouse_input.last_hovered = mouse_input.last_hovered or NULL
 
 local function get_hovered_entity(entity, mouse_pos)
 	local gui = entity.gui_element
+	local internal_dock = entity.gmod_internal_dock
 
 	if gui and not gui:GetVisible() then return nil end
 
 	local mouse_comp = entity.mouse_input
 
-	if mouse_comp and mouse_comp:GetIgnoreMouseInput() then return nil end
+	if mouse_comp and mouse_comp:GetIgnoreMouseInput() and not internal_dock then return nil end
 
 	-- Check children first (top-most in draw order is usually last in child list)
 	local children = entity:GetChildren()
@@ -56,7 +57,7 @@ local function get_hovered_entity(entity, mouse_pos)
 		if found then return found end
 	end
 
-	if gui and gui:IsHovered(mouse_pos) then return entity end
+	if gui and gui:IsHovered(mouse_pos) and not internal_dock then return entity end
 
 	return nil
 end

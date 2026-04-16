@@ -204,6 +204,7 @@ local function create_fallback_texture()
 			wrap_t = "repeat",
 		},
 	}
+	fallback_texture.config.path = "textures/error.png"
 	return fallback_texture
 end
 
@@ -220,6 +221,7 @@ function Texture:__tostring2()
 end
 
 function Texture.New(config)
+	assert(render.CanCreateResources(), "Texture.New requires render.Initialize() first")
 	-- Check cache if path is provided
 	local cache_key = config.cache_key or config.path
 

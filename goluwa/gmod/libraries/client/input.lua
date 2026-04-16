@@ -209,6 +209,14 @@ function input.IsControlDown()
 end
 
 function input.IsMouseDown(code)
+	if not lib.IsMouseDown and lib.SetupAccessorFunctions then
+		lib.Mouse_down_time = lib.Mouse_down_time or {}
+		lib.Mouse_up_time = lib.Mouse_up_time or {}
+		lib.SetupAccessorFunctions(lib, "Mouse")
+	end
+
+	if not lib.IsMouseDown then return false end
+
 	return lib.IsMouseDown(gine.GetMouseCode(code, true))
 end
 

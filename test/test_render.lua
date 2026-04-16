@@ -4,6 +4,8 @@ local Panel = import("goluwa/ecs/panel.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local commands = import("goluwa/commands.lua")
+local gine = import("goluwa/gmod/gine.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -22,6 +24,24 @@ function test_render.Init2D()
 		render2d.Initialize()
 		test_render.render2d_init = true
 	end
+end
+
+function test_render.InitGMod2D(gamemode, skip_addons)
+	test_render.Init2D()
+
+	if gine.env and gine.env.gamemode and gine.env.vgui then return end
+
+	local command = "ginit " .. tostring(gamemode or "sandbox") .. "," .. tostring(skip_addons == nil and 1 or skip_addons)
+	local ok, err = commands.ExecuteCommandString(command)
+
+	if not ok then error(err, 0) end
+
+	test_render.Draw2D(function(w, h)
+		render2d.SetColor(0, 0, 0, 1)
+		render2d.DrawRect(0, 0, w, h)
+	end)
+
+	return gine.env
 end
 
 function test_render.Draw2D(cb)

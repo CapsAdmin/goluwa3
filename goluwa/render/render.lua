@@ -32,6 +32,21 @@ local vulkan_instance
 local sync_fence = NULL
 render.command_buffer_stack = render.command_buffer_stack or {}
 render.target = render.target or NULL
+render.initializing = false
+
+function render.IsInitialized()
+	return render.available and
+		render.target ~= nil and
+		render.target ~= NULL and
+		render.target:IsValid() and
+		vulkan_instance ~= nil and
+		vulkan_instance ~= NULL and
+		vulkan_instance.device ~= nil
+end
+
+function render.CanCreateResources()
+	return render.IsInitialized() or render.initializing
+end
 
 function render.Shutdown()
 	if render.shutting_down then return end
@@ -57,6 +72,7 @@ end
 function render.Initialize(config)
 	config = config or {}
 	local is_headless = config.headless
+	render.initializing = true
 
 	if not is_headless then
 		-- Windowed mode: create window and surface
@@ -92,6 +108,7 @@ function render.Initialize(config)
 	end
 
 	event.Call("RendererReady")
+	render.initializing = false
 
 	event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
 		if is_headless then return end

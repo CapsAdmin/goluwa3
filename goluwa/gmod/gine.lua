@@ -13,6 +13,7 @@ local steam = import("goluwa/steam.lua")
 local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
 local vfs = import("goluwa/vfs.lua")
+local R = vfs.GetAbsolutePath
 local prototype = import("goluwa/prototype.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -21,6 +22,7 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local commands = import("goluwa/commands.lua")
 local utility = import("goluwa/utility.lua")
 local pvars = import("goluwa/pvars.lua")
+local render = import("goluwa/render/render.lua")
 _G.prototype = prototype
 _G.Vec2 = Vec2
 _G.Vec3 = Vec3
@@ -43,6 +45,30 @@ function gine.AddEvent(what, callback)
 		end,
 		{on_error = system.OnError}
 	)
+end
+
+local function run_client_graphics_bootstrap()
+	if gine.client_graphics_bootstrap_loaded then return end
+
+	gine.client_graphics_bootstrap_loaded = true
+	vfs.RunFile("lua/postprocess/*")
+	vfs.RunFile("lua/vgui/*")
+	vfs.RunFile("lua/matproxy/*")
+	vfs.RunFile("lua/skins/*")
+end
+
+local function ensure_client_graphics_bootstrap()
+	if gine.client_graphics_bootstrap_loaded then return end
+
+	if render.IsInitialized() then
+		run_client_graphics_bootstrap()
+		return
+	end
+
+	event.AddListener("RendererReady", "gine_client_graphics_bootstrap", function()
+		run_client_graphics_bootstrap()
+		return event.destroy_tag
+	end)
 end
 
 gine.objects = gine.objects or {}
@@ -263,13 +289,13 @@ do
 						add_candidate(candidates, seen, apply_resource_root(logical_path:sub(1, -5), info.root))
 					end
 				else
-					add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
-
 					if not has_extension then
 						for _, ext in ipairs(info.extensions) do
 							add_candidate(candidates, seen, apply_resource_root(logical_path .. ext, info.root))
 						end
 					end
+
+					add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
 				end
 			elseif hint == "sound" then
 				add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
@@ -482,10 +508,7 @@ function gine.Initialize(gamemode, skip_addons)
 		if SERVER then vfs.RunFile(gine.dir .. "/lua/autorun/server/*") end
 
 		if CLIENT then
-			vfs.RunFile("lua/postprocess/*")
-			vfs.RunFile("lua/vgui/*")
-			vfs.RunFile("lua/matproxy/*")
-			vfs.RunFile("lua/skins/*")
+			ensure_client_graphics_bootstrap()
 		end
 
 		--gine.env.DCollapsibleCategory.LoadCookies = nil -- DUCT TAPE FIX
