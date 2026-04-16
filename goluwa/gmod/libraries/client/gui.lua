@@ -1055,6 +1055,11 @@ do
 						text = limit_text(font, text, w)
 					end
 
+					render2d.SetTexture()
+					render2d.SetUV()
+					--render2d.SetAlphaTestReference(0)
+					render2d.SetBlendMode("alpha", true)
+
 					if obj.expensive_shadow_dir then
 						render2d.SetColor(obj.expensive_shadow_color:Unpack())
 						font:DrawString(
