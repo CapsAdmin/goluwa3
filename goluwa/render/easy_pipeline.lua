@@ -1252,6 +1252,7 @@ function EasyPipeline.New(config)
 		BlendConstants = config.BlendConstants or {0.0, 0.0, 0.0, 0.0},
 		SampleShading = config.SampleShading or false,
 		MinSampleShading = config.MinSampleShading or 0,
+		Sampler = config.Sampler or config.sampler,
 		color_blend = sanitized_color_blend,
 		DepthTest = config.DepthTest,
 		DepthWrite = config.DepthWrite,
@@ -1445,8 +1446,32 @@ function EasyPipeline:GetVertexAttributes()
 	return self.vertex_attributes
 end
 
+function EasyPipeline:SetTextureSamplerConfigResolver(resolver)
+	self.texture_sampler_config_resolver = resolver
+end
+
+function EasyPipeline:GetTextureSamplerConfig(texture)
+	if self.texture_sampler_config_resolver then
+		return self.texture_sampler_config_resolver(texture)
+	end
+
+	return nil
+end
+
 function EasyPipeline:GetTextureIndex(texture)
-	return self.pipeline:GetTextureIndex(texture, 1)
+	return self.pipeline:GetTextureIndex(texture, 1, self:GetTextureSamplerConfig(texture))
+end
+
+function EasyPipeline:SetSamplerConfig(config)
+	return self.pipeline:SetSamplerConfig(config)
+end
+
+function EasyPipeline:GetSamplerConfig()
+	return self.pipeline:GetSamplerConfig()
+end
+
+function EasyPipeline:SetSamplerConfigValue(key, value)
+	return self.pipeline:SetSamplerConfigValue(key, value)
 end
 
 function EasyPipeline:PushConstants(...)

@@ -209,6 +209,7 @@ function render3d.Initialize()
 
 	for i, config in ipairs(pipelines) do
 		render3d.pipelines_i[i] = EasyPipeline.New(config)
+		render3d.pipelines_i[i]:SetTextureSamplerConfigResolver(render.GetSamplerFilterConfig)
 		render3d.pipelines[config.name] = render3d.pipelines_i[i]
 		--
 		render3d.pipelines_i[i].name = config.name

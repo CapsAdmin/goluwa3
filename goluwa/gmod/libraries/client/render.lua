@@ -1,5 +1,6 @@
 local system = import("goluwa/system.lua")
 local lib = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local render = gine.env.render
 
 local function get_error_texture()
@@ -26,13 +27,43 @@ render.GetMoBlurTex1 = get_error_texture
 render.GetSuperFPTex = get_error_texture
 render.GetMorphTex0 = get_error_texture
 
-function render.PushFilterMin() end
+do
+	local texfilter = gine.env.TEXFILTER
+	local filter_translate = {
+		[texfilter.POINT] = "nearest",
+		[texfilter.LINEAR] = "linear",
+		[texfilter.ANISOTROPIC] = "anisotropic",
+	}
+	local reverse_filter_translate = {
+		nearest = texfilter.POINT,
+		linear = texfilter.LINEAR,
+		anisotropic = texfilter.ANISOTROPIC,
+	}
 
-function render.PushFilterMag() end
+	function render.PushFilterMin(filter)
+		lib.PushFilterMin(assert(filter_translate[filter], "expected TEXFILTER enum"))
+	end
 
-function render.PopFilterMin() end
+	function render.PushFilterMag(filter)
+		lib.PushFilterMag(assert(filter_translate[filter], "expected TEXFILTER enum"))
+	end
 
-function render.PopFilterMag() end
+	function render.GetActiveFilterMin()
+		return reverse_filter_translate[lib.GetActiveFilterMin()]
+	end
+
+	function render.GetActiveFilterMag()
+		return reverse_filter_translate[lib.GetActiveFilterMag()]
+	end
+end
+
+function render.PopFilterMin()
+	lib.PopFilterMin()
+end
+
+function render.PopFilterMag()
+	lib.PopFilterMag()
+end
 
 function render.SetLocalModelLights() end
 

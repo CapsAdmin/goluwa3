@@ -316,7 +316,9 @@ do
 	end
 
 	function META:GetName()
-		if self.__obj.config and self.__obj.config.path then return self.__obj.config.path end
+		if self.__obj.config and self.__obj.config.path then
+			return self.__obj.config.path
+		end
 
 		if self.__obj.GetPath then return self.__obj:GetPath() end
 
@@ -360,7 +362,7 @@ if CLIENT then
 		end
 
 		function surface.SetTexture(id)
-			render2d.SetTexture(idmap[id])
+			render2d.SetTexture(assert(idmap[id]))
 		end
 	end
 

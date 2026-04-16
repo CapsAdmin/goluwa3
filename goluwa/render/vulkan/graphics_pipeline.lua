@@ -9,6 +9,7 @@ local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local GraphicsPipeline = prototype.CreateTemplate("render_graphics_pipeline")
+local normalize_pipeline_sampler_config
 local NIL_VALUE = {}
 local ID_LEAF = {}
 local RASTERIZER_STATE_KEYS = {
@@ -1803,6 +1804,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.vulkan_instance = vulkan_instance
 	self.config = config
 	self.active_config = config
+	self.sampler_config = normalize_pipeline_sampler_config(config.Sampler or config.sampler)
 	self.uniform_buffers = uniform_buffers
 	self.descriptor_set_layouts = descriptorSetLayouts
 	self.descriptorPools = descriptorPools -- Array of pools, one per frame
@@ -1866,7 +1868,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 	do
 		self.texture_registry = setmetatable({}, {__mode = "k"}) -- texture_object -> index mapping
-		self.texture_array = {} -- array of {view, sampler} for descriptor set
+		self.texture_array = {} -- array of {view, sampler, sampler_config, sampler_hash} for descriptor set
 		self.next_texture_index = 0
 		self.texture_free_list = {}
 		self.cubemap_registry = setmetatable({}, {__mode = "k"})
@@ -1923,6 +1925,159 @@ function GraphicsPipeline:GetDescriptorSetCount()
 	return self.descriptor_sets and #self.descriptor_sets or 0
 end
 
+local sampler_config_keys = {
+	"min_filter",
+	"mag_filter",
+	"mipmap_mode",
+	"wrap_s",
+	"wrap_t",
+	"wrap_r",
+	"max_lod",
+	"min_lod",
+	"mip_lod_bias",
+	"anisotropy",
+	"border_color",
+	"unnormalized_coordinates",
+	"compare_enable",
+	"compare_op",
+	"flags",
+}
+
+local function copy_sampler_config(config)
+	if config == false then return false end
+
+	if type(config) ~= "table" then return nil end
+
+	local out = {}
+
+	for _, key in ipairs(sampler_config_keys) do
+		local value = config[key]
+
+		if value ~= nil then out[key] = value end
+	end
+
+	return out
+end
+
+local function merge_sampler_configs(...)
+	local merged = nil
+
+	for i = 1, select("#", ...) do
+		local config = select(i, ...)
+
+		if config == false then return false end
+
+		if type(config) == "table" then
+			merged = merged or {}
+
+			for _, key in ipairs(sampler_config_keys) do
+				local value = config[key]
+
+				if value ~= nil then merged[key] = value end
+			end
+		end
+	end
+
+	return merged
+end
+
+local function get_sampler_config_hash(config)
+	local normalized = copy_sampler_config(config)
+
+	if normalized == false or normalized == nil then return normalized end
+
+	return table.hash(normalized)
+end
+
+local function resolve_sampler_config(config)
+	local normalized = copy_sampler_config(config)
+
+	if normalized == false or normalized == nil then return nil end
+
+	return render.CreateSampler(normalized)
+end
+
+local function get_texture_sampler_config(texture)
+	if not texture then return nil end
+
+	if texture.GetSamplerConfig then return texture:GetSamplerConfig() end
+
+	return nil
+end
+
+local function resolve_sampler_binding(self, tex, sampler_config_override)
+	local effective_config = merge_sampler_configs(
+		tex and get_texture_sampler_config(tex) or nil,
+		self.sampler_config,
+		sampler_config_override
+	)
+
+	if effective_config == false or effective_config == nil then
+		effective_config = self:GetFallbackSamplerConfig()
+	end
+
+	return effective_config,
+	get_sampler_config_hash(effective_config),
+	resolve_sampler_config(effective_config)
+end
+
+local function build_texture_descriptor_entry(self, tex, sampler_config_override)
+	local view = tex and tex:GetView() or self:GetFallbackView()
+	local sampler_config, sampler_hash, sampler = resolve_sampler_binding(self, tex, sampler_config_override)
+	return {
+		texture = tex,
+		view = view,
+		sampler = sampler,
+		sampler_config = sampler_config,
+		sampler_config_override = copy_sampler_config(sampler_config_override),
+		sampler_hash = sampler_hash,
+	}
+end
+
+function normalize_pipeline_sampler_config(config)
+	if config == nil or config == false then return nil end
+
+	return copy_sampler_config(config)
+end
+
+local function get_bindless_texture_set_index(self)
+	return #self.descriptor_set_layouts > 1 and 1 or 0
+end
+
+local function refresh_texture_descriptor_array(self, array, binding_index, set_index)
+	local changed = false
+
+	for i = 1, #array do
+		local entry = array[i]
+		local next_entry = build_texture_descriptor_entry(
+			self,
+			entry and entry.texture or nil,
+			entry and entry.sampler_config_override or nil
+		)
+
+		if
+			entry == nil or
+			entry.view ~= next_entry.view or
+			entry.sampler_hash ~= next_entry.sampler_hash
+		then
+			array[i] = next_entry
+			changed = true
+		end
+	end
+
+	if not changed then return end
+
+	for frame_i = 1, #self.descriptor_sets do
+		self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
+	end
+end
+
+local function refresh_texture_descriptor_arrays(self)
+	local set_index = get_bindless_texture_set_index(self)
+	refresh_texture_descriptor_array(self, self.texture_array, 0, set_index)
+	refresh_texture_descriptor_array(self, self.cubemap_array, 1, set_index)
+end
+
 function GraphicsPipeline:GetFallbackView()
 	local Texture = import("goluwa/render/texture.lua")
 	local fallback = Texture.GetFallback()
@@ -1932,13 +2087,49 @@ function GraphicsPipeline:GetFallbackView()
 	return fallback and fallback.view
 end
 
-function GraphicsPipeline:GetFallbackSampler()
+function GraphicsPipeline:GetFallbackSamplerConfig()
 	local Texture = import("goluwa/render/texture.lua")
 	local fallback = Texture.GetFallback()
 
-	if fallback and fallback.GetSampler then return fallback:GetSampler() end
+	if fallback and fallback.GetSamplerConfig then
+		return fallback:GetSamplerConfig()
+	end
 
-	return fallback and fallback.sampler
+	return fallback and
+		copy_sampler_config(fallback.config and fallback.config.sampler) or
+		nil
+end
+
+function GraphicsPipeline:GetFallbackSampler()
+	return resolve_sampler_config(self:GetFallbackSamplerConfig())
+end
+
+function GraphicsPipeline:SetSamplerConfig(config)
+	local normalized = normalize_pipeline_sampler_config(config)
+
+	if
+		get_sampler_config_hash(self.sampler_config) == get_sampler_config_hash(normalized)
+	then
+		return self:GetSamplerConfig()
+	end
+
+	self.sampler_config = normalized
+	refresh_texture_descriptor_arrays(self)
+	return self:GetSamplerConfig()
+end
+
+function GraphicsPipeline:GetSamplerConfig()
+	return copy_sampler_config(self.sampler_config)
+end
+
+function GraphicsPipeline:SetSamplerConfigValue(key, value)
+	local config = self:GetSamplerConfig() or {}
+
+	if value == nil then config[key] = nil else config[key] = value end
+
+	if next(config) == nil then config = nil end
+
+	return self:SetSamplerConfig(config)
 end
 
 function GraphicsPipeline:ReleaseTextureIndex(tex, set_index)
@@ -1956,11 +2147,7 @@ function GraphicsPipeline:ReleaseTextureIndex(tex, set_index)
 	if index then
 		registry[tex] = nil
 		table.insert(free_list, index)
-		-- Clear the entry in the array to avoid keeping views alive
-		array[index + 1] = {
-			view = self:GetFallbackView(),
-			sampler = self:GetFallbackSampler(),
-		}
+		array[index + 1] = build_texture_descriptor_entry(self)
 
 		for frame_i = 1, #self.descriptor_sets do
 			self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
@@ -1968,7 +2155,7 @@ function GraphicsPipeline:ReleaseTextureIndex(tex, set_index)
 	end
 end
 
-function GraphicsPipeline:GetTextureIndex(tex, set_index)
+function GraphicsPipeline:GetTextureIndex(tex, set_index, sampler_config_override)
 	set_index = set_index or 0
 
 	if not tex or type(tex) ~= "table" then return -1 end
@@ -1982,18 +2169,18 @@ function GraphicsPipeline:GetTextureIndex(tex, set_index)
 
 	if index then
 		local entry = array[index + 1]
+		local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
 
-		-- Added safety check: only update if resources actually exist
 		if
-			entry and
-			tex.view and
-			tex.sampler and
+			next_entry.view and
+			next_entry.sampler and
 			(
-				entry.view ~= tex.view or
-				entry.sampler ~= tex.sampler
+				entry == nil or
+				entry.view ~= next_entry.view or
+				entry.sampler_hash ~= next_entry.sampler_hash
 			)
 		then
-			array[index + 1] = {view = tex.view, sampler = tex.sampler}
+			array[index + 1] = next_entry
 
 			for frame_i = 1, #self.descriptor_sets do
 				self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
@@ -2024,23 +2211,7 @@ function GraphicsPipeline:GetTextureIndex(tex, set_index)
 	end
 
 	registry[tex] = index
-	-- Ensure we don't put nil into the array which might confuse the C-side UpdateDescriptorSetArray
-	array[index + 1] = {
-		view = (
-				_G.type(tex) == "table" and
-				tex.GetView and
-				tex:GetView()
-			) or
-			tex.view or
-			self:GetFallbackView(),
-		sampler = (
-				_G.type(tex) == "table" and
-				tex.GetSampler and
-				tex:GetSampler()
-			) or
-			tex.sampler or
-			self:GetFallbackSampler(),
-	}
+	array[index + 1] = build_texture_descriptor_entry(self, tex, sampler_config_override)
 
 	for frame_i = 1, #self.descriptor_sets do
 		self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
@@ -2064,34 +2235,24 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, set_in
 			local array = {}
 
 			for i, tex in ipairs(textures) do
-				if _G.type(tex) == "table" and tex.view and tex.sampler then
-					array[i] = {
-						view = (tex.GetView and tex:GetView()) or tex.view,
-						sampler = (tex.GetSampler and tex:GetSampler()) or tex.sampler,
-					}
-				else
-					array[i] = tex
-				end
+				array[i] = build_texture_descriptor_entry(self, tex)
 			end
 
 			self:UpdateDescriptorSetArray(index, binding_index, set_index, array)
 			return
 		elseif count == 1 then
 			local tex = ...
-
-			if _G.type(tex) == "table" and (tex.view or (tex.GetView and tex:GetView())) then
-				-- Single texture object passed, extract view and sampler
-				self.vulkan_instance.device:UpdateDescriptorSet(
-					type,
-					self.descriptor_sets[index][set_index + 1],
-					binding_index,
-					(tex.GetView and tex:GetView()) or tex.view,
-					(tex.GetSampler and tex:GetSampler()) or tex.sampler,
-					self:GetFallbackView(),
-					self:GetFallbackSampler()
-				)
-				return
-			end
+			local entry = build_texture_descriptor_entry(self, tex)
+			self.vulkan_instance.device:UpdateDescriptorSet(
+				type,
+				self.descriptor_sets[index][set_index + 1],
+				binding_index,
+				entry.view,
+				entry.sampler,
+				self:GetFallbackView(),
+				self:GetFallbackSampler()
+			)
+			return
 		end
 	end
 

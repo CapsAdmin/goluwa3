@@ -772,6 +772,7 @@ function render2d.Initialize()
 		BackStencilCompareOp = "always",
 	}
 	render2d.pipeline = EasyPipeline.New(config)
+	render2d.pipeline:SetTextureSamplerConfigResolver(render.GetSamplerFilterConfig)
 	render2d.ResetState()
 	render2d.rect_mesh = render2d.CreateMesh(
 		{

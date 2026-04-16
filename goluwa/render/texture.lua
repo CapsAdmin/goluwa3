@@ -6,7 +6,6 @@ local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
 local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
-local Sampler = import("goluwa/render/vulkan/internal/sampler.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
 local prototype = import("goluwa/prototype.lua")
@@ -67,7 +66,7 @@ end
 function Texture:SetAnisotropy(value)
 	validate_anisotropy(value)
 
-	if self.Anisotropy == value then return self.sampler end
+	if self.Anisotropy == value then return self:GetSamplerConfig() end
 
 	self.Anisotropy = value
 	return self:RefreshSampler()
@@ -380,34 +379,29 @@ function Texture.New(config)
 		end
 
 		self.mip_map_levels = mip_levels
-		-- Create or use sampler
-		local sampler
 		local sampler_config = config.sampler
 
 		if config.sampler == false then
 			self.SamplerEnabled = false
 			config.sampler = false
-			sampler = nil
 		elseif config.sampler and config.sampler.ptr then
-			-- Already a Sampler object
 			self.SamplerEnabled = true
+			local legacy_config = config.sampler.config
 
-			if config.sampler.config then
-				apply_sampler_state(self, config.sampler.config, mip_levels)
+			if type(legacy_config) ~= "table" then
+				error("Texture.New: sampler objects must provide sampler config", 2)
 			end
 
+			apply_sampler_state(self, legacy_config, mip_levels)
 			sync_sampler_config(self)
-			sampler = config.sampler
 		else
 			self.SamplerEnabled = true
 			apply_sampler_state(self, sampler_config, mip_levels)
 			sync_sampler_config(self)
-			sampler = render.CreateSampler(self.config.sampler)
 		end
 
 		self.image = image
 		self.view = view
-		self.sampler = sampler
 		self.format = format
 		self.is_compressed = is_compressed
 		self.vulkan_info = vulkan_info
@@ -453,7 +447,6 @@ function Texture.New(config)
 		local fallback = create_fallback_texture()
 		self.image = fallback.image
 		self.view = fallback.view
-		self.sampler = fallback.sampler
 
 		resource.Download(config.path):Then(function(p)
 			local ok, img_or_err = pcall(decode_texture_file, p)
@@ -849,20 +842,28 @@ function Texture:GetView()
 	return self.view
 end
 
-function Texture:GetSampler()
-	return self.sampler
+function Texture:GetSamplerConfig()
+	if not self:GetSamplerEnabled() then return false end
+
+	return copy_sampler_config(self)
+end
+
+function Texture:GetSamplerConfigHash()
+	local config = self:GetSamplerConfig()
+
+	if config == false or config == nil then return config end
+
+	return table.hash(config)
 end
 
 function Texture:RefreshSampler()
 	if not self:GetSamplerEnabled() then
 		self.config = self.config or {}
 		self.config.sampler = false
-		self.sampler = nil
-		return nil
+		return false
 	end
 
-	self.sampler = render.CreateSampler(sync_sampler_config(self))
-	return self.sampler
+	return sync_sampler_config(self)
 end
 
 function Texture:GetMipMapLevels()
@@ -906,7 +907,6 @@ function Texture:OnRemove()
 
 	self.view = nil
 	self.image = nil
-	self.sampler = nil
 	self.vulkan_info = nil
 	self.reflectivity = nil
 	self.image_data_cache = nil

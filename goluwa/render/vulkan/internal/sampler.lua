@@ -3,6 +3,16 @@ local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Sampler = prototype.CreateTemplate("vulkan_sampler")
 
+local function copy_config(config)
+	local out = {}
+
+	for key, value in pairs(config) do
+		if key ~= "device" then out[key] = value end
+	end
+
+	return out
+end
+
 function Sampler.New(config)
 	config = config or {}
 	assert(config.device)
@@ -48,6 +58,7 @@ function Sampler.New(config)
 	return Sampler:CreateObject{
 		ptr = ptr,
 		device = config.device,
+		config = copy_config(config),
 	}
 end
 
