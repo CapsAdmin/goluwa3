@@ -2,6 +2,8 @@ local gine = ... or _G.gine
 local system = import("goluwa/system.lua")
 local host_input = import("goluwa/input.lua")
 local window = import("goluwa/window.lua")
+local vfs = import("goluwa/vfs.lua")
+local event = import("goluwa/event.lua")
 
 do
 	local translate_key = {}
@@ -77,6 +79,9 @@ do
 		translate_mouse_rev[v] = k
 	end
 
+	gine.translate_mouse = translate_mouse
+	gine.translate_mouse_rev = translate_mouse_rev
+
 	function gine.GetMouseCode(button, rev)
 		if rev then
 			if translate_mouse_rev[button] then
@@ -98,6 +103,75 @@ end
 
 do
 	gine.bindings = gine.bindings or {}
+	gine.default_bindings = gine.default_bindings or {}
+	gine.default_bindings_rev = gine.default_bindings_rev or {}
+
+	local function translate_binding_name(name)
+		if type(name) ~= "string" then return nil end
+
+		local upper = name:upper()
+
+		if #upper == 1 then
+			if upper:match("%d") or upper:match("%a") then
+				return gine.env["KEY_" .. upper]
+			end
+
+			if upper == "`" then return gine.env.KEY_BACKQUOTE end
+		end
+
+		local aliases = {
+			UPARROW = "KEY_UP",
+			DOWNARROW = "KEY_DOWN",
+			LEFTARROW = "KEY_LEFT",
+			RIGHTARROW = "KEY_RIGHT",
+			SPACE = "KEY_SPACE",
+			CTRL = "KEY_LCONTROL",
+			SHIFT = "KEY_LSHIFT",
+			ALT = "KEY_LALT",
+			ENTER = "KEY_ENTER",
+			ESCAPE = "KEY_ESCAPE",
+			TAB = "KEY_TAB",
+			PAUSE = "KEY_PAUSE",
+			F1 = "KEY_F1",
+			F2 = "KEY_F2",
+			F3 = "KEY_F3",
+			F4 = "KEY_F4",
+			F5 = "KEY_F5",
+			F6 = "KEY_F6",
+			F7 = "KEY_F7",
+			F8 = "KEY_F8",
+			F9 = "KEY_F9",
+			F10 = "KEY_F10",
+			F11 = "KEY_F11",
+			F12 = "KEY_F12",
+			MOUSE1 = "MOUSE_LEFT",
+			MOUSE2 = "MOUSE_RIGHT",
+			MOUSE3 = "MOUSE_MIDDLE",
+			MOUSE4 = "MOUSE_4",
+			MOUSE5 = "MOUSE_5",
+			MWHEELUP = "MOUSE_WHEEL_UP",
+			MWHEELDOWN = "MOUSE_WHEEL_DOWN",
+		}
+
+		return gine.env[aliases[upper] or ""]
+	end
+
+	local function add_default_binding(key_name, cmd)
+		local code = translate_binding_name(key_name)
+		if not code then return end
+
+		gine.default_bindings[code] = cmd
+		gine.default_bindings_rev[cmd] = gine.default_bindings_rev[cmd] or key_name
+	end
+
+	local default_bind_path = "goluwa/gmod/src/garrysmod/garrysmod/scripts/kb_def.lst"
+	local default_bind_data = vfs.Read(default_bind_path)
+
+	if default_bind_data then
+		for key_name, cmd in default_bind_data:gmatch('"([^"]+)"%s+"([^"]+)"') do
+			add_default_binding(key_name, cmd)
+		end
+	end
 
 	function gine.SetupKeyBind(key, cmd, on_press, on_release)
 		if host_input.Unbind then host_input.Unbind(key) end
@@ -186,10 +260,51 @@ local function get_window()
 	return system.GetCurrentWindow()
 end
 
+local function is_mouse_code(code)
+	return gine.translate_mouse_rev and gine.translate_mouse_rev[code] ~= nil
+end
+
+local function normalize_binding_key(key)
+	if type(key) ~= "string" then return nil end
+
+	key = key:gsub("^[%+%-]", "")
+
+	local aliases = {
+		button_1 = "mouse1",
+		button_2 = "mouse2",
+		button_3 = "mouse3",
+		button_4 = "mouse4",
+		button_5 = "mouse5",
+		mwheel_up = "mwheelup",
+		mwheel_down = "mwheeldown",
+	}
+
+	return aliases[key] or key
+end
+
+local function get_runtime_binding_for_code(code)
+	if type(code) ~= "number" then return nil end
+
+	local key = is_mouse_code(code) and gine.GetMouseCode(code, true) or gine.GetKeyCode(code, true)
+
+	if not key then return nil end
+
+	local info = gine.bindings[key] or gine.bindings["+" .. key] or gine.bindings["-" .. key]
+	return info and info.cmd or nil
+end
+
 function input.LookupBinding(cmd)
 	for k, v in pairs(gine.bindings) do
-		if v.cmd == cmd then return k end
+		if v.cmd == cmd then return normalize_binding_key(k) end
 	end
+
+	return gine.default_bindings_rev[cmd]
+end
+
+function input.LookupKeyBinding(code)
+	if type(code) ~= "number" then return nil end
+
+	return get_runtime_binding_for_code(code) or gine.default_bindings[code]
 end
 
 function input.SetCursorPos(x, y)
@@ -222,6 +337,12 @@ end
 
 function input.IsKeyDown(code)
 	return lib.IsKeyDown(gine.GetKeyCode(code, true))
+end
+
+function input.IsButtonDown(code)
+	if is_mouse_code(code) then return input.IsMouseDown(code) end
+
+	return input.IsKeyDown(code)
 end
 
 function input.GetKeyName(code)
