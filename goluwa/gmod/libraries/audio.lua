@@ -3,8 +3,12 @@ local resource = import("goluwa/resource.lua")
 
 do
 	function gine.env.CreateSound(ent, path, filter)
+		local resolved_path = gine.ResolvePath(path, "sound")
+
+		if not resolved_path then return end
+
 		resource.skip_providers = true
-		local self = audio.CreateSource("sound/" .. path)
+		local self = audio.CreateSource(resolved_path)
 		resource.skip_providers = false
 		return gine.WrapObject(self, "CSoundPatch")
 	end
@@ -50,8 +54,12 @@ if CLIENT then
 	function gine.env.surface.PlaySound(path)
 		if not SOUND then return end
 
+		local resolved_path = gine.ResolvePath(path, "sound")
+
+		if not resolved_path then return end
+
 		resource.skip_providers = true
-		audio.CreateSource("sound/" .. path):Play()
+		audio.CreateSource(resolved_path):Play()
 		resource.skip_providers = false
 	end
 end

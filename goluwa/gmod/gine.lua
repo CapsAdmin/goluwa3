@@ -153,6 +153,150 @@ end
 
 gine.glua_paths = gine.glua_paths or {}
 
+do
+	local resource_path_hints = {
+		material = {root = "materials/", extensions = {".vmt"}},
+		texture = {
+			root = "materials/",
+			extensions = {".vtf", ".png", ".jpg", ".jpeg", ".dds", ".gif"},
+		},
+		sound = {root = "sound/"},
+	}
+
+	local function is_absolute_path(path)
+		return path:starts_with("/") or path:starts_with("os:") or path:sub(2, 2) == ":"
+	end
+
+	local function add_candidate(candidates, seen, candidate)
+		if type(candidate) ~= "string" or candidate == "" then return end
+
+		candidate = candidate:gsub("\\", "/")
+		local key = candidate:lower()
+
+		if seen[key] then return end
+
+		seen[key] = true
+		list.insert(candidates, candidate)
+	end
+
+	local function strip_resource_root(path, root)
+		path = path:gsub("\\", "/")
+		local lower_path = path:lower()
+		local lower_root = root:lower()
+		local start = lower_path:find(lower_root, 1, true)
+
+		if start then path = path:sub(start) end
+
+		if path:lower():starts_with(lower_root) then return path:sub(#root + 1) end
+
+		return path
+	end
+
+	local function apply_resource_root(path, root)
+		if is_absolute_path(path) or path:lower():starts_with(root:lower()) then
+			return path
+		end
+
+		return root .. path
+	end
+
+	function gine.LogPathResolveFailure(path, hint, failed_paths)
+		if type(path) ~= "string" or path == "" then return end
+
+		local parts = {}
+
+		for _, failed_path in ipairs(failed_paths or {}) do
+			list.insert(parts, failed_path)
+		end
+
+		if #parts == 0 then
+			wlog("gine failed to resolve %s path %q", hint or "resource", path)
+			return
+		end
+
+		wlog(
+			"gine failed to resolve %s path %q; tried: %s",
+			hint or "resource",
+			path,
+			table.concat(parts, ", ")
+		)
+	end
+
+	function gine.GetPathCandidates(path, hint)
+		if type(path) ~= "string" or path == "" then return {} end
+
+		path = path:gsub("\\", "/")
+		hint = hint and hint:lower() or nil
+		local candidates = {}
+		local seen = {}
+		local info = hint and resource_path_hints[hint] or nil
+
+		if not info then
+			add_candidate(candidates, seen, path)
+		else
+			local logical_path = strip_resource_root(path, info.root)
+			local lower_path = logical_path:lower()
+			local has_extension = logical_path:find(".+%.[^/]+$")
+
+			if hint == "material" then
+				if has_extension then
+					add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
+				else
+					add_candidate(candidates, seen, apply_resource_root(logical_path .. ".vmt", info.root))
+					add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
+				end
+			elseif hint == "texture" then
+				local has_known_extension = false
+
+				for _, ext in ipairs(info.extensions) do
+					if lower_path:ends_with(ext) then
+						has_known_extension = true
+
+						break
+					end
+				end
+
+				if has_known_extension then
+					add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
+
+					if lower_path:ends_with(".vtf") then
+						add_candidate(candidates, seen, apply_resource_root(logical_path:sub(1, -5), info.root))
+					end
+				else
+					add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
+
+					if not has_extension then
+						for _, ext in ipairs(info.extensions) do
+							add_candidate(candidates, seen, apply_resource_root(logical_path .. ext, info.root))
+						end
+					end
+				end
+			elseif hint == "sound" then
+				add_candidate(candidates, seen, apply_resource_root(logical_path, info.root))
+			else
+				add_candidate(candidates, seen, path)
+			end
+		end
+
+		return candidates
+	end
+
+	function gine.ResolvePath(path, hint)
+		if type(path) ~= "string" or path == "" then return nil end
+
+		local candidates = gine.GetPathCandidates(path, hint)
+
+		for _, candidate in ipairs(candidates) do
+			local resolved_path = vfs.FindMixedCasePath(candidate)
+
+			if resolved_path then return resolved_path end
+		end
+
+		gine.LogPathResolveFailure(path, hint, candidates)
+		return nil
+	end
+end
+
 function gine.IsWrapperPath(path)
 	local lower_path = path:lower()
 	return lower_path:find("/goluwa/gmod/", nil, true) or

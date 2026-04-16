@@ -86,6 +86,9 @@ function vfs.LoadFile(path, chunkname)
 	local time = system and system.GetTime and system.GetTime or os.clock
 	local t = time()
 	local func, err, full_path = loadfile(path, chunkname)
+
+	if func and vfs.func_env_override then setfenv(func, vfs.func_env_override) end
+
 	vfs.total_loadfile_time = vfs.total_loadfile_time + (time() - t)
 	return func, err, full_path
 end

@@ -3,7 +3,9 @@ local system = import("goluwa/system.lua")
 
 local function run_gmod_frame_hooks_once()
 	local frame = tonumber(system.GetFrameNumber()) or 0
+
 	if gine.last_gmod_think_frame == frame then return end
+
 	gine.last_gmod_think_frame = frame
 	gine.env.hook.Run("Tick")
 	gine.env.hook.Run("Think")
@@ -11,6 +13,7 @@ end
 
 local function unwrap_value(val)
 	if type(val) ~= "table" then return val end
+
 	return val.ptr or val.v or val
 end
 
@@ -18,6 +21,7 @@ local function unwrap_vec3(val)
 	val = unwrap_value(val)
 
 	if type(val) == "table" and val.x and val.y and val.z then return val end
+
 	return nil
 end
 
@@ -25,6 +29,7 @@ local function unwrap_ang3(val)
 	val = unwrap_value(val)
 
 	if type(val) == "table" and val.x and val.y and val.z then return val end
+
 	return nil
 end
 
@@ -139,7 +144,7 @@ gine.AddEvent("PreGBufferModelPass", function()
 	gine.env.gamemode.Call("PreRender")
 end)
 
-gine.AddEvent("DrawScene", function()
+gine.AddEvent("Draw3DGeometry", function()
 	gine.env.gamemode.Call(
 		"RenderScene",
 		gine.env.EyePos(),
@@ -182,9 +187,8 @@ gine.AddEvent("GBufferPrePostProcess", function()
 	gine.env.gamemode.Call("PostRender")
 end)
 
-gine.AddEvent("PreDrawGUI", function()
+gine.AddEvent("PreDraw2D", function()
 	run_gmod_frame_hooks_once()
-
 	gine.env.gamemode.Call("PreDrawHUD")
 	gine.env.gamemode.Call("HUDPaintBackground")
 
@@ -203,12 +207,12 @@ gine.AddEvent("PreDrawGUI", function()
 	end
 end)
 
-gine.AddEvent("DrawGUI", function()
+gine.AddEvent("Draw2D", function()
 	gine.env.gamemode.Call("HUDPaint")
 	gine.env.gamemode.Call("HUDDrawScoreBoard")
 end)
 
-gine.AddEvent("PostDrawGUI", function()
+gine.AddEvent("PostDraw2D", function()
 	gine.env.gamemode.Call("PostDrawHUD")
 	gine.env.gamemode.Call("DrawOverlay")
 	gine.env.gamemode.Call("PostRenderVGUI")

@@ -93,6 +93,7 @@ return function(steam)
 
 			vmt = v
 			vmt.fullpath = path
+			vmt.shader = k
 
 			for k, v in pairs(vmt) do
 				if type(v) == "string" and (special_textures[v] or special_textures[v:lower()]) then

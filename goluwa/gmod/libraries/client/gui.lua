@@ -60,7 +60,9 @@ local function run_gmod_frame_hooks_once()
 	if not gine.env or not gine.env.hook then return end
 
 	local frame = tonumber(system.GetFrameNumber()) or 0
+
 	if gine.last_gmod_think_frame == frame then return end
+
 	gine.last_gmod_think_frame = frame
 	gine.env.hook.Run("Tick")
 	gine.env.hook.Run("Think")
@@ -747,6 +749,7 @@ do
 		if not gine.gui_world or not gine.gui_world:IsValid() then return end
 
 		local wnd = get_window()
+
 		if not wnd then return end
 
 		gine.gui_world:SetPosition(Vec2(0, 0))
@@ -789,7 +792,6 @@ do
 		end
 
 		refresh_gui_world_bounds()
-
 		class = class:lower()
 		local obj
 
@@ -1106,6 +1108,7 @@ do
 
 		if base then
 			local inherited = resolve_inherited_value(base, key)
+
 			if inherited ~= nil then return inherited end
 		end
 

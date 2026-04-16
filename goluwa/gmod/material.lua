@@ -1,6 +1,8 @@
 local gine = import("goluwa/gmod/gine.lua")
 local resource = import("goluwa/resource.lua")
 local render = import("goluwa/render/render.lua")
+local Color = import("goluwa/structs/color.lua")
+local Texture = import("goluwa/render/texture.lua")
 
 local function name_translate()
 	-- https://github.com/Nican/swarm-sdk/blob/master/src/materialsystem/stdshaders/unlitgeneric_dx9.cpp#L85-L163
@@ -1247,36 +1249,21 @@ do -- vmt object
 
 				if SERVER then val = "error" end
 			else
-				local lower_val = val:lower()
-				local has_texture_extension = lower_val:ends_with(".vtf") or
-					lower_val:ends_with(".png") or
-					lower_val:ends_with(".jpg") or
-					lower_val:ends_with(".jpeg") or
-					lower_val:ends_with(".dds")
+				val = gine.ResolvePath(val, "texture")
 
-				if not has_texture_extension and not val:find(".+%.") then val = val .. ".vtf" end
+				if not val then
+					if CLIENT then val = render.GetErrorTexture() end
 
-				--if not vfs.IsFile(val) then
-				if
-					not val:starts_with("/") and
-					val:sub(2, 2) ~= ":" and
-					not val:starts_with("materials/")
-				then
-					val = "materials/" .. val
+					if SERVER then val = "error" end
 				end
 
-				--end
-				--if not vfs.IsFile(val) then
-				--val = vfs.FindMixedCasePath(val) or val
-				--end
-				--end
-				if CLIENT then
+				if CLIENT and type(val) == "string" then
 					resource.skip_providers = true
 
 					if key == "basetexture" or key == "basetexture2" then
-						val = render.CreateTextureFromPath("[srgb]" .. val)
+						val = Texture.New{path = val, srgb = true}
 					else
-						val = render.CreateTextureFromPath("[~srgb]" .. val)
+						val = Texture.New{path = val, srgb = false}
 					end
 
 					resource.skip_providers = nil
@@ -1416,7 +1403,7 @@ do -- vmt object
 		end
 	end
 
-	function gine.CreateMaterial(shader, name)
+	function gine.CreateShaderMaterial(shader, name)
 		local self = setmetatable({}, META)
 		self.vars = {}
 		self.name = name or "no name"

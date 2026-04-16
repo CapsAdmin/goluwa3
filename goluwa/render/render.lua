@@ -198,16 +198,6 @@ function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
 end
 
-function render.CreateTextureFromPath(path, config)
-	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.device then
-		return nil
-	end
-
-	config = config or {}
-	config.path = path
-	return Texture.New(config)
-end
-
 function render.GetErrorTexture()
 	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.device then
 		return nil

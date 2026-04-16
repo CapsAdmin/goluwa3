@@ -2,7 +2,6 @@ local vfs = import("goluwa/vfs.lua")
 
 function gine.env.include(path)
 	local current_dir = vfs.GetFileRunStack and vfs.GetFileRunStack()[#vfs.GetFileRunStack()]
-
 	vfs.modify_chunkname = function(full_path)
 		if full_path:find("/addons/") then
 			return "@" .. full_path:match("^.+/(addons/.+)$")
@@ -43,7 +42,9 @@ function gine.env.include(path)
 		end
 	end
 
+	vfs.func_env_override = gine.env
 	local ok, err = vfs.RunFile(lookup)
+	vfs.func_env_override = nil
 	vfs.modify_chunkname = nil
 
 	if ok == false then

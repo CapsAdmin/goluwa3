@@ -93,7 +93,7 @@ local function reorder(data, size)
 end
 
 function exr.DecodeBuffer(inputBuffer)
-	return nil, "EXR decoding is disabled"
+	if true then return nil, "EXR decoding is disabled" end
 
 	if inputBuffer:ReadU32LE() ~= 0x01312f76 then error("Not an EXR file") end
 

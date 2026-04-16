@@ -162,6 +162,11 @@ function Window:OnCharInput(str)
 end
 
 function Window:OnKeyInput(key, press)
+	self.key_state = self.key_state or {}
+
+	if self.key_state[key] == press then return end
+
+	self.key_state[key] = press
 	local b = event.Call("WindowKeyInput", self, key, press)
 
 	if b ~= nil then return b end

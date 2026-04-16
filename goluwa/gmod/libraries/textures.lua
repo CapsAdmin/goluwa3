@@ -3,22 +3,20 @@ local steam = import("goluwa/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local Texture = import("goluwa/render/texture.lua")
 
 do
 	gine.created_materials = table.weak()
-	local texture_extensions = {".vtf", ".png", ".jpg", ".jpeg", ".dds", ".gif"}
+	local texture_extensions = {".png"}
 
 	local function material_source_exists(path)
 		if type(path) ~= "string" or path == "" then return false end
 
-		return vfs.IsFile("materials/" .. path .. ".vmt") or
-			vfs.IsFile("materials/" .. path) or
-			vfs.IsFile("materials/" .. path .. ".png") or
-			vfs.IsFile("materials/" .. path .. ".jpg") or
-			vfs.IsFile("materials/" .. path .. ".jpeg") or
-			vfs.IsFile("materials/" .. path .. ".dds") or
-			vfs.IsFile("materials/" .. path .. ".gif") or
-			vfs.IsFile("materials/" .. path .. ".vtf")
+		for _, hint in ipairs({"material", "texture"}) do
+			if gine.ResolvePath(path, hint) then return true end
+		end
+
+		return false
 	end
 
 	local function has_known_texture_extension(path)
@@ -33,35 +31,12 @@ do
 		return false
 	end
 
-	local function append_texture_candidates(candidates, path)
-		if has_known_texture_extension(path) then
-			list.insert(candidates, path)
-
-			if path:ends_with(".vtf") then list.insert(candidates, path:sub(1, -5)) end
-			return
-		end
-
-		if path:ends_with(".vtf") then
-			list.insert(candidates, path:sub(1, -5))
-			list.insert(candidates, path)
-			return
-		end
-
-		list.insert(candidates, path)
-
-		if not path:find(".+%.[^/]+$") then
-			for _, ext in ipairs(texture_extensions) do
-				list.insert(candidates, path .. ext)
-			end
-		end
-	end
-
 	function gine.env.CreateMaterial(name, shader, tbl)
 		shader = shader:lower()
 
 		if gine.created_materials[name] then return gine.created_materials[name] end
 
-		local mat = gine.CreateMaterial(shader)
+		local mat = gine.CreateShaderMaterial(shader)
 		mat.name = name
 
 		for k, v in pairs(tbl) do
@@ -89,11 +64,14 @@ do
 		if cached then
 			local texture = cached:GetTexture("$basetexture")
 
-			if not (texture and texture:IsError() and material_source_exists(path)) then return cached end
+			if not (texture and texture:IsError() and material_source_exists(path)) then
+				return cached
+			end
+
 			gine.created_materials[cache_key] = nil
 		end
 
-		local mat = gine.CreateMaterial()
+		local mat = gine.CreateShaderMaterial()
 		mat.name = path
 		local self = gine.WrapObject(mat, "IMaterial")
 
@@ -101,44 +79,35 @@ do
 			mat:SetShader("unlitgeneric")
 			self:SetString("$basetexture", path)
 		else
-			local vmt_path
-
-			if vfs.IsFile("materials/" .. path .. ".vmt") then
-				vmt_path = "materials/" .. path .. ".vmt"
-			elseif vfs.IsFile("materials/" .. path) then
-				vmt_path = "materials/" .. path
-			end
+			local vmt_path = gine.ResolvePath(path, "material")
 
 			if vmt_path then
-				steam.LoadVMT(
-					vmt_path,
-					function(vmt)
-						if type(vmt.shader) == "string" then
-							mat:SetShader(vmt.shader:lower())
-						end
+				steam.LoadVMT(vmt_path, function(vmt)
+					mat:SetShader(vmt.shader:lower())
 
-						for key, val in pairs(vmt) do
-							if key ~= "shader" then
-								if type(val) == "boolean" then
-									val = val and "1" or "0"
-								elseif type(val) == "number" then
-									val = tostring(val)
-								elseif typex(val) == "vec3" then
-									val = ("[%f %f %f]"):format(val:Unpack())
-								elseif typex(val) == "color" then
-									val = ("[%f %f %f %f]"):format(val:Unpack())
-								end
+					for key, val in pairs(vmt) do
+						if key ~= "shader" and key ~= "fullpath" then
+							if type(val) == "boolean" then
+								val = val and "1" or "0"
+							elseif type(val) == "number" then
+								val = tostring(val)
+							elseif typex(val) == "vec3" then
+								val = ("[%f %f %f]"):format(val:Unpack())
+							elseif typex(val) == "color" then
+								val = ("[%f %f %f %f]"):format(val:Unpack())
+							end
 
-								if type(key) == "string" and type(val) == "string" then
-									self:SetString("$" .. key, val)
-								end
+							if type(key) == "string" and type(val) == "string" then
+								self:SetString(key, val)
 							end
 						end
 					end
-				)
+				end, function(err)
+					print("Warning: Failed to load VMT:", vmt_path, err)
+					mat:SetShader("unlitgeneric")
+				end)
 			else
 				mat:SetShader("unlitgeneric")
-				self:SetString("$basetexture", path)
 			end
 		end
 
@@ -164,22 +133,14 @@ do
 			return render.GetErrorTexture()
 		end
 
-		path = path:gsub("\\", "/")
-		path = path:match("(materials/.+)") or path
-		local candidates = {}
-		append_texture_candidates(candidates, path)
+		local resolved_path = gine.ResolvePath(path, "texture")
 
-		for i, candidate in ipairs(candidates) do
-			if not candidate:starts_with("/") and candidate:sub(2, 2) ~= ":" and not candidate:starts_with("materials/") then
-				candidates[i] = "materials/" .. candidate
-			end
-		end
+		if not resolved_path then return render.GetErrorTexture() end
 
-		local tex
+		local tex = Texture.New({path = resolved_path})
 
-		for _, candidate in ipairs(candidates) do
-			tex = render.CreateTextureFromPath(candidate)
-			if tex and tex.GetPath and tex:GetPath() ~= "textures/error.png" then break end
+		if not tex or (tex.GetPath and tex:GetPath() == "textures/error.png") then
+			gine.LogPathResolveFailure(path, "texture", {resolved_path})
 		end
 
 		return tex or render.GetErrorTexture()
@@ -224,7 +185,7 @@ do
 	function META:Recompute() end
 
 	function META:SetString(key, val)
-		key = key:lower():sub(2)
+		if key:starts_with("$") then key = key:lower():sub(2) end
 
 		if is_texture_key(key) then
 			self.__obj.gine_texture_vars = self.__obj.gine_texture_vars or {}
@@ -272,11 +233,14 @@ do
 	function META:GetTexture(key)
 		key = key:lower():sub(2)
 		local cache = self.__obj.gine_texture_vars
+
 		if cache and cache[key] then return gine.WrapObject(cache[key], "ITexture") end
 
 		local val = self.__obj:Get(key)
 
-		if typex(val) == "texture" then return gine.WrapObject(val, "ITexture") end
+		if typex(val) == "render_texture" then
+			return gine.WrapObject(val, "ITexture")
+		end
 
 		if type(val) == "string" and is_texture_key(key) then
 			val = resolve_material_texture_path(val)
@@ -316,10 +280,12 @@ do
 	local function get_texture_size(obj)
 		if obj.GetSize then
 			local size = obj:GetSize()
+
 			if size and size.x and size.y then return size end
 		end
 
 		if obj.Size and obj.Size.x and obj.Size.y then return obj.Size end
+
 		return Vec2(0, 0)
 	end
 
@@ -333,20 +299,29 @@ do
 
 	function META:GetColor(x, y)
 		local s = get_texture_size(self.__obj)
+
 		if s.x <= 0 or s.y <= 0 then return gine.env.Color(255, 0, 255, 255) end
+
 		x = (x / s.x) * math.pow2round(s.x)
 		y = (y / s.y) * math.pow2round(s.y)
+
 		if not self.__obj.GetPixelColor then return gine.env.Color(255, 0, 255, 255) end
+
 		local pixel = self.__obj:GetPixelColor(x, y)
+
 		if not pixel or not pixel.Unpack then return gine.env.Color(255, 0, 255, 255) end
+
 		local r, g, b, a = pixel:Unpack()
 		return gine.env.Color(r * 255, g * 255, b * 255, a * 255)
 	end
 
 	function META:GetName()
 		if self.__obj.GetPath then return self.__obj:GetPath() end
+
 		if self.__obj.path then return self.__obj.path end
+
 		if self.__obj.name then return self.__obj.name end
+
 		return ""
 	end
 
@@ -362,18 +337,16 @@ if CLIENT then
 		local id = 0
 
 		function surface.GetTextureID(path)
-			local tex
 			resource.skip_providers = true
+			local resolved_path = gine.ResolvePath(path, "texture")
+			local tex
 
-			if vfs.IsFile("materials/" .. path) then
-				if vfs.IsFile("materials/" .. path .. ".vtf") then
-					tex = render.CreateTextureFromPath("materials/" .. path)
-				else
-					wlog("texture not found %s", path)
-				end
+			if resolved_path then tex = Texture.New({path = resolved_path}) end
+
+			if not tex or (tex.GetPath and tex:GetPath() == "textures/error.png") then
+				gine.LogPathResolveFailure(path, "texture", resolved_path and {resolved_path} or nil)
 			end
 
-			if not tex then tex = render.CreateTextureFromPath("materials/" .. path .. ".vtf") end
 			resource.skip_providers = nil
 			idmap[id] = tex
 			id = id + 1
@@ -396,11 +369,11 @@ if CLIENT then
 		end
 
 		mat = mat.__obj
-		local texture = mat.gine_texture_vars and mat.gine_texture_vars.basetexture or mat.vars.basetexture
+		local texture = mat.gine_texture_vars and
+			mat.gine_texture_vars.basetexture or
+			mat.vars.basetexture
 
-		if typex(texture) ~= "texture" then
-			texture = render.GetErrorTexture()
-		end
+		if typex(texture) ~= "render_texture" then texture = render.GetErrorTexture() end
 
 		render2d.SetTexture(texture)
 
