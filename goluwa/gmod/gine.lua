@@ -178,6 +178,186 @@ function gine.GetEnums(pattern)
 end
 
 gine.glua_paths = gine.glua_paths or {}
+gine.package_loader_dirs = gine.package_loader_dirs or {}
+
+do
+	local glua_source_repo = "https://github.com/Facepunch/garrysmod.git"
+	local glua_source_checkout_path = "goluwa/gmod/src/garrysmod/"
+
+	local function add_unique_path(tbl, path)
+		if type(path) ~= "string" or path == "" then return end
+
+		for _, existing in ipairs(tbl) do
+			if existing:lower() == path:lower() then return end
+		end
+
+		list.insert(tbl, path)
+	end
+
+	local function add_package_loader_dir(dir)
+		if type(dir) ~= "string" or dir == "" then return end
+
+		if not vfs.IsDirectory(dir) then return end
+
+		local key = dir:lower()
+
+		if gine.package_loader_dirs[key] then return end
+
+		gine.package_loader_dirs[key] = true
+
+		utility.AddPackageLoader(
+			function(path)
+				return vfs.LoadFile(dir .. "/" .. path .. ".lua")
+			end,
+			gine.package_loaders
+		)
+	end
+
+	local function shell_quote(str)
+		return "'" .. str:gsub("'", "'\"'\"'") .. "'"
+	end
+
+	local function command_exists(name)
+		if type(system.OSCommandExists) == "function" then
+			return system.OSCommandExists(name)
+		end
+
+		local probe = WINDOWS and
+			(
+				"where " .. name .. " >nul 2>nul"
+			)
+			or
+			(
+				"command -v " .. name .. " >/dev/null 2>&1"
+			)
+		local ok = os.execute(probe)
+
+		if type(ok) == "number" then return ok == 0 end
+
+		if type(ok) == "boolean" then return ok end
+
+		return false
+	end
+
+	local function get_glua_source_checkout_root()
+		local gmod_root = R("goluwa/gmod/", true)
+
+		if not gmod_root then return nil end
+
+		return gmod_root .. glua_source_checkout_path:match("^goluwa/gmod/(.+)$")
+	end
+
+	local function get_glua_source_overlay_root()
+		local checkout_root = get_glua_source_checkout_root()
+
+		if not checkout_root then return nil end
+
+		local overlay_root = checkout_root .. "garrysmod/"
+
+		if vfs.IsDirectory(overlay_root) then return overlay_root end
+
+		return nil
+	end
+
+	local function get_glua_redirect_root()
+		if gine.glua_source_dir and vfs.IsDirectory(gine.glua_source_dir) then
+			return gine.glua_source_dir
+		end
+
+		local redirect = e.ROOT_FOLDER .. "garrysmod/garrysmod/"
+
+		if vfs.IsDirectory(redirect) then return redirect end
+
+		return nil
+	end
+
+	function gine.EnsureGLuaSourceClone()
+		local checkout_root = get_glua_source_checkout_root()
+
+		if not checkout_root then return nil, "failed to resolve goluwa/gmod/" end
+
+		local overlay_root = checkout_root .. "garrysmod/"
+
+		if vfs.IsDirectory(overlay_root) then return overlay_root end
+
+		if not command_exists("git") then
+			return nil, "git is not available in PATH"
+		end
+
+		local src_root = checkout_root:match("(.+/)garrysmod/$")
+
+		if src_root and not vfs.IsDirectory(src_root) then
+			local ok, err = os.execute("mkdir -p " .. shell_quote(src_root))
+
+			if ok == nil and err then return nil, err end
+		end
+
+		local ok, err = os.execute("git clone --depth 1 " .. glua_source_repo .. " " .. shell_quote(checkout_root))
+
+		if ok == nil and err then return nil, err end
+
+		if vfs.IsDirectory(overlay_root) then return overlay_root end
+
+		return nil,
+		"git clone finished but garrysmod/ was not found in " .. checkout_root
+	end
+
+	function gine.GetGLuaSourceDir()
+		return get_glua_source_overlay_root()
+	end
+
+	function gine.RedirectGLuaPath(path)
+		if type(path) ~= "string" then return path end
+
+		local lower_path = path:lower()
+
+		if
+			not lower_path:find("garrysmod/garrysmod/lua/", nil, true) and
+			not lower_path:find("garrysmod/garrysmod/gamemodes/", nil, true)
+		then
+			return path
+		end
+
+		local redirect_root = get_glua_redirect_root()
+
+		if not redirect_root then return path end
+
+		local relative_path = path:match("^.-garrysmod/garrysmod/(.+)$")
+
+		if not relative_path then return path end
+
+		local new_path = redirect_root .. relative_path
+
+		if new_path:lower() ~= lower_path and vfs.IsFile(new_path) then
+			return new_path
+		end
+
+		return path
+	end
+
+	function gine.AddGLuaPath(path)
+		add_unique_path(gine.glua_paths, path)
+	end
+
+	function gine.AddPackageLoaderDir(dir)
+		add_package_loader_dir(dir)
+	end
+
+	function gine.MountGLuaSourceOverlay()
+		local overlay_root, err = gine.EnsureGLuaSourceClone()
+
+		if not overlay_root then
+			wlog("failed to prepare Garry's Mod source overlay: %s", err or "unknown error")
+			return nil, err
+		end
+
+		gine.glua_source_dir = overlay_root
+		vfs.Mount(overlay_root)
+		gine.AddGLuaPath(overlay_root)
+		gine.AddPackageLoaderDir(overlay_root .. "lua/includes/modules")
+		return overlay_root
+	end
+end
 
 do
 	local resource_path_hints = {
@@ -325,6 +505,14 @@ end
 
 function gine.IsWrapperPath(path)
 	local lower_path = path:lower()
+
+	if
+		lower_path:find("/goluwa/gmod/src/garrysmod/", nil, true) or
+		lower_path:find("goluwa/gmod/src/garrysmod/", nil, true)
+	then
+		return false
+	end
+
 	return lower_path:find("/goluwa/gmod/", nil, true) or
 		lower_path:find("goluwa/gmod/", nil, true)
 end
@@ -369,15 +557,9 @@ function gine.Initialize(gamemode, skip_addons)
 				path:lower():find("garrysmod/garrysmod/gamemodes/")
 			)
 		then
-			local redirect = e.ROOT_FOLDER .. "garrysmod/garrysmod/"
+			local new_path = gine.RedirectGLuaPath(path)
 
-			if vfs.IsDirectory(redirect) then
-				local new_path = path:lower():gsub("^(.-garrysmod/garrysmod/)", redirect)
-
-				if new_path:lower() ~= path:lower() and vfs.IsFile(new_path) then
-					return new_path
-				end
-			end
+			if new_path ~= path then return new_path end
 
 			return
 		end
@@ -415,24 +597,18 @@ function gine.Initialize(gamemode, skip_addons)
 	end)
 
 	if not gine.init then
+		gine.MountGLuaSourceOverlay()
 		steam.MountSourceGame("gmod", skip_addons)
 		pvars.Setup("sv_allowcslua", 1)
 		-- figure out the base gmod folder
 		gine.dir = R("garrysmod_dir.vpk"):match("(.+/)")
-		list.insert(gine.glua_paths, gine.dir)
+		gine.AddGLuaPath(gine.dir)
 		import("goluwa/gmod/material.lua")
 		-- setup engine functions
 		import("goluwa/gmod/environment.lua")
 
 		do
-			local dir = "os:" .. R(gine.dir .. "lua/includes/modules/")
-
-			utility.AddPackageLoader(
-				function(path)
-					return vfs.LoadFile(dir .. "/" .. path .. ".lua")
-				end,
-				gine.package_loaders
-			)
+			gine.AddPackageLoaderDir(gine.dir .. "lua/includes/modules")
 		end
 
 		-- include and init files in the right order
@@ -501,19 +677,19 @@ function gine.Initialize(gamemode, skip_addons)
 		if gamemode ~= "base" then gine.LoadGamemode(gamemode) end
 
 		-- autorun lua files
-		vfs.RunFile(gine.dir .. "/lua/autorun/*")
+		vfs.RunFile("lua/autorun/*")
 
-		if CLIENT then vfs.RunFile(gine.dir .. "/lua/autorun/client/*") end
+		if CLIENT then vfs.RunFile("lua/autorun/client/*") end
 
-		if SERVER then vfs.RunFile(gine.dir .. "/lua/autorun/server/*") end
+		if SERVER then vfs.RunFile("lua/autorun/server/*") end
 
-		if CLIENT then
-			ensure_client_graphics_bootstrap()
-		end
+		if CLIENT then ensure_client_graphics_bootstrap() end
 
 		--gine.env.DCollapsibleCategory.LoadCookies = nil -- DUCT TAPE FIX
 		for name in pairs(gine.gamemodes) do
-			vfs.Mount(gine.dir .. "/gamemodes/" .. name .. "/entities/", "lua/")
+			local entities_dir = R("gamemodes/" .. name .. "/entities/", true)
+
+			if entities_dir then vfs.Mount(entities_dir, "lua/") end
 		end
 
 		if CLIENT then
