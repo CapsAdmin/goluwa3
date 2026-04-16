@@ -6,3 +6,11 @@ The constraints I want to follow are:
 - LuaJIT FFI bindings should only target the OS and the Vulkan driver. Anything else like libpng, sdl, etc is not allowed, everything has to be written in lua.
 
 This should be the successor of https://github.com/CapsAdmin/goluwa . In my previous project, I used OpenGL had bindings to SDL, freeimage, etc. I often had issues with portability when dealing with third party libraries, so this time I want to avoid it entirely. Today we also have LLM's which can greatly help with doing things from scratch.
+
+Run the game with 
+
+luajit glw 
+
+Run tests with
+
+luajit glw test path/to/test.lua
