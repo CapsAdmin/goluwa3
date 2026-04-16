@@ -20,10 +20,13 @@ end
 
 local function get_weapon_definition(class_name)
 	if not class_name then return nil end
+
 	if gine.env.weapons.GetStored then
-		local stored = gine.env.weapons.GetStored()
-		if stored then return stored[class_name] end
+		local stored = gine.env.weapons.GetStored(class_name)
+
+		if stored then return stored end
 	end
+
 	if gine.env.weapons.Get then return gine.env.weapons.Get(class_name) end
 end
 
@@ -31,7 +34,6 @@ local function ensure_weapon_wrapper(player, class_name)
 	class_name = class_name or player.__obj.gine_active_weapon_class or "gmod_tool"
 	player.__obj.gine_weapons = player.__obj.gine_weapons or {}
 	player.__obj.gine_active_weapon_class = class_name
-
 	local host_weapon = player.__obj.gine_weapons[class_name]
 
 	if not host_weapon then
@@ -41,17 +43,23 @@ local function ensure_weapon_wrapper(player, class_name)
 	end
 
 	local wrapped_weapon = gine.WrapObject(host_weapon, "Weapon")
-	local definition = get_weapon_definition(class_name)
 
-	if definition and not host_weapon.gine_definition_applied then
-		for key, value in pairs(definition) do
-			rawset(wrapped_weapon, key, value)
+	if not host_weapon.gine_definition_applied then
+		local definition = get_weapon_definition(class_name)
+
+		if definition then
+			for key, value in pairs(definition) do
+				rawset(wrapped_weapon, key, value)
+			end
+
+			host_weapon.gine_definition_applied = true
 		end
-
-		host_weapon.gine_definition_applied = true
 	end
 
-	if rawget(wrapped_weapon, "InitializeTools") and not host_weapon.gine_tools_initialized then
+	if
+		rawget(wrapped_weapon, "InitializeTools") and
+		not host_weapon.gine_tools_initialized
+	then
 		wrapped_weapon:InitializeTools()
 		host_weapon.gine_tools_initialized = true
 	end
@@ -112,9 +120,7 @@ do
 		self.__obj.hold_type = hold_type
 		self.__obj.AnimExtension = self.__obj.AnimExtension or {}
 
-		if self.SetWeaponHoldType then
-			return self:SetWeaponHoldType(hold_type)
-		end
+		if self.SetWeaponHoldType then return self:SetWeaponHoldType(hold_type) end
 
 		return hold_type
 	end
@@ -151,6 +157,7 @@ do
 
 	function META:GetWeapon(class_name)
 		if not class_name then return self:GetActiveWeapon() end
+
 		return ensure_weapon_wrapper(self, class_name)
 	end
 
