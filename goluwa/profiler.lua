@@ -1,19 +1,22 @@
 local JitProfiler = import("goluwa/helpers/jit_profiler.lua")
+local fs = import("goluwa/fs.lua")
 local system = import("goluwa/system.lua")
 local profiler = library()
 local jit_profiler
 
 function profiler.Start(id)
+	debug.trace()
 	time_start = system.GetTime()
 	jit_profiler = JitProfiler.New{
 		path = "game/storage/logs/jit_profile_" .. id .. ".html",
-		file_url = "vscode://file/${path}:${line}:1",
+		file_url = "vscode://file" .. fs.get_current_directory() .. "/${path}:${line}:1",
 		get_time = system.GetTime,
 		sampling_rate = 1,
 	}
 end
 
 function profiler.Stop()
+	debug.trace()
 	jit_profiler:Stop()
 end
 

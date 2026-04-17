@@ -1591,13 +1591,48 @@ function prototype.ParentingTemplate(META)
 			return order_a < order_b
 		end
 
+		local function refresh_child_insert_order(parent)
+			local children = parent.Children
+
+			for i = 1, #children do
+				children[i]._child_insert_order = i
+			end
+
+			parent._child_insert_serial = #children
+		end
+
+		local function move_child(parent, obj, index)
+			local children = parent.Children
+			local current_index
+
+			for i = 1, #children do
+				if children[i] == obj then
+					current_index = i
+
+					break
+				end
+			end
+
+			if not current_index then return false end
+
+			if current_index == index then return true end
+
+			table.remove(children, current_index)
+
+			if index > #children + 1 then index = #children + 1 end
+
+			if index < 1 then index = 1 end
+
+			table.insert(children, index, obj)
+			refresh_child_insert_order(parent)
+			parent:InvalidateChildrenList()
+			return true
+		end
+
 		function META:BringToFront()
 			local parent = self:GetParent()
 
-			if parent:IsValid() then
-				self:UnParent()
-				parent:AddChild(self)
-			end
+			if parent:IsValid() then move_child(parent, self, #parent.Children) end
 		end
 
 		META.BringToTop = META.BringToFront
@@ -1605,10 +1640,7 @@ function prototype.ParentingTemplate(META)
 		function META:SendToBack()
 			local parent = self:GetParent()
 
-			if parent:IsValid() then
-				self:UnParent()
-				parent:AddChild(self, 1)
-			end
+			if parent:IsValid() then move_child(parent, self, 1) end
 		end
 
 		META.SendToBottom = META.SendToBack
@@ -1690,6 +1722,14 @@ function prototype.ParentingTemplate(META)
 			return output
 		end
 
+		local function invalidate_parent_list_recursive(obj)
+			obj.parent_list = nil
+
+			for _, child in ipairs(obj:GetChildren()) do
+				invalidate_parent_list_recursive(child)
+			end
+		end
+
 		function META:GetParentList()
 			if not self.parent_list then
 				if self.Parent and self.Parent:IsValid() then
@@ -1704,11 +1744,7 @@ function prototype.ParentingTemplate(META)
 		end
 
 		function META:InvalidateParentList()
-			self.parent_list = nil
-
-			for _, child in ipairs(self:GetChildrenList()) do
-				child.parent_list = nil
-			end
+			invalidate_parent_list_recursive(self)
 		end
 
 		function META:InvalidateParentListPartial(parent_list, parent)
@@ -1783,7 +1819,7 @@ function prototype.ParentingTemplate(META)
 		end
 
 		function META:SortChildren() -- todo
-			-- Preserve insertion order by default; explicit SetChildOrder already sorts when needed.
+		-- Preserve insertion order by default; explicit SetChildOrder already sorts when needed.
 		end
 	end
 
@@ -1810,14 +1846,51 @@ function prototype.ParentingTemplate(META)
 	function META:RemoveChildren()
 		if self.PreRemoveChildren and self:PreRemoveChildren() == false then return end
 
+		if self.__skip_remove_children then
+			self.__skip_remove_children = nil
+			return
+		end
+
+		if not self.Children[1] then
+			self.Children = {}
+			self.ChildrenMap = {}
+			return
+		end
+
 		self:InvalidateChildrenList()
 		local children = self:GetChildren()
+		local remove_list = {}
+		self.bulk_removing_children = true
 
 		for i = #children, 1, -1 do
-			local obj = children[i]
+			local root = children[i]
+			local stack = {root}
+
+			while #stack > 0 do
+				local obj = stack[#stack]
+
+				if obj.__bulk_remove_mark then
+					stack[#stack] = nil
+					remove_list[#remove_list + 1] = obj
+				else
+					obj.__bulk_remove_mark = true
+					obj.__skip_remove_children = true
+					local obj_children = obj:GetChildren()
+
+					for j = #obj_children, 1, -1 do
+						stack[#stack + 1] = obj_children[j]
+					end
+				end
+			end
+		end
+
+		for i = 1, #remove_list do
+			local obj = remove_list[i]
+			obj.__bulk_remove_mark = nil
 			obj:Remove()
 		end
 
+		self.bulk_removing_children = nil
 		self.Children = {}
 		self.ChildrenMap = {}
 	end
@@ -1832,6 +1905,15 @@ function prototype.ParentingTemplate(META)
 		if self.ChildrenMap[obj] == nil then return end
 
 		self.ChildrenMap[obj] = nil
+
+		if self.bulk_removing_children and self.Children[#self.Children] == obj then
+			self.Children[#self.Children] = nil
+			obj.Parent = NULL
+			obj:InvalidateParentList()
+			obj:CallLocalEvent("OnUnParent", self)
+			self:CallLocalEvent("OnChildRemove", obj)
+			return
+		end
 
 		for i, val in ipairs(self.Children) do
 			if val == obj then

@@ -292,8 +292,6 @@ local function load_mdl(path)
 		--header[name .. "_count"] = nil
 		--header[name .. "_offset"] = nil
 		header[name] = out
-
-		if _debug then profiler.StopTimer() end
 	end
 
 	local function string_from_offset(offset, offset2)
@@ -747,8 +745,6 @@ local function load_vvd(path)
 			end
 		end
 	end
-
-	if _debug then profiler.StopTimer() end
 
 	return vvd
 end
