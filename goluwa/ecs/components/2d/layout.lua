@@ -23,6 +23,7 @@ META:GetSet("AlignmentY", "stretch", {callback = "InvalidateLayout"})
 META:GetSet("SelfAlignmentX", "auto", {callback = "InvalidateLayout"})
 META:GetSet("SelfAlignmentY", "auto", {callback = "InvalidateLayout"})
 META:GetSet("Floating", false, {callback = "InvalidateLayout"})
+META:GetSet("Dock", "none", {callback = "InvalidateLayout"})
 META:GetSet("Dirty", false)
 META:GetSet("LastSize", Vec2(0, 0))
 META:EndStorable()
@@ -92,6 +93,123 @@ local axis_map = {
 		cross_margin_end = "w",
 	},
 }
+local dock_values = {
+	none = true,
+	top = true,
+	bottom = true,
+	left = true,
+	right = true,
+	fill = true,
+}
+
+local function should_layout_child(child)
+	local gui = child.gui_element
+	return child:IsValid() and
+		(
+			not gui or
+			gui:GetVisible()
+		)
+		and
+		not (
+			child.layout and
+			child.layout:GetFloating()
+		)
+end
+
+local function get_child_dock(child_layout)
+	if not child_layout then return "none" end
+
+	local dock = child_layout:GetDock()
+
+	if dock_values[dock] then return dock end
+
+	return "none"
+end
+
+local function layout_uses_dock(children)
+	for _, child in ipairs(children) do
+		if
+			should_layout_child(child) and
+			child.layout and
+			get_child_dock(child.layout) ~= "none"
+		then
+			return true
+		end
+	end
+
+	return false
+end
+
+local function measure_child_layout(child)
+	if child.layout then
+		return child.layout:Measure(), child.layout:GetMargin(), child.layout
+	end
+
+	return child.transform:GetSize(), Rect(0, 0, 0, 0), nil
+end
+
+local function get_effective_dock(child_layout)
+	local dock = get_child_dock(child_layout)
+
+	if dock == "none" then return "fill" end
+
+	return dock
+end
+
+local function measure_docked_children(children, padding)
+	local consumed_left = 0
+	local consumed_right = 0
+	local consumed_top = 0
+	local consumed_bottom = 0
+	local required_width = 0
+	local required_height = 0
+	local count = 0
+	local fill_children = {}
+
+	for _, child in ipairs(children) do
+		if should_layout_child(child) then
+			local child_size, child_margin, child_layout = measure_child_layout(child)
+			local dock = get_effective_dock(child_layout)
+			local total_width = child_size.x + child_margin.x + child_margin.w
+			local total_height = child_size.y + child_margin.y + child_margin.h
+
+			if dock == "top" or dock == "bottom" then
+				required_width = math.max(required_width, consumed_left + consumed_right + total_width)
+
+				if dock == "top" then
+					consumed_top = consumed_top + total_height
+				else
+					consumed_bottom = consumed_bottom + total_height
+				end
+			elseif dock == "left" or dock == "right" then
+				required_height = math.max(required_height, consumed_top + consumed_bottom + total_height)
+
+				if dock == "left" then
+					consumed_left = consumed_left + total_width
+				else
+					consumed_right = consumed_right + total_width
+				end
+			else
+				fill_children[#fill_children + 1] = {
+					total_width = total_width,
+					total_height = total_height,
+				}
+			end
+
+			count = count + 1
+		end
+	end
+
+	for _, child in ipairs(fill_children) do
+		required_width = math.max(required_width, consumed_left + consumed_right + child.total_width)
+		required_height = math.max(required_height, consumed_top + consumed_bottom + child.total_height)
+	end
+
+	required_width = math.max(required_width, consumed_left + consumed_right)
+	required_height = math.max(required_height, consumed_top + consumed_bottom)
+	return Vec2(required_width + padding.x + padding.w, required_height + padding.y + padding.h),
+	count
+end
 
 local function get_child_cross_alignment(parent_layout, child_layout)
 	local parent_dir = parent_layout:GetDirection()
@@ -118,54 +236,36 @@ function META:Measure()
 	local main_total = 0
 	local cross_max = 0
 	local children = self.Owner:GetChildren()
+	local uses_dock_layout = layout_uses_dock(children)
 	local count = 0
-
-	for _, child in ipairs(children) do
-		local gui = child.gui_element
-
-		if
-			child:IsValid() and
-			(
-				not gui or
-				gui:GetVisible()
-			)
-			and
-			not (
-				child.layout and
-				child.layout:GetFloating()
-			)
-		then
-			local child_size
-			local child_margin
-
-			if child.layout then
-				child_size = child.layout:Measure()
-				child_margin = child.layout:GetMargin()
-			else
-				child_size = child.transform:GetSize()
-				child_margin = Rect(0, 0, 0, 0)
-			end
-
-			local child_main = child_size[axis.main] + child_margin[axis.main_margin_start] + child_margin[axis.main_margin_end]
-			local child_cross = child_size[axis.cross] + child_margin[axis.cross_margin_start] + child_margin[axis.cross_margin_end]
-
-			if count > 0 then main_total = main_total + child_gap end
-
-			main_total = main_total + child_main
-			cross_max = math.max(cross_max, child_cross)
-			count = count + 1
-		end
-	end
-
+	self.uses_dock_layout = uses_dock_layout
 	local intrinsic = Vec2(0, 0)
 	local tr_size = self.Owner.transform:GetSize()
 
-	if dir == "x" then
-		intrinsic.x = main_total + padding.x + padding.w
-		intrinsic.y = cross_max + padding.y + padding.h
+	if uses_dock_layout then
+		intrinsic, count = measure_docked_children(children, padding)
 	else
-		intrinsic.x = cross_max + padding.x + padding.w
-		intrinsic.y = main_total + padding.y + padding.h
+		for _, child in ipairs(children) do
+			if should_layout_child(child) then
+				local child_size, child_margin = measure_child_layout(child)
+				local child_main = child_size[axis.main] + child_margin[axis.main_margin_start] + child_margin[axis.main_margin_end]
+				local child_cross = child_size[axis.cross] + child_margin[axis.cross_margin_start] + child_margin[axis.cross_margin_end]
+
+				if count > 0 then main_total = main_total + child_gap end
+
+				main_total = main_total + child_main
+				cross_max = math.max(cross_max, child_cross)
+				count = count + 1
+			end
+		end
+
+		if dir == "x" then
+			intrinsic.x = main_total + padding.x + padding.w
+			intrinsic.y = cross_max + padding.y + padding.h
+		else
+			intrinsic.x = cross_max + padding.x + padding.w
+			intrinsic.y = main_total + padding.y + padding.h
+		end
 	end
 
 	-- If we have no children but have a text component, use its size as the intrinsic size
@@ -225,16 +325,30 @@ function META:Measure()
 
 	if parent and parent:IsValid() and parent.layout then
 		local pl = parent.layout
-		local pdir = pl:GetDirection()
-		local self_alignment_x = self:GetSelfAlignmentX()
-		local self_alignment_y = self:GetSelfAlignmentY()
-		local effective_alignment_x = self_alignment_x ~= "auto" and self_alignment_x or pl:GetAlignmentX()
-		local effective_alignment_y = self_alignment_y ~= "auto" and self_alignment_y or pl:GetAlignmentY()
 
-		if pdir == "x" then
-			if effective_alignment_y == "stretch" then is_being_managed_y = true end
+		if pl.uses_dock_layout then
+			local dock = get_effective_dock(self)
+
+			if dock == "top" or dock == "bottom" then
+				is_being_managed_x = true
+			elseif dock == "left" or dock == "right" then
+				is_being_managed_y = true
+			elseif dock == "fill" then
+				is_being_managed_x = true
+				is_being_managed_y = true
+			end
 		else
-			if effective_alignment_x == "stretch" then is_being_managed_x = true end
+			local pdir = pl:GetDirection()
+			local self_alignment_x = self:GetSelfAlignmentX()
+			local self_alignment_y = self:GetSelfAlignmentY()
+			local effective_alignment_x = self_alignment_x ~= "auto" and self_alignment_x or pl:GetAlignmentX()
+			local effective_alignment_y = self_alignment_y ~= "auto" and self_alignment_y or pl:GetAlignmentY()
+
+			if pdir == "x" then
+				if effective_alignment_y == "stretch" then is_being_managed_y = true end
+			else
+				if effective_alignment_x == "stretch" then is_being_managed_x = true end
+			end
 		end
 	end
 
@@ -269,26 +383,83 @@ function META:Arrange()
 	local padding = self:GetPadding()
 	local child_gap = self:GetChildGap()
 	local children = self.Owner:GetChildren()
+	local uses_dock_layout = layout_uses_dock(children)
 	local layout_children = {}
 	local total_grow = 0
 	local total_shrink = 0
 	local fixed_main_size = 0
+	self.uses_dock_layout = uses_dock_layout
+
+	if uses_dock_layout then
+		local remaining_x = padding.x
+		local remaining_y = padding.y
+		local remaining_w = math.max(0, actual_size.x - padding.x - padding.w)
+		local remaining_h = math.max(0, actual_size.y - padding.y - padding.h)
+		local fill_children = {}
+
+		for _, child in ipairs(children) do
+			if should_layout_child(child) then
+				local child_size, margin, child_layout = measure_child_layout(child)
+				local dock = get_effective_dock(child_layout)
+				local child_tr = child.transform
+				local base_w = child_size.x
+				local base_h = child_size.y
+				local total_w = base_w + margin.x + margin.w
+				local total_h = base_h + margin.y + margin.h
+
+				if dock == "top" then
+					child_tr:SetWidth(math.max(0, remaining_w - margin.x - margin.w))
+					child_tr:SetHeight(base_h)
+					child_tr:SetX(remaining_x + margin.x)
+					child_tr:SetY(remaining_y + margin.y)
+					remaining_y = remaining_y + total_h
+					remaining_h = math.max(0, remaining_h - total_h)
+				elseif dock == "bottom" then
+					child_tr:SetWidth(math.max(0, remaining_w - margin.x - margin.w))
+					child_tr:SetHeight(base_h)
+					child_tr:SetX(remaining_x + margin.x)
+					child_tr:SetY(remaining_y + remaining_h - total_h + margin.y)
+					remaining_h = math.max(0, remaining_h - total_h)
+				elseif dock == "left" then
+					child_tr:SetWidth(base_w)
+					child_tr:SetHeight(math.max(0, remaining_h - margin.y - margin.h))
+					child_tr:SetX(remaining_x + margin.x)
+					child_tr:SetY(remaining_y + margin.y)
+					remaining_x = remaining_x + total_w
+					remaining_w = math.max(0, remaining_w - total_w)
+				elseif dock == "right" then
+					child_tr:SetWidth(base_w)
+					child_tr:SetHeight(math.max(0, remaining_h - margin.y - margin.h))
+					child_tr:SetX(remaining_x + remaining_w - total_w + margin.x)
+					child_tr:SetY(remaining_y + margin.y)
+					remaining_w = math.max(0, remaining_w - total_w)
+				else
+					fill_children[#fill_children + 1] = {
+						layout = child_layout,
+						margin = margin,
+						transform = child_tr,
+					}
+				end
+
+				if dock ~= "fill" and child_layout then child_layout:UpdateLayout() end
+			end
+		end
+
+		for _, child in ipairs(fill_children) do
+			child.transform:SetWidth(math.max(0, remaining_w - child.margin.x - child.margin.w))
+			child.transform:SetHeight(math.max(0, remaining_h - child.margin.y - child.margin.h))
+			child.transform:SetX(remaining_x + child.margin.x)
+			child.transform:SetY(remaining_y + child.margin.y)
+
+			if child.layout then child.layout:UpdateLayout() end
+		end
+
+		self.busy = false
+		return
+	end
 
 	for _, child in ipairs(children) do
-		local gui = child.gui_element
-
-		if
-			child:IsValid() and
-			(
-				not gui or
-				gui:GetVisible()
-			)
-			and
-			not (
-				child.layout and
-				child.layout:GetFloating()
-			)
-		then
+		if should_layout_child(child) then
 			local l = child.layout
 			local margin = l and l:GetMargin() or Rect(0, 0, 0, 0)
 			local grow = 0

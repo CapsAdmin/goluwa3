@@ -774,3 +774,63 @@ T.Test("gmod nested dock layout inside fill panel", function()
 
 	if frame.Remove then frame:Remove() end
 end)
+
+T.Test("gmod dock layout defers fill until after right docks", function()
+	ensure_ginit()
+	local frame = gine.env.vgui.Create("DFrame")
+	local fill = gine.env.vgui.Create("DPanel", frame)
+	local right_a = gine.env.vgui.Create("DPanel", frame)
+	local right_b = gine.env.vgui.Create("DPanel", frame)
+	frame:SetSize(320, 220)
+	fill:Dock(gine.env.FILL)
+	right_a:Dock(gine.env.RIGHT)
+	right_a:SetWide(26)
+	right_b:Dock(gine.env.RIGHT)
+	right_b:SetWide(26)
+	pump_draws(3)
+	local fill_w, fill_h = fill:GetSize()
+	local right_a_w, right_a_h = right_a:GetSize()
+	local right_b_w, right_b_h = right_b:GetSize()
+	local fill_x, fill_y = fill:GetPos()
+	local right_a_x, right_a_y = right_a:GetPos()
+	local right_b_x, right_b_y = right_b:GetPos()
+
+	local function dump()
+		return (
+			"fill=%sx%s@(%s,%s) right_a=%sx%s@(%s,%s) right_b=%sx%s@(%s,%s) frame=%sx%s"
+		):format(
+			tostring(fill_w),
+			tostring(fill_h),
+			tostring(fill_x),
+			tostring(fill_y),
+			tostring(right_a_w),
+			tostring(right_a_h),
+			tostring(right_a_x),
+			tostring(right_a_y),
+			tostring(right_b_w),
+			tostring(right_b_h),
+			tostring(right_b_x),
+			tostring(right_b_y),
+			tostring(frame:GetWide()),
+			tostring(frame:GetTall())
+		)
+	end
+
+	if fill_w < 260 then error(dump(), 0) end
+
+	if fill_h < 200 then error(dump(), 0) end
+
+	if right_a_w < 24 or right_a_h < 200 then error(dump(), 0) end
+
+	if right_b_w < 24 or right_b_h < 200 then error(dump(), 0) end
+
+	if right_b_x < fill_x + fill_w then error(dump(), 0) end
+
+	if right_a.Remove then right_a:Remove() end
+
+	if right_b.Remove then right_b:Remove() end
+
+	if fill.Remove then fill:Remove() end
+
+	if frame.Remove then frame:Remove() end
+end)

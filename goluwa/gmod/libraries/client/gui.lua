@@ -320,11 +320,11 @@ local function update_panel_text_offset(panel)
 end
 
 local dock_modes = {
-	gmod_fill = true,
-	gmod_left = true,
-	gmod_right = true,
-	gmod_top = true,
-	gmod_bottom = true,
+	fill = true,
+	left = true,
+	right = true,
+	top = true,
+	bottom = true,
 }
 
 local function is_internal_dock_panel(panel)
@@ -333,6 +333,30 @@ end
 
 local function is_dock_mode(mode)
 	return dock_modes[mode] or false
+end
+
+local function normalize_dock_mode(mode)
+	if mode == gine.env.FILL or mode == "fill" or mode == "gmod_fill" then
+		return "fill"
+	end
+
+	if mode == gine.env.LEFT or mode == "left" or mode == "gmod_left" then
+		return "left"
+	end
+
+	if mode == gine.env.RIGHT or mode == "right" or mode == "gmod_right" then
+		return "right"
+	end
+
+	if mode == gine.env.TOP or mode == "top" or mode == "gmod_top" then
+		return "top"
+	end
+
+	if mode == gine.env.BOTTOM or mode == "bottom" or mode == "gmod_bottom" then
+		return "bottom"
+	end
+
+	return "none"
 end
 
 local function configure_layout_component(layout, config)
@@ -355,35 +379,8 @@ local function configure_layout_component(layout, config)
 	if config.margin then layout:SetMargin(config.margin) end
 
 	if config.padding then layout:SetPadding(config.padding) end
-end
 
-local function create_internal_dock_panel(parent, name)
-	local panel = Panel.New{
-		Name = name,
-		transform = {
-			Size = Vec2(1, 1),
-		},
-		layout = true,
-		gui_element = true,
-		mouse_input = true,
-	}
-	panel.gmod_internal_dock = true
-	panel.suppress_child_add = true
-	panel.mouse_input:SetIgnoreMouseInput(true)
-	configure_layout_component(
-		panel.layout,
-		{
-			floating = false,
-			direction = "y",
-			alignment_x = "stretch",
-			alignment_y = "stretch",
-			margin = Rect(),
-			padding = Rect(),
-		}
-	)
-	panel:SetParent(parent)
-	panel.suppress_child_add = nil
-	return panel
+	if config.dock then layout:SetDock(config.dock) end
 end
 
 local function get_panel_logical_parent(panel)
@@ -494,279 +491,6 @@ local function configure_dock_host(panel)
 	panel.layout:SetChildGap(0)
 	panel.layout:SetAlignmentX("stretch")
 	panel.layout:SetAlignmentY("stretch")
-	panel.layout:InvalidateLayout()
-end
-
-local function ensure_dock_state(panel)
-	local state = panel.gmod_dock_state
-
-	if state and state.root and state.root:IsValid() then return state end
-
-	configure_dock_host(panel)
-	state = {
-		root = create_internal_dock_panel(panel, (panel:GetName() or "panel") .. "_gmod_dock_root"),
-	}
-	configure_layout_component(
-		state.root.layout,
-		{
-			floating = false,
-			direction = "y",
-			grow_height = 1,
-			alignment_x = "stretch",
-			alignment_y = "stretch",
-			self_alignment_x = "stretch",
-			margin = Rect(),
-			padding = Rect(),
-		}
-	)
-	panel.gmod_dock_state = state
-	return state
-end
-
-local function detach_docked_children_to_parent(parent)
-	for _, child in ipairs(get_logical_children(parent)) do
-		if is_dock_mode(child.layout_mode) and child:GetParent() ~= parent then
-			reparent_panel_silently(child, parent)
-		end
-	end
-end
-
-local function configure_split_container(panel, mode)
-	local layout = panel.layout
-	local margin = layout and layout:GetMargin() or Rect()
-	local padding = layout and layout:GetPadding() or Rect()
-	local grow_width = layout and layout:GetGrowWidth() or 0
-	local grow_height = layout and layout:GetGrowHeight() or 0
-	local self_alignment_x = layout and layout:GetSelfAlignmentX() or "auto"
-	local self_alignment_y = layout and layout:GetSelfAlignmentY() or "auto"
-
-	if mode == "gmod_left" or mode == "gmod_right" then
-		configure_layout_component(
-			panel.layout,
-			{
-				floating = false,
-				direction = "x",
-				grow_width = grow_width,
-				grow_height = grow_height,
-				alignment_x = "start",
-				alignment_y = "stretch",
-				self_alignment_x = self_alignment_x,
-				self_alignment_y = self_alignment_y,
-				margin = margin,
-				padding = padding,
-			}
-		)
-	else
-		configure_layout_component(
-			panel.layout,
-			{
-				floating = false,
-				direction = "y",
-				grow_width = grow_width,
-				grow_height = grow_height,
-				alignment_x = "stretch",
-				alignment_y = "start",
-				self_alignment_x = self_alignment_x,
-				self_alignment_y = self_alignment_y,
-				margin = margin,
-				padding = padding,
-			}
-		)
-	end
-end
-
-local function configure_remainder_container(panel, mode)
-	if mode == "gmod_left" or mode == "gmod_right" then
-		configure_layout_component(
-			panel.layout,
-			{
-				floating = false,
-				direction = "y",
-				grow_width = 1,
-				alignment_x = "stretch",
-				alignment_y = "stretch",
-				self_alignment_y = "stretch",
-				margin = Rect(),
-				padding = Rect(),
-			}
-		)
-	else
-		configure_layout_component(
-			panel.layout,
-			{
-				floating = false,
-				direction = "y",
-				grow_height = 1,
-				alignment_x = "stretch",
-				alignment_y = "stretch",
-				self_alignment_x = "stretch",
-				margin = Rect(),
-				padding = Rect(),
-			}
-		)
-	end
-
-	panel.transform:SetPosition(Vec2())
-	panel.transform:SetSize(Vec2(1, 1))
-end
-
-local function configure_docked_child(panel, mode)
-	if not panel.layout then return end
-
-	configure_layout_component(
-		panel.layout,
-		{
-			floating = false,
-			direction = panel.layout:GetDirection(),
-			margin = panel.layout:GetMargin(),
-			padding = panel.layout:GetPadding(),
-		}
-	)
-
-	if mode == "gmod_fill" then
-		panel.layout:SetGrowWidth(1)
-		panel.layout:SetGrowHeight(1)
-		panel.layout:SetSelfAlignmentX("stretch")
-		panel.layout:SetSelfAlignmentY("stretch")
-	elseif mode == "gmod_left" or mode == "gmod_right" then
-		panel.layout:SetSelfAlignmentY("stretch")
-	elseif mode == "gmod_top" or mode == "gmod_bottom" then
-		panel.layout:SetSelfAlignmentX("stretch")
-	end
-end
-
-local function clear_dock_state(parent)
-	local state = parent.gmod_dock_state
-
-	if not state or not state.root or not state.root:IsValid() then return end
-
-	detach_docked_children_to_parent(parent)
-	state.root:Remove()
-	parent.gmod_dock_state = nil
-
-	if parent.layout then parent.layout:InvalidateLayout() end
-end
-
-local function rebuild_panel_dock_layout(parent)
-	if not parent or not parent:IsValid() then return end
-
-	local logical_children = get_logical_children(parent)
-	local has_docked_children = false
-
-	for _, child in ipairs(logical_children) do
-		if is_dock_mode(child.layout_mode) then
-			has_docked_children = true
-
-			break
-		end
-	end
-
-	if not has_docked_children then
-		clear_dock_state(parent)
-
-		for _, child in ipairs(logical_children) do
-			if child.layout then child.layout:SetFloating(true) end
-
-			if child:GetParent() ~= parent then reparent_panel_silently(child, parent) end
-		end
-
-		return
-	end
-
-	local state = ensure_dock_state(parent)
-	detach_docked_children_to_parent(parent)
-	state.root:RemoveChildren()
-	configure_layout_component(
-		state.root.layout,
-		{
-			floating = false,
-			direction = "y",
-			grow_height = 1,
-			alignment_x = "stretch",
-			alignment_y = "stretch",
-			self_alignment_x = "stretch",
-			margin = Rect(),
-			padding = Rect(),
-		}
-	)
-	state.root.transform:SetPosition(Vec2())
-	local remainder = state.root
-	local fill_children = {}
-
-	for _, child in ipairs(logical_children) do
-		local mode = child.layout_mode
-
-		if not is_dock_mode(mode) then
-			if child.layout then child.layout:SetFloating(true) end
-
-			if child:GetParent() ~= parent then reparent_panel_silently(child, parent) end
-		elseif mode == "gmod_fill" then
-			fill_children[#fill_children + 1] = child
-		elseif true then
-			configure_docked_child(child, mode)
-			local next_remainder = create_internal_dock_panel(remainder, (parent:GetName() or "panel") .. "_gmod_dock_remainder")
-			configure_split_container(remainder, mode)
-			configure_remainder_container(next_remainder, mode)
-
-			if mode == "gmod_right" or mode == "gmod_bottom" then
-				remainder:AddChild(next_remainder)
-				reparent_panel_silently(child, remainder)
-			else
-				reparent_panel_silently(child, remainder)
-				remainder:AddChild(next_remainder)
-			end
-
-			remainder = next_remainder
-		end
-	end
-
-	local fill_child
-
-	for _, child in ipairs(fill_children) do
-		if not child.gui_element or child.gui_element:GetVisible() then
-			fill_child = child
-
-			break
-		end
-	end
-
-	fill_child = fill_child or fill_children[1]
-
-	if fill_child then
-		configure_docked_child(fill_child, "gmod_fill")
-		configure_split_container(remainder, "gmod_top")
-		reparent_panel_silently(fill_child, remainder)
-	end
-
-	for _, child in ipairs(fill_children) do
-		if child ~= fill_child then
-			if child.layout then child.layout:SetFloating(true) end
-
-			if child:GetParent() ~= parent then reparent_panel_silently(child, parent) end
-		end
-	end
-
-	if parent.layout then parent.layout:InvalidateLayout() end
-end
-
-local function setup_panel_layout(panel, mode)
-	panel.layout_mode = mode
-	local logical_parent = get_panel_logical_parent(panel)
-
-	if not is_dock_mode(mode) then
-		if panel.layout then panel.layout:SetFloating(true) end
-	else
-		if panel.layout then panel.layout:SetFloating(false) end
-	end
-
-	if logical_parent and logical_parent:IsValid() then
-		rebuild_panel_dock_layout(logical_parent)
-		local wrapped_parent = rawget(logical_parent, "gine_pnl")
-
-		if wrapped_parent and not wrapped_parent.in_layout then
-			wrapped_parent.gine_layout = true
-		end
-	end
 end
 
 local function request_panel_layout(panel)
@@ -779,17 +503,44 @@ local function request_panel_layout(panel)
 	if wrapped and not wrapped.in_layout then wrapped.gine_layout = true end
 end
 
+local function invalidate_panel_children_now(panel)
+	if not (panel and panel:IsValid()) then return end
+
+	for _, child in ipairs(panel:GetChildrenList()) do
+		local wrapped = rawget(child, "gine_pnl")
+
+		if wrapped and not wrapped.in_layout then wrapped:InvalidateLayout(true) end
+	end
+end
+
+local function setup_panel_layout(panel, mode)
+	mode = normalize_dock_mode(mode)
+	panel.layout_mode = mode
+	local logical_parent = get_panel_logical_parent(panel)
+
+	if panel.layout then
+		panel.layout:SetFloating(mode == "none")
+		panel.layout:SetDock(mode)
+	end
+
+	if logical_parent and logical_parent:IsValid() then
+		configure_dock_host(logical_parent)
+		request_panel_layout(logical_parent)
+		local wrapped_parent = rawget(logical_parent, "gine_pnl")
+
+		if wrapped_parent and not wrapped_parent.in_layout then
+			wrapped_parent.gine_layout = true
+		end
+	end
+end
+
 local function request_panel_and_parent_layout(panel)
 	request_panel_layout(panel)
 	local parent = get_panel_logical_parent(panel)
 
 	if not (parent and parent:IsValid()) then return end
 
-	if is_dock_mode(panel.layout_mode) then
-		rebuild_panel_dock_layout(parent)
-	else
-		request_panel_layout(parent)
-	end
+	request_panel_layout(parent)
 end
 
 local function set_panel_child(panel, child)
@@ -961,6 +712,15 @@ local function bring_gui_world_to_front()
 	local parent = gine.gui_world:GetParent()
 
 	if parent and parent:IsValid() then gine.gui_world:BringToFront() end
+end
+
+local next_overlay_child_order = 1000000
+
+local function promote_panel_overlay_order(panel)
+	if not (panel and panel:IsValid()) then return end
+
+	next_overlay_child_order = next_overlay_child_order + 1
+	panel:SetChildOrder(next_overlay_child_order)
 end
 
 do -- chatbox
@@ -1539,10 +1299,10 @@ do
 		if self.__obj:GetParent() ~= new_parent then self.__obj:SetParent(new_parent) end
 
 		if old_parent and old_parent:IsValid() and old_parent ~= new_parent then
-			rebuild_panel_dock_layout(old_parent)
+			request_panel_layout(old_parent)
 		end
 
-		rebuild_panel_dock_layout(new_parent)
+		request_panel_layout(new_parent)
 	end
 
 	function META:SetAutoDelete(b)
@@ -1770,7 +1530,10 @@ do
 	end
 
 	function META:SetAlpha(a)
-		self.__obj.DrawAlpha = (a / 255) ^ 2
+		if self.__obj.gui_element then
+			self.__obj.gui_element.DrawAlpha = (a / 255) ^ 2
+		end
+
 		self.__obj.gmod_draw_alpha = a
 	end
 
@@ -1978,29 +1741,33 @@ do
 	end
 
 	function META:SetVisible(b)
-		if self.__obj.gui_element then self.__obj.gui_element:SetVisible(b) end
+		if not self.__obj.gui_element then return end
+
+		local was_visible = self.__obj.gui_element:GetVisible()
+
+		if was_visible == b then return end
+
+		self.__obj.gui_element:SetVisible(b)
+
+		if b then
+			refresh_gui_world_bounds()
+			request_panel_and_parent_layout(self.__obj)
+
+			if not self.in_layout then
+				self:InvalidateLayout(true)
+				invalidate_panel_children_now(self.__obj)
+			end
+		end
 	end
 
 	function META:Dock(enum)
-		if enum == gine.env.FILL then
-			setup_panel_layout(self.__obj, "gmod_fill")
-		elseif enum == gine.env.LEFT then
-			setup_panel_layout(self.__obj, "gmod_left")
-		elseif enum == gine.env.RIGHT then
-			setup_panel_layout(self.__obj, "gmod_right")
-		elseif enum == gine.env.TOP then
-			setup_panel_layout(self.__obj, "gmod_top")
-		elseif enum == gine.env.BOTTOM then
-			setup_panel_layout(self.__obj, "gmod_bottom")
-		elseif enum == gine.env.NODOCK then
-			setup_panel_layout(self.__obj)
-		end
-
-		self.__obj.vgui_dock = enum
+		local mode = normalize_dock_mode(enum)
+		setup_panel_layout(self.__obj, mode)
+		self.__obj.vgui_dock = mode
 	end
 
 	function META:GetDock()
-		return self.__obj.vgui_dock or gine.env.NODOCK
+		return self.__obj.vgui_dock or "none"
 	end
 
 	function META:SetCursor(typ)
@@ -2025,7 +1792,8 @@ do
 
 	function META:SetDrawOnTop(b)
 		self.__obj.draw_ontop = b
-		self.__obj:SetChildOrder(math.huge)
+
+		if b then promote_panel_overlay_order(self.__obj) end
 	end
 
 	do -- z pos stuff
@@ -2051,12 +1819,17 @@ do
 		end
 
 		function META:MoveToFront()
+			if self.__obj.popup or self.__obj.draw_ontop then
+				promote_panel_overlay_order(self.__obj)
+			end
+
 			self.__obj:BringToFront()
 		end
 
 		function META:MakePopup()
 			local old_raw_parent = self.__obj:GetParent()
 			local world_pos = self.__obj.transform:GetPosition():Copy()
+			refresh_gui_world_bounds()
 
 			if old_raw_parent and old_raw_parent:IsValid() and old_raw_parent.transform then
 				world_pos = transform_local_to_world(old_raw_parent.transform, world_pos)
@@ -2071,6 +1844,7 @@ do
 
 			self.__obj.transform:SetPosition(world_pos)
 			bring_gui_world_to_front()
+			promote_panel_overlay_order(self.__obj)
 			self.__obj:BringToFront()
 			self.__obj:RequestFocus()
 
@@ -2093,6 +1867,11 @@ do
 						set_panel_allow_keyboard_input(child, true)
 						set_panel_focus_on_click(child, true)
 					end
+				end
+
+				if not self.in_layout then
+					self:InvalidateLayout(true)
+					invalidate_panel_children_now(self.__obj)
 				end
 			end
 		end
