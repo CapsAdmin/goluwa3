@@ -656,8 +656,21 @@ return function(META)
 
 					-- Store serial for cursor operations
 					wnd.pointer_serial = serial
+					wnd.mouse_x = tonumber(x)
+					wnd.mouse_y = tonumber(y)
+					wnd.last_mouse_pos = Vec2(wnd.mouse_x, wnd.mouse_y)
 					-- Apply current cursor
 					wnd:SetCursor(wnd.Cursor)
+					table.insert(
+						wnd.events,
+						{
+							type = "mouse_move",
+							x = wnd.mouse_x,
+							y = wnd.mouse_y,
+							delta_x = 0,
+							delta_y = 0,
+						}
+					)
 					table.insert(wnd.events, {type = "cursor_enter"})
 				end,
 				leave = function(data, pointer, serial, surface)

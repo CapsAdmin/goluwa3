@@ -1,5 +1,6 @@
 local window = import("goluwa/window.lua")
 local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local prototype = import("goluwa/prototype.lua")
 local Rect = import("goluwa/structs/rect.lua")
@@ -9,6 +10,7 @@ local gfx = import("goluwa/render2d/gfx.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local render = import("goluwa/render/render.lua")
+local surface = gine.env.surface
 
 local function wrap_text(font, text, max_width)
 	if gfx.WrapString then return gfx.WrapString(text, max_width, font) end
@@ -115,6 +117,10 @@ end
 
 local function get_text_api(panel)
 	return rawget(panel, "text") or panel._gmod_text_proxy
+end
+
+local function panel_uses_wrapper_text(panel)
+	return panel and panel.text_internal ~= nil and panel.vgui_type ~= "textentry" and panel.vgui_type ~= "richtext"
 end
 
 local function set_panel_ignore_layout(panel, b)
@@ -383,16 +389,28 @@ local function detach_docked_children_to_parent(parent)
 end
 
 local function configure_split_container(panel, mode)
+	local layout = panel.layout
+	local margin = layout and layout:GetMargin() or Rect()
+	local padding = layout and layout:GetPadding() or Rect()
+	local grow_width = layout and layout:GetGrowWidth() or 0
+	local grow_height = layout and layout:GetGrowHeight() or 0
+	local self_alignment_x = layout and layout:GetSelfAlignmentX() or "auto"
+	local self_alignment_y = layout and layout:GetSelfAlignmentY() or "auto"
+
 	if mode == "gmod_left" or mode == "gmod_right" then
 		configure_layout_component(
 			panel.layout,
 			{
 				floating = false,
 				direction = "x",
+				grow_width = grow_width,
+				grow_height = grow_height,
 				alignment_x = "start",
 				alignment_y = "stretch",
-				margin = Rect(),
-				padding = Rect(),
+				self_alignment_x = self_alignment_x,
+				self_alignment_y = self_alignment_y,
+				margin = margin,
+				padding = padding,
 			}
 		)
 	else
@@ -401,10 +419,14 @@ local function configure_split_container(panel, mode)
 			{
 				floating = false,
 				direction = "y",
+				grow_width = grow_width,
+				grow_height = grow_height,
 				alignment_x = "stretch",
 				alignment_y = "start",
-				margin = Rect(),
-				padding = Rect(),
+				self_alignment_x = self_alignment_x,
+				self_alignment_y = self_alignment_y,
+				margin = margin,
+				padding = padding,
 			}
 		)
 	end
@@ -579,6 +601,34 @@ local function setup_panel_layout(panel, mode)
 
 	if logical_parent and logical_parent:IsValid() then
 		rebuild_panel_dock_layout(logical_parent)
+		local wrapped_parent = rawget(logical_parent, "gine_pnl")
+
+		if wrapped_parent and not wrapped_parent.in_layout then
+			wrapped_parent.gine_layout = true
+		end
+	end
+end
+
+local function request_panel_layout(panel)
+	if not (panel and panel:IsValid()) then return end
+
+	if panel.layout then panel.layout:InvalidateLayout() end
+
+	local wrapped = rawget(panel, "gine_pnl")
+
+	if wrapped and not wrapped.in_layout then wrapped.gine_layout = true end
+end
+
+local function request_panel_and_parent_layout(panel)
+	request_panel_layout(panel)
+	local parent = get_panel_logical_parent(panel)
+
+	if not (parent and parent:IsValid()) then return end
+
+	if is_dock_mode(panel.layout_mode) then
+		rebuild_panel_dock_layout(parent)
+	else
+		request_panel_layout(parent)
 	end
 end
 
@@ -625,6 +675,7 @@ local function initialize_panel(panel, class_name)
 	if panel._gmod_panel_ready then return panel end
 
 	panel._gmod_panel_ready = true
+	panel.gine_enabled = panel.gine_enabled ~= false
 	panel.vgui_type = class_name or panel.vgui_type or "base"
 	panel.allow_keyboard_input = panel.allow_keyboard_input or false
 	panel.focus_on_click = panel.focus_on_click or false
@@ -738,6 +789,20 @@ local function get_window()
 	return system.GetCurrentWindow()
 end
 
+local function get_primary_window()
+	return system.GetWindow()
+end
+
+local function bring_gui_world_to_front()
+	if not gine.gui_world or not gine.gui_world:IsValid() then return end
+
+	local parent = gine.gui_world:GetParent()
+
+	if parent and parent:IsValid() then
+		gine.gui_world:BringToFront()
+	end
+end
+
 do -- chatbox
 	local chat = gine.env.chat
 	local lib = _G.chat
@@ -834,7 +899,7 @@ do
 	end
 
 	function vgui.GetHoveredPanel()
-		local pnl = get_hovered_panel(Panel.World, get_window():GetMousePosition())
+		local pnl = get_hovered_panel(Panel.World, get_primary_window():GetMousePosition())
 
 		if pnl:IsValid() then return gine.WrapObject(pnl, "Panel") end
 	end
@@ -888,15 +953,15 @@ do
 	local gui = gine.env.gui
 
 	function gui.MousePos()
-		return get_window():GetMousePosition():Unpack()
+		return get_primary_window():GetMousePosition():Unpack()
 	end
 
 	function gui.MouseX()
-		return get_window():GetMousePosition().x
+		return get_primary_window():GetMousePosition().x
 	end
 
 	function gui.MouseY()
-		return get_window():GetMousePosition().y
+		return get_primary_window():GetMousePosition().y
 	end
 
 	function gui.ScreenToVector(x, y)
@@ -904,7 +969,7 @@ do
 	end
 
 	function gui.IsGameUIVisible()
-		return menu.IsVisible()
+		return false --menu.IsVisible()
 	end
 
 	function gui.EnableScreenClicker(b)
@@ -971,6 +1036,8 @@ do
 			end
 		end
 
+		bring_gui_world_to_front()
+
 		refresh_gui_world_bounds()
 		class = class:lower()
 		local obj
@@ -1030,10 +1097,8 @@ do
 
 			if obj.draw_manual and not obj.in_paint_manual then return end
 
-			if not obj.thought_1_frame then
-				call_panel_method(self, "Think")
-				obj.thought_1_frame = true
-			end
+			call_panel_method(self, "Think")
+			obj.thought_1_frame = true
 
 			local w, h = obj.transform:GetWidth(), obj.transform:GetHeight()
 			local paint_bg = call_panel_method(self, "Paint", w, h)
@@ -1044,7 +1109,7 @@ do
 				render2d.DrawRect(0, 0, w, h)
 			end
 
-			if class == "label" then
+			if panel_uses_wrapper_text(obj) then
 				if obj.text_internal and obj.text_internal ~= "" then
 					local text = obj.text_internal
 					local font = gine.render2d_fonts[obj.font_internal:lower()]
@@ -1059,18 +1124,20 @@ do
 					render2d.SetUV()
 					--render2d.SetAlphaTestReference(0)
 					render2d.SetBlendMode("alpha", true)
+					surface.SetFont(obj.font_internal)
+					local _, _, min_x, min_y = surface.GetTextSize(text)
 
 					if obj.expensive_shadow_dir then
 						render2d.SetColor(obj.expensive_shadow_color:Unpack())
 						font:DrawString(
 							text,
-							obj.text_offset.x + obj.expensive_shadow_dir,
-							obj.text_offset.y + obj.expensive_shadow_dir
+							obj.text_offset.x - min_x + obj.expensive_shadow_dir,
+							obj.text_offset.y - min_y + obj.expensive_shadow_dir
 						)
 					end
 
 					render2d.SetColor(obj.fg_color:Unpack())
-					font:DrawString(text, obj.text_offset.x, obj.text_offset.y)
+					font:DrawString(text, obj.text_offset.x - min_x, obj.text_offset.y - min_y)
 				end
 			end
 
@@ -1127,6 +1194,11 @@ do
 			call_panel_method(self, "OnCursorEntered")
 		end)
 
+		hook(obj, "OnMouseLeave", function()
+			gine.env.EndTooltip(self)
+			call_panel_method(self, "OnCursorExited")
+		end)
+
 		hook(obj, "OnMouseExit", function()
 			gine.env.EndTooltip(self)
 			call_panel_method(self, "OnCursorExited")
@@ -1135,7 +1207,7 @@ do
 		hook(obj, "OnPostLayout", function()
 			local panel = obj
 
-			if panel.vgui_type == "label" then
+			if panel_uses_wrapper_text(panel) then
 				local w, h = panel.gine_pnl:GetTextSize()
 
 				if panel.content_alignment == 5 then
@@ -1169,6 +1241,18 @@ do
 				if w > panel.transform:GetWidth() then panel.text_offset.x = 0 end
 
 				panel.text_offset = panel.text_offset + panel.text_inset
+
+				if panel.content_alignment == 5 or panel.content_alignment == 2 or panel.content_alignment == 8 then
+					panel.text_offset.x = math.ceil(panel.text_offset.x)
+				else
+					panel.text_offset.x = math.floor(panel.text_offset.x)
+				end
+
+				if panel.content_alignment == 4 or panel.content_alignment == 5 or panel.content_alignment == 6 then
+					panel.text_offset.y = math.ceil(panel.text_offset.y)
+				else
+					panel.text_offset.y = math.floor(panel.text_offset.y)
+				end
 			--panel.text_offset.x = panel.text_offset.x + panel:GetMargin():GetLeft()
 			--panel.text_offset.y = panel.text_offset.y + panel:GetMargin():GetTop()
 			end
@@ -1183,14 +1267,19 @@ do
 		hook(obj, "OnMouseInput", function(_, button, press)
 			if button == "mwheel_down" then
 				call_panel_method(self, "OnMouseWheeled", 1)
+				return true
 			elseif button == "mwheel_up" then
 				call_panel_method(self, "OnMouseWheeled", -1)
+				return true
 			else
 				if press then
 					call_panel_method(self, "OnMousePressed", gine.GetMouseCode(button))
 				else
 					call_panel_method(self, "OnMouseReleased", gine.GetMouseCode(button))
 				end
+
+				event.Call("GUIPanelMouseInput", obj, button, press)
+				return true
 			end
 		end)
 
@@ -1460,12 +1549,51 @@ do
 		return self.__obj.transform:GetHeight()
 	end
 
+	function META:GetWidth()
+		return self.__obj.transform:GetWidth()
+	end
+
+	function META:GetHeight()
+		return self.__obj.transform:GetHeight()
+	end
+
 	function META:SetSize(w, h)
 		w = tonumber(w)
 		h = tonumber(h) or w
+		local old_w = self.__obj.transform:GetWidth()
+		local old_h = self.__obj.transform:GetHeight()
+
+		if old_w == w and old_h == h then return end
+
 		self.__obj.transform:SetSize(Vec2(w, h))
-		self.__obj.LayoutSize = Vec2(w, h)
+		call_panel_method(self, "OnSizeChanged", w, h)
+		request_panel_and_parent_layout(self.__obj)
 	end
+
+	function META:SetWidth(w)
+		w = tonumber(w)
+		local old_w = self.__obj.transform:GetWidth()
+
+		if old_w == w then return end
+
+		self.__obj.transform:SetWidth(w)
+		call_panel_method(self, "OnSizeChanged", w, self.__obj.transform:GetHeight())
+		request_panel_and_parent_layout(self.__obj)
+	end
+
+	function META:SetHeight(h)
+		h = tonumber(h)
+		local old_h = self.__obj.transform:GetHeight()
+
+		if old_h == h then return end
+
+		self.__obj.transform:SetHeight(h)
+		call_panel_method(self, "OnSizeChanged", self.__obj.transform:GetWidth(), h)
+		request_panel_and_parent_layout(self.__obj)
+	end
+
+	META.SetWide = META.SetWidth
+	META.SetTall = META.SetHeight
 
 	function META:GetSize()
 		return self.__obj.transform:GetSize():Unpack()
@@ -1559,6 +1687,11 @@ do
 
 		if now or had_pending_layout then
 			self.in_layout = true
+
+			if self.__obj.layout and self.__obj.layout:GetDirty() then
+				self.__obj.layout:UpdateLayout()
+			end
+
 			call_panel_method(self, "ApplySchemeSettings")
 			call_panel_method(
 				self,
@@ -1566,6 +1699,11 @@ do
 				self.__obj.transform:GetWidth(),
 				self.__obj.transform:GetHeight()
 			)
+
+			if self.__obj.layout and self.__obj.layout:GetDirty() then
+				self.__obj.layout:UpdateLayout()
+			end
+
 			self.in_layout = false
 		else
 			self.gine_layout = true
@@ -1575,11 +1713,11 @@ do
 	function META:GetContentSize()
 		local panel = self.__obj
 
-		if panel.vgui_type == "label" then
+		if panel_uses_wrapper_text(panel) then
 			self.get_content_size = true
 			local w, h = self:GetTextSize()
 			self.get_content_size = false
-			return w, h
+			return w + panel.text_inset.x, h + panel.text_inset.y
 		end
 
 		return get_size_of_children(panel):Unpack()
@@ -1612,7 +1750,8 @@ do
 			end
 		end
 
-		local w, h = font:GetTextSize(text)
+		surface.SetFont(panel.font_internal)
+		local w, h = surface.GetTextSize(text)
 
 		if
 			panel.gmod_wrap and
@@ -1623,21 +1762,20 @@ do
 			w = logical_parent.transform:GetWidth()
 		end
 
-		return w + panel.text_inset.x, h + panel.text_inset.y
+		return w, h
 	end
 
 	function META:SizeToContents()
 		local panel = self.__obj
 
 		if
-			panel.vgui_type == "label" or
+			panel_uses_wrapper_text(panel) or
 			self.__obj.vgui_type == "textentry" or
 			self.__obj.vgui_type == "richtext"
 		then
 			local w, h = self:GetContentSize()
 			--panel:Layout(true)
-			panel.transform:SetSize(Vec2(panel.text_inset.x + w, panel.text_inset.y + h))
-			panel.LayoutSize = panel.transform:GetSize():Copy()
+			panel.transform:SetSize(Vec2(w, h))
 		end
 	end
 
@@ -1654,7 +1792,7 @@ do
 	function META:GetText()
 		if self.__obj.vgui_type == "textentry" or self.__obj.vgui_type == "richtext" then
 			return get_panel_text(self.__obj)
-		elseif self.__obj.vgui_type == "label" then
+		elseif panel_uses_wrapper_text(self.__obj) then
 			return self.__obj.text_internal
 		end
 
@@ -1707,8 +1845,7 @@ do
 		for _, v in ipairs(self.__obj.Children) do
 			v.Size = v.old_size
 		end
-
-		self.__obj.LayoutSize = self.__obj.Size:Copy()]]
+]]
 	end
 
 	function META:SetVisible(b)
@@ -1775,8 +1912,13 @@ do
 		end
 
 		function META:MakePopup()
+			bring_gui_world_to_front()
 			self.__obj:BringToFront()
 			self.__obj:RequestFocus()
+
+			if gine.env and gine.env.gui and gine.env.gui.EnableScreenClicker then
+				gine.env.gui.EnableScreenClicker(true)
+			end
 
 			if self.__obj.mouse_input then
 				self.__obj.mouse_input:SetIgnoreMouseInput(false)
@@ -1885,11 +2027,11 @@ do
 	end
 
 	function META:SetEnabled(b)
-		self.__obj.gine_enabled = b
+		self.__obj.gine_enabled = b ~= false
 	end
 
 	function META:IsEnabled()
-		return not not self.__obj.gine_enabled
+		return self.__obj.gine_enabled ~= false
 	end
 
 	function META:HasHierarchicalFocus()

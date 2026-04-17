@@ -4,6 +4,10 @@ local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local last_content = {}
 
+function hotreload.GetFileEnvironment(path)
+	return event.Call("FileWatcherGetEnvironment", path) or _G
+end
+
 local function run_hotreload_code(code)
 	local func, err = load(code)
 
@@ -70,6 +74,8 @@ local function default_reload(path)
 		return
 	end
 
+	setfenv(func, hotreload.GetFileEnvironment(path))
+
 	local ok, err = xpcall(func, debug.traceback)
 
 	if not ok then
@@ -121,6 +127,18 @@ local function on_reload(path, from_terminal)
 
 	_G.path = path
 	_G.code = code
+	_G.file_save_env = hotreload.GetFileEnvironment(path)
+
+	local file_save_result = event.Call("FileSaved", path, code, from_terminal, _G.file_save_env)
+
+	if file_save_result ~= nil then
+		_G.HOTRELOAD = nil
+		_G.path = nil
+		_G.code = nil
+		_G.file_save_env = nil
+		last_content[path] = code
+		return code, identical
+	end
 
 	-- Try custom OnReload first
 	if hotreload.OnReload(path, code) ~= false then
@@ -135,6 +153,8 @@ local function on_reload(path, from_terminal)
 	_G.HOTRELOAD = nil
 	_G.path = nil
 	_G.code = nil
+	_G.file_save_env = nil
+	last_content[path] = code
 	return code, identical
 end
 

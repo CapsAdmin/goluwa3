@@ -111,11 +111,11 @@ function render.SetViewPort(x, y, w, h)
 end
 
 function gine.env.ScrW()
-	return system.GetCurrentWindow():GetSize().x
+	return system.GetWindow():GetSize().x
 end
 
 function gine.env.ScrH()
-	return system.GetCurrentWindow():GetSize().y
+	return system.GetWindow():GetSize().y
 end
 
 gine.env.surface.ScreenWidth = gine.env.ScrW

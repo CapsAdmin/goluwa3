@@ -68,9 +68,42 @@ do -- enums
 	end
 end
 
+local ensure_meta_table
+
 do
 	env.table.Copy = env.table.Copy or table.copy
 	env.table.Merge = env.table.Merge or table.merge
+
+	function ensure_meta_table(name)
+		local meta = env._R[name]
+
+		if meta then return meta end
+
+		meta = {
+			MetaName = name,
+		}
+		meta.__index = meta
+
+		function meta:IsValid()
+			if not self or self.__removed then return false end
+
+			return self.__obj and self.__obj.IsValid and self.__obj:IsValid() or false
+		end
+
+		function meta:Remove()
+			self.__removed = true
+
+			if self.__obj then
+				timer.Delay(0, function()
+					prototype.SafeRemove(self.__obj)
+				end)
+			end
+		end
+
+		env._R[name] = meta
+		return meta
+	end
+
 	env.RegisterMetaTable = env.RegisterMetaTable or
 		function(name, meta)
 			if type(name) ~= "string" or type(meta) ~= "table" then return meta end
@@ -188,9 +221,7 @@ for meta_name, functions in pairs(data.meta) do
 	functions.__newindex = nil
 
 	if not env._R[meta_name] then
-		local META = {}
-		META.MetaName = meta_name
-		META.__index = META
+		local META = ensure_meta_table(meta_name)
 
 		if functions.IsValid then
 			function META:IsValid()
@@ -209,8 +240,6 @@ for meta_name, functions in pairs(data.meta) do
 				end)
 			end
 		end
-
-		env._R[meta_name] = META
 	end
 
 	for func_name, type in pairs(functions) do
@@ -351,7 +380,7 @@ if gine.debug then
 end
 
 function gine.GetMetaTable(name)
-	return gine.env._R[name]
+	return gine.env._R[name] or ensure_meta_table(name)
 end
 
 vfs.RunFile("goluwa/gmod/libraries/*", gine)

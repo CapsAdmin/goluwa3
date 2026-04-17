@@ -152,12 +152,12 @@ do
 			MWHEELUP = "MOUSE_WHEEL_UP",
 			MWHEELDOWN = "MOUSE_WHEEL_DOWN",
 		}
-
 		return gine.env[aliases[upper] or ""]
 	end
 
 	local function add_default_binding(key_name, cmd)
 		local code = translate_binding_name(key_name)
+
 		if not code then return end
 
 		gine.default_bindings[code] = cmd
@@ -168,13 +168,14 @@ do
 	local default_bind_data = vfs.Read(default_bind_path)
 
 	if default_bind_data then
-		for key_name, cmd in default_bind_data:gmatch('"([^"]+)"%s+"([^"]+)"') do
+		for key_name, cmd in default_bind_data:gmatch("\"([^\"]+)\"%s+\"([^\"]+)\"") do
 			add_default_binding(key_name, cmd)
 		end
 	end
 
 	function gine.SetupKeyBind(key, cmd, on_press, on_release)
 		if host_input.Unbind then host_input.Unbind(key) end
+
 		local p = cmd:match("^(%p)")
 
 		if p then key = p .. key end
@@ -189,6 +190,7 @@ do
 
 	gine.AddEvent("KeyInput", function(key, press)
 		local focus_disable = (gine.env.input and gine.env.input.disable_focus) or 0
+
 		if focus_disable > 0 then return end
 
 		local ply = gine.env.LocalPlayer()
@@ -237,6 +239,7 @@ do
 	gine.SetupKeyBind("x", "-voicerecord", function()
 		gine.env.gamemode.Call("PlayerEndVoice", gine.env.LocalPlayer())
 	end)
+
 	gine.SetupKeyBind("t", "messagemode", function()
 		chat.Open()
 	end)
@@ -256,6 +259,7 @@ end
 
 local input = gine.env.input
 local lib = host_input
+
 local function get_window()
 	return system.GetCurrentWindow()
 end
@@ -268,7 +272,6 @@ local function normalize_binding_key(key)
 	if type(key) ~= "string" then return nil end
 
 	key = key:gsub("^[%+%-]", "")
-
 	local aliases = {
 		button_1 = "mouse1",
 		button_2 = "mouse2",
@@ -278,14 +281,15 @@ local function normalize_binding_key(key)
 		mwheel_up = "mwheelup",
 		mwheel_down = "mwheeldown",
 	}
-
 	return aliases[key] or key
 end
 
 local function get_runtime_binding_for_code(code)
 	if type(code) ~= "number" then return nil end
 
-	local key = is_mouse_code(code) and gine.GetMouseCode(code, true) or gine.GetKeyCode(code, true)
+	local key = is_mouse_code(code) and
+		gine.GetMouseCode(code, true) or
+		gine.GetKeyCode(code, true)
 
 	if not key then return nil end
 
@@ -307,8 +311,7 @@ function input.LookupKeyBinding(code)
 	return get_runtime_binding_for_code(code) or gine.default_bindings[code]
 end
 
-function input.SetCursorPos(x, y)
-	get_window():SetMousePosition(Vec2(x, y))
+function input.SetCursorPos(x, y) --get_window():SetMousePosition(Vec2(x, y))
 end
 
 function input.GetCursorPos()
@@ -336,6 +339,14 @@ function input.IsMouseDown(code)
 end
 
 function input.IsKeyDown(code)
+	if not lib.IsKeyDown and lib.SetupAccessorFunctions then
+		lib.Key_down_time = lib.Key_down_time or {}
+		lib.Key_up_time = lib.Key_up_time or {}
+		lib.SetupAccessorFunctions(lib, "Key")
+	end
+
+	if not lib.IsKeyDown then return false end
+
 	return lib.IsKeyDown(gine.GetKeyCode(code, true))
 end
 

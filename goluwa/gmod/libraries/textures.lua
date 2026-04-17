@@ -149,7 +149,7 @@ do
 	function META:GetColor(x, y)
 		local tex = self:GetTexture("$basetexture")
 
-		if tex then return tex:GetColor(x, y) end
+		if tex and not tex:IsError() then return tex:GetColor(x, y) end
 
 		return gine.env.Color(0, 0, 0, 0)
 	end
@@ -290,11 +290,11 @@ do
 	end
 
 	function META:Width()
-		return math.pow2round(get_texture_size(self.__obj).x)
+		return get_texture_size(self.__obj).x
 	end
 
 	function META:Height()
-		return math.pow2round(get_texture_size(self.__obj).y)
+		return get_texture_size(self.__obj).y
 	end
 
 	function META:GetColor(x, y)
@@ -302,17 +302,10 @@ do
 
 		if s.x <= 0 or s.y <= 0 then return gine.env.Color(255, 0, 255, 255) end
 
-		x = (x / s.x) * math.pow2round(s.x)
-		y = (y / s.y) * math.pow2round(s.y)
-
-		if not self.__obj.GetPixelColor then return gine.env.Color(255, 0, 255, 255) end
-
-		local pixel = self.__obj:GetPixelColor(x, y)
-
-		if not pixel or not pixel.Unpack then return gine.env.Color(255, 0, 255, 255) end
-
-		local r, g, b, a = pixel:Unpack()
-		return gine.env.Color(r * 255, g * 255, b * 255, a * 255)
+		x = math.clamp(math.floor(x or 0), 0, s.x - 1)
+		y = math.clamp(math.floor(y or 0), 0, s.y - 1)
+		local r, g, b, a = self.__obj:GetRawPixelColor(x, -y + s.y - 1)
+		return gine.env.Color(r, g, b, a)
 	end
 
 	function META:GetName()

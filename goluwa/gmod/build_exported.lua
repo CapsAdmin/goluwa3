@@ -8,6 +8,53 @@ exported.functions = {}
 exported.globals = {}
 exported.meta = {}
 exported.enums = {}
+local meta_blacklist = {
+	__index = true,
+	__gc = true,
+	MetaID = true,
+	MetaName = true,
+	MetaBaseClass = true,
+}
+local meta_names = {
+	"CSoundPatchCMoveData",
+	"NPC",
+	"IRestoreFile",
+	"Entity",
+	"Weapon",
+	"File",
+	"Panel",
+	"IVideoWriter",
+	"Color",
+	"PhysObj",
+	"Angle",
+	"CSEnt",
+	"dlight_t",
+	"IMesh",
+	"bf_read",
+	"CLuaParticle",
+	"CLuaEmitter",
+	"pixelvis_handle_t",
+	"ProjectedTexture",
+	"ConVar",
+	"IMaterial",
+	"ITexture",
+	"VMatrix",
+	"CMoveData",
+	"CUserCmd",
+	"CEffectData",
+	"CTakeDamageInfo",
+	"CNewParticleEffect",
+	"Vector",
+	"NextBot",
+	"PhysCollide",
+	"Player",
+	"ISave",
+	"IRestore",
+	"CSoundPatch",
+	"IGModAudioChannel",
+	"SurfaceInfo",
+	"Vehicle",
+}
 
 -- enums
 for key, val in pairs(_G) do
@@ -51,6 +98,20 @@ local function get_func_type(func)
 	return "L"
 end
 
+local function add_meta(meta)
+	if not (istable(meta) and isstring(meta.MetaName)) then return end
+
+	exported.meta[meta.MetaName] = exported.meta[meta.MetaName] or {}
+
+	for func_name, func in pairs(meta) do
+		if not meta_blacklist[func_name] and isfunction(func) then
+			local func_type = get_func_type(func)
+
+			if func_type then exported.meta[meta.MetaName][func_name] = func_type end
+		end
+	end
+end
+
 local blacklist = {
 	_M = true,
 	_NAME = true,
@@ -85,32 +146,11 @@ for key, val in pairs(_G) do
 	::_continue::
 end
 
-local blacklist = {
-	__index = true,
-	__gc = true,
-	MetaID = true,
-	MetaName = true,
-	MetaBaseClass = true,
-}
-
 -- meta
-for key, val in pairs(debug.getregistry()) do
-	if istable(val) and val.MetaID and val.MetaName then
-		exported.meta[val.MetaName] = {}
+for _, meta_name in ipairs(meta_names) do
+	local meta = FindMetaTable(meta_name)
 
-		for func_name, func in pairs(val) do
-			if not blacklist[func_name] then
-				if isfunction(func) then
-					local func_type = get_func_type(func)
-
-					if func then exported.meta[val.MetaName][func_name] = func_type end
-				else
-
-				--print("unexpected value in metatable " .. val.MetaName .. ": ", func_name, func)
-				end
-			end
-		end
-	end
+	if istable(meta) then add_meta(meta) end
 end
 
 local output = "return {\n"

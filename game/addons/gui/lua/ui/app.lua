@@ -117,8 +117,8 @@ local function toggle()
 			Direction = "y",
 		},
 		gui_element = true,
-		mouse_input = true,
-		clickable = true,
+		mouse_input = false,
+		clickable = false,
 		animation = true,
 	}{
 		top_bar,

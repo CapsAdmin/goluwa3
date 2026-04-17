@@ -1,4 +1,5 @@
 local steam = import("goluwa/steam.lua")
+local utf8 = import("goluwa/utf8.lua")
 local vfs = import("goluwa/vfs.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
@@ -69,17 +70,15 @@ local function create_font(options)
 
 	if path == "" or (path and not vfs.IsFile(path)) then path = nil end
 
-	return fonts.New(
-		{
-			Path = path,
-			Name = options.name or options.Name,
-			Size = options.size or options.Size,
-			Weight = options.weight or options.Weight,
-			Padding = options.padding or options.Padding,
-			Spread = options.spread or options.Spread,
-			Mode = options.mode or options.Mode,
-		}
-	)
+	return fonts.New{
+		Path = path,
+		Name = options.name or options.Name,
+		Size = options.size or options.Size,
+		Weight = options.weight or options.Weight,
+		Padding = options.padding or options.Padding,
+		Spread = options.spread or options.Spread,
+		Mode = options.mode or options.Mode,
+	}
 end
 
 function gine.LoadFonts()
@@ -115,12 +114,10 @@ function gine.LoadFonts()
 			if type(info.tall) == "table" then info.tall = info.tall[1] -- what
 			end
 
-			gine.render2d_fonts[font_name:lower()] = create_font(
-				{
-					path = gine.TranslateFontName(info.name),
-					size = info.tall or default_font.size,
-				}
-			)
+			gine.render2d_fonts[font_name:lower()] = create_font{
+				path = gine.TranslateFontName(info.name),
+				size = info.tall or default_font.size,
+			}
 		end
 	end
 end
@@ -195,9 +192,77 @@ do
 
 	function surface.GetTextSize(str)
 		str = gine.translation2[str] or str
+
 		if not current_font then current_font = gine.render2d_fonts.default end
+
 		if not current_font then return 0, 0 end
-		return current_font:GetTextSize(str)
+
+		str = tostring(str or "")
+
+		if str == "" then return 0, 0, 0, 0 end
+
+		local line_height = current_font.GetLineHeight and
+			current_font:GetLineHeight() or
+			select(2, current_font:GetTextSize("|")) or
+			0
+		local spacing = rawget(current_font, "Spacing") or 0
+		local cursor_x = 0
+		local cursor_y = 0
+		local max_advance_x = 0
+		local min_x = math.huge
+		local min_y = math.huge
+		local max_x = -math.huge
+		local max_y = -math.huge
+		local saw_visible_glyph = false
+		local metric_font = current_font
+
+		if current_font.Fonts and current_font.Fonts[1] and current_font.Fonts[1].GetGlyph then
+			metric_font = current_font.Fonts[1]
+
+			if metric_font.SetSize and current_font.GetSize then
+				metric_font:SetSize(current_font:GetSize())
+			end
+		end
+
+		for _, char in ipairs(utf8.to_list(str)) do
+			if char == "\n" then
+				max_advance_x = math.max(max_advance_x, cursor_x)
+				cursor_x = 0
+				cursor_y = cursor_y + line_height + spacing
+			elseif char == "\t" then
+				if current_font.GetTabAdvance then
+					cursor_x = cursor_x + current_font:GetTabAdvance(nil, 4, cursor_x)
+				else
+					cursor_x = cursor_x + ((current_font.GetSpaceAdvance and current_font:GetSpaceAdvance()) or 0) * 4
+				end
+			elseif char == " " then
+				cursor_x = cursor_x + ((current_font.GetSpaceAdvance and current_font:GetSpaceAdvance()) or 0)
+			else
+				local glyph = metric_font.GetGlyph and metric_font:GetGlyph(char)
+
+				if glyph then
+					local glyph_left = cursor_x + (glyph.bitmap_left or 0)
+					local glyph_top = cursor_y + (glyph.bitmap_top or 0)
+					local glyph_right = glyph_left + (glyph.w or glyph.x_advance or 0)
+					local glyph_bottom = glyph_top + (glyph.h or line_height)
+					min_x = math.min(min_x, glyph_left)
+					min_y = math.min(min_y, glyph_top)
+					max_x = math.max(max_x, glyph_right)
+					max_y = math.max(max_y, glyph_bottom)
+					saw_visible_glyph = true
+					cursor_x = cursor_x + (glyph.x_advance or 0) + spacing
+				else
+					cursor_x = cursor_x + (current_font.GetGlyphAdvance and current_font:GetGlyphAdvance(char) or 0)
+				end
+			end
+		end
+
+		max_advance_x = math.max(max_advance_x, cursor_x)
+
+		if not saw_visible_glyph then return max_advance_x, line_height, 0, 0 end
+
+		max_x = math.max(max_x, max_advance_x)
+		return max_x - min_x, max_y - min_y, min_x, min_y
 	end
 
 	local txt_r, txt_g, txt_b, txt_a = 0, 0, 0, 0
@@ -213,12 +278,16 @@ do
 
 	function surface.DrawText(str)
 		str = gine.translation2[str] or str
+
 		if not current_font then current_font = gine.render2d_fonts.default end
+
 		if not current_font then return end
+
+		local _, _, min_x, min_y = surface.GetTextSize(str)
 		render2d.PushColor(txt_r, txt_g, txt_b, txt_a)
-		current_font:DrawText(str, text_pos.x, text_pos.y)
+		current_font:DrawText(str, text_pos.x - min_x, text_pos.y - min_y)
 		render2d.PopColor()
-		local w = select(1, current_font:GetTextSize(str))
+		local w = select(1, surface.GetTextSize(str))
 		text_pos = Vec2(text_pos.x + w, text_pos.y)
 	end
 
