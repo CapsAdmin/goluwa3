@@ -302,9 +302,9 @@ do
 
 		if s.x <= 0 or s.y <= 0 then return gine.env.Color(255, 0, 255, 255) end
 
-		x = math.clamp(math.floor(x or 0), 0, s.x - 1)
-		y = math.clamp(math.floor(y or 0), 0, s.y - 1)
-		local r, g, b, a = self.__obj:GetRawPixelColor(x, -y + s.y - 1)
+		x = math.clamp(math.floor(x), 0, s.x - 1)
+		y = math.clamp(math.floor(-y + s.y), 0, s.y - 1)
+		local r, g, b, a = self.__obj:GetRawPixelColor(x, y)
 		return gine.env.Color(r, g, b, a)
 	end
 
