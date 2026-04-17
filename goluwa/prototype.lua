@@ -1580,6 +1580,17 @@ function prototype.ParentingTemplate(META)
 	do -- child order
 		META:GetSet("ChildOrder", 0)
 
+		local function child_order_sort(a, b)
+			local order_a = a.ChildOrder or 0
+			local order_b = b.ChildOrder or 0
+
+			if order_a == order_b then
+				return (a._child_insert_order or 0) < (b._child_insert_order or 0)
+			end
+
+			return order_a < order_b
+		end
+
 		function META:BringToFront()
 			local parent = self:GetParent()
 
@@ -1606,9 +1617,8 @@ function prototype.ParentingTemplate(META)
 			self.ChildOrder = pos
 
 			if self:HasParent() then
-				list.sort(self.Parent.Children, function(a, b)
-					return a.ChildOrder > b.ChildOrder
-				end)
+				list.sort(self.Parent.Children, child_order_sort)
+				self.Parent:InvalidateChildrenList()
 			end
 		end
 	end
@@ -1731,6 +1741,8 @@ function prototype.ParentingTemplate(META)
 
 		if not self:HasChild(obj) then
 			self.ChildrenMap[obj] = obj
+			self._child_insert_serial = (self._child_insert_serial or 0) + 1
+			obj._child_insert_order = self._child_insert_serial
 
 			if pos then
 				list.insert(self.Children, pos, obj)
@@ -1760,12 +1772,18 @@ function prototype.ParentingTemplate(META)
 
 	do
 		local function sort(a, b)
-			return a.ChildOrder < b.ChildOrder
+			local order_a = a.ChildOrder or 0
+			local order_b = b.ChildOrder or 0
+
+			if order_a == order_b then
+				return (a._child_insert_order or 0) < (b._child_insert_order or 0)
+			end
+
+			return order_a < order_b
 		end
 
 		function META:SortChildren() -- todo
-		--table.sort(self.Children, sort)
-		--self:InvalidateChildrenList()
+			-- Preserve insertion order by default; explicit SetChildOrder already sorts when needed.
 		end
 	end
 

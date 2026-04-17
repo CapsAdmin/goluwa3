@@ -4,6 +4,30 @@ local gfx = import("goluwa/render2d/gfx.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local surface = gine.env.surface
 
+local function get_panel_scissor_rect(panel)
+	if not panel then
+		if render.GetScissorRect then return render.GetScissorRect() end
+
+		return false, 0, 0, gine.env.ScrW(), gine.env.ScrH()
+	end
+
+	local left, top = panel:LocalToScreen(0, 0)
+	local right, bottom = panel:LocalToScreen(panel:GetWide(), panel:GetTall())
+	local current = panel:GetParent()
+
+	while current do
+		local x1, y1 = current:LocalToScreen(0, 0)
+		local x2, y2 = current:LocalToScreen(current:GetWide(), current:GetTall())
+		left = math.max(left, x1)
+		top = math.max(top, y1)
+		right = math.min(right, x2)
+		bottom = math.min(bottom, y2)
+		current = current:GetParent()
+	end
+
+	return true, left, top, math.max(right, left), math.max(bottom, top)
+end
+
 function surface.SetDrawColor(r, g, b, a)
 	if type(r) == "table" then r, g, b, a = r.r, r.g, r.b, r.a end
 
@@ -57,7 +81,22 @@ function surface.DrawLine(...)
 	gfx.DrawLine(...)
 end
 
-function surface.DisableClipping(b) end
+function surface.DisableClipping(b)
+	local old = gine.surface_clipping_disabled or false
+
+	if b ~= nil then gine.surface_clipping_disabled = not not b end
+
+	return old
+end
+
+function surface.GetScissorRect()
+	if gine.surface_clipping_disabled then
+		return false, 0, 0, gine.env.ScrW(), gine.env.ScrH()
+	end
+
+	local panel = gine.GetPaintPanel and gine.GetPaintPanel() or nil
+	return get_panel_scissor_rect(panel)
+end
 
 do
 	local mesh

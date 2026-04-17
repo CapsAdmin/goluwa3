@@ -26,6 +26,27 @@ local function limit_text(font, text, max_width)
 	return text
 end
 
+local function get_layout_text_size(font, text)
+	text = tostring(text or "")
+
+	if text == "" then return 0, 0 end
+
+	local line_height = font.GetLineHeight and font:GetLineHeight() or 0
+	local spacing = font.GetSpacing and font:GetSpacing() or rawget(font, "Spacing") or 0
+	local max_width = 0
+	local line_count = 0
+
+	for line in (text .. "\n"):gmatch("(.-)\n") do
+		local width = font:GetTextSize(line)
+		max_width = math.max(max_width, width)
+		line_count = line_count + 1
+	end
+
+	if line_count == 0 then return 0, 0 end
+
+	return max_width, line_height + (line_count - 1) * (line_height + spacing)
+end
+
 local function resolve_inherited_value(tbl, key)
 	while type(tbl) == "table" do
 		local value = rawget(tbl, key)
@@ -47,6 +68,22 @@ local function call_panel_method(panel, name, ...)
 	if method == nil then return nil end
 
 	return method(panel, ...)
+end
+
+do
+	local paint_panel_stack = {}
+
+	function gine.GetPaintPanel()
+		return paint_panel_stack[#paint_panel_stack]
+	end
+
+	function gine.PushPaintPanel(panel)
+		table.insert(paint_panel_stack, panel)
+	end
+
+	function gine.PopPaintPanel()
+		return table.remove(paint_panel_stack)
+	end
 end
 
 local function run_gmod_frame_hooks_once()
@@ -87,6 +124,18 @@ local function transform_world_to_local(transform, pos)
 	return Vec2(pos.x or 0, pos.y or 0)
 end
 
+local function unpack_point_args(x, y)
+	if y ~= nil then return x, y end
+
+	local kind = type(x)
+
+	if (kind == "table" or kind == "cdata" or kind == "userdata") and x.x ~= nil then
+		return x.x, x.y
+	end
+
+	return x, y
+end
+
 local function get_size_of_children(panel)
 	local function accumulate_size(node, offset)
 		local max_x = 0
@@ -94,13 +143,13 @@ local function get_size_of_children(panel)
 
 		for _, child in ipairs(node:GetChildren()) do
 			if child:IsValid() and child.transform then
-				local child_offset = offset + child.transform:GetPosition()
-
 				if child.gmod_internal_dock then
+					local child_offset = offset + child.transform:GetPosition()
 					local nested_x, nested_y = accumulate_size(child, child_offset)
 					max_x = math.max(max_x, nested_x)
 					max_y = math.max(max_y, nested_y)
 				else
+					local child_offset = offset + child.transform:GetPosition()
 					local size = child.transform:GetSize()
 					max_x = math.max(max_x, child_offset.x + size.x)
 					max_y = math.max(max_y, child_offset.y + size.y)
@@ -120,7 +169,10 @@ local function get_text_api(panel)
 end
 
 local function panel_uses_wrapper_text(panel)
-	return panel and panel.text_internal ~= nil and panel.vgui_type ~= "textentry" and panel.vgui_type ~= "richtext"
+	return panel and
+		panel.gmod_has_wrapper_text and
+		panel.vgui_type ~= "textentry" and
+		panel.vgui_type ~= "richtext"
 end
 
 local function set_panel_ignore_layout(panel, b)
@@ -201,6 +253,70 @@ local function reset_panel_layout(panel)
 	if panel.layout then panel.layout:InvalidateLayout() end
 
 	if panel.OnPostLayout then panel:OnPostLayout() end
+end
+
+local function wrapper_panel_is_visible(panel)
+	if panel.__obj.gui_element then return panel.__obj.gui_element:GetVisible() end
+
+	return true
+end
+
+local function update_panel_text_offset(panel)
+	if not panel_uses_wrapper_text(panel) then return end
+
+	local w, h = panel.gine_pnl:GetTextSize()
+
+	if panel.content_alignment == 5 then
+		panel.text_offset = (panel.transform:GetSize() / 2) - (Vec2(w, h) / 2)
+	elseif panel.content_alignment == 4 then
+		panel.text_offset.x = 0
+		panel.text_offset.y = (panel.transform:GetHeight() / 2) - (h / 2)
+	elseif panel.content_alignment == 6 then
+		panel.text_offset.x = panel.transform:GetWidth() - w
+		panel.text_offset.y = (panel.transform:GetHeight() / 2) - (h / 2)
+	elseif panel.content_alignment == 2 then
+		panel.text_offset.x = (panel.transform:GetWidth() / 2) - (w / 2)
+		panel.text_offset.y = panel.transform:GetHeight() - h
+	elseif panel.content_alignment == 8 then
+		panel.text_offset.x = (panel.transform:GetWidth() / 2) - (w / 2)
+		panel.text_offset.y = 0
+	elseif panel.content_alignment == 7 then
+		panel.text_offset.x = 0
+		panel.text_offset.y = 0
+	elseif panel.content_alignment == 9 then
+		panel.text_offset.x = panel.transform:GetWidth() - w
+		panel.text_offset.y = 0
+	elseif panel.content_alignment == 1 then
+		panel.text_offset.x = 0
+		panel.text_offset.y = panel.transform:GetHeight() - h
+	elseif panel.content_alignment == 3 then
+		panel.text_offset.x = panel.transform:GetWidth() - w
+		panel.text_offset.y = panel.transform:GetHeight() - h
+	end
+
+	if w > panel.transform:GetWidth() then panel.text_offset.x = 0 end
+
+	panel.text_offset = panel.text_offset + panel.text_inset
+
+	if
+		panel.content_alignment == 5 or
+		panel.content_alignment == 2 or
+		panel.content_alignment == 8
+	then
+		panel.text_offset.x = math.ceil(panel.text_offset.x)
+	else
+		panel.text_offset.x = math.floor(panel.text_offset.x)
+	end
+
+	if
+		panel.content_alignment == 4 or
+		panel.content_alignment == 5 or
+		panel.content_alignment == 6
+	then
+		panel.text_offset.y = math.ceil(panel.text_offset.y)
+	else
+		panel.text_offset.y = math.floor(panel.text_offset.y)
+	end
 end
 
 local dock_modes = {
@@ -290,9 +406,37 @@ local function get_panel_logical_parent(panel)
 end
 
 local function assign_panel_logical_parent(panel, parent)
-	if rawget(panel, "gmod_parent_override") ~= parent then
+	local old_parent = rawget(panel, "gmod_parent_override")
+
+	if old_parent ~= parent and old_parent and old_parent.gmod_logical_children then
+		for i, child in ipairs(old_parent.gmod_logical_children) do
+			if child == panel then
+				table.remove(old_parent.gmod_logical_children, i)
+
+				break
+			end
+		end
+	end
+
+	if old_parent ~= parent then
 		parent.gmod_logical_child_sequence = (parent.gmod_logical_child_sequence or 0) + 1
 		panel.gmod_logical_child_sequence = parent.gmod_logical_child_sequence
+		parent.gmod_logical_children = parent.gmod_logical_children or {}
+		parent.gmod_logical_children[#parent.gmod_logical_children + 1] = panel
+	elseif parent.gmod_logical_children then
+		local found = false
+
+		for _, child in ipairs(parent.gmod_logical_children) do
+			if child == panel then
+				found = true
+
+				break
+			end
+		end
+
+		if not found then
+			parent.gmod_logical_children[#parent.gmod_logical_children + 1] = panel
+		end
 	end
 
 	panel.gmod_parent_override = parent
@@ -325,8 +469,11 @@ end
 
 local function get_logical_children(panel)
 	local out = {}
+	local children = panel.gmod_logical_children or {}
 
-	for _, child in ipairs(panel:GetChildrenList()) do
+	for i = 1, #children do
+		local child = children[i]
+
 		if
 			child:IsValid() and
 			not is_internal_dock_panel(child)
@@ -336,10 +483,6 @@ local function get_logical_children(panel)
 			out[#out + 1] = child
 		end
 	end
-
-	table.sort(out, function(a, b)
-		return (a.gmod_logical_child_sequence or 0) < (b.gmod_logical_child_sequence or 0)
-	end)
 
 	return out
 end
@@ -548,7 +691,7 @@ local function rebuild_panel_dock_layout(parent)
 	)
 	state.root.transform:SetPosition(Vec2())
 	local remainder = state.root
-	local filled = false
+	local fill_children = {}
 
 	for _, child in ipairs(logical_children) do
 		local mode = child.layout_mode
@@ -557,29 +700,46 @@ local function rebuild_panel_dock_layout(parent)
 			if child.layout then child.layout:SetFloating(true) end
 
 			if child:GetParent() ~= parent then reparent_panel_silently(child, parent) end
-		elseif not filled then
+		elseif mode == "gmod_fill" then
+			fill_children[#fill_children + 1] = child
+		elseif true then
 			configure_docked_child(child, mode)
+			local next_remainder = create_internal_dock_panel(remainder, (parent:GetName() or "panel") .. "_gmod_dock_remainder")
+			configure_split_container(remainder, mode)
+			configure_remainder_container(next_remainder, mode)
 
-			if mode == "gmod_fill" then
-				configure_split_container(remainder, "gmod_top")
+			if mode == "gmod_right" or mode == "gmod_bottom" then
+				remainder:AddChild(next_remainder)
 				reparent_panel_silently(child, remainder)
-				filled = true
 			else
-				local next_remainder = create_internal_dock_panel(remainder, (parent:GetName() or "panel") .. "_gmod_dock_remainder")
-				configure_split_container(remainder, mode)
-				configure_remainder_container(next_remainder, mode)
-
-				if mode == "gmod_right" or mode == "gmod_bottom" then
-					remainder:AddChild(next_remainder)
-					reparent_panel_silently(child, remainder)
-				else
-					reparent_panel_silently(child, remainder)
-					remainder:AddChild(next_remainder)
-				end
-
-				remainder = next_remainder
+				reparent_panel_silently(child, remainder)
+				remainder:AddChild(next_remainder)
 			end
-		else
+
+			remainder = next_remainder
+		end
+	end
+
+	local fill_child
+
+	for _, child in ipairs(fill_children) do
+		if not child.gui_element or child.gui_element:GetVisible() then
+			fill_child = child
+
+			break
+		end
+	end
+
+	fill_child = fill_child or fill_children[1]
+
+	if fill_child then
+		configure_docked_child(fill_child, "gmod_fill")
+		configure_split_container(remainder, "gmod_top")
+		reparent_panel_silently(fill_child, remainder)
+	end
+
+	for _, child in ipairs(fill_children) do
+		if child ~= fill_child then
 			if child.layout then child.layout:SetFloating(true) end
 
 			if child:GetParent() ~= parent then reparent_panel_silently(child, parent) end
@@ -640,6 +800,7 @@ end
 
 local function set_panel_text(panel, text)
 	panel.text_internal = tostring(text or "")
+	panel.gmod_has_wrapper_text = true
 	text = get_text_api(panel)
 
 	if text and text.SetText then text:SetText(panel.text_internal) end
@@ -677,6 +838,7 @@ local function initialize_panel(panel, class_name)
 	panel._gmod_panel_ready = true
 	panel.gine_enabled = panel.gine_enabled ~= false
 	panel.vgui_type = class_name or panel.vgui_type or "base"
+	panel.gmod_has_wrapper_text = panel.gmod_has_wrapper_text or false
 	panel.allow_keyboard_input = panel.allow_keyboard_input or false
 	panel.focus_on_click = panel.focus_on_click or false
 	panel.bring_to_front_on_click = panel.bring_to_front_on_click or false
@@ -798,9 +960,7 @@ local function bring_gui_world_to_front()
 
 	local parent = gine.gui_world:GetParent()
 
-	if parent and parent:IsValid() then
-		gine.gui_world:BringToFront()
-	end
+	if parent and parent:IsValid() then gine.gui_world:BringToFront() end
 end
 
 do -- chatbox
@@ -1037,7 +1197,6 @@ do
 		end
 
 		bring_gui_world_to_front()
-
 		refresh_gui_world_bounds()
 		class = class:lower()
 		local obj
@@ -1097,9 +1256,9 @@ do
 
 			if obj.draw_manual and not obj.in_paint_manual then return end
 
+			gine.PushPaintPanel(self)
 			call_panel_method(self, "Think")
 			obj.thought_1_frame = true
-
 			local w, h = obj.transform:GetWidth(), obj.transform:GetHeight()
 			local paint_bg = call_panel_method(self, "Paint", w, h)
 
@@ -1120,24 +1279,23 @@ do
 						text = limit_text(font, text, w)
 					end
 
+					update_panel_text_offset(obj)
 					render2d.SetTexture()
 					render2d.SetUV()
 					--render2d.SetAlphaTestReference(0)
 					render2d.SetBlendMode("alpha", true)
-					surface.SetFont(obj.font_internal)
-					local _, _, min_x, min_y = surface.GetTextSize(text)
 
 					if obj.expensive_shadow_dir then
 						render2d.SetColor(obj.expensive_shadow_color:Unpack())
 						font:DrawString(
 							text,
-							obj.text_offset.x - min_x + obj.expensive_shadow_dir,
-							obj.text_offset.y - min_y + obj.expensive_shadow_dir
+							obj.text_offset.x + obj.expensive_shadow_dir,
+							obj.text_offset.y + obj.expensive_shadow_dir
 						)
 					end
 
 					render2d.SetColor(obj.fg_color:Unpack())
-					font:DrawString(text, obj.text_offset.x - min_x, obj.text_offset.y - min_y)
+					font:DrawString(text, obj.text_offset.x, obj.text_offset.y)
 				end
 			end
 
@@ -1147,12 +1305,30 @@ do
 				self:InvalidateLayout(true)
 				self.gine_layout = nil
 			end
+
+			gine.PopPaintPanel()
 		end
 
 		obj:CallOnRemove(function()
 			obj.marked_for_deletion = true
 			call_panel_method(self, "OnDeletion")
 		end)
+
+		local function sync_wrapper_layout()
+			if panel_uses_wrapper_text(obj) then update_panel_text_offset(obj) end
+
+			if not obj.gine_prepared then
+				obj.gine_prepare_layout = true
+				return
+			end
+
+			if self.in_layout or self.in_sync_layout then return end
+
+			self.in_sync_layout = true
+			call_panel_method(self, "ApplySchemeSettings")
+			call_panel_method(self, "PerformLayout", obj.transform:GetWidth(), obj.transform:GetHeight())
+			self.in_sync_layout = false
+		end
 
 		if class == "textentry" then
 			hook(obj, "OnCharInput", function(_, char)
@@ -1186,6 +1362,7 @@ do
 		end)
 
 		hook(obj, "OnMouseMove", function(_, x, y)
+			x, y = unpack_point_args(x, y)
 			call_panel_method(self, "OnCursorMoved", x, y)
 		end)
 
@@ -1204,64 +1381,10 @@ do
 			call_panel_method(self, "OnCursorExited")
 		end)
 
-		hook(obj, "OnPostLayout", function()
-			local panel = obj
+		hook(obj, "OnPostLayout", sync_wrapper_layout)
 
-			if panel_uses_wrapper_text(panel) then
-				local w, h = panel.gine_pnl:GetTextSize()
-
-				if panel.content_alignment == 5 then
-					panel.text_offset = (panel.transform:GetSize() / 2) - (Vec2(w, h) / 2)
-				elseif panel.content_alignment == 4 then
-					panel.text_offset.x = 0
-					panel.text_offset.y = (panel.transform:GetHeight() / 2) - (h / 2)
-				elseif panel.content_alignment == 6 then
-					panel.text_offset.x = panel.transform:GetWidth() - w
-					panel.text_offset.y = (panel.transform:GetHeight() / 2) - (h / 2)
-				elseif panel.content_alignment == 2 then
-					panel.text_offset.x = (panel.transform:GetWidth() / 2) - (w / 2)
-					panel.text_offset.y = panel.transform:GetHeight() - h
-				elseif panel.content_alignment == 8 then
-					panel.text_offset.x = (panel.transform:GetWidth() / 2) - (w / 2)
-					panel.text_offset.y = 0
-				elseif panel.content_alignment == 7 then
-					panel.text_offset.x = 0
-					panel.text_offset.y = 0
-				elseif panel.content_alignment == 9 then
-					panel.text_offset.x = panel.transform:GetWidth() - w
-					panel.text_offset.y = 0
-				elseif panel.content_alignment == 1 then
-					panel.text_offset.x = 0
-					panel.text_offset.y = panel.transform:GetHeight() - h
-				elseif panel.content_alignment == 3 then
-					panel.text_offset.x = panel.transform:GetWidth() - w
-					panel.text_offset.y = panel.transform:GetHeight() - h
-				end
-
-				if w > panel.transform:GetWidth() then panel.text_offset.x = 0 end
-
-				panel.text_offset = panel.text_offset + panel.text_inset
-
-				if panel.content_alignment == 5 or panel.content_alignment == 2 or panel.content_alignment == 8 then
-					panel.text_offset.x = math.ceil(panel.text_offset.x)
-				else
-					panel.text_offset.x = math.floor(panel.text_offset.x)
-				end
-
-				if panel.content_alignment == 4 or panel.content_alignment == 5 or panel.content_alignment == 6 then
-					panel.text_offset.y = math.ceil(panel.text_offset.y)
-				else
-					panel.text_offset.y = math.floor(panel.text_offset.y)
-				end
-			--panel.text_offset.x = panel.text_offset.x + panel:GetMargin():GetLeft()
-			--panel.text_offset.y = panel.text_offset.y + panel:GetMargin():GetTop()
-			end
-
-			if not obj.gine_prepared then
-				obj.gine_prepare_layout = true
-			else
-				self:InvalidateLayout(true)
-			end
+		obj:AddLocalListener("OnVisibilityChanged", function()
+			request_panel_and_parent_layout(obj)
 		end)
 
 		hook(obj, "OnMouseInput", function(_, button, press)
@@ -1373,6 +1496,10 @@ do
 			return is_panel_mouse_over(self.__obj)
 		end
 
+		local val = rawget(META, key)
+
+		if val then return val end
+
 		local base = rawget(self, "BaseClass")
 
 		if base then
@@ -1380,10 +1507,6 @@ do
 
 			if inherited ~= nil then return inherited end
 		end
-
-		local val = rawget(META, key)
-
-		if val then return val end
 	end
 
 	function META:__newindex(k, v)
@@ -1441,7 +1564,7 @@ do
 	end
 
 	function META:GetChild(idx)
-		return self:GetChildren()[idx - 1]
+		return self:GetChildren()[idx]
 	end
 
 	function META:SetFGColor(r, g, b, a)
@@ -1481,7 +1604,7 @@ do
 	end
 
 	function META:IsVisible()
-		return self.__obj.gui_element and self.__obj.gui_element:GetVisible() or true
+		return wrapper_panel_is_visible(self)
 	end
 
 	function META:IsModal()
@@ -1511,7 +1634,7 @@ do
 	end
 
 	function META:DockMargin(left, top, right, bottom)
-		set_panel_margin(self.__obj, Rect(right, bottom, left, top))
+		set_panel_margin(self.__obj, Rect(left, top, right, bottom))
 	end
 
 	function META:DockPadding(left, top, right, bottom)
@@ -1604,10 +1727,12 @@ do
 	end
 
 	function META:LocalToScreen(x, y)
+		x, y = unpack_point_args(x, y)
 		return transform_local_to_world(self.__obj.transform, Vec2(x or 0, y or 0)):Unpack()
 	end
 
 	function META:ScreenToLocal(x, y)
+		x, y = unpack_point_args(x, y)
 		return transform_world_to_local(self.__obj.transform, Vec2(x, y)):Unpack()
 	end
 
@@ -1637,6 +1762,7 @@ do
 			elseif self.__obj.vgui_type == "richtext" then
 				set_panel_text(self.__obj, text)
 			else
+				self.__obj.gmod_has_wrapper_text = true
 				self.__obj.text_internal = gine.translation2[text] or text
 			--	self.__obj.label_settext = system.GetFrameNumber()
 			end
@@ -1720,7 +1846,7 @@ do
 			return w + panel.text_inset.x, h + panel.text_inset.y
 		end
 
-		return get_size_of_children(panel):Unpack()
+		return self:ChildrenSize()
 	end
 
 	function META:GetTextSize()
@@ -1750,8 +1876,7 @@ do
 			end
 		end
 
-		surface.SetFont(panel.font_internal)
-		local w, h = surface.GetTextSize(text)
+		local w, h = get_layout_text_size(font, text)
 
 		if
 			panel.gmod_wrap and
@@ -1767,16 +1892,19 @@ do
 
 	function META:SizeToContents()
 		local panel = self.__obj
+		local w, h
 
 		if
 			panel_uses_wrapper_text(panel) or
 			self.__obj.vgui_type == "textentry" or
 			self.__obj.vgui_type == "richtext"
 		then
-			local w, h = self:GetContentSize()
-			--panel:Layout(true)
-			panel.transform:SetSize(Vec2(w, h))
+			w, h = self:GetContentSize()
+		else
+			w, h = self:ChildrenSize()
 		end
+
+		self:SetSize(w, h)
 	end
 
 	function META:GetValue()
@@ -1802,6 +1930,7 @@ do
 	function META:SetTextInset(x, y)
 		self.__obj.text_inset.x = x
 		self.__obj.text_inset.y = y
+		update_panel_text_offset(self.__obj)
 	end
 
 	function META:GetTextInset()
@@ -1832,14 +1961,14 @@ do
 			end
 		end
 ]]
+		local size = get_size_of_children(self.__obj)
+
 		if size_w and size_h then
-			self.__obj.transform:SetSize(get_size_of_children(self.__obj))
+			self:SetSize(size.x, size.y)
 		elseif size_w then
-			local size = get_size_of_children(self.__obj)
-			self.__obj.transform:SetSize(Vec2(size.x, self.__obj.transform:GetHeight()))
+			self:SetWide(size.x)
 		elseif size_h then
-			local size = get_size_of_children(self.__obj)
-			self.__obj.transform:SetSize(Vec2(self.__obj.transform:GetWidth(), size.y))
+			self:SetTall(size.y)
 		end
 	--[[
 		for _, v in ipairs(self.__obj.Children) do
@@ -1902,16 +2031,45 @@ do
 	do -- z pos stuff
 		function META:SetZPos(pos)
 			pos = pos or 0
-			self.__obj:SetChildOrder(-pos)
+			self.__obj:SetChildOrder(pos)
+			local parent = get_panel_logical_parent(self.__obj)
+
+			if parent and parent.gmod_logical_children then
+				table.sort(parent.gmod_logical_children, function(a, b)
+					local order_a = a.ChildOrder or 0
+					local order_b = b.ChildOrder or 0
+
+					if order_a ~= order_b then return order_a < order_b end
+
+					return (a.gmod_logical_child_sequence or 0) < (b.gmod_logical_child_sequence or 0)
+				end)
+			end
 		end
 
-		function META:MoveToBack() --self.__obj:Unfocus()
+		function META:MoveToBack()
+			self.__obj:SendToBack()
 		end
 
-		function META:MoveToFront() --self.__obj:BringToFront()
+		function META:MoveToFront()
+			self.__obj:BringToFront()
 		end
 
 		function META:MakePopup()
+			local old_raw_parent = self.__obj:GetParent()
+			local world_pos = self.__obj.transform:GetPosition():Copy()
+
+			if old_raw_parent and old_raw_parent:IsValid() and old_raw_parent.transform then
+				world_pos = transform_local_to_world(old_raw_parent.transform, world_pos)
+			end
+
+			self.__obj.popup = true
+			set_panel_clipping(self.__obj, false)
+
+			if self.__obj:GetParent() ~= gine.gui_world then
+				reparent_panel_silently(self.__obj, gine.gui_world)
+			end
+
+			self.__obj.transform:SetPosition(world_pos)
 			bring_gui_world_to_front()
 			self.__obj:BringToFront()
 			self.__obj:RequestFocus()

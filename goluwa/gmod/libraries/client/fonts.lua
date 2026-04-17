@@ -190,7 +190,7 @@ do
 		current_font = gine.render2d_fonts[name:lower()]
 	end
 
-	function surface.GetTextSize(str)
+	local function get_text_bounds(str)
 		str = gine.translation2[str] or str
 
 		if not current_font then current_font = gine.render2d_fonts.default end
@@ -233,10 +233,22 @@ do
 				if current_font.GetTabAdvance then
 					cursor_x = cursor_x + current_font:GetTabAdvance(nil, 4, cursor_x)
 				else
-					cursor_x = cursor_x + ((current_font.GetSpaceAdvance and current_font:GetSpaceAdvance()) or 0) * 4
+					cursor_x = cursor_x + (
+							(
+								current_font.GetSpaceAdvance and
+								current_font:GetSpaceAdvance()
+							) or
+							0
+						) * 4
 				end
 			elseif char == " " then
-				cursor_x = cursor_x + ((current_font.GetSpaceAdvance and current_font:GetSpaceAdvance()) or 0)
+				cursor_x = cursor_x + (
+						(
+							current_font.GetSpaceAdvance and
+							current_font:GetSpaceAdvance()
+						) or
+						0
+					)
 			else
 				local glyph = metric_font.GetGlyph and metric_font:GetGlyph(char)
 
@@ -252,7 +264,11 @@ do
 					saw_visible_glyph = true
 					cursor_x = cursor_x + (glyph.x_advance or 0) + spacing
 				else
-					cursor_x = cursor_x + (current_font.GetGlyphAdvance and current_font:GetGlyphAdvance(char) or 0)
+					cursor_x = cursor_x + (
+							current_font.GetGlyphAdvance and
+							current_font:GetGlyphAdvance(char) or
+							0
+						)
 				end
 			end
 		end
@@ -261,8 +277,47 @@ do
 
 		if not saw_visible_glyph then return max_advance_x, line_height, 0, 0 end
 
+		min_x = math.min(min_x, 0)
 		max_x = math.max(max_x, max_advance_x)
 		return max_x - min_x, max_y - min_y, min_x, min_y
+	end
+
+	local function get_text_layout_size(str)
+		str = gine.translation2[str] or str
+
+		if not current_font then current_font = gine.render2d_fonts.default end
+
+		if not current_font then return 0, 0 end
+
+		str = tostring(str or "")
+
+		if str == "" then return 0, 0 end
+
+		local line_height = current_font.GetLineHeight and
+			current_font:GetLineHeight() or
+			select(2, current_font:GetTextSize("|")) or
+			0
+		local spacing = rawget(current_font, "Spacing") or 0
+		local max_width = 0
+		local line_count = 0
+
+		for line in (str .. "\n"):gmatch("(.-)\n") do
+			max_width = math.max(max_width, current_font:GetTextSize(line))
+			line_count = line_count + 1
+		end
+
+		if line_count == 0 then return 0, 0 end
+
+		return max_width, line_height + (line_count - 1) * (line_height + spacing)
+	end
+
+	function surface.GetTextSize(str)
+		local w, h = get_text_layout_size(str)
+		return w, h
+	end
+
+	function gine.GetSurfaceTextBounds(str)
+		return get_text_bounds(str)
 	end
 
 	local txt_r, txt_g, txt_b, txt_a = 0, 0, 0, 0
@@ -283,11 +338,11 @@ do
 
 		if not current_font then return end
 
-		local _, _, min_x, min_y = surface.GetTextSize(str)
+		local _, _, min_x, min_y = get_text_bounds(str)
 		render2d.PushColor(txt_r, txt_g, txt_b, txt_a)
 		current_font:DrawText(str, text_pos.x - min_x, text_pos.y - min_y)
 		render2d.PopColor()
-		local w = select(1, surface.GetTextSize(str))
+		local w = select(1, get_text_bounds(str))
 		text_pos = Vec2(text_pos.x + w, text_pos.y)
 	end
 

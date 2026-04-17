@@ -2,6 +2,14 @@ local system = import("goluwa/system.lua")
 local lib = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render = gine.env.render
+gine.surface_clipping_disabled = gine.surface_clipping_disabled or false
+local scissor_rect = {
+	enabled = false,
+	left = 0,
+	top = 0,
+	right = 0,
+	bottom = 0,
+}
 
 local function get_error_texture()
 	if lib.GetErrorTexture then
@@ -102,7 +110,41 @@ end
 
 function render.SetModelLighting() end
 
-function render.SetScissorRect(x, y, w, h, b) end
+function render.SetScissorRect(left, top, right, bottom, enabled)
+	left = tonumber(left) or 0
+	top = tonumber(top) or 0
+	right = tonumber(right) or 0
+	bottom = tonumber(bottom) or 0
+	enabled = not not enabled
+	scissor_rect.enabled = enabled
+
+	if enabled then
+		right = math.max(right, left)
+		bottom = math.max(bottom, top)
+		scissor_rect.left = left
+		scissor_rect.top = top
+		scissor_rect.right = right
+		scissor_rect.bottom = bottom
+		render2d.SetScissor(left, top, right - left, bottom - top)
+		return
+	end
+
+	local width = gine.env.ScrW()
+	local height = gine.env.ScrH()
+	scissor_rect.left = 0
+	scissor_rect.top = 0
+	scissor_rect.right = width
+	scissor_rect.bottom = height
+	render2d.SetScissor(0, 0, width, height)
+end
+
+function render.GetScissorRect()
+	return scissor_rect.enabled,
+	scissor_rect.left,
+	scissor_rect.top,
+	scissor_rect.right,
+	scissor_rect.bottom
+end
 
 function render.UpdateScreenEffectTexture() end
 
@@ -121,7 +163,13 @@ end
 gine.env.surface.ScreenWidth = gine.env.ScrW
 gine.env.surface.ScreenHeight = gine.env.ScrH
 
-function gine.env.DisableClipping(b) end
+function gine.env.DisableClipping(b)
+	local old = gine.surface_clipping_disabled
+
+	if b ~= nil then gine.surface_clipping_disabled = not not b end
+
+	return old
+end
 
 function render.SupportsPixelShaders_1_4()
 	return true

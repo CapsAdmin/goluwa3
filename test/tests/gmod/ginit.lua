@@ -154,6 +154,41 @@ T.Test("gmod label content size applies inset once", function()
 	if label.Remove then label:Remove() end
 end)
 
+T.Test("gmod button hover text color resets on leave", function()
+	ensure_ginit()
+	local skin = gine.env.derma and
+		gine.env.derma.GetDefaultSkin and
+		gine.env.derma.GetDefaultSkin() or
+		nil
+	local button = gine.env.vgui.Create("DButton")
+	local wnd = system.GetWindow()
+	local hover_color = skin and skin.Colours and skin.Colours.Button and skin.Colours.Button.Hover
+	local normal_color = skin and skin.Colours and skin.Colours.Button and skin.Colours.Button.Normal
+	attest.truthy(button)
+	attest.truthy(hover_color)
+	attest.truthy(normal_color)
+	button:SetPos(120, 120)
+	button:SetSize(180, 28)
+	button:SetText("Hover me")
+	button:InvalidateLayout(true)
+	wnd:SetMousePosition(Vec2(140, 134))
+	event.Call("Update")
+	pump_draws(1)
+	local active_hover = button:GetTextStyleColor()
+	attest.equal(active_hover.r, hover_color.r)
+	attest.equal(active_hover.g, hover_color.g)
+	attest.equal(active_hover.b, hover_color.b)
+	wnd:SetMousePosition(Vec2(20, 20))
+	event.Call("Update")
+	pump_draws(1)
+	local active_normal = button:GetTextStyleColor()
+	attest.equal(active_normal.r, normal_color.r)
+	attest.equal(active_normal.g, normal_color.g)
+	attest.equal(active_normal.b, normal_color.b)
+
+	if button.Remove then button:Remove() end
+end)
+
 T.Test("gmod surface GetTextSize includes descender space", function()
 	ensure_ginit()
 	local font = gine.render2d_fonts.dermadefault
@@ -254,6 +289,99 @@ T.Test("gmod popup mouse click dispatch", function()
 
 	if frame.Remove then frame:Remove() end
 
+	gine.env.gui.EnableScreenClicker(false)
+end)
+
+T.Test("gmod property sheet fill tab switch and menubar popup", function()
+	ensure_ginit()
+	local ok, err = commands.ExecuteCommandString("derma_controls")
+	local sheet, menu_bar, file_menu, page_y, menu_x, menu_y, menu_w, menu_h
+
+	if not ok then error(err, 0) end
+
+	pump_draws(2)
+
+	for _, pnl in ipairs(gine.env.vgui.GetAll()) do
+		if pnl:IsValid() and pnl:GetClassName() == "DPropertySheet" then
+			sheet = pnl
+
+			break
+		end
+	end
+
+	attest.truthy(sheet)
+
+	for _, item in ipairs(sheet.Items or {}) do
+		if item.Tab and item.Tab:GetText() == "DMenuBar" then
+			item.Tab:DoClick()
+			menu_bar = item.Panel:GetChildren()[1]
+
+			break
+		end
+	end
+
+	attest.truthy(menu_bar)
+	pump_draws(1)
+	_, page_y = menu_bar:GetParent():GetPos()
+	attest.truthy(page_y < 120)
+	attest.truthy(menu_bar:GetParent():GetTall() > 100)
+	file_menu = menu_bar.Menus and menu_bar.Menus.File
+	attest.truthy(file_menu)
+	attest.falsy(file_menu:IsVisible())
+	menu_bar:GetChildren()[1]:DoClick()
+	pump_draws(1)
+	menu_x, menu_y = file_menu:GetPos()
+	menu_w, menu_h = file_menu:GetSize()
+	attest.truthy(file_menu:IsVisible())
+	attest.truthy(menu_y > page_y)
+	attest.truthy(menu_w > 100)
+	attest.truthy(menu_h > 40)
+	gine.env.gui.EnableScreenClicker(false)
+end)
+
+T.Test("gmod dtree child lists report content size and expand", function()
+	ensure_ginit()
+	local ok, err = commands.ExecuteCommandString("derma_controls")
+	local sheet, tree, root_list, node
+
+	if not ok then error(err, 0) end
+
+	pump_draws(2)
+
+	for _, pnl in ipairs(gine.env.vgui.GetAll()) do
+		if pnl:IsValid() and pnl:GetClassName() == "DPropertySheet" then
+			sheet = pnl
+
+			break
+		end
+	end
+
+	attest.truthy(sheet)
+
+	for _, item in ipairs(sheet.Items or {}) do
+		if item.Tab and item.Tab:GetText() == "DTree" then
+			item.Tab:DoClick()
+			tree = item.Panel
+
+			break
+		end
+	end
+
+	attest.truthy(tree)
+	pump_draws(1)
+	root_list = tree.RootNode and tree.RootNode.ChildNodes
+	attest.truthy(root_list)
+	local list_w, list_h = root_list:ChildrenSize()
+	attest.truthy(list_w >= 300)
+	attest.truthy(root_list:GetTall() >= 68)
+	node = root_list:GetChildren()[2]
+	attest.truthy(node)
+	attest.truthy(node.ChildNodes)
+	node:SetExpanded(true, true)
+	pump_draws(1)
+	attest.truthy(node:GetTall() > 100)
+	attest.truthy(node.ChildNodes:IsVisible())
+	attest.truthy(node.ChildNodes:GetTall() >= 102)
 	gine.env.gui.EnableScreenClicker(false)
 end)
 

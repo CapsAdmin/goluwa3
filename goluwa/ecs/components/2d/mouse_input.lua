@@ -46,7 +46,9 @@ local function get_hovered_entity(entity, mouse_pos)
 
 	local mouse_comp = entity.mouse_input
 
-	if mouse_comp and mouse_comp:GetIgnoreMouseInput() and not internal_dock then return nil end
+	if mouse_comp and mouse_comp:GetIgnoreMouseInput() and not internal_dock then
+		return nil
+	end
 
 	-- Check children first (top-most in draw order is usually last in child list)
 	local children = entity:GetChildren()
