@@ -14,10 +14,16 @@ local type = type
 local io = io
 local math = math
 local math_max = math.max
+local math_floor = math.floor
 local string_char = string.char
 local band = bit.band
 local lshift = bit.lshift
 local rshift = bit.rshift
+local pow2 = {}
+
+for i = 0, 32 do
+	pow2[i] = 2 ^ i
+end
 
 local function warn(s)
 	io.stderr:write(s, "\n")
@@ -35,16 +41,63 @@ end
 local function make_outstate(outbuf)
 	local outstate = {}
 	outstate.outbuf = outbuf
-	outstate.window = {}
-	outstate.window_pos = 1
+	outstate.outptr = outbuf.Buffer
+	outstate.outpos = 0
+	outstate.window = ffi.new("uint8_t[32768]")
+	outstate.window_pos = 0
 	return outstate
 end
 
+local function ensure_out_capacity(outstate, needed)
+	local outbuf = outstate.outbuf
+
+	if needed > outbuf.ByteSize then
+		outbuf:SetPosition(needed)
+		outstate.outptr = outbuf.Buffer
+	end
+end
+
 local function output(outstate, byte)
+	local outpos = outstate.outpos
+	ensure_out_capacity(outstate, outpos + 1)
+	outstate.outptr[outpos] = byte
+	outstate.outpos = outpos + 1
 	local window_pos = outstate.window_pos
-	outstate.outbuf:WriteByte(byte)
 	outstate.window[window_pos] = byte
-	outstate.window_pos = window_pos % 32768 + 1 -- 32K
+	window_pos = window_pos + 1
+
+	if window_pos == 32768 then window_pos = 0 end
+
+	outstate.window_pos = window_pos
+end
+
+local function copy_from_window(outstate, dist, len)
+	local available = outstate.outpos < 32768 and outstate.outpos or 32768
+
+	if dist > available then runtime_error("invalid distance: " .. dist) end
+
+	local outpos = outstate.outpos
+	ensure_out_capacity(outstate, outpos + len)
+	local outptr = outstate.outptr
+	local window = outstate.window
+	local window_pos = outstate.window_pos
+
+	for _ = 1, len do
+		local src_pos = window_pos - dist
+
+		if src_pos < 0 then src_pos = src_pos + 32768 end
+
+		local byte = window[src_pos]
+		outptr[outpos] = byte
+		window[window_pos] = byte
+		outpos = outpos + 1
+		window_pos = window_pos + 1
+
+		if window_pos == 32768 then window_pos = 0 end
+	end
+
+	outstate.outpos = outpos
+	outstate.window_pos = window_pos
 end
 
 local function noeof(val, context)
@@ -125,6 +178,87 @@ local function get_output_buffer(output, initial_size)
 	runtime_error("output must be Buffer or nil, got: " .. tostring(output_type))
 end
 
+local function get_input_state(input)
+	if type(input) == "table" and input.ptr and input.size and input.pos then return input end
+
+	local buf = get_input_buffer(input)
+	local bit_pos = buf.BitPos and buf:BitPos() or buf.Position * 8
+	local pos = math_floor(bit_pos / 8)
+	local bit_offset = bit_pos % 8
+	local state = {
+		buffer = buf,
+		ptr = buf.Buffer,
+		size = buf.ByteSize,
+		pos = pos,
+		bitbuf = 0,
+		bitcount = 0,
+	}
+
+	if bit_offset > 0 and pos < state.size then
+		state.bitbuf = math_floor(state.ptr[pos] / pow2[bit_offset])
+		state.bitcount = 8 - bit_offset
+		state.pos = pos + 1
+	end
+
+	return state
+end
+
+local function fill_bits(state, nbits)
+	local bitbuf = state.bitbuf
+	local bitcount = state.bitcount
+	local pos = state.pos
+	local ptr = state.ptr
+	local size = state.size
+
+	while bitcount < nbits do
+		if pos >= size then
+			state.bitbuf = bitbuf
+			state.bitcount = bitcount
+			state.pos = pos
+			return false
+		end
+
+		bitbuf = bitbuf + ptr[pos] * pow2[bitcount]
+		pos = pos + 1
+		bitcount = bitcount + 8
+	end
+
+	state.bitbuf = bitbuf
+	state.bitcount = bitcount
+	state.pos = pos
+	return true
+end
+
+local function read_bits(state, nbits)
+	if nbits == 0 then return 0 end
+
+	if not fill_bits(state, nbits) then return nil end
+
+	local shift = pow2[nbits]
+	local out = state.bitbuf % shift
+	state.bitbuf = math_floor(state.bitbuf / shift)
+	state.bitcount = state.bitcount - nbits
+	return out
+end
+
+local function bits_left_in_byte(state)
+	return state.bitcount % 8
+end
+
+local function align_to_byte(state)
+	local discard = bits_left_in_byte(state)
+
+	if discard > 0 then
+		local shift = pow2[discard]
+		state.bitbuf = math_floor(state.bitbuf / shift)
+		state.bitcount = state.bitcount - discard
+	end
+end
+
+local function input_the_end(state)
+	return state.pos >= state.size and state.bitcount == 0
+end
+
 local function msb(bits, nbits)
 	local res = 0
 
@@ -142,11 +276,11 @@ local function huffman_table_read(look, minbits, buf)
 
 	while 1 do
 		if nbits == 0 then -- small optimization (optional)
-			local bits = noeof(buf:ReadBits(minbits))
-			code = 2 ^ minbits + msb(bits, minbits)
+			local bits = noeof(read_bits(buf, minbits))
+			code = pow2[minbits] + msb(bits, minbits)
 			nbits = nbits + minbits
 		else
-			local b = noeof(buf:ReadBits(1))
+			local b = noeof(read_bits(buf, 1))
 			nbits = nbits + 1
 			code = code * 2 + b -- MSB first
 		end
@@ -177,7 +311,6 @@ local function HuffmanTable(init, ncodes)
 			for val = 0, ncodes - 1 do
 				if init[val] == nbits and nbits ~= 0 then
 					t[#t + 1] = {val = val, nbits = nbits}
-				--debug('*',val,nbits)
 				end
 			end
 		end
@@ -190,24 +323,23 @@ local function HuffmanTable(init, ncodes)
 			local firstval, nbits, nextval = init[i], init[i + 1], init[i + 2]
 
 			if nbits ~= 0 then
-				if nbits > maxnbits then maxnbits = nbits end
-
 				for val = firstval, nextval - 1 do
 					entries[val] = nbits
 				end
+
+				if nbits > maxnbits then maxnbits = nbits end
 			end
 		end
 
 		-- Build table sorted by nbits first, then val (same as ncodes branch)
 		for nbits = 1, maxnbits do
-			for val = 0, 511 do -- max possible value in deflate
+			for val = 0, 511 do
 				if entries[val] == nbits then t[#t + 1] = {val = val, nbits = nbits} end
 			end
 		end
 	end
 
-	-- assign codes
-	local code = 1 -- leading 1 marker
+	local code = 1
 	local nbits = 0
 
 	for i, s in ipairs(t) do
@@ -217,7 +349,6 @@ local function HuffmanTable(init, ncodes)
 		end
 
 		s.code = code
-		--debug('huffman code:', i, s.nbits, s.val, code, bits_tostring(code))
 		code = code + 1
 	end
 
@@ -229,14 +360,8 @@ local function HuffmanTable(init, ncodes)
 		look[s.code] = s.val
 	end
 
-	-- Ensure minbits is valid
 	if minbits == math.huge or minbits > 32 then minbits = 1 end
 
-	--for _,o in ipairs(t) do
-	-- debug(':', o.nbits, o.val)
-	--end
-	-- function t:lookup(bits) return look[bits] end
-	-- Store look and minbits in the table itself for use by huffman_table_read
 	t.look = look
 	t.minbits = minbits
 	return t
@@ -244,7 +369,7 @@ end
 
 local function parse_zstring(buf)
 	repeat
-		local by = buf:ReadBits(8)
+		local by = read_bits(buf, 8)
 
 		if not by then runtime_error("invalid header") end	
 	until by == 0
@@ -256,16 +381,16 @@ local function parse_gzip_header(buf)
 	local FLG_FEXTRA = 2 ^ 2
 	local FLG_FNAME = 2 ^ 3
 	local FLG_FCOMMENT = 2 ^ 4
-	local id1 = buf:ReadBits(8)
-	local id2 = buf:ReadBits(8)
+	local id1 = read_bits(buf, 8)
+	local id2 = read_bits(buf, 8)
 
 	if id1 ~= 31 or id2 ~= 139 then runtime_error("not in gzip format") end
 
-	local cm = buf:ReadBits(8) -- compression method
-	local flg = buf:ReadBits(8) -- FLaGs
-	local mtime = buf:ReadBits(32) -- Modification TIME
-	local xfl = buf:ReadBits(8) -- eXtra FLags
-	local os = buf:ReadBits(8) -- Operating System
+	local cm = read_bits(buf, 8) -- compression method
+	local flg = read_bits(buf, 8) -- FLaGs
+	local mtime = read_bits(buf, 32) -- Modification TIME
+	local xfl = read_bits(buf, 8) -- eXtra FLags
+	local os = read_bits(buf, 8) -- Operating System
 	if DEBUG then
 		debug("CM=", cm)
 		debug("FLG=", flg)
@@ -278,11 +403,11 @@ local function parse_gzip_header(buf)
 	if not os then runtime_error("invalid header") end
 
 	if hasbit(flg, FLG_FEXTRA) then
-		local xlen = buf:ReadBits(16)
+		local xlen = read_bits(buf, 16)
 		local extra = 0
 
 		for i = 1, xlen do
-			extra = buf:ReadBits(8)
+			extra = read_bits(buf, 8)
 		end
 
 		if not extra then runtime_error("invalid header") end
@@ -293,7 +418,7 @@ local function parse_gzip_header(buf)
 	if hasbit(flg, FLG_FCOMMENT) then parse_zstring(buf) end
 
 	if hasbit(flg, FLG_FHCRC) then
-		local crc16 = buf:ReadBits(16)
+		local crc16 = read_bits(buf, 16)
 
 		if not crc16 then runtime_error("invalid header") end
 
@@ -304,11 +429,11 @@ local function parse_gzip_header(buf)
 end
 
 local function parse_zlib_header(buf)
-	local cm = buf:ReadBits(4) -- Compression Method
-	local cinfo = buf:ReadBits(4) -- Compression info
-	local fcheck = buf:ReadBits(5) -- FLaGs: FCHECK (check bits for CMF and FLG)
-	local fdict = buf:ReadBits(1) -- FLaGs: FDICT (present dictionary)
-	local flevel = buf:ReadBits(2) -- FLaGs: FLEVEL (compression level)
+	local cm = read_bits(buf, 4) -- Compression Method
+	local cinfo = read_bits(buf, 4) -- Compression info
+	local fcheck = read_bits(buf, 5) -- FLaGs: FCHECK (check bits for CMF and FLG)
+	local fdict = read_bits(buf, 1) -- FLaGs: FDICT (present dictionary)
+	local flevel = read_bits(buf, 2) -- FLaGs: FLEVEL (compression level)
 	local cmf = cinfo * 16 + cm -- CMF (Compresion Method and flags)
 	local flg = fcheck + fdict * 32 + flevel * 64 -- FLaGs
 	if cm ~= 8 then -- not "deflate"
@@ -327,7 +452,7 @@ local function parse_zlib_header(buf)
 
 	if fdict == 1 then
 		runtime_error("FIX:TODO - FDICT not currently implemented")
-		local dictid_ = buf:ReadBits(32)
+		local dictid_ = read_bits(buf, 32)
 	end
 
 	return window_size
@@ -348,13 +473,13 @@ local function decode_huffman_codes(buf, codelentable, ncodes)
 			nbits = codelen
 		--debug('w', nbits)
 		elseif codelen == 16 then
-			nrepeat = 3 + noeof(buf:ReadBits(2))
+			nrepeat = 3 + noeof(read_bits(buf, 2))
 		-- nbits unchanged
 		elseif codelen == 17 then
-			nrepeat = 3 + noeof(buf:ReadBits(3))
+			nrepeat = 3 + noeof(read_bits(buf, 3))
 			nbits = 0
 		elseif codelen == 18 then
-			nrepeat = 11 + noeof(buf:ReadBits(7))
+			nrepeat = 11 + noeof(read_bits(buf, 7))
 			nbits = 0
 		else
 			error("ASSERT")
@@ -370,15 +495,15 @@ local function decode_huffman_codes(buf, codelentable, ncodes)
 end
 
 local function parse_huffmantables(buf)
-	local hlit = buf:ReadBits(5) -- # of literal/length codes - 257
-	local hdist = buf:ReadBits(5) -- # of distance codes - 1
-	local hclen = noeof(buf:ReadBits(4)) -- # of code length codes - 4
+	local hlit = read_bits(buf, 5) -- # of literal/length codes - 257
+	local hdist = read_bits(buf, 5) -- # of distance codes - 1
+	local hclen = noeof(read_bits(buf, 4)) -- # of code length codes - 4
 	local ncodelen_codes = hclen + 4
 	local codelen_init = {}
 	local codelen_vals = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15}
 
 	for i = 1, ncodelen_codes do
-		local nbits = buf:ReadBits(3)
+		local nbits = read_bits(buf, 3)
 		local val = codelen_vals[i]
 		codelen_init[val] = nbits
 	end
@@ -391,10 +516,46 @@ local function parse_huffmantables(buf)
 	return littable, disttable
 end
 
-local tdecode_len_base
-local tdecode_len_nextrabits
-local tdecode_dist_base
-local tdecode_dist_nextrabits
+local tdecode_len_base = {[257] = 3}
+local tdecode_len_nextrabits = {}
+local tdecode_dist_base = {[0] = 1}
+local tdecode_dist_nextrabits = {}
+
+do
+	local skip = 1
+
+	for i = 258, 285, 4 do
+		for j = i, i + 3 do
+			tdecode_len_base[j] = tdecode_len_base[j - 1] + skip
+		end
+
+		if i ~= 258 then skip = skip * 2 end
+	end
+
+	tdecode_len_base[285] = 258
+
+	for i = 257, 285 do
+		local j = math_max(i - 261, 0)
+		tdecode_len_nextrabits[i] = rshift(j, 2)
+	end
+
+	tdecode_len_nextrabits[285] = 0
+
+	skip = 1
+
+	for i = 1, 29, 2 do
+		for j = i, i + 1 do
+			tdecode_dist_base[j] = tdecode_dist_base[j - 1] + skip
+		end
+
+		if i ~= 1 then skip = skip * 2 end
+	end
+
+	for i = 0, 29 do
+		local j = math_max(i - 2, 0)
+		tdecode_dist_nextrabits[i] = rshift(j, 1)
+	end
+end
 
 local function parse_compressed_item(buf, outstate, littable, disttable)
 	local val = huffman_table_read(littable.look, littable.minbits, buf)
@@ -405,91 +566,26 @@ local function parse_compressed_item(buf, outstate, littable, disttable)
 	elseif val == 256 then -- end of block
 		return true
 	else
-		if not tdecode_len_base then
-			local t = {[257] = 3}
-			local skip = 1
-
-			for i = 258, 285, 4 do
-				for j = i, i + 3 do
-					t[j] = t[j - 1] + skip
-				end
-
-				if i ~= 258 then skip = skip * 2 end
-			end
-
-			t[285] = 258
-			tdecode_len_base = t
-		--for i=257,285 do debug('T1',i,t[i]) end
-		end
-
-		if not tdecode_len_nextrabits then
-			local t = {}
-
-			for i = 257, 285 do
-				local j = math_max(i - 261, 0)
-				t[i] = rshift(j, 2)
-			end
-
-			t[285] = 0
-			tdecode_len_nextrabits = t
-		--for i=257,285 do debug('T2',i,t[i]) end
-		end
-
 		local len_base = tdecode_len_base[val]
 		local nextrabits = tdecode_len_nextrabits[val]
 		--debug("Reading", nextrabits, "extra bits for length")
-		local extrabits = noeof(buf:ReadBits(nextrabits))
+		local extrabits = noeof(read_bits(buf, nextrabits))
 		local len = len_base + extrabits
-
-		--debug("Length:", len, "base:", len_base, "extra:", extrabits)
-		if not tdecode_dist_base then
-			local t = {[0] = 1}
-			local skip = 1
-
-			for i = 1, 29, 2 do
-				for j = i, i + 1 do
-					t[j] = t[j - 1] + skip
-				end
-
-				if i ~= 1 then skip = skip * 2 end
-			end
-
-			tdecode_dist_base = t
-		--for i=0,29 do debug('T3',i,t[i]) end
-		end
-
-		if not tdecode_dist_nextrabits then
-			local t = {}
-
-			for i = 0, 29 do
-				local j = math_max(i - 2, 0)
-				t[i] = rshift(j, 1)
-			end
-
-			tdecode_dist_nextrabits = t
-		--for i=0,29 do debug('T4',i,t[i]) end
-		end
 
 		local dist_val = huffman_table_read(disttable.look, disttable.minbits, buf)
 		local dist_base = tdecode_dist_base[dist_val]
 		local dist_nextrabits = tdecode_dist_nextrabits[dist_val]
-		local dist_extrabits = noeof(buf:ReadBits(dist_nextrabits))
+		local dist_extrabits = noeof(read_bits(buf, dist_nextrabits))
 		local dist = dist_base + dist_extrabits
-
-		--debug("Distance:", dist, "window_pos:", outstate.window_pos, "len:", len)
-		for i = 1, len do
-			local pos = (outstate.window_pos - 1 - dist) % 32768 + 1 -- 32K
-			--debug("Accessing window[" .. pos .. "]")
-			output(outstate, assert(outstate.window[pos], "invalid distance at pos " .. pos))
-		end
+		copy_from_window(outstate, dist, len)
 	end
 
 	return false
 end
 
 local function parse_block(buf, outstate)
-	local bfinal = buf:ReadBits(1)
-	local btype = buf:ReadBits(2)
+	local bfinal = read_bits(buf, 1)
+	local btype = read_bits(buf, 2)
 	local BTYPE_NO_COMPRESSION = 0
 	local BTYPE_FIXED_HUFFMAN = 1
 	local BTYPE_DYNAMIC_HUFFMAN = 2
@@ -501,12 +597,12 @@ local function parse_block(buf, outstate)
 	end
 
 	if btype == BTYPE_NO_COMPRESSION then
-		buf:ReadBits(buf:BitsLeftInByte())
-		local len = buf:ReadBits(16)
-		local nlen_ = noeof(buf:ReadBits(16))
+		align_to_byte(buf)
+		local len = read_bits(buf, 16)
+		local nlen_ = noeof(read_bits(buf, 16))
 
 		for i = 1, len do
-			local by = noeof(buf:ReadBits(8))
+			local by = noeof(read_bits(buf, 8))
 			output(outstate, by)
 		end
 	elseif btype == BTYPE_FIXED_HUFFMAN or btype == BTYPE_DYNAMIC_HUFFMAN then
@@ -515,8 +611,8 @@ local function parse_block(buf, outstate)
 		if btype == BTYPE_DYNAMIC_HUFFMAN then
 			littable, disttable = parse_huffmantables(buf)
 		else
-			littable = HuffmanTable{0, 8, 144, 9, 256, 7, 280, 8, 288, nil}
-			disttable = HuffmanTable{0, 5, 32, nil}
+			littable = deflate.fixed_littable
+			disttable = deflate.fixed_disttable
 		end
 
 		repeat
@@ -530,7 +626,7 @@ local function parse_block(buf, outstate)
 end
 
 function deflate.inflate(t)
-	local inbuf = get_input_buffer(t.input)
+	local inbuf = get_input_state(t.input)
 	local outbuf = get_output_buffer(t.output)
 	local outstate = make_outstate(outbuf)
 
@@ -540,17 +636,18 @@ function deflate.inflate(t)
 		if DEBUG then
 			debug(
 				"Block complete, output size:",
-				outbuf:GetPosition(),
+				outstate.outpos,
 				"input pos:",
-				inbuf:GetPosition()
+				inbuf.pos
 			)
 		end	
 	until is_final
 
 	if DEBUG then
-		debug("Inflation complete, output size:", outbuf:GetPosition())
+		debug("Inflation complete, output size:", outstate.outpos)
 	end
 
+	outbuf.Position = outstate.outpos
 	outbuf:SetPosition(0)
 	return outbuf
 end
@@ -558,7 +655,7 @@ end
 local inflate = deflate.inflate
 
 function deflate.gunzip(t)
-	local inbuf = get_input_buffer(t.input)
+	local inbuf = get_input_state(t.input)
 	local outbuf = get_output_buffer(t.output)
 	local disable_crc = t.disable_crc
 
@@ -583,9 +680,9 @@ function deflate.gunzip(t)
 		end
 	end
 
-	inbuf:ReadBits(inbuf:BitsLeftInByte())
-	local expected_crc32 = inbuf:ReadBits(32)
-	local isize = inbuf:ReadBits(32) -- ignored
+	align_to_byte(inbuf)
+	local expected_crc32 = read_bits(inbuf, 32)
+	local isize = read_bits(inbuf, 32) -- ignored
 	if DEBUG then
 		debug("crc32=", expected_crc32)
 		debug("isize=", isize)
@@ -597,7 +694,7 @@ function deflate.gunzip(t)
 		end
 	end
 
-	if not inbuf:TheEnd() then warn("trailing garbage ignored") end
+	if not input_the_end(inbuf) then warn("trailing garbage ignored") end
 
 	outbuf:SetPosition(0)
 	return outbuf
@@ -613,7 +710,7 @@ function deflate.adler32(byte, crc)
 end
 
 function deflate.inflate_zlib(t)
-	local inbuf = get_input_buffer(t.input)
+	local inbuf = get_input_state(t.input)
 	local outbuf = get_output_buffer(t.output)
 	local disable_crc = t.disable_crc
 
@@ -638,11 +735,11 @@ function deflate.inflate_zlib(t)
 		end
 	end
 
-	inbuf:ReadBits(inbuf:BitsLeftInByte())
-	local b3 = inbuf:ReadBits(8)
-	local b2 = inbuf:ReadBits(8)
-	local b1 = inbuf:ReadBits(8)
-	local b0 = inbuf:ReadBits(8)
+	align_to_byte(inbuf)
+	local b3 = read_bits(inbuf, 8)
+	local b2 = read_bits(inbuf, 8)
+	local b1 = read_bits(inbuf, 8)
+	local b0 = read_bits(inbuf, 8)
 	local expected_adler32 = ((b3 * 256 + b2) * 256 + b1) * 256 + b0
 
 	if DEBUG then debug("alder32=", expected_adler32) end
@@ -653,7 +750,7 @@ function deflate.inflate_zlib(t)
 		end
 	end
 
-	if not inbuf:TheEnd() then warn("trailing garbage ignored") end
+	if not input_the_end(inbuf) then warn("trailing garbage ignored") end
 
 	outbuf:SetPosition(0)
 	return outbuf
@@ -677,6 +774,9 @@ local function looks_like_zlib(input)
 
 	return (cmf * 256 + flg) % 31 == 0
 end
+
+deflate.fixed_littable = HuffmanTable{0, 8, 144, 9, 256, 7, 280, 8, 288, nil}
+deflate.fixed_disttable = HuffmanTable{0, 5, 32, nil}
 
 function deflate.Decode(str, format, output)
 	local opts = {

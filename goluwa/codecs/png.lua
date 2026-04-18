@@ -4,6 +4,9 @@ local bit_band = require("bit").band
 local bit_rshift = require("bit").rshift
 local Buffer = import("goluwa/structs/buffer.lua")
 local deflate = import("goluwa/codecs/deflate.lua")
+local math_ceil = math.ceil
+local math_floor = math.floor
+local table_concat = table.concat
 local png = library()
 png.file_extensions = {"png"}
 png.magic_headers = {"\137PNG\r\n\26\n"}
@@ -21,14 +24,9 @@ local function getDataIHDR(buffer, length)
 end
 
 local function getDataIDAT(buffer, length, oldData)
-	local data = {}
-
-	if (oldData == nil) then
-		data.data = buffer:ReadBytes(length)
-	else
-		data.data = oldData.data .. buffer:ReadBytes(length)
-	end
-
+	local data = oldData or {parts = {}, total_length = 0}
+	data.total_length = data.total_length + length
+	data.parts[#data.parts + 1] = buffer:ReadBytes(length)
 	return data
 end
 
@@ -101,6 +99,14 @@ local function extractChunkData(buffer)
 		crc = buffer:ReadBytes(4)
 	end
 
+	local idat = chunkData.IDAT
+
+	if idat and idat.parts then
+		idat.data = #idat.parts == 1 and idat.parts[1] or table_concat(idat.parts)
+		idat.parts = nil
+		idat.total_length = nil
+	end
+
 	return chunkData
 end
 
@@ -134,57 +140,11 @@ local COLOR_TYPE_RGBA = 6
 
 local function get_packed_sample(row, x, bitDepth)
 	local bitOffset = x * bitDepth
-	local byteIndex = math.floor(bitOffset / 8)
+	local byteIndex = math_floor(bitOffset / 8)
 	local bitIndex = bitOffset % 8
 	local shift = 8 - bitDepth - bitIndex
 	local mask = 2 ^ bitDepth - 1
 	return bit_band(bit_rshift(row[byteIndex], shift), mask)
-end
-
--- Helper function to read value based on bytes per sample
-local function readValue(buffer, bps)
-	if bps == 1 then
-		return buffer:ReadByte()
-	elseif bps == 2 then
-		return buffer:ReadU16BE()
-	else
-		error("Unsupported bit depth: " .. (bps * 8))
-	end
-end
-
--- Read raw pixel from input buffer into R, G, B, A values
-local function readPixel(buffer, bps, colorType, palette, maxAlpha)
-	local R, G, B, A
-
-	if colorType == 0 then
-		-- Grayscale
-		local grey = readValue(buffer, bps)
-		R, G, B, A = grey, grey, grey, maxAlpha
-	elseif colorType == 2 then
-		-- RGB
-		R = readValue(buffer, bps)
-		G = readValue(buffer, bps)
-		B = readValue(buffer, bps)
-		A = maxAlpha
-	elseif colorType == 3 then
-		-- Indexed
-		local index = readValue(buffer, bps) + 1
-		local color = palette.colors[index]
-		R, G, B, A = color.R, color.G, color.B, maxAlpha
-	elseif colorType == 4 then
-		-- Grayscale + Alpha
-		local grey = readValue(buffer, bps)
-		R, G, B = grey, grey, grey
-		A = readValue(buffer, bps)
-	elseif colorType == 6 then
-		-- RGBA
-		R = readValue(buffer, bps)
-		G = readValue(buffer, bps)
-		B = readValue(buffer, bps)
-		A = readValue(buffer, bps)
-	end
-
-	return R, G, B, A
 end
 
 -- Optimized getPixels that writes directly to output buffer
@@ -194,8 +154,8 @@ local function getPixels(buffer, data)
 	local width = data.IHDR.width
 	local height = data.IHDR.height
 	local bitDepth = data.IHDR.bitDepth
-	local bps = math.max(1, math.floor(bitDepth / 8)) -- bytes per sample
-	local hasAlpha = (colorType == COLOR_TYPE_GRAYSCALE_ALPHA or colorType == COLOR_TYPE_RGBA)
+	local src = buffer.Buffer
+	local src_pos = buffer.Position
 	-- Determine output format: 8-bit or 16-bit RGBA
 	local is16bit = (bitDepth == 16)
 	local bytesPerPixel = is16bit and 8 or 4 -- 16-bit = 8 bytes (R16G16B16A16), 8-bit = 4 bytes (R8G8B8A8)
@@ -222,7 +182,7 @@ local function getPixels(buffer, data)
 		or
 		1
 	local bitsPerInputPixel = samplesPerPixel * bitDepth
-	local bytesPerInputPixel = math.max(1, math.ceil(bitsPerInputPixel / 8))
+	local bytesPerInputPixel = math.max(1, math_ceil(bitsPerInputPixel / 8))
 	-- Create output buffer for RGBA pixels
 	local outputSize = width * height * bytesPerPixel
 	local outputData = is16bit and
@@ -231,7 +191,7 @@ local function getPixels(buffer, data)
 	local out = outputData
 	-- Previous and current row buffers store RAW BYTES (not reconstructed values)
 	-- For PNG filtering, we work with bytes regardless of bit depth
-	local rowBytes = math.ceil(width * bitsPerInputPixel / 8)
+	local rowBytes = math_ceil(width * bitsPerInputPixel / 8)
 	local prevRow = ffi.new("uint8_t[?]", rowBytes)
 	local currRow = ffi.new("uint8_t[?]", rowBytes)
 	-- Maximum value for alpha channel (255 for 8-bit, 65535 for 16-bit)
@@ -239,149 +199,223 @@ local function getPixels(buffer, data)
 	local packedSamples = bitDepth < 8
 	local packedScale = packedSamples and math.floor(255 / (2 ^ bitDepth - 1)) or 1
 	local transparency = data.tRNS
+	local transparency_gray = transparency and transparency.gray
+	local has_gray_transparency = transparency_gray ~= nil
+	local transparency_r = transparency and transparency.r
+	local transparency_g = transparency and transparency.g
+	local transparency_b = transparency and transparency.b
+	local has_rgb_transparency = transparency_r ~= nil
+	local palette = data.PLTE and data.PLTE.colors
+	local palette_alpha = transparency and transparency.palette_alpha
 
 	for y = 1, height do
-		local filterType = buffer:ReadByte()
+		local filterType = src[src_pos]
+		src_pos = src_pos + 1
 
-		-- Read and reconstruct the scanline byte-by-byte
-		for i = 0, rowBytes - 1 do
-			local rawByte = buffer:ReadByte()
-			local reconstructed
-
-			if filterType == FILTER_NONE then
-				reconstructed = rawByte
-			elseif filterType == FILTER_SUB then
+		if filterType == FILTER_NONE then
+			for i = 0, rowBytes - 1 do
+				currRow[i] = src[src_pos + i]
+			end
+		elseif filterType == FILTER_SUB then
+			for i = 0, rowBytes - 1 do
 				local left = i >= bytesPerInputPixel and currRow[i - bytesPerInputPixel] or 0
-				reconstructed = (rawByte + left) % 256
-			elseif filterType == FILTER_UP then
-				local up = prevRow[i]
-				reconstructed = (rawByte + up) % 256
-			elseif filterType == FILTER_AVERAGE then
+				currRow[i] = bit_band(src[src_pos + i] + left, 0xFF)
+			end
+		elseif filterType == FILTER_UP then
+			for i = 0, rowBytes - 1 do
+				currRow[i] = bit_band(src[src_pos + i] + prevRow[i], 0xFF)
+			end
+		elseif filterType == FILTER_AVERAGE then
+			for i = 0, rowBytes - 1 do
 				local left = i >= bytesPerInputPixel and currRow[i - bytesPerInputPixel] or 0
 				local up = prevRow[i]
-				reconstructed = (rawByte + math.floor((left + up) / 2)) % 256
-			elseif filterType == FILTER_PAETH then
+				currRow[i] = bit_band(src[src_pos + i] + bit_rshift(left + up, 1), 0xFF)
+			end
+		elseif filterType == FILTER_PAETH then
+			for i = 0, rowBytes - 1 do
 				local left = i >= bytesPerInputPixel and currRow[i - bytesPerInputPixel] or 0
 				local up = prevRow[i]
 				local upLeft = i >= bytesPerInputPixel and prevRow[i - bytesPerInputPixel] or 0
-				reconstructed = (rawByte + paethPredict(left, up, upLeft)) % 256
-			else
-				error("Unsupported filter type: " .. tostring(filterType))
+				currRow[i] = bit_band(src[src_pos + i] + paethPredict(left, up, upLeft), 0xFF)
 			end
-
-			currRow[i] = reconstructed
+		else
+			error("Unsupported filter type: " .. tostring(filterType))
 		end
 
+		src_pos = src_pos + rowBytes
 		-- Now convert the reconstructed bytes to output format (RGBA)
-		for x = 0, width - 1 do
-			local inIdx = x * bytesPerInputPixel
-			local outIdx = (height - y) * width + x
+		local outIdx = (height - y) * width * 4
 
-			if is16bit then
-				-- Combine bytes into 16-bit values
-				local R, G, B, A
+		if is16bit then
+			if colorType == COLOR_TYPE_RGB then
+				local inIdx = 0
 
-				if colorType == COLOR_TYPE_RGB then
-					R = currRow[inIdx] * 256 + currRow[inIdx + 1]
-					G = currRow[inIdx + 2] * 256 + currRow[inIdx + 3]
-					B = currRow[inIdx + 4] * 256 + currRow[inIdx + 5]
-					A = maxAlpha
-				elseif colorType == COLOR_TYPE_RGBA then
-					R = currRow[inIdx] * 256 + currRow[inIdx + 1]
-					G = currRow[inIdx + 2] * 256 + currRow[inIdx + 3]
-					B = currRow[inIdx + 4] * 256 + currRow[inIdx + 5]
-					A = currRow[inIdx + 6] * 256 + currRow[inIdx + 7]
-				elseif colorType == COLOR_TYPE_GRAYSCALE then
-					local grey = currRow[inIdx] * 256 + currRow[inIdx + 1]
-					R, G, B, A = grey, grey, grey, maxAlpha
-
-					if transparency and transparency.gray == grey then A = 0 end
-				elseif colorType == COLOR_TYPE_GRAYSCALE_ALPHA then
-					local grey = currRow[inIdx] * 256 + currRow[inIdx + 1]
-					R, G, B = grey, grey, grey
-					A = currRow[inIdx + 2] * 256 + currRow[inIdx + 3]
+				for _ = 1, width do
+					local R = currRow[inIdx] * 256 + currRow[inIdx + 1]
+					local G = currRow[inIdx + 2] * 256 + currRow[inIdx + 3]
+					local B = currRow[inIdx + 4] * 256 + currRow[inIdx + 5]
+					out[outIdx + 0] = R
+					out[outIdx + 1] = G
+					out[outIdx + 2] = B
+					out[outIdx + 3] = has_rgb_transparency and
+						R == transparency_r and
+						G == transparency_g and
+						B == transparency_b and
+						0 or
+						maxAlpha
+					inIdx = inIdx + 6
+					outIdx = outIdx + 4
 				end
+			elseif colorType == COLOR_TYPE_RGBA then
+				local inIdx = 0
 
-				if
-					transparency and
-					transparency.r and
-					R == transparency.r and
-					G == transparency.g and
-					B == transparency.b
-				then
-					A = 0
+				for _ = 1, width do
+					out[outIdx + 0] = currRow[inIdx] * 256 + currRow[inIdx + 1]
+					out[outIdx + 1] = currRow[inIdx + 2] * 256 + currRow[inIdx + 3]
+					out[outIdx + 2] = currRow[inIdx + 4] * 256 + currRow[inIdx + 5]
+					out[outIdx + 3] = currRow[inIdx + 6] * 256 + currRow[inIdx + 7]
+					inIdx = inIdx + 8
+					outIdx = outIdx + 4
 				end
+			elseif colorType == COLOR_TYPE_GRAYSCALE then
+				local inIdx = 0
 
-				out[outIdx * 4 + 0] = R
-				out[outIdx * 4 + 1] = G
-				out[outIdx * 4 + 2] = B
-				out[outIdx * 4 + 3] = A
-			else
-				-- 8-bit: bytes are already the right values
-				local R, G, B, A
+				for _ = 1, width do
+					local grey = currRow[inIdx] * 256 + currRow[inIdx + 1]
+					out[outIdx + 0] = grey
+					out[outIdx + 1] = grey
+					out[outIdx + 2] = grey
+					out[outIdx + 3] = has_gray_transparency and transparency_gray == grey and 0 or maxAlpha
+					inIdx = inIdx + 2
+					outIdx = outIdx + 4
+				end
+			elseif colorType == COLOR_TYPE_GRAYSCALE_ALPHA then
+				local inIdx = 0
 
-				if packedSamples and colorType == COLOR_TYPE_GRAYSCALE then
+				for _ = 1, width do
+					local grey = currRow[inIdx] * 256 + currRow[inIdx + 1]
+					out[outIdx + 0] = grey
+					out[outIdx + 1] = grey
+					out[outIdx + 2] = grey
+					out[outIdx + 3] = currRow[inIdx + 2] * 256 + currRow[inIdx + 3]
+					inIdx = inIdx + 4
+					outIdx = outIdx + 4
+				end
+			end
+		else
+			if packedSamples and colorType == COLOR_TYPE_GRAYSCALE then
+				for x = 0, width - 1 do
 					local sample = get_packed_sample(currRow, x, bitDepth)
 					local grey = sample * packedScale
-					R, G, B, A = grey, grey, grey, 255
-
-					if transparency and transparency.gray == sample then A = 0 end
-				elseif packedSamples and colorType == COLOR_TYPE_INDEXED then
-					local index = get_packed_sample(currRow, x, bitDepth) + 1
-					local color = data.PLTE and data.PLTE.colors[index]
-					local alpha = transparency and
-						transparency.palette_alpha and
-						transparency.palette_alpha[index] or
-						255
-
-					if color then
-						R, G, B, A = color.R, color.G, color.B, alpha
-					else
-						R, G, B, A = 255, 0, 255, 255
-					end
-				elseif colorType == COLOR_TYPE_RGB then
-					R, G, B, A = currRow[inIdx], currRow[inIdx + 1], currRow[inIdx + 2], 255
-
-					if
-						transparency and
-						transparency.r and
-						R == transparency.r and
-						G == transparency.g and
-						B == transparency.b
-					then
-						A = 0
-					end
-				elseif colorType == COLOR_TYPE_RGBA then
-					R, G, B, A = currRow[inIdx], currRow[inIdx + 1], currRow[inIdx + 2], currRow[inIdx + 3]
-				elseif colorType == COLOR_TYPE_GRAYSCALE then
-					local grey = currRow[inIdx]
-					R, G, B, A = grey, grey, grey, 255
-
-					if transparency and transparency.gray == grey then A = 0 end
-				elseif colorType == COLOR_TYPE_GRAYSCALE_ALPHA then
-					local grey = currRow[inIdx]
-					R, G, B, A = grey, grey, grey, currRow[inIdx + 1]
-				elseif colorType == COLOR_TYPE_INDEXED then
-					local index = currRow[inIdx] + 1
-					local color = data.PLTE and data.PLTE.colors[index]
-					local alpha = transparency and
-						transparency.palette_alpha and
-						transparency.palette_alpha[index] or
-						255
-
-					if color then
-						R, G, B, A = color.R, color.G, color.B, alpha
-					else
-						R, G, B, A = 255, 0, 255, 255
-					end
-				else
-					R, G, B, A = 255, 0, 255, 255 -- Pink for unknown
+					out[outIdx + 0] = grey
+					out[outIdx + 1] = grey
+					out[outIdx + 2] = grey
+					out[outIdx + 3] = has_gray_transparency and transparency_gray == sample and 0 or 255
+					outIdx = outIdx + 4
 				end
+			elseif packedSamples and colorType == COLOR_TYPE_INDEXED then
+				for x = 0, width - 1 do
+					local index = get_packed_sample(currRow, x, bitDepth) + 1
+					local color = palette and palette[index]
 
-				out[outIdx * 4 + 0] = R
-				out[outIdx * 4 + 1] = G
-				out[outIdx * 4 + 2] = B
-				out[outIdx * 4 + 3] = A
+					if color then
+						out[outIdx + 0] = color.R
+						out[outIdx + 1] = color.G
+						out[outIdx + 2] = color.B
+						out[outIdx + 3] = palette_alpha and palette_alpha[index] or 255
+					else
+						out[outIdx + 0] = 255
+						out[outIdx + 1] = 0
+						out[outIdx + 2] = 255
+						out[outIdx + 3] = 255
+					end
+
+					outIdx = outIdx + 4
+				end
+			elseif colorType == COLOR_TYPE_RGB then
+				local inIdx = 0
+
+				for _ = 1, width do
+					local R = currRow[inIdx]
+					local G = currRow[inIdx + 1]
+					local B = currRow[inIdx + 2]
+					out[outIdx + 0] = R
+					out[outIdx + 1] = G
+					out[outIdx + 2] = B
+					out[outIdx + 3] = has_rgb_transparency and
+						R == transparency_r and
+						G == transparency_g and
+						B == transparency_b and
+						0 or
+						255
+					inIdx = inIdx + 3
+					outIdx = outIdx + 4
+				end
+			elseif colorType == COLOR_TYPE_RGBA then
+				local inIdx = 0
+
+				for _ = 1, width do
+					out[outIdx + 0] = currRow[inIdx]
+					out[outIdx + 1] = currRow[inIdx + 1]
+					out[outIdx + 2] = currRow[inIdx + 2]
+					out[outIdx + 3] = currRow[inIdx + 3]
+					inIdx = inIdx + 4
+					outIdx = outIdx + 4
+				end
+			elseif colorType == COLOR_TYPE_GRAYSCALE then
+				local inIdx = 0
+
+				for _ = 1, width do
+					local grey = currRow[inIdx]
+					out[outIdx + 0] = grey
+					out[outIdx + 1] = grey
+					out[outIdx + 2] = grey
+					out[outIdx + 3] = has_gray_transparency and transparency_gray == grey and 0 or 255
+					inIdx = inIdx + 1
+					outIdx = outIdx + 4
+				end
+			elseif colorType == COLOR_TYPE_GRAYSCALE_ALPHA then
+				local inIdx = 0
+
+				for _ = 1, width do
+					local grey = currRow[inIdx]
+					out[outIdx + 0] = grey
+					out[outIdx + 1] = grey
+					out[outIdx + 2] = grey
+					out[outIdx + 3] = currRow[inIdx + 1]
+					inIdx = inIdx + 2
+					outIdx = outIdx + 4
+				end
+			elseif colorType == COLOR_TYPE_INDEXED then
+				local inIdx = 0
+
+				for _ = 1, width do
+					local index = currRow[inIdx] + 1
+					local color = palette and palette[index]
+
+					if color then
+						out[outIdx + 0] = color.R
+						out[outIdx + 1] = color.G
+						out[outIdx + 2] = color.B
+						out[outIdx + 3] = palette_alpha and palette_alpha[index] or 255
+					else
+						out[outIdx + 0] = 255
+						out[outIdx + 1] = 0
+						out[outIdx + 2] = 255
+						out[outIdx + 3] = 255
+					end
+
+					inIdx = inIdx + 1
+					outIdx = outIdx + 4
+				end
+			else
+				for _ = 1, width do
+					out[outIdx + 0] = 255
+					out[outIdx + 1] = 0
+					out[outIdx + 2] = 255
+					out[outIdx + 3] = 255
+					outIdx = outIdx + 4
+				end
 			end
 		end
 
@@ -389,6 +423,7 @@ local function getPixels(buffer, data)
 		prevRow, currRow = currRow, prevRow
 	end
 
+	buffer.Position = src_pos
 	-- Return raw buffer data and size
 	return outputData, outputSize
 end
@@ -423,8 +458,7 @@ function png.DecodeBuffer(inputBuffer)
 		input = data.IDAT.data,
 		disable_crc = true,
 	}, data)
-	-- Cast to uint8_t* for consistency (pixelData might be uint16_t* for 16-bit images)
-	local pixelDataPtr = ffi.cast("uint8_t*", pixelData)
+	local decodedBuffer = Buffer.New(pixelData, pixelSize)
 	return {
 		width = data.IHDR.width,
 		height = data.IHDR.height,
@@ -432,8 +466,8 @@ function png.DecodeBuffer(inputBuffer)
 		colorType = colorType,
 		vulkan_format = vulkan_format,
 		-- Provide both data (raw buffer pointer) and buffer (Buffer wrapper)
-		data = pixelDataPtr,
-		buffer = Buffer.New(pixelDataPtr, pixelSize),
+		data = decodedBuffer.Buffer,
+		buffer = decodedBuffer,
 	}
 end
 
