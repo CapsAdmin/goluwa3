@@ -5,9 +5,6 @@ function gine.env.CreateConVar(name, def, flags, help)
 	return gine.WrapObject(pvars.Setup(name, tostring(def), nil, help, true), "ConVar")
 end
 
-gine.env.CreateClientConVar = gine.env.CreateClientConVar or gine.env.CreateConVar
-gine.env.CreateClientConVarFast = gine.env.CreateClientConVarFast or gine.env.CreateConVar
-
 function gine.env.GetConVar_Internal(name)
 	local pvar = pvars.GetObject(name)
 
@@ -21,21 +18,6 @@ end
 
 function gine.env.ConVarExists(name)
 	return pvars.IsSetup(name)
-end
-
-function gine.env.GetConVarString(name)
-	local convar = gine.env.GetConVar_Internal(name)
-	return convar and convar:GetString() or ""
-end
-
-function gine.env.GetConVarNumber(name)
-	local convar = gine.env.GetConVar_Internal(name)
-	return convar and convar:GetFloat() or 0
-end
-
-function gine.env.GetConVarBool(name)
-	local convar = gine.env.GetConVar_Internal(name)
-	return convar and convar:GetBool() or false
 end
 
 local META = gine.GetMetaTable("ConVar")

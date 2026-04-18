@@ -68,6 +68,128 @@ do -- enums
 	end
 end
 
+local override_detection_tracked = setmetatable({}, {__mode = "k"})
+
+local function enable_override_detection(b)
+	local function assign_with_newindex(target, newindex, key, value)
+		if type(newindex) == "function" then return newindex(target, key, value) end
+
+		if type(newindex) == "table" then
+			newindex[key] = value
+			return value
+		end
+
+		rawset(target, key, value)
+		return value
+	end
+
+	local tracked = override_detection_tracked
+
+	local function track_exported_functions(target, exported, format_name)
+		if not b then
+			local state = tracked[target]
+
+			if not state then return end
+
+			for key, value in pairs(state.backup) do
+				if rawget(target, key) == nil then rawset(target, key, value) end
+			end
+
+			setmetatable(target, state.metatable)
+			tracked[target] = nil
+			return
+		end
+
+		local backup = {}
+
+		for key in pairs(exported) do
+			local value = rawget(target, key)
+
+			if value ~= nil then
+				backup[key] = value
+				rawset(target, key, nil)
+			end
+		end
+
+		local original_metatable = getmetatable(target)
+		local metatable = {}
+
+		if original_metatable then
+			for key, value in pairs(original_metatable) do
+				metatable[key] = value
+			end
+		end
+
+		local original_index = metatable.__index
+		local original_newindex = metatable.__newindex
+		metatable.__index = function(self, key)
+			local value = backup[key]
+
+			if value ~= nil then return value end
+
+			if type(original_index) == "function" then return original_index(self, key) end
+
+			if type(original_index) == "table" then return original_index[key] end
+		end
+		metatable.__newindex = function(self, key, value)
+			local export_type = exported[key]
+
+			if export_type == "L" then
+				wlog("adding function that will be overridden later by glua %s", format_name(key), 2)
+			elseif export_type == nil and type(value) == "function" then
+				wlog("adding function that doesn't exist in glua: %s", format_name(key), 2)
+			end
+
+			if export_type then backup[key] = nil end
+
+			return assign_with_newindex(self, original_newindex, key, value)
+		end
+		tracked[target] = {
+			backup = backup,
+			metatable = original_metatable,
+		}
+		setmetatable(target, metatable)
+	end
+
+	for _, meta in pairs(env._R) do
+		if meta.MetaName then
+			if b then
+				setmetatable(
+					meta,
+					{
+						__newindex = function(s, k, v)
+							if meta.__lua_functions and meta.__lua_functions[k] then
+								wlog(
+									"adding function that will be overridden later by glua %s.%s",
+									meta.MetaName,
+									k,
+									2
+								)
+							end
+
+							rawset(s, k, v)
+						end,
+					}
+				)
+			else
+				setmetatable(meta, nil)
+			end
+		end
+	end
+
+	track_exported_functions(env, data.globals, function(key)
+		return key
+	end)
+
+	for lib_name, functions in pairs(data.functions) do
+		if env[lib_name] then
+			track_exported_functions(env[lib_name], functions, function(key)
+				return lib_name .. "." .. key
+			end)
+		end
+	end
+end
+
 local ensure_meta_table
 
 do
@@ -152,36 +274,6 @@ do
 end
 
 do
-	env.WireLib = env.WireLib or {}
-	env.E2Lib = env.E2Lib or {}
-	env.E2Helper = env.E2Helper or {}
-	env.E2Table = env.E2Table or {}
-	env.WireLib.E2Table = env.WireLib.E2Table or {}
-	env.E2Lib.E2Table = env.E2Lib.E2Table or env.E2Table
-	env.E2Helper.Descriptions = env.E2Helper.Descriptions or {}
-	env.Descriptions = env.Descriptions or env.E2Helper.Descriptions
-	env.wOS = env.wOS or {}
-	env.wOS.AnimExtension = env.wOS.AnimExtension or {}
-	env.wOS.AnimExtension.TranslateHoldType = env.wOS.AnimExtension.TranslateHoldType or {}
-	env.WireLib.RegisterPlayerTable = env.WireLib.RegisterPlayerTable or
-		function()
-			return setmetatable({}, {__mode = "k"})
-		end
-	env.WireLib.E2Table.New = env.WireLib.E2Table.New or function()
-		return {}
-	end
-	env.AddWireAdminMaxDevice = env.AddWireAdminMaxDevice or function()
-		return nil
-	end
-	env.E2Lib.RegisterExtension = env.E2Lib.RegisterExtension or function()
-		return nil
-	end
-	env.E2Lib.newE2Table = env.E2Lib.newE2Table or function()
-		return {}
-	end
-end
-
-do
 	local stored = {}
 	env.baseclass = env.baseclass or {}
 	env.baseclass.Get = env.baseclass.Get or
@@ -248,6 +340,9 @@ for meta_name, functions in pairs(data.meta) do
 				function(...)
 					wlog("NYI: %s:%s(%s)", meta_name, func_name, list.concat(tostring_args(...), ","), 2)
 				end
+		else
+			env._R[meta_name].__lua_functions = env._R[meta_name].__lua_functions or {}
+			env._R[meta_name].__lua_functions[func_name] = true
 		end
 	end
 
@@ -273,6 +368,7 @@ for lib_name, functions in pairs(data.functions) do
 	end
 end
 
+enable_override_detection(true)
 gine.hooks = gine.hooks or {}
 env.hook = env.hook or {}
 env.gamemode = env.gamemode or {}
@@ -336,19 +432,6 @@ do
 		function(name, ...)
 			return run_hook(name, env.GAMEMODE or gine.current_gamemode, ...)
 		end
-	env.GetConVar = env.GetConVar or function(name)
-		return env.GetConVar_Internal(name)
-	end
-	env.list.stored = env.list.stored or {}
-	env.list.Set = env.list.Set or
-		function(name, key, value)
-			env.list.stored[name] = env.list.stored[name] or {}
-			env.list.stored[name][key] = value
-			return value
-		end
-	env.list.Get = env.list.Get or function(name)
-		return env.list.stored[name] or {}
-	end
 end
 
 if gine.debug then
@@ -448,3 +531,4 @@ if gine.debug then
 end
 
 setmetatable(env, {__index = _G})
+enable_override_detection(false)

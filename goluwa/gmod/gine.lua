@@ -5,8 +5,6 @@ local gine = library()
 _G.gine = gine
 import.loaded["goluwa/gmod/gine.lua"] = gine
 import("goluwa/gmod/preprocess.lua")
-import("goluwa/gmod/code_scan.lua")
-import("goluwa/gmod/cli.lua")
 import("goluwa/gmod/commands.lua")
 import("goluwa/gmod/filewatcher.lua")
 local event = import("goluwa/event.lua")
@@ -607,11 +605,7 @@ function gine.Initialize(gamemode, skip_addons)
 		import("goluwa/gmod/material.lua")
 		-- setup engine functions
 		import("goluwa/gmod/environment.lua")
-
-		do
-			gine.AddPackageLoaderDir(gine.dir .. "lua/includes/modules")
-		end
-
+		gine.AddPackageLoaderDir(gine.dir .. "lua/includes/modules")
 		-- include and init files in the right order
 		gine.init = true
 

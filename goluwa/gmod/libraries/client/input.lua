@@ -370,10 +370,12 @@ do
 
 		event.AddListener("KeyInput", "gine_keytrap", function(key, press)
 			last_key = gine.GetKeyCode(key)
+			return event.destroy_tag
 		end)
 
 		event.AddListener("MouseInput", "gine_keytrap", function(key, press)
 			last_key = gine.GetMouseCode(key)
+			return event.destroy_tag
 		end)
 	end
 
@@ -383,11 +385,5 @@ do
 
 	function input.CheckKeyTrapping()
 		return last_key
-	end
-
-	function input.StopKeyTrapping()
-		b = false
-		event.RemoveListener("KeyInput", "gine_keytrap")
-		event.RemoveListener("MouseInput", "gine_keytrap")
 	end
 end

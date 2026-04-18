@@ -506,7 +506,7 @@ end
 local function invalidate_panel_children_now(panel)
 	if not (panel and panel:IsValid()) then return end
 
-	for _, child in ipairs(panel:GetChildrenList()) do
+	for _, child in ipairs(panel:GetChildren()) do
 		local wrapped = rawget(child, "gine_pnl")
 
 		if wrapped and not wrapped.in_layout then wrapped:InvalidateLayout(true) end
@@ -885,7 +885,7 @@ do
 	end
 
 	function gui.ScreenToVector(x, y)
-		return gine.env.Vector(math3d.ScreenToWorldDirection(Vec2(x, y)):Unpack())
+		return gine.env.Vector() --(math3d.ScreenToWorldDirection(Vec2(x, y)):Unpack())
 	end
 
 	function gui.IsGameUIVisible()
@@ -941,6 +941,9 @@ do
 	local function vgui_Create(class, parent, name)
 		local requested_class = class
 		local control = gine.env.vgui.GetControlTable(requested_class)
+		local stub_model_preview = requested_class == "DModelPanel" or
+			requested_class == "DAdjustableModelPanel" or
+			requested_class == "ModelImage"
 		name = name or requested_class
 
 		if not gine.gui_world:IsValid() then
@@ -991,6 +994,8 @@ do
 		obj.text_inset = Vec2()
 		obj.text_offset = Vec2()
 		obj.vgui_type = class
+		obj.gmod_stub_model_preview = stub_model_preview
+		obj.gine_init_complete = false
 		--self:SetPaintBackgroundEnabled(true)
 		obj.transform:SetSize(Vec2(64, 24))
 		set_panel_margin(obj, Rect())
@@ -1008,6 +1013,7 @@ do
 
 		if control and control.Init then control.Init(self) end
 
+		obj.gine_init_complete = true
 		self:InvalidateLayout(true)
 		obj.OnDraw = function()
 			run_gmod_frame_hooks_once()
@@ -1020,7 +1026,13 @@ do
 			call_panel_method(self, "Think")
 			obj.thought_1_frame = true
 			local w, h = obj.transform:GetWidth(), obj.transform:GetHeight()
-			local paint_bg = call_panel_method(self, "Paint", w, h)
+			local paint_bg
+
+			if obj.gmod_stub_model_preview then
+				paint_bg = nil
+			else
+				paint_bg = call_panel_method(self, "Paint", w, h)
+			end
 
 			if obj.paint_bg and paint_bg ~= nil then
 				render2d.SetTexture()
@@ -1295,6 +1307,7 @@ do
 		end
 
 		assign_panel_logical_parent(self.__obj, new_parent)
+		local same_raw_parent = self.__obj:GetParent() == new_parent
 
 		if self.__obj:GetParent() ~= new_parent then self.__obj:SetParent(new_parent) end
 
@@ -1302,7 +1315,13 @@ do
 			request_panel_layout(old_parent)
 		end
 
-		request_panel_layout(new_parent)
+		local wrapped_parent = rawget(new_parent, "gine_pnl")
+
+		if same_raw_parent and wrapped_parent and not wrapped_parent.in_layout then
+			wrapped_parent:InvalidateLayout(true)
+		else
+			request_panel_layout(new_parent)
+		end
 	end
 
 	function META:SetAutoDelete(b)
@@ -1453,31 +1472,6 @@ do
 		request_panel_and_parent_layout(self.__obj)
 	end
 
-	function META:SetWidth(w)
-		w = tonumber(w)
-		local old_w = self.__obj.transform:GetWidth()
-
-		if old_w == w then return end
-
-		self.__obj.transform:SetWidth(w)
-		call_panel_method(self, "OnSizeChanged", w, self.__obj.transform:GetHeight())
-		request_panel_and_parent_layout(self.__obj)
-	end
-
-	function META:SetHeight(h)
-		h = tonumber(h)
-		local old_h = self.__obj.transform:GetHeight()
-
-		if old_h == h then return end
-
-		self.__obj.transform:SetHeight(h)
-		call_panel_method(self, "OnSizeChanged", self.__obj.transform:GetWidth(), h)
-		request_panel_and_parent_layout(self.__obj)
-	end
-
-	META.SetWide = META.SetWidth
-	META.SetTall = META.SetHeight
-
 	function META:GetSize()
 		return self.__obj.transform:GetSize():Unpack()
 	end
@@ -1526,6 +1520,89 @@ do
 				self.__obj.text_internal = gine.translation2[text] or text
 			--	self.__obj.label_settext = system.GetFrameNumber()
 			end
+		end
+	end
+
+	do
+		local function is_stub_model_preview(self)
+			return self.__obj.gmod_stub_model_preview
+		end
+
+		function META:SetModel(model, skin, body_groups)
+			if not is_stub_model_preview(self) then return end
+
+			self.__obj.gmod_model_name = model
+			self.__obj.gmod_model_skin = skin or 0
+			self.__obj.gmod_model_body_groups = body_groups or "000000000"
+		end
+
+		function META:GetModel()
+			if not is_stub_model_preview(self) then return nil end
+
+			return self.__obj.gmod_model_name
+		end
+
+		function META:SetSpawnIcon(name)
+			if not is_stub_model_preview(self) then return end
+
+			self.__obj.gmod_spawnicon_name = name
+		end
+
+		function META:RebuildSpawnIcon()
+			if not is_stub_model_preview(self) then return end
+		end
+
+		function META:RebuildSpawnIconEx(data)
+			if not is_stub_model_preview(self) then return end
+
+			self.__obj.gmod_spawnicon_rebuild_data = data
+		end
+
+		function META:SetSkin(skin)
+			if is_stub_model_preview(self) then
+				self.__obj.gmod_model_skin = skin or 0
+				return
+			end
+
+			return self.BaseClass.SetSkin(self, skin)
+		end
+
+		function META:SetBodyGroup(index, value)
+			if not is_stub_model_preview(self) then return end
+
+			local body_groups = self.__obj.gmod_model_body_groups or "000000000"
+			index = math.floor(tonumber(index) or 0)
+			value = math.floor(tonumber(value) or 0)
+
+			if index < 0 or index > 8 then return end
+
+			if value < 0 or value > 9 then return end
+
+			self.__obj.gmod_model_body_groups = body_groups:SetChar(index + 1, value)
+		end
+
+		function META:SetCamPos(pos)
+			if not is_stub_model_preview(self) then return end
+
+			self.__obj.gmod_model_cam_pos = pos
+		end
+
+		function META:SetLookAt(pos)
+			if not is_stub_model_preview(self) then return end
+
+			self.__obj.gmod_model_look_at = pos
+		end
+
+		function META:SetFOV(fov)
+			if not is_stub_model_preview(self) then return end
+
+			self.__obj.gmod_model_fov = fov
+		end
+
+		function META:GetEntity()
+			if not is_stub_model_preview(self) then return nil end
+
+			return NULL
 		end
 	end
 
@@ -1593,6 +1670,7 @@ do
 				self.__obj.layout:UpdateLayout()
 			end
 
+			invalidate_panel_children_now(self.__obj)
 			self.in_layout = false
 		else
 			self.gine_layout = true
@@ -1767,7 +1845,19 @@ do
 	end
 
 	function META:GetDock()
-		return self.__obj.vgui_dock or "none"
+		local mode = normalize_dock_mode(self.__obj.vgui_dock)
+
+		if mode == "fill" then return gine.env.FILL end
+
+		if mode == "left" then return gine.env.LEFT end
+
+		if mode == "right" then return gine.env.RIGHT end
+
+		if mode == "top" then return gine.env.TOP end
+
+		if mode == "bottom" then return gine.env.BOTTOM end
+
+		return gine.env.NODOCK or 0
 	end
 
 	function META:SetCursor(typ)

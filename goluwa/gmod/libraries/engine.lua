@@ -1,5 +1,4 @@
 local system = import("goluwa/system.lua")
-
 local engine = gine.env.engine
 
 function engine.GetAddons()
@@ -31,7 +30,8 @@ function engine.GetGames()
 			folder = dod,
 			mounted = false,
 			installed = false,
-		},]] {
+		},]]
+		{
 			depot = 440,
 			title = "Team Fortress 2",
 			owned = true,
@@ -42,10 +42,6 @@ function engine.GetGames()
 	}
 end
 
-function engine.CloseServer()
-	system.ShutDown()
-end
-
 function engine.IsPlayingDemo()
 	return false
 end
@@ -54,7 +50,13 @@ function engine.IsRecordingDemo()
 	return false
 end
 
-function engine.LightStyle() end
+if SERVER then
+	function engine.CloseServer()
+		system.ShutDown()
+	end
+
+	function engine.LightStyle() end
+end
 
 function engine.ServerFrameTime()
 	return system.GetFrameTime()

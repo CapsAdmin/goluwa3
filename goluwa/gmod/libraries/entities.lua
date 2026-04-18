@@ -135,25 +135,27 @@ do
 end
 
 do
-	function gine.env.ents.Create(class)
-		local ent = create_host_visual_entity()
-		local self = gine.WrapObject(ent, "Entity")
-		self.ClassName = class
-		local meta = gine.env.scripted_ents.Get(class)
+	if SERVER then
+		function gine.env.ents.Create(class)
+			local ent = create_host_visual_entity()
+			local self = gine.WrapObject(ent, "Entity")
+			self.ClassName = class
+			local meta = gine.env.scripted_ents.Get(class)
 
-		if meta then
-			self.BaseClass = meta
+			if meta then
+				self.BaseClass = meta
 
-			for k, v in pairs(self.BaseClass) do
-				self[k] = v
+				for k, v in pairs(self.BaseClass) do
+					self[k] = v
+				end
+			else
+				llog("creating non lua registered entity: %s", class)
 			end
-		else
-			llog("creating non lua registered entity: %s", class)
-		end
 
-		gine.env.ents.created = gine.env.ents.created or {}
-		list.insert(gine.env.ents.created, self)
-		return self
+			gine.env.ents.created = gine.env.ents.created or {}
+			list.insert(gine.env.ents.created, self)
+			return self
+		end
 	end
 
 	do
@@ -375,6 +377,19 @@ do
 		return false
 	end
 
+	function META:SetColor4Part(r, g, b, a)
+		self.__obj.gine_color = {r, g, b, a}
+	end
+
+	function META:GetColor4Part()
+		if not self.__obj.gine_color then return 255, 255, 255, 255 end
+
+		return self.__obj.gine_color[1],
+		self.__obj.gine_color[2],
+		self.__obj.gine_color[3],
+		self.__obj.gine_color[4]
+	end
+
 	gine.GetSet(META, "Material", "")
 
 	gine.GetSet(META, "Velocity", function()
@@ -387,10 +402,6 @@ do
 	gine.GetSet(META, "LOD", 0)
 	gine.GetSet(META, "Skin", 0)
 	gine.GetSet(META, "Owner", NULL)
-
-	gine.GetSet(META, "Color", function()
-		return gine.env.Color(255, 255, 255, 255)
-	end)
 
 	gine.GetSet(META, "MoveType", function()
 		return gine.env.MOVETYPE_NONE

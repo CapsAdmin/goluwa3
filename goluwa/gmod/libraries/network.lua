@@ -15,11 +15,13 @@ do
 	local fake = {}
 	local counter = 0
 
-	function gine.env.util.AddNetworkString(str)
-		counter = counter + 1
-		fake[str] = counter
-		return counter
-	--return network.AddString(str)
+	if SERVER then
+		function gine.env.util.AddNetworkString(str)
+			counter = counter + 1
+			fake[str] = counter
+			return counter
+		--return network.AddString(str)
+		end
 	end
 
 	function gine.env.util.NetworkStringToID(str)
@@ -44,7 +46,7 @@ do
 		return 0
 	end
 
-	function gine.env.net.Send() end
+	if SERVER then function gine.env.net.Send() end end
 
 	function gine.env.net.Broadcast() end
 
@@ -68,7 +70,8 @@ do
 	function gine.env.util.NetworkIDToString(id)
 		return network.IDToString(id) or ""
 	end
-]] local BUFFER
+]]
+		local BUFFER
 
 		if SERVER then
 			packet.AddListener("gmod_net", function(buffer, client)
@@ -359,9 +362,7 @@ do
 			gine.nw_globals[key] = val
 		end
 		gine.env["GetGlobal" .. name] = function(key)
-			if name == "String" and key == "ServerName" then
-				return get_hostname()
-			end
+			if name == "String" and key == "ServerName" then return get_hostname() end
 
 			return gine.nw_globals[key]
 		end
