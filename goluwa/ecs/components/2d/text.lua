@@ -126,8 +126,14 @@ local function get_wrap_width(self, available_width)
 	return width
 end
 
+local function get_wrap_options(self)
+	if self:GetEditable() then return {white_space = "pre-wrap"} end
+
+	return nil
+end
+
 local function build_wrap_layout(self, font, text, width)
-	local prepared = pretext.prepare(text, font)
+	local prepared = pretext.prepare(text, font, get_wrap_options(self))
 	local line_height = font:GetLineHeight()
 	local layout = pretext.layout_with_lines(prepared, width, line_height)
 	local raw_length = utf8.length(text)
@@ -135,6 +141,7 @@ local function build_wrap_layout(self, font, text, width)
 	local ranges = {}
 	local display_lines = {}
 	local justify = self:GetAlignX() == "justify"
+	local measured_width = 0
 
 	if #layout.lines == 0 then
 		lines[1] = ""
@@ -154,6 +161,7 @@ local function build_wrap_layout(self, font, text, width)
 			local should_justify = justify and i < #layout.lines and not ends_paragraph
 			local display_line = build_display_line(font, line.text, line.width, width, should_justify)
 			display_lines[i] = display_line
+			measured_width = math.max(measured_width, line.width)
 			ranges[i] = {
 				text = line.text,
 				start = start_index,
@@ -175,7 +183,42 @@ local function build_wrap_layout(self, font, text, width)
 		raw_length = raw_length,
 		line_height = line_height,
 		width = width,
+		measured_width = measured_width,
+		measured_height = math.max(layout.height or 0, math.max(1, #lines) * line_height),
+		font = font,
+		source_text = text,
 	}
+end
+
+local function get_cached_wrap_layout(self, width)
+	local font = self:GetFont() or fonts.GetDefaultFont()
+	local text = self:GetText()
+	local wrapped_width = get_wrap_width(self, width)
+	local layout = self.wrap_layout_info
+
+	if
+		layout and
+		layout.width == wrapped_width and
+		layout.font == font and
+		layout.source_text == text
+	then
+		return layout
+	end
+
+	layout = self.measure_wrap_layout_info
+
+	if
+		layout and
+		layout.width == wrapped_width and
+		layout.font == font and
+		layout.source_text == text
+	then
+		return layout
+	end
+
+	layout = build_wrap_layout(self, font, text, wrapped_width)
+	self.measure_wrap_layout_info = layout
+	return layout
 end
 
 function META:OnEditableChanged()
@@ -314,15 +357,7 @@ function META:Initialize()
 
 	self.Owner:AddLocalListener("OnTransformChanged", function()
 		if self:GetWrap() then
-			local width = self.Owner.transform.Size.x
-
-			if
-				self:GetWrapToParent() and
-				self.Owner:GetParent() and
-				self.Owner:GetParent().transform
-			then
-				width = self.Owner:GetParent().transform.Size.x
-			end
+			local width = get_wrap_width(self)
 
 			if self.last_wrap_width ~= width then
 				self.last_wrap_width = width
@@ -337,6 +372,11 @@ function META:OnRemove()
 end
 
 function META:GetTextSize()
+	if self:GetWrap() and self.wrap_layout_info then
+		return self.wrap_layout_info.measured_width,
+		self.wrap_layout_info.measured_height
+	end
+
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	return font:GetTextSize(self.wrapped_text or self:GetText())
 end
@@ -346,9 +386,9 @@ function META:Measure(available_width, available_height)
 	local text = self:GetText()
 
 	if self:GetWrap() then
-		local width = get_wrap_width(self, available_width)
-		local wrapped = font:WrapString(text, width)
-		local w, h = font:GetTextSize(wrapped)
+		local layout = get_cached_wrap_layout(self, available_width)
+		local w = layout.measured_width
+		local h = layout.measured_height
 
 		if self.Owner.layout then
 			local p = self.Owner.layout:GetPadding()
@@ -374,6 +414,7 @@ function META:OnTextChanged()
 	if not self.Owner.transform then return end -- not ready yet
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self:GetText()
+	self.measure_wrap_layout_info = nil
 
 	if self.editor and not self._is_updating_from_editor then
 		if self.editor:GetText() ~= text then self.editor:SetText(text) end
@@ -384,13 +425,21 @@ function META:OnTextChanged()
 	if self:GetWrap() then
 		local width = get_wrap_width(self)
 		self.wrap_layout_info = build_wrap_layout(self, font, text, width)
+		self.measure_wrap_layout_info = self.wrap_layout_info
 		self.wrapped_text = self.wrap_layout_info.text
 	else
 		self.wrap_layout_info = nil
 		self.wrapped_text = text
 	end
 
-	local w, h = self:GetTextSize()
+	local w, h
+
+	if self:GetWrap() then
+		w = self.wrap_layout_info.measured_width
+		h = self.wrap_layout_info.measured_height
+	else
+		w, h = font:GetTextSize(text)
+	end
 
 	if not self:GetWrap() then
 		self.Owner.transform:SetSize(Vec2(w, h))
@@ -409,15 +458,13 @@ function META:OnTextChanged()
 end
 
 function META:GetWrappedSize(width)
-	local font = self:GetFont() or fonts.GetDefaultFont()
-	local text = self:GetText()
-
 	if self:GetWrap() then
-		local wrapped = font:WrapString(text, width or self.Owner.transform.Size.x)
-		local w, h = font:GetTextSize(wrapped)
-		return Vec2(w, h)
+		local layout = get_cached_wrap_layout(self, width)
+		return Vec2(layout.measured_width, layout.measured_height)
 	end
 
+	local font = self:GetFont() or fonts.GetDefaultFont()
+	local text = self:GetText()
 	local w, h = font:GetTextSize(text)
 	return Vec2(w, h)
 end
@@ -460,7 +507,7 @@ function META:OnDraw()
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self.wrapped_text or self:GetText()
 	local lx, ly = self:GetTextOffset()
-	local tw, th = font:GetTextSize(text)
+	local tw, th = self:GetTextSize()
 	local descent = font:GetDescent()
 
 	if self.wrap_layout_info and self:GetAlignX() == "justify" then

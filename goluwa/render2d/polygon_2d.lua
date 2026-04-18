@@ -50,32 +50,56 @@ local function set_uv(self, i, x, y, w, h, sx, sy)
 	if not x then
 		vtx[i + 0].uv[0] = 0
 		vtx[i + 0].uv[1] = 1
+		vtx[i + 0].sample_uv[0] = 0
+		vtx[i + 0].sample_uv[1] = 1
 		vtx[i + 1].uv[0] = 0
 		vtx[i + 1].uv[1] = 0
+		vtx[i + 1].sample_uv[0] = 0
+		vtx[i + 1].sample_uv[1] = 0
 		vtx[i + 2].uv[0] = 1
 		vtx[i + 2].uv[1] = 1
+		vtx[i + 2].sample_uv[0] = 1
+		vtx[i + 2].sample_uv[1] = 1
 		vtx[i + 4].uv[0] = 1
 		vtx[i + 4].uv[1] = 1
+		vtx[i + 4].sample_uv[0] = 1
+		vtx[i + 4].sample_uv[1] = 1
 		vtx[i + 3].uv[0] = 1
 		vtx[i + 3].uv[1] = 0
+		vtx[i + 3].sample_uv[0] = 1
+		vtx[i + 3].sample_uv[1] = 0
 		vtx[i + 5].uv[0] = 0
 		vtx[i + 5].uv[1] = 0
+		vtx[i + 5].sample_uv[0] = 0
+		vtx[i + 5].sample_uv[1] = 0
 	else
 		sx = sx or 1
 		sy = sy or 1
 		y = -y - h
 		vtx[i + 1].uv[0] = x / sx
 		vtx[i + 1].uv[1] = (y + h) / sy
+		vtx[i + 1].sample_uv[0] = x / sx
+		vtx[i + 1].sample_uv[1] = (y + h) / sy
 		vtx[i + 0].uv[0] = x / sx
 		vtx[i + 0].uv[1] = y / sy
+		vtx[i + 0].sample_uv[0] = x / sx
+		vtx[i + 0].sample_uv[1] = y / sy
 		vtx[i + 2].uv[0] = (x + w) / sx
 		vtx[i + 2].uv[1] = y / sy
+		vtx[i + 2].sample_uv[0] = (x + w) / sx
+		vtx[i + 2].sample_uv[1] = y / sy
 		vtx[i + 4].uv[0] = (x + w) / sx
 		vtx[i + 4].uv[1] = y / sy
+		vtx[i + 4].sample_uv[0] = (x + w) / sx
+		vtx[i + 4].sample_uv[1] = y / sy
 		vtx[i + 3].uv[0] = (x + w) / sx
 		vtx[i + 3].uv[1] = (y + h) / sy
+		vtx[i + 3].sample_uv[0] = (x + w) / sx
+		vtx[i + 3].sample_uv[1] = (y + h) / sy
 		vtx[i + 5].uv[0] = x / sx
 		vtx[i + 5].uv[1] = (y + h) / sy
+		vtx[i + 5].sample_uv[0] = x / sx
+		vtx[i + 5].sample_uv[1] = (y + h) / sy
 	end
 end
 
@@ -109,9 +133,13 @@ function Polygon2D:SetVertex(i, x, y, u, v)
 	if u and v then
 		vtx[i].uv[0] = u
 		vtx[i].uv[1] = v
+		vtx[i].sample_uv[0] = u
+		vtx[i].sample_uv[1] = v
 	else
 		vtx[i].uv[0] = 0
 		vtx[i].uv[1] = 0
+		vtx[i].sample_uv[0] = 0
+		vtx[i].sample_uv[1] = 0
 	end
 
 	self.dirty = true
@@ -164,8 +192,8 @@ function Polygon2D:Draw(count)
 	end
 
 	local cmd = render.GetCommandBuffer()
+	render2d.BindMesh(self.vertex_buffer)
 	render2d.UploadConstants()
-	self.vertex_buffer:Bind(cmd, 0)
 	cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
 	cmd:DrawIndexed(count or self.vertex_count, 1, 0, 0, 0)
 

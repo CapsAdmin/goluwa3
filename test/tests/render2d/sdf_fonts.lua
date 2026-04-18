@@ -14,6 +14,7 @@ T.Test2D("sdf font", function()
 		Size = 256,
 		Unique = true,
 	}
+	font:SetBatchedDraw(true)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(500, 500, 5, 5)
 	render2d.SetColor(1, 1, 1, 1)
@@ -27,12 +28,13 @@ T.Test2D("sdf font", function()
 	end
 end)
 
-T.Test2D("non sdf font", function()
+T.Test2D("sdf font immediate", function()
 	local font = fonts.New{
 		Path = fonts.GetDefaultSystemFontPath(),
 		Size = 256,
 		Unique = true,
 	}
+	font:SetBatchedDraw(false)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(500, 500, 5, 5)
 	render2d.SetColor(1, 1, 1, 1)

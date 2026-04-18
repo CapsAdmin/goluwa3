@@ -1376,7 +1376,7 @@ do -- base object
 		end
 
 		if self.component_list then
-			for _, component in pairs(self.component_list) do
+			for _, component in ipairs(self.component_list) do
 				if component[what] then
 					ret = component[what](component, a, b, c, d, e, f, g)
 

@@ -10,6 +10,7 @@ local utf8 = import("goluwa/utf8.lua")
 local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local pretext = import("goluwa/pretext/init.lua")
 local META = prototype.CreateTemplate("sdf_font")
 META.IsFont = true
@@ -20,6 +21,7 @@ META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
 META:GetSet("Size", 12, {callback = "ClearSizeCache"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
 META:GetSet("Filtering", "linear", {callback = "ClearSizeCache"})
+META:GetSet("BatchedDraw", true, {callback = "ClearSizeCache"})
 
 function META:OnFontsChanged()
 	self:ClearSizeCache()
@@ -51,6 +53,7 @@ local SUPER_SAMPLING_SCALE = 4
 function META:ClearSizeCache()
 	self.text_size_cache = nil
 	self.wrap_string_cache = nil
+	self.draw_batch_cache = nil
 	self.ascent = nil
 	self.descent = nil
 end
@@ -276,6 +279,7 @@ do
 		end
 
 		self.texture_atlas:Build()
+		self.draw_batch_generation = (self.draw_batch_generation or 0) + 1
 		self:SetReady(true)
 	end
 
@@ -313,7 +317,9 @@ function META:GetDescent()
 end
 
 function META:Rebuild()
+	self.draw_batch_cache = nil
 	self.texture_atlas:Build()
+	self.draw_batch_generation = (self.draw_batch_generation or 0) + 1
 end
 
 function META:RebuildFromScratch()
@@ -746,11 +752,213 @@ function META:GetTextSizeNotCached(str)
 	return X * self.Scale.x, Y * self.Scale.y
 end
 
-function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
+local function get_draw_margin(self)
+	return math.min(render2d.GetMargin(), self:GetEffectiveSpread() * self.Scale.x)
+end
+
+local function get_draw_batch_key(str, spacing, extra_space_advance, margin)
+	return tostring(spacing) .. "\0" .. tostring(extra_space_advance) .. "\0" .. tostring(margin) .. "\0" .. str
+end
+
+local function set_batch_rect_sample_uv(poly, rect_index, u1, v1, u2, v2)
+	local i = (rect_index - 1) * 6
+	local vtx = poly.vertex_buffer:GetVertices()
+	vtx[i + 0].sample_uv[0] = u1
+	vtx[i + 0].sample_uv[1] = v1
+	vtx[i + 1].sample_uv[0] = u1
+	vtx[i + 1].sample_uv[1] = v2
+	vtx[i + 2].sample_uv[0] = u2
+	vtx[i + 2].sample_uv[1] = v1
+	vtx[i + 3].sample_uv[0] = u2
+	vtx[i + 3].sample_uv[1] = v2
+	vtx[i + 4].sample_uv[0] = u2
+	vtx[i + 4].sample_uv[1] = v1
+	vtx[i + 5].sample_uv[0] = u1
+	vtx[i + 5].sample_uv[1] = v2
+	poly.dirty = true
+end
+
+local function can_use_batched_draw()
+	local blur_x, blur_y = render2d.GetBlur()
+	local border_tl, border_tr, border_br, border_bl = render2d.GetBorderRadius()
+	local nine_x1, nine_x2, nine_y1, nine_y2 = render2d.GetNinePatch()
+
+	if blur_x ~= 0 or blur_y ~= 0 then return false end
+
+	if border_tl ~= 0 or border_tr ~= 0 or border_br ~= 0 or border_bl ~= 0 then
+		return false
+	end
+
+	if render2d.GetOutlineWidth() ~= 0 then return false end
+
+	if render2d.GetSDFGradientTexture() ~= nil then return false end
+
+	if render2d.GetSubpixelMode() ~= "none" then return false end
+
+	if nine_x1 ~= 0 or nine_x2 ~= 0 or nine_y1 ~= 0 or nine_y2 ~= 0 then
+		return false
+	end
+
+	return true
+end
+
+local function build_draw_batch(self, str, spacing, atlas, extra_space_advance, margin)
+	local runs = {}
+	local run = nil
 	local X, Y = 0, 0
 	local i = 1
 	local len = #str
-	local last_texture
+	local scale_x = self.Scale.x
+	local scale_y = self.Scale.y
+	local spread = self:GetEffectiveSpread()
+	local line_height = self:GetLineHeight()
+	local chars = self.chars
+	local monospace = self.Monospace
+	local tab_mult = self.TabWidthMultiplier
+
+	while i <= len do
+		local char_code = utf8.uint32(str, i)
+
+		if char_code == 10 then
+			X = 0
+			Y = Y + line_height + spacing
+		elseif char_code == 32 then
+			X = X + self.Size / 2 + extra_space_advance
+		elseif char_code == 9 then
+			local data = chars[32] or self:GetChar(32)
+
+			if data then
+				if monospace then
+					X = X + spacing * tab_mult
+				else
+					X = X + (data.x_advance + spacing) * tab_mult
+				end
+			else
+				X = X + self.Size * tab_mult
+			end
+		else
+			local data = chars[char_code]
+
+			if data then
+				local atlas_data = atlas.textures[char_code]
+
+				if atlas_data and atlas_data.page then
+					local texture = atlas_data.page.texture
+
+					if not run or run.texture ~= texture then
+						run = {texture = texture, quad_count = 0}
+						runs[#runs + 1] = run
+					end
+
+					run.quad_count = run.quad_count + 1
+				end
+
+				if monospace then
+					X = X + spacing
+				else
+					X = X + data.x_advance + spacing
+				end
+			end
+		end
+
+		i = i + utf8.byte_length(str, i)
+	end
+
+	for _, entry in ipairs(runs) do
+		entry.poly = Polygon2D.New(entry.quad_count * 6)
+		entry.count = entry.quad_count * 6
+		entry.poly:SetColor(1, 1, 1, 1)
+		entry.rect_index = 1
+	end
+
+	X = 0
+	Y = 0
+	i = 1
+	local run_index = 1
+	run = runs[run_index]
+
+	while i <= len do
+		local char_code = utf8.uint32(str, i)
+
+		if char_code == 10 then
+			X = 0
+			Y = Y + line_height + spacing
+		elseif char_code == 32 then
+			X = X + self.Size / 2 + extra_space_advance
+		elseif char_code == 9 then
+			local data = chars[32] or self:GetChar(32)
+
+			if data then
+				if monospace then
+					X = X + spacing * tab_mult
+				else
+					X = X + (data.x_advance + spacing) * tab_mult
+				end
+			else
+				X = X + self.Size * tab_mult
+			end
+		else
+			local data = chars[char_code]
+
+			if data then
+				local atlas_data = atlas.textures[char_code]
+
+				if atlas_data and atlas_data.page then
+					local texture = atlas_data.page.texture
+
+					if run and run.texture ~= texture then
+						run_index = run_index + 1
+						run = runs[run_index]
+					end
+
+					if run then
+						local uv = atlas_data.page_uv_normalized
+						local u_margin = scale_x > 0 and margin / (texture:GetWidth() * scale_x) or 0
+						local v_margin = scale_y > 0 and margin / (texture:GetHeight() * scale_y) or 0
+						run.poly:SetUV()
+						run.poly:SetRect(
+							run.rect_index,
+							(X + data.bitmap_left - spread) * scale_x - margin,
+							(Y + data.bitmap_top - spread) * scale_y - margin,
+							atlas_data.w * scale_x + margin * 2,
+							atlas_data.h * scale_y + margin * 2
+						)
+						set_batch_rect_sample_uv(
+							run.poly,
+							run.rect_index,
+							uv[1] - u_margin,
+							uv[2] - v_margin,
+							uv[3] + u_margin,
+							uv[4] + v_margin
+						)
+						run.rect_index = run.rect_index + 1
+					end
+				end
+
+				if monospace then
+					X = X + spacing
+				else
+					X = X + data.x_advance + spacing
+				end
+			end
+		end
+
+		i = i + utf8.byte_length(str, i)
+	end
+
+	for _, entry in ipairs(runs) do
+		entry.rect_index = nil
+	end
+
+	return {runs = runs}
+end
+
+function META:DrawPassImmediate(str, x, y, spacing, atlas, extra_space_advance)
+	local X, Y = 0, 0
+	local i = 1
+	local len = #str
+	local old_texture = render2d.GetTexture()
+	local last_texture = old_texture
 	extra_space_advance = extra_space_advance or 0
 
 	while i <= len do
@@ -782,7 +990,12 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 				if atlas_data and atlas_data.page then
 					local spread = self:GetEffectiveSpread()
 					local texture = atlas_data.page.texture
-					render2d.PushTexture(texture)
+
+					if texture ~= last_texture then
+						render2d.SetTexture(texture)
+						last_texture = texture
+					end
+
 					local uv = atlas_data.page_uv_normalized
 					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
 					render2d.DrawRectf(
@@ -797,7 +1010,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 					)
 
 					if self.debug then
-						render2d.PushTexture(nil)
+						render2d.SetTexture(nil)
 						render2d.PushColor(1, 0, 0, 0.25)
 						render2d.DrawRect(
 							x + (X - spread) * self.Scale.x,
@@ -806,10 +1019,9 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 							self:GetLineHeight() * self.Scale.y
 						)
 						render2d.PopColor()
-						render2d.PopTexture()
+						render2d.SetTexture(texture)
+						last_texture = texture
 					end
-
-					render2d.PopTexture()
 				end
 
 				if self.Monospace then
@@ -822,6 +1034,8 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 
 		i = i + utf8.byte_length(str, i)
 	end
+
+	if last_texture ~= old_texture then render2d.SetTexture(old_texture) end
 end
 
 function META:DrawString(str, x, y, spacing, extra_space_advance)
@@ -830,13 +1044,62 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	str = tostring(str)
 	batch_load_glyphs(self, str)
 	spacing = spacing or self.Spacing
+	extra_space_advance = extra_space_advance or 0
+
+	if self.debug or self.BatchedDraw == false then
+		render2d.PushUV()
+		render2d.PushSDFMode(true)
+		render2d.PushSDFTexelRange(self:GetEffectiveSpread())
+		self:DrawPassImmediate(str, x, y, spacing, self.texture_atlas, extra_space_advance)
+		render2d.PopSDFTexelRange()
+		render2d.PopSDFMode()
+		render2d.PopUV()
+		return
+	end
+
+	if not can_use_batched_draw() then
+		render2d.PushUV()
+		render2d.PushSDFMode(true)
+		render2d.PushSDFTexelRange(self:GetEffectiveSpread())
+		self:DrawPassImmediate(str, x, y, spacing, self.texture_atlas, extra_space_advance)
+		render2d.PopSDFTexelRange()
+		render2d.PopSDFMode()
+		render2d.PopUV()
+		return
+	end
+
+	local margin = get_draw_margin(self)
+	local cache_key = get_draw_batch_key(str, spacing, extra_space_advance, margin)
+	self.draw_batch_cache = self.draw_batch_cache or {}
+	local batch = self.draw_batch_cache[cache_key]
+	local generation = self.draw_batch_generation or 0
+
+	if not batch or batch.generation ~= generation then
+		batch = build_draw_batch(self, str, spacing, self.texture_atlas, extra_space_advance, margin)
+		batch.generation = generation
+		self.draw_batch_cache[cache_key] = batch
+	end
+
+	local old_texture = render2d.GetTexture()
 	render2d.PushUV()
+	render2d.SetUV()
+	render2d.PushSampleUVMode(3)
 	render2d.PushSDFMode(true)
 	render2d.PushSDFTexelRange(self:GetEffectiveSpread())
-	self:DrawPass(str, x, y, spacing, self.texture_atlas, extra_space_advance)
+	render2d.PushMatrix()
+	render2d.Translatef(x or 0, y or 0)
+
+	for _, entry in ipairs(batch.runs) do
+		render2d.SetTexture(entry.texture)
+		entry.poly:Draw(entry.count)
+	end
+
+	render2d.PopMatrix()
 	render2d.PopSDFTexelRange()
 	render2d.PopSDFMode()
+	render2d.PopSampleUVMode()
 	render2d.PopUV()
+	render2d.SetTexture(old_texture)
 end
 
 do
@@ -870,7 +1133,14 @@ do
 	function META:GetTextSize(str)
 		if type(str) ~= "string" then str = tostring(str or "|") end
 
-		return self:GetTextSizeNotCached(str)
+		self.text_size_cache = self.text_size_cache or {}
+		local cached = self.text_size_cache[str]
+
+		if cached then return cached[1], cached[2] end
+
+		local w, h = self:GetTextSizeNotCached(str)
+		self.text_size_cache[str] = {w, h}
+		return w, h
 	end
 
 	function META:MeasureText(str)

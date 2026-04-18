@@ -13,7 +13,17 @@ local function new_mock_font()
 		local width = 0
 
 		for _, line in ipairs(lines) do
-			width = math.max(width, utf8.length(line) * 8)
+			local line_width = 0
+
+			for _, char in ipairs(utf8.to_list(line)) do
+				if char == "\t" then
+					line_width = line_width + 32
+				else
+					line_width = line_width + 8
+				end
+			end
+
+			width = math.max(width, line_width)
 		end
 
 		return width, math.max(1, #lines) * 8
@@ -51,8 +61,7 @@ local function new_mock_font()
 		return 0
 	end
 
-	function font:DrawText()
-	end
+	function font:DrawText() end
 
 	function font:WrapString(str, width)
 		return pretext.wrap_text(str, width, self)
@@ -67,7 +76,6 @@ T.Test("text component wrapped caret movement uses layout", function()
 		transform = true,
 		text = true,
 	}
-
 	pnl.transform:SetSize(Vec2(16, 64))
 	pnl.text:SetFont(new_mock_font())
 	pnl.text:SetEditable(true)
@@ -75,12 +83,10 @@ T.Test("text component wrapped caret movement uses layout", function()
 	pnl.text:SetText("abcdefgh")
 	local second_line = pnl.text.wrap_layout_info.ranges[2]
 	pnl.text.editor:SetCursor(1)
-
 	T(pnl.text:GetLineColFromIndex(1))["=="](1, 1)
 	pnl.text.editor:OnKeyInput("down")
 	T(pnl.text.editor.Cursor)["=="](second_line.start)
 	T(pnl.text:GetLineColFromIndex(pnl.text.editor.Cursor))["=="](2, 1)
-
 	pnl:Remove()
 end)
 
@@ -90,21 +96,17 @@ T.Test("text component wrapped hit testing uses layout", function()
 		transform = true,
 		text = true,
 	}
-
 	pnl.transform:SetSize(Vec2(16, 64))
 	pnl.text:SetFont(new_mock_font())
 	pnl.text:SetWrap(true)
 	pnl.text:SetText("abcdefgh")
-
 	local lx, ly = pnl.text:GetTextOffset()
 	local font = pnl.text:GetFont()
 	local third_line = pnl.text.wrap_layout_info.ranges[3]
 	local y = ly + font:GetLineHeight() * 2 + font:GetLineHeight() * 0.5
-
 	local index = pnl.text:GetIndexAtPosition(lx + 1, y)
 	T(index)["=="](third_line.start)
 	T(pnl.text:GetLineColFromIndex(index))["=="](3, 1)
-
 	pnl:Remove()
 end)
 
@@ -114,22 +116,66 @@ T.Test("text component justified hit testing respects stretched spaces", functio
 		transform = true,
 		text = true,
 	}
-
 	pnl.text:SetFont(new_mock_font())
 	pnl.text:SetWrap(true)
 	pnl.text:SetAlignX("justify")
 	pnl.text:SetText("a b c d e f g h")
 	pnl.transform:SetSize(Vec2(60, 64))
-
 	local lx, ly = pnl.text:GetTextOffset()
 	local line = pnl.text.wrap_layout_info.display_lines[1]
 	assert(line and line.justified, "expected first line to be justified")
-
 	local x_between_c_and_d = lx + line.positions[7] - 1
 	local index = pnl.text:GetIndexAtPosition(x_between_c_and_d, ly + 4)
 	T(index)["=="](7)
-
 	pnl:Remove()
+end)
+
+T.Test("wrapped editable text preserves repeated trailing spaces", function()
+	local parent = Panel.New{
+		Name = "wrapped_editable_text_spaces_parent",
+		transform = true,
+	}
+	local child = Panel.New{
+		Name = "wrapped_editable_text_spaces",
+		transform = true,
+		text = true,
+	}
+	parent:AddChild(child)
+	parent.transform:SetSize(Vec2(128, 32))
+	child.text:SetWrapToParent(true)
+	child.text:SetFont(new_mock_font())
+	child.text:SetEditable(true)
+	child.text:SetWrap(true)
+	child.text:SetText("hello   ")
+	T(child.text.wrap_layout_info.lines[1])["=="]("hello   ")
+	T(child.text:GetLineColFromIndex(9))["=="](1, 9)
+	child:Remove()
+	parent:Remove()
+end)
+
+T.Test("wrapped editable text preserves tabs in layout positions", function()
+	local parent = Panel.New{
+		Name = "wrapped_editable_text_tabs_parent",
+		transform = true,
+	}
+	local child = Panel.New{
+		Name = "wrapped_editable_text_tabs",
+		transform = true,
+		text = true,
+	}
+	parent:AddChild(child)
+	parent.transform:SetSize(Vec2(128, 32))
+	child.text:SetWrapToParent(true)
+	child.text:SetFont(new_mock_font())
+	child.text:SetEditable(true)
+	child.text:SetWrap(true)
+	child.text:SetText("\t\tX")
+	local line = child.text.wrap_layout_info.display_lines[1]
+	T(child.text.wrap_layout_info.lines[1])["=="]("\t\tX")
+	T(line.positions[2])["=="](32)
+	T(line.positions[3])["=="](64)
+	child:Remove()
+	parent:Remove()
 end)
 
 T.Test("wrapped text layout measure respects current width", function()
@@ -139,16 +185,13 @@ T.Test("wrapped text layout measure respects current width", function()
 		layout = true,
 		text = true,
 	}
-
 	pnl.text:SetFont(new_mock_font())
 	pnl.text:SetWrap(true)
 	pnl.text:SetText("wrap should not widen the parent layout to the full sentence")
 	pnl.transform:SetSize(Vec2(60, 64))
-
 	local size = pnl.layout:Measure()
 	T(size.x)["=="](60)
 	assert(size.y > 8, "expected wrapped text height to grow beyond one line")
-
 	pnl:Remove()
 end)
 
@@ -164,18 +207,15 @@ T.Test("wrapped text layout measure respects parent width when WrapToParent is e
 		layout = true,
 		text = true,
 	}
-
 	parent:AddChild(child)
 	child.text:SetFont(new_mock_font())
 	child.text:SetWrap(true)
 	child.text:SetWrapToParent(true)
 	child.text:SetText("wrap should follow the parent width")
 	parent.transform:SetSize(Vec2(120, 80))
-
 	local size = child.layout:Measure()
 	T(size.x)["=="](120)
 	assert(size.y > 8, "expected wrapped text height to grow beyond one line")
-
 	child:Remove()
 	parent:Remove()
 end)

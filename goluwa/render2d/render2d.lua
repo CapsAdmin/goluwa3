@@ -18,6 +18,7 @@ local FragmentConstants = ffi.typeof([[
         int texture_index;       
         float uv_offset[2];             
         float uv_scale[2];              
+		int sample_uv_mode;
         int swizzle_mode;
         float blur[2];
         float border_radius[4];
@@ -287,12 +288,14 @@ function render2d.Initialize()
 			attributes = {
 				{"pos", "vec3", "r32g32b32_sfloat"},
 				{"uv", "vec2", "r32g32_sfloat"},
+				{"sample_uv", "vec2", "r32g32_sfloat"},
 				{"color", "vec4", "r32g32b32a32_sfloat"},
 			},
 			shader = [[
 				void main() {
 					gl_Position = U.projection_view_world * vec4(in_pos, 1.0);
 					out_uv = in_uv;
+					out_sample_uv = in_sample_uv;
 					out_color = in_color;
 				}
 			]],
@@ -334,6 +337,13 @@ function render2d.Initialize()
 							"vec2",
 							function(self, block, key)
 								ffi.copy(block[key], fragment_constants.uv_scale, 8)
+							end,
+						},
+						{
+							"sample_uv_mode",
+							"int",
+							function(self, block, key)
+								block[key] = fragment_constants.sample_uv_mode
 							end,
 						},
 						{
@@ -606,8 +616,13 @@ function render2d.Initialize()
 					}
 
 					if (has_tex_sdf) {
-						vec2 sdf_uv = uv * U.uv_scale + U.uv_offset;
+						bool use_direct_sample_uv = (U.sample_uv_mode & 1) != 0;
+						bool invert_tex_sdf = (U.sample_uv_mode & 2) != 0;
+						vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * U.uv_scale + U.uv_offset);
 						float d_tex = tex_sdf_distance(U.texture_index, U.sdf_threshold, U.sdf_texel_range, sdf_uv);
+
+						if (invert_tex_sdf) d_tex = -d_tex;
+
 						d = has_rect_sdf ? max(d, d_tex) : d_tex;
 					}
 
@@ -772,21 +787,60 @@ function render2d.Initialize()
 		BackStencilCompareOp = "always",
 	}
 	render2d.pipeline = EasyPipeline.New(config)
-	render2d.pipeline:SetTextureSamplerConfigResolver(render.GetSamplerFilterConfig)
+
+	render2d.pipeline:SetTextureSamplerConfigResolver(function()
+		return render.GetSamplerFilterConfig()
+	end)
+
 	render2d.ResetState()
 	render2d.rect_mesh = render2d.CreateMesh(
 		{
-			{pos = Vec3(0, 1, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
-			{pos = Vec3(0, 0, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
-			{pos = Vec3(1, 1, 0), uv = Vec2(1, 0), color = Color(1, 1, 1, 1)},
-			{pos = Vec3(1, 0, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
+			{
+				pos = Vec3(0, 1, 0),
+				uv = Vec2(0, 0),
+				sample_uv = Vec2(0, 0),
+				color = Color(1, 1, 1, 1),
+			},
+			{
+				pos = Vec3(0, 0, 0),
+				uv = Vec2(0, 1),
+				sample_uv = Vec2(0, 1),
+				color = Color(1, 1, 1, 1),
+			},
+			{
+				pos = Vec3(1, 1, 0),
+				uv = Vec2(1, 0),
+				sample_uv = Vec2(1, 0),
+				color = Color(1, 1, 1, 1),
+			},
+			{
+				pos = Vec3(1, 0, 0),
+				uv = Vec2(1, 1),
+				sample_uv = Vec2(1, 1),
+				color = Color(1, 1, 1, 1),
+			},
 		},
 		{0, 1, 2, 2, 1, 3}
 	)
 	render2d.triangle_mesh = render2d.CreateMesh{
-		{pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
-		{pos = Vec3(0.5, 0.5, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
-		{pos = Vec3(-0.5, 0.5, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
+		{
+			pos = Vec3(-0.5, -0.5, 0),
+			uv = Vec2(0, 0),
+			sample_uv = Vec2(0, 0),
+			color = Color(1, 1, 1, 1),
+		},
+		{
+			pos = Vec3(0.5, 0.5, 0),
+			uv = Vec2(1, 1),
+			sample_uv = Vec2(1, 1),
+			color = Color(1, 1, 1, 1),
+		},
+		{
+			pos = Vec3(-0.5, 0.5, 0),
+			uv = Vec2(0, 1),
+			sample_uv = Vec2(0, 1),
+			color = Color(1, 1, 1, 1),
+		},
 	}
 end
 
@@ -799,6 +853,7 @@ function render2d.ResetState()
 	render2d.SetBlur(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
+	fragment_constants.sample_uv_mode = 0
 	fragment_constants.sdf_threshold = 0
 	fragment_constants.sdf_texel_range = 1
 	fragment_constants.gradient_texture_index = -1
@@ -1515,6 +1570,14 @@ do -- uv
 		fragment_constants.uv_scale[1]
 	end
 
+	function render2d.SetSampleUVMode(mode)
+		fragment_constants.sample_uv_mode = mode or 0
+	end
+
+	function render2d.GetSampleUVMode()
+		return fragment_constants.sample_uv_mode
+	end
+
 	function render2d.SetUV2(u1, v1, u2, v2)
 		-- Calculate offset and scale from UV coordinates
 		fragment_constants.uv_offset[0] = u1
@@ -1524,6 +1587,7 @@ do -- uv
 	end
 
 	utility.MakePushPopFunction(render2d, "UV")
+	utility.MakePushPopFunction(render2d, "SampleUVMode")
 end
 
 do -- camera

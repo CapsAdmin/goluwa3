@@ -142,7 +142,14 @@ end
 
 local function measure_child_layout(child)
 	if child.layout then
-		return child.layout:Measure(), child.layout:GetMargin(), child.layout
+		local child_layout = child.layout
+		local child_size = child_layout.intrinsic_size
+
+		if child_layout:GetDirty() or not child_size then
+			child_size = child_layout:Measure()
+		end
+
+		return child_size, child_layout:GetMargin(), child_layout
 	end
 
 	return child.transform:GetSize(), Rect(0, 0, 0, 0), nil
@@ -270,19 +277,20 @@ function META:Measure()
 
 	-- If we have no children but have a text component, use its size as the intrinsic size
 	if count == 0 and self.Owner.text then
-		local font = self.Owner.text:GetFont()
-		local text = self.Owner.text.wrapped_text or self.Owner.text:GetText()
+		local text_component = self.Owner.text
+		local font = text_component:GetFont()
+		local text = text_component.wrapped_text or text_component:GetText()
 
 		if font and text then
-			local w, h = font:GetTextSize(text)
+			local w, h
 
-			if self.Owner.text:GetWrap() then
+			if text_component:GetWrap() then
 				-- Wrapped text should measure against the current inner width constraint,
 				-- not the widest stale wrapped line, otherwise parent layouts can get stuck
 				-- widening to an old unwrapped width and never shrink again.
 				local current_inner_width = math.max(0, tr_size.x - padding.x - padding.w)
 
-				if self.Owner.text:GetWrapToParent() then
+				if text_component:GetWrapToParent() then
 					local parent = self.Owner:GetParent()
 
 					if parent and parent:IsValid() and parent.transform then
@@ -297,9 +305,11 @@ function META:Measure()
 					end
 				end
 
-				local wrapped = self.Owner.text:GetWrappedSize(current_inner_width)
+				local wrapped = text_component:GetWrappedSize(current_inner_width)
 				w = current_inner_width
 				h = wrapped.y
+			else
+				w, h = font:GetTextSize(text)
 			end
 
 			intrinsic.x = w + padding.x + padding.w
