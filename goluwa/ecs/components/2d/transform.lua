@@ -33,6 +33,14 @@ end
 
 function META:Initialize() end
 
+function META:OnParent()
+	self:InvalidateWorldMatrices()
+end
+
+function META:OnUnParent()
+	self:InvalidateWorldMatrices()
+end
+
 function META:InvalidateWorldMatrices()
 	self.WorldMatrix = nil
 	self.WorldMatrixInverse = nil
