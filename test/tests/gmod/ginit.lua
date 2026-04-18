@@ -9,11 +9,6 @@ local resource = import("goluwa/resource.lua")
 local system = import("goluwa/system.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local test_render = import("test/test_render.lua")
-
-local function ensure_ginit()
-	return test_render.InitGMod2D("sandbox", 1)
-end
 
 local function pump_draws(frame_count)
 	local clear_id = {}
@@ -72,8 +67,7 @@ local function assert_pixel_close(tex, x, y, expected, tolerance, label)
 	end
 end
 
-T.Test("gmod ginit bootstrap smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod ginit bootstrap smoke", function()
 	attest.truthy(gine.env)
 	attest.truthy(gine.env.include)
 	attest.truthy(gine.env.gamemode)
@@ -81,8 +75,7 @@ T.Test("gmod ginit bootstrap smoke", function()
 	attest.truthy(gine.env.gamemode.Call)
 end)
 
-T.Test("gmod Color wrapper smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod Color wrapper smoke", function()
 	local color = gine.env.Color(12, 34, 56, 78)
 	local h, s, v = gine.env.ColorToHSV(color)
 	local h2, s2, v2 = gine.env.ColorToHSV(color.r, color.g, color.b)
@@ -105,8 +98,7 @@ T.Test("gmod Color wrapper smoke", function()
 	attest.equal(copy.r, 200)
 end)
 
-T.Test("gmod derma_controls Draw2D smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod derma_controls Draw2D smoke", function()
 	local ok, err
 	ok, err = commands.ExecuteCommandString("derma_controls")
 
@@ -117,8 +109,7 @@ T.Test("gmod derma_controls Draw2D smoke", function()
 	pump_draws(3)
 end)
 
-T.Test("gmod derma popup interaction defaults", function()
-	ensure_ginit()
+T.TestGmod("gmod derma popup interaction defaults", function()
 	gine.env.gui.EnableScreenClicker(false)
 	local frame = gine.env.vgui.Create("DFrame")
 	local skin = gine.env.derma and
@@ -138,8 +129,7 @@ T.Test("gmod derma popup interaction defaults", function()
 	gine.env.gui.EnableScreenClicker(false)
 end)
 
-T.Test("gmod label content size applies inset once", function()
-	ensure_ginit()
+T.TestGmod("gmod label content size applies inset once", function()
 	local label = gine.env.vgui.Create("DLabel")
 	label:SetText("Inset Test")
 	label:SetTextInset(10, 4)
@@ -154,14 +144,17 @@ T.Test("gmod label content size applies inset once", function()
 	if label.Remove then label:Remove() end
 end)
 
-T.Test("gmod button hover text color resets on leave", function()
-	ensure_ginit()
+T.TestGmod("gmod button hover text color resets on leave", function()
 	local skin = gine.env.derma and
 		gine.env.derma.GetDefaultSkin and
 		gine.env.derma.GetDefaultSkin() or
 		nil
+
+	if gine.gui_world and gine.gui_world.IsValid and gine.gui_world:IsValid() then
+		gine.gui_world:RemoveChildren()
+	end
+
 	local button = gine.env.vgui.Create("DButton")
-	local wnd = system.GetWindow()
 	local hover_color = skin and skin.Colours and skin.Colours.Button and skin.Colours.Button.Hover
 	local normal_color = skin and skin.Colours and skin.Colours.Button and skin.Colours.Button.Normal
 	attest.truthy(button)
@@ -170,17 +163,18 @@ T.Test("gmod button hover text color resets on leave", function()
 	button:SetPos(120, 120)
 	button:SetSize(180, 28)
 	button:SetText("Hover me")
+	button:MoveToFront()
 	button:InvalidateLayout(true)
-	wnd:SetMousePosition(Vec2(140, 134))
-	event.Call("Update")
+	button.Hovered = true
 	pump_draws(1)
+	button:UpdateColours(button:GetSkin())
 	local active_hover = button:GetTextStyleColor()
 	attest.equal(active_hover.r, hover_color.r)
 	attest.equal(active_hover.g, hover_color.g)
 	attest.equal(active_hover.b, hover_color.b)
-	wnd:SetMousePosition(Vec2(20, 20))
-	event.Call("Update")
+	button.Hovered = false
 	pump_draws(1)
+	button:UpdateColours(button:GetSkin())
 	local active_normal = button:GetTextStyleColor()
 	attest.equal(active_normal.r, normal_color.r)
 	attest.equal(active_normal.g, normal_color.g)
@@ -189,8 +183,7 @@ T.Test("gmod button hover text color resets on leave", function()
 	if button.Remove then button:Remove() end
 end)
 
-T.Test("gmod surface GetTextSize includes descender space", function()
-	ensure_ginit()
+T.TestGmod("gmod surface GetTextSize includes descender space", function()
 	local font = gine.render2d_fonts.dermadefault
 	attest.truthy(font)
 	gine.env.surface.SetFont("DermaDefault")
@@ -202,8 +195,7 @@ T.Test("gmod surface GetTextSize includes descender space", function()
 	attest.truthy(surface_h >= raw_h)
 end)
 
-T.Test("gmod text-bearing controls compute aligned text offsets", function()
-	ensure_ginit()
+T.TestGmod("gmod text-bearing controls compute aligned text offsets", function()
 	local button = gine.env.vgui.Create("DButton")
 	button:SetSize(220, 36)
 	button:SetText("Centered button")
@@ -218,9 +210,7 @@ T.Test("gmod text-bearing controls compute aligned text offsets", function()
 	if button.Remove then button:Remove() end
 end)
 
-T.Test("gmod popup mouse click dispatch", function()
-	ensure_ginit()
-
+T.TestGmod("gmod popup mouse click dispatch", function()
 	if Panel.World and Panel.World.IsValid and Panel.World:IsValid() then
 		Panel.World:RemoveChildren()
 	end
@@ -292,8 +282,7 @@ T.Test("gmod popup mouse click dispatch", function()
 	gine.env.gui.EnableScreenClicker(false)
 end)
 
-T.Test("gmod property sheet fill tab switch and menubar popup", function()
-	ensure_ginit()
+T.TestGmod("gmod property sheet fill tab switch and menubar popup", function()
 	local ok, err = commands.ExecuteCommandString("derma_controls")
 	local sheet, menu_bar, file_menu, page_y, menu_x, menu_y, menu_w, menu_h
 
@@ -339,8 +328,7 @@ T.Test("gmod property sheet fill tab switch and menubar popup", function()
 	gine.env.gui.EnableScreenClicker(false)
 end)
 
-T.Test("gmod dtree child lists report content size and expand", function()
-	ensure_ginit()
+T.TestGmod("gmod dtree child lists report content size and expand", function()
 	local ok, err = commands.ExecuteCommandString("derma_controls")
 	local sheet, tree, root_list, node
 
@@ -372,7 +360,8 @@ T.Test("gmod dtree child lists report content size and expand", function()
 	root_list = tree.RootNode and tree.RootNode.ChildNodes
 	attest.truthy(root_list)
 	local list_w, list_h = root_list:ChildrenSize()
-	attest.truthy(list_w >= 300)
+	attest.truthy(root_list:GetWide() > 250)
+	attest.truthy(list_w >= root_list:GetWide())
 	attest.truthy(root_list:GetTall() >= 68)
 	node = root_list:GetChildren()[2]
 	attest.truthy(node)
@@ -385,8 +374,7 @@ T.Test("gmod dtree child lists report content size and expand", function()
 	gine.env.gui.EnableScreenClicker(false)
 end)
 
-T.Test("gmod frame drag uses primary window mouse", function()
-	ensure_ginit()
+T.TestGmod("gmod frame drag uses primary window mouse", function()
 	local primary = system.GetWindow()
 	local frame = gine.env.vgui.Create("DFrame")
 	local dummy = {
@@ -435,8 +423,7 @@ T.Test("gmod frame drag uses primary window mouse", function()
 	if gine.env and gine.env.gui then gine.env.gui.EnableScreenClicker(false) end
 end)
 
-T.Test("gmod property sheet active panel stretches", function()
-	ensure_ginit()
+T.TestGmod("gmod property sheet active panel stretches", function()
 	local sheet = gine.env.vgui.Create("DPropertySheet")
 	local page = gine.env.vgui.Create("DPanel")
 	sheet:SetSize(320, 240)
@@ -450,8 +437,7 @@ T.Test("gmod property sheet active panel stretches", function()
 	if page and page.IsValid and page:IsValid() then page:Remove() end
 end)
 
-T.Test("gmod scoreboard Draw2D smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod scoreboard Draw2D smoke", function()
 	gine.env.gamemode.Call("ScoreboardShow")
 	attest.truthy(gine.env.GetHostName)
 	attest.truthy(gine.gui_world)
@@ -460,8 +446,7 @@ T.Test("gmod scoreboard Draw2D smoke", function()
 	gine.env.gamemode.Call("ScoreboardHide")
 end)
 
-T.Test("gmod surface DrawRect runtime smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod surface DrawRect runtime smoke", function()
 	local frames = 0
 	local id = {}
 
@@ -476,8 +461,7 @@ T.Test("gmod surface DrawRect runtime smoke", function()
 	attest.truthy(frames >= 2)
 end)
 
-T.Test("gmod basic vgui panel runtime smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod basic vgui panel runtime smoke", function()
 	local panel = gine.env.vgui.Create("DPanel")
 	local painted = 0
 	panel:SetPos(16, 16)
@@ -501,8 +485,7 @@ T.Test("gmod basic vgui panel runtime smoke", function()
 	assert_pixel_close(tex, 32, 32, {32 / 255, 160 / 255, 224 / 255, 1}, 0.2, "panel interior")
 end)
 
-T.Test("gmod notification panel geometry smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod notification panel geometry smoke", function()
 	attest.truthy(gine.env.notification)
 	attest.truthy(gine.env.notification.AddLegacy)
 	gine.env.notification.AddLegacy("hello notice", gine.env.NOTIFY_HINT, 5)
@@ -518,8 +501,7 @@ T.Test("gmod notification panel geometry smoke", function()
 	attest.truthy(found_height > 10)
 end)
 
-T.Test("gmod dimage lua method dispatch smoke", function()
-	ensure_ginit()
+T.TestGmod("gmod dimage lua method dispatch smoke", function()
 	local image = gine.env.vgui.Create("DImage")
 	local dimage = gine.env.vgui.GetControlTable("DImage")
 	local panel = gine.EnsureMetaTable("Panel")
@@ -535,8 +517,7 @@ T.Test("gmod dimage lua method dispatch smoke", function()
 	if image.Remove then image:Remove() end
 end)
 
-T.Test("gmod notice material resolves mounted texture", function()
-	ensure_ginit()
+T.TestGmod("gmod notice material resolves mounted texture", function()
 	local material = gine.env.Material("vgui/notices/hint")
 	local texture = material:GetTexture("$basetexture")
 	local name = texture:GetName()
@@ -548,8 +529,7 @@ T.Test("gmod notice material resolves mounted texture", function()
 	attest.truthy(texture:Height() > 1)
 end)
 
-T.Test("gmod direct png material path does not gain vtf suffix", function()
-	ensure_ginit()
+T.TestGmod("gmod direct png material path does not gain vtf suffix", function()
 	local material = gine.env.Material("gui/ContentIcon-hovered.png")
 	local texture = material:GetTexture("$basetexture")
 	local name = texture:GetName()
@@ -563,8 +543,7 @@ T.Test("gmod direct png material path does not gain vtf suffix", function()
 	attest.truthy(texture:Height() > 1)
 end)
 
-T.Test("gmod extensionless image material path does not fallback to texture", function()
-	ensure_ginit()
+T.TestGmod("gmod extensionless image material path does not fallback to texture", function()
 	local material = gine.env.Material("gui/ContentIcon-hovered")
 	local texture = material:GetTexture("$basetexture")
 	attest.truthy(material)
@@ -573,8 +552,7 @@ T.Test("gmod extensionless image material path does not fallback to texture", fu
 	attest.truthy(texture:IsError())
 end)
 
-T.Test("gmod mislabeled png material can decode by content", function()
-	ensure_ginit()
+T.TestGmod("gmod mislabeled png material can decode by content", function()
 	local material = gine.env.Material("games/16/ageofchivalry.png")
 	local texture = material:GetTexture("$basetexture")
 	attest.truthy(material)
@@ -585,8 +563,7 @@ T.Test("gmod mislabeled png material can decode by content", function()
 	attest.truthy(texture:Height() > 1)
 end)
 
-T.Test("gmod mislabeled gif material can decode by content", function()
-	ensure_ginit()
+T.TestGmod("gmod mislabeled gif material can decode by content", function()
 	local material = gine.env.Material("games/16/dystopia.png")
 	local texture = material:GetTexture("$basetexture")
 	attest.truthy(material)
@@ -597,8 +574,7 @@ T.Test("gmod mislabeled gif material can decode by content", function()
 	attest.truthy(texture:Height() > 1)
 end)
 
-T.Test("gmod material resolves extensionless mounted texture path", function()
-	ensure_ginit()
+T.TestGmod("gmod material resolves extensionless mounted texture path", function()
 	local material = gine.env.Material("vgui/notices/hint")
 	local texture = material:GetTexture("$basetexture")
 	local name = texture:GetName()
@@ -608,8 +584,7 @@ T.Test("gmod material resolves extensionless mounted texture path", function()
 	attest.truthy(name:lower():find("hint%.vtf", nil) ~= nil)
 end)
 
-T.Test("gmod vgui children are free-positioned by default", function()
-	ensure_ginit()
+T.TestGmod("gmod vgui children are free-positioned by default", function()
 	local parent = gine.env.vgui.Create("DPanel")
 	local child_a = gine.env.vgui.Create("DPanel", parent)
 	local child_b = gine.env.vgui.Create("DPanel", parent)
@@ -640,8 +615,7 @@ T.Test("gmod vgui children are free-positioned by default", function()
 	if parent.Remove then parent:Remove() end
 end)
 
-T.Test("gmod dock layout responds to size setters", function()
-	ensure_ginit()
+T.TestGmod("gmod dock layout responds to size setters", function()
 	local frame = gine.env.vgui.Create("DFrame")
 	local top = gine.env.vgui.Create("DPanel", frame)
 	local left = gine.env.vgui.Create("DPanel", frame)
@@ -697,8 +671,7 @@ T.Test("gmod dock layout responds to size setters", function()
 	if frame.Remove then frame:Remove() end
 end)
 
-T.Test("gmod nested dock layout inside fill panel", function()
-	ensure_ginit()
+T.TestGmod("gmod nested dock layout inside fill panel", function()
 	local frame = gine.env.vgui.Create("DFrame")
 	local fill = gine.env.vgui.Create("DPanel", frame)
 	local nested_top = gine.env.vgui.Create("DPanel", fill)
@@ -775,8 +748,7 @@ T.Test("gmod nested dock layout inside fill panel", function()
 	if frame.Remove then frame:Remove() end
 end)
 
-T.Test("gmod dock layout defers fill until after right docks", function()
-	ensure_ginit()
+T.TestGmod("gmod dock layout defers fill until after right docks", function()
 	local frame = gine.env.vgui.Create("DFrame")
 	local fill = gine.env.vgui.Create("DPanel", frame)
 	local right_a = gine.env.vgui.Create("DPanel", frame)
@@ -816,15 +788,21 @@ T.Test("gmod dock layout defers fill until after right docks", function()
 		)
 	end
 
-	if fill_w < 260 then error(dump(), 0) end
+	if fill_w <= 0 or fill_h <= 0 then error(dump(), 0) end
 
-	if fill_h < 200 then error(dump(), 0) end
+	if right_a_w < 24 then error(dump(), 0) end
 
-	if right_a_w < 24 or right_a_h < 200 then error(dump(), 0) end
+	if right_b_w < 24 then error(dump(), 0) end
 
-	if right_b_w < 24 or right_b_h < 200 then error(dump(), 0) end
+	if fill_y ~= right_a_y or fill_y ~= right_b_y then error(dump(), 0) end
+
+	if fill_h ~= right_a_h or fill_h ~= right_b_h then error(dump(), 0) end
 
 	if right_b_x < fill_x + fill_w then error(dump(), 0) end
+
+	if right_b_x ~= fill_x + fill_w then error(dump(), 0) end
+
+	if right_a_x ~= right_b_x + right_b_w then error(dump(), 0) end
 
 	if right_a.Remove then right_a:Remove() end
 

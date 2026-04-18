@@ -231,6 +231,14 @@ local function update_panel_text_offset(panel)
 	end
 end
 
+local function refresh_panel_scheme(panel_wrapper)
+	call_panel_method(panel_wrapper, "ApplySchemeSettings")
+
+	if panel_uses_wrapper_text(panel_wrapper.__obj) then
+		update_panel_text_offset(panel_wrapper.__obj)
+	end
+end
+
 local dock_modes = {
 	fill = true,
 	left = true,
@@ -857,6 +865,7 @@ do
 			if obj.draw_manual and not obj.in_paint_manual then return end
 
 			gine.PushPaintPanel(self)
+			refresh_panel_scheme(self)
 			call_panel_method(self, "Think")
 			obj.thought_1_frame = true
 			local w, h = obj.transform:GetWidth(), obj.transform:GetHeight()
@@ -974,16 +983,19 @@ do
 		hook(obj, "OnMouseEnter", function()
 			gine.env.ChangeTooltip(self)
 			call_panel_method(self, "OnCursorEntered")
+			refresh_panel_scheme(self)
 		end)
 
 		hook(obj, "OnMouseLeave", function()
 			gine.env.EndTooltip(self)
 			call_panel_method(self, "OnCursorExited")
+			refresh_panel_scheme(self)
 		end)
 
 		hook(obj, "OnMouseExit", function()
 			gine.env.EndTooltip(self)
 			call_panel_method(self, "OnCursorExited")
+			refresh_panel_scheme(self)
 		end)
 
 		hook(obj, "OnPostLayout", sync_wrapper_layout)
@@ -1456,6 +1468,10 @@ do
 				self.__obj.transform:GetWidth(),
 				self.__obj.transform:GetHeight()
 			)
+
+			if panel_uses_wrapper_text(self.__obj) then
+				update_panel_text_offset(self.__obj)
+			end
 
 			if self.__obj.layout and self.__obj.layout:GetDirty() then
 				self.__obj.layout:UpdateLayout()

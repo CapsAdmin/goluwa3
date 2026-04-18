@@ -75,6 +75,10 @@ function META:Start(now, ...)
 		return
 	end
 
+	if self.test_timeout_duration then
+		self.test_timeout_time = system.GetTime() + self.test_timeout_duration
+	end
+
 	self.Running = true
 	self.run_me = nil
 	local co = coroutine.create(function(...)
@@ -192,6 +196,11 @@ function META:Start(now, ...)
 	end
 end
 
+function META:ReleaseStart()
+	self.start_blocked = nil
+	return self
+end
+
 function META:Wait(sec)
 	if sec then self.wait = system.GetElapsedTime() + sec end
 
@@ -243,8 +252,11 @@ end
 
 META:Register()
 
-function tasks.CreateTask(on_start, on_finish, now, on_error)
+function tasks.CreateTask(on_start, on_finish, now, on_error, options)
 	local self = META:CreateObject()
+	options = options or {}
+
+	if options.defer_start then self.start_blocked = true end
 
 	if on_start then
 		self.OnStart = function(task_self, ...)
@@ -264,7 +276,9 @@ function tasks.CreateTask(on_start, on_finish, now, on_error)
 		end
 	end
 
-	if on_start then self:Start(now) end
+	if on_start then
+		if options.defer_start then self:Start(false) else self:Start(now) end
+	end
 
 	tasks.created[self] = self
 
@@ -379,11 +393,15 @@ function tasks.Update()
 
 	for thread in pairs(tasks.created) do
 		if thread.run_me then
+			if thread.start_blocked then goto continue end
+
 			if i >= tasks.max then break end
 
 			thread:Start(true)
 			i = i + 1
 		end
+
+		::continue::
 	end
 end
 

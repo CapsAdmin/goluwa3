@@ -7,8 +7,15 @@ local jit_profiler
 function profiler.Start(id)
 	debug.trace()
 	time_start = system.GetTime()
+	local path = "game/storage/logs/jit_profile_" .. id .. ".html"
+	local directory = fs.get_parent_directory(path)
+
+	if directory and directory ~= "." then
+		assert(fs.create_directory_recursive(directory))
+	end
+
 	jit_profiler = JitProfiler.New{
-		path = "game/storage/logs/jit_profile_" .. id .. ".html",
+		path = path,
 		file_url = "vscode://file" .. fs.get_current_directory() .. "/${path}:${line}:1",
 		get_time = system.GetTime,
 		sampling_rate = 1,

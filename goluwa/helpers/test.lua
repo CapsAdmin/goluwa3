@@ -22,9 +22,11 @@ local tasks = import("goluwa/tasks.lua")
 local test = {}
 local total_test_count = 0
 local coroutine = _G.coroutine
-local TEST_TIMEOUT = 10 -- Hard timeout for each test in seconds
+local TEST_TIMEOUT = 20 -- Per-file inactivity timeout, reset when each test starts
 -- Variables for tracking test execution timing
 local current_test_name = ""
+local current_running_test_name = ""
+local current_file_timeout_deadline = nil
 local tests_by_file = {}
 local current_test_start_time = nil
 local current_test_start_gc = nil
@@ -172,6 +174,23 @@ function test.RunTestsWithFilter(filter, config)
 	end
 end
 
+function test.GetCurrentTestFileName()
+	return current_test_name
+end
+
+function test.GetCurrentRunningTestName()
+	return current_running_test_name
+end
+
+function test.GetCurrentFileTimeoutDeadline()
+	return current_file_timeout_deadline
+end
+
+function test.ResetCurrentFileTimeout()
+	current_file_timeout_deadline = system.GetTime() + TEST_TIMEOUT
+	return current_file_timeout_deadline
+end
+
 local tasks = import("goluwa/tasks.lua")
 local active_test_tasks = {}
 -- Create a marker object for unavailable tests
@@ -221,7 +240,8 @@ function test.Test(name, cb, start, stop)
 	return test._CreateTestTask(name, cb, start, stop)
 end
 
-function test._CreateTestTask(name, cb, start, stop)
+function test._CreateTestTask(name, cb, start, stop, options)
+	options = options or {}
 	local unref = system.KeepAlive("test: " .. name)
 	local test_file_name = current_test_name
 	local test_file_start_time = current_test_start_time
@@ -238,17 +258,18 @@ function test._CreateTestTask(name, cb, start, stop)
 	-- Capture start time when test is added to queue
 	local test_start_time = system.GetTime()
 	local test_start_gc = memory.get_usage_kb()
-	local test_timeout_time = system.GetTime() + TEST_TIMEOUT
 	-- Need to capture task info before closure
 	local task_failed = false
 	local task_error = nil
 	local task = tasks.CreateTask(
 		function(task_self)
 			task_self.is_test_task = true
+			current_running_test_name = name
+			task_self.test_timeout_time = test.ResetCurrentFileTimeout()
 			write_crash_marker("test", test_file_name, name)
 
 			-- Check for timeout at start
-			if system.GetTime() > test_timeout_time then
+			if task_self.test_timeout_time and system.GetTime() > task_self.test_timeout_time then
 				error(string.format("Test timeout: exceeded %d second limit", TEST_TIMEOUT), 0)
 			end
 
@@ -334,6 +355,8 @@ function test._CreateTestTask(name, cb, start, stop)
 
 			active_test_tasks[self] = nil
 
+			if self.next_test_task then self.next_test_task:ReleaseStart() end
+
 			-- Check if all tests are done
 			if not tasks.IsBusy() then
 				system.ShutDown(has_failed_tests and 1 or 0)
@@ -409,16 +432,19 @@ function test._CreateTestTask(name, cb, start, stop)
 
 			active_test_tasks[self] = nil
 
+			if self.next_test_task then self.next_test_task:ReleaseStart() end
+
 			-- Check if all tests are done
 			if not tasks.IsBusy() then
 				system.ShutDown(has_failed_tests and 1 or 0)
 			end
-		end
+		end,
+		{defer_start = options.defer_start}
 	)
 	task:SetName(name)
 	task:SetIterationsPerTick(10)
 	task.is_test_task = true -- Mark as test task to prevent auto-waiting in callbacks
-	task.test_timeout_time = test_timeout_time -- Store timeout for checking
+	task.test_timeout_duration = TEST_TIMEOUT
 	active_test_tasks[task] = true
 
 	if not event.IsListenerActive("Update", "test_runner") then
@@ -428,7 +454,8 @@ function test._CreateTestTask(name, cb, start, stop)
 	return task
 end
 
-function test._CreatePendingTask(name)
+function test._CreatePendingTask(name, options)
+	options = options or {}
 	local test_file_name = current_test_name
 	local test_file_start_time = current_test_start_time
 	total_test_count = total_test_count + 1
@@ -442,8 +469,11 @@ function test._CreatePendingTask(name)
 	end
 
 	local task = tasks.CreateTask(
-		function() end,
-		function()
+		function(task_self)
+			current_running_test_name = name
+			task_self.test_timeout_time = test.ResetCurrentFileTimeout()
+		end,
+		function(self)
 			local file = test_file_name
 
 			if file and tests_by_file[file] then
@@ -482,11 +512,15 @@ function test._CreatePendingTask(name)
 				end
 			end
 
+			if self.next_test_task then self.next_test_task:ReleaseStart() end
+
 			if not tasks.IsBusy() then
 				system.ShutDown(has_failed_tests and 1 or 0)
 			end
 		end,
-		true
+		true,
+		nil,
+		{defer_start = options.defer_start}
 	)
 	task:SetName(name)
 
@@ -671,6 +705,8 @@ do
 		current_test_name = ""
 		current_test_start_time = nil
 		current_test_start_gc = nil
+		current_running_test_name = ""
+		current_file_timeout_deadline = nil
 		total_gc = 0
 		test_file_count = 0
 		test_results = {}
@@ -741,6 +777,8 @@ do
 		if VERBOSE then logn("loading test: " .. test_item.path) end
 
 		current_test_name = test_item.name
+		current_running_test_name = ""
+		test.ResetCurrentFileTimeout()
 		write_crash_marker("file", test_item.name, nil)
 		local file_test_count_before = tests_by_file[current_test_name] or 0
 
@@ -762,15 +800,27 @@ do
 		collecting_test_definitions = nil
 
 		if ok then
+			local created_tasks = {}
+
 			for _, definition in ipairs(current_test_definitions) do
 				if definition.kind == "pending" then
-					test._CreatePendingTask(definition.name)
+					created_tasks[#created_tasks + 1] = test._CreatePendingTask(definition.name, {defer_start = true})
 				else
-					test._CreateTestTask(definition.name, definition.cb, definition.start, definition.stop)
+					created_tasks[#created_tasks + 1] = test._CreateTestTask(
+						definition.name,
+						definition.cb,
+						definition.start,
+						definition.stop,
+						{defer_start = true}
+					)
 				end
 			end
 
-			tasks.Update()
+			for i = 1, #created_tasks - 1 do
+				created_tasks[i].next_test_task = created_tasks[i + 1]
+			end
+
+			if created_tasks[1] then created_tasks[1]:ReleaseStart() end
 		end
 
 		if not ok then error("failed to run " .. test_item.name .. ":\n" .. err, 2) end
@@ -1135,25 +1185,6 @@ commands.Add({
 		},
 	},
 }, function(filter, flags)
-	local sensitive_test_cache = {}
-
-	local function is_thread_sensitive_test(test_item)
-		local path = fs.get_current_directory() .. "/" .. test_item.path
-
-		if sensitive_test_cache[path] ~= nil then return sensitive_test_cache[path] end
-
-		local content = fs.read_file(path)
-		local sensitive = false
-
-		if content then
-			sensitive = content:find("import(\"test/environment.lua\")", nil, true) ~= nil or
-				content:find("import('test/environment.lua')", nil, true) ~= nil
-		end
-
-		sensitive_test_cache[path] = sensitive
-		return sensitive
-	end
-
 	local logging = true
 	local verbose = flags.verbose == true
 	local profiling = false
@@ -1170,10 +1201,6 @@ commands.Add({
 
 	if separate then
 		local tests = test.FindTests(filter)
-
-		for _, test_item in ipairs(tests) do
-			test_item.thread_sensitive = is_thread_sensitive_test(test_item)
-		end
 
 		if not tests[1] then
 			error("no tests found" .. (filter and (" with filter '" .. filter .. "'") or ""), 0)
@@ -1235,12 +1262,20 @@ commands.Add({
 			end
 
 			local start_t = system.GetTime()
-			local deadline = start_t + 60
 			local next_warn = start_t + 10
 			local stderr = io.stderr
 
-			while (shutdown_code == nil) and system.GetTime() < deadline do
+			while shutdown_code == nil do
 				local now = system.GetTime()
+				local deadline = t.GetCurrentFileTimeoutDeadline and t.GetCurrentFileTimeoutDeadline() or nil
+
+				if deadline and now >= deadline then
+					local running_test = t.GetCurrentRunningTestName and t.GetCurrentRunningTestName() or input.name
+					stderr:write(string.format("[timeout] file '%s' stalled while running '%s'\n", input.name, running_test))
+					stderr:flush()
+					shutdown_code = 1
+					break
+				end
 
 				if now >= next_warn then
 					local elapsed = math.floor(now - start_t)
@@ -1296,29 +1331,7 @@ commands.Add({
 
 		while #pending > 0 or #running > 0 do
 			while #running < max_running and #pending > 0 do
-				local sensitive_running = false
-
-				for _, running_thread in ipairs(running) do
-					if running_thread.thread_sensitive then
-						sensitive_running = true
-
-						break
-					end
-				end
-
-				local next_pending_idx
-
-				for i, test_item in ipairs(pending) do
-					if not test_item.thread_sensitive or not sensitive_running then
-						next_pending_idx = i
-
-						break
-					end
-				end
-
-				if not next_pending_idx then break end
-
-				local test_item = table.remove(pending, next_pending_idx)
+				local test_item = table.remove(pending, 1)
 				write_crash_marker("file", test_item.name, nil)
 				local ok, thread_or_err = pcall(function()
 					local t = threads.new(thread_worker)
@@ -1334,7 +1347,6 @@ commands.Add({
 
 				if ok then
 					thread_or_err.test_name = test_item.name
-					thread_or_err.thread_sensitive = test_item.thread_sensitive
 					thread_or_err.start_time = system.GetTime()
 					thread_or_err.next_warn_time = system.GetTime() + 5
 					table.insert(running, thread_or_err)

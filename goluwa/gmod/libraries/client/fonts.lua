@@ -311,9 +311,23 @@ do
 		return max_width, line_height + (line_count - 1) * (line_height + spacing)
 	end
 
+	local function with_current_font(font, callback, str)
+		local previous_font = current_font
+
+		if font then current_font = font end
+
+		local a, b, c, d = callback(str)
+		current_font = previous_font
+		return a, b, c, d
+	end
+
 	function surface.GetTextSize(str)
 		local w, h = get_text_layout_size(str)
 		return w, h
+	end
+
+	function gine.MeasureTextBoundsForGMod(font, str)
+		return with_current_font(font, get_text_layout_size, str)
 	end
 
 	function gine.GetSurfaceTextBounds(str)

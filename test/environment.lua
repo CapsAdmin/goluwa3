@@ -114,6 +114,20 @@ end
 
 local test_render = import("test/test_render.lua")
 local T = import("goluwa/helpers/test.lua")
+local gmod_initialized_files = {}
+T.TestGmod = function(name, cb, gamemode)
+	gamemode = gamemode or "sandbox"
+	return T.Test(name, function()
+		local file_name = T.GetCurrentTestFileName() or "<unknown>"
+
+		if not gmod_initialized_files[file_name] then
+			test_render.InitGMod2D(gamemode, true)
+			gmod_initialized_files[file_name] = true
+		end
+
+		return cb()
+	end)
+end
 T.Test2D = function(name, cb)
 	if not has_rendering then
 		return T.Unavailable("Vulkan library not available, skipping render2d tests.")
