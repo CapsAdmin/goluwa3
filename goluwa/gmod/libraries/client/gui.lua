@@ -26,48 +26,10 @@ local function limit_text(font, text, max_width)
 	return text
 end
 
-local function get_layout_text_size(font, text)
-	text = tostring(text or "")
-
-	if text == "" then return 0, 0 end
-
-	local line_height = font.GetLineHeight and font:GetLineHeight() or 0
-	local spacing = font.GetSpacing and font:GetSpacing() or rawget(font, "Spacing") or 0
-	local max_width = 0
-	local line_count = 0
-
-	for line in (text .. "\n"):gmatch("(.-)\n") do
-		local width = font:GetTextSize(line)
-		max_width = math.max(max_width, width)
-		line_count = line_count + 1
-	end
-
-	if line_count == 0 then return 0, 0 end
-
-	return max_width, line_height + (line_count - 1) * (line_height + spacing)
-end
-
-local function resolve_inherited_value(tbl, key)
-	while type(tbl) == "table" do
-		local value = rawget(tbl, key)
-
-		if value ~= nil then return value end
-
-		local mt = getmetatable(tbl)
-		tbl = mt and mt.__index or nil
-	end
-end
-
 local function call_panel_method(panel, name, ...)
-	local method = rawget(panel, name)
+	if not panel[name] then return end
 
-	if method == nil then
-		method = resolve_inherited_value(rawget(panel, "BaseClass"), name)
-	end
-
-	if method == nil then return nil end
-
-	return method(panel, ...)
+	return panel[name](panel, ...)
 end
 
 do
@@ -84,56 +46,6 @@ do
 	function gine.PopPaintPanel()
 		return table.remove(paint_panel_stack)
 	end
-end
-
-local function run_gmod_frame_hooks_once()
-	if not gine.env or not gine.env.hook then return end
-
-	local frame = tonumber(system.GetFrameNumber()) or 0
-
-	if gine.last_gmod_think_frame == frame then return end
-
-	gine.last_gmod_think_frame = frame
-	gine.env.hook.Run("Tick")
-	gine.env.hook.Run("Think")
-end
-
-local function transform_local_to_world(transform, pos)
-	if transform then
-		if transform.LocalToWorld then return transform:LocalToWorld(pos) end
-
-		if transform.GetWorldMatrix then
-			local x, y = transform:GetWorldMatrix():TransformVectorUnpacked(pos.x, pos.y, pos.z or 0)
-			return Vec2(x, y)
-		end
-	end
-
-	return Vec2(pos.x or 0, pos.y or 0)
-end
-
-local function transform_world_to_local(transform, pos)
-	if transform then
-		if transform.GlobalToLocal then return transform:GlobalToLocal(pos) end
-
-		if transform.GetWorldMatrixInverse then
-			local x, y = transform:GetWorldMatrixInverse():TransformVectorUnpacked(pos.x, pos.y, pos.z or 0)
-			return Vec2(x, y)
-		end
-	end
-
-	return Vec2(pos.x or 0, pos.y or 0)
-end
-
-local function unpack_point_args(x, y)
-	if y ~= nil then return x, y end
-
-	local kind = type(x)
-
-	if (kind == "table" or kind == "cdata" or kind == "userdata") and x.x ~= nil then
-		return x.x, x.y
-	end
-
-	return x, y
 end
 
 local function get_size_of_children(panel)
@@ -565,14 +477,6 @@ local function get_panel_text(panel)
 	return panel.text_internal or ""
 end
 
-local function set_panel_caret_sub_position(panel, pos)
-	panel.caret_pos = math.max(0, tonumber(pos) or 0)
-end
-
-local function get_panel_caret_sub_position(panel)
-	return panel.caret_pos or 0
-end
-
 local function get_panel_mouse_position(panel)
 	if panel.mouse_input then return panel.mouse_input:GetMousePosition() end
 
@@ -583,10 +487,23 @@ local function is_panel_mouse_over(panel)
 	return panel.mouse_input and panel.mouse_input:IsHoveredExclusively() or false
 end
 
-local function initialize_panel(panel, class_name)
-	if panel._gmod_panel_ready then return panel end
+local function create_panel(class_name, parent, name)
+	local panel = Panel.New{
+		Name = name or class_name,
+		transform = {
+			Size = Vec2(1, 1),
+		},
+		layout = true,
+		gui_element = true,
+		mouse_input = true,
+		clickable = true,
+		animation = true,
+	}
 
-	panel._gmod_panel_ready = true
+	if class_name == "text_edit" or class_name == "text" then
+		panel:EnsureComponent("text")
+	end
+
 	panel.gine_enabled = panel.gine_enabled ~= false
 	panel.vgui_type = class_name or panel.vgui_type or "base"
 	panel.gmod_has_wrapper_text = panel.gmod_has_wrapper_text or false
@@ -616,27 +533,6 @@ local function initialize_panel(panel, class_name)
 				return panel.multiline
 			end,
 		}
-	return panel
-end
-
-local function create_panel(class_name, parent, name)
-	local panel = Panel.New{
-		Name = name or class_name,
-		transform = {
-			Size = Vec2(1, 1),
-		},
-		layout = true,
-		gui_element = true,
-		mouse_input = true,
-		clickable = true,
-		animation = true,
-	}
-
-	if class_name == "text_edit" or class_name == "text" then
-		panel:EnsureComponent("text")
-	end
-
-	initialize_panel(panel, class_name)
 	set_panel_ignore_layout(panel, true)
 
 	if class_name == "text_edit" or class_name == "text" then
@@ -878,7 +774,7 @@ do
 		end
 	end
 
-	local function vgui_Create(class, parent, name)
+	function gine.env.vgui.Create(class, parent, name)
 		local requested_class = class
 		local control = gine.env.vgui.GetControlTable(requested_class)
 		local stub_model_preview = requested_class == "DModelPanel" or
@@ -956,8 +852,6 @@ do
 		obj.gine_init_complete = true
 		self:InvalidateLayout(true)
 		obj.OnDraw = function()
-			run_gmod_frame_hooks_once()
-
 			if self.AnimationThink then self:AnimationThink() end
 
 			if obj.draw_manual and not obj.in_paint_manual then return end
@@ -1073,8 +967,7 @@ do
 			self.thought_1_frame = true
 		end)
 
-		hook(obj, "OnMouseMove", function(_, x, y)
-			x, y = unpack_point_args(x, y)
+		hook(obj, "OnMouseMove", function(_, pos)
 			call_panel_method(self, "OnCursorMoved", x, y)
 		end)
 
@@ -1127,28 +1020,7 @@ do
 			end
 		end)
 
-		function obj:IsInsideParent()
-			if self.popup then return true end
-
-			if
-				self.Position.x < self.Parent.Size.x and
-				self.Position.y < self.Parent.Size.y and
-				self.Position.x + self.Size.x > 0 and
-				self.Position.y + self.Size.y > 0
-			then
-				return true
-			end
-
-			return false
-		end
-
 		return self
-	end
-
-	if gine.env.vgui.CreateX then
-		gine.env.vgui.CreateX = vgui_Create
-	else
-		gine.env.vgui.Create = vgui_Create
 	end
 
 	local META = gine.EnsureMetaTable("Panel")
@@ -1208,17 +1080,7 @@ do
 			return is_panel_mouse_over(self.__obj)
 		end
 
-		local val = rawget(META, key)
-
-		if val then return val end
-
-		local base = rawget(self, "BaseClass")
-
-		if base then
-			local inherited = resolve_inherited_value(base, key)
-
-			if inherited ~= nil then return inherited end
-		end
+		return rawget(META, key)
 	end
 
 	function META:__newindex(k, v)
@@ -1421,13 +1283,11 @@ do
 	end
 
 	function META:LocalToScreen(x, y)
-		x, y = unpack_point_args(x, y)
-		return transform_local_to_world(self.__obj.transform, Vec2(x or 0, y or 0)):Unpack()
+		return self.__obj.transform:LocalToGlobal(Vec2(x or 0, y or 0)):Unpack()
 	end
 
 	function META:ScreenToLocal(x, y)
-		x, y = unpack_point_args(x, y)
-		return transform_world_to_local(self.__obj.transform, Vec2(x, y)):Unpack()
+		return self.__obj.transform:GlobalToLocal(Vec2(x or 0, y or 0)):Unpack()
 	end
 
 	do
@@ -1648,7 +1508,31 @@ do
 			end
 		end
 
-		local w, h = get_layout_text_size(font, text)
+		local w, h
+
+		do
+			text = tostring(text or "")
+
+			if text == "" then return 0, 0 end
+
+			local line_height = font.GetLineHeight and font:GetLineHeight() or 0
+			local spacing = font.GetSpacing and font:GetSpacing() or rawget(font, "Spacing") or 0
+			local max_width = 0
+			local line_count = 0
+
+			for line in (text .. "\n"):gmatch("(.-)\n") do
+				local width = font:GetTextSize(line)
+				max_width = math.max(max_width, width)
+				line_count = line_count + 1
+			end
+
+			if line_count == 0 then
+				w, h = 0, 0
+			else
+				w = max_width
+				h = line_height + (line_count - 1) * (line_height + spacing)
+			end
+		end
 
 		if
 			panel.gmod_wrap and
@@ -1853,7 +1737,7 @@ do
 			refresh_gui_world_bounds()
 
 			if old_raw_parent and old_raw_parent:IsValid() and old_raw_parent.transform then
-				world_pos = transform_local_to_world(old_raw_parent.transform, world_pos)
+				world_pos = old_raw_parent.transform:LocalToGlobal(world_pos)
 			end
 
 			self.__obj.popup = true
@@ -1933,29 +1817,35 @@ do
 
 	-- edit
 	do
-		function META:GetCaretPos()
-			return get_panel_caret_sub_position(self.__obj)
-		end
-
-		function META:SetCaretPos(pos)
-			if self.__obj.vgui_type == "textentry" then
-				set_panel_caret_sub_position(self.__obj, pos)
+		do
+			function META:GetCaretPos()
+				return self.__obj.caret_pos or 0
 			end
-		end
 
-		function META:GotoTextEnd()
-			if self.__obj.vgui_type == "textentry" then
-				set_panel_caret_sub_position(self.__obj, math.huge)
-			elseif self.__obj.vgui_type == "richtext" then
-				self.__obj:SetScrollFraction(Vec2(0, 1))
+			local function set_caret_pos(panel, pos)
+				panel.caret_pos = math.max(0, tonumber(pos) or 0)
 			end
-		end
 
-		function META:GotoTextStart()
-			if self.__obj.vgui_type == "textentry" then
-				set_panel_caret_sub_position(self.__obj, 0)
-			elseif self.__obj.vgui_type == "richtext" then
-				self.__obj:SetScrollFraction(Vec2(0, 0))
+			function META:SetCaretPos(pos)
+				if self.__obj.vgui_type == "textentry" then
+					set_caret_pos(self.__obj, pos)
+				end
+			end
+
+			function META:GotoTextEnd()
+				if self.__obj.vgui_type == "textentry" then
+					set_caret_pos(self.__obj, math.huge)
+				elseif self.__obj.vgui_type == "richtext" then
+					self.__obj:SetScrollFraction(Vec2(0, 1))
+				end
+			end
+
+			function META:GotoTextStart()
+				if self.__obj.vgui_type == "textentry" then
+					set_caret_pos(self.__obj, 0)
+				elseif self.__obj.vgui_type == "richtext" then
+					self.__obj:SetScrollFraction(Vec2(0, 0))
+				end
 			end
 		end
 

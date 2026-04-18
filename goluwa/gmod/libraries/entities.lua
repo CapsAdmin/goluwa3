@@ -20,6 +20,27 @@ local function create_host_visual_entity()
 	}
 end
 
+local function create_entity(class)
+	local ent = create_host_visual_entity()
+	local self = gine.WrapObject(ent, "Entity")
+	self.ClassName = class
+	local meta = gine.env.scripted_ents.Get(class)
+
+	if meta then
+		self.BaseClass = meta
+
+		for k, v in pairs(self.BaseClass) do
+			self[k] = v
+		end
+	else
+		llog("creating non lua registered entity: %s", class)
+	end
+
+	gine.env.ents.created = gine.env.ents.created or {}
+	list.insert(gine.env.ents.created, self)
+	return self
+end
+
 function gine.LoadEntities(base_folder, global, register, create_table)
 	for file_name in vfs.Iterate(base_folder .. "/") do
 		--logn("gine: registering ",base_folder," ", file_name)
@@ -109,24 +130,7 @@ end
 do
 	if SERVER then
 		function gine.env.ents.Create(class)
-			local ent = create_host_visual_entity()
-			local self = gine.WrapObject(ent, "Entity")
-			self.ClassName = class
-			local meta = gine.env.scripted_ents.Get(class)
-
-			if meta then
-				self.BaseClass = meta
-
-				for k, v in pairs(self.BaseClass) do
-					self[k] = v
-				end
-			else
-				llog("creating non lua registered entity: %s", class)
-			end
-
-			gine.env.ents.created = gine.env.ents.created or {}
-			list.insert(gine.env.ents.created, self)
-			return self
+			create_entity(class)
 		end
 	end
 
@@ -140,7 +144,7 @@ do
 
 	function gine.env.ents.CreateClientProp(mdl)
 		--llog("ents.CreateClientProp: %s", mdl)
-		local ent = gine.env.ents.Create("class C_PhysPropClientside")
+		local ent = create_entity("class C_PhysPropClientside")
 
 		if mdl then ent:SetModel(mdl) end
 
@@ -420,7 +424,7 @@ do
 
 	function gine.env.ClientsideModel(path)
 		--llog("ClientsideModel: %s", path)
-		local ent = gine.env.ents.Create("prop_physics")
+		local ent = create_entity("prop_physics")
 		ent:SetModel(path)
 		return ent
 	end

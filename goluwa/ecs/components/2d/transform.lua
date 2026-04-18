@@ -302,4 +302,17 @@ function META:GlobalToLocal(vec, out)
 	return Vec2(x, y)
 end
 
+function META:LocalToGlobal(vec, out)
+	local mat = self:GetWorldMatrix()
+	local x, y, z = mat:TransformVectorUnpacked(vec.x, vec.y, vec.z or 0)
+
+	if out then
+		out.x = x
+		out.y = y
+		return out
+	end
+
+	return Vec2(x, y)
+end
+
 return META:Register()
