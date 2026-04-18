@@ -998,19 +998,23 @@ function EasyPipeline.New(config)
 		end
 	end
 
+	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
+	local bindless_texture_capacity = bindless_descriptor_capacities.textures
+	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
+
 	-- Build shader header and I/O
-	local shader_header = [[#version 450
+	local shader_header = ([[#version 450
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 
-	layout(set = 1, binding = 0) uniform sampler2D textures[1024];
-	layout(set = 1, binding = 1) uniform samplerCube cubemaps[1024];
+	layout(set = 1, binding = 0) uniform sampler2D textures[%d];
+	layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
 	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
-]]
+]]):format(bindless_texture_capacity, bindless_cubemap_capacity)
 
 	if config.mesh or config.mesh_ext or config.task or config.task_ext then
 		shader_header = shader_header .. "#extension GL_EXT_mesh_shader : require\n"
@@ -1035,14 +1039,14 @@ function EasyPipeline.New(config)
 		{
 			type = "combined_image_sampler",
 			binding_index = 0,
-			count = 1024,
+			count = bindless_texture_capacity,
 			set_index = 1,
 		},
 		-- Cubemap array sampler (binding 1)
 		{
 			type = "combined_image_sampler",
 			binding_index = 1,
-			count = 1024,
+			count = bindless_cubemap_capacity,
 			set_index = 1,
 		},
 	}
@@ -1486,11 +1490,7 @@ function EasyPipeline:GetFramebuffer(index)
 	return self.framebuffer
 end
 
--- Begin drawing to this pipeline's framebuffer
--- framebuffer: optional custom framebuffer to use (defaults to pipeline's framebuffer)
--- frame_index: optional frame index for ping-pong buffers (defaults to auto-calculated)
-function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
-	cmd = cmd or render.GetCommandBuffer()
+local function resolve_draw_framebuffer(self, framebuffer, frame_index)
 	local fb = framebuffer
 
 	if not fb then
@@ -1503,7 +1503,13 @@ function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
 		end
 	end
 
-	if fb then fb:Begin(cmd) end
+	return fb
+end
+
+local function begin_draw(self, cmd, fb)
+	if fb then
+		fb:Begin(cmd)
+	end
 
 	-- If this pass draws directly to the main target (no explicit framebuffer),
 	-- make sure viewport/scissor are reset to full render size. Otherwise the
@@ -1518,6 +1524,16 @@ function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
 	end
 
 	self:Bind(cmd)
+end
+
+-- Begin drawing to this pipeline's framebuffer
+-- framebuffer: optional custom framebuffer to use (defaults to pipeline's framebuffer)
+-- frame_index: optional frame index for ping-pong buffers (defaults to auto-calculated)
+function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
+	cmd = cmd or render.GetCommandBuffer()
+	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
+	begin_draw(self, cmd, fb)
+
 	return fb
 end
 
@@ -1535,28 +1551,41 @@ end
 function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 	cmd = cmd or render.GetCommandBuffer()
 	vertex_count = vertex_count or 3
+	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
 	render.PushCommandBuffer(cmd)
-	local fb = self:BeginDraw(cmd, framebuffer, frame_index)
+	local began_framebuffer = fb ~= nil
+	local ok, err = xpcall(function()
+		begin_draw(self, cmd, fb)
 
-	if self.on_draw then
-		self.on_draw(self, cmd)
-	else
-		self:UploadConstants()
-		cmd:Draw(vertex_count, 1, 0, 0)
-	end
+		if self.on_draw then
+			self.on_draw(self, cmd)
+		else
+			self:UploadConstants()
+			cmd:Draw(vertex_count, 1, 0, 0)
+		end
+	end, debug.traceback)
 
-	self:EndDraw(cmd, fb)
+	if began_framebuffer then self:EndDraw(cmd, fb) end
 	render.PopCommandBuffer()
+
+	if not ok then error(err, 0) end
 end
 
 function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
+	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
 	render.PushCommandBuffer(cmd)
-	local fb = self:BeginDraw(cmd, framebuffer, frame_index)
-	self:UploadConstants()
-	cmd:DrawMeshTasks(gx, gy, gz)
-	self:EndDraw(cmd, fb)
+	local began_framebuffer = fb ~= nil
+	local ok, err = xpcall(function()
+		begin_draw(self, cmd, fb)
+		self:UploadConstants()
+		cmd:DrawMeshTasks(gx, gy, gz)
+	end, debug.traceback)
+
+	if began_framebuffer then self:EndDraw(cmd, fb) end
 	render.PopCommandBuffer()
+
+	if not ok then error(err, 0) end
 end
 
 function EasyPipeline.FragmentOnly(config)

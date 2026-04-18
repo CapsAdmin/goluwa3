@@ -28,6 +28,28 @@ local ShadowVertexConstants = ffi.typeof([[
 function ShadowMap.New(config)
 	config = config or {}
 	local self = ShadowMap:CreateObject()
+	local bindless_texture_capacity = render.GetBindlessDescriptorCapacities().textures
+	local bindless_fragment_prelude = (
+		[[
+					#version 450
+					#extension GL_EXT_nonuniform_qualifier : require
+					#extension GL_EXT_scalar_block_layout : require
+
+					layout(binding = 0) uniform sampler2D textures[%d]; // Bindless texture array
+
+					layout(push_constant, scalar) uniform Constants {
+						mat4 light_space_matrix;
+						int albedo_texture_index;
+						int flags;
+						float color_multiplier_a;
+						float alpha_cutoff;
+					} pc;
+
+					layout(location = 0) in vec2 in_uv;
+					
+					#define FLAGS pc.flags
+					]]
+	):format(bindless_texture_capacity)
 	self.size = config.size or DEFAULT_SIZE
 	self.format = config.format or DEFAULT_FORMAT
 	self.near_plane = config.near_plane or 0.1
@@ -161,25 +183,7 @@ function ShadowMap.New(config)
 			},
 			{
 				type = "fragment",
-				code = [[
-					#version 450
-					#extension GL_EXT_nonuniform_qualifier : require
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
-
-					layout(push_constant, scalar) uniform Constants {
-						mat4 light_space_matrix;
-						int albedo_texture_index;
-						int flags;
-						float color_multiplier_a;
-						float alpha_cutoff;
-					} pc;
-
-					layout(location = 0) in vec2 in_uv;
-					
-					#define FLAGS pc.flags
-					]] .. Material.BuildGlslFlags("pc.flags") .. [[
+				code = bindless_fragment_prelude .. Material.BuildGlslFlags("pc.flags") .. [[
 
 					// Get alpha using same logic as render3d.lua
 					float get_alpha() {
@@ -220,7 +224,7 @@ function ShadowMap.New(config)
 					{
 						type = "combined_image_sampler",
 						binding_index = 0,
-						count = 1024,
+						count = bindless_texture_capacity,
 					},
 				},
 			},

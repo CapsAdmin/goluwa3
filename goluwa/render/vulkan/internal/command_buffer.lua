@@ -121,10 +121,13 @@ function CommandBuffer.New(command_pool)
 		),
 		"failed to allocate command buffer"
 	)
-	return CommandBuffer:CreateObject{ptr = ptr, command_pool = command_pool}
+	return CommandBuffer:CreateObject{ptr = ptr, command_pool = command_pool, is_recording = false}
 end
 
 function CommandBuffer:OnRemove()
+	self.is_recording = false
+	self.is_rendering = false
+
 	if self.command_pool:IsValid() and self.command_pool.device:IsValid() then
 		self.command_pool.device:WaitIdle()
 		self.command_pool:FreeCommandBuffer(self)
@@ -142,6 +145,8 @@ function CommandBuffer:Begin()
 		}),
 		"failed to begin command buffer"
 	)
+	self.is_recording = true
+	self.is_rendering = false
 end
 
 function CommandBuffer:Reset()
@@ -149,6 +154,8 @@ function CommandBuffer:Reset()
 	self.bound_descriptor_sets = {}
 	self.dynamic_state_cache = {}
 	self.keepalive_resources = nil
+	self.is_recording = false
+	self.is_rendering = false
 	vulkan.lib.vkResetCommandBuffer(self.ptr[0], 0)
 end
 
@@ -158,6 +165,8 @@ end
 
 function CommandBuffer:End()
 	vulkan.assert(vulkan.lib.vkEndCommandBuffer(self.ptr[0]), "failed to end command buffer")
+	self.is_recording = false
+	self.is_rendering = false
 end
 
 local RECT = vulkan.vk.VkRect2D()

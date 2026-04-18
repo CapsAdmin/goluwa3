@@ -125,13 +125,6 @@ return {
 						draw_obstacle(state.obstacles[i])
 					end
 
-					render2d.SetColor(0.4, 0.9, 1, 0.16)
-
-					for i = 1, #state.layout.lines do
-						local line = state.layout.lines[i]
-						render2d.DrawRect(line.slot.left, line.y, line.slot.right - line.slot.left, state.band_height - 1)
-					end
-
 					render2d.SetColor(0.9, 0.93, 0.98, 1)
 
 					for i = 1, #state.layout.lines do
@@ -140,11 +133,6 @@ return {
 					end
 
 					render2d.SetColor(1, 1, 1, 0.06)
-
-					for i = 0, math.floor((state.region.height) / (font:GetLineHeight() + 4)) do
-						local y = state.region.y + i * (font:GetLineHeight() + 4)
-						render2d.DrawRect(state.region.x, y, state.region.width, 1)
-					end
 				end,
 			},
 		}

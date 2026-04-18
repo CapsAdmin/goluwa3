@@ -1624,6 +1624,10 @@ local function build_dynamic_state_list(device, is_static)
 	return dynamic_states
 end
 
+local get_bindless_texture_set_index
+local get_descriptor_binding_count
+local get_bindless_binding_capacity
+
 function GraphicsPipeline.New(vulkan_instance, config)
 	assert_no_legacy_constructor_fields(config, 3)
 	normalize_constructor_properties(config)
@@ -1649,6 +1653,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local max_end = 0
 	local has_push_constants = false
 	local dynamic_descriptor_count = 0
+	local descriptor_binding_counts = {}
 
 	for i, stage in ipairs(config.shader_stages) do
 		local stage_bits = vulkan.vk.e.VkShaderStageFlagBits(stage.type)
@@ -1676,6 +1681,9 @@ function GraphicsPipeline.New(vulkan_instance, config)
 						dynamic_descriptor_count = dynamic_descriptor_count + 1
 					end
 				end
+
+				descriptor_binding_counts[set_index] = descriptor_binding_counts[set_index] or {}
+				descriptor_binding_counts[set_index][binding_index] = layout_map[binding_index].count or 1
 
 				if ds.type == "uniform_buffer" or ds.type == "uniform_buffer_dynamic" then
 					uniform_buffers[ds.binding_index] = ds.args[1]
@@ -1807,6 +1815,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.sampler_config = normalize_pipeline_sampler_config(config.Sampler or config.sampler)
 	self.uniform_buffers = uniform_buffers
 	self.descriptor_set_layouts = descriptorSetLayouts
+	self.descriptor_binding_counts = descriptor_binding_counts
 	self.descriptorPools = descriptorPools -- Array of pools, one per frame
 	self.shader_modules = shader_modules -- Keep shader modules alive to prevent GC
 	-- GraphicsPipeline variant caching for compatibility and static state emulation
@@ -1867,7 +1876,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	build_bind_state_cache(self)
 
 	do
-		self.texture_registry = setmetatable({}, {__mode = "k"}) -- texture_object -> index mapping
+		self.texture_registry = setmetatable({}, {__mode = "k"}) -- texture_object -> sampler_hash -> index mapping
 		self.texture_array = {} -- array of {view, sampler, sampler_config, sampler_hash} for descriptor set
 		self.next_texture_index = 0
 		self.texture_free_list = {}
@@ -1875,7 +1884,8 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self.cubemap_array = {}
 		self.next_cubemap_index = 0
 		self.cubemap_free_list = {}
-		self.max_textures = 1024 * 4
+		self.max_textures = get_bindless_binding_capacity(self, 0) or 0
+		self.max_cubemaps = get_bindless_binding_capacity(self, 1) or 0
 	end
 
 	local event = import("goluwa/event.lua")
@@ -1981,12 +1991,23 @@ local function merge_sampler_configs(...)
 	return merged
 end
 
-local function get_sampler_config_hash(config)
+local function get_sampler_config_key(config)
 	local normalized = copy_sampler_config(config)
 
 	if normalized == false or normalized == nil then return normalized end
 
-	return table.hash(normalized)
+	local parts = {}
+
+	for i, key in ipairs(sampler_config_keys) do
+		local value = normalized[key]
+		parts[i] = value == nil and "_" or (key .. "=" .. type(value) .. ":" .. tostring(value))
+	end
+
+	return table.concat(parts, "|")
+end
+
+local function get_sampler_config_hash(config)
+	return get_sampler_config_key(config)
 end
 
 local function resolve_sampler_config(config)
@@ -2034,14 +2055,53 @@ local function build_texture_descriptor_entry(self, tex, sampler_config_override
 	}
 end
 
+local nil_sampler_hash_key = {}
+
+local function get_texture_variant_key(sampler_hash)
+	if sampler_hash == nil then return nil_sampler_hash_key end
+
+	return sampler_hash
+end
+
+local function get_texture_descriptor_write_count(array)
+	local count = #array
+
+	while count > 0 do
+		local entry = array[count]
+
+		if entry and entry.texture ~= nil then break end
+
+		count = count - 1
+	end
+
+	return count
+end
+
+local function update_texture_descriptor_sets(self, binding_index, set_index, array, override_count)
+	local count = override_count or get_texture_descriptor_write_count(array)
+
+	if count <= 0 then return end
+
+	for frame_i = 1, #self.descriptor_sets do
+		self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array, count)
+	end
+end
+
 function normalize_pipeline_sampler_config(config)
 	if config == nil or config == false then return nil end
 
 	return copy_sampler_config(config)
 end
 
-local function get_bindless_texture_set_index(self)
+get_bindless_texture_set_index = function(self)
 	return #self.descriptor_set_layouts > 1 and 1 or 0
+end
+get_descriptor_binding_count = function(self, set_index, binding_index)
+	local set_counts = self.descriptor_binding_counts and self.descriptor_binding_counts[set_index]
+	return set_counts and set_counts[binding_index] or nil
+end
+get_bindless_binding_capacity = function(self, binding_index)
+	return get_descriptor_binding_count(self, get_bindless_texture_set_index(self), binding_index)
 end
 
 local function refresh_texture_descriptor_array(self, array, binding_index, set_index)
@@ -2067,9 +2127,7 @@ local function refresh_texture_descriptor_array(self, array, binding_index, set_
 
 	if not changed then return end
 
-	for frame_i = 1, #self.descriptor_sets do
-		self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
-	end
+	update_texture_descriptor_sets(self, binding_index, set_index, array)
 end
 
 local function refresh_texture_descriptor_arrays(self)
@@ -2142,16 +2200,17 @@ function GraphicsPipeline:ReleaseTextureIndex(tex, set_index)
 	local array = is_cube and self.cubemap_array or self.texture_array
 	local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
 	local binding_index = is_cube and 1 or 0
-	local index = registry[tex]
+	local variant_indices = registry[tex]
 
-	if index then
+	if variant_indices then
 		registry[tex] = nil
-		table.insert(free_list, index)
-		array[index + 1] = build_texture_descriptor_entry(self)
 
-		for frame_i = 1, #self.descriptor_sets do
-			self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
+		for _, index in pairs(variant_indices) do
+			table.insert(free_list, index)
+			array[index + 1] = build_texture_descriptor_entry(self)
 		end
+
+		update_texture_descriptor_sets(self, binding_index, set_index, array)
 	end
 end
 
@@ -2164,12 +2223,15 @@ function GraphicsPipeline:GetTextureIndex(tex, set_index, sampler_config_overrid
 	local registry = is_cube and self.cubemap_registry or self.texture_registry
 	local array = is_cube and self.cubemap_array or self.texture_array
 	local index_key = is_cube and "next_cubemap_index" or "next_texture_index"
+	local limit_key = is_cube and "max_cubemaps" or "max_textures"
 	local binding_index = is_cube and 1 or 0
-	local index = registry[tex]
+	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
+	local variant_key = get_texture_variant_key(next_entry.sampler_hash)
+	local variant_indices = registry[tex]
+	local index = variant_indices and variant_indices[variant_key]
 
 	if index then
 		local entry = array[index + 1]
-		local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
 
 		if
 			next_entry.view and
@@ -2181,10 +2243,7 @@ function GraphicsPipeline:GetTextureIndex(tex, set_index, sampler_config_overrid
 			)
 		then
 			array[index + 1] = next_entry
-
-			for frame_i = 1, #self.descriptor_sets do
-				self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
-			end
+			update_texture_descriptor_sets(self, binding_index, set_index, array, index + 1)
 		end
 
 		return index
@@ -2195,14 +2254,14 @@ function GraphicsPipeline:GetTextureIndex(tex, set_index, sampler_config_overrid
 	if #free_list > 0 then
 		index = table.remove(free_list)
 	else
-		if self[index_key] >= self.max_textures then
+		if self[index_key] >= self[limit_key] then
 			-- This is where leaks will eventually manifest if textures are created/destroyed rapidly
 			error(
 				(
 						is_cube and
 						"Cubemap" or
 						"Texture"
-					) .. " registry full! Max textures: " .. self.max_textures
+					) .. " registry full for binding " .. binding_index .. "! Max descriptors: " .. self[limit_key]
 			)
 		end
 
@@ -2210,13 +2269,11 @@ function GraphicsPipeline:GetTextureIndex(tex, set_index, sampler_config_overrid
 		self[index_key] = index + 1
 	end
 
-	registry[tex] = index
-	array[index + 1] = build_texture_descriptor_entry(self, tex, sampler_config_override)
-
-	for frame_i = 1, #self.descriptor_sets do
-		self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
-	end
-
+	variant_indices = variant_indices or {}
+	variant_indices[variant_key] = index
+	registry[tex] = variant_indices
+	array[index + 1] = next_entry
+	update_texture_descriptor_sets(self, binding_index, set_index, array, index + 1)
 	return index
 end
 
@@ -2267,10 +2324,26 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, set_in
 	)
 end
 
-function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, set_index, texture_array)
+function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, set_index, texture_array, override_count)
 	if _G.type(set_index) ~= "number" then
 		-- Backwards compatibility
 		return self:UpdateDescriptorSetArray(frame_index, binding_index, 0, set_index)
+	end
+
+	local binding_count = get_descriptor_binding_count(self, set_index, binding_index)
+	local count = override_count or #texture_array
+
+	if binding_count and count > binding_count then
+		error(
+			string.format(
+				"GraphicsPipeline: descriptor array update exceeds binding capacity for set %d binding %d: %d > %d",
+				set_index,
+				binding_index,
+				count,
+				binding_count
+			),
+			2
+		)
 	end
 
 	-- Update a descriptor set with an array of textures for bindless rendering
@@ -2279,7 +2352,8 @@ function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, s
 		binding_index,
 		texture_array,
 		self:GetFallbackView(),
-		self:GetFallbackSampler()
+		self:GetFallbackSampler(),
+		override_count
 	)
 end
 

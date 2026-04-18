@@ -13,6 +13,23 @@ local Texture = prototype.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
 local DEFAULT_SAMPLER_ANISOTROPY = 16
+local sampler_config_keys = {
+	"min_filter",
+	"mag_filter",
+	"mipmap_mode",
+	"wrap_s",
+	"wrap_t",
+	"wrap_r",
+	"max_lod",
+	"min_lod",
+	"mip_lod_bias",
+	"anisotropy",
+	"border_color",
+	"unnormalized_coordinates",
+	"compare_enable",
+	"compare_op",
+	"flags",
+}
 Texture:GetSet("SamplerEnabled", true, {callback = "RefreshSampler"})
 Texture:GetSet("MinFilter", "linear", {callback = "RefreshSampler"})
 Texture:GetSet("MagFilter", "linear", {callback = "RefreshSampler"})
@@ -48,6 +65,28 @@ local function copy_sampler_config(self)
 		compare_op = self:GetCompareOp(),
 		flags = self:GetSamplerFlags(),
 	}
+end
+
+local function hash_key_value(value)
+	local value_type = type(value)
+
+	if value_type == "table" then return "table:" .. table.hash(value) end
+
+	if value == nil then return "nil" end
+
+	return value_type .. ":" .. tostring(value)
+end
+
+local function build_sampler_config_key(config)
+	if config == false or config == nil then return config end
+
+	local parts = {}
+
+	for i, key in ipairs(sampler_config_keys) do
+		parts[i] = key .. "=" .. hash_key_value(config[key])
+	end
+
+	return table.concat(parts, "|")
 end
 
 local function sync_sampler_config(self)
@@ -166,15 +205,18 @@ local function build_texture_cache_key(config)
 
 	if not config.path then return nil end
 
-	return table.hash{
-		path = config.path,
-		srgb = config.srgb,
-		format = config.format,
-		mip_map_levels = config.mip_map_levels,
-		sampler = config.sampler,
-		image = config.image,
-		view = config.view,
-	}
+	return table.concat(
+		{
+			"path=" .. hash_key_value(config.path),
+			"srgb=" .. hash_key_value(config.srgb),
+			"format=" .. hash_key_value(config.format),
+			"mip_map_levels=" .. hash_key_value(config.mip_map_levels),
+			"sampler=" .. hash_key_value(build_sampler_config_key(config.sampler)),
+			"image=" .. hash_key_value(config.image),
+			"view=" .. hash_key_value(config.view),
+		},
+		"|"
+	)
 end
 
 local function enqueue_on_ready(self, callback)
@@ -894,7 +936,7 @@ function Texture:GetSamplerConfigHash()
 
 	if config == false or config == nil then return config end
 
-	return table.hash(config)
+	return build_sampler_config_key(config)
 end
 
 function Texture:RefreshSampler()
@@ -1224,6 +1266,23 @@ function Texture:Shade(glsl, extra_config)
 			frag_dir = get_cube_dir(pos, pc.face);
 		}
 	]]
+	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
+	local bindless_texture_capacity = bindless_descriptor_capacities.textures
+	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
+	local bindless_shader_prelude = (
+		[[
+							#version 450
+							#extension GL_EXT_nonuniform_qualifier : require
+
+							layout(binding = 0) uniform sampler2D textures[%d];
+							layout(binding = 1) uniform samplerCube cubemaps[%d];
+
+							layout(location = 0) in vec2 in_uv;
+							layout(location = 1) in vec3 in_dir;
+							layout(location = 0) out vec4 out_color;
+
+							]]
+	):format(bindless_texture_capacity, bindless_cubemap_capacity)
 	-- Create graphics pipeline
 	local pipeline = render.CreateGraphicsPipeline{
 		ColorFormat = self.format,
@@ -1241,18 +1300,7 @@ function Texture:Shade(glsl, extra_config)
 			},
 			{
 				type = "fragment",
-				code = [[
-							#version 450
-							#extension GL_EXT_nonuniform_qualifier : require
-
-							layout(binding = 0) uniform sampler2D textures[1024];
-							layout(binding = 1) uniform samplerCube cubemaps[1024];
-
-							layout(location = 0) in vec2 in_uv;
-							layout(location = 1) in vec3 in_dir;
-							layout(location = 0) out vec4 out_color;
-
-							]] .. (
+				code = bindless_shader_prelude .. (
 						extra_config.custom_declarations or
 						""
 					) .. [[
@@ -1268,12 +1316,12 @@ function Texture:Shade(glsl, extra_config)
 					{
 						type = "combined_image_sampler",
 						binding_index = 0,
-						count = 1024,
+						count = bindless_texture_capacity,
 					},
 					{
 						type = "combined_image_sampler",
 						binding_index = 1,
-						count = 1024,
+						count = bindless_cubemap_capacity,
 					},
 				},
 			},

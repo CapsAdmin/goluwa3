@@ -42,6 +42,40 @@ local face_angles = {
 	Deg3(0, 180 + 180, 0), -- -Z
 }
 
+local function remove_probe_resources(probe)
+	if not probe then return end
+
+	if probe.source_face_views then
+		for _, view in pairs(probe.source_face_views) do
+			if view and view.Remove then view:Remove() end
+		end
+	end
+
+	if probe.depth_face_views then
+		for _, view in pairs(probe.depth_face_views) do
+			if view and view.Remove then view:Remove() end
+		end
+	end
+
+	if probe.mip_face_views then
+		for _, views in pairs(probe.mip_face_views) do
+			for _, view in pairs(views) do
+				if view and view.Remove then view:Remove() end
+			end
+		end
+	end
+
+	if probe.cubemap and probe.cubemap.Remove then probe.cubemap:Remove() end
+
+	if probe.source_cubemap and probe.source_cubemap.Remove then
+		probe.source_cubemap:Remove()
+	end
+
+	if probe.depth_cubemap and probe.depth_cubemap.Remove then
+		probe.depth_cubemap:Remove()
+	end
+end
+
 -- Create a probe with given configuration
 local function CreateProbeTextures(size)
 	local probe = {}
@@ -168,10 +202,20 @@ function lightprobes.CreateSceneProbe(position, update_mode, radius)
 end
 
 function lightprobes.Initialize()
+	if lightprobes.environment_probe and lightprobes.environment_probe.cubemap then
+		render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap)
+		return
+	end
+
 	lightprobes.CreatePipelines()
 	lightprobes.InitializeCubemapLayouts()
 
 	do
+		if lightprobes.environment_probe then
+			remove_probe_resources(lightprobes.environment_probe)
+			lightprobes.environment_probe = nil
+		end
+
 		lightprobes.CreateEnvironmentProbe(Vec3(0, 0, 0))
 		lightprobes.camera = Camera3D.New()
 		lightprobes.camera:SetFOV(math.rad(90))

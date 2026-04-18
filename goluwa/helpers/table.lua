@@ -255,12 +255,21 @@ function table.equal(o1, o2, ignore_mt)
 end
 
 do
-	local buffer = require("string.buffer")
+	local identity_map = setmetatable({}, {__mode = "k"})
+	local next_identity = 0
 
 	function table.hash(tbl)
-		local b = buffer.new()
-		b:encode(tbl)
-		return ("%p"):format(tostring(b)) -- session dependent hash
+		if type(tbl) ~= "table" then
+			error("table.hash: expected table, got " .. type(tbl), 2)
+		end
+
+		local identity = identity_map[tbl]
+
+		if identity ~= nil then return identity end
+
+		next_identity = next_identity + 1
+		identity_map[tbl] = next_identity
+		return next_identity
 	end
 end
 

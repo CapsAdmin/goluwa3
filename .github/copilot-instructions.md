@@ -13,6 +13,8 @@
 
 - Prefer inling functions over creating very small ones.
 
+- Move local helper functions close to the code that uses them, rather than putting them at the top of the file. Preferably in a do end block that encapsulates its scope to its usage.
+
 - Never create inline functions in hot code. this causes a new closure to be made over and over
 
 - Do not write defensive code like "if obj.SetFoo then obj:SetFoo() end". assume the function exist, and if not, create it at source

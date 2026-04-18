@@ -209,11 +209,6 @@ function render3d.Initialize()
 
 	for i, config in ipairs(pipelines) do
 		render3d.pipelines_i[i] = EasyPipeline.New(config)
-
-		render3d.pipelines_i[i]:SetTextureSamplerConfigResolver(function()
-			return render.GetSamplerFilterConfig()
-		end)
-
 		render3d.pipelines[config.name] = render3d.pipelines_i[i]
 		--
 		render3d.pipelines_i[i].name = config.name
@@ -226,7 +221,11 @@ function render3d.Initialize()
 	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
 
+		local sampler_config = render.GetSamplerFilterConfig()
+
 		for _, pipeline in ipairs(render3d.pipelines_i) do
+			pipeline:SetSamplerConfig(sampler_config)
+
 			if pipeline.name ~= "blit" then pipeline:Draw() end
 		end
 	end)
@@ -253,6 +252,12 @@ function render3d.Draw(dt)
 	if not render3d.pipelines.blit then return end
 
 	local cmd = render.GetCommandBuffer()
+	local sampler_config = render.GetSamplerFilterConfig()
+
+	for _, pipeline in ipairs(render3d.pipelines_i) do
+		pipeline:SetSamplerConfig(sampler_config)
+	end
+
 	-- render to the screen
 	render3d.pipelines.blit:Draw(cmd)
 

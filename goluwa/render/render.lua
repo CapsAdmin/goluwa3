@@ -1,6 +1,21 @@
 local ffi = require("ffi")
 local render = {}
 import.loaded["goluwa/render/render.lua"] = render
+render.default_bindless_descriptor_capacities = {
+	textures = 4096,
+	cubemaps = 256,
+}
+render.bindless_descriptor_capacities = {
+	textures = render.default_bindless_descriptor_capacities.textures,
+	cubemaps = render.default_bindless_descriptor_capacities.cubemaps,
+}
+
+function render.GetBindlessDescriptorCapacities()
+	return {
+		textures = render.bindless_descriptor_capacities.textures,
+		cubemaps = render.bindless_descriptor_capacities.cubemaps,
+	}
+end
 --local renderdoc = import("goluwa/bindings/renderdoc.lua")
 --if pcall(renderdoc.init) then render.renderdoc = renderdoc end
 -- Check if shaderc is available before loading Vulkan
@@ -34,6 +49,71 @@ render.command_buffer_stack = render.command_buffer_stack or {}
 render.target = render.target or NULL
 render.initializing = false
 
+local function query_bindless_sampled_image_limit()
+	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.physical_device then
+		return nil
+	end
+
+	local properties = vulkan_instance.physical_device:GetProperties()
+	local limits = properties.limits
+	local descriptor_indexing_properties = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceDescriptorIndexingProperties)()
+	descriptor_indexing_properties[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES
+	descriptor_indexing_properties[0].pNext = nil
+	local properties2 = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceProperties2)()
+	properties2[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
+	properties2[0].pNext = descriptor_indexing_properties
+	vulkan.lib.vkGetPhysicalDeviceProperties2(vulkan_instance.physical_device.ptr[0], properties2)
+	local descriptor_limits = descriptor_indexing_properties[0]
+	local descriptor_set_limit = tonumber(descriptor_limits.maxDescriptorSetUpdateAfterBindSampledImages)
+	local per_stage_limit = tonumber(descriptor_limits.maxPerStageDescriptorUpdateAfterBindSampledImages)
+
+	if descriptor_set_limit == 0 then
+		descriptor_set_limit = tonumber(limits.maxDescriptorSetSampledImages)
+	end
+
+	if per_stage_limit == 0 then
+		per_stage_limit = tonumber(limits.maxPerStageDescriptorSampledImages)
+	end
+
+	return math.min(descriptor_set_limit, per_stage_limit)
+end
+
+local function refresh_bindless_descriptor_capacities()
+	local defaults = render.default_bindless_descriptor_capacities
+	local sampled_image_limit = query_bindless_sampled_image_limit()
+
+	if not sampled_image_limit or sampled_image_limit <= 0 then
+		render.bindless_descriptor_capacities = {
+			textures = defaults.textures,
+			cubemaps = defaults.cubemaps,
+		}
+		return
+	end
+
+	local default_total = defaults.textures + defaults.cubemaps
+
+	if sampled_image_limit >= default_total then
+		render.bindless_descriptor_capacities = {
+			textures = defaults.textures,
+			cubemaps = defaults.cubemaps,
+		}
+		return
+	end
+
+	local textures = math.max(1, math.floor(sampled_image_limit * (defaults.textures / default_total)))
+	local cubemaps = math.max(0, sampled_image_limit - textures)
+
+	if cubemaps == 0 and defaults.cubemaps > 0 and sampled_image_limit > 1 then
+		cubemaps = 1
+		textures = sampled_image_limit - cubemaps
+	end
+
+	render.bindless_descriptor_capacities = {
+		textures = math.min(textures, defaults.textures),
+		cubemaps = math.min(cubemaps, defaults.cubemaps),
+	}
+end
+
 function render.IsInitialized()
 	return render.available and
 		render.target ~= nil and
@@ -65,6 +145,10 @@ function render.Shutdown()
 	render.target = NULL
 	vulkan_instance = NULL
 	render.cached_samplers = {}
+	render.bindless_descriptor_capacities = {
+		textures = render.default_bindless_descriptor_capacities.textures,
+		cubemaps = render.default_bindless_descriptor_capacities.cubemaps,
+	}
 	sync_fence = NULL
 	render.shutting_down = false
 end
@@ -106,6 +190,8 @@ function render.Initialize(config)
 			final_layout = "transfer_src_optimal",
 		}
 	end
+
+	refresh_bindless_descriptor_capacities()
 
 	event.Call("RendererReady")
 	render.initializing = false
@@ -175,13 +261,26 @@ function render.PopCommandBuffer()
 	return table.remove(stack)
 end
 
-function render.GetCommandBuffer()
+local function get_active_recording_command_buffer()
 	local stack = render.command_buffer_stack
-	return stack[#stack] or render.cmd
+
+	for i = #stack, 1, -1 do
+		local cmd = stack[i]
+
+		if cmd and cmd.is_recording then return cmd end
+	end
+
+	if render.cmd and render.cmd.is_recording then return render.cmd end
+
+	return nil
+end
+
+function render.GetCommandBuffer()
+	return get_active_recording_command_buffer()
 end
 
 function render.GetCommandBufferOutsideRendering()
-	local cmd = render.GetCommandBuffer()
+	local cmd = get_active_recording_command_buffer()
 
 	if cmd and cmd.is_rendering then return nil end
 
@@ -308,9 +407,24 @@ do
 		return out
 	end
 
+	local function get_sampler_config_key(config)
+		local normalized = copy_sampler_config(config)
+
+		if normalized == false or normalized == nil then return normalized end
+
+		local parts = {}
+
+		for i, key in ipairs(sampler_config_keys) do
+			local value = normalized[key]
+			parts[i] = value == nil and "_" or (key .. "=" .. type(value) .. ":" .. tostring(value))
+		end
+
+		return table.concat(parts, "|")
+	end
+
 	function render.CreateSampler(config)
 		local normalized = assert(copy_sampler_config(config), "render.CreateSampler: invalid sampler config")
-		local hash = table.hash(normalized)
+		local hash = get_sampler_config_key(normalized)
 
 		if render.cached_samplers[hash] then return render.cached_samplers[hash] end
 
