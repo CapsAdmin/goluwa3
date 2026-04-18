@@ -46,9 +46,11 @@ do
 		return 0
 	end
 
-	if SERVER then function gine.env.net.Send() end end
+	if SERVER then
+		function gine.env.net.Send() end
 
-	function gine.env.net.Broadcast() end
+		function gine.env.net.Broadcast() end
+	end
 
 	for k, v in pairs(gine.env.net) do
 		if k:starts_with("Write") or k:starts_with("Start") then
@@ -226,7 +228,7 @@ end
 if SERVER then function gine.env.umsg.PoolString() end end
 
 do
-	local META = gine.GetMetaTable("Player")
+	local META = gine.EnsureMetaTable("Player")
 
 	function META:GetInfoNum(key, def)
 		return tonumber(self:GetInfo(key)) or def or 0
@@ -238,7 +240,7 @@ do
 end
 
 do
-	local META = gine.GetMetaTable("Entity")
+	local META = gine.EnsureMetaTable("Entity")
 
 	do
 		local types = {

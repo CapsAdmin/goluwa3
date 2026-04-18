@@ -1,4 +1,4 @@
-local META = gine.GetMetaTable("Angle")
+local META = gine.EnsureMetaTable("Angle")
 
 function gine.env.LerpAngle(f, a, b)
 	return gine.env.Angle(a.ptr:GetLerped(f, b.ptr))

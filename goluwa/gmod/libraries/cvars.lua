@@ -20,7 +20,7 @@ function gine.env.ConVarExists(name)
 	return pvars.IsSetup(name)
 end
 
-local META = gine.GetMetaTable("ConVar")
+local META = gine.EnsureMetaTable("ConVar")
 
 function META:SetBool(val)
 	self.__obj:Set((tonumber(val) and tonumber(val) > 0) and 1 or 0)

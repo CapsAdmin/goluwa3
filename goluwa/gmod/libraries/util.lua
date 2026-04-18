@@ -24,10 +24,12 @@ function util.CRC(str)
 	return crypto.CRC32(tostring(str))
 end
 
-function util.RelativePathToFull(path)
-	if path == "." then path = "" end
+if MENU then
+	function util.RelativePathToFull_Menu(path)
+		if path == "." then path = "" end
 
-	return R(path) or ""
+		return R(path) or ""
+	end
 end
 
 function util.JSONToTable(str)

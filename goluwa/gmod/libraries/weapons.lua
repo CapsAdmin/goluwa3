@@ -68,7 +68,7 @@ local function ensure_weapon_wrapper(player, class_name)
 end
 
 do
-	local META = gine.GetMetaTable("Weapon")
+	local META = gine.EnsureMetaTable("Weapon")
 
 	function META:SetClip2(num)
 		self.__obj.clip2 = num
@@ -131,7 +131,7 @@ do
 end
 
 do
-	local META = gine.GetMetaTable("Player")
+	local META = gine.EnsureMetaTable("Player")
 
 	function META:SelectWeapon(class_name)
 		if class_name then

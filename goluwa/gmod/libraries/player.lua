@@ -2,21 +2,22 @@ local fallback_clients
 
 local function get_fallback_client()
 	fallback_clients = fallback_clients or {}
-	fallback_clients.local_client = fallback_clients.local_client or {
-		gine_nick = "Player",
-		IsBot = function()
-			return false
-		end,
-		SetNick = function(self, nick)
-			self.gine_nick = nick
-		end,
-		Nick = function(self)
-			return self.gine_nick or "Player"
-		end,
-		IsValid = function()
-			return true
-		end,
-	}
+	fallback_clients.local_client = fallback_clients.local_client or
+		{
+			gine_nick = "Player",
+			IsBot = function()
+				return false
+			end,
+			SetNick = function(self, nick)
+				self.gine_nick = nick
+			end,
+			Nick = function(self)
+				return self.gine_nick or "Player"
+			end,
+			IsValid = function()
+				return true
+			end,
+		}
 	return fallback_clients.local_client
 end
 
@@ -27,26 +28,27 @@ local function get_clients()
 	fallback_clients.GetAll = fallback_clients.GetAll or function()
 		return {get_fallback_client()}
 	end
-	fallback_clients.CreateBot = fallback_clients.CreateBot or function()
-		local bot = {
-			gine_nick = "Bot",
-			IsBot = function()
-				return true
-			end,
-			SetNick = function(self, nick)
-				self.gine_nick = nick
-			end,
-			Nick = function(self)
-				return self.gine_nick or "Bot"
-			end,
-			IsValid = function()
-				return true
-			end,
-		}
-		fallback_clients.bots = fallback_clients.bots or {}
-		list.insert(fallback_clients.bots, bot)
-		return bot
-	end
+	fallback_clients.CreateBot = fallback_clients.CreateBot or
+		function()
+			local bot = {
+				gine_nick = "Bot",
+				IsBot = function()
+					return true
+				end,
+				SetNick = function(self, nick)
+					self.gine_nick = nick
+				end,
+				Nick = function(self)
+					return self.gine_nick or "Bot"
+				end,
+				IsValid = function()
+					return true
+				end,
+			}
+			fallback_clients.bots = fallback_clients.bots or {}
+			list.insert(fallback_clients.bots, bot)
+			return bot
+		end
 	fallback_clients.GetLocalClient = fallback_clients.GetLocalClient or get_fallback_client
 	return fallback_clients
 end
@@ -93,11 +95,13 @@ do
 end
 
 do
-	function gine.env.player.CreateNextBot(name)
-		local clients = get_clients()
-		local client = clients.CreateBot()
-		client:SetNick(name)
-		return gine.WrapObject(client, "Player")
+	if SERVER then
+		function gine.env.player.CreateNextBot(name)
+			local clients = get_clients()
+			local client = clients.CreateBot()
+			client:SetNick(name)
+			return gine.WrapObject(client, "Player")
+		end
 	end
 
 	function gine.env.LocalPlayer()
@@ -114,7 +118,7 @@ do
 		return gine.env.LocalPlayer()
 	end
 
-	local META = gine.GetMetaTable("Player")
+	local META = gine.EnsureMetaTable("Player")
 
 	function META:Crouching() end
 
@@ -210,7 +214,9 @@ do
 
 	function META:Nick()
 		if self.__obj.GetNick then return self.__obj:GetNick() end
+
 		if self.__obj.Nick then return self.__obj:Nick() end
+
 		return self.__obj.gine_nick or "Player"
 	end
 

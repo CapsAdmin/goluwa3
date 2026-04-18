@@ -55,14 +55,6 @@ do
 	function render.PushFilterMag(filter)
 		lib.PushFilterMag(assert(filter_translate[filter], "expected TEXFILTER enum"))
 	end
-
-	function render.GetActiveFilterMin()
-		return reverse_filter_translate[lib.GetActiveFilterMin()]
-	end
-
-	function render.GetActiveFilterMag()
-		return reverse_filter_translate[lib.GetActiveFilterMag()]
-	end
 end
 
 function render.PopFilterMin()
@@ -180,10 +172,6 @@ function render.SupportsVertexShaders_2_0()
 end
 
 function render.SupportsPixelShaders_2_0()
-	return true
-end
-
-function render.SupportsHDR()
 	return true
 end
 

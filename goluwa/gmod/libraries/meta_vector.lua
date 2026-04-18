@@ -1,4 +1,4 @@
-local META = gine.GetMetaTable("Vector")
+local META = gine.EnsureMetaTable("Vector")
 
 function gine.env.Vector(x, y, z)
 	local self = {}

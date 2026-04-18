@@ -72,7 +72,7 @@ do
 end
 
 do
-	local META = gine.GetMetaTable("Entity")
+	local META = gine.EnsureMetaTable("Entity")
 
 	function META:SetSolid(b) end
 

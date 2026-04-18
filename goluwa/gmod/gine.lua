@@ -2,6 +2,7 @@
 _G.CLIENT = true
 _G.SERVER = false
 local gine = library()
+gine.debug = true
 _G.gine = gine
 import.loaded["goluwa/gmod/gine.lua"] = gine
 import("goluwa/gmod/preprocess.lua")
@@ -78,7 +79,7 @@ function gine.WrapObject(obj, meta)
 	gine.objectsi[meta] = gine.objectsi[meta] or {}
 
 	if not gine.objects[meta][obj] then
-		local tbl = table.copy(gine.GetMetaTable(meta))
+		local tbl = table.copy(gine.EnsureMetaTable(meta))
 		tbl.Type = meta
 		local __index_func
 		local __index_tbl

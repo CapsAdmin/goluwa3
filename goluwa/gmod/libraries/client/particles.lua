@@ -6,7 +6,7 @@ do
 		return gine.WrapObject(emitter, "CLuaEmitter")
 	end
 
-	local META = gine.GetMetaTable("CLuaEmitter")
+	local META = gine.EnsureMetaTable("CLuaEmitter")
 	gine.GetSet(META, "NoDraw", false)
 
 	function META:Add()
@@ -15,5 +15,5 @@ do
 end
 
 do
-	local META = gine.GetMetaTable("CLuaParticle")
+	local META = gine.EnsureMetaTable("CLuaParticle")
 end

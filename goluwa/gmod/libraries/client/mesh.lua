@@ -2,7 +2,7 @@ function gine.env.Mesh()
 	return gine.WrapObject(gfx.CreatePolygon3D(), "IMesh")
 end
 
-local META = gine.GetMetaTable("IMesh")
+local META = gine.EnsureMetaTable("IMesh")
 
 function META:BuildFromTriangles(tbl) end
 

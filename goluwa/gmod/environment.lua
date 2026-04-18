@@ -368,103 +368,12 @@ for lib_name, functions in pairs(data.functions) do
 	end
 end
 
-enable_override_detection(true)
-gine.hooks = gine.hooks or {}
-env.hook = env.hook or {}
-env.gamemode = env.gamemode or {}
+if gine.debug then enable_override_detection(true) end
 
-do
-	local function run_hook(name, gm, ...)
-		local callbacks = gine.hooks[name]
-
-		if callbacks then
-			for _, callback in pairs(callbacks) do
-				local a, b, c, d, e = callback(...)
-
-				if a ~= nil then return a, b, c, d, e end
-			end
-		end
-
-		gm = gm or env.GAMEMODE or gine.current_gamemode
-
-		if gm and gm[name] then return gm[name](gm, ...) end
-	end
-
-	env.hook.Add = env.hook.Add or
-		function(name, id, callback)
-			gine.hooks[name] = gine.hooks[name] or {}
-			gine.hooks[name][id] = callback
-			return callback
-		end
-	env.hook.Remove = env.hook.Remove or
-		function(name, id)
-			if gine.hooks[name] then gine.hooks[name][id] = nil end
-		end
-	env.hook.Run = env.hook.Run or function(name, ...)
-		return run_hook(name, nil, ...)
-	end
-	env.hook.Call = env.hook.Call or function(name, gm, ...)
-		return run_hook(name, gm, ...)
-	end
-	env.gamemode.Register = env.gamemode.Register or
-		function(gm, name, base)
-			local base_gm = base and gine.gamemodes and gine.gamemodes[base]
-
-			if base_gm then
-				local mt = getmetatable(gm)
-
-				if mt then
-					mt.__index = mt.__index or base_gm
-				else
-					setmetatable(gm, {__index = base_gm})
-				end
-
-				gm.BaseClass = gm.BaseClass or base_gm
-				gm.Base = gm.Base or base
-			end
-
-			gm.FolderName = gm.FolderName or name
-			gine.gamemodes = gine.gamemodes or {}
-			gine.gamemodes[name] = gm
-			return gm
-		end
-	env.gamemode.Call = env.gamemode.Call or
-		function(name, ...)
-			return run_hook(name, env.GAMEMODE or gine.current_gamemode, ...)
-		end
-end
-
-if gine.debug then
-	for _, meta in pairs(env._R) do
-		setmetatable(
-			meta,
-			{
-				__newindex = function(s, k, v)
-					if not k:starts_with("__") then
-						wlog("adding meta function that doesn't exist in glua: %s", k, 2)
-					end
-
-					rawset(s, k, v)
-				end,
-			}
-		)
-	end
-
-	setmetatable(
-		env,
-		{
-			__index = _G,
-			__newindex = function(s, k, v)
-				wlog("adding function that doesn't exist in glua: %s", k, 2)
-				rawset(s, k, v)
-			end,
-		}
-	)
-end
-
-function gine.GetMetaTable(name)
+function gine.EnsureMetaTable(name)
 	return gine.env._R[name] or ensure_meta_table(name)
 end
+
 
 vfs.RunFile("goluwa/gmod/libraries/*", gine)
 vfs.RunFile(
@@ -505,7 +414,7 @@ end
 _G.repl = _G.repl or repl
 
 for meta_name, functions in pairs(data.meta) do
-	local meta = gine.GetMetaTable(meta_name)
+	local meta = gine.EnsureMetaTable(meta_name)
 
 	if functions["Is" .. meta_name] == "C" then
 		meta["Is" .. meta_name] = function()
@@ -531,4 +440,5 @@ if gine.debug then
 end
 
 setmetatable(env, {__index = _G})
-enable_override_detection(false)
+
+if gine.debug then enable_override_detection(false) end

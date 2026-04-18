@@ -765,46 +765,6 @@ end
 
 do
 	local vgui = gine.env.vgui
-	vgui.registered = vgui.registered or {}
-
-	function vgui.Register(name, panel, base)
-		name = tostring(name)
-		local stored = table.copy(panel)
-
-		if base then
-			local base_tbl = vgui.registered[base:lower()] or vgui.registered[base]
-
-			if base_tbl then
-				setmetatable(stored, {__index = base_tbl})
-				stored.BaseClass = stored.BaseClass or base_tbl
-			end
-		end
-
-		stored.ClassName = stored.ClassName or name
-		stored.Base = stored.Base or base
-		vgui.registered[name] = stored
-		vgui.registered[name:lower()] = stored
-		return stored
-	end
-
-	function vgui.RegisterTable(panel, base)
-		local stored = table.copy(panel)
-
-		if base then
-			local base_tbl = vgui.GetControlTable(base) or base
-
-			if type(base_tbl) == "table" then
-				setmetatable(stored, {__index = base_tbl})
-				stored.BaseClass = stored.BaseClass or base_tbl
-			end
-		end
-
-		return stored
-	end
-
-	function vgui.GetControlTable(name)
-		return vgui.registered[name] or vgui.registered[tostring(name):lower()]
-	end
 
 	function vgui.GetAll()
 		local out = {}
@@ -847,26 +807,6 @@ do
 	function vgui.GetWorldPanel()
 		return gine.WrapObject(gine.gui_world, "Panel")
 	end
-end
-
-gine.env.matproxy = gine.env.matproxy or {}
-gine.env.matproxy.stored = gine.env.matproxy.stored or {}
-gine.env.matproxy.Add = gine.env.matproxy.Add or
-	function(tbl)
-		if tbl and tbl.name then gine.env.matproxy.stored[tbl.name] = tbl end
-
-		return tbl
-	end
-gine.env.properties = gine.env.properties or {}
-gine.env.properties.stored = gine.env.properties.stored or {}
-gine.env.properties.Add = gine.env.properties.Add or
-	function(name, tbl)
-		if name then gine.env.properties.stored[name] = tbl end
-
-		return tbl
-	end
-gine.env.properties.Get = gine.env.properties.Get or function()
-	return gine.env.properties.stored
 end
 
 do
@@ -1211,7 +1151,7 @@ do
 		gine.env.vgui.Create = vgui_Create
 	end
 
-	local META = gine.GetMetaTable("Panel")
+	local META = gine.EnsureMetaTable("Panel")
 
 	function META:Prepare()
 		if self.__obj.name_prepare ~= self.ClassName then return end
@@ -1556,15 +1496,6 @@ do
 			if not is_stub_model_preview(self) then return end
 
 			self.__obj.gmod_spawnicon_rebuild_data = data
-		end
-
-		function META:SetSkin(skin)
-			if is_stub_model_preview(self) then
-				self.__obj.gmod_model_skin = skin or 0
-				return
-			end
-
-			return self.BaseClass.SetSkin(self, skin)
 		end
 
 		function META:SetBodyGroup(index, value)

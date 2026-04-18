@@ -20,34 +20,6 @@ local function create_host_visual_entity()
 	}
 end
 
-do
-	local function ensure_registry(name)
-		local registry = gine.env[name]
-		registry.stored = registry.stored or {}
-		registry.Register = registry.Register or
-			function(tbl, class_name)
-				tbl.ClassName = tbl.ClassName or class_name
-				registry.stored[class_name] = tbl
-
-				if gine.env.baseclass and gine.env.baseclass.Set then
-					gine.env.baseclass.Set(class_name, tbl)
-				end
-
-				return tbl
-			end
-		registry.Get = registry.Get or function(class_name)
-			return registry.stored[class_name]
-		end
-		registry.GetStored = registry.GetStored or function()
-			return registry.stored
-		end
-	end
-
-	ensure_registry("scripted_ents")
-	ensure_registry("weapons")
-	ensure_registry("effects")
-end
-
 function gine.LoadEntities(base_folder, global, register, create_table)
 	for file_name in vfs.Iterate(base_folder .. "/") do
 		--logn("gine: registering ",base_folder," ", file_name)
@@ -159,7 +131,7 @@ do
 	end
 
 	do
-		local META = gine.GetMetaTable("Player")
+		local META = gine.EnsureMetaTable("Player")
 
 		function META:Give(class_name)
 			llog("give %s", class_name)
@@ -190,7 +162,7 @@ do
 		return #gine.env.ents.GetAll()
 	end
 
-	local META = gine.GetMetaTable("Entity")
+	local META = gine.EnsureMetaTable("Entity")
 
 	function META:__newindex(k, v)
 		if not rawget(self, "__storable_table") then

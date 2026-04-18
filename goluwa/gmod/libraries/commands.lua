@@ -31,7 +31,7 @@ function gine.env.RunConsoleCommand(...)
 	cmd(list.concat({...}, " "))
 end
 
-local META = gine.GetMetaTable("Player")
+local META = gine.EnsureMetaTable("Player")
 
 function META:ConCommand(str)
 	str = str:gsub("\"", "")

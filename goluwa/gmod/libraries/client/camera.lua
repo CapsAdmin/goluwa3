@@ -20,8 +20,6 @@ end
 
 function cam.Start3D2D() end
 
-function cam.Start3D() end
-
 function cam.End3D2D() end
 
 function cam.End3D() end

@@ -1,5 +1,4 @@
 local vfs = import("goluwa/vfs.lua")
-
 local search_paths = {
 	game = "",
 	workshop = "",
@@ -118,7 +117,7 @@ do
 		end
 	end
 
-	local META = gine.GetMetaTable("File")
+	local META = gine.EnsureMetaTable("File")
 
 	function META:Read(length)
 		return self.__obj:ReadBytes(length)

@@ -13,7 +13,7 @@ do
 		return gine.WrapObject(self, "CSoundPatch")
 	end
 
-	local META = gine.GetMetaTable("CSoundPatch")
+	local META = gine.EnsureMetaTable("CSoundPatch")
 
 	function META:SetSoundLevel(level)
 		self.sound_level = level

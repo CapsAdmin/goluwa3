@@ -43,7 +43,3 @@ function gine.env.engine.TickInterval()
 
 	return 1 / 66
 end
-
-function gine.env.game.StartTime()
-	return system.GetElapsedTime()
-end

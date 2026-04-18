@@ -115,7 +115,7 @@ do
 		return self
 	end
 
-	local META = gine.GetMetaTable("IMaterial")
+	local META = gine.EnsureMetaTable("IMaterial")
 
 	local function is_texture_key(key)
 		return key == "basetexture" or
@@ -275,7 +275,7 @@ do
 end
 
 do
-	local META = gine.GetMetaTable("ITexture")
+	local META = gine.EnsureMetaTable("ITexture")
 
 	local function get_texture_size(obj)
 		if obj.GetSize then

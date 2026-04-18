@@ -1,14 +1,6 @@
 local steam = import("goluwa/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-
 local spawnmenu = gine.env.spawnmenu
-
-spawnmenu.content_types = spawnmenu.content_types or {}
-
-function spawnmenu.AddContentType(name, callback)
-	spawnmenu.content_types[name] = callback
-	return callback
-end
 
 function spawnmenu.PopulateFromTextFiles()
 	return {}

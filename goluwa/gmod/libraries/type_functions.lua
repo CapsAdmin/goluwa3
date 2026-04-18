@@ -97,5 +97,5 @@ function gine.env.istable(obj)
 end
 
 function gine.env.FindMetaTable(name)
-	return gine.GetMetaTable(name)
+	return gine.EnsureMetaTable(name)
 end

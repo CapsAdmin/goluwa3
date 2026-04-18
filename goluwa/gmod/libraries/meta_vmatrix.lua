@@ -1,5 +1,5 @@
 local gine = ... or _G.gine
-local META = gine.GetMetaTable("VMatrix")
+local META = gine.EnsureMetaTable("VMatrix")
 
 function gine.env.Matrix(tbl)
 	local self = {}

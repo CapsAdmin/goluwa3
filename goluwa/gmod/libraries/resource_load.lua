@@ -1,5 +1,3 @@
-function gine.env.AddParticles() end
-
 function gine.env.game.AddDecal() end
 
 function gine.env.PrecacheParticleSystem() end
