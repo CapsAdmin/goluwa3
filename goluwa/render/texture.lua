@@ -161,6 +161,42 @@ end
 -- Fallback checkerboard texture (pink and black)
 local fallback_texture = NULL
 
+local function build_texture_cache_key(config)
+	if config.cache_key ~= nil then return config.cache_key end
+
+	if not config.path then return nil end
+
+	return table.hash{
+		path = config.path,
+		srgb = config.srgb,
+		format = config.format,
+		mip_map_levels = config.mip_map_levels,
+		sampler = config.sampler,
+		image = config.image,
+		view = config.view,
+	}
+end
+
+local function enqueue_on_ready(self, callback)
+	if not callback then return end
+
+	if self:IsReady() then
+		callback(self)
+		return
+	end
+
+	self.pending_on_ready = self.pending_on_ready or {}
+	list.insert(self.pending_on_ready, callback)
+end
+
+local function evict_texture_cache_entry(self)
+	local cache_key = self.cache_key
+
+	if cache_key and texture_cache[cache_key] == self then
+		texture_cache[cache_key] = nil
+	end
+end
+
 local function decode_texture_file(path)
 	local decoded, err = codec.DecodeFile(path)
 
@@ -222,16 +258,17 @@ end
 function Texture.New(config)
 	assert(render.CanCreateResources(), "Texture.New requires render.Initialize() first")
 	-- Check cache if path is provided
-	local cache_key = config.cache_key or config.path
+	local cache_key = build_texture_cache_key(config)
 
 	if cache_key and texture_cache[cache_key] then
-		if config.on_ready then config.on_ready(texture_cache[cache_key]) end
-
-		return texture_cache[cache_key]
+		local cached = texture_cache[cache_key]
+		enqueue_on_ready(cached, config.on_ready)
+		return cached
 	end
 
 	local self = Texture:CreateObject{
 		config = config,
+		cache_key = cache_key,
 		is_ready = false,
 	}
 
@@ -299,6 +336,7 @@ function Texture.New(config)
 				)
 			end
 
+			evict_texture_cache_entry(self)
 			self:MakeReady()
 			self.reflectivity = reflectivity
 			return
@@ -328,6 +366,7 @@ function Texture.New(config)
 					tostring(image_format),
 					tostring(config.path or config.cache_key or "<decoded>")
 				)
+				evict_texture_cache_entry(self)
 				self:MakeReady()
 				self.reflectivity = reflectivity
 				return
@@ -459,10 +498,12 @@ function Texture.New(config)
 					print("Warning: Failed to load texture:", config.path, img_or_err)
 				end
 
+				evict_texture_cache_entry(self)
 				self:MakeReady()
 			end
 		end):Catch(function(err)
 			print("Warning: Failed to download texture:", config.path, err)
+			evict_texture_cache_entry(self)
 			self:MakeReady()
 		end)
 	elseif config.decoded then
@@ -892,12 +933,20 @@ function Texture:MakeReady()
 	if self.OnReady then self:OnReady() end
 
 	if self.config.on_ready then self.config.on_ready(self) end
+
+	if self.pending_on_ready then
+		for _, callback in ipairs(self.pending_on_ready) do
+			callback(self)
+		end
+
+		self.pending_on_ready = nil
+	end
 end
 
 function Texture:OnRemove()
 	local event = import("goluwa/event.lua")
 	event.Call("TextureRemoved", self)
-	local cache_key = self.config.cache_key or self.config.path
+	local cache_key = self.cache_key
 
 	if cache_key and texture_cache[cache_key] == self then
 		texture_cache[cache_key] = nil
