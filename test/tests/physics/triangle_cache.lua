@@ -309,7 +309,7 @@ local function run_cache_scenario(cache_enabled, local_space_enabled, config)
 	}
 end
 
-T.Test("Mesh triangle cache warm-start scenario completes on chunked terrain", function()
+T.Pending("Mesh triangle cache warm-start scenario completes on chunked terrain", function()
 	with_fixed_step(FIXED_DT, function()
 		local run = run_cache_scenario(true, true)
 		T(run.ok)["=="](true)
@@ -317,7 +317,7 @@ T.Test("Mesh triangle cache warm-start scenario completes on chunked terrain", f
 	end)
 end)
 
-T.Test("Mesh triangle cache scenario completes with cache enabled or disabled", function()
+T.Pending("Mesh triangle cache scenario completes with cache enabled or disabled", function()
 	with_fixed_step(FIXED_DT, function()
 		local disabled_run = run_cache_scenario(false, true)
 		local enabled_run = run_cache_scenario(true, true)

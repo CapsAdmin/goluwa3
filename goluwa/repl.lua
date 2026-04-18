@@ -731,6 +731,14 @@ end
 
 function repl.Initialize()
 	import("goluwa/logging.lua").ReplMode()
+
+	if not system.IsTTY() then
+		repl.enabled = false
+		repl.started = false
+		repl.term = nil
+		return
+	end
+
 	local stdout_handle = output.original_stdout_file or io.stdout
 	local term = terminal.WrapFile(io.stdin, stdout_handle)
 	-- Don't use alternate screen - let output flow naturally

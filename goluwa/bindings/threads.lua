@@ -690,6 +690,7 @@ do
 
 	function threads.new(worker_source)
 		release_dead_threads()
+		assert(type(worker_source) == "string", "threads.new requires a worker source string")
 		local self = setmetatable({}, meta)
 
 		if acquire_worker_mutex then acquire_worker_mutex() end

@@ -68,7 +68,8 @@ return function(...)
 			args[1] = cmd
 
 			if cmd == "lua" then
-				_G.GRAPHICS = true
+				if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
+
 				_G.AUDIO = true
 				assert(loadfile("game/run.lua"))()
 				event.Call("Initialize")
