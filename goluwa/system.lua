@@ -142,14 +142,6 @@ function system.IsTTY()
 		return false
 	end
 
-	-- Try to detect if stdout is a terminal
-	local handle = io.popen("test -t 1 && echo yes || echo no", "r")
-
-	if handle then
-		local result = handle:read("*a"):match("^%s*(.-)%s*$")
-		return result == "yes"
-	end
-
 	return true
 end
 
