@@ -33,6 +33,8 @@ return function(props)
 	local toggle_size = props.ToggleSize or 16
 	local guide_step = props.GuideStep or math.max(indent_size, toggle_size)
 	local box_size = props.BoxSize or 10
+	local custom_panel_position = props.CustomPanelPosition == "after_label" and "after_label" or "before_label"
+	local label_grow = props.LabelGrow == true or custom_panel_position == "after_label"
 	local toggle_on_row_click = props.ToggleOnRowClick == true
 	local double_click_time = props.DoubleClickTime or 0.3
 	local animation_time = props.AnimationTime or 0.18
@@ -361,8 +363,9 @@ return function(props)
 			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
-				FitWidth = true,
+				FitWidth = not label_grow,
 				FitHeight = true,
+				GrowWidth = label_grow and 1 or nil,
 				Padding = props.LabelPadding or "XXS",
 			},
 			gui_element = {
@@ -486,15 +489,23 @@ return function(props)
 		}
 		row_infos[key] = row_info
 		row_order[#row_order + 1] = key
+		local label = make_label(node, path, key, selected, has_children, expanded, row_info)
 		local row_children = {
 			has_children and
 			make_toggle(node, path, key, expanded, selected, meta) or
 			make_toggle_placeholder(meta),
 		}
 
-		if custom_panel then row_children[#row_children + 1] = custom_panel end
+		if custom_panel_position == "before_label" then
+			if custom_panel then row_children[#row_children + 1] = custom_panel end
 
-		row_children[#row_children + 1] = make_label(node, path, key, selected, has_children, expanded, row_info)
+			row_children[#row_children + 1] = label
+		else
+			row_children[#row_children + 1] = label
+
+			if custom_panel then row_children[#row_children + 1] = custom_panel end
+		end
+
 		local row = Panel.New{
 			IsInternal = true,
 			Name = "TreeRowBody",

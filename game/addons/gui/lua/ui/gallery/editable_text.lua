@@ -25,6 +25,12 @@ return {
 				Text = "Edit this text.\n\nThis dedicated element starts editable, sits inside a darker panel, and scrolls when the content grows.\n\n" .. (
 						"Add more lines here...\n"
 					):rep(1),
+				Size = Vec2(0, 180),
+				MinSize = Vec2(100, 180),
+				MaxSize = Vec2(0, 180),
+				Wrap = true,
+				ScrollY = true,
+				ScrollX = false,
 				layout = {
 					GrowWidth = 1,
 				},

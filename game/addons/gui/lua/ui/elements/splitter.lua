@@ -4,20 +4,59 @@ local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 local timer = import("goluwa/timer.lua")
 return function(props)
+	local external_ref = props.Ref
+
+	if external_ref then
+		props = table.shallow_copy(props)
+		props.Ref = nil
+	end
+
 	local divider_width = props.DividerWidth or 6
 	local initial_size = props.InitialSize or props.InitialWidth or props.InitialHeight or 220
+	local min_split_size = props.MinSplitSize or 50
 	local is_vertical = props.Vertical or false
 	props.InitialWidth = nil
 	props.InitialHeight = nil
 	props.InitialSize = nil
 	props.DividerWidth = nil
+	props.MinSplitSize = nil
 	props.Vertical = nil
+	local splitter
 	local divider
 	local state = {
 		is_dragging = false,
 		is_hovered = false,
+		size = initial_size,
 	}
-	local splitter = Panel.New{
+
+	local function get_first_panel()
+		for _, child in ipairs(splitter:GetChildren()) do
+			if not child.IsInternal then return child end
+		end
+
+		return nil
+	end
+
+	local function apply_size(new_size, emit_change)
+		state.size = new_size
+		local first_panel = get_first_panel()
+
+		if first_panel and first_panel.layout then
+			if is_vertical then
+				first_panel.layout:SetMinSize(Vec2(0, new_size))
+				first_panel.layout:SetMaxSize(Vec2(0, new_size))
+			else
+				first_panel.layout:SetMinSize(Vec2(new_size, 0))
+				first_panel.layout:SetMaxSize(Vec2(new_size, 0))
+			end
+
+			first_panel.layout:InvalidateLayout(true)
+		end
+
+		if emit_change and props.OnChange then props.OnChange(new_size, splitter) end
+	end
+
+	splitter = Panel.New{
 		props,
 		{
 			Name = is_vertical and "VerticalSplitter" or "HorizontalSplitter",
@@ -142,29 +181,8 @@ return function(props)
 			OnGlobalMouseMove = function(self, pos)
 				if state.is_dragging then
 					local lpos = splitter.transform:GlobalToLocal(pos)
-					local new_size = math.max(50, is_vertical and lpos.y or lpos.x)
-					local first_panel
-
-					for _, child in ipairs(splitter:GetChildren()) do
-						if not child.IsInternal then
-							first_panel = child
-
-							break
-						end
-					end
-
-					if first_panel and first_panel.layout then
-						if is_vertical then
-							first_panel.layout:SetMinSize(Vec2(0, new_size))
-							first_panel.layout:SetMaxSize(Vec2(0, new_size))
-						else
-							first_panel.layout:SetMinSize(Vec2(new_size, 0))
-							first_panel.layout:SetMaxSize(Vec2(new_size, 0))
-						end
-
-						first_panel.layout:InvalidateLayout(true)
-					end
-
+					local new_size = math.max(min_split_size, is_vertical and lpos.y or lpos.x)
+					apply_size(new_size, true)
 					self:SetCursor(is_vertical and "vertical_resize" or "horizontal_resize")
 					return true
 				end
@@ -184,5 +202,17 @@ return function(props)
 		animation = true,
 		clickable = true,
 	}
+
+	function splitter:SetSplitSize(size, emit_change)
+		apply_size(size, emit_change == true)
+		return self
+	end
+
+	function splitter:GetSplitSize()
+		return state.size
+	end
+
+	if external_ref then external_ref(splitter) end
+
 	return splitter
 end

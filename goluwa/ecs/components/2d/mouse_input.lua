@@ -21,7 +21,9 @@ end
 
 function META:GetMousePosition()
 	local mouse_pos = system.GetWindow():GetMousePosition()
-	return self.Owner.transform:GlobalToLocal(mouse_pos)
+	local transform = self.Owner.transform
+	if not transform then return Vec2() end
+	return transform:GlobalToLocal(mouse_pos)
 end
 
 function META:GetGlobalMousePosition()
@@ -134,7 +136,9 @@ function META:OnFirstCreated()
 					local current = hovered
 
 					while current:IsValid() do
-						local local_pos = current.transform:GlobalToLocal(pos)
+						local transform = current.transform
+						if not transform then break end
+						local local_pos = transform:GlobalToLocal(pos)
 
 						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
 							break
@@ -160,7 +164,9 @@ function META:OnFirstCreated()
 					local current = pressed
 
 					while current:IsValid() do
-						local local_pos = current.transform:GlobalToLocal(pos)
+						local transform = current.transform
+						if not transform then break end
+						local local_pos = transform:GlobalToLocal(pos)
 
 						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
 							break
@@ -219,7 +225,9 @@ function META:OnFirstCreated()
 
 			if mouse then
 				cursor = mouse:GetCursor()
-				hovered:CallLocalEvent("OnMouseMove", hovered.transform:GlobalToLocal(pos))
+				if hovered.transform then
+					hovered:CallLocalEvent("OnMouseMove", hovered.transform:GlobalToLocal(pos))
+				end
 
 				if hovered.GreyedOut then cursor = "no" end
 			end

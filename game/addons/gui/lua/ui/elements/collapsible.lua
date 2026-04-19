@@ -6,6 +6,13 @@ local Text = import("lua/ui/elements/text.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
+	local external_ref = props.Ref
+
+	if external_ref then
+		props = table.shallow_copy(props)
+		props.Ref = nil
+	end
+
 	local collapsed = props.Collapsed or false
 	local body_panel = NULL
 	local clip_panel = NULL
@@ -59,6 +66,33 @@ return function(props)
 		container.layout:InvalidateLayout()
 	end
 
+	local function set_collapsed(value, instant)
+		collapsed = value == true
+		local target = collapsed and 0 or 1
+
+		if props.OnToggle then props.OnToggle(collapsed) end
+
+		if instant then
+			open_fraction = target
+			update_height()
+			return
+		end
+
+		container.animation:Animate{
+			id = "collapsible_slide",
+			get = function()
+				return open_fraction
+			end,
+			set = function(v)
+				open_fraction = v
+				update_height()
+			end,
+			to = target,
+			time = 0.3,
+			interpolation = "outExpo",
+		}
+	end
+
 	local header = Clickable{
 		IsInternal = true,
 		Name = "Header",
@@ -74,20 +108,7 @@ return function(props)
 			ChildGap = "XXS",
 		},
 		OnClick = function(self)
-			collapsed = not collapsed
-			container.animation:Animate{
-				id = "collapsible_slide",
-				get = function()
-					return open_fraction
-				end,
-				set = function(v)
-					open_fraction = v
-					update_height()
-				end,
-				to = collapsed and 0 or 1,
-				time = 0.3,
-				interpolation = "outExpo",
-			}
+			set_collapsed(not collapsed)
 		end,
 	}{
 		Panel.New{
@@ -99,12 +120,15 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.icons.disclosure(self.Owner, {
-						size = 10,
-						thickness = 2,
-						open_fraction = open_fraction,
-						color = theme.GetColor("text_foreground"),
-					})
+					theme.icons.disclosure(
+						self.Owner,
+						{
+							size = 10,
+							thickness = 2,
+							open_fraction = open_fraction,
+							color = theme.GetColor("text_foreground"),
+						}
+					)
 				end,
 			},
 			mouse_input = {
@@ -164,9 +188,28 @@ return function(props)
 			Visible = not collapsed,
 		},
 	}(body_panel)
+
+	function container:SetCollapsed(value, instant)
+		set_collapsed(value, instant)
+		return self
+	end
+
+	function container:GetCollapsed()
+		return collapsed
+	end
+
+	function container:ToggleCollapsed(instant)
+		set_collapsed(not collapsed, instant)
+		return self
+	end
+
 	update_height()
-	return container{
+	container = container{
 		header,
 		clip_panel,
 	}
+
+	if external_ref then external_ref(container) end
+
+	return container
 end

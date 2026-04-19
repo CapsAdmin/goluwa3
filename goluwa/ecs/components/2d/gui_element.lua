@@ -33,17 +33,23 @@ end
 
 function META:IsHovered(mouse_pos)
 	local transform = self.Owner.transform
+	if not transform then return false end
 	local local_pos = transform:GlobalToLocal(mouse_pos)
-	return local_pos.x >= 0 and
-		local_pos.y >= 0 and
-		local_pos.x <= transform.Size.x and
-		local_pos.y <= transform.Size.y
+	local clip_x1, clip_y1, clip_x2, clip_y2 = transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
+
+	if not clip_x1 then return false end
+
+	return local_pos.x >= clip_x1 and
+		local_pos.y >= clip_y1 and
+		local_pos.x <= clip_x2 and
+		local_pos.y <= clip_y2
 end
 
 function META:DrawRecursive()
 	if not self:GetVisible() then return end
 
 	local transform = self.Owner.transform
+	if not transform then return end
 
 	if not transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y) then
 		return

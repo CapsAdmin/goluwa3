@@ -19,6 +19,8 @@ META:GetSet("FontSize", 14, {callback = "OnTextChanged"})
 META:GetSet("Text", "", {callback = "OnTextChanged"})
 META:GetSet("Wrap", false, {callback = "OnTextChanged"})
 META:GetSet("WrapToParent", false, {callback = "OnTextChanged"})
+META:GetSet("Elide", false, {callback = "OnTextChanged"})
+META:GetSet("ElideString", "...", {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
 META:GetSet("Color", Color(1, 1, 1, 1))
@@ -125,6 +127,51 @@ local function get_wrap_width(self, available_width)
 	end
 
 	return width
+end
+
+local function get_elide_width(self, available_width)
+	local width = self.Owner.transform.Size.x
+
+	if available_width and available_width > 0 then width = available_width end
+
+	if self.Owner.layout then
+		local p = self.Owner.layout:GetPadding()
+		width = width - p.x - p.w
+	end
+
+	return math.max(0, width)
+end
+
+local function build_elided_text(self, font, text, available_width)
+	local max_width = get_elide_width(self, available_width)
+
+	if max_width <= 0 then return "" end
+
+	local full_width = select(1, font:GetTextSize(text))
+
+	if full_width <= max_width then return text end
+
+	local elide = self:GetElideString() or "..."
+	local elide_width = select(1, font:GetTextSize(elide))
+
+	if elide_width >= max_width then return "" end
+
+	local chars = utf8.to_list(text)
+	local out = {}
+	local current_width = 0
+
+	for i, char in ipairs(chars) do
+		local char_width = select(1, font:GetTextSize(char))
+
+		if current_width + char_width + elide_width > max_width then break end
+
+		out[#out + 1] = char
+		current_width = current_width + char_width
+	end
+
+	if #out == 0 then return elide_width <= max_width and elide or "" end
+
+	return table.concat(out) .. elide
 end
 
 local function get_wrap_options(self)
@@ -364,6 +411,13 @@ function META:Initialize()
 				self.last_wrap_width = width
 				self:OnTextChanged()
 			end
+		elseif self:GetElide() then
+			local width = get_elide_width(self)
+
+			if self.last_elide_width ~= width then
+				self.last_elide_width = width
+				self:OnTextChanged()
+			end
 		end
 	end)
 end
@@ -379,7 +433,7 @@ function META:GetTextSize()
 	end
 
 	local font = self:GetFont() or fonts.GetDefaultFont()
-	return font:GetTextSize(self.wrapped_text or self:GetText())
+	return font:GetTextSize(self.draw_text or self.wrapped_text or self:GetText())
 end
 
 function META:Measure(available_width, available_height)
@@ -390,6 +444,19 @@ function META:Measure(available_width, available_height)
 		local layout = get_cached_wrap_layout(self, available_width)
 		local w = layout.measured_width
 		local h = layout.measured_height
+
+		if self.Owner.layout then
+			local p = self.Owner.layout:GetPadding()
+			w = w + p.x + p.w
+			h = h + p.y + p.h
+		end
+
+		return w, h
+	end
+
+	if self:GetElide() then
+		local draw_text = build_elided_text(self, font, text, available_width)
+		local w, h = font:GetTextSize(draw_text)
 
 		if self.Owner.layout then
 			local p = self.Owner.layout:GetPadding()
@@ -428,9 +495,18 @@ function META:OnTextChanged()
 		self.wrap_layout_info = build_wrap_layout(self, font, text, width)
 		self.measure_wrap_layout_info = self.wrap_layout_info
 		self.wrapped_text = self.wrap_layout_info.text
+		self.draw_text = self.wrapped_text
+		self.last_elide_width = nil
+	elseif self:GetElide() then
+		self.wrap_layout_info = nil
+		self.wrapped_text = text
+		self.last_elide_width = get_elide_width(self)
+		self.draw_text = build_elided_text(self, font, text)
 	else
 		self.wrap_layout_info = nil
 		self.wrapped_text = text
+		self.draw_text = text
+		self.last_elide_width = nil
 	end
 
 	local w, h
@@ -439,10 +515,10 @@ function META:OnTextChanged()
 		w = self.wrap_layout_info.measured_width
 		h = self.wrap_layout_info.measured_height
 	else
-		w, h = font:GetTextSize(text)
+		w, h = font:GetTextSize(self.draw_text or text)
 	end
 
-	if not self:GetWrap() then
+	if not self:GetWrap() and not self:GetElide() then
 		self.Owner.transform:SetSize(Vec2(w, h))
 	else
 		-- When wrapping, we update our height to match the text
@@ -595,7 +671,7 @@ end
 
 function META:GetTextOffset()
 	local font = self:GetFont() or fonts.GetDefaultFont()
-	local text = self.wrapped_text or self:GetText()
+	local text = self.draw_text or self.wrapped_text or self:GetText()
 	local size = self.Owner.transform.Size
 	local ax, ay = self:GetAlignX(), self:GetAlignY()
 	local left, top, right, bottom = 0, 0, 0, 0

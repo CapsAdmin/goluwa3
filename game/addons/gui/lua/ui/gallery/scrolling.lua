@@ -9,6 +9,51 @@ local system = import("goluwa/system.lua")
 return {
 	Name = "scrolling",
 	Create = function()
+		local vertical_scroll
+		local horizontal_scroll
+		local vertical_items = {}
+		local horizontal_items = {}
+
+		local function build_vertical_items()
+			local t = {
+				Button{Text = "Clickable Item", Padding = "XS"},
+				Text({Text = "Scrollable Content Demo - 100 Items Below"}),
+			}
+
+			for i = 1, 100 do
+				t[#t + 1] = Text{
+					Ref = function(self)
+						vertical_items[i] = self
+					end,
+					Text = "Scrolling Item #" .. i,
+				}
+			end
+
+			t[#t + 1] = Text{
+				Ref = function(self)
+					vertical_items[101] = self
+				end,
+				Text = "End of List",
+			}
+			return t
+		end
+
+		local function build_horizontal_items()
+			local t = {}
+
+			for i = 1, 20 do
+				t[#t + 1] = Button{
+					Ref = function(self)
+						horizontal_items[i] = self
+					end,
+					Text = "Item " .. i,
+					Padding = "XS",
+				}
+			end
+
+			return t
+		end
+
 		return Column{
 			layout = {
 				Direction = "y",
@@ -17,7 +62,54 @@ return {
 				AlignmentY = "start",
 			},
 		}{
+			Text({Text = "Vertical Scroll Debug"}),
+			Column{
+				layout = {
+					Direction = "x",
+					ChildGap = 8,
+					FitWidth = true,
+				},
+			}{
+				Button{
+					Text = "Top",
+					OnClick = function()
+						if vertical_scroll and vertical_scroll:IsValid() then
+							vertical_scroll:ScrollChildIntoView(vertical_items[1], 8)
+						end
+					end,
+				},
+				Button{
+					Text = "Item 25",
+					Mode = "outline",
+					OnClick = function()
+						if vertical_scroll and vertical_scroll:IsValid() then
+							vertical_scroll:ScrollChildIntoView(vertical_items[25], 8)
+						end
+					end,
+				},
+				Button{
+					Text = "Item 50",
+					Mode = "outline",
+					OnClick = function()
+						if vertical_scroll and vertical_scroll:IsValid() then
+							vertical_scroll:ScrollChildIntoView(vertical_items[50], 8)
+						end
+					end,
+				},
+				Button{
+					Text = "Bottom",
+					Mode = "outline",
+					OnClick = function()
+						if vertical_scroll and vertical_scroll:IsValid() then
+							vertical_scroll:ScrollChildIntoView(vertical_items[101], 8)
+						end
+					end,
+				},
+			},
 			ScrollablePanel{
+				Ref = function(self)
+					vertical_scroll = self
+				end,
 				Color = Color(0, 0, 0, 0.5),
 				layout = {
 					MinSize = Vec2(100, 100),
@@ -31,22 +123,7 @@ return {
 						AlignmentX = "start",
 						FitHeight = true,
 					},
-				}{
-					Button{Text = "Clickable Item", Padding = "XS"},
-					Text({Text = "Scrollable Content Demo - 100 Items Below"}),
-					(
-						function()
-							local t = {}
-
-							for i = 1, 100 do
-								t[i] = Text({Text = "Scrolling Item #" .. i})
-							end
-
-							return t
-						end
-					)(),
-					Text({Text = "End of List"}),
-				}
+				}(build_vertical_items())
 			),
 			ScrollablePanel{
 				Color = Color(0, 0, 0, 0.5),
@@ -86,7 +163,44 @@ return {
 				)
 			),
 			Text({Text = "Horizontal Scrolling Demo (Shift + Scroll or Drag)"}),
+			Column{
+				layout = {
+					Direction = "x",
+					ChildGap = 8,
+					FitWidth = true,
+				},
+			}{
+				Button{
+					Text = "Start",
+					OnClick = function()
+						if horizontal_scroll and horizontal_scroll:IsValid() then
+							horizontal_scroll:ScrollChildIntoView(horizontal_items[1], 8)
+						end
+					end,
+				},
+				Button{
+					Text = "Item 10",
+					Mode = "outline",
+					OnClick = function()
+						if horizontal_scroll and horizontal_scroll:IsValid() then
+							horizontal_scroll:ScrollChildIntoView(horizontal_items[10], 8)
+						end
+					end,
+				},
+				Button{
+					Text = "End",
+					Mode = "outline",
+					OnClick = function()
+						if horizontal_scroll and horizontal_scroll:IsValid() then
+							horizontal_scroll:ScrollChildIntoView(horizontal_items[20], 8)
+						end
+					end,
+				},
+			},
 			ScrollablePanel{
+				Ref = function(self)
+					horizontal_scroll = self
+				end,
 				Color = Color(0, 0, 0, 0.5),
 				ScrollX = true,
 				ScrollY = false,
@@ -102,19 +216,7 @@ return {
 						AlignmentY = "center",
 						FitWidth = true,
 					},
-				}(
-					(
-						function()
-							local t = {}
-
-							for i = 1, 20 do
-								t[i] = Button{Text = "Item " .. i, Padding = "XS"}
-							end
-
-							return t
-						end
-					)()
-				)
+				}(build_horizontal_items())
 			),
 		}
 	end,

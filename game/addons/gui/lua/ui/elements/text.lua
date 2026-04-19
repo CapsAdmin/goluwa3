@@ -13,13 +13,15 @@ return function(props)
 			Name = "text",
 			OnSetProperty = theme.OnSetProperty,
 			text = {
+				Elide = props.Elide == true,
+				ElideString = props.ElideString or "...",
 				Font = props.Font or props.FontName or "body",
 				FontSize = props.FontSize or "M",
 				WrapToParent = props.Wrap and props.WrapToParent ~= false,
 				Color = "text_foreground",
 			},
 			layout = {
-				FitWidth = not props.Wrap,
+				FitWidth = not props.Wrap and props.Elide ~= true,
 				FitHeight = true,
 			},
 			transform = true,

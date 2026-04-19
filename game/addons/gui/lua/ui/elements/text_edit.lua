@@ -7,7 +7,15 @@ local theme = import("lua/ui/theme.lua")
 return function(props)
 	props = props or {}
 	local external_ref = props.Ref
-	local size = props.Size or Vec2(400, 180)
+	local wrap = props.Wrap == true
+	local scroll_x = props.ScrollX
+	local scroll_y = props.ScrollY
+
+	if scroll_x == nil then scroll_x = not wrap end
+
+	if scroll_y == nil then scroll_y = false end
+
+	local size = props.Size or Vec2(400, 34)
 	local min_size = props.MinSize or Vec2(100, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
 	local editable = props.Editable ~= false
@@ -44,8 +52,8 @@ return function(props)
 		ScrollablePanel{
 			Color = background_color,
 			Cursor = editable and "text_input" or nil,
-			ScrollX = props.ScrollX,
-			ScrollY = props.ScrollY,
+			ScrollX = scroll_x,
+			ScrollY = scroll_y,
 			ScrollBarVisible = props.ScrollBarVisible,
 			ScrollBarAutoHide = props.ScrollBarAutoHide,
 			ScrollBarColor = props.ScrollBarColor or "scrollbar",
@@ -63,7 +71,7 @@ return function(props)
 				Text = props.Text or "",
 				Cursor = editable and "text_input" or nil,
 				Editable = editable,
-				Wrap = props.Wrap ~= false,
+				Wrap = wrap,
 				Color = props.TextColor or "text_foreground",
 				SelectionColor = props.SelectionColor or theme.GetColor("text_selection"),
 				FontName = props.FontName,
