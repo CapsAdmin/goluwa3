@@ -67,6 +67,8 @@ function META:InvalidateLayout()
 	local parent = self.Owner:GetParent()
 
 	if parent and parent:IsValid() and parent.layout then
+		if parent.layout.busy then return end
+
 		parent.layout:InvalidateLayout()
 	end
 end
