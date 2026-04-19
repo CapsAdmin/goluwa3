@@ -2,17 +2,29 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Panel = import("goluwa/ecs/panel.lua")
+local clipboard = import("goluwa/bindings/clipboard.lua")
+local system = import("goluwa/system.lua")
 local Button = import("lua/ui/elements/button.lua")
 local Checkbox = import("lua/ui/elements/checkbox.lua")
 local Collapsible = import("lua/ui/elements/collapsible.lua")
 local Column = import("lua/ui/elements/column.lua")
+local ContextMenu = import("lua/ui/elements/context_menu.lua")
+local MenuItem = import("lua/ui/elements/context_menu_item.lua")
 local Dropdown = import("lua/ui/elements/dropdown.lua")
 local Frame = import("lua/ui/elements/frame.lua")
+local NumberValue = import("lua/ui/elements/number_value.lua")
 local Row = import("lua/ui/elements/row.lua")
 local Slider = import("lua/ui/elements/slider.lua")
 local Text = import("lua/ui/elements/text.lua")
 local TextEdit = import("lua/ui/elements/text_edit.lua")
+local Value = import("lua/ui/elements/value.lua")
+local Vec3Value = import("lua/ui/elements/vec3_value.lua")
 local theme = import("lua/ui/theme.lua")
+local icon_sources = {
+	copy = "https://api.iconify.design/material-symbols-light/content-copy.svg",
+	paste = "https://api.iconify.design/material-symbols-light/content-paste-rounded.svg",
+	reset = "https://api.iconify.design/material-symbols-light/reset-iso-rounded.svg",
+}
 
 local function has_entries(list)
 	return list and next(list) ~= nil
@@ -91,6 +103,85 @@ local function format_number(node, value, fallback_precision)
 	return string.format("%." .. precision .. "f", numeric)
 end
 
+local function format_vec3(node, value, fallback_precision)
+	local precision = get_precision(node, fallback_precision or 2)
+	local x = tonumber(value and (value.x or value[1])) or 0
+	local y = tonumber(value and (value.y or value[2])) or 0
+	local z = tonumber(value and (value.z or value[3])) or 0
+	return string.format(
+		"(%s, %s, %s)",
+		format_number({Precision = precision}, x, precision),
+		format_number({Precision = precision}, y, precision),
+		format_number({Precision = precision}, z, precision)
+	)
+end
+
+local function trim(text)
+	return tostring(text or ""):match("^%s*(.-)%s*$")
+end
+
+local function decode_boolean(text)
+	local normalized = trim(text):lower()
+
+	if
+		normalized == "true" or
+		normalized == "1" or
+		normalized == "yes" or
+		normalized == "on"
+	then
+		return true, true
+	end
+
+	if
+		normalized == "false" or
+		normalized == "0" or
+		normalized == "no" or
+		normalized == "off"
+	then
+		return false, true
+	end
+
+	return nil, false
+end
+
+local function decode_enum(options, text)
+	local normalized = trim(text)
+	local normalized_lower = normalized:lower()
+
+	for _, option in ipairs(options or {}) do
+		local option_text
+		local option_value
+
+		if type(option) == "table" then
+			option_text = tostring(option.Text or option.Label or option.Value)
+			option_value = option.Value
+		else
+			option_text = tostring(option)
+			option_value = option
+		end
+
+		if tostring(option_value) == normalized or option_text:lower() == normalized_lower then
+			return option_value, true
+		end
+	end
+
+	return nil, false
+end
+
+local function decode_vec3(text)
+	local values = {}
+
+	for number in tostring(text or ""):gmatch("[%+%-]?%d+%.?%d*") do
+		values[#values + 1] = tonumber(number)
+
+		if #values >= 3 then break end
+	end
+
+	if #values ~= 3 then return nil, false end
+
+	return {x = values[1], y = values[2], z = values[3]}, true
+end
+
 local function get_option_text(options, value)
 	for _, option in ipairs(options or {}) do
 		if type(option) == "table" then
@@ -123,6 +214,10 @@ local function describe_value(node, fallback_precision)
 		return format_number(node, node.Value, fallback_precision)
 	end
 
+	if kind == "vec3" then
+		return format_vec3(node, node.Value, fallback_precision)
+	end
+
 	if kind == "action" then
 		return node.ActionText or node.ButtonText or "Action"
 	end
@@ -146,11 +241,18 @@ return function(props)
 	local number_precision = props.NumberPrecision or 2
 	local slider_width = props.SliderWidth or 150
 	local value_width = props.ValueWidth or 220
+	local compact_font_size = props.FontSize or "XS"
+	local compact_padding = props.Padding or "XXXS"
+	local compact_gap = props.ChildGapSize or "XXXS"
+	local compact_row_height = props.RowHeight or 28
 	local shared_key_width = props.KeyWidth or 180
 	local divider_width = props.DividerWidth or 6
+	local divider_draw_alpha = props.DividerDrawAlpha or 1
 	local collapsed_state = {}
+	local default_encoded_values = {}
 	local category_refs = {}
 	local category_key_columns = {}
+	local category_dividers = {}
 	local row_infos = {}
 	local content_column
 	local editor
@@ -190,8 +292,17 @@ return function(props)
 		if props.OnSelect then props.OnSelect(node, key, path) end
 	end
 
-	local function commit_value(node, value, key, path)
+	local function commit_value(node, value, key, path, panel)
 		node.Value = value
+
+		if panel then
+			if panel.SetValue then
+				panel:SetValue(value, false)
+			elseif panel.SetText then
+				panel:SetText(value == nil and "" or tostring(value))
+			end
+		end
+
 		sync_selection(key)
 
 		if node.OnChange then node.OnChange(node, value, key, path) end
@@ -212,7 +323,7 @@ return function(props)
 
 		if node.Multiline then return 86 end
 
-		return 36
+		return compact_row_height
 	end
 
 	local function apply_shared_key_width()
@@ -223,25 +334,258 @@ return function(props)
 				column.layout:InvalidateLayout(true)
 			end
 		end
+
+		for _, divider in ipairs(category_dividers) do
+			if divider and divider:IsValid() and divider.UpdatePosition then
+				divider:UpdatePosition()
+			end
+		end
+	end
+
+	local function encode_value_for_node(node, value, panel)
+		if panel and panel.EncodeValue then return panel:EncodeValue() end
+
+		local kind = node.Type or node.Editor
+
+		if kind == "boolean" then return value and "true" or "false" end
+
+		if kind == "enum" then return tostring(value) end
+
+		if kind == "number" then return format_number(node, value, number_precision) end
+
+		if kind == "vec3" then return format_vec3(node, value, number_precision) end
+
+		if kind == "action" then return nil end
+
+		if value == nil then return "" end
+
+		return tostring(value)
+	end
+
+	local function decode_value_for_node(node, text, current_value, panel)
+		if panel and panel.DecodeValue then return panel:DecodeValue(text) end
+
+		local kind = node.Type or node.Editor
+
+		if kind == "boolean" then return decode_boolean(text) end
+
+		if kind == "enum" then return decode_enum(node.Options, text) end
+
+		if kind == "number" then
+			local numeric = tonumber(text)
+
+			if numeric == nil then return nil, false end
+
+			if node.Min ~= nil then numeric = math.max(node.Min, numeric) end
+
+			if node.Max ~= nil then numeric = math.min(node.Max, numeric) end
+
+			return numeric, true
+		end
+
+		if kind == "vec3" then return decode_vec3(text) end
+
+		if kind == "action" then return nil, false end
+
+		return tostring(text or ""), true
+	end
+
+	local function get_default_encoded_value(node, key, panel)
+		if node.DefaultEncoded ~= nil then return tostring(node.DefaultEncoded) end
+
+		if node.Default ~= nil then
+			return encode_value_for_node(node, node.Default, panel)
+		end
+
+		if default_encoded_values[key] == nil then
+			default_encoded_values[key] = encode_value_for_node(node, node.Value, panel)
+		end
+
+		return default_encoded_values[key]
+	end
+
+	local function open_value_context_menu(entry, panel)
+		local node = entry.node
+		local kind = node.Type or node.Editor
+
+		if kind == "action" or has_entries(get_node_children(node)) then return end
+
+		sync_selection(entry.key)
+		local current_encoded = encode_value_for_node(node, node.Value, panel)
+		local default_encoded = get_default_encoded_value(node, entry.key, panel)
+		local clipboard_text = clipboard.Get() or ""
+		local _, can_paste = decode_value_for_node(node, clipboard_text, node.Value, panel)
+		local can_reset = default_encoded ~= nil and default_encoded ~= current_encoded
+		local active = Panel.World:GetKeyed("ActiveContextMenu")
+
+		if active and active:IsValid() then active:Remove() end
+
+		local function apply_encoded_value(encoded)
+			local decoded, ok = decode_value_for_node(node, encoded, node.Value, panel)
+
+			if not ok then return end
+
+			commit_value(node, decoded, entry.key, entry.path, panel)
+		end
+
+		Panel.World:Ensure(
+			ContextMenu{
+				Key = "ActiveContextMenu",
+				Position = system.GetWindow():GetMousePosition():Copy(),
+				OnClose = function(ent)
+					ent:Remove()
+				end,
+			}{
+				MenuItem{
+					Text = "Copy",
+					IconSource = icon_sources.copy,
+					Disabled = current_encoded == nil,
+					OnClick = function()
+						if current_encoded ~= nil then clipboard.Set(current_encoded) end
+					end,
+				},
+				MenuItem{
+					Text = "Paste",
+					IconSource = icon_sources.paste,
+					Disabled = not can_paste,
+					OnClick = function()
+						apply_encoded_value(clipboard_text)
+					end,
+				},
+				MenuItem{
+					Text = "Reset",
+					IconSource = icon_sources.reset,
+					Disabled = not can_reset,
+					OnClick = function()
+						if default_encoded ~= nil then apply_encoded_value(default_encoded) end
+					end,
+				},
+			}
+		)
 	end
 
 	local function build_editor_panel(node, path, key)
-		if has_entries(get_node_children(node)) then return nil end
+		if has_entries(get_node_children(node)) then return nil, nil end
 
 		local kind = node.Type or node.Editor
 
 		if kind == "boolean" or type(node.Value) == "boolean" then
-			return Checkbox{
-				Value = node.Value == true,
-				OnChange = function(value)
-					commit_value(node, value, key, path)
-				end,
+			local checkbox_visual
+			local label
+			local control
+			local checkbox_state = {
+				hovered = false,
+				value = node.Value == true,
+				anim = {
+					glow_alpha = 0,
+					check_anim = node.Value == true and 1 or 0,
+					last_hovered = false,
+					last_value = node.Value == true,
+				},
 			}
+
+			local function update_boolean_text(value)
+				set_text(label, value and "true" or "false")
+			end
+
+			control = Panel.New{
+				Name = "PropertyBooleanValue",
+				OnSetProperty = theme.OnSetProperty,
+				transform = {
+					Size = Vec2(value_width, compact_row_height),
+				},
+				layout = {
+					Direction = "x",
+					AlignmentY = "center",
+					FitWidth = false,
+					MinSize = Vec2(value_width, compact_row_height),
+					MaxSize = Vec2(value_width, compact_row_height),
+					Padding = compact_padding,
+					ChildGap = compact_gap,
+				},
+				gui_element = true,
+				mouse_input = {
+					Cursor = "hand",
+					OnHover = function(self, hovered)
+						checkbox_state.hovered = hovered
+
+						if checkbox_visual and checkbox_visual:IsValid() then
+							theme.UpdateCheckboxAnimations(checkbox_visual, checkbox_state)
+						end
+					end,
+					OnMouseInput = function(self, button, press)
+						if button ~= "button_1" or not press then return end
+
+						local next_value = not control:GetValue()
+						control:SetValue(next_value)
+						commit_value(node, next_value, key, path, control)
+						return true
+					end,
+				},
+				clickable = true,
+				animation = true,
+			}{
+				Panel.New{
+					Ref = function(self)
+						checkbox_visual = self
+						theme.UpdateCheckboxAnimations(self, checkbox_state)
+					end,
+					Name = "PropertyBooleanCheckboxVisual",
+					OnSetProperty = theme.OnSetProperty,
+					transform = {
+						Size = Vec2(theme.GetSize("M"), compact_row_height),
+					},
+					layout = {
+						GrowWidth = 0,
+						FitWidth = false,
+					},
+					gui_element = {
+						OnDraw = function(self)
+							theme.panels.checkbox(self.Owner, checkbox_state)
+						end,
+					},
+					animation = true,
+				},
+				Text{
+					Ref = function(self)
+						label = self
+						update_boolean_text(node.Value == true)
+					end,
+					Text = node.Value == true and "true" or "false",
+					FontSize = compact_font_size,
+					IgnoreMouseInput = true,
+					layout = {
+						GrowWidth = 1,
+						FitWidth = false,
+						FitHeight = true,
+					},
+				},
+			}
+
+			function control:SetValue(value)
+				local boolean = value == true
+				checkbox_state.value = boolean
+
+				if checkbox_visual and checkbox_visual:IsValid() then
+					theme.UpdateCheckboxAnimations(checkbox_visual, checkbox_state)
+				end
+
+				update_boolean_text(boolean)
+				return self
+			end
+
+			function control:GetValue()
+				return checkbox_state.value
+			end
+
+			control:SetValue(node.Value == true)
+			return control, control
 		end
 
 		if kind == "enum" then
-			return Dropdown{
+			local control = Dropdown{
 				Text = get_option_text(node.Options, node.Value),
+				FontSize = compact_font_size,
 				Options = node.Options or {},
 				GetText = function()
 					return get_option_text(node.Options, node.Value)
@@ -249,55 +593,64 @@ return function(props)
 				OnSelect = function(value)
 					commit_value(node, value, key, path)
 				end,
-				Padding = node.Padding or "XS",
+				Padding = node.Padding or compact_padding,
 				layout = {
-					MinSize = Vec2(value_width, 0),
-					MaxSize = Vec2(value_width, 0),
+					MinSize = Vec2(value_width, compact_row_height),
+					MaxSize = Vec2(value_width, compact_row_height),
 				},
 			}
+			return control, control
 		end
 
-		if kind == "number" and node.Min ~= nil and node.Max ~= nil then
-			local value_label
-			return Row{
+		if kind == "number" then
+			local control = NumberValue{
+				Value = tonumber(node.Value) or 0,
+				FontSize = compact_font_size,
+				Min = node.Min,
+				Max = node.Max,
+				Precision = get_precision(node, number_precision),
+				Padding = compact_padding,
+				Size = Vec2(value_width, compact_row_height),
+				MinSize = Vec2(value_width, compact_row_height),
+				MaxSize = Vec2(value_width, compact_row_height),
+				OnChange = function(value)
+					commit_value(node, value, key, path)
+				end,
 				layout = {
-					FitWidth = true,
-					ChildGap = 8,
-					AlignmentY = "center",
-				},
-			}{
-				Slider{
-					Value = tonumber(node.Value) or tonumber(node.Min) or 0,
-					Min = node.Min,
-					Max = node.Max,
-					OnChange = function(value)
-						commit_value(node, value, key, path)
-						set_text(value_label, format_number(node, value, number_precision))
-					end,
-					layout = {
-						MinSize = Vec2(slider_width, 0),
-						MaxSize = Vec2(slider_width, 0),
-					},
-				},
-				Text{
-					Ref = function(self)
-						value_label = self
-						set_text(self, format_number(node, node.Value, number_precision))
-					end,
-					Text = format_number(node, node.Value, number_precision),
-					Color = "text_disabled",
-					IgnoreMouseInput = true,
-					layout = {
-						FitWidth = true,
-					},
+					FitWidth = false,
 				},
 			}
+			return control, control
+		end
+
+		if kind == "vec3" then
+			local control = Vec3Value{
+				Value = node.Value,
+				FontSize = compact_font_size,
+				Min = node.Min,
+				Max = node.Max,
+				Precision = get_precision(node, number_precision),
+				ComponentGap = compact_gap,
+				Padding = compact_padding,
+				Size = Vec2(value_width, compact_row_height),
+				MinSize = Vec2(value_width, compact_row_height),
+				MaxSize = Vec2(value_width, compact_row_height),
+				OnChange = function(value)
+					commit_value(node, value, key, path)
+				end,
+				layout = {
+					FitWidth = false,
+				},
+			}
+			return control, control
 		end
 
 		if kind == "action" then
 			return Button{
 				Text = node.ButtonText or node.ActionText or "Run",
+				FontSize = compact_font_size,
 				Mode = node.Mode or "outline",
+				Padding = compact_padding,
 				OnClick = function()
 					trigger_action(node, key, path)
 				end,
@@ -306,11 +659,39 @@ return function(props)
 
 		local input
 		local multiline = node.Multiline == true
-		local input_height = multiline and 72 or 34
-		return Row{
+		local input_height = multiline and 72 or compact_row_height
+		local string_tooltip = function()
+			if node.Value == nil then return "" end
+
+			return tostring(node.Value)
+		end
+
+		if not multiline then
+			local control = Value{
+				Value = node.Value == nil and "" or tostring(node.Value),
+				Tooltip = kind == "string" and string_tooltip or nil,
+				TooltipMaxWidth = 360,
+				FontSize = compact_font_size,
+				Padding = compact_padding,
+				Size = Vec2(value_width, compact_row_height),
+				MinSize = Vec2(value_width, compact_row_height),
+				MaxSize = Vec2(value_width, compact_row_height),
+				OnChange = function(value)
+					commit_value(node, value, key, path)
+				end,
+				layout = {
+					FitWidth = false,
+				},
+			}
+			return control, control
+		end
+
+		local control = Row{
+			Tooltip = kind == "string" and string_tooltip or nil,
+			TooltipMaxWidth = 360,
 			layout = {
 				FitWidth = true,
-				ChildGap = 8,
+				ChildGap = compact_gap,
 				AlignmentY = "center",
 			},
 		}{
@@ -319,9 +700,11 @@ return function(props)
 					input = self
 				end,
 				Text = node.Value == nil and "" or tostring(node.Value),
+				FontSize = compact_font_size,
 				Size = Vec2(value_width, input_height),
 				MinSize = Vec2(value_width, input_height),
 				MaxSize = Vec2(value_width, input_height),
+				Padding = compact_padding,
 				Wrap = multiline,
 				ScrollY = multiline,
 				layout = {
@@ -330,6 +713,8 @@ return function(props)
 			},
 			Button{
 				Text = node.ApplyText or "Apply",
+				FontSize = compact_font_size,
+				Padding = compact_padding,
 				Mode = "outline",
 				OnClick = function()
 					if not input or not input:IsValid() then return end
@@ -348,6 +733,22 @@ return function(props)
 					SelfAlignmentY = multiline and "start" or "center",
 				},
 			},
+		}
+		return control,
+		{
+			EncodeValue = function()
+				if input and input:IsValid() then return input:GetText() end
+
+				return tostring(node.Value or "")
+			end,
+			DecodeValue = function(_, text)
+				return tostring(text or ""), true
+			end,
+			SetValue = function(_, value)
+				if input and input:IsValid() then
+					input:SetText(value == nil and "" or tostring(value))
+				end
+			end,
 		}
 	end
 
@@ -375,18 +776,11 @@ return function(props)
 		end
 	end
 
-	local function draw_row_background(size, is_selected, hovered, is_alternate)
+	local function draw_row_background(size, is_selected, is_alternate)
 		render2d.SetTexture(nil)
 
 		if is_selected then
-			local color = theme.GetColor("primary")
-			render2d.SetColor(color:Unpack())
-			render2d.DrawRect(0, 0, size.x, size.y)
-			return
-		end
-
-		if hovered then
-			local color = theme.GetColor("surface_variant")
+			local color = theme.GetColor("property_selection")
 			render2d.SetColor(color:Unpack())
 			render2d.DrawRect(0, 0, size.x, size.y)
 			return
@@ -398,7 +792,6 @@ return function(props)
 	end
 
 	local function build_label_row(entry, is_alternate)
-		local hovered = false
 		local info = {
 			key = entry.key,
 		}
@@ -416,22 +809,26 @@ return function(props)
 				MinSize = Vec2(0, get_row_height(entry.node)),
 				MaxSize = Vec2(0, get_row_height(entry.node)),
 				AlignmentY = "center",
-				Padding = "XS",
+				Padding = compact_padding,
 			},
 			gui_element = {
 				Clipping = true,
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					draw_row_background(size, selected_key == entry.key, hovered, is_alternate)
+					draw_row_background(size, selected_key == entry.key, is_alternate)
 				end,
 			},
 			mouse_input = {
 				Cursor = "pointer",
-				OnHover = function(self, value)
-					hovered = value
-				end,
 				OnMouseInput = function(self, button, press)
-					if button ~= "button_1" or not press then return end
+					if not press then return end
+
+					if button == "button_2" then
+						open_value_context_menu(entry)
+						return true
+					end
+
+					if button ~= "button_1" then return end
 
 					sync_selection(entry.key)
 					return true
@@ -445,6 +842,7 @@ return function(props)
 					refresh_row_text(info)
 				end,
 				Text = entry.label,
+				FontSize = compact_font_size,
 				Elide = true,
 				ElideString = "...",
 				IgnoreMouseInput = true,
@@ -459,6 +857,7 @@ return function(props)
 	end
 
 	local function build_editor_row(entry, is_alternate)
+		local editor_panel, editor_value_panel = build_editor_panel(entry.node, entry.path, entry.key)
 		return Panel.New{
 			Name = "PropertyEditorRow",
 			OnSetProperty = theme.OnSetProperty,
@@ -469,16 +868,25 @@ return function(props)
 				MinSize = Vec2(0, get_row_height(entry.node)),
 				MaxSize = Vec2(0, get_row_height(entry.node)),
 				AlignmentY = entry.node.Multiline and "start" or "center",
-				Padding = "XS",
+				Padding = compact_padding,
 			},
 			gui_element = {
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					draw_row_background(size, selected_key == entry.key, false, is_alternate)
+					draw_row_background(size, false, is_alternate)
 				end,
 			},
+			mouse_input = {
+				OnMouseInput = function(self, button, press)
+					if button ~= "button_2" or not press then return end
+
+					open_value_context_menu(entry, editor_value_panel)
+					return true
+				end,
+			},
+			clickable = true,
 		}{
-			build_editor_panel(entry.node, entry.path, entry.key),
+			editor_panel,
 		}
 	end
 
@@ -487,13 +895,47 @@ return function(props)
 			is_dragging = false,
 			is_hovered = false,
 		}
+
+		local function update_draw_alpha(panel)
+			if not panel or not panel:IsValid() or not panel.gui_element then return end
+
+			panel.gui_element.DrawAlpha = state.is_dragging and 1 or state.is_hovered and 0.9 or divider_draw_alpha
+		end
+
+		local function update_position(panel)
+			if not panel or not panel:IsValid() or not container or not container:IsValid() then
+				return
+			end
+
+			panel.transform:SetPosition(Vec2(shared_key_width - divider_width / 2, 0))
+			panel.transform:SetHeight(container.transform:GetHeight())
+		end
+
 		return Panel.New{
+			Ref = function(self)
+				category_dividers[#category_dividers + 1] = self
+				self.UpdatePosition = function()
+					update_position(self)
+				end
+
+				container:AddLocalListener("OnTransformChanged", function()
+					update_position(self)
+				end)
+
+				container:AddLocalListener("OnLayoutUpdated", function()
+					update_position(self)
+				end)
+
+				update_position(self)
+				update_draw_alpha(self)
+			end,
 			Name = "PropertyEditorDivider",
 			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(divider_width, 0),
 			},
 			layout = {
+				Floating = true,
 				GrowWidth = 0,
 				GrowHeight = 1,
 			},
@@ -501,33 +943,19 @@ return function(props)
 				Cursor = "horizontal_resize",
 				OnHover = function(self, hovered)
 					state.is_hovered = hovered
-
-					if not state.is_dragging and self.Owner.gui_element then
-						self.Owner.gui_element:SetColor(Color(0, 0, 0, hovered and 0.5 or 0.2))
-					end
+					update_draw_alpha(self.Owner)
 				end,
 				OnMouseInput = function(self, button, press)
 					if button ~= "button_1" then return end
 
 					state.is_dragging = press
-
-					if self.Owner.gui_element then
-						if press then
-							self.Owner.gui_element:SetColor(theme.GetColor("primary"):Copy():SetAlpha(0.8))
-						else
-							self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
-						end
-					end
-
+					update_draw_alpha(self.Owner)
 					return true
 				end,
 				OnGlobalMouseInput = function(self, button, press)
 					if button == "button_1" and not press and state.is_dragging then
 						state.is_dragging = false
-
-						if self.Owner.gui_element then
-							self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
-						end
+						update_draw_alpha(self.Owner)
 					end
 				end,
 				OnGlobalMouseMove = function(self, pos)
@@ -541,14 +969,15 @@ return function(props)
 					end
 
 					local lpos = container.transform:GlobalToLocal(pos)
-					shared_key_width = math.max(10, lpos.x - divider_width / 2)
+					shared_key_width = math.max(10, lpos.x)
 					apply_shared_key_width()
 					self:SetCursor("horizontal_resize")
 					return true
 				end,
 			},
 			gui_element = {
-				Color = Color(0, 0, 0, 0.2),
+				Color = theme.GetColor("frame_border"),
+				DrawAlpha = divider_draw_alpha,
 				OnDraw = function(self)
 					theme.panels.divider(self.Owner)
 				end,
@@ -575,17 +1004,6 @@ return function(props)
 
 		if collapsed == nil then
 			collapsed = node.Collapsed == true or node.Expanded == false
-		end
-
-		if node.Description then
-			children[#children + 1] = Text{
-				Text = node.Description,
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
-				},
-			}
 		end
 
 		if #entries > 0 then
@@ -617,26 +1035,27 @@ return function(props)
 						FitHeight = true,
 						FitWidth = false,
 						AlignmentX = "stretch",
-						ChildGap = 2,
+						ChildGap = 0,
 					},
 					gui_element = {
 						Clipping = true,
 					},
 				}(left_children),
-				build_synced_divider(split_row),
 				Column{
 					layout = {
 						GrowWidth = 1,
 						FitHeight = true,
 						FitWidth = false,
 						AlignmentX = "stretch",
-						ChildGap = 2,
+						ChildGap = 0,
 					},
 				}(right_children),
+				build_synced_divider(split_row),
 			}
 		else
 			children[#children + 1] = Text{
 				Text = "No editable properties.",
+				FontSize = compact_font_size,
 				Color = "text_disabled",
 				IgnoreMouseInput = true,
 			}
@@ -644,6 +1063,18 @@ return function(props)
 
 		return Collapsible{
 			Title = get_node_text(node, path),
+			Tooltip = node.Description,
+			TooltipMaxWidth = 420,
+			HeaderMode = "filled",
+			HeaderColor = "primary",
+			HeaderHeight = get_row_height(node),
+			HeaderPadding = compact_padding,
+			HeaderGap = compact_gap,
+			HeaderFontName = "body",
+			HeaderFontSize = compact_font_size,
+			HeaderTextColor = "text_button",
+			HeaderIconColor = "text_button",
+			ContentPadding = "none",
 			Collapsed = collapsed,
 			OnToggle = function(value)
 				collapsed_state[key] = value
@@ -658,6 +1089,7 @@ return function(props)
 		row_infos = {}
 		category_refs = {}
 		category_key_columns = {}
+		category_dividers = {}
 
 		if not content_column or not content_column:IsValid() then return end
 
@@ -695,7 +1127,7 @@ return function(props)
 			GrowHeight = 1,
 			FitHeight = false,
 			AlignmentX = "stretch",
-			ChildGap = props.ChildGap or 8,
+			ChildGap = props.ChildGap or compact_gap,
 			props.layout,
 		},
 	}{
@@ -716,7 +1148,7 @@ return function(props)
 					GrowWidth = 1,
 					FitHeight = true,
 					AlignmentX = "stretch",
-					ChildGap = 6,
+					ChildGap = compact_gap,
 				},
 			},
 		},

@@ -1,4 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local Button = import("../elements/button.lua")
 local Column = import("../elements/column.lua")
 local Frame = import("../elements/frame.lua")
@@ -38,6 +39,19 @@ local function format_number(node, value, fallback_precision)
 	return string.format("%." .. precision .. "f", numeric)
 end
 
+local function format_vec3(node, value, fallback_precision)
+	local precision = node and node.Precision or fallback_precision or 2
+	local x = tonumber(value and (value.x or value[1])) or 0
+	local y = tonumber(value and (value.y or value[2])) or 0
+	local z = tonumber(value and (value.z or value[3])) or 0
+	return string.format(
+		"(%s, %s, %s)",
+		format_number({Precision = precision}, x, precision),
+		format_number({Precision = precision}, y, precision),
+		format_number({Precision = precision}, z, precision)
+	)
+end
+
 local function get_option_text(options, value)
 	for _, option in ipairs(options or {}) do
 		if type(option) == "table" then
@@ -68,6 +82,8 @@ local function describe_value(node)
 
 	if kind == "number" then return format_number(node, node.Value, 2) end
 
+	if kind == "vec3" then return format_vec3(node, node.Value, 2) end
+
 	if kind == "action" then
 		return node.ActionText or node.ButtonText or "Action"
 	end
@@ -87,6 +103,7 @@ local function build_snapshot(state)
 			"brightness = " .. string.format("%.2f", state.brightness),
 			"spin_speed = " .. string.format("%.1f", state.spin_speed),
 			"bob_height = " .. string.format("%.1f", state.bob_height),
+			"offset = Vec3" .. format_vec3({Precision = 1}, state.offset, 1),
 			"render_mode = " .. tostring(state.render_mode),
 			"cast_shadows = " .. tostring(state.cast_shadows),
 			"receive_lighting = " .. tostring(state.receive_lighting),
@@ -104,6 +121,7 @@ local function reset_state(state)
 	state.brightness = 1.4
 	state.spin_speed = 38
 	state.bob_height = 6
+	state.offset = Vec3(0, 6, 2)
 	state.render_mode = "additive"
 	state.cast_shadows = false
 	state.receive_lighting = true
@@ -232,6 +250,20 @@ local function build_items(state, refresh_preview, refresh_editor)
 					Description = "Vertical displacement for the idle bob.",
 					OnChange = function(_, value)
 						state.bob_height = value
+						refresh_preview()
+					end,
+				},
+				{
+					Key = "motion/offset",
+					Text = "Offset",
+					Type = "vec3",
+					Value = state.offset,
+					Min = Vec3(-20, -20, -20),
+					Max = Vec3(20, 20, 20),
+					Precision = 1,
+					Description = "Local xyz offset. Drag a single axis to adjust it, or hold Shift while dragging to push the same delta into the other axes.",
+					OnChange = function(_, value)
+						state.offset = Vec3(value)
 						refresh_preview()
 					end,
 				},
@@ -395,6 +427,7 @@ return {
 						"Brightness: " .. string.format("%.2f", state.brightness),
 						"Spin: " .. string.format("%.1f deg/s", state.spin_speed),
 						"Bob Height: " .. string.format("%.1f", state.bob_height),
+						"Offset: " .. format_vec3({Precision = 1}, state.offset, 1),
 						"Cast Shadows: " .. tostring(state.cast_shadows),
 						"Receive Lighting: " .. tostring(state.receive_lighting),
 						"Notes: " .. tostring(state.notes),

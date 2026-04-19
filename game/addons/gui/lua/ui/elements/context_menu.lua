@@ -3,20 +3,43 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/ecs/panel.lua")
+local event = import("goluwa/event.lua")
+local timer = import("goluwa/timer.lua")
 local Frame = import("lua/ui/elements/frame.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	local menu_ent = NULL
 	local is_closing = false
+	local is_relaying = false
+	local UpdateAnimations
 	local container_props = {
 		Key = props.Key,
 		SourceDropdown = props.SourceDropdown,
 	}
 
-	local function UpdateAnimations(ent)
+	local function request_close(container, relay_button)
+		if is_closing then return true end
+
+		is_closing = true
+		UpdateAnimations(container)
+
+		if container.mouse_input then container.mouse_input:SetIgnoreMouseInput(true) end
+
+		if relay_button and not is_relaying then
+			is_relaying = true
+
+			timer.Delay(0, function()
+				is_relaying = false
+				event.Call("MouseInput", relay_button, true)
+			end)
+		end
+
+		return true
+	end
+
+	function UpdateAnimations(ent)
 		if not menu_ent:IsValid() then return end
 
-		print("open", is_closing)
 		_G.MENU = menu_ent
 
 		if is_closing then
@@ -81,12 +104,11 @@ return function(props)
 			mouse_input = {
 				BringToFrontOnClick = true,
 				OnMouseInput = function(self, button, press)
-					if press and button == "button_1" then
-						is_closing = true
-						UpdateAnimations(self.Owner)
-						self:SetIgnoreMouseInput(true)
-						return true
-					end
+					if not press then return end
+
+					if button == "button_1" then return request_close(self.Owner) end
+
+					if button == "button_2" then return request_close(self.Owner, button) end
 				end,
 			},
 			OnVisibilityChanged = function(self, visible)
@@ -96,12 +118,7 @@ return function(props)
 			end,
 			Events = {
 				OnKeyInput = function(self, key, press)
-					if press and key == "escape" then
-						is_closing = true
-						UpdateAnimations(self.Owner)
-						self.mouse_input:SetIgnoreMouseInput(true)
-						return true
-					end
+					if press and key == "escape" then return request_close(self.Owner) end
 				end,
 			},
 			gui_element = true,
@@ -134,19 +151,12 @@ return function(props)
 			Ref = function(self)
 				self:RequestFocus()
 				menu_ent = self
+				is_closing = false
 				UpdateAnimations(self)
 			end,
 			Events = {
 				OnKeyInput = function(self, key, press)
-					if press and key == "escape" then
-						is_closing = true
-						UpdateAnimations(self.Owner)
-
-						if self.Owner:HasParent() then
-							self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
-							return true
-						end
-					end
+					if press and key == "escape" then return request_close(self.Owner) end
 				end,
 			},
 		},

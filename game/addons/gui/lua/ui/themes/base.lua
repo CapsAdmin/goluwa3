@@ -71,6 +71,7 @@ return function(opts)
 			button_color = primary,
 			underline = primary,
 			url_color = primary,
+			property_selection = Color.FromHex("#dbeafe"),
 			text_selection = Color.FromHex("#bfdbfe"):SetAlpha(0.85),
 			actual_black = Color(0, 0, 0, 1),
 			primary = primary,

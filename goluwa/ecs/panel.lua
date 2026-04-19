@@ -17,6 +17,51 @@ local Panel = import("goluwa/ecs/base.lua")("panel", "ecs.components.2d.", funct
 	return valid
 end)
 import.loaded["goluwa/ecs/panel.lua"] = Panel
+do
+	local base_new = Panel.New
+
+	local function find_tooltip_props(config, state)
+		if type(config) ~= "table" then return end
+
+		if config.Tooltip ~= nil then
+			state.source = config.Tooltip
+			config.Tooltip = nil
+		end
+
+		if config.TooltipOptions ~= nil then
+			state.options = table.shallow_copy(config.TooltipOptions)
+			config.TooltipOptions = nil
+		end
+
+		if config.TooltipMaxWidth ~= nil then
+			state.options = state.options or {}
+			state.options.MaxWidth = config.TooltipMaxWidth
+			config.TooltipMaxWidth = nil
+		end
+
+		if config.TooltipOffset ~= nil then
+			state.options = state.options or {}
+			state.options.Offset = config.TooltipOffset
+			config.TooltipOffset = nil
+		end
+
+		for i = 1, #config do
+			find_tooltip_props(config[i], state)
+		end
+	end
+
+	function Panel.New(config)
+		local tooltip_state = {}
+		find_tooltip_props(config, tooltip_state)
+		local ent = base_new(config)
+
+		if tooltip_state.source ~= nil then
+			import("lua/ui/tooltip.lua").Attach(ent, tooltip_state.source, tooltip_state.options)
+		end
+
+		return ent
+	end
+end
 Panel.World = Panel.New{
 	ComponentSet = {
 		"transform",

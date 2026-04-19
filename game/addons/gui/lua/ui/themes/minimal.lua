@@ -12,6 +12,7 @@ return {
 			label = "Minimal",
 			colors = {
 				primary = Color.FromHex("#2563eb"),
+				property_selection = Color.FromHex("#dbeafe"),
 				secondary = Color.FromHex("#dbeafe"),
 				button_color = Color.FromHex("#2563eb"),
 				button_normal = Color.FromHex("#2563eb"),

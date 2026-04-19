@@ -1,11 +1,10 @@
-local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
+local SVG = import("lua/ui/elements/svg.lua")
 local Text = import("lua/ui/elements/text.lua")
-local theme = import("lua/ui/theme.lua")
 return function(props)
 	local item
+	local children = {}
 
 	local function close_context_menu()
 		local current = item
@@ -20,6 +19,30 @@ return function(props)
 		end
 	end
 
+	if props.IconSource then
+		children[#children + 1] = SVG{
+			Source = props.IconSource,
+			Size = Vec2(16, 16),
+			MinSize = Vec2(16, 16),
+			MaxSize = Vec2(16, 16),
+			Color = props.Disabled and "text_disabled" or "text_foreground",
+			IgnoreMouseInput = true,
+			layout = {
+				GrowWidth = 0,
+				FitWidth = false,
+			},
+		}
+	end
+
+	children[#children + 1] = Text{
+		layout = {
+			GrowWidth = 1,
+			FitHeight = true,
+		},
+		Text = props.Text,
+		IgnoreMouseInput = true,
+		Color = props.Disabled and "text_disabled" or "text_foreground",
+	}
 	item = Clickable{
 		Size = props.Size or "M",
 		Active = props.Active,
@@ -27,9 +50,7 @@ return function(props)
 		OnClick = function(...)
 			close_context_menu()
 
-			if props.OnClick then
-				return props.OnClick(...)
-			end
+			if props.OnClick then return props.OnClick(...) end
 		end,
 		layout = {
 			Direction = "x",
@@ -38,17 +59,6 @@ return function(props)
 			GrowWidth = 1,
 		},
 		Padding = "M",
-	}{
-		Text{
-			layout = {
-				GrowWidth = 1,
-				FitHeight = true,
-			},
-			Text = props.Text,
-			IgnoreMouseInput = true,
-			Color = props.Disabled and "text_disabled" or "text_foreground",
-		},
-	}
-
+	}(children)
 	return item
 end

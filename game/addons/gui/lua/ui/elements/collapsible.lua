@@ -5,6 +5,21 @@ local Panel = import("goluwa/ecs/panel.lua")
 local Text = import("lua/ui/elements/text.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local theme = import("lua/ui/theme.lua")
+
+local function resolve_size(value)
+	if type(value) == "string" then return theme.GetSize(value) end
+
+	return value
+end
+
+local function resolve_color(value, fallback)
+	if value == nil then value = fallback end
+
+	if type(value) == "string" then return theme.GetColor(value) end
+
+	return value
+end
+
 return function(props)
 	local external_ref = props.Ref
 
@@ -13,6 +28,22 @@ return function(props)
 		props.Ref = nil
 	end
 
+	local header_tooltip = props.Tooltip
+	local header_tooltip_max_width = props.TooltipMaxWidth
+	local header_tooltip_options = props.TooltipOptions
+	local header_tooltip_offset = props.TooltipOffset
+	local header_height = props.HeaderHeight
+	local header_mode = props.HeaderMode or "outline"
+	local header_color = props.HeaderColor or "primary"
+	local header_text_color = props.HeaderTextColor or "text_foreground"
+	local header_icon_color = props.HeaderIconColor or header_text_color
+	local header_padding = props.HeaderPadding or "XS"
+	local header_gap = props.HeaderGap or "XXS"
+	local header_font_name = props.HeaderFontName or "body"
+	local header_font_size = props.HeaderFontSize or "M"
+	local content_padding = props.ContentPadding or "none"
+	local arrow_size = resolve_size(props.HeaderArrowSize) or 16
+	local disclosure_size = resolve_size(props.HeaderDisclosureSize) or 10
 	local collapsed = props.Collapsed or false
 	local body_panel = NULL
 	local clip_panel = NULL
@@ -96,16 +127,23 @@ return function(props)
 	local header = Clickable{
 		IsInternal = true,
 		Name = "Header",
-		Mode = "outline",
+		Tooltip = header_tooltip,
+		TooltipOptions = header_tooltip_options,
+		TooltipMaxWidth = header_tooltip_max_width,
+		TooltipOffset = header_tooltip_offset,
+		Mode = header_mode,
+		Color = header_color,
 		gui_element = {
-			Color = "primary",
+			Color = header_color,
 		},
 		layout = {
 			Direction = "x",
 			AlignmentY = "center",
 			FitHeight = true,
-			Padding = "XS",
-			ChildGap = "XXS",
+			MinSize = header_height and Vec2(0, header_height) or nil,
+			MaxSize = header_height and Vec2(0, header_height) or nil,
+			Padding = header_padding,
+			ChildGap = header_gap,
 		},
 		OnClick = function(self)
 			set_collapsed(not collapsed)
@@ -116,17 +154,17 @@ return function(props)
 			Name = "ArrowContainer",
 			OnSetProperty = theme.OnSetProperty,
 			transform = {
-				Size = Vec2(16, 16),
+				Size = Vec2(arrow_size, arrow_size),
 			},
 			gui_element = {
 				OnDraw = function(self)
 					theme.icons.disclosure(
 						self.Owner,
 						{
-							size = 10,
+							size = disclosure_size,
 							thickness = 2,
 							open_fraction = open_fraction,
-							color = theme.GetColor("text_foreground"),
+							color = resolve_color(header_icon_color, "text_foreground"),
 						}
 					)
 				end,
@@ -138,7 +176,9 @@ return function(props)
 		},
 		Text{
 			Text = props.Title or "Collapsible",
-			FontName = "heading",
+			Color = header_text_color,
+			FontName = header_font_name,
+			FontSize = header_font_size,
 			layout = {
 				GrowWidth = 1,
 				FitHeight = true,
@@ -157,7 +197,7 @@ return function(props)
 			FitHeight = true,
 			GrowWidth = 1,
 			AlignmentX = "stretch",
-			Padding = "XS",
+			Padding = content_padding,
 			Floating = true,
 		},
 		transform = true,

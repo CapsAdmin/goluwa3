@@ -15,7 +15,7 @@ return function(props)
 			last_value = value,
 		},
 	}
-	return Panel.New{
+	local panel = Panel.New{
 		Name = "checkbox_graphic",
 		OnSetProperty = theme.OnSetProperty,
 		transform = {
@@ -50,4 +50,23 @@ return function(props)
 		animation = true,
 		clickable = true,
 	}
+
+	function panel:SetValue(new_value, notify)
+		local old_value = state.value
+		state.value = new_value == true
+		theme.UpdateCheckboxAnimations(self, state)
+
+		if notify and old_value ~= state.value and props.OnChange then
+			props.OnChange(state.value, old_value)
+		end
+
+		return self
+	end
+
+	function panel:GetValue()
+		return state.value
+	end
+
+	panel:SetValue(value)
+	return panel
 end

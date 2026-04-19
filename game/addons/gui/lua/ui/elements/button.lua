@@ -20,6 +20,9 @@ return function(props)
 	}(
 		Text{
 			Text = props.Text,
+			Font = props.Font,
+			FontName = props.FontName,
+			FontSize = props.FontSize,
 			IgnoreMouseInput = true,
 			Color = props.Disabled and "text_disabled" or "text_foreground",
 			AlignX = props.AlignX or "center",

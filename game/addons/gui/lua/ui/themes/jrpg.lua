@@ -40,6 +40,7 @@ do
 		button_color = palette.blue,
 		underline = palette.blue,
 		url_color = palette.blue,
+		property_selection = Color.FromHex("#5d8cff"):SetAlpha(0.9),
 		actual_black = Color(0, 0, 0, 1),
 		primary = palette.blue,
 		secondary = palette.green,

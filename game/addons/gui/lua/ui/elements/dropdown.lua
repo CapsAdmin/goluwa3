@@ -23,6 +23,7 @@ return function(props)
 
 		if props.Value ~= nil and val == props.Value then
 			selected_text = text
+
 			break
 		end
 	end
@@ -59,6 +60,7 @@ return function(props)
 					Text = text,
 					OnClick = function()
 						suppress_next_open = true
+
 						timer.Delay(0, function()
 							suppress_next_open = false
 						end)
@@ -117,6 +119,9 @@ return function(props)
 		Text{
 			IsInternal = true,
 			Text = selected_text,
+			Font = props.Font,
+			FontName = props.FontName,
+			FontSize = props.FontSize,
 			Ref = function(self)
 				label_ent = self
 			end,
@@ -133,11 +138,14 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.icons.dropdown_indicator(self.Owner, {
-						size = 8,
-						thickness = 2,
-						color = theme.GetColor(props.Disabled and "text_disabled" or "text_foreground"),
-					})
+					theme.icons.dropdown_indicator(
+						self.Owner,
+						{
+							size = 8,
+							thickness = 2,
+							color = theme.GetColor(props.Disabled and "text_disabled" or "text_foreground"),
+						}
+					)
 				end,
 			},
 			mouse_input = {
@@ -177,6 +185,31 @@ return function(props)
 				if label_ent.text:GetText() ~= txt then label_ent.text:SetText(txt) end
 			end
 		end)
+	end
+
+	function dropdown:SetValue(value)
+		props.Value = value
+
+		for _, opt in ipairs(options) do
+			local text = type(opt) == "table" and opt.Text or tostring(opt)
+			local val = type(opt) == "table" and opt.Value or opt
+
+			if val == value then
+				selected_text = text
+
+				break
+			end
+		end
+
+		if label_ent and label_ent:IsValid() and not props.GetText then
+			label_ent.text:SetText(selected_text)
+		end
+
+		return self
+	end
+
+	function dropdown:GetValue()
+		return props.Value
 	end
 
 	return dropdown

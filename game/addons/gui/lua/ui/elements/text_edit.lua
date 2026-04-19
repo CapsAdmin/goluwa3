@@ -24,6 +24,8 @@ return function(props)
 	local text_panel
 	local panel = Panel.New{
 		Name = "text_edit",
+		Tooltip = props.Tooltip,
+		TooltipOptions = props.TooltipOptions,
 		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = size,

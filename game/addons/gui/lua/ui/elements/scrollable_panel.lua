@@ -6,6 +6,17 @@ local theme = import("lua/ui/theme.lua")
 local input = import("goluwa/input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
+
+local function normalize_padding(padding)
+	if type(padding) == "string" then return Rect() + theme.GetPadding(padding) end
+
+	if type(padding) == "number" then return Rect() + padding end
+
+	if not padding then return Rect(0, 0, 0, 0) end
+
+	return padding
+end
+
 return function(props)
 	props = props or {}
 	local external_ref = props.Ref
@@ -21,7 +32,7 @@ return function(props)
 	local scrollbar_auto_hide = props.ScrollBarAutoHide ~= false
 	local scrollbar_shift_mode = props.ScrollBarContentShiftMode or "always_shift"
 	local scrollbar_reserve = props.ScrollBarReserve or 10
-	local base_padding = props.Padding or Rect(0, 0, 0, 0)
+	local base_padding = normalize_padding(props.Padding)
 	local viewport
 	local track_v
 	local track_h
@@ -107,6 +118,35 @@ return function(props)
 		end
 	end
 
+	local function clamp_scroll_to_bounds(content_size, view_size)
+		if not viewport or not viewport:IsValid() then return nil, false end
+
+		local state = compute_scrollbar_state(content_size, view_size)
+		local effective_view_size = Vec2(state.available_w, state.available_h)
+		local scroll = viewport.transform:GetScroll():Copy()
+		local next_scroll = scroll:Copy()
+		local max_scroll_x = math.max(0, (content_size and content_size.x or 0) - effective_view_size.x)
+		local max_scroll_y = math.max(0, (content_size and content_size.y or 0) - effective_view_size.y)
+
+		if scroll_h then
+			next_scroll.x = math.clamp(next_scroll.x, 0, max_scroll_x)
+		else
+			next_scroll.x = 0
+		end
+
+		if scroll_v then
+			next_scroll.y = math.clamp(next_scroll.y, 0, max_scroll_y)
+		else
+			next_scroll.y = 0
+		end
+
+		local changed = next_scroll.x ~= scroll.x or next_scroll.y ~= scroll.y
+
+		if changed then viewport.transform:SetScroll(next_scroll) end
+
+		return next_scroll, changed
+	end
+
 	local function update_handle()
 		if not viewport:IsValid() then return end
 
@@ -116,6 +156,8 @@ return function(props)
 		update_viewport_padding(state)
 
 		if not content_size or not view_size then
+			clamp_scroll_to_bounds(Vec2(0, 0), Vec2(0, 0))
+
 			if track_v and track_v:IsValid() then track_v.gui_element:SetVisible(false) end
 
 			if track_h and track_h:IsValid() then track_h.gui_element:SetVisible(false) end
@@ -127,7 +169,7 @@ return function(props)
 			return
 		end
 
-		local scroll = viewport.transform:GetScroll()
+		local scroll = clamp_scroll_to_bounds(content_size, view_size) or viewport.transform:GetScroll()
 
 		if handle_v:IsValid() then
 			if not state.show_v then
