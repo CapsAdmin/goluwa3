@@ -328,10 +328,6 @@ function META:Initialize()
 	self:OnEditableChanged()
 	self:OnTextChanged()
 
-	self.Owner:AddLocalListener("OnDraw", function()
-		self:OnDraw()
-	end)
-
 	event.AddListener("OnFontsChanged", self, function(font)
 		if font == self:GetFont() or true then self:OnTextChanged() end
 	end)

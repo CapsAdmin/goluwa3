@@ -7,12 +7,10 @@ local Panel = import("goluwa/ecs/panel.lua")
 local system = import("goluwa/system.lua")
 local vfs = import("goluwa/vfs.lua")
 local theme = import("./theme.lua")
-local Button = import("./elements/button.lua")
+local MenuBar = import("./elements/menu_bar.lua")
 local MenuItem = import("./elements/context_menu_item.lua")
 local MenuSpacer = import("./elements/menu_spacer.lua")
-local ContextMenu = import("./elements/context_menu.lua")
 local Frame = import("./elements/frame.lua")
-local Row = import("./elements/row.lua")
 local Gallery = import("./widgets/gallery.lua")
 local line = import("goluwa/love/line.lua")
 local world_panel = Panel.World
@@ -44,6 +42,37 @@ local function toggle()
 	end
 
 	system.GetWindow():SetMouseTrapped(false)
+
+	local function open_gallery()
+		world_panel:Ensure(Gallery({Key = "GalleryWindow"}))
+	end
+
+	local function build_game_menu()
+		return {
+			MenuItem{Text = "LOAD", OnClick = open_gallery},
+			MenuItem{Text = "RUN (ESCAPE)", Disabled = true},
+			MenuItem{Text = "RESET", Disabled = true},
+			MenuSpacer(),
+			MenuItem{Text = "SAVE STATE", Disabled = true},
+			MenuItem{Text = "OPEN STATE", Disabled = true},
+			MenuItem{Text = "PICK STATE", Disabled = true},
+			MenuSpacer(),
+			MenuItem{
+				Text = "QUIT",
+				OnClick = function()
+					system.ShutDown()
+				end,
+			},
+		}
+	end
+
+	local function build_placeholder_menu(label)
+		return {
+			MenuItem{Text = label .. " Settings", Disabled = true},
+			MenuItem{Text = label .. " Tools", Disabled = true},
+		}
+	end
+
 	local top_bar = Frame{
 		layout = {
 			GrowWidth = 1,
@@ -51,60 +80,41 @@ local function toggle()
 		},
 		Padding = Rect() + theme.GetSize("XXS"),
 	}{
-		Row({}){
-			Button{
-				Text = "GAME",
-				OnClick = function(ent)
-					print("click?")
-					local x, y = ent.transform:GetWorldMatrix():GetTranslation()
-					y = y + ent.transform:GetHeight()
-					world_panel:Ensure(
-						ContextMenu{
-							Key = "ActiveContextMenu",
-							Position = Vec2(x, y),
-							OnClose = function(ent)
-								print("removing context menu")
-								ent:Remove()
-							end,
-						}{
-							MenuItem{
-								Text = "LOAD",
-								OnClick = function()
-									world_panel:Ensure(Gallery({Key = "GalleryWindow"}))
-								end,
-							},
-							MenuItem({Text = "RUN (ESCAPE)"}),
-							MenuItem{Text = "RESET", Disabled = true},
-							MenuSpacer(),
-							MenuItem{Text = "SAVE STATE", Disabled = true},
-							MenuItem{Text = "OPEN STATE", Disabled = true},
-							MenuItem{Text = "PICK STATE", Disabled = true},
-							MenuSpacer(),
-							MenuItem{
-								Text = "QUIT",
-								OnClick = function()
-									system.ShutDown()
-								end,
-							},
-						}
-					)
-				end,
+		MenuBar{
+			MenuKey = "AppMenuBarContextMenu",
+			Items = {
+				{Text = "GAME", Items = build_game_menu},
+				{
+					Text = "CONFIG",
+					Items = function()
+						return build_placeholder_menu("CONFIG")
+					end,
+				},
+				{
+					Text = "CHEAT",
+					Items = function()
+						return build_placeholder_menu("CHEAT")
+					end,
+				},
+				{
+					Text = "NETPLAY",
+					Items = function()
+						return build_placeholder_menu("NETPLAY")
+					end,
+				},
+				{
+					Text = "MISC",
+					Items = function()
+						return build_placeholder_menu("MISC")
+					end,
+				},
 			},
-			Button{
-				Text = "CONFIG",
-			},
-			Button{
-				Text = "CHEAT",
-			},
-			Button{
-				Text = "NETPLAY",
-			},
-			Button{
-				Text = "MISC",
-			},
+			GrowWidth = false,
 		},
 	}
 	menu = Panel.New{
+		Key = "GameMenuPanel",
+		Parent = world_panel,
 		Name = "GameMenuPanel",
 		OnSetProperty = theme.OnSetProperty,
 		transform = {

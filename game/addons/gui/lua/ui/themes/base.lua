@@ -53,7 +53,7 @@ return function(opts)
 		{
 			Color.FromHex("#f8fafc"),
 			Color.FromHex("#cbd5e1"),
-			Color.FromHex("#0f172a"),
+			Color.FromHex("#080a0e"),
 		},
 		{
 			red = Color.FromHex("#dc2626"),

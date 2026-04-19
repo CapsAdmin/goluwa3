@@ -14,6 +14,23 @@ META:GetSet("DrawColor", Color(0, 0, 0, 0))
 META:GetSet("DrawAlpha", 1)
 META:EndStorable()
 
+local function reset_draw_state()
+	render2d.SetTexture()
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.SetAlphaMultiplier(1)
+	render2d.SetUV()
+	render2d.SetSwizzleMode(0)
+	render2d.SetBlur(0)
+	render2d.SetBorderRadius(0, 0, 0, 0)
+	render2d.SetOutlineWidth(0)
+	render2d.ClearNinePatch()
+	render2d.SetSDFThreshold(0.5)
+	render2d.SetSDFTexelRange(1)
+	render2d.SetSubpixelMode("none")
+	render2d.SetSubpixelAmount(1 / 3)
+	render2d.SetBlendMode("alpha", true)
+end
+
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 end
@@ -33,7 +50,9 @@ end
 
 function META:IsHovered(mouse_pos)
 	local transform = self.Owner.transform
+
 	if not transform then return false end
+
 	local local_pos = transform:GlobalToLocal(mouse_pos)
 	local clip_x1, clip_y1, clip_x2, clip_y2 = transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
 
@@ -49,6 +68,7 @@ function META:DrawRecursive()
 	if not self:GetVisible() then return end
 
 	local transform = self.Owner.transform
+
 	if not transform then return end
 
 	if not transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y) then
@@ -59,6 +79,7 @@ function META:DrawRecursive()
 
 	if c.a <= 0 then return end
 
+	reset_draw_state()
 	local clipping = self:GetClipping()
 
 	if clipping then
@@ -74,6 +95,7 @@ function META:DrawRecursive()
 
 		render2d.PopMatrix()
 		render2d.BeginStencilTest()
+		reset_draw_state()
 	end
 
 	render2d.PushMatrix()
@@ -86,6 +108,7 @@ function META:DrawRecursive()
 	end
 
 	if clipping then
+		reset_draw_state()
 		render2d.SetStencilMode("mask_decrement", render2d.stencil_level)
 		render2d.PushMatrix()
 		render2d.SetWorldMatrix(transform:GetWorldMatrix())
@@ -100,6 +123,7 @@ function META:DrawRecursive()
 		render2d.PopStencilMask()
 	end
 
+	reset_draw_state()
 	self.Owner:CallLocalEvent("OnPostDraw")
 	render2d.PopMatrix()
 end

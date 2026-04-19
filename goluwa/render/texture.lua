@@ -928,7 +928,7 @@ end
 function Texture:GetSamplerConfig()
 	if not self:GetSamplerEnabled() then return false end
 
-	return copy_sampler_config(self)
+	return self.config and self.config.sampler or nil
 end
 
 function Texture:GetSamplerConfigHash()
