@@ -12,6 +12,21 @@ local ScrollablePanel = import("../elements/scrollable_panel.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local timer = import("goluwa/timer.lua")
 
+local function update_layout_now(entity)
+	if not entity or not entity:IsValid() or not entity.layout then return end
+
+	entity.layout:InvalidateLayout()
+	local root = entity.layout
+	local parent = entity:GetParent()
+
+	while parent and parent:IsValid() and parent.layout do
+		root = parent.layout
+		parent = parent:GetParent()
+	end
+
+	root:UpdateLayout()
+end
+
 local function build_gallery(props)
 	local pages = {}
 	local gallery_files = vfs.Find("lua/ui/gallery/%.lua$")
@@ -67,14 +82,7 @@ local function build_gallery(props)
 			if page and page.Create then
 				local content = page.Create()
 				viewport:AddChild(content)
-
-				if content.layout then
-					timer.Delay(0, function()
-						if not content:IsValid() then return end
-
-						content.layout:InvalidateLayout(true)
-					end)
-				end
+				update_layout_now(viewport)
 			end
 		else
 			print("Could not find viewport in content_panel")

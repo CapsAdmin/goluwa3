@@ -6,13 +6,15 @@ local ScrollablePanel = import("lua/ui/elements/scrollable_panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	props = props or {}
+	local external_ref = props.Ref
 	local size = props.Size or Vec2(400, 180)
 	local min_size = props.MinSize or Vec2(100, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
 	local editable = props.Editable ~= false
 	local panel_color = props.PanelColor or "card"
 	local background_color = props.BackgroundColor or "surface"
-	return Panel.New{
+	local text_panel
+	local panel = Panel.New{
 		Name = "text_edit",
 		OnSetProperty = theme.OnSetProperty,
 		transform = {
@@ -55,6 +57,9 @@ return function(props)
 			},
 		}{
 			Text{
+				Ref = function(self)
+					text_panel = self
+				end,
 				Text = props.Text or "",
 				Cursor = editable and "text_input" or nil,
 				Editable = editable,
@@ -70,4 +75,18 @@ return function(props)
 			},
 		},
 	}
+
+	function panel:GetText()
+		return text_panel and text_panel.text:GetText() or ""
+	end
+
+	function panel:SetText(value)
+		if text_panel and text_panel.text then text_panel.text:SetText(value or "") end
+
+		return self
+	end
+
+	if external_ref then external_ref(panel) end
+
+	return panel
 end
