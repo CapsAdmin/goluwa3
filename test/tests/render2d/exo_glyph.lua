@@ -146,26 +146,17 @@ T.Test("Exo lowercase g keeps both counters hollow", function()
 	font:SetSize(96)
 	local glyph = font:GetGlyph("g")
 	assert(glyph and glyph.glyph_data, "expected lowercase g glyph data")
-	local get_contour_points, split_self_intersecting, is_point_in_polygon
+	local get_contour_points
 
 	for i = 1, 20 do
 		local name, value = debug.getupvalue(font.DrawGlyph, i)
 
 		if not name then break end
 
-		if name == "get_contour_points" then
-			get_contour_points = value
-		elseif name == "split_self_intersecting" then
-			split_self_intersecting = value
-		elseif name == "is_point_in_polygon" then
-			is_point_in_polygon = value
-		end
+		if name == "get_contour_points" then get_contour_points = value end
 	end
 
-	assert(
-		get_contour_points and split_self_intersecting and is_point_in_polygon,
-		"expected glyph contour helpers"
-	)
+	assert(get_contour_points, "expected glyph contour helper")
 	local contours = {}
 	local start_idx = 1
 
@@ -183,7 +174,7 @@ T.Test("Exo lowercase g keeps both counters hollow", function()
 			local flattened = get_contour_points(font, glyph.glyph_data, raw_points)
 
 			if #flattened >= 6 then
-				for _, contour in ipairs(split_self_intersecting(flattened)) do
+				for _, contour in ipairs(math2d.SplitSelfIntersectingContour(flattened)) do
 					if #contour >= 6 then table.insert(contours, contour) end
 				end
 			end
@@ -212,7 +203,7 @@ T.Test("Exo lowercase g keeps both counters hollow", function()
 		local nesting = 0
 
 		for _, contour in ipairs(contours) do
-			if is_point_in_polygon(px, py, contour) then nesting = nesting + 1 end
+			if math2d.IsPointInPolygon(px, py, contour) then nesting = nesting + 1 end
 		end
 
 		return nesting % 2 == 1

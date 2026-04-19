@@ -63,6 +63,255 @@ function math2d.ReversePolygon(points)
 	return reversed
 end
 
+function math2d.IsPointInPolygon(x, y, points)
+	local inside = false
+	local n = #points / 2
+	local j = n
+
+	for i = 1, n do
+		local xi, yi = points[(i - 1) * 2 + 1], points[(i - 1) * 2 + 2]
+		local xj, yj = points[(j - 1) * 2 + 1], points[(j - 1) * 2 + 2]
+
+		if ((yi > y) ~= (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi) then
+			inside = not inside
+		end
+
+		j = i
+	end
+
+	return inside
+end
+
+local function segment_intersection(x1, y1, x2, y2, x3, y3, x4, y4)
+	local denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+
+	if math.abs(denom) < 1e-10 then return nil end
+
+	local t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+	local u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+
+	if t > 0.001 and t < 0.999 and u > 0.001 and u < 0.999 then
+		local ix = x1 + t * (x2 - x1)
+		local iy = y1 + t * (y2 - y1)
+		return ix, iy, t, u
+	end
+
+	return nil
+end
+
+function math2d.SplitSelfIntersectingContour(points)
+	local n = #points / 2
+
+	if n < 4 then return {points} end
+
+	for i = 1, n do
+		local i_next = i % n + 1
+		local x1, y1 = points[(i - 1) * 2 + 1], points[(i - 1) * 2 + 2]
+		local x2, y2 = points[(i_next - 1) * 2 + 1], points[(i_next - 1) * 2 + 2]
+
+		for j = i + 2, n do
+			local j_next = j % n + 1
+
+			if j_next == i then goto continue end
+
+			local x3, y3 = points[(j - 1) * 2 + 1], points[(j - 1) * 2 + 2]
+			local x4, y4 = points[(j_next - 1) * 2 + 1], points[(j_next - 1) * 2 + 2]
+			local ix, iy = segment_intersection(x1, y1, x2, y2, x3, y3, x4, y4)
+
+			if ix then
+				local contour1 = {}
+				local contour2 = {}
+				table.insert(contour1, ix)
+				table.insert(contour1, iy)
+
+				for k = i_next, j do
+					local idx = (k - 1) * 2 + 1
+					table.insert(contour1, points[idx])
+					table.insert(contour1, points[idx + 1])
+				end
+
+				table.insert(contour2, ix)
+				table.insert(contour2, iy)
+
+				for k = j_next, n do
+					local idx = (k - 1) * 2 + 1
+					table.insert(contour2, points[idx])
+					table.insert(contour2, points[idx + 1])
+				end
+
+				for k = 1, i do
+					local idx = (k - 1) * 2 + 1
+					table.insert(contour2, points[idx])
+					table.insert(contour2, points[idx + 1])
+				end
+
+				local result = {}
+
+				for _, contour in ipairs(math2d.SplitSelfIntersectingContour(contour1)) do
+					table.insert(result, contour)
+				end
+
+				for _, contour in ipairs(math2d.SplitSelfIntersectingContour(contour2)) do
+					table.insert(result, contour)
+				end
+
+				return result
+			end
+
+			::continue::
+		end
+	end
+
+	return {points}
+end
+
+function math2d.TriangulateContoursEvenOdd(contours)
+	local contour_info = {}
+
+	for _, contour in ipairs(contours) do
+		local area = math2d.GetPolygonArea(contour)
+
+		if math.abs(area) > 1e-12 then
+			local tx, ty
+			local tris = math2d.TriangulateCoordinates(contour)
+
+			if #tris > 0 then
+				tx, ty = (tris[1] + tris[3] + tris[5]) / 3, (tris[2] + tris[4] + tris[6]) / 3
+			else
+				tx, ty = contour[1], contour[2]
+			end
+
+			table.insert(
+				contour_info,
+				{
+					points = contour,
+					area = area,
+					test_pt = {tx, ty},
+				}
+			)
+		end
+	end
+
+	table.sort(contour_info, function(a, b)
+		return math.abs(a.area) > math.abs(b.area)
+	end)
+
+	local shells = {}
+
+	for i, info in ipairs(contour_info) do
+		local nesting = 0
+
+		for j, other in ipairs(contour_info) do
+			if i ~= j and math.abs(other.area) > math.abs(info.area) then
+				if math2d.IsPointInPolygon(info.test_pt[1], info.test_pt[2], other.points) then
+					nesting = nesting + 1
+				end
+			end
+		end
+
+		if nesting % 2 == 0 then
+			table.insert(shells, {points = info.points, area = info.area, holes = {}, nesting = nesting})
+		else
+			local best_parent = nil
+
+			for j = #shells, 1, -1 do
+				if
+					shells[j].nesting == nesting - 1 and
+					math2d.IsPointInPolygon(info.test_pt[1], info.test_pt[2], shells[j].points)
+				then
+					best_parent = shells[j]
+
+					break
+				end
+			end
+
+			if best_parent then
+				local hole_points = info.points
+
+				if (info.area > 0) == (best_parent.area > 0) then
+					hole_points = math2d.ReversePolygon(hole_points)
+				end
+
+				table.insert(best_parent.holes, hole_points)
+			end
+		end
+	end
+
+	local final_triangles = {}
+
+	for _, shell_info in ipairs(shells) do
+		if #shell_info.holes == 0 then
+			local triangles = math2d.TriangulateCoordinates(shell_info.points)
+
+			for i = 1, #triangles do
+				table.insert(final_triangles, triangles[i])
+			end
+		else
+			for _, hole in ipairs(shell_info.holes) do
+				local merged = shell_info.points
+				local best_dist = math.huge
+				local s_vertex_idx, h_vertex_idx = 1, 1
+
+				for si = 1, #merged / 2 do
+					for hi = 1, #hole / 2 do
+						local si_coord = (si - 1) * 2 + 1
+						local hi_coord = (hi - 1) * 2 + 1
+						local dx = merged[si_coord] - hole[hi_coord]
+						local dy = merged[si_coord + 1] - hole[hi_coord + 1]
+						local d = dx * dx + dy * dy
+
+						if d < best_dist then
+							best_dist = d
+							s_vertex_idx = si
+							h_vertex_idx = hi
+						end
+					end
+				end
+
+				local new_points = {}
+				local shell_count = #merged / 2
+				local hole_count = #hole / 2
+
+				for vi = 1, s_vertex_idx do
+					local idx = (vi - 1) * 2 + 1
+					table.insert(new_points, merged[idx])
+					table.insert(new_points, merged[idx + 1])
+				end
+
+				for vi = 0, hole_count - 1 do
+					local idx = ((h_vertex_idx - 1 + vi) % hole_count) * 2 + 1
+					table.insert(new_points, hole[idx])
+					table.insert(new_points, hole[idx + 1])
+				end
+
+				local h_coord = (h_vertex_idx - 1) * 2 + 1
+				table.insert(new_points, hole[h_coord])
+				table.insert(new_points, hole[h_coord + 1])
+				local s_coord = (s_vertex_idx - 1) * 2 + 1
+				table.insert(new_points, merged[s_coord])
+				table.insert(new_points, merged[s_coord + 1])
+
+				for vi = s_vertex_idx + 1, shell_count do
+					local idx = (vi - 1) * 2 + 1
+					table.insert(new_points, merged[idx])
+					table.insert(new_points, merged[idx + 1])
+				end
+
+				merged = new_points
+				shell_info.points = merged
+			end
+
+			local triangles = math2d.TriangulateCoordinates(shell_info.points)
+
+			for i = 1, #triangles do
+				table.insert(final_triangles, triangles[i])
+			end
+		end
+	end
+
+	return final_triangles
+end
+
 do
 	local function point_in_triangle(p, a, b, c)
 		local function cross(p1, p2, p3)

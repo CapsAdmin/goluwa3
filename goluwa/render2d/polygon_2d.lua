@@ -20,6 +20,25 @@ function Polygon2D.New(vertex_count, map)
 	return self
 end
 
+function Polygon2D.FromTriangleCoordinates(triangles, map)
+	local self = Polygon2D.New(#triangles / 2, map)
+
+	for tri_idx = 1, #triangles / 6 do
+		local base = (tri_idx - 1) * 6
+		self:SetTriangle(
+			tri_idx,
+			triangles[base + 1],
+			triangles[base + 2],
+			triangles[base + 3],
+			triangles[base + 4],
+			triangles[base + 5],
+			triangles[base + 6]
+		)
+	end
+
+	return self
+end
+
 Polygon2D.X, Polygon2D.Y = 0, 0
 Polygon2D.ROT = 0
 Polygon2D.R, Polygon2D.G, Polygon2D.B, Polygon2D.A = 1, 1, 1, 1
