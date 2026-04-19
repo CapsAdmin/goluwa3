@@ -2,7 +2,6 @@ local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
-
 return function(opts)
 	local primary = opts.primary or Color.FromHex("#334155")
 	local default_font_path = opts.default_font_path
@@ -30,7 +29,6 @@ return function(opts)
 	local function extend_preset(base_preset, overrides)
 		local preset = copy_table(base_preset)
 		overrides = overrides or {}
-
 		preset.colors = merge_tables(base_preset.colors, overrides.colors)
 		preset.sizes = merge_tables(base_preset.sizes, overrides.sizes)
 		preset.font_sizes = merge_tables(base_preset.font_sizes, overrides.font_sizes)
@@ -38,7 +36,12 @@ return function(opts)
 		preset.font_cache = {}
 
 		for key, value in pairs(overrides) do
-			if key ~= "colors" and key ~= "sizes" and key ~= "font_sizes" and key ~= "font_styles" then
+			if
+				key ~= "colors" and
+				key ~= "sizes" and
+				key ~= "font_sizes" and
+				key ~= "font_styles"
+			then
 				preset[key] = value
 			end
 		end
@@ -68,8 +71,8 @@ return function(opts)
 			button_color = primary,
 			underline = primary,
 			url_color = primary,
+			text_selection = Color.FromHex("#bfdbfe"):SetAlpha(0.85),
 			actual_black = Color(0, 0, 0, 1),
-			bar_color_horizontal = primary,
 			primary = primary,
 			secondary = Color.FromHex("#e2e8f0"),
 			positive = palette.green,
@@ -171,8 +174,8 @@ return function(opts)
 
 		function runtime.UpdateButtonAnimations(pnl, state)
 			if not pnl or not state then return end
-			local anim = state.anim
 
+			local anim = state.anim
 			local hovered = state.hovered and not state.disabled
 			local pressed = hovered and state.pressed
 
@@ -339,6 +342,7 @@ return function(opts)
 
 		function runtime.panels.button_post(pnl, state)
 			local anim = state.anim
+
 			if not state.hovered or state.disabled then return end
 
 			local size = pnl.Owner.transform.Size
@@ -393,16 +397,42 @@ return function(opts)
 			local scaled_h = knob_h * anim.knob_scale
 			local offset_x = (scaled_w - knob_w) / 2
 			local offset_y = (scaled_h - knob_h) / 2
-			draw_round_rect(knob_x - offset_x, knob_y - offset_y, scaled_w, scaled_h, math.floor(scaled_h / 2), theme.GetColor("surface"))
-			draw_round_outline(knob_x - offset_x, knob_y - offset_y, scaled_w, scaled_h, math.floor(scaled_h / 2), border, 1, 1)
+			draw_round_rect(
+				knob_x - offset_x,
+				knob_y - offset_y,
+				scaled_w,
+				scaled_h,
+				math.floor(scaled_h / 2),
+				theme.GetColor("surface")
+			)
+			draw_round_outline(
+				knob_x - offset_x,
+				knob_y - offset_y,
+				scaled_w,
+				scaled_h,
+				math.floor(scaled_h / 2),
+				border,
+				1,
+				1
+			)
 
 			if state.hovered then
-				draw_round_outline(knob_x - offset_x, knob_y - offset_y, scaled_w, scaled_h, math.floor(scaled_h / 2), accent, anim.glow_alpha * 0.45, 1)
+				draw_round_outline(
+					knob_x - offset_x,
+					knob_y - offset_y,
+					scaled_w,
+					scaled_h,
+					math.floor(scaled_h / 2),
+					accent,
+					anim.glow_alpha * 0.45,
+					1
+				)
 			end
 		end
 
 		function runtime.panels.checkbox(pnl, state)
 			local anim = state.anim
+
 			if state.hovered then runtime.UpdateCheckboxAnimations(pnl, state) end
 
 			local size = pnl.transform.Size
@@ -414,12 +444,21 @@ return function(opts)
 
 			if anim.check_anim > 0.01 then
 				local inset = 3 + (1 - anim.check_anim) * 3
-				draw_round_rect(x + inset, y + inset, box_size - inset * 2, box_size - inset * 2, 2, theme.GetColor("primary"), anim.check_anim)
+				draw_round_rect(
+					x + inset,
+					y + inset,
+					box_size - inset * 2,
+					box_size - inset * 2,
+					2,
+					theme.GetColor("primary"),
+					anim.check_anim
+				)
 			end
 		end
 
 		function runtime.panels.button_radio(pnl, state)
 			local anim = state.anim
+
 			if state.hovered then runtime.UpdateCheckboxAnimations(pnl, state) end
 
 			local size = pnl.transform.Size
@@ -452,7 +491,16 @@ return function(opts)
 		function runtime.panels.frame_post(pnl)
 			local size = pnl.transform.Size + pnl.transform.DrawSizeOffset
 			local radius = theme.GetSize("XS")
-			draw_round_outline(0, 0, size.x, size.y, radius, theme.GetColor("frame_border"), pnl.gui_element.DrawAlpha, 1)
+			draw_round_outline(
+				0,
+				0,
+				size.x,
+				size.y,
+				radius,
+				theme.GetColor("frame_border"),
+				pnl.gui_element.DrawAlpha,
+				1
+			)
 		end
 
 		function runtime.panels.menu_spacer(pnl, vertical)
@@ -469,7 +517,15 @@ return function(opts)
 
 		function runtime.panels.header(pnl)
 			local size = pnl.transform.Size
-			draw_round_rect(0, 0, size.x, size.y, 0, theme.GetColor("surface_variant"), pnl.gui_element.DrawAlpha)
+			draw_round_rect(
+				0,
+				0,
+				size.x,
+				size.y,
+				0,
+				theme.GetColor("surface_variant"),
+				pnl.gui_element.DrawAlpha
+			)
 			set_color(theme.GetColor("frame_border"), pnl.gui_element.DrawAlpha)
 			render2d.SetTexture(nil)
 			render2d.DrawRect(0, size.y - 1, size.x, 1)

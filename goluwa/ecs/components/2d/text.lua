@@ -22,6 +22,7 @@ META:GetSet("WrapToParent", false, {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
 META:GetSet("Color", Color(1, 1, 1, 1))
+META:GetSet("SelectionColor", Color(1, 1, 1, 0.3))
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
 META:EndStorable()
 
@@ -527,8 +528,11 @@ function META:OnDraw()
 		if start and start ~= stop then
 			local line_start, col_start = self:GetLineColFromIndex(start)
 			local line_stop, col_stop = self:GetLineColFromIndex(stop)
-			render2d.SetColor(1, 1, 1, 0.3)
+			local r, g, b, a = self:GetSelectionColor():Unpack()
+			render2d.SetColor(r, g, b)
+			render2d.SetAlphaMultiplier(a)
 			render2d.SetTexture(nil)
+			render2d.PushBorderRadius(2)
 
 			for i = math.max(line_start, visible_start), math.min(line_stop, visible_stop) do
 				local line_text = lines[i] or ""
@@ -542,8 +546,11 @@ function META:OnDraw()
 
 				if i < line_stop then width = math.max(width, 5) end
 
-				render2d.DrawRect(lx + x_offset, ly + (i - 1) * vertical_step, width, line_height)
+				render2d.DrawRect(lx + x_offset, ly - descent / 2 + (i - 1) * vertical_step, width, line_height)
 			end
+
+			render2d.PopBorderRadius()
+			render2d.SetAlphaMultiplier(1)
 		end
 	end
 
@@ -579,7 +586,9 @@ function META:OnDraw()
 			local cw = get_line_column_offset(font, line_text, found_col, display_line)
 			render2d.SetColor(self:GetColor():Unpack())
 			render2d.SetTexture(nil)
-			render2d.DrawRect(lx + cw, ly + (found_line - 1) * vertical_step, 2, line_height)
+			render2d.PushBorderRadius(2)
+			render2d.DrawRect(lx + cw, ly - descent / 2 + (found_line - 1) * vertical_step, 2, line_height)
+			render2d.PopBorderRadius()
 		end
 	end
 end

@@ -189,7 +189,9 @@ return function(props)
 		},
 		transform = true,
 		gui_element = true,
-		mouse_input = true,
+		mouse_input = {
+			Cursor = props.Cursor,
+		},
 		clickable = true,
 		animation = true,
 		PreChildAdd = function(self, child)
@@ -215,6 +217,9 @@ return function(props)
 			gui_element = {
 				Color = props.Color,
 				Clipping = true,
+			},
+			mouse_input = {
+				Cursor = props.Cursor,
 			},
 			transform = {
 				ScrollEnabled = true,

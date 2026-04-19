@@ -24,7 +24,9 @@ return function(props)
 			},
 			transform = true,
 			gui_element = true,
-			mouse_input = true,
+			mouse_input = {
+				Cursor = props.Cursor,
+			},
 			animation = true,
 		},
 		props,

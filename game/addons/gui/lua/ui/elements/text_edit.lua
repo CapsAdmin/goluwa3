@@ -9,6 +9,7 @@ return function(props)
 	local size = props.Size or Vec2(400, 180)
 	local min_size = props.MinSize or Vec2(100, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
+	local editable = props.Editable ~= false
 	local panel_color = props.PanelColor or "card"
 	local background_color = props.BackgroundColor or "surface"
 	return Panel.New{
@@ -30,6 +31,9 @@ return function(props)
 			OnDraw = function(self)
 				theme.panels.surface(self)
 			end,
+			OnPostDraw = function(self)
+				if editable then theme.panels.frame_post(self.Owner) end
+			end,
 		},
 		mouse_input = true,
 		clickable = true,
@@ -37,6 +41,7 @@ return function(props)
 	}{
 		ScrollablePanel{
 			Color = background_color,
+			Cursor = editable and "text_input" or nil,
 			ScrollX = props.ScrollX,
 			ScrollY = props.ScrollY,
 			ScrollBarVisible = props.ScrollBarVisible,
@@ -51,9 +56,11 @@ return function(props)
 		}{
 			Text{
 				Text = props.Text or "",
-				Editable = props.Editable ~= false,
+				Cursor = editable and "text_input" or nil,
+				Editable = editable,
 				Wrap = props.Wrap ~= false,
 				Color = props.TextColor or "text_foreground",
+				SelectionColor = props.SelectionColor or theme.GetColor("text_selection"),
 				FontName = props.FontName,
 				FontSize = props.FontSize,
 				text = props.text,

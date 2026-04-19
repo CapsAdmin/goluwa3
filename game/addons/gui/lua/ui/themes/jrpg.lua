@@ -41,7 +41,6 @@ do
 		underline = palette.blue,
 		url_color = palette.blue,
 		actual_black = Color(0, 0, 0, 1),
-		bar_color_horizontal = palette.green,
 		primary = palette.blue,
 		secondary = palette.green,
 		positive = palette.green_lighter,
