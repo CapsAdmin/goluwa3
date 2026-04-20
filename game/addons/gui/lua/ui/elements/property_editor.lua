@@ -11,7 +11,6 @@ local Column = import("lua/ui/elements/column.lua")
 local ContextMenu = import("lua/ui/elements/context_menu.lua")
 local MenuItem = import("lua/ui/elements/context_menu_item.lua")
 local Dropdown = import("lua/ui/elements/dropdown.lua")
-local Frame = import("lua/ui/elements/frame.lua")
 local NumberValue = import("lua/ui/elements/number_value.lua")
 local Row = import("lua/ui/elements/row.lua")
 local Slider = import("lua/ui/elements/slider.lua")
@@ -1131,13 +1130,19 @@ return function(props)
 			props.layout,
 		},
 	}{
-		Frame{
-			Padding = "XXS",
+		Panel.New{
+			Name = "PropertyEditorContent",
+			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				GrowWidth = 1,
 				GrowHeight = 1,
 				FitHeight = true,
 			},
+			transform = true,
+			gui_element = true,
+			mouse_input = true,
+			clickable = true,
+			animation = true,
 		}{
 			Column{
 				Ref = function(self)
