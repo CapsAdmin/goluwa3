@@ -132,6 +132,7 @@ return function(opts)
 		function runtime.icons.disclosure(pnl, opts)
 			opts = opts or {}
 			local size = opts.size or 10
+			size = size * 0.6
 			local thickness = opts.thickness or 2
 			local progress = opts.open_fraction or 0
 			local color = opts.color or theme.GetColor("text_foreground")

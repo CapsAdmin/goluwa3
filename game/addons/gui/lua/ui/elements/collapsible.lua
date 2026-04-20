@@ -36,7 +36,6 @@ return function(props)
 	local header_mode = props.HeaderMode or "outline"
 	local header_color = props.HeaderColor or "primary"
 	local header_text_color = props.HeaderTextColor or "text_foreground"
-	local header_icon_color = props.HeaderIconColor or header_text_color
 	local header_padding = props.HeaderPadding or "XS"
 	local header_gap = props.HeaderGap or "XXS"
 	local header_font_name = props.HeaderFontName or "body"
@@ -154,17 +153,16 @@ return function(props)
 			Name = "ArrowContainer",
 			OnSetProperty = theme.OnSetProperty,
 			transform = {
-				Size = Vec2(arrow_size, arrow_size),
+				Size = Vec2() + theme.GetFontSize(header_font_size),
 			},
 			gui_element = {
 				OnDraw = function(self)
 					theme.icons.disclosure(
 						self.Owner,
 						{
-							size = disclosure_size,
 							thickness = 2,
 							open_fraction = open_fraction,
-							color = resolve_color(header_icon_color, "text_foreground"),
+							color = resolve_color(header_text_color, "text_foreground"),
 						}
 					)
 				end,

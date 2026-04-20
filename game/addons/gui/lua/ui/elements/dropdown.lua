@@ -134,14 +134,13 @@ return function(props)
 			Name = "DropdownIndicator",
 			OnSetProperty = theme.OnSetProperty,
 			transform = {
-				Size = Vec2(16, 16),
+				Size = Vec2() + theme.GetFontSize(props.FontSize),
 			},
 			gui_element = {
 				OnDraw = function(self)
 					theme.icons.dropdown_indicator(
 						self.Owner,
 						{
-							size = 8,
 							thickness = 2,
 							color = theme.GetColor(props.Disabled and "text_disabled" or "text_foreground"),
 						}
