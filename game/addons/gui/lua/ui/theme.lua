@@ -3,9 +3,8 @@ local Rect = import("goluwa/structs/rect.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local minimal = import("game/addons/gui/lua/ui/themes/minimal.lua")
 local jrpg = import("game/addons/gui/lua/ui/themes/jrpg.lua")
-
 local theme = library()
-local DEFAULT_PRESET_NAME = "jrpg"
+local DEFAULT_PRESET_NAME = "minimal"
 local FONT_SIZE_ORDER = {"XS", "S", "M", "L", "XL", "XXL", "XXXL"}
 local FONT_NAME_ORDER = {"heading", "body_weak", "body", "body_strong"}
 local ICON_NAMES = {
@@ -31,7 +30,6 @@ local theme_modules = {
 	jrpg = jrpg,
 	minimal = minimal,
 }
-
 theme.preset_order = {"jrpg", "minimal"}
 theme.presets = {}
 theme.implementations = {}
@@ -68,6 +66,7 @@ function theme.OnSetProperty(obj, key, val)
 			local style, size = val:match("([^%s]+)%s*(.*)")
 
 			if size == "" then size = nil end
+
 			if not style or style == "" then style = "body" end
 
 			if theme.font_sizes[style] and not theme.font_styles[style] then
@@ -134,7 +133,9 @@ do
 	end
 
 	function theme.GetPresetLabel(name)
-		local preset = theme.presets[name or theme.GetPresetName()] or theme.presets[DEFAULT_PRESET_NAME]
+		local preset = theme.presets[name or
+			theme.GetPresetName()] or
+			theme.presets[DEFAULT_PRESET_NAME]
 		return preset.label
 	end
 
@@ -187,7 +188,9 @@ do
 		if name and not size_name then
 			local parsed_name, parsed_size = name:match("([^%s]+)%s*(.*)")
 
-			if parsed_size and parsed_size ~= "" then name, size_name = parsed_name, parsed_size end
+			if parsed_size and parsed_size ~= "" then
+				name, size_name = parsed_name, parsed_size
+			end
 		end
 
 		if theme.font_sizes[name] and not theme.font_styles[name] then
