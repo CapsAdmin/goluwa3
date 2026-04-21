@@ -27,6 +27,8 @@ return function(props)
 		is_dragging = false,
 		is_hovered = false,
 		size = initial_size,
+		drag_start_mouse = nil,
+		drag_start_size = initial_size,
 	}
 
 	local function get_first_panel()
@@ -37,23 +39,79 @@ return function(props)
 		return nil
 	end
 
+	local function get_second_panel()
+		local found_first = false
+
+		for _, child in ipairs(splitter:GetChildren()) do
+			if not child.IsInternal then
+				if found_first then return child end
+
+				found_first = true
+			end
+		end
+
+		return nil
+	end
+
+	local function get_split_limits()
+		local min_size = min_split_size
+		local max_size = math.huge
+		local first_panel = get_first_panel()
+		local second_panel = get_second_panel()
+		local divider_size = divider_width
+		local current_total = nil
+
+		if divider and divider.transform then
+			local size = divider.transform:GetSize()
+			divider_size = is_vertical and size.y or size.x
+		end
+
+		if first_panel and first_panel.transform and second_panel and second_panel.transform then
+			local first_size = is_vertical and
+				first_panel.transform:GetHeight() or
+				first_panel.transform:GetWidth()
+			local second_size = is_vertical and
+				second_panel.transform:GetHeight() or
+				second_panel.transform:GetWidth()
+			current_total = first_size + divider_size + second_size
+		elseif splitter and splitter.transform then
+			local splitter_size = splitter.transform:GetSize()
+			current_total = is_vertical and splitter_size.y or splitter_size.x
+		end
+
+		if current_total then
+			local second_min_size = 0
+
+			if second_panel and second_panel.layout then
+				local min = second_panel.layout:GetMinSize()
+				second_min_size = is_vertical and min.y or min.x
+			end
+
+			local available = current_total - divider_size - second_min_size
+			max_size = math.max(min_size, available)
+		end
+
+		return min_size, max_size
+	end
+
 	local function apply_size(new_size, emit_change)
-		state.size = new_size
+		local min_size, max_size = get_split_limits()
+		state.size = math.clamp(new_size, min_size, max_size)
 		local first_panel = get_first_panel()
 
 		if first_panel and first_panel.layout then
 			if is_vertical then
-				first_panel.layout:SetMinSize(Vec2(0, new_size))
-				first_panel.layout:SetMaxSize(Vec2(0, new_size))
+				first_panel.layout:SetMinSize(Vec2(0, state.size))
+				first_panel.layout:SetMaxSize(Vec2(0, state.size))
 			else
-				first_panel.layout:SetMinSize(Vec2(new_size, 0))
-				first_panel.layout:SetMaxSize(Vec2(new_size, 0))
+				first_panel.layout:SetMinSize(Vec2(state.size, 0))
+				first_panel.layout:SetMaxSize(Vec2(state.size, 0))
 			end
 
 			first_panel.layout:InvalidateLayout(true)
 		end
 
-		if emit_change and props.OnChange then props.OnChange(new_size, splitter) end
+		if emit_change and props.OnChange then props.OnChange(state.size, splitter) end
 	end
 
 	splitter = Panel.New{
@@ -90,11 +148,13 @@ return function(props)
 						if is_vertical then
 							child.layout:SetMinSize(Vec2(0, initial_size))
 							child.layout:SetMaxSize(Vec2(0, initial_size))
+							child.layout:SetGrowHeight(0)
 							child.layout:SetGrowWidth(1)
 							child.layout:SetFitHeight(false)
 						else
 							child.layout:SetMinSize(Vec2(initial_size, 0))
 							child.layout:SetMaxSize(Vec2(initial_size, 0))
+							child.layout:SetGrowWidth(0)
 							child.layout:SetGrowHeight(1)
 							child.layout:SetFitWidth(false)
 						end
@@ -157,10 +217,15 @@ return function(props)
 					state.is_dragging = press
 
 					if press then
+						state.drag_start_mouse = self.Owner.mouse_input:GetGlobalMousePosition():Copy()
+						state.drag_start_size = state.size
+
 						if self.Owner.gui_element then
 							self.Owner.gui_element:SetColor(theme.GetColor("primary"):Copy():SetAlpha(0.8))
 						end
 					else
+						state.drag_start_mouse = nil
+
 						if self.Owner.gui_element then
 							self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
 						end
@@ -172,6 +237,7 @@ return function(props)
 			OnGlobalMouseInput = function(self, button, press)
 				if button == "button_1" and not press and state.is_dragging then
 					state.is_dragging = false
+					state.drag_start_mouse = nil
 
 					if self.Owner.gui_element then
 						self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
@@ -180,8 +246,9 @@ return function(props)
 			end,
 			OnGlobalMouseMove = function(self, pos)
 				if state.is_dragging then
-					local lpos = splitter.transform:GlobalToLocal(pos)
-					local new_size = math.max(min_split_size, is_vertical and lpos.y or lpos.x)
+					local drag_start_mouse = state.drag_start_mouse or pos
+					local delta = pos - drag_start_mouse
+					local new_size = state.drag_start_size + (is_vertical and delta.y or delta.x)
 					apply_size(new_size, true)
 					self:SetCursor(is_vertical and "vertical_resize" or "horizontal_resize")
 					return true
