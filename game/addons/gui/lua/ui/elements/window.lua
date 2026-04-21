@@ -6,9 +6,25 @@ local Frame = import("lua/ui/elements/frame.lua")
 local Text = import("lua/ui/elements/text.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local theme = import("lua/ui/theme.lua")
+
+local function get_passthrough_props(src)
+	local out = {}
+
+	if src.Key ~= nil then out.Key = src.Key end
+
+	if src.Parent ~= nil then out.Parent = src.Parent end
+
+	if src.Ref ~= nil then out.Ref = src.Ref end
+
+	if src.ChildOrder ~= nil then out.ChildOrder = src.ChildOrder end
+
+	return out
+end
+
 return function(props)
 	local content
 	return Panel.New{
+		get_passthrough_props(props),
 		Name = props.Name or "Window",
 		OnSetProperty = theme.OnSetProperty,
 		transform = {
@@ -140,6 +156,7 @@ return function(props)
 			IsInternal = true,
 			Name = "WindowContent",
 			OnSetProperty = theme.OnSetProperty,
+			Padding = props.Padding,
 			layout = {
 				Direction = "y",
 				GrowWidth = 1,
