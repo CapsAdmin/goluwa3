@@ -1,4 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Panel = import("goluwa/ecs/panel.lua")
@@ -17,7 +19,9 @@ local Slider = import("lua/ui/elements/slider.lua")
 local Text = import("lua/ui/elements/text.lua")
 local TextEdit = import("lua/ui/elements/text_edit.lua")
 local Value = import("lua/ui/elements/value.lua")
-local Vec3Value = import("lua/ui/elements/vec3_value.lua")
+local Window = import("lua/ui/elements/window.lua")
+local ColorPicker = import("lua/ui/elements/color_picker.lua")
+local VectorValue = import("lua/ui/elements/vector_value.lua")
 local theme = import("lua/ui/theme.lua")
 local icon_sources = {
 	copy = "https://api.iconify.design/material-symbols-light/content-copy.svg",
@@ -102,16 +106,87 @@ local function format_number(node, value, fallback_precision)
 	return string.format("%." .. precision .. "f", numeric)
 end
 
-local function format_vec3(node, value, fallback_precision)
+local vector_kinds = {
+	vec3 = {
+		components = {"x", "y", "z"},
+		factory = function(values)
+			return Vec3(values[1], values[2], values[3])
+		end,
+	},
+	quat = {
+		components = {"x", "y", "z", "w"},
+		factory = function(values)
+			return Quat(values[1], values[2], values[3], values[4])
+		end,
+	},
+	color = {
+		components = {"r", "g", "b", "a"},
+		factory = function(values)
+			return Color(values[1], values[2], values[3], values[4])
+		end,
+	},
+}
+
+local function normalize_kind(kind)
+	if kind == "Vec3" then return "vec3" end
+
+	if kind == "Quat" then return "quat" end
+
+	if kind == "Color" then return "color" end
+
+	return kind
+end
+
+local function get_vector_kind_info(kind)
+	return vector_kinds[normalize_kind(kind or "")]
+end
+
+local function format_vector(node, value, fallback_precision)
+	local info = get_vector_kind_info(node.Type or node.Editor)
+
+	if not info then return tostring(value) end
+
 	local precision = get_precision(node, fallback_precision or 2)
-	local x = tonumber(value and (value.x or value[1])) or 0
-	local y = tonumber(value and (value.y or value[2])) or 0
-	local z = tonumber(value and (value.z or value[3])) or 0
-	return string.format(
-		"(%s, %s, %s)",
-		format_number({Precision = precision}, x, precision),
-		format_number({Precision = precision}, y, precision),
-		format_number({Precision = precision}, z, precision)
+	local values = {}
+
+	for index, key in ipairs(info.components) do
+		values[index] = format_number(
+			{Precision = precision},
+			tonumber(value and (value[key] or value[index])) or 0,
+			precision
+		)
+	end
+
+	return "(" .. table.concat(values, ", ") .. ")"
+end
+
+local open_color_picker_window
+open_color_picker_window = function(node, value, key, path, panel, commit_value)
+	local window_size = Vec2(380, 430)
+	local world_size = Panel.World.transform:GetSize()
+	local mouse_pos = system.GetWindow():GetMousePosition():Copy() + Vec2(16, 16)
+	mouse_pos.x = math.min(mouse_pos.x, math.max(world_size.x - window_size.x, 0))
+	mouse_pos.y = math.min(mouse_pos.y, math.max(world_size.y - window_size.y, 0))
+	Panel.World:Ensure(
+		Window{
+			Key = "PropertyColorPickerWindow/" .. key,
+			Title = "COLOR: " .. get_node_text(node, path),
+			Size = window_size,
+			Position = mouse_pos,
+			OnClose = function(self)
+				self:Remove()
+			end,
+		}{
+			ColorPicker{
+				Value = value,
+				OnChange = function(next_value)
+					commit_value(node, next_value, key, path, panel)
+				end,
+				layout = {
+					GrowWidth = 1,
+				},
+			},
+		}
 	)
 end
 
@@ -167,18 +242,22 @@ local function decode_enum(options, text)
 	return nil, false
 end
 
-local function decode_vec3(text)
+local function decode_vector(kind, text)
+	local info = get_vector_kind_info(kind)
+
+	if not info then return nil, false end
+
 	local values = {}
 
 	for number in tostring(text or ""):gmatch("[%+%-]?%d+%.?%d*") do
 		values[#values + 1] = tonumber(number)
 
-		if #values >= 3 then break end
+		if #values >= #info.components then break end
 	end
 
-	if #values ~= 3 then return nil, false end
+	if #values ~= #info.components then return nil, false end
 
-	return {x = values[1], y = values[2], z = values[3]}, true
+	return info.factory(values), true
 end
 
 local function get_option_text(options, value)
@@ -203,7 +282,7 @@ local function describe_value(node, fallback_precision)
 		return child_count .. " child" .. (child_count == 1 and "" or "ren")
 	end
 
-	local kind = node.Type or node.Editor
+	local kind = normalize_kind(node.Type or node.Editor)
 
 	if kind == "boolean" then return node.Value and "enabled" or "disabled" end
 
@@ -213,8 +292,8 @@ local function describe_value(node, fallback_precision)
 		return format_number(node, node.Value, fallback_precision)
 	end
 
-	if kind == "vec3" then
-		return format_vec3(node, node.Value, fallback_precision)
+	if get_vector_kind_info(kind) then
+		return format_vector(node, node.Value, fallback_precision)
 	end
 
 	if kind == "action" then
@@ -292,21 +371,40 @@ return function(props)
 	end
 
 	local function commit_value(node, value, key, path, panel)
-		node.Value = value
+		local applied_value = value
+		local applied = true
+		node.Value = applied_value
 
 		if panel then
 			if panel.SetValue then
-				panel:SetValue(value, false)
+				panel:SetValue(applied_value, false)
 			elseif panel.SetText then
-				panel:SetText(value == nil and "" or tostring(value))
+				panel:SetText(applied_value == nil and "" or tostring(applied_value))
 			end
 		end
 
 		sync_selection(key)
 
-		if node.OnChange then node.OnChange(node, value, key, path) end
+		if node.OnChange then
+			applied = node.OnChange(node, value, key, path) ~= false
+		end
 
-		if props.OnChange then props.OnChange(node, value, key, path) end
+		if not applied and node.GetValue then
+			applied_value = node.GetValue(node, key, path)
+			node.Value = applied_value
+
+			if panel then
+				if panel.SetValue then
+					panel:SetValue(applied_value, false)
+				elseif panel.SetText then
+					panel:SetText(applied_value == nil and "" or tostring(applied_value))
+				end
+			end
+		end
+
+		if applied and props.OnChange then
+			props.OnChange(node, applied_value, key, path)
+		end
 	end
 
 	local function trigger_action(node, key, path)
@@ -344,7 +442,7 @@ return function(props)
 	local function encode_value_for_node(node, value, panel)
 		if panel and panel.EncodeValue then return panel:EncodeValue() end
 
-		local kind = node.Type or node.Editor
+		local kind = normalize_kind(node.Type or node.Editor)
 
 		if kind == "boolean" then return value and "true" or "false" end
 
@@ -352,7 +450,9 @@ return function(props)
 
 		if kind == "number" then return format_number(node, value, number_precision) end
 
-		if kind == "vec3" then return format_vec3(node, value, number_precision) end
+		if get_vector_kind_info(kind) then
+			return format_vector(node, value, number_precision)
+		end
 
 		if kind == "action" then return nil end
 
@@ -364,7 +464,7 @@ return function(props)
 	local function decode_value_for_node(node, text, current_value, panel)
 		if panel and panel.DecodeValue then return panel:DecodeValue(text) end
 
-		local kind = node.Type or node.Editor
+		local kind = normalize_kind(node.Type or node.Editor)
 
 		if kind == "boolean" then return decode_boolean(text) end
 
@@ -382,7 +482,7 @@ return function(props)
 			return numeric, true
 		end
 
-		if kind == "vec3" then return decode_vec3(text) end
+		if get_vector_kind_info(kind) then return decode_vector(kind, text) end
 
 		if kind == "action" then return nil, false end
 
@@ -405,7 +505,7 @@ return function(props)
 
 	local function open_value_context_menu(entry, panel)
 		local node = entry.node
-		local kind = node.Type or node.Editor
+		local kind = normalize_kind(node.Type or node.Editor)
 
 		if kind == "action" or has_entries(get_node_children(node)) then return end
 
@@ -622,9 +722,21 @@ return function(props)
 			return control, control
 		end
 
-		if kind == "vec3" then
-			local control = Vec3Value{
+		local vector_info = get_vector_kind_info(kind)
+
+		if vector_info then
+			local control = VectorValue{
 				Value = node.Value,
+				Components = vector_info.components,
+				Factory = node.VectorFactory or vector_info.factory,
+				ShowSwatch = kind == "color",
+				OnSwatchClick = function(value, swatch_control)
+					if node.OnSwatchClick then
+						node.OnSwatchClick(node, value, key, path, swatch_control)
+					elseif kind == "color" then
+						open_color_picker_window(node, value, key, path, control, commit_value)
+					end
+				end,
 				FontSize = compact_font_size,
 				Min = node.Min,
 				Max = node.Max,
