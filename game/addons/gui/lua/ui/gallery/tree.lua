@@ -201,6 +201,62 @@ local function find_node_by_key(nodes, key)
 	return nil
 end
 
+local function find_node_location(nodes, key, parent)
+	for index, node in ipairs(nodes or {}) do
+		if node.Key == key then return nodes, index, node, parent end
+
+		local found_nodes, found_index, found_node, found_parent = find_node_location(node.Children, key, node)
+
+		if found_nodes then return found_nodes, found_index, found_node, found_parent end
+	end
+
+	return nil
+end
+
+local function move_node(nodes, drop_info)
+	local source_nodes, source_index, source_node = find_node_location(nodes, drop_info.source_key)
+
+	if not source_nodes or not source_node then return false end
+
+	table.remove(source_nodes, source_index)
+	local _, target_index, target_node = find_node_location(nodes, drop_info.target_key)
+
+	if not target_node then
+		table.insert(source_nodes, source_index, source_node)
+		return false
+	end
+
+	if drop_info.position == "inside" then
+		target_node.Children = target_node.Children or {}
+		target_node.Expanded = true
+		target_node.Children[#target_node.Children + 1] = source_node
+		return true
+	end
+
+	local target_nodes
+	target_nodes, target_index = find_node_location(nodes, drop_info.target_key)
+
+	if not target_nodes then
+		table.insert(source_nodes, source_index, source_node)
+		return false
+	end
+
+	local insert_index = target_index + (drop_info.position == "after" and 1 or 0)
+	table.insert(target_nodes, insert_index, source_node)
+	return true
+end
+
+local function format_drop_message(drop_info)
+	local source_label = drop_info.source_node and drop_info.source_node.Text or drop_info.source_key
+	local target_label = drop_info.target_node and drop_info.target_node.Text or drop_info.target_key
+
+	if drop_info.position == "inside" then
+		return string.format("Moved %s into %s.", source_label, target_label)
+	end
+
+	return string.format("Moved %s %s %s.", source_label, drop_info.position, target_label)
+end
+
 local function set_text(panel, value)
 	if panel and panel:IsValid() then panel.text:SetText(value or "") end
 end
@@ -212,11 +268,13 @@ return {
 			show_hidden = false,
 			selected_key = "project/lua/ui/elements/tree.lua",
 			items = build_demo_items(false),
+			last_drop = "Drag rows by their labels. Drop near an edge to place before or after, or in the middle of a folder to move into it.",
 		}
 		local tree_view
 		local detail_title
 		local detail_meta
 		local detail_body
+		local drag_status
 
 		local function refresh_details(node)
 			node = node or find_node_by_key(state.items, state.selected_key) or state.items[1]
@@ -247,6 +305,7 @@ return {
 			end
 
 			refresh_details(find_node_by_key(state.items, state.selected_key))
+			set_text(drag_status, state.last_drop)
 		end
 
 		return Column{
@@ -264,7 +323,7 @@ return {
 				IgnoreMouseInput = true,
 			},
 			Text{
-				Text = "This demo shows a keyed tree view with expandable branches, selection, programmatic focus, and live item replacement. Use the disclosure toggles to expand folders, or the controls below to drive the widget from the outside.",
+				Text = "This demo shows a keyed tree view with expandable branches, selection, programmatic focus, live item replacement, and drag-and-drop moves. Drag a row by its label. Drop on the middle of a folder to move into it, or near the top or bottom edge of any row to place before or after it.",
 				Wrap = true,
 				IgnoreMouseInput = true,
 				layout = {
@@ -327,6 +386,19 @@ return {
 					},
 				},
 			},
+			Text{
+				Ref = function(self)
+					drag_status = self
+					set_text(self, state.last_drop)
+				end,
+				Text = "",
+				Color = "text_disabled",
+				Wrap = true,
+				IgnoreMouseInput = true,
+				layout = {
+					GrowWidth = 1,
+				},
+			},
 			Splitter{
 				InitialSize = 280,
 				layout = {
@@ -375,6 +447,25 @@ return {
 							OnSelect = function(node, key)
 								state.selected_key = key
 								refresh_details(node)
+							end,
+							CanDropInside = function(node)
+								return node.Kind == "folder"
+							end,
+							OnDrop = function(drop_info)
+								if not move_node(state.items, drop_info) then return false end
+
+								state.selected_key = drop_info.source_key
+								state.last_drop = format_drop_message(drop_info)
+
+								if tree_view and tree_view:IsValid() then
+									tree_view:SetItems(state.items)
+									tree_view:ExpandToKey(state.selected_key)
+									tree_view:SetSelectedKey(state.selected_key)
+								end
+
+								refresh_details(find_node_by_key(state.items, state.selected_key))
+								set_text(drag_status, state.last_drop)
+								return true
 							end,
 							layout = {
 								GrowWidth = 1,
@@ -442,7 +533,7 @@ return {
 							IgnoreMouseInput = true,
 						},
 						Text{
-							Text = "Use stable keys if you want expansion state to survive item replacement. The element exposes SetItems, SetSelectedKey, ExpandAll, CollapseAll, ExpandToKey, and Rebuild.",
+							Text = "Use stable keys if you want expansion state to survive item replacement. The element exposes SetItems, SetSelectedKey, ExpandAll, CollapseAll, ExpandToKey, Rebuild, and OnDrop for host-controlled rearrangement.",
 							Wrap = true,
 							IgnoreMouseInput = true,
 							layout = {

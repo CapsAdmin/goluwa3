@@ -38,8 +38,16 @@ return function(props)
 	local toggle_on_row_click = props.ToggleOnRowClick == true
 	local double_click_time = props.DoubleClickTime or 0.3
 	local animation_time = props.AnimationTime or 0.18
+	local drag_threshold = props.DragThreshold or 6
+	local drag_enabled = props.OnDrop ~= nil
 	local tree
 	local is_expanded
+	local set_selected
+	local drag_state = {
+		active = false,
+		source_key = nil,
+		drop_info = nil,
+	}
 
 	local function update_layout_now(entity)
 		if not entity or not entity:IsValid() or not entity.layout then return end
@@ -82,6 +90,20 @@ return function(props)
 		return nil
 	end
 
+	local function can_drag_node(node, path, key)
+		if props.CanDragNode then return not not props.CanDragNode(node, path, key) end
+
+		return not node.Disabled
+	end
+
+	local function can_drop_inside(node, path, key, has_children)
+		if props.CanDropInside then
+			return not not props.CanDropInside(node, path, key, has_children)
+		end
+
+		return has_children
+	end
+
 	local function is_selected(node, path, key)
 		if props.IsSelected then return not not props.IsSelected(node, path, key) end
 
@@ -100,6 +122,133 @@ return function(props)
 		if not info or not info.text or not info.text:IsValid() then return end
 
 		info.text.text:SetColor(get_text_color(info.node, info.path, info.key))
+	end
+
+	local function clear_drag_state()
+		drag_state.active = false
+		drag_state.source_key = nil
+		drag_state.drop_info = nil
+	end
+
+	local function is_key_in_branch(source_key, candidate_key)
+		local current_key = candidate_key
+
+		while current_key do
+			if current_key == source_key then return true end
+
+			local current_info = row_infos[current_key]
+
+			if not current_info then break end
+
+			current_key = current_info.parent_key
+		end
+
+		return false
+	end
+
+	local function find_drop_info(source_info, global_pos)
+		if not source_info then return nil end
+
+		for _, key in ipairs(row_order) do
+			local target_info = row_infos[key]
+
+			if
+				target_info and
+				target_info.clip and
+				target_info.clip:IsValid() and
+				target_info.clip.gui_element and
+				target_info.clip.gui_element:GetVisible() and
+				target_info.clip.gui_element:IsHovered(global_pos)
+			then
+				if target_info.key == source_info.key then return nil end
+
+				local local_pos = target_info.clip.transform:GlobalToLocal(global_pos)
+				local height = math.max(target_info.clip.transform:GetHeight(), 1)
+				local position
+				local allow_inside = can_drop_inside(target_info.node, target_info.path, target_info.key, target_info.has_children)
+
+				if allow_inside then
+					local edge_size = math.max(4, height * 0.25)
+
+					if local_pos.y <= edge_size then
+						position = "before"
+					elseif local_pos.y >= height - edge_size then
+						position = "after"
+					else
+						position = "inside"
+					end
+				else
+					position = local_pos.y < height / 2 and "before" or "after"
+				end
+
+				local parent_info
+				local parent_key
+
+				if position == "inside" then
+					parent_info = target_info
+					parent_key = target_info.key
+				else
+					parent_key = target_info.parent_key
+					parent_info = parent_key and row_infos[parent_key] or nil
+				end
+
+				if is_key_in_branch(source_info.key, parent_key) then return nil end
+
+				local drop_info = {
+					source_node = source_info.node,
+					source_key = source_info.key,
+					source_path = source_info.path,
+					target_node = target_info.node,
+					target_key = target_info.key,
+					target_path = target_info.path,
+					parent_node = parent_info and parent_info.node or nil,
+					parent_key = parent_key,
+					parent_path = parent_info and parent_info.path or nil,
+					position = position,
+				}
+
+				if props.CanDrop and not props.CanDrop(drop_info) then return nil end
+
+				return drop_info
+			end
+		end
+
+		return nil
+	end
+
+	local function begin_drag(row_info)
+		if not drag_enabled or not row_info then return end
+
+		drag_state.active = false
+		drag_state.source_key = row_info.key
+		drag_state.drop_info = nil
+		set_selected(row_info.node, row_info.path, row_info.key)
+	end
+
+	local function update_drag(row_info, delta, global_pos)
+		if not drag_enabled or not row_info or drag_state.source_key ~= row_info.key then
+			return true
+		end
+
+		if not drag_state.active then
+			if delta:GetLength() < drag_threshold then return true end
+
+			drag_state.active = true
+		end
+
+		drag_state.drop_info = find_drop_info(row_info, global_pos)
+		return true
+	end
+
+	local function finish_drag(row_info)
+		if not drag_enabled or not row_info or drag_state.source_key ~= row_info.key then
+			return
+		end
+
+		local drop_info = drag_state.active and drag_state.drop_info or nil
+		clear_drag_state()
+
+		if drop_info and props.OnDrop then props.OnDrop(drop_info) end
 	end
 
 	local function update_row_display(info)
@@ -210,7 +359,7 @@ return function(props)
 		refresh_visibility()
 	end
 
-	local function set_selected(node, path, key)
+	function set_selected(node, path, key)
 		local previous_key = selected_key
 
 		if props.IsSelected then
@@ -389,6 +538,10 @@ return function(props)
 				Cursor = node.Disabled and "arrow" or "pointer",
 				OnHover = function(self, is_hovered)
 					hovered = is_hovered
+
+					if props.OnNodeHover then
+						props.OnNodeHover(node, key, path, row_info, is_hovered, self.Owner)
+					end
 				end,
 				OnMouseInput = function(self, button, press)
 					if node.Disabled or button ~= "button_1" or not press then return end
@@ -406,6 +559,16 @@ return function(props)
 					return true
 				end,
 			},
+			draggable = drag_enabled and can_drag_node(node, path, key),
+			OnDragStarted = function()
+				begin_drag(row_info)
+			end,
+			OnDrag = function(self, delta, global_pos)
+				return update_drag(row_info, delta, global_pos)
+			end,
+			OnDragStopped = function()
+				finish_drag(row_info)
+			end,
 			clickable = true,
 		}{
 			Text{
@@ -521,7 +684,16 @@ return function(props)
 				Floating = true,
 			},
 			gui_element = true,
-			mouse_input = true,
+			mouse_input = {
+				OnMouseInput = function(self, button, press)
+					if not props.OnNodeContextMenu then return end
+
+					if button ~= "button_2" or not press or node.Disabled then return end
+
+					set_selected(node, path, key)
+					return props.OnNodeContextMenu(node, key, path, row_info, self.Owner)
+				end,
+			},
 		}(row_children)
 		row_info.body = row
 		local clip = Panel.New{
@@ -549,6 +721,33 @@ return function(props)
 			gui_element = {
 				Clipping = true,
 				Visible = false,
+				OnPostDraw = function(self)
+					local drop_info = drag_state.active and drag_state.drop_info or nil
+					local is_source = drag_state.active and drag_state.source_key == key
+
+					if not is_source and (not drop_info or drop_info.target_key ~= key) then
+						return
+					end
+
+					local size = self.Owner.transform:GetSize()
+					local color = theme.GetColor(props.DropIndicatorColor or "primary")
+					render2d.SetTexture(nil)
+					render2d.SetColor(color:Unpack())
+
+					if is_source then
+						gfx.DrawOutlinedRect(0, 0, math.max(1, size.x), math.max(1, size.y), 1)
+					end
+
+					if not drop_info or drop_info.target_key ~= key then return end
+
+					if drop_info.position == "inside" then
+						gfx.DrawOutlinedRect(0, 0, math.max(1, size.x), math.max(1, size.y), 2)
+					elseif drop_info.position == "before" then
+						render2d.DrawRect(0, 0, math.max(1, size.x), 2)
+					else
+						render2d.DrawRect(0, math.max(0, size.y - 2), math.max(1, size.x), 2)
+					end
+				end,
 			},
 			mouse_input = true,
 			animation = true,
@@ -646,6 +845,7 @@ return function(props)
 	end
 
 	function tree:Rebuild()
+		clear_drag_state()
 		row_infos = {}
 		row_order = {}
 		self:RemoveChildren()

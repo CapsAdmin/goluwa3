@@ -224,9 +224,11 @@ end
 local function add_rigid_body(ent, config, shape)
 	if get(config, "Collision") == false then return nil end
 
-	local rigid_body = copy_table(get(config, "RigidBody"))
+	local rigid_body_config = get(config, "RigidBody")
 
-	if rigid_body == false then return nil end
+	if rigid_body_config == false then return nil end
+
+	local rigid_body = copy_table(rigid_body_config)
 
 	if shape ~= nil and rigid_body.Shape == nil then rigid_body.Shape = shape end
 

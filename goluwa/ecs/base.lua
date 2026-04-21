@@ -1,4 +1,5 @@
 return function(name, base_path, get_valid_components)
+	local event = import("goluwa/event.lua")
 	local prototype = import("goluwa/prototype.lua")
 	local BaseEntity = prototype.CreateTemplate(name)
 	prototype.ParentingTemplate(BaseEntity)
@@ -33,6 +34,22 @@ return function(name, base_path, get_valid_components)
 		for i = 1, #config do
 			apply_config(instance, config[i], OnSetProperty)
 		end
+	end
+
+	function BaseEntity:NotifyWorldEvent(event_name, a, b, c, d, e, f, g)
+		local world = BaseEntity.World
+
+		if world and world.IsValid and world:IsValid() then
+			return world:CallLocalEvent(event_name, self, a, b, c, d, e, f, g)
+		end
+	end
+
+	local function notify_parented(self, parent)
+		self:NotifyWorldEvent("OnEntityHierarchyChanged", "parented", parent)
+	end
+
+	local function notify_unparented(self, old_parent)
+		self:NotifyWorldEvent("OnEntityHierarchyChanged", "unparented", old_parent)
 	end
 
 	function BaseEntity.RegisterComponent(name, meta)
@@ -80,6 +97,8 @@ return function(name, base_path, get_valid_components)
 		end
 
 		find_special_props(config)
+		self:AddLocalListener("OnParent", notify_parented)
+		self:AddLocalListener("OnUnParent", notify_unparented)
 		self:SetParent(parent)
 
 		if config then
@@ -239,33 +258,39 @@ return function(name, base_path, get_valid_components)
 	function BaseEntity:AddComponent(name, tbl, skip_init, OnSetProperty)
 		local valid_components = BaseEntity.GetValidComponents()
 		local meta = valid_components[name] --require(base_path .. name)
-		self[name] = self:CreateSubObject(meta)
-		apply_config(self[name], tbl, OnSetProperty)
+		local component = self:CreateSubObject(meta)
+		self[name] = component
+		apply_config(component, tbl, OnSetProperty)
 
 		if not skip_init then
-			if self[name].Initialize then self[name]:Initialize() end
+			if component.Initialize then component:Initialize() end
 		end
 
-		self.component_map[name] = self[name]
+		self.component_map[name] = component
 		self.component_list = self.component_list or {}
-		list.insert(self.component_list, self[name])
-		return self[name]
+		list.insert(self.component_list, component)
+		self:NotifyWorldEvent("OnEntityComponentChanged", "added", name, component)
+		return component
 	end
 
 	function BaseEntity:RemoveComponent(name)
-		if not self[name] then return end
+		local component = self[name]
 
-		self[name]:Remove()
+		if not component then return end
+
+		component:Remove()
 		self[name] = nil
 		self.component_map[name] = nil
 
-		for i, component in ipairs(self.component_list) do
-			if component == self[name] then
+		for i, other in ipairs(self.component_list) do
+			if other == component then
 				table.remove(self.component_list, i)
 
 				break
 			end
 		end
+
+		self:NotifyWorldEvent("OnEntityComponentChanged", "removed", name, component)
 	end
 
 	function BaseEntity:HasComponent(name)

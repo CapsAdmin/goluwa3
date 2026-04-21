@@ -29,18 +29,11 @@ do
 		self.ProjectionMatrix = Matrix44()
 
 		if self.OrthoMode then
-			self.ProjectionMatrix:Translate(self.Viewport.x, self.Viewport.y, 0)
 			local mult = 100 * self.FOV
 			local ratio = self.Viewport.h / self.Viewport.w
 			self.ProjectionMatrix:Ortho(-mult, mult, mult * ratio, -mult * ratio, -32000 * 2, 32000)
 		else
 			self.ProjectionMatrix:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
-
-			if self.Viewport.x ~= 0 or self.Viewport.y ~= 0 then
-				local m = Matrix44()
-				m:Translate(self.Viewport.x, self.Viewport.y, 0)
-				self.ProjectionMatrix:Multiply(m)
-			end
 		end
 
 		if self.Jitter.x ~= 0 or self.Jitter.y ~= 0 then

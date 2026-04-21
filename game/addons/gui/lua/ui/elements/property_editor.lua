@@ -905,6 +905,8 @@ return function(props)
 	local function build_label_row(entry, is_alternate)
 		local info = {
 			key = entry.key,
+			node = entry.node,
+			path = entry.path,
 		}
 		row_infos[entry.key] = info
 		return Panel.New{
@@ -969,6 +971,13 @@ return function(props)
 
 	local function build_editor_row(entry, is_alternate)
 		local editor_panel, editor_value_panel = build_editor_panel(entry.node, entry.path, entry.key)
+		local info = row_infos[entry.key]
+
+		if info then
+			info.editor_panel = editor_panel
+			info.editor_value_panel = editor_value_panel
+		end
+
 		return Panel.New{
 			Name = "PropertyEditorRow",
 			OnSetProperty = theme.OnSetProperty,
@@ -1293,6 +1302,37 @@ return function(props)
 	function editor:GetPanelForKey(key)
 		local info = row_infos[key]
 		return info and info.panel or nil
+	end
+
+	function editor:UpdateValueForKey(key, value)
+		local info = row_infos[key]
+
+		if not info then return false end
+
+		local node = info.node
+
+		if not node then return false end
+
+		node.Value = value
+		local panel = info.editor_value_panel or info.editor_panel
+
+		if panel and panel.IsValid and panel:IsValid() then
+			if panel.SetValue then
+				panel:SetValue(value, false)
+			elseif panel.SetText then
+				panel:SetText(value == nil and "" or tostring(value))
+			end
+		end
+
+		return true
+	end
+
+	function editor:RefreshValueForKey(key)
+		local info = row_infos[key]
+
+		if not (info and info.node and info.node.GetValue) then return false end
+
+		return self:UpdateValueForKey(key, info.node.GetValue(info.node, key, info.path))
 	end
 
 	function editor:ExpandAll()
