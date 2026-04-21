@@ -398,6 +398,12 @@ return function(props)
 	local update_footer
 	local refresh_property_key
 	local sync_tree_items
+	local request_editor_sync
+	local flush_pending_editor_sync
+	local pending_tree_sync = false
+	local pending_selection_sync = false
+	local pending_sync_deadline = 0
+	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_camera = {
 		enabled = true,
 		scale_viewport = false,
@@ -660,7 +666,7 @@ return function(props)
 
 		if property_name == "Name" or property_name == "Key" then
 			property_editor:RefreshValueForKey(row_key)
-			sync_tree_items()
+			request_editor_sync(true, false)
 			update_footer(state.selected_entity, state.tree_items)
 			return
 		end
@@ -672,15 +678,42 @@ return function(props)
 	sync_tree_items = function()
 		if not tree_view or not tree_view:IsValid() then return end
 
+		pending_tree_sync = false
+		local previous_guid = state.selected_entity_guid
 		local tree_items = build_tree_items(state.expanded_entities)
 		set_selected_entity(resolve_selected_entity(tree_items), false)
 		state.tree_items = tree_items
 		tree_view:SetItems(tree_items)
 		tree_view:SetSelectedKey(state.selected_entity_guid)
 		update_footer(state.selected_entity, tree_items)
+		return state.selected_entity_guid ~= previous_guid
+	end
+	request_editor_sync = function(tree_dirty, selection_dirty)
+		if tree_dirty then pending_tree_sync = true end
+
+		if selection_dirty then pending_selection_sync = true end
+
+		pending_sync_deadline = system.GetElapsedTime() + sync_debounce_time
+	end
+	flush_pending_editor_sync = function(force)
+		if not pending_tree_sync and not pending_selection_sync then return end
+
+		if not force and system.GetElapsedTime() < pending_sync_deadline then return end
+
+		if pending_tree_sync then
+			pending_tree_sync = false
+
+			if sync_tree_items() then pending_selection_sync = true end
+		end
+
+		if pending_selection_sync then
+			pending_selection_sync = false
+			sync_selection()
+		end
 	end
 
 	local function sync_selection()
+		pending_selection_sync = false
 		set_selected_entity(resolve_selected_entity(state.tree_items), false)
 		refresh_selected_property_listeners()
 
@@ -1085,6 +1118,7 @@ return function(props)
 
 	function window:OnUpdate(dt)
 		update_editor_camera(dt)
+		flush_pending_editor_sync(false)
 	end
 
 	Gizmo.SetStateChangedCallback(window, function(status)
@@ -1110,13 +1144,15 @@ return function(props)
 	)
 
 	do
-		local remove_hierarchy_listener = Entity.World:AddLocalListener("OnEntityHierarchyChanged", function()
-			sync_tree_items()
-			sync_selection()
+		local remove_hierarchy_listener = Entity.World:AddLocalListener("OnEntityHierarchyChanged", function(entity)
+			request_editor_sync(true, false)
 		end)
-		local remove_component_listener = Entity.World:AddLocalListener("OnEntityComponentChanged", function()
-			sync_tree_items()
-			sync_selection()
+		local remove_component_listener = Entity.World:AddLocalListener("OnEntityComponentChanged", function(entity)
+			local selected_entity = get_selected_entity()
+
+			if selected_entity and entity == selected_entity then
+				request_editor_sync(false, true)
+			end
 		end)
 		window:CallOnRemove(remove_hierarchy_listener, remove_hierarchy_listener)
 		window:CallOnRemove(remove_component_listener, remove_component_listener)
