@@ -1126,7 +1126,18 @@ do -- base object
 	prototype.EndStorable()
 
 	function META:GetGUID()
-		self.GUID = self.GUID or ("%p%p"):format(self, getmetatable(META))
+		local guid = self.GUID
+
+		if guid == nil or guid == "" then
+			guid = ("%p%p"):format(self, getmetatable(META))
+			self:SetGUID(guid)
+			return guid
+		end
+
+		prototype.created_objects_guid = prototype.created_objects_guid or table.weak()
+
+		if prototype.created_objects_guid[guid] ~= self then self:SetGUID(guid) end
+
 		return self.GUID
 	end
 
@@ -1247,6 +1258,11 @@ do -- base object
 				for _, obj in ipairs(prototype.remove_these) do
 					remove_from_instances(obj)
 					prototype.created_objects[obj] = nil
+
+					if prototype.created_objects_guid and obj.GUID ~= "" then
+						prototype.created_objects_guid[obj.GUID] = nil
+					end
+
 					prototype.MakeNULL(obj)
 				end
 
