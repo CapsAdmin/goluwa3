@@ -127,8 +127,8 @@ function META:GetHSV()
 	local r = self.r
 	local g = self.g
 	local b = self.b
-	local h
-	local s
+	local h = 0
+	local s = 0
 	local v
 	local min = math.min(r, g, b)
 	local max = math.max(r, g, b)
@@ -141,14 +141,11 @@ function META:GetHSV()
 		return 0, 0, 0
 	end
 
-	if max ~= 0 then
-		s = delta / max -- rofl deltamax :|
-	else
-		-- r = g = b = 0; s = 0, v is undefined
-		s = 0
-		h = -1
-		return h, s, v
-	end
+	if max == 0 then return 0, 0, v end
+
+	s = delta / max -- rofl deltamax :|
+
+	if delta == 0 then return 0, 0, v end
 
 	if r == max then
 		h = (g - b) / delta -- yellow/magenta
@@ -157,6 +154,8 @@ function META:GetHSV()
 	else
 		h = 4 + (r - g) / delta -- magenta/cyan
 	end
+
+	h = h / 6
 
 	if h < 0 then h = h + 1 end
 
