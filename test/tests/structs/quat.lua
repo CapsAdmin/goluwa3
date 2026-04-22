@@ -2,6 +2,8 @@ local T = import("test/environment.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
 
 T.Test("Quat construction", function()
 	local q = Quat(1, 2, 3, 4)
@@ -241,6 +243,28 @@ T.Test("Quat RotateYaw", function()
 	q:RotateYaw(angle)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
 	T(not (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1))["=="](true)
+end)
+
+T.Test("Quat rotated local axis matches world-axis pre-multiply", function()
+	local start = QuatFromAxis(math.pi / 2, orientation.UP_VECTOR)
+	local axis_world = start:Right()
+	local angle = math.pi / 4
+	local rotated_world = (QuatFromAxis(angle, axis_world) * start):GetNormalized()
+	local rotated_local = (start * QuatFromAxis(angle, orientation.RIGHT_VECTOR)):GetNormalized()
+	T(math.abs(rotated_world:Dot(rotated_local)) > 0.99999)["=="](true)
+end)
+
+T.Test("Quat matrix roundtrip preserves axis signs", function()
+	local cases = {
+		Quat(0.4, 0, 0, 0.92):GetNormalized(),
+		Quat(0, 0.4, 0, 0.92):GetNormalized(),
+		Quat(0, 0, 0.4, 0.92):GetNormalized(),
+	}
+
+	for _, q in ipairs(cases) do
+		local roundtrip = Matrix44():SetRotation(q):GetRotation():GetNormalized()
+		T(math.abs(q:Dot(roundtrip)) > 0.99999)["=="](true)
+	end
 end)
 
 T.Test("Quat RotateRoll", function()

@@ -710,9 +710,9 @@ do -- 44
 	function META:GetRotation(out)
 		local w = math.sqrt(1 + self.m00 + self.m11 + self.m22) / 2
 		local w2 = w * 4
-		local x = (self.m21 - self.m12) / w2
-		local y = (self.m02 - self.m20) / w2
-		local z = (self.m10 - self.m01) / w2
+		local x = (self.m12 - self.m21) / w2
+		local y = (self.m20 - self.m02) / w2
+		local z = (self.m01 - self.m10) / w2
 		out = out or Quat()
 		out:Set(x, y, z, w)
 		return out

@@ -1175,7 +1175,13 @@ return function(props)
 					Text = "FILE",
 					Items = function()
 						return {
-							MenuItem{Text = "Open UI Gallery", OnClick = open_gallery},
+							MenuItem{Text = "ui gallery", OnClick = open_gallery},
+							MenuItem{
+								Text = "exit",
+								OnClick = function()
+									system.ShutDown(0)
+								end,
+							},
 						}
 					end,
 				},

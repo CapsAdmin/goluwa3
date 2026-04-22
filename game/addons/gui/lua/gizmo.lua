@@ -1,7 +1,7 @@
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local event = import("goluwa/event.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Entity = import("goluwa/ecs/entity.lua")
@@ -108,24 +108,42 @@ local function transform_direction(matrix, direction)
 	return Vec3(tx - ox, ty - oy, tz - oz):GetNormalized()
 end
 
-local function get_gizmo_axes(entity)
-	local world_matrix = entity.transform and entity.transform:GetWorldMatrix()
+local function get_transform_local_rotation(transform)
+	local _, interpolated_rotation = transform:GetRenderPositionRotation()
+	return (transform.OverrideRotation or interpolated_rotation or transform.Rotation):GetNormalized()
+end
 
-	if state.space == "local" and world_matrix then
+local function get_transform_world_rotation(transform)
+	local rotation = get_transform_local_rotation(transform)
+	local owner = transform and transform.Owner
+	local parent = owner and owner:GetParent()
+
+	if parent and parent.IsValid and parent:IsValid() and parent.transform then
+		return (get_transform_world_rotation(parent.transform) * rotation):GetNormalized()
+	end
+
+	return rotation
+end
+
+local function get_gizmo_axes(entity)
+	local transform = entity.transform
+
+	if state.space == "local" and transform then
+		local world_rotation = get_transform_world_rotation(transform)
 		return {
 			{
 				id = "x",
-				direction = transform_direction(world_matrix, orientation.RIGHT_VECTOR),
+				direction = world_rotation:Right(),
 				color = axis_colors.x,
 			},
 			{
 				id = "y",
-				direction = transform_direction(world_matrix, orientation.UP_VECTOR),
+				direction = world_rotation:Up(),
 				color = axis_colors.y,
 			},
 			{
 				id = "z",
-				direction = transform_direction(world_matrix, orientation.FORWARD_VECTOR),
+				direction = world_rotation:Forward(),
 				color = axis_colors.z,
 			},
 		}
@@ -199,9 +217,37 @@ local function get_circle_basis(normal)
 end
 
 local function build_axis_rotation(axis, angle)
-	local rotation = Matrix44():Identity()
-	rotation:Rotate(angle, axis.x, axis.y, axis.z)
-	return rotation:GetRotation()
+	return QuatFromAxis(angle, axis)
+end
+
+local function get_mouse_rotation_ring_vector(center, axis_direction, radius, mouse_pos, center_screen)
+	center_screen = center_screen or project_world_position(center)
+
+	if not center_screen then return nil end
+
+	local u, v = get_circle_basis(axis_direction)
+	local u_screen = project_world_position(center + u * radius)
+	local v_screen = project_world_position(center + v * radius)
+
+	if not (u_screen and v_screen) then return nil end
+
+	local ux = u_screen.x - center_screen.x
+	local uy = u_screen.y - center_screen.y
+	local vx = v_screen.x - center_screen.x
+	local vy = v_screen.y - center_screen.y
+	local det = ux * vy - uy * vx
+
+	if math.abs(det) < 1e-5 then return nil end
+
+	local dx = mouse_pos.x - center_screen.x
+	local dy = mouse_pos.y - center_screen.y
+	local ru = (dx * vy - dy * vx) / det
+	local rv = (ux * dy - uy * dx) / det
+	local ring_vector = Vec2(ru, rv)
+
+	if ring_vector:GetLength() < 1e-5 then return nil end
+
+	return ring_vector:GetNormalized()
 end
 
 local function set_entity_world_position(entity, world_position)
@@ -219,7 +265,7 @@ local function set_entity_world_rotation(entity, world_rotation)
 	local parent = entity and entity:GetParent()
 
 	if parent and parent:IsValid() and parent.transform then
-		entity.transform:SetRotation(parent.transform:GetWorldMatrix():GetRotation():GetConjugated() * world_rotation)
+		entity.transform:SetRotation(get_transform_world_rotation(parent.transform):GetConjugated() * world_rotation)
 		return
 	end
 
@@ -359,8 +405,11 @@ local function begin_gizmo_drag(handle)
 	if not center_screen then return nil end
 
 	local start_mouse_vector = mouse_pos - center_screen
+	local start_ring_vector = get_mouse_rotation_ring_vector(handle.center, handle.direction, handle.radius, mouse_pos, center_screen)
 
-	if start_mouse_vector:GetLength() < 1e-5 then return nil end
+	if start_mouse_vector:GetLength() < 1e-5 and not start_ring_vector then
+		return nil
+	end
 
 	return {
 		kind = "rotate",
@@ -368,8 +417,13 @@ local function begin_gizmo_drag(handle)
 		entity = entity,
 		axis_direction = handle.direction,
 		center_screen = center_screen,
-		start_mouse_vector = start_mouse_vector:GetNormalized(),
-		start_world_rotation = entity.transform:GetWorldMatrix():GetRotation():Copy(),
+		center = handle.center,
+		radius = handle.radius,
+		start_mouse_vector = start_mouse_vector:GetLength() >= 1e-5 and
+			start_mouse_vector:GetNormalized() or
+			nil,
+		start_ring_vector = start_ring_vector,
+		start_world_rotation = get_transform_world_rotation(entity.transform):Copy(),
 	}
 end
 
@@ -413,15 +467,27 @@ local function update_gizmo_drag()
 		return
 	end
 
-	local current_vector = mouse_pos - drag.center_screen
+	local current_ring_vector = get_mouse_rotation_ring_vector(drag.center, drag.axis_direction, drag.radius, mouse_pos, drag.center_screen)
+	local angle
 
-	if current_vector:GetLength() < 1e-5 then return end
+	if drag.start_ring_vector and current_ring_vector then
+		angle = math.atan2(
+			drag.start_ring_vector.x * current_ring_vector.y - drag.start_ring_vector.y * current_ring_vector.x,
+			drag.start_ring_vector:GetDot(current_ring_vector)
+		)
+	else
+		local current_mouse_vector = mouse_pos - drag.center_screen
 
-	current_vector = current_vector:GetNormalized()
-	local angle = math.atan2(
-		drag.start_mouse_vector.x * current_vector.y - drag.start_mouse_vector.y * current_vector.x,
-		drag.start_mouse_vector:GetDot(current_vector)
-	)
+		if not drag.start_mouse_vector or current_mouse_vector:GetLength() < 1e-5 then
+			return
+		end
+
+		current_mouse_vector = current_mouse_vector:GetNormalized()
+		angle = math.atan2(
+			drag.start_mouse_vector.x * current_mouse_vector.y - drag.start_mouse_vector.y * current_mouse_vector.x,
+			drag.start_mouse_vector:GetDot(current_mouse_vector)
+		)
+	end
 
 	if input.IsKeyDown("left_shift") or input.IsKeyDown("right_shift") then
 		angle = math.rad(math.floor(math.deg(angle) / 15 + 0.5) * 15)
