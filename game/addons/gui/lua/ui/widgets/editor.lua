@@ -173,28 +173,66 @@ local function get_entity_label(entity)
 	return base
 end
 
-local function get_first_spawned_entity()
-	for _, child in ipairs(Entity.World:GetChildren()) do
-		if child and child:IsValid() then return child end
+local function is_world_root(entity)
+	return entity == Entity.World or entity == Panel.World
+end
+
+local function get_entity_world_root(entity)
+	local current = entity
+
+	while current and current.IsValid and current:IsValid() do
+		if is_world_root(current) then return current end
+
+		current = current:GetParent()
 	end
 
 	return nil
 end
 
-local function get_valid_children(entity)
+local function is_hidden_editor_entity(entity, editor_window)
+	if not (entity and entity.IsValid and entity:IsValid()) then return false end
+
+	if editor_window and has_parent(entity, editor_window) then return true end
+
+	local key = entity.GetKey and entity:GetKey() or ""
+	return key == "EditorMenuBarContextMenu" or
+		key == "EditorTreeContextMenu" or
+		key == "UITooltipOverlay"
+end
+
+local function should_ignore_editor_tree_change(entity, related_entity, editor_window)
+	return is_hidden_editor_entity(entity, editor_window) or
+		is_hidden_editor_entity(related_entity, editor_window)
+end
+
+local function get_first_spawned_entity(editor_window)
+	for _, world in ipairs{Entity.World, Panel.World} do
+		for _, child in ipairs(world:GetChildren()) do
+			if child and child:IsValid() and not is_hidden_editor_entity(child, editor_window) then
+				return child
+			end
+		end
+	end
+
+	return nil
+end
+
+local function get_valid_children(entity, editor_window)
 	local out = {}
 
 	for _, child in ipairs(entity:GetChildren()) do
-		if child and child:IsValid() and child ~= entity and child:GetParent() == entity then
+		if
+			child and
+			child:IsValid() and
+			child ~= entity and
+			child:GetParent() == entity and
+			not is_hidden_editor_entity(child, editor_window)
+		then
 			out[#out + 1] = child
 		end
 	end
 
 	return out
-end
-
-local function get_root_entities()
-	return get_valid_children(Entity.World)
 end
 
 local function get_entity_by_guid(guid)
@@ -207,20 +245,24 @@ local function get_entity_by_guid(guid)
 	return nil
 end
 
-local function get_drop_parent(drop_info)
+local function get_drop_parent(drop_info, source_entity)
 	if not drop_info then return nil end
 
 	if drop_info.position == "inside" then
 		return drop_info.target_node and drop_info.target_node.Entity or nil
 	end
 
-	return drop_info.parent_node and drop_info.parent_node.Entity or Entity.World
+	if drop_info.parent_node and drop_info.parent_node.Entity then
+		return drop_info.parent_node.Entity
+	end
+
+	return get_entity_world_root(source_entity) or Entity.World
 end
 
-local function count_valid_children(entity)
+local function count_valid_children(entity, editor_window)
 	local count = 0
 
-	for _, child in ipairs(get_valid_children(entity)) do
+	for _, child in ipairs(get_valid_children(entity, editor_window)) do
 		if child and child:IsValid() then count = count + 1 end
 	end
 
@@ -246,8 +288,12 @@ local function build_property_node(component, component_name, info, hooks)
 		node.Precision = property_type == "integer" and 0 or 3
 	elseif property_type == "string" then
 		node.Type = "string"
+	elseif property_type == "vec2" or property_type == "Vec2" then
+		node.Type = "vec2"
 	elseif property_type == "vec3" or property_type == "Vec3" then
 		node.Type = "vec3"
+	elseif property_type == "rect" or property_type == "Rect" then
+		node.Type = "rect"
 	elseif property_type == "quat" or property_type == "Quat" then
 		node.Type = "quat"
 	elseif property_type == "color" or property_type == "Color" then
@@ -328,7 +374,7 @@ local function build_property_items(entity, hooks)
 	return items
 end
 
-local function build_tree_snapshot(entity, expanded_entities, visited)
+local function build_tree_snapshot(entity, expanded_entities, visited, editor_window)
 	if not entity or not entity:IsValid() then return nil end
 
 	local guid = entity:GetGUID()
@@ -337,10 +383,10 @@ local function build_tree_snapshot(entity, expanded_entities, visited)
 
 	visited[entity] = true
 	local children = {}
-	local valid_children = get_valid_children(entity)
+	local valid_children = get_valid_children(entity, editor_window)
 
 	for _, child in ipairs(valid_children) do
-		local child_node = build_tree_snapshot(child, expanded_entities, visited)
+		local child_node = build_tree_snapshot(child, expanded_entities, visited, editor_window)
 
 		if child_node then children[#children + 1] = child_node end
 	end
@@ -355,12 +401,38 @@ local function build_tree_snapshot(entity, expanded_entities, visited)
 	}
 end
 
-local function build_tree_items(expanded_entities)
+local function build_world_tree_item(world_entity, label, expanded_entities, visited, editor_window)
+	if not (world_entity and world_entity.IsValid and world_entity:IsValid()) then
+		return nil
+	end
+
+	local children = {}
+	local valid_children = get_valid_children(world_entity, editor_window)
+
+	for _, child in ipairs(valid_children) do
+		local child_node = build_tree_snapshot(child, expanded_entities, visited, editor_window)
+
+		if child_node then children[#children + 1] = child_node end
+	end
+
+	return {
+		Entity = world_entity,
+		Key = world_entity:GetGUID(),
+		Text = label,
+		HasChildren = valid_children[1] ~= nil,
+		Children = children,
+	}
+end
+
+local function build_tree_items(expanded_entities, editor_window)
 	local items = {}
 	local visited = {}
 
-	for _, entity in ipairs(get_root_entities()) do
-		local node = build_tree_snapshot(entity, expanded_entities, visited)
+	for _, world_info in ipairs{
+		{entity = Entity.World, label = "3D World"},
+		{entity = Panel.World, label = "2D World"},
+	} do
+		local node = build_world_tree_item(world_info.entity, world_info.label, expanded_entities, visited, editor_window)
 
 		if node then items[#items + 1] = node end
 	end
@@ -380,12 +452,28 @@ local function find_tree_item(items, key)
 	return nil
 end
 
+local function replace_tree_item(items, key, replacement)
+	for index, item in ipairs(items or {}) do
+		if item.Key == key then
+			items[index] = replacement
+			return true
+		end
+
+		if replace_tree_item(item.Children, key, replacement) then return true end
+	end
+
+	return false
+end
+
 return function(props)
 	props = props or {}
 	local state = {
 		selected_entity = nil,
 		selected_entity_guid = props.SelectedEntityGUID,
-		expanded_entities = {},
+		expanded_entities = {
+			[Entity.World:GetGUID()] = true,
+			[Panel.World:GetGUID()] = true,
+		},
 		tree_items = {},
 	}
 	local tree_view
@@ -398,12 +486,16 @@ return function(props)
 	local update_footer
 	local refresh_property_key
 	local sync_tree_items
+	local sync_selection
 	local request_editor_sync
 	local flush_pending_editor_sync
+	local flush_pending_tree_branch_refreshes
 	local pending_tree_sync = false
+	local pending_tree_branch_keys = {}
 	local pending_selection_sync = false
 	local pending_sync_deadline = 0
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
+	local editor_ui_mutation_blocked = 0
 	local editor_camera = {
 		enabled = true,
 		scale_viewport = false,
@@ -424,6 +516,16 @@ return function(props)
 	}
 	local active_camera_component = nil
 	local active_camera_was_active = false
+
+	local function run_editor_ui_mutation(callback, reason)
+		editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
+		local ok, result_a, result_b, result_c = pcall(callback)
+		editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
+
+		if not ok then error(result_a, 0) end
+
+		return result_a, result_b, result_c
+	end
 
 	local function get_active_camera_component()
 		local function walk(entity)
@@ -590,6 +692,8 @@ return function(props)
 
 		local gizmo_status_info = Gizmo.GetStatus()
 		local gizmo_status = string.format("gizmo: %s/%s", gizmo_status_info.mode, gizmo_status_info.space)
+		local root_3d_count = count_valid_children(Entity.World, window)
+		local root_2d_count = count_valid_children(Panel.World, window)
 
 		if gizmo_status_info.active_drag then
 			gizmo_status = string.format(
@@ -601,14 +705,22 @@ return function(props)
 		end
 
 		if not entity then
-			footer_text.text:SetText("No spawned 3D entities.  |  " .. gizmo_status)
+			footer_text.text:SetText(
+				string.format(
+					"3D roots: %d  |  2D roots: %d  |  %s",
+					root_3d_count,
+					root_2d_count,
+					gizmo_status
+				)
+			)
 			return
 		end
 
 		footer_text.text:SetText(
 			string.format(
-				"%d root entities  |  selected: %s  |  %s",
-				#tree_items,
+				"3D roots: %d  |  2D roots: %d  |  selected: %s  |  %s",
+				root_3d_count,
+				root_2d_count,
 				get_entity_label(entity),
 				gizmo_status
 			)
@@ -616,9 +728,9 @@ return function(props)
 	end
 
 	local function ensure_expanded_path(entity)
-		local current = entity
+		local current = entity and entity:GetParent() or nil
 
-		while current and current:IsValid() and current ~= Entity.World do
+		while current and current:IsValid() and not is_world_root(current) do
 			state.expanded_entities[current:GetGUID()] = true
 			current = current:GetParent()
 		end
@@ -637,21 +749,68 @@ return function(props)
 	end
 
 	local function resolve_selected_entity(tree_items)
-		local selected_entity = get_selected_entity()
 		local selected_item = find_tree_item(tree_items, state.selected_entity_guid)
-		selected_entity = selected_entity and selected_entity:IsValid() and selected_entity or nil
-		selected_entity = selected_item and selected_item.Entity or selected_entity
 
-		if selected_entity then return selected_entity end
+		if selected_item then return selected_item.Entity end
 
-		return get_root_entities()[1] or get_first_spawned_entity()
+		return get_first_spawned_entity(window) or tree_items[1] and tree_items[1].Entity or nil
+	end
+
+	local function build_tree_branch_item(entity)
+		if not (entity and entity.IsValid and entity:IsValid()) then return nil end
+
+		if entity == Entity.World then
+			return build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, window)
+		end
+
+		if entity == Panel.World then
+			return build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, window)
+		end
+
+		return build_tree_snapshot(entity, state.expanded_entities, {}, window)
+	end
+
+	local function get_tree_branch_entity_by_guid(guid)
+		if guid == Entity.World:GetGUID() then return Entity.World end
+
+		if guid == Panel.World:GetGUID() then return Panel.World end
+
+		return get_entity_by_guid(guid)
+	end
+
+	local function refresh_tree_branch(entity)
+		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
+			return sync_tree_items()
+		end
+
+		local replacement = build_tree_branch_item(entity)
+
+		if not replacement then return sync_tree_items() end
+
+		if not replace_tree_item(state.tree_items, entity:GetGUID(), replacement) then
+			return sync_tree_items()
+		end
+
+		run_editor_ui_mutation(
+			function()
+				tree_view:RefreshBranchForKey(entity:GetGUID())
+			end,
+			"tree_refresh_branch"
+		)
+
+		return false
 	end
 
 	refresh_property_editor = function()
 		if not property_editor or not property_editor:IsValid() then return end
 
-		property_editor:SetItems(build_property_items(get_selected_entity(), property_node_hooks))
-		property_editor:ExpandAll()
+		run_editor_ui_mutation(
+			function()
+				property_editor:SetItems(build_property_items(get_selected_entity(), property_node_hooks))
+				property_editor:ExpandAll()
+			end,
+			"property_editor_set_items"
+		)
 	end
 	refresh_property_key = function(component, component_name, property_name)
 		if not property_editor or not property_editor:IsValid() then return end
@@ -666,7 +825,7 @@ return function(props)
 
 		if property_name == "Name" or property_name == "Key" then
 			property_editor:RefreshValueForKey(row_key)
-			request_editor_sync(true, false)
+			request_editor_sync(true, false, entity)
 			update_footer(state.selected_entity, state.tree_items)
 			return
 		end
@@ -680,23 +839,74 @@ return function(props)
 
 		pending_tree_sync = false
 		local previous_guid = state.selected_entity_guid
-		local tree_items = build_tree_items(state.expanded_entities)
+		local tree_items = build_tree_items(state.expanded_entities, window)
 		set_selected_entity(resolve_selected_entity(tree_items), false)
 		state.tree_items = tree_items
-		tree_view:SetItems(tree_items)
+
+		run_editor_ui_mutation(function()
+			tree_view:SetItems(tree_items)
+		end, "tree_set_items")
+
 		tree_view:SetSelectedKey(state.selected_entity_guid)
 		update_footer(state.selected_entity, tree_items)
 		return state.selected_entity_guid ~= previous_guid
 	end
-	request_editor_sync = function(tree_dirty, selection_dirty)
-		if tree_dirty then pending_tree_sync = true end
+	flush_pending_tree_branch_refreshes = function()
+		local branch_keys = {}
+
+		for key in pairs(pending_tree_branch_keys) do
+			branch_keys[#branch_keys + 1] = key
+		end
+
+		pending_tree_branch_keys = {}
+
+		if branch_keys[1] == nil then return false end
+
+		local selected_guid = state.selected_entity_guid
+
+		for _, key in ipairs(branch_keys) do
+			local entity = get_tree_branch_entity_by_guid(key)
+
+			if not (entity and entity:IsValid()) then return sync_tree_items() end
+
+			local selection_changed = refresh_tree_branch(entity)
+
+			if selection_changed then return true end
+		end
+
+		if selected_guid ~= nil and not find_tree_item(state.tree_items, selected_guid) then
+			set_selected_entity(resolve_selected_entity(state.tree_items), false)
+			tree_view:SetSelectedKey(state.selected_entity_guid)
+			update_footer(state.selected_entity, state.tree_items)
+			return state.selected_entity_guid ~= selected_guid
+		end
+
+		tree_view:SetSelectedKey(state.selected_entity_guid)
+		update_footer(state.selected_entity, state.tree_items)
+		return false
+	end
+	request_editor_sync = function(tree_dirty, selection_dirty, branch_entity)
+		if tree_dirty then
+			if branch_entity and branch_entity.IsValid and branch_entity:IsValid() then
+				pending_tree_branch_keys[branch_entity:GetGUID()] = true
+			else
+				pending_tree_sync = true
+			end
+		end
 
 		if selection_dirty then pending_selection_sync = true end
 
 		pending_sync_deadline = system.GetElapsedTime() + sync_debounce_time
 	end
 	flush_pending_editor_sync = function(force)
-		if not pending_tree_sync and not pending_selection_sync then return end
+		if
+			not pending_tree_sync and
+			not next(pending_tree_branch_keys)
+			and
+			not pending_selection_sync
+		then
+			return
+		end
 
 		if not force and system.GetElapsedTime() < pending_sync_deadline then return end
 
@@ -704,6 +914,8 @@ return function(props)
 			pending_tree_sync = false
 
 			if sync_tree_items() then pending_selection_sync = true end
+		elseif next(pending_tree_branch_keys) then
+			if flush_pending_tree_branch_refreshes() then pending_selection_sync = true end
 		end
 
 		if pending_selection_sync then
@@ -711,8 +923,7 @@ return function(props)
 			sync_selection()
 		end
 	end
-
-	local function sync_selection()
+	sync_selection = function()
 		pending_selection_sync = false
 		set_selected_entity(resolve_selected_entity(state.tree_items), false)
 		refresh_selected_property_listeners()
@@ -732,7 +943,9 @@ return function(props)
 	local function create_child_shape(parent_entity, kind)
 		if not parent_entity or not parent_entity:IsValid() then return end
 
-		local child_count = count_valid_children(parent_entity)
+		if get_entity_world_root(parent_entity) ~= Entity.World then return end
+
+		local child_count = count_valid_children(parent_entity, window)
 		local config = {
 			Name = kind == "sphere" and "sphere" or "box",
 			Collision = false,
@@ -771,11 +984,11 @@ return function(props)
 	end
 
 	local function remove_entity(entity)
-		if not entity or not entity:IsValid() or entity == Entity.World then return end
+		if not entity or not entity:IsValid() or is_world_root(entity) then return end
 
 		local parent = entity:GetParent()
 
-		if parent and parent:IsValid() and parent ~= Entity.World then
+		if parent and parent:IsValid() then
 			set_selected_entity(parent, true)
 		else
 			set_selected_entity(nil, false)
@@ -789,7 +1002,11 @@ return function(props)
 	local function open_tree_context_menu(entity)
 		if not entity or not entity:IsValid() then return false end
 
-		local can_remove = entity ~= Entity.World
+		local can_create_shapes = get_entity_world_root(entity) == Entity.World
+		local can_remove = not is_world_root(entity)
+
+		if not can_create_shapes and not can_remove then return false end
+
 		close_active_context_menu()
 		Panel.World:Ensure(
 			ContextMenu{
@@ -799,18 +1016,23 @@ return function(props)
 					ent:Remove()
 				end,
 			}{
+				can_create_shapes and
 				MenuItem{
 					Text = "Sphere",
 					OnClick = function()
 						create_child_shape(entity, "sphere")
 					end,
-				},
+				} or
+				nil,
+				can_create_shapes and
 				MenuItem{
 					Text = "Box",
 					OnClick = function()
 						create_child_shape(entity, "box")
 					end,
-				},
+				} or
+				nil,
+				can_create_shapes and
 				can_remove and
 				MenuItem{
 					Text = "-",
@@ -919,7 +1141,7 @@ return function(props)
 	Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
 
 	if not state.selected_entity then
-		set_selected_entity(get_root_entities()[1] or get_first_spawned_entity(), true)
+		set_selected_entity(get_first_spawned_entity() or Entity.World, true)
 	end
 
 	state.tree_items = build_tree_items(state.expanded_entities)
@@ -1036,28 +1258,37 @@ return function(props)
 					OnNodeContextMenu = function(node)
 						return open_tree_context_menu(node and node.Entity or nil)
 					end,
+					CanDragNode = function(node)
+						return node and node.Entity and not is_world_root(node.Entity)
+					end,
 					CanDropInside = function()
 						return true
 					end,
 					OnDrop = function(drop_info)
 						local source_entity = drop_info.source_node and drop_info.source_node.Entity or nil
-						local next_parent = get_drop_parent(drop_info)
+						local next_parent = get_drop_parent(drop_info, source_entity)
 
-						if not source_entity or not source_entity:IsValid() then return false end
+						if not source_entity or not source_entity:IsValid() or is_world_root(source_entity) then
+							return false
+						end
 
 						if not next_parent or not next_parent:IsValid() then
-							next_parent = Entity.World
+							next_parent = get_entity_world_root(source_entity) or Entity.World
 						end
 
 						if next_parent == source_entity then return false end
 
-						if next_parent ~= Entity.World and next_parent:ContainsParent(source_entity) then
+						if get_entity_world_root(source_entity) ~= get_entity_world_root(next_parent) then
+							return false
+						end
+
+						if not is_world_root(next_parent) and next_parent:ContainsParent(source_entity) then
 							return false
 						end
 
 						if source_entity:GetParent() == next_parent then return false end
 
-						if next_parent ~= Entity.World then
+						if not is_world_root(next_parent) then
 							state.expanded_entities[next_parent:GetGUID()] = true
 						end
 
@@ -1144,18 +1375,31 @@ return function(props)
 	)
 
 	do
-		local remove_hierarchy_listener = Entity.World:AddLocalListener("OnEntityHierarchyChanged", function(entity)
-			request_editor_sync(true, false)
-		end)
-		local remove_component_listener = Entity.World:AddLocalListener("OnEntityComponentChanged", function(entity)
-			local selected_entity = get_selected_entity()
+		local function add_world_listeners(world)
+			local remove_hierarchy_listener = world:AddLocalListener("OnEntityHierarchyChanged", function(_, entity, action, parent)
+				if editor_ui_mutation_blocked > 0 then return end
 
-			if selected_entity and entity == selected_entity then
-				request_editor_sync(false, true)
-			end
-		end)
-		window:CallOnRemove(remove_hierarchy_listener, remove_hierarchy_listener)
-		window:CallOnRemove(remove_component_listener, remove_component_listener)
+				if should_ignore_editor_tree_change(entity, parent, window) then return end
+
+				request_editor_sync(
+					true,
+					false,
+					parent and parent:IsValid() and parent or get_entity_world_root(entity)
+				)
+			end)
+			local remove_component_listener = world:AddLocalListener("OnEntityComponentChanged", function(_, entity)
+				local selected_entity = get_selected_entity()
+
+				if selected_entity and entity == selected_entity then
+					request_editor_sync(false, true)
+				end
+			end)
+			window:CallOnRemove(remove_hierarchy_listener, remove_hierarchy_listener)
+			window:CallOnRemove(remove_component_listener, remove_component_listener)
+		end
+
+		add_world_listeners(Entity.World)
+		add_world_listeners(Panel.World)
 	end
 
 	sync_tree_items()

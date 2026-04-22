@@ -1,8 +1,8 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
-local system = import("goluwa/system.lua")
 local Panel = import("goluwa/ecs/panel.lua")
+local system = import("goluwa/system.lua")
 local Text = import("lua/ui/elements/text.lua")
 local theme = import("lua/ui/theme.lua")
 
@@ -40,6 +40,7 @@ return function(props)
 	local animation_time = props.AnimationTime or 0.18
 	local drag_threshold = props.DragThreshold or 6
 	local drag_enabled = props.OnDrop ~= nil
+	local row_click_times = {}
 	local tree
 	local is_expanded
 	local set_selected
@@ -219,6 +220,22 @@ return function(props)
 	local function begin_drag(row_info)
 		if not drag_enabled or not row_info then return end
 
+		if
+			row_info.toggle and
+			row_info.toggle.mouse_input and
+			row_info.toggle.mouse_input:GetHovered()
+		then
+			if
+				row_info.body and
+				row_info.body.draggable and
+				row_info.body.draggable:IsDragging()
+			then
+				row_info.body.draggable:StopDragging()
+			end
+
+			return
+		end
+
 		drag_state.active = false
 		drag_state.source_key = row_info.key
 		drag_state.drop_info = nil
@@ -264,13 +281,21 @@ return function(props)
 		end
 
 		local clip_w = info.clip.transform:GetWidth()
+		local open_fraction = info.open_fraction or 0
+
+		if open_fraction > 0.001 then info.clip.gui_element:SetVisible(true) end
 
 		if info.body.transform:GetWidth() ~= clip_w then
 			info.body.transform:SetWidth(clip_w)
 		end
 
 		local body_h = info.body.transform:GetHeight()
-		local open_fraction = info.open_fraction or 0
+
+		if open_fraction > 0.001 and body_h <= 0.001 then
+			update_layout_now(info.clip)
+			body_h = info.body.transform:GetHeight()
+		end
+
 		local target_h = body_h * open_fraction
 		info.clip.transform:SetHeight(target_h)
 		info.clip.gui_element:SetVisible(target_h > 0.001)
@@ -310,21 +335,26 @@ return function(props)
 					info.open_fraction = target
 					update_row_display(info)
 				elseif info.open_fraction ~= target then
-					if target > 0 then info.clip.gui_element:SetVisible(true) end
+					if animation_time <= 0 then
+						info.open_fraction = target
+						update_row_display(info)
+					else
+						if target > 0 then info.clip.gui_element:SetVisible(true) end
 
-					tree.animation:Animate{
-						id = "tree_row_open_" .. key,
-						get = function()
-							return info.open_fraction or 0
-						end,
-						set = function(v)
-							info.open_fraction = v
-							update_row_display(info)
-						end,
-						to = target,
-						time = animation_time,
-						interpolation = target > (info.open_fraction or 0) and "outExpo" or "outCubic",
-					}
+						tree.animation:Animate{
+							id = "tree_row_open_" .. key,
+							get = function()
+								return info.open_fraction or 0
+							end,
+							set = function(v)
+								info.open_fraction = v
+								update_row_display(info)
+							end,
+							to = target,
+							time = animation_time,
+							interpolation = target > (info.open_fraction or 0) and "outExpo" or "outCubic",
+						}
+					end
 				end
 			end
 		end
@@ -394,6 +424,48 @@ return function(props)
 		end
 	end
 
+	local function find_item_descriptor(nodes, parent_path, parent_key, level, continuations, target_key)
+		for index, node in ipairs(nodes) do
+			local path = build_path(parent_path, index)
+			local key = get_key(node, path)
+			local is_last = index == #nodes
+			local meta = {
+				level = level,
+				index = index,
+				is_last = is_last,
+				parent_key = parent_key,
+				continuations = continuations,
+			}
+
+			if key == target_key then
+				return {
+					node = node,
+					path = path,
+					key = key,
+					meta = meta,
+					parent_path = parent_path,
+				}
+			end
+
+			local children = get_children(node, path)
+
+			if has_entries(children) then
+				local child_continuations = table.shallow_copy(continuations)
+				child_continuations[level + 1] = not is_last
+				local found = find_item_descriptor(
+					children,
+					path,
+					key,
+					level + 1,
+					child_continuations,
+					target_key
+				)
+
+				if found then return found end
+			end
+		end
+	end
+
 	local function expand_to_key(nodes, parent_path, target_key)
 		for index, node in ipairs(nodes) do
 			local path = build_path(parent_path, index)
@@ -418,11 +490,17 @@ return function(props)
 		return false
 	end
 
-	local function make_toggle(node, path, key, expanded, selected, meta)
+	local function make_toggle(node, path, key, expanded, selected, meta, row_info)
+		local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
+		local half_box = math.floor(box_size / 2)
+		local box_x = center_x - half_box
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeToggle",
 			OnSetProperty = theme.OnSetProperty,
+			Ref = function(self)
+				row_info.toggle = self
+			end,
 			transform = {
 				Size = Vec2(math.max(toggle_size, meta.level * guide_step + toggle_size + 6), toggle_size),
 			},
@@ -432,14 +510,11 @@ return function(props)
 					local current_expanded = is_expanded(node, path, key, has_entries(get_children(node, path)))
 					local size = self.Owner.transform:GetSize()
 					local center_y = math.floor(size.y / 2)
-					local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
+					local box_y = center_y - half_box
 					local line_color = theme.GetColor(props.LineColor or "frame_border")
 					local box_fill = theme.GetColor(props.BoxFillColor or "surface")
 					local box_outline = theme.GetColor(props.BoxOutlineColor or "frame_border")
 					local glyph_color = theme.GetColor(current_selected and "text_button" or (props.GlyphColor or "text_foreground"))
-					local half_box = math.floor(box_size / 2)
-					local box_x = center_x - half_box
-					local box_y = center_y - half_box
 					local line_start_x = has_entries(get_children(node, path)) and (center_x + half_box) or center_x
 					render2d.SetTexture(nil)
 					render2d.SetColor(line_color:Unpack())
@@ -476,36 +551,17 @@ return function(props)
 				end,
 			},
 			mouse_input = {
-				Cursor = has_entries(get_children(node, path)) and "pointer" or "arrow",
-				OnMouseInput = function(self, button, press, local_pos)
-					if button ~= "button_1" or not press then return end
-
-					if not has_entries(get_children(node, path)) then return end
-
-					local current_expanded = is_expanded(node, path, key, true)
-					local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
-					local center_y = math.floor(self.Owner.transform:GetHeight() / 2)
-					local half_box = math.floor(box_size / 2)
-
-					if local_pos.x < center_x - half_box or local_pos.x > center_x + half_box then
-						return
-					end
-
-					if local_pos.y < center_y - half_box or local_pos.y > center_y + half_box then
-						return
-					end
-
-					set_expanded(node, path, key, not current_expanded)
-					return true
-				end,
+				Cursor = "pointer",
 			},
-			clickable = has_entries(get_children(node, path)),
+			OnClick = function()
+				set_expanded(node, path, key, not is_expanded(node, path, key, true))
+				return true
+			end,
+			clickable = true,
 		}
 	end
 
 	local function make_label(node, path, key, selected, has_children, expanded, row_info)
-		local hovered = false
-		local last_click_time = -math.huge
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeLabel",
@@ -519,15 +575,14 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					local current_selected = is_selected(node, path, key)
 					local size = self.Owner.transform:GetSize()
 					render2d.SetTexture(nil)
 
-					if current_selected then
+					if is_selected(node, path, key) then
 						local color = theme.GetColor(props.SelectedColor or "primary")
 						render2d.SetColor(color:Unpack())
 						render2d.DrawRect(0, 0, size.x, size.y)
-					elseif hovered then
+					elseif row_info.hovered then
 						local color = theme.GetColor(props.HoverColor or "surface_variant")
 						render2d.SetColor(color:Unpack())
 						render2d.DrawRect(0, 0, size.x, size.y)
@@ -535,41 +590,8 @@ return function(props)
 				end,
 			},
 			mouse_input = {
-				Cursor = node.Disabled and "arrow" or "pointer",
-				OnHover = function(self, is_hovered)
-					hovered = is_hovered
-
-					if props.OnNodeHover then
-						props.OnNodeHover(node, key, path, row_info, is_hovered, self.Owner)
-					end
-				end,
-				OnMouseInput = function(self, button, press)
-					if node.Disabled or button ~= "button_1" or not press then return end
-
-					local current_expanded = is_expanded(node, path, key, has_children)
-					local now = system.GetElapsedTime()
-					local is_double_click = now - last_click_time <= double_click_time
-					last_click_time = now
-					set_selected(node, path, key)
-
-					if has_children and (toggle_on_row_click or is_double_click) then
-						set_expanded(node, path, key, not current_expanded)
-					end
-
-					return true
-				end,
+				IgnoreMouseInput = true,
 			},
-			draggable = drag_enabled and can_drag_node(node, path, key),
-			OnDragStarted = function()
-				begin_drag(row_info)
-			end,
-			OnDrag = function(self, delta, global_pos)
-				return update_drag(row_info, delta, global_pos)
-			end,
-			OnDragStopped = function()
-				finish_drag(row_info)
-			end,
-			clickable = true,
 		}{
 			Text{
 				Ref = function(self)
@@ -635,7 +657,7 @@ return function(props)
 		}
 	end
 
-	local function add_node(node, meta, parent_path)
+	local function add_node(node, meta, parent_path, insert_index)
 		local path = build_path(parent_path, meta.index)
 		local key = get_key(node, path)
 		local children = get_children(node, path)
@@ -649,13 +671,14 @@ return function(props)
 			key = key,
 			parent_key = meta.parent_key,
 			has_children = has_children,
+			toggle = nil,
 		}
 		row_infos[key] = row_info
-		row_order[#row_order + 1] = key
+		table.insert(row_order, insert_index, key)
 		local label = make_label(node, path, key, selected, has_children, expanded, row_info)
 		local row_children = {
 			has_children and
-			make_toggle(node, path, key, expanded, selected, meta) or
+			make_toggle(node, path, key, expanded, selected, meta, row_info) or
 			make_toggle_placeholder(meta),
 		}
 
@@ -685,15 +708,59 @@ return function(props)
 			},
 			gui_element = true,
 			mouse_input = {
-				OnMouseInput = function(self, button, press)
-					if not props.OnNodeContextMenu then return end
+				Cursor = node.Disabled and "arrow" or "pointer",
+				OnHover = function(self, is_hovered)
+					row_info.hovered = is_hovered
 
-					if button ~= "button_2" or not press or node.Disabled then return end
-
-					set_selected(node, path, key)
-					return props.OnNodeContextMenu(node, key, path, row_info, self.Owner)
+					if props.OnNodeHover then
+						props.OnNodeHover(node, key, path, row_info, is_hovered, self.Owner)
+					end
 				end,
 			},
+			draggable = drag_enabled and can_drag_node(node, path, key),
+			OnDragStarted = function()
+				begin_drag(row_info)
+			end,
+			OnDrag = function(self, delta, global_pos)
+				return update_drag(row_info, delta, global_pos)
+			end,
+			OnDragStopped = function()
+				finish_drag(row_info)
+			end,
+			clickable = {
+				DoubleClickKey = key,
+				DoubleClickTime = double_click_time,
+			},
+			OnClick = function(self)
+				if node.Disabled then return end
+
+				local now = system.GetElapsedTime()
+				local last_click = row_click_times[key]
+				local is_double_click = last_click and now - last_click <= double_click_time
+
+				if is_double_click then
+					row_click_times[key] = nil
+				else
+					row_click_times[key] = now
+				end
+
+				set_selected(node, path, key)
+
+				if has_children and toggle_on_row_click then
+					set_expanded(node, path, key, not is_expanded(node, path, key, has_children))
+				elseif is_double_click and has_children then
+					set_expanded(node, path, key, not is_expanded(node, path, key, has_children))
+				end
+
+				return true
+			end,
+			OnDoubleClick = function() end,
+			OnRightClick = function(self)
+				if not props.OnNodeContextMenu or node.Disabled then return end
+
+				set_selected(node, path, key)
+				return props.OnNodeContextMenu(node, key, path, row_info, self.Owner)
+			end,
 		}(row_children)
 		row_info.body = row
 		local clip = Panel.New{
@@ -761,14 +828,15 @@ return function(props)
 			update_row_display(row_info)
 		end)
 
-		tree:AddChild(clip)
+		tree:AddChild(clip, insert_index)
+		insert_index = insert_index + 1
 
 		if has_children then
 			local child_continuations = table.shallow_copy(meta.continuations)
 			child_continuations[meta.level + 1] = not meta.is_last
 
 			for child_index, child in ipairs(children) do
-				add_node(
+				insert_index = add_node(
 					child,
 					{
 						level = meta.level + 1,
@@ -777,10 +845,13 @@ return function(props)
 						parent_key = key,
 						continuations = child_continuations,
 					},
-					path
+					path,
+					insert_index
 				)
 			end
 		end
+
+		return insert_index
 	end
 
 	tree = Panel.New{
@@ -849,9 +920,10 @@ return function(props)
 		row_infos = {}
 		row_order = {}
 		self:RemoveChildren()
+		local insert_index = 1
 
 		for index, node in ipairs(items) do
-			add_node(
+			insert_index = add_node(
 				node,
 				{
 					level = 0,
@@ -860,10 +932,57 @@ return function(props)
 					parent_key = nil,
 					continuations = {},
 				},
-				nil
+				nil,
+				insert_index
 			)
 		end
 
+		refresh_visibility()
+		return self
+	end
+
+	function tree:RefreshBranchForKey(key)
+		if key == nil then return self:Rebuild() end
+
+		local descriptor = find_item_descriptor(items, nil, nil, 0, {}, key)
+
+		if not descriptor then return self:Rebuild() end
+
+		local start_index
+		local end_index
+
+		for i, row_key in ipairs(row_order) do
+			if row_key == key then
+				start_index = i
+				end_index = i
+
+				break
+			end
+		end
+
+		if not start_index then return self:Rebuild() end
+
+		for i = start_index + 1, #row_order do
+			local info = row_infos[row_order[i]]
+
+			if not (info and is_key_in_branch(key, info.key)) then break end
+
+			end_index = i
+		end
+
+		clear_drag_state()
+
+		for i = end_index, start_index, -1 do
+			local row_key = row_order[i]
+			local info = row_infos[row_key]
+
+			if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
+
+			row_infos[row_key] = nil
+			table.remove(row_order, i)
+		end
+
+		add_node(descriptor.node, descriptor.meta, descriptor.parent_path, start_index)
 		refresh_visibility()
 		return self
 	end

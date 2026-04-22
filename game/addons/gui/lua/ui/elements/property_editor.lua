@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -107,10 +108,22 @@ local function format_number(node, value, fallback_precision)
 end
 
 local vector_kinds = {
+	vec2 = {
+		components = {"x", "y"},
+		factory = function(values)
+			return Vec2(values[1], values[2])
+		end,
+	},
 	vec3 = {
 		components = {"x", "y", "z"},
 		factory = function(values)
 			return Vec3(values[1], values[2], values[3])
+		end,
+	},
+	rect = {
+		components = {"x", "y", "w", "h"},
+		factory = function(values)
+			return Rect(values[1], values[2], values[3], values[4])
 		end,
 	},
 	quat = {
@@ -128,7 +141,11 @@ local vector_kinds = {
 }
 
 local function normalize_kind(kind)
+	if kind == "Vec2" then return "vec2" end
+
 	if kind == "Vec3" then return "vec3" end
+
+	if kind == "Rect" then return "rect" end
 
 	if kind == "Quat" then return "quat" end
 

@@ -104,13 +104,12 @@ function META:OnGlobalMouseInput(button, press, pos)
 	if not self:GetDraggable() then return end
 
 	local gui = self.Owner.gui_element
+	local mouse = self.Owner.mouse_input
 
 	if gui and not gui:GetVisible() then return end
 
 	if button == "button_1" and press then
-		local gui = self.Owner.gui_element
-
-		if gui and gui:IsHovered(pos) then
+		if mouse and mouse:IsHoveredExclusively(pos) then
 			do -- Only start dragging if not already resizing
 				local target = self:GetTarget()
 				local resizable = target.resizable
@@ -118,8 +117,7 @@ function META:OnGlobalMouseInput(button, press, pos)
 				if resizable and resizable:IsResizing() then return end
 			end
 
-			self:StartDragging(button)
-		--return true
+			if self:StartDragging(button) then return false end
 		end
 	end
 end
