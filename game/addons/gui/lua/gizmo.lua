@@ -26,6 +26,8 @@ local state = {
 	callback_owner = nil,
 	state_changed = nil,
 }
+local get_transform_local_rotation
+local get_transform_world_rotation
 
 local function clamp(value, min_value, max_value)
 	return math.max(min_value, math.min(max_value, value))
@@ -69,6 +71,18 @@ local function get_entity_world_position(entity)
 	return Vec3(x, y, z)
 end
 
+local function get_entity_local_aabb(entity)
+	if not is_gizmo_entity(entity) then return nil end
+
+	if entity.model and entity.model.AABB then return entity.model.AABB end
+
+	if entity.transform and entity.transform.GetAABB then
+		return entity.transform:GetAABB()
+	end
+
+	return nil
+end
+
 local function get_entity_pivot(entity)
 	local fallback = get_entity_world_position(entity)
 
@@ -102,18 +116,118 @@ local function get_gizmo_scale(center, extent)
 	return math.max(extent * 0.75, cam_distance * 0.12, 1.5)
 end
 
+local function transform_world_point(matrix, position)
+	local x, y, z = matrix:TransformVectorUnpacked(position.x, position.y, position.z)
+	return Vec3(x, y, z)
+end
+
+local function get_axis_value(vector, axis_id)
+	if axis_id == "x" then return vector.x end
+
+	if axis_id == "y" then return vector.y end
+
+	return vector.z
+end
+
+local function set_axis_value(vector, axis_id, value)
+	if axis_id == "x" then
+		vector.x = value
+		return vector
+	end
+
+	if axis_id == "y" then
+		vector.y = value
+		return vector
+	end
+
+	vector.z = value
+	return vector
+end
+
+local function get_axis_basis_vector(axis_id)
+	if axis_id == "x" then return Vec3(1, 0, 0) end
+
+	if axis_id == "y" then return Vec3(0, 1, 0) end
+
+	return Vec3(0, 0, 1)
+end
+
+local function get_axis_center(local_aabb)
+	return Vec3(
+		(local_aabb.min_x + local_aabb.max_x) * 0.5,
+		(local_aabb.min_y + local_aabb.max_y) * 0.5,
+		(local_aabb.min_z + local_aabb.max_z) * 0.5
+	)
+end
+
+local function get_local_face_center(local_aabb, axis_id, sign)
+	local face_center = get_axis_center(local_aabb)
+	local face_value
+
+	if axis_id == "x" then
+		face_value = sign > 0 and local_aabb.max_x or local_aabb.min_x
+	elseif axis_id == "y" then
+		face_value = sign > 0 and local_aabb.max_y or local_aabb.min_y
+	else
+		face_value = sign > 0 and local_aabb.max_z or local_aabb.min_z
+	end
+
+	set_axis_value(face_center, axis_id, face_value)
+	return face_center, face_value
+end
+
+local function get_scale_handles(entity)
+	local local_aabb = get_entity_local_aabb(entity)
+
+	if not local_aabb then return nil end
+
+	local world_matrix = entity.transform:GetWorldMatrix()
+
+	if not world_matrix then return nil end
+
+	local handles = {}
+
+	for _, axis in ipairs{
+		{id = "x", color = axis_colors.x},
+		{id = "y", color = axis_colors.y},
+		{id = "z", color = axis_colors.z},
+	} do
+		for _, sign in ipairs({-1, 1}) do
+			local face_center, face_value = get_local_face_center(local_aabb, axis.id, sign)
+			local anchor_center, anchor_value = get_local_face_center(local_aabb, axis.id, -sign)
+			local world_position = transform_world_point(world_matrix, face_center)
+			local anchor_position = transform_world_point(world_matrix, anchor_center)
+			local world_delta = world_position - anchor_position
+			local world_length = world_delta:GetLength()
+			handles[#handles + 1] = {
+				kind = "scale",
+				axis_id = axis.id,
+				sign = sign,
+				color = axis.color,
+				position = world_position,
+				anchor_position = anchor_position,
+				axis_world_length = world_length,
+				outward_direction = world_length > 1e-5 and world_delta / world_length or nil,
+				anchor_value = anchor_value,
+			}
+		end
+	end
+
+	return handles
+end
+
 local function transform_direction(matrix, direction)
 	local ox, oy, oz = matrix:TransformVectorUnpacked(0, 0, 0)
 	local tx, ty, tz = matrix:TransformVectorUnpacked(direction.x, direction.y, direction.z)
 	return Vec3(tx - ox, ty - oy, tz - oz):GetNormalized()
 end
 
-local function get_transform_local_rotation(transform)
+function get_transform_local_rotation(transform)
 	local _, interpolated_rotation = transform:GetRenderPositionRotation()
 	return (transform.OverrideRotation or interpolated_rotation or transform.Rotation):GetNormalized()
 end
 
-local function get_transform_world_rotation(transform)
+function get_transform_world_rotation(transform)
 	local rotation = get_transform_local_rotation(transform)
 	local owner = transform and transform.Owner
 	local parent = owner and owner:GetParent()
@@ -286,6 +400,7 @@ local function get_gizmo_definition(entity)
 		handle_radius = scale * 0.12,
 		ring_radius = scale * 0.8,
 		axes = get_gizmo_axes(entity),
+		scale_handles = get_scale_handles(entity),
 	}
 end
 
@@ -321,6 +436,35 @@ local function find_hovered_gizmo_handle(entity)
 						start_screen = start_screen,
 						stop_screen = stop_screen,
 						color = axis.color,
+					}
+				end
+			end
+		end
+
+		return best_handle
+	end
+
+	if state.mode == "scale" then
+		for _, handle in ipairs(gizmo_def.scale_handles or {}) do
+			local handle_screen = project_world_position(handle.position)
+
+			if handle_screen then
+				local distance = (mouse_pos - handle_screen):GetLength()
+
+				if distance < best_distance and distance <= 14 then
+					best_distance = distance
+					best_handle = {
+						kind = "scale",
+						axis_id = handle.axis_id,
+						sign = handle.sign,
+						color = handle.color,
+						position = handle.position,
+						anchor_position = handle.anchor_position,
+						axis_world_length = handle.axis_world_length,
+						outward_direction = handle.outward_direction,
+						anchor_value = handle.anchor_value,
+						handle_screen = handle_screen,
+						anchor_screen = project_world_position(handle.anchor_position),
 					}
 				end
 			end
@@ -400,6 +544,36 @@ local function begin_gizmo_drag(handle)
 		}
 	end
 
+	if handle.kind == "scale" then
+		local start_screen = handle.anchor_screen or project_world_position(handle.anchor_position)
+		local stop_screen = handle.handle_screen or project_world_position(handle.position)
+
+		if not (start_screen and stop_screen) then return nil end
+
+		local axis_screen = stop_screen - start_screen
+		local axis_screen_length = axis_screen:GetLength()
+
+		if axis_screen_length < 1e-5 or handle.axis_world_length < 1e-5 then
+			return nil
+		end
+
+		return {
+			kind = "scale",
+			axis_id = handle.axis_id,
+			sign = handle.sign,
+			entity = entity,
+			start_mouse_position = mouse_pos,
+			axis_screen_direction = axis_screen / axis_screen_length,
+			axis_screen_length = axis_screen_length,
+			axis_world_length = handle.axis_world_length,
+			start_local_scale = entity.transform:GetScale():Copy(),
+			start_local_position = entity.transform:GetPosition():Copy(),
+			local_axis_direction = transform_direction(entity.transform:GetLocalMatrix(), get_axis_basis_vector(handle.axis_id)),
+			size = entity.transform:GetSize(),
+			anchor_value = handle.anchor_value,
+		}
+	end
+
 	local center_screen = handle.center_screen or project_world_position(handle.center)
 
 	if not center_screen then return nil end
@@ -467,6 +641,29 @@ local function update_gizmo_drag()
 		return
 	end
 
+	if drag.kind == "scale" then
+		local mouse_delta = mouse_pos - drag.start_mouse_position
+		local outward_offset = mouse_delta:GetDot(drag.axis_screen_direction) / drag.axis_screen_length * drag.axis_world_length
+
+		if input.IsKeyDown("left_shift") or input.IsKeyDown("right_shift") then
+			outward_offset = math.floor(outward_offset / 0.25 + 0.5) * 0.25
+		end
+
+		local start_axis_scale = get_axis_value(drag.start_local_scale, drag.axis_id)
+		local next_axis_length = math.max(drag.axis_world_length + outward_offset, 1e-3)
+		local next_axis_scale = start_axis_scale * (next_axis_length / drag.axis_world_length)
+		local next_local_scale = drag.start_local_scale:Copy()
+		set_axis_value(next_local_scale, drag.axis_id, next_axis_scale)
+		local position_offset = drag.local_axis_direction * (
+				(
+					start_axis_scale - next_axis_scale
+				) * drag.size * drag.anchor_value
+			)
+		drag.entity.transform:SetScale(next_local_scale)
+		drag.entity.transform:SetPosition(drag.start_local_position + position_offset)
+		return
+	end
+
 	local current_ring_vector = get_mouse_rotation_ring_vector(drag.center, drag.axis_direction, drag.radius, mouse_pos, drag.center_screen)
 	local angle
 
@@ -528,6 +725,44 @@ local function draw_move_gizmo(gizmo_def)
 			id = listener_key .. "_move_handle_" .. axis.id,
 			position = end_position,
 			radius = gizmo_def.handle_radius,
+			color = color,
+			ignore_z = true,
+			time = 0.05,
+		}
+	end
+end
+
+local function draw_scale_gizmo(gizmo_def)
+	for _, handle in ipairs(gizmo_def.scale_handles or {}) do
+		local handle_suffix = handle.sign > 0 and "positive" or "negative"
+		local is_hovered = state.hovered_handle and
+			state.hovered_handle.kind == "scale" and
+			state.hovered_handle.axis_id == handle.axis_id and
+			state.hovered_handle.sign == handle.sign
+		local is_active = state.active_drag and
+			state.active_drag.kind == "scale" and
+			state.active_drag.axis_id == handle.axis_id and
+			state.active_drag.sign == handle.sign
+		local color = handle.color
+
+		if is_active then
+			color = brighten_color(color, 1.35)
+		elseif is_hovered then
+			color = brighten_color(color, 1.18)
+		end
+
+		debug_draw.DrawLine{
+			id = string.format("%s_scale_line_%s_%s", listener_key, handle.axis_id, handle_suffix),
+			from = handle.anchor_position,
+			to = handle.position,
+			color = Color(color.r, color.g, color.b, 0.45),
+			width = 1,
+			time = 0.05,
+		}
+		debug_draw.DrawSphere{
+			id = string.format("%s_scale_handle_%s_%s", listener_key, handle.axis_id, handle_suffix),
+			position = handle.position,
+			radius = gizmo_def.handle_radius * 0.85,
 			color = color,
 			ignore_z = true,
 			time = 0.05,
@@ -611,6 +846,8 @@ local function draw_gizmo()
 
 	if state.mode == "move" then
 		draw_move_gizmo(gizmo_def)
+	elseif state.mode == "scale" then
+		draw_scale_gizmo(gizmo_def)
 	else
 		draw_rotation_gizmo(gizmo_def)
 	end
@@ -646,7 +883,9 @@ function gizmo.DisableGizmo()
 end
 
 function gizmo.SetMode(mode)
-	if mode ~= "move" and mode ~= "rotate" then return state.mode end
+	if mode ~= "move" and mode ~= "rotate" and mode ~= "scale" then
+		return state.mode
+	end
 
 	if state.mode == mode then return state.mode end
 
