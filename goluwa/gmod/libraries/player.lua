@@ -287,7 +287,7 @@ do
 	function META:SetAvoidPlayers(b) end
 
 	function META:GetViewModel()
-		self.__obj.viewmodel = self.__obj.viewmodel or gine.env.ents.Create("predicted_viewmodel")
+		self.__obj.viewmodel = self.__obj.viewmodel or gine.env.create_entity("predicted_viewmodel")
 		return self.__obj.viewmodel
 	end
 

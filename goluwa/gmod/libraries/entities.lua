@@ -41,6 +41,8 @@ local function create_entity(class)
 	return self
 end
 
+gine.env.create_entity = create_entity
+
 function gine.LoadEntities(base_folder, global, register, create_table)
 	for file_name in vfs.Iterate(base_folder .. "/") do
 		--logn("gine: registering ",base_folder," ", file_name)
