@@ -247,6 +247,9 @@ function render3d.ResetState()
 	render3d.prev_view_matrix = Matrix44()
 	render3d.prev_projection_matrix = Matrix44()
 	render3d.current_material = render3d.GetDefaultMaterial()
+	render3d.forward_overlay_clip_plane_enabled = false
+	render3d.forward_overlay_clip_plane_origin = Vec3(0, 0, 0)
+	render3d.forward_overlay_clip_plane_normal = Vec3(0, 0, 1)
 	render3d.environment_texture = nil
 	render3d.debug_cascade_colors = false
 	render3d.debug_mode = 1
@@ -289,9 +292,32 @@ function render3d.UploadForwardOverlayConstants()
 	if not render3d.pipelines.forward_overlay then return end
 
 	local cmd = render.GetCommandBuffer()
+	local material = render3d.GetMaterial()
 	local double_sided = render3d.GetMaterial():GetDoubleSided()
+	local translucent = material:GetTranslucent()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
 	cmd:SetCullMode(cull_mode)
+	cmd:SetColorBlendEnable(0, translucent)
+	cmd:SetColorBlendEquation(
+		0,
+		translucent and
+			{
+				src_color_blend_factor = "src_alpha",
+				dst_color_blend_factor = "one_minus_src_alpha",
+				color_blend_op = "add",
+				src_alpha_blend_factor = "one",
+				dst_alpha_blend_factor = "zero",
+				alpha_blend_op = "add",
+			} or
+			{
+				src_color_blend_factor = "one",
+				dst_color_blend_factor = "zero",
+				color_blend_op = "add",
+				src_alpha_blend_factor = "one",
+				dst_alpha_blend_factor = "zero",
+				alpha_blend_op = "add",
+			}
+	)
 	render3d.pipelines.forward_overlay:UploadConstants()
 end
 
@@ -351,6 +377,37 @@ end
 
 function render3d.GetMaterial()
 	return render3d.current_material or render3d.GetDefaultMaterial()
+end
+
+function render3d.SetForwardOverlayClipPlane(origin, normal)
+	if origin and normal then
+		render3d.forward_overlay_clip_plane_enabled = true
+		render3d.forward_overlay_clip_plane_origin = origin
+		render3d.forward_overlay_clip_plane_normal = normal
+		return
+	end
+
+	render3d.forward_overlay_clip_plane_enabled = false
+
+	if not render3d.forward_overlay_clip_plane_origin then
+		render3d.forward_overlay_clip_plane_origin = Vec3(0, 0, 0)
+	end
+
+	if not render3d.forward_overlay_clip_plane_normal then
+		render3d.forward_overlay_clip_plane_normal = Vec3(0, 0, 1)
+	end
+end
+
+function render3d.IsForwardOverlayClipPlaneEnabled()
+	return render3d.forward_overlay_clip_plane_enabled == true
+end
+
+function render3d.GetForwardOverlayClipPlaneOrigin()
+	return render3d.forward_overlay_clip_plane_origin or Vec3(0, 0, 0)
+end
+
+function render3d.GetForwardOverlayClipPlaneNormal()
+	return render3d.forward_overlay_clip_plane_normal or Vec3(0, 0, 1)
 end
 
 do

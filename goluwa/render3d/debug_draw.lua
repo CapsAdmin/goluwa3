@@ -165,9 +165,11 @@ local function draw_shape_entry(entry, cmd)
 		emissive = entry.emissive,
 	}
 	render3d.SetWorldMatrix(get_entry_matrix(entry))
+	render3d.SetForwardOverlayClipPlane(entry.clip_plane_origin, entry.clip_plane_normal)
 	render3d.SetMaterial(material)
 	render3d.UploadForwardOverlayConstants()
 	draw_drawable(cmd or render.GetCommandBuffer(), drawable)
+	render3d.SetForwardOverlayClipPlane(nil, nil)
 	return true
 end
 
@@ -207,8 +209,11 @@ local function draw_line_entry(entry)
 	if not (from and to) then return end
 
 	render2d.SetTexture(nil)
-	render2d.SetColor(unpack_color(entry.color, Color(1, 0.5, 0.2, 1)))
+	local r, g, b, a = unpack_color(entry.color, Color(1, 0.5, 0.2, 1))
+	render2d.SetColor(r, g, b)
+	render2d.PushAlphaMultiplier(a)
 	gfx.DrawLine(from.x, from.y, to.x, to.y, entry.line_width or 1, entry.smooth ~= false)
+	render2d.PopAlphaMultiplier()
 end
 
 local function draw_2d_entries()
@@ -631,6 +636,8 @@ function debug_draw.DrawMesh(options)
 	entry.translucent = options.translucent
 	entry.double_sided = options.double_sided
 	entry.emissive = options.emissive
+	entry.clip_plane_origin = options.clip_plane_origin and clone_vec3(options.clip_plane_origin)
+	entry.clip_plane_normal = options.clip_plane_normal and clone_vec3(options.clip_plane_normal)
 
 	if direct then draw_shape_entry(entry) end
 

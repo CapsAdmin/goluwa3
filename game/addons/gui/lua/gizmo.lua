@@ -17,21 +17,22 @@ local listener_key = "gui_gizmo_service"
 local CONE_SEGMENTS = 20
 local RING_SEGMENTS = 48
 local MOVE_CONE_LENGTH_SCALE = 0.24
-local MOVE_CONE_RADIUS_SCALE = 0.9
-local MOVE_SHAFT_RADIUS_SCALE = 0.3
-local SCALE_BOX_SIZE_SCALE = 1.35
+local MOVE_CONE_RADIUS_SCALE = 0.5
+local MOVE_SHAFT_RADIUS_SCALE = 0.1
+local SCALE_BOX_SIZE_SCALE = 0.5
 local SCALE_STEM_RADIUS_SCALE = 0.28
 local COMBINED_RING_RADIUS_SCALE = 0.42
 local COMBINED_MOVE_BASE_DISTANCE_SCALE = 0.56
 local COMBINED_SCALE_BOX_DISTANCE_SCALE = 0.92
-local ROTATION_RING_RADIAL_HALF_WIDTH = 0.033
-local ROTATION_RING_HALF_THICKNESS = 0.04
+local ROTATION_RING_RADIAL_HALF_WIDTH = 0.01
+local ROTATION_RING_HALF_THICKNESS = 0.01
+local VIEW_ROTATION_RING_RADIUS_SCALE = 1
 local ROTATION_SNAP_STEP_DEGREES = 90 / 4
-local GIZMO_DRAW_TIME = 0.12
 local axis_colors = {
-	x = Color(0.95, 0.32, 0.28, 0.95),
-	y = Color(0.30, 0.82, 0.34, 0.95),
-	z = Color(0.28, 0.56, 0.96, 0.95),
+	x = Color(0.95, 0.32, 0.28, 0.65),
+	y = Color(0.30, 0.82, 0.34, 0.65),
+	z = Color(0.28, 0.56, 0.96, 0.65),
+	view = Color(0.5, 0.5, 0.5, 0.65),
 }
 local state = {
 	gizmo_entity = nil,
@@ -160,6 +161,10 @@ local function brighten_color(color, scale)
 		clamp(color.b * scale, 0, 1),
 		color.a or 1
 	)
+end
+
+local function get_debug_draw_color(color)
+	return Color(color.r, color.g, color.b, color.a or 1)
 end
 
 local function is_valid_entity(entity)
@@ -364,6 +369,25 @@ local function get_axis_basis(direction)
 	return right, up, forward
 end
 
+local function get_gizmo_camera_vector(center)
+	local cam = render3d.GetCamera()
+
+	if cam then
+		local camera_vector = cam:GetPosition() - center
+
+		if camera_vector:GetLength() >= 1e-5 then
+			return camera_vector:GetNormalized()
+		end
+	end
+
+	return orientation.FORWARD_VECTOR:Copy()
+end
+
+local function get_camera_facing_axis_direction(axis_direction, camera_vector)
+	local sign = axis_direction:GetDot(camera_vector) >= 0 and 1 or -1
+	return axis_direction * sign, sign
+end
+
 local function get_direction_rotation(direction)
 	local right, up, forward = get_axis_basis(direction)
 	local backward = forward * -1
@@ -381,16 +405,27 @@ local function get_direction_rotation(direction)
 end
 
 local function create_mesh_shape(polygon, position, rotation, scale)
-	local matrix = debug_draw.MakeMatrix(position, rotation, scale)
 	return {
 		polygon = polygon,
 		position = position,
 		rotation = rotation,
 		scale = scale,
-		matrix = matrix,
-		world_to_local = matrix:GetInverse(),
 		triangles = get_polygon_triangles(polygon),
 	}
+end
+
+local function get_shape_matrix(shape)
+	if not shape then return nil end
+
+	return debug_draw.MakeMatrix(shape.position, shape.rotation, shape.scale)
+end
+
+local function get_shape_world_to_local(shape)
+	local matrix = get_shape_matrix(shape)
+
+	if not matrix then return nil, nil end
+
+	return matrix:GetInverse(), matrix
 end
 
 local function get_camera_viewport_rect(cam)
@@ -452,7 +487,11 @@ local function get_mouse_world_ray(window)
 end
 
 local function intersect_mesh_shape(ray, shape)
-	local local_ray = transform_ray(ray, shape.world_to_local)
+	local world_to_local, matrix = get_shape_world_to_local(shape)
+
+	if not world_to_local or not matrix then return nil end
+
+	local local_ray = transform_ray(ray, world_to_local)
 
 	if not ray_aabb_intersection(local_ray, shape.polygon and shape.polygon.AABB) then
 		return nil
@@ -472,7 +511,7 @@ local function intersect_mesh_shape(ray, shape)
 
 			if hit then
 				local local_position = local_ray.origin + local_ray.direction * local_distance
-				local world_position = transform_world_point(shape.matrix, local_position)
+				local world_position = transform_world_point(matrix, local_position)
 				local world_distance = (world_position - ray.origin):GetLength()
 
 				if world_distance < best_distance then
@@ -774,6 +813,9 @@ get_projected_shape_screen_distance = function(mouse_pos, shape)
 	local vertices = shape and shape.polygon and shape.polygon.Vertices or {}
 	local triangles = shape and shape.triangles or {}
 	local best_distance = math.huge
+	local matrix = get_shape_matrix(shape)
+
+	if not matrix then return nil end
 
 	for _, triangle in ipairs(triangles) do
 		local v0 = vertices[triangle[1]]
@@ -781,9 +823,9 @@ get_projected_shape_screen_distance = function(mouse_pos, shape)
 		local v2 = vertices[triangle[3]]
 
 		if v0 and v1 and v2 and v0.pos and v1.pos and v2.pos then
-			local p0 = project_world_position(transform_world_point(shape.matrix, v0.pos))
-			local p1 = project_world_position(transform_world_point(shape.matrix, v1.pos))
-			local p2 = project_world_position(transform_world_point(shape.matrix, v2.pos))
+			local p0 = project_world_position(transform_world_point(matrix, v0.pos))
+			local p1 = project_world_position(transform_world_point(matrix, v1.pos))
+			local p2 = project_world_position(transform_world_point(matrix, v2.pos))
 
 			if p0 and p1 and p2 then
 				if point_in_triangle_2d(mouse_pos, p0, p1, p2) then return 0 end
@@ -995,6 +1037,7 @@ local function get_gizmo_definition(entity)
 		nil
 	return {
 		center = center,
+		camera_vector = get_gizmo_camera_vector(center),
 		combined_mode = combined_mode,
 		axis_length = axis_length,
 		handle_radius = handle_radius,
@@ -1019,58 +1062,51 @@ local function build_move_handles(gizmo_def)
 	local unit_box = debug_draw.GetUnitBoxPolygon()
 	local unit_cone = get_unit_cone_polygon()
 	local cone_length = math.min(gizmo_def.move_cone_length, gizmo_def.axis_length * 0.35)
-	local shaft_length = math.max(gizmo_def.axis_length * 2 - cone_length * 2, gizmo_def.move_shaft_radius * 2)
+	local shaft_length = math.max(gizmo_def.axis_length - cone_length, gizmo_def.move_shaft_radius * 2)
 
 	for _, axis in ipairs(gizmo_def.axes) do
+		local direction, sign = get_camera_facing_axis_direction(axis.direction, gizmo_def.camera_vector)
+
 		if gizmo_def.move_cone_only then
-			for _, sign in ipairs({-1, 1}) do
-				local direction = axis.direction * sign
-				handles[#handles + 1] = {
-					kind = "move",
-					axis_id = axis.id,
-					sign = sign,
-					direction = direction,
-					center = gizmo_def.center,
-					axis_length = gizmo_def.move_cone_tip_distance,
-					color = axis.color,
-					pick_shapes = {
-						create_mesh_shape(
-							unit_cone,
-							gizmo_def.center + direction * gizmo_def.move_cone_base_distance,
-							get_direction_rotation(direction),
-							Vec3(gizmo_def.move_cone_radius, gizmo_def.move_cone_radius, cone_length)
-						),
-					},
-				}
-			end
-		else
-			local rotation = get_direction_rotation(axis.direction)
-			local positive_base = gizmo_def.center + axis.direction * (gizmo_def.axis_length - cone_length)
-			local negative_base = gizmo_def.center - axis.direction * (gizmo_def.axis_length - cone_length)
 			handles[#handles + 1] = {
 				kind = "move",
 				axis_id = axis.id,
-				direction = axis.direction,
+				sign = sign,
+				direction = direction,
+				center = gizmo_def.center,
+				axis_length = gizmo_def.move_cone_tip_distance,
+				color = axis.color,
+				pick_shapes = {
+					create_mesh_shape(
+						unit_cone,
+						gizmo_def.center + direction * gizmo_def.move_cone_base_distance,
+						get_direction_rotation(direction),
+						Vec3(gizmo_def.move_cone_radius, gizmo_def.move_cone_radius, cone_length)
+					),
+				},
+			}
+		else
+			local shaft_center = gizmo_def.center + direction * (shaft_length * 0.5)
+			local cone_base = gizmo_def.center + direction * (gizmo_def.axis_length - cone_length)
+			handles[#handles + 1] = {
+				kind = "move",
+				axis_id = axis.id,
+				sign = sign,
+				direction = direction,
 				center = gizmo_def.center,
 				axis_length = gizmo_def.axis_length,
 				color = axis.color,
 				pick_shapes = {
 					create_mesh_shape(
 						unit_box,
-						gizmo_def.center,
-						rotation,
+						shaft_center,
+						get_direction_rotation(direction),
 						Vec3(gizmo_def.move_shaft_radius * 2, gizmo_def.move_shaft_radius * 2, shaft_length)
 					),
 					create_mesh_shape(
 						unit_cone,
-						positive_base,
-						get_direction_rotation(axis.direction),
-						Vec3(gizmo_def.move_cone_radius, gizmo_def.move_cone_radius, cone_length)
-					),
-					create_mesh_shape(
-						unit_cone,
-						negative_base,
-						get_direction_rotation(-axis.direction),
+						cone_base,
+						get_direction_rotation(direction),
 						Vec3(gizmo_def.move_cone_radius, gizmo_def.move_cone_radius, cone_length)
 					),
 				},
@@ -1169,6 +1205,27 @@ local function build_rotation_handles(gizmo_def)
 		}
 	end
 
+	handles[#handles + 1] = {
+		kind = "rotate",
+		axis_id = "view",
+		direction = gizmo_def.camera_vector,
+		center = gizmo_def.center,
+		radius = gizmo_def.ring_radius * VIEW_ROTATION_RING_RADIUS_SCALE,
+		color = axis_colors.view,
+		is_camera_aligned = true,
+		pick_shapes = {
+			create_mesh_shape(
+				unit_ring,
+				gizmo_def.center,
+				get_direction_rotation(gizmo_def.camera_vector),
+				Vec3(
+					gizmo_def.ring_radius * VIEW_ROTATION_RING_RADIUS_SCALE,
+					gizmo_def.ring_radius * VIEW_ROTATION_RING_RADIUS_SCALE,
+					gizmo_def.ring_radius * VIEW_ROTATION_RING_RADIUS_SCALE
+				)
+			),
+		},
+	}
 	return handles
 end
 
@@ -1238,7 +1295,6 @@ local function find_hovered_gizmo_handle(entity)
 	populate_gizmo_handles(gizmo_def)
 	local mesh_handle = find_hovered_gizmo_handle_mesh(gizmo_def, window)
 	local screen_handle = find_hovered_gizmo_handle_screen(gizmo_def, mouse_pos)
-
 	return mesh_handle or screen_handle
 end
 
@@ -1440,7 +1496,7 @@ local function update_gizmo_drag()
 			build_axis_rotation(drag.axis_direction, angle) * drag.start_world_rotation
 		):GetNormalized()
 
-		if state.space == "local" then
+		if state.space == "local" and drag.axis_id ~= "view" then
 			local local_axis = get_axis_basis_vector(drag.axis_id)
 			local unsnapped_local_rotation = get_entity_local_rotation_from_world_rotation(drag.entity, unsnapped_world_rotation)
 			local twist_angle = get_quat_twist_angle(unsnapped_local_rotation, local_axis)
@@ -1504,17 +1560,21 @@ local function draw_move_gizmo(gizmo_def)
 		end
 
 		for shape_index, shape in ipairs(handle.pick_shapes or {}) do
-			debug_draw.DrawMesh{
-				id = string.format("%s_move_%s_%s_%d", listener_key, handle.axis_id, handle_suffix, shape_index),
-				polygon3d = shape.polygon,
-				matrix = shape.matrix,
-				color = Color(color.r, color.g, color.b, 1),
-				draw_direct = true,
-				ignore_z = true,
-				translucent = false,
-				double_sided = true,
-				time = GIZMO_DRAW_TIME,
-			}
+			local matrix = get_shape_matrix(shape)
+
+			if matrix then
+				local draw_color = get_debug_draw_color(color)
+				debug_draw.DrawMesh{
+					id = string.format("%s_move_%s_%s_%d", listener_key, handle.axis_id, handle_suffix, shape_index),
+					polygon3d = shape.polygon,
+					matrix = matrix,
+					color = draw_color,
+					draw_direct = true,
+					ignore_z = true,
+					translucent = draw_color.a < 1,
+					double_sided = true,
+				}
+			end
 		end
 	end
 end
@@ -1539,17 +1599,21 @@ local function draw_scale_gizmo(gizmo_def)
 		end
 
 		for shape_index, shape in ipairs(handle.pick_shapes or {}) do
-			debug_draw.DrawMesh{
-				id = string.format("%s_scale_%s_%s_%d", listener_key, handle.axis_id, handle_suffix, shape_index),
-				polygon3d = shape.polygon,
-				matrix = shape.matrix,
-				color = Color(color.r, color.g, color.b, 1),
-				draw_direct = true,
-				ignore_z = true,
-				translucent = false,
-				double_sided = true,
-				time = GIZMO_DRAW_TIME,
-			}
+			local matrix = get_shape_matrix(shape)
+
+			if matrix then
+				local draw_color = get_debug_draw_color(color)
+				debug_draw.DrawMesh{
+					id = string.format("%s_scale_%s_%s_%d", listener_key, handle.axis_id, handle_suffix, shape_index),
+					polygon3d = shape.polygon,
+					matrix = matrix,
+					color = draw_color,
+					draw_direct = true,
+					ignore_z = true,
+					translucent = draw_color.a < 1,
+					double_sided = true,
+				}
+			end
 		end
 	end
 end
@@ -1571,17 +1635,23 @@ local function draw_rotation_gizmo(gizmo_def)
 		end
 
 		for shape_index, shape in ipairs(handle.pick_shapes or {}) do
-			debug_draw.DrawMesh{
-				id = string.format("%s_rotate_%s_%d", listener_key, handle.axis_id, shape_index),
-				polygon3d = shape.polygon,
-				matrix = shape.matrix,
-				color = Color(color.r, color.g, color.b, 1),
-				draw_direct = true,
-				ignore_z = true,
-				translucent = false,
-				double_sided = true,
-				time = GIZMO_DRAW_TIME,
-			}
+			local matrix = get_shape_matrix(shape)
+
+			if matrix then
+				local draw_color = get_debug_draw_color(color)
+				debug_draw.DrawMesh{
+					id = string.format("%s_rotate_%s_%d", listener_key, handle.axis_id, shape_index),
+					polygon3d = shape.polygon,
+					matrix = matrix,
+					clip_plane_origin = not handle.is_camera_aligned and gizmo_def.center or nil,
+					clip_plane_normal = not handle.is_camera_aligned and gizmo_def.camera_vector or nil,
+					color = draw_color,
+					draw_direct = true,
+					ignore_z = true,
+					translucent = draw_color.a < 1,
+					double_sided = true,
+				}
+			end
 		end
 	end
 end
@@ -1616,7 +1686,6 @@ local function draw_gizmo()
 			draw_direct = true,
 			ignore_z = true,
 			translucent = false,
-			time = GIZMO_DRAW_TIME,
 		}
 	end
 

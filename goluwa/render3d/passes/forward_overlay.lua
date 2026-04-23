@@ -49,6 +49,7 @@ return {
 			shader = [[
 			void main() {
 				gl_Position = vertex.projection_view_world * vec4(in_position, 1.0);
+				out_position = (vertex.world * vec4(in_position, 1.0)).xyz;
 				out_uv = in_uv;
 				out_texture_blend = in_texture_blend;
 			}
@@ -56,6 +57,32 @@ return {
 		},
 		fragment = {
 			uniform_buffers = {
+				{
+					name = "clip_plane",
+					block = {
+						{
+							"Enabled",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.IsForwardOverlayClipPlaneEnabled() and 1 or 0
+							end,
+						},
+						{
+							"Origin",
+							"vec3",
+							function(self, block, key)
+								render3d.GetForwardOverlayClipPlaneOrigin():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
+							"Normal",
+							"vec3",
+							function(self, block, key)
+								render3d.GetForwardOverlayClipPlaneNormal():CopyToFloatPointer(block[key])
+							end,
+						},
+					},
+				},
 				{
 					name = "model",
 					block = {
@@ -113,6 +140,8 @@ return {
 			}
 
 			void main() {
+				if (clip_plane.Enabled != 0 && dot(in_position - clip_plane.Origin, clip_plane.Normal) < 0.0) discard;
+
 				vec4 color = get_color();
 
 				if (AlphaTest && color.a < model.AlphaCutoff) discard;
@@ -126,7 +155,13 @@ return {
 		DepthTest = true,
 		DepthWrite = true,
 		DepthCompareOp = "less_or_equal",
-		Blend = false,
+		Blend = true,
+		SrcColorBlendFactor = "src_alpha",
+		DstColorBlendFactor = "one_minus_src_alpha",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "zero",
+		AlphaBlendOp = "add",
 		ColorWriteMask = {"r", "g", "b", "a"},
 	},
 }
