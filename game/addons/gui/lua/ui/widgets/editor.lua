@@ -1131,6 +1131,7 @@ return function(props)
 		add_mode_item("Move", "move")
 		add_mode_item("Rotate", "rotate")
 		add_mode_item("Scale", "scale")
+		add_mode_item("Combined", "combined")
 		items[#items + 1] = MenuItem{Text = "-", Disabled = true}
 		add_space_item("Local Space", "local")
 		add_space_item("World Space", "world")
