@@ -179,20 +179,14 @@ return function(props)
 			OnChange = function(new_component, old_component)
 				if updating then return end
 
-				local old_value = build_value(value)
 				local next_value = build_plain_value(value)
-				local delta = (tonumber(new_component) or 0) - (tonumber(old_component) or 0)
 				next_value[axis] = clamp_component(tonumber(new_component) or 0, get_min(index), get_max(index))
 				next_value[index] = next_value[axis]
 
 				if input.IsKeyDown("left_shift") or input.IsKeyDown("right_shift") then
 					for other_index, other_axis in ipairs(components) do
 						if other_index ~= index then
-							next_value[other_axis] = clamp_component(
-								(tonumber(old_value[other_axis]) or 0) + delta,
-								get_min(other_index),
-								get_max(other_index)
-							)
+							next_value[other_axis] = clamp_component(next_value[axis], get_min(other_index), get_max(other_index))
 							next_value[other_index] = next_value[other_axis]
 						end
 					end

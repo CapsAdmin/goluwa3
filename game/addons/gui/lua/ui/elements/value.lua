@@ -53,7 +53,21 @@ return function(props)
 		dragging = false,
 		drag_start_pos = Vec2(),
 		drag_start_value = value,
+		drag_accumulated_delta = Vec2(),
+		last_drag_pos = Vec2(),
+		mouse_trapped = false,
 	}
+
+	local function set_drag_mouse_trapped(trapped)
+		if state.mouse_trapped == trapped then return end
+
+		local window = system.GetWindow()
+
+		if not (window and window.SetMouseTrapped) then return end
+
+		window:SetMouseTrapped(trapped)
+		state.mouse_trapped = trapped
+	end
 
 	local function update_display_text()
 		if state.editing then return end
@@ -201,6 +215,8 @@ return function(props)
 				state.dragging = false
 				state.drag_start_pos = system.GetWindow():GetMousePosition():Copy()
 				state.drag_start_value = value
+				state.drag_accumulated_delta = Vec2()
+				state.last_drag_pos = state.drag_start_pos:Copy()
 
 				if state.click_count >= edit_click_count then
 					state.pending_drag = false
@@ -223,11 +239,28 @@ return function(props)
 					end
 
 					state.dragging = true
+					state.drag_accumulated_delta = Vec2()
+					state.last_drag_pos = pos:Copy()
+					set_drag_mouse_trapped(true)
 				end
 
-				local next_value = props.OnDragValue(delta, state.drag_start_value, panel)
+				local window = system.GetWindow()
+				local frame_delta = window and
+					window.GetMouseDelta and
+					window:GetMouseDelta() or
+					(
+						pos - state.last_drag_pos
+					)
+				state.last_drag_pos = pos:Copy()
+				state.drag_accumulated_delta = state.drag_accumulated_delta + frame_delta
+				local next_value = props.OnDragValue(state.drag_accumulated_delta, state.drag_start_value, panel)
 
 				if next_value ~= nil then panel:SetValue(next_value, true) end
+
+				if state.mouse_trapped and window and window.SetMousePosition then
+					pcall(window.SetMousePosition, window, state.drag_start_pos)
+					state.last_drag_pos = state.drag_start_pos:Copy()
+				end
 
 				return true
 			end,
@@ -237,10 +270,12 @@ return function(props)
 						state.dragging = false
 						state.pending_drag = false
 						state.click_count = 0
+						set_drag_mouse_trapped(false)
 						return true
 					end
 
 					state.pending_drag = false
+					set_drag_mouse_trapped(false)
 					return
 				end
 
@@ -326,6 +361,10 @@ return function(props)
 
 	function panel:IsEditing()
 		return state.editing
+	end
+
+	function panel:IsDragging()
+		return state.dragging
 	end
 
 	if external_ref then external_ref(panel) end

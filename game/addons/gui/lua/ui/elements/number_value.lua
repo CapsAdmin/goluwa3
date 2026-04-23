@@ -29,8 +29,20 @@ return function(props)
 	local min = props.Min ~= nil and props.Min or -math.huge
 	local max = props.Max ~= nil and props.Max or math.huge
 	local precision = props.Precision
+	local drag_precision_boost = props.DragPrecisionBoost or 2
+	local control
 
 	if precision == nil then precision = 2 end
+
+	local function get_display_precision()
+		if control and control.IsDragging and control:IsDragging() then
+			if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
+				return precision + drag_precision_boost
+			end
+		end
+
+		return precision
+	end
 
 	local function get_drag_step()
 		if props.DragStep ~= nil then return props.DragStep end
@@ -44,7 +56,7 @@ return function(props)
 		return 1
 	end
 
-	local control = Value{
+	control = Value{
 		Name = props.Name or "number_value",
 		Ref = props.Ref,
 		Value = tonumber(props.Value) or 0,
@@ -63,10 +75,10 @@ return function(props)
 		layout = props.layout,
 		EditClickCount = 2,
 		FormatValue = function(value)
-			return format_number(value, precision)
+			return format_number(value, get_display_precision())
 		end,
 		FormatEditValue = function(value)
-			return format_number(value, precision)
+			return format_number(value, get_display_precision())
 		end,
 		ParseValue = function(text, current_value)
 			local numeric = tonumber(text)
@@ -77,17 +89,19 @@ return function(props)
 		end,
 		OnDragValue = function(delta, start_value)
 			local step = get_drag_step()
+			local rounding_precision = precision
 
 			if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
 				step = step * 0.1
+				rounding_precision = precision + drag_precision_boost
 			end
 
 			local next_value = (tonumber(start_value) or 0) - delta.y * step
 
 			if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
 				next_value = math.round(next_value)
-			elseif precision >= 0 then
-				next_value = math.round(next_value, precision)
+			elseif rounding_precision >= 0 then
+				next_value = math.round(next_value, rounding_precision)
 			end
 
 			return clamp_number(next_value, min, max)

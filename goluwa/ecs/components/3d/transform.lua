@@ -37,15 +37,13 @@ function META:SetAngles(ang)
 end
 
 function META:SetScale(vec3)
-	self.Scale = vec3
-	self.temp_scale = vec3 * self.Size
-	self:InvalidateMatrices()
+	prototype.CommitProperty(self, "Scale", vec3)
+	self.temp_scale = self.Scale * self.Size
 end
 
 function META:SetSize(num)
-	self.Size = num
-	self.temp_scale = num * self.Scale
-	self:InvalidateMatrices()
+	prototype.CommitProperty(self, "Size", num)
+	self.temp_scale = self.Size * self.Scale
 end
 
 function META:InvalidateMatrices()

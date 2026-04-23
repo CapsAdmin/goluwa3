@@ -130,9 +130,7 @@ local function update_editor_camera_position(camera_state, dt)
 
 	if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
 
-	if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
-		move_local.y = move_local.y - 1
-	end
+	if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
 
 	local move = Vec3()
 
@@ -144,6 +142,10 @@ local function update_editor_camera_position(camera_state, dt)
 	end
 
 	local speed = camera_state.speed
+
+	if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
+		speed = speed * camera_state.slow_multiplier
+	end
 
 	if input.IsKeyDown("left_shift") then
 		speed = speed * camera_state.sprint_multiplier
@@ -275,6 +277,7 @@ local function build_property_node(component, component_name, info, hooks)
 		Key = component.Owner:GetGUID() .. "/" .. component_name .. "/" .. info.var_name,
 		Text = info.var_name,
 		Value = value,
+		Default = info.copy and info.copy() or info.default,
 		GetValue = function()
 			return prototype.GetProperty(component, info.var_name)
 		end,
@@ -511,6 +514,7 @@ return function(props)
 		speed = 18,
 		sprint_multiplier = 2.25,
 		acceleration = 220,
+		slow_multiplier = 0.2,
 		dragging = false,
 		block_movement = false,
 	}
@@ -618,12 +622,22 @@ return function(props)
 		local mouse_pos = system.GetWindow():GetMousePosition()
 		local focus_blocks_movement = has_text_focus(window)
 		local world_blocked = context_menu_blocks_world(mouse_pos)
+		local gizmo_status = Gizmo.GetStatus()
 		local can_drag = mouse_in_editor_viewport(mouse_pos) and
 			not focus_blocks_movement and
 			not mouse_in_editor_window(mouse_pos)
 			and
 			not world_blocked
-		editor_camera.dragging = can_drag and input.IsMouseDown("button_2")
+		local wants_drag = can_drag and input.IsMouseDown("button_1")
+
+		if editor_camera.dragging then
+			editor_camera.dragging = wants_drag and not gizmo_status.active_drag
+		else
+			editor_camera.dragging = wants_drag and
+				not gizmo_status.active_drag and
+				not gizmo_status.hovered_handle
+		end
+
 		editor_camera.block_movement = focus_blocks_movement or world_blocked or not mouse_in_editor_viewport(mouse_pos)
 
 		if editor_camera.dragging then
