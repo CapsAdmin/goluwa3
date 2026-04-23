@@ -232,6 +232,7 @@ return function(props)
 				end
 
 				local delta = pos - state.drag_start_pos
+				local started_drag = false
 
 				if not state.dragging then
 					if math.abs(delta.x) < drag_threshold and math.abs(delta.y) < drag_threshold then
@@ -239,17 +240,17 @@ return function(props)
 					end
 
 					state.dragging = true
+					started_drag = true
 					state.drag_accumulated_delta = Vec2()
-					state.last_drag_pos = pos:Copy()
 					set_drag_mouse_trapped(true)
 				end
 
 				local window = system.GetWindow()
-				local frame_delta = window and
-					window.GetMouseDelta and
-					window:GetMouseDelta() or
+				local frame_delta = started_drag and
+					(pos - state.last_drag_pos) or
 					(
-						pos - state.last_drag_pos
+						window and window.GetMouseDelta and window:GetMouseDelta() or
+						(pos - state.last_drag_pos)
 					)
 				state.last_drag_pos = pos:Copy()
 				state.drag_accumulated_delta = state.drag_accumulated_delta + frame_delta
@@ -257,7 +258,15 @@ return function(props)
 
 				if next_value ~= nil then panel:SetValue(next_value, true) end
 
-				if state.mouse_trapped and window and window.SetMousePosition then
+				if
+					state.mouse_trapped and
+					window and
+					window.SetMousePosition and
+					(
+						not window.ShouldWarpMouseWhenCaptured or
+						window:ShouldWarpMouseWhenCaptured()
+					)
+				then
 					pcall(window.SetMousePosition, window, state.drag_start_pos)
 					state.last_drag_pos = state.drag_start_pos:Copy()
 				end

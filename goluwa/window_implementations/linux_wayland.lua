@@ -1101,6 +1101,10 @@ return function(META)
 		error("SetMousePosition is not supported on Wayland", 2)
 	end
 
+	function META:ShouldWarpMouseWhenCaptured()
+		return false
+	end
+
 	function META:GetSurfaceHandle()
 		return self.surface, self.display
 	end

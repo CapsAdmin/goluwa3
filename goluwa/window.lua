@@ -90,6 +90,10 @@ function Window:SetMousePosition(pos)
 	nyi()
 end
 
+function Window:ShouldWarpMouseWhenCaptured()
+	return true
+end
+
 function Window:OnUpdate(dt) end
 
 function Window:OnMinimize()

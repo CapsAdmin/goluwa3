@@ -161,6 +161,21 @@ local function CGRectMake(x, y, width, height)
 	return ffi.new("CGRect", {{x, y}, {width, height}})
 end
 
+local function get_content_height(window)
+	if window == nil or window == objc.ptr(nil) then return 0 end
+
+	local content_view = window:GetProperty("contentView")
+
+	if content_view == nil or content_view == objc.ptr(nil) then return 0 end
+
+	local bounds = content_view:GetProperty("bounds")
+	return tonumber(bounds.size.height) or 0
+end
+
+local function flip_window_y(window, y)
+	return get_content_height(window) - (tonumber(y) or 0)
+end
+
 -- Initialize Cocoa application and create window
 local function init_cocoa(width, height)
 	local pool = objc.Class("NSAutoreleasePool"):Call("alloc"):Call("init")
@@ -426,6 +441,7 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.OtherMouseDown
 	then
 		local location = nsevent:Call("locationInWindow")
+		local y = flip_window_y(window, location.y)
 		local button = event_type == NSEventType.LeftMouseDown and
 			"left" or
 			event_type == NSEventType.RightMouseDown and
@@ -436,7 +452,7 @@ local function convert_nsevent(nsevent, window)
 			action = "pressed",
 			button = button,
 			x = tonumber(location.x),
-			y = tonumber(location.y),
+			y = y,
 			modifiers = modifiers,
 		}
 	elseif
@@ -445,6 +461,7 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.OtherMouseUp
 	then
 		local location = nsevent:Call("locationInWindow")
+		local y = flip_window_y(window, location.y)
 		local button = event_type == NSEventType.LeftMouseUp and
 			"left" or
 			event_type == NSEventType.RightMouseUp and
@@ -455,7 +472,7 @@ local function convert_nsevent(nsevent, window)
 			action = "released",
 			button = button,
 			x = tonumber(location.x),
-			y = tonumber(location.y),
+			y = y,
 			modifiers = modifiers,
 		}
 	-- Mouse movement
@@ -467,11 +484,12 @@ local function convert_nsevent(nsevent, window)
 	then
 		local location = nsevent:Call("locationInWindow")
 		local delta_x = tonumber(nsevent:Call("deltaX"))
-		local delta_y = tonumber(nsevent:Call("deltaY"))
+		local delta_y = -(tonumber(nsevent:Call("deltaY")) or 0)
+		local y = flip_window_y(window, location.y)
 		return {
 			type = "mouse_move",
 			x = tonumber(location.x),
-			y = tonumber(location.y),
+			y = y,
 			delta_x = delta_x,
 			delta_y = delta_y,
 			modifiers = modifiers,
@@ -479,12 +497,13 @@ local function convert_nsevent(nsevent, window)
 	-- Scroll wheel
 	elseif event_type == NSEventType.ScrollWheel then
 		local location = nsevent:Call("locationInWindow")
+		local y = flip_window_y(window, location.y)
 		local delta_x = tonumber(nsevent:Call("scrollingDeltaX"))
 		local delta_y = tonumber(nsevent:Call("scrollingDeltaY"))
 		return {
 			type = "mouse_scroll",
 			x = tonumber(location.x),
-			y = tonumber(location.y),
+			y = y,
 			delta_x = delta_x,
 			delta_y = delta_y,
 			modifiers = modifiers,
@@ -673,13 +692,13 @@ end
 
 function meta:GetMousePosition()
 	local pos = self.window:Call("mouseLocationOutsideOfEventStream")
-	return Vec2(tonumber(pos.x), tonumber(pos.y))
+	return Vec2(tonumber(pos.x), flip_window_y(self.window, pos.y))
 end
 
 function meta:SetMousePosition(pos)
 	local local_pos = ffi.new("CGPoint")
 	local_pos.x = math.floor(tonumber(pos.x) or 0)
-	local_pos.y = math.floor(tonumber(pos.y) or 0)
+	local_pos.y = math.floor(flip_window_y(self.window, pos.y))
 	CG.CGWarpMouseCursorPosition(self.window:Call("convertPointToScreen:", local_pos))
 end
 

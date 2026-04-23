@@ -233,6 +233,10 @@ return function(META)
 		self.cocoa_window:SetMousePosition(self.last_mouse_pos)
 	end
 
+	function META:ShouldWarpMouseWhenCaptured()
+		return false
+	end
+
 	function META:GetSurfaceHandle()
 		return self.cocoa_window:GetSurfaceHandle()
 	end
