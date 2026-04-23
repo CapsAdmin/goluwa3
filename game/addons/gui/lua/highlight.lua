@@ -35,7 +35,7 @@ local function draw_overlay_polygon(polygon, material, world_matrix)
 
 	render3d.SetWorldMatrix(world_matrix)
 	render3d.SetMaterial(material)
-	render3d.UploadGBufferConstants()
+	render3d.UploadForwardOverlayConstants()
 	polygon:Draw()
 end
 
@@ -144,6 +144,6 @@ function highlight.Clear()
 	highlighted_entity = nil
 end
 
-event.AddListener("Draw3DGeometryOverlay", listener_key, draw_3d_overlay)
+event.AddListener("Draw3DForwardOverlay", listener_key, draw_3d_overlay)
 event.AddListener("Draw2D", listener_key, draw_2d_highlight_overlay)
 return highlight

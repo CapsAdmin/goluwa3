@@ -9,12 +9,6 @@ return {
 		on_draw = function(self, cmd)
 			event.Call("PreDraw3D", dt)
 			event.Call("Draw3DGeometry", dt)
-			self:SetDepthTest(false)
-			self:SetDepthWrite(false)
-			self:Bind(cmd)
-			event.Call("Draw3DGeometryOverlay", dt)
-			self:ResetToBase()
-			self:Bind(cmd)
 		end,
 		ColorFormat = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},

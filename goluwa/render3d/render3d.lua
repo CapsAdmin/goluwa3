@@ -203,6 +203,7 @@ function render3d.Initialize()
 		import("goluwa/render3d/passes/gbuffer.lua"),
 		import("goluwa/render3d/passes/ssr.lua"),
 		import("goluwa/render3d/passes/lighting.lua"),
+		import("goluwa/render3d/passes/forward_overlay.lua"),
 		--import("goluwa/render3d/passes/smaa.lua"),
 		import("goluwa/render3d/passes/blit.lua"),
 	}
@@ -213,6 +214,7 @@ function render3d.Initialize()
 		--
 		render3d.pipelines_i[i].name = config.name
 		render3d.pipelines_i[i].post_draw = config.post_draw
+		render3d.pipelines_i[i].draw_in_prerender = config.draw_in_prerender ~= false
 	end
 
 	local size = render.GetRenderImageSize()
@@ -226,7 +228,9 @@ function render3d.Initialize()
 		for _, pipeline in ipairs(render3d.pipelines_i) do
 			pipeline:SetSamplerConfig(sampler_config)
 
-			if pipeline.name ~= "blit" then pipeline:Draw() end
+			if pipeline.name ~= "blit" and pipeline.draw_in_prerender then
+				pipeline:Draw()
+			end
 		end
 	end)
 
@@ -279,6 +283,16 @@ function render3d.UploadGBufferConstants()
 	-- directly for the current draw.
 	cmd:SetCullMode(cull_mode)
 	render3d.pipelines.gbuffer:UploadConstants()
+end
+
+function render3d.UploadForwardOverlayConstants()
+	if not render3d.pipelines.forward_overlay then return end
+
+	local cmd = render.GetCommandBuffer()
+	local double_sided = render3d.GetMaterial():GetDoubleSided()
+	local cull_mode = double_sided and "none" or orientation.CULL_MODE
+	cmd:SetCullMode(cull_mode)
+	render3d.pipelines.forward_overlay:UploadConstants()
 end
 
 do

@@ -149,29 +149,34 @@ local function get_entry_matrix(entry)
 	return debug_draw.MakeMatrix(entry.position or zero_vec, entry.rotation or identity_rotation, scale)
 end
 
-local function draw_shape_entries(ignore_z)
+local function draw_shape_entry(entry, cmd)
+	if entry.kind == "text" or entry.kind == "line" then return false end
+
+	local drawable = get_drawable(entry)
+
+	if not drawable then return false end
+
+	local material = debug_draw.GetMaterial{
+		shape_type = entry.shape_type or entry.kind,
+		color = entry.color,
+		ignore_z = entry.ignore_z,
+		translucent = entry.translucent,
+		double_sided = entry.double_sided,
+		emissive = entry.emissive,
+	}
+	render3d.SetWorldMatrix(get_entry_matrix(entry))
+	render3d.SetMaterial(material)
+	render3d.UploadForwardOverlayConstants()
+	draw_drawable(cmd or render.GetCommandBuffer(), drawable)
+	return true
+end
+
+local function draw_shape_entries()
 	local cmd = render.GetCommandBuffer()
 	prune_entries()
 
 	for _, entry in pairs(entries) do
-		if entry.kind ~= "text" and entry.kind ~= "line" and (entry.ignore_z == ignore_z) then
-			local drawable = get_drawable(entry)
-
-			if drawable then
-				local material = debug_draw.GetMaterial{
-					shape_type = entry.shape_type or entry.kind,
-					color = entry.color,
-					ignore_z = entry.ignore_z,
-					translucent = entry.translucent,
-					double_sided = entry.double_sided,
-					emissive = entry.emissive,
-				}
-				render3d.SetWorldMatrix(get_entry_matrix(entry))
-				render3d.SetMaterial(material)
-				render3d.UploadGBufferConstants()
-				draw_drawable(cmd, drawable)
-			end
-		end
+		draw_shape_entry(entry, cmd)
 	end
 end
 
@@ -559,7 +564,11 @@ function debug_draw.DrawWireAABB(options)
 end
 
 function debug_draw.DrawSphere(options)
-	local entry = upsert_entry("sphere", options, 4)
+	options = options or {}
+	local direct = options.draw_direct == true
+	local entry = direct and
+		{id = options.id or get_default_id(4), kind = "sphere"} or
+		upsert_entry("sphere", options, 4)
 	entry.position = clone_vec3(options.position or options.pos)
 	entry.rotation = options.rotation and options.rotation:Copy() or identity_rotation:Copy()
 	entry.radius = options.radius or 1
@@ -572,11 +581,18 @@ function debug_draw.DrawSphere(options)
 
 	entry.translucent = options.translucent
 	entry.double_sided = options.double_sided
+
+	if direct then draw_shape_entry(entry) end
+
 	return entry.id
 end
 
 function debug_draw.DrawBox(options)
-	local entry = upsert_entry("box", options, 4)
+	options = options or {}
+	local direct = options.draw_direct == true
+	local entry = direct and
+		{id = options.id or get_default_id(4), kind = "box"} or
+		upsert_entry("box", options, 4)
 	entry.position = clone_vec3(options.position or options.pos)
 	entry.rotation = options.rotation and options.rotation:Copy() or identity_rotation:Copy()
 	entry.size = clone_vec3(options.size or options.scale or Vec3(1, 1, 1), Vec3(1, 1, 1))
@@ -589,11 +605,18 @@ function debug_draw.DrawBox(options)
 
 	entry.translucent = options.translucent
 	entry.double_sided = options.double_sided
+
+	if direct then draw_shape_entry(entry) end
+
 	return entry.id
 end
 
 function debug_draw.DrawMesh(options)
-	local entry = upsert_entry("mesh", options, 4)
+	options = options or {}
+	local direct = options.draw_direct == true
+	local entry = direct and
+		{id = options.id or get_default_id(4), kind = "mesh"} or
+		upsert_entry("mesh", options, 4)
 	entry.drawable = options.polygon3d or options.polygon or options.drawable or options.mesh
 	entry.position = clone_vec3(options.position or options.pos)
 	entry.rotation = options.rotation and options.rotation:Copy() or identity_rotation:Copy()
@@ -608,6 +631,9 @@ function debug_draw.DrawMesh(options)
 	entry.translucent = options.translucent
 	entry.double_sided = options.double_sided
 	entry.emissive = options.emissive
+
+	if direct then draw_shape_entry(entry) end
+
 	return entry.id
 end
 
@@ -615,12 +641,8 @@ event.AddListener("Update", "debug_draw_expire", function()
 	prune_entries()
 end)
 
-event.AddListener("Draw3DGeometry", "debug_draw_draw_3d", function()
-	draw_shape_entries(false)
-end)
-
-event.AddListener("Draw3DGeometryOverlay", "debug_draw_draw_3d_overlay", function()
-	draw_shape_entries(true)
+event.AddListener("Draw3DForwardOverlay", "debug_draw_draw_3d_overlay", function()
+	draw_shape_entries()
 end)
 
 event.AddListener("Draw2D", "debug_draw_draw_2d", function()

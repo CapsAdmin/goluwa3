@@ -42,7 +42,7 @@ local function has_primitives_for_pass(self, ignore_z)
 	return false
 end
 
-local function draw_primitives_for_pass(self, ignore_z)
+local function draw_primitives_for_pass(self, ignore_z, upload_constants)
 	local world_matrix = self:GetWorldMatrix()
 
 	if not world_matrix then return false end
@@ -61,7 +61,7 @@ local function draw_primitives_for_pass(self, ignore_z)
 
 			render3d.SetWorldMatrix(final_matrix)
 			render3d.SetMaterial(material)
-			render3d.UploadGBufferConstants()
+			upload_constants()
 			prim.polygon3d:Draw()
 			drew_any = true
 		end
@@ -89,7 +89,7 @@ function META:Initialize()
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 	invalidate_raycast_acceleration(self)
 	self:AddGlobalEvent("Draw3DGeometry")
-	self:AddGlobalEvent("Draw3DGeometryOverlay")
+	self:AddGlobalEvent("Draw3DForwardOverlay")
 end
 
 function META:SetModelPath(path)
@@ -465,13 +465,13 @@ function META:OnDraw3DGeometry(dt)
 		self.using_conditional_rendering = false
 	end
 
-	draw_primitives_for_pass(self, false)
+	draw_primitives_for_pass(self, false, render3d.UploadGBufferConstants)
 
 	-- End occlusion culling
 	if using_occlusion then self.occlusion_query:EndConditional(cmd) end
 end
 
-function META:OnDraw3DGeometryOverlay(dt)
+function META:OnDraw3DForwardOverlay(dt)
 	if not self.Visible then return end
 
 	if #self.Primitives == 0 then return end
@@ -480,7 +480,7 @@ function META:OnDraw3DGeometryOverlay(dt)
 
 	if not self:IsAABBVisibleLocal() then return end
 
-	draw_primitives_for_pass(self, true)
+	draw_primitives_for_pass(self, true, render3d.UploadForwardOverlayConstants)
 end
 
 -- Draw bounding box for occlusion query (simplified geometry)
