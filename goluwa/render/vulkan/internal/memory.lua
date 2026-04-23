@@ -17,10 +17,11 @@ function Memory.New(device, config)
 		}
 	end
 
-	vulkan.assert(
-		vulkan.lib.vkAllocateMemory(device.ptr[0], allocate_info, nil, ptr),
-		"failed to allocate memory"
-	)
+	local msg = "failed to allocate memory"
+
+	if config.label then msg = msg .. " for " .. config.label end
+
+	vulkan.assert(vulkan.lib.vkAllocateMemory(device.ptr[0], allocate_info, nil, ptr), msg)
 	return Memory:CreateObject{
 		ptr = ptr,
 		device = device,

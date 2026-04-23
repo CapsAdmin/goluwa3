@@ -43,11 +43,20 @@ function vulkan.assert(result, msg)
 			(
 				"error code - " .. tostring(result)
 			)
-		print(msg .. " : " .. enum_str)
+		local full_msg = msg .. " : " .. enum_str
 
-		if enum_str ~= "error_device_lost" then debug.trace() end
+		if enum_str == "error_out_of_device_memory" then
+			full_msg = full_msg .. " (out of device memory / VRAM)"
+		elseif enum_str == "error_out_of_host_memory" then
+			full_msg = full_msg .. " (out of host memory)"
+		end
 
-		if enum_str == "error_device_lost" then os.realexit(1) end
+		if enum_str == "error_device_lost" then
+			print(full_msg)
+			os.realexit(1)
+		end
+
+		error(full_msg, 2)
 	end
 end
 

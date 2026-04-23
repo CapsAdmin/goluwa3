@@ -62,6 +62,15 @@ function Image.New(config)
 		{
 			size = requirements.size,
 			type_index = config.device.physical_device:FindMemoryType(requirements.memoryTypeBits, config.properties or "device_local"),
+			label = string.format(
+				"image %dx%dx%d format=%s usage=%s size=%d",
+				config.width,
+				config.height,
+				config.depth or 1,
+				tostring(config.format),
+				table.concat(config.usage, ","),
+				requirements.size
+			),
 		}
 	)
 	self:BindMemory()
