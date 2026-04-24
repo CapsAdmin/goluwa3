@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local GetBlueNoiseTexture = import("goluwa/render/textures/blue_noise.lua")
+local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -170,7 +170,7 @@ return {
 							"blue_noise_tex",
 							"int",
 							function(self, block, key)
-								block[key] = self:GetTextureIndex(GetBlueNoiseTexture())
+								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 							end,
 						},
 						render3d.last_frame_block,

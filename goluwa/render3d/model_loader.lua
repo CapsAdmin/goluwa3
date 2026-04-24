@@ -46,6 +46,28 @@ end
 model_loader.model_cache = {}
 model_loader.model_loader_cb = utility.CreateCallbackThing(model_loader.model_cache)
 
+local function normalize_failure_reason(reason)
+	if type(reason) == "table" then
+		if reason.error ~= nil then return tostring(reason.error) end
+
+		if reason.GetError then
+			local ok, err = pcall(reason.GetError, reason)
+
+			if ok and err ~= nil then return tostring(err) end
+		end
+	end
+
+	return tostring(reason)
+end
+
+local function fail_model_load(cb, path, reason)
+	local message = normalize_failure_reason(reason)
+	logf("model loader failed for %q: %s\n", path, message)
+	cb:callextra(path, "on_fail", message)
+	cb:uncache(path)
+	return message
+end
+
 function model_loader.LoadModel(path, callback, callback2, on_fail)
 	local cb = model_loader.model_loader_cb
 
@@ -82,8 +104,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 
 		if decode_callback then
 			local function on_error(err)
-				cb:callextra(path, "on_fail", err)
-				cb:uncache(path)
+				fail_model_load(cb, path, err)
 			end
 
 			local thread = tasks.CreateTask(nil, nil, nil, on_error)
@@ -98,11 +119,10 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 			thread:Start()
 			utility.PopTimeWarning("decoding " .. path, 0.5)
 		else
-			cb:callextra(path, "on_fail", "unknown format " .. path)
-			cb:uncache(path)
+			fail_model_load(cb, path, "unknown format " .. path)
 		end
 	end):Catch(function(reason)
-		cb:callextra(path, "on_fail", reason)
+		fail_model_load(cb, path, reason)
 	end)
 
 	return true

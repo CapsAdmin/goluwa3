@@ -8,10 +8,14 @@ local Entity = import("goluwa/ecs/entity.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+local assets = import("goluwa/assets.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local capsule_shape = CapsuleShape.New
+local BOX_MODEL_PATH = "models/box.lua"
+local SPHERE_MODEL_PATH = "models/sphere.lua"
+local CAPSULE_MODEL_PATH = "models/capsule.lua"
 local convex_shape = ConvexShape.New
 local ORIGIN = Vec3(70, 0, -8)
 local TOTAL_BODIES = 50
@@ -55,36 +59,42 @@ local function make_rotation(pitch, yaw, roll)
 	return Quat():SetAngles(Deg3(pitch or 0, yaw or 0, roll or 0))
 end
 
-local function add_cube_model(ent, size, material)
-	ent.transform:SetScale(size)
+local function add_asset_model(ent, path, material, options)
+	local entry = assets.GetModel(path)
+	assert(
+		entry and entry.value and entry.value.create_primitives,
+		("failed to load model asset %q"):format(path)
+	)
 	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:CreateCube(0.5)
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
+
+	for _, primitive in ipairs(entry.value.create_primitives(options or {})) do
+		ent.model:AddPrimitive(primitive.mesh or primitive.polygon3d or primitive, primitive.material or material)
+	end
+
 	ent.model:BuildAABB()
 	return ent
+end
+
+local function add_cube_model(ent, size, material)
+	return add_asset_model(ent, BOX_MODEL_PATH, material, {size = size})
 end
 
 local function add_sphere_model(ent, radius, material)
-	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:CreateSphere(radius, 16, 12)
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	return ent
+	return add_asset_model(ent, SPHERE_MODEL_PATH, material, {radius = radius, segments = 16, rings = 12})
 end
 
 local function add_capsule_model(ent, radius, height, material)
-	ent.transform:SetScale(Vec3(radius * 2, math.max(height, radius * 2), radius * 2))
-	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:CreateSphere(0.5, 16, 12)
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	return ent
+	return add_asset_model(
+		ent,
+		CAPSULE_MODEL_PATH,
+		material,
+		{
+			radius = radius,
+			height = math.max(height, radius * 2),
+			segments = 16,
+			rings = 8,
+		}
+	)
 end
 
 local function create_dynamic_body_entity(name, position, rotation)

@@ -2,6 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local MaterialClass = import("goluwa/render3d/material.lua")
 local TextureClass = import("goluwa/render/texture.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local assets = import("goluwa/assets.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
@@ -13,6 +14,10 @@ local sphere_shape = SphereShape.New
 local capsule_shape = CapsuleShape.New
 local convex_shape = ConvexShape.New
 local shapes = {}
+local BOX_MODEL_PATH = "models/box.lua"
+local SPHERE_MODEL_PATH = "models/sphere.lua"
+local CONE_MODEL_PATH = "models/cone.lua"
+local CAPSULE_MODEL_PATH = "models/capsule.lua"
 
 local function get(config, name)
 	if not config then return nil end
@@ -203,6 +208,35 @@ local function add_model(ent, polygon, material)
 	return material
 end
 
+local function create_model_asset_primitives(model_asset, asset_options)
+	if type(model_asset) ~= "table" or type(model_asset.create_primitives) ~= "function" then
+		error("model asset must return a descriptor with create_primitives()", 2)
+	end
+
+	local primitives = model_asset.create_primitives(asset_options or {})
+	assert(
+		type(primitives) == "table",
+		"model asset create_primitives() must return a table"
+	)
+	return primitives
+end
+
+local function add_model_asset(ent, path, material, asset_options)
+	local entry = assets.GetModel(path)
+	assert(entry and entry.value, ("failed to load model asset %q"):format(path))
+	local shared_material = shapes.Material(material)
+	ent:AddComponent("model")
+
+	for _, primitive in ipairs(create_model_asset_primitives(entry.value, asset_options)) do
+		local polygon = primitive.mesh or primitive.polygon3d or primitive
+		local primitive_material = primitive.material ~= nil and primitive.material or shared_material
+		ent.model:AddPrimitive(polygon, shapes.Material(primitive_material))
+	end
+
+	ent.model:BuildAABB()
+	return shared_material
+end
+
 local function resolve_body_shape(config, default_shape, ...)
 	local override = get(config, "CollisionShape")
 
@@ -241,10 +275,7 @@ function shapes.Box(config)
 	config = config or {}
 	local size = get(config, "Size") or Vec3(1, 1, 1)
 	local ent = create_entity(config)
-	ent.transform:SetScale(size)
-	local polygon = Polygon3D.New()
-	polygon:CreateCube(0.5)
-	local material = add_model(ent, polygon, get(config, "Material"))
+	local material = add_model_asset(ent, BOX_MODEL_PATH, get(config, "Material"), {size = size})
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, box_shape, size))
 	return ent, body, material
 end
@@ -253,11 +284,26 @@ function shapes.Sphere(config)
 	config = config or {}
 	local radius = get(config, "Radius") or 0.5
 	local ent = create_entity(config)
-	local polygon = Polygon3D.New()
-	polygon:CreateSphere(radius)
-	local material = add_model(ent, polygon, get(config, "Material"))
+	local material = add_model_asset(ent, SPHERE_MODEL_PATH, get(config, "Material"), {radius = radius})
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, sphere_shape, radius))
 	return ent, body, material
+end
+
+function shapes.Cone(config)
+	config = config or {}
+	local radius = get(config, "Radius") or 0.5
+	local height = get(config, "Height") or 1
+	local ent = create_entity(config)
+	local material = add_model_asset(
+		ent,
+		CONE_MODEL_PATH,
+		get(config, "Material"),
+		{
+			radius = radius,
+			height = height,
+		}
+	)
+	return ent, nil, material
 end
 
 function shapes.Capsule(config)
@@ -265,10 +311,15 @@ function shapes.Capsule(config)
 	local radius = get(config, "Radius") or 0.5
 	local height = get(config, "Height") or radius * 2
 	local ent = create_entity(config)
-	ent.transform:SetScale(Vec3(radius * 2, math.max(height, radius * 2), radius * 2))
-	local polygon = Polygon3D.New()
-	polygon:CreateSphere(0.5)
-	local material = add_model(ent, polygon, get(config, "Material"))
+	local material = add_model_asset(
+		ent,
+		CAPSULE_MODEL_PATH,
+		get(config, "Material"),
+		{
+			radius = radius,
+			height = math.max(height, radius * 2),
+		}
+	)
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, capsule_shape, radius, height))
 	return ent, body, material
 end

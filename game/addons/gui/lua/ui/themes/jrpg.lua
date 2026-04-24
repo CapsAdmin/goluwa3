@@ -104,13 +104,22 @@ do
 	local function create_runtime(theme)
 		local runtime = {panels = {}, icons = {}}
 		local base_runtime = base.create_runtime(theme)
+		local assets = import("goluwa/assets.lua")
 		local Textures = {
-			GlowLinear = import("goluwa/render/textures/glow_linear.lua"),
-			GlowPoint = import("goluwa/render/textures/glow_point.lua"),
-			Gradient = import("goluwa/render/textures/gradient_linear.lua"),
+			GlowLinear = assets.GetTexture("textures/render/glow_linear.lua"),
+			GlowPoint = assets.GetTexture("textures/render/glow_point.lua"),
+			Gradient = assets.GetTexture("textures/render/gradient_linear.lua"),
 		}
-		local create_glow_line = import("goluwa/render/textures/glow_line.lua")
-		local glow_line = create_glow_line(1, 9, 0.2)
+		local glow_line = assets.GetTexture(
+			"textures/render/glow_line.lua",
+			{
+				config = {
+					core_thickness = 1,
+					glow_radius = 9,
+					glow_intensity = 0.2,
+				},
+			}
+		)
 		local gradient_classic = Texture.New{
 			width = 16,
 			height = 16,
@@ -130,14 +139,23 @@ do
 				return vec4(mix(vec3(]] .. start.r .. ", " .. start.g .. ", " .. start.b .. "), vec3(" .. stop.r .. ", " .. stop.g .. ", " .. stop.b .. [[), -uv.y + 1.0), 1.0);
 		]]
 		)
-		local create_metal_frame = import("goluwa/render/textures/metal_frame.lua")
-		local metal_frame = create_metal_frame{base_color = Color.FromHex("#8f8b92")}
-		local metal_frame_white = create_metal_frame{
-			base_color = Color.FromHex("#8f8b92"),
-			frame_inner = 0.02,
-			frame_outer = 0.002,
-			corner_radius = 0.02,
-		}
+		local metal_frame = assets.GetTexture(
+			"textures/render/metal_frame.lua",
+			{
+				config = {base_color = Color.FromHex("#8f8b92")},
+			}
+		)
+		local metal_frame_white = assets.GetTexture(
+			"textures/render/metal_frame.lua",
+			{
+				config = {
+					base_color = Color.FromHex("#8f8b92"),
+					frame_inner = 0.02,
+					frame_outer = 0.002,
+					corner_radius = 0.02,
+				},
+			}
+		)
 
 		function runtime.DrawDiamond(x, y, size)
 			render2d.PushMatrix()

@@ -55,10 +55,20 @@ local function is_valid_entity(entity)
 	return entity and entity.IsValid and entity:IsValid() or false
 end
 
-local function get_previewable_model(entity)
-	if not is_valid_entity(entity) then return nil end
+local function is_previewable_model_target(target)
+	return type(target) == "table" and
+		type(target.GetWorldMatrix) == "function" and
+		type(target.BuildAABB) == "function"
+end
 
-	local model = entity.model
+local function get_previewable_model(target)
+	local model = target
+
+	if not is_previewable_model_target(model) then
+		if not is_valid_entity(target) then return nil end
+
+		model = target.model
+	end
 
 	if not model or not model.Primitives or not model.Primitives[1] then
 		return nil
@@ -305,17 +315,26 @@ function META:GetTexture()
 	return self:EnsureFramebuffer():GetColorTexture()
 end
 
+function META:SetTarget(target)
+	self.target = target
+	self.entity = is_valid_entity(target) and target or nil
+	return target
+end
+
 function META:SetEntity(entity)
-	self.entity = entity
-	return entity
+	return self:SetTarget(entity)
+end
+
+function META:GetTarget()
+	return self.target or self.entity
 end
 
 function META:GetEntity()
 	return self.entity
 end
 
-function META:GetLocalAABB(entity)
-	local model = get_previewable_model(entity)
+function META:GetLocalAABB(target)
+	local model = get_previewable_model(target)
 
 	if not model then return nil end
 
@@ -326,14 +345,14 @@ function META:GetLocalAABB(entity)
 	return aabb
 end
 
-function META:ConfigureCamera(entity)
-	local model = get_previewable_model(entity)
+function META:ConfigureCamera(target)
+	local model = get_previewable_model(target)
 
 	if not model then
 		error("model preview requires an entity with a model component", 2)
 	end
 
-	local local_aabb = self:GetLocalAABB(entity)
+	local local_aabb = self:GetLocalAABB(target)
 	local world_matrix = model:GetWorldMatrix()
 
 	if not world_matrix then error("model preview requires a world matrix", 2) end
@@ -377,8 +396,7 @@ function META:ConfigureCamera(entity)
 end
 
 function META:DrawActiveEntity(pipeline)
-	local entity = self.entity
-	local model = get_previewable_model(entity)
+	local model = get_previewable_model(self:GetTarget())
 
 	if not model then return end
 
@@ -405,15 +423,15 @@ function META:DrawActiveEntity(pipeline)
 	end
 end
 
-function META:RenderEntity(entity)
-	entity = self:SetEntity(entity)
+function META:RenderTarget(target)
+	target = self:SetTarget(target)
 
-	if not get_previewable_model(entity) then
-		error("model preview requires an entity with a drawable model component", 2)
+	if not get_previewable_model(target) then
+		error("model preview requires a drawable model target", 2)
 	end
 
 	self:EnsureFramebuffer()
-	self:ConfigureCamera(entity)
+	self:ConfigureCamera(target)
 	local pipeline = get_preview_pipeline()
 	local cmd = self.framebuffer:GetCommandBuffer()
 	local previous_world = render3d.GetWorldMatrix()
@@ -441,10 +459,16 @@ function META:RenderEntity(entity)
 	return self:GetTexture()
 end
 
-function META:Refresh()
-	if not self.entity then return self:GetTexture() end
+function META:RenderEntity(entity)
+	return self:RenderTarget(entity)
+end
 
-	return self:RenderEntity(self.entity)
+function META:Refresh()
+	local target = self:GetTarget()
+
+	if not target then return self:GetTexture() end
+
+	return self:RenderTarget(target)
 end
 
 META:Register()

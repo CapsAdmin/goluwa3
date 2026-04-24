@@ -15,24 +15,23 @@ return function(options)
 	local specular_power = options.specular_power or 80.0
 	local specular_strength = options.specular_strength or 0.8
 	local ambient = options.ambient or 0.2
-	local base_color_r = options.base_color.r or 0.6
-	local base_color_g = options.base_color.g or 0.63
-	local base_color_b = options.base_color.b or 0.65
+	local base_color = options.base_color or {r = 0.6, g = 0.63, b = 0.65}
 	local tex = Texture.New{
 		width = width,
 		height = height,
-		format = "r8g8b8a8_unorm",
-		mip_map_levels = "auto",
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		},
+		format = options.format or "r8g8b8a8_unorm",
+		mip_map_levels = options.mip_map_levels or "auto",
+		sampler = options.sampler or
+			{
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
 	}
 
-	local function f(v)
-		return tostring(v)
+	local function f(value)
+		return tostring(value)
 	end
 
 	tex:Shade(
@@ -52,7 +51,6 @@ return function(options)
 	float innerMask = 1.0 - smoothstep(frameInner - bevel, frameInner, dEdge);
 	float frameMask = outerMask * innerMask;
 
-	// SDF gradient for cross-bar bevel direction
 	vec2 grad;
 	if (d.x > 0.0 && d.y > 0.0) {
 		grad = normalize(d) * sign(p);
@@ -63,13 +61,11 @@ return function(options)
 	}
 	grad = -grad;
 
-	// bevel profile (cross section)
 	float frameMid = (frameOuter + frameInner) * 0.5;
 	float frameHalf = (frameInner - frameOuter) * 0.5;
 	float t = clamp((dEdge - frameMid) / frameHalf, -1.0, 1.0);
 	float profileSlope = -t * ]] .. f(profile_strength) .. [[;
 
-	// longitudinal curvature
 	vec2 tangent = vec2(-grad.y, grad.x);
 	float alongBar = dot(p, tangent);
 	float longCurve = alongBar * ]] .. f(long_curve) .. [[;
@@ -87,18 +83,17 @@ return function(options)
 	float NdotH = max(dot(N, H), 0.0);
 	float spec = pow(NdotH, ]] .. f(specular_power) .. [[);
 
-	vec3 baseColor = vec3(]] .. f(base_color_r) .. [[, ]] .. f(base_color_g) .. [[, ]] .. f(base_color_b) .. [[);
+	vec3 baseColor = vec3(]] .. f(base_color.r or 0.6) .. [[, ]] .. f(base_color.g or 0.63) .. [[, ]] .. f(base_color.b or 0.65) .. [[);
 	float ambient = ]] .. f(ambient) .. [[;
 	vec3 color = baseColor * (ambient + (1.0 - ambient) * NdotL) + vec3(0.9, 0.9, 0.95) * spec * ]] .. f(specular_strength) .. [[;
 
 	return vec4(color, frameMask);
 ]]
 	)
-	-- nine patch derived from frame parameters
 	local outer_px = math.ceil(frame_outer * width)
 	local inner_px = math.ceil(frame_inner * width) - 2
 	local corner_px = math.ceil(corner_radius * width)
-	local patch_border = math.max(inner_px, corner_px) + 2 -- +2 for safety margin
+	local patch_border = math.max(inner_px, corner_px) + 2
 	tex.nine_patch = {
 		x_stretch = {
 			{patch_border, width - patch_border},

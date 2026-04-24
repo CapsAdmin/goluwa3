@@ -22,6 +22,7 @@ local Tree = import("lua/ui/elements/tree.lua")
 local Window = import("lua/ui/elements/window.lua")
 local theme = import("lua/ui/theme.lua")
 local Gallery = import("./gallery.lua")
+local AssetBrowser = import("./asset_browser.lua")
 
 local function clamp(value, min_value, max_value)
 	return math.max(min_value, math.min(max_value, value))
@@ -954,6 +955,10 @@ return function(props)
 		Panel.World:Ensure(Gallery({Key = "GalleryWindow"}))
 	end
 
+	local function open_asset_browser()
+		Panel.World:Ensure(AssetBrowser({Key = "AssetBrowserWindow"}))
+	end
+
 	local function create_child_shape(parent_entity, kind)
 		if not parent_entity or not parent_entity:IsValid() then return end
 
@@ -1192,6 +1197,7 @@ return function(props)
 					Items = function()
 						return {
 							MenuItem{Text = "ui gallery", OnClick = open_gallery},
+							MenuItem{Text = "asset browser", OnClick = open_asset_browser},
 							MenuItem{
 								Text = "exit",
 								OnClick = function()
