@@ -298,6 +298,7 @@ end
 
 function lightprobes.CreatePipelines()
 	local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+	local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 	local orientation = import("goluwa/render3d/orientation.lua")
 	local Material = import("goluwa/render3d/material.lua")
 	local Light = import("goluwa/ecs/components/3d/light.lua")
@@ -311,46 +312,13 @@ function lightprobes.CreatePipelines()
 		RasterizationSamples = "1",
 		Blend = false,
 		ColorWriteMask = {"r", "g", "b", "a"},
-		vertex = {
-			binding_index = 0,
-			attributes = {
-				{"position", "vec3", "r32g32b32_sfloat"},
-				{"normal", "vec3", "r32g32b32_sfloat"},
-				{"uv", "vec2", "r32g32_sfloat"},
-				{"tangent", "vec4", "r32g32b32a32_sfloat"},
-				{"texture_blend", "float", "r32_sfloat"},
-			},
-			uniform_buffers = {
-				{
-					name = "vertex",
-					block = {
-						{
-							"projection_view_world",
-							"mat4",
-							function(self, block, key)
-								lightprobes.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"world",
-							"mat4",
-							function(self, block, key)
-								render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
-							end,
-						},
-					},
-				},
-			},
-			shader = [[
-                void main() {
-                    gl_Position = vertex.projection_view_world * vec4(in_position, 1.0);
-                    out_position = (vertex.world * vec4(in_position, 1.0)).xyz;
-                    out_normal = normalize(mat3(vertex.world) * in_normal);
-                    out_uv = in_uv;
-                    out_tangent = vec4(normalize(mat3(vertex.world) * in_tangent.xyz), in_tangent.w);
-                    out_texture_blend = in_texture_blend;
-                }
-            ]],
+		vertex = model_pipeline.CreateVertexStage{
+			transform_storage = "uniform_buffers",
+			get_projection_view_world_matrix = lightprobes.GetProjectionViewWorldMatrix,
+			normal = true,
+			tangent = true,
+			uv = true,
+			texture_blend = true,
 		},
 		fragment = {
 			custom_declarations = [[
@@ -400,101 +368,14 @@ function lightprobes.CreatePipelines()
 			push_constants = {
 				{
 					name = "model",
-					block = {
-						{
-							"Flags",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetFillFlags()
-							end,
-						},
-						{
-							"AlbedoTexture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
-							end,
-						},
-						{
-							"Albedo2Texture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetAlbedo2Texture())
-							end,
-						},
-						{
-							"NormalTexture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
-							end,
-						},
-						{
-							"Normal2Texture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetNormal2Texture())
-							end,
-						},
-						{
-							"BlendTexture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetBlendTexture())
-							end,
-						},
-						{
-							"MetallicRoughnessTexture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
-							end,
-						},
-						{
-							"EmissiveTexture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
-							end,
-						},
-						{
-							"ColorMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"MetallicMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetMetallicMultiplier()
-							end,
-						},
-						{
-							"RoughnessMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
-							end,
-						},
-						{
-							"EmissiveMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-					},
+					block = model_pipeline.GetProbeMaterialBlock(),
 				},
 			},
 			shader = [[
+			]] .. model_pipeline.BuildPBRSamplingGlsl("model") .. [[
               
                 void main() {
-					vec3 albedo = vec3(1,0,0);
-					if (model.AlbedoTexture != -1) {
-                        albedo = texture(TEXTURE(model.AlbedoTexture), in_uv).rgb;
-                    }
+					vec3 albedo = get_albedo();
                     
                     set_color(vec4(albedo, 1.0));
 					set_linear_depth(length(in_position - probe_data.camera_position.xyz));

@@ -2,6 +2,7 @@ local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
+local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 return {
 	{
@@ -17,46 +18,11 @@ return {
 			{"r16g16b16a16_sfloat", {"emissive", "rgb"}}, -- HDR emissive can exceed 1.0
 		},
 		DepthFormat = "d32_sfloat",
-		vertex = {
-			binding_index = 0,
-			attributes = {
-				{"position", "vec3", "r32g32b32_sfloat"},
-				{"normal", "vec3", "r32g32b32_sfloat"},
-				{"uv", "vec2", "r32g32_sfloat"},
-				{"tangent", "vec4", "r32g32b32a32_sfloat"},
-				{"texture_blend", "float", "r32_sfloat"},
-			},
-			push_constants = {
-				{
-					name = "vertex",
-					block = {
-						{
-							"projection_view_world",
-							"mat4",
-							function(self, block, key)
-								render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"world",
-							"mat4",
-							function(self, block, key)
-								render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
-							end,
-						},
-					},
-				},
-			},
-			shader = [[
-			void main() {
-				gl_Position = vertex.projection_view_world * vec4(in_position, 1.0);
-				out_position = (vertex.world * vec4(in_position, 1.0)).xyz;					
-				out_normal = normalize(mat3(vertex.world) * in_normal);
-				out_tangent = vec4(normalize(mat3(vertex.world) * in_tangent.xyz), in_tangent.w);
-				out_uv = in_uv;
-				out_texture_blend = in_texture_blend;
-			}
-		]],
+		vertex = model_pipeline.CreateVertexStage{
+			normal = true,
+			tangent = true,
+			uv = true,
+			texture_blend = true,
 		},
 		fragment = {
 			uniform_buffers = {
@@ -69,181 +35,11 @@ return {
 				},
 				{
 					name = "model",
-					block = {
-						{
-							"Flags",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetFillFlags()
-							end,
-						},
-						{
-							"AlbedoTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
-							end,
-						},
-						{
-							"Albedo2Texture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetAlbedo2Texture())
-							end,
-						},
-						{
-							"NormalTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
-							end,
-						},
-						{
-							"Normal2Texture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetNormal2Texture())
-							end,
-						},
-						{
-							"BlendTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetBlendTexture())
-							end,
-						},
-						{
-							"MetallicRoughnessTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
-							end,
-						},
-						{
-							"AmbientOcclusionTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
-							end,
-						},
-						{
-							"EmissiveTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
-							end,
-						},
-						{
-							"ColorMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"MetallicMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetMetallicMultiplier()
-							end,
-						},
-						{
-							"RoughnessMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
-							end,
-						},
-						{
-							"AmbientOcclusionMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetAmbientOcclusionMultiplier()
-							end,
-						},
-						{
-							"EmissiveMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"AlphaCutoff",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetAlphaCutoff()
-							end,
-						},
-						{
-							"MetallicTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
-							end,
-						},
-						{
-							"RoughnessTexture",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
-							end,
-						},
-					},
+					block = model_pipeline.GetPBRMaterialBlock(),
 				},
 			},
 			shader = [[
-			]] .. Material.BuildGlslFlags("model.Flags") .. [[
-
-			float get_texture_blend() {
-				if (model.BlendTexture == -1) {
-					return in_texture_blend;
-				}
-
-				float blend = in_texture_blend;
-			
-				vec2 blend_data = texture(TEXTURE(model.BlendTexture), in_uv).rg;
-				float minb = blend_data.r;
-				float maxb = blend_data.g;
-				
-				// Remap vertex blend through the min/max range
-				blend = clamp((blend - minb) / (maxb - minb + 0.001), 0.0, 1.0);
-
-				return blend;
-			}
-
-			vec3 get_albedo() {
-				if (model.AlbedoTexture == -1) {
-					return model.ColorMultiplier.rgb;
-				}
-				
-				vec3 rgb1 = texture(TEXTURE(model.AlbedoTexture), in_uv).rgb;
-				
-				if (model.Albedo2Texture != -1) {
-					float blend = get_texture_blend();
-					
-					if (blend != 0) {
-						vec3 rgb2 = texture(TEXTURE(model.Albedo2Texture), in_uv).rgb;
-						rgb1 = mix(rgb1, rgb2, blend);
-					}
-				}
-			
-				return rgb1 * model.ColorMultiplier.rgb;
-			}
-
-			float get_alpha() {
-
-				if (
-					model.AlbedoTexture == -1 ||
-					AlbedoTextureAlphaIsRoughness ||
-					AlbedoTextureAlphaIsRoughness ||
-					AlbedoAlphaIsEmissive
-				) {
-					return model.ColorMultiplier.a;	
-				}
-
-				return texture(TEXTURE(model.AlbedoTexture), in_uv).a * model.ColorMultiplier.a;
-			}
+			]] .. model_pipeline.BuildPBRSamplingGlsl("model") .. [[
 
 			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {

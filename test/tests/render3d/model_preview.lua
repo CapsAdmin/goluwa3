@@ -2,10 +2,12 @@ local T = import("test/environment.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
+local Texture = import("goluwa/render/texture.lua")
 local ModelPreview = import("game/addons/gui/lua/model_preview.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local ffi = require("ffi")
 
 local function create_entity(offset)
 	local poly = Polygon3D.New()
@@ -26,6 +28,40 @@ local function create_entity(offset)
 		DoubleSided = true,
 	}
 	local entity = Entity.New{Name = "preview_model"}
+	entity:AddComponent("transform")
+	entity:AddComponent("model")
+	entity.model:AddPrimitive(poly, material)
+	entity.model:BuildAABB()
+	entity.model:SetUseOcclusionCulling(false)
+	return entity
+end
+
+local function create_solid_texture(r, g, b, a)
+	local buffer = ffi.new("uint8_t[4]", r * 255, g * 255, b * 255, (a or 1) * 255)
+	return Texture.New{
+		width = 1,
+		height = 1,
+		format = "r8g8b8a8_unorm",
+		buffer = buffer,
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "repeat",
+			wrap_t = "repeat",
+		},
+	}
+end
+
+local function create_textured_entity()
+	local poly = Polygon3D.New()
+	poly:CreateCube(0.5, 1.0)
+	poly:Upload()
+	local material = Material.New{
+		AlbedoTexture = create_solid_texture(1, 0, 0, 1),
+		ColorMultiplier = Color(1, 1, 1, 1),
+		DoubleSided = true,
+	}
+	local entity = Entity.New{Name = "preview_textured_model"}
 	entity:AddComponent("transform")
 	entity:AddComponent("model")
 	entity.model:AddPrimitive(poly, material)
@@ -57,6 +93,33 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 			T(render3d.GetCamera() == camera)["=="](true)
 			T(camera:GetPosition() == old_position)["=="](true)
 			T(camera:GetRotation() == old_rotation)["=="](true)
+		end,
+		debug.traceback
+	)
+	preview:Remove()
+	entity:Remove()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3D("Model preview samples albedo textures", function()
+	local entity = create_textured_entity()
+	local preview = ModelPreview.New{
+		AmbientStrength = 0.35,
+		LightStrength = 0.85,
+	}
+	local ok, err = xpcall(
+		function()
+			local tex = preview:RenderEntity(entity)
+
+			T.TexturePixel(
+				tex,
+				128,
+				128,
+				function(r, g, b, a)
+					return r > 0.35 and g < 0.2 and b < 0.2 and a > 0.9
+				end
+			)
 		end,
 		debug.traceback
 	)

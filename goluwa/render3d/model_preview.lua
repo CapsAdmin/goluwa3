@@ -4,6 +4,7 @@ local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Material = import("goluwa/render3d/material.lua")
+local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -16,6 +17,7 @@ local DEFAULT_LIGHT_DIRECTION = Vec3(1, 1, 1):GetNormalized()
 local DEFAULT_CLEAR_COLOR = {0, 0, 0, 0}
 local cached_final_matrix = Matrix44()
 local active_preview = nil
+local preview_pipeline = nil
 local aabb_corners = {
 	Vec3(),
 	Vec3(),
@@ -42,7 +44,6 @@ local translucent_blend = {
 	dst_alpha_blend_factor = "zero",
 	alpha_blend_op = "add",
 }
-local preview_pipeline = nil
 META:GetSet("Width", 256, {callback = "InvalidateFramebuffer"})
 META:GetSet("Height", 256, {callback = "InvalidateFramebuffer"})
 META:GetSet("Padding", 1.1)
@@ -106,44 +107,9 @@ local function create_preview_pipeline()
 		ColorFormat = {{"r8g8b8a8_srgb", {"color", "rgba"}}},
 		DepthFormat = "d32_sfloat",
 		RasterizationSamples = "1",
-		vertex = {
-			binding_index = 0,
-			attributes = {
-				{"position", "vec3", "r32g32b32_sfloat"},
-				{"normal", "vec3", "r32g32b32_sfloat"},
-				{"uv", "vec2", "r32g32_sfloat"},
-				{"tangent", "vec4", "r32g32b32a32_sfloat"},
-				{"texture_blend", "float", "r32_sfloat"},
-			},
-			push_constants = {
-				{
-					name = "vertex",
-					block = {
-						{
-							"projection_view_world",
-							"mat4",
-							function(self, block, key)
-								render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"world",
-							"mat4",
-							function(self, block, key)
-								render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
-							end,
-						},
-					},
-				},
-			},
-			shader = [[
-			void main() {
-				gl_Position = vertex.projection_view_world * vec4(in_position, 1.0);
-				out_position = (vertex.world * vec4(in_position, 1.0)).xyz;
-				out_normal = normalize(mat3(vertex.world) * in_normal);
-				out_uv = in_uv;
-			}
-		]],
+		vertex = model_pipeline.CreateVertexStage{
+			normal = true,
+			uv = true,
 		},
 		fragment = {
 			uniform_buffers = {
@@ -151,92 +117,46 @@ local function create_preview_pipeline()
 					name = "preview_data",
 					block = {
 						{
-							"LightDirection",
-							"vec3",
+							"LightDirectionStrength",
+							"vec4",
 							function(self, block, key)
-								active_preview:GetLightDirection():CopyToFloatPointer(block[key])
+								local direction = active_preview:GetLightDirection()
+								block[key][0] = direction.x
+								block[key][1] = direction.y
+								block[key][2] = direction.z
+								block[key][3] = active_preview:GetLightStrength()
 							end,
 						},
 						{
-							"AmbientStrength",
-							"float",
+							"LightingParams",
+							"vec4",
 							function(self, block, key)
-								block[key] = active_preview:GetAmbientStrength()
-							end,
-						},
-						{
-							"LightStrength",
-							"float",
-							function(self, block, key)
-								block[key] = active_preview:GetLightStrength()
+								block[key][0] = active_preview:GetAmbientStrength()
+								block[key][1] = 0
+								block[key][2] = 0
+								block[key][3] = 0
 							end,
 						},
 					},
 				},
 				{
 					name = "model",
-					block = {
-						{
-							"Flags",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetFillFlags()
-							end,
-						},
-						{
-							"AlbedoTexture",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
-							end,
-						},
-						{
-							"ColorMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"EmissiveMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"AlphaCutoff",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetAlphaCutoff()
-							end,
-						},
-					},
+					block = model_pipeline.GetSurfaceMaterialBlock(),
 				},
 			},
 			shader = [[
-			]] .. Material.BuildGlslFlags("model.Flags") .. [[
-
-			vec4 get_albedo() {
-				vec4 color = model.ColorMultiplier;
-
-				if (model.AlbedoTexture != -1) {
-					color *= texture(TEXTURE(model.AlbedoTexture), in_uv);
-				}
-
-				return color;
-			}
+			]] .. model_pipeline.BuildSurfaceSamplingGlsl("model") .. [[
 
 			void main() {
-				vec4 albedo = get_albedo();
+				vec4 albedo = get_surface_color();
 
-				if (AlphaTest && albedo.a < model.AlphaCutoff) discard;
+				discard_surface_alpha(albedo);
 
 				vec3 normal = normalize(in_normal);
-				vec3 light_dir = normalize(preview_data.LightDirection);
-				float diffuse = max(dot(normal, light_dir), 0.0) * preview_data.LightStrength;
-				vec3 lit = albedo.rgb * (preview_data.AmbientStrength + diffuse);
-				lit += model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
+				vec3 light_dir = normalize(preview_data.LightDirectionStrength.xyz);
+				float diffuse = max(dot(normal, light_dir), 0.0) * preview_data.LightDirectionStrength.w;
+				vec3 lit = albedo.rgb * (preview_data.LightingParams.x + diffuse);
+				lit += get_surface_emissive(albedo.rgb);
 				set_color(vec4(lit, albedo.a));
 			}
 		]],

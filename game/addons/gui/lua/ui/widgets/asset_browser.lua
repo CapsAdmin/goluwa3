@@ -23,6 +23,18 @@ local CATEGORY_ORDER = {
 }
 local MODEL_COLUMNS = 3
 local TEXTURE_COLUMNS = 4
+local MATERIAL_TEXTURE_GETTERS = {
+	"GetAlbedoTexture",
+	"GetNormalTexture",
+	"GetMetallicRoughnessTexture",
+	"GetAmbientOcclusionTexture",
+	"GetEmissiveTexture",
+	"GetAlbedo2Texture",
+	"GetNormal2Texture",
+	"GetBlendTexture",
+	"GetMetallicTexture",
+	"GetRoughnessTexture",
+}
 
 local function update_layout_now(entity)
 	if not entity or not entity:IsValid() or not entity.layout then return end
@@ -156,6 +168,38 @@ local function create_preview_entity_for_model(path)
 	return entity
 end
 
+local function material_is_ready(material)
+	if not material then return true end
+
+	if material.vmt_path and not material.vmt then return false end
+
+	for _, getter_name in ipairs(MATERIAL_TEXTURE_GETTERS) do
+		local getter = material[getter_name]
+
+		if getter then
+			local texture = getter(material)
+
+			if texture and texture.IsReady and not texture:IsReady() then return false end
+		end
+	end
+
+	return true
+end
+
+local function model_materials_are_ready(model)
+	local material_override = model:GetMaterialOverride()
+
+	if not material_is_ready(material_override) then return false end
+
+	for _, primitive in ipairs(model.Primitives or {}) do
+		if not material_is_ready(material_override or primitive.material) then
+			return false
+		end
+	end
+
+	return true
+end
+
 local function build_model_tile(entry, scheduler)
 	local entity
 	local preview
@@ -215,6 +259,10 @@ local function build_model_tile(entry, scheduler)
 		if not (entity.model and entity.model.Primitives and entity.model.Primitives[1]) then
 			return false
 		end
+
+		if entity.model:IsLoading() then return false end
+
+		if not model_materials_are_ready(entity.model) then return false end
 
 		preview = ModelPreview.New{
 			Padding = 1.12,
