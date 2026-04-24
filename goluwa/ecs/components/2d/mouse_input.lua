@@ -22,7 +22,9 @@ end
 function META:GetMousePosition()
 	local mouse_pos = system.GetWindow():GetMousePosition()
 	local transform = self.Owner.transform
+
 	if not transform then return Vec2() end
+
 	return transform:GlobalToLocal(mouse_pos)
 end
 
@@ -86,6 +88,10 @@ end
 
 local Panel = import("goluwa/ecs/panel.lua")
 
+function META.GetHoveredObject()
+	return mouse_input.last_hovered
+end
+
 function META:IsHoveredExclusively(mouse_pos)
 	if mouse_pos then
 		if not Panel.World then return false end
@@ -137,7 +143,9 @@ function META:OnFirstCreated()
 
 					while current:IsValid() do
 						local transform = current.transform
+
 						if not transform then break end
+
 						local local_pos = transform:GlobalToLocal(pos)
 
 						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
@@ -165,7 +173,9 @@ function META:OnFirstCreated()
 
 					while current:IsValid() do
 						local transform = current.transform
+
 						if not transform then break end
+
 						local local_pos = transform:GlobalToLocal(pos)
 
 						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
@@ -225,6 +235,7 @@ function META:OnFirstCreated()
 
 			if mouse then
 				cursor = mouse:GetCursor()
+
 				if hovered.transform then
 					hovered:CallLocalEvent("OnMouseMove", hovered.transform:GlobalToLocal(pos))
 				end

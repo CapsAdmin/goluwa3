@@ -5,6 +5,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local event = import("goluwa/event.lua")
 local Panel = import("goluwa/ecs/panel.lua")
+local MouseInput = import("goluwa/ecs/components/2d/mouse_input.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local input = import("goluwa/input.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -173,6 +174,15 @@ end
 
 local function is_gizmo_entity(entity)
 	return is_valid_entity(entity) and entity ~= Entity.World and entity.transform ~= nil
+end
+
+local function is_ui_hovering()
+	local hovered = MouseInput.GetHoveredObject and MouseInput.GetHoveredObject() or NULL
+	return hovered and
+		hovered.IsValid and
+		hovered:IsValid() and
+		hovered ~= Panel.World or
+		false
 end
 
 local function notify_state_changed()
@@ -1710,6 +1720,8 @@ local function handle_gizmo_mouse_input(button, press)
 	if button ~= "button_1" then return end
 
 	if press then
+		if is_ui_hovering() then return end
+
 		local handle = state.hovered_handle or find_hovered_gizmo_handle(state.gizmo_entity)
 
 		if not handle then return end
@@ -1733,6 +1745,11 @@ end
 local function update_hovered_handle()
 	if state.active_drag then
 		update_gizmo_drag()
+		return
+	end
+
+	if is_ui_hovering() then
+		state.hovered_handle = nil
 		return
 	end
 

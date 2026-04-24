@@ -2,6 +2,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Panel = import("goluwa/ecs/panel.lua")
+local MouseInput = import("goluwa/ecs/components/2d/mouse_input.lua")
 local prototype = import("goluwa/prototype.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local input = import("goluwa/input.lua")
@@ -84,6 +85,15 @@ local function has_text_focus(window)
 	if window and not has_parent(focused, window) then return false end
 
 	return focused.text ~= nil or focused.Name == "TextEdit"
+end
+
+local function is_ui_hovering()
+	local hovered = MouseInput.GetHoveredObject and MouseInput.GetHoveredObject() or NULL
+	return hovered and
+		hovered.IsValid and
+		hovered:IsValid() and
+		hovered ~= Panel.World or
+		false
 end
 
 local function approach_vec(current, target, delta)
@@ -623,12 +633,14 @@ return function(props)
 		local mouse_pos = system.GetWindow():GetMousePosition()
 		local focus_blocks_movement = has_text_focus(window)
 		local world_blocked = context_menu_blocks_world(mouse_pos)
+		local ui_blocks_movement = is_ui_hovering()
 		local gizmo_status = Gizmo.GetStatus()
 		local can_drag = mouse_in_editor_viewport(mouse_pos) and
 			not focus_blocks_movement and
 			not mouse_in_editor_window(mouse_pos)
 			and
-			not world_blocked
+			not world_blocked and
+			not ui_blocks_movement
 		local wants_drag = can_drag and input.IsMouseDown("button_1")
 
 		if editor_camera.dragging then
@@ -639,7 +651,10 @@ return function(props)
 				not gizmo_status.hovered_handle
 		end
 
-		editor_camera.block_movement = focus_blocks_movement or world_blocked or not mouse_in_editor_viewport(mouse_pos)
+		editor_camera.block_movement = focus_blocks_movement or
+			world_blocked or
+			ui_blocks_movement or
+			not mouse_in_editor_viewport(mouse_pos)
 
 		if editor_camera.dragging then
 			update_editor_camera_rotation(editor_camera, system.GetWindow():GetMouseDelta() / 2)
