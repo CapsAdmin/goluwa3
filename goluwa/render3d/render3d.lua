@@ -243,6 +243,7 @@ end
 
 function render3d.ResetState()
 	render3d.camera = Camera3D.New()
+	render3d.camera_stack = {}
 	render3d.world_matrix = Matrix44()
 	render3d.prev_view_matrix = Matrix44()
 	render3d.prev_projection_matrix = Matrix44()
@@ -323,11 +324,31 @@ end
 
 do
 	render3d.camera = render3d.camera or Camera3D.New()
+	render3d.camera_stack = render3d.camera_stack or {}
 	render3d.world_matrix = render3d.world_matrix or Matrix44()
 	render3d.prev_view_matrix = render3d.prev_view_matrix or Matrix44()
 	render3d.prev_projection_matrix = render3d.prev_projection_matrix or Matrix44()
 
 	function render3d.GetCamera()
+		return render3d.camera
+	end
+
+	function render3d.SetCamera(camera)
+		render3d.camera = camera or Camera3D.New()
+		return render3d.camera
+	end
+
+	function render3d.PushCamera(camera)
+		table.insert(render3d.camera_stack, render3d.camera)
+		render3d.camera = camera or Camera3D.New()
+		return render3d.camera
+	end
+
+	function render3d.PopCamera()
+		local camera = table.remove(render3d.camera_stack)
+
+		if camera then render3d.camera = camera end
+
 		return render3d.camera
 	end
 

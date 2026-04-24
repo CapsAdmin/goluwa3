@@ -13,6 +13,7 @@ local screen_to_world_far = Matrix44()
 
 do
 	META:GetSet("OrthoMode", false, {callback = "InvalidateProjectionMatrix"})
+	META:GetSet("OrthoHalfHeight", 100 * math.rad(90), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FOV", math.rad(90), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("NearZ", 0.1, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FarZ", 32000, {callback = "InvalidateProjectionMatrix"})
@@ -29,9 +30,10 @@ do
 		self.ProjectionMatrix = Matrix44()
 
 		if self.OrthoMode then
-			local mult = 100 * self.FOV
-			local ratio = self.Viewport.h / self.Viewport.w
-			self.ProjectionMatrix:Ortho(-mult, mult, mult * ratio, -mult * ratio, -32000 * 2, 32000)
+			local half_height = self.OrthoHalfHeight
+			local aspect = self.Viewport.w / self.Viewport.h
+			local half_width = half_height * aspect
+			self.ProjectionMatrix:Ortho(-half_width, half_width, half_height, -half_height, -32000 * 2, 32000)
 		else
 			self.ProjectionMatrix:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
 		end
