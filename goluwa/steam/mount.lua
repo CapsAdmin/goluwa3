@@ -215,6 +215,73 @@ return function(steam)
 	end
 
 	function steam.GetSourceGames()
+		local function sort_searchpaths(paths)
+			local sorted = {}
+
+			for _, path in ipairs(paths) do
+				if path:ends_with(".vpk/") then list.insert(sorted, path) end
+			end
+
+			for _, path in ipairs(paths) do
+				if not path:ends_with(".vpk/") then list.insert(sorted, path) end
+			end
+
+			return sorted
+		end
+
+		local function apply_gmod_mountdepots(game_info)
+			if game_info.game ~= "Garry's Mod" or not game_info.vdf_directory then
+				return false
+			end
+
+			local str = vfs.Read(game_info.vdf_directory .. "cfg/mountdepots.txt", "r")
+
+			if not str then return false end
+
+			local tbl = steam.VDFToTable(str, true)
+			local depots = tbl and tbl.gamedepotsystem
+
+			if not depots then return false end
+
+			local paths = {}
+			local done = {}
+			local changed = false
+
+			for _, path in ipairs(game_info.filesystem.searchpaths) do
+				if not done[path] then
+					list.insert(paths, path)
+					done[path] = true
+				end
+			end
+
+			local function add_path(path)
+				path = vfs.FixPathSlashes(path)
+
+				if path:ends_with(".vpk") then
+					path = path:gsub("%.vpk$", "_dir.vpk") .. "/"
+				elseif not path:ends_with("/") then
+					path = path .. "/"
+				end
+
+				if not done[path] and vfs.IsDirectory(path) then
+					list.insert(paths, path)
+					done[path] = true
+					changed = true
+				end
+			end
+
+			for depot_name, enabled in pairs(depots) do
+				if enabled ~= false and enabled ~= 0 and enabled ~= "0" then
+					add_path(game_info.game_dir .. depot_name)
+					add_path(game_info.game_dir .. "sourceengine/content_" .. depot_name .. ".vpk")
+				end
+			end
+
+			if changed then game_info.filesystem.searchpaths = sort_searchpaths(paths) end
+
+			return changed
+		end
+
 		local found = codec.ReadFile("msgpack", "cache/source_games")
 
 		if found and found[1] then
@@ -227,7 +294,17 @@ return function(steam)
 				end
 			end
 
-			if found then return found end
+			if found then
+				local changed = false
+
+				for _, game_info in ipairs(found) do
+					if apply_gmod_mountdepots(game_info) then changed = true end
+				end
+
+				if changed then codec.WriteFile("msgpack", "cache/source_games", found) end
+
+				return found
+			end
 		end
 
 		found = {}
@@ -402,19 +479,8 @@ return function(steam)
 						end
 					end
 
-					-- steam.VDFToTable does not support ordered keys.
-					-- lets just prioritize vpk in the meantime
-					local sorted = {}
-
-					for _, v in ipairs(fixed) do
-						if v:ends_with(".vpk/") then list.insert(sorted, v) end
-					end
-
-					for _, v in ipairs(fixed) do
-						if not v:ends_with(".vpk/") then list.insert(sorted, v) end
-					end
-
-					tbl.filesystem.searchpaths = sorted
+					tbl.filesystem.searchpaths = sort_searchpaths(fixed)
+					apply_gmod_mountdepots(tbl)
 					list.insert(found, tbl)
 				end
 			end
@@ -451,9 +517,7 @@ return function(steam)
 				if game_info.game ~= "Garry's Mod" or not skip_addons then return false end
 
 				local lower_path = path:lower()
-
-				return
-					lower_path:find("/garrysmod/addons/", nil, true) or
+				return lower_path:find("/garrysmod/addons/", nil, true) or
 					lower_path:find("/garrysmod/download/", nil, true) or
 					lower_path:find("/maps/workshop/", nil, true) or
 					lower_path:find("/workshop/content/", nil, true)
@@ -488,7 +552,9 @@ return function(steam)
 				else
 					if not path:ends_with(".vpk/") then
 						for _, v in ipairs(vfs.Find(path .. "/maps/workshop/")) do
-							if skip_gmod_extra_path(path .. "/maps/workshop/" .. v) then goto continue_workshop_map end
+							if skip_gmod_extra_path(path .. "/maps/workshop/" .. v) then
+								goto continue_workshop_map
+							end
 
 							llog("mounting workshop map %s", v)
 							vfs.Mount(path .. "/maps/workshop/" .. v, "maps/", game_info)

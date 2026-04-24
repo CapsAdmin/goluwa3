@@ -58,94 +58,49 @@ local function asset_matches_query(entry, query)
 	return name:find(query, 1, true) ~= nil or path:find(query, 1, true) ~= nil
 end
 
-local function sort_tree_nodes(nodes)
-	list.sort(nodes, function(a, b)
-		return a.Text:lower() < b.Text:lower()
-	end)
-
-	for _, node in ipairs(nodes) do
-		if node.Children then sort_tree_nodes(node.Children) end
-	end
+local function make_lazy_children()
+	return {__lazy = true}
 end
 
-local function build_tree_items(asset_index, expanded_keys, query)
+local function make_folder_node(category_name, path, text)
+	return {
+		Key = category_name .. "|" .. path,
+		Text = text,
+		Category = category_name,
+		Prefix = path,
+		Children = make_lazy_children(),
+		ChildrenLoaded = false,
+	}
+end
+
+local function build_tree_items()
 	local items = {}
-	query = normalize_query(query)
 
 	for _, category_info in ipairs(CATEGORY_ORDER) do
-		local root = {
+		items[#items + 1] = {
 			Key = category_info.name,
 			Text = category_info.label,
 			Category = category_info.name,
 			Prefix = nil,
-			Children = {},
+			Children = make_lazy_children(),
+			ChildrenLoaded = false,
 		}
-		local node_map = {}
-		node_map[category_info.name] = root
-
-		for _, entry in ipairs(asset_index[category_info.name] or {}) do
-			if asset_matches_query(entry, query) then
-				local parts = split_path(entry.path)
-				local start_index = parts[1] == category_info.name and 2 or 1
-				local current_key = category_info.name
-				local prefix_parts = {}
-
-				for index = start_index, #parts - 1 do
-					prefix_parts[#prefix_parts + 1] = parts[index]
-					local prefix = table.concat(prefix_parts, "/") .. "/"
-					local full_prefix = parts[1] == category_info.name and
-						(
-							category_info.name .. "/" .. prefix
-						)
-						or
-						prefix
-					local key = category_info.name .. "|" .. full_prefix
-
-					if not node_map[key] then
-						local node = {
-							Key = key,
-							Text = parts[index],
-							Category = category_info.name,
-							Prefix = full_prefix,
-							Children = {},
-						}
-						node_map[key] = node
-						table.insert(node_map[current_key].Children, node)
-					end
-
-					current_key = key
-				end
-
-				local leaf_key = category_info.name .. "|asset|" .. entry.path
-
-				if not node_map[leaf_key] then
-					node_map[leaf_key] = {
-						Key = leaf_key,
-						Text = entry.name,
-						Category = category_info.name,
-						Prefix = current_key == category_info.name and nil or node_map[current_key].Prefix,
-						AssetPath = entry.path,
-						Kind = entry.kind,
-						Children = nil,
-					}
-					table.insert(node_map[current_key].Children, node_map[leaf_key])
-				end
-			end
-		end
-
-		root.Expanded = expanded_keys[root.Key] ~= false
-
-		for key, node in pairs(node_map) do
-			if key ~= category_info.name then
-				node.Expanded = expanded_keys[key] == true
-			end
-		end
-
-		sort_tree_nodes(root.Children)
-		items[#items + 1] = root
 	end
 
 	return items
+end
+
+local function ensure_tree_children(node)
+	if not node or node.ChildrenLoaded then return false end
+
+	node.ChildrenLoaded = true
+	node.Children = {}
+
+	for _, entry in ipairs(assets.EnumerateFolders(node.Category, {prefix = node.Prefix})) do
+		node.Children[#node.Children + 1] = make_folder_node(node.Category, entry.path, entry.name)
+	end
+
+	return true
 end
 
 local function find_first_node(items)
@@ -456,9 +411,11 @@ end
 return function(props)
 	props = props or {}
 	local asset_index = {}
+	local asset_index_loaded = {}
+	local tree_items = build_tree_items()
 	local expanded_keys = {
-		models = true,
-		textures = true,
+		models = false,
+		textures = false,
 	}
 	local state = {
 		query = "",
@@ -488,13 +445,16 @@ return function(props)
 		return true
 	end
 
-	local function rebuild_index()
-		for _, category_info in ipairs(CATEGORY_ORDER) do
-			asset_index[category_info.name] = assets.Enumerate(category_info.name, {recursive = true})
-		end
+	local function ensure_category_index(category_name)
+		if asset_index_loaded[category_name] then return false end
+
+		asset_index[category_name] = assets.Enumerate(category_name, {recursive = true})
+		asset_index_loaded[category_name] = true
+		return true
 	end
 
 	local function get_visible_assets()
+		ensure_category_index(state.selected_category)
 		local visible = {}
 		local query = normalize_query(state.query)
 
@@ -521,19 +481,44 @@ return function(props)
 		return visible
 	end
 
+	local function should_show_grid_tiles()
+		if state.selected_asset_path then return true end
+
+		if state.selected_prefix then return true end
+
+		return normalize_query(state.query) ~= ""
+	end
+
 	local function refresh_grid()
 		if not (grid_column and grid_column:IsValid()) then return end
 
 		grid_column:RemoveChildren()
-		local visible = get_visible_assets()
+		local show_tiles = should_show_grid_tiles()
+		local visible = show_tiles and get_visible_assets() or {}
 		local columns = state.selected_category == "models" and MODEL_COLUMNS or TEXTURE_COLUMNS
 
 		if header_text and header_text:IsValid() then
 			local scope = state.selected_asset_path or state.selected_prefix or state.selected_category
-			header_text.text:SetText(string.format("%s  |  %d assets", scope, #visible))
+
+			if show_tiles then
+				header_text.text:SetText(string.format("%s  |  %d assets", scope, #visible))
+			else
+				header_text.text:SetText(scope)
+			end
 		end
 
-		if visible[1] == nil then
+		if not show_tiles then
+			grid_column:AddChild(
+				Text{
+					Text = "Select a folder in the tree or type a filter to load asset tiles.",
+					Wrap = true,
+					Color = "text_disabled",
+					layout = {
+						GrowWidth = 1,
+					},
+				}
+			)
+		elseif visible[1] == nil then
 			grid_column:AddChild(
 				Text{
 					Text = "No assets match the current tree selection and filter.",
@@ -556,8 +541,7 @@ return function(props)
 	local function rebuild_tree()
 		if not (tree_view and tree_view:IsValid()) then return end
 
-		local items = build_tree_items(asset_index, expanded_keys, state.query)
-		local selected = find_tree_node(items, state.selected_key) or find_first_node(items)
+		local selected = find_tree_node(tree_items, state.selected_key) or find_first_node(tree_items)
 
 		if selected then
 			state.selected_key = selected.Key
@@ -566,7 +550,7 @@ return function(props)
 			state.selected_asset_path = selected.AssetPath
 		end
 
-		tree_view:SetItems(items)
+		tree_view:SetItems(tree_items)
 		tree_view:SetSelectedKey(state.selected_key)
 		refresh_grid()
 	end
@@ -580,10 +564,9 @@ return function(props)
 
 		state.last_filter_text = text
 		state.query = text
-		rebuild_tree()
+		refresh_grid()
 	end
 
-	rebuild_index()
 	window = Window{
 		Key = props.Key or "AssetBrowserWindow",
 		Title = "ASSET BROWSER",
@@ -639,7 +622,7 @@ return function(props)
 						Ref = function(self)
 							tree_view = self
 						end,
-						Items = build_tree_items(asset_index, expanded_keys, state.query),
+						Items = tree_items,
 						SelectedKey = state.selected_key,
 						LabelGrow = true,
 						layout = {
@@ -659,6 +642,8 @@ return function(props)
 							refresh_grid()
 						end,
 						OnToggle = function(node, expanded, key)
+							if expanded then ensure_tree_children(node) end
+
 							expanded_keys[key] = expanded == true
 						end,
 					},

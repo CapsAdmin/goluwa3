@@ -98,23 +98,49 @@ T.Test("Assets enumeration wraps VFS file discovery by category", function()
 	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "asset_browser_test"
 	local texture_root = mount_root .. "/textures/browser"
 	local model_root = mount_root .. "/models/browser"
+	local nested_model_root = model_root .. "/props_c17"
 	assert(vfs.CreateDirectory(mount_root))
 	assert(vfs.CreateDirectory(mount_root .. "/textures"))
 	assert(vfs.CreateDirectory(texture_root))
 	assert(vfs.CreateDirectory(mount_root .. "/models"))
 	assert(vfs.CreateDirectory(model_root))
+	assert(vfs.CreateDirectory(nested_model_root))
 	assert(vfs.Write(texture_root .. "/demo.png", "x"))
 	assert(vfs.Write(texture_root .. "/helper.txt", "x"))
 	assert(vfs.Write(model_root .. "/demo.lua", "return {}"))
+	assert(vfs.Write(nested_model_root .. "/barrel001.mdl", "x"))
 	vfs.Mount(mount_root, "")
 	local textures = assets.Enumerate("textures", {recursive = true, prefix = "browser"})
 	local models = assets.Enumerate("models", {recursive = true, prefix = "browser"})
 	T(#textures)["=="](1)
 	T(textures[1].path)["=="]("textures/browser/demo.png")
 	T(textures[1].kind)["=="]("file")
-	T(#models)["=="](1)
+	T(#models)["=="](2)
 	T(models[1].path)["=="]("models/browser/demo.lua")
 	T(models[1].kind)["=="]("lua")
+	T(models[2].path)["=="]("models/browser/props_c17/barrel001.mdl")
+	T(models[2].kind)["=="]("file")
+	vfs.Unmount(mount_root, "")
+end)
+
+T.Test("Assets folder enumeration lists immediate child folders by category", function()
+	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "asset_browser_folders_test"
+	local model_root = mount_root .. "/models/browser"
+	local nested_model_root = model_root .. "/props_c17"
+	local deep_model_root = nested_model_root .. "/furniture"
+	assert(vfs.CreateDirectory(mount_root))
+	assert(vfs.CreateDirectory(mount_root .. "/models"))
+	assert(vfs.CreateDirectory(model_root))
+	assert(vfs.CreateDirectory(nested_model_root))
+	assert(vfs.CreateDirectory(deep_model_root))
+	assert(vfs.Write(deep_model_root .. "/chair001.mdl", "x"))
+	vfs.Mount(mount_root, "")
+	local roots = assets.EnumerateFolders("models")
+	local children = assets.EnumerateFolders("models", {prefix = "models/browser/"})
+	T(#roots)[">="](1)
+	T(roots[1].path)["=="]("models/browser/")
+	T(#children)["=="](1)
+	T(children[1].path)["=="]("models/browser/props_c17/")
 	vfs.Unmount(mount_root, "")
 end)
 

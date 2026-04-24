@@ -243,25 +243,125 @@ local function make_browser_entry(category_name, path, root, kind)
 	}
 end
 
-local function enumerate_logical_files(path, recursive, out, seen)
+local function make_folder_entry(category_name, path, root)
+	return {
+		path = path,
+		category = category_name,
+		root = root,
+		name = vfs.GetFolderNameFromPath(path),
+	}
+end
+
+local function get_allowed_extensions(category)
+	if category.allowed_extensions then return category.allowed_extensions end
+
+	local allowed = {}
+
+	for _, ext in ipairs(category.extensions) do
+		allowed[ext] = true
+	end
+
+	category.allowed_extensions = allowed
+	return allowed
+end
+
+local function enumerate_browser_entries(category, root, path, recursive, out, seen)
+	local allowed_extensions = get_allowed_extensions(category)
+
 	for _, name in ipairs(vfs.Find(path)) do
 		local child_path = path
 
 		if not child_path:ends_with("/") then child_path = child_path .. "/" end
 
 		child_path = normalize_path(child_path .. name)
+		local directory_path = child_path:ends_with("/") and child_path or (child_path .. "/")
 
-		if vfs.IsDirectory(child_path) then
-			if recursive then enumerate_logical_files(child_path, recursive, out, seen) end
+		if vfs.IsDirectory(directory_path) then
+			if recursive then enumerate_browser_entries(category, root, directory_path, recursive, out, seen) end
 		else
+			local ext = get_extension(child_path)
 			local key = child_path:lower()
 
-			if not seen[key] then
+			if ext and allowed_extensions[ext] and not seen[key] then
 				seen[key] = true
-				out[#out + 1] = child_path
+				out[#out + 1] = make_browser_entry(category.name, child_path, root)
 			end
 		end
 	end
+end
+
+local function build_scan_root(root, prefix)
+	if prefix and prefix ~= "" then
+		if prefix:lower():starts_with(root:lower()) then
+			root = prefix
+		else
+			root = root .. prefix
+		end
+	end
+
+	if not root:ends_with("/") then root = root .. "/" end
+	return root
+end
+
+local function add_folder_entry(category, root, path, out, seen)
+	local key = path:lower()
+
+	if seen[key] then return end
+
+	seen[key] = true
+	out[#out + 1] = make_folder_entry(category.name, path, root)
+end
+
+function assets.EnumerateFolders(category_name, options)
+	local category = get_category(category_name, category_name)
+	options = options or {}
+	local prefix = options.prefix and normalize_path(options.prefix) or nil
+	local out = {}
+	local seen = {}
+
+	for _, root in ipairs(category.roots) do
+		local scan_root = build_scan_root(root, prefix)
+
+		for _, name in ipairs(vfs.Find(scan_root)) do
+			local child_path = normalize_path(scan_root .. "/" .. name)
+			local directory_path = child_path:ends_with("/") and child_path or (child_path .. "/")
+
+			if vfs.IsDirectory(directory_path) then
+				add_folder_entry(category, root, directory_path, out, seen)
+			end
+		end
+	end
+
+	for virtual_path, virtual_asset in pairs(assets.virtual_assets) do
+		if virtual_asset.category == category.name then
+			local root = starts_with_any_root(virtual_path, category.roots)
+
+			if root then
+				local scan_root = build_scan_root(root, prefix)
+
+				if virtual_path:lower():starts_with(scan_root:lower()) then
+					local remainder = virtual_path:sub(#scan_root + 1)
+					local folder_name = remainder:match("([^/]+)/")
+
+					if folder_name then
+						add_folder_entry(
+							category,
+							root,
+							normalize_path(scan_root .. "/" .. folder_name .. "/"),
+							out,
+							seen
+						)
+					end
+				end
+			end
+		end
+	end
+
+	list.sort(out, function(a, b)
+		return a.path:lower() < b.path:lower()
+	end)
+
+	return out
 end
 
 function assets.Enumerate(category_name, options)
@@ -271,56 +371,36 @@ function assets.Enumerate(category_name, options)
 	local prefix = options.prefix and normalize_path(options.prefix) or nil
 	local out = {}
 	local seen = {}
+	local scan_root_lower
 
 	for _, root in ipairs(category.roots) do
-		local scan_root
+		local scan_root = build_scan_root(root, prefix)
+		enumerate_browser_entries(category, root, scan_root, recursive, out, seen)
+	end
 
-		if prefix and prefix ~= "" then
-			if prefix:lower():starts_with(root:lower()) then
-				scan_root = prefix
-			else
-				scan_root = root .. prefix
-			end
-		else
-			scan_root = root
-		end
+	for virtual_path, virtual_asset in pairs(assets.virtual_assets) do
+		if virtual_asset.category == category.name then
+			local virtual_path_lower = virtual_path:lower()
+			local root = starts_with_any_root(virtual_path, category.roots)
 
-		if not scan_root:ends_with("/") then scan_root = scan_root .. "/" end
+			if root then
+				if prefix and prefix ~= "" then
+					scan_root_lower = prefix:lower()
 
-		local found = {}
-		enumerate_logical_files(scan_root, recursive, found, {})
-
-		for _, path in ipairs(found) do
-			if not vfs.IsDirectory(path) then
-				local ext = get_extension(path)
-
-				if ext then
-					for _, allowed_ext in ipairs(category.extensions) do
-						if ext == allowed_ext then
-							local key = path:lower()
-
-							if not seen[key] then
-								seen[key] = true
-								list.insert(out, make_browser_entry(category.name, path, root))
-							end
-
-							break
-						end
+					if not prefix:lower():starts_with(root:lower()) then
+						scan_root_lower = (root .. prefix):lower()
 					end
+
+					if not scan_root_lower:ends_with("/") then scan_root_lower = scan_root_lower .. "/" end
 				end
-			end
-		end
 
-		for virtual_path, virtual_asset in pairs(assets.virtual_assets) do
-			if
-				virtual_asset.category == category.name and
-				virtual_path:lower():starts_with(scan_root:lower())
-			then
-				local key = virtual_path:lower()
+				if (not scan_root_lower or virtual_path_lower:starts_with(scan_root_lower)) then
+					local key = virtual_path_lower
 
-				if not seen[key] then
-					seen[key] = true
-					list.insert(out, make_browser_entry(category.name, virtual_path, root, virtual_asset.kind))
+					if not seen[key] then
+						seen[key] = true
+						list.insert(out, make_browser_entry(category.name, virtual_path, root, virtual_asset.kind))
+					end
 				end
 			end
 		end

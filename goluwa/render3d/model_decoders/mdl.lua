@@ -304,25 +304,38 @@ local function load_mdl(path)
 	end
 
 	do
-		buffer:PushPosition(header.material_offset)
 		header.materials = {}
-		local offset = buffer:ReadInt()
 
-		if offset > -1 then
-			buffer:PushPosition(header.material_offset + offset)
+		if
+			header.material_count > 0 and
+			header.material_offset > 0 and
+			header.material_offset < buffer:GetSize()
+		then
+			buffer:PushPosition(header.material_offset)
 
 			for i = 1, header.material_count do
-				local mat = vfs.FixPathSlashes(buffer:ReadString())
+				local material_pos = buffer:GetPosition()
+				local offset = buffer:ReadInt()
 
-				if mat ~= "" and not mat:ends_with("/") then
-					header.materials[i] = mat
+				if offset > 0 then
+					local string_pos = material_pos + offset
+
+					if string_pos < buffer:GetSize() then
+						buffer:PushPosition(string_pos)
+						local mat = vfs.FixPathSlashes(buffer:ReadString())
+						buffer:PopPosition()
+
+						if mat ~= "" and not mat:ends_with("/") then
+							header.materials[i] = mat
+						end
+					end
 				end
+
+				buffer:Advance(60)
 			end
 
 			buffer:PopPosition()
 		end
-
-		buffer:PopPosition()
 
 		parse("texturedir", function(data, i)
 			local offset = buffer:ReadLong()
@@ -751,15 +764,23 @@ end
 
 model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 	local models = {}
+	local companion_path = path
 
 	if full_path:ends_with(".mdl") then
 		full_path = full_path:sub(1, -#".mdl" - 1)
 	end
 
+	if companion_path:ends_with(".mdl") then
+		companion_path = companion_path:sub(1, -#".mdl" - 1)
+	end
+
 	--utility.PushTimeWarning()
 	local mdl = load_mdl(full_path)
-	local vvd = load_vvd(full_path)
-	local vtx = load_vtx(full_path)
+
+	if mdl.bodypart_count == 0 then return models end
+
+	local vvd = load_vvd(companion_path)
+	local vtx = load_vtx(companion_path)
 
 	--	utility.PopTimeWarning("model read", 0)
 	--utility.PushTimeWarning()

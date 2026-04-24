@@ -297,11 +297,26 @@ return function(props)
 		end
 
 		local target_h = body_h * open_fraction
-		info.clip.transform:SetHeight(target_h)
-		info.clip.gui_element:SetVisible(target_h > 0.001)
-		info.body.transform:SetY(-(body_h - target_h))
+		local target_y = -(body_h - target_h)
+		local target_visible = target_h > 0.001
+		local changed = false
 
-		if tree and tree.layout then tree.layout:InvalidateLayout() end
+		if info.clip.transform:GetHeight() ~= target_h then
+			info.clip.transform:SetHeight(target_h)
+			changed = true
+		end
+
+		if info.clip.gui_element:GetVisible() ~= target_visible then
+			info.clip.gui_element:SetVisible(target_visible)
+			changed = true
+		end
+
+		if info.body.transform:GetY() ~= target_y then
+			info.body.transform:SetY(target_y)
+			changed = true
+		end
+
+		if changed and tree and tree.layout then tree.layout:InvalidateLayout() end
 	end
 
 	local function is_row_visible(info)
@@ -386,7 +401,7 @@ return function(props)
 			if props.OnToggle then props.OnToggle(node, expanded, key, path) end
 		end
 
-		refresh_visibility()
+		tree:RefreshBranchForKey(key)
 	end
 
 	function set_selected(node, path, key)
@@ -831,7 +846,7 @@ return function(props)
 		tree:AddChild(clip, insert_index)
 		insert_index = insert_index + 1
 
-		if has_children then
+		if has_children and expanded then
 			local child_continuations = table.shallow_copy(meta.continuations)
 			child_continuations[meta.level + 1] = not meta.is_last
 
@@ -899,19 +914,19 @@ return function(props)
 
 	function tree:ExpandAll()
 		apply_branch_state(items, nil, true)
-		refresh_visibility()
+		self:Rebuild()
 		return self
 	end
 
 	function tree:CollapseAll()
 		apply_branch_state(items, nil, false)
-		refresh_visibility()
+		self:Rebuild()
 		return self
 	end
 
 	function tree:ExpandToKey(key)
 		expand_to_key(items, nil, key)
-		refresh_visibility()
+		self:Rebuild()
 		return self
 	end
 
