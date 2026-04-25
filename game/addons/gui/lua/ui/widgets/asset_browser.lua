@@ -7,6 +7,7 @@ local assets = import("goluwa/assets.lua")
 local Window = import("../elements/window.lua")
 local Splitter = import("../elements/splitter.lua")
 local ScrollablePanel = import("../elements/scrollable_panel.lua")
+local Clickable = import("../elements/clickable.lua")
 local Column = import("../elements/column.lua")
 local Row = import("../elements/row.lua")
 local Frame = import("../elements/frame.lua")
@@ -16,8 +17,9 @@ local Tree = import("../elements/tree.lua")
 local theme = import("../theme.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
+local Material = import("goluwa/render3d/material.lua")
 local ModelPreview = import("game/addons/gui/lua/model_preview.lua")
-local CATEGORY_ORDER = {
+local DEFAULT_CATEGORY_ORDER = {
 	{name = "models", label = "models"},
 	{name = "textures", label = "textures"},
 }
@@ -35,6 +37,32 @@ local MATERIAL_TEXTURE_GETTERS = {
 	"GetMetallicTexture",
 	"GetRoughnessTexture",
 }
+
+local function build_category_order(props)
+	if props.Categories and props.Categories[1] then
+		local out = {}
+
+		for _, name in ipairs(props.Categories) do
+			out[#out + 1] = {
+				name = name,
+				label = name,
+			}
+		end
+
+		return out
+	end
+
+	if props.PickerCategory then
+		return {
+			{
+				name = props.PickerCategory,
+				label = props.PickerCategory,
+			},
+		}
+	end
+
+	return DEFAULT_CATEGORY_ORDER
+end
 
 local function update_layout_now(entity)
 	if not entity or not entity:IsValid() or not entity.layout then return end
@@ -85,10 +113,10 @@ local function make_folder_node(category_name, path, text)
 	}
 end
 
-local function build_tree_items()
+local function build_tree_items(category_order)
 	local items = {}
 
-	for _, category_info in ipairs(CATEGORY_ORDER) do
+	for _, category_info in ipairs(category_order) do
 		items[#items + 1] = {
 			Key = category_info.name,
 			Text = category_info.label,
@@ -152,6 +180,63 @@ local function create_preview_entity_from_descriptor(descriptor)
 	entity.visual:BuildAABB()
 	entity.visual:SetUseOcclusionCulling(false)
 	return entity
+end
+
+local function load_material_asset(path)
+	local resolved = assets.ResolvePath(path, "materials")
+	local virtual_asset = resolved and assets.virtual_assets and assets.virtual_assets[resolved] or nil
+
+	if virtual_asset and type(virtual_asset.load) == "function" then
+		local ok, result = xpcall(function()
+			return virtual_asset.load(resolved)
+		end, debug.traceback)
+
+		if ok and result ~= nil then
+			if type(result) == "table" and result.Type == "render3d_material" then
+				return result
+			end
+
+			if type(result) == "table" then return Material.New(result) end
+		end
+	end
+
+	local extension = path:match("(%.[^./]+)$")
+
+	if extension and extension:lower() == ".vmt" then
+		return Material.FromVMT(path)
+	end
+
+	local ok, result = xpcall(function()
+		return import(path)
+	end, debug.traceback)
+
+	if not ok or result == nil then return nil end
+
+	if type(result) == "function" then
+		ok, result = xpcall(function()
+			return result()
+		end, debug.traceback)
+
+		if not ok then return nil end
+	end
+
+	if type(result) == "table" and result.Type == "render3d_material" then
+		return result
+	end
+
+	if type(result) == "table" then return Material.New(result) end
+
+	return nil
+end
+
+local function get_material_preview_texture(material)
+	if not material then return nil end
+
+	local texture = material.GetAlbedoTexture and material:GetAlbedoTexture() or nil
+
+	if texture and texture.IsReady and not texture:IsReady() then return nil end
+
+	return texture
 end
 
 local function create_preview_entity_for_model(path)
@@ -377,10 +462,16 @@ local function build_model_tile(entry, scheduler)
 	}
 end
 
-local function build_texture_tile(entry)
-	local texture = assets.GetTexture(entry.path, {config = {srgb = true}})
-	return Frame{
+local function build_texture_tile(entry, on_pick)
+	local preview_texture = assets.GetTexture(entry.path, {config = {srgb = true}})
+	local texture = assets.GetTexture(entry.path)
+	return Clickable{
 		Padding = Rect() + 12,
+		Mode = "filled",
+		Color = "surface",
+		OnClick = on_pick and function()
+			return on_pick(entry, texture)
+		end or nil,
 		layout = {
 			FitWidth = true,
 			FitHeight = true,
@@ -389,6 +480,9 @@ local function build_texture_tile(entry)
 		},
 	}{
 		Column{
+			mouse_input = {
+				IgnoreMouseInput = true,
+			},
 			layout = {
 				GrowWidth = 1,
 				FitHeight = true,
@@ -404,6 +498,9 @@ local function build_texture_tile(entry)
 					MinSize = Vec2(136, 136),
 					MaxSize = Vec2(136, 136),
 				},
+				mouse_input = {
+					IgnoreMouseInput = true,
+				},
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
 					render2d.SetTexture(nil)
@@ -412,7 +509,83 @@ local function build_texture_tile(entry)
 					render2d.SetColor(1, 1, 1, 0.05)
 					gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
 
-					if texture and texture.IsReady and texture:IsReady() then
+					if preview_texture and preview_texture.IsReady and preview_texture:IsReady() then
+						render2d.SetTexture(preview_texture)
+						render2d.SetColor(1, 1, 1, 1)
+						render2d.DrawRect(8, 8, size.x - 16, size.y - 16)
+					end
+				end,
+			},
+			Text{
+				Text = entry.name,
+				Font = "body_strong S",
+				IgnoreMouseInput = true,
+			},
+			Text{
+				Text = entry.path,
+				Wrap = true,
+				WrapToParent = false,
+				Size = Vec2(136, 0),
+				IgnoreMouseInput = true,
+				Color = "text_disabled",
+				layout = {
+					MinSize = Vec2(136, 0),
+					MaxSize = Vec2(136, 0),
+				},
+			},
+		},
+	}
+end
+
+local function build_material_tile(entry, on_pick)
+	local material = load_material_asset(entry.path)
+
+	return Clickable{
+		Padding = Rect() + 12,
+		Mode = "filled",
+		Color = "surface",
+		OnClick = on_pick and function()
+			return on_pick(entry, material)
+		end or nil,
+		layout = {
+			FitWidth = true,
+			FitHeight = true,
+			SelfAlignmentY = "start",
+			MinSize = Vec2(164, 216),
+		},
+	}{
+		Column{
+			mouse_input = {
+				IgnoreMouseInput = true,
+			},
+			layout = {
+				GrowWidth = 1,
+				FitHeight = true,
+				AlignmentX = "stretch",
+				ChildGap = 10,
+			},
+		}{
+			Panel.New{
+				transform = true,
+				rect = true,
+				layout = {
+					Size = Vec2(136, 136),
+					MinSize = Vec2(136, 136),
+					MaxSize = Vec2(136, 136),
+				},
+				mouse_input = {
+					IgnoreMouseInput = true,
+				},
+				OnDraw = function(self)
+					local size = self.transform.Size + self.transform.DrawSizeOffset
+					local texture = get_material_preview_texture(material)
+					render2d.SetTexture(nil)
+					render2d.SetColor(0.05, 0.06, 0.08, 1)
+					render2d.DrawRect(0, 0, size.x, size.y)
+					render2d.SetColor(1, 1, 1, 0.05)
+					gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
+
+					if texture then
 						render2d.SetTexture(texture)
 						render2d.SetColor(1, 1, 1, 1)
 						render2d.DrawRect(8, 8, size.x - 16, size.y - 16)
@@ -440,20 +613,23 @@ local function build_texture_tile(entry)
 	}
 end
 
-local function build_tile(entry, scheduler)
+
+local function build_tile(entry, scheduler, on_pick)
 	if entry.category == "models" then return build_model_tile(entry, scheduler) end
 
-	return build_texture_tile(entry)
+	if entry.category == "materials" then return build_material_tile(entry, on_pick) end
+
+	return build_texture_tile(entry, on_pick)
 end
 
-local function build_grid_rows(entries, columns, scheduler)
+local function build_grid_rows(entries, columns, scheduler, on_pick)
 	local rows = {}
 
 	for index = 1, #entries, columns do
 		local children = {}
 
 		for child_index = index, math.min(index + columns - 1, #entries) do
-			children[#children + 1] = build_tile(entries[child_index], scheduler)
+			children[#children + 1] = build_tile(entries[child_index], scheduler, on_pick)
 		end
 
 		rows[#rows + 1] = Row{
@@ -472,17 +648,21 @@ end
 
 return function(props)
 	props = props or {}
+	local category_order = build_category_order(props)
+	local default_category = category_order[1] and category_order[1].name or "models"
 	local asset_index = {}
 	local asset_index_loaded = {}
-	local tree_items = build_tree_items()
-	local expanded_keys = {
-		models = false,
-		textures = false,
-	}
+	local tree_items = build_tree_items(category_order)
+	local expanded_keys = {}
+
+	for _, category_info in ipairs(category_order) do
+		expanded_keys[category_info.name] = false
+	end
+
 	local state = {
 		query = "",
-		selected_key = props.SelectedKey or "models",
-		selected_category = "models",
+		selected_key = props.SelectedKey or default_category,
+		selected_category = default_category,
 		selected_prefix = nil,
 		selected_asset_path = nil,
 		last_filter_text = nil,
@@ -544,6 +724,8 @@ return function(props)
 	end
 
 	local function should_show_grid_tiles()
+		if props.ShowGridByDefault then return true end
+
 		if state.selected_asset_path then return true end
 
 		if state.selected_prefix then return true end
@@ -592,7 +774,11 @@ return function(props)
 				}
 			)
 		else
-			for _, row in ipairs(build_grid_rows(visible, columns, scheduler)) do
+			local on_pick = props.OnPickAsset and function(entry, material)
+				return props.OnPickAsset(entry, material, window)
+			end or nil
+
+			for _, row in ipairs(build_grid_rows(visible, columns, scheduler, on_pick)) do
 				grid_column:AddChild(row)
 			end
 		end
@@ -631,7 +817,7 @@ return function(props)
 
 	window = Window{
 		Key = props.Key or "AssetBrowserWindow",
-		Title = "ASSET BROWSER",
+		Title = props.Title or (props.PickerCategory and ("PICK " .. props.PickerCategory:upper()) or "ASSET BROWSER"),
 		Size = props.Size or Vec2(1080, 720),
 		Padding = "none",
 		Position = props.Position or (Panel.World.transform:GetSize() - Vec2(1080, 720)) / 2,

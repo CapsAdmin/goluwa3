@@ -1,12 +1,14 @@
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local MouseInput = import("goluwa/ecs/components/2d/mouse_input.lua")
 local prototype = import("goluwa/prototype.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local input = import("goluwa/input.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Gizmo = import("lua/gizmo.lua")
@@ -24,6 +26,11 @@ local Window = import("lua/ui/elements/window.lua")
 local theme = import("lua/ui/theme.lua")
 local Gallery = import("./gallery.lua")
 local AssetBrowser = import("./asset_browser.lua")
+local Material = import("goluwa/render3d/material.lua")
+
+local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
+local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
+local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 
 local function clamp(value, min_value, max_value)
 	return math.max(min_value, math.min(max_value, value))
@@ -186,6 +193,94 @@ local function get_entity_label(entity)
 	return base
 end
 
+local function is_valid_object(obj)
+	local obj_type = type(obj)
+
+	if obj_type ~= "table" and obj_type ~= "userdata" and obj_type ~= "cdata" then
+		return false
+	end
+
+	return obj and obj.IsValid and obj:IsValid() or false
+end
+
+local function is_guid_object(obj)
+	return is_valid_object(obj) and obj.GetGUID ~= nil
+		and obj.GetGUID ~= false
+		and type(obj.GetGUID) == "function"
+end
+
+local function get_object_label(obj)
+	if not is_valid_object(obj) then return "object" end
+
+	local name = obj.GetName and obj:GetName() or ""
+	local key = obj.GetKey and obj:GetKey() or ""
+	local base = name ~= "" and name or key ~= "" and key or (obj.Type or "object")
+
+	if name ~= "" and key ~= "" and key ~= name then
+		base = name .. " [" .. key .. "]"
+	end
+
+	return base
+end
+
+local function count_material_objects()
+	local count = 0
+
+	for _, material in ipairs(Material.Instances or {}) do
+		if is_valid_object(material) then count = count + 1 end
+	end
+
+	return count
+end
+
+local function build_material_root_key(material)
+	return MATERIAL_ROOT_KEY .. "/" .. material:GetGUID()
+end
+
+local function build_object_reference_key(entity, component_name, property_name, object)
+	return entity:GetGUID() .. "/" .. component_name .. "/" .. property_name .. "/" .. object:GetGUID()
+end
+
+local function build_shared_object_node(object, key, text)
+	return {
+		Object = object,
+		Key = key,
+		Text = text or get_object_label(object),
+		HasChildren = false,
+		Children = {},
+		SharedInstance = true,
+		TextColor = SHARED_INSTANCE_COLOR,
+	}
+end
+
+local function is_virtual_child_object(obj)
+	return is_guid_object(obj) and not obj.component_list
+end
+
+local function build_virtual_property_children(entity)
+	local children = {}
+
+	for _, component in ipairs(entity.component_list or {}) do
+		if component and component.IsValid and component:IsValid() then
+			local component_name = get_component_name(entity, component)
+
+			for _, info in ipairs(prototype.GetStorableVariables(component)) do
+				local value = prototype.GetProperty(component, info.var_name)
+
+				if is_virtual_child_object(value) then
+					children[#children + 1] = build_shared_object_node(
+						value,
+						build_object_reference_key(entity, component_name, info.var_name, value),
+						info.var_name
+					)
+				end
+			end
+		end
+	end
+
+	return children
+end
+
 local function is_world_root(entity)
 	return entity == Entity.World or entity == Panel.World
 end
@@ -282,20 +377,77 @@ local function count_valid_children(entity, editor_window)
 	return count
 end
 
-local function build_property_node(component, component_name, info, hooks)
-	local value = prototype.GetProperty(component, info.var_name)
+local function get_material_display_text(material)
+	if not material then return "None" end
+
+	if material.vmt_path and material.vmt_path ~= "" then return material.vmt_path end
+
+	return get_object_label(material)
+end
+
+local function get_material_preview_texture(material)
+	if not material then return nil end
+
+	local texture = material.GetAlbedoTexture and material:GetAlbedoTexture() or nil
+
+	if texture and texture.IsReady and not texture:IsReady() then return nil end
+
+	return texture
+end
+
+local function get_texture_display_text(texture)
+	if not texture then return "None" end
+
+	local path = texture.config and texture.config.path or nil
+
+	if path and path ~= "" then return path end
+
+	return get_object_label(texture)
+end
+
+local function get_texture_preview_texture(texture)
+	if not texture then return nil end
+
+	if texture.IsReady and not texture:IsReady() then return nil end
+
+	return texture
+end
+
+local open_material_picker
+local open_texture_picker
+
+local function build_property_node(target, category_key, category_name, info, hooks)
+	local value = prototype.GetProperty(target, info.var_name)
 	local node = {
-		Key = component.Owner:GetGUID() .. "/" .. component_name .. "/" .. info.var_name,
+		Key = category_key .. "/" .. info.var_name,
 		Text = info.var_name,
 		Value = value,
 		Default = info.copy and info.copy() or info.default,
 		GetValue = function()
-			return prototype.GetProperty(component, info.var_name)
+			return prototype.GetProperty(target, info.var_name)
 		end,
 	}
 	local property_type = info.enums and "enum" or info.type
 
-	if property_type == "boolean" then
+	if property_type == "material" or property_type == "render3d_material" then
+		node.Type = "material"
+		node.GetDisplayText = get_material_display_text
+		node.GetPreviewTexture = get_material_preview_texture
+		node.OnBrowse = function(_, key, path, panel, commit_value)
+			if open_material_picker then
+				open_material_picker(node, target, info, key, path, panel, commit_value)
+			end
+		end
+	elseif property_type == "texture" or property_type == "render_texture" then
+		node.Type = "texture"
+		node.GetDisplayText = get_texture_display_text
+		node.GetPreviewTexture = get_texture_preview_texture
+		node.OnBrowse = function(_, key, path, panel, commit_value)
+			if open_texture_picker then
+				open_texture_picker(node, target, info, key, path, panel, commit_value)
+			end
+		end
+	elseif property_type == "boolean" then
 		node.Type = "boolean"
 	elseif property_type == "number" or property_type == "integer" then
 		node.Type = "number"
@@ -338,22 +490,22 @@ local function build_property_node(component, component_name, info, hooks)
 		end
 
 		if hooks and hooks.OnPropertyChangeStart then
-			hooks.OnPropertyChangeStart(component, info, next_value)
+			hooks.OnPropertyChangeStart(target, info, next_value)
 		end
 
 		local ok, err = pcall(function()
-			prototype.SetProperty(component, info.var_name, next_value)
+			prototype.SetProperty(target, info.var_name, next_value)
 		end)
 
 		if hooks and hooks.OnPropertyChangeEnd then
-			hooks.OnPropertyChangeEnd(component, info, next_value, ok, err)
+			hooks.OnPropertyChangeEnd(target, info, next_value, ok, err)
 		end
 
 		if not ok then
 			print(
 				"editor failed to set property",
-				component.Owner,
-				component_name,
+				target,
+				category_name,
 				info.var_name,
 				err
 			)
@@ -364,28 +516,66 @@ local function build_property_node(component, component_name, info, hooks)
 	return node
 end
 
-local function build_property_items(entity, hooks)
-	if not entity or not entity:IsValid() then return {} end
+local function build_storable_property_group(target, group_key, group_text, hooks)
+	local children = {}
+
+	for _, info in ipairs(prototype.GetStorableVariables(target)) do
+		children[#children + 1] = build_property_node(target, group_key, group_text, info, hooks)
+	end
+
+	return {
+		Key = group_key,
+		Text = group_text,
+		Expanded = true,
+		Children = children,
+	}
+end
+
+local function build_property_items(target, hooks)
+	if not is_valid_object(target) then return {} end
 
 	local items = {}
 
-	for _, component in ipairs(entity.component_list or {}) do
-		local component_name = get_component_name(entity, component)
-		local children = {}
-
-		for _, info in ipairs(prototype.GetStorableVariables(component)) do
-			children[#children + 1] = build_property_node(component, component_name, info, hooks)
+	if target.component_list then
+		for _, component in ipairs(target.component_list or {}) do
+			local component_name = get_component_name(target, component)
+			items[#items + 1] = build_storable_property_group(
+				component,
+				target:GetGUID() .. "/" .. component_name,
+				component_name,
+				hooks
+			)
 		end
 
-		items[#items + 1] = {
-			Key = entity:GetGUID() .. "/" .. component_name,
-			Text = component_name,
-			Expanded = true,
-			Children = children,
-		}
+		return items
 	end
 
+	items[#items + 1] = build_storable_property_group(
+		target,
+		target:GetGUID() .. "/properties",
+		get_object_label(target),
+		hooks
+	)
+
 	return items
+end
+
+local function build_material_tree_item(expanded_entities)
+	local children = {}
+
+	for _, material in ipairs(Material.Instances or {}) do
+		if is_valid_object(material) then
+			children[#children + 1] = build_shared_object_node(material, build_material_root_key(material))
+		end
+	end
+
+	return {
+		Key = MATERIAL_ROOT_KEY,
+		Text = "3D Materials",
+		HasChildren = children[1] ~= nil,
+		Expanded = expanded_entities[MATERIAL_ROOT_KEY] == true,
+		Children = children,
+	}
 end
 
 local function build_tree_snapshot(entity, expanded_entities, visited, editor_window)
@@ -405,12 +595,16 @@ local function build_tree_snapshot(entity, expanded_entities, visited, editor_wi
 		if child_node then children[#children + 1] = child_node end
 	end
 
+	for _, child_node in ipairs(build_virtual_property_children(entity)) do
+		children[#children + 1] = child_node
+	end
+
 	visited[entity] = nil
 	return {
 		Entity = entity,
 		Key = guid,
 		Text = get_entity_label(entity),
-		HasChildren = valid_children[1] ~= nil,
+		HasChildren = children[1] ~= nil,
 		Children = children,
 	}
 end
@@ -444,9 +638,11 @@ local function build_tree_items(expanded_entities, editor_window)
 
 	for _, world_info in ipairs{
 		{entity = Entity.World, label = "3D World"},
+		{virtual = true},
 		{entity = Panel.World, label = "2D World"},
 	} do
-		local node = build_world_tree_item(world_info.entity, world_info.label, expanded_entities, visited, editor_window)
+		local node = world_info.virtual and build_material_tree_item(expanded_entities) or
+			build_world_tree_item(world_info.entity, world_info.label, expanded_entities, visited, editor_window)
 
 		if node then items[#items + 1] = node end
 	end
@@ -483,15 +679,18 @@ return function(props)
 	props = props or {}
 	local state = {
 		selected_entity = nil,
+		selected_object = nil,
 		selected_entity_guid = props.SelectedEntityGUID,
 		expanded_entities = {
 			[Entity.World:GetGUID()] = true,
+			[MATERIAL_ROOT_KEY] = true,
 			[Panel.World:GetGUID()] = true,
 		},
 		tree_items = {},
 	}
 	local tree_view
 	local property_editor
+	local property_editor_frame
 	local footer_text
 	local window
 	local selected_property_listener_removers = {}
@@ -510,6 +709,7 @@ return function(props)
 	local pending_sync_deadline = 0
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
+	local tracked_material_count = count_material_objects()
 	local editor_camera = {
 		enabled = true,
 		scale_viewport = false,
@@ -683,6 +883,28 @@ return function(props)
 		return state.selected_entity
 	end
 
+	local function get_selected_object()
+		local selected_item = find_tree_item(state.tree_items, state.selected_entity_guid)
+
+		if selected_item then
+			return selected_item.Entity or selected_item.Object or nil
+		end
+
+		local entity = get_selected_entity()
+
+		if entity then return entity end
+
+		if is_valid_object(state.selected_object) then return state.selected_object end
+
+		state.selected_object = prototype.GetObjectByGUID(state.selected_entity_guid)
+		return is_valid_object(state.selected_object) and state.selected_object or nil
+	end
+
+	local function is_selected_shared_instance()
+		local selected_item = find_tree_item(state.tree_items, state.selected_entity_guid)
+		return selected_item and selected_item.SharedInstance == true or false
+	end
+
 	local function clear_selected_property_listeners()
 		for i = 1, #selected_property_listener_removers do
 			selected_property_listener_removers[i]()
@@ -693,20 +915,29 @@ return function(props)
 
 	local function refresh_selected_property_listeners()
 		clear_selected_property_listeners()
-		local entity = get_selected_entity()
+		local target = get_selected_object()
 
-		if not (entity and entity:IsValid()) then return end
+		if not is_valid_object(target) then return end
 
-		for _, component in ipairs(entity.component_list or {}) do
-			if component and component.IsValid and component:IsValid() then
-				local component_name = get_component_name(entity, component)
-				selected_property_listener_removers[#selected_property_listener_removers + 1] = component:AddPropertyListener(function(_, key)
-					if property_change_sync_blocked > 0 then return end
+		if target.component_list then
+			for _, component in ipairs(target.component_list or {}) do
+				if component and component.IsValid and component:IsValid() then
+					local component_name = get_component_name(target, component)
+					selected_property_listener_removers[#selected_property_listener_removers + 1] = component:AddPropertyListener(function(_, key)
+						if property_change_sync_blocked > 0 then return end
 
-					refresh_property_key(component, component_name, key)
-				end)
+						refresh_property_key(target:GetGUID() .. "/" .. component_name, key, target)
+					end)
+				end
 			end
+			return
 		end
+
+		selected_property_listener_removers[#selected_property_listener_removers + 1] = target:AddPropertyListener(function(_, key)
+			if property_change_sync_blocked > 0 then return end
+
+			refresh_property_key(target:GetGUID() .. "/properties", key, target)
+		end)
 	end
 
 	local property_node_hooks = {
@@ -717,7 +948,7 @@ return function(props)
 			property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
 		end,
 	}
-	update_footer = function(entity, tree_items)
+	update_footer = function(selected, tree_items)
 		if not footer_text or not footer_text:IsValid() then return end
 
 		local gizmo_status_info = Gizmo.GetStatus()
@@ -734,7 +965,7 @@ return function(props)
 			)
 		end
 
-		if not entity then
+		if not selected then
 			footer_text.text:SetText(
 				string.format(
 					"3D roots: %d  |  2D roots: %d  |  %s",
@@ -751,7 +982,7 @@ return function(props)
 				"3D roots: %d  |  2D roots: %d  |  selected: %s  |  %s",
 				root_3d_count,
 				root_2d_count,
-				get_entity_label(entity),
+				selected.component_list and get_entity_label(selected) or get_object_label(selected),
 				gizmo_status
 			)
 		)
@@ -766,11 +997,13 @@ return function(props)
 		end
 	end
 
-	local function set_selected_entity(entity, ensure_visible)
-		entity = entity and entity:IsValid() and entity or nil
+	local function set_selected_target(target, ensure_visible, selected_key)
+		local entity = target and target.component_list and target or nil
+		local object = is_valid_object(target) and target or nil
 		local previous_guid = state.selected_entity_guid
 		state.selected_entity = entity
-		state.selected_entity_guid = entity and entity:GetGUID() or nil
+		state.selected_object = object and not entity and object or nil
+		state.selected_entity_guid = selected_key or object and object:GetGUID() or nil
 		Gizmo.EnableGizmo(entity)
 
 		if ensure_visible and entity and state.selected_entity_guid ~= previous_guid then
@@ -778,12 +1011,17 @@ return function(props)
 		end
 	end
 
-	local function resolve_selected_entity(tree_items)
+	local function resolve_selected_target(tree_items)
 		local selected_item = find_tree_item(tree_items, state.selected_entity_guid)
 
-		if selected_item then return selected_item.Entity end
+		if selected_item then return selected_item.Entity or selected_item.Object, selected_item.Key end
 
-		return get_first_spawned_entity(window) or tree_items[1] and tree_items[1].Entity or nil
+		local fallback = get_first_spawned_entity(window)
+
+		if fallback then return fallback, fallback:GetGUID() end
+
+		local first = tree_items[1]
+		return first and (first.Entity or first.Object) or nil, first and first.Key or nil
 	end
 
 	local function build_tree_branch_item(entity)
@@ -804,6 +1042,8 @@ return function(props)
 		if guid == Entity.World:GetGUID() then return Entity.World end
 
 		if guid == Panel.World:GetGUID() then return Panel.World end
+
+		if guid == MATERIAL_ROOT_KEY then return nil end
 
 		return get_entity_by_guid(guid)
 	end
@@ -836,27 +1076,25 @@ return function(props)
 
 		run_editor_ui_mutation(
 			function()
-				property_editor:SetItems(build_property_items(get_selected_entity(), property_node_hooks))
+				property_editor:SetItems(build_property_items(get_selected_object(), property_node_hooks))
 				property_editor:ExpandAll()
 			end,
 			"property_editor_set_items"
 		)
 	end
-	refresh_property_key = function(component, component_name, property_name)
+	refresh_property_key = function(row_prefix, property_name, target)
 		if not property_editor or not property_editor:IsValid() then return end
 
-		local entity = get_selected_entity()
-
-		if not (entity and entity:IsValid() and component and component:IsValid()) then
+		if not is_valid_object(target) then
 			return
 		end
 
-		local row_key = entity:GetGUID() .. "/" .. component_name .. "/" .. property_name
+		local row_key = row_prefix .. "/" .. property_name
 
-		if property_name == "Name" or property_name == "Key" then
+		if property_name == "Name" or property_name == "Key" or property_name == "Material" then
 			property_editor:RefreshValueForKey(row_key)
-			request_editor_sync(true, false, entity)
-			update_footer(state.selected_entity, state.tree_items)
+			request_editor_sync(true, false, nil)
+			update_footer(get_selected_object(), state.tree_items)
 			return
 		end
 
@@ -870,7 +1108,8 @@ return function(props)
 		pending_tree_sync = false
 		local previous_guid = state.selected_entity_guid
 		local tree_items = build_tree_items(state.expanded_entities, window)
-		set_selected_entity(resolve_selected_entity(tree_items), false)
+		local selected_target, selected_key = resolve_selected_target(tree_items)
+		set_selected_target(selected_target, false, selected_key)
 		state.tree_items = tree_items
 
 		run_editor_ui_mutation(function()
@@ -878,7 +1117,7 @@ return function(props)
 		end, "tree_set_items")
 
 		tree_view:SetSelectedKey(state.selected_entity_guid)
-		update_footer(state.selected_entity, tree_items)
+		update_footer(get_selected_object(), tree_items)
 		return state.selected_entity_guid ~= previous_guid
 	end
 	flush_pending_tree_branch_refreshes = function()
@@ -905,14 +1144,15 @@ return function(props)
 		end
 
 		if selected_guid ~= nil and not find_tree_item(state.tree_items, selected_guid) then
-			set_selected_entity(resolve_selected_entity(state.tree_items), false)
+			local selected_target, selected_key = resolve_selected_target(state.tree_items)
+			set_selected_target(selected_target, false, selected_key)
 			tree_view:SetSelectedKey(state.selected_entity_guid)
-			update_footer(state.selected_entity, state.tree_items)
+			update_footer(get_selected_object(), state.tree_items)
 			return state.selected_entity_guid ~= selected_guid
 		end
 
 		tree_view:SetSelectedKey(state.selected_entity_guid)
-		update_footer(state.selected_entity, state.tree_items)
+		update_footer(get_selected_object(), state.tree_items)
 		return false
 	end
 	request_editor_sync = function(tree_dirty, selection_dirty, branch_entity)
@@ -955,7 +1195,8 @@ return function(props)
 	end
 	sync_selection = function()
 		pending_selection_sync = false
-		set_selected_entity(resolve_selected_entity(state.tree_items), false)
+		local selected_target, selected_key = resolve_selected_target(state.tree_items)
+		set_selected_target(selected_target, false, selected_key)
 		refresh_selected_property_listeners()
 
 		if tree_view and tree_view:IsValid() then
@@ -963,7 +1204,7 @@ return function(props)
 		end
 
 		refresh_property_editor()
-		update_footer(state.selected_entity, state.tree_items)
+		update_footer(get_selected_object(), state.tree_items)
 	end
 
 	local function open_gallery()
@@ -972,6 +1213,54 @@ return function(props)
 
 	local function open_asset_browser()
 		Panel.World:Ensure(AssetBrowser({Key = "AssetBrowserWindow"}))
+	end
+
+	open_material_picker = function(node, target, info, key, path, panel, commit_value)
+		Panel.World:Ensure(
+			AssetBrowser({
+				Key = "MaterialAssetPickerWindow",
+				Title = "PICK MATERIAL",
+				PickerCategory = "materials",
+				Categories = {"materials"},
+				SelectedKey = "materials",
+				ShowGridByDefault = true,
+				OnPickAsset = function(entry, material, browser_window)
+					if not material then return false end
+
+					commit_value(node, material, key, path, panel)
+
+					if browser_window and browser_window.IsValid and browser_window:IsValid() then
+						browser_window:Remove()
+					end
+
+					return true
+				end,
+			})
+		)
+	end
+
+	open_texture_picker = function(node, target, info, key, path, panel, commit_value)
+		Panel.World:Ensure(
+			AssetBrowser({
+				Key = "TextureAssetPickerWindow",
+				Title = "PICK TEXTURE",
+				PickerCategory = "textures",
+				Categories = {"textures"},
+				SelectedKey = "textures",
+				ShowGridByDefault = true,
+				OnPickAsset = function(entry, texture, browser_window)
+					if not texture then return false end
+
+					commit_value(node, texture, key, path, panel)
+
+					if browser_window and browser_window.IsValid and browser_window:IsValid() then
+						browser_window:Remove()
+					end
+
+					return true
+				end,
+			})
+		)
 	end
 
 	local function create_child_shape(parent_entity, kind)
@@ -1011,7 +1300,7 @@ return function(props)
 				state.expanded_entities[parent_entity:GetGUID()] = true
 			end
 
-			set_selected_entity(entity, true)
+			set_selected_target(entity, true, entity:GetGUID())
 			sync_tree_items()
 			sync_selection()
 		end
@@ -1023,9 +1312,9 @@ return function(props)
 		local parent = entity:GetParent()
 
 		if parent and parent:IsValid() then
-			set_selected_entity(parent, true)
+			set_selected_target(parent, true, parent:GetGUID())
 		else
-			set_selected_entity(nil, false)
+			set_selected_target(nil, false, nil)
 		end
 
 		entity:Remove()
@@ -1145,7 +1434,7 @@ return function(props)
 				Text = label,
 				OnClick = function()
 					Gizmo.SetMode(mode)
-					update_footer(state.selected_entity, state.tree_items)
+					update_footer(get_selected_object(), state.tree_items)
 				end,
 			}
 		end
@@ -1157,7 +1446,7 @@ return function(props)
 				Text = label,
 				OnClick = function()
 					Gizmo.SetSpace(space)
-					update_footer(state.selected_entity, state.tree_items)
+					update_footer(get_selected_object(), state.tree_items)
 				end,
 			}
 		end
@@ -1172,12 +1461,13 @@ return function(props)
 		return items
 	end
 
-	set_selected_entity(get_selected_entity(), true)
+	set_selected_target(get_selected_object(), true, state.selected_entity_guid)
 	Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 	Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
 
-	if not state.selected_entity then
-		set_selected_entity(get_first_spawned_entity() or Entity.World, true)
+	if not get_selected_object() then
+		local fallback = get_first_spawned_entity() or Entity.World
+		set_selected_target(fallback, true, fallback:GetGUID())
 	end
 
 	state.tree_items = build_tree_items(state.expanded_entities)
@@ -1274,6 +1564,37 @@ return function(props)
 					end,
 					Items = state.tree_items,
 					SelectedKey = state.selected_entity_guid,
+					GetTextColor = function(node)
+						return node and node.SharedInstance and SHARED_INSTANCE_COLOR or nil
+					end,
+					GetNodePanel = function(node)
+						if not (node and node.SharedInstance) then return nil end
+
+						return Panel.New{
+							IsInternal = true,
+							Name = "TreeSharedInstanceMarker",
+							transform = {
+								Size = Vec2(12, 12),
+							},
+							layout = {
+								SelfAlignmentY = "center",
+								GrowWidth = 0,
+								FitWidth = false,
+							},
+							mouse_input = {
+								IgnoreMouseInput = true,
+							},
+							gui_element = {
+								OnDraw = function(self)
+									local size = self.Owner.transform:GetSize()
+									render2d.SetTexture(nil)
+									render2d.SetColor(SHARED_INSTANCE_COLOR:Unpack())
+									render2d.DrawRect(2, math.floor(size.y * 0.5) - 1, math.max(1, size.x - 4), 2)
+									render2d.DrawRect(math.floor(size.x * 0.5) - 1, 2, 2, math.max(1, size.y - 4))
+								end,
+							},
+						}
+					end,
 					layout = {
 						GrowWidth = 1,
 						--GrowHeight = 1,
@@ -1283,7 +1604,8 @@ return function(props)
 						return state.expanded_entities[key] == true
 					end,
 					OnSelect = function(node, key)
-						set_selected_entity(node and node.Entity or get_entity_by_guid(key), true)
+						local target = node and (node.Entity or node.Object) or get_entity_by_guid(key) or prototype.GetObjectByGUID(key)
+						set_selected_target(target, true, key)
 						sync_selection()
 					end,
 					OnToggle = function(node, expanded, key)
@@ -1351,16 +1673,45 @@ return function(props)
 					GrowHeight = 1,
 				},
 			}{
-				PropertyEditor{
+				Panel.New{
 					Ref = function(self)
-						property_editor = self
+						property_editor_frame = self
 					end,
-					Items = build_property_items(state.selected_entity, property_node_hooks),
+					Name = "PropertyEditorFrame",
+					OnSetProperty = theme.OnSetProperty,
+					transform = true,
 					layout = {
 						GrowWidth = 1,
 						GrowHeight = 1,
 						FitWidth = false,
 						MinSize = Vec2(size.x - 24, 0),
+						Padding = Rect(2, 2, 2, 2),
+					},
+					gui_element = {
+						OnDraw = function(self)
+							if not is_selected_shared_instance() then return end
+
+							local panel_size = self.Owner.transform:GetSize()
+							render2d.SetTexture(nil)
+							render2d.SetColor(SHARED_INSTANCE_OUTLINE:Unpack())
+							render2d.DrawRect(0, 0, math.max(1, panel_size.x), 2)
+							render2d.DrawRect(0, math.max(0, panel_size.y - 2), math.max(1, panel_size.x), 2)
+							render2d.DrawRect(0, 0, 2, math.max(1, panel_size.y))
+							render2d.DrawRect(math.max(0, panel_size.x - 2), 0, 2, math.max(1, panel_size.y))
+						end,
+					},
+				}{
+					PropertyEditor{
+						Ref = function(self)
+							property_editor = self
+						end,
+						Items = build_property_items(get_selected_object(), property_node_hooks),
+						layout = {
+							GrowWidth = 1,
+							GrowHeight = 1,
+							FitWidth = false,
+							MinSize = Vec2(size.x - 28, 0),
+						},
 					},
 				},
 			},
@@ -1368,7 +1719,7 @@ return function(props)
 		Text{
 			Ref = function(self)
 				footer_text = self
-				update_footer(state.selected_entity, state.tree_items)
+				update_footer(get_selected_object(), state.tree_items)
 			end,
 			Text = "",
 			Color = "text_disabled",
@@ -1392,11 +1743,19 @@ return function(props)
 
 	function window:OnUpdate(dt)
 		update_editor_camera(dt)
+
+		local material_count = count_material_objects()
+
+		if material_count ~= tracked_material_count then
+			tracked_material_count = material_count
+			request_editor_sync(true, false, nil)
+		end
+
 		flush_pending_editor_sync(false)
 	end
 
 	Gizmo.SetStateChangedCallback(window, function(status)
-		update_footer(state.selected_entity, state.tree_items)
+		update_footer(get_selected_object(), state.tree_items)
 	end)
 
 	window:CallOnRemove(

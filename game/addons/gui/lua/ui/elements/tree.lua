@@ -116,6 +116,18 @@ return function(props)
 
 		if is_selected(node, path, key) then return theme.GetColor("text_button") end
 
+		if props.GetTextColor then
+			local color = props.GetTextColor(node, path, key)
+
+			if color ~= nil then
+				return type(color) == "string" and theme.GetColor(color) or color
+			end
+		end
+
+		if node.TextColor ~= nil then
+			return type(node.TextColor) == "string" and theme.GetColor(node.TextColor) or node.TextColor
+		end
+
 		return theme.GetColor("text_foreground")
 	end
 

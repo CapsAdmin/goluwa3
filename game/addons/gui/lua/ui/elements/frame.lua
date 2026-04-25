@@ -27,8 +27,11 @@ return function(props)
 				props.layout,
 			},
 			transform = true,
-			mouse_input = true,
+			mouse_input = {
+				Cursor = props.OnClick and "pointer" or "arrow",
+			},
 			clickable = true,
+			OnClick = props.OnClick,
 			animation = true,
 		},
 	}

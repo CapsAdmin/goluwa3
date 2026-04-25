@@ -12,9 +12,11 @@ local function find_visual_component(entity)
 	return nil
 end
 
+VisualPrimitive:StartStorable()
 VisualPrimitive:GetSet("Polygon3D", nil, {callback = "InvalidateVisual"})
+VisualPrimitive:GetSet("Material", nil, {callback = "InvalidateVisual", type = "render3d_material"})
+VisualPrimitive:EndStorable()
 VisualPrimitive:GetSet("LocalAABB", nil, {callback = "InvalidateVisual"})
-VisualPrimitive:GetSet("Material", nil, {callback = "InvalidateVisual"})
 
 function VisualPrimitive:InvalidateVisual()
 	local visual = self.Owner and find_visual_component(self.Owner) or nil

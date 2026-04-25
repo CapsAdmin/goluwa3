@@ -4,6 +4,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local system = import("goluwa/system.lua")
@@ -473,6 +474,8 @@ return function(props)
 
 		if kind == "action" then return nil end
 
+		if kind == "material" or kind == "texture" then return nil end
+
 		if value == nil then return "" end
 
 		return tostring(value)
@@ -502,6 +505,8 @@ return function(props)
 		if get_vector_kind_info(kind) then return decode_vector(kind, text) end
 
 		if kind == "action" then return nil, false end
+
+		if kind == "material" or kind == "texture" then return nil, false end
 
 		return tostring(text or ""), true
 	end
@@ -783,6 +788,149 @@ return function(props)
 					trigger_action(node, key, path)
 				end,
 			}
+		end
+
+		if kind == "material" or kind == "texture" then
+			local label
+			local preview_panel
+			local control
+			local preview_size = compact_row_height
+			local preview_padding = 4
+
+			local function get_display_text(value)
+				if node.GetDisplayText then return node.GetDisplayText(value) end
+
+				return value == nil and "None" or tostring(value)
+			end
+
+			local function get_preview_texture(value)
+				if node.GetPreviewTexture then return node.GetPreviewTexture(value) end
+
+				return nil
+			end
+
+			local function refresh_material_display(value)
+				set_text(label, get_display_text(value))
+			end
+
+			control = Row{
+				layout = {
+					FitWidth = false,
+					MinSize = Vec2(value_width, compact_row_height),
+					MaxSize = Vec2(value_width, compact_row_height),
+					AlignmentY = "center",
+					ChildGap = compact_gap,
+				},
+			}{
+				Panel.New{
+					Name = "PropertyMaterialValue",
+					OnSetProperty = theme.OnSetProperty,
+					transform = {
+						Size = Vec2(value_width - preview_size - 4, compact_row_height),
+					},
+					layout = {
+						FitWidth = false,
+						GrowWidth = 1,
+						MinSize = Vec2(value_width - preview_size - 4, compact_row_height),
+						MaxSize = Vec2(value_width - preview_size - 4, compact_row_height),
+						Padding = compact_padding,
+						AlignmentY = "center",
+					},
+					gui_element = {
+						Color = theme.GetColor("surface_variant"),
+						OnDraw = function(self)
+							local size = self.Owner.transform:GetSize()
+							render2d.SetTexture(nil)
+							render2d.SetColor(theme.GetColor("surface_variant"):Unpack())
+							render2d.DrawRect(0, 0, size.x, size.y)
+							render2d.SetColor(theme.GetColor("frame_border"):Unpack())
+							gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1)
+						end,
+					},
+					mouse_input = {
+						IgnoreMouseInput = true,
+					},
+				}{
+					Text{
+						Ref = function(self)
+							label = self
+							refresh_material_display(node.Value)
+						end,
+						Text = get_display_text(node.Value),
+						FontSize = compact_font_size,
+						Elide = true,
+						ElideString = "...",
+						IgnoreMouseInput = true,
+						layout = {
+							GrowWidth = 1,
+							FitWidth = false,
+							FitHeight = true,
+						},
+					},
+				},
+				Panel.New{
+					Ref = function(self)
+						preview_panel = self
+					end,
+					Name = "PropertyMaterialPreviewButton",
+					OnSetProperty = theme.OnSetProperty,
+					transform = {
+						Size = Vec2(preview_size, preview_size),
+					},
+					layout = {
+						FitWidth = false,
+						MinSize = Vec2(preview_size, preview_size),
+						MaxSize = Vec2(preview_size, preview_size),
+					},
+					gui_element = {
+						OnDraw = function(self)
+							local size = self.Owner.transform:GetSize()
+							local texture = get_preview_texture(node.Value)
+							render2d.SetTexture(nil)
+							render2d.SetColor(0.05, 0.06, 0.08, 1)
+							render2d.DrawRect(0, 0, size.x, size.y)
+							render2d.SetColor(theme.GetColor("frame_border"):Unpack())
+							gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1)
+
+							if texture then
+								render2d.SetTexture(texture)
+								render2d.SetColor(1, 1, 1, 1)
+								render2d.DrawRect(
+									preview_padding,
+									preview_padding,
+									size.x - preview_padding * 2,
+									size.y - preview_padding * 2
+								)
+							end
+						end,
+					},
+					mouse_input = {
+						Cursor = "pointer",
+					},
+					clickable = true,
+					OnClick = function()
+						if node.OnBrowse then node.OnBrowse(node, key, path, control, commit_value) end
+						return true
+					end,
+				},
+			}
+
+			function control:SetValue(value)
+				node.Value = value
+				refresh_material_display(value)
+				return self
+			end
+
+			function control:EncodeValue()
+				return nil
+			end
+
+			function control:DecodeValue()
+				return nil, false
+			end
+
+			control:SetValue(node.Value)
+			return control, control
 		end
 
 		local input
