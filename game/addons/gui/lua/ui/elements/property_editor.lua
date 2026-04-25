@@ -9,21 +9,19 @@ local Panel = import("goluwa/ecs/panel.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local system = import("goluwa/system.lua")
 local Button = import("lua/ui/elements/button.lua")
-local Checkbox = import("lua/ui/elements/checkbox.lua")
 local Collapsible = import("lua/ui/elements/collapsible.lua")
 local Column = import("lua/ui/elements/column.lua")
 local ContextMenu = import("lua/ui/elements/context_menu.lua")
 local MenuItem = import("lua/ui/elements/context_menu_item.lua")
-local Dropdown = import("lua/ui/elements/dropdown.lua")
-local NumberValue = import("lua/ui/elements/number_value.lua")
-local Row = import("lua/ui/elements/row.lua")
-local Slider = import("lua/ui/elements/slider.lua")
 local Text = import("lua/ui/elements/text.lua")
-local TextEdit = import("lua/ui/elements/text_edit.lua")
-local Value = import("lua/ui/elements/value.lua")
 local Window = import("lua/ui/elements/window.lua")
 local ColorPicker = import("lua/ui/elements/color_picker.lua")
-local VectorValue = import("lua/ui/elements/vector_value.lua")
+local PropertyBoolean = import("lua/ui/elements/properties/boolean.lua")
+local PropertyEnum = import("lua/ui/elements/properties/enum.lua")
+local PropertyNumber = import("lua/ui/elements/properties/number.lua")
+local PropertyObject = import("lua/ui/elements/properties/object.lua")
+local PropertyString = import("lua/ui/elements/properties/string.lua")
+local PropertyVector = import("lua/ui/elements/properties/vector.lua")
 local theme = import("lua/ui/theme.lua")
 local icon_sources = {
 	copy = "https://api.iconify.design/material-symbols-light/content-copy.svg",
@@ -39,12 +37,6 @@ local function build_path(parent_path, index)
 	if parent_path then return parent_path .. "/" .. index end
 
 	return tostring(index)
-end
-
-local function set_text(panel, value)
-	if panel and panel:IsValid() and panel.text then
-		panel.text:SetText(value or "")
-	end
 end
 
 local function get_node_text(node, path)
@@ -589,194 +581,37 @@ return function(props)
 		if has_entries(get_node_children(node)) then return nil, nil end
 
 		local kind = node.Type or node.Editor
+		kind = normalize_kind(kind)
+		local vector_info = get_vector_kind_info(kind)
+		local control_props = {
+			node = node,
+			key = key,
+			path = path,
+			kind = kind,
+			commit_value = commit_value,
+			trigger_action = trigger_action,
+			value_width = value_width,
+			row_height = compact_row_height,
+			font_size = compact_font_size,
+			padding = compact_padding,
+			gap = compact_gap,
+			number_precision = number_precision,
+			get_precision = get_precision,
+			get_option_text = get_option_text,
+			vector_info = vector_info,
+			open_color_picker_window = open_color_picker_window,
+			build_number_control = PropertyNumber,
+		}
 
 		if kind == "boolean" or type(node.Value) == "boolean" then
-			local checkbox_visual
-			local label
-			local control
-			local checkbox_state = {
-				hovered = false,
-				value = node.Value == true,
-				anim = {
-					glow_alpha = 0,
-					check_anim = node.Value == true and 1 or 0,
-					last_hovered = false,
-					last_value = node.Value == true,
-				},
-			}
-
-			local function update_boolean_text(value)
-				set_text(label, value and "true" or "false")
-			end
-
-			control = Panel.New{
-				Name = "PropertyBooleanValue",
-				OnSetProperty = theme.OnSetProperty,
-				transform = {
-					Size = Vec2(value_width, compact_row_height),
-				},
-				layout = {
-					Direction = "x",
-					AlignmentY = "center",
-					FitWidth = false,
-					MinSize = Vec2(value_width, compact_row_height),
-					MaxSize = Vec2(value_width, compact_row_height),
-					Padding = compact_padding,
-					ChildGap = compact_gap,
-				},
-				gui_element = true,
-				mouse_input = {
-					Cursor = "hand",
-					OnHover = function(self, hovered)
-						checkbox_state.hovered = hovered
-
-						if checkbox_visual and checkbox_visual:IsValid() then
-							theme.UpdateCheckboxAnimations(checkbox_visual, checkbox_state)
-						end
-					end,
-					OnMouseInput = function(self, button, press)
-						if button ~= "button_1" or not press then return end
-
-						local next_value = not control:GetValue()
-						control:SetValue(next_value)
-						commit_value(node, next_value, key, path, control)
-						return true
-					end,
-				},
-				clickable = true,
-				animation = true,
-			}{
-				Panel.New{
-					Ref = function(self)
-						checkbox_visual = self
-						theme.UpdateCheckboxAnimations(self, checkbox_state)
-					end,
-					Name = "PropertyBooleanCheckboxVisual",
-					OnSetProperty = theme.OnSetProperty,
-					transform = {
-						Size = Vec2(theme.GetSize("M"), compact_row_height),
-					},
-					layout = {
-						GrowWidth = 0,
-						FitWidth = false,
-					},
-					gui_element = {
-						OnDraw = function(self)
-							theme.panels.checkbox(self.Owner, checkbox_state)
-						end,
-					},
-					animation = true,
-				},
-				Text{
-					Ref = function(self)
-						label = self
-						update_boolean_text(node.Value == true)
-					end,
-					Text = node.Value == true and "true" or "false",
-					FontSize = compact_font_size,
-					IgnoreMouseInput = true,
-					layout = {
-						GrowWidth = 1,
-						FitWidth = false,
-						FitHeight = true,
-					},
-				},
-			}
-
-			function control:SetValue(value)
-				local boolean = value == true
-				checkbox_state.value = boolean
-
-				if checkbox_visual and checkbox_visual:IsValid() then
-					theme.UpdateCheckboxAnimations(checkbox_visual, checkbox_state)
-				end
-
-				update_boolean_text(boolean)
-				return self
-			end
-
-			function control:GetValue()
-				return checkbox_state.value
-			end
-
-			control:SetValue(node.Value == true)
-			return control, control
+			return PropertyBoolean(control_props)
 		end
 
-		if kind == "enum" then
-			local control = Dropdown{
-				Text = get_option_text(node.Options, node.Value),
-				FontSize = compact_font_size,
-				Options = node.Options or {},
-				GetText = function()
-					return get_option_text(node.Options, node.Value)
-				end,
-				OnSelect = function(value)
-					commit_value(node, value, key, path)
-				end,
-				Padding = node.Padding or compact_padding,
-				layout = {
-					MinSize = Vec2(value_width, compact_row_height),
-					MaxSize = Vec2(value_width, compact_row_height),
-				},
-			}
-			return control, control
-		end
+		if kind == "enum" then return PropertyEnum(control_props) end
 
-		if kind == "number" then
-			local control = NumberValue{
-				Value = tonumber(node.Value) or 0,
-				FontSize = compact_font_size,
-				Min = node.Min,
-				Max = node.Max,
-				Precision = get_precision(node, number_precision),
-				Padding = compact_padding,
-				Size = Vec2(value_width, compact_row_height),
-				MinSize = Vec2(value_width, compact_row_height),
-				MaxSize = Vec2(value_width, compact_row_height),
-				OnChange = function(value)
-					commit_value(node, value, key, path)
-				end,
-				layout = {
-					FitWidth = false,
-				},
-			}
-			return control, control
-		end
+		if kind == "number" then return PropertyNumber(control_props) end
 
-		local vector_info = get_vector_kind_info(kind)
-
-		if vector_info then
-			local control = VectorValue{
-				Value = node.Value,
-				Components = vector_info.components,
-				Factory = node.VectorFactory or vector_info.factory,
-				ShowSwatch = kind == "color",
-				OnSwatchClick = function(value, swatch_control)
-					if node.OnSwatchClick then
-						node.OnSwatchClick(node, value, key, path, swatch_control)
-					elseif kind == "color" then
-						open_color_picker_window(node, value, key, path, control, commit_value)
-					end
-				end,
-				FontSize = compact_font_size,
-				Min = node.Min,
-				Max = node.Max,
-				Precision = get_precision(node, number_precision),
-				ComponentGap = compact_gap,
-				Padding = compact_padding,
-				Size = Vec2(value_width, compact_row_height),
-				MinSize = Vec2(value_width, compact_row_height),
-				MaxSize = Vec2(value_width, compact_row_height),
-				OnChange = function(value)
-					commit_value(node, value, key, path)
-				end,
-				layout = {
-					FitWidth = false,
-				},
-			}
-			return control, control
-		end
+		if vector_info then return PropertyVector(control_props) end
 
 		if kind == "action" then
 			return Button{
@@ -790,242 +625,9 @@ return function(props)
 			}
 		end
 
-		if kind == "material" or kind == "texture" then
-			local label
-			local preview_panel
-			local control
-			local preview_size = compact_row_height
-			local preview_padding = 4
+		if kind == "material" or kind == "texture" then return PropertyObject(control_props) end
 
-			local function get_display_text(value)
-				if node.GetDisplayText then return node.GetDisplayText(value) end
-
-				return value == nil and "None" or tostring(value)
-			end
-
-			local function get_preview_texture(value)
-				if node.GetPreviewTexture then return node.GetPreviewTexture(value) end
-
-				return nil
-			end
-
-			local function refresh_material_display(value)
-				set_text(label, get_display_text(value))
-			end
-
-			control = Row{
-				layout = {
-					FitWidth = false,
-					MinSize = Vec2(value_width, compact_row_height),
-					MaxSize = Vec2(value_width, compact_row_height),
-					AlignmentY = "center",
-					ChildGap = compact_gap,
-				},
-			}{
-				Panel.New{
-					Name = "PropertyMaterialValue",
-					OnSetProperty = theme.OnSetProperty,
-					transform = {
-						Size = Vec2(value_width - preview_size - 4, compact_row_height),
-					},
-					layout = {
-						FitWidth = false,
-						GrowWidth = 1,
-						MinSize = Vec2(value_width - preview_size - 4, compact_row_height),
-						MaxSize = Vec2(value_width - preview_size - 4, compact_row_height),
-						Padding = compact_padding,
-						AlignmentY = "center",
-					},
-					gui_element = {
-						Color = theme.GetColor("surface_variant"),
-						OnDraw = function(self)
-							local size = self.Owner.transform:GetSize()
-							render2d.SetTexture(nil)
-							render2d.SetColor(theme.GetColor("surface_variant"):Unpack())
-							render2d.DrawRect(0, 0, size.x, size.y)
-							render2d.SetColor(theme.GetColor("frame_border"):Unpack())
-							gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1)
-						end,
-					},
-					mouse_input = {
-						IgnoreMouseInput = true,
-					},
-				}{
-					Text{
-						Ref = function(self)
-							label = self
-							refresh_material_display(node.Value)
-						end,
-						Text = get_display_text(node.Value),
-						FontSize = compact_font_size,
-						Elide = true,
-						ElideString = "...",
-						IgnoreMouseInput = true,
-						layout = {
-							GrowWidth = 1,
-							FitWidth = false,
-							FitHeight = true,
-						},
-					},
-				},
-				Panel.New{
-					Ref = function(self)
-						preview_panel = self
-					end,
-					Name = "PropertyMaterialPreviewButton",
-					OnSetProperty = theme.OnSetProperty,
-					transform = {
-						Size = Vec2(preview_size, preview_size),
-					},
-					layout = {
-						FitWidth = false,
-						MinSize = Vec2(preview_size, preview_size),
-						MaxSize = Vec2(preview_size, preview_size),
-					},
-					gui_element = {
-						OnDraw = function(self)
-							local size = self.Owner.transform:GetSize()
-							local texture = get_preview_texture(node.Value)
-							render2d.SetTexture(nil)
-							render2d.SetColor(0.05, 0.06, 0.08, 1)
-							render2d.DrawRect(0, 0, size.x, size.y)
-							render2d.SetColor(theme.GetColor("frame_border"):Unpack())
-							gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1)
-
-							if texture then
-								render2d.SetTexture(texture)
-								render2d.SetColor(1, 1, 1, 1)
-								render2d.DrawRect(
-									preview_padding,
-									preview_padding,
-									size.x - preview_padding * 2,
-									size.y - preview_padding * 2
-								)
-							end
-						end,
-					},
-					mouse_input = {
-						Cursor = "pointer",
-					},
-					clickable = true,
-					OnClick = function()
-						if node.OnBrowse then node.OnBrowse(node, key, path, control, commit_value) end
-						return true
-					end,
-				},
-			}
-
-			function control:SetValue(value)
-				node.Value = value
-				refresh_material_display(value)
-				return self
-			end
-
-			function control:EncodeValue()
-				return nil
-			end
-
-			function control:DecodeValue()
-				return nil, false
-			end
-
-			control:SetValue(node.Value)
-			return control, control
-		end
-
-		local input
-		local multiline = node.Multiline == true
-		local input_height = multiline and 72 or compact_row_height
-		local string_tooltip = function()
-			if node.Value == nil then return "" end
-
-			return tostring(node.Value)
-		end
-
-		if not multiline then
-			local control = Value{
-				Value = node.Value == nil and "" or tostring(node.Value),
-				Tooltip = kind == "string" and string_tooltip or nil,
-				TooltipMaxWidth = 360,
-				FontSize = compact_font_size,
-				Padding = compact_padding,
-				Size = Vec2(value_width, compact_row_height),
-				MinSize = Vec2(value_width, compact_row_height),
-				MaxSize = Vec2(value_width, compact_row_height),
-				OnChange = function(value)
-					commit_value(node, value, key, path)
-				end,
-				layout = {
-					FitWidth = false,
-				},
-			}
-			return control, control
-		end
-
-		local control = Row{
-			Tooltip = kind == "string" and string_tooltip or nil,
-			TooltipMaxWidth = 360,
-			layout = {
-				FitWidth = true,
-				ChildGap = compact_gap,
-				AlignmentY = "center",
-			},
-		}{
-			TextEdit{
-				Ref = function(self)
-					input = self
-				end,
-				Text = node.Value == nil and "" or tostring(node.Value),
-				FontSize = compact_font_size,
-				Size = Vec2(value_width, input_height),
-				MinSize = Vec2(value_width, input_height),
-				MaxSize = Vec2(value_width, input_height),
-				Padding = compact_padding,
-				Wrap = multiline,
-				ScrollY = multiline,
-				layout = {
-					FitWidth = false,
-				},
-			},
-			Button{
-				Text = node.ApplyText or "Apply",
-				FontSize = compact_font_size,
-				Padding = compact_padding,
-				Mode = "outline",
-				OnClick = function()
-					if not input or not input:IsValid() then return end
-
-					local next_value = input:GetText()
-
-					if kind == "number" then
-						next_value = tonumber(next_value)
-
-						if next_value == nil then return end
-					end
-
-					commit_value(node, next_value, key, path)
-				end,
-				layout = {
-					SelfAlignmentY = multiline and "start" or "center",
-				},
-			},
-		}
-		return control,
-		{
-			EncodeValue = function()
-				if input and input:IsValid() then return input:GetText() end
-
-				return tostring(node.Value or "")
-			end,
-			DecodeValue = function(_, text)
-				return tostring(text or ""), true
-			end,
-			SetValue = function(_, value)
-				if input and input:IsValid() then
-					input:SetText(value == nil and "" or tostring(value))
-				end
-			end,
-		}
+		return PropertyString(control_props)
 	end
 
 	local function build_property_rows(nodes, parent_path, label_prefix, out)

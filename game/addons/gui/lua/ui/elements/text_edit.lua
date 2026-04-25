@@ -22,11 +22,28 @@ return function(props)
 	local panel_color = props.PanelColor or "card"
 	local background_color = props.BackgroundColor or "surface"
 	local text_panel
+	local last_text = props.Text or ""
+
+	local function sync_text_changed(panel)
+		if not props.OnTextChanged then return end
+
+		local next_text = text_panel and text_panel.text and text_panel.text:GetText() or ""
+
+		if next_text == last_text then return end
+
+		local old_text = last_text
+		last_text = next_text
+		props.OnTextChanged(next_text, old_text, panel)
+	end
+
 	local panel = Panel.New{
 		Name = "text_edit",
 		Tooltip = props.Tooltip,
 		TooltipOptions = props.TooltipOptions,
 		OnSetProperty = theme.OnSetProperty,
+		Ref = function(self)
+			if props.OnTextChanged then self:AddGlobalEvent("Update") end
+		end,
 		transform = {
 			Size = size,
 		},
@@ -50,6 +67,9 @@ return function(props)
 		mouse_input = true,
 		clickable = true,
 		animation = true,
+		OnUpdate = function(self)
+			sync_text_changed(self)
+		end,
 	}{
 		ScrollablePanel{
 			Color = background_color,
@@ -91,7 +111,11 @@ return function(props)
 	end
 
 	function panel:SetText(value)
-		if text_panel and text_panel.text then text_panel.text:SetText(value or "") end
+		value = value or ""
+
+		if text_panel and text_panel.text then text_panel.text:SetText(value) end
+
+		last_text = value
 
 		return self
 	end

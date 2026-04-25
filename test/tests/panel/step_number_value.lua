@@ -4,7 +4,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 
-T.Test2D("number_value drag ignores oversized first-frame mouse delta", function()
+T.Test2D("step_number_value drag ignores oversized first-frame mouse delta", function()
 	local old_world = Panel.World
 	local test_world = Panel.New{
 		ComponentSet = {"transform", "gui_element"},
@@ -19,8 +19,8 @@ T.Test2D("number_value drag ignores oversized first-frame mouse delta", function
 	local old_mouse_trapped = window:GetMouseTrapped()
 	local input = import("goluwa/input.lua")
 	local old_is_key_down = input.IsKeyDown
-	local NumberValue = import("game/addons/gui/lua/ui/elements/number_value.lua")
-	local control = NumberValue{Value = 0}
+	local StepNumberValue = import("game/addons/gui/lua/ui/elements/step_number_value.lua")
+	local control = StepNumberValue{Value = 0}
 	input.IsKeyDown = function()
 		return false
 	end
@@ -61,7 +61,7 @@ T.Test2D("number_value drag ignores oversized first-frame mouse delta", function
 	if not ok then error(err, 0) end
 end)
 
-T.Test2D("number_value drag does not warp cursor on no-warp backends", function()
+T.Test2D("step_number_value drag does not warp cursor on no-warp backends", function()
 	local old_world = Panel.World
 	local test_world = Panel.New{
 		ComponentSet = {"transform", "gui_element"},
@@ -77,8 +77,8 @@ T.Test2D("number_value drag does not warp cursor on no-warp backends", function(
 	local old_should_warp = window.ShouldWarpMouseWhenCaptured
 	local input = import("goluwa/input.lua")
 	local old_is_key_down = input.IsKeyDown
-	local NumberValue = import("game/addons/gui/lua/ui/elements/number_value.lua")
-	local control = NumberValue{Value = 0}
+	local StepNumberValue = import("game/addons/gui/lua/ui/elements/step_number_value.lua")
+	local control = StepNumberValue{Value = 0}
 	input.IsKeyDown = function()
 		return false
 	end

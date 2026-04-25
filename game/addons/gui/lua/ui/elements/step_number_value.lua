@@ -1,8 +1,32 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Button = import("lua/ui/elements/button.lua")
 local Column = import("lua/ui/elements/column.lua")
-local NumberValue = import("lua/ui/elements/number_value.lua")
 local Row = import("lua/ui/elements/row.lua")
+local Value = import("lua/ui/elements/properties/value.lua")
+local input = import("goluwa/input.lua")
+
+local function is_finite(value)
+	return value ~= math.huge and value ~= -math.huge
+end
+
+local function clamp_number(value, min, max)
+	return math.clamp(value, min, max)
+end
+
+local function format_number(value, precision)
+	local numeric = tonumber(value)
+
+	if numeric == nil then return "" end
+
+	if precision == nil then return tostring(numeric) end
+
+	if precision <= 0 then return tostring(math.round(numeric)) end
+
+	local formatted = string.format("%." .. precision .. "f", numeric)
+	formatted = formatted:gsub("(%..-)0+$", "%1")
+	formatted = formatted:gsub("%.$", "")
+	return formatted
+end
 
 local function get_default_step(props)
 	if props.Step ~= nil then return props.Step end
@@ -30,8 +54,36 @@ return function(props)
 	local button_width = props.ButtonWidth or math.max(16, math.floor(size.y * 0.42))
 	local button_height = math.max(8, math.floor((size.y - button_gap) / 2))
 	local field_width = math.max(24, size.x - button_width - 4)
+	local min = props.Min ~= nil and props.Min or -math.huge
+	local max = props.Max ~= nil and props.Max or math.huge
+	local precision = props.Precision
+	local drag_precision_boost = props.DragPrecisionBoost or 2
 	local input
 	local control
+
+	if precision == nil then precision = 2 end
+
+	local function get_display_precision()
+		if input and input.IsDragging and input:IsDragging() then
+			if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
+				return precision + drag_precision_boost
+			end
+		end
+
+		return precision
+	end
+
+	local function get_drag_step()
+		if props.DragStep ~= nil then return props.DragStep end
+
+		if is_finite(min) and is_finite(max) then
+			return math.max((max - min) / 100, precision > 0 and 10 ^ -precision or 1)
+		end
+
+		if precision > 0 then return 10 ^ -precision end
+
+		return 1
+	end
 
 	local function adjust_value(direction)
 		if not input or not input:IsValid() then return end
@@ -55,15 +107,11 @@ return function(props)
 			props.layout,
 		},
 	}{
-		NumberValue{
+		Value{
 			Ref = function(self)
 				input = self
 			end,
 			Value = props.Value,
-			Min = props.Min,
-			Max = props.Max,
-			Precision = props.Precision,
-			DragStep = props.DragStep,
 			Padding = props.Padding,
 			BorderRadius = props.BorderRadius,
 			HoverPanelColor = props.HoverPanelColor,
@@ -72,10 +120,43 @@ return function(props)
 			Font = props.Font,
 			FontName = props.FontName,
 			FontSize = props.FontSize,
-			Cursor = props.Cursor,
+			Cursor = props.Cursor or "vertical_resize",
 			Size = Vec2(field_width, size.y),
 			MinSize = Vec2(field_width, size.y),
 			MaxSize = Vec2(field_width, size.y),
+			EditClickCount = 2,
+			FormatValue = function(value)
+				return format_number(value, get_display_precision())
+			end,
+			FormatEditValue = function(value)
+				return format_number(value, get_display_precision())
+			end,
+			ParseValue = function(text, current_value)
+				local numeric = tonumber(text)
+
+				if numeric == nil then return current_value end
+
+				return clamp_number(numeric, min, max)
+			end,
+			OnDragValue = function(delta, start_value)
+				local step = get_drag_step()
+				local rounding_precision = precision
+
+				if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
+					step = step * 0.1
+					rounding_precision = precision + drag_precision_boost
+				end
+
+				local next_value = (tonumber(start_value) or 0) - delta.y * step
+
+				if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
+					next_value = math.round(next_value)
+				elseif rounding_precision >= 0 then
+					next_value = math.round(next_value, rounding_precision)
+				end
+
+				return clamp_number(next_value, min, max)
+			end,
 			OnChange = function(value, old_value)
 				if props.OnChange then props.OnChange(value, old_value) end
 			end,
@@ -123,6 +204,49 @@ return function(props)
 			},
 		},
 	}
+	local base_set_value = input.SetValue
+
+	function input:SetValue(value, notify)
+		local numeric = tonumber(value)
+
+		if numeric == nil then numeric = 0 end
+
+		return base_set_value(self, clamp_number(numeric, min, max), notify)
+	end
+
+	function input:GetMin()
+		return min
+	end
+
+	function input:SetMin(value)
+		min = value or -math.huge
+		self:SetValue(self:GetValue())
+		return self
+	end
+
+	function input:GetMax()
+		return max
+	end
+
+	function input:SetMax(value)
+		max = value or math.huge
+		self:SetValue(self:GetValue())
+		return self
+	end
+
+	function input:EncodeValue()
+		return format_number(self:GetValue(), precision)
+	end
+
+	function input:DecodeValue(text)
+		local numeric = tonumber(text)
+
+		if numeric == nil then return nil, false end
+
+		return clamp_number(numeric, min, max), true
+	end
+
+	input:SetValue(props.Value)
 
 	function control:SetValue(value, notify)
 		if input and input:IsValid() then input:SetValue(value, notify) end

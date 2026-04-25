@@ -1,9 +1,7 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local input = import("goluwa/input.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
-local NumberValue = import("lua/ui/elements/number_value.lua")
 local Row = import("lua/ui/elements/row.lua")
 local theme = import("lua/ui/theme.lua")
 
@@ -40,24 +38,15 @@ local function resolve_size(value)
 end
 
 return function(props)
-	props = props or {}
-	local external_ref = props.Ref
-
-	if external_ref then
-		props = table.shallow_copy(props)
-		props.Ref = nil
-	end
-
-	local size = props.Size or Vec2(220, 34)
-	local min_size = props.MinSize or Vec2(140, size.y)
-	local max_size = props.MaxSize or Vec2(0, size.y)
-	local components = props.Components or {"x", "y", "z"}
+	local node = props.node
+	local components = props.vector_info.components
 	local component_count = #components
-	local show_swatch = props.ShowSwatch == true
-	local component_gap = resolve_size(props.ComponentGap) or 8
-	local field_height = props.FieldHeight or size.y
-	local swatch_size = props.SwatchSize or field_height
-	local field_width = props.ComponentWidth or
+	local show_swatch = props.kind == "color"
+	local component_gap = resolve_size(props.gap) or 8
+	local size = Vec2(props.value_width, props.row_height)
+	local field_height = size.y
+	local swatch_size = node.SwatchSize or field_height
+	local field_width = node.ComponentWidth or
 		math.max(
 			42,
 			math.floor(
@@ -70,27 +59,27 @@ return function(props)
 					) / math.max(component_count, 1)
 			)
 		)
+	local control
 	local fields = {}
 	local children = {}
-	local control
 	local swatch
 	local updating = false
 
 	local function get_min(index)
-		return tonumber(get_component(props.Min, components, index, -math.huge)) or -math.huge
+		return tonumber(get_component(node.Min, components, index, -math.huge)) or -math.huge
 	end
 
 	local function get_max(index)
-		return tonumber(get_component(props.Max, components, index, math.huge)) or math.huge
+		return tonumber(get_component(node.Max, components, index, math.huge)) or math.huge
 	end
 
 	local function get_precision(index)
-		local precision = get_component(props.Precision, components, index, 2)
-		return tonumber(precision) or 2
+		local precision = get_component(node.Precision, components, index, props.number_precision)
+		return tonumber(precision) or props.number_precision
 	end
 
 	local function get_drag_step(index)
-		local step = get_component(props.DragStep, components, index, nil)
+		local step = get_component(node.DragStep, components, index, nil)
 
 		if step == nil then return nil end
 
@@ -116,21 +105,12 @@ return function(props)
 	local function build_value(source)
 		local values = build_plain_value(source)
 
-		if props.Factory then return props.Factory(values, source) end
+		if node.VectorFactory then return node.VectorFactory(values, source) end
 
-		if
-			component_count == 3 and
-			components[1] == "x" and
-			components[2] == "y" and
-			components[3] == "z"
-		then
-			return Vec3(values[1], values[2], values[3])
-		end
-
-		return values
+		return props.vector_info.factory(values)
 	end
 
-	local value = build_value(props.Value)
+	local value = build_value(node.Value)
 
 	local function get_swatch_color()
 		return Color(
@@ -161,22 +141,32 @@ return function(props)
 	end
 
 	for index, axis in ipairs(components) do
-		children[#children + 1] = NumberValue{
+		local field = select(
+			1,
+			props.build_number_control{
+			node = {
+				Value = get_component(value, components, index, 0),
+				Min = get_min(index),
+				Max = get_max(index),
+				Precision = get_precision(index),
+				DragStep = get_drag_step(index),
+				DragPrecisionBoost = node.DragPrecisionBoost,
+				Cursor = node.Cursor,
+			},
 			Ref = function(self)
 				fields[index] = self
 			end,
-			Value = get_component(value, components, index, 0),
-			Font = props.Font,
-			FontName = props.FontName,
-			FontSize = props.FontSize,
-			Min = get_min(index),
-			Max = get_max(index),
-			Precision = get_precision(index),
-			DragStep = get_drag_step(index),
-			Size = Vec2(field_width, field_height),
-			MinSize = Vec2(field_width, field_height),
-			MaxSize = Vec2(field_width, field_height),
-			OnChange = function(new_component, old_component)
+			key = props.key,
+			path = props.path,
+			font_size = props.font_size,
+			padding = props.padding,
+			value_width = field_width,
+			row_height = field_height,
+			layout = {
+				GrowWidth = 0,
+				FitWidth = false,
+			},
+			commit_value = function(_, new_component)
 				if updating then return end
 
 				local next_value = build_plain_value(value)
@@ -194,11 +184,9 @@ return function(props)
 
 				control:SetValue(next_value, true)
 			end,
-			layout = {
-				GrowWidth = 0,
-				FitWidth = false,
-			},
 		}
+		)
+		children[#children + 1] = field
 	end
 
 	if show_swatch then
@@ -218,7 +206,11 @@ return function(props)
 			Color = get_swatch_color(),
 			Mode = "filled",
 			OnClick = function()
-				if props.OnSwatchClick then props.OnSwatchClick(value, control) end
+				if node.OnSwatchClick then
+					node.OnSwatchClick(node, value, props.key, props.path, control)
+				elseif props.kind == "color" then
+					props.open_color_picker_window(node, value, props.key, props.path, control, props.commit_value)
+				end
 			end,
 			layout = {
 				GrowWidth = 0,
@@ -230,18 +222,17 @@ return function(props)
 	end
 
 	control = Row{
-		Name = props.Name or "vector_value",
+		Name = node.Name or "property_vector_value",
 		transform = {
 			Size = size,
 		},
 		layout = {
 			GrowWidth = 1,
 			FitWidth = false,
-			MinSize = min_size,
-			MaxSize = max_size,
+			MinSize = size,
+			MaxSize = size,
 			ChildGap = component_gap,
 			AlignmentY = "center",
-			props.layout,
 		},
 	}(children)
 
@@ -250,8 +241,8 @@ return function(props)
 		value = build_value(new_value)
 		sync_fields()
 
-		if notify and not values_equal(old_value, value, components) and props.OnChange then
-			props.OnChange(value, old_value)
+		if notify and not values_equal(old_value, value, components) then
+			props.commit_value(node, value, props.key, props.path)
 		end
 
 		return self
@@ -291,7 +282,5 @@ return function(props)
 
 	control:SetValue(value)
 
-	if external_ref then external_ref(control) end
-
-	return control
+	return control, control
 end

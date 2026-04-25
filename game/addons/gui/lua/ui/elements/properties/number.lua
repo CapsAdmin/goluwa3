@@ -1,4 +1,5 @@
-local Value = import("lua/ui/elements/value.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Value = import("lua/ui/elements/properties/value.lua")
 local input = import("goluwa/input.lua")
 
 local function is_finite(value)
@@ -25,14 +26,23 @@ local function format_number(value, precision)
 end
 
 return function(props)
-	props = props or {}
-	local min = props.Min ~= nil and props.Min or -math.huge
-	local max = props.Max ~= nil and props.Max or math.huge
-	local precision = props.Precision
-	local drag_precision_boost = props.DragPrecisionBoost or 2
-	local control
+	local node = props.node
+	local min = node.Min ~= nil and node.Min or -math.huge
+	local max = node.Max ~= nil and node.Max or math.huge
+	local precision = node.Precision
+
+	if precision == nil then
+		if props.get_precision then
+			precision = props.get_precision(node, props.number_precision)
+		else
+			precision = props.number_precision
+		end
+	end
 
 	if precision == nil then precision = 2 end
+	local drag_precision_boost = node.DragPrecisionBoost or 2
+	local drag_step = node.DragStep
+	local control
 
 	local function get_display_precision()
 		if control and control.IsDragging and control:IsDragging() then
@@ -45,7 +55,7 @@ return function(props)
 	end
 
 	local function get_drag_step()
-		if props.DragStep ~= nil then return props.DragStep end
+		if drag_step ~= nil then return drag_step end
 
 		if is_finite(min) and is_finite(max) then
 			return math.max((max - min) / 100, precision > 0 and 10 ^ -precision or 1)
@@ -57,22 +67,18 @@ return function(props)
 	end
 
 	control = Value{
-		Name = props.Name or "number_value",
+		Name = node.Name or props.name or "property_number_value",
 		Ref = props.Ref,
-		Value = tonumber(props.Value) or 0,
-		Size = props.Size,
-		MinSize = props.MinSize,
-		MaxSize = props.MaxSize,
-		Padding = props.Padding,
-		BorderRadius = props.BorderRadius,
-		HoverPanelColor = props.HoverPanelColor,
-		EditPanelColor = props.EditPanelColor,
-		TextColor = props.TextColor,
-		Font = props.Font,
-		FontName = props.FontName,
-		FontSize = props.FontSize,
-		Cursor = props.Cursor or "vertical_resize",
-		layout = props.layout,
+		Value = tonumber(node.Value) or 0,
+		Size = Vec2(props.value_width, props.row_height),
+		MinSize = Vec2(props.value_width, props.row_height),
+		MaxSize = Vec2(props.value_width, props.row_height),
+		Padding = props.padding,
+		FontSize = props.font_size,
+		Cursor = node.Cursor or "vertical_resize",
+		layout = props.layout or {
+			FitWidth = false,
+		},
 		EditClickCount = 2,
 		FormatValue = function(value)
 			return format_number(value, get_display_precision())
@@ -106,8 +112,8 @@ return function(props)
 
 			return clamp_number(next_value, min, max)
 		end,
-		OnChange = function(value, old_value)
-			if props.OnChange then props.OnChange(value, old_value) end
+		OnChange = function(value)
+			props.commit_value(node, value, props.key, props.path)
 		end,
 	}
 	local base_set_value = control.SetValue
@@ -152,6 +158,6 @@ return function(props)
 		return clamp_number(numeric, min, max), true
 	end
 
-	control:SetValue(props.Value)
-	return control
+	control:SetValue(node.Value)
+	return control, control
 end

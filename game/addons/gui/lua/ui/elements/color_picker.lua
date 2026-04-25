@@ -8,7 +8,7 @@ local Column = import("lua/ui/elements/column.lua")
 local Row = import("lua/ui/elements/row.lua")
 local Text = import("lua/ui/elements/text.lua")
 local StepNumberValue = import("lua/ui/elements/step_number_value.lua")
-local Value = import("lua/ui/elements/value.lua")
+local TextEdit = import("lua/ui/elements/text_edit.lua")
 local theme = import("lua/ui/theme.lua")
 
 local function clamp_unit(value)
@@ -212,13 +212,22 @@ return function(props)
 	local sv_texture = create_texture(props.SVTextureResolution or 128, props.SVTextureResolution or 128)
 	local hue_texture = create_texture(16, props.SliderTextureResolution or 256)
 	local alpha_texture = create_texture(16, props.SliderTextureResolution or 256)
+	local apply_color
 	shade_hue_texture(hue_texture)
 	shade_alpha_texture(alpha_texture)
 
 	local function update_hex_text()
 		if hex_input and hex_input:IsValid() then
-			hex_input:SetValue(format_hex(current_color), false)
+			hex_input:SetText(format_hex(current_color))
 		end
+	end
+
+	local function apply_hex_text(text)
+		if suppress_updates then return end
+
+		local color, ok = parse_hex(text)
+
+		if ok then apply_color(color, true, true) end
 	end
 
 	local function update_input_values()
@@ -241,7 +250,7 @@ return function(props)
 		if props.OnChange then props.OnChange(copy_color(current_color), old_color) end
 	end
 
-	local function apply_color(next_color, notify, preserve_hue)
+	apply_color = function(next_color, notify, preserve_hue)
 		next_color = copy_color(next_color)
 		next_color.a = clamp_unit(next_color.a)
 		local old_color = copy_color(current_color)
@@ -490,37 +499,20 @@ return function(props)
 				FontSize = "XS",
 				Color = "text_disabled",
 			},
-			Value{
+			TextEdit{
 				Ref = function(self)
 					hex_input = self
 					update_hex_text()
 				end,
-				Value = format_hex(current_color),
+				Text = format_hex(current_color),
+				OnTextChanged = function(text)
+					apply_hex_text(text)
+				end,
 				FontName = "body_strong",
 				FontSize = "S",
-				Cursor = "text_input",
 				Size = Vec2(sv_size.x + slider_size.x * 2 + 20, 34),
 				MinSize = Vec2(sv_size.x + slider_size.x * 2 + 20, 34),
-				FormatValue = function(text)
-					return tostring(text or "")
-				end,
-				FormatEditValue = function(text)
-					return tostring(text or "")
-				end,
-				ParseValue = function(text, current_text)
-					local color, ok = parse_hex(text)
-
-					if not ok then return current_text end
-
-					return format_hex(color)
-				end,
-				OnChange = function(text)
-					if suppress_updates then return end
-
-					local color, ok = parse_hex(text)
-
-					if ok then apply_color(color, true, true) end
-				end,
+				MaxSize = Vec2(sv_size.x + slider_size.x * 2 + 20, 34),
 				layout = {
 					FitWidth = false,
 				},
