@@ -1554,21 +1554,17 @@ function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
 	render.PushCommandBuffer(cmd)
 	local began_framebuffer = fb ~= nil
-	local ok, err = xpcall(function()
-		begin_draw(self, cmd, fb)
+	begin_draw(self, cmd, fb)
 
-		if self.on_draw then
-			self.on_draw(self, cmd)
-		else
-			self:UploadConstants()
-			cmd:Draw(vertex_count, 1, 0, 0)
-		end
-	end, debug.traceback)
+	if self.on_draw then
+		self.on_draw(self, cmd)
+	else
+		self:UploadConstants()
+		cmd:Draw(vertex_count, 1, 0, 0)
+	end
 
 	if began_framebuffer then self:EndDraw(cmd, fb) end
 	render.PopCommandBuffer()
-
-	if not ok then error(err, 0) end
 end
 
 function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)

@@ -66,6 +66,7 @@ function ShadowMap.New(config)
 		self.cascade[i] = {
 			position = Vec3(0, 0, 0),
 			light_space_matrix = Matrix44(),
+			is_sampleable = false,
 		}
 		-- Create depth texture for each cascade
 		self.cascade[i].depth_texture = Texture.New{
@@ -250,6 +251,7 @@ function ShadowMap.New(config)
 	-- Command buffer for shadow pass
 	self.command_pool = render.GetCommandPool()
 	self.cmd = self.command_pool:AllocateCommandBuffer()
+	self.is_recording_cascades = false
 	-- Current cascade being rendered (for Begin/End API)
 	self.current_cascade = 1
 	return self
@@ -320,8 +322,13 @@ function ShadowMap:Begin(cascade_index)
 	cascade_index = cascade_index or 1
 	self.current_cascade = cascade_index
 	local depth_texture = self.cascade[cascade_index].depth_texture
-	self.cmd:Reset()
-	self.cmd:Begin()
+
+	if cascade_index == 1 then
+		self.cmd:Reset()
+		self.cmd:Begin()
+		self.is_recording_cascades = true
+	end
+
 	-- Transition depth texture to depth attachment optimal
 	self.cmd:PipelineBarrier{
 		srcStage = "fragment",
@@ -331,7 +338,7 @@ function ShadowMap:Begin(cascade_index)
 				image = depth_texture:GetImage(),
 				srcAccessMask = "shader_read",
 				dstAccessMask = "depth_stencil_attachment_write",
-				oldLayout = "undefined",
+				oldLayout = self.cascade[cascade_index].is_sampleable and "shader_read_only_optimal" or "undefined",
 				newLayout = "depth_attachment_optimal",
 			-- aspect is automatically determined from image format by PipelineBarrier
 			},
@@ -415,9 +422,18 @@ function ShadowMap:End(cascade_index)
 			},
 		},
 	}
-	self.cmd:End()
-	-- Submit and wait
-	render.SubmitAndWait(self.cmd)
+
+	if cascade_index == self.cascade_count then
+		self.cmd:End()
+		self.is_recording_cascades = false
+
+		for i = 1, self.cascade_count do
+			self.cascade[i].is_sampleable = true
+		end
+
+		-- Submit once after all cascades are recorded.
+		render.SubmitAndWait(self.cmd)
+	end
 end
 
 -- Get the depth texture for sampling in main pass
