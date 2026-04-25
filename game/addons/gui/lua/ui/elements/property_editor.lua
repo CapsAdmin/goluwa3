@@ -739,8 +739,7 @@ return function(props)
 	editor = Column{
 		layout = {
 			GrowWidth = 1,
-			GrowHeight = 1,
-			FitHeight = false,
+			FitHeight = true,
 			AlignmentX = "stretch",
 			ChildGap = props.ChildGap or compact_gap,
 			props.layout,
@@ -751,7 +750,6 @@ return function(props)
 			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				GrowWidth = 1,
-				GrowHeight = 1,
 				FitHeight = true,
 			},
 			transform = true,

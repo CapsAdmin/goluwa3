@@ -1682,7 +1682,7 @@ return function(props)
 					transform = true,
 					layout = {
 						GrowWidth = 1,
-						GrowHeight = 1,
+						FitHeight = true,
 						FitWidth = false,
 						MinSize = Vec2(size.x - 24, 0),
 						Padding = Rect(2, 2, 2, 2),
