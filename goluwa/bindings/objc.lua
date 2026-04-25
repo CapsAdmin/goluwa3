@@ -1,16 +1,11 @@
 -- https://github.com/mogenson/lua-utils/blob/main/objc.lua
 local ffi = require("ffi")
 
-local function table_pack(...)
-	return {n = select("#", ...), ...}
-end
-
 local C = ffi.C
 ---@alias cdata  userdata C types returned from FFI
 ---@alias id     cdata    Objective-C object
 ---@alias Class  cdata    Objective-C Class
 ---@alias SEL    cdata    Objective-C Selector
----@alias Method cdata    Objective-C Method
 ffi.cdef([[
 // types
 typedef signed char   BOOL;
@@ -20,8 +15,6 @@ typedef unsigned long NSUInteger;
 typedef struct objc_class    *Class;
 typedef struct objc_object   *id;
 typedef struct objc_selector *SEL;
-typedef struct objc_method   *Method;
-typedef struct objc_property *objc_property_t;
 typedef id                   (*IMP) (id, SEL, ...);
 typedef struct CGPoint { CGFloat x; CGFloat y; } CGPoint;
 typedef struct CGSize { CGFloat width; CGFloat height; } CGSize;
@@ -32,17 +25,10 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types);
 Class objc_allocateClassPair(Class superclass, const char *name, size_t extraBytes);
 Class objc_lookUpClass(const char *name);
 Class object_getClass(id obj);
-Method class_getClassMethod(Class cls, SEL name);
-Method class_getInstanceMethod(Class cls, SEL name);
 SEL sel_registerName(const char *str);
-char * method_copyArgumentType(Method m, unsigned int index);
-char * method_copyReturnType(Method m);
 const char * class_getName(Class cls);
 const char * object_getClassName(id obj);
 const char * sel_getName(SEL sel);
-objc_property_t class_getProperty(Class cls, const char *name);
-unsigned int method_getNumberOfArguments(Method m);
-void free(void *ptr);
 void objc_msgSend(void);
 void objc_registerClassPair(Class cls);
 ]])
@@ -85,6 +71,10 @@ local type_encoding = setmetatable(
 	}
 )
 local cast_cache = {}
+local bind_cache = {}
+local cls
+local ptr
+local sel
 
 ---cast an object to C type using cached type
 ---@param typedef string C type definition
@@ -101,17 +91,263 @@ local function cast(typedef, object)
 	return ffi.cast(typeobj, object)
 end
 
+local function parse_encoded_token(types, index)
+	local token = types:sub(index, index)
+
+	if token == "" then return nil, index end
+
+	if token == "r" then
+		local next_token, next_index = parse_encoded_token(types, index + 1)
+		return token .. assert(next_token), next_index
+	end
+
+	if token == "^" then
+		local next_token, next_index = parse_encoded_token(types, index + 1)
+		return token .. assert(next_token), next_index
+	end
+
+	if token == "{" or token == "(" then
+		local open = token
+		local close = token == "{" and "}" or ")"
+		local depth = 1
+		local cursor = index + 1
+
+		while cursor <= #types do
+			local char = types:sub(cursor, cursor)
+
+			if char == open then
+				depth = depth + 1
+			elseif char == close then
+				depth = depth - 1
+
+				if depth == 0 then return types:sub(index, cursor), cursor + 1 end
+			end
+
+			cursor = cursor + 1
+		end
+
+		error("unterminated Objective-C type encoding: " .. types)
+	end
+
+	return token, index + 1
+end
+
+local function parse_encoded_types(types)
+	local out = {}
+	local index = 1
+
+	while index <= #types do
+		local token
+		token, index = parse_encoded_token(types, index)
+		if token then table.insert(out, token) end
+	end
+
+	return out
+end
+
+local function objc_signature_to_c_signature(types)
+	local tokens = parse_encoded_types(types)
+	local signature = {}
+
+	for i, token in ipairs(tokens) do
+		signature[i] = assert(type_encoding[token], "unsupported Objective-C type encoding: " .. token)
+	end
+
+	return tokens, signature
+end
+
+local function to_lua_identifier(str)
+	return (str:gsub("[^%w_]", "_"))
+end
+
+local function setter_name(property_name)
+	return "set" .. property_name:sub(1, 1):upper() .. property_name:sub(2) .. ":"
+end
+
+local function generate_arg_setup(c_type, arg_name)
+	if c_type == "char*" then
+		return "local " .. arg_name .. "_buffer = " .. arg_name ..
+			" ~= nil and ffi.new('char[?]', #" .. arg_name .. " + 1) or nil\n" ..
+			"if " .. arg_name .. "_buffer ~= nil then ffi.copy(" .. arg_name .. "_buffer, " .. arg_name .. ") end\n" ..
+			"local " .. arg_name .. "_value = " .. arg_name .. "_buffer ~= nil and cast(" .. string.format("%q", c_type) .. ", " .. arg_name .. "_buffer) or ffi.new(" .. string.format("%q", c_type) .. ")"
+	end
+
+	if c_type == "id" then
+		return string.format(
+			"local %s_value = %s == nil and ffi.new(%q) or (type(%s) == \"cdata\" and ffi.istype(%q, %s) and cast(%q, %s) or %s)",
+			arg_name,
+			arg_name,
+			c_type,
+			arg_name,
+			"Class",
+			arg_name,
+			c_type,
+			arg_name,
+			arg_name
+		)
+	end
+
+	return string.format(
+		"local %s_value = %s == nil and ffi.new(%q) or %s",
+		arg_name,
+		arg_name,
+		c_type,
+		arg_name
+	)
+end
+
+local function generate_bound_method(chunk_name, owner_name, receiver_expr, method_name, descriptor)
+	local selector_name = descriptor.selector or method_name
+	local tokens, c_types = objc_signature_to_c_signature(assert(descriptor.types, "missing types for " .. owner_name .. "." .. method_name))
+	local return_type = c_types[1]
+	local arg_count = #c_types - 3
+	local receiver_type = c_types[2]
+	local function_args = {}
+	local arg_setup = {}
+	local call_args = {receiver_expr, "selector"}
+
+	for index = 2, #c_types do
+		function_args[#function_args + 1] = c_types[index]
+	end
+
+	for index = 1, arg_count do
+		local arg_name = "arg" .. index
+		local c_type = c_types[index + 3]
+		arg_setup[index] = generate_arg_setup(c_type, arg_name)
+		call_args[#call_args + 1] = arg_name .. "_value"
+	end
+
+	local fn_signature = string.format(
+		"%s(*)(%s)",
+		return_type,
+		table.concat(function_args, ",")
+	)
+	local params = {}
+
+	for index = 1, arg_count do
+		params[index] = "arg" .. index
+	end
+
+	local source = {}
+	local local_name = to_lua_identifier(owner_name .. "_" .. method_name)
+	source[#source + 1] = string.format("return function(cast, ptr, sel, cls, ffi, C)%s", "")
+	source[#source + 1] = string.format("\nlocal fn = cast(%q, C.objc_msgSend)", fn_signature)
+	source[#source + 1] = string.format("\nlocal selector = sel(%q)", selector_name)
+
+	if descriptor.kind == "class" and not descriptor.unbound then
+		source[#source + 1] = string.format("\nlocal receiver = cls(%q)", owner_name)
+		source[#source + 1] = string.format("\nreturn function(%s)", table.concat(params, ", "))
+	else
+		source[#source + 1] = string.format("\nreturn function(self%s%s)", arg_count > 0 and ", " or "", table.concat(params, ", "))
+	end
+
+	for _, line in ipairs(arg_setup) do
+		source[#source + 1] = "\n" .. line
+	end
+
+	local call_receiver = descriptor.kind == "class" and (descriptor.unbound and "self" or "receiver") or "self"
+	local invocation = {call_receiver, "selector"}
+
+	for index = 1, arg_count do
+		invocation[#invocation + 1] = "arg" .. index .. "_value"
+	end
+
+	if tokens[1] == "@" then
+		source[#source + 1] = string.format("\nreturn ptr(fn(%s))", table.concat(invocation, ", "))
+	else
+		source[#source + 1] = string.format("\nreturn fn(%s)", table.concat(invocation, ", "))
+	end
+
+	source[#source + 1] = "\nend\nend"
+	local source_text = table.concat(source)
+	bind_cache[chunk_name .. ":" .. local_name] = source_text
+	local factory = assert(load(source_text, chunk_name .. ":" .. local_name, "t"))()
+	return factory(cast, ptr, sel, cls, ffi, C), receiver_type
+end
+
+local function bind(definition)
+	assert(type(definition) == "table")
+	local bindings = {
+		classes = {},
+		methods = {},
+		props = {},
+	}
+	local class_names = definition.classes or {}
+	local function resolve_class_if_available(class_name)
+		local ok, value = pcall(cls, class_name)
+
+		if ok then bindings.classes[class_name] = value end
+	end
+
+	for _, class_name in ipairs(class_names) do
+		bindings.classes[class_name] = cls(class_name)
+	end
+
+	for class_name, groups in pairs(definition.methods or {}) do
+		bindings.methods[class_name] = bindings.methods[class_name] or {}
+
+		if bindings.classes[class_name] == nil then resolve_class_if_available(class_name) end
+
+		for method_name, descriptor in pairs(groups.class or {}) do
+			if type(descriptor) == "string" then descriptor = {types = descriptor} end
+			descriptor.kind = "class"
+			bindings.methods[class_name][method_name] = generate_bound_method(
+				"objc.bind",
+				class_name,
+				"receiver",
+				method_name,
+				descriptor
+			)
+		end
+
+		for method_name, descriptor in pairs(groups.instance or {}) do
+			if type(descriptor) == "string" then descriptor = {types = descriptor} end
+			descriptor.kind = "instance"
+			bindings.methods[class_name][method_name] = generate_bound_method(
+				"objc.bind",
+				class_name,
+				"self",
+				method_name,
+				descriptor
+			)
+		end
+	end
+
+	for class_name, properties in pairs(definition.props or {}) do
+		bindings.props[class_name] = bindings.props[class_name] or {}
+
+		for property_name, descriptor in pairs(properties) do
+			if type(descriptor) == "string" then descriptor = {get = descriptor} end
+			local prop = {}
+
+			if descriptor.get then
+				local getter = {selector = descriptor.selector or property_name, types = descriptor.get, kind = "instance"}
+				prop.get = generate_bound_method("objc.bind", class_name, "self", property_name, getter)
+			end
+
+			if descriptor.set then
+				local setter = {selector = descriptor.setter or setter_name(property_name), types = descriptor.set, kind = "instance"}
+				prop.set = generate_bound_method("objc.bind", class_name, "self", setter.selector, setter)
+			end
+
+			bindings.props[class_name][property_name] = prop
+		end
+	end
+
+	return bindings
+end
+
 ---convert a NULL pointer to nil
 ---@param p cdata pointer
 ---@return cdata | nil
-local function ptr(p)
+function ptr(p)
 	if p == nil then return nil else return p end
 end
 
 ---return a Class from name or object
 ---@param name string | Class | id
 ---@return Class
-local function cls(name)
+function cls(name)
 	assert(name)
 
 	if ffi.istype("id", name) then
@@ -129,78 +365,13 @@ end
 ---return SEL from name
 ---@param name string | SEL
 ---@return SEL
-local function sel(name)
+function sel(name)
 	assert(name)
 
 	if type(name) == "cdata" and ffi.istype("SEL", name) then return name end
 
 	assert(type(name) == "string")
 	return C.sel_registerName(name)
-end
-
----return Method for Class or object and SEL
----@param self Class | id
----@param selector SEL
----@return Method?
-local function getMethod(self, selector) ---@diagnostic disable-line: redefined-local
-	if ffi.istype("Class", self) then
-		return assert(ptr(C.class_getClassMethod(self, selector)))
-	elseif ffi.istype("id", self) then
-		return assert(ptr(C.class_getInstanceMethod(cls(self), selector)))
-	end
-
-	assert(false, "self not a Class or object")
-end
-
----convert a Lua variable to a C type if needed
----@param lua_var any
----@param c_type string
----@return cdata | any
-local function convert(lua_var, c_type)
-	if type(lua_var) == "string" and c_type == "char*" then
-		return cast(c_type, lua_var)
-	elseif type(lua_var) == "cdata" and c_type == "id" and ffi.istype("Class", lua_var) then
-		return cast(c_type, lua_var)
-	elseif lua_var == nil then
-		return ffi.new(c_type)
-	end
-
-	return lua_var
-end
-
----call a method for a SEL on a Class or object
----@param self Class | id the class or object
----@param selector SEL name of method
----@param ...? any additional method parameters
----@return any
-local function msgSend(self, selector, ...)
-	assert(type(self) == "cdata")
-	local method = getMethod(self, selector)
-	local call_args = table_pack(self, selector, ...)
-	local char_ptr = assert(ptr(C.method_copyReturnType(method)))
-	local objc_type = ffi.string(char_ptr)
-	C.free(char_ptr)
-	local c_type = assert(type_encoding[objc_type])
-	local signature = {}
-	table.insert(signature, c_type)
-	table.insert(signature, "(*)(")
-	local num_method_args = C.method_getNumberOfArguments(method)
-	assert(num_method_args == call_args.n)
-
-	for i = 1, num_method_args do
-		char_ptr = assert(ptr(C.method_copyArgumentType(method, i - 1)))
-		objc_type = ffi.string(char_ptr)
-		C.free(char_ptr)
-		c_type = assert(type_encoding[objc_type])
-		table.insert(signature, c_type)
-		call_args[i] = convert(call_args[i], c_type)
-
-		if i < num_method_args then table.insert(signature, ",") end
-	end
-
-	table.insert(signature, ")")
-	local fn = cast(table.concat(signature), C.objc_msgSend)
-	return ptr(fn(unpack(call_args, 1, call_args.n)))
 end
 
 ---load a Framework
@@ -255,27 +426,12 @@ local objc = {
 	Class = cls,
 	SEL = sel,
 	addMethod = addMethod,
+	bind = bind,
+	bind_cache = bind_cache,
 	loadFramework = loadFramework,
-	msgSend = msgSend,
 	newClass = newClass,
+	["nil"] = ffi.cast("id", 0),
 	ptr = ptr,
-}
-local class_methods = {
-	Call = function(class, selector, ...)
-		return msgSend(class, sel(selector), ...)
-	end,
-}
-local object_methods = {
-	Call = function(object, selector, ...)
-		return msgSend(object, sel(selector), ...)
-	end,
-	GetProperty = function(object, property_name)
-		return msgSend(object, sel(property_name))
-	end,
-	SetProperty = function(object, property_name, value)
-		local setter = string.format("set%s%s:", property_name:sub(1, 1):upper(), property_name:sub(2))
-		msgSend(object, sel(setter), value)
-	end,
 }
 ffi.metatype(
 	"struct objc_selector",
@@ -291,7 +447,6 @@ ffi.metatype(
 		__tostring = function(class)
 			return ffi.string(assert(ptr(C.class_getName(class))))
 		end,
-		__index = class_methods,
 	}
 )
 ffi.metatype(
@@ -300,7 +455,6 @@ ffi.metatype(
 		__tostring = function(class)
 			return ffi.string(assert(ptr(C.object_getClassName(class))))
 		end,
-		__index = object_methods,
 	}
 )
 return objc

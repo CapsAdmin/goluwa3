@@ -660,28 +660,56 @@ elseif jit.os == "OSX" then
 	local objc = import("goluwa/bindings/objc.lua")
 	-- Load AppKit framework for NSPasteboard
 	objc.loadFramework("AppKit")
-	-- Cache commonly used classes and selectors
-	local NSPasteboard = objc.Class("NSPasteboard")
-	local NSString = objc.Class("NSString")
+	local macos_objc = objc.bind({
+		classes = {"NSPasteboard", "NSString", "NSArray"},
+		methods = {
+			NSPasteboard = {
+				class = {
+					generalPasteboard = "@#:",
+				},
+				instance = {
+					clearContents = "q@:",
+					stringForType = {selector = "stringForType:", types = "@@:@"},
+					writeObjects = {selector = "writeObjects:", types = "B@:@"},
+				},
+			},
+			NSString = {
+				class = {
+					stringWithUTF8String = {selector = "stringWithUTF8String:", types = "@#:*"},
+				},
+				instance = {
+					UTF8String = "*@:",
+				},
+			},
+			NSArray = {
+				class = {
+					arrayWithObject = {selector = "arrayWithObject:", types = "@#:@"},
+				},
+			},
+		},
+	})
+	local NSPasteboard = macos_objc.methods.NSPasteboard
+	local NSString = macos_objc.methods.NSString
+	local NSArray = macos_objc.methods.NSArray
 
 	function clipboard.Get()
 		-- Get the general pasteboard
-		local pasteboard = NSPasteboard:Call("generalPasteboard")
+		local pasteboard = NSPasteboard.generalPasteboard()
 		-- Get string from pasteboard
-		local nsstring = pasteboard:Call(
-			"stringForType:",
-			NSString:Call("stringWithUTF8String:", "public.utf8-plain-text")
+		local nsstring = NSPasteboard.stringForType(
+			pasteboard,
+			NSString.stringWithUTF8String("public.utf8-plain-text")
 		)
 
 		if nsstring == nil then
 			-- Try NSStringPboardType as fallback
-			nsstring = pasteboard:Call("stringForType:", NSString:Call("stringWithUTF8String:", "NSStringPboardType"))
+			nsstring = NSPasteboard.stringForType(pasteboard, NSString.stringWithUTF8String("NSStringPboardType"))
 		end
 
 		if nsstring == nil then return "" end
 
 		-- Convert NSString to C string
-		local utf8String = nsstring:Call("UTF8String")
+		local utf8String = NSString.UTF8String(nsstring)
 
 		if utf8String == nil then return "" end
 
@@ -692,19 +720,18 @@ elseif jit.os == "OSX" then
 		if type(str) ~= "string" then return false, "Input must be a string" end
 
 		-- Get the general pasteboard
-		local pasteboard = NSPasteboard:Call("generalPasteboard")
+		local pasteboard = NSPasteboard.generalPasteboard()
 		-- Clear the pasteboard
-		pasteboard:Call("clearContents")
+		NSPasteboard.clearContents(pasteboard)
 		-- Create NSString from UTF-8 string
-		local nsstring = NSString:Call("stringWithUTF8String:", str)
+		local nsstring = NSString.stringWithUTF8String(str)
 
 		if nsstring == nil then return false, "Failed to create NSString" end
 
 		-- Create array with the NSString
-		local NSArray = objc.Class("NSArray")
-		local array = NSArray:Call("arrayWithObject:", nsstring)
+		local array = NSArray.arrayWithObject(nsstring)
 		-- Write to pasteboard
-		local success = pasteboard:Call("writeObjects:", array)
+		local success = NSPasteboard.writeObjects(pasteboard, array)
 
 		if success == 0 then return false, "Failed to write to pasteboard" end
 
