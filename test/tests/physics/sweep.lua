@@ -11,6 +11,19 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 
+local function attach_visual_primitive(entity, poly, material)
+	entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+
+	if material then visual_primitive:SetMaterial(material) end
+
+	entity.visual:BuildAABB()
+	return entity.visual
+end
+
 local function create_brush_box_body(name, mins, maxs)
 	local ent = Entity.New({Name = name or "sweep_world_brush"})
 	ent:AddComponent("transform")
@@ -45,17 +58,15 @@ end
 local function create_triangle_world_body(name)
 	local ent = Entity.New({Name = name or "sweep_world_triangle"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:AddVertex{pos = Vec3(-2, 0, -2), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
 	poly:AddVertex{pos = Vec3(2, 0, -2), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
 	poly:AddVertex{pos = Vec3(0, 0, 2), uv = Vec2(0.5, 1), normal = Vec3(0, 1, 0)}
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	local visual = attach_visual_primitive(ent, poly)
 	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = ent.model},
+		Shape = MeshShape.New{Model = visual},
 		MotionType = "static",
 		GravityScale = 0,
 		WorldGeometry = true,
@@ -67,17 +78,15 @@ local function create_mesh_body(name, position)
 	local ent = Entity.New({Name = name})
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(position or Vec3())
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:AddVertex{pos = Vec3(-2, 0, -2), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
 	poly:AddVertex{pos = Vec3(2, 0, -2), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
 	poly:AddVertex{pos = Vec3(0, 0, 2), uv = Vec2(0.5, 1), normal = Vec3(0, 1, 0)}
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	local visual = attach_visual_primitive(ent, poly)
 	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = ent.model},
+		Shape = MeshShape.New{Model = visual},
 		MotionType = "static",
 		GravityScale = 0,
 	})

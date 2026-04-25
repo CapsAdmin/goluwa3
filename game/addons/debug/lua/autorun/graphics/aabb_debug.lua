@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local debug_draw = import("goluwa/render3d/debug_draw.lua")
-local Model = import("goluwa/ecs/components/3d/model.lua")
+local Visual = import("goluwa/ecs/components/3d/visual.lua")
 local aabb_enabled = false
 
 event.AddListener("KeyInput", "aabb_debug_toggle", function(key, press)
@@ -18,12 +18,12 @@ event.AddListener(
 	function(cmd, dt)
 		if not aabb_enabled then return end
 
-		for i, model in ipairs(Model.Instances or {}) do
-			local aabb = model.GetWorldAABB and model:GetWorldAABB() or nil
+		for i, visual in ipairs(Visual.Instances or {}) do
+			local aabb = visual:GetWorldAABB()
 
 			if aabb and aabb.min_x ~= math.huge then
 				debug_draw.DrawWireAABB{
-					id = "aabb_debug_" .. tostring(i) .. "_" .. tostring(model),
+					id = "aabb_debug_" .. tostring(i) .. "_" .. tostring(visual),
 					aabb = aabb,
 					color = {1, 1, 1, 0.9},
 					width = 1,

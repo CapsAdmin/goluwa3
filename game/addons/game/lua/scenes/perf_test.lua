@@ -65,13 +65,20 @@ local function add_asset_model(ent, path, material, options)
 		entry and entry.value and entry.value.create_primitives,
 		("failed to load model asset %q"):format(path)
 	)
-	ent:AddComponent("model")
+	ent:AddComponent("visual")
 
-	for _, primitive in ipairs(entry.value.create_primitives(options or {})) do
-		ent.model:AddPrimitive(primitive.mesh or primitive.polygon3d or primitive, primitive.material or material)
+	for index, primitive in ipairs(entry.value.create_primitives(options or {})) do
+		local primitive_entity = Entity.New{
+			Name = (ent.Name or "perf_test") .. "_primitive_" .. index,
+			Parent = ent,
+		}
+		primitive_entity:AddComponent("transform")
+		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+		visual_primitive:SetPolygon3D(primitive.mesh or primitive.polygon3d or primitive)
+		visual_primitive:SetMaterial(primitive.material or material)
 	end
 
-	ent.model:BuildAABB()
+	ent.visual:BuildAABB()
 	return ent
 end
 

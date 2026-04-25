@@ -7,6 +7,18 @@ local AABB = import("goluwa/structs/aabb.lua")
 local system = import("goluwa/system.lua")
 local physics
 local META = prototype.CreateTemplate("transform_3d")
+
+local function find_ancestor_visual(entity)
+	local current = entity
+
+	while current and current.IsValid and current:IsValid() do
+		if current.visual then return current.visual end
+		current = current:GetParent()
+	end
+
+	return nil
+end
+
 META:StartStorable()
 META:GetSet("Position", Vec3(0, 0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("Rotation", Quat(0, 0, 0, 1), {callback = "InvalidateMatrices"})
@@ -54,10 +66,16 @@ function META:InvalidateMatrices()
 	self.WorldMatrixFrame = nil
 	self.WorldMatrixInverseFrame = nil
 
-	if self.Owner and self.Owner.model then
-		self.Owner.model.WorldAABBCache = nil
-		self.Owner.model.WorldAABBCacheMatrix = nil
-		self.Owner.model.WorldAABBCacheSource = nil
+	if self.Owner and self.Owner.visual then
+		self.Owner.visual.WorldAABBCache = nil
+		self.Owner.visual.WorldAABBCacheMatrix = nil
+		self.Owner.visual.WorldAABBCacheSource = nil
+	end
+
+	if self.Owner and self.Owner.visual_primitive then
+		local visual = find_ancestor_visual(self.Owner)
+
+		if visual then visual:InvalidateHierarchyState() end
 	end
 
 	self:InvalidateChildWorldMatrices()
@@ -72,12 +90,6 @@ function META:InvalidateChildWorldMatrices()
 			child.transform.WorldMatrixInverse = nil
 			child.transform.WorldMatrixFrame = nil
 			child.transform.WorldMatrixInverseFrame = nil
-
-			if child.model then
-				child.model.WorldAABBCache = nil
-				child.model.WorldAABBCacheMatrix = nil
-				child.model.WorldAABBCacheSource = nil
-			end
 
 			child.transform:InvalidateChildWorldMatrices()
 		end

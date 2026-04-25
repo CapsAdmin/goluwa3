@@ -176,10 +176,14 @@ local function CreateDesertTerrain()
 	poly:Upload()
 	local ent = Entity.New({Name = "desert_terrain"})
 	local transform = ent:AddComponent("transform")
-	local model = ent:AddComponent("model")
+	local visual = ent:AddComponent("visual")
+	local primitive_ent = Entity.New({Name = "desert_terrain_primitive", Parent = ent})
+	primitive_ent:AddComponent("transform")
+	local primitive = primitive_ent:AddComponent("visual_primitive")
 	transform:SetPosition(Vec3(0, -127, 0))
-	model:AddPrimitive(poly, mat)
-	model:BuildAABB()
+	primitive:SetPolygon3D(poly)
+	primitive:SetMaterial(mat)
+	visual:BuildAABB()
 	ent:AddComponent(
 		"rigid_body",
 		{

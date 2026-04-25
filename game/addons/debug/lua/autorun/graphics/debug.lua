@@ -5,7 +5,7 @@ local input = import("goluwa/input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local Model = import("goluwa/ecs/components/3d/model.lua").Library
+local Visual = import("goluwa/ecs/components/3d/visual.lua").Library
 local fonts = import("goluwa/render2d/fonts.lua")
 -- Debug: Show debug info
 local show_debug_info = false
@@ -35,14 +35,14 @@ function events.Draw2D.debug_info(dt)
 	-- Separator
 	y = y + 10
 	-- Frustum culling status
-	local frustum_status = Model.noculling and "DISABLED" or "ENABLED"
-	local frustum_color = Model.noculling and {1.0, 0.2, 0.2} or {0.2, 1.0, 0.2}
+	local frustum_status = Visual.noculling and "DISABLED" or "ENABLED"
+	local frustum_color = Visual.noculling and {1.0, 0.2, 0.2} or {0.2, 1.0, 0.2}
 	render2d.SetColor(frustum_color[1], frustum_color[2], frustum_color[3], 1)
 	fonts.GetFont():DrawText(string.format("Frustum Culling: %s", frustum_status), x, y)
 	y = y + 20
 
 	-- Freeze culling status
-	if Model.freeze_culling then
+	if Visual.freeze_culling then
 		render2d.SetColor(1, 1, 0, 1)
 		fonts.GetFont():DrawText("CULLING FROZEN (Press F to unfreeze)", x, y)
 		y = y + 20
@@ -54,7 +54,7 @@ function events.Draw2D.debug_info(dt)
 	-- Separator
 	y = y + 10
 	-- Occlusion culling info
-	local stats = Model.GetOcclusionStats()
+	local stats = Visual.GetOcclusionStats()
 	render2d.SetColor(1, 1, 1, 1)
 	fonts.GetFont():DrawText(
 		string.format("Models: %d total, %d with occlusion", stats.total, stats.with_occlusion),
@@ -79,7 +79,7 @@ function events.Draw2D.debug_info(dt)
 	if stats.occlusion_enabled then
 		render2d.SetColor(0.7, 0.7, 0.7, 1)
 		fonts.GetFont():DrawText(
-			string.format("  Conditional rendering: %d models", stats.submitted_with_conditional),
+			string.format("  Conditional rendering: %d visuals", stats.submitted_with_conditional),
 			x,
 			y
 		)

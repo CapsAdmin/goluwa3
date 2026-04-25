@@ -209,7 +209,7 @@ end
 local function get_entity_local_aabb(entity)
 	if not is_gizmo_entity(entity) then return nil end
 
-	if entity.model and entity.model.AABB then return entity.model.AABB end
+	if entity.visual and entity.visual.GetAABB then return entity.visual:GetAABB() end
 
 	if entity.transform and entity.transform.GetAABB then
 		return entity.transform:GetAABB()
@@ -223,8 +223,8 @@ local function get_entity_pivot(entity)
 
 	if not fallback then return nil, 1 end
 
-	if entity.model and entity.model.GetWorldAABB then
-		local aabb = entity.model:GetWorldAABB()
+	if entity.visual and entity.visual.GetWorldAABB then
+		local aabb = entity.visual:GetWorldAABB()
 
 		if aabb and aabb.min_x <= aabb.max_x then
 			local extent_x = aabb.max_x - aabb.min_x

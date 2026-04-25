@@ -30,10 +30,14 @@ local function create_primitive_entity(name, build_polygon, material, transform_
 	poly:Upload()
 	local entity = Entity.New{Name = name}
 	entity:AddComponent("transform")
-	entity:AddComponent("model")
-	entity.model:AddPrimitive(poly, material)
-	entity.model:BuildAABB()
-	entity.model:SetUseOcclusionCulling(false)
+	entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = name .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+	visual_primitive:SetMaterial(material)
+	entity.visual:BuildAABB()
+	entity.visual:SetUseOcclusionCulling(false)
 
 	if transform_props then
 		if transform_props.position then

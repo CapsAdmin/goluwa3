@@ -62,16 +62,23 @@ local function is_previewable_model_target(target)
 		type(target.BuildAABB) == "function"
 end
 
+local function get_preview_entries(model)
+	if not model then return nil end
+	return model:GetRenderEntries()
+end
+
 local function get_previewable_model(target)
 	local model = target
 
 	if not is_previewable_model_target(model) then
 		if not is_valid_entity(target) then return nil end
 
-		model = target.model
+		model = target.visual
 	end
 
-	if not model or not model.Primitives or not model.Primitives[1] then
+	local entries = get_preview_entries(model)
+
+	if not model or not entries or not entries[1] then
 		return nil
 	end
 
@@ -324,14 +331,19 @@ function META:DrawActiveEntity(pipeline)
 
 	if not world_matrix then return end
 
-	for _, prim in ipairs(model.Primitives) do
+	local entries = get_preview_entries(model) or {}
+
+	for _, prim in ipairs(entries) do
 		local polygon = prim.polygon3d
 
 		if polygon then
 			local final_matrix = world_matrix
-			local material = model.MaterialOverride or prim.material or render3d.GetDefaultMaterial()
+			local material = model.GetResolvedMaterial and model:GetResolvedMaterial(prim) or
+				(model.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
 
-			if prim.local_matrix then
+			if prim.transform and prim.transform.GetWorldMatrix then
+				final_matrix = prim.transform:GetWorldMatrix()
+			elseif prim.local_matrix then
 				final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
 			end
 

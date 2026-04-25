@@ -26,6 +26,14 @@ local MESH_LOCAL_AABB_TRANSFORM_PROXY = {
 	rotation = nil,
 }
 
+local function get_source_primitives(source)
+	if not source then return nil end
+
+	if source.GetPhysicsPrimitives then return source:GetPhysicsPrimitives() end
+
+	return source.Primitives
+end
+
 function MESH_LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
 	return self.collider:WorldToLocal(point, self.position, self.rotation)
 end
@@ -129,8 +137,10 @@ local function collect_polygon_entries_from_source(entries, seen, source, model,
 		return
 	end
 
-	if source.Primitives then
-		for index, model_primitive in ipairs(source.Primitives) do
+	local primitives = get_source_primitives(source)
+
+	if primitives then
+		for index, model_primitive in ipairs(primitives) do
 			collect_polygon_entries_from_source(entries, seen, model_primitive, source, model_primitive, index)
 		end
 
@@ -413,7 +423,7 @@ function META:GetMeshSource(body)
 	if self.Source ~= nil then return self.Source end
 
 	local owner = body and body.GetOwner and body:GetOwner() or body and body.Owner
-	return owner and owner.model or nil
+	return owner and owner.visual or nil
 end
 
 function META:GetMeshPolygonEntries(body)

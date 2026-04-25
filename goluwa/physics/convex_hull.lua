@@ -1,6 +1,14 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_hull = library()
 
+local function get_source_primitives(source)
+	if not source then return nil end
+
+	if source.GetPhysicsPrimitives then return source:GetPhysicsPrimitives() end
+
+	return source.Primitives
+end
+
 local function copy_vec3(vec)
 	return Vec3(vec.x, vec.y, vec.z)
 end
@@ -33,8 +41,10 @@ end
 local function append_source_points(points, source)
 	if not source then return end
 
-	if source.Primitives then
-		for _, primitive in ipairs(source.Primitives) do
+	local primitives = get_source_primitives(source)
+
+	if primitives then
+		for _, primitive in ipairs(primitives) do
 			append_source_points(points, primitive and primitive.polygon3d)
 		end
 
@@ -251,8 +261,10 @@ end
 local function append_source_triangles(triangles, source)
 	if not source then return end
 
-	if source.Primitives then
-		for _, primitive in ipairs(source.Primitives) do
+	local primitives = get_source_primitives(source)
+
+	if primitives then
+		for _, primitive in ipairs(primitives) do
 			append_source_triangles(triangles, primitive and primitive.polygon3d)
 		end
 

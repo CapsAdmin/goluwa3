@@ -15,11 +15,19 @@ local function is_valid_entity(entity)
 	return entity and entity.IsValid and entity:IsValid() or false
 end
 
+local function get_drawable_target(entity)
+	if not is_valid_entity(entity) then return nil end
+
+	local target = entity.visual
+
+	if not target then return nil end
+
+	local entries = target:GetRenderEntries()
+	return entries and entries[1] and target or nil
+end
+
 local function is_drawable_model_entity(entity)
-	return is_valid_entity(entity) and
-		entity.model and
-		entity.model.Primitives and
-		entity.model.Primitives[1] ~= nil
+	return get_drawable_target(entity) ~= nil
 end
 
 local function is_drawable_2d_entity(entity)
@@ -40,9 +48,11 @@ local function draw_overlay_polygon(polygon, material, world_matrix)
 end
 
 local function draw_visual_model_overlay(entity)
-	if not is_drawable_model_entity(entity) then return end
+	local target = get_drawable_target(entity)
 
-	local world_matrix = entity.model:GetWorldMatrix()
+	if not target then return end
+
+	local world_matrix = target:GetWorldMatrix()
 
 	if not world_matrix then return end
 
@@ -58,11 +68,15 @@ local function draw_visual_model_overlay(entity)
 		double_sided = true,
 	}
 
-	for _, prim in ipairs(entity.model.Primitives) do
+	local entries = target.GetRenderEntries and target:GetRenderEntries() or target.Primitives or {}
+
+	for _, prim in ipairs(entries) do
 		if prim.polygon3d then
 			local final_matrix = world_matrix
 
-			if prim.local_matrix then
+			if prim.transform and prim.transform.GetWorldMatrix then
+				final_matrix = prim.transform:GetWorldMatrix()
+			elseif prim.local_matrix then
 				final_matrix = prim.local_matrix:GetMultiplied(world_matrix, overlay_matrix)
 			end
 

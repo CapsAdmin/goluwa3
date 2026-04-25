@@ -665,9 +665,16 @@ local function add_primitive(model, polygon3d, shape_type, local_matrix)
 		polygon3d:Upload(polygon3d.indices)
 	end
 
-	model:AddPrimitive(polygon3d, debug_draw.GetMaterial({shape_type = shape_type}))
-	local primitive = model.Primitives[#model.Primitives]
-	primitive.local_matrix = local_matrix
+	local root = model.Owner or model
+	local primitive_entity = Entity.New{
+		Name = (root.Name or "physics_debug_mesh") .. "_primitive",
+		Parent = root,
+	}
+	local transform = primitive_entity:AddComponent("transform")
+	transform:SetFromMatrix(local_matrix)
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(polygon3d)
+	visual_primitive:SetMaterial(debug_draw.GetMaterial({shape_type = shape_type}))
 end
 
 local function append_shape(model, body, shape, local_matrix)
@@ -762,7 +769,7 @@ local function rebuild_debug_model(body, entry)
 		debug_ent.transform:SetPosition(Vec3(0, 0, 0))
 		debug_ent.transform:SetRotation(identity_rotation:Copy())
 		debug_ent.transform:SetScale(Vec3(1, 1, 1))
-		debug_ent:AddComponent("model", {
+		debug_ent:AddComponent("visual", {
 			UseOcclusionCulling = false,
 			CastShadows = false,
 		})
@@ -770,10 +777,12 @@ local function rebuild_debug_model(body, entry)
 	end
 
 	sync_debug_transform(body, debug_ent)
-	debug_ent.model:RemovePrimitives()
-	append_shape(debug_ent.model, body, body:GetPhysicsShape() or body.Shape, Matrix44():Identity())
-	debug_ent.model:BuildAABB()
-	debug_ent.model:SetVisible(debug_enabled and body == focused_body)
+	for _, child in ipairs(debug_ent:GetChildren()) do
+		child:Remove()
+	end
+	append_shape(debug_ent.visual, body, body:GetPhysicsShape() or body.Shape, Matrix44():Identity())
+	debug_ent.visual:BuildAABB()
+	debug_ent.visual:SetVisible(debug_enabled and body == focused_body)
 	entry.shape, entry.shape_type, entry.hull, entry.child_count = get_shape_signature(body)
 	entry.owner = owner
 end
@@ -781,7 +790,7 @@ end
 local function update_debug_visibility()
 	for body, entry in pairs(debug_entries) do
 		if entry.entity and entry.entity.IsValid and entry.entity:IsValid() then
-			entry.entity.model:SetVisible(debug_enabled and body == focused_body)
+			entry.entity.visual:SetVisible(debug_enabled and body == focused_body)
 		end
 	end
 end
@@ -809,8 +818,8 @@ local function ensure_debug_model(body)
 		entry.child_count ~= child_count
 	then
 		rebuild_debug_model(body, entry)
-	elseif debug_ent.model:GetVisible() ~= (debug_enabled and body == focused_body) then
-		debug_ent.model:SetVisible(debug_enabled and body == focused_body)
+	elseif debug_ent.visual:GetVisible() ~= (debug_enabled and body == focused_body) then
+		debug_ent.visual:SetVisible(debug_enabled and body == focused_body)
 	end
 
 	sync_debug_transform(body, entry.entity)

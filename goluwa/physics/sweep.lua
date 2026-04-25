@@ -17,6 +17,7 @@ local primitive_polygon_query = import("goluwa/physics/primitive_polygon_query.l
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local sweep = {}
@@ -35,6 +36,14 @@ local sweep_capsule_against_triangle
 local sweep_sphere_against_triangle
 local get_polyhedron_contact_for_point_at_pose
 local evaluate_polyhedron_pair_contact
+
+local function get_model_primitives(model)
+	if not model then return nil end
+
+	if model.GetPhysicsPrimitives then return model:GetPhysicsPrimitives() end
+
+	return model.Primitives
+end
 
 local function build_triangle_hit(model, entity, primitive, primitive_index, triangle_index)
 	return {
@@ -209,6 +218,32 @@ local function for_each_overlapping_world_triangle(poly, local_body_aabb, local_
 	triangle_mesh.ForEachOverlappingTriangle(poly, local_body_aabb, collect_overlapping_world_triangle, context)
 	context.world_triangle_callback = nil
 	context.world_triangle_transform = nil
+end
+
+local function get_primitive_query_aabb(primitive, local_aabb)
+	if primitive and primitive.local_matrix_inverse then
+		return AABB.BuildLocalAABBFromWorldAABB(local_aabb, primitive.local_matrix_inverse)
+	end
+
+	return local_aabb
+end
+
+local function get_primitive_local_motion(primitive, start_local, movement_local)
+	if not (primitive and primitive.local_matrix_inverse) then return start_local, movement_local end
+
+	local end_local = start_local + movement_local
+	local primitive_start = primitive.local_matrix_inverse:TransformVector(start_local)
+	local primitive_end = primitive.local_matrix_inverse:TransformVector(end_local)
+	return primitive_start, primitive_end - primitive_start
+end
+
+local function get_primitive_local_to_world(primitive, local_to_world)
+	if not (primitive and primitive.local_matrix) then return local_to_world end
+	if not local_to_world then return primitive.local_matrix end
+
+	primitive.sweep_local_to_world = primitive.sweep_local_to_world or Matrix44()
+	primitive.local_matrix:GetMultiplied(local_to_world, primitive.sweep_local_to_world)
+	return primitive.sweep_local_to_world
 end
 
 do
@@ -1183,7 +1218,9 @@ local function sweep_sphere_against_planes(start_position, movement, radius, pla
 end
 
 local function should_skip_model(model, ignore_entity, filter_fn, options)
-	if not (model and model.Visible and model.Primitives and model.Primitives[1]) then
+	local primitives = get_model_primitives(model)
+
+	if not (model and model.Visible and primitives and primitives[1]) then
 		return true
 	end
 
@@ -2302,6 +2339,8 @@ local function test_polyhedron_primitive_sweep(
 
 	local movement_length = movement:GetLength()
 	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
+	local primitive_local_aabb = get_primitive_query_aabb(primitive, local_aabb)
+	local primitive_local_to_world = get_primitive_local_to_world(primitive, local_to_world)
 
 	if not poly then return nil end
 
@@ -2321,8 +2360,8 @@ local function test_polyhedron_primitive_sweep(
 	triangle_context.start_position = start_position
 	for_each_overlapping_world_triangle(
 		poly,
-		local_aabb,
-		local_to_world,
+		primitive_local_aabb,
+		primitive_local_to_world,
 		collect_polyhedron_triangle_sweep_hit,
 		triangle_context
 	)
@@ -2385,6 +2424,8 @@ local function test_capsule_primitive_sweep(
 
 	local movement_length = movement:GetLength()
 	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
+	local primitive_local_aabb = get_primitive_query_aabb(primitive, local_aabb)
+	local primitive_local_to_world = get_primitive_local_to_world(primitive, local_to_world)
 
 	if not poly then return nil end
 
@@ -2403,8 +2444,8 @@ local function test_capsule_primitive_sweep(
 	triangle_context.start_position = start_position
 	for_each_overlapping_world_triangle(
 		poly,
-		local_aabb,
-		local_to_world,
+		primitive_local_aabb,
+		primitive_local_to_world,
 		collect_capsule_triangle_sweep_hit,
 		triangle_context
 	)
@@ -2464,13 +2505,16 @@ local function test_primitive_sweep(
 	max_fraction
 )
 	local best_hit
-	local movement_length = movement_local:GetLength()
-	local world_movement = local_to_world and
+	local primitive_start_local, primitive_movement_local = get_primitive_local_motion(primitive, start_local, movement_local)
+	local primitive_local_aabb = get_primitive_query_aabb(primitive, local_aabb)
+	local primitive_local_to_world = get_primitive_local_to_world(primitive, local_to_world)
+	local movement_length = primitive_movement_local:GetLength()
+	local world_movement = primitive_local_to_world and
 		(
-			local_to_world:TransformVector(start_local + movement_local) - local_to_world:TransformVector(start_local)
+			primitive_local_to_world:TransformVector(primitive_start_local + primitive_movement_local) - primitive_local_to_world:TransformVector(primitive_start_local)
 		)
 		or
-		movement_local
+		primitive_movement_local
 
 	if primitive.aabb and not BVH.AABBIntersects(local_aabb, primitive.aabb) then
 		return nil
@@ -2484,17 +2528,17 @@ local function test_primitive_sweep(
 	primitive.sweep_triangle_context = triangle_context
 	triangle_context.best_hit = best_hit
 	triangle_context.entity = entity
-	triangle_context.local_to_world = local_to_world
+	triangle_context.local_to_world = primitive_local_to_world
 	triangle_context.max_fraction = max_fraction
 	triangle_context.model = model
 	triangle_context.movement_length = movement_length
-	triangle_context.movement_local = movement_local
+	triangle_context.movement_local = primitive_movement_local
 	triangle_context.primitive = primitive
 	triangle_context.primitive_index = primitive_index
 	triangle_context.radius = radius
-	triangle_context.start_local = start_local
+	triangle_context.start_local = primitive_start_local
 	triangle_context.world_movement = world_movement
-	for_each_overlapping_world_triangle(poly, local_aabb, nil, collect_triangle_sweep_hit, triangle_context)
+	for_each_overlapping_world_triangle(poly, primitive_local_aabb, nil, collect_triangle_sweep_hit, triangle_context)
 	return triangle_context.best_hit
 end
 

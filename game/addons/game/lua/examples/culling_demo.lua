@@ -24,9 +24,14 @@ local function spawn_sphere(pos, scale, color, use_occlusion)
 	local material = Material.New{
 		ColorMultiplier = color or Color(1, 1, 1, 1),
 	}
-	local mdl = ent:AddComponent("model")
-	mdl:AddPrimitive(poly, material)
-	mdl:SetUseOcclusionCulling(use_occlusion or false)
+	ent:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = "sphere_primitive", Parent = ent}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+	visual_primitive:SetMaterial(material)
+	ent.visual:SetUseOcclusionCulling(use_occlusion or false)
+	ent.visual:BuildAABB()
 	return ent
 end
 

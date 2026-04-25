@@ -11,11 +11,23 @@ local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 
+local function attach_visual_primitive(entity, poly, material)
+	entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+
+	if material then visual_primitive:SetMaterial(material) end
+
+	entity.visual:BuildAABB()
+	return entity.visual
+end
+
 T.Test3D("Raycast basic triangle hit", function()
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	-- Triangle facing +Z (CCW winding from +Z)
 	poly:AddVertex{pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
@@ -23,8 +35,7 @@ T.Test3D("Raycast basic triangle hit", function()
 	poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	attach_visual_primitive(ent, poly)
 	-- Cast ray at triangle from +Z toward -Z
 	local origin = Vec3(0, 0, 2)
 	local direction = Vec3(0, 0, -1)
@@ -40,15 +51,13 @@ T.Test3D("Raycast miss", function()
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:AddVertex{pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, -1)}
 	poly:AddVertex{pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, -1)}
 	poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, -1)}
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	attach_visual_primitive(ent, poly)
 	-- Cast ray away from triangle
 	local origin = Vec3(0, 0, -2)
 	local direction = Vec3(1, 0, 0) -- Perpendicular to triangle
@@ -61,13 +70,11 @@ T.Test3D("Raycast cube", function()
 	-- Create entity with cube mesh
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:CreateCube(1, 1)
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	attach_visual_primitive(ent, poly)
 	-- Cast ray at center of cube from different directions
 	local tests = {
 		{origin = Vec3(0, 0, -3), dir = Vec3(0, 0, 1), name = "front"},
@@ -90,7 +97,6 @@ T.Test3D("Raycast with transform", function()
 	-- Create entity with triangle mesh at offset position
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	-- Position entity to the right
 	ent.transform:SetPosition(Vec3(5, 0, 0))
 	local poly = Polygon3D.New()
@@ -99,8 +105,7 @@ T.Test3D("Raycast with transform", function()
 	poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, -1)}
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	attach_visual_primitive(ent, poly)
 	-- Cast ray at origin (should miss)
 	local hits1 = raycast.Cast(Vec3(0, 0, -2), Vec3(0, 0, 1), 10)
 	T(#hits1)["=="](0)
@@ -115,24 +120,20 @@ T.Test3D("Raycast multiple entities", function()
 	-- Create two entities at different positions
 	local ent1 = Entity.New({Name = "cube1"})
 	ent1:AddComponent("transform")
-	ent1:AddComponent("model")
 	ent1.transform:SetPosition(Vec3(0, 0, 0))
 	local poly1 = Polygon3D.New()
 	poly1:CreateCube(0.5, 1)
 	poly1:BuildBoundingBox()
 	poly1:Upload()
-	ent1.model:AddPrimitive(poly1)
-	ent1.model:BuildAABB()
+	attach_visual_primitive(ent1, poly1)
 	local ent2 = Entity.New({Name = "cube2"})
 	ent2:AddComponent("transform")
-	ent2:AddComponent("model")
 	ent2.transform:SetPosition(Vec3(0, 0, 3))
 	local poly2 = Polygon3D.New()
 	poly2:CreateCube(0.5, 1)
 	poly2:BuildBoundingBox()
 	poly2:Upload()
-	ent2.model:AddPrimitive(poly2)
-	ent2.model:BuildAABB()
+	attach_visual_primitive(ent2, poly2)
 	-- Cast ray through both
 	local origin = Vec3(0, 0, -5)
 	local direction = Vec3(0, 0, 1)
@@ -150,24 +151,20 @@ T.Test3D("Raycast with filter", function()
 	-- Create two entities
 	local ent1 = Entity.New({Name = "include_me"})
 	ent1:AddComponent("transform")
-	ent1:AddComponent("model")
 	ent1.transform:SetPosition(Vec3(0, 0, 0))
 	local poly1 = Polygon3D.New()
 	poly1:CreateCube(0.5, 1)
 	poly1:BuildBoundingBox()
 	poly1:Upload()
-	ent1.model:AddPrimitive(poly1)
-	ent1.model:BuildAABB()
+	attach_visual_primitive(ent1, poly1)
 	local ent2 = Entity.New({Name = "exclude_me"})
 	ent2:AddComponent("transform")
-	ent2:AddComponent("model")
 	ent2.transform:SetPosition(Vec3(0, 0, 3))
 	local poly2 = Polygon3D.New()
 	poly2:CreateCube(0.5, 1)
 	poly2:BuildBoundingBox()
 	poly2:Upload()
-	ent2.model:AddPrimitive(poly2)
-	ent2.model:BuildAABB()
+	attach_visual_primitive(ent2, poly2)
 	-- Cast ray with filter that only includes entities with "include" in name
 	local origin = Vec3(0, 0, -5)
 	local direction = Vec3(0, 0, 1)
@@ -189,13 +186,11 @@ end)
 T.Test3D("Raycast CastClosest", function()
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:CreateCube(1, 1)
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	attach_visual_primitive(ent, poly)
 	-- Cast and get only closest
 	local hit = raycast.Cast(Vec3(0, 0, -5), Vec3(0, 0, 1), 10)[1]
 	T(hit)["~="](nil)
@@ -206,13 +201,11 @@ end)
 T.Test3D("Raycast CastAny", function()
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:CreateCube(1, 1)
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	attach_visual_primitive(ent, poly)
 	-- Check if ray hits anything
 	local hit = raycast.Cast(Vec3(0, 0, -5), Vec3(0, 0, 1), 10)[1] ~= nil
 	T(hit)["=="](true)
@@ -225,15 +218,13 @@ end)
 T.Test3D("Raycast ground normal faces ray", function()
 	local ent = Entity.New({Name = "test_ground"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:AddVertex{pos = Vec3(-2, 0, -2), uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
 	poly:AddVertex{pos = Vec3(0, 0, 2), uv = Vec2(0.5, 1), normal = Vec3(0, -1, 0)}
 	poly:AddVertex{pos = Vec3(2, 0, -2), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
 	poly:BuildBoundingBox()
 	poly:Upload()
-	ent.model:AddPrimitive(poly)
-	ent.model:BuildAABB()
+	attach_visual_primitive(ent, poly)
 	local hit = raycast.Cast(Vec3(0, 2, 0), Vec3(0, -1, 0), 10)[1]
 	T(hit)["~="](nil)
 	T(hit.entity)["=="](ent)

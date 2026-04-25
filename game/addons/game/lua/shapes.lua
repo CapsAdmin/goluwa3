@@ -201,10 +201,14 @@ local function add_model(ent, polygon, material)
 		material = shapes.Material(material)
 	end
 
-	ent:AddComponent("model")
+	ent:AddComponent("visual")
 	polygon:Upload()
-	ent.model:AddPrimitive(polygon, material)
-	ent.model:BuildAABB()
+	local primitive_entity = Entity.New{Name = (ent.Name or "shape") .. "_primitive", Parent = ent}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(polygon)
+	visual_primitive:SetMaterial(material)
+	ent.visual:BuildAABB()
 	return material
 end
 
@@ -225,15 +229,22 @@ local function add_model_asset(ent, path, material, asset_options)
 	local entry = assets.GetModel(path)
 	assert(entry and entry.value, ("failed to load model asset %q"):format(path))
 	local shared_material = shapes.Material(material)
-	ent:AddComponent("model")
+	ent:AddComponent("visual")
 
-	for _, primitive in ipairs(create_model_asset_primitives(entry.value, asset_options)) do
+	for index, primitive in ipairs(create_model_asset_primitives(entry.value, asset_options)) do
 		local polygon = primitive.mesh or primitive.polygon3d or primitive
 		local primitive_material = primitive.material ~= nil and primitive.material or shared_material
-		ent.model:AddPrimitive(polygon, shapes.Material(primitive_material))
+		local primitive_entity = Entity.New{
+			Name = (ent.Name or "shape") .. "_primitive_" .. index,
+			Parent = ent,
+		}
+		primitive_entity:AddComponent("transform")
+		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+		visual_primitive:SetPolygon3D(polygon)
+		visual_primitive:SetMaterial(shapes.Material(primitive_material))
 	end
 
-	ent.model:BuildAABB()
+	ent.visual:BuildAABB()
 	return shared_material
 end
 

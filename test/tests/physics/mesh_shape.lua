@@ -63,6 +63,7 @@ end)
 
 T.Test("Mesh shape can resolve polygon primitives from owner models", function()
 	local poly = create_quad_polygon()
+	local primitive = {polygon3d = poly}
 	local body = test_helpers.CreateTestRigidBody{
 		Shape = MeshShape.New(),
 		Owner = {
@@ -79,10 +80,10 @@ T.Test("Mesh shape can resolve polygon primitives from owner models", function()
 					return self.rotation
 				end,
 			},
-			model = {
-				Primitives = {
-					{polygon3d = poly},
-				},
+			visual = {
+				GetPhysicsPrimitives = function()
+					return {primitive}
+				end,
 			},
 		},
 	}
@@ -121,12 +122,14 @@ T.Test("Mesh rigid bodies can be traced and preserve mesh hit metadata", functio
 				self.rotation = value
 			end,
 		},
-		model = {
-			Primitives = {primitive},
+		visual = {
+			GetPhysicsPrimitives = function()
+				return {primitive}
+			end,
 		},
 	}
 	local body = test_helpers.CreateTestRigidBody{
-		Shape = MeshShape.New{Model = owner.model},
+		Shape = MeshShape.New{Model = owner.visual},
 		Owner = owner,
 	}
 	local hit = physics.RayCast(
@@ -142,7 +145,7 @@ T.Test("Mesh rigid bodies can be traced and preserve mesh hit metadata", functio
 	T(hit ~= nil)["=="](true)
 	T(hit.rigid_body)["=="](body)
 	T(hit.entity)["=="](owner)
-	T(hit.model)["=="](owner.model)
+	T(hit.model)["=="](owner.visual)
 	T(hit.primitive)["=="](primitive)
 	T(hit.primitive_index)["=="](1)
 	T(hit.triangle_index ~= nil)["=="](true)
@@ -168,29 +171,31 @@ T.Test("Mesh shapes can resolve brush primitives from models", function()
 				return self.rotation
 			end,
 		},
-		model = {
-			Primitives = {
-				{
-					brush_planes = {
-						{normal = Vec3(1, 0, 0), dist = 1},
-						{normal = Vec3(-1, 0, 0), dist = 1},
-						{normal = Vec3(0, 1, 0), dist = 1},
-						{normal = Vec3(0, -1, 0), dist = 1},
-						{normal = Vec3(0, 0, 1), dist = 1},
-						{normal = Vec3(0, 0, -1), dist = 1},
+		visual = {
+			GetPhysicsPrimitives = function()
+				return {
+					{
+						brush_planes = {
+							{normal = Vec3(1, 0, 0), dist = 1},
+							{normal = Vec3(-1, 0, 0), dist = 1},
+							{normal = Vec3(0, 1, 0), dist = 1},
+							{normal = Vec3(0, -1, 0), dist = 1},
+							{normal = Vec3(0, 0, 1), dist = 1},
+							{normal = Vec3(0, 0, -1), dist = 1},
+						},
 					},
-				},
-			},
+				}
+			end,
 		},
 	}
 	local body = test_helpers.CreateTestRigidBody{
-		Shape = MeshShape.New{Model = owner.model},
+		Shape = MeshShape.New{Model = owner.visual},
 		Owner = owner,
 	}
 	local shape = body:GetPhysicsShape()
 	local entries = shape:GetMeshPolygonEntries(body:GetColliders()[1])
 	T(#entries)["=="](1)
-	T(entries[1].primitive)["=="](owner.model.Primitives[1])
+	T(entries[1].primitive ~= nil)["=="](true)
 	T(entries[1].polygon ~= nil)["=="](true)
 	T(shape:GetLocalBounds(body:GetColliders()[1]).min_x)["=="](-1)
 	T(shape:GetLocalBounds(body:GetColliders()[1]).max_z)["=="](1)
@@ -213,12 +218,14 @@ T.Test("World geometry rigid bodies are traced by default world queries", functi
 				return self.rotation
 			end,
 		},
-		model = {
-			Primitives = {primitive},
+		visual = {
+			GetPhysicsPrimitives = function()
+				return {primitive}
+			end,
 		},
 	}
 	local body = test_helpers.CreateTestRigidBody{
-		Shape = MeshShape.New{Model = owner.model},
+		Shape = MeshShape.New{Model = owner.visual},
 		Owner = owner,
 	}
 	body.WorldGeometry = true

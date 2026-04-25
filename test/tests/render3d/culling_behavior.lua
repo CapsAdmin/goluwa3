@@ -14,6 +14,17 @@ local Entity = import("goluwa/ecs/entity.lua")
 local width = 512
 local height = 512
 
+local function attach_visual_primitive(entity, poly, material)
+	entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = (entity:GetName() or "test") .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+	visual_primitive:SetMaterial(material)
+	entity.visual:BuildAABB()
+	return entity.visual
+end
+
 local function spawn_test_object(pos, size, color)
 	local poly = Polygon3D.New()
 	poly:CreateCube(size or 1)
@@ -26,9 +37,8 @@ local function spawn_test_object(pos, size, color)
 	local ent = Entity.New()
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(pos)
-	local mdl = ent:AddComponent("model")
-	mdl:AddPrimitive(poly, material)
-	return ent, mdl
+	local visual = attach_visual_primitive(ent, poly, material)
+	return ent, visual
 end
 
 local function TestCullingBehavior(name, cb)
@@ -137,13 +147,13 @@ TestCullingBehavior("Freezing culling", function(draw)
 	cam:SetRotation(Quat():Identity())
 	draw()
 	T(mdl.frustum_culled)["=="](false)
-	import("goluwa/ecs/components/3d/model.lua").Library.freeze_culling = true
+	import("goluwa/ecs/components/3d/visual.lua").Library.freeze_culling = true
 	-- Move camera so object would normally be culled (it will be behind)
 	cam:SetPosition(Vec3(0, 0, -10))
 	draw()
 	-- Should still be NOT culled because frustum was frozen at original camera position
 	T(mdl.frustum_culled)["=="](false)
-	import("goluwa/ecs/components/3d/model.lua").Library.freeze_culling = false
+	import("goluwa/ecs/components/3d/visual.lua").Library.freeze_culling = false
 	draw()
 	-- Now it should be culled
 	T(mdl.frustum_culled)["=="](true)

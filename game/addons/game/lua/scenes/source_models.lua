@@ -66,7 +66,7 @@ for _, model_path in ipairs(models) do
 			pos.z = pos.z + 5
 		end
 
-		e:AddComponent("model")
-		e.model:SetModelPath(model_path)
+		e:AddComponent("visual")
+		e.visual:SetModelPath(model_path)
 	end
 end

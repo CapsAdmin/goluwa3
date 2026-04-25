@@ -138,15 +138,19 @@ end
 local function create_preview_entity_from_descriptor(descriptor)
 	local entity = Entity.New{Name = descriptor.name or "asset_browser_model"}
 	entity:AddComponent("transform")
-	entity:AddComponent("model")
-	entity.model:SetVisible(false)
+	entity:AddComponent("visual")
+	entity.visual:SetVisible(false)
 
-	for _, primitive in ipairs(descriptor.create_primitives({})) do
-		entity.model:AddPrimitive(primitive.mesh or primitive.polygon3d or primitive, primitive.material)
+	for index, primitive in ipairs(descriptor.create_primitives({})) do
+		local primitive_entity = Entity.New{Name = (descriptor.name or "asset_browser_model") .. "_primitive_" .. index, Parent = entity}
+		primitive_entity:AddComponent("transform")
+		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+		visual_primitive:SetPolygon3D(primitive.mesh or primitive.polygon3d or primitive)
+		if primitive.material then visual_primitive:SetMaterial(primitive.material) end
 	end
 
-	entity.model:BuildAABB()
-	entity.model:SetUseOcclusionCulling(false)
+	entity.visual:BuildAABB()
+	entity.visual:SetUseOcclusionCulling(false)
 	return entity
 end
 
@@ -161,10 +165,10 @@ local function create_preview_entity_for_model(path)
 
 	local entity = Entity.New{Name = path}
 	entity:AddComponent("transform")
-	entity:AddComponent("model")
-	entity.model:SetVisible(false)
-	entity.model:SetUseOcclusionCulling(false)
-	entity.model:SetModelPath(path)
+	entity:AddComponent("visual")
+	entity.visual:SetVisible(false)
+	entity.visual:SetUseOcclusionCulling(false)
+	entity.visual:SetModelPath(path)
 	return entity
 end
 
@@ -191,8 +195,12 @@ local function model_materials_are_ready(model)
 
 	if not material_is_ready(material_override) then return false end
 
-	for _, primitive in ipairs(model.Primitives or {}) do
-		if not material_is_ready(material_override or primitive.material) then
+	local primitives = model:GetRenderEntries()
+
+	for _, primitive in ipairs(primitives) do
+		local material = model:GetResolvedMaterial(primitive)
+
+		if not material_is_ready(material) then
 			return false
 		end
 	end
@@ -256,20 +264,26 @@ local function build_model_tile(entry, scheduler)
 
 		if not (entity and entity.IsValid and entity:IsValid()) then return false end
 
-		if not (entity.model and entity.model.Primitives and entity.model.Primitives[1]) then
+		local target = entity.visual
+
+		if not target then return false end
+
+		local primitives = target:GetRenderEntries()
+
+		if not (primitives and primitives[1]) then
 			return false
 		end
 
-		if entity.model:IsLoading() then return false end
+		if target.IsLoading and target:IsLoading() then return false end
 
-		if not model_materials_are_ready(entity.model) then return false end
+		if not model_materials_are_ready(target) then return false end
 
 		preview = ModelPreview.New{
 			Padding = 1.12,
 			AmbientStrength = 0.34,
 			LightStrength = 0.95,
 		}
-		preview:SetTarget(entity.model)
+		preview:SetTarget(target)
 		render_requested = true
 
 		if not scheduler:ConsumePreviewStep() then return false end

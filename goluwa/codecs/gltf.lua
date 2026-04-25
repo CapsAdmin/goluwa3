@@ -936,7 +936,19 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 		return poly, material
 	end
 
-	-- Third pass: attach model components to nodes with meshes
+	local function add_visual_primitive(entity, polygon3d, material, name)
+		local visual = entity.visual or entity:AddComponent("visual")
+		local primitive_entity = Entity.New{Name = name or "primitive", Parent = entity}
+		primitive_entity:AddComponent("transform")
+		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+		visual_primitive:SetPolygon3D(polygon3d)
+		visual_primitive:SetMaterial(material)
+
+		visual:BuildAABB()
+		return visual
+	end
+
+	-- Third pass: attach visual components to nodes with meshes
 	for node_index, node in ipairs(gltf_result.nodes) do
 		if node.mesh ~= nil then
 			stats.nodes_with_mesh = stats.nodes_with_mesh + 1
@@ -948,9 +960,6 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 				local should_split = options.split_primitives and #mesh.primitives > 1
 
 				if not should_split then
-					-- Original behavior: all primitives in one model component
-					local model = entity:AddComponent("model")
-
 					-- Create primitives for this mesh
 					for prim_idx, primitive in ipairs(mesh.primitives) do
 						stats.total_primitives = stats.total_primitives + 1
@@ -978,7 +987,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								index_type,
 								index_count
 							)
-							model:AddPrimitive(poly, material, material)
+							add_visual_primitive(entity, poly, material, (mesh.name or "mesh") .. "_prim" .. prim_idx)
 						else
 							stats.failed_primitives = stats.failed_primitives + 1
 
@@ -1010,9 +1019,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 							local prim_name = (mesh.name or "mesh") .. "_prim" .. prim_idx
 							local prim_entity = Entity.New{Name = prim_name, Parent = entity}
 							prim_entity:AddComponent("transform")
-							-- Transform is identity since it inherits from parent node
-							local prim_model = prim_entity:AddComponent("model")
-							local poly = create_primitive_polygon(
+							local poly, material = create_primitive_polygon(
 								gltf_result,
 								primitive,
 								prim_aabb,
@@ -1021,7 +1028,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								index_type,
 								index_count
 							)
-							prim_model:AddPrimitive(poly)
+							add_visual_primitive(prim_entity, poly, material, prim_name)
 						else
 							stats.failed_primitives = stats.failed_primitives + 1
 

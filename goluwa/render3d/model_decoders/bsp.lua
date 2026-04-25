@@ -423,8 +423,8 @@ function steam.SetMap(name)
 	steam.bsp_world = steam.bsp_world or Entity.New({Name = "bsp_world"})
 	steam.bsp_world:SetName(name)
 	steam.bsp_world:AddComponent("transform")
-	steam.bsp_world:AddComponent("model")
-	steam.bsp_world.model:SetModelPath(path)
+	steam.bsp_world:AddComponent("visual")
+	steam.bsp_world.visual:SetModelPath(path)
 	-- Note: SetPhysicsModelPath removed - physics component not yet ported
 	steam.bsp_world:RemoveChildren()
 	-- Store the relative path for later lookup
@@ -1372,8 +1372,8 @@ function steam.SpawnMapEntities(path, parent)
 						ent.transform:SetSize(info.model_size_mult)
 					end
 
-					ent:AddComponent("model")
-					ent.model:SetModelPath(info.model)
+					ent:AddComponent("visual")
+					ent.visual:SetModelPath(info.model)
 
 					if false then
 						logf(

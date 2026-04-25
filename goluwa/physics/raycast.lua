@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
-local Model = import("goluwa/ecs/components/3d/model.lua")
+local Visual = import("goluwa/ecs/components/3d/visual.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
 local BVH_BUILD_TRIANGLE_THRESHOLD = 8
@@ -17,6 +17,32 @@ local model_acceleration = {
 	frame = -1,
 	model_count = 0,
 }
+
+local function get_spatial_primitives(model)
+	if not model then return nil end
+
+	if model.GetPhysicsPrimitives then return model:GetPhysicsPrimitives() end
+
+	return model.Primitives
+end
+
+local function get_spatial_local_aabb(model)
+	if not model then return nil end
+
+	if model.GetAABB then return model:GetAABB() end
+
+	return model.AABB
+end
+
+local function get_spatial_component_count()
+	return #(Visual.Instances or {})
+end
+
+local function for_each_spatial_component(callback)
+	for _, visual in ipairs(Visual.Instances or {}) do
+		callback(visual)
+	end
+end
 
 local function create_ray(origin, direction, max_distance)
 	local tbl = {}
@@ -50,7 +76,8 @@ function raycast.InvalidateModelAcceleration()
 end
 
 local function has_model_geometry(model)
-	return model and model.Primitives and #model.Primitives > 0 and model.AABB ~= nil
+	local primitives = get_spatial_primitives(model)
+	return model and primitives and primitives[1] ~= nil and get_spatial_local_aabb(model) ~= nil
 end
 
 local function is_dynamic_model(model)
@@ -91,7 +118,7 @@ local function rebuild_model_acceleration()
 	local items = {}
 	local dynamic_models = {}
 
-	for _, model in ipairs(Model.Instances or {}) do
+	for_each_spatial_component(function(model)
 		if has_model_geometry(model) then
 			if is_dynamic_model(model) then
 				dynamic_models[#dynamic_models + 1] = model
@@ -99,7 +126,7 @@ local function rebuild_model_acceleration()
 				add_model_acceleration_item(items, model, model.GetWorldAABB and model:GetWorldAABB() or model.AABB)
 			end
 		end
-	end
+	end)
 
 	model_acceleration.items = items
 	model_acceleration.dynamic_models = dynamic_models
@@ -166,7 +193,7 @@ end
 
 local function ensure_model_acceleration()
 	local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
-	local model_count = #(Model.Instances or {})
+	local model_count = get_spatial_component_count()
 
 	if
 		model_acceleration.dirty or
@@ -329,7 +356,8 @@ end
 local function get_triangle_acceleration(primitive, vertices, indices, triangle_count)
 	if triangle_count < BVH_BUILD_TRIANGLE_THRESHOLD then return nil end
 
-	local accel = primitive.raycast_acceleration
+	local acceleration_owner = primitive.acceleration_owner or primitive
+	local accel = acceleration_owner.raycast_acceleration
 
 	if
 		accel and
@@ -343,7 +371,7 @@ local function get_triangle_acceleration(primitive, vertices, indices, triangle_
 	local built = build_triangle_acceleration(vertices, indices, triangle_count)
 
 	if not built then
-		primitive.raycast_acceleration = nil
+		acceleration_owner.raycast_acceleration = nil
 		return nil
 	end
 
@@ -356,7 +384,7 @@ local function get_triangle_acceleration(primitive, vertices, indices, triangle_
 			node_stack = {},
 			tmin_stack = {},
 		}
-	primitive.raycast_acceleration = built
+	acceleration_owner.raycast_acceleration = built
 	return built
 end
 
@@ -369,8 +397,9 @@ end
 local function build_model_primitive_acceleration(model)
 	local items = {}
 	local uncached_indices = {}
+	local primitives = get_spatial_primitives(model) or {}
 
-	for primitive_idx, primitive in ipairs(model.Primitives or {}) do
+	for primitive_idx, primitive in ipairs(primitives) do
 		local bounds = primitive.aabb
 
 		if bounds then
@@ -413,19 +442,20 @@ local function build_model_primitive_acceleration(model)
 		}
 	return {
 		tree = tree,
-		primitive_table = model.Primitives,
-		primitive_count = #model.Primitives,
+		primitive_table = primitives,
+		primitive_count = #primitives,
 		uncached_indices = uncached_indices,
 	}
 end
 
 local function get_model_primitive_acceleration(model)
 	local accel = model.raycast_primitive_acceleration
+	local primitives = get_spatial_primitives(model) or {}
 
 	if
 		accel and
-		accel.primitive_table == model.Primitives and
-		accel.primitive_count == #model.Primitives
+		accel.primitive_table == primitives and
+		accel.primitive_count == #primitives
 	then
 		return accel
 	end
@@ -582,6 +612,12 @@ local function test_primitive_with_limit(
 
 	if not poly3d then return nil end
 
+	local primitive_ray = local_ray
+
+	if primitive.local_matrix_inverse then
+		primitive_ray = transform_ray(local_ray, primitive.local_matrix_inverse)
+	end
+
 	local vertices = get_mesh_vertices(poly3d)
 
 	if not vertices then return nil end
@@ -593,7 +629,7 @@ local function test_primitive_with_limit(
 	if acceleration then
 		local traversal_context = acceleration.traversal_context
 		traversal_context.acceleration = acceleration
-		traversal_context.local_ray = local_ray
+		traversal_context.local_ray = primitive_ray
 		traversal_context.vertices = vertices
 		traversal_context.primitive_idx = primitive_idx
 		traversal_context.entity = entity
@@ -610,7 +646,7 @@ local function test_primitive_with_limit(
 		)
 	else
 		for tri_idx = 0, triangle_count - 1 do
-			local hit = test_triangle(local_ray, vertices, indices, tri_idx, primitive_idx, entity)
+			local hit = test_triangle(primitive_ray, vertices, indices, tri_idx, primitive_idx, entity)
 
 			if
 				hit and
@@ -632,6 +668,26 @@ local function test_primitive_with_limit(
 	if closest_hit then
 		closest_hit.poly = poly3d
 		closest_hit.primitive = primitive
+	end
+
+	if closest_hit and primitive.local_matrix then
+		local local_position = closest_hit.position
+		closest_hit.position = Vec3(
+			primitive.local_matrix:TransformVectorUnpacked(local_position.x, local_position.y, local_position.z)
+		)
+		local normal_end = local_position + closest_hit.normal
+		local transformed_normal_end = Vec3(
+			primitive.local_matrix:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z)
+		)
+		closest_hit.normal = (transformed_normal_end - closest_hit.position):GetNormalized()
+
+		if closest_hit.face_normal then
+			local local_face_end = local_position + closest_hit.face_normal
+			local transformed_face_end = Vec3(
+				primitive.local_matrix:TransformVectorUnpacked(local_face_end.x, local_face_end.y, local_face_end.z)
+			)
+			closest_hit.face_normal = (transformed_face_end - closest_hit.position):GetNormalized()
+		end
 	end
 
 	if closest_hit and local_to_world then
@@ -725,8 +781,9 @@ end
 
 function raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_aabb, out)
 	out = out or {}
+	local primitives = get_spatial_primitives(model)
 
-	if not (model and local_aabb and model.Primitives and model.Primitives[1]) then
+	if not (model and local_aabb and primitives and primitives[1]) then
 		return out
 	end
 
@@ -745,7 +802,7 @@ function raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_aabb, o
 		)
 
 		for _, primitive_idx in ipairs(primitive_acceleration.uncached_indices or {}) do
-			local primitive = model.Primitives[primitive_idx]
+			local primitive = primitives[primitive_idx]
 
 			if
 				not primitive or
@@ -762,7 +819,7 @@ function raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_aabb, o
 		return out
 	end
 
-	for primitive_idx, primitive in ipairs(model.Primitives) do
+	for primitive_idx, primitive in ipairs(primitives) do
 		if
 			not primitive or
 			not primitive.aabb or
@@ -793,13 +850,16 @@ local function test_model_closest(
 )
 	if filter_fn and not filter_fn(model.Owner, a, b, c, d, e, f) then return nil end
 
-	if not model.Visible or #model.Primitives == 0 then return nil end
+	local primitives = get_spatial_primitives(model)
+
+	if not model.Visible or not (primitives and primitives[1]) then return nil end
 
 	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
+	local local_aabb = get_spatial_local_aabb(model)
 
-	if not skip_model_aabb and model.AABB then
-		local aabb_hit, model_tmin = BVH.RayAABBIntersection(local_ray, model.AABB)
+	if not skip_model_aabb and local_aabb then
+		local aabb_hit, model_tmin = BVH.RayAABBIntersection(local_ray, local_aabb)
 
 		if not aabb_hit or model_tmin > closest_distance then return nil end
 	end
@@ -824,7 +884,7 @@ local function test_model_closest(
 		)
 
 		for _, primitive_idx in ipairs(primitive_acceleration.uncached_indices or {}) do
-			local primitive = model.Primitives[primitive_idx]
+			local primitive = primitives[primitive_idx]
 			local hit = test_primitive_with_limit(
 				ray,
 				local_ray,
@@ -847,7 +907,7 @@ local function test_model_closest(
 		return closest_hit
 	end
 
-	for prim_idx, primitive in ipairs(model.Primitives) do
+	for prim_idx, primitive in ipairs(primitives) do
 		local hit = test_primitive_with_limit(
 			ray,
 			local_ray,
@@ -873,13 +933,16 @@ end
 local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits, skip_model_aabb)
 	if filter_fn and not filter_fn(model.Owner, a, b, c, d, e, f) then return end
 
-	if not model.Visible or #model.Primitives == 0 then return end
+	local primitives = get_spatial_primitives(model)
+
+	if not model.Visible or not (primitives and primitives[1]) then return end
 
 	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
+	local local_aabb = get_spatial_local_aabb(model)
 
-	if not skip_model_aabb and model.AABB then
-		local aabb_hit = BVH.RayAABBIntersection(local_ray, model.AABB)
+	if not skip_model_aabb and local_aabb then
+		local aabb_hit = BVH.RayAABBIntersection(local_ray, local_aabb)
 
 		if not aabb_hit then return end
 	end
@@ -904,7 +967,7 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 		)
 
 		for _, primitive_idx in ipairs(primitive_acceleration.uncached_indices or {}) do
-			local primitive = model.Primitives[primitive_idx]
+			local primitive = primitives[primitive_idx]
 			local hit = test_primitive(ray, local_ray, primitive, primitive_idx, model.Owner, local_to_world)
 
 			if hit then
@@ -916,7 +979,7 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 		return
 	end
 
-	for prim_idx, primitive in ipairs(model.Primitives) do
+	for prim_idx, primitive in ipairs(primitives) do
 		local hit = test_primitive(ray, local_ray, primitive, prim_idx, model.Owner, local_to_world)
 
 		if hit then

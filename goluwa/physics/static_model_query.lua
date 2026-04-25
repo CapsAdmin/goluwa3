@@ -3,8 +3,14 @@ local physics_constants = import("goluwa/physics/constants.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local ModelComponent = import("goluwa/ecs/components/3d/model.lua")
+local VisualComponent = import("goluwa/ecs/components/3d/visual.lua")
 local static_model_query = {}
+
+local function for_each_spatial_component(callback)
+	for _, visual in ipairs(VisualComponent.Instances) do
+		callback(visual)
+	end
+end
 
 function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_body)
 	local margin = body and body.GetCollisionMargin and body:GetCollisionMargin() or 0
@@ -107,9 +113,9 @@ function static_model_query.CollectWorldModelCandidates(world_aabb, out, include
 
 	if not world_aabb then return out end
 
-	for _, model in ipairs(ModelComponent.Instances) do
+	for_each_spatial_component(function(model)
 		append_model_candidate(out, model, world_aabb, include_unbounded)
-	end
+	end)
 
 	return out
 end
@@ -118,7 +124,7 @@ function static_model_query.ForEachWorldPrimitiveCandidate(body, callback, world
 	local body_aabb = world_aabb or static_model_query.BuildBodyWorldContactAABB(body)
 	local primitive_candidates = {}
 
-	for _, model in ipairs(ModelComponent.Instances) do
+	for_each_spatial_component(function(model)
 		local entity = model and model.Owner or nil
 
 		if not (model and entity and entity ~= body:GetOwner()) then
@@ -156,7 +162,7 @@ function static_model_query.ForEachWorldPrimitiveCandidate(body, callback, world
 		end
 
 		::continue_model::
-	end
+	end)
 end
 
 return static_model_query

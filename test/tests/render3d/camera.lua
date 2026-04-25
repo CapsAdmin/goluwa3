@@ -38,6 +38,17 @@ local positions = {
 	bottom_right = Vec2(width - 10, height - 10),
 }
 
+local function attach_visual_primitive(entity, poly, material)
+	entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+	visual_primitive:SetMaterial(material)
+	entity.visual:BuildAABB()
+	entity.visual:SetUseOcclusionCulling(false)
+end
+
 local function test_color(pos_name, color_name, tolerance)
 	local pos = positions[pos_name]
 	local color = colors[color_name]
@@ -84,10 +95,7 @@ local function create_face(pos, normal, up, color)
 	}
 	local ent = Entity.New({Name = "face"})
 	ent:AddComponent("transform")
-	ent:AddComponent("model")
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	ent.model:SetUseOcclusionCulling(false)
+	attach_visual_primitive(ent, poly, material)
 	return ent
 end
 
@@ -148,10 +156,7 @@ local function TestCamera(name, cb, opts)
 				}
 				local ent = Entity.New({Name = "mdl"})
 				ent:AddComponent("transform")
-				ent:AddComponent("model")
-				ent.model:AddPrimitive(poly, material)
-				ent.model:BuildAABB()
-				ent.model:SetUseOcclusionCulling(false)
+				attach_visual_primitive(ent, poly, material)
 				table.insert(ents, ent)
 			end
 		end

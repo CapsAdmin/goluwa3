@@ -51,7 +51,7 @@ function module.SimulatePhysics(physics, steps, dt)
 end
 
 function module.AttachWorldGeometryBody(entity, source)
-	source = source or {Model = entity.model}
+	source = source or {Model = entity.visual}
 	local body = entity:AddComponent(
 		"rigid_body",
 		{

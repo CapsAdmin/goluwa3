@@ -11,6 +11,17 @@ local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local width, height = 512, 512
 
+local function attach_visual_primitive(entity, poly, material)
+	entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+	visual_primitive:SetMaterial(material)
+	entity.visual:BuildAABB()
+	return entity.visual
+end
+
 local function spawn_sphere(pos, use_occlusion)
 	local ent = Entity.New({Name = "sphere"})
 	local trans = ent:AddComponent("transform")
@@ -21,10 +32,9 @@ local function spawn_sphere(pos, use_occlusion)
 	local material = Material.New{
 		ColorMultiplier = Color(1, 1, 1, 1),
 	}
-	local mdl = ent:AddComponent("model")
-	mdl:AddPrimitive(poly, material)
-	mdl:SetUseOcclusionCulling(use_occlusion or false)
-	return ent, mdl
+	local visual = attach_visual_primitive(ent, poly, material)
+	visual:SetUseOcclusionCulling(use_occlusion or false)
+	return ent, visual
 end
 
 T.Test3D("culling and occlusion", function(draw)
@@ -55,7 +65,7 @@ T.Test3D("culling and occlusion", function(draw)
 	end)
 
 	T.Test3D("occlusion culling", function(draw)
-		import("goluwa/ecs/components/3d/model.lua").Library.SetOcclusionCulling(true)
+		import("goluwa/ecs/components/3d/visual.lua").Library.SetOcclusionCulling(true)
 		-- Spawn a large occluder in front
 		local occluder_ent, occluder_mdl = spawn_sphere(Vec3(0, 0, -5))
 		occluder_ent.transform:SetScale(Vec3(5, 5, 1))
@@ -67,7 +77,7 @@ T.Test3D("culling and occlusion", function(draw)
 		T(occludee_mdl.using_conditional_rendering)["=="](true)
 		-- Second frame: should use results from first frame
 		draw()
-		local stats = import("goluwa/ecs/components/3d/model.lua").Library.GetOcclusionStats()
+		local stats = import("goluwa/ecs/components/3d/visual.lua").Library.GetOcclusionStats()
 		--print("Occlusion stats:", stats.total, stats.with_occlusion, stats.submitted_with_conditional)
 		-- We can't easily check if the GPU actually culled it, 
 		-- but we can check if it was submitted with conditional rendering.

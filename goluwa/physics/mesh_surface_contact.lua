@@ -351,9 +351,10 @@ local function get_mesh_hit_feature_contact(hit, reference_point)
 	)
 
 	local model = hit.model
+	local primitives = model and model.GetPhysicsPrimitives and model:GetPhysicsPrimitives() or model and model.Primitives
 
-	if model and model.Primitives and local_feature_positions then
-		for _, primitive in ipairs(model.Primitives) do
+	if primitives and local_feature_positions then
+		for _, primitive in ipairs(primitives) do
 			local primitive_poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
 
 			if primitive ~= hit.primitive and primitive_poly then

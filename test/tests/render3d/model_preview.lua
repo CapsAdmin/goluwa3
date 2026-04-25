@@ -9,6 +9,17 @@ local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
 
+local function attach_visual_primitive(entity, poly, material)
+	entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(poly)
+	visual_primitive:SetMaterial(material)
+	entity.visual:BuildAABB()
+	entity.visual:SetUseOcclusionCulling(false)
+end
+
 local function create_entity(offset)
 	local poly = Polygon3D.New()
 	poly:CreateCube(0.5, 1.0)
@@ -29,10 +40,7 @@ local function create_entity(offset)
 	}
 	local entity = Entity.New{Name = "preview_model"}
 	entity:AddComponent("transform")
-	entity:AddComponent("model")
-	entity.model:AddPrimitive(poly, material)
-	entity.model:BuildAABB()
-	entity.model:SetUseOcclusionCulling(false)
+	attach_visual_primitive(entity, poly, material)
 	return entity
 end
 
@@ -63,10 +71,7 @@ local function create_textured_entity()
 	}
 	local entity = Entity.New{Name = "preview_textured_model"}
 	entity:AddComponent("transform")
-	entity:AddComponent("model")
-	entity.model:AddPrimitive(poly, material)
-	entity.model:BuildAABB()
-	entity.model:SetUseOcclusionCulling(false)
+	attach_visual_primitive(entity, poly, material)
 	return entity
 end
 
