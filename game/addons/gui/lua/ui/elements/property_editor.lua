@@ -6,13 +6,10 @@ local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local Panel = import("goluwa/ecs/panel.lua")
-local clipboard = import("goluwa/bindings/clipboard.lua")
 local system = import("goluwa/system.lua")
 local Button = import("lua/ui/elements/button.lua")
 local Collapsible = import("lua/ui/elements/collapsible.lua")
 local Column = import("lua/ui/elements/column.lua")
-local ContextMenu = import("lua/ui/elements/context_menu.lua")
-local MenuItem = import("lua/ui/elements/context_menu_item.lua")
 local Text = import("lua/ui/elements/text.lua")
 local Window = import("lua/ui/elements/window.lua")
 local ColorPicker = import("lua/ui/elements/color_picker.lua")
@@ -23,11 +20,6 @@ local PropertyObject = import("lua/ui/elements/properties/object.lua")
 local PropertyString = import("lua/ui/elements/properties/string.lua")
 local PropertyVector = import("lua/ui/elements/properties/vector.lua")
 local theme = import("lua/ui/theme.lua")
-local icon_sources = {
-	copy = "https://api.iconify.design/material-symbols-light/content-copy.svg",
-	paste = "https://api.iconify.design/material-symbols-light/content-paste-rounded.svg",
-	reset = "https://api.iconify.design/material-symbols-light/reset-iso-rounded.svg",
-}
 
 local function has_entries(list)
 	return list and next(list) ~= nil
@@ -91,15 +83,6 @@ local function get_precision(node, fallback)
 	return fallback
 end
 
-local function format_number(node, value, fallback_precision)
-	local numeric = tonumber(value) or 0
-	local precision = get_precision(node, fallback_precision or 2)
-
-	if precision <= 0 then return tostring(math.floor(numeric + 0.5)) end
-
-	return string.format("%." .. precision .. "f", numeric)
-end
-
 local vector_kinds = {
 	vec2 = {
 		components = {"x", "y"},
@@ -151,25 +134,6 @@ local function get_vector_kind_info(kind)
 	return vector_kinds[normalize_kind(kind or "")]
 end
 
-local function format_vector(node, value, fallback_precision)
-	local info = get_vector_kind_info(node.Type or node.Editor)
-
-	if not info then return tostring(value) end
-
-	local precision = get_precision(node, fallback_precision or 2)
-	local values = {}
-
-	for index, key in ipairs(info.components) do
-		values[index] = format_number(
-			{Precision = precision},
-			tonumber(value and (value[key] or value[index])) or 0,
-			precision
-		)
-	end
-
-	return "(" .. table.concat(values, ", ") .. ")"
-end
-
 local open_color_picker_window
 open_color_picker_window = function(node, value, key, path, panel, commit_value)
 	local window_size = Vec2(380, 430)
@@ -200,121 +164,6 @@ open_color_picker_window = function(node, value, key, path, panel, commit_value)
 	)
 end
 
-local function trim(text)
-	return tostring(text or ""):match("^%s*(.-)%s*$")
-end
-
-local function decode_boolean(text)
-	local normalized = trim(text):lower()
-
-	if
-		normalized == "true" or
-		normalized == "1" or
-		normalized == "yes" or
-		normalized == "on"
-	then
-		return true, true
-	end
-
-	if
-		normalized == "false" or
-		normalized == "0" or
-		normalized == "no" or
-		normalized == "off"
-	then
-		return false, true
-	end
-
-	return nil, false
-end
-
-local function decode_enum(options, text)
-	local normalized = trim(text)
-	local normalized_lower = normalized:lower()
-
-	for _, option in ipairs(options or {}) do
-		local option_text
-		local option_value
-
-		if type(option) == "table" then
-			option_text = tostring(option.Text or option.Label or option.Value)
-			option_value = option.Value
-		else
-			option_text = tostring(option)
-			option_value = option
-		end
-
-		if tostring(option_value) == normalized or option_text:lower() == normalized_lower then
-			return option_value, true
-		end
-	end
-
-	return nil, false
-end
-
-local function decode_vector(kind, text)
-	local info = get_vector_kind_info(kind)
-
-	if not info then return nil, false end
-
-	local values = {}
-
-	for number in tostring(text or ""):gmatch("[%+%-]?%d+%.?%d*") do
-		values[#values + 1] = tonumber(number)
-
-		if #values >= #info.components then break end
-	end
-
-	if #values ~= #info.components then return nil, false end
-
-	return info.factory(values), true
-end
-
-local function get_option_text(options, value)
-	for _, option in ipairs(options or {}) do
-		if type(option) == "table" then
-			if option.Value == value then
-				return tostring(option.Text or option.Label or option.Value)
-			end
-		elseif option == value then
-			return tostring(option)
-		end
-	end
-
-	if value == nil then return "Select..." end
-
-	return tostring(value)
-end
-
-local function describe_value(node, fallback_precision)
-	if has_entries(get_node_children(node)) then
-		local child_count = #get_node_children(node)
-		return child_count .. " child" .. (child_count == 1 and "" or "ren")
-	end
-
-	local kind = normalize_kind(node.Type or node.Editor)
-
-	if kind == "boolean" then return node.Value and "enabled" or "disabled" end
-
-	if kind == "enum" then return get_option_text(node.Options, node.Value) end
-
-	if kind == "number" then
-		return format_number(node, node.Value, fallback_precision)
-	end
-
-	if get_vector_kind_info(kind) then
-		return format_vector(node, node.Value, fallback_precision)
-	end
-
-	if kind == "action" then
-		return node.ActionText or node.ButtonText or "Action"
-	end
-
-	if node.Value == nil then return "" end
-
-	return tostring(node.Value)
-end
-
 return function(props)
 	props = props or {}
 	local external_ref = props.Ref
@@ -327,7 +176,6 @@ return function(props)
 	local items = props.Items or {}
 	local selected_key = props.SelectedKey
 	local number_precision = props.NumberPrecision or 2
-	local slider_width = props.SliderWidth or 150
 	local value_width = props.ValueWidth or 220
 	local compact_font_size = props.FontSize or "XS"
 	local compact_padding = props.Padding or "XXXS"
@@ -337,7 +185,6 @@ return function(props)
 	local divider_width = props.DividerWidth or 6
 	local divider_draw_alpha = props.DividerDrawAlpha or 1
 	local collapsed_state = {}
-	local default_encoded_values = {}
 	local category_refs = {}
 	local category_key_columns = {}
 	local category_dividers = {}
@@ -449,132 +296,15 @@ return function(props)
 		end
 	end
 
-	local function encode_value_for_node(node, value, panel)
-		if panel and panel.EncodeValue then return panel:EncodeValue() end
+	local function open_property_context_menu(entry)
+		local info = row_infos[entry.key]
+		local panel = info and (info.editor_value_panel or info.editor_panel) or nil
 
-		local kind = normalize_kind(node.Type or node.Editor)
+		if not panel then return end
 
-		if kind == "boolean" then return value and "true" or "false" end
+		if panel.IsValid and not panel:IsValid() then return end
 
-		if kind == "enum" then return tostring(value) end
-
-		if kind == "number" then return format_number(node, value, number_precision) end
-
-		if get_vector_kind_info(kind) then
-			return format_vector(node, value, number_precision)
-		end
-
-		if kind == "action" then return nil end
-
-		if kind == "material" or kind == "texture" then return nil end
-
-		if value == nil then return "" end
-
-		return tostring(value)
-	end
-
-	local function decode_value_for_node(node, text, current_value, panel)
-		if panel and panel.DecodeValue then return panel:DecodeValue(text) end
-
-		local kind = normalize_kind(node.Type or node.Editor)
-
-		if kind == "boolean" then return decode_boolean(text) end
-
-		if kind == "enum" then return decode_enum(node.Options, text) end
-
-		if kind == "number" then
-			local numeric = tonumber(text)
-
-			if numeric == nil then return nil, false end
-
-			if node.Min ~= nil then numeric = math.max(node.Min, numeric) end
-
-			if node.Max ~= nil then numeric = math.min(node.Max, numeric) end
-
-			return numeric, true
-		end
-
-		if get_vector_kind_info(kind) then return decode_vector(kind, text) end
-
-		if kind == "action" then return nil, false end
-
-		if kind == "material" or kind == "texture" then return nil, false end
-
-		return tostring(text or ""), true
-	end
-
-	local function get_default_encoded_value(node, key, panel)
-		if node.DefaultEncoded ~= nil then return tostring(node.DefaultEncoded) end
-
-		if node.Default ~= nil then
-			return encode_value_for_node(node, node.Default, panel)
-		end
-
-		if default_encoded_values[key] == nil then
-			default_encoded_values[key] = encode_value_for_node(node, node.Value, panel)
-		end
-
-		return default_encoded_values[key]
-	end
-
-	local function open_value_context_menu(entry, panel)
-		local node = entry.node
-		local kind = normalize_kind(node.Type or node.Editor)
-
-		if kind == "action" or has_entries(get_node_children(node)) then return end
-
-		sync_selection(entry.key)
-		local current_encoded = encode_value_for_node(node, node.Value, panel)
-		local default_encoded = get_default_encoded_value(node, entry.key, panel)
-		local clipboard_text = clipboard.Get() or ""
-		local _, can_paste = decode_value_for_node(node, clipboard_text, node.Value, panel)
-		local can_reset = default_encoded ~= nil and default_encoded ~= current_encoded
-		local active = Panel.World:GetKeyed("ActiveContextMenu")
-
-		if active and active:IsValid() then active:Remove() end
-
-		local function apply_encoded_value(encoded)
-			local decoded, ok = decode_value_for_node(node, encoded, node.Value, panel)
-
-			if not ok then return end
-
-			commit_value(node, decoded, entry.key, entry.path, panel)
-		end
-
-		Panel.World:Ensure(
-			ContextMenu{
-				Key = "ActiveContextMenu",
-				Position = system.GetWindow():GetMousePosition():Copy(),
-				OnClose = function(ent)
-					ent:Remove()
-				end,
-			}{
-				MenuItem{
-					Text = "Copy",
-					IconSource = icon_sources.copy,
-					Disabled = current_encoded == nil,
-					OnClick = function()
-						if current_encoded ~= nil then clipboard.Set(current_encoded) end
-					end,
-				},
-				MenuItem{
-					Text = "Paste",
-					IconSource = icon_sources.paste,
-					Disabled = not can_paste,
-					OnClick = function()
-						apply_encoded_value(clipboard_text)
-					end,
-				},
-				MenuItem{
-					Text = "Reset",
-					IconSource = icon_sources.reset,
-					Disabled = not can_reset,
-					OnClick = function()
-						if default_encoded ~= nil then apply_encoded_value(default_encoded) end
-					end,
-				},
-			}
-		)
+		if panel.OpenContextMenu then return panel:OpenContextMenu() end
 	end
 
 	local function build_editor_panel(node, path, key)
@@ -597,10 +327,10 @@ return function(props)
 			gap = compact_gap,
 			number_precision = number_precision,
 			get_precision = get_precision,
-			get_option_text = get_option_text,
 			vector_info = vector_info,
 			open_color_picker_window = open_color_picker_window,
 			build_number_control = PropertyNumber,
+			sync_selection = sync_selection,
 		}
 
 		if kind == "boolean" or type(node.Value) == "boolean" then
@@ -704,8 +434,7 @@ return function(props)
 					if not press then return end
 
 					if button == "button_2" then
-						open_value_context_menu(entry)
-						return true
+						return open_property_context_menu(entry)
 					end
 
 					if button ~= "button_1" then return end
@@ -767,8 +496,7 @@ return function(props)
 				OnMouseInput = function(self, button, press)
 					if button ~= "button_2" or not press then return end
 
-					open_value_context_menu(entry, editor_value_panel)
-					return true
+					return open_property_context_menu(entry)
 				end,
 			},
 			clickable = true,

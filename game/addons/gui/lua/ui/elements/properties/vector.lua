@@ -3,6 +3,7 @@ local Color = import("goluwa/structs/color.lua")
 local input = import("goluwa/input.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local Row = import("lua/ui/elements/row.lua")
+local Value = import("lua/ui/elements/properties/value.lua")
 local theme = import("lua/ui/theme.lua")
 
 local function get_component(source, components, index, default)
@@ -37,6 +38,21 @@ local function resolve_size(value)
 	return value
 end
 
+local function format_number(value, precision)
+	local numeric = tonumber(value)
+
+	if numeric == nil then return "" end
+
+	if precision == nil then return tostring(numeric) end
+
+	if precision <= 0 then return tostring(math.round(numeric)) end
+
+	local formatted = string.format("%." .. precision .. "f", numeric)
+	formatted = formatted:gsub("(%..-)0+$", "%1")
+	formatted = formatted:gsub("%.$", "")
+	return formatted
+end
+
 return function(props)
 	local node = props.node
 	local components = props.vector_info.components
@@ -64,6 +80,7 @@ return function(props)
 	local children = {}
 	local swatch
 	local updating = false
+	local default_encoded
 
 	local function get_min(index)
 		return tonumber(get_component(node.Min, components, index, -math.huge)) or -math.huge
@@ -108,6 +125,16 @@ return function(props)
 		if node.VectorFactory then return node.VectorFactory(values, source) end
 
 		return props.vector_info.factory(values)
+	end
+
+	local function encode_source(source)
+		local encoded = {}
+
+		for index = 1, component_count do
+			encoded[index] = format_number(get_component(source, components, index, 0), get_precision(index))
+		end
+
+		return table.concat(encoded, " ")
 	end
 
 	local value = build_value(node.Value)
@@ -281,6 +308,32 @@ return function(props)
 	end
 
 	control:SetValue(value)
+
+	if node.DefaultEncoded ~= nil then
+		default_encoded = tostring(node.DefaultEncoded)
+	elseif node.Default ~= nil then
+		default_encoded = encode_source(node.Default)
+	else
+		default_encoded = control:EncodeValue()
+	end
+
+	Value.InstallContextMenu(control, {
+		BeforeOpen = function()
+			if props.sync_selection then props.sync_selection(props.key) end
+		end,
+		Encode = function(panel)
+			return panel:EncodeValue()
+		end,
+		Decode = function(text, panel)
+			return panel:DecodeValue(text)
+		end,
+		GetDefaultEncoded = function()
+			return default_encoded
+		end,
+		Commit = function(decoded, panel)
+			props.commit_value(node, decoded, props.key, props.path, panel)
+		end,
+	})
 
 	return control, control
 end

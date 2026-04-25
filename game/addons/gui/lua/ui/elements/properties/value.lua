@@ -1,10 +1,19 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
+local clipboard = import("goluwa/bindings/clipboard.lua")
+local ContextMenu = import("lua/ui/elements/context_menu.lua")
+local MenuItem = import("lua/ui/elements/context_menu_item.lua")
 local Text = import("lua/ui/elements/text.lua")
 local prototype = import("goluwa/prototype.lua")
 local system = import("goluwa/system.lua")
 local theme = import("lua/ui/theme.lua")
+local Value = {}
+local icon_sources = {
+	copy = "https://api.iconify.design/material-symbols-light/content-copy.svg",
+	paste = "https://api.iconify.design/material-symbols-light/content-paste-rounded.svg",
+	reset = "https://api.iconify.design/material-symbols-light/reset-iso-rounded.svg",
+}
 
 local function set_text(panel, value)
 	if panel and panel:IsValid() and panel.text then
@@ -18,7 +27,88 @@ local function default_format_value(value)
 	return tostring(value)
 end
 
-return function(props)
+function Value.InstallContextMenu(panel, props)
+	if not (panel and props) then return panel end
+
+	function panel:OpenContextMenu()
+		if props.BeforeOpen then props.BeforeOpen(self) end
+
+		local current_encoded = props.Encode and props.Encode(self) or nil
+		local default_encoded = props.GetDefaultEncoded and props.GetDefaultEncoded(self, current_encoded) or nil
+		local clipboard_text = clipboard.Get() or ""
+		local can_paste = false
+
+		if props.Decode then
+			local _, ok = props.Decode(clipboard_text, self)
+			can_paste = ok == true
+		end
+		local can_reset = default_encoded ~= nil and default_encoded ~= current_encoded
+		local active = Panel.World:GetKeyed("ActiveContextMenu")
+
+		if active and active:IsValid() then active:Remove() end
+
+		local function apply_encoded_value(encoded)
+			if not (props.Decode and props.Commit) then return end
+
+			local decoded, ok = props.Decode(encoded, self)
+
+			if not ok then return end
+
+			props.Commit(decoded, self)
+		end
+
+		Panel.World:Ensure(
+			ContextMenu{
+				Key = "ActiveContextMenu",
+				Position = system.GetWindow():GetMousePosition():Copy(),
+				OnClose = function(ent)
+					ent:Remove()
+				end,
+			}{
+				MenuItem{
+					Text = "Copy",
+					IconSource = icon_sources.copy,
+					Disabled = current_encoded == nil,
+					OnClick = function()
+						if current_encoded ~= nil then clipboard.Set(current_encoded) end
+					end,
+				},
+				MenuItem{
+					Text = "Paste",
+					IconSource = icon_sources.paste,
+					Disabled = not can_paste,
+					OnClick = function()
+						apply_encoded_value(clipboard_text)
+					end,
+				},
+				MenuItem{
+					Text = "Reset",
+					IconSource = icon_sources.reset,
+					Disabled = not can_reset,
+					OnClick = function()
+						if default_encoded ~= nil then apply_encoded_value(default_encoded) end
+					end,
+				},
+			}
+		)
+
+		return true
+	end
+
+	if panel.mouse_input and panel.mouse_input.OnMouseInput then
+		local on_mouse_input = panel.mouse_input.OnMouseInput
+
+		panel.mouse_input.OnMouseInput = function(self, button, press, ...)
+			if button == "button_2" and press then return panel:OpenContextMenu() end
+
+			return on_mouse_input(self, button, press, ...)
+		end
+	end
+
+	return panel
+end
+
+local function create_value(props)
 	props = props or {}
 	local external_ref = props.Ref
 
@@ -376,7 +466,15 @@ return function(props)
 		return state.dragging
 	end
 
+	if props.ContextMenu then Value.InstallContextMenu(panel, props.ContextMenu) end
+
 	if external_ref then external_ref(panel) end
 
 	return panel
 end
+
+return setmetatable(Value, {
+	__call = function(_, props)
+		return create_value(props)
+	end,
+})

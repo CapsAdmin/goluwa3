@@ -43,6 +43,7 @@ return function(props)
 	local drag_precision_boost = node.DragPrecisionBoost or 2
 	local drag_step = node.DragStep
 	local control
+	local default_encoded
 
 	local function get_display_precision()
 		if control and control.IsDragging and control:IsDragging() then
@@ -115,6 +116,23 @@ return function(props)
 		OnChange = function(value)
 			props.commit_value(node, value, props.key, props.path)
 		end,
+		ContextMenu = {
+			BeforeOpen = function()
+				if props.sync_selection then props.sync_selection(props.key) end
+			end,
+			Encode = function(panel)
+				return panel:EncodeValue()
+			end,
+			Decode = function(text, panel)
+				return panel:DecodeValue(text)
+			end,
+			GetDefaultEncoded = function()
+				return default_encoded
+			end,
+			Commit = function(decoded, panel)
+				props.commit_value(node, decoded, props.key, props.path, panel)
+			end,
+		},
 	}
 	local base_set_value = control.SetValue
 
@@ -159,5 +177,14 @@ return function(props)
 	end
 
 	control:SetValue(node.Value)
+
+	if node.DefaultEncoded ~= nil then
+		default_encoded = tostring(node.DefaultEncoded)
+	elseif node.Default ~= nil then
+		default_encoded = format_number(node.Default, precision)
+	else
+		default_encoded = control:EncodeValue()
+	end
+
 	return control, control
 end
