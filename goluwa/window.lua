@@ -56,6 +56,8 @@ function Window:Initialize()
 	nyi()
 end
 
+function Window.GetDesktopSize() end
+
 function Window:OnRemove()
 	system.UnregisterWindow(self)
 end

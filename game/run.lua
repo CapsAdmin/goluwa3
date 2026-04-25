@@ -13,7 +13,18 @@ if _G.GRAPHICS then
 		logf("[game] Graphics not available - running in headless mode\n")
 		_G.GRAPHICS = false
 	else
-		if not system.GetWindows()[1] then system.OpenWindow(1920, 1080) end
+		if not system.GetWindows()[1] then
+			local window_width = 1920
+			local window_height = 1080
+			local desktop_size = system.GetDesktopSize()
+
+			if desktop_size then
+				window_width = math.max(1, math.floor(desktop_size.x / 1.5))
+				window_height = math.max(1, math.floor(desktop_size.y / 1.5))
+			end
+
+			system.OpenWindow(window_width, window_height)
+		end
 
 		render.Initialize({samples = "1"})
 		import("goluwa/render2d/render2d.lua").Initialize()

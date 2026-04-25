@@ -265,6 +265,10 @@ function love.window.getMode()
 end
 
 function love.window.getDesktopDimensions()
+	local desktop_size = system.GetDesktopSize()
+
+	if desktop_size then return desktop_size.x, desktop_size.y end
+
 	local width, height = get_window_size()
 
 	if width <= 1 or height <= 1 then return get_default_fullscreen_mode() end

@@ -13,6 +13,7 @@ local cocoa_objc = objc.bind({
 		"NSAutoreleasePool",
 		"NSCursor",
 		"NSPasteboard",
+		"NSScreen",
 		"NSString",
 		"NSMutableArray",
 		"NSView",
@@ -95,6 +96,14 @@ local cocoa_objc = objc.bind({
 				stringForType = {selector = "stringForType:", types = "@@:@"},
 			},
 		},
+		NSScreen = {
+			class = {
+				mainScreen = "@#:",
+			},
+			instance = {
+				frame = "{CGRect={CGPoint=dd}{CGSize=dd}}@:",
+			},
+		},
 		NSString = {
 			class = {
 				stringWithUTF8String = {selector = "stringWithUTF8String:", types = "@#:*"},
@@ -163,6 +172,7 @@ local NSCursor = cocoa_objc.methods.NSCursor
 local NSDraggingInfo = cocoa_objc.methods.NSDraggingInfo
 local NSEvent = cocoa_objc.methods.NSEvent
 local NSPasteboard = cocoa_objc.methods.NSPasteboard
+local NSScreen = cocoa_objc.methods.NSScreen
 local NSString = cocoa_objc.methods.NSString
 local NSMutableArray = cocoa_objc.methods.NSMutableArray
 local NSView = cocoa_objc.methods.NSView
@@ -763,6 +773,20 @@ function cocoa.window(width, height)
 	self.last_mouse_x = nil
 	self.last_mouse_y = nil
 	return self
+end
+
+function cocoa.get_desktop_size()
+	local screen = NSScreen.mainScreen()
+
+	if screen == nil or screen == objc.ptr(nil) then return nil end
+
+	local frame = NSScreen.frame(screen)
+	local width = tonumber(frame.size.width) or 0
+	local height = tonumber(frame.size.height) or 0
+
+	if width <= 0 or height <= 0 then return nil end
+
+	return Vec2(width, height)
 end
 
 function meta:Initialize()

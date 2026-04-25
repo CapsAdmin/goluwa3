@@ -142,6 +142,80 @@ return function(META)
 		[0x111] = "button_2", -- BTN_RIGHT
 		[0x112] = "button_3", -- BTN_MIDDLE
 	}
+	local OUTPUT_MODE_CURRENT = 0x1
+	local OUTPUT_MODE_PREFERRED = 0x2
+	local bit_band = bit.band
+
+	local function query_desktop_size()
+		local display = wayland.wl_client.wl_display_connect(nil)
+
+		if display == nil then return nil end
+
+		local outputs = {}
+		local registry = display:get_registry()
+
+		registry:add_listener(
+			{
+				global = function(_, registry_proxy, name, interface, version)
+					if ffi.string(interface) ~= "wl_output" then return end
+
+					local registry = ffi.cast("struct wl_registry*", registry_proxy)
+					local output = registry:bind(name, wayland.get_interface("wl_output"), math.min(version, 4))
+					local output_id = #outputs + 1
+					outputs[output_id] = {
+						proxy = ffi.cast("struct wl_output*", output),
+						width = 0,
+						height = 0,
+					}
+
+					outputs[output_id].proxy:add_listener(
+						{
+							mode = function(data, _, flags, width, height)
+								local info = outputs[tonumber(ffi.cast("intptr_t", data))]
+
+								if not info then return end
+
+								if
+									bit_band(flags, OUTPUT_MODE_CURRENT) ~= 0 or
+									bit_band(flags, OUTPUT_MODE_PREFERRED) ~= 0 or
+									info.width == 0 or
+									info.height == 0
+								then
+									info.width = tonumber(width) or 0
+									info.height = tonumber(height) or 0
+								end
+							end,
+						},
+						ffi.cast("void*", output_id)
+					)
+				end,
+				global_remove = function() end,
+			},
+			ffi.cast("void*", 0)
+		)
+
+		wayland.wl_client.wl_display_roundtrip(display)
+		wayland.wl_client.wl_display_roundtrip(display)
+		wayland.wl_client.wl_display_disconnect(display)
+
+		local best_output
+
+		for _, info in ipairs(outputs) do
+			if info.width > 0 and info.height > 0 then
+				if not best_output or (info.width * info.height) > (best_output.width * best_output.height) then
+					best_output = info
+				end
+			end
+		end
+
+		if not best_output then return nil end
+
+		return Vec2(best_output.width, best_output.height)
+	end
+
+	function META.GetDesktopSize()
+		return query_desktop_size()
+	end
 
 	local function normalize_requested_size(size)
 		return math.max(1, math.floor(tonumber(size.x) or 0)),

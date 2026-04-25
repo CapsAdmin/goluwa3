@@ -19,6 +19,10 @@ return function(META)
 		middle = "button_3",
 	}
 
+	function META.GetDesktopSize()
+		return cocoa.get_desktop_size()
+	end
+
 	function META:Initialize()
 		-- Create the cocoa window wrapper
 		self.cocoa_window = cocoa.window(self.Size.x, self.Size.y)

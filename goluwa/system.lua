@@ -19,6 +19,10 @@ function system.GetTimeNS()
 	return get_time_ns()
 end
 
+function system.GetDesktopSize()
+	return Window.GetDesktopSize()
+end
+
 do
 	function system.ShutDown(code)
 		code = code or 0

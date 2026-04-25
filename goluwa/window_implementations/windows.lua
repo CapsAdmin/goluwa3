@@ -41,6 +41,7 @@ ffi.cdef([[
 	void *GetFocus(void);
 	int IsIconic(void *hwnd);
 	int IsZoomed(void *hwnd);
+	int GetSystemMetrics(int index);
 	void DragAcceptFiles(void *hwnd, int accept);
 	uint32_t DragQueryFileW(void *drop, uint32_t index, uint16_t *buffer, uint32_t length);
 	void DragFinish(void *drop);
@@ -132,6 +133,8 @@ return function(META)
 		SWP_NOMOVE = 0x0002,
 		SWP_NOZORDER = 0x0004,
 		SWP_NOACTIVATE = 0x0010,
+		SM_CXSCREEN = 0,
+		SM_CYSCREEN = 1,
 		TME_LEAVE = 0x00000002,
 		WHEEL_DELTA = 120,
 		WM_CLOSE = 0x0010,
@@ -174,6 +177,16 @@ return function(META)
 		constants.WS_MINIMIZEBOX,
 		constants.WS_MAXIMIZEBOX
 	)
+
+	function META.GetDesktopSize()
+		local width = tonumber(user32.GetSystemMetrics(constants.SM_CXSCREEN)) or 0
+		local height = tonumber(user32.GetSystemMetrics(constants.SM_CYSCREEN)) or 0
+
+		if width <= 0 or height <= 0 then return nil end
+
+		return Vec2(width, height)
+	end
+
 	local virtual_keys = {
 		[0x08] = "backspace",
 		[0x09] = "tab",
