@@ -146,6 +146,8 @@ return function(META)
 	local OUTPUT_MODE_PREFERRED = 0x2
 	local bit_band = bit.band
 
+	local function noop() end
+
 	local function query_desktop_size()
 		local display = wayland.wl_client.wl_display_connect(nil)
 
@@ -153,7 +155,6 @@ return function(META)
 
 		local outputs = {}
 		local registry = display:get_registry()
-
 		registry:add_listener(
 			{
 				global = function(_, registry_proxy, name, interface, version)
@@ -167,9 +168,9 @@ return function(META)
 						width = 0,
 						height = 0,
 					}
-
 					outputs[output_id].proxy:add_listener(
 						{
+							geometry = noop,
 							mode = function(data, _, flags, width, height)
 								local info = outputs[tonumber(ffi.cast("intptr_t", data))]
 
@@ -185,6 +186,10 @@ return function(META)
 									info.height = tonumber(height) or 0
 								end
 							end,
+							done = noop,
+							scale = noop,
+							name = noop,
+							description = noop,
 						},
 						ffi.cast("void*", output_id)
 					)
@@ -193,16 +198,21 @@ return function(META)
 			},
 			ffi.cast("void*", 0)
 		)
-
 		wayland.wl_client.wl_display_roundtrip(display)
 		wayland.wl_client.wl_display_roundtrip(display)
 		wayland.wl_client.wl_display_disconnect(display)
-
 		local best_output
 
 		for _, info in ipairs(outputs) do
 			if info.width > 0 and info.height > 0 then
-				if not best_output or (info.width * info.height) > (best_output.width * best_output.height) then
+				if
+					not best_output or
+					(
+						info.width * info.height
+					) > (
+						best_output.width * best_output.height
+					)
+				then
 					best_output = info
 				end
 			end
