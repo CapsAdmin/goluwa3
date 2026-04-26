@@ -405,6 +405,96 @@ function META:ToHex()
 	)
 end
 
+local function to_linear_channel(channel)
+	if channel <= 0.04045 then return channel / 12.92 end
+
+	return ((channel + 0.055) / 1.055) ^ 2.4
+end
+
+local function hue_distance(a, b)
+	local diff = math.abs(a - b)
+	return math.min(diff, 1 - diff)
+end
+
+function META:GetRelativeLuminance()
+	local r = to_linear_channel(self.r)
+	local g = to_linear_channel(self.g)
+	local b = to_linear_channel(self.b)
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b
+end
+
+function META:GetContrastRatio(other)
+	local a = self:GetRelativeLuminance()
+	local b = other:GetRelativeLuminance()
+	local light = math.max(a, b)
+	local dark = math.min(a, b)
+	return (light + 0.05) / (dark + 0.05)
+end
+
+function META:GetAdjustedForBackground(background, options)
+	options = options or {}
+	local target_contrast = options.target_contrast or 4.5
+	local max_hue_shift = options.max_hue_shift or 0.04
+	local sat_floor = options.saturation_floor or 0
+	local sat_steps = options.saturation_steps or 6
+	local value_steps = options.value_steps or 24
+	local hue_steps = options.hue_steps or 4
+	local base_h, base_s, base_v = self:GetHSV()
+	local white = META.CType(1, 1, 1, self.a)
+	local black = META.CType(0, 0, 0, self.a)
+	local prefer_lighter = white:GetContrastRatio(background) >= black:GetContrastRatio(background)
+	local best_candidate = self
+	local best_score = math.huge
+	local best_ratio = self:GetContrastRatio(background)
+
+	local function consider(candidate_h, candidate_s, candidate_v)
+		local candidate = META.FromHSV(candidate_h, candidate_s, candidate_v):SetAlpha(self.a)
+		local ratio = candidate:GetContrastRatio(background)
+		local score = 0
+
+		if ratio < target_contrast then
+			score = score + (target_contrast - ratio) * 100
+		else
+			score = score - math.min(ratio - target_contrast, 3)
+		end
+
+		score = score + math.abs(candidate_v - base_v) * 8
+		score = score + math.abs(candidate_s - base_s) * 4
+		score = score + hue_distance(candidate_h, base_h) * 12
+
+		if score < best_score or (score == best_score and ratio > best_ratio) then
+			best_candidate = candidate
+			best_score = score
+			best_ratio = ratio
+		end
+	end
+
+	for hue_index = -hue_steps, hue_steps do
+		local hue_shift = (hue_index / math.max(hue_steps, 1)) * max_hue_shift
+		local candidate_h = (base_h + hue_shift) % 1
+
+		for sat_index = 0, sat_steps do
+			local t = sat_steps == 0 and 0 or sat_index / sat_steps
+			local candidate_s = math.lerp(t, base_s, sat_floor)
+
+			for value_index = 0, value_steps do
+				local t_value = value_steps == 0 and 0 or value_index / value_steps
+				local candidate_v
+
+				if prefer_lighter then
+					candidate_v = math.lerp(t_value, math.max(base_v, 0), 1)
+				else
+					candidate_v = math.lerp(t_value, math.min(base_v, 1), 0)
+				end
+
+				consider(candidate_h, candidate_s, candidate_v)
+			end
+		end
+	end
+
+	return best_candidate
+end
+
 function META:Mix(other, ratio)
 	return self:GetLerped(ratio or 0.5, other)
 end
@@ -442,59 +532,11 @@ local function scale_colors(colors)
 end
 
 function META.BuildPalette(shades_input, colors_input)
-	local pallete = {}
-
-	for k, v in pairs(colors_input) do
-		pallete[k] = v
-	end
-
-	local shades = {}
-
-	for i = #shades_input, 1, -1 do
-		table.insert(shades, META.FromName(shades_input[i]))
-	end
-
-	local genShade = scale_colors(shades)
-	local dark_names = {"black", "darkest", "darker", "dark"}
-
-	for i, shadeName in ipairs(dark_names) do
-		local idx = i - 1
-
-		for colorName, colorHex in pairs(colors_input) do
-			local color = META.FromName(colorHex)
-			pallete[colorName .. "_" .. shadeName] = color:Darken((4 - idx) / 1.25):Mix(genShade(math.lerp(idx / 4, 0.5, 0)), 0):SetAlpha(1)
-		end
-	end
-
-	local light_names = {"light", "lighter", "lightest", "white"}
-
-	for i, shadeName in ipairs(light_names) do
-		local idx = i - 1
-
-		for colorName, colorHex in pairs(colors_input) do
-			local color = META.FromName(colorHex)
-			pallete[colorName .. "_" .. shadeName] = color:Brighten(idx / 1.25):Desaturate(idx / 0.75):Mix(genShade(math.lerp(idx / 4, 1, 0.5)), 0):SetAlpha(1)
-		end
-	end
-
-	local base_shades = {
-		"black",
-		"darkest",
-		"darker",
-		"dark",
-		"grey",
-		"light",
-		"lighter",
-		"lightest",
-		"white",
-	}
-
-	for i, shadeName in ipairs(base_shades) do
-		local idx = i - 1
-		pallete[shadeName] = genShade(idx / 8):SetAlpha(1)
-	end
-
-	return pallete
+	local ColorPalette = import("goluwa/palette.lua")
+	local palette = ColorPalette.New()
+	palette:SetShades(shades_input)
+	palette:SetColors(colors_input)
+	return palette:GetBaseMap()
 end
 
 return structs.Register(META)
