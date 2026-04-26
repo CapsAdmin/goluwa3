@@ -49,7 +49,7 @@ return function(opts)
 		return preset
 	end
 
-	local palette = Color.BuildPallete(
+	local palette = Color.BuildPalette(
 		{
 			Color.FromHex("#f8fafc"),
 			Color.FromHex("#cbd5e1"),

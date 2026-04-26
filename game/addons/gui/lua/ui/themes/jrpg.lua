@@ -14,7 +14,7 @@ local base = build_base_theme{
 }
 
 do
-	local palette = Color.BuildPallete(
+	local palette = Color.BuildPalette(
 		{
 			Color.FromHex("#cccccc"),
 			primary,

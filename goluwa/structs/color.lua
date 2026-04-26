@@ -441,7 +441,7 @@ local function scale_colors(colors)
 	end
 end
 
-function META.BuildPallete(shades_input, colors_input)
+function META.BuildPalette(shades_input, colors_input)
 	local pallete = {}
 
 	for k, v in pairs(colors_input) do
