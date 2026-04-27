@@ -4,6 +4,7 @@ local Panel = import("goluwa/ecs/base.lua")("panel", "ecs.components.2d.", funct
 		{
 			animation = import("goluwa/ecs/components/2d/animation.lua"),
 			clickable = import("goluwa/ecs/components/2d/clickable.lua"),
+			ui_debug = import("goluwa/ecs/components/2d/ui_debug.lua"),
 			gui_element = import("goluwa/ecs/components/2d/gui_element.lua"),
 			key_input = import("goluwa/ecs/components/2d/key_input.lua"),
 			layout = import("goluwa/ecs/components/2d/layout.lua"),
@@ -17,6 +18,7 @@ local Panel = import("goluwa/ecs/base.lua")("panel", "ecs.components.2d.", funct
 	return valid
 end)
 import.loaded["goluwa/ecs/panel.lua"] = Panel
+
 do
 	local base_new = Panel.New
 
@@ -62,9 +64,11 @@ do
 		return ent
 	end
 end
+
 Panel.World = Panel.New{
 	ComponentSet = {
 		"transform",
+		"ui_debug",
 		"gui_element",
 	},
 }

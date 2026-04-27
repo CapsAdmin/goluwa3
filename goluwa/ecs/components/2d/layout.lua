@@ -2,6 +2,7 @@ local prototype = import("goluwa/prototype.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local event = import("goluwa/event.lua")
+local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
 local layout_lib = library()
 local META = prototype.CreateTemplate("layout")
 META.layout_count = 0
@@ -605,6 +606,7 @@ function META:UpdateLayout()
 	-- Arrange Pass
 	self:Arrange()
 	self.Owner:CallLocalEvent("OnLayoutUpdated")
+	UIDebug.OnDebugLayout(self)
 end
 
 -- not sure if this is needed

@@ -2,9 +2,11 @@ local prototype = import("goluwa/prototype.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
+local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local META = prototype.CreateTemplate("gui_element")
+local reset_draw_state
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
@@ -14,7 +16,7 @@ META:GetSet("DrawColor", Color(0, 0, 0, 0))
 META:GetSet("DrawAlpha", 1)
 META:EndStorable()
 
-local function reset_draw_state()
+function reset_draw_state()
 	render2d.SetTexture()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
@@ -73,7 +75,11 @@ function META:DrawRecursive()
 	if not transform then return end
 
 	if
-		not (text_component and text_component.GetDisableViewportCulling and text_component:GetDisableViewportCulling()) and
+		not (
+			text_component and
+			text_component.GetDisableViewportCulling and
+			text_component:GetDisableViewportCulling()
+		) and
 		not transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
 	then
 		return
@@ -128,6 +134,7 @@ function META:DrawRecursive()
 	end
 
 	reset_draw_state()
+	UIDebug.OnDebugPostDraw(self.Owner, reset_draw_state)
 	self.Owner:CallLocalEvent("OnPostDraw")
 	render2d.PopMatrix()
 end
