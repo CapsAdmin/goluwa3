@@ -272,7 +272,7 @@ function render2d.Initialize()
 		RasterizationSamples = render.target:GetSamples(),
 		ColorFormat = render.target:GetColorFormat(),
 		vertex = {
-			uniform_buffers = {
+			push_constants = {
 				{
 					block = {
 						{
@@ -301,7 +301,7 @@ function render2d.Initialize()
 			]],
 		},
 		fragment = {
-			uniform_buffers = {
+			push_constants = {
 				{
 					block = {
 						{
@@ -1593,7 +1593,6 @@ end
 do -- camera
 	local proj = Matrix44()
 	local view = Matrix44()
-	local world = Matrix44()
 	local viewport = Rect(0, 0, 512, 512)
 	local view_pos = Vec2(0, 0)
 	local view_zoom = Vec2(1, 1)
@@ -1601,6 +1600,7 @@ do -- camera
 	local world_matrix_stack = {Matrix44()}
 	local world_matrix_stack_pos = 1
 	local proj_view = Matrix44()
+	local proj_view_world = Matrix44()
 
 	local function update_proj_view()
 		proj_view = view * proj
@@ -1633,7 +1633,8 @@ do -- camera
 	end
 
 	function render2d.GetMatrix()
-		return world_matrix_stack[world_matrix_stack_pos] * proj_view
+		world_matrix_stack[world_matrix_stack_pos]:GetMultiplied(proj_view, proj_view_world)
+		return proj_view_world
 	end
 
 	function render2d.GetProjectionViewMatrix()
@@ -1678,11 +1679,17 @@ do -- camera
 
 	function render2d.PushMatrix(x, y, w, h, a, dont_multiply)
 		world_matrix_stack_pos = world_matrix_stack_pos + 1
+		local mat = world_matrix_stack[world_matrix_stack_pos]
+
+		if not mat then
+			mat = Matrix44()
+			world_matrix_stack[world_matrix_stack_pos] = mat
+		end
 
 		if dont_multiply then
-			world_matrix_stack[world_matrix_stack_pos] = Matrix44()
+			mat:Identity()
 		else
-			world_matrix_stack[world_matrix_stack_pos] = world_matrix_stack[world_matrix_stack_pos - 1]:Copy()
+			Matrix44.CopyTo(world_matrix_stack[world_matrix_stack_pos - 1], mat)
 		end
 
 		if x and y then render2d.Translate(x, y) end
@@ -1701,7 +1708,7 @@ do -- camera
 	end
 
 	function render2d.SetWorldMatrix(mat)
-		world_matrix_stack[world_matrix_stack_pos] = mat:Copy()
+		Matrix44.CopyTo(mat, world_matrix_stack[world_matrix_stack_pos])
 	end
 
 	function render2d.GetWorldMatrix()

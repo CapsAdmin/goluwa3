@@ -6,7 +6,6 @@ local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local META = prototype.CreateTemplate("gui_element")
-local reset_draw_state
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
@@ -15,23 +14,6 @@ META:GetSet("Color", Color(1, 1, 1, 1))
 META:GetSet("DrawColor", Color(0, 0, 0, 0))
 META:GetSet("DrawAlpha", 1)
 META:EndStorable()
-
-function reset_draw_state()
-	render2d.SetTexture()
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.SetAlphaMultiplier(1)
-	render2d.SetUV()
-	render2d.SetSwizzleMode(0)
-	render2d.SetBlur(0)
-	render2d.SetBorderRadius(0, 0, 0, 0)
-	render2d.SetOutlineWidth(0)
-	render2d.ClearNinePatch()
-	render2d.SetSDFThreshold(0.5)
-	render2d.SetSDFTexelRange(1)
-	render2d.SetSubpixelMode("none")
-	render2d.SetSubpixelAmount(1 / 3)
-	render2d.SetBlendMode("alpha", true)
-end
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -89,7 +71,6 @@ function META:DrawRecursive()
 
 	if c.a <= 0 then return end
 
-	reset_draw_state()
 	local clipping = self:GetClipping()
 
 	if clipping then
@@ -105,7 +86,6 @@ function META:DrawRecursive()
 
 		render2d.PopMatrix()
 		render2d.BeginStencilTest()
-		reset_draw_state()
 	end
 
 	render2d.PushMatrix()
@@ -118,7 +98,6 @@ function META:DrawRecursive()
 	end
 
 	if clipping then
-		reset_draw_state()
 		render2d.SetStencilMode("mask_decrement", render2d.stencil_level)
 		render2d.PushMatrix()
 		render2d.SetWorldMatrix(transform:GetWorldMatrix())
@@ -133,8 +112,7 @@ function META:DrawRecursive()
 		render2d.PopStencilMask()
 	end
 
-	reset_draw_state()
-	UIDebug.OnDebugPostDraw(self.Owner, reset_draw_state)
+	UIDebug.OnDebugPostDraw(self.Owner)
 	self.Owner:CallLocalEvent("OnPostDraw")
 	render2d.PopMatrix()
 end

@@ -33,7 +33,7 @@ function META.OnDebugLayout(layout)
 	layout.debug_layout_flash_time = system.GetElapsedTime and system.GetElapsedTime() or 0
 end
 
-local function draw_layout_debug_outline(owner, reset_draw_state)
+local function draw_layout_debug_outline(owner)
 	local layout = owner.layout
 
 	if not layout then return end
@@ -55,30 +55,28 @@ local function draw_layout_debug_outline(owner, reset_draw_state)
 
 	if not transform then return end
 
-	reset_draw_state()
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
 	gfx.DrawOutlinedRect(0, 0, transform.Size.x, transform.Size.y, 1, 0, 0.2, 0.45, 1.0, alpha)
 	render2d.PopMatrix()
-	reset_draw_state()
 end
 
-local function draw_layout_debug_recursive(owner, reset_draw_state)
+local function draw_layout_debug_recursive(owner)
 	local gui = owner.gui_element
 
 	if gui and not gui:GetVisible() then return end
 
-	draw_layout_debug_outline(owner, reset_draw_state)
+	draw_layout_debug_outline(owner)
 
 	for _, child in ipairs(owner:GetChildren()) do
-		draw_layout_debug_recursive(child, reset_draw_state)
+		draw_layout_debug_recursive(child)
 	end
 end
 
-function META.OnDebugPostDraw(owner, reset_draw_state)
+function META.OnDebugPostDraw(owner)
 	if not META.LayoutDebugEnabled then return end
 
-	draw_layout_debug_recursive(owner, reset_draw_state)
+	draw_layout_debug_recursive(owner)
 end
 
 return META:Register()
