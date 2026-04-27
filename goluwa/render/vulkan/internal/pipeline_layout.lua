@@ -52,8 +52,14 @@ end
 
 function PipelineLayout:OnRemove()
 	if self.device:IsValid() then
-		self.device:WaitIdle()
-		vulkan.lib.vkDestroyPipelineLayout(self.device.ptr[0], self.ptr[0], nil)
+		local device = self.device
+		local device_ptr = device.ptr[0]
+		local layout_ptr = self.ptr[0]
+		self.ptr[0] = nil
+
+		device:DeferRelease(function()
+			vulkan.lib.vkDestroyPipelineLayout(device_ptr, layout_ptr, nil)
+		end)
 	end
 end
 

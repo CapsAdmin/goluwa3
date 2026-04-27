@@ -220,8 +220,14 @@ end
 
 function RenderPass:OnRemove()
 	if self.device:IsValid() then
-		self.device:WaitIdle()
-		vulkan.lib.vkDestroyRenderPass(self.device.ptr[0], self.ptr[0], nil)
+		local device = self.device
+		local device_ptr = device.ptr[0]
+		local render_pass_ptr = self.ptr[0]
+		self.ptr[0] = nil
+
+		device:DeferRelease(function()
+			vulkan.lib.vkDestroyRenderPass(device_ptr, render_pass_ptr, nil)
+		end)
 	end
 end
 

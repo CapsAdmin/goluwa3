@@ -64,8 +64,14 @@ end
 
 function Sampler:OnRemove()
 	if self.device:IsValid() then
-		self.device:WaitIdle()
-		vulkan.lib.vkDestroySampler(self.device.ptr[0], self.ptr[0], nil)
+		local device = self.device
+		local device_ptr = device.ptr[0]
+		local sampler_ptr = self.ptr[0]
+		self.ptr[0] = nil
+
+		device:DeferRelease(function()
+			vulkan.lib.vkDestroySampler(device_ptr, sampler_ptr, nil)
+		end)
 	end
 end
 

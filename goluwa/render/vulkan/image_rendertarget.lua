@@ -415,6 +415,7 @@ function ImageRenderTarget:WaitForPreviousFrame()
 
 	if self.in_flight_fences and self.in_flight_fences[next_frame] then
 		self.in_flight_fences[next_frame]:Wait(true) -- skip_reset = true
+		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[next_frame])
 	end
 end
 
@@ -423,6 +424,7 @@ function ImageRenderTarget:BeginFrame()
 
 	if self.in_flight_fences and self.in_flight_fences[frame_index] then
 		self.in_flight_fences[frame_index]:Wait()
+		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[frame_index])
 	end
 
 	local texture_index

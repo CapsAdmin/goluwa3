@@ -33,8 +33,14 @@ end
 
 function DescriptorPool:OnRemove()
 	if self.device:IsValid() then
-		self.device:WaitIdle()
-		vulkan.lib.vkDestroyDescriptorPool(self.device.ptr[0], self.ptr[0], nil)
+		local device = self.device
+		local device_ptr = device.ptr[0]
+		local pool_ptr = self.ptr[0]
+		self.ptr[0] = nil
+
+		device:DeferRelease(function()
+			vulkan.lib.vkDestroyDescriptorPool(device_ptr, pool_ptr, nil)
+		end)
 	end
 end
 

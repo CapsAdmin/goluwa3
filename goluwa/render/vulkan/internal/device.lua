@@ -375,6 +375,9 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		has_color_write_mask_dynamic_state = has_color_write_mask_dynamic_state,
 		has_logic_op_enable_dynamic_state = has_logic_op_enable_dynamic_state,
 		nullDescriptorEnabled = has_null_descriptor,
+		last_submission_serial = 0,
+		completed_submission_serial = 0,
+		deferred_releases = {},
 		physical_device = physical_device,
 		extensions = finalExtensions,
 	}
@@ -437,8 +440,70 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	return device
 end
 
+function Device:AllocateSubmissionSerial()
+	self.last_submission_serial = (self.last_submission_serial or 0) + 1
+	return self.last_submission_serial
+end
+
+function Device:GetCompletedSubmissionSerial()
+	return self.completed_submission_serial or 0
+end
+
+function Device:DeferRelease(callback, serial)
+	if not callback then return end
+
+	serial = serial or self.last_submission_serial or 0
+
+	if serial <= (self.completed_submission_serial or 0) then
+		callback()
+		return
+	end
+
+	self.deferred_releases = self.deferred_releases or {}
+	table.insert(self.deferred_releases, {serial = serial, callback = callback})
+end
+
+function Device:FlushDeferredReleases(force)
+	local deferred = self.deferred_releases
+
+	if not deferred or not deferred[1] then return end
+
+	local completed = force and math.huge or (self.completed_submission_serial or 0)
+	local write = 1
+
+	for read = 1, #deferred do
+		local entry = deferred[read]
+
+		if entry and entry.serial <= completed then
+			entry.callback()
+		else
+			deferred[write] = entry
+			write = write + 1
+		end
+
+		deferred[read] = nil
+	end
+
+	for i = write, #deferred do
+		deferred[i] = nil
+	end
+
+	self.deferred_releases = deferred
+end
+
+function Device:MarkSubmissionCompleted(serial)
+	if not serial then return end
+
+	if serial > (self.completed_submission_serial or 0) then
+		self.completed_submission_serial = serial
+		self:FlushDeferredReleases()
+	end
+end
+
 function Device:OnRemove()
 	vulkan.lib.vkDeviceWaitIdle(self.ptr[0])
+	self.completed_submission_serial = math.huge
+	self:FlushDeferredReleases(true)
 	vulkan.lib.vkDestroyDevice(self.ptr[0], nil)
 end
 

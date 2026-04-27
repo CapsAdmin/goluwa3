@@ -83,8 +83,14 @@ function ShaderModule:OnRemove()
 	end
 
 	if record.device:IsValid() then
-		record.device:WaitIdle()
-		vulkan.lib.vkDestroyShaderModule(record.device.ptr[0], record.ptr[0], nil)
+		local device = record.device
+		local device_ptr = device.ptr[0]
+		local shader_module_ptr = record.ptr[0]
+		record.ptr[0] = nil
+
+		device:DeferRelease(function()
+			vulkan.lib.vkDestroyShaderModule(device_ptr, shader_module_ptr, nil)
+		end)
 	end
 end
 

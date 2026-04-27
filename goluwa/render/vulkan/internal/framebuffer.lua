@@ -70,8 +70,14 @@ end
 
 function Framebuffer:OnRemove()
 	if self.device:IsValid() then
-		self.device:WaitIdle()
-		vulkan.lib.vkDestroyFramebuffer(self.device.ptr[0], self.ptr[0], nil)
+		local device = self.device
+		local device_ptr = device.ptr[0]
+		local framebuffer_ptr = self.ptr[0]
+		self.ptr[0] = nil
+
+		device:DeferRelease(function()
+			vulkan.lib.vkDestroyFramebuffer(device_ptr, framebuffer_ptr, nil)
+		end)
 	end
 end
 

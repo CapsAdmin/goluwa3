@@ -16,6 +16,7 @@ function render.GetBindlessDescriptorCapacities()
 		cubemaps = render.bindless_descriptor_capacities.cubemaps,
 	}
 end
+
 --local renderdoc = import("goluwa/bindings/renderdoc.lua")
 --if pcall(renderdoc.init) then render.renderdoc = renderdoc end
 -- Check if shaderc is available before loading Vulkan
@@ -50,7 +51,11 @@ render.target = render.target or NULL
 render.initializing = false
 
 local function query_bindless_sampled_image_limit()
-	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.physical_device then
+	if
+		not vulkan_instance or
+		vulkan_instance == NULL or
+		not vulkan_instance.physical_device
+	then
 		return nil
 	end
 
@@ -192,7 +197,6 @@ function render.Initialize(config)
 	end
 
 	refresh_bindless_descriptor_capacities()
-
 	event.Call("RendererReady")
 	render.initializing = false
 
@@ -641,7 +645,6 @@ end
 
 function render.SubmitAndWait(cmd)
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, render.GetSyncFence())
-	cmd.keepalive_resources = nil
 end
 
 function render.GetCommandPool()

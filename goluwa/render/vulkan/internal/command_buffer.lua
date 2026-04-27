@@ -78,6 +78,14 @@ local function descriptor_sets_equal(a, b)
 	return true
 end
 
+local function keepalive(self, resource)
+	if not resource then return resource end
+
+	self.keepalive_resources = self.keepalive_resources or {}
+	table.insert(self.keepalive_resources, resource)
+	return resource
+end
+
 local function capture_descriptor_set_binding(pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
 	local state = {
 		layout = pipelineLayout,
@@ -129,8 +137,15 @@ function CommandBuffer:OnRemove()
 	self.is_rendering = false
 
 	if self.command_pool:IsValid() and self.command_pool.device:IsValid() then
-		self.command_pool.device:WaitIdle()
-		self.command_pool:FreeCommandBuffer(self)
+		local device = self.command_pool.device
+		local device_ptr = device.ptr[0]
+		local pool_ptr = self.command_pool.ptr[0]
+		local cmd_ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
+		cmd_ptr[0] = self.ptr[0]
+		self.ptr[0] = nil
+		device:DeferRelease(function()
+			vulkan.lib.vkFreeCommandBuffers(device_ptr, pool_ptr, 1, cmd_ptr)
+		end)
 	end
 end
 
@@ -334,6 +349,7 @@ function CommandBuffer:BindPipeline(pipeline, bind_point)
 
 	if self.bound_pipelines[bind_point] == pipeline then return end
 
+	keepalive(self, pipeline)
 	vulkan.lib.vkCmdBindPipeline(self.ptr[0], vulkan.vk.e.VkPipelineBindPoint(bind_point), pipeline.ptr[0])
 	self.bound_pipelines[bind_point] = pipeline
 end
@@ -346,6 +362,7 @@ function CommandBuffer:BindVertexBuffers(firstBinding, buffers, offsets)
 
 	for i = 1, bufferCount do
 		local buffer = buffers[i]
+		keepalive(self, buffer)
 		bufferArray[i - 1] = buffer.ptr[0]
 		offsetArray[i - 1] = hasOffsets and offsets[i] or 0
 	end
@@ -356,6 +373,7 @@ end
 function CommandBuffer:BindVertexBuffer(buffer, binding, offset)
 	local bufferArray = VkBufferArray1()
 	local offsetArray = VkDeviceSizeArray1()
+	keepalive(self, buffer)
 	bufferArray[0] = buffer.ptr[0]
 	offsetArray[0] = offset or 0
 	vulkan.lib.vkCmdBindVertexBuffers(self.ptr[0], binding or 0, 1, bufferArray, offsetArray)
@@ -375,9 +393,11 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 
 	for i = 1, setCount do
 		local ds = descriptorSets[i]
+		keepalive(self, ds)
 		setArray[i - 1] = ds.ptr[0]
 	end
 
+	keepalive(self, pipelineLayout)
 	local dynamicOffsetCount = 0
 	local pDynamicOffsets = nil
 	local dynamicOffsetsType = type(dynamicOffsets)
@@ -417,6 +437,7 @@ function CommandBuffer:BindIndexBuffer(buffer, offset, indexType)
 
 	if indexType == "uint32_t" then indexType = "uint32" end
 
+	keepalive(self, buffer)
 	vulkan.lib.vkCmdBindIndexBuffer(self.ptr[0], buffer.ptr[0], offset, vulkan.vk.e.VkIndexType(indexType or "uint32"))
 end
 
