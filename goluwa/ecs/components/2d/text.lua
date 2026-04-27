@@ -525,10 +525,6 @@ function META:OnTextChanged()
 	end
 
 	if self.Owner.layout then self.Owner.layout:InvalidateLayout() end
-
-	if self.Owner:HasParent() and self.Owner:GetParent().layout then
-		self.Owner:GetParent().layout:InvalidateLayout()
-	end
 end
 
 function META:GetWrappedSize(width)
@@ -660,10 +656,7 @@ function META:OnDraw()
 		end
 	end
 
-	if
-		is_focused_editable and
-		self:IsCaretVisible()
-	then
+	if is_focused_editable and self:IsCaretVisible() then
 		local cursor = self.editor.Cursor
 		local found_line, found_col = self:GetLineColFromIndex(cursor)
 
