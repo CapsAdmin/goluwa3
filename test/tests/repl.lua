@@ -250,6 +250,50 @@ test.Test("repl multiline navigation", function()
 	attest.equal(repl.input_buffer, "typing") -- Should restore saved input
 end)
 
+test.Test("repl wrapped visual navigation", function()
+	local function reset()
+		repl.input_buffer = ""
+		repl.input_cursor = 1
+		repl.selection_start = nil
+		repl.input_scroll_offset = 0
+		commands.history = {}
+		commands.history_map = {}
+		repl.history_index = 1
+	end
+
+	local function send_key(key, modifiers)
+		repl.HandleEvent{
+			key = key,
+			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
+		}
+	end
+
+	local old_term = repl.term
+	repl.term = {
+		GetSize = function()
+			return 8, 24
+		end,
+	}
+	reset()
+	repl.input_buffer = "abcdefghij"
+	repl.input_cursor = 8
+	send_key("up")
+	attest.equal(repl.input_cursor, 3)
+	send_key("down")
+	attest.equal(repl.input_cursor, 8)
+	reset()
+	repl.input_buffer = string.rep("a", 26)
+	repl.input_cursor = #repl.input_buffer + 1
+	send_key("b")
+	attest.equal(repl.input_scroll_offset, 1)
+	reset()
+	repl.input_buffer = string.rep("a", 25)
+	repl.input_cursor = #repl.input_buffer + 1
+	send_key("down", {ctrl = true})
+	attest.equal(repl.input_scroll_offset, 1)
+	repl.term = old_term
+end)
+
 test.Test("repl advanced editing", function()
 	local function reset()
 		repl.input_buffer = ""
@@ -298,6 +342,11 @@ test.Test("repl advanced editing", function()
 	send_key("x", {ctrl = true})
 	attest.equal(clipboard.Get(), "hello")
 	attest.equal(repl.input_buffer, " world")
+	-- 5. Bracketed paste style event inserts multiline text without executing
+	reset()
+	repl.HandleEvent{paste = true, text = "print(1)\nprint(2)", raw_input = ""}
+	attest.equal(repl.input_buffer, "print(1)\nprint(2)")
+	attest.equal(repl.input_cursor, #repl.input_buffer + 1)
 end)
 
 test.Test("repl history", function()
@@ -337,4 +386,24 @@ test.Test("repl history", function()
 	attest.equal(#commands.history, 2)
 	attest.equal(commands.history[1], "second")
 	attest.equal(commands.history[2], "first")
+end)
+
+test.Test("repl multiline submit preserves chunk", function()
+	local old_run_string = commands.RunString
+	local old_flush = import("goluwa/output.lua").Flush
+	local captured = nil
+	local flushed = false
+	commands.RunString = function(line, skip_lua, skip_split)
+		captured = {line = line, skip_lua = skip_lua, skip_split = skip_split}
+	end
+	import("goluwa/output.lua").Flush = function()
+		flushed = true
+	end
+	repl.InputLua("local x = 1\nprint(x)")
+	attest.equal(captured.line, "local x = 1\nprint(x)")
+	attest.equal(captured.skip_lua, false)
+	attest.equal(captured.skip_split, true)
+	attest.equal(flushed, true)
+	commands.RunString = old_run_string
+	import("goluwa/output.lua").Flush = old_flush
 end)

@@ -569,6 +569,17 @@ function meta:EnableMouse(b)
 	self.mouse_enabled = b
 end
 
+function meta:EnableBracketedPaste(b)
+	if b then self:Write("\27[?2004h") else self:Write("\27[?2004l") end
+
+	self.bracketed_paste_enabled = b
+
+	if not b then
+		self.bracketed_paste_active = false
+		self.bracketed_paste_buffer = nil
+	end
+end
+
 do
 	local function read_coordinates(self)
 		while true do
@@ -857,6 +868,8 @@ if jit.os == "Windows" then
 				attribute_stack = {},
 				viewport_stack = {},
 				mouse_enabled = false,
+				bracketed_paste_enabled = false,
+				bracketed_paste_active = false,
 			},
 			meta
 		)
@@ -882,6 +895,7 @@ if jit.os == "Windows" then
 		-- Restore terminal state before closing
 		self:NoAttributes() -- Reset text attributes
 		self:EnableMouse(false) -- Disable mouse tracking
+		self:EnableBracketedPaste(false) -- Disable bracketed paste mode
 		self:UseAlternateScreen(false) -- Return to main screen
 		self:EnableCaret(true) -- Show cursor
 		self:Flush() -- Flush all output before restoring
@@ -1488,9 +1502,12 @@ else
 				input = input,
 				output = output,
 				old_attributes = old_attributes,
+				event_queue = {},
 				attribute_stack = {},
 				viewport_stack = {},
 				mouse_enabled = false,
+				bracketed_paste_enabled = false,
+				bracketed_paste_active = false,
 			},
 			meta
 		)
@@ -1541,6 +1558,7 @@ else
 		-- Restore terminal state before closing
 		self:NoAttributes() -- Reset text attributes
 		self:EnableMouse(false) -- Disable mouse tracking
+		self:EnableBracketedPaste(false) -- Disable bracketed paste mode
 		self:UseAlternateScreen(false) -- Return to main screen
 		self:EnableCaret(true) -- Show cursor
 		self:Flush() -- Flush all output before restoring
@@ -1704,6 +1722,73 @@ else
 	end
 
 	function meta:ReadEvent()
+		local function decode_queued_char(raw_char)
+			local byte = raw_char:byte()
+
+			if byte == 13 or byte == 10 then
+				return {
+					key = "enter",
+					modifiers = {ctrl = false, shift = false, alt = false},
+					raw_input = raw_char,
+				}
+			elseif byte >= 32 and byte <= 126 then
+				return {
+					key = raw_char,
+					modifiers = {ctrl = false, shift = false, alt = false},
+					raw_input = raw_char,
+				}
+			end
+
+			local len = utf8_byte_length(raw_char)
+
+			if len and len > 1 then
+				return {
+					key = raw_char,
+					modifiers = {ctrl = false, shift = false, alt = false},
+					raw_input = raw_char,
+				}
+			end
+		end
+
+		if self.bracketed_paste_active then
+			local chunk = self.bracketed_paste_buffer or ""
+
+			while true do
+				local next_char = self:Read()
+
+				if not next_char then
+					self.bracketed_paste_buffer = chunk
+					return nil
+				end
+
+				chunk = chunk .. next_char
+				local text, rest = chunk:match("^(.-)\27%[201~(.*)$")
+
+				if text then
+					self.bracketed_paste_active = false
+					self.bracketed_paste_buffer = nil
+
+					if rest and rest ~= "" then
+						for i = #rest, 1, -1 do
+							local queued_event = decode_queued_char(rest:sub(i, i))
+
+							if queued_event then table.insert(self.event_queue, 1, queued_event) end
+						end
+					end
+
+					return {
+						paste = true,
+						text = text,
+						raw_input = "\27[200~" .. text .. "\27[201~",
+					}
+				end
+			end
+		end
+
+		local queued = table.remove(self.event_queue, 1)
+
+		if queued then return queued end
+
 		local char = self:Read()
 
 		if not char then return nil end
@@ -1720,6 +1805,13 @@ else
 
 				escape_buffer = escape_buffer .. next_char
 				raw_input = escape_buffer -- Update raw input
+				if escape_buffer == "\27[200~" and self.bracketed_paste_enabled then
+					self.bracketed_paste_active = true
+					self.bracketed_paste_buffer = ""
+					escape_buffer = ""
+					return self:ReadEvent()
+				end
+
 				-- Check for SGR mouse sequence: \x1b[<...M or \x1b[<...m
 				if escape_buffer:match("^\27%[<[%d;]+[Mm]$") then
 					if self.mouse_enabled then

@@ -129,9 +129,108 @@ repl.raw_input = repl.raw_input or nil
 repl.saved_input = repl.saved_input or "" -- Saves current input when navigating history
 repl.is_executing = repl.is_executing or false -- Tracks if we're executing a command
 repl.last_drawn_lines = 0 -- Track how many lines we drew last frame
+repl.last_cursor_bottom_offset = repl.last_cursor_bottom_offset or 0
 repl.enabled = true
+local INPUT_PREFIX_WIDTH = 2
+local MAX_VISIBLE_INPUT_LINES = 5
 -- Pre-declare local function to be accessible by SetEnabled
 local clear_display
+
+local function get_terminal_width()
+	if repl.term then
+		local w = repl.term:GetSize()
+		return w
+	end
+
+	return 80
+end
+
+local function get_wrap_width(width)
+	return math.max(1, width - INPUT_PREFIX_WIDTH - 1)
+end
+
+local function sync_wrap_width(width)
+	repl.editor:SetWrapWidth(get_wrap_width(width or get_terminal_width()))
+	return repl.editor:GetWrapWidth()
+end
+
+local function build_wrapped_lines(width)
+	local wrap_width = sync_wrap_width(width)
+	local buffer = repl.editor:GetBuffer()
+	local wrapped_lines = {}
+
+	for i, line in ipairs(buffer:GetLines()) do
+		local line_length = buffer:GetLength(line)
+		local wrap_count = math.max(1, math.ceil(line_length / wrap_width))
+		local char_start = 1
+
+		for j = 1, wrap_count do
+			local char_end = math.min(line_length, char_start + wrap_width - 1)
+			local wrapped_text = line_length == 0 and "" or line:utf8_sub(char_start, char_end)
+			table.insert(
+				wrapped_lines,
+				{
+					original_line = i,
+					wrapped_text = wrapped_text,
+					is_first_wrap = j == 1,
+					is_last_wrap = j == wrap_count,
+					char_start = char_start,
+					char_end = char_end,
+				}
+			)
+			char_start = char_end + 1
+		end
+	end
+
+	local cursor_visual_line = repl.editor:GetVisualLineCol()
+	local cursor_line = repl.editor:GetCursorLineCol()
+
+	while #wrapped_lines < cursor_visual_line do
+		table.insert(
+			wrapped_lines,
+			{
+				original_line = cursor_line,
+				wrapped_text = "",
+				is_first_wrap = false,
+				is_last_wrap = true,
+				char_start = 1,
+				char_end = 0,
+			}
+		)
+	end
+
+	return wrapped_lines
+end
+
+local function get_wrapped_line_count(width)
+	return #build_wrapped_lines(width)
+end
+
+local function clamp_input_scroll_offset(width)
+	sync_wrap_width(width)
+	local max_offset = math.max(0, get_wrapped_line_count(width) - MAX_VISIBLE_INPUT_LINES)
+	repl.input_scroll_offset = math.max(0, math.min(repl.input_scroll_offset, max_offset))
+	return max_offset
+end
+
+local function ensure_cursor_visible(width)
+	sync_wrap_width(width)
+	local cursor_visual_line = repl.editor:GetVisualLineCol()
+	local total_visual_lines = get_wrapped_line_count(width)
+
+	if total_visual_lines <= MAX_VISIBLE_INPUT_LINES then
+		repl.input_scroll_offset = 0
+		return
+	end
+
+	if cursor_visual_line > repl.input_scroll_offset + MAX_VISIBLE_INPUT_LINES then
+		repl.input_scroll_offset = cursor_visual_line - MAX_VISIBLE_INPUT_LINES
+	elseif cursor_visual_line <= repl.input_scroll_offset then
+		repl.input_scroll_offset = math.max(0, cursor_visual_line - 1)
+	end
+
+	clamp_input_scroll_offset(width)
+end
 
 function repl.SetEnabled(b)
 	if repl.enabled == b then return end
@@ -143,6 +242,7 @@ function repl.SetEnabled(b)
 		end
 
 		repl.last_drawn_lines = 0
+		repl.last_cursor_bottom_offset = 0
 	end
 
 	repl.enabled = b
@@ -269,68 +369,10 @@ function repl.InputLua(str)
 		str = "HOTRELOAD = true; dofile('" .. script .. "'); HOTRELOAD = nil"
 	end
 
-	commands.RunString(str)
+	commands.RunString(str, false, true)
 	-- Flush stdout to capture any pending print() output
 	output.Flush()
 	repl.is_executing = false
-end
-
--- Wrap a line of text to fit within a given width, accounting for prefix
-local function wrap_line(line, width, prefix_width)
-	if line:utf8_length() == 0 then return {""} end
-
-	local wrapped = {}
-	-- Reduce by 1 to avoid terminal auto-wrap issues when writing to the last column
-	local available_width = width - prefix_width - 1
-
-	if available_width <= 0 then
-		available_width = width - 2 -- Minimum fallback
-	end
-
-	local pos = 1
-
-	while pos <= line:utf8_length() do
-		local chunk_end = math.min(pos + available_width - 1, line:utf8_length())
-		table.insert(wrapped, line:utf8_sub(pos, chunk_end))
-		pos = chunk_end + 1
-	end
-
-	return wrapped
-end
-
--- Calculate which wrapped line contains a cursor at a given buffer position
-local function get_wrapped_line_for_cursor(buffer, cursor_pos, width)
-	local input_lines = {}
-
-	for _, line in ipairs(buffer:split("\n")) do
-		table.insert(input_lines, line)
-	end
-
-	local cursor_line, cursor_col = repl.editor:GetCursorLineCol(cursor_pos)
-	local wrapped_line_idx = 0
-
-	for i = 1, #input_lines do
-		local prefix_width = (i == 1) and 2 or 2
-		local wrapped = wrap_line(input_lines[i], width, prefix_width)
-
-		if i < cursor_line then
-			wrapped_line_idx = wrapped_line_idx + #wrapped
-		elseif i == cursor_line then
-			local available_width = width - prefix_width
-			local wrap_index = math.ceil(cursor_col / available_width)
-
-			if wrap_index < 1 then wrap_index = 1 end
-
-			-- Clamp to actual number of wraps (cursor at end shouldn't create phantom line)
-			if wrap_index > #wrapped then wrap_index = #wrapped end
-
-			wrapped_line_idx = wrapped_line_idx + wrap_index
-
-			break
-		end
-	end
-
-	return wrapped_line_idx
 end
 
 function repl.HandleEvent(ev)
@@ -341,40 +383,23 @@ function repl.HandleEvent(ev)
 
 	repl.needs_redraw = true
 
+	if ev.paste and ev.text then
+		repl.editor:Paste(ev.text)
+		ensure_cursor_visible(get_terminal_width())
+		return
+	end
+
 	if ev.key then
+		local width = get_terminal_width()
+		sync_wrap_width(width)
+		local keep_cursor_visible = false
 		repl.editor:SetShiftDown(ev.modifiers and ev.modifiers.shift or false)
 		repl.editor:SetControlDown(ev.modifiers and ev.modifiers.ctrl or false)
 
 		if ev.key == "enter" then
 			if ev.modifiers and ev.modifiers.shift then
 				repl.editor:OnKeyInput("enter")
-				-- Auto-scroll to show cursor if needed (using wrapped lines)
-				local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
-				local buffer = repl.editor:GetText()
-				local cursor_wrapped_line = get_wrapped_line_for_cursor(buffer, repl.editor:GetCursor(), w)
-				-- Calculate total wrapped lines
-				local input_lines = {}
-
-				for line in (buffer .. "\n"):gmatch("(.-)\n") do
-					table.insert(input_lines, line)
-				end
-
-				local total_wrapped_lines = 0
-
-				for i, line in ipairs(input_lines) do
-					local prefix_width = (i == 1) and 2 or 2
-					local wrapped = wrap_line(line, w, prefix_width)
-					total_wrapped_lines = total_wrapped_lines + #wrapped
-				end
-
-				if total_wrapped_lines > 5 then
-					-- Ensure cursor is visible
-					if cursor_wrapped_line > repl.input_scroll_offset + 5 then
-						repl.input_scroll_offset = cursor_wrapped_line - 5
-					elseif cursor_wrapped_line <= repl.input_scroll_offset then
-						repl.input_scroll_offset = math.max(0, cursor_wrapped_line - 1)
-					end
-				end
+				keep_cursor_visible = true
 			else
 				local buffer = repl.editor:GetText()
 
@@ -410,21 +435,15 @@ function repl.HandleEvent(ev)
 			end
 		elseif ev.key == "up" then
 			local buffer = repl.editor:GetText()
-			local input_lines_count = select(2, buffer:gsub("\n", "")) + 1
-			local current_line, current_col = repl.editor:GetCursorLineCol()
+			local current_visual_line = repl.editor:GetVisualLineCol()
 
 			if ev.modifiers and ev.modifiers.ctrl then
 				-- Scroll input view up (by wrapped lines)
 				repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
-			elseif current_line > 1 then
-				-- Move cursor up one line, preserving column
+			elseif current_visual_line > 1 then
 				repl.editor:OnKeyInput("up")
-
-				-- Auto-scroll to show cursor
-				if repl.input_scroll_offset > 0 and current_line - 1 <= repl.input_scroll_offset then
-					repl.input_scroll_offset = math.max(0, current_line - 2)
-				end
-			elseif current_line == 1 and repl.history_index > 1 then
+				keep_cursor_visible = true
+			elseif current_visual_line == 1 and repl.history_index > 1 then
 				-- At first line, trying to go up - navigate history
 				-- Save current input if we're leaving fresh input mode
 				if repl.history_index > #commands.history then
@@ -436,48 +455,36 @@ function repl.HandleEvent(ev)
 				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
 				repl.input_scroll_offset = 0
 				repl.editor:SetSelectionStart(nil)
+				keep_cursor_visible = true
 			end
 		elseif ev.key == "down" then
-			local buffer = repl.editor:GetText()
-			local input_lines_count = select(2, buffer:gsub("\n", "")) + 1
-			local current_line, current_col = repl.editor:GetCursorLineCol()
+			local current_visual_line = repl.editor:GetVisualLineCol()
+			local total_visual_lines = get_wrapped_line_count(width)
 
 			if ev.modifiers and ev.modifiers.ctrl then
 				-- Scroll input view down (by wrapped lines)
-				local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
-				local input_lines = {}
-
-				for line in (buffer .. "\n"):gmatch("(.-)\n") do
-					table.insert(input_lines, line)
-				end
-
-				local total_wrapped_lines = 0
-
-				for i, line in ipairs(input_lines) do
-					local prefix_width = (i == 1) and 2 or 2
-					local wrapped = wrap_line(line, w, prefix_width)
-					total_wrapped_lines = total_wrapped_lines + #wrapped
-				end
-
-				if total_wrapped_lines > 5 then
-					repl.input_scroll_offset = math.min(total_wrapped_lines - 5, repl.input_scroll_offset + 1)
-				end
-			elseif current_line < input_lines_count then
-				-- Move cursor down one line, preserving column
+				repl.input_scroll_offset = math.min(
+					math.max(0, total_visual_lines - MAX_VISIBLE_INPUT_LINES),
+					repl.input_scroll_offset + 1
+				)
+			elseif current_visual_line < total_visual_lines then
 				repl.editor:OnKeyInput("down")
-
-				-- Auto-scroll to show cursor
-				if input_lines_count > 5 and current_line + 1 > repl.input_scroll_offset + 5 then
-					repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
-				end
-			elseif current_line == input_lines_count and repl.history_index < #commands.history then
+				keep_cursor_visible = true
+			elseif
+				current_visual_line == total_visual_lines and
+				repl.history_index < #commands.history
+			then
 				-- At last line, trying to go down - navigate history
 				repl.history_index = repl.history_index + 1
 				repl.editor:SetText(commands.history[repl.history_index])
 				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
 				repl.input_scroll_offset = 0
 				repl.editor:SetSelectionStart(nil)
-			elseif current_line == input_lines_count and repl.history_index == #commands.history then
+				keep_cursor_visible = true
+			elseif
+				current_visual_line == total_visual_lines and
+				repl.history_index == #commands.history
+			then
 				-- Restore saved input when going back to fresh input mode
 				repl.history_index = #commands.history + 1
 				repl.editor:SetText(repl.saved_input)
@@ -485,6 +492,7 @@ function repl.HandleEvent(ev)
 				repl.input_scroll_offset = 0
 				repl.editor:SetSelectionStart(nil)
 				repl.saved_input = ""
+				keep_cursor_visible = true
 			end
 		elseif ev.key == "q" and ev.modifiers and ev.modifiers.ctrl then
 			system.ShutDown()
@@ -497,42 +505,29 @@ function repl.HandleEvent(ev)
 				end
 			elseif ev.key == "x" then
 				repl.CutText()
+				keep_cursor_visible = true
 			elseif ev.key == "v" then
 				repl.PasteText()
+				keep_cursor_visible = true
+			elseif ev.key == "d" then
+				repl.DuplicateLine()
+				keep_cursor_visible = true
 			else
 				repl.editor:OnKeyInput(ev.key)
+				keep_cursor_visible = true
 			end
 		elseif #ev.key == 1 and not (ev.modifiers and ev.modifiers.ctrl) then
 			repl.editor:OnCharInput(ev.key)
-			-- Auto-scroll to show cursor if needed
-			local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
-			local buffer = repl.editor:GetText()
-			local cursor_wrapped_line = get_wrapped_line_for_cursor(buffer, repl.editor:GetCursor(), w)
-			-- Calculate total wrapped lines
-			local input_lines = {}
-
-			for line in (buffer .. "\n"):gmatch("(.-)\n") do
-				table.insert(input_lines, line)
-			end
-
-			local total_wrapped_lines = 0
-
-			for i, line in ipairs(input_lines) do
-				local prefix_width = (i == 1) and 2 or 2
-				local wrapped = wrap_line(line, w, prefix_width)
-				total_wrapped_lines = total_wrapped_lines + #wrapped
-			end
-
-			if total_wrapped_lines > 5 then
-				-- Ensure cursor is visible
-				if cursor_wrapped_line > repl.input_scroll_offset + 5 then
-					repl.input_scroll_offset = cursor_wrapped_line - 5
-				elseif cursor_wrapped_line <= repl.input_scroll_offset then
-					repl.input_scroll_offset = math.max(0, cursor_wrapped_line - 1)
-				end
-			end
+			keep_cursor_visible = true
 		else
 			repl.editor:OnKeyInput(ev.key)
+			keep_cursor_visible = true
+		end
+
+		if keep_cursor_visible then
+			ensure_cursor_visible(width)
+		else
+			clamp_input_scroll_offset(width)
 		end
 	end
 end
@@ -542,6 +537,10 @@ clear_display = function(term)
 	if repl.last_drawn_lines > 0 then
 		-- Move to beginning of current line first
 		term:Write("\r")
+
+		if repl.last_cursor_bottom_offset > 0 then
+			term:MoveDown(repl.last_cursor_bottom_offset)
+		end
 
 		-- Move up to the start of our display area
 		if repl.last_drawn_lines > 1 then term:MoveUp(repl.last_drawn_lines - 1) end
@@ -557,6 +556,7 @@ clear_display = function(term)
 		if repl.last_drawn_lines > 1 then term:MoveUp(repl.last_drawn_lines - 1) end
 
 		term:Write("\r")
+		repl.last_cursor_bottom_offset = 0
 	end
 end
 
@@ -565,38 +565,13 @@ local function draw(term)
 
 	repl.needs_redraw = false
 	local w, h = term:GetSize()
+	sync_wrap_width(w)
+	clamp_input_scroll_offset(w)
 	-- Clear previous display
 	clear_display(term)
-	local buffer = repl.editor:GetText()
-	-- Split input into lines
-	local input_lines = {}
-
-	for line in (buffer .. "\n"):gmatch("(.-)\n") do
-		table.insert(input_lines, line)
-	end
-
-	-- Wrap lines to terminal width
-	local wrapped_lines = {}
-	local line_map = {} -- Maps wrapped line index to {original_line, char_start (1-based), char_end (inclusive)}
-	for i, line in ipairs(input_lines) do
-		local prefix_width = (i == 1) and 2 or 2 -- "> " or "  "
-		local wrapped = wrap_line(line, w, prefix_width)
-		local char_start = 1
-
-		for j, wrapped_line in ipairs(wrapped) do
-			table.insert(
-				wrapped_lines,
-				{original_line_idx = i, wrapped_text = wrapped_line, is_first_wrap = (j == 1)}
-			)
-			local wrapped_length = wrapped_line:utf8_length()
-			local char_end = char_start + wrapped_length - 1
-			table.insert(line_map, {original_line = i, char_start = char_start, char_end = char_end})
-			char_start = char_end + 1
-		end
-	end
-
+	local wrapped_lines = build_wrapped_lines(w)
 	-- Calculate visible input lines (max 5 wrapped lines)
-	local visible_input_lines = math.min(5, #wrapped_lines)
+	local visible_input_lines = math.min(MAX_VISIBLE_INPUT_LINES, #wrapped_lines)
 	local total_display_lines = visible_input_lines
 	-- Draw input
 	local sel_start, sel_stop = repl.editor:GetSelection()
@@ -607,13 +582,13 @@ local function draw(term)
 
 	-- Skip characters before the visible range
 	for i = 1, start_line - 1 do
-		local map = line_map[i]
+		local wrapped_info = wrapped_lines[i]
 
-		if i > 1 and line_map[i - 1].original_line ~= map.original_line then
+		if i > 1 and wrapped_lines[i - 1].original_line ~= wrapped_info.original_line then
 			current_char_idx = current_char_idx + 1 -- +1 for newline between original lines
 		end
 
-		current_char_idx = current_char_idx + wrapped_lines[i].wrapped_text:utf8_length()
+		current_char_idx = current_char_idx + wrapped_info.wrapped_text:utf8_length()
 	end
 
 	local cursor_screen_line = 1
@@ -622,8 +597,7 @@ local function draw(term)
 	for i = start_line, end_line do
 		local wrapped_info = wrapped_lines[i]
 		local line = wrapped_info.wrapped_text
-		local map = line_map[i]
-		local prefix = (map.original_line == 1 and wrapped_info.is_first_wrap) and "> " or "  "
+		local prefix = (wrapped_info.original_line == 1 and wrapped_info.is_first_wrap) and "> " or "  "
 		local display_line_num = i - start_line + 1
 		term:Write(prefix)
 
@@ -653,9 +627,9 @@ local function draw(term)
 
 		-- Handle the newline character between original lines
 		if i < #wrapped_lines then
-			local next_map = line_map[i + 1]
+			local next_wrapped = wrapped_lines[i + 1]
 
-			if next_map.original_line ~= map.original_line then
+			if next_wrapped.original_line ~= wrapped_info.original_line then
 				-- This is the end of an original line, account for newline character
 				if sel_start then
 					local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
@@ -677,34 +651,12 @@ local function draw(term)
 	end
 
 	-- Calculate cursor position in wrapped lines
-	local cursor_line, cursor_col = repl.editor:GetCursorLineCol()
-	local cursor_wrapped_line = 1
-	local cursor_wrapped_col = cursor_col
-
-	-- Find which wrapped line the cursor is on
-	for i, map in ipairs(line_map) do
-		if map.original_line == cursor_line then
-			-- Check if cursor_col falls within this wrapped segment
-			if cursor_col >= map.char_start and cursor_col <= map.char_end then
-				cursor_wrapped_line = i
-				cursor_wrapped_col = cursor_col - map.char_start + 1
-
-				break
-			elseif cursor_col == map.char_end + 1 then
-				-- Cursor is right after the last char of this segment
-				-- Place it at the end of this wrapped line
-				cursor_wrapped_line = i
-				cursor_wrapped_col = map.char_end - map.char_start + 2
-
-				break
-			end
-		end
-	end
+	local cursor_wrapped_line, cursor_wrapped_col = repl.editor:GetVisualLineCol()
 
 	-- Only position cursor if it's in the visible range
 	if cursor_wrapped_line >= start_line and cursor_wrapped_line <= end_line then
 		cursor_screen_line = cursor_wrapped_line - start_line + 1
-		cursor_screen_col = 3 + cursor_wrapped_col - 1
+		cursor_screen_col = INPUT_PREFIX_WIDTH + cursor_wrapped_col
 	end
 
 	-- Position cursor (move up if we're not on the last line)
@@ -713,15 +665,8 @@ local function draw(term)
 	if lines_to_move_up > 0 then term:MoveUp(lines_to_move_up) end
 
 	term:MoveToColumn(math.min(w, cursor_screen_col))
-
-	-- Move back down for next frame's reference
-	if lines_to_move_up > 0 then
-		term:SaveCursor()
-		term:MoveDown(lines_to_move_up)
-		term:RestoreCursor()
-	end
-
 	repl.last_drawn_lines = total_display_lines
+	repl.last_cursor_bottom_offset = lines_to_move_up
 	term:Flush()
 end
 
@@ -743,6 +688,7 @@ function repl.Initialize()
 	local term = terminal.WrapFile(io.stdin, stdout_handle)
 	-- Don't use alternate screen - let output flow naturally
 	term:EnableCaret(true)
+	term:EnableBracketedPaste(true)
 	repl.term = term
 
 	event.AddListener("Update", "repl", function()
@@ -770,6 +716,7 @@ function repl.Initialize()
 			clear_display(repl.term)
 			repl.term:Flush()
 			repl.last_drawn_lines = 0
+			repl.last_cursor_bottom_offset = 0
 		end
 
 		-- Style the output with "< " prefix when executing
