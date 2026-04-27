@@ -1,7 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Dropdown = import("lua/ui/elements/dropdown.lua")
 local Value = import("lua/ui/elements/properties/value.lua")
-
 return function(props)
 	local node = props.node
 	local default_encoded
@@ -30,26 +29,27 @@ return function(props)
 		return nil, false
 	end
 
-    local function get_option_text(options, value)
-        for _, option in ipairs(options or {}) do
-            if type(option) == "table" then
-                if option.Value == value then
-                    return tostring(option.Text or option.Label or option.Value)
-                end
-            elseif option == value then
-                return tostring(option)
-            end
-        end
+	local function get_option_text(options, value)
+		for _, option in ipairs(options or {}) do
+			if type(option) == "table" then
+				if option.Value == value then
+					return tostring(option.Text or option.Label or option.Value)
+				end
+			elseif option == value then
+				return tostring(option)
+			end
+		end
 
-        if value == nil then return "Select..." end
+		if value == nil then return "Select..." end
 
-        return tostring(value)
-    end
+		return tostring(value)
+	end
 
 	local control = Dropdown{
 		Text = get_option_text(node.Options, node.Value),
 		FontSize = props.font_size,
 		Options = node.Options or {},
+		Searchable = node.Searchable ~= false,
 		GetText = function()
 			return get_option_text(node.Options, node.Value)
 		end,
@@ -79,23 +79,25 @@ return function(props)
 		default_encoded = control:EncodeValue()
 	end
 
-	Value.InstallContextMenu(control, {
-		BeforeOpen = function()
-			if props.sync_selection then props.sync_selection(props.key) end
-		end,
-		Encode = function(panel)
-			return panel:EncodeValue()
-		end,
-		Decode = function(text, panel)
-			return panel:DecodeValue(text)
-		end,
-		GetDefaultEncoded = function()
-			return default_encoded
-		end,
-		Commit = function(decoded)
-			props.commit_value(node, decoded, props.key, props.path)
-		end,
-	})
-
+	Value.InstallContextMenu(
+		control,
+		{
+			BeforeOpen = function()
+				if props.sync_selection then props.sync_selection(props.key) end
+			end,
+			Encode = function(panel)
+				return panel:EncodeValue()
+			end,
+			Decode = function(text, panel)
+				return panel:DecodeValue(text)
+			end,
+			GetDefaultEncoded = function()
+				return default_encoded
+			end,
+			Commit = function(decoded)
+				props.commit_value(node, decoded, props.key, props.path)
+			end,
+		}
+	)
 	return control, control
 end

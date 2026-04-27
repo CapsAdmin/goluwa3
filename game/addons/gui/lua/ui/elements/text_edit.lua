@@ -101,6 +101,8 @@ return function(props)
 				text = props.text,
 				layout = {
 					GrowWidth = 1,
+					FitWidth = false,
+					MinSize = Vec2(1, 0),
 				},
 			},
 		},
@@ -110,14 +112,26 @@ return function(props)
 		return text_panel and text_panel.text:GetText() or ""
 	end
 
+	function panel:GetTextPanel()
+		return text_panel
+	end
+
 	function panel:SetText(value)
 		value = value or ""
 
 		if text_panel and text_panel.text then text_panel.text:SetText(value) end
 
 		last_text = value
-
 		return self
+	end
+
+	function panel:RequestTextFocus()
+		if text_panel and text_panel:IsValid() then
+			text_panel:RequestFocus()
+			return true
+		end
+
+		return false
 	end
 
 	if external_ref then external_ref(panel) end

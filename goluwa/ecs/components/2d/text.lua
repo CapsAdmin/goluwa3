@@ -23,6 +23,7 @@ META:GetSet("Elide", false, {callback = "OnTextChanged"})
 META:GetSet("ElideString", "...", {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
+META:GetSet("DisableViewportCulling", false)
 META:GetSet("Color", Color(1, 1, 1, 1))
 META:GetSet("SelectionColor", Color(1, 1, 1, 0.3))
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
@@ -562,6 +563,8 @@ function META:GetVisibleTextLines(text, font, lx, ly, clip_y1, clip_y2)
 
 	if type(lines) == "string" then lines = lines:split("\n", true) end
 
+	if not lines or #lines == 0 then lines = {""} end
+
 	local line_height = font:GetLineHeight()
 	local vertical_step = line_height + font:GetSpacing()
 	local first = 1
@@ -582,19 +585,35 @@ function META:OnDraw()
 	local lx, ly = self:GetTextOffset()
 	local tw, th = self:GetTextSize()
 	local descent = font:GetDescent()
+	local is_focused_editable = self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner
+	local line_height = font:GetLineHeight()
 
 	if self.wrap_layout_info and self:GetAlignX() == "justify" then
 		tw = math.max(tw, self.wrap_layout_info.width or 0)
 	end
 
-	local clip_x1, clip_y1, clip_x2, clip_y2 = transform:GetVisibleLocalRect(lx, ly, tw, th + descent)
+	if is_focused_editable then
+		th = math.max(th, line_height)
+		tw = math.max(tw, 2)
+	end
+
+	local clip_x1, clip_y1, clip_x2, clip_y2
+
+	if self:GetDisableViewportCulling() then
+		clip_x1 = lx
+		clip_y1 = ly
+		clip_x2 = lx + tw
+		clip_y2 = ly + th + descent
+	else
+		clip_x1, clip_y1, clip_x2, clip_y2 = transform:GetVisibleLocalRect(lx, ly, tw, th + descent)
+	end
 
 	if clip_x1 == nil then return end
 
 	local source_lines = self.wrap_layout_info and self.wrap_layout_info.lines or text
 	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(source_lines, font, lx, ly, clip_y1, clip_y2)
 
-	if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
+	if is_focused_editable then
 		local start, stop = self.editor:GetSelection()
 
 		if start and start ~= stop then
@@ -642,9 +661,7 @@ function META:OnDraw()
 	end
 
 	if
-		self:GetEditable() and
-		self.editor and
-		prototype.GetFocusedObject() == self.Owner and
+		is_focused_editable and
 		self:IsCaretVisible()
 	then
 		local cursor = self.editor.Cursor

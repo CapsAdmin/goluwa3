@@ -32,6 +32,7 @@ return function(props)
 	local scrollbar_auto_hide = props.ScrollBarAutoHide ~= false
 	local scrollbar_shift_mode = props.ScrollBarContentShiftMode or "always_shift"
 	local scrollbar_reserve = props.ScrollBarReserve or 10
+	local capture_wheel_at_extents = props.CaptureWheelAtExtents == true
 	local base_padding = normalize_padding(props.Padding)
 	local viewport
 	local track_v
@@ -252,18 +253,20 @@ return function(props)
 		if (scroll_h and not scroll_v) or (scroll_h and is_shift) then
 			local max_scroll = math.max(0, content_size.x - effective_view_size.x)
 
-			if max_scroll <= 0 then return end
+			if max_scroll <= 0 then return capture_wheel_at_extents end
 
 			next_scroll.x = math.clamp(scroll.x - delta, 0, max_scroll)
 		else
 			local max_scroll = math.max(0, content_size.y - effective_view_size.y)
 
-			if max_scroll <= 0 then return end
+			if max_scroll <= 0 then return capture_wheel_at_extents end
 
 			next_scroll.y = math.clamp(scroll.y - delta, 0, max_scroll)
 		end
 
-		if next_scroll.x == scroll.x and next_scroll.y == scroll.y then return end
+		if next_scroll.x == scroll.x and next_scroll.y == scroll.y then
+			return capture_wheel_at_extents
+		end
 
 		target.transform:SetScroll(next_scroll)
 		return true
@@ -464,7 +467,6 @@ return function(props)
 				s:AddLocalListener("OnLayoutUpdated", update_handle)
 			end,
 			gui_element = {
-				Color = props.Color,
 				Clipping = true,
 			},
 			mouse_input = {

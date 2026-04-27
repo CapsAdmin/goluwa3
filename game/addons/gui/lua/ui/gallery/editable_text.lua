@@ -1,3 +1,4 @@
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Text = import("../elements/text.lua")
 local Column = import("../elements/column.lua")
@@ -16,10 +17,32 @@ return {
 			},
 		}{
 			Text{
-				Text = "A single dedicated text edit element with built-in scrolling.",
+				Text = "Compare an empty single-line field against the existing multiline editor to verify caret behavior outside dropdowns.",
 				Wrap = true,
 				FontName = "body",
 				FontSize = "L",
+			},
+			Text{
+				Text = "Single-line empty",
+				Font = "body_strong S",
+				IgnoreMouseInput = true,
+			},
+			TextEdit{
+				Text = "",
+				Size = Vec2(0, 38),
+				MinSize = Vec2(100, 38),
+				MaxSize = Vec2(0, 38),
+				Wrap = false,
+				ScrollY = false,
+				ScrollX = false,
+				layout = {
+					GrowWidth = 1,
+				},
+			},
+			Text{
+				Text = "Multiline",
+				Font = "body_strong S",
+				IgnoreMouseInput = true,
 			},
 			TextEdit{
 				Text = "Edit this text.\n\nThis dedicated element starts editable, sits inside a darker panel, and scrolls when the content grows.\n\n" .. (

@@ -158,6 +158,8 @@ return function(props)
 		is_closing = true
 		close_from_level(2)
 
+		if press and key == "escape" then return request_close() end
+
 		if container.mouse_input then container.mouse_input:SetIgnoreMouseInput(true) end
 
 		if root_menu:IsValid() then
@@ -262,7 +264,7 @@ return function(props)
 			end,
 			Events = {
 				OnKeyInput = function(self, key, press)
-					if press and key == "escape" then return request_close() end
+					if press and key == "escape" then return request_close(nil, true) end
 				end,
 			},
 		}

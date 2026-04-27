@@ -135,9 +135,12 @@ return function(props)
 	children[#children + 1] = Text{
 		layout = {
 			GrowWidth = 1,
+			MinSize = Vec2(10, 0),
+			FitWidth = false,
 			FitHeight = true,
 		},
 		Text = props.Text,
+		DisableViewportCulling = props.DisableTextCulling == true,
 		IgnoreMouseInput = true,
 		Color = props.Disabled and "text_disabled" or "text_foreground",
 	}
@@ -170,69 +173,67 @@ return function(props)
 		}
 	end
 
-	item = Panel.New{
-		get_passthrough_props(props),
-		{
-			Name = "ContextMenuItem",
-			OnSetProperty = theme.OnSetProperty,
-			transform = {
-				Size = props.Size or "M",
-			},
-			layout = {
-				Direction = "x",
-				AlignmentY = "center",
-				FitHeight = true,
-				GrowWidth = 1,
-				Padding = props.Padding or "M",
-			},
-			gui_element = {
-				Color = props.Disabled and "clickable_disabled" or props.Color or "primary",
-				BorderRadius = 4,
-				Clipping = true,
-				DrawAlpha = props.Disabled and 0.5 or 1,
-				OnDraw = function(self)
-					draw_menu_item_background(self, state)
-				end,
-			},
-			mouse_input = {
-				Cursor = props.Disabled and "arrow" or "hand",
-				OnMouseInput = function(self, button, press)
-					if props.Disabled then return end
+	local item_props = get_passthrough_props(props)
+	item_props.Name = "ContextMenuItem"
+	item_props.OnSetProperty = theme.OnSetProperty
+	item_props.transform = {
+		Size = props.Size or "M",
+	}
+	item_props.layout = {
+		Direction = "x",
+		AlignmentY = "center",
+		FitHeight = true,
+		GrowWidth = 1,
+		Padding = props.Padding or "M",
+		props.layout,
+	}
+	item_props.gui_element = {
+		Color = props.Disabled and "clickable_disabled" or props.Color or "primary",
+		BorderRadius = 4,
+		Clipping = props.Clipping ~= false,
+		DrawAlpha = props.Disabled and 0.5 or 1,
+		OnDraw = function(self)
+			draw_menu_item_background(self, state)
+		end,
+	}
+	item_props.mouse_input = {
+		Cursor = props.Disabled and "arrow" or "hand",
+		OnMouseInput = function(self, button, press)
+			if props.Disabled then return end
 
-					if button == "button_1" then
-						state.pressed = press
-						refresh()
-					end
-				end,
-				OnHover = function(self, hovered)
-					state.hovered = hovered
-					refresh()
-				end,
-			},
-			OnMouseEnter = function(self)
-				if props.Disabled then
-					close_deeper_submenus()
-					return
-				end
+			if button == "button_1" then
+				state.pressed = press
+				refresh()
+			end
+		end,
+		OnHover = function(self, hovered)
+			state.hovered = hovered
+			refresh()
+		end,
+	}
+	item_props.OnMouseEnter = function(self)
+		if props.Disabled then
+			close_deeper_submenus()
+			return
+		end
 
-				if submenu then open_submenu() else close_deeper_submenus() end
-			end,
-			OnClick = not props.Disabled and
-				function(...)
-					if submenu then
-						open_submenu()
-						return true
-					end
+		if submenu then open_submenu() else close_deeper_submenus() end
+	end
+	item_props.OnClick = not props.Disabled and
+		function(...)
+			if submenu then
+				open_submenu()
+				return true
+			end
 
-					close_context_menu()
+			close_context_menu()
 
-					if props.OnClick then return props.OnClick(...) end
-				end or
-				nil,
-			animation = true,
-			clickable = true,
-		},
-	}(children)
+			if props.OnClick then return props.OnClick(...) end
+		end or
+		nil
+	item_props.animation = true
+	item_props.clickable = true
+	item = Panel.New(item_props)(children)
 
 	function item:SetSubmenuOpen(active)
 		state.active = not not active

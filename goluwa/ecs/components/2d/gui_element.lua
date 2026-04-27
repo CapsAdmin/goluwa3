@@ -68,10 +68,14 @@ function META:DrawRecursive()
 	if not self:GetVisible() then return end
 
 	local transform = self.Owner.transform
+	local text_component = self.Owner.text
 
 	if not transform then return end
 
-	if not transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y) then
+	if
+		not (text_component and text_component.GetDisableViewportCulling and text_component:GetDisableViewportCulling()) and
+		not transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
+	then
 		return
 	end
 
