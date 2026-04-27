@@ -1721,35 +1721,35 @@ else
 		}
 	end
 
-	function meta:ReadEvent()
-		local function decode_queued_char(raw_char)
-			local byte = raw_char:byte()
+	local function decode_queued_char(raw_char)
+		local byte = raw_char:byte()
 
-			if byte == 13 or byte == 10 then
-				return {
-					key = "enter",
-					modifiers = {ctrl = false, shift = false, alt = false},
-					raw_input = raw_char,
-				}
-			elseif byte >= 32 and byte <= 126 then
-				return {
-					key = raw_char,
-					modifiers = {ctrl = false, shift = false, alt = false},
-					raw_input = raw_char,
-				}
-			end
-
-			local len = utf8_byte_length(raw_char)
-
-			if len and len > 1 then
-				return {
-					key = raw_char,
-					modifiers = {ctrl = false, shift = false, alt = false},
-					raw_input = raw_char,
-				}
-			end
+		if byte == 13 or byte == 10 then
+			return {
+				key = "enter",
+				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_char,
+			}
+		elseif byte >= 32 and byte <= 126 then
+			return {
+				key = raw_char,
+				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_char,
+			}
 		end
 
+		local len = utf8_byte_length(raw_char)
+
+		if len and len > 1 then
+			return {
+				key = raw_char,
+				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_char,
+			}
+		end
+	end
+
+	function meta:ReadEvent()
 		if self.bracketed_paste_active then
 			local chunk = self.bracketed_paste_buffer or ""
 
