@@ -762,6 +762,8 @@ function render2d.Initialize()
 							out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
 						}
 					}
+
+					if (out_color.a <= 0.0) discard;
 				}
 			]],
 		},
