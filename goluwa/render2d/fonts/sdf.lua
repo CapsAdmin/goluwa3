@@ -51,6 +51,7 @@ local SUPER_SAMPLING_SCALE = 4
 function META:ClearSizeCache()
 	self.text_size_cache = nil
 	self.wrap_string_cache = nil
+	self.draw_pass_cache = nil
 	self.ascent = nil
 	self.descent = nil
 end
@@ -313,6 +314,7 @@ function META:GetDescent()
 end
 
 function META:Rebuild()
+	self.draw_pass_cache = nil
 	self.texture_atlas:Build()
 end
 
@@ -570,15 +572,14 @@ function META:LoadGlyph(code, temp_fbs)
 		)
 
 		if own_cmd then
-			self.texture_atlas:Insert(
-				code,
-				{
-					w = glyph.w + spread * 2,
-					h = glyph.h + spread * 2,
-					texture = glyph.texture,
-					flip_y = glyph.flip_y,
-				}
-			)
+			local atlas_data = {
+				w = glyph.w + spread * 2,
+				h = glyph.h + spread * 2,
+				texture = glyph.texture,
+				flip_y = glyph.flip_y,
+			}
+			self.texture_atlas:Insert(code, atlas_data)
+			glyph.atlas_data = atlas_data
 			self.chars[code] = glyph
 			self:Rebuild()
 			cmd:End()
@@ -597,15 +598,14 @@ function META:LoadGlyph(code, temp_fbs)
 		end
 	end
 
-	self.texture_atlas:Insert(
-		code,
-		{
-			w = glyph.w + self:GetEffectiveSpread() * 2,
-			h = glyph.h + self:GetEffectiveSpread() * 2,
-			texture = glyph.texture,
-			flip_y = glyph.flip_y,
-		}
-	)
+	local atlas_data = {
+		w = glyph.w + self:GetEffectiveSpread() * 2,
+		h = glyph.h + self:GetEffectiveSpread() * 2,
+		texture = glyph.texture,
+		flip_y = glyph.flip_y,
+	}
+	self.texture_atlas:Insert(code, atlas_data)
+	glyph.atlas_data = atlas_data
 	self.chars[code] = glyph
 end
 
@@ -682,6 +682,125 @@ local function batch_load_glyphs(self, str)
 	end
 end
 
+local function get_draw_pass_cache(self, atlas)
+	local cache = self.draw_pass_cache
+
+	if not cache then
+		cache = setmetatable({}, {__mode = "k"})
+		self.draw_pass_cache = cache
+	end
+
+	local atlas_cache = cache[atlas]
+
+	if atlas_cache then return atlas_cache end
+
+	atlas_cache = {}
+	cache[atlas] = atlas_cache
+	return atlas_cache
+end
+
+local function get_draw_pass_cache_key(str, spacing, extra_space_advance)
+	return tostring(spacing) .. "\0" .. tostring(extra_space_advance or 0) .. "\0" .. str
+end
+
+local function build_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
+	local X, Y = 0, 0
+	local i = 1
+	local len = #str
+	local str_byte = string.byte
+	local utf8_uint32 = utf8.uint32
+	local utf8_byte_length = utf8.byte_length
+	local chars = self.chars
+	local spread = self:GetEffectiveSpread()
+	local scale_x = self.Scale.x
+	local scale_y = self.Scale.y
+	local size = self.Size
+	local monospace = self.Monospace
+	local tab_mult = self.TabWidthMultiplier
+	local line_height = self:GetLineHeight()
+	local space_glyph = chars[32] or self:GetChar(32)
+	local tab_advance
+	local entries = {}
+	extra_space_advance = extra_space_advance or 0
+
+	if monospace then
+		tab_advance = spacing * tab_mult
+	elseif space_glyph then
+		tab_advance = (space_glyph.x_advance + spacing) * tab_mult
+	else
+		tab_advance = size * tab_mult
+	end
+
+	while i <= len do
+		local byte = str_byte(str, i)
+		local char_code
+		local char_size
+
+		if byte < 128 then
+			char_code = byte
+			char_size = 1
+		else
+			char_code = utf8_uint32(str, i)
+			char_size = utf8_byte_length(str, i)
+		end
+
+		if char_code == 10 then
+			X = 0
+			Y = Y + line_height + spacing
+		elseif char_code == 32 then
+			X = X + size / 2 + extra_space_advance
+		elseif char_code == 9 then
+			X = X + tab_advance
+		else
+			local data = chars[char_code]
+
+			if data then
+				local atlas_data = data.atlas_data
+
+				if atlas_data and atlas_data.page then
+					entries[#entries + 1] = {
+						texture = atlas_data.page.texture,
+						uv = atlas_data.page_uv_normalized,
+						x = (X + data.bitmap_left - spread) * scale_x,
+						y = (Y + data.bitmap_top - spread) * scale_y,
+						w = atlas_data.w * scale_x,
+						h = atlas_data.h * scale_y,
+						debug_x = (X - spread) * scale_x,
+						debug_y = (Y - spread) * scale_y,
+						debug_w = (data.x_advance + spread * 2) * scale_x,
+					}
+				end
+
+				if monospace then
+					X = X + spacing
+				else
+					X = X + data.x_advance + spacing
+				end
+			end
+		end
+
+		i = i + char_size
+	end
+
+	return {
+		entries = entries,
+		margin = spread * scale_x,
+		debug_h = line_height * scale_y,
+	}
+end
+
+local function get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
+	local atlas_cache = get_draw_pass_cache(self, atlas)
+	local key = get_draw_pass_cache_key(str, spacing, extra_space_advance)
+	local cached = atlas_cache[key]
+
+	if cached then return cached end
+
+	cached = build_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
+	atlas_cache[key] = cached
+	return cached
+end
+
 function META:GetLineHeight()
 	local a, d = get_ascent_descent(self)
 	return (a + d)
@@ -745,89 +864,55 @@ function META:GetTextSizeNotCached(str)
 
 	return X * self.Scale.x, Y * self.Scale.y
 end
+
 function META:DrawPassImmediate(str, x, y, spacing, atlas, extra_space_advance)
-	local X, Y = 0, 0
-	local i = 1
-	local len = #str
+	local render2d_SetTexture = render2d.SetTexture
+	local render2d_DrawRectUV2f = render2d.DrawRectUV2f
+	local render2d_PushColor = render2d.PushColor
+	local render2d_DrawRect = render2d.DrawRect
+	local render2d_PopColor = render2d.PopColor
 	local old_texture = render2d.GetTexture()
 	local last_texture = old_texture
-	extra_space_advance = extra_space_advance or 0
+	local debug = self.debug
+	local layout = get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
+	local entries = layout.entries
 
-	while i <= len do
-		local char_code = utf8.uint32(str, i)
+	for i = 1, #entries do
+		local entry = entries[i]
+		local texture = entry.texture
 
-		if char_code == 10 then -- \n
-			X = 0
-			Y = Y + self:GetLineHeight() + spacing
-		elseif char_code == 32 then -- space
-			X = X + self.Size / 2 + extra_space_advance
-		elseif char_code == 9 then -- \t
-			local data = self.chars[32] or self:GetChar(32)
-
-			if data then
-				if self.Monospace then
-					X = X + spacing * self.TabWidthMultiplier
-				else
-					X = X + (data.x_advance + spacing) * self.TabWidthMultiplier
-				end
-			else
-				X = X + self.Size * self.TabWidthMultiplier
-			end
-		else
-			local data = self.chars[char_code]
-
-			if data then
-				local atlas_data = atlas.textures[char_code]
-
-				if atlas_data and atlas_data.page then
-					local spread = self:GetEffectiveSpread()
-					local texture = atlas_data.page.texture
-
-					if texture ~= last_texture then
-						render2d.SetTexture(texture)
-						last_texture = texture
-					end
-
-					local uv = atlas_data.page_uv_normalized
-					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
-					render2d.DrawRectf(
-						x + (X + data.bitmap_left - spread) * self.Scale.x,
-						y + (Y + data.bitmap_top - spread) * self.Scale.y,
-						atlas_data.w * self.Scale.x,
-						atlas_data.h * self.Scale.y,
-						nil,
-						nil,
-						nil,
-						spread * self.Scale.x
-					)
-
-					if self.debug then
-						render2d.SetTexture(nil)
-						render2d.PushColor(1, 0, 0, 0.25)
-						render2d.DrawRect(
-							x + (X - spread) * self.Scale.x,
-							y + (Y - spread) * self.Scale.y,
-							(data.x_advance + spread * 2) * self.Scale.x,
-							self:GetLineHeight() * self.Scale.y
-						)
-						render2d.PopColor()
-						render2d.SetTexture(texture)
-						last_texture = texture
-					end
-				end
-
-				if self.Monospace then
-					X = X + spacing
-				else
-					X = X + data.x_advance + spacing
-				end
-			end
+		if texture ~= last_texture then
+			render2d_SetTexture(texture)
+			last_texture = texture
 		end
 
-		i = i + utf8.byte_length(str, i)
+		local uv = entry.uv
+		render2d_DrawRectUV2f(
+			x + entry.x,
+			y + entry.y,
+			entry.w,
+			entry.h,
+			uv[1],
+			uv[2],
+			uv[3],
+			uv[4],
+			nil,
+			nil,
+			nil,
+			layout.margin
+		)
+
+		if debug then
+			render2d_SetTexture(nil)
+			render2d_PushColor(1, 0, 0, 0.25)
+			render2d_DrawRect(x + entry.debug_x, y + entry.debug_y, entry.debug_w, layout.debug_h)
+			render2d_PopColor()
+			render2d_SetTexture(texture)
+			last_texture = texture
+		end
 	end
 
-	if last_texture ~= old_texture then render2d.SetTexture(old_texture) end
+	if last_texture ~= old_texture then render2d_SetTexture(old_texture) end
 end
 
 function META:DrawString(str, x, y, spacing, extra_space_advance)

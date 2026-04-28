@@ -56,23 +56,117 @@ local function should_apply_dynamic_state(self, key, value)
 	return true
 end
 
-local function descriptor_sets_equal(a, b)
-	if a == b then return true end
+local function should_apply_dynamic_state_tuple3(self, key, a, b, c)
+	self.dynamic_state_cache = self.dynamic_state_cache or {}
+	local cached = self.dynamic_state_cache[key]
 
-	if type(a) ~= "table" or type(b) ~= "table" then return false end
-
-	if a.layout ~= b.layout or a.first_set ~= b.first_set then return false end
-
-	if #a.sets ~= #b.sets or #a.dynamic_offsets ~= #b.dynamic_offsets then
+	if
+		cached and
+		cached[1] == a and
+		cached[2] == b and
+		cached[3] == c and
+		cached[4] == nil
+	then
 		return false
 	end
 
-	for i = 1, #a.sets do
-		if a.sets[i] ~= b.sets[i] then return false end
+	if not cached then
+		cached = {}
+		self.dynamic_state_cache[key] = cached
 	end
 
-	for i = 1, #a.dynamic_offsets do
-		if a.dynamic_offsets[i] ~= b.dynamic_offsets[i] then return false end
+	cached[1] = a
+	cached[2] = b
+	cached[3] = c
+	cached[4] = nil
+	return true
+end
+
+local function should_apply_dynamic_state_tuple4(self, key, a, b, c, d)
+	self.dynamic_state_cache = self.dynamic_state_cache or {}
+	local cached = self.dynamic_state_cache[key]
+
+	if
+		cached and
+		cached[1] == a and
+		cached[2] == b and
+		cached[3] == c and
+		cached[4] == d and
+		cached[5] == nil
+	then
+		return false
+	end
+
+	if not cached then
+		cached = {}
+		self.dynamic_state_cache[key] = cached
+	end
+
+	cached[1] = a
+	cached[2] = b
+	cached[3] = c
+	cached[4] = d
+	cached[5] = nil
+	return true
+end
+
+local function should_apply_dynamic_state_tuple6(self, key, a, b, c, d, e, f)
+	self.dynamic_state_cache = self.dynamic_state_cache or {}
+	local cached = self.dynamic_state_cache[key]
+
+	if
+		cached and
+		cached[1] == a and
+		cached[2] == b and
+		cached[3] == c and
+		cached[4] == d and
+		cached[5] == e and
+		cached[6] == f and
+		cached[7] == nil
+	then
+		return false
+	end
+
+	if not cached then
+		cached = {}
+		self.dynamic_state_cache[key] = cached
+	end
+
+	cached[1] = a
+	cached[2] = b
+	cached[3] = c
+	cached[4] = d
+	cached[5] = e
+	cached[6] = f
+	cached[7] = nil
+	return true
+end
+
+local function descriptor_set_binding_matches(binding, pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+	if type(binding) ~= "table" then return false end
+
+	if binding.layout ~= pipelineLayout or binding.first_set ~= (firstSet or 0) then
+		return false
+	end
+
+	if #binding.sets ~= #descriptorSets then return false end
+
+	for i = 1, #descriptorSets do
+		if binding.sets[i] ~= descriptorSets[i] then return false end
+	end
+
+	local dynamicOffsetsType = type(dynamicOffsets)
+
+	if dynamicOffsetsType == "table" then
+		if #binding.dynamic_offsets ~= #dynamicOffsets then return false end
+
+		for i = 1, #dynamicOffsets do
+			if binding.dynamic_offsets[i] ~= dynamicOffsets[i] then return false end
+		end
+	elseif dynamicOffsetsType == "number" and dynamicOffsets > 0 then
+		return #binding.dynamic_offsets == 1 and binding.dynamic_offsets[1] == dynamicOffsets
+	else
+		return #binding.dynamic_offsets == 0
 	end
 
 	return true
@@ -84,6 +178,23 @@ local function keepalive(self, resource)
 	self.keepalive_resources = self.keepalive_resources or {}
 	table.insert(self.keepalive_resources, resource)
 	return resource
+end
+
+local function get_cached_ffi_array(self, cache_name, ctor, count)
+	local cache = self[cache_name]
+
+	if not cache then
+		cache = {}
+		self[cache_name] = cache
+	end
+
+	local array = cache[count]
+
+	if array then return array end
+
+	array = ctor(count)
+	cache[count] = array
+	return array
 end
 
 local function capture_descriptor_set_binding(pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
@@ -143,6 +254,7 @@ function CommandBuffer:OnRemove()
 		local cmd_ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
 		cmd_ptr[0] = self.ptr[0]
 		self.ptr[0] = nil
+
 		device:DeferRelease(function()
 			vulkan.lib.vkFreeCommandBuffers(device_ptr, pool_ptr, 1, cmd_ptr)
 		end)
@@ -356,8 +468,8 @@ end
 
 function CommandBuffer:BindVertexBuffers(firstBinding, buffers, offsets)
 	local bufferCount = #buffers
-	local bufferArray = VkBufferArray(bufferCount)
-	local offsetArray = VkDeviceSizeArray(bufferCount)
+	local bufferArray = get_cached_ffi_array(self, "cached_vk_buffer_arrays", VkBufferArray, bufferCount)
+	local offsetArray = get_cached_ffi_array(self, "cached_vk_device_size_arrays", VkDeviceSizeArray, bufferCount)
 	local hasOffsets = offsets ~= nil
 
 	for i = 1, bufferCount do
@@ -371,8 +483,10 @@ function CommandBuffer:BindVertexBuffers(firstBinding, buffers, offsets)
 end
 
 function CommandBuffer:BindVertexBuffer(buffer, binding, offset)
-	local bufferArray = VkBufferArray1()
-	local offsetArray = VkDeviceSizeArray1()
+	local bufferArray = self.cached_vk_buffer_array1 or VkBufferArray1()
+	local offsetArray = self.cached_vk_device_size_array1 or VkDeviceSizeArray1()
+	self.cached_vk_buffer_array1 = bufferArray
+	self.cached_vk_device_size_array1 = offsetArray
 	keepalive(self, buffer)
 	bufferArray[0] = buffer.ptr[0]
 	offsetArray[0] = offset or 0
@@ -381,15 +495,16 @@ end
 
 function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
 	self.bound_descriptor_sets = self.bound_descriptor_sets or {}
-	local bind_key = tostring(pipeline_bind_point)
-	local binding = capture_descriptor_set_binding(pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+	local bind_key = pipeline_bind_point
 
-	if descriptor_sets_equal(self.bound_descriptor_sets[bind_key], binding) then
+	if
+		descriptor_set_binding_matches(self.bound_descriptor_sets[bind_key], pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+	then
 		return
 	end
 
 	local setCount = #descriptorSets
-	local setArray = VkDescriptorSetArray(setCount)
+	local setArray = get_cached_ffi_array(self, "cached_vk_descriptor_set_arrays", VkDescriptorSetArray, setCount)
 
 	for i = 1, setCount do
 		local ds = descriptorSets[i]
@@ -404,7 +519,7 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 
 	if dynamicOffsetsType == "table" then
 		dynamicOffsetCount = #dynamicOffsets
-		pDynamicOffsets = UInt32Array(dynamicOffsetCount)
+		pDynamicOffsets = get_cached_ffi_array(self, "cached_uint32_arrays", UInt32Array, dynamicOffsetCount)
 
 		for i = 1, dynamicOffsetCount do
 			local offset = dynamicOffsets[i]
@@ -412,7 +527,9 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 		end
 	elseif dynamicOffsetsType == "number" and dynamicOffsets > 0 then
 		dynamicOffsetCount = 1
-		pDynamicOffsets = UInt32Array1(dynamicOffsets)
+		pDynamicOffsets = self.cached_uint32_array1 or UInt32Array1()
+		self.cached_uint32_array1 = pDynamicOffsets
+		pDynamicOffsets[0] = dynamicOffsets
 	end
 
 	vulkan.lib.vkCmdBindDescriptorSets(
@@ -425,7 +542,7 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 		dynamicOffsetCount,
 		pDynamicOffsets
 	)
-	self.bound_descriptor_sets[bind_key] = binding
+	self.bound_descriptor_sets[bind_key] = capture_descriptor_set_binding(pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
 end
 
 function CommandBuffer:Draw(vertexCount, instanceCount, firstVertex, firstInstance)
@@ -571,13 +688,17 @@ function CommandBuffer:SetDepthBiasEnable(enabled)
 end
 
 function CommandBuffer:SetDepthBias(constant_factor, clamp, slope_factor)
+	constant_factor = constant_factor or 0
+	clamp = clamp or 0
+	slope_factor = slope_factor or 0
+
 	if
-		not should_apply_dynamic_state(self, "depth_bias", {constant_factor or 0, clamp or 0, slope_factor or 0})
+		not should_apply_dynamic_state_tuple3(self, "depth_bias", constant_factor, clamp, slope_factor)
 	then
 		return
 	end
 
-	vulkan.lib.vkCmdSetDepthBias(self.ptr[0], constant_factor or 0, clamp or 0, slope_factor or 0)
+	vulkan.lib.vkCmdSetDepthBias(self.ptr[0], constant_factor, clamp, slope_factor)
 end
 
 function CommandBuffer:SetPrimitiveRestartEnable(enabled)
@@ -651,49 +772,45 @@ end
 function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)
 	assert(width > 0)
 	assert(height > 0)
+	x = x or 0.0
+	y = y or 0.0
+	minDepth = minDepth or 0.0
+	maxDepth = maxDepth or 1.0
 
 	if
-		not should_apply_dynamic_state(
-			self,
-			"viewport0",
-			{x or 0.0, y or 0.0, width, height, minDepth or 0.0, maxDepth or 1.0}
-		)
+		not should_apply_dynamic_state_tuple6(self, "viewport0", x, y, width, height, minDepth, maxDepth)
 	then
 		return
 	end
 
-	vulkan.lib.vkCmdSetViewport(
-		self.ptr[0],
-		0,
-		1,
-		vulkan.vk.VkViewport{
-			x = x or 0.0,
-			y = y or 0.0,
-			width = width,
-			height = height,
-			minDepth = minDepth or 0.0,
-			maxDepth = maxDepth or 1.0,
-		}
-	)
+	local viewport = self.cached_viewport0 or vulkan.vk.VkViewport()
+	self.cached_viewport0 = viewport
+	viewport.x = x
+	viewport.y = y
+	viewport.width = width
+	viewport.height = height
+	viewport.minDepth = minDepth
+	viewport.maxDepth = maxDepth
+	vulkan.lib.vkCmdSetViewport(self.ptr[0], 0, 1, viewport)
 end
 
 function CommandBuffer:SetScissor(x, y, width, height)
 	assert(width > 0)
 	assert(height > 0)
+	x = x or 0
+	y = y or 0
 
-	if not should_apply_dynamic_state(self, "scissor0", {x or 0, y or 0, width, height}) then
+	if not should_apply_dynamic_state_tuple4(self, "scissor0", x, y, width, height) then
 		return
 	end
 
-	vulkan.lib.vkCmdSetScissor(
-		self.ptr[0],
-		0,
-		1,
-		vulkan.vk.VkRect2D{
-			offset = vulkan.vk.VkOffset2D{x = x or 0, y = y or 0},
-			extent = vulkan.vk.VkExtent2D{width = width, height = height},
-		}
-	)
+	local scissor = self.cached_scissor0 or vulkan.vk.VkRect2D()
+	self.cached_scissor0 = scissor
+	scissor.offset.x = x
+	scissor.offset.y = y
+	scissor.extent.width = width
+	scissor.extent.height = height
+	vulkan.lib.vkCmdSetScissor(self.ptr[0], 0, 1, scissor)
 end
 
 function CommandBuffer:SetStencilReference(face_mask, reference)
@@ -742,10 +859,13 @@ end
 
 function CommandBuffer:SetStencilOp(face_mask, fail_op, pass_op, depth_fail_op, compare_op)
 	if
-		not should_apply_dynamic_state(
+		not should_apply_dynamic_state_tuple4(
 			self,
 			"stencil_op:" .. tostring(face_mask),
-			{fail_op, pass_op, depth_fail_op, compare_op}
+			fail_op,
+			pass_op,
+			depth_fail_op,
+			compare_op
 		)
 	then
 		return
@@ -765,13 +885,21 @@ function CommandBuffer:SetStencilOp(face_mask, fail_op, pass_op, depth_fail_op, 
 end
 
 function CommandBuffer:SetBlendConstants(r, g, b, a)
-	if
-		not should_apply_dynamic_state(self, "blend_constants", {r or 0.0, g or 0.0, b or 0.0, a or 0.0})
-	then
+	r = r or 0.0
+	g = g or 0.0
+	b = b or 0.0
+	a = a or 0.0
+
+	if not should_apply_dynamic_state_tuple4(self, "blend_constants", r, g, b, a) then
 		return
 	end
 
-	local constants = ffi.new("float[4]", r or 0.0, g or 0.0, b or 0.0, a or 0.0)
+	local constants = self.cached_blend_constants or ffi.new("float[4]")
+	self.cached_blend_constants = constants
+	constants[0] = r
+	constants[1] = g
+	constants[2] = b
+	constants[3] = a
 	vulkan.lib.vkCmdSetBlendConstants(self.ptr[0], constants)
 end
 

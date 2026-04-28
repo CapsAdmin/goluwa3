@@ -1952,6 +1952,9 @@ local sampler_config_keys = {
 	"compare_op",
 	"flags",
 }
+local sampler_config_key_cache = setmetatable({}, {__mode = "k"})
+local NIL_SAMPLER_CONFIG_CACHE_KEY = {}
+local FALSE_SAMPLER_CONFIG_CACHE_KEY = {}
 
 local function copy_sampler_config(config)
 	if config == false then return false end
@@ -1967,6 +1970,38 @@ local function copy_sampler_config(config)
 	end
 
 	return out
+end
+
+local NIL_SAMPLER_CONFIG_VALUE = {}
+local sampler_config_key_ids = {next_id = 1}
+
+local function intern_sampler_config_key(config)
+	local node = sampler_config_key_ids
+
+	for _, key in ipairs(sampler_config_keys) do
+		local value = config[key]
+
+		if value == nil then value = NIL_SAMPLER_CONFIG_VALUE end
+
+		local next_node = node[value]
+
+		if not next_node then
+			next_node = {}
+			node[value] = next_node
+		end
+
+		node = next_node
+	end
+
+	local id = node.id
+
+	if not id then
+		id = sampler_config_key_ids.next_id
+		sampler_config_key_ids.next_id = id + 1
+		node.id = id
+	end
+
+	return id
 end
 
 local function merge_sampler_configs(...)
@@ -1992,30 +2027,59 @@ local function merge_sampler_configs(...)
 end
 
 local function get_sampler_config_key(config)
-	local normalized = copy_sampler_config(config)
+	if config == false then return false end
 
-	if normalized == false or normalized == nil then return normalized end
+	if type(config) ~= "table" then return nil end
 
-	local parts = {}
+	local cached = sampler_config_key_cache[config]
 
-	for i, key in ipairs(sampler_config_keys) do
-		local value = normalized[key]
-		parts[i] = value == nil and "_" or (key .. "=" .. type(value) .. ":" .. tostring(value))
-	end
+	if cached ~= nil then return cached end
 
-	return table.concat(parts, "|")
+	cached = intern_sampler_config_key(config)
+	sampler_config_key_cache[config] = cached
+	return cached
 end
 
 local function get_sampler_config_hash(config)
 	return get_sampler_config_key(config)
 end
 
+local function get_sampler_binding_cache_key(config)
+	if config == nil then return NIL_SAMPLER_CONFIG_CACHE_KEY end
+
+	if config == false then return FALSE_SAMPLER_CONFIG_CACHE_KEY end
+
+	return config
+end
+
+local function get_sampler_binding_cache_level(parent, key)
+	local node = parent[key]
+
+	if node then return node end
+
+	node = setmetatable({}, {__mode = "k"})
+	parent[key] = node
+	return node
+end
+
+local function get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
+	local cache = self.resolved_sampler_bindings
+
+	if not cache then
+		cache = setmetatable({}, {__mode = "k"})
+		self.resolved_sampler_bindings = cache
+	end
+
+	local by_texture = get_sampler_binding_cache_level(cache, get_sampler_binding_cache_key(texture_sampler_config))
+	local by_pipeline = get_sampler_binding_cache_level(by_texture, get_sampler_binding_cache_key(self.sampler_config))
+	local override_key = get_sampler_binding_cache_key(sampler_config_override)
+	return by_pipeline[override_key], by_pipeline, override_key
+end
+
 local function resolve_sampler_config(config)
-	local normalized = copy_sampler_config(config)
+	if config == false or config == nil then return nil end
 
-	if normalized == false or normalized == nil then return nil end
-
-	return render.CreateSampler(normalized)
+	return render.CreateSampler(config)
 end
 
 local function get_texture_sampler_config(texture)
@@ -2027,19 +2091,30 @@ local function get_texture_sampler_config(texture)
 end
 
 local function resolve_sampler_binding(self, tex, sampler_config_override)
-	local effective_config = merge_sampler_configs(
-		tex and get_texture_sampler_config(tex) or nil,
-		self.sampler_config,
-		sampler_config_override
-	)
+	local texture_sampler_config = tex and get_texture_sampler_config(tex) or nil
+	local cached_entry, cache_bucket, cache_key = get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
+
+	if cached_entry then
+		return cached_entry.config, cached_entry.hash, cached_entry.sampler
+	end
+
+	local effective_config = merge_sampler_configs(texture_sampler_config, self.sampler_config, sampler_config_override)
 
 	if effective_config == false or effective_config == nil then
 		effective_config = self:GetFallbackSamplerConfig()
+		return effective_config,
+		get_sampler_config_hash(effective_config),
+		resolve_sampler_config(effective_config)
 	end
 
-	return effective_config,
-	get_sampler_config_hash(effective_config),
-	resolve_sampler_config(effective_config)
+	local hash = get_sampler_config_hash(effective_config)
+	local sampler = resolve_sampler_config(effective_config)
+	cache_bucket[cache_key] = {
+		config = effective_config,
+		hash = hash,
+		sampler = sampler,
+	}
+	return effective_config, hash, sampler
 end
 
 local function build_texture_descriptor_entry(self, tex, sampler_config_override)

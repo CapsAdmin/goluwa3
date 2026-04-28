@@ -47,54 +47,87 @@ function META:IsHovered(mouse_pos)
 		local_pos.y <= clip_y2
 end
 
+local draw_recursive_elements = {}
+local draw_recursive_exit = {}
+local draw_recursive_clipping = {}
+
 function META:DrawRecursive()
-	if not self:GetVisible() then return end
+	local stack_size = 1
+	draw_recursive_elements[1] = self
+	draw_recursive_exit[1] = false
+	draw_recursive_clipping[1] = false
 
-	local transform = self.Owner.transform
-	local text_component = self.Owner.text
+	while stack_size > 0 do
+		local current = draw_recursive_elements[stack_size]
+		local is_exit = draw_recursive_exit[stack_size]
+		local clipping = draw_recursive_clipping[stack_size]
+		draw_recursive_elements[stack_size] = nil
+		draw_recursive_exit[stack_size] = nil
+		draw_recursive_clipping[stack_size] = nil
+		stack_size = stack_size - 1
 
-	if not transform then return end
+		if is_exit then
+			if clipping then render2d.PopClip() end
 
-	if
-		not (
-			text_component and
-			text_component.GetDisableViewportCulling and
-			text_component:GetDisableViewportCulling()
-		) and
-		not transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
-	then
-		return
-	end
-
-	local c = self.Color + self.DrawColor
-
-	if c.a <= 0 then return end
-
-	local clipping = self:GetClipping()
-	local border_radius = self:GetBorderRadius()
-	render2d.PushMatrix()
-	render2d.SetWorldMatrix(transform:GetWorldMatrix())
-
-	if clipping then
-		if border_radius > 0 then
-			render2d.PushClipRoundedRect(0, 0, transform.Size.x, transform.Size.y, border_radius)
+			UIDebug.OnDebugPostDraw(current.Owner)
+			current.Owner:CallLocalEvent("OnPostDraw")
+			render2d.PopMatrix()
 		else
-			render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
+			if current:GetVisible() then
+				local owner = current.Owner
+				local transform = owner.transform
+
+				if transform then
+					local text_component = owner.text
+
+					if
+						(
+							text_component and
+							text_component.GetDisableViewportCulling and
+							text_component:GetDisableViewportCulling()
+						) or
+						transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
+					then
+						local c = current.Color + current.DrawColor
+
+						if c.a > 0 then
+							clipping = current:GetClipping()
+							local border_radius = current:GetBorderRadius()
+							render2d.PushMatrix()
+							render2d.SetWorldMatrix(transform:GetWorldMatrix())
+
+							if clipping then
+								if border_radius > 0 then
+									render2d.PushClipRoundedRect(0, 0, transform.Size.x, transform.Size.y, border_radius)
+								else
+									render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
+								end
+							end
+
+							render2d.SetColor(c.r, c.g, c.b, c.a * current.DrawAlpha)
+							owner:CallLocalEvent("OnDraw")
+							stack_size = stack_size + 1
+							draw_recursive_elements[stack_size] = current
+							draw_recursive_exit[stack_size] = true
+							draw_recursive_clipping[stack_size] = clipping
+							local children = owner:GetChildren()
+
+							for i = #children, 1, -1 do
+								local child = children[i]
+
+								if child.gui_element then
+									stack_size = stack_size + 1
+									draw_recursive_elements[stack_size] = child.gui_element
+									draw_recursive_exit[stack_size] = false
+									draw_recursive_clipping[stack_size] = false
+								end
+							end
+						end
+					end
+				end
+			end
 		end
 	end
-
-	render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
-	self.Owner:CallLocalEvent("OnDraw")
-
-	for _, child in ipairs(self.Owner:GetChildren()) do
-		if child.gui_element then child.gui_element:DrawRecursive() end
-	end
-
-	if clipping then render2d.PopClip() end
-
-	UIDebug.OnDebugPostDraw(self.Owner)
-	self.Owner:CallLocalEvent("OnPostDraw")
-	render2d.PopMatrix()
 end
 
 function META:OnFirstCreated()

@@ -43,6 +43,8 @@ local render2d = library()
 local batch_state = RectBatch.New()
 local current_w, current_h = 0, 0
 local current_lw, current_lh = 0, 0
+local current_scissor_x, current_scissor_y = 0, 0
+local current_scissor_w, current_scissor_h = 0, 0
 local DEFAULT_BLEND_MODE = "alpha"
 local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
 local DEFAULT_DEPTH_MODE = "none"
@@ -75,22 +77,176 @@ local flush_rect_batch_queue
 local draw_rect_immediate
 local ensure_rect_batch_instance_buffer
 local next_rect_batch_instance_buffer_slot = 1
+local rect_batch_pipeline_state_id = 0
+local current_fragment_static_state_id = 0
+local current_blend_mode_state_id = 0
+local current_depth_state_id = 0
+local current_stencil_state_id = 0
+local current_scissor_state_id = 0
 render2d.batched_rect_draws_enabled = true
 local default_rect_batch_mode = "instanced"
 local current_rect_batch_mode = default_rect_batch_mode
-local rect_batch_debug_logs_left = 0
+local NIL_STATE_VALUE = {}
+local fragment_static_state_ids = {next_id = 1}
+local blend_mode_state_ids = {next_id = 1}
+local depth_state_ids = {next_id = 1}
+local stencil_state_ids = {next_id = 1}
+local scissor_state_ids = {next_id = 1}
+local pipeline_state_ids = {next_id = 1}
+local rect_batch_key_ids = {next_id = 1}
+local rect_batch_mode_ids = {
+	immediate = 1,
+	replay = 2,
+	instanced = 3,
+}
+
+local function intern_state_id(root, ...)
+	local node = root
+
+	for i = 1, select("#", ...) do
+		local value = select(i, ...)
+
+		if value == nil then value = NIL_STATE_VALUE end
+
+		local next_node = node[value]
+
+		if not next_node then
+			next_node = {}
+			node[value] = next_node
+		end
+
+		node = next_node
+	end
+
+	local id = node.id
+
+	if not id then
+		id = root.next_id
+		root.next_id = id + 1
+		node.id = id
+	end
+
+	return id
+end
+
+local function intern_rect_batch_key_id(
+	batch_mode_id,
+	pipeline_id,
+	fragment_static_state_id,
+	blend_mode_state_id,
+	depth_state_id,
+	stencil_state_id,
+	scissor_state_id
+)
+	local node = rect_batch_key_ids[batch_mode_id]
+
+	if not node then
+		node = {}
+		rect_batch_key_ids[batch_mode_id] = node
+	end
+
+	local next_node = node[pipeline_id]
+
+	if not next_node then
+		next_node = {}
+		node[pipeline_id] = next_node
+	end
+
+	node = next_node
+	next_node = node[fragment_static_state_id]
+
+	if not next_node then
+		next_node = {}
+		node[fragment_static_state_id] = next_node
+	end
+
+	node = next_node
+	next_node = node[blend_mode_state_id]
+
+	if not next_node then
+		next_node = {}
+		node[blend_mode_state_id] = next_node
+	end
+
+	node = next_node
+	next_node = node[depth_state_id]
+
+	if not next_node then
+		next_node = {}
+		node[depth_state_id] = next_node
+	end
+
+	node = next_node
+	next_node = node[stencil_state_id]
+
+	if not next_node then
+		next_node = {}
+		node[stencil_state_id] = next_node
+	end
+
+	node = next_node
+	local leaf = node[scissor_state_id]
+
+	if not leaf then
+		leaf = rect_batch_key_ids.next_id
+		rect_batch_key_ids.next_id = leaf + 1
+		node[scissor_state_id] = leaf
+	end
+
+	return leaf
+end
+
+local function update_fragment_static_state_id()
+	current_fragment_static_state_id = intern_state_id(
+		fragment_static_state_ids,
+		fragment_constants.nine_patch_x_count,
+		fragment_constants.nine_patch_y_count,
+		fragment_constants.nine_patch_x_stretch[0],
+		fragment_constants.nine_patch_x_stretch[1],
+		fragment_constants.nine_patch_x_stretch[2],
+		fragment_constants.nine_patch_x_stretch[3],
+		fragment_constants.nine_patch_x_stretch[4],
+		fragment_constants.nine_patch_x_stretch[5],
+		fragment_constants.nine_patch_y_stretch[0],
+		fragment_constants.nine_patch_y_stretch[1],
+		fragment_constants.nine_patch_y_stretch[2],
+		fragment_constants.nine_patch_y_stretch[3],
+		fragment_constants.nine_patch_y_stretch[4],
+		fragment_constants.nine_patch_y_stretch[5]
+	)
+end
+
+local function update_blend_mode_state_id(state)
+	current_blend_mode_state_id = intern_state_id(
+		blend_mode_state_ids,
+		state and state.blend == true,
+		state and state.src_color_blend_factor,
+		state and state.dst_color_blend_factor,
+		state and state.color_blend_op,
+		state and state.src_alpha_blend_factor,
+		state and state.dst_alpha_blend_factor,
+		state and state.alpha_blend_op,
+		state and state.color_write_mask and state.color_write_mask[1],
+		state and state.color_write_mask and state.color_write_mask[2],
+		state and state.color_write_mask and state.color_write_mask[3],
+		state and state.color_write_mask and state.color_write_mask[4]
+	)
+end
+
+local function update_depth_state_id(mode_name, write)
+	current_depth_state_id = intern_state_id(depth_state_ids, mode_name, write == true)
+end
+
+local function update_stencil_state_id(mode_name, ref)
+	current_stencil_state_id = intern_state_id(stencil_state_ids, mode_name, ref)
+end
+
+local function update_scissor_state_id(x, y, w, h)
+	current_scissor_state_id = intern_state_id(scissor_state_ids, x, y, w, h)
+end
 
 local function reset_rect_batch_instance_frame_state()
 	next_rect_batch_instance_buffer_slot = 1
-end
-
-local function debug_rect_batch_instanced(...)
-	if not render2d.debug_rect_batch_instanced then return end
-
-	if rect_batch_debug_logs_left <= 0 then return end
-
-	rect_batch_debug_logs_left = rect_batch_debug_logs_left - 1
-	print("[render2d instanced]", ...)
 end
 
 function render2d.SetRectBatchMode(mode)
@@ -166,38 +322,6 @@ local function build_rect_draw_matrix(base_world_matrix, x, y, w, h, a, ox, oy, 
 	return projected, qw, qh
 end
 
-local function build_rect_batch_fragment_state_key(fragment_snapshot)
-	local static_snapshot = FragmentConstants()
-	ffi.copy(static_snapshot, fragment_snapshot, fragment_constants_size)
-
-	for i = 0, 3 do
-		static_snapshot.global_color[i] = 0
-		static_snapshot.border_radius[i] = 0
-	end
-
-	static_snapshot.alpha_multiplier = 0
-	static_snapshot.texture_index = 0
-	static_snapshot.uv_offset[0] = 0
-	static_snapshot.uv_offset[1] = 0
-	static_snapshot.uv_scale[0] = 0
-	static_snapshot.uv_scale[1] = 0
-	static_snapshot.sample_uv_mode = 0
-	static_snapshot.swizzle_mode = 0
-	static_snapshot.blur[0] = 0
-	static_snapshot.blur[1] = 0
-	static_snapshot.outline_width = 0
-	static_snapshot.rect_size[0] = 0
-	static_snapshot.rect_size[1] = 0
-	static_snapshot.sdf_threshold = 0
-	static_snapshot.sdf_texel_range = 0
-	static_snapshot.gradient_texture_index = 0
-	static_snapshot.sdf_rect_size[0] = 0
-	static_snapshot.sdf_rect_size[1] = 0
-	static_snapshot.subpixel_mode = 0
-	static_snapshot.subpixel_amount = 0
-	return ffi.string(static_snapshot, fragment_constants_size)
-end
-
 local function build_rect_batch_fragment_shader_source(source)
 	local shader = [[
 		#define batch_global_color in_batch_global_color
@@ -260,50 +384,16 @@ local function build_rect_batch_fragment_shader_source(source)
 end
 
 local function build_rect_batch_key(state, w, h, margin, batch_mode)
-	local blend_mode_key = state.blend_mode
-
-	if type(blend_mode_key) == "table" then
-		blend_mode_key = table.concat(
-			{
-				tostring(blend_mode_key.blend),
-				blend_mode_key.src_color_blend_factor,
-				blend_mode_key.dst_color_blend_factor,
-				blend_mode_key.color_blend_op,
-				blend_mode_key.src_alpha_blend_factor,
-				blend_mode_key.dst_alpha_blend_factor,
-				blend_mode_key.alpha_blend_op,
-				table.concat(blend_mode_key.color_write_mask or DEFAULT_COLOR_WRITE_MASK, ","),
-			},
-			"|"
-		)
-	end
-
-	local static_fragment_state_key = build_rect_batch_fragment_state_key(state.fragment_constants)
-	return {
-		hash = table.concat(
-			{
-				tostring(batch_mode),
-				tostring(render2d.rect_batch_pipeline),
-				static_fragment_state_key,
-				tostring(blend_mode_key),
-				tostring(state.depth_mode),
-				tostring(state.depth_write),
-				tostring(state.stencil_mode),
-				tostring(state.stencil_ref),
-			},
-			"|"
-		),
-		debug = {
-			batch_mode = tostring(batch_mode),
-			pipeline = tostring(render2d.rect_batch_pipeline),
-			static_fragment_state = static_fragment_state_key,
-			blend_mode = tostring(blend_mode_key),
-			depth_mode = tostring(state.depth_mode),
-			depth_write = tostring(state.depth_write),
-			stencil_mode = tostring(state.stencil_mode),
-			stencil_ref = tostring(state.stencil_ref),
-		},
-	}
+	local batch_mode_id = rect_batch_mode_ids[batch_mode] or 0
+	return intern_rect_batch_key_id(
+		batch_mode_id,
+		state.pipeline_state_id,
+		state.fragment_static_state_id,
+		state.blend_mode_state_id,
+		state.depth_state_id,
+		state.stencil_state_id,
+		state.scissor_state_id
+	)
 end
 
 local function apply_rect_margin_uv(qw, qh, w, h)
@@ -381,8 +471,8 @@ local function write_rect_batch_instance(vertex, entry)
 	vertex.batch_outline_subpixel[3] = fragment_snapshot.subpixel_amount
 end
 
-function render2d.GetBatchStats()
-	return batch_state:GetStats()
+function render2d.GetBatchState()
+	return batch_state
 end
 
 function render2d.HasPendingBatches()
@@ -1221,6 +1311,8 @@ function render2d.Initialize()
 		BackStencilDepthFailOp = config.BackStencilDepthFailOp,
 		BackStencilCompareOp = config.BackStencilCompareOp,
 	}
+	render2d.rect_batch_pipeline_state_id = intern_state_id(pipeline_state_ids, render2d.rect_batch_pipeline)
+	rect_batch_pipeline_state_id = render2d.rect_batch_pipeline_state_id
 
 	render2d.pipeline:SetTextureSamplerConfigResolver(function()
 		return render.GetSamplerFilterConfig()
@@ -1314,7 +1406,6 @@ function render2d.ResetState()
 	render2d.ClearPendingBatches()
 	render2d.SetRectBatchMode(default_rect_batch_mode)
 	reset_rect_batch_instance_frame_state()
-	rect_batch_debug_logs_left = render2d.debug_rect_batch_instanced_max_logs or 12
 	render2d.SetTexture()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
@@ -1335,10 +1426,12 @@ function render2d.ResetState()
 		fragment_constants.nine_patch_y_stretch[i] = 0
 	end
 
+	update_fragment_static_state_id()
 	render2d.SetSDFThreshold(0.5)
 	render2d.SetSubpixelMode("none")
 	render2d.SetSubpixelAmount(1 / 3)
 	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
+	render2d.SetScissor(0, 0, render2d.GetSize())
 	render2d.SetBlendMode("alpha", true)
 
 	if render2d.SetDepthMode then
@@ -1526,6 +1619,13 @@ do
 		function render2d.ClearNinePatch()
 			fragment_constants.nine_patch_x_count = 0
 			fragment_constants.nine_patch_y_count = 0
+
+			for i = 0, 5 do
+				fragment_constants.nine_patch_x_stretch[i] = 0
+				fragment_constants.nine_patch_y_stretch[i] = 0
+			end
+
+			update_fragment_static_state_id()
 		end
 
 		function render2d.SetNinePatchTable(tbl)
@@ -1564,6 +1664,7 @@ do
 			fragment_constants.nine_patch_y_stretch[index * 2] = x2
 			fragment_constants.nine_patch_y_stretch[index * 2 + 1] = y2
 			fragment_constants.nine_patch_y_count = math.max(fragment_constants.nine_patch_y_count, index + 1)
+			update_fragment_static_state_id()
 		end
 
 		function render2d.GetNinePatch()
@@ -1633,6 +1734,7 @@ do
 
 		render2d.current_blend_mode = next_mode
 		render2d.current_blend_mode_state = next_state
+		update_blend_mode_state_id(next_state)
 		mark_pipeline_state_dirty()
 	end
 
@@ -1820,6 +1922,7 @@ do
 
 			current_mode = mode_name
 			current_write = write
+			update_depth_state_id(current_mode, current_write)
 			mark_pipeline_state_dirty()
 		end
 
@@ -1841,6 +1944,7 @@ do
 
 			current_mode = mode_name
 			current_ref = ref
+			update_stencil_state_id(current_mode, current_ref)
 			mark_pipeline_state_dirty()
 		end
 
@@ -1896,7 +2000,10 @@ do
 	end
 
 	function render2d.SetScissor(x, y, w, h)
-		render2d.FlushBatches("set_scissor")
+		x = x or 0
+		y = y or 0
+		w = w or 0
+		h = h or 0
 
 		if x < 0 then
 			w = w + x
@@ -1910,7 +2017,26 @@ do
 
 		w = math.max(w, 0)
 		h = math.max(h, 0)
-		render.GetCommandBuffer():SetScissor(x, y, w, h)
+		current_scissor_x = x
+		current_scissor_y = y
+		current_scissor_w = w
+		current_scissor_h = h
+		update_scissor_state_id(x, y, w, h)
+		local cmd = render.GetCommandBuffer()
+
+		if cmd then
+			local cmd_x, cmd_y, cmd_w, cmd_h = x, y, w, h
+
+			if cmd_w == 0 or cmd_h == 0 then
+				local screen_w, screen_h = render2d.GetSize()
+				cmd_x = math.max(screen_w or 0, 0)
+				cmd_y = math.max(screen_h or 0, 0)
+				cmd_w = 1
+				cmd_h = 1
+			end
+
+			cmd:SetScissor(cmd_x, cmd_y, cmd_w, cmd_h)
+		end
 	end
 
 	do
@@ -1933,7 +2059,6 @@ do
 			local clip_matrix = Matrix44()
 			local screen_w, screen_h = render2d.GetSize()
 			world_matrix:GetMultiplied(render2d.GetProjectionViewMatrix(), clip_matrix)
-
 			local tl_x, tl_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x, y)
 			local tr_x, tr_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x + w, y)
 			local br_x, br_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x + w, y + h)
@@ -2377,11 +2502,21 @@ capture_rect_draw_state = function()
 		world_matrix = world_matrix,
 		texture = render2d.current_texture,
 		gradient_texture = render2d.current_gradient_texture,
-		blend_mode = render2d.GetBlendMode(),
+		blend_mode = render2d.current_blend_mode,
 		depth_mode = depth_mode_name,
 		depth_write = depth_write,
 		stencil_mode = stencil_mode_name,
 		stencil_ref = stencil_ref,
+		scissor_x = current_scissor_x,
+		scissor_y = current_scissor_y,
+		scissor_w = current_scissor_w,
+		scissor_h = current_scissor_h,
+		pipeline_state_id = rect_batch_pipeline_state_id,
+		fragment_static_state_id = current_fragment_static_state_id,
+		blend_mode_state_id = current_blend_mode_state_id,
+		depth_state_id = current_depth_state_id,
+		stencil_state_id = current_stencil_state_id,
+		scissor_state_id = current_scissor_state_id,
 	}
 end
 restore_rect_draw_state = function(state)
@@ -2391,6 +2526,7 @@ restore_rect_draw_state = function(state)
 	render2d.SetBlendMode(state.blend_mode, true)
 	render2d.SetDepthMode(state.depth_mode, state.depth_write)
 	render2d.SetStencilMode(state.stencil_mode, state.stencil_ref)
+	render2d.SetScissor(state.scissor_x, state.scissor_y, state.scissor_w, state.scissor_h)
 	render2d.SetWorldMatrix(state.world_matrix)
 end
 
@@ -2462,28 +2598,6 @@ do
 				state = state,
 			}
 		)
-
-		if batch_mode == "instanced" then
-			debug_rect_batch_instanced(
-				string.format(
-					"queued rect x=%0.2f y=%0.2f w=%0.2f h=%0.2f margin=%0.2f qw=%0.2f qh=%0.2f m00=%0.3f m01=%0.3f m10=%0.3f m11=%0.3f m30=%0.3f m31=%0.3f",
-					x or -1,
-					y or -1,
-					w or -1,
-					h or -1,
-					margin or -1,
-					qw or -1,
-					qh or -1,
-					draw_matrix.m00,
-					draw_matrix.m01,
-					draw_matrix.m10,
-					draw_matrix.m11,
-					draw_matrix.m30,
-					draw_matrix.m31
-				)
-			)
-		end
-
 		return true
 	end
 
@@ -2548,12 +2662,40 @@ do
 		return draw_rect_immediate(x, y, w, h, a, ox, oy, nil, false)
 	end
 
+	local function draw_rect_with_uv2(use_float, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
+		local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
+		local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
+		fragment_constants.uv_offset[0] = u1
+		fragment_constants.uv_offset[1] = v1
+		fragment_constants.uv_scale[0] = u2 - u1
+		fragment_constants.uv_scale[1] = v2 - v1
+		local result
+
+		if can_batch_rect_draw() then
+			result = queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
+		else
+			result = draw_rect_immediate(x, y, w, h, a, ox, oy, nil, use_float)
+		end
+
+		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
+		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
+		return result
+	end
+
+	function render2d.DrawRectUV2(x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
+		return draw_rect_with_uv2(false, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
+	end
+
 	function render2d.DrawRectf(x, y, w, h, a, ox, oy, max_m)
 		if can_batch_rect_draw() then
 			return queue_rect_draw(true, x, y, w, h, a, ox, oy, max_m)
 		end
 
 		return draw_rect_immediate(x, y, w, h, a, ox, oy, nil, true)
+	end
+
+	function render2d.DrawRectUV2f(x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
+		return draw_rect_with_uv2(true, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
 	end
 end
 
@@ -2581,24 +2723,7 @@ flush_rect_batch_queue = function()
 			local first = segment.entries[1]
 			local instance_buffer = ensure_rect_batch_instance_buffer(next_rect_batch_instance_buffer_slot, #segment.entries)
 			local vertices = instance_buffer:GetVertices()
-			local old_off_x, old_off_y, old_scale_x, old_scale_y
 			next_rect_batch_instance_buffer_slot = next_rect_batch_instance_buffer_slot + 1
-			debug_rect_batch_instanced(
-				string.format(
-					"flushing segment entries=%d qw=%0.2f qh=%0.2f w=%0.2f h=%0.2f m00=%0.3f m01=%0.3f m10=%0.3f m11=%0.3f m30=%0.3f m31=%0.3f",
-					#segment.entries,
-					first.qw or -1,
-					first.qh or -1,
-					first.w or -1,
-					first.h or -1,
-					first.draw_matrix.m00,
-					first.draw_matrix.m01,
-					first.draw_matrix.m10,
-					first.draw_matrix.m11,
-					first.draw_matrix.m30,
-					first.draw_matrix.m31
-				)
-			)
 
 			for i, entry in ipairs(segment.entries) do
 				write_rect_batch_instance(vertices[i - 1], entry)
@@ -2644,6 +2769,8 @@ flush_rect_batch_queue = function()
 	batch_state:FinishFlush(
 		flushed_draws,
 		{
+			queued_draws = flushed_draws,
+			queued_segments = #batch_state.segments,
 			gpu_rect_draw_calls = gpu_rect_draw_calls,
 			instanced_draws = instanced_draws,
 			instanced_segments = instanced_segments,
@@ -2687,13 +2814,15 @@ render2d.SetAlphaMultiplier(1)
 render2d.SetSwizzleMode(0)
 render2d.current_blend_mode = "alpha"
 render2d.current_blend_mode_state = get_blend_mode_state("alpha")
+update_blend_mode_state_id(render2d.current_blend_mode_state)
+update_depth_state_id(DEFAULT_DEPTH_MODE, false)
+update_stencil_state_id("none", 1)
+update_scissor_state_id(0, 0, 0, 0)
+update_fragment_static_state_id()
 render2d.pipeline_state_dirty = true
 
 render.RegisterFlushCallback("render2d", function(reason)
-	if reason == "begin_frame" then
-		batch_state:AdvanceFrame()
-		reset_rect_batch_instance_frame_state()
-	end
+	if reason == "begin_frame" then reset_rect_batch_instance_frame_state() end
 
 	return render2d.FlushBatches(reason)
 end)

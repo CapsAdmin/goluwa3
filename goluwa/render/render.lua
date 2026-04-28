@@ -450,6 +450,39 @@ do
 		"compare_op",
 		"flags",
 	}
+	local sampler_config_key_cache = setmetatable({}, {__mode = "k"})
+	local sampler_cache_by_config = setmetatable({}, {__mode = "k"})
+	local NIL_SAMPLER_CONFIG_VALUE = {}
+	local sampler_config_key_ids = {next_id = 1}
+
+	local function intern_sampler_config_key(config)
+		local node = sampler_config_key_ids
+
+		for _, key in ipairs(sampler_config_keys) do
+			local value = config[key]
+
+			if value == nil then value = NIL_SAMPLER_CONFIG_VALUE end
+
+			local next_node = node[value]
+
+			if not next_node then
+				next_node = {}
+				node[value] = next_node
+			end
+
+			node = next_node
+		end
+
+		local id = node.id
+
+		if not id then
+			id = sampler_config_key_ids.next_id
+			sampler_config_key_ids.next_id = id + 1
+			node.id = id
+		end
+
+		return id
+	end
 
 	local function copy_sampler_config(config)
 		if config == false then return false end
@@ -468,29 +501,38 @@ do
 	end
 
 	local function get_sampler_config_key(config)
-		local normalized = copy_sampler_config(config)
+		if config == false then return false end
 
-		if normalized == false or normalized == nil then return normalized end
+		if type(config) ~= "table" then return nil end
 
-		local parts = {}
+		local cached = sampler_config_key_cache[config]
 
-		for i, key in ipairs(sampler_config_keys) do
-			local value = normalized[key]
-			parts[i] = value == nil and "_" or (key .. "=" .. type(value) .. ":" .. tostring(value))
-		end
+		if cached ~= nil then return cached end
 
-		return table.concat(parts, "|")
+		cached = intern_sampler_config_key(config)
+		sampler_config_key_cache[config] = cached
+		return cached
 	end
 
 	function render.CreateSampler(config)
-		local normalized = assert(copy_sampler_config(config), "render.CreateSampler: invalid sampler config")
-		local hash = get_sampler_config_key(normalized)
+		local cached_sampler = sampler_cache_by_config[config]
 
-		if render.cached_samplers[hash] then return render.cached_samplers[hash] end
+		if cached_sampler ~= nil then return cached_sampler end
+
+		local normalized = assert(copy_sampler_config(config), "render.CreateSampler: invalid sampler config")
+		local hash = get_sampler_config_key(config)
+
+		cached_sampler = render.cached_samplers[hash]
+
+		if cached_sampler then
+			sampler_cache_by_config[config] = cached_sampler
+			return cached_sampler
+		end
 
 		normalized.device = vulkan_instance.device
 		local sampler = Sampler.New(normalized)
 		render.cached_samplers[hash] = sampler
+		sampler_cache_by_config[config] = sampler
 		return sampler
 	end
 

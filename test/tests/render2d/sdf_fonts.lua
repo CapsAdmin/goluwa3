@@ -29,7 +29,7 @@ do
 	}
 
 	T.Test2DFrames(
-		"sdf font uses rect batch stats",
+		"sdf font uses rect batching",
 		3,
 		function(width, height, frame)
 			render2d.SetColor(0, 0, 0, 1)
@@ -43,17 +43,18 @@ do
 			if frame == 2 then
 				render2d.SetColor(1, 1, 1, 1)
 				font:DrawText("RectStats", 20, 20)
+				local state = render2d.GetBatchState()
+				T(state.pending_draws)[">"](0)
+				T(#state.segments)[">"](0)
 			end
 		end,
 		function(width, height, frame)
 			if frame ~= 3 then return end
 
-			local stats = render2d.GetBatchStats().last_frame
-			local flush_reasons = stats.flush_reasons or {}
-			T((flush_reasons.bind_mesh or 0))["=="](0)
-			T((stats.instanced_draws or 0))[">"](0)
-			T((stats.gpu_rect_draw_calls or 0))[">"](0)
-			T((stats.queued_draws or 0))[">"](0)
+			local last_flush = render2d.GetBatchState().last_flush
+			T((last_flush.instanced_draws or 0))[">"](0)
+			T((last_flush.gpu_rect_draw_calls or 0))[">"](0)
+			T((last_flush.queued_draws or 0))[">"](0)
 		end
 	)
 end
