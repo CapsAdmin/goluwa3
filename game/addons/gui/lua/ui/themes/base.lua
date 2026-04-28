@@ -503,7 +503,7 @@ function BaseTheme:DrawButton(pnl, state)
 	local anim = state.anim
 	local owner = pnl.Owner
 	local size = owner.transform.Size
-	local radius = math.max(4, math.floor(size.y * 0.18))
+	local radius = math.max(4, math.floor(size.y * 0.5))
 	local fill
 	local border = self:GetColor("border")
 
@@ -747,5 +747,4 @@ function BaseTheme:DrawDivider(pnl)
 	end
 end
 
-BaseTheme:Register()
-return BaseTheme
+return BaseTheme:Register()
