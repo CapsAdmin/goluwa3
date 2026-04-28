@@ -4,6 +4,9 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+local WALK_CONTINUE = 1
+local WALK_DESCEND = 2
+local WALK_SKIP_SUBTREE = 3
 local META = prototype.CreateTemplate("gui_element")
 META:StartStorable()
 META:GetSet("Visible", true)
@@ -47,87 +50,136 @@ function META:IsHovered(mouse_pos)
 		local_pos.y <= clip_y2
 end
 
-local draw_recursive_elements = {}
-local draw_recursive_exit = {}
-local draw_recursive_clipping = {}
+local draw_recursive_cache_key = {}
+local draw_recursive_active = {}
+local draw_recursive_payloads = {}
 
-function META:DrawRecursive()
-	local stack_size = 1
-	draw_recursive_elements[1] = self
-	draw_recursive_exit[1] = false
-	draw_recursive_clipping[1] = false
+local function build_draw_recursive_traversal_recursive(owner, traversal)
+	local enter_index = traversal.count + 1
+	traversal.count = enter_index
+	traversal.elements[enter_index] = owner
+	traversal.exit[enter_index] = false
+	local children = owner:GetChildren()
 
-	while stack_size > 0 do
-		local current = draw_recursive_elements[stack_size]
-		local is_exit = draw_recursive_exit[stack_size]
-		local clipping = draw_recursive_clipping[stack_size]
-		draw_recursive_elements[stack_size] = nil
-		draw_recursive_exit[stack_size] = nil
-		draw_recursive_clipping[stack_size] = nil
-		stack_size = stack_size - 1
+	for i = 1, #children do
+		build_draw_recursive_traversal_recursive(children[i], traversal)
+	end
 
-		if is_exit then
-			if clipping then render2d.PopClip() end
+	local exit_index = traversal.count + 1
+	traversal.count = exit_index
+	traversal.elements[exit_index] = owner
+	traversal.exit[exit_index] = true
+	traversal.skip_to[enter_index] = exit_index + 1
+end
 
-			UIDebug.OnDebugPostDraw(current.Owner)
-			current.Owner:CallLocalEvent("OnPostDraw")
-			render2d.PopMatrix()
+local function build_draw_recursive_traversal(owner)
+	local traversal = {
+		count = 0,
+		elements = {},
+		exit = {},
+		skip_to = {},
+	}
+	build_draw_recursive_traversal_recursive(owner, traversal)
+	return traversal
+end
+
+local function walk_draw_recursive(owner, context, on_enter, on_exit)
+	local traversal = owner:GetCachedChildrenTraversal(draw_recursive_cache_key, build_draw_recursive_traversal)
+	local elements = traversal.elements
+	local exit = traversal.exit
+	local skip_to = traversal.skip_to
+	local count = traversal.count
+	local index = 1
+
+	while index <= count do
+		local owner = elements[index]
+
+		if exit[index] then
+			local active = draw_recursive_active[index]
+			local payload = draw_recursive_payloads[index]
+			draw_recursive_active[index] = nil
+			draw_recursive_payloads[index] = nil
+
+			if active then on_exit(context, owner, payload, index) end
+
+			index = index + 1
 		else
-			if current:GetVisible() then
-				local owner = current.Owner
-				local transform = owner.transform
+			local action, payload = on_enter(context, owner, index)
 
-				if transform then
-					local text_component = owner.text
-
-					if
-						(
-							text_component and
-							text_component.GetDisableViewportCulling and
-							text_component:GetDisableViewportCulling()
-						) or
-						transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
-					then
-						local c = current.Color + current.DrawColor
-
-						if c.a > 0 then
-							clipping = current:GetClipping()
-							local border_radius = current:GetBorderRadius()
-							render2d.PushMatrix()
-							render2d.SetWorldMatrix(transform:GetWorldMatrix())
-
-							if clipping then
-								if border_radius > 0 then
-									render2d.PushClipRoundedRect(0, 0, transform.Size.x, transform.Size.y, border_radius)
-								else
-									render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
-								end
-							end
-
-							render2d.SetColor(c.r, c.g, c.b, c.a * current.DrawAlpha)
-							owner:CallLocalEvent("OnDraw")
-							stack_size = stack_size + 1
-							draw_recursive_elements[stack_size] = current
-							draw_recursive_exit[stack_size] = true
-							draw_recursive_clipping[stack_size] = clipping
-							local children = owner:GetChildren()
-
-							for i = #children, 1, -1 do
-								local child = children[i]
-
-								if child.gui_element then
-									stack_size = stack_size + 1
-									draw_recursive_elements[stack_size] = child.gui_element
-									draw_recursive_exit[stack_size] = false
-									draw_recursive_clipping[stack_size] = false
-								end
-							end
-						end
-					end
-				end
+			if action == WALK_CONTINUE then
+				local exit_index = skip_to[index] - 1
+				draw_recursive_active[exit_index] = true
+				draw_recursive_payloads[exit_index] = payload
+				index = index + 1
+			elseif action == WALK_DESCEND then
+				index = index + 1
+			elseif action == WALK_SKIP_SUBTREE then
+				index = skip_to[index]
+			else
+				error("unknown gui draw action: " .. tostring(action), 2)
 			end
 		end
 	end
+end
+
+local function draw_recursive_enter(_, owner)
+	local current = owner.gui_element
+
+	if not current then return WALK_DESCEND end
+
+	if not current:GetVisible() then return WALK_SKIP_SUBTREE end
+
+	local transform = owner.transform
+
+	if not transform then return WALK_SKIP_SUBTREE end
+
+	local text_component = owner.text
+
+	if
+		not (
+			(
+				text_component and
+				text_component.GetDisableViewportCulling and
+				text_component:GetDisableViewportCulling()
+			) or
+			transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
+		)
+	then
+		return WALK_SKIP_SUBTREE
+	end
+
+	local c = current.Color + current.DrawColor
+
+	if c.a <= 0 then return WALK_SKIP_SUBTREE end
+
+	local clipping = current:GetClipping()
+	local border_radius = current:GetBorderRadius()
+	render2d.PushMatrix()
+	render2d.SetWorldMatrix(transform:GetWorldMatrix())
+
+	if clipping then
+		if border_radius > 0 then
+			render2d.PushClipRoundedRect(0, 0, transform.Size.x, transform.Size.y, border_radius)
+		else
+			render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
+		end
+	end
+
+	render2d.SetColor(c.r, c.g, c.b, c.a * current.DrawAlpha)
+	owner:CallLocalEvent("OnDraw")
+	return WALK_CONTINUE, clipping
+end
+
+local function draw_recursive_leave(_, owner, clipping)
+	if clipping then render2d.PopClip() end
+
+	UIDebug.OnDebugPostDraw(owner)
+	owner:CallLocalEvent("OnPostDraw")
+	render2d.PopMatrix()
+end
+
+function META:DrawRecursive()
+	walk_draw_recursive(self.Owner, nil, draw_recursive_enter, draw_recursive_leave)
 end
 
 function META:OnFirstCreated()

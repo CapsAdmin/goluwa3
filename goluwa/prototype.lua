@@ -28,7 +28,6 @@ function prototype.CreateTemplate(type_name)
 
 	return template
 end
-
 do
 	local blacklist = {
 		prototype_variables = true,
@@ -1749,6 +1748,11 @@ function prototype.ParentingTemplate(META)
 	end
 
 	do -- children
+		local function clear_children_traversal_cache(obj)
+			obj.children_list = nil
+			obj.children_traversal_cache = nil
+		end
+
 		function META:GetChildren()
 			return self.Children
 		end
@@ -1765,21 +1769,43 @@ function prototype.ParentingTemplate(META)
 			return index
 		end
 
+		local function build_children_list(self)
+			local tbl = {}
+			add_recursive(self, tbl, 1)
+			return tbl
+		end
+
+		function META:GetCachedChildrenTraversal(cache_key, builder)
+			local cache = self.children_traversal_cache
+
+			if not cache then
+				cache = {}
+				self.children_traversal_cache = cache
+			end
+
+			local traversal = cache[cache_key]
+
+			if traversal == nil then
+				traversal = builder(self)
+				cache[cache_key] = traversal
+			end
+
+			return traversal
+		end
+
 		function META:GetChildrenList()
 			if not self.children_list then
-				local tbl = {}
-				add_recursive(self, tbl, 1)
-				self.children_list = tbl
+				self.children_list = self:GetCachedChildrenTraversal("children_list", build_children_list)
 			end
 
 			return self.children_list
 		end
 
 		function META:InvalidateChildrenList()
-			self.children_list = nil
+			clear_children_traversal_cache(self)
 
 			for _, parent in ipairs(self:GetParentList()) do
-				parent.children_list = nil
+				clear_children_traversal_cache(parent)
 			end
 		end
 	end

@@ -2,6 +2,9 @@ local prototype = import("goluwa/prototype.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+local WALK_CONTINUE = 1
+local WALK_DESCEND = 2
+local WALK_SKIP_SUBTREE = 3
 local META = prototype.CreateTemplate("mouse_input")
 META:StartStorable()
 META:GetSet("Hovered", false)
@@ -41,49 +44,128 @@ end
 local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
 mouse_input.last_hovered = mouse_input.last_hovered or NULL
+local reverse_query_cache_key = {}
 
-local function get_hovered_entity(entity, mouse_pos)
-	local gui = entity.gui_element
-	local internal_dock = entity.gmod_internal_dock
-
-	if gui and not gui:GetVisible() then return nil end
-
-	local mouse_comp = entity.mouse_input
-
-	if mouse_comp and mouse_comp:GetIgnoreMouseInput() and not internal_dock then
-		return nil
-	end
-
-	-- Check children first (top-most in draw order is usually last in child list)
-	local children = entity:GetChildren()
+local function build_reverse_query_traversal_recursive(owner, traversal)
+	local enter_index = traversal.count + 1
+	traversal.count = enter_index
+	traversal.elements[enter_index] = owner
+	traversal.exit[enter_index] = false
+	local children = owner:GetChildren()
 
 	for i = #children, 1, -1 do
-		local found = get_hovered_entity(children[i], mouse_pos)
-
-		if found then return found end
+		build_reverse_query_traversal_recursive(children[i], traversal)
 	end
 
-	if gui and gui:IsHovered(mouse_pos) and not internal_dock then return entity end
+	local exit_index = traversal.count + 1
+	traversal.count = exit_index
+	traversal.elements[exit_index] = owner
+	traversal.exit[exit_index] = true
+	traversal.skip_to[enter_index] = exit_index + 1
+end
 
-	return nil
+local function build_reverse_query_traversal(owner)
+	local traversal = {
+		count = 0,
+		elements = {},
+		exit = {},
+		skip_to = {},
+	}
+
+	build_reverse_query_traversal_recursive(owner, traversal)
+	return traversal
+end
+
+local function query_children_reverse(entity, context, on_enter, on_visit)
+	local traversal = entity:GetCachedChildrenTraversal(reverse_query_cache_key, build_reverse_query_traversal)
+	local elements = traversal.elements
+	local exit = traversal.exit
+	local skip_to = traversal.skip_to
+	local count = traversal.count
+	local index = 1
+
+	while index <= count do
+		local owner = elements[index]
+
+		if exit[index] then
+			local a, b, c, d, e, f, g, h = on_visit(context, owner, index)
+
+			if a ~= nil then return a, b, c, d, e, f, g, h end
+
+			index = index + 1
+		else
+			local action = on_enter and on_enter(context, owner, index) or WALK_CONTINUE
+
+			if action == WALK_CONTINUE or action == WALK_DESCEND then
+				index = index + 1
+			elseif action == WALK_SKIP_SUBTREE then
+				index = skip_to[index]
+			else
+				error("unknown query action: " .. tostring(action), 2)
+			end
+		end
+	end
+end
+
+local function hovered_entity_query_enter(mouse_pos, owner)
+	local gui = owner.gui_element
+	local internal_dock = owner.gmod_internal_dock
+
+	if gui and not gui:GetVisible() then return WALK_SKIP_SUBTREE end
+
+	local mouse_comp = owner.mouse_input
+
+	if mouse_comp and mouse_comp:GetIgnoreMouseInput() and not internal_dock then
+		return WALK_SKIP_SUBTREE
+	end
+
+	return WALK_CONTINUE
+end
+
+local function hovered_entity_query_visit(mouse_pos, owner)
+	local gui = owner.gui_element
+	local internal_dock = owner.gmod_internal_dock
+
+	if gui and gui:IsHovered(mouse_pos) and not internal_dock then return owner end
+end
+
+local function global_event_query_visit(context, owner)
+	if owner.mouse_input then
+		local res = owner:CallLocalEvent(
+			context.event_name,
+			context.a,
+			context.b,
+			context.c,
+			context.d,
+			context.e,
+			context.f,
+			context.g
+		)
+
+		if res ~= nil then return res, owner.mouse_input end
+	end
+end
+
+local function get_hovered_entity(entity, mouse_pos)
+	return query_children_reverse(entity, mouse_pos, hovered_entity_query_enter, hovered_entity_query_visit)
 end
 
 local function call_global_event(entity, event_name, a, b, c, d, e, f, g)
-	local children = entity:GetChildren()
-
-	for i = #children, 1, -1 do
-		local res, cmp = call_global_event(children[i], event_name, a, b, c, d, e, f, g)
-
-		if res ~= nil then return res, cmp end
-	end
-
-	if entity.mouse_input then
-		local res = entity:CallLocalEvent(event_name, a, b, c, d, e, f, g)
-
-		if res ~= nil then return res, entity.mouse_input end
-	end
-
-	return nil
+	return query_children_reverse(
+		entity,
+		{
+			event_name = event_name,
+			a = a,
+			b = b,
+			c = c,
+			d = d,
+			e = e,
+			f = f,
+			g = g,
+		},
+		nil,
+		global_event_query_visit
+	)
 end
 
 local Panel = import("goluwa/ecs/panel.lua")

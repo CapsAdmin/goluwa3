@@ -27,7 +27,6 @@ local theme = import("lua/ui/theme.lua")
 local Gallery = import("./gallery.lua")
 local AssetBrowser = import("./asset_browser.lua")
 local Material = import("goluwa/render3d/material.lua")
-
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
@@ -204,9 +203,10 @@ local function is_valid_object(obj)
 end
 
 local function is_guid_object(obj)
-	return is_valid_object(obj) and obj.GetGUID ~= nil
-		and obj.GetGUID ~= false
-		and type(obj.GetGUID) == "function"
+	return is_valid_object(obj) and
+		obj.GetGUID ~= nil and
+		obj.GetGUID ~= false and
+		type(obj.GetGUID) == "function"
 end
 
 local function get_object_label(obj)
@@ -285,6 +285,30 @@ local function is_world_root(entity)
 	return entity == Entity.World or entity == Panel.World
 end
 
+local transient_ui_keys = {
+	ActiveContextMenu = true,
+	ActiveMenuBarContextMenu = true,
+	EditorMenuBarContextMenu = true,
+	EditorTreeContextMenu = true,
+	UITooltipOverlay = true,
+}
+
+local function is_transient_ui_entity(entity)
+	local current = entity
+
+	while current and current.IsValid and current:IsValid() do
+		if current.IsContextMenuContainer then return true end
+
+		local key = current.GetKey and current:GetKey() or ""
+
+		if transient_ui_keys[key] then return true end
+
+		current = current:GetParent()
+	end
+
+	return false
+end
+
 local function get_entity_world_root(entity)
 	local current = entity
 
@@ -302,10 +326,7 @@ local function is_hidden_editor_entity(entity, editor_window)
 
 	if editor_window and has_parent(entity, editor_window) then return true end
 
-	local key = entity.GetKey and entity:GetKey() or ""
-	return key == "EditorMenuBarContextMenu" or
-		key == "EditorTreeContextMenu" or
-		key == "UITooltipOverlay"
+	return is_transient_ui_entity(entity)
 end
 
 local function should_ignore_editor_tree_change(entity, related_entity, editor_window)
@@ -380,7 +401,9 @@ end
 local function get_material_display_text(material)
 	if not material then return "None" end
 
-	if material.vmt_path and material.vmt_path ~= "" then return material.vmt_path end
+	if material.vmt_path and material.vmt_path ~= "" then
+		return material.vmt_path
+	end
 
 	return get_object_label(material)
 end
@@ -550,13 +573,7 @@ local function build_property_items(target, hooks)
 		return items
 	end
 
-	items[#items + 1] = build_storable_property_group(
-		target,
-		target:GetGUID() .. "/properties",
-		get_object_label(target),
-		hooks
-	)
-
+	items[#items + 1] = build_storable_property_group(target, target:GetGUID() .. "/properties", get_object_label(target), hooks)
 	return items
 end
 
@@ -641,7 +658,8 @@ local function build_tree_items(expanded_entities, editor_window)
 		{virtual = true},
 		{entity = Panel.World, label = "2D World"},
 	} do
-		local node = world_info.virtual and build_material_tree_item(expanded_entities) or
+		local node = world_info.virtual and
+			build_material_tree_item(expanded_entities) or
 			build_world_tree_item(world_info.entity, world_info.label, expanded_entities, visited, editor_window)
 
 		if node then items[#items + 1] = node end
@@ -930,6 +948,7 @@ return function(props)
 					end)
 				end
 			end
+
 			return
 		end
 
@@ -982,7 +1001,9 @@ return function(props)
 				"3D roots: %d  |  2D roots: %d  |  selected: %s  |  %s",
 				root_3d_count,
 				root_2d_count,
-				selected.component_list and get_entity_label(selected) or get_object_label(selected),
+				selected.component_list and
+					get_entity_label(selected) or
+					get_object_label(selected),
 				gizmo_status
 			)
 		)
@@ -1014,14 +1035,17 @@ return function(props)
 	local function resolve_selected_target(tree_items)
 		local selected_item = find_tree_item(tree_items, state.selected_entity_guid)
 
-		if selected_item then return selected_item.Entity or selected_item.Object, selected_item.Key end
+		if selected_item then
+			return selected_item.Entity or selected_item.Object, selected_item.Key
+		end
 
 		local fallback = get_first_spawned_entity(window)
 
 		if fallback then return fallback, fallback:GetGUID() end
 
 		local first = tree_items[1]
-		return first and (first.Entity or first.Object) or nil, first and first.Key or nil
+		return first and (first.Entity or first.Object) or nil,
+		first and first.Key or nil
 	end
 
 	local function build_tree_branch_item(entity)
@@ -1085,9 +1109,7 @@ return function(props)
 	refresh_property_key = function(row_prefix, property_name, target)
 		if not property_editor or not property_editor:IsValid() then return end
 
-		if not is_valid_object(target) then
-			return
-		end
+		if not is_valid_object(target) then return end
 
 		local row_key = row_prefix .. "/" .. property_name
 
@@ -1217,7 +1239,7 @@ return function(props)
 
 	open_material_picker = function(node, target, info, key, path, panel, commit_value)
 		Panel.World:Ensure(
-			AssetBrowser({
+			AssetBrowser{
 				Key = "MaterialAssetPickerWindow",
 				Title = "PICK MATERIAL",
 				PickerCategory = "materials",
@@ -1235,13 +1257,12 @@ return function(props)
 
 					return true
 				end,
-			})
+			}
 		)
 	end
-
 	open_texture_picker = function(node, target, info, key, path, panel, commit_value)
 		Panel.World:Ensure(
-			AssetBrowser({
+			AssetBrowser{
 				Key = "TextureAssetPickerWindow",
 				Title = "PICK TEXTURE",
 				PickerCategory = "textures",
@@ -1259,7 +1280,7 @@ return function(props)
 
 					return true
 				end,
-			})
+			}
 		)
 	end
 
@@ -1604,7 +1625,14 @@ return function(props)
 						return state.expanded_entities[key] == true
 					end,
 					OnSelect = function(node, key)
-						local target = node and (node.Entity or node.Object) or get_entity_by_guid(key) or prototype.GetObjectByGUID(key)
+						local target = node and
+							(
+								node.Entity or
+								node.Object
+							)
+							or
+							get_entity_by_guid(key) or
+							prototype.GetObjectByGUID(key)
 						set_selected_target(target, true, key)
 						sync_selection()
 					end,
@@ -1743,7 +1771,6 @@ return function(props)
 
 	function window:OnUpdate(dt)
 		update_editor_camera(dt)
-
 		local material_count = count_material_objects()
 
 		if material_count ~= tracked_material_count then
