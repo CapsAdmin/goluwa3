@@ -42,6 +42,12 @@ local function calculate_stride(vertex_attributes)
 	return max_offset + last_size
 end
 
+local function sort_offset(a, b)
+	return a.offset < b.offset
+end
+
+local cached = {}
+
 function VertexBuffer.New(vertices, vertex_attributes)
 	local self = VertexBuffer:CreateObject()
 
@@ -113,9 +119,7 @@ function VertexBuffer.New(vertices, vertex_attributes)
 			table.insert(sorted_attrs, attr)
 		end
 
-		table.sort(sorted_attrs, function(a, b)
-			return a.offset < b.offset
-		end)
+		table.sort(sorted_attrs, sort_offset)
 
 		-- Only create structured vertex accessor if attributes have lua_type
 		if sorted_attrs[1] and sorted_attrs[1].lua_type then
@@ -129,7 +133,8 @@ function VertexBuffer.New(vertices, vertex_attributes)
 			end
 
 			local struct_def = "struct { " .. table.concat(fields, " ") .. " }"
-			local vertex_type = ffi.typeof(struct_def .. "*", unpack(types))
+			local vertex_type = cached[struct_def] or ffi.typeof(struct_def .. "*", unpack(types))
+			cached[struct_def] = vertex_type
 			self.vertices = ffi.cast(vertex_type, self.data)
 		else
 			-- For raw vertex data, just provide a float pointer

@@ -209,7 +209,9 @@ end
 local function get_entity_local_aabb(entity)
 	if not is_gizmo_entity(entity) then return nil end
 
-	if entity.visual and entity.visual.GetAABB then return entity.visual:GetAABB() end
+	if entity.visual and entity.visual.GetAABB then
+		return entity.visual:GetAABB()
+	end
 
 	if entity.transform and entity.transform.GetAABB then
 		return entity.transform:GetAABB()
@@ -322,19 +324,19 @@ local function ray_triangle_intersection(ray, v0, v1, v2)
 	return false
 end
 
+local function get_component(vec, axis_id)
+	if axis_id == "x" then return vec.x end
+
+	if axis_id == "y" then return vec.y end
+
+	return vec.z
+end
+
 local function ray_aabb_intersection(ray, aabb)
 	if not aabb then return true end
 
 	local tmin = -math.huge
 	local tmax = ray.max_distance or math.huge
-
-	local function get_component(vec, axis_id)
-		if axis_id == "x" then return vec.x end
-
-		if axis_id == "y" then return vec.y end
-
-		return vec.z
-	end
 
 	for _, axis in ipairs{
 		{"x", aabb.min_x, aabb.max_x},
@@ -552,47 +554,47 @@ local function intersect_handle(ray, handle)
 	return best_hit
 end
 
+local function get_handle_screen_distance(mouse_pos, handle)
+	local best_distance = math.huge
+
+	for _, shape in ipairs(handle.pick_shapes or {}) do
+		local distance = get_projected_shape_screen_distance(mouse_pos, shape)
+
+		if distance and distance < best_distance then best_distance = distance end
+	end
+
+	if best_distance < math.huge then
+		return best_distance, handle.kind == "rotate" and 12 or 10
+	end
+
+	return nil
+end
+
+local function append_handles(target, handles)
+	for _, handle in ipairs(handles or {}) do
+		target[#target + 1] = handle
+	end
+end
+
 local function find_hovered_gizmo_handle_screen(gizmo_def, mouse_pos)
-	local function get_handle_screen_distance(handle)
-		local best_distance = math.huge
-
-		for _, shape in ipairs(handle.pick_shapes or {}) do
-			local distance = get_projected_shape_screen_distance(mouse_pos, shape)
-
-			if distance and distance < best_distance then best_distance = distance end
-		end
-
-		if best_distance < math.huge then
-			return best_distance, handle.kind == "rotate" and 12 or 10
-		end
-
-		return nil
-	end
-
-	local function add_handles(target, handles)
-		for _, handle in ipairs(handles or {}) do
-			target[#target + 1] = handle
-		end
-	end
-
 	local handles = {}
 	local best_handle
 	local best_distance = math.huge
 
 	if state.mode == "move" then
-		add_handles(handles, gizmo_def.move_handles)
+		append_handles(handles, gizmo_def.move_handles)
 	elseif state.mode == "scale" then
-		add_handles(handles, gizmo_def.scale_handles_3d)
+		append_handles(handles, gizmo_def.scale_handles_3d)
 	elseif state.mode == "combined" then
-		add_handles(handles, gizmo_def.rotation_handles)
-		add_handles(handles, gizmo_def.move_handles)
-		add_handles(handles, gizmo_def.scale_handles_3d)
+		append_handles(handles, gizmo_def.rotation_handles)
+		append_handles(handles, gizmo_def.move_handles)
+		append_handles(handles, gizmo_def.scale_handles_3d)
 	else
-		add_handles(handles, gizmo_def.rotation_handles)
+		append_handles(handles, gizmo_def.rotation_handles)
 	end
 
 	for _, handle in ipairs(handles) do
-		local distance, threshold = get_handle_screen_distance(handle)
+		local distance, threshold = get_handle_screen_distance(mouse_pos, handle)
 
 		if distance and distance < best_distance and distance <= threshold then
 			best_distance = distance
@@ -898,18 +900,6 @@ local function get_rotation_snap_state(entity, axis_id, axis_direction)
 		QuatFromAxis(twist_angle, axis_direction):GetConjugated() * world_rotation
 	):GetNormalized()
 	return twist_angle, swing
-end
-
-local function intersect_ray_plane(ray, plane_origin, plane_normal)
-	local denominator = ray.direction:GetDot(plane_normal)
-
-	if math.abs(denominator) < 1e-6 then return nil end
-
-	local distance = (plane_origin - ray.origin):GetDot(plane_normal) / denominator
-
-	if distance < 0 or distance > ray.max_distance then return nil end
-
-	return ray.origin + ray.direction * distance
 end
 
 local function get_axis_drag_plane_normal(axis_direction, reference_direction)
