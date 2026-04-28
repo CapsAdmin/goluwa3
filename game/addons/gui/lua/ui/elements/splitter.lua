@@ -207,10 +207,6 @@ return function(props)
 			Cursor = is_vertical and "vertical_resize" or "horizontal_resize",
 			OnHover = function(self, hovered)
 				state.is_hovered = hovered
-
-				if not state.is_dragging and self.Owner.gui_element then
-					self.Owner.gui_element:SetColor(Color(0, 0, 0, hovered and 0.5 or 0.2))
-				end
 			end,
 			OnMouseInput = function(self, button, press, local_pos)
 				if button == "button_1" then
@@ -219,16 +215,8 @@ return function(props)
 					if press then
 						state.drag_start_mouse = self.Owner.mouse_input:GetGlobalMousePosition():Copy()
 						state.drag_start_size = state.size
-
-						if self.Owner.gui_element then
-							self.Owner.gui_element:SetColor(theme.GetColor("primary"):Copy():SetAlpha(0.8))
-						end
 					else
 						state.drag_start_mouse = nil
-
-						if self.Owner.gui_element then
-							self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
-						end
 					end
 
 					return true
@@ -238,10 +226,6 @@ return function(props)
 				if button == "button_1" and not press and state.is_dragging then
 					state.is_dragging = false
 					state.drag_start_mouse = nil
-
-					if self.Owner.gui_element then
-						self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
-					end
 				end
 			end,
 			OnGlobalMouseMove = function(self, pos)
@@ -261,9 +245,8 @@ return function(props)
 			end,
 		},
 		gui_element = {
-			Color = Color(0, 0, 0, 0.2),
 			OnDraw = function(self)
-				theme.panels.divider(self.Owner)
+				theme.active:DrawDivider(self.Owner)
 			end,
 		},
 		animation = true,

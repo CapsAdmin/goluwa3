@@ -360,11 +360,10 @@ return function(props)
 				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
 			},
 			gui_element = {
-				Color = props.ScrollBarTrackColor or "scrollbar_track",
 				BorderRadius = 3,
 				Visible = false,
 				OnDraw = function(self)
-					theme.panels.surface(self)
+					theme.active:DrawSurface(self, props.ScrollBarTrackColor or "scrollbar_track")
 				end,
 			},
 			layout = {
@@ -388,11 +387,10 @@ return function(props)
 				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
 			},
 			gui_element = {
-				Color = props.ScrollBarColor or "scrollbar",
 				BorderRadius = 3,
 				Visible = false,
 				OnDraw = function(self)
-					theme.panels.surface(self)
+					theme.active:DrawSurface(self, props.ScrollBarColor or "scrollbar")
 				end,
 			},
 			layout = {

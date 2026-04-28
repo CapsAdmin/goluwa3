@@ -20,7 +20,7 @@ return function(props)
 		},
 		gui_element = {
 			OnDraw = function(self)
-				theme.panels.menu_spacer(self, props.Vertical)
+				theme.active:DrawMenuSpacer(self, props.Vertical)
 			end,
 		},
 		mouse_input = true,

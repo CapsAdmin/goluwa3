@@ -34,8 +34,7 @@ return function(props)
 	local header_tooltip_offset = props.TooltipOffset
 	local header_height = props.HeaderHeight
 	local header_mode = props.HeaderMode or "outline"
-	local header_color = props.HeaderColor or "primary"
-	local header_text_color = props.HeaderTextColor or "text_foreground"
+	local header_text_color = props.HeaderTextColor or "text"
 	local header_padding = props.HeaderPadding or "XS"
 	local header_gap = props.HeaderGap or "XXS"
 	local header_font_name = props.HeaderFontName or "body"
@@ -131,10 +130,6 @@ return function(props)
 		TooltipMaxWidth = header_tooltip_max_width,
 		TooltipOffset = header_tooltip_offset,
 		Mode = header_mode,
-		Color = header_color,
-		gui_element = {
-			Color = header_color,
-		},
 		layout = {
 			Direction = "x",
 			AlignmentY = "center",
@@ -157,12 +152,13 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.icons.disclosure(
+					theme.active:DrawIcon(
+						"disclosure",
 						self.Owner,
 						{
 							thickness = 2,
 							open_fraction = open_fraction,
-							color = resolve_color(header_text_color, "text_foreground"),
+							color = resolve_color(header_text_color, "text"),
 						}
 					)
 				end,

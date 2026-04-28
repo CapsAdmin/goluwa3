@@ -63,7 +63,7 @@ local function draw_menu_bar_button(panel, state)
 	end
 
 	if state.active and not state.disabled then
-		local border = theme.GetColor("frame_border")
+		local border = theme.GetColor("border")
 		render2d.SetColor(border.r, border.g, border.b, 0.7)
 		render2d.SetTexture(nil)
 		render2d.PushOutlineWidth(1)
@@ -105,7 +105,6 @@ local function create_menu_button(definition, on_click, on_hover)
 				Padding = definition.Padding or "XS",
 			},
 			gui_element = {
-				Color = definition.Disabled and "clickable_disabled" or definition.Color or "primary",
 				BorderRadius = 4,
 				Clipping = true,
 				DrawAlpha = definition.Disabled and 0.5 or 1,
@@ -145,7 +144,7 @@ local function create_menu_button(definition, on_click, on_hover)
 		Text{
 			Text = definition.Text,
 			IgnoreMouseInput = true,
-			Color = definition.Disabled and "text_disabled" or "text_foreground",
+			Color = definition.Disabled and "text_disabled" or "text",
 			AlignX = "center",
 			AlignY = "center",
 		}

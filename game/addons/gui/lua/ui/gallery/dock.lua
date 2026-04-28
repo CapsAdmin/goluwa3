@@ -11,8 +11,8 @@ local function draw_background(self)
 	local transform = self.transform
 	local size = transform.Size + transform.DrawSizeOffset
 	local radius = self.gui_element:GetBorderRadius()
-
 	render2d.SetTexture()
+	render2d.SetColor(self.surface_color:Unpack())
 
 	if radius > 0 then
 		gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
@@ -45,9 +45,9 @@ local function dock_piece(label, dock, size, color, children)
 			AlignmentY = "center",
 		},
 		gui_element = {
-			Color = color,
 			BorderRadius = 6,
 		},
+		surface_color = color,
 		OnDraw = draw_background,
 	}(children or {
 		dock_label(label),
@@ -66,9 +66,9 @@ local function dock_surface(size, children)
 			MaxSize = size,
 		},
 		gui_element = {
-			Color = Color(0.08, 0.09, 0.12, 1),
 			BorderRadius = 8,
 		},
+		surface_color = Color(0.08, 0.09, 0.12, 1),
 		OnDraw = draw_background,
 	}(children)
 end

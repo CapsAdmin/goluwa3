@@ -21,9 +21,8 @@ return function(props)
 		gui_element = {
 			DrawAlpha = 1,
 			OnDraw = function(self)
-				theme.panels.progress_bar(self, state)
+				theme.active:DrawProgressBar(self, state, props.Color)
 			end,
-			Color = props.Color or "primary",
 		},
 	}
 	pnl.ProgressBarState = state

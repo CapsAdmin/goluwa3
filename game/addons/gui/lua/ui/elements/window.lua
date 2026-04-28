@@ -70,9 +70,12 @@ return function(props)
 				Padding = "XXXS",
 			},
 			gui_element = {
-				Color = "primary",
 				OnDraw = function(self)
-					theme.panels.header(self.Owner)
+					theme.PushSurface("surface_alt")
+					theme.active:DrawHeader(self.Owner, "surface_alt")
+				end,
+				OnPostDraw = function()
+					theme.PopSurface("surface_alt")
 				end,
 			},
 			draggable = true,
@@ -101,7 +104,6 @@ return function(props)
 				Name = "CloseButton",
 				Mode = "filled",
 				Size = Vec2(24, 24),
-				Color = theme.GetColor("negative"),
 				Padding = "XXXS",
 				OnClick = function(self)
 					print("Close button clicked", props.OnClose, "?")
@@ -132,12 +134,13 @@ return function(props)
 					},
 					gui_element = {
 						OnDraw = function(self)
-							theme.icons.close(
+							theme.active:DrawIcon(
+								"close",
 								self.Owner,
 								{
 									size = 10,
 									thickness = 2,
-									color = theme.GetColor("text_button"),
+									color = theme.GetColor("text"),
 								}
 							)
 						end,
@@ -164,12 +167,13 @@ return function(props)
 				Padding = Rect() + theme.GetPadding("M"),
 			},
 			gui_element = {
-				Color = theme.GetColor("background"),
 				OnDraw = function(self)
-					theme.panels.frame(self.Owner)
+					theme.PushSurface("surface")
+					theme.active:DrawFrame(self.Owner, nil, "surface")
 				end,
 				OnPostDraw = function(self)
-					theme.panels.frame_post(self.Owner)
+					theme.active:DrawFramePost(self.Owner)
+					theme.PopSurface("surface")
 				end,
 			},
 			transform = true,

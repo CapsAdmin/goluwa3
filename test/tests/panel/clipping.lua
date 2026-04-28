@@ -43,9 +43,10 @@ T.Test2D("panel gui_element clipping uses semantic clip api", function(width, he
 	}
 	child.transform:SetPosition(Vec2(-20, 0))
 	child.transform:SetSize(Vec2(120, 60))
-	child.gui_element:SetColor(Color(1, 0, 0, 1))
+	local child_color = Color(1, 0, 0, 1)
 
 	function child:OnDraw()
+		render2d.SetColor(child_color:Unpack())
 		render2d.DrawRect(0, 0, self.transform.Size.x, self.transform.Size.y)
 	end
 

@@ -15,7 +15,14 @@ do -- mouse input
 	pnl:AddComponent("draggable")
 	pnl.transform:SetPosition(Vec2(50, 50))
 	pnl.transform:SetSize(Vec2(60, 20))
-	pnl.rect:SetColor(Color(1, 0, 0, 1))
+	local button_color = Color(1, 0, 0, 1)
+
+	local function set_button_color(color)
+		button_color = color
+		pnl.rect:SetColor(color)
+	end
+
+	set_button_color(button_color)
 	pnl.mouse_input:SetCursor("hand")
 	pnl.mouse_input:SetFocusOnClick(true)
 	local label = Panel.NewText{
@@ -46,12 +53,12 @@ do -- mouse input
 			self.animation:Animate{
 				id = "color",
 				get = function()
-					return self.gui_element:GetDrawColor()
+					return button_color
 				end,
 				set = function(v)
-					self.gui_element:SetDrawColor(v)
+					set_button_color(v)
 				end,
-				to = Color(0, 1, 1, 0),
+				to = Color(0, 1, 1, 1),
 				time = 0.2,
 			}
 		else
@@ -69,12 +76,12 @@ do -- mouse input
 			self.animation:Animate{
 				id = "color",
 				get = function()
-					return self.gui_element:GetDrawColor()
+					return button_color
 				end,
 				set = function(v)
-					self.gui_element:SetDrawColor(v)
+					set_button_color(v)
 				end,
-				to = Color(0, 0, 0, 0),
+				to = Color(1, 0, 0, 1),
 				time = 0.2,
 			}
 		end
@@ -82,12 +89,12 @@ do -- mouse input
 
 	function pnl:OnFocus()
 		print("Entity focused!")
-		self.gui_element:SetColor(Color(0, 1, 0, 1))
+		set_button_color(Color(0, 1, 0, 1))
 	end
 
 	function pnl:OnUnfocus()
 		print("Entity unfocused!")
-		self.gui_element:SetColor(Color(1, 0, 0, 1))
+		set_button_color(Color(1, 0, 0, 1))
 	end
 
 	function pnl:OnMouseInput(button, press, pos)

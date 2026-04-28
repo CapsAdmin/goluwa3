@@ -163,7 +163,6 @@ open_color_picker_window = function(node, value, key, path, panel, commit_value)
 		}
 	)
 end
-
 return function(props)
 	props = props or {}
 	local external_ref = props.Ref
@@ -197,8 +196,8 @@ return function(props)
 
 		info.text.text:SetColor(
 			selected_key == info.key and
-				theme.GetColor("text_button") or
-				theme.GetColor("text_foreground")
+				theme.GetColor("text_on_accent") or
+				theme.GetColor("text")
 		)
 	end
 
@@ -355,7 +354,9 @@ return function(props)
 			}
 		end
 
-		if kind == "material" or kind == "texture" then return PropertyObject(control_props) end
+		if kind == "material" or kind == "texture" then
+			return PropertyObject(control_props)
+		end
 
 		return PropertyString(control_props)
 	end
@@ -384,7 +385,7 @@ return function(props)
 		end
 	end
 
-	local function draw_row_background(size, is_selected, is_alternate)
+	local function draw_row_background(size, is_selected, is_alternate, is_hovered)
 		render2d.SetTexture(nil)
 
 		if is_selected then
@@ -394,7 +395,14 @@ return function(props)
 			return
 		end
 
-		local color = theme.GetColor(is_alternate and "surface_variant" or "surface")
+		if is_hovered then
+			local color = theme.GetColor("primary"):Copy():SetAlpha(0.06)
+			render2d.SetColor(color:Unpack())
+			render2d.DrawRect(0, 0, size.x, size.y)
+			return
+		end
+
+		local color = theme.GetColor(is_alternate and "surface_alt" or "surface")
 		render2d.SetColor(color:Unpack())
 		render2d.DrawRect(0, 0, size.x, size.y)
 	end
@@ -404,6 +412,7 @@ return function(props)
 			key = entry.key,
 			node = entry.node,
 			path = entry.path,
+			is_hovered = false,
 		}
 		row_infos[entry.key] = info
 		return Panel.New{
@@ -425,11 +434,14 @@ return function(props)
 				Clipping = true,
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					draw_row_background(size, selected_key == entry.key, is_alternate)
+					draw_row_background(size, selected_key == entry.key, is_alternate, info.is_hovered)
 				end,
 			},
 			mouse_input = {
 				Cursor = "pointer",
+				OnHover = function(_, hovered)
+					info.is_hovered = hovered
+				end,
 				OnMouseInput = function(self, button, press)
 					if not press then return end
 
@@ -489,10 +501,13 @@ return function(props)
 			gui_element = {
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					draw_row_background(size, false, is_alternate)
+					draw_row_background(size, false, is_alternate, info and info.is_hovered)
 				end,
 			},
 			mouse_input = {
+				OnHover = function(_, hovered)
+					if info then info.is_hovered = hovered end
+				end,
 				OnMouseInput = function(self, button, press)
 					if button ~= "button_2" or not press then return end
 
@@ -591,10 +606,9 @@ return function(props)
 				end,
 			},
 			gui_element = {
-				Color = theme.GetColor("frame_border"),
 				DrawAlpha = divider_draw_alpha,
 				OnDraw = function(self)
-					theme.panels.divider(self.Owner)
+					theme.active:DrawDivider(self.Owner)
 				end,
 			},
 			animation = true,
@@ -681,14 +695,13 @@ return function(props)
 			Tooltip = node.Description,
 			TooltipMaxWidth = 420,
 			HeaderMode = "filled",
-			HeaderColor = "primary",
 			HeaderHeight = get_row_height(node),
 			HeaderPadding = compact_padding,
 			HeaderGap = compact_gap,
 			HeaderFontName = "body",
 			HeaderFontSize = compact_font_size,
-			HeaderTextColor = "text_button",
-			HeaderIconColor = "text_button",
+			HeaderTextColor = "text_on_accent",
+			HeaderIconColor = "text_on_accent",
 			ContentPadding = "none",
 			Collapsed = collapsed,
 			OnToggle = function(value)

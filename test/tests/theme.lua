@@ -1,0 +1,70 @@
+local T = import("test/environment.lua")
+local test_render = import("test/test_render.lua")
+test_render.Init2D()
+local theme = import("game/addons/gui/lua/ui/theme.lua")
+
+T.Test("theme color stack resolves semantic colors against the current background", function()
+	local previous_preset = theme.GetName()
+	theme.LoadTheme("minimal")
+	theme.ClearSurfaceStack()
+	local surface = theme.GetColor("surface")
+	local raw_surface = theme.GetSurfaceColor("surface")
+	local surface_on_surface = theme.GetColor("surface", "surface")
+	local surface_alt = theme.GetColor("surface_alt")
+	local text_on_surface = theme.GetColor("text", "surface")
+	local unscoped = theme.GetColor("text_on_accent")
+	local explicit = theme.GetColor("text_on_accent", "negative")
+	local underline = theme.GetColor("underline")
+	local fallback = theme.GetColor("property_selection")
+	local explicit_fallback = theme.GetColor("property_selection", "negative")
+	theme.PushSurface("surface")
+	local stacked_surface = theme.GetColor("surface")
+	theme.PopSurface("surface")
+	theme.PushSurface("negative")
+	local raw_surface_on_negative = theme.GetSurfaceColor("surface")
+	local stacked = theme.GetColor("text_on_accent")
+	local stacked_fallback = theme.GetColor("property_selection")
+	theme.PopSurface("negative")
+	T(raw_surface:ToHex())["=="](surface:ToHex())
+	T(surface_on_surface:ToHex())["=="](surface:ToHex())
+	T(stacked_surface:ToHex())["=="](surface:ToHex())
+	T(raw_surface_on_negative:ToHex())["=="](raw_surface:ToHex())
+	T(underline:ToHex())["=="](theme.GetTheme():GetPalette():Get("underline"):ToHex())
+	assert(surface_alt:ToHex() ~= surface:ToHex())
+	assert(text_on_surface:GetContrastRatio(surface) >= 4.5)
+	T(stacked:ToHex())["=="](explicit:ToHex())
+	assert(stacked:ToHex() ~= unscoped:ToHex())
+	T(stacked_fallback:ToHex())["=="](explicit_fallback:ToHex())
+	assert(stacked_fallback:ToHex() ~= fallback:ToHex())
+	T(theme.GetSurface())["=="](nil)
+	T(theme.GetBackground())["=="](nil)
+	theme.LoadTheme(previous_preset)
+	theme.ClearSurfaceStack()
+end)
+
+T.Test("extended presets can override semantic theme tokens explicitly", function()
+	local previous_preset = theme.GetName()
+	theme.LoadTheme("minimal")
+	theme.ClearSurfaceStack()
+	local preset = theme.GetTheme():GetPalette()
+	T(theme.GetSurfaceColor("surface_alt"):ToHex())["=="](preset:Get("surface_alt"):ToHex())
+	T(theme.GetColor("surface_alt"):ToHex())["=="](preset:Get("surface_alt"):ToHex())
+	T(theme.GetColor("primary"):ToHex())["=="](preset:Get("primary"):ToHex())
+	theme.LoadTheme(previous_preset)
+	theme.ClearSurfaceStack()
+end)
+
+T.Test("theme preset list includes base theme", function()
+	local names = theme.GetAvailable()
+	local found = false
+
+	for _, name in ipairs(names) do
+		if name == "base" then
+			found = true
+
+			break
+		end
+	end
+
+	assert(found)
+end)

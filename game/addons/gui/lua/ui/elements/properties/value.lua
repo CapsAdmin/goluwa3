@@ -42,6 +42,7 @@ function Value.InstallContextMenu(panel, props)
 			local _, ok = props.Decode(clipboard_text, self)
 			can_paste = ok == true
 		end
+
 		local can_reset = default_encoded ~= nil and default_encoded ~= current_encoded
 		local active = Panel.World:GetKeyed("ActiveContextMenu")
 
@@ -91,13 +92,11 @@ function Value.InstallContextMenu(panel, props)
 				},
 			}
 		)
-
 		return true
 	end
 
 	if panel.mouse_input and panel.mouse_input.OnMouseInput then
 		local on_mouse_input = panel.mouse_input.OnMouseInput
-
 		panel.mouse_input.OnMouseInput = function(self, button, press, ...)
 			if button == "button_2" and press then return panel:OpenContextMenu() end
 
@@ -134,6 +133,7 @@ local function create_value(props)
 	local text_panel
 	local panel
 	local idle_color = Color(0, 0, 0, 0.001)
+	local surface_color = idle_color
 	local state = {
 		hovered = false,
 		editing = false,
@@ -179,16 +179,13 @@ local function create_value(props)
 			text_panel.mouse_input:SetCursor(state.editing and "text_input" or nil)
 		end
 
-		if panel.gui_element then
-			if state.editing then
-				panel.gui_element:SetColor(theme.GetColor(props.EditPanelColor or "surface_variant"))
-			elseif state.hovered then
-				local color = theme.GetColor(props.HoverPanelColor or "surface_variant"):Copy()
-				color.a = color.a * 0.45
-				panel.gui_element:SetColor(color)
-			else
-				panel.gui_element:SetColor(idle_color)
-			end
+		if state.editing then
+			surface_color = theme.GetColor(props.EditPanelColor or "surface_alt")
+		elseif state.hovered then
+			surface_color = theme.GetColor(props.HoverPanelColor or "surface_alt"):Copy()
+			surface_color.a = surface_color.a * 0.45
+		else
+			surface_color = idle_color
 		end
 	end
 
@@ -271,14 +268,13 @@ local function create_value(props)
 			props.layout,
 		},
 		gui_element = {
-			Color = idle_color,
 			Clipping = true,
 			BorderRadius = props.BorderRadius or 6,
 			OnDraw = function(self)
-				if self.Color.a > 0 then theme.panels.surface(self) end
+				if surface_color.a > 0 then theme.active:DrawSurface(self, surface_color) end
 			end,
 			OnPostDraw = function(self)
-				if state.editing then theme.panels.frame_post(self.Owner) end
+				if state.editing then theme.active:DrawFramePost(self.Owner) end
 			end,
 		},
 		mouse_input = {
@@ -337,10 +333,17 @@ local function create_value(props)
 
 				local window = system.GetWindow()
 				local frame_delta = started_drag and
-					(pos - state.last_drag_pos) or
 					(
-						window and window.GetMouseDelta and window:GetMouseDelta() or
-						(pos - state.last_drag_pos)
+						pos - state.last_drag_pos
+					)
+					or
+					(
+						window and
+						window.GetMouseDelta and
+						window:GetMouseDelta() or
+						(
+							pos - state.last_drag_pos
+						)
 					)
 				state.last_drag_pos = pos:Copy()
 				state.drag_accumulated_delta = state.drag_accumulated_delta + frame_delta
@@ -404,7 +407,7 @@ local function create_value(props)
 			Editable = false,
 			Wrap = false,
 			Cursor = nil,
-			Color = props.TextColor or "text_foreground",
+			Color = props.TextColor or "text",
 			AlignY = "center",
 			layout = {
 				GrowWidth = 1,

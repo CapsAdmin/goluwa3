@@ -36,11 +36,21 @@ return function(props)
 	local function decode_boolean(text)
 		local normalized = tostring(text or ""):match("^%s*(.-)%s*$"):lower()
 
-		if normalized == "true" or normalized == "1" or normalized == "yes" or normalized == "on" then
+		if
+			normalized == "true" or
+			normalized == "1" or
+			normalized == "yes" or
+			normalized == "on"
+		then
 			return true, true
 		end
 
-		if normalized == "false" or normalized == "0" or normalized == "no" or normalized == "off" then
+		if
+			normalized == "false" or
+			normalized == "0" or
+			normalized == "no" or
+			normalized == "off"
+		then
 			return false, true
 		end
 
@@ -100,7 +110,7 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.panels.checkbox(self.Owner, checkbox_state)
+					theme.active:DrawCheckbox(self.Owner, checkbox_state)
 				end,
 			},
 			animation = true,
@@ -155,23 +165,25 @@ return function(props)
 		default_encoded = control:EncodeValue()
 	end
 
-	Value.InstallContextMenu(control, {
-		BeforeOpen = function()
-			if props.sync_selection then props.sync_selection(key) end
-		end,
-		Encode = function(panel)
-			return panel:EncodeValue()
-		end,
-		Decode = function(text, panel)
-			return panel:DecodeValue(text)
-		end,
-		GetDefaultEncoded = function()
-			return default_encoded
-		end,
-		Commit = function(decoded, panel)
-			props.commit_value(node, decoded, key, path, panel)
-		end,
-	})
-
+	Value.InstallContextMenu(
+		control,
+		{
+			BeforeOpen = function()
+				if props.sync_selection then props.sync_selection(key) end
+			end,
+			Encode = function(panel)
+				return panel:EncodeValue()
+			end,
+			Decode = function(text, panel)
+				return panel:DecodeValue(text)
+			end,
+			GetDefaultEncoded = function()
+				return default_encoded
+			end,
+			Commit = function(decoded, panel)
+				props.commit_value(node, decoded, key, path, panel)
+			end,
+		}
+	)
 	return control, control
 end

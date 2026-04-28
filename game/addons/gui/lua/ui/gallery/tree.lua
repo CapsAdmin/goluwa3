@@ -427,7 +427,7 @@ return {
 							GetNodePanel = function(node, path, key, selected, has_children)
 								return SVG{
 									Source = has_children and ICON_SOURCES.folder or ICON_SOURCES.file,
-									Color = selected and "text_button" or "text_foreground",
+									Color = selected and "text_on_accent" or "text",
 									Padding = Rect() + 1,
 									Size = Vec2(16, 16),
 									MinSize = Vec2(16, 16),

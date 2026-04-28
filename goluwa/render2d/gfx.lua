@@ -188,9 +188,13 @@ function gfx.DrawFilledCircle(x, y, radius)
 end
 
 function gfx.DrawRoundedRect(x, y, w, h, amt)
-	render2d.PushBorderRadius(amt or 16)
+	if amt > 0 then
+		render2d.PushBorderRadius(amt or 16)
+	end
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopBorderRadius()
+	if amt > 0 then
+		render2d.PopBorderRadius()
+	end
 end
 
 function gfx.DrawRect(x, y, w, h, tex, r, g, b, a)

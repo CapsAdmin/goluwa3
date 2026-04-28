@@ -100,18 +100,18 @@ T.Test("panel animations basic", function()
 		rect = true,
 		animation = true,
 	}
-	pnl.gui_element:SetColor(Color(1, 0, 0, 1))
+	local animated_color = Color(1, 0, 0, 1)
 	-- Animations usually require time to pass, 
 	-- but we can check if the component exists and responds to Animate.
 	T(pnl.animation)["~="](nil)
 	pnl.animation:Animate{
 		id = "color",
-		base = pnl.gui_element:GetDrawColor(),
+		base = animated_color,
 		get = function()
-			return pnl.gui_element:GetDrawColor()
+			return animated_color
 		end,
 		set = function(v)
-			pnl.gui_element:SetDrawColor(v)
+			animated_color = v
 		end,
 		to = Color(0, 1, 0, 1),
 		time = 0.1,

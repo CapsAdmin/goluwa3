@@ -7,7 +7,7 @@ return function(props)
 		Text{
 			IgnoreMouseInput = true,
 			Text = props.Text or "Button",
-			Color = props.TextColor or "text_foreground",
+			Color = props.TextColor or "text",
 			layout = {
 				FitWidth = true,
 				FitHeight = true,

@@ -65,7 +65,7 @@ local function draw_menu_item_background(panel, state)
 	end
 
 	if state.active and not state.disabled then
-		local border = theme.GetColor("frame_border")
+		local border = theme.GetColor("border")
 		render2d.SetColor(border.r, border.g, border.b, 0.7)
 		render2d.SetTexture(nil)
 		render2d.PushOutlineWidth(1)
@@ -123,7 +123,7 @@ return function(props)
 			Size = Vec2(16, 16),
 			MinSize = Vec2(16, 16),
 			MaxSize = Vec2(16, 16),
-			Color = props.Disabled and "text_disabled" or "text_foreground",
+			Color = props.Disabled and "text_disabled" or "text",
 			IgnoreMouseInput = true,
 			layout = {
 				GrowWidth = 0,
@@ -142,7 +142,7 @@ return function(props)
 		Text = props.Text,
 		DisableViewportCulling = props.DisableTextCulling == true,
 		IgnoreMouseInput = true,
-		Color = props.Disabled and "text_disabled" or "text_foreground",
+		Color = props.Disabled and "text_disabled" or "text",
 	}
 
 	if submenu then
@@ -158,11 +158,12 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.icons.disclosure(
+					theme.active:DrawIcon(
+						"disclosure",
 						self.Owner,
 						{
 							size = 8,
-							color = theme.GetColor(props.Disabled and "text_disabled" or "text_foreground"),
+							color = theme.GetColor(props.Disabled and "text_disabled" or "text"),
 						}
 					)
 				end,
@@ -188,7 +189,6 @@ return function(props)
 		props.layout,
 	}
 	item_props.gui_element = {
-		Color = props.Disabled and "clickable_disabled" or props.Color or "primary",
 		BorderRadius = 4,
 		Clipping = props.Clipping ~= false,
 		DrawAlpha = props.Disabled and 0.5 or 1,

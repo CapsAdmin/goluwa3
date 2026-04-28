@@ -1399,17 +1399,15 @@ return function(props)
 	local function build_theme_menu_items()
 		local items = {}
 
-		for _, name in ipairs(theme.GetPresetNames()) do
-			local label = theme.GetPresetLabel(name)
-
-			if name == theme.GetPresetName() then label = label .. " (active)" end
+		for _, label in ipairs(theme.GetAvailable()) do
+			if label == theme.GetName() then label = label .. " (active)" end
 
 			items[#items + 1] = MenuItem{
 				Text = label,
 				OnClick = function()
-					if name == theme.GetPresetName() then return end
+					if label == theme.GetName() then return end
 
-					theme.SetPreset(name)
+					theme.LoadTheme(label)
 
 					if props.OnThemeChange then
 						props.OnThemeChange(

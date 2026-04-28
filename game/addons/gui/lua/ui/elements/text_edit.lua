@@ -19,7 +19,7 @@ return function(props)
 	local min_size = props.MinSize or Vec2(100, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
 	local editable = props.Editable ~= false
-	local panel_color = props.PanelColor or "card"
+	local panel_color = props.PanelColor or "surface_alt"
 	local background_color = props.BackgroundColor or "surface"
 	local text_panel
 	local last_text = props.Text or ""
@@ -55,13 +55,12 @@ return function(props)
 			props.layout,
 		},
 		gui_element = {
-			Color = panel_color,
 			BorderRadius = props.BorderRadius or 8,
 			OnDraw = function(self)
-				theme.panels.surface(self)
+				theme.active:DrawSurface(self, panel_color)
 			end,
 			OnPostDraw = function(self)
-				if editable then theme.panels.frame_post(self.Owner) end
+				if editable then theme.active:DrawFramePost(self.Owner) end
 			end,
 		},
 		mouse_input = true,
@@ -94,7 +93,7 @@ return function(props)
 				Cursor = editable and "text_input" or nil,
 				Editable = editable,
 				Wrap = wrap,
-				Color = props.TextColor or "text_foreground",
+				Color = props.TextColor or "text",
 				SelectionColor = props.SelectionColor or theme.GetColor("text_selection"),
 				FontName = props.FontName,
 				FontSize = props.FontSize,

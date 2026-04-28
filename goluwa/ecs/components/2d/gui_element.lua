@@ -2,8 +2,6 @@ local prototype = import("goluwa/prototype.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
-local Color = import("goluwa/structs/color.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
@@ -12,21 +10,11 @@ META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
 META:GetSet("BorderRadius", 0)
-META:GetSet("Color", Color(1, 1, 1, 1))
-META:GetSet("DrawColor", Color(0, 0, 0, 0))
 META:GetSet("DrawAlpha", 1)
 META:EndStorable()
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
-end
-
-function META:SetColor(c)
-	if type(c) == "string" then
-		self.Color = Color.FromHex(c)
-	else
-		self.Color = c
-	end
 end
 
 function META:SetVisible(visible)
@@ -148,9 +136,7 @@ local function draw_recursive_enter(_, owner)
 		return WALK_SKIP_SUBTREE
 	end
 
-	local c = current.Color + current.DrawColor
-
-	if c.a <= 0 then return WALK_SKIP_SUBTREE end
+	if current.DrawAlpha <= 0 then return WALK_SKIP_SUBTREE end
 
 	local clipping = current:GetClipping()
 	local border_radius = current:GetBorderRadius()
@@ -165,7 +151,7 @@ local function draw_recursive_enter(_, owner)
 		end
 	end
 
-	render2d.SetColor(c.r, c.g, c.b, c.a * current.DrawAlpha)
+	render2d.SetColor(1, 1, 1, current.DrawAlpha)
 	owner:CallLocalEvent("OnDraw")
 	return WALK_CONTINUE, clipping
 end

@@ -16,10 +16,10 @@ return function(props)
 			OnSetProperty = theme.OnSetProperty,
 			gui_element = {
 				OnDraw = function(self)
-					theme.panels.frame(self.Owner, props.Emphasis or 1)
+					theme.active:DrawFrame(self.Owner, props.Emphasis or 1, "surface")
 				end,
 				OnPostDraw = function(self)
-					theme.panels.frame_post(self.Owner, props.Emphasis or 1)
+					theme.active:DrawFramePost(self.Owner, props.Emphasis or 1, "surface")
 				end,
 			},
 			layout = {

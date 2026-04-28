@@ -104,7 +104,7 @@ return {
 							self.transform:SetSize(Vec2(state.icon_size, state.icon_size))
 						end,
 						Source = source,
-						Color = "text_foreground",
+						Color = "text",
 						Padding = Rect() + 6,
 					},
 					Text{
@@ -229,7 +229,7 @@ return {
 							self.transform:SetSize(Vec2(state.icon_size * 2, state.icon_size * 2))
 						end,
 						Source = state.custom_source,
-						Color = "text_foreground",
+						Color = "text",
 						Padding = Rect() + 8,
 						OnLoad = function()
 							set_status("Loaded custom SVG")

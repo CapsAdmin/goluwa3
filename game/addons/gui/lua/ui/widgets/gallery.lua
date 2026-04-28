@@ -136,17 +136,17 @@ local function build_gallery(props)
 		Text{
 			Text = "Theme",
 			Font = "body_strong S",
-			Color = "text_foreground",
+			Color = "text",
 			IgnoreMouseInput = true,
 		},
 		Dropdown{
-			Text = theme.GetPresetLabel(theme.GetPresetName()),
+			Text = theme.GetName(),
 			Options = (function()
 				local options = {}
 
-				for _, name in ipairs(theme.GetPresetNames()) do
+				for _, name in ipairs(theme.GetAvailable()) do
 					table.insert(options, {
-						Text = theme.GetPresetLabel(name),
+						Text = name,
 						Value = name,
 					})
 				end
@@ -154,10 +154,10 @@ local function build_gallery(props)
 				return options
 			end)(),
 			GetText = function()
-				return theme.GetPresetLabel(theme.GetPresetName())
+				return theme.GetName()
 			end,
 			OnSelect = function(name)
-				theme.SetPreset(name)
+				theme.LoadTheme(name)
 				rebuild_gallery()
 			end,
 			layout = {
@@ -187,7 +187,6 @@ local function build_gallery(props)
 			InitialSize = 220,
 		}{
 			ScrollablePanel{
-				Color = theme.GetColor("black"):Copy():SetAlpha(0.3),
 				layout = {
 					GrowHeight = 1,
 				},

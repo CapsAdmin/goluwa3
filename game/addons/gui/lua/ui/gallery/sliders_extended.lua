@@ -33,16 +33,12 @@ return {
 			layout = {
 				MinSize = Vec2(100, 100),
 			},
-			gui_element = {
-				Color = Color(1, 0.5, 0.5, 1),
-			},
 		}
 
 		local function update_preview()
 			local hue = canvas.state.hue or 0
 			local sat = canvas.state.sat or 1
 			local val = canvas.state.val or 0.5
-			preview_box.gui_element.Color = Color.FromHSV(hue, sat, val):SetAlpha(1)
 		end
 
 		return canvas{

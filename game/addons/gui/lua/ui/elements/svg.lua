@@ -154,13 +154,14 @@ return function(props)
 				props.layout,
 			},
 			gui_element = {
-				Color = props.BackgroundColor,
 				BorderRadius = props.BorderRadius,
 				OnDraw = function(self)
 					local owner = self.Owner
 					local size = owner.transform:GetSize()
 
-					if props.BackgroundColor then theme.panels.surface(self) end
+					if props.BackgroundColor then
+						theme.active:DrawSurface(self, props.BackgroundColor)
+					end
 
 					local padding = normalize_padding(props.Padding)
 					local available_w = math.max(0, size.x - padding.left - padding.right)
@@ -181,7 +182,7 @@ return function(props)
 						local draw_h = bounds_h * scale
 						local offset_x = padding.left + (available_w - draw_w) / 2
 						local offset_y = padding.top + (available_h - draw_h) / 2
-						local color = props.Color and theme.GetColor(props.Color) or theme.GetColor("text_foreground")
+						local color = props.Color and theme.GetColor(props.Color) or theme.GetColor("text")
 						render2d.PushMatrix()
 						render2d.Translatef(offset_x, offset_y)
 						render2d.Scalef(scale, scale)

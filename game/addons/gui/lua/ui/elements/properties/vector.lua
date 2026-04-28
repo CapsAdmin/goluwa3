@@ -150,7 +150,7 @@ return function(props)
 
 	local function sync_swatch()
 		if swatch and swatch:IsValid() then
-			swatch.gui_element:SetColor(get_swatch_color())
+			swatch.surface_color = get_swatch_color()
 		end
 	end
 
@@ -171,47 +171,47 @@ return function(props)
 		local field = select(
 			1,
 			props.build_number_control{
-			node = {
-				Value = get_component(value, components, index, 0),
-				Min = get_min(index),
-				Max = get_max(index),
-				Precision = get_precision(index),
-				DragStep = get_drag_step(index),
-				DragPrecisionBoost = node.DragPrecisionBoost,
-				Cursor = node.Cursor,
-			},
-			Ref = function(self)
-				fields[index] = self
-			end,
-			key = props.key,
-			path = props.path,
-			font_size = props.font_size,
-			padding = props.padding,
-			value_width = field_width,
-			row_height = field_height,
-			layout = {
-				GrowWidth = 0,
-				FitWidth = false,
-			},
-			commit_value = function(_, new_component)
-				if updating then return end
+				node = {
+					Value = get_component(value, components, index, 0),
+					Min = get_min(index),
+					Max = get_max(index),
+					Precision = get_precision(index),
+					DragStep = get_drag_step(index),
+					DragPrecisionBoost = node.DragPrecisionBoost,
+					Cursor = node.Cursor,
+				},
+				Ref = function(self)
+					fields[index] = self
+				end,
+				key = props.key,
+				path = props.path,
+				font_size = props.font_size,
+				padding = props.padding,
+				value_width = field_width,
+				row_height = field_height,
+				layout = {
+					GrowWidth = 0,
+					FitWidth = false,
+				},
+				commit_value = function(_, new_component)
+					if updating then return end
 
-				local next_value = build_plain_value(value)
-				next_value[axis] = clamp_component(tonumber(new_component) or 0, get_min(index), get_max(index))
-				next_value[index] = next_value[axis]
+					local next_value = build_plain_value(value)
+					next_value[axis] = clamp_component(tonumber(new_component) or 0, get_min(index), get_max(index))
+					next_value[index] = next_value[axis]
 
-				if input.IsKeyDown("left_shift") or input.IsKeyDown("right_shift") then
-					for other_index, other_axis in ipairs(components) do
-						if other_index ~= index then
-							next_value[other_axis] = clamp_component(next_value[axis], get_min(other_index), get_max(other_index))
-							next_value[other_index] = next_value[other_axis]
+					if input.IsKeyDown("left_shift") or input.IsKeyDown("right_shift") then
+						for other_index, other_axis in ipairs(components) do
+							if other_index ~= index then
+								next_value[other_axis] = clamp_component(next_value[axis], get_min(other_index), get_max(other_index))
+								next_value[other_index] = next_value[other_axis]
+							end
 						end
 					end
-				end
 
-				control:SetValue(next_value, true)
-			end,
-		}
+					control:SetValue(next_value, true)
+				end,
+			}
 		)
 		children[#children + 1] = field
 	end
@@ -220,17 +220,17 @@ return function(props)
 		children[#children + 1] = Clickable{
 			Ref = function(self)
 				swatch = self
+				self.surface_color = get_swatch_color()
 
 				if self.gui_element then
 					self.gui_element.OnDraw = function(gui)
-						theme.panels.surface(gui)
+						theme.active:DrawSurface(gui, self.surface_color)
 					end
 					self.gui_element.OnPostDraw = function(gui)
-						theme.panels.frame_post(gui.Owner)
+						theme.active:DrawFramePost(gui.Owner)
 					end
 				end
 			end,
-			Color = get_swatch_color(),
 			Mode = "filled",
 			OnClick = function()
 				if node.OnSwatchClick then
@@ -317,23 +317,25 @@ return function(props)
 		default_encoded = control:EncodeValue()
 	end
 
-	Value.InstallContextMenu(control, {
-		BeforeOpen = function()
-			if props.sync_selection then props.sync_selection(props.key) end
-		end,
-		Encode = function(panel)
-			return panel:EncodeValue()
-		end,
-		Decode = function(text, panel)
-			return panel:DecodeValue(text)
-		end,
-		GetDefaultEncoded = function()
-			return default_encoded
-		end,
-		Commit = function(decoded, panel)
-			props.commit_value(node, decoded, props.key, props.path, panel)
-		end,
-	})
-
+	Value.InstallContextMenu(
+		control,
+		{
+			BeforeOpen = function()
+				if props.sync_selection then props.sync_selection(props.key) end
+			end,
+			Encode = function(panel)
+				return panel:EncodeValue()
+			end,
+			Decode = function(text, panel)
+				return panel:DecodeValue(text)
+			end,
+			GetDefaultEncoded = function()
+				return default_encoded
+			end,
+			Commit = function(decoded, panel)
+				props.commit_value(node, decoded, props.key, props.path, panel)
+			end,
+		}
+	)
 	return control, control
 end

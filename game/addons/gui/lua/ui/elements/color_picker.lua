@@ -300,7 +300,7 @@ return function(props)
 
 	local function draw_frame(size)
 		render2d.SetTexture(nil)
-		render2d.SetColor(theme.GetColor("frame_border"):Unpack())
+		render2d.SetColor(theme.GetColor("border"):Unpack())
 		render2d.DrawRect(0, 0, size.x, 1)
 		render2d.DrawRect(0, size.y - 1, size.x, 1)
 		render2d.DrawRect(0, 0, 1, size.y)

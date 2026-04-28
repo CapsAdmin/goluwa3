@@ -24,7 +24,7 @@ return function(props)
 			FontName = props.FontName,
 			FontSize = props.FontSize,
 			IgnoreMouseInput = true,
-			Color = props.Disabled and "text_disabled" or "text_foreground",
+			Color = props.Disabled and "text_disabled" or "text",
 			AlignX = props.AlignX or "center",
 			AlignY = props.AlignY or "center",
 			layout = props.TextLayout,

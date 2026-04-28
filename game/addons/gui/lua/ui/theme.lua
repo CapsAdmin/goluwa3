@@ -1,55 +1,53 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
+local prototype = import("goluwa/prototype.lua")
+local base = import("game/addons/gui/lua/ui/themes/base.lua")
 local minimal = import("game/addons/gui/lua/ui/themes/minimal.lua")
 local jrpg = import("game/addons/gui/lua/ui/themes/jrpg.lua")
 local theme = library()
-local DEFAULT_PRESET_NAME = "minimal"
+local DEFAULT_PRESET_NAME = minimal.Name
 local FONT_SIZE_ORDER = {"XS", "S", "M", "L", "XL", "XXL", "XXXL"}
 local FONT_NAME_ORDER = {"heading", "body_weak", "body", "body_strong"}
-local ICON_NAMES = {
-	"disclosure",
-	"dropdown_indicator",
-	"close",
+local ICON_METHODS = {
+	disclosure = "DrawDisclosureIcon",
+	dropdown_indicator = "DrawDropdownIndicatorIcon",
+	close = "DrawCloseIcon",
 }
-local PANEL_NAMES = {
-	"button",
-	"surface",
-	"button_post",
-	"slider",
-	"checkbox",
-	"button_radio",
-	"frame",
-	"frame_post",
-	"menu_spacer",
-	"header",
-	"progress_bar",
-	"divider",
-}
-local theme_modules = {
-	jrpg = jrpg,
-	minimal = minimal,
-}
-theme.preset_order = {"jrpg", "minimal"}
-theme.presets = {}
+theme.themes = {base, minimal, jrpg}
 theme.implementations = {}
+theme.active = nil
+theme.background_stack = {}
+theme.surface_stack = theme.background_stack
 
-for _, name in ipairs(theme.preset_order) do
-	local module = theme_modules[name]
-	theme.presets[name] = module.preset
-	theme.implementations[name] = module.create_runtime(theme)
+local function find_theme_class(name)
+	if name == nil or name == DEFAULT_PRESET_NAME then return minimal end
+
+	for _, theme_class in ipairs(theme.themes) do
+		if theme_class.Name == name then return theme_class end
+	end
+
+	return minimal
 end
 
-local function get_active_preset()
-	return theme.presets[theme.current_preset_name] or theme.presets[DEFAULT_PRESET_NAME]
+function theme.LoadTheme(name)
+	local theme_class = find_theme_class(name)
+	local object = theme.implementations[theme_class.Name]
+
+	if not object then
+		object = theme_class:CreateObject()
+		object:SetThemeContext(theme)
+		object:Initialize()
+		theme.implementations[theme_class.Name] = object
+	end
+
+	theme.active = object
+	theme.font_sizes = object:GetFontSizes()
+	theme.font_styles = object:GetFontStyles()
+	return object
 end
 
-local function get_default_runtime()
-	return theme.implementations[DEFAULT_PRESET_NAME]
-end
-
-local function get_active_runtime()
-	return theme.implementations[theme.GetPresetName()] or get_default_runtime()
+function theme.GetTheme()
+	return theme.active
 end
 
 function theme.OnSetProperty(obj, key, val)
@@ -114,55 +112,99 @@ function theme.OnSetProperty(obj, key, val)
 end
 
 do
-	local function sync_preset_fields()
-		local preset = get_active_preset()
-		theme.font_sizes = preset.font_sizes
-		theme.font_styles = preset.font_styles
+	function theme.GetName()
+		return theme.active:GetName()
 	end
 
-	function theme.SetPreset(name)
-		if not theme.presets[name] then name = DEFAULT_PRESET_NAME end
+	function theme.GetAvailable()
+		local out = {}
 
-		theme.current_preset_name = name
-		sync_preset_fields()
+		for i, theme_class in ipairs(theme.themes) do
+			out[i] = theme_class.Name
+		end
+
+		return out
+	end
+
+	function theme.PushSurface(name)
+		if name == nil then error("theme background token is required", 2) end
+
+		table.insert(theme.surface_stack, 1, name)
 		return name
 	end
 
-	function theme.GetPresetName()
-		return theme.current_preset_name or DEFAULT_PRESET_NAME
+	function theme.PopSurface(expected)
+		local current = theme.surface_stack[1]
+
+		if current == nil then error("theme background stack is empty", 2) end
+
+		if expected ~= nil and current ~= expected then
+			error(
+				"theme background stack mismatch: expected '" .. tostring(expected) .. "' got '" .. tostring(current) .. "'",
+				2
+			)
+		end
+
+		table.remove(theme.surface_stack, 1)
+		return current
 	end
 
-	function theme.GetPresetLabel(name)
-		local preset = theme.presets[name or
-			theme.GetPresetName()] or
-			theme.presets[DEFAULT_PRESET_NAME]
-		return preset.label
+	function theme.ClearSurfaceStack()
+		for i = #theme.surface_stack, 1, -1 do
+			theme.surface_stack[i] = nil
+		end
 	end
 
-	function theme.GetPresetNames()
-		return theme.preset_order
+	function theme.GetSurface()
+		return theme.surface_stack[1]
 	end
 
-	function theme.GetColor(name)
-		local colors = get_active_preset().colors
-		return colors[name or "primary"] or colors.primary
+	function theme.PushBackground(name)
+		return theme.PushSurface(name)
+	end
+
+	function theme.PopBackground(expected)
+		return theme.PopSurface(expected)
+	end
+
+	function theme.ClearBackgroundStack()
+		return theme.ClearSurfaceStack()
+	end
+
+	function theme.GetBackground()
+		return theme.GetSurface()
+	end
+
+	function theme.GetSurfaceColor(name)
+		return theme.active:GetSurfaceColor(name)
+	end
+
+	function theme.GetColor(name, background)
+		return theme.active:GetColor(name, background)
+	end
+
+	function theme.ResolveColor(value, fallback)
+		return theme.active:ResolveColor(value, fallback)
+	end
+
+	function theme.ResolveSurfaceColor(value, fallback)
+		return theme.active:ResolveSurfaceColor(value, fallback)
 	end
 
 	function theme.GetSize(size_name)
-		local sizes = get_active_preset().sizes
-		size_name = size_name or "default"
-		return sizes[size_name] or sizes.default
+		return theme.active:GetSize(size_name)
 	end
 
 	function theme.GetPadding(size_name)
-		return theme.GetSize(size_name)
+		return theme.active:GetPadding(size_name)
 	end
 
 	function theme.GetFontSizes()
 		local list = {}
+		local font_sizes = theme.active:GetFontSizes()
 
 		for _, name in ipairs(FONT_SIZE_ORDER) do
-			if theme.font_sizes[name] then table.insert(list, name) end
+			if font_sizes[name] then table.insert(list, name) end
 		end
 
 		return list
@@ -170,86 +212,37 @@ do
 
 	function theme.GetFontNames()
 		local list = {}
+		local font_styles = theme.active:GetFontStyles()
 
 		for _, name in ipairs(FONT_NAME_ORDER) do
-			if theme.font_styles[name] then table.insert(list, name) end
+			if font_styles[name] then table.insert(list, name) end
 		end
 
 		return list
 	end
 
 	function theme.GetFontSize(size_name)
-		if type(size_name) == "number" then return size_name end
-
-		return theme.font_sizes[size_name or "M"] or theme.font_sizes.M
+		return theme.active:ResolveFontSize(size_name)
 	end
 
 	function theme.GetFont(name, size_name)
-		if name and not size_name then
-			local parsed_name, parsed_size = name:match("([^%s]+)%s*(.*)")
-
-			if parsed_size and parsed_size ~= "" then
-				name, size_name = parsed_name, parsed_size
-			end
-		end
-
-		if theme.font_sizes[name] and not theme.font_styles[name] then
-			size_name = name
-			name = "body"
-		end
-
-		local preset = get_active_preset()
-		local style = theme.font_styles[name or "body"] or theme.font_styles.body
-		local size_val = theme.GetFontSize(size_name)
-		local font_props = {Size = size_val}
-		local cache_key
-
-		if style.Path then
-			font_props.Path = style.Path
-			cache_key = "path_" .. style.Path .. "_" .. size_val
-		else
-			font_props.Name = style.Name or style[1]
-			font_props.Weight = style.Weight or style[2]
-			cache_key = font_props.Name .. "_" .. (font_props.Weight or "Regular") .. "_" .. size_val
-		end
-
-		if not preset.font_cache[cache_key] then
-			preset.font_cache[cache_key] = fonts.New(font_props)
-		end
-
-		return preset.font_cache[cache_key], size_val
+		return theme.active:GetFont(name, size_name)
 	end
 
-	theme.current_preset_name = theme.current_preset_name or DEFAULT_PRESET_NAME
-	theme.SetPreset(theme.current_preset_name)
+	theme.LoadTheme(DEFAULT_PRESET_NAME)
 end
 
 do
-	theme.icons = {}
-	theme.panels = {}
-
 	function theme.UpdateButtonAnimations(pnl, state)
-		return get_active_runtime().UpdateButtonAnimations(pnl, state)
+		return theme.active:UpdateButtonAnimations(pnl, state)
 	end
 
 	function theme.UpdateSliderAnimations(pnl, state)
-		return get_active_runtime().UpdateSliderAnimations(pnl, state)
+		return theme.active:UpdateSliderAnimations(pnl, state)
 	end
 
 	function theme.UpdateCheckboxAnimations(pnl, state)
-		return get_active_runtime().UpdateCheckboxAnimations(pnl, state)
-	end
-
-	for _, name in ipairs(ICON_NAMES) do
-		theme.icons[name] = function(...)
-			return get_active_runtime().icons[name](...)
-		end
-	end
-
-	for _, name in ipairs(PANEL_NAMES) do
-		theme.panels[name] = function(...)
-			return get_active_runtime().panels[name](...)
-		end
+		return theme.active:UpdateCheckboxAnimations(pnl, state)
 	end
 end
 

@@ -219,9 +219,9 @@ return function(props)
 					ScrollX = false,
 					ScrollY = false,
 					ScrollBarVisible = false,
-					PanelColor = props.SearchPanelColor or "card",
+					PanelColor = props.SearchPanelColor or "surface_alt",
 					BackgroundColor = props.SearchBackgroundColor or "surface",
-					TextColor = props.TextColor or "text_foreground",
+					TextColor = props.TextColor or "text",
 					SelectionColor = props.SelectionColor or theme.GetColor("text_selection"),
 					Font = props.Font,
 					FontName = props.FontName,
@@ -348,7 +348,7 @@ return function(props)
 			end,
 			IgnoreMouseInput = true,
 			layout = {GrowWidth = 1, FitHeight = true},
-			Color = props.Disabled and "text_disabled" or "text_foreground",
+			Color = props.Disabled and "text_disabled" or "text",
 		},
 		Panel.New{
 			IsInternal = true,
@@ -359,11 +359,12 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.icons.dropdown_indicator(
+					theme.active:DrawIcon(
+						"dropdown_indicator",
 						self.Owner,
 						{
 							thickness = 2,
-							color = theme.GetColor(props.Disabled and "text_disabled" or "text_foreground"),
+							color = theme.GetColor(props.Disabled and "text_disabled" or "text"),
 						}
 					)
 				end,

@@ -41,11 +41,47 @@ local accent_shades = {
 	"lightest",
 	"white",
 }
-local contrast_suffixes_for_dark_surface = {"lightest", "lighter", "light", "white", "grey", base_token, "dark", "darker", "darkest", "black"}
-local contrast_suffixes_for_light_surface = {"darkest", "darker", "dark", "black", "grey", base_token, "light", "lighter", "lightest", "white"}
+local contrast_suffixes_for_dark_surface = {
+	"lightest",
+	"lighter",
+	"light",
+	"white",
+	"grey",
+	base_token,
+	"dark",
+	"darker",
+	"darkest",
+	"black",
+}
+local contrast_suffixes_for_light_surface = {
+	"darkest",
+	"darker",
+	"dark",
+	"black",
+	"grey",
+	base_token,
+	"light",
+	"lighter",
+	"lightest",
+	"white",
+}
 
 local function copy_color(color)
 	return Color.CType(color.r, color.g, color.b, color.a)
+end
+
+local function is_color_value(value)
+	if value == nil then return false end
+
+	if typex(value) == "color" then return true end
+
+	return type(value) == "table" and value.r ~= nil and value.g ~= nil and value.b ~= nil
+end
+
+local function copy_value(value)
+	if is_color_value(value) and value.Copy then return value:Copy() end
+
+	return value
 end
 
 local function get_color_from_input(value)
@@ -95,13 +131,19 @@ local function normalize_colors(colors)
 	for key, value in pairs(colors or {}) do
 		local name = type(key) == "number" and accent_names[key] or key
 
-		if name and accent_hues[name] then normalized[name] = get_color_from_input(value) end
+		if name and accent_hues[name] then
+			normalized[name] = get_color_from_input(value)
+		end
 	end
 
-	if not next(normalized) then error("SetColors requires at least one accent color", 3) end
+	if not next(normalized) then
+		error("SetColors requires at least one accent color", 3)
+	end
 
 	for _, name in ipairs(accent_names) do
-		if not normalized[name] then normalized[name] = infer_accent_color(name, normalized) end
+		if not normalized[name] then
+			normalized[name] = infer_accent_color(name, normalized)
+		end
 	end
 
 	return normalized
@@ -111,7 +153,9 @@ local function split_color_token(token)
 	for _, shade in ipairs(accent_shades) do
 		local suffix = "_" .. shade
 
-		if token:sub(-#suffix) == suffix then return token:sub(1, #token - #suffix), shade end
+		if token:sub(-#suffix) == suffix then
+			return token:sub(1, #token - #suffix), shade
+		end
 	end
 
 	return token, nil
@@ -148,7 +192,9 @@ local function normalize_shades(shades_input)
 		error("SetShades requires at least a dark and bright shade", 3)
 	end
 
-	if #input < 2 then error("SetShades requires at least a dark and bright shade", 3) end
+	if #input < 2 then
+		error("SetShades requires at least a dark and bright shade", 3)
+	end
 
 	do
 		local _, _, first_value = input[1]:GetHSV()
@@ -188,6 +234,7 @@ local function build_base_palette(shades_input, colors_input)
 
 	do
 		local gen_shade = scale_colors(shades)
+
 		for i, shade_name in ipairs(dark_names) do
 			local idx = i - 1
 
@@ -223,7 +270,9 @@ local function get_surface_value(color)
 end
 
 local function get_contrast_suffixes(surface_color)
-	if get_surface_value(surface_color) <= 0.5 then return contrast_suffixes_for_dark_surface end
+	if get_surface_value(surface_color) <= 0.5 then
+		return contrast_suffixes_for_dark_surface
+	end
 
 	return contrast_suffixes_for_light_surface
 end
@@ -251,6 +300,19 @@ function ColorPalette.New()
 		mapped_palette = {},
 		cache = {},
 	}
+end
+
+function ColorPalette:Copy()
+	local copy = ColorPalette.New()
+	copy:SetShades(self.Shades)
+	copy:SetColors(self.Colors)
+	copy:SetMap(self.Map)
+
+	if self.AdjustmentOptions then
+		copy.AdjustmentOptions = table.merge_many({}, self.AdjustmentOptions)
+	end
+
+	return copy
 end
 
 function ColorPalette:Invalidate()
@@ -305,9 +367,11 @@ end
 function ColorPalette:GetMappedMap()
 	if next(self.mapped_palette) then return self.mapped_palette end
 
-	for key, token in pairs(self.Map) do
-		if type(token) == "string" and self.base_palette[token] then
-			self.mapped_palette[key] = self.base_palette[token]
+	for key, value in pairs(self.Map) do
+		if type(value) == "string" and self.base_palette[value] then
+			self.mapped_palette[key] = self.base_palette[value]
+		elseif is_color_value(value) then
+			self.mapped_palette[key] = value
 		end
 	end
 
@@ -338,7 +402,7 @@ function ColorPalette:Get(token, surface)
 
 	local mapped_token = self.Map[token] or token
 
-	if type(mapped_token) ~= "string" then
+	if type(mapped_token) ~= "string" and not is_color_value(mapped_token) then
 		error("invalid mapped token for '" .. token .. "'", 2)
 	end
 
@@ -346,25 +410,48 @@ function ColorPalette:Get(token, surface)
 
 	if surface then
 		local mapped_surface = self.Map[surface] or surface
-		local surface_color = self.base_palette[mapped_surface]
+		local surface_color
 
-		if not surface_color then error("unknown surface token '" .. surface .. "'", 2) end
+		if type(mapped_surface) == "string" then
+			surface_color = self.base_palette[mapped_surface]
+		elseif is_color_value(mapped_surface) then
+			surface_color = mapped_surface
+		end
+
+		if not surface_color then
+			error("unknown surface token '" .. surface .. "'", 2)
+		end
 
 		local explicit_token = self.Map[token .. "_on_" .. surface]
 
 		if explicit_token then
-			color = self.base_palette[explicit_token]
+			if type(explicit_token) == "string" then
+				color = self.base_palette[explicit_token]
+			elseif is_color_value(explicit_token) then
+				color = explicit_token
+			end
 		else
-			local candidate = find_contrast_variant(self.base_palette, mapped_token, surface_color)
+			local candidate
+
+			if type(mapped_token) == "string" then
+				candidate = find_contrast_variant(self.base_palette, mapped_token, surface_color)
+			else
+				candidate = mapped_token
+			end
+
 			color = candidate:GetAdjustedForBackground(surface_color, self.AdjustmentOptions)
 		end
 	else
-		color = self.base_palette[mapped_token]
+		if type(mapped_token) == "string" then
+			color = self.base_palette[mapped_token]
+		else
+			color = mapped_token
+		end
 	end
 
 	if not color then error("unknown color token '" .. mapped_token .. "'", 2) end
 
-	self.cache[cache_key] = color
+	self.cache[cache_key] = copy_value(color)
 	return color
 end
 
@@ -373,12 +460,13 @@ function ColorPalette.Build(shades_input, colors_input, semantic_input, override
 	palette:SetShades(shades_input)
 	palette:SetColors(colors_input)
 
-	if type(semantic_input) == "function" then semantic_input = semantic_input(palette:GetBaseMap()) end
+	if type(semantic_input) == "function" then
+		semantic_input = semantic_input(palette:GetBaseMap())
+	end
 
 	palette:SetMap(table.merge_many(semantic_input or {}, overrides or {}))
 	return palette:GetMappedMap(), palette:GetBaseMap()
 end
 
 ColorPalette:Register()
-
 return ColorPalette

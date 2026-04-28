@@ -140,9 +140,6 @@ return {
 						AlignmentX = "center",
 						AlignmentY = "center",
 					},
-					gui_element = {
-						Color = Color(1, 0.5, 0, 0.5),
-					},
 					Ref = function(self)
 						self:AddGlobalEvent("Update")
 					end,

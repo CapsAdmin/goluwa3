@@ -40,7 +40,7 @@ return {
 
 		local function update_preview()
 			if preview and preview:IsValid() and preview.gui_element then
-				preview.gui_element.Color = state.color
+				preview.preview_color = state.color
 			end
 
 			if summary and summary:IsValid() and summary.text then
@@ -134,9 +134,9 @@ return {
 							MaxSize = Vec2(160, 96),
 						},
 						gui_element = {
-							Color = state.color,
 							OnDraw = function(self)
 								local size = self.Owner.transform:GetSize()
+								local preview_color = self.Owner.preview_color or state.color
 								render2d.SetTexture(nil)
 								render2d.SetColor(1, 1, 1, 1)
 
@@ -148,9 +148,9 @@ return {
 									end
 								end
 
-								render2d.SetColor(self.Color:Unpack())
+								render2d.SetColor(preview_color:Unpack())
 								render2d.DrawRect(0, 0, size.x, size.y)
-								render2d.SetColor(theme.GetColor("frame_border"):Unpack())
+								render2d.SetColor(theme.GetColor("border"):Unpack())
 								render2d.DrawRect(0, 0, size.x, 1)
 								render2d.DrawRect(0, size.y - 1, size.x, 1)
 								render2d.DrawRect(0, 0, 1, size.y)

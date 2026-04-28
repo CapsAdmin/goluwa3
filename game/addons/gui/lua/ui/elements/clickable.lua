@@ -40,10 +40,6 @@ return function(props)
 				props.layout,
 			},
 			gui_element = {
-				Color = props.Disabled and
-					"clickable_disabled" or
-					props.Color or
-					"primary",
 				Shadows = false,
 				BorderRadius = 10,
 				ShadowSize = 10,
@@ -52,10 +48,10 @@ return function(props)
 				Clipping = true,
 				DrawAlpha = props.Disabled and 0.5 or 1,
 				OnDraw = function(self)
-					theme.panels.button(self, state)
+					theme.active:DrawButton(self, state)
 				end,
 				OnPostDraw = function(self)
-					theme.panels.button_post(self, state)
+					theme.active:DrawButtonPost(self, state)
 				end,
 			},
 			mouse_input = {

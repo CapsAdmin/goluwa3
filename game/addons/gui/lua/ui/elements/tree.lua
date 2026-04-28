@@ -114,7 +114,7 @@ return function(props)
 	local function get_text_color(node, path, key)
 		if node.Disabled then return theme.GetColor("text_disabled") end
 
-		if is_selected(node, path, key) then return theme.GetColor("text_button") end
+		if is_selected(node, path, key) then return theme.GetColor("text_on_accent") end
 
 		if props.GetTextColor then
 			local color = props.GetTextColor(node, path, key)
@@ -125,10 +125,12 @@ return function(props)
 		end
 
 		if node.TextColor ~= nil then
-			return type(node.TextColor) == "string" and theme.GetColor(node.TextColor) or node.TextColor
+			return type(node.TextColor) == "string" and
+				theme.GetColor(node.TextColor) or
+				node.TextColor
 		end
 
-		return theme.GetColor("text_foreground")
+		return theme.GetColor("text")
 	end
 
 	local function refresh_row_text(info)
@@ -538,10 +540,10 @@ return function(props)
 					local size = self.Owner.transform:GetSize()
 					local center_y = math.floor(size.y / 2)
 					local box_y = center_y - half_box
-					local line_color = theme.GetColor(props.LineColor or "frame_border")
+					local line_color = theme.GetColor(props.LineColor or "border")
 					local box_fill = theme.GetColor(props.BoxFillColor or "surface")
-					local box_outline = theme.GetColor(props.BoxOutlineColor or "frame_border")
-					local glyph_color = theme.GetColor(current_selected and "text_button" or (props.GlyphColor or "text_foreground"))
+					local box_outline = theme.GetColor(props.BoxOutlineColor or "border")
+					local glyph_color = theme.GetColor(current_selected and "text_on_accent" or (props.GlyphColor or "text"))
 					local line_start_x = has_entries(get_children(node, path)) and (center_x + half_box) or center_x
 					render2d.SetTexture(nil)
 					render2d.SetColor(line_color:Unpack())
@@ -610,7 +612,7 @@ return function(props)
 						render2d.SetColor(color:Unpack())
 						render2d.DrawRect(0, 0, size.x, size.y)
 					elseif row_info.hovered then
-						local color = theme.GetColor(props.HoverColor or "surface_variant")
+						local color = theme.GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08)
 						render2d.SetColor(color:Unpack())
 						render2d.DrawRect(0, 0, size.x, size.y)
 					end
@@ -631,8 +633,8 @@ return function(props)
 					"text_disabled" or
 					(
 						selected and
-						"text_button" or
-						"text_foreground"
+						"text_on_accent" or
+						"text"
 					),
 				IgnoreMouseInput = true,
 				layout = {
@@ -656,7 +658,7 @@ return function(props)
 					local size = self.Owner.transform:GetSize()
 					local center_y = math.floor(size.y / 2)
 					local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
-					local line_color = theme.GetColor(props.LineColor or "frame_border")
+					local line_color = theme.GetColor(props.LineColor or "border")
 					render2d.SetTexture(nil)
 					render2d.SetColor(line_color:Unpack())
 
