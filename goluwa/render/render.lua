@@ -1,6 +1,57 @@
 local ffi = require("ffi")
 local render = {}
 import.loaded["goluwa/render/render.lua"] = render
+render.flush_callbacks = render.flush_callbacks or {}
+render.flush_callback_order = render.flush_callback_order or {}
+render.is_flushing_callbacks = false
+
+local function run_flush_callbacks(reason)
+	if render.is_flushing_callbacks then return end
+
+	render.is_flushing_callbacks = true
+
+	for _, id in ipairs(render.flush_callback_order) do
+		local callback = render.flush_callbacks[id]
+
+		if callback then callback(reason) end
+	end
+
+	render.is_flushing_callbacks = false
+end
+
+function render.RegisterFlushCallback(id, callback)
+	if not id then error("flush callback id is required", 2) end
+
+	if callback == nil then
+		render.UnregisterFlushCallback(id)
+		return
+	end
+
+	if render.flush_callbacks[id] == nil then
+		table.insert(render.flush_callback_order, id)
+	end
+
+	render.flush_callbacks[id] = callback
+end
+
+function render.UnregisterFlushCallback(id)
+	if render.flush_callbacks[id] == nil then return end
+
+	render.flush_callbacks[id] = nil
+
+	for i, existing in ipairs(render.flush_callback_order) do
+		if existing == id then
+			table.remove(render.flush_callback_order, i)
+
+			break
+		end
+	end
+end
+
+function render.FlushCallbacks(reason)
+	run_flush_callbacks(reason)
+end
+
 render.default_bindless_descriptor_capacities = {
 	textures = 4096,
 	cubemaps = 256,
@@ -231,6 +282,7 @@ function render.Initialize(config)
 end
 
 function render.BeginFrame()
+	run_flush_callbacks("begin_frame")
 	render.cmd = render.target:BeginFrame()
 
 	if render.cmd then render.in_frame = true end
@@ -239,6 +291,7 @@ function render.BeginFrame()
 end
 
 function render.SetCommandBuffer(cmd)
+	run_flush_callbacks("set_command_buffer")
 	local stack = render.command_buffer_stack
 
 	if #stack > 0 then
@@ -253,6 +306,7 @@ function render.SetCommandBuffer(cmd)
 end
 
 function render.PushCommandBuffer(cmd)
+	run_flush_callbacks("push_command_buffer")
 	render.command_buffer_stack[#render.command_buffer_stack + 1] = cmd
 	return cmd
 end
@@ -262,6 +316,7 @@ function render.PopCommandBuffer()
 
 	if #stack == 0 then error("render command buffer stack underflow", 2) end
 
+	run_flush_callbacks("pop_command_buffer")
 	return table.remove(stack)
 end
 
@@ -304,6 +359,7 @@ end
 function render.EndFrame()
 	if not render.in_frame then return end
 
+	run_flush_callbacks("end_frame")
 	render.target:EndFrame()
 	render.command_buffer_stack = {}
 	render.cmd = nil

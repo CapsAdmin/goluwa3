@@ -11,6 +11,7 @@ local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Mesh = import("goluwa/render/mesh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local RectBatch = import("goluwa/render2d/rect_batch.lua")
 local FragmentConstants = ffi.typeof([[
 	struct {
         float global_color[4];          
@@ -37,12 +38,27 @@ local FragmentConstants = ffi.typeof([[
 	}
 ]])
 local fragment_constants = FragmentConstants()
+local fragment_constants_size = ffi.sizeof(fragment_constants)
 local render2d = library()
+local batch_state = RectBatch.New()
 local current_w, current_h = 0, 0
 local current_lw, current_lh = 0, 0
 local DEFAULT_BLEND_MODE = "alpha"
 local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
 local DEFAULT_DEPTH_MODE = "none"
+local rect_batch_instance_attributes = {
+	{"pvw_row_0", "vec4", "r32g32b32a32_sfloat"},
+	{"pvw_row_1", "vec4", "r32g32b32a32_sfloat"},
+	{"pvw_row_2", "vec4", "r32g32b32a32_sfloat"},
+	{"pvw_row_3", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_global_color", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_uv_transform", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_blur_modes", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_border_radius", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_quad_size", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_sdf_texture", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_outline_subpixel", "vec4", "r32g32b32a32_sfloat"},
+}
 local depth_mode_to_compare_op = {
 	less = "less",
 	lequal = "less_or_equal",
@@ -52,9 +68,347 @@ local depth_mode_to_compare_op = {
 	notequal = "not_equal",
 	always = "always",
 }
+local bind_mesh_immediate
+local capture_rect_draw_state
+local restore_rect_draw_state
+local flush_rect_batch_queue
+local draw_rect_immediate
+local ensure_rect_batch_instance_buffer
+local next_rect_batch_instance_buffer_slot = 1
+render2d.batched_rect_draws_enabled = true
+local default_rect_batch_mode = "instanced"
+local current_rect_batch_mode = default_rect_batch_mode
+local rect_batch_debug_logs_left = 0
+
+local function reset_rect_batch_instance_frame_state()
+	next_rect_batch_instance_buffer_slot = 1
+end
+
+local function debug_rect_batch_instanced(...)
+	if not render2d.debug_rect_batch_instanced then return end
+
+	if rect_batch_debug_logs_left <= 0 then return end
+
+	rect_batch_debug_logs_left = rect_batch_debug_logs_left - 1
+	print("[render2d instanced]", ...)
+end
+
+function render2d.SetRectBatchMode(mode)
+	mode = mode or default_rect_batch_mode
+
+	if mode ~= "immediate" and mode ~= "replay" and mode ~= "instanced" then
+		error("invalid rect batch mode: " .. tostring(mode), 2)
+	end
+
+	current_rect_batch_mode = mode
+end
+
+function render2d.GetRectBatchMode()
+	return current_rect_batch_mode
+end
+
+function render2d.SetDefaultRectBatchMode(mode)
+	mode = mode or "replay"
+
+	if mode ~= "replay" and mode ~= "instanced" then
+		error("invalid default rect batch mode: " .. tostring(mode), 2)
+	end
+
+	default_rect_batch_mode = mode
+
+	if current_rect_batch_mode ~= "immediate" then current_rect_batch_mode = mode end
+end
+
+function render2d.GetDefaultRectBatchMode()
+	return default_rect_batch_mode
+end
+
+utility.MakePushPopFunction(render2d, "RectBatchMode")
 
 local function get_active_pipeline()
 	return render2d.shader_override or render2d.pipeline
+end
+
+local function build_rect_draw_matrix(base_world_matrix, x, y, w, h, a, ox, oy, margin, use_float)
+	local matrix = Matrix44()
+	local projected = Matrix44()
+	local qw = w + margin * 2
+	local qh = h + margin * 2
+	Matrix44.CopyTo(base_world_matrix, matrix)
+
+	if x and y then
+		if use_float then
+			matrix:Translate(x - margin, y - margin, 0)
+		else
+			matrix:Translate(math.ceil(x - margin), math.ceil(y - margin), 0)
+		end
+	end
+
+	if a then matrix:Rotate(a, 0, 0, 1) end
+
+	if ox then
+		if use_float then
+			matrix:Translate(-ox, -oy, 0)
+		else
+			matrix:Translate(math.ceil(-ox), math.ceil(-oy), 0)
+		end
+	end
+
+	if w and h then
+		if use_float then
+			matrix:Scale(qw, qh, 1)
+		else
+			matrix:Scale(math.ceil(qw), math.ceil(qh), 1)
+		end
+	end
+
+	matrix:GetMultiplied(render2d.GetProjectionViewMatrix(), projected)
+	return projected, qw, qh
+end
+
+local function build_rect_batch_fragment_state_key(fragment_snapshot)
+	local static_snapshot = FragmentConstants()
+	ffi.copy(static_snapshot, fragment_snapshot, fragment_constants_size)
+
+	for i = 0, 3 do
+		static_snapshot.global_color[i] = 0
+		static_snapshot.border_radius[i] = 0
+	end
+
+	static_snapshot.alpha_multiplier = 0
+	static_snapshot.texture_index = 0
+	static_snapshot.uv_offset[0] = 0
+	static_snapshot.uv_offset[1] = 0
+	static_snapshot.uv_scale[0] = 0
+	static_snapshot.uv_scale[1] = 0
+	static_snapshot.sample_uv_mode = 0
+	static_snapshot.swizzle_mode = 0
+	static_snapshot.blur[0] = 0
+	static_snapshot.blur[1] = 0
+	static_snapshot.outline_width = 0
+	static_snapshot.rect_size[0] = 0
+	static_snapshot.rect_size[1] = 0
+	static_snapshot.sdf_threshold = 0
+	static_snapshot.sdf_texel_range = 0
+	static_snapshot.gradient_texture_index = 0
+	static_snapshot.sdf_rect_size[0] = 0
+	static_snapshot.sdf_rect_size[1] = 0
+	static_snapshot.subpixel_mode = 0
+	static_snapshot.subpixel_amount = 0
+	return ffi.string(static_snapshot, fragment_constants_size)
+end
+
+local function build_rect_batch_fragment_shader_source(source)
+	local shader = [[
+		#define batch_global_color in_batch_global_color
+		#define batch_uv_offset in_batch_uv_transform.xy
+		#define batch_uv_scale in_batch_uv_transform.zw
+		#define batch_blur in_batch_blur_modes.xy
+		#define batch_border_radius in_batch_border_radius
+		#define batch_rect_size in_batch_quad_size.xy
+		#define batch_sdf_rect_size in_batch_quad_size.zw
+		#define batch_sdf_threshold in_batch_sdf_texture.x
+		#define batch_sdf_texel_range in_batch_sdf_texture.y
+		#define batch_outline_width in_batch_outline_subpixel.x
+		#define batch_alpha_multiplier in_batch_outline_subpixel.y
+		#define batch_subpixel_amount in_batch_outline_subpixel.w
+
+		int batch_texture_index() {
+			return int(round(in_batch_sdf_texture.z));
+		}
+
+		int batch_gradient_texture_index() {
+			return int(round(in_batch_sdf_texture.w));
+		}
+
+		int batch_sample_uv_mode() {
+			return int(round(in_batch_blur_modes.z));
+		}
+
+		int batch_swizzle_mode() {
+			return int(round(in_batch_blur_modes.w));
+		}
+
+		int batch_subpixel_mode() {
+			return int(round(in_batch_outline_subpixel.z));
+		}
+	]] .. source
+
+	for _, replacement in ipairs{
+		{"U%.global_color", "batch_global_color"},
+		{"U%.alpha_multiplier", "batch_alpha_multiplier"},
+		{"U%.texture_index", "batch_texture_index()"},
+		{"U%.uv_offset", "batch_uv_offset"},
+		{"U%.uv_scale", "batch_uv_scale"},
+		{"U%.sample_uv_mode", "batch_sample_uv_mode()"},
+		{"U%.swizzle_mode", "batch_swizzle_mode()"},
+		{"U%.blur", "batch_blur"},
+		{"U%.border_radius", "batch_border_radius"},
+		{"U%.outline_width", "batch_outline_width"},
+		{"U%.rect_size", "batch_rect_size"},
+		{"U%.sdf_threshold", "batch_sdf_threshold"},
+		{"U%.sdf_texel_range", "batch_sdf_texel_range"},
+		{"U%.gradient_texture_index", "batch_gradient_texture_index()"},
+		{"U%.sdf_rect_size", "batch_sdf_rect_size"},
+		{"U%.subpixel_mode", "batch_subpixel_mode()"},
+		{"U%.subpixel_amount", "batch_subpixel_amount"},
+	} do
+		shader = shader:gsub(replacement[1], replacement[2])
+	end
+
+	return shader
+end
+
+local function build_rect_batch_key(state, w, h, margin, batch_mode)
+	local blend_mode_key = state.blend_mode
+
+	if type(blend_mode_key) == "table" then
+		blend_mode_key = table.concat(
+			{
+				tostring(blend_mode_key.blend),
+				blend_mode_key.src_color_blend_factor,
+				blend_mode_key.dst_color_blend_factor,
+				blend_mode_key.color_blend_op,
+				blend_mode_key.src_alpha_blend_factor,
+				blend_mode_key.dst_alpha_blend_factor,
+				blend_mode_key.alpha_blend_op,
+				table.concat(blend_mode_key.color_write_mask or DEFAULT_COLOR_WRITE_MASK, ","),
+			},
+			"|"
+		)
+	end
+
+	local static_fragment_state_key = build_rect_batch_fragment_state_key(state.fragment_constants)
+	return {
+		hash = table.concat(
+			{
+				tostring(batch_mode),
+				tostring(render2d.rect_batch_pipeline),
+				static_fragment_state_key,
+				tostring(blend_mode_key),
+				tostring(state.depth_mode),
+				tostring(state.depth_write),
+				tostring(state.stencil_mode),
+				tostring(state.stencil_ref),
+			},
+			"|"
+		),
+		debug = {
+			batch_mode = tostring(batch_mode),
+			pipeline = tostring(render2d.rect_batch_pipeline),
+			static_fragment_state = static_fragment_state_key,
+			blend_mode = tostring(blend_mode_key),
+			depth_mode = tostring(state.depth_mode),
+			depth_write = tostring(state.depth_write),
+			stencil_mode = tostring(state.stencil_mode),
+			stencil_ref = tostring(state.stencil_ref),
+		},
+	}
+end
+
+local function apply_rect_margin_uv(qw, qh, w, h)
+	local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
+	local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
+	local margin = (qw - w) * 0.5
+
+	if margin > 0 and w > 0 and h > 0 then
+		fragment_constants.uv_scale[0] = old_scale_x * (qw / w)
+		fragment_constants.uv_scale[1] = old_scale_y * (qh / h)
+		fragment_constants.uv_offset[0] = old_off_x - (margin / w) * old_scale_x
+		fragment_constants.uv_offset[1] = old_off_y - (margin / h) * old_scale_y
+	end
+
+	return old_off_x, old_off_y, old_scale_x, old_scale_y
+end
+
+local function restore_rect_margin_uv(old_off_x, old_off_y, old_scale_x, old_scale_y)
+	fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
+	fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
+end
+
+local function get_rect_batch_instance_uv_transform(entry)
+	local fragment_snapshot = entry.state.fragment_constants
+	local off_x = fragment_snapshot.uv_offset[0]
+	local off_y = fragment_snapshot.uv_offset[1]
+	local scale_x = fragment_snapshot.uv_scale[0]
+	local scale_y = fragment_snapshot.uv_scale[1]
+	local margin = entry.margin or 0
+
+	if margin > 0 and entry.w > 0 and entry.h > 0 then
+		scale_x = scale_x * (entry.qw / entry.w)
+		scale_y = scale_y * (entry.qh / entry.h)
+		off_x = off_x - (margin / entry.w) * fragment_snapshot.uv_scale[0]
+		off_y = off_y - (margin / entry.h) * fragment_snapshot.uv_scale[1]
+	end
+
+	return off_x, off_y, scale_x, scale_y
+end
+
+local function write_rect_batch_instance(vertex, entry)
+	local values = entry.draw_matrix:GetFloatCopy()
+	local state = entry.state
+	local fragment_snapshot = state.fragment_constants
+	local uv_off_x, uv_off_y, uv_scale_x, uv_scale_y = get_rect_batch_instance_uv_transform(entry)
+	ffi.copy(vertex.pvw_row_0, values + 0, ffi.sizeof("float") * 4)
+	ffi.copy(vertex.pvw_row_1, values + 4, ffi.sizeof("float") * 4)
+	ffi.copy(vertex.pvw_row_2, values + 8, ffi.sizeof("float") * 4)
+	ffi.copy(vertex.pvw_row_3, values + 12, ffi.sizeof("float") * 4)
+	ffi.copy(vertex.batch_global_color, fragment_snapshot.global_color, ffi.sizeof("float") * 4)
+	vertex.batch_uv_transform[0] = uv_off_x
+	vertex.batch_uv_transform[1] = uv_off_y
+	vertex.batch_uv_transform[2] = uv_scale_x
+	vertex.batch_uv_transform[3] = uv_scale_y
+	vertex.batch_blur_modes[0] = fragment_snapshot.blur[0]
+	vertex.batch_blur_modes[1] = fragment_snapshot.blur[1]
+	vertex.batch_blur_modes[2] = fragment_snapshot.sample_uv_mode
+	vertex.batch_blur_modes[3] = fragment_snapshot.swizzle_mode
+	ffi.copy(vertex.batch_border_radius, fragment_snapshot.border_radius, ffi.sizeof("float") * 4)
+	vertex.batch_quad_size[0] = entry.qw
+	vertex.batch_quad_size[1] = entry.qh
+	vertex.batch_quad_size[2] = entry.w
+	vertex.batch_quad_size[3] = entry.h
+	vertex.batch_sdf_texture[0] = fragment_snapshot.sdf_threshold
+	vertex.batch_sdf_texture[1] = fragment_snapshot.sdf_texel_range
+	vertex.batch_sdf_texture[2] = state.texture and
+		render2d.rect_batch_pipeline:GetTextureIndex(state.texture) or
+		-1
+	vertex.batch_sdf_texture[3] = state.gradient_texture and
+		render2d.rect_batch_pipeline:GetTextureIndex(state.gradient_texture) or
+		-1
+	vertex.batch_outline_subpixel[0] = fragment_snapshot.outline_width
+	vertex.batch_outline_subpixel[1] = fragment_snapshot.alpha_multiplier
+	vertex.batch_outline_subpixel[2] = fragment_snapshot.subpixel_mode
+	vertex.batch_outline_subpixel[3] = fragment_snapshot.subpixel_amount
+end
+
+function render2d.GetBatchStats()
+	return batch_state:GetStats()
+end
+
+function render2d.HasPendingBatches()
+	return batch_state:HasPending()
+end
+
+function render2d.MarkBatchesPending(count)
+	return batch_state:MarkPending(count)
+end
+
+function render2d.ClearPendingBatches()
+	batch_state:ClearPending()
+end
+
+function render2d.FlushBatches(reason)
+	if not batch_state:BeginFlush(reason) then return false end
+
+	if not flush_rect_batch_queue then
+		batch_state:AbortFlush()
+		error(
+			"render2d has pending batched draws but batch submission is not implemented yet",
+			2
+		)
+	end
+
+	return flush_rect_batch_queue()
 end
 
 local function copy_array(tbl)
@@ -789,8 +1143,90 @@ function render2d.Initialize()
 		BackStencilCompareOp = "always",
 	}
 	render2d.pipeline = EasyPipeline.New(config)
+	local rect_batch_fragment = {
+		push_constants = config.fragment.push_constants,
+		shader = build_rect_batch_fragment_shader_source(config.fragment.shader),
+	}
+	render2d.rect_batch_pipeline = EasyPipeline.New{
+		name = "render2d_rect_batch",
+		dont_create_framebuffers = true,
+		RasterizationSamples = render.target:GetSamples(),
+		ColorFormat = render.target:GetColorFormat(),
+		vertex = {
+			bindings = {
+				{
+					binding = 0,
+					input_rate = "vertex",
+					attributes = {
+						{"pos", "vec3", "r32g32b32_sfloat"},
+						{"uv", "vec2", "r32g32_sfloat"},
+						{"sample_uv", "vec2", "r32g32_sfloat"},
+						{"color", "vec4", "r32g32b32a32_sfloat"},
+					},
+				},
+				{
+					binding = 1,
+					input_rate = "instance",
+					attributes = rect_batch_instance_attributes,
+				},
+			},
+			outputs = {
+				{"uv", "vec2"},
+				{"sample_uv", "vec2"},
+				{"color", "vec4"},
+				{"batch_global_color", "vec4"},
+				{"batch_uv_transform", "vec4"},
+				{"batch_blur_modes", "vec4"},
+				{"batch_border_radius", "vec4"},
+				{"batch_quad_size", "vec4"},
+				{"batch_sdf_texture", "vec4"},
+				{"batch_outline_subpixel", "vec4"},
+			},
+			shader = [[
+				void main() {
+					mat4 pvw = mat4(in_pvw_row_0, in_pvw_row_1, in_pvw_row_2, in_pvw_row_3);
+					gl_Position = pvw * vec4(in_pos, 1.0);
+					out_uv = in_uv;
+					out_sample_uv = in_sample_uv;
+					out_color = in_color;
+					out_batch_global_color = in_batch_global_color;
+					out_batch_uv_transform = in_batch_uv_transform;
+					out_batch_blur_modes = in_batch_blur_modes;
+					out_batch_border_radius = in_batch_border_radius;
+					out_batch_quad_size = in_batch_quad_size;
+					out_batch_sdf_texture = in_batch_sdf_texture;
+					out_batch_outline_subpixel = in_batch_outline_subpixel;
+				}
+			]],
+		},
+		fragment = rect_batch_fragment,
+		CullMode = config.CullMode,
+		Blend = config.Blend,
+		SrcColorBlendFactor = config.SrcColorBlendFactor,
+		DstColorBlendFactor = config.DstColorBlendFactor,
+		ColorBlendOp = config.ColorBlendOp,
+		SrcAlphaBlendFactor = config.SrcAlphaBlendFactor,
+		DstAlphaBlendFactor = config.DstAlphaBlendFactor,
+		AlphaBlendOp = config.AlphaBlendOp,
+		ColorWriteMask = config.ColorWriteMask,
+		DepthTest = config.DepthTest,
+		DepthWrite = config.DepthWrite,
+		StencilTest = config.StencilTest,
+		FrontStencilFailOp = config.FrontStencilFailOp,
+		FrontStencilPassOp = config.FrontStencilPassOp,
+		FrontStencilDepthFailOp = config.FrontStencilDepthFailOp,
+		FrontStencilCompareOp = config.FrontStencilCompareOp,
+		BackStencilFailOp = config.BackStencilFailOp,
+		BackStencilPassOp = config.BackStencilPassOp,
+		BackStencilDepthFailOp = config.BackStencilDepthFailOp,
+		BackStencilCompareOp = config.BackStencilCompareOp,
+	}
 
 	render2d.pipeline:SetTextureSamplerConfigResolver(function()
+		return render.GetSamplerFilterConfig()
+	end)
+
+	render2d.rect_batch_pipeline:SetTextureSamplerConfigResolver(function()
 		return render.GetSamplerFilterConfig()
 	end)
 
@@ -844,9 +1280,41 @@ function render2d.Initialize()
 			color = Color(1, 1, 1, 1),
 		},
 	}
+	ensure_rect_batch_instance_buffer = function(slot, capacity)
+		render2d.rect_batch_instance_buffers = render2d.rect_batch_instance_buffers or {}
+		local frame_index = render.GetCurrentFrame() or 1
+		local frame_buffers = render2d.rect_batch_instance_buffers[frame_index]
+
+		if not frame_buffers then
+			frame_buffers = {}
+			render2d.rect_batch_instance_buffers[frame_index] = frame_buffers
+		end
+
+		local current = frame_buffers[slot]
+
+		if current and current:GetVertexCount() >= capacity then return current end
+
+		if not render2d.rect_batch_instance_buffer_attributes then
+			render2d.rect_batch_instance_buffer_attributes = {}
+
+			for _, attribute in ipairs(render2d.rect_batch_pipeline.vertex_attributes) do
+				if attribute.binding == 1 then
+					render2d.rect_batch_instance_buffer_attributes[#render2d.rect_batch_instance_buffer_attributes + 1] = attribute
+				end
+			end
+		end
+
+		current = VertexBuffer.New(capacity, render2d.rect_batch_instance_buffer_attributes)
+		frame_buffers[slot] = current
+		return current
+	end
 end
 
 function render2d.ResetState()
+	render2d.ClearPendingBatches()
+	render2d.SetRectBatchMode(default_rect_batch_mode)
+	reset_rect_batch_instance_frame_state()
+	rect_batch_debug_logs_left = render2d.debug_rect_batch_instanced_max_logs or 12
 	render2d.SetTexture()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
@@ -1385,17 +1853,24 @@ do
 		end
 
 		function render2d.ClearStencil(val)
-			if render.GetCommandBuffer() then
-				local old_mode, old_ref = render2d.GetStencilMode()
-				render2d.stencil_level = 0
-				render2d.SetStencilMode("write", val or 0)
-				local sw, sh = render2d.GetSize()
-				render2d.PushMatrix()
-				render2d.SetWorldMatrix(Matrix44())
-				render2d.DrawRect(0, 0, sw, sh)
-				render2d.PopMatrix()
-				render2d.SetStencilMode(old_mode, old_ref)
-			end
+			if not render.GetCommandBuffer() then return end
+
+			render2d.FlushBatches("clear_stencil")
+			local old_mode, old_ref = render2d.GetStencilMode()
+			local old_rect_batch_mode = render2d.GetRectBatchMode()
+			local old_batched_rect_draws_enabled = render2d.batched_rect_draws_enabled
+			render2d.batched_rect_draws_enabled = false
+			render2d.SetRectBatchMode("immediate")
+			render2d.stencil_level = 0
+			render2d.SetStencilMode("write", val or 0)
+			local sw, sh = render2d.GetSize()
+			render2d.PushMatrix()
+			render2d.SetWorldMatrix(Matrix44())
+			render2d.DrawRect(0, 0, sw, sh)
+			render2d.PopMatrix()
+			render2d.SetRectBatchMode(old_rect_batch_mode)
+			render2d.batched_rect_draws_enabled = old_batched_rect_draws_enabled
+			render2d.SetStencilMode(old_mode, old_ref)
 		end
 
 		function render2d.PushStencilMask()
@@ -1416,10 +1891,13 @@ do
 	end
 
 	function render2d.SetBlendConstants(r, g, b, a)
+		render2d.FlushBatches("set_blend_constants")
 		render.GetCommandBuffer():SetBlendConstants(r, g, b, a)
 	end
 
 	function render2d.SetScissor(x, y, w, h)
+		render2d.FlushBatches("set_scissor")
+
 		if x < 0 then
 			w = w + x
 			x = 0
@@ -1437,6 +1915,91 @@ do
 
 	do
 		local stack = {}
+		local clip_stack = {}
+		local clip_axis_alignment_epsilon = 0.001
+
+		local function clip_point_to_screen(clip_matrix, screen_w, screen_h, px, py)
+			local clip_x, clip_y = clip_matrix:TransformVectorUnpacked(px, py, 0)
+			return (clip_x * 0.5 + 0.5) * screen_w, (clip_y * 0.5 + 0.5) * screen_h
+		end
+
+		local function capture_clip_world_matrix()
+			local world_matrix = Matrix44()
+			Matrix44.CopyTo(render2d.GetWorldMatrix(), world_matrix)
+			return world_matrix
+		end
+
+		local function project_clip_rect_to_screen(world_matrix, x, y, w, h)
+			local clip_matrix = Matrix44()
+			local screen_w, screen_h = render2d.GetSize()
+			world_matrix:GetMultiplied(render2d.GetProjectionViewMatrix(), clip_matrix)
+
+			local tl_x, tl_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x, y)
+			local tr_x, tr_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x + w, y)
+			local br_x, br_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x + w, y + h)
+			local bl_x, bl_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x, y + h)
+			local axis_aligned = math.abs(tl_y - tr_y) <= clip_axis_alignment_epsilon and
+				math.abs(bl_y - br_y) <= clip_axis_alignment_epsilon and
+				math.abs(tl_x - bl_x) <= clip_axis_alignment_epsilon and
+				math.abs(tr_x - br_x) <= clip_axis_alignment_epsilon
+			local min_x = math.min(tl_x, tr_x, br_x, bl_x)
+			local max_x = math.max(tl_x, tr_x, br_x, bl_x)
+			local min_y = math.min(tl_y, tr_y, br_y, bl_y)
+			local max_y = math.max(tl_y, tr_y, br_y, bl_y)
+			return axis_aligned,
+			math.floor(min_x),
+			math.floor(min_y),
+			math.ceil(max_x - min_x),
+			math.ceil(max_y - min_y)
+		end
+
+		local function begin_clip_mask_draw(entry)
+			local saved_state = capture_rect_draw_state()
+			render2d.SetWorldMatrix(entry.world_matrix)
+			render2d.SetTexture()
+			render2d.SetSDFGradientTexture()
+			render2d.SetColor(1, 1, 1, 1)
+			render2d.SetAlphaMultiplier(1)
+			render2d.SetUV()
+			render2d.SetSampleUVMode(0)
+			render2d.SetSwizzleMode(0)
+			render2d.SetSDFMode(false)
+			render2d.SetSDFThreshold(0.5)
+			render2d.SetSDFTexelRange(1)
+			render2d.SetBlur(0)
+			render2d.SetBorderRadius(0, 0, 0, 0)
+			render2d.SetOutlineWidth(0)
+			render2d.SetSubpixelMode("none")
+			render2d.SetSubpixelAmount(1 / 3)
+			render2d.ClearNinePatch()
+			return saved_state
+		end
+
+		local function draw_clip_mask(entry)
+			local saved_state = begin_clip_mask_draw(entry)
+
+			if entry.kind == "stencil_rect" then
+				render2d.DrawRect(entry.x, entry.y, entry.w, entry.h)
+			elseif entry.kind == "stencil_rounded_rect" then
+				render2d.PushBorderRadius(entry.tl, entry.tr, entry.br, entry.bl)
+				render2d.DrawRect(entry.x, entry.y, entry.w, entry.h)
+				render2d.PopBorderRadius()
+			elseif entry.kind == "stencil_shape" then
+				entry.draw_callback()
+			else
+				restore_rect_draw_state(saved_state)
+				error("unknown clip kind: " .. tostring(entry.kind), 2)
+			end
+
+			restore_rect_draw_state(saved_state)
+		end
+
+		local function push_stencil_clip(entry)
+			render2d.PushStencilMask()
+			draw_clip_mask(entry)
+			render2d.BeginStencilTest()
+			table.insert(clip_stack, entry)
+		end
 
 		function render2d.PushScissor(x, y, w, h)
 			local current = stack[#stack]
@@ -1465,6 +2028,75 @@ do
 				render2d.SetScissor(0, 0, sw or 0, sh or 0)
 			end
 		end
+
+		function render2d.PushClipRect(x, y, w, h)
+			local world_matrix = capture_clip_world_matrix()
+			local axis_aligned, scissor_x, scissor_y, scissor_w, scissor_h = project_clip_rect_to_screen(world_matrix, x, y, w, h)
+
+			if axis_aligned then
+				render2d.PushScissor(scissor_x, scissor_y, scissor_w, scissor_h)
+				table.insert(clip_stack, {kind = "scissor"})
+				return
+			end
+
+			push_stencil_clip{
+				kind = "stencil_rect",
+				world_matrix = world_matrix,
+				x = x,
+				y = y,
+				w = w,
+				h = h,
+			}
+		end
+
+		function render2d.PushClipRoundedRect(x, y, w, h, tl, tr, br, bl)
+			if type(tl) == "table" then
+				tr = tl[2]
+				br = tl[3]
+				bl = tl[4]
+				tl = tl[1]
+			end
+
+			push_stencil_clip{
+				kind = "stencil_rounded_rect",
+				world_matrix = capture_clip_world_matrix(),
+				x = x,
+				y = y,
+				w = w,
+				h = h,
+				tl = tl or 0,
+				tr = tr or tl or 0,
+				br = br or tl or 0,
+				bl = bl or tl or 0,
+			}
+		end
+
+		function render2d.PushClipShape(draw_callback)
+			if type(draw_callback) ~= "function" then
+				error("PushClipShape expects a draw callback", 2)
+			end
+
+			push_stencil_clip{
+				kind = "stencil_shape",
+				world_matrix = capture_clip_world_matrix(),
+				draw_callback = draw_callback,
+			}
+		end
+
+		function render2d.PopClip()
+			local entry = table.remove(clip_stack)
+
+			if not entry then error("Clip stack underflow", 2) end
+
+			if entry.kind == "scissor" then
+				render2d.PopScissor()
+				return
+			end
+
+			render2d.SetStencilMode("mask_decrement", render2d.stencil_level)
+			draw_clip_mask(entry)
+			render2d.PopStencilMask()
+		end
 	end
 
 	function render2d.UploadConstants(w, h, lw, lh)
@@ -1484,14 +2116,14 @@ do -- mesh
 	render2d.last_bound_mesh = nil
 	local last_cmd = nil
 
-	local function ensure_draw_command()
+	local function ensure_draw_command_immediate()
 		local cmd = render.GetCommandBuffer()
 		sync_pipeline_state()
 		return cmd
 	end
 
-	function render2d.BindMesh(mesh)
-		local cmd = ensure_draw_command()
+	bind_mesh_immediate = function(mesh)
+		local cmd = ensure_draw_command_immediate()
 
 		if not cmd then return false end
 
@@ -1504,8 +2136,14 @@ do -- mesh
 		return true
 	end
 
+	function render2d.BindMesh(mesh)
+		render2d.FlushBatches("bind_mesh")
+		return bind_mesh_immediate(mesh)
+	end
+
 	function render2d.DrawIndexedMesh(index_count, instance_count, first_index, vertex_offset, first_instance)
-		local cmd = ensure_draw_command()
+		render2d.FlushBatches("draw_indexed_mesh")
+		local cmd = ensure_draw_command_immediate()
 
 		if not cmd then return end
 
@@ -1519,7 +2157,8 @@ do -- mesh
 	end
 
 	function render2d.DrawMesh(vertex_count, instance_count, first_vertex, first_instance)
-		local cmd = ensure_draw_command()
+		render2d.FlushBatches("draw_mesh")
+		local cmd = ensure_draw_command_immediate()
 
 		if not cmd then return end
 
@@ -1718,6 +2357,43 @@ do -- camera
 	end
 end
 
+local function can_batch_rect_draw()
+	return render2d.batched_rect_draws_enabled and
+		not batch_state.is_flushing and
+		render.GetCommandBuffer() ~= nil and
+		render2d.GetRectBatchMode() ~= "immediate" and
+		not render2d.shader_override
+end
+
+capture_rect_draw_state = function()
+	local fragment_snapshot = FragmentConstants()
+	local world_matrix = Matrix44()
+	local depth_mode_name, depth_write = render2d.GetDepthMode()
+	local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
+	ffi.copy(fragment_snapshot, fragment_constants, fragment_constants_size)
+	Matrix44.CopyTo(render2d.GetWorldMatrix(), world_matrix)
+	return {
+		fragment_constants = fragment_snapshot,
+		world_matrix = world_matrix,
+		texture = render2d.current_texture,
+		gradient_texture = render2d.current_gradient_texture,
+		blend_mode = render2d.GetBlendMode(),
+		depth_mode = depth_mode_name,
+		depth_write = depth_write,
+		stencil_mode = stencil_mode_name,
+		stencil_ref = stencil_ref,
+	}
+end
+restore_rect_draw_state = function(state)
+	ffi.copy(fragment_constants, state.fragment_constants, fragment_constants_size)
+	render2d.current_texture = state.texture
+	render2d.current_gradient_texture = state.gradient_texture
+	render2d.SetBlendMode(state.blend_mode, true)
+	render2d.SetDepthMode(state.depth_mode, state.depth_write)
+	render2d.SetStencilMode(state.stencil_mode, state.stencil_ref)
+	render2d.SetWorldMatrix(state.world_matrix)
+end
+
 do
 	local function get_margin()
 		local content_m = fragment_constants.outline_width
@@ -1747,32 +2423,112 @@ do
 		m = new_m
 	end
 
-	function render2d.DrawRect(x, y, w, h, a, ox, oy, max_m)
-		local m = render2d.GetMargin(w, h)
+	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
+		local margin = render2d.GetMargin(w, h)
+		local batch_mode = render2d.GetRectBatchMode()
 
-		if max_m then m = math.min(m, max_m) end
+		if max_m then margin = math.min(margin, max_m) end
 
-		render2d.BindMesh(render2d.rect_mesh)
-		render2d.PushMatrix()
+		local state = capture_rect_draw_state()
+		local draw_matrix, qw, qh = build_rect_draw_matrix(
+			state.world_matrix,
+			x,
+			y,
+			w,
+			h,
+			a,
+			ox,
+			oy,
+			margin,
+			use_float
+		)
+		batch_state:Append(
+			"rect",
+			build_rect_batch_key(state, w, h, margin, batch_mode),
+			{
+				batch_mode = batch_mode,
+				use_float = use_float,
+				x = x,
+				y = y,
+				w = w,
+				h = h,
+				a = a,
+				ox = ox,
+				oy = oy,
+				qw = qw,
+				qh = qh,
+				margin = margin,
+				draw_matrix = draw_matrix,
+				state = state,
+			}
+		)
 
-		if x and y then render2d.Translate(x - m, y - m) end
+		if batch_mode == "instanced" then
+			debug_rect_batch_instanced(
+				string.format(
+					"queued rect x=%0.2f y=%0.2f w=%0.2f h=%0.2f margin=%0.2f qw=%0.2f qh=%0.2f m00=%0.3f m01=%0.3f m10=%0.3f m11=%0.3f m30=%0.3f m31=%0.3f",
+					x or -1,
+					y or -1,
+					w or -1,
+					h or -1,
+					margin or -1,
+					qw or -1,
+					qh or -1,
+					draw_matrix.m00,
+					draw_matrix.m01,
+					draw_matrix.m10,
+					draw_matrix.m11,
+					draw_matrix.m30,
+					draw_matrix.m31
+				)
+			)
+		end
 
-		if a then render2d.Rotate(a) end
+		return true
+	end
 
-		if ox then render2d.Translate(-ox, -oy) end
+	draw_rect_immediate = function(x, y, w, h, a, ox, oy, margin, use_float)
+		local resolved_margin = margin or render2d.GetMargin(w, h)
 
-		local qw, qh = w + m * 2, h + m * 2
-
-		if w and h then render2d.Scale(qw, qh) end
+		if not bind_mesh_immediate(render2d.rect_mesh) then return false end
 
 		local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
 		local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
+		render2d.PushMatrix()
 
-		if m > 0 and w > 0 and h > 0 then
+		if x and y then
+			if use_float then
+				render2d.Translatef(x - resolved_margin, y - resolved_margin)
+			else
+				render2d.Translate(x - resolved_margin, y - resolved_margin)
+			end
+		end
+
+		if a then render2d.Rotate(a) end
+
+		if ox then
+			if use_float then
+				render2d.Translatef(-ox, -oy)
+			else
+				render2d.Translate(-ox, -oy)
+			end
+		end
+
+		local qw, qh = w + resolved_margin * 2, h + resolved_margin * 2
+
+		if w and h then
+			if use_float then
+				render2d.Scalef(qw, qh)
+			else
+				render2d.Scale(qw, qh)
+			end
+		end
+
+		if resolved_margin > 0 and w > 0 and h > 0 then
 			fragment_constants.uv_scale[0] = old_scale_x * (qw / w)
 			fragment_constants.uv_scale[1] = old_scale_y * (qh / h)
-			fragment_constants.uv_offset[0] = old_off_x - (m / w) * old_scale_x
-			fragment_constants.uv_offset[1] = old_off_y - (m / h) * old_scale_y
+			fragment_constants.uv_offset[0] = old_off_x - (resolved_margin / w) * old_scale_x
+			fragment_constants.uv_offset[1] = old_off_y - (resolved_margin / h) * old_scale_y
 		end
 
 		local cmd = render.GetCommandBuffer()
@@ -1781,43 +2537,121 @@ do
 		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
 		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
 		render2d.PopMatrix()
+		return true
+	end
+
+	function render2d.DrawRect(x, y, w, h, a, ox, oy, max_m)
+		if can_batch_rect_draw() then
+			return queue_rect_draw(false, x, y, w, h, a, ox, oy, max_m)
+		end
+
+		return draw_rect_immediate(x, y, w, h, a, ox, oy, nil, false)
 	end
 
 	function render2d.DrawRectf(x, y, w, h, a, ox, oy, max_m)
-		local m = render2d.GetMargin(w, h)
-
-		if max_m then m = math.min(m, max_m) end
-
-		render2d.BindMesh(render2d.rect_mesh)
-		render2d.PushMatrix()
-
-		if x and y then render2d.Translatef(x - m, y - m) end
-
-		if a then render2d.Rotate(a) end
-
-		if ox then render2d.Translatef(-ox, -oy) end
-
-		local qw, qh = w + m * 2, h + m * 2
-
-		if w and h then render2d.Scalef(qw, qh) end
-
-		local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
-		local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
-
-		if m > 0 and w > 0 and h > 0 then
-			fragment_constants.uv_scale[0] = old_scale_x * (qw / w)
-			fragment_constants.uv_scale[1] = old_scale_y * (qh / h)
-			fragment_constants.uv_offset[0] = old_off_x - (m / w) * old_scale_x
-			fragment_constants.uv_offset[1] = old_off_y - (m / h) * old_scale_y
+		if can_batch_rect_draw() then
+			return queue_rect_draw(true, x, y, w, h, a, ox, oy, max_m)
 		end
 
-		local cmd = render.GetCommandBuffer()
-		render2d.UploadConstants(qw, qh, w, h)
-		render2d.rect_mesh:DrawIndexed(cmd, 6)
-		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
-		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
-		render2d.PopMatrix()
+		return draw_rect_immediate(x, y, w, h, a, ox, oy, nil, true)
 	end
+end
+
+flush_rect_batch_queue = function()
+	local saved_state = capture_rect_draw_state()
+	local saved_batched_rect_draws_enabled = render2d.batched_rect_draws_enabled
+	local saved_shader_override = render2d.shader_override
+	local flushed_draws = 0
+	local gpu_rect_draw_calls = 0
+	local instanced_draws = 0
+	local instanced_segments = 0
+	local replay_draws = 0
+	local max_segment_size = 0
+	render2d.batched_rect_draws_enabled = false
+
+	for _, segment in ipairs(batch_state.segments) do
+		max_segment_size = math.max(max_segment_size, #segment.entries)
+
+		if
+			segment.kind == "rect" and
+			segment.entries[1] and
+			segment.entries[1].batch_mode == "instanced" and
+			render2d.rect_batch_pipeline
+		then
+			local first = segment.entries[1]
+			local instance_buffer = ensure_rect_batch_instance_buffer(next_rect_batch_instance_buffer_slot, #segment.entries)
+			local vertices = instance_buffer:GetVertices()
+			local old_off_x, old_off_y, old_scale_x, old_scale_y
+			next_rect_batch_instance_buffer_slot = next_rect_batch_instance_buffer_slot + 1
+			debug_rect_batch_instanced(
+				string.format(
+					"flushing segment entries=%d qw=%0.2f qh=%0.2f w=%0.2f h=%0.2f m00=%0.3f m01=%0.3f m10=%0.3f m11=%0.3f m30=%0.3f m31=%0.3f",
+					#segment.entries,
+					first.qw or -1,
+					first.qh or -1,
+					first.w or -1,
+					first.h or -1,
+					first.draw_matrix.m00,
+					first.draw_matrix.m01,
+					first.draw_matrix.m10,
+					first.draw_matrix.m11,
+					first.draw_matrix.m30,
+					first.draw_matrix.m31
+				)
+			)
+
+			for i, entry in ipairs(segment.entries) do
+				write_rect_batch_instance(vertices[i - 1], entry)
+			end
+
+			instance_buffer:Upload()
+			restore_rect_draw_state(first.state)
+			render2d.shader_override = render2d.rect_batch_pipeline
+			sync_pipeline_state(true)
+			render2d.rect_mesh:BindInstanced(render.GetCommandBuffer(), {instance_buffer}, 0)
+			render2d.UploadConstants(first.qw, first.qh, first.w, first.h)
+			render2d.rect_mesh:DrawIndexed(render.GetCommandBuffer(), 6, #segment.entries, 0, 0, 0)
+			gpu_rect_draw_calls = gpu_rect_draw_calls + 1
+			instanced_draws = instanced_draws + #segment.entries
+			instanced_segments = instanced_segments + 1
+			render2d.shader_override = saved_shader_override
+			render2d.last_bound_mesh = nil
+			flushed_draws = flushed_draws + #segment.entries
+		else
+			for _, entry in ipairs(segment.entries) do
+				restore_rect_draw_state(entry.state)
+				draw_rect_immediate(
+					entry.x,
+					entry.y,
+					entry.w,
+					entry.h,
+					entry.a,
+					entry.ox,
+					entry.oy,
+					entry.margin,
+					entry.use_float
+				)
+				gpu_rect_draw_calls = gpu_rect_draw_calls + 1
+				replay_draws = replay_draws + 1
+				flushed_draws = flushed_draws + 1
+			end
+		end
+	end
+
+	restore_rect_draw_state(saved_state)
+	render2d.shader_override = saved_shader_override
+	render2d.batched_rect_draws_enabled = saved_batched_rect_draws_enabled
+	batch_state:FinishFlush(
+		flushed_draws,
+		{
+			gpu_rect_draw_calls = gpu_rect_draw_calls,
+			instanced_draws = instanced_draws,
+			instanced_segments = instanced_segments,
+			replay_draws = replay_draws,
+			max_segment_size = max_segment_size,
+		}
+	)
+	return flushed_draws > 0
 end
 
 do
@@ -1855,11 +2689,21 @@ render2d.current_blend_mode = "alpha"
 render2d.current_blend_mode_state = get_blend_mode_state("alpha")
 render2d.pipeline_state_dirty = true
 
+render.RegisterFlushCallback("render2d", function(reason)
+	if reason == "begin_frame" then
+		batch_state:AdvanceFrame()
+		reset_rect_batch_instance_frame_state()
+	end
+
+	return render2d.FlushBatches(reason)
+end)
+
 event.AddListener("PostDraw", "draw_2d", function(dt)
 	if not render2d.pipeline then return end -- not 2d initialized
 	render2d.BindPipeline()
 	event.Call("PreDraw2D", dt)
 	event.Call("Draw2D", dt)
+	render2d.FlushBatches("draw_2d")
 end)
 
 event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)

@@ -49,6 +49,282 @@ T.Test2D("Graphics render2d color rendering", function()
 	end
 end)
 
+T.Test2D("Graphics render2d instanced full-screen rect rendering", function(width, height)
+	local old_debug = render2d.debug_rect_batch_instanced
+	local old_max_logs = render2d.debug_rect_batch_instanced_max_logs
+	render2d.debug_rect_batch_instanced = true
+	render2d.debug_rect_batch_instanced_max_logs = 8
+	render2d.SetRectBatchMode("instanced")
+	render2d.SetColor(0.2, 0.4, 0.8, 1)
+	render2d.DrawRect(0, 0, width, height)
+	render2d.SetRectBatchMode("replay")
+	return function()
+		render2d.debug_rect_batch_instanced = old_debug
+		render2d.debug_rect_batch_instanced_max_logs = old_max_logs
+		T.AssertScreenPixel{
+			pos = {math.floor(width / 2), math.floor(height / 2)},
+			color = {0.2, 0.4, 0.8, 1},
+			tolerance = 0.15,
+		}
+		T.AssertScreenPixel{
+			pos = {32, 32},
+			color = {0.2, 0.4, 0.8, 1},
+			tolerance = 0.15,
+		}
+	end
+end)
+
+T.Test2D("Graphics render2d default rect batch mode affects ResetState", function()
+	local old_default = render2d.GetDefaultRectBatchMode()
+	render2d.SetDefaultRectBatchMode("instanced")
+	render2d.ResetState()
+	T(render2d.GetRectBatchMode())["=="]("instanced")
+	render2d.SetDefaultRectBatchMode(old_default)
+	render2d.ResetState()
+	T(render2d.GetRectBatchMode())["=="](old_default)
+end)
+
+T.Test2D("Graphics render2d instanced varying rect state batches together", function()
+	render2d.SetRectBatchMode("instanced")
+	render2d.SetColor(1, 0.2, 0.2, 1)
+	render2d.DrawRect(24, 24, 64, 64)
+	render2d.SetColor(0.2, 0.4, 1, 1)
+	render2d.DrawRect(120, 32, 96, 40)
+	render2d.FlushBatches("manual")
+	render2d.SetRectBatchMode("replay")
+	local stats = render2d.GetBatchStats()
+	T(stats.current_frame.flush_reasons.manual)["=="](1)
+	T(stats.current_frame.queued_draws)["=="](2)
+	T(stats.current_frame.queued_segments)["=="](1)
+	T(stats.current_frame.flushed_draws)["=="](2)
+	T(stats.current_frame.gpu_rect_draw_calls)["=="](1)
+	T(stats.current_frame.draw_call_savings)["=="](1)
+	T(stats.current_frame.instanced_draws)["=="](2)
+	T(stats.current_frame.instanced_segments)["=="](1)
+	T(stats.current_frame.replay_draws)["=="](0)
+	T(next(stats.current_frame.segment_break_reasons) == nil)["=="](true)
+	return function()
+		T.AssertScreenPixel{
+			pos = {40, 40},
+			color = {1, 0.2, 0.2, 1},
+			tolerance = 0.15,
+		}
+		T.AssertScreenPixel{
+			pos = {140, 44},
+			color = {0.2, 0.4, 1, 1},
+			tolerance = 0.15,
+		}
+	end
+end)
+
+T.Test2DFrames("Graphics render2d batch stats track last frame batching", 2, function(width, height, frame)
+	if frame == 1 then
+		render2d.SetRectBatchMode("instanced")
+		render2d.SetColor(0.2, 0.4, 0.8, 1)
+		render2d.DrawRect(32, 32, 96, 64)
+		render2d.DrawRect(160, 32, 96, 64)
+		render2d.SetRectBatchMode("replay")
+		return
+	end
+
+	local stats = render2d.GetBatchStats()
+	local last_frame = stats.last_frame
+	T(last_frame.flush_reasons.end_frame)["=="](1)
+	T(last_frame.flush_attempt_reasons.end_frame)["=="](1)
+	T(last_frame.queued_draws)["=="](2)
+	T(last_frame.queued_segments)["=="](1)
+	T(next(last_frame.segment_break_reasons) == nil)["=="](true)
+	T(last_frame.flushed_draws)["=="](2)
+	T(last_frame.gpu_rect_draw_calls)["=="](1)
+	T(last_frame.draw_call_savings)["=="](1)
+	T(last_frame.instanced_draws)["=="](2)
+	T(last_frame.instanced_segments)["=="](1)
+	T(last_frame.replay_draws)["=="](0)
+	T(last_frame.max_segment_size)["=="](2)
+	T(stats.pending_draws)["=="](0)
+	T(stats.segment_count)["=="](0)
+	T(stats.last_flushed_draws)["=="](2)
+	T(stats.current_frame.frame_index)["=="](last_frame.frame_index + 1)
+	T(stats.total_queued_draws)[">="](2)
+	T(stats.total_queued_segments)[">="](1)
+	T(stats.total_flushed_draws)[">="](2)
+	T(stats.total_gpu_rect_draw_calls)[">="](1)
+end)
+
+T.Test2DFrames("Graphics render2d scissor changes queue without forcing flushes", 2, function(width, height, frame)
+	if frame == 1 then
+		render2d.SetRectBatchMode("instanced")
+		render2d.SetColor(0, 0, 0, 1)
+		render2d.DrawRect(0, 0, width, height)
+		render2d.PushScissor(0, 0, 96, height)
+		render2d.SetColor(1, 0, 0, 1)
+		render2d.DrawRect(0, 0, width, height)
+		render2d.PopScissor()
+		render2d.PushScissor(96, 0, width - 96, height)
+		render2d.SetColor(0, 0, 1, 1)
+		render2d.DrawRect(0, 0, width, height)
+		render2d.PopScissor()
+		render2d.SetRectBatchMode("replay")
+		return
+	end
+
+	local stats = render2d.GetBatchStats()
+	local last_frame = stats.last_frame
+	T(last_frame.flush_reasons.end_frame)["=="](1)
+	T((last_frame.flush_reasons.set_scissor or 0))["=="](0)
+	T(last_frame.queued_draws)["=="](3)
+	T(last_frame.queued_segments)["=="](3)
+	T(last_frame.flushed_draws)["=="](3)
+	T(last_frame.gpu_rect_draw_calls)["=="](3)
+	T(last_frame.instanced_draws)["=="](3)
+	T(last_frame.instanced_segments)["=="](3)
+	return function()
+		T.AssertScreenPixel{
+			pos = {32, 32},
+			color = {1, 0, 0, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {140, 32},
+			color = {0, 0, 1, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {94, 32},
+			color = {1, 0, 0, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {98, 32},
+			color = {0, 0, 1, 1},
+			tolerance = 0.1,
+		}
+	end
+end)
+
+T.Test2D("Graphics render2d instanced rect flushes before immediate draw", function(width, height)
+	local old_debug = render2d.debug_rect_batch_instanced
+	local old_max_logs = render2d.debug_rect_batch_instanced_max_logs
+	render2d.debug_rect_batch_instanced = true
+	render2d.debug_rect_batch_instanced_max_logs = 8
+	render2d.SetRectBatchMode("instanced")
+	render2d.SetColor(0.15, 0.3, 0.6, 1)
+	render2d.DrawRect(0, 0, width, height)
+	render2d.SetRectBatchMode("replay")
+	render2d.SetColor(1, 0, 0, 1)
+	render2d.DrawTriangle(64, 64, 16, 16)
+	return function()
+		render2d.debug_rect_batch_instanced = old_debug
+		render2d.debug_rect_batch_instanced_max_logs = old_max_logs
+		T.AssertScreenPixel{
+			pos = {16, 16},
+			color = {0.15, 0.3, 0.6, 1},
+			tolerance = 0.15,
+		}
+		T.AssertScreenPixel{
+			pos = {60, 68},
+			color = {1, 0, 0, 1},
+			tolerance = 0.2,
+		}
+	end
+end)
+
+T.Test2D("Graphics render2d multiple instanced segments render in order", function(width, height)
+	local old_debug = render2d.debug_rect_batch_instanced
+	local old_max_logs = render2d.debug_rect_batch_instanced_max_logs
+	render2d.debug_rect_batch_instanced = true
+	render2d.debug_rect_batch_instanced_max_logs = 12
+	render2d.SetRectBatchMode("instanced")
+	render2d.SetColor(0.1, 0.2, 0.45, 1)
+	render2d.DrawRect(0, 0, width, height)
+	render2d.SetColor(0.8, 0.25, 0.1, 1)
+	render2d.DrawRect(80, 96, 96, 72)
+	render2d.SetRectBatchMode("replay")
+	return function()
+		render2d.debug_rect_batch_instanced = old_debug
+		render2d.debug_rect_batch_instanced_max_logs = old_max_logs
+		T.AssertScreenPixel{
+			pos = {16, 16},
+			color = {0.1, 0.2, 0.45, 1},
+			tolerance = 0.15,
+		}
+		T.AssertScreenPixel{
+			pos = {120, 120},
+			color = {0.8, 0.25, 0.1, 1},
+			tolerance = 0.15,
+		}
+	end
+end)
+
+T.Test2DFrames(
+	"Graphics render2d instanced stencil clear across frames",
+	8,
+	function(width, height, frame)
+		render2d.SetRectBatchMode("instanced")
+		render2d.SetColor(0.08, 0.1, 0.16, 1)
+		render2d.DrawRect(0, 0, width, height)
+		render2d.ClearStencil(0)
+		render2d.PushStencilMask()
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.PushBorderRadius(18)
+		render2d.DrawRect(96, 96, 96, 72)
+		render2d.PopBorderRadius()
+		render2d.BeginStencilTest()
+		render2d.SetColor(0.9, 0.3, 0.15, 1)
+		render2d.DrawRect(72 + frame, 108, 96, 40)
+		render2d.PopStencilMask()
+		render2d.SetRectBatchMode("replay")
+	end,
+	function(width, height, frame)
+		T.AssertScreenPixel{
+			pos = {24, 24},
+			color = {0.08, 0.1, 0.16, 1},
+			tolerance = 0.15,
+		}
+		T.AssertScreenPixel{
+			pos = {120, 124},
+			color = {0.9, 0.3, 0.15, 1},
+			tolerance = 0.2,
+		}
+	end
+)
+
+local function count_rect_batch_instance_buffers()
+	local total_buffers = 0
+
+	for _, frame_buffers in pairs(render2d.rect_batch_instance_buffers or {}) do
+		for _ in pairs(frame_buffers) do
+			total_buffers = total_buffers + 1
+		end
+	end
+
+	return total_buffers
+end
+
+local initial_rect_batch_instance_buffer_count
+
+T.Test2DFrames(
+	"Graphics render2d instanced instance-buffer pool stays bounded across frames",
+	12,
+	function(width, height, frame)
+		if frame == 1 then
+			initial_rect_batch_instance_buffer_count = count_rect_batch_instance_buffers()
+		end
+
+		render2d.SetRectBatchMode("instanced")
+		render2d.SetColor(0.08, 0.1, 0.16, 1)
+		render2d.DrawRect(0, 0, width, height)
+		render2d.SetColor(0.9, 0.3, 0.15, 1)
+		render2d.DrawRect(96, 96, 96, 72)
+		render2d.SetRectBatchMode("replay")
+	end,
+	function(width, height, frame)
+		if frame ~= 12 then return end
+
+		T(count_rect_batch_instance_buffers() - initial_rect_batch_instance_buffer_count)["<="](render.GetSwapchainImageCount() * 2)
+	end
+)
+
 T.Test2D("Graphics render2d SetAlphaMultiplier and GetAlphaMultiplier", function()
 	render2d.SetAlphaMultiplier(0.5)
 	T(render2d.GetAlphaMultiplier())["~"](0.5)
@@ -873,6 +1149,101 @@ T.Test2D("Graphics render2d PushStencilMask and PopStencilMask", function()
 		T.AssertScreenPixel{
 			pos = {190, 190},
 			color = {0, 0, 0, 1},
+		}
+	end
+end)
+
+T.Test2D("Graphics render2d PushClipRect clips contents", function()
+	render2d.PushClipRect(100, 100, 80, 60)
+	render2d.SetColor(1, 0, 0, 1)
+	render2d.DrawRect(60, 80, 160, 120)
+	render2d.PopClip()
+	return function()
+		T.AssertScreenPixel{
+			pos = {120, 120},
+			color = {1, 0, 0, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {90, 120},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {120, 170},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
+		}
+	end
+end)
+
+T.Test2D("Graphics render2d PushClipRoundedRect clips corners", function()
+	render2d.PushClipRoundedRect(200, 200, 80, 80, 22)
+	render2d.SetColor(0, 1, 0, 1)
+	render2d.DrawRect(200, 200, 80, 80)
+	render2d.PopClip()
+	return function()
+		T.AssertScreenPixel{
+			pos = {240, 240},
+			color = {0, 1, 0, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {202, 202},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
+		}
+	end
+end)
+
+T.Test2D("Graphics render2d PushClipRect falls back for rotated transforms", function()
+	render2d.PushMatrix()
+	render2d.Translate(320, 220)
+	render2d.Rotate(math.rad(45))
+	render2d.PushClipRect(-30, -30, 60, 60)
+	render2d.SetColor(0, 0.6, 1, 1)
+	render2d.DrawRect(-60, -60, 120, 120)
+	render2d.PopClip()
+	render2d.PopMatrix()
+	return function()
+		T.AssertScreenPixel{
+			pos = {320, 220},
+			color = {0, 0.6, 1, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {355, 240},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
+		}
+	end
+end)
+
+T.Test2D("Graphics render2d PushClipShape clips custom masks", function()
+	local function draw_mask()
+		render2d.DrawRect(360, 110, 26, 90)
+		render2d.DrawRect(360, 174, 90, 26)
+	end
+
+	render2d.PushClipShape(draw_mask)
+	render2d.SetColor(1, 0.85, 0.2, 1)
+	render2d.DrawRect(330, 90, 150, 130)
+	render2d.PopClip()
+	return function()
+		T.AssertScreenPixel{
+			pos = {372, 126},
+			color = {1, 0.85, 0.2, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {420, 186},
+			color = {1, 0.85, 0.2, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {420, 126},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
 		}
 	end
 end)

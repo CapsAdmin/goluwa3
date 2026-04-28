@@ -2422,7 +2422,8 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		if
 			graphics_pipeline_switch_count >= GRAPHICS_PIPELINE_SWITCH_WARNING_THRESHOLD and
 			warned_graphics_pipeline_switch_frame ~= frame_number and
-			logn
+			logn and
+			false
 		then
 			warned_graphics_pipeline_switch_frame = frame_number
 			logn(

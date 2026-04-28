@@ -18,14 +18,9 @@ local gradient = render2d.CreateGradient{
 }
 
 for _, size in ipairs(sizes) do
-	local batched = fonts.New{Path = font_path, Size = size, Unique = true}
-	local immediate = fonts.New{Path = font_path, Size = size, Unique = true}
-	batched:SetBatchedDraw(true)
-	immediate:SetBatchedDraw(false)
 	rows[#rows + 1] = {
 		size = size,
-		batched = batched,
-		immediate = immediate,
+		font = fonts.New{Path = font_path, Size = size, Unique = true},
 	}
 end
 
@@ -36,13 +31,10 @@ local function prewarm_font(font)
 	font:GetTextSize("Grad")
 end
 
-label_font:GetTextSize("SDF Probe: batched vs immediate")
-label_font:GetTextSize("Batched")
-label_font:GetTextSize("Immediate")
+label_font:GetTextSize("SDF Probe: rect batched path")
 
 for _, row in ipairs(rows) do
-	prewarm_font(row.batched)
-	prewarm_font(row.immediate)
+	prewarm_font(row.font)
 end
 
 local function draw_box(x, y, w, h, r, g, b, a)
@@ -77,29 +69,19 @@ event.AddListener("Draw2D", "sdf_batch_probe", function()
 	local win_w, win_h = system.GetWindow():GetSize():Unpack()
 	draw_box(0, 0, win_w, win_h, 0.18, 0.18, 0.18, 1)
 	local left_x = 40
-	local right_x = math.floor(win_w * 0.5) + 20
 	local y = 24
-	label_font:DrawText("SDF Probe: batched vs immediate", left_x, y)
-	label_font:DrawText("Batched", left_x, y + 24)
-	label_font:DrawText("Immediate", right_x, y + 24)
+	label_font:DrawText("SDF Probe: rect batched path", left_x, y)
 	y = y + 54
 
 	for _, row in ipairs(rows) do
 		local label = string.format("%2dpx", row.size)
 		label_font:DrawText(label, 8, y + 6)
-		local w1, h1 = draw_probe_text(row.batched, probe_text, left_x, y)
-		local w2, h2 = draw_probe_text(row.immediate, probe_text, right_x, y)
-		draw_probe_text(row.batched, compact_text, left_x, y + h1 + 8)
-		draw_probe_text(row.immediate, compact_text, right_x, y + h2 + 8)
-		label_font:DrawText(string.format("w=%d h=%d", w1, h1), left_x, y + h1 + 28)
-		label_font:DrawText(string.format("w=%d h=%d", w2, h2), right_x, y + h2 + 28)
-		y = y + math.max(h1, h2) * 2 + 42
+		local w, h = draw_probe_text(row.font, probe_text, left_x, y)
+		draw_probe_text(row.font, compact_text, left_x, y + h + 8)
+		label_font:DrawText(string.format("w=%d h=%d", w, h), left_x, y + h + 28)
+		y = y + h * 2 + 42
 	end
 
 	local footer_y = win_h - 70
-	draw_state_row(rows[#rows - 1].batched, left_x, footer_y, "Batched states")
-	draw_state_row(rows[#rows - 1].immediate, right_x, footer_y, "Immediate states")
-	render2d.SetTexture(nil)
-	render2d.SetColor(0.45, 0.45, 0.45, 0.7)
-	render2d.DrawRect(math.floor(win_w * 0.5), 0, 1, win_h)
+	draw_state_row(rows[#rows - 1].font, left_x, footer_y, "State variants")
 end)

@@ -195,24 +195,17 @@ function META:BeginScrollViewportMask(x, y, w, h)
 
 	if not masked then return false, clip_x1, clip_y1, clip_x2, clip_y2 end
 
-	render2d.PushStencilMask()
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(self:GetWorldMatrix())
-	render2d.DrawRect(clip_x1, clip_y1, clip_x2 - clip_x1, clip_y2 - clip_y1)
+	render2d.PushClipRect(clip_x1, clip_y1, clip_x2 - clip_x1, clip_y2 - clip_y1)
 	render2d.PopMatrix()
-	render2d.BeginStencilTest()
 	return true, clip_x1, clip_y1, clip_x2, clip_y2
 end
 
 function META:EndScrollViewportMask(masked, clip_x1, clip_y1, clip_x2, clip_y2)
 	if not masked then return end
 
-	render2d.SetStencilMode("mask_decrement", render2d.stencil_level)
-	render2d.PushMatrix()
-	render2d.SetWorldMatrix(self:GetWorldMatrix())
-	render2d.DrawRect(clip_x1, clip_y1, clip_x2 - clip_x1, clip_y2 - clip_y1)
-	render2d.PopMatrix()
-	render2d.PopStencilMask()
+	render2d.PopClip()
 end
 
 function META:GetLocalMatrix()

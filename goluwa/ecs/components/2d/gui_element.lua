@@ -1,7 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -72,24 +71,18 @@ function META:DrawRecursive()
 	if c.a <= 0 then return end
 
 	local clipping = self:GetClipping()
-
-	if clipping then
-		render2d.PushStencilMask()
-		render2d.PushMatrix()
-		render2d.SetWorldMatrix(transform:GetWorldMatrix())
-
-		if self:GetBorderRadius() > 0 then
-			gfx.DrawRoundedRect(0, 0, transform.Size.x, transform.Size.y, self:GetBorderRadius())
-		else
-			render2d.DrawRect(0, 0, transform.Size.x, transform.Size.y)
-		end
-
-		render2d.PopMatrix()
-		render2d.BeginStencilTest()
-	end
-
+	local border_radius = self:GetBorderRadius()
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
+
+	if clipping then
+		if border_radius > 0 then
+			render2d.PushClipRoundedRect(0, 0, transform.Size.x, transform.Size.y, border_radius)
+		else
+			render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
+		end
+	end
+
 	render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
 	self.Owner:CallLocalEvent("OnDraw")
 
@@ -97,20 +90,7 @@ function META:DrawRecursive()
 		if child.gui_element then child.gui_element:DrawRecursive() end
 	end
 
-	if clipping then
-		render2d.SetStencilMode("mask_decrement", render2d.stencil_level)
-		render2d.PushMatrix()
-		render2d.SetWorldMatrix(transform:GetWorldMatrix())
-
-		if self:GetBorderRadius() > 0 then
-			gfx.DrawRoundedRect(0, 0, transform.Size.x, transform.Size.y, self:GetBorderRadius())
-		else
-			render2d.DrawRect(0, 0, transform.Size.x, transform.Size.y)
-		end
-
-		render2d.PopMatrix()
-		render2d.PopStencilMask()
-	end
+	if clipping then render2d.PopClip() end
 
 	UIDebug.OnDebugPostDraw(self.Owner)
 	self.Owner:CallLocalEvent("OnPostDraw")
