@@ -67,13 +67,15 @@ return function(...)
 
 			args[1] = cmd
 
-			if cmd == "lua" then
+			if cmd == "lua" or cmd == "run" then
 				if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
 
 				_G.AUDIO = true
 				assert(loadfile("game/run.lua"))()
 				event.Call("Initialize")
 				commands.RunArguments(args)
+				event.Call("Update", 0)
+				event.Call("FrameEnd")
 				shutdown_and_exit(os.exitcode or 0)
 			end
 

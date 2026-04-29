@@ -38,10 +38,7 @@ vfs.AutorunAddons()
 
 if _G.AUDIO then vfs.AutorunAddons("audio/") end
 
-if _G.GRAPHICS then
-	print("autorunning graphics addons")
-	vfs.AutorunAddons("graphics/")
-end
+if _G.GRAPHICS then vfs.AutorunAddons("graphics/") end
 
 system.KeepAlive("game")
 

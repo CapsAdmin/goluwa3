@@ -1600,15 +1600,16 @@ do
 	end
 
 	function Texture:Download()
-		local image = self:GetImage()
-		local width = image:GetWidth()
-		local height = image:GetHeight()
+		local image = assert(self:GetImage(), "Cannot download: texture has no image")
+		local width = assert(image:GetWidth(), "Cannot download: texture has no width")
+		local height = assert(image:GetHeight(), "Cannot download: texture has no height")
 		local format = self.format
 		local bytes_per_pixel = get_bytes_per_pixel(format)
 
-		if not width or not height or width == 0 or height == 0 then
-			log.error("Texture:Download failed: invalid size %sx%s", tostring(width), tostring(height))
-			return ""
+		if width == 0 or height == 0 then
+			error(
+				string.format("Texture:Download failed: invalid size %sx%s", tostring(width), tostring(height))
+			)
 		end
 
 		-- Create staging buffer
