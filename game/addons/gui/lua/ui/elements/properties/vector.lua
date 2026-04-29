@@ -224,11 +224,16 @@ return function(props)
 
 				if self.gui_element then
 					self.gui_element.OnDraw = function(gui)
-						theme.active:DrawSurface(theme.GetDrawContext(gui, true), self.surface_color)
+						local radius = 0
+
+						if gui.GetBorderRadius then radius = gui:GetBorderRadius() end
+
+						theme.active:DrawPropertyPreview(theme.GetDrawContext(gui, true).size, {
+							fill = self.surface_color,
+							radius = radius,
+						})
 					end
-					self.gui_element.OnPostDraw = function(gui)
-						theme.active:DrawFramePost(theme.GetDrawContext(gui, true))
-					end
+					self.gui_element.OnPostDraw = function(gui) end
 				end
 			end,
 			Mode = "filled",

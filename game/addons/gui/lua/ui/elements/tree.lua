@@ -1,6 +1,4 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local system = import("goluwa/system.lua")
 local Text = import("lua/ui/elements/text.lua")
@@ -538,44 +536,35 @@ return function(props)
 					local current_selected = is_selected(node, path, key)
 					local current_expanded = is_expanded(node, path, key, has_entries(get_children(node, path)))
 					local size = self.Owner.transform:GetSize()
-					local center_y = math.floor(size.y / 2)
-					local box_y = center_y - half_box
-					local line_color = theme.GetColor(props.LineColor or "border")
-					local box_fill = theme.GetColor(props.BoxFillColor or "surface")
-					local box_outline = theme.GetColor(props.BoxOutlineColor or "border")
-					local glyph_color = theme.GetColor(current_selected and "text_on_accent" or (props.GlyphColor or "text"))
 					local line_start_x = has_entries(get_children(node, path)) and (center_x + half_box) or center_x
-					render2d.SetTexture(nil)
-					render2d.SetColor(line_color:Unpack())
-
-					for level = 1, #meta.continuations do
-						if meta.continuations[level] then
-							local x = (level - 1) * guide_step + math.floor(toggle_size / 2)
-							render2d.DrawRect(x, 0, 1, size.y)
-						end
-					end
-
-					if meta.level > 0 then
-						render2d.DrawRect(center_x, 0, 1, center_y + 1)
-					end
-
-					if not meta.is_last then
-						render2d.DrawRect(center_x, center_y, 1, size.y - center_y)
-					end
-
-					render2d.DrawRect(line_start_x, center_y, math.max(1, size.x - line_start_x), 1)
 
 					if has_entries(get_children(node, path)) then
-						render2d.SetColor(box_fill:Unpack())
-						render2d.DrawRect(box_x, box_y, box_size, box_size)
-						render2d.SetColor(box_outline:Unpack())
-						gfx.DrawOutlinedRect(box_x, box_y, box_size, box_size, 1)
-						render2d.SetColor(glyph_color:Unpack())
-						render2d.DrawRect(box_x + 2, center_y, math.max(1, box_size - 4), 1)
-
-						if not current_expanded then
-							render2d.DrawRect(center_x, box_y + 2, 1, math.max(1, box_size - 4))
-						end
+						theme.active:DrawTreeToggle(
+							size,
+							meta,
+							{
+								line_color = props.LineColor or "border",
+								box_fill = props.BoxFillColor or "surface",
+								box_outline = props.BoxOutlineColor or "border",
+								glyph_color = current_selected and "text_on_accent" or (props.GlyphColor or "text"),
+								toggle_size = toggle_size,
+								guide_step = guide_step,
+								box_size = box_size,
+								line_start_x = line_start_x,
+								expanded = current_expanded,
+							}
+						)
+					else
+						theme.active:DrawTreeGuideLines(
+							size,
+							meta,
+							{
+								line_color = props.LineColor or "border",
+								toggle_size = toggle_size,
+								guide_step = guide_step,
+								line_start_x = line_start_x,
+							}
+						)
 					end
 				end,
 			},
@@ -605,16 +594,11 @@ return function(props)
 			gui_element = {
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					render2d.SetTexture(nil)
 
 					if is_selected(node, path, key) then
-						local color = theme.GetColor(props.SelectedColor or "primary")
-						render2d.SetColor(color:Unpack())
-						render2d.DrawRect(0, 0, size.x, size.y)
+						theme.active:DrawSelectionFill(size, props.SelectedColor or "primary")
 					elseif row_info.hovered then
-						local color = theme.GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08)
-						render2d.SetColor(color:Unpack())
-						render2d.DrawRect(0, 0, size.x, size.y)
+						theme.active:DrawSelectionFill(size, theme.GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08))
 					end
 				end,
 			},
@@ -656,28 +640,15 @@ return function(props)
 			gui_element = {
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					local center_y = math.floor(size.y / 2)
-					local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
-					local line_color = theme.GetColor(props.LineColor or "border")
-					render2d.SetTexture(nil)
-					render2d.SetColor(line_color:Unpack())
-
-					for level = 1, #meta.continuations do
-						if meta.continuations[level] then
-							local x = (level - 1) * guide_step + math.floor(toggle_size / 2)
-							render2d.DrawRect(x, 0, 1, size.y)
-						end
-					end
-
-					if meta.level > 0 then
-						render2d.DrawRect(center_x, 0, 1, center_y + 1)
-					end
-
-					if not meta.is_last then
-						render2d.DrawRect(center_x, center_y, 1, size.y - center_y)
-					end
-
-					render2d.DrawRect(center_x, center_y, math.max(1, size.x - center_x), 1)
+					theme.active:DrawTreeGuideLines(
+						size,
+						meta,
+						{
+							line_color = props.LineColor or "border",
+							toggle_size = toggle_size,
+							guide_step = guide_step,
+						}
+					)
 				end,
 			},
 			mouse_input = {
@@ -826,23 +797,27 @@ return function(props)
 					end
 
 					local size = self.Owner.transform:GetSize()
-					local color = theme.GetColor(props.DropIndicatorColor or "primary")
-					render2d.SetTexture(nil)
-					render2d.SetColor(color:Unpack())
 
-					if is_source then
-						gfx.DrawOutlinedRect(0, 0, math.max(1, size.x), math.max(1, size.y), 1)
+					if not drop_info or drop_info.target_key ~= key then
+						theme.active:DrawDropIndicator(
+							size,
+							{
+								color = props.DropIndicatorColor or "primary",
+								source = is_source,
+							}
+						)
+						return
 					end
 
-					if not drop_info or drop_info.target_key ~= key then return end
-
-					if drop_info.position == "inside" then
-						gfx.DrawOutlinedRect(0, 0, math.max(1, size.x), math.max(1, size.y), 2)
-					elseif drop_info.position == "before" then
-						render2d.DrawRect(0, 0, math.max(1, size.x), 2)
-					else
-						render2d.DrawRect(0, math.max(0, size.y - 2), math.max(1, size.x), 2)
-					end
+					theme.active:DrawDropIndicator(
+						size,
+						{
+							color = props.DropIndicatorColor or "primary",
+							source = is_source,
+							position = drop_info.position,
+							thickness = 2,
+						}
+					)
 				end,
 			},
 			mouse_input = true,

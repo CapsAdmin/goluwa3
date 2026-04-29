@@ -15,7 +15,9 @@ end
 local function resolve_color(value, fallback)
 	if value == nil then value = fallback end
 
-	if type(value) == "string" then return theme.GetColor(value) end
+	if type(value) == "string" then
+		return theme.GetColor(value, theme.active.surface_color)
+	end
 
 	return value
 end

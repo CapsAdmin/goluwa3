@@ -1,5 +1,3 @@
-local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local SVG = import("lua/ui/elements/svg.lua")
@@ -44,40 +42,7 @@ end
 
 local function draw_menu_item_background(panel, state)
 	local size = panel.Owner.transform:GetSize()
-	local radius = 4
-	local fill = theme.GetColor("invisible")
-
-	if state.disabled then
-		fill = theme.GetColor("invisible")
-	elseif state.pressed then
-		fill = theme.GetColor("primary"):Copy():SetAlpha(0.3)
-	elseif state.active or state.hovered then
-		fill = theme.GetColor("primary"):Copy():SetAlpha(0.2)
-	end
-
-	render2d.SetTexture(nil)
-	render2d.SetColor(fill:Unpack())
-
-	if radius > 0 then
-		gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
-	else
-		render2d.DrawRect(0, 0, size.x, size.y)
-	end
-
-	if state.active and not state.disabled then
-		local border = theme.GetColor("border")
-		render2d.SetColor(border.r, border.g, border.b, 0.7)
-		render2d.SetTexture(nil)
-		render2d.PushOutlineWidth(1)
-
-		if radius > 0 then
-			gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
-		else
-			render2d.DrawRect(0, 0, size.x, size.y)
-		end
-
-		render2d.PopOutlineWidth()
-	end
+	theme.active:DrawMenuButton(size, state, {radius = 4, hovered_alpha = 0.2, pressed_alpha = 0.3})
 end
 
 return function(props)

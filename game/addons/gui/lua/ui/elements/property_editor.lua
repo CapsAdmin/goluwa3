@@ -3,8 +3,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local system = import("goluwa/system.lua")
 local Button = import("lua/ui/elements/button.lua")
@@ -386,25 +384,14 @@ return function(props)
 	end
 
 	local function draw_row_background(size, is_selected, is_alternate, is_hovered)
-		render2d.SetTexture(nil)
-
-		if is_selected then
-			local color = theme.GetColor("property_selection")
-			render2d.SetColor(color:Unpack())
-			render2d.DrawRect(0, 0, size.x, size.y)
-			return
-		end
-
-		if is_hovered then
-			local color = theme.GetColor("primary"):Copy():SetAlpha(0.06)
-			render2d.SetColor(color:Unpack())
-			render2d.DrawRect(0, 0, size.x, size.y)
-			return
-		end
-
-		local color = theme.GetColor(is_alternate and "surface_alt" or "surface")
-		render2d.SetColor(color:Unpack())
-		render2d.DrawRect(0, 0, size.x, size.y)
+		theme.active:DrawPropertyRow(
+			size,
+			{
+				selected = is_selected,
+				alternate = is_alternate,
+				hovered = is_hovered,
+			}
+		)
 	end
 
 	local function build_label_row(entry, is_alternate)

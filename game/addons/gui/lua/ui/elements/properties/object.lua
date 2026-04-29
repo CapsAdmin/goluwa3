@@ -1,6 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Row = import("lua/ui/elements/row.lua")
 local Text = import("lua/ui/elements/text.lua")
@@ -40,11 +39,13 @@ return function(props)
 	local function draw_action_button(self)
 		local size = self.Owner.transform:GetSize()
 		local texture = get_action_texture(node.Value)
-		render2d.SetTexture(nil)
-		render2d.SetColor(0.05, 0.06, 0.08, 1)
-		render2d.DrawRect(0, 0, size.x, size.y)
-		render2d.SetColor(theme.GetColor("border"):Unpack())
-		gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1)
+		theme.active:DrawPropertyPreview(
+			size,
+			{
+				fill = theme.GetColor("actual_black"):Copy():SetAlpha(1),
+				outline = "border",
+			}
+		)
 
 		if node.OnDrawActionButton then
 			node.OnDrawActionButton(node, self.Owner, size, node.Value, props.key, props.path)
@@ -89,11 +90,7 @@ return function(props)
 			gui_element = {
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					render2d.SetTexture(nil)
-					render2d.SetColor(theme.GetColor("surface_alt"):Unpack())
-					render2d.DrawRect(0, 0, size.x, size.y)
-					render2d.SetColor(theme.GetColor("border"):Unpack())
-					gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1)
+					theme.active:DrawPropertyPreview(size, {fill = "surface_alt", outline = "border"})
 				end,
 			},
 			mouse_input = {

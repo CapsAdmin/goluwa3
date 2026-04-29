@@ -953,7 +953,7 @@ function JRPGTheme:DrawButtonRadio(size, state)
 	end
 end
 
-function JRPGTheme:DrawFrame(draw, emphasis, color)
+function JRPGTheme:DrawFrame(draw, emphasis)
 	local s = draw.size
 	local c
 

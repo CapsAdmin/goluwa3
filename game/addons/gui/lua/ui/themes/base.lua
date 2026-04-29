@@ -306,6 +306,111 @@ function BaseTheme:DrawRoundOutline(x, y, w, h, radius, color, alpha_multiplier,
 	render2d.PopOutlineWidth()
 end
 
+function BaseTheme:DrawBox(size, opts)
+	opts = opts or {}
+	local radius = opts.radius or 0
+	local fill = opts.fill
+	local outline = opts.outline
+
+	if fill ~= nil and (opts.fill_alpha == nil or opts.fill_alpha > 0) then
+		self:DrawRoundRect(
+			0,
+			0,
+			size.x,
+			size.y,
+			radius,
+			self:ResolveSurfaceFill(fill, fill),
+			opts.fill_alpha
+		)
+	end
+
+	if outline ~= nil and (opts.outline_alpha == nil or opts.outline_alpha > 0) then
+		local outline_color = type(outline) == "string" and self:GetColor(outline, fill) or outline
+		self:DrawRoundOutline(
+			0,
+			0,
+			size.x,
+			size.y,
+			radius,
+			outline_color,
+			opts.outline_alpha,
+			opts.thickness or 1
+		)
+	end
+end
+
+function BaseTheme:DrawInsetBox(x, y, w, h, opts)
+	opts = opts or {}
+	self:DrawRoundOutline(
+		x,
+		y,
+		w,
+		h,
+		opts.radius or 0,
+		type(opts.outline) == "string" and self:GetColor(opts.outline) or opts.outline,
+		opts.outline_alpha,
+		opts.thickness or 1
+	)
+end
+
+function BaseTheme:DrawValueField(draw, opts)
+	opts = opts or {}
+	local radius = opts.radius or draw.radius or 6
+	local fill = opts.fill
+	local fill_alpha = opts.fill_alpha
+
+	if fill == nil and opts.state == "editing" then
+		fill = opts.edit_fill or "surface_alt"
+	elseif fill == nil and opts.state == "hovered" then
+		fill = opts.hover_fill or self:GetColor("surface_alt"):Copy():SetAlpha(0.45)
+	end
+
+	if fill ~= nil then
+		self:DrawBox(draw.size, {fill = fill, fill_alpha = fill_alpha or draw.alpha, radius = radius})
+	end
+
+	if opts.outline ~= false and opts.state == "editing" then
+		self:DrawBox(
+			draw.size,
+			{
+				outline = opts.outline_color or "border",
+				outline_alpha = opts.outline_alpha or draw.alpha,
+				radius = radius,
+				thickness = opts.thickness or 1,
+			}
+		)
+	end
+end
+
+function BaseTheme:DrawPropertyRow(size, opts)
+	opts = opts or {}
+
+	if opts.selected then
+		return self:DrawSelectionFill(size, opts.selected_color or "property_selection")
+	end
+
+	if opts.hovered then
+		return self:DrawSelectionFill(size, opts.hover_color or self:GetColor("primary"):Copy():SetAlpha(0.06))
+	end
+
+	return self:DrawSelectionFill(size, opts.alternate and "surface_alt" or "surface")
+end
+
+function BaseTheme:DrawPropertyPreview(size, opts)
+	opts = opts or {}
+	self:DrawBox(
+		size,
+		{
+			fill = opts.fill or "surface_alt",
+			fill_alpha = opts.fill_alpha,
+			outline = opts.outline or "border",
+			outline_alpha = opts.outline_alpha or 1,
+			radius = opts.radius or 0,
+			thickness = opts.thickness or 1,
+		}
+	)
+end
+
 function BaseTheme:ResolveSurfaceFill(color, fallback)
 	if color == nil then return self:GetSurfaceColor(fallback or "surface") end
 
@@ -511,22 +616,25 @@ end
 
 function BaseTheme:DrawButton(size, state)
 	local anim = state.anim
-	local radius = math.max(4, math.floor(size.y * 0.5))
+	local radius = 10
 	local fill
 	local border = self:GetColor("border")
 
 	if state.disabled then
 		fill = self:GetColor("clickable_disabled")
+		self.surface_color = "clickable_disabled"
 	elseif state.mode == "outline" then
 		fill = self:GetColor("surface")
 	elseif state.pressed then
 		fill = self:GetColor("secondary")
+		self.surface_color = "secondary"
 	elseif state.active then
 		fill = self:GetAccentTint(0.14)
 	elseif state.hovered then
 		fill = self:GetAccentTint(0.08)
 	else
-		fill = self:GetColor("surface")
+		fill = self:GetColor("primary")
+		self.surface_color = "primary"
 	end
 
 	if state.mode == "outline" then
@@ -542,19 +650,209 @@ function BaseTheme:DrawButton(size, state)
 	end
 end
 
-function BaseTheme:DrawSurface(draw, color)
-	local size = draw.size
-	color = self:ResolveSurfaceFill(color, "surface")
-	self:DrawRoundRect(0, 0, size.x, size.y, draw.radius, color, draw.alpha)
-end
-
 function BaseTheme:DrawButtonPost(size, state)
+	self.surface_color = nil
 	local anim = state.anim
 
 	if not state.hovered or state.disabled then return end
 
-	local radius = math.max(4, math.floor(size.y * 0.18))
-	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.5, 1)
+	local radius = 10
+	self:DrawRoundRect(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.5, 1)
+end
+
+function BaseTheme:DrawMenuButton(size, state, opts)
+	opts = opts or {}
+	local radius = opts.radius or 4
+	local fill = self:GetColor("invisible")
+	local hovered_alpha = opts.hovered_alpha or 0.18
+	local pressed_alpha = opts.pressed_alpha or 0.28
+	local active_border_alpha = opts.active_border_alpha or 0.7
+
+	if state.disabled then
+		fill = self:GetColor("invisible")
+	elseif state.pressed then
+		fill = self:GetColor("primary"):Copy():SetAlpha(pressed_alpha)
+	elseif state.active or state.hovered then
+		fill = self:GetColor("primary"):Copy():SetAlpha(hovered_alpha)
+	end
+
+	self:DrawBox(size, {fill = fill, radius = radius})
+
+	if state.active and not state.disabled then
+		self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = active_border_alpha})
+	end
+end
+
+function BaseTheme:DrawPanelFill(size, color, alpha, radius)
+	self:DrawBox(size, {fill = color, fill_alpha = alpha, radius = radius or 0})
+end
+
+function BaseTheme:DrawPanelOutline(size, color, alpha, radius, thickness)
+	self:DrawBox(
+		size,
+		{
+			outline = color or "border",
+			outline_alpha = alpha or 1,
+			radius = radius or 0,
+			thickness = thickness or 1,
+		}
+	)
+end
+
+function BaseTheme:DrawPanelFillOutline(size, fill_color, outline_color, opts)
+	opts = opts or {}
+	self:DrawPanelFill(size, fill_color, opts.fill_alpha, opts.radius)
+	self:DrawPanelOutline(size, outline_color or "border", opts.outline_alpha, opts.radius, opts.thickness)
+end
+
+function BaseTheme:DrawSelectionFill(size, color, alpha)
+	self:DrawPanelFill(size, self:ResolveColor(color, color or "primary"), alpha, 0)
+end
+
+function BaseTheme:DrawTreeGuideLines(size, meta, opts)
+	opts = opts or {}
+	local toggle_size = opts.toggle_size or 0
+	local guide_step = opts.guide_step or 0
+	local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
+	local center_y = math.floor(size.y / 2)
+	local line_start_x = opts.line_start_x or center_x
+	self:SetRenderColor(self:GetColor(opts.line_color or "border"), opts.alpha)
+	render2d.SetTexture(nil)
+
+	for level = 1, #(meta.continuations or {}) do
+		if meta.continuations[level] then
+			local x = (level - 1) * guide_step + math.floor(toggle_size / 2)
+			render2d.DrawRect(x, 0, 1, size.y)
+		end
+	end
+
+	if meta.level > 0 then render2d.DrawRect(center_x, 0, 1, center_y + 1) end
+
+	if not meta.is_last then
+		render2d.DrawRect(center_x, center_y, 1, size.y - center_y)
+	end
+
+	render2d.DrawRect(line_start_x, center_y, math.max(1, size.x - line_start_x), 1)
+	return center_x, center_y
+end
+
+function BaseTheme:DrawTreeToggle(size, meta, opts)
+	opts = opts or {}
+	local box_size = opts.box_size or 0
+	local toggle_size = opts.toggle_size or box_size
+	local center_x, center_y = self:DrawTreeGuideLines(
+		size,
+		meta,
+		{
+			line_color = opts.line_color,
+			alpha = opts.alpha,
+			toggle_size = toggle_size,
+			guide_step = opts.guide_step or 0,
+			line_start_x = opts.line_start_x,
+		}
+	)
+	local half_box = math.floor(box_size / 2)
+	local box_x = center_x - half_box
+	local box_y = center_y - half_box
+	self:DrawInsetBox(
+		box_x,
+		box_y,
+		box_size,
+		box_size,
+		{
+			outline = opts.box_outline or "border",
+			outline_alpha = 1,
+			radius = 0,
+			thickness = 1,
+		}
+	)
+	self:DrawRoundRect(box_x, box_y, box_size, box_size, 0, self:GetColor(opts.box_fill or "surface"))
+	self:SetRenderColor(self:GetColor(opts.glyph_color or "text"), opts.glyph_alpha)
+	render2d.SetTexture(nil)
+	render2d.DrawRect(box_x + 2, center_y, math.max(1, box_size - 4), 1)
+
+	if not opts.expanded then
+		render2d.DrawRect(center_x, box_y + 2, 1, math.max(1, box_size - 4))
+	end
+
+	return center_x, center_y
+end
+
+function BaseTheme:DrawDropIndicator(size, opts)
+	opts = opts or {}
+	self:SetRenderColor(self:GetColor(opts.color or "primary"), opts.alpha)
+	render2d.SetTexture(nil)
+
+	if opts.source then
+		self:DrawRoundOutline(
+			0,
+			0,
+			math.max(1, size.x),
+			math.max(1, size.y),
+			0,
+			self:GetColor(opts.color or "primary"),
+			opts.alpha,
+			1
+		)
+	end
+
+	if opts.position == "inside" then
+		self:DrawRoundOutline(
+			0,
+			0,
+			math.max(1, size.x),
+			math.max(1, size.y),
+			0,
+			self:GetColor(opts.color or "primary"),
+			opts.alpha,
+			2
+		)
+	elseif opts.position == "before" then
+		render2d.DrawRect(0, 0, math.max(1, size.x), opts.thickness or 2)
+	elseif opts.position == "after" then
+		render2d.DrawRect(
+			0,
+			math.max(0, size.y - (opts.thickness or 2)),
+			math.max(1, size.x),
+			opts.thickness or 2
+		)
+	end
+end
+
+function BaseTheme:DrawPreviewTileFrame(size, opts)
+	opts = opts or {}
+	local radius = opts.radius or 16
+	local inset = opts.inset or 0
+	local outline_alpha = opts.outline_alpha or 0.05
+	self:DrawBox(
+		size,
+		{
+			fill = opts.fill_color or self:GetColor("actual_black"):Copy():SetAlpha(1),
+			fill_alpha = opts.fill_alpha,
+			outline = Color(1, 1, 1, outline_alpha),
+			radius = radius,
+			thickness = opts.thickness or 1,
+		}
+	)
+
+	if inset > 0 then
+		self:DrawInsetBox(
+			inset,
+			inset,
+			size.x - inset * 2,
+			size.y - inset * 2,
+			{
+				radius = math.max(0, radius - inset),
+				outline = Color(1, 1, 1, opts.inset_outline_alpha or 0.4),
+				outline_alpha = 1,
+				thickness = opts.thickness or 1,
+			}
+		)
+	end
+end
+
+function BaseTheme:DrawSurface(draw, color)
+	self:DrawPanelFill(draw.size, color or "surface", draw.alpha, draw.radius)
 end
 
 function BaseTheme:DrawSlider(size, state)
@@ -677,29 +975,21 @@ function BaseTheme:DrawButtonRadio(size, state)
 	end
 end
 
-function BaseTheme:DrawFrame(draw, emphasis, color)
+function BaseTheme:DrawFrame(draw, emphasis)
 	local size = draw.size
-	color = self:ResolveSurfaceFill(color, "surface")
 	local radius = self:GetSize("XS")
-	self:DrawRoundRect(0, 0, size.x, size.y, radius, color, draw.alpha)
-
-	if emphasis and emphasis > 1 then
-		self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.08 * emphasis, 1)
-	end
+	self:DrawBox(size, {fill = "surface", fill_alpha = draw.alpha, radius = radius})
 end
 
 function BaseTheme:DrawFramePost(draw)
-	local size = draw.size
-	local radius = self:GetSize("XS")
-	self:DrawRoundOutline(
-		0,
-		0,
-		size.x,
-		size.y,
-		radius,
-		self:GetColor("border"),
-		draw.alpha,
-		1
+	self:DrawBox(
+		draw.size,
+		{
+			outline = "border",
+			outline_alpha = draw.alpha,
+			radius = self:GetSize("XS"),
+			thickness = 1,
+		}
 	)
 end
 
@@ -714,11 +1004,10 @@ function BaseTheme:DrawMenuSpacer(size, vertical)
 	end
 end
 
-function BaseTheme:DrawHeader(draw, color)
+function BaseTheme:DrawHeader(draw)
 	local size = draw.size
-	color = self:ResolveSurfaceFill(color, "surface_alt")
-	self:DrawRoundRect(0, 0, size.x, size.y, 0, color, draw.alpha)
-	self:SetRenderColor(self:GetColor("border"), draw.alpha)
+	self:DrawBox(size, {fill = "surface_alt", fill_alpha = draw.alpha, radius = 0})
+	self:SetRenderColor(self:GetColor("border", "surface_alt"), draw.alpha)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(0, size.y - 1, size.x, 1)
 end
@@ -727,9 +1016,9 @@ function BaseTheme:DrawProgressBar(size, state, color)
 	local value = math.clamp(state.value or 0, 0, 1)
 	color = self:ResolveSurfaceFill(color, "primary")
 	local radius = math.floor(size.y / 2)
-	self:DrawRoundRect(0, 0, size.x, size.y, radius, self:GetColor("surface_alt"))
+	self:DrawBox(size, {fill = "surface_alt", radius = radius})
 	self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
-	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("border"), 1, 1)
+	self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = 1, thickness = 1})
 end
 
 function BaseTheme:DrawDivider(draw)

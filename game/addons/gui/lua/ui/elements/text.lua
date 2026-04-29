@@ -12,6 +12,15 @@ return function(props)
 		{
 			Name = "text",
 			OnSetProperty = theme.OnSetProperty,
+			OnGetTextColor = function()
+				if props.Disabled then
+					return theme.GetColor("text_disabled", theme.active.surface_color)
+				elseif props.Active then
+					return theme.GetColor("accent", theme.active.surface_color)
+				else
+					return theme.GetColor("text", theme.active.surface_color)
+				end
+			end,
 			text = {
 				Elide = props.Elide == true,
 				ElideString = props.ElideString or "...",

@@ -71,11 +71,7 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.PushSurface("surface_alt")
 					theme.active:DrawHeader(theme.GetDrawContext(self), "surface_alt")
-				end,
-				OnPostDraw = function()
-					theme.PopSurface("surface_alt")
 				end,
 			},
 			draggable = true,
@@ -168,12 +164,10 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.PushSurface("surface")
-					theme.active:DrawFrame(theme.GetDrawContext(self, true), nil, "surface")
+					theme.active:DrawFrame(theme.GetDrawContext(self, true))
 				end,
 				OnPostDraw = function(self)
 					theme.active:DrawFramePost(theme.GetDrawContext(self, true))
-					theme.PopSurface("surface")
 				end,
 			},
 			transform = true,

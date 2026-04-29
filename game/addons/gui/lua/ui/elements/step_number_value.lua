@@ -4,6 +4,7 @@ local Column = import("lua/ui/elements/column.lua")
 local Row = import("lua/ui/elements/row.lua")
 local Value = import("lua/ui/elements/properties/value.lua")
 local input = import("goluwa/input.lua")
+local input_lib = input
 
 local function is_finite(value)
 	return value ~= math.huge and value ~= -math.huge
@@ -65,7 +66,7 @@ return function(props)
 
 	local function get_display_precision()
 		if input and input.IsDragging and input:IsDragging() then
-			if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
+			if input_lib.IsKeyDown("left_alt") or input_lib.IsKeyDown("right_alt") then
 				return precision + drag_precision_boost
 			end
 		end
@@ -142,14 +143,14 @@ return function(props)
 				local step = get_drag_step()
 				local rounding_precision = precision
 
-				if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
+				if input_lib.IsKeyDown("left_alt") or input_lib.IsKeyDown("right_alt") then
 					step = step * 0.1
 					rounding_precision = precision + drag_precision_boost
 				end
 
 				local next_value = (tonumber(start_value) or 0) - delta.y * step
 
-				if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
+				if input_lib.IsKeyDown("left_control") or input_lib.IsKeyDown("right_control") then
 					next_value = math.round(next_value)
 				elseif rounding_precision >= 0 then
 					next_value = math.round(next_value, rounding_precision)

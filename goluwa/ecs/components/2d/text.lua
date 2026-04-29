@@ -641,7 +641,13 @@ function META:OnDraw()
 		end
 	end
 
-	render2d.SetColor(self:GetColor():Unpack())
+	render2d.SetTexture(nil)
+	local c = self.Owner:CallLocalEvent("OnGetTextColor")
+
+	if not c then c = self:GetColor() end
+
+	render2d.SetColor(c.r, c.g, c.b)
+	render2d.SetAlphaMultiplier(c.a)
 
 	for i = visible_start, visible_stop do
 		local y = ly + (i - 1) * vertical_step
@@ -666,8 +672,6 @@ function META:OnDraw()
 				self.wrap_layout_info.display_lines and
 				self.wrap_layout_info.display_lines[found_line]
 			local cw = get_line_column_offset(font, line_text, found_col, display_line)
-			render2d.SetColor(self:GetColor():Unpack())
-			render2d.SetTexture(nil)
 			render2d.PushBorderRadius(2)
 			render2d.DrawRect(lx + cw, ly - descent / 2 + (found_line - 1) * vertical_step, 2, line_height)
 			render2d.PopBorderRadius()

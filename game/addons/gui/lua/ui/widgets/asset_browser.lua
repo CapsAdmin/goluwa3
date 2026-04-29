@@ -16,7 +16,6 @@ local TextEdit = import("../elements/text_edit.lua")
 local Tree = import("../elements/tree.lua")
 local theme = import("../theme.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local Material = import("goluwa/render3d/material.lua")
 local ModelPreview = import("game/addons/gui/lua/model_preview.lua")
 local DEFAULT_CATEGORY_ORDER = {
@@ -170,10 +169,14 @@ local function create_preview_entity_from_descriptor(descriptor)
 	entity.visual:SetVisible(false)
 
 	for index, primitive in ipairs(descriptor.create_primitives({})) do
-		local primitive_entity = Entity.New{Name = (descriptor.name or "asset_browser_model") .. "_primitive_" .. index, Parent = entity}
+		local primitive_entity = Entity.New{
+			Name = (descriptor.name or "asset_browser_model") .. "_primitive_" .. index,
+			Parent = entity,
+		}
 		primitive_entity:AddComponent("transform")
 		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
 		visual_primitive:SetPolygon3D(primitive.mesh or primitive.polygon3d or primitive)
+
 		if primitive.material then visual_primitive:SetMaterial(primitive.material) end
 	end
 
@@ -285,9 +288,7 @@ local function model_materials_are_ready(model)
 	for _, primitive in ipairs(primitives) do
 		local material = model:GetResolvedMaterial(primitive)
 
-		if not material_is_ready(material) then
-			return false
-		end
+		if not material_is_ready(material) then return false end
 	end
 
 	return true
@@ -355,9 +356,7 @@ local function build_model_tile(entry, scheduler)
 
 		local primitives = target:GetRenderEntries()
 
-		if not (primitives and primitives[1]) then
-			return false
-		end
+		if not (primitives and primitives[1]) then return false end
 
 		if target.IsLoading and target:IsLoading() then return false end
 
@@ -424,20 +423,23 @@ local function build_model_tile(entry, scheduler)
 				end,
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
-					render2d.SetTexture(nil)
-					render2d.SetColor(0.05, 0.06, 0.08, 1)
-					render2d.DrawRect(0, 0, size.x, size.y)
-					render2d.SetColor(1, 1, 1, 0.05)
-					gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
+					theme.active:DrawPreviewTileFrame(size)
 
 					if preview and preview.IsValid and preview:IsValid() then
 						render2d.SetTexture(preview:GetTexture())
 						render2d.SetColor(1, 1, 1, 1)
 						render2d.DrawRect(6, 6, size.x - 12, size.y - 12)
 					elseif load_started then
-						render2d.SetTexture(nil)
-						render2d.SetColor(1, 1, 1, 0.4)
-						gfx.DrawOutlinedRect(18, 18, size.x - 36, size.y - 36, 1, 12)
+						theme.active:DrawPreviewTileFrame(
+							size,
+							{
+								inset = 18,
+								radius = 12,
+								fill_alpha = 0,
+								outline_alpha = 0,
+								inset_outline_alpha = 0.4,
+							}
+						)
 					end
 				end,
 			},
@@ -503,11 +505,7 @@ local function build_texture_tile(entry, on_pick)
 				},
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
-					render2d.SetTexture(nil)
-					render2d.SetColor(0.05, 0.06, 0.08, 1)
-					render2d.DrawRect(0, 0, size.x, size.y)
-					render2d.SetColor(1, 1, 1, 0.05)
-					gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
+					theme.active:DrawPreviewTileFrame(size)
 
 					if preview_texture and preview_texture.IsReady and preview_texture:IsReady() then
 						render2d.SetTexture(preview_texture)
@@ -539,7 +537,6 @@ end
 
 local function build_material_tile(entry, on_pick)
 	local material = load_material_asset(entry.path)
-
 	return Clickable{
 		Padding = Rect() + 12,
 		Mode = "filled",
@@ -579,11 +576,7 @@ local function build_material_tile(entry, on_pick)
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
 					local texture = get_material_preview_texture(material)
-					render2d.SetTexture(nil)
-					render2d.SetColor(0.05, 0.06, 0.08, 1)
-					render2d.DrawRect(0, 0, size.x, size.y)
-					render2d.SetColor(1, 1, 1, 0.05)
-					gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
+					theme.active:DrawPreviewTileFrame(size)
 
 					if texture then
 						render2d.SetTexture(texture)
@@ -613,11 +606,12 @@ local function build_material_tile(entry, on_pick)
 	}
 end
 
-
 local function build_tile(entry, scheduler, on_pick)
 	if entry.category == "models" then return build_model_tile(entry, scheduler) end
 
-	if entry.category == "materials" then return build_material_tile(entry, on_pick) end
+	if entry.category == "materials" then
+		return build_material_tile(entry, on_pick)
+	end
 
 	return build_texture_tile(entry, on_pick)
 end
@@ -774,9 +768,11 @@ return function(props)
 				}
 			)
 		else
-			local on_pick = props.OnPickAsset and function(entry, material)
-				return props.OnPickAsset(entry, material, window)
-			end or nil
+			local on_pick = props.OnPickAsset and
+				function(entry, material)
+					return props.OnPickAsset(entry, material, window)
+				end or
+				nil
 
 			for _, row in ipairs(build_grid_rows(visible, columns, scheduler, on_pick)) do
 				grid_column:AddChild(row)
@@ -817,7 +813,15 @@ return function(props)
 
 	window = Window{
 		Key = props.Key or "AssetBrowserWindow",
-		Title = props.Title or (props.PickerCategory and ("PICK " .. props.PickerCategory:upper()) or "ASSET BROWSER"),
+		Title = props.Title or
+			(
+				props.PickerCategory and
+				(
+					"PICK " .. props.PickerCategory:upper()
+				)
+				or
+				"ASSET BROWSER"
+			),
 		Size = props.Size or Vec2(1080, 720),
 		Padding = "none",
 		Position = props.Position or (Panel.World.transform:GetSize() - Vec2(1080, 720)) / 2,

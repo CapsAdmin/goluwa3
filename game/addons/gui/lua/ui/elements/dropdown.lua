@@ -363,8 +363,8 @@ return function(props)
 						"dropdown_indicator",
 						self.Owner.transform:GetSize(),
 						{
-							thickness = 2,
-							color = theme.GetColor(props.Disabled and "text_disabled" or "text"),
+							thickness = 1,
+							color = theme.GetColor(props.Disabled and "text_disabled" or "text", theme.active.surface_color),
 						}
 					)
 				end,
