@@ -2,10 +2,9 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local prototype = import("goluwa/prototype.lua")
 local base = import("game/addons/gui/lua/ui/themes/base.lua")
-local minimal = import("game/addons/gui/lua/ui/themes/minimal.lua")
 local jrpg = import("game/addons/gui/lua/ui/themes/jrpg.lua")
 local theme = library()
-local DEFAULT_PRESET_NAME = minimal.Name
+local DEFAULT_PRESET_NAME = base.Name
 local FONT_SIZE_ORDER = {"XS", "S", "M", "L", "XL", "XXL", "XXXL"}
 local FONT_NAME_ORDER = {"heading", "body_weak", "body", "body_strong"}
 local ICON_METHODS = {
@@ -13,18 +12,18 @@ local ICON_METHODS = {
 	dropdown_indicator = "DrawDropdownIndicatorIcon",
 	close = "DrawCloseIcon",
 }
-theme.themes = {base, minimal, jrpg}
+theme.themes = {base, jrpg}
 theme.implementations = {}
 theme.active = nil
 
 local function find_theme_class(name)
-	if name == nil or name == DEFAULT_PRESET_NAME then return minimal end
+	if name == nil or name == DEFAULT_PRESET_NAME then return base end
 
 	for _, theme_class in ipairs(theme.themes) do
 		if theme_class.Name == name then return theme_class end
 	end
 
-	return minimal
+	return base
 end
 
 function theme.LoadTheme(name)

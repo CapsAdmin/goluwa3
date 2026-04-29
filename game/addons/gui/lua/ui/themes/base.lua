@@ -5,7 +5,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local prototype = import("goluwa/prototype.lua")
-local DEFAULT_PRIMARY_HEX = "#334155"
+local DEFAULT_PRIMARY_HEX = "#2563eb"
 local DEFAULT_SIZES = {
 	none = 0,
 	line = 1,
@@ -115,10 +115,13 @@ function BaseTheme:CreatePalette()
 	semantic_palette:SetMap{
 		dashed_underline = Color(0.2, 0.2, 0.2, 0.18),
 		property_selection = Color.FromHex("#dbeafe"),
-		text_selection = Color.FromHex("#bfdbfe"):SetAlpha(0.85),
+		text_selection = Color.FromHex("#93c5fd"):SetAlpha(0.5),
+		underline = Color.FromHex("#2563eb"),
+		url_color = Color.FromHex("#2563eb"),
 		actual_black = Color(0, 0, 0, 1),
 		primary = primary,
-		secondary = Color.FromHex("#e2e8f0"),
+		secondary = Color.FromHex("#dbeafe"),
+		button_color = Color.FromHex("#2563eb"),
 		positive = base_map.green,
 		neutral = base_map.yellow,
 		negative = base_map.red,
