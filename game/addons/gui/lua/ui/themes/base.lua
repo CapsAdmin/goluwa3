@@ -60,6 +60,8 @@ BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
 BaseTheme:GetSet("PrimaryColor", nil)
 BaseTheme:GetSet("DefaultFontPath", "")
+BaseTheme:GetSet("CurrentSurface", nil)
+BaseTheme:GetSet("SurfaceStack", {})
 
 function BaseTheme:New(theme_context)
 	local obj = self:CreateObject()
@@ -146,6 +148,8 @@ function BaseTheme:Initialize()
 	self:SetPalette(self:CreatePalette())
 	self:SetSizes(copy_table(DEFAULT_SIZES))
 	self:SetFontSizes(copy_table(DEFAULT_FONT_SIZES))
+	self:SetCurrentSurface(nil)
+	self:SetSurfaceStack({})
 	self:SetFontStyles{
 		heading = {Path = self:GetDefaultFontPath()},
 		body_weak = {Path = self:GetDefaultFontPath()},
@@ -180,14 +184,66 @@ function BaseTheme:GetSurfaceColor(name)
 	return palette and palette:Get("primary")
 end
 
-function BaseTheme:GetColor(name, background)
-	name = name or "primary"
+function BaseTheme:PushSurface(name)
+	if name == nil then error("theme surface token is required", 2) end
 
-	if background == nil then
-		local theme = self:GetThemeContext()
+	local stack = self:GetSurfaceStack()
+	table.insert(stack, 1, name)
+	self:SetCurrentSurface(name)
+	return name
+end
 
-		if theme then background = theme.GetSurface() end
+function BaseTheme:PopSurface(expected)
+	local stack = self:GetSurfaceStack()
+	local current = stack[1]
+
+	if current == nil then error("theme surface stack is empty", 2) end
+
+	if expected ~= nil and current ~= expected then
+		error(
+			"theme surface stack mismatch: expected '" .. tostring(expected) .. "' got '" .. tostring(current) .. "'",
+			2
+		)
 	end
+
+	table.remove(stack, 1)
+	self:SetCurrentSurface(stack[1])
+	return current
+end
+
+function BaseTheme:ClearSurfaceStack()
+	local stack = self:GetSurfaceStack()
+
+	for i = #stack, 1, -1 do
+		stack[i] = nil
+	end
+
+	self:SetCurrentSurface(nil)
+end
+
+function BaseTheme:WithSurface(surface, callback, ...)
+	if type(callback) ~= "function" then error("surface callback is required", 2) end
+
+	self:PushSurface(surface)
+	local ok, a, b, c, d, e, f = xpcall(callback, debug.traceback, ...)
+	self:PopSurface(surface)
+
+	if not ok then error(a, 2) end
+
+	return a, b, c, d, e, f
+end
+
+function BaseTheme:GetColorOn(name, surface)
+	return self:GetColor(name, {surface = surface})
+end
+
+function BaseTheme:GetColor(name, opts)
+	name = name or "primary"
+	local background = opts
+
+	if type(opts) == "table" then background = opts.surface end
+
+	if background == nil then background = self:GetCurrentSurface() end
 
 	local palette = self:GetPalette()
 	local token = self:GetPaletteBaseToken(name)
@@ -617,47 +673,58 @@ end
 function BaseTheme:DrawButton(size, state)
 	local anim = state.anim
 	local radius = 10
-	local fill
+	local fill_name
 	local border = self:GetColor("border")
 
 	if state.disabled then
-		fill = self:GetColor("clickable_disabled")
-		self.surface_color = "clickable_disabled"
+		fill_name = "clickable_disabled"
 	elseif state.mode == "outline" then
-		fill = self:GetColor("surface")
+		fill_name = "surface"
 	elseif state.pressed then
-		fill = self:GetColor("secondary")
-		self.surface_color = "secondary"
+		fill_name = "secondary"
 	elseif state.active then
-		fill = self:GetAccentTint(0.14)
+		fill_name = "primary"
 	elseif state.hovered then
-		fill = self:GetAccentTint(0.08)
+		fill_name = "primary"
 	else
-		fill = self:GetColor("primary")
-		self.surface_color = "primary"
+		fill_name = "primary"
 	end
 
-	if state.mode == "outline" then
-		self:DrawRoundRect(0, 0, size.x, size.y, radius, fill, 0.35 + anim.glow_alpha * 0.15)
-	else
-		self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
-	end
+	local fill = fill_name == "primary" and
+		(
+			state.active and
+			self:GetAccentTint(0.14) or
+			(
+				state.hovered and
+				self:GetAccentTint(0.08) or
+				self:GetColor(fill_name)
+			)
+		)
+		or
+		self:GetColor(fill_name)
 
-	if state.active and not state.disabled then
-		self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.6, 1)
-	else
-		self:DrawRoundOutline(0, 0, size.x, size.y, radius, border, 0.55, 1)
-	end
+	self:WithSurface(fill_name, function()
+		if state.mode == "outline" then
+			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill, 0.35 + anim.glow_alpha * 0.15)
+		else
+			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
+		end
+
+		if state.active and not state.disabled then
+			self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.6, 1)
+		else
+			self:DrawRoundOutline(0, 0, size.x, size.y, radius, border, 0.55, 1)
+		end
+	end)
 end
 
 function BaseTheme:DrawButtonPost(size, state)
-	self.surface_color = nil
 	local anim = state.anim
 
 	if not state.hovered or state.disabled then return end
 
 	local radius = 10
-	self:DrawRoundRect(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.5, 1)
+	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.45, 1)
 end
 
 function BaseTheme:DrawMenuButton(size, state, opts)

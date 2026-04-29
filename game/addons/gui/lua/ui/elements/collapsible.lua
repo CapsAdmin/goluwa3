@@ -12,16 +12,6 @@ local function resolve_size(value)
 	return value
 end
 
-local function resolve_color(value, fallback)
-	if value == nil then value = fallback end
-
-	if type(value) == "string" then
-		return theme.GetColor(value, theme.active.surface_color)
-	end
-
-	return value
-end
-
 return function(props)
 	local external_ref = props.Ref
 
@@ -48,6 +38,17 @@ return function(props)
 	local body_panel = NULL
 	local clip_panel = NULL
 	local open_fraction = collapsed and 0 or 1
+
+	local function resolve_color(value, fallback)
+		if value == nil then value = fallback end
+
+		if type(value) == "string" then
+			return theme.GetColorOn(value, theme.GetCurrentSurface())
+		end
+
+		return value
+	end
+
 	local container = Panel.New{
 		props,
 		{

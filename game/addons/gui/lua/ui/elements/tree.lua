@@ -109,32 +109,29 @@ return function(props)
 		return selected_key ~= nil and selected_key == key
 	end
 
-	local function get_text_color(node, path, key)
-		if node.Disabled then return theme.GetColor("text_disabled") end
-
-		if is_selected(node, path, key) then return theme.GetColor("text_on_accent") end
+	local function get_text_token(node, path, key)
+		if node.Disabled then return "text_disabled" end
+		if is_selected(node, path, key) then return "text_on_accent" end
 
 		if props.GetTextColor then
 			local color = props.GetTextColor(node, path, key)
 
-			if color ~= nil then
-				return type(color) == "string" and theme.GetColor(color) or color
-			end
+			if color ~= nil then return color end
 		end
 
-		if node.TextColor ~= nil then
-			return type(node.TextColor) == "string" and
-				theme.GetColor(node.TextColor) or
-				node.TextColor
-		end
+		if node.TextColor ~= nil then return node.TextColor end
 
-		return theme.GetColor("text")
+		return "text"
 	end
 
 	local function refresh_row_text(info)
 		if not info or not info.text or not info.text:IsValid() then return end
 
-		info.text.text:SetColor(get_text_color(info.node, info.path, info.key))
+		local selected = is_selected(info.node, info.path, info.key)
+		local surface = selected and (props.SelectedColor or "primary") or nil
+		info.surface = surface
+		info.text.SurfaceColor = surface
+		info.text.Color = get_text_token(info.node, info.path, info.key)
 	end
 
 	local function clear_drag_state()
@@ -613,6 +610,7 @@ return function(props)
 				end,
 				Text = get_text(node, path),
 				Font = node.Font or props.RowFont or "body",
+				SurfaceColor = selected and (props.SelectedColor or "primary") or nil,
 				Color = node.Disabled and
 					"text_disabled" or
 					(
@@ -669,6 +667,7 @@ return function(props)
 			node = node,
 			path = path,
 			key = key,
+			surface = selected and (props.SelectedColor or "primary") or nil,
 			parent_key = meta.parent_key,
 			has_children = has_children,
 			toggle = nil,

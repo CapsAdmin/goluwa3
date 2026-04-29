@@ -2,6 +2,7 @@ local prototype = import("goluwa/prototype.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
+local theme = import("game/addons/gui/lua/ui/theme.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
@@ -140,6 +141,10 @@ local function draw_recursive_enter(_, owner)
 
 	local clipping = current:GetClipping()
 	local border_radius = current:GetBorderRadius()
+	local surface = owner:CallLocalEvent("OnGetSurfaceColor")
+
+	if surface == nil then surface = owner.SurfaceColor end
+
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
 
@@ -151,16 +156,21 @@ local function draw_recursive_enter(_, owner)
 		end
 	end
 
+	if surface ~= nil then theme.GetTheme():PushSurface(surface) end
+
 	render2d.SetColor(1, 1, 1, current.DrawAlpha)
 	owner:CallLocalEvent("OnDraw")
-	return WALK_CONTINUE, clipping
+	return WALK_CONTINUE, {clipping = clipping, surface = surface}
 end
 
-local function draw_recursive_leave(_, owner, clipping)
-	if clipping then render2d.PopClip() end
+local function draw_recursive_leave(_, owner, state)
+	if state.clipping then render2d.PopClip() end
 
 	UIDebug.OnDebugPostDraw(owner)
 	owner:CallLocalEvent("OnPostDraw")
+
+	if state.surface ~= nil then theme.GetTheme():PopSurface(state.surface) end
+
 	render2d.PopMatrix()
 end
 

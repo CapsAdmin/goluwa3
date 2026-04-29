@@ -646,8 +646,8 @@ function META:OnDraw()
 
 	if not c then c = self:GetColor() end
 
-	render2d.SetColor(c.r, c.g, c.b)
-	render2d.SetAlphaMultiplier(c.a)
+	render2d.PushColor(c.r, c.g, c.b)
+	render2d.PushAlphaMultiplier(c.a)
 
 	for i = visible_start, visible_stop do
 		local y = ly + (i - 1) * vertical_step
@@ -677,6 +677,9 @@ function META:OnDraw()
 			render2d.PopBorderRadius()
 		end
 	end
+
+	render2d.PopColor()
+	render2d.PopAlphaMultiplier()
 end
 
 function META:GetTextOffset()

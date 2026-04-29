@@ -333,6 +333,8 @@ return function(props)
 	end
 
 	dropdown = Clickable{
+		Disabled = props.Disabled,
+		Mode = props.Mode or "filled",
 		layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 		OnClick = open_menu,
 		Padding = props.Padding or "M",
@@ -364,7 +366,10 @@ return function(props)
 						self.Owner.transform:GetSize(),
 						{
 							thickness = 1,
-							color = theme.GetColor(props.Disabled and "text_disabled" or "text", theme.active.surface_color),
+							color = theme.GetColorOn(
+								props.Disabled and "text_disabled" or "text",
+								theme.GetCurrentSurface()
+							),
 						}
 					)
 				end,

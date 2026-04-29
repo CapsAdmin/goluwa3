@@ -16,8 +16,6 @@ local ICON_METHODS = {
 theme.themes = {base, minimal, jrpg}
 theme.implementations = {}
 theme.active = nil
-theme.background_stack = {}
-theme.surface_stack = theme.background_stack
 
 local function find_theme_class(name)
 	if name == nil or name == DEFAULT_PRESET_NAME then return minimal end
@@ -168,61 +166,24 @@ do
 		return out
 	end
 
-	function theme.PushSurface(name)
-		if name == nil then error("theme background token is required", 2) end
-
-		table.insert(theme.surface_stack, 1, name)
-		return name
-	end
-
-	function theme.PopSurface(expected)
-		local current = theme.surface_stack[1]
-
-		if current == nil then error("theme background stack is empty", 2) end
-
-		if expected ~= nil and current ~= expected then
-			error(
-				"theme background stack mismatch: expected '" .. tostring(expected) .. "' got '" .. tostring(current) .. "'",
-				2
-			)
-		end
-
-		table.remove(theme.surface_stack, 1)
-		return current
-	end
-
-	function theme.ClearSurfaceStack()
-		for i = #theme.surface_stack, 1, -1 do
-			theme.surface_stack[i] = nil
-		end
-	end
-
-	function theme.GetSurface()
-		return theme.surface_stack[1]
-	end
-
-	function theme.PushBackground(name)
-		return theme.PushSurface(name)
-	end
-
-	function theme.PopBackground(expected)
-		return theme.PopSurface(expected)
-	end
-
-	function theme.ClearBackgroundStack()
-		return theme.ClearSurfaceStack()
-	end
-
-	function theme.GetBackground()
-		return theme.GetSurface()
-	end
-
 	function theme.GetSurfaceColor(name)
 		return theme.active:GetSurfaceColor(name)
 	end
 
-	function theme.GetColor(name, background)
-		return theme.active:GetColor(name, background)
+	function theme.GetColor(name, opts)
+		return theme.active:GetColor(name, opts)
+	end
+
+	function theme.GetColorOn(name, surface)
+		return theme.active:GetColorOn(name, surface)
+	end
+
+	function theme.WithSurface(surface, callback, ...)
+		return theme.active:WithSurface(surface, callback, ...)
+	end
+
+	function theme.GetCurrentSurface()
+		return theme.active:GetCurrentSurface()
 	end
 
 	function theme.ResolveColor(value, fallback)

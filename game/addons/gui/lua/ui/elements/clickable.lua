@@ -22,10 +22,32 @@ return function(props)
 			last_tilting = false,
 		},
 	}
+
+	local function get_surface_color()
+		if state.disabled then return "clickable_disabled" end
+		if state.mode == "outline" then return "surface" end
+		if state.pressed then return "secondary" end
+		if state.active then return theme.GetTheme():GetAccentTint(0.14) end
+		if state.hovered then return theme.GetTheme():GetAccentTint(0.08) end
+
+		return "primary"
+	end
+
+	local function sync_state(owner)
+		state.disabled = not not owner.Disabled
+		state.active = not not owner.Active
+		state.mode = owner.Mode or "filled"
+		owner.SurfaceColor = get_surface_color()
+	end
+
 	return Panel.New{
 		props,
 		{
 			Name = "clickable",
+			OnGetSurfaceColor = function(self)
+				sync_state(self)
+				return get_surface_color()
+			end,
 			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = props.Size or Vec2(200, 50),
@@ -48,10 +70,13 @@ return function(props)
 				Clipping = true,
 				DrawAlpha = props.Disabled and 0.5 or 1,
 				OnDraw = function(self)
+					sync_state(self.Owner)
+					self.DrawAlpha = state.disabled and 0.5 or 1
 					state.pnl = self.Owner
 					theme.active:DrawButton(self.Owner.transform:GetTotalSize(), state)
 				end,
 				OnPostDraw = function(self)
+					sync_state(self.Owner)
 					state.pnl = self.Owner
 					theme.active:DrawButtonPost(self.Owner.transform:GetTotalSize(), state)
 				end,
@@ -59,15 +84,21 @@ return function(props)
 			mouse_input = {
 				Cursor = props.Disabled and "arrow" or "hand",
 				OnMouseInput = function(self, button, press, local_pos)
-					if props.Disabled then return end
+					sync_state(self.Owner)
+					self:SetCursor(state.disabled and "arrow" or "hand")
+					if state.disabled then return end
 
 					if button == "button_1" then
 						state.pressed = press
+						sync_state(self.Owner)
 						theme.UpdateButtonAnimations(self.Owner, state)
 					end
 				end,
 				OnHover = function(self, hovered)
+					sync_state(self.Owner)
+					self:SetCursor(state.disabled and "arrow" or "hand")
 					state.hovered = hovered
+					sync_state(self.Owner)
 					theme.UpdateButtonAnimations(self.Owner, state)
 				end,
 			},
