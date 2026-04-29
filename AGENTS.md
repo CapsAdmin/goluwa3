@@ -1,5 +1,6 @@
-# general rules
-- If you see code that does the below points, consider refactoring if relevant to the task at hand.
+# general coding rules
+
+- If you see code that does the below, consider refactoring if relevant to the task at hand.
 
 - Do not worry about whitespace as the formatter will take care of it.
 
