@@ -202,6 +202,10 @@ do
 		return theme.active:GetPadding(size_name)
 	end
 
+	function theme.GetRadius(radius_name)
+		return theme.active:GetRadius(radius_name)
+	end
+
 	function theme.GetFontSizes()
 		local list = {}
 		local font_sizes = theme.active:GetFontSizes()

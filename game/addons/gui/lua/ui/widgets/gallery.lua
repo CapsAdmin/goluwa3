@@ -116,6 +116,7 @@ local function build_gallery(props)
 			page_buttons,
 			Button{
 				Text = page.Name or "Unnamed Page",
+				Mode = "text",
 				OnClick = function()
 					select_page(page)
 				end,

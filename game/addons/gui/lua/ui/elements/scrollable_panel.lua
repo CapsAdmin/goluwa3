@@ -360,7 +360,7 @@ return function(props)
 				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
 			},
 			gui_element = {
-				BorderRadius = 3,
+				BorderRadius = theme.GetRadius("small"),
 				Visible = false,
 				OnDraw = function(self)
 					theme.active:DrawSurface(theme.GetDrawContext(self, true), props.ScrollBarTrackColor or "scrollbar_track")
@@ -387,7 +387,7 @@ return function(props)
 				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
 			},
 			gui_element = {
-				BorderRadius = 3,
+				BorderRadius = theme.GetRadius("small"),
 				Visible = false,
 				OnDraw = function(self)
 					theme.active:DrawSurface(theme.GetDrawContext(self, true), props.ScrollBarColor or "scrollbar")

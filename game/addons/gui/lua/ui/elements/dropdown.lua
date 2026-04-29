@@ -25,7 +25,7 @@ return function(props)
 	local search_gap = props.SearchGap or theme.GetPadding("XS")
 	local scroll_threshold = props.ScrollThreshold or search_threshold
 	local search_body_height = math.max(80, search_threshold - search_input_height - search_gap)
-	local estimated_item_height = theme.GetFontSize(props.FontSize) + theme.GetPadding("M") * 2
+	local estimated_item_height = theme.GetFontSize(props.FontSize) + theme.GetPadding("XXS") * 2
 
 	for _, opt in ipairs(options) do
 		local text = type(opt) == "table" and opt.Text or tostring(opt)
@@ -84,7 +84,7 @@ return function(props)
 				Direction = "x",
 				GrowWidth = 1,
 				FitHeight = true,
-				Padding = "M",
+				Padding = "XXS",
 			},
 			mouse_input = {
 				IgnoreMouseInput = true,
@@ -334,10 +334,10 @@ return function(props)
 
 	dropdown = Clickable{
 		Disabled = props.Disabled,
-		Mode = props.Mode or "filled",
+		Mode = props.Mode or "outline",
 		layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 		OnClick = open_menu,
-		Padding = props.Padding or "M",
+		Padding = props.Padding or "XS",
 	}{
 		Text{
 			IsInternal = true,

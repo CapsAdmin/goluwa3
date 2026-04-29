@@ -42,7 +42,7 @@ end
 
 local function draw_menu_item_background(panel, state)
 	local size = panel.Owner.transform:GetSize()
-	theme.active:DrawMenuButton(size, state, {radius = 4, hovered_alpha = 0.2, pressed_alpha = 0.3})
+	theme.active:DrawMenuButton(size, state, {hovered_alpha = 0.12, pressed_alpha = 0.18})
 end
 
 return function(props)
@@ -150,11 +150,11 @@ return function(props)
 		AlignmentY = "center",
 		FitHeight = true,
 		GrowWidth = 1,
-		Padding = props.Padding or "M",
+		Padding = props.Padding or "XXS",
 		props.layout,
 	}
 	item_props.gui_element = {
-		BorderRadius = 4,
+		BorderRadius = theme.GetRadius("small"),
 		Clipping = props.Clipping ~= false,
 		DrawAlpha = props.Disabled and 0.5 or 1,
 		OnDraw = function(self)

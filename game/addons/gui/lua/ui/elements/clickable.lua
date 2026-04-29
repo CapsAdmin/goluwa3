@@ -26,6 +26,7 @@ return function(props)
 	local function get_surface_color()
 		if state.disabled then return "clickable_disabled" end
 		if state.mode == "outline" then return "surface" end
+		if state.mode == "text" then return "surface" end
 		if state.pressed then return "secondary" end
 		if state.active then return theme.GetTheme():GetAccentTint(0.14) end
 		if state.hovered then return theme.GetTheme():GetAccentTint(0.08) end
@@ -63,7 +64,7 @@ return function(props)
 			},
 			gui_element = {
 				Shadows = false,
-				BorderRadius = 10,
+				BorderRadius = theme.GetRadius("medium"),
 				ShadowSize = 10,
 				ShadowColor = "clickable_shadow",
 				ShadowOffset = Vec2(2, 2),

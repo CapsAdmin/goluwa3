@@ -20,6 +20,12 @@ local DEFAULT_SIZES = {
 	default = 14,
 	line_height = 4,
 }
+local DEFAULT_RADII = {
+	none = 0,
+	small = 4,
+	medium = 8,
+	large = 16,
+}
 local DEFAULT_FONT_SIZES = {
 	XS = 10,
 	S = 12,
@@ -55,6 +61,7 @@ BaseTheme.Name = "base"
 BaseTheme:GetSet("ThemeContext", nil)
 BaseTheme:GetSet("Palette", nil)
 BaseTheme:GetSet("Sizes", DEFAULT_SIZES)
+BaseTheme:GetSet("Radii", DEFAULT_RADII)
 BaseTheme:GetSet("FontSizes", DEFAULT_FONT_SIZES)
 BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
@@ -147,6 +154,7 @@ function BaseTheme:Initialize()
 
 	self:SetPalette(self:CreatePalette())
 	self:SetSizes(copy_table(DEFAULT_SIZES))
+	self:SetRadii(copy_table(DEFAULT_RADII))
 	self:SetFontSizes(copy_table(DEFAULT_FONT_SIZES))
 	self:SetCurrentSurface(nil)
 	self:SetSurfaceStack({})
@@ -290,6 +298,11 @@ function BaseTheme:GetPadding(name)
 	return self:GetSize(name)
 end
 
+function BaseTheme:GetRadius(name)
+	local radii = self:GetRadii()
+	return radii[name or "medium"] or radii.medium
+end
+
 function BaseTheme:ResolveFontSize(size_name)
 	if type(size_name) == "number" then return size_name end
 
@@ -411,7 +424,7 @@ end
 
 function BaseTheme:DrawValueField(draw, opts)
 	opts = opts or {}
-	local radius = opts.radius or draw.radius or 6
+	local radius = opts.radius or draw.radius or self:GetRadius("medium")
 	local fill = opts.fill
 	local fill_alpha = opts.fill_alpha
 
@@ -672,7 +685,7 @@ end
 
 function BaseTheme:DrawButton(size, state)
 	local anim = state.anim
-	local radius = 10
+	local radius = self:GetRadius("medium")
 	local fill_name
 	local border = self:GetColor("border")
 
@@ -680,6 +693,8 @@ function BaseTheme:DrawButton(size, state)
 		fill_name = "clickable_disabled"
 	elseif state.mode == "outline" then
 		fill_name = "surface"
+	elseif state.mode == "text" then
+		fill_name = nil
 	elseif state.pressed then
 		fill_name = "secondary"
 	elseif state.active then
@@ -690,27 +705,50 @@ function BaseTheme:DrawButton(size, state)
 		fill_name = "primary"
 	end
 
-	local fill = fill_name == "primary" and
-		(
-			state.active and
+	local fill
+
+	if state.mode == "text" then
+		if state.disabled then
+			fill = self:GetColor("clickable_disabled")
+		elseif state.pressed then
+			fill = self:GetAccentTint(0.06)
+		elseif state.active then
+			fill = self:GetAccentTint(0.08)
+		elseif state.hovered then
+			fill = self:GetAccentTint(0.08)
+		else
+			fill = nil
+		end
+	elseif fill_name == "primary" then
+		fill = state.active and
 			self:GetAccentTint(0.14) or
 			(
 				state.hovered and
 				self:GetAccentTint(0.08) or
 				self:GetColor(fill_name)
 			)
-		)
-		or
-		self:GetColor(fill_name)
+	else
+		fill = self:GetColor(fill_name)
+	end
 
-	self:WithSurface(fill_name, function()
+	local surface = fill_name or "surface"
+
+	self:WithSurface(surface, function()
 		if state.mode == "outline" then
 			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill, 0.35 + anim.glow_alpha * 0.15)
+		elseif state.mode == "text" then
+			if fill then
+				self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
+			end
 		else
 			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
 		end
 
-		if state.active and not state.disabled then
+		if state.mode == "text" then
+			if state.active and not state.disabled then
+				self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.5, 1)
+			end
+		elseif state.active and not state.disabled then
 			self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.6, 1)
 		else
 			self:DrawRoundOutline(0, 0, size.x, size.y, radius, border, 0.55, 1)
@@ -723,13 +761,13 @@ function BaseTheme:DrawButtonPost(size, state)
 
 	if not state.hovered or state.disabled then return end
 
-	local radius = 10
+	local radius = self:GetRadius("medium")
 	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.45, 1)
 end
 
 function BaseTheme:DrawMenuButton(size, state, opts)
 	opts = opts or {}
-	local radius = opts.radius or 4
+	local radius = opts.radius or self:GetRadius("small")
 	local fill = self:GetColor("invisible")
 	local hovered_alpha = opts.hovered_alpha or 0.18
 	local pressed_alpha = opts.pressed_alpha or 0.28
@@ -888,7 +926,7 @@ end
 
 function BaseTheme:DrawPreviewTileFrame(size, opts)
 	opts = opts or {}
-	local radius = opts.radius or 16
+	local radius = opts.radius or self:GetRadius("large")
 	local inset = opts.inset or 0
 	local outline_alpha = opts.outline_alpha or 0.05
 	self:DrawBox(
@@ -1008,7 +1046,7 @@ function BaseTheme:DrawCheckbox(size, state)
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
-	self:DrawRoundRect(x, y, box_size, box_size, 4, self:GetColor("surface"))
+	self:DrawRoundRect(x, y, box_size, box_size, self:GetRadius("small"), self:GetColor("surface"))
 	self:DrawRoundOutline(x, y, box_size, box_size, 4, self:GetColor("border"), 1, 1)
 
 	if anim.check_anim > 0.01 then
@@ -1044,7 +1082,7 @@ end
 
 function BaseTheme:DrawFrame(draw, emphasis)
 	local size = draw.size
-	local radius = self:GetSize("XS")
+	local radius = self:GetRadius("medium")
 	self:DrawBox(size, {fill = "surface", fill_alpha = draw.alpha, radius = radius})
 end
 
@@ -1054,7 +1092,7 @@ function BaseTheme:DrawFramePost(draw)
 		{
 			outline = "border",
 			outline_alpha = draw.alpha,
-			radius = self:GetSize("XS"),
+			radius = self:GetRadius("medium"),
 			thickness = 1,
 		}
 	)
@@ -1073,7 +1111,7 @@ end
 
 function BaseTheme:DrawHeader(draw)
 	local size = draw.size
-	self:DrawBox(size, {fill = "surface_alt", fill_alpha = draw.alpha, radius = 0})
+	self:DrawBox(size, {fill = "surface_alt", fill_alpha = draw.alpha, radius = self:GetRadius("none")})
 	self:SetRenderColor(self:GetColor("border", "surface_alt"), draw.alpha)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(0, size.y - 1, size.x, 1)
@@ -1082,7 +1120,7 @@ end
 function BaseTheme:DrawProgressBar(size, state, color)
 	local value = math.clamp(state.value or 0, 0, 1)
 	color = self:ResolveSurfaceFill(color, "primary")
-	local radius = math.floor(size.y / 2)
+	local radius = math.min(math.floor(size.y / 2), self:GetRadius("large"))
 	self:DrawBox(size, {fill = "surface_alt", radius = radius})
 	self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
 	self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = 1, thickness = 1})

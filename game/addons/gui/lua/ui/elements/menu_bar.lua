@@ -40,7 +40,7 @@ end
 
 local function draw_menu_bar_button(panel, state)
 	local size = panel.Owner.transform:GetSize()
-	theme.active:DrawMenuButton(size, state, {radius = 4, hovered_alpha = 0.18, pressed_alpha = 0.28})
+	theme.active:DrawMenuButton(size, state, {hovered_alpha = 0.18, pressed_alpha = 0.28})
 end
 
 local function create_menu_button(definition, on_click, on_hover)
@@ -70,7 +70,7 @@ local function create_menu_button(definition, on_click, on_hover)
 				Padding = definition.Padding or "XS",
 			},
 			gui_element = {
-				BorderRadius = 4,
+				BorderRadius = theme.GetRadius("small"),
 				Clipping = true,
 				DrawAlpha = definition.Disabled and 0.5 or 1,
 				OnDraw = function(self)
