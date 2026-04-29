@@ -953,23 +953,60 @@ function render2d.Initialize()
 				float sd_rect(vec2 coords, vec2 quad_size, vec2 logical_size, vec4 radius) {
 					vec2 p = (coords - 0.5) * quad_size;
 					vec2 b = logical_size * 0.5;
+
 					float rad;
 					if (p.x < 0.0 && p.y < 0.0) rad = radius.x;
 					else if (p.x > 0.0 && p.y < 0.0) rad = radius.y;
 					else if (p.x > 0.0 && p.y > 0.0) rad = radius.z;
 					else rad = radius.w;
 
+					vec2 sharp_q = abs(p) - b;
+					float sharp_rect = min(max(sharp_q.x, sharp_q.y), 0.0) + length(max(sharp_q, vec2(0.0)));
 					float min_dim = min(logical_size.x, logical_size.y);
 					float half_dim = min_dim * 0.5;
+					float full_dim = min_dim;
+
+					if (rad < 0.0) {
+						float concave = -rad;
+						vec2 corner_sign = vec2(p.x < 0.0 ? -1.0 : 1.0, p.y < 0.0 ? -1.0 : 1.0);
+						vec2 edge_local = max(vec2(0.0), b - p * corner_sign);
+						float span = max(concave, 0.0001);
+						float sag = concave * 0.5;
+						float edge_t_x = clamp(edge_local.x / span, 0.0, 1.0);
+						float edge_t_y = clamp(edge_local.y / span, 0.0, 1.0);
+						float edge_curve_x = 2.0 * sag * edge_t_x * (1.0 - edge_t_x);
+						float edge_curve_y = 2.0 * sag * edge_t_y * (1.0 - edge_t_y);
+						float horizontal_notch = max(
+							max(-edge_local.x, edge_local.x - span),
+							edge_local.y - edge_curve_x
+						);
+						float vertical_notch = max(
+							max(-edge_local.y, edge_local.y - span),
+							edge_local.x - edge_curve_y
+						);
+						return max(sharp_rect, max(-horizontal_notch, -vertical_notch));
+					}
+
 					float inset = min(rad, half_dim);
 					vec2 q = abs(p) - b + inset;
+
+					if (rad > full_dim && half_dim > 0.001) {
+						float mirror_rad = max(0.0, full_dim * 2.0 - rad);
+						float norm_rad = mirror_rad / max(half_dim, 0.0001);
+						float exp_p = clamp(2.0 / max(norm_rad, 0.0001), 0.1, 200.0);
+						vec2 corner = clamp(b - abs(p), vec2(0.0), vec2(half_dim));
+						vec2 np = corner / max(half_dim, 0.0001);
+						float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
+						float notch = (1.0 - lp) * half_dim-min(2, exp_p);
+						return max(sharp_rect, notch);
+					}
 
 					if (q.x <= 0.0 || q.y <= 0.0) {
 						return max(q.x, q.y) - inset;
 					} else {
 						if (inset < 0.001) return length(q);
 						float norm_rad = rad / max(half_dim, 0.0001);
-						float exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
+						float exp_p = clamp(2.0 / max(norm_rad, 0.0001), 0.1, 200.0);
 						vec2 np = q / inset;
 						float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
 						return (lp - 1.0) * inset;

@@ -204,6 +204,15 @@ local function copy_color(value)
 	)
 end
 
+local function copy_radius(value)
+	return Rect(
+		value.x or value[1] or 0,
+		value.y or value[2] or 0,
+		value.w or value[3] or 0,
+		value.h or value[4] or 0
+	)
+end
+
 local function format_color(color)
 	return string.format("(%.2f, %.2f, %.2f, %.2f)", color.r, color.g, color.b, color.a)
 end
@@ -316,10 +325,10 @@ local function build_summary(state)
 			uv_line,
 			string.format(
 				"radius=(%.1f, %.1f, %.1f, %.1f) outline=%.2f blur=(%.1f, %.1f)",
-				state.radius_tl,
-				state.radius_tr,
-				state.radius_br,
-				state.radius_bl,
+				state.border_radius.x,
+				state.border_radius.y,
+				state.border_radius.w,
+				state.border_radius.h,
 				state.outline_width,
 				state.blur_x,
 				state.blur_y
@@ -363,7 +372,7 @@ local function make_default_state()
 		y = 56,
 		w = 250,
 		h = 164,
-		rotation_deg = -7,
+		rotation_deg = 0,
 		origin_x = 0,
 		origin_y = 0,
 		float_coords = true,
@@ -371,7 +380,7 @@ local function make_default_state()
 		rect_batch_mode = "instanced",
 		color = Color(1, 1, 1, 1),
 		alpha_multiplier = 1,
-		texture_source = "pattern",
+		texture_source = "none",
 		gradient_enabled = true,
 		gradient_source = "warm",
 		uv_enabled = true,
@@ -383,10 +392,7 @@ local function make_default_state()
 		uv_sy = 96,
 		sample_uv_mode = 0,
 		swizzle_mode = 0,
-		radius_tl = 26,
-		radius_tr = 10,
-		radius_br = 34,
-		radius_bl = 12,
+		border_radius = Rect(26, 10, 34, 12),
 		outline_width = 2,
 		blur_x = 0,
 		blur_y = 0,
@@ -538,7 +544,7 @@ local function draw_rect_with_state(state)
 	render2d.PushSubpixelMode(state.subpixel_mode)
 	render2d.PushSubpixelAmount(state.subpixel_amount)
 	render2d.PushBlur(state.blur_x, state.blur_y)
-	render2d.PushBorderRadius(state.radius_tl, state.radius_tr, state.radius_br, state.radius_bl)
+	render2d.PushBorderRadius(state.border_radius.x, state.border_radius.y, state.border_radius.w, state.border_radius.h)
 	render2d.PushOutlineWidth(state.outline_width)
 
 	if state.uv_enabled then
@@ -997,44 +1003,15 @@ local function build_items(state, refresh_preview, refresh_editor)
 			Description = "Rounded corners, outline, blur, and SDF tuning.",
 			Children = {
 				{
-					Key = "shape/radius_tl",
-					Text = "Radius TL",
-					Type = "number",
-					Value = state.radius_tl,
-					Min = 0,
-					Max = 128,
+					Key = "shape/border_radius",
+					Text = "Border Radius",
+					Type = "rect",
+					Value = state.border_radius,
+					Min = Rect() - 256,
+					Max = Rect() + 256,
 					Precision = 1,
-					OnChange = on_field("radius_tl"),
-				},
-				{
-					Key = "shape/radius_tr",
-					Text = "Radius TR",
-					Type = "number",
-					Value = state.radius_tr,
-					Min = 0,
-					Max = 128,
-					Precision = 1,
-					OnChange = on_field("radius_tr"),
-				},
-				{
-					Key = "shape/radius_br",
-					Text = "Radius BR",
-					Type = "number",
-					Value = state.radius_br,
-					Min = 0,
-					Max = 128,
-					Precision = 1,
-					OnChange = on_field("radius_br"),
-				},
-				{
-					Key = "shape/radius_bl",
-					Text = "Radius BL",
-					Type = "number",
-					Value = state.radius_bl,
-					Min = 0,
-					Max = 128,
-					Precision = 1,
-					OnChange = on_field("radius_bl"),
+					Description = "Four-component radius vector in tl, tr, br, bl order.",
+					OnChange = on_field("border_radius", copy_radius),
 				},
 				{
 					Key = "shape/outline_width",
