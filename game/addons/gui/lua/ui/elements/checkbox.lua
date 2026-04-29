@@ -44,7 +44,7 @@ return function(props)
 		gui_element = {
 			OnDraw = function(self)
 				theme.UpdateCheckboxAnimations(self.Owner, state)
-				theme.active:DrawCheckbox(self.Owner, state)
+				theme.active:DrawCheckbox(self.Owner.transform:GetSize(), state)
 			end,
 		},
 		animation = true,

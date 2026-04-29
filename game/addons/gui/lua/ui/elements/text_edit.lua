@@ -57,10 +57,10 @@ return function(props)
 		gui_element = {
 			BorderRadius = props.BorderRadius or 8,
 			OnDraw = function(self)
-				theme.active:DrawSurface(self, panel_color)
+				theme.active:DrawSurface(theme.GetDrawContext(self, true), panel_color)
 			end,
 			OnPostDraw = function(self)
-				if editable then theme.active:DrawFramePost(self.Owner) end
+				if editable then theme.active:DrawFramePost(theme.GetDrawContext(self, true)) end
 			end,
 		},
 		mouse_input = true,

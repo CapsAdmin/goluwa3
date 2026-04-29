@@ -361,7 +361,7 @@ return function(props)
 				OnDraw = function(self)
 					theme.active:DrawIcon(
 						"dropdown_indicator",
-						self.Owner,
+						self.Owner.transform:GetSize(),
 						{
 							thickness = 2,
 							color = theme.GetColor(props.Disabled and "text_disabled" or "text"),

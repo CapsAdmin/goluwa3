@@ -224,10 +224,10 @@ return function(props)
 
 				if self.gui_element then
 					self.gui_element.OnDraw = function(gui)
-						theme.active:DrawSurface(gui, self.surface_color)
+						theme.active:DrawSurface(theme.GetDrawContext(gui, true), self.surface_color)
 					end
 					self.gui_element.OnPostDraw = function(gui)
-						theme.active:DrawFramePost(gui.Owner)
+						theme.active:DrawFramePost(theme.GetDrawContext(gui, true))
 					end
 				end
 			end,

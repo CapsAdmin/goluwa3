@@ -608,7 +608,7 @@ return function(props)
 			gui_element = {
 				DrawAlpha = divider_draw_alpha,
 				OnDraw = function(self)
-					theme.active:DrawDivider(self.Owner)
+					theme.active:DrawDivider(theme.GetDrawContext(self))
 				end,
 			},
 			animation = true,

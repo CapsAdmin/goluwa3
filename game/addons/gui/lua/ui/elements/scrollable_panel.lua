@@ -363,7 +363,7 @@ return function(props)
 				BorderRadius = 3,
 				Visible = false,
 				OnDraw = function(self)
-					theme.active:DrawSurface(self, props.ScrollBarTrackColor or "scrollbar_track")
+					theme.active:DrawSurface(theme.GetDrawContext(self, true), props.ScrollBarTrackColor or "scrollbar_track")
 				end,
 			},
 			layout = {
@@ -390,7 +390,7 @@ return function(props)
 				BorderRadius = 3,
 				Visible = false,
 				OnDraw = function(self)
-					theme.active:DrawSurface(self, props.ScrollBarColor or "scrollbar")
+					theme.active:DrawSurface(theme.GetDrawContext(self, true), props.ScrollBarColor or "scrollbar")
 				end,
 			},
 			layout = {

@@ -56,7 +56,7 @@ return function(props)
 					end
 
 					theme.UpdateCheckboxAnimations(self.Owner, state)
-					theme.active:DrawButtonRadio(self.Owner, state)
+					theme.active:DrawButtonRadio(self.Owner.transform:GetTotalSize(), state)
 				end,
 			},
 			animation = true,

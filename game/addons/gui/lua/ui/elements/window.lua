@@ -72,7 +72,7 @@ return function(props)
 			gui_element = {
 				OnDraw = function(self)
 					theme.PushSurface("surface_alt")
-					theme.active:DrawHeader(self.Owner, "surface_alt")
+					theme.active:DrawHeader(theme.GetDrawContext(self), "surface_alt")
 				end,
 				OnPostDraw = function()
 					theme.PopSurface("surface_alt")
@@ -136,7 +136,7 @@ return function(props)
 						OnDraw = function(self)
 							theme.active:DrawIcon(
 								"close",
-								self.Owner,
+								self.Owner.transform:GetSize(),
 								{
 									size = 10,
 									thickness = 2,
@@ -169,10 +169,10 @@ return function(props)
 			gui_element = {
 				OnDraw = function(self)
 					theme.PushSurface("surface")
-					theme.active:DrawFrame(self.Owner, nil, "surface")
+					theme.active:DrawFrame(theme.GetDrawContext(self, true), nil, "surface")
 				end,
 				OnPostDraw = function(self)
-					theme.active:DrawFramePost(self.Owner)
+					theme.active:DrawFramePost(theme.GetDrawContext(self, true))
 					theme.PopSurface("surface")
 				end,
 			},

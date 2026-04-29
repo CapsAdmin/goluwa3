@@ -29,6 +29,15 @@ META:EndStorable()
 function META:InvalidateMatrices()
 	self.LocalMatrix = nil
 	self:InvalidateWorldMatrices()
+	self.TotalSize = nil
+end
+
+function META:GetTotalSize()
+	if not self.TotalSize then
+		self.TotalSize = self.Size + self.DrawSizeOffset
+	end
+
+	return self.TotalSize
 end
 
 function META:Initialize() end

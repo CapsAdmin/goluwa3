@@ -271,10 +271,14 @@ local function create_value(props)
 			Clipping = true,
 			BorderRadius = props.BorderRadius or 6,
 			OnDraw = function(self)
-				if surface_color.a > 0 then theme.active:DrawSurface(self, surface_color) end
+				if surface_color.a > 0 then
+					theme.active:DrawSurface(theme.GetDrawContext(self, true), surface_color)
+				end
 			end,
 			OnPostDraw = function(self)
-				if state.editing then theme.active:DrawFramePost(self.Owner) end
+				if state.editing then
+					theme.active:DrawFramePost(theme.GetDrawContext(self, true))
+				end
 			end,
 		},
 		mouse_input = {

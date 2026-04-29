@@ -154,7 +154,7 @@ return function(props)
 				OnDraw = function(self)
 					theme.active:DrawIcon(
 						"disclosure",
-						self.Owner,
+						self.Owner.transform:GetSize(),
 						{
 							thickness = 2,
 							open_fraction = open_fraction,

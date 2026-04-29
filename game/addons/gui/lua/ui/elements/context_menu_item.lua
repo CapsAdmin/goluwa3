@@ -160,7 +160,7 @@ return function(props)
 				OnDraw = function(self)
 					theme.active:DrawIcon(
 						"disclosure",
-						self.Owner,
+						self.Owner.transform:GetSize(),
 						{
 							size = 8,
 							color = theme.GetColor(props.Disabled and "text_disabled" or "text"),

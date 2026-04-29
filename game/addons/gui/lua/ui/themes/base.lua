@@ -316,24 +316,24 @@ function BaseTheme:GetAccentTint(alpha)
 	return self:GetColor("primary"):Copy():SetAlpha(alpha)
 end
 
-function BaseTheme:DrawIcon(name, pnl, opts)
+function BaseTheme:DrawIcon(name, size, opts)
 	if name == "disclosure" then
-		return self:DrawDisclosureIcon(pnl, opts)
+		return self:DrawDisclosureIcon(size, opts)
 	elseif name == "dropdown_indicator" then
-		return self:DrawDropdownIndicatorIcon(pnl, opts)
+		return self:DrawDropdownIndicatorIcon(size, opts)
 	elseif name == "close" then
-		return self:DrawCloseIcon(pnl, opts)
+		return self:DrawCloseIcon(size, opts)
 	end
 end
 
-function BaseTheme:DrawDisclosureIcon(pnl, opts)
+function BaseTheme:DrawDisclosureIcon(size, opts)
 	opts = opts or {}
-	local size = (opts.size or 10) * 0.6
+	local icon_size = (opts.size or 10) * 0.6
 	local thickness = opts.thickness or 2
 	local progress = opts.open_fraction or 0
 	local color = opts.color or self:GetColor("text")
-	local center = pnl.transform:GetSize() / 2
-	local half = size / 2
+	local center = size / 2
+	local half = icon_size / 2
 	render2d.PushMatrix()
 	render2d.Translatef(center.x, center.y)
 	render2d.Rotate(math.rad(progress * 90))
@@ -345,13 +345,13 @@ function BaseTheme:DrawDisclosureIcon(pnl, opts)
 	render2d.PopMatrix()
 end
 
-function BaseTheme:DrawDropdownIndicatorIcon(pnl, opts)
+function BaseTheme:DrawDropdownIndicatorIcon(size, opts)
 	opts = opts or {}
-	local size = opts.size or 8
+	local icon_size = opts.size or 8
 	local thickness = opts.thickness or 2
 	local color = opts.color or self:GetColor("text")
-	local center = pnl.transform:GetSize() / 2
-	local half = size / 2
+	local center = size / 2
+	local half = icon_size / 2
 	render2d.PushColor(color:Unpack())
 	render2d.SetTexture(nil)
 	gfx.DrawLine(center.x - half, center.y - half * 0.3, center.x, center.y + half * 0.5, thickness)
@@ -359,13 +359,13 @@ function BaseTheme:DrawDropdownIndicatorIcon(pnl, opts)
 	render2d.PopColor()
 end
 
-function BaseTheme:DrawCloseIcon(pnl, opts)
+function BaseTheme:DrawCloseIcon(size, opts)
 	opts = opts or {}
-	local size = opts.size or 8
+	local icon_size = opts.size or 8
 	local thickness = opts.thickness or 2
 	local color = opts.color or self:GetColor("text")
-	local center = pnl.transform:GetSize() / 2
-	local half = size / 2
+	local center = size / 2
+	local half = icon_size / 2
 	render2d.PushColor(color:Unpack())
 	render2d.SetTexture(nil)
 	gfx.DrawLine(center.x - half, center.y - half, center.x + half, center.y + half, thickness)
@@ -373,7 +373,9 @@ function BaseTheme:DrawCloseIcon(pnl, opts)
 	render2d.PopColor()
 end
 
-function BaseTheme:UpdateButtonAnimations(pnl, state)
+function BaseTheme:UpdateButtonAnimations(state)
+	local pnl = state and state.pnl
+
 	if not pnl or not state then return end
 
 	local anim = state.anim
@@ -425,7 +427,11 @@ function BaseTheme:UpdateButtonAnimations(pnl, state)
 	end
 end
 
-function BaseTheme:UpdateSliderAnimations(pnl, state)
+function BaseTheme:UpdateSliderAnimations(state)
+	local pnl = state.pnl
+
+	if not pnl then return end
+
 	local anim = state.anim
 
 	if state.hovered ~= anim.last_hovered then
@@ -460,7 +466,11 @@ function BaseTheme:UpdateSliderAnimations(pnl, state)
 	end
 end
 
-function BaseTheme:UpdateCheckboxAnimations(pnl, state)
+function BaseTheme:UpdateCheckboxAnimations(state)
+	local pnl = state.pnl
+
+	if not pnl then return end
+
 	local anim = state.anim
 
 	if state.hovered ~= anim.last_hovered then
@@ -499,10 +509,8 @@ function BaseTheme:UpdateCheckboxAnimations(pnl, state)
 	end
 end
 
-function BaseTheme:DrawButton(pnl, state)
+function BaseTheme:DrawButton(size, state)
 	local anim = state.anim
-	local owner = pnl.Owner
-	local size = owner.transform.Size
 	local radius = math.max(4, math.floor(size.y * 0.5))
 	local fill
 	local border = self:GetColor("border")
@@ -534,30 +542,26 @@ function BaseTheme:DrawButton(pnl, state)
 	end
 end
 
-function BaseTheme:DrawSurface(pnl, color)
-	local size = pnl.Owner.transform.Size + pnl.Owner.transform.DrawSizeOffset
+function BaseTheme:DrawSurface(draw, color)
+	local size = draw.size
 	color = self:ResolveSurfaceFill(color, "surface")
-	local radius = pnl:GetBorderRadius()
-	self:DrawRoundRect(0, 0, size.x, size.y, radius, color, pnl.DrawAlpha)
+	self:DrawRoundRect(0, 0, size.x, size.y, draw.radius, color, draw.alpha)
 end
 
-function BaseTheme:DrawButtonPost(pnl, state)
+function BaseTheme:DrawButtonPost(size, state)
 	local anim = state.anim
 
 	if not state.hovered or state.disabled then return end
 
-	local size = pnl.Owner.transform.Size
 	local radius = math.max(4, math.floor(size.y * 0.18))
 	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.5, 1)
 end
 
-function BaseTheme:DrawSlider(pnl, state)
-	local owner = pnl.Owner
+function BaseTheme:DrawSlider(size, state)
 	local anim = state.anim
 
-	if state.hovered then self:UpdateSliderAnimations(owner, state) end
+	if state.hovered then self:UpdateSliderAnimations(state) end
 
-	local size = owner.transform.Size
 	local knob_w = self:GetSize("S")
 	local knob_h = self:GetSize("S")
 	local track = self:GetColor("surface_alt")
@@ -631,12 +635,11 @@ function BaseTheme:DrawSlider(pnl, state)
 	end
 end
 
-function BaseTheme:DrawCheckbox(pnl, state)
+function BaseTheme:DrawCheckbox(size, state)
 	local anim = state.anim
 
-	if state.hovered then self:UpdateCheckboxAnimations(pnl, state) end
+	if state.hovered then self:UpdateCheckboxAnimations(state) end
 
-	local size = pnl.transform.Size
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
@@ -657,12 +660,8 @@ function BaseTheme:DrawCheckbox(pnl, state)
 	end
 end
 
-function BaseTheme:DrawButtonRadio(pnl, state)
+function BaseTheme:DrawButtonRadio(size, state)
 	local anim = state.anim
-
-	if state.hovered then self:UpdateCheckboxAnimations(pnl, state) end
-
-	local size = pnl.transform.Size
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
@@ -678,19 +677,19 @@ function BaseTheme:DrawButtonRadio(pnl, state)
 	end
 end
 
-function BaseTheme:DrawFrame(pnl, emphasis, color)
-	local size = pnl.transform.Size + pnl.transform.DrawSizeOffset
+function BaseTheme:DrawFrame(draw, emphasis, color)
+	local size = draw.size
 	color = self:ResolveSurfaceFill(color, "surface")
 	local radius = self:GetSize("XS")
-	self:DrawRoundRect(0, 0, size.x, size.y, radius, color, pnl.gui_element.DrawAlpha)
+	self:DrawRoundRect(0, 0, size.x, size.y, radius, color, draw.alpha)
 
 	if emphasis and emphasis > 1 then
 		self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.08 * emphasis, 1)
 	end
 end
 
-function BaseTheme:DrawFramePost(pnl)
-	local size = pnl.transform.Size + pnl.transform.DrawSizeOffset
+function BaseTheme:DrawFramePost(draw)
+	local size = draw.size
 	local radius = self:GetSize("XS")
 	self:DrawRoundOutline(
 		0,
@@ -699,13 +698,12 @@ function BaseTheme:DrawFramePost(pnl)
 		size.y,
 		radius,
 		self:GetColor("border"),
-		pnl.gui_element.DrawAlpha,
+		draw.alpha,
 		1
 	)
 end
 
-function BaseTheme:DrawMenuSpacer(pnl, vertical)
-	local size = pnl.Owner.transform:GetSize()
+function BaseTheme:DrawMenuSpacer(size, vertical)
 	self:SetRenderColor(self:GetColor("border"), 0.8)
 	render2d.SetTexture(nil)
 
@@ -716,17 +714,16 @@ function BaseTheme:DrawMenuSpacer(pnl, vertical)
 	end
 end
 
-function BaseTheme:DrawHeader(pnl, color)
-	local size = pnl.transform.Size
+function BaseTheme:DrawHeader(draw, color)
+	local size = draw.size
 	color = self:ResolveSurfaceFill(color, "surface_alt")
-	self:DrawRoundRect(0, 0, size.x, size.y, 0, color, pnl.gui_element.DrawAlpha)
-	self:SetRenderColor(self:GetColor("border"), pnl.gui_element.DrawAlpha)
+	self:DrawRoundRect(0, 0, size.x, size.y, 0, color, draw.alpha)
+	self:SetRenderColor(self:GetColor("border"), draw.alpha)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(0, size.y - 1, size.x, 1)
 end
 
-function BaseTheme:DrawProgressBar(pnl, state, color)
-	local size = pnl.Owner.transform.Size
+function BaseTheme:DrawProgressBar(size, state, color)
 	local value = math.clamp(state.value or 0, 0, 1)
 	color = self:ResolveSurfaceFill(color, "primary")
 	local radius = math.floor(size.y / 2)
@@ -735,9 +732,9 @@ function BaseTheme:DrawProgressBar(pnl, state, color)
 	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("border"), 1, 1)
 end
 
-function BaseTheme:DrawDivider(pnl)
-	local size = pnl.transform.Size
-	self:SetRenderColor(self:GetColor("border"), pnl.gui_element.DrawAlpha)
+function BaseTheme:DrawDivider(draw)
+	local size = draw.size
+	self:SetRenderColor(self:GetColor("border"), draw.alpha)
 	render2d.SetTexture(nil)
 
 	if size.x > size.y then

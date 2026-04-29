@@ -20,7 +20,7 @@ return function(props)
 		},
 		gui_element = {
 			OnDraw = function(self)
-				theme.active:DrawMenuSpacer(self, props.Vertical)
+				theme.active:DrawMenuSpacer(self.Owner.transform:GetSize(), props.Vertical)
 			end,
 		},
 		mouse_input = true,

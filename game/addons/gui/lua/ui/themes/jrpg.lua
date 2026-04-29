@@ -241,41 +241,41 @@ function JRPGTheme:DrawArrow(x, y, size)
 	self:DrawDiamond(x, y + 0.5, size / 2)
 end
 
-function JRPGTheme:DrawDisclosureIcon(pnl, opts)
+function JRPGTheme:DrawDisclosureIcon(size, opts)
 	opts = opts or {}
-	local size = opts.size or 10
+	local icon_size = opts.size or 10
 	local progress = opts.open_fraction or 0
 	local color = opts.color or self:GetColor("text_foreground")
-	local center = pnl.transform:GetSize() / 2
+	local center = size / 2
 	render2d.PushMatrix()
 	render2d.Translatef(center.x, center.y)
 	render2d.Rotate(math.rad(progress * 90))
 	render2d.SetColor(color:Unpack())
 	render2d.SetTexture(nil)
-	self:DrawArrow(0, 0, size)
+	self:DrawArrow(0, 0, icon_size)
 	render2d.PopMatrix()
 end
 
-function JRPGTheme:DrawDropdownIndicatorIcon(pnl, opts)
+function JRPGTheme:DrawDropdownIndicatorIcon(size, opts)
 	opts = opts or {}
-	local size = opts.size or 9
+	local icon_size = opts.size or 9
 	local color = opts.color or self:GetColor("text_foreground")
-	local center = pnl.transform:GetSize() / 2
+	local center = size / 2
 	render2d.PushMatrix()
 	render2d.Translatef(center.x, center.y + 1)
 	render2d.Rotate(math.rad(90))
 	render2d.SetColor(color:Unpack())
 	render2d.SetTexture(nil)
-	self:DrawArrow(0, 0, size)
+	self:DrawArrow(0, 0, icon_size)
 	render2d.PopMatrix()
 end
 
-function JRPGTheme:DrawCloseIcon(pnl, opts)
+function JRPGTheme:DrawCloseIcon(size, opts)
 	opts = opts or {}
-	local size = opts.size or 8
+	local icon_size = opts.size or 8
 	local color = opts.color or self:GetColor("text_foreground")
-	local center = pnl.transform:GetSize() / 2
-	local half = size / 2
+	local center = size / 2
+	local half = icon_size / 2
 	render2d.SetColor(color:Unpack())
 	render2d.SetTexture(nil)
 	self:DrawLine(center.x - half, center.y - half, center.x + half, center.y + half, 1.5)
@@ -531,9 +531,7 @@ function JRPGTheme:DrawRect(x, y, w, h, thickness, extent)
 	self:DrawLine(x, y + h + extent, x, y - extent, thickness)
 end
 
-function JRPGTheme:UpdateButtonAnimations(pnl, state)
-	if not pnl or not state then return end
-
+function JRPGTheme:UpdateButtonAnimations(state)
 	local anim = state.anim
 	local is_active = not state.disabled and
 		(
@@ -550,7 +548,7 @@ function JRPGTheme:UpdateButtonAnimations(pnl, state)
 	local is_tilting = is_active
 
 	if is_active ~= anim.last_active then
-		pnl.animation:Animate{
+		state.pnl.animation:Animate{
 			id = "press_scale",
 			get = function()
 				return anim.press_scale
@@ -562,13 +560,13 @@ function JRPGTheme:UpdateButtonAnimations(pnl, state)
 			interpolation = (state.pressed and not state.hovered) and "linear" or "inOutSine",
 			time = (state.pressed and not state.hovered) and 0.2 or 0.1,
 		}
-		pnl.animation:Animate{
+		state.pnl.animation:Animate{
 			id = "DrawScaleOffset",
 			get = function()
-				return pnl.transform:GetDrawScaleOffset()
+				return state.pnl.transform:GetDrawScaleOffset()
 			end,
 			set = function(value)
-				pnl.transform:SetDrawScaleOffset(value)
+				state.pnl.transform:SetDrawScaleOffset(value)
 			end,
 			to = is_active and (Vec2() + 0.97) or (Vec2(1, 1)),
 			interpolation = (
@@ -584,7 +582,7 @@ function JRPGTheme:UpdateButtonAnimations(pnl, state)
 	end
 
 	if state.hovered ~= anim.last_hovered then
-		pnl.animation:Animate{
+		state.pnl.animation:Animate{
 			id = "glow_alpha",
 			get = function()
 				return anim.glow_alpha
@@ -600,13 +598,13 @@ function JRPGTheme:UpdateButtonAnimations(pnl, state)
 	end
 
 	if is_tilting ~= anim.last_tilting or is_tilting then
-		pnl.animation:Animate{
+		state.pnl.animation:Animate{
 			id = "Pivot",
 			get = function()
-				return pnl.transform:GetPivot()
+				return state.pnl.transform:GetPivot()
 			end,
 			set = function(value)
-				pnl.transform:SetPivot(value)
+				state.pnl.transform:SetPivot(value)
 			end,
 			to = not is_tilting and
 				Vec2(0.5, 0.5) or
@@ -628,13 +626,13 @@ function JRPGTheme:UpdateButtonAnimations(pnl, state)
 				{type = "spring", bounce = 0.6, duration = 10},
 			time = is_tilting and 0.3 or 10,
 		}
-		pnl.animation:Animate{
+		state.pnl.animation:Animate{
 			id = "DrawAngleOffset",
 			get = function()
-				return pnl.transform:GetDrawAngleOffset()
+				return state.pnl.transform:GetDrawAngleOffset()
 			end,
 			set = function(value)
-				pnl.transform:SetDrawAngleOffset(value)
+				state.pnl.transform:SetDrawAngleOffset(value)
 			end,
 			to = not is_tilting and
 				Ang3(0, 0, 0) or
@@ -661,19 +659,18 @@ function JRPGTheme:UpdateButtonAnimations(pnl, state)
 	end
 end
 
-function JRPGTheme:DrawButton(pnl, state)
+function JRPGTheme:DrawButton(size, state)
 	local anim = state.anim
+	local pnl = state.pnl
 
-	if state.hovered then self:UpdateButtonAnimations(pnl.Owner, state) end
-
-	local size = pnl.Owner.transform.Size
+	if state.hovered then self:UpdateButtonAnimations(state) end
 
 	if state.mode == "filled" then
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, 0.4, 1)
 		render2d.PushBorderRadius(size.y / 6)
 		render2d.SetTexture(self.Textures.Gradient)
-		local col = pnl.Owner.gui_element.Color or self:GetColor("primary")
+		local col = pnl.gui_element.Color or self:GetColor("primary")
 		render2d.SetColor(col.r * anim.glow_alpha, col.g * anim.glow_alpha, col.b * anim.glow_alpha, 1)
 		render2d.DrawRect(0, 0, size.x, size.y)
 		render2d.PopBorderRadius()
@@ -682,19 +679,19 @@ function JRPGTheme:DrawButton(pnl, state)
 
 	local mpos = system.GetWindow():GetMousePosition()
 
-	if not state.disabled and pnl.Owner.mouse_input:IsHoveredExclusively(mpos) then
-		local lpos = pnl.Owner.transform:GlobalToLocal(mpos)
+	if not state.disabled and pnl.mouse_input:IsHoveredExclusively(mpos) then
+		local lpos = pnl.transform:GlobalToLocal(mpos)
 		render2d.SetBlendMode("additive")
 		render2d.SetTexture(self.Textures.GlowLinear)
 
 		if anim.glow_alpha > 0 then
-			local c = pnl.Owner.gui_element.Color or self:GetColor("lightest")
+			local c = pnl.gui_element.Color or self:GetColor("lightest")
 			render2d.SetColor(c.r, c.g, c.b, c.a * anim.glow_alpha)
 			render2d.DrawRect(lpos.x - 192, lpos.y - 192, 384, 384)
 		end
 
 		render2d.SetTexture(self.Textures.GlowPoint)
-		local c = pnl.Owner.gui_element.Color or self:GetColor("lighter")
+		local c = pnl.gui_element.Color or self:GetColor("lighter")
 		render2d.SetColor(c.r, c.g, c.b, c.a * anim.press_scale)
 		local ps = anim.press_scale * 150
 		render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
@@ -702,8 +699,8 @@ function JRPGTheme:DrawButton(pnl, state)
 	end
 end
 
-function JRPGTheme:DrawSurface(pnl, color)
-	local size = pnl.Owner.transform.Size + pnl.Owner.transform.DrawSizeOffset
+function JRPGTheme:DrawSurface(draw, color)
+	local size = draw.size
 	local c
 
 	if color == nil then
@@ -712,9 +709,9 @@ function JRPGTheme:DrawSurface(pnl, color)
 		c = self:ResolveSurfaceColor(color)
 	end
 
-	local radius = pnl:GetBorderRadius()
+	local radius = draw.radius
 	render2d.SetTexture(nil)
-	render2d.SetColor(c.r, c.g, c.b, c.a * pnl.DrawAlpha)
+	render2d.SetColor(c.r, c.g, c.b, c.a * draw.alpha)
 
 	if radius > 0 then
 		gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
@@ -723,9 +720,8 @@ function JRPGTheme:DrawSurface(pnl, color)
 	end
 end
 
-function JRPGTheme:DrawButtonPost(pnl, state)
+function JRPGTheme:DrawButtonPost(size, state)
 	local anim = state.anim
-	local size = pnl.Owner.transform.Size
 	render2d.SetBlendMode("additive")
 	render2d.SetColor(anim.glow_alpha, anim.glow_alpha, anim.glow_alpha, 1)
 	render2d.SetTexture(self.Textures.GlowLinear)
@@ -746,13 +742,11 @@ function JRPGTheme:DrawButtonPost(pnl, state)
 	render2d.SetBlendMode("alpha")
 end
 
-function JRPGTheme:DrawSlider(pnl, state)
-	local owner = pnl.Owner
+function JRPGTheme:DrawSlider(size, state)
 	local anim = state.anim
 
-	if state.hovered then self:UpdateSliderAnimations(owner, state) end
+	if state.hovered then self:UpdateSliderAnimations(state) end
 
-	local size = owner.transform.Size
 	local knob_width = self:GetSize("S")
 	local knob_height = self:GetSize("S")
 	local value = state.value
@@ -883,12 +877,11 @@ function JRPGTheme:DrawSlider(pnl, state)
 	end
 end
 
-function JRPGTheme:DrawCheckbox(pnl, state)
+function JRPGTheme:DrawCheckbox(size, state)
 	local anim = state.anim
 
-	if state.hovered then self:UpdateCheckboxAnimations(pnl, state) end
+	if state.hovered then self:UpdateCheckboxAnimations(state) end
 
-	local size = pnl.transform.Size
 	local check_size = self:GetSize("M")
 	local box_x = 0
 	local box_y = (size.y - check_size) / 2
@@ -924,12 +917,11 @@ function JRPGTheme:DrawCheckbox(pnl, state)
 	end
 end
 
-function JRPGTheme:DrawButtonRadio(pnl, state)
+function JRPGTheme:DrawButtonRadio(size, state)
 	local anim = state.anim
 
-	if state.hovered then self:UpdateCheckboxAnimations(pnl, state) end
+	if state.hovered then self:UpdateCheckboxAnimations(state) end
 
-	local size = pnl.transform.Size
 	local rb_size = self:GetSize("M")
 	local rb_x = 0
 	local rb_y = (size.y - rb_size) / 2
@@ -961,8 +953,8 @@ function JRPGTheme:DrawButtonRadio(pnl, state)
 	end
 end
 
-function JRPGTheme:DrawFrame(pnl, emphasis, color)
-	local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
+function JRPGTheme:DrawFrame(draw, emphasis, color)
+	local s = draw.size
 	local c
 
 	if color == nil then
@@ -971,14 +963,14 @@ function JRPGTheme:DrawFrame(pnl, emphasis, color)
 		c = self:ResolveSurfaceColor(color)
 	end
 
-	render2d.SetColor(c.r, c.g, c.b, c.a * pnl.gui_element.DrawAlpha)
-	render2d.PushAlphaMultiplier(pnl.gui_element.DrawAlpha)
-	self:DrawModernFrame(0, 0, s.x, s.y, (emphasis or 1) * pnl.gui_element.DrawAlpha)
+	render2d.SetColor(c.r, c.g, c.b, c.a * draw.alpha)
+	render2d.PushAlphaMultiplier(draw.alpha)
+	self:DrawModernFrame(0, 0, s.x, s.y, (emphasis or 1) * draw.alpha)
 	render2d.PopAlphaMultiplier()
 end
 
-function JRPGTheme:DrawFramePost(pnl, emphasis, color)
-	local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
+function JRPGTheme:DrawFramePost(draw, emphasis, color)
+	local s = draw.size
 	local c
 
 	if color == nil then
@@ -988,13 +980,12 @@ function JRPGTheme:DrawFramePost(pnl, emphasis, color)
 	end
 
 	render2d.SetColor(c.r, c.g, c.b, c.a)
-	render2d.PushAlphaMultiplier(pnl.gui_element.DrawAlpha)
-	self:DrawModernFramePost(0, 0, s.x, s.y, (emphasis or 1) * pnl.gui_element.DrawAlpha)
+	render2d.PushAlphaMultiplier(draw.alpha)
+	self:DrawModernFramePost(0, 0, s.x, s.y, (emphasis or 1) * draw.alpha)
 	render2d.PopAlphaMultiplier()
 end
 
-function JRPGTheme:DrawMenuSpacer(pnl, vertical)
-	local size = pnl.Owner.transform:GetSize()
+function JRPGTheme:DrawMenuSpacer(size, vertical)
 	local r, g, b, a = self:GetColor("lightest"):Unpack()
 	render2d.PushColor(r, g, b, a)
 
@@ -1007,8 +998,8 @@ function JRPGTheme:DrawMenuSpacer(pnl, vertical)
 	render2d.PopColor()
 end
 
-function JRPGTheme:DrawHeader(pnl, color)
-	local size = pnl.transform.Size
+function JRPGTheme:DrawHeader(draw, color)
+	local size = draw.size
 	local c
 
 	if color == nil then
@@ -1017,12 +1008,11 @@ function JRPGTheme:DrawHeader(pnl, color)
 		c = self:ResolveSurfaceColor(color)
 	end
 
-	render2d.SetColor(c.r, c.g, c.b, c.a * pnl.gui_element.DrawAlpha)
+	render2d.SetColor(c.r, c.g, c.b, c.a * draw.alpha)
 	self:DrawPill(0, 0, size.x, size.y)
 end
 
-function JRPGTheme:DrawProgressBar(pnl, state, color)
-	local size = pnl.Owner.transform.Size
+function JRPGTheme:DrawProgressBar(size, state, color)
 	local value = state.value or 0
 	local c
 
@@ -1035,9 +1025,9 @@ function JRPGTheme:DrawProgressBar(pnl, state, color)
 	self:DrawProgressBarPrimitive(0, 0, size.x, size.y, value, c)
 end
 
-function JRPGTheme:DrawDivider(pnl)
-	local size = pnl.transform.Size
-	render2d.SetColor(primary.r, primary.g, primary.b, primary.a * pnl.gui_element.DrawAlpha * 10)
+function JRPGTheme:DrawDivider(draw)
+	local size = draw.size
+	render2d.SetColor(primary.r, primary.g, primary.b, primary.a * draw.alpha * 10)
 	render2d.PushBlendMode("additive")
 
 	if size.x > size.y then

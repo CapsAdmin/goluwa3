@@ -160,7 +160,7 @@ return function(props)
 					local size = owner.transform:GetSize()
 
 					if props.BackgroundColor then
-						theme.active:DrawSurface(self, props.BackgroundColor)
+						theme.active:DrawSurface(theme.GetDrawContext(self, true), props.BackgroundColor)
 					end
 
 					local padding = normalize_padding(props.Padding)
