@@ -19,8 +19,7 @@ local FragmentConstants = ffi.typeof([[
         int texture_index;       
         float uv_offset[2];             
         float uv_scale[2];              
-		int sample_uv_mode;
-        int swizzle_mode;
+        int flags;
         float blur[2];
         float border_radius[4];
         float outline_width;
@@ -345,12 +344,8 @@ local function build_rect_batch_fragment_shader_source(source)
 			return int(round(in_batch_sdf_texture.w));
 		}
 
-		int batch_sample_uv_mode() {
+		int batch_flags() {
 			return int(round(in_batch_blur_modes.z));
-		}
-
-		int batch_swizzle_mode() {
-			return int(round(in_batch_blur_modes.w));
 		}
 
 		int batch_subpixel_mode() {
@@ -364,8 +359,7 @@ local function build_rect_batch_fragment_shader_source(source)
 		{"U%.texture_index", "batch_texture_index()"},
 		{"U%.uv_offset", "batch_uv_offset"},
 		{"U%.uv_scale", "batch_uv_scale"},
-		{"U%.sample_uv_mode", "batch_sample_uv_mode()"},
-		{"U%.swizzle_mode", "batch_swizzle_mode()"},
+		{"U%.flags", "batch_flags()"},
 		{"U%.blur", "batch_blur"},
 		{"U%.border_radius", "batch_border_radius"},
 		{"U%.outline_width", "batch_outline_width"},
@@ -450,8 +444,8 @@ local function write_rect_batch_instance(vertex, entry)
 	vertex.batch_uv_transform[3] = uv_scale_y
 	vertex.batch_blur_modes[0] = fragment_snapshot.blur[0]
 	vertex.batch_blur_modes[1] = fragment_snapshot.blur[1]
-	vertex.batch_blur_modes[2] = fragment_snapshot.sample_uv_mode
-	vertex.batch_blur_modes[3] = fragment_snapshot.swizzle_mode
+	vertex.batch_blur_modes[2] = fragment_snapshot.flags
+	vertex.batch_blur_modes[3] = 0
 	ffi.copy(vertex.batch_border_radius, fragment_snapshot.border_radius, ffi.sizeof("float") * 4)
 	vertex.batch_quad_size[0] = entry.qw
 	vertex.batch_quad_size[1] = entry.qh
@@ -784,17 +778,10 @@ function render2d.Initialize()
 							end,
 						},
 						{
-							"sample_uv_mode",
+							"flags",
 							"int",
 							function(self, block, key)
-								block[key] = fragment_constants.sample_uv_mode
-							end,
-						},
-						{
-							"swizzle_mode",
-							"int",
-							function(self, block, key)
-								block[key] = fragment_constants.swizzle_mode
+								block[key] = fragment_constants.flags
 							end,
 						},
 						{
@@ -904,7 +891,7 @@ function render2d.Initialize()
 					},
 				},
 			},
-			shader = [[
+			shader = render2d.BuildShaderFlags("U.flags") .. "\n" .. [[
 				float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
 				{
 					if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
@@ -951,6 +938,10 @@ function render2d.Initialize()
 				}
 
 				float sd_rect(vec2 coords, vec2 quad_size, vec2 logical_size, vec4 radius) {
+					float min_dim = min(logical_size.x, logical_size.y);
+					if (FLAGS_CLAMP_BORDER_RADIUS != 0) {
+						radius = clamp(radius, 0.0, min_dim * 0.5);
+					}
 					vec2 p = (coords - 0.5) * quad_size;
 					vec2 b = logical_size * 0.5;
 
@@ -962,7 +953,6 @@ function render2d.Initialize()
 
 					vec2 sharp_q = abs(p) - b;
 					float sharp_rect = min(max(sharp_q.x, sharp_q.y), 0.0) + length(max(sharp_q, vec2(0.0)));
-					float min_dim = min(logical_size.x, logical_size.y);
 					float half_dim = min_dim * 0.5;
 					float full_dim = min_dim;
 
@@ -1046,16 +1036,18 @@ function render2d.Initialize()
 					return U.sdf_rect_size.x > 0.0 && U.sdf_rect_size.y > 0.0;
 				}
 
+				#define FLAGS_SDF_ENABLED  (FLAGS_SWIZZLE == 10)
+
 				bool has_texture_sdf_enabled() {
-					return U.texture_index >= 0 && U.swizzle_mode == 10;
+					return U.texture_index >= 0 && FLAGS_SDF_ENABLED;
 				}
 
 				vec4 apply_swizzle(vec4 tex) {
-					if (U.swizzle_mode == 1) return vec4(tex.rrr, 1.0);
-					if (U.swizzle_mode == 2) return vec4(tex.ggg, 1.0);
-					if (U.swizzle_mode == 3) return vec4(tex.bbb, 1.0);
-					if (U.swizzle_mode == 4) return vec4(tex.aaa, 1.0);
-					if (U.swizzle_mode == 5) return vec4(tex.rgb, 1.0);
+					if (FLAGS_SWIZZLE == 1) return vec4(tex.rrr, 1.0);
+					if (FLAGS_SWIZZLE == 2) return vec4(tex.ggg, 1.0);
+					if (FLAGS_SWIZZLE == 3) return vec4(tex.bbb, 1.0);
+					if (FLAGS_SWIZZLE == 4) return vec4(tex.aaa, 1.0);
+					if (FLAGS_SWIZZLE == 5) return vec4(tex.rgb, 1.0);
 					return tex;
 				}
 
@@ -1097,8 +1089,8 @@ function render2d.Initialize()
 					}
 
 					if (has_tex_sdf) {
-						bool use_direct_sample_uv = (U.sample_uv_mode & 1) != 0;
-						bool invert_tex_sdf = (U.sample_uv_mode & 2) != 0;
+						bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
+						bool invert_tex_sdf = (FLAGS_SAMPLE_UV & 2) != 0;
 						vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * U.uv_scale + U.uv_offset);
 						float d_tex = tex_sdf_distance(U.texture_index, U.sdf_threshold, U.sdf_texel_range, sdf_uv);
 
@@ -1451,7 +1443,8 @@ function render2d.ResetState()
 	render2d.SetBlur(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
-	fragment_constants.sample_uv_mode = 0
+	fragment_constants.flags = 0
+	render2d.SetClampBorderRadius(true)
 	fragment_constants.sdf_threshold = 0
 	fragment_constants.sdf_texel_range = 1
 	fragment_constants.gradient_texture_index = -1
@@ -1499,29 +1492,98 @@ do
 	end
 
 	do
-		function render2d.SetSwizzleMode(mode)
-			if mode then fragment_constants.swizzle_mode = mode end
+		do -- Flag definitions: single source of truth for all flag fields
+			-- Each entry: { name, mask, shift }
+			local FLAGS = {
+				{name = "SWIZZLE", mask = 0xF, shift = 0},
+				{name = "SAMPLE_UV", mask = 0xF, shift = 4},
+				{name = "CLAMP_BORDER_RADIUS", mask = 0x1, shift = 8},
+			}
+
+			-- Build getter/setter for each flag from the FLAGS table
+			for _, flag_def in ipairs(FLAGS) do
+				local name = flag_def.name
+				local mask = flag_def.mask
+				local shift = flag_def.shift
+
+				local function make_setter(f)
+					return function(value)
+						local shifted_mask = bit.lshift(f.mask, f.shift)
+						local other = bit.band(fragment_constants.flags, bit.bnot(shifted_mask))
+						fragment_constants.flags = bit.bor(other, bit.lshift(bit.band(value, f.mask), f.shift))
+					end
+				end
+
+				local function make_getter(f)
+					return function()
+						return bit.rshift(bit.band(fragment_constants.flags, bit.lshift(f.mask, f.shift)), f.shift)
+					end
+				end
+
+				render2d["Set" .. name] = make_setter(flag_def)
+				render2d["Get" .. name] = make_getter(flag_def)
+			end
+
+			-- Generate GLSL #define block for shaders
+			function render2d.BuildShaderFlags(var_name)
+				local lines = {}
+
+				for _, flag_def in ipairs(FLAGS) do
+					local mask = flag_def.mask
+					local shift = flag_def.shift
+					local define_name = "FLAGS_" .. flag_def.name
+					local shifted_mask = bit.lshift(mask, shift)
+
+					if shift == 0 then
+						lines[#lines + 1] = "#define " .. define_name .. " (" .. var_name .. " & " .. mask .. ")"
+					else
+						lines[#lines + 1] = "#define " .. define_name .. " ((" .. var_name .. " & " .. shifted_mask .. ") >> " .. shift .. ")"
+					end
+				end
+
+				return table.concat(lines, "\n")
+			end
 		end
 
-		function render2d.GetSwizzleMode()
-			return fragment_constants.swizzle_mode
-		end
-
-		utility.MakePushPopFunction(render2d, "SwizzleMode")
-	end
-
-	do
 		do
+			-- Convenience wrappers for the public API
+			function render2d.SetSwizzleMode(mode)
+				if mode then render2d.SetSWIZZLE(mode) end
+			end
+
+			function render2d.GetSwizzleMode()
+				return render2d.GetSWIZZLE()
+			end
+
+			utility.MakePushPopFunction(render2d, "SwizzleMode")
+		end
+
+		do
+			function render2d.SetSampleUVMode(mode)
+				render2d.SetSAMPLE_UV(mode or 0)
+			end
+
+			function render2d.GetSampleUVMode()
+				return render2d.GetSAMPLE_UV()
+			end
+
+			utility.MakePushPopFunction(render2d, "SampleUVMode")
+		end
+
+		do
+			-- SDF is a computed flag: swizzle == 10
 			function render2d.SetSDFMode(mode)
-				if mode ~= 0 then
-					fragment_constants.swizzle_mode = 10
-				elseif fragment_constants.swizzle_mode == 10 then
-					fragment_constants.swizzle_mode = 0
+				if mode then
+					local sample_uv = render2d.GetSAMPLE_UV()
+					render2d.SetSWIZZLE(10)
+					render2d.SetSAMPLE_UV(sample_uv)
+				elseif render2d.GetSWIZZLE() == 10 then
+					render2d.SetSWIZZLE(0)
 				end
 			end
 
 			function render2d.GetSDFMode()
-				return fragment_constants.swizzle_mode == 10 and 1 or 0
+				return render2d.GetSWIZZLE() == 10 and 1 or 0
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFMode")
@@ -1587,6 +1649,21 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SubpixelAmount")
+		end
+
+		do
+			render2d.clamp_border_radius = true
+
+			function render2d.SetClampBorderRadius(enabled)
+				render2d.clamp_border_radius = enabled == true
+				render2d.SetCLAMP_BORDER_RADIUS(enabled and 1 or 0)
+			end
+
+			function render2d.GetClampBorderRadius()
+				return render2d.clamp_border_radius
+			end
+
+			utility.MakePushPopFunction(render2d, "ClampBorderRadius")
 		end
 
 		do
@@ -2374,11 +2451,11 @@ do -- uv
 	end
 
 	function render2d.SetSampleUVMode(mode)
-		fragment_constants.sample_uv_mode = mode or 0
+		render2d.SetSAMPLE_UV(mode or 0)
 	end
 
 	function render2d.GetSampleUVMode()
-		return fragment_constants.sample_uv_mode
+		return render2d.GetSAMPLE_UV()
 	end
 
 	function render2d.SetUV2(u1, v1, u2, v2)
@@ -2570,8 +2647,9 @@ end
 do
 	local function get_margin()
 		local content_m = fragment_constants.outline_width
+		local swizzle = render2d.GetSwizzleMode()
 
-		if fragment_constants.swizzle_mode == 10 or fragment_constants.swizzle_mode == 1 then
+		if swizzle == 10 or swizzle == 1 then
 			content_m = content_m + math.max(fragment_constants.blur[0], fragment_constants.blur[1])
 		end
 
