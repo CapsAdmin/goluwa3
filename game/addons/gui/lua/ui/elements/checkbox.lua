@@ -4,46 +4,27 @@ local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
-	local value = props.Value ~= nil and props.Value or false
-	local state = {
-		hovered = false,
-		value = value,
-		anim = {
-			glow_alpha = 0,
-			check_anim = value and 1 or 0,
-			last_hovered = false,
-			last_value = value,
-		},
-	}
-	local panel = Panel.New{
-		Name = "checkbox_graphic",
+	local panel
+	panel = Panel.New{
+		Name = "checkbox",
 		transform = {
 			Size = props.Size or "M",
 		},
 		layout = {
 			props.layout,
 		},
+		OnClick = function(self)
+			self:SetValue(not self:GetValue(), true)
+		end,
 		mouse_input = {
 			Cursor = "hand",
-			OnMouseInput = function(self, button, press, local_pos)
-				if button == "button_1" and press then
-					state.value = not state.value
-
-					if props.OnChange then props.OnChange(state.value) end
-
-					theme.UpdateCheckboxAnimations(self.Owner, state)
-					return true
-				end
-			end,
-			OnHover = function(self, hovered)
-				state.hovered = hovered
-				theme.UpdateCheckboxAnimations(self.Owner, state)
+			OnHover = function(cmp, hovered)
+				panel:SetState("hovered", hovered)
 			end,
 		},
 		gui_element = {
-			OnDraw = function(self)
-				theme.UpdateCheckboxAnimations(self.Owner, state)
-				theme.active:DrawCheckbox(self.Owner.transform:GetSize(), state)
+			OnDraw = function(cmp)
+				theme.active:Draw(panel)
 			end,
 		},
 		animation = true,
@@ -51,21 +32,20 @@ return function(props)
 	}
 
 	function panel:SetValue(new_value, notify)
-		local old_value = state.value
-		state.value = new_value == true
-		theme.UpdateCheckboxAnimations(self, state)
+		local old_value = self:GetValue()
+		self:SetState("value", new_value)
 
-		if notify and old_value ~= state.value and props.OnChange then
-			props.OnChange(state.value, old_value)
+		if notify and old_value ~= new_value then
+			if props.OnChange then props.OnChange(new_value) end
 		end
 
 		return self
 	end
 
 	function panel:GetValue()
-		return state.value
+		return self:GetState("value")
 	end
 
-	panel:SetValue(value)
+	panel:SetValue(props.Value ~= nil and props.Value or false, false)
 	return panel
 end

@@ -109,7 +109,11 @@ function theme.OnSetProperty(obj, key, val)
 	return val
 end
 
-event.AddListener("OnEntitySetProperty", "theme.OnSetProperty", theme.OnSetProperty)
+event.AddListener("OnEntitySetProperty", "theme", theme.OnSetProperty)
+
+event.AddListener("OnEntityStateChanged", "theme", function(pnl, key, val)
+	theme.active:UpdateAnimations(pnl)
+end)
 
 do
 	local function resolve_draw_target(target)

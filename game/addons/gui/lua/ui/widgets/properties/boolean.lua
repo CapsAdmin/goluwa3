@@ -2,6 +2,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Text = import("lua/ui/elements/text.lua")
 local Value = import("lua/ui/widgets/properties/value.lua")
+local Checkbox = import("lua/ui/elements/checkbox.lua")
 local theme = import("lua/ui/theme.lua")
 
 local function set_text(panel, value)
@@ -17,17 +18,6 @@ return function(props)
 	local default_encoded
 	local label
 	local control
-	local checkbox_visual
-	local checkbox_state = {
-		hovered = false,
-		value = node.Value == true,
-		anim = {
-			glow_alpha = 0,
-			check_anim = node.Value == true and 1 or 0,
-			last_hovered = false,
-			last_value = node.Value == true,
-		},
-	}
 
 	local function update_boolean_text(value)
 		set_text(label, value and "true" or "false")
@@ -57,6 +47,13 @@ return function(props)
 		return nil, false
 	end
 
+	local checkbox = Checkbox{
+		Value = node.Value == true,
+		OnChange = function(value)
+			props.commit_value(node, value, key, path, control)
+			update_boolean_text(value)
+		end,
+	}
 	control = Panel.New{
 		Name = "PropertyBooleanValue",
 		transform = {
@@ -75,44 +72,19 @@ return function(props)
 		mouse_input = {
 			Cursor = "hand",
 			OnHover = function(self, hovered)
-				checkbox_state.hovered = hovered
-
-				if checkbox_visual and checkbox_visual:IsValid() then
-					theme.UpdateCheckboxAnimations(checkbox_visual, checkbox_state)
-				end
+				checkbox:SetState("hovered", hovered)
 			end,
 			OnMouseInput = function(self, button, press)
 				if button ~= "button_1" or not press then return end
 
-				local next_value = not control:GetValue()
-				control:SetValue(next_value)
-				props.commit_value(node, next_value, key, path, control)
+				control:SetValue(not control:GetValue(), true)
 				return true
 			end,
 		},
 		clickable = true,
 		animation = true,
 	}{
-		Panel.New{
-			Ref = function(self)
-				checkbox_visual = self
-				theme.UpdateCheckboxAnimations(self, checkbox_state)
-			end,
-			Name = "PropertyBooleanCheckboxVisual",
-			transform = {
-				Size = Vec2(theme.GetSize("M"), props.row_height),
-			},
-			layout = {
-				GrowWidth = 0,
-				FitWidth = false,
-			},
-			gui_element = {
-				OnDraw = function(self)
-					theme.active:DrawCheckbox(self.Owner.transform:GetSize(), checkbox_state)
-				end,
-			},
-			animation = true,
-		},
+		checkbox,
 		Text{
 			Ref = function(self)
 				label = self
@@ -129,20 +101,13 @@ return function(props)
 		},
 	}
 
-	function control:SetValue(value)
-		local boolean = value == true
-		checkbox_state.value = boolean
-
-		if checkbox_visual and checkbox_visual:IsValid() then
-			theme.UpdateCheckboxAnimations(checkbox_visual, checkbox_state)
-		end
-
-		update_boolean_text(boolean)
+	function control:SetValue(value, notify)
+		checkbox:SetValue(value, notify)
 		return self
 	end
 
 	function control:GetValue()
-		return checkbox_state.value
+		return checkbox:GetValue()
 	end
 
 	function control:EncodeValue()

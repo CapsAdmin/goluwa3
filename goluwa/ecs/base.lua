@@ -353,5 +353,20 @@ return function(name, base_path, get_valid_components)
 		end
 	end
 
+	function BaseEntity:SetState(key, val)
+		self.state = self.state or {}
+
+		if self.state[key] == val then return end
+
+		self.state[key] = val
+		event.Call("OnEntityStateChanged", self, key, val)
+	end
+
+	function BaseEntity:GetState(key)
+		if not key then return self.state end
+
+		return self.state and self.state[key]
+	end
+
 	return BaseEntity:Register()
 end

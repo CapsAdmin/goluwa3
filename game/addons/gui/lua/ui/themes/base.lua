@@ -671,11 +671,15 @@ function BaseTheme:UpdateSliderAnimations(state)
 	end
 end
 
-function BaseTheme:UpdateCheckboxAnimations(state)
-	local pnl = state.pnl
-
-	if not pnl then return end
-
+function BaseTheme:UpdateCheckboxAnimations(pnl)
+	local state = pnl:GetState()
+	state.anim = state.anim or
+		{
+			glow_alpha = 0,
+			check_anim = state.value and 1 or 0,
+			last_hovered = false,
+			last_value = state.value,
+		}
 	local anim = state.anim
 	self:AnimateHover(pnl, anim, state, 0.15)
 
@@ -1096,8 +1100,6 @@ function BaseTheme:DrawCheckable(size, state, opts)
 end
 
 function BaseTheme:DrawCheckbox(size, state)
-	if state.hovered then self:UpdateCheckboxAnimations(state) end
-
 	self:DrawCheckable(
 		size,
 		state,
@@ -1120,8 +1122,6 @@ function BaseTheme:DrawCheckbox(size, state)
 end
 
 function BaseTheme:DrawButtonRadio(size, state)
-	if state.hovered then self:UpdateCheckboxAnimations(state) end
-
 	self:DrawCheckable(
 		size,
 		state,
@@ -1214,6 +1214,20 @@ function BaseTheme:DrawLine(color_token, alpha, size, orientation)
 	else
 		render2d.DrawRect(math.floor(size.x / 2), 0, 1, size.y)
 	end
+end
+
+function BaseTheme:Draw(pnl)
+	if pnl.Name == "checkbox" then
+		return self:DrawCheckbox(pnl.transform:GetSize(), pnl:GetState())
+	elseif pnl.Name == "radio_button" then
+		return self:DrawButtonRadio(pnl.transform:GetSize(), pnl:GetState())
+	end
+end
+
+function BaseTheme:UpdateAnimations(pnl)
+	if pnl.Name == "checkbox" then return self:UpdateCheckboxAnimations(pnl) end
+
+	if pnl.Name == "radio_button" then return self:UpdateCheckboxAnimations(pnl) end
 end
 
 return BaseTheme:Register()
