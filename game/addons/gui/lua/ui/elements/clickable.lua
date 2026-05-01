@@ -23,27 +23,12 @@ return function(props)
 		},
 	}
 
-	local function get_surface_color()
-		if state.disabled then return "clickable_disabled" end
-
-		if state.mode == "outline" then return "surface" end
-
-		if state.mode == "text" then return "surface" end
-
-		if state.pressed then return "secondary" end
-
-		if state.active then return theme.GetTheme():GetAccentTint(0.14) end
-
-		if state.hovered then return theme.GetTheme():GetAccentTint(0.08) end
-
-		return "primary"
-	end
-
 	local function sync_state(owner)
 		state.disabled = not not owner.Disabled
 		state.active = not not owner.Active
 		state.mode = owner.Mode or "filled"
-		owner.SurfaceColor = get_surface_color()
+		local fill_name = theme.active:ResolveButtonFillName(state)
+		owner.SurfaceColor = fill_name
 	end
 
 	return Panel.New{
@@ -52,7 +37,7 @@ return function(props)
 			Name = "clickable",
 			OnGetSurfaceColor = function(self)
 				sync_state(self)
-				return get_surface_color()
+				return theme.active:ResolveButtonFillName(state)
 			end,
 			OnSetProperty = theme.OnSetProperty,
 			transform = {
@@ -68,11 +53,7 @@ return function(props)
 				props.layout,
 			},
 			gui_element = {
-				Shadows = false,
 				BorderRadius = theme.GetRadius("medium"),
-				ShadowSize = 10,
-				ShadowColor = "clickable_shadow",
-				ShadowOffset = Vec2(2, 2),
 				Clipping = true,
 				DrawAlpha = props.Disabled and 0.5 or 1,
 				OnDraw = function(self)
@@ -111,15 +92,7 @@ return function(props)
 			},
 			animation = true,
 			clickable = true,
-			OnClick = not props.Disabled and
-				(
-					props.OnClick or
-					function()
-						print("clicked!")
-					end
-				)
-				or
-				nil,
+			OnClick = not props.Disabled and props.OnClick or nil,
 		},
 	}
 end

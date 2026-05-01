@@ -748,7 +748,11 @@ function BaseTheme:ResolveButtonFill(state, fill_name)
 			return nil
 		end
 	elseif fill_name == "primary" then
-		if state.active then
+		if state.disabled then
+			return self:GetColor("clickable_disabled")
+		elseif state.pressed then
+			return self:GetAccentTint(0.14)
+		elseif state.active then
 			return self:GetAccentTint(0.14)
 		elseif state.hovered then
 			return self:GetAccentTint(0.08)
