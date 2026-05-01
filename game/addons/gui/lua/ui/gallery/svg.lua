@@ -1,6 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Button = import("../elements/button.lua")
+local Button = import("../widgets/button.lua")
 local Column = import("../elements/column.lua")
 local Frame = import("../elements/frame.lua")
 local Row = import("../elements/row.lua")

@@ -7,7 +7,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Column = import("lua/ui/elements/column.lua")
 local Row = import("lua/ui/elements/row.lua")
 local Text = import("lua/ui/elements/text.lua")
-local StepNumberValue = import("lua/ui/elements/step_number_value.lua")
+local StepNumberValue = import("lua/ui/widgets/step_number_value.lua")
 local TextEdit = import("lua/ui/elements/text_edit.lua")
 local theme = import("lua/ui/theme.lua")
 

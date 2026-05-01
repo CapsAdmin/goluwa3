@@ -4,14 +4,14 @@ local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("../theme.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local PropertyEditor = import("../elements/property_editor.lua")
+local PropertyEditor = import("../widgets/property_editor.lua")
 local ScrollablePanel = import("../elements/scrollable_panel.lua")
 local Splitter = import("../elements/splitter.lua")
 local Column = import("../elements/column.lua")
 local Row = import("../elements/row.lua")
 local Text = import("../elements/text.lua")
 local Frame = import("../elements/frame.lua")
-local Dropdown = import("../elements/dropdown.lua")
+local Dropdown = import("../widgets/dropdown.lua")
 local DRAW_ELEMENTS = {
 	{
 		key = "button",

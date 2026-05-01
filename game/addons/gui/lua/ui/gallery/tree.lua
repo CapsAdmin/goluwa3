@@ -1,6 +1,6 @@
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Button = import("../elements/button.lua")
+local Button = import("../widgets/button.lua")
 local Checkbox = import("../elements/checkbox.lua")
 local Column = import("../elements/column.lua")
 local Frame = import("../elements/frame.lua")
@@ -9,7 +9,7 @@ local ScrollablePanel = import("../elements/scrollable_panel.lua")
 local Splitter = import("../elements/splitter.lua")
 local SVG = import("../elements/svg.lua")
 local Text = import("../elements/text.lua")
-local Tree = import("../elements/tree.lua")
+local Tree = import("../widgets/tree.lua")
 local ICON_SOURCES = {
 	folder = "https://api.iconify.design/ic/baseline-folder.svg",
 	file = "https://api.iconify.design/ic/round-insert-drive-file.svg",

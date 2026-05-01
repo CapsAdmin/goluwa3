@@ -108,7 +108,7 @@ end)
 T.Test("button text color follows hovered surface context", function()
 	local previous_preset = theme.GetName()
 	theme.LoadTheme("minimal")
-	local Button = import("game/addons/gui/lua/ui/elements/button.lua")
+	local Button = import("game/addons/gui/lua/ui/widgets/button.lua")
 	local button = Button{Text = "Button"}
 	local label = button:GetChildren()[1]
 	button.mouse_input:OnHover(true)
@@ -124,7 +124,7 @@ end)
 T.Test("dropdown text color follows hovered surface context", function()
 	local previous_preset = theme.GetName()
 	theme.LoadTheme("minimal")
-	local Dropdown = import("game/addons/gui/lua/ui/elements/dropdown.lua")
+	local Dropdown = import("game/addons/gui/lua/ui/widgets/dropdown.lua")
 	local dropdown = Dropdown{
 		Options = {{Text = "A", Value = 1}},
 		Value = 1,

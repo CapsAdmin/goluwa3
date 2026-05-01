@@ -1,7 +1,7 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Text = import("../elements/text.lua")
 local Column = import("../elements/column.lua")
-local Button = import("../elements/button.lua")
+local Button = import("../widgets/button.lua")
 local Collapsible = import("../elements/collapsible.lua")
 return {
 	Name = "collapsible",

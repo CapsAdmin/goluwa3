@@ -1,7 +1,7 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Text = import("lua/ui/elements/text.lua")
-local Value = import("lua/ui/elements/properties/value.lua")
+local Value = import("lua/ui/widgets/properties/value.lua")
 local theme = import("lua/ui/theme.lua")
 
 local function set_text(panel, value)

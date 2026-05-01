@@ -1,5 +1,5 @@
 local Column = import("../elements/column.lua")
-local Dropdown = import("../elements/dropdown.lua")
+local Dropdown = import("../widgets/dropdown.lua")
 local Row = import("../elements/row.lua")
 local Text = import("../elements/text.lua")
 

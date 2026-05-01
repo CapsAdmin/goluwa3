@@ -1,8 +1,8 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Button = import("lua/ui/elements/button.lua")
+local Button = import("lua/ui/widgets/button.lua")
 local Row = import("lua/ui/elements/row.lua")
 local TextEdit = import("lua/ui/elements/text_edit.lua")
-local Value = import("lua/ui/elements/properties/value.lua")
+local Value = import("lua/ui/widgets/properties/value.lua")
 
 return function(props)
 	local node = props.node

@@ -1,6 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Dropdown = import("lua/ui/elements/dropdown.lua")
-local Value = import("lua/ui/elements/properties/value.lua")
+local Dropdown = import("lua/ui/widgets/dropdown.lua")
+local Value = import("lua/ui/widgets/properties/value.lua")
 return function(props)
 	local node = props.node
 	local default_encoded

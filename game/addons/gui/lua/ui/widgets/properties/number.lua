@@ -1,5 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Value = import("lua/ui/elements/properties/value.lua")
+local Value = import("lua/ui/widgets/properties/value.lua")
 local input = import("goluwa/input.lua")
 
 local function is_finite(value)

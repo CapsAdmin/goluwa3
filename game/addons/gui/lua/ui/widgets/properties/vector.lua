@@ -3,7 +3,7 @@ local Color = import("goluwa/structs/color.lua")
 local input = import("goluwa/input.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local Row = import("lua/ui/elements/row.lua")
-local Value = import("lua/ui/elements/properties/value.lua")
+local Value = import("lua/ui/widgets/properties/value.lua")
 local theme = import("lua/ui/theme.lua")
 
 local function get_component(source, components, index, default)

@@ -19,7 +19,7 @@ T.Test2D("step_number_value drag ignores oversized first-frame mouse delta", fun
 	local old_mouse_trapped = window:GetMouseTrapped()
 	local input = import("goluwa/input.lua")
 	local old_is_key_down = input.IsKeyDown
-	local StepNumberValue = import("game/addons/gui/lua/ui/elements/step_number_value.lua")
+	local StepNumberValue = import("game/addons/gui/lua/ui/widgets/step_number_value.lua")
 	local control = StepNumberValue{Value = 0}
 	input.IsKeyDown = function()
 		return false
@@ -77,7 +77,7 @@ T.Test2D("step_number_value drag does not warp cursor on no-warp backends", func
 	local old_should_warp = window.ShouldWarpMouseWhenCaptured
 	local input = import("goluwa/input.lua")
 	local old_is_key_down = input.IsKeyDown
-	local StepNumberValue = import("game/addons/gui/lua/ui/elements/step_number_value.lua")
+	local StepNumberValue = import("game/addons/gui/lua/ui/widgets/step_number_value.lua")
 	local control = StepNumberValue{Value = 0}
 	input.IsKeyDown = function()
 		return false
