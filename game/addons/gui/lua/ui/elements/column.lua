@@ -7,7 +7,6 @@ return function(props)
 		props,
 		{
 			Name = "Column",
-			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				Direction = "y",
 				GrowWidth = 1,

@@ -59,7 +59,6 @@ return function(props)
 
 	control = Panel.New{
 		Name = "PropertyBooleanValue",
-		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = Vec2(props.value_width, props.row_height),
 		},
@@ -100,7 +99,6 @@ return function(props)
 				theme.UpdateCheckboxAnimations(self, checkbox_state)
 			end,
 			Name = "PropertyBooleanCheckboxVisual",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(theme.GetSize("M"), props.row_height),
 			},

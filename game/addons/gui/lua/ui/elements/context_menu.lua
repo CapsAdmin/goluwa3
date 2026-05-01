@@ -270,7 +270,6 @@ return function(props)
 			SourceDropdown = props.SourceDropdown,
 			SourceMenuBar = props.SourceMenuBar,
 			Name = "ContextMenuContainer",
-			OnSetProperty = theme.OnSetProperty,
 			PreChildAdd = function(self, child)
 				if child.IsInternal then return end
 

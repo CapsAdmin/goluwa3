@@ -144,7 +144,6 @@ return function(props)
 		props,
 		{
 			Name = "svg",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = props.Size or Vec2(96, 96),
 			},

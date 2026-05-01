@@ -254,7 +254,6 @@ local function create_value(props)
 		Name = props.Name or "value",
 		Tooltip = props.Tooltip,
 		TooltipOptions = props.TooltipOptions,
-		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = size,
 		},

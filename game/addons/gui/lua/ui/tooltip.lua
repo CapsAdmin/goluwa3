@@ -133,7 +133,6 @@ function ensure_panel()
 	state.panel = Panel.New{
 		Key = "UITooltipOverlay",
 		Parent = Panel.World,
-		OnSetProperty = theme.OnSetProperty,
 		Name = "TooltipOverlay",
 		transform = {
 			Position = Vec2(0, 0),

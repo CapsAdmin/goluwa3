@@ -752,7 +752,6 @@ return {
 					}{
 						Panel.New{
 							Name = "theme_draw_preview",
-							OnSetProperty = theme.OnSetProperty,
 							transform = {
 								Size = selected_element.preview_size,
 							},

@@ -7,7 +7,6 @@ return function(props)
 		props,
 		{
 			Name = "Row",
-			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				Direction = "x",
 				GrowWidth = 1,

@@ -53,7 +53,6 @@ return function(props)
 	return Panel.New{
 		{
 			Name = "text",
-			OnSetProperty = theme.OnSetProperty,
 			OnGetTextColor = get_context_text_color,
 			text = {
 				Elide = props.Elide == true,

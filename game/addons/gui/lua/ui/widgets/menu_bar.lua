@@ -58,7 +58,6 @@ local function create_menu_button(definition, on_click, on_hover)
 		get_passthrough_props(definition),
 		{
 			Name = "MenuBarButton",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = definition.Size or "M",
 			},

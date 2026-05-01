@@ -9,7 +9,6 @@ return function(props)
 	props = props or {}
 	return Panel.New{
 		Name = "MenuSpacer",
-		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = props.Vertical and
 				Vec2(theme.GetSize("line_height"), 0) or

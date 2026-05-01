@@ -1704,7 +1704,6 @@ return function(props)
 						property_editor_frame = self
 					end,
 					Name = "PropertyEditorFrame",
-					OnSetProperty = theme.OnSetProperty,
 					transform = true,
 					layout = {
 						GrowWidth = 1,

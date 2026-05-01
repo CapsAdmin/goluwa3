@@ -6,7 +6,6 @@ return function(props)
 		props,
 		{
 			Name = "MenuContainer",
-			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
 				Direction = "y",

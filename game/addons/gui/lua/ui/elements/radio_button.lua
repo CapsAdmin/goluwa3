@@ -19,7 +19,6 @@ return function(props)
 		props,
 		{
 			Name = "radio_button_graphic",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = props.Size or "M",
 			},

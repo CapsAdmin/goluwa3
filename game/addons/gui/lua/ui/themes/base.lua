@@ -92,7 +92,7 @@ function BaseTheme:CopyTable(tbl)
 end
 
 function BaseTheme:MergeTables(base_tbl, override_tbl)
-	local merged = copy_table(base_tbl)
+	local merged = table.shallow_copy(base_tbl)
 
 	for key, value in pairs(override_tbl or {}) do
 		merged[key] = value

@@ -44,7 +44,6 @@ return function(props)
 			Panel.New{
 				IsInternal = true,
 				Name = "ArrowContainer",
-				OnSetProperty = theme.OnSetProperty,
 				transform = {
 					Size = Vec2() + theme.GetFontSize(props.HeaderFontSize or "M"),
 				},

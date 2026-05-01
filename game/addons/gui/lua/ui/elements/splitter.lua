@@ -118,7 +118,6 @@ return function(props)
 		props,
 		{
 			Name = is_vertical and "VerticalSplitter" or "HorizontalSplitter",
-			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				Direction = is_vertical and "y" or "x",
 				GrowWidth = 1,
@@ -195,7 +194,6 @@ return function(props)
 	divider = Panel.New{
 		IsInternal = true,
 		Name = "Divider",
-		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = is_vertical and Vec2(0, divider_width) or Vec2(divider_width, 0),
 		},

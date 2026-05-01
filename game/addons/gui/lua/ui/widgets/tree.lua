@@ -111,6 +111,7 @@ return function(props)
 
 	local function get_text_token(node, path, key)
 		if node.Disabled then return "text_disabled" end
+
 		if is_selected(node, path, key) then return "text_on_accent" end
 
 		if props.GetTextColor then
@@ -521,7 +522,6 @@ return function(props)
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeToggle",
-			OnSetProperty = theme.OnSetProperty,
 			Ref = function(self)
 				row_info.toggle = self
 			end,
@@ -580,7 +580,6 @@ return function(props)
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeLabel",
-			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
 				FitWidth = not label_grow,
@@ -631,7 +630,6 @@ return function(props)
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeTogglePlaceholder",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(math.max(toggle_size, meta.level * guide_step + toggle_size + 6), toggle_size),
 			},
@@ -694,7 +692,6 @@ return function(props)
 		local row = Panel.New{
 			IsInternal = true,
 			Name = "TreeRowBody",
-			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
 				Direction = "x",
@@ -765,7 +762,6 @@ return function(props)
 		local clip = Panel.New{
 			IsInternal = true,
 			Name = "TreeRow",
-			OnSetProperty = theme.OnSetProperty,
 			Ref = function(self)
 				row_info.clip = self
 
@@ -861,7 +857,6 @@ return function(props)
 		props,
 		{
 			Name = "Tree",
-			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				Direction = "y",
 				GrowWidth = 1,

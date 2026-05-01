@@ -113,7 +113,6 @@ return function(props)
 	if submenu then
 		children[#children + 1] = Panel.New{
 			IsInternal = true,
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(16, 16),
 			},
@@ -141,7 +140,6 @@ return function(props)
 
 	local item_props = get_passthrough_props(props)
 	item_props.Name = "ContextMenuItem"
-	item_props.OnSetProperty = theme.OnSetProperty
 	item_props.transform = {
 		Size = props.Size or "M",
 	}

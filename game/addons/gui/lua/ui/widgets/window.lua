@@ -26,7 +26,6 @@ return function(props)
 	return Panel.New{
 		get_passthrough_props(props),
 		Name = props.Name or "Window",
-		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = props.Size or Vec2(400, 300),
 			Position = props.Position or Vec2(100, 100),
@@ -62,7 +61,6 @@ return function(props)
 		Panel.New{
 			IsInternal = true,
 			Name = "WindowHeader",
-			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				Direction = "x",
 				AlignmentY = "center",
@@ -118,7 +116,6 @@ return function(props)
 				Panel.New{
 					IsInternal = true,
 					Name = "CloseIcon",
-					OnSetProperty = theme.OnSetProperty,
 					transform = {
 						Size = Vec2() + theme.GetSize("M"),
 					},
@@ -148,7 +145,6 @@ return function(props)
 			end,
 			IsInternal = true,
 			Name = "WindowContent",
-			OnSetProperty = theme.OnSetProperty,
 			Padding = props.Padding,
 			layout = {
 				Direction = "y",

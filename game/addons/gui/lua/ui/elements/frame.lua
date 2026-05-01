@@ -13,7 +13,6 @@ return function(props)
 		props,
 		{
 			Name = "frame",
-			OnSetProperty = theme.OnSetProperty,
 			gui_element = {
 				OnDraw = function(self)
 					theme.active:DrawFrame(theme.GetDrawContext(self, true), props.Emphasis or 1)

@@ -75,7 +75,6 @@ return function(props)
 
 	local function create_empty_results_item()
 		return Panel.New{
-			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
 				Direction = "x",
@@ -330,7 +329,6 @@ return function(props)
 		Panel.New{
 			IsInternal = true,
 			Name = "DropdownIndicator",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2() + theme.GetFontSize(props.FontSize),
 			},

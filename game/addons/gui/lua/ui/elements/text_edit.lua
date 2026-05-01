@@ -40,7 +40,6 @@ return function(props)
 		Name = "text_edit",
 		Tooltip = props.Tooltip,
 		TooltipOptions = props.TooltipOptions,
-		OnSetProperty = theme.OnSetProperty,
 		Ref = function(self)
 			if props.OnTextChanged then self:AddGlobalEvent("Update") end
 		end,

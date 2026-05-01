@@ -39,7 +39,6 @@ return function(props)
 				sync_state(self)
 				return theme.active:ResolveButtonFillName(state)
 			end,
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = props.Size or Vec2(200, 50),
 				Perspective = 400,

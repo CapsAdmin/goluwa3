@@ -402,7 +402,6 @@ return function(props)
 				info.panel = self
 			end,
 			Name = "PropertyLabelRow",
-			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
 				Direction = "x",
@@ -469,7 +468,6 @@ return function(props)
 
 		return Panel.New{
 			Name = "PropertyEditorRow",
-			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
 				Direction = "x",
@@ -540,7 +538,6 @@ return function(props)
 				update_draw_alpha(self)
 			end,
 			Name = "PropertyEditorDivider",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(divider_width, 0),
 			},
@@ -618,7 +615,6 @@ return function(props)
 		if #entries > 0 then
 			local split_row = Panel.New{
 				Name = "PropertyEditorSplitRow",
-				OnSetProperty = theme.OnSetProperty,
 				transform = true,
 				layout = {
 					Direction = "x",
@@ -737,7 +733,6 @@ return function(props)
 	}{
 		Panel.New{
 			Name = "PropertyEditorContent",
-			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				GrowWidth = 1,
 				FitHeight = true,

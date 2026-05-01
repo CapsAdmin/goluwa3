@@ -75,7 +75,6 @@ return function(props)
 	}{
 		Panel.New{
 			Name = "PropertyObjectValue",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(props.value_width - action_button_size - 4, props.row_height),
 			},
@@ -116,7 +115,6 @@ return function(props)
 		},
 		Panel.New{
 			Name = "PropertyObjectActionButton",
-			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(action_button_size, action_button_size),
 			},

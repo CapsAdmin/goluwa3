@@ -1,6 +1,7 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local prototype = import("goluwa/prototype.lua")
+local event = import("goluwa/event.lua")
 local base = import("game/addons/gui/lua/ui/themes/base.lua")
 local jrpg = import("game/addons/gui/lua/ui/themes/jrpg.lua")
 local theme = library()
@@ -107,6 +108,8 @@ function theme.OnSetProperty(obj, key, val)
 
 	return val
 end
+
+event.AddListener("OnEntitySetProperty", "theme.OnSetProperty", theme.OnSetProperty)
 
 do
 	local function resolve_draw_target(target)

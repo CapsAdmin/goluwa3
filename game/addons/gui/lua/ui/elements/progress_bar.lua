@@ -8,7 +8,6 @@ return function(props)
 	local pnl = Panel.New{
 		props,
 		Name = "progress_bar",
-		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = props.Size or Vec2(200, theme.GetSize("S")),
 		},

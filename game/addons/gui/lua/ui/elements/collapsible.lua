@@ -39,7 +39,6 @@ return function(props)
 		props,
 		{
 			Name = "Collapsible",
-			OnSetProperty = theme.OnSetProperty,
 			transform = true,
 			layout = {
 				Direction = "y",
@@ -114,7 +113,6 @@ return function(props)
 	body_panel = Panel.New{
 		IsInternal = true,
 		Name = "Body",
-		OnSetProperty = theme.OnSetProperty,
 		layout = {
 			Direction = "y",
 			FitHeight = true,
@@ -134,7 +132,6 @@ return function(props)
 	clip_panel = Panel.New{
 		IsInternal = true,
 		Name = "ClipContainer",
-		OnSetProperty = theme.OnSetProperty,
 		Ref = function(self)
 			self:AddLocalListener("OnTransformChanged", update_height)
 			self:AddLocalListener("OnLayoutUpdated", update_height)
