@@ -143,7 +143,7 @@ end)
 T.Test("collapsible header text color follows hovered surface context", function()
 	local previous_preset = theme.GetName()
 	theme.LoadTheme("minimal")
-	local Collapsible = import("game/addons/gui/lua/ui/elements/collapsible.lua")
+	local Collapsible = import("game/addons/gui/lua/ui/widgets/collapsible.lua")
 	local collapsible = Collapsible{
 		HeaderMode = "filled",
 		Title = "Category",

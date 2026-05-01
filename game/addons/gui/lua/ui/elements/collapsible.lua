@@ -20,20 +20,6 @@ return function(props)
 		props.Ref = nil
 	end
 
-	local header_tooltip = props.Tooltip
-	local header_tooltip_max_width = props.TooltipMaxWidth
-	local header_tooltip_options = props.TooltipOptions
-	local header_tooltip_offset = props.TooltipOffset
-	local header_height = props.HeaderHeight
-	local header_mode = props.HeaderMode or "outline"
-	local header_text_color = props.HeaderTextColor or "text"
-	local header_padding = props.HeaderPadding or "M"
-	local header_gap = props.HeaderGap or "M"
-	local header_font_name = props.HeaderFontName or "body"
-	local header_font_size = props.HeaderFontSize or "M"
-	local content_padding = props.ContentPadding or "none"
-	local arrow_size = resolve_size(props.HeaderArrowSize) or 16
-	local disclosure_size = resolve_size(props.HeaderDisclosureSize) or 10
 	local collapsed = props.Collapsed or false
 	local body_panel = NULL
 	local clip_panel = NULL
@@ -125,66 +111,6 @@ return function(props)
 		}
 	end
 
-	local header = Clickable{
-		IsInternal = true,
-		Name = "Header",
-		Tooltip = header_tooltip,
-		TooltipOptions = header_tooltip_options,
-		TooltipMaxWidth = header_tooltip_max_width,
-		TooltipOffset = header_tooltip_offset,
-		Mode = header_mode,
-		layout = {
-			Direction = "x",
-			AlignmentY = "center",
-			FitHeight = true,
-			MinSize = header_height and Vec2(0, header_height) or nil,
-			MaxSize = header_height and Vec2(0, header_height) or nil,
-			Padding = header_padding,
-			ChildGap = header_gap,
-		},
-		OnClick = function(self)
-			set_collapsed(not collapsed)
-		end,
-	}{
-		Panel.New{
-			IsInternal = true,
-			Name = "ArrowContainer",
-			OnSetProperty = theme.OnSetProperty,
-			transform = {
-				Size = Vec2() + theme.GetFontSize(header_font_size),
-			},
-			gui_element = {
-				OnDraw = function(self)
-					theme.active:DrawIcon(
-						"disclosure",
-						self.Owner.transform:GetSize(),
-						{
-							thickness = 2,
-							open_fraction = open_fraction,
-							color = resolve_color(header_text_color, "text"),
-						}
-					)
-				end,
-			},
-			mouse_input = {
-				Cursor = "pointer",
-				IgnoreMouseInput = true,
-			},
-		},
-		Text{
-			Text = props.Title or "Collapsible",
-			Color = header_text_color,
-			FontName = header_font_name,
-			FontSize = header_font_size,
-			layout = {
-				GrowWidth = 1,
-				FitHeight = true,
-			},
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
-		},
-	}
 	body_panel = Panel.New{
 		IsInternal = true,
 		Name = "Body",
@@ -194,7 +120,7 @@ return function(props)
 			FitHeight = true,
 			GrowWidth = 1,
 			AlignmentX = "stretch",
-			Padding = content_padding,
+			Padding = props.ContentPadding,
 			Floating = true,
 		},
 		transform = true,
@@ -242,7 +168,7 @@ return function(props)
 
 	update_height()
 	container = container{
-		header,
+		props.Header,
 		clip_panel,
 	}
 
