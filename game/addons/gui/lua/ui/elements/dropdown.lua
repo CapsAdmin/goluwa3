@@ -4,6 +4,7 @@ local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local Column = import("lua/ui/elements/column.lua")
+local MenuContainer = import("lua/ui/elements/menu_container.lua")
 local Text = import("lua/ui/elements/text.lua")
 local TextEdit = import("lua/ui/elements/text_edit.lua")
 local ScrollablePanel = import("lua/ui/elements/scrollable_panel.lua")
@@ -22,10 +23,10 @@ return function(props)
 	local search_enabled = props.Searchable == true or props.EnableSearch == true
 	local search_threshold = props.SearchThreshold or 300
 	local search_input_height = props.SearchInputHeight or 34
-	local search_gap = props.SearchGap or theme.GetPadding("XS")
+	local search_gap = props.SearchGap or theme.GetPadding("M")
 	local scroll_threshold = props.ScrollThreshold or search_threshold
 	local search_body_height = math.max(80, search_threshold - search_input_height - search_gap)
-	local estimated_item_height = theme.GetFontSize(props.FontSize) + theme.GetPadding("XXS") * 2
+	local estimated_item_height = theme.GetFontSize(props.FontSize) + theme.GetPadding("M") * 2
 
 	for _, opt in ipairs(options) do
 		local text = type(opt) == "table" and opt.Text or tostring(opt)
@@ -59,14 +60,10 @@ return function(props)
 		if on_select then on_select(val, text, index) end
 	end
 
-	local function create_option_item(text, val, index, menu_props)
+	local function create_option_item(text, val, index)
 		menu_props = menu_props or {}
 		return MenuItem{
 			Text = text,
-			Size = menu_props.Size,
-			layout = menu_props.layout,
-			Clipping = menu_props.Clipping,
-			DisableTextCulling = menu_props.DisableTextCulling,
 			Font = props.Font,
 			FontName = props.FontName,
 			FontSize = props.FontSize,
@@ -84,7 +81,7 @@ return function(props)
 				Direction = "x",
 				GrowWidth = 1,
 				FitHeight = true,
-				Padding = "XXS",
+				Padding = "M",
 			},
 			mouse_input = {
 				IgnoreMouseInput = true,
@@ -170,22 +167,7 @@ return function(props)
 					local val = type(opt) == "table" and opt.Value or opt
 
 					if not use_search or matches_search(text, search_query) then
-						results_column:AddChild(
-							create_option_item(
-								text,
-								val,
-								i,
-								{
-									Size = Vec2(dropdown_width, estimated_item_height),
-									layout = {
-										MinSize = Vec2(dropdown_width, estimated_item_height),
-										MaxSize = Vec2(dropdown_width, estimated_item_height),
-									},
-									Clipping = false,
-									DisableTextCulling = true,
-								}
-							)
-						)
+						results_column:AddChild(create_option_item(text, val, i))
 						has_matches = true
 					end
 				end
@@ -268,21 +250,15 @@ return function(props)
 						GrowWidth = 1,
 						FitHeight = true,
 						AlignmentX = "stretch",
+						ChildGap = "none",
 					},
 				},
 			}
-			menu_items[1] = Panel.New{
+			menu_items[1] = MenuContainer{
 				Name = use_search and "DropdownSearchMenu" or "DropdownScrollMenu",
-				OnSetProperty = theme.OnSetProperty,
 				layout = {
-					Direction = "y",
-					GrowWidth = 1,
-					FitHeight = true,
-					AlignmentX = "stretch",
 					ChildGap = search_gap,
 				},
-				mouse_input = true,
-				gui_element = true,
 			}(unpack(composite_children))
 			rebuild_results()
 		else
@@ -337,7 +313,6 @@ return function(props)
 		Mode = props.Mode or "outline",
 		layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 		OnClick = open_menu,
-		Padding = props.Padding or "XS",
 	}{
 		Text{
 			IsInternal = true,
@@ -366,10 +341,7 @@ return function(props)
 						self.Owner.transform:GetSize(),
 						{
 							thickness = 1,
-							color = theme.GetColorOn(
-								props.Disabled and "text_disabled" or "text",
-								theme.GetCurrentSurface()
-							),
+							color = theme.GetColorOn(props.Disabled and "text_disabled" or "text", theme.GetCurrentSurface()),
 						}
 					)
 				end,

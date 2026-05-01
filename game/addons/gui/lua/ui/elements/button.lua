@@ -13,7 +13,7 @@ return function(props)
 			props.layout,
 		},
 		OnClick = props.OnClick,
-		Padding = props.Padding or "XS",
+		Padding = props.Padding or "S",
 	}(
 		Text{
 			Text = props.Text,

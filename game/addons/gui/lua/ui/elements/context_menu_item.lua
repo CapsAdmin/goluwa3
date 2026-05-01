@@ -150,7 +150,7 @@ return function(props)
 		AlignmentY = "center",
 		FitHeight = true,
 		GrowWidth = 1,
-		Padding = props.Padding or "XXS",
+		Padding = props.Padding or "M",
 		props.layout,
 	}
 	item_props.gui_element = {

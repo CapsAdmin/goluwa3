@@ -1,23 +1,27 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
+	props = props or {}
 	return Panel.New{
 		props,
 		{
-			Name = "Column",
+			Name = "MenuContainer",
 			OnSetProperty = theme.OnSetProperty,
+			transform = true,
 			layout = {
 				Direction = "y",
 				GrowWidth = 1,
 				FitHeight = true,
-				AlignmentX = "center",
-				ChildGap = "M",
+				AlignmentX = "stretch",
+				ChildGap = "none",
+				Padding = "none",
 				props.layout,
 			},
-			transform = true,
-			gui_element = true,
+			gui_element = {
+				OnDraw = function(self)
+					theme.active:DrawMenuContainer(theme.GetDrawContext(self))
+				end,
+			},
 			mouse_input = true,
 			clickable = true,
 			animation = true,

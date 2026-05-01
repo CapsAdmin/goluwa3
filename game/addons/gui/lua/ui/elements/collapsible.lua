@@ -27,8 +27,8 @@ return function(props)
 	local header_height = props.HeaderHeight
 	local header_mode = props.HeaderMode or "outline"
 	local header_text_color = props.HeaderTextColor or "text"
-	local header_padding = props.HeaderPadding or "XS"
-	local header_gap = props.HeaderGap or "XXS"
+	local header_padding = props.HeaderPadding or "M"
+	local header_gap = props.HeaderGap or "M"
 	local header_font_name = props.HeaderFontName or "body"
 	local header_font_size = props.HeaderFontSize or "M"
 	local content_padding = props.ContentPadding or "none"

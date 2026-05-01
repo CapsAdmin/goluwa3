@@ -70,7 +70,7 @@ return function(props)
 		OnSetProperty = theme.OnSetProperty,
 		transform = {
 			Size = state.mode == "vertical" and
-				Vec2(theme.GetSize("S"), 100) or
+				Vec2(theme.GetSize("M"), 100) or
 				(
 					state.mode == "2d" and
 					Vec2(100, 100) or
@@ -80,11 +80,11 @@ return function(props)
 		layout = {
 			{
 				MinSize = state.mode == "vertical" and
-					Vec2(theme.GetSize("S"), 100) or
+					Vec2(theme.GetSize("M"), 100) or
 					(
 						state.mode == "2d" and
 						Vec2(100, 100) or
-						Vec2(100, theme.GetSize("S"))
+						Vec2(100, theme.GetSize("M"))
 					),
 			},
 			props.layout,

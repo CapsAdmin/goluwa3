@@ -357,7 +357,7 @@ return function(props)
 				if is_v then track_v = s else track_h = s end
 			end,
 			transform = {
-				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
+				Size = is_v and Vec2(theme.GetSize("M"), 40) or Vec2(40, theme.GetSize("M")),
 			},
 			gui_element = {
 				BorderRadius = theme.GetRadius("small"),
@@ -384,7 +384,7 @@ return function(props)
 				s:AddLocalListener("OnTransformChanged", update_handle)
 			end,
 			transform = {
-				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
+				Size = is_v and Vec2(theme.GetSize("M"), 40) or Vec2(40, theme.GetSize("M")),
 			},
 			gui_element = {
 				BorderRadius = theme.GetRadius("small"),

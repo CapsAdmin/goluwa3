@@ -25,10 +25,15 @@ return function(props)
 
 	local function get_surface_color()
 		if state.disabled then return "clickable_disabled" end
+
 		if state.mode == "outline" then return "surface" end
+
 		if state.mode == "text" then return "surface" end
+
 		if state.pressed then return "secondary" end
+
 		if state.active then return theme.GetTheme():GetAccentTint(0.14) end
+
 		if state.hovered then return theme.GetTheme():GetAccentTint(0.08) end
 
 		return "primary"
@@ -57,7 +62,7 @@ return function(props)
 				DrawAngleOffset = Ang3(0, 0, 0),
 			},
 			layout = {
-				Padding = "XXS",
+				Padding = "M",
 				AlignmentX = "center",
 				AlignmentY = "center",
 				props.layout,
@@ -87,6 +92,7 @@ return function(props)
 				OnMouseInput = function(self, button, press, local_pos)
 					sync_state(self.Owner)
 					self:SetCursor(state.disabled and "arrow" or "hand")
+
 					if state.disabled then return end
 
 					if button == "button_1" then

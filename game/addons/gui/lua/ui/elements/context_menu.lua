@@ -3,7 +3,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
-local Frame = import("lua/ui/elements/frame.lua")
+local MenuContainer = import("lua/ui/elements/menu_container.lua")
 local theme = import("lua/ui/theme.lua")
 
 local function resolve_children(source)
@@ -219,7 +219,7 @@ return function(props)
 	end
 
 	local function create_menu_frame(level, anchor, placement, size)
-		return Frame{
+		return MenuContainer{
 			IsInternal = true,
 			Name = "ContextMenu",
 			transform = {
@@ -227,14 +227,8 @@ return function(props)
 				Position = props.Position or Vec2(100, 100),
 				Size = size or props.Size or "M",
 			},
-			Emphasis = 0,
-			Padding = "XS",
 			layout = {
 				Floating = true,
-				Direction = "y",
-				ChildGap = 0,
-				AlignmentX = "stretch",
-				FitHeight = true,
 				FitWidth = true,
 			},
 			OnMouseInput = function()

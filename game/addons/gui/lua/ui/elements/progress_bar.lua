@@ -14,7 +14,7 @@ return function(props)
 		},
 		layout = {
 			{
-				MinSize = Vec2(100, theme.GetSize("XXS")),
+				MinSize = Vec2(100, theme.GetSize("M")),
 			},
 			props.layout,
 		},

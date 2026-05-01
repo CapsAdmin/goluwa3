@@ -67,7 +67,7 @@ local function create_menu_button(definition, on_click, on_hover)
 				FitWidth = true,
 				AlignmentX = "center",
 				AlignmentY = "center",
-				Padding = definition.Padding or "XS",
+				Padding = definition.Padding or "M",
 			},
 			gui_element = {
 				BorderRadius = theme.GetRadius("small"),
@@ -211,7 +211,7 @@ return function(props)
 	end
 
 	bar = Frame{
-		Padding = props.Padding or "XXS",
+		Padding = props.Padding or "none",
 		Emphasis = props.Emphasis or 0,
 		layout = {
 			GrowWidth = props.GrowWidth ~= false and 1 or 0,

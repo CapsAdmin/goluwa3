@@ -5,67 +5,77 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local prototype = import("goluwa/prototype.lua")
-local DEFAULT_PRIMARY_HEX = "#2563eb"
-local DEFAULT_SIZES = {
-	none = 0,
-	line = 1,
-	XXXS = 4,
-	XXS = 6,
-	XS = 8,
-	S = 12,
-	M = 14,
-	L = 18,
-	XL = 24,
-	XXL = 32,
-	default = 14,
-	line_height = 4,
-}
-local DEFAULT_RADII = {
-	none = 0,
-	small = 4,
-	medium = 8,
-	large = 16,
-}
-local DEFAULT_FONT_SIZES = {
-	XS = 10,
-	S = 12,
-	M = 14,
-	L = 18,
-	XL = 24,
-	XXL = 30,
-	XXXL = 38,
-}
-
-local function copy_table(tbl)
-	local out = {}
-
-	for key, value in pairs(tbl or {}) do
-		out[key] = value
-	end
-
-	return out
-end
-
-local function merge_tables(base_tbl, override_tbl)
-	local merged = copy_table(base_tbl)
-
-	for key, value in pairs(override_tbl or {}) do
-		merged[key] = value
-	end
-
-	return merged
-end
-
 local BaseTheme = prototype.CreateTemplate("ui_theme_base")
 BaseTheme.Name = "base"
 BaseTheme:GetSet("ThemeContext", nil)
 BaseTheme:GetSet("Palette", nil)
-BaseTheme:GetSet("Sizes", DEFAULT_SIZES)
-BaseTheme:GetSet("Radii", DEFAULT_RADII)
-BaseTheme:GetSet("FontSizes", DEFAULT_FONT_SIZES)
+BaseTheme:GetSet(
+	"Sizes",
+	{
+		none = 0,
+		line = 1,
+		XXS = 4,
+		XS = 8,
+		sm = 12,
+		md = 17,
+		LG = 24,
+		XL = 32,
+		XXL = 48,
+		section = 80,
+		default = 14,
+		line_height = 4,
+	}
+)
+BaseTheme:GetSet(
+	"Radii",
+	{
+		none = 0,
+		xs = 2,
+		sm = 3,
+		md = 4,
+		lg = 6,
+		pill = 9999,
+		full = 9999,
+	}
+)
+BaseTheme:GetSet(
+	"FontSizes",
+	{
+		-- Display hierarchy
+		hero_display = 56,
+		display_lg = 40,
+		display_md = 34,
+		-- Lead
+		lead = 28,
+		lead_airy = 24,
+		tagline = 21,
+		-- Body hierarchy
+		body_strong = 17,
+		body = 17,
+		dense_link = 17,
+		-- Caption
+		caption = 14,
+		caption_strong = 14,
+		-- Button
+		button_large = 18,
+		button_utility = 14,
+		-- Fine print
+		fine_print = 12,
+		micro_legal = 10,
+		nav_link = 12,
+		-- Legacy aliases
+		XS = 10,
+		S = 12,
+		M = 14,
+		L = 18,
+		XL = 24,
+		XXL = 30,
+		XXXL = 38,
+	}
+)
 BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
-BaseTheme:GetSet("PrimaryColor", nil)
+BaseTheme:GetSet("PrimaryColor", Color.FromHex("#0066cc"))
 BaseTheme:GetSet("DefaultFontPath", "")
 BaseTheme:GetSet("CurrentSurface", nil)
 BaseTheme:GetSet("SurfaceStack", {})
@@ -78,11 +88,17 @@ function BaseTheme:New(theme_context)
 end
 
 function BaseTheme:CopyTable(tbl)
-	return copy_table(tbl)
+	return table.shallow_copy(tbl)
 end
 
 function BaseTheme:MergeTables(base_tbl, override_tbl)
-	return merge_tables(base_tbl, override_tbl)
+	local merged = copy_table(base_tbl)
+
+	for key, value in pairs(override_tbl or {}) do
+		merged[key] = value
+	end
+
+	return merged
 end
 
 function BaseTheme:GetPresetTable()
@@ -96,69 +112,84 @@ function BaseTheme:GetPresetTable()
 end
 
 function BaseTheme:CreatePalette()
-	local primary = self:GetPrimaryColor() or Color.FromHex(DEFAULT_PRIMARY_HEX)
+	local primary = self:GetPrimaryColor()
+	local text = Color.FromHex("#1d1d1f")
+	local text_muted = Color.FromHex("#7a7a7a")
+	local surface = Color.FromHex("#ffffff")
+	local surface_alt = Color.FromHex("#f5f5f7")
 	local semantic_palette = ColorPalette.New()
 	semantic_palette:SetShades{
-		Color.FromHex("#f8fafc"),
-		Color.FromHex("#cbd5e1"),
-		Color.FromHex("#080a0e"),
+		Color.FromHex("#f5f5f7"), -- parchment
+		Color.FromHex("#272729"), -- near-black tile
+		Color.FromHex("#1d1d1f"), -- ink
 	}
 	semantic_palette:SetColors{
 		red = Color.FromHex("#dc2626"),
 		yellow = Color.FromHex("#d97706"),
-		blue = Color.FromHex("#2563eb"),
+		blue = primary,
 		green = Color.FromHex("#16a34a"),
 		purple = Color.FromHex("#7c3aed"),
 		brown = Color.FromHex("#8b5e3c"),
 	}
 	local base_map = semantic_palette:GetBaseMap()
 	semantic_palette:SetMap{
+		-- Semantic UI tokens
 		dashed_underline = Color(0.2, 0.2, 0.2, 0.18),
 		property_selection = Color.FromHex("#dbeafe"),
 		text_selection = Color.FromHex("#93c5fd"):SetAlpha(0.5),
-		underline = Color.FromHex("#2563eb"),
-		url_color = Color.FromHex("#2563eb"),
+		underline = primary,
+		url_color = primary,
 		actual_black = Color(0, 0, 0, 1),
 		primary = primary,
-		secondary = Color.FromHex("#dbeafe"),
-		button_color = Color.FromHex("#2563eb"),
+		primary_focus = Color.FromHex("#0071e3"),
+		primary_on_dark = Color.FromHex("#2997ff"),
+		-- Background / surface
+		secondary = Color.FromHex("#fafafc"),
+		button_color = primary,
 		positive = base_map.green,
 		neutral = base_map.yellow,
 		negative = base_map.red,
-		heading = Color.FromHex("#0f172a"),
-		default = Color.FromHex("#0f172a"),
-		text = Color.FromHex("#0f172a"),
-		text_on_accent = Color.FromHex("#0f172a"),
-		foreground = Color.FromHex("#0f172a"),
-		text_background = Color.FromHex("#ffffff"),
-		main_background = Color.FromHex("#f1f5f9"),
-		surface = Color.FromHex("#ffffff"),
-		surface_alt = Color.FromHex("#e2e8f0"),
+		-- Text
+		heading = text,
+		default = text,
+		text = text,
+		text_on_accent = Color.FromHex("#f0f0f0"),
+		text_on_dark = Color.FromHex("#ffffff"),
+		text_on_dark_muted = Color.FromHex("#cccccc"),
+		text_disabled = text_muted,
+		foreground = text,
+		text_background = surface,
+		main_background = surface_alt,
+		surface = surface,
+		surface_alt = surface_alt,
+		surface_pearl = Color.FromHex("#fafafc"),
+		surface_tile_1 = Color.FromHex("#272729"),
+		surface_tile_2 = Color.FromHex("#2a2a2c"),
+		surface_tile_3 = Color.FromHex("#252527"),
+		surface_black = Color.FromHex("#000000"),
+		-- Scrollbars
 		scrollbar_track = Color(0, 0, 0, 0.08),
-		scrollbar = Color(0.1, 0.16, 0.22, 0.35),
-		border = Color.FromHex("#cbd5e1"),
+		scrollbar = Color(0.165, 0.165, 0.165, 0.35),
+		-- Borders
+		border = Color.FromHex("#e0e0e0"),
+		divider_soft = Color.FromHex("#f0f0f0"),
+		-- Interactive
 		invisible = Color(0, 0, 0, 0),
-		clickable_disabled = Color.FromHex("#cbd5e1"),
+		clickable_disabled = text_muted,
 		button_normal = primary,
-		text_disabled = Color.FromHex("#0f172a"):SetAlpha(0.45),
+		-- Icon / chip surfaces
+		surface_chip_translucent = Color.FromHex("#d2d2d7"),
 	}
 	semantic_palette.AdjustmentOptions = {target_contrast = 4.5}
 	return semantic_palette
 end
 
 function BaseTheme:Initialize()
-	if self:GetPrimaryColor() == nil then
-		self:SetPrimaryColor(Color.FromHex(DEFAULT_PRIMARY_HEX))
-	end
-
 	if self:GetDefaultFontPath() == "" then
 		self:SetDefaultFontPath(fonts.GetDefaultSystemFontPath())
 	end
 
 	self:SetPalette(self:CreatePalette())
-	self:SetSizes(copy_table(DEFAULT_SIZES))
-	self:SetRadii(copy_table(DEFAULT_RADII))
-	self:SetFontSizes(copy_table(DEFAULT_FONT_SIZES))
 	self:SetCurrentSurface(nil)
 	self:SetSurfaceStack({})
 	self:SetFontStyles{
@@ -232,25 +263,13 @@ function BaseTheme:ClearSurfaceStack()
 	self:SetCurrentSurface(nil)
 end
 
-function BaseTheme:WithSurface(surface, callback, ...)
-	if type(callback) ~= "function" then error("surface callback is required", 2) end
-
-	self:PushSurface(surface)
-	local ok, a, b, c, d, e, f = xpcall(callback, debug.traceback, ...)
-	self:PopSurface(surface)
-
-	if not ok then error(a, 2) end
-
-	return a, b, c, d, e, f
-end
-
 function BaseTheme:GetColorOn(name, surface)
 	return self:GetColor(name, {surface = surface})
 end
 
 function BaseTheme:GetColor(name, opts)
 	name = name or "primary"
-	local background = opts
+	local background
 
 	if type(opts) == "table" then background = opts.surface end
 
@@ -303,7 +322,7 @@ end
 
 function BaseTheme:GetRadius(name)
 	local radii = self:GetRadii()
-	return radii[name or "medium"] or radii.medium
+	return radii[name or "md"] or radii.md
 end
 
 function BaseTheme:ResolveFontSize(size_name)
@@ -360,12 +379,13 @@ end
 function BaseTheme:DrawRoundRect(x, y, w, h, radius, color, alpha_multiplier)
 	render2d.SetTexture(nil)
 	self:SetRenderColor(color, alpha_multiplier)
-
-	if radius > 0 then render2d.PushBorderRadius(radius) end
-
+	render2d.PushBorderRadius(radius or 0)
 	render2d.DrawRect(x, y, w, h)
+	render2d.PopBorderRadius()
+end
 
-	if radius > 0 then render2d.PopBorderRadius() end
+function BaseTheme:DrawRoundRectToken(x, y, w, h, radius, token, alpha)
+	self:DrawRoundRect(x, y, w, h, radius, self:GetColor(token), alpha)
 end
 
 function BaseTheme:DrawRoundOutline(x, y, w, h, radius, color, alpha_multiplier, thickness)
@@ -427,18 +447,23 @@ end
 
 function BaseTheme:DrawValueField(draw, opts)
 	opts = opts or {}
-	local radius = opts.radius or draw.radius or self:GetRadius("medium")
-	local fill = opts.fill
+	local radius = opts.radius or draw.radius or self:GetRadius("md")
 	local fill_alpha = opts.fill_alpha
 
-	if fill == nil and opts.state == "editing" then
+	if fill_alpha == nil then fill_alpha = draw.alpha end
+
+	local fill
+
+	if opts.fill ~= nil then
+		fill = opts.fill
+	elseif opts.state == "editing" then
 		fill = opts.edit_fill or "surface_alt"
-	elseif fill == nil and opts.state == "hovered" then
+	elseif opts.state == "hovered" then
 		fill = opts.hover_fill or self:GetColor("surface_alt"):Copy():SetAlpha(0.45)
 	end
 
 	if fill ~= nil then
-		self:DrawBox(draw.size, {fill = fill, fill_alpha = fill_alpha or draw.alpha, radius = radius})
+		self:DrawBox(draw.size, {fill = fill, fill_alpha = fill_alpha, radius = radius})
 	end
 
 	if opts.outline ~= false and opts.state == "editing" then
@@ -503,51 +528,85 @@ function BaseTheme:DrawIcon(name, size, opts)
 	end
 end
 
+-- Shared icon drawing: pushes color, sets texture, draws lines, pops color
+function BaseTheme:DrawIconLines(lines, opts)
+	opts = opts or {}
+	local thickness = opts.thickness or 1.5
+	local color = opts.color or self:GetColor("text")
+	render2d.PushColor(color:Unpack())
+	render2d.SetTexture(nil)
+
+	for _, line in ipairs(lines) do
+		gfx.DrawLine(line[1], line[2], line[3], line[4], thickness)
+	end
+
+	render2d.PopColor()
+end
+
 function BaseTheme:DrawDisclosureIcon(size, opts)
 	opts = opts or {}
 	local icon_size = (opts.size or 10) * 0.6
-	local thickness = opts.thickness or 2
 	local progress = opts.open_fraction or 0
-	local color = opts.color or self:GetColor("text")
 	local center = size / 2
 	local half = icon_size / 2
 	render2d.PushMatrix()
 	render2d.Translatef(center.x, center.y)
 	render2d.Rotate(math.rad(progress * 90))
-	render2d.PushColor(color:Unpack())
-	render2d.SetTexture(nil)
-	gfx.DrawLine(-half * 0.7, -half, half * 0.7, 0, thickness)
-	gfx.DrawLine(-half * 0.7, half, half * 0.7, 0, thickness)
-	render2d.PopColor()
+	self:DrawIconLines(
+		{
+			{-half * 0.7, -half, half * 0.7, 0},
+			{-half * 0.7, half, half * 0.7, 0},
+		},
+		opts
+	)
 	render2d.PopMatrix()
 end
 
 function BaseTheme:DrawDropdownIndicatorIcon(size, opts)
 	opts = opts or {}
 	local icon_size = opts.size or 8
-	local thickness = opts.thickness or 2
-	local color = opts.color or self:GetColor("text")
 	local center = size / 2
 	local half = icon_size / 2
-	render2d.PushColor(color:Unpack())
-	render2d.SetTexture(nil)
-	gfx.DrawLine(center.x - half, center.y - half * 0.3, center.x, center.y + half * 0.5, thickness)
-	gfx.DrawLine(center.x, center.y + half * 0.5, center.x + half, center.y - half * 0.3, thickness)
-	render2d.PopColor()
+	self:DrawIconLines(
+		{
+			{center.x - half, center.y - half * 0.3, center.x, center.y + half * 0.5},
+			{center.x, center.y + half * 0.5, center.x + half, center.y - half * 0.3},
+		},
+		opts
+	)
 end
 
 function BaseTheme:DrawCloseIcon(size, opts)
 	opts = opts or {}
 	local icon_size = opts.size or 8
-	local thickness = opts.thickness or 2
-	local color = opts.color or self:GetColor("text")
 	local center = size / 2
 	local half = icon_size / 2
-	render2d.PushColor(color:Unpack())
-	render2d.SetTexture(nil)
-	gfx.DrawLine(center.x - half, center.y - half, center.x + half, center.y + half, thickness)
-	gfx.DrawLine(center.x - half, center.y + half, center.x + half, center.y - half, thickness)
-	render2d.PopColor()
+	self:DrawIconLines(
+		{
+			{center.x - half, center.y - half, center.x + half, center.y + half},
+			{center.x - half, center.y + half, center.x + half, center.y - half},
+		},
+		opts
+	)
+end
+
+-- Shared hover animation: animates glow_alpha on hover state change
+function BaseTheme:AnimateHover(pnl, anim, state, time)
+	if state.hovered ~= anim.last_hovered then
+		pnl.animation:Animate{
+			id = "glow_alpha",
+			get = function()
+				return anim.glow_alpha
+			end,
+			set = function(value)
+				anim.glow_alpha = value
+			end,
+			to = state.hovered and 1 or 0,
+			interpolation = "inOutSine",
+			time = time,
+		}
+		anim.last_hovered = state.hovered
+	end
 end
 
 function BaseTheme:UpdateButtonAnimations(state)
@@ -558,22 +617,7 @@ function BaseTheme:UpdateButtonAnimations(state)
 	local anim = state.anim
 	local hovered = state.hovered and not state.disabled
 	local pressed = hovered and state.pressed
-
-	if hovered ~= anim.last_hovered then
-		pnl.animation:Animate{
-			id = "glow_alpha",
-			get = function()
-				return anim.glow_alpha
-			end,
-			set = function(value)
-				anim.glow_alpha = value
-			end,
-			to = hovered and 1 or 0,
-			interpolation = "inOutSine",
-			time = 0.12,
-		}
-		anim.last_hovered = hovered
-	end
+	self:AnimateHover(pnl, anim, {hovered = hovered}, 0.12)
 
 	if pressed ~= anim.last_pressed then
 		pnl.animation:Animate{
@@ -596,7 +640,7 @@ function BaseTheme:UpdateButtonAnimations(state)
 			set = function(value)
 				pnl.transform:SetDrawScaleOffset(value)
 			end,
-			to = pressed and (Vec2() + 0.985) or (Vec2(1, 1)),
+			to = pressed and (Vec2() + 0.95) or (Vec2(1, 1)),
 			interpolation = "inOutSine",
 			time = 0.08,
 		}
@@ -610,20 +654,9 @@ function BaseTheme:UpdateSliderAnimations(state)
 	if not pnl then return end
 
 	local anim = state.anim
+	self:AnimateHover(pnl, anim, state, 0.15)
 
 	if state.hovered ~= anim.last_hovered then
-		pnl.animation:Animate{
-			id = "glow_alpha",
-			get = function()
-				return anim.glow_alpha
-			end,
-			set = function(value)
-				anim.glow_alpha = value
-			end,
-			to = state.hovered and 1 or 0,
-			interpolation = "inOutSine",
-			time = 0.15,
-		}
 		pnl.animation:Animate{
 			id = "knob_scale",
 			get = function()
@@ -633,13 +666,8 @@ function BaseTheme:UpdateSliderAnimations(state)
 				anim.knob_scale = value
 			end,
 			to = state.hovered and 1.2 or 1,
-			interpolation = {
-				type = "spring",
-				bounce = 0.5,
-				duration = 80,
-			},
+			interpolation = {type = "spring", bounce = 0.5, duration = 80},
 		}
-		anim.last_hovered = state.hovered
 	end
 end
 
@@ -649,22 +677,7 @@ function BaseTheme:UpdateCheckboxAnimations(state)
 	if not pnl then return end
 
 	local anim = state.anim
-
-	if state.hovered ~= anim.last_hovered then
-		pnl.animation:Animate{
-			id = "glow_alpha",
-			get = function()
-				return anim.glow_alpha
-			end,
-			set = function(value)
-				anim.glow_alpha = value
-			end,
-			to = state.hovered and 1 or 0,
-			interpolation = "inOutSine",
-			time = 0.15,
-		}
-		anim.last_hovered = state.hovered
-	end
+	self:AnimateHover(pnl, anim, state, 0.15)
 
 	if state.value ~= anim.last_value then
 		pnl.animation:Animate{
@@ -688,75 +701,80 @@ end
 
 function BaseTheme:DrawButton(size, state)
 	local anim = state.anim
-	local radius = self:GetRadius("medium")
-	local fill_name
-	local border = self:GetColor("border")
+	local radius = self:GetRadius("md")
+	-- Resolve fill token based on state
+	local fill_name = self:ResolveButtonFillName(state)
+	local fill = self:ResolveButtonFill(state, fill_name)
+	local surface = fill_name or "surface"
+	self:PushSurface(surface)
 
-	if state.disabled then
-		fill_name = "clickable_disabled"
-	elseif state.mode == "outline" then
-		fill_name = "surface"
+	-- Draw fill
+	if state.mode == "outline" then
+		self:DrawRoundRect(0, 0, size.x, size.y, radius, fill, 0.35 + anim.glow_alpha * 0.15)
 	elseif state.mode == "text" then
-		fill_name = nil
-	elseif state.pressed then
-		fill_name = "secondary"
-	elseif state.active then
-		fill_name = "primary"
-	elseif state.hovered then
-		fill_name = "primary"
+		if fill then self:DrawRoundRect(0, 0, size.x, size.y, radius, fill) end
 	else
-		fill_name = "primary"
+		self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
 	end
 
-	local fill
+	if state.mode ~= "text" then
+		self:DrawButtonOutline(size, radius, state, anim)
+	end
 
+	self:PopSurface(surface)
+end
+
+function BaseTheme:ResolveButtonFillName(state)
+	if state.disabled then
+		return "clickable_disabled"
+	elseif state.mode == "outline" then
+		return "surface"
+	elseif state.mode == "text" then
+		return nil
+	else
+		return "primary"
+	end
+end
+
+function BaseTheme:ResolveButtonFill(state, fill_name)
 	if state.mode == "text" then
 		if state.disabled then
-			fill = self:GetColor("clickable_disabled")
-		elseif state.pressed then
-			fill = self:GetAccentTint(0.06)
+			return self:GetColor("clickable_disabled")
+		elseif state.pressed or state.hovered then
+			return self:GetAccentTint(0.06)
 		elseif state.active then
-			fill = self:GetAccentTint(0.08)
-		elseif state.hovered then
-			fill = self:GetAccentTint(0.08)
+			return self:GetAccentTint(0.08)
 		else
-			fill = nil
+			return nil
 		end
 	elseif fill_name == "primary" then
-		fill = state.active and
-			self:GetAccentTint(0.14) or
-			(
-				state.hovered and
-				self:GetAccentTint(0.08) or
-				self:GetColor(fill_name)
-			)
+		if state.active then
+			return self:GetAccentTint(0.14)
+		elseif state.hovered then
+			return self:GetAccentTint(0.08)
+		else
+			return self:GetColor("primary")
+		end
 	else
-		fill = self:GetColor(fill_name)
+		return self:GetColor(fill_name)
 	end
+end
 
-	local surface = fill_name or "surface"
-
-	self:WithSurface(surface, function()
-		if state.mode == "outline" then
-			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill, 0.35 + anim.glow_alpha * 0.15)
-		elseif state.mode == "text" then
-			if fill then
-				self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
-			end
-		else
-			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
-		end
-
-		if state.mode == "text" then
-			if state.active and not state.disabled then
-				self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.5, 1)
-			end
-		elseif state.active and not state.disabled then
-			self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), 0.6, 1)
-		else
-			self:DrawRoundOutline(0, 0, size.x, size.y, radius, border, 0.55, 1)
-		end
-	end)
+function BaseTheme:DrawButtonOutline(size, radius, state, anim)
+	if state.active and not state.disabled then
+		self:DrawRoundOutline(
+			0,
+			0,
+			size.x,
+			size.y,
+			radius,
+			self:GetColor("primary"),
+			state.mode == "text" and 0.5 or 0.6,
+			1
+		)
+	else
+		self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("divider_soft"), 0.55, 1)
+	end
 end
 
 function BaseTheme:DrawButtonPost(size, state)
@@ -764,16 +782,16 @@ function BaseTheme:DrawButtonPost(size, state)
 
 	if not state.hovered or state.disabled then return end
 
-	local radius = self:GetRadius("medium")
+	local radius = self:GetRadius("md")
 	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.45, 1)
 end
 
 function BaseTheme:DrawMenuButton(size, state, opts)
 	opts = opts or {}
-	local radius = opts.radius or self:GetRadius("small")
+	local radius = opts.radius or self:GetRadius("xs")
 	local fill = self:GetColor("invisible")
-	local hovered_alpha = opts.hovered_alpha or 0.18
-	local pressed_alpha = opts.pressed_alpha or 0.28
+	local hovered_alpha = opts.hovered_alpha or 0.1
+	local pressed_alpha = opts.pressed_alpha or 0.15
 	local active_border_alpha = opts.active_border_alpha or 0.7
 
 	if state.disabled then
@@ -809,8 +827,17 @@ end
 
 function BaseTheme:DrawPanelFillOutline(size, fill_color, outline_color, opts)
 	opts = opts or {}
-	self:DrawPanelFill(size, fill_color, opts.fill_alpha, opts.radius)
-	self:DrawPanelOutline(size, outline_color or "border", opts.outline_alpha, opts.radius, opts.thickness)
+	self:DrawBox(
+		size,
+		{
+			fill = fill_color,
+			fill_alpha = opts.fill_alpha,
+			outline = outline_color or "border",
+			outline_alpha = opts.outline_alpha,
+			radius = opts.radius or 0,
+			thickness = opts.thickness or 1,
+		}
+	)
 end
 
 function BaseTheme:DrawSelectionFill(size, color, alpha)
@@ -888,48 +915,29 @@ end
 
 function BaseTheme:DrawDropIndicator(size, opts)
 	opts = opts or {}
-	self:SetRenderColor(self:GetColor(opts.color or "primary"), opts.alpha)
+	local color = self:GetColor(opts.color or "primary")
+	local thickness = opts.thickness or 2
+	local w = math.max(1, size.x)
+	local h = math.max(1, size.y)
+	self:SetRenderColor(color, opts.alpha)
 	render2d.SetTexture(nil)
 
 	if opts.source then
-		self:DrawRoundOutline(
-			0,
-			0,
-			math.max(1, size.x),
-			math.max(1, size.y),
-			0,
-			self:GetColor(opts.color or "primary"),
-			opts.alpha,
-			1
-		)
+		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, 1)
 	end
 
 	if opts.position == "inside" then
-		self:DrawRoundOutline(
-			0,
-			0,
-			math.max(1, size.x),
-			math.max(1, size.y),
-			0,
-			self:GetColor(opts.color or "primary"),
-			opts.alpha,
-			2
-		)
+		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, 2)
 	elseif opts.position == "before" then
-		render2d.DrawRect(0, 0, math.max(1, size.x), opts.thickness or 2)
+		render2d.DrawRect(0, 0, w, thickness)
 	elseif opts.position == "after" then
-		render2d.DrawRect(
-			0,
-			math.max(0, size.y - (opts.thickness or 2)),
-			math.max(1, size.x),
-			opts.thickness or 2
-		)
+		render2d.DrawRect(0, math.max(0, h - thickness), w, thickness)
 	end
 end
 
 function BaseTheme:DrawPreviewTileFrame(size, opts)
 	opts = opts or {}
-	local radius = opts.radius or self:GetRadius("large")
+	local radius = opts.radius or self:GetRadius("lg")
 	local inset = opts.inset or 0
 	local outline_alpha = opts.outline_alpha or 0.05
 	self:DrawBox(
@@ -963,13 +971,23 @@ function BaseTheme:DrawSurface(draw, color)
 	self:DrawPanelFill(draw.size, color or "surface", draw.alpha, draw.radius)
 end
 
+function BaseTheme:DrawTrack(x, y, w, h, fill_extent, radius, track_color, accent_color)
+	self:DrawRoundRect(x, y, w, h, radius, track_color)
+
+	if h <= w then
+		self:DrawRoundRect(x, y, fill_extent, h, radius, accent_color)
+	else
+		self:DrawRoundRect(x, y, w, fill_extent, radius, accent_color)
+	end
+end
+
 function BaseTheme:DrawSlider(size, state)
 	local anim = state.anim
 
 	if state.hovered then self:UpdateSliderAnimations(state) end
 
-	local knob_w = self:GetSize("S")
-	local knob_h = self:GetSize("S")
+	local knob_w = self:GetSize("sm")
+	local knob_h = self:GetSize("sm")
 	local track = self:GetColor("surface_alt")
 	local accent = self:GetColor("primary")
 	local border = self:GetColor("border")
@@ -990,16 +1008,32 @@ function BaseTheme:DrawSlider(size, state)
 		local normalized = (value - min_value) / (max_value - min_value)
 		local track_w = self:GetSize("XXS")
 		local track_x = (size.x - track_w) / 2
-		self:DrawRoundRect(track_x, knob_h / 2, track_w, size.y - knob_h, track_w / 2, track)
-		self:DrawRoundRect(track_x, knob_h / 2, track_w, normalized * (size.y - knob_h), track_w / 2, accent)
+		self:DrawTrack(
+			track_x,
+			knob_h / 2,
+			track_w,
+			size.y - knob_h,
+			normalized * (size.y - knob_h),
+			track_w / 2,
+			track,
+			accent
+		)
 		knob_x = (size.x - knob_w) / 2
 		knob_y = normalized * (size.y - knob_h)
 	else
 		local normalized = (value - min_value) / (max_value - min_value)
 		local track_h = self:GetSize("XXS")
 		local track_y = (size.y - track_h) / 2
-		self:DrawRoundRect(knob_w / 2, track_y, size.x - knob_w, track_h, track_h / 2, track)
-		self:DrawRoundRect(knob_w / 2, track_y, normalized * (size.x - knob_w), track_h, track_h / 2, accent)
+		self:DrawTrack(
+			knob_w / 2,
+			track_y,
+			size.x - knob_w,
+			track_h,
+			normalized * (size.x - knob_w),
+			track_h / 2,
+			track,
+			accent
+		)
 		knob_x = normalized * (size.x - knob_w)
 		knob_y = (size.y - knob_h) / 2
 	end
@@ -1041,51 +1075,67 @@ function BaseTheme:DrawSlider(size, state)
 	end
 end
 
-function BaseTheme:DrawCheckbox(size, state)
-	local anim = state.anim
-
-	if state.hovered then self:UpdateCheckboxAnimations(state) end
-
-	local box_size = self:GetSize("M")
-	local x = 0
-	local y = (size.y - box_size) / 2
-	self:DrawRoundRect(x, y, box_size, box_size, self:GetRadius("small"), self:GetColor("surface"))
-	self:DrawRoundOutline(x, y, box_size, box_size, 4, self:GetColor("border"), 1, 1)
-
-	if anim.check_anim > 0.01 then
-		local inset = 3 + (1 - anim.check_anim) * 3
-		self:DrawRoundRect(
-			x + inset,
-			y + inset,
-			box_size - inset * 2,
-			box_size - inset * 2,
-			2,
-			self:GetColor("primary"),
-			anim.check_anim
-		)
-	end
-end
-
-function BaseTheme:DrawButtonRadio(size, state)
+-- Shared checkable control drawing: outer shape + outline + inner fill when checked
+-- inner_draw: function(draw_x, draw_y, draw_size, draw_radius, color, alpha) -> draws the inner checked shape
+function BaseTheme:DrawCheckable(size, state, opts)
 	local anim = state.anim
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
-	local radius = math.floor(box_size / 2)
+	local radius = opts.radius or self:GetRadius("xs")
 	self:DrawRoundRect(x, y, box_size, box_size, radius, self:GetColor("surface"))
 	self:DrawRoundOutline(x, y, box_size, box_size, radius, self:GetColor("border"), 1, 1)
 
 	if anim.check_anim > 0.01 then
-		local dot = box_size * 0.42 * anim.check_anim
-		local dot_x = x + box_size / 2 - dot / 2
-		local dot_y = y + box_size / 2 - dot / 2
-		self:DrawRoundRect(dot_x, dot_y, dot, dot, math.floor(dot / 2), self:GetColor("primary"))
+		opts.inner_draw(x, y, box_size, radius, anim.check_anim)
 	end
+end
+
+function BaseTheme:DrawCheckbox(size, state)
+	if state.hovered then self:UpdateCheckboxAnimations(state) end
+
+	self:DrawCheckable(
+		size,
+		state,
+		{
+			radius = self:GetRadius("xs"),
+			inner_draw = function(x, y, box_size, radius, anim_val)
+				local inset = 3 + (1 - anim_val) * 3
+				self:DrawRoundRect(
+					x + inset,
+					y + inset,
+					box_size - inset * 2,
+					box_size - inset * 2,
+					2,
+					self:GetColor("primary"),
+					anim_val
+				)
+			end,
+		}
+	)
+end
+
+function BaseTheme:DrawButtonRadio(size, state)
+	if state.hovered then self:UpdateCheckboxAnimations(state) end
+
+	self:DrawCheckable(
+		size,
+		state,
+		{
+			radius = math.floor(self:GetSize("M") / 2),
+			inner_draw = function(x, y, box_size, radius, anim_val)
+				local dot = box_size * 0.42 * anim_val
+				local dot_x = x + box_size / 2 - dot / 2
+				local dot_y = y + box_size / 2 - dot / 2
+				self:DrawRoundRect(dot_x, dot_y, dot, dot, math.floor(dot / 2), self:GetColor("primary"))
+			end,
+		}
+	)
 end
 
 function BaseTheme:DrawFrame(draw, emphasis)
 	local size = draw.size
-	local radius = self:GetRadius("medium")
+	local radius = self:GetRadius("md")
 	self:DrawBox(size, {fill = "surface", fill_alpha = draw.alpha, radius = radius})
 end
 
@@ -1095,46 +1145,67 @@ function BaseTheme:DrawFramePost(draw)
 		{
 			outline = "border",
 			outline_alpha = draw.alpha,
-			radius = self:GetRadius("medium"),
+			radius = self:GetRadius("md"),
+			thickness = 1,
+		}
+	)
+end
+
+function BaseTheme:DrawHeader(draw)
+	local size = draw.size
+	self:DrawBox(
+		size,
+		{fill = "surface_alt", fill_alpha = draw.alpha, radius = self:GetRadius("none")}
+	)
+	self:DrawLine("border", draw.alpha, size, "horizontal")
+end
+
+function BaseTheme:DrawProgressBar(size, state, color)
+	local value = math.clamp(state.value or 0, 0, 1)
+	color = self:ResolveSurfaceFill(color, "primary")
+	local radius = math.min(math.floor(size.y / 2), self:GetRadius("pill"))
+	self:DrawBox(
+		size,
+		{
+			fill = "surface_alt",
+			outline = "border",
+			outline_alpha = 1,
+			radius = radius,
+			thickness = 1,
+		}
+	)
+	self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
+end
+
+function BaseTheme:DrawDivider(draw)
+	self:DrawLine(0, draw.alpha, draw.size, "auto")
+end
+
+function BaseTheme:DrawMenuContainer(draw)
+	self:DrawBox(
+		draw.size,
+		{
+			fill = "surface",
+			fill_alpha = draw.alpha,
+			radius = self:GetRadius("xs"),
+			outline = "border",
+			outline_alpha = draw.alpha,
 			thickness = 1,
 		}
 	)
 end
 
 function BaseTheme:DrawMenuSpacer(size, vertical)
-	self:SetRenderColor(self:GetColor("border"), 0.8)
-	render2d.SetTexture(nil)
-
-	if vertical then
-		render2d.DrawRect(size.x / 2, 0, 1, size.y)
-	else
-		render2d.DrawRect(0, size.y / 2, size.x, 1)
-	end
+	self:DrawLine(0, 0.8, size, vertical and "vertical" or "horizontal")
 end
 
-function BaseTheme:DrawHeader(draw)
-	local size = draw.size
-	self:DrawBox(size, {fill = "surface_alt", fill_alpha = draw.alpha, radius = self:GetRadius("none")})
-	self:SetRenderColor(self:GetColor("border", "surface_alt"), draw.alpha)
+-- Draw a 1px line: color token, alpha, size, orientation ("auto", "horizontal", "vertical")
+function BaseTheme:DrawLine(color_token, alpha, size, orientation)
+	self:SetRenderColor(self:GetColor(color_token or "border"), alpha)
 	render2d.SetTexture(nil)
-	render2d.DrawRect(0, size.y - 1, size.x, 1)
-end
+	local horiz = orientation == "auto" and size.x > size.y or orientation == "horizontal"
 
-function BaseTheme:DrawProgressBar(size, state, color)
-	local value = math.clamp(state.value or 0, 0, 1)
-	color = self:ResolveSurfaceFill(color, "primary")
-	local radius = math.min(math.floor(size.y / 2), self:GetRadius("large"))
-	self:DrawBox(size, {fill = "surface_alt", radius = radius})
-	self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
-	self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = 1, thickness = 1})
-end
-
-function BaseTheme:DrawDivider(draw)
-	local size = draw.size
-	self:SetRenderColor(self:GetColor("border"), draw.alpha)
-	render2d.SetTexture(nil)
-
-	if size.x > size.y then
+	if horiz then
 		render2d.DrawRect(0, math.floor(size.y / 2), size.x, 1)
 	else
 		render2d.DrawRect(math.floor(size.x / 2), 0, 1, size.y)

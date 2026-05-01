@@ -174,10 +174,8 @@ return function(props)
 	local selected_key = props.SelectedKey
 	local number_precision = props.NumberPrecision or 2
 	local value_width = props.ValueWidth or 220
-	local compact_font_size = props.FontSize or "XS"
-	local compact_padding = props.Padding or "XXXS"
-	local compact_gap = props.ChildGapSize or "XXXS"
-	local compact_row_height = props.RowHeight or 28
+	local compact_font_size = props.FontSize or "S"
+	local compact_row_height = props.RowHeight or theme.GetSize("M") * 2
 	local shared_key_width = props.KeyWidth or 180
 	local divider_width = props.DividerWidth or 6
 	local divider_draw_alpha = props.DividerDrawAlpha or 1
@@ -320,8 +318,6 @@ return function(props)
 			value_width = value_width,
 			row_height = compact_row_height,
 			font_size = compact_font_size,
-			padding = compact_padding,
-			gap = compact_gap,
 			number_precision = number_precision,
 			get_precision = get_precision,
 			vector_info = vector_info,
@@ -345,7 +341,6 @@ return function(props)
 				Text = node.ButtonText or node.ActionText or "Run",
 				FontSize = compact_font_size,
 				Mode = node.Mode or "outline",
-				Padding = compact_padding,
 				OnClick = function()
 					trigger_action(node, key, path)
 				end,
@@ -415,7 +410,6 @@ return function(props)
 				MinSize = Vec2(0, get_row_height(entry.node)),
 				MaxSize = Vec2(0, get_row_height(entry.node)),
 				AlignmentY = "center",
-				Padding = compact_padding,
 			},
 			gui_element = {
 				Clipping = true,
@@ -483,7 +477,6 @@ return function(props)
 				MinSize = Vec2(0, get_row_height(entry.node)),
 				MaxSize = Vec2(0, get_row_height(entry.node)),
 				AlignmentY = entry.node.Multiline and "start" or "center",
-				Padding = compact_padding,
 			},
 			gui_element = {
 				OnDraw = function(self)
@@ -683,13 +676,11 @@ return function(props)
 			TooltipMaxWidth = 420,
 			HeaderMode = "filled",
 			HeaderHeight = get_row_height(node),
-			HeaderPadding = compact_padding,
 			HeaderGap = compact_gap,
 			HeaderFontName = "body",
 			HeaderFontSize = compact_font_size,
 			HeaderTextColor = "text_on_accent",
 			HeaderIconColor = "text_on_accent",
-			ContentPadding = "none",
 			Collapsed = collapsed,
 			OnToggle = function(value)
 				collapsed_state[key] = value
@@ -741,7 +732,6 @@ return function(props)
 			GrowWidth = 1,
 			FitHeight = true,
 			AlignmentX = "stretch",
-			ChildGap = props.ChildGap or compact_gap,
 			props.layout,
 		},
 	}{
@@ -767,7 +757,6 @@ return function(props)
 					GrowWidth = 1,
 					FitHeight = true,
 					AlignmentX = "stretch",
-					ChildGap = compact_gap,
 				},
 			},
 		},

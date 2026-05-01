@@ -2,9 +2,10 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local vfs = import("goluwa/vfs.lua")
 local theme = import("../theme.lua")
-local Button = import("../elements/button.lua")
 local Column = import("../elements/column.lua")
 local Dropdown = import("../elements/dropdown.lua")
+local MenuContainer = import("../elements/menu_container.lua")
+local MenuItem = import("../elements/context_menu_item.lua")
 local Splitter = import("../elements/splitter.lua")
 local Text = import("../elements/text.lua")
 local Window = import("../elements/window.lua")
@@ -114,21 +115,11 @@ local function build_gallery(props)
 	for _, page in ipairs(pages) do
 		table.insert(
 			page_buttons,
-			Button{
+			MenuItem{
 				Text = page.Name or "Unnamed Page",
-				Mode = "text",
 				OnClick = function()
 					select_page(page)
 				end,
-				layout = {
-					GrowWidth = 1,
-					FitWidth = false,
-				},
-				TextLayout = {
-					GrowWidth = 1,
-					FitWidth = false,
-				},
-				AlignX = "left",
 			}
 		)
 	end
@@ -166,11 +157,12 @@ local function build_gallery(props)
 			},
 			Padding = "XS",
 		},
+		MenuContainer{
+			layout = {
+				GrowWidth = 1,
+			},
+		}(unpack(page_buttons)),
 	}
-
-	for _, button in ipairs(page_buttons) do
-		table.insert(sidebar_children, button)
-	end
 
 	local world_panel = Panel.World
 	window = Window{

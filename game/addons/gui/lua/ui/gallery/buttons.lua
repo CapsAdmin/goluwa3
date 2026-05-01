@@ -4,7 +4,6 @@ local Column = import("../elements/column.lua")
 local Dropdown = import("../elements/dropdown.lua")
 local Row = import("../elements/row.lua")
 local Text = import("../elements/text.lua")
-
 return {
 	Name = "buttons",
 	Create = function()
@@ -19,7 +18,6 @@ return {
 		local function build_preview_button(label)
 			local fit_to_text = state.fit_to_text
 			local fill_width = state.fill_width and not fit_to_text
-
 			return Button{
 				Text = label,
 				Mode = state.mode,
@@ -42,9 +40,7 @@ return {
 			preview_host:AddChild(build_preview_button("Primary Action"))
 			preview_host:AddChild(build_preview_button("A much longer button label"))
 
-			if preview_host.layout then
-				preview_host.layout:InvalidateLayout(true)
-			end
+			if preview_host.layout then preview_host.layout:InvalidateLayout(true) end
 		end
 
 		return Column{
@@ -137,6 +133,7 @@ return {
 				Options = {
 					{Text = "Filled", Value = "filled"},
 					{Text = "Outline", Value = "outline"},
+					{Text = "Text", Value = "text"},
 				},
 				GetText = function()
 					return state.mode == "outline" and "Outline" or "Filled"

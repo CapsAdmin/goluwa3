@@ -98,8 +98,8 @@ return function(props)
 			},
 			Clickable{
 				Name = "CloseButton",
-				Mode = "filled",
-				Size = Vec2(24, 24),
+				Mode = "text",
+				Size = Vec2() + theme.GetSize("M"),
 				Padding = "XXXS",
 				OnClick = function(self)
 					print("Close button clicked", props.OnClose, "?")
@@ -111,8 +111,6 @@ return function(props)
 					end
 				end,
 				layout = {
-					MinSize = Vec2(24, 24),
-					MaxSize = Vec2(24, 24),
 					FitWidth = false,
 					FitHeight = false,
 				},
@@ -121,12 +119,8 @@ return function(props)
 					IsInternal = true,
 					Name = "CloseIcon",
 					OnSetProperty = theme.OnSetProperty,
-					layout = {
-						MinSize = Vec2(12, 12),
-						MaxSize = Vec2(12, 12),
-					},
 					transform = {
-						Size = Vec2(12, 12),
+						Size = Vec2() + theme.GetSize("M"),
 					},
 					gui_element = {
 						OnDraw = function(self)
