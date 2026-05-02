@@ -1,8 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
-local Frame = import("lua/ui/elements/frame.lua")
 local Text = import("lua/ui/elements/text.lua")
 local Clickable = import("lua/ui/elements/clickable.lua")
 local theme = import("lua/ui/theme.lua")
@@ -69,7 +67,7 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.active:DrawHeader(theme.GetDrawContext(self), "surface_alt")
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			draggable = true,
@@ -154,10 +152,10 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.active:DrawFrame(theme.GetDrawContext(self, true))
+					theme.active:Draw(self.Owner)
 				end,
 				OnPostDraw = function(self)
-					theme.active:DrawFramePost(theme.GetDrawContext(self, true))
+					theme.active:DrawPost(self.Owner)
 				end,
 			},
 			transform = true,

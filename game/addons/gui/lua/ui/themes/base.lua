@@ -85,10 +85,6 @@ function BaseTheme:New(theme_context)
 	return obj
 end
 
-function BaseTheme:CopyTable(tbl)
-	return table.shallow_copy(tbl)
-end
-
 function BaseTheme:MergeTables(base_tbl, override_tbl)
 	local merged = table.shallow_copy(base_tbl)
 
@@ -97,16 +93,6 @@ function BaseTheme:MergeTables(base_tbl, override_tbl)
 	end
 
 	return merged
-end
-
-function BaseTheme:GetPresetTable()
-	return {
-		palette = self:GetPalette(),
-		sizes = self:GetSizes(),
-		font_sizes = self:GetFontSizes(),
-		font_styles = self:GetFontStyles(),
-		font_cache = self:GetFontCache(),
-	}
 end
 
 function BaseTheme:CreatePalette()
@@ -619,11 +605,14 @@ function BaseTheme:UpdateButtonAnimations(pnl)
 	end
 end
 
-function BaseTheme:UpdateSliderAnimations(state)
-	local pnl = state.pnl
-
-	if not pnl then return end
-
+function BaseTheme:UpdateSliderAnimations(pnl)
+	local state = pnl:GetState()
+	state.anim = state.anim or
+		{
+			glow_alpha = 0,
+			knob_scale = 1,
+			last_hovered = false,
+		}
 	local anim = state.anim
 	self:AnimateHover(pnl, anim, state, 0.15)
 
@@ -1018,10 +1007,10 @@ function BaseTheme:DrawTrack(x, y, w, h, fill_extent, radius, track_color, accen
 end
 
 function BaseTheme:DrawSlider(size, state)
-	local anim = state.anim
-
-	if state.hovered then self:UpdateSliderAnimations(state) end
-
+	local anim = state.anim or {
+		glow_alpha = 0,
+		knob_scale = 1,
+	}
 	local knob_w = self:GetSize("sm")
 	local knob_h = self:GetSize("sm")
 	local track = self:GetColor("surface_alt")
@@ -1234,10 +1223,6 @@ function BaseTheme:DrawMenuContainer(draw)
 	)
 end
 
-function BaseTheme:DrawMenuSpacer(size, vertical)
-	self:DrawLine(0, 0.8, size, vertical and "vertical" or "horizontal")
-end
-
 -- Draw a 1px line: color token, alpha, size, orientation ("auto", "horizontal", "vertical")
 function BaseTheme:DrawLine(color_token, alpha, size, orientation)
 	if color_token == nil or color_token == 0 then color_token = "border" end
@@ -1253,7 +1238,75 @@ function BaseTheme:DrawLine(color_token, alpha, size, orientation)
 	end
 end
 
+function BaseTheme:GetPanelDrawContext(pnl, include_draw_size_offset)
+	local gui = pnl.gui_element
+	local size = include_draw_size_offset and
+		pnl.transform:GetTotalSize() or
+		pnl.transform:GetSize()
+	return {
+		size = size,
+		alpha = gui and gui.DrawAlpha or 1,
+		radius = gui and gui.GetBorderRadius and gui:GetBorderRadius() or 0,
+	}
+end
+
 function BaseTheme:Draw(pnl)
+	local role = pnl.GetState and pnl:GetState("theme_role")
+
+	if role == "property_value" then
+		local draw = self:GetPanelDrawContext(pnl, true)
+		local state_name = pnl:GetState("editing") and
+			"editing" or
+			(
+				pnl:GetState("hovered") and
+				pnl:GetState("surface_visible") and
+				"hovered" or
+				nil
+			)
+		return self:DrawValueField(
+			draw,
+			{
+				state = state_name,
+				fill = state_name and pnl:GetState("surface_color") or nil,
+				radius = draw.radius,
+			}
+		)
+	elseif role == "property_preview" then
+		return self:DrawPropertyPreview(
+			pnl.transform:GetTotalSize(),
+			{
+				fill = pnl:GetState("preview_fill"),
+				fill_alpha = pnl:GetState("preview_fill_alpha"),
+				outline = pnl:GetState("preview_outline"),
+				outline_alpha = pnl:GetState("preview_outline_alpha"),
+				radius = pnl:GetState("preview_radius") or 0,
+				thickness = pnl:GetState("preview_thickness") or 1,
+			}
+		)
+	elseif role == "tree_toggle" then
+		return self:DrawTreeToggle(pnl.transform:GetSize(), pnl:GetState("tree_meta"), pnl:GetState("tree_opts") or {})
+	elseif role == "tree_guides" then
+		return self:DrawTreeGuideLines(pnl.transform:GetSize(), pnl:GetState("tree_meta"), pnl:GetState("tree_opts") or {})
+	elseif role == "tree_label" then
+		local size = pnl.transform:GetSize()
+
+		if pnl:GetState("selected") then
+			return self:DrawSelectionFill(size, pnl:GetState("selected_color") or "primary")
+		elseif pnl:GetState("hovered") then
+			return self:DrawSelectionFill(size, pnl:GetState("hover_color"))
+		end
+
+		return
+	elseif role == "asset_preview_tile" then
+		local size = pnl.transform:GetTotalSize()
+		self:DrawPreviewTileFrame(size, pnl:GetState("preview_frame_opts") or {})
+		local secondary = pnl:GetState("preview_frame_secondary_opts")
+
+		if secondary then self:DrawPreviewTileFrame(size, secondary) end
+
+		return
+	end
+
 	if pnl.Name == "checkbox" then
 		return self:DrawCheckbox(pnl.transform:GetSize(), pnl:GetState())
 	elseif pnl.Name == "radio_button" then
@@ -1261,13 +1314,83 @@ function BaseTheme:Draw(pnl)
 	elseif pnl.Name == "clickable" then
 		local state = pnl:GetState()
 		return self:DrawButton(pnl.transform:GetTotalSize(), state)
+	elseif pnl.Name == "slider" then
+		return self:DrawSlider(pnl.transform:GetSize(), pnl:GetState())
+	elseif pnl.Name == "progress_bar" then
+		local state = pnl:GetState()
+		return self:DrawProgressBar(pnl.transform:GetSize(), state, state.color)
+	elseif pnl.Name == "frame" then
+		return self:DrawFrame(self:GetPanelDrawContext(pnl, true), pnl:GetState("emphasis") or 1)
+	elseif pnl.Name == "WindowHeader" then
+		return self:DrawHeader(self:GetPanelDrawContext(pnl))
+	elseif pnl.Name == "WindowContent" or pnl.Name == "TooltipOverlay" then
+		return self:DrawFrame(self:GetPanelDrawContext(pnl, true), pnl:GetState("emphasis") or 0)
+	elseif pnl.Name == "text_edit" then
+		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("panel_color"))
+	elseif pnl.Name == "MenuContainer" then
+		return self:DrawMenuContainer(self:GetPanelDrawContext(pnl))
+	elseif pnl.Name == "MenuSpacer" or pnl.Name == "splitter" then
+		return self:DrawDivider(self:GetPanelDrawContext(pnl))
+	elseif pnl.Name == "PropertyLabelRow" or pnl.Name == "PropertyEditorRow" then
+		return self:DrawPropertyRow(
+			pnl.transform:GetSize(),
+			{
+				selected = pnl:GetState("selected"),
+				alternate = pnl:GetState("alternate"),
+				hovered = pnl:GetState("hovered"),
+			}
+		)
+	elseif pnl.Name == "PropertyEditorDivider" then
+		return self:DrawDivider(self:GetPanelDrawContext(pnl))
+	elseif pnl.Name == "PropertyObjectValue" then
+		return self:DrawPropertyPreview(pnl.transform:GetSize(), {fill = "surface_alt", outline = "border"})
+	elseif pnl.Name == "PropertyObjectActionButton" then
+		return self:DrawPropertyPreview(
+			pnl.transform:GetSize(),
+			{
+				fill = self:GetColor("actual_black"):Copy():SetAlpha(1),
+				outline = "border",
+			}
+		)
+	elseif pnl.Name == "MenuBarButton" then
+		return self:DrawMenuButton(
+			pnl.transform:GetSize(),
+			pnl:GetState(),
+			{hovered_alpha = 0.18, pressed_alpha = 0.28}
+		)
+	elseif pnl.Name == "ContextMenuItem" then
+		return self:DrawMenuButton(
+			pnl.transform:GetSize(),
+			pnl:GetState(),
+			{hovered_alpha = 0.12, pressed_alpha = 0.18}
+		)
+	elseif pnl.Name == "svg" and pnl:GetState("background_color") ~= nil then
+		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("background_color"))
+	elseif type(pnl.Name) == "string" and pnl.Name:find("^scrollbar_track_") then
+		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("color") or "scrollbar_track")
+	elseif type(pnl.Name) == "string" and pnl.Name:find("^scrollbar_handle_") then
+		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("color") or "scrollbar")
 	end
 end
 
 function BaseTheme:DrawPost(pnl)
+	local role = pnl.GetState and pnl:GetState("theme_role")
+
+	if role == "tree_drop_indicator" then
+		return self:DrawDropIndicator(pnl.transform:GetSize(), pnl:GetState("drop_indicator_opts") or {})
+	end
+
 	if pnl.Name == "clickable" then
 		local state = pnl:GetState()
 		return self:DrawButtonPost(pnl.transform:GetTotalSize(), state)
+	elseif
+		pnl.Name == "frame" or
+		pnl.Name == "WindowContent" or
+		pnl.Name == "TooltipOverlay"
+	then
+		return self:DrawFramePost(self:GetPanelDrawContext(pnl, true), pnl:GetState("emphasis") or 1)
+	elseif pnl.Name == "text_edit" and pnl:GetState("editable") then
+		return self:DrawFramePost(self:GetPanelDrawContext(pnl, true))
 	end
 end
 
@@ -1277,6 +1400,8 @@ function BaseTheme:UpdateAnimations(pnl)
 	if pnl.Name == "radio_button" then return self:UpdateCheckboxAnimations(pnl) end
 
 	if pnl.Name == "clickable" then return self:UpdateButtonAnimations(pnl) end
+
+	if pnl.Name == "slider" then return self:UpdateSliderAnimations(pnl) end
 end
 
 return BaseTheme:Register()

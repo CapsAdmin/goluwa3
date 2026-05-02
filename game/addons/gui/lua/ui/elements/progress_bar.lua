@@ -2,9 +2,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
-	local state = {
-		value = props.Value or 0,
-	}
 	local pnl = Panel.New{
 		props,
 		Name = "progress_bar",
@@ -20,14 +17,15 @@ return function(props)
 		gui_element = {
 			DrawAlpha = 1,
 			OnDraw = function(self)
-				theme.active:DrawProgressBar(self.Owner.transform:GetSize(), state, props.Color)
+				theme.active:Draw(self.Owner)
 			end,
 		},
 	}
-	pnl.ProgressBarState = state
+	pnl:SetState("value", props.Value or 0)
+	pnl:SetState("color", props.Color)
 
 	function pnl:SetValue(val)
-		state.value = math.max(0, math.min(1, val))
+		self:SetState("value", math.max(0, math.min(1, val)))
 	end
 
 	return pnl

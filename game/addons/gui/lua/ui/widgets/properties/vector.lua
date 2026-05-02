@@ -221,6 +221,7 @@ return function(props)
 			Ref = function(self)
 				swatch = self
 				self.surface_color = get_swatch_color()
+				self:SetState("theme_role", "property_preview")
 
 				if self.gui_element then
 					self.gui_element.OnDraw = function(gui)
@@ -228,10 +229,9 @@ return function(props)
 
 						if gui.GetBorderRadius then radius = gui:GetBorderRadius() end
 
-						theme.active:DrawPropertyPreview(theme.GetDrawContext(gui, true).size, {
-							fill = self.surface_color,
-							radius = radius,
-						})
+						gui.Owner:SetState("preview_fill", self.surface_color)
+						gui.Owner:SetState("preview_radius", radius)
+						theme.active:Draw(gui.Owner)
 					end
 					self.gui_element.OnPostDraw = function(gui) end
 				end

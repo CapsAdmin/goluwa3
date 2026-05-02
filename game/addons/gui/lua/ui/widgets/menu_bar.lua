@@ -38,22 +38,8 @@ local function get_passthrough_props(src)
 	return out
 end
 
-local function draw_menu_bar_button(panel, state)
-	local size = panel.Owner.transform:GetSize()
-	theme.active:DrawMenuButton(size, state, {hovered_alpha = 0.18, pressed_alpha = 0.28})
-end
-
 local function create_menu_button(definition, on_click, on_hover)
 	local button = NULL
-	local state = {
-		hovered = false,
-		pressed = false,
-		disabled = not not definition.Disabled,
-		active = false,
-	}
-
-	local function refresh() end
-
 	button = Panel.New{
 		get_passthrough_props(definition),
 		{
@@ -73,7 +59,7 @@ local function create_menu_button(definition, on_click, on_hover)
 				Clipping = true,
 				DrawAlpha = definition.Disabled and 0.5 or 1,
 				OnDraw = function(self)
-					draw_menu_bar_button(self, state)
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = {
@@ -82,13 +68,11 @@ local function create_menu_button(definition, on_click, on_hover)
 					if definition.Disabled then return end
 
 					if button_name == "button_1" then
-						state.pressed = press
-						refresh()
+						self.Owner:SetState("pressed", press)
 					end
 				end,
 				OnHover = function(self, hovered)
-					state.hovered = hovered
-					refresh()
+					self.Owner:SetState("hovered", hovered)
 				end,
 			},
 			OnMouseEnter = function()
@@ -113,10 +97,13 @@ local function create_menu_button(definition, on_click, on_hover)
 			AlignY = "center",
 		}
 	)
+	button:SetState("hovered", false)
+	button:SetState("pressed", false)
+	button:SetState("disabled", not not definition.Disabled)
+	button:SetState("active", false)
 
 	function button:SetMenuBarActive(active)
-		state.active = not not active
-		refresh()
+		self:SetState("active", not not active)
 		return self
 	end
 

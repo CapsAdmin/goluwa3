@@ -8,11 +8,6 @@ local theme = library()
 local DEFAULT_PRESET_NAME = base.Name
 local FONT_SIZE_ORDER = {"XS", "S", "M", "L", "XL", "XXL", "XXXL"}
 local FONT_NAME_ORDER = {"heading", "body_weak", "body", "body_strong"}
-local ICON_METHODS = {
-	disclosure = "DrawDisclosureIcon",
-	dropdown_indicator = "DrawDropdownIndicatorIcon",
-	close = "DrawCloseIcon",
-}
 theme.themes = {base, jrpg}
 theme.implementations = {}
 theme.active = nil
@@ -114,44 +109,6 @@ event.AddListener("OnEntitySetProperty", "theme", theme.OnSetProperty)
 event.AddListener("OnEntityStateChanged", "theme", function(pnl, key, val)
 	theme.active:UpdateAnimations(pnl)
 end)
-
-do
-	local function resolve_draw_target(target)
-		if not target then error("draw target is required", 2) end
-
-		if target.Owner then return target.Owner, target end
-
-		if target.gui_element then return target, target.gui_element end
-
-		error("invalid draw target", 2)
-	end
-
-	function theme.GetDrawContext(target, include_draw_size_offset)
-		local panel, gui = resolve_draw_target(target)
-		local size = include_draw_size_offset and
-			panel.transform:GetTotalSize() or
-			panel.transform:GetSize()
-		return {
-			size = size,
-			alpha = gui.DrawAlpha,
-			radius = gui.GetBorderRadius and gui:GetBorderRadius() or 0,
-		}
-	end
-
-	local function bind_panel_state(pnl, state)
-		if state then state.pnl = pnl end
-
-		return state
-	end
-
-	function theme.UpdateSliderAnimations(pnl, state)
-		return theme.active:UpdateSliderAnimations(bind_panel_state(pnl, state))
-	end
-
-	function theme.UpdateCheckboxAnimations(pnl, state)
-		return theme.active:UpdateCheckboxAnimations(bind_panel_state(pnl, state))
-	end
-end
 
 do
 	function theme.GetName()

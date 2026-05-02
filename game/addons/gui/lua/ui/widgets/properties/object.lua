@@ -39,13 +39,7 @@ return function(props)
 	local function draw_action_button(self)
 		local size = self.Owner.transform:GetSize()
 		local texture = get_action_texture(node.Value)
-		theme.active:DrawPropertyPreview(
-			size,
-			{
-				fill = theme.GetColor("actual_black"):Copy():SetAlpha(1),
-				outline = "border",
-			}
-		)
+		theme.active:Draw(self.Owner)
 
 		if node.OnDrawActionButton then
 			node.OnDrawActionButton(node, self.Owner, size, node.Value, props.key, props.path)
@@ -88,8 +82,7 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					local size = self.Owner.transform:GetSize()
-					theme.active:DrawPropertyPreview(size, {fill = "surface_alt", outline = "border"})
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = {

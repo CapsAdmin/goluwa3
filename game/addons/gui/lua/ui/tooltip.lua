@@ -148,10 +148,10 @@ function ensure_panel()
 		gui_element = {
 			Visible = false,
 			OnDraw = function(self)
-				theme.active:DrawFrame(theme.GetDrawContext(self, true), 0)
+				theme.active:Draw(self.Owner)
 			end,
 			OnPostDraw = function(self)
-				theme.active:DrawFramePost(theme.GetDrawContext(self, true), 0)
+				theme.active:DrawPost(self.Owner)
 			end,
 		},
 		mouse_input = {

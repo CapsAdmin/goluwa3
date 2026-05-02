@@ -406,6 +406,7 @@ local function build_model_tile(entry, scheduler)
 			},
 		}{
 			Panel.New{
+				Name = "AssetPreviewTile",
 				transform = true,
 				rect = true,
 				layout = {
@@ -423,23 +424,26 @@ local function build_model_tile(entry, scheduler)
 				end,
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
-					theme.active:DrawPreviewTileFrame(size)
-
-					if preview and preview.IsValid and preview:IsValid() then
-						render2d.SetTexture(preview:GetTexture())
-						render2d.SetColor(1, 1, 1, 1)
-						render2d.DrawRect(6, 6, size.x - 12, size.y - 12)
-					elseif load_started then
-						theme.active:DrawPreviewTileFrame(
-							size,
+					self:SetState("theme_role", "asset_preview_tile")
+					self:SetState("preview_frame_opts", {})
+					self:SetState(
+						"preview_frame_secondary_opts",
+						load_started and
 							{
 								inset = 18,
 								radius = 12,
 								fill_alpha = 0,
 								outline_alpha = 0,
 								inset_outline_alpha = 0.4,
-							}
-						)
+							} or
+							nil
+					)
+					theme.active:Draw(self)
+
+					if preview and preview.IsValid and preview:IsValid() then
+						render2d.SetTexture(preview:GetTexture())
+						render2d.SetColor(1, 1, 1, 1)
+						render2d.DrawRect(6, 6, size.x - 12, size.y - 12)
 					end
 				end,
 			},
@@ -493,6 +497,7 @@ local function build_texture_tile(entry, on_pick)
 			},
 		}{
 			Panel.New{
+				Name = "AssetPreviewTile",
 				transform = true,
 				rect = true,
 				layout = {
@@ -504,8 +509,10 @@ local function build_texture_tile(entry, on_pick)
 					IgnoreMouseInput = true,
 				},
 				OnDraw = function(self)
-					local size = self.transform.Size + self.transform.DrawSizeOffset
-					theme.active:DrawPreviewTileFrame(size)
+					self:SetState("theme_role", "asset_preview_tile")
+					self:SetState("preview_frame_opts", {})
+					self:SetState("preview_frame_secondary_opts", nil)
+					theme.active:Draw(self)
 
 					if preview_texture and preview_texture.IsReady and preview_texture:IsReady() then
 						render2d.SetTexture(preview_texture)
@@ -563,6 +570,7 @@ local function build_material_tile(entry, on_pick)
 			},
 		}{
 			Panel.New{
+				Name = "AssetPreviewTile",
 				transform = true,
 				rect = true,
 				layout = {
@@ -576,7 +584,10 @@ local function build_material_tile(entry, on_pick)
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
 					local texture = get_material_preview_texture(material)
-					theme.active:DrawPreviewTileFrame(size)
+					self:SetState("theme_role", "asset_preview_tile")
+					self:SetState("preview_frame_opts", {})
+					self:SetState("preview_frame_secondary_opts", nil)
+					theme.active:Draw(self)
 
 					if texture then
 						render2d.SetTexture(texture)

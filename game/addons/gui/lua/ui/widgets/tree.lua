@@ -531,37 +531,27 @@ return function(props)
 				OnDraw = function(self)
 					local current_selected = is_selected(node, path, key)
 					local current_expanded = is_expanded(node, path, key, has_entries(get_children(node, path)))
-					local size = self.Owner.transform:GetSize()
 					local line_start_x = has_entries(get_children(node, path)) and (center_x + half_box) or center_x
-
-					if has_entries(get_children(node, path)) then
-						theme.active:DrawTreeToggle(
-							size,
-							meta,
-							{
-								line_color = props.LineColor or "border",
-								box_fill = props.BoxFillColor or "surface",
-								box_outline = props.BoxOutlineColor or "border",
-								glyph_color = current_selected and "text_on_accent" or (props.GlyphColor or "text"),
-								toggle_size = toggle_size,
-								guide_step = guide_step,
-								box_size = box_size,
-								line_start_x = line_start_x,
-								expanded = current_expanded,
-							}
-						)
-					else
-						theme.active:DrawTreeGuideLines(
-							size,
-							meta,
-							{
-								line_color = props.LineColor or "border",
-								toggle_size = toggle_size,
-								guide_step = guide_step,
-								line_start_x = line_start_x,
-							}
-						)
-					end
+					self.Owner:SetState(
+						"theme_role",
+						has_entries(get_children(node, path)) and "tree_toggle" or "tree_guides"
+					)
+					self.Owner:SetState("tree_meta", meta)
+					self.Owner:SetState(
+						"tree_opts",
+						{
+							line_color = props.LineColor or "border",
+							box_fill = props.BoxFillColor or "surface",
+							box_outline = props.BoxOutlineColor or "border",
+							glyph_color = current_selected and "text_on_accent" or (props.GlyphColor or "text"),
+							toggle_size = toggle_size,
+							guide_step = guide_step,
+							box_size = box_size,
+							line_start_x = line_start_x,
+							expanded = current_expanded,
+						}
+					)
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = {
@@ -588,13 +578,15 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					local size = self.Owner.transform:GetSize()
-
-					if is_selected(node, path, key) then
-						theme.active:DrawSelectionFill(size, props.SelectedColor or "primary")
-					elseif row_info.hovered then
-						theme.active:DrawSelectionFill(size, theme.GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08))
-					end
+					self.Owner:SetState("theme_role", "tree_label")
+					self.Owner:SetState("selected", is_selected(node, path, key))
+					self.Owner:SetState("selected_color", props.SelectedColor or "primary")
+					self.Owner:SetState("hovered", row_info.hovered)
+					self.Owner:SetState(
+						"hover_color",
+						theme.GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08)
+					)
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = {
@@ -634,16 +626,17 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					local size = self.Owner.transform:GetSize()
-					theme.active:DrawTreeGuideLines(
-						size,
-						meta,
+					self.Owner:SetState("theme_role", "tree_guides")
+					self.Owner:SetState("tree_meta", meta)
+					self.Owner:SetState(
+						"tree_opts",
 						{
 							line_color = props.LineColor or "border",
 							toggle_size = toggle_size,
 							guide_step = guide_step,
 						}
 					)
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = {
@@ -790,28 +783,17 @@ return function(props)
 						return
 					end
 
-					local size = self.Owner.transform:GetSize()
-
-					if not drop_info or drop_info.target_key ~= key then
-						theme.active:DrawDropIndicator(
-							size,
-							{
-								color = props.DropIndicatorColor or "primary",
-								source = is_source,
-							}
-						)
-						return
-					end
-
-					theme.active:DrawDropIndicator(
-						size,
+					self.Owner:SetState("theme_role", "tree_drop_indicator")
+					self.Owner:SetState(
+						"drop_indicator_opts",
 						{
 							color = props.DropIndicatorColor or "primary",
 							source = is_source,
-							position = drop_info.position,
+							position = drop_info and drop_info.target_key == key and drop_info.position or nil,
 							thickness = 2,
 						}
 					)
+					theme.active:DrawPost(self.Owner)
 				end,
 			},
 			mouse_input = true,

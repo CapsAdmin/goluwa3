@@ -56,10 +56,10 @@ return function(props)
 		gui_element = {
 			BorderRadius = props.BorderRadius or theme.GetRadius("medium"),
 			OnDraw = function(self)
-				theme.active:DrawSurface(theme.GetDrawContext(self, true), panel_color)
+				theme.active:Draw(self.Owner)
 			end,
 			OnPostDraw = function(self)
-				if editable then theme.active:DrawFramePost(theme.GetDrawContext(self, true)) end
+				theme.active:DrawPost(self.Owner)
 			end,
 		},
 		mouse_input = true,
@@ -103,6 +103,8 @@ return function(props)
 			},
 		},
 	}
+	panel:SetState("panel_color", panel_color)
+	panel:SetState("editable", editable)
 
 	function panel:GetText()
 		return text_panel and text_panel.text:GetText() or ""

@@ -26,7 +26,10 @@ local function build_file_menu()
 			Text = "Open Recent",
 			Items = function()
 				return {
-					MenuItem{Text = "project_scene.lua", OnClick = leaf("File > Open Recent > project_scene.lua")},
+					MenuItem{
+						Text = "project_scene.lua",
+						OnClick = leaf("File > Open Recent > project_scene.lua"),
+					},
 					MenuItem{Text = "config.json", OnClick = leaf("File > Open Recent > config.json")},
 					MenuSpacer(),
 					MenuItem{
@@ -117,15 +120,13 @@ return {
 						ent:Remove()
 						context_menu_ref = nil
 					end,
-				}(
-					{
-						MenuItem{Text = "Open", OnClick = leaf("Context > Open")},
-						MenuItem{Text = "Properties", OnClick = leaf("Context > Properties")},
-						MenuSpacer(),
-						MenuItem{Text = "Duplicate", OnClick = leaf("Context > Duplicate")},
-						MenuItem{Text = "Delete", OnClick = leaf("Context > Delete"), Disabled = true},
-					}
-				)
+				}{
+					MenuItem{Text = "Open", OnClick = leaf("Context > Open")},
+					MenuItem{Text = "Properties", OnClick = leaf("Context > Properties")},
+					MenuSpacer(),
+					MenuItem{Text = "Duplicate", OnClick = leaf("Context > Duplicate")},
+					MenuItem{Text = "Delete", OnClick = leaf("Context > Delete"), Disabled = true},
+				}
 			)
 		end
 
@@ -169,6 +170,11 @@ return {
 				Panel.New{
 					Ref = function(self)
 						context_target = self
+						self:SetState("theme_role", "property_preview")
+						self:SetState("preview_fill", "surface_alt")
+						self:SetState("preview_outline", "border")
+						self:SetState("preview_outline_alpha", 1)
+						self:SetState("preview_radius", theme.GetRadius("xs"))
 					end,
 					transform = {
 						Size = Vec2(0, 60),
@@ -179,16 +185,7 @@ return {
 					},
 					gui_element = {
 						OnDraw = function(self)
-							theme.active:DrawBox(
-								self.Owner.transform:GetSize(),
-								{
-									fill = "surface_alt",
-									outline = "border",
-									outline_alpha = 1,
-									radius = theme.GetRadius("xs"),
-									thickness = 1,
-								}
-							)
+							theme.active:Draw(self.Owner)
 						end,
 					},
 					mouse_input = {
@@ -197,6 +194,7 @@ return {
 								show_context_menu(self)
 								return true
 							end
+
 							return false
 						end,
 					},

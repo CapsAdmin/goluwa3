@@ -19,11 +19,11 @@ return function(props)
 		},
 		gui_element = {
 			OnDraw = function(self)
-				theme.active:DrawMenuSpacer(self.Owner.transform:GetSize(), props.Vertical)
+				theme.active:Draw(self.Owner)
 			end,
 		},
 		mouse_input = true,
 		clickable = true,
 		animation = true,
-	}
+	}:SetState("vertical", props.Vertical)
 end

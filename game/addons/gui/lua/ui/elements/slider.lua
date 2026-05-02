@@ -8,28 +8,10 @@ local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	local mode = props.Mode or "horizontal"
-	local state = {
-		mode = mode,
-		hovered = false,
-		dragging = false,
-		anim = {
-			glow_alpha = 0,
-			knob_scale = 1,
-			last_hovered = false,
-		},
-	}
-
-	if mode == "2d" then
-		state.value = props.Value or Vec2(0.5, 0.5)
-		state.min = props.Min or Vec2(0, 0)
-		state.max = props.Max or Vec2(1, 1)
-	else
-		state.value = props.Value or 0.5
-		state.min = props.Min or 0
-		state.max = props.Max or 1
-	end
+	local panel = NULL
 
 	local function SetValueFromPosition(ent, local_pos)
+		local state = ent:GetState()
 		local size = ent.transform:GetSize()
 		local knob_size = theme.GetSize("S")
 
@@ -61,10 +43,12 @@ return function(props)
 			state.value = state.min + normalized * (state.max - state.min)
 		end
 
+		ent:SetState("value", state.value)
+
 		if props.OnChange then props.OnChange(state.value) end
 	end
 
-	return Panel.New{
+	panel = Panel.New{
 		props,
 		Name = "slider",
 		transform = {
@@ -93,7 +77,7 @@ return function(props)
 			OnMouseInput = function(self, button, press, local_pos)
 				if button == "button_1" then
 					if press then
-						state.dragging = true
+						self.Owner:SetState("dragging", true)
 						SetValueFromPosition(self.Owner, local_pos)
 					end
 
@@ -101,28 +85,38 @@ return function(props)
 				end
 			end,
 			OnGlobalMouseInput = function(self, button, press, mouse_pos)
-				if button == "button_1" and not press and state.dragging then
-					state.dragging = false
+				if button == "button_1" and not press and self.Owner:GetState("dragging") then
+					self.Owner:SetState("dragging", false)
 					return true
 				end
 			end,
 			OnHover = function(self, hovered)
-				state.hovered = hovered
-				theme.UpdateSliderAnimations(self.Owner, state)
+				self.Owner:SetState("hovered", hovered)
+				theme.active:UpdateAnimations(self.Owner)
 			end,
 		},
 		gui_element = {
 			OnDraw = function(self)
-				if state.dragging then
+				if self.Owner:GetState("dragging") then
 					local mpos = system.GetWindow():GetMousePosition()
 					local lpos = self.Owner.transform:GlobalToLocal(mpos)
 					SetValueFromPosition(self.Owner, lpos)
 				end
 
-				theme.active:DrawSlider(self.Owner.transform:GetSize(), state)
+				theme.active:Draw(self.Owner)
 			end,
 		},
 		animation = true,
 		clickable = true,
 	}
+	panel:SetState("mode", mode)
+	panel:SetState("hovered", false)
+	panel:SetState("dragging", false)
+	panel:SetState(
+		"value",
+		mode == "2d" and (props.Value or Vec2(0.5, 0.5)) or (props.Value or 0.5)
+	)
+	panel:SetState("min", mode == "2d" and (props.Min or Vec2(0, 0)) or (props.Min or 0))
+	panel:SetState("max", mode == "2d" and (props.Max or Vec2(1, 1)) or (props.Max or 1))
+	return panel
 end

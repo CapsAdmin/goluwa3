@@ -18,7 +18,7 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.active:DrawMenuContainer(theme.GetDrawContext(self))
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = true,

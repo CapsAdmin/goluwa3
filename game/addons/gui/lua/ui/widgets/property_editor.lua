@@ -378,17 +378,6 @@ return function(props)
 		end
 	end
 
-	local function draw_row_background(size, is_selected, is_alternate, is_hovered)
-		theme.active:DrawPropertyRow(
-			size,
-			{
-				selected = is_selected,
-				alternate = is_alternate,
-				hovered = is_hovered,
-			}
-		)
-	end
-
 	local function build_label_row(entry, is_alternate)
 		local info = {
 			key = entry.key,
@@ -413,8 +402,10 @@ return function(props)
 			gui_element = {
 				Clipping = true,
 				OnDraw = function(self)
-					local size = self.Owner.transform:GetSize()
-					draw_row_background(size, selected_key == entry.key, is_alternate, info.is_hovered)
+					self.Owner:SetState("selected", selected_key == entry.key)
+					self.Owner:SetState("alternate", is_alternate)
+					self.Owner:SetState("hovered", info.is_hovered)
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = {
@@ -478,8 +469,10 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					local size = self.Owner.transform:GetSize()
-					draw_row_background(size, false, is_alternate, info and info.is_hovered)
+					self.Owner:SetState("selected", false)
+					self.Owner:SetState("alternate", is_alternate)
+					self.Owner:SetState("hovered", info and info.is_hovered or false)
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			mouse_input = {
@@ -585,7 +578,7 @@ return function(props)
 			gui_element = {
 				DrawAlpha = divider_draw_alpha,
 				OnDraw = function(self)
-					theme.active:DrawDivider(theme.GetDrawContext(self))
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			animation = true,

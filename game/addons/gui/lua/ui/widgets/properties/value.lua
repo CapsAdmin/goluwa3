@@ -270,22 +270,11 @@ local function create_value(props)
 			Clipping = true,
 			BorderRadius = props.BorderRadius or 6,
 			OnDraw = function(self)
-				local state_name = nil
-
-				if state.editing then
-					state_name = "editing"
-				elseif state.hovered and surface_color.a > 0 then
-					state_name = "hovered"
-				end
-
-				theme.active:DrawValueField(
-					theme.GetDrawContext(self, true),
-					{
-						state = state_name,
-						fill = state_name and surface_color or nil,
-						radius = self:GetBorderRadius(),
-					}
-				)
+				self.Owner:SetState("editing", state.editing)
+				self.Owner:SetState("hovered", state.hovered)
+				self.Owner:SetState("surface_visible", surface_color.a > 0)
+				self.Owner:SetState("surface_color", surface_color)
+				theme.active:Draw(self.Owner)
 			end,
 			OnPostDraw = function(self)
 				if state.editing then return end
@@ -436,6 +425,7 @@ local function create_value(props)
 			end,
 		},
 	}
+	panel:SetState("theme_role", "property_value")
 
 	function panel:SetValue(new_value, notify)
 		local old_value = value

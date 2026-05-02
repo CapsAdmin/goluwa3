@@ -40,24 +40,11 @@ local function get_passthrough_props(src)
 	return out
 end
 
-local function draw_menu_item_background(panel, state)
-	local size = panel.Owner.transform:GetSize()
-	theme.active:DrawMenuButton(size, state, {hovered_alpha = 0.12, pressed_alpha = 0.18})
-end
-
 return function(props)
 	props = props or {}
 	local item = NULL
-	local state = {
-		hovered = false,
-		pressed = false,
-		disabled = not not props.Disabled,
-		active = not not props.Active,
-	}
 	local submenu = has_submenu(props)
 	local children = {}
-
-	local function refresh() end
 
 	local function close_context_menu()
 		local container = find_context_menu_container(item)
@@ -156,7 +143,7 @@ return function(props)
 		Clipping = props.Clipping ~= false,
 		DrawAlpha = props.Disabled and 0.5 or 1,
 		OnDraw = function(self)
-			draw_menu_item_background(self, state)
+			theme.active:Draw(self.Owner)
 		end,
 	}
 	item_props.mouse_input = {
@@ -164,14 +151,10 @@ return function(props)
 		OnMouseInput = function(self, button, press)
 			if props.Disabled then return end
 
-			if button == "button_1" then
-				state.pressed = press
-				refresh()
-			end
+			if button == "button_1" then self.Owner:SetState("pressed", press) end
 		end,
 		OnHover = function(self, hovered)
-			state.hovered = hovered
-			refresh()
+			self.Owner:SetState("hovered", hovered)
 		end,
 	}
 	item_props.OnMouseEnter = function(self)
@@ -197,10 +180,13 @@ return function(props)
 	item_props.animation = true
 	item_props.clickable = true
 	item = Panel.New(item_props)(children)
+	item:SetState("hovered", false)
+	item:SetState("pressed", false)
+	item:SetState("disabled", not not props.Disabled)
+	item:SetState("active", not not props.Active)
 
 	function item:SetSubmenuOpen(active)
-		state.active = not not active
-		refresh()
+		self:SetState("active", not not active)
 		return self
 	end
 

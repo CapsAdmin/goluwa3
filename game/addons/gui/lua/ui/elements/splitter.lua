@@ -244,7 +244,7 @@ return function(props)
 		},
 		gui_element = {
 			OnDraw = function(self)
-				theme.active:DrawDivider(theme.GetDrawContext(self))
+				theme.active:Draw(self.Owner)
 			end,
 		},
 		animation = true,

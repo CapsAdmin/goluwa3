@@ -158,9 +158,7 @@ return function(props)
 					local owner = self.Owner
 					local size = owner.transform:GetSize()
 
-					if props.BackgroundColor then
-						theme.active:DrawSurface(theme.GetDrawContext(self, true), props.BackgroundColor)
-					end
+					if props.BackgroundColor then theme.active:Draw(owner) end
 
 					local padding = normalize_padding(props.Padding)
 					local available_w = math.max(0, size.x - padding.left - padding.right)
@@ -210,6 +208,7 @@ return function(props)
 			clickable = props.Clickable == true,
 		},
 	}
+	panel:SetState("background_color", props.BackgroundColor)
 
 	function panel:SetSource(source)
 		load_source(source)

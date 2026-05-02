@@ -354,6 +354,8 @@ return function(props)
 			Name = "scrollbar_track_" .. axis,
 			Ref = function(s)
 				if is_v then track_v = s else track_h = s end
+
+				s:SetState("color", props.ScrollBarTrackColor or "scrollbar_track")
 			end,
 			transform = {
 				Size = is_v and Vec2(theme.GetSize("M"), 40) or Vec2(40, theme.GetSize("M")),
@@ -362,7 +364,7 @@ return function(props)
 				BorderRadius = theme.GetRadius("small"),
 				Visible = false,
 				OnDraw = function(self)
-					theme.active:DrawSurface(theme.GetDrawContext(self, true), props.ScrollBarTrackColor or "scrollbar_track")
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			layout = {
@@ -379,6 +381,7 @@ return function(props)
 			Ref = function(s)
 				if is_v then handle_v = s else handle_h = s end
 
+				s:SetState("color", props.ScrollBarColor or "scrollbar")
 				s:AddLocalListener("OnTransformChanged", update_handle)
 			end,
 			transform = {
@@ -388,7 +391,7 @@ return function(props)
 				BorderRadius = theme.GetRadius("small"),
 				Visible = false,
 				OnDraw = function(self)
-					theme.active:DrawSurface(theme.GetDrawContext(self, true), props.ScrollBarColor or "scrollbar")
+					theme.active:Draw(self.Owner)
 				end,
 			},
 			layout = {

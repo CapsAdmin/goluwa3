@@ -15,10 +15,10 @@ return function(props)
 			Name = "frame",
 			gui_element = {
 				OnDraw = function(self)
-					theme.active:DrawFrame(theme.GetDrawContext(self, true), props.Emphasis or 1)
+					theme.active:Draw(self.Owner)
 				end,
 				OnPostDraw = function(self)
-					theme.active:DrawFramePost(theme.GetDrawContext(self, true), props.Emphasis or 1)
+					theme.active:DrawPost(self.Owner)
 				end,
 			},
 			layout = {
