@@ -543,7 +543,7 @@ return function(props)
 							line_color = props.LineColor or "border",
 							box_fill = props.BoxFillColor or "surface",
 							box_outline = props.BoxOutlineColor or "border",
-							glyph_color = current_selected and "text_on_accent" or (props.GlyphColor or "text"),
+							glyph_color = props.GlyphColor or "text",
 							toggle_size = toggle_size,
 							guide_step = guide_step,
 							box_size = box_size,
