@@ -410,7 +410,7 @@ return function(props)
 			if props.OnToggle then props.OnToggle(node, expanded, key, path) end
 		end
 
-		tree:RefreshBranchForKey(key)
+		refresh_visibility()
 	end
 
 	function set_selected(node, path, key)
@@ -811,7 +811,7 @@ return function(props)
 		tree:AddChild(clip, insert_index)
 		insert_index = insert_index + 1
 
-		if has_children and expanded then
+		if has_children then
 			local child_continuations = table.shallow_copy(meta.continuations)
 			child_continuations[meta.level + 1] = not meta.is_last
 
@@ -878,19 +878,19 @@ return function(props)
 
 	function tree:ExpandAll()
 		apply_branch_state(items, nil, true)
-		self:Rebuild()
+		refresh_visibility()
 		return self
 	end
 
 	function tree:CollapseAll()
 		apply_branch_state(items, nil, false)
-		self:Rebuild()
+		refresh_visibility()
 		return self
 	end
 
 	function tree:ExpandToKey(key)
 		expand_to_key(items, nil, key)
-		self:Rebuild()
+		refresh_visibility()
 		return self
 	end
 
