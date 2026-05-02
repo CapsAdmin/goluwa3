@@ -153,7 +153,6 @@ return function(props)
 				props.layout,
 			},
 			gui_element = {
-				BorderRadius = props.BorderRadius,
 				OnDraw = function(self)
 					local owner = self.Owner
 					local size = owner.transform:GetSize()

@@ -361,7 +361,6 @@ return function(props)
 				Size = is_v and Vec2(theme.GetSize("M"), 40) or Vec2(40, theme.GetSize("M")),
 			},
 			gui_element = {
-				BorderRadius = theme.GetRadius("small"),
 				Visible = false,
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
@@ -388,7 +387,6 @@ return function(props)
 				Size = is_v and Vec2(theme.GetSize("M"), 40) or Vec2(40, theme.GetSize("M")),
 			},
 			gui_element = {
-				BorderRadius = theme.GetRadius("small"),
 				Visible = false,
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)

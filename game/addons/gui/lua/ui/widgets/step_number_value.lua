@@ -114,7 +114,6 @@ return function(props)
 			end,
 			Value = props.Value,
 			Padding = props.Padding,
-			BorderRadius = props.BorderRadius,
 			HoverPanelColor = props.HoverPanelColor,
 			EditPanelColor = props.EditPanelColor,
 			TextColor = props.TextColor,

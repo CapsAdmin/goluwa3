@@ -52,20 +52,20 @@ return function(props)
 		props,
 		Name = "slider",
 		transform = {
-			Size = state.mode == "vertical" and
+			Size = mode == "vertical" and
 				Vec2(theme.GetSize("M"), 100) or
 				(
-					state.mode == "2d" and
+					mode == "2d" and
 					Vec2(100, 100) or
 					Vec2(100, theme.GetSize("S"))
 				),
 		},
 		layout = {
 			{
-				MinSize = state.mode == "vertical" and
+				MinSize = mode == "vertical" and
 					Vec2(theme.GetSize("M"), 100) or
 					(
-						state.mode == "2d" and
+						mode == "2d" and
 						Vec2(100, 100) or
 						Vec2(100, theme.GetSize("M"))
 					),

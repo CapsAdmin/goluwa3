@@ -139,7 +139,6 @@ return function(props)
 		props.layout,
 	}
 	item_props.gui_element = {
-		BorderRadius = theme.GetRadius("small"),
 		Clipping = props.Clipping ~= false,
 		DrawAlpha = props.Disabled and 0.5 or 1,
 		OnDraw = function(self)

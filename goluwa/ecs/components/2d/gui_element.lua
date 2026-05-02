@@ -2,7 +2,6 @@ local prototype = import("goluwa/prototype.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local UIDebug = import("goluwa/ecs/components/2d/ui_debug.lua")
-local theme = import("game/addons/gui/lua/ui/theme.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
@@ -10,7 +9,6 @@ local META = prototype.CreateTemplate("gui_element")
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
-META:GetSet("BorderRadius", 0)
 META:GetSet("DrawAlpha", 1)
 META:EndStorable()
 
@@ -140,16 +138,11 @@ local function draw_recursive_enter(_, owner)
 	if current.DrawAlpha <= 0 then return WALK_SKIP_SUBTREE end
 
 	local clipping = current:GetClipping()
-	local border_radius = current:GetBorderRadius()
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
 
 	if clipping then
-		if border_radius > 0 then
-			render2d.PushClipRoundedRect(0, 0, transform.Size.x, transform.Size.y, border_radius)
-		else
-			render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
-		end
+		render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
 	end
 
 	render2d.SetColor(1, 1, 1, current.DrawAlpha)

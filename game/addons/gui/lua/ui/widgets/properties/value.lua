@@ -268,7 +268,6 @@ local function create_value(props)
 		},
 		gui_element = {
 			Clipping = true,
-			BorderRadius = props.BorderRadius or 6,
 			OnDraw = function(self)
 				self.Owner:SetState("editing", state.editing)
 				self.Owner:SetState("hovered", state.hovered)

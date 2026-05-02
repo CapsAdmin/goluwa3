@@ -54,7 +54,6 @@ return function(props)
 			props.layout,
 		},
 		gui_element = {
-			BorderRadius = props.BorderRadius or theme.GetRadius("medium"),
 			OnDraw = function(self)
 				theme.active:Draw(self.Owner)
 			end,

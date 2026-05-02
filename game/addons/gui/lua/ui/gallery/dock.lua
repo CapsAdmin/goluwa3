@@ -10,7 +10,7 @@ local Panel = import("goluwa/ecs/panel.lua")
 local function draw_background(self)
 	local transform = self.transform
 	local size = transform.Size + transform.DrawSizeOffset
-	local radius = self.gui_element:GetBorderRadius()
+	local radius = self.surface_radius or 0
 	render2d.SetTexture()
 	render2d.SetColor(self.surface_color:Unpack())
 
@@ -44,9 +44,8 @@ local function dock_piece(label, dock, size, color, children)
 			AlignmentX = "center",
 			AlignmentY = "center",
 		},
-		gui_element = {
-			BorderRadius = 6,
-		},
+		gui_element = true,
+		surface_radius = 6,
 		surface_color = color,
 		OnDraw = draw_background,
 	}(children or {
@@ -65,9 +64,8 @@ local function dock_surface(size, children)
 			MinSize = size,
 			MaxSize = size,
 		},
-		gui_element = {
-			BorderRadius = 8,
-		},
+		gui_element = true,
+		surface_radius = 8,
 		surface_color = Color(0.08, 0.09, 0.12, 1),
 		OnDraw = draw_background,
 	}(children)

@@ -381,12 +381,12 @@ function BaseTheme:DrawInsetBox(x, y, w, h, opts)
 	)
 end
 
-function BaseTheme:DrawValueField(draw, opts)
+function BaseTheme:DrawValueField(size, opts)
 	opts = opts or {}
-	local radius = opts.radius or draw.radius or self:GetRadius("md")
+	local radius = opts.radius or self:GetRadius("md")
 	local fill_alpha = opts.fill_alpha
 
-	if fill_alpha == nil then fill_alpha = draw.alpha end
+	if fill_alpha == nil then fill_alpha = 1 end
 
 	local fill
 
@@ -399,15 +399,15 @@ function BaseTheme:DrawValueField(draw, opts)
 	end
 
 	if fill ~= nil then
-		self:DrawBox(draw.size, {fill = fill, fill_alpha = fill_alpha, radius = radius})
+		self:DrawBox(size, {fill = fill, fill_alpha = fill_alpha, radius = radius})
 	end
 
 	if opts.outline ~= false and opts.state == "editing" then
 		self:DrawBox(
-			draw.size,
+			size,
 			{
 				outline = opts.outline_color or "border",
-				outline_alpha = opts.outline_alpha or draw.alpha,
+				outline_alpha = opts.outline_alpha or 1,
 				radius = radius,
 				thickness = opts.thickness or 1,
 			}
@@ -642,7 +642,7 @@ function BaseTheme:UpdateCheckboxAnimations(pnl)
 		{
 			glow_alpha = 0,
 			check_anim = state.value and 1 or 0,
-			last_hovered = false,
+			last_hovered = state.hovered or false,
 			last_value = state.value,
 		}
 	local anim = state.anim
@@ -792,7 +792,7 @@ function BaseTheme:DrawButtonOutline(size, radius, state, anim)
 end
 
 function BaseTheme:DrawButtonPost(size, state)
-	local anim = state.anim
+	local anim = state.anim or {glow_alpha = 0}
 
 	if not state.hovered or state.disabled then return end
 
@@ -992,8 +992,8 @@ function BaseTheme:DrawPreviewTileFrame(size, opts)
 	end
 end
 
-function BaseTheme:DrawSurface(draw, color)
-	self:DrawPanelFill(draw.size, color or "surface", draw.alpha, draw.radius)
+function BaseTheme:DrawSurface(size, color, radius)
+	self:DrawPanelFill(size, color or "surface", 1, radius)
 end
 
 function BaseTheme:DrawTrack(x, y, w, h, fill_extent, radius, track_color, accent_color)
@@ -1103,14 +1103,13 @@ end
 -- Shared checkable control drawing: outer shape + outline + inner fill when checked
 -- inner_draw: function(draw_x, draw_y, draw_size, draw_radius, color, alpha) -> draws the inner checked shape
 function BaseTheme:DrawCheckable(size, state, opts)
-	state.anim = state.anim or
+	local anim = state.anim or
 		{
 			glow_alpha = 0,
 			check_anim = state.value and 1 or 0,
 			last_hovered = state.hovered or false,
 			last_value = state.value,
 		}
-	local anim = state.anim
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
@@ -1161,31 +1160,26 @@ function BaseTheme:DrawButtonRadio(size, state)
 	)
 end
 
-function BaseTheme:DrawFrame(draw, emphasis)
-	local size = draw.size
+function BaseTheme:DrawFrame(size, emphasis)
 	local radius = self:GetRadius("md")
-	self:DrawBox(size, {fill = "surface", fill_alpha = draw.alpha, radius = radius})
+	self:DrawBox(size, {fill = "surface", fill_alpha = 1, radius = radius})
 end
 
-function BaseTheme:DrawFramePost(draw)
+function BaseTheme:DrawFramePost(size)
 	self:DrawBox(
-		draw.size,
+		size,
 		{
 			outline = "border",
-			outline_alpha = draw.alpha,
+			outline_alpha = 1,
 			radius = self:GetRadius("md"),
 			thickness = 1,
 		}
 	)
 end
 
-function BaseTheme:DrawHeader(draw)
-	local size = draw.size
-	self:DrawBox(
-		size,
-		{fill = "surface_alt", fill_alpha = draw.alpha, radius = self:GetRadius("none")}
-	)
-	self:DrawLine("border", draw.alpha, size, "horizontal")
+function BaseTheme:DrawHeader(size)
+	self:DrawBox(size, {fill = "surface_alt", fill_alpha = 1, radius = self:GetRadius("none")})
+	self:DrawLine("border", 1, size, "horizontal")
 end
 
 function BaseTheme:DrawProgressBar(size, state, color)
@@ -1205,19 +1199,19 @@ function BaseTheme:DrawProgressBar(size, state, color)
 	self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
 end
 
-function BaseTheme:DrawDivider(draw)
-	self:DrawLine(0, draw.alpha, draw.size, "auto")
+function BaseTheme:DrawDivider(size)
+	self:DrawLine(0, 1, size, "auto")
 end
 
-function BaseTheme:DrawMenuContainer(draw)
+function BaseTheme:DrawMenuContainer(size)
 	self:DrawBox(
-		draw.size,
+		size,
 		{
 			fill = "surface",
-			fill_alpha = draw.alpha,
+			fill_alpha = 1,
 			radius = self:GetRadius("xs"),
 			outline = "border",
-			outline_alpha = draw.alpha,
+			outline_alpha = 1,
 			thickness = 1,
 		}
 	)
@@ -1238,23 +1232,10 @@ function BaseTheme:DrawLine(color_token, alpha, size, orientation)
 	end
 end
 
-function BaseTheme:GetPanelDrawContext(pnl, include_draw_size_offset)
-	local gui = pnl.gui_element
-	local size = include_draw_size_offset and
-		pnl.transform:GetTotalSize() or
-		pnl.transform:GetSize()
-	return {
-		size = size,
-		alpha = gui and gui.DrawAlpha or 1,
-		radius = gui and gui.GetBorderRadius and gui:GetBorderRadius() or 0,
-	}
-end
-
 function BaseTheme:Draw(pnl)
 	local role = pnl.GetState and pnl:GetState("theme_role")
 
 	if role == "property_value" then
-		local draw = self:GetPanelDrawContext(pnl, true)
 		local state_name = pnl:GetState("editing") and
 			"editing" or
 			(
@@ -1264,11 +1245,11 @@ function BaseTheme:Draw(pnl)
 				nil
 			)
 		return self:DrawValueField(
-			draw,
+			pnl.transform:GetTotalSize(),
 			{
 				state = state_name,
 				fill = state_name and pnl:GetState("surface_color") or nil,
-				radius = draw.radius,
+				radius = self:GetRadius("lg"),
 			}
 		)
 	elseif role == "property_preview" then
@@ -1312,25 +1293,24 @@ function BaseTheme:Draw(pnl)
 	elseif pnl.Name == "radio_button" then
 		return self:DrawButtonRadio(pnl.transform:GetSize(), pnl:GetState())
 	elseif pnl.Name == "clickable" then
-		local state = pnl:GetState()
-		return self:DrawButton(pnl.transform:GetTotalSize(), state)
+		return self:DrawButton(pnl.transform:GetTotalSize(), pnl:GetState())
 	elseif pnl.Name == "slider" then
 		return self:DrawSlider(pnl.transform:GetSize(), pnl:GetState())
 	elseif pnl.Name == "progress_bar" then
 		local state = pnl:GetState()
 		return self:DrawProgressBar(pnl.transform:GetSize(), state, state.color)
 	elseif pnl.Name == "frame" then
-		return self:DrawFrame(self:GetPanelDrawContext(pnl, true), pnl:GetState("emphasis") or 1)
+		return self:DrawFrame(pnl.transform:GetTotalSize(), pnl:GetState("emphasis") or 1)
 	elseif pnl.Name == "WindowHeader" then
-		return self:DrawHeader(self:GetPanelDrawContext(pnl))
+		return self:DrawHeader(pnl.transform:GetSize())
 	elseif pnl.Name == "WindowContent" or pnl.Name == "TooltipOverlay" then
-		return self:DrawFrame(self:GetPanelDrawContext(pnl, true), pnl:GetState("emphasis") or 0)
+		return self:DrawFrame(pnl.transform:GetTotalSize(), pnl:GetState("emphasis") or 0)
 	elseif pnl.Name == "text_edit" then
-		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("panel_color"))
+		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("panel_color"), self:GetRadius("md"))
 	elseif pnl.Name == "MenuContainer" then
-		return self:DrawMenuContainer(self:GetPanelDrawContext(pnl))
+		return self:DrawMenuContainer(pnl.transform:GetSize())
 	elseif pnl.Name == "MenuSpacer" or pnl.Name == "splitter" then
-		return self:DrawDivider(self:GetPanelDrawContext(pnl))
+		return self:DrawDivider(pnl.transform:GetSize())
 	elseif pnl.Name == "PropertyLabelRow" or pnl.Name == "PropertyEditorRow" then
 		return self:DrawPropertyRow(
 			pnl.transform:GetSize(),
@@ -1341,7 +1321,7 @@ function BaseTheme:Draw(pnl)
 			}
 		)
 	elseif pnl.Name == "PropertyEditorDivider" then
-		return self:DrawDivider(self:GetPanelDrawContext(pnl))
+		return self:DrawDivider(pnl.transform:GetSize())
 	elseif pnl.Name == "PropertyObjectValue" then
 		return self:DrawPropertyPreview(pnl.transform:GetSize(), {fill = "surface_alt", outline = "border"})
 	elseif pnl.Name == "PropertyObjectActionButton" then
@@ -1356,20 +1336,28 @@ function BaseTheme:Draw(pnl)
 		return self:DrawMenuButton(
 			pnl.transform:GetSize(),
 			pnl:GetState(),
-			{hovered_alpha = 0.18, pressed_alpha = 0.28}
+			{hovered_alpha = 0.18, pressed_alpha = 0.28, radius = self:GetRadius("xs")}
 		)
 	elseif pnl.Name == "ContextMenuItem" then
 		return self:DrawMenuButton(
 			pnl.transform:GetSize(),
 			pnl:GetState(),
-			{hovered_alpha = 0.12, pressed_alpha = 0.18}
+			{hovered_alpha = 0.12, pressed_alpha = 0.18, radius = self:GetRadius("xs")}
 		)
 	elseif pnl.Name == "svg" and pnl:GetState("background_color") ~= nil then
-		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("background_color"))
+		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("background_color"), 0)
 	elseif type(pnl.Name) == "string" and pnl.Name:find("^scrollbar_track_") then
-		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("color") or "scrollbar_track")
+		return self:DrawSurface(
+			pnl.transform:GetTotalSize(),
+			pnl:GetState("color") or "scrollbar_track",
+			self:GetRadius("md")
+		)
 	elseif type(pnl.Name) == "string" and pnl.Name:find("^scrollbar_handle_") then
-		return self:DrawSurface(self:GetPanelDrawContext(pnl, true), pnl:GetState("color") or "scrollbar")
+		return self:DrawSurface(
+			pnl.transform:GetTotalSize(),
+			pnl:GetState("color") or "scrollbar",
+			self:GetRadius("md")
+		)
 	end
 end
 
@@ -1381,16 +1369,15 @@ function BaseTheme:DrawPost(pnl)
 	end
 
 	if pnl.Name == "clickable" then
-		local state = pnl:GetState()
-		return self:DrawButtonPost(pnl.transform:GetTotalSize(), state)
+		return self:DrawButtonPost(pnl.transform:GetTotalSize(), pnl:GetState())
 	elseif
 		pnl.Name == "frame" or
 		pnl.Name == "WindowContent" or
 		pnl.Name == "TooltipOverlay"
 	then
-		return self:DrawFramePost(self:GetPanelDrawContext(pnl, true), pnl:GetState("emphasis") or 1)
+		return self:DrawFramePost(pnl.transform:GetTotalSize(), pnl:GetState("emphasis") or 1)
 	elseif pnl.Name == "text_edit" and pnl:GetState("editable") then
-		return self:DrawFramePost(self:GetPanelDrawContext(pnl, true))
+		return self:DrawFramePost(pnl.transform:GetTotalSize())
 	end
 end
 

@@ -55,7 +55,6 @@ local function create_menu_button(definition, on_click, on_hover)
 				Padding = definition.Padding or "M",
 			},
 			gui_element = {
-				BorderRadius = theme.GetRadius("small"),
 				Clipping = true,
 				DrawAlpha = definition.Disabled and 0.5 or 1,
 				OnDraw = function(self)

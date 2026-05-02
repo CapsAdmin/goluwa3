@@ -225,12 +225,8 @@ return function(props)
 
 				if self.gui_element then
 					self.gui_element.OnDraw = function(gui)
-						local radius = 0
-
-						if gui.GetBorderRadius then radius = gui:GetBorderRadius() end
-
 						gui.Owner:SetState("preview_fill", self.surface_color)
-						gui.Owner:SetState("preview_radius", radius)
+						gui.Owner:SetState("preview_radius", theme.GetRadius("md"))
 						theme.active:Draw(gui.Owner)
 					end
 					self.gui_element.OnPostDraw = function(gui) end

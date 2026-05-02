@@ -35,7 +35,6 @@ return function(props)
 				props.layout,
 			},
 			gui_element = {
-				BorderRadius = theme.GetRadius("medium"),
 				Clipping = true,
 				OnDraw = function(self)
 					self:SetDrawAlpha(self.Owner:GetState("disabled") and 0.5 or 1)
