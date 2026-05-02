@@ -141,10 +141,6 @@ local function draw_recursive_enter(_, owner)
 
 	local clipping = current:GetClipping()
 	local border_radius = current:GetBorderRadius()
-	local surface = owner:CallLocalEvent("OnGetSurfaceColor")
-
-	if surface == nil then surface = owner.SurfaceColor end
-
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
 
@@ -156,11 +152,10 @@ local function draw_recursive_enter(_, owner)
 		end
 	end
 
-	if surface ~= nil then theme.GetTheme():PushSurface(surface) end
-
 	render2d.SetColor(1, 1, 1, current.DrawAlpha)
+	owner:CallLocalEvent("OnPreDraw")
 	owner:CallLocalEvent("OnDraw")
-	return WALK_CONTINUE, {clipping = clipping, surface = surface}
+	return WALK_CONTINUE, {clipping = clipping}
 end
 
 local function draw_recursive_leave(_, owner, state)
@@ -168,9 +163,6 @@ local function draw_recursive_leave(_, owner, state)
 
 	UIDebug.OnDebugPostDraw(owner)
 	owner:CallLocalEvent("OnPostDraw")
-
-	if state.surface ~= nil then theme.GetTheme():PopSurface(state.surface) end
-
 	render2d.PopMatrix()
 end
 

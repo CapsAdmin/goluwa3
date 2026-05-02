@@ -63,8 +63,6 @@ return function(props)
 			end,
 		},
 		mouse_input = true,
-		clickable = true,
-		animation = true,
 		OnUpdate = function(self)
 			sync_text_changed(self)
 		end,

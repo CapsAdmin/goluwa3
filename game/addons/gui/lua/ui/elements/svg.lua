@@ -207,7 +207,6 @@ return function(props)
 			mouse_input = {
 				Cursor = props.Cursor,
 			},
-			animation = true,
 			clickable = props.Clickable == true,
 		},
 	}

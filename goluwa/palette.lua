@@ -84,6 +84,16 @@ local function copy_value(value)
 	return value
 end
 
+local function get_cache_key_part(value)
+	if value == nil then return "" end
+
+	if is_color_value(value) then
+		return string.format("%.6f,%.6f,%.6f,%.6f", value.r, value.g, value.b, value.a or 1)
+	end
+
+	return tostring(value)
+end
+
 local function get_color_from_input(value)
 	return Color.FromName(value)
 end
@@ -395,7 +405,7 @@ function ColorPalette:GetMapped(token)
 end
 
 function ColorPalette:Get(token, surface)
-	local cache_key = token .. "|" .. (surface or "")
+	local cache_key = get_cache_key_part(token) .. "|" .. get_cache_key_part(surface)
 	local cached = self.cache[cache_key]
 
 	if cached then return cached end
@@ -422,7 +432,11 @@ function ColorPalette:Get(token, surface)
 			error("unknown surface token '" .. surface .. "'", 2)
 		end
 
-		local explicit_token = self.Map[token .. "_on_" .. surface]
+		local explicit_token
+
+		if type(token) == "string" and type(surface) == "string" then
+			explicit_token = self.Map[token .. "_on_" .. surface]
+		end
 
 		if explicit_token then
 			if type(explicit_token) == "string" then

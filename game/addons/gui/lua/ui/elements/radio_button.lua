@@ -4,8 +4,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
-	local panel
-	panel = Panel.New{
+	local panel = Panel.New{
 		{
 			Name = "radio_button",
 			transform = {
@@ -25,18 +24,17 @@ return function(props)
 			end,
 			mouse_input = {
 				Cursor = "hand",
-				OnHover = function(self, hovered)
-					panel:SetState("hovered", hovered)
+				OnHover = function(cmp, hovered)
+					cmp.Owner:SetState("hovered", hovered)
 				end,
 			},
 			gui_element = {
-				OnDraw = function(self)
-					if not props.IsSelected() then panel:SetState("value", false) end
+				OnDraw = function(cmp)
+					if not props.IsSelected() then cmp.Owner:SetState("value", false) end
 
-					theme.active:Draw(panel)
+					theme.active:Draw(cmp.Owner)
 				end,
 			},
-			animation = true,
 			clickable = true,
 		},
 	}

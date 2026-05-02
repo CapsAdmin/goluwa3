@@ -144,10 +144,6 @@ do
 		return state
 	end
 
-	function theme.UpdateButtonAnimations(pnl, state)
-		return theme.active:UpdateButtonAnimations(bind_panel_state(pnl, state))
-	end
-
 	function theme.UpdateSliderAnimations(pnl, state)
 		return theme.active:UpdateSliderAnimations(bind_panel_state(pnl, state))
 	end
@@ -172,10 +168,6 @@ do
 		return out
 	end
 
-	function theme.GetSurfaceColor(name)
-		return theme.active:GetSurfaceColor(name)
-	end
-
 	function theme.GetColor(name, opts)
 		return theme.active:GetColor(name, opts)
 	end
@@ -184,20 +176,8 @@ do
 		return theme.active:GetColorOn(name, surface)
 	end
 
-	function theme.WithSurface(surface, callback, ...)
-		return theme.active:WithSurface(surface, callback, ...)
-	end
-
-	function theme.GetCurrentSurface()
-		return theme.active:GetCurrentSurface()
-	end
-
 	function theme.ResolveColor(value, fallback)
 		return theme.active:ResolveColor(value, fallback)
-	end
-
-	function theme.ResolveSurfaceColor(value, fallback)
-		return theme.active:ResolveSurfaceColor(value, fallback)
 	end
 
 	function theme.GetSize(size_name)

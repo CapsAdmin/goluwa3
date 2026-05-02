@@ -5,16 +5,6 @@ local Clickable = import("../elements/clickable.lua")
 local Text = import("../elements/text.lua")
 local theme = import("../theme.lua")
 return function(props)
-	local function resolve_color(value, fallback)
-		if value == nil then value = fallback end
-
-		if type(value) == "string" then
-			return theme.GetColorOn(value, theme.GetCurrentSurface())
-		end
-
-		return value
-	end
-
 	local container
 	return Collapsible{
 		Ref = function(panel)
@@ -44,18 +34,20 @@ return function(props)
 			Panel.New{
 				IsInternal = true,
 				Name = "ArrowContainer",
+				style = true,
 				transform = {
 					Size = Vec2() + theme.GetFontSize(props.HeaderFontSize or "M"),
 				},
 				gui_element = {
 					OnDraw = function(self)
+						local background = self.Owner.style and self.Owner.style:GetResolvedBackgroundColor()
 						theme.active:DrawIcon(
 							"disclosure",
 							self.Owner.transform:GetSize(),
 							{
 								thickness = 2,
 								open_fraction = open_fraction,
-								color = resolve_color(props.HeaderTextColor or "text", "text"),
+								color = theme.GetColorOn(props.HeaderTextColor or "text", background),
 							}
 						)
 					end,

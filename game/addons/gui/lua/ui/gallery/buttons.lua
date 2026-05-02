@@ -14,13 +14,26 @@ return {
 			mode = "filled",
 		}
 		local preview_host
+		local color_variants = {
+			{label = "Primary Action", color = nil},
+			{label = "Positive Action", color = "positive"},
+			{label = "Caution Action", color = "neutral"},
+			{label = "Destructive Action", color = "negative"},
+			{
+				label = "Inverted Surface",
+				color = "surface_tile_1",
+				text_color = "text_on_dark",
+			},
+		}
 
-		local function build_preview_button(label)
+		local function build_preview_button(label, button_color, text_color)
 			local fit_to_text = state.fit_to_text
 			local fill_width = state.fill_width and not fit_to_text
 			return Button{
 				Text = label,
+				ButtonColor = button_color,
 				Mode = state.mode,
+				TextColor = text_color,
 				layout = {
 					GrowWidth = fill_width and 1 or 0,
 					FitWidth = fit_to_text,
@@ -37,8 +50,12 @@ return {
 			if not preview_host or not preview_host:IsValid() then return end
 
 			preview_host:RemoveChildren()
-			preview_host:AddChild(build_preview_button("Primary Action"))
-			preview_host:AddChild(build_preview_button("A much longer button label"))
+
+			for _, variant in ipairs(color_variants) do
+				preview_host:AddChild(build_preview_button(variant.label, variant.color, variant.text_color))
+			end
+
+			preview_host:AddChild(build_preview_button("A much longer button label", "primary"))
 
 			if preview_host.layout then preview_host.layout:InvalidateLayout(true) end
 		end

@@ -359,6 +359,7 @@ return function(name, base_path, get_valid_components)
 		if self.state[key] == val then return end
 
 		self.state[key] = val
+		self:CallLocalEvent("OnStateChanged", key, val)
 		event.Call("OnEntityStateChanged", self, key, val)
 	end
 

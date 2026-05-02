@@ -8,6 +8,7 @@ local event = import("goluwa/event.lua")
 local sequence_editor = import("goluwa/sequence_editor.lua")
 local pretext = import("goluwa/pretext/init.lua")
 local utf8 = import("goluwa/utf8.lua")
+local theme = import("game/addons/gui/lua/ui/theme.lua")
 local META = prototype.CreateTemplate("text")
 META:StartStorable()
 META:GetSet(
@@ -24,7 +25,7 @@ META:GetSet("ElideString", "...", {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
 META:GetSet("DisableViewportCulling", false)
-META:GetSet("Color", Color(1, 1, 1, 1))
+META:GetSet("Color", nil)
 META:GetSet("SelectionColor", Color(1, 1, 1, 0.3))
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
 META:EndStorable()
@@ -583,6 +584,17 @@ function META:OnDraw()
 	local descent = font:GetDescent()
 	local is_focused_editable = self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner
 	local line_height = font:GetLineHeight()
+	local foreground = self:GetColor()
+	local background
+
+	if self.Owner.style then
+		background = self.Owner.style:GetResolvedBackgroundColor()
+		if foreground == nil then foreground = self.Owner.style:GetResolvedForegroundColor() end
+	end
+
+	if foreground == nil then foreground = "text" end
+
+	if theme and theme.active then foreground = theme.GetColorOn(foreground, background) end
 
 	if self.wrap_layout_info and self:GetAlignX() == "justify" then
 		tw = math.max(tw, self.wrap_layout_info.width or 0)
@@ -642,12 +654,8 @@ function META:OnDraw()
 	end
 
 	render2d.SetTexture(nil)
-	local c = self.Owner:CallLocalEvent("OnGetTextColor")
-
-	if not c then c = self:GetColor() end
-
-	render2d.PushColor(c.r, c.g, c.b)
-	render2d.PushAlphaMultiplier(c.a)
+	render2d.PushColor(foreground.r, foreground.g, foreground.b)
+	render2d.PushAlphaMultiplier(foreground.a)
 
 	for i = visible_start, visible_stop do
 		local y = ly + (i - 1) * vertical_step

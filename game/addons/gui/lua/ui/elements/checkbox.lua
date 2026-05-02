@@ -4,8 +4,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
-	local panel
-	panel = Panel.New{
+	local panel = Panel.New{
 		Name = "checkbox",
 		transform = {
 			Size = props.Size or "M",
@@ -19,12 +18,12 @@ return function(props)
 		mouse_input = {
 			Cursor = "hand",
 			OnHover = function(cmp, hovered)
-				panel:SetState("hovered", hovered)
+				cmp.Owner:SetState("hovered", hovered)
 			end,
 		},
 		gui_element = {
 			OnDraw = function(cmp)
-				theme.active:Draw(panel)
+				theme.active:Draw(cmp.Owner)
 			end,
 		},
 		animation = true,

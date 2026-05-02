@@ -329,17 +329,19 @@ return function(props)
 		Panel.New{
 			IsInternal = true,
 			Name = "DropdownIndicator",
+			style = true,
 			transform = {
 				Size = Vec2() + theme.GetFontSize(props.FontSize),
 			},
 			gui_element = {
 				OnDraw = function(self)
+					local background = self.Owner.style and self.Owner.style:GetResolvedBackgroundColor()
 					theme.active:DrawIcon(
 						"dropdown_indicator",
 						self.Owner.transform:GetSize(),
 						{
 							thickness = 1,
-							color = theme.GetColorOn(props.Disabled and "text_disabled" or "text", theme.GetCurrentSurface()),
+							color = theme.GetColorOn(props.Disabled and "text_disabled" or "text", background),
 						}
 					)
 				end,

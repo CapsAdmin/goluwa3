@@ -15,10 +15,6 @@ return function(props)
 				props.layout,
 			},
 			transform = true,
-			gui_element = true,
-			mouse_input = true,
-			clickable = true,
-			animation = true,
 		},
 	}
 end

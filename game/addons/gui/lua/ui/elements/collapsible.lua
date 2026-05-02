@@ -24,17 +24,6 @@ return function(props)
 	local body_panel = NULL
 	local clip_panel = NULL
 	local open_fraction = collapsed and 0 or 1
-
-	local function resolve_color(value, fallback)
-		if value == nil then value = fallback end
-
-		if type(value) == "string" then
-			return theme.GetColorOn(value, theme.GetCurrentSurface())
-		end
-
-		return value
-	end
-
 	local container = Panel.New{
 		props,
 		{
@@ -83,33 +72,6 @@ return function(props)
 		container.layout:InvalidateLayout()
 	end
 
-	local function set_collapsed(value, instant)
-		collapsed = value == true
-		local target = collapsed and 0 or 1
-
-		if props.OnToggle then props.OnToggle(collapsed) end
-
-		if instant then
-			open_fraction = target
-			update_height()
-			return
-		end
-
-		container.animation:Animate{
-			id = "collapsible_slide",
-			get = function()
-				return open_fraction
-			end,
-			set = function(v)
-				open_fraction = v
-				update_height()
-			end,
-			to = target,
-			time = 0.3,
-			interpolation = "outExpo",
-		}
-	end
-
 	body_panel = Panel.New{
 		IsInternal = true,
 		Name = "Body",
@@ -132,10 +94,10 @@ return function(props)
 	clip_panel = Panel.New{
 		IsInternal = true,
 		Name = "ClipContainer",
-		Ref = function(self)
-			self:AddLocalListener("OnTransformChanged", update_height)
-			self:AddLocalListener("OnLayoutUpdated", update_height)
-		end,
+		Events = {
+			OnLayoutUpdated = update_height,
+			OnTransformChanged = update_height,
+		},
 		transform = {
 			Size = Vec2(0, 0),
 		},
@@ -150,7 +112,30 @@ return function(props)
 	}(body_panel)
 
 	function container:SetCollapsed(value, instant)
-		set_collapsed(value, instant)
+		collapsed = value == true
+		local target = collapsed and 0 or 1
+
+		if props.OnToggle then props.OnToggle(collapsed) end
+
+		if instant then
+			open_fraction = target
+			update_height()
+			return
+		end
+
+		self.animation:Animate{
+			id = "collapsible_slide",
+			get = function()
+				return open_fraction
+			end,
+			set = function(v)
+				open_fraction = v
+				update_height()
+			end,
+			to = target,
+			time = 0.3,
+			interpolation = "outExpo",
+		}
 		return self
 	end
 
@@ -159,7 +144,7 @@ return function(props)
 	end
 
 	function container:ToggleCollapsed(instant)
-		set_collapsed(not collapsed, instant)
+		self:SetCollapsed(not collapsed, instant)
 		return self
 	end
 

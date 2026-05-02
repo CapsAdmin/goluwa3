@@ -11,6 +11,7 @@ local Panel = import("goluwa/ecs/base.lua")("panel", "ecs.components.2d.", funct
 			mouse_input = import("goluwa/ecs/components/2d/mouse_input.lua"),
 			rect = import("goluwa/ecs/components/2d/rect.lua"),
 			resizable = import("goluwa/ecs/components/2d/resizable.lua"),
+			style = import("goluwa/ecs/components/2d/style.lua"),
 			text = import("goluwa/ecs/components/2d/text.lua"),
 			transform = import("goluwa/ecs/components/2d/transform.lua"),
 			draggable = import("goluwa/ecs/components/2d/draggable.lua"),

@@ -77,8 +77,6 @@ BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
 BaseTheme:GetSet("PrimaryColor", Color.FromHex("#0066cc"))
 BaseTheme:GetSet("DefaultFontPath", "")
-BaseTheme:GetSet("CurrentSurface", nil)
-BaseTheme:GetSet("SurfaceStack", {})
 
 function BaseTheme:New(theme_context)
 	local obj = self:CreateObject()
@@ -190,8 +188,6 @@ function BaseTheme:Initialize()
 	end
 
 	self:SetPalette(self:CreatePalette())
-	self:SetCurrentSurface(nil)
-	self:SetSurfaceStack({})
 	self:SetFontStyles{
 		heading = {Path = self:GetDefaultFontPath()},
 		body_weak = {Path = self:GetDefaultFontPath()},
@@ -217,52 +213,6 @@ function BaseTheme:GetPaletteBaseToken(name)
 	return palette:GetMap()[name] or name
 end
 
-function BaseTheme:GetSurfaceColor(name)
-	name = name or "primary"
-	local palette = self:GetPalette()
-
-	if self:HasPaletteToken(name) then return palette:Get(name) end
-
-	return palette and palette:Get("primary")
-end
-
-function BaseTheme:PushSurface(name)
-	if name == nil then error("theme surface token is required", 2) end
-
-	local stack = self:GetSurfaceStack()
-	table.insert(stack, 1, name)
-	self:SetCurrentSurface(name)
-	return name
-end
-
-function BaseTheme:PopSurface(expected)
-	local stack = self:GetSurfaceStack()
-	local current = stack[1]
-
-	if current == nil then error("theme surface stack is empty", 2) end
-
-	if expected ~= nil and current ~= expected then
-		error(
-			"theme surface stack mismatch: expected '" .. tostring(expected) .. "' got '" .. tostring(current) .. "'",
-			2
-		)
-	end
-
-	table.remove(stack, 1)
-	self:SetCurrentSurface(stack[1])
-	return current
-end
-
-function BaseTheme:ClearSurfaceStack()
-	local stack = self:GetSurfaceStack()
-
-	for i = #stack, 1, -1 do
-		stack[i] = nil
-	end
-
-	self:SetCurrentSurface(nil)
-end
-
 function BaseTheme:GetColorOn(name, surface)
 	return self:GetColor(name, {surface = surface})
 end
@@ -273,22 +223,26 @@ function BaseTheme:GetColor(name, opts)
 
 	if type(opts) == "table" then background = opts.surface end
 
-	if background == nil then background = self:GetCurrentSurface() end
-
 	local palette = self:GetPalette()
-	local token = self:GetPaletteBaseToken(name)
-	local background_token = self:GetPaletteBaseToken(background)
+	local token = type(name) == "string" and self:GetPaletteBaseToken(name) or name
+	local background_token = type(background) == "string" and
+		self:GetPaletteBaseToken(background) or
+		background
 
 	if token ~= nil and token == background_token then background = nil end
 
 	if
-		self:HasPaletteToken(name) and
+		(
+			type(name) ~= "string" or
+			self:HasPaletteToken(name)
+		) and
 		(
 			background == nil or
+			type(background) ~= "string" or
 			self:HasPaletteToken(background)
 		)
 	then
-		return palette:Get(name, background)
+		return palette:Get(token, background_token)
 	end
 
 	return palette and palette:Get("primary")
@@ -303,11 +257,7 @@ function BaseTheme:ResolveColor(value, fallback)
 end
 
 function BaseTheme:ResolveSurfaceColor(value, fallback)
-	if value == nil then value = fallback end
-
-	if type(value) == "string" then return self:GetSurfaceColor(value) end
-
-	return value
+	return self:ResolveColor(value, fallback)
 end
 
 function BaseTheme:GetSize(name)
@@ -509,9 +459,7 @@ function BaseTheme:DrawPropertyPreview(size, opts)
 end
 
 function BaseTheme:ResolveSurfaceFill(color, fallback)
-	if color == nil then return self:GetSurfaceColor(fallback or "surface") end
-
-	return self:ResolveSurfaceColor(color)
+	return self:ResolveColor(color, fallback or "surface")
 end
 
 function BaseTheme:GetAccentTint(alpha)
@@ -593,6 +541,12 @@ end
 -- Shared hover animation: animates glow_alpha on hover state change
 function BaseTheme:AnimateHover(pnl, anim, state, time)
 	if state.hovered ~= anim.last_hovered then
+		if not pnl.animation then
+			anim.glow_alpha = state.hovered and 1 or 0
+			anim.last_hovered = state.hovered
+			return
+		end
+
 		pnl.animation:Animate{
 			id = "glow_alpha",
 			get = function()
@@ -609,17 +563,34 @@ function BaseTheme:AnimateHover(pnl, anim, state, time)
 	end
 end
 
-function BaseTheme:UpdateButtonAnimations(state)
-	local pnl = state and state.pnl
-
-	if not pnl or not state then return end
-
+function BaseTheme:UpdateButtonAnimations(pnl)
+	local state = pnl:GetState()
+	state.anim = state.anim or
+		{
+			glow_alpha = 0,
+			press_scale = 0,
+			last_hovered = false,
+			last_pressed = false,
+			last_active = false,
+			last_tilting = false,
+		}
 	local anim = state.anim
 	local hovered = state.hovered and not state.disabled
 	local pressed = hovered and state.pressed
 	self:AnimateHover(pnl, anim, {hovered = hovered}, 0.12)
 
 	if pressed ~= anim.last_pressed then
+		if not pnl.animation then
+			anim.press_scale = pressed and 1 or 0
+			anim.last_pressed = pressed
+
+			if pnl.transform then
+				pnl.transform:SetDrawScaleOffset(pressed and (Vec2() + 0.95) or Vec2(1, 1))
+			end
+
+			return
+		end
+
 		pnl.animation:Animate{
 			id = "press_scale",
 			get = function()
@@ -657,6 +628,11 @@ function BaseTheme:UpdateSliderAnimations(state)
 	self:AnimateHover(pnl, anim, state, 0.15)
 
 	if state.hovered ~= anim.last_hovered then
+		if not pnl.animation then
+			anim.knob_scale = state.hovered and 1.2 or 1
+			return
+		end
+
 		pnl.animation:Animate{
 			id = "knob_scale",
 			get = function()
@@ -684,6 +660,12 @@ function BaseTheme:UpdateCheckboxAnimations(pnl)
 	self:AnimateHover(pnl, anim, state, 0.15)
 
 	if state.value ~= anim.last_value then
+		if not pnl.animation then
+			anim.check_anim = state.value and 1 or 0
+			anim.last_value = state.value
+			return
+		end
+
 		pnl.animation:Animate{
 			id = "check_anim",
 			get = function()
@@ -704,13 +686,14 @@ function BaseTheme:UpdateCheckboxAnimations(pnl)
 end
 
 function BaseTheme:DrawButton(size, state)
-	local anim = state.anim
+	local anim = state.anim or {
+		glow_alpha = 0,
+		press_scale = 0,
+	}
 	local radius = self:GetRadius("md")
 	-- Resolve fill token based on state
 	local fill_name = self:ResolveButtonFillName(state)
 	local fill = self:ResolveButtonFill(state, fill_name)
-	local surface = fill_name or "surface"
-	self:PushSurface(surface)
 
 	-- Draw fill
 	if state.mode == "outline" then
@@ -724,8 +707,6 @@ function BaseTheme:DrawButton(size, state)
 	if state.mode ~= "text" then
 		self:DrawButtonOutline(size, radius, state, anim)
 	end
-
-	self:PopSurface(surface)
 end
 
 function BaseTheme:ResolveButtonFillName(state)
@@ -741,34 +722,70 @@ function BaseTheme:ResolveButtonFillName(state)
 end
 
 function BaseTheme:ResolveButtonFill(state, fill_name)
+	local accent_override = state.button_color
+
 	if state.mode == "text" then
 		if state.disabled then
 			return self:GetColor("clickable_disabled")
 		elseif state.pressed or state.hovered then
-			return self:GetAccentTint(0.06)
+			return (
+				accent_override and
+				self:GetColor(accent_override) or
+				self:GetColor("primary")
+			):Copy():SetAlpha(0.06)
 		elseif state.active then
-			return self:GetAccentTint(0.08)
+			return (
+				accent_override and
+				self:GetColor(accent_override) or
+				self:GetColor("primary")
+			):Copy():SetAlpha(0.08)
 		else
 			return nil
 		end
 	elseif fill_name == "primary" then
+		if accent_override ~= nil then
+			if state.disabled then return self:GetColor("clickable_disabled") end
+
+			return self:GetColor(accent_override)
+		end
+
 		if state.disabled then
 			return self:GetColor("clickable_disabled")
 		elseif state.pressed then
-			return self:GetAccentTint(0.14)
+			return self:GetColor("primary_focus")
 		elseif state.active then
-			return self:GetAccentTint(0.14)
+			return self:GetColor("primary_focus")
 		elseif state.hovered then
-			return self:GetAccentTint(0.08)
+			return self:GetColor("button_normal")
 		else
-			return self:GetColor("primary")
+			return self:GetColor("button_color")
 		end
 	else
 		return self:GetColor(fill_name)
 	end
 end
 
+function BaseTheme:ResolveButtonBackgroundToken(state)
+	if state.mode == "text" then return nil end
+
+	if state.disabled then return "clickable_disabled" end
+
+	if state.mode == "outline" then return "surface" end
+
+	if state.button_color ~= nil then return state.button_color end
+
+	if state.pressed or state.active then return "primary_focus" end
+
+	if state.hovered then return "button_normal" end
+
+	return "button_color"
+end
+
 function BaseTheme:DrawButtonOutline(size, radius, state, anim)
+	local outline_color = state.button_color ~= nil and
+		self:GetColor(state.button_color) or
+		self:GetColor("primary")
+
 	if state.active and not state.disabled then
 		self:DrawRoundOutline(
 			0,
@@ -776,7 +793,7 @@ function BaseTheme:DrawButtonOutline(size, radius, state, anim)
 			size.x,
 			size.y,
 			radius,
-			self:GetColor("primary"),
+			outline_color,
 			state.mode == "text" and 0.5 or 0.6,
 			1
 		)
@@ -791,7 +808,18 @@ function BaseTheme:DrawButtonPost(size, state)
 	if not state.hovered or state.disabled then return end
 
 	local radius = self:GetRadius("md")
-	self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("primary"), anim.glow_alpha * 0.45, 1)
+	self:DrawRoundOutline(
+		0,
+		0,
+		size.x,
+		size.y,
+		radius,
+		state.button_color ~= nil and
+			self:GetColor(state.button_color) or
+			self:GetColor("primary"),
+		anim.glow_alpha * 0.45,
+		1
+	)
 end
 
 function BaseTheme:DrawMenuButton(size, state, opts)
@@ -1086,6 +1114,13 @@ end
 -- Shared checkable control drawing: outer shape + outline + inner fill when checked
 -- inner_draw: function(draw_x, draw_y, draw_size, draw_radius, color, alpha) -> draws the inner checked shape
 function BaseTheme:DrawCheckable(size, state, opts)
+	state.anim = state.anim or
+		{
+			glow_alpha = 0,
+			check_anim = state.value and 1 or 0,
+			last_hovered = state.hovered or false,
+			last_value = state.value,
+		}
 	local anim = state.anim
 	local box_size = self:GetSize("M")
 	local x = 0
@@ -1205,7 +1240,9 @@ end
 
 -- Draw a 1px line: color token, alpha, size, orientation ("auto", "horizontal", "vertical")
 function BaseTheme:DrawLine(color_token, alpha, size, orientation)
-	self:SetRenderColor(self:GetColor(color_token or "border"), alpha)
+	if color_token == nil or color_token == 0 then color_token = "border" end
+
+	self:SetRenderColor(self:GetColor(color_token), alpha)
 	render2d.SetTexture(nil)
 	local horiz = orientation == "auto" and size.x > size.y or orientation == "horizontal"
 
@@ -1221,6 +1258,16 @@ function BaseTheme:Draw(pnl)
 		return self:DrawCheckbox(pnl.transform:GetSize(), pnl:GetState())
 	elseif pnl.Name == "radio_button" then
 		return self:DrawButtonRadio(pnl.transform:GetSize(), pnl:GetState())
+	elseif pnl.Name == "clickable" then
+		local state = pnl:GetState()
+		return self:DrawButton(pnl.transform:GetTotalSize(), state)
+	end
+end
+
+function BaseTheme:DrawPost(pnl)
+	if pnl.Name == "clickable" then
+		local state = pnl:GetState()
+		return self:DrawButtonPost(pnl.transform:GetTotalSize(), state)
 	end
 end
 
@@ -1228,6 +1275,8 @@ function BaseTheme:UpdateAnimations(pnl)
 	if pnl.Name == "checkbox" then return self:UpdateCheckboxAnimations(pnl) end
 
 	if pnl.Name == "radio_button" then return self:UpdateCheckboxAnimations(pnl) end
+
+	if pnl.Name == "clickable" then return self:UpdateButtonAnimations(pnl) end
 end
 
 return BaseTheme:Register()

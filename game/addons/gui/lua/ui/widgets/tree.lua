@@ -130,9 +130,8 @@ return function(props)
 
 		local selected = is_selected(info.node, info.path, info.key)
 		local surface = selected and (props.SelectedColor or "primary") or nil
-		info.surface = surface
-		info.text.SurfaceColor = surface
-		info.text.Color = get_text_token(info.node, info.path, info.key)
+		info.text.style:SetBackgroundColor(surface)
+		info.text.text:SetColor(get_text_token(info.node, info.path, info.key))
 	end
 
 	local function clear_drag_state()
@@ -609,7 +608,7 @@ return function(props)
 				end,
 				Text = get_text(node, path),
 				Font = node.Font or props.RowFont or "body",
-				SurfaceColor = selected and (props.SelectedColor or "primary") or nil,
+				BackgroundColor = selected and (props.SelectedColor or "primary") or nil,
 				Color = node.Disabled and
 					"text_disabled" or
 					(

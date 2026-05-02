@@ -4,6 +4,7 @@ local Text = import("lua/ui/elements/text.lua")
 return function(props)
 	return Clickable{
 		Active = props.Active,
+		ButtonColor = props.ButtonColor,
 		Disabled = props.Disabled,
 		Mode = props.Mode or "filled",
 		Ref = props.Ref,
@@ -21,7 +22,23 @@ return function(props)
 			FontName = props.FontName,
 			FontSize = props.FontSize,
 			IgnoreMouseInput = true,
-			Color = props.Disabled and "text_disabled" or "text",
+			Color = props.TextColor or
+				(
+					(
+						(
+							props.Mode == "text" or
+							props.Mode == "outline"
+						)
+						and
+						props.ButtonColor
+					)
+					or
+					(
+						props.Disabled and
+						"text_disabled" or
+						"text"
+					)
+				),
 			AlignX = props.AlignX or "center",
 			AlignY = props.AlignY or "center",
 			layout = props.TextLayout,

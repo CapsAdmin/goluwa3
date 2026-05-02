@@ -9,65 +9,39 @@ local theme = import("lua/ui/theme.lua")
 return function(props)
 	props = props or {}
 
-	local function get_owner(self)
-		if self and self.Owner then return self.Owner end
+	local function get_context_text_color()
+		local value = props.TextColor
 
-		return self
-	end
+		if value ~= nil then return value end
 
-	local function get_context_surface(self)
-		local current = get_owner(self)
-
-		while current and current.IsValid and current:IsValid() do
-			if current.SurfaceColor ~= nil then return current.SurfaceColor end
-
-			current = current:GetParent()
+		if props.Disabled then
+			return "text_disabled"
+		elseif props.Active then
+			return "accent"
 		end
 
-		return theme.GetCurrentSurface()
-	end
-
-	local function get_context_text_color(self)
-		local owner = get_owner(self)
-		local value = owner and owner.TextColor
-
-		if value == nil and owner then value = owner.Color end
-
-		if value == nil then
-			if owner and owner.Disabled then
-				value = "text_disabled"
-			elseif owner and owner.Active then
-				value = "accent"
-			else
-				value = "text"
-			end
-		end
-
-		if type(value) == "string" then
-			return theme.GetColorOn(value, get_context_surface(self))
-		end
-
-		return value
+		return "text"
 	end
 
 	return Panel.New{
 		{
 			Name = "text",
-			OnGetTextColor = get_context_text_color,
 			text = {
 				Elide = props.Elide == true,
 				ElideString = props.ElideString or "...",
 				Font = props.Font or props.FontName or "body",
 				FontSize = props.FontSize or "M",
 				WrapToParent = props.Wrap and props.WrapToParent ~= false,
-				Color = "text",
+				Color = props.Color ~= nil and props.Color or get_context_text_color(),
+			},
+			style = {
+				BackgroundColor = props.BackgroundColor,
 			},
 			layout = {
 				FitWidth = not props.Wrap and props.Elide ~= true,
 				FitHeight = true,
 			},
 			transform = true,
-			gui_element = true,
 			mouse_input = {
 				Cursor = props.Cursor,
 			},
