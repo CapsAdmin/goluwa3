@@ -89,6 +89,10 @@ return function(props)
 	local is_relaying = false
 	local update_animations
 
+	local function root_menu_is_valid()
+		return root_menu and root_menu.IsValid and root_menu:IsValid()
+	end
+
 	local function close_immediately()
 		if props.OnClose and container:IsValid() then
 			return props.OnClose(container)
@@ -162,7 +166,7 @@ return function(props)
 
 		if container.mouse_input then container.mouse_input:SetIgnoreMouseInput(true) end
 
-		if root_menu:IsValid() then
+		if root_menu_is_valid() then
 			update_animations(container)
 		else
 			close_immediately()
@@ -181,7 +185,7 @@ return function(props)
 	end
 
 	function update_animations(ent)
-		if not root_menu:IsValid() then return end
+		if not root_menu_is_valid() then return end
 
 		if is_closing then
 			root_menu.transform:SetDrawScaleOffset(Vec2(1, 1))
@@ -273,7 +277,7 @@ return function(props)
 			PreChildAdd = function(self, child)
 				if child.IsInternal then return end
 
-				if root_menu:IsValid() then
+				if root_menu_is_valid() then
 					root_menu:AddChild(child)
 				else
 					table.insert(pending_root_children, child)
@@ -282,7 +286,7 @@ return function(props)
 				return false
 			end,
 			PreRemoveChildren = function()
-				if root_menu:IsValid() then root_menu:RemoveChildren() end
+				if root_menu_is_valid() then root_menu:RemoveChildren() end
 
 				pending_root_children = {}
 				return false

@@ -272,7 +272,7 @@ return function(props)
 			OnClose = function(ent)
 				ent:Remove()
 			end,
-		}(menu_items)
+		}(unpack(menu_items))
 		local real_ctx = context_menu:GetChildren()[1]
 
 		event.AddListener("Update", dropdown, function()

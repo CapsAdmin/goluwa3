@@ -168,7 +168,7 @@ return function(props)
 					active_index = nil
 					sync_button_state()
 				end,
-			}(items)
+			}(unpack(items))
 		)
 	end
 
