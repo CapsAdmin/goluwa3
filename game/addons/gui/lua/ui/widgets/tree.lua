@@ -42,6 +42,7 @@ return function(props)
 	local tree
 	local is_expanded
 	local set_selected
+	local pending_expand_animation_key = nil
 	local drag_state = {
 		active = false,
 		source_key = nil,
@@ -144,6 +145,24 @@ return function(props)
 		local surface = selected and (props.SelectedColor or "primary") or nil
 		info.text.style:SetBackgroundColor(surface)
 		info.text.text:SetColor(get_text_token(info.node, info.path, info.key))
+	end
+
+	local function should_seed_open_fraction(meta)
+		if not pending_expand_animation_key or not meta.parent_key then return false end
+
+		local current_key = meta.parent_key
+
+		while current_key do
+			if current_key == pending_expand_animation_key then return true end
+
+			local current_info = row_infos[current_key]
+
+			if not current_info then break end
+
+			current_key = current_info.parent_key
+		end
+
+		return false
 	end
 
 	local function clear_drag_state()
@@ -375,8 +394,6 @@ return function(props)
 						info.open_fraction = target
 						update_row_display(info)
 					else
-						if target > 0 then info.clip.gui_element:SetVisible(true) end
-
 						tree.animation:Animate{
 							id = "tree_row_open_" .. key,
 							get = function()
@@ -414,6 +431,8 @@ return function(props)
 	end
 
 	local function set_expanded(node, path, key, expanded)
+		if props.IsExpanded and expanded then pending_expand_animation_key = key end
+
 		if props.IsExpanded then
 			if props.OnToggle then props.OnToggle(node, expanded, key, path) end
 		else
@@ -670,6 +689,7 @@ return function(props)
 			surface = selected and (props.SelectedColor or "primary") or nil,
 			parent_key = meta.parent_key,
 			has_children = has_children,
+			open_fraction = should_seed_open_fraction(meta) and 0 or nil,
 			toggle = nil,
 		}
 		row_infos[key] = row_info
@@ -973,10 +993,16 @@ return function(props)
 
 		add_node(descriptor.node, descriptor.meta, descriptor.parent_path, start_index)
 		refresh_visibility()
+
+		if pending_expand_animation_key == key then
+			pending_expand_animation_key = nil
+		end
+
 		return self
 	end
 
 	tree:Rebuild()
+	pending_expand_animation_key = nil
 
 	if external_ref then external_ref(tree) end
 
