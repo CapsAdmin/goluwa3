@@ -245,12 +245,11 @@ end
 function JRPGTheme:DrawDisclosureIcon(size, opts)
 	opts = opts or {}
 	local icon_size = opts.size or 10
-	local progress = opts.open_fraction or 0
 	local color = opts.color or self:GetColor("text_foreground")
 	local center = size / 2
 	render2d.PushMatrix()
 	render2d.Translatef(center.x, center.y)
-	render2d.Rotate(math.rad(progress * 90))
+	render2d.Rotate(math.rad((opts.open_fraction or 0) * 90))
 	render2d.SetColor(color:Unpack())
 	render2d.SetTexture(nil)
 	self:DrawArrow(0, 0, icon_size)
@@ -259,16 +258,11 @@ end
 
 function JRPGTheme:DrawDropdownIndicatorIcon(size, opts)
 	opts = opts or {}
-	local icon_size = opts.size or 9
-	local color = opts.color or self:GetColor("text_foreground")
-	local center = size / 2
-	render2d.PushMatrix()
-	render2d.Translatef(center.x, center.y + 1)
-	render2d.Rotate(math.rad(90))
-	render2d.SetColor(color:Unpack())
-	render2d.SetTexture(nil)
-	self:DrawArrow(0, 0, icon_size)
-	render2d.PopMatrix()
+	return self:DrawDisclosureIcon(size, {
+		size = opts.size or 9,
+		color = opts.color,
+		open_fraction = 1,
+	})
 end
 
 function JRPGTheme:DrawCloseIcon(size, opts)

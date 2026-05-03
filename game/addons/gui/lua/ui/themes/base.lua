@@ -450,15 +450,15 @@ function BaseTheme:DrawIconLines(lines, opts)
 	render2d.PopColor()
 end
 
-function BaseTheme:DrawDisclosureIcon(size, opts)
+function BaseTheme:DrawChevronIcon(size, opts)
 	opts = opts or {}
 	local icon_size = (opts.size or 10) * 0.6
-	local progress = opts.open_fraction or 0
 	local center = size / 2
 	local half = icon_size / 2
+	local rotation = opts.rotation_degrees or 0
 	render2d.PushMatrix()
 	render2d.Translatef(center.x, center.y)
-	render2d.Rotate(math.rad(progress * 90))
+	render2d.Rotate(math.rad(rotation))
 	self:DrawIconLines(
 		{
 			{-half * 0.7, -half, half * 0.7, 0},
@@ -469,17 +469,29 @@ function BaseTheme:DrawDisclosureIcon(size, opts)
 	render2d.PopMatrix()
 end
 
+function BaseTheme:DrawDisclosureIcon(size, opts)
+	opts = opts or {}
+	return self:DrawChevronIcon(
+		size,
+		{
+			size = opts.size,
+			thickness = opts.thickness,
+			color = opts.color,
+			rotation_degrees = (opts.open_fraction or 0) * 90,
+		}
+	)
+end
+
 function BaseTheme:DrawDropdownIndicatorIcon(size, opts)
 	opts = opts or {}
-	local icon_size = opts.size or 8
-	local center = size / 2
-	local half = icon_size / 2
-	self:DrawIconLines(
+	return self:DrawChevronIcon(
+		size,
 		{
-			{center.x - half, center.y - half * 0.3, center.x, center.y + half * 0.5},
-			{center.x, center.y + half * 0.5, center.x + half, center.y - half * 0.3},
-		},
-		opts
+			size = opts.size or 8,
+			thickness = opts.thickness,
+			color = opts.color,
+			rotation_degrees = 90,
+		}
 	)
 end
 

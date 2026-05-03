@@ -113,7 +113,7 @@ return function(props)
 						"disclosure",
 						self.Owner.transform:GetSize(),
 						{
-							size = 8,
+							thickness = 2,
 							color = theme.GetColor(props.Disabled and "text_disabled" or "text"),
 						}
 					)
