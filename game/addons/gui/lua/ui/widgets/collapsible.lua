@@ -41,6 +41,7 @@ return function(props)
 				gui_element = {
 					OnDraw = function(self)
 						local background = self.Owner.style and self.Owner.style:GetResolvedBackgroundColor()
+						local open_fraction = container and container:IsValid() and container:GetOpenFraction() or 0
 						theme.active:DrawIcon(
 							"disclosure",
 							self.Owner.transform:GetSize(),

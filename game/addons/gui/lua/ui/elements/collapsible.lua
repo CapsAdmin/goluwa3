@@ -143,6 +143,10 @@ return function(props)
 		return collapsed
 	end
 
+	function container:GetOpenFraction()
+		return open_fraction
+	end
+
 	function container:ToggleCollapsed(instant)
 		self:SetCollapsed(not collapsed, instant)
 		return self
