@@ -60,7 +60,7 @@ return function(props)
 	local show_swatch = props.kind == "color"
 	local component_gap = resolve_size(props.gap) or 8
 	local size = Vec2(props.value_width, props.row_height)
-	local field_height = size.y
+	local field_height = props.row_height
 	local swatch_size = node.SwatchSize or field_height
 	local field_width = node.ComponentWidth or
 		math.max(

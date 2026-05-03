@@ -3,13 +3,19 @@ local Button = import("lua/ui/widgets/button.lua")
 local Row = import("lua/ui/elements/row.lua")
 local TextEdit = import("lua/ui/elements/text_edit.lua")
 local Value = import("lua/ui/widgets/properties/value.lua")
-
 return function(props)
 	local node = props.node
 	local kind = props.kind
 	local input
 	local multiline = node.Multiline == true
-	local input_height = multiline and 72 or props.row_height
+	local input_height = multiline and
+		(
+			node.MultilineHeight or
+			props.multiline_row_height or
+			props.row_height * 3
+		)
+		or
+		props.row_height
 	local default_encoded
 	local string_tooltip = function()
 		if node.Value == nil then return "" end
@@ -127,23 +133,25 @@ return function(props)
 		default_encoded = value_panel:EncodeValue()
 	end
 
-	Value.InstallContextMenu(value_panel, {
-		BeforeOpen = function()
-			if props.sync_selection then props.sync_selection(props.key) end
-		end,
-		Encode = function(panel)
-			return panel:EncodeValue()
-		end,
-		Decode = function(text, panel)
-			return panel:DecodeValue(text)
-		end,
-		GetDefaultEncoded = function()
-			return default_encoded
-		end,
-		Commit = function(decoded)
-			props.commit_value(node, decoded, props.key, props.path)
-		end,
-	})
-
+	Value.InstallContextMenu(
+		value_panel,
+		{
+			BeforeOpen = function()
+				if props.sync_selection then props.sync_selection(props.key) end
+			end,
+			Encode = function(panel)
+				return panel:EncodeValue()
+			end,
+			Decode = function(text, panel)
+				return panel:DecodeValue(text)
+			end,
+			GetDefaultEncoded = function()
+				return default_encoded
+			end,
+			Commit = function(decoded)
+				props.commit_value(node, decoded, props.key, props.path)
+			end,
+		}
+	)
 	return control, value_panel
 end

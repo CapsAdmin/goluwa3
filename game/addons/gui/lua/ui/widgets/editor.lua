@@ -1819,6 +1819,7 @@ return function(props)
 			FontSize = "XS",
 			layout = {
 				GrowWidth = 1,
+				Padding = "XS",
 				FitHeight = true,
 			},
 		},

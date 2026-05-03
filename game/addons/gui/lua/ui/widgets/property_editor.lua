@@ -175,10 +175,36 @@ return function(props)
 	local number_precision = props.NumberPrecision or 2
 	local value_width = props.ValueWidth or 220
 	local compact_font_size = props.FontSize or "S"
-	local compact_row_height = props.RowHeight or theme.GetSize("M") * 2
+	local compact_padding = props.Padding or props.RowPadding or "XS"
+	local compact_gap = props.Gap or "none"
 	local shared_key_width = props.KeyWidth or 180
 	local divider_width = props.DividerWidth or 6
 	local divider_draw_alpha = props.DividerDrawAlpha or 1
+
+	local function resolve_padding_rect(padding)
+		if type(padding) == "string" then return Rect() + theme.GetPadding(padding) end
+
+		if type(padding) == "number" then return Rect() + padding end
+
+		if padding then return padding end
+
+		return Rect()
+	end
+
+	local function get_padding_height(padding)
+		local rect = resolve_padding_rect(padding)
+		return rect.y + rect.h
+	end
+
+	local compact_padding_rect = resolve_padding_rect(compact_padding)
+	local label_inset = props.LabelInset ~= nil and props.LabelInset or compact_padding_rect.x
+	local editor_value_inset = props.ValueInset ~= nil and props.ValueInset or compact_padding_rect.x
+	local header_gap = props.HeaderGap ~= nil and props.HeaderGap or "XXS"
+	local compact_row_height = props.RowHeight or
+		(
+			theme.GetFontSize(compact_font_size) + get_padding_height(compact_padding)
+		)
+	local multiline_row_height = props.MultilineRowHeight or compact_row_height * 3
 	local collapsed_state = {}
 	local category_refs = {}
 	local category_key_columns = {}
@@ -270,7 +296,7 @@ return function(props)
 	local function get_row_height(node)
 		if node.RowHeight then return node.RowHeight end
 
-		if node.Multiline then return 86 end
+		if node.Multiline then return node.MultilineHeight or multiline_row_height end
 
 		return compact_row_height
 	end
@@ -316,7 +342,10 @@ return function(props)
 			commit_value = commit_value,
 			trigger_action = trigger_action,
 			value_width = value_width,
-			row_height = compact_row_height,
+			row_height = get_row_height(node),
+			multiline_row_height = multiline_row_height,
+			padding = node.Padding or compact_padding,
+			gap = node.Gap or compact_gap,
 			font_size = compact_font_size,
 			number_precision = number_precision,
 			get_precision = get_precision,
@@ -397,6 +426,7 @@ return function(props)
 				GrowWidth = 1,
 				MinSize = Vec2(0, get_row_height(entry.node)),
 				MaxSize = Vec2(0, get_row_height(entry.node)),
+				Padding = Rect(label_inset, 0, 0, 0),
 				AlignmentY = "center",
 			},
 			gui_element = {
@@ -465,6 +495,7 @@ return function(props)
 				GrowWidth = 1,
 				MinSize = Vec2(0, get_row_height(entry.node)),
 				MaxSize = Vec2(0, get_row_height(entry.node)),
+				Padding = Rect(editor_value_inset, 0, 0, 0),
 				AlignmentY = entry.node.Multiline and "start" or "center",
 			},
 			gui_element = {
@@ -665,7 +696,8 @@ return function(props)
 			TooltipMaxWidth = 420,
 			HeaderMode = "filled",
 			HeaderHeight = get_row_height(node),
-			HeaderGap = compact_gap,
+			HeaderPadding = node.HeaderPadding or compact_padding,
+			HeaderGap = node.HeaderGap ~= nil and node.HeaderGap or header_gap,
 			HeaderFontName = "body",
 			HeaderFontSize = compact_font_size,
 			HeaderTextColor = "text_on_accent",
