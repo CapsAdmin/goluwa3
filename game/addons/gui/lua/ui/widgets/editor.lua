@@ -17,6 +17,7 @@ local shapes = import("lua/shapes.lua")
 local ContextMenu = import("lua/ui/elements/context_menu.lua")
 local MenuBar = import("lua/ui/widgets/menu_bar.lua")
 local MenuItem = import("lua/ui/elements/context_menu_item.lua")
+local MenuSpacer = import("lua/ui/elements/menu_spacer.lua")
 local PropertyEditor = import("lua/ui/widgets/property_editor.lua")
 local ScrollablePanel = import("lua/ui/elements/scrollable_panel.lua")
 local Splitter = import("lua/ui/elements/splitter.lua")
@@ -1428,10 +1429,7 @@ return function(props)
 				nil,
 				can_create_shapes and
 				can_remove and
-				MenuItem{
-					Text = "-",
-					Disabled = true,
-				} or
+				MenuSpacer() or
 				nil,
 				can_remove and
 				MenuItem{
@@ -1488,7 +1486,7 @@ return function(props)
 					update_editor_camera_viewport()
 				end,
 			},
-			MenuItem{Text = "-", Disabled = true},
+			MenuSpacer(),
 			MenuItem{Text = "Theme", Items = build_theme_menu_items()},
 		}
 	end
@@ -1524,7 +1522,7 @@ return function(props)
 		add_mode_item("Rotate", "rotate")
 		add_mode_item("Scale", "scale")
 		add_mode_item("Combined", "combined")
-		items[#items + 1] = MenuItem{Text = "-", Disabled = true}
+		items[#items + 1] = MenuSpacer()
 		add_space_item("Local Space", "local")
 		add_space_item("World Space", "world")
 		return items

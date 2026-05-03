@@ -1189,6 +1189,10 @@ function BaseTheme:DrawDivider(size)
 	self:DrawLine(0, 1, size, "auto")
 end
 
+function BaseTheme:DrawMenuSpacer(size, vertical)
+	self:DrawLine(0, 1, size, vertical and "vertical" or "horizontal")
+end
+
 function BaseTheme:DrawMenuContainer(size)
 	self:DrawBox(
 		size,
@@ -1295,7 +1299,9 @@ function BaseTheme:Draw(pnl)
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("panel_color"), self:GetRadius("M"))
 	elseif pnl.Name == "MenuContainer" then
 		return self:DrawMenuContainer(pnl.transform:GetSize())
-	elseif pnl.Name == "MenuSpacer" or pnl.Name == "splitter" then
+	elseif pnl.Name == "MenuSpacer" then
+		return self:DrawMenuSpacer(pnl.transform:GetSize(), pnl:GetState("vertical"))
+	elseif pnl.Name == "splitter" then
 		return self:DrawDivider(pnl.transform:GetSize())
 	elseif pnl.Name == "PropertyLabelRow" or pnl.Name == "PropertyEditorRow" then
 		return self:DrawPropertyRow(

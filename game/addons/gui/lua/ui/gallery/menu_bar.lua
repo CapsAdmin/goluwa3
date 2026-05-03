@@ -41,6 +41,7 @@ return {
 								Text = "prototype.layout",
 								OnClick = leaf("File > Open Recent > prototype.layout"),
 							},
+							MenuSpacer(),
 							MenuItem{
 								Text = "Archived",
 								Items = function()
@@ -49,6 +50,7 @@ return {
 											Text = "winter_build_01",
 											OnClick = leaf("File > Open Recent > Archived > winter_build_01"),
 										},
+										MenuSpacer(),
 										MenuItem{
 											Text = "winter_build_02",
 											OnClick = leaf("File > Open Recent > Archived > winter_build_02"),
@@ -78,6 +80,7 @@ return {
 						return {
 							MenuItem{Text = "Expand", OnClick = leaf("Edit > Selection > Expand")},
 							MenuItem{Text = "Shrink", OnClick = leaf("Edit > Selection > Shrink")},
+							MenuSpacer(),
 							MenuItem{
 								Text = "Convert To",
 								Items = function()
