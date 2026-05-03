@@ -317,7 +317,9 @@ return function(props)
 			gui_element = true,
 			animation = true,
 			clickable = true,
-			layout = true,
+			layout = {
+				Floating = true,
+			},
 		},
 	}{
 		create_menu_frame(1, props.Anchor, props.AnchorPlacement or "below_left", props.Size),
