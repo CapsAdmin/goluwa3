@@ -64,18 +64,15 @@ T.Test("layout - shrink", function()
 	parent.layout:SetDirection("x")
 	parent.layout:SetPadding(Rect(0, 0, 0, 0))
 	parent.layout:SetChildGap(0)
-
 	local child1 = NewBox("Child1", Vec2(50, 50))
 	child1:SetParent(parent)
 	child1:AddComponent("layout")
 	child1.layout:SetMinSize(Vec2(50, 0))
-
 	local child2 = NewBox("Child2", Vec2(100, 50))
 	child2:SetParent(parent)
 	child2:AddComponent("layout")
 	child2.layout:SetGrowWidth(1)
 	child2.layout:SetShrinkWidth(1)
-
 	parent.layout:UpdateLayout()
 	T(child1.transform:GetWidth())["=="](50)
 	T(child2.transform:GetWidth())["=="](70)
@@ -317,8 +314,90 @@ T.Test("layout - text wrapping", function()
 		},
 	}
 	local text_comp = text_panel:AddComponent("text")
-	-- Mock font measurement for wrapping
-	-- We want to simulate that at 100px width, "A B C" wraps to 3 lines
+	-- Use glyph metrics that exercise the same pretext-driven wrapping path as runtime.
+	local font = {
+		GetTextSize = function(self, text)
+			local width = 0
+			local height = 0
+
+			for _, line in ipairs(tostring(text or ""):split("\n", true)) do
+				width = math.max(width, #line * 8)
+				height = height + 20
+			end
+
+			return width, math.max(height, 20)
+		end,
+		MeasureText = function(self, text)
+			return self:GetTextSize(text)
+		end,
+		GetLineHeight = function()
+			return 20
+		end,
+		GetSpaceAdvance = function()
+			return 20
+		end,
+		GetTabAdvance = function(_, space_width, tab_size)
+			return (space_width or 20) * (tab_size or 4)
+		end,
+		GetGlyphAdvance = function()
+			return 8
+		end,
+		GetSpacing = function()
+			return 0
+		end,
+		GetAscent = function()
+			return 20
+		end,
+		GetDescent = function()
+			return 0
+		end,
+		DrawText = function() end,
+		WrapString = function(self, text)
+			return text
+		end,
+	}
+	text_comp.GetFont = function()
+		return font
+	end
+	text_comp:SetText("A B C")
+	text_comp:SetWrap(true)
+	-- Force layout multiple times to converge
+	container.layout:UpdateLayout()
+	container.layout:UpdateLayout()
+	-- 100px is wide enough NOT to wrap (width > 30).
+	T(text_panel.transform:GetHeight())["=="](20)
+	-- Now change container width to 20px
+	container.layout:SetMinSize(Vec2(20, 0))
+	container.layout:SetMaxSize(Vec2(20, 0))
+	-- Converge
+	container.layout:UpdateLayout()
+	container.layout:UpdateLayout()
+	T(text_panel.transform:GetHeight())["=="](60)
+	T(container.transform:GetHeight())["=="](60)
+	container:Remove()
+end)
+
+T.Test("layout - fit height parent defers child reflow", function()
+	local row = Panel.New{
+		Name = "Row",
+		transform = true,
+		Size = Vec2(20, 0),
+		layout = {
+			Direction = "x",
+			FitHeight = true,
+		},
+	}
+	local text_panel = Panel.New{
+		Parent = row,
+		Name = "TextPanel",
+		transform = true,
+		layout = {
+			GrowWidth = 1,
+			FitHeight = true,
+		},
+	}
+	text_panel.transform:SetSize(Vec2(100, 20))
+	local text_comp = text_panel:AddComponent("text")
 	local font = {
 		GetTextSize = function(self, text)
 			if text == "A\nB\nC" then return 20, 60 end
@@ -351,18 +430,12 @@ T.Test("layout - text wrapping", function()
 	end
 	text_comp:SetText("A B C")
 	text_comp:SetWrap(true)
-	-- Force layout multiple times to converge
-	container.layout:UpdateLayout()
-	container.layout:UpdateLayout()
-	-- 100px is wide enough NOT to wrap (width > 30).
-	T(text_panel.transform:GetHeight())["=="](20)
-	-- Now change container width to 20px
-	container.layout:SetMinSize(Vec2(20, 0))
-	container.layout:SetMaxSize(Vec2(20, 0))
-	-- Converge
-	container.layout:UpdateLayout()
-	container.layout:UpdateLayout()
+	row.layout:UpdateLayout()
 	T(text_panel.transform:GetHeight())["=="](60)
-	T(container.transform:GetHeight())["=="](60)
-	container:Remove()
+	T(row.layout:GetDirty())["=="](true)
+	row.layout:UpdateLayout()
+	T(row.layout:GetDirty())["=="](false)
+	T(row.transform:GetHeight())["=="](60)
+	T(text_panel.transform:GetHeight())["=="](60)
+	row:Remove()
 end)

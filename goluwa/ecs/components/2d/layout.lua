@@ -62,13 +62,23 @@ function META:Initialize()
 end
 
 function META:InvalidateLayout()
-	if self:GetDirty() then return end
-
-	self:SetDirty(true)
 	local parent = self.Owner:GetParent()
 
+	if self:GetDirty() then
+		if parent and parent:IsValid() and parent.layout and parent.layout.busy then
+			parent.layout.pending_child_reflow = true
+		end
+
+		return
+	end
+
+	self:SetDirty(true)
+
 	if parent and parent:IsValid() and parent.layout then
-		if parent.layout.busy then return end
+		if parent.layout.busy then
+			parent.layout.pending_child_reflow = true
+			return
+		end
 
 		parent.layout:InvalidateLayout()
 	end
@@ -468,6 +478,12 @@ function META:Arrange()
 		end
 
 		self.busy = false
+
+		if self.pending_child_reflow then
+			self.pending_child_reflow = false
+			self:SetDirty(true)
+		end
+
 		return
 	end
 
@@ -585,6 +601,11 @@ function META:Arrange()
 	end
 
 	self.busy = false
+
+	if self.pending_child_reflow then
+		self.pending_child_reflow = false
+		self:SetDirty(true)
+	end
 end
 
 function META:UpdateLayout()
