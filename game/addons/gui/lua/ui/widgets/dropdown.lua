@@ -149,9 +149,35 @@ return function(props)
 			local search_query = ""
 			local results_panel
 			local results_column
+			local world_size = world_panel and
+				world_panel.transform and
+				world_panel.transform:GetSize() or
+				Vec2()
+			local _, dropdown_y = dropdown.transform:GetWorldMatrix():GetTranslation()
+			local available_below = math.max(0, world_size.y - (dropdown_y + dropdown.transform:GetHeight()))
+			local effective_search_gap = use_search and search_gap or 0
+			local effective_search_input_height = use_search and search_input_height or 0
 			local body_height = use_search and search_body_height or scroll_threshold
 			local composite_children = {}
 			local dropdown_width = dropdown and dropdown.transform and dropdown.transform:GetSize().x or 0
+
+			if use_search then
+				local minimum_body_height = 1
+				local max_input_height = math.max(0, available_below - minimum_body_height)
+				effective_search_input_height = math.min(effective_search_input_height, max_input_height)
+				effective_search_gap = math.min(
+					effective_search_gap,
+					math.max(0, available_below - effective_search_input_height - minimum_body_height)
+				)
+			end
+
+			body_height = math.max(
+				1,
+				math.min(
+					body_height,
+					math.max(1, available_below - effective_search_input_height - effective_search_gap)
+				)
+			)
 
 			if dropdown_width <= 0 then dropdown_width = 220 end
 
@@ -207,9 +233,9 @@ return function(props)
 					Font = props.Font,
 					FontName = props.FontName,
 					FontSize = props.FontSize,
-					Size = Vec2(0, search_input_height),
-					MinSize = Vec2(0, search_input_height),
-					MaxSize = Vec2(0, search_input_height),
+					Size = Vec2(0, effective_search_input_height),
+					MinSize = Vec2(0, effective_search_input_height),
+					MaxSize = Vec2(0, effective_search_input_height),
 					OnTextChanged = function(text)
 						search_query = tostring(text or ""):lower()
 						rebuild_results()
@@ -256,7 +282,7 @@ return function(props)
 			menu_items[1] = MenuContainer{
 				Name = use_search and "DropdownSearchMenu" or "DropdownScrollMenu",
 				layout = {
-					ChildGap = search_gap,
+					ChildGap = effective_search_gap,
 				},
 			}(unpack(composite_children))
 			rebuild_results()
@@ -268,6 +294,8 @@ return function(props)
 
 		local context_menu = ContextMenu{
 			Key = "ActiveContextMenu",
+			Anchor = dropdown,
+			AnchorPlacement = "below_left",
 			SourceDropdown = dropdown,
 			OnClose = function(ent)
 				ent:Remove()
@@ -283,9 +311,6 @@ return function(props)
 			local w = dropdown.transform:GetSize().x
 			real_ctx.layout:SetMinSize(Vec2(w, 0))
 			real_ctx.layout:SetMaxSize(Vec2(w, 0))
-			local x, y = dropdown.transform:GetWorldMatrix():GetTranslation()
-			y = y + dropdown.transform:GetHeight()
-			real_ctx.transform:SetPosition(Vec2(x, y))
 
 			if use_scroll and results_panel and results_panel:IsValid() then
 				local viewport = results_panel:GetViewport()
