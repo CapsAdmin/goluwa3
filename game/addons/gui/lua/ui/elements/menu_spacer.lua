@@ -11,8 +11,8 @@ return function(props)
 		Name = "MenuSpacer",
 		transform = {
 			Size = props.Vertical and
-				Vec2(theme.GetSize("line_height"), 0) or
-				Vec2(0, theme.GetSize("line_height")),
+				Vec2(theme.GetSize("line"), 0) or
+				Vec2(0, theme.GetSize("line")),
 		},
 		layout = {
 			GrowWidth = 1,

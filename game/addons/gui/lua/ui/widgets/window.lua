@@ -63,7 +63,7 @@ return function(props)
 				Direction = "x",
 				AlignmentY = "center",
 				FitHeight = true,
-				Padding = "XXXS",
+				Padding = "XS",
 			},
 			gui_element = {
 				OnDraw = function(self)

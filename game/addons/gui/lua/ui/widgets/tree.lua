@@ -603,7 +603,7 @@ return function(props)
 				FitWidth = not label_grow,
 				FitHeight = true,
 				GrowWidth = label_grow and 1 or nil,
-				Padding = props.LabelPadding or "XXS",
+				Padding = props.LabelPadding or "XS",
 			},
 			gui_element = {
 				OnDraw = function(self)

@@ -13,61 +13,30 @@ BaseTheme:GetSet(
 	"Sizes",
 	{
 		none = 0,
-		XXXS = 2,
 		line = 1,
+		XXXS = 2,
 		XXS = 4,
 		XS = 8,
 		S = 12,
-		sm = 12,
 		M = 17,
-		md = 17,
 		L = 24,
 		LG = 24,
 		XL = 32,
 		XXL = 48,
-		section = 80,
 		default = 14,
-		line_height = 4,
 	}
 )
-BaseTheme:GetSet(
-	"Radii",
-	{
-		none = 0,
-		xs = 2,
-		sm = 3,
-		md = 4,
-		lg = 6,
-		pill = 9999,
-		full = 9999,
-	}
-)
+BaseTheme:GetSet("Radii", {
+	none = 0,
+	XS = 2,
+	S = 3,
+	M = 4,
+	L = 6,
+	full = 9999,
+})
 BaseTheme:GetSet(
 	"FontSizes",
 	{
-		-- Display hierarchy
-		hero_display = 56,
-		display_lg = 40,
-		display_md = 34,
-		-- Lead
-		lead = 28,
-		lead_airy = 24,
-		tagline = 21,
-		-- Body hierarchy
-		body_strong = 17,
-		body = 17,
-		dense_link = 17,
-		-- Caption
-		caption = 14,
-		caption_strong = 14,
-		-- Button
-		button_large = 18,
-		button_utility = 14,
-		-- Fine print
-		fine_print = 12,
-		micro_legal = 10,
-		nav_link = 12,
-		-- Legacy aliases
 		XS = 10,
 		S = 12,
 		M = 14,
@@ -262,7 +231,7 @@ end
 
 function BaseTheme:GetRadius(name)
 	local radii = self:GetRadii()
-	return radii[name or "md"] or radii.md
+	return radii[name or "M"]
 end
 
 function BaseTheme:ResolveFontSize(size_name)
@@ -387,7 +356,7 @@ end
 
 function BaseTheme:DrawValueField(size, opts)
 	opts = opts or {}
-	local radius = opts.radius or self:GetRadius("md")
+	local radius = opts.radius or self:GetRadius("M")
 	local fill_alpha = opts.fill_alpha
 
 	if fill_alpha == nil then fill_alpha = 1 end
@@ -682,7 +651,7 @@ function BaseTheme:DrawButton(size, state)
 		glow_alpha = 0,
 		press_scale = 0,
 	}
-	local radius = self:GetRadius("md")
+	local radius = self:GetRadius("M")
 	-- Resolve fill token based on state
 	local fill_name = self:ResolveButtonFillName(state)
 	local fill = self:ResolveButtonFill(state, fill_name)
@@ -799,7 +768,7 @@ function BaseTheme:DrawButtonPost(size, state)
 
 	if not state.hovered or state.disabled then return end
 
-	local radius = self:GetRadius("md")
+	local radius = self:GetRadius("M")
 	self:DrawRoundOutline(
 		0,
 		0,
@@ -816,7 +785,7 @@ end
 
 function BaseTheme:DrawMenuButton(size, state, opts)
 	opts = opts or {}
-	local radius = opts.radius or self:GetRadius("xs")
+	local radius = opts.radius or self:GetRadius(XS)
 	local fill = self:GetColor("invisible")
 	local hovered_alpha = opts.hovered_alpha or 0.1
 	local pressed_alpha = opts.pressed_alpha or 0.15
@@ -965,7 +934,7 @@ end
 
 function BaseTheme:DrawPreviewTileFrame(size, opts)
 	opts = opts or {}
-	local radius = opts.radius or self:GetRadius("lg")
+	local radius = opts.radius or self:GetRadius("L")
 	local inset = opts.inset or 0
 	local outline_alpha = opts.outline_alpha or 0.05
 	self:DrawBox(
@@ -1014,8 +983,8 @@ function BaseTheme:DrawSlider(size, state)
 		glow_alpha = 0,
 		knob_scale = 1,
 	}
-	local knob_w = self:GetSize("sm")
-	local knob_h = self:GetSize("sm")
+	local knob_w = self:GetSize("M")
+	local knob_h = self:GetSize("M")
 	local track = self:GetColor("surface_alt")
 	local accent = self:GetColor("primary")
 	local border = self:GetColor("border")
@@ -1116,7 +1085,7 @@ function BaseTheme:DrawCheckable(size, state, opts)
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
-	local radius = opts.radius or self:GetRadius("xs")
+	local radius = opts.radius or self:GetRadius(XS)
 	self:DrawRoundRect(x, y, box_size, box_size, radius, self:GetColor("surface"))
 	self:DrawRoundOutline(x, y, box_size, box_size, radius, self:GetColor("border"), 1, 1)
 
@@ -1130,7 +1099,7 @@ function BaseTheme:DrawCheckbox(size, state)
 		size,
 		state,
 		{
-			radius = self:GetRadius("xs"),
+			radius = self:GetRadius(XS),
 			inner_draw = function(x, y, box_size, radius, anim_val)
 				local inset = 3 + (1 - anim_val) * 3
 				self:DrawRoundRect(
@@ -1164,7 +1133,7 @@ function BaseTheme:DrawButtonRadio(size, state)
 end
 
 function BaseTheme:DrawFrame(size, emphasis)
-	local radius = self:GetRadius("md")
+	local radius = self:GetRadius("M")
 	self:DrawBox(size, {fill = "surface", fill_alpha = 1, radius = radius})
 end
 
@@ -1174,7 +1143,7 @@ function BaseTheme:DrawFramePost(size)
 		{
 			outline = "border",
 			outline_alpha = 1,
-			radius = self:GetRadius("md"),
+			radius = self:GetRadius("M"),
 			thickness = 1,
 		}
 	)
@@ -1190,7 +1159,7 @@ end
 function BaseTheme:DrawProgressBar(size, state, color)
 	local value = math.clamp(state.value or 0, 0, 1)
 	color = self:ResolveSurfaceFill(color, "primary")
-	local radius = math.min(math.floor(size.y / 2), self:GetRadius("pill"))
+	local radius = math.min(math.floor(size.y / 2), self:GetRadius("full"))
 	self:DrawBox(
 		size,
 		{
@@ -1214,7 +1183,7 @@ function BaseTheme:DrawMenuContainer(size)
 		{
 			fill = "surface",
 			fill_alpha = 1,
-			radius = self:GetRadius("xs"),
+			radius = self:GetRadius(XS),
 			outline = "border",
 			outline_alpha = 1,
 			thickness = 1,
@@ -1254,7 +1223,7 @@ function BaseTheme:Draw(pnl)
 			{
 				state = state_name,
 				fill = state_name and pnl:GetState("surface_color") or nil,
-				radius = self:GetRadius("lg"),
+				radius = self:GetRadius("L"),
 			}
 		)
 	elseif role == "property_preview" then
@@ -1311,7 +1280,7 @@ function BaseTheme:Draw(pnl)
 	elseif pnl.Name == "WindowContent" or pnl.Name == "TooltipOverlay" then
 		return self:DrawFrame(pnl.transform:GetTotalSize(), pnl:GetState("emphasis") or 0)
 	elseif pnl.Name == "text_edit" then
-		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("panel_color"), self:GetRadius("md"))
+		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("panel_color"), self:GetRadius("M"))
 	elseif pnl.Name == "MenuContainer" then
 		return self:DrawMenuContainer(pnl.transform:GetSize())
 	elseif pnl.Name == "MenuSpacer" or pnl.Name == "splitter" then
@@ -1341,13 +1310,13 @@ function BaseTheme:Draw(pnl)
 		return self:DrawMenuButton(
 			pnl.transform:GetSize(),
 			pnl:GetState(),
-			{hovered_alpha = 0.18, pressed_alpha = 0.28, radius = self:GetRadius("xs")}
+			{hovered_alpha = 0.18, pressed_alpha = 0.28, radius = self:GetRadius(XS)}
 		)
 	elseif pnl.Name == "ContextMenuItem" then
 		return self:DrawMenuButton(
 			pnl.transform:GetSize(),
 			pnl:GetState(),
-			{hovered_alpha = 0.12, pressed_alpha = 0.18, radius = self:GetRadius("xs")}
+			{hovered_alpha = 0.12, pressed_alpha = 0.18, radius = self:GetRadius(XS)}
 		)
 	elseif pnl.Name == "svg" and pnl:GetState("background_color") ~= nil then
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("background_color"), 0)
@@ -1355,13 +1324,13 @@ function BaseTheme:Draw(pnl)
 		return self:DrawSurface(
 			pnl.transform:GetTotalSize(),
 			pnl:GetState("color") or "scrollbar_track",
-			self:GetRadius("md")
+			self:GetRadius("M")
 		)
 	elseif type(pnl.Name) == "string" and pnl.Name:find("^scrollbar_handle_") then
 		return self:DrawSurface(
 			pnl.transform:GetTotalSize(),
 			pnl:GetState("color") or "scrollbar",
-			self:GetRadius("md")
+			self:GetRadius("M")
 		)
 	end
 end

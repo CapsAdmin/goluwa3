@@ -174,7 +174,7 @@ return {
 						self:SetState("preview_fill", "surface_alt")
 						self:SetState("preview_outline", "border")
 						self:SetState("preview_outline_alpha", 1)
-						self:SetState("preview_radius", theme.GetRadius("xs"))
+						self:SetState("preview_radius", theme.GetRadius(XS))
 					end,
 					transform = {
 						Size = Vec2(0, 60),
