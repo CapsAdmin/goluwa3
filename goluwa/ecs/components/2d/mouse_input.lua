@@ -71,7 +71,6 @@ local function build_reverse_query_traversal(owner)
 		exit = {},
 		skip_to = {},
 	}
-
 	build_reverse_query_traversal_recursive(owner, traversal)
 	return traversal
 end
@@ -125,8 +124,18 @@ end
 local function hovered_entity_query_visit(mouse_pos, owner)
 	local gui = owner.gui_element
 	local internal_dock = owner.gmod_internal_dock
+	local mouse_comp = owner.mouse_input
 
-	if gui and gui:IsHovered(mouse_pos) and not internal_dock then return owner end
+	if
+		gui and
+		mouse_comp and
+		not mouse_comp:GetIgnoreMouseInput()
+		and
+		gui:IsHovered(mouse_pos) and
+		not internal_dock
+	then
+		return owner
+	end
 end
 
 local function global_event_query_visit(context, owner)
