@@ -164,6 +164,8 @@ return function(props)
 
 		if press and key == "escape" then return request_close() end
 
+		if props.OnClosing and container:IsValid() then props.OnClosing(container) end
+
 		if container.mouse_input then container.mouse_input:SetIgnoreMouseInput(true) end
 
 		if root_menu_is_valid() then
@@ -325,6 +327,10 @@ return function(props)
 		create_menu_frame(1, props.Anchor, props.AnchorPlacement or "below_left", props.Size),
 	}
 	container.IsContextMenuContainer = true
+
+	function container:RequestClose(relay_button)
+		return request_close(relay_button)
+	end
 
 	function container:CloseFromLevel(level)
 		close_from_level(level)

@@ -19,6 +19,7 @@ return function(props)
 	local label_ent
 	local dropdown
 	local suppress_next_open = false
+	local menu_open_fraction = 0
 	local selected_text = props.Text or "Select..."
 	local search_enabled = props.Searchable == true or props.EnableSearch == true
 	local search_threshold = props.SearchThreshold or 300
@@ -105,6 +106,31 @@ return function(props)
 		return tostring(text or ""):lower():find(query, 1, true) ~= nil
 	end
 
+	local function set_menu_open_fraction(value, instant)
+		if not dropdown or not dropdown:IsValid() then
+			menu_open_fraction = value
+			return
+		end
+
+		if instant or not dropdown.animation then
+			menu_open_fraction = value
+			return
+		end
+
+		dropdown.animation:Animate{
+			id = "dropdown_indicator_open",
+			get = function()
+				return menu_open_fraction
+			end,
+			set = function(v)
+				menu_open_fraction = v
+			end,
+			to = value,
+			time = 0.2,
+			interpolation = "outExpo",
+		}
+	end
+
 	local function open_menu(self)
 		local world_panel = Panel.World
 
@@ -117,7 +143,13 @@ return function(props)
 
 		if active and active:IsValid() then
 			if active.SourceDropdown == dropdown then
-				active:Remove()
+				if active.RequestClose then
+					active:RequestClose()
+				else
+					set_menu_open_fraction(0)
+					active:Remove()
+				end
+
 				return
 			end
 
@@ -297,7 +329,11 @@ return function(props)
 			Anchor = dropdown,
 			AnchorPlacement = "below_left",
 			SourceDropdown = dropdown,
+			OnClosing = function()
+				set_menu_open_fraction(0)
+			end,
 			OnClose = function(ent)
+				set_menu_open_fraction(0, true)
 				ent:Remove()
 			end,
 		}(unpack(menu_items))
@@ -322,6 +358,7 @@ return function(props)
 		end)
 
 		world_panel:Ensure(context_menu)
+		set_menu_open_fraction(1)
 
 		if use_search then
 			timer.Delay(0, function()
@@ -335,6 +372,7 @@ return function(props)
 	dropdown = Clickable{
 		Disabled = props.Disabled,
 		Mode = props.Mode or "outline",
+		animation = true,
 		layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 		OnClick = open_menu,
 	}{
@@ -362,10 +400,11 @@ return function(props)
 				OnDraw = function(self)
 					local background = self.Owner.style and self.Owner.style:GetResolvedBackgroundColor()
 					theme.active:DrawIcon(
-						"dropdown_indicator",
+						"disclosure",
 						self.Owner.transform:GetSize(),
 						{
-							thickness = 1,
+							thickness = 2,
+							open_fraction = menu_open_fraction,
 							color = theme.GetColorOn(props.Disabled and "text_disabled" or "text", background),
 						}
 					)
