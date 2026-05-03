@@ -96,6 +96,9 @@ return {
 				SearchInputHeight = extra_props.SearchInputHeight,
 				EmptySearchText = extra_props.EmptySearchText,
 				Padding = extra_props.Padding,
+				GetValue = function()
+					return state[key]
+				end,
 				GetText = function()
 					return get_option_text(options, state[key], extra_props.FallbackText)
 				end,

@@ -807,13 +807,15 @@ function BaseTheme:DrawMenuButton(size, state, opts)
 		fill = self:GetColor("invisible")
 	elseif state.pressed then
 		fill = self:GetColor("primary"):Copy():SetAlpha(pressed_alpha)
+	elseif state.selected then
+		fill = self:GetColor(state.selected_color or "property_selection")
 	elseif state.active or state.hovered then
 		fill = self:GetColor("primary"):Copy():SetAlpha(hovered_alpha)
 	end
 
 	self:DrawBox(size, {fill = fill, radius = radius})
 
-	if state.active and not state.disabled then
+	if (state.active or state.selected) and not state.disabled then
 		self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = active_border_alpha})
 	end
 end

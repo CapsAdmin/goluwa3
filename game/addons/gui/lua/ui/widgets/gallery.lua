@@ -133,6 +133,7 @@ local function build_gallery(props)
 		},
 		Dropdown{
 			Text = theme.GetName(),
+			Value = theme.GetName(),
 			Options = (function()
 				local options = {}
 
@@ -145,6 +146,9 @@ local function build_gallery(props)
 
 				return options
 			end)(),
+			GetValue = function()
+				return theme.GetName()
+			end,
 			GetText = function()
 				return theme.GetName()
 			end,
@@ -163,7 +167,6 @@ local function build_gallery(props)
 			},
 		}(unpack(page_buttons)),
 	}
-
 	local world_panel = Panel.World
 	window = Window{
 		Key = props.Key or "GalleryWindow",

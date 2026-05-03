@@ -29,11 +29,17 @@ return function(props)
 	local search_body_height = math.max(80, search_threshold - search_input_height - search_gap)
 	local estimated_item_height = theme.GetFontSize(props.FontSize) + theme.GetPadding("M") * 2
 
+	local function get_current_value()
+		if props.GetValue then return props.GetValue() end
+
+		return props.Value
+	end
+
 	for _, opt in ipairs(options) do
 		local text = type(opt) == "table" and opt.Text or tostring(opt)
 		local val = type(opt) == "table" and opt.Value or opt
 
-		if props.Value ~= nil and val == props.Value then
+		if get_current_value() ~= nil and val == get_current_value() then
 			selected_text = text
 
 			break
@@ -52,6 +58,7 @@ return function(props)
 
 		if active and active:IsValid() then active:Remove() end
 
+		props.Value = val
 		selected_text = text
 
 		if label_ent and label_ent:IsValid() and not props.GetText then
@@ -65,6 +72,7 @@ return function(props)
 		menu_props = menu_props or {}
 		return MenuItem{
 			Text = text,
+			Selected = get_current_value() == val,
 			Font = props.Font,
 			FontName = props.FontName,
 			FontSize = props.FontSize,

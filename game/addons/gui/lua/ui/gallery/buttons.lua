@@ -88,11 +88,15 @@ return {
 			},
 			Dropdown{
 				Text = "Left",
+				Value = state.align_x,
 				Options = {
 					{Text = "Left", Value = "left"},
 					{Text = "Center", Value = "center"},
 					{Text = "Right", Value = "right"},
 				},
+				GetValue = function()
+					return state.align_x
+				end,
 				GetText = function()
 					return state.align_x:gsub("^%l", string.upper)
 				end,
@@ -147,11 +151,15 @@ return {
 			},
 			Dropdown{
 				Text = "Filled",
+				Value = state.mode,
 				Options = {
 					{Text = "Filled", Value = "filled"},
 					{Text = "Outline", Value = "outline"},
 					{Text = "Text", Value = "text"},
 				},
+				GetValue = function()
+					return state.mode
+				end,
 				GetText = function()
 					return state.mode == "outline" and "Outline" or "Filled"
 				end,

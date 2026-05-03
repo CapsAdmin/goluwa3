@@ -183,6 +183,11 @@ return function(props)
 	item:SetState("pressed", false)
 	item:SetState("disabled", not not props.Disabled)
 	item:SetState("active", not not props.Active)
+	item:SetState("selected", not not props.Selected)
+
+	if props.SelectedColor ~= nil then
+		item:SetState("selected_color", props.SelectedColor)
+	end
 
 	function item:SetSubmenuOpen(active)
 		self:SetState("active", not not active)
