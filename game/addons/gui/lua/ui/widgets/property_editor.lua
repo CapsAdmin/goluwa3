@@ -192,7 +192,7 @@ return function(props)
 
 		info.text.text:SetColor(
 			selected_key == info.key and
-				theme.GetColor("text_on_accent") or
+				theme.GetColorOn("text", "property_selection") or
 				theme.GetColor("text")
 		)
 	end
