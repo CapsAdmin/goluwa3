@@ -579,18 +579,21 @@ end
 
 local function build_material_tree_item(expanded_entities)
 	local children = {}
+	local expanded = expanded_entities[MATERIAL_ROOT_KEY] == true
 
-	for _, material in ipairs(Material.Instances or {}) do
-		if is_valid_object(material) then
-			children[#children + 1] = build_shared_object_node(material, build_material_root_key(material))
+	if expanded then
+		for _, material in ipairs(Material.Instances or {}) do
+			if is_valid_object(material) then
+				children[#children + 1] = build_shared_object_node(material, build_material_root_key(material))
+			end
 		end
 	end
 
 	return {
 		Key = MATERIAL_ROOT_KEY,
 		Text = "3D Materials",
-		HasChildren = children[1] ~= nil,
-		Expanded = expanded_entities[MATERIAL_ROOT_KEY] == true,
+		HasChildren = count_material_objects() > 0,
+		Expanded = expanded,
 		Children = children,
 	}
 end
@@ -603,17 +606,26 @@ local function build_tree_snapshot(entity, expanded_entities, visited, editor_wi
 	if visited[entity] then return nil end
 
 	visited[entity] = true
+	local expanded = expanded_entities[guid] == true
 	local children = {}
 	local valid_children = get_valid_children(entity, editor_window)
+	local has_children = valid_children[1] ~= nil
 
-	for _, child in ipairs(valid_children) do
-		local child_node = build_tree_snapshot(child, expanded_entities, visited, editor_window)
+	if expanded then
+		for _, child in ipairs(valid_children) do
+			local child_node = build_tree_snapshot(child, expanded_entities, visited, editor_window)
 
-		if child_node then children[#children + 1] = child_node end
+			if child_node then children[#children + 1] = child_node end
+		end
 	end
 
-	for _, child_node in ipairs(build_virtual_property_children(entity)) do
-		children[#children + 1] = child_node
+	local virtual_children = build_virtual_property_children(entity)
+	has_children = has_children or virtual_children[1] ~= nil
+
+	if expanded then
+		for _, child_node in ipairs(virtual_children) do
+			children[#children + 1] = child_node
+		end
 	end
 
 	visited[entity] = nil
@@ -621,7 +633,7 @@ local function build_tree_snapshot(entity, expanded_entities, visited, editor_wi
 		Entity = entity,
 		Key = guid,
 		Text = get_entity_label(entity),
-		HasChildren = children[1] ~= nil,
+		HasChildren = has_children,
 		Children = children,
 	}
 end
@@ -632,12 +644,15 @@ local function build_world_tree_item(world_entity, label, expanded_entities, vis
 	end
 
 	local children = {}
+	local expanded = expanded_entities[world_entity:GetGUID()] == true
 	local valid_children = get_valid_children(world_entity, editor_window)
 
-	for _, child in ipairs(valid_children) do
-		local child_node = build_tree_snapshot(child, expanded_entities, visited, editor_window)
+	if expanded then
+		for _, child in ipairs(valid_children) do
+			local child_node = build_tree_snapshot(child, expanded_entities, visited, editor_window)
 
-		if child_node then children[#children + 1] = child_node end
+			if child_node then children[#children + 1] = child_node end
+		end
 	end
 
 	return {
@@ -691,6 +706,16 @@ local function replace_tree_item(items, key, replacement)
 	end
 
 	return false
+end
+
+local function can_preserve_hidden_selection(selected_target, editor_window)
+	if not is_valid_object(selected_target) then return false end
+
+	if selected_target.component_list then
+		return not is_hidden_editor_entity(selected_target, editor_window)
+	end
+
+	return true
 end
 
 return function(props)
@@ -1032,11 +1057,31 @@ return function(props)
 		end
 	end
 
+	local function should_defer_tree_refresh(branch_entity)
+		local current = branch_entity
+
+		while current and current.IsValid and current:IsValid() do
+			if state.expanded_entities[current:GetGUID()] ~= true then return true end
+
+			if is_world_root(current) then break end
+
+			current = current:GetParent()
+		end
+
+		return false
+	end
+
 	local function resolve_selected_target(tree_items)
 		local selected_item = find_tree_item(tree_items, state.selected_entity_guid)
 
 		if selected_item then
 			return selected_item.Entity or selected_item.Object, selected_item.Key
+		end
+
+		local current_selected = get_selected_object()
+
+		if can_preserve_hidden_selection(current_selected, window) then
+			return current_selected, state.selected_entity_guid
 		end
 
 		local fallback = get_first_spawned_entity(window)
@@ -1165,7 +1210,12 @@ return function(props)
 			if selection_changed then return true end
 		end
 
-		if selected_guid ~= nil and not find_tree_item(state.tree_items, selected_guid) then
+		if
+			selected_guid ~= nil and
+			not find_tree_item(state.tree_items, selected_guid)
+			and
+			not can_preserve_hidden_selection(get_selected_object(), window)
+		then
 			local selected_target, selected_key = resolve_selected_target(state.tree_items)
 			set_selected_target(selected_target, false, selected_key)
 			tree_view:SetSelectedKey(state.selected_entity_guid)
@@ -1635,7 +1685,25 @@ return function(props)
 						sync_selection()
 					end,
 					OnToggle = function(node, expanded, key)
+						local was_expanded = state.expanded_entities[key] == true
 						state.expanded_entities[key] = expanded == true
+
+						if expanded ~= true or was_expanded then return end
+
+						if not (node and node.HasChildren) then return end
+
+						if key == MATERIAL_ROOT_KEY then
+							request_editor_sync(true, false, nil)
+							flush_pending_editor_sync(true)
+							return
+						end
+
+						local branch_entity = node.Entity or get_tree_branch_entity_by_guid(key)
+
+						if branch_entity and branch_entity:IsValid() then
+							request_editor_sync(true, false, branch_entity)
+							flush_pending_editor_sync(true)
+						end
 					end,
 					OnNodeHover = function(node, key, path, row_info, hovered)
 						local entity = node and node.Entity or nil
@@ -1807,11 +1875,11 @@ return function(props)
 
 				if should_ignore_editor_tree_change(entity, parent, window) then return end
 
-				request_editor_sync(
-					true,
-					false,
-					parent and parent:IsValid() and parent or get_entity_world_root(entity)
-				)
+				local branch_entity = parent and parent:IsValid() and parent or get_entity_world_root(entity)
+
+				if branch_entity and should_defer_tree_refresh(branch_entity) then return end
+
+				request_editor_sync(true, false, branch_entity)
 			end)
 			local remove_component_listener = world:AddLocalListener("OnEntityComponentChanged", function(_, entity)
 				local selected_entity = get_selected_entity()

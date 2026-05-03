@@ -75,6 +75,18 @@ return function(props)
 		return node.Children or {}
 	end
 
+	local function has_children(node, path)
+		local children = get_children(node, path)
+
+		if has_entries(children) then return true end
+
+		if props.HasChildren then return not not props.HasChildren(node, path) end
+
+		if node.HasChildren ~= nil then return not not node.HasChildren end
+
+		return false
+	end
+
 	local function get_key(node, path)
 		if props.GetKey then return tostring(props.GetKey(node, path)) end
 
@@ -529,13 +541,11 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
+					local row_has_children = has_children(node, path)
 					local current_selected = is_selected(node, path, key)
-					local current_expanded = is_expanded(node, path, key, has_entries(get_children(node, path)))
-					local line_start_x = has_entries(get_children(node, path)) and (center_x + half_box) or center_x
-					self.Owner:SetState(
-						"theme_role",
-						has_entries(get_children(node, path)) and "tree_toggle" or "tree_guides"
-					)
+					local current_expanded = is_expanded(node, path, key, row_has_children)
+					local line_start_x = row_has_children and (center_x + half_box) or center_x
+					self.Owner:SetState("theme_role", row_has_children and "tree_toggle" or "tree_guides")
 					self.Owner:SetState("tree_meta", meta)
 					self.Owner:SetState(
 						"tree_opts",
@@ -649,7 +659,7 @@ return function(props)
 		local path = build_path(parent_path, meta.index)
 		local key = get_key(node, path)
 		local children = get_children(node, path)
-		local has_children = has_entries(children)
+		local has_children = has_children(node, path)
 		local expanded = is_expanded(node, path, key, has_children)
 		local selected = is_selected(node, path, key)
 		local custom_panel = get_node_panel(node, path, key, selected, has_children, expanded)
