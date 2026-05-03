@@ -13,11 +13,15 @@ BaseTheme:GetSet(
 	"Sizes",
 	{
 		none = 0,
+		XXXS = 2,
 		line = 1,
 		XXS = 4,
 		XS = 8,
+		S = 12,
 		sm = 12,
+		M = 17,
 		md = 17,
+		L = 24,
 		LG = 24,
 		XL = 32,
 		XXL = 48,
@@ -513,15 +517,14 @@ end
 function BaseTheme:DrawCloseIcon(size, opts)
 	opts = opts or {}
 	local icon_size = opts.size or 8
+	local thickness = opts.thickness or 1.5
+	local color = opts.color or self:GetColor("text")
 	local center = size / 2
-	local half = icon_size / 2
-	self:DrawIconLines(
-		{
-			{center.x - half, center.y - half, center.x + half, center.y + half},
-			{center.x - half, center.y + half, center.x + half, center.y - half},
-		},
-		opts
-	)
+	local length = icon_size * math.sqrt(2)
+	render2d.SetColor(color:Unpack())
+	render2d.SetTexture(nil)
+	render2d.DrawRect(center.x, center.y, thickness, length, -math.pi / 4, thickness / 2, length / 2)
+	render2d.DrawRect(center.x, center.y, thickness, length, math.pi / 4, thickness / 2, length / 2)
 end
 
 -- Shared hover animation: animates glow_alpha on hover state change
@@ -1179,7 +1182,9 @@ end
 
 function BaseTheme:DrawHeader(size)
 	self:DrawBox(size, {fill = "surface_alt", fill_alpha = 1, radius = self:GetRadius("none")})
-	self:DrawLine("border", 1, size, "horizontal")
+	self:SetRenderColor(self:GetColor("border"), 1)
+	render2d.SetTexture(nil)
+	render2d.DrawRect(0, math.max(0, size.y - 1), size.x, 1)
 end
 
 function BaseTheme:DrawProgressBar(size, state, color)

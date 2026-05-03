@@ -44,6 +44,7 @@ function JRPGTheme:Initialize()
 		negative = base_map.red_darker,
 		heading = base_map.white,
 		default = base_map.white,
+		text = base_map.white,
 		text_foreground = base_map.white,
 		text_button = base_map.white,
 		text_disabled = base_map.white:Copy():SetAlpha(0.5),
@@ -275,11 +276,12 @@ function JRPGTheme:DrawCloseIcon(size, opts)
 	local icon_size = opts.size or 8
 	local color = opts.color or self:GetColor("text_foreground")
 	local center = size / 2
-	local half = icon_size / 2
+	local thickness = opts.thickness or 1.5
+	local length = icon_size * math.sqrt(2)
 	render2d.SetColor(color:Unpack())
 	render2d.SetTexture(nil)
-	self:DrawLine(center.x - half, center.y - half, center.x + half, center.y + half, 1.5)
-	self:DrawLine(center.x - half, center.y + half, center.x + half, center.y - half, 1.5)
+	render2d.DrawRect(center.x, center.y, thickness, length, -math.pi / 4, thickness / 2, length / 2)
+	render2d.DrawRect(center.x, center.y, thickness, length, math.pi / 4, thickness / 2, length / 2)
 end
 
 function JRPGTheme:DrawLine(x1, y1, x2, y2, thickness)

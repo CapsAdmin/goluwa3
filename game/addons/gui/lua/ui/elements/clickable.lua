@@ -29,7 +29,7 @@ return function(props)
 				DrawAngleOffset = Ang3(0, 0, 0),
 			},
 			layout = {
-				Padding = "M",
+				Padding = props.Padding or "M",
 				AlignmentX = "center",
 				AlignmentY = "center",
 				props.layout,

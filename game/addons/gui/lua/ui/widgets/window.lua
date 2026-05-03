@@ -115,7 +115,7 @@ return function(props)
 					IsInternal = true,
 					Name = "CloseIcon",
 					transform = {
-						Size = Vec2() + theme.GetSize("M"),
+						Size = Vec2() + theme.GetSize("S"),
 					},
 					gui_element = {
 						OnDraw = function(self)
