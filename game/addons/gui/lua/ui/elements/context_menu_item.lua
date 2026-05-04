@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/ecs/panel.lua")
+local Clickable = import("./clickable.lua")
 local SVG = import("lua/ui/elements/svg.lua")
 local Text = import("lua/ui/elements/text.lua")
 local theme = import("lua/ui/theme.lua")
@@ -126,10 +127,11 @@ return function(props)
 	end
 
 	local item_props = get_passthrough_props(props)
-	item_props.Name = "ContextMenuItem"
-	item_props.transform = {
-		Size = props.Size or "M",
-	}
+	item_props.Size = props.Size or "M"
+	item_props.Mode = "menu"
+	item_props.Disabled = props.Disabled
+	item_props.Active = props.Active
+	item_props.Clipping = props.Clipping
 	item_props.layout = {
 		Direction = "x",
 		AlignmentY = "center",
@@ -137,24 +139,6 @@ return function(props)
 		GrowWidth = 1,
 		Padding = props.Padding or "M",
 		props.layout,
-	}
-	item_props.gui_element = {
-		Clipping = props.Clipping ~= false,
-		DrawAlpha = props.Disabled and 0.5 or 1,
-		OnDraw = function(self)
-			theme.active:Draw(self.Owner)
-		end,
-	}
-	item_props.mouse_input = {
-		Cursor = props.Disabled and "arrow" or "hand",
-		OnMouseInput = function(self, button, press)
-			if props.Disabled then return end
-
-			if button == "button_1" then self.Owner:SetState("pressed", press) end
-		end,
-		OnHover = function(self, hovered)
-			self.Owner:SetState("hovered", hovered)
-		end,
 	}
 	item_props.OnMouseEnter = function(self)
 		if props.Disabled then
@@ -176,13 +160,7 @@ return function(props)
 			if props.OnClick then return props.OnClick(...) end
 		end or
 		nil
-	item_props.animation = true
-	item_props.clickable = true
-	item = Panel.New(item_props)(children)
-	item:SetState("hovered", false)
-	item:SetState("pressed", false)
-	item:SetState("disabled", not not props.Disabled)
-	item:SetState("active", not not props.Active)
+	item = Clickable(item_props)(children)
 	item:SetState("selected", not not props.Selected)
 
 	if props.SelectedColor ~= nil then

@@ -428,150 +428,151 @@ function BaseTheme:GetAccentTint(alpha)
 	return self:GetColor("primary"):Copy():SetAlpha(alpha)
 end
 
-function BaseTheme:DrawIcon(name, size, opts)
-	if name == "disclosure" then
-		return self:DrawDisclosureIcon(size, opts)
-	elseif name == "dropdown_indicator" then
-		return self:DrawDropdownIndicatorIcon(size, opts)
-	elseif name == "close" then
-		return self:DrawCloseIcon(size, opts)
+do -- icons
+	function BaseTheme:DrawIcon(name, size, opts)
+		if name == "disclosure" then
+			return self:DrawDisclosureIcon(size, opts)
+		elseif name == "dropdown_indicator" then
+			return self:DrawDropdownIndicatorIcon(size, opts)
+		elseif name == "close" then
+			return self:DrawCloseIcon(size, opts)
+		end
+	end
+
+	local icon_svg_cache = {}
+
+	local function get_icon_svg_source(name)
+		if name == "chevron" then
+			return [[<svg viewBox="0 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]]
+		elseif name == "plus" then
+			return [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]]
+		elseif name == "minus" then
+			return [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]]
+		elseif name == "close" then
+			return [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]]
+		end
+	end
+
+	local function get_cached_icon_texture(name)
+		local cached = icon_svg_cache[name]
+
+		if cached then return cached end
+
+		local source = get_icon_svg_source(name)
+
+		if not source then return nil end
+
+		local texture, decoded, meta = svg_codec.CreateSDFTexture(source, {sdf_size = 96, sdf_spread = 8})
+		icon_svg_cache[name] = {
+			texture = texture,
+			decoded = decoded,
+			spread = meta and meta.spread or 8,
+		}
+		return icon_svg_cache[name]
+	end
+
+	function BaseTheme:ResolveIconDrawSize(size, requested_size, inset)
+		inset = inset or 2
+		local available = math.max(1, math.min(size.x, size.y) - inset * 2)
+		local base = requested_size or self:GetSize("M")
+		return math.max(1, math.min(base, available))
+	end
+
+	function BaseTheme:DrawSVGIcon(name, size, opts)
+		opts = opts or {}
+		local cached = get_cached_icon_texture(name)
+
+		if not cached then return end
+
+		local view_box = cached.decoded.view_box or
+			{x = 0, y = 0, w = cached.decoded.width, h = cached.decoded.height}
+		local bounds_w = math.max(1e-6, view_box.w)
+		local bounds_h = math.max(1e-6, view_box.h)
+		local target_size = self:ResolveIconDrawSize(size, opts.size, opts.inset)
+		local scale = math.min(target_size / bounds_w, target_size / bounds_h)
+		local draw_w = bounds_w * scale
+		local draw_h = bounds_h * scale
+		local x = (size.x - draw_w) * 0.5
+		local y = (size.y - draw_h) * 0.5
+		local color = opts.color or self:GetColor("text")
+		local rotation = math.rad(opts.rotation_degrees or 0)
+		local cx = x + draw_w * 0.5
+		local cy = y + draw_h * 0.5
+		render2d.PushTexture(cached.texture)
+		render2d.PushSDFMode(true)
+		render2d.PushSDFThreshold(0.5)
+		render2d.PushSDFTexelRange(cached.spread)
+		render2d.PushDisableRectSDF(true)
+		render2d.SetColor(color:Unpack())
+
+		if rotation ~= 0 then
+			render2d.DrawRectUV2f(cx, cy, draw_w, draw_h, 0, 1, 1, 0, rotation, draw_w * 0.5, draw_h * 0.5)
+		else
+			render2d.DrawRectUV2f(x, y, draw_w, draw_h, 0, 1, 1, 0)
+		end
+
+		render2d.PopDisableRectSDF()
+		render2d.PopSDFTexelRange()
+		render2d.PopSDFThreshold()
+		render2d.PopSDFMode()
+		render2d.PopTexture()
+	end
+
+	function BaseTheme:DrawChevronIcon(size, opts)
+		opts = opts or {}
+		return self:DrawSVGIcon(
+			"chevron",
+			size,
+			{
+				size = opts.size or self:GetSize("M"),
+				inset = opts.inset or 1,
+				color = opts.color,
+				rotation_degrees = opts.rotation_degrees,
+			}
+		)
+	end
+
+	function BaseTheme:DrawDisclosureIcon(size, opts)
+		opts = opts or {}
+		return self:DrawChevronIcon(
+			size,
+			{
+				size = opts.size,
+				thickness = opts.thickness,
+				color = opts.color,
+				rotation_degrees = (opts.open_fraction or 0) * 90,
+			}
+		)
+	end
+
+	function BaseTheme:DrawDropdownIndicatorIcon(size, opts)
+		opts = opts or {}
+		return self:DrawChevronIcon(
+			size,
+			{
+				size = opts.size or self:GetSize("M"),
+				inset = opts.inset or 1,
+				thickness = opts.thickness,
+				color = opts.color,
+				rotation_degrees = 90,
+			}
+		)
+	end
+
+	function BaseTheme:DrawCloseIcon(size, opts)
+		opts = opts or {}
+		return self:DrawSVGIcon(
+			"close",
+			size,
+			{
+				size = opts.size or self:GetSize("M"),
+				inset = opts.inset or 1,
+				color = opts.color,
+			}
+		)
 	end
 end
 
-local icon_svg_cache = {}
-
-local function get_icon_svg_source(name)
-	if name == "chevron" then
-		return [[<svg viewBox="0 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]]
-	elseif name == "plus" then
-		return [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]]
-	elseif name == "minus" then
-		return [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]]
-	elseif name == "close" then
-		return [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]]
-	end
-end
-
-local function get_cached_icon_texture(name)
-	local cached = icon_svg_cache[name]
-
-	if cached then return cached end
-
-	local source = get_icon_svg_source(name)
-
-	if not source then return nil end
-
-	local texture, decoded, meta = svg_codec.CreateSDFTexture(source, {sdf_size = 96, sdf_spread = 8})
-	icon_svg_cache[name] = {
-		texture = texture,
-		decoded = decoded,
-		spread = meta and meta.spread or 8,
-	}
-	return icon_svg_cache[name]
-end
-
-function BaseTheme:ResolveIconDrawSize(size, requested_size, inset)
-	inset = inset or 2
-	local available = math.max(1, math.min(size.x, size.y) - inset * 2)
-	local base = requested_size or self:GetSize("M")
-	return math.max(1, math.min(base, available))
-end
-
-function BaseTheme:DrawSVGIcon(name, size, opts)
-	opts = opts or {}
-	local cached = get_cached_icon_texture(name)
-
-	if not cached then return end
-
-	local view_box = cached.decoded.view_box or
-		{x = 0, y = 0, w = cached.decoded.width, h = cached.decoded.height}
-	local bounds_w = math.max(1e-6, view_box.w)
-	local bounds_h = math.max(1e-6, view_box.h)
-	local target_size = self:ResolveIconDrawSize(size, opts.size, opts.inset)
-	local scale = math.min(target_size / bounds_w, target_size / bounds_h)
-	local draw_w = bounds_w * scale
-	local draw_h = bounds_h * scale
-	local x = (size.x - draw_w) * 0.5
-	local y = (size.y - draw_h) * 0.5
-	local color = opts.color or self:GetColor("text")
-	local rotation = math.rad(opts.rotation_degrees or 0)
-	local cx = x + draw_w * 0.5
-	local cy = y + draw_h * 0.5
-	render2d.PushTexture(cached.texture)
-	render2d.PushSDFMode(true)
-	render2d.PushSDFThreshold(0.5)
-	render2d.PushSDFTexelRange(cached.spread)
-	render2d.PushDisableRectSDF(true)
-	render2d.SetColor(color:Unpack())
-
-	if rotation ~= 0 then
-		render2d.DrawRectUV2f(cx, cy, draw_w, draw_h, 0, 1, 1, 0, rotation, draw_w * 0.5, draw_h * 0.5)
-	else
-		render2d.DrawRectUV2f(x, y, draw_w, draw_h, 0, 1, 1, 0)
-	end
-
-	render2d.PopDisableRectSDF()
-	render2d.PopSDFTexelRange()
-	render2d.PopSDFThreshold()
-	render2d.PopSDFMode()
-	render2d.PopTexture()
-end
-
-function BaseTheme:DrawChevronIcon(size, opts)
-	opts = opts or {}
-	return self:DrawSVGIcon(
-		"chevron",
-		size,
-		{
-			size = opts.size or self:GetSize("M"),
-			inset = opts.inset or 1,
-			color = opts.color,
-			rotation_degrees = opts.rotation_degrees,
-		}
-	)
-end
-
-function BaseTheme:DrawDisclosureIcon(size, opts)
-	opts = opts or {}
-	return self:DrawChevronIcon(
-		size,
-		{
-			size = opts.size,
-			thickness = opts.thickness,
-			color = opts.color,
-			rotation_degrees = (opts.open_fraction or 0) * 90,
-		}
-	)
-end
-
-function BaseTheme:DrawDropdownIndicatorIcon(size, opts)
-	opts = opts or {}
-	return self:DrawChevronIcon(
-		size,
-		{
-			size = opts.size or self:GetSize("M"),
-			inset = opts.inset or 1,
-			thickness = opts.thickness,
-			color = opts.color,
-			rotation_degrees = 90,
-		}
-	)
-end
-
-function BaseTheme:DrawCloseIcon(size, opts)
-	opts = opts or {}
-	return self:DrawSVGIcon(
-		"close",
-		size,
-		{
-			size = opts.size or self:GetSize("M"),
-			inset = opts.inset or 1,
-			color = opts.color,
-		}
-	)
-end
-
--- Shared hover animation: animates glow_alpha on hover state change
 function BaseTheme:AnimateHover(pnl, anim, state, time)
 	if state.hovered ~= anim.last_hovered then
 		if not pnl.animation then
@@ -593,62 +594,6 @@ function BaseTheme:AnimateHover(pnl, anim, state, time)
 			time = time,
 		}
 		anim.last_hovered = state.hovered
-	end
-end
-
-function BaseTheme:UpdateButtonAnimations(pnl)
-	local state = pnl:GetState()
-	state.anim = state.anim or
-		{
-			glow_alpha = 0,
-			press_scale = 0,
-			last_hovered = false,
-			last_pressed = false,
-			last_active = false,
-			last_tilting = false,
-		}
-	local anim = state.anim
-	local hovered = state.hovered and not state.disabled
-	local pressed = hovered and state.pressed
-	self:AnimateHover(pnl, anim, {hovered = hovered}, 0.12)
-
-	if pressed ~= anim.last_pressed then
-		if not pnl.animation then
-			anim.press_scale = pressed and 1 or 0
-			anim.last_pressed = pressed
-
-			if pnl.transform then
-				pnl.transform:SetDrawScaleOffset(pressed and (Vec2() + 0.95) or Vec2(1, 1))
-			end
-
-			return
-		end
-
-		pnl.animation:Animate{
-			id = "press_scale",
-			get = function()
-				return anim.press_scale
-			end,
-			set = function(value)
-				anim.press_scale = value
-			end,
-			to = pressed and 1 or 0,
-			interpolation = "inOutSine",
-			time = 0.08,
-		}
-		pnl.animation:Animate{
-			id = "DrawScaleOffset",
-			get = function()
-				return pnl.transform:GetDrawScaleOffset()
-			end,
-			set = function(value)
-				pnl.transform:SetDrawScaleOffset(value)
-			end,
-			to = pressed and (Vec2() + 0.95) or (Vec2(1, 1)),
-			interpolation = "inOutSine",
-			time = 0.08,
-		}
-		anim.last_pressed = pressed
 	end
 end
 
@@ -721,165 +666,270 @@ function BaseTheme:UpdateCheckboxAnimations(pnl)
 	end
 end
 
-function BaseTheme:DrawButton(size, state)
-	local anim = state.anim or {
-		glow_alpha = 0,
-		press_scale = 0,
-	}
-	local radius = self:GetRadius("M")
-	-- Resolve fill token based on state
-	local fill_name = self:ResolveButtonFillName(state)
-	local fill = self:ResolveButtonFill(state, fill_name)
+do
+	function BaseTheme:UpdateButtonAnimations(pnl)
+		local state = pnl:GetState()
+		state.anim = state.anim or
+			{
+				glow_alpha = 0,
+				press_scale = 0,
+				last_hovered = false,
+				last_pressed = false,
+				last_active = false,
+				last_tilting = false,
+			}
+		local anim = state.anim
+		local hovered = state.hovered and not state.disabled
+		local pressed = hovered and state.pressed
+		self:AnimateHover(pnl, anim, {hovered = hovered}, 0.12)
 
-	-- Draw fill
-	if state.mode == "outline" then
-		self:DrawRoundRect(0, 0, size.x, size.y, radius, fill, 0.35 + anim.glow_alpha * 0.15)
-	elseif state.mode == "text" then
-		if fill then self:DrawRoundRect(0, 0, size.x, size.y, radius, fill) end
-	else
-		self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
+		if pressed ~= anim.last_pressed then
+			if not pnl.animation then
+				anim.press_scale = pressed and 1 or 0
+				anim.last_pressed = pressed
+
+				if pnl.transform then
+					pnl.transform:SetDrawScaleOffset(pressed and (Vec2() + 0.99) or Vec2(1, 1))
+				end
+
+				return
+			end
+
+			pnl.animation:Animate{
+				id = "press_scale",
+				get = function()
+					return anim.press_scale
+				end,
+				set = function(value)
+					anim.press_scale = value
+				end,
+				to = pressed and 1 or 0,
+				interpolation = "inOutSine",
+				time = 0.08,
+			}
+			pnl.animation:Animate{
+				id = "DrawScaleOffset",
+				get = function()
+					return pnl.transform:GetDrawScaleOffset()
+				end,
+				set = function(value)
+					pnl.transform:SetDrawScaleOffset(value)
+				end,
+				to = pressed and (Vec2() + 0.99) or (Vec2(1, 1)),
+				interpolation = "inOutSine",
+				time = 0.08,
+			}
+			anim.last_pressed = pressed
+		end
 	end
 
-	if state.mode ~= "text" then
-		self:DrawButtonOutline(size, radius, state, anim)
+	do
+		local function resolve_button_fill(self, state, fill_name)
+			local fill_name = "primary"
+
+			if state.disabled then
+				fill_name = "clickable_disabled"
+			elseif state.mode == "menu" then
+				fill_name = "invisible"
+			elseif state.mode == "outline" then
+				fill_name = "surface"
+			end
+
+			if state.mode == "menu" then
+				if state.disabled then
+					return self:GetColor("invisible")
+				elseif state.selected then
+					return self:GetColor(state.selected_color or "property_selection")
+				elseif state.pressed then
+					return self:GetColor("primary"):Copy():SetAlpha(0.18)
+				elseif state.active or state.hovered then
+					return self:GetColor("primary"):Copy():SetAlpha(0.12)
+				else
+					return self:GetColor("invisible")
+				end
+			elseif state.mode == "text" then
+				if state.disabled then
+					return self:GetColor("clickable_disabled")
+				elseif state.pressed or state.hovered then
+					return (
+						state.button_color and
+						self:GetColor(state.button_color) or
+						self:GetColor("primary")
+					):Copy()
+				elseif state.active then
+					return (
+						state.button_color and
+						self:GetColor(state.button_color) or
+						self:GetColor("primary")
+					):Copy()
+				else
+					return nil
+				end
+			elseif fill_name == "primary" then
+				if state.button_color ~= nil then
+					if state.disabled then return self:GetColor("clickable_disabled") end
+
+					return self:GetColor(state.button_color)
+				end
+
+				if state.disabled then
+					return self:GetColor("clickable_disabled")
+				elseif state.pressed then
+					return self:GetColor("primary_focus")
+				elseif state.active then
+					return self:GetColor("primary_focus")
+				elseif state.hovered then
+					return self:GetColor("button_normal")
+				else
+					return self:GetColor("button_color")
+				end
+			else
+				return self:GetColor(fill_name)
+			end
+		end
+
+		function BaseTheme:DrawButton(size, state)
+			local anim = state.anim or {
+				glow_alpha = 0,
+				press_scale = 0,
+			}
+			local radius = self:GetRadius("M")
+			local fill = resolve_button_fill(self, state)
+
+			if state.mode == "menu" then
+				self:DrawMenuButton(
+					size,
+					state,
+					{
+						hovered_alpha = 0.12,
+						pressed_alpha = 0.18,
+						radius = self:GetRadius("XS"),
+					}
+				)
+			elseif state.mode == "outline" then
+				local outline_color = state.button_color ~= nil and
+					self:GetColor(state.button_color) or
+					self:GetColor("button_color")
+				local fill_alpha = 0
+
+				if state.disabled then
+					fill_alpha = 0.12
+				elseif state.pressed or state.active then
+					fill_alpha = 0.18
+				elseif state.hovered then
+					fill_alpha = 0.12
+				end
+
+				if fill_alpha > 0 then
+					self:DrawRoundRect(0, 0, size.x, size.y, radius, outline_color, fill_alpha)
+				end
+
+				self:DrawButtonOutline(size, radius, state, anim)
+			elseif state.mode == "filled" then
+				self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
+				self:DrawButtonOutline(size, radius, state, anim)
+			elseif state.mode == "text" then
+				if fill then self:DrawRoundRect(0, 0, size.x, size.y, radius, fill) end
+			end
+		end
 	end
-end
 
-function BaseTheme:ResolveButtonFillName(state)
-	if state.disabled then
-		return "clickable_disabled"
-	elseif state.mode == "outline" then
-		return "surface"
-	elseif state.mode == "text" then
-		return nil
-	else
-		return "primary"
-	end
-end
+	function BaseTheme:ResolveButtonBackgroundToken(state)
+		if state.mode == "text" then
+			if state.hovered then
+				if state.button_color ~= nil then return state.button_color end
 
-function BaseTheme:ResolveButtonFill(state, fill_name)
-	local accent_override = state.button_color
+				return "primary"
+			end
 
-	if state.mode == "text" then
-		if state.disabled then
-			return self:GetColor("clickable_disabled")
-		elseif state.pressed or state.hovered then
-			return (
-				accent_override and
-				self:GetColor(accent_override) or
-				self:GetColor("primary")
-			):Copy():SetAlpha(0.06)
-		elseif state.active then
-			return (
-				accent_override and
-				self:GetColor(accent_override) or
-				self:GetColor("primary")
-			):Copy():SetAlpha(0.08)
-		else
 			return nil
 		end
-	elseif fill_name == "primary" then
-		if accent_override ~= nil then
-			if state.disabled then return self:GetColor("clickable_disabled") end
 
-			return self:GetColor(accent_override)
-		end
+		if state.mode == "menu" then return nil end
 
-		if state.disabled then
-			return self:GetColor("clickable_disabled")
-		elseif state.pressed then
-			return self:GetColor("primary_focus")
-		elseif state.active then
-			return self:GetColor("primary_focus")
-		elseif state.hovered then
-			return self:GetColor("button_normal")
-		else
-			return self:GetColor("button_color")
-		end
-	else
-		return self:GetColor(fill_name)
+		if state.disabled then return "clickable_disabled" end
+
+		if state.mode == "outline" then return "surface" end
+
+		if state.button_color ~= nil then return state.button_color end
+
+		if state.pressed or state.active then return "primary_focus" end
+
+		if state.hovered then return "button_normal" end
+
+		return "button_color"
 	end
-end
 
-function BaseTheme:ResolveButtonBackgroundToken(state)
-	if state.mode == "text" then return nil end
+	function BaseTheme:DrawButtonOutline(size, radius, state, anim)
+		local outline_color = state.button_color ~= nil and
+			self:GetColor(state.button_color) or
+			self:GetColor("button_color")
 
-	if state.disabled then return "clickable_disabled" end
+		if state.mode == "outline" then
+			self:DrawRoundOutline(0, 0, size.x, size.y, radius, outline_color, state.disabled and 0.5 or 1, 1)
+		elseif state.active and not state.disabled then
+			self:DrawRoundOutline(
+				0,
+				0,
+				size.x,
+				size.y,
+				radius,
+				outline_color,
+				state.mode == "text" and 0.5 or 0.6,
+				1
+			)
+		else
+			self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("border"), 1, 1)
+		end
+	end
 
-	if state.mode == "outline" then return "surface" end
+	function BaseTheme:DrawButtonPost(size, state)
+		if state.mode == "menu" then return end
 
-	if state.button_color ~= nil then return state.button_color end
+		local anim = state.anim or {glow_alpha = 0}
 
-	if state.pressed or state.active then return "primary_focus" end
+		if not state.hovered or state.disabled then return end
 
-	if state.hovered then return "button_normal" end
+		if state.mode == "outline" or state.mode == "text" then return end
 
-	return "button_color"
-end
-
-function BaseTheme:DrawButtonOutline(size, radius, state, anim)
-	local outline_color = state.button_color ~= nil and
-		self:GetColor(state.button_color) or
-		self:GetColor("primary")
-
-	if state.active and not state.disabled then
+		local radius = self:GetRadius("M")
 		self:DrawRoundOutline(
 			0,
 			0,
 			size.x,
 			size.y,
 			radius,
-			outline_color,
-			state.mode == "text" and 0.5 or 0.6,
+			state.button_color ~= nil and
+				self:GetColor(state.button_color) or
+				self:GetColor("primary"),
+			anim.glow_alpha * 0.45,
 			1
 		)
-	else
-		self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("border"), 0.55, 1)
-	end
-end
-
-function BaseTheme:DrawButtonPost(size, state)
-	local anim = state.anim or {glow_alpha = 0}
-
-	if not state.hovered or state.disabled then return end
-
-	local radius = self:GetRadius("M")
-	self:DrawRoundOutline(
-		0,
-		0,
-		size.x,
-		size.y,
-		radius,
-		state.button_color ~= nil and
-			self:GetColor(state.button_color) or
-			self:GetColor("primary"),
-		anim.glow_alpha * 0.45,
-		1
-	)
-end
-
-function BaseTheme:DrawMenuButton(size, state, opts)
-	opts = opts or {}
-	local radius = opts.radius or self:GetRadius(XS)
-	local fill = self:GetColor("invisible")
-	local hovered_alpha = opts.hovered_alpha or 0.1
-	local pressed_alpha = opts.pressed_alpha or 0.15
-	local active_border_alpha = opts.active_border_alpha or 0.7
-
-	if state.disabled then
-		fill = self:GetColor("invisible")
-	elseif state.pressed then
-		fill = self:GetColor("primary"):Copy():SetAlpha(pressed_alpha)
-	elseif state.selected then
-		fill = self:GetColor(state.selected_color or "property_selection")
-	elseif state.active or state.hovered then
-		fill = self:GetColor("primary"):Copy():SetAlpha(hovered_alpha)
 	end
 
-	self:DrawBox(size, {fill = fill, radius = radius})
+	function BaseTheme:DrawMenuButton(size, state, opts)
+		opts = opts or {}
+		local radius = opts.radius or self:GetRadius(XS)
+		local fill = self:GetColor("invisible")
+		local hovered_alpha = opts.hovered_alpha or 0.1
+		local pressed_alpha = opts.pressed_alpha or 0.15
+		local active_border_alpha = opts.active_border_alpha or 0.7
 
-	if (state.active or state.selected) and not state.disabled then
-		self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = active_border_alpha})
+		if state.disabled then
+			fill = self:GetColor("invisible")
+		elseif state.pressed then
+			fill = self:GetColor("primary"):Copy():SetAlpha(pressed_alpha)
+		elseif state.selected then
+			fill = self:GetColor(state.selected_color or "property_selection")
+		elseif state.active or state.hovered then
+			fill = self:GetColor("primary"):Copy():SetAlpha(hovered_alpha)
+		end
+
+		self:DrawBox(size, {fill = fill, radius = radius})
+
+		if (state.active or state.selected) and not state.disabled then
+			self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = active_border_alpha})
+		end
 	end
 end
 
@@ -1398,12 +1448,6 @@ function BaseTheme:Draw(pnl)
 			pnl.transform:GetSize(),
 			pnl:GetState(),
 			{hovered_alpha = 0.18, pressed_alpha = 0.28, radius = self:GetRadius(XS)}
-		)
-	elseif pnl.Name == "ContextMenuItem" then
-		return self:DrawMenuButton(
-			pnl.transform:GetSize(),
-			pnl:GetState(),
-			{hovered_alpha = 0.12, pressed_alpha = 0.18, radius = self:GetRadius(XS)}
 		)
 	elseif pnl.Name == "svg" and pnl:GetState("background_color") ~= nil then
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("background_color"), 0)

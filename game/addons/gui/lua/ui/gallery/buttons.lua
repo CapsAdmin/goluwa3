@@ -156,6 +156,7 @@ return {
 					{Text = "Filled", Value = "filled"},
 					{Text = "Outline", Value = "outline"},
 					{Text = "Text", Value = "text"},
+					{Text = "Menu", Value = "menu"},
 				},
 				GetValue = function()
 					return state.mode

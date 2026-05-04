@@ -6,7 +6,7 @@ META:GetSet("BackgroundColor", nil)
 META:EndStorable()
 
 local function resolve_inherited_value(style, key)
-	local value = rawget(style, key)
+	local value = style[key]
 
 	if value ~= nil then return value end
 
@@ -16,7 +16,7 @@ local function resolve_inherited_value(style, key)
 		local parent_style = parent.style
 
 		if parent_style then
-			value = rawget(parent_style, key)
+			value = parent_style[key]
 
 			if value ~= nil then return value end
 		end

@@ -735,6 +735,15 @@ function JRPGTheme:UpdateButtonAnimations(pnl)
 end
 
 function JRPGTheme:DrawButton(size, state)
+	if state.mode == "menu" then
+		return BaseTheme.DrawMenuButton(
+			self,
+			size,
+			state,
+			{hovered_alpha = 0.12, pressed_alpha = 0.18, radius = self:GetRadius("XS")}
+		)
+	end
+
 	local anim = state.anim or {glow_alpha = 0, press_scale = 0}
 	local button_color = self:GetColor(state.button_color or "primary")
 
@@ -776,6 +785,8 @@ function JRPGTheme:DrawSurface(size, color, radius)
 end
 
 function JRPGTheme:DrawButtonPost(size, state)
+	if state.mode == "menu" then return end
+
 	local anim = state.anim
 	render2d.SetBlendMode("additive")
 	render2d.SetColor(anim.glow_alpha, anim.glow_alpha, anim.glow_alpha, 1)
@@ -1008,7 +1019,7 @@ end
 function JRPGTheme:DrawFramePost(size, emphasis)
 	local c = self:GetColor("surface")
 	render2d.SetColor(c.r, c.g, c.b, c.a)
-	self:DrawModernFramePost(0, 0, size.x, size.y, emphasis or 1)
+	self:DrawModernFramePost(0, 0, size.x, size.y, emphasis or 0)
 end
 
 function JRPGTheme:DrawMenuSpacer(size, vertical)

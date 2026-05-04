@@ -17,7 +17,7 @@ return function(props)
 	local panel = Panel.New{
 		props,
 		{
-			Name = "clickable",
+			Name = props.Name or "clickable",
 			OnStateChanged = function(self)
 				update_style_context(self)
 			end,
@@ -35,7 +35,7 @@ return function(props)
 				props.layout,
 			},
 			gui_element = {
-				Clipping = true,
+				Clipping = props.Clipping ~= false,
 				OnDraw = function(self)
 					self:SetDrawAlpha(self.Owner:GetState("disabled") and 0.5 or 1)
 					theme.active:Draw(self.Owner)
