@@ -32,8 +32,6 @@ local FragmentConstants = ffi.typeof([[
         float nine_patch_x_stretch[6];
         float nine_patch_y_stretch[6];
         float sdf_rect_size[2];
-        int subpixel_mode;
-        float subpixel_amount;
 	}
 ]])
 local fragment_constants = FragmentConstants()
@@ -58,7 +56,7 @@ local rect_batch_instance_attributes = {
 	{"batch_border_radius", "vec4", "r32g32b32a32_sfloat"},
 	{"batch_quad_size", "vec4", "r32g32b32a32_sfloat"},
 	{"batch_sdf_texture", "vec4", "r32g32b32a32_sfloat"},
-	{"batch_outline_subpixel", "vec4", "r32g32b32a32_sfloat"},
+	{"batch_outline_alpha", "vec2", "r32g32_sfloat"},
 }
 local depth_mode_to_compare_op = {
 	less = "less",
@@ -332,9 +330,8 @@ local function build_rect_batch_fragment_shader_source(source)
 		#define batch_sdf_rect_size in_batch_quad_size.zw
 		#define batch_sdf_threshold in_batch_sdf_texture.x
 		#define batch_sdf_texel_range in_batch_sdf_texture.y
-		#define batch_outline_width in_batch_outline_subpixel.x
-		#define batch_alpha_multiplier in_batch_outline_subpixel.y
-		#define batch_subpixel_amount in_batch_outline_subpixel.w
+		#define batch_outline_width in_batch_outline_alpha.x
+		#define batch_alpha_multiplier in_batch_outline_alpha.y
 
 		int batch_texture_index() {
 			return int(round(in_batch_sdf_texture.z));
@@ -346,10 +343,6 @@ local function build_rect_batch_fragment_shader_source(source)
 
 		int batch_flags() {
 			return int(round(in_batch_blur_modes.z));
-		}
-
-		int batch_subpixel_mode() {
-			return int(round(in_batch_outline_subpixel.z));
 		}
 	]] .. source
 
@@ -368,8 +361,6 @@ local function build_rect_batch_fragment_shader_source(source)
 		{"U%.sdf_texel_range", "batch_sdf_texel_range"},
 		{"U%.gradient_texture_index", "batch_gradient_texture_index()"},
 		{"U%.sdf_rect_size", "batch_sdf_rect_size"},
-		{"U%.subpixel_mode", "batch_subpixel_mode()"},
-		{"U%.subpixel_amount", "batch_subpixel_amount"},
 	} do
 		shader = shader:gsub(replacement[1], replacement[2])
 	end
@@ -459,10 +450,8 @@ local function write_rect_batch_instance(vertex, entry)
 	vertex.batch_sdf_texture[3] = state.gradient_texture and
 		render2d.rect_batch_pipeline:GetTextureIndex(state.gradient_texture) or
 		-1
-	vertex.batch_outline_subpixel[0] = fragment_snapshot.outline_width
-	vertex.batch_outline_subpixel[1] = fragment_snapshot.alpha_multiplier
-	vertex.batch_outline_subpixel[2] = fragment_snapshot.subpixel_mode
-	vertex.batch_outline_subpixel[3] = fragment_snapshot.subpixel_amount
+	vertex.batch_outline_alpha[0] = fragment_snapshot.outline_width
+	vertex.batch_outline_alpha[1] = fragment_snapshot.alpha_multiplier
 end
 
 function render2d.GetBatchState()
@@ -874,20 +863,6 @@ function render2d.Initialize()
 								block[key][1] = current_lh
 							end,
 						},
-						{
-							"subpixel_mode",
-							"int",
-							function(self, block, key)
-								block[key] = fragment_constants.subpixel_mode
-							end,
-						},
-						{
-							"subpixel_amount",
-							"float",
-							function(self, block, key)
-								block[key] = fragment_constants.subpixel_amount
-							end,
-						},
 					},
 				},
 			},
@@ -1186,55 +1161,9 @@ function render2d.Initialize()
 
 				void main() 
 				{
-					bool has_rect_sdf = has_rect_sdf_enabled();
-					bool has_tex_sdf = has_texture_sdf_enabled();
-					bool has_sdf = has_rect_sdf || has_tex_sdf;
 					vec4 color;
 					float d;
 					out_color = shade_fragment(in_uv, color, d);
-
-					if (U.subpixel_mode != 0 && has_sdf) {
-						vec3 sub_d = vec3(d);
-						vec4 sample_color;
-						float sample_d;
-						float shift = U.subpixel_amount;
-
-						if (U.subpixel_mode == 1 || U.subpixel_mode == 2) {
-							shade_fragment(in_uv + vec2(-shift, 0.0), sample_color, sample_d);
-							sub_d.x = sample_d;
-							shade_fragment(in_uv + vec2(shift, 0.0), sample_color, sample_d);
-							sub_d.z = sample_d;
-
-							if (U.subpixel_mode == 2) sub_d = sub_d.zyx;
-						} else if (U.subpixel_mode == 3 || U.subpixel_mode == 4) {
-							shade_fragment(in_uv + vec2(0.0, -shift), sample_color, sample_d);
-							sub_d.x = sample_d;
-							shade_fragment(in_uv + vec2(0.0, shift), sample_color, sample_d);
-							sub_d.z = sample_d;
-
-							if (U.subpixel_mode == 4) sub_d = sub_d.zyx;
-						} else if (U.subpixel_mode == 5) {
-							float d0;
-							float d1;
-							float d2;
-							float d3;
-							shade_fragment(in_uv + vec2(-1.5 * shift, 0.0), sample_color, d0);
-							shade_fragment(in_uv + vec2(-0.5 * shift, 0.0), sample_color, d1);
-							shade_fragment(in_uv + vec2(0.5 * shift, 0.0), sample_color, d2);
-							shade_fragment(in_uv + vec2(1.5 * shift, 0.0), sample_color, d3);
-							sub_d = mix(vec3(d0, d2, d3), vec3(d1), 0.5);
-						}
-
-						vec3 sub_alpha = compute_sdf_alpha(sub_d, has_tex_sdf, has_rect_sdf);
-
-						if (dot(color.rgb, vec3(1.0)) < 0.5) {
-							out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
-							out_color.a = 1.0;
-						} else {
-							out_color.rgb = color.rgb * sub_alpha;
-							out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
-						}
-					}
 
 					if (out_color.a <= 0.0) discard;
 				}
@@ -1299,7 +1228,7 @@ function render2d.Initialize()
 				{"batch_border_radius", "vec4"},
 				{"batch_quad_size", "vec4"},
 				{"batch_sdf_texture", "vec4"},
-				{"batch_outline_subpixel", "vec4"},
+				{"batch_outline_alpha", "vec2"},
 			},
 			shader = [[
 				void main() {
@@ -1314,7 +1243,7 @@ function render2d.Initialize()
 					out_batch_border_radius = in_batch_border_radius;
 					out_batch_quad_size = in_batch_quad_size;
 					out_batch_sdf_texture = in_batch_sdf_texture;
-					out_batch_outline_subpixel = in_batch_outline_subpixel;
+					out_batch_outline_alpha = in_batch_outline_alpha;
 				}
 			]],
 		},
@@ -1458,8 +1387,6 @@ function render2d.ResetState()
 
 	update_fragment_static_state_id()
 	render2d.SetSDFThreshold(0.5)
-	render2d.SetSubpixelMode("none")
-	render2d.SetSubpixelAmount(1 / 3)
 	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetScissor(0, 0, render2d.GetSize())
 	render2d.SetBlendMode("alpha", true)
@@ -1609,46 +1536,6 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFTexelRange")
-			render2d.subpixel_modes = {
-				none = 0,
-				rgb = 1,
-				bgr = 2,
-				vrgb = 3,
-				vbgr = 4,
-				rwgb = 5,
-			}
-
-			function render2d.SetSubpixelMode(mode)
-				if type(mode) == "string" then
-					local m = render2d.subpixel_modes[mode:lower()]
-
-					if not m then error("invalid subpixel mode: " .. mode) end
-
-					mode = m
-				end
-
-				fragment_constants.subpixel_mode = mode
-			end
-
-			function render2d.GetSubpixelMode()
-				for k, v in pairs(render2d.subpixel_modes) do
-					if v == fragment_constants.subpixel_mode then return k end
-				end
-
-				return fragment_constants.subpixel_mode
-			end
-
-			utility.MakePushPopFunction(render2d, "SubpixelMode")
-
-			function render2d.SetSubpixelAmount(amount)
-				fragment_constants.subpixel_amount = amount
-			end
-
-			function render2d.GetSubpixelAmount()
-				return fragment_constants.subpixel_amount
-			end
-
-			utility.MakePushPopFunction(render2d, "SubpixelAmount")
 		end
 
 		do
@@ -2208,8 +2095,6 @@ do
 			render2d.SetBlur(0)
 			render2d.SetBorderRadius(0, 0, 0, 0)
 			render2d.SetOutlineWidth(0)
-			render2d.SetSubpixelMode("none")
-			render2d.SetSubpixelAmount(1 / 3)
 			render2d.ClearNinePatch()
 			return saved_state
 		end

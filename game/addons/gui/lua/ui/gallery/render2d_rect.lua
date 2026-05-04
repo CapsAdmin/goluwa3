@@ -60,7 +60,6 @@ local STENCIL_MODE_OPTIONS = {
 	"test_inverse",
 }
 local RECT_BATCH_MODE_OPTIONS = {"immediate", "replay", "instanced"}
-local SUBPIXEL_MODE_OPTIONS = {"none", "rgb", "bgr", "vrgb", "vbgr", "rwgb"}
 local SAMPLE_UV_MODE_OPTIONS = {
 	{Text = "0: default", Value = 0},
 	{Text = "1: direct sample UV", Value = 1},
@@ -334,12 +333,10 @@ local function build_summary(state)
 				state.blur_y
 			),
 			string.format(
-				"sdf=%s threshold=%.2f texel_range=%.1f subpixel=%s/%.3f swizzle=%s sample_uv=%s",
+				"sdf=%s threshold=%.2f texel_range=%.1f swizzle=%s sample_uv=%s",
 				tostring(state.sdf_mode),
 				state.sdf_threshold,
 				state.sdf_texel_range,
-				state.subpixel_mode,
-				state.subpixel_amount,
 				tostring(state.swizzle_mode),
 				tostring(state.sample_uv_mode)
 			),
@@ -399,8 +396,6 @@ local function make_default_state()
 		sdf_mode = false,
 		sdf_threshold = 0.5,
 		sdf_texel_range = 18,
-		subpixel_mode = "none",
-		subpixel_amount = 1 / 3,
 		nine_patch_mode = "none",
 		nine_patch_x1 = 24,
 		nine_patch_y1 = 24,
@@ -541,8 +536,6 @@ local function draw_rect_with_state(state)
 
 	render2d.PushSDFThreshold(state.sdf_threshold)
 	render2d.PushSDFTexelRange(state.sdf_texel_range)
-	render2d.PushSubpixelMode(state.subpixel_mode)
-	render2d.PushSubpixelAmount(state.subpixel_amount)
 	render2d.PushBlur(state.blur_x, state.blur_y)
 	render2d.PushBorderRadius(state.border_radius.x, state.border_radius.y, state.border_radius.w, state.border_radius.h)
 	render2d.PushOutlineWidth(state.outline_width)
@@ -579,8 +572,6 @@ local function draw_rect_with_state(state)
 	render2d.PopOutlineWidth()
 	render2d.PopBorderRadius()
 	render2d.PopBlur()
-	render2d.PopSubpixelAmount()
-	render2d.PopSubpixelMode()
 	render2d.PopSDFTexelRange()
 	render2d.PopSDFThreshold()
 
@@ -1070,24 +1061,6 @@ local function build_items(state, refresh_preview, refresh_editor)
 					Max = 64,
 					Precision = 1,
 					OnChange = on_field("sdf_texel_range"),
-				},
-				{
-					Key = "shape/subpixel_mode",
-					Text = "Subpixel Mode",
-					Type = "enum",
-					Value = state.subpixel_mode,
-					Options = SUBPIXEL_MODE_OPTIONS,
-					OnChange = on_field("subpixel_mode"),
-				},
-				{
-					Key = "shape/subpixel_amount",
-					Text = "Subpixel Amount",
-					Type = "number",
-					Value = state.subpixel_amount,
-					Min = 0,
-					Max = 1,
-					Precision = 3,
-					OnChange = on_field("subpixel_amount"),
 				},
 			},
 		},
