@@ -93,7 +93,7 @@ end
 local function shade_hue_texture(texture)
 	texture:Shade([[
 			float hue = clamp(1.0 - uv.y, 0.0, 1.0);
-			vec3 c = vec3(hue, 1.0, 1.0);
+			vec3 c = vec3(-hue + 1, 1.0, 1.0);
 			vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
 			vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
 			vec3 rgb = c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
@@ -106,7 +106,7 @@ local function shade_alpha_texture(texture)
 			float alpha = clamp(1.0 - uv.y, 0.0, 1.0);
 			float checker = mod(floor(uv.x * 8.0) + floor(uv.y * 32.0), 2.0);
 			vec3 checker_color = mix(vec3(1.0), vec3(0.82), checker);
-			vec3 rgb = mix(checker_color, vec3(1.0), alpha);
+			vec3 rgb = mix(checker_color, vec3(1.0), -alpha+1);
 			return vec4(rgb, 1.0);
 		]])
 end

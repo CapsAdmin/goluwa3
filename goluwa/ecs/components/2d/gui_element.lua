@@ -146,6 +146,7 @@ local function draw_recursive_enter(_, owner)
 	end
 
 	render2d.SetColor(1, 1, 1, current.DrawAlpha)
+	render2d.SetSDFMode(false)
 	owner:CallLocalEvent("OnPreDraw")
 	owner:CallLocalEvent("OnDraw")
 	return WALK_CONTINUE, {clipping = clipping}

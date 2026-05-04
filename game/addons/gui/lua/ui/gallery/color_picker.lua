@@ -96,7 +96,7 @@ return {
 					GrowWidth = 1,
 				},
 			},
-			Row{
+			Column{
 				layout = {
 					ChildGap = 20,
 					AlignmentY = "start",
