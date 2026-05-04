@@ -14,6 +14,8 @@ local primary = Color.FromHex("#062a67"):SetAlpha(0.9)
 
 function JRPGTheme:Initialize()
 	self.BaseClass.Initialize(self)
+	local bright_white = Color(1, 1, 1, 1)
+	local frame_line = Color(0.106, 0.463, 0.678, 1)
 	local palette = self:GetPalette():Copy()
 	palette:SetShades{
 		Color.FromHex("#cccccc"),
@@ -42,23 +44,36 @@ function JRPGTheme:Initialize()
 		positive = base_map.green_lighter,
 		neutral = base_map.yellow_lighter,
 		negative = base_map.red_darker,
-		heading = base_map.white,
-		default = base_map.white,
-		text = base_map.white,
-		text_foreground = base_map.white,
-		text_button = base_map.white,
-		text_disabled = base_map.white:Copy():SetAlpha(0.5),
+		heading = bright_white,
+		default = bright_white,
+		text = bright_white,
+		text_foreground = bright_white,
+		text_button = bright_white,
+		text_on_accent = bright_white,
+		text_on_dark = bright_white,
+		text_on_dark_muted = bright_white:Copy():SetAlpha(0.8),
+		text_disabled = bright_white:Copy():SetAlpha(0.5),
+		text_on_surface = bright_white,
+		text_on_surface_variant = bright_white,
+		text_on_card = bright_white,
+		text_on_header_surface = bright_white,
+		text_foreground_on_surface = bright_white,
+		text_foreground_on_header_surface = bright_white,
+		heading_on_surface = bright_white,
+		heading_on_header_surface = bright_white,
 		foreground = base_map.black,
 		background = base_map.black,
-		text_background = base_map.black,
+		text_background = base_map.blue,
 		main_background = base_map.black,
-		surface = base_map.darkest,
-		surface_variant = base_map.dark,
-		card = base_map.darkest,
-		header_surface = base_map.dark,
+		surface = base_map.blue,
+		surface_variant = base_map.blue_dark,
+		card = base_map.blue_darker,
+		header_surface = base_map.blue,
 		scrollbar_track = Color(1, 1, 1, 0.08),
 		scrollbar = Color(1, 1, 1, 0.45),
-		frame_border = Color(0.106, 0.463, 0.678),
+		border = frame_line,
+		divider_soft = frame_line,
+		frame_border = frame_line,
 		invisible = Color(0, 0, 0, 0),
 		clickable_disabled = Color(0.3, 0.3, 0.3, 1),
 		button_normal = Color(0.8, 0.8, 0.2, 1),
@@ -1039,7 +1054,8 @@ function JRPGTheme:DrawProgressBar(size, state, color)
 end
 
 function JRPGTheme:DrawDivider(size)
-	render2d.SetColor(primary.r, primary.g, primary.b, primary.a * 10)
+	local c = self:GetColor("border")
+	render2d.SetColor(c.r, c.g, c.b, c.a)
 	render2d.PushBlendMode("additive")
 
 	if size.x > size.y then

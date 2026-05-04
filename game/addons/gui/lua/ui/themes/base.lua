@@ -183,12 +183,14 @@ function BaseTheme:GetColor(name, opts)
 	if type(opts) == "table" then background = opts.surface end
 
 	local palette = self:GetPalette()
-	local token = type(name) == "string" and self:GetPaletteBaseToken(name) or name
-	local background_token = type(background) == "string" and
+	local token = type(name) == "string" and name or name
+	local background_token = type(background) == "string" and background or background
+	local base_token = type(name) == "string" and self:GetPaletteBaseToken(name) or name
+	local base_background_token = type(background) == "string" and
 		self:GetPaletteBaseToken(background) or
 		background
 
-	if token ~= nil and token == background_token then background = nil end
+	if base_token ~= nil and base_token == base_background_token then background_token = nil end
 
 	if
 		(

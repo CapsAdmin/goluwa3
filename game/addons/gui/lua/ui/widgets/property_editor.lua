@@ -694,6 +694,7 @@ return function(props)
 			Title = get_node_text(node, path),
 			Tooltip = node.Description,
 			TooltipMaxWidth = 420,
+			HeaderButtonColor = "primary",
 			HeaderMode = "filled",
 			HeaderHeight = get_row_height(node),
 			HeaderPadding = node.HeaderPadding or compact_padding,

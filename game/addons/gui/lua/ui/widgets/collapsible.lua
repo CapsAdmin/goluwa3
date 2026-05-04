@@ -17,6 +17,7 @@ return function(props)
 			TooltipOptions = props.TooltipOptions,
 			TooltipMaxWidth = props.TooltipMaxWidth,
 			TooltipOffset = props.TooltipOffset,
+			ButtonColor = props.HeaderButtonColor,
 			Mode = props.HeaderMode or "outline",
 			layout = {
 				Direction = "x",
