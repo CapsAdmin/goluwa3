@@ -14,7 +14,7 @@ return function(props)
 		{
 			Name = "frame",
 			Ref = function(pnl)
-				pnl:SetState("emphasis", props.Emphasis)
+				pnl:SetState("emphasis", props.Emphasis or 0)
 			end,
 			gui_element = {
 				OnDraw = function(self)

@@ -15,7 +15,6 @@ local primary = Color.FromHex("#062a67"):SetAlpha(0.9)
 function JRPGTheme:Initialize()
 	self.BaseClass.Initialize(self)
 	local bright_white = Color(1, 1, 1, 1)
-	local frame_line = Color(0.106, 0.463, 0.678, 1)
 	local palette = self:GetPalette():Copy()
 	palette:SetShades{
 		Color.FromHex("#cccccc"),
@@ -71,9 +70,7 @@ function JRPGTheme:Initialize()
 		header_surface = base_map.blue,
 		scrollbar_track = Color(1, 1, 1, 0.08),
 		scrollbar = Color(1, 1, 1, 0.45),
-		border = frame_line,
-		divider_soft = frame_line,
-		frame_border = frame_line,
+		border = Color(0.106, 0.463, 0.678, 1),
 		invisible = Color(0, 0, 0, 0),
 		clickable_disabled = Color(0.3, 0.3, 0.3, 1),
 		button_normal = Color(0.8, 0.8, 0.2, 1),
@@ -285,7 +282,7 @@ function JRPGTheme:DrawArrow(x, y, size)
 	self:DrawDiamond(x, y + 0.5, size / 2)
 end
 
-function JRPGTheme:DrawDisclosureIcon(size, opts)
+function JRPGTheme:DrawDisclosureIcon2(size, opts)
 	opts = opts or {}
 	local icon_size = opts.size or 10
 	local color = opts.color or self:GetColor("text_foreground")
@@ -299,7 +296,7 @@ function JRPGTheme:DrawDisclosureIcon(size, opts)
 	render2d.PopMatrix()
 end
 
-function JRPGTheme:DrawDropdownIndicatorIcon(size, opts)
+function JRPGTheme:DrawDropdownIndicatorIcon2(size, opts)
 	opts = opts or {}
 	return self:DrawDisclosureIcon(size, {
 		size = opts.size or 9,
@@ -308,7 +305,7 @@ function JRPGTheme:DrawDropdownIndicatorIcon(size, opts)
 	})
 end
 
-function JRPGTheme:DrawCloseIcon(size, opts)
+function JRPGTheme:DrawCloseIcon2(size, opts)
 	opts = opts or {}
 	local icon_size = opts.size or 8
 	local color = opts.color or self:GetColor("text_foreground")
@@ -787,13 +784,13 @@ function JRPGTheme:DrawButtonPost(size, state)
 	if state.mode == "filled" then
 		self:DrawGlowLine(-3, -3, -3, size.y + 6, 40)
 	elseif state.mode == "outline" then
-		local c = self:GetColor("frame_border")
+		local c = self:GetColor("border")
 		render2d.SetColor(c.r, c.g, c.b, anim.glow_alpha)
-		self:DrawGlowLine(0, 0, 0, size.y, 1)
-		self:DrawGlowLine(size.x, 0, size.x, size.y, 1)
+		self:DrawGlowLine(0, 0, 0, size.y, 40)
+		self:DrawGlowLine(size.x, 0, size.x, size.y, 40)
 	end
 
-	local c = self:GetColor("frame_border")
+	local c = self:GetColor("border")
 	render2d.SetColor(c.r, c.g, c.b, anim.glow_alpha)
 	self:DrawGlowLine(0, 0, size.x, 0, 1)
 	self:DrawGlowLine(0, size.y, size.x, size.y, 1)
@@ -912,7 +909,7 @@ function JRPGTheme:DrawSlider(size, state)
 	if anim.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
 		render2d.SetTexture(self.Textures.GlowLinear)
-		c = self:GetColor("frame_border")
+		c = self:GetColor("border")
 		render2d.SetColor(c.r * anim.glow_alpha, c.g * anim.glow_alpha, c.b * anim.glow_alpha, 1)
 		self:DrawLine(
 			knob_x - scale_offset_x,
@@ -945,7 +942,7 @@ function JRPGTheme:DrawCheckbox(size, state)
 	if anim.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
 		render2d.SetTexture(self.Textures.GlowLinear)
-		c = self:GetColor("frame_border")
+		c = self:GetColor("border")
 		render2d.SetColor(c.r * anim.glow_alpha, c.g * anim.glow_alpha, c.b * anim.glow_alpha, 0.5)
 		self:DrawRect(box_x - 1, box_y - 1, check_size + 2, check_size + 2, 1)
 		render2d.SetBlendMode("alpha")
@@ -983,7 +980,7 @@ function JRPGTheme:DrawButtonRadio(size, state)
 		render2d.SetBlendMode("additive")
 		render2d.PushOutlineWidth(1)
 		render2d.SetTexture(nil)
-		c = self:GetColor("frame_border")
+		c = self:GetColor("border")
 		render2d.SetColor(c.r * anim.glow_alpha, c.g * anim.glow_alpha, c.b * anim.glow_alpha, 2)
 		self:DrawDiamond(rb_x + rb_size / 2, rb_y + rb_size / 2, rb_size * 0.8)
 		render2d.SetBlendMode("alpha")
@@ -1017,11 +1014,12 @@ end
 function JRPGTheme:DrawMenuSpacer(size, vertical)
 	local r, g, b, a = self:GetColor("lightest"):Unpack()
 	render2d.PushColor(r, g, b, a)
+	local inset = self:GetSize("M")
 
 	if vertical then
-		self:DrawLine(size.x / 2, 0, size.x / 2, size.y, 2)
+		self:DrawLine(size.x / 2, inset, size.x / 2, size.y - inset, 2)
 	else
-		self:DrawLine(0, size.y / 2, size.x, size.y / 2, 2)
+		self:DrawLine(inset, size.y / 2, size.x - inset, size.y / 2, 2)
 	end
 
 	render2d.PopColor()

@@ -60,7 +60,7 @@ return {
 			if preview_host.layout then preview_host.layout:InvalidateLayout(true) end
 		end
 
-		return Column{
+		local pnl = Column{
 			layout = {
 				Direction = "y",
 				FitHeight = true,
@@ -190,5 +190,7 @@ return {
 				},
 			}{},
 		}
+		rebuild_preview()
+		return pnl
 	end,
 }

@@ -129,7 +129,6 @@ function BaseTheme:CreatePalette()
 		scrollbar = Color(0.165, 0.165, 0.165, 0.35),
 		-- Borders
 		border = Color.FromHex("#e0e0e0"),
-		divider_soft = Color.FromHex("#f0f0f0"),
 		-- Interactive
 		invisible = Color(0, 0, 0, 0),
 		clickable_disabled = text_muted,
@@ -190,7 +189,9 @@ function BaseTheme:GetColor(name, opts)
 		self:GetPaletteBaseToken(background) or
 		background
 
-	if base_token ~= nil and base_token == base_background_token then background_token = nil end
+	if base_token ~= nil and base_token == base_background_token then
+		background_token = nil
+	end
 
 	if
 		(
@@ -562,7 +563,11 @@ function BaseTheme:DrawCloseIcon(size, opts)
 	return self:DrawSVGIcon(
 		"close",
 		size,
-		{size = opts.size or self:GetSize("M"), inset = opts.inset or 1, color = opts.color}
+		{
+			size = opts.size or self:GetSize("M"),
+			inset = opts.inset or 1,
+			color = opts.color,
+		}
 	)
 end
 
@@ -829,7 +834,7 @@ function BaseTheme:DrawButtonOutline(size, radius, state, anim)
 			1
 		)
 	else
-		self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("divider_soft"), 0.55, 1)
+		self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("border"), 0.55, 1)
 	end
 end
 
@@ -973,13 +978,16 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 	self:DrawRoundRect(box_x, box_y, box_size, box_size, 0, self:GetColor(opts.box_fill or "surface"))
 	render2d.PushMatrix()
 	render2d.Translatef(box_x, box_y)
-	self:DrawSVGIcon(opts.expanded and "minus" or "plus", Vec2(box_size, box_size), {
-		size = opts.icon_size or self:GetSize("M"),
-		inset = opts.icon_inset or 1,
-		color = self:GetColor(opts.glyph_color or "text"):Copy():SetAlpha(opts.glyph_alpha or 1),
-	})
+	self:DrawSVGIcon(
+		opts.expanded and "minus" or "plus",
+		Vec2(box_size, box_size),
+		{
+			size = opts.icon_size or self:GetSize("M"),
+			inset = opts.icon_inset or 1,
+			color = self:GetColor(opts.glyph_color or "text"):Copy():SetAlpha(opts.glyph_alpha or 1),
+		}
+	)
 	render2d.PopMatrix()
-
 	return center_x, center_y
 end
 
