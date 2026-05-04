@@ -196,10 +196,40 @@ function JRPGTheme:DrawDiamond2(x, y, size)
 	render2d.PopOutlineWidth()
 end
 
+local function push_unclamped_border_radius(...)
+	render2d.PushClampBorderRadius(false)
+	render2d.PushBorderRadius(...)
+end
+
+local function pop_unclamped_border_radius()
+	render2d.PopBorderRadius()
+	render2d.PopClampBorderRadius()
+end
+
+local function push_decorative_texture_state(texture)
+	render2d.PushTexture(texture)
+	render2d.PushUV()
+	render2d.PushSampleUVMode(0)
+	render2d.PushSwizzleMode(0)
+	render2d.PushSDFMode(false)
+	render2d.SetUV()
+	render2d.SetSampleUVMode(0)
+	render2d.SetSwizzleMode(0)
+	render2d.SetSDFMode(false)
+end
+
+local function pop_decorative_texture_state()
+	render2d.PopSDFMode()
+	render2d.PopSwizzleMode()
+	render2d.PopSampleUVMode()
+	render2d.PopUV()
+	render2d.PopTexture()
+end
+
 function JRPGTheme:DrawPill(x, y, w, h)
 	x = x - 15
 	w = w + 30
-	render2d.PushBorderRadius(h)
+	push_unclamped_border_radius(h)
 	render2d.DrawRect(x, y, w, h)
 	render2d.SetBorderRadius(h / 2)
 	render2d.PushOutlineWidth(1)
@@ -209,7 +239,7 @@ function JRPGTheme:DrawPill(x, y, w, h)
 	render2d.PopAlphaMultiplier()
 	render2d.PopBlendMode()
 	render2d.PopOutlineWidth()
-	render2d.PopBorderRadius()
+	pop_unclamped_border_radius()
 	self:DrawDiamond2(x, y + h / 2, 5)
 	self:DrawDiamond2(x + w, y + h / 2, 5)
 end
@@ -217,14 +247,12 @@ end
 function JRPGTheme:DrawBadge(x, y, w, h)
 	x = x - 15
 	w = w + 30
-	render2d.PushTexture(self.Textures.Gradient)
-	render2d.PushUV()
+	push_decorative_texture_state(self.Textures.Gradient)
 	render2d.SetUV2(-0.1, 0, 0.75, 1)
-	render2d.PushBorderRadius(h)
+	push_unclamped_border_radius(h)
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopBorderRadius()
-	render2d.PopUV()
-	render2d.PopTexture()
+	pop_unclamped_border_radius()
+	pop_decorative_texture_state()
 	render2d.PushColor(1, 1, 1, 1)
 	self:DrawDiamond2(x + 8, y + h / 2, 8)
 	render2d.PopColor()
@@ -232,13 +260,13 @@ end
 
 function JRPGTheme:DrawArrow(x, y, size)
 	local f = size / 2
-	render2d.PushBorderRadius(f * 3, f * 2, f * 2, f * 3)
+	push_unclamped_border_radius(f * 3, f * 2, f * 2, f * 3)
 	render2d.PushMatrix()
 	render2d.Translatef(x - size / 3, y - size / 3)
 	render2d.Scalef(1.6, 0.75)
 	render2d.DrawRectf(0, 0, size, size)
 	render2d.PopMatrix()
-	render2d.PopBorderRadius()
+	pop_unclamped_border_radius()
 	self:DrawDiamond(x, y + 0.5, size / 2)
 end
 
@@ -312,23 +340,25 @@ function JRPGTheme:DrawGlowLine(x1, y1, x2, y2, thickness)
 	thickness = thickness or 1
 	local angle = math.atan2(y2 - y1, x2 - x1)
 	local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
+	push_decorative_texture_state(self.GlowLineTexture)
 	render2d.PushMatrix()
 	render2d.Translatef(x1, y1)
 	render2d.Rotate(angle)
 	render2d.Translatef(0, -self.GlowLineTexture:GetHeight() / 2)
-	render2d.SetTexture(self.GlowLineTexture)
 	render2d.PushBlendMode("additive")
 	render2d.DrawRectf(0, -thickness / 10, length, self.GlowLineTexture:GetHeight())
 	render2d.PopBlendMode()
 	render2d.PopMatrix()
+	pop_decorative_texture_state()
 end
 
 function JRPGTheme:DrawClassicFrame(x, y, w, h)
-	render2d.PushBorderRadius(h * 0.2)
+	push_unclamped_border_radius(h * 0.2)
 	render2d.SetColor(1, 1, 1, 1)
-	render2d.SetTexture(self.GradientClassicTexture)
+	push_decorative_texture_state(self.GradientClassicTexture)
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopBorderRadius()
+	pop_decorative_texture_state()
+	pop_unclamped_border_radius()
 	render2d.PushOutlineWidth(5)
 	render2d.PushBlur(10)
 	render2d.SetColor(0, 0, 0, 0.5)
@@ -342,14 +372,15 @@ function JRPGTheme:DrawClassicFrame(x, y, w, h)
 	h = h + 6
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetNinePatchTable(self.MetalFrameTexture.nine_patch)
-	render2d.SetTexture(self.MetalFrameTexture)
+	push_decorative_texture_state(self.MetalFrameTexture)
 	render2d.DrawRect(x, y, w, h)
+	pop_decorative_texture_state()
 	render2d.ClearNinePatch()
 	render2d.SetTexture(nil)
 end
 
 function JRPGTheme:DrawWhiteFrame(x, y, w, h)
-	render2d.PushBorderRadius(h * 0.2)
+	push_unclamped_border_radius(h * 0.2)
 	render2d.SetColor(1, 1, 1, 0.5)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(x, y, w, h)
@@ -359,22 +390,23 @@ function JRPGTheme:DrawWhiteFrame(x, y, w, h)
 	h = h - 2
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetNinePatchTable(self.MetalFrameWhiteTexture.nine_patch)
-	render2d.SetTexture(self.MetalFrameWhiteTexture)
+	push_decorative_texture_state(self.MetalFrameWhiteTexture)
 	render2d.DrawRect(x, y, w, h)
+	pop_decorative_texture_state()
 	render2d.ClearNinePatch()
 	render2d.SetTexture(nil)
 	render2d.PushOutlineWidth(1)
 	render2d.DrawRect(x + 1, y + 1, w - 2, h - 2)
 	render2d.PopOutlineWidth()
-	render2d.PopBorderRadius()
+	pop_unclamped_border_radius()
 end
 
 function JRPGTheme:DrawCircle(x, y, size, width)
-	render2d.PushBorderRadius(size)
+	push_unclamped_border_radius(size)
 	render2d.PushOutlineWidth(width or 1)
 	render2d.DrawRect(x - size, y - size, size * 2, size * 2)
 	render2d.PopOutlineWidth()
-	render2d.PopBorderRadius()
+	pop_unclamped_border_radius()
 end
 
 function JRPGTheme:DrawSimpleLine(x1, y1, x2, y2, thickness)
@@ -416,11 +448,11 @@ function JRPGTheme:DrawMagicCircle(x, y, size)
 end
 
 function JRPGTheme:DrawGlow(x, y, size)
-	render2d.PushTexture(self.Textures.GlowPoint)
+	push_decorative_texture_state(self.Textures.GlowPoint)
 	render2d.PushAlphaMultiplier(0.5)
 	render2d.DrawRectf(x - size, y - size, size * 2, size * 2)
 	render2d.PopAlphaMultiplier()
-	render2d.PopTexture()
+	pop_decorative_texture_state()
 end
 
 function JRPGTheme:DrawProgressBarPrimitive(x, y, w, h, progress, color)
@@ -485,8 +517,9 @@ end
 
 function JRPGTheme:DrawModernFrame(x, y, w, h)
 	render2d.SetColor(1, 1, 1, 1)
-	render2d.SetTexture(self.ModernFrameGradient)
+	push_decorative_texture_state(self.ModernFrameGradient)
 	render2d.DrawRect(x, y, w, h)
+	pop_decorative_texture_state()
 end
 
 function JRPGTheme:DrawModernFramePost(x, y, w, h, intensity)
@@ -527,7 +560,33 @@ function JRPGTheme:DrawRect(x, y, w, h, thickness, extent)
 	self:DrawLine(x, y + h + extent, x, y - extent, thickness)
 end
 
-function JRPGTheme:UpdateButtonAnimations(state)
+local function get_button_pivot_target(pnl)
+	local mpos = system.GetWindow():GetMousePosition()
+	local local_pos = pnl.transform:GlobalToLocal(mpos)
+	local size = pnl.transform:GetSize()
+	local pivot = local_pos / size
+	return -pivot + Vec2(1, 1)
+end
+
+local function get_button_angle_target(pnl)
+	local mpos = system.GetWindow():GetMousePosition()
+	local local_pos = pnl.transform:GlobalToLocal(mpos)
+	local size = pnl.transform:GetSize()
+	local nx = (local_pos.x / size.x) * 2 - 1
+	local ny = (local_pos.y / size.y) * 2 - 1
+	return Ang3(-ny, nx, 0) * 0.01
+end
+
+function JRPGTheme:UpdateButtonAnimations(pnl)
+	local state = pnl:GetState()
+	state.anim = state.anim or
+		{
+			glow_alpha = 0,
+			press_scale = 0,
+			last_hovered = state.hovered or false,
+			last_active = false,
+			last_tilting = false,
+		}
 	local anim = state.anim
 	local is_active = not state.disabled and
 		(
@@ -544,159 +603,146 @@ function JRPGTheme:UpdateButtonAnimations(state)
 	local is_tilting = is_active
 
 	if is_active ~= anim.last_active then
-		state.pnl.animation:Animate{
-			id = "press_scale",
-			get = function()
-				return anim.press_scale
-			end,
-			set = function(value)
-				anim.press_scale = value
-			end,
-			to = is_active and 1 or 0,
-			interpolation = (state.pressed and not state.hovered) and "linear" or "inOutSine",
-			time = (state.pressed and not state.hovered) and 0.2 or 0.1,
-		}
-		state.pnl.animation:Animate{
-			id = "DrawScaleOffset",
-			get = function()
-				return state.pnl.transform:GetDrawScaleOffset()
-			end,
-			set = function(value)
-				state.pnl.transform:SetDrawScaleOffset(value)
-			end,
-			to = is_active and (Vec2() + 0.97) or (Vec2(1, 1)),
-			interpolation = (
-					state.pressed and
-					not state.hovered
-				)
-				and
-				"linear" or
-				{type = "spring", bounce = 0.6, duration = 100},
-			time = (state.pressed and not state.hovered) and 0.2 or nil,
-		}
+		if not pnl.animation then
+			anim.press_scale = is_active and 1 or 0
+			pnl.transform:SetDrawScaleOffset(is_active and (Vec2() + 0.97) or Vec2(1, 1))
+		else
+			pnl.animation:Animate{
+				id = "press_scale",
+				get = function()
+					return anim.press_scale
+				end,
+				set = function(value)
+					anim.press_scale = value
+				end,
+				to = is_active and 1 or 0,
+				interpolation = (state.pressed and not state.hovered) and "linear" or "inOutSine",
+				time = (state.pressed and not state.hovered) and 0.2 or 0.1,
+			}
+			pnl.animation:Animate{
+				id = "DrawScaleOffset",
+				get = function()
+					return pnl.transform:GetDrawScaleOffset()
+				end,
+				set = function(value)
+					pnl.transform:SetDrawScaleOffset(value)
+				end,
+				to = is_active and (Vec2() + 0.97) or (Vec2(1, 1)),
+				interpolation = (
+						state.pressed and
+						not state.hovered
+					)
+					and
+					"linear" or
+					{type = "spring", bounce = 0.6, duration = 100},
+				time = (state.pressed and not state.hovered) and 0.2 or nil,
+			}
+		end
+
 		anim.last_active = is_active
 	end
 
 	if state.hovered ~= anim.last_hovered then
-		state.pnl.animation:Animate{
-			id = "glow_alpha",
-			get = function()
-				return anim.glow_alpha
-			end,
-			set = function(value)
-				anim.glow_alpha = value
-			end,
-			to = (state.hovered and not state.disabled) and 1 or 0,
-			interpolation = "inOutSine",
-			time = 0.1,
-		}
+		if not pnl.animation then
+			anim.glow_alpha = (state.hovered and not state.disabled) and 1 or 0
+		else
+			pnl.animation:Animate{
+				id = "glow_alpha",
+				get = function()
+					return anim.glow_alpha
+				end,
+				set = function(value)
+					anim.glow_alpha = value
+				end,
+				to = (state.hovered and not state.disabled) and 1 or 0,
+				interpolation = "inOutSine",
+				time = 0.1,
+			}
+		end
+
 		anim.last_hovered = state.hovered
 	end
 
 	if is_tilting ~= anim.last_tilting or is_tilting then
-		state.pnl.animation:Animate{
-			id = "Pivot",
-			get = function()
-				return state.pnl.transform:GetPivot()
-			end,
-			set = function(value)
-				state.pnl.transform:SetPivot(value)
-			end,
-			to = not is_tilting and
-				Vec2(0.5, 0.5) or
-				{
-					__lsx_value = function(panel)
-						local mpos = system.GetWindow():GetMousePosition()
-						local local_pos = panel.transform:GlobalToLocal(mpos)
-						local size = panel.transform:GetSize()
-						local pivot = local_pos / size
-						return -pivot + Vec2(1, 1)
-					end,
-				},
-			interpolation = (
-					state.pressed and
-					not state.hovered
-				)
-				and
-				"linear" or
-				{type = "spring", bounce = 0.6, duration = 10},
-			time = is_tilting and 0.3 or 10,
-		}
-		state.pnl.animation:Animate{
-			id = "DrawAngleOffset",
-			get = function()
-				return state.pnl.transform:GetDrawAngleOffset()
-			end,
-			set = function(value)
-				state.pnl.transform:SetDrawAngleOffset(value)
-			end,
-			to = not is_tilting and
-				Ang3(0, 0, 0) or
-				{
-					__lsx_value = function(panel)
-						local mpos = system.GetWindow():GetMousePosition()
-						local local_pos = panel.transform:GlobalToLocal(mpos)
-						local size = panel.transform:GetSize()
-						local nx = (local_pos.x / size.x) * 2 - 1
-						local ny = (local_pos.y / size.y) * 2 - 1
-						return Ang3(-ny, nx, 0) * 0.01
-					end,
-				},
-			interpolation = (
-					state.pressed and
-					not state.hovered
-				)
-				and
-				"linear" or
-				{type = "spring", bounce = 0.6, duration = 10},
-			time = is_tilting and 0.3 or 10,
-		}
+		if not pnl.animation then
+			pnl.transform:SetPivot(is_tilting and get_button_pivot_target(pnl) or Vec2(0.5, 0.5))
+			pnl.transform:SetDrawAngleOffset(is_tilting and get_button_angle_target(pnl) or Ang3(0, 0, 0))
+		else
+			pnl.animation:Animate{
+				id = "Pivot",
+				get = function()
+					return pnl.transform:GetPivot()
+				end,
+				set = function(value)
+					pnl.transform:SetPivot(value)
+				end,
+				to = not is_tilting and
+					Vec2(0.5, 0.5) or
+					{
+						__lsx_value = function(panel)
+							return get_button_pivot_target(panel)
+						end,
+					},
+				interpolation = (
+						state.pressed and
+						not state.hovered
+					)
+					and
+					"linear" or
+					{type = "spring", bounce = 0.6, duration = 10},
+				time = is_tilting and 0.3 or 10,
+			}
+			pnl.animation:Animate{
+				id = "DrawAngleOffset",
+				get = function()
+					return pnl.transform:GetDrawAngleOffset()
+				end,
+				set = function(value)
+					pnl.transform:SetDrawAngleOffset(value)
+				end,
+				to = not is_tilting and
+					Ang3(0, 0, 0) or
+					{
+						__lsx_value = function(panel)
+							return get_button_angle_target(panel)
+						end,
+					},
+				interpolation = (
+						state.pressed and
+						not state.hovered
+					)
+					and
+					"linear" or
+					{type = "spring", bounce = 0.6, duration = 10},
+				time = is_tilting and 0.3 or 10,
+			}
+		end
+
 		anim.last_tilting = is_tilting
 	end
 end
 
 function JRPGTheme:DrawButton(size, state)
-	local anim = state.anim
-	local pnl = state.pnl
-
-	if state.hovered then self:UpdateButtonAnimations(state) end
+	local anim = state.anim or {glow_alpha = 0, press_scale = 0}
+	local button_color = self:GetColor(state.button_color or "primary")
 
 	if state.mode == "filled" then
-		render2d.PushUV()
+		push_decorative_texture_state(self.Textures.Gradient)
 		render2d.SetUV2(0, 0, 0.4, 1)
-		render2d.PushBorderRadius(size.y / 6)
-		render2d.SetTexture(self.Textures.Gradient)
-		local col = pnl.gui_element.Color or self:GetColor("primary")
-		render2d.SetColor(col.r * anim.glow_alpha, col.g * anim.glow_alpha, col.b * anim.glow_alpha, 1)
+		push_unclamped_border_radius(size.y / 6)
+		render2d.SetColor(
+			button_color.r,
+			button_color.g,
+			button_color.b,
+			(state.disabled and 0.2) or (0.5 + anim.glow_alpha * 0.35)
+		)
 		render2d.DrawRect(0, 0, size.x, size.y)
-		render2d.PopBorderRadius()
-		render2d.PopUV()
-	end
-
-	local mpos = system.GetWindow():GetMousePosition()
-
-	if not state.disabled and pnl.mouse_input:IsHoveredExclusively(mpos) then
-		local lpos = pnl.transform:GlobalToLocal(mpos)
-		render2d.SetBlendMode("additive")
-		render2d.SetTexture(self.Textures.GlowLinear)
-
-		if anim.glow_alpha > 0 then
-			local c = pnl.gui_element.Color or self:GetColor("lightest")
-			render2d.SetColor(c.r, c.g, c.b, c.a * anim.glow_alpha)
-			render2d.DrawRect(lpos.x - 192, lpos.y - 192, 384, 384)
-		end
-
-		render2d.SetTexture(self.Textures.GlowPoint)
-		local c = pnl.gui_element.Color or self:GetColor("lighter")
-		render2d.SetColor(c.r, c.g, c.b, c.a * anim.press_scale)
-		local ps = anim.press_scale * 150
-		render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
-		render2d.SetBlendMode("alpha")
+		pop_unclamped_border_radius()
+		pop_decorative_texture_state()
 	end
 end
 
-function JRPGTheme:DrawSurface(draw, color)
-	local size = draw.size
+function JRPGTheme:DrawSurface(size, color, radius)
 	local c
 
 	if color == nil then
@@ -705,12 +751,13 @@ function JRPGTheme:DrawSurface(draw, color)
 		c = self:ResolveSurfaceColor(color)
 	end
 
-	local radius = draw.radius
 	render2d.SetTexture(nil)
-	render2d.SetColor(c.r, c.g, c.b, c.a * draw.alpha)
+	render2d.SetColor(c.r, c.g, c.b, c.a)
 
 	if radius > 0 then
+		render2d.PushClampBorderRadius(false)
 		gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
+		render2d.PopClampBorderRadius()
 	else
 		render2d.DrawRect(0, 0, size.x, size.y)
 	end
@@ -739,10 +786,7 @@ function JRPGTheme:DrawButtonPost(size, state)
 end
 
 function JRPGTheme:DrawSlider(size, state)
-	local anim = state.anim
-
-	if state.hovered then self:UpdateSliderAnimations(state) end
-
+	local anim = state.anim or {glow_alpha = 0, knob_scale = 1}
 	local knob_width = self:GetSize("S")
 	local knob_height = self:GetSize("S")
 	local value = state.value
@@ -874,10 +918,7 @@ function JRPGTheme:DrawSlider(size, state)
 end
 
 function JRPGTheme:DrawCheckbox(size, state)
-	local anim = state.anim
-
-	if state.hovered then self:UpdateCheckboxAnimations(state) end
-
+	local anim = state.anim or {glow_alpha = 0, check_anim = state.value and 1 or 0}
 	local check_size = self:GetSize("M")
 	local box_x = 0
 	local box_y = (size.y - check_size) / 2
@@ -899,7 +940,7 @@ function JRPGTheme:DrawCheckbox(size, state)
 		local s = anim.check_anim
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, 0.5, 1)
-		render2d.SetTexture()
+		render2d.SetTexture(nil)
 		c = self:GetColor("primary")
 		render2d.SetBlendMode("additive")
 		render2d.SetColor(c.r, c.g, c.b, 0.9 * s)
@@ -914,10 +955,7 @@ function JRPGTheme:DrawCheckbox(size, state)
 end
 
 function JRPGTheme:DrawButtonRadio(size, state)
-	local anim = state.anim
-
-	if state.hovered then self:UpdateCheckboxAnimations(state) end
-
+	local anim = state.anim or {glow_alpha = 0, check_anim = state.value and 1 or 0}
 	local rb_size = self:GetSize("M")
 	local rb_x = 0
 	local rb_y = (size.y - rb_size) / 2
@@ -929,7 +967,7 @@ function JRPGTheme:DrawButtonRadio(size, state)
 	if anim.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
 		render2d.PushOutlineWidth(1)
-		render2d.SetTexture()
+		render2d.SetTexture(nil)
 		c = self:GetColor("frame_border")
 		render2d.SetColor(c.r * anim.glow_alpha, c.g * anim.glow_alpha, c.b * anim.glow_alpha, 2)
 		self:DrawDiamond(rb_x + rb_size / 2, rb_y + rb_size / 2, rb_size * 0.8)
@@ -939,7 +977,7 @@ function JRPGTheme:DrawButtonRadio(size, state)
 
 	if anim.check_anim > 0.01 then
 		local s = anim.check_anim
-		render2d.SetTexture(self:GetColor("primary"))
+		render2d.SetTexture(nil)
 		render2d.SetBlendMode("additive")
 		c = self:GetColor("primary")
 		render2d.SetColor(c.r, c.g, c.b, s)
@@ -949,36 +987,16 @@ function JRPGTheme:DrawButtonRadio(size, state)
 	end
 end
 
-function JRPGTheme:DrawFrame(draw, emphasis)
-	local s = draw.size
-	local c
-
-	if color == nil then
-		c = self:GetColor("surface")
-	else
-		c = self:ResolveSurfaceColor(color)
-	end
-
-	render2d.SetColor(c.r, c.g, c.b, c.a * draw.alpha)
-	render2d.PushAlphaMultiplier(draw.alpha)
-	self:DrawModernFrame(0, 0, s.x, s.y, (emphasis or 1) * draw.alpha)
-	render2d.PopAlphaMultiplier()
+function JRPGTheme:DrawFrame(size, emphasis)
+	local c = self:GetColor("surface")
+	render2d.SetColor(c.r, c.g, c.b, c.a)
+	self:DrawModernFrame(0, 0, size.x, size.y, emphasis or 1)
 end
 
-function JRPGTheme:DrawFramePost(draw, emphasis, color)
-	local s = draw.size
-	local c
-
-	if color == nil then
-		c = self:GetColor("surface")
-	else
-		c = self:ResolveSurfaceColor(color)
-	end
-
+function JRPGTheme:DrawFramePost(size, emphasis)
+	local c = self:GetColor("surface")
 	render2d.SetColor(c.r, c.g, c.b, c.a)
-	render2d.PushAlphaMultiplier(draw.alpha)
-	self:DrawModernFramePost(0, 0, s.x, s.y, (emphasis or 1) * draw.alpha)
-	render2d.PopAlphaMultiplier()
+	self:DrawModernFramePost(0, 0, size.x, size.y, emphasis or 1)
 end
 
 function JRPGTheme:DrawMenuSpacer(size, vertical)
@@ -994,8 +1012,7 @@ function JRPGTheme:DrawMenuSpacer(size, vertical)
 	render2d.PopColor()
 end
 
-function JRPGTheme:DrawHeader(draw, color)
-	local size = draw.size
+function JRPGTheme:DrawHeader(size, color)
 	local c
 
 	if color == nil then
@@ -1004,7 +1021,7 @@ function JRPGTheme:DrawHeader(draw, color)
 		c = self:ResolveSurfaceColor(color)
 	end
 
-	render2d.SetColor(c.r, c.g, c.b, c.a * draw.alpha)
+	render2d.SetColor(c.r, c.g, c.b, c.a)
 	self:DrawPill(0, 0, size.x, size.y)
 end
 
@@ -1021,9 +1038,8 @@ function JRPGTheme:DrawProgressBar(size, state, color)
 	self:DrawProgressBarPrimitive(0, 0, size.x, size.y, value, c)
 end
 
-function JRPGTheme:DrawDivider(draw)
-	local size = draw.size
-	render2d.SetColor(primary.r, primary.g, primary.b, primary.a * draw.alpha * 10)
+function JRPGTheme:DrawDivider(size)
+	render2d.SetColor(primary.r, primary.g, primary.b, primary.a * 10)
 	render2d.PushBlendMode("additive")
 
 	if size.x > size.y then
