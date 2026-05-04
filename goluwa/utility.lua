@@ -409,7 +409,9 @@ end
 function utility.MakePushPopFunction(lib, name, func_set, func_get, reset)
 	func_set = func_set or lib["Set" .. name]
 	func_get = func_get or lib["Get" .. name]
-	local stack = {}
+	lib.push_pop_context_values = lib.push_pop_context_values or {}
+	lib.push_pop_context_values[name] = {}
+	local stack = lib.push_pop_context_values[name]
 	local i = 1
 	lib["Push" .. name] = function(a, b, c, d)
 		stack[i] = stack[i] or {}
