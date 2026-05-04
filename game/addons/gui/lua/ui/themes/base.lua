@@ -2,9 +2,9 @@ local Color = import("goluwa/structs/color.lua")
 local ColorPalette = import("goluwa/palette.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local prototype = import("goluwa/prototype.lua")
+local svg_codec = import("goluwa/codecs/svg.lua")
 local BaseTheme = prototype.CreateTemplate("ui_theme_base")
 BaseTheme.Name = "base"
 BaseTheme:GetSet("ThemeContext", nil)
@@ -435,38 +435,97 @@ function BaseTheme:DrawIcon(name, size, opts)
 	end
 end
 
--- Shared icon drawing: pushes color, sets texture, draws lines, pops color
-function BaseTheme:DrawIconLines(lines, opts)
-	opts = opts or {}
-	local thickness = opts.thickness or 1.5
-	local color = opts.color or self:GetColor("text")
-	render2d.PushColor(color:Unpack())
-	render2d.SetTexture(nil)
+local icon_svg_cache = {}
 
-	for _, line in ipairs(lines) do
-		gfx.DrawLine(line[1], line[2], line[3], line[4], thickness)
+local function get_icon_svg_source(name)
+	if name == "chevron" then
+		return [[<svg viewBox="0 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]]
+	elseif name == "plus" then
+		return [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]]
+	elseif name == "minus" then
+		return [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]]
+	elseif name == "close" then
+		return [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]]
+	end
+end
+
+local function get_cached_icon_texture(name)
+	local cached = icon_svg_cache[name]
+
+	if cached then return cached end
+
+	local source = get_icon_svg_source(name)
+
+	if not source then return nil end
+
+	local texture, decoded, meta = svg_codec.CreateSDFTexture(source, {sdf_size = 96, sdf_spread = 8})
+	icon_svg_cache[name] = {
+		texture = texture,
+		decoded = decoded,
+		spread = meta and meta.spread or 8,
+	}
+	return icon_svg_cache[name]
+end
+
+function BaseTheme:ResolveIconDrawSize(size, requested_size, inset)
+	inset = inset or 2
+	local available = math.max(1, math.min(size.x, size.y) - inset * 2)
+	local base = requested_size or self:GetSize("M")
+	return math.max(1, math.min(base, available))
+end
+
+function BaseTheme:DrawSVGIcon(name, size, opts)
+	opts = opts or {}
+	local cached = get_cached_icon_texture(name)
+
+	if not cached then return end
+
+	local view_box = cached.decoded.view_box or
+		{x = 0, y = 0, w = cached.decoded.width, h = cached.decoded.height}
+	local bounds_w = math.max(1e-6, view_box.w)
+	local bounds_h = math.max(1e-6, view_box.h)
+	local target_size = self:ResolveIconDrawSize(size, opts.size, opts.inset)
+	local scale = math.min(target_size / bounds_w, target_size / bounds_h)
+	local draw_w = bounds_w * scale
+	local draw_h = bounds_h * scale
+	local x = (size.x - draw_w) * 0.5
+	local y = (size.y - draw_h) * 0.5
+	local color = opts.color or self:GetColor("text")
+	local rotation = math.rad(opts.rotation_degrees or 0)
+	local cx = x + draw_w * 0.5
+	local cy = y + draw_h * 0.5
+	render2d.PushTexture(cached.texture)
+	render2d.PushSDFMode(true)
+	render2d.PushSDFThreshold(0.5)
+	render2d.PushSDFTexelRange(cached.spread)
+	render2d.PushDisableRectSDF(true)
+	render2d.SetColor(color:Unpack())
+
+	if rotation ~= 0 then
+		render2d.DrawRectUV2f(cx, cy, draw_w, draw_h, 0, 1, 1, 0, rotation, draw_w * 0.5, draw_h * 0.5)
+	else
+		render2d.DrawRectUV2f(x, y, draw_w, draw_h, 0, 1, 1, 0)
 	end
 
-	render2d.PopColor()
+	render2d.PopDisableRectSDF()
+	render2d.PopSDFTexelRange()
+	render2d.PopSDFThreshold()
+	render2d.PopSDFMode()
+	render2d.PopTexture()
 end
 
 function BaseTheme:DrawChevronIcon(size, opts)
 	opts = opts or {}
-	local icon_size = (opts.size or 10) * 0.6
-	local center = size / 2
-	local half = icon_size / 2
-	local rotation = opts.rotation_degrees or 0
-	render2d.PushMatrix()
-	render2d.Translatef(center.x, center.y)
-	render2d.Rotate(math.rad(rotation))
-	self:DrawIconLines(
+	return self:DrawSVGIcon(
+		"chevron",
+		size,
 		{
-			{-half * 0.7, -half, half * 0.7, 0},
-			{-half * 0.7, half, half * 0.7, 0},
-		},
-		opts
+			size = opts.size or self:GetSize("M"),
+			inset = opts.inset or 1,
+			color = opts.color,
+			rotation_degrees = opts.rotation_degrees,
+		}
 	)
-	render2d.PopMatrix()
 end
 
 function BaseTheme:DrawDisclosureIcon(size, opts)
@@ -487,7 +546,8 @@ function BaseTheme:DrawDropdownIndicatorIcon(size, opts)
 	return self:DrawChevronIcon(
 		size,
 		{
-			size = opts.size or 8,
+			size = opts.size or self:GetSize("M"),
+			inset = opts.inset or 1,
 			thickness = opts.thickness,
 			color = opts.color,
 			rotation_degrees = 90,
@@ -497,15 +557,11 @@ end
 
 function BaseTheme:DrawCloseIcon(size, opts)
 	opts = opts or {}
-	local icon_size = opts.size or 8
-	local thickness = opts.thickness or 1.5
-	local color = opts.color or self:GetColor("text")
-	local center = size / 2
-	local length = icon_size * math.sqrt(2)
-	render2d.SetColor(color:Unpack())
-	render2d.SetTexture(nil)
-	render2d.DrawRect(center.x, center.y, thickness, length, -math.pi / 4, thickness / 2, length / 2)
-	render2d.DrawRect(center.x, center.y, thickness, length, math.pi / 4, thickness / 2, length / 2)
+	return self:DrawSVGIcon(
+		"close",
+		size,
+		{size = opts.size or self:GetSize("M"), inset = opts.inset or 1, color = opts.color}
+	)
 end
 
 -- Shared hover animation: animates glow_alpha on hover state change
@@ -913,13 +969,14 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 		}
 	)
 	self:DrawRoundRect(box_x, box_y, box_size, box_size, 0, self:GetColor(opts.box_fill or "surface"))
-	self:SetRenderColor(self:GetColor(opts.glyph_color or "text"), opts.glyph_alpha)
-	render2d.SetTexture(nil)
-	render2d.DrawRect(box_x + 2, center_y, math.max(1, box_size - 4), 1)
-
-	if not opts.expanded then
-		render2d.DrawRect(center_x, box_y + 2, 1, math.max(1, box_size - 4))
-	end
+	render2d.PushMatrix()
+	render2d.Translatef(box_x, box_y)
+	self:DrawSVGIcon(opts.expanded and "minus" or "plus", Vec2(box_size, box_size), {
+		size = opts.icon_size or self:GetSize("M"),
+		inset = opts.icon_inset or 1,
+		color = self:GetColor(opts.glyph_color or "text"):Copy():SetAlpha(opts.glyph_alpha or 1),
+	})
+	render2d.PopMatrix()
 
 	return center_x, center_y
 end

@@ -440,8 +440,8 @@ local function write_rect_batch_instance(vertex, entry)
 	ffi.copy(vertex.batch_border_radius, fragment_snapshot.border_radius, ffi.sizeof("float") * 4)
 	vertex.batch_quad_size[0] = entry.qw
 	vertex.batch_quad_size[1] = entry.qh
-	vertex.batch_quad_size[2] = entry.w
-	vertex.batch_quad_size[3] = entry.h
+	vertex.batch_quad_size[2] = state.disable_rect_sdf and 0 or entry.w
+	vertex.batch_quad_size[3] = state.disable_rect_sdf and 0 or entry.h
 	vertex.batch_sdf_texture[0] = fragment_snapshot.sdf_threshold
 	vertex.batch_sdf_texture[1] = fragment_snapshot.sdf_texel_range
 	vertex.batch_sdf_texture[2] = state.texture and
@@ -1373,6 +1373,7 @@ function render2d.ResetState()
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
 	fragment_constants.flags = 0
+	render2d.SetDisableRectSDF(false)
 	render2d.SetClampBorderRadius(true)
 	fragment_constants.sdf_threshold = 0
 	fragment_constants.sdf_texel_range = 1
@@ -1536,6 +1537,17 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFTexelRange")
+			render2d.disable_rect_sdf = false
+
+			function render2d.SetDisableRectSDF(enabled)
+				render2d.disable_rect_sdf = enabled == true
+			end
+
+			function render2d.GetDisableRectSDF()
+				return render2d.disable_rect_sdf
+			end
+
+			utility.MakePushPopFunction(render2d, "DisableRectSDF")
 		end
 
 		do
@@ -2506,6 +2518,7 @@ capture_rect_draw_state = function()
 		depth_write = depth_write,
 		stencil_mode = stencil_mode_name,
 		stencil_ref = stencil_ref,
+		disable_rect_sdf = render2d.disable_rect_sdf,
 		scissor_x = current_scissor_x,
 		scissor_y = current_scissor_y,
 		scissor_w = current_scissor_w,
@@ -2525,6 +2538,7 @@ restore_rect_draw_state = function(state)
 	render2d.SetBlendMode(state.blend_mode, true)
 	render2d.SetDepthMode(state.depth_mode, state.depth_write)
 	render2d.SetStencilMode(state.stencil_mode, state.stencil_ref)
+	render2d.SetDisableRectSDF(state.disable_rect_sdf)
 	render2d.SetScissor(state.scissor_x, state.scissor_y, state.scissor_w, state.scissor_h)
 	render2d.SetWorldMatrix(state.world_matrix)
 end

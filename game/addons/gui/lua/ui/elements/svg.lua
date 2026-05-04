@@ -46,6 +46,8 @@ return function(props)
 		source = props.Source or props.Path,
 		poly = nil,
 		decoded = nil,
+		sdf_texture = nil,
+		sdf_spread = nil,
 		fallback_texture = nil,
 		status = "idle",
 		error = nil,
@@ -68,11 +70,14 @@ return function(props)
 
 	local function apply_svg_data(data, request_id)
 		local poly, decoded = svg_codec.CreatePolygon2D(data, props.DecodeOptions)
+		local sdf_texture, _, sdf_meta = svg_codec.CreateSDFTexture(decoded, props.DecodeOptions)
 
 		if request_id ~= state.request_id then return end
 
 		state.poly = poly
 		state.decoded = decoded
+		state.sdf_texture = sdf_texture
+		state.sdf_spread = sdf_meta and sdf_meta.spread or nil
 		state.status = "loaded"
 		state.error = nil
 		notify_loaded()
@@ -83,6 +88,8 @@ return function(props)
 
 		state.poly = nil
 		state.decoded = nil
+		state.sdf_texture = nil
+		state.sdf_spread = nil
 		state.status = "error"
 		state.error = tostring(reason)
 		get_fallback_texture()
@@ -165,7 +172,33 @@ return function(props)
 
 					if available_w <= 0 or available_h <= 0 then return end
 
-					if state.poly and state.decoded then
+					if state.sdf_texture and state.decoded and props.UseSDF ~= false then
+						local view_box = state.decoded.view_box or
+							{x = 0, y = 0, w = state.decoded.width, h = state.decoded.height}
+						local bounds_w = math.max(1e-6, view_box.w)
+						local bounds_h = math.max(1e-6, view_box.h)
+						local scale = math.min(available_w / bounds_w, available_h / bounds_h)
+
+						if scale <= 0 then return end
+
+						local draw_w = bounds_w * scale
+						local draw_h = bounds_h * scale
+						local offset_x = padding.left + (available_w - draw_w) / 2
+						local offset_y = padding.top + (available_h - draw_h) / 2
+						local color = props.Color and theme.GetColor(props.Color) or theme.GetColor("text")
+						render2d.PushTexture(state.sdf_texture)
+						render2d.PushSDFMode(true)
+						render2d.PushSDFThreshold(0.5)
+						render2d.PushSDFTexelRange(state.sdf_spread or 8)
+						render2d.PushDisableRectSDF(true)
+						render2d.SetColor(color.r, color.g, color.b, color.a)
+						render2d.DrawRectUV2f(offset_x, offset_y, draw_w, draw_h, 0, 1, 1, 0)
+						render2d.PopDisableRectSDF()
+						render2d.PopSDFTexelRange()
+						render2d.PopSDFThreshold()
+						render2d.PopSDFMode()
+						render2d.PopTexture()
+					elseif state.poly and state.decoded then
 						local view_box = state.decoded.view_box or
 							{x = 0, y = 0, w = state.decoded.width, h = state.decoded.height}
 						local bounds_w = math.max(1e-6, view_box.w)

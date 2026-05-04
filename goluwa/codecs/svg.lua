@@ -1,17 +1,21 @@
+local ffi = require("ffi")
 local xml = import("goluwa/codecs/xml.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
+local Texture = import("goluwa/render/texture.lua")
 local svg = library()
 svg.file_extensions = {"svg"}
 
 local function parse_length(value, fallback)
 	if type(value) ~= "string" then return fallback end
+
 	local number = tonumber(value:match("^[%s]*([%+%-]?[%d%.]+)%s*(px)?%s*$"))
 	return number or fallback
 end
 
 local function parse_view_box(value)
 	if type(value) ~= "string" then return nil end
+
 	local numbers = {}
 
 	for number in value:gmatch("[%+%-]?[%d%.]+") do
@@ -46,7 +50,6 @@ local function tokenize_path(data)
 				rest:match("^([%+%-]?%.%d+[eE][%+%-]?%d+)") or
 				rest:match("^([%+%-]?%d+%.?%d*)") or
 				rest:match("^([%+%-]?%.%d+)")
-
 			assert(number_str, "invalid SVG number")
 			tokens[#tokens + 1] = assert(tonumber(number_str), "invalid SVG number")
 			i = i + #number_str
@@ -62,7 +65,19 @@ local function vector_angle(ux, uy, vx, vy)
 	return math.atan2(det, dot)
 end
 
-local function flatten_arc(contour, x1, y1, rx, ry, x_axis_rotation, large_arc_flag, sweep_flag, x2, y2, min_steps)
+local function flatten_arc(
+	contour,
+	x1,
+	y1,
+	rx,
+	ry,
+	x_axis_rotation,
+	large_arc_flag,
+	sweep_flag,
+	x2,
+	y2,
+	min_steps
+)
 	rx = math.abs(rx)
 	ry = math.abs(ry)
 
@@ -79,7 +94,6 @@ local function flatten_arc(contour, x1, y1, rx, ry, x_axis_rotation, large_arc_f
 	local dy2 = (y1 - y2) / 2
 	local x1p = cos_phi * dx2 + sin_phi * dy2
 	local y1p = -sin_phi * dx2 + cos_phi * dy2
-
 	local lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry)
 
 	if lambda > 1 then
@@ -218,7 +232,14 @@ local function parse_path_contours(data, curve_steps)
 			last_qx, last_qy = nil, nil
 			last_cx, last_cy = nil, nil
 		elseif lower == "z" then
-			if contour and (#contour < 2 or contour[#contour - 1] ~= start_x or contour[#contour] ~= start_y) then
+			if
+				contour and
+				(
+					#contour < 2 or
+					contour[#contour - 1] ~= start_x or
+					contour[#contour] ~= start_y
+				)
+			then
 				contour[#contour + 1] = start_x
 				contour[#contour + 1] = start_y
 			end
@@ -358,7 +379,19 @@ local function parse_path_contours(data, curve_steps)
 				ny = y + ny
 			end
 
-			flatten_arc(contour, x, y, rx, ry, x_axis_rotation, large_arc_flag, sweep_flag, nx, ny, curve_steps)
+			flatten_arc(
+				contour,
+				x,
+				y,
+				rx,
+				ry,
+				x_axis_rotation,
+				large_arc_flag,
+				sweep_flag,
+				nx,
+				ny,
+				curve_steps
+			)
 			x = nx
 			y = ny
 			last_qx, last_qy = nil, nil
@@ -375,6 +408,7 @@ end
 local function find_root(children)
 	for i = 1, children.n do
 		local child = children[i]
+
 		if child.tag == "svg" then return child end
 	end
 
@@ -414,7 +448,6 @@ function svg.Decode(data, options)
 	end
 
 	local triangles = math2d.TriangulateContoursEvenOdd(contours)
-
 	return {
 		width = width,
 		height = height,
@@ -428,6 +461,123 @@ function svg.CreatePolygon2D(data, options)
 	local decoded = type(data) == "table" and data or svg.Decode(data, options)
 	local poly = Polygon2D.FromTriangleCoordinates(decoded.triangles)
 	return poly, decoded
+end
+
+do
+	local function distance_sq_to_segment(px, py, x1, y1, x2, y2)
+		local dx = x2 - x1
+		local dy = y2 - y1
+		local len_sq = dx * dx + dy * dy
+
+		if len_sq <= 1e-12 then
+			local ox = px - x1
+			local oy = py - y1
+			return ox * ox + oy * oy
+		end
+
+		local t = ((px - x1) * dx + (py - y1) * dy) / len_sq
+		t = math.max(0, math.min(1, t))
+		local cx = x1 + dx * t
+		local cy = y1 + dy * t
+		local ox = px - cx
+		local oy = py - cy
+		return ox * ox + oy * oy
+	end
+
+	local function is_point_in_contours_even_odd(contours, x, y)
+		local inside = false
+
+		for _, contour in ipairs(contours) do
+			if math2d.IsPointInPolygon(x, y, contour) then inside = not inside end
+		end
+
+		return inside
+	end
+
+	local function get_signed_distance_to_contours(contours, x, y)
+		local min_distance_sq = math.huge
+
+		for _, contour in ipairs(contours) do
+			local count = #contour / 2
+
+			if count >= 2 then
+				for i = 1, count do
+					local j = i == count and 1 or (i + 1)
+					local x1 = contour[(i - 1) * 2 + 1]
+					local y1 = contour[(i - 1) * 2 + 2]
+					local x2 = contour[(j - 1) * 2 + 1]
+					local y2 = contour[(j - 1) * 2 + 2]
+					min_distance_sq = math.min(min_distance_sq, distance_sq_to_segment(x, y, x1, y1, x2, y2))
+				end
+			end
+		end
+
+		if min_distance_sq == math.huge then return -math.huge end
+
+		local distance = math.sqrt(min_distance_sq)
+
+		if is_point_in_contours_even_odd(contours, x, y) then return distance end
+
+		return -distance
+	end
+
+	function svg.CreateSDFTexture(data, options)
+		options = options or {}
+		local decoded = type(data) == "table" and data or svg.Decode(data, options)
+		local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
+		local bounds_w = math.max(view_box.w or 0, 1e-6)
+		local bounds_h = math.max(view_box.h or 0, 1e-6)
+		local longest_side = math.max(1, math.floor((options.sdf_size or options.SDFSize or 96) + 0.5))
+		local spread = math.max(1, math.floor((options.sdf_spread or options.SDFSpread or 8) + 0.5))
+		local scale = longest_side / math.max(bounds_w, bounds_h)
+		local width = math.max(1, math.floor(bounds_w * scale + 0.5))
+		local height = math.max(1, math.floor(bounds_h * scale + 0.5))
+		local texels_per_unit = math.min(width / bounds_w, height / bounds_h)
+		local buffer = ffi.new("uint8_t[?]", width * height)
+
+		if #decoded.contours == 0 then
+			for i = 0, width * height - 1 do
+				buffer[i] = 0
+			end
+		else
+			for py = 0, height - 1 do
+				local sample_y = view_box.y + ((py + 0.5) / height) * bounds_h
+
+				for px = 0, width - 1 do
+					local sample_x = view_box.x + ((px + 0.5) / width) * bounds_w
+					local signed_distance = get_signed_distance_to_contours(decoded.contours, sample_x, sample_y)
+
+					if signed_distance == -math.huge then
+						buffer[py * width + px] = 0
+					else
+						local distance_in_texels = signed_distance * texels_per_unit
+						local normalized = 0.5 - distance_in_texels / (spread * 2)
+						normalized = math.max(0, math.min(1, normalized))
+						buffer[py * width + px] = math.floor(normalized * 255 + 0.5)
+					end
+				end
+			end
+		end
+
+		local texture = Texture.New{
+			width = width,
+			height = height,
+			format = "r8_unorm",
+			buffer = buffer,
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				mipmap_mode = "linear",
+			},
+		}
+		return texture,
+		decoded,
+		{
+			spread = spread,
+			width = width,
+			height = height,
+		}
+	end
 end
 
 return svg
