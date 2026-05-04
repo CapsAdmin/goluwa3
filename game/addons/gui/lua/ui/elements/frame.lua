@@ -13,6 +13,9 @@ return function(props)
 		props,
 		{
 			Name = "frame",
+			Ref = function(pnl)
+				pnl:SetState("emphasis", props.Emphasis)
+			end,
 			gui_element = {
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)

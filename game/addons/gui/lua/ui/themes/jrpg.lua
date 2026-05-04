@@ -83,13 +83,13 @@ function JRPGTheme:Initialize()
 		self:MergeTables(
 			self:GetSizes(),
 			{
-				XXS = 7,
-				S = 14,
-				M = 16,
-				L = 20,
-				XL = 30,
-				XXL = 40,
-				default = 16,
+				XXS = 4,
+				S = 8,
+				M = 10,
+				L = 15,
+				XL = 20,
+				XXL = 25,
+				default = 10,
 			}
 		)
 	)
@@ -98,10 +98,10 @@ function JRPGTheme:Initialize()
 			self:GetFontSizes(),
 			{
 				XS = 10,
-				S = 12,
-				M = 14,
-				L = 20,
-				XL = 27,
+				S = 11,
+				M = 12,
+				L = 18,
+				XL = 25,
 				XXL = 32,
 				XXXL = 42,
 			}

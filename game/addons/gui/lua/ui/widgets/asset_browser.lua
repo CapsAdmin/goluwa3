@@ -509,6 +509,7 @@ local function build_texture_tile(entry, on_pick)
 					IgnoreMouseInput = true,
 				},
 				OnDraw = function(self)
+					local size = self.transform.Size + self.transform.DrawSizeOffset
 					self:SetState("theme_role", "asset_preview_tile")
 					self:SetState("preview_frame_opts", {})
 					self:SetState("preview_frame_secondary_opts", nil)
