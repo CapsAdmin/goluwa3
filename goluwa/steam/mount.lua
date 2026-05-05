@@ -170,16 +170,55 @@ return function(steam)
 
 	function steam.GetLibraryFolders()
 		local base = steam.GetInstallPath()
-		local str = vfs.Read(base .. "/config/config.vdf", "r")
+		local tbl = {}
+		local done = {}
 
-		if not str then return {} end
+		local function add_library(path)
+			path = vfs.FixPathSlashes(path)
 
-		local tbl = {base .. "/steamapps/"}
-		local config = steam.VDFToTable(str, true)
+			if not path:ends_with("/steamapps") then path = path .. "/steamapps" end
 
-		for key, path in pairs(config.installconfigstore.software.valve.steam) do
-			if key:find("baseinstallfolder_") then
-				list.insert(tbl, vfs.FixPathSlashes(path) .. "/steamapps/")
+			if not path:ends_with("/") then path = path .. "/" end
+
+			if not done[path] then
+				list.insert(tbl, path)
+				done[path] = true
+			end
+		end
+
+		add_library(base)
+
+		do
+			local str = vfs.Read(base .. "/steamapps/libraryfolders.vdf", "r")
+
+			if str then
+				local config = steam.VDFToTable(str, true)
+				local folders = config and config.libraryfolders
+
+				if folders then
+					for _, info in pairs(folders) do
+						if type(info) == "table" and info.path then add_library(info.path) end
+					end
+				end
+			end
+		end
+
+		do
+			local str = vfs.Read(base .. "/config/config.vdf", "r")
+
+			if str then
+				local config = steam.VDFToTable(str, true)
+				local steam_config = config and
+					config.installconfigstore and
+					config.installconfigstore.software and
+					config.installconfigstore.software.valve and
+					config.installconfigstore.software.valve.steam
+
+				if steam_config then
+					for key, path in pairs(steam_config) do
+						if key:find("baseinstallfolder_") then add_library(path) end
+					end
+				end
 			end
 		end
 
@@ -282,7 +321,43 @@ return function(steam)
 			return changed
 		end
 
-		local found = codec.ReadFile("msgpack", "cache/source_games")
+		local function get_source_games_cache()
+			local current_libraries = steam.GetLibraryFolders()
+			local cached = codec.ReadFile("msgpack", "cache/source_games")
+
+			if not cached then return nil, current_libraries end
+
+			if cached.games then
+				local expected = {}
+				local count = 0
+
+				for _, path in ipairs(current_libraries) do
+					expected[path] = (expected[path] or 0) + 1
+					count = count + 1
+				end
+
+				local cached_count = 0
+
+				for _, path in ipairs(cached.library_folders or {}) do
+					if not expected[path] then return nil, current_libraries end
+
+					expected[path] = expected[path] - 1
+					cached_count = cached_count + 1
+				end
+
+				if cached_count ~= count then return nil, current_libraries end
+
+				for _, remaining in pairs(expected) do
+					if remaining ~= 0 then return nil, current_libraries end
+				end
+
+				return cached.games, current_libraries
+			end
+
+			return nil, current_libraries
+		end
+
+		local found, current_libraries = get_source_games_cache()
 
 		if found and found[1] then
 			for i, v in ipairs(found) do
@@ -301,7 +376,16 @@ return function(steam)
 					if apply_gmod_mountdepots(game_info) then changed = true end
 				end
 
-				if changed then codec.WriteFile("msgpack", "cache/source_games", found) end
+				if changed then
+					codec.WriteFile(
+						"msgpack",
+						"cache/source_games",
+						{
+							library_folders = current_libraries,
+							games = found,
+						}
+					)
+				end
 
 				return found
 			end
@@ -486,7 +570,14 @@ return function(steam)
 			end
 		end
 
-		codec.WriteFile("msgpack", "cache/source_games", found)
+		codec.WriteFile(
+			"msgpack",
+			"cache/source_games",
+			{
+				library_folders = current_libraries,
+				games = found,
+			}
+		)
 		return found
 	end
 
