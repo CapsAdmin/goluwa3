@@ -724,173 +724,188 @@ do
 	end
 
 	do
-		local function resolve_button_fill(self, state, fill_name)
-			local fill_name = "primary"
+		function BaseTheme:ResolveButtonStyleContext(state)
+			local accent_token = state.button_color ~= nil and state.button_color or "button_color"
+			local accent_fill_token = state.button_color ~= nil and state.button_color or "primary"
+			local background_token
+			local foreground_token
+			local menu_fill = self:GetColor("invisible")
+			local menu_outline_token
+			local menu_outline_alpha
+			local outline_token = "border"
+			local outline_alpha = 1
+			local overlay_token
+			local overlay_alpha
+			local post_outline_token
+			local post_outline_alpha
+
+			if state.mode == "text" then
+				if state.hovered then background_token = accent_fill_token end
+			elseif state.mode ~= "menu" then
+				if state.disabled then
+					background_token = "clickable_disabled"
+				elseif state.mode == "outline" then
+					background_token = "surface"
+				elseif state.button_color ~= nil then
+					background_token = state.button_color
+				elseif state.pressed or state.active then
+					background_token = "primary_focus"
+				elseif state.hovered then
+					background_token = "button_normal"
+				else
+					background_token = "button_color"
+				end
+			end
 
 			if state.disabled then
-				fill_name = "clickable_disabled"
-			elseif state.mode == "menu" then
-				fill_name = "invisible"
-			elseif state.mode == "outline" then
-				fill_name = "surface"
+				foreground_token = "text_disabled"
+			elseif state.mode == "text" or state.mode == "outline" then
+				if state.button_color ~= nil then
+					if state.hovered or state.pressed or state.active then
+						foreground_token = "text_on_accent"
+					else
+						foreground_token = state.button_color
+					end
+				else
+					foreground_token = state.hovered and "text_on_accent" or "text"
+				end
+			elseif state.mode == "filled" then
+				foreground_token = "text_on_accent"
+			else
+				foreground_token = "text"
 			end
 
 			if state.mode == "menu" then
 				if state.disabled then
-					return self:GetColor("invisible")
+					menu_fill = self:GetColor("invisible")
+				elseif state.pressed then
+					menu_fill = self:GetColor("primary"):Copy():SetAlpha(0.15)
 				elseif state.selected then
-					return self:GetColor(state.selected_color or "property_selection")
-				elseif state.pressed then
-					return self:GetColor("primary"):Copy():SetAlpha(0.18)
+					menu_fill = self:GetColor(state.selected_color or "property_selection")
 				elseif state.active or state.hovered then
-					return self:GetColor("primary"):Copy():SetAlpha(0.12)
-				else
-					return self:GetColor("invisible")
-				end
-			elseif state.mode == "text" then
-				if state.disabled then
-					return self:GetColor("clickable_disabled")
-				elseif state.pressed or state.hovered then
-					return (
-						state.button_color and
-						self:GetColor(state.button_color) or
-						self:GetColor("primary")
-					):Copy()
-				elseif state.active then
-					return (
-						state.button_color and
-						self:GetColor(state.button_color) or
-						self:GetColor("primary")
-					):Copy()
-				else
-					return nil
-				end
-			elseif fill_name == "primary" then
-				if state.button_color ~= nil then
-					if state.disabled then return self:GetColor("clickable_disabled") end
-
-					return self:GetColor(state.button_color)
+					menu_fill = self:GetColor("primary"):Copy():SetAlpha(0.1)
 				end
 
-				if state.disabled then
-					return self:GetColor("clickable_disabled")
-				elseif state.pressed then
-					return self:GetColor("primary_focus")
-				elseif state.active then
-					return self:GetColor("primary_focus")
-				elseif state.hovered then
-					return self:GetColor("button_normal")
-				else
-					return self:GetColor("button_color")
+				if (state.active or state.selected) and not state.disabled then
+					menu_outline_token = "border"
+					menu_outline_alpha = 0.7
 				end
-			else
-				return self:GetColor(fill_name)
 			end
+
+			if state.mode == "outline" then
+				outline_token = accent_token
+				outline_alpha = state.disabled and 0.5 or 1
+
+				if state.disabled then
+					overlay_token = "clickable_disabled"
+					overlay_alpha = 0.12
+				elseif state.pressed or state.hovered or state.active then
+					overlay_token = accent_token
+					overlay_alpha = 0.12
+				end
+			elseif state.active and not state.disabled and state.mode ~= "menu" then
+				outline_token = accent_token
+				outline_alpha = state.mode == "text" and 0.5 or 0.6
+			end
+
+			if
+				not state.disabled and
+				state.hovered and
+				state.mode ~= "outline" and
+				state.mode ~= "text" and
+				state.mode ~= "menu"
+			then
+				post_outline_token = accent_fill_token
+				post_outline_alpha = 0.45
+			end
+
+			return {
+				accent_token = accent_token,
+				accent_fill_token = accent_fill_token,
+				background_token = background_token,
+				foreground_token = foreground_token,
+				menu_fill = menu_fill,
+				menu_outline_token = menu_outline_token,
+				menu_outline_alpha = menu_outline_alpha,
+				outline_token = outline_token,
+				outline_alpha = outline_alpha,
+				overlay_token = overlay_token,
+				overlay_alpha = overlay_alpha,
+				post_outline_token = post_outline_token,
+				post_outline_alpha = post_outline_alpha,
+			}
 		end
 
-		function BaseTheme:DrawButton(size, state)
+		function BaseTheme:DrawFilledButton(size, state)
 			local anim = state.anim or {
 				glow_alpha = 0,
 				press_scale = 0,
 			}
 			local radius = self:GetRadius("M")
-			local fill = resolve_button_fill(self, state)
-
-			if state.mode == "menu" then
-				self:DrawMenuButton(
-					size,
-					state,
-					{
-						hovered_alpha = 0.12,
-						pressed_alpha = 0.18,
-						radius = self:GetRadius("XS"),
-					}
-				)
-			elseif state.mode == "outline" then
-				local outline_color = state.button_color ~= nil and
-					self:GetColor(state.button_color) or
-					self:GetColor("button_color")
-				local fill_alpha = 0
-
-				if state.disabled then
-					fill_alpha = 0.12
-				elseif state.pressed or state.active then
-					fill_alpha = 0.18
-				elseif state.hovered then
-					fill_alpha = 0.12
-				end
-
-				if fill_alpha > 0 then
-					self:DrawRoundRect(0, 0, size.x, size.y, radius, outline_color, fill_alpha)
-				end
-
-				self:DrawButtonOutline(size, radius, state, anim)
-			elseif state.mode == "filled" then
-				self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
-				self:DrawButtonOutline(size, radius, state, anim)
-			elseif state.mode == "text" then
-				if fill then self:DrawRoundRect(0, 0, size.x, size.y, radius, fill) end
-			end
-		end
-	end
-
-	function BaseTheme:ResolveButtonBackgroundToken(state)
-		if state.mode == "text" then
-			if state.hovered then
-				if state.button_color ~= nil then return state.button_color end
-
-				return "primary"
-			end
-
-			return nil
-		end
-
-		if state.mode == "menu" then return nil end
-
-		if state.disabled then return "clickable_disabled" end
-
-		if state.mode == "outline" then return "surface" end
-
-		if state.button_color ~= nil then return state.button_color end
-
-		if state.pressed or state.active then return "primary_focus" end
-
-		if state.hovered then return "button_normal" end
-
-		return "button_color"
-	end
-
-	function BaseTheme:DrawButtonOutline(size, radius, state, anim)
-		local outline_color = state.button_color ~= nil and
-			self:GetColor(state.button_color) or
-			self:GetColor("button_color")
-
-		if state.mode == "outline" then
-			self:DrawRoundOutline(0, 0, size.x, size.y, radius, outline_color, state.disabled and 0.5 or 1, 1)
-		elseif state.active and not state.disabled then
+			local context = self:ResolveButtonStyleContext(state)
+			local fill = self:GetColor(context.background_token)
+			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
 			self:DrawRoundOutline(
 				0,
 				0,
 				size.x,
 				size.y,
 				radius,
-				outline_color,
-				state.mode == "text" and 0.5 or 0.6,
+				self:GetColor(context.outline_token),
+				context.outline_alpha,
 				1
 			)
-		else
-			self:DrawRoundOutline(0, 0, size.x, size.y, radius, self:GetColor("border"), 1, 1)
+		end
+
+		function BaseTheme:DrawTextButton(size, state)
+			local radius = self:GetRadius("M")
+			local context = self:ResolveButtonStyleContext(state)
+			local fill = context.background_token and self:GetColor(context.background_token) or nil
+
+			if fill then self:DrawRoundRect(0, 0, size.x, size.y, radius, fill) end
+		end
+
+		function BaseTheme:DrawOutlineButton(size, state)
+			local radius = self:GetRadius("M")
+			local context = self:ResolveButtonStyleContext(state)
+			local outline_color = context.overlay_token and self:GetColor(context.overlay_token) or nil
+
+			if outline_color then
+				self:DrawRoundRect(0, 0, size.x, size.y, radius, outline_color, context.overlay_alpha)
+			end
+
+			self:DrawRoundOutline(
+				0,
+				0,
+				size.x,
+				size.y,
+				radius,
+				self:GetColor(context.outline_token),
+				context.outline_alpha,
+				1
+			)
+		end
+
+		function BaseTheme:DrawButton(size, state)
+			if state.mode == "menu" then
+				return self:DrawMenuButton(size, state)
+			elseif state.mode == "outline" then
+				return self:DrawOutlineButton(size, state)
+			elseif state.mode == "text" then
+				return self:DrawTextButton(size, state)
+			end
+
+			return self:DrawFilledButton(size, state)
 		end
 	end
 
 	function BaseTheme:DrawButtonPost(size, state)
-		if state.mode == "menu" then return end
-
 		local anim = state.anim or {glow_alpha = 0}
+		local context = self:ResolveButtonStyleContext(state)
 
-		if not state.hovered or state.disabled then return end
-
-		if state.mode == "outline" or state.mode == "text" then return end
+		if not context.post_outline_token or not context.post_outline_alpha then
+			return
+		end
 
 		local radius = self:GetRadius("M")
 		self:DrawRoundOutline(
@@ -899,10 +914,8 @@ do
 			size.x,
 			size.y,
 			radius,
-			state.button_color ~= nil and
-				self:GetColor(state.button_color) or
-				self:GetColor("primary"),
-			anim.glow_alpha * 0.45,
+			self:GetColor(context.post_outline_token),
+			anim.glow_alpha * context.post_outline_alpha,
 			1
 		)
 	end
@@ -910,25 +923,19 @@ do
 	function BaseTheme:DrawMenuButton(size, state, opts)
 		opts = opts or {}
 		local radius = opts.radius or self:GetRadius(XS)
-		local fill = self:GetColor("invisible")
-		local hovered_alpha = opts.hovered_alpha or 0.1
-		local pressed_alpha = opts.pressed_alpha or 0.15
-		local active_border_alpha = opts.active_border_alpha or 0.7
-
-		if state.disabled then
-			fill = self:GetColor("invisible")
-		elseif state.pressed then
-			fill = self:GetColor("primary"):Copy():SetAlpha(pressed_alpha)
-		elseif state.selected then
-			fill = self:GetColor(state.selected_color or "property_selection")
-		elseif state.active or state.hovered then
-			fill = self:GetColor("primary"):Copy():SetAlpha(hovered_alpha)
-		end
-
+		local context = self:ResolveButtonStyleContext(state)
+		local fill = context.menu_fill or self:GetColor("invisible")
 		self:DrawBox(size, {fill = fill, radius = radius})
 
-		if (state.active or state.selected) and not state.disabled then
-			self:DrawBox(size, {outline = "border", radius = radius, outline_alpha = active_border_alpha})
+		if context.menu_outline_token then
+			self:DrawBox(
+				size,
+				{
+					outline = context.menu_outline_token,
+					radius = radius,
+					outline_alpha = context.menu_outline_alpha,
+				}
+			)
 		end
 	end
 end
@@ -1442,12 +1449,6 @@ function BaseTheme:Draw(pnl)
 				fill = self:GetColor("actual_black"):Copy():SetAlpha(1),
 				outline = "border",
 			}
-		)
-	elseif pnl.Name == "MenuBarButton" then
-		return self:DrawMenuButton(
-			pnl.transform:GetSize(),
-			pnl:GetState(),
-			{hovered_alpha = 0.18, pressed_alpha = 0.28, radius = self:GetRadius(XS)}
 		)
 	elseif pnl.Name == "svg" and pnl:GetState("background_color") ~= nil then
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("background_color"), 0)

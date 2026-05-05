@@ -5,22 +5,17 @@ local Color = import("goluwa/structs/color.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local Panel = import("goluwa/ecs/panel.lua")
-local theme = import("lua/ui/theme.lua")
 return function(props)
 	props = props or {}
 
-	local function get_context_text_color()
-		local value = props.TextColor
+	local text_color
 
-		if value ~= nil then return value end
-
-		if props.Disabled then
-			return "text_disabled"
-		elseif props.Active then
-			return "accent"
-		end
-
-		return "text"
+	if props.InheritColor then
+		text_color = nil
+	elseif props.Color ~= nil then
+		text_color = props.Color
+	else
+		text_color = props.TextColor
 	end
 
 	return Panel.New{
@@ -32,7 +27,7 @@ return function(props)
 				Font = props.Font or props.FontName or "body",
 				FontSize = props.FontSize or "M",
 				WrapToParent = props.Wrap and props.WrapToParent ~= false,
-				Color = props.Color ~= nil and props.Color or get_context_text_color(),
+				Color = text_color,
 			},
 			style = {
 				BackgroundColor = props.BackgroundColor,

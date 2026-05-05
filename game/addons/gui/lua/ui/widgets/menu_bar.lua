@@ -2,11 +2,11 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
+local Clickable = import("lua/ui/elements/clickable.lua")
 local Frame = import("lua/ui/elements/frame.lua")
 local Row = import("lua/ui/elements/row.lua")
 local Text = import("lua/ui/elements/text.lua")
 local ContextMenu = import("lua/ui/elements/context_menu.lua")
-local theme = import("lua/ui/theme.lua")
 
 local function resolve_menu_items(definition)
 	local items = definition.Items or definition.Menu or definition.Submenu
@@ -40,66 +40,37 @@ end
 
 local function create_menu_button(definition, on_click, on_hover)
 	local button = NULL
-	button = Panel.New{
+	button = Clickable{
 		get_passthrough_props(definition),
-		{
-			Name = "MenuBarButton",
-			transform = {
-				Size = definition.Size or "M",
-			},
-			layout = {
-				FitHeight = true,
-				FitWidth = true,
-				AlignmentX = "center",
-				AlignmentY = "center",
-				Padding = definition.Padding or "M",
-			},
-			gui_element = {
-				Clipping = true,
-				DrawAlpha = definition.Disabled and 0.5 or 1,
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-			},
-			mouse_input = {
-				Cursor = definition.Disabled and "arrow" or "hand",
-				OnMouseInput = function(self, button_name, press)
-					if definition.Disabled then return end
+		Disabled = definition.Disabled,
+		Mode = "menu",
+		OnMouseEnter = function()
+			if definition.Disabled then return end
 
-					if button_name == "button_1" then
-						self.Owner:SetState("pressed", press)
-					end
-				end,
-				OnHover = function(self, hovered)
-					self.Owner:SetState("hovered", hovered)
-				end,
-			},
-			OnMouseEnter = function()
-				if definition.Disabled then return end
-
-				if on_hover then on_hover(button) end
-			end,
-			OnClick = not definition.Disabled and
-				function()
-					if on_click then return on_click(button) end
-				end or
-				nil,
-			animation = true,
-			clickable = true,
+			if on_hover then on_hover(button) end
+		end,
+		OnClick = not definition.Disabled and
+			function()
+				if on_click then return on_click(button) end
+			end or
+			nil,
+		Size = definition.Size or "M",
+		layout = {
+			FitHeight = true,
+			FitWidth = true,
+			AlignmentX = "center",
+			AlignmentY = "center",
+			Padding = definition.Padding or "M",
 		},
 	}(
 		Text{
 			Text = definition.Text,
 			IgnoreMouseInput = true,
-			Color = definition.Disabled and "text_disabled" or "text",
+			InheritColor = true,
 			AlignX = "center",
 			AlignY = "center",
 		}
 	)
-	button:SetState("hovered", false)
-	button:SetState("pressed", false)
-	button:SetState("disabled", not not definition.Disabled)
-	button:SetState("active", false)
 
 	function button:SetMenuBarActive(active)
 		self:SetState("active", not not active)

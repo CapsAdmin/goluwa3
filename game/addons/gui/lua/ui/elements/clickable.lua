@@ -11,7 +11,9 @@ return function(props)
 
 		if not style or not theme.active then return end
 
-		style:SetBackgroundColor(theme.active:ResolveButtonBackgroundToken(panel:GetState()))
+		local context = theme.active:ResolveButtonStyleContext(panel:GetState())
+		style:SetBackgroundColor(context.background_token)
+		style:SetForegroundColor(context.foreground_token)
 	end
 
 	local panel = Panel.New{

@@ -22,26 +22,11 @@ return function(props)
 			FontName = props.FontName,
 			FontSize = props.FontSize,
 			IgnoreMouseInput = true,
-			Color = props.TextColor or
-				(
-					(
-						(
-							props.Mode == "text" or
-							props.Mode == "outline"
-						)
-						and
-						props.ButtonColor
-					)
-					or
-					(
-						props.Disabled and
-						"text_disabled" or
-						"text"
-					)
-				),
+			Color = props.TextColor,
 			AlignX = props.AlignX or "center",
 			AlignY = props.AlignY or "center",
 			layout = props.TextLayout,
+			InheritColor = props.TextColor == nil,
 		}
 	)
 end

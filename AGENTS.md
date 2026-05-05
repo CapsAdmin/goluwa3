@@ -8,7 +8,7 @@
 
 - run a single test with "luajit glw test --filter=render2d --subfilter='Graphics render2d blend modes visual'"
 
-- prefer writing single one off test scripts in ./tmp/ 
+- if you need to write a probe script, write it in ./tmp/ 
 
 # general coding rules
 
