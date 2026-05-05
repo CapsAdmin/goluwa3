@@ -277,7 +277,9 @@ local function enumerate_browser_entries(category, root, path, recursive, out, s
 		local directory_path = child_path:ends_with("/") and child_path or (child_path .. "/")
 
 		if vfs.IsDirectory(directory_path) then
-			if recursive then enumerate_browser_entries(category, root, directory_path, recursive, out, seen) end
+			if recursive then
+				enumerate_browser_entries(category, root, directory_path, recursive, out, seen)
+			end
 		else
 			local ext = get_extension(child_path)
 			local key = child_path:lower()
@@ -300,7 +302,15 @@ local function build_scan_root(root, prefix)
 	end
 
 	if not root:ends_with("/") then root = root .. "/" end
+
 	return root
+end
+
+local function is_direct_asset_child(path, scan_root_lower)
+	if not path:starts_with(scan_root_lower) then return false end
+
+	local remainder = path:sub(#scan_root_lower + 1)
+	return remainder ~= "" and not remainder:find("/", 1, true)
 end
 
 local function add_folder_entry(category, root, path, out, seen)
@@ -371,7 +381,6 @@ function assets.Enumerate(category_name, options)
 	local prefix = options.prefix and normalize_path(options.prefix) or nil
 	local out = {}
 	local seen = {}
-	local scan_root_lower
 
 	for _, root in ipairs(category.roots) do
 		local scan_root = build_scan_root(root, prefix)
@@ -384,17 +393,12 @@ function assets.Enumerate(category_name, options)
 			local root = starts_with_any_root(virtual_path, category.roots)
 
 			if root then
-				if prefix and prefix ~= "" then
-					scan_root_lower = prefix:lower()
+				local scan_root_lower = build_scan_root(root, prefix):lower()
+				local matches_scope = recursive and
+					virtual_path_lower:starts_with(scan_root_lower) or
+					is_direct_asset_child(virtual_path_lower, scan_root_lower)
 
-					if not prefix:lower():starts_with(root:lower()) then
-						scan_root_lower = (root .. prefix):lower()
-					end
-
-					if not scan_root_lower:ends_with("/") then scan_root_lower = scan_root_lower .. "/" end
-				end
-
-				if (not scan_root_lower or virtual_path_lower:starts_with(scan_root_lower)) then
+				if matches_scope then
 					local key = virtual_path_lower
 
 					if not seen[key] then

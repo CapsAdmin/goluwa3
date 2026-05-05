@@ -142,6 +142,10 @@ local function ensure_tree_children(node)
 	return true
 end
 
+local function is_category_root_node(node)
+	return node and node.Category ~= nil and node.Prefix == nil
+end
+
 local function find_first_node(items)
 	for _, node in ipairs(items or {}) do
 		return node
@@ -693,20 +697,31 @@ return function(props)
 		return true
 	end
 
-	local function ensure_category_index(category_name)
-		if asset_index_loaded[category_name] then return false end
+	local function get_asset_scope_key(category_name, prefix, recursive)
+		return string.format("%s|%s|%s", category_name, prefix or "", recursive and "1" or "0")
+	end
 
-		asset_index[category_name] = assets.Enumerate(category_name, {recursive = true})
-		asset_index_loaded[category_name] = true
-		return true
+	local function ensure_asset_index(category_name, prefix, recursive)
+		local key = get_asset_scope_key(category_name, prefix, recursive)
+
+		if asset_index_loaded[key] then return key, false end
+
+		asset_index[key] = assets.Enumerate(category_name, {
+			prefix = prefix,
+			recursive = recursive,
+		})
+		asset_index_loaded[key] = true
+		return key, true
 	end
 
 	local function get_visible_assets()
-		ensure_category_index(state.selected_category)
-		local visible = {}
 		local query = normalize_query(state.query)
+		local selected_prefix = state.selected_prefix
+		local recursive = selected_prefix == nil and state.selected_asset_path == nil and query ~= ""
+		local asset_index_key = ensure_asset_index(state.selected_category, selected_prefix, recursive)
+		local visible = {}
 
-		for _, entry in ipairs(asset_index[state.selected_category] or {}) do
+		for _, entry in ipairs(asset_index[asset_index_key] or {}) do
 			local matches_scope = false
 
 			if state.selected_asset_path then
@@ -800,6 +815,11 @@ return function(props)
 		local selected = find_tree_node(tree_items, state.selected_key) or find_first_node(tree_items)
 
 		if selected then
+			if is_category_root_node(selected) then
+				ensure_tree_children(selected)
+				expanded_keys[selected.Key] = true
+			end
+
 			state.selected_key = selected.Key
 			state.selected_category = selected.Category
 			state.selected_prefix = selected.Prefix
@@ -906,9 +926,15 @@ return function(props)
 							refresh_grid()
 						end,
 						OnToggle = function(node, expanded, key)
-							if expanded then ensure_tree_children(node) end
+							local changed = false
+
+							if expanded then changed = ensure_tree_children(node) end
 
 							expanded_keys[key] = expanded == true
+
+							if changed and tree_view and tree_view:IsValid() then
+								tree_view:RefreshBranchForKey(key)
+							end
 						end,
 					},
 				},
