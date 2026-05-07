@@ -4,6 +4,7 @@ import.loaded["goluwa/render/render.lua"] = render
 render.flush_callbacks = render.flush_callbacks or {}
 render.flush_callback_order = render.flush_callback_order or {}
 render.is_flushing_callbacks = false
+render.noop = false
 
 local function run_flush_callbacks(reason)
 	if render.is_flushing_callbacks then return end
@@ -282,6 +283,8 @@ function render.Initialize(config)
 end
 
 function render.BeginFrame()
+	if render.noop then return end
+
 	run_flush_callbacks("begin_frame")
 	render.cmd = render.target:BeginFrame()
 
@@ -521,7 +524,6 @@ do
 
 		local normalized = assert(copy_sampler_config(config), "render.CreateSampler: invalid sampler config")
 		local hash = get_sampler_config_key(config)
-
 		cached_sampler = render.cached_samplers[hash]
 
 		if cached_sampler then
@@ -742,6 +744,16 @@ function render.GetSyncFence()
 end
 
 function render.SubmitAndWait(cmd)
+	if render.noop then
+		if cmd then
+			cmd.keepalive_resources = nil
+			cmd.is_recording = false
+			cmd.is_rendering = false
+		end
+
+		return
+	end
+
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, render.GetSyncFence())
 end
 

@@ -408,6 +408,8 @@ function ImageRenderTarget:GetDepthImageView()
 end
 
 function ImageRenderTarget:WaitForPreviousFrame()
+	if render.noop then return end
+
 	-- Wait for the next frame's fence (which is the one we'll use next)
 	-- This ensures previous frame work is complete before we start new work
 	-- Don't reset the fence - BeginFrame will do that
@@ -543,6 +545,8 @@ function ImageRenderTarget:EndFrame()
 		},
 	}
 	command_buffer:End()
+
+	if render.noop then return end
 
 	-- Submit command buffer
 	if self.config.offscreen then
