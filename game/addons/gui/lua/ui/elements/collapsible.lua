@@ -59,16 +59,23 @@ return function(props)
 		end
 
 		local clip_w = clip_panel.transform:GetWidth()
+		local body_w = body_panel.transform:GetWidth()
 
-		if body_panel.transform:GetWidth() ~= clip_w then
-			body_panel.transform:SetWidth(clip_w)
-		end
+		if body_w ~= clip_w then body_panel.transform:SetWidth(clip_w) end
 
 		local h = body_panel.transform:GetHeight()
 		local target_h = h * open_fraction
+		local target_visible = open_fraction > 0.001
+		local target_y = -(h - target_h)
+		local changed_clip_h = clip_panel.transform:GetHeight() ~= target_h
 		clip_panel.transform:SetHeight(target_h)
-		clip_panel.gui_element:SetVisible(open_fraction > 0.001)
-		body_panel.transform:SetY(-(h - target_h))
+		clip_panel.gui_element:SetVisible(target_visible)
+		body_panel.transform:SetY(target_y)
+
+		if changed_clip_h and clip_panel.layout then
+			clip_panel.layout:InvalidateLayout()
+		end
+
 		container.layout:InvalidateLayout()
 	end
 

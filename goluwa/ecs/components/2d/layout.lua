@@ -30,6 +30,7 @@ META:GetSet("LastSize", Vec2(0, 0))
 META:EndStorable()
 
 function META:Initialize()
+	self.busy = 0
 	self.Owner:EnsureComponent("transform")
 
 	self.Owner:AddLocalListener("OnParent", function()
@@ -45,13 +46,16 @@ function META:Initialize()
 	end)
 
 	self.Owner:AddLocalListener("OnTransformChanged", function()
-		if self.busy then return end
+		if self.busy > 0 then return end
 
 		local tr = self.Owner.transform
 		local new_size = tr:GetSize()
 		local old_size = self:GetLastSize()
 
-		if old_size.x ~= new_size.x or old_size.y ~= new_size.y then
+		if
+			math.floor(old_size.x) ~= math.floor(new_size.x) or
+			math.floor(old_size.y) ~= math.floor(new_size.y)
+		then
 			self:SetLastSize(new_size:Copy())
 			self:InvalidateLayout()
 		end
@@ -65,7 +69,7 @@ function META:InvalidateLayout()
 	local parent = self.Owner:GetParent()
 
 	if self:GetDirty() then
-		if parent and parent:IsValid() and parent.layout and parent.layout.busy then
+		if parent and parent:IsValid() and parent.layout and parent.layout.busy > 0 then
 			parent.layout.pending_child_reflow = true
 		end
 
@@ -75,7 +79,7 @@ function META:InvalidateLayout()
 	self:SetDirty(true)
 
 	if parent and parent:IsValid() and parent.layout then
-		if parent.layout.busy then
+		if parent.layout.busy > 0 then
 			parent.layout.pending_child_reflow = true
 			return
 		end
@@ -396,9 +400,9 @@ function META:Measure()
 end
 
 function META:Arrange()
-	if self.busy then return end
+	if self.busy > 0 then return end
 
-	self.busy = true
+	self.busy = self.busy + 1
 	local tr = self.Owner.transform
 	local actual_size = tr:GetSize()
 	local dir = self:GetDirection()
@@ -477,11 +481,12 @@ function META:Arrange()
 			if child.layout then child.layout:UpdateLayout() end
 		end
 
-		self.busy = false
+		self.busy = self.busy - 1
 
 		if self.pending_child_reflow then
+			local pending_child_reflow = self.pending_child_reflow
 			self.pending_child_reflow = false
-			self:SetDirty(true)
+			self:SetDirty(pending_child_reflow)
 		end
 
 		return
@@ -566,7 +571,7 @@ function META:Arrange()
 		local child_tr = c.entity.transform
 		-- Position on main axis
 		current_main = current_main + c.margin[axis.main_margin_start]
-		child_tr["Set" .. axis.main_size](child_tr, final_main)
+		child_tr:SetAxisLength(axis.main, final_main)
 		child_tr:SetAxisPosition(axis.main, current_main)
 		-- Position on cross axis
 		local cross_alignment = c.entity.layout and
@@ -592,7 +597,7 @@ function META:Arrange()
 			final_cross = available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
 		end
 
-		child_tr["Set" .. axis.cross_size](child_tr, final_cross)
+		child_tr:SetAxisLength(axis.cross, final_cross)
 		child_tr:SetAxisPosition(axis.cross, cross_pos)
 		current_main = current_main + final_main + c.margin[axis.main_margin_end] + child_gap
 
@@ -600,11 +605,12 @@ function META:Arrange()
 		if c.entity.layout then c.entity.layout:UpdateLayout() end
 	end
 
-	self.busy = false
+	self.busy = self.busy - 1
 
 	if self.pending_child_reflow then
+		local pending_child_reflow = self.pending_child_reflow
 		self.pending_child_reflow = false
-		self:SetDirty(true)
+		self:SetDirty(pending_child_reflow)
 	end
 end
 
@@ -615,7 +621,7 @@ function META:UpdateLayout()
 	-- Measure Pass
 	local intrinsic_size = self:Measure()
 	-- If we are FitWidth/Height, we update our own transform size
-	self.busy = true
+	self.busy = self.busy + 1
 	local tr = self.Owner.transform
 
 	if self:GetFitWidth() then tr:SetWidth(intrinsic_size.x) end
@@ -623,8 +629,7 @@ function META:UpdateLayout()
 	if self:GetFitHeight() then tr:SetHeight(intrinsic_size.y) end
 
 	self:SetLastSize(tr:GetSize():Copy())
-	self.busy = false
-	-- Arrange Pass
+	self.busy = self.busy - 1
 	self:Arrange()
 	self.Owner:CallLocalEvent("OnLayoutUpdated")
 	UIDebug.OnDebugLayout(self)
