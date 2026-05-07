@@ -173,7 +173,11 @@ local function is_valid_entity(entity)
 end
 
 local function is_gizmo_entity(entity)
-	return is_valid_entity(entity) and entity ~= Entity.World and entity.transform ~= nil
+	return entity and
+		entity:IsValid() and
+		entity ~= Entity.World and
+		entity.transform and
+		entity.transform.Type == "transform_3d"
 end
 
 local function is_ui_hovering()
