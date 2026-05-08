@@ -107,14 +107,15 @@ local function query_children_reverse(entity, context, on_enter, on_visit)
 end
 
 local function hovered_entity_query_enter(mouse_pos, owner)
-	local gui = owner.gui_element
-	local internal_dock = owner.gmod_internal_dock
+	if owner.gui_element and not owner.gui_element:GetVisible() then
+		return WALK_SKIP_SUBTREE
+	end
 
-	if gui and not gui:GetVisible() then return WALK_SKIP_SUBTREE end
-
-	local mouse_comp = owner.mouse_input
-
-	if mouse_comp and mouse_comp:GetIgnoreMouseInput() and not internal_dock then
+	if
+		owner.mouse_input and
+		owner.mouse_input:GetIgnoreMouseInput() and
+		not owner.gmod_internal_dock
+	then
 		return WALK_SKIP_SUBTREE
 	end
 
@@ -122,17 +123,13 @@ local function hovered_entity_query_enter(mouse_pos, owner)
 end
 
 local function hovered_entity_query_visit(mouse_pos, owner)
-	local gui = owner.gui_element
-	local internal_dock = owner.gmod_internal_dock
-	local mouse_comp = owner.mouse_input
+	if not owner.gui_element or not owner.mouse_input then return end
+
+	if owner.gmod_internal_dock then return end
 
 	if
-		gui and
-		mouse_comp and
-		not mouse_comp:GetIgnoreMouseInput()
-		and
-		gui:IsHovered(mouse_pos) and
-		not internal_dock
+		not owner.mouse_input:GetIgnoreMouseInput() and
+		owner.gui_element:IsHovered(mouse_pos)
 	then
 		return owner
 	end

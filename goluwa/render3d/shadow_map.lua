@@ -338,7 +338,9 @@ function ShadowMap:Begin(cascade_index)
 				image = depth_texture:GetImage(),
 				srcAccessMask = "shader_read",
 				dstAccessMask = "depth_stencil_attachment_write",
-				oldLayout = self.cascade[cascade_index].is_sampleable and "shader_read_only_optimal" or "undefined",
+				oldLayout = self.cascade[cascade_index].is_sampleable and
+					"shader_read_only_optimal" or
+					"undefined",
 				newLayout = "depth_attachment_optimal",
 			-- aspect is automatically determined from image format by PipelineBarrier
 			},
