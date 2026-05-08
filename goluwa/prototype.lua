@@ -28,6 +28,7 @@ function prototype.CreateTemplate(type_name)
 
 	return template
 end
+
 do
 	local blacklist = {
 		prototype_variables = true,
@@ -900,132 +901,59 @@ do -- get is set
 			info.list_type or
 			info.list_enums or
 			info.list_length
+		local cast
 
 		if type(default) == "number" then
-			local function commit(self, var)
-				if has_validation then
-					if var == nil then
-						var = default
-					else
-						var = prototype.ValidatePropertyValue(info, var, 2)
-					end
-				else
-					var = tonumber(var) or default
-				end
-
-				local listeners = self.property_change_listeners
-
-				if (callback or listeners) and prototype.ComparePropertyValues(info, self[name], var) then
-					return
-				end
-
-				local old_value = self[name]
-				self[name] = var
-
-				if callback then self[callback](self) end
-
-				if listeners then notify_property_listeners(self, info, old_value, var) end
-			end
-
-			info.commit = commit
-
-			if has_validation then
-				meta[set_name] = meta[set_name] or commit
-			elseif callback then
-				meta[set_name] = meta[set_name] or commit
-			else
-				meta[set_name] = meta[set_name] or commit
-			end
-
-			meta[get_name] = meta[get_name] or function(self)
-				return self[name] or default
+			cast = function(var, default)
+				return tonumber(var) or default
 			end
 		elseif type(default) == "string" then
-			local function commit(self, var)
-				if has_validation then
-					if var == nil then
-						var = default
-					else
-						var = prototype.ValidatePropertyValue(info, var, 2)
-					end
-				else
-					var = tostring(var)
-				end
-
-				local listeners = self.property_change_listeners
-
-				if (callback or listeners) and prototype.ComparePropertyValues(info, self[name], var) then
-					return
-				end
-
-				local old_value = self[name]
-				self[name] = var
-
-				if callback then self[callback](self) end
-
-				if listeners then notify_property_listeners(self, info, old_value, var) end
+			cast = function(var)
+				return tostring(var)
 			end
-
-			info.commit = commit
-
-			if has_validation then
-				meta[set_name] = meta[set_name] or commit
-			elseif callback then
-				meta[set_name] = meta[set_name] or commit
-			else
-				meta[set_name] = meta[set_name] or commit
-			end
-
-			meta[get_name] = meta[get_name] or
-				function(self)
-					if self[name] ~= nil then return self[name] end
-
-					return default
-				end
 		else
-			local function commit(self, var)
-				if has_validation then
-					if var == nil then
-						var = default
-					else
-						var = prototype.ValidatePropertyValue(info, var, 2)
-					end
-				else
-					if var == nil then var = default end
-				end
+			cast = function(var, default)
+				if var == nil then return default end
 
-				local listeners = self.property_change_listeners
-
-				if (callback or listeners) and prototype.ComparePropertyValues(info, self[name], var) then
-					return
-				end
-
-				local old_value = self[name]
-				self[name] = var
-
-				if callback then self[callback](self) end
-
-				if listeners then notify_property_listeners(self, info, old_value, var) end
+				return var
 			end
-
-			info.commit = commit
-
-			if has_validation then
-				meta[set_name] = meta[set_name] or commit
-			elseif callback then
-				meta[set_name] = meta[set_name] or commit
-			else
-				meta[set_name] = meta[set_name] or commit
-			end
-
-			meta[get_name] = meta[get_name] or
-				function(self)
-					if self[name] ~= nil then return self[name] end
-
-					return default
-				end
 		end
 
+		local function commit(self, var)
+			if has_validation then
+				if var == nil then
+					var = default
+				else
+					var = prototype.ValidatePropertyValue(info, var, 2)
+				end
+			else
+				var = cast(var, default)
+			end
+
+			local listeners = self.property_change_listeners
+
+			if (callback or listeners) and prototype.ComparePropertyValues(info, self[name], var) then
+				return
+			end
+
+			local old_value = self[name]
+			self[name] = var
+
+			if callback then
+				if var ~= old_value then self[callback](self, name, old_value, var) end
+			end
+
+			if listeners then notify_property_listeners(self, info, old_value, var) end
+		end
+
+		info.commit = commit
+		meta[set_name] = meta[set_name] or commit
+		meta[get_name] = meta[get_name] or
+			function(self)
+				if self[name] ~= nil then return self[name] end
+
+				return default
+			end
 		meta[name] = default
 		info.type = info.type or get_type(default)
 

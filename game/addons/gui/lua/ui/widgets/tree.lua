@@ -327,11 +327,7 @@ return function(props)
 		if open_fraction > 0.001 then info.clip.gui_element:SetVisible(true) end
 
 		local old_body_w = info.body.transform:GetWidth()
-
-		if info.body.transform:GetWidth() ~= clip_w then
-			info.body.transform:SetWidth(clip_w)
-		end
-
+		info.body.transform:SetWidth(clip_w)
 		local body_h = info.body.transform:GetHeight()
 
 		if open_fraction > 0.001 and body_h <= 0.001 then
@@ -343,33 +339,9 @@ return function(props)
 		local target_y = -(body_h - target_h)
 		local target_visible = target_h > 0.001
 		local old_body_y = info.body.transform:GetY()
-		local changed = false
-		local changed_clip_h = info.clip.transform:GetHeight() ~= target_h
-		local changed_visible = info.clip.gui_element:GetVisible() ~= target_visible
-		local changed_body_y = old_body_y ~= target_y
-
-		if changed_clip_h then
-			info.clip.transform:SetHeight(target_h)
-			changed = true
-		end
-
-		if changed_visible then
-			info.clip.gui_element:SetVisible(target_visible)
-			changed = true
-		end
-
-		if changed_body_y then
-			info.body.transform:SetY(target_y)
-			changed = true
-		end
-
-		if changed and tree and tree.layout then
-			if changed_clip_h and info.clip.layout then
-				info.clip.layout:InvalidateLayout()
-			end
-
-			tree.layout:InvalidateLayout()
-		end
+		info.clip.transform:SetHeight(target_h)
+		info.clip.gui_element:SetVisible(target_visible)
+		info.body.transform:SetY(target_y)
 	end
 
 	local function is_row_visible(info)

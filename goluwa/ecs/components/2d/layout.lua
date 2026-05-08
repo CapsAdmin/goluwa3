@@ -26,8 +26,8 @@ META:GetSet("SelfAlignmentY", "auto", {callback = "InvalidateLayout"})
 META:GetSet("Floating", false, {callback = "InvalidateLayout"})
 META:GetSet("Dock", "none", {callback = "InvalidateLayout"})
 META:GetSet("Dirty", false)
-META:GetSet("LastSize", Vec2(0, 0))
 META:EndStorable()
+META:GetSet("LastSize", Vec2(0, 0))
 
 function META:Initialize()
 	self.busy = 0
@@ -329,6 +329,8 @@ function META:Measure()
 				w, h = font:GetTextSize(text)
 			end
 
+			w = math.ceil(w)
+			h = math.ceil(h)
 			intrinsic.x = w + padding.x + padding.w
 			intrinsic.y = h + padding.y + padding.h
 		end
@@ -571,7 +573,11 @@ function META:Arrange()
 		local child_tr = c.entity.transform
 		-- Position on main axis
 		current_main = current_main + c.margin[axis.main_margin_start]
-		child_tr:SetAxisLength(axis.main, final_main)
+
+		if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.main) then
+			child_tr:SetAxisLength(axis.main, final_main)
+		end
+
 		child_tr:SetAxisPosition(axis.main, current_main)
 		-- Position on cross axis
 		local cross_alignment = c.entity.layout and
@@ -597,7 +603,10 @@ function META:Arrange()
 			final_cross = available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
 		end
 
-		child_tr:SetAxisLength(axis.cross, final_cross)
+		if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
+			child_tr:SetAxisLength(axis.cross, final_cross)
+		end
+
 		child_tr:SetAxisPosition(axis.cross, cross_pos)
 		current_main = current_main + final_main + c.margin[axis.main_margin_end] + child_gap
 
@@ -612,6 +621,10 @@ function META:Arrange()
 		self.pending_child_reflow = false
 		self:SetDirty(pending_child_reflow)
 	end
+end
+
+function META:GetFitAxis(axis)
+	if axis == "x" then return self:GetFitWidth() else return self:GetFitHeight() end
 end
 
 function META:UpdateLayout()

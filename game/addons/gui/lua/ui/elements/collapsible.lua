@@ -67,16 +67,9 @@ return function(props)
 		local target_h = h * open_fraction
 		local target_visible = open_fraction > 0.001
 		local target_y = -(h - target_h)
-		local changed_clip_h = clip_panel.transform:GetHeight() ~= target_h
 		clip_panel.transform:SetHeight(target_h)
 		clip_panel.gui_element:SetVisible(target_visible)
 		body_panel.transform:SetY(target_y)
-
-		if changed_clip_h and clip_panel.layout then
-			clip_panel.layout:InvalidateLayout()
-		end
-
-		container.layout:InvalidateLayout()
 	end
 
 	body_panel = Panel.New{
