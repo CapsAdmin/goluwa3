@@ -784,6 +784,7 @@ local formats = {
 	b8g8r8a8_srgb = (8 + 8 + 8 + 8) / 8,
 	b8g8r8a8_unorm = (8 + 8 + 8 + 8) / 8,
 	b8g8r8a8_srgb = (8 + 8 + 8 + 8) / 8,
+	r16g16_sfloat = (16 + 16) / 8,
 	r16g16b16a16_sfloat = (16 + 16 + 16 + 16) / 8,
 	r32g32b32a32_sfloat = (32 + 32 + 32 + 32) / 8,
 	r32g32b32_sfloat = (32 + 32 + 32) / 8,

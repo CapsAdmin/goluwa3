@@ -16,23 +16,7 @@ local function calculate_stride(vertex_attributes)
 			if attr.lua_type then
 				last_size = ffi.sizeof(attr.lua_type)
 			elseif attr.format then
-				-- Calculate size from Vulkan format string
-				-- e.g., "r32g32b32_sfloat" = vec3 = 3 floats = 12 bytes
-				-- e.g., "r32g32_sfloat" = vec2 = 2 floats = 8 bytes
-				-- e.g., "r32g32b32a32_sfloat" = vec4 = 4 floats = 16 bytes
-				local components = 0
-
-				if attr.format:match("r32g32b32a32") then
-					components = 4
-				elseif attr.format:match("r32g32b32") then
-					components = 3
-				elseif attr.format:match("r32g32") then
-					components = 2
-				elseif attr.format:match("r32") then
-					components = 1
-				end
-
-				last_size = components * ffi.sizeof("float")
+				last_size = render.GetVulkanFormatSize(attr.format)
 			else
 				error("Attribute must have either lua_type or format", 2)
 			end
