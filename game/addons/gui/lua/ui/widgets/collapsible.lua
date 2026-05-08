@@ -12,7 +12,6 @@ return function(props)
 		end,
 		Header = Clickable{
 			IsInternal = true,
-			Name = "Header",
 			Tooltip = props.Tooltip,
 			TooltipOptions = props.TooltipOptions,
 			TooltipMaxWidth = props.TooltipMaxWidth,
