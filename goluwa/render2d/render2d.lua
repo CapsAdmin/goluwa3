@@ -266,8 +266,8 @@ local function update_fragment_static_state_id()
 	)
 end
 
-local function update_blend_mode_state_id(state)
-	render2d.state.runtime.ids.current.blend = intern_state_id(
+local function get_blend_mode_state_id(state)
+	return intern_state_id(
 		render2d.state.runtime.ids.roots.blend,
 		state and state.blend == true,
 		state and state.src_color_blend_factor,
@@ -281,6 +281,10 @@ local function update_blend_mode_state_id(state)
 		state and state.color_write_mask and state.color_write_mask[3],
 		state and state.color_write_mask and state.color_write_mask[4]
 	)
+end
+
+local function update_blend_mode_state_id(state)
+	render2d.state.runtime.ids.current.blend = get_blend_mode_state_id(state)
 end
 
 local function update_depth_state_id(mode_name, write)
@@ -418,7 +422,7 @@ local function build_rect_batch_key(state, w, h, margin, batch_mode)
 		batch_mode_id,
 		state.pipeline_state_id,
 		state.fragment_static_state_id,
-		state.blend_mode_state_id,
+		get_blend_mode_state_id(state.blend_mode),
 		state.depth_state_id,
 		state.stencil_state_id,
 		state.scissor_state_id
@@ -544,7 +548,7 @@ local function copy_array(tbl)
 	return out
 end
 
-local function get_valid_blend_mode_error(mode_name)
+local function get_valid_blend_preset_error(mode_name)
 	local valid_modes = {}
 
 	for k in pairs(render2d.blend_modes) do
@@ -555,7 +559,7 @@ local function get_valid_blend_mode_error(mode_name)
 	return "Invalid blend mode: " .. tostring(mode_name) .. ". Valid modes: " .. table.concat(valid_modes, ", ")
 end
 
-local function normalize_blend_mode_state(state)
+local function canonicalize_blend_mode_state(state)
 	local blend = state.blend
 
 	if blend == nil then
@@ -579,22 +583,13 @@ local function normalize_blend_mode_state(state)
 	}
 end
 
-local function get_blend_mode_state(mode)
-	mode = mode or DEFAULT_BLEND_MODE
+local function get_blend_preset_state(mode_name)
+	mode_name = mode_name or DEFAULT_BLEND_MODE
+	local preset = render2d.blend_modes[mode_name]
 
-	if type(mode) == "table" then return normalize_blend_mode_state(mode) end
+	if not preset then error(get_valid_blend_preset_error(mode_name), 3) end
 
-	local preset = render2d.blend_modes[mode]
-
-	if not preset then error(get_valid_blend_mode_error(mode), 3) end
-
-	return normalize_blend_mode_state(preset)
-end
-
-local function clone_blend_mode(mode)
-	if type(mode) == "table" then return normalize_blend_mode_state(mode) end
-
-	return mode
+	return canonicalize_blend_mode_state(preset)
 end
 
 local function apply_blend_mode_state(pipeline, blend_mode, stencil_mode)
@@ -643,7 +638,8 @@ local function sync_pipeline_state(force)
 		return
 	end
 
-	local blend_mode = render2d.state.render.pipeline.blend or get_blend_mode_state(DEFAULT_BLEND_MODE)
+	local blend_mode = render2d.state.render.pipeline.blend or
+		get_blend_preset_state(DEFAULT_BLEND_MODE)
 	local depth_state = render2d.state.render.pipeline.depth
 	local stencil_state = render2d.state.render.pipeline.stencil
 	local depth_mode_name = depth_state.mode or DEFAULT_DEPTH_MODE
@@ -1444,7 +1440,7 @@ function render2d.ResetState()
 	render2d.SetSDFThreshold(0.5)
 	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetScissor(0, 0, render2d.GetSize())
-	render2d.SetBlendMode("alpha", true)
+	render2d.SetBlendPreset("alpha")
 
 	if render2d.SetDepthMode then
 		render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
@@ -1778,27 +1774,20 @@ do
 	end
 
 	function render2d.SetBlendMode(mode_name, force, ...)
-		local mode = mode_name
-		local next_mode
 		local next_state
 
 		if type(mode_name) == "table" then
-			force = force == true
-			next_mode = normalize_blend_mode_state(mode_name)
-			next_state = next_mode
-		elseif select("#", ...) == 0 and (force == nil or type(force) == "boolean") then
-			mode = mode_name or DEFAULT_BLEND_MODE
-
-			if not render2d.blend_modes[mode] then
-				error(get_valid_blend_mode_error(mode), 2)
+			next_state = canonicalize_blend_mode_state(mode_name)
+		else
+			if select("#", ...) == 0 then
+				error(
+					"SetBlendMode expects a canonical blend state table or explicit blend factors; use SetBlendPreset for presets",
+					2
+				)
 			end
 
-			next_mode = mode
-			next_state = get_blend_mode_state(mode)
-		else
-			local dst_rgb, color_op, src_alpha, dst_alpha, alpha_op, raw_force = force, ...
-			force = raw_force == true
-			next_mode = normalize_blend_mode_state{
+			local dst_rgb, color_op, src_alpha, dst_alpha, alpha_op = force, ...
+			next_state = canonicalize_blend_mode_state{
 				blend = true,
 				src_color_blend_factor = mode_name,
 				dst_color_blend_factor = dst_rgb,
@@ -1807,7 +1796,6 @@ do
 				dst_alpha_blend_factor = dst_alpha or dst_rgb,
 				alpha_blend_op = alpha_op or color_op,
 			}
-			next_state = next_mode
 		end
 
 		render2d.state.render.pipeline.blend = next_state
@@ -1815,8 +1803,15 @@ do
 		mark_pipeline_state_dirty()
 	end
 
+	function render2d.SetBlendPreset(mode_name)
+		local next_state = get_blend_preset_state(mode_name)
+		render2d.state.render.pipeline.blend = next_state
+		update_blend_mode_state_id(next_state)
+		mark_pipeline_state_dirty()
+	end
+
 	function render2d.GetBlendMode()
-		return clone_blend_mode(render2d.state.render.pipeline.blend)
+		return canonicalize_blend_mode_state(render2d.state.render.pipeline.blend)
 	end
 
 	do
@@ -1829,12 +1824,18 @@ do
 			i = i + 1
 		end
 
+		function render2d.PushBlendPreset(mode_name)
+			stack[i] = render2d.GetBlendMode()
+			render2d.SetBlendPreset(mode_name)
+			i = i + 1
+		end
+
 		function render2d.PopBlendMode()
 			i = i - 1
 
 			if i < 1 then error("stack underflow", 2) end
 
-			render2d.SetBlendMode(stack[i], true)
+			render2d.SetBlendMode(stack[i])
 		end
 	end
 
@@ -2583,7 +2584,7 @@ capture_rect_draw_state = function()
 		world_matrix = render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]:Copy(),
 		texture = render2d.state.render.textures.texture,
 		gradient_texture = render2d.state.render.textures.gradient_texture,
-		blend_mode = normalize_blend_mode_state(render2d.state.render.pipeline.blend),
+		blend_mode = canonicalize_blend_mode_state(render2d.state.render.pipeline.blend),
 		depth_mode = render2d.state.render.pipeline.depth.mode,
 		depth_write = render2d.state.render.pipeline.depth.write,
 		stencil_mode = render2d.state.render.pipeline.stencil.mode,
@@ -2595,7 +2596,6 @@ capture_rect_draw_state = function()
 		scissor_h = render2d.state.render.pipeline.scissor.h,
 		pipeline_state_id = render2d.state.runtime.ids.current.rect_batch_pipeline,
 		fragment_static_state_id = render2d.state.runtime.ids.current.fragment_static,
-		blend_mode_state_id = render2d.state.runtime.ids.current.blend,
 		depth_state_id = render2d.state.runtime.ids.current.depth,
 		stencil_state_id = render2d.state.runtime.ids.current.stencil,
 		scissor_state_id = render2d.state.runtime.ids.current.scissor,
@@ -2916,7 +2916,7 @@ end
 render2d.SetColor(1, 1, 1, 1)
 render2d.SetAlphaMultiplier(1)
 render2d.SetSwizzleMode(0)
-render2d.state.render.pipeline.blend = get_blend_mode_state("alpha")
+render2d.state.render.pipeline.blend = get_blend_preset_state("alpha")
 update_blend_mode_state_id(render2d.state.render.pipeline.blend)
 update_depth_state_id(DEFAULT_DEPTH_MODE, false)
 update_stencil_state_id("none", 1)

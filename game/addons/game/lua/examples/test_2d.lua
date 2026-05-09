@@ -160,7 +160,7 @@ if false then
 
 	function events.Draw2D.test_bezier(dt)
 		render2d.SetTexture(rope)
-		render2d.SetBlendMode("alpha")
+		render2d.SetBlendPreset("alpha")
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.BindMesh(mesh)
 

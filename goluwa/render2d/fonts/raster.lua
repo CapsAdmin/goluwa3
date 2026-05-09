@@ -240,7 +240,7 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		local old_color = {render2d.GetColor()}
 		local old_blend_mode = render2d.GetBlendMode()
 		render2d.SetColor(1, 1, 1, 1)
-		render2d.SetBlendMode("alpha", true)
+		render2d.SetBlendPreset("alpha")
 		render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 		scratch_size.w = width
 		scratch_size.h = height

@@ -898,7 +898,7 @@ do
 					render2d.SetTexture()
 					render2d.SetUV()
 					--render2d.SetAlphaTestReference(0)
-					render2d.SetBlendMode("alpha", true)
+					render2d.SetBlendPreset("alpha")
 
 					if obj.expensive_shadow_dir then
 						render2d.SetColor(obj.expensive_shadow_color:Unpack())

@@ -384,13 +384,13 @@ if CLIENT then
 
 		if mat.vars.additive then
 			if render2d.SetBlendMode then
-				render2d.SetBlendMode("additive", true)
+				render2d.SetBlendPreset("additive")
 			elseif render.SetPresetBlendMode then
 				render.SetPresetBlendMode("additive")
 			end
 		else
 			if render2d.SetBlendMode then
-				render2d.SetBlendMode("alpha", true)
+				render2d.SetBlendPreset("alpha")
 			elseif render.SetPresetBlendMode then
 				render.SetPresetBlendMode("alpha")
 			end

@@ -245,7 +245,7 @@ function JRPGTheme:DrawPill(x, y, w, h)
 	render2d.DrawRect(x, y, w, h)
 	render2d.SetBorderRadius(h / 2)
 	render2d.PushOutlineWidth(1)
-	render2d.PushBlendMode("additive")
+	render2d.PushBlendPreset("additive")
 	render2d.PushAlphaMultiplier(1)
 	render2d.DrawRect(x, y, w, h)
 	render2d.PopAlphaMultiplier()
@@ -357,7 +357,7 @@ function JRPGTheme:DrawGlowLine(x1, y1, x2, y2, thickness)
 	render2d.Translatef(x1, y1)
 	render2d.Rotate(angle)
 	render2d.Translatef(0, -self.GlowLineTexture:GetHeight() / 2)
-	render2d.PushBlendMode("additive")
+	render2d.PushBlendPreset("additive")
 	render2d.DrawRectf(0, -thickness / 10, length, self.GlowLineTexture:GetHeight())
 	render2d.PopBlendMode()
 	render2d.PopMatrix()
@@ -470,7 +470,7 @@ end
 function JRPGTheme:DrawProgressBarPrimitive(x, y, w, h, progress, color)
 	render2d.SetColor(0.2, 0.2, 0.3, 0.4)
 	render2d.DrawRect(x, y, w, h)
-	render2d.PushBlendMode("additive")
+	render2d.PushBlendPreset("additive")
 	render2d.SetColor(0.3, 0.4, 0.6, 0.5)
 	self:DrawGlowLine(x, y, x + w, y, 2)
 	self:DrawGlowLine(x, y + h, x + w, y + h, 2)
@@ -496,7 +496,7 @@ function JRPGTheme:DrawProgressBarPrimitive(x, y, w, h, progress, color)
 
 		render2d.DrawRect(x, y, fill_w, h)
 		render2d.PopTexture()
-		render2d.PushBlendMode("additive")
+		render2d.PushBlendPreset("additive")
 		render2d.SetColor(1, 1, 1, 0.6)
 		render2d.DrawRect(x, y, fill_w, 2)
 
@@ -542,7 +542,7 @@ function JRPGTheme:DrawModernFramePost(x, y, w, h, intensity)
 	h = h + 2
 	local glow_color = self.ModernGlowColor
 	render2d.SetColor(glow_color.r, glow_color.g, glow_color.b, 0.75 + intensity * 0.4)
-	render2d.SetBlendMode("additive")
+	render2d.SetBlendPreset("additive")
 	local glow_size = 40 * intensity
 	local diamond_size = 6 + 2 * intensity
 	self:DrawDiamond2(x, y, diamond_size)
@@ -556,7 +556,7 @@ function JRPGTheme:DrawModernFramePost(x, y, w, h, intensity)
 	render2d.SetTexture(self.Textures.GlowLinear)
 	local extent_h = -50 * intensity
 	local extent_w = -50 * intensity
-	render2d.SetBlendMode("alpha")
+	render2d.SetBlendPreset("alpha")
 	self:DrawGlowLine(x + extent_w, y, x + w - extent_w, y, 1)
 	self:DrawGlowLine(x + extent_w, y + h, x + w - extent_w, y + h, 1)
 	self:DrawGlowLine(x, y + extent_h, x, y + h - extent_h, 1)
@@ -788,7 +788,7 @@ function JRPGTheme:DrawButtonPost(size, state)
 	if state.mode == "menu" then return end
 
 	local anim = state.anim
-	render2d.SetBlendMode("additive")
+	render2d.SetBlendPreset("additive")
 	render2d.SetColor(anim.glow_alpha, anim.glow_alpha, anim.glow_alpha, 1)
 	render2d.SetTexture(self.Textures.GlowLinear)
 
@@ -805,7 +805,7 @@ function JRPGTheme:DrawButtonPost(size, state)
 	render2d.SetColor(c.r, c.g, c.b, anim.glow_alpha)
 	self:DrawGlowLine(0, 0, size.x, 0, 1)
 	self:DrawGlowLine(0, size.y, size.x, size.y, 1)
-	render2d.SetBlendMode("alpha")
+	render2d.SetBlendPreset("alpha")
 end
 
 function JRPGTheme:DrawSlider(size, state)
@@ -844,12 +844,12 @@ function JRPGTheme:DrawSlider(size, state)
 		render2d.PopUV()
 
 		if anim.glow_alpha > 0 then
-			render2d.SetBlendMode("additive")
+			render2d.SetBlendPreset("additive")
 			render2d.SetTexture(self.Textures.GlowLinear)
 			c = self:GetColor("light")
 			render2d.SetColor(c.r, c.g * anim.glow_alpha, c.b * anim.glow_alpha, c.a)
 			render2d.DrawRect(track_x - 2, knob_height / 2, track_width + 4, fill_height)
-			render2d.SetBlendMode("alpha")
+			render2d.SetBlendPreset("alpha")
 		end
 
 		knob_x = (size.x - knob_width) / 2
@@ -872,12 +872,12 @@ function JRPGTheme:DrawSlider(size, state)
 		render2d.PopUV()
 
 		if anim.glow_alpha > 0 then
-			render2d.SetBlendMode("additive")
+			render2d.SetBlendPreset("additive")
 			render2d.SetTexture(self.Textures.GlowLinear)
 			c = self:GetColor("light")
 			render2d.SetColor(c.r, c.g * anim.glow_alpha, c.b * anim.glow_alpha, c.a)
 			render2d.DrawRect(knob_width / 2, track_y - 2, fill_width, track_height + 4)
-			render2d.SetBlendMode("alpha")
+			render2d.SetBlendPreset("alpha")
 		end
 
 		knob_x = normalized * (size.x - knob_width)
@@ -885,7 +885,7 @@ function JRPGTheme:DrawSlider(size, state)
 	end
 
 	render2d.SetTexture(self.Textures.GlowPoint)
-	render2d.SetBlendMode("additive")
+	render2d.SetBlendPreset("additive")
 	local c = self:GetColor("lighter")
 	render2d.SetColor(c.r, c.g, c.b, c.a + anim.glow_alpha * 0.3)
 	local glow_size = 20 * anim.knob_scale
@@ -895,7 +895,7 @@ function JRPGTheme:DrawSlider(size, state)
 		glow_size,
 		glow_size
 	)
-	render2d.SetBlendMode("alpha")
+	render2d.SetBlendPreset("alpha")
 	render2d.SetTexture(nil)
 	c = self:GetColor("button_normal")
 	render2d.SetColor(c.r, c.g, c.b, c.a)
@@ -918,7 +918,7 @@ function JRPGTheme:DrawSlider(size, state)
 	render2d.PopUV()
 
 	if anim.glow_alpha > 0 then
-		render2d.SetBlendMode("additive")
+		render2d.SetBlendPreset("additive")
 		render2d.SetTexture(self.Textures.GlowLinear)
 		c = self:GetColor("border")
 		render2d.SetColor(c.r * anim.glow_alpha, c.g * anim.glow_alpha, c.b * anim.glow_alpha, 1)
@@ -936,7 +936,7 @@ function JRPGTheme:DrawSlider(size, state)
 			knob_y + scaled_height - scale_offset_y,
 			1
 		)
-		render2d.SetBlendMode("alpha")
+		render2d.SetBlendPreset("alpha")
 	end
 end
 
@@ -951,12 +951,12 @@ function JRPGTheme:DrawCheckbox(size, state)
 	render2d.DrawRect(box_x, box_y, check_size, check_size)
 
 	if anim.glow_alpha > 0 then
-		render2d.SetBlendMode("additive")
+		render2d.SetBlendPreset("additive")
 		render2d.SetTexture(self.Textures.GlowLinear)
 		c = self:GetColor("border")
 		render2d.SetColor(c.r * anim.glow_alpha, c.g * anim.glow_alpha, c.b * anim.glow_alpha, 0.5)
 		self:DrawRect(box_x - 1, box_y - 1, check_size + 2, check_size + 2, 1)
-		render2d.SetBlendMode("alpha")
+		render2d.SetBlendPreset("alpha")
 	end
 
 	if anim.check_anim > 0.01 then
@@ -965,7 +965,7 @@ function JRPGTheme:DrawCheckbox(size, state)
 		render2d.SetUV2(0, 0, 0.5, 1)
 		render2d.SetTexture(nil)
 		c = self:GetColor("primary")
-		render2d.SetBlendMode("additive")
+		render2d.SetBlendPreset("additive")
 		render2d.SetColor(c.r, c.g, c.b, 0.9 * s)
 		local padding = check_size * 0.2
 		local mark_size = (check_size - padding * 2) * s
@@ -973,7 +973,7 @@ function JRPGTheme:DrawCheckbox(size, state)
 		local mark_y = box_y + check_size / 2 - mark_size / 2
 		render2d.DrawRect(mark_x, mark_y, mark_size, mark_size)
 		render2d.PopUV()
-		render2d.SetBlendMode("alpha")
+		render2d.SetBlendPreset("alpha")
 	end
 end
 
@@ -988,25 +988,25 @@ function JRPGTheme:DrawButtonRadio(size, state)
 	self:DrawDiamond(rb_x + rb_size / 2, rb_y + rb_size / 2, rb_size * 0.8)
 
 	if anim.glow_alpha > 0 then
-		render2d.SetBlendMode("additive")
+		render2d.SetBlendPreset("additive")
 		render2d.PushOutlineWidth(1)
 		render2d.SetTexture(nil)
 		c = self:GetColor("border")
 		render2d.SetColor(c.r * anim.glow_alpha, c.g * anim.glow_alpha, c.b * anim.glow_alpha, 2)
 		self:DrawDiamond(rb_x + rb_size / 2, rb_y + rb_size / 2, rb_size * 0.8)
-		render2d.SetBlendMode("alpha")
+		render2d.SetBlendPreset("alpha")
 		render2d.PopOutlineWidth()
 	end
 
 	if anim.check_anim > 0.01 then
 		local s = anim.check_anim
 		render2d.SetTexture(nil)
-		render2d.SetBlendMode("additive")
+		render2d.SetBlendPreset("additive")
 		c = self:GetColor("primary")
 		render2d.SetColor(c.r, c.g, c.b, s)
 		local dot_size = rb_size * s
 		self:DrawDiamond(rb_x + dot_size / 2, rb_y + dot_size / 2, dot_size * 0.25)
-		render2d.SetBlendMode("alpha")
+		render2d.SetBlendPreset("alpha")
 	end
 end
 
@@ -1065,7 +1065,7 @@ end
 function JRPGTheme:DrawDivider(size)
 	local c = self:GetColor("border")
 	render2d.SetColor(c.r, c.g, c.b, c.a)
-	render2d.PushBlendMode("additive")
+	render2d.PushBlendPreset("additive")
 
 	if size.x > size.y then
 		self:DrawGlowLine(0, size.y / 2, size.x, size.y / 2, 0)

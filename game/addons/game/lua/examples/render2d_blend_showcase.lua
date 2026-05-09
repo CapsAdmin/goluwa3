@@ -112,7 +112,7 @@ local function draw_blend_preview(x, y, w, h, blend_mode, phase)
 	render2d.PopOutlineWidth()
 	render2d.PopColor()
 	draw_destination_shape(preview_x + 10, preview_y + 8, 88, phase)
-	render2d.PushBlendMode(blend_mode)
+	render2d.PushBlendPreset(blend_mode)
 	draw_source_shape(preview_x + 30, preview_y + 18, 92, phase)
 	render2d.PopBlendMode()
 end

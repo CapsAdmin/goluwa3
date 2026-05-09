@@ -151,7 +151,7 @@ end
 local function draw_blur_shadow_state(x, y, phase)
 	render2d.PushColor(0.1, 0.68, 1.0, 0.65)
 	render2d.PushBlur(26)
-	render2d.PushBlendMode("additive")
+	render2d.PushBlendPreset("additive")
 	render2d.PushBorderRadius(30)
 	render2d.DrawRect(x + 28 + math.cos(phase) * 8, y + 82, 188, 58)
 	render2d.PopBorderRadius()

@@ -517,7 +517,7 @@ local function draw_rect_with_state(state)
 	if type(blend_state) == "table" then
 		render2d.PushBlendMode(blend_state, true)
 	else
-		render2d.PushBlendMode(blend_state)
+		render2d.PushBlendPreset(blend_state)
 	end
 
 	render2d.SetDepthMode(state.depth_mode, state.depth_write)

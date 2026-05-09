@@ -546,7 +546,7 @@ function META:LoadGlyph(code, temp_fbs)
 			local old_color = {render2d.GetColor()}
 			render2d.SetColor(1, 1, 1, 1)
 			local old_blend_mode = render2d.GetBlendMode()
-			render2d.SetBlendMode("alpha", true)
+			render2d.SetBlendPreset("alpha")
 			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 			scratch_size.w = sw
 			scratch_size.h = sh
