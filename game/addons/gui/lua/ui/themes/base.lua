@@ -1211,7 +1211,7 @@ function BaseTheme:DrawSlider(size, state)
 end
 
 -- Shared checkable control drawing: outer shape + outline + inner fill when checked
--- inner_draw: function(draw_x, draw_y, draw_size, draw_radius, color, alpha) -> draws the inner checked shape
+-- inner_draw: function(theme, draw_x, draw_y, draw_size, draw_radius, alpha) -> draws the inner checked shape
 function BaseTheme:DrawCheckable(size, state, opts)
 	local anim = state.anim or
 		{
@@ -1228,46 +1228,52 @@ function BaseTheme:DrawCheckable(size, state, opts)
 	self:DrawRoundOutline(x, y, box_size, box_size, radius, self:GetColor("border"), 1, 1)
 
 	if anim.check_anim > 0.01 then
-		opts.inner_draw(x, y, box_size, radius, anim.check_anim)
+		opts.inner_draw(self, x, y, box_size, radius, anim.check_anim)
 	end
 end
 
-function BaseTheme:DrawCheckbox(size, state)
-	self:DrawCheckable(
-		size,
-		state,
-		{
-			radius = self:GetRadius(XS),
-			inner_draw = function(x, y, box_size, radius, anim_val)
-				local inset = 3 + (1 - anim_val) * 3
-				self:DrawRoundRect(
-					x + inset,
-					y + inset,
-					box_size - inset * 2,
-					box_size - inset * 2,
-					2,
-					self:GetColor("primary"),
-					anim_val
-				)
-			end,
-		}
-	)
-end
+do
+	local function draw_checkbox_inner(theme, x, y, box_size, radius, anim_val)
+		local inset = 3 + (1 - anim_val) * 3
+		theme:DrawRoundRect(
+			x + inset,
+			y + inset,
+			box_size - inset * 2,
+			box_size - inset * 2,
+			2,
+			theme:GetColor("primary"),
+			anim_val
+		)
+	end
 
-function BaseTheme:DrawButtonRadio(size, state)
-	self:DrawCheckable(
-		size,
-		state,
-		{
-			radius = math.floor(self:GetSize("M") / 2),
-			inner_draw = function(x, y, box_size, radius, anim_val)
-				local dot = box_size * 0.42 * anim_val
-				local dot_x = x + box_size / 2 - dot / 2
-				local dot_y = y + box_size / 2 - dot / 2
-				self:DrawRoundRect(dot_x, dot_y, dot, dot, math.floor(dot / 2), self:GetColor("primary"))
-			end,
-		}
-	)
+	function BaseTheme:DrawCheckbox(size, state)
+		self:DrawCheckable(
+			size,
+			state,
+			{
+				radius = self:GetRadius(XS),
+				inner_draw = draw_checkbox_inner,
+			}
+		)
+	end
+
+	local function draw_button_radio_inner(theme, x, y, box_size, radius, anim_val)
+		local dot = box_size * 0.42 * anim_val
+		local dot_x = x + box_size / 2 - dot / 2
+		local dot_y = y + box_size / 2 - dot / 2
+		theme:DrawRoundRect(dot_x, dot_y, dot, dot, math.floor(dot / 2), theme:GetColor("primary"))
+	end
+
+	function BaseTheme:DrawButtonRadio(size, state)
+		self:DrawCheckable(
+			size,
+			state,
+			{
+				radius = math.floor(self:GetSize("M") / 2),
+				inner_draw = draw_button_radio_inner,
+			}
+		)
+	end
 end
 
 function BaseTheme:DrawFrame(size, emphasis)

@@ -45,6 +45,8 @@ local function get_checkerboard_texture()
 end
 
 event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
+	if not render3d.pipelines then return end
+
 	if not render3d.pipelines.gbuffer or not render3d.pipelines.gbuffer:GetFramebuffer() then
 		return
 	end

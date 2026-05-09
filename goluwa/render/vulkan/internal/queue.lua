@@ -3,26 +3,6 @@ local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Queue = prototype.CreateTemplate("vulkan_queue")
 
-local function append_resource(resources, resource)
-	if resource ~= nil then resources[#resources + 1] = resource end
-end
-
-local function capture_submission_resources(commandBuffer, ...)
-	local resources = {}
-	append_resource(resources, commandBuffer)
-
-	for i = 1, select("#", ...) do
-		append_resource(resources, select(i, ...))
-	end
-
-	for _, resource in ipairs(commandBuffer.keepalive_resources or {}) do
-		resources[#resources + 1] = resource
-	end
-
-	commandBuffer.keepalive_resources = nil
-	return resources
-end
-
 function Queue.New(device, graphicsQueueFamily)
 	local ptr = vulkan.T.Box(vulkan.vk.VkQueue)()
 	vulkan.lib.vkGetDeviceQueue(device.ptr[0], graphicsQueueFamily, 0, ptr)
@@ -32,11 +12,15 @@ end
 function Queue:OnRemove() -- Queues are managed by the device, so nothing to do here
 end
 
-function Queue:TrackSubmission(commandBuffer, fence, ...)
+function Queue:TrackSubmission(commandBuffer, fence, submissionResources)
 	local serial = self.device:AllocateSubmissionSerial()
+	local keepalive_resources = commandBuffer.keepalive_resources
+	commandBuffer.keepalive_resources = nil
 	local submission = {
 		serial = serial,
-		resources = capture_submission_resources(commandBuffer, fence, ...),
+		commandBuffer = commandBuffer,
+		resources = submissionResources,
+		keepalive_resources = keepalive_resources,
 		fence = fence,
 	}
 
@@ -71,11 +55,11 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 		vulkan.lib.vkQueueSubmit(self.ptr[0], 1, submitInfo, inFlightFence.ptr[0]),
 		"failed to submit queue"
 	)
-	self:TrackSubmission(commandBuffer, inFlightFence, imageAvailableSemaphore, renderFinishedSemaphore)
+	self:TrackSubmission(commandBuffer, inFlightFence, {imageAvailableSemaphore, renderFinishedSemaphore})
 end
 
 function Queue:SubmitAndWait(device, commandBuffer, fence)
-	local submission = self:TrackSubmission(commandBuffer, fence)
+	local submission = self:TrackSubmission(commandBuffer, fence, {})
 	vulkan.lib.vkResetFences(device.ptr[0], 1, fence.ptr)
 	vulkan.assert(
 		vulkan.lib.vkQueueSubmit(
