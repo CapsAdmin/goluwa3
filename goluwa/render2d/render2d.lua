@@ -12,7 +12,7 @@ local Mesh = import("goluwa/render/mesh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local RectBatch = import("goluwa/render2d/rect_batch.lua")
-local FragmentConstants = ffi.typeof([[
+local RectDrawState = ffi.typeof([[
 	struct {
         float global_color[4];          
         float alpha_multiplier;  
@@ -70,8 +70,8 @@ local apply_scissor_to_command_buffer
 render2d.state = {
 	render = {
 		fragment = {
-			constants = FragmentConstants(),
-			constants_size = ffi.sizeof(FragmentConstants),
+			constants = RectDrawState(),
+			constants_size = ffi.sizeof(RectDrawState),
 			rect_size = {w = 0, h = 0, lw = 0, lh = 0},
 			uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
 		},
@@ -448,18 +448,18 @@ local function restore_rect_margin_uv(old_off_x, old_off_y, old_scale_x, old_sca
 end
 
 local function get_rect_batch_instance_uv_transform(entry)
-	local fragment_snapshot = entry.state.fragment_snapshot
-	local off_x = fragment_snapshot.uv_offset[0]
-	local off_y = fragment_snapshot.uv_offset[1]
-	local scale_x = fragment_snapshot.uv_scale[0]
-	local scale_y = fragment_snapshot.uv_scale[1]
+	local rect_state_snapshot = entry.state.rect_state_snapshot
+	local off_x = rect_state_snapshot.uv_offset[0]
+	local off_y = rect_state_snapshot.uv_offset[1]
+	local scale_x = rect_state_snapshot.uv_scale[0]
+	local scale_y = rect_state_snapshot.uv_scale[1]
 	local margin = entry.margin or 0
 
 	if margin > 0 and entry.w > 0 and entry.h > 0 then
 		scale_x = scale_x * (entry.qw / entry.w)
 		scale_y = scale_y * (entry.qh / entry.h)
-		off_x = off_x - (margin / entry.w) * fragment_snapshot.uv_scale[0]
-		off_y = off_y - (margin / entry.h) * fragment_snapshot.uv_scale[1]
+		off_x = off_x - (margin / entry.w) * rect_state_snapshot.uv_scale[0]
+		off_y = off_y - (margin / entry.h) * rect_state_snapshot.uv_scale[1]
 	end
 
 	return off_x, off_y, scale_x, scale_y
@@ -468,36 +468,36 @@ end
 local function write_rect_batch_instance(vertex, entry)
 	local values = entry.draw_matrix:GetFloatCopy()
 	local state = entry.state
-	local fragment_snapshot = state.fragment_snapshot
+	local rect_state_snapshot = state.rect_state_snapshot
 	local uv_off_x, uv_off_y, uv_scale_x, uv_scale_y = get_rect_batch_instance_uv_transform(entry)
 	ffi.copy(vertex.pvw_row_0, values + 0, ffi.sizeof("float") * 4)
 	ffi.copy(vertex.pvw_row_1, values + 4, ffi.sizeof("float") * 4)
 	ffi.copy(vertex.pvw_row_2, values + 8, ffi.sizeof("float") * 4)
 	ffi.copy(vertex.pvw_row_3, values + 12, ffi.sizeof("float") * 4)
-	ffi.copy(vertex.batch_global_color, fragment_snapshot.global_color, ffi.sizeof("float") * 4)
+	ffi.copy(vertex.batch_global_color, rect_state_snapshot.global_color, ffi.sizeof("float") * 4)
 	vertex.batch_uv_transform[0] = uv_off_x
 	vertex.batch_uv_transform[1] = uv_off_y
 	vertex.batch_uv_transform[2] = uv_scale_x
 	vertex.batch_uv_transform[3] = uv_scale_y
-	vertex.batch_blur_modes[0] = fragment_snapshot.blur[0]
-	vertex.batch_blur_modes[1] = fragment_snapshot.blur[1]
-	vertex.batch_blur_modes[2] = fragment_snapshot.flags
+	vertex.batch_blur_modes[0] = rect_state_snapshot.blur[0]
+	vertex.batch_blur_modes[1] = rect_state_snapshot.blur[1]
+	vertex.batch_blur_modes[2] = rect_state_snapshot.flags
 	vertex.batch_blur_modes[3] = 0
-	ffi.copy(vertex.batch_border_radius, fragment_snapshot.border_radius, ffi.sizeof("float") * 4)
+	ffi.copy(vertex.batch_border_radius, rect_state_snapshot.border_radius, ffi.sizeof("float") * 4)
 	vertex.batch_quad_size[0] = entry.qw
 	vertex.batch_quad_size[1] = entry.qh
 	vertex.batch_quad_size[2] = state.disable_rect_sdf and 0 or entry.w
 	vertex.batch_quad_size[3] = state.disable_rect_sdf and 0 or entry.h
-	vertex.batch_sdf_texture[0] = fragment_snapshot.sdf_threshold
-	vertex.batch_sdf_texture[1] = fragment_snapshot.sdf_texel_range
+	vertex.batch_sdf_texture[0] = rect_state_snapshot.sdf_threshold
+	vertex.batch_sdf_texture[1] = rect_state_snapshot.sdf_texel_range
 	vertex.batch_sdf_texture[2] = state.texture and
 		render2d.rect_batch_pipeline:GetTextureIndex(state.texture) or
 		-1
 	vertex.batch_sdf_texture[3] = state.gradient_texture and
 		render2d.rect_batch_pipeline:GetTextureIndex(state.gradient_texture) or
 		-1
-	vertex.batch_outline_alpha[0] = fragment_snapshot.outline_width
-	vertex.batch_outline_alpha[1] = fragment_snapshot.alpha_multiplier
+	vertex.batch_outline_alpha[0] = rect_state_snapshot.outline_width
+	vertex.batch_outline_alpha[1] = rect_state_snapshot.alpha_multiplier
 end
 
 function render2d.GetBatchState()
@@ -2572,14 +2572,14 @@ local function can_batch_rect_draw()
 end
 
 capture_rect_draw_state = function()
-	local fragment_snapshot = FragmentConstants()
+	local rect_state_snapshot = RectDrawState()
 	ffi.copy(
-		fragment_snapshot,
+		rect_state_snapshot,
 		render2d.state.render.fragment.constants,
 		render2d.state.render.fragment.constants_size
 	)
 	return {
-		fragment_snapshot = fragment_snapshot,
+		rect_state_snapshot = rect_state_snapshot,
 		world_matrix = render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]:Copy(),
 		texture = render2d.state.render.textures.texture,
 		gradient_texture = render2d.state.render.textures.gradient_texture,
@@ -2604,7 +2604,7 @@ end
 restore_rect_draw_state = function(state)
 	ffi.copy(
 		render2d.state.render.fragment.constants,
-		state.fragment_snapshot,
+		state.rect_state_snapshot,
 		render2d.state.render.fragment.constants_size
 	)
 	render2d.state.render.textures.texture = state.texture
