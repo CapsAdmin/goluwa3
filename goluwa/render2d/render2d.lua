@@ -66,6 +66,7 @@ local restore_rect_draw_state
 local flush_rect_batch_queue
 local draw_rect_immediate
 local ensure_rect_batch_instance_buffer
+local apply_scissor_to_command_buffer
 render2d.state = {
 	render = {
 		fragment = {
@@ -2073,6 +2074,24 @@ do
 		render.GetCommandBuffer():SetBlendConstants(r, g, b, a)
 	end
 
+	apply_scissor_to_command_buffer = function(x, y, w, h)
+		local cmd = render.GetCommandBuffer()
+
+		if not cmd then return end
+
+		local cmd_x, cmd_y, cmd_w, cmd_h = x, y, w, h
+
+		if cmd_w == 0 or cmd_h == 0 then
+			local screen_w, screen_h = render2d.GetSize()
+			cmd_x = math.max(screen_w or 0, 0)
+			cmd_y = math.max(screen_h or 0, 0)
+			cmd_w = 1
+			cmd_h = 1
+		end
+
+		cmd:SetScissor(cmd_x, cmd_y, cmd_w, cmd_h)
+	end
+
 	function render2d.SetScissor(x, y, w, h)
 		x = x or 0
 		y = y or 0
@@ -2096,21 +2115,7 @@ do
 		render2d.state.render.pipeline.scissor.w = w
 		render2d.state.render.pipeline.scissor.h = h
 		update_scissor_state_id(x, y, w, h)
-		local cmd = render.GetCommandBuffer()
-
-		if cmd then
-			local cmd_x, cmd_y, cmd_w, cmd_h = x, y, w, h
-
-			if cmd_w == 0 or cmd_h == 0 then
-				local screen_w, screen_h = render2d.GetSize()
-				cmd_x = math.max(screen_w or 0, 0)
-				cmd_y = math.max(screen_h or 0, 0)
-				cmd_w = 1
-				cmd_h = 1
-			end
-
-			cmd:SetScissor(cmd_x, cmd_y, cmd_w, cmd_h)
-		end
+		apply_scissor_to_command_buffer(x, y, w, h)
 	end
 
 	do
@@ -2568,25 +2573,21 @@ end
 
 capture_rect_draw_state = function()
 	local fragment_snapshot = FragmentConstants()
-	local world_matrix = Matrix44()
-	local depth_mode_name, depth_write = render2d.GetDepthMode()
-	local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
 	ffi.copy(
 		fragment_snapshot,
 		render2d.state.render.fragment.constants,
 		render2d.state.render.fragment.constants_size
 	)
-	Matrix44.CopyTo(render2d.GetWorldMatrix(), world_matrix)
 	return {
 		fragment_snapshot = fragment_snapshot,
-		world_matrix = world_matrix,
+		world_matrix = render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]:Copy(),
 		texture = render2d.state.render.textures.texture,
 		gradient_texture = render2d.state.render.textures.gradient_texture,
 		blend_mode = normalize_blend_mode_state(render2d.state.render.pipeline.blend),
-		depth_mode = depth_mode_name,
-		depth_write = depth_write,
-		stencil_mode = stencil_mode_name,
-		stencil_ref = stencil_ref,
+		depth_mode = render2d.state.render.pipeline.depth.mode,
+		depth_write = render2d.state.render.pipeline.depth.write,
+		stencil_mode = render2d.state.render.pipeline.stencil.mode,
+		stencil_ref = render2d.state.render.pipeline.stencil.ref,
 		disable_rect_sdf = render2d.state.render.options.disable_rect_sdf,
 		scissor_x = render2d.state.render.pipeline.scissor.x,
 		scissor_y = render2d.state.render.pipeline.scissor.y,
@@ -2608,12 +2609,26 @@ restore_rect_draw_state = function(state)
 	)
 	render2d.state.render.textures.texture = state.texture
 	render2d.state.render.textures.gradient_texture = state.gradient_texture
-	render2d.SetBlendMode(state.blend_mode, true)
-	render2d.SetDepthMode(state.depth_mode, state.depth_write)
-	render2d.SetStencilMode(state.stencil_mode, state.stencil_ref)
-	render2d.SetDisableRectSDF(state.disable_rect_sdf)
-	render2d.SetScissor(state.scissor_x, state.scissor_y, state.scissor_w, state.scissor_h)
-	render2d.SetWorldMatrix(state.world_matrix)
+	render2d.state.render.pipeline.blend = state.blend_mode
+	render2d.state.render.pipeline.depth.mode = state.depth_mode
+	render2d.state.render.pipeline.depth.write = state.depth_write
+	render2d.state.render.pipeline.stencil.mode = state.stencil_mode
+	render2d.state.render.pipeline.stencil.ref = state.stencil_ref
+	render2d.state.render.options.disable_rect_sdf = state.disable_rect_sdf
+	render2d.state.render.pipeline.scissor.x = state.scissor_x
+	render2d.state.render.pipeline.scissor.y = state.scissor_y
+	render2d.state.render.pipeline.scissor.w = state.scissor_w
+	render2d.state.render.pipeline.scissor.h = state.scissor_h
+	update_blend_mode_state_id(state.blend_mode)
+	update_depth_state_id(state.depth_mode, state.depth_write)
+	update_stencil_state_id(state.stencil_mode, state.stencil_ref)
+	update_scissor_state_id(state.scissor_x, state.scissor_y, state.scissor_w, state.scissor_h)
+	mark_pipeline_state_dirty()
+	apply_scissor_to_command_buffer(state.scissor_x, state.scissor_y, state.scissor_w, state.scissor_h)
+	Matrix44.CopyTo(
+		state.world_matrix,
+		render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]
+	)
 end
 
 do
