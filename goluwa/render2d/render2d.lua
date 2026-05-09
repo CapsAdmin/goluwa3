@@ -34,14 +34,7 @@ local FragmentConstants = ffi.typeof([[
         float sdf_rect_size[2];
 	}
 ]])
-local fragment_constants = FragmentConstants()
-local fragment_constants_size = ffi.sizeof(fragment_constants)
 local render2d = library()
-local batch_state = RectBatch.New()
-local current_w, current_h = 0, 0
-local current_lw, current_lh = 0, 0
-local current_scissor_x, current_scissor_y = 0, 0
-local current_scissor_w, current_scissor_h = 0, 0
 local DEFAULT_BLEND_MODE = "alpha"
 local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
 local DEFAULT_DEPTH_MODE = "none"
@@ -73,28 +66,87 @@ local restore_rect_draw_state
 local flush_rect_batch_queue
 local draw_rect_immediate
 local ensure_rect_batch_instance_buffer
-local next_rect_batch_instance_buffer_slot = 1
-local rect_batch_pipeline_state_id = 0
-local current_fragment_static_state_id = 0
-local current_blend_mode_state_id = 0
-local current_depth_state_id = 0
-local current_stencil_state_id = 0
-local current_scissor_state_id = 0
-render2d.batched_rect_draws_enabled = true
 local default_rect_batch_mode = "instanced"
-local current_rect_batch_mode = default_rect_batch_mode
-local NIL_STATE_VALUE = {}
-local fragment_static_state_ids = {next_id = 1}
-local blend_mode_state_ids = {next_id = 1}
-local depth_state_ids = {next_id = 1}
-local stencil_state_ids = {next_id = 1}
-local scissor_state_ids = {next_id = 1}
-local pipeline_state_ids = {next_id = 1}
-local rect_batch_key_ids = {next_id = 1}
-local rect_batch_mode_ids = {
-	immediate = 1,
-	replay = 2,
-	instanced = 3,
+render2d.state = {
+	render = {
+		fragment = {
+			constants = FragmentConstants(),
+			constants_size = ffi.sizeof(FragmentConstants),
+			rect_size = {w = 0, h = 0, lw = 0, lh = 0},
+			uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
+		},
+		textures = {
+			texture = nil,
+			gradient_texture = nil,
+		},
+		pipeline = {
+			blend = nil,
+			depth = {mode = DEFAULT_DEPTH_MODE, write = false},
+			stencil = {mode = "none", ref = 1},
+			scissor = {x = 0, y = 0, w = 0, h = 0},
+		},
+		options = {
+			disable_rect_sdf = false,
+			clamp_border_radius = true,
+			batched_rect_draws_enabled = true,
+			default_rect_batch_mode = default_rect_batch_mode,
+			rect_batch_mode = default_rect_batch_mode,
+			margin_override = nil,
+		},
+	},
+	runtime = {
+		batch = {
+			state = RectBatch.New(),
+			mode_ids = {
+				immediate = 1,
+				replay = 2,
+				instanced = 3,
+			},
+		},
+		ids = {
+			nil_value = {},
+			roots = {
+				fragment_static = {next_id = 1},
+				blend = {next_id = 1},
+				depth = {next_id = 1},
+				stencil = {next_id = 1},
+				scissor = {next_id = 1},
+				pipeline = {next_id = 1},
+				rect_batch_key = {next_id = 1},
+			},
+			current = {
+				fragment_static = 0,
+				blend = 0,
+				depth = 0,
+				stencil = 0,
+				scissor = 0,
+				rect_batch_pipeline = 0,
+			},
+		},
+		pipeline_state = {
+			dirty = true,
+			synced_pipeline = nil,
+		},
+		frame = {
+			next_rect_batch_instance_buffer_slot = 1,
+		},
+		camera = {
+			projection = Matrix44(),
+			view = Matrix44(),
+			viewport = Rect(0, 0, 512, 512),
+			view_pos = Vec2(0, 0),
+			view_zoom = Vec2(1, 1),
+			view_angle = 0,
+			world_matrix_stack = {Matrix44()},
+			world_matrix_stack_pos = 1,
+			projection_view = Matrix44(),
+			projection_view_world = Matrix44(),
+		},
+		mesh = {
+			last_bound = nil,
+			last_cmd = nil,
+		},
+	},
 }
 
 local function intern_state_id(root, ...)
@@ -103,7 +155,7 @@ local function intern_state_id(root, ...)
 	for i = 1, select("#", ...) do
 		local value = select(i, ...)
 
-		if value == nil then value = NIL_STATE_VALUE end
+		if value == nil then value = render2d.state.runtime.ids.nil_value end
 
 		local next_node = node[value]
 
@@ -135,11 +187,12 @@ local function intern_rect_batch_key_id(
 	stencil_state_id,
 	scissor_state_id
 )
-	local node = rect_batch_key_ids[batch_mode_id]
+	local rect_batch_key_roots = render2d.state.runtime.ids.roots.rect_batch_key
+	local node = rect_batch_key_roots[batch_mode_id]
 
 	if not node then
 		node = {}
-		rect_batch_key_ids[batch_mode_id] = node
+		rect_batch_key_roots[batch_mode_id] = node
 	end
 
 	local next_node = node[pipeline_id]
@@ -185,8 +238,8 @@ local function intern_rect_batch_key_id(
 	local leaf = node[scissor_state_id]
 
 	if not leaf then
-		leaf = rect_batch_key_ids.next_id
-		rect_batch_key_ids.next_id = leaf + 1
+		leaf = rect_batch_key_roots.next_id
+		rect_batch_key_roots.next_id = leaf + 1
 		node[scissor_state_id] = leaf
 	end
 
@@ -194,28 +247,29 @@ local function intern_rect_batch_key_id(
 end
 
 local function update_fragment_static_state_id()
-	current_fragment_static_state_id = intern_state_id(
-		fragment_static_state_ids,
-		fragment_constants.nine_patch_x_count,
-		fragment_constants.nine_patch_y_count,
-		fragment_constants.nine_patch_x_stretch[0],
-		fragment_constants.nine_patch_x_stretch[1],
-		fragment_constants.nine_patch_x_stretch[2],
-		fragment_constants.nine_patch_x_stretch[3],
-		fragment_constants.nine_patch_x_stretch[4],
-		fragment_constants.nine_patch_x_stretch[5],
-		fragment_constants.nine_patch_y_stretch[0],
-		fragment_constants.nine_patch_y_stretch[1],
-		fragment_constants.nine_patch_y_stretch[2],
-		fragment_constants.nine_patch_y_stretch[3],
-		fragment_constants.nine_patch_y_stretch[4],
-		fragment_constants.nine_patch_y_stretch[5]
+	local constants = render2d.state.render.fragment.constants
+	render2d.state.runtime.ids.current.fragment_static = intern_state_id(
+		render2d.state.runtime.ids.roots.fragment_static,
+		constants.nine_patch_x_count,
+		constants.nine_patch_y_count,
+		constants.nine_patch_x_stretch[0],
+		constants.nine_patch_x_stretch[1],
+		constants.nine_patch_x_stretch[2],
+		constants.nine_patch_x_stretch[3],
+		constants.nine_patch_x_stretch[4],
+		constants.nine_patch_x_stretch[5],
+		constants.nine_patch_y_stretch[0],
+		constants.nine_patch_y_stretch[1],
+		constants.nine_patch_y_stretch[2],
+		constants.nine_patch_y_stretch[3],
+		constants.nine_patch_y_stretch[4],
+		constants.nine_patch_y_stretch[5]
 	)
 end
 
 local function update_blend_mode_state_id(state)
-	current_blend_mode_state_id = intern_state_id(
-		blend_mode_state_ids,
+	render2d.state.runtime.ids.current.blend = intern_state_id(
+		render2d.state.runtime.ids.roots.blend,
 		state and state.blend == true,
 		state and state.src_color_blend_factor,
 		state and state.dst_color_blend_factor,
@@ -231,33 +285,33 @@ local function update_blend_mode_state_id(state)
 end
 
 local function update_depth_state_id(mode_name, write)
-	current_depth_state_id = intern_state_id(depth_state_ids, mode_name, write == true)
+	render2d.state.runtime.ids.current.depth = intern_state_id(render2d.state.runtime.ids.roots.depth, mode_name, write == true)
 end
 
 local function update_stencil_state_id(mode_name, ref)
-	current_stencil_state_id = intern_state_id(stencil_state_ids, mode_name, ref)
+	render2d.state.runtime.ids.current.stencil = intern_state_id(render2d.state.runtime.ids.roots.stencil, mode_name, ref)
 end
 
 local function update_scissor_state_id(x, y, w, h)
-	current_scissor_state_id = intern_state_id(scissor_state_ids, x, y, w, h)
+	render2d.state.runtime.ids.current.scissor = intern_state_id(render2d.state.runtime.ids.roots.scissor, x, y, w, h)
 end
 
 local function reset_rect_batch_instance_frame_state()
-	next_rect_batch_instance_buffer_slot = 1
+	render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = 1
 end
 
 function render2d.SetRectBatchMode(mode)
-	mode = mode or default_rect_batch_mode
+	mode = mode or render2d.state.render.options.default_rect_batch_mode
 
 	if mode ~= "immediate" and mode ~= "replay" and mode ~= "instanced" then
 		error("invalid rect batch mode: " .. tostring(mode), 2)
 	end
 
-	current_rect_batch_mode = mode
+	render2d.state.render.options.rect_batch_mode = mode
 end
 
 function render2d.GetRectBatchMode()
-	return current_rect_batch_mode
+	return render2d.state.render.options.rect_batch_mode
 end
 
 function render2d.SetDefaultRectBatchMode(mode)
@@ -267,13 +321,15 @@ function render2d.SetDefaultRectBatchMode(mode)
 		error("invalid default rect batch mode: " .. tostring(mode), 2)
 	end
 
-	default_rect_batch_mode = mode
+	render2d.state.render.options.default_rect_batch_mode = mode
 
-	if current_rect_batch_mode ~= "immediate" then current_rect_batch_mode = mode end
+	if render2d.state.render.options.rect_batch_mode ~= "immediate" then
+		render2d.state.render.options.rect_batch_mode = mode
+	end
 end
 
 function render2d.GetDefaultRectBatchMode()
-	return default_rect_batch_mode
+	return render2d.state.render.options.default_rect_batch_mode
 end
 
 utility.MakePushPopFunction(render2d, "RectBatchMode")
@@ -369,7 +425,7 @@ local function build_rect_batch_fragment_shader_source(source)
 end
 
 local function build_rect_batch_key(state, w, h, margin, batch_mode)
-	local batch_mode_id = rect_batch_mode_ids[batch_mode] or 0
+	local batch_mode_id = render2d.state.runtime.batch.mode_ids[batch_mode] or 0
 	return intern_rect_batch_key_id(
 		batch_mode_id,
 		state.pipeline_state_id,
@@ -382,27 +438,29 @@ local function build_rect_batch_key(state, w, h, margin, batch_mode)
 end
 
 local function apply_rect_margin_uv(qw, qh, w, h)
-	local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
-	local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
+	local constants = render2d.state.render.fragment.constants
+	local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
+	local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
 	local margin = (qw - w) * 0.5
 
 	if margin > 0 and w > 0 and h > 0 then
-		fragment_constants.uv_scale[0] = old_scale_x * (qw / w)
-		fragment_constants.uv_scale[1] = old_scale_y * (qh / h)
-		fragment_constants.uv_offset[0] = old_off_x - (margin / w) * old_scale_x
-		fragment_constants.uv_offset[1] = old_off_y - (margin / h) * old_scale_y
+		constants.uv_scale[0] = old_scale_x * (qw / w)
+		constants.uv_scale[1] = old_scale_y * (qh / h)
+		constants.uv_offset[0] = old_off_x - (margin / w) * old_scale_x
+		constants.uv_offset[1] = old_off_y - (margin / h) * old_scale_y
 	end
 
 	return old_off_x, old_off_y, old_scale_x, old_scale_y
 end
 
 local function restore_rect_margin_uv(old_off_x, old_off_y, old_scale_x, old_scale_y)
-	fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
-	fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
+	local constants = render2d.state.render.fragment.constants
+	constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
+	constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
 end
 
 local function get_rect_batch_instance_uv_transform(entry)
-	local fragment_snapshot = entry.state.fragment_constants
+	local fragment_snapshot = entry.state.fragment_snapshot
 	local off_x = fragment_snapshot.uv_offset[0]
 	local off_y = fragment_snapshot.uv_offset[1]
 	local scale_x = fragment_snapshot.uv_scale[0]
@@ -422,7 +480,7 @@ end
 local function write_rect_batch_instance(vertex, entry)
 	local values = entry.draw_matrix:GetFloatCopy()
 	local state = entry.state
-	local fragment_snapshot = state.fragment_constants
+	local fragment_snapshot = state.fragment_snapshot
 	local uv_off_x, uv_off_y, uv_scale_x, uv_scale_y = get_rect_batch_instance_uv_transform(entry)
 	ffi.copy(vertex.pvw_row_0, values + 0, ffi.sizeof("float") * 4)
 	ffi.copy(vertex.pvw_row_1, values + 4, ffi.sizeof("float") * 4)
@@ -455,22 +513,24 @@ local function write_rect_batch_instance(vertex, entry)
 end
 
 function render2d.GetBatchState()
-	return batch_state
+	return render2d.state.runtime.batch.state
 end
 
 function render2d.HasPendingBatches()
-	return batch_state:HasPending()
+	return render2d.state.runtime.batch.state:HasPending()
 end
 
 function render2d.MarkBatchesPending(count)
-	return batch_state:MarkPending(count)
+	return render2d.state.runtime.batch.state:MarkPending(count)
 end
 
 function render2d.ClearPendingBatches()
-	batch_state:ClearPending()
+	render2d.state.runtime.batch.state:ClearPending()
 end
 
 function render2d.FlushBatches(reason)
+	local batch_state = render2d.state.runtime.batch.state
+
 	if not batch_state:BeginFlush(reason) then return false end
 
 	if not flush_rect_batch_queue then
@@ -579,7 +639,7 @@ local function apply_stencil_state(pipeline, stencil_mode, stencil_ref)
 end
 
 local function mark_pipeline_state_dirty()
-	render2d.pipeline_state_dirty = true
+	render2d.state.runtime.pipeline_state.dirty = true
 end
 
 local function sync_pipeline_state(force)
@@ -589,20 +649,19 @@ local function sync_pipeline_state(force)
 
 	if
 		not force and
-		not render2d.pipeline_state_dirty and
-		render2d.synced_pipeline == pipeline
+		not render2d.state.runtime.pipeline_state.dirty and
+		render2d.state.runtime.pipeline_state.synced_pipeline == pipeline
 	then
 		return
 	end
 
-	local blend_mode = render2d.current_blend_mode_state or
-		get_blend_mode_state(render2d.current_blend_mode)
-	local depth_mode_name, depth_write = render2d.GetDepthMode()
-	depth_mode_name = depth_mode_name or DEFAULT_DEPTH_MODE
-	depth_write = not not depth_write
-	local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
-	stencil_mode_name = stencil_mode_name or "none"
-	stencil_ref = stencil_ref or 1
+	local blend_mode = render2d.state.render.pipeline.blend or get_blend_mode_state(DEFAULT_BLEND_MODE)
+	local depth_state = render2d.state.render.pipeline.depth
+	local stencil_state = render2d.state.render.pipeline.stencil
+	local depth_mode_name = depth_state.mode or DEFAULT_DEPTH_MODE
+	local depth_write = depth_state.write == true
+	local stencil_mode_name = stencil_state.mode or "none"
+	local stencil_ref = stencil_state.ref or 1
 	local stencil_mode = render2d.stencil_modes[stencil_mode_name]
 	local depth_compare_op = depth_mode_to_compare_op[depth_mode_name] or "always"
 	local cmd = render.GetCommandBuffer()
@@ -612,8 +671,8 @@ local function sync_pipeline_state(force)
 	pipeline:SetDepthCompareOp(depth_compare_op)
 	apply_stencil_state(pipeline, stencil_mode, stencil_ref)
 	pipeline:Bind(cmd, render.GetCurrentFrame())
-	render2d.pipeline_state_dirty = false
-	render2d.synced_pipeline = pipeline
+	render2d.state.runtime.pipeline_state.dirty = false
+	render2d.state.runtime.pipeline_state.synced_pipeline = pipeline
 end
 
 -- Blend mode presets
@@ -735,93 +794,95 @@ function render2d.Initialize()
 							"global_color",
 							"vec4",
 							function(self, block, key)
-								ffi.copy(block[key], fragment_constants.global_color, 16)
+								ffi.copy(block[key], render2d.state.render.fragment.constants.global_color, 16)
 							end,
 						},
 						{
 							"alpha_multiplier",
 							"float",
 							function(self, block, key)
-								block[key] = fragment_constants.alpha_multiplier
+								block[key] = render2d.state.render.fragment.constants.alpha_multiplier
 							end,
 						},
 						{
 							"texture_index",
 							"int",
 							function(self, block, key)
-								block[key] = render2d.current_texture and self:GetTextureIndex(render2d.current_texture) or -1
+								local texture = render2d.state.render.textures.texture
+								block[key] = texture and self:GetTextureIndex(texture) or -1
 							end,
 						},
 						{
 							"uv_offset",
 							"vec2",
 							function(self, block, key)
-								ffi.copy(block[key], fragment_constants.uv_offset, 8)
+								ffi.copy(block[key], render2d.state.render.fragment.constants.uv_offset, 8)
 							end,
 						},
 						{
 							"uv_scale",
 							"vec2",
 							function(self, block, key)
-								ffi.copy(block[key], fragment_constants.uv_scale, 8)
+								ffi.copy(block[key], render2d.state.render.fragment.constants.uv_scale, 8)
 							end,
 						},
 						{
 							"flags",
 							"int",
 							function(self, block, key)
-								block[key] = fragment_constants.flags
+								block[key] = render2d.state.render.fragment.constants.flags
 							end,
 						},
 						{
 							"blur",
 							"vec2",
 							function(self, block, key)
-								ffi.copy(block[key], fragment_constants.blur, 8)
+								ffi.copy(block[key], render2d.state.render.fragment.constants.blur, 8)
 							end,
 						},
 						{
 							"border_radius",
 							"vec4",
 							function(self, block, key)
-								ffi.copy(block[key], fragment_constants.border_radius, 16)
+								ffi.copy(block[key], render2d.state.render.fragment.constants.border_radius, 16)
 							end,
 						},
 						{
 							"outline_width",
 							"float",
 							function(self, block, key)
-								block[key] = fragment_constants.outline_width
+								block[key] = render2d.state.render.fragment.constants.outline_width
 							end,
 						},
 						{
 							"rect_size",
 							"vec2",
 							function(self, block, key)
-								block[key][0] = current_w
-								block[key][1] = current_h
+								block[key][0] = render2d.state.render.fragment.rect_size.w
+								block[key][1] = render2d.state.render.fragment.rect_size.h
 							end,
 						},
 						{
 							"sdf_threshold",
 							"float",
 							function(self, block, key)
-								block[key] = fragment_constants.sdf_threshold
+								block[key] = render2d.state.render.fragment.constants.sdf_threshold
 							end,
 						},
 						{
 							"sdf_texel_range",
 							"float",
 							function(self, block, key)
-								block[key] = fragment_constants.sdf_texel_range
+								block[key] = render2d.state.render.fragment.constants.sdf_texel_range
 							end,
 						},
 						{
 							"gradient_texture_index",
 							"int",
 							function(self, block, key)
-								block[key] = render2d.current_gradient_texture and
-									self:GetTextureIndex(render2d.current_gradient_texture) or
+								local gradient_texture = render2d.state.render.textures.gradient_texture
+								block[key] = gradient_texture and
+									self:GetTextureIndex(gradient_texture) or
 									-1
 							end,
 						},
@@ -829,21 +890,21 @@ function render2d.Initialize()
 							"nine_patch_x_count",
 							"int",
 							function(self, block, key)
-								block[key] = fragment_constants.nine_patch_x_count
+								block[key] = render2d.state.render.fragment.constants.nine_patch_x_count
 							end,
 						},
 						{
 							"nine_patch_y_count",
 							"int",
 							function(self, block, key)
-								block[key] = fragment_constants.nine_patch_y_count
+								block[key] = render2d.state.render.fragment.constants.nine_patch_y_count
 							end,
 						},
 						{
 							"nine_patch_x_stretch",
 							"float",
 							function(self, block, key)
-								ffi.copy(block[key], fragment_constants.nine_patch_x_stretch, 4 * 6)
+								ffi.copy(block[key], render2d.state.render.fragment.constants.nine_patch_x_stretch, 4 * 6)
 							end,
 							6,
 						},
@@ -851,7 +912,7 @@ function render2d.Initialize()
 							"nine_patch_y_stretch",
 							"float",
 							function(self, block, key)
-								ffi.copy(block[key], fragment_constants.nine_patch_y_stretch, 4 * 6)
+								ffi.copy(block[key], render2d.state.render.fragment.constants.nine_patch_y_stretch, 4 * 6)
 							end,
 							6,
 						},
@@ -859,8 +920,8 @@ function render2d.Initialize()
 							"sdf_rect_size",
 							"vec2",
 							function(self, block, key)
-								block[key][0] = current_lw
-								block[key][1] = current_lh
+								block[key][0] = render2d.state.render.fragment.rect_size.lw
+								block[key][1] = render2d.state.render.fragment.rect_size.lh
 							end,
 						},
 					},
@@ -1269,8 +1330,8 @@ function render2d.Initialize()
 		BackStencilDepthFailOp = config.BackStencilDepthFailOp,
 		BackStencilCompareOp = config.BackStencilCompareOp,
 	}
-	render2d.rect_batch_pipeline_state_id = intern_state_id(pipeline_state_ids, render2d.rect_batch_pipeline)
-	rect_batch_pipeline_state_id = render2d.rect_batch_pipeline_state_id
+	render2d.rect_batch_pipeline_state_id = intern_state_id(render2d.state.runtime.ids.roots.pipeline, render2d.rect_batch_pipeline)
+	render2d.state.runtime.ids.current.rect_batch_pipeline = render2d.rect_batch_pipeline_state_id
 
 	render2d.pipeline:SetTextureSamplerConfigResolver(function()
 		return render.GetSamplerFilterConfig()
@@ -1365,8 +1426,9 @@ function render2d.Initialize()
 end
 
 function render2d.ResetState()
+	local constants = render2d.state.render.fragment.constants
 	render2d.ClearPendingBatches()
-	render2d.SetRectBatchMode(default_rect_batch_mode)
+	render2d.SetRectBatchMode(render2d.state.render.options.default_rect_batch_mode)
 	reset_rect_batch_instance_frame_state()
 	render2d.SetTexture()
 	render2d.SetColor(1, 1, 1, 1)
@@ -1376,18 +1438,18 @@ function render2d.ResetState()
 	render2d.SetBlur(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
-	fragment_constants.flags = 0
+	constants.flags = 0
 	render2d.SetDisableRectSDF(false)
 	render2d.SetClampBorderRadius(true)
-	fragment_constants.sdf_threshold = 0
-	fragment_constants.sdf_texel_range = 1
-	fragment_constants.gradient_texture_index = -1
-	fragment_constants.nine_patch_x_count = 0
-	fragment_constants.nine_patch_y_count = 0
+	constants.sdf_threshold = 0
+	constants.sdf_texel_range = 1
+	constants.gradient_texture_index = -1
+	constants.nine_patch_x_count = 0
+	constants.nine_patch_y_count = 0
 
 	for i = 0, 5 do
-		fragment_constants.nine_patch_x_stretch[i] = 0
-		fragment_constants.nine_patch_y_stretch[i] = 0
+		constants.nine_patch_x_stretch[i] = 0
+		constants.nine_patch_y_stretch[i] = 0
 	end
 
 	update_fragment_static_state_id()
@@ -1406,18 +1468,20 @@ end
 do
 	do
 		function render2d.SetColor(r, g, b, a)
-			fragment_constants.global_color[0] = r
-			fragment_constants.global_color[1] = g
-			fragment_constants.global_color[2] = b
+			local constants = render2d.state.render.fragment.constants
+			constants.global_color[0] = r
+			constants.global_color[1] = g
+			constants.global_color[2] = b
 
-			if a then fragment_constants.global_color[3] = a end
+			if a then constants.global_color[3] = a end
 		end
 
 		function render2d.GetColor()
-			return fragment_constants.global_color[0],
-			fragment_constants.global_color[1],
-			fragment_constants.global_color[2],
-			fragment_constants.global_color[3]
+			local constants = render2d.state.render.fragment.constants
+			return constants.global_color[0],
+			constants.global_color[1],
+			constants.global_color[2],
+			constants.global_color[3]
 		end
 
 		utility.MakePushPopFunction(render2d, "Color")
@@ -1440,15 +1504,19 @@ do
 
 				local function make_setter(f)
 					return function(value)
+						local constants = render2d.state.render.fragment.constants
 						local shifted_mask = bit.lshift(f.mask, f.shift)
-						local other = bit.band(fragment_constants.flags, bit.bnot(shifted_mask))
-						fragment_constants.flags = bit.bor(other, bit.lshift(bit.band(value, f.mask), f.shift))
+						local other = bit.band(constants.flags, bit.bnot(shifted_mask))
+						constants.flags = bit.bor(other, bit.lshift(bit.band(value, f.mask), f.shift))
 					end
 				end
 
 				local function make_getter(f)
 					return function()
-						return bit.rshift(bit.band(fragment_constants.flags, bit.lshift(f.mask, f.shift)), f.shift)
+						return bit.rshift(
+							bit.band(render2d.state.render.fragment.constants.flags, bit.lshift(f.mask, f.shift)),
+							f.shift
+						)
 					end
 				end
 
@@ -1523,47 +1591,45 @@ do
 
 		do
 			function render2d.SetSDFThreshold(threshold)
-				fragment_constants.sdf_threshold = threshold
+				render2d.state.render.fragment.constants.sdf_threshold = threshold
 			end
 
 			function render2d.GetSDFThreshold()
-				return fragment_constants.sdf_threshold
+				return render2d.state.render.fragment.constants.sdf_threshold
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFThreshold")
 
 			function render2d.SetSDFTexelRange(range)
-				fragment_constants.sdf_texel_range = range or 1
+				render2d.state.render.fragment.constants.sdf_texel_range = range or 1
 			end
 
 			function render2d.GetSDFTexelRange()
-				return fragment_constants.sdf_texel_range
+				return render2d.state.render.fragment.constants.sdf_texel_range
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFTexelRange")
-			render2d.disable_rect_sdf = false
 
 			function render2d.SetDisableRectSDF(enabled)
-				render2d.disable_rect_sdf = enabled == true
+				render2d.state.render.options.disable_rect_sdf = enabled == true
 			end
 
 			function render2d.GetDisableRectSDF()
-				return render2d.disable_rect_sdf
+				return render2d.state.render.options.disable_rect_sdf
 			end
 
 			utility.MakePushPopFunction(render2d, "DisableRectSDF")
 		end
 
 		do
-			render2d.clamp_border_radius = true
-
 			function render2d.SetClampBorderRadius(enabled)
-				render2d.clamp_border_radius = enabled == true
-				render2d.SetCLAMP_BORDER_RADIUS(enabled and 1 or 0)
+				local normalized = enabled == true
+				render2d.state.render.options.clamp_border_radius = normalized
+				render2d.SetCLAMP_BORDER_RADIUS(normalized and 1 or 0)
 			end
 
 			function render2d.GetClampBorderRadius()
-				return render2d.clamp_border_radius
+				return render2d.state.render.options.clamp_border_radius
 			end
 
 			utility.MakePushPopFunction(render2d, "ClampBorderRadius")
@@ -1571,12 +1637,14 @@ do
 
 		do
 			function render2d.SetBlur(x, y)
-				fragment_constants.blur[0] = x or 0
-				fragment_constants.blur[1] = y or x or 0
+				local constants = render2d.state.render.fragment.constants
+				constants.blur[0] = x or 0
+				constants.blur[1] = y or x or 0
 			end
 
 			function render2d.GetBlur()
-				return fragment_constants.blur[0], fragment_constants.blur[1]
+				local constants = render2d.state.render.fragment.constants
+				return constants.blur[0], constants.blur[1]
 			end
 
 			utility.MakePushPopFunction(render2d, "Blur")
@@ -1584,11 +1652,11 @@ do
 
 		do
 			function render2d.SetSDFGradientTexture(tex)
-				render2d.current_gradient_texture = tex
+				render2d.state.render.textures.gradient_texture = tex
 			end
 
 			function render2d.GetSDFGradientTexture()
-				return render2d.current_gradient_texture
+				return render2d.state.render.textures.gradient_texture
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFGradientTexture")
@@ -1604,17 +1672,19 @@ do
 				tl = tl[1]
 			end
 
-			fragment_constants.border_radius[0] = tl or 0
-			fragment_constants.border_radius[1] = tr or tl or 0
-			fragment_constants.border_radius[2] = br or tl or 0
-			fragment_constants.border_radius[3] = bl or tl or 0
+			local constants = render2d.state.render.fragment.constants
+			constants.border_radius[0] = tl or 0
+			constants.border_radius[1] = tr or tl or 0
+			constants.border_radius[2] = br or tl or 0
+			constants.border_radius[3] = bl or tl or 0
 		end
 
 		function render2d.GetBorderRadius()
-			return fragment_constants.border_radius[0],
-			fragment_constants.border_radius[1],
-			fragment_constants.border_radius[2],
-			fragment_constants.border_radius[3]
+			local constants = render2d.state.render.fragment.constants
+			return constants.border_radius[0],
+			constants.border_radius[1],
+			constants.border_radius[2],
+			constants.border_radius[3]
 		end
 
 		utility.MakePushPopFunction(render2d, "BorderRadius")
@@ -1622,11 +1692,11 @@ do
 
 	do
 		function render2d.SetOutlineWidth(width)
-			fragment_constants.outline_width = width or 0
+			render2d.state.render.fragment.constants.outline_width = width or 0
 		end
 
 		function render2d.GetOutlineWidth()
-			return fragment_constants.outline_width
+			return render2d.state.render.fragment.constants.outline_width
 		end
 
 		utility.MakePushPopFunction(render2d, "OutlineWidth")
@@ -1634,12 +1704,13 @@ do
 
 	do
 		function render2d.ClearNinePatch()
-			fragment_constants.nine_patch_x_count = 0
-			fragment_constants.nine_patch_y_count = 0
+			local constants = render2d.state.render.fragment.constants
+			constants.nine_patch_x_count = 0
+			constants.nine_patch_y_count = 0
 
 			for i = 0, 5 do
-				fragment_constants.nine_patch_x_stretch[i] = 0
-				fragment_constants.nine_patch_y_stretch[i] = 0
+				constants.nine_patch_x_stretch[i] = 0
+				constants.nine_patch_y_stretch[i] = 0
 			end
 
 			update_fragment_static_state_id()
@@ -1675,30 +1746,32 @@ do
 			end
 
 			index = index or 0
-			fragment_constants.nine_patch_x_stretch[index * 2] = x1
-			fragment_constants.nine_patch_x_stretch[index * 2 + 1] = y1
-			fragment_constants.nine_patch_x_count = math.max(fragment_constants.nine_patch_x_count, index + 1)
-			fragment_constants.nine_patch_y_stretch[index * 2] = x2
-			fragment_constants.nine_patch_y_stretch[index * 2 + 1] = y2
-			fragment_constants.nine_patch_y_count = math.max(fragment_constants.nine_patch_y_count, index + 1)
+			local constants = render2d.state.render.fragment.constants
+			constants.nine_patch_x_stretch[index * 2] = x1
+			constants.nine_patch_x_stretch[index * 2 + 1] = y1
+			constants.nine_patch_x_count = math.max(constants.nine_patch_x_count, index + 1)
+			constants.nine_patch_y_stretch[index * 2] = x2
+			constants.nine_patch_y_stretch[index * 2 + 1] = y2
+			constants.nine_patch_y_count = math.max(constants.nine_patch_y_count, index + 1)
 			update_fragment_static_state_id()
 		end
 
 		function render2d.GetNinePatch()
-			return fragment_constants.nine_patch_x_stretch[0],
-			fragment_constants.nine_patch_x_stretch[1],
-			fragment_constants.nine_patch_y_stretch[0],
-			fragment_constants.nine_patch_y_stretch[1]
+			local constants = render2d.state.render.fragment.constants
+			return constants.nine_patch_x_stretch[0],
+			constants.nine_patch_x_stretch[1],
+			constants.nine_patch_y_stretch[0],
+			constants.nine_patch_y_stretch[1]
 		end
 	end
 
 	do
 		function render2d.SetAlphaMultiplier(a)
-			fragment_constants.alpha_multiplier = a
+			render2d.state.render.fragment.constants.alpha_multiplier = a
 		end
 
 		function render2d.GetAlphaMultiplier()
-			return fragment_constants.alpha_multiplier
+			return render2d.state.render.fragment.constants.alpha_multiplier
 		end
 
 		utility.MakePushPopFunction(render2d, "AlphaMultiplier")
@@ -1706,11 +1779,11 @@ do
 
 	do
 		function render2d.SetTexture(tex)
-			render2d.current_texture = tex
+			render2d.state.render.textures.texture = tex
 		end
 
 		function render2d.GetTexture()
-			return render2d.current_texture
+			return render2d.state.render.textures.texture
 		end
 
 		utility.MakePushPopFunction(render2d, "Texture")
@@ -1749,14 +1822,13 @@ do
 			next_state = next_mode
 		end
 
-		render2d.current_blend_mode = next_mode
-		render2d.current_blend_mode_state = next_state
+		render2d.state.render.pipeline.blend = next_state
 		update_blend_mode_state_id(next_state)
 		mark_pipeline_state_dirty()
 	end
 
 	function render2d.GetBlendMode()
-		return clone_blend_mode(render2d.current_blend_mode)
+		return clone_blend_mode(render2d.state.render.pipeline.blend)
 	end
 
 	do
@@ -1927,9 +1999,6 @@ do
 	}
 
 	do
-		local current_mode = DEFAULT_DEPTH_MODE
-		local current_write = false
-
 		function render2d.SetDepthMode(mode_name, write)
 			mode_name = mode_name or DEFAULT_DEPTH_MODE
 			write = not not write
@@ -1938,40 +2007,40 @@ do
 				error("Invalid depth mode: " .. tostring(mode_name))
 			end
 
-			current_mode = mode_name
-			current_write = write
-			update_depth_state_id(current_mode, current_write)
+			render2d.state.render.pipeline.depth.mode = mode_name
+			render2d.state.render.pipeline.depth.write = write
+			update_depth_state_id(mode_name, write)
 			mark_pipeline_state_dirty()
 		end
 
 		function render2d.GetDepthMode()
-			return current_mode, current_write
+			local state = render2d.state.render.pipeline.depth
+			return state.mode, state.write
 		end
 	end
 
 	do
-		local current_mode = "none"
-		local current_ref = 1
 		render2d.stencil_level = 0
 
 		function render2d.SetStencilMode(mode_name, ref)
-			ref = ref or current_ref
+			ref = ref or render2d.state.render.pipeline.stencil.ref
 			local mode = render2d.stencil_modes[mode_name]
 
 			if not mode then error("Invalid stencil mode: " .. tostring(mode_name)) end
 
-			current_mode = mode_name
-			current_ref = ref
-			update_stencil_state_id(current_mode, current_ref)
+			render2d.state.render.pipeline.stencil.mode = mode_name
+			render2d.state.render.pipeline.stencil.ref = ref
+			update_stencil_state_id(mode_name, ref)
 			mark_pipeline_state_dirty()
 		end
 
 		function render2d.GetStencilMode()
-			return current_mode, current_ref
+			local state = render2d.state.render.pipeline.stencil
+			return state.mode, state.ref
 		end
 
 		function render2d.GetStencilReference()
-			return current_ref
+			return render2d.state.render.pipeline.stencil.ref
 		end
 
 		function render2d.ClearStencil(val)
@@ -1980,8 +2049,8 @@ do
 			render2d.FlushBatches("clear_stencil")
 			local old_mode, old_ref = render2d.GetStencilMode()
 			local old_rect_batch_mode = render2d.GetRectBatchMode()
-			local old_batched_rect_draws_enabled = render2d.batched_rect_draws_enabled
-			render2d.batched_rect_draws_enabled = false
+			local old_batched_rect_draws_enabled = render2d.state.render.options.batched_rect_draws_enabled
+			render2d.state.render.options.batched_rect_draws_enabled = false
 			render2d.SetRectBatchMode("immediate")
 			render2d.stencil_level = 0
 			render2d.SetStencilMode("write", val or 0)
@@ -1991,7 +2060,7 @@ do
 			render2d.DrawRect(0, 0, sw, sh)
 			render2d.PopMatrix()
 			render2d.SetRectBatchMode(old_rect_batch_mode)
-			render2d.batched_rect_draws_enabled = old_batched_rect_draws_enabled
+			render2d.state.render.options.batched_rect_draws_enabled = old_batched_rect_draws_enabled
 			render2d.SetStencilMode(old_mode, old_ref)
 		end
 
@@ -2035,10 +2104,10 @@ do
 
 		w = math.max(w, 0)
 		h = math.max(h, 0)
-		current_scissor_x = x
-		current_scissor_y = y
-		current_scissor_w = w
-		current_scissor_h = h
+		render2d.state.render.pipeline.scissor.x = x
+		render2d.state.render.pipeline.scissor.y = y
+		render2d.state.render.pipeline.scissor.w = w
+		render2d.state.render.pipeline.scissor.h = h
 		update_scissor_state_id(x, y, w, h)
 		local cmd = render.GetCommandBuffer()
 
@@ -2241,8 +2310,10 @@ do
 	end
 
 	function render2d.UploadConstants(w, h, lw, lh)
-		current_w, current_h = w or 0, h or 0
-		current_lw, current_lh = lw or w or 0, lh or h or 0
+		render2d.state.render.fragment.rect_size.w = w or 0
+		render2d.state.render.fragment.rect_size.h = h or 0
+		render2d.state.render.fragment.rect_size.lw = lw or w or 0
+		render2d.state.render.fragment.rect_size.lh = lh or h or 0
 		local pipeline = get_active_pipeline()
 
 		if pipeline then pipeline:UploadConstants() end
@@ -2253,9 +2324,6 @@ do -- mesh
 	function render2d.CreateMesh(vertices, indices)
 		return Mesh.New(render2d.pipeline:GetVertexAttributes(), vertices, indices, nil, nil, "render2d mesh")
 	end
-
-	render2d.last_bound_mesh = nil
-	local last_cmd = nil
 
 	local function ensure_draw_command_immediate()
 		local cmd = render.GetCommandBuffer()
@@ -2268,10 +2336,13 @@ do -- mesh
 
 		if not cmd then return false end
 
-		if last_cmd ~= cmd or render2d.last_bound_mesh ~= mesh then
+		if
+			render2d.state.runtime.mesh.last_cmd ~= cmd or
+			render2d.state.runtime.mesh.last_bound ~= mesh
+		then
 			mesh:Bind(cmd, 0)
-			render2d.last_bound_mesh = mesh
-			last_cmd = cmd
+			render2d.state.runtime.mesh.last_bound = mesh
+			render2d.state.runtime.mesh.last_cmd = cmd
 		end
 
 		return true
@@ -2313,43 +2384,45 @@ do -- mesh
 end
 
 do -- uv
-	local X, Y, W, H, SX, SY
-
 	function render2d.SetUV(x, y, w, h, sx, sy)
+		local constants = render2d.state.render.fragment.constants
+
 		if not x then
 			-- Reset to default (no transformation)
-			fragment_constants.uv_offset[0] = 0
-			fragment_constants.uv_offset[1] = 0
-			fragment_constants.uv_scale[0] = 1
-			fragment_constants.uv_scale[1] = 1
+			constants.uv_offset[0] = 0
+			constants.uv_offset[1] = 0
+			constants.uv_scale[0] = 1
+			constants.uv_scale[1] = 1
 		else
 			sx = sx or 1
 			sy = sy or 1
 			local y = -y - h
 			-- Set UV offset and scale
-			fragment_constants.uv_offset[0] = x / sx
-			fragment_constants.uv_offset[1] = y / sy
-			fragment_constants.uv_scale[0] = w / sx
-			fragment_constants.uv_scale[1] = h / sy
+			constants.uv_offset[0] = x / sx
+			constants.uv_offset[1] = y / sy
+			constants.uv_scale[0] = w / sx
+			constants.uv_scale[1] = h / sy
 		end
 
-		X = x
-		Y = y
-		W = w
-		H = h
-		SX = sx
-		SY = sy
+		render2d.state.render.fragment.uv.x = x
+		render2d.state.render.fragment.uv.y = y
+		render2d.state.render.fragment.uv.w = w
+		render2d.state.render.fragment.uv.h = h
+		render2d.state.render.fragment.uv.sx = sx
+		render2d.state.render.fragment.uv.sy = sy
 	end
 
 	function render2d.GetUV()
-		return X, Y, W, H, SX, SY
+		local uv = render2d.state.render.fragment.uv
+		return uv.x, uv.y, uv.w, uv.h, uv.sx, uv.sy
 	end
 
 	function render2d.GetUVTransform()
-		return fragment_constants.uv_offset[0],
-		fragment_constants.uv_offset[1],
-		fragment_constants.uv_scale[0],
-		fragment_constants.uv_scale[1]
+		local constants = render2d.state.render.fragment.constants
+		return constants.uv_offset[0],
+		constants.uv_offset[1],
+		constants.uv_scale[0],
+		constants.uv_scale[1]
 	end
 
 	function render2d.SetSampleUVMode(mode)
@@ -2362,10 +2435,11 @@ do -- uv
 
 	function render2d.SetUV2(u1, v1, u2, v2)
 		-- Calculate offset and scale from UV coordinates
-		fragment_constants.uv_offset[0] = u1
-		fragment_constants.uv_offset[1] = v1
-		fragment_constants.uv_scale[0] = u2 - u1
-		fragment_constants.uv_scale[1] = v2 - v1
+		local constants = render2d.state.render.fragment.constants
+		constants.uv_offset[0] = u1
+		constants.uv_offset[1] = v1
+		constants.uv_scale[0] = u2 - u1
+		constants.uv_scale[1] = v2 - v1
 	end
 
 	utility.MakePushPopFunction(render2d, "UV")
@@ -2373,105 +2447,103 @@ do -- uv
 end
 
 do -- camera
-	local proj = Matrix44()
-	local view = Matrix44()
-	local viewport = Rect(0, 0, 512, 512)
-	local view_pos = Vec2(0, 0)
-	local view_zoom = Vec2(1, 1)
-	local view_angle = 0
-	local world_matrix_stack = {Matrix44()}
-	local world_matrix_stack_pos = 1
-	local proj_view = Matrix44()
-	local proj_view_world = Matrix44()
+	local camera_state = render2d.state.runtime.camera
 
 	local function update_proj_view()
-		proj_view = view * proj
+		camera_state.projection_view = camera_state.view * camera_state.projection
 	end
 
 	local function update_projection()
-		proj:Identity()
-		proj:Ortho(viewport.x, viewport.w, viewport.y, viewport.h, -16000, 16000)
+		camera_state.projection:Identity()
+		camera_state.projection:Ortho(
+			camera_state.viewport.x,
+			camera_state.viewport.w,
+			camera_state.viewport.y,
+			camera_state.viewport.h,
+			-16000,
+			16000
+		)
 		update_proj_view()
 	end
 
 	local function update_view()
-		view:Identity()
-		local x, y = viewport.w / 2, viewport.h / 2
-		view:Translate(x, y, 0)
-		view:Rotate(view_angle, 0, 0, 1)
-		view:Translate(-x, -y, 0)
-		view:Translate(view_pos.x, view_pos.y, 0)
-		view:Translate(x, y, 0)
-		view:Scale(view_zoom.x, view_zoom.y, 1)
-		view:Translate(-x, -y, 0)
+		camera_state.view:Identity()
+		local x, y = camera_state.viewport.w / 2, camera_state.viewport.h / 2
+		camera_state.view:Translate(x, y, 0)
+		camera_state.view:Rotate(camera_state.view_angle, 0, 0, 1)
+		camera_state.view:Translate(-x, -y, 0)
+		camera_state.view:Translate(camera_state.view_pos.x, camera_state.view_pos.y, 0)
+		camera_state.view:Translate(x, y, 0)
+		camera_state.view:Scale(camera_state.view_zoom.x, camera_state.view_zoom.y, 1)
+		camera_state.view:Translate(-x, -y, 0)
 		update_proj_view()
 	end
 
 	function render2d.UpdateScreenSize(w, h)
-		viewport.w = w
-		viewport.h = h
+		camera_state.viewport.w = w
+		camera_state.viewport.h = h
 		update_projection()
 		update_view()
 	end
 
 	function render2d.GetMatrix()
-		world_matrix_stack[world_matrix_stack_pos]:GetMultiplied(proj_view, proj_view_world)
-		return proj_view_world
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:GetMultiplied(camera_state.projection_view, camera_state.projection_view_world)
+		return camera_state.projection_view_world
 	end
 
 	function render2d.GetProjectionViewMatrix()
-		return proj_view
+		return camera_state.projection_view
 	end
 
 	function render2d.GetSize()
-		return viewport.w, viewport.h
+		return camera_state.viewport.w, camera_state.viewport.h
 	end
 
 	do
 		local ceil = math.ceil
 
 		function render2d.Translate(x, y, z)
-			world_matrix_stack[world_matrix_stack_pos]:Translate(ceil(x), ceil(y), z or 0)
+			camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Translate(ceil(x), ceil(y), z or 0)
 		end
 
 		function render2d.Scale(w, h, z)
-			world_matrix_stack[world_matrix_stack_pos]:Scale(ceil(w), ceil(h or w), z or 1)
+			camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Scale(ceil(w), ceil(h or w), z or 1)
 		end
 	end
 
 	function render2d.Translatef(x, y, z)
-		world_matrix_stack[world_matrix_stack_pos]:Translate(x, y, z or 0)
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Translate(x, y, z or 0)
 	end
 
 	function render2d.Rotate(a)
-		world_matrix_stack[world_matrix_stack_pos]:Rotate(a, 0, 0, 1)
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Rotate(a, 0, 0, 1)
 	end
 
 	function render2d.Scalef(w, h, z)
-		world_matrix_stack[world_matrix_stack_pos]:Scale(w, h or w, z or 1)
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Scale(w, h or w, z or 1)
 	end
 
 	function render2d.Shear(x, y)
-		world_matrix_stack[world_matrix_stack_pos]:Shear(x, y, 0)
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Shear(x, y, 0)
 	end
 
 	function render2d.LoadIdentity()
-		world_matrix_stack[world_matrix_stack_pos]:Identity()
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Identity()
 	end
 
 	function render2d.PushMatrix(x, y, w, h, a, dont_multiply)
-		world_matrix_stack_pos = world_matrix_stack_pos + 1
-		local mat = world_matrix_stack[world_matrix_stack_pos]
+		camera_state.world_matrix_stack_pos = camera_state.world_matrix_stack_pos + 1
+		local mat = camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]
 
 		if not mat then
 			mat = Matrix44()
-			world_matrix_stack[world_matrix_stack_pos] = mat
+			camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos] = mat
 		end
 
 		if dont_multiply then
 			mat:Identity()
 		else
-			Matrix44.CopyTo(world_matrix_stack[world_matrix_stack_pos - 1], mat)
+			Matrix44.CopyTo(camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos - 1], mat)
 		end
 
 		if x and y then render2d.Translate(x, y) end
@@ -2482,24 +2554,25 @@ do -- camera
 	end
 
 	function render2d.PopMatrix()
-		if world_matrix_stack_pos > 1 then
-			world_matrix_stack_pos = world_matrix_stack_pos - 1
+		if camera_state.world_matrix_stack_pos > 1 then
+			camera_state.world_matrix_stack_pos = camera_state.world_matrix_stack_pos - 1
 		else
 			error("Matrix stack underflow")
 		end
 	end
 
 	function render2d.SetWorldMatrix(mat)
-		Matrix44.CopyTo(mat, world_matrix_stack[world_matrix_stack_pos])
+		Matrix44.CopyTo(mat, camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos])
 	end
 
 	function render2d.GetWorldMatrix()
-		return world_matrix_stack[world_matrix_stack_pos]
+		return camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]
 	end
 end
 
 local function can_batch_rect_draw()
-	return render2d.batched_rect_draws_enabled and
+	local batch_state = render2d.state.runtime.batch.state
+	return render2d.state.render.options.batched_rect_draws_enabled and
 		not batch_state.is_flushing and
 		render.GetCommandBuffer() ~= nil and
 		render2d.GetRectBatchMode() ~= "immediate" and
@@ -2511,35 +2584,43 @@ capture_rect_draw_state = function()
 	local world_matrix = Matrix44()
 	local depth_mode_name, depth_write = render2d.GetDepthMode()
 	local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
-	ffi.copy(fragment_snapshot, fragment_constants, fragment_constants_size)
+	ffi.copy(
+		fragment_snapshot,
+		render2d.state.render.fragment.constants,
+		render2d.state.render.fragment.constants_size
+	)
 	Matrix44.CopyTo(render2d.GetWorldMatrix(), world_matrix)
 	return {
-		fragment_constants = fragment_snapshot,
+		fragment_snapshot = fragment_snapshot,
 		world_matrix = world_matrix,
-		texture = render2d.current_texture,
-		gradient_texture = render2d.current_gradient_texture,
-		blend_mode = render2d.current_blend_mode,
+		texture = render2d.state.render.textures.texture,
+		gradient_texture = render2d.state.render.textures.gradient_texture,
+		blend_mode = normalize_blend_mode_state(render2d.state.render.pipeline.blend),
 		depth_mode = depth_mode_name,
 		depth_write = depth_write,
 		stencil_mode = stencil_mode_name,
 		stencil_ref = stencil_ref,
-		disable_rect_sdf = render2d.disable_rect_sdf,
-		scissor_x = current_scissor_x,
-		scissor_y = current_scissor_y,
-		scissor_w = current_scissor_w,
-		scissor_h = current_scissor_h,
-		pipeline_state_id = rect_batch_pipeline_state_id,
-		fragment_static_state_id = current_fragment_static_state_id,
-		blend_mode_state_id = current_blend_mode_state_id,
-		depth_state_id = current_depth_state_id,
-		stencil_state_id = current_stencil_state_id,
-		scissor_state_id = current_scissor_state_id,
+		disable_rect_sdf = render2d.state.render.options.disable_rect_sdf,
+		scissor_x = render2d.state.render.pipeline.scissor.x,
+		scissor_y = render2d.state.render.pipeline.scissor.y,
+		scissor_w = render2d.state.render.pipeline.scissor.w,
+		scissor_h = render2d.state.render.pipeline.scissor.h,
+		pipeline_state_id = render2d.state.runtime.ids.current.rect_batch_pipeline,
+		fragment_static_state_id = render2d.state.runtime.ids.current.fragment_static,
+		blend_mode_state_id = render2d.state.runtime.ids.current.blend,
+		depth_state_id = render2d.state.runtime.ids.current.depth,
+		stencil_state_id = render2d.state.runtime.ids.current.stencil,
+		scissor_state_id = render2d.state.runtime.ids.current.scissor,
 	}
 end
 restore_rect_draw_state = function(state)
-	ffi.copy(fragment_constants, state.fragment_constants, fragment_constants_size)
-	render2d.current_texture = state.texture
-	render2d.current_gradient_texture = state.gradient_texture
+	ffi.copy(
+		render2d.state.render.fragment.constants,
+		state.fragment_snapshot,
+		render2d.state.render.fragment.constants_size
+	)
+	render2d.state.render.textures.texture = state.texture
+	render2d.state.render.textures.gradient_texture = state.gradient_texture
 	render2d.SetBlendMode(state.blend_mode, true)
 	render2d.SetDepthMode(state.depth_mode, state.depth_write)
 	render2d.SetStencilMode(state.stencil_mode, state.stencil_ref)
@@ -2550,15 +2631,16 @@ end
 
 do
 	local function get_margin()
-		local content_m = fragment_constants.outline_width
+		local constants = render2d.state.render.fragment.constants
+		local content_m = constants.outline_width
 		local swizzle = render2d.GetSwizzleMode()
 
 		if swizzle == 10 or swizzle == 1 then
-			content_m = content_m + math.max(fragment_constants.blur[0], fragment_constants.blur[1])
+			content_m = content_m + math.max(constants.blur[0], constants.blur[1])
 		end
 
-		if fragment_constants.blur[0] > 0 or fragment_constants.blur[1] > 0 then
-			content_m = math.max(content_m, fragment_constants.blur[0], fragment_constants.blur[1])
+		if constants.blur[0] > 0 or constants.blur[1] > 0 then
+			content_m = math.max(content_m, constants.blur[0], constants.blur[1])
 		end
 
 		local m = content_m
@@ -2568,14 +2650,12 @@ do
 		return math.ceil(m)
 	end
 
-	local m = nil
-
 	function render2d.GetMargin()
-		return m or get_margin()
+		return render2d.state.render.options.margin_override or get_margin()
 	end
 
 	function render2d.SetMargin(new_m)
-		m = new_m
+		render2d.state.render.options.margin_override = new_m
 	end
 
 	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
@@ -2597,7 +2677,7 @@ do
 			margin,
 			use_float
 		)
-		batch_state:Append(
+		render2d.state.runtime.batch.state:Append(
 			"rect",
 			build_rect_batch_key(state, w, h, margin, batch_mode),
 			{
@@ -2625,8 +2705,9 @@ do
 
 		if not bind_mesh_immediate(render2d.rect_mesh) then return false end
 
-		local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
-		local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
+		local constants = render2d.state.render.fragment.constants
+		local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
+		local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
 		render2d.PushMatrix()
 
 		if x and y then
@@ -2658,17 +2739,17 @@ do
 		end
 
 		if resolved_margin > 0 and w > 0 and h > 0 then
-			fragment_constants.uv_scale[0] = old_scale_x * (qw / w)
-			fragment_constants.uv_scale[1] = old_scale_y * (qh / h)
-			fragment_constants.uv_offset[0] = old_off_x - (resolved_margin / w) * old_scale_x
-			fragment_constants.uv_offset[1] = old_off_y - (resolved_margin / h) * old_scale_y
+			constants.uv_scale[0] = old_scale_x * (qw / w)
+			constants.uv_scale[1] = old_scale_y * (qh / h)
+			constants.uv_offset[0] = old_off_x - (resolved_margin / w) * old_scale_x
+			constants.uv_offset[1] = old_off_y - (resolved_margin / h) * old_scale_y
 		end
 
 		local cmd = render.GetCommandBuffer()
 		render2d.UploadConstants(qw, qh, w, h)
 		render2d.rect_mesh:DrawIndexed(cmd, 6)
-		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
-		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
+		constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
+		constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
 		render2d.PopMatrix()
 		return true
 	end
@@ -2682,12 +2763,13 @@ do
 	end
 
 	local function draw_rect_with_uv2(use_float, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
-		local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
-		local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
-		fragment_constants.uv_offset[0] = u1
-		fragment_constants.uv_offset[1] = v1
-		fragment_constants.uv_scale[0] = u2 - u1
-		fragment_constants.uv_scale[1] = v2 - v1
+		local constants = render2d.state.render.fragment.constants
+		local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
+		local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
+		constants.uv_offset[0] = u1
+		constants.uv_offset[1] = v1
+		constants.uv_scale[0] = u2 - u1
+		constants.uv_scale[1] = v2 - v1
 		local result
 
 		if can_batch_rect_draw() then
@@ -2696,8 +2778,8 @@ do
 			result = draw_rect_immediate(x, y, w, h, a, ox, oy, nil, use_float)
 		end
 
-		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
-		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
+		constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
+		constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
 		return result
 	end
 
@@ -2719,8 +2801,9 @@ do
 end
 
 flush_rect_batch_queue = function()
+	local batch_state = render2d.state.runtime.batch.state
 	local saved_state = capture_rect_draw_state()
-	local saved_batched_rect_draws_enabled = render2d.batched_rect_draws_enabled
+	local saved_batched_rect_draws_enabled = render2d.state.render.options.batched_rect_draws_enabled
 	local saved_shader_override = render2d.shader_override
 	local flushed_draws = 0
 	local gpu_rect_draw_calls = 0
@@ -2728,7 +2811,7 @@ flush_rect_batch_queue = function()
 	local instanced_segments = 0
 	local replay_draws = 0
 	local max_segment_size = 0
-	render2d.batched_rect_draws_enabled = false
+	render2d.state.render.options.batched_rect_draws_enabled = false
 
 	for _, segment in ipairs(batch_state.segments) do
 		max_segment_size = math.max(max_segment_size, #segment.entries)
@@ -2740,9 +2823,9 @@ flush_rect_batch_queue = function()
 			render2d.rect_batch_pipeline
 		then
 			local first = segment.entries[1]
-			local instance_buffer = ensure_rect_batch_instance_buffer(next_rect_batch_instance_buffer_slot, #segment.entries)
+			local instance_buffer = ensure_rect_batch_instance_buffer(render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot, #segment.entries)
 			local vertices = instance_buffer:GetVertices()
-			next_rect_batch_instance_buffer_slot = next_rect_batch_instance_buffer_slot + 1
+			render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot + 1
 
 			for i, entry in ipairs(segment.entries) do
 				write_rect_batch_instance(vertices[i - 1], entry)
@@ -2759,7 +2842,7 @@ flush_rect_batch_queue = function()
 			instanced_draws = instanced_draws + #segment.entries
 			instanced_segments = instanced_segments + 1
 			render2d.shader_override = saved_shader_override
-			render2d.last_bound_mesh = nil
+			render2d.state.runtime.mesh.last_bound = nil
 			flushed_draws = flushed_draws + #segment.entries
 		else
 			for _, entry in ipairs(segment.entries) do
@@ -2784,7 +2867,7 @@ flush_rect_batch_queue = function()
 
 	restore_rect_draw_state(saved_state)
 	render2d.shader_override = saved_shader_override
-	render2d.batched_rect_draws_enabled = saved_batched_rect_draws_enabled
+	render2d.state.render.options.batched_rect_draws_enabled = saved_batched_rect_draws_enabled
 	batch_state:FinishFlush(
 		flushed_draws,
 		{
@@ -2821,7 +2904,7 @@ end
 function render2d.BindPipeline()
 	sync_pipeline_state(true)
 	-- Reset mesh binding cache since command buffer state was reset
-	render2d.last_bound_mesh = nil
+	render2d.state.runtime.mesh.last_bound = nil
 end
 
 function render2d.GetActivePipeline()
@@ -2831,14 +2914,13 @@ end
 render2d.SetColor(1, 1, 1, 1)
 render2d.SetAlphaMultiplier(1)
 render2d.SetSwizzleMode(0)
-render2d.current_blend_mode = "alpha"
-render2d.current_blend_mode_state = get_blend_mode_state("alpha")
-update_blend_mode_state_id(render2d.current_blend_mode_state)
+render2d.state.render.pipeline.blend = get_blend_mode_state("alpha")
+update_blend_mode_state_id(render2d.state.render.pipeline.blend)
 update_depth_state_id(DEFAULT_DEPTH_MODE, false)
 update_stencil_state_id("none", 1)
 update_scissor_state_id(0, 0, 0, 0)
 update_fragment_static_state_id()
-render2d.pipeline_state_dirty = true
+render2d.state.runtime.pipeline_state.dirty = true
 
 render.RegisterFlushCallback("render2d", function(reason)
 	if reason == "begin_frame" then reset_rect_batch_instance_frame_state() end
