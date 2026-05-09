@@ -733,6 +733,15 @@ function render.GetDevice()
 	return vulkan_instance.device
 end
 
+function render.GetRenderDocDevicePointer()
+	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.instance then
+		return nil
+	end
+
+	local instance = vulkan_instance.instance.ptr[0]
+	return ffi.cast("void**", instance)[0]
+end
+
 function render.GetQueue()
 	return vulkan_instance.queue
 end

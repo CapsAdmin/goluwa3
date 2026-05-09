@@ -112,6 +112,11 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local has_logic_op_enable_dynamic_state = has_extended_dynamic_state3 and
 		dynamicStateFeatures.extendedDynamicState3LogicOpEnable
 
+	if _G.RENDER_DISABLE_DYNAMIC_LOGIC_OP then
+		has_logic_op_dynamic_state = false
+		has_logic_op_enable_dynamic_state = false
+	end
+
 	if has_mesh_shader then
 		local meshShaderFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)(
 			vulkan.vk.s.PhysicalDeviceMeshShaderFeaturesEXT{

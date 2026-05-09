@@ -41,6 +41,41 @@ commands.Add("cli", function(path, ...)
 	assert(loadfile("game/run.lua"))()
 end)
 
+commands.Add("renderdoc", function()
+	if os.getenv("GOLUWA_RENDERDOC_ATTACHED") ~= "1" then
+		fs.create_directory_recursive(vfs.GetStorageDirectory("storage") .. "logs/")
+		process.setenv("GOLUWA_RENDERDOC_ATTACHED", "1")
+		process.setenv("GOLUWA_DISABLE_DYNAMIC_LOGIC_OP", "1")
+		local child = assert(
+			process.spawn{
+				command = "renderdoccmd",
+				args = {
+					"capture",
+					"-d",
+					vfs.GetStorageDirectory("working_directory"),
+					"-c",
+					vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc",
+					"-w",
+					"luajit",
+					"glw",
+					"renderdoc",
+				},
+			}
+		)
+		os.realexit(assert(child:wait()))
+	end
+
+	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
+
+	_G.AUDIO = true
+	_G.RENDER_DISABLE_DYNAMIC_LOGIC_OP = true
+	local renderdoc = import("goluwa/bindings/renderdoc.lua")
+	renderdoc.init()
+	renderdoc.SetCaptureFilePathTemplate(vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc")
+	assert(loadfile("game/run.lua"))()
+	logf("[renderdoc] initialized\n")
+end)
+
 local function shutdown_and_exit(code, remove_pid)
 	event.Call("ShutDown")
 

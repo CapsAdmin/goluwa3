@@ -7,6 +7,7 @@ local gfx = import("goluwa/render2d/gfx.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Visual = import("goluwa/ecs/components/3d/visual.lua").Library
 local fonts = import("goluwa/render2d/fonts.lua")
+local renderdoc = import("goluwa/bindings/renderdoc.lua")
 -- Debug: Show debug info
 local show_debug_info = false
 local font = fonts.New{Name = "Roboto", Weight = "Regular", Size = 20}
@@ -174,8 +175,38 @@ end
 function events.KeyInput.render3d_debug(key, press)
 	if not press then return end
 
-	--if key == "f8" then render.renderdoc.CaptureFrame() end
-	--if key == "f11" then render.renderdoc.OpenUI() end
+	if renderdoc.IsInitialized() then
+		if key == "f8" then
+			renderdoc.CaptureFrame(render.GetRenderDocDevicePointer(), system.GetWindow())
+			print("RenderDoc capture queued")
+		end
+
+		if key == "f9" then
+			local renderdoc_device = render.GetRenderDocDevicePointer()
+			local renderdoc_window = system.GetWindow()
+
+			if renderdoc.IsCapturing() then
+				local stopped = renderdoc.StopCapture(renderdoc_device, renderdoc_window)
+				print(stopped and "RenderDoc capture stopped" or "RenderDoc capture stop failed")
+			else
+				renderdoc.StartCapture(renderdoc_device, renderdoc_window)
+				print("RenderDoc capture started")
+			end
+		end
+
+		if key == "f11" then
+			local last_capture = renderdoc.GetLastCapture()
+
+			if last_capture and last_capture.filename then
+				renderdoc.OpenUI(last_capture.filename)
+			else
+				renderdoc.OpenUI()
+			end
+		end
+
+		return
+	end
+
 	-- Toggle shadow map debug view
 	if key == "f9" then
 		show_shadow_map = not show_shadow_map
