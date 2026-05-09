@@ -73,16 +73,6 @@ T.Test2D("Graphics render2d instanced full-screen rect rendering", function(widt
 	end
 end)
 
-T.Test2D("Graphics render2d default rect batch mode affects ResetState", function()
-	local old_default = render2d.GetDefaultRectBatchMode()
-	render2d.SetDefaultRectBatchMode("instanced")
-	render2d.ResetState()
-	T(render2d.GetRectBatchMode())["=="]("instanced")
-	render2d.SetDefaultRectBatchMode(old_default)
-	render2d.ResetState()
-	T(render2d.GetRectBatchMode())["=="](old_default)
-end)
-
 T.Test2D("Graphics render2d instanced varying rect state batches together", function()
 	render2d.SetRectBatchMode("instanced")
 	render2d.SetColor(1, 0.2, 0.2, 1)

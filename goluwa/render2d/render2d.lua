@@ -66,7 +66,6 @@ local restore_rect_draw_state
 local flush_rect_batch_queue
 local draw_rect_immediate
 local ensure_rect_batch_instance_buffer
-local default_rect_batch_mode = "instanced"
 render2d.state = {
 	render = {
 		fragment = {
@@ -89,8 +88,7 @@ render2d.state = {
 			disable_rect_sdf = false,
 			clamp_border_radius = true,
 			batched_rect_draws_enabled = true,
-			default_rect_batch_mode = default_rect_batch_mode,
-			rect_batch_mode = default_rect_batch_mode,
+			rect_batch_mode = "instanced",
 			margin_override = nil,
 		},
 	},
@@ -300,36 +298,25 @@ local function reset_rect_batch_instance_frame_state()
 	render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = 1
 end
 
-function render2d.SetRectBatchMode(mode)
-	mode = mode or render2d.state.render.options.default_rect_batch_mode
-
-	if mode ~= "immediate" and mode ~= "replay" and mode ~= "instanced" then
-		error("invalid rect batch mode: " .. tostring(mode), 2)
+local function assert_rect_batch_mode(mode, kind, allow_immediate)
+	if
+		not render2d.state.runtime.batch.mode_ids[mode] or
+		(
+			not allow_immediate and
+			mode == "immediate"
+		)
+	then
+		error("invalid " .. kind .. ": " .. tostring(mode), 2)
 	end
+end
 
+function render2d.SetRectBatchMode(mode)
+	assert_rect_batch_mode(mode, "rect batch mode", true)
 	render2d.state.render.options.rect_batch_mode = mode
 end
 
 function render2d.GetRectBatchMode()
 	return render2d.state.render.options.rect_batch_mode
-end
-
-function render2d.SetDefaultRectBatchMode(mode)
-	mode = mode or "replay"
-
-	if mode ~= "replay" and mode ~= "instanced" then
-		error("invalid default rect batch mode: " .. tostring(mode), 2)
-	end
-
-	render2d.state.render.options.default_rect_batch_mode = mode
-
-	if render2d.state.render.options.rect_batch_mode ~= "immediate" then
-		render2d.state.render.options.rect_batch_mode = mode
-	end
-end
-
-function render2d.GetDefaultRectBatchMode()
-	return render2d.state.render.options.default_rect_batch_mode
 end
 
 utility.MakePushPopFunction(render2d, "RectBatchMode")
@@ -1428,7 +1415,7 @@ end
 function render2d.ResetState()
 	local constants = render2d.state.render.fragment.constants
 	render2d.ClearPendingBatches()
-	render2d.SetRectBatchMode(render2d.state.render.options.default_rect_batch_mode)
+	render2d.SetRectBatchMode("instanced")
 	reset_rect_batch_instance_frame_state()
 	render2d.SetTexture()
 	render2d.SetColor(1, 1, 1, 1)
