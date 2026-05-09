@@ -1354,7 +1354,11 @@ function render2d.Initialize()
 			end
 		end
 
-		current = VertexBuffer.New(capacity, render2d.rect_batch_instance_buffer_attributes)
+		current = VertexBuffer.New(
+			capacity,
+			render2d.rect_batch_instance_buffer_attributes,
+			string.format("render2d rect batch instance frame=%d slot=%d", frame_index, slot)
+		)
 		frame_buffers[slot] = current
 		return current
 	end
@@ -1787,6 +1791,7 @@ do
 		local tex = Texture.New{
 			width = width,
 			height = height,
+			name = string.format("render2d %s gradient %dx%d", mode, width, height),
 			format = "r8g8b8a8_unorm",
 			mip_map_levels = 1,
 			sampler = {
@@ -2246,7 +2251,7 @@ end
 
 do -- mesh
 	function render2d.CreateMesh(vertices, indices)
-		return Mesh.New(render2d.pipeline:GetVertexAttributes(), vertices, indices)
+		return Mesh.New(render2d.pipeline:GetVertexAttributes(), vertices, indices, nil, nil, "render2d mesh")
 	end
 
 	render2d.last_bound_mesh = nil

@@ -197,6 +197,7 @@ function META:SetPath(path)
 	self.tex = Texture.New{
 		width = TEXTURE_WIDTH,
 		height = TEXTURE_HEIGHT,
+		name = "render2d base font atlas",
 		format = "r8g8b8a8_unorm",
 		buffer = buffer_data,
 		sampler = {

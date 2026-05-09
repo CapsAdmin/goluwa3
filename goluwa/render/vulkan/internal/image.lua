@@ -7,6 +7,29 @@ local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Image = prototype.CreateTemplate("vulkan_image")
 
+local function build_image_memory_name(name)
+	if not name or name == "" then return nil end
+
+	return name .. " memory"
+end
+
+vulkan.SetupDebugFunctions(
+	Image,
+	vulkan.vk.VkObjectType.VK_OBJECT_TYPE_IMAGE,
+	{
+		onSetDebugName = function(self, name)
+			if self.memory and self.memory.SetDebugName then
+				self.memory:SetDebugName(build_image_memory_name(name))
+			end
+		end,
+		onSetObjectTag = function(self, key, value)
+			if self.memory and self.memory.SetObjectTag then
+				self.memory:SetObjectTag(key, value)
+			end
+		end,
+	}
+)
+
 function Image.New(config)
 	config = config or {}
 	assert(config.device)

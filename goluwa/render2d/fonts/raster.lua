@@ -68,9 +68,18 @@ function META:GetAtlasFormat()
 	return render.target:GetColorFormat()
 end
 
+local function get_font_debug_name(self)
+	return string.format(
+		"render2d raster font atlas %s size=%s",
+		tostring(self:GetName() or "unnamed"),
+		tostring(self:GetSize())
+	)
+end
+
 local function create_atlas(self)
 	local format = self:GetAtlasFormat()
 	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
+	self.texture_atlas:SetDebugName(get_font_debug_name(self))
 	self.texture_atlas:SetPadding(self:GetPadding())
 
 	for code in pairs(self.chars) do
@@ -153,7 +162,7 @@ end
 local scratch_size = {w = 0, h = 0}
 local fb_pool = {}
 
-local function get_temp_fb(w, h, format, mip_maps, filter)
+local function get_temp_fb(self, w, h, format, mip_maps, filter)
 	local key = w .. "_" .. h .. "_" .. format .. (
 			mip_maps and
 			"_t" or
@@ -175,6 +184,12 @@ local function get_temp_fb(w, h, format, mip_maps, filter)
 		fb = Framebuffer.New{
 			width = w,
 			height = h,
+			name = string.format(
+				"render2d raster font scratch %s %dx%d",
+				tostring(self:GetName() or "unnamed"),
+				w,
+				h
+			),
 			clear_color = {0, 0, 0, 0},
 			format = format,
 			mip_map_levels = mip_maps and "auto" or 1,
@@ -206,7 +221,7 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 	local width = math.max(1, math.ceil(glyph.w + padding * 2))
 	local height = math.max(1, math.ceil(glyph.h + padding * 2))
 	local format = self:GetAtlasFormat()
-	local fb = get_temp_fb(width, height, format, true, self.Filtering)
+	local fb = get_temp_fb(self, width, height, format, true, self.Filtering)
 	table.insert(temp_fbs, fb)
 	local own_cmd = false
 	local cmd = render.GetCommandBuffer()

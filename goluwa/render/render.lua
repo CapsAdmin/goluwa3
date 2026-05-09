@@ -431,7 +431,19 @@ function render.CreateImage(config)
 	end
 
 	config.device = vulkan_instance.device
-	return Image.New(config)
+	local image = Image.New(config)
+
+	if config.name or config.label then
+		image:SetDebugName(config.name or config.label)
+	end
+
+	if config.object_tags then
+		for key, value in pairs(config.object_tags) do
+			image:SetObjectTag(key, value)
+		end
+	end
+
+	return image
 end
 
 do

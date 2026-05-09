@@ -11,7 +11,7 @@ function Polygon2D.New(vertex_count, map)
 	self.vertex_buffer = render2d.CreateMesh(vertex_count)
 
 	do
-		self.index_buffer = IndexBuffer.New()
+		self.index_buffer = IndexBuffer.New(nil, nil, "render2d polygon indices")
 		self.index_buffer:LoadIndices(vertex_count)
 	end
 

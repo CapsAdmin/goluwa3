@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = prototype.CreateTemplate("vulkan_memory")
+vulkan.SetupDebugFunctions(Memory, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_DEVICE_MEMORY)
 
 function Memory.New(device, config)
 	local ptr = vulkan.T.Box(vulkan.vk.VkDeviceMemory)()

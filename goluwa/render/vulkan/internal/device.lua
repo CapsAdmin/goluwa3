@@ -386,6 +386,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		physical_device = physical_device,
 		extensions = finalExtensions,
 	}
+	device.vkSetDebugUtilsObjectNameEXT = device:TryGetExtension("vkSetDebugUtilsObjectNameEXT")
+	device.vkSetDebugUtilsObjectTagEXT = device:TryGetExtension("vkSetDebugUtilsObjectTagEXT")
 
 	if has_extended_dynamic_state then
 		vulkan.ext.vkCmdSetPrimitiveTopologyEXT = device:TryGetExtension("vkCmdSetPrimitiveTopologyEXT")
@@ -532,6 +534,88 @@ end
 
 function Device:WaitIdle()
 	vulkan.lib.vkDeviceWaitIdle(self.ptr[0])
+end
+
+function Device:SetObjectName(handle, object_type, name)
+	if not self.vkSetDebugUtilsObjectNameEXT or not handle or not name or name == "" then
+		return false
+	end
+
+	local info = vulkan.vk.s.DebugUtilsObjectNameInfoEXT{
+		sType = "debug_utils_object_name_info_ext",
+		objectType = object_type,
+		objectHandle = ffi.cast("uint64_t", handle),
+		pObjectName = name,
+	}
+	vulkan.assert(
+		self.vkSetDebugUtilsObjectNameEXT(self.ptr[0], info),
+		"failed to set vulkan debug object name"
+	)
+	return true
+end
+
+local function intern_object_tag_name(self, tag_name)
+	if type(tag_name) == "number" then return tag_name end
+
+	if type(tag_name) ~= "string" or tag_name == "" then return nil end
+
+	self.object_tag_name_ids = self.object_tag_name_ids or {}
+	self.next_object_tag_name_id = self.next_object_tag_name_id or 1
+	local resolved = self.object_tag_name_ids[tag_name]
+
+	if resolved then return resolved end
+
+	resolved = self.next_object_tag_name_id
+	self.object_tag_name_ids[tag_name] = resolved
+	self.next_object_tag_name_id = resolved + 1
+	return resolved
+end
+
+function Device:SetObjectTag(handle, object_type, tag_name, tag_data, tag_size)
+	if not self.vkSetDebugUtilsObjectTagEXT or not handle or tag_data == nil then
+		return false
+	end
+
+	local resolved_tag_name = intern_object_tag_name(self, tag_name)
+
+	if not resolved_tag_name then return false end
+
+	local tag_ptr = tag_data
+	local tag_storage = nil
+
+	if type(tag_data) == "string" then
+		tag_size = #tag_data
+
+		if tag_size == 0 then return false end
+
+		tag_storage = ffi.new("uint8_t[?]", tag_size)
+		ffi.copy(tag_storage, tag_data, tag_size)
+		tag_ptr = tag_storage
+	elseif tag_size == nil and type(tag_data) == "cdata" then
+		tag_size = ffi.sizeof(tag_data)
+	end
+
+	if not tag_size or tag_size <= 0 then return false end
+
+	local info = vulkan.vk.s.DebugUtilsObjectTagInfoEXT{
+		sType = "debug_utils_object_tag_info_ext",
+		objectType = object_type,
+		objectHandle = ffi.cast("uint64_t", handle),
+		tagName = resolved_tag_name,
+		tagSize = tag_size,
+		pTag = ffi.cast("const void*", tag_ptr),
+	}
+	vulkan.assert(
+		self.vkSetDebugUtilsObjectTagEXT(self.ptr[0], info),
+		"failed to set vulkan debug object tag"
+	)
+	return true
+end
+
+function Device:SetObjectStringTag(handle, object_type, tag_name, value)
+	if not value or value == "" then return false end
+
+	return self:SetObjectTag(handle, object_type, tag_name, value, #value)
 end
 
 function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)

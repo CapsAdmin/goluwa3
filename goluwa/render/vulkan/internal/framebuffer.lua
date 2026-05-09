@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Framebuffer = prototype.CreateTemplate("vulkan_framebuffer")
+vulkan.SetupDebugFunctions(Framebuffer, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_FRAMEBUFFER)
 
 function Framebuffer.New(config)
 	local device = config.device

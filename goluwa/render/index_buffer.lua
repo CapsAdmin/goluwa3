@@ -19,9 +19,10 @@ local function indices_to_array(indices, index_type)
 	return index_data, byte_size
 end
 
-function IndexBuffer.New(indices, index_type)
+function IndexBuffer.New(indices, index_type, name)
 	local self = IndexBuffer:CreateObject()
 	self.index_type = index_type or "uint16_t"
+	self.debug_name = name
 
 	-- If indices is nil, create an empty buffer for dynamic usage
 	if not indices then
@@ -41,13 +42,15 @@ function IndexBuffer.New(indices, index_type)
 		data_type = self.index_type,
 		data = index_data,
 		byte_size = byte_size,
+		name = name,
 	}
 	return self
 end
 
-function IndexBuffer.FromPointer(ptr, len, index_type)
+function IndexBuffer.FromPointer(ptr, len, index_type, name)
 	local self = IndexBuffer:CreateObject()
 	self.index_type = index_type or "uint16_t"
+	self.debug_name = name
 	self.indices = ptr
 	self.index_count = len
 	-- Calculate byte size
@@ -59,6 +62,7 @@ function IndexBuffer.FromPointer(ptr, len, index_type)
 		data_type = self.index_type,
 		data = ptr,
 		byte_size = byte_size,
+		name = name,
 	}
 	return self
 end
@@ -107,6 +111,7 @@ function IndexBuffer:Upload()
 			data_type = self.index_type,
 			data = index_data,
 			byte_size = byte_size,
+			name = self.debug_name,
 		}
 		self.buffer_size = byte_size
 	else
@@ -151,6 +156,7 @@ function IndexBuffer:LoadIndices(count)
 			data_type = self.index_type,
 			data = index_data,
 			byte_size = byte_size,
+			name = self.debug_name,
 		}
 		self.buffer_size = byte_size
 	else

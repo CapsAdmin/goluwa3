@@ -32,8 +32,9 @@ end
 
 local cached = {}
 
-function VertexBuffer.New(vertices, vertex_attributes)
+function VertexBuffer.New(vertices, vertex_attributes, name)
 	local self = VertexBuffer:CreateObject()
+	self.debug_name = name
 
 	if not vertex_attributes then
 		error("vertex_attributes parameter is required", 2)
@@ -132,6 +133,7 @@ function VertexBuffer.New(vertices, vertex_attributes)
 		data_type = "float",
 		data = self.data,
 		byte_size = self.byte_size,
+		name = name,
 	}
 	return self
 end

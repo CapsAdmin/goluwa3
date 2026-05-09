@@ -15,9 +15,15 @@ function META.New(page_width, page_height, filtering, format)
 		textures = {},
 		width = page_width,
 		height = page_height,
+		debug_name = nil,
 		filtering = filtering,
 		format = format or "r8g8b8a8_unorm",
 	}
+end
+
+function META:SetDebugName(name)
+	self.debug_name = name
+	return self
 end
 
 local function insert_rect(node, w, h)
@@ -61,6 +67,7 @@ function META:FindFreePage(w, h)
 
 	if node then
 		local size = Vec2(self.width, self.height) + self.Padding
+		local page_index = #self.pages + 1
 		local page = {
 			texture = Texture.New{
 				width = size.x,
@@ -71,7 +78,7 @@ function META:FindFreePage(w, h)
 					min_filter = self.filtering,
 					mag_filter = self.filtering,
 				},
-			},
+			}:SetDebugName(self.debug_name and (self.debug_name .. " page " .. tostring(page_index)) or nil),
 			textures = {},
 			tree = tree,
 		}

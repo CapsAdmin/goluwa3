@@ -200,6 +200,14 @@ end
 -- Fallback checkerboard texture (pink and black)
 local fallback_texture = NULL
 
+local function build_texture_debug_name(base, suffix)
+	if not base or base == "" then return nil end
+
+	if not suffix or suffix == "" then return base end
+
+	return base .. " " .. suffix
+end
+
 local function build_texture_cache_key(config)
 	if config.cache_key ~= nil then return config.cache_key end
 
@@ -299,6 +307,7 @@ end
 
 function Texture.New(config)
 	assert(render.CanCreateResources(), "Texture.New requires render.Initialize() first")
+	config = config or {}
 	-- Check cache if path is provided
 	local cache_key = build_texture_cache_key(config)
 
@@ -311,6 +320,7 @@ function Texture.New(config)
 	local self = Texture:CreateObject{
 		config = config,
 		cache_key = cache_key,
+		debug_name = nil,
 		is_ready = false,
 	}
 
@@ -486,6 +496,14 @@ function Texture.New(config)
 		self.format = format
 		self.is_compressed = is_compressed
 		self.vulkan_info = vulkan_info
+
+		if self.debug_name then self:SetDebugName(self.debug_name) end
+
+		if self.object_tags then
+			for key, value in pairs(self.object_tags) do
+				self:SetObjectTag(key, value)
+			end
+		end
 
 		if buffer_data and image then
 			if is_compressed and vulkan_info then
@@ -757,6 +775,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		size = pixel_count * bytes_per_pixel,
 		usage = "transfer_src",
 		properties = {"host_visible", "host_coherent"},
+		name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "upload staging"),
 	}
 	staging_buffer:CopyData(buffer, pixel_count * bytes_per_pixel)
 	-- Copy to image using command buffer
@@ -845,6 +864,7 @@ function Texture:UploadCompressed(data, vulkan_info)
 		size = total_size,
 		usage = "transfer_src",
 		properties = {"host_visible", "host_coherent"},
+		name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "compressed upload staging"),
 	}
 	staging_buffer:CopyData(data, total_size)
 	-- Copy to image using command buffer
@@ -923,6 +943,31 @@ end
 
 function Texture:GetView()
 	return self.view
+end
+
+function Texture:SetDebugName(name)
+	self.debug_name = name
+
+	if self.image and self.image.SetDebugName then
+		self.image:SetDebugName(build_texture_debug_name(name, "image"))
+	end
+
+	if self.view and self.view.SetDebugName then
+		self.view:SetDebugName(build_texture_debug_name(name, "view"))
+	end
+
+	return self
+end
+
+function Texture:SetObjectTag(key, value)
+	self.object_tags = self.object_tags or {}
+	self.object_tags[key] = value
+
+	if self.image and self.image.SetObjectTag then
+		self.image:SetObjectTag(key, value)
+	end
+
+	return self
 end
 
 function Texture:GetSamplerConfig()
@@ -1619,6 +1664,7 @@ do
 			size = width * height * bytes_per_pixel,
 			usage = "transfer_dst",
 			properties = {"host_visible", "host_coherent"},
+			name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "download staging"),
 		}
 		-- Create command buffer for copy
 		local copy_cmd = render.GetCommandPool():AllocateCommandBuffer()

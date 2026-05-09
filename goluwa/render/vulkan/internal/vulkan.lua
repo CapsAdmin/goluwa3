@@ -60,6 +60,41 @@ function vulkan.assert(result, msg)
 	end
 end
 
+function vulkan.SetupDebugFunctions(meta, object_type, options)
+	options = options or {}
+
+	function meta:SetDebugName(name)
+		self.debug_name = name
+		self.device:SetObjectName(self.ptr[0], object_type, name)
+
+		if options.onSetDebugName then options.onSetDebugName(self, name) end
+
+		return self
+	end
+
+	function meta:SetObjectTag(key, value)
+		self.object_tags = self.object_tags or {}
+		self.object_tags[key] = value
+		self.device:SetObjectStringTag(self.ptr[0], object_type, key, value)
+
+		if options.onSetObjectTag then options.onSetObjectTag(self, key, value) end
+
+		return self
+	end
+
+	return meta
+end
+
+function vulkan.ApplyObjectTags(obj, tags)
+	if not tags then return obj end
+
+	for key, value in pairs(tags) do
+		obj:SetObjectTag(key, value)
+	end
+
+	return obj
+end
+
 function vulkan.GetAvailableLayers()
 	-- First, enumerate available layers
 	local layerCount = ffi.new("uint32_t[1]", 0)

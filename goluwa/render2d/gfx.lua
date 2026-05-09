@@ -13,6 +13,7 @@ function gfx.Initialize()
 	local white_tex = Texture.New{
 		width = 1,
 		height = 1,
+		name = "render2d white texture",
 		format = "r8g8b8a8_unorm",
 		sampler = {
 			min_filter = "nearest",
@@ -26,6 +27,7 @@ function gfx.Initialize()
 	local tex = Texture.New{
 		width = 512,
 		height = 512,
+		name = "render2d shadow texture",
 		format = "r8g8b8a8_unorm",
 		mip_map_levels = "auto",
 		sampler = {
@@ -188,13 +190,11 @@ function gfx.DrawFilledCircle(x, y, radius)
 end
 
 function gfx.DrawRoundedRect(x, y, w, h, amt)
-	if amt > 0 then
-		render2d.PushBorderRadius(amt or 16)
-	end
+	if amt > 0 then render2d.PushBorderRadius(amt or 16) end
+
 	render2d.DrawRect(x, y, w, h)
-	if amt > 0 then
-		render2d.PopBorderRadius()
-	end
+
+	if amt > 0 then render2d.PopBorderRadius() end
 end
 
 function gfx.DrawRect(x, y, w, h, tex, r, g, b, a)

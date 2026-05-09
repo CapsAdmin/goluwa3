@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Sampler = prototype.CreateTemplate("vulkan_sampler")
+vulkan.SetupDebugFunctions(Sampler, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_SAMPLER)
 
 local function copy_config(config)
 	local out = {}

@@ -4,6 +4,29 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Buffer = prototype.CreateTemplate("vulkan_buffer")
 
+local function build_buffer_memory_name(name)
+	if not name or name == "" then return nil end
+
+	return name .. " memory"
+end
+
+vulkan.SetupDebugFunctions(
+	Buffer,
+	vulkan.vk.VkObjectType.VK_OBJECT_TYPE_BUFFER,
+	{
+		onSetDebugName = function(self, name)
+			if self.memory and self.memory.SetDebugName then
+				self.memory:SetDebugName(build_buffer_memory_name(name))
+			end
+		end,
+		onSetObjectTag = function(self, key, value)
+			if self.memory and self.memory.SetObjectTag then
+				self.memory:SetObjectTag(key, value)
+			end
+		end,
+	}
+)
+
 function Buffer.New(config)
 	local device = config.device
 	local size = config.size
@@ -64,6 +87,7 @@ function Buffer:OnRemove()
 		local device_ptr = device.ptr[0]
 		local buffer_ptr = self.ptr[0]
 		self.ptr[0] = nil
+
 		device:DeferRelease(function()
 			vulkan.lib.vkDestroyBuffer(device_ptr, buffer_ptr, nil)
 		end)

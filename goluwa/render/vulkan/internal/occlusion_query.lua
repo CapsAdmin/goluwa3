@@ -30,6 +30,7 @@ function OcclusionQuery.New(config)
 		size = 4,
 		usage = {"conditional_rendering_ext", "transfer_dst"},
 		properties = {"host_visible", "host_coherent"},
+		name = "render occlusion conditional buffer",
 	}
 	-- Initialize buffer to 1 (visible) so objects start visible
 	local initial_value = ffi.new("uint32_t[1]", 1)

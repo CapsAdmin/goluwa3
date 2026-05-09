@@ -5,10 +5,21 @@ local render = import("goluwa/render/render.lua")
 local prototype = import("goluwa/prototype.lua")
 local Framebuffer = prototype.CreateTemplate("render_framebuffer")
 
+local function apply_object_tags(obj, tags)
+	if not tags then return obj end
+
+	for key, value in pairs(tags) do
+		obj:SetObjectTag(key, value)
+	end
+
+	return obj
+end
+
 function Framebuffer.New(config)
 	local width = config.width or 512
 	local height = config.height or 512
 	local samples = config.samples or "1"
+	local debug_name = config.name or config.label
 	local self = Framebuffer:CreateObject()
 	self.width = width
 	self.height = height
@@ -35,6 +46,8 @@ function Framebuffer.New(config)
 				wrap_t = config.wrap_t or "repeat",
 			},
 		}
+		color_texture:SetDebugName(debug_name and (debug_name .. " color " .. tostring(i)) or nil)
+		apply_object_tags(color_texture, config.object_tags)
 		table.insert(self.color_textures, color_texture)
 		table.insert(self.clear_colors, clear_colors[i] or {0, 0, 0, 1})
 	end
@@ -60,6 +73,8 @@ function Framebuffer.New(config)
 				mag_filter = "linear",
 			},
 		}
+		self.depth_texture:SetDebugName(debug_name and (debug_name .. " depth") or nil)
+		apply_object_tags(self.depth_texture, config.object_tags)
 	end
 
 	self.command_pool = render.GetCommandPool()

@@ -241,31 +241,32 @@ function Instance.New(extensions, layers)
 		engineVersion = 1,
 		apiVersion = version,
 	}
-	-- Add debug utils extension if validation layers are enabled
+	-- Enable debug utils when available so RenderDoc and validation can both see object names.
 	local has_validation = layers and #layers > 0
+	local has_debug_utils = false
+	extensions = extensions or {}
 
-	if has_validation then
-		extensions = extensions or {}
-		local has_debug_utils = false
+	for _, ext in ipairs(extensions) do
+		if ext == "VK_EXT_debug_utils" then
+			has_debug_utils = true
 
-		for _, ext in ipairs(extensions) do
-			if ext == "VK_EXT_debug_utils" then
-				has_debug_utils = true
+			break
+		end
+	end
 
-				break
-			end
+	if
+		not has_debug_utils and
+		table.has_value(vulkan.GetAvailableExtensions(), "VK_EXT_debug_utils")
+	then
+		local new_extensions = {}
+
+		for i, ext in ipairs(extensions) do
+			new_extensions[i] = ext
 		end
 
-		if not has_debug_utils then
-			local new_extensions = {}
-
-			for i, ext in ipairs(extensions) do
-				new_extensions[i] = ext
-			end
-
-			table.insert(new_extensions, "VK_EXT_debug_utils")
-			extensions = new_extensions
-		end
+		table.insert(new_extensions, "VK_EXT_debug_utils")
+		extensions = new_extensions
+		has_debug_utils = true
 	end
 
 	local extension_names = extensions and
@@ -311,7 +312,11 @@ function Instance.New(extensions, layers)
 	self.ptr = ptr
 
 	-- Create debug messenger
-	if has_validation and self:HasExtension("vkCreateDebugUtilsMessengerEXT") then
+	if
+		has_validation and
+		has_debug_utils and
+		self:HasExtension("vkCreateDebugUtilsMessengerEXT")
+	then
 		local vkCreateDebugUtilsMessengerEXT = self:GetExtension("vkCreateDebugUtilsMessengerEXT")
 		local messenger_ptr = vulkan.T.Box(vulkan.vk.VkDebugUtilsMessengerEXT)()
 		vulkan.assert(

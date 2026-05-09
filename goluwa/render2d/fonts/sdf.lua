@@ -266,9 +266,18 @@ function META:GetJFAPipelines()
 end
 
 do
+	local function get_font_debug_name(self)
+		return string.format(
+			"render2d sdf font atlas %s size=%s",
+			tostring(self:GetName() or "unnamed"),
+			tostring(self:GetSize())
+		)
+	end
+
 	local function create_atlas(self)
 		local format = self:GetAtlasFormat()
 		self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
+		self.texture_atlas:SetDebugName(get_font_debug_name(self))
 		self.texture_atlas:SetPadding(self:GetPadding())
 
 		for code in pairs(self.chars) do
@@ -357,7 +366,7 @@ end
 local scratch_size = {w = 0, h = 0}
 local fb_pool = {}
 
-local function get_temp_fb(w, h, format, mip_maps, filter)
+local function get_temp_fb(self, w, h, format, mip_maps, filter)
 	local key = w .. "_" .. h .. "_" .. format .. (
 			mip_maps and
 			"_t" or
@@ -379,6 +388,7 @@ local function get_temp_fb(w, h, format, mip_maps, filter)
 		fb = Framebuffer.New{
 			width = w,
 			height = h,
+			name = string.format("render2d sdf font scratch %s %dx%d", tostring(self:GetName() or "unnamed"), w, h),
 			clear_color = {0, 0, 0, 0},
 			format = format,
 			mip_map_levels = mip_maps and "auto" or 1,
@@ -422,10 +432,10 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	end
 
 	local p2 = get_next_pow2(max_dim)
-	local fb_a = get_temp_fb(sw, sh, "r32g32_sfloat", false, "nearest")
-	local fb_b = get_temp_fb(sw, sh, "r32g32_sfloat", false, "nearest")
-	local fb_dist_on = get_temp_fb(sw, sh, "r32_sfloat", false, "linear")
-	local fb_dist_off = get_temp_fb(sw, sh, "r32_sfloat", false, "linear")
+	local fb_a = get_temp_fb(self, sw, sh, "r32g32_sfloat", false, "nearest")
+	local fb_b = get_temp_fb(self, sw, sh, "r32g32_sfloat", false, "nearest")
+	local fb_dist_on = get_temp_fb(self, sw, sh, "r32_sfloat", false, "linear")
+	local fb_dist_off = get_temp_fb(self, sw, sh, "r32_sfloat", false, "linear")
 	table.insert(temp_fbs, fb_a)
 	table.insert(temp_fbs, fb_b)
 	table.insert(temp_fbs, fb_dist_on)
@@ -470,7 +480,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 
 	run_jfa(0, fb_dist_on) -- Distance to ON pixels
 	run_jfa(1, fb_dist_off) -- Distance to OFF pixels
-	local fb_final = get_temp_fb(target_w, target_h, self:GetAtlasFormat(), false)
+	local fb_final = get_temp_fb(self, target_w, target_h, self:GetAtlasFormat(), false)
 	table.insert(temp_fbs, fb_final)
 	p.combine.current_jfa_dist_on = fb_dist_on.color_texture
 	p.combine.current_jfa_dist_off = fb_dist_off.color_texture
@@ -517,7 +527,7 @@ function META:LoadGlyph(code, temp_fbs)
 		local sh = (glyph.h + spread * 2) * scale
 		local used_temp_fbs = {}
 		local format = self:GetAtlasFormat()
-		local fb_ss = get_temp_fb(sw, sh, format, true)
+		local fb_ss = get_temp_fb(self, sw, sh, format, true)
 		table.insert(used_temp_fbs, fb_ss)
 		local own_cmd = false
 		local cmd = render.GetCommandBuffer()

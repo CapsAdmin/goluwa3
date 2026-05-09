@@ -80,6 +80,12 @@ local function normalize_primitive_topology(mode)
 	return tr[mode] or mode or "triangle_list"
 end
 
+local function build_mesh_buffer_name(name, suffix)
+	if not name or name == "" then return nil end
+
+	return name .. " " .. suffix
+end
+
 function Mesh:GetVertexAttributeInfo(name)
 	if not self.vertex_attribute_lookup then
 		self.vertex_attribute_lookup = {}
@@ -98,17 +104,18 @@ function Mesh:GetVertexAttributeInfo(name)
 	return attribute
 end
 
-function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count)
+function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name)
 	local self = Mesh:CreateObject()
-	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes)
+	self.debug_name = name
+	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes, build_mesh_buffer_name(name, "vertices"))
 	self.mode = "triangle_list"
 
 	if indices then
 		-- Check if indices is FFI cdata and we have a count
 		if type(indices) == "cdata" and index_count then
-			self.index_buffer = IndexBuffer.FromPointer(indices, index_count, index_type)
+			self.index_buffer = IndexBuffer.FromPointer(indices, index_count, index_type, build_mesh_buffer_name(name, "indices"))
 		else
-			self.index_buffer = IndexBuffer.New(indices, index_type)
+			self.index_buffer = IndexBuffer.New(indices, index_type, build_mesh_buffer_name(name, "indices"))
 		end
 	end
 
@@ -387,7 +394,7 @@ end
 
 function Mesh:UploadIndices(indices, index_type)
 	if not self.index_buffer then
-		self.index_buffer = IndexBuffer.New(indices, index_type)
+		self.index_buffer = IndexBuffer.New(indices, index_type, build_mesh_buffer_name(self.debug_name, "indices"))
 	else
 		-- Update existing index buffer
 		self.index_buffer.indices = indices
@@ -407,6 +414,7 @@ function Mesh:UploadIndices(indices, index_type)
 				data_type = self.index_buffer.index_type,
 				data = index_data,
 				byte_size = byte_size,
+				name = build_mesh_buffer_name(self.debug_name, "indices"),
 			}
 			self.index_buffer.buffer_size = byte_size
 		else

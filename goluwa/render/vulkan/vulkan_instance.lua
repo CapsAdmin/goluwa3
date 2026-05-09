@@ -182,6 +182,16 @@ function VulkanInstance:CreateBuffer(config)
 		properties = config.memory_property,
 	}
 
+	if config.name or config.label then
+		buffer:SetDebugName(config.name or config.label)
+	end
+
+	if config.object_tags then
+		for key, value in pairs(config.object_tags) do
+			buffer:SetObjectTag(key, value)
+		end
+	end
+
 	if data then buffer:CopyData(data, byte_size) end
 
 	return buffer
