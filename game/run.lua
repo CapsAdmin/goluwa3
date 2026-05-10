@@ -7,6 +7,7 @@ import("goluwa/love/line.lua")
 import("goluwa/gmod/gine.lua")
 
 if _G.GRAPHICS then
+	_G.GRAPHICS_3D = false
 	local render = import("goluwa/render/render.lua")
 
 	if not render.available then
@@ -28,9 +29,12 @@ if _G.GRAPHICS then
 
 		render.Initialize({samples = "1"})
 		import("goluwa/render2d/render2d.lua").Initialize()
-		import("goluwa/render3d/render3d.lua").Initialize()
 		import("goluwa/render2d/gfx.lua").Initialize()
-		import("goluwa/render3d/model_loader.lua")
+
+		if _G.GRAPHICS_3D then
+			import("goluwa/render3d/render3d.lua").Initialize()
+			import("goluwa/render3d/model_loader.lua")
+		end
 	end
 end
 
@@ -38,7 +42,11 @@ vfs.AutorunAddons()
 
 if _G.AUDIO then vfs.AutorunAddons("audio/") end
 
-if _G.GRAPHICS then vfs.AutorunAddons("graphics/") end
+if _G.GRAPHICS then
+	vfs.AutorunAddons("graphics/")
+
+	if _G.GRAPHICS_3D then vfs.AutorunAddons("graphics_3d/") end
+end
 
 system.KeepAlive("game")
 
