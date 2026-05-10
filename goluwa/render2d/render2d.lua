@@ -12,33 +12,62 @@ local Mesh = import("goluwa/render/mesh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local RectBatch = import("goluwa/render2d/rect_batch.lua")
-local RectDrawState = ffi.typeof([[
-	struct {
-        float global_color[4];          
-        int texture_index;       
-        float uv_offset[2];             
-        float uv_scale[2];              
-        int flags;
-        float blur[2];
-        float border_radius[4];
-        float outline_width;
-        float rect_size[2];
-        float sdf_threshold;
-		float sdf_texel_range;
-        int gradient_texture_index;
-        int nine_patch_x_count;
-        int nine_patch_y_count;
-        float nine_patch_x_stretch[6];
-        float nine_patch_y_stretch[6];
-        float sdf_rect_size[2];
-		int disable_rect_sdf;
-		int depth_mode_id;
-		int depth_write;
-		int stencil_mode_id;
-		int stencil_ref;
-		int scissor[4];
-	}
-]])
+
+local function clone_fields(fields)
+	local out = {}
+
+	for i, field in ipairs(fields) do
+		out[i] = {field[1], field[2], field[3], field[4]}
+	end
+
+	return out
+end
+
+local function append_fields(base, extra)
+	local out = clone_fields(base)
+
+	for i, field in ipairs(extra) do
+		out[#out + 1] = {field[1], field[2], field[3], field[4]}
+	end
+
+	return out
+end
+
+local vertex_push_constant_fields = {
+	{"projection_view_world", "mat4"},
+}
+local fragment_push_constant_fields = {
+	{"global_color", "vec4"},
+	{"texture_index", "int"},
+	{"uv_offset", "vec2"},
+	{"uv_scale", "vec2"},
+	{"flags", "int"},
+	{"blur", "vec2"},
+	{"border_radius", "vec4"},
+	{"outline_width", "float"},
+	{"rect_size", "vec2"},
+	{"sdf_threshold", "float"},
+	{"sdf_texel_range", "float"},
+	{"gradient_texture_index", "int"},
+	{"nine_patch_x_count", "int"},
+	{"nine_patch_y_count", "int"},
+	{"nine_patch_x_stretch", "float", nil, 6},
+	{"nine_patch_y_stretch", "float", nil, 6},
+	{"sdf_rect_size", "vec2"},
+}
+local rect_draw_state_tail_fields = {
+	{"disable_rect_sdf", "int"},
+	{"depth_mode_id", "int"},
+	{"depth_write", "int"},
+	{"stencil_mode_id", "int"},
+	{"stencil_ref", "int"},
+	{"scissor", "int", nil, 4},
+}
+local RectDrawState = EasyPipeline.BuildFFIType(
+	"scalar",
+	"Render2DRectDrawState",
+	append_fields(fragment_push_constant_fields, rect_draw_state_tail_fields)
+)
 local render2d = library()
 local DEFAULT_BLEND_MODE = "alpha"
 local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
@@ -640,6 +669,26 @@ local function sync_pipeline_state(force)
 	render2d.state.runtime.pipeline_state.synced_pipeline = pipeline
 end
 
+local function write_render2d_vertex_push_constants(self, block)
+	render2d.GetMatrix():CopyToFloatPointer(block.projection_view_world)
+end
+
+local function write_render2d_fragment_push_constants(self, block)
+	local source = render2d.state.render.fragment.constants
+	ffi.copy(block, source, ffi.sizeof(block))
+	block.global_color[3] = block.global_color[3] * render2d.state.render.fragment.alpha_multiplier
+	block.texture_index = render2d.state.render.textures.texture and
+		self:GetTextureIndex(render2d.state.render.textures.texture) or
+		-1
+	block.rect_size[0] = render2d.state.render.fragment.rect_size.w
+	block.rect_size[1] = render2d.state.render.fragment.rect_size.h
+	block.gradient_texture_index = render2d.state.render.textures.gradient_texture and
+		self:GetTextureIndex(render2d.state.render.textures.gradient_texture) or
+		-1
+	block.sdf_rect_size[0] = render2d.state.render.fragment.rect_size.lw
+	block.sdf_rect_size[1] = render2d.state.render.fragment.rect_size.lh
+end
+
 -- Blend mode presets
 render2d.blend_modes = {
 	alpha = {
@@ -725,12 +774,8 @@ function render2d.Initialize()
 		vertex = {
 			push_constants = {
 				{
-					block = {
-						{"projection_view_world", "mat4"},
-					},
-					write = function(self, block)
-						render2d.GetMatrix():CopyToFloatPointer(block.projection_view_world)
-					end,
+					block = vertex_push_constant_fields,
+					write = write_render2d_vertex_push_constants,
 				},
 			},
 			attributes = {
@@ -751,40 +796,8 @@ function render2d.Initialize()
 		fragment = {
 			push_constants = {
 				{
-					block = {
-						{"global_color", "vec4"},
-						{"texture_index", "int"},
-						{"uv_offset", "vec2"},
-						{"uv_scale", "vec2"},
-						{"flags", "int"},
-						{"blur", "vec2"},
-						{"border_radius", "vec4"},
-						{"outline_width", "float"},
-						{"rect_size", "vec2"},
-						{"sdf_threshold", "float"},
-						{"sdf_texel_range", "float"},
-						{"gradient_texture_index", "int"},
-						{"nine_patch_x_count", "int"},
-						{"nine_patch_y_count", "int"},
-						{"nine_patch_x_stretch", "float", nil, 6},
-						{"nine_patch_y_stretch", "float", nil, 6},
-						{"sdf_rect_size", "vec2"},
-					},
-					write = function(self, block)
-						local source = render2d.state.render.fragment.constants
-						ffi.copy(block, source, ffi.sizeof(block))
-						block.global_color[3] = block.global_color[3] * render2d.state.render.fragment.alpha_multiplier
-						block.texture_index = render2d.state.render.textures.texture and
-							self:GetTextureIndex(render2d.state.render.textures.texture) or
-							-1
-						block.rect_size[0] = render2d.state.render.fragment.rect_size.w
-						block.rect_size[1] = render2d.state.render.fragment.rect_size.h
-						block.gradient_texture_index = render2d.state.render.textures.gradient_texture and
-							self:GetTextureIndex(render2d.state.render.textures.gradient_texture) or
-							-1
-						block.sdf_rect_size[0] = render2d.state.render.fragment.rect_size.lw
-						block.sdf_rect_size[1] = render2d.state.render.fragment.rect_size.lh
-					end,
+					block = fragment_push_constant_fields,
+					write = write_render2d_fragment_push_constants,
 				},
 			},
 			shader = render2d.BuildShaderFlags("U.flags") .. "\n" .. [[
