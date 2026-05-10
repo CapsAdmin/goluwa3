@@ -36,25 +36,33 @@ end
 local vertex_push_constant_fields = {
 	{"projection_view_world", "mat4"},
 }
-local fragment_push_constant_fields = {
+local fragment_draw_constant_fields = {
 	{"global_color", "vec4"},
 	{"texture_index", "int"},
 	{"uv_offset", "vec2"},
 	{"uv_scale", "vec2"},
 	{"flags", "int"},
+	{"gradient_texture_index", "int"},
+}
+local fragment_shape_constant_fields = {
 	{"blur", "vec2"},
 	{"border_radius", "vec4"},
 	{"outline_width", "float"},
 	{"rect_size", "vec2"},
 	{"sdf_threshold", "float"},
 	{"sdf_texel_range", "float"},
-	{"gradient_texture_index", "int"},
+	{"sdf_rect_size", "vec2"},
+}
+local fragment_patch_constant_fields = {
 	{"nine_patch_x_count", "int"},
 	{"nine_patch_y_count", "int"},
 	{"nine_patch_x_stretch", "float", nil, 6},
 	{"nine_patch_y_stretch", "float", nil, 6},
-	{"sdf_rect_size", "vec2"},
 }
+local fragment_constant_fields = append_fields(
+	append_fields(fragment_draw_constant_fields, fragment_shape_constant_fields),
+	fragment_patch_constant_fields
+)
 local rect_draw_state_tail_fields = {
 	{"disable_rect_sdf", "int"},
 	{"depth_mode_id", "int"},
@@ -66,7 +74,7 @@ local rect_draw_state_tail_fields = {
 local RectDrawState = EasyPipeline.BuildFFIType(
 	"scalar",
 	"Render2DRectDrawState",
-	append_fields(fragment_push_constant_fields, rect_draw_state_tail_fields)
+	append_fields(fragment_constant_fields, rect_draw_state_tail_fields)
 )
 local render2d = library()
 local DEFAULT_BLEND_MODE = "alpha"
@@ -673,20 +681,33 @@ local function write_render2d_vertex_push_constants(self, block)
 	render2d.GetMatrix():CopyToFloatPointer(block.projection_view_world)
 end
 
-local function write_render2d_fragment_push_constants(self, block)
+local function write_render2d_fragment_draw_constants(self, block)
 	local source = render2d.state.render.fragment.constants
 	ffi.copy(block, source, ffi.sizeof(block))
 	block.global_color[3] = block.global_color[3] * render2d.state.render.fragment.alpha_multiplier
 	block.texture_index = render2d.state.render.textures.texture and
 		self:GetTextureIndex(render2d.state.render.textures.texture) or
 		-1
-	block.rect_size[0] = render2d.state.render.fragment.rect_size.w
-	block.rect_size[1] = render2d.state.render.fragment.rect_size.h
 	block.gradient_texture_index = render2d.state.render.textures.gradient_texture and
 		self:GetTextureIndex(render2d.state.render.textures.gradient_texture) or
 		-1
+	return block
+end
+
+local function write_render2d_fragment_shape_constants(self, block)
+	local source = render2d.state.render.fragment.constants
+	ffi.copy(block, source, ffi.sizeof(block))
+	block.rect_size[0] = render2d.state.render.fragment.rect_size.w
+	block.rect_size[1] = render2d.state.render.fragment.rect_size.h
 	block.sdf_rect_size[0] = render2d.state.render.fragment.rect_size.lw
 	block.sdf_rect_size[1] = render2d.state.render.fragment.rect_size.lh
+	return block
+end
+
+local function write_render2d_fragment_patch_constants(self, block)
+	local source = render2d.state.render.fragment.constants
+	ffi.copy(block, source, ffi.sizeof(block))
+	return block
 end
 
 -- Blend mode presets
@@ -769,11 +790,17 @@ function render2d.Initialize()
 	local config = {
 		name = "render2d",
 		dont_create_framebuffers = true,
+		ConstantPlacement = {
+			mode = "auto",
+			fallback = "uniform_buffer",
+		},
 		RasterizationSamples = render.target:GetSamples(),
 		ColorFormat = render.target:GetColorFormat(),
 		vertex = {
-			push_constants = {
+			constants = {
 				{
+					name = "camera",
+					storage = "push",
 					block = vertex_push_constant_fields,
 					write = write_render2d_vertex_push_constants,
 				},
@@ -786,7 +813,7 @@ function render2d.Initialize()
 			},
 			shader = [[
 				void main() {
-					gl_Position = U.projection_view_world * vec4(in_pos, 1.0);
+					gl_Position = camera.projection_view_world * vec4(in_pos, 1.0);
 					out_uv = in_uv;
 					out_sample_uv = in_sample_uv;
 					out_color = in_color;
@@ -794,13 +821,33 @@ function render2d.Initialize()
 			]],
 		},
 		fragment = {
-			push_constants = {
+			constants = {
 				{
-					block = fragment_push_constant_fields,
-					write = write_render2d_fragment_push_constants,
+					name = "draw",
+					storage = "auto",
+					prefer = "push",
+					priority = 100,
+					block = fragment_draw_constant_fields,
+					write = write_render2d_fragment_draw_constants,
+				},
+				{
+					name = "shape",
+					storage = "auto",
+					prefer = "push",
+					priority = 50,
+					block = fragment_shape_constant_fields,
+					write = write_render2d_fragment_shape_constants,
+				},
+				{
+					name = "nine_patch",
+					storage = "auto",
+					prefer = "uniform_buffer",
+					priority = 0,
+					block = fragment_patch_constant_fields,
+					write = write_render2d_fragment_patch_constants,
 				},
 			},
-			shader = render2d.BuildShaderFlags("U.flags") .. "\n" .. [[
+			shader = render2d.BuildShaderFlags("draw.flags") .. "\n" .. [[
 				float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
 				{
 					if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
@@ -942,13 +989,13 @@ function render2d.Initialize()
 				}
 
 				bool has_rect_sdf_enabled() {
-					return U.sdf_rect_size.x > 0.0 && U.sdf_rect_size.y > 0.0;
+					return shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0;
 				}
 
 				#define FLAGS_SDF_ENABLED  (FLAGS_SWIZZLE == 10)
 
 				bool has_texture_sdf_enabled() {
-					return U.texture_index >= 0 && FLAGS_SDF_ENABLED;
+					return draw.texture_index >= 0 && FLAGS_SDF_ENABLED;
 				}
 
 				vec4 apply_swizzle(vec4 tex) {
@@ -963,16 +1010,16 @@ function render2d.Initialize()
 				vec2 resolve_fragment_uv(vec2 coords) {
 					vec2 uv = coords;
 
-					if (U.texture_index >= 0 && (U.nine_patch_x_count > 0 || U.nine_patch_y_count > 0)) {
-						vec2 tex_size = vec2(textureSize(TEXTURE(U.texture_index), 0));
-						vec2 p_logical = (coords - 0.5) * U.rect_size + U.sdf_rect_size * 0.5;
+					if (draw.texture_index >= 0 && (nine_patch.nine_patch_x_count > 0 || nine_patch.nine_patch_y_count > 0)) {
+						vec2 tex_size = vec2(textureSize(TEXTURE(draw.texture_index), 0));
+						vec2 p_logical = (coords - 0.5) * shape.rect_size + shape.sdf_rect_size * 0.5;
 
-						if (U.nine_patch_x_count > 0) {
-							uv.x = map_nine_patch(p_logical.x, U.sdf_rect_size.x, tex_size.x, U.nine_patch_x_stretch, U.nine_patch_x_count);
+						if (nine_patch.nine_patch_x_count > 0) {
+							uv.x = map_nine_patch(p_logical.x, shape.sdf_rect_size.x, tex_size.x, nine_patch.nine_patch_x_stretch, nine_patch.nine_patch_x_count);
 						}
 
-						if (U.nine_patch_y_count > 0) {
-							uv.y = map_nine_patch(p_logical.y, U.sdf_rect_size.y, tex_size.y, U.nine_patch_y_stretch, U.nine_patch_y_count);
+						if (nine_patch.nine_patch_y_count > 0) {
+							uv.y = map_nine_patch(p_logical.y, shape.sdf_rect_size.y, tex_size.y, nine_patch.nine_patch_y_stretch, nine_patch.nine_patch_y_count);
 						}
 					}
 
@@ -980,10 +1027,10 @@ function render2d.Initialize()
 				}
 
 				vec4 sample_fragment_color(vec2 uv, bool is_sdf_tex) {
-					vec4 color = in_color * U.global_color;
+					vec4 color = in_color * draw.global_color;
 
-					if (U.texture_index >= 0 && !is_sdf_tex) {
-						vec4 tex = texture(TEXTURE(U.texture_index), uv * U.uv_scale + U.uv_offset);
+					if (draw.texture_index >= 0 && !is_sdf_tex) {
+						vec4 tex = texture(TEXTURE(draw.texture_index), uv * draw.uv_scale + draw.uv_offset);
 						color *= apply_swizzle(tex);
 					}
 
@@ -994,14 +1041,14 @@ function render2d.Initialize()
 					float d = 1e10;
 
 					if (has_rect_sdf) {
-						d = sd_rect(coords, U.rect_size, U.sdf_rect_size, U.border_radius);
+						d = sd_rect(coords, shape.rect_size, shape.sdf_rect_size, shape.border_radius);
 					}
 
 					if (has_tex_sdf) {
 						bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
 						bool invert_tex_sdf = (FLAGS_SAMPLE_UV & 2) != 0;
-						vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * U.uv_scale + U.uv_offset);
-						float d_tex = tex_sdf_distance(U.texture_index, U.sdf_threshold, U.sdf_texel_range, sdf_uv);
+						vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
+						float d_tex = tex_sdf_distance(draw.texture_index, shape.sdf_threshold, shape.sdf_texel_range, sdf_uv);
 
 						if (invert_tex_sdf) d_tex = -d_tex;
 
@@ -1012,15 +1059,15 @@ function render2d.Initialize()
 				}
 
 				vec4 apply_fragment_gradient(vec2 coords, vec4 color) {
-					if (U.gradient_texture_index >= 0) {
+					if (draw.gradient_texture_index >= 0) {
 						float gy = coords.y;
 
-						if (U.sdf_rect_size.y > 0.0) {
-							gy = (coords.y - 0.5) * (U.rect_size.y / U.sdf_rect_size.y) + 0.5;
+						if (shape.sdf_rect_size.y > 0.0) {
+							gy = (coords.y - 0.5) * (shape.rect_size.y / shape.sdf_rect_size.y) + 0.5;
 						}
 
 						gy = clamp(gy, 0.0, 1.0);
-						color *= texture(TEXTURE(U.gradient_texture_index), vec2(gy, 0.5));
+						color *= texture(TEXTURE(draw.gradient_texture_index), vec2(gy, 0.5));
 					}
 
 					return color;
@@ -1030,17 +1077,17 @@ function render2d.Initialize()
 					if (has_tex_sdf && !has_rect_sdf) {
 						float bias = -0.015;
 						float gamma = 1.1;
-						float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
-						float alpha = (U.outline_width > 0.0) ?
-							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+						float softness = max(1.0, max(shape.blur.x, shape.blur.y) * 1.75);
+						float alpha = (shape.outline_width > 0.0) ?
+							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
 							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
 						return pow(max(alpha, 0.0), gamma);
 					}
 
-					float smoothing = max(U.blur.x, U.blur.y);
+					float smoothing = max(shape.blur.x, shape.blur.y);
 					smoothing = max(0.75, smoothing);
-					return (U.outline_width > 0.0) ?
-						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + U.outline_width)) :
+					return (shape.outline_width > 0.0) ?
+						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + shape.outline_width)) :
 						smoothstep(smoothing, -smoothing, d);
 				}
 
@@ -1048,26 +1095,26 @@ function render2d.Initialize()
 					if (has_tex_sdf && !has_rect_sdf) {
 						float bias = -0.015;
 						float gamma = 1.1;
-						float softness = max(1.0, max(U.blur.x, U.blur.y) * 1.75);
-						vec3 alpha = (U.outline_width > 0.0) ?
-							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + U.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+						float softness = max(1.0, max(shape.blur.x, shape.blur.y) * 1.75);
+						vec3 alpha = (shape.outline_width > 0.0) ?
+							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
 							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
 						return pow(max(alpha, vec3(0.0)), vec3(gamma));
 					}
 
-					float smoothing = max(U.blur.x, U.blur.y);
+					float smoothing = max(shape.blur.x, shape.blur.y);
 					smoothing = max(0.7, smoothing);
-					return (U.outline_width > 0.0) ?
-						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + U.outline_width)) :
+					return (shape.outline_width > 0.0) ?
+						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + shape.outline_width)) :
 						smoothstep(smoothing, -smoothing, d);
 				}
 
 				float compute_blur_alpha(vec2 coords) {
-					vec2 p = (coords - 0.5) * U.rect_size;
-					vec2 b = max(vec2(0.0), (U.rect_size - U.blur * 2.0) * 0.5);
+					vec2 p = (coords - 0.5) * shape.rect_size;
+					vec2 b = max(vec2(0.0), (shape.rect_size - shape.blur * 2.0) * 0.5);
 					vec2 q = abs(p) - b;
 					float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-					float max_blur = max(U.blur.x, U.blur.y);
+					float max_blur = max(shape.blur.x, shape.blur.y);
 					return smoothstep(max_blur, 0.0, dist);
 				}
 
@@ -1085,7 +1132,7 @@ function render2d.Initialize()
 						shaded.a *= compute_sdf_alpha(d, has_tex_sdf, has_rect_sdf);
 					}
 
-					if ((U.blur.x > 0.0 || U.blur.y > 0.0) && U.sdf_rect_size.x <= 0.0) {
+					if ((shape.blur.x > 0.0 || shape.blur.y > 0.0) && shape.sdf_rect_size.x <= 0.0) {
 						shaded.a *= compute_blur_alpha(coords);
 					}
 
@@ -1152,19 +1199,19 @@ function render2d.Initialize()
 	]] .. config.fragment.shader
 
 		for _, replacement in ipairs{
-			{"U%.global_color", "batch_global_color"},
-			{"U%.texture_index", "batch_texture_index()"},
-			{"U%.uv_offset", "batch_uv_offset"},
-			{"U%.uv_scale", "batch_uv_scale"},
-			{"U%.flags", "batch_flags()"},
-			{"U%.blur", "batch_blur"},
-			{"U%.border_radius", "batch_border_radius"},
-			{"U%.outline_width", "batch_outline_width"},
-			{"U%.rect_size", "batch_rect_size"},
-			{"U%.sdf_threshold", "batch_sdf_threshold"},
-			{"U%.sdf_texel_range", "batch_sdf_texel_range"},
-			{"U%.gradient_texture_index", "batch_gradient_texture_index()"},
-			{"U%.sdf_rect_size", "batch_sdf_rect_size"},
+			{"draw%.global_color", "batch_global_color"},
+			{"draw%.texture_index", "batch_texture_index()"},
+			{"draw%.uv_offset", "batch_uv_offset"},
+			{"draw%.uv_scale", "batch_uv_scale"},
+			{"draw%.flags", "batch_flags()"},
+			{"shape%.blur", "batch_blur"},
+			{"shape%.border_radius", "batch_border_radius"},
+			{"shape%.outline_width", "batch_outline_width"},
+			{"shape%.rect_size", "batch_rect_size"},
+			{"shape%.sdf_threshold", "batch_sdf_threshold"},
+			{"shape%.sdf_texel_range", "batch_sdf_texel_range"},
+			{"draw%.gradient_texture_index", "batch_gradient_texture_index()"},
+			{"shape%.sdf_rect_size", "batch_sdf_rect_size"},
 		} do
 			batch_fragment_shader = batch_fragment_shader:gsub(replacement[1], replacement[2])
 		end
@@ -1229,7 +1276,7 @@ function render2d.Initialize()
 			]],
 			},
 			fragment = {
-				push_constants = config.fragment.push_constants,
+				constants = config.fragment.constants,
 				shader = batch_fragment_shader,
 			},
 			CullMode = config.CullMode,

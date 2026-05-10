@@ -480,3 +480,55 @@ T.Test3D("EasyPipeline exposes push constant layout metadata", function()
 	T(fragment.value)["=="](7)
 	pipeline:Remove()
 end)
+
+T.Test3D("EasyPipeline resolves constants storage automatically", function()
+	local pipeline = EasyPipeline.New{
+		ColorFormat = render.target:GetColorFormat(),
+		ConstantPlacement = {
+			push_budget = 80,
+		},
+		vertex = {
+			constants = {
+				{
+					name = "camera",
+					storage = "push",
+					block = {
+						{"projection_view_world", "mat4"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					gl_Position = camera.projection_view_world * vec4(0.0, 0.0, 0.0, 1.0);
+				}
+			]],
+		},
+		fragment = {
+			constants = {
+				{
+					name = "draw",
+					storage = "auto",
+					prefer = "push",
+					block = {
+						{"global_color", "vec4"},
+						{"uv_transform", "vec4"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					out_color = draw.global_color + draw.uv_transform;
+				}
+			]],
+		},
+	}
+	local camera = pipeline:GetConstantBlockInfo("camera")
+	local draw = pipeline:GetConstantBlockInfo("draw")
+	T(camera.storage)["=="]("push")
+	T(camera.size)["=="](64)
+	T(camera.offset)["=="](0)
+	T(draw.storage)["=="]("uniform_buffer")
+	T(draw.binding_index)[">="](2)
+	T(draw.offset)["=="](nil)
+	pipeline:Remove()
+end)

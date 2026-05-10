@@ -422,6 +422,29 @@ function EasyPipeline.BuildFFIType(layout, struct_name, fields)
 	return ctype
 end
 
+local function get_constant_stage_config(config, stage_name)
+	return config[stage_name] or
+		(
+			stage_name == "mesh_ext" and
+			config.mesh
+		)
+		or
+		(
+			stage_name == "task_ext" and
+			config.task
+		)
+end
+
+local function clone_constant_block(block)
+	local copy = {}
+
+	for key, value in pairs(block) do
+		copy[key] = value
+	end
+
+	return copy
+end
+
 function EasyPipeline.New(config)
 	assert_no_legacy_top_level_fields(config)
 	assert_no_dynamic_state_config(config)
@@ -907,19 +930,144 @@ function EasyPipeline.New(config)
 		return glsl_fields, table.concat(struct_definitions, "")
 	end
 
+	local function resolve_stage_constants()
+		local placement = config.ConstantPlacement or {}
+		local push_budget = placement.push_budget
+
+		if push_budget == nil or push_budget == "device" then
+			push_budget = render.GetDevice().physical_device:GetProperties().limits.maxPushConstantsSize
+		end
+
+		push_budget = assert(
+			tonumber(push_budget),
+			"EasyPipeline.New: ConstantPlacement.push_budget must be a number or 'device'"
+		)
+		push_budget = push_budget - math.max(0, tonumber(placement.reserve_push_bytes) or 0)
+
+		if push_budget < 0 then push_budget = 0 end
+
+		local fallback_storage = placement.fallback or "uniform_buffer"
+		local default_mode = placement.mode or "auto"
+		local constant_blocks = {}
+		local auto_blocks = {}
+		local hard_push_size = 0
+		local constant_order = 0
+
+		for _, stage_name in ipairs(possible_stages) do
+			local stage_config = get_constant_stage_config(config, stage_name)
+
+			if type(stage_config) == "table" and stage_config.constants then
+				for _, block in ipairs(stage_config.constants) do
+					if block.name == nil then
+						block.name = "_c_" .. stage_name
+						block._is_unnamed = true
+					end
+
+					local resolved = constant_blocks[block.name]
+
+					if not resolved then
+						constant_order = constant_order + 1
+						resolved = clone_constant_block(block)
+						resolved.block = flatten_fields(resolved.block)
+						resolved._constant_order = constant_order
+						resolved._requested_storage = resolved.storage or default_mode
+						resolved._preferred_storage = resolved.prefer or "push"
+						resolved._priority = tonumber(resolved.priority) or 0
+						local struct_name = resolved.name:sub(1, 1):upper() .. resolved.name:sub(2) .. "Constants"
+						local ctype = ffi.typeof(build_ffi_struct("scalar", resolved.block))
+						verify_layout("scalar", struct_name, resolved.block, ctype)
+						resolved._size = ffi.sizeof(ctype)
+						constant_blocks[resolved.name] = resolved
+
+						if resolved._requested_storage == "push" then
+							resolved._resolved_storage = "push"
+							hard_push_size = hard_push_size + resolved._size
+						elseif resolved._requested_storage == "uniform_buffer" then
+							resolved._resolved_storage = "uniform_buffer"
+						elseif resolved._requested_storage == "auto" then
+							table.insert(auto_blocks, resolved)
+						else
+							error(
+								"EasyPipeline.New: invalid constants storage '" .. tostring(resolved._requested_storage) .. "'",
+								3
+							)
+						end
+					end
+				end
+			end
+		end
+
+		if hard_push_size > push_budget then
+			error(
+				string.format(
+					"EasyPipeline.New: push constant blocks require %d bytes but the configured budget is %d",
+					hard_push_size,
+					push_budget
+				),
+				3
+			)
+		end
+
+		table.sort(auto_blocks, function(a, b)
+			local a_push = a._preferred_storage == "push" and 1 or 0
+			local b_push = b._preferred_storage == "push" and 1 or 0
+
+			if a_push ~= b_push then return a_push > b_push end
+
+			if a._priority ~= b._priority then return a._priority > b._priority end
+
+			if a._size ~= b._size then return a._size < b._size end
+
+			return a._constant_order < b._constant_order
+		end)
+
+		local remaining_push_budget = push_budget - hard_push_size
+
+		for _, block in ipairs(auto_blocks) do
+			if block._size <= remaining_push_budget then
+				block._resolved_storage = "push"
+				remaining_push_budget = remaining_push_budget - block._size
+			elseif fallback_storage == "uniform_buffer" then
+				block._resolved_storage = "uniform_buffer"
+			else
+				error(
+					string.format(
+						"EasyPipeline.New: constant block '%s' (%d bytes) does not fit in the remaining push constant budget (%d bytes)",
+						block.name,
+						block._size,
+						remaining_push_budget
+					),
+					3
+				)
+			end
+		end
+
+		for _, stage_name in ipairs(possible_stages) do
+			local stage_config = get_constant_stage_config(config, stage_name)
+
+			if type(stage_config) == "table" and stage_config.constants then
+				for _, block in ipairs(stage_config.constants) do
+					local resolved = assert(constant_blocks[block.name], "missing resolved constant block")
+					local target_key = resolved._resolved_storage == "push" and "push_constants" or "uniform_buffers"
+					stage_config[target_key] = stage_config[target_key] or {}
+					table.insert(stage_config[target_key], resolved)
+				end
+			end
+		end
+
+		return {
+			push_budget = push_budget,
+			fallback = fallback_storage,
+			blocks = constant_blocks,
+		}
+	end
+
+	local constant_resolution = resolve_stage_constants()
+
 	-- Process push constants and uniform buffers
 	-- First pass: Collect all unique push constant blocks across all stages to assign shared offsets
 	for _, stage_name in ipairs(possible_stages) do
-		local stage_config = config[stage_name] or
-			(
-				stage_name == "mesh_ext" and
-				config.mesh
-			)
-			or
-			(
-				stage_name == "task_ext" and
-				config.task
-			)
+		local stage_config = get_constant_stage_config(config, stage_name)
 
 		if type(stage_config) == "table" and stage_config.push_constants then
 			for _, block in ipairs(stage_config.push_constants) do
@@ -1110,16 +1258,7 @@ function EasyPipeline.New(config)
 	local active_stages = {}
 
 	for _, s in ipairs(possible_stages) do
-		local stage_config = config[s] or
-			(
-				s == "mesh_ext" and
-				config.mesh
-			)
-			or
-			(
-				s == "task_ext" and
-				config.task
-			)
+		local stage_config = get_constant_stage_config(config, s)
 
 		if stage_config then
 			-- Only consider it an active shader stage if it has a shader or if it's vertex/fragment (which might have default shaders in some systems, but here we check for .shader)
@@ -1221,6 +1360,8 @@ function EasyPipeline.New(config)
 	self.push_constant_block_offsets = push_constant_block_offsets
 	self.push_constant_block_order = push_constant_block_order
 	self.push_constant_types = push_constant_types
+	self.constant_blocks = constant_resolution.blocks
+	self.constant_push_budget = constant_resolution.push_budget
 	-- Build vertex attributes
 	local attributes = {}
 	local bindings = {}
@@ -1790,6 +1931,26 @@ end
 
 function EasyPipeline:GetPushConstantBlockSize(name)
 	return ffi.sizeof(self:GetPushConstantBlockType(name))
+end
+
+function EasyPipeline:GetConstantBlockInfo(name)
+	local block = self.constant_blocks and self.constant_blocks[name]
+
+	if not block then error("Invalid constant block: " .. tostring(name), 2) end
+
+	return {
+		name = block.name,
+		storage = block._resolved_storage,
+		size = block._size,
+		binding_index = block.binding_index,
+		offset = block._resolved_storage == "push" and
+			self:GetPushConstantBlockOffset(name) or
+			nil,
+	}
+end
+
+function EasyPipeline:GetConstantBlockStorage(name)
+	return self:GetConstantBlockInfo(name).storage
 end
 
 function EasyPipeline:PushConstants(...)
