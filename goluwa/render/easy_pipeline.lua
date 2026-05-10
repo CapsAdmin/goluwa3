@@ -869,13 +869,13 @@ function EasyPipeline.New(config)
 		for _, name in ipairs(push_constant_block_order) do
 			local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
 			upload_lines[#upload_lines + 1] = "do"
+			upload_lines[#upload_lines + 1] = string.format("    local block = push_constant_blocks[%q]", name)
 			upload_lines[#upload_lines + 1] = string.format("    local constants = constant_structs[%q]", struct_name)
-			append_callback_lines(
-				upload_lines,
-				string.format("push_constant_blocks[%q].block", name),
-				push_constant_blocks[name].block,
-				"constants"
-			)
+			upload_lines[#upload_lines + 1] = "    if block.write then"
+			upload_lines[#upload_lines + 1] = "        block.write(self, constants, block)"
+			upload_lines[#upload_lines + 1] = "    else"
+			append_callback_lines(upload_lines, "block.block", push_constant_blocks[name].block, "constants")
+			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = string.format(
 				"    self.pipeline:PushConstants(cmd, active_stages, push_constant_block_offsets[%q], constants)",
 				name
@@ -935,6 +935,10 @@ function EasyPipeline.New(config)
 	}
 	-- Store uniform buffers for external access
 	self.uniform_buffers = uniform_buffers
+	self.push_constant_blocks = push_constant_blocks
+	self.push_constant_block_offsets = push_constant_block_offsets
+	self.push_constant_block_order = push_constant_block_order
+	self.push_constant_types = push_constant_types
 	-- Build vertex attributes
 	local attributes = {}
 	local bindings = {}
@@ -1001,9 +1005,9 @@ function EasyPipeline.New(config)
 	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 	local bindless_texture_capacity = bindless_descriptor_capacities.textures
 	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
-
 	-- Build shader header and I/O
-	local shader_header = ([[#version 450
+	local shader_header = (
+		[[#version 450
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
@@ -1014,7 +1018,8 @@ function EasyPipeline.New(config)
 	layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
 	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
-]]):format(bindless_texture_capacity, bindless_cubemap_capacity)
+]]
+	):format(bindless_texture_capacity, bindless_cubemap_capacity)
 
 	if config.mesh or config.mesh_ext or config.task or config.task_ext then
 		shader_header = shader_header .. "#extension GL_EXT_mesh_shader : require\n"
@@ -1478,6 +1483,33 @@ function EasyPipeline:SetSamplerConfigValue(key, value)
 	return self.pipeline:SetSamplerConfigValue(key, value)
 end
 
+function EasyPipeline:GetPushConstantBlockOffset(name)
+	local offset = self.push_constant_block_offsets and self.push_constant_block_offsets[name]
+
+	if offset == nil then
+		error("Invalid push constant block: " .. tostring(name), 2)
+	end
+
+	return offset
+end
+
+function EasyPipeline:GetPushConstantBlockType(name)
+	if not (self.push_constant_blocks and self.push_constant_blocks[name]) then
+		error("Invalid push constant block: " .. tostring(name), 2)
+	end
+
+	local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
+	local ctype = self.push_constant_types and self.push_constant_types[struct_name]
+
+	if not ctype then error("Missing push constant type: " .. tostring(name), 2) end
+
+	return ctype
+end
+
+function EasyPipeline:GetPushConstantBlockSize(name)
+	return ffi.sizeof(self:GetPushConstantBlockType(name))
+end
+
 function EasyPipeline:PushConstants(...)
 	return self.pipeline:PushConstants(...)
 end
@@ -1507,9 +1539,7 @@ local function resolve_draw_framebuffer(self, framebuffer, frame_index)
 end
 
 local function begin_draw(self, cmd, fb)
-	if fb then
-		fb:Begin(cmd)
-	end
+	if fb then fb:Begin(cmd) end
 
 	-- If this pass draws directly to the main target (no explicit framebuffer),
 	-- make sure viewport/scissor are reset to full render size. Otherwise the
@@ -1533,7 +1563,6 @@ function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
 	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
 	begin_draw(self, cmd, fb)
-
 	return fb
 end
 
@@ -1564,6 +1593,7 @@ function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 	end
 
 	if began_framebuffer then self:EndDraw(cmd, fb) end
+
 	render.PopCommandBuffer()
 end
 
@@ -1572,13 +1602,17 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
 	render.PushCommandBuffer(cmd)
 	local began_framebuffer = fb ~= nil
-	local ok, err = xpcall(function()
-		begin_draw(self, cmd, fb)
-		self:UploadConstants()
-		cmd:DrawMeshTasks(gx, gy, gz)
-	end, debug.traceback)
+	local ok, err = xpcall(
+		function()
+			begin_draw(self, cmd, fb)
+			self:UploadConstants()
+			cmd:DrawMeshTasks(gx, gy, gz)
+		end,
+		debug.traceback
+	)
 
 	if began_framebuffer then self:EndDraw(cmd, fb) end
+
 	render.PopCommandBuffer()
 
 	if not ok then error(err, 0) end

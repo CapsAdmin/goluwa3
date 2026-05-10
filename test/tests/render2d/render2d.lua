@@ -1091,6 +1091,17 @@ T.Test2D("Graphics render2d SetStencilMode and GetStencilMode", function()
 	T(mode)["=="]("none")
 end)
 
+T.Test2D("Graphics render2d SetDepthMode and GetDepthMode", function()
+	render2d.SetDepthMode("less", true)
+	local mode, write = render2d.GetDepthMode()
+	T(mode)["=="]("less")
+	T(write)["=="](true)
+	render2d.SetDepthMode("none", false)
+	mode, write = render2d.GetDepthMode()
+	T(mode)["=="]("none")
+	T(write)["=="](false)
+end)
+
 T.Test2D("Graphics render2d stencil rendering", function()
 	-- Clear stencil to 0
 	render2d.ClearStencil(0)

@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local T = import("test/environment.lua")
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
@@ -424,4 +425,58 @@ T.Test3D("EasyPipeline rejects legacy snake_case top-level config", function()
 	end)
 	assert(not ok)
 	assert(tostring(err):find("use RasterizationSamples instead of Samples"))
+end)
+
+T.Test3D("EasyPipeline exposes push constant layout metadata", function()
+	local writes = 0
+	local pipeline = EasyPipeline.New{
+		ColorFormat = render.target:GetColorFormat(),
+		vertex = {
+			push_constants = {
+				{
+					name = "camera",
+					block = {
+						{"projection_view_world", "mat4"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					gl_Position = camera.projection_view_world * vec4(0.0, 0.0, 0.0, 1.0);
+				}
+			]],
+		},
+		fragment = {
+			push_constants = {
+				{
+					name = "fragment",
+					write = function(self, constants)
+						writes = writes + 1
+						constants.value = 7
+					end,
+					block = {
+						{"value", "int"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					out_color = vec4(float(fragment.value) / 7.0, 1.0, 1.0, 1.0);
+				}
+			]],
+		},
+	}
+	local camera_type = pipeline:GetPushConstantBlockType("camera")
+	local fragment_type = pipeline:GetPushConstantBlockType("fragment")
+	T(pipeline:GetPushConstantBlockOffset("camera"))["=="](0)
+	T(pipeline:GetPushConstantBlockSize("camera"))["=="](64)
+	T(pipeline:GetPushConstantBlockOffset("fragment"))["=="](64)
+	T(pipeline:GetPushConstantBlockSize("fragment"))["=="](16)
+	T(tonumber(ffi.offsetof(camera_type, "projection_view_world")))["=="](0)
+	T(tonumber(ffi.offsetof(fragment_type, "value")))["=="](0)
+	local fragment = fragment_type()
+	pipeline.push_constant_blocks.fragment.write(pipeline, fragment, pipeline.push_constant_blocks.fragment)
+	T(writes)["=="](1)
+	T(fragment.value)["=="](7)
+	pipeline:Remove()
 end)
