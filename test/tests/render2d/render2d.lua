@@ -319,6 +319,73 @@ T.Test2DFrames(
 	end
 )
 
+local function count_rect_batch_matrices(pool)
+	local total = 0
+
+	for _ in pairs(pool or {}) do
+		total = total + 1
+	end
+
+	return total
+end
+
+local initial_rect_batch_world_matrix_count
+local initial_rect_batch_draw_matrix_count
+
+T.Test2DFrames(
+	"Graphics render2d queued rect matrix reuse stays bounded across frames",
+	12,
+	function(width, height, frame)
+		if frame == 1 then
+			initial_rect_batch_world_matrix_count = count_rect_batch_matrices(render2d.rect_batch_world_matrices)
+			initial_rect_batch_draw_matrix_count = count_rect_batch_matrices(render2d.rect_batch_draw_matrices)
+		end
+
+		render2d.SetRectBatchMode("instanced")
+		render2d.SetColor(0.08, 0.1, 0.16, 1)
+		render2d.DrawRect(0, 0, width, height)
+		render2d.SetColor(0.9, 0.3, 0.15, 1)
+		render2d.DrawRect(96, 96, 96, 72)
+		render2d.SetRectBatchMode("replay")
+	end,
+	function(width, height, frame)
+		if frame ~= 12 then return end
+
+		T(
+			count_rect_batch_matrices(render2d.rect_batch_world_matrices) - initial_rect_batch_world_matrix_count
+		)["<="](2)
+		T(
+			count_rect_batch_matrices(render2d.rect_batch_draw_matrices) - initial_rect_batch_draw_matrix_count
+		)["<="](2)
+	end
+)
+
+local initial_rect_batch_entry_count
+
+T.Test2DFrames(
+	"Graphics render2d queued rect entry reuse stays bounded across frames",
+	12,
+	function(width, height, frame)
+		if frame == 1 then
+			initial_rect_batch_entry_count = count_rect_batch_matrices(render2d.rect_batch_entries)
+		end
+
+		render2d.SetRectBatchMode("instanced")
+		render2d.SetColor(0.08, 0.1, 0.16, 1)
+		render2d.DrawRect(0, 0, width, height)
+		render2d.SetColor(0.9, 0.3, 0.15, 1)
+		render2d.DrawRect(96, 96, 96, 72)
+		render2d.SetRectBatchMode("replay")
+	end,
+	function(width, height, frame)
+		if frame ~= 12 then return end
+
+		T(
+			count_rect_batch_matrices(render2d.rect_batch_entries) - initial_rect_batch_entry_count
+		)["<="](2)
+	end
+)
+
 T.Test2D("Graphics render2d SetAlphaMultiplier and GetAlphaMultiplier", function()
 	render2d.SetAlphaMultiplier(0.5)
 	T(render2d.GetAlphaMultiplier())["~"](0.5)
@@ -382,6 +449,27 @@ T.Test2D("Graphics render2d SetUV2", function()
 	-- SetUV2 doesn't have a corresponding getter, but we can test it doesn't error
 	render2d.SetUV2(0, 0, 1, 1)
 	render2d.SetUV2(0.25, 0.25, 0.75, 0.75)
+end)
+
+T.Test2D("Graphics render2d instanced DrawRectUV2 preserves live UV transform", function()
+	render2d.SetUV2(0.1, 0.2, 0.3, 0.4)
+	local off_x_before, off_y_before, scale_x_before, scale_y_before = render2d.GetUVTransform()
+	render2d.SetRectBatchMode("instanced")
+	render2d.DrawRectUV2(16, 16, 32, 32, 0.25, 0.25, 0.75, 0.75)
+	render2d.SetRectBatchMode("replay")
+	local off_x_after, off_y_after, scale_x_after, scale_y_after = render2d.GetUVTransform()
+	T(off_x_after)["=="](off_x_before)
+	T(off_y_after)["=="](off_y_before)
+	T(scale_x_after)["=="](scale_x_before)
+	T(scale_y_after)["=="](scale_y_before)
+	render2d.SetUV()
+	return function()
+		T.AssertScreenPixel{
+			pos = {20, 20},
+			color = {1, 1, 1, 1},
+			tolerance = 0.2,
+		}
+	end
 end)
 
 T.Test2D("Graphics render2d SetBlendPreset and GetBlendMode", function()

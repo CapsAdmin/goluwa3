@@ -445,15 +445,47 @@ local function clone_constant_block(block)
 	return copy
 end
 
+local function escape_lua_pattern(str)
+	return (str:gsub("([^%w])", "%%%1"))
+end
+
 local function build_passthrough_vertex_shader(vertex_config, shader_outputs, shader_inputs)
 	local passthrough = vertex_config.passthrough
 
 	if not passthrough then return nil end
 
+	local logical_inputs = vertex_config.attributes
+
+	if not logical_inputs and vertex_config.bindings then
+		logical_inputs = {}
+
+		for _, binding in ipairs(vertex_config.bindings) do
+			for _, attribute in ipairs(binding.attributes or {}) do
+				logical_inputs[#logical_inputs + 1] = attribute
+			end
+		end
+	end
+
 	local position = assert(
 		passthrough.position,
 		"EasyPipeline.New: vertex.passthrough.position is required when vertex.shader is omitted"
 	)
+
+	for _, attribute in ipairs(logical_inputs or {}) do
+		if attribute[2] == "mat4" then
+			position = position:gsub(
+				"%f[%a_]" .. escape_lua_pattern("in_" .. attribute[1]) .. "%f[^%w_]",
+				string.format(
+					"mat4(in_%s_row_0, in_%s_row_1, in_%s_row_2, in_%s_row_3)",
+					attribute[1],
+					attribute[1],
+					attribute[1],
+					attribute[1]
+				)
+			)
+		end
+	end
+
 	local input_names = {}
 	local lines = {
 		"void main() {",
@@ -493,10 +525,6 @@ local function build_fragment_adapter_declaration(adapter)
 	end
 
 	return string.format("#define %s %s", adapter.symbol, adapter.expr)
-end
-
-local function escape_lua_pattern(str)
-	return (str:gsub("([^%w])", "%%%1"))
 end
 
 local function normalize_fragment_adapter(adapter)
@@ -1458,8 +1486,32 @@ function EasyPipeline.New(config)
 	self.push_constant_types = push_constant_types
 	self.constant_blocks = constant_resolution.blocks
 	self.constant_push_budget = constant_resolution.push_budget
+
+	local function get_vertex_attribute_location_count(glsl_type)
+		if glsl_type == "mat4" then return 4 end
+
+		return 1
+	end
+
+	local function append_vertex_shader_input(shader_input_list, attribute)
+		if attribute[2] == "mat4" then
+			for row = 0, 3 do
+				shader_input_list[#shader_input_list + 1] = {
+					string.format("%s_row_%d", attribute[1], row),
+					"vec4",
+					"r32g32b32a32_sfloat",
+				}
+			end
+
+			return
+		end
+
+		shader_input_list[#shader_input_list + 1] = attribute
+	end
+
 	-- Build vertex attributes
 	local attributes = {}
+	local logical_attributes = {}
 	local bindings = {}
 	local shader_inputs = {}
 	local shader_outputs = {}
@@ -1493,20 +1545,49 @@ function EasyPipeline.New(config)
 				if resolved_binding == nil then resolved_binding = binding_index - 1 end
 
 				for _, attribute in ipairs(binding_attributes) do
-					table.insert(
-						attributes,
-						{
-							binding = resolved_binding,
-							location = location,
-							format = attribute[3],
-							offset = stride,
-							lua_name = attribute[1],
-							lua_type = glsl_to_lua_type[attribute[2]],
-						}
-					)
-					table.insert(shader_inputs, attribute)
-					stride = stride + render.GetVulkanFormatSize(attribute[3])
-					location = location + 1
+					local attribute_name = attribute[1]
+					local attribute_type = attribute[2]
+					local attribute_format = attribute[3]
+					local attribute_offset = stride
+					local attribute_lua_type = glsl_to_lua_type[attribute_type]
+					local location_count = get_vertex_attribute_location_count(attribute_type)
+					logical_attributes[#logical_attributes + 1] = {
+						binding = resolved_binding,
+						offset = attribute_offset,
+						lua_name = attribute_name,
+						lua_type = attribute_lua_type,
+						format = attribute_format,
+					}
+
+					for location_offset = 0, location_count - 1 do
+						local physical_name = attribute_name
+						local physical_type = attribute_type
+						local physical_format = attribute_format
+						local physical_offset = attribute_offset
+
+						if attribute_type == "mat4" then
+							physical_name = string.format("%s_row_%d", attribute_name, location_offset)
+							physical_type = "vec4"
+							physical_format = "r32g32b32a32_sfloat"
+							physical_offset = attribute_offset + location_offset * render.GetVulkanFormatSize(physical_format)
+						end
+
+						table.insert(
+							attributes,
+							{
+								binding = resolved_binding,
+								location = location + location_offset,
+								format = physical_format,
+								offset = physical_offset,
+								lua_name = attribute_name,
+								lua_type = attribute_lua_type,
+							}
+						)
+					end
+
+					append_vertex_shader_input(shader_inputs, attribute)
+					stride = stride + location_count * render.GetVulkanFormatSize(attribute_type == "mat4" and "r32g32b32a32_sfloat" or attribute_format)
+					location = location + location_count
 				end
 
 				if #binding_attributes > 0 then
@@ -1830,7 +1911,8 @@ function EasyPipeline.New(config)
 	if pipeline_config.DepthWrite == nil then pipeline_config.DepthWrite = true end
 
 	self.pipeline = render.CreateGraphicsPipeline(pipeline_config)
-	self.vertex_attributes = attributes
+	self.vertex_attributes = logical_attributes
+	self.physical_vertex_attributes = attributes
 	self.debug_views = debug_views
 	self.config = config
 	self.actual_color_formats = actual_color_formats

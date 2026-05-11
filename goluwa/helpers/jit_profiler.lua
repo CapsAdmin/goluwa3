@@ -708,7 +708,7 @@ do
 end
 
 do
-	--[[#local type TSummaryEntry = {name = string, count = number, self_count = number}]]
+	--[[#local type TSummaryEntry = {name = string, count = number, self_count = number, peak_count = number}]]
 	--[[#local type TSummaryNode = {
 		name = string,
 		count = number,
@@ -716,6 +716,295 @@ do
 		children = Map<|string, TSummaryNode|>,
 	}]]
 	--[[#local type TSummaryCountEntry = {name = string, count = number}]]
+	--[[#local type TPathEntry = {path = string, count = number, depth = number}]]
+	local vm_state_labels = {
+		N = "native",
+		I = "interpreter",
+		C = "c",
+		G = "gc",
+		J = "jit",
+	}
+
+	local function format_summary_percent(count--[[#: number]], total--[[#: number]])--[[#: string]]
+		return string_format("%.1f%%%%", total > 0 and (count / total) * 100 or 0)
+	end
+
+	local function format_summary_samples(count--[[#: number]], total--[[#: number]])--[[#: string]]
+		return string_format("%d samples (%s)", count, format_summary_percent(count, total))
+	end
+
+	local function format_summary_window(start_time--[[#: number]], end_time--[[#: number]])--[[#: string]]
+		local duration = math.max(0, end_time - start_time)
+		return string_format("%.6fs -> %.6fs (%.3fs)", start_time, end_time, duration)
+	end
+
+	local function is_wrapper_frame(name--[[#: string]])--[[#: boolean]]
+		return name == "xpcall" or
+			name == "pcall" or
+			name:find("^glw:%d+$") ~= nil or
+			name:find("crash_trace%.lua:%d+$") ~= nil
+	end
+
+	local function classify_summary_frame(name--[[#: string]])--[[#: string]]
+		if is_wrapper_frame(name) then return "wrapper" end
+
+		if is_source_location(name) then return "domain" end
+
+		if name:sub(1, 2) == "C:" then return "ffi/c" end
+
+		return "builtin"
+	end
+
+	local function format_frame_role(name--[[#: string]])--[[#: string]]
+		local kind = classify_summary_frame(name)
+
+		if kind == "wrapper" then return "infra" end
+
+		return kind
+	end
+
+	local function collapse_sample_frames(stack--[[#: List<|string|>]], collapsed_wrappers--[[#: Map<|string, number|>]])--[[#: List<|string|>]]
+		local out = {}
+
+		for i = 1, #stack do
+			local frame = stack[i]
+
+			if is_wrapper_frame(frame) then
+				collapsed_wrappers[frame] = (collapsed_wrappers[frame] or 0) + 1
+			else
+				out[#out + 1] = frame
+			end
+		end
+
+		if #out > 0 then return out end
+
+		for i = 1, #stack do
+			out[i] = stack[i]
+		end
+
+		return out
+	end
+
+	local function append_distribution_line(
+		lines--[[#: List<|string|>]],
+		prefix--[[#: string]],
+		map--[[#: Map<|string, number|>]],
+		total--[[#: number]],
+		label_map--[[#: Map<|string, string|> | nil]]
+	)
+		local entries = {}
+
+		for name, count in pairs(map) do
+			entries[#entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
+		end
+
+		if #entries == 0 then return end
+
+		table_sort(entries, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.name < b.name
+		end)
+
+		local parts = {}
+
+		for i = 1, #entries do
+			local entry = entries[i]--[[# as TSummaryCountEntry]]
+			local label = label_map and label_map[entry.name] or entry.name
+			parts[#parts + 1] = string_format("%s %s", label, format_summary_percent(entry.count, total))
+		end
+
+		lines[#lines + 1] = prefix .. table_concat(parts, ", ")
+	end
+
+	local function collect_summary_paths(
+		node--[[#: TSummaryNode]],
+		path_nodes--[[#: List<|string|>]],
+		out--[[#: List<|TPathEntry|>]],
+		max_depth--[[#: number]]
+	)
+		if #path_nodes > 0 then
+			out[#out + 1] = {
+				path = table_concat(path_nodes, " -> "),
+				count = node.count or 0,
+				depth = #path_nodes,
+			}
+		end
+
+		if #path_nodes >= max_depth then return end
+
+		local children = {}
+
+		for _, child in pairs(node.children) do
+			children[#children + 1] = child
+		end
+
+		table_sort(children, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.name < b.name
+		end)
+
+		for i = 1, #children do
+			path_nodes[#path_nodes + 1] = children[i].name
+			collect_summary_paths(children[i], path_nodes, out, max_depth)
+			path_nodes[#path_nodes] = nil
+		end
+	end
+
+	local function get_dominant_path(
+		node--[[#: TSummaryNode]],
+		max_depth--[[#: number]],
+		continue_ratio--[[#: number]]
+	)--[[#: TPathEntry | nil]]
+		local path_nodes = {}
+		local current = node
+		local current_count = node.count or 0
+
+		while #path_nodes < max_depth do
+			local best_child = nil
+
+			for _, child in pairs(current.children) do
+				if
+					not best_child or
+					child.count > best_child.count or
+					(
+						child.count == best_child.count and
+						child.name < best_child.name
+					)
+				then
+					best_child = child
+				end
+			end
+
+			if not best_child then break end
+
+			if current_count > 0 and (best_child.count or 0) < current_count * continue_ratio then
+				break
+			end
+
+			if not is_wrapper_frame(best_child.name) then
+				path_nodes[#path_nodes + 1] = best_child.name
+			end
+
+			current = best_child
+			current_count = best_child.count or 0
+		end
+
+		if #path_nodes == 0 then return nil end
+
+		return {
+			path = table_concat(path_nodes, " -> "),
+			count = current_count,
+			depth = #path_nodes,
+		}
+	end
+
+	local function is_selected_path_redundant(selected--[[#: List<|TPathEntry|>]], candidate--[[#: TPathEntry]])--[[#: boolean]]
+		for i = 1, #selected do
+			local existing = selected[i]--[[# as TPathEntry]]
+
+			if existing.path == candidate.path then return true end
+
+			if
+				existing.count == candidate.count and
+				existing.path:find("^" .. candidate.path:gsub("([^%w%s])", "%%%1") .. " -> ")
+			then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	local function select_top_paths(entries--[[#: List<|TPathEntry|>]], max_items--[[#: number]])--[[#: List<|TPathEntry|>]]
+		table_sort(entries, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			if a.depth ~= b.depth then return a.depth > b.depth end
+
+			return a.path < b.path
+		end)
+
+		local selected = {}
+
+		for i = 1, #entries do
+			local candidate = entries[i]--[[# as TPathEntry]]
+
+			if not is_selected_path_redundant(selected, candidate) then
+				selected[#selected + 1] = candidate
+
+				if #selected >= max_items then break end
+			end
+		end
+
+		return selected
+	end
+
+	local function format_workload_shape(top_branch_share--[[#: number]], top_self_share--[[#: number]])--[[#: string]]
+		local branch_shape = "distributed workload"
+
+		if top_branch_share >= 90 then
+			branch_shape = "single dominant path"
+		elseif top_branch_share >= 65 then
+			branch_shape = "few dominant branches"
+		elseif top_branch_share >= 40 then
+			branch_shape = "mixed hot paths"
+		end
+
+		if top_self_share >= 20 then
+			return branch_shape .. " plus concentrated self-time hotspots"
+		end
+
+		if top_self_share >= 10 then
+			return branch_shape .. " plus several secondary self-time hotspots"
+		end
+
+		return branch_shape .. " with diffused self time"
+	end
+
+	local function format_confidence(top_branch_share--[[#: number]], top_self_share--[[#: number]])--[[#: string]]
+		if top_branch_share >= 80 and top_self_share >= 15 then return "high" end
+
+		if top_branch_share >= 60 and top_self_share >= 8 then return "medium-high" end
+
+		if top_branch_share >= 35 or top_self_share >= 5 then return "medium" end
+
+		return "low"
+	end
+
+	local function append_ranked_entries(
+		lines--[[#: List<|string|>]],
+		header--[[#: string]],
+		entries--[[#: List<|TSummaryEntry|>]],
+		total_samples--[[#: number]],
+		max_items--[[#: number]],
+		use_self_count--[[#: boolean]]
+	)
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = header
+
+		if #entries == 0 then
+			lines[#lines + 1] = "none"
+			return
+		end
+
+		local limit = math.min(#entries, max_items)
+
+		for i = 1, limit do
+			local entry = entries[i]--[[# as TSummaryEntry]]
+			local focus_count = use_self_count and (entry.self_count or 0) or (entry.peak_count or entry.count)
+			local share = format_summary_percent(focus_count, total_samples)
+			lines[#lines + 1] = string_format(
+				"%d. %s - %d samples (%s) - %s",
+				i,
+				entry.name,
+				focus_count,
+				share,
+				format_frame_role(entry.name)
+			)
+		end
+	end
 
 	local function get_sorted_summary_entries(map--[[#: Map<|string, TSummaryEntry|>]])--[[#: List<|TSummaryEntry|>]]
 		local list = {}
@@ -738,89 +1027,6 @@ do
 		return list
 	end
 
-	local function format_summary_distribution(map--[[#: Map<|string, number|>]], total--[[#: number]])--[[#: string]]
-		local entries = {}
-
-		for name, count in pairs(map) do
-			entries[#entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
-		end
-
-		table_sort(entries, function(a, b)
-			if a.count ~= b.count then return a.count > b.count end
-
-			return a.name < b.name
-		end)
-
-		local out = {}
-
-		for i = 1, #entries do
-			local entry = entries[i]--[[# as TSummaryCountEntry]]
-			out[#out + 1] = string_format(
-				"%s=%d (%.1f%%%%)",
-				entry.name,
-				entry.count,
-				total > 0 and (entry.count / total) * 100 or 0
-			)
-		end
-
-		return table_concat(out, ", ")
-	end
-
-	local function append_summary_tree(
-		lines--[[#: List<|string|>]],
-		node--[[#: TSummaryNode]],
-		total_samples--[[#: number]],
-		depth--[[#: number]],
-		max_depth--[[#: number]],
-		max_children--[[#: number]]
-	)
-		local indent = string_rep("  ", depth)
-		local self_count = node.self_count or 0
-		local line = string_format(
-			"%s- %s - %d samples (%.1f%%%%)",
-			indent,
-			node.name,
-			node.count or 0,
-			total_samples > 0 and ((node.count or 0) / total_samples) * 100 or 0
-		)
-
-		if self_count > 0 then
-			line = line .. string_format(
-					", self %d (%.1f%%%%)",
-					self_count,
-					total_samples > 0 and (self_count / total_samples) * 100 or 0
-				)
-		end
-
-		lines[#lines + 1] = line
-
-		if depth >= max_depth then return end
-
-		local children = {}
-
-		for _, child in pairs(node.children) do
-			children[#children + 1] = child
-		end
-
-		table_sort(children, function(a, b)
-			if a.count ~= b.count then return a.count > b.count end
-
-			return a.name < b.name
-		end)
-
-		local limit = math.min(#children, max_children)
-
-		for i = 1, limit do
-			append_summary_tree(lines, children[i], total_samples, depth + 1, max_depth, max_children)
-		end
-
-		local hidden = #children - limit
-
-		if hidden > 0 then
-			lines[#lines + 1] = string_rep("  ", depth + 1) .. "- ... " .. hidden .. " more children"
-		end
-	end
-
 	function Profiler:GetFlamegraphSummary(
 		config--[[#: {
 			vm_state = string | nil,
@@ -833,16 +1039,20 @@ do
 	)
 		config = config or {}
 		local max_frames = math.max(1, config.max_frames or 12)
-		local max_depth = math.max(0, config.max_depth or 4)
+		local max_depth = math.max(1, config.max_depth or 3)
 		local max_children = math.max(1, config.max_children or 5)
-		local include_sections = config.include_sections ~= false
 		local frame_totals--[[#: Map<|string, TSummaryEntry|>]] = {}
+		local self_entries = {}
 		local state_totals--[[#: Map<|string, number|>]] = {}
 		local section_totals--[[#: Map<|string, number|>]] = {}
+		local collapsed_wrappers--[[#: Map<|string, number|>]] = {}
+		local abort_reason_totals--[[#: Map<|string, number|>]] = {}
 		local root--[[#: TSummaryNode]] = {name = "all", count = 0, self_count = 0, children = {}}
 		local total_samples = 0
-		local has_state_totals = false
-		local has_section_totals = false
+		local first_sample_time--[[#: number | nil]] = nil
+		local last_sample_time--[[#: number | nil]] = nil
+		local trace_abort_count = 0
+		local trace_flush_count = 0
 
 		for i = 1, self._event_count do
 			local ev = self._events[i]
@@ -857,26 +1067,28 @@ do
 				local frames = collect_sample_frames(ev.stack)
 				local stack--[[#: List<|string|>]] = {}
 
-				if include_sections and ev.section_path ~= "" then stack[1] = ev.section_path end
-
 				for frame_i = #frames, 1, -1 do
 					stack[#stack + 1] = frames[frame_i]
 				end
 
 				if #stack == 0 then goto continue end
 
+				stack = collapse_sample_frames(stack, collapsed_wrappers)
 				total_samples = total_samples + 1
 				root.count = total_samples
-				local vm_state = ev.vm_state or "?"
-				state_totals[vm_state] = (state_totals[vm_state] or 0) + 1
-				has_state_totals = true
-				local section_path = ev.section_path or ""
 
-				if section_path ~= "" then
-					section_totals[section_path] = (section_totals[section_path] or 0) + 1
-					has_section_totals = true
+				if not first_sample_time or ev.time < first_sample_time then
+					first_sample_time = ev.time
 				end
 
+				if not last_sample_time or ev.time > last_sample_time then
+					last_sample_time = ev.time
+				end
+
+				local vm_state = ev.vm_state or "?"
+				state_totals[vm_state] = (state_totals[vm_state] or 0) + 1
+				local section_path = ev.section_path ~= "" and ev.section_path or "other"
+				section_totals[section_path] = (section_totals[section_path] or 0) + 1
 				local node--[[#: TSummaryNode]] = root
 
 				for stack_i = 1, #stack do
@@ -884,7 +1096,7 @@ do
 					local entry--[[#: TSummaryEntry | nil]] = frame_totals[frame]
 
 					if not entry then
-						entry = {name = frame, count = 0, self_count = 0}
+						entry = {name = frame, count = 0, self_count = 0, peak_count = 0}
 						frame_totals[frame] = entry
 					end
 
@@ -898,6 +1110,9 @@ do
 					end
 
 					child.count = child.count + 1
+
+					if child.count > (entry.peak_count or 0) then entry.peak_count = child.count end
+
 					node = child
 				end
 
@@ -905,16 +1120,25 @@ do
 				local leaf_frame = stack[#stack]
 				local leaf_entry = frame_totals[leaf_frame]
 
-				if leaf_entry then leaf_entry.self_count = leaf_entry.self_count + 1 end
+				if leaf_entry then
+					leaf_entry.self_count = leaf_entry.self_count + 1
+
+					if leaf_entry.self_count == 1 then
+						self_entries[#self_entries + 1] = leaf_entry
+					end
+				end
+			elseif ev and ev.type == "trace_abort" then
+				trace_abort_count = trace_abort_count + 1
+				local reason = ev.abort_reason or "unknown"
+				abort_reason_totals[reason] = (abort_reason_totals[reason] or 0) + 1
+			elseif ev and ev.type == "trace_flush" then
+				trace_flush_count = trace_flush_count + 1
 			end
 
 			::continue::
 		end
 
-		local lines = {
-			"Flamegraph summary",
-			"samples: " .. total_samples,
-		}
+		local lines = {"Profile summary"}
 
 		if config.vm_state then
 			lines[#lines + 1] = "vm state filter: " .. config.vm_state
@@ -924,48 +1148,156 @@ do
 			lines[#lines + 1] = "section filter: " .. config.section_path
 		end
 
-		if has_state_totals then
-			lines[#lines + 1] = "vm states: " .. format_summary_distribution(state_totals, total_samples)
-		end
-
-		if has_section_totals then
-			lines[#lines + 1] = "sections: " .. format_summary_distribution(section_totals, total_samples)
-		end
-
 		if total_samples == 0 then return table_concat(lines, "\n") end
 
-		local hottest_frames = get_sorted_summary_entries(frame_totals)
-		lines[#lines + 1] = ""
-		lines[#lines + 1] = "Top frames:"
+		local branch_entries = get_sorted_summary_entries(frame_totals)
 
-		for i = 1, math.min(#hottest_frames, max_frames) do
-			local entry = hottest_frames[i]--[[# as TSummaryEntry]]
-			local line = string_format(
-				"%d. %s - %d samples (%.1f%%%%)",
-				i,
-				entry.name,
-				entry.count,
-				(entry.count / total_samples) * 100
-			)
+		table_sort(branch_entries, function(a, b)
+			local a_focus = a.peak_count or a.count
+			local b_focus = b.peak_count or b.count
 
-			if (entry.self_count or 0) > 0 then
-				line = line .. string_format(
-						", self %d (%.1f%%%%)",
-						entry.self_count,
-						(entry.self_count / total_samples) * 100
-					)
+			if a_focus ~= b_focus then return a_focus > b_focus end
+
+			if a.count ~= b.count then return a.count > b.count end
+
+			if (a.self_count or 0) ~= (b.self_count or 0) then
+				return (a.self_count or 0) > (b.self_count or 0)
 			end
 
-			lines[#lines + 1] = line
+			return a.name < b.name
+		end)
+
+		table_sort(self_entries, function(a, b)
+			local a_self = a.self_count or 0
+			local b_self = b.self_count or 0
+
+			if a_self ~= b_self then return a_self > b_self end
+
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.name < b.name
+		end)
+
+		local top_self_total = 0
+
+		for i = 1, math.min(3, #self_entries) do
+			top_self_total = top_self_total + (self_entries[i].self_count or 0)
 		end
 
-		if #hottest_frames > max_frames then
-			lines[#lines + 1] = "... " .. (#hottest_frames - max_frames) .. " more frames"
+		local top_branch = branch_entries[1]
+		local top_branch_focus = top_branch and (top_branch.peak_count or top_branch.count) or 0
+		local top_branch_share = total_samples > 0 and ((top_branch_focus / total_samples) * 100) or 0
+		local top_self_share = total_samples > 0 and (top_self_total / total_samples) * 100 or 0
+		local path_entries = {}
+		collect_summary_paths(root, {}, path_entries, math.max(1, math.min(max_depth, max_children)))
+		local top_paths = select_top_paths(path_entries, math.min(max_frames, 5))
+		local dominant_path = get_dominant_path(root, math.max(1, math.min(max_depth, max_children)), 0.8)
+		local collapsed_wrapper_entries = {}
+
+		for name, count in pairs(collapsed_wrappers) do
+			collapsed_wrapper_entries[#collapsed_wrapper_entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
+		end
+
+		table_sort(collapsed_wrapper_entries, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.name < b.name
+		end)
+
+		lines[#lines + 1] = "window: " .. format_summary_window(first_sample_time or 0, last_sample_time or 0)
+		lines[#lines + 1] = "samples: " .. total_samples
+		lines[#lines + 1] = "workload shape: " .. format_workload_shape(top_branch_share, top_self_share)
+
+		if dominant_path then
+			lines[#lines + 1] = "dominant path: " .. dominant_path.path .. " - " .. format_summary_percent(dominant_path.count, total_samples)
+		end
+
+		append_distribution_line(lines, "vm states: ", state_totals, total_samples, vm_state_labels)
+		append_distribution_line(lines, "sections: ", section_totals, total_samples, nil)
+
+		if #collapsed_wrapper_entries > 0 then
+			local parts = {}
+
+			for i = 1, math.min(4, #collapsed_wrapper_entries) do
+				parts[#parts + 1] = collapsed_wrapper_entries[i].name
+			end
+
+			lines[#lines + 1] = "collapsed wrappers: " .. table_concat(parts, ", ")
+		end
+
+		lines[#lines + 1] = "confidence: " .. format_confidence(top_branch_share, top_self_share)
+		append_ranked_entries(lines, "Top self-time sites", self_entries, total_samples, max_frames, true)
+		append_ranked_entries(lines, "Top branch owners", branch_entries, total_samples, max_frames, false)
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "Top branches"
+
+		if #top_paths == 0 then
+			lines[#lines + 1] = "none"
+		else
+			for i = 1, #top_paths do
+				local entry = top_paths[i]--[[# as TPathEntry]]
+				lines[#lines + 1] = string_format(
+					"%d. %s - %s",
+					i,
+					entry.path,
+					format_summary_samples(entry.count, total_samples)
+				)
+			end
 		end
 
 		lines[#lines + 1] = ""
-		lines[#lines + 1] = "Top call tree:"
-		append_summary_tree(lines, root, total_samples, 0, max_depth, max_children)
+		lines[#lines + 1] = "Runtime health"
+		lines[#lines + 1] = "trace aborts: " .. trace_abort_count
+		lines[#lines + 1] = "trace flushes: " .. trace_flush_count
+		lines[#lines + 1] = "top 3 self concentration: " .. format_summary_percent(top_self_total, total_samples)
+
+		if trace_abort_count > 0 then
+			local abort_entries = {}
+
+			for name, count in pairs(abort_reason_totals) do
+				abort_entries[#abort_entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
+			end
+
+			table_sort(abort_entries, function(a, b)
+				if a.count ~= b.count then return a.count > b.count end
+
+				return a.name < b.name
+			end)
+
+			local limit = math.min(3, #abort_entries)
+
+			for i = 1, limit do
+				local entry = abort_entries[i]--[[# as TSummaryCountEntry]]
+				lines[#lines + 1] = string_format("abort reason %d: %s - %d", i, entry.name, entry.count)
+			end
+		end
+
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "Recommended inspection order"
+		local recommended = {}
+		local recommended_lookup = {}
+
+		local function push_recommended(name)
+			if not name or recommended_lookup[name] then return end
+
+			recommended_lookup[name] = true
+			recommended[#recommended + 1] = name
+		end
+
+		for i = 1, math.min(4, #self_entries) do
+			push_recommended(self_entries[i].name)
+		end
+
+		for i = 1, math.min(2, #branch_entries) do
+			push_recommended(branch_entries[i].name)
+		end
+
+		for i = 1, #recommended do
+			lines[#lines + 1] = string_format("%d. %s", i, recommended[i])
+		end
+
+		if #recommended == 0 then lines[#lines + 1] = "none" end
+
 		return table_concat(lines, "\n")
 	end
 end
@@ -3285,38 +3617,122 @@ function escapeMarkdownText(text) {
     .replace(/\n+/g, ' ');
 }
 
-function aggregateFlamegraphFrames(node, totals) {
+function formatSummaryPercent(count, total) {
+  return ((total > 0 ? (count / total) * 100 : 0).toFixed(1)) + '%';
+}
+
+function formatSummarySamples(count, total) {
+  return `${count} samples (${formatSummaryPercent(count, total)})`;
+}
+
+function isSummaryWrapperFrame(name) {
+  return name === 'xpcall' ||
+    name === 'pcall' ||
+    /^glw:\d+$/.test(name) ||
+    /crash_trace\.lua:\d+$/.test(name);
+}
+
+function classifySummaryFrame(name) {
+  if (isSummaryWrapperFrame(name)) return 'infra';
+  if (/^.+:\d+$/.test(name)) return 'domain';
+  if (name.startsWith('C:')) return 'ffi/c';
+  return 'builtin';
+}
+
+function aggregateSummaryFrames(node, totals, collapsedWrappers) {
   const children = Object.values(node.children || {});
   for (const child of children) {
+    if (isSummaryWrapperFrame(child.name)) {
+      collapsedWrappers.set(child.name, (collapsedWrappers.get(child.name) || 0) + (child.count || 0));
+      aggregateSummaryFrames(child, totals, collapsedWrappers);
+      continue;
+    }
+
     let entry = totals.get(child.name);
     if (!entry) {
-      entry = {name: child.name, count: 0, self: 0, occurrences: 0};
+      entry = {name: child.name, count: 0, self: 0, occurrences: 0, peak: 0};
       totals.set(child.name, entry);
     }
     entry.count += child.count || 0;
     entry.self += child._self || 0;
     entry.occurrences++;
-    aggregateFlamegraphFrames(child, totals);
+    entry.peak = Math.max(entry.peak || 0, child.count || 0);
+    aggregateSummaryFrames(child, totals, collapsedWrappers);
   }
 }
 
-function appendFlamegraphTreeLines(lines, node, totalSamples, depth, maxDepth, maxChildren) {
-  const indent = '  '.repeat(depth);
-  const pct = totalSamples > 0 ? ((node.count / totalSamples) * 100).toFixed(1) : '0.0';
-  const selfPct = totalSamples > 0 ? ((node._self / totalSamples) * 100).toFixed(1) : '0.0';
-  let line = `${indent}- ${node.name} — ${node.count} samples (${pct}%)`;
-  if (node._self > 0) line += `, self ${node._self} (${selfPct}%)`;
-  lines.push(line);
-  if (depth >= maxDepth) return;
-
-  const children = Object.values(node.children || {}).sort((a, b) => b.count - a.count);
-  const visibleChildren = children.slice(0, maxChildren);
-  for (const child of visibleChildren) {
-    appendFlamegraphTreeLines(lines, child, totalSamples, depth + 1, maxDepth, maxChildren);
+function collectSummaryPaths(node, path, out, maxDepth) {
+  const children = Object.values(node.children || {}).sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name));
+  for (const child of children) {
+    const nextPath = isSummaryWrapperFrame(child.name) ? path.slice() : path.concat(child.name);
+    if (nextPath.length > 0) {
+      out.push({path: nextPath.join(' -> '), count: child.count || 0, depth: nextPath.length});
+    }
+    if (nextPath.length < maxDepth) {
+      collectSummaryPaths(child, nextPath, out, maxDepth);
+    }
   }
-  const hiddenCount = children.length - visibleChildren.length;
-  if (hiddenCount > 0) {
-    lines.push(`${'  '.repeat(depth + 1)}- … ${hiddenCount} more child${hiddenCount === 1 ? '' : 'ren'}`);
+}
+
+function selectSummaryPaths(entries, maxItems) {
+  const sorted = entries.slice().sort((a, b) => (b.count - a.count) || (b.depth - a.depth) || a.path.localeCompare(b.path));
+  const selected = [];
+  for (const entry of sorted) {
+    const redundant = selected.some(existing => existing.path === entry.path || (existing.count === entry.count && existing.path.startsWith(entry.path + ' -> ')));
+    if (redundant) continue;
+    selected.push(entry);
+    if (selected.length >= maxItems) break;
+  }
+  return selected;
+}
+
+function getDominantSummaryPath(node, maxDepth, continueRatio) {
+  const path = [];
+  let current = node;
+  let currentCount = node.count || 0;
+  while (path.length < maxDepth) {
+    const children = Object.values(current.children || {});
+    if (children.length === 0) break;
+    children.sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name));
+    const best = children[0];
+    if (currentCount > 0 && (best.count || 0) < currentCount * continueRatio) break;
+    if (!isSummaryWrapperFrame(best.name)) {
+      path.push(best.name);
+    }
+    current = best;
+    currentCount = best.count || 0;
+  }
+  if (path.length === 0) return null;
+  return {path: path.join(' -> '), count: currentCount, depth: path.length};
+}
+
+function summarizeWorkloadShape(topBranchShare, topSelfShare) {
+  let branchShape = 'distributed workload';
+  if (topBranchShare >= 90) branchShape = 'single dominant path';
+  else if (topBranchShare >= 65) branchShape = 'few dominant branches';
+  else if (topBranchShare >= 40) branchShape = 'mixed hot paths';
+
+  if (topSelfShare >= 20) return branchShape + ' plus concentrated self-time hotspots';
+  if (topSelfShare >= 10) return branchShape + ' plus several secondary self-time hotspots';
+  return branchShape + ' with diffused self time';
+}
+
+function summarizeConfidence(topBranchShare, topSelfShare) {
+  if (topBranchShare >= 80 && topSelfShare >= 15) return 'high';
+  if (topBranchShare >= 60 && topSelfShare >= 8) return 'medium-high';
+  if (topBranchShare >= 35 || topSelfShare >= 5) return 'medium';
+  return 'low';
+}
+
+function appendSummaryRanking(lines, header, entries, totalSamples, useSelf, limit) {
+  lines.push('', `## ${header}`, '');
+  if (entries.length === 0) {
+    lines.push('none');
+    return;
+  }
+  for (const [index, entry] of entries.slice(0, limit).entries()) {
+    const focusCount = useSelf ? entry.self : (entry.peak || entry.count);
+    lines.push(`${index + 1}. ${entry.name} - ${focusCount} samples (${formatSummaryPercent(focusCount, totalSamples)}) - ${classifySummaryFrame(entry.name)}`);
   }
 }
 
@@ -3344,54 +3760,145 @@ function buildFlamegraphSummaryMarkdown(tStart, tEnd) {
   const filters = getFlamegraphFilterSummary();
   const duration = Math.max(0, tEnd - tStart);
   const lines = [
-    '# Flamegraph Summary',
-    '',
-    `- Window: ${formatFlamegraphOffset(tStart)} → ${formatFlamegraphOffset(tEnd)} (${formatFlamegraphDuration(duration)})`,
-    `- Samples: ${totalSamples}`,
-    `- VM states: ${filters.states.join(', ')}`,
-    `- Sections: ${filters.sections.join(', ')}`,
+    '# Profile Summary',
   ];
-
-  if (hoverState || hoverSection) {
-    lines.push(`- Hover preview: ${[
-      hoverState ? `state=${VM_STATE_LABELS[hoverState] || hoverState}` : null,
-      hoverSection ? `section=${hoverSection === SECTION_OTHER ? 'other' : hoverSection}` : null,
-    ].filter(Boolean).join(', ')}`);
-  }
 
   if (totalSamples === 0) {
     lines.push('', 'No samples matched the current range and filter selection.');
     return lines.join('\n');
   }
 
-  const totals = new Map();
-  aggregateFlamegraphFrames(root, totals);
-  const hottestFrames = Array.from(totals.values())
-    .sort((a, b) => (b.count - a.count) || (b.self - a.self) || a.name.localeCompare(b.name))
-    .slice(0, 12);
-  const hottestSelfFrames = Array.from(totals.values())
-    .filter(entry => entry.self > 0)
-    .sort((a, b) => (b.self - a.self) || (b.count - a.count) || a.name.localeCompare(b.name))
-    .slice(0, 12);
+  const stateTotals = new Map();
+  const sectionTotals = new Map();
+  let firstSampleTime = null;
+  let lastSampleTime = null;
+  const currentEnabledStates = new Set(enabledStates);
+  const currentEnabledSections = new Set(enabledSections);
+  const iLo = bisectLeft(_sampleTimes, tStart);
+  const iHi = bisectRight(_sampleTimes, tEnd);
+  for (let idx = iLo; idx < iHi; idx++) {
+    const e = sampleEvents[idx];
+    if (!e.stack) continue;
+    if (hoverState || hoverSection) {
+      if (hoverState && e.vm_state !== hoverState) continue;
+      if (hoverSection && e.section_path !== hoverSection) continue;
+    } else {
+      if (!currentEnabledStates.has(e.vm_state)) continue;
+      if (e.section_path) {
+        const rootSec = e.section_path.split(' > ')[0];
+        if (ALL_SECTIONS.includes(rootSec) && !currentEnabledSections.has(rootSec)) continue;
+      } else if (!currentEnabledSections.has(SECTION_OTHER)) {
+        continue;
+      }
+    }
 
-  lines.push('', '## Hottest Frames', '', '| Frame | Inclusive | Inclusive % | Self | Self % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
-  for (const entry of hottestFrames) {
-    const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
-    const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
-    lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.count} | ${inclusivePct} | ${entry.self} | ${selfPct} | ${entry.occurrences} |`);
+    stateTotals.set(e.vm_state || '?', (stateTotals.get(e.vm_state || '?') || 0) + 1);
+    sectionTotals.set(e.section_path || 'other', (sectionTotals.get(e.section_path || 'other') || 0) + 1);
+    if (firstSampleTime === null || e.time < firstSampleTime) firstSampleTime = e.time;
+    if (lastSampleTime === null || e.time > lastSampleTime) lastSampleTime = e.time;
   }
 
-  if (hottestSelfFrames.length > 0) {
-    lines.push('', '## Hottest Self Time', '', '| Frame | Self | Self % | Inclusive | Inclusive % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
-    for (const entry of hottestSelfFrames) {
-      const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
-      const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
-      lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.self} | ${selfPct} | ${entry.count} | ${inclusivePct} | ${entry.occurrences} |`);
+  const totals = new Map();
+  const collapsedWrappers = new Map();
+  aggregateSummaryFrames(root, totals, collapsedWrappers);
+  const branchOwners = Array.from(totals.values()).sort((a, b) => ((b.peak || b.count) - (a.peak || a.count)) || (b.count - a.count) || (b.self - a.self) || a.name.localeCompare(b.name));
+  const selfSites = branchOwners.filter(entry => entry.self > 0).sort((a, b) => (b.self - a.self) || (b.count - a.count) || a.name.localeCompare(b.name));
+  const pathEntries = [];
+  collectSummaryPaths(root, [], pathEntries, 3);
+  const topPaths = selectSummaryPaths(pathEntries, 5);
+  const dominantPath = getDominantSummaryPath(root, 3, 0.8);
+
+  let topSelfTotal = 0;
+  for (const entry of selfSites.slice(0, 3)) topSelfTotal += entry.self;
+  const topBranchShare = branchOwners[0] ? ((branchOwners[0].peak || branchOwners[0].count) / totalSamples) * 100 : 0;
+  const topSelfShare = totalSamples > 0 ? (topSelfTotal / totalSamples) * 100 : 0;
+
+  const traceAbortTotals = new Map();
+  let traceAbortCount = 0;
+  let traceFlushCount = 0;
+  for (const ev of EVENTS) {
+    const relTime = ev.time - timeOrigin;
+    if (relTime < tStart || relTime > tEnd) continue;
+    if (ev.type === 'trace_abort') {
+      traceAbortCount++;
+      const reason = ev.abort_reason || 'unknown';
+      traceAbortTotals.set(reason, (traceAbortTotals.get(reason) || 0) + 1);
+    } else if (ev.type === 'trace_flush') {
+      traceFlushCount++;
     }
   }
 
-  lines.push('', '## Hottest Call Tree', '');
-  appendFlamegraphTreeLines(lines, root, totalSamples, 0, 5, 5);
+  const stateSummary = Array.from(stateTotals.entries())
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .map(([state, count]) => `${VM_STATE_LABELS[state] || state} ${formatSummaryPercent(count, totalSamples)}`)
+    .join(', ');
+  const sectionSummary = Array.from(sectionTotals.entries())
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .map(([section, count]) => `${section === SECTION_OTHER ? 'other' : section} ${formatSummaryPercent(count, totalSamples)}`)
+    .join(', ');
+  const wrapperSummary = Array.from(collapsedWrappers.entries())
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .slice(0, 4)
+    .map(([name]) => name)
+    .join(', ');
+
+  lines.push('');
+  lines.push(`window: ${formatFlamegraphOffset(tStart)} -> ${formatFlamegraphOffset(tEnd)} (${formatFlamegraphDuration(duration)})`);
+  lines.push(`samples: ${totalSamples}`);
+  lines.push(`workload shape: ${summarizeWorkloadShape(topBranchShare, topSelfShare)}`);
+  if (dominantPath) {
+    lines.push(`dominant path: ${dominantPath.path} - ${formatSummaryPercent(dominantPath.count, totalSamples)}`);
+  }
+  lines.push(`vm states: ${stateSummary || filters.states.join(', ')}`);
+  lines.push(`sections: ${sectionSummary || filters.sections.join(', ')}`);
+  if (wrapperSummary) lines.push(`collapsed wrappers: ${wrapperSummary}`);
+  if (hoverState || hoverSection) {
+    lines.push(`hover preview: ${[
+      hoverState ? `state=${VM_STATE_LABELS[hoverState] || hoverState}` : null,
+      hoverSection ? `section=${hoverSection === SECTION_OTHER ? 'other' : hoverSection}` : null,
+    ].filter(Boolean).join(', ')}`);
+  }
+  lines.push(`confidence: ${summarizeConfidence(topBranchShare, topSelfShare)}`);
+
+  appendSummaryRanking(lines, 'Top Self-Time Sites', selfSites, totalSamples, true, 12);
+  appendSummaryRanking(lines, 'Top Branch Owners', branchOwners, totalSamples, false, 12);
+
+  lines.push('', '## Top Branches', '');
+  if (topPaths.length === 0) {
+    lines.push('none');
+  } else {
+    for (const [index, entry] of topPaths.entries()) {
+      lines.push(`${index + 1}. ${entry.path} - ${formatSummarySamples(entry.count, totalSamples)}`);
+    }
+  }
+
+  lines.push('', '## Runtime Health', '');
+  lines.push(`- Trace aborts: ${traceAbortCount}`);
+  lines.push(`- Trace flushes: ${traceFlushCount}`);
+  lines.push(`- Top 3 self concentration: ${formatSummaryPercent(topSelfTotal, totalSamples)}`);
+  const topAbortReasons = Array.from(traceAbortTotals.entries())
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .slice(0, 3);
+  for (const [index, [reason, count]] of topAbortReasons.entries()) {
+    lines.push(`- Abort reason ${index + 1}: ${reason} - ${count}`);
+  }
+
+  lines.push('', '## Recommended Inspection Order', '');
+  const recommended = [];
+  const seenRecommended = new Set();
+  for (const entry of selfSites.slice(0, 4).concat(branchOwners.slice(0, 2))) {
+    if (seenRecommended.has(entry.name)) continue;
+    seenRecommended.add(entry.name);
+    recommended.push(entry.name);
+  }
+  if (recommended.length === 0) {
+    lines.push('none');
+  } else {
+    for (const [index, name] of recommended.entries()) {
+      lines.push(`${index + 1}. ${name}`);
+    }
+  }
+
   return lines.join('\n');
 }
 

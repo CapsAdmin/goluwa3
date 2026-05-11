@@ -152,6 +152,8 @@ render2d.state = {
 			clamp_border_radius = true,
 			batched_rect_draws_enabled = true,
 			rect_batch_mode = "instanced",
+			computed_margin = 0,
+			computed_margin_dirty = true,
 			margin_override = nil,
 		},
 	},
@@ -163,6 +165,9 @@ render2d.state = {
 				replay = 2,
 				instanced = 3,
 			},
+			next_entry_slot = 1,
+			next_world_matrix_slot = 1,
+			next_draw_matrix_slot = 1,
 		},
 		ids = {
 			roots = {
@@ -204,6 +209,69 @@ local function reset_rect_batch_instance_frame_state()
 	render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = 1
 end
 
+local function get_rect_batch_world_matrix(slot)
+	render2d.rect_batch_world_matrices = render2d.rect_batch_world_matrices or {}
+	local matrix = render2d.rect_batch_world_matrices[slot]
+
+	if not matrix then
+		matrix = Matrix44()
+		render2d.rect_batch_world_matrices[slot] = matrix
+	end
+
+	return matrix
+end
+
+local function get_rect_batch_draw_matrix(slot)
+	render2d.rect_batch_draw_matrices = render2d.rect_batch_draw_matrices or {}
+	local matrix = render2d.rect_batch_draw_matrices[slot]
+
+	if not matrix then
+		matrix = Matrix44()
+		render2d.rect_batch_draw_matrices[slot] = matrix
+	end
+
+	return matrix
+end
+
+local function get_rect_batch_entry(slot)
+	render2d.rect_batch_entries = render2d.rect_batch_entries or {}
+	local entry = render2d.rect_batch_entries[slot]
+
+	if not entry then
+		entry = {}
+		render2d.rect_batch_entries[slot] = entry
+	end
+
+	return entry
+end
+
+local function reset_rect_batch_matrix_pool_state()
+	render2d.state.runtime.batch.next_entry_slot = 1
+	render2d.state.runtime.batch.next_world_matrix_slot = 1
+	render2d.state.runtime.batch.next_draw_matrix_slot = 1
+end
+
+local function acquire_rect_batch_world_matrix()
+	local batch_runtime = render2d.state.runtime.batch
+	local slot = batch_runtime.next_world_matrix_slot
+	batch_runtime.next_world_matrix_slot = slot + 1
+	return get_rect_batch_world_matrix(slot)
+end
+
+local function acquire_rect_batch_draw_matrix()
+	local batch_runtime = render2d.state.runtime.batch
+	local slot = batch_runtime.next_draw_matrix_slot
+	batch_runtime.next_draw_matrix_slot = slot + 1
+	return get_rect_batch_draw_matrix(slot)
+end
+
+local function acquire_rect_batch_entry()
+	local batch_runtime = render2d.state.runtime.batch
+	local slot = batch_runtime.next_entry_slot
+	batch_runtime.next_entry_slot = slot + 1
+	return get_rect_batch_entry(slot)
+end
+
 local function assert_rect_batch_mode(mode, kind, allow_immediate)
 	if
 		not render2d.state.runtime.batch.mode_ids[mode] or
@@ -231,40 +299,39 @@ local function get_active_pipeline()
 	return render2d.shader_override or render2d.pipeline
 end
 
-local function build_rect_draw_matrix(base_world_matrix, x, y, w, h, a, ox, oy, margin, use_float)
-	local matrix = Matrix44()
-	local projected = Matrix44()
+local function build_rect_draw_matrix(base_world_matrix, x, y, w, h, a, ox, oy, margin, use_float, out_matrix)
+	local projected = out_matrix or Matrix44()
 	local qw = w + margin * 2
 	local qh = h + margin * 2
-	Matrix44.CopyTo(base_world_matrix, matrix)
+	Matrix44.CopyTo(base_world_matrix, projected)
 
 	if x and y then
 		if use_float then
-			matrix:Translate(x - margin, y - margin, 0)
+			projected:Translate(x - margin, y - margin, 0)
 		else
-			matrix:Translate(math.ceil(x - margin), math.ceil(y - margin), 0)
+			projected:Translate(math.ceil(x - margin), math.ceil(y - margin), 0)
 		end
 	end
 
-	if a then matrix:Rotate(a, 0, 0, 1) end
+	if a then projected:Rotate(a, 0, 0, 1) end
 
 	if ox then
 		if use_float then
-			matrix:Translate(-ox, -oy, 0)
+			projected:Translate(-ox, -oy, 0)
 		else
-			matrix:Translate(math.ceil(-ox), math.ceil(-oy), 0)
+			projected:Translate(math.ceil(-ox), math.ceil(-oy), 0)
 		end
 	end
 
 	if w and h then
 		if use_float then
-			matrix:Scale(qw, qh, 1)
+			projected:Scale(qw, qh, 1)
 		else
-			matrix:Scale(math.ceil(qw), math.ceil(qh), 1)
+			projected:Scale(math.ceil(qw), math.ceil(qh), 1)
 		end
 	end
 
-	matrix:GetMultiplied(render2d.GetProjectionViewMatrix(), projected)
+	projected:GetMultiplied(render2d.GetProjectionViewMatrix(), projected)
 	return projected, qw, qh
 end
 
@@ -437,16 +504,35 @@ local rect_batch_fragment_passthrough_fields = {
 		},
 	},
 }
+local rect_batch_draw_matrix_values_type = ffi.typeof("float[16]")
+local rect_batch_matrix_copy_size = ffi.sizeof("float") * 16
+
+local function copy_matrix_to_float_array(matrix, out)
+	out[0] = matrix.m00
+	out[1] = matrix.m01
+	out[2] = matrix.m02
+	out[3] = matrix.m03
+	out[4] = matrix.m10
+	out[5] = matrix.m11
+	out[6] = matrix.m12
+	out[7] = matrix.m13
+	out[8] = matrix.m20
+	out[9] = matrix.m21
+	out[10] = matrix.m22
+	out[11] = matrix.m23
+	out[12] = matrix.m30
+	out[13] = matrix.m31
+	out[14] = matrix.m32
+	out[15] = matrix.m33
+	return out
+end
 
 local function write_rect_batch_instance(vertex, entry)
-	local values = entry.draw_matrix:GetFloatCopy()
+	local matrix = entry.draw_matrix
 	local state = entry.state
 	local rect_state_snapshot = state.rect_state_snapshot
 	local uv_off_x, uv_off_y, uv_scale_x, uv_scale_y = get_rect_batch_instance_uv_transform(entry)
-	ffi.copy(vertex.pvw_row_0, values + 0, ffi.sizeof("float") * 4)
-	ffi.copy(vertex.pvw_row_1, values + 4, ffi.sizeof("float") * 4)
-	ffi.copy(vertex.pvw_row_2, values + 8, ffi.sizeof("float") * 4)
-	ffi.copy(vertex.pvw_row_3, values + 12, ffi.sizeof("float") * 4)
+	ffi.copy(vertex.pvw, matrix, rect_batch_matrix_copy_size)
 
 	for _, field in ipairs(rect_batch_fragment_passthrough_fields) do
 		field.write(
@@ -476,6 +562,7 @@ end
 
 function render2d.ClearPendingBatches()
 	render2d.state.runtime.batch.state:ClearPending()
+	reset_rect_batch_matrix_pool_state()
 end
 
 function render2d.FlushBatches(reason)
@@ -1124,10 +1211,7 @@ function render2d.Initialize()
 
 	do
 		local batch_instance_attributes = {
-			{"pvw_row_0", "vec4", "r32g32b32a32_sfloat"},
-			{"pvw_row_1", "vec4", "r32g32b32a32_sfloat"},
-			{"pvw_row_2", "vec4", "r32g32b32a32_sfloat"},
-			{"pvw_row_3", "vec4", "r32g32b32a32_sfloat"},
+			{"pvw", "mat4"},
 		}
 		local batch_vertex_outputs = {
 			{"uv", "vec2"},
@@ -1165,7 +1249,7 @@ function render2d.Initialize()
 				},
 				outputs = batch_vertex_outputs,
 				passthrough = {
-					position = "mat4(in_pvw_row_0, in_pvw_row_1, in_pvw_row_2, in_pvw_row_3) * vec4(in_pos, 1.0)",
+					position = "in_pvw * vec4(in_pos, 1.0)",
 				},
 			},
 			fragment = {
@@ -1412,7 +1496,10 @@ do
 		do
 			-- Convenience wrappers for the public API
 			function render2d.SetSwizzleMode(mode)
-				if mode then render2d.SetSWIZZLE(mode) end
+				if mode then
+					render2d.SetSWIZZLE(mode)
+					render2d.state.render.options.computed_margin_dirty = true
+				end
 			end
 
 			function render2d.GetSwizzleMode()
@@ -1441,8 +1528,10 @@ do
 					local sample_uv = render2d.GetSAMPLE_UV()
 					render2d.SetSWIZZLE(10)
 					render2d.SetSAMPLE_UV(sample_uv)
+					render2d.state.render.options.computed_margin_dirty = true
 				elseif render2d.GetSWIZZLE() == 10 then
 					render2d.SetSWIZZLE(0)
+					render2d.state.render.options.computed_margin_dirty = true
 				end
 			end
 
@@ -1506,6 +1595,7 @@ do
 				local constants = render2d.state.render.fragment.constants
 				constants.blur[0] = x or 0
 				constants.blur[1] = y or x or 0
+				render2d.state.render.options.computed_margin_dirty = true
 			end
 
 			function render2d.GetBlur()
@@ -1559,6 +1649,7 @@ do
 	do
 		function render2d.SetOutlineWidth(width)
 			render2d.state.render.fragment.constants.outline_width = width or 0
+			render2d.state.render.options.computed_margin_dirty = true
 		end
 
 		function render2d.GetOutlineWidth()
@@ -2454,19 +2545,35 @@ local function can_batch_rect_draw()
 		not render2d.shader_override
 end
 
-capture_rect_draw_state = function()
+capture_rect_draw_state = function(world_matrix, uv_override)
 	local rect_state_snapshot = RectDrawState()
 	ffi.copy(
 		rect_state_snapshot,
 		render2d.state.render.fragment.constants,
 		render2d.state.render.fragment.constants_size
 	)
+	local resolved_world_matrix = world_matrix or Matrix44()
+	local blend_mode = render2d.state.render.pipeline.blend
+
+	if not blend_mode then
+		blend_mode = get_blend_preset_state(DEFAULT_BLEND_MODE)
+		render2d.state.render.pipeline.blend = blend_mode
+	end
+
+	if uv_override then
+		rect_state_snapshot.uv_offset[0] = uv_override.u1
+		rect_state_snapshot.uv_offset[1] = uv_override.v1
+		rect_state_snapshot.uv_scale[0] = uv_override.u2 - uv_override.u1
+		rect_state_snapshot.uv_scale[1] = uv_override.v2 - uv_override.v1
+	end
+
+	Matrix44.CopyTo(render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos], resolved_world_matrix)
 	return {
 		rect_state_snapshot = rect_state_snapshot,
-		world_matrix = render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]:Copy(),
+		world_matrix = resolved_world_matrix,
 		texture = render2d.state.render.textures.texture,
 		gradient_texture = render2d.state.render.textures.gradient_texture,
-		blend_mode = canonicalize_blend_mode_state(render2d.state.render.pipeline.blend),
+		blend_mode = blend_mode,
 		pipeline_state_id = render2d.state.runtime.ids.current.rect_batch_pipeline,
 	}
 end
@@ -2502,10 +2609,18 @@ restore_rect_draw_state = function(state)
 end
 
 do
+	local function invalidate_margin_cache()
+		render2d.state.render.options.computed_margin_dirty = true
+	end
+
 	local function get_margin()
+		local options = render2d.state.render.options
+
+		if not options.computed_margin_dirty then return options.computed_margin end
+
 		local constants = render2d.state.render.fragment.constants
 		local content_m = constants.outline_width
-		local swizzle = render2d.GetSwizzleMode()
+		local swizzle = bit.band(constants.flags, 0xF)
 
 		if swizzle == 10 or swizzle == 1 then
 			content_m = content_m + math.max(constants.blur[0], constants.blur[1])
@@ -2519,7 +2634,9 @@ do
 
 		if m > 0 then m = m + 1 end
 
-		return math.ceil(m)
+		options.computed_margin = math.ceil(m)
+		options.computed_margin_dirty = false
+		return options.computed_margin
 	end
 
 	function render2d.GetMargin()
@@ -2528,15 +2645,16 @@ do
 
 	function render2d.SetMargin(new_m)
 		render2d.state.render.options.margin_override = new_m
+		invalidate_margin_cache()
 	end
 
-	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
+	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m, uv_override)
 		local margin = render2d.GetMargin(w, h)
 		local batch_mode = render2d.GetRectBatchMode()
 
 		if max_m then margin = math.min(margin, max_m) end
 
-		local state = capture_rect_draw_state()
+		local state = capture_rect_draw_state(acquire_rect_batch_world_matrix(), uv_override)
 		local draw_matrix, qw, qh = build_rect_draw_matrix(
 			state.world_matrix,
 			x,
@@ -2547,28 +2665,25 @@ do
 			ox,
 			oy,
 			margin,
-			use_float
+			use_float,
+			acquire_rect_batch_draw_matrix()
 		)
-		render2d.state.runtime.batch.state:Append(
-			"rect",
-			build_rect_batch_key(state, w, h, margin, batch_mode),
-			{
-				batch_mode = batch_mode,
-				use_float = use_float,
-				x = x,
-				y = y,
-				w = w,
-				h = h,
-				a = a,
-				ox = ox,
-				oy = oy,
-				qw = qw,
-				qh = qh,
-				margin = margin,
-				draw_matrix = draw_matrix,
-				state = state,
-			}
-		)
+		local entry = acquire_rect_batch_entry()
+		entry.batch_mode = batch_mode
+		entry.use_float = use_float
+		entry.x = x
+		entry.y = y
+		entry.w = w
+		entry.h = h
+		entry.a = a
+		entry.ox = ox
+		entry.oy = oy
+		entry.qw = qw
+		entry.qh = qh
+		entry.margin = margin
+		entry.draw_matrix = copy_matrix_to_float_array(draw_matrix, entry.draw_matrix or rect_batch_draw_matrix_values_type())
+		entry.state = state
+		render2d.state.runtime.batch.state:Append("rect", build_rect_batch_key(state, w, h, margin, batch_mode), entry)
 		return true
 	end
 
@@ -2636,22 +2751,38 @@ do
 
 	local function draw_rect_with_uv2(use_float, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
 		local constants = render2d.state.render.fragment.constants
-		local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
-		local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
-		constants.uv_offset[0] = u1
-		constants.uv_offset[1] = v1
-		constants.uv_scale[0] = u2 - u1
-		constants.uv_scale[1] = v2 - v1
 		local result
 
 		if can_batch_rect_draw() then
-			result = queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
+			result = queue_rect_draw(
+				use_float,
+				x,
+				y,
+				w,
+				h,
+				a,
+				ox,
+				oy,
+				max_m,
+				{
+					u1 = u1,
+					v1 = v1,
+					u2 = u2,
+					v2 = v2,
+				}
+			)
 		else
+			local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
+			local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
+			constants.uv_offset[0] = u1
+			constants.uv_offset[1] = v1
+			constants.uv_scale[0] = u2 - u1
+			constants.uv_scale[1] = v2 - v1
 			result = draw_rect_immediate(x, y, w, h, a, ox, oy, nil, use_float)
+			constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
+			constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
 		end
 
-		constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
-		constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
 		return result
 	end
 
@@ -2752,6 +2883,7 @@ flush_rect_batch_queue = function()
 			max_segment_size = max_segment_size,
 		}
 	)
+	reset_rect_batch_matrix_pool_state()
 	return flushed_draws > 0
 end
 
