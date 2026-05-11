@@ -425,13 +425,16 @@ function ImageRenderTarget:BeginFrame()
 	local frame_index = (self.current_frame % #self.textures) + 1
 
 	if self.in_flight_fences and self.in_flight_fences[frame_index] then
-		self.in_flight_fences[frame_index]:Wait()
+		self.in_flight_fences[frame_index]:Wait(render.noop)
 		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[frame_index])
 	end
 
 	local texture_index
 
-	if self.swapchain then
+	if render.noop then
+		self.texture_index = frame_index
+		texture_index = self.texture_index - 1
+	elseif self.swapchain then
 		texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[frame_index])
 
 		if texture_index == nil then

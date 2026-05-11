@@ -283,8 +283,6 @@ function render.Initialize(config)
 end
 
 function render.BeginFrame()
-	if render.noop then return end
-
 	run_flush_callbacks("begin_frame")
 	render.cmd = render.target:BeginFrame()
 
