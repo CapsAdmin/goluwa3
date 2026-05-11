@@ -274,6 +274,35 @@ do
 end
 
 do
+	local nil_sentinel = {}
+
+	function table.intern_key(root, ...)
+		if type(root) ~= "table" then
+			error("table.intern_key: expected table root, got " .. type(root), 2)
+		end
+
+		local node = root
+
+		for i = 1, select("#", ...) do
+			local value = select(i, ...)
+
+			if value == nil then value = nil_sentinel end
+
+			local next_node = node[value]
+
+			if not next_node then
+				next_node = {}
+				node[value] = next_node
+			end
+
+			node = next_node
+		end
+
+		return node
+	end
+end
+
+do
 	local select = _G.select
 
 	function table.pack(...)

@@ -27,6 +27,16 @@ function list.clear_from_index(array, from_index)
 	return array
 end
 
+function list.copy(tbl)
+	local new = {}
+
+	for k, v in ipairs(tbl) do
+		new[k] = v
+	end
+
+	return new
+end
+
 do
 	local function flatten(tbl, out)
 		for _, v in ipairs(tbl) do

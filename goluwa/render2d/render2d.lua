@@ -13,18 +13,12 @@ local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local RectBatch = import("goluwa/render2d/rect_batch.lua")
 
-local function clone_fields(fields)
+local function append_fields(base, extra)
 	local out = {}
 
-	for i, field in ipairs(fields) do
+	for i, field in ipairs(base) do
 		out[i] = {field[1], field[2], field[3], field[4]}
 	end
-
-	return out
-end
-
-local function append_fields(base, extra)
-	local out = clone_fields(base)
 
 	for i, field in ipairs(extra) do
 		out[#out + 1] = {field[1], field[2], field[3], field[4]}
@@ -171,23 +165,13 @@ render2d.state = {
 			},
 		},
 		ids = {
-			nil_value = {},
 			roots = {
-				fragment_static = {next_id = 1},
-				blend = {next_id = 1},
-				depth = {next_id = 1},
-				stencil = {next_id = 1},
-				scissor = {next_id = 1},
-				pipeline = {next_id = 1},
-				rect_batch_key = {next_id = 1},
+				blend = {},
+				pipeline = {},
+				rect_batch_key = {},
 			},
 			current = {
-				fragment_static = 0,
-				blend = 0,
-				depth = 0,
-				stencil = 0,
-				scissor = 0,
-				rect_batch_pipeline = 0,
+				rect_batch_pipeline = nil,
 			},
 		},
 		pipeline_state = {
@@ -215,157 +199,6 @@ render2d.state = {
 		},
 	},
 }
-
-local function intern_state_id(root, ...)
-	local node = root
-
-	for i = 1, select("#", ...) do
-		local value = select(i, ...)
-
-		if value == nil then value = render2d.state.runtime.ids.nil_value end
-
-		local next_node = node[value]
-
-		if not next_node then
-			next_node = {}
-			node[value] = next_node
-		end
-
-		node = next_node
-	end
-
-	local id = node.id
-
-	if not id then
-		id = root.next_id
-		root.next_id = id + 1
-		node.id = id
-	end
-
-	return id
-end
-
-local function intern_rect_batch_key_id(
-	batch_mode_id,
-	pipeline_id,
-	fragment_static_state_id,
-	blend_mode_state_id,
-	depth_state_id,
-	stencil_state_id,
-	scissor_state_id
-)
-	local rect_batch_key_roots = render2d.state.runtime.ids.roots.rect_batch_key
-	local node = rect_batch_key_roots[batch_mode_id]
-
-	if not node then
-		node = {}
-		rect_batch_key_roots[batch_mode_id] = node
-	end
-
-	local next_node = node[pipeline_id]
-
-	if not next_node then
-		next_node = {}
-		node[pipeline_id] = next_node
-	end
-
-	node = next_node
-	next_node = node[fragment_static_state_id]
-
-	if not next_node then
-		next_node = {}
-		node[fragment_static_state_id] = next_node
-	end
-
-	node = next_node
-	next_node = node[blend_mode_state_id]
-
-	if not next_node then
-		next_node = {}
-		node[blend_mode_state_id] = next_node
-	end
-
-	node = next_node
-	next_node = node[depth_state_id]
-
-	if not next_node then
-		next_node = {}
-		node[depth_state_id] = next_node
-	end
-
-	node = next_node
-	next_node = node[stencil_state_id]
-
-	if not next_node then
-		next_node = {}
-		node[stencil_state_id] = next_node
-	end
-
-	node = next_node
-	local leaf = node[scissor_state_id]
-
-	if not leaf then
-		leaf = rect_batch_key_roots.next_id
-		rect_batch_key_roots.next_id = leaf + 1
-		node[scissor_state_id] = leaf
-	end
-
-	return leaf
-end
-
-local function update_fragment_static_state_id()
-	local constants = render2d.state.render.fragment.constants
-	render2d.state.runtime.ids.current.fragment_static = intern_state_id(
-		render2d.state.runtime.ids.roots.fragment_static,
-		constants.nine_patch_x_count,
-		constants.nine_patch_y_count,
-		constants.nine_patch_x_stretch[0],
-		constants.nine_patch_x_stretch[1],
-		constants.nine_patch_x_stretch[2],
-		constants.nine_patch_x_stretch[3],
-		constants.nine_patch_x_stretch[4],
-		constants.nine_patch_x_stretch[5],
-		constants.nine_patch_y_stretch[0],
-		constants.nine_patch_y_stretch[1],
-		constants.nine_patch_y_stretch[2],
-		constants.nine_patch_y_stretch[3],
-		constants.nine_patch_y_stretch[4],
-		constants.nine_patch_y_stretch[5]
-	)
-end
-
-local function get_blend_mode_state_id(state)
-	return intern_state_id(
-		render2d.state.runtime.ids.roots.blend,
-		state and state.blend == true,
-		state and state.src_color_blend_factor,
-		state and state.dst_color_blend_factor,
-		state and state.color_blend_op,
-		state and state.src_alpha_blend_factor,
-		state and state.dst_alpha_blend_factor,
-		state and state.alpha_blend_op,
-		state and state.color_write_mask and state.color_write_mask[1],
-		state and state.color_write_mask and state.color_write_mask[2],
-		state and state.color_write_mask and state.color_write_mask[3],
-		state and state.color_write_mask and state.color_write_mask[4]
-	)
-end
-
-local function update_blend_mode_state_id(state)
-	render2d.state.runtime.ids.current.blend = get_blend_mode_state_id(state)
-end
-
-local function update_depth_state_id(mode_name, write)
-	render2d.state.runtime.ids.current.depth = intern_state_id(render2d.state.runtime.ids.roots.depth, mode_name, write == true)
-end
-
-local function update_stencil_state_id(mode_name, ref)
-	render2d.state.runtime.ids.current.stencil = intern_state_id(render2d.state.runtime.ids.roots.stencil, mode_name, ref)
-end
-
-local function update_scissor_state_id(x, y, w, h)
-	render2d.state.runtime.ids.current.scissor = intern_state_id(render2d.state.runtime.ids.roots.scissor, x, y, w, h)
-end
 
 local function reset_rect_batch_instance_frame_state()
 	render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = 1
@@ -437,14 +270,34 @@ end
 
 local function build_rect_batch_key(state, w, h, margin, batch_mode)
 	local batch_mode_id = render2d.state.runtime.batch.mode_ids[batch_mode] or 0
-	return intern_rect_batch_key_id(
+	local snapshot = state.rect_state_snapshot
+	return table.intern_key(
+		render2d.state.runtime.ids.roots.rect_batch_key,
 		batch_mode_id,
 		state.pipeline_state_id,
-		state.fragment_static_state_id,
-		get_blend_mode_state_id(state.blend_mode),
-		state.depth_state_id,
-		state.stencil_state_id,
-		state.scissor_state_id
+		state.blend_mode.batch_key,
+		snapshot.nine_patch_x_count,
+		snapshot.nine_patch_y_count,
+		snapshot.nine_patch_x_stretch[0],
+		snapshot.nine_patch_x_stretch[1],
+		snapshot.nine_patch_x_stretch[2],
+		snapshot.nine_patch_x_stretch[3],
+		snapshot.nine_patch_x_stretch[4],
+		snapshot.nine_patch_x_stretch[5],
+		snapshot.nine_patch_y_stretch[0],
+		snapshot.nine_patch_y_stretch[1],
+		snapshot.nine_patch_y_stretch[2],
+		snapshot.nine_patch_y_stretch[3],
+		snapshot.nine_patch_y_stretch[4],
+		snapshot.nine_patch_y_stretch[5],
+		snapshot.depth_mode_id,
+		snapshot.depth_write,
+		snapshot.stencil_mode_id,
+		snapshot.stencil_ref,
+		snapshot.scissor[0],
+		snapshot.scissor[1],
+		snapshot.scissor[2],
+		snapshot.scissor[3]
 	)
 end
 
@@ -641,18 +494,6 @@ function render2d.FlushBatches(reason)
 	return flush_rect_batch_queue()
 end
 
-local function copy_array(tbl)
-	if not tbl then return nil end
-
-	local out = {}
-
-	for i, v in ipairs(tbl) do
-		out[i] = v
-	end
-
-	return out
-end
-
 local function get_valid_blend_preset_error(mode_name)
 	local valid_modes = {}
 
@@ -676,15 +517,37 @@ local function canonicalize_blend_mode_state(state)
 			state.alpha_blend_op ~= nil
 	end
 
+	local color_write_mask = list.copy(state.color_write_mask or DEFAULT_COLOR_WRITE_MASK)
+	local canonical_blend = blend == true
+	local src_color_blend_factor = state.src_color_blend_factor or "one"
+	local dst_color_blend_factor = state.dst_color_blend_factor or "zero"
+	local color_blend_op = state.color_blend_op or "add"
+	local src_alpha_blend_factor = state.src_alpha_blend_factor or "one"
+	local dst_alpha_blend_factor = state.dst_alpha_blend_factor or "zero"
+	local alpha_blend_op = state.alpha_blend_op or "add"
 	return {
-		blend = blend == true,
-		src_color_blend_factor = state.src_color_blend_factor or "one",
-		dst_color_blend_factor = state.dst_color_blend_factor or "zero",
-		color_blend_op = state.color_blend_op or "add",
-		src_alpha_blend_factor = state.src_alpha_blend_factor or "one",
-		dst_alpha_blend_factor = state.dst_alpha_blend_factor or "zero",
-		alpha_blend_op = state.alpha_blend_op or "add",
-		color_write_mask = copy_array(state.color_write_mask or DEFAULT_COLOR_WRITE_MASK),
+		blend = canonical_blend,
+		src_color_blend_factor = src_color_blend_factor,
+		dst_color_blend_factor = dst_color_blend_factor,
+		color_blend_op = color_blend_op,
+		src_alpha_blend_factor = src_alpha_blend_factor,
+		dst_alpha_blend_factor = dst_alpha_blend_factor,
+		alpha_blend_op = alpha_blend_op,
+		color_write_mask = color_write_mask,
+		batch_key = table.intern_key(
+			render2d.state.runtime.ids.roots.blend,
+			canonical_blend,
+			src_color_blend_factor,
+			dst_color_blend_factor,
+			color_blend_op,
+			src_alpha_blend_factor,
+			dst_alpha_blend_factor,
+			alpha_blend_op,
+			color_write_mask[1],
+			color_write_mask[2],
+			color_write_mask[3],
+			color_write_mask[4]
+		),
 	}
 end
 
@@ -695,35 +558,6 @@ local function get_blend_preset_state(mode_name)
 	if not preset then error(get_valid_blend_preset_error(mode_name), 3) end
 
 	return canonicalize_blend_mode_state(preset)
-end
-
-local function apply_blend_mode_state(pipeline, blend_mode, stencil_mode)
-	pipeline:SetBlend(blend_mode.blend)
-	pipeline:SetSrcColorBlendFactor(blend_mode.src_color_blend_factor)
-	pipeline:SetDstColorBlendFactor(blend_mode.dst_color_blend_factor)
-	pipeline:SetColorBlendOp(blend_mode.color_blend_op)
-	pipeline:SetSrcAlphaBlendFactor(blend_mode.src_alpha_blend_factor)
-	pipeline:SetDstAlphaBlendFactor(blend_mode.dst_alpha_blend_factor)
-	pipeline:SetAlphaBlendOp(blend_mode.alpha_blend_op)
-	pipeline:SetColorWriteMask(stencil_mode.color_write_mask or blend_mode.color_write_mask)
-end
-
-local function apply_stencil_state(pipeline, stencil_mode, stencil_ref)
-	pipeline:SetStencilTest(stencil_mode.stencil_test)
-	pipeline:SetFrontStencilFailOp(stencil_mode.front.fail_op)
-	pipeline:SetFrontStencilPassOp(stencil_mode.front.pass_op)
-	pipeline:SetFrontStencilDepthFailOp(stencil_mode.front.depth_fail_op)
-	pipeline:SetFrontStencilCompareOp(stencil_mode.front.compare_op)
-	pipeline:SetFrontStencilReference(stencil_ref)
-	pipeline:SetFrontStencilCompareMask(0xFF)
-	pipeline:SetFrontStencilWriteMask(0xFF)
-	pipeline:SetBackStencilFailOp(stencil_mode.front.fail_op)
-	pipeline:SetBackStencilPassOp(stencil_mode.front.pass_op)
-	pipeline:SetBackStencilDepthFailOp(stencil_mode.front.depth_fail_op)
-	pipeline:SetBackStencilCompareOp(stencil_mode.front.compare_op)
-	pipeline:SetBackStencilReference(stencil_ref)
-	pipeline:SetBackStencilCompareMask(0xFF)
-	pipeline:SetBackStencilWriteMask(0xFF)
 end
 
 local function mark_pipeline_state_dirty()
@@ -754,11 +588,40 @@ local function sync_pipeline_state(force)
 	local stencil_mode = render2d.stencil_modes[stencil_mode_name]
 	local depth_compare_op = depth_mode_to_compare_op[depth_mode_name] or "always"
 	local cmd = render.GetCommandBuffer()
-	apply_blend_mode_state(pipeline, blend_mode, stencil_mode)
+
+	do -- blend
+		pipeline:SetBlend(blend_mode.blend)
+		pipeline:SetSrcColorBlendFactor(blend_mode.src_color_blend_factor)
+		pipeline:SetDstColorBlendFactor(blend_mode.dst_color_blend_factor)
+		pipeline:SetColorBlendOp(blend_mode.color_blend_op)
+		pipeline:SetSrcAlphaBlendFactor(blend_mode.src_alpha_blend_factor)
+		pipeline:SetDstAlphaBlendFactor(blend_mode.dst_alpha_blend_factor)
+		pipeline:SetAlphaBlendOp(blend_mode.alpha_blend_op)
+		pipeline:SetColorWriteMask(stencil_mode.color_write_mask or blend_mode.color_write_mask)
+	end
+
 	pipeline:SetDepthTest(depth_mode_name ~= DEFAULT_DEPTH_MODE)
 	pipeline:SetDepthWrite(depth_write)
 	pipeline:SetDepthCompareOp(depth_compare_op)
-	apply_stencil_state(pipeline, stencil_mode, stencil_ref)
+
+	do -- stencil
+		pipeline:SetStencilTest(stencil_mode.stencil_test)
+		pipeline:SetFrontStencilFailOp(stencil_mode.front.fail_op)
+		pipeline:SetFrontStencilPassOp(stencil_mode.front.pass_op)
+		pipeline:SetFrontStencilDepthFailOp(stencil_mode.front.depth_fail_op)
+		pipeline:SetFrontStencilCompareOp(stencil_mode.front.compare_op)
+		pipeline:SetFrontStencilReference(stencil_ref)
+		pipeline:SetFrontStencilCompareMask(0xFF)
+		pipeline:SetFrontStencilWriteMask(0xFF)
+		pipeline:SetBackStencilFailOp(stencil_mode.front.fail_op)
+		pipeline:SetBackStencilPassOp(stencil_mode.front.pass_op)
+		pipeline:SetBackStencilDepthFailOp(stencil_mode.front.depth_fail_op)
+		pipeline:SetBackStencilCompareOp(stencil_mode.front.compare_op)
+		pipeline:SetBackStencilReference(stencil_ref)
+		pipeline:SetBackStencilCompareMask(0xFF)
+		pipeline:SetBackStencilWriteMask(0xFF)
+	end
+
 	pipeline:Bind(cmd, render.GetCurrentFrame())
 	render2d.state.runtime.pipeline_state.dirty = false
 	render2d.state.runtime.pipeline_state.synced_pipeline = pipeline
@@ -1333,8 +1196,7 @@ function render2d.Initialize()
 		}
 	end
 
-	render2d.rect_batch_pipeline_state_id = intern_state_id(render2d.state.runtime.ids.roots.pipeline, render2d.rect_batch_pipeline)
-	render2d.state.runtime.ids.current.rect_batch_pipeline = render2d.rect_batch_pipeline_state_id
+	render2d.state.runtime.ids.current.rect_batch_pipeline = table.intern_key(render2d.state.runtime.ids.roots.pipeline, render2d.rect_batch_pipeline)
 
 	render2d.pipeline:SetTextureSamplerConfigResolver(function()
 		return render.GetSamplerFilterConfig()
@@ -1455,7 +1317,6 @@ function render2d.ResetState()
 		constants.nine_patch_y_stretch[i] = 0
 	end
 
-	update_fragment_static_state_id()
 	render2d.SetSDFThreshold(0.5)
 	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetScissor(0, 0, render2d.GetSize())
@@ -1717,8 +1578,6 @@ do
 				constants.nine_patch_x_stretch[i] = 0
 				constants.nine_patch_y_stretch[i] = 0
 			end
-
-			update_fragment_static_state_id()
 		end
 
 		function render2d.SetNinePatchTable(tbl)
@@ -1758,7 +1617,6 @@ do
 			constants.nine_patch_y_stretch[index * 2] = x2
 			constants.nine_patch_y_stretch[index * 2 + 1] = y2
 			constants.nine_patch_y_count = math.max(constants.nine_patch_y_count, index + 1)
-			update_fragment_static_state_id()
 		end
 
 		function render2d.GetNinePatch()
@@ -1820,14 +1678,12 @@ do
 		end
 
 		render2d.state.render.pipeline.blend = next_state
-		update_blend_mode_state_id(next_state)
 		mark_pipeline_state_dirty()
 	end
 
 	function render2d.SetBlendPreset(mode_name)
 		local next_state = get_blend_preset_state(mode_name)
 		render2d.state.render.pipeline.blend = next_state
-		update_blend_mode_state_id(next_state)
 		mark_pipeline_state_dirty()
 	end
 
@@ -2021,7 +1877,6 @@ do
 			render2d.state.render.pipeline.depth.write = write
 			render2d.state.render.fragment.constants.depth_mode_id = depth_mode_ids[mode_name]
 			render2d.state.render.fragment.constants.depth_write = write and 1 or 0
-			update_depth_state_id(mode_name, write)
 			mark_pipeline_state_dirty()
 		end
 
@@ -2044,7 +1899,6 @@ do
 			render2d.state.render.pipeline.stencil.ref = ref
 			render2d.state.render.fragment.constants.stencil_mode_id = stencil_mode_ids[mode_name]
 			render2d.state.render.fragment.constants.stencil_ref = ref
-			update_stencil_state_id(mode_name, ref)
 			mark_pipeline_state_dirty()
 		end
 
@@ -2144,7 +1998,6 @@ do
 		render2d.state.render.fragment.constants.scissor[1] = y
 		render2d.state.render.fragment.constants.scissor[2] = w
 		render2d.state.render.fragment.constants.scissor[3] = h
-		update_scissor_state_id(x, y, w, h)
 		apply_scissor_to_command_buffer(x, y, w, h)
 	end
 
@@ -2615,10 +2468,6 @@ capture_rect_draw_state = function()
 		gradient_texture = render2d.state.render.textures.gradient_texture,
 		blend_mode = canonicalize_blend_mode_state(render2d.state.render.pipeline.blend),
 		pipeline_state_id = render2d.state.runtime.ids.current.rect_batch_pipeline,
-		fragment_static_state_id = render2d.state.runtime.ids.current.fragment_static,
-		depth_state_id = render2d.state.runtime.ids.current.depth,
-		stencil_state_id = render2d.state.runtime.ids.current.stencil,
-		scissor_state_id = render2d.state.runtime.ids.current.scissor,
 	}
 end
 restore_rect_draw_state = function(state)
@@ -2639,21 +2488,6 @@ restore_rect_draw_state = function(state)
 	render2d.state.render.pipeline.scissor.y = state.rect_state_snapshot.scissor[1]
 	render2d.state.render.pipeline.scissor.w = state.rect_state_snapshot.scissor[2]
 	render2d.state.render.pipeline.scissor.h = state.rect_state_snapshot.scissor[3]
-	update_blend_mode_state_id(state.blend_mode)
-	update_depth_state_id(
-		depth_mode_names[state.rect_state_snapshot.depth_mode_id],
-		state.rect_state_snapshot.depth_write == 1
-	)
-	update_stencil_state_id(
-		stencil_mode_names[state.rect_state_snapshot.stencil_mode_id],
-		state.rect_state_snapshot.stencil_ref
-	)
-	update_scissor_state_id(
-		state.rect_state_snapshot.scissor[0],
-		state.rect_state_snapshot.scissor[1],
-		state.rect_state_snapshot.scissor[2],
-		state.rect_state_snapshot.scissor[3]
-	)
 	mark_pipeline_state_dirty()
 	apply_scissor_to_command_buffer(
 		state.rect_state_snapshot.scissor[0],
@@ -2953,11 +2787,6 @@ render2d.SetColor(1, 1, 1, 1)
 render2d.SetAlphaMultiplier(1)
 render2d.SetSwizzleMode(0)
 render2d.state.render.pipeline.blend = get_blend_preset_state("alpha")
-update_blend_mode_state_id(render2d.state.render.pipeline.blend)
-update_depth_state_id(DEFAULT_DEPTH_MODE, false)
-update_stencil_state_id("none", 1)
-update_scissor_state_id(0, 0, 0, 0)
-update_fragment_static_state_id()
 render2d.state.runtime.pipeline_state.dirty = true
 
 render.RegisterFlushCallback("render2d", function(reason)
