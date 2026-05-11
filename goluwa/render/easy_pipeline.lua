@@ -445,6 +445,102 @@ local function clone_constant_block(block)
 	return copy
 end
 
+local function build_passthrough_vertex_shader(vertex_config, shader_outputs, shader_inputs)
+	local passthrough = vertex_config.passthrough
+
+	if not passthrough then return nil end
+
+	local position = assert(
+		passthrough.position,
+		"EasyPipeline.New: vertex.passthrough.position is required when vertex.shader is omitted"
+	)
+	local input_names = {}
+	local lines = {
+		"void main() {",
+		"\tgl_Position = " .. position .. ";",
+	}
+	local fields = passthrough.fields or shader_outputs
+
+	for _, attribute in ipairs(shader_inputs) do
+		input_names[attribute[1]] = true
+	end
+
+	for _, field in ipairs(fields) do
+		local name = type(field) == "table" and field[1] or field
+
+		if not input_names[name] then
+			error(
+				"EasyPipeline.New: vertex.passthrough field '" .. tostring(name) .. "' has no matching input",
+				3
+			)
+		end
+
+		lines[#lines + 1] = "\tout_" .. name .. " = in_" .. name .. ";"
+	end
+
+	lines[#lines + 1] = "}"
+	return table.concat(lines, "\n")
+end
+
+local function build_fragment_adapter_declaration(adapter)
+	if adapter.kind == "function" then
+		return string.format(
+			"%s %s() {\n\treturn %s;\n}",
+			adapter.return_type,
+			adapter.symbol,
+			adapter.expr
+		)
+	end
+
+	return string.format("#define %s %s", adapter.symbol, adapter.expr)
+end
+
+local function escape_lua_pattern(str)
+	return (str:gsub("([^%w])", "%%%1"))
+end
+
+local function normalize_fragment_adapter(adapter)
+	if adapter.kind then return adapter end
+
+	local source = assert(adapter[1], "EasyPipeline.New: fragment adapter source is required")
+	local target = assert(adapter[2], "EasyPipeline.New: fragment adapter target is required")
+	local expr = assert(adapter[3], "EasyPipeline.New: fragment adapter expression is required")
+	local normalized = {
+		expr = expr,
+		pattern = escape_lua_pattern(source),
+	}
+
+	if type(target) == "table" then
+		normalized.kind = "function"
+		normalized.return_type = assert(target[1], "EasyPipeline.New: fragment adapter function return type is required")
+		normalized.symbol = assert(target[2], "EasyPipeline.New: fragment adapter function symbol is required")
+		normalized.replacement = normalized.symbol .. "()"
+	else
+		normalized.kind = "define"
+		normalized.symbol = target
+		normalized.replacement = target
+	end
+
+	return normalized
+end
+
+local function build_fragment_shader(fragment_config)
+	local adapters = fragment_config.adapters
+	local shader = fragment_config.shader or ""
+
+	if not adapters or #adapters == 0 then return shader end
+
+	local declarations = {}
+
+	for _, adapter in ipairs(adapters) do
+		adapter = normalize_fragment_adapter(adapter)
+		declarations[#declarations + 1] = build_fragment_adapter_declaration(adapter)
+		shader = shader:gsub(adapter.pattern, adapter.replacement)
+	end
+
+	return table.concat(declarations, "\n") .. "\n" .. shader
+end
+
 function EasyPipeline.New(config)
 	assert_no_legacy_top_level_fields(config)
 	assert_no_dynamic_state_config(config)
@@ -1367,6 +1463,8 @@ function EasyPipeline.New(config)
 	local bindings = {}
 	local shader_inputs = {}
 	local shader_outputs = {}
+	local resolved_vertex_shader = config.vertex and config.vertex.shader or nil
+	local resolved_fragment_shader = config.fragment and config.fragment.shader or nil
 
 	if config.vertex then
 		shader_outputs = config.vertex.outputs or config.vertex.attributes or {}
@@ -1459,6 +1557,14 @@ function EasyPipeline.New(config)
 	for i, attr in ipairs(shader_outputs) do
 		vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
 		fragment_input = fragment_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
+	end
+
+	if config.vertex and not resolved_vertex_shader and config.vertex.passthrough then
+		resolved_vertex_shader = build_passthrough_vertex_shader(config.vertex, shader_outputs, shader_inputs)
+	end
+
+	if config.fragment then
+		resolved_fragment_shader = build_fragment_shader(config.fragment)
 	end
 
 	-- Build descriptor sets
@@ -1566,12 +1672,12 @@ function EasyPipeline.New(config)
 	end
 
 	-- Vertex stage
-	if config.vertex and config.vertex.shader then
+	if config.vertex and resolved_vertex_shader then
 		local vertex_code = shader_header .. vertex_input .. vertex_output .. get_glsl_push_constants("vertex") .. get_glsl_uniform_buffers("vertex") .. (
 				config.vertex.custom_declarations or
 				""
 			) .. (
-				config.vertex.shader or
+				resolved_vertex_shader or
 				""
 			)
 		table.insert(
@@ -1593,7 +1699,7 @@ function EasyPipeline.New(config)
 				config.fragment.custom_declarations or
 				""
 			) .. get_glsl_push_constants("fragment") .. get_glsl_uniform_buffers("fragment") .. (
-				config.fragment.shader or
+				resolved_fragment_shader or
 				""
 			)
 		table.insert(

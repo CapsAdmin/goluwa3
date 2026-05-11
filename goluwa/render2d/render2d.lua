@@ -448,28 +448,6 @@ local function build_rect_batch_key(state, w, h, margin, batch_mode)
 	)
 end
 
-local function apply_rect_margin_uv(qw, qh, w, h)
-	local constants = render2d.state.render.fragment.constants
-	local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
-	local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
-	local margin = (qw - w) * 0.5
-
-	if margin > 0 and w > 0 and h > 0 then
-		constants.uv_scale[0] = old_scale_x * (qw / w)
-		constants.uv_scale[1] = old_scale_y * (qh / h)
-		constants.uv_offset[0] = old_off_x - (margin / w) * old_scale_x
-		constants.uv_offset[1] = old_off_y - (margin / h) * old_scale_y
-	end
-
-	return old_off_x, old_off_y, old_scale_x, old_scale_y
-end
-
-local function restore_rect_margin_uv(old_off_x, old_off_y, old_scale_x, old_scale_y)
-	local constants = render2d.state.render.fragment.constants
-	constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
-	constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
-end
-
 local function get_rect_batch_instance_uv_transform(entry)
 	local rect_state_snapshot = entry.state.rect_state_snapshot
 	local off_x = rect_state_snapshot.uv_offset[0]
@@ -488,6 +466,125 @@ local function get_rect_batch_instance_uv_transform(entry)
 	return off_x, off_y, scale_x, scale_y
 end
 
+local rect_batch_fragment_passthrough_fields = {
+	{
+		name = "batch_global_color",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			ffi.copy(vertex.batch_global_color, rect_state_snapshot.global_color, ffi.sizeof("float") * 4)
+		end,
+		fragment_values = {
+			{"draw.global_color", "batch_global_color", "in_batch_global_color"},
+		},
+	},
+	{
+		name = "batch_uv_transform",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		write = function(
+			vertex,
+			entry,
+			state,
+			rect_state_snapshot,
+			uv_off_x,
+			uv_off_y,
+			uv_scale_x,
+			uv_scale_y
+		)
+			vertex.batch_uv_transform[0] = uv_off_x
+			vertex.batch_uv_transform[1] = uv_off_y
+			vertex.batch_uv_transform[2] = uv_scale_x
+			vertex.batch_uv_transform[3] = uv_scale_y
+		end,
+		fragment_values = {
+			{"draw.uv_offset", "batch_uv_offset", "in_batch_uv_transform.xy"},
+			{"draw.uv_scale", "batch_uv_scale", "in_batch_uv_transform.zw"},
+		},
+	},
+	{
+		name = "batch_shape_state",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_shape_state[0] = rect_state_snapshot.blur[0]
+			vertex.batch_shape_state[1] = rect_state_snapshot.blur[1]
+			vertex.batch_shape_state[2] = rect_state_snapshot.flags
+			vertex.batch_shape_state[3] = 0
+		end,
+		fragment_values = {
+			{"shape.blur", "batch_blur", "in_batch_shape_state.xy"},
+			{"draw.flags", {"int", "batch_flags"}, "int(round(in_batch_shape_state.z))"},
+		},
+	},
+	{
+		name = "batch_border_radius",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			ffi.copy(vertex.batch_border_radius, rect_state_snapshot.border_radius, ffi.sizeof("float") * 4)
+		end,
+		fragment_values = {
+			{"shape.border_radius", "batch_border_radius", "in_batch_border_radius"},
+		},
+	},
+	{
+		name = "batch_rect_geometry",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_rect_geometry[0] = entry.qw
+			vertex.batch_rect_geometry[1] = entry.qh
+			vertex.batch_rect_geometry[2] = rect_state_snapshot.disable_rect_sdf == 1 and 0 or entry.w
+			vertex.batch_rect_geometry[3] = rect_state_snapshot.disable_rect_sdf == 1 and 0 or entry.h
+		end,
+		fragment_values = {
+			{"shape.rect_size", "batch_rect_size", "in_batch_rect_geometry.xy"},
+			{"shape.sdf_rect_size", "batch_sdf_rect_size", "in_batch_rect_geometry.zw"},
+		},
+	},
+	{
+		name = "batch_material_state",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_material_state[0] = rect_state_snapshot.sdf_threshold
+			vertex.batch_material_state[1] = rect_state_snapshot.sdf_texel_range
+			vertex.batch_material_state[2] = state.texture and
+				render2d.rect_batch_pipeline:GetTextureIndex(state.texture) or
+				-1
+			vertex.batch_material_state[3] = state.gradient_texture and
+				render2d.rect_batch_pipeline:GetTextureIndex(state.gradient_texture) or
+				-1
+		end,
+		fragment_values = {
+			{"shape.sdf_threshold", "batch_sdf_threshold", "in_batch_material_state.x"},
+			{"shape.sdf_texel_range", "batch_sdf_texel_range", "in_batch_material_state.y"},
+			{
+				"draw.texture_index",
+				{"int", "batch_texture_index"},
+				"int(round(in_batch_material_state.z))",
+			},
+			{
+				"draw.gradient_texture_index",
+				{"int", "batch_gradient_texture_index"},
+				"int(round(in_batch_material_state.w))",
+			},
+		},
+	},
+	{
+		name = "batch_outline_width",
+		type = "float",
+		format = "r32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_outline_width = rect_state_snapshot.outline_width
+		end,
+		fragment_values = {
+			{"shape.outline_width", "batch_outline_width", "in_batch_outline_width"},
+		},
+	},
+}
+
 local function write_rect_batch_instance(vertex, entry)
 	local values = entry.draw_matrix:GetFloatCopy()
 	local state = entry.state
@@ -497,29 +594,19 @@ local function write_rect_batch_instance(vertex, entry)
 	ffi.copy(vertex.pvw_row_1, values + 4, ffi.sizeof("float") * 4)
 	ffi.copy(vertex.pvw_row_2, values + 8, ffi.sizeof("float") * 4)
 	ffi.copy(vertex.pvw_row_3, values + 12, ffi.sizeof("float") * 4)
-	ffi.copy(vertex.batch_global_color, rect_state_snapshot.global_color, ffi.sizeof("float") * 4)
-	vertex.batch_uv_transform[0] = uv_off_x
-	vertex.batch_uv_transform[1] = uv_off_y
-	vertex.batch_uv_transform[2] = uv_scale_x
-	vertex.batch_uv_transform[3] = uv_scale_y
-	vertex.batch_blur_modes[0] = rect_state_snapshot.blur[0]
-	vertex.batch_blur_modes[1] = rect_state_snapshot.blur[1]
-	vertex.batch_blur_modes[2] = rect_state_snapshot.flags
-	vertex.batch_blur_modes[3] = 0
-	ffi.copy(vertex.batch_border_radius, rect_state_snapshot.border_radius, ffi.sizeof("float") * 4)
-	vertex.batch_quad_size[0] = entry.qw
-	vertex.batch_quad_size[1] = entry.qh
-	vertex.batch_quad_size[2] = rect_state_snapshot.disable_rect_sdf == 1 and 0 or entry.w
-	vertex.batch_quad_size[3] = rect_state_snapshot.disable_rect_sdf == 1 and 0 or entry.h
-	vertex.batch_sdf_texture[0] = rect_state_snapshot.sdf_threshold
-	vertex.batch_sdf_texture[1] = rect_state_snapshot.sdf_texel_range
-	vertex.batch_sdf_texture[2] = state.texture and
-		render2d.rect_batch_pipeline:GetTextureIndex(state.texture) or
-		-1
-	vertex.batch_sdf_texture[3] = state.gradient_texture and
-		render2d.rect_batch_pipeline:GetTextureIndex(state.gradient_texture) or
-		-1
-	vertex.batch_outline_alpha[0] = rect_state_snapshot.outline_width
+
+	for _, field in ipairs(rect_batch_fragment_passthrough_fields) do
+		field.write(
+			vertex,
+			entry,
+			state,
+			rect_state_snapshot,
+			uv_off_x,
+			uv_off_y,
+			uv_scale_x,
+			uv_scale_y
+		)
+	end
 end
 
 function render2d.GetBatchState()
@@ -1173,47 +1260,26 @@ function render2d.Initialize()
 	render2d.pipeline = EasyPipeline.New(config)
 
 	do
-		local batch_fragment_shader = [[
-		#define batch_global_color in_batch_global_color
-		#define batch_uv_offset in_batch_uv_transform.xy
-		#define batch_uv_scale in_batch_uv_transform.zw
-		#define batch_blur in_batch_blur_modes.xy
-		#define batch_border_radius in_batch_border_radius
-		#define batch_rect_size in_batch_quad_size.xy
-		#define batch_sdf_rect_size in_batch_quad_size.zw
-		#define batch_sdf_threshold in_batch_sdf_texture.x
-		#define batch_sdf_texel_range in_batch_sdf_texture.y
-		#define batch_outline_width in_batch_outline_alpha.x
-
-		int batch_texture_index() {
-			return int(round(in_batch_sdf_texture.z));
+		local batch_instance_attributes = {
+			{"pvw_row_0", "vec4", "r32g32b32a32_sfloat"},
+			{"pvw_row_1", "vec4", "r32g32b32a32_sfloat"},
+			{"pvw_row_2", "vec4", "r32g32b32a32_sfloat"},
+			{"pvw_row_3", "vec4", "r32g32b32a32_sfloat"},
 		}
-
-		int batch_gradient_texture_index() {
-			return int(round(in_batch_sdf_texture.w));
+		local batch_vertex_outputs = {
+			{"uv", "vec2"},
+			{"sample_uv", "vec2"},
+			{"color", "vec4"},
 		}
+		local batch_fragment_adapters = {}
 
-		int batch_flags() {
-			return int(round(in_batch_blur_modes.z));
-		}
-	]] .. config.fragment.shader
+		for _, field in ipairs(rect_batch_fragment_passthrough_fields) do
+			batch_instance_attributes[#batch_instance_attributes + 1] = {field.name, field.type, field.format}
+			batch_vertex_outputs[#batch_vertex_outputs + 1] = {field.name, field.type}
 
-		for _, replacement in ipairs{
-			{"draw%.global_color", "batch_global_color"},
-			{"draw%.texture_index", "batch_texture_index()"},
-			{"draw%.uv_offset", "batch_uv_offset"},
-			{"draw%.uv_scale", "batch_uv_scale"},
-			{"draw%.flags", "batch_flags()"},
-			{"shape%.blur", "batch_blur"},
-			{"shape%.border_radius", "batch_border_radius"},
-			{"shape%.outline_width", "batch_outline_width"},
-			{"shape%.rect_size", "batch_rect_size"},
-			{"shape%.sdf_threshold", "batch_sdf_threshold"},
-			{"shape%.sdf_texel_range", "batch_sdf_texel_range"},
-			{"draw%.gradient_texture_index", "batch_gradient_texture_index()"},
-			{"shape%.sdf_rect_size", "batch_sdf_rect_size"},
-		} do
-			batch_fragment_shader = batch_fragment_shader:gsub(replacement[1], replacement[2])
+			for _, field_value in ipairs(field.fragment_values) do
+				batch_fragment_adapters[#batch_fragment_adapters + 1] = field_value
+			end
 		end
 
 		render2d.rect_batch_pipeline = EasyPipeline.New{
@@ -1231,53 +1297,18 @@ function render2d.Initialize()
 					{
 						binding = 1,
 						input_rate = "instance",
-						attributes = {
-							{"pvw_row_0", "vec4", "r32g32b32a32_sfloat"},
-							{"pvw_row_1", "vec4", "r32g32b32a32_sfloat"},
-							{"pvw_row_2", "vec4", "r32g32b32a32_sfloat"},
-							{"pvw_row_3", "vec4", "r32g32b32a32_sfloat"},
-							{"batch_global_color", "vec4", "r32g32b32a32_sfloat"},
-							{"batch_uv_transform", "vec4", "r32g32b32a32_sfloat"},
-							{"batch_blur_modes", "vec4", "r32g32b32a32_sfloat"},
-							{"batch_border_radius", "vec4", "r32g32b32a32_sfloat"},
-							{"batch_quad_size", "vec4", "r32g32b32a32_sfloat"},
-							{"batch_sdf_texture", "vec4", "r32g32b32a32_sfloat"},
-							{"batch_outline_alpha", "vec2", "r32g32_sfloat"},
-						},
+						attributes = batch_instance_attributes,
 					},
 				},
-				outputs = {
-					{"uv", "vec2"},
-					{"sample_uv", "vec2"},
-					{"color", "vec4"},
-					{"batch_global_color", "vec4"},
-					{"batch_uv_transform", "vec4"},
-					{"batch_blur_modes", "vec4"},
-					{"batch_border_radius", "vec4"},
-					{"batch_quad_size", "vec4"},
-					{"batch_sdf_texture", "vec4"},
-					{"batch_outline_alpha", "vec2"},
+				outputs = batch_vertex_outputs,
+				passthrough = {
+					position = "mat4(in_pvw_row_0, in_pvw_row_1, in_pvw_row_2, in_pvw_row_3) * vec4(in_pos, 1.0)",
 				},
-				shader = [[
-				void main() {
-					mat4 pvw = mat4(in_pvw_row_0, in_pvw_row_1, in_pvw_row_2, in_pvw_row_3);
-					gl_Position = pvw * vec4(in_pos, 1.0);
-					out_uv = in_uv;
-					out_sample_uv = in_sample_uv;
-					out_color = in_color;
-					out_batch_global_color = in_batch_global_color;
-					out_batch_uv_transform = in_batch_uv_transform;
-					out_batch_blur_modes = in_batch_blur_modes;
-					out_batch_border_radius = in_batch_border_radius;
-					out_batch_quad_size = in_batch_quad_size;
-					out_batch_sdf_texture = in_batch_sdf_texture;
-					out_batch_outline_alpha = in_batch_outline_alpha;
-				}
-			]],
 			},
 			fragment = {
 				constants = config.fragment.constants,
-				shader = batch_fragment_shader,
+				adapters = batch_fragment_adapters,
+				shader = config.fragment.shader,
 			},
 			CullMode = config.CullMode,
 			Blend = config.Blend,
