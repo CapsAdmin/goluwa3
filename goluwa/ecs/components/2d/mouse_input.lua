@@ -45,6 +45,7 @@ local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
 mouse_input.last_hovered = mouse_input.last_hovered or NULL
 local reverse_query_cache_key = {}
+local reverse_global_event_cache_key = {}
 
 local function build_reverse_query_traversal_recursive(owner, traversal)
 	local enter_index = traversal.count + 1
@@ -73,6 +74,22 @@ local function build_reverse_query_traversal(owner)
 	}
 	build_reverse_query_traversal_recursive(owner, traversal)
 	return traversal
+end
+
+local function build_reverse_global_event_list_recursive(owner, elements)
+	local children = owner:GetChildren()
+
+	for i = #children, 1, -1 do
+		build_reverse_global_event_list_recursive(children[i], elements)
+	end
+
+	elements[#elements + 1] = owner
+end
+
+local function build_reverse_global_event_list(owner)
+	local elements = {}
+	build_reverse_global_event_list_recursive(owner, elements)
+	return elements
 end
 
 local function query_children_reverse(entity, context, on_enter, on_visit)
@@ -157,21 +174,26 @@ local function get_hovered_entity(entity, mouse_pos)
 end
 
 local function call_global_event(entity, event_name, a, b, c, d, e, f, g)
-	return query_children_reverse(
-		entity,
-		{
-			event_name = event_name,
-			a = a,
-			b = b,
-			c = c,
-			d = d,
-			e = e,
-			f = f,
-			g = g,
-		},
-		nil,
-		global_event_query_visit
-	)
+	local context = {
+		event_name = event_name,
+		a = a,
+		b = b,
+		c = c,
+		d = d,
+		e = e,
+		f = f,
+		g = g,
+	}
+	local elements = entity:GetCachedChildrenTraversal(reverse_global_event_cache_key, build_reverse_global_event_list)
+
+	for i = 1, #elements do
+		local owner = elements[i]
+		local res_a, res_b, res_c, res_d, res_e, res_f, res_g, res_h = global_event_query_visit(context, owner)
+
+		if res_a ~= nil then
+			return res_a, res_b, res_c, res_d, res_e, res_f, res_g, res_h
+		end
+	end
 end
 
 local Panel = import("goluwa/ecs/panel.lua")
@@ -284,6 +306,12 @@ function META:OnFirstCreated()
 		if not Panel.World then return end
 
 		local pos = system.GetWindow():GetMousePosition()
+
+		if mouse_input.last_mouse_pos and mouse_input.last_mouse_pos == pos then
+			return
+		end
+
+		mouse_input.last_mouse_pos = pos
 		local hovered = get_hovered_entity(Panel.World, pos) or NULL
 
 		if hovered ~= mouse_input.last_hovered then

@@ -138,25 +138,30 @@ end
 
 function META:GetScrollViewportWorldBounds()
 	local viewport_x1, viewport_y1, viewport_x2, viewport_y2
-	local found = false
+	local parent = self.Owner:GetParent()
 
-	for _, parent in ipairs(self.Owner:GetParentList()) do
-		if parent.transform and parent.transform:GetScrollEnabled() then
-			local x1, y1, x2, y2 = parent.transform:GetWorldBounds(0, 0, parent.transform.Size.x, parent.transform.Size.y)
+	while parent and parent.IsValid and parent:IsValid() do
+		local parent_tr = parent.transform
 
-			if found then
+		if parent_tr and parent_tr.ScrollEnabled then
+			local x1, y1, x2, y2 = parent_tr:GetWorldBounds()
+
+			if viewport_x1 then
 				viewport_x1 = math.max(viewport_x1, x1)
 				viewport_y1 = math.max(viewport_y1, y1)
 				viewport_x2 = math.min(viewport_x2, x2)
 				viewport_y2 = math.min(viewport_y2, y2)
+
+				if viewport_x2 <= viewport_x1 or viewport_y2 <= viewport_y1 then break end
 			else
 				viewport_x1 = x1
 				viewport_y1 = y1
 				viewport_x2 = x2
 				viewport_y2 = y2
-				found = true
 			end
 		end
+
+		parent = parent:GetParent()
 	end
 
 	return viewport_x1, viewport_y1, viewport_x2, viewport_y2
