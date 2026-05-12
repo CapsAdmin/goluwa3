@@ -504,28 +504,7 @@ local rect_batch_fragment_passthrough_fields = {
 		},
 	},
 }
-local rect_batch_draw_matrix_values_type = ffi.typeof("float[16]")
 local rect_batch_matrix_copy_size = ffi.sizeof("float") * 16
-
-local function copy_matrix_to_float_array(matrix, out)
-	out[0] = matrix.m00
-	out[1] = matrix.m01
-	out[2] = matrix.m02
-	out[3] = matrix.m03
-	out[4] = matrix.m10
-	out[5] = matrix.m11
-	out[6] = matrix.m12
-	out[7] = matrix.m13
-	out[8] = matrix.m20
-	out[9] = matrix.m21
-	out[10] = matrix.m22
-	out[11] = matrix.m23
-	out[12] = matrix.m30
-	out[13] = matrix.m31
-	out[14] = matrix.m32
-	out[15] = matrix.m33
-	return out
-end
 
 local function write_rect_batch_instance(vertex, entry)
 	local matrix = entry.draw_matrix
@@ -715,7 +694,8 @@ local function sync_pipeline_state(force)
 end
 
 local function write_render2d_vertex_push_constants(self, block)
-	render2d.GetMatrix():CopyToFloatPointer(block.projection_view_world)
+	--render2d.GetMatrix():CopyToFloatPointer(block.projection_view_world)
+	block.projection_view_world = ffi.cast(block.projection_view_world, render2d.GetMatrix():GetFloatPointer())
 end
 
 local function write_render2d_fragment_draw_constants(self, block)
@@ -2096,26 +2076,20 @@ do
 		local stack = {}
 		local clip_stack = {}
 		local clip_axis_alignment_epsilon = 0.001
+		local clip_projection_matrix = Matrix44()
 
 		local function clip_point_to_screen(clip_matrix, screen_w, screen_h, px, py)
 			local clip_x, clip_y = clip_matrix:TransformVectorUnpacked(px, py, 0)
 			return (clip_x * 0.5 + 0.5) * screen_w, (clip_y * 0.5 + 0.5) * screen_h
 		end
 
-		local function capture_clip_world_matrix()
-			local world_matrix = Matrix44()
-			Matrix44.CopyTo(render2d.GetWorldMatrix(), world_matrix)
-			return world_matrix
-		end
-
 		local function project_clip_rect_to_screen(world_matrix, x, y, w, h)
-			local clip_matrix = Matrix44()
 			local screen_w, screen_h = render2d.GetSize()
-			world_matrix:GetMultiplied(render2d.GetProjectionViewMatrix(), clip_matrix)
-			local tl_x, tl_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x, y)
-			local tr_x, tr_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x + w, y)
-			local br_x, br_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x + w, y + h)
-			local bl_x, bl_y = clip_point_to_screen(clip_matrix, screen_w, screen_h, x, y + h)
+			world_matrix:GetMultiplied(render2d.GetProjectionViewMatrix(), clip_projection_matrix)
+			local tl_x, tl_y = clip_point_to_screen(clip_projection_matrix, screen_w, screen_h, x, y)
+			local tr_x, tr_y = clip_point_to_screen(clip_projection_matrix, screen_w, screen_h, x + w, y)
+			local br_x, br_y = clip_point_to_screen(clip_projection_matrix, screen_w, screen_h, x + w, y + h)
+			local bl_x, bl_y = clip_point_to_screen(clip_projection_matrix, screen_w, screen_h, x, y + h)
 			local axis_aligned = math.abs(tl_y - tr_y) <= clip_axis_alignment_epsilon and
 				math.abs(bl_y - br_y) <= clip_axis_alignment_epsilon and
 				math.abs(tl_x - bl_x) <= clip_axis_alignment_epsilon and
@@ -2206,8 +2180,7 @@ do
 		end
 
 		function render2d.PushClipRect(x, y, w, h)
-			local world_matrix = capture_clip_world_matrix()
-			local axis_aligned, scissor_x, scissor_y, scissor_w, scissor_h = project_clip_rect_to_screen(world_matrix, x, y, w, h)
+			local axis_aligned, scissor_x, scissor_y, scissor_w, scissor_h = project_clip_rect_to_screen(render2d.GetWorldMatrix(), x, y, w, h)
 
 			if axis_aligned then
 				render2d.PushScissor(scissor_x, scissor_y, scissor_w, scissor_h)
@@ -2217,7 +2190,7 @@ do
 
 			push_stencil_clip{
 				kind = "stencil_rect",
-				world_matrix = world_matrix,
+				world_matrix = render2d.GetWorldMatrix():Copy(),
 				x = x,
 				y = y,
 				w = w,
@@ -2235,7 +2208,7 @@ do
 
 			push_stencil_clip{
 				kind = "stencil_rounded_rect",
-				world_matrix = capture_clip_world_matrix(),
+				world_matrix = render2d.GetWorldMatrix():Copy(),
 				x = x,
 				y = y,
 				w = w,
@@ -2254,7 +2227,7 @@ do
 
 			push_stencil_clip{
 				kind = "stencil_shape",
-				world_matrix = capture_clip_world_matrix(),
+				world_matrix = render2d.GetWorldMatrix():Copy(),
 				draw_callback = draw_callback,
 			}
 		end
@@ -2528,7 +2501,7 @@ do -- camera
 	end
 
 	function render2d.SetWorldMatrix(mat)
-		Matrix44.CopyTo(mat, camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos])
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos] = mat:Copy()
 	end
 
 	function render2d.GetWorldMatrix()
@@ -2545,7 +2518,7 @@ local function can_batch_rect_draw()
 		not render2d.shader_override
 end
 
-capture_rect_draw_state = function(world_matrix, uv_override)
+capture_rect_draw_state = function(world_matrix, u1, v1, u2, v2)
 	local rect_state_snapshot = RectDrawState()
 	ffi.copy(
 		rect_state_snapshot,
@@ -2560,14 +2533,14 @@ capture_rect_draw_state = function(world_matrix, uv_override)
 		render2d.state.render.pipeline.blend = blend_mode
 	end
 
-	if uv_override then
-		rect_state_snapshot.uv_offset[0] = uv_override.u1
-		rect_state_snapshot.uv_offset[1] = uv_override.v1
-		rect_state_snapshot.uv_scale[0] = uv_override.u2 - uv_override.u1
-		rect_state_snapshot.uv_scale[1] = uv_override.v2 - uv_override.v1
+	if u1 ~= nil then
+		rect_state_snapshot.uv_offset[0] = u1
+		rect_state_snapshot.uv_offset[1] = v1
+		rect_state_snapshot.uv_scale[0] = u2 - u1
+		rect_state_snapshot.uv_scale[1] = v2 - v1
 	end
 
-	Matrix44.CopyTo(render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos], resolved_world_matrix)
+	Matrix44.CopyTo(render2d.GetWorldMatrix(), resolved_world_matrix)
 	return {
 		rect_state_snapshot = rect_state_snapshot,
 		world_matrix = resolved_world_matrix,
@@ -2602,10 +2575,7 @@ restore_rect_draw_state = function(state)
 		state.rect_state_snapshot.scissor[2],
 		state.rect_state_snapshot.scissor[3]
 	)
-	Matrix44.CopyTo(
-		state.world_matrix,
-		render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]
-	)
+	Matrix44.CopyTo(state.world_matrix, render2d.GetWorldMatrix())
 end
 
 do
@@ -2648,13 +2618,13 @@ do
 		invalidate_margin_cache()
 	end
 
-	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m, uv_override)
+	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m, u1, v1, u2, v2)
 		local margin = render2d.GetMargin(w, h)
 		local batch_mode = render2d.GetRectBatchMode()
 
 		if max_m then margin = math.min(margin, max_m) end
 
-		local state = capture_rect_draw_state(acquire_rect_batch_world_matrix(), uv_override)
+		local state = capture_rect_draw_state(acquire_rect_batch_world_matrix(), u1, v1, u2, v2)
 		local draw_matrix, qw, qh = build_rect_draw_matrix(
 			state.world_matrix,
 			x,
@@ -2681,7 +2651,7 @@ do
 		entry.qw = qw
 		entry.qh = qh
 		entry.margin = margin
-		entry.draw_matrix = copy_matrix_to_float_array(draw_matrix, entry.draw_matrix or rect_batch_draw_matrix_values_type())
+		entry.draw_matrix = draw_matrix
 		entry.state = state
 		render2d.state.runtime.batch.state:Append("rect", build_rect_batch_key(state, w, h, margin, batch_mode), entry)
 		return true
@@ -2764,12 +2734,10 @@ do
 				ox,
 				oy,
 				max_m,
-				{
-					u1 = u1,
-					v1 = v1,
-					u2 = u2,
-					v2 = v2,
-				}
+				u1,
+				v1,
+				u2,
+				v2
 			)
 		else
 			local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]

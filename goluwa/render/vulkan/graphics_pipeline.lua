@@ -1627,6 +1627,23 @@ end
 local get_bindless_texture_set_index
 local get_descriptor_binding_count
 local get_bindless_binding_capacity
+local shader_stage_bits_u32_cache = {}
+
+local function get_shader_stage_bits_u32(stage)
+	if type(stage) == "number" then return stage end
+
+	if type(stage) == "string" then
+		local cached = shader_stage_bits_u32_cache[stage]
+
+		if cached then return cached end
+
+		cached = tonumber(ffi.cast("uint32_t", vulkan.vk.e.VkShaderStageFlagBits(stage)))
+		shader_stage_bits_u32_cache[stage] = cached
+		return cached
+	end
+
+	return tonumber(ffi.cast("uint32_t", stage))
+end
 
 function GraphicsPipeline.New(vulkan_instance, config)
 	assert_no_legacy_constructor_fields(config, 3)
@@ -2435,23 +2452,21 @@ end
 function GraphicsPipeline:PushConstants(cmd, stage, offset, data, data_size)
 	local stage_bits
 
-	if type(stage) == "number" then
-		stage_bits = stage
-	elseif type(stage) == "table" then
+	if type(stage) == "table" then
 		stage_bits = 0
 
 		for _, s in ipairs(stage) do
-			stage_bits = bit.bor(stage_bits, tonumber(ffi.cast("uint32_t", vulkan.vk.e.VkShaderStageFlagBits(s))))
+			stage_bits = bit.bor(stage_bits, get_shader_stage_bits_u32(s))
 		end
 	else
-		stage_bits = tonumber(ffi.cast("uint32_t", vulkan.vk.e.VkShaderStageFlagBits(stage)))
+		stage_bits = get_shader_stage_bits_u32(stage)
 	end
 
 	-- Vulkan requires that the stageFlags passed to vkCmdPushConstants must include 
 	-- ALL stages that are defined for the overlapping range in the pipeline layout.
 	for _, range in ipairs(self.push_constant_ranges) do
 		if offset >= range.offset and offset < (range.offset + range.size) then
-			stage_bits = bit.bor(stage_bits, tonumber(ffi.cast("uint32_t", range.stage)))
+			stage_bits = bit.bor(stage_bits, range.stage)
 		end
 	end
 

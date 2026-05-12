@@ -182,6 +182,7 @@ local function matrix_template(X, Y, identity)
 
 			do
 				local float_array = ffi.typeof("float[]==] .. X * Y .. [==[]")
+				local float_ptr = ffi.typeof("float*")
 
 				function META:GetFloatCopy()
 					return float_array(
@@ -191,9 +192,16 @@ local function matrix_template(X, Y, identity)
 						)
 				end
 
+				local float_array_size = ffi.sizeof(float_array)
+
 				if META.NumberType == "float" then
 					function META:GetFloatPointer()
-						return ffi_cast(float_array, self)
+						return ffi_cast(float_ptr, self)
+					end
+
+					function META:CopyToFloatPointer(ptr)
+						ffi.copy(ptr, self, float_array_size)
+						return self
 					end
 				else
 					function META:GetFloatPointer()
@@ -201,7 +209,7 @@ local function matrix_template(X, Y, identity)
 					end
 
 					function META:CopyToFloatPointer(ptr)
-						ffi.copy(ptr, self:GetFloatCopy(), ffi.sizeof(float_array))
+						ffi.copy(ptr, self:GetFloatCopy(), float_array_size)
 						return self
 					end
 				end
@@ -209,6 +217,7 @@ local function matrix_template(X, Y, identity)
 
 			do
 				local double_array = ffi.typeof("double[]==] .. X * Y .. [==[]")
+				local double_ptr = ffi.typeof("double*")
 
 				function META:GetDoubleCopy()
 					return double_array(
@@ -219,7 +228,7 @@ local function matrix_template(X, Y, identity)
 
 				if META.NumberType == "double" then
 					function META:GetDoublePointer()
-						return ffi_cast(double_array, self)
+						return ffi_cast(double_ptr, self)
 					end
 				else
 					function META:GetDoublePointer()

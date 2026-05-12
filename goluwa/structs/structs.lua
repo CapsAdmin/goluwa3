@@ -4,7 +4,7 @@ local istype = ffi.istype
 local typeof = ffi.typeof
 local tostring = tostring
 local UNION_SWIZZLE = false
-structs.NumberType = "double"
+structs.NumberType = "float"
 
 function structs.Template(class_name)
 	local META = {}
@@ -550,7 +550,7 @@ function structs.AddOperator(META, operator, ...)
 
 		local ffi_cast = ffi.cast
 		local ffi_copy = ffi.copy
-
+		local float_array = ffi.sizeof(float_array)
 		if META.NumberType == "float" then
 			function META:GetFloatPointer()
 				return ffi_cast(float_ptr, self)
@@ -559,18 +559,23 @@ function structs.AddOperator(META, operator, ...)
 			function META:GetDoublePointer()
 				return self:GetDoubleCopy()
 			end
+
+			function META:CopyToFloatPointer(ptr)
+				ffi_copy(ptr, ffi_cast(float_ptr, self), float_array)
+				return self
+			end
 		else
 			function META:GetFloatPointer()
 				return self:GetFloatCopy()
 			end
 
-			function META:CopyToFloatPointer(ptr)
-				ffi_copy(ptr, self:GetFloatPointer(), ffi.sizeof(float_array))
-				return self
-			end
-
 			function META:GetDoublePointer()
 				return ffi_cast(double_ptr, self)
+			end
+
+			function META:CopyToFloatPointer(ptr)
+				ffi_copy(ptr, self:GetFloatPointer(), float_array)
+				return self
 			end
 		end
 
