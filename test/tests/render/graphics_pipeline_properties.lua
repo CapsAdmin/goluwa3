@@ -532,3 +532,210 @@ T.Test3D("EasyPipeline resolves constants storage automatically", function()
 	T(draw.offset)["=="](nil)
 	pipeline:Remove()
 end)
+
+T.Test2D("EasyPipeline runs uniform buffer constant write callbacks during upload", function()
+	local writes = 0
+	local pipeline = EasyPipeline.New{
+		ColorFormat = render.target:GetColorFormat(),
+		vertex = {
+			shader = [[
+				void main() {
+					gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+				}
+			]],
+		},
+		fragment = {
+			constants = {
+				{
+					name = "draw",
+					storage = "uniform_buffer",
+					write = function(self, constants)
+						writes = writes + 1
+						constants.value = 3.5
+					end,
+					block = {
+						{"value", "float"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					out_color = vec4(draw.value / 3.5, 1.0, 1.0, 1.0);
+				}
+			]],
+		},
+	}
+	pipeline:UploadConstants()
+	local draw = pipeline:GetConstantBlockInfo("draw")
+	local ubo_data = pipeline.uniform_buffers[draw.name]:GetData()
+	return function()
+		T(writes)["=="](1)
+		T(ubo_data.value)["=="](3.5)
+		pipeline:Remove()
+	end
+end)
+
+T.Test2D("EasyPipeline copies constant block source slices before upload", function()
+	local aggregate = EasyPipeline.BuildFFIType(
+		"scalar",
+		"GraphicsPipelinePropertiesAggregate",
+		{
+			{"padding", "vec4"},
+			{"value", "float"},
+			{"uv", "vec2"},
+		}
+	)()
+	aggregate.value = 2
+	aggregate.uv[0] = 0.25
+	aggregate.uv[1] = 0.75
+	local pipeline = EasyPipeline.New{
+		ColorFormat = render.target:GetColorFormat(),
+		vertex = {
+			shader = [[
+				void main() {
+					gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+				}
+			]],
+		},
+		fragment = {
+			constants = {
+				{
+					name = "draw",
+					storage = "uniform_buffer",
+					source = {
+						get = function()
+							return aggregate
+						end,
+						ctype = ffi.typeof(aggregate),
+						field = "value",
+					},
+					write = function(self, constants)
+						constants.value = constants.value * 2
+					end,
+					block = {
+						{"value", "float"},
+						{"uv", "vec2"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					out_color = vec4(draw.value, draw.uv.x, draw.uv.y, 1.0);
+				}
+			]],
+		},
+	}
+	pipeline:UploadConstants()
+	local draw = pipeline.uniform_buffers.draw:GetData()
+	return function()
+		T(draw.value)["=="](4)
+		T(draw.uv[0])["=="](0.25)
+		T(draw.uv[1])["=="](0.75)
+		pipeline:Remove()
+	end
+end)
+
+T.Test3D("EasyPipeline auto constants coexist with explicit push constants", function()
+	local pipeline = EasyPipeline.New{
+		ColorFormat = render.target:GetColorFormat(),
+		ConstantPlacement = {
+			push_budget = 96,
+		},
+		vertex = {
+			push_constants = {
+				{
+					name = "camera",
+					block = {
+						{"projection_view_world", "mat4"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					gl_Position = camera.projection_view_world * vec4(0.0, 0.0, 0.0, 1.0);
+				}
+			]],
+		},
+		fragment = {
+			constants = {
+				{
+					name = "draw",
+					storage = "auto",
+					prefer = "push",
+					priority = 100,
+					block = {
+						{"uv_transform", "vec4"},
+					},
+				},
+				{
+					name = "shape",
+					storage = "auto",
+					prefer = "push",
+					priority = 50,
+					block = {
+						{"border_radius", "vec4"},
+						{"rect_size", "vec2"},
+					},
+				},
+			},
+			shader = [[
+				void main() {
+					out_color = draw.uv_transform + vec4(shape.border_radius.xy, shape.rect_size);
+				}
+			]],
+		},
+	}
+	local draw = pipeline:GetConstantBlockInfo("draw")
+	local shape = pipeline:GetConstantBlockInfo("shape")
+	T(pipeline:GetPushConstantBlockOffset("camera"))["=="](0)
+	T(pipeline:GetPushConstantBlockSize("camera"))["=="](64)
+	T(draw.storage)["=="]("push")
+	T(draw.offset)["=="](64)
+	T(shape.storage)["=="]("uniform_buffer")
+	T(shape.binding_index)[">="](2)
+	pipeline:Remove()
+end)
+
+T.Test3D("EasyPipeline rejects push layouts that exceed the configured budget", function()
+	local ok, err = pcall(function()
+		EasyPipeline.New{
+			ColorFormat = render.target:GetColorFormat(),
+			ConstantPlacement = {
+				push_budget = 64,
+			},
+			vertex = {
+				push_constants = {
+					{
+						name = "camera",
+						block = {
+							{"projection_view_world", "mat4"},
+						},
+					},
+				},
+				shader = [[
+					void main() {
+						gl_Position = camera.projection_view_world * vec4(0.0, 0.0, 0.0, 1.0);
+					}
+				]],
+			},
+			fragment = {
+				constants = {
+					{
+						name = "draw",
+						storage = "push",
+						block = {
+							{"uv_transform", "vec4"},
+						},
+					},
+				},
+				shader = [[
+					void main() {
+						out_color = draw.uv_transform;
+					}
+				]],
+			},
+		}
+	end)
+	T(ok)["=="](false)
+	assert(tostring(err):find("configured budget is 64"))
+end)

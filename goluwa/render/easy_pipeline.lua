@@ -422,6 +422,36 @@ function EasyPipeline.BuildFFIType(layout, struct_name, fields)
 	return ctype
 end
 
+local function get_scalar_layout_alignment(glsl_type)
+	if type(glsl_type) == "table" then
+		local max_alignment = 4
+
+		for _, field in ipairs(glsl_type) do
+			max_alignment = math.max(max_alignment, get_scalar_layout_alignment(field[2]))
+		end
+
+		return max_alignment
+	end
+
+	if glsl_type == "uint64_t" then return 8 end
+
+	return 4
+end
+
+local function get_scalar_block_alignment(fields)
+	local max_alignment = 4
+
+	for _, field in ipairs(fields) do
+		max_alignment = math.max(max_alignment, get_scalar_layout_alignment(field[2]))
+	end
+
+	return max_alignment
+end
+
+local function align_offset(offset, alignment)
+	return math.ceil(offset / alignment) * alignment
+end
+
 local function get_constant_stage_config(config, stage_name)
 	return config[stage_name] or
 		(
@@ -443,6 +473,125 @@ local function clone_constant_block(block)
 	end
 
 	return copy
+end
+
+local function normalize_block_source(block, size, alignment, kind)
+	local source = block.source
+
+	if source == nil then return nil end
+
+	if source._normalized then return source end
+
+	if type(source) ~= "table" then
+		error(
+			string.format("EasyPipeline.New: %s '%s' source must be a table", kind, tostring(block.name)),
+			3
+		)
+	end
+
+	if type(source.get) ~= "function" then
+		error(
+			string.format(
+				"EasyPipeline.New: %s '%s' source.get must be a function",
+				kind,
+				tostring(block.name)
+			),
+			3
+		)
+	end
+
+	local source_ctype = source.ctype or source.struct
+
+	if not source_ctype then
+		error(
+			string.format(
+				"EasyPipeline.New: %s '%s' source must provide ctype or struct",
+				kind,
+				tostring(block.name)
+			),
+			3
+		)
+	end
+
+	if source.field ~= nil and source.offset ~= nil then
+		error(
+			string.format(
+				"EasyPipeline.New: %s '%s' source must specify either field or offset, not both",
+				kind,
+				tostring(block.name)
+			),
+			3
+		)
+	end
+
+	local offset = 0
+
+	if source.field ~= nil then
+		local ok, resolved_offset = pcall(ffi.offsetof, source_ctype, source.field)
+
+		if not ok then
+			error(
+				string.format(
+					"EasyPipeline.New: %s '%s' source field '%s' is invalid",
+					kind,
+					tostring(block.name),
+					tostring(source.field)
+				),
+				3
+			)
+		end
+
+		offset = tonumber(resolved_offset)
+	else
+		offset = tonumber(source.offset) or 0
+	end
+
+	if offset < 0 then
+		error(
+			string.format(
+				"EasyPipeline.New: %s '%s' source offset must be >= 0",
+				kind,
+				tostring(block.name)
+			),
+			3
+		)
+	end
+
+	local source_size = ffi.sizeof(source_ctype)
+
+	if offset + size > source_size then
+		error(
+			string.format(
+				"EasyPipeline.New: %s '%s' source slice [%d, %d) exceeds source size %d",
+				kind,
+				tostring(block.name),
+				offset,
+				offset + size,
+				source_size
+			),
+			3
+		)
+	end
+
+	if offset % math.max(alignment or 1, 1) ~= 0 then
+		error(
+			string.format(
+				"EasyPipeline.New: %s '%s' source offset %d is not aligned to %d bytes",
+				kind,
+				tostring(block.name),
+				offset,
+				alignment or 1
+			),
+			3
+		)
+	end
+
+	local normalized = clone_constant_block(source)
+	normalized.ctype = source_ctype
+	normalized.offset = offset
+	normalized.size = source_size
+	normalized._normalized = true
+	return normalized
 end
 
 local function escape_lua_pattern(str)
@@ -1074,8 +1223,31 @@ function EasyPipeline.New(config)
 		local default_mode = placement.mode or "auto"
 		local constant_blocks = {}
 		local auto_blocks = {}
+		local explicit_push_span = 0
 		local hard_push_size = 0
 		local constant_order = 0
+		local seen_explicit_push_blocks = {}
+
+		for _, stage_name in ipairs(possible_stages) do
+			local stage_config = get_constant_stage_config(config, stage_name)
+
+			if type(stage_config) == "table" and stage_config.push_constants then
+				for _, block in ipairs(stage_config.push_constants) do
+					if block.name == nil then
+						block.name = "_u_" .. stage_name
+						block._is_unnamed = true
+					end
+
+					if not seen_explicit_push_blocks[block.name] then
+						seen_explicit_push_blocks[block.name] = true
+						local flat_block = flatten_fields(block.block)
+						local alignment = get_scalar_block_alignment(flat_block)
+						local ctype = ffi.typeof(build_ffi_struct("scalar", flat_block))
+						explicit_push_span = align_offset(explicit_push_span, alignment) + ffi.sizeof(ctype)
+					end
+				end
+			end
+		end
 
 		for _, stage_name in ipairs(possible_stages) do
 			local stage_config = get_constant_stage_config(config, stage_name)
@@ -1101,6 +1273,8 @@ function EasyPipeline.New(config)
 						local ctype = ffi.typeof(build_ffi_struct("scalar", resolved.block))
 						verify_layout("scalar", struct_name, resolved.block, ctype)
 						resolved._size = ffi.sizeof(ctype)
+						resolved._alignment = get_scalar_block_alignment(resolved.block)
+						resolved.source = normalize_block_source(resolved, resolved._size, resolved._alignment, "constant block")
 						constant_blocks[resolved.name] = resolved
 
 						if resolved._requested_storage == "push" then
@@ -1121,11 +1295,11 @@ function EasyPipeline.New(config)
 			end
 		end
 
-		if hard_push_size > push_budget then
+		if explicit_push_span + hard_push_size > push_budget then
 			error(
 				string.format(
-					"EasyPipeline.New: push constant blocks require %d bytes but the configured budget is %d",
-					hard_push_size,
+					"EasyPipeline.New: explicit and forced push constant blocks require %d bytes but the configured budget is %d",
+					explicit_push_span + hard_push_size,
 					push_budget
 				),
 				3
@@ -1145,7 +1319,7 @@ function EasyPipeline.New(config)
 			return a._constant_order < b._constant_order
 		end)
 
-		local remaining_push_budget = push_budget - hard_push_size
+		local remaining_push_budget = push_budget - explicit_push_span - hard_push_size
 
 		for _, block in ipairs(auto_blocks) do
 			if block._size <= remaining_push_budget then
@@ -1209,6 +1383,12 @@ function EasyPipeline.New(config)
 					local ffi_code = build_ffi_struct("scalar", block.block)
 					local ctype = ffi.typeof(ffi_code)
 					verify_layout("scalar", struct_name, block.block, ctype)
+					block.source = normalize_block_source(
+						block,
+						ffi.sizeof(ctype),
+						get_scalar_block_alignment(block.block),
+						"push constant block"
+					)
 					push_constant_types[struct_name] = ctype
 					push_constant_block_offsets[block.name] = 0 -- placeholder
 				end
@@ -1220,9 +1400,21 @@ function EasyPipeline.New(config)
 	local current_push_offset = 0
 
 	for _, name in ipairs(push_constant_block_order) do
+		current_push_offset = align_offset(current_push_offset, get_scalar_block_alignment(push_constant_blocks[name].block))
 		push_constant_block_offsets[name] = current_push_offset
 		local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
 		current_push_offset = current_push_offset + ffi.sizeof(push_constant_types[struct_name])
+	end
+
+	if current_push_offset > constant_resolution.push_budget then
+		error(
+			string.format(
+				"EasyPipeline.New: resolved push constant layout requires %d bytes but the configured budget is %d",
+				current_push_offset,
+				constant_resolution.push_budget
+			),
+			2
+		)
 	end
 
 	-- Auto binding index counter starts at 2 (0=textures, 1=cubemaps are reserved)
@@ -1277,6 +1469,12 @@ function EasyPipeline.New(config)
 				local glsl_fields, glsl_structs = build_glsl_fields(block.block)
 				local ubo = UniformBuffer.New(ffi_code)
 				verify_layout("scalar", block.name, block.block, ubo.struct)
+				block.source = normalize_block_source(
+					block,
+					ffi.sizeof(ubo.struct),
+					get_scalar_block_alignment(block.block),
+					"uniform buffer block"
+				)
 				local block_type_name = block.name:sub(1, 1):upper() .. block.name:sub(2)
 
 				-- Ensure the block type name differs from the instance name (GLSL forbids identical names)
@@ -1408,7 +1606,7 @@ function EasyPipeline.New(config)
 		end
 
 		local upload_lines = {
-			"return function(self, cmd, render, active_stages, push_constant_blocks, push_constant_block_offsets, constant_structs, uniform_buffer_order, uniform_buffer_types)",
+			"return function(self, cmd, render, ffi, active_stages, push_constant_blocks, push_constant_block_offsets, constant_structs, uniform_buffer_order, uniform_buffer_types)",
 		}
 
 		for _, name in ipairs(push_constant_block_order) do
@@ -1416,6 +1614,11 @@ function EasyPipeline.New(config)
 			upload_lines[#upload_lines + 1] = "do"
 			upload_lines[#upload_lines + 1] = string.format("    local block = push_constant_blocks[%q]", name)
 			upload_lines[#upload_lines + 1] = string.format("    local constants = constant_structs[%q]", struct_name)
+			upload_lines[#upload_lines + 1] = "    if block.source then"
+			upload_lines[#upload_lines + 1] = "        local source_data = block.source.get(self, block)"
+			upload_lines[#upload_lines + 1] = "        if source_data == nil then error(\"push constant block source returned nil for \" .. tostring(block.name)) end"
+			upload_lines[#upload_lines + 1] = "        ffi.copy(constants, ffi.cast(\"uint8_t *\", source_data) + block.source.offset, ffi.sizeof(constants))"
+			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = "    if block.write then"
 			upload_lines[#upload_lines + 1] = "        block.write(self, constants, block)"
 			upload_lines[#upload_lines + 1] = "    else"
@@ -1435,12 +1638,21 @@ function EasyPipeline.New(config)
 			upload_lines[#upload_lines + 1] = "do"
 			upload_lines[#upload_lines + 1] = string.format("    local info = uniform_buffer_types[%q]", name)
 			upload_lines[#upload_lines + 1] = "    local ubo_data = info.ubo:GetData()"
+			upload_lines[#upload_lines + 1] = "    if info.block.source then"
+			upload_lines[#upload_lines + 1] = "        local source_data = info.block.source.get(self, info.block)"
+			upload_lines[#upload_lines + 1] = "        if source_data == nil then error(\"uniform buffer block source returned nil for \" .. tostring(info.block.name)) end"
+			upload_lines[#upload_lines + 1] = "        ffi.copy(ubo_data, ffi.cast(\"uint8_t *\", source_data) + info.block.source.offset, ffi.sizeof(ubo_data))"
+			upload_lines[#upload_lines + 1] = "    end"
+			upload_lines[#upload_lines + 1] = "    if info.block.write then"
+			upload_lines[#upload_lines + 1] = "        info.block.write(self, ubo_data, info.block)"
+			upload_lines[#upload_lines + 1] = "    else"
 			append_callback_lines(
 				upload_lines,
 				string.format("info.block.block"),
 				uniform_buffer_types[name].block.block,
 				"ubo_data"
 			)
+			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = string.format("    offsets[%d] = info.ubo:Upload(frame_index)", i)
 			upload_lines[#upload_lines + 1] = "end"
 		end
@@ -1456,6 +1668,7 @@ function EasyPipeline.New(config)
 				self,
 				render.GetCommandBuffer(),
 				render,
+				ffi,
 				active_stages,
 				push_constant_blocks,
 				push_constant_block_offsets,
@@ -2139,6 +2352,45 @@ end
 
 function EasyPipeline:GetConstantBlockStorage(name)
 	return self:GetConstantBlockInfo(name).storage
+end
+
+function EasyPipeline:BuildConstantBlockData(name)
+	local info = self:GetConstantBlockInfo(name)
+	local block = assert(
+		self.constant_blocks and self.constant_blocks[name],
+		"Invalid constant block: " .. tostring(name)
+	)
+	local data
+
+	if info.storage == "push" then
+		data = self:GetPushConstantBlockType(name)()
+	else
+		local ubo_data = assert(
+			self.uniform_buffers and self.uniform_buffers[name],
+			"Missing uniform buffer for constant block: " .. tostring(name)
+		):GetData()
+		data = ffi.typeof(ubo_data)()
+	end
+
+	if block.source then
+		local source_data = block.source.get(self, block)
+
+		if source_data == nil then
+			error("constant block source returned nil for " .. tostring(block.name), 2)
+		end
+
+		ffi.copy(data, ffi.cast("uint8_t *", source_data) + block.source.offset, ffi.sizeof(data))
+	end
+
+	if block.write then
+		block.write(self, data, block)
+	else
+		for _, field in ipairs(block.block) do
+			if type(field[3]) == "function" then field[3](self, data, field[1]) end
+		end
+	end
+
+	return data
 end
 
 function EasyPipeline:PushConstants(...)

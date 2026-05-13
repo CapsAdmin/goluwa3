@@ -698,9 +698,11 @@ local function write_render2d_vertex_push_constants(self, block)
 	block.projection_view_world = ffi.cast(block.projection_view_world, render2d.GetMatrix():GetFloatPointer())
 end
 
+local function get_render2d_fragment_constants_source()
+	return render2d.state.render.fragment.constants
+end
+
 local function write_render2d_fragment_draw_constants(self, block)
-	local source = render2d.state.render.fragment.constants
-	ffi.copy(block, source, ffi.sizeof(block))
 	block.global_color[3] = block.global_color[3] * render2d.state.render.fragment.alpha_multiplier
 	block.texture_index = render2d.state.render.textures.texture and
 		self:GetTextureIndex(render2d.state.render.textures.texture) or
@@ -712,8 +714,6 @@ local function write_render2d_fragment_draw_constants(self, block)
 end
 
 local function write_render2d_fragment_shape_constants(self, block)
-	local source = render2d.state.render.fragment.constants
-	ffi.copy(block, source, ffi.sizeof(block))
 	block.rect_size[0] = render2d.state.render.fragment.rect_size.w
 	block.rect_size[1] = render2d.state.render.fragment.rect_size.h
 	block.sdf_rect_size[0] = render2d.state.render.fragment.rect_size.lw
@@ -722,8 +722,6 @@ local function write_render2d_fragment_shape_constants(self, block)
 end
 
 local function write_render2d_fragment_patch_constants(self, block)
-	local source = render2d.state.render.fragment.constants
-	ffi.copy(block, source, ffi.sizeof(block))
 	return block
 end
 
@@ -844,6 +842,11 @@ function render2d.Initialize()
 					storage = "auto",
 					prefer = "push",
 					priority = 100,
+					source = {
+						get = get_render2d_fragment_constants_source,
+						ctype = RectDrawState,
+						field = "global_color",
+					},
 					block = fragment_draw_constant_fields,
 					write = write_render2d_fragment_draw_constants,
 				},
@@ -852,6 +855,11 @@ function render2d.Initialize()
 					storage = "auto",
 					prefer = "push",
 					priority = 50,
+					source = {
+						get = get_render2d_fragment_constants_source,
+						ctype = RectDrawState,
+						field = "blur",
+					},
 					block = fragment_shape_constant_fields,
 					write = write_render2d_fragment_shape_constants,
 				},
@@ -860,6 +868,11 @@ function render2d.Initialize()
 					storage = "auto",
 					prefer = "uniform_buffer",
 					priority = 0,
+					source = {
+						get = get_render2d_fragment_constants_source,
+						ctype = RectDrawState,
+						field = "nine_patch_x_count",
+					},
 					block = fragment_patch_constant_fields,
 					write = write_render2d_fragment_patch_constants,
 				},
