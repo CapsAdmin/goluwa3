@@ -83,7 +83,7 @@ function Framebuffer.New(config)
 end
 
 function Framebuffer:Begin(cmd, load_op)
-	cmd = cmd or render.GetCommandBuffer() or self.cmd
+	cmd = cmd or render.GetCommandBufferOutsideRendering() or self.cmd
 	load_op = load_op or "clear"
 
 	if cmd == self.cmd then
