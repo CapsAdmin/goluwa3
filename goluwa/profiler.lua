@@ -4,7 +4,7 @@ local system = import("goluwa/system.lua")
 local profiler = library()
 local jit_profiler
 
-function profiler.Start(id)
+function profiler.Start(id, config)
 	debug.trace()
 	time_start = system.GetTime()
 	local path = "game/storage/logs/jit_profile_" .. id .. ".html"
@@ -19,6 +19,7 @@ function profiler.Start(id)
 		file_url = "vscode://file" .. fs.get_current_directory() .. "/${path}:${line}:1",
 		get_time = system.GetTime,
 		sampling_rate = 1,
+		trace_recorder = config and config.trace_recorder,
 	}
 end
 

@@ -1,15 +1,15 @@
 local commands = import("goluwa/commands.lua")
 local event = import("goluwa/event.lua")
-local Profiler = import("goluwa/profiler.lua")
+local profiler = import("goluwa/profiler.lua")
 local started = false
 
 local function toggle()
 	if not started then
-		Profiler.Start("test")
+		profiler.Start("game", {trace_recorder = false})
 		started = true
 		logn("profiler started")
 	else
-		Profiler.Stop()
+		profiler.Stop()
 		started = false
 		logn("profiler stopped")
 	end

@@ -6,10 +6,16 @@ local jit = _G.jit
 local table_concat = _G.table.concat
 local table_insert = _G.table.insert
 local table_remove = _G.table.remove
-local table_sort = _G.table.sort
 local string_format = _G.string.format
-local string_rep = _G.string.rep
 local time_function--[[#: function=()>(number) | nil]] = nil
+local GC64 = #tostring({}) == 19
+local DEFAULT_MAXMCODE_KB = 512
+
+local function get_default_sizemcode_kb()
+	if jit and (jit.os == "Windows" or GC64) then return 64 end
+
+	return 32
+end
 
 local function get_time_function()
 	local has_ffi, ffi = pcall(require, "ffi")
@@ -163,34 +169,6 @@ local function json_string(s--[[#: string]])
 	return "\"" .. s .. "\""
 end
 
-local function builtin_replace(n)
-	local num = tonumber(n)
-	return vmdef.ffnames[num] or ("[builtin#" .. n .. "]")
-end
-
-local function normalize_sample_stack(stack_str--[[#: string | nil]])--[[#: string]]
-	if not stack_str or type(stack_str) ~= "string" then return "" end
-
-	stack_str = stack_str:gsub("%[builtin#(%d+)%]", builtin_replace)
-	stack_str = stack_str:gsub("@0x%x+\n?", "")
-	stack_str = stack_str:gsub("%(command line%)[^\n]*\n?", "")
-	stack_str = stack_str:gsub("%s+$", "")
-	return stack_str
-end
-
-local function collect_sample_frames(stack_str--[[#: string | nil]])--[[#: List<|string|>]]
-	local frames = {}
-	stack_str = normalize_sample_stack(stack_str)
-
-	if stack_str ~= "" then
-		for line in stack_str:gmatch("[^\n]+") do
-			frames[#frames + 1] = line
-		end
-	end
-
-	return frames
-end
-
 -- --- Profiler ---
 local HTML_TEMPLATE--[[#: string]] -- forward declaration, assigned at bottom of file
 local Profiler = {}
@@ -222,14 +200,18 @@ Profiler.__index = Profiler
 		func_info = string,
 		linktype = string | nil,
 		link_id = number | nil,
+		record_count = number | nil,
 		ir_count = number | nil,
 		exit_count = number | nil,
+		mcode_addr = number | nil,
+		mcode_size = number | nil,
 	} | {
 		type = "trace_abort",
 		time = number | nil,
 		id = number,
 		abort_code = number | nil,
 		abort_reason = string,
+		record_count = number | nil,
 		func_info = string,
 	} | {
 		type = "trace_flush",
@@ -237,78 +219,86 @@ Profiler.__index = Profiler
 	}]]
 --[[#-- --- Type Definitions ---
 type Profiler.@SelfArgument = {
-	_id = string,
-	_path = string,
-	_file_url = string,
-	_mode = string,
-	_depth = number,
-	_sampling_rate = number,
-	_flush_interval = number,
-	_get_time = function=()>(number),
-	_time_start = number,
-	_running = boolean,
-	_events = List<|TEvent|>,
-	_event_count = number,
-	_last_flush_time = number,
-	_strings = List<|string|>,
-	_string_lookup = Map<|string, number|>,
-	_string_count = number,
-	_strings_flushed = number,
-	_section_stack = List<|string|>,
-	_section_path = string,
-	_traces = List<|
+	id = string,
+	path = string,
+	file_url = string,
+	profile_mode = string,
+	maxmcode = number,
+	sizemcode = number,
+	depth = number,
+	sampling_rate = number,
+	flush_interval = number,
+	get_time = function=()>(number),
+	time_start = number,
+	running = boolean,
+	events = List<|TEvent|>,
+	event_count = number,
+	last_flush_time = number,
+	strings = List<|string|>,
+	string_lookup = Map<|string, number|>,
+	string_count = number,
+	strings_flushed = number,
+	section_stack = List<|string|>,
+	section_path = string,
+	traces = List<|
 		{
 			id = number,
 			parent_id = number | nil,
 			exit_id = number | nil,
 			depth = number,
+			record_count = number,
 			pc_lines = List<|{func = AnyFunction, pc = number, depth = number, loc = string}|>,
 		}
 	|>,
-	_trace_count = number,
-	_trace_generation = number,
-	_aborted = List<|boolean|>,
-	_should_warn_mcode = function=()>(number | false, number | nil),
-	_should_warn_abort = function=()>(number | false, number | nil),
-	_last_flushed_idx = number,
-	_file = File | nil,
-	_trace_event_fn = jit_attach_trace | nil,
-	_trace_event_safe_fn = jit_attach_trace | nil,
-	_record_event_fn = jit_attach_record | nil,
-	_record_event_safe_fn = jit_attach_record | nil,
+	trace_count = number,
+	trace_generation = number,
+	aborted = List<|boolean|>,
+	should_warn_mcode = function=()>(number | false, number | nil),
+	should_warn_abort = function=()>(number | false, number | nil),
+	last_flushed_idx = number,
+	file = File | nil,
+	trace_event_fn = jit_attach_trace | nil,
+	trace_event_safe_fn = jit_attach_trace | nil,
+	record_event_fn = jit_attach_record | nil,
+	record_event_safe_fn = jit_attach_record | nil,
 	@MetaTable = Profiler,
 }]]
 --[[#local type TProfile = Profiler.@SelfArgument]]
 
 -- --- Event accumulation ---
 function Profiler:EmitEvent(event--[[#: TEvent]])
-	event.time = self._get_time()
-	local idx = self._event_count + 1
-	self._events[idx] = event
-	self._event_count = idx
+	event.time = self.get_time()
+	local idx = self.event_count + 1
+	self.events[idx] = event
+	self.event_count = idx
+
+	if event.time - self.last_flush_time >= self.flush_interval then
+		self.last_flush_time = event.time
+		self:Save()
+	end
 end
 
 -- --- Section tracking ---
 function Profiler:StartSection(name--[[#: string]])
-	if not self._running then return end
+	if not self.running then return end
 
 	-- Event section tracking
-	table_insert(self._section_stack, name)
-	self._section_path = table_concat(self._section_stack, " > ")
-	self:EmitEvent{type = "section_start", name = name, section_path = self._section_path}
+	table_insert(self.section_stack, name)
+	self.section_path = table_concat(self.section_stack, " > ")
+	self:EmitEvent{type = "section_start", name = name, section_path = self.section_path}
 end
 
 function Profiler:StopSection()
-	if not self._running then return end
+	if not self.running then return end
 
-	local name = self._section_stack[#self._section_stack]
+	local name = self.section_stack[#self.section_stack]
 
-	if #self._section_stack > 0 then
-		self._section_stack[#self._section_stack] = nil
-		self._section_path = table_concat(self._section_stack, " > ")
+	if #self.section_stack > 0 then
+		self.section_stack[#self.section_stack] = nil
+		self.section_path = table_concat(self.section_stack, " > ")
 	end
 
-	self:EmitEvent{type = "section_end", name = name, section_path = self._section_path}
+	self:EmitEvent{type = "section_end", name = name, section_path = self.section_path}
 end
 
 do
@@ -323,22 +313,23 @@ do
 		local fi = jutil.funcinfo(func, pc)
 		local loc = format_func_info(fi, func)
 		local depth = 0
-		local parent = parent_id and self._traces[parent_id]
+		local parent = parent_id and self.traces[parent_id]
 
 		if parent then depth = (parent.depth or 0) + 1 end
 
-		self._traces[id] = {
+		self.traces[id] = {
 			id = id,
 			parent_id = parent_id,
 			exit_id = exit_id,
 			depth = depth,
+			record_count = 0,
 			pc_lines = {{func = func, pc = pc, depth = 0, loc = loc}},
 		}
-		self._trace_count = self._trace_count + 1
+		self.trace_count = self.trace_count + 1
 		self:EmitEvent{
 			type = "trace_start",
 			id = id,
-			generation = self._trace_generation,
+			generation = self.trace_generation,
 			parent_id = parent_id,
 			exit_id = exit_id,
 			depth = depth,
@@ -353,32 +344,49 @@ do
 		pc--[[#: number]],
 		depth--[[#: number]]
 	)
-		local trace = self._traces[id]
+		local trace = self.traces[id]
 
 		if not trace then return end
 
+		trace.record_count = trace.record_count + 1
 		append_trace_pc_line(trace, func, pc, depth)
 	end
 
 	local function on_trace_stop(self--[[#: TProfile]], id--[[#: number]], func--[[#: AnyFunction]])
-		local trace = self._traces[id]
+		local trace = self.traces[id]
 
 		if not trace then return end
 
 		local ti = jutil.traceinfo(id)
 		local loc = get_trace_location(trace)
+		local mcode_addr--[[#: number | nil]] = nil
+		local mcode_size--[[#: number | nil]] = nil
 
 		if not loc then loc = format_func_info(jutil.funcinfo(func), func) end
+
+		do
+			local ok, mcode, addr = pcall(jutil.tracemc, id)
+
+			if ok and type(mcode) == "string" and type(addr) == "number" then
+				mcode_addr = addr
+				mcode_size = #mcode
+
+				if mcode_addr < 0 then mcode_addr = mcode_addr + 2 ^ 32 end
+			end
+		end
 
 		self:EmitEvent{
 			type = "trace_stop",
 			id = id,
-			generation = self._trace_generation,
+			generation = self.trace_generation,
 			func_info = loc,
 			linktype = ti and ti.linktype or nil,
 			link_id = ti and ti.link or nil,
+			record_count = trace.record_count,
 			ir_count = ti and ti.nins or nil,
 			exit_count = ti and ti.nexit or nil,
+			mcode_addr = mcode_addr,
+			mcode_size = mcode_size,
 		}
 	end
 
@@ -390,7 +398,7 @@ do
 		code--[[#: number]],
 		reason--[[#: number | string]]
 	)
-		local trace = self._traces[id]
+		local trace = self.traces[id]
 
 		if not trace then return end
 
@@ -399,20 +407,21 @@ do
 
 		if not loc then loc = format_func_info(jutil.funcinfo(func, pc), func) end
 
-		self._aborted[id] = true
-		self._traces[id] = nil
-		self._trace_count = self._trace_count - 1
+		self.aborted[id] = true
+		self.traces[id] = nil
+		self.trace_count = self.trace_count - 1
 		self:EmitEvent{
 			type = "trace_abort",
 			id = id,
-			generation = self._trace_generation,
+			generation = self.trace_generation,
 			abort_code = code,
 			abort_reason = format_error(code, reason),
+			record_count = trace.record_count,
 			func_info = loc,
 		}
 
 		if code == 27 then
-			local x, interval = self._should_warn_mcode()
+			local x, interval = self.should_warn_mcode()
 
 			if x and interval then
 				io.write(
@@ -425,13 +434,13 @@ do
 	end
 
 	local function on_trace_flush(self--[[#: TProfile]])
-		if self._trace_count > 0 then
-			local x, interval = self._should_warn_abort()
+		if self.trace_count > 0 then
+			local x, interval = self.should_warn_abort()
 
 			if x and interval then
 				io.write(
 					"flushing ",
-					tostring(self._trace_count),
+					tostring(self.trace_count),
 					" traces, ",
 					(x == 0 and "" or "[" .. x .. " times the last " .. interval .. " seconds]"),
 					"\n"
@@ -439,11 +448,11 @@ do
 			end
 		end
 
-		self._traces = {}
-		self._aborted = {}
-		self._trace_count = 0
+		self.traces = {}
+		self.aborted = {}
+		self.trace_count = 0
 		self:EmitEvent({type = "trace_flush"})
-		self._trace_generation = self._trace_generation + 1
+		self.trace_generation = self.trace_generation + 1
 	end
 
 	-- --- Constructor ---
@@ -452,7 +461,10 @@ do
 			id = string | nil,
 			path = string | nil,
 			file_url = string | nil,
-			mode = "line" | "function" | nil,
+			profile_mode = "line" | "function" | "none" | nil,
+			trace_recorder = boolean | nil,
+			maxmcode = number | nil,
+			sizemcode = number | nil,
 			depth = number | nil,
 			sampling_rate = number | nil,
 			flush_interval = number | nil,
@@ -460,111 +472,106 @@ do
 		} | nil]]
 	)
 		config = config or {}
+		config.maxmcode = _G.JIT_PARAMS.maxmcode
+		config.sizemcode = _G.JIT_PARAMS.sizemcode
 		local self = setmetatable({}, Profiler)--[[# as TProfile]]
 		-- Config
-		self._id = config.id or "jit_profiler"
-		self._path = config.path or "./profiler_output.html"
-		self._file_url = config.file_url or "vscode://file/${path}:${line}:1"
-		self._mode = config.mode or "line"
-		self._depth = config.depth or 999
-		self._sampling_rate = config.sampling_rate or 1
-		self._flush_interval = config.flush_interval or 3
-
-		if config.get_time then self._get_time = config.get_time end
-
-		if not self._get_time then
-			time_function = time_function or get_time_function()
-			self._get_time = time_function
-		end
-
+		self.id = config.id or "jit_profiler"
+		self.path = config.path or "./profiler_output.html"
+		self.file_url = config.file_url or "vscode://file/${path}:${line}:1"
+		self.profile_mode = config.profile_mode or "line"
+		self.maxmcode = config.maxmcode or DEFAULT_MAXMCODE_KB
+		self.sizemcode = config.sizemcode or get_default_sizemcode_kb()
+		self.depth = config.depth or 999
+		self.sampling_rate = config.sampling_rate or 1
+		self.flush_interval = config.flush_interval or 3
+		self.get_time = config.get_time or get_time_function()
 		-- Lifecycle
-		self._time_start = self._get_time()
-		self._running = true
+		self.time_start = self.get_time()
+		self.running = true
 		-- Event accumulation
-		self._events = {}
-		self._event_count = 0
-		self._last_flush_time = 0
+		self.events = {}
+		self.event_count = 0
+		self.last_flush_time = self.time_start
 		-- String interning
-		self._strings = {}
-		self._string_lookup = {}
-		self._string_count = 0
-		self._strings_flushed = 0
+		self.strings = {}
+		self.string_lookup = {}
+		self.string_count = 0
+		self.strings_flushed = 0
 		-- Section tracking
-		self._section_stack = {}
-		self._section_path = ""
+		self.section_stack = {}
+		self.section_path = ""
 		-- Trace tracking
-		self._traces = {}
-		self._trace_count = 0
-		self._trace_generation = 0
-		self._aborted = {}
-		self._should_warn_mcode = create_warn_log(2)
-		self._should_warn_abort = create_warn_log(8)
+		self.traces = {}
+		self.trace_count = 0
+		self.trace_generation = 0
+		self.aborted = {}
+		self.should_warn_mcode = create_warn_log(2)
+		self.should_warn_abort = create_warn_log(8)
 		-- HTML streaming
-		self._last_flushed_idx = 0
+		self.last_flushed_idx = 0
 
 		do
 			local html = HTML_TEMPLATE
 			html = html:gsub("%%FILE_URL_JSON%%", function()
-				return json_string(self._file_url)
+				return json_string(self.file_url)
 			end)
-			local f = assert(io.open(self._path, "w"))
+			html = html:gsub("%%MAXMCODE_KB%%", tostring(self.maxmcode))
+			html = html:gsub("%%SIZEMCODE_KB%%", tostring(self.sizemcode))
+			local f = assert(io.open(self.path, "w"))
 			f:write(html)
 			f:flush()
-			self._file = f
+			self.file = f
 		end
 
-		do
-			self._trace_event_fn = function(what, tr, func, pc, otr, oex)
-				if what == "start" then
-					on_trace_start(self, tr, func, pc, otr, oex)
-				elseif what == "stop" then
-					on_trace_stop(self, tr, func)
-				elseif what == "abort" then
-					on_trace_abort(self, tr, func, pc, otr, oex)
-				elseif what == "flush" then
-					on_trace_flush(self)
-				end
-			end--[[# as jit_attach_trace]]
-			self._trace_event_safe_fn = function(what, tr, func, pc, otr, oex)
-				local ok, err = pcall(self._trace_event_fn--[[# as any]], what, tr, func, pc, otr, oex)
+		if config.trace_recorder == nil or config.trace_recorder then
+			do
+				self.trace_event_fn = function(what, tr, func, pc, otr, oex)
+					if what == "start" then
+						on_trace_start(self, tr, func, pc, otr, oex)
+					elseif what == "stop" then
+						on_trace_stop(self, tr, func)
+					elseif what == "abort" then
+						on_trace_abort(self, tr, func, pc, otr, oex)
+					elseif what == "flush" then
+						on_trace_flush(self)
+					end
+				end--[[# as jit_attach_trace]]
+				self.trace_event_safe_fn = function(what, tr, func, pc, otr, oex)
+					local ok, err = pcall(self.trace_event_fn--[[# as any]], what, tr, func, pc, otr, oex)
 
-				if not ok then
-					io.write("error in trace event (" .. tostring(what) .. "): " .. tostring(err) .. "\n")
-				end
-			end--[[# as jit_attach_trace]]
-			jit.attach(self._trace_event_safe_fn, "trace")
+					if not ok then
+						io.write("error in trace event (" .. tostring(what) .. "): " .. tostring(err) .. "\n")
+					end
+				end--[[# as jit_attach_trace]]
+				jit.attach(self.trace_event_safe_fn, "trace")
+			end
+
+			do
+				self.record_event_fn = function(tr, func, pc, depth)
+					on_trace_record(self, tr, func, pc, depth)
+				end--[[# as jit_attach_record]]
+				self.record_event_safe_fn = function(tr, func, pc, depth)
+					local ok, err = pcall(self.record_event_fn--[[# as any]], tr, func, pc, depth)
+
+					if not ok then io.write("error in record event: " .. tostring(err) .. "\n") end
+				end--[[# as jit_attach_record]]
+				jit.attach(self.record_event_safe_fn, "record")
+			end
 		end
 
-		do
-			self._record_event_fn = function(tr, func, pc, depth)
-				on_trace_record(self, tr, func, pc, depth)
-			end--[[# as jit_attach_record]]
-			self._record_event_safe_fn = function(tr, func, pc, depth)
-				local ok, err = pcall(self._record_event_fn--[[# as any]], tr, func, pc, depth)
-
-				if not ok then io.write("error in record event: " .. tostring(err) .. "\n") end
-			end--[[# as jit_attach_record]]
-			jit.attach(self._record_event_safe_fn, "record")
-		end
-
-		do
+		if self.profile_mode ~= "none" then
 			local dumpstack = jprofile.dumpstack
-			local depth = self._depth
+			local depth = self.depth
 
-			jprofile.start((self._mode == "line" and "l" or "f") .. "i" .. self._sampling_rate, function(thread, sample_count, vmstate)
+			jprofile.start((self.profile_mode == "line" and "l" or "f") .. "i" .. self.sampling_rate, function(thread, sample_count, vmstate)
 				self:EmitEvent{
 					type = "sample",
 					stack = dumpstack(thread, "pl\n", depth),
 					sample_count = sample_count,
 					vm_state = vmstate,
-					section_path = self._section_path,
+					section_path = self.section_path,
 				}
-				local now = self._get_time()
-
-				if now - self._last_flush_time >= self._flush_interval then
-					self._last_flush_time = now
-					self:Save()
-				end
 			end)
 		end
 
@@ -576,36 +583,49 @@ do
 	local function intern(self--[[#: TProfile]], s--[[#: string | nil]])
 		if not s then return -1 end
 
-		local idx = self._string_lookup[s]
+		local idx = self.string_lookup[s]
 
 		if idx then return idx end
 
-		idx = self._string_count
-		self._string_count = self._string_count + 1
-		self._strings[idx] = s
-		self._string_lookup[s] = idx
+		idx = self.string_count
+		self.string_count = self.string_count + 1
+		self.strings[idx] = s
+		self.string_lookup[s] = idx
 		return idx
 	end
 
 	local function get_new_strings(self--[[#: TProfile]])--[[#: List<|string|>]]
 		local new = {}
 
-		for i = self._strings_flushed, self._string_count - 1 do
-			new[#new + 1] = self._strings[i]
+		for i = self.strings_flushed, self.string_count - 1 do
+			new[#new + 1] = self.strings[i]
 		end
 
-		self._strings_flushed = self._string_count
+		self.strings_flushed = self.string_count
 		return new
+	end
+
+	local function builtin_replace(n)
+		local num = tonumber(n)
+		return vmdef.ffnames[num] or ("[builtin#" .. n .. "]")
 	end
 
 	local function encode_event(self--[[#: TProfile]], ev--[[#: TEvent]])--[[#: string]]
 		local ti = intern(self, ev.type)
 
 		if ev.type == "sample" then
-			local stack_str = normalize_sample_stack(ev.stack)
+			local stack_str = ev.stack
+
+			if stack_str and type(stack_str) == "string" then
+				stack_str = stack_str:gsub("%[builtin#(%d+)%]", builtin_replace)
+				stack_str = stack_str:gsub("@0x%x+\n?", "")
+				stack_str = stack_str:gsub("%(command line%)[^\n]*\n?", "")
+				stack_str = stack_str:gsub("%s+$", "")
+			end
+
 			local frames = {}
 
-			if stack_str ~= "" then
+			if stack_str and stack_str ~= "" then
 				for line in stack_str:gmatch("[^\n]+") do
 					frames[#frames + 1] = intern(self, line)
 				end
@@ -642,7 +662,7 @@ do
 			)
 		elseif ev.type == "trace_stop" then
 			return string_format(
-				"[%d,%.6f,%d,%d,%d,%d,%s,%d,%d]",
+				"[%d,%.6f,%d,%d,%d,%d,%s,%d,%d,%d,%s,%s]",
 				ti,
 				ev.time,
 				ev.id or 0,
@@ -650,18 +670,22 @@ do
 				intern(self, ev.func_info),
 				intern(self, ev.linktype),
 				ev.link_id and tostring(ev.link_id) or "null",
+				ev.record_count or 0,
 				ev.ir_count or 0,
-				ev.exit_count or 0
+				ev.exit_count or 0,
+				ev.mcode_addr ~= nil and tostring(ev.mcode_addr) or "null",
+				ev.mcode_size ~= nil and tostring(ev.mcode_size) or "null"
 			)
 		elseif ev.type == "trace_abort" then
 			return string_format(
-				"[%d,%.6f,%d,%d,%s,%d,%d]",
+				"[%d,%.6f,%d,%d,%s,%d,%d,%d]",
 				ti,
 				ev.time,
 				ev.id or 0,
 				ev.generation or 0,
 				ev.abort_code and tostring(ev.abort_code) or "null",
 				intern(self, ev.abort_reason),
+				ev.record_count or 0,
 				intern(self, ev.func_info)
 			)
 		else
@@ -670,21 +694,21 @@ do
 	end
 
 	function Profiler:Save()
-		if not self._file then return end
+		if not self.file then return end
 
-		local count = self._event_count
+		local count = self.event_count
 
-		if count > self._last_flushed_idx then
-			local start_idx, end_idx = self._last_flushed_idx + 1, count
+		if count > self.last_flushed_idx then
+			local start_idx, end_idx = self.last_flushed_idx + 1, count
 
 			if start_idx > end_idx then
 
 			else
-				local f = self._file
+				local f = self.file
 				local event_parts = {}
 
 				for i = start_idx, end_idx do
-					event_parts[#event_parts + 1] = encode_event(self, assert(self._events[i], "nil event"))
+					event_parts[#event_parts + 1] = encode_event(self, assert(self.events[i], "nil event"))
 				end
 
 				local string_parts = {}
@@ -701,642 +725,68 @@ do
 				f:write(events_js)
 				f:write(");</script>\n")
 				f:flush()
-				self._last_flushed_idx = count
+				self.last_flushed_idx = count
 			end
 		end
 	end
 end
 
-do
-	--[[#local type TSummaryEntry = {name = string, count = number, self_count = number, peak_count = number}]]
-	--[[#local type TSummaryNode = {
-		name = string,
-		count = number,
-		self_count = number,
-		children = Map<|string, TSummaryNode|>,
-	}]]
-	--[[#local type TSummaryCountEntry = {name = string, count = number}]]
-	--[[#local type TPathEntry = {path = string, count = number, depth = number}]]
-	local vm_state_labels = {
-		N = "native",
-		I = "interpreter",
-		C = "c",
-		G = "gc",
-		J = "jit",
-	}
+function Profiler:GetSectionTimes()--[[#: Map<|string, {total = number}|>]]
+	local times = {}
+	local start_times--[[#: Map<|string, number|>]] = {}
 
-	local function format_summary_percent(count--[[#: number]], total--[[#: number]])--[[#: string]]
-		return string_format("%.1f%%%%", total > 0 and (count / total) * 100 or 0)
-	end
+	for _, event in ipairs(self.events) do
+		if event.type == "section_start" then
+			start_times[event.name] = event.time
+		elseif event.type == "section_end" then
+			local start_time = start_times[event.name]
 
-	local function format_summary_samples(count--[[#: number]], total--[[#: number]])--[[#: string]]
-		return string_format("%d samples (%s)", count, format_summary_percent(count, total))
-	end
-
-	local function format_summary_window(start_time--[[#: number]], end_time--[[#: number]])--[[#: string]]
-		local duration = math.max(0, end_time - start_time)
-		return string_format("%.6fs -> %.6fs (%.3fs)", start_time, end_time, duration)
-	end
-
-	local function is_wrapper_frame(name--[[#: string]])--[[#: boolean]]
-		return name == "xpcall" or
-			name == "pcall" or
-			name:find("^glw:%d+$") ~= nil or
-			name:find("crash_trace%.lua:%d+$") ~= nil
-	end
-
-	local function classify_summary_frame(name--[[#: string]])--[[#: string]]
-		if is_wrapper_frame(name) then return "wrapper" end
-
-		if is_source_location(name) then return "domain" end
-
-		if name:sub(1, 2) == "C:" then return "ffi/c" end
-
-		return "builtin"
-	end
-
-	local function format_frame_role(name--[[#: string]])--[[#: string]]
-		local kind = classify_summary_frame(name)
-
-		if kind == "wrapper" then return "infra" end
-
-		return kind
-	end
-
-	local function collapse_sample_frames(stack--[[#: List<|string|>]], collapsed_wrappers--[[#: Map<|string, number|>]])--[[#: List<|string|>]]
-		local out = {}
-
-		for i = 1, #stack do
-			local frame = stack[i]
-
-			if is_wrapper_frame(frame) then
-				collapsed_wrappers[frame] = (collapsed_wrappers[frame] or 0) + 1
-			else
-				out[#out + 1] = frame
+			if start_time then
+				times[event.name] = times[event.name] or {total = 0}
+				times[event.name].total = times[event.name].total + (event.time - start_time)
+				start_times[event.name] = nil
 			end
 		end
-
-		if #out > 0 then return out end
-
-		for i = 1, #stack do
-			out[i] = stack[i]
-		end
-
-		return out
 	end
 
-	local function append_distribution_line(
-		lines--[[#: List<|string|>]],
-		prefix--[[#: string]],
-		map--[[#: Map<|string, number|>]],
-		total--[[#: number]],
-		label_map--[[#: Map<|string, string|> | nil]]
-	)
-		local entries = {}
-
-		for name, count in pairs(map) do
-			entries[#entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
-		end
-
-		if #entries == 0 then return end
-
-		table_sort(entries, function(a, b)
-			if a.count ~= b.count then return a.count > b.count end
-
-			return a.name < b.name
-		end)
-
-		local parts = {}
-
-		for i = 1, #entries do
-			local entry = entries[i]--[[# as TSummaryCountEntry]]
-			local label = label_map and label_map[entry.name] or entry.name
-			parts[#parts + 1] = string_format("%s %s", label, format_summary_percent(entry.count, total))
-		end
-
-		lines[#lines + 1] = prefix .. table_concat(parts, ", ")
-	end
-
-	local function collect_summary_paths(
-		node--[[#: TSummaryNode]],
-		path_nodes--[[#: List<|string|>]],
-		out--[[#: List<|TPathEntry|>]],
-		max_depth--[[#: number]]
-	)
-		if #path_nodes > 0 then
-			out[#out + 1] = {
-				path = table_concat(path_nodes, " -> "),
-				count = node.count or 0,
-				depth = #path_nodes,
-			}
-		end
-
-		if #path_nodes >= max_depth then return end
-
-		local children = {}
-
-		for _, child in pairs(node.children) do
-			children[#children + 1] = child
-		end
-
-		table_sort(children, function(a, b)
-			if a.count ~= b.count then return a.count > b.count end
-
-			return a.name < b.name
-		end)
-
-		for i = 1, #children do
-			path_nodes[#path_nodes + 1] = children[i].name
-			collect_summary_paths(children[i], path_nodes, out, max_depth)
-			path_nodes[#path_nodes] = nil
-		end
-	end
-
-	local function get_dominant_path(
-		node--[[#: TSummaryNode]],
-		max_depth--[[#: number]],
-		continue_ratio--[[#: number]]
-	)--[[#: TPathEntry | nil]]
-		local path_nodes = {}
-		local current = node
-		local current_count = node.count or 0
-
-		while #path_nodes < max_depth do
-			local best_child = nil
-
-			for _, child in pairs(current.children) do
-				if
-					not best_child or
-					child.count > best_child.count or
-					(
-						child.count == best_child.count and
-						child.name < best_child.name
-					)
-				then
-					best_child = child
-				end
-			end
-
-			if not best_child then break end
-
-			if current_count > 0 and (best_child.count or 0) < current_count * continue_ratio then
-				break
-			end
-
-			if not is_wrapper_frame(best_child.name) then
-				path_nodes[#path_nodes + 1] = best_child.name
-			end
-
-			current = best_child
-			current_count = best_child.count or 0
-		end
-
-		if #path_nodes == 0 then return nil end
-
-		return {
-			path = table_concat(path_nodes, " -> "),
-			count = current_count,
-			depth = #path_nodes,
-		}
-	end
-
-	local function is_selected_path_redundant(selected--[[#: List<|TPathEntry|>]], candidate--[[#: TPathEntry]])--[[#: boolean]]
-		for i = 1, #selected do
-			local existing = selected[i]--[[# as TPathEntry]]
-
-			if existing.path == candidate.path then return true end
-
-			if
-				existing.count == candidate.count and
-				existing.path:find("^" .. candidate.path:gsub("([^%w%s])", "%%%1") .. " -> ")
-			then
-				return true
-			end
-		end
-
-		return false
-	end
-
-	local function select_top_paths(entries--[[#: List<|TPathEntry|>]], max_items--[[#: number]])--[[#: List<|TPathEntry|>]]
-		table_sort(entries, function(a, b)
-			if a.count ~= b.count then return a.count > b.count end
-
-			if a.depth ~= b.depth then return a.depth > b.depth end
-
-			return a.path < b.path
-		end)
-
-		local selected = {}
-
-		for i = 1, #entries do
-			local candidate = entries[i]--[[# as TPathEntry]]
-
-			if not is_selected_path_redundant(selected, candidate) then
-				selected[#selected + 1] = candidate
-
-				if #selected >= max_items then break end
-			end
-		end
-
-		return selected
-	end
-
-	local function format_workload_shape(top_branch_share--[[#: number]], top_self_share--[[#: number]])--[[#: string]]
-		local branch_shape = "distributed workload"
-
-		if top_branch_share >= 90 then
-			branch_shape = "single dominant path"
-		elseif top_branch_share >= 65 then
-			branch_shape = "few dominant branches"
-		elseif top_branch_share >= 40 then
-			branch_shape = "mixed hot paths"
-		end
-
-		if top_self_share >= 20 then
-			return branch_shape .. " plus concentrated self-time hotspots"
-		end
-
-		if top_self_share >= 10 then
-			return branch_shape .. " plus several secondary self-time hotspots"
-		end
-
-		return branch_shape .. " with diffused self time"
-	end
-
-	local function format_confidence(top_branch_share--[[#: number]], top_self_share--[[#: number]])--[[#: string]]
-		if top_branch_share >= 80 and top_self_share >= 15 then return "high" end
-
-		if top_branch_share >= 60 and top_self_share >= 8 then return "medium-high" end
-
-		if top_branch_share >= 35 or top_self_share >= 5 then return "medium" end
-
-		return "low"
-	end
-
-	local function append_ranked_entries(
-		lines--[[#: List<|string|>]],
-		header--[[#: string]],
-		entries--[[#: List<|TSummaryEntry|>]],
-		total_samples--[[#: number]],
-		max_items--[[#: number]],
-		use_self_count--[[#: boolean]]
-	)
-		lines[#lines + 1] = ""
-		lines[#lines + 1] = header
-
-		if #entries == 0 then
-			lines[#lines + 1] = "none"
-			return
-		end
-
-		local limit = math.min(#entries, max_items)
-
-		for i = 1, limit do
-			local entry = entries[i]--[[# as TSummaryEntry]]
-			local focus_count = use_self_count and (entry.self_count or 0) or (entry.peak_count or entry.count)
-			local share = format_summary_percent(focus_count, total_samples)
-			lines[#lines + 1] = string_format(
-				"%d. %s - %d samples (%s) - %s",
-				i,
-				entry.name,
-				focus_count,
-				share,
-				format_frame_role(entry.name)
-			)
-		end
-	end
-
-	local function get_sorted_summary_entries(map--[[#: Map<|string, TSummaryEntry|>]])--[[#: List<|TSummaryEntry|>]]
-		local list = {}
-
-		for _, entry in pairs(map) do
-			list[#list + 1] = entry
-		end
-
-		table_sort(list, function(a, b)
-			if a.count ~= b.count then return a.count > b.count end
-
-			local a_self = a.self_count or 0
-			local b_self = b.self_count or 0
-
-			if a_self ~= b_self then return a_self > b_self end
-
-			return a.name < b.name
-		end)
-
-		return list
-	end
-
-	function Profiler:GetFlamegraphSummary(
-		config--[[#: {
-			vm_state = string | nil,
-			section_path = string | nil,
-			include_sections = boolean | nil,
-			max_frames = number | nil,
-			max_depth = number | nil,
-			max_children = number | nil,
-		} | nil]]
-	)
-		config = config or {}
-		local max_frames = math.max(1, config.max_frames or 12)
-		local max_depth = math.max(1, config.max_depth or 3)
-		local max_children = math.max(1, config.max_children or 5)
-		local frame_totals--[[#: Map<|string, TSummaryEntry|>]] = {}
-		local self_entries = {}
-		local state_totals--[[#: Map<|string, number|>]] = {}
-		local section_totals--[[#: Map<|string, number|>]] = {}
-		local collapsed_wrappers--[[#: Map<|string, number|>]] = {}
-		local abort_reason_totals--[[#: Map<|string, number|>]] = {}
-		local root--[[#: TSummaryNode]] = {name = "all", count = 0, self_count = 0, children = {}}
-		local total_samples = 0
-		local first_sample_time--[[#: number | nil]] = nil
-		local last_sample_time--[[#: number | nil]] = nil
-		local trace_abort_count = 0
-		local trace_flush_count = 0
-
-		for i = 1, self._event_count do
-			local ev = self._events[i]
-
-			if ev and ev.type == "sample" then
-				if config.vm_state and ev.vm_state ~= config.vm_state then goto continue end
-
-				if config.section_path and ev.section_path ~= config.section_path then
-					goto continue
-				end
-
-				local frames = collect_sample_frames(ev.stack)
-				local stack--[[#: List<|string|>]] = {}
-
-				for frame_i = #frames, 1, -1 do
-					stack[#stack + 1] = frames[frame_i]
-				end
-
-				if #stack == 0 then goto continue end
-
-				stack = collapse_sample_frames(stack, collapsed_wrappers)
-				total_samples = total_samples + 1
-				root.count = total_samples
-
-				if not first_sample_time or ev.time < first_sample_time then
-					first_sample_time = ev.time
-				end
-
-				if not last_sample_time or ev.time > last_sample_time then
-					last_sample_time = ev.time
-				end
-
-				local vm_state = ev.vm_state or "?"
-				state_totals[vm_state] = (state_totals[vm_state] or 0) + 1
-				local section_path = ev.section_path ~= "" and ev.section_path or "other"
-				section_totals[section_path] = (section_totals[section_path] or 0) + 1
-				local node--[[#: TSummaryNode]] = root
-
-				for stack_i = 1, #stack do
-					local frame = stack[stack_i]
-					local entry--[[#: TSummaryEntry | nil]] = frame_totals[frame]
-
-					if not entry then
-						entry = {name = frame, count = 0, self_count = 0, peak_count = 0}
-						frame_totals[frame] = entry
-					end
-
-					entry.count = entry.count + 1
-					local children = node.children--[[# as any]]
-					local child--[[#: TSummaryNode | nil]] = children[frame]
-
-					if not child then
-						child = {name = frame, count = 0, self_count = 0, children = {}}
-						children[frame] = child
-					end
-
-					child.count = child.count + 1
-
-					if child.count > (entry.peak_count or 0) then entry.peak_count = child.count end
-
-					node = child
-				end
-
-				node.self_count = (node.self_count or 0) + 1
-				local leaf_frame = stack[#stack]
-				local leaf_entry = frame_totals[leaf_frame]
-
-				if leaf_entry then
-					leaf_entry.self_count = leaf_entry.self_count + 1
-
-					if leaf_entry.self_count == 1 then
-						self_entries[#self_entries + 1] = leaf_entry
-					end
-				end
-			elseif ev and ev.type == "trace_abort" then
-				trace_abort_count = trace_abort_count + 1
-				local reason = ev.abort_reason or "unknown"
-				abort_reason_totals[reason] = (abort_reason_totals[reason] or 0) + 1
-			elseif ev and ev.type == "trace_flush" then
-				trace_flush_count = trace_flush_count + 1
-			end
-
-			::continue::
-		end
-
-		local lines = {"Profile summary"}
-
-		if config.vm_state then
-			lines[#lines + 1] = "vm state filter: " .. config.vm_state
-		end
-
-		if config.section_path then
-			lines[#lines + 1] = "section filter: " .. config.section_path
-		end
-
-		if total_samples == 0 then return table_concat(lines, "\n") end
-
-		local branch_entries = get_sorted_summary_entries(frame_totals)
-
-		table_sort(branch_entries, function(a, b)
-			local a_focus = a.peak_count or a.count
-			local b_focus = b.peak_count or b.count
-
-			if a_focus ~= b_focus then return a_focus > b_focus end
-
-			if a.count ~= b.count then return a.count > b.count end
-
-			if (a.self_count or 0) ~= (b.self_count or 0) then
-				return (a.self_count or 0) > (b.self_count or 0)
-			end
-
-			return a.name < b.name
-		end)
-
-		table_sort(self_entries, function(a, b)
-			local a_self = a.self_count or 0
-			local b_self = b.self_count or 0
-
-			if a_self ~= b_self then return a_self > b_self end
-
-			if a.count ~= b.count then return a.count > b.count end
-
-			return a.name < b.name
-		end)
-
-		local top_self_total = 0
-
-		for i = 1, math.min(3, #self_entries) do
-			top_self_total = top_self_total + (self_entries[i].self_count or 0)
-		end
-
-		local top_branch = branch_entries[1]
-		local top_branch_focus = top_branch and (top_branch.peak_count or top_branch.count) or 0
-		local top_branch_share = total_samples > 0 and ((top_branch_focus / total_samples) * 100) or 0
-		local top_self_share = total_samples > 0 and (top_self_total / total_samples) * 100 or 0
-		local path_entries = {}
-		collect_summary_paths(root, {}, path_entries, math.max(1, math.min(max_depth, max_children)))
-		local top_paths = select_top_paths(path_entries, math.min(max_frames, 5))
-		local dominant_path = get_dominant_path(root, math.max(1, math.min(max_depth, max_children)), 0.8)
-		local collapsed_wrapper_entries = {}
-
-		for name, count in pairs(collapsed_wrappers) do
-			collapsed_wrapper_entries[#collapsed_wrapper_entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
-		end
-
-		table_sort(collapsed_wrapper_entries, function(a, b)
-			if a.count ~= b.count then return a.count > b.count end
-
-			return a.name < b.name
-		end)
-
-		lines[#lines + 1] = "window: " .. format_summary_window(first_sample_time or 0, last_sample_time or 0)
-		lines[#lines + 1] = "samples: " .. total_samples
-		lines[#lines + 1] = "workload shape: " .. format_workload_shape(top_branch_share, top_self_share)
-
-		if dominant_path then
-			lines[#lines + 1] = "dominant path: " .. dominant_path.path .. " - " .. format_summary_percent(dominant_path.count, total_samples)
-		end
-
-		append_distribution_line(lines, "vm states: ", state_totals, total_samples, vm_state_labels)
-		append_distribution_line(lines, "sections: ", section_totals, total_samples, nil)
-
-		if #collapsed_wrapper_entries > 0 then
-			local parts = {}
-
-			for i = 1, math.min(4, #collapsed_wrapper_entries) do
-				parts[#parts + 1] = collapsed_wrapper_entries[i].name
-			end
-
-			lines[#lines + 1] = "collapsed wrappers: " .. table_concat(parts, ", ")
-		end
-
-		lines[#lines + 1] = "confidence: " .. format_confidence(top_branch_share, top_self_share)
-		append_ranked_entries(lines, "Top self-time sites", self_entries, total_samples, max_frames, true)
-		append_ranked_entries(lines, "Top branch owners", branch_entries, total_samples, max_frames, false)
-		lines[#lines + 1] = ""
-		lines[#lines + 1] = "Top branches"
-
-		if #top_paths == 0 then
-			lines[#lines + 1] = "none"
-		else
-			for i = 1, #top_paths do
-				local entry = top_paths[i]--[[# as TPathEntry]]
-				lines[#lines + 1] = string_format(
-					"%d. %s - %s",
-					i,
-					entry.path,
-					format_summary_samples(entry.count, total_samples)
-				)
-			end
-		end
-
-		lines[#lines + 1] = ""
-		lines[#lines + 1] = "Runtime health"
-		lines[#lines + 1] = "trace aborts: " .. trace_abort_count
-		lines[#lines + 1] = "trace flushes: " .. trace_flush_count
-		lines[#lines + 1] = "top 3 self concentration: " .. format_summary_percent(top_self_total, total_samples)
-
-		if trace_abort_count > 0 then
-			local abort_entries = {}
-
-			for name, count in pairs(abort_reason_totals) do
-				abort_entries[#abort_entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
-			end
-
-			table_sort(abort_entries, function(a, b)
-				if a.count ~= b.count then return a.count > b.count end
-
-				return a.name < b.name
-			end)
-
-			local limit = math.min(3, #abort_entries)
-
-			for i = 1, limit do
-				local entry = abort_entries[i]--[[# as TSummaryCountEntry]]
-				lines[#lines + 1] = string_format("abort reason %d: %s - %d", i, entry.name, entry.count)
-			end
-		end
-
-		lines[#lines + 1] = ""
-		lines[#lines + 1] = "Recommended inspection order"
-		local recommended = {}
-		local recommended_lookup = {}
-
-		local function push_recommended(name)
-			if not name or recommended_lookup[name] then return end
-
-			recommended_lookup[name] = true
-			recommended[#recommended + 1] = name
-		end
-
-		for i = 1, math.min(4, #self_entries) do
-			push_recommended(self_entries[i].name)
-		end
-
-		for i = 1, math.min(2, #branch_entries) do
-			push_recommended(branch_entries[i].name)
-		end
-
-		for i = 1, #recommended do
-			lines[#lines + 1] = string_format("%d. %s", i, recommended[i])
-		end
-
-		if #recommended == 0 then lines[#lines + 1] = "none" end
-
-		return table_concat(lines, "\n")
-	end
+	return times
 end
 
 function Profiler:Stop()
-	if not self._running then return end
+	if not self.running then return end
 
-	self._running = false
+	self.running = false
 	jprofile.stop()
 
 	-- Detach trace events
-	if self._trace_event_safe_fn then
-		jit.attach(self._trace_event_safe_fn)
-		self._trace_event_fn = nil
-		self._trace_event_safe_fn = nil
+	if self.trace_event_safe_fn then
+		jit.attach(self.trace_event_safe_fn)
+		self.trace_event_fn = nil
+		self.trace_event_safe_fn = nil
 	end
 
-	if self._record_event_safe_fn then
-		jit.attach(self._record_event_safe_fn)
-		self._record_event_fn = nil
-		self._record_event_safe_fn = nil
+	if self.record_event_safe_fn then
+		jit.attach(self.record_event_safe_fn)
+		self.record_event_fn = nil
+		self.record_event_safe_fn = nil
 	end
 
 	-- Write remaining events and close file
 	self:Save()
-	local f = self._file
+	local f = self.file
 
 	if f then
 		f:close()
-		self._file = nil
+		self.file = nil
 	end
 end
 
 function Profiler:IsRunning()
-	return self._running
+	return self.running
 end
 
 function Profiler:GetElapsed()
-	return self._get_time() - self._time_start
+	return self.get_time() - self.time_start
 end
 
 -- --- HTML Template ---
@@ -1361,6 +811,7 @@ HTML_TEMPLATE = [==[
   --color-ok:    #52b788;
   --color-abort: #ef6461;
   --color-stitch:#e9c46a;
+  --color-interpreter:#4fc3f7;
   --color-linked:#ab47bc;
   --color-jit:   #ffd166;
   --color-select:#ffc832;
@@ -1444,6 +895,7 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 #trace-panel .col-location { width: auto; }
 #trace-panel .col-parent { width: 120px; }
 #trace-panel .col-time { width: 100px; }
+#trace-panel .col-rec { width: 52px; }
 #trace-panel .col-ir { width: 50px; }
 #trace-panel .col-exits { width: 60px; }
 #trace-panel thead tr th:last-child .th-resizer { display: none; }
@@ -1453,6 +905,7 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 #trace-panel tr.trace-row.highlighted td { background: rgba(255,255,255,0.12); outline: 1px solid rgba(255,255,255,0.25); }
 #trace-panel tr.trace-row.selected td { background: rgba(255,220,80,0.18); outline: 1px solid rgba(255,220,80,0.55); }
 .trace-ok { color: var(--color-ok); }
+.trace-interpreter { color: var(--color-interpreter); }
 .trace-linked { color: var(--color-linked); }
 .trace-stitch { color: var(--color-stitch); }
 .trace-abort { color: var(--color-abort); }
@@ -1474,6 +927,11 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 #fg-copy-status { color: var(--text-dim); font-size: 11px; min-height: 1em; }
 #btn-copy-fg-summary { padding: 2px 10px; }
 #flamegraph-canvas { width: 100%; min-height: 400px; }
+#mcode-container { overflow: auto; max-height: 0; flex-shrink: 0; contain: strict; }
+#mcode-container.open { max-height: none; display: block; overflow: auto; contain: layout style; }
+#mcode-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 16px 0; }
+#mcode-summary { color: var(--text-muted); font-size: 11px; line-height: 1.45; min-height: 1em; }
+#mcode-canvas { width: 100%; display: block; }
 #tooltip { position: fixed; background: var(--bg-panel); border: 1px solid var(--border-strong); padding: 8px 12px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; max-width: 500px; white-space: pre-wrap; line-height: 1.5; }
 .loc-link { color: var(--accent); text-decoration: none; opacity: 0.8; }
 .loc-link:hover { text-decoration: underline; opacity: 1; }
@@ -1519,6 +977,15 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 <div id="trace-panel" class="open"></div>
 <div id="trace-panel-resize-handle" class="resize-handle"></div>
 <div class="section-header">
+  <button id="btn-toggle-mcode">mcode map</button>
+</div>
+<div id="mcode-container" class="open">
+  <div id="mcode-toolbar">
+    <span id="mcode-summary"></span>
+  </div>
+  <canvas id="mcode-canvas"></canvas>
+</div>
+<div class="section-header">
   <button id="btn-toggle-fg">flamegraph</button>
 </div>
 <div id="flamegraph-container" class="open">
@@ -1549,9 +1016,9 @@ function _decode(S,E){
     }else if(type==='trace_start'){
       ev={type:type,time:d[1],id:d[2],generation:d[3],parent_id:d[4],exit_id:d[5],depth:d[6],func_info:S[d[7]]};
     }else if(type==='trace_stop'){
-      ev={type:type,time:d[1],id:d[2],generation:d[3],func_info:S[d[4]],linktype:S[d[5]],link_id:d[6],ir_count:d[7],exit_count:d[8]};
+      ev={type:type,time:d[1],id:d[2],generation:d[3],func_info:S[d[4]],linktype:S[d[5]],link_id:d[6],record_count:d[7],ir_count:d[8],exit_count:d[9],mcode_addr:d[10],mcode_size:d[11]};
     }else if(type==='trace_abort'){
-      ev={type:type,time:d[1],id:d[2],generation:d[3],abort_code:d[4],abort_reason:S[d[5]],func_info:S[d[6]]};
+      ev={type:type,time:d[1],id:d[2],generation:d[3],abort_code:d[4],abort_reason:S[d[5]],record_count:d[6],func_info:S[d[7]]};
     }else if(type==='trace_flush'){
       ev={type:type,time:d[1]};
     }else{
@@ -1566,6 +1033,8 @@ const EVENTS = _decode(_S, _E);
 _S = null; _E = null;
 const TOTAL_TIME = EVENTS.length > 1 ? EVENTS[EVENTS.length-1].time - EVENTS[0].time : 0;
 const FILE_URL_TEMPLATE = %FILE_URL_JSON%;
+const MAX_MCODE_KB = %MAXMCODE_KB%;
+const SIZE_MCODE_KB = %SIZEMCODE_KB%;
 // --- File link helper ---
 function funcInfoLink(fi, label) {
   if (!fi) return label || '?';
@@ -1587,6 +1056,7 @@ const COLORS = {
   ok:         '#52b788',
   abort:      '#ef6461',
   stitch:     '#e9c46a',
+  interpreter:'#4fc3f7',
   linked:     '#ab47bc',
   jit:        '#ffd166',
   select:     '#ffc832',
@@ -1629,7 +1099,7 @@ const COLORS = {
 // --- VM state helpers ---
 const VM_STATE_COLORS = {
   'N': COLORS.ok,     // Native (JIT)
-  'I': COLORS.stitch, // Interpreter
+  'I': COLORS.interpreter, // Interpreter
   'C': COLORS.linked, // C code
   'G': COLORS.abort,  // GC
   'J': COLORS.jit,    // JIT compile
@@ -1644,6 +1114,30 @@ const VM_STATE_LABELS = {
 
 function sampleColor(e) {
   return VM_STATE_COLORS[e.vm_state] || COLORS.ok;
+}
+
+function traceCategoryFromLinktype(linktype) {
+  if (linktype === 'root') return 'linked';
+  if (linktype === 'stitch') return 'stitch';
+  if (linktype === 'interpreter') return 'interpreter';
+  return 'OK';
+}
+
+function traceCategoryColor(category) {
+  if (category === 'aborted') return COLORS.abort;
+  if (category === 'stitch') return COLORS.stitch;
+  if (category === 'interpreter') return COLORS.interpreter;
+  if (category === 'linked') return COLORS.linked;
+  if (category === 'flush') return COLORS.abort;
+  return COLORS.ok;
+}
+
+function traceStatusClassFromCategory(category) {
+  if (category === 'aborted') return 'trace-abort';
+  if (category === 'stitch') return 'trace-stitch';
+  if (category === 'interpreter') return 'trace-interpreter';
+  if (category === 'linked') return 'trace-linked';
+  return 'trace-ok';
 }
 
 // --- Derived state ---
@@ -1837,6 +1331,7 @@ function schedulePanelUpdate(lo, hi) {
     buildFilterPanel(lo, hi);
     buildSampleFilterPanel(lo, hi);
     drawVmPie(lo, hi);
+    drawMcode(hi);
     panelDebounceTimer = null;
   }, 120);
 }
@@ -1863,6 +1358,7 @@ function refreshView(lo, hi, immediate) {
   if (immediate) {
     drawFlamegraph(filterStart, filterEnd);
     drawVmPie(filterStart, filterEnd);
+    drawMcode(filterEnd);
     buildTraceListPanel(filterStart, filterEnd);
     buildFilterPanel(filterStart, filterEnd);
     buildSampleFilterPanel(filterStart, filterEnd);
@@ -1988,11 +1484,7 @@ function drawVmPie(lo, hi) {
 
 // --- Trace List ---
 function traceStatusClass(span) {
-  if (span.outcome === 'abort') return 'trace-abort';
-  const lt = span.end.linktype;
-  if (lt === 'stitch') return 'trace-stitch';
-  if (lt === 'root') return 'trace-linked';
-  return 'trace-ok';
+  return traceStatusClassFromCategory(span.category);
 }
 function traceStatusLabel(span) {
   if (span.outcome === 'abort') return span.end.abort_reason || 'aborted';
@@ -2015,7 +1507,7 @@ function clearSelectionHtml(spanId, label) {
 }
 function wireClearBtn(lo, hi) {
   const btn = document.getElementById('btn-clear-selection');
-  if (btn) btn.addEventListener('click', () => { selectedSpan = null; drawTimeline(); buildTraceListPanel(lo, hi); });
+  if (btn) btn.addEventListener('click', () => { selectedSpan = null; drawTimeline(); buildTraceListPanel(lo, hi); drawMcode(hi); });
 }
 
 function _computeVisibleSpans(lo, hi) {
@@ -2025,7 +1517,7 @@ function _computeVisibleSpans(lo, hi) {
     let anc = selectedSpan;
     while (anc) {
       selectedTree.add(anc.uid);
-      anc = anc.start.parent_id ? spanByUid[traceUid(anc.start.generation, anc.start.parent_id)] : null;
+      anc = anc.parent_uid ? spanByUid[anc.parent_uid] : null;
     }
     const q = [selectedSpan];
     while (q.length) {
@@ -2037,13 +1529,7 @@ function _computeVisibleSpans(lo, hi) {
   }
   const visible = [];
   for (const span of traceSpans) {
-    if (hoverCategory) {
-      if (span.category !== hoverCategory) continue;
-      if (hoverCategory === 'aborted' && hoverAbortReason && span.abort_reason !== hoverAbortReason) continue;
-    } else {
-      if (!enabledCategories.has(span.category)) continue;
-      if (span.abort_reason && !enabledAbortReasons.has(span.abort_reason)) continue;
-    }
+    if (!spanMatchesTraceFilters(span)) continue;
     if (selectedTree) {
       if (!selectedTree.has(span.uid)) continue;
     } else {
@@ -2053,18 +1539,38 @@ function _computeVisibleSpans(lo, hi) {
     visible.push(span);
   }
   const cmp = (a, b) => {
+    const dir = traceListSortAsc ? 1 : -1;
+    const ord = (x, y) => x < y ? -1 : x > y ? 1 : 0;
+    const finish = (delta) => delta * dir;
     let va, vb;
     switch (traceListSortKey) {
-      case 'id': va = a.id; vb = b.id; break;
+      case 'id':
+        return finish(
+          ord(a.id, b.id) ||
+          ord(a.generation, b.generation) ||
+          ord(a.occurrence, b.occurrence)
+        );
       case 'status': va = a.outcome + (a.end.linktype||''); vb = b.outcome + (b.end.linktype||''); break;
       case 'depth': va = a.depth; vb = b.depth; break;
       case 'location': va = a.location||''; vb = b.location||''; break;
+      case 'parent':
+        return finish(
+          ord(a.start.parent_id == null ? -1 : a.start.parent_id, b.start.parent_id == null ? -1 : b.start.parent_id) ||
+          ord(a.start.exit_id == null ? -1 : a.start.exit_id, b.start.exit_id == null ? -1 : b.start.exit_id) ||
+          ord(a.t0, b.t0)
+        );
       case 'time': va = a.t0; vb = b.t0; break;
-      default: va = a.id; vb = b.id;
+      case 'records': va = a.end.record_count || 0; vb = b.end.record_count || 0; break;
+      case 'ir': va = a.end.ir_count || 0; vb = b.end.ir_count || 0; break;
+      case 'exits': va = a.end.exit_count || 0; vb = b.end.exit_count || 0; break;
+      default:
+        return finish(
+          ord(a.id, b.id) ||
+          ord(a.generation, b.generation) ||
+          ord(a.occurrence, b.occurrence)
+        );
     }
-    if (va < vb) return traceListSortAsc ? -1 : 1;
-    if (va > vb) return traceListSortAsc ? 1 : -1;
-    return 0;
+    return finish(ord(va, vb) || ord(a.t0, b.t0) || ord(a.id, b.id) || ord(a.occurrence, b.occurrence));
   };
   visible.sort(cmp);
   return visible;
@@ -2087,6 +1593,7 @@ function _ensureTraceSkeleton() {
     hdr('location','location','col-location') +
     hdr('parent', 'parent', 'col-parent') +
     hdr('time','time','col-time') +
+    hdr('records','rec','col-rec') +
     hdr('ir','ir','col-ir') +
     hdr('exits','exits','col-exits') +
     '</tr></thead></table></div>';
@@ -2094,7 +1601,7 @@ function _ensureTraceSkeleton() {
     '<div id="trace-vtop" style="height:0"></div>' +
     '<table><thead><tr style="height:0; visibility:collapse;">' +
     '<th class="col-id"></th><th class="col-status"></th><th class="col-depth"></th><th class="col-location"></th>' +
-    '<th class="col-parent"></th><th class="col-time"></th><th class="col-ir"></th><th class="col-exits"></th>' +
+    '<th class="col-parent"></th><th class="col-time"></th><th class="col-rec"></th><th class="col-ir"></th><th class="col-exits"></th>' +
     '</tr></thead><tbody id="trace-vbody"></tbody></table>' +
     '<div id="trace-vbot" style="height:0"></div></div>';
   container.innerHTML = html;
@@ -2160,6 +1667,7 @@ function _ensureTraceSkeleton() {
     selectedSpan = (selectedSpan === span) ? null : span;
     drawTimeline();
     buildTraceListPanel(traceRenderLo, traceRenderHi);
+    drawMcode(traceRenderHi);
   });
   scrollEl.addEventListener('mouseover', (ev) => {
     const row = ev.target.closest('tr.trace-row');
@@ -2215,7 +1723,7 @@ function _updateSelectionHeader(lo, hi) {
   if (currentUid === _traceLastSelectedUid) return;
   _traceLastSelectedUid = currentUid;
   if (selectedSpan) {
-    hdr.innerHTML = clearSelectionHtml(selectedSpan.id, 'Showing tree for #' + selectedSpan.id);
+    hdr.innerHTML = clearSelectionHtml(selectedSpan.id, 'Showing tree for ' + traceDisplayId(selectedSpan));
     wireClearBtn(lo, hi);
   } else {
     hdr.innerHTML = '';
@@ -2269,18 +1777,20 @@ function renderVisibleTraceRows() {
   for (let i = startIdx; i < endIdx; i++) {
     const s = traceVisibleData[i];
     const cls = traceStatusClass(s);
+    const recordCount = s.end.record_count || '';
     const irCount = s.end.ir_count || '';
     const exitCount = s.end.exit_count || '';
-    const parentInfo = s.start.parent_id ? '#' + s.start.parent_id + ' exit ' + s.start.exit_id : '';
+    const parentInfo = traceParentLabel(s);
     const t = (s.t0 - timeOrigin).toFixed(4) + 's';
     const selCls = (selectedSpan && s.uid === selectedSpan.uid) ? ' selected' : '';
     html += '<tr class="trace-row' + selCls + '" data-span-uid="' + s.uid + '">' +
-      '<td class="col-id">#' + s.id + '</td>' +
+      '<td class="col-id">' + traceDisplayId(s) + '</td>' +
       '<td class="' + cls + ' col-status">' + traceStatusLabel(s) + '</td>' +
       '<td class="col-depth">' + s.depth + '</td>' +
       '<td class="trace-location col-location">' + funcInfoLink(s.location || s.start.func_info) + '</td>' +
       '<td class="col-parent">' + parentInfo + '</td>' +
       '<td class="col-time">' + t + '</td>' +
+        '<td class="col-rec">' + recordCount + '</td>' +
       '<td class="col-ir">' + irCount + '</td>' +
       '<td class="col-exits">' + exitCount + '</td></tr>';
   }
@@ -2312,6 +1822,13 @@ document.getElementById('btn-toggle-aborts').addEventListener('click', () => {
   btn.classList.toggle('collapsed', !isOpen);
   panel.style.height = isOpen ? tracePanelH + 'px' : '0px';
   rh.style.display = isOpen ? '' : 'none';
+});
+document.getElementById('btn-toggle-mcode').addEventListener('click', () => {
+  const container = document.getElementById('mcode-container');
+  const btn = document.getElementById('btn-toggle-mcode');
+  const isOpen = container.classList.toggle('open');
+  btn.classList.toggle('collapsed', !isOpen);
+  if (isOpen) drawMcode(Math.max(selStart, selEnd));
 });
 document.getElementById('btn-toggle-fg').addEventListener('click', () => {
   const container = document.getElementById('flamegraph-container');
@@ -2368,26 +1885,43 @@ function syncTraceListHighlight(span) {
 }
 
 // --- Build trace spans (connect start → stop/abort) with depth-based nesting ---
-// Use generation:id as unique key (uid) so trace ID reuse across flushes is safe
-function traceUid(gen, id) { return gen + ':' + id; }
+// Trace IDs can repeat, even inside the same generation, so keep a per-occurrence uid.
+function tracePendingKey(gen, id) { return gen + ':' + id; }
+function traceUid(gen, id, occurrence) { return gen + ':' + id + ':' + occurrence; }
 const traceSpans = [];
 const spanByUid = {};
 const childrenOfUid = {};
 const flushTimes = [];
 {
   const pending = {};
+  const occurrenceByKey = {};
   for (const e of EVENTS) {
     if (e.type === 'trace_start') {
-      pending[traceUid(e.generation, e.id)] = e;
+      const pendingKey = tracePendingKey(e.generation, e.id);
+      const occurrence = (occurrenceByKey[pendingKey] || 0) + 1;
+      occurrenceByKey[pendingKey] = occurrence;
+      const uid = traceUid(e.generation, e.id, occurrence);
+      const parentPendingKey = e.parent_id != null ? tracePendingKey(e.generation, e.parent_id) : null;
+      const parentPending = parentPendingKey ? pending[parentPendingKey] : null;
+      pending[pendingKey] = {
+        uid: uid,
+        occurrence: occurrence,
+        parent_uid: parentPending ? parentPending.uid : null,
+        event: e,
+      };
     } else if (e.type === 'trace_stop' || e.type === 'trace_abort') {
-      const uid = traceUid(e.generation, e.id);
-      const start = pending[uid];
-      if (start) {
-        const parentUid = start.parent_id != null ? traceUid(start.generation, start.parent_id) : null;
+      const pendingKey = tracePendingKey(e.generation, e.id);
+      const pendingEntry = pending[pendingKey];
+      const start = pendingEntry ? pendingEntry.event : null;
+      if (start && pendingEntry) {
+        const uid = pendingEntry.uid;
+        const parentUid = pendingEntry.parent_uid;
         const span = {
           id: e.id,
           uid: uid,
+          occurrence: pendingEntry.occurrence,
           generation: e.generation,
+          parent_uid: parentUid,
           t0: start.time,
           t1: e.time,
           start: start,
@@ -2397,10 +1931,7 @@ const flushTimes = [];
           outcome: e.type === 'trace_stop' ? 'stop' : 'abort',
           category: (function() {
             if (e.type === 'trace_stop') {
-              const lt = e.linktype || '?';
-              if (lt === 'root') return 'linked';
-              if (lt === 'stitch') return 'stitch';
-              return 'OK';
+              return traceCategoryFromLinktype(e.linktype || '?');
             }
             return 'aborted';
           })(),
@@ -2412,7 +1943,7 @@ const flushTimes = [];
           if (!childrenOfUid[parentUid]) childrenOfUid[parentUid] = [];
           childrenOfUid[parentUid].push(span);
         }
-        delete pending[uid];
+        delete pending[pendingKey];
       }
     } else if (e.type === 'trace_flush') {
       flushTimes.push(e.time);
@@ -2421,6 +1952,49 @@ const flushTimes = [];
   }
 }
 traceSpans.sort((a, b) => a.t0 - b.t0);
+
+const traceIdCounts = {};
+for (const span of traceSpans) {
+  traceIdCounts[span.id] = (traceIdCounts[span.id] || 0) + 1;
+}
+
+function traceDisplayId(span) {
+  if ((traceIdCounts[span.id] || 0) <= 1) return '#' + span.id;
+  return '#' + span.id + ' g' + span.generation + '.' + span.occurrence;
+}
+
+function traceParentSpan(span) {
+  return span.parent_uid ? (spanByUid[span.parent_uid] || null) : null;
+}
+
+function traceParentLabel(span) {
+  const parentSpan = traceParentSpan(span);
+  if (!parentSpan && !span.start.parent_id) return '';
+  const label = parentSpan ? traceDisplayId(parentSpan) : ('#' + span.start.parent_id + ' g' + span.generation);
+  return span.start.exit_id != null ? label + ' exit ' + span.start.exit_id : label;
+}
+
+function traceSupersessionKey(span) {
+  return [
+    span.generation,
+    span.location || span.start.func_info || '',
+    span.start.parent_id != null ? span.start.parent_id : '',
+    span.start.exit_id != null ? span.start.exit_id : '',
+  ].join('|');
+}
+
+{
+  const seenSuccessfulKeys = new Set();
+  for (let i = traceSpans.length - 1; i >= 0; i--) {
+    const span = traceSpans[i];
+    const key = traceSupersessionKey(span);
+    if (span.outcome === 'stop') {
+      seenSuccessfulKeys.add(key);
+    } else if (span.outcome === 'abort') {
+      span.is_superseded_abort = seenSuccessfulKeys.has(key);
+    }
+  }
+}
 
 // Compute max depth for layout
 let maxTraceDepth = 0;
@@ -2433,38 +2007,390 @@ let visibleSpanRects = [];
 let lastHoveredSpan = null;
 let selectedSpan = null;
 let panClickSpanCandidate = null; // span under cursor at mousedown in trace area
+let showSupersededAborts = false;
 
-// --- Trace filter ---
-const allTraceCategories = {};
-const allAbortReasons = {};
-for (const span of traceSpans) {
-  allTraceCategories[span.category] = (allTraceCategories[span.category] || 0) + 1;
-  if (span.abort_reason) {
-    allAbortReasons[span.abort_reason] = (allAbortReasons[span.abort_reason] || 0) + 1;
-  }
+function shouldShowTraceSpan(span) {
+  return showSupersededAborts || !span.is_superseded_abort;
 }
-{
+
+function getTraceFilterStats() {
+  const categories = {};
+  const abortReasons = {};
+  for (const span of traceSpans) {
+    if (!shouldShowTraceSpan(span)) continue;
+    categories[span.category] = (categories[span.category] || 0) + 1;
+    if (span.abort_reason) abortReasons[span.abort_reason] = (abortReasons[span.abort_reason] || 0) + 1;
+  }
   let fc = 0;
   for (const e of EVENTS) if (e.type === 'trace_flush') fc++;
-  if (fc > 0) allTraceCategories['flush'] = fc;
+  if (fc > 0) categories['flush'] = fc;
+  return {categories, abortReasons};
 }
-const enabledCategories = new Set(Object.keys(allTraceCategories));
-const enabledAbortReasons = new Set(Object.keys(allAbortReasons));
 
-const mainCategoryOrder = ['OK', 'linked', 'stitch', 'aborted', 'flush'];
-const categoryList = mainCategoryOrder.map(cat => [cat, allTraceCategories[cat] || 0]);
+// --- Trace filter ---
+const initialTraceFilterStats = getTraceFilterStats();
+const enabledCategories = new Set(['OK', 'interpreter', 'linked', 'stitch', 'aborted', 'flush']);
+const enabledAbortReasons = new Set(Object.keys(initialTraceFilterStats.abortReasons));
 
-const abortReasonList = Object.entries(allAbortReasons).sort((a, b) => b[1] - a[1]);
+function spanMatchesTraceFilters(span) {
+  if (!shouldShowTraceSpan(span)) return false;
+  if (hoverCategory) {
+    if (span.category !== hoverCategory) return false;
+    if (hoverCategory === 'aborted' && hoverAbortReason && span.abort_reason !== hoverAbortReason) return false;
+    return true;
+  }
+  if (!enabledCategories.has(span.category)) return false;
+  if (span.abort_reason && !enabledAbortReasons.has(span.abort_reason)) return false;
+  return true;
+}
+
+const SAFE_SIZE_MCODE_KB = Math.max(1, SIZE_MCODE_KB || 1);
+const SAFE_MAX_MCODE_KB = Math.max(SAFE_SIZE_MCODE_KB, MAX_MCODE_KB || SAFE_SIZE_MCODE_KB);
+const MCODE_PAGE_BYTES = Math.max(1024, Math.round(SAFE_SIZE_MCODE_KB * 1024));
+const MCODE_MAX_PAGES = Math.max(1, Math.floor(SAFE_MAX_MCODE_KB / SAFE_SIZE_MCODE_KB) || 1);
+const MCODE_MAX_BYTES = MCODE_MAX_PAGES * MCODE_PAGE_BYTES;
+const mcodeCanvas = document.getElementById('mcode-canvas');
+const mcodeCtx = mcodeCanvas.getContext('2d');
+const mcodeSummaryEl = document.getElementById('mcode-summary');
+let mcodeCurrentSnapshot = null;
+let mcodeLayouts = [];
+const MCODE_ROW_H = 9;
+const MCODE_BAR_H = 5;
+
+function alignDown(value, size) {
+  return Math.floor(value / size) * size;
+}
+
+const mcodeGenerations = [];
+{
+  const byGeneration = new Map();
+
+  for (const span of traceSpans) {
+    if (span.outcome !== 'stop') continue;
+
+    const addr = span.end.mcode_addr;
+    const size = span.end.mcode_size;
+
+    if (addr == null || !size || size <= 0) continue;
+
+    let generation = byGeneration.get(span.generation);
+
+    if (!generation) {
+      generation = {
+        generation: span.generation,
+        spans: [],
+        pages: [],
+        pageCount: 0,
+        usedBytes: 0,
+        deadBytes: 0,
+        avgFill: 0,
+        medianFill: 0,
+        tracesPerPage: 0,
+        largestGap: 0,
+      };
+      byGeneration.set(span.generation, generation);
+    }
+
+    generation.spans.push(span);
+  }
+
+  for (const generation of Array.from(byGeneration.values()).sort((a, b) => a.generation - b.generation)) {
+    generation.spans.sort((a, b) => a.end.mcode_addr - b.end.mcode_addr);
+
+    const pageMap = new Map();
+
+    for (let i = 0; i < generation.spans.length; i++) {
+      const span = generation.spans[i];
+      const startAddr = span.end.mcode_addr;
+      const endAddr = startAddr + span.end.mcode_size;
+      let pageBase = alignDown(startAddr, MCODE_PAGE_BYTES);
+
+      while (pageBase < endAddr) {
+        let page = pageMap.get(pageBase);
+
+        if (!page) {
+          page = {
+            base: pageBase,
+            segments: [],
+            traceLookup: {},
+            usedBytes: 0,
+            freeBytes: 0,
+            fill: 0,
+            traceCount: 0,
+            largestGap: 0,
+          };
+          pageMap.set(pageBase, page);
+        }
+
+        const segStart = Math.max(startAddr, pageBase) - pageBase;
+        const segEnd = Math.min(endAddr, pageBase + MCODE_PAGE_BYTES) - pageBase;
+        page.segments.push({traceIndex: i, start: segStart, stop: segEnd});
+        page.traceLookup[span.uid] = true;
+        pageBase += MCODE_PAGE_BYTES;
+      }
+    }
+
+    generation.pages = Array.from(pageMap.values()).sort((a, b) => a.base - b.base);
+    generation.pageCount = generation.pages.length;
+
+    let fillSum = 0;
+    const fills = [];
+    let traceCountSum = 0;
+
+    for (const page of generation.pages) {
+      page.segments.sort((a, b) => a.start - b.start || a.stop - b.stop);
+
+      let used = 0;
+      let largestGap = 0;
+      let coveredEnd = 0;
+
+      for (const seg of page.segments) {
+        const segStart = Math.max(seg.start, coveredEnd);
+        if (seg.start > coveredEnd) largestGap = Math.max(largestGap, seg.start - coveredEnd);
+        if (seg.stop > segStart) used += seg.stop - segStart;
+        if (seg.stop > coveredEnd) coveredEnd = seg.stop;
+      }
+
+      largestGap = Math.max(largestGap, MCODE_PAGE_BYTES - coveredEnd);
+      page.usedBytes = used;
+      page.freeBytes = MCODE_PAGE_BYTES - used;
+      page.fill = used / MCODE_PAGE_BYTES;
+      page.traceCount = Object.keys(page.traceLookup).length;
+      page.largestGap = largestGap;
+
+      generation.usedBytes += page.usedBytes;
+      generation.deadBytes += page.freeBytes;
+      generation.largestGap = Math.max(generation.largestGap, largestGap);
+      fillSum += page.fill;
+      fills.push(page.fill);
+      traceCountSum += page.traceCount;
+    }
+
+    fills.sort((a, b) => a - b);
+    generation.avgFill = generation.pageCount > 0 ? fillSum / generation.pageCount : 0;
+    generation.medianFill = generation.pageCount > 0 ? fills[Math.floor(generation.pageCount / 2)] : 0;
+    generation.tracesPerPage = generation.pageCount > 0 ? traceCountSum / generation.pageCount : 0;
+    mcodeGenerations.push(generation);
+  }
+}
+
+function formatHex(value) {
+  if (value == null || !isFinite(value)) return '?';
+  return '0x' + Math.floor(value).toString(16);
+}
+
+function formatBytes(value) {
+  if (!isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let idx = 0;
+  let n = value;
+
+  while (n >= 1024 && idx < units.length - 1) {
+    n /= 1024;
+    idx++;
+  }
+
+  return (n >= 100 || idx === 0 ? n.toFixed(0) : n.toFixed(1)) + ' ' + units[idx];
+}
+
+function formatPageIndex(index) {
+  return index < 10 ? '0' + index : '' + index;
+}
+
+function traceColor(uid, alpha) {
+  let h = 0;
+  for (let i = 0; i < uid.length; i++) h = (h * 33 + uid.charCodeAt(i)) >>> 0;
+  return 'hsla(' + (h % 360) + ',72%,' + (selectedSpan && selectedSpan.uid === uid ? '66%' : '56%') + ',' + (alpha == null ? 0.95 : alpha) + ')';
+}
+
+function formatPercent(value, total) {
+  if (!total || total <= 0) return '0.0%';
+  return ((value / total) * 100).toFixed(1) + '%';
+}
+
+function buildMcodeSnapshot() {
+  let traceCount = 0;
+  let pageCount = 0;
+  let usedBytes = 0;
+  let deadBytes = 0;
+  let largestGap = 0;
+  let peakPages = 0;
+  let peakUsedBytes = 0;
+
+  for (const generation of mcodeGenerations) {
+    traceCount += generation.spans.length;
+    pageCount += generation.pageCount;
+    usedBytes += generation.usedBytes;
+    deadBytes += generation.deadBytes;
+    largestGap = Math.max(largestGap, generation.largestGap);
+    peakPages = Math.max(peakPages, generation.pageCount);
+    peakUsedBytes = Math.max(peakUsedBytes, generation.usedBytes);
+  }
+
+  return {
+    generations: mcodeGenerations,
+    traceCount,
+    pageCount,
+    usedBytes,
+    deadBytes,
+    largestGap,
+    peakPages,
+    peakUsedBytes,
+  };
+}
+
+function mcodeTooltip(layout, offset) {
+  const page = layout.page;
+  const absolute = page.base + offset;
+
+  for (const seg of page.segments) {
+    if (offset < seg.start || offset >= seg.stop) continue;
+
+    const span = layout.generation.spans[seg.traceIndex];
+    if (!span) break;
+    const relTime = span.end.time - timeOrigin;
+    return '<b>trace ' + traceDisplayId(span) + '</b>\n' +
+      (span.location || span.start.func_info || '?') + '\n' +
+      'generation: ' + layout.generation.generation + '\n' +
+      'compiled: ' + relTime.toFixed(4) + 's\n' +
+      'trace: ' + formatHex(span.end.mcode_addr) + ' — ' + formatHex(span.end.mcode_addr + span.end.mcode_size) + ' (' + formatBytes(span.end.mcode_size) + ')\n' +
+      'page: ' + formatHex(page.base) + ' — ' + formatHex(page.base + MCODE_PAGE_BYTES) + '\n' +
+      'page fill: ' + formatPercent(page.usedBytes, MCODE_PAGE_BYTES);
+  }
+
+  return '<b>gap</b>\n' +
+    'generation: ' + layout.generation.generation + '\n' +
+    'page: ' + formatHex(page.base) + ' — ' + formatHex(page.base + MCODE_PAGE_BYTES) + '\n' +
+    'offset: ' + formatHex(absolute) + '\n' +
+    'page fill: ' + formatPercent(page.usedBytes, MCODE_PAGE_BYTES);
+}
+
+function drawMcode() {
+  const container = document.getElementById('mcode-container');
+  if (!container || !container.classList.contains('open')) return;
+
+  const snapshot = buildMcodeSnapshot();
+  mcodeCurrentSnapshot = snapshot;
+
+  if (mcodeSummaryEl) {
+    let summary = '<b>' + snapshot.traceCount + '</b> traces across <b>' + snapshot.pageCount + '</b> inferred pages • <b>' + snapshot.generations.length + '</b> generation(s)';
+    summary += '<br><b>' + formatBytes(snapshot.usedBytes) + '</b> used • <b>' + formatBytes(snapshot.deadBytes) + '</b> dead space inside used pages • occupancy ' + formatPercent(snapshot.usedBytes, snapshot.usedBytes + snapshot.deadBytes);
+    summary += '<br>page size ' + SAFE_SIZE_MCODE_KB + 'KB • max budget ' + formatBytes(MCODE_MAX_BYTES) + ' (' + MCODE_MAX_PAGES + ' pages) • peak generation used ' + formatBytes(snapshot.peakUsedBytes) + ' across ' + snapshot.peakPages + ' page(s)';
+    summary += '<br>largest observed gap ' + formatBytes(snapshot.largestGap);
+    mcodeSummaryEl.innerHTML = summary;
+  }
+
+  const containerW = Math.max(320, mcodeCanvas.parentElement.clientWidth || 320);
+  const sidePad = 12;
+  const labelH = 14;
+  const gapY = 14;
+  const pageLabels = [];
+
+  mcodeCtx.font = '11px monospace';
+  for (const generation of snapshot.generations) {
+    for (let i = 0; i < generation.pages.length; i++) {
+      const page = generation.pages[i];
+      pageLabels.push('#' + formatPageIndex(i + 1) + ' ' + formatPercent(page.usedBytes, MCODE_PAGE_BYTES) + ' • gap ' + formatBytes(page.largestGap));
+    }
+  }
+
+  let maxRightLabelW = 0;
+  for (const label of pageLabels) {
+    const w = mcodeCtx.measureText(label).width;
+    if (w > maxRightLabelW) maxRightLabelW = w;
+  }
+
+  const rightLabelW = Math.ceil(maxRightLabelW) + 12;
+  const mapW = Math.max(180, containerW - sidePad * 2 - rightLabelW);
+  let canvasH = 12;
+
+  for (const generation of snapshot.generations) {
+    canvasH += labelH + generation.pages.length * MCODE_ROW_H + gapY;
+  }
+
+  canvasH = Math.max(120, canvasH);
+  setupCanvas(mcodeCanvas, containerW, canvasH);
+
+  mcodeCtx.fillStyle = COLORS.bgDeep;
+  mcodeCtx.fillRect(0, 0, containerW, canvasH);
+  mcodeLayouts = [];
+
+  if (snapshot.generations.length === 0) {
+    mcodeCtx.fillStyle = COLORS.textDim;
+    mcodeCtx.font = '12px monospace';
+    mcodeCtx.fillText('no compiled traces with machine-code metadata', 16, 28);
+    return;
+  }
+
+  mcodeCtx.font = '11px monospace';
+
+  let yCursor = 12;
+  for (let p = 0; p < snapshot.generations.length; p++) {
+    const generation = snapshot.generations[p];
+    const y0 = yCursor;
+
+    mcodeCtx.fillStyle = COLORS.textMuted;
+    mcodeCtx.fillText(
+      'gen ' + generation.generation + ' • ' + generation.pageCount + '/' + MCODE_MAX_PAGES + ' pages • ' + formatBytes(generation.usedBytes) + '/' + formatBytes(MCODE_MAX_BYTES) + ' • avg fill ' + formatPercent(generation.avgFill, 1) + ' • traces/page ' + generation.tracesPerPage.toFixed(1),
+      sidePad,
+      y0 + 10
+    );
+
+    let pageY = y0 + labelH;
+    for (let i = 0; i < generation.pages.length; i++) {
+      const page = generation.pages[i];
+      const rowY = pageY + i * MCODE_ROW_H;
+      const pageLabel = '#' + formatPageIndex(i + 1) + ' ' + formatPercent(page.usedBytes, MCODE_PAGE_BYTES) + ' • gap ' + formatBytes(page.largestGap);
+
+      mcodeCtx.fillStyle = '#000';
+      mcodeCtx.fillRect(sidePad, rowY, mapW, MCODE_BAR_H);
+      mcodeCtx.strokeStyle = COLORS.borderStrong;
+      mcodeCtx.strokeRect(sidePad + 0.5, rowY + 0.5, mapW, MCODE_BAR_H);
+
+      for (const seg of page.segments) {
+        const span = generation.spans[seg.traceIndex];
+        if (!span) continue;
+        const x0 = sidePad + (seg.start / MCODE_PAGE_BYTES) * mapW;
+        const x1 = sidePad + (seg.stop / MCODE_PAGE_BYTES) * mapW;
+        mcodeCtx.fillStyle = traceColor(span.uid);
+        mcodeCtx.fillRect(x0, rowY, Math.max(1, x1 - x0), MCODE_BAR_H);
+      }
+
+      if (selectedSpan) {
+        mcodeCtx.fillStyle = 'rgba(255,255,255,0.9)';
+        for (const seg of page.segments) {
+          const span = generation.spans[seg.traceIndex];
+          if (!span || span.uid !== selectedSpan.uid) continue;
+          const x0 = sidePad + (seg.start / MCODE_PAGE_BYTES) * mapW;
+          const x1 = sidePad + (seg.stop / MCODE_PAGE_BYTES) * mapW;
+          mcodeCtx.fillRect(x0, rowY, Math.max(1, x1 - x0), MCODE_BAR_H);
+        }
+      }
+
+      mcodeCtx.fillStyle = COLORS.textVeryDim;
+      mcodeCtx.fillText(pageLabel, sidePad + mapW + 8, rowY + 5);
+      mcodeLayouts.push({x: sidePad, y: rowY, w: mapW, h: MCODE_BAR_H, generation, page});
+    }
+
+    yCursor += labelH + generation.pages.length * MCODE_ROW_H + gapY;
+  }
+}
+
+const mainCategoryOrder = ['OK', 'interpreter', 'linked', 'stitch', 'aborted', 'flush'];
+const categoryList = mainCategoryOrder.map(cat => [cat, 0]);
 
 function buildFilterPanel(tStart, tEnd) {
   const lo = (tStart !== undefined) ? tStart : viewStart;
   const hi = (tEnd !== undefined) ? tEnd : viewEnd;
   const panel = document.getElementById('filter-panel');
+  const traceFilterStats = getTraceFilterStats();
+  const abortReasonList = Object.entries(traceFilterStats.abortReasons).sort((a, b) => b[1] - a[1]);
 
   // Recalculate what categories are actually visible in current range
   const zoomCategories = {};
   const zoomAbortReasons = {};
   for (const span of traceSpans) {
+    if (!shouldShowTraceSpan(span)) continue;
     const t = span.t0 - timeOrigin;
     if (span.t1 - timeOrigin < lo || t > hi) continue;
     zoomCategories[span.category] = (zoomCategories[span.category] || 0) + 1;
@@ -2490,11 +2416,7 @@ function buildFilterPanel(tStart, tEnd) {
   
   // Main categories
   categoryList.forEach(([cat, count], idx) => {
-    let color = COLORS.ok;
-    if (cat === 'aborted') color = COLORS.abort;
-    if (cat === 'stitch') color = COLORS.stitch;
-    if (cat === 'linked') color = COLORS.linked;
-    if (cat === 'flush') color = COLORS.abort;
+    const color = traceCategoryColor(cat);
 
     const isEnabled = enabledCategories.has(cat);
     const checkedChar = isEnabled ? '☑' : '☐';
@@ -2506,6 +2428,17 @@ function buildFilterPanel(tStart, tEnd) {
       icon = `<span style="color:${color}; border: 1px dashed ${color}; width: 10px; height: 10px; display: inline-block; vertical-align: middle; margin-right: 2px;"></span>`;
     }
     html += `<label class="${isEnabled ? '' : 'disabled'}" style="${zoomCount === 0 ? 'opacity:0.5' : ''}" data-cat-idx="${idx}"><span class="custom-cb">${checkedChar}</span> ${icon} ${escaped} <span class="filter-count" style="${countStyle}">(${zoomCount})</span></label>`;
+    if (cat === 'aborted') {
+      const supersededCheckedChar = showSupersededAborts ? '☑' : '☐';
+      const zoomSupersededCount = traceSpans.reduce((count, span) => {
+        if (!span.is_superseded_abort) return count;
+        const t = span.t0 - timeOrigin;
+        if (span.t1 - timeOrigin < lo || t > hi) return count;
+        return count + 1;
+      }, 0);
+      const supersededCountStyle = zoomSupersededCount === 0 ? `color:${COLORS.borderStrong}` : `color:${COLORS.textFaint}`;
+      html += `<label class="${showSupersededAborts ? '' : 'disabled'}" style="${zoomSupersededCount === 0 ? 'opacity:0.5' : ''}" data-toggle-superseded="1"><span class="custom-cb">${supersededCheckedChar}</span> <span style="color:${COLORS.textDim}">↺</span> superseded aborts <span class="filter-count" style="${supersededCountStyle}">(${zoomSupersededCount})</span></label>`;
+    }
   });
 
   const abortedChecked = enabledCategories.has('aborted');
@@ -2594,6 +2527,17 @@ function buildFilterPanel(tStart, tEnd) {
       hoverCategory = null;
       drawTimeline();
     });
+  });
+  panel.querySelector('label[data-toggle-superseded]')?.addEventListener('click', () => {
+    showSupersededAborts = !showSupersededAborts;
+    const nextStats = getTraceFilterStats();
+    Object.keys(nextStats.abortReasons).forEach(reason => enabledAbortReasons.add(reason));
+    hoverCategory = null;
+    hoverAbortReason = null;
+    drawTimeline();
+    buildFilterPanel(lo, hi);
+    schedulePanelUpdate(lo, hi);
+    scheduleFlamegraph(lo, hi);
   });
   panel.querySelectorAll('label[data-reason-idx]').forEach(label => {
     label.addEventListener('click', () => {
@@ -2848,10 +2792,8 @@ function drawTimeline() {
   // Health-based color for trace spans
   function spanColor(span) {
     if (span.outcome === 'abort') return [COLORS.abort, COLORS.abort];
-    const lt = span.end.linktype;
-    if (lt === 'stitch') return [COLORS.stitch, COLORS.stitch];
-    if (lt === 'root') return [COLORS.linked, COLORS.linked];
-    return [COLORS.ok, COLORS.ok];
+    const color = traceCategoryColor(span.category);
+    return [color, color];
   }
 
   // Draw trace spans in depth-based swimlanes
@@ -2860,13 +2802,7 @@ function drawTimeline() {
 
   const TRACE_W = 8;
   for (const span of traceSpans) {
-    if (hoverCategory) {
-      if (span.category !== hoverCategory) continue;
-      if (hoverCategory === 'aborted' && hoverAbortReason && span.abort_reason !== hoverAbortReason) continue;
-    } else {
-      if (!enabledCategories.has(span.category)) continue;
-      if (span.abort_reason && !enabledAbortReasons.has(span.abort_reason)) continue;
-    }
+    if (!spanMatchesTraceFilters(span)) continue;
     const st = span.t0 - timeOrigin;
     if (st < viewStart - (TRACE_W / (w / vDur)) || st > viewEnd) continue;
 
@@ -2912,8 +2848,8 @@ function drawTimeline() {
 
     function drawSpanTree(hs, hotColor, dimColor) {
       let root = hs;
-      while (root.start.parent_id && spanByUid[traceUid(root.start.generation, root.start.parent_id)]) {
-        root = spanByUid[traceUid(root.start.generation, root.start.parent_id)];
+      while (root.parent_uid && spanByUid[root.parent_uid]) {
+        root = spanByUid[root.parent_uid];
       }
       tlCtx.setLineDash([3, 3]);
       tlCtx.lineWidth = 1.5;
@@ -3115,12 +3051,14 @@ function formatTooltip(e) {
       s += `\nTrace <b>#${e.id}</b> completed`;
       if (e.linktype) s += `  link: ${e.linktype}`;
       if (e.link_id) s += ` → #${e.link_id}`;
+      if (e.record_count) s += `\nRecorded: ${e.record_count} instructions`;
       if (e.ir_count) s += `\nIR: ${e.ir_count} instructions, ${e.exit_count || 0} exits`;
       if (e.func_info) s += `\nLocation: ${funcInfoLink(e.func_info)}`;
       break;
     case 'trace_abort':
       s += `\nTrace <b>#${e.id}</b> aborted`;
       s += `\n<span style="color:${COLORS.abort}">${e.abort_reason || '?'}</span>`;
+      if (e.record_count) s += `\nRecorded: ${e.record_count} instructions`;
       if (e.func_info) s += `\nLocation: ${funcInfoLink(e.func_info)}`;
       break;
     case 'trace_flush':
@@ -3144,18 +3082,20 @@ function formatSpanTooltip(span) {
   let s = '';
   if (span.outcome === 'stop') {
     const lt = span.end.linktype || '?';
-    const ltColor = lt === 'stitch' ? COLORS.stitch : lt === 'root' ? COLORS.linked : COLORS.ok;
-    s += `<b style="color:${ltColor}">Trace #${span.id}</b>  <span style="color:${COLORS.textDimmer}">${t0}s</span>  ${dStr}`;
+    const ltColor = traceCategoryColor(traceCategoryFromLinktype(lt));
+    s += `<b style="color:${ltColor}">Trace ${traceDisplayId(span)}</b>  <span style="color:${COLORS.textDimmer}">${t0}s</span>  ${dStr}`;
     const e = span.end;
     if (e.linktype) s += `\nLink: <b>${e.linktype}</b>`;
     if (e.link_id) s += ` → #${e.link_id}`;
+    if (e.record_count) s += `\nRecorded: ${e.record_count} instructions`;
     if (e.ir_count) s += `\nIR: ${e.ir_count} instructions, ${e.exit_count || 0} exits`;
   } else {
-    s += `<b style="color:${COLORS.abort}">Trace #${span.id} aborted</b>  <span style="color:${COLORS.textDimmer}">${t0}s</span>  ${dStr}`;
+    s += `<b style="color:${COLORS.abort}">Trace ${traceDisplayId(span)} aborted</b>  <span style="color:${COLORS.textDimmer}">${t0}s</span>  ${dStr}`;
     s += `\n<span style="color:${COLORS.abort}">${span.end.abort_reason || '?'}</span>`;
+    if (span.end.record_count) s += `\nRecorded: ${span.end.record_count} instructions`;
   }
   if (span.start.func_info) s += `\n ${funcInfoLink(span.start.func_info)}`;
-  if (span.start.parent_id) s += `\n↑ parent #${span.start.parent_id} (exit ${span.start.exit_id})`;
+  if (span.start.parent_id) s += `\n↑ parent ${traceParentLabel(span)}`;
   if (span.end.func_info && span.end.func_info !== span.start.func_info) s += `\n   → ${funcInfoLink(span.end.func_info)}`;
   const kids = childrenOfUid[span.uid];
   if (kids && kids.length > 0) {
@@ -3370,6 +3310,7 @@ window.addEventListener('mouseup', () => {
       panClickSpanCandidate = null;
       drawTimeline();
       syncTraceListHighlight(selectedSpan);
+      drawMcode(Math.max(selStart, selEnd));
       schedulePanelUpdate(selStart, selEnd);
     }
     panClickSpanCandidate = null;
@@ -3527,6 +3468,74 @@ makeResizable(document.getElementById('timeline-resize-handle'), 25,
   (h) => { timelineContainerH = h; tlContainer.style.height = h + 'px'; invalidateTlRect(); drawTimeline(); updateSelOverlay(); }
 );
 
+mcodeCanvas.addEventListener('mousemove', (ev) => {
+  if (!mcodeCurrentSnapshot) return;
+
+  const rect = mcodeCanvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  const my = ev.clientY - rect.top;
+
+  for (const layout of mcodeLayouts) {
+    if (mx < layout.x || mx > layout.x + layout.w || my < layout.y || my > layout.y + layout.h) continue;
+
+    const frac = Math.max(0, Math.min(0.999999, (mx - layout.x) / layout.w));
+    const offset = Math.floor(frac * MCODE_PAGE_BYTES);
+    let traceIndex = -1;
+    for (const seg of layout.page.segments) {
+      if (offset >= seg.start && offset < seg.stop) {
+        traceIndex = seg.traceIndex;
+        break;
+      }
+    }
+
+    showTooltip(mcodeTooltip(layout, offset), ev.clientX + 12, ev.clientY - 10);
+    mcodeCanvas.style.cursor = traceIndex >= 0 ? 'pointer' : 'crosshair';
+    return;
+  }
+
+  hideTooltip();
+  mcodeCanvas.style.cursor = 'default';
+});
+
+mcodeCanvas.addEventListener('mouseleave', () => {
+  hideTooltip();
+  mcodeCanvas.style.cursor = 'default';
+});
+
+mcodeCanvas.addEventListener('click', (ev) => {
+  if (!mcodeCurrentSnapshot) return;
+
+  const rect = mcodeCanvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  const my = ev.clientY - rect.top;
+
+  for (const layout of mcodeLayouts) {
+    if (mx < layout.x || mx > layout.x + layout.w || my < layout.y || my > layout.y + layout.h) continue;
+
+    const frac = Math.max(0, Math.min(0.999999, (mx - layout.x) / layout.w));
+    const offset = Math.floor(frac * MCODE_PAGE_BYTES);
+    let traceIndex = -1;
+    for (const seg of layout.page.segments) {
+      if (offset >= seg.start && offset < seg.stop) {
+        traceIndex = seg.traceIndex;
+        break;
+      }
+    }
+
+    if (traceIndex < 0) return;
+
+    const span = layout.generation.spans[traceIndex];
+    if (!span) return;
+
+    selectedSpan = (selectedSpan && selectedSpan.uid === span.uid) ? null : span;
+    drawTimeline();
+    buildTraceListPanel(traceRenderLo, traceRenderHi);
+    drawMcode();
+    syncTraceListHighlight(selectedSpan);
+    return;
+  }
+});
+
 // --- Flamegraph ---
 const fgCanvas = document.getElementById('flamegraph-canvas');
 const fgCtx = fgCanvas.getContext('2d');
@@ -3617,122 +3626,38 @@ function escapeMarkdownText(text) {
     .replace(/\n+/g, ' ');
 }
 
-function formatSummaryPercent(count, total) {
-  return ((total > 0 ? (count / total) * 100 : 0).toFixed(1)) + '%';
-}
-
-function formatSummarySamples(count, total) {
-  return `${count} samples (${formatSummaryPercent(count, total)})`;
-}
-
-function isSummaryWrapperFrame(name) {
-  return name === 'xpcall' ||
-    name === 'pcall' ||
-    /^glw:\d+$/.test(name) ||
-    /crash_trace\.lua:\d+$/.test(name);
-}
-
-function classifySummaryFrame(name) {
-  if (isSummaryWrapperFrame(name)) return 'infra';
-  if (/^.+:\d+$/.test(name)) return 'domain';
-  if (name.startsWith('C:')) return 'ffi/c';
-  return 'builtin';
-}
-
-function aggregateSummaryFrames(node, totals, collapsedWrappers) {
+function aggregateFlamegraphFrames(node, totals) {
   const children = Object.values(node.children || {});
   for (const child of children) {
-    if (isSummaryWrapperFrame(child.name)) {
-      collapsedWrappers.set(child.name, (collapsedWrappers.get(child.name) || 0) + (child.count || 0));
-      aggregateSummaryFrames(child, totals, collapsedWrappers);
-      continue;
-    }
-
     let entry = totals.get(child.name);
     if (!entry) {
-      entry = {name: child.name, count: 0, self: 0, occurrences: 0, peak: 0};
+      entry = {name: child.name, count: 0, self: 0, occurrences: 0};
       totals.set(child.name, entry);
     }
     entry.count += child.count || 0;
     entry.self += child._self || 0;
     entry.occurrences++;
-    entry.peak = Math.max(entry.peak || 0, child.count || 0);
-    aggregateSummaryFrames(child, totals, collapsedWrappers);
+    aggregateFlamegraphFrames(child, totals);
   }
 }
 
-function collectSummaryPaths(node, path, out, maxDepth) {
-  const children = Object.values(node.children || {}).sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name));
-  for (const child of children) {
-    const nextPath = isSummaryWrapperFrame(child.name) ? path.slice() : path.concat(child.name);
-    if (nextPath.length > 0) {
-      out.push({path: nextPath.join(' -> '), count: child.count || 0, depth: nextPath.length});
-    }
-    if (nextPath.length < maxDepth) {
-      collectSummaryPaths(child, nextPath, out, maxDepth);
-    }
+function appendFlamegraphTreeLines(lines, node, totalSamples, depth, maxDepth, maxChildren) {
+  const indent = '  '.repeat(depth);
+  const pct = totalSamples > 0 ? ((node.count / totalSamples) * 100).toFixed(1) : '0.0';
+  const selfPct = totalSamples > 0 ? ((node._self / totalSamples) * 100).toFixed(1) : '0.0';
+  let line = `${indent}- ${node.name} — ${node.count} samples (${pct}%)`;
+  if (node._self > 0) line += `, self ${node._self} (${selfPct}%)`;
+  lines.push(line);
+  if (depth >= maxDepth) return;
+
+  const children = Object.values(node.children || {}).sort((a, b) => b.count - a.count);
+  const visibleChildren = children.slice(0, maxChildren);
+  for (const child of visibleChildren) {
+    appendFlamegraphTreeLines(lines, child, totalSamples, depth + 1, maxDepth, maxChildren);
   }
-}
-
-function selectSummaryPaths(entries, maxItems) {
-  const sorted = entries.slice().sort((a, b) => (b.count - a.count) || (b.depth - a.depth) || a.path.localeCompare(b.path));
-  const selected = [];
-  for (const entry of sorted) {
-    const redundant = selected.some(existing => existing.path === entry.path || (existing.count === entry.count && existing.path.startsWith(entry.path + ' -> ')));
-    if (redundant) continue;
-    selected.push(entry);
-    if (selected.length >= maxItems) break;
-  }
-  return selected;
-}
-
-function getDominantSummaryPath(node, maxDepth, continueRatio) {
-  const path = [];
-  let current = node;
-  let currentCount = node.count || 0;
-  while (path.length < maxDepth) {
-    const children = Object.values(current.children || {});
-    if (children.length === 0) break;
-    children.sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name));
-    const best = children[0];
-    if (currentCount > 0 && (best.count || 0) < currentCount * continueRatio) break;
-    if (!isSummaryWrapperFrame(best.name)) {
-      path.push(best.name);
-    }
-    current = best;
-    currentCount = best.count || 0;
-  }
-  if (path.length === 0) return null;
-  return {path: path.join(' -> '), count: currentCount, depth: path.length};
-}
-
-function summarizeWorkloadShape(topBranchShare, topSelfShare) {
-  let branchShape = 'distributed workload';
-  if (topBranchShare >= 90) branchShape = 'single dominant path';
-  else if (topBranchShare >= 65) branchShape = 'few dominant branches';
-  else if (topBranchShare >= 40) branchShape = 'mixed hot paths';
-
-  if (topSelfShare >= 20) return branchShape + ' plus concentrated self-time hotspots';
-  if (topSelfShare >= 10) return branchShape + ' plus several secondary self-time hotspots';
-  return branchShape + ' with diffused self time';
-}
-
-function summarizeConfidence(topBranchShare, topSelfShare) {
-  if (topBranchShare >= 80 && topSelfShare >= 15) return 'high';
-  if (topBranchShare >= 60 && topSelfShare >= 8) return 'medium-high';
-  if (topBranchShare >= 35 || topSelfShare >= 5) return 'medium';
-  return 'low';
-}
-
-function appendSummaryRanking(lines, header, entries, totalSamples, useSelf, limit) {
-  lines.push('', `## ${header}`, '');
-  if (entries.length === 0) {
-    lines.push('none');
-    return;
-  }
-  for (const [index, entry] of entries.slice(0, limit).entries()) {
-    const focusCount = useSelf ? entry.self : (entry.peak || entry.count);
-    lines.push(`${index + 1}. ${entry.name} - ${focusCount} samples (${formatSummaryPercent(focusCount, totalSamples)}) - ${classifySummaryFrame(entry.name)}`);
+  const hiddenCount = children.length - visibleChildren.length;
+  if (hiddenCount > 0) {
+    lines.push(`${'  '.repeat(depth + 1)}- … ${hiddenCount} more child${hiddenCount === 1 ? '' : 'ren'}`);
   }
 }
 
@@ -3760,145 +3685,54 @@ function buildFlamegraphSummaryMarkdown(tStart, tEnd) {
   const filters = getFlamegraphFilterSummary();
   const duration = Math.max(0, tEnd - tStart);
   const lines = [
-    '# Profile Summary',
+    '# Flamegraph Summary',
+    '',
+    `- Window: ${formatFlamegraphOffset(tStart)} → ${formatFlamegraphOffset(tEnd)} (${formatFlamegraphDuration(duration)})`,
+    `- Samples: ${totalSamples}`,
+    `- VM states: ${filters.states.join(', ')}`,
+    `- Sections: ${filters.sections.join(', ')}`,
   ];
+
+  if (hoverState || hoverSection) {
+    lines.push(`- Hover preview: ${[
+      hoverState ? `state=${VM_STATE_LABELS[hoverState] || hoverState}` : null,
+      hoverSection ? `section=${hoverSection === SECTION_OTHER ? 'other' : hoverSection}` : null,
+    ].filter(Boolean).join(', ')}`);
+  }
 
   if (totalSamples === 0) {
     lines.push('', 'No samples matched the current range and filter selection.');
     return lines.join('\n');
   }
 
-  const stateTotals = new Map();
-  const sectionTotals = new Map();
-  let firstSampleTime = null;
-  let lastSampleTime = null;
-  const currentEnabledStates = new Set(enabledStates);
-  const currentEnabledSections = new Set(enabledSections);
-  const iLo = bisectLeft(_sampleTimes, tStart);
-  const iHi = bisectRight(_sampleTimes, tEnd);
-  for (let idx = iLo; idx < iHi; idx++) {
-    const e = sampleEvents[idx];
-    if (!e.stack) continue;
-    if (hoverState || hoverSection) {
-      if (hoverState && e.vm_state !== hoverState) continue;
-      if (hoverSection && e.section_path !== hoverSection) continue;
-    } else {
-      if (!currentEnabledStates.has(e.vm_state)) continue;
-      if (e.section_path) {
-        const rootSec = e.section_path.split(' > ')[0];
-        if (ALL_SECTIONS.includes(rootSec) && !currentEnabledSections.has(rootSec)) continue;
-      } else if (!currentEnabledSections.has(SECTION_OTHER)) {
-        continue;
-      }
-    }
-
-    stateTotals.set(e.vm_state || '?', (stateTotals.get(e.vm_state || '?') || 0) + 1);
-    sectionTotals.set(e.section_path || 'other', (sectionTotals.get(e.section_path || 'other') || 0) + 1);
-    if (firstSampleTime === null || e.time < firstSampleTime) firstSampleTime = e.time;
-    if (lastSampleTime === null || e.time > lastSampleTime) lastSampleTime = e.time;
-  }
-
   const totals = new Map();
-  const collapsedWrappers = new Map();
-  aggregateSummaryFrames(root, totals, collapsedWrappers);
-  const branchOwners = Array.from(totals.values()).sort((a, b) => ((b.peak || b.count) - (a.peak || a.count)) || (b.count - a.count) || (b.self - a.self) || a.name.localeCompare(b.name));
-  const selfSites = branchOwners.filter(entry => entry.self > 0).sort((a, b) => (b.self - a.self) || (b.count - a.count) || a.name.localeCompare(b.name));
-  const pathEntries = [];
-  collectSummaryPaths(root, [], pathEntries, 3);
-  const topPaths = selectSummaryPaths(pathEntries, 5);
-  const dominantPath = getDominantSummaryPath(root, 3, 0.8);
+  aggregateFlamegraphFrames(root, totals);
+  const hottestFrames = Array.from(totals.values())
+    .sort((a, b) => (b.count - a.count) || (b.self - a.self) || a.name.localeCompare(b.name))
+    .slice(0, 12);
+  const hottestSelfFrames = Array.from(totals.values())
+    .filter(entry => entry.self > 0)
+    .sort((a, b) => (b.self - a.self) || (b.count - a.count) || a.name.localeCompare(b.name))
+    .slice(0, 12);
 
-  let topSelfTotal = 0;
-  for (const entry of selfSites.slice(0, 3)) topSelfTotal += entry.self;
-  const topBranchShare = branchOwners[0] ? ((branchOwners[0].peak || branchOwners[0].count) / totalSamples) * 100 : 0;
-  const topSelfShare = totalSamples > 0 ? (topSelfTotal / totalSamples) * 100 : 0;
+  lines.push('', '## Hottest Frames', '', '| Frame | Inclusive | Inclusive % | Self | Self % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
+  for (const entry of hottestFrames) {
+    const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
+    const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
+    lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.count} | ${inclusivePct} | ${entry.self} | ${selfPct} | ${entry.occurrences} |`);
+  }
 
-  const traceAbortTotals = new Map();
-  let traceAbortCount = 0;
-  let traceFlushCount = 0;
-  for (const ev of EVENTS) {
-    const relTime = ev.time - timeOrigin;
-    if (relTime < tStart || relTime > tEnd) continue;
-    if (ev.type === 'trace_abort') {
-      traceAbortCount++;
-      const reason = ev.abort_reason || 'unknown';
-      traceAbortTotals.set(reason, (traceAbortTotals.get(reason) || 0) + 1);
-    } else if (ev.type === 'trace_flush') {
-      traceFlushCount++;
+  if (hottestSelfFrames.length > 0) {
+    lines.push('', '## Hottest Self Time', '', '| Frame | Self | Self % | Inclusive | Inclusive % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
+    for (const entry of hottestSelfFrames) {
+      const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
+      const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
+      lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.self} | ${selfPct} | ${entry.count} | ${inclusivePct} | ${entry.occurrences} |`);
     }
   }
 
-  const stateSummary = Array.from(stateTotals.entries())
-    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-    .map(([state, count]) => `${VM_STATE_LABELS[state] || state} ${formatSummaryPercent(count, totalSamples)}`)
-    .join(', ');
-  const sectionSummary = Array.from(sectionTotals.entries())
-    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-    .map(([section, count]) => `${section === SECTION_OTHER ? 'other' : section} ${formatSummaryPercent(count, totalSamples)}`)
-    .join(', ');
-  const wrapperSummary = Array.from(collapsedWrappers.entries())
-    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-    .slice(0, 4)
-    .map(([name]) => name)
-    .join(', ');
-
-  lines.push('');
-  lines.push(`window: ${formatFlamegraphOffset(tStart)} -> ${formatFlamegraphOffset(tEnd)} (${formatFlamegraphDuration(duration)})`);
-  lines.push(`samples: ${totalSamples}`);
-  lines.push(`workload shape: ${summarizeWorkloadShape(topBranchShare, topSelfShare)}`);
-  if (dominantPath) {
-    lines.push(`dominant path: ${dominantPath.path} - ${formatSummaryPercent(dominantPath.count, totalSamples)}`);
-  }
-  lines.push(`vm states: ${stateSummary || filters.states.join(', ')}`);
-  lines.push(`sections: ${sectionSummary || filters.sections.join(', ')}`);
-  if (wrapperSummary) lines.push(`collapsed wrappers: ${wrapperSummary}`);
-  if (hoverState || hoverSection) {
-    lines.push(`hover preview: ${[
-      hoverState ? `state=${VM_STATE_LABELS[hoverState] || hoverState}` : null,
-      hoverSection ? `section=${hoverSection === SECTION_OTHER ? 'other' : hoverSection}` : null,
-    ].filter(Boolean).join(', ')}`);
-  }
-  lines.push(`confidence: ${summarizeConfidence(topBranchShare, topSelfShare)}`);
-
-  appendSummaryRanking(lines, 'Top Self-Time Sites', selfSites, totalSamples, true, 12);
-  appendSummaryRanking(lines, 'Top Branch Owners', branchOwners, totalSamples, false, 12);
-
-  lines.push('', '## Top Branches', '');
-  if (topPaths.length === 0) {
-    lines.push('none');
-  } else {
-    for (const [index, entry] of topPaths.entries()) {
-      lines.push(`${index + 1}. ${entry.path} - ${formatSummarySamples(entry.count, totalSamples)}`);
-    }
-  }
-
-  lines.push('', '## Runtime Health', '');
-  lines.push(`- Trace aborts: ${traceAbortCount}`);
-  lines.push(`- Trace flushes: ${traceFlushCount}`);
-  lines.push(`- Top 3 self concentration: ${formatSummaryPercent(topSelfTotal, totalSamples)}`);
-  const topAbortReasons = Array.from(traceAbortTotals.entries())
-    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-    .slice(0, 3);
-  for (const [index, [reason, count]] of topAbortReasons.entries()) {
-    lines.push(`- Abort reason ${index + 1}: ${reason} - ${count}`);
-  }
-
-  lines.push('', '## Recommended Inspection Order', '');
-  const recommended = [];
-  const seenRecommended = new Set();
-  for (const entry of selfSites.slice(0, 4).concat(branchOwners.slice(0, 2))) {
-    if (seenRecommended.has(entry.name)) continue;
-    seenRecommended.add(entry.name);
-    recommended.push(entry.name);
-  }
-  if (recommended.length === 0) {
-    lines.push('none');
-  } else {
-    for (const [index, name] of recommended.entries()) {
-      lines.push(`${index + 1}. ${name}`);
-    }
-  }
-
+  lines.push('', '## Hottest Call Tree', '');
+  appendFlamegraphTreeLines(lines, root, totalSamples, 0, 5, 5);
   return lines.join('\n');
 }
 
