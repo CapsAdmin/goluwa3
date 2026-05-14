@@ -1,5 +1,7 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
+local render = import("goluwa/render/render.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local CommandBuffer = prototype.CreateTemplate("vulkan_command_buffer")
 local type = _G.type
@@ -546,6 +548,8 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 end
 
 function CommandBuffer:Draw(vertexCount, instanceCount, firstVertex, firstInstance)
+	if render.stats then render_stats.AddDrawCalls(1) end
+
 	vulkan.lib.vkCmdDraw(self.ptr[0], vertexCount or 3, instanceCount or 1, firstVertex or 0, firstInstance or 0)
 end
 
@@ -559,6 +563,8 @@ function CommandBuffer:BindIndexBuffer(buffer, offset, indexType)
 end
 
 function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance)
+	if render.stats then render_stats.AddDrawCalls(1) end
+
 	vulkan.lib.vkCmdDrawIndexed(
 		self.ptr[0],
 		indexCount,
@@ -571,6 +577,8 @@ end
 
 function CommandBuffer:DrawMeshTasks(groupCountX, groupCountY, groupCountZ)
 	if not vulkan.ext.vkCmdDrawMeshTasksEXT then return end
+
+	if render.stats then render_stats.AddDrawCalls(1) end
 
 	vulkan.ext.vkCmdDrawMeshTasksEXT(self.ptr[0], groupCountX, groupCountY, groupCountZ)
 end

@@ -5,6 +5,8 @@ render.flush_callbacks = render.flush_callbacks or {}
 render.flush_callback_order = render.flush_callback_order or {}
 render.is_flushing_callbacks = false
 render.noop = false
+render.stats = false
+local render_stats = import("goluwa/render/stats.lua")
 
 local function run_flush_callbacks(reason)
 	if render.is_flushing_callbacks then return end
@@ -275,6 +277,9 @@ function render.Initialize(config)
 		if render.BeginFrame() then
 			event.Call("Draw", dt)
 			event.Call("PostDraw", dt)
+
+			if render.stats then render_stats.DrawOverlay(render.GetCommandBuffer()) end
+
 			render.EndFrame()
 		end
 	end
@@ -360,11 +365,17 @@ end
 function render.EndFrame()
 	if not render.in_frame then return end
 
+	if render.stats then render_stats.RecordFrame(system.GetFrameTime()) end
+
 	run_flush_callbacks("end_frame")
 	render.target:EndFrame()
 	render.command_buffer_stack = {}
 	render.cmd = nil
 	render.in_frame = false
+end
+
+function render.GetStats()
+	return render_stats.Get()
 end
 
 function render.GetRenderImageSize()

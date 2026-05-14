@@ -6,6 +6,7 @@ local InternalGraphicsPipeline = import("goluwa/render/vulkan/internal/graphics_
 local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local GraphicsPipeline = prototype.CreateTemplate("render_graphics_pipeline")
@@ -2392,6 +2393,9 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, set_in
 		elseif count == 1 then
 			local tex = ...
 			local entry = build_texture_descriptor_entry(self, tex)
+
+			if render.stats then render_stats.AddDescriptorWrites(1) end
+
 			self.vulkan_instance.device:UpdateDescriptorSet(
 				type,
 				self.descriptor_sets[index][set_index + 1],
@@ -2408,6 +2412,9 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, set_in
 	local args = {...}
 	table.insert(args, self:GetFallbackView())
 	table.insert(args, self:GetFallbackSampler())
+
+	if render.stats then render_stats.AddDescriptorWrites(1) end
+
 	self.vulkan_instance.device:UpdateDescriptorSet(
 		type,
 		self.descriptor_sets[index][set_index + 1],
@@ -2439,6 +2446,8 @@ function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, s
 	end
 
 	-- Update a descriptor set with an array of textures for bindless rendering
+	if render.stats then render_stats.AddDescriptorWrites(count) end
+
 	self.vulkan_instance.device:UpdateDescriptorSetArray(
 		self.descriptor_sets[frame_index][set_index + 1],
 		binding_index,
@@ -2508,6 +2517,8 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	if last_bound_graphics_pipeline ~= self.pipeline then
 		last_bound_graphics_pipeline = self.pipeline
 		graphics_pipeline_switch_count = graphics_pipeline_switch_count + 1
+
+		if render.stats then render_stats.AddPipelineSwitches(1) end
 
 		if
 			graphics_pipeline_switch_count >= GRAPHICS_PIPELINE_SWITCH_WARNING_THRESHOLD and

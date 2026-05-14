@@ -1,5 +1,7 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
+local render = import("goluwa/render/render.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Buffer = prototype.CreateTemplate("vulkan_buffer")
@@ -127,9 +129,12 @@ function Buffer:Unmap()
 end
 
 function Buffer:CopyData(src_data, size, offset)
-	local data = self:Map(offset or 0, size or self.size)
-	ffi.copy(data, src_data, size or self.size)
+	size = size or self.size
+	local data = self:Map(offset or 0, size)
+	ffi.copy(data, src_data, size)
 	self:Unmap()
+
+	if render.stats then render_stats.AddUploadedBytes(size) end
 end
 
 return Buffer:Register()
