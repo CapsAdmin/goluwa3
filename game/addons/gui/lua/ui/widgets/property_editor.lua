@@ -778,6 +778,7 @@ return function(props)
 					GrowWidth = 1,
 					FitHeight = true,
 					AlignmentX = "stretch",
+					ChildGap = 0,
 				},
 			},
 		},
