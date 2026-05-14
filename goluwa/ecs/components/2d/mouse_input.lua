@@ -306,8 +306,14 @@ function META:OnFirstCreated()
 		if not Panel.World then return end
 
 		local pos = system.GetWindow():GetMousePosition()
+		local delta = system.GetWindow():GetMouseDelta()
+		local has_relative_motion = delta and (delta.x ~= 0 or delta.y ~= 0)
 
-		if mouse_input.last_mouse_pos and mouse_input.last_mouse_pos == pos then
+		if
+			mouse_input.last_mouse_pos and
+			mouse_input.last_mouse_pos == pos and
+			not has_relative_motion
+		then
 			return
 		end
 
