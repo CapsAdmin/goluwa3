@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local flags = import("goluwa/flags.lua")
 local Device = prototype.CreateTemplate("vulkan_device")
 Device.GetQueue = import("goluwa/render/vulkan/internal/queue.lua").New
 
@@ -508,7 +509,8 @@ function Device:MarkSubmissionCompleted(serial)
 end
 
 function Device:OnRemove()
-	vulkan.lib.vkDeviceWaitIdle(self.ptr[0])
+	if not flags.render_noop then vulkan.lib.vkDeviceWaitIdle(self.ptr[0]) end
+
 	self.completed_submission_serial = math.huge
 	self:FlushDeferredReleases(true)
 	vulkan.lib.vkDestroyDevice(self.ptr[0], nil)
@@ -533,6 +535,8 @@ function Device:GetExtension(name)
 end
 
 function Device:WaitIdle()
+	if flags.render_noop then return end
+
 	vulkan.lib.vkDeviceWaitIdle(self.ptr[0])
 end
 

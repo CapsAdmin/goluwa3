@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local flags = import("goluwa/flags.lua")
 local Queue = prototype.CreateTemplate("vulkan_queue")
 
 function Queue.New(device, graphicsQueueFamily)
@@ -40,7 +41,23 @@ function Queue:RetireFence(fence)
 	self.device:MarkSubmissionCompleted(submission.serial)
 end
 
+function Queue:HasPendingSubmission(fence)
+	return fence ~= nil and
+		self.pending_submissions ~= nil and
+		self.pending_submissions[fence] ~= nil
+end
+
 function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
+	if flags.render_noop then
+		local submission = self:TrackSubmission(
+			commandBuffer,
+			inFlightFence,
+			{imageAvailableSemaphore, renderFinishedSemaphore}
+		)
+		self:RetireFence(submission.fence)
+		return
+	end
+
 	local waitStages = ffi.new("uint32_t[1]", vulkan.vk.e.VkPipelineStageFlagBits("color_attachment_output"))
 	local submitInfo = vulkan.vk.s.SubmitInfo{
 		waitSemaphoreCount = 1,
@@ -59,6 +76,19 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 end
 
 function Queue:SubmitAndWait(device, commandBuffer, fence)
+	if flags.render_noop then
+		local submission = self:TrackSubmission(commandBuffer, fence, {})
+
+		if commandBuffer then
+			commandBuffer.keepalive_resources = nil
+			commandBuffer.is_recording = false
+			commandBuffer.is_rendering = false
+		end
+
+		self:RetireFence(submission.fence)
+		return
+	end
+
 	local submission = self:TrackSubmission(commandBuffer, fence, {})
 	vulkan.lib.vkResetFences(device.ptr[0], 1, fence.ptr)
 	vulkan.assert(

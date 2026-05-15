@@ -11,6 +11,7 @@ local RenderPass = import("goluwa/render/vulkan/internal/render_pass.lua")
 local Framebuffer = import("goluwa/render/vulkan/internal/framebuffer.lua")
 local Texture = import("goluwa/render/texture.lua")
 local event = import("goluwa/event.lua")
+local flags = import("goluwa/flags.lua")
 local render = import("goluwa/render/render.lua")
 local ImageRenderTarget = prototype.CreateTemplate("render_image_rendertarget")
 local default_config = {
@@ -408,15 +409,18 @@ function ImageRenderTarget:GetDepthImageView()
 end
 
 function ImageRenderTarget:WaitForPreviousFrame()
-	if render.noop then return end
-
 	-- Wait for the next frame's fence (which is the one we'll use next)
 	-- This ensures previous frame work is complete before we start new work
 	-- Don't reset the fence - BeginFrame will do that
 	local next_frame = (self.current_frame % #self.textures) + 1
 
 	if self.in_flight_fences and self.in_flight_fences[next_frame] then
-		self.in_flight_fences[next_frame]:Wait(true) -- skip_reset = true
+		local fence = self.in_flight_fences[next_frame]
+
+		if not flags.render_noop or self.vulkan_instance.queue:HasPendingSubmission(fence) then
+			fence:Wait(true) -- skip_reset = true
+		end
+
 		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[next_frame])
 	end
 end
@@ -425,13 +429,18 @@ function ImageRenderTarget:BeginFrame()
 	local frame_index = (self.current_frame % #self.textures) + 1
 
 	if self.in_flight_fences and self.in_flight_fences[frame_index] then
-		self.in_flight_fences[frame_index]:Wait(render.noop)
+		local fence = self.in_flight_fences[frame_index]
+
+		if not flags.render_noop or self.vulkan_instance.queue:HasPendingSubmission(fence) then
+			fence:Wait(flags.render_noop)
+		end
+
 		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[frame_index])
 	end
 
 	local texture_index
 
-	if render.noop then
+	if flags.render_noop then
 		self.texture_index = frame_index
 		texture_index = self.texture_index - 1
 	elseif self.swapchain then
@@ -549,7 +558,7 @@ function ImageRenderTarget:EndFrame()
 	}
 	command_buffer:End()
 
-	if render.noop then return end
+	if flags.render_noop and not self.config.offscreen then return end
 
 	-- Submit command buffer
 	if self.config.offscreen then

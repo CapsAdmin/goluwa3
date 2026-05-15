@@ -1,10 +1,10 @@
 local ffi = require("ffi")
 local render = {}
 import.loaded["goluwa/render/render.lua"] = render
+local flags = import("goluwa/flags.lua")
 render.flush_callbacks = render.flush_callbacks or {}
 render.flush_callback_order = render.flush_callback_order or {}
 render.is_flushing_callbacks = false
-render.noop = false
 render.stats = false
 local render_stats = import("goluwa/render/stats.lua")
 
@@ -774,16 +774,6 @@ function render.GetSyncFence()
 end
 
 function render.SubmitAndWait(cmd)
-	if render.noop then
-		if cmd then
-			cmd.keepalive_resources = nil
-			cmd.is_recording = false
-			cmd.is_rendering = false
-		end
-
-		return
-	end
-
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, render.GetSyncFence())
 end
 
