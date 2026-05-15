@@ -1,5 +1,5 @@
+local physics_constants = import("goluwa/physics/constants.lua")
 local support_contacts = {}
-local physics = import("goluwa/physics.lua")
 
 local function apply_support_grounding_metadata(body, hit, normal)
 	if not (body and hit and normal and normal.y >= body:GetMinGroundNormalY()) then
@@ -7,6 +7,7 @@ local function apply_support_grounding_metadata(body, hit, normal)
 	end
 
 	local ground_body = hit.rigid_body
+	local physics = body:GetPhysics()
 	local rolling_friction = 0
 
 	if
@@ -53,12 +54,13 @@ function support_contacts.AccumulatePointSweepSupport(body, point, hit)
 end
 
 function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solve_contact_context)
+	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local support_points = body:GetSupportLocalPoints()
 	local owner = body:GetOwner()
 	local filter_function = body:GetFilterFunction()
-	local cast_origin_offset = physics.Up * cast_up
-	local cast_delta = physics.Up * -cast_distance
+	local cast_origin_offset = physics_constants.UP * cast_up
+	local cast_delta = physics_constants.UP * -cast_distance
 
 	for i = 1, #support_points do
 		local point = body:GeometryLocalToWorld(support_points[i])
@@ -79,6 +81,7 @@ end
 function support_contacts.ApplyWorldSupportContact(body, normal, contact_position, support_radius, hit, dt)
 	if not (normal and contact_position) then return false end
 
+	local physics = body:GetPhysics()
 	local center = body:GetPosition()
 	local target_center = contact_position + normal * (support_radius + body:GetCollisionMargin())
 	local correction = target_center - center
@@ -100,6 +103,7 @@ end
 function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_position, support_point, hit, dt)
 	if not (normal and contact_position and support_point) then return false end
 
+	local physics = body:GetPhysics()
 	local margin = body:GetCollisionMargin() or 0
 	local target_point = contact_position + normal * margin
 	local correction = target_point - support_point
@@ -122,12 +126,13 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 end
 
 function support_contacts.SweepCollider(body, dt)
+	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local center = body:GetPosition()
 	return physics.SweepCollider(
 		body,
-		center + physics.Up * cast_up,
-		physics.Up * -cast_distance,
+		center + physics_constants.UP * cast_up,
+		physics_constants.UP * -cast_distance,
 		body:GetOwner(),
 		body:GetFilterFunction(),
 		{Rotation = body:GetRotation()}
@@ -135,11 +140,12 @@ function support_contacts.SweepCollider(body, dt)
 end
 
 function support_contacts.SweepSphere(body, dt, radius)
+	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local center = body:GetPosition()
 	return physics.Sweep(
-		center + physics.Up * cast_up,
-		physics.Up * -(cast_distance + radius),
+		center + physics_constants.UP * cast_up,
+		physics_constants.UP * -(cast_distance + radius),
 		radius,
 		body:GetOwner(),
 		body:GetFilterFunction()

@@ -8,6 +8,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local RigidBody = prototype.CreateTemplate("rigid_body")
+RigidBody.Physics = nil
 
 do
 	RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
@@ -439,6 +440,10 @@ do
 
 	function RigidBody:GetBody()
 		return self
+	end
+
+	function RigidBody:GetPhysics()
+		return rawget(self, "Physics") or RigidBody.Physics
 	end
 
 	function RigidBody:GetKinematicController()

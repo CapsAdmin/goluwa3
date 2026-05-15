@@ -1,6 +1,5 @@
 local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")

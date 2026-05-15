@@ -1,4 +1,3 @@
-local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
@@ -229,7 +228,9 @@ local function get_primitive_query_aabb(primitive, local_aabb)
 end
 
 local function get_primitive_local_motion(primitive, start_local, movement_local)
-	if not (primitive and primitive.local_matrix_inverse) then return start_local, movement_local end
+	if not (primitive and primitive.local_matrix_inverse) then
+		return start_local, movement_local
+	end
 
 	local end_local = start_local + movement_local
 	local primitive_start = primitive.local_matrix_inverse:TransformVector(start_local)
@@ -239,6 +240,7 @@ end
 
 local function get_primitive_local_to_world(primitive, local_to_world)
 	if not (primitive and primitive.local_matrix) then return local_to_world end
+
 	if not local_to_world then return primitive.local_matrix end
 
 	primitive.sweep_local_to_world = primitive.sweep_local_to_world or Matrix44()
@@ -877,6 +879,7 @@ function get_capsule_segment_world(collider, position, rotation)
 end
 
 local function get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
+	local physics = collider:GetPhysics()
 	local segment_a, segment_b = get_capsule_segment_world(collider, position, rotation)
 	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(
 		segment_a,
@@ -892,7 +895,7 @@ local function get_capsule_triangle_separation(position, rotation, collider, v0,
 				(
 					movement * -1
 				):GetNormalized() or
-				physics.Up,
+				physics_constants.UP,
 			zero_distance_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON), movement),
 		}
 	)

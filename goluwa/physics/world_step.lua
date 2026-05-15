@@ -1,4 +1,5 @@
 local event = import("goluwa/event.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local islands = import("goluwa/physics/islands.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
@@ -107,7 +108,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 			elseif body:GetAwake() then
 				body:ResetGroundSupport()
 				body:SetGrounded(false)
-				body:SetGroundNormal(physics.Up)
+				body:SetGroundNormal(physics_constants.UP)
 				body:Integrate(sub_dt, physics.Gravity)
 			else
 				body.PreviousPosition = body.Position:Copy()
@@ -131,7 +132,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 					if body:GetAwake() then
 						body:ResetGroundSupport()
 						body:SetGrounded(false)
-						body:SetGroundNormal(physics.Up)
+						body:SetGroundNormal(physics_constants.UP)
 						body:Integrate(sub_dt, physics.Gravity)
 					end
 				end

@@ -1,4 +1,3 @@
-local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
@@ -7,6 +6,7 @@ local contact_resolution = {}
 local EPSILON = physics_constants.EPSILON
 
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
+	local physics = body_a:GetPhysics()
 	local rolling_friction = physics.solver:GetPairRollingFriction(body_a, body_b)
 
 	if -normal.y >= body_a:GetMinGroundNormalY() then
@@ -47,6 +47,7 @@ end
 local function try_mark_body_grounded_from_contacts(self_body, other_body, contacts, self_key, other_key)
 	if self_body:GetGrounded() then return end
 
+	local physics = self_body:GetPhysics()
 	local rolling_friction = physics.solver:GetPairRollingFriction(self_body, other_body)
 	local self_half = self_body:GetHalfExtents()
 	local other_half = other_body:GetHalfExtents()
@@ -70,7 +71,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 
 				if other_body:GetPosition().y <= self_body:GetPosition().y then
 					self_body:SetGrounded(true)
-					self_body:SetGroundNormal(physics.Up)
+					self_body:SetGroundNormal(physics_constants.UP)
 					self_body:SetGroundRollingFriction(rolling_friction)
 					self_body:SetGroundBody(other_body)
 					self_body:SetGroundEntity(other_body.GetOwner and other_body:GetOwner() or nil)
@@ -119,8 +120,7 @@ local function set_pair_manifold(manifolds, body_a, body_b, manifold)
 	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
 end
 
-local function get_positional_correction_length(overlap, dt)
-	local solver = physics.solver
+local function get_positional_correction_length(solver, overlap, dt)
 	local slop = math.max(solver.PENETRATION_SLOP or 0, 0)
 	local factor = math.max(solver.POSITIONAL_CORRECTION_FACTOR or 0, 0)
 	local max_correction = math.max(solver.MAX_POSITIONAL_CORRECTION or 0, 0)
@@ -142,6 +142,7 @@ local function get_positional_correction_length(overlap, dt)
 end
 
 function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
+	local physics = body_a:GetPhysics()
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
@@ -200,6 +201,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 end
 
 function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt, point_a, point_b, contacts, options)
+	local physics = body_a:GetPhysics()
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
@@ -220,7 +222,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		end
 
 		manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
-		local correction_length = get_positional_correction_length(overlap, dt)
+		local correction_length = get_positional_correction_length(solver, overlap, dt)
 
 		if correction_length > EPSILON then
 			local correction = normal * (-(correction_length / #contacts))

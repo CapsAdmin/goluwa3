@@ -1,4 +1,3 @@
-local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
@@ -40,7 +39,7 @@ function triangle_contact_queries.GetPointTriangleSeparation(point, v0, v1, v2, 
 					normal = fallback_direction and
 						fallback_direction:GetLength() > epsilon and
 						fallback_direction:GetNormalized() or
-						Vec3(0, 1, 0)
+						physics_constants.UP
 				end
 			end
 
@@ -69,7 +68,7 @@ function triangle_contact_queries.GetPointTriangleSeparation(point, v0, v1, v2, 
 			normal = fallback_direction and
 				fallback_direction:GetLength() > epsilon and
 				fallback_direction:GetNormalized() or
-				Vec3(0, 1, 0)
+				physics_constants.UP
 		end
 	end
 
@@ -107,7 +106,7 @@ function triangle_contact_queries.GetSegmentTriangleSeparation(start_point, end_
 		v2,
 		{
 			epsilon = epsilon,
-			fallback_normal = options.fallback_normal or physics.Up,
+			fallback_normal = options.fallback_normal or physics_constants.UP,
 		}
 	)
 
@@ -146,7 +145,7 @@ function triangle_contact_queries.GetCapsuleTriangleSeparation(start_point, end_
 		end
 
 		if not normal or normal:GetLength() <= epsilon then
-			normal = triangle_normal or options.fallback_normal or Vec3(0, 1, 0)
+			normal = triangle_normal or options.fallback_normal or physics_constants.UP
 		end
 	end
 

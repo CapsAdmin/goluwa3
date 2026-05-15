@@ -241,6 +241,10 @@ function META:GetBody()
 	return self.Body
 end
 
+function META:GetPhysics()
+	return self.Body:GetPhysics()
+end
+
 function META:GetOwner()
 	return self.Body:GetOwner()
 end

@@ -11,6 +11,7 @@ local Solver = import("goluwa/physics/solver.lua")
 local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
 local mesh_polyhedron_contacts = import("goluwa/physics/mesh_polyhedron_contacts.lua")
 local world_step = import("goluwa/physics/world_step.lua")
+local RigidBody = import("goluwa/physics/rigid_body.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local Physics = prototype.CreateTemplate("physics_engine")
@@ -24,11 +25,12 @@ function Physics.New(config)
 	self.RigidBodyIterations = config.RigidBodyIterations or 1
 	self.RigidBodySubsteps = config.RigidBodySubsteps or 1
 	self.Gravity = config.Gravity or Vec3(0, -28, 0)
-	self.Up = config.Up or Vec3(0, 1, 0)
+	self.Up = config.Up or physics_constants.UP
 	self.DefaultCollisionMargin = config.DefaultCollisionMargin or physics_constants.DEFAULT_COLLISION_MARGIN
 	self.MaxFrameTime = config.MaxFrameTime or 0.1
 	self.FrameAccumulator = config.FrameAccumulator or 0
 	self.InterpolationAlpha = config.InterpolationAlpha or 0
+	RigidBody.Physics = self
 
 	do
 		self.RayCast = trace.RayCast
@@ -99,8 +101,6 @@ function Physics:_ResetState()
 		end
 	end
 end
-
-import("goluwa/physics/rigid_body.lua")
 
 function Physics:RegisterPairHandlers(solver)
 	solver = solver or self.solver

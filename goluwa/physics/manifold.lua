@@ -1,4 +1,3 @@
-local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -112,6 +111,7 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local state_b = impulse_motion.CaptureBodyMotion(body_b)
 	local did_apply = false
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
+	local physics = body_a:GetPhysics()
 	local solver = physics.solver
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do
@@ -165,6 +165,7 @@ end
 function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 	local state_a = impulse_motion.CaptureBodyMotion(body_a)
 	local state_b = impulse_motion.CaptureBodyMotion(body_b)
+	local physics = body_a:GetPhysics()
 	local solver = physics.solver
 	local restitution = solver:GetPairRestitution(body_a, body_b)
 	local dynamic_friction = solver:GetPairFriction(body_a, body_b)

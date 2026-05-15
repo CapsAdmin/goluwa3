@@ -1,6 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
@@ -235,6 +234,7 @@ end
 function pair_solver_helpers.GetCachedPairNormal(body_a, body_b)
 	if not (body_a and body_b) then return nil end
 
+	local physics = body_a:GetPhysics()
 	local collision_pairs = physics.collision_pairs
 
 	if not collision_pairs then return nil end
@@ -806,6 +806,7 @@ function pair_solver_helpers.ResolveSweptHit(
 )
 	local hit_fraction = math.max(0, math.min(1, hit.t))
 	local normal = hit.normal
+	local physics = static_body:GetPhysics()
 	dynamic_body.Position = start_world + movement_world * math.max(0, hit_fraction - EPSILON)
 	contact_resolution.ApplyPairImpulse(static_body, dynamic_body, normal, dt)
 	contact_resolution.MarkPairGrounding(static_body, dynamic_body, normal)
@@ -840,6 +841,7 @@ function pair_solver_helpers.ResolveRelativeSweptPairHit(
 	local hit_fraction = math.max(0, math.min(1, hit.t))
 	local safe_fraction = math.max(0, hit_fraction - EPSILON)
 	local normal = hit.normal
+	local physics = body_a:GetPhysics()
 	body_a.Position = start_a + move_a * safe_fraction
 	body_b.Position = start_b + move_b * safe_fraction
 	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b)

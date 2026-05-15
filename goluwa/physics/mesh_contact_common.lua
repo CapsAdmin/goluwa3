@@ -1,4 +1,3 @@
-local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -426,7 +425,7 @@ local function query_mesh_capsule_contact(handlers, v0, v1, v2)
 			v2,
 			{
 				epsilon = EPSILON,
-				fallback_normal = physics.Up,
+				fallback_normal = physics_constants.UP,
 			}
 		)
 	end
@@ -441,7 +440,7 @@ local function query_mesh_capsule_contact(handlers, v0, v1, v2)
 		v2,
 		{
 			epsilon = EPSILON,
-			fallback_normal = handlers.fallback_normal_local or physics.Up,
+			fallback_normal = handlers.fallback_normal_local or physics_constants.UP,
 		}
 	)
 
@@ -753,7 +752,7 @@ function mesh_contact_common.SolveMeshCapsuleCollision(mesh_body, capsule_body, 
 	CAPSULE_TRIANGLE_CONTACT_HANDLERS.end_local = use_local_space and mesh_body:WorldToLocal(end_world) or nil
 	CAPSULE_TRIANGLE_CONTACT_HANDLERS.radius = use_local_space and radius or nil
 	CAPSULE_TRIANGLE_CONTACT_HANDLERS.fallback_normal_local = use_local_space and
-		mesh_body:GetRotation():GetConjugated():VecMul(physics.Up) or
+		mesh_body:GetRotation():GetConjugated():VecMul(physics_constants.UP) or
 		nil
 	local resolved = mesh_contact_common.SolveBestTriangleContact(
 		mesh_body,

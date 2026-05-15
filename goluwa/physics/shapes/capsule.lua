@@ -1,5 +1,4 @@
 local prototype = import("goluwa/prototype.lua")
-local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
@@ -346,6 +345,7 @@ end
 function META:OnGroundedVelocityUpdate(body, dt)
 	if not dt or dt <= 0 then return end
 
+	local physics = body:GetPhysics()
 	local ground_body = body.GetGroundBody and body:GetGroundBody() or nil
 	local ground_shape = ground_body and
 		ground_body.GetPhysicsShape and
