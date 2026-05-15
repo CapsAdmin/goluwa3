@@ -1,10 +1,6 @@
 .DS_Store
 .running_pid
-lsp_session_*
-local_stuff
-storage/*
-bin/
-love_games/*
-test/tmp/*
-goluwa/gmod/src/
+local_stuff/
+storage/
+test/tmp/
 tmp/
