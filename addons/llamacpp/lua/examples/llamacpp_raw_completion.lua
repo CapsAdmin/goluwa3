@@ -1,8 +1,8 @@
 HOTRELOAD = false
 local http = import("goluwa/sockets/http.lua")
-local llamacpp = import("goluwa/llamacpp/api.lua")
+local llamacpp = import("lua/api.lua")
 local tasks = import("goluwa/tasks.lua")
-local jinja2 = import("goluwa/llamacpp/jinja2.lua")
+local jinja2 = import("lua/jinja2.lua")
 
 local function get_tool_call_format(model)
 	local props = llamacpp.GetProps(model)

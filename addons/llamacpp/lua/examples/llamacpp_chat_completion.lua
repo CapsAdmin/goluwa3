@@ -1,4 +1,4 @@
-local Agent = import("goluwa/llamacpp/agent.lua")
+local Agent = import("lua/agent.lua")
 local agent = Agent.New("Qwen3.5-35B-A3B-UD-Q4_K_XL")
 agent:AddMessage{
 	role = "system",

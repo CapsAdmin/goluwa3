@@ -1,8 +1,8 @@
 HOTRELOAD = false
-local llamacpp = import("goluwa/llamacpp/api.lua")
+local llamacpp = import("lua/api.lua")
+local tools = import("lua/tools.lua")
 local codec = import("goluwa/codec.lua")
 local colors = import("goluwa/helpers/colors.lua")
-local tools = import("goluwa/llamacpp/tools.lua")
 local prototype = import("goluwa/prototype.lua")
 local tasks = import("goluwa/tasks.lua")
 local Agent = prototype.CreateTemplate("llamacpp_agent")

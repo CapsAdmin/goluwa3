@@ -1,10 +1,10 @@
-local chatsounds = import("goluwa/chatsounds/chatsounds.lua")
 local resource = import("goluwa/resource.lua")
 local crypto = import("goluwa/crypto.lua")
 local codec = import("goluwa/codec.lua")
 local callback = import("goluwa/callback.lua")
 local tasks = import("goluwa/tasks.lua")
 local vfs = import("goluwa/vfs.lua")
+local chatsounds = import("lua/chatsounds.lua")
 
 local function read_list(base_url, sounds, list_id, skip_list)
 	local tree = {}

@@ -1,5 +1,5 @@
-local chatsounds = import("goluwa/chatsounds/chatsounds.lua")
 local autocomplete = import("goluwa/autocomplete.lua")
+local chatsounds = import("lua/chatsounds.lua")
 
 function chatsounds.BuildFromSoundDirectory(where)
 	where = where or "sounds/chatsounds/"
