@@ -3,8 +3,8 @@ local ogg = import("goluwa/codecs/ogg.lua")
 local JitProfiler = import("goluwa/helpers/jit_profiler.lua")
 local system = import("goluwa/system.lua")
 local report_lines = {}
-local report_path = "game/storage/logs/ogg_decode_bench_report.txt"
-local profile_summary_path = "game/storage/logs/ogg_decode_bench_flamegraph_summary.txt"
+local report_path = "storage/logs/ogg_decode_bench_report.txt"
+local profile_summary_path = "storage/logs/ogg_decode_bench_flamegraph_summary.txt"
 
 do
 	local file = assert(io.open(report_path, "wb"))
@@ -186,7 +186,7 @@ local ok, err = xpcall(
 		if cli.enable_profile then
 			profiler = JitProfiler.New{
 				id = "ogg_decode_bench",
-				path = "game/storage/logs/ogg_decode_bench_profile.html",
+				path = "storage/logs/ogg_decode_bench_profile.html",
 				get_time = system.GetTime,
 				sampling_rate = 1,
 				mode = "line",

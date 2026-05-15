@@ -174,7 +174,7 @@ end)
 
 T.Test3D("Assets load procedural model descriptors from the game addon models folder", function()
 	assets.ClearCache()
-	vfs.Mount("game/addons/game/")
+	vfs.Mount("addons/game/")
 	local entry = assets.GetModel("models/box.lua")
 	T(entry ~= nil)["=="](true)
 	T(entry.is_ready)["=="](true)
@@ -182,6 +182,6 @@ T.Test3D("Assets load procedural model descriptors from the game addon models fo
 	local primitives = entry.value.create_primitives{size = Vec3(2, 3, 4)}
 	T(#primitives)["=="](1)
 	T(primitives[1].mesh ~= nil)["=="](true)
-	vfs.Unmount("game/addons/game/", "")
+	vfs.Unmount("addons/game/", "")
 	assets.ClearCache()
 end)

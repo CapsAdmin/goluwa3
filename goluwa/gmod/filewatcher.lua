@@ -2,7 +2,7 @@ local filewatcher = library()
 local event = import("goluwa/event.lua")
 
 local function is_gmod_example_path(path)
-	return path:find("game/addons/game/lua/examples/gmod/", nil, true) ~= nil
+	return path:find("addons/game/lua/examples/gmod/", nil, true) ~= nil
 end
 
 local function get_gine_environment()
@@ -37,7 +37,6 @@ event.AddListener("FileSaved", "hotreload_gmod_examples", function(path, code, f
 	end
 
 	setfenv(func, env or get_gine_environment())
-
 	local ok, run_err = xpcall(func, debug.traceback)
 
 	if not ok then

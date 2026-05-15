@@ -34,7 +34,7 @@ local function working_directory()
 end
 
 local function get_root()
-	return working_directory() .. "game/"
+	return working_directory()
 end
 
 local function get(what)

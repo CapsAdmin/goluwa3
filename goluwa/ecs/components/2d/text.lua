@@ -8,7 +8,7 @@ local event = import("goluwa/event.lua")
 local sequence_editor = import("goluwa/sequence_editor.lua")
 local pretext = import("goluwa/pretext/init.lua")
 local utf8 = import("goluwa/utf8.lua")
-local theme = import("game/addons/gui/lua/ui/theme.lua")
+local theme = import("addons/gui/lua/ui/theme.lua")
 local META = prototype.CreateTemplate("text")
 META:StartStorable()
 META:GetSet(
@@ -589,12 +589,17 @@ function META:OnDraw()
 
 	if self.Owner.style then
 		background = self.Owner.style:GetResolvedBackgroundColor()
-		if foreground == nil then foreground = self.Owner.style:GetResolvedForegroundColor() end
+
+		if foreground == nil then
+			foreground = self.Owner.style:GetResolvedForegroundColor()
+		end
 	end
 
 	if foreground == nil then foreground = "text" end
 
-	if theme and theme.active then foreground = theme.GetColorOn(foreground, background) end
+	if theme and theme.active then
+		foreground = theme.GetColorOn(foreground, background)
+	end
 
 	if self.wrap_layout_info and self:GetAlignX() == "justify" then
 		tw = math.max(tw, self.wrap_layout_info.width or 0)

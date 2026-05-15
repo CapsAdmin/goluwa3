@@ -597,34 +597,55 @@ do
 end
 
 function test.FindTests(filter)
-	local test_directory_full = fs.get_current_directory() .. "/test/tests/"
-	local test_directory_rel = "test/tests/"
-	local filtered = {}
-	local files = fs.get_files_recursive(test_directory_full)
+	local current_directory = fs.get_current_directory()
+	local roots = {
+		{
+			full = current_directory .. "/test/tests/",
+			prefix = "test/tests/",
+			keep_relative_name = false,
+		},
+	}
+	local addons_directory = current_directory .. "/addons/"
 
-	if not filter or filter == "all" then
-		filtered = files
-	else
-		for _, path in ipairs(files) do
-			if path:find(filter, nil, true) then table.insert(filtered, path) end
+	if fs.is_directory(addons_directory) then
+		for _, addon_name in ipairs(fs.get_files(addons_directory) or {}) do
+			local addon_path = addons_directory .. addon_name
+			local tests_directory = addon_path .. "/tests/"
+
+			if fs.is_directory(tests_directory) then
+				table.insert(
+					roots,
+					{
+						full = tests_directory,
+						prefix = tests_directory:gsub(current_directory .. "/", ""),
+						keep_relative_name = true,
+					}
+				)
+			end
 		end
-	end
-
-	local other = {}
-
-	for _, path in pairs(filtered) do
-		if fs.is_file(path) then table.insert(other, path) end
 	end
 
 	local expanded = {}
 
-	for i, path in ipairs(other) do
-		local name = path:gsub(test_directory_full, "")
-		local relative_path = path:gsub(fs.get_current_directory() .. "/", "")
-		table.insert(expanded, {
-			path = relative_path,
-			name = name,
-		})
+	for _, root in ipairs(roots) do
+		for _, path in ipairs(fs.get_files_recursive(root.full) or {}) do
+			if fs.is_file(path) then
+				local relative_path = path:gsub(current_directory .. "/", "")
+				local name = root.keep_relative_name and relative_path or path:gsub(root.full, "")
+
+				if
+					not filter or
+					filter == "all" or
+					relative_path:find(filter, nil, true) or
+					name:find(filter, nil, true)
+				then
+					table.insert(expanded, {
+						path = relative_path,
+						name = name,
+					})
+				end
+			end
+		end
 	end
 
 	return expanded

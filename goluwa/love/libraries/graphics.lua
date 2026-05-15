@@ -1,1 +1,0 @@
-return assert(loadfile("goluwa/love/libraries/graphics/init.lua"))(...)

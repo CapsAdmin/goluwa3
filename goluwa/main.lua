@@ -38,7 +38,7 @@ end)
 commands.Add("cli", function(path, ...)
 	_G.GRAPHICS = false
 	_G.AUDIO = true
-	assert(loadfile("game/run.lua"))()
+	assert(loadfile("goluwa/run.lua"))()
 end)
 
 commands.Add("renderdoc", function()
@@ -72,7 +72,7 @@ commands.Add("renderdoc", function()
 	local renderdoc = import("goluwa/bindings/renderdoc.lua")
 	renderdoc.init()
 	renderdoc.SetCaptureFilePathTemplate(vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc")
-	assert(loadfile("game/run.lua"))()
+	assert(loadfile("goluwa/run.lua"))()
 	logf("[renderdoc] initialized\n")
 end)
 
@@ -106,7 +106,7 @@ return function(...)
 				if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
 
 				_G.AUDIO = true
-				assert(loadfile("game/run.lua"))()
+				assert(loadfile("goluwa/run.lua"))()
 				event.Call("Initialize")
 				commands.RunArguments(args)
 				event.Call("Update", 0)
@@ -118,7 +118,7 @@ return function(...)
 		else
 			_G.GRAPHICS = true
 			_G.AUDIO = true
-			assert(loadfile("game/run.lua"))()
+			assert(loadfile("goluwa/run.lua"))()
 		end
 
 		fs.write_file(".running_pid", tostring(process.current:get_id()))

@@ -2,7 +2,7 @@
 .running_pid
 lsp_session_*
 local_stuff
-game/storage/*
+storage/*
 bin/
 love_games/*
 test/tmp/*

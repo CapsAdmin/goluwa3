@@ -19,7 +19,7 @@ end
 local function get_exo_regular_path()
 	if cached_path then return cached_path end
 
-	local cache_root = "game/storage/shared/downloads/url"
+	local cache_root = "storage/shared/downloads/url"
 	local entries = fs.get_files(cache_root) or {}
 
 	for _, entry in ipairs(entries) do

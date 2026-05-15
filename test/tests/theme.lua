@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local test_render = import("test/test_render.lua")
 test_render.Init2D()
-local theme = import("game/addons/gui/lua/ui/theme.lua")
+local theme = import("addons/gui/lua/ui/theme.lua")
 
 T.Test("theme color surface scope resolves semantic colors against the current background", function()
 	local previous_preset = theme.GetName()

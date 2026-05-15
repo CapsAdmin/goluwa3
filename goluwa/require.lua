@@ -90,7 +90,7 @@ do -- loaders
 	end
 
 	local function get_addon_lua_base(path)
-		if not path:find("^game/addons/", 1) then return nil end
+		if not path:find("^addons/", 1) then return nil end
 
 		return path:match("^(.-/lua/)")
 	end

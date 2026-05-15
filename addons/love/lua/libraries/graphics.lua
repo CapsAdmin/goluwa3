@@ -1,0 +1,1 @@
+return assert(loadfile("addons/love/lua/libraries/graphics/init.lua"))(...)

@@ -4,7 +4,7 @@ local profiler = import("goluwa/profiler.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local system = import("goluwa/system.lua")
 local ROOT = "/home/caps/.steam/steam/steamapps/common/GarrysMod/garrysmod/materials/spawnicons/models"
-local REPORT_PATH = "game/storage/logs/png_decode_bench_report.txt"
+local REPORT_PATH = "storage/logs/png_decode_bench_report.txt"
 local PROFILE_ID = "png_decode_bench"
 
 local function parse_args()
@@ -242,7 +242,7 @@ local function main()
 
 	if results.profile_summary then
 		lines[#lines + 1] = ""
-		lines[#lines + 1] = "Profile summary written to game/storage/logs/jit_profile_" .. PROFILE_ID .. ".txt"
+		lines[#lines + 1] = "Profile summary written to storage/logs/jit_profile_" .. PROFILE_ID .. ".txt"
 	end
 
 	write_report(lines)

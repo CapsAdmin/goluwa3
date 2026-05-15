@@ -2,12 +2,16 @@ local threads = import("goluwa/bindings/threads.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local io = require("io")
-
 local args = {...}
 local rounds = tonumber(args[1]) or 200
-local batch_size = tonumber(args[2]) or (ffi.os == "Windows" and 1 or math.max(threads.get_thread_count() * 4, 8))
+local batch_size = tonumber(args[2]) or
+	(
+		ffi.os == "Windows" and
+		1 or
+		math.max(threads.get_thread_count() * 4, 8)
+	)
 local payload_size = tonumber(args[3]) or 256
-local log_path = args[4] or "game/storage/logs/thread_stress.log"
+local log_path = args[4] or "storage/logs/thread_stress.log"
 
 local function log_line(...)
 	local parts = {}
@@ -18,7 +22,6 @@ local function log_line(...)
 
 	local line = table.concat(parts, " ")
 	print(line)
-
 	local handle = assert(io.open(log_path, "a"))
 
 	if handle then
@@ -26,7 +29,7 @@ local function log_line(...)
 		handle:flush()
 		handle:close()
 	end
-	end
+end
 
 local function make_payload(tag, round, index)
 	return string.rep(string.char(65 + ((round + index) % 26)), payload_size) .. ":" .. tag .. ":" .. round .. ":" .. index
@@ -34,7 +37,9 @@ end
 
 local function should_log_worker(round, index)
 	if round == 0 then return true end
+
 	if index <= 4 then return true end
+
 	return index % 8 == 0 or index == batch_size
 end
 
@@ -55,7 +60,6 @@ local serialized_worker = [=[
 		payload_len = #input.payload,
 	}
 ]=]
-
 ffi.cdef[[
 	typedef struct {
 		int round;
@@ -65,7 +69,6 @@ ffi.cdef[[
 		volatile int done;
 	} stress_shared_t;
 ]]
-
 local shared_worker = [=[
 	local shared_ptr = ...
 	local ffi = require("ffi")
@@ -90,7 +93,6 @@ local shared_worker = [=[
 	job.checksum = checksum
 	job.done = 1
 ]=]
-
 local run_shared_phase = ffi.os ~= "Windows"
 
 local function start_serialized_batch(round)
@@ -107,12 +109,12 @@ local function start_serialized_batch(round)
 			log_line("round", round, "phase", "serialized", "run", index)
 		end
 
-		worker:run({
+		worker:run{
 			round = round,
 			index = index,
 			payload = make_payload("serialized", round, index),
 			sleep_ms = (index % 4) + 1,
-		})
+		}
 		workers[index] = worker
 	end
 
@@ -129,7 +131,9 @@ local function join_serialized_batch(round, workers)
 
 		local result, err = workers[index]:join()
 
-		if err then error(string.format("serialized round %d worker %d failed: %s", round, index, tostring(err))) end
+		if err then
+			error(string.format("serialized round %d worker %d failed: %s", round, index, tostring(err)))
+		end
 
 		if not result or result.round ~= round or result.index ~= index then
 			error(string.format("serialized round %d worker %d returned invalid result", round, index))
@@ -186,7 +190,9 @@ local function join_shared_batch(round, jobs, workers)
 
 		local _, err = workers[index]:join()
 
-		if err then error(string.format("shared round %d worker %d failed: %s", round, index, tostring(err))) end
+		if err then
+			error(string.format("shared round %d worker %d failed: %s", round, index, tostring(err)))
+		end
 
 		if jobs[index][0].done ~= 1 then
 			error(string.format("shared round %d worker %d did not mark completion", round, index))
@@ -230,12 +236,12 @@ end
 local function preflight_single_serialized()
 	log_line("preflight", "single_serialized", "start")
 	local worker = threads.new(serialized_worker)
-	worker:run({
+	worker:run{
 		round = 0,
 		index = 1,
 		payload = make_payload("serialized", 0, 1),
 		sleep_ms = 1,
-	})
+	}
 	local checksum = join_serialized_batch(0, {worker})
 	log_line("preflight", "single_serialized", "checksum", checksum)
 end
@@ -260,7 +266,15 @@ local function preflight_single_shared()
 end
 
 local started = system.GetTime()
-log_line("thread_stress", "rounds=", rounds, "batch=", batch_size, "payload=", payload_size)
+log_line(
+	"thread_stress",
+	"rounds=",
+	rounds,
+	"batch=",
+	batch_size,
+	"payload=",
+	payload_size
+)
 preflight_create_only(math.min(batch_size, 8))
 preflight_single_serialized()
 preflight_single_shared()
@@ -283,7 +297,14 @@ for round = 1, rounds do
 	end
 
 	if round % 10 == 0 then
-		log_line("progress", round, "/", rounds, "elapsed", string.format("%.3f", system.GetTime() - started))
+		log_line(
+			"progress",
+			round,
+			"/",
+			rounds,
+			"elapsed",
+			string.format("%.3f", system.GetTime() - started)
+		)
 	end
 end
 

@@ -7,7 +7,7 @@ local jit_profiler
 function profiler.Start(id, config)
 	debug.trace()
 	time_start = system.GetTime()
-	local path = "game/storage/logs/jit_profile_" .. id .. ".html"
+	local path = "storage/logs/jit_profile_" .. id .. ".html"
 	local directory = fs.get_parent_directory(path)
 
 	if directory and directory ~= "." then
