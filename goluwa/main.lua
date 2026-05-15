@@ -19,7 +19,7 @@ local function init_game()
 	import("goluwa/filewatcher.lua").Start()
 
 	if _G.GRAPHICS then
-		_G.GRAPHICS_3D = false
+		_G.GRAPHICS_3D = true
 		local render = import("goluwa/render/render.lua")
 
 		if not render.available then

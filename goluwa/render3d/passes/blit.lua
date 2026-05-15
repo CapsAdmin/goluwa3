@@ -48,10 +48,10 @@ local r = {
 					
 					vec3 col = texture(TEXTURE(extract.source_tex), in_uv).rgb;
 					
-					// Extract bright areas (threshold + knee)
-					float threshold = 1.0;
-					float knee = 0.5;
-					float brightness = max(col.r, max(col.g, col.b));
+					// Use scene luminance so bloom stays attached to genuinely bright highlights.
+					float threshold = 1.25;
+					float knee = 0.75;
+					float brightness = dot(col, vec3(0.2126, 0.7152, 0.0722));
 					float soft = brightness - threshold + knee;
 					soft = clamp(soft, 0.0, 2.0 * knee);
 					soft = soft * soft / (4.0 * knee + 0.00001);
@@ -131,7 +131,9 @@ for i = 1, 3 do
 end
 
 -- Generate upsample passes
-local upsample_shader = [[
+local upsample_merge_strength = 0.65
+local upsample_shader = string.format(
+	[[
 	void main() {
 		if (up.source_tex == -1) {
 			set_bloom(vec4(0.0));
@@ -156,12 +158,14 @@ local upsample_shader = [[
 		
 		// Merge with previous level
 		if (up.merge_tex != -1) {
-			result += texture(TEXTURE(up.merge_tex), in_uv).rgb;
+			result += texture(TEXTURE(up.merge_tex), in_uv).rgb * %.3f;
 		}
 		
 		set_bloom(vec4(result, 1.0));
 	}
-]]
+]],
+	upsample_merge_strength
+)
 
 for i = 3, 1, -1 do
 	local source_name = i == 3 and "bloom_down3" or ("bloom_up" .. (i + 1))
@@ -397,12 +401,9 @@ table.insert(
 					}
 					
 					vec3 col = texture(TEXTURE(blit.source_tex), in_uv).rgb;
-					
-					// Add bloom
-					float bloom_strength = 0.04;
+					vec3 bloom = vec3(0.0);
 					if (blit.bloom_tex != -1) {
-						vec3 bloom = texture(TEXTURE(blit.bloom_tex), in_uv).rgb;
-						col += bloom * bloom_strength;
+						bloom = texture(TEXTURE(blit.bloom_tex), in_uv).rgb;
 					}
 					
 					// Calculate adaptive exposure
@@ -430,6 +431,12 @@ table.insert(
 						// Clamp exposure to reasonable range
 						exposure = clamp(exposure, 0.1, 4.0);
 					}
+
+					float bloom_luma = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
+					float bloom_strength = 0.03;
+					float bloom_exposure_scale = clamp(1.0 / sqrt(max(exposure, 0.35)), 0.7, 1.25);
+					float bloom_soft_clip = 1.0 / (1.0 + bloom_luma * 0.35);
+					col += bloom * bloom_strength * bloom_exposure_scale * bloom_soft_clip;
 
 					if (blit.is_hdr == 1) {
 						col = tonemap(pow(col*1.5, vec3(0.8)), exposure)*1.2;

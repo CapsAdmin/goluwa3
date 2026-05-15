@@ -11,6 +11,18 @@ local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = {}
+
+local function get_primary_sun_direction()
+	local lights = render3d.GetLights()
+	local sun_dir = Vec3(0, 1, 0)
+
+	if lights[1] then
+		sun_dir = lights[1].Owner.transform:GetRotation():GetBackward()
+	end
+
+	return sun_dir
+end
+
 -- Probe types
 lightprobes.TYPE_ENVIRONMENT = "environment" -- Sky-only, dynamic, updated based on sun
 lightprobes.TYPE_SCENE = "scene" -- Renders geometry, typically static
@@ -352,6 +364,20 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 						{
+							"atmosphere_transmittance_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+							end,
+						},
+						{
+							"atmosphere_sky_view_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
+							end,
+						},
+						{
 							"sun_direction",
 							"vec4",
 							function(self, block, key)
@@ -447,6 +473,20 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 						{
+							"atmosphere_transmittance_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+							end,
+						},
+						{
+							"atmosphere_sky_view_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
+							end,
+						},
+						{
 							"sun_direction",
 							"vec4",
 							function(self, block, key)
@@ -478,7 +518,9 @@ function lightprobes.CreatePipelines()
 					"in_direction",
 					"fragment.sun_direction.xyz",
 					"fragment.camera_position.xyz",
-					"fragment.stars_texture_index"
+					"fragment.stars_texture_index",
+					"fragment.atmosphere_sky_view_texture_index",
+					"fragment.atmosphere_transmittance_texture_index"
 				) .. [[
                     // Clamp sky to prevent infinities
                     sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));

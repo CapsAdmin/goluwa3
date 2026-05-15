@@ -4,6 +4,18 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
+
+local function get_primary_sun_direction()
+	local lights = render3d.GetLights()
+	local sun_dir = Vec3(0, 1, 0)
+
+	if lights[1] then
+		sun_dir = lights[1].Owner.transform:GetRotation():GetBackward()
+	end
+
+	return sun_dir
+end
+
 return {
 	{
 		name = "lighting",
@@ -180,6 +192,22 @@ return {
 							"int",
 							function(self, block, key)
 								block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
+							end,
+						},
+						{
+							"atmosphere_transmittance_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+							end,
+						},
+						{
+							"atmosphere_sky_view_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(
+									atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction())
+								)
 							end,
 						},
 						{
@@ -641,6 +669,17 @@ return {
 				return pow(clamp(ao, 0.0, 1.0), 1) * ao_tex;
 			}
 
+				vec3 get_primary_sun_direction() {
+					vec3 sunDir = vec3(0, 1, 0);
+					if (lighting_data.light_count > 0) {
+						vec3 p = lighting_data.lights[0].position.xyz;
+						if (length(p) > 0.0001) {
+							sunDir = normalize(-p);
+						}
+					}
+					return sunDir;
+				}
+
 			vec3 get_sky() {
 				// Skybox or background
 				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
@@ -648,21 +687,16 @@ return {
 				view_pos /= view_pos.w;
 				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
 				vec3 sky_dir = normalize(world_pos - lighting_data.camera_position.xyz);
-
-				vec3 sunDir = vec3(0, 1, 0);
-				if (lighting_data.light_count > 0) {
-					vec3 p = lighting_data.lights[0].position.xyz;
-					if (length(p) > 0.0001) {
-						sunDir = normalize(-p);
-					}
-				}
+					vec3 sunDir = get_primary_sun_direction();
 				vec3 sky_color_output = vec3(0.0);
 
 				]] .. import("goluwa/render3d/atmosphere.lua").GetGLSLMainCode(
 					"sky_dir",
 					"sunDir",
 					"lighting_data.camera_position.xyz",
-					"lighting_data.stars_texture_index"
+					"lighting_data.stars_texture_index",
+					"lighting_data.atmosphere_sky_view_texture_index",
+					"lighting_data.atmosphere_transmittance_texture_index"
 				) .. [[
 
 				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
@@ -764,6 +798,14 @@ return {
 
                 vec3 ambient = ambient_diffuse + ambient_specular;
                 vec3 color = ambient + Lo + emissive;
+				vec3 sunDir = get_primary_sun_direction();
+				color = apply_aerial_perspective(
+					color,
+					world_pos,
+					sunDir,
+					lighting_data.camera_position.xyz,
+					lighting_data.atmosphere_transmittance_texture_index
+				);
 
 				if (lighting_data.debug_cascade_colors != 0) {
 					int cascade_idx = getCascadeIndex(world_pos);

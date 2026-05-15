@@ -1,249 +1,247 @@
 return [[
-    // ============================================
-    // Physically-based procedural star field
-    // Based on real stellar magnitude distribution and blackbody colors
-    // ============================================
+	float night_hash1(float n) {
+		return fract(sin(n) * 43758.5453);
+	}
 
-    // High-quality hash functions for star placement
-    float hash1(vec2 p) {
-        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-        p3 += dot(p3, p3.yzx + 33.33);
-        return fract((p3.x + p3.y) * p3.z);
-    }
+	float night_hash1v2(vec2 p) {
+		return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+	}
 
-    vec2 hash2(vec2 p) {
-        vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-        p3 += dot(p3, p3.yzx + 33.33);
-        return fract((p3.xx + p3.yz) * p3.zy);
-    }
+	vec2 night_hash2v2(vec2 p) {
+		p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+		return fract(sin(p) * 43758.5453);
+	}
 
-    vec3 hash3(vec2 p) {
-        vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-        p3 += dot(p3, p3.yxz + 33.33);
-        return fract((p3.xxy + p3.yzz) * p3.zyx);
-    }
+	float night_hash1v3(vec3 p) {
+		return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+	}
 
-    // Blackbody radiation color for stellar temperature (Kelvin)
-    // Based on Planck's law approximation for visible spectrum
-    vec3 blackbodyColor(float temperature) {
-        // Normalize temperature to typical star range (2000K - 40000K)
-        float t = temperature / 100.0;
-        vec3 color;
-        
-        // Red channel
-        if (t <= 66.0) {
-            color.r = 1.0;
-        } else {
-            color.r = 1.29293618606 * pow(t - 60.0, -0.1332047592);
-        }
-        
-        // Green channel
-        if (t <= 66.0) {
-            color.g = 0.390081578769 * log(t) - 0.631841443788;
-        } else {
-            color.g = 1.12989086089 * pow(t - 60.0, -0.0755148492);
-        }
-        
-        // Blue channel
-        if (t >= 66.0) {
-            color.b = 1.0;
-        } else if (t <= 19.0) {
-            color.b = 0.0;
-        } else {
-            color.b = 0.543206789110 * log(t - 10.0) - 1.19625408914;
-        }
-        
-        return clamp(color, 0.0, 1.0);
-    }
+	float night_noise3(vec3 x) {
+		vec3 i = floor(x);
+		vec3 f = fract(x);
+		f = f * f * (3.0 - 2.0 * f);
 
-    // Convert direction to equirectangular UV for consistent star grid
-    vec2 dirToEquirect(vec3 dir) {
-        float phi = atan(dir.z, dir.x); // -PI to PI
-        float theta = asin(clamp(dir.y, -1.0, 1.0)); // -PI/2 to PI/2
-        return vec2(phi / (2.0 * PI) + 0.5, theta / PI + 0.5);
-    }
+		float n000 = night_hash1v3(i + vec3(0.0, 0.0, 0.0));
+		float n100 = night_hash1v3(i + vec3(1.0, 0.0, 0.0));
+		float n010 = night_hash1v3(i + vec3(0.0, 1.0, 0.0));
+		float n110 = night_hash1v3(i + vec3(1.0, 1.0, 0.0));
+		float n001 = night_hash1v3(i + vec3(0.0, 0.0, 1.0));
+		float n101 = night_hash1v3(i + vec3(1.0, 0.0, 1.0));
+		float n011 = night_hash1v3(i + vec3(0.0, 1.0, 1.0));
+		float n111 = night_hash1v3(i + vec3(1.0, 1.0, 1.0));
 
-    // Voronoi-based star placement for natural random distribution
-    float voronoiStar(vec2 uv, float scale, out vec2 starCenter, out float starSeed) {
-        vec2 cell = floor(uv * scale);
-        vec2 frac = fract(uv * scale);
-        
-        float minDist = 1.0;
-        starSeed = 0.0;
-        starCenter = vec2(0.0);
-        
-        for (int y = -1; y <= 1; y++) {
-            for (int x = -1; x <= 1; x++) {
-                vec2 neighbor = vec2(float(x), float(y));
-                vec2 point = hash2(cell + neighbor);
-                vec2 diff = neighbor + point - frac;
-                float dist = length(diff);
-                
-                if (dist < minDist) {
-                    minDist = dist;
-                    starCenter = cell + neighbor + point;
-                    starSeed = hash1(cell + neighbor);
-                }
-            }
-        }
-        
-        return minDist;
-    }
+		return mix(
+			mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+			mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+			f.z
+		);
+	}
 
-    // Stellar magnitude distribution following power law
-    // Brighter stars are exponentially rarer
-    float magnitudeToIntensity(float magnitude) {
-        // Pogson's equation: each magnitude is 2.512x dimmer
-        // magnitude 0 = brightest visible stars, magnitude 6 = dimmest naked eye
-        return pow(2.512, -magnitude);
-    }
+	float night_fbm(vec3 p) {
+		float value = 0.0;
+		float amplitude = 0.5;
 
-    // Sample stellar temperature based on spectral class distribution
-    // O,B,A,F,G,K,M types with realistic probabilities
-    float sampleStellarTemperature(float seed) {
-        // Most stars are K and M type (cooler, redder)
-        // Fewer are hot O and B type
-        if (seed < 0.0001) return 30000.0 + seed * 100000.0; // O-type (very rare, blue)
-        if (seed < 0.001) return 10000.0 + seed * 10000.0;   // B-type (rare, blue-white)
-        if (seed < 0.01) return 7500.0 + seed * 2500.0;      // A-type (white)
-        if (seed < 0.05) return 6000.0 + seed * 1500.0;      // F-type (yellow-white)
-        if (seed < 0.15) return 5200.0 + seed * 800.0;       // G-type (yellow, like Sun)
-        if (seed < 0.40) return 3700.0 + seed * 1500.0;      // K-type (orange)
-        return 2400.0 + seed * 1300.0;                        // M-type (most common, red)
-    }
+		for (int i = 0; i < 5; i++) {
+			value += amplitude * night_noise3(p);
+			p *= 2.07;
+			amplitude *= 0.5;
+		}
 
-    // Rotate direction around Y axis (celestial pole)
-    // Earth completes one rotation per 24 hours, so stars appear to move opposite to sun
-    vec3 rotateStarField(vec3 dir, vec3 sunDir) {
-        // Get sun's azimuth angle (horizontal rotation)
-        float sunAzimuth = atan(sunDir.z, sunDir.x);
-        
-        // Stars rotate opposite to sun - when sun moves east, stars appear to move west
-        // The sun completes 360° in 24h, so this gives correct apparent stellar motion
-        float starRotation = -sunAzimuth;
-        
-        // Rotate around Y axis (assuming Y is up/celestial north)
-        float c = cos(starRotation);
-        float s = sin(starRotation);
-        return vec3(
-            dir.x * c - dir.z * s,
-            dir.y,
-            dir.x * s + dir.z * c
-        );
-    }
+		return value;
+	}
 
-    // Milky Way approximation using noise
-    float milkyWayDensity(vec3 dir) {
-        // Galactic plane is roughly along the ecliptic, tilted ~60° from celestial equator
-        // Simplified: brightest along a great circle
-        vec3 galacticNorth = normalize(vec3(0.0, 0.4, 0.9));
-        float galacticLat = abs(dot(dir, galacticNorth));
-        
-        // Density falls off from galactic plane
-        float planeDensity = exp(-galacticLat * galacticLat * 8.0);
-        
-        // Add some structure with noise
-        vec2 uv = dirToEquirect(dir);
-        float noise1 = hash1(uv * 50.0);
-        float noise2 = hash1(uv * 100.0);
-        float structure = 0.5 + 0.3 * noise1 + 0.2 * noise2;
-        
-        return planeDensity * structure;
-    }
+	vec3 night_rotate_y(vec3 dir, float angle) {
+		float c = cos(angle);
+		float s = sin(angle);
+		return vec3(
+			dir.x * c - dir.z * s,
+			dir.y,
+			dir.x * s + dir.z * c
+		);
+	}
 
-    vec3 get_stars(vec3 dir, vec3 sunDir) {
-        dir = normalize(dir);
-        
-        // Rotate star field based on sun position (Earth's rotation)
-        dir = rotateStarField(dir, sunDir);
-        
-        vec2 uv = dirToEquirect(dir);
-        
-        vec3 starColor = vec3(0.0);
-        
-        // Multiple layers of stars at different scales for depth
-        // Layer 1: Bright stars (sparse, large)
-        {
-            vec2 center;
-            float seed;
-            float dist = voronoiStar(uv, 100.0, center, seed);
-            
-            if (seed > 0.92) { // Only ~8% of cells have bright stars
-                float magnitude = mix(-1.0, 2.0, pow(seed, 4.0));
-                float intensity = magnitudeToIntensity(magnitude);
-                float temperature = sampleStellarTemperature(hash1(center));
-                vec3 color = blackbodyColor(temperature);
-                
-                // Star size based on brightness
-                float starRadius = 0.015 * sqrt(intensity);
-                float star = smoothstep(starRadius, starRadius * 0.1, dist);
-                
-                // Add subtle glow for bright stars
-                float glow = exp(-dist * dist * 500.0) * intensity * 0.3;
-                
-                starColor += color * (star * intensity * 3.0 + glow);
-            }
-        }
-        
-        // Layer 2: Medium stars
-        {
-            vec2 center;
-            float seed;
-            float dist = voronoiStar(uv, 300.0, center, seed);
-            
-            if (seed > 0.75) {
-                float magnitude = mix(2.0, 4.0, seed);
-                float intensity = magnitudeToIntensity(magnitude);
-                float temperature = sampleStellarTemperature(hash1(center + vec2(1.0)));
-                vec3 color = blackbodyColor(temperature);
-                
-                float starRadius = 0.008 * sqrt(intensity);
-                float star = smoothstep(starRadius, starRadius * 0.05, dist);
-                
-                starColor += color * star * intensity * 2.0;
-            }
-        }
-        
-        // Layer 3: Dim background stars (dense)
-        {
-            vec2 center;
-            float seed;
-            float dist = voronoiStar(uv, 800.0, center, seed);
-            
-            if (seed > 0.5) {
-                float magnitude = mix(4.0, 6.5, seed);
-                float intensity = magnitudeToIntensity(magnitude);
-                float temperature = sampleStellarTemperature(hash1(center + vec2(2.0)));
-                vec3 color = blackbodyColor(temperature);
-                
-                float starRadius = 0.004;
-                float star = smoothstep(starRadius, 0.0, dist);
-                
-                starColor += color * star * intensity * 1.5;
-            }
-        }
-        
-        // Layer 4: Very faint stars / star dust
-        {
-            vec2 center;
-            float seed;
-            float dist = voronoiStar(uv, 2000.0, center, seed);
-            
-            float intensity = magnitudeToIntensity(6.0) * seed;
-            float temperature = sampleStellarTemperature(hash1(center + vec2(3.0)));
-            vec3 color = blackbodyColor(temperature);
-            
-            float star = smoothstep(0.003, 0.0, dist);
-            starColor += color * star * intensity;
-        }
-        
-        // Add Milky Way glow
-        float milkyWay = milkyWayDensity(dir);
-        vec3 milkyWayColor = vec3(0.8, 0.85, 1.0) * 0.015 * milkyWay;
-        
-        // Boost star density in Milky Way region
-        starColor *= 1.0 + milkyWay * 0.5;
-        
-        return starColor + milkyWayColor;
-    }
+	vec3 night_rotate_x(vec3 dir, float angle) {
+		float c = cos(angle);
+		float s = sin(angle);
+		return vec3(
+			dir.x,
+			dir.y * c - dir.z * s,
+			dir.y * s + dir.z * c
+		);
+	}
+
+	vec3 night_rotate_z(vec3 dir, float angle) {
+		float c = cos(angle);
+		float s = sin(angle);
+		return vec3(
+			dir.x * c - dir.y * s,
+			dir.x * s + dir.y * c,
+			dir.z
+		);
+	}
+
+	vec3 night_blackbody(float temperature) {
+		float t = clamp(temperature, 1000.0, 25000.0);
+		float t2 = t * t;
+		float r;
+		float g;
+		float b;
+
+		if (t <= 6600.0) {
+			r = 1.0;
+		} else {
+			r = clamp(1.292 * pow(t / 6600.0 - 0.5, -0.1332), 0.0, 1.0);
+		}
+
+		if (t <= 6600.0) {
+			g = clamp(-0.4494 + 0.0101 * log(t) * log(t) - 0.000195 * t + 0.00000001 * t2, 0.0, 1.0);
+		} else {
+			g = clamp(1.130 * pow(t / 6600.0 - 0.5, -0.0755), 0.0, 1.0);
+		}
+
+		if (t >= 6600.0) {
+			b = 1.0;
+		} else if (t <= 1900.0) {
+			b = 0.0;
+		} else {
+			b = clamp(-0.744 + 0.0517 * log(t - 1890.0), 0.0, 1.0);
+		}
+
+		vec3 color = pow(clamp(vec3(r, g, b), 0.0, 1.0), vec3(2.2));
+		float luminance = dot(color, vec3(0.299, 0.587, 0.114));
+		float warm = 1.0 - smoothstep(4200.0, 6500.0, t);
+		float saturation = mix(1.0, 0.45, warm);
+		return mix(vec3(luminance), color, saturation);
+	}
+
+	float night_star_temperature(float seed) {
+		float r = night_hash1(seed * 13.1 + 0.7);
+		if (r < 0.22) return mix(3800.0, 5000.0, night_hash1(seed * 3.3));
+		if (r < 0.56) return mix(5000.0, 6200.0, night_hash1(seed * 7.1));
+		if (r < 0.80) return mix(6200.0, 7800.0, night_hash1(seed * 2.9));
+		if (r < 0.93) return mix(7800.0, 12000.0, night_hash1(seed * 5.5));
+		if (r < 0.985) return mix(12000.0, 22000.0, night_hash1(seed * 1.7));
+		return mix(22000.0, 35000.0, night_hash1(seed * 9.3));
+	}
+
+	float night_galactic_density(vec3 dir) {
+		float cos_t = 0.866;
+		float sin_t = 0.5;
+		float gy = dir.y * cos_t - dir.z * sin_t;
+		float latitude = asin(clamp(gy, -1.0, 1.0));
+		float plane = exp(-latitude * latitude / 0.055);
+		vec3 galactic_center = vec3(0.0, sin_t, cos_t);
+		float center_glow = exp(-dot(dir - galactic_center, dir - galactic_center) * 4.0) * 2.0;
+		return clamp(plane * (1.0 + center_glow), 0.0, 1.0);
+	}
+
+	vec3 night_milky_way(vec3 dir) {
+		float density = night_galactic_density(dir);
+		float dust_a = night_fbm(dir * 3.5 + vec3(2.1, 0.5, 1.3));
+		float dust_b = night_fbm(dir * 8.0 + vec3(0.2, 3.1, 0.8));
+		vec3 color = mix(vec3(0.7, 0.55, 0.35), vec3(0.45, 0.55, 0.85), dust_a);
+		color += vec3(0.25, 0.18, 0.35) * dust_b * 0.4;
+		return color * density * density * 0.07;
+	}
+
+	vec3 night_airglow(vec3 dir) {
+		float h = clamp(1.0 - dir.y * 5.0, 0.0, 1.0);
+		return vec3(0.05, 0.18, 0.03) * h * h * 0.035;
+	}
+
+	vec3 night_rotate_celestial(vec3 dir, vec3 sun_dir) {
+		float sun_azimuth = atan(sun_dir.z, sun_dir.x);
+		float sun_elevation = asin(clamp(sun_dir.y, -1.0, 1.0));
+		float pitch = 0.35 - sun_elevation * 0.65;
+		vec3 rotated = night_rotate_y(dir, -sun_azimuth);
+		rotated = night_rotate_x(rotated, pitch);
+		rotated = night_rotate_z(rotated, 0.41);
+		return normalize(rotated);
+	}
+
+	vec3 night_star_field(vec3 rotated_dir) {
+		vec3 color = vec3(0.0);
+		float layer_scale[3];
+		layer_scale[0] = 80.0;
+		layer_scale[1] = 300.0;
+		layer_scale[2] = 1100.0;
+
+		float layer_brightness[3];
+		layer_brightness[0] = 2.5;
+		layer_brightness[1] = 0.6;
+		layer_brightness[2] = 0.15;
+
+		for (int layer = 0; layer < 3; layer++) {
+			float scale = layer_scale[layer];
+			float brightness = layer_brightness[layer];
+			vec3 ad = abs(rotated_dir);
+			int face;
+			vec2 uv;
+
+			if (ad.x >= ad.y && ad.x >= ad.z) {
+				face = rotated_dir.x > 0.0 ? 0 : 1;
+				uv = (rotated_dir.x > 0.0 ? vec2(-rotated_dir.z, rotated_dir.y) : vec2(rotated_dir.z, rotated_dir.y)) / ad.x;
+			} else if (ad.y >= ad.z) {
+				face = rotated_dir.y > 0.0 ? 2 : 3;
+				uv = (rotated_dir.y > 0.0 ? vec2(rotated_dir.x, -rotated_dir.z) : vec2(rotated_dir.x, rotated_dir.z)) / ad.y;
+			} else {
+				face = rotated_dir.z > 0.0 ? 4 : 5;
+				uv = (rotated_dir.z > 0.0 ? vec2(rotated_dir.x, rotated_dir.y) : vec2(-rotated_dir.x, rotated_dir.y)) / ad.z;
+			}
+
+			vec2 scaled = uv * scale;
+			vec2 cell = floor(scaled);
+			vec2 frac_uv = fract(scaled);
+
+			for (int dy = -1; dy <= 1; dy++) {
+				for (int dx = -1; dx <= 1; dx++) {
+					vec2 nc = cell + vec2(float(dx), float(dy));
+					vec2 jitter = night_hash2v2(nc + float(face) * 37.3 + float(layer) * 113.7);
+					float seed = night_hash1v2(nc + float(face) * 17.1 + float(layer) * 91.3);
+
+					vec2 star_uv = (nc + jitter) / scale;
+					vec3 star_dir;
+					if (face == 0) star_dir = normalize(vec3(1.0, star_uv.y, -star_uv.x));
+					else if (face == 1) star_dir = normalize(vec3(-1.0, star_uv.y, star_uv.x));
+					else if (face == 2) star_dir = normalize(vec3(star_uv.x, 1.0, -star_uv.y));
+					else if (face == 3) star_dir = normalize(vec3(star_uv.x, -1.0, star_uv.y));
+					else if (face == 4) star_dir = normalize(vec3(star_uv.x, star_uv.y, 1.0));
+					else star_dir = normalize(vec3(-star_uv.x, star_uv.y, -1.0));
+
+					float galactic_density = night_galactic_density(star_dir);
+					float probability = mix(0.04, 0.80, galactic_density);
+					if (seed > probability) continue;
+
+					float luminance = pow(night_hash1(seed * 7.3 + 1.1), 3.0) * brightness;
+					if (luminance < 0.0002) continue;
+
+					vec2 delta = frac_uv - jitter - vec2(float(dx), float(dy));
+					vec2 delta_screen = delta * scale;
+					float star_sigma_sq = mix(1.4, 4.0, min(luminance / brightness, 1.0));
+					float final_sigma_sq = max(star_sigma_sq, 1.2 * 1.2);
+					float d2 = dot(delta_screen, delta_screen);
+					float disc = exp(-d2 / (2.0 * final_sigma_sq));
+					disc *= star_sigma_sq / final_sigma_sq;
+					if (disc < 0.00005) continue;
+
+					vec3 star_color = night_blackbody(night_star_temperature(seed * 4.1 + float(layer) * 0.7));
+
+					float altitude = clamp(rotated_dir.y, 0.0, 1.0);
+					float twinkle = mix(1.15, 0.98, altitude);
+					color += star_color * disc * luminance * twinkle;
+				}
+			}
+		}
+
+		return color;
+	}
+
+	vec3 get_stars(vec3 dir, vec3 sunDir) {
+		dir = normalize(dir);
+		vec3 celestial_dir = night_rotate_celestial(dir, normalize(sunDir));
+		vec3 hdr = night_star_field(celestial_dir);
+
+		float night_visibility = smoothstep(0.04, -0.18, sunDir.y);
+		return hdr * night_visibility;
+	}
 ]]

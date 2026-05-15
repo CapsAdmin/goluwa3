@@ -1,10 +1,552 @@
--- Atmosphere / Sky rendering GLSL code
--- Extracted from skybox.lua for reuse in reflection probes and main rendering
 local atmosphere = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
--- Configuration
-atmosphere.USE_TEMPLE = false
+local Texture = import("goluwa/render/texture.lua")
 atmosphere.stars_texture = nil
+atmosphere.transmittance_texture = nil
+atmosphere.sky_view_textures = atmosphere.sky_view_textures or {}
+atmosphere.sky_view_texture_order = atmosphere.sky_view_texture_order or {}
+local PI = math.pi
+local PLANET_RADIUS = 6371.0
+local ATMOSPHERE_RADIUS = 6471.0
+local CAMERA_METERS_TO_KM = 0.001
+local SEA_LEVEL_EYE_HEIGHT = 1.75 * CAMERA_METERS_TO_KM
+local CAMERA_TEST_MULTIPLIER = 1000.0
+local SKY_VIEW_LUT_WIDTH = 1024
+local SKY_VIEW_LUT_HEIGHT = 512
+local SKY_VIEW_STEPS = 32
+local SKY_VIEW_TEXTURE_CACHE_LIMIT = 4
+local SKY_VIEW_POSITION_QUANTIZATION = 2
+local SKY_VIEW_DIRECTION_QUANTIZATION = 0.002
+local RAYLEIGH_SCALE_HEIGHT = 8.0
+local MIE_SCALE_HEIGHT = 1.2
+local OZONE_CENTER_HEIGHT = 25.0
+local OZONE_WIDTH = 15.0
+local RAYLEIGH_BETA = Vec3(0.0058, 0.0135, 0.0331)
+local MIE_BETA = 0.021
+local MIE_BETA_EXT = 0.021 * 1.1
+local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
+local SUN_INTENSITY = 20.0
+local SUN_RADIUS = 500.0
+local SUN_DISTANCE = 100000.0
+local transmittance_glsl = [[
+	const int TRANSMITTANCE_STEPS = 40;
+	const float PI = 3.14159265359;
+	const float PLANET_RADIUS = 6371.0;
+	const float ATMOSPHERE_RADIUS = 6471.0;
+	const float RAYLEIGH_SCALE_HEIGHT = 8.0;
+	const float MIE_SCALE_HEIGHT = 1.2;
+	const float OZONE_CENTER_HEIGHT = 25.0;
+	const float OZONE_WIDTH = 15.0;
+	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
+	const float MIE_BETA_EXT = 0.0231;
+	const vec3 OZONE_BETA_ABS = vec3(0.00065, 0.00188, 0.000085);
+
+	vec2 ray_sphere_intersect_normalized(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
+		vec3 oc = ray_origin / sphere_radius;
+		float b = dot(oc, ray_dir);
+		float c = dot(oc, oc) - 1.0;
+		float discriminant = b * b - c;
+
+		if (discriminant < -1e-6) {
+			return vec2(-1.0, -1.0);
+		}
+
+		float sqrt_d = sqrt(max(discriminant, 0.0));
+		return vec2((-b - sqrt_d) * sphere_radius, (-b + sqrt_d) * sphere_radius);
+	}
+
+	float rayleigh_density_lut(vec3 point) {
+		float altitude = length(point) - PLANET_RADIUS;
+		return exp(-max(altitude, 0.0) / RAYLEIGH_SCALE_HEIGHT);
+	}
+
+	float mie_density_lut(vec3 point) {
+		float altitude = length(point) - PLANET_RADIUS;
+		float boundary_aerosols = exp(-max(altitude, 0.0) / MIE_SCALE_HEIGHT);
+		float upper_haze = 0.07 * exp(-max(altitude, 0.0) / 8.0);
+		return boundary_aerosols + upper_haze;
+	}
+
+	float ozone_density_lut(vec3 point) {
+		float altitude = length(point) - PLANET_RADIUS;
+		return max(0.0, 1.0 - abs(altitude - OZONE_CENTER_HEIGHT) / OZONE_WIDTH);
+	}
+
+	vec4 shade(vec2 uv, vec3 _cube_dir) {
+		float mu = mix(-1.0, 1.0, uv.x);
+		float radius = mix(PLANET_RADIUS, ATMOSPHERE_RADIUS, uv.y);
+		vec3 ray_origin = vec3(0.0, radius, 0.0);
+		float sin_theta = sqrt(max(1.0 - mu * mu, 0.0));
+		vec3 ray_dir = normalize(vec3(sin_theta, mu, 0.0));
+		vec2 atmosphere_hit = ray_sphere_intersect_normalized(ray_origin, ray_dir, ATMOSPHERE_RADIUS);
+		vec2 ground_hit = ray_sphere_intersect_normalized(ray_origin, ray_dir, PLANET_RADIUS);
+		float ray_length = atmosphere_hit.y;
+
+		if (ray_length <= 0.0) return vec4(1.0);
+		if (ground_hit.x > 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
+
+		float step_size = ray_length / float(TRANSMITTANCE_STEPS);
+		float rayleigh_od = 0.0;
+		float mie_od = 0.0;
+		float ozone_od = 0.0;
+
+		for (int i = 0; i < TRANSMITTANCE_STEPS; i++) {
+			float t = (float(i) + 0.5) * step_size;
+			vec3 sample_point = ray_origin + ray_dir * t;
+			rayleigh_od += rayleigh_density_lut(sample_point) * step_size;
+			mie_od += mie_density_lut(sample_point) * step_size;
+			ozone_od += ozone_density_lut(sample_point) * step_size;
+		}
+
+		vec3 tau = RAYLEIGH_BETA * rayleigh_od + vec3(MIE_BETA_EXT * mie_od) + OZONE_BETA_ABS * ozone_od;
+		return vec4(exp(-tau), 1.0);
+	}
+]]
+
+local function normalize_components(x, y, z)
+	local length = math.sqrt(x * x + y * y + z * z)
+
+	if length <= 0 then return 0, 1, 0 end
+
+	return x / length, y / length, z / length
+end
+
+local function get_shader_camera_position(cam_pos)
+	cam_pos = cam_pos or Vec3(0, 0, 0)
+	return {
+		x = cam_pos.x * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
+		y = PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + cam_pos.y * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
+		z = cam_pos.z * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
+	}
+end
+
+local function raySphereIntersect(ray_origin, ray_dir, sphere_radius)
+	local b = ray_origin.x * ray_dir.x + ray_origin.y * ray_dir.y + ray_origin.z * ray_dir.z
+	local c = ray_origin.x * ray_origin.x + ray_origin.y * ray_origin.y + ray_origin.z * ray_origin.z - sphere_radius * sphere_radius
+	local discriminant = b * b - c
+
+	if discriminant < 0 then return -1, -1 end
+
+	local sqrt_d = math.sqrt(discriminant)
+	return -b - sqrt_d, -b + sqrt_d
+end
+
+local function rayleighDensity(height)
+	return math.exp(-math.max(height, 0) / RAYLEIGH_SCALE_HEIGHT)
+end
+
+local function mieDensity(height)
+	local boundary_aerosols = math.exp(-math.max(height, 0) / MIE_SCALE_HEIGHT)
+	local upper_haze = 0.07 * math.exp(-math.max(height, 0) / 8.0)
+	return boundary_aerosols + upper_haze
+end
+
+local function ozoneDensity(height)
+	return math.max(0, 1.0 - math.abs(height - OZONE_CENTER_HEIGHT) / OZONE_WIDTH)
+end
+
+local function get_normalized_sun_direction(sun_dir)
+	sun_dir = sun_dir or Vec3(0, 1, 0)
+	local x, y, z = normalize_components(sun_dir.x, sun_dir.y, sun_dir.z)
+	return {x = x, y = y, z = z}
+end
+
+local function format_vec3_glsl(vec)
+	return string.format("vec3(%.17g, %.17g, %.17g)", vec.x, vec.y, vec.z)
+end
+
+local function quantize(value, step)
+	return math.floor(value / step + 0.5) * step
+end
+
+local function get_sky_view_texture_key(cam_pos, sun_dir)
+	local camera = get_shader_camera_position(cam_pos)
+	local sun = get_normalized_sun_direction(sun_dir)
+	return string.format(
+		"%.1f:%.1f:%.1f|%.3f:%.3f:%.3f",
+		quantize(camera.x, SKY_VIEW_POSITION_QUANTIZATION),
+		quantize(camera.y, SKY_VIEW_POSITION_QUANTIZATION),
+		quantize(camera.z, SKY_VIEW_POSITION_QUANTIZATION),
+		quantize(sun.x, SKY_VIEW_DIRECTION_QUANTIZATION),
+		quantize(sun.y, SKY_VIEW_DIRECTION_QUANTIZATION),
+		quantize(sun.z, SKY_VIEW_DIRECTION_QUANTIZATION)
+	)
+end
+
+local atmosphere_shared_glsl = [[
+	const float PI = 3.14159265359;
+	const float PLANET_RADIUS = 6371.0;
+	const float ATMOSPHERE_RADIUS = 6471.0;
+	const float RAYLEIGH_SCALE_HEIGHT = 8.0;
+	const float MIE_SCALE_HEIGHT = 1.2;
+	const float MIE_BETA = 0.021;
+	const float MIE_BETA_EXT = 0.0231;
+	const float MIE_G = 0.758;
+	const float OZONE_CENTER_HEIGHT = 25.0;
+	const float OZONE_WIDTH = 15.0;
+	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
+	const vec3 OZONE_BETA_ABS = vec3(0.00065, 0.00188, 0.000085);
+	const float SUN_INTENSITY = 20.0;
+
+	vec2 ray_sphere_intersect(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
+		float b = dot(ray_origin, ray_dir);
+		float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
+		float discriminant = b * b - c;
+
+		if (discriminant < 0.0) {
+			return vec2(-1.0, -1.0);
+		}
+
+		float sqrt_d = sqrt(discriminant);
+		return vec2(-b - sqrt_d, -b + sqrt_d);
+	}
+
+	float rayleigh_density(vec3 point) {
+		float altitude = length(point) - PLANET_RADIUS;
+		return exp(-max(altitude, 0.0) / RAYLEIGH_SCALE_HEIGHT);
+	}
+
+	float mie_density(vec3 point) {
+		float altitude = length(point) - PLANET_RADIUS;
+		float boundary_aerosols = exp(-max(altitude, 0.0) / MIE_SCALE_HEIGHT);
+		float upper_haze = 0.07 * exp(-max(altitude, 0.0) / 8.0);
+		return boundary_aerosols + upper_haze;
+	}
+
+	float ozone_density(vec3 point) {
+		float altitude = length(point) - PLANET_RADIUS;
+		return max(0.0, 1.0 - abs(altitude - OZONE_CENTER_HEIGHT) / OZONE_WIDTH);
+	}
+
+	float rayleigh_phase(float mu) {
+		return 3.0 / (16.0 * PI) * (1.0 + mu * mu);
+	}
+
+	float mie_phase(float mu) {
+		float gg = MIE_G * MIE_G;
+		float num = 3.0 * (1.0 - gg) * (1.0 + mu * mu);
+		float den = (8.0 * PI) * (2.0 + gg) * pow(max(1.0 + gg - 2.0 * MIE_G * mu, 1e-4), 1.5);
+		return num / den;
+	}
+
+	vec2 get_transmittance_lut_uv(vec3 sample_point, vec3 light_dir) {
+		vec3 up = normalize(sample_point);
+		float mu = dot(up, light_dir);
+		float radius = length(sample_point);
+		float u = mu * 0.5 + 0.5;
+		float v = clamp((radius - PLANET_RADIUS) / max(ATMOSPHERE_RADIUS - PLANET_RADIUS, 1e-5), 0.0, 1.0);
+		return vec2(u, v);
+	}
+
+	vec3 compute_view_tau(float rayleigh_od, float mie_od, float ozone_od) {
+		return RAYLEIGH_BETA * rayleigh_od + vec3(MIE_BETA_EXT * mie_od) + OZONE_BETA_ABS * ozone_od;
+	}
+
+	vec3 get_ambient_color(vec3 sun_dir) {
+		float sun_height = sun_dir.y;
+		vec3 day_ambient = vec3(0.4, 0.6, 0.9) * 0.3;
+		vec3 sunset_ambient = vec3(0.8, 0.4, 0.2) * 0.15;
+		vec3 night_ambient = vec3(0.05, 0.08, 0.15) * 0.05;
+
+		if (sun_height > 0.0) {
+			return mix(sunset_ambient, day_ambient, pow(sun_height, 0.5));
+		}
+
+		float t = clamp(sun_height + 0.2, 0.0, 1.0) / 0.2;
+		return mix(night_ambient, sunset_ambient, t);
+	}
+
+	vec3 get_sky_view_forward(vec3 up, vec3 sun_dir) {
+		vec3 projected_sun = sun_dir - up * dot(sun_dir, up);
+		float projected_length = length(projected_sun);
+
+		if (projected_length < 1e-4) {
+			vec3 fallback_axis = abs(up.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+			projected_sun = normalize(cross(cross(up, fallback_axis), up));
+		} else {
+			projected_sun /= projected_length;
+		}
+
+		return projected_sun;
+	}
+]]
+
+local function build_atmosphere_shader_prelude(extra)
+	return atmosphere_shared_glsl .. "\n" .. extra
+end
+
+local function build_sky_view_glsl(cam_pos, sun_dir)
+	local camera = get_shader_camera_position(cam_pos)
+	local sun = get_normalized_sun_direction(sun_dir)
+	return build_atmosphere_shader_prelude(
+		[[
+		const int SKY_VIEW_STEPS = ]] .. SKY_VIEW_STEPS .. [[;
+		const int TRANSMITTANCE_TEXTURE_INDEX = 0;
+		const vec3 SKY_VIEW_CAMERA_POSITION = ]] .. format_vec3_glsl(camera) .. [[;
+		const vec3 SKY_VIEW_SUN_DIRECTION = ]] .. format_vec3_glsl(sun) .. [[;
+
+		vec3 sample_transmittance_lut(vec3 sample_point, vec3 light_dir) {
+			vec2 uv = get_transmittance_lut_uv(sample_point, light_dir);
+			return texture(TEXTURE(TRANSMITTANCE_TEXTURE_INDEX), uv).rgb;
+		}
+
+		vec3 get_sky_view_ray_dir(vec2 uv, vec3 up) {
+			vec3 forward = get_sky_view_forward(up, SKY_VIEW_SUN_DIRECTION);
+			vec3 right = normalize(cross(forward, up));
+			float azimuth = (uv.x * 2.0 - 1.0) * PI;
+			float elevation = (uv.y * uv.y - 0.5) * PI;
+			float cos_elevation = cos(elevation);
+			vec3 horizontal = cos(azimuth) * forward + sin(azimuth) * right;
+			return normalize(horizontal * cos_elevation + up * sin(elevation));
+		}
+
+		vec4 shade(vec2 uv, vec3 _cube_dir) {
+			vec3 ray_origin = SKY_VIEW_CAMERA_POSITION;
+			vec3 up = normalize(ray_origin);
+			vec3 ray_dir = get_sky_view_ray_dir(uv, up);
+			vec2 atmosphere_hit = ray_sphere_intersect(ray_origin, ray_dir, ATMOSPHERE_RADIUS);
+			vec2 ground_hit = ray_sphere_intersect(ray_origin, ray_dir, PLANET_RADIUS);
+
+			if (atmosphere_hit.y <= 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
+
+			float atmosphere_near = max(atmosphere_hit.x, 0.0);
+			float atmosphere_far = atmosphere_hit.y;
+
+			if (ground_hit.x > atmosphere_near) {
+				atmosphere_far = min(atmosphere_far, ground_hit.x);
+			}
+
+			float segment_length = atmosphere_far - atmosphere_near;
+			if (segment_length <= 1e-5) return vec4(0.0, 0.0, 0.0, 1.0);
+
+			float step_size = segment_length / float(SKY_VIEW_STEPS);
+			float view_rayleigh_od = 0.0;
+			float view_mie_od = 0.0;
+			float view_ozone_od = 0.0;
+			vec3 total_rayleigh = vec3(0.0);
+			vec3 total_mie = vec3(0.0);
+			float mu = dot(ray_dir, SKY_VIEW_SUN_DIRECTION);
+			float phase_r = rayleigh_phase(mu);
+			float phase_m = mie_phase(mu);
+
+			for (int i = 0; i < SKY_VIEW_STEPS; i++) {
+				float t = atmosphere_near + (float(i) + 0.5) * step_size;
+				vec3 sample_point = ray_origin + ray_dir * t;
+				float density_r = rayleigh_density(sample_point);
+				float density_m = mie_density(sample_point);
+				float density_o = ozone_density(sample_point);
+
+				view_rayleigh_od += density_r * step_size;
+				view_mie_od += density_m * step_size;
+				view_ozone_od += density_o * step_size;
+
+				vec3 sun_transmittance = sample_transmittance_lut(sample_point, SKY_VIEW_SUN_DIRECTION);
+				vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
+				vec3 transmittance = sun_transmittance * view_transmittance;
+				total_rayleigh += density_r * transmittance * step_size;
+				total_mie += density_m * transmittance * step_size;
+			}
+
+			vec3 scattered_light = SUN_INTENSITY * (
+				phase_r * RAYLEIGH_BETA * total_rayleigh +
+				phase_m * MIE_BETA * total_mie
+			);
+
+			return vec4(scattered_light, 1.0);
+		}
+	]]
+	)
+end
+
+local atmosphere_glsl = build_atmosphere_shader_prelude(
+	[[
+	const int PRIMARY_STEPS = 32;
+	const int AERIAL_PERSPECTIVE_STEPS = 32;
+	const float CAMERA_METERS_TO_KM = 0.001;
+	const float CAMERA_TEST_MULTIPLIER = ]] .. CAMERA_TEST_MULTIPLIER .. [[;
+	const float SEA_LEVEL_EYE_HEIGHT = 0.00175;
+	const float SUN_RADIUS = 500.0;
+	const float SUN_DISTANCE = 100000.0;
+
+	vec3 get_atmosphere(vec3 dir, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index);
+
+	vec3 get_atmosphere_camera_origin(vec3 cam_pos) {
+		vec3 world_camera_offset = cam_pos * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
+		return vec3(
+			world_camera_offset.x,
+			PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + world_camera_offset.y,
+			world_camera_offset.z
+		);
+	}
+
+	vec3 sample_transmittance_lut(int transmittance_texture_index, vec3 sample_point, vec3 light_dir) {
+		if (transmittance_texture_index == -1) return vec3(1.0);
+		vec2 uv = get_transmittance_lut_uv(sample_point, light_dir);
+		return texture(TEXTURE(transmittance_texture_index), uv).rgb;
+	}
+
+	vec2 get_sky_view_lut_uv(vec3 dir, vec3 sun_dir, vec3 cam_pos) {
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
+		vec3 up = normalize(ray_origin);
+		vec3 forward = get_sky_view_forward(up, sun_dir);
+		vec3 right = normalize(cross(forward, up));
+		float elevation = asin(clamp(dot(dir, up), -1.0, 1.0));
+		float encoded_v = clamp(elevation / PI + 0.5, 0.0, 1.0);
+		vec3 horizontal = dir - up * dot(dir, up);
+		float horizontal_length = length(horizontal);
+
+		if (horizontal_length > 1e-4) {
+			horizontal /= horizontal_length;
+		} else {
+			horizontal = forward;
+		}
+
+		float azimuth = atan(dot(horizontal, right), dot(horizontal, forward));
+		float u = azimuth / (2.0 * PI) + 0.5;
+		float v = sqrt(encoded_v);
+		return vec2(u, clamp(v, 0.0, 1.0));
+	}
+
+	vec3 sample_sky_view_lut(int sky_view_texture_index, vec3 dir, vec3 sun_dir, vec3 cam_pos) {
+		if (sky_view_texture_index == -1) {
+			return get_atmosphere(dir, sun_dir, cam_pos, -1);
+		}
+
+		vec2 uv = get_sky_view_lut_uv(normalize(dir), normalize(sun_dir), cam_pos);
+		return texture(TEXTURE(sky_view_texture_index), uv).rgb;
+	}
+
+	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
+		vec3 world_delta = (world_pos - cam_pos) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
+		float target_distance = length(world_delta);
+
+		if (target_distance <= 1e-5) return scene_color;
+
+		vec3 ray_dir = world_delta / target_distance;
+		vec2 atmosphere_hit = ray_sphere_intersect(ray_origin, ray_dir, ATMOSPHERE_RADIUS);
+
+		if (atmosphere_hit.y <= 0.0) return scene_color;
+
+		float atmosphere_near = max(atmosphere_hit.x, 0.0);
+		float atmosphere_far = min(atmosphere_hit.y, target_distance);
+		vec2 ground_hit = ray_sphere_intersect(ray_origin, ray_dir, PLANET_RADIUS);
+
+		if (ground_hit.x > atmosphere_near) {
+			atmosphere_far = min(atmosphere_far, ground_hit.x);
+		}
+
+		float segment_length = atmosphere_far - atmosphere_near;
+		if (segment_length <= 1e-5) return scene_color;
+
+		float step_size = segment_length / float(AERIAL_PERSPECTIVE_STEPS);
+		float view_rayleigh_od = 0.0;
+		float view_mie_od = 0.0;
+		float view_ozone_od = 0.0;
+		vec3 total_rayleigh = vec3(0.0);
+		vec3 total_mie = vec3(0.0);
+		float mu = dot(ray_dir, sun_dir);
+		float phase_r = rayleigh_phase(mu);
+		float phase_m = mie_phase(mu);
+
+		for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
+			float t = atmosphere_near + (float(i) + 0.5) * step_size;
+			vec3 sample_point = ray_origin + ray_dir * t;
+			float density_r = rayleigh_density(sample_point);
+			float density_m = mie_density(sample_point);
+			float density_o = ozone_density(sample_point);
+
+			view_rayleigh_od += density_r * step_size;
+			view_mie_od += density_m * step_size;
+			view_ozone_od += density_o * step_size;
+
+			vec3 sun_transmittance = sample_transmittance_lut(transmittance_texture_index, sample_point, sun_dir);
+			vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
+			vec3 transmittance = sun_transmittance * view_transmittance;
+
+			total_rayleigh += density_r * transmittance * step_size;
+			total_mie += density_m * transmittance * step_size;
+		}
+
+		vec3 scattered_light = SUN_INTENSITY * (
+			phase_r * RAYLEIGH_BETA * total_rayleigh +
+			phase_m * MIE_BETA * total_mie
+		);
+		vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
+		return scene_color * view_transmittance + scattered_light;
+	}
+
+	vec3 get_atmosphere(vec3 dir, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
+		vec2 atmosphere_hit = ray_sphere_intersect(ray_origin, dir, ATMOSPHERE_RADIUS);
+
+		if (atmosphere_hit.y <= 0.0) return vec3(0.0);
+
+		vec2 ground_hit = ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS);
+		float atmosphere_near = max(atmosphere_hit.x, 0.0);
+		float atmosphere_far = atmosphere_hit.y;
+
+		if (ground_hit.x > atmosphere_near) {
+			atmosphere_far = min(atmosphere_far, ground_hit.x);
+		}
+
+		float segment_length = atmosphere_far - atmosphere_near;
+		if (segment_length <= 1e-5) return vec3(0.0);
+
+		float step_size = segment_length / float(PRIMARY_STEPS);
+		float view_rayleigh_od = 0.0;
+		float view_mie_od = 0.0;
+		float view_ozone_od = 0.0;
+		vec3 total_rayleigh = vec3(0.0);
+		vec3 total_mie = vec3(0.0);
+		float mu = dot(dir, sun_dir);
+		float phase_r = rayleigh_phase(mu);
+		float phase_m = mie_phase(mu);
+
+		for (int i = 0; i < PRIMARY_STEPS; i++) {
+			float t = atmosphere_near + (float(i) + 0.5) * step_size;
+			vec3 sample_point = ray_origin + dir * t;
+			float density_r = rayleigh_density(sample_point);
+			float density_m = mie_density(sample_point);
+			float density_o = ozone_density(sample_point);
+
+			view_rayleigh_od += density_r * step_size;
+			view_mie_od += density_m * step_size;
+			view_ozone_od += density_o * step_size;
+
+			vec3 sun_transmittance = sample_transmittance_lut(transmittance_texture_index, sample_point, sun_dir);
+			vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
+			vec3 transmittance = sun_transmittance * view_transmittance;
+
+			total_rayleigh += density_r * transmittance * step_size;
+			total_mie += density_m * transmittance * step_size;
+		}
+
+		vec3 scattered_light = SUN_INTENSITY * (
+			phase_r * RAYLEIGH_BETA * total_rayleigh +
+			phase_m * MIE_BETA * total_mie
+		);
+
+		return scattered_light;
+	}
+
+	vec3 get_sun_disc(vec3 dir, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
+		vec2 ground_hit = ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS);
+		if (ground_hit.x > 0.0) return vec3(0.0);
+
+		float sun_angular_radius = SUN_RADIUS / SUN_DISTANCE;
+		float theta = acos(clamp(dot(normalize(dir), normalize(sun_dir)), -1.0, 1.0));
+		float disk = smoothstep(sun_angular_radius * 1.04, sun_angular_radius * 0.96, theta);
+		float corona_inner = exp(-theta / max(sun_angular_radius * 5.5, 1e-5));
+		float corona_outer = exp(-theta / max(sun_angular_radius * 8.0, 1e-5));
+		vec3 radiance = vec3(16.0 * disk) + vec3(1.0, 0.95, 0.86) * (2.0 * corona_inner) + vec3(1.0, 0.98, 0.95) * corona_outer;
+		vec3 transmittance = sample_transmittance_lut(transmittance_texture_index, ray_origin, sun_dir);
+		float horizon_fade = smoothstep(-0.12, 0.04, sun_dir.y);
+		return radiance * SUN_INTENSITY * transmittance * 0.01 * horizon_fade;
+	}
+]]
+)
 
 function atmosphere.SetStarsTexture(texture)
 	atmosphere.stars_texture = texture
@@ -14,127 +556,200 @@ function atmosphere.GetStarsTexture()
 	return atmosphere.stars_texture
 end
 
-function atmosphere.GetGLSLCode()
-	return import("goluwa/render3d/atmospheres/nishita.lua") .. import("goluwa/render3d/atmospheres/night_sky.lua")
+local function destroy_transmittance_texture()
+	if atmosphere.transmittance_texture and atmosphere.transmittance_texture.Remove then
+		atmosphere.transmittance_texture:Remove()
+	end
+
+	atmosphere.transmittance_texture = nil
 end
 
-function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, stars_texture_index_var)
+local function create_transmittance_texture()
+	local tex = Texture.New{
+		width = 256,
+		height = 64,
+		format = "r16g16b16a16_sfloat",
+		mip_map_levels = 1,
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
+	tex:Shade(transmittance_glsl)
+	return tex
+end
+
+local function destroy_sky_view_texture(key)
+	local tex = atmosphere.sky_view_textures[key]
+
+	if tex and tex.Remove then tex:Remove() end
+
+	atmosphere.sky_view_textures[key] = nil
+end
+
+local function destroy_all_sky_view_textures()
+	for key in pairs(atmosphere.sky_view_textures) do
+		destroy_sky_view_texture(key)
+	end
+
+	atmosphere.sky_view_texture_order = {}
+end
+
+local function create_sky_view_texture(cam_pos, sun_dir)
+	local transmittance_texture = atmosphere.GetTransmittanceTexture()
+	local tex = Texture.New{
+		width = SKY_VIEW_LUT_WIDTH,
+		height = SKY_VIEW_LUT_HEIGHT,
+		format = "r16g16b16a16_sfloat",
+		mip_map_levels = 1,
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
+	tex:Shade(
+		build_sky_view_glsl(cam_pos, sun_dir),
+		{
+			custom_declarations = [[
+				#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+			]],
+			textures = {transmittance_texture},
+		}
+	)
+	return tex
+end
+
+function atmosphere.GetTransmittanceTexture()
+	if
+		not atmosphere.transmittance_texture or
+		not atmosphere.transmittance_texture:IsValid()
+	then
+		destroy_transmittance_texture()
+		atmosphere.transmittance_texture = create_transmittance_texture()
+	end
+
+	return atmosphere.transmittance_texture
+end
+
+function atmosphere.GetSkyViewTexture(cam_pos, sun_dir)
+	local key = get_sky_view_texture_key(cam_pos, sun_dir)
+	local tex = atmosphere.sky_view_textures[key]
+
+	if tex and tex:IsValid() then return tex end
+
+	destroy_sky_view_texture(key)
+	tex = create_sky_view_texture(cam_pos, sun_dir)
+	atmosphere.sky_view_textures[key] = tex
+	table.insert(atmosphere.sky_view_texture_order, key)
+
+	while #atmosphere.sky_view_texture_order > SKY_VIEW_TEXTURE_CACHE_LIMIT do
+		local oldest = table.remove(atmosphere.sky_view_texture_order, 1)
+
+		if oldest ~= key then destroy_sky_view_texture(oldest) end
+	end
+
+	return tex
+end
+
+function atmosphere.GetGLSLCode()
+	return atmosphere_glsl .. import("goluwa/render3d/atmospheres/night_sky.lua")
+end
+
+function atmosphere.GetGLSLMainCode(
+	dir_var,
+	sun_dir_var,
+	cam_pos_var,
+	stars_texture_index_var,
+	sky_view_texture_index_var,
+	transmittance_texture_index_var
+)
+	sky_view_texture_index_var = sky_view_texture_index_var or "-1"
+	transmittance_texture_index_var = transmittance_texture_index_var or "-1"
 	return [[
 		{
 			vec3 atmos_dir = normalize(]] .. dir_var .. [[);
-			vec3 atmos_sunDir = normalize(]] .. sun_dir_var .. [[);
-			
-			vec3 col = get_atmosphere(atmos_dir, atmos_sunDir, ]] .. cam_pos_var .. [[);
-			
-			// Compute sky brightness for blending with space texture
-			// Use sun elevation to determine day/night
-			float sunElevation = atmos_sunDir.y;
-			
-			// Sky brightness based on sun elevation
-			// At sunset (elevation ~0), start transitioning
-			// Below horizon, night time
-			float dayFactor = smoothstep(-0.2, 0.1, sunElevation);
-			
-			// Also consider the actual sky luminance for the blend
-			float skyLuminance = dot(col, vec3(0.2126, 0.7152, 0.0722));
-			float skyBrightness = clamp(skyLuminance * 0.5, 0.0, 1.0);
-			
-			// Combine day factor and sky brightness
-			float blendFactor = max(dayFactor, skyBrightness);
-			
-			// Sample space/stars texture
-			vec3 spaceColor = vec3(0.0);
+			vec3 atmos_sun_dir = normalize(]] .. sun_dir_var .. [[);
+			vec3 atmosphere_color = sample_sky_view_lut(]] .. sky_view_texture_index_var .. [[, atmos_dir, atmos_sun_dir, ]] .. cam_pos_var .. [[);
+			atmosphere_color += get_sun_disc(atmos_dir, atmos_sun_dir, ]] .. cam_pos_var .. [[, ]] .. transmittance_texture_index_var .. [[);
+			float sun_elevation = atmos_sun_dir.y;
+			float day_factor = smoothstep(-0.16, 0.06, sun_elevation);
+			float sky_luminance = dot(atmosphere_color, vec3(0.2126, 0.7152, 0.0722));
+			float sky_brightness = clamp(sky_luminance * 0.5, 0.0, 1.0);
+			float blend_factor = max(day_factor, sky_brightness);
+			vec3 space_color = vec3(0.0);
+
 			if (]] .. stars_texture_index_var .. [[ != -1) {
 				float u = atan(atmos_dir.z, atmos_dir.x) / (2.0 * PI) + 0.5;
-				float v = asin(atmos_dir.y) / PI + 0.5;
-				spaceColor = texture(TEXTURE(]] .. stars_texture_index_var .. [[), vec2(u, -v)).rgb;
-				spaceColor = pow(spaceColor, vec3(10.0));
-				spaceColor *= 0.5;
+				float v = asin(clamp(atmos_dir.y, -1.0, 1.0)) / PI + 0.5;
+				space_color = texture(TEXTURE(]] .. stars_texture_index_var .. [[), vec2(u, -v)).rgb;
+				space_color = pow(space_color, vec3(10.0));
+				space_color *= 0.5;
 			} else {
-				spaceColor = get_stars(atmos_dir, atmos_sunDir);
+				space_color = get_stars(atmos_dir, atmos_sun_dir);
 			}
-			
-			// Blend: show stars when sky is dark, hide them during day
-			sky_color_output = mix(spaceColor, col, blendFactor);
+
+			sky_color_output = mix(space_color, atmosphere_color, blend_factor);
 		}
 	]]
 end
 
-local EARTH_RADIUS = 6371000.0
-local ATMOSPHERE_RADIUS = 6471000.0
-local HR = 7994.0
-local HM = 1200.0
-local BETA_R = Vec3(5.5e-6, 13.0e-6, 22.4e-6)
-local BETA_M = Vec3(21e-6, 21e-6, 21e-6)
-local SUN_INTENSITY = 50.0
-
-local function raySphereIntersect(rayOrigin, rayDir, radius)
-	local a = rayDir:Dot(rayDir)
-	local b = 2.0 * rayDir:Dot(rayOrigin)
-	local c = rayOrigin:Dot(rayOrigin) - radius * radius
-	local d = b * b - 4.0 * a * c
-
-	if d < 0.0 then return -1, -1 end
-
-	d = math.sqrt(d)
-	local t0 = (-b - d) / (2.0 * a)
-	local t1 = (-b + d) / (2.0 * a)
-	return t0, t1
-end
-
 function atmosphere.GetSunColor(sunDir, camPos)
 	camPos = camPos or Vec3(0, 0, 0)
-	local rayOrigin = Vec3(0, EARTH_RADIUS + 1.75 + camPos.y, 0)
-	-- Intersect with atmosphere
+	local rayOrigin = Vec3(
+		camPos.x * CAMERA_METERS_TO_KM,
+		PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + camPos.y * CAMERA_METERS_TO_KM,
+		camPos.z * CAMERA_METERS_TO_KM
+	)
 	local tmin, tmax = raySphereIntersect(rayOrigin, sunDir, ATMOSPHERE_RADIUS)
 
 	if tmax <= 0 then return Vec3(0, 0, 0) end
 
 	tmin = math.max(tmin, 0)
-	-- Check for earth occlusion
-	local etmin, etmax = raySphereIntersect(rayOrigin, sunDir, EARTH_RADIUS)
+	local groundMin = raySphereIntersect(rayOrigin, sunDir, PLANET_RADIUS)
 
-	if etmin > 0 then return Vec3(0, 0, 0) end
+	if groundMin > 0 then return Vec3(0, 0, 0) end
 
-	-- Integrate optical depth
 	local numSamples = 16
 	local segmentLength = (tmax - tmin) / numSamples
 	local opticalDepthR = 0
 	local opticalDepthM = 0
+	local opticalDepthO = 0
 
 	for i = 0, numSamples - 1 do
 		local samplePos = rayOrigin + sunDir * (tmin + segmentLength * (i + 0.5))
-		local height = samplePos:GetLength() - EARTH_RADIUS
-		opticalDepthR = opticalDepthR + math.exp(-height / HR) * segmentLength
-		opticalDepthM = opticalDepthM + math.exp(-height / HM) * segmentLength
+		local height = samplePos:GetLength() - PLANET_RADIUS
+		opticalDepthR = opticalDepthR + rayleighDensity(height) * segmentLength
+		opticalDepthM = opticalDepthM + mieDensity(height) * segmentLength
+		opticalDepthO = opticalDepthO + ozoneDensity(height) * segmentLength
 	end
 
-	local tau = BETA_R * opticalDepthR + BETA_M * opticalDepthM
+	local tau = RAYLEIGH_BETA * opticalDepthR + Vec3(MIE_BETA_EXT, MIE_BETA_EXT, MIE_BETA_EXT) * opticalDepthM + OZONE_BETA_ABS * opticalDepthO
 	local attenuation = Vec3(math.exp(-tau.x), math.exp(-tau.y), math.exp(-tau.z))
-	-- Base sun color (slightly warm white)
-	local baseSunColor = Vec3(1.0, 0.98, 0.95) * (SUN_INTENSITY * 10.0)
+	local baseSunColor = Vec3(1.0, 0.98, 0.95) * SUN_INTENSITY
 	return attenuation * baseSunColor
 end
 
 function atmosphere.GetAmbientColor(sunDir)
 	local sunHeight = sunDir.y
-	-- Day sky ambient (blue)
 	local dayAmbient = Vec3(0.4, 0.6, 0.9) * 0.3
-	-- Sunset/sunrise ambient (warm orange-red)
 	local sunsetAmbient = Vec3(0.8, 0.4, 0.2) * 0.15
-	-- Night ambient (very dark blue)
 	local nightAmbient = Vec3(0.05, 0.08, 0.15) * 0.05
 
-	-- Blend between day, sunset, and night based on sun height
 	if sunHeight > 0.0 then
-		-- Day to sunset transition
-		local t = sunHeight ^ 0.5
-		return sunsetAmbient:GetLerped(t, dayAmbient)
-	else
-		-- Sunset to night transition
-		local t = math.min(math.max(sunHeight + 0.2, 0.0), 1.0) / 0.2
-		return nightAmbient:GetLerped(t, sunsetAmbient)
+		return sunsetAmbient:GetLerped(sunHeight ^ 0.5, dayAmbient)
 	end
+
+	local t = math.min(math.max(sunHeight + 0.2, 0.0), 1.0) / 0.2
+	return nightAmbient:GetLerped(t, sunsetAmbient)
+end
+
+if HOTRELOAD then
+	destroy_transmittance_texture()
+	destroy_all_sky_view_textures()
 end
 
 return atmosphere
