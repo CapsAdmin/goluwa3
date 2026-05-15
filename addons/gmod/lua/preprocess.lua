@@ -1,4 +1,4 @@
-local gine = import("addons/gmod/lua/gine.lua")
+local gine = import("lua/gine.lua")
 local preprocess_keywords = {
 	["break"] = "TK_break",
 	["do"] = "TK_do",

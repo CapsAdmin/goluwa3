@@ -6,7 +6,7 @@ local function is_gmod_example_path(path)
 end
 
 local function get_gine_environment()
-	local gine = _G.gine or import.loaded["addons/gmod/lua/gine.lua"]
+	local gine = _G.gine or import.loaded["lua/gine.lua"]
 
 	if not gine.env then
 		gine.Initialize("sandbox")

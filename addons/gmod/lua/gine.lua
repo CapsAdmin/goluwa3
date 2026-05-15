@@ -4,10 +4,10 @@ _G.SERVER = false
 local gine = library()
 gine.debug = true
 _G.gine = gine
-import.loaded["addons/gmod/lua/gine.lua"] = gine
-import("addons/gmod/lua/preprocess.lua")
-import("addons/gmod/lua/commands.lua")
-import("addons/gmod/lua/filewatcher.lua")
+import.loaded["lua/gine.lua"] = gine
+import("lua/preprocess.lua")
+import("lua/commands.lua")
+import("lua/filewatcher.lua")
 local event = import("goluwa/event.lua")
 local steam = import("goluwa/steam/steam.lua")
 local system = import("goluwa/system.lua")
@@ -19,7 +19,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
-local commands = import("goluwa/commands.lua")
 local utility = import("goluwa/utility.lua")
 local pvars = import("goluwa/pvars.lua")
 local render = import("goluwa/render/render.lua")
@@ -605,9 +604,9 @@ function gine.Initialize(gamemode, skip_addons)
 		-- figure out the base gmod folder
 		gine.dir = R("garrysmod_dir.vpk"):match("(.+/)")
 		gine.AddGLuaPath(gine.dir)
-		import("addons/gmod/lua/material.lua")
+		import("lua/material.lua")
 		-- setup engine functions
-		import("addons/gmod/lua/environment.lua")
+		import("lua/environment.lua")
 		gine.AddPackageLoaderDir(gine.dir .. "lua/includes/modules")
 		-- include and init files in the right order
 		gine.init = true
@@ -789,32 +788,6 @@ function gine.Run(skip_addons)
 			)
 		end
 	end
-end
-
-commands.Add("ginit=string[sandbox],boolean", function(gamemode, skip_addons)
-	utility.PushTimeWarning()
-	gine.Initialize(gamemode, skip_addons)
-	utility.PopTimeWarning("gine.Initialize", 0)
-	utility.PushTimeWarning()
-	gine.Run(skip_addons)
-	utility.PopTimeWarning("gine.Run", 0)
-end)
-
-event.AddListener("KeyInput", function(key, press)
-	if key == "q" and press then commands.RunString("ginit") end
-end)
-
-commands.Add("glua=arg_line", function(code)
-	if not gine.env then gine.Initialize() end
-
-	local func = assert(loadstring(code))
-	setfenv(func, gine.env)
-	print(func())
-end)
-
-if CAPS then
-	timer.Delay(0, function() --commands.RunString("ginit base,1")
-	end)
 end
 
 return gine

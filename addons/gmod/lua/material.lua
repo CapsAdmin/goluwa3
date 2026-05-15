@@ -1,4 +1,4 @@
-local gine = import("addons/gmod/lua/gine.lua")
+local gine = import("lua/gine.lua")
 local resource = import("goluwa/resource.lua")
 local render = import("goluwa/render/render.lua")
 local Color = import("goluwa/structs/color.lua")
