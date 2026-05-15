@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local vfs = import("goluwa/vfs.lua")
-local steam = import("goluwa/steam.lua")
+local steam = import("goluwa/steam/steam.lua")
 steam.MountSourceGame("gmod")
 local models = {
 	"models/zombie/classic.mdl",

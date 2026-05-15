@@ -1,4 +1,4 @@
-local steam = import("goluwa/steam.lua")
+local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local spawnmenu = gine.env.spawnmenu
 

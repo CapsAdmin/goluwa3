@@ -1,6 +1,6 @@
 local codec = import("goluwa/codec.lua")
 local crypto = import("goluwa/crypto.lua")
-local steam = import("goluwa/steam.lua")
+local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local util = gine.env.util
 

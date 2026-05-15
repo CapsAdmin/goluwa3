@@ -1,5 +1,5 @@
 local resource = import("goluwa/resource.lua")
-local steam = import("goluwa/steam.lua")
+local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")

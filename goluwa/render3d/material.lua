@@ -156,7 +156,7 @@ function Material.BuildGlslFlags(var_name)
 end
 
 do
-	local steam = import("goluwa/steam.lua")
+	local steam = import("goluwa/steam/steam.lua")
 
 	local function unpack_numbers(str)
 		str = str:gsub("%s+", " ")

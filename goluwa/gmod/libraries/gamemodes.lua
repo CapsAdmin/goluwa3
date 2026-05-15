@@ -1,6 +1,5 @@
-local steam = import("goluwa/steam.lua")
+local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-
 local gine = ... or _G.gine
 gine.gamemodes = gine.gamemodes or {}
 

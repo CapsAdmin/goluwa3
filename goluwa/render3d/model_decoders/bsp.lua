@@ -1,6 +1,6 @@
 local codec = import("goluwa/codec.lua")
 local timer = import("goluwa/timer.lua")
-local steam = import("goluwa/steam.lua")
+local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
