@@ -73,8 +73,6 @@ if HOTRELOAD then toggle() end
 event.AddListener("KeyInput", "menu_toggle", function(key, press)
 	if not press then return end
 
-	if love_game_active() then return end
-
 	if key == "escape" then return toggle() end
 end)
 
@@ -85,7 +83,5 @@ event.AddListener("Update", "window_title", function(dt)
 end)
 
 event.AddListener("WindowGainedFocus", "mouse_trap", function()
-	if not visible and not love_game_active() then
-		system.GetWindow():SetMouseTrapped(true)
-	end
+	if not visible then system.GetWindow():SetMouseTrapped(true) end
 end) --toggle()
