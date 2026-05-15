@@ -13,6 +13,88 @@ import.loadfile = vfs.LoadFile
 vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
 import("goluwa/helpers/test.lua") -- add test command
+local function init_game()
+	import("goluwa/pvars.lua").Initialize()
+	import("goluwa/repl.lua").Initialize()
+	import("goluwa/filewatcher.lua").Start()
+
+	if _G.GRAPHICS then
+		_G.GRAPHICS_3D = false
+		local render = import("goluwa/render/render.lua")
+
+		if not render.available then
+			logf("[game] Graphics not available - running in headless mode\n")
+			_G.GRAPHICS = false
+		else
+			if not system.GetWindows()[1] then
+				local window_width = 1920
+				local window_height = 1080
+				local desktop_size = system.GetDesktopSize()
+
+				if desktop_size then
+					window_width = math.max(1, math.floor(desktop_size.x / 1.5))
+					window_height = math.max(1, math.floor(desktop_size.y / 1.5))
+				end
+
+				system.OpenWindow(window_width, window_height)
+			end
+
+			render.Initialize({samples = "1"})
+			import("goluwa/render2d/render2d.lua").Initialize()
+			import("goluwa/render2d/gfx.lua").Initialize()
+
+			if _G.GRAPHICS_3D then
+				import("goluwa/render3d/render3d.lua").Initialize()
+				import("goluwa/render3d/model_loader.lua")
+			end
+		end
+	end
+
+	vfs.AutorunAddons()
+
+	if _G.AUDIO then vfs.AutorunAddons("audio/") end
+
+	if _G.GRAPHICS then
+		vfs.AutorunAddons("graphics/")
+
+		if _G.GRAPHICS_3D then vfs.AutorunAddons("graphics_3d/") end
+	end
+
+	system.KeepAlive("game")
+
+	do
+		local resource = import("goluwa/resource.lua")
+		resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/extras/", true)
+		resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/base/", true)
+		vfs.MountAddons("os:downloads/")
+		vfs.InitAddons()
+	end
+
+	do
+		local assets = import("goluwa/assets.lua")
+
+		local function register_virtual_texture(path, module_path)
+			assets.RegisterVirtualTexture(path, function(_, options)
+				local asset = import(module_path)
+
+				if type(asset) == "function" then return asset(options.config) end
+
+				return asset
+			end)
+		end
+
+		register_virtual_texture("textures/render/blue_noise.lua", "goluwa/render/textures/blue_noise.lua")
+		register_virtual_texture("textures/render/glow_line.lua", "goluwa/render/textures/glow_line.lua")
+		register_virtual_texture("textures/render/glow_linear.lua", "goluwa/render/textures/glow_linear.lua")
+		register_virtual_texture("textures/render/glow_point.lua", "goluwa/render/textures/glow_point.lua")
+		register_virtual_texture(
+			"textures/render/gradient_linear.lua",
+			"goluwa/render/textures/gradient_linear.lua"
+		)
+		register_virtual_texture("textures/render/metal_frame.lua", "goluwa/render/textures/metal_frame.lua")
+	end
+end
+
 local function normalize_path(path)
 	local wdir = vfs.GetStorageDirectory("working_directory")
 
@@ -22,23 +104,47 @@ local function normalize_path(path)
 end
 
 commands.Add("run", function(path, ...)
-	local path = normalize_path(path)
-	assert(loadfile(path))(...)
+	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
+
+	_G.AUDIO = true
+
+	event.AddListener("FrameEnd", function()
+		system.ShutDown(0)
+	end)
+
+	init_game()
+	assert(loadfile(normalize_path(path)))(...)
 end)
 
 commands.Add("lua", function(code, ...)
+	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
+
+	_G.AUDIO = true
+
+	event.AddListener("FrameEnd", function()
+		system.ShutDown(0)
+	end)
+
+	init_game()
 	assert(loadstring(code))(...)
 end)
 
-commands.Add("reload", function(path, ...)
-	path = normalize_path(path)
-	assert(loadfile(path))(...)
+commands.Add("game", function()
+	_G.GRAPHICS = true
+	_G.AUDIO = true
+	init_game()
 end)
 
-commands.Add("cli", function(path, ...)
+commands.Add("cli", function()
 	_G.GRAPHICS = false
 	_G.AUDIO = true
-	assert(loadfile("goluwa/run.lua"))()
+	fs.write_file(".running_pid", tostring(process.current:get_id()))
+
+	event.AddListener("FrameEnd", function()
+		fs.remove_file(".running_pid")
+	end)
+
+	init_game()
 end)
 
 commands.Add("renderdoc", function()
@@ -72,56 +178,22 @@ commands.Add("renderdoc", function()
 	local renderdoc = import("goluwa/bindings/renderdoc.lua")
 	renderdoc.init()
 	renderdoc.SetCaptureFilePathTemplate(vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc")
-	assert(loadfile("goluwa/run.lua"))()
+	init_game()
 	logf("[renderdoc] initialized\n")
 end)
 
-local function shutdown_and_exit(code, remove_pid)
-	event.Call("ShutDown")
-
-	if remove_pid then fs.remove_file(".running_pid") end
-
-	os.realexit(code or os.exitcode or 0)
-end
+local function shutdown_and_exit(code, remove_pid) end
 
 return function(...)
-	local argv = {...}
+	local args = {...}
 	return crash_trace.Run(function()
-		if argv[1] then
-			local args = argv
-			local cmd = args[1]
-
-			if cmd == "-e" then
-				cmd = "lua"
-			elseif cmd == "--reload" then
-				cmd = "reload"
-			elseif cmd:ends_with(".lua") then
-				cmd = "run"
-				args = {"run", cmd, unpack(args, 2)}
-			end
-
-			args[1] = cmd
-
-			if cmd == "lua" or cmd == "run" then
-				if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
-
-				_G.AUDIO = true
-				assert(loadfile("goluwa/run.lua"))()
-				event.Call("Initialize")
-				commands.RunArguments(args)
-				event.Call("Update", 0)
-				event.Call("FrameEnd")
-				shutdown_and_exit(os.exitcode or 0)
-			end
-
-			commands.RunArguments(args)
-		else
-			_G.GRAPHICS = true
-			_G.AUDIO = true
-			assert(loadfile("goluwa/run.lua"))()
+		if not args[1] then
+			args[1] = "game"
+		elseif args[1]:ends_with(".lua") then
+			args = {"run", args[1], unpack(args, 2)}
 		end
 
-		fs.write_file(".running_pid", tostring(process.current:get_id()))
+		commands.RunArguments(args)
 		local last_time = system.GetTime()
 		local i = 0
 		event.Call("Initialize")
@@ -129,7 +201,6 @@ return function(...)
 		while system.IsRunning() and not os.exitcode do
 			local time = system.GetTime()
 			local dt = time - (last_time or 0)
-			--if dt > 0.1 then print("LONG FRAME", dt) end
 			system.SetFrameTime(dt)
 			system.SetFrameNumber(i)
 			system.SetElapsedTime(system.GetElapsedTime() + dt)
@@ -140,6 +211,7 @@ return function(...)
 			event.Call("FrameEnd")
 		end
 
-		shutdown_and_exit(os.exitcode, true)
+		event.Call("ShutDown")
+		os.realexit(os.exitcode or 1)
 	end)
 end
