@@ -1,4 +1,4 @@
-local gine = import("goluwa/gmod/gine.lua")
+local gine = import("addons/gmod/lua/gine.lua")
 local vfs = import("goluwa/vfs.lua")
 local prototype = import("goluwa/prototype.lua")
 local repl = import("goluwa/repl.lua")
@@ -20,7 +20,7 @@ env.Vec3 = Vec3
 env.Matrix44 = Matrix44
 env.Ang3 = Ang3
 gine.env = env
-local data = import("goluwa/gmod/" .. (CLIENT and "cl_" or SERVER and "sv_") .. "exported.lua")
+local data = import("addons/gmod/lua/" .. (CLIENT and "cl_" or SERVER and "sv_") .. "exported.lua")
 
 do -- copy standard libraries
 	local function add_lib_copy(name)
@@ -374,10 +374,9 @@ function gine.EnsureMetaTable(name)
 	return gine.env._R[name] or ensure_meta_table(name)
 end
 
-
-vfs.RunFile("goluwa/gmod/libraries/*", gine)
+vfs.RunFile("addons/gmod/lua/libraries/*", gine)
 vfs.RunFile(
-	"goluwa/gmod/libraries/" .. (
+	"addons/gmod/lua/libraries/" .. (
 			CLIENT and
 			"client" or
 			SERVER and

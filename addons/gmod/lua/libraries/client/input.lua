@@ -164,7 +164,7 @@ do
 		gine.default_bindings_rev[cmd] = gine.default_bindings_rev[cmd] or key_name
 	end
 
-	local default_bind_path = "goluwa/gmod/src/garrysmod/garrysmod/scripts/kb_def.lst"
+	local default_bind_path = "addons/gmod/src/garrysmod/garrysmod/scripts/kb_def.lst"
 	local default_bind_data = vfs.Read(default_bind_path)
 
 	if default_bind_data then

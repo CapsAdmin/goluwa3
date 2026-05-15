@@ -3,7 +3,6 @@ local vfs = import("goluwa/vfs.lua")
 import("goluwa/pvars.lua").Initialize()
 import("goluwa/repl.lua").Initialize()
 import("goluwa/filewatcher.lua").Start()
-import("goluwa/gmod/gine.lua")
 
 if _G.GRAPHICS then
 	_G.GRAPHICS_3D = false

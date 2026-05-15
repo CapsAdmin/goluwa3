@@ -4,10 +4,10 @@ _G.SERVER = false
 local gine = library()
 gine.debug = true
 _G.gine = gine
-import.loaded["goluwa/gmod/gine.lua"] = gine
-import("goluwa/gmod/preprocess.lua")
-import("goluwa/gmod/commands.lua")
-import("goluwa/gmod/filewatcher.lua")
+import.loaded["addons/gmod/lua/gine.lua"] = gine
+import("addons/gmod/lua/preprocess.lua")
+import("addons/gmod/lua/commands.lua")
+import("addons/gmod/lua/filewatcher.lua")
 local event = import("goluwa/event.lua")
 local steam = import("goluwa/steam/steam.lua")
 local system = import("goluwa/system.lua")
@@ -182,7 +182,9 @@ gine.package_loader_dirs = gine.package_loader_dirs or {}
 
 do
 	local glua_source_repo = "https://github.com/Facepunch/garrysmod.git"
-	local glua_source_checkout_path = "goluwa/gmod/src/garrysmod/"
+	local addon_root_path = "addons/gmod/"
+	local addon_lua_root_path = addon_root_path .. "lua/"
+	local glua_source_checkout_path = addon_root_path .. "src/garrysmod/"
 
 	local function add_unique_path(tbl, path)
 		if type(path) ~= "string" or path == "" then return end
@@ -240,11 +242,11 @@ do
 	end
 
 	local function get_glua_source_checkout_root()
-		local gmod_root = R("goluwa/gmod/", true)
+		local gmod_root = R(addon_root_path, true)
 
 		if not gmod_root then return nil end
 
-		return gmod_root .. glua_source_checkout_path:match("^goluwa/gmod/(.+)$")
+		return gmod_root .. glua_source_checkout_path:match("^addons/gmod/(.+)$")
 	end
 
 	local function get_glua_source_overlay_root()
@@ -274,7 +276,7 @@ do
 	function gine.EnsureGLuaSourceClone()
 		local checkout_root = get_glua_source_checkout_root()
 
-		if not checkout_root then return nil, "failed to resolve goluwa/gmod/" end
+		if not checkout_root then return nil, "failed to resolve addons/gmod/" end
 
 		local overlay_root = checkout_root .. "garrysmod/"
 
@@ -507,14 +509,14 @@ function gine.IsWrapperPath(path)
 	local lower_path = path:lower()
 
 	if
-		lower_path:find("/goluwa/gmod/src/garrysmod/", nil, true) or
-		lower_path:find("goluwa/gmod/src/garrysmod/", nil, true)
+		lower_path:find("/addons/gmod/src/garrysmod/", nil, true) or
+		lower_path:find("addons/gmod/src/garrysmod/", nil, true)
 	then
 		return false
 	end
 
-	return lower_path:find("/goluwa/gmod/", nil, true) or
-		lower_path:find("goluwa/gmod/", nil, true)
+	return lower_path:find("/addons/gmod/", nil, true) or
+		lower_path:find("addons/gmod/", nil, true)
 end
 
 function gine.IsGLuaPath(path, gmod_dir_only)
@@ -603,9 +605,9 @@ function gine.Initialize(gamemode, skip_addons)
 		-- figure out the base gmod folder
 		gine.dir = R("garrysmod_dir.vpk"):match("(.+/)")
 		gine.AddGLuaPath(gine.dir)
-		import("goluwa/gmod/material.lua")
+		import("addons/gmod/lua/material.lua")
 		-- setup engine functions
-		import("goluwa/gmod/environment.lua")
+		import("addons/gmod/lua/environment.lua")
 		gine.AddPackageLoaderDir(gine.dir .. "lua/includes/modules")
 		-- include and init files in the right order
 		gine.init = true
