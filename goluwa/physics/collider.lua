@@ -1,7 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local prototype = import("goluwa/prototype.lua")
-debug.trace()
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")

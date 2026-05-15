@@ -1,28 +1,45 @@
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Panel = import("goluwa/ecs/panel.lua")
-local render = import("goluwa/render/render.lua")
-local render3d = import("goluwa/render3d/render3d.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
 local commands = import("goluwa/commands.lua")
 local gine = import("goluwa/gmod/gine.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics.lua")
+local physics
+local render
+local render3d
+local render2d
 local test_render = {}
 local width = 512
 local height = 512
 
-function test_render.Init2D()
+function test_render.Init()
 	if not test_render.init then
+		render = import("goluwa/render/render.lua")
 		render.Initialize{headless = true, width = width, height = height}
 		test_render.init = true
 	end
+end
+
+function test_render.Init2D()
+	test_render.Init()
 
 	if not test_render.render2d_init then
+		render2d = import("goluwa/render2d/render2d.lua")
 		render2d.Initialize()
 		test_render.render2d_init = true
+	end
+end
+
+function test_render.Init3D()
+	test_render.Init()
+
+	if not render3d then render3d = import("goluwa/render3d/render3d.lua") end
+
+	if not test_render.render3d_init then
+		render3d.Initialize()
+		test_render.render3d_init = true
 	end
 end
 
@@ -77,17 +94,7 @@ local function draw_3d_func()
 end
 
 function test_render.Draw3D(cb)
-	if not test_render.init then
-		render.Initialize{headless = true, width = width, height = height}
-		test_render.init = true
-	end
-
-	if not test_render.render3d_init then
-		render3d.Initialize()
-		test_render.render3d_init = true
-	end
-
-	local T = import("goluwa/helpers/test.lua")
+	test_render.Init3D()
 	render3d.ResetState()
 	cb(draw_3d_func)
 	local found = false
@@ -108,7 +115,11 @@ function test_render.Draw3D(cb)
 		end
 	end
 
-	if physics and physics.ResetState then physics.ResetState() end
+	if not physics then
+		physics = import("goluwa/physics.lua")
+	elseif physics.ResetState then
+		physics.ResetState()
+	end
 
 	if found then error("Not all entities were removed after test!") end
 end
