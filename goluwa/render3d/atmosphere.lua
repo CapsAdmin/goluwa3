@@ -10,7 +10,8 @@ local PLANET_RADIUS = 6371.0
 local ATMOSPHERE_RADIUS = 6471.0
 local CAMERA_METERS_TO_KM = 0.001
 local SEA_LEVEL_EYE_HEIGHT = 1.75 * CAMERA_METERS_TO_KM
-local CAMERA_TEST_MULTIPLIER = 1000.0
+local DEFAULT_OCEAN_LEVEL = 0
+local CAMERA_TEST_MULTIPLIER = 1 --000.0
 local SKY_VIEW_LUT_WIDTH = 1024
 local SKY_VIEW_LUT_HEIGHT = 512
 local SKY_VIEW_STEPS = 32
@@ -379,6 +380,22 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		);
 	}
 
+	bool ray_hits_planet(vec3 dir, vec3 cam_pos) {
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
+		vec2 ground_hit = ray_sphere_intersect(ray_origin, normalize(dir), PLANET_RADIUS);
+		return ground_hit.x > 0.0;
+	}
+
+	vec3 get_probe_ground_occlusion_color(vec3 dir, vec3 sun_dir, vec3 cam_pos) {
+		vec3 up = normalize(get_atmosphere_camera_origin(cam_pos));
+		float view_down = clamp(-dot(normalize(dir), up), 0.0, 1.0);
+		float horizon_weight = pow(1.0 - view_down, 2.0);
+		vec3 ambient = get_ambient_color(sun_dir);
+		vec3 deep_ground = ambient * 0.08;
+		vec3 horizon_ground = ambient * 0.35;
+		return mix(deep_ground, horizon_ground, horizon_weight);
+	}
+
 	vec3 sample_transmittance_lut(int transmittance_texture_index, vec3 sample_point, vec3 light_dir) {
 		if (transmittance_texture_index == -1) return vec3(1.0);
 		vec2 uv = get_transmittance_lut_uv(sample_point, light_dir);
@@ -556,6 +573,18 @@ function atmosphere.GetStarsTexture()
 	return atmosphere.stars_texture
 end
 
+function atmosphere.SetOceanLevel(level)
+	atmosphere.ocean_level = level
+end
+
+function atmosphere.GetOceanLevel()
+	if atmosphere.ocean_level == nil then
+		atmosphere.ocean_level = DEFAULT_OCEAN_LEVEL
+	end
+
+	return atmosphere.ocean_level
+end
+
 local function destroy_transmittance_texture()
 	if atmosphere.transmittance_texture and atmosphere.transmittance_texture.Remove then
 		atmosphere.transmittance_texture:Remove()
@@ -659,20 +688,32 @@ function atmosphere.GetGLSLCode()
 	return atmosphere_glsl .. import("goluwa/render3d/atmospheres/night_sky.lua")
 end
 
+function atmosphere.GetAerialPerspectiveGLSLCode()
+	return atmosphere_glsl
+end
+
 function atmosphere.GetGLSLMainCode(
 	dir_var,
 	sun_dir_var,
 	cam_pos_var,
 	stars_texture_index_var,
 	sky_view_texture_index_var,
-	transmittance_texture_index_var
+	transmittance_texture_index_var,
+	planet_occlusion_mode
 )
 	sky_view_texture_index_var = sky_view_texture_index_var or "-1"
 	transmittance_texture_index_var = transmittance_texture_index_var or "-1"
+	local occlusion_color_expr = "vec3(0.0)"
+
+	if planet_occlusion_mode == "probe_ground_ambient" then
+		occlusion_color_expr = "get_probe_ground_occlusion_color(atmos_dir, atmos_sun_dir, " .. cam_pos_var .. ")"
+	end
+
 	return [[
 		{
 			vec3 atmos_dir = normalize(]] .. dir_var .. [[);
 			vec3 atmos_sun_dir = normalize(]] .. sun_dir_var .. [[);
+			bool planet_occluded = ray_hits_planet(atmos_dir, ]] .. cam_pos_var .. [[);
 			vec3 atmosphere_color = sample_sky_view_lut(]] .. sky_view_texture_index_var .. [[, atmos_dir, atmos_sun_dir, ]] .. cam_pos_var .. [[);
 			atmosphere_color += get_sun_disc(atmos_dir, atmos_sun_dir, ]] .. cam_pos_var .. [[, ]] .. transmittance_texture_index_var .. [[);
 			float sun_elevation = atmos_sun_dir.y;
@@ -692,7 +733,11 @@ function atmosphere.GetGLSLMainCode(
 				space_color = get_stars(atmos_dir, atmos_sun_dir);
 			}
 
-			sky_color_output = mix(space_color, atmosphere_color, blend_factor);
+			if (planet_occluded) {
+				sky_color_output = atmosphere_color + ]] .. occlusion_color_expr .. [[;
+			} else {
+				sky_color_output = mix(space_color, atmosphere_color, blend_factor);
+			}
 		}
 	]]
 end

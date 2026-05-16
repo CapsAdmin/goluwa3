@@ -51,7 +51,29 @@ do
 			end,
 		},
 	}
-	local debug_modes = {"none", "normals", "irradiance", "ambient_occlusion", "ssr", "probe"}
+	local debug_modes = {
+		"none",
+		"normals",
+		"irradiance",
+		"ambient_occlusion",
+		"ssr",
+		"probe",
+		"ocean_raw",
+		"ocean_resolve",
+		"ocean_distance",
+		"ocean_ssr",
+		"ocean_blend",
+		"ocean_reprojection",
+		"ocean_no_ssr",
+	}
+	local ocean_debug_modes = {
+		ocean_raw = true,
+		ocean_resolve = true,
+		ocean_distance = true,
+		ocean_ssr = true,
+		ocean_blend = true,
+		ocean_reprojection = true,
+	}
 	render3d.debug_mode = render3d.debug_mode or 1
 
 	function render3d.SetDebugMode(mode_name)
@@ -76,6 +98,14 @@ do
 
 	function render3d.GetDebugModeName()
 		return debug_modes[render3d.debug_mode]
+	end
+
+	function render3d.IsOceanDebugMode(mode_name)
+		return ocean_debug_modes[mode_name or render3d.GetDebugModeName()] or false
+	end
+
+	function render3d.IsOceanSSRDisabled(mode_name)
+		return (mode_name or render3d.GetDebugModeName()) == "ocean_no_ssr"
 	end
 
 	render3d.debug_mode_glsl = [[
@@ -203,6 +233,7 @@ function render3d.Initialize()
 		import("goluwa/render3d/passes/gbuffer.lua"),
 		import("goluwa/render3d/passes/ssr.lua"),
 		import("goluwa/render3d/passes/lighting.lua"),
+		import("goluwa/render3d/passes/ocean.lua"),
 		import("goluwa/render3d/passes/forward_overlay.lua"),
 		--import("goluwa/render3d/passes/smaa.lua"),
 		import("goluwa/render3d/passes/blit.lua"),
@@ -252,6 +283,8 @@ function render3d.ResetState()
 	render3d.forward_overlay_clip_plane_origin = Vec3(0, 0, 0)
 	render3d.forward_overlay_clip_plane_normal = Vec3(0, 0, 1)
 	render3d.environment_texture = nil
+	render3d.ocean_enabled = true
+	render3d.ocean_level = nil
 	render3d.debug_cascade_colors = false
 	render3d.debug_mode = 1
 end
@@ -445,6 +478,30 @@ end
 
 function render3d.GetEnvironmentTexture()
 	return render3d.environment_texture
+end
+
+function render3d.SetOceanEnabled(enabled)
+	render3d.ocean_enabled = enabled ~= false
+end
+
+function render3d.IsOceanEnabled()
+	if render3d.ocean_enabled == nil then return true end
+
+	return render3d.ocean_enabled == true
+end
+
+function render3d.SetOceanLevel(level)
+	render3d.ocean_level = level
+end
+
+function render3d.GetOceanLevelOverride()
+	return render3d.ocean_level
+end
+
+function render3d.GetOceanLevel()
+	if render3d.ocean_level ~= nil then return render3d.ocean_level end
+
+	return atmosphere.GetOceanLevel()
 end
 
 do -- mesh

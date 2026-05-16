@@ -54,6 +54,62 @@ local face_angles = {
 	Deg3(0, 180 + 180, 0), -- -Z
 }
 
+local function initialize_probe_layouts(cmd, probe)
+	if not probe then return end
+
+	cmd:PipelineBarrier{
+		srcStage = "top_of_pipe",
+		dstStage = "fragment_shader",
+		imageBarriers = {
+			{
+				image = probe.source_cubemap:GetImage(),
+				oldLayout = "undefined",
+				newLayout = "shader_read_only_optimal",
+				srcAccessMask = "none",
+				dstAccessMask = "shader_read",
+				base_array_layer = 0,
+				layer_count = 6,
+				base_mip_level = 0,
+				level_count = probe.source_cubemap.mip_map_levels,
+			},
+		},
+	}
+	cmd:PipelineBarrier{
+		srcStage = "top_of_pipe",
+		dstStage = "fragment_shader",
+		imageBarriers = {
+			{
+				image = probe.cubemap:GetImage(),
+				oldLayout = "undefined",
+				newLayout = "shader_read_only_optimal",
+				srcAccessMask = "none",
+				dstAccessMask = "shader_read",
+				base_array_layer = 0,
+				layer_count = 6,
+				base_mip_level = 0,
+				level_count = probe.cubemap.mip_map_levels,
+			},
+		},
+	}
+	cmd:PipelineBarrier{
+		srcStage = "top_of_pipe",
+		dstStage = "fragment_shader",
+		imageBarriers = {
+			{
+				image = probe.depth_cubemap:GetImage(),
+				oldLayout = "undefined",
+				newLayout = "shader_read_only_optimal",
+				srcAccessMask = "none",
+				dstAccessMask = "shader_read",
+				base_array_layer = 0,
+				layer_count = 6,
+				base_mip_level = 0,
+				level_count = 1,
+			},
+		},
+	}
+end
+
 local function remove_probe_resources(probe)
 	if not probe then return end
 
@@ -214,28 +270,29 @@ function lightprobes.CreateSceneProbe(position, update_mode, radius)
 end
 
 function lightprobes.Initialize()
-	if lightprobes.environment_probe and lightprobes.environment_probe.cubemap then
-		render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap)
-		return
+	lightprobes.CreatePipelines()
+
+	if lightprobes.environment_probe and HOTRELOAD then
+		remove_probe_resources(lightprobes.environment_probe)
+		lightprobes.environment_probe = nil
 	end
 
-	lightprobes.CreatePipelines()
-	lightprobes.InitializeCubemapLayouts()
-
 	do
-		if lightprobes.environment_probe then
-			remove_probe_resources(lightprobes.environment_probe)
-			lightprobes.environment_probe = nil
+		if not lightprobes.environment_probe then
+			lightprobes.CreateEnvironmentProbe(Vec3(0, 0, 0))
 		end
 
-		lightprobes.CreateEnvironmentProbe(Vec3(0, 0, 0))
-		lightprobes.camera = Camera3D.New()
+		if not lightprobes.camera then lightprobes.camera = Camera3D.New() end
+
 		lightprobes.camera:SetFOV(math.rad(90))
 		lightprobes.camera:SetViewport(Rect(0, 0, lightprobes.ENVIRONMENT_SIZE, lightprobes.ENVIRONMENT_SIZE))
 		lightprobes.camera:SetNearZ(0.1)
 		lightprobes.camera:SetFarZ(1000)
+		lightprobes.environment_probe.needs_update = true
 		render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap)
 	end
+
+	lightprobes.InitializeCubemapLayouts()
 end
 
 event.AddListener("SpawnProbe", "lightprobes", function(position) --lightprobes.CreateSceneProbe(position)
@@ -245,62 +302,10 @@ end)
 function lightprobes.InitializeCubemapLayouts()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
+	initialize_probe_layouts(cmd, lightprobes.environment_probe)
 
 	for index, probe in pairs(lightprobes.probes) do
-		-- Transition source cubemap to shader_read_only_optimal
-		cmd:PipelineBarrier{
-			srcStage = "top_of_pipe",
-			dstStage = "fragment_shader",
-			imageBarriers = {
-				{
-					image = probe.source_cubemap:GetImage(),
-					oldLayout = "undefined",
-					newLayout = "shader_read_only_optimal",
-					srcAccessMask = "none",
-					dstAccessMask = "shader_read",
-					base_array_layer = 0,
-					layer_count = 6,
-					base_mip_level = 0,
-					level_count = probe.source_cubemap.mip_map_levels,
-				},
-			},
-		}
-		-- Transition output cubemap to shader_read_only_optimal
-		cmd:PipelineBarrier{
-			srcStage = "top_of_pipe",
-			dstStage = "fragment_shader",
-			imageBarriers = {
-				{
-					image = probe.cubemap:GetImage(),
-					oldLayout = "undefined",
-					newLayout = "shader_read_only_optimal",
-					srcAccessMask = "none",
-					dstAccessMask = "shader_read",
-					base_array_layer = 0,
-					layer_count = 6,
-					base_mip_level = 0,
-					level_count = probe.cubemap.mip_map_levels,
-				},
-			},
-		}
-		-- Transition depth cubemap to shader_read_only_optimal
-		cmd:PipelineBarrier{
-			srcStage = "top_of_pipe",
-			dstStage = "fragment_shader",
-			imageBarriers = {
-				{
-					image = probe.depth_cubemap:GetImage(),
-					oldLayout = "undefined",
-					newLayout = "shader_read_only_optimal",
-					srcAccessMask = "none",
-					dstAccessMask = "shader_read",
-					base_array_layer = 0,
-					layer_count = 6,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
+		initialize_probe_layouts(cmd, probe)
 	end
 
 	cmd:End()
@@ -520,7 +525,8 @@ function lightprobes.CreatePipelines()
 					"fragment.camera_position.xyz",
 					"fragment.stars_texture_index",
 					"fragment.atmosphere_sky_view_texture_index",
-					"fragment.atmosphere_transmittance_texture_index"
+					"fragment.atmosphere_transmittance_texture_index",
+					"probe_ground_ambient"
 				) .. [[
                     // Clamp sky to prevent infinities
                     sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));

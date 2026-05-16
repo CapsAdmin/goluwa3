@@ -3,7 +3,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 
-local function get_source_texture(self, block, key)
+local function get_scene_source_texture(self, block, key)
 	-- SMAA resolve can be re-enabled explicitly once the post-AA regression is fixed.
 	if
 		render3d.use_smaa_resolve and
@@ -15,6 +15,21 @@ local function get_source_texture(self, block, key)
 		return
 	end
 
+	if
+		render3d.pipelines.ocean_resolve and
+		render3d.pipelines.ocean_resolve.framebuffers
+	then
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		block[key] = self:GetTextureIndex(render3d.pipelines.ocean_resolve:GetFramebuffer(current_idx):GetAttachment(1))
+		return
+	end
+
+	if render3d.pipelines.ocean and render3d.pipelines.ocean.framebuffers then
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1))
+		return
+	end
+
 	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 		block[key] = -1
 		return
@@ -22,6 +37,24 @@ local function get_source_texture(self, block, key)
 
 	local current_idx = system.GetFrameNumber() % 2 + 1
 	block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
+end
+
+local function get_blit_source_texture(self, block, key)
+	if
+		render3d.IsOceanDebugMode() and
+		render3d.pipelines.ocean_debug and
+		render3d.pipelines.ocean_debug.framebuffers
+	then
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		block[key] = self:GetTextureIndex(render3d.pipelines.ocean_debug:GetFramebuffer(current_idx):GetAttachment(1))
+		return
+	end
+
+	get_scene_source_texture(self, block, key)
+end
+
+local function get_is_debug_view(_, block, key)
+	block[key] = render3d.IsOceanDebugMode() and 1 or 0
 end
 
 local r = {
@@ -35,7 +68,7 @@ local r = {
 				{
 					name = "extract",
 					block = {
-						{"source_tex", "int", get_source_texture},
+						{"source_tex", "int", get_scene_source_texture},
 					},
 				},
 			},
@@ -231,7 +264,7 @@ table.insert(
 				{
 					name = "lum",
 					block = {
-						{"source_tex", "int", get_source_texture},
+						{"source_tex", "int", get_scene_source_texture},
 						{
 							"prev_luma_tex",
 							"int",
@@ -293,7 +326,8 @@ table.insert(
 				{
 					name = "blit",
 					block = {
-						{"source_tex", "int", get_source_texture},
+						{"source_tex", "int", get_blit_source_texture},
+						{"is_debug_view", "int", get_is_debug_view},
 						{
 							"bloom_tex",
 							"int",
@@ -401,6 +435,17 @@ table.insert(
 					}
 					
 					vec3 col = texture(TEXTURE(blit.source_tex), in_uv).rgb;
+					if (blit.is_debug_view == 1) {
+						col = clamp(col, vec3(0.0), vec3(1.0));
+
+						if (blit.requires_manual_gamma == 1) {
+							col = LinearToSRGB(col);
+						}
+
+						frag_color = vec4(col, 1.0);
+						return;
+					}
+
 					vec3 bloom = vec3(0.0);
 					if (blit.bloom_tex != -1) {
 						bloom = texture(TEXTURE(blit.bloom_tex), in_uv).rgb;
@@ -447,6 +492,12 @@ table.insert(
 					if (blit.requires_manual_gamma == 1) {
 						col = LinearToSRGB(col);
 					}
+
+					vec2 vignette_uv = in_uv * 2.0 - 1.0;
+					float aspect = float(textureSize(TEXTURE(blit.source_tex), 0).x) / float(textureSize(TEXTURE(blit.source_tex), 0).y);
+					vignette_uv.x *= aspect;
+					float vignette = smoothstep(4.0, 0.6, length(vignette_uv));
+					col *= vignette;
 					
 					frag_color = vec4(col, 1.0);
 				}

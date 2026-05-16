@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local ibl = import("goluwa/render3d/ibl.lua")
 
 local function get_primary_sun_direction()
 	local lights = render3d.GetLights()
@@ -339,50 +340,11 @@ return {
 			}
 
 			#define saturate(x) clamp(x, 0.0, 1.0)
+			]] .. ibl.GetBRDFGLSLCode() .. [[
 
-            float pow5(float x) {
-                float x2 = x * x;
-                return x2 * x2 * x;
-            }
+			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
-            float D_GGX(float roughness, float NoH) {
-                float oneMinusNoHSquared = 1.0 - NoH * NoH;
-                float a = NoH * roughness;
-                float k = roughness / (oneMinusNoHSquared + a * a);
-                float d = k * (k * (1.0 / PI));
-                return d;
-            }
-
-            float V_SmithGGXCorrelated(float roughness, float NoV, float NoL) {
-                float a2 = roughness * roughness;
-                float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
-                float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
-                float v = 0.5 / (lambdaV + lambdaL);
-                return v;
-            }
-
-            vec3 F_Schlick(const vec3 f0, float VoH) {
-                float f = pow(1.0 - VoH, 5.0);
-                return f + f0 * (1.0 - f);
-            }
-
-            vec3 F_SchlickRoughness(vec3 f0, float NdotV, float roughness) {
-                float f = pow(1.0 - NdotV, 5.0);
-                return f0 + (max(vec3(1.0 - roughness), f0) - f0) * f;
-            }
-
-            float Fd_Lambert() {
-                return 1.0 / PI;
-            }
-
-            // Approximate BRDF integration (Karis/Epic Games approximation)
-            vec2 envBRDFApprox(float NdotV, float roughness) {
-                vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-                vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-                vec4 r = roughness * c0 + c1;
-                float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
-                return vec2(-1.04, 1.04) * a004 + r.zw;
-            }
+			]] .. ibl.GetReflectionGLSLCode() .. [[
 
 			// Cascade debug colors
 			const vec3 CASCADE_COLORS[4] = vec3[4](
@@ -446,20 +408,7 @@ return {
 				return shadow_val / 9.0;
 			}
 
-			vec3 parallax_sphere(vec3 R, vec3 ray_origin, float sphere_radius) {
-				float b = dot(ray_origin, R);
-				float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
-				float discriminant = b * b - c;
-				if (discriminant >= 0.0) {
-					float t = -b + sqrt(discriminant);
-					return normalize(ray_origin + t * R);
-				}
-				return R;
-			}
-
-
-
-			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex, float roughness) {
+			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex) {
 				const int MAX_STEPS = 8;
 				float t_min = 0.0;
 				float t_max = sphere_radius * 2.0;
@@ -472,8 +421,6 @@ return {
 					float ray_dist = length(ray_pos);
 
 					// Sample linearized depth from cubemap (distance from probe center)
-					float max_mip = float(textureQueryLevels(CUBEMAP(depth_tex)) - 1);
-
 					float stored_depth = textureLod(CUBEMAP(depth_tex), ray_dir, 0).r;
 
 					if (ray_dist < stored_depth) {
@@ -486,23 +433,11 @@ return {
 				return normalize(ray_origin + t_max * R);
 			}
 
-			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				vec3 R = reflect(-V, normal);
-				R = mix(R, normal, roughness * roughness);
+			vec3 get_environment_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
+				vec3 raw_R = reflect(-V, normal);
+				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 
-				vec3 global_env = vec3(0.0);
-				int global_tex_idx = lighting_data.env_tex;
-				if (global_tex_idx != -1) {
-					float max_mip = float(textureQueryLevels(CUBEMAP(global_tex_idx)) - 1);
-					global_env = textureLod(CUBEMAP(global_tex_idx), R, roughness * max_mip).rgb;
-				}
-
-				// Find the best probe based on depth accuracy
-				int best_probe = -1;
-				float best_score = -1.0;
-				float best_depth_diff = 99999.0;
-				vec3 best_probe_to_point;
-				float best_sphere_radius;
+				vec3 global_env = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
 
 				vec3 probes_env = vec3(0.0);
 				float total_weight = 0.0;
@@ -538,24 +473,24 @@ return {
 						float weight = depth_weight * edge_weight;
 
 						if (weight > 0.001) {
-							vec3 corrected_R = parallax_depth(R, probe_to_point, sphere_radius, depth_tex, roughness);
-							float max_mip = float(textureQueryLevels(CUBEMAP(color_tex)) - 1);
-							probes_env += textureLod(CUBEMAP(color_tex), corrected_R, roughness * max_mip).rgb * weight;
+							vec3 corrected_R = parallax_depth(R, probe_to_point, sphere_radius, depth_tex);
+							probes_env += sample_environment_specular(color_tex, corrected_R, corrected_R, roughness) * weight;
 							total_weight += weight;
 						}
 					}
 				}
 
-				vec3 env = mix(global_env, probes_env / max(total_weight, 0.0001), min(total_weight, 1.0));
+				return blend_environment_sources(global_env, probes_env / max(total_weight, 0.0001), min(total_weight, 1.0));
+			}
 
-				//vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
-				//env = mix(env, ssr.rgb, ssr.a);
-
-				return env;
+			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
+				vec3 env = get_environment_reflection(normal, roughness, V, world_pos);
+				vec4 ssr = get_filtered_ssr_reflection(lighting_data.ssr_tex, in_uv);
+				return combine_reflections(env, ssr, 1.0);
 			}
 
 			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {
-				return get_reflection(normal, 1, V, world_pos);
+				return get_environment_reflection(normal, 1, V, world_pos);
 			}
 
 			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
