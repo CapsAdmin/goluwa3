@@ -18,12 +18,16 @@ META:GetSet("Height", 2)
 META:GetSet("CrouchScale", 0.5)
 META:GetSet("CrouchTransitionTime", 0.05)
 META:GetSet("FlySpeed", 30)
+META:GetSet("FlySpeedRamp", 0.75)
+META:GetSet("FlySpeedMaxMultiplier", 500)
+META:GetSet("WalkMaxLinearSpeed", 240)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self.Owner:EnsureComponent("rigid_body")
 	assert(self.Owner.rigid_body)
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
+	self.fly_speed_multiplier = 1
 	self:OnCameraModeChanged(self.Owner.player_input)
 end
 
@@ -152,6 +156,7 @@ end
 function META:OnCameraModeChanged(mode)
 	local body = self.Owner.rigid_body
 	local camera = self.Owner.camera
+	local input = self.Owner.player_input
 
 	if not body then return end -- too early
 	local radius, height = self:GetDimensions()
@@ -167,17 +172,30 @@ function META:OnCameraModeChanged(mode)
 	if mode == "walk" then
 		body:SetCollisionEnabled(true)
 		body:SetGravityScale(1)
+		body:SetMaxLinearSpeed(self.WalkMaxLinearSpeed)
 		self.Owner.transform:SetPosition(render3d.GetCamera():GetPosition():Copy() - self:GetEyeOffset())
 		body:SynchronizeFromTransform()
 		body.PreviousPosition = body.Position:Copy()
 		camera:SetViewOffset(self:GetEyeOffset())
 	else
+		local max_input_multiplier = 1
+
+		if input then
+			max_input_multiplier = math.max(
+				max_input_multiplier,
+				input.SprintMultiplier or 1,
+				input.SuperMultiplier or 1
+			)
+		end
+
 		body:SetCollisionEnabled(false)
 		body:SetGravityScale(0)
+		body:SetMaxLinearSpeed(self.FlySpeed * self.FlySpeedMaxMultiplier * max_input_multiplier)
 		self.Owner.transform:SetPosition(render3d.GetCamera():GetPosition():Copy())
 		body:SynchronizeFromTransform()
 		body.PreviousPosition = body.Position:Copy()
 		camera:SetViewOffset(Vec3())
+		self.fly_speed_multiplier = 1
 	end
 end
 
@@ -259,6 +277,7 @@ do
 		self:ResetBodyRotation()
 
 		if not state.mouse_trapped then
+			self.fly_speed_multiplier = 1
 			body:SetVelocity(Vec3())
 			body:SetAngularVelocity(Vec3())
 			return
@@ -279,13 +298,28 @@ do
 		end
 
 		local move = forward + right + up
+		local moving = move:GetLength() > 0.0001
+		local sprinting = state.speed_multiplier > 1
 
-		if move:GetLength() > 0.0001 then move = move:GetNormalized() end
+		if moving then
+			move = move:GetNormalized()
+
+			if sprinting then
+				self.fly_speed_multiplier = math.min(
+					self.fly_speed_multiplier * (1 + dt * self.FlySpeedRamp),
+					self.FlySpeedMaxMultiplier
+				)
+			else
+				self.fly_speed_multiplier = 1
+			end
+		else
+			self.fly_speed_multiplier = 1
+		end
 
 		body:SetVelocity(
 			approach_vec(
 				body:GetVelocity():Copy(),
-				move * state.speed_multiplier * self.FlySpeed,
+				move * state.speed_multiplier * self.FlySpeed * self.fly_speed_multiplier,
 				self.Acceleration * dt * 10
 			)
 		)
