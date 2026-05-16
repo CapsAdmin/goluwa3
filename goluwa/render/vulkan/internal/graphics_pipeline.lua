@@ -30,6 +30,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	-- Vertex input state
 	local vertexInputInfo = nil
 	local inputAssembly = nil
+	local tessellationState = nil
 
 	if not isMeshPipeline then
 		local bindingArray = nil
@@ -73,6 +74,14 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			primitiveRestartEnable = config.input_assembly.primitive_restart or 0,
 			flags = 0,
 		}
+
+		if inputAssembly.topology == vulkan.vk.e.VkPrimitiveTopology("patch_list") then
+			config.tessellation = config.tessellation or {}
+			tessellationState = vulkan.vk.s.PipelineTessellationStateCreateInfo{
+				flags = 0,
+				patchControlPoints = config.tessellation.patch_control_points or 3,
+			}
+		end
 	end
 
 	config.viewport = config.viewport or {}
@@ -281,7 +290,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		pStages = shaderStagesArray,
 		pVertexInputState = vertexInputInfo,
 		pInputAssemblyState = inputAssembly,
-		pTessellationState = nil,
+		pTessellationState = tessellationState,
 		pViewportState = viewportState,
 		pRasterizationState = rasterizer,
 		pMultisampleState = multisampling,

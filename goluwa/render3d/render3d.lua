@@ -50,6 +50,13 @@ do
 				block[key] = render3d.camera:GetFarZ()
 			end,
 		},
+		{
+			"debug_camera_position",
+			"vec3",
+			function(self, block, key)
+				render3d.camera:GetPosition():CopyToFloatPointer(block[key])
+			end,
+		},
 	}
 	local debug_modes = {
 		"none",
@@ -153,6 +160,15 @@ render3d.camera_block = {
 		"mat4",
 		function(self, block, key)
 			render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
+		end,
+	},
+	{
+		"render_size",
+		"vec2",
+		function(self, block, key)
+			local size = render.GetRenderImageSize()
+			block[key][0] = size and size.x or 1
+			block[key][1] = size and size.y or 1
 		end,
 	},
 	{
@@ -310,16 +326,28 @@ function render3d.Draw(dt)
 	render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
 end
 
+local function use_tessellated_gbuffer(material)
+	return material and
+		material:GetHeightTexture() and
+		material:GetHeightScale() > 0 and
+		material:GetTessellationFactor() > 1.0 and
+		render3d.pipelines.gbuffer_tess
+end
+
 function render3d.UploadGBufferConstants()
 	if not render3d.pipelines.gbuffer then return end
 
 	local cmd = render.GetCommandBuffer()
-	local double_sided = render3d.GetMaterial():GetDoubleSided()
+	local material = render3d.GetMaterial()
+	local pipeline = use_tessellated_gbuffer(material) and
+		render3d.pipelines.gbuffer_tess or
+		render3d.pipelines.gbuffer
+	local double_sided = material:GetDoubleSided()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
 	-- GBuffer is already bound during geometry submission, so apply cull mode
 	-- directly for the current draw.
 	cmd:SetCullMode(cull_mode)
-	render3d.pipelines.gbuffer:UploadConstants()
+	pipeline:UploadConstants()
 end
 
 function render3d.UploadForwardOverlayConstants()

@@ -62,6 +62,9 @@ local MULTISAMPLING_STATE_KEYS = {
 	sample_shading = true,
 	min_sample_shading = true,
 }
+local TESSELLATION_STATE_KEYS = {
+	patch_control_points = true,
+}
 local COLOR_BLEND_ATTACHMENT_KEYS = {
 	blend = true,
 	src_color_blend_factor = true,
@@ -282,6 +285,11 @@ do
 		"PrimitiveRestart",
 		false,
 		{path = "input_assembly.primitive_restart", validate = "boolean"}
+	)
+	GraphicsPipeline:GetSet(
+		"PatchControlPoints",
+		3,
+		{path = "tessellation.patch_control_points", validate = "integer"}
 	)
 	GraphicsPipeline:GetSet(
 		"PolygonMode",
@@ -942,10 +950,22 @@ local function get_multisampling_state_id(self, multisampling)
 	return finalize_id(self, node, "next_multisampling_state_id")
 end
 
+local function get_tessellation_state_id(self, tessellation)
+	local node = self.tessellation_state_id_root
+
+	if type(tessellation) == "table" then
+		assert_known_keys("tessellation", tessellation, TESSELLATION_STATE_KEYS)
+		node = descend_id_node(node, tessellation.patch_control_points)
+	end
+
+	return finalize_id(self, node, "next_tessellation_state_id")
+end
+
 local function get_pipeline_variant_id(
 	self,
 	signature_id,
 	input_assembly_state_id,
+	tessellation_state_id,
 	multisampling_state_id,
 	rasterizer_state_id,
 	depth_stencil_state_id,
@@ -956,6 +976,7 @@ local function get_pipeline_variant_id(
 	local node = self.pipeline_variant_id_root
 	node = descend_id_node(node, signature_id)
 	node = descend_id_node(node, input_assembly_state_id)
+	node = descend_id_node(node, tessellation_state_id)
 	node = descend_id_node(node, multisampling_state_id)
 	node = descend_id_node(node, rasterizer_state_id)
 	node = descend_id_node(node, depth_stencil_state_id)
@@ -1538,6 +1559,7 @@ local function build_internal_pipeline(vulkan_instance, pipeline_layout, config,
 			vertexBindings = vertex_bindings,
 			vertexAttributes = vertex_attributes,
 			input_assembly = config.input_assembly,
+			tessellation = config.tessellation,
 			rasterizer = config.rasterizer,
 			viewport = config.viewport,
 			scissor = config.scissor,
@@ -1856,6 +1878,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.pipeline_variants = {}
 	self.signature_id_root = {}
 	self.input_assembly_state_id_root = {}
+	self.tessellation_state_id_root = {}
 	self.multisampling_state_id_root = {}
 	self.rasterizer_state_id_root = {}
 	self.depth_stencil_state_id_root = {}
@@ -1865,6 +1888,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.pipeline_variant_id_root = {}
 	self.base_signature_id = get_signature_id(self, self.base_pipeline_signature)
 	self.base_input_assembly_state_id = get_input_assembly_state_id(self)
+	self.base_tessellation_state_id = get_tessellation_state_id(self)
 	self.base_multisampling_state_id = get_multisampling_state_id(self)
 	self.base_rasterizer_state_id = get_rasterizer_state_id(self)
 	self.base_depth_stencil_state_id = get_depth_stencil_state_id(self)
@@ -1875,6 +1899,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self,
 		self.base_signature_id,
 		self.base_input_assembly_state_id,
+		self.base_tessellation_state_id,
 		self.base_multisampling_state_id,
 		self.base_rasterizer_state_id,
 		self.base_depth_stencil_state_id,
@@ -2802,6 +2827,7 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	end
 
 	local input_assembly_state_id = get_input_assembly_state_id(self, static_overrides.input_assembly)
+	local tessellation_state_id = get_tessellation_state_id(self, static_overrides.tessellation)
 	local multisampling_state_id = get_multisampling_state_id(self, static_overrides.multisampling)
 	local rasterizer_state_id = get_rasterizer_state_id(self, static_overrides.rasterizer)
 	local depth_stencil_state_id = get_depth_stencil_state_id(self, static_overrides.depth_stencil)
@@ -2812,6 +2838,7 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 		self,
 		signature_id,
 		input_assembly_state_id,
+		tessellation_state_id,
 		multisampling_state_id,
 		rasterizer_state_id,
 		depth_stencil_state_id,

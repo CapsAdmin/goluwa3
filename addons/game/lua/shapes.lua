@@ -286,7 +286,15 @@ function shapes.Box(config)
 	config = config or {}
 	local size = get(config, "Size") or Vec3(1, 1, 1)
 	local ent = create_entity(config)
-	local material = add_model_asset(ent, BOX_MODEL_PATH, get(config, "Material"), {size = size})
+	local material = add_model_asset(
+		ent,
+		BOX_MODEL_PATH,
+		get(config, "Material"),
+		{
+			size = size,
+			subdivisions = get(config, "Subdivisions") or get(config, "Segments"),
+		}
+	)
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, box_shape, size))
 	return ent, body, material
 end

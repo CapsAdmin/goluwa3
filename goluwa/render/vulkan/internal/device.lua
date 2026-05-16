@@ -236,6 +236,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		enabled_features[0].shaderInt64 = 1
 	end
 
+	if physical_features.tessellationShader == 1 then
+		enabled_features[0].tessellationShader = 1
+	end
+
 	if physical_features.depthClamp == 1 then
 		enabled_features[0].depthClamp = 1
 	end

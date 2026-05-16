@@ -15,6 +15,7 @@ local PBR_MATERIAL_FIELDS = {
 	{type = "texture", name = "Albedo2Texture", getter = "GetAlbedo2Texture"},
 	{type = "texture", name = "NormalTexture", getter = "GetNormalTexture"},
 	{type = "texture", name = "Normal2Texture", getter = "GetNormal2Texture"},
+	{type = "texture", name = "HeightTexture", getter = "GetHeightTexture"},
 	{type = "texture", name = "BlendTexture", getter = "GetBlendTexture"},
 	{
 		type = "texture",
@@ -30,6 +31,10 @@ local PBR_MATERIAL_FIELDS = {
 	{type = "vec4", name = "ColorMultiplier", getter = "GetColorMultiplier"},
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
+	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
+	{type = "float", name = "HeightCenter", getter = "GetHeightCenter"},
+	{type = "int", name = "HeightLayers", getter = "GetHeightLayers"},
+	{type = "float", name = "TessellationFactor", getter = "GetTessellationFactor"},
 	{
 		type = "float",
 		name = "AmbientOcclusionMultiplier",
@@ -46,6 +51,7 @@ local PROBE_MATERIAL_FIELDS = {
 	{type = "texture", name = "Albedo2Texture", getter = "GetAlbedo2Texture"},
 	{type = "texture", name = "NormalTexture", getter = "GetNormalTexture"},
 	{type = "texture", name = "Normal2Texture", getter = "GetNormal2Texture"},
+	{type = "texture", name = "HeightTexture", getter = "GetHeightTexture"},
 	{type = "texture", name = "BlendTexture", getter = "GetBlendTexture"},
 	{
 		type = "texture",
@@ -56,6 +62,10 @@ local PROBE_MATERIAL_FIELDS = {
 	{type = "vec4", name = "ColorMultiplier", getter = "GetColorMultiplier"},
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
+	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
+	{type = "float", name = "HeightCenter", getter = "GetHeightCenter"},
+	{type = "int", name = "HeightLayers", getter = "GetHeightLayers"},
+	{type = "float", name = "TessellationFactor", getter = "GetTessellationFactor"},
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 }
 
@@ -241,31 +251,63 @@ function model_pipeline.BuildPBRSamplingGlsl(model_var)
 	model_var = model_var or "model"
 	return Material.BuildGlslFlags(model_var .. ".Flags") .. [[
 
-			float get_texture_blend() {
+			bool has_heightmap() {
+				return ]] .. model_var .. [[.HeightTexture != -1 && ]] .. model_var .. [[.HeightScale > 0.0;
+			}
+
+			float get_height_sample(vec2 uv) {
+				if (!has_heightmap()) {
+					return 1.0;
+				}
+
+				return texture(TEXTURE(]] .. model_var .. [[.HeightTexture), uv).r;
+			}
+
+			float get_height_centered_sample(vec2 uv) {
+				return get_height_sample(uv) - ]] .. model_var .. [[.HeightCenter;
+			}
+
+			bool use_tessellated_displacement() {
+				return has_heightmap() && ]] .. model_var .. [[.TessellationFactor > 1.0;
+			}
+
+			float get_tessellation_factor() {
+				return clamp(]] .. model_var .. [[.TessellationFactor, 1.0, 64.0);
+			}
+
+			int get_height_layers() {
+				return clamp(]] .. model_var .. [[.HeightLayers, 4, 64);
+			}
+
+			float get_texture_blend_uv(vec2 uv) {
 				if (]] .. model_var .. [[.BlendTexture == -1) {
 					return in_texture_blend;
 				}
 
 				float blend = in_texture_blend;
-				vec2 blend_data = texture(TEXTURE(]] .. model_var .. [[.BlendTexture), in_uv).rg;
+				vec2 blend_data = texture(TEXTURE(]] .. model_var .. [[.BlendTexture), uv).rg;
 				float minb = blend_data.r;
 				float maxb = blend_data.g;
 				blend = clamp((blend - minb) / (maxb - minb + 0.001), 0.0, 1.0);
 				return blend;
 			}
 
-			vec3 get_albedo() {
+			float get_texture_blend() {
+				return get_texture_blend_uv(in_uv);
+			}
+
+			vec3 get_albedo_uv(vec2 uv) {
 				if (]] .. model_var .. [[.AlbedoTexture == -1) {
 					return ]] .. model_var .. [[.ColorMultiplier.rgb;
 				}
 
-				vec3 rgb1 = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), in_uv).rgb;
+				vec3 rgb1 = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
 
 				if (]] .. model_var .. [[.Albedo2Texture != -1) {
-					float blend = get_texture_blend();
+					float blend = get_texture_blend_uv(uv);
 
 					if (blend != 0) {
-						vec3 rgb2 = texture(TEXTURE(]] .. model_var .. [[.Albedo2Texture), in_uv).rgb;
+						vec3 rgb2 = texture(TEXTURE(]] .. model_var .. [[.Albedo2Texture), uv).rgb;
 						rgb1 = mix(rgb1, rgb2, blend);
 					}
 				}
@@ -273,7 +315,11 @@ function model_pipeline.BuildPBRSamplingGlsl(model_var)
 				return rgb1 * ]] .. model_var .. [[.ColorMultiplier.rgb;
 			}
 
-			float get_alpha() {
+			vec3 get_albedo() {
+				return get_albedo_uv(in_uv);
+			}
+
+			float get_alpha_uv(vec2 uv) {
 				if (
 					]] .. model_var .. [[.AlbedoTexture == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
@@ -283,7 +329,11 @@ function model_pipeline.BuildPBRSamplingGlsl(model_var)
 					return ]] .. model_var .. [[.ColorMultiplier.a;
 				}
 
-				return texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), in_uv).a * ]] .. model_var .. [[.ColorMultiplier.a;
+				return texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).a * ]] .. model_var .. [[.ColorMultiplier.a;
+			}
+
+			float get_alpha() {
+				return get_alpha_uv(in_uv);
 			}
 	]]
 end

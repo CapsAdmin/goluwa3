@@ -8,7 +8,7 @@ return {
 		options = options or {}
 		local size = options.size or Vec3(1, 1, 1)
 		local poly = Polygon3D.New()
-		poly:CreateCube(0.5)
+		poly:CreateCube(0.5, 1, options.subdivisions)
 		poly:BuildBoundingBox()
 		poly:Upload()
 		return {

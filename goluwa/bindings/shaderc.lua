@@ -165,9 +165,17 @@ function mod.compile(source, shader_type, entry_point)
 		shader_kind = ffi.C.shaderc_glsl_compute_shader
 	elseif shader_type == "geometry" or shader_type == "geom" then
 		shader_kind = ffi.C.shaderc_glsl_geometry_shader
-	elseif shader_type == "tess_control" or shader_type == "tesc" then
+	elseif
+		shader_type == "tess_control" or
+		shader_type == "tesc" or
+		shader_type == "tessellation_control"
+	then
 		shader_kind = ffi.C.shaderc_glsl_tess_control_shader
-	elseif shader_type == "tess_evaluation" or shader_type == "tese" then
+	elseif
+		shader_type == "tess_evaluation" or
+		shader_type == "tese" or
+		shader_type == "tessellation_evaluation"
+	then
 		shader_kind = ffi.C.shaderc_glsl_tess_evaluation_shader
 	elseif shader_type == "task" or shader_type == "task_ext" then
 		shader_kind = ffi.C.shaderc_glsl_infer_from_source

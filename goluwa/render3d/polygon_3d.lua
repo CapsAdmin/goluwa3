@@ -342,6 +342,20 @@ do -- helpers
 
 			if tan1[i] and tan2[i] and not self.Vertices[i].tangent then
 				self.Vertices[i].tangent = (t - n * n:GetDot(t)):Normalize()
+
+				if false then
+					local tangent = (t - n * n:GetDot(t)):Normalize()
+					local handedness = 1
+
+					if n:Cross(tangent):GetDot(tan2[i]) < 0 then handedness = -1 end
+
+					self.Vertices[i].tangent = {
+						x = tangent.x,
+						y = tangent.y,
+						z = tangent.z,
+						w = handedness,
+					}
+				end
 			end
 		end
 	end
@@ -512,31 +526,96 @@ do -- helpers
 		return output
 	end
 
-	function Polygon3D:CreatePlane(pos, normal, right, up, size_x, size_y, texture_scale)
+	function Polygon3D:CreatePlane(pos, normal, right, up, size_x, size_y, texture_scale, segments_x, segments_y)
 		normal = normal or Vec3(0, 0, 1)
 		right = right or Vec3(1, 0, 0)
 		up = up or Vec3(0, 1, 0)
+		right = right:GetNormalized()
+		up = up:GetNormalized()
+		local tangent = right
+		local handedness = normal:GetCross(tangent):GetDot(up) < 0 and -1 or 1
+		local tangent4 = {x = tangent.x, y = tangent.y, z = tangent.z, w = handedness}
 		size_x = size_x or 1
 		size_y = size_y or 1
 		texture_scale = texture_scale or 1
-		local p1 = pos - right * size_x - up * size_y
-		local p2 = pos + right * size_x - up * size_y
-		local p3 = pos + right * size_x + up * size_y
-		local p4 = pos - right * size_x + up * size_y
-		-- Counter-clockwise winding when viewed from outside (along normal direction)
-		-- Triangle 1: p1 -> p3 -> p2 (reversed to match sphere winding)
-		self:AddVertex{pos = p1, uv = Vec2(0, 0), normal = normal}
-		self:AddVertex{pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal}
-		self:AddVertex{pos = p2, uv = Vec2(texture_scale, 0), normal = normal}
-		-- Triangle 2: p1 -> p4 -> p3 (reversed to match sphere winding)
-		self:AddVertex{pos = p1, uv = Vec2(0, 0), normal = normal}
-		self:AddVertex{pos = p4, uv = Vec2(0, texture_scale), normal = normal}
-		self:AddVertex{pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal}
+		segments_x = math.max(math.floor(segments_x or 1), 1)
+		segments_y = math.max(math.floor(segments_y or 1), 1)
+
+		for ix = 0, segments_x - 1 do
+			local u0 = ix / segments_x
+			local u1 = (ix + 1) / segments_x
+			local x0 = -size_x + u0 * (size_x * 2)
+			local x1 = -size_x + u1 * (size_x * 2)
+
+			for iy = 0, segments_y - 1 do
+				local v0 = iy / segments_y
+				local v1 = (iy + 1) / segments_y
+				local y0 = -size_y + v0 * (size_y * 2)
+				local y1 = -size_y + v1 * (size_y * 2)
+				local p1 = pos + right * x0 + up * y0
+				local p2 = pos + right * x1 + up * y0
+				local p3 = pos + right * x1 + up * y1
+				local p4 = pos + right * x0 + up * y1
+				self:AddVertex{
+					pos = p1,
+					uv = Vec2(u0 * texture_scale, v0 * texture_scale),
+					normal = normal,
+					tangent = tangent4,
+				}
+				self:AddVertex{
+					pos = p3,
+					uv = Vec2(u1 * texture_scale, v1 * texture_scale),
+					normal = normal,
+					tangent = tangent4,
+				}
+				self:AddVertex{
+					pos = p2,
+					uv = Vec2(u1 * texture_scale, v0 * texture_scale),
+					normal = normal,
+					tangent = tangent4,
+				}
+				self:AddVertex{
+					pos = p1,
+					uv = Vec2(u0 * texture_scale, v0 * texture_scale),
+					normal = normal,
+					tangent = tangent4,
+				}
+				self:AddVertex{
+					pos = p4,
+					uv = Vec2(u0 * texture_scale, v1 * texture_scale),
+					normal = normal,
+					tangent = tangent4,
+				}
+				self:AddVertex{
+					pos = p3,
+					uv = Vec2(u1 * texture_scale, v1 * texture_scale),
+					normal = normal,
+					tangent = tangent4,
+				}
+			end
+		end
 	end
 
-	function Polygon3D:CreateCube(size, texture_scale)
+	function Polygon3D:CreateCube(size, texture_scale, subdivisions)
 		size = size or 1
 		texture_scale = texture_scale or 1
+		local segments = {
+			x = 1,
+			y = 1,
+			z = 1,
+		}
+
+		if type(subdivisions) == "number" then
+			local count = math.max(math.floor(subdivisions), 1)
+			segments.x = count
+			segments.y = count
+			segments.z = count
+		elseif type(subdivisions) == "table" then
+			segments.x = math.max(math.floor(subdivisions.x or subdivisions[1] or 1), 1)
+			segments.y = math.max(math.floor(subdivisions.y or subdivisions[2] or segments.x), 1)
+			segments.z = math.max(math.floor(subdivisions.z or subdivisions[3] or segments.x), 1)
+		end
+
 		-- Front face (+Z)
 		self:CreatePlane(
 			Vec3(0, 0, size),
@@ -545,7 +624,9 @@ do -- helpers
 			Vec3(0, 1, 0),
 			size,
 			size,
-			texture_scale
+			texture_scale,
+			segments.x,
+			segments.y
 		)
 		-- Back face (-Z)
 		self:CreatePlane(
@@ -555,7 +636,9 @@ do -- helpers
 			Vec3(0, 1, 0),
 			size,
 			size,
-			texture_scale
+			texture_scale,
+			segments.x,
+			segments.y
 		)
 		-- Top face (+Y)
 		self:CreatePlane(
@@ -565,7 +648,9 @@ do -- helpers
 			Vec3(0, 0, -1),
 			size,
 			size,
-			texture_scale
+			texture_scale,
+			segments.x,
+			segments.z
 		)
 		-- Bottom face (-Y)
 		self:CreatePlane(
@@ -575,7 +660,9 @@ do -- helpers
 			Vec3(0, 0, 1),
 			size,
 			size,
-			texture_scale
+			texture_scale,
+			segments.x,
+			segments.z
 		)
 		-- Right face (+X)
 		self:CreatePlane(
@@ -585,7 +672,9 @@ do -- helpers
 			Vec3(0, 1, 0),
 			size,
 			size,
-			texture_scale
+			texture_scale,
+			segments.z,
+			segments.y
 		)
 		-- Left face (-X)
 		self:CreatePlane(
@@ -595,7 +684,9 @@ do -- helpers
 			Vec3(0, 1, 0),
 			size,
 			size,
-			texture_scale
+			texture_scale,
+			segments.z,
+			segments.y
 		)
 	end
 
@@ -629,8 +720,8 @@ do -- helpers
 				local y4 = radius * math.cos(theta2)
 				local z4 = radius * math.sin(theta2) * math.cos(phi1)
 				-- UV coordinates
-				local u1 = (0.75 - (seg / segments)) * texture_scale
-				local u2 = (0.75 - ((seg + 1) / segments)) * texture_scale
+				local u1 = (seg / segments) * texture_scale
+				local u2 = ((seg + 1) / segments) * texture_scale
 				local v1 = (ring / rings) * texture_scale
 				local v2 = ((ring + 1) / rings) * texture_scale
 				-- Normals (normalized position for a sphere centered at origin)
@@ -639,18 +730,32 @@ do -- helpers
 				local n3 = Vec3(x3, y3, z3):GetNormalized()
 				local n4 = Vec3(x4, y4, z4):GetNormalized()
 
+				local function sphere_tangent(normal)
+					local tangent = Vec3(normal.z, 0, -normal.x)
+
+					if tangent:GetLength() <= 0.0001 then tangent = Vec3(1, 0, 0) end
+
+					tangent = tangent:GetNormalized()
+					return {x = tangent.x, y = tangent.y, z = tangent.z, w = -1}
+				end
+
+				local t1 = sphere_tangent(n1)
+				local t2 = sphere_tangent(n2)
+				local t3 = sphere_tangent(n3)
+				local t4 = sphere_tangent(n4)
+
 				-- First triangle (top-left, top-right, bottom-right)
 				if ring > 0 then -- Skip degenerate triangles at top pole
-					self:AddVertex{pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1}
-					self:AddVertex{pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2}
-					self:AddVertex{pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3}
+					self:AddVertex{pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1, tangent = t1}
+					self:AddVertex{pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2, tangent = t2}
+					self:AddVertex{pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3, tangent = t3}
 				end
 
 				-- Second triangle (top-left, bottom-right, bottom-left)
 				if ring < rings - 1 then -- Skip degenerate triangles at bottom pole
-					self:AddVertex{pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1}
-					self:AddVertex{pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3}
-					self:AddVertex{pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4}
+					self:AddVertex{pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1, tangent = t1}
+					self:AddVertex{pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3, tangent = t3}
+					self:AddVertex{pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4, tangent = t4}
 				end
 			end
 		end

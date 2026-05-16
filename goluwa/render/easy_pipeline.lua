@@ -795,7 +795,15 @@ function EasyPipeline.New(config)
 		uint64_t = 1,
 	}
 	local push_constant_types = {}
-	local possible_stages = {"task_ext", "mesh_ext", "vertex", "fragment", "compute"}
+	local possible_stages = {
+		"task_ext",
+		"mesh_ext",
+		"vertex",
+		"tessellation_control",
+		"tessellation_evaluation",
+		"fragment",
+		"compute",
+	}
 	local push_constant_blocks = {}
 	local push_constant_block_order = {}
 	local push_constant_block_offsets = {}
@@ -1433,16 +1441,10 @@ function EasyPipeline.New(config)
 
 	local uniform_buffer_order = {}
 
-	for stage_name, stage_config in pairs(config) do
-		if
-			type(stage_config) ~= "table" or
-			stage_name == "rasterizer" or
-			stage_name == "color_blend" or
-			stage_name == "multisampling" or
-			stage_name == "depth_stencil"
-		then
-			goto continue
-		end
+	for _, stage_name in ipairs(possible_stages) do
+		local stage_config = get_constant_stage_config(config, stage_name)
+
+		if type(stage_config) ~= "table" then goto continue end
 
 		-- Process uniform buffers
 		if stage_config.uniform_buffers then
@@ -1455,14 +1457,32 @@ function EasyPipeline.New(config)
 
 				-- Auto-assign binding index if not specified
 				if block.binding_index == nil then
-					block.binding_index = next_auto_binding
-					next_auto_binding = next_auto_binding + 1
+					local existing = uniform_buffer_types[block.name]
+
+					if existing then
+						block.binding_index = existing.block.binding_index
+					else
+						block.binding_index = next_auto_binding
+						next_auto_binding = next_auto_binding + 1
+					end
 				end
 
 				block.block = flatten_fields(block.block)
 
 				if not block.block[1] then
 					error("Uniform buffer " .. block.name .. " has no fields!")
+				end
+
+				local existing = uniform_buffer_types[block.name]
+
+				if existing then
+					if existing.block.binding_index ~= block.binding_index then
+						error(
+							"Uniform buffer " .. block.name .. " is declared with conflicting binding indices: " .. tostring(existing.block.binding_index) .. " and " .. tostring(block.binding_index)
+						)
+					end
+
+					goto continue_uniform_buffer
 				end
 
 				local ffi_code = build_ffi_struct("scalar", block.block)
@@ -1498,11 +1518,28 @@ function EasyPipeline.New(config)
 					offsets = {}, -- Tracks offsets used in the current frame
 				}
 				uniform_buffers[block.name] = ubo
+
+				::continue_uniform_buffer::
 			end
 		end
 
 		::continue::
 	end
+
+	table.sort(uniform_buffer_order, function(a, b)
+		local a_block = uniform_buffer_types[a].block
+		local b_block = uniform_buffer_types[b].block
+		local a_set = a_block.set_index or 0
+		local b_set = b_block.set_index or 0
+
+		if a_set ~= b_set then return a_set < b_set end
+
+		if a_block.binding_index ~= b_block.binding_index then
+			return a_block.binding_index < b_block.binding_index
+		end
+
+		return a < b
+	end)
 
 	local function get_glsl_push_constants(stage)
 		local stage_config = config[stage] or
@@ -1820,6 +1857,14 @@ function EasyPipeline.New(config)
 	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 	local bindless_texture_capacity = bindless_descriptor_capacities.textures
 	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
+	local tess_control_outputs = (config.tessellation_control and config.tessellation_control.outputs) or shader_outputs
+	local tess_eval_outputs = (
+			config.tessellation_evaluation and
+			config.tessellation_evaluation.outputs
+		)
+		or
+		tess_control_outputs
+	local final_fragment_inputs = config.tessellation_evaluation and tess_eval_outputs or shader_outputs
 	-- Build shader header and I/O
 	local shader_header = (
 		[[#version 450
@@ -1842,6 +1887,10 @@ function EasyPipeline.New(config)
 
 	local vertex_input = ""
 	local vertex_output = ""
+	local tess_control_input = ""
+	local tess_control_output = ""
+	local tess_eval_input = ""
+	local tess_eval_output = ""
 	local fragment_input = ""
 
 	for i, attr in ipairs(shader_inputs) do
@@ -1850,6 +1899,19 @@ function EasyPipeline.New(config)
 
 	for i, attr in ipairs(shader_outputs) do
 		vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
+		tess_control_input = tess_control_input .. string.format("layout(location = %d) in %s in_%s[];\n", i - 1, attr[2], attr[1])
+	end
+
+	for i, attr in ipairs(tess_control_outputs) do
+		tess_control_output = tess_control_output .. string.format("layout(location = %d) out %s out_%s[];\n", i - 1, attr[2], attr[1])
+		tess_eval_input = tess_eval_input .. string.format("layout(location = %d) in %s in_%s[];\n", i - 1, attr[2], attr[1])
+	end
+
+	for i, attr in ipairs(tess_eval_outputs) do
+		tess_eval_output = tess_eval_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
+	end
+
+	for i, attr in ipairs(final_fragment_inputs) do
 		fragment_input = fragment_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
 	end
 
@@ -1987,6 +2049,46 @@ function EasyPipeline.New(config)
 		)
 	end
 
+	-- Tessellation control stage
+	if config.tessellation_control then
+		local tess_control_code = shader_header .. tess_control_input .. tess_control_output .. (
+				config.tessellation_control.custom_declarations or
+				""
+			) .. get_glsl_push_constants("tessellation_control") .. get_glsl_uniform_buffers("tessellation_control") .. (
+				config.tessellation_control.shader or
+				""
+			)
+		table.insert(
+			shader_stages,
+			{
+				type = "tessellation_control",
+				code = tess_control_code,
+				descriptor_sets = descriptor_sets,
+				push_constants = config.tessellation_control.push_constants and push_constant_info or nil,
+			}
+		)
+	end
+
+	-- Tessellation evaluation stage
+	if config.tessellation_evaluation then
+		local tess_eval_code = shader_header .. tess_eval_input .. tess_eval_output .. (
+				config.tessellation_evaluation.custom_declarations or
+				""
+			) .. get_glsl_push_constants("tessellation_evaluation") .. get_glsl_uniform_buffers("tessellation_evaluation") .. (
+				config.tessellation_evaluation.shader or
+				""
+			)
+		table.insert(
+			shader_stages,
+			{
+				type = "tessellation_evaluation",
+				code = tess_eval_code,
+				descriptor_sets = descriptor_sets,
+				push_constants = config.tessellation_evaluation.push_constants and push_constant_info or nil,
+			}
+		)
+	end
+
 	-- Fragment stage
 	if config.fragment then
 		local fragment_code = shader_header .. fragment_input .. fragment_outputs .. (
@@ -2060,6 +2162,7 @@ function EasyPipeline.New(config)
 			1,
 		shader_stages = shader_stages,
 		Topology = config.Topology or "triangle_list",
+		PatchControlPoints = config.PatchControlPoints or 3,
 		PolygonMode = config.PolygonMode or "fill",
 		CullMode = config.CullMode or "back",
 		FrontFace = config.FrontFace or "counter_clockwise",

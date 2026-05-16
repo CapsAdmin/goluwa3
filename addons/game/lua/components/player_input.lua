@@ -18,7 +18,7 @@ META:GetSet("MinFOV", math.rad(0.1))
 META:GetSet("MaxFOV", math.rad(175))
 META:GetSet("MouseDivisor", 2)
 META:GetSet("SprintMultiplier", 1.75)
-META:GetSet("CrouchMultiplier", 0.45)
+META:GetSet("CrouchMultiplier", 0.1)
 META:GetSet("SuperMultiplier", 3)
 
 function META:SetRotation(rotation)
