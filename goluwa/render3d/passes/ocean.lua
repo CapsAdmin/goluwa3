@@ -207,11 +207,14 @@ return {
 			}
 
 			vec3 get_view_ray(vec2 uv) {
-				vec4 clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
-				vec4 view_pos = ocean_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 world_pos = (ocean_data.inv_view * view_pos).xyz;
-				return normalize(world_pos - ocean_data.camera_position.xyz);
+				vec4 near_clip_pos = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+				vec4 far_clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+				vec4 near_view_pos = ocean_data.inv_projection * near_clip_pos;
+				vec4 far_view_pos = ocean_data.inv_projection * far_clip_pos;
+				near_view_pos /= near_view_pos.w;
+				far_view_pos /= far_view_pos.w;
+				vec3 view_dir = far_view_pos.xyz - near_view_pos.xyz;
+				return normalize(mat3(ocean_data.inv_view) * view_dir);
 			}
 
 			float intersect_ocean_plane(vec3 ray_origin, vec3 ray_dir, float plane_y) {
@@ -222,11 +225,6 @@ return {
 				return t > 0.0 ? t : -1.0;
 			}
 
-			float project_depth(vec3 world_pos) {
-				vec4 clip_pos = ocean_data.projection * (ocean_data.view * vec4(world_pos, 1.0));
-				return clip_pos.z / clip_pos.w;
-			}
-
 			float sea_octave(vec2 uv, float choppy) {
 				uv += noise(uv);
 				vec2 wv = 1.0 - abs(sin(uv));
@@ -235,11 +233,11 @@ return {
 				return pow(1.0 - pow(wv.x * wv.y, 0.65), choppy);
 			}
 
-			float map_water_surface(vec3 p, int steps) {
+			float map_water_surface(vec3 local_p, vec3 camera_origin, int steps) {
 				float freq = SEA_FREQ;
 				float amp = SEA_HEIGHT;
 				float choppy = SEA_CHOPPY;
-				vec2 uv = p.xz;
+				vec2 uv = local_p.xz + camera_origin.xz;
 				uv.x *= 0.75;
 				float h = 0.0;
 				float sea_time = 1.0 + ocean_data.time * 0.8;
@@ -254,24 +252,24 @@ return {
 					choppy = mix(choppy, 1.0, 0.2);
 				}
 
-				return p.y - ocean_data.ocean_level - h * SEA_WAVE_AMOUNT;
+				return local_p.y + camera_origin.y - ocean_data.ocean_level - h * SEA_WAVE_AMOUNT;
 			}
 
-			float height_map_tracing(vec3 ray_origin, vec3 ray_dir, float plane_t, out vec3 hit_pos) {
+			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, out vec3 hit_pos) {
 				if (SEA_WAVE_AMOUNT <= 0.0001) {
-					hit_pos = ray_origin + ray_dir * plane_t;
+					hit_pos = ray_dir * plane_t;
 					return plane_t;
 				}
 
 				float search_radius = clamp(12.0 + abs(ray_dir.y) * 48.0, 8.0, 64.0);
 				float tm = max(plane_t - search_radius, 0.0);
 				float tx = plane_t + search_radius;
-				float hm = map_water_surface(ray_origin + ray_dir * tm, ITER_GEOMETRY);
-				float hx = map_water_surface(ray_origin + ray_dir * tx, ITER_GEOMETRY);
+				float hm = map_water_surface(ray_dir * tm, camera_origin, ITER_GEOMETRY);
+				float hx = map_water_surface(ray_dir * tx, camera_origin, ITER_GEOMETRY);
 
 				if (hm < 0.0) {
 					tm = 0.0;
-					hm = map_water_surface(ray_origin, ITER_GEOMETRY);
+					hm = map_water_surface(vec3(0.0), camera_origin, ITER_GEOMETRY);
 				}
 
 				if (hm * hx > 0.0) return -1.0;
@@ -281,8 +279,8 @@ return {
 
 				for (int i = 0; i < 6; i++) {
 					tmid = mix(tm, tx, hm / (hm - hx));
-					hit_pos = ray_origin + ray_dir * tmid;
-					hmid = map_water_surface(hit_pos, ITER_GEOMETRY);
+					hit_pos = ray_dir * tmid;
+					hmid = map_water_surface(hit_pos, camera_origin, ITER_GEOMETRY);
 
 					if (hmid < 0.0) {
 						tx = tmid;
@@ -295,20 +293,20 @@ return {
 
 				tm = max(tm - 0.5, 0.0);
 				tx = tx + 0.5;
-				hm = map_water_surface(ray_origin + ray_dir * tm, ITER_FRAGMENT);
-				hx = map_water_surface(ray_origin + ray_dir * tx, ITER_FRAGMENT);
+				hm = map_water_surface(ray_dir * tm, camera_origin, ITER_FRAGMENT);
+				hx = map_water_surface(ray_dir * tx, camera_origin, ITER_FRAGMENT);
 
 				if (hm * hx > 0.0) {
 					tm = max(tmid - 1.0, 0.0);
 					tx = tmid + 1.0;
-					hm = map_water_surface(ray_origin + ray_dir * tm, ITER_FRAGMENT);
-					hx = map_water_surface(ray_origin + ray_dir * tx, ITER_FRAGMENT);
+					hm = map_water_surface(ray_dir * tm, camera_origin, ITER_FRAGMENT);
+					hx = map_water_surface(ray_dir * tx, camera_origin, ITER_FRAGMENT);
 				}
 
 				for (int i = 0; i < 8; i++) {
 					tmid = 0.5 * (tm + tx);
-					hit_pos = ray_origin + ray_dir * tmid;
-					hmid = map_water_surface(hit_pos, ITER_FRAGMENT);
+					hit_pos = ray_dir * tmid;
+					hmid = map_water_surface(hit_pos, camera_origin, ITER_FRAGMENT);
 
 					if (hmid < 0.0) {
 						tx = tmid;
@@ -320,19 +318,19 @@ return {
 				}
 
 				tmid = 0.5 * (tm + tx);
-				hit_pos = ray_origin + ray_dir * tmid;
+				hit_pos = ray_dir * tmid;
 
 				return tmid;
 			}
 
-			vec3 get_normal_water(vec3 p, vec3 dist) {
+			vec3 get_normal_water(vec3 local_p, vec3 dist, vec3 camera_origin) {
 				if (SEA_WAVE_AMOUNT <= 0.0001) return vec3(0.0, 1.0, 0.0);
 
 				float eps = max(dot(dist, dist) * (0.1 / 1920.0), 0.02);
-				float center = map_water_surface(p, ITER_FRAGMENT);
+				float center = map_water_surface(local_p, camera_origin, ITER_FRAGMENT);
 				vec3 n;
-				n.x = map_water_surface(vec3(p.x + eps, p.y, p.z), ITER_FRAGMENT) - center;
-				n.z = map_water_surface(vec3(p.x, p.y, p.z + eps), ITER_FRAGMENT) - center;
+				n.x = map_water_surface(vec3(local_p.x + eps, local_p.y, local_p.z), camera_origin, ITER_FRAGMENT) - center;
+				n.z = map_water_surface(vec3(local_p.x, local_p.y, local_p.z + eps), camera_origin, ITER_FRAGMENT) - center;
 				n.y = eps;
 				return normalize(n);
 			}
@@ -436,9 +434,10 @@ return {
 				}
 
 				float scene_depth = get_scene_depth(in_uv);
-				vec3 ray_origin = ocean_data.camera_position.xyz;
+				vec3 camera_origin = ocean_data.camera_position.xyz;
+				vec3 ray_origin = vec3(0.0);
 				vec3 ray_dir = get_view_ray(in_uv);
-				float plane_t = intersect_ocean_plane(ray_origin, ray_dir, ocean_data.ocean_level);
+				float plane_t = intersect_ocean_plane(ray_origin, ray_dir, ocean_data.ocean_level - camera_origin.y);
 
 				if (plane_t <= 0.0) {
 					set_color(vec4(scene_color, -1.0));
@@ -446,8 +445,8 @@ return {
 					return;
 				}
 
-				vec3 ocean_world_pos = vec3(0.0);
-				float ocean_t = height_map_tracing(ray_origin, ray_dir, plane_t, ocean_world_pos);
+				vec3 ocean_local_pos = vec3(0.0);
+				float ocean_t = height_map_tracing(ray_dir, plane_t, camera_origin, ocean_local_pos);
 
 				if (ocean_t <= 0.0) {
 					set_color(vec4(scene_color, -1.0));
@@ -455,16 +454,22 @@ return {
 					return;
 				}
 
-				float ocean_depth = project_depth(ocean_world_pos);
+				vec3 scene_local_pos = vec3(0.0);
+				float scene_t = 1e30;
 
-				if (scene_depth < 1.0 && scene_depth <= ocean_depth + 1e-4) {
-					set_color(vec4(scene_color, -1.0));
-					set_ocean_distance(-1.0);
-					return;
+				if (scene_depth < 1.0) {
+					scene_local_pos = get_world_pos(in_uv, scene_depth) - camera_origin;
+					scene_t = dot(scene_local_pos, ray_dir);
+
+					if (scene_t > 0.0 && scene_t <= ocean_t + 1e-3) {
+						set_color(vec4(scene_color, -1.0));
+						set_ocean_distance(-1.0);
+						return;
+					}
 				}
 
-				vec3 dist = ocean_world_pos - ray_origin;
-				vec3 normal = get_normal_water(ocean_world_pos, dist);
+				vec3 dist = ocean_local_pos;
+				vec3 normal = get_normal_water(ocean_local_pos, dist, camera_origin);
 				if (dot(normal, -ray_dir) < 0.0) normal = -normal;
 				vec3 reflection_dir = reflect(ray_dir, normal);
 				float thickness = SEA_OPTICAL_DEPTH;
@@ -472,12 +477,13 @@ return {
 				vec2 reflection_uv = in_uv;
 
 				if (scene_depth < 1.0) {
-					vec3 scene_world_pos = get_world_pos(in_uv, scene_depth);
-					thickness = max(length(scene_world_pos - ocean_world_pos), 0.0);
+					thickness = max(length(scene_local_pos - ocean_local_pos), 0.0);
 					vec2 refracted_uv = clamp(in_uv + normal.xz * min(thickness * 0.0009, 0.03), vec2(0.001), vec2(0.999));
 					reflection_uv = clamp(in_uv + normal.xz * min(thickness * 0.0007, 0.02), vec2(0.001), vec2(0.999));
 					refracted_scene = get_scene_color(refracted_uv);
 				}
+
+				vec3 ocean_world_pos = ocean_local_pos + camera_origin;
 
 				vec3 view_dir = normalize(-ray_dir);
 				float reflection_weight = mix(0.35, 1.0, pow(1.0 - max(dot(normal, view_dir), 0.0), 2.0));
@@ -615,11 +621,14 @@ return {
 			}
 
 			vec3 get_view_ray(vec2 uv) {
-				vec4 clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
-				vec4 view_pos = ocean_resolve_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 world_pos = (ocean_resolve_data.inv_view * view_pos).xyz;
-				return normalize(world_pos - ocean_resolve_data.camera_position.xyz);
+				vec4 near_clip_pos = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+				vec4 far_clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+				vec4 near_view_pos = ocean_resolve_data.inv_projection * near_clip_pos;
+				vec4 far_view_pos = ocean_resolve_data.inv_projection * far_clip_pos;
+				near_view_pos /= near_view_pos.w;
+				far_view_pos /= far_view_pos.w;
+				vec3 view_dir = far_view_pos.xyz - near_view_pos.xyz;
+				return normalize(mat3(ocean_resolve_data.inv_view) * view_dir);
 			}
 
 			void main() {
@@ -845,11 +854,14 @@ return {
 			}
 
 			vec3 get_view_ray(vec2 uv) {
-				vec4 clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
-				vec4 view_pos = ocean_debug_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 world_pos = (ocean_debug_data.inv_view * view_pos).xyz;
-				return normalize(world_pos - ocean_debug_data.camera_position.xyz);
+				vec4 near_clip_pos = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+				vec4 far_clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+				vec4 near_view_pos = ocean_debug_data.inv_projection * near_clip_pos;
+				vec4 far_view_pos = ocean_debug_data.inv_projection * far_clip_pos;
+				near_view_pos /= near_view_pos.w;
+				far_view_pos /= far_view_pos.w;
+				vec3 view_dir = far_view_pos.xyz - near_view_pos.xyz;
+				return normalize(mat3(ocean_debug_data.inv_view) * view_dir);
 			}
 
 			vec3 visualize_distance(float distance) {
