@@ -95,6 +95,13 @@ float sampleTerrainHeight01(vec2 world_pos) {
 	return clamp(h, 0.0, 1.0);
 }
 
+float sampleTerrainDisplacement01(vec2 world_pos, float h01) {
+	float ripples = sand(world_pos * 0.012);
+	float grain = gradN2D(world_pos * 0.028 + vec2(7.0, -3.0));
+	float detail = mix(ripples, grain, 0.35);
+	return clamp(0.5 + (detail - 0.5) * 0.18, 0.0, 1.0);
+}
+
 vec3 sampleTerrainColorDetail(vec2 world_pos, float elevation, float h01) {
 	float ripples = sand(world_pos * 0.0032);
 	float macro = gradN2D(world_pos * 0.0018 + vec2(5.0, -3.0));
@@ -119,6 +126,15 @@ float sampleTerrainHeight01(vec2 world_pos) {
 	h += max(shelf - 0.72, 0.0) * 0.08;
 	h = pow(clamp(h, 0.0, 1.0), 0.72);
 	return clamp(h, 0.0, 1.0);
+}
+
+float sampleTerrainDisplacement01(vec2 world_pos, float h01) {
+	float rock = gradN2D(world_pos * 0.018) * 0.55 + ridgeNoise(world_pos * 0.026 + vec2(5.0, -8.0)) * 0.45;
+	float cracks = ridgeNoise(world_pos * 0.044 + vec2(-11.0, 14.0));
+	float snow = smoothstep(0.62, 0.94, h01);
+	float detail = mix(rock, cracks, 0.35);
+	detail = mix(detail, 0.5, snow * 0.85);
+	return clamp(0.5 + (detail - 0.5) * 0.16, 0.0, 1.0);
 }
 
 vec3 sampleTerrainColorDetail(vec2 world_pos, float elevation, float h01) {
@@ -206,6 +222,10 @@ end
 
 local function make_height_bake_texture(size, height)
 	return make_bake_texture(size, height, "r32_sfloat")
+end
+
+local function make_displacement_bake_texture(size, height)
+	return make_bake_texture(size, height, "r16g16b16a16_sfloat")
 end
 
 local function get_height01(tex, x, y)
@@ -474,6 +494,31 @@ function ProceduralHeightfield:BuildBoundsAlbedoShader(bounds)
 	return self:BuildAlbedoShader(bounds.min_x, bounds.min_z, bounds.max_x - bounds.min_x)
 end
 
+function ProceduralHeightfield:BuildBoundsHeightShader(bounds)
+	return self:BuildHeightShader(bounds.min_x, bounds.min_z, bounds.max_x - bounds.min_x)
+end
+
+function ProceduralHeightfield:BuildDisplacementShader(chunk_min_x, chunk_min_z, chunk_world_size)
+	chunk_world_size = chunk_world_size or self.ChunkWorldSize
+	return string.format(
+		[[
+		vec2 world_pos = vec2(%.6f, %.6f) + uv * %.6f + vec2(%.6f, %.6f);
+		float h01 = sampleTerrainHeight01(world_pos);
+		float h = sampleTerrainDisplacement01(world_pos, h01);
+		return vec4(h, h, h, 1.0);
+	]],
+		chunk_min_x,
+		chunk_min_z,
+		chunk_world_size,
+		self.SeedOffset.x,
+		self.SeedOffset.y
+	)
+end
+
+function ProceduralHeightfield:BuildBoundsDisplacementShader(bounds)
+	return self:BuildDisplacementShader(bounds.min_x, bounds.min_z, bounds.max_x - bounds.min_x)
+end
+
 function ProceduralHeightfield:BuildNormalShader(chunk_min_x, chunk_min_z, chunk_world_size, texture_size, normal_strength)
 	chunk_world_size = chunk_world_size or self.ChunkWorldSize
 	texture_size = math.max(1, texture_size or 128)
@@ -514,6 +559,22 @@ function ProceduralHeightfield:BuildBoundsNormalShader(bounds, texture_size, nor
 	)
 end
 
+function ProceduralHeightfield:ApplyMaterialDisplacement(material, config, height_shader)
+	local displacement_scale = tonumber(config.displacement_scale) or 0
+
+	if displacement_scale <= 0 then return false end
+
+	local texture_size = config.displacement_texture_size or config.texture_size or 128
+	local height_tex = make_displacement_bake_texture(texture_size)
+	height_tex:Shade(height_shader, {header = self.ShaderHeader})
+	material:SetHeightTexture(height_tex)
+	material:SetHeightScale(displacement_scale)
+	material:SetHeightCenter(config.height_center or 0.5)
+	material:SetHeightLayers(config.height_layers or 24)
+	material:SetTessellationFactor(config.tessellation_factor or 1)
+	return true
+end
+
 function ProceduralHeightfield:CreateChunkMaterial(config, chunk_min_x, chunk_min_z, chunk_world_size, ring_index, config_index)
 	if self:IsDebugRingViewEnabled() then
 		return self:GetOrCreateDebugMaterial(config, ring_index, config_index)
@@ -534,7 +595,14 @@ function ProceduralHeightfield:CreateChunkMaterial(config, chunk_min_x, chunk_mi
 	)
 	local material = Material.New()
 	material:SetAlbedoTexture(albedo_tex)
-	material:SetNormalTexture(normal_tex)
+	local uses_displacement = self:ApplyMaterialDisplacement(
+		material,
+		config,
+		self:BuildDisplacementShader(chunk_min_x, chunk_min_z, chunk_world_size)
+	)
+
+	if not uses_displacement then material:SetNormalTexture(normal_tex) end
+
 	material:SetRoughnessMultiplier(config.roughness or self.Roughness)
 	material:SetMetallicMultiplier(config.metallic or self.Metallic)
 	return material
@@ -560,7 +628,10 @@ function ProceduralHeightfield:CreateBoundsMaterial(config, bounds, ring_index, 
 	)
 	local material = Material.New()
 	material:SetAlbedoTexture(albedo_tex)
-	material:SetNormalTexture(normal_tex)
+	local uses_displacement = self:ApplyMaterialDisplacement(material, config, self:BuildBoundsDisplacementShader(bounds))
+
+	if not uses_displacement then material:SetNormalTexture(normal_tex) end
+
 	material:SetRoughnessMultiplier(config.roughness or self.Roughness)
 	material:SetMetallicMultiplier(config.metallic or self.Metallic)
 	return material

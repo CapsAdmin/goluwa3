@@ -25,6 +25,10 @@ local function CreateTerrainStreamer()
 				mesh_resolution = Vec2() + 128,
 				height_smoothing = 0.6,
 				texture_size = 512,
+				displacement_texture_size = 1024,
+				displacement_scale = 2.5,
+				height_layers = 20,
+				tessellation_factor = 16,
 			},
 			{
 				chunk_world_size = 1536,
@@ -32,6 +36,10 @@ local function CreateTerrainStreamer()
 				cast_shadows = false,
 				mesh_resolution = Vec2() + 56,
 				texture_size = 192,
+				displacement_texture_size = 512,
+				displacement_scale = 0.06,
+				height_layers = 12,
+				tessellation_factor = 4,
 			},
 		},
 		FarTerrain = {
