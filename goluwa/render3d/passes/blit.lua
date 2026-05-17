@@ -40,21 +40,11 @@ local function get_scene_source_texture(self, block, key)
 end
 
 local function get_blit_source_texture(self, block, key)
-	if
-		render3d.IsOceanDebugMode() and
-		render3d.pipelines.ocean_debug and
-		render3d.pipelines.ocean_debug.framebuffers
-	then
-		local current_idx = system.GetFrameNumber() % 2 + 1
-		block[key] = self:GetTextureIndex(render3d.pipelines.ocean_debug:GetFramebuffer(current_idx):GetAttachment(1))
-		return
-	end
-
 	get_scene_source_texture(self, block, key)
 end
 
 local function get_is_debug_view(_, block, key)
-	block[key] = render3d.IsOceanDebugMode() and 1 or 0
+	block[key] = 0
 end
 
 local r = {

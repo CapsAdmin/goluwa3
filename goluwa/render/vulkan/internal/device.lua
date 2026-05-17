@@ -240,6 +240,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		enabled_features[0].tessellationShader = 1
 	end
 
+	if physical_features.fillModeNonSolid == 1 then
+		enabled_features[0].fillModeNonSolid = 1
+	end
+
 	if physical_features.depthClamp == 1 then
 		enabled_features[0].depthClamp = 1
 	end
@@ -376,6 +380,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local device = Device:CreateObject{
 		ptr = ptr,
 		independent_blend = physical_features.independentBlend == 1,
+		fill_mode_non_solid_enabled = physical_features.fillModeNonSolid == 1,
 		has_extended_dynamic_state = has_extended_dynamic_state,
 		has_extended_dynamic_state2 = has_extended_dynamic_state2,
 		has_extended_dynamic_state3 = has_extended_dynamic_state3,

@@ -752,6 +752,20 @@ function CommandBuffer:SetDepthClampEnable(enabled)
 end
 
 function CommandBuffer:SetPolygonMode(polygon_mode)
+	local device = self.command_pool and self.command_pool.device
+
+	if
+		polygon_mode and
+		polygon_mode ~= "fill" and
+		polygon_mode ~= "fill_rectangle_nv" and
+		(
+			not device or
+			not device.fill_mode_non_solid_enabled
+		)
+	then
+		polygon_mode = "fill"
+	end
+
 	if not should_apply_dynamic_state(self, "polygon_mode", polygon_mode or "fill") then
 		return
 	end

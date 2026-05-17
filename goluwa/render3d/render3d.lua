@@ -65,21 +65,7 @@ do
 		"ambient_occlusion",
 		"ssr",
 		"probe",
-		"ocean_raw",
-		"ocean_resolve",
-		"ocean_distance",
-		"ocean_ssr",
-		"ocean_blend",
-		"ocean_reprojection",
-		"ocean_no_ssr",
-	}
-	local ocean_debug_modes = {
-		ocean_raw = true,
-		ocean_resolve = true,
-		ocean_distance = true,
-		ocean_ssr = true,
-		ocean_blend = true,
-		ocean_reprojection = true,
+		"wireframe",
 	}
 	render3d.debug_mode = render3d.debug_mode or 1
 
@@ -107,12 +93,8 @@ do
 		return debug_modes[render3d.debug_mode]
 	end
 
-	function render3d.IsOceanDebugMode(mode_name)
-		return ocean_debug_modes[mode_name or render3d.GetDebugModeName()] or false
-	end
-
-	function render3d.IsOceanSSRDisabled(mode_name)
-		return (mode_name or render3d.GetDebugModeName()) == "ocean_no_ssr"
+	function render3d.IsWireframeDebugMode(mode_name)
+		return (mode_name or render3d.GetDebugModeName()) == "wireframe"
 	end
 
 	render3d.debug_mode_glsl = [[
@@ -344,10 +326,12 @@ function render3d.UploadGBufferConstants()
 		render3d.pipelines.gbuffer
 	local double_sided = material:GetDoubleSided()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
-	-- GBuffer is already bound during geometry submission, so apply cull mode
-	-- directly for the current draw.
-	cmd:SetCullMode(cull_mode)
+	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
 	pipeline:UploadConstants()
+	-- UploadConstants binds the graphics pipeline and reapplies its cached
+	-- dynamic state, so override raster state after the bind for this draw.
+	cmd:SetPolygonMode(polygon_mode)
+	cmd:SetCullMode(cull_mode)
 end
 
 function render3d.UploadForwardOverlayConstants()
@@ -358,6 +342,9 @@ function render3d.UploadForwardOverlayConstants()
 	local double_sided = render3d.GetMaterial():GetDoubleSided()
 	local translucent = material:GetTranslucent()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
+	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
+	render3d.pipelines.forward_overlay:UploadConstants()
+	cmd:SetPolygonMode(polygon_mode)
 	cmd:SetCullMode(cull_mode)
 	cmd:SetColorBlendEnable(0, translucent)
 	cmd:SetColorBlendEquation(
@@ -380,7 +367,6 @@ function render3d.UploadForwardOverlayConstants()
 				alpha_blend_op = "add",
 			}
 	)
-	render3d.pipelines.forward_overlay:UploadConstants()
 end
 
 do
