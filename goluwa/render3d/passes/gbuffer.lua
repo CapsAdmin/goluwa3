@@ -127,6 +127,8 @@ local function build_common_fragment_shader()
 					val = texture(TEXTURE(model.RoughnessTexture), uv).r;
 				} else if (model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(model.MetallicRoughnessTexture), uv).g;
+				} else if (model.TerrainMaterialTexture != -1) {
+					val = dot(get_terrain_material_weights_uv(uv), model.TerrainLayerRoughness);
 				} else {
 					val = model.RoughnessMultiplier;
 					val = clamp(val, 0.05, 0.95);
@@ -165,6 +167,10 @@ local function build_common_fragment_shader()
 
 			float get_ao(vec2 uv) {
 				if (model.AmbientOcclusionTexture == -1) {
+					if (model.TerrainMaterialTexture != -1) {
+						return dot(get_terrain_material_weights_uv(uv), model.TerrainLayerAmbientOcclusion) * model.AmbientOcclusionMultiplier;
+					}
+
 					return 1.0 * model.AmbientOcclusionMultiplier;
 				}
 
@@ -251,7 +257,7 @@ local function build_ssdm_fragment_shader()
 				compute_translucency_and_discard(alpha);
 
 				set_alpha(alpha);
-				set_albedo(get_albedo_uv(displacement.uv));
+				set_albedo(get_albedo_world(displacement.uv, displacement.world_pos));
 				set_normal(get_normal(displacement.uv, tbn));
 				set_metallic(get_metallic(displacement.uv));
 				set_roughness(get_roughness(displacement.uv));
@@ -382,7 +388,7 @@ local function build_tessellation_fragment_shader()
 				compute_translucency_and_discard(alpha);
 
 				set_alpha(alpha);
-				set_albedo(get_albedo_uv(in_uv));
+				set_albedo(get_albedo_world(in_uv, in_position));
 				set_normal(get_normal(in_uv, tbn));
 				set_metallic(get_metallic(in_uv));
 				set_roughness(get_roughness(in_uv));

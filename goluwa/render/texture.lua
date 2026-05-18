@@ -12,6 +12,7 @@ local prototype = import("goluwa/prototype.lua")
 local Texture = prototype.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
+local shade_pipeline_cache = {}
 local DEFAULT_SAMPLER_ANISOTROPY = 16
 local sampler_config_keys = {
 	"min_filter",
@@ -1237,6 +1238,9 @@ function Texture:Shade(glsl, extra_config)
 	if not self.image then error("Cannot shade: texture has no image") end
 
 	extra_config = extra_config or {}
+	local fragment_push_constants = extra_config.fragment_push_constants
+	local fragment_push_constant_size = fragment_push_constants and fragment_push_constants.size or 0
+	local face_push_constant_offset = fragment_push_constant_size > 0 and fragment_push_constant_size or 0
 
 	if glsl:find("vec4 shade") then
 
@@ -1276,7 +1280,8 @@ function Texture:Shade(glsl, extra_config)
 	-- Create command pool and buffer for this operation
 	local command_pool = render.GetCommandPool()
 	local cmd = command_pool:AllocateCommandBuffer()
-	local vertex_code = [[
+	local vertex_code = (
+		[[
 		#version 450
 
 		// Full-screen triangle
@@ -1290,7 +1295,7 @@ function Texture:Shade(glsl, extra_config)
 		layout(location = 1) out vec3 frag_dir;
 
 		layout(push_constant) uniform Constants {
-			int face;
+			layout(offset = %d) int face;
 		} pc;
 
 		vec3 get_cube_dir(vec2 uv, int face) {
@@ -1311,13 +1316,21 @@ function Texture:Shade(glsl, extra_config)
 			frag_dir = get_cube_dir(pos, pc.face);
 		}
 	]]
+	):format(face_push_constant_offset)
 	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 	local bindless_texture_capacity = bindless_descriptor_capacities.textures
 	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
+	local scalar_layout_prelude = ""
+
+	if (extra_config.custom_declarations or ""):find("layout%(push_constant,%s*scalar%)") then
+		scalar_layout_prelude = "#extension GL_EXT_scalar_block_layout : require\n"
+	end
+
 	local bindless_shader_prelude = (
 		[[
 							#version 450
 							#extension GL_EXT_nonuniform_qualifier : require
+							%s
 
 							layout(binding = 0) uniform sampler2D textures[%d];
 							layout(binding = 1) uniform samplerCube cubemaps[%d];
@@ -1327,28 +1340,11 @@ function Texture:Shade(glsl, extra_config)
 							layout(location = 0) out vec4 out_color;
 
 							]]
-	):format(bindless_texture_capacity, bindless_cubemap_capacity)
-	-- Create graphics pipeline
-	local pipeline = render.CreateGraphicsPipeline{
-		ColorFormat = self.format,
-		RasterizationSamples = "1",
-		Topology = "triangle_list",
-		PrimitiveRestart = false,
-		shader_stages = {
-			{
-				type = "vertex",
-				code = vertex_code,
-				push_constants = {
-					size = 4,
-					offset = 0,
-				},
-			},
-			{
-				type = "fragment",
-				code = bindless_shader_prelude .. (
-						extra_config.custom_declarations or
-						""
-					) .. [[
+	):format(scalar_layout_prelude, bindless_texture_capacity, bindless_cubemap_capacity)
+	local fragment_code = bindless_shader_prelude .. (
+			extra_config.custom_declarations or
+			""
+		) .. [[
 
 							]] .. header .. [[
 							]] .. glsl .. [[
@@ -1356,45 +1352,86 @@ function Texture:Shade(glsl, extra_config)
 							void main() {
 								out_color = shade(in_uv, in_dir);
 							}
-						]],
-				descriptor_sets = {
-					{
-						type = "combined_image_sampler",
-						binding_index = 0,
-						count = bindless_texture_capacity,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 1,
-						count = bindless_cubemap_capacity,
-					},
+						]]
+	local pipeline_key = table.concat(
+		{
+			self.format,
+			tostring(extra_config.blend or false),
+			tostring(fragment_push_constant_size),
+			tostring(face_push_constant_offset),
+			fragment_code,
+		},
+		"\30"
+	)
+	local pipeline = shade_pipeline_cache[pipeline_key]
+
+	if not pipeline then
+		local fragment_stage = {
+			type = "fragment",
+			code = fragment_code,
+			descriptor_sets = {
+				{
+					type = "combined_image_sampler",
+					binding_index = 0,
+					count = bindless_texture_capacity,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 1,
+					count = bindless_cubemap_capacity,
 				},
 			},
-		},
-		DepthClamp = false,
-		Discard = false,
-		PolygonMode = "fill",
-		LineWidth = 1.0,
-		CullMode = "front",
-		FrontFace = "counter_clockwise",
-		DepthBias = false,
-		LogicOpEnabled = false,
-		LogicOp = "copy",
-		BlendConstants = {0.0, 0.0, 0.0, 0.0},
-		Blend = extra_config.blend or false,
-		SrcColorBlendFactor = "src_alpha",
-		DstColorBlendFactor = "one_minus_src_alpha",
-		ColorBlendOp = "add",
-		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "zero",
-		AlphaBlendOp = "add",
-		ColorWriteMask = {"r", "g", "b", "a"},
-		DepthTest = false,
-		DepthWrite = false,
-		DepthCompareOp = "less",
-		DepthBoundsTest = false,
-		StencilTest = false,
-	}
+		}
+
+		if fragment_push_constant_size > 0 then
+			fragment_stage.push_constants = {
+				size = fragment_push_constant_size,
+				offset = 0,
+			}
+		end
+
+		pipeline = render.CreateGraphicsPipeline{
+			ColorFormat = self.format,
+			RasterizationSamples = "1",
+			Topology = "triangle_list",
+			PrimitiveRestart = false,
+			shader_stages = {
+				{
+					type = "vertex",
+					code = vertex_code,
+					push_constants = {
+						size = 4,
+						offset = face_push_constant_offset,
+					},
+				},
+				fragment_stage,
+			},
+			DepthClamp = false,
+			Discard = false,
+			PolygonMode = "fill",
+			LineWidth = 1.0,
+			CullMode = "front",
+			FrontFace = "counter_clockwise",
+			DepthBias = false,
+			LogicOpEnabled = false,
+			LogicOp = "copy",
+			BlendConstants = {0.0, 0.0, 0.0, 0.0},
+			Blend = extra_config.blend or false,
+			SrcColorBlendFactor = "src_alpha",
+			DstColorBlendFactor = "one_minus_src_alpha",
+			ColorBlendOp = "add",
+			SrcAlphaBlendFactor = "one",
+			DstAlphaBlendFactor = "zero",
+			AlphaBlendOp = "add",
+			ColorWriteMask = {"r", "g", "b", "a"},
+			DepthTest = false,
+			DepthWrite = false,
+			DepthCompareOp = "less",
+			DepthBoundsTest = false,
+			StencilTest = false,
+		}
+		shade_pipeline_cache[pipeline_key] = pipeline
+	end
 
 	if extra_config.textures then
 		for _, tex in ipairs(extra_config.textures) do
@@ -1426,7 +1463,18 @@ function Texture:Shade(glsl, extra_config)
 
 	for i = 0, layers - 1 do
 		local face_const = ffi.new("int[1]", i)
-		pipeline:PushConstants(cmd, "vertex", 0, face_const)
+
+		if fragment_push_constants then
+			local fragment_data = fragment_push_constants.get_data and
+				fragment_push_constants:get_data(i, self) or
+				fragment_push_constants.data
+
+			if fragment_data then
+				pipeline:PushConstants(cmd, "fragment", 0, fragment_data)
+			end
+		end
+
+		pipeline:PushConstants(cmd, "vertex", face_push_constant_offset, face_const)
 		-- Begin rendering
 		cmd:BeginRendering{
 			color_image_view = views[i + 1],
