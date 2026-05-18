@@ -147,6 +147,7 @@ local cocoa_objc = objc.bind({
 				makeKeyAndOrderFront = {selector = "makeKeyAndOrderFront:", types = "v@:@"},
 				miniaturize = {selector = "miniaturize:", types = "v@:@"},
 				mouseLocationOutsideOfEventStream = "{CGPoint=dd}@:",
+				setAcceptsMouseMovedEvents = {selector = "setAcceptsMouseMovedEvents:", types = "v@:B"},
 				setContentView = {selector = "setContentView:", types = "v@:@"},
 				setDelegate = {selector = "setDelegate:", types = "v@:@"},
 				setTitle = {selector = "setTitle:", types = "v@:@"},
@@ -359,6 +360,7 @@ local function init_cocoa(width, height)
 	local frame = CGRectMake(100, 100, width, height)
 	local styleMask = bit.bor(1, 2, 4, 8)
 	local window = NSWindow.initWithContentRect_styleMask_backing_defer(NSObject.alloc(classes.NSWindow), frame, styleMask, 2, false)
+	NSWindow.setAcceptsMouseMovedEvents(window, true)
 	setup_drop_view()
 	NSWindow.makeKeyAndOrderFront(window, nil_id)
 	local contentView = NSWindow.contentView(window)
@@ -973,11 +975,11 @@ function meta:GetWindowSize()
 end
 
 function meta:CaptureMouse()
+	self:HideCursor()
+	CG.CGAssociateMouseAndMouseCursorPosition(false)
+
 	if not self.mouse_captured then
-		self:HideCursor()
-		CG.CGAssociateMouseAndMouseCursorPosition(false)
 		self.mouse_captured = true
-		-- Reset delta tracking
 		self.last_mouse_x = nil
 		self.last_mouse_y = nil
 	end

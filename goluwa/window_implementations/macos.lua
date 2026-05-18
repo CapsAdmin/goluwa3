@@ -44,7 +44,7 @@ return function(META)
 		self.cached_size = nil
 		self.cached_fb_size = nil
 		self.last_mouse_pos = Vec2(0, 0)
-		self.focused = self.cocoa_window:IsFocused()
+		self.focused = false
 		self.mouse_inside = false
 		self.is_minimized = self.cocoa_window:IsMinimized()
 		self.is_maximized = self.cocoa_window:IsMaximized()
@@ -96,7 +96,18 @@ return function(META)
 		if focused ~= self.focused then
 			self.focused = focused
 
-			if focused then self:OnGainedFocus() else self:OnLostFocus() end
+			if focused then
+				-- Re-apply capture: CGAssociateMouseAndMouseCursorPosition(false) can fail
+				-- during startup before the process is fully active in the window server.
+				-- Re-calling it here ensures it takes effect once the app is truly active.
+				if self.cocoa_window:IsMouseCaptured() then
+					self.cocoa_window:CaptureMouse()
+				end
+
+				self:OnGainedFocus()
+			else
+				self:OnLostFocus()
+			end
 		end
 
 		local pos = self.cocoa_window:GetPosition()
