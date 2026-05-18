@@ -5,6 +5,10 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 
+local WAVE_TEX_SIZE = 512
+local WAVE_TEX_WORLD_HALF = 1024.0
+local WAVE_NEAR_WORLD_HALF = 64.0
+
 local function get_primary_sun_direction()
 	local lights = render3d.GetLights()
 	local sun_dir = Vec3(0, 1, 0)
@@ -17,6 +21,230 @@ local function get_primary_sun_direction()
 end
 
 return {
+	{
+		name = "ocean_waves_near",
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"wave_data", "rgba"}},
+		},
+		FramebufferSize = {x = WAVE_TEX_SIZE, y = WAVE_TEX_SIZE},
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "wave_precompute",
+					binding_index = 3,
+					block = {
+						render3d.common_block,
+						{
+							"blue_noise_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+							end,
+						},
+						{
+							"wave_origin",
+							"vec2",
+							function(self, block, key)
+								local snap = WAVE_NEAR_WORLD_HALF * 2 / WAVE_TEX_SIZE
+								local cam = render3d.camera:GetPosition()
+								block[key][0] = math.floor(cam.x / snap) * snap
+								block[key][1] = math.floor(cam.z / snap) * snap
+							end,
+						},
+					},
+				},
+			},
+			shader = [[
+			const int ITER_WAVE_BAKE = 6;
+			const float SEA_HEIGHT = 0.6;
+			const float SEA_CHOPPY = 4.0;
+			const float SEA_FREQ = 0.16;
+			const float SEA_WAVE_AMOUNT = 1.0;
+			const mat2 OCTAVE_M = mat2(1.6, 1.2, -1.2, 1.6);
+			const float NOISE_SCALE = 1.0;
+			const float WAVE_TEX_WORLD_HALF = 64.0;
+
+			ivec2 wrap_noise_coord(ivec2 coord, ivec2 size) {
+				return ivec2(
+					(coord.x % size.x + size.x) % size.x,
+					(coord.y % size.y + size.y) % size.y
+				);
+			}
+
+			float sample_noise_texel(ivec2 coord, ivec2 size) {
+				return texelFetch(TEXTURE(wave_precompute.blue_noise_tex), wrap_noise_coord(coord, size), 0).r;
+			}
+
+			float noise(vec2 p) {
+				if (wave_precompute.blue_noise_tex == -1) return 0.0;
+				ivec2 noise_size = textureSize(TEXTURE(wave_precompute.blue_noise_tex), 0);
+				vec2 uv = p * NOISE_SCALE;
+				ivec2 i = ivec2(floor(uv));
+				vec2 f = fract(uv);
+				f = f * f * (3.0 - 2.0 * f);
+				return -1.0 + 2.0 * mix(
+					mix(sample_noise_texel(i + ivec2(0, 0), noise_size), sample_noise_texel(i + ivec2(1, 0), noise_size), f.x),
+					mix(sample_noise_texel(i + ivec2(0, 1), noise_size), sample_noise_texel(i + ivec2(1, 1), noise_size), f.x),
+					f.y
+				);
+			}
+
+			float sea_octave(vec2 uv, float choppy) {
+				uv += noise(uv);
+				vec2 wv = 1.0 - abs(sin(uv));
+				vec2 swv = abs(cos(uv));
+				wv = mix(wv, swv, wv);
+				return pow(1.0 - pow(wv.x * wv.y, 0.65), choppy);
+			}
+
+			float compute_wave_h(vec2 world_xz) {
+				float freq = SEA_FREQ;
+				float amp = SEA_HEIGHT;
+				float choppy = SEA_CHOPPY;
+				vec2 uv = world_xz;
+				uv.x *= 0.75;
+				float h = 0.0;
+				float sea_time = 1.0 + wave_precompute.time * 0.8;
+
+				for (int i = 0; i < ITER_WAVE_BAKE; i++) {
+					float d = sea_octave((uv + sea_time) * freq, choppy);
+					d += sea_octave((uv - sea_time) * freq, choppy);
+					h += d * amp;
+					uv = OCTAVE_M * uv;
+					freq *= 1.9;
+					amp *= 0.22;
+					choppy = mix(choppy, 1.0, 0.2);
+				}
+
+				return h * SEA_WAVE_AMOUNT;
+			}
+
+			void main() {
+				vec2 world_xz = wave_precompute.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
+				float h = compute_wave_h(world_xz);
+				const float GRAD_EPS = 0.25;
+				float dhdx = (compute_wave_h(world_xz + vec2(GRAD_EPS, 0.0)) - h) / GRAD_EPS;
+				float dhdz = (compute_wave_h(world_xz + vec2(0.0, GRAD_EPS)) - h) / GRAD_EPS;
+				set_wave_data(vec4(h, dhdx, dhdz, 0.0));
+			}
+			]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	},
+	{
+		name = "ocean_waves",
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"wave_data", "rgba"}},
+		},
+		FramebufferSize = {x = WAVE_TEX_SIZE, y = WAVE_TEX_SIZE},
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "wave_precompute",
+					binding_index = 3,
+					block = {
+						render3d.common_block,
+						{
+							"blue_noise_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+							end,
+						},
+						{
+							"wave_origin",
+							"vec2",
+							function(self, block, key)
+								local snap = WAVE_TEX_WORLD_HALF * 2 / WAVE_TEX_SIZE
+								local cam = render3d.camera:GetPosition()
+								block[key][0] = math.floor(cam.x / snap) * snap
+								block[key][1] = math.floor(cam.z / snap) * snap
+							end,
+						},
+					},
+				},
+			},
+			shader = [[
+			const int ITER_WAVE_BAKE = 6;
+			const float SEA_HEIGHT = 0.6;
+			const float SEA_CHOPPY = 4.0;
+			const float SEA_FREQ = 0.16;
+			const float SEA_WAVE_AMOUNT = 1.0;
+			const mat2 OCTAVE_M = mat2(1.6, 1.2, -1.2, 1.6);
+			const float NOISE_SCALE = 1.0;
+			const float WAVE_TEX_WORLD_HALF = 1024.0;
+
+			ivec2 wrap_noise_coord(ivec2 coord, ivec2 size) {
+				return ivec2(
+					(coord.x % size.x + size.x) % size.x,
+					(coord.y % size.y + size.y) % size.y
+				);
+			}
+
+			float sample_noise_texel(ivec2 coord, ivec2 size) {
+				return texelFetch(TEXTURE(wave_precompute.blue_noise_tex), wrap_noise_coord(coord, size), 0).r;
+			}
+
+			float noise(vec2 p) {
+				if (wave_precompute.blue_noise_tex == -1) return 0.0;
+				ivec2 noise_size = textureSize(TEXTURE(wave_precompute.blue_noise_tex), 0);
+				vec2 uv = p * NOISE_SCALE;
+				ivec2 i = ivec2(floor(uv));
+				vec2 f = fract(uv);
+				f = f * f * (3.0 - 2.0 * f);
+				return -1.0 + 2.0 * mix(
+					mix(sample_noise_texel(i + ivec2(0, 0), noise_size), sample_noise_texel(i + ivec2(1, 0), noise_size), f.x),
+					mix(sample_noise_texel(i + ivec2(0, 1), noise_size), sample_noise_texel(i + ivec2(1, 1), noise_size), f.x),
+					f.y
+				);
+			}
+
+			float sea_octave(vec2 uv, float choppy) {
+				uv += noise(uv);
+				vec2 wv = 1.0 - abs(sin(uv));
+				vec2 swv = abs(cos(uv));
+				wv = mix(wv, swv, wv);
+				return pow(1.0 - pow(wv.x * wv.y, 0.65), choppy);
+			}
+
+			float compute_wave_h(vec2 world_xz) {
+				float freq = SEA_FREQ;
+				float amp = SEA_HEIGHT;
+				float choppy = SEA_CHOPPY;
+				vec2 uv = world_xz;
+				uv.x *= 0.75;
+				float h = 0.0;
+				float sea_time = 1.0 + wave_precompute.time * 0.8;
+
+				for (int i = 0; i < ITER_WAVE_BAKE; i++) {
+					float d = sea_octave((uv + sea_time) * freq, choppy);
+					d += sea_octave((uv - sea_time) * freq, choppy);
+					h += d * amp;
+					uv = OCTAVE_M * uv;
+					freq *= 1.9;
+					amp *= 0.22;
+					choppy = mix(choppy, 1.0, 0.2);
+				}
+
+				return h * SEA_WAVE_AMOUNT;
+			}
+
+			void main() {
+				vec2 world_xz = wave_precompute.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
+				float h = compute_wave_h(world_xz);
+				const float GRAD_EPS = 1.0;
+				float dhdx = (compute_wave_h(world_xz + vec2(GRAD_EPS, 0.0)) - h) / GRAD_EPS;
+				float dhdz = (compute_wave_h(world_xz + vec2(0.0, GRAD_EPS)) - h) / GRAD_EPS;
+				set_wave_data(vec4(h, dhdx, dhdz, 0.0));
+			}
+			]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	},
 	{
 		name = "ocean",
 		ColorFormat = {
@@ -79,13 +307,6 @@ return {
 							end,
 						},
 						{
-							"blue_noise_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-							end,
-						},
-						{
 							"atmosphere_transmittance_texture_index",
 							"int",
 							function(self, block, key)
@@ -113,6 +334,48 @@ return {
 								block[key] = render3d.GetOceanLevel()
 							end,
 						},
+						{
+							"wave_tex",
+							"int",
+							function(self, block, key)
+								if not render3d.pipelines.ocean_waves then
+									block[key] = -1
+									return
+								end
+								block[key] = self:GetTextureIndex(render3d.pipelines.ocean_waves:GetFramebuffer():GetAttachment(1))
+							end,
+						},
+						{
+							"wave_origin",
+							"vec2",
+							function(self, block, key)
+								local snap = WAVE_TEX_WORLD_HALF * 2 / WAVE_TEX_SIZE
+								local cam = render3d.camera:GetPosition()
+								block[key][0] = math.floor(cam.x / snap) * snap
+								block[key][1] = math.floor(cam.z / snap) * snap
+							end,
+						},
+						{
+							"wave_near_tex",
+							"int",
+							function(self, block, key)
+								if not render3d.pipelines.ocean_waves_near then
+									block[key] = -1
+									return
+								end
+								block[key] = self:GetTextureIndex(render3d.pipelines.ocean_waves_near:GetFramebuffer():GetAttachment(1))
+							end,
+						},
+						{
+							"wave_near_origin",
+							"vec2",
+							function(self, block, key)
+								local snap = WAVE_NEAR_WORLD_HALF * 2 / WAVE_TEX_SIZE
+								local cam = render3d.camera:GetPosition()
+								block[key][0] = math.floor(cam.x / snap) * snap
+								block[key][1] = math.floor(cam.z / snap) * snap
+							end,
+						},
 					},
 				},
 			},
@@ -129,59 +392,15 @@ return {
 			}
 
 			const float SEA_PI = 3.14159265359;
-			const int ITER_GEOMETRY = 4;
-			const int ITER_FRAGMENT = 6;
 			const float SEA_HEIGHT = 0.6;
-			const float SEA_CHOPPY = 4.0;
-			const float SEA_FREQ = 0.16;
 			const float SEA_WAVE_AMOUNT = 1.0;
 			const float SEA_OPTICAL_DEPTH = 4096.0;
-			const vec3 SEA_BASE = 8.0 * vec3(0.1, 0.21, 0.35);
-			const vec3 LOW_SCATTER = vec3(1.0, 0.7, 0.5);
-			const mat2 OCTAVE_M = mat2(1.6, 1.2, -1.2, 1.6);
-			const float NOISE_SCALE = 1.0;
+			const float WAVE_TEX_WORLD_HALF = 1024.0;
+			const float WAVE_NEAR_WORLD_HALF = 64.0;
 
 			float get_scene_depth(vec2 uv) {
 				if (ocean_data.depth_tex == -1) return 1.0;
 				return texture(TEXTURE(ocean_data.depth_tex), uv).r;
-			}
-
-			ivec2 wrap_noise_coord(ivec2 coord, ivec2 size) {
-				return ivec2(
-					(coord.x % size.x + size.x) % size.x,
-					(coord.y % size.y + size.y) % size.y
-				);
-			}
-
-			float sample_noise_texel(ivec2 coord) {
-				if (ocean_data.blue_noise_tex == -1) return 0.5;
-				ivec2 size = textureSize(TEXTURE(ocean_data.blue_noise_tex), 0);
-				return texelFetch(TEXTURE(ocean_data.blue_noise_tex), wrap_noise_coord(coord, size), 0).r;
-			}
-
-			float noise(vec2 p) {
-				vec2 uv = p * NOISE_SCALE;
-				ivec2 i = ivec2(floor(uv));
-				vec2 f = fract(uv);
-				f = f * f * (3.0 - 2.0 * f);
-				return -1.0 + 2.0 * mix(
-					mix(sample_noise_texel(i + ivec2(0, 0)), sample_noise_texel(i + ivec2(1, 0)), f.x),
-					mix(sample_noise_texel(i + ivec2(0, 1)), sample_noise_texel(i + ivec2(1, 1)), f.x),
-					f.y
-				);
-			}
-
-			float fbm2(vec2 p) {
-				float value = 0.0;
-				float amplitude = 0.5;
-
-				for (int i = 0; i < 4; i++) {
-					value += amplitude * noise(p);
-					p = OCTAVE_M * p * 1.12;
-					amplitude *= 0.5;
-				}
-
-				return value;
 			}
 
 			vec3 get_world_pos(vec2 uv, float depth) {
@@ -210,38 +429,26 @@ return {
 				return t > 0.0 ? t : -1.0;
 			}
 
-			float sea_octave(vec2 uv, float choppy) {
-				uv += noise(uv);
-				vec2 wv = 1.0 - abs(sin(uv));
-				vec2 swv = abs(cos(uv));
-				wv = mix(wv, swv, wv);
-				return pow(1.0 - pow(wv.x * wv.y, 0.65), choppy);
-			}
-
-			float map_water_surface(vec3 local_p, vec3 camera_origin, int steps) {
-				float freq = SEA_FREQ;
-				float amp = SEA_HEIGHT;
-				float choppy = SEA_CHOPPY;
-				vec2 uv = local_p.xz + camera_origin.xz;
-				uv.x *= 0.75;
-				float h = 0.0;
-				float sea_time = 1.0 + ocean_data.time * 0.8;
-
-				for (int i = 0; i < steps; i++) {
-					float d = sea_octave((uv + sea_time) * freq, choppy);
-					d += sea_octave((uv - sea_time) * freq, choppy);
-					h += d * amp;
-					uv = OCTAVE_M * uv;
-					freq *= 1.9;
-					amp *= 0.22;
-					choppy = mix(choppy, 1.0, 0.2);
+			vec4 get_wave_data(vec2 world_xz) {
+				vec4 far_data = vec4(0.0);
+				if (ocean_data.wave_tex != -1) {
+					vec2 far_uv = (world_xz - ocean_data.wave_origin) * (0.5 / WAVE_TEX_WORLD_HALF) + 0.5;
+					if (all(greaterThanEqual(far_uv, vec2(0.0))) && all(lessThanEqual(far_uv, vec2(1.0)))) {
+						float far_dist = length(world_xz - ocean_data.wave_origin);
+						float edge_fade = 1.0 - smoothstep(WAVE_TEX_WORLD_HALF * 0.9, WAVE_TEX_WORLD_HALF, far_dist);
+						far_data = texture(TEXTURE(ocean_data.wave_tex), far_uv) * edge_fade;
+					}
 				}
-
-				return local_p.y + camera_origin.y - ocean_data.ocean_level - h * SEA_WAVE_AMOUNT;
+				if (ocean_data.wave_near_tex == -1) return far_data;
+				vec2 near_uv = (world_xz - ocean_data.wave_near_origin) * (0.5 / WAVE_NEAR_WORLD_HALF) + 0.5;
+				if (any(lessThan(near_uv, vec2(0.0))) || any(greaterThan(near_uv, vec2(1.0)))) return far_data;
+				float near_dist = length(world_xz - ocean_data.wave_near_origin);
+				float near_fade = pow(1.0 - smoothstep(WAVE_NEAR_WORLD_HALF - 32.0, WAVE_NEAR_WORLD_HALF, near_dist), 0.25);
+				return mix(far_data, texture(TEXTURE(ocean_data.wave_near_tex), near_uv), near_fade);
 			}
 
 			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, out vec3 hit_pos) {
-				if (SEA_WAVE_AMOUNT <= 0.0001) {
+				if (ocean_data.wave_tex == -1) {
 					hit_pos = ray_dir * plane_t;
 					return plane_t;
 				}
@@ -249,24 +456,23 @@ return {
 				float search_radius = clamp(12.0 + abs(ray_dir.y) * 48.0, 8.0, 64.0);
 				float tm = max(plane_t - search_radius, 0.0);
 				float tx = plane_t + search_radius;
-				float hm = map_water_surface(ray_dir * tm, camera_origin, ITER_GEOMETRY);
-				float hx = map_water_surface(ray_dir * tx, camera_origin, ITER_GEOMETRY);
+
+				vec3 pm = ray_dir * tm;
+				float hm = (pm.y + camera_origin.y) - (ocean_data.ocean_level + get_wave_data(pm.xz + camera_origin.xz).r);
+				vec3 px = ray_dir * tx;
+				float hx = (px.y + camera_origin.y) - (ocean_data.ocean_level + get_wave_data(px.xz + camera_origin.xz).r);
 
 				if (hm < 0.0) {
 					tm = 0.0;
-					hm = map_water_surface(vec3(0.0), camera_origin, ITER_GEOMETRY);
+					hm = camera_origin.y - (ocean_data.ocean_level + get_wave_data(camera_origin.xz).r);
 				}
 
 				if (hm * hx > 0.0) return -1.0;
 
-				float tmid = plane_t;
-				float hmid = 0.0;
-
-				for (int i = 0; i < 6; i++) {
-					tmid = mix(tm, tx, hm / (hm - hx));
-					hit_pos = ray_dir * tmid;
-					hmid = map_water_surface(hit_pos, camera_origin, ITER_GEOMETRY);
-
+				for (int i = 0; i < 12; i++) {
+					float tmid = 0.5 * (tm + tx);
+					vec3 pmid = ray_dir * tmid;
+					float hmid = (pmid.y + camera_origin.y) - (ocean_data.ocean_level + get_wave_data(pmid.xz + camera_origin.xz).r);
 					if (hmid < 0.0) {
 						tx = tmid;
 						hx = hmid;
@@ -276,61 +482,20 @@ return {
 					}
 				}
 
-				tm = max(tm - 0.5, 0.0);
-				tx = tx + 0.5;
-				hm = map_water_surface(ray_dir * tm, camera_origin, ITER_FRAGMENT);
-				hx = map_water_surface(ray_dir * tx, camera_origin, ITER_FRAGMENT);
-
-				if (hm * hx > 0.0) {
-					tm = max(tmid - 1.0, 0.0);
-					tx = tmid + 1.0;
-					hm = map_water_surface(ray_dir * tm, camera_origin, ITER_FRAGMENT);
-					hx = map_water_surface(ray_dir * tx, camera_origin, ITER_FRAGMENT);
-				}
-
-				for (int i = 0; i < 8; i++) {
-					tmid = 0.5 * (tm + tx);
-					hit_pos = ray_dir * tmid;
-					hmid = map_water_surface(hit_pos, camera_origin, ITER_FRAGMENT);
-
-					if (hmid < 0.0) {
-						tx = tmid;
-						hx = hmid;
-					} else {
-						tm = tmid;
-						hm = hmid;
-					}
-				}
-
-				tmid = 0.5 * (tm + tx);
-				hit_pos = ray_dir * tmid;
-
-				return tmid;
+				float tfinal = 0.5 * (tm + tx);
+				hit_pos = ray_dir * tfinal;
+				return tfinal;
 			}
 
 			vec3 get_normal_water(vec3 local_p, vec3 dist, vec3 camera_origin) {
-				if (SEA_WAVE_AMOUNT <= 0.0001) return vec3(0.0, 1.0, 0.0);
-
-				float eps = max(dot(dist, dist) * (0.1 / 1920.0), 0.02);
-				float center = map_water_surface(local_p, camera_origin, ITER_FRAGMENT);
-				vec3 n;
-				n.x = map_water_surface(vec3(local_p.x + eps, local_p.y, local_p.z), camera_origin, ITER_FRAGMENT) - center;
-				n.z = map_water_surface(vec3(local_p.x, local_p.y, local_p.z + eps), camera_origin, ITER_FRAGMENT) - center;
-				n.y = eps;
-				return normalize(n);
+				if (ocean_data.wave_tex == -1) return vec3(0.0, 1.0, 0.0);
+				vec4 wd = get_wave_data(local_p.xz + camera_origin.xz);
+				return normalize(vec3(-wd.g, 1.0, -wd.b));
 			}
 
 			float henyey_greenstein(float mu, float g) {
 				float gg = g * g;
 				return (1.0 - gg) / (pow(1.0 + gg - 2.0 * g * mu, 1.5) * 4.0 * SEA_PI);
-			}
-
-			float get_cloud_shadow(vec2 world_xz) {
-				vec2 cloud_uv = world_xz * 0.008 - vec2(0.0, 0.03 * ocean_data.time);
-				float large = fbm2(cloud_uv * 0.35) * 0.5 + 0.5;
-				float detail = fbm2(cloud_uv * 1.3) * 0.5 + 0.5;
-				float cloud = smoothstep(0.45, 0.8, large * detail);
-				return mix(1.0, 0.35, cloud);
 			}
 
 			]] .. ibl.GetBRDFGLSLCode() .. [[
@@ -375,7 +540,6 @@ return {
 				vec3 ray_dir,
 				vec3 dist,
 				float mu,
-				float cloud_shadow,
 				vec3 reflection_color,
 				vec3 refracted_scene,
 				float thickness
@@ -392,7 +556,7 @@ return {
 				vec3 transmitted_color = refracted_scene * exp(-thickness * absorption_coeff);
 				vec3 body_scatter_tint = vec3(0.02, 0.08, 0.18);
 				vec3 body_scatter = (1.0 - exp(-thickness * vec3(0.18, 0.09, 0.03))) * body_scatter_tint;
-				vec3 base_color = transmitted_color + cloud_shadow * ambient_light * body_scatter;
+					vec3 base_color = transmitted_color + ambient_light * body_scatter;
 				vec3 color = mix(base_color, reflection_color, fresnel);
 				float no_l = max(dot(normal, sun_direction), 0.0);
 				float direct_sun = no_l * sun_visibility;
@@ -405,7 +569,7 @@ return {
 				float foam = smoothstep(0.18, 0.55, p.y - ocean_data.ocean_level) * smoothstep(0.65, 0.15, normal.y);
 				float shore_foam = smoothstep(2.0, 0.0, thickness) * max(0.0, normal.y);
 				vec3 foam_light = ambient_light + vec3(1.2) * direct_sun;
-				color += vec3(0.95, 0.98, 1.0) * (foam * 0.12 + shore_foam * 0.06) * cloud_shadow * foam_light;
+					color += vec3(0.95, 0.98, 1.0) * (foam * 0.12 + shore_foam * 0.06) * foam_light;
 				return color;
 			}
 
@@ -476,7 +640,6 @@ return {
 
 				vec3 sun_direction = normalize(ocean_data.sun_direction);
 				float mu = dot(sun_direction, ray_dir);
-				float cloud_shadow = get_cloud_shadow(ocean_world_pos.xz);
 				vec3 color = get_sea_color(
 					ocean_world_pos,
 					normal,
@@ -484,7 +647,6 @@ return {
 					ray_dir,
 					dist,
 					mu,
-					cloud_shadow,
 					reflection_color,
 					refracted_scene,
 					thickness
@@ -561,15 +723,15 @@ return {
 							end,
 						},
 						{
-							"prev_inv_view",
+							"prev_view",
 							"mat4",
 							function(self, block, key)
 								local mat = render3d.prev_view_matrix
 
 								if mat then
-									mat:GetInverse():CopyToFloatPointer(block[key])
+									mat:CopyToFloatPointer(block[key])
 								else
-									render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block[key])
+									render3d.camera:BuildViewMatrix():CopyToFloatPointer(block[key])
 								end
 							end,
 						},
@@ -626,7 +788,7 @@ return {
 				}
 
 				vec3 world_pos = ocean_resolve_data.camera_position.xyz + get_view_ray(in_uv) * current_distance;
-				vec4 prev_view_pos = inverse(ocean_resolve_data.prev_inv_view) * vec4(world_pos, 1.0);
+				vec4 prev_view_pos = ocean_resolve_data.prev_view * vec4(world_pos, 1.0);
 				vec4 prev_clip = ocean_resolve_data.prev_projection * prev_view_pos;
 				vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
 

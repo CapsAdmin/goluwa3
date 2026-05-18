@@ -2242,7 +2242,9 @@ function EasyPipeline.New(config)
 		)
 	then
 		self:RecreateFramebuffers()
-		self:AddGlobalEvent("WindowFramebufferResized")
+		if not self.config.FramebufferSize then
+			self:AddGlobalEvent("WindowFramebufferResized")
+		end
 	end
 
 	return self
@@ -2250,7 +2252,7 @@ end
 
 function EasyPipeline:RecreateFramebuffers()
 	local framebuffer_count = self.config.framebuffer_count or 1
-	local size = render.GetRenderImageSize()
+	local size = self.config.FramebufferSize or render.GetRenderImageSize()
 
 	if self.framebuffers then
 		for _, fb in ipairs(self.framebuffers) do
