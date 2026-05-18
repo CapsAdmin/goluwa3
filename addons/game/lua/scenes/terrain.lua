@@ -35,6 +35,7 @@ local function CreateTerrainStreamer()
 				radius = 2,
 				cast_shadows = false,
 				mesh_resolution = Vec2() + 56,
+				height_smoothing = 0.6,
 				texture_size = 192,
 				displacement_texture_size = 512,
 				displacement_scale = 0.06,

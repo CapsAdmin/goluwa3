@@ -3,6 +3,8 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ProceduralTerrainSource = import("addons/game/lua/terrain/procedural_terrain_source.lua")
+local ProceduralTerrainTileCache = import("addons/game/lua/terrain/procedural_terrain_tile_cache.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -10,149 +12,6 @@ local Entity = import("goluwa/ecs/entity.lua")
 local timer = import("goluwa/timer.lua")
 local ProceduralHeightfield = {}
 ProceduralHeightfield.__index = ProceduralHeightfield
-local COMMON_SHADER_HEADER = [[
-float n2D(vec2 p) {
-	vec2 i = floor(p);
-	p -= i;
-	p *= p * (3.0 - p * 2.0);
-	return dot(
-		mat2(fract(sin(mod(vec4(0.0, 1.0, 113.0, 114.0) + dot(i, vec2(1.0, 113.0)), 6.2831853)) * 43758.5453)) *
-			vec2(1.0 - p.y, p.y),
-		vec2(1.0 - p.x, p.x)
-	);
-}
-
-mat2 rot2(in float a) {
-	float c = cos(a);
-	float s = sin(a);
-	return mat2(c, s, -s, c);
-}
-
-vec2 hash22(vec2 p) {
-	float n = sin(dot(p, vec2(113.0, 1.0)));
-	return fract(vec2(2097152.0, 262144.0) * n) * 2.0 - 1.0;
-}
-
-float gradN2D(in vec2 f) {
-	const vec2 e = vec2(0.0, 1.0);
-	vec2 p = floor(f);
-	f -= p;
-	vec2 w = f * f * (3.0 - 2.0 * f);
-	float c = mix(
-		mix(dot(hash22(p + e.xx), f - e.xx), dot(hash22(p + e.yx), f - e.yx), w.x),
-		mix(dot(hash22(p + e.xy), f - e.xy), dot(hash22(p + e.yy), f - e.yy), w.x),
-		w.y
-	);
-	return c * 0.5 + 0.5;
-}
-
-float grad(float x, float offs) {
-	x = abs(fract(x / 6.283 + offs - 0.25) - 0.5) * 2.0;
-	float x2 = clamp(x * x * (-1.0 + 2.0 * x), 0.0, 1.0);
-	x = smoothstep(0.0, 1.0, x);
-	return mix(x, x2, 0.15);
-}
-
-float sandL(vec2 p) {
-	vec2 q = rot2(3.14159 / 18.0) * p;
-	q.y += (gradN2D(q * 18.0) - 0.5) * 0.05;
-	float grad1 = grad(q.y * 80.0, 0.0);
-	q = rot2(-3.14159 / 20.0) * p;
-	q.y += (gradN2D(q * 12.0) - 0.5) * 0.05;
-	float grad2 = grad(q.y * 80.0, 0.5);
-	q = rot2(3.14159 / 4.0) * p;
-	float a2 = dot(sin(q * 12.0 - cos(q.yx * 12.0)), vec2(0.25)) + 0.5;
-	float a1 = 1.0 - a2;
-	return 1.0 - (1.0 - grad1 * a1) * (1.0 - grad2 * a2);
-}
-
-float sand(vec2 p) {
-	p = vec2(p.y - p.x, p.x + p.y) * 0.7071 / 4.0;
-	float c1 = sandL(p);
-	vec2 q = rot2(3.14159 / 12.0) * p;
-	float c2 = sandL(q * 1.25);
-	return mix(c1, c2, smoothstep(0.1, 0.9, gradN2D(p * vec2(4.0))));
-}
-
-float ridgeNoise(vec2 p) {
-	return 1.0 - abs(gradN2D(p) * 2.0 - 1.0);
-}
-]]
-local TERRAIN_PROFILE_GLSL = {
-	desert = [[
-
-float sampleTerrainHeight01(vec2 world_pos) {
-	vec2 macro_uv = world_pos * 0.0011;
-	float macro = n2D(macro_uv * 0.7) * 0.52;
-	macro += n2D(macro_uv * 1.9 + vec2(4.3, -1.2)) * 0.28;
-	macro += n2D(macro_uv * 4.4 + vec2(-8.1, 6.7)) * 0.20;
-	float ridge = 1.0 - abs(n2D(macro_uv * 2.3 + vec2(2.0, -3.0)) - 0.5) * 2.0;
-	ridge = smoothstep(0.15, 1.0, ridge * ridge);
-	float dune = sand(world_pos * 0.0032) * 0.14;
-	float valley = smoothstep(0.2, 0.9, n2D(macro_uv * 0.32 + vec2(-11.0, 5.0)));
-	float h = macro * 0.64 + ridge * 0.24 + dune * 0.12;
-	h *= mix(0.84, 1.04, valley);
-	return clamp(h, 0.0, 1.0);
-}
-
-float sampleTerrainDisplacement01(vec2 world_pos, float h01) {
-	float ripples = sand(world_pos * 0.012);
-	float grain = gradN2D(world_pos * 0.028 + vec2(7.0, -3.0));
-	float detail = mix(ripples, grain, 0.35);
-	return clamp(0.5 + (detail - 0.5) * 0.18, 0.0, 1.0);
-}
-
-vec3 sampleTerrainColorDetail(vec2 world_pos, float elevation, float h01) {
-	float ripples = sand(world_pos * 0.0032);
-	float macro = gradN2D(world_pos * 0.0018 + vec2(5.0, -3.0));
-	float tint = mix(0.88, 1.14, ripples * 0.7 + macro * 0.3);
-	return vec3(tint);
-}
-]],
-	alpine = [[
-
-float sampleTerrainHeight01(vec2 world_pos) {
-	vec2 macro_uv = world_pos * 0.00042;
-	float continent = smoothstep(0.18, 0.88, n2D(macro_uv * 0.55 + vec2(3.0, -5.0)));
-	float massif = n2D(macro_uv * 1.35 + vec2(-4.0, 8.0));
-	float ridged = pow(clamp(ridgeNoise(macro_uv * 3.8 + vec2(11.0, -7.0)), 0.0, 1.0), 3.4);
-	float sharp = pow(clamp(ridgeNoise(macro_uv * 8.5 + vec2(-13.0, 17.0)), 0.0, 1.0), 5.2);
-	float valleys = 1.0 - smoothstep(0.18, 0.7, n2D(macro_uv * 1.1 + vec2(14.0, 2.0)));
-	float erosion = gradN2D(world_pos * 0.0016 + vec2(-9.0, 6.0));
-	float shelf = gradN2D(world_pos * 0.0038 + vec2(7.0, -12.0));
-	float h = continent * (0.16 + massif * 0.18 + ridged * 0.36 + sharp * 0.30);
-	h *= mix(0.32, 1.0, valleys);
-	h += (erosion - 0.5) * 0.08;
-	h += max(shelf - 0.72, 0.0) * 0.08;
-	h = pow(clamp(h, 0.0, 1.0), 0.72);
-	return clamp(h, 0.0, 1.0);
-}
-
-float sampleTerrainDisplacement01(vec2 world_pos, float h01) {
-	float rock = gradN2D(world_pos * 0.018) * 0.55 + ridgeNoise(world_pos * 0.026 + vec2(5.0, -8.0)) * 0.45;
-	float cracks = ridgeNoise(world_pos * 0.044 + vec2(-11.0, 14.0));
-	float snow = smoothstep(0.62, 0.94, h01);
-	float detail = mix(rock, cracks, 0.35);
-	detail = mix(detail, 0.5, snow * 0.85);
-	return clamp(0.5 + (detail - 0.5) * 0.16, 0.0, 1.0);
-}
-
-vec3 sampleTerrainColorDetail(vec2 world_pos, float elevation, float h01) {
-	float rock = gradN2D(world_pos * 0.0024) * 0.65 + gradN2D(world_pos * 0.009) * 0.35;
-	float snow = smoothstep(0.62, 0.94, h01);
-	vec3 tint = vec3(mix(0.82, 1.10, rock));
-	tint = mix(tint, vec3(1.02, 1.03, 1.05), snow * 0.45);
-	return tint;
-}
-]],
-}
-
-local function build_shader_header(profile)
-	return COMMON_SHADER_HEADER .. "\n" .. (
-			TERRAIN_PROFILE_GLSL[profile] or
-			TERRAIN_PROFILE_GLSL.desert
-		)
-end
 
 local function is_valid(obj)
 	return obj and obj.IsValid and obj:IsValid()
@@ -177,28 +36,6 @@ end
 local function to_color4(color, alpha)
 	local r, g, b = get_color_components(color)
 	return Color(r, g, b, alpha or 1)
-end
-
-local function build_band_glsl(bands)
-	local lines = {"vec3 pickTerrainColor(float elevation) {"}
-
-	for i = 1, #bands do
-		local band = bands[i]
-		local r, g, b = get_color_components(band.color or {1, 1, 1})
-		local condition = band.max_elevation and
-			string.format("elevation <= %.6f", band.max_elevation) or
-			nil
-
-		if condition then
-			lines[#lines + 1] = string.format("\tif (%s) return vec3(%.6f, %.6f, %.6f);", condition, r, g, b)
-		else
-			lines[#lines + 1] = string.format("\treturn vec3(%.6f, %.6f, %.6f);", r, g, b)
-		end
-	end
-
-	lines[#lines + 1] = "\treturn vec3(1.0, 1.0, 1.0);"
-	lines[#lines + 1] = "}"
-	return table.concat(lines, "\n")
 end
 
 local function make_bake_texture(size, height, format)
@@ -315,9 +152,18 @@ function ProceduralHeightfield.New(config)
 	local self = setmetatable({}, ProceduralHeightfield)
 	self.Name = config.Name or "procedural_heightfield"
 	self.Seed = config.Seed or 1337
-	self.SeedOffset = get_seed_offsets(self.Seed)
-	self.TerrainProfile = config.TerrainProfile or config.TerrainStyle or "desert"
-	self.ShaderHeader = build_shader_header(self.TerrainProfile)
+	self.Source = config.Source or
+		config.TerrainSource or
+		ProceduralTerrainSource.New{
+			Seed = self.Seed,
+			TerrainProfile = config.TerrainProfile or config.TerrainStyle,
+			HeightScale = config.HeightScale or 512,
+			VerticalOffset = config.VerticalOffset or 0,
+			MaterialBands = config.MaterialBands,
+		}
+	self.SeedOffset = self.Source.SeedOffset or get_seed_offsets(self.Seed)
+	self.TerrainProfile = self.Source.TerrainProfile
+	self.ShaderHeader = self.Source:GetShaderHeader()
 	self.ChunkRings = config.ChunkRings
 	self.FarTerrain = config.FarTerrain
 	self.DebugView = config.DebugView or "off"
@@ -330,21 +176,16 @@ function ProceduralHeightfield.New(config)
 			{0.82, 0.34, 0.94},
 		}
 	self.ChunkWorldSize = config.ChunkWorldSize or 1024
-	self.HeightScale = config.HeightScale or 512
-	self.VerticalOffset = config.VerticalOffset or 0
+	self.HeightScale = self.Source.HeightScale
+	self.VerticalOffset = self.Source.VerticalOffset
 	self.UVScale = config.UVScale or (Vec2() + 1)
 	self.UpdateInterval = config.UpdateInterval or 0.05
 	self.BuildsPerUpdate = config.BuildsPerUpdate or 1
 	self.Roughness = config.Roughness or 0.92
 	self.Metallic = config.Metallic or 0.02
 	self.SkirtDepth = config.SkirtDepth or math.max(32, self.HeightScale * 0.12)
-	self.MaterialBands = config.MaterialBands or
-		{
-			{max_elevation = -80, color = {0.29, 0.24, 0.19}},
-			{max_elevation = 10, color = {0.64, 0.54, 0.36}},
-			{max_elevation = 90, color = {0.79, 0.69, 0.48}},
-			{color = {0.92, 0.86, 0.74}},
-		}
+	self.MaterialBands = self.Source.MaterialBands
+	self.TileCache = config.TileCache or ProceduralTerrainTileCache.New{Source = self.Source}
 	self.LODs = config.LODs or
 		{
 			{radius = 0, mesh_resolution = Vec2() + 96, texture_size = 512},
@@ -360,6 +201,17 @@ function ProceduralHeightfield.New(config)
 	self.Root = nil
 	self.FarState = nil
 	return self
+end
+
+function ProceduralHeightfield:GetHeightSampleTile(min_x, min_z, step_x, step_z, sample_width, sample_height)
+	return self.TileCache:GetHeightTile{
+		min_x = min_x,
+		min_z = min_z,
+		span_x = step_x * math.max(0, sample_width - 1),
+		span_z = step_z * math.max(0, sample_height - 1),
+		width = sample_width,
+		height = sample_height,
+	}
 end
 
 function ProceduralHeightfield:IsDebugRingViewEnabled()
@@ -470,24 +322,7 @@ end
 
 function ProceduralHeightfield:BuildAlbedoShader(chunk_min_x, chunk_min_z, chunk_world_size)
 	chunk_world_size = chunk_world_size or self.ChunkWorldSize
-	return string.format(
-		[[
-		vec2 world_pos = vec2(%.6f, %.6f) + uv * %.6f + vec2(%.6f, %.6f);
-		float h01 = sampleTerrainHeight01(world_pos);
-		float elevation = %.6f + h01 * %.6f - %.6f;
-		vec3 col = pickTerrainColor(elevation);
-		col *= sampleTerrainColorDetail(world_pos, elevation, h01);
-		return vec4(col, 1.0);
-	]],
-		chunk_min_x,
-		chunk_min_z,
-		chunk_world_size,
-		self.SeedOffset.x,
-		self.SeedOffset.y,
-		self.VerticalOffset,
-		self.HeightScale,
-		self.HeightScale * 0.5
-	)
+	return self.Source:BuildAlbedoShader(chunk_min_x, chunk_min_z, chunk_world_size)
 end
 
 function ProceduralHeightfield:BuildBoundsAlbedoShader(bounds)
@@ -500,19 +335,7 @@ end
 
 function ProceduralHeightfield:BuildDisplacementShader(chunk_min_x, chunk_min_z, chunk_world_size)
 	chunk_world_size = chunk_world_size or self.ChunkWorldSize
-	return string.format(
-		[[
-		vec2 world_pos = vec2(%.6f, %.6f) + uv * %.6f + vec2(%.6f, %.6f);
-		float h01 = sampleTerrainHeight01(world_pos);
-		float h = sampleTerrainDisplacement01(world_pos, h01);
-		return vec4(h, h, h, 1.0);
-	]],
-		chunk_min_x,
-		chunk_min_z,
-		chunk_world_size,
-		self.SeedOffset.x,
-		self.SeedOffset.y
-	)
+	return self.Source:BuildDisplacementShader(chunk_min_x, chunk_min_z, chunk_world_size)
 end
 
 function ProceduralHeightfield:BuildBoundsDisplacementShader(bounds)
@@ -586,7 +409,7 @@ function ProceduralHeightfield:CreateChunkMaterial(config, chunk_min_x, chunk_mi
 	local albedo_tex = make_bake_texture(texture_size)
 	albedo_tex:Shade(
 		self:BuildAlbedoShader(chunk_min_x, chunk_min_z, chunk_world_size),
-		{header = self.ShaderHeader .. "\n" .. build_band_glsl(self.MaterialBands)}
+		{header = self.Source:GetMaterialShaderHeader()}
 	)
 	local normal_tex = make_bake_texture(normal_tex_size)
 	normal_tex:Shade(
@@ -619,7 +442,7 @@ function ProceduralHeightfield:CreateBoundsMaterial(config, bounds, ring_index, 
 	local albedo_tex = make_bake_texture(texture_size)
 	albedo_tex:Shade(
 		self:BuildBoundsAlbedoShader(bounds),
-		{header = self.ShaderHeader .. "\n" .. build_band_glsl(self.MaterialBands)}
+		{header = self.Source:GetMaterialShaderHeader()}
 	)
 	local normal_tex = make_bake_texture(normal_tex_size)
 	normal_tex:Shade(
@@ -695,32 +518,33 @@ function ProceduralHeightfield:CreateBoundsPolygon(config, bounds, clip_bounds)
 		local step_z = patch_depth / resolution_z
 		local sample_width = resolution_x + 3
 		local sample_height = resolution_z + 3
-		local height_tex = make_height_bake_texture(sample_width, sample_height)
-		height_tex:Shade(
-			self:BuildHeightSampleShader(rect.min_x, rect.min_z, sample_width, sample_height, step_x, step_z),
-			{header = self.ShaderHeader}
+		local height_tile = self:GetHeightSampleTile(
+			rect.min_x - step_x,
+			rect.min_z - step_z,
+			step_x,
+			step_z,
+			sample_width,
+			sample_height
 		)
-		local height_data = height_tex:Download()
+		local height_samples = height_tile.samples
 		local stride = resolution_x + 1
 		local vertex_rows = {}
 
 		local function sample_height_value(x, y)
 			x = math.clamp(x, 0, sample_width - 1)
 			y = math.clamp(y, 0, sample_height - 1)
+			local index = y * sample_width + x + 1
 
-			if smoothing <= 0 then return get_height01(height_data, x, y) end
+			if smoothing <= 0 then return height_samples[index] end
 
-			local center = get_height01(height_data, x, y)
+			local center = height_samples[index]
 			local sum = 0
 			local count = 0
 
 			for oy = -1, 1 do
 				for ox = -1, 1 do
-					sum = sum + get_height01(
-							height_data,
-							math.clamp(x + ox, 0, sample_width - 1),
-							math.clamp(y + oy, 0, sample_height - 1)
-						)
+					local sample_index = math.clamp(y + oy, 0, sample_height - 1) * sample_width + math.clamp(x + ox, 0, sample_width - 1) + 1
+					sum = sum + height_samples[sample_index]
 					count = count + 1
 				end
 			end

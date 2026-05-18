@@ -403,7 +403,7 @@ function lightprobes.CreatePipelines()
 				},
 			},
 			shader = [[
-			]] .. model_pipeline.BuildPBRSamplingGlsl("model") .. [[
+				]] .. model_pipeline.BuildProbeSamplingGlsl("model") .. [[
               
                 void main() {
 					vec3 albedo = get_albedo();
