@@ -395,10 +395,9 @@ function lightprobes.CreatePipelines()
 						},
 					},
 				},
-			},
-			push_constants = {
 				{
 					name = "model",
+					binding_index = 4,
 					block = model_pipeline.GetProbeMaterialBlock(),
 				},
 			},
