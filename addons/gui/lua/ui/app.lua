@@ -38,8 +38,6 @@ local function build_editor(position, size)
 
 				editor_window = NULL
 				visible = false
-
-				if not love_game_active() then system.GetWindow():SetMouseTrapped(true) end
 			end,
 			OnThemeChange = function(guid, next_position, next_size)
 				selected_entity_guid = guid
