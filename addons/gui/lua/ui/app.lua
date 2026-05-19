@@ -7,6 +7,11 @@ local editor_window = NULL
 local selected_entity_guid = nil
 local visible = false
 local suppress_close_callback = false
+
+local function sync_mouse_trapped_state()
+	system.GetWindow():SetMouseTrapped(not visible)
+end
+
 world_panel:RemoveKeyed("GameMenuPanel")
 world_panel:RemoveKeyed("GameEditorWindow")
 world_panel:RemoveKeyed("EditorMenuBarContextMenu")
@@ -21,8 +26,8 @@ local function build_editor(position, size)
 		suppress_close_callback = false
 	end
 
-	system.GetWindow():SetMouseTrapped(false)
 	visible = true
+	sync_mouse_trapped_state()
 	editor_window = world_panel:Ensure(
 		Editor{
 			Key = "GameEditorWindow",
@@ -38,6 +43,7 @@ local function build_editor(position, size)
 
 				editor_window = NULL
 				visible = false
+				sync_mouse_trapped_state()
 			end,
 			OnThemeChange = function(guid, next_position, next_size)
 				selected_entity_guid = guid
@@ -59,6 +65,7 @@ local function toggle()
 			editor_window = NULL
 		end
 
+		sync_mouse_trapped_state()
 		return false
 	end
 
@@ -81,5 +88,5 @@ event.AddListener("Update", "window_title", function(dt)
 end)
 
 event.AddListener("WindowGainedFocus", "mouse_trap", function()
-	if not visible then system.GetWindow():SetMouseTrapped(true) end
+	if not visible then sync_mouse_trapped_state() end
 end) --toggle()

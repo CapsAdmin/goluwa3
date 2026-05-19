@@ -1340,13 +1340,19 @@ return function(props)
 
 		if get_entity_world_root(parent_entity) ~= Entity.World then return end
 
-		local child_count = count_valid_children(parent_entity, window)
+		local camera_forward = editor_camera.rotation and editor_camera.rotation:GetForward() or Vec3(0, 0, 1)
+		local spawn_world_position = editor_camera.position and
+			(
+				editor_camera.position + camera_forward * 2
+			)
+			or
+			Vec3(0, 0, 2)
 		local config = {
 			Name = kind == "sphere" and "sphere" or "box",
 			Collision = false,
 			RigidBody = false,
 			PhysicsNoCollision = true,
-			Position = Vec3(child_count * 1.5, 0, 0),
+			Position = spawn_world_position,
 			Material = {
 				Color = kind == "sphere" and
 					{r = 0.28, g = 0.65, b = 0.92, a = 1} or
@@ -1367,6 +1373,12 @@ return function(props)
 			end
 
 			entity:SetParent(parent_entity)
+
+			if parent_entity.transform then
+				entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
+			else
+				entity.transform:SetPosition(spawn_world_position)
+			end
 
 			if parent_entity ~= Entity.World then
 				state.expanded_entities[parent_entity:GetGUID()] = true
