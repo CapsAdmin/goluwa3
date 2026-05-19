@@ -62,37 +62,49 @@ local function build_common_fragment_shader()
 				return normalize(vec3(left - right, down - up, max(model.HeightScale, 0.0001)));
 			}
 
-			vec3 get_normal(vec2 uv, mat3 tbn) {
-				if ((gbuffer_data.debug_mode - 1) == 5) {
-					return get_vertex_normal();
-				}
-
-				vec3 N;
+			vec3 get_normal_map(vec2 uv) {
 				if (model.NormalTexture == -1) {
 					if (has_heightmap()) {
-						N = tbn * get_height_normal_tangent(uv);
-					} else {
-						N = tbn[2];
-					}
-				} else {
-					vec3 rgb1 = texture(TEXTURE(model.NormalTexture), uv).xyz * 2.0 - 1.0;
-
-					if (model.Normal2Texture != -1) {
-						float blend = get_texture_blend_uv(uv);
-						if (blend != 0) {
-							vec3 rgb2 = texture(TEXTURE(model.Normal2Texture), uv).xyz * 2.0 - 1.0;
-							rgb1 = normalize(mix(rgb1, rgb2, blend));
-						}
+						return get_height_normal_tangent(uv);
 					}
 
-					N = tbn * rgb1;
+					return vec3(0.0, 0.0, 1.0);
 				}
+
+				vec3 rgb1 = texture(TEXTURE(model.NormalTexture), uv).xyz * 2.0 - 1.0;
+
+				if (model.Normal2Texture != -1) {
+					float blend = get_texture_blend_uv(uv);
+
+					if (blend != 0) {
+						vec3 rgb2 = texture(TEXTURE(model.Normal2Texture), uv).xyz * 2.0 - 1.0;
+						rgb1 = normalize(mix(rgb1, rgb2, blend));
+					}
+				}
+
+				return normalize(rgb1);
+			}
+
+			vec3 get_combined_normal(vec2 uv, mat3 tbn) {
+				vec3 N = tbn * get_normal_map(uv);
 
 				if (DoubleSided && gl_FrontFacing) {
 					N = -N;
 				}
 
 				return normalize(N);
+			}
+
+			vec3 get_normal(vec2 uv, mat3 tbn) {
+				if (gbuffer_data.gbuffer_normal_debug_view == 1) {
+					return get_normal_map(uv);
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 2 || (gbuffer_data.debug_mode - 1) == 5) {
+					return get_vertex_normal();
+				}
+
+				return get_combined_normal(uv, tbn);
 			}
 
 			float get_metallic(vec2 uv) {
@@ -361,13 +373,14 @@ local function build_tessellation_evaluation_shader()
 			void main() {
 				vec3 world_pos = interpolate_vec3(in_position[0], in_position[1], in_position[2]);
 				vec3 normal = normalize(interpolate_vec3(in_normal[0], in_normal[1], in_normal[2]));
+				vec3 displacement_normal = vec3(0.0, 1.0, 0.0);
 				vec3 tangent_xyz = normalize(interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz));
 				float tangent_w = interpolate_float(in_tangent[0].w, in_tangent[1].w, in_tangent[2].w);
 				vec2 uv = interpolate_vec2(in_uv[0], in_uv[1], in_uv[2]);
 				float texture_blend = interpolate_float(in_texture_blend[0], in_texture_blend[1], in_texture_blend[2]);
 
 				if (use_tessellated_displacement()) {
-					world_pos += normal * (get_height_centered_sample(uv) * model.HeightScale);
+					world_pos += displacement_normal * (get_height_centered_sample(uv) * model.HeightScale);
 				}
 
 				out_position = world_pos;

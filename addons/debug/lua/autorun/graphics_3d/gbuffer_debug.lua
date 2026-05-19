@@ -10,6 +10,53 @@ local fonts = import("goluwa/render2d/fonts.lua")
 local show_gbuffer = false
 local fullscreen_index = 0
 local checkerboard_texture
+local fullscreen_views = {
+	{name = "normal", normal_debug_view = "combined"},
+	{name = "normal_map", normal_debug_view = "normal_map"},
+	{name = "vertex_normal", normal_debug_view = "vertex_normal"},
+}
+
+local function format_view_name(name)
+	if name == "normal" then return "View Normal" end
+
+	if name == "normal_map" then return "Normal Map" end
+
+	if name == "vertex_normal" then return "Vertex Normal" end
+
+	return name:gsub("_", " "):gsub("(%a)([%w_']*)", function(first, rest)
+		return first:upper() .. rest:lower()
+	end)
+end
+
+local function get_fullscreen_views()
+	local views = render3d.pipelines.gbuffer and render3d.pipelines.gbuffer:GetDebugViews() or {}
+	local out = {}
+
+	for _, view in ipairs(views) do
+		if view.name == "normal" then
+			for _, fullscreen_view in ipairs(fullscreen_views) do
+				table.insert(
+					out,
+					{
+						name = fullscreen_view.name,
+						attachment_index = view.attachment_index,
+						swizzle = view.swizzle,
+						normal_debug_view = fullscreen_view.normal_debug_view,
+					}
+				)
+			end
+		else
+			table.insert(out, view)
+		end
+	end
+
+	return out
+end
+
+local function sync_normal_debug_view()
+	local view = get_fullscreen_views()[fullscreen_index]
+	render3d.SetGBufferNormalDebugView(view and view.normal_debug_view or "combined")
+end
 
 local function get_checkerboard_texture()
 	if checkerboard_texture then return checkerboard_texture end
@@ -68,13 +115,13 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	}
 
 	if fullscreen_index > 0 then
-		local views = render3d.pipelines.gbuffer:GetDebugViews()
+		local views = get_fullscreen_views()
 		local tex, name, swizzle
 
 		if fullscreen_index <= #views then
 			local view = views[fullscreen_index]
 			tex = render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(view.attachment_index)
-			name = view.name
+			name = format_view_name(view.name)
 			swizzle = view.swizzle
 		else
 			tex = render3d.pipelines.gbuffer:GetFramebuffer().depth_texture
@@ -134,7 +181,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		render2d.SetColor(0, 0, 0, 0.5)
 		render2d.DrawRect(x, y, 150, 20)
 		render2d.SetColor(1, 1, 1, 1)
-		fonts.GetFont():DrawText(view.name, x + 5, y + 5)
+		fonts.GetFont():DrawText(format_view_name(view.name), x + 5, y + 5)
 		x = x + size
 
 		if x + size > wnd_size.x then
@@ -172,7 +219,7 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 		show_gbuffer = not show_gbuffer
 		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
 	elseif key == "f" then
-		local views = render3d.pipelines.gbuffer and render3d.pipelines.gbuffer:GetDebugViews() or {}
+		local views = get_fullscreen_views()
 		local count = #views + (
 				render3d.pipelines.gbuffer and
 				render3d.pipelines.gbuffer:GetFramebuffer() and
@@ -184,10 +231,12 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 
 		if fullscreen_index > count then fullscreen_index = 0 end
 
+		sync_normal_debug_view()
+
 		if fullscreen_index == 0 then
 			print("G-buffer fullscreen: OFF")
 		elseif fullscreen_index <= #views then
-			print("G-buffer fullscreen: " .. views[fullscreen_index].name)
+			print("G-buffer fullscreen: " .. format_view_name(views[fullscreen_index].name))
 		else
 			print("G-buffer fullscreen: Depth")
 		end

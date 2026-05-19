@@ -37,6 +37,13 @@ do
 			end,
 		},
 		{
+			"gbuffer_normal_debug_view",
+			"int",
+			function(self, block, key)
+				block[key] = render3d.gbuffer_normal_debug_view or 0
+			end,
+		},
+		{
 			"near_z",
 			"float",
 			function(self, block, key)
@@ -68,6 +75,12 @@ do
 		"wireframe",
 	}
 	render3d.debug_mode = render3d.debug_mode or 1
+	render3d.gbuffer_normal_debug_view = render3d.gbuffer_normal_debug_view or 0
+	local gbuffer_normal_debug_views = {
+		combined = 0,
+		normal_map = 1,
+		vertex_normal = 2,
+	}
 
 	function render3d.SetDebugMode(mode_name)
 		for i, name in ipairs(debug_modes) do
@@ -95,6 +108,23 @@ do
 
 	function render3d.IsWireframeDebugMode(mode_name)
 		return (mode_name or render3d.GetDebugModeName()) == "wireframe"
+	end
+
+	function render3d.SetGBufferNormalDebugView(mode_name)
+		local mode = gbuffer_normal_debug_views[mode_name]
+
+		if mode == nil then return false end
+
+		render3d.gbuffer_normal_debug_view = mode
+		return true
+	end
+
+	function render3d.GetGBufferNormalDebugView()
+		for name, mode in pairs(gbuffer_normal_debug_views) do
+			if mode == render3d.gbuffer_normal_debug_view then return name end
+		end
+
+		return "combined"
 	end
 
 	render3d.debug_mode_glsl = [[
@@ -285,6 +315,7 @@ function render3d.ResetState()
 	render3d.ocean_level = nil
 	render3d.debug_cascade_colors = false
 	render3d.debug_mode = 1
+	render3d.gbuffer_normal_debug_view = 0
 end
 
 function render3d.Draw(dt)
