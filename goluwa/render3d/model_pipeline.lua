@@ -160,7 +160,7 @@ local function build_vertex_shader(options)
 	end
 
 	if options.normal then
-		lines[#lines + 1] = "\tout_normal = normalize(mat3(vertex.world) * in_normal);"
+		lines[#lines + 1] = "\tout_normal = normalize(transpose(inverse(mat3(vertex.world))) * in_normal);"
 	end
 
 	if options.tangent then

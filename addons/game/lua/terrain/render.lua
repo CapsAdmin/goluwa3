@@ -9,6 +9,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local timer = import("goluwa/timer.lua")
+local ffi = require("ffi")
 local ProceduralTerrainHybridRenderer = {}
 ProceduralTerrainHybridRenderer.__index = ProceduralTerrainHybridRenderer
 local approx_equal
@@ -47,6 +48,11 @@ local function get_mesh_segments(mesh_resolution)
 	local x = mesh_resolution.x or mesh_resolution[1] or 1
 	local y = mesh_resolution.y or mesh_resolution[2] or x
 	return math.max(math.floor(x), 1), math.max(math.floor(y), 1)
+end
+
+local function get_mesh_resolution_key(mesh_resolution)
+	local segments_x, segments_y = get_mesh_segments(mesh_resolution)
+	return segments_x .. ":" .. segments_y
 end
 
 local function patch_has_tag(patch_type, tag)
@@ -660,6 +666,7 @@ function ProceduralTerrainHybridRenderer:GetSharedPatchPolygon(cache_key, mesh_r
 	end
 
 	local normal = Vec3(0, 1, 0)
+	local tangent = Vec3(1, 0, 0)
 
 	local function add_patch_rect(rect)
 		local x0 = rect.min_x
@@ -676,19 +683,19 @@ function ProceduralTerrainHybridRenderer:GetSharedPatchPolygon(cache_key, mesh_r
 		local p4 = Vec3(x0, 0, -z1)
 
 		if should_flip_patch_cell(patch_variant, x0, x1, z0, z1) then
-			polygon:AddVertex{pos = p1, uv = Vec2(u0, v0), normal = normal}
-			polygon:AddVertex{pos = p4, uv = Vec2(u0, v1), normal = normal}
-			polygon:AddVertex{pos = p2, uv = Vec2(u1, v0), normal = normal}
-			polygon:AddVertex{pos = p4, uv = Vec2(u0, v1), normal = normal}
-			polygon:AddVertex{pos = p3, uv = Vec2(u1, v1), normal = normal}
-			polygon:AddVertex{pos = p2, uv = Vec2(u1, v0), normal = normal}
+			polygon:AddVertex{pos = p1, uv = Vec2(u0, v0), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p4, uv = Vec2(u0, v1), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p2, uv = Vec2(u1, v0), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p4, uv = Vec2(u0, v1), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p3, uv = Vec2(u1, v1), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p2, uv = Vec2(u1, v0), normal = normal, tangent = tangent}
 		else
-			polygon:AddVertex{pos = p1, uv = Vec2(u0, v0), normal = normal}
-			polygon:AddVertex{pos = p3, uv = Vec2(u1, v1), normal = normal}
-			polygon:AddVertex{pos = p2, uv = Vec2(u1, v0), normal = normal}
-			polygon:AddVertex{pos = p1, uv = Vec2(u0, v0), normal = normal}
-			polygon:AddVertex{pos = p4, uv = Vec2(u0, v1), normal = normal}
-			polygon:AddVertex{pos = p3, uv = Vec2(u1, v1), normal = normal}
+			polygon:AddVertex{pos = p1, uv = Vec2(u0, v0), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p3, uv = Vec2(u1, v1), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p2, uv = Vec2(u1, v0), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p1, uv = Vec2(u0, v0), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p4, uv = Vec2(u0, v1), normal = normal, tangent = tangent}
+			polygon:AddVertex{pos = p3, uv = Vec2(u1, v1), normal = normal, tangent = tangent}
 		end
 	end
 
@@ -710,6 +717,137 @@ function ProceduralTerrainHybridRenderer:GetSharedPatchPolygon(cache_key, mesh_r
 	polygon:BuildBoundingBox()
 	polygon:Upload()
 	self.SharedPatchCache[cache_key] = polygon
+	return polygon
+end
+
+local function build_height_texture_sampler(height_texture)
+	local downloaded = height_texture:Download()
+	local width = downloaded:GetWidth()
+	local height = downloaded:GetHeight()
+	local texel_u = 1 / math.max(width - 1, 1)
+	local texel_v = 1 / math.max(height - 1, 1)
+
+	if downloaded.format == "r32_sfloat" then
+		local floats = ffi.cast("float*", downloaded.pixels)
+		return function(u, v)
+			local x = math.clamp(math.floor(u * (width - 1) + 0.5), 0, width - 1)
+			local y = math.clamp(math.floor(v * (height - 1) + 0.5), 0, height - 1)
+			return floats[y * width + x]
+		end,
+		texel_u,
+		texel_v
+	end
+
+	return function(u, v)
+		local x = math.clamp(math.floor(u * (width - 1) + 0.5), 0, width - 1)
+		local y = math.clamp(math.floor(v * (height - 1) + 0.5), 0, height - 1)
+		local r = downloaded:GetRawPixelColor(x, y)
+		return (r or 0) / 255
+	end,
+	texel_u,
+	texel_v
+end
+
+function ProceduralTerrainHybridRenderer:CreateTilePatchPolygon(height_texture, mesh_resolution, patch_type, trim_rect)
+	local polygon = Polygon3D.New()
+	local segments_x, segments_y = get_mesh_segments(mesh_resolution)
+	local patch_variant = classify_patch_variant(patch_type, trim_rect)
+	local x_coords = build_patch_axis_coords(segments_x, patch_variant.inject_x_split)
+	local z_coords = build_patch_axis_coords(segments_y, patch_variant.inject_z_split)
+	local sample_height01, texel_u, texel_v = build_height_texture_sampler(height_texture)
+	local height_scale = self.HeightScale
+	local has_trim_rect = trim_rect ~= nil
+	local normal_scale_u = math.max(texel_u * 2, 1e-6)
+	local normal_scale_v = math.max(texel_v * 2, 1e-6)
+	local vertex_indices = {}
+	local triangle_indices = {}
+
+	if trim_rect then
+		x_coords = merge_patch_axis_coords(x_coords, {trim_rect.min_x, trim_rect.max_x})
+		z_coords = merge_patch_axis_coords(z_coords, {trim_rect.min_z, trim_rect.max_z})
+	end
+
+	local function get_surface_basis(u, v)
+		local left = sample_height01(math.clamp(u - texel_u, 0, 1), v) * height_scale
+		local right = sample_height01(math.clamp(u + texel_u, 0, 1), v) * height_scale
+		local down = sample_height01(u, math.clamp(v - texel_v, 0, 1)) * height_scale
+		local up = sample_height01(u, math.clamp(v + texel_v, 0, 1)) * height_scale
+		local dx = (right - left) / normal_scale_u
+		local dz = (up - down) / normal_scale_v
+		local normal_inverse_length = 1 / math.sqrt(dx * dx + dz * dz + 1)
+		local tangent_inverse_length = 1 / math.sqrt(dx * dx + 1)
+		return Vec3(-dx * normal_inverse_length, normal_inverse_length, -dz * normal_inverse_length),
+		Vec3(tangent_inverse_length, dx * tangent_inverse_length, 0)
+	end
+
+	local function get_vertex_index(x, z)
+		local x_vertices = vertex_indices[x]
+		local existing = x_vertices and x_vertices[z]
+
+		if existing then return existing end
+
+		if not x_vertices then
+			x_vertices = {}
+			vertex_indices[x] = x_vertices
+		end
+
+		local u = x + 0.5
+		local v = 0.5 - z
+		local normal, tangent = get_surface_basis(u, v)
+		polygon:AddVertex{
+			pos = Vec3(x, 0, -z),
+			uv = Vec2(u, v),
+			normal = normal,
+			tangent = tangent,
+		}
+		local index = polygon.i - 1
+		x_vertices[z] = index
+		return index
+	end
+
+	local function add_triangle(a, b, c)
+		triangle_indices[#triangle_indices + 1] = a
+		triangle_indices[#triangle_indices + 1] = b
+		triangle_indices[#triangle_indices + 1] = c
+	end
+
+	local function add_patch_rect(x0, x1, z0, z1)
+		local i00 = get_vertex_index(x0, z0)
+		local i10 = get_vertex_index(x1, z0)
+		local i01 = get_vertex_index(x0, z1)
+		local i11 = get_vertex_index(x1, z1)
+
+		if should_flip_patch_cell(patch_variant, x0, x1, z0, z1) then
+			add_triangle(i00, i01, i10)
+			add_triangle(i01, i11, i10)
+		else
+			add_triangle(i00, i11, i10)
+			add_triangle(i00, i01, i11)
+		end
+	end
+
+	for zi = 1, #z_coords - 1 do
+		local z0 = z_coords[zi]
+		local z1 = z_coords[zi + 1]
+
+		for xi = 1, #x_coords - 1 do
+			local x0 = x_coords[xi]
+			local x1 = x_coords[xi + 1]
+
+			if not has_trim_rect then
+				add_patch_rect(x0, x1, z0, z1)
+			else
+				local rects = get_trimmed_cell_rects(x0, x1, z0, z1, trim_rect)
+
+				for i = 1, #rects do
+					local rect = rects[i]
+					add_patch_rect(rect.min_x, rect.max_x, rect.min_z, rect.max_z)
+				end
+			end
+		end
+	end
+
+	polygon:Upload(triangle_indices)
 	return polygon
 end
 
@@ -816,13 +954,11 @@ function ProceduralTerrainHybridRenderer:GetOrCreateTileRenderData(bounds, confi
 		)
 	end
 
-	local mesh_segments_x, mesh_segments_y = get_mesh_segments(config.mesh_resolution)
 	local patch_variant = classify_patch_variant(patch_type, trim_rect)
-	local patch_cache_key = string.format("unit_patch:%d:%d:%s", mesh_segments_x, mesh_segments_y, patch_variant.key)
 	local render_data = {
 		cache_key = cache_key,
-		polygon = self:GetSharedPatchPolygon(
-			patch_cache_key,
+		polygon = self:CreateTilePatchPolygon(
+			height_texture,
 			config.mesh_resolution,
 			patch_variant.patch_type,
 			trim_rect

@@ -69,7 +69,16 @@ function ProceduralTerrainSource.New(config)
 	self.MaterialLayers = config.MaterialLayers
 	self.TerrainShaderGLSL = config.TerrainShaderGLSL
 	self.SceneShaderGLSL = config.SceneShaderGLSL
-	self.ShaderHeader = table.concat({COMMON_SHADER_HEADER, self.TerrainShaderGLSL, self.SceneShaderGLSL}, "\n")
+	self.NormalShaderGLSL = config.NormalShaderGLSL
+	self.ShaderHeader = table.concat(
+		{
+			COMMON_SHADER_HEADER,
+			self.TerrainShaderGLSL,
+			self.SceneShaderGLSL,
+			self.NormalShaderGLSL,
+		},
+		"\n"
+	)
 	return self
 end
 
@@ -92,6 +101,7 @@ function ProceduralTerrainSource:BuildBakeShaderExtraConfig(
 	texture_width = math.max(1, texture_width or 1)
 	texture_height = math.max(1, texture_height or texture_width)
 	normal_strength = normal_strength or 1
+
 	return {
 		custom_declarations = TERRAIN_BAKE_PUSH_CONSTANT_DECLARATIONS,
 		fragment_push_constants = {
@@ -215,8 +225,14 @@ function ProceduralTerrainSource:BuildNormalShader(
 	texture_height,
 	normal_strength
 )
+	local height_function_name = self.NormalShaderGLSL and
+		self.NormalShaderGLSL ~= "" and
+		"sampleSceneTerrainNormalHeight01" or
+		"sampleSceneTerrainHeight01"
+
 	if texture_width ~= nil or texture_height ~= nil then
-		return [[
+		return string.format(
+			[[ 
 		vec2 pixel = gl_FragCoord.xy - vec2(0.5);
 		vec2 uv01 = vec2(
 			pixel.x / max(terrain_bake.texture_width - 1.0, 1.0),
@@ -225,13 +241,18 @@ function ProceduralTerrainSource:BuildNormalShader(
 		vec2 terrain_world_pos = vec2(terrain_bake.chunk_min_x, terrain_bake.chunk_min_z) + uv01 * terrain_bake.chunk_world_size;
 		vec2 source_world_pos = terrain_world_pos + vec2(terrain_bake.seed_offset_x, terrain_bake.seed_offset_y);
 		vec2 sample_step = vec2(terrain_bake.sample_step_x, terrain_bake.sample_step_y);
-		float h_left = sampleSceneTerrainHeight01(source_world_pos - vec2(sample_step.x, 0.0), terrain_world_pos - vec2(sample_step.x, 0.0)) * terrain_bake.height_scale;
-		float h_right = sampleSceneTerrainHeight01(source_world_pos + vec2(sample_step.x, 0.0), terrain_world_pos + vec2(sample_step.x, 0.0)) * terrain_bake.height_scale;
-		float h_down = sampleSceneTerrainHeight01(source_world_pos - vec2(0.0, sample_step.y), terrain_world_pos - vec2(0.0, sample_step.y)) * terrain_bake.height_scale;
-		float h_up = sampleSceneTerrainHeight01(source_world_pos + vec2(0.0, sample_step.y), terrain_world_pos + vec2(0.0, sample_step.y)) * terrain_bake.height_scale;
+		float h_left = %s(source_world_pos - vec2(sample_step.x, 0.0), terrain_world_pos - vec2(sample_step.x, 0.0)) * terrain_bake.height_scale;
+		float h_right = %s(source_world_pos + vec2(sample_step.x, 0.0), terrain_world_pos + vec2(sample_step.x, 0.0)) * terrain_bake.height_scale;
+		float h_down = %s(source_world_pos - vec2(0.0, sample_step.y), terrain_world_pos - vec2(0.0, sample_step.y)) * terrain_bake.height_scale;
+		float h_up = %s(source_world_pos + vec2(0.0, sample_step.y), terrain_world_pos + vec2(0.0, sample_step.y)) * terrain_bake.height_scale;
 		vec3 tangent_normal = normalize(vec3((h_left - h_right) * terrain_bake.normal_strength, (h_down - h_up) * terrain_bake.normal_strength, sample_step.x + sample_step.y));
 		return vec4(tangent_normal * 0.5 + 0.5, 1.0);
 		]],
+			height_function_name,
+			height_function_name,
+			height_function_name,
+			height_function_name
+		),
 		self:BuildBakeShaderExtraConfig(
 			chunk_min_x,
 			chunk_min_z,
@@ -252,10 +273,10 @@ function ProceduralTerrainSource:BuildNormalShader(
 		vec2 terrain_world_pos = vec2(%.6f, %.6f) + uv01 * %.6f;
 		vec2 source_world_pos = terrain_world_pos + vec2(%.6f, %.6f);
 		vec2 sample_step = vec2(%.6f, %.6f);
-		float h_left = sampleSceneTerrainHeight01(source_world_pos - vec2(sample_step.x, 0.0), terrain_world_pos - vec2(sample_step.x, 0.0)) * %.6f;
-		float h_right = sampleSceneTerrainHeight01(source_world_pos + vec2(sample_step.x, 0.0), terrain_world_pos + vec2(sample_step.x, 0.0)) * %.6f;
-		float h_down = sampleSceneTerrainHeight01(source_world_pos - vec2(0.0, sample_step.y), terrain_world_pos - vec2(0.0, sample_step.y)) * %.6f;
-		float h_up = sampleSceneTerrainHeight01(source_world_pos + vec2(0.0, sample_step.y), terrain_world_pos + vec2(0.0, sample_step.y)) * %.6f;
+		float h_left = %s(source_world_pos - vec2(sample_step.x, 0.0), terrain_world_pos - vec2(sample_step.x, 0.0)) * %.6f;
+		float h_right = %s(source_world_pos + vec2(sample_step.x, 0.0), terrain_world_pos + vec2(sample_step.x, 0.0)) * %.6f;
+		float h_down = %s(source_world_pos - vec2(0.0, sample_step.y), terrain_world_pos - vec2(0.0, sample_step.y)) * %.6f;
+		float h_up = %s(source_world_pos + vec2(0.0, sample_step.y), terrain_world_pos + vec2(0.0, sample_step.y)) * %.6f;
 		vec3 tangent_normal = normalize(vec3((h_left - h_right) * %.6f, (h_down - h_up) * %.6f, sample_step.x + sample_step.y));
 		return vec4(tangent_normal * 0.5 + 0.5, 1.0);
 	]],
@@ -270,9 +291,13 @@ function ProceduralTerrainSource:BuildNormalShader(
 		self.SeedOffset.y,
 		chunk_world_size / math.max(texture_width - 1, 1),
 		chunk_world_size / math.max(texture_height - 1, 1),
+		height_function_name,
 		self.HeightScale,
+		height_function_name,
 		self.HeightScale,
+		height_function_name,
 		self.HeightScale,
+		height_function_name,
 		self.HeightScale,
 		normal_strength,
 		normal_strength
