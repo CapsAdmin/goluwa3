@@ -192,7 +192,33 @@ local function build_common_fragment_shader()
 				return val;
 			}
 
+			float get_vegetation(vec2 uv) {
+				if (!Vegetation) return 0.0;
+
+				float strength = DoubleSided ? 1.0 : 0.35;
+
+				if (model.AlbedoTexture != -1) {
+					strength *= clamp(texture(TEXTURE(model.AlbedoTexture), uv).g, 0.35, 1.0);
+				}
+
+				return clamp(strength, 0.0, 1.0);
+			}
+
+			float get_vegetation_back_view_dep() {
+				if (!Vegetation) return 0.0;
+				return clamp(model.VegetationBackViewDep, 0.0, 1.0);
+			}
+
+			vec3 get_vegetation_back_diffuse() {
+				if (!Vegetation) return vec3(0.0);
+				return model.VegetationBackDiffuse.rgb * model.VegetationBackDiffuse.a;
+			}
+
 			vec3 get_emissive(vec2 uv) {
+				if (Vegetation) {
+					return get_vegetation_back_diffuse();
+				}
+
 				if (AlbedoAlphaIsEmissive) {
 					float mask = 1.0;
 					if (model.AlbedoTexture != -1) {
@@ -307,9 +333,11 @@ local function build_ssdm_fragment_shader()
 				set_alpha(alpha);
 				set_albedo(get_albedo_world(displacement.uv, displacement.world_pos));
 				set_normal(get_normal(displacement.uv, tbn));
+				set_vegetation_back_view_dep(get_vegetation_back_view_dep());
 				set_metallic(get_metallic(displacement.uv));
 				set_roughness(get_roughness(displacement.uv));
 				set_ao(get_ao(displacement.uv));
+				set_vegetation(get_vegetation(displacement.uv));
 				set_emissive(get_emissive(displacement.uv));
 				gl_FragDepth = has_heightmap() ? get_projected_depth(displacement.world_pos) : gl_FragCoord.z;
 			}
@@ -439,9 +467,11 @@ local function build_tessellation_fragment_shader()
 				set_alpha(alpha);
 				set_albedo(get_albedo_world(in_uv, in_position));
 				set_normal(get_normal(in_uv, tbn));
+				set_vegetation_back_view_dep(get_vegetation_back_view_dep());
 				set_metallic(get_metallic(in_uv));
 				set_roughness(get_roughness(in_uv));
 				set_ao(get_ao(in_uv));
+				set_vegetation(get_vegetation(in_uv));
 				set_emissive(get_emissive(in_uv));
 			}
 	]]
@@ -456,8 +486,14 @@ local function build_base_pass(fragment_shader)
 		end,
 		ColorFormat = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
-			{"r16g16b16a16_sfloat", {"normal", "rgb"}},
-			{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
+			{"r16g16b16a16_sfloat", {"normal", "rgb"}, {"vegetation_back_view_dep", "a"}},
+			{
+				"r8g8b8a8_unorm",
+				{"metallic", "r"},
+				{"roughness", "g"},
+				{"ao", "b"},
+				{"vegetation", "a"},
+			},
 			{"r16g16b16a16_sfloat", {"emissive", "rgb"}},
 		},
 		DepthFormat = "d32_sfloat",

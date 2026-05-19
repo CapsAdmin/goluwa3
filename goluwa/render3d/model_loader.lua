@@ -130,5 +130,6 @@ end
 
 import.loaded["goluwa/render3d/model_loader.lua"] = model_loader
 import("goluwa/render3d/model_decoders/mdl.lua")
+model_loader.AddModelDecoder("cgf", import("goluwa/render3d/model_decoders/cgf.lua").DecodeModel)
 import("goluwa/render3d/model_decoders/bsp.lua")
 return model_loader

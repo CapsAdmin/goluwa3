@@ -42,6 +42,8 @@ Material:GetSet("HeightScale", 0.0)
 Material:GetSet("HeightCenter", 0.0)
 Material:GetSet("HeightLayers", 24)
 Material:GetSet("TessellationFactor", 1.0)
+Material:GetSet("VegetationBackDiffuse", Color(1.0, 1.0, 1.0, 1.0))
+Material:GetSet("VegetationBackViewDep", 0.5)
 -- other
 Material:GetSet("AlphaCutoff", 0.5)
 Material:GetSet("IgnoreZ", false)
@@ -58,6 +60,7 @@ Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
+Material:GetSet("Vegetation", false, {callback = "InvalidateFlags"})
 Material:EndStorable()
 
 function Material.New(config)
@@ -124,6 +127,7 @@ local FLAGS = {
 	"MetallicTextureAlphaIsEmissive",
 	"AlbedoAlphaIsEmissive",
 	"DoubleSided",
+	"Vegetation",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -174,6 +178,9 @@ end
 
 do
 	local steam = import("goluwa/steam/steam.lua")
+	local vfs = import("goluwa/vfs.lua")
+	local xml = import("goluwa/codecs/xml.lua")
+	local cry_mtl_document_cache = {}
 
 	local function unpack_numbers(str)
 		str = str:gsub("%s+", " ")
@@ -184,6 +191,16 @@ do
 		end
 
 		return unpack(t)
+	end
+
+	local function unpack_csv_numbers(str)
+		local out = {}
+
+		for value in tostring(str or ""):gmatch("[^,%s]+") do
+			out[#out + 1] = tonumber(value) or 0
+		end
+
+		return out[1], out[2], out[3], out[4]
 	end
 
 	local SRGBTexture = function(path)
@@ -197,6 +214,153 @@ do
 			path = path,
 			srgb = false,
 		}
+	end
+
+	local function find_child_by_tag(node, tag)
+		if not (node and node.children) then return nil end
+
+		for i = 1, node.children.n do
+			local child = node.children[i]
+
+			if child.tag == tag then return child end
+		end
+	end
+
+	local function iter_children_by_tag(node, tag)
+		local children = node and node.children
+		local index = 0
+		return function()
+			if not children then return nil end
+
+			for i = index + 1, children.n do
+				local child = children[i]
+
+				if child.tag == tag then
+					index = i
+					return child, i
+				end
+			end
+		end
+	end
+
+	local function resolve_cry_game_root(path)
+		if type(path) ~= "string" then return nil end
+
+		local normalized = vfs.FixPathSlashes(path)
+		return normalized:match("^(.-/Game/)")
+	end
+
+	local function resolve_cry_texture_path(material_path, texture_path)
+		if type(texture_path) ~= "string" or texture_path == "" then return nil end
+
+		local normalized = vfs.FixPathSlashes(texture_path)
+		local base = vfs.RemoveExtensionFromPath(normalized)
+		local basename = vfs.GetFileNameFromPath(base .. ".dds"):lower()
+		local candidates = {}
+		local game_root = resolve_cry_game_root(material_path)
+
+		local function add(path)
+			if path and path ~= "" then
+				candidates[#candidates + 1] = vfs.FixPathSlashes(path)
+			end
+		end
+
+		if vfs.IsPathAbsolutePath(normalized) then
+			add(normalized)
+			add(base .. ".dds")
+		else
+			local folder = vfs.GetFolderFromPath(material_path)
+			add(folder and (folder .. normalized) or normalized)
+			add(folder and (folder .. base .. ".dds") or (base .. ".dds"))
+
+			if game_root then
+				add(game_root .. normalized)
+				add(game_root .. base .. ".dds")
+				add(game_root .. "Objects.pak/" .. normalized)
+				add(game_root .. "Objects.pak/" .. base .. ".dds")
+				add(game_root .. "Textures.pak/" .. normalized)
+				add(game_root .. "Textures.pak/" .. base .. ".dds")
+			end
+		end
+
+		for _, candidate in ipairs(candidates) do
+			local found = vfs.FindMixedCasePath(candidate)
+
+			if found then return found end
+
+			if vfs.IsFile(candidate) then return candidate end
+		end
+
+		if game_root and basename ~= "" then
+			for _, root in ipairs{game_root .. "Objects.pak/", game_root .. "Textures.pak/"} do
+				local resolved = vfs.FindFileByNameRecursive(root, basename)
+
+				if resolved then return resolved end
+			end
+		end
+
+		return nil
+	end
+
+	local function apply_cry_material_node(self, material_node, material_path)
+		if not material_node then return self end
+
+		local is_vegetation = material_node.attrs and material_node.attrs.Shader == "Vegetation"
+		self:SetMetallicMultiplier(0)
+
+		if is_vegetation then self:SetVegetation(true) end
+
+		if material_node.attrs and material_node.attrs.Diffuse then
+			local r, g, b = unpack_csv_numbers(material_node.attrs.Diffuse)
+			self:SetColorMultiplier(Color(r, g, b, tonumber(material_node.attrs.Opacity) or 1))
+		end
+
+		if material_node.attrs then
+			local alpha_test = tonumber(material_node.attrs.AlphaTest)
+
+			if alpha_test and alpha_test > 0 then
+				self:SetAlphaTest(true)
+				self:SetAlphaCutoff(alpha_test)
+			end
+		end
+
+		if is_vegetation then
+			local public_params = find_child_by_tag(material_node, "PublicParams")
+
+			if public_params and public_params.attrs then
+				local r, g, b = unpack_csv_numbers(public_params.attrs.BackDiffuse)
+				local multiplier = tonumber(public_params.attrs.BackDiffuseMultiplier) or 1
+				local back_view_dep = tonumber(public_params.attrs.BackViewDep)
+				self:SetVegetationBackDiffuse(Color(r or 1, g or 1, b or 1, multiplier))
+
+				if back_view_dep then self:SetVegetationBackViewDep(back_view_dep) end
+			end
+		end
+
+		local textures = find_child_by_tag(material_node, "Textures")
+
+		for texture_node in iter_children_by_tag(textures, "Texture") do
+			local attrs = texture_node.attrs or {}
+			local resolved = resolve_cry_texture_path(material_path, attrs.File)
+
+			if attrs.Map == "Diffuse" and resolved then
+				self:SetAlbedoTexture(SRGBTexture(resolved))
+			elseif attrs.Map == "Normalmap" and resolved then
+				self:SetNormalTexture(LinearTexture(resolved))
+				self:SetReverseXZNormalMap(true)
+			elseif attrs.Map == "Specular" and resolved then
+				self:SetRoughnessTexture(LinearTexture(resolved))
+				self:SetInvertRoughnessTexture(true)
+			elseif attrs.Map == "Detail" and resolved then
+				self:SetNormal2Texture(LinearTexture(resolved))
+			elseif attrs.Map == "Opacity" then
+				self:SetAlphaTest(true)
+
+				if is_vegetation then self:SetDoubleSided(true) end
+			end
+		end
+
+		return self
 	end
 
 	local function on_load_vmt(self, vmt)
@@ -628,6 +792,77 @@ do
 		used = {},
 		values = {},
 	}
+
+	function Material.FromCryMTL(path, sub_material)
+		local self = Material.New()
+		self.cry_mtl_path = path
+		local document = cry_mtl_document_cache[path]
+
+		if document == nil then
+			local data, err = vfs.Read(path)
+
+			if not data then
+				self:SetError(err or ("unable to read cry mtl " .. tostring(path)))
+				return self
+			end
+
+			local ok
+			ok, document = pcall(xml.Decode, data)
+
+			if not ok or not document or not document.children or not document.children[1] then
+				cry_mtl_document_cache[path] = false
+				self:SetError("unable to parse cry mtl " .. tostring(path))
+				return self
+			end
+
+			cry_mtl_document_cache[path] = document
+		elseif document == false then
+			self:SetError("unable to parse cry mtl " .. tostring(path))
+			return self
+		end
+
+		local root = document.children[1]
+		local material_node = root
+
+		if sub_material ~= nil then
+			local sub_materials = find_child_by_tag(root, "SubMaterials")
+
+			if type(sub_material) == "number" then
+				local target_index = sub_material + 1
+				local current_index = 0
+
+				for child in iter_children_by_tag(sub_materials, "Material") do
+					current_index = current_index + 1
+
+					if current_index == target_index then
+						material_node = child
+
+						break
+					end
+				end
+			else
+				for child in iter_children_by_tag(sub_materials, "Material") do
+					if child.attrs and child.attrs.Name == sub_material then
+						material_node = child
+
+						break
+					end
+				end
+			end
+		end
+
+		if not material_node then
+			self:SetError("sub material not found in cry mtl " .. tostring(path))
+			return self
+		end
+
+		if material_node.attrs and material_node.attrs.Name then
+			self.cry_sub_material_name = material_node.attrs.Name
+		end
+
+		apply_cry_material_node(self, material_node, path)
+		return self
+	end
 
 	function Material.FromVMT(path)
 		local self = Material.New()

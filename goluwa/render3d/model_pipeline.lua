@@ -69,6 +69,16 @@ local PBR_MATERIAL_FIELDS = {
 		getter = "GetAmbientOcclusionMultiplier",
 	},
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
+	{
+		type = "vec4",
+		name = "VegetationBackDiffuse",
+		getter = "GetVegetationBackDiffuse",
+	},
+	{
+		type = "float",
+		name = "VegetationBackViewDep",
+		getter = "GetVegetationBackViewDep",
+	},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "texture", name = "MetallicTexture", getter = "GetMetallicTexture"},
 	{type = "texture", name = "RoughnessTexture", getter = "GetRoughnessTexture"},

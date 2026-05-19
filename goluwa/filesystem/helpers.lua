@@ -1,4 +1,45 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
+local mixed_case_path_cache = {}
+local recursive_basename_index_cache = {}
+
+do
+	local old_clear_call_cache = vfs.ClearCallCache
+
+	function vfs.ClearCallCache()
+		old_clear_call_cache()
+		table.clear(mixed_case_path_cache)
+		table.clear(recursive_basename_index_cache)
+	end
+end
+
+local function get_recursive_basename_index(root)
+	root = vfs.FixPathSlashes(root)
+	local cached = recursive_basename_index_cache[root]
+
+	if cached then return cached end
+
+	local index = {}
+
+	vfs.GetFilesRecursive(root, nil, function(found_path)
+		local basename = vfs.GetFileNameFromPath(found_path):lower()
+
+		if basename ~= "" and not index[basename] then index[basename] = found_path end
+	end)
+
+	recursive_basename_index_cache[root] = index
+	return index
+end
+
+function vfs.FindFileByNameRecursive(root, file_name)
+	if type(root) ~= "string" or type(file_name) ~= "string" then return nil end
+
+	local normalized_root = vfs.FixPathSlashes(root)
+	local normalized_name = vfs.GetFileNameFromPath(vfs.FixPathSlashes(file_name)):lower()
+
+	if normalized_root == "" or normalized_name == "" then return nil end
+
+	return get_recursive_basename_index(normalized_root)[normalized_name]
+end
 
 function vfs.CopyRecursively(from, to)
 	assert(vfs.CreateDirectory(to))
@@ -10,11 +51,24 @@ function vfs.CopyRecursively(from, to)
 end
 
 function vfs.FindMixedCasePath(path)
+	if type(path) ~= "string" then return nil end
+
+	path = vfs.FixPathSlashes(path)
+	local cached = mixed_case_path_cache[path]
+
+	if cached ~= nil then return cached ~= false and cached or nil end
+
 	-- try exact path first
-	if vfs.IsFile(path) then return path end
+	if vfs.IsFile(path) then
+		mixed_case_path_cache[path] = path
+		return path
+	end
 
 	-- try exact lowercase
-	if vfs.IsFile(path:lower()) then return path:lower() end
+	if vfs.IsFile(path:lower()) then
+		mixed_case_path_cache[path] = path:lower()
+		return path:lower()
+	end
 
 	local parts = path:split("/")
 	local dir = ""
@@ -55,8 +109,12 @@ function vfs.FindMixedCasePath(path)
 		end
 	end
 
-	if vfs.IsFile(dir) then return dir end
+	if vfs.IsFile(dir) then
+		mixed_case_path_cache[path] = dir
+		return dir
+	end
 
+	mixed_case_path_cache[path] = false
 	return nil
 end
 

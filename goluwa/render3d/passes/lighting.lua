@@ -303,6 +303,10 @@ return {
 				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
 			}
 
+			float get_vegetation_back_view_dep() {
+				return texture(TEXTURE(lighting_data.normal_tex), in_uv).a;
+			}
+
 			float get_metallic() {
 				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
 				return mra.r;
@@ -318,7 +322,15 @@ return {
 				return mra.b;
 			}
 
+			float get_vegetation() {
+				return texture(TEXTURE(lighting_data.mra_tex), in_uv).a;
+			}
+
 			vec3 get_emissive() {
+				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
+			}
+
+			vec3 get_vegetation_back_diffuse() {
 				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 			}
 
@@ -637,7 +649,7 @@ return {
 				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
 			}
 
-			vec3 get_light(vec3 F0, float NdotV, vec3 albedo, float r2, float metallic, vec3 world_pos, vec3 V, vec3 N)
+			vec3 get_light(vec3 F0, float NdotV, vec3 albedo, float r2, float metallic, float vegetation, vec3 vegetation_back_diffuse, float vegetation_back_view_dep, vec3 world_pos, vec3 V, vec3 N)
 			{
 				vec3 Lo = vec3(0.0);
 
@@ -658,6 +670,8 @@ return {
                     }
                     vec3 H = normalize(V + L);
                     float NoL = saturate(dot(N, L));
+					float wrapped_NoL = saturate((dot(N, L) + 0.35) / 1.35);
+					float lighting_NoL = mix(NoL, wrapped_NoL, vegetation * 0.4);
                     float NoH = saturate(dot(N, H));
                     float LoH = saturate(dot(L, H));
 
@@ -669,12 +683,27 @@ return {
                     vec3 kD = vec3(1.0 - metallic);
                     vec3 Fd = kD * albedo * Fd_Lambert();
 
+					if (vegetation > 0.0) {
+						Fr *= mix(1.0, 0.02, vegetation);
+						Fd *= mix(1.0, 1.25, vegetation * 0.5);
+					}
+
                     float shadow_factor = 1.0;
                     if (i == 0 && lighting_data.shadows.shadow_map_indices[0] >= 0) {
                         shadow_factor = calculateShadow(world_pos, N, L);
                     }
                     vec3 radiance = light.color.rgb * light.color.a * attenuation;
-                    Lo += (Fd + Fr) * radiance * NoL * shadow_factor;
+					vec3 transmission = vec3(0.0);
+
+					if (vegetation > 0.0) {
+						float backlit = saturate(dot(-N, L));
+						float view_through = saturate(dot(V, -L));
+						float view_weight = mix(1.0, view_through, clamp(vegetation_back_view_dep, 0.0, 1.0));
+						float transmission_strength = vegetation * backlit * mix(0.35, 1.0, view_weight);
+						transmission = (albedo * vegetation_back_diffuse) * radiance * transmission_strength * shadow_factor * 0.5;
+					}
+
+					Lo += (Fd + Fr) * radiance * lighting_NoL * shadow_factor + transmission;
                 }
 
 				return Lo;				
@@ -713,12 +742,16 @@ return {
 				vec3 albedo = get_albedo();
 				float metallic = get_metallic();
 				float roughness = get_roughness();
-				vec3 emissive = get_emissive();
+				float vegetation = get_vegetation();
+				vec3 vegetation_back_diffuse = get_vegetation_back_diffuse();
+				float vegetation_back_view_dep = get_vegetation_back_view_dep();
+				vec3 emissive = vegetation > 0.0 ? vec3(0.0) : get_emissive();
 				vec3 reflection = get_reflection(N, roughness, V, world_pos);
 				vec3 F0 = mix(vec3(0.04), albedo, metallic);
+				F0 = mix(F0, vec3(0.0125), vegetation);
 				float NdotV = max(dot(N, V), 0.001);
 
-                vec3 Lo = get_light(F0, NdotV, albedo, roughness, metallic, world_pos, V, N);
+				vec3 Lo = get_light(F0, NdotV, albedo, roughness, metallic, vegetation, vegetation_back_diffuse, vegetation_back_view_dep, world_pos, V, N);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N);
 
                 // Diffuse IBL: use irradiance (max-mip env sample in normal direction)
@@ -731,7 +764,8 @@ return {
                 vec2 envBRDF = envBRDFApprox(NdotV, roughness);
                 vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y) * ambient_occlusion;
 
-                vec3 ambient = ambient_diffuse + ambient_specular;
+				ambient_specular *= mix(1.0, 0.005, vegetation);
+				vec3 ambient = ambient_diffuse + ambient_specular;
                 vec3 color = ambient + Lo + emissive;
 				vec3 sunDir = get_primary_sun_direction();
 				color = apply_aerial_perspective(
