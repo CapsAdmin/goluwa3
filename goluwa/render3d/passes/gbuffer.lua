@@ -87,13 +87,25 @@ local function build_common_fragment_shader()
 					return vec3(0.0, 0.0, 1.0);
 				}
 
-				vec3 rgb1 = texture(TEXTURE(model.NormalTexture), uv).xyz * 2.0 - 1.0;
+				vec2 normal_xy1 = texture(TEXTURE(model.NormalTexture), uv).xy * 2.0 - 1.0;
+
+				if (ReverseXZNormalMap) {
+					normal_xy1 = -normal_xy1;
+				}
+
+				vec3 rgb1 = vec3(normal_xy1, sqrt(max(1.0 - dot(normal_xy1, normal_xy1), 0.0)));
 
 				if (model.Normal2Texture != -1) {
 					float blend = get_texture_blend_uv(uv);
 
 					if (blend != 0) {
-						vec3 rgb2 = texture(TEXTURE(model.Normal2Texture), uv).xyz * 2.0 - 1.0;
+						vec2 normal_xy2 = texture(TEXTURE(model.Normal2Texture), uv).xy * 2.0 - 1.0;
+
+						if (ReverseXZNormalMap) {
+							normal_xy2 = -normal_xy2;
+						}
+
+						vec3 rgb2 = vec3(normal_xy2, sqrt(max(1.0 - dot(normal_xy2, normal_xy2), 0.0)));
 						rgb1 = normalize(mix(rgb1, rgb2, blend));
 					}
 				}
