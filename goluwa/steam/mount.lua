@@ -33,8 +33,10 @@ return function(steam)
 
 		if not ok and vfs.Delete("cache/source_games") then ok = true end
 
+		if vfs.Delete("cache/steam_games") then ok = true end
+
 		if ok then
-			logn("removed cache/archive/* and data/source_games")
+			logn("removed cache/archive/*, data/source_games, and data/steam_games")
 		else
 			logn("nothing to remove")
 		end
@@ -253,6 +255,156 @@ return function(steam)
 		return games
 	end
 
+	local function are_cached_library_folders_valid(cached_library_folders, current_libraries)
+		local expected = {}
+		local count = 0
+
+		for _, path in ipairs(current_libraries) do
+			expected[path] = (expected[path] or 0) + 1
+			count = count + 1
+		end
+
+		local cached_count = 0
+
+		for _, path in ipairs(cached_library_folders or {}) do
+			if not expected[path] then return false end
+
+			expected[path] = expected[path] - 1
+			cached_count = cached_count + 1
+		end
+
+		if cached_count ~= count then return false end
+
+		for _, remaining in pairs(expected) do
+			if remaining ~= 0 then return false end
+		end
+
+		return true
+	end
+
+	function steam.GetGames()
+		local function get_games_cache()
+			local current_libraries = steam.GetLibraryFolders()
+			local cached = codec.ReadFile("msgpack", "cache/steam_games")
+
+			if not cached then return nil, current_libraries end
+
+			if
+				cached.games and
+				are_cached_library_folders_valid(cached.library_folders, current_libraries)
+			then
+				return cached.games, current_libraries
+			end
+
+			return nil, current_libraries
+		end
+
+		local found, current_libraries = get_games_cache()
+
+		if found and found[1] then
+			for _, game_info in ipairs(found) do
+				if not game_info.game_dir or not vfs.IsDirectory(game_info.game_dir) then
+					logn(
+						"unable to find ",
+						tostring(game_info.game_dir),
+						", rebuilding steam.GetGames cache"
+					)
+					found = nil
+
+					break
+				end
+			end
+
+			if found then return found end
+		end
+
+		found = {}
+		local done = {}
+
+		local function add_game(game_info)
+			local key = game_info.appid and
+				(
+					"appid:" .. tostring(game_info.appid)
+				)
+				or
+				(
+					"dir:" .. game_info.game_dir:lower()
+				)
+
+			if done[key] then return end
+
+			done[key] = true
+			list.insert(found, game_info)
+		end
+
+		for _, library in ipairs(current_libraries) do
+			for _, manifest_name in ipairs(vfs.Find(library .. "appmanifest_.-%.acf$")) do
+				local manifest_path = manifest_name
+
+				if not vfs.IsPathAbsolutePath(manifest_path) then
+					manifest_path = library .. manifest_path
+				end
+
+				local str = vfs.Read(manifest_path, "r")
+
+				if not str then goto continue_manifest end
+
+				local manifest = steam.VDFToTable(str, true)
+				local appstate = manifest and manifest.appstate
+
+				if not appstate or not appstate.installdir then goto continue_manifest end
+
+				local appid = tonumber(appstate.appid) or appstate.appid
+				local name = appstate.name or (appid and steam.appids[appid]) or appstate.installdir
+				local game_dir = library .. "common/" .. appstate.installdir .. "/"
+
+				if vfs.IsDirectory(game_dir) then
+					add_game{
+						appid = appid,
+						name = name,
+						game = name,
+						installdir = appstate.installdir,
+						game_dir = game_dir,
+						library_dir = library,
+						manifest_path = manifest_path,
+					}
+				end
+
+				::continue_manifest::
+			end
+
+			for _, mod_dir in ipairs(vfs.Find(library .. "sourcemods/", true)) do
+				local game_dir = mod_dir .. "/"
+				local folder_name = game_dir:match("([^/]+)/$") or game_dir
+
+				if vfs.IsDirectory(game_dir) then
+					add_game{
+						name = folder_name,
+						game = folder_name,
+						installdir = folder_name,
+						game_dir = game_dir,
+						library_dir = library,
+						is_sourcemod = true,
+					}
+				end
+			end
+		end
+
+		list.sort(found, function(a, b)
+			return (a.name or a.game_dir) < (b.name or b.game_dir)
+		end)
+
+		codec.WriteFile(
+			"msgpack",
+			"cache/steam_games",
+			{
+				library_folders = current_libraries,
+				games = found,
+			}
+		)
+		return found
+	end
+
 	function steam.GetSourceGames()
 		local function sort_searchpaths(paths)
 			local sorted = {}
@@ -327,30 +479,10 @@ return function(steam)
 
 			if not cached then return nil, current_libraries end
 
-			if cached.games then
-				local expected = {}
-				local count = 0
-
-				for _, path in ipairs(current_libraries) do
-					expected[path] = (expected[path] or 0) + 1
-					count = count + 1
-				end
-
-				local cached_count = 0
-
-				for _, path in ipairs(cached.library_folders or {}) do
-					if not expected[path] then return nil, current_libraries end
-
-					expected[path] = expected[path] - 1
-					cached_count = cached_count + 1
-				end
-
-				if cached_count ~= count then return nil, current_libraries end
-
-				for _, remaining in pairs(expected) do
-					if remaining ~= 0 then return nil, current_libraries end
-				end
-
+			if
+				cached.games and
+				are_cached_library_folders_valid(cached.library_folders, current_libraries)
+			then
 				return cached.games, current_libraries
 			end
 
@@ -397,7 +529,9 @@ return function(steam)
 		local function collect_gameinfos()
 			local gameinfos = {}
 
-			for _, game_dir in ipairs(steam.GetGameFolders()) do
+			for _, game in ipairs(steam.GetGames()) do
+				local game_dir = game.game_dir
+
 				if vfs.IsDirectory("os:" .. game_dir .. "/game") then
 					for _, dir in ipairs(vfs.Find("os:" .. game_dir .. "game/", true)) do
 						if not dir:ends_with("/core") then
@@ -417,6 +551,10 @@ return function(steam)
 									tbl.gameinfo_path = path
 									tbl.game_dir = game_dir
 									tbl.vdf_directory = game_info_dir
+									tbl.appid = game.appid
+									tbl.library_dir = game.library_dir
+									tbl.manifest_path = game.manifest_path
+									tbl.installdir = game.installdir
 									list.insert(gameinfos, tbl)
 								end
 							end
@@ -445,6 +583,10 @@ return function(steam)
 							tbl.gameinfo_path = path
 							tbl.game_dir = game_dir
 							tbl.vdf_directory = game_info_dir
+							tbl.appid = game.appid
+							tbl.library_dir = game.library_dir
+							tbl.manifest_path = game.manifest_path
+							tbl.installdir = game.installdir
 							list.insert(gameinfos, tbl)
 						end
 					end
