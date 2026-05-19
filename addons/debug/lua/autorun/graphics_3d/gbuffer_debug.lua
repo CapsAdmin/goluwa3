@@ -14,6 +14,8 @@ local fullscreen_views = {
 	{name = "normal", normal_debug_view = "combined"},
 	{name = "normal_map", normal_debug_view = "normal_map"},
 	{name = "vertex_normal", normal_debug_view = "vertex_normal"},
+	{name = "tangent", normal_debug_view = "tangent"},
+	{name = "bitangent", normal_debug_view = "bitangent"},
 }
 
 local function format_view_name(name)
@@ -22,6 +24,10 @@ local function format_view_name(name)
 	if name == "normal_map" then return "Normal Map" end
 
 	if name == "vertex_normal" then return "Vertex Normal" end
+
+	if name == "tangent" then return "Tangent" end
+
+	if name == "bitangent" then return "Bitangent" end
 
 	return name:gsub("_", " "):gsub("(%a)([%w_']*)", function(first, rest)
 		return first:upper() .. rest:lower()

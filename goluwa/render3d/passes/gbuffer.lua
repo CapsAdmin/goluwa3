@@ -53,6 +53,22 @@ local function build_common_fragment_shader()
 				return mat3(tangent, bitangent, normal);
 			}
 
+			vec3 get_vertex_tangent(mat3 tbn) {
+				return normalize(tbn[0]);
+			}
+
+			vec3 get_vertex_bitangent(mat3 tbn) {
+				return normalize(tbn[1]);
+			}
+
+			vec3 encode_debug_vector(vec3 v) {
+				return normalize(v) * 0.5 + 0.5;
+			}
+
+			vec3 encode_debug_basis(vec3 v) {
+				return abs(normalize(v));
+			}
+
 			vec3 get_height_normal_tangent(vec2 uv) {
 				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(model.HeightTexture), 0));
 				float left = get_height_centered_sample(uv - vec2(texel.x, 0.0));
@@ -97,11 +113,19 @@ local function build_common_fragment_shader()
 
 			vec3 get_normal(vec2 uv, mat3 tbn) {
 				if (gbuffer_data.gbuffer_normal_debug_view == 1) {
-					return get_normal_map(uv);
+					return encode_debug_vector(get_normal_map(uv));
 				}
 
 				if (gbuffer_data.gbuffer_normal_debug_view == 2 || (gbuffer_data.debug_mode - 1) == 5) {
-					return get_vertex_normal();
+					return encode_debug_vector(get_vertex_normal());
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 3) {
+					return encode_debug_basis(get_vertex_tangent(tbn));
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 4) {
+					return encode_debug_basis(get_vertex_bitangent(tbn));
 				}
 
 				return get_combined_normal(uv, tbn);

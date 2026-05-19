@@ -80,6 +80,8 @@ do
 		combined = 0,
 		normal_map = 1,
 		vertex_normal = 2,
+		tangent = 3,
+		bitangent = 4,
 	}
 
 	function render3d.SetDebugMode(mode_name)

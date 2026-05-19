@@ -341,9 +341,6 @@ do -- helpers
 			local t = tan1[i]
 
 			if tan1[i] and tan2[i] and not self.Vertices[i].tangent then
-				self.Vertices[i].tangent = (t - n * n:GetDot(t)):Normalize()
-
-				if false then
 					local tangent = (t - n * n:GetDot(t)):Normalize()
 					local handedness = 1
 
@@ -355,7 +352,6 @@ do -- helpers
 						z = tangent.z,
 						w = handedness,
 					}
-				end
 			end
 		end
 	end
