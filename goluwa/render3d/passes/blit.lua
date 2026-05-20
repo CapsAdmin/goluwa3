@@ -47,6 +47,72 @@ local function get_is_debug_view(_, block, key)
 	block[key] = 0
 end
 
+local function write_extract_constants(self, block)
+	get_scene_source_texture(self, block, "source_tex")
+	return block
+end
+
+local function write_down_constants(self, block, pipeline_name)
+	if not render3d.pipelines[pipeline_name] then
+		block.source_tex = -1
+		return block
+	end
+
+	block.source_tex = self:GetTextureIndex(render3d.pipelines[pipeline_name]:GetFramebuffer():GetAttachment(1))
+	return block
+end
+
+local function write_up_constants(self, block, source_name, merge_name)
+	if not render3d.pipelines[source_name] then
+		block.source_tex = -1
+	else
+		block.source_tex = self:GetTextureIndex(render3d.pipelines[source_name]:GetFramebuffer():GetAttachment(1))
+	end
+
+	if not render3d.pipelines[merge_name] then
+		block.merge_tex = -1
+	else
+		block.merge_tex = self:GetTextureIndex(render3d.pipelines[merge_name]:GetFramebuffer():GetAttachment(1))
+	end
+
+	return block
+end
+
+local function write_luminance_constants(self, block)
+	get_scene_source_texture(self, block, "source_tex")
+
+	if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
+		block.prev_luma_tex = -1
+		return block
+	end
+
+	local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+	block.prev_luma_tex = self:GetTextureIndex(render3d.pipelines.luminance:GetFramebuffer(prev_idx):GetAttachment(1))
+	return block
+end
+
+local function write_blit_constants(self, block)
+	get_blit_source_texture(self, block, "source_tex")
+	get_is_debug_view(self, block, "is_debug_view")
+
+	if not render3d.pipelines.bloom_up0 then
+		block.bloom_tex = -1
+	else
+		block.bloom_tex = self:GetTextureIndex(render3d.pipelines.bloom_up0:GetFramebuffer():GetAttachment(1))
+	end
+
+	if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
+		block.luma_tex = -1
+	else
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		block.luma_tex = self:GetTextureIndex(render3d.pipelines.luminance:GetFramebuffer(current_idx):GetAttachment(1))
+	end
+
+	block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
+	block.is_hdr = render.target:IsHDR() and 1 or 0
+	return block
+end
+
 local r = {
 	-- Pass 1: Extract bright areas for bloom
 	{
@@ -60,6 +126,7 @@ local r = {
 					block = {
 						{"source_tex", "int", get_scene_source_texture},
 					},
+					write = write_extract_constants,
 				},
 			},
 			shader = [[
@@ -142,6 +209,9 @@ for i = 1, 3 do
 								end,
 							},
 						},
+						write = function(self, block)
+							return write_down_constants(self, block, prev_name)
+						end,
 					},
 				},
 				shader = downsample_shader,
@@ -230,6 +300,9 @@ for i = 3, 1, -1 do
 								end,
 							},
 						},
+						write = function(self, block)
+							return write_up_constants(self, block, source_name, merge_name)
+						end,
 					},
 				},
 				shader = upsample_shader,
@@ -269,6 +342,7 @@ table.insert(
 							end,
 						},
 					},
+					write = write_luminance_constants,
 				},
 			},
 			shader = [[
@@ -358,6 +432,7 @@ table.insert(
 							end,
 						},
 					},
+					write = write_blit_constants,
 				},
 			},
 			shader = [[

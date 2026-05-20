@@ -3,6 +3,12 @@ local Material = import("goluwa/render3d/material.lua")
 local system = import("goluwa/system.lua")
 local model_pipeline = library()
 local MAX_BRANCH_HELPERS = 16
+local BRANCH_HELPER_KEYS = {}
+
+for i = 0, MAX_BRANCH_HELPERS - 1 do
+	BRANCH_HELPER_KEYS[i + 1] = "BranchHelper" .. tostring(i)
+end
+
 local SURFACE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
@@ -149,23 +155,19 @@ function model_pipeline.GetVertexAttributes()
 end
 
 function model_pipeline.GetTransformBlock(get_projection_view_world_matrix)
-	get_projection_view_world_matrix = get_projection_view_world_matrix or render3d.GetProjectionViewWorldMatrix
 	return {
-		{
-			"projection_view_world",
-			"mat4",
-			function(self, block, key)
-				get_projection_view_world_matrix():CopyToFloatPointer(block[key])
-			end,
-		},
-		{
-			"world",
-			"mat4",
-			function(self, block, key)
-				render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
-			end,
-		},
+		{"projection_view_world", "mat4"},
+		{"world", "mat4"},
 	}
+end
+
+function model_pipeline.BuildTransformBlockWriter(get_projection_view_world_matrix)
+	get_projection_view_world_matrix = get_projection_view_world_matrix or render3d.GetProjectionViewWorldMatrix
+	return function(self, block)
+		get_projection_view_world_matrix():CopyToFloatPointer(block.projection_view_world)
+		render3d.GetWorldMatrix():CopyToFloatPointer(block.world)
+		return block
+	end
 end
 
 local function build_vertex_shader(options)
@@ -219,6 +221,7 @@ function model_pipeline.CreateVertexStage(options)
 		{
 			name = options.transform_block_name or "vertex",
 			block = model_pipeline.GetTransformBlock(options.get_projection_view_world_matrix),
+			write = model_pipeline.BuildTransformBlockWriter(options.get_projection_view_world_matrix),
 		},
 	}
 	local animation_buffers = options.vertex_uniform_buffers or
@@ -226,6 +229,7 @@ function model_pipeline.CreateVertexStage(options)
 			{
 				name = "vertex_animation",
 				block = model_pipeline.GetVertexAnimationBlock(),
+				write = model_pipeline.WriteVertexAnimationBlock,
 			},
 		}
 	local stage = {
@@ -248,78 +252,72 @@ function model_pipeline.CreateVertexStage(options)
 	return stage
 end
 
-local function build_texture_field(field_name, getter_name)
-	return {
-		field_name,
-		"int",
-		function(self, block, key)
-			local material = get_material()
-			block[key] = self:GetTextureIndex(material[getter_name](material))
-		end,
-	}
-end
-
-local function build_scalar_field(field_name, field_type, getter_name)
-	return {
-		field_name,
-		field_type,
-		function(self, block, key)
-			local material = get_material()
-			block[key] = material[getter_name](material)
-		end,
-	}
-end
-
-local function build_vec4_field(field_name, getter_name)
-	return {
-		field_name,
-		"vec4",
-		function(self, block, key)
-			local material = get_material()
-			material[getter_name](material):CopyToFloatPointer(block[key])
-		end,
-	}
-end
-
-local function build_vec3_field(field_name, getter_name)
-	return {
-		field_name,
-		"vec3",
-		function(self, block, key)
-			local material = get_material()
-			material[getter_name](material):CopyToFloatPointer(block[key])
-		end,
-	}
-end
-
 local function build_material_block(field_defs)
 	local block = {}
 
 	for i, def in ipairs(field_defs) do
 		if def.type == "texture" then
-			block[i] = build_texture_field(def.name, def.getter)
-		elseif def.type == "vec3" then
-			block[i] = build_vec3_field(def.name, def.getter)
-		elseif def.type == "vec4" then
-			block[i] = build_vec4_field(def.name, def.getter)
+			block[i] = {def.name, "int"}
 		else
-			block[i] = build_scalar_field(def.name, def.type, def.getter)
+			block[i] = {def.name, def.type}
 		end
 	end
 
 	return block
 end
 
+local function build_material_block_writer(name, field_defs)
+	local lines = {
+		"return function(get_material)",
+		"\treturn function(self, block, material)",
+		"\tmaterial = material or get_material()",
+	}
+
+	for _, def in ipairs(field_defs) do
+		if def.type == "texture" then
+			lines[#lines + 1] = string.format("\tblock.%s = self:GetTextureIndex(material:%s())", def.name, def.getter)
+		elseif def.type == "vec3" or def.type == "vec4" then
+			lines[#lines + 1] = string.format("\tmaterial:%s():CopyToFloatPointer(block.%s)", def.getter, def.name)
+		else
+			lines[#lines + 1] = string.format("\tblock.%s = material:%s()", def.name, def.getter)
+		end
+	end
+
+	lines[#lines + 1] = "\t\treturn block"
+	lines[#lines + 1] = "\tend"
+	lines[#lines + 1] = "end"
+	return assert(loadstring(table.concat(lines, "\n"), name .. "_material_block_writer"))()(get_material)
+end
+
+local SURFACE_MATERIAL_BLOCK = build_material_block(SURFACE_MATERIAL_FIELDS)
+local PBR_MATERIAL_BLOCK = build_material_block(PBR_MATERIAL_FIELDS)
+local PROBE_MATERIAL_BLOCK = build_material_block(PROBE_MATERIAL_FIELDS)
+local WRITE_SURFACE_MATERIAL_BLOCK = build_material_block_writer("surface", SURFACE_MATERIAL_FIELDS)
+local WRITE_PBR_MATERIAL_BLOCK = build_material_block_writer("pbr", PBR_MATERIAL_FIELDS)
+local WRITE_PROBE_MATERIAL_BLOCK = build_material_block_writer("probe", PROBE_MATERIAL_FIELDS)
+
 function model_pipeline.GetSurfaceMaterialBlock()
-	return build_material_block(SURFACE_MATERIAL_FIELDS)
+	return SURFACE_MATERIAL_BLOCK
 end
 
 function model_pipeline.GetPBRMaterialBlock()
-	return build_material_block(PBR_MATERIAL_FIELDS)
+	return PBR_MATERIAL_BLOCK
 end
 
 function model_pipeline.GetProbeMaterialBlock()
-	return build_material_block(PROBE_MATERIAL_FIELDS)
+	return PROBE_MATERIAL_BLOCK
+end
+
+function model_pipeline.WriteSurfaceMaterialBlock(self, block)
+	return WRITE_SURFACE_MATERIAL_BLOCK(self, block)
+end
+
+function model_pipeline.WritePBRMaterialBlock(self, block)
+	return WRITE_PBR_MATERIAL_BLOCK(self, block)
+end
+
+function model_pipeline.WriteProbeMaterialBlock(self, block)
+	return WRITE_PROBE_MATERIAL_BLOCK(self, block)
 end
 
 function model_pipeline.GetVertexAnimationUniformBufferDecl()
@@ -376,10 +374,18 @@ end
 
 function model_pipeline.FillVertexAnimationData(block, material)
 	material = material or get_material()
+	local wind_amplitude = material:GetWindAmplitude()
+	local wind_detail_amplitude = material:GetWindDetailAmplitude()
+	block.WindAmplitude = wind_amplitude
+	block.WindDetailAmplitude = wind_detail_amplitude
+
+	if wind_amplitude <= 0 and wind_detail_amplitude <= 0 then
+		block.BranchHelperCount = 0
+		return block
+	end
+
 	block.Time = system.GetElapsedTime()
-	block.WindAmplitude = material:GetWindAmplitude()
 	block.WindFrequency = material:GetWindFrequency()
-	block.WindDetailAmplitude = material:GetWindDetailAmplitude()
 	block.WindDetailFrequency = material:GetWindDetailFrequency()
 	block.WindPhaseScale = material:GetWindPhaseScale()
 	block.WindNormalInfluence = material:GetWindNormalInfluence()
@@ -393,18 +399,54 @@ function model_pipeline.FillVertexAnimationData(block, material)
 		polygon:GetBranchHelperPivots() or
 		nil
 	local helper_count = math.min(pivots and #pivots or 0, MAX_BRANCH_HELPERS)
+	local world_matrix = render3d.GetWorldMatrix()
+	local has_world_matrix = world_matrix ~= nil
+	local m00, m10, m20, m30
+	local m01, m11, m21, m31
+	local m02, m12, m22, m32
+	local m03, m13, m23, m33
+
+	if has_world_matrix then
+		m00 = world_matrix.m00
+		m10 = world_matrix.m10
+		m20 = world_matrix.m20
+		m30 = world_matrix.m30
+		m01 = world_matrix.m01
+		m11 = world_matrix.m11
+		m21 = world_matrix.m21
+		m31 = world_matrix.m31
+		m02 = world_matrix.m02
+		m12 = world_matrix.m12
+		m22 = world_matrix.m22
+		m32 = world_matrix.m32
+		m03 = world_matrix.m03
+		m13 = world_matrix.m13
+		m23 = world_matrix.m23
+		m33 = world_matrix.m33
+	end
+
 	block.BranchHelperCount = helper_count
 
 	for i = 0, MAX_BRANCH_HELPERS - 1 do
-		local field = block["BranchHelper" .. tostring(i)]
+		local field = block[BRANCH_HELPER_KEYS[i + 1]]
 		local pivot = pivots and pivots[i + 1] or nil
 
 		if i < helper_count and pivot then
-			local world_matrix = render3d.GetWorldMatrix()
-			local world_pivot = world_matrix and world_matrix:TransformVector(pivot) or pivot
-			field[0] = world_pivot.x
-			field[1] = world_pivot.y
-			field[2] = world_pivot.z
+			local x = pivot.x
+			local y = pivot.y
+			local z = pivot.z
+
+			if has_world_matrix then
+				local div = x * m03 + y * m13 + z * m23 + m33
+				field[0] = (x * m00 + y * m10 + z * m20 + m30) / div
+				field[1] = (x * m01 + y * m11 + z * m21 + m31) / div
+				field[2] = (x * m02 + y * m12 + z * m22 + m32) / div
+			else
+				field[0] = x
+				field[1] = y
+				field[2] = z
+			end
+
 			field[3] = 1
 		else
 			field[0] = 0
@@ -417,107 +459,26 @@ end
 
 function model_pipeline.GetVertexAnimationBlock()
 	local block = {
-		{
-			"Time",
-			"float",
-			function(self, block, key)
-				block[key] = system.GetElapsedTime()
-			end,
-		},
-		{
-			"WindAmplitude",
-			"float",
-			function(self, block, key)
-				block[key] = get_material():GetWindAmplitude()
-			end,
-		},
-		{
-			"WindFrequency",
-			"float",
-			function(self, block, key)
-				block[key] = get_material():GetWindFrequency()
-			end,
-		},
-		{
-			"WindDetailAmplitude",
-			"float",
-			function(self, block, key)
-				block[key] = get_material():GetWindDetailAmplitude()
-			end,
-		},
-		{
-			"WindDetailFrequency",
-			"float",
-			function(self, block, key)
-				block[key] = get_material():GetWindDetailFrequency()
-			end,
-		},
-		{
-			"WindPhaseScale",
-			"float",
-			function(self, block, key)
-				block[key] = get_material():GetWindPhaseScale()
-			end,
-		},
-		{
-			"WindNormalInfluence",
-			"float",
-			function(self, block, key)
-				block[key] = get_material():GetWindNormalInfluence()
-			end,
-		},
-		{
-			"WindDirection",
-			"vec3",
-			function(self, block, key)
-				get_material():GetWindDirection():CopyToFloatPointer(block[key])
-			end,
-		},
-		{
-			"BranchHelperCount",
-			"int",
-			function(self, block, key)
-				local polygon = render3d.GetCurrentPolygon3D()
-				local pivots = polygon and
-					polygon.GetBranchHelperPivots and
-					polygon:GetBranchHelperPivots() or
-					nil
-				block[key] = math.min(pivots and #pivots or 0, MAX_BRANCH_HELPERS)
-			end,
-		},
+		{"Time", "float"},
+		{"WindAmplitude", "float"},
+		{"WindFrequency", "float"},
+		{"WindDetailAmplitude", "float"},
+		{"WindDetailFrequency", "float"},
+		{"WindPhaseScale", "float"},
+		{"WindNormalInfluence", "float"},
+		{"WindDirection", "vec3"},
+		{"BranchHelperCount", "int"},
 	}
 
 	for i = 1, MAX_BRANCH_HELPERS do
-		local field_name = "BranchHelper" .. tostring(i - 1)
-		block[#block + 1] = {
-			field_name,
-			"vec4",
-			function(self, block, key)
-				local polygon = render3d.GetCurrentPolygon3D()
-				local pivots = polygon and
-					polygon.GetBranchHelperPivots and
-					polygon:GetBranchHelperPivots() or
-					nil
-				local pivot = pivots and pivots[i] or nil
-
-				if pivot then
-					local world_matrix = render3d.GetWorldMatrix()
-					local world_pivot = world_matrix and world_matrix:TransformVector(pivot) or pivot
-					block[key][0] = world_pivot.x
-					block[key][1] = world_pivot.y
-					block[key][2] = world_pivot.z
-					block[key][3] = 1
-				else
-					block[key][0] = 0
-					block[key][1] = 0
-					block[key][2] = 0
-					block[key][3] = 0
-				end
-			end,
-		}
+		block[#block + 1] = {BRANCH_HELPER_KEYS[i], "vec4"}
 	end
 
 	return block
+end
+
+function model_pipeline.WriteVertexAnimationBlock(self, block)
+	return model_pipeline.FillVertexAnimationData(block)
 end
 
 function model_pipeline.BuildVertexAnimationGlsl(block_name)

@@ -4,6 +4,14 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+
+local function write_clip_plane_block(self, block)
+	block.Enabled = render3d.IsForwardOverlayClipPlaneEnabled() and 1 or 0
+	render3d.GetForwardOverlayClipPlaneOrigin():CopyToFloatPointer(block.Origin)
+	render3d.GetForwardOverlayClipPlaneNormal():CopyToFloatPointer(block.Normal)
+	return block
+end
+
 return {
 	{
 		name = "forward_overlay",
@@ -48,10 +56,12 @@ return {
 							end,
 						},
 					},
+					write = write_clip_plane_block,
 				},
 				{
 					name = "model",
 					block = model_pipeline.GetSurfaceMaterialBlock(),
+					write = model_pipeline.WriteSurfaceMaterialBlock,
 				},
 			},
 			shader = [[

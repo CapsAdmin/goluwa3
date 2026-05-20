@@ -36,6 +36,119 @@ local function get_primary_sun_color()
 	return Vec3(1, 1, 1)
 end
 
+local function write_wave_precompute(self, block, wave_world_half)
+	render3d.WriteCommonBlock(self, block)
+	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+	local snap = wave_world_half * 2 / WAVE_TEX_SIZE
+	local cam = render3d.camera:GetPosition()
+	block.wave_origin[0] = math.floor(cam.x / snap) * snap
+	block.wave_origin[1] = math.floor(cam.z / snap) * snap
+	return block
+end
+
+local function write_wave_precompute_near(self, block)
+	return write_wave_precompute(self, block, WAVE_NEAR_WORLD_HALF)
+end
+
+local function write_wave_precompute_far(self, block)
+	return write_wave_precompute(self, block, WAVE_TEX_WORLD_HALF)
+end
+
+local function write_ocean_data(self, block)
+	render3d.WriteCameraBlock(self, block)
+	render3d.WriteCommonBlock(self, block)
+
+	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
+		block.scene_tex = -1
+	else
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		block.scene_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
+	end
+
+	block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+	block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+
+	if
+		not render3d.pipelines.ssr_resolve or
+		not render3d.pipelines.ssr_resolve.framebuffers
+	then
+		block.ssr_tex = -1
+	else
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		block.ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx):GetAttachment(1))
+	end
+
+	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+	get_primary_sun_direction():CopyToFloatPointer(block.sun_direction)
+	block.primary_sun_intensity = get_primary_sun_intensity()
+	get_primary_sun_color():CopyToFloatPointer(block.primary_sun_color)
+	block.ocean_enabled = render3d.IsOceanEnabled() and 1 or 0
+	block.ocean_level = render3d.GetOceanLevel()
+
+	if not render3d.pipelines.ocean_waves then
+		block.wave_tex = -1
+	else
+		block.wave_tex = self:GetTextureIndex(render3d.pipelines.ocean_waves:GetFramebuffer():GetAttachment(1))
+	end
+
+	local far_snap = WAVE_TEX_WORLD_HALF * 2 / WAVE_TEX_SIZE
+	local near_snap = WAVE_NEAR_WORLD_HALF * 2 / WAVE_TEX_SIZE
+	local cam = render3d.camera:GetPosition()
+	block.wave_origin[0] = math.floor(cam.x / far_snap) * far_snap
+	block.wave_origin[1] = math.floor(cam.z / far_snap) * far_snap
+
+	if not render3d.pipelines.ocean_waves_near then
+		block.wave_near_tex = -1
+	else
+		block.wave_near_tex = self:GetTextureIndex(render3d.pipelines.ocean_waves_near:GetFramebuffer():GetAttachment(1))
+	end
+
+	block.wave_near_origin[0] = math.floor(cam.x / near_snap) * near_snap
+	block.wave_near_origin[1] = math.floor(cam.z / near_snap) * near_snap
+	return block
+end
+
+local function write_ocean_resolve_data(self, block)
+	render3d.WriteCameraBlock(self, block)
+
+	if not render3d.pipelines.ocean or not render3d.pipelines.ocean.framebuffers then
+		block.current_ocean_tex = -1
+		block.current_ocean_distance_tex = -1
+	else
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		local framebuffer = render3d.pipelines.ocean:GetFramebuffer(current_idx)
+		block.current_ocean_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
+		block.current_ocean_distance_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
+	end
+
+	if
+		not render3d.pipelines.ocean_resolve or
+		not render3d.pipelines.ocean_resolve.framebuffers
+	then
+		block.history_ocean_tex = -1
+	else
+		local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+		block.history_ocean_tex = self:GetTextureIndex(render3d.pipelines.ocean_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
+	end
+
+	local prev_view = render3d.prev_view_matrix
+	local prev_projection = render3d.prev_projection_matrix
+
+	if prev_view then
+		prev_view:CopyToFloatPointer(block.prev_view)
+	else
+		render3d.camera:BuildViewMatrix():CopyToFloatPointer(block.prev_view)
+	end
+
+	if prev_projection then
+		prev_projection:CopyToFloatPointer(block.prev_projection)
+	else
+		render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
+	end
+
+	return block
+end
+
 return {
 	{
 		name = "ocean_waves_near",
@@ -68,6 +181,7 @@ return {
 							end,
 						},
 					},
+					write = write_wave_precompute_near,
 				},
 			},
 			shader = [[
@@ -180,6 +294,7 @@ return {
 							end,
 						},
 					},
+					write = write_wave_precompute_far,
 				},
 			},
 			shader = [[
@@ -409,6 +524,7 @@ return {
 							end,
 						},
 					},
+					write = write_ocean_data,
 				},
 			},
 			shader = [[
@@ -982,6 +1098,7 @@ return {
 							end,
 						},
 					},
+					write = write_ocean_resolve_data,
 				},
 			},
 			shader = [[

@@ -56,6 +56,7 @@ function Buffer.New(config)
 		ptr = ptr,
 		size = size,
 		device = device,
+		mapped_data = nil,
 	}
 	local requirements = device:GetBufferMemoryRequirements(self)
 	local allocate_flags
@@ -84,6 +85,16 @@ function Buffer.New(config)
 end
 
 function Buffer:OnRemove()
+	if
+		self.mapped_data and
+		self.device:IsValid() and
+		self.memory and
+		self.memory:IsValid()
+	then
+		vulkan.lib.vkUnmapMemory(self.device.ptr[0], self.memory.ptr[0])
+		self.mapped_data = nil
+	end
+
 	if self.device:IsValid() then
 		local device = self.device
 		local device_ptr = device.ptr[0]
@@ -119,13 +130,19 @@ function Buffer:GetDeviceAddress()
 end
 
 function Buffer:Map(offset, size)
-	local data = ffi.new("void*[1]")
-	vulkan.lib.vkMapMemory(self.device.ptr[0], self.memory.ptr[0], offset or 0, size or self.size, 0, data)
-	return data[0]
+	if not self.mapped_data then
+		local data = ffi.new("void*[1]")
+		vulkan.lib.vkMapMemory(self.device.ptr[0], self.memory.ptr[0], 0, self.size, 0, data)
+		self.mapped_data = ffi.cast("uint8_t *", data[0])
+	end
+
+	if offset and offset ~= 0 then return self.mapped_data + offset end
+
+	return self.mapped_data
 end
 
 function Buffer:Unmap()
-	vulkan.lib.vkUnmapMemory(self.device.ptr[0], self.memory.ptr[0])
+	return
 end
 
 function Buffer:CopyData(src_data, size, offset)

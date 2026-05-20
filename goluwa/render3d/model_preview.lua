@@ -106,6 +106,19 @@ local function upload_preview_constants(pipeline)
 	pipeline:UploadConstants()
 end
 
+local function write_preview_data(self, block)
+	local direction = active_preview:GetLightDirection()
+	block.LightDirectionStrength[0] = direction.x
+	block.LightDirectionStrength[1] = direction.y
+	block.LightDirectionStrength[2] = direction.z
+	block.LightDirectionStrength[3] = active_preview:GetLightStrength()
+	block.LightingParams[0] = active_preview:GetAmbientStrength()
+	block.LightingParams[1] = 0
+	block.LightingParams[2] = 0
+	block.LightingParams[3] = 0
+	return block
+end
+
 local function create_preview_pipeline()
 	return EasyPipeline.New{
 		name = "model_preview",
@@ -144,10 +157,12 @@ local function create_preview_pipeline()
 							end,
 						},
 					},
+					write = write_preview_data,
 				},
 				{
 					name = "model",
 					block = model_pipeline.GetSurfaceMaterialBlock(),
+					write = model_pipeline.WriteSurfaceMaterialBlock,
 				},
 			},
 			shader = [[

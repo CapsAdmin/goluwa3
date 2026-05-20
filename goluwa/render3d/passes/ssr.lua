@@ -1,6 +1,58 @@
 local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
+
+local function write_ssr_data(self, block)
+	render3d.WriteCameraBlock(self, block)
+	block.normal_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
+	block.mra_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
+	block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+	render3d.WriteLastFrameBlock(self, block)
+	render3d.WriteCommonBlock(self, block)
+	render3d.ssr_frame_count = (render3d.ssr_frame_count or 0) + 1
+	block.frame_index = render3d.ssr_frame_count % 256
+	return block
+end
+
+local function write_resolve_data(self, block)
+	render3d.WriteCameraBlock(self, block)
+
+	if not render3d.pipelines.ssr then
+		block.current_ssr_tex = -1
+	else
+		block.current_ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr:GetFramebuffer():GetAttachment(1))
+	end
+
+	if
+		not render3d.pipelines.ssr_resolve or
+		not render3d.pipelines.ssr_resolve.framebuffers
+	then
+		block.history_ssr_tex = -1
+	else
+		local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+		block.history_ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
+	end
+
+	block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+	local prev_view = render3d.prev_view_matrix
+	local prev_projection = render3d.prev_projection_matrix
+
+	if prev_view then
+		prev_view:GetInverse():CopyToFloatPointer(block.prev_inv_view)
+	else
+		render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block.prev_inv_view)
+	end
+
+	if prev_projection then
+		prev_projection:CopyToFloatPointer(block.prev_projection)
+	else
+		render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
+	end
+
+	return block
+end
+
 return {
 	{
 		name = "ssr",
@@ -52,6 +104,7 @@ return {
 							end,
 						},
 					},
+					write = write_ssr_data,
 				},
 			},
 			shader = [[            
@@ -322,6 +375,7 @@ return {
 							end,
 						},
 					},
+					write = write_resolve_data,
 				},
 			},
 			shader = [[

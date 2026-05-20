@@ -584,10 +584,12 @@ local function build_base_pass(fragment_shader)
 						render3d.camera_block,
 						render3d.debug_block,
 					},
+					write = render3d.WriteCameraDebugBlock,
 				},
 				{
 					name = "model",
 					block = model_pipeline.GetPBRMaterialBlock(),
+					write = model_pipeline.WritePBRMaterialBlock,
 				},
 			},
 			shader = [[
@@ -644,10 +646,12 @@ if supports_tessellation() then
 					render3d.camera_block,
 					render3d.debug_block,
 				},
+				write = render3d.WriteCameraDebugBlock,
 			},
 			{
 				name = "model",
 				block = model_pipeline.GetPBRMaterialBlock(),
+				write = model_pipeline.WritePBRMaterialBlock,
 			},
 		},
 		shader = build_tessellation_control_shader(),
@@ -661,14 +665,17 @@ if supports_tessellation() then
 					render3d.camera_block,
 					render3d.debug_block,
 				},
+				write = render3d.WriteCameraDebugBlock,
 			},
 			{
 				name = "model",
 				block = model_pipeline.GetPBRMaterialBlock(),
+				write = model_pipeline.WritePBRMaterialBlock,
 			},
 			{
 				name = "vertex_animation",
 				block = model_pipeline.GetVertexAnimationBlock(),
+				write = model_pipeline.WriteVertexAnimationBlock,
 			},
 		},
 		shader = build_tessellation_evaluation_shader(),

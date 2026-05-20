@@ -1,6 +1,40 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local smaa_area_tex = import("goluwa/render/textures/smaa_area_tex.lua")
+local smaa_search_tex = import("goluwa/render/textures/smaa_search_tex.lua")
+
+local function write_smaa_edge_constants(self, block)
+	local current_idx = system.GetFrameNumber() % 2 + 1
+	block.tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
+	return block
+end
+
+local function write_smaa_weight_constants(self, block)
+	block.edges_tex = self:GetTextureIndex(render3d.pipelines.smaa_edge:GetFramebuffer():GetAttachment(1))
+	block.area_tex = self:GetTextureIndex(smaa_area_tex)
+	block.search_tex = self:GetTextureIndex(smaa_search_tex)
+	return block
+end
+
+local function write_smaa_blend_constants(self, block)
+	local current_idx = system.GetFrameNumber() % 2 + 1
+	block.color_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
+	block.weight_tex = self:GetTextureIndex(render3d.pipelines.smaa_weight:GetFramebuffer():GetAttachment(1))
+	return block
+end
+
+local function write_smaa_resolve_constants(self, block)
+	render3d.WriteCameraBlock(self, block)
+	block.current_tex = self:GetTextureIndex(render3d.pipelines.smaa_blend:GetFramebuffer():GetAttachment(1))
+	local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+	block.history_tex = self:GetTextureIndex(render3d.pipelines.smaa_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
+	block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer().depth_texture)
+	render3d.prev_view_matrix:CopyToFloatPointer(block.prev_view)
+	render3d.prev_projection_matrix:CopyToFloatPointer(block.prev_projection)
+	return block
+end
+
 return {
 	{
 		name = "smaa_edge",
@@ -19,6 +53,7 @@ return {
 							end,
 						},
 					},
+					write = write_smaa_edge_constants,
 				},
 			},
 			shader = [[
@@ -106,6 +141,7 @@ return {
 							end,
 						},
 					},
+					write = write_smaa_weight_constants,
 				},
 			},
 			shader = [[
@@ -303,6 +339,7 @@ return {
 							end,
 						},
 					},
+					write = write_smaa_blend_constants,
 				},
 			},
 			shader = [[
@@ -404,6 +441,7 @@ return {
 							end,
 						},
 					},
+					write = write_smaa_resolve_constants,
 				},
 			},
 			shader = [[

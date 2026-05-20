@@ -394,11 +394,13 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 					},
+					write = write_probe_data,
 				},
 				{
 					name = "model",
 					binding_index = 4,
 					block = model_pipeline.GetProbeMaterialBlock(),
+					write = model_pipeline.WriteProbeMaterialBlock,
 				},
 			},
 			shader = [[
@@ -445,6 +447,7 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 					},
+					write = write_sky_vertex_constants,
 				},
 			},
 			custom_declarations = [[
@@ -509,6 +512,7 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 					},
+					write = write_sky_fragment_constants,
 				},
 			},
 			custom_declarations = [[
@@ -559,6 +563,7 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 					},
+					write = write_sky_vertex_constants,
 				},
 			},
 			custom_declarations = [[
@@ -607,6 +612,7 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 					},
+					write = write_prefilter_fragment_constants,
 				},
 			},
 			custom_declarations = [[
@@ -719,6 +725,61 @@ function lightprobes.GetProjectionViewWorldMatrix()
 	render3d.GetWorldMatrix():GetMultiplied(lightprobes.camera:BuildViewMatrix(), pvm_cached)
 	pvm_cached:GetMultiplied(lightprobes.camera:BuildProjectionMatrix(), pvm_cached)
 	return pvm_cached
+end
+
+local function write_probe_data(self, block)
+	local p = lightprobes.camera:GetPosition()
+	block.camera_position[0] = p.x
+	block.camera_position[1] = p.y
+	block.camera_position[2] = p.z
+	block.camera_position[3] = 0
+	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
+	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
+	local lights = render3d.GetLights()
+
+	if lights[1] then
+		lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
+	else
+		block.sun_direction[0] = 0
+		block.sun_direction[1] = 1
+		block.sun_direction[2] = 0
+		block.sun_direction[3] = 0
+	end
+
+	return block
+end
+
+local function write_sky_vertex_constants(self, block)
+	lightprobes.inv_projection_view:CopyToFloatPointer(block.inv_projection_view)
+	return block
+end
+
+local function write_sky_fragment_constants(self, block)
+	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
+	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
+	local lights = render3d.GetLights()
+
+	if lights[1] then
+		lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
+	else
+		block.sun_direction[0] = 0
+		block.sun_direction[1] = 1
+		block.sun_direction[2] = 0
+		block.sun_direction[3] = 0
+	end
+
+	lightprobes.camera:GetPosition():CopyToFloatPointer(block.camera_position)
+	return block
+end
+
+local function write_prefilter_fragment_constants(self, block)
+	local probe = lightprobes.current_prefilter_probe
+	block.roughness = lightprobes.current_roughness or 0
+	block.input_texture_index = self:GetTextureIndex(probe.source_cubemap)
+	block.resolution = probe.size
+	return block
 end
 
 function lightprobes.UploadConstants()

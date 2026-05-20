@@ -17,6 +17,179 @@ local function get_primary_sun_direction()
 	return sun_dir
 end
 
+local MAX_LIGHTS = 128
+local MAX_CASCADES = 4
+local MAX_PROBES = 64
+local SSAO_KERNEL = {}
+
+for i = 1, 64 do
+	math.randomseed(i)
+	local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
+	sample = sample * math.random()
+	local scale = (i - 1) / 64
+	scale = math.lerp(0.1, 1.0, scale * scale)
+	SSAO_KERNEL[i] = sample * scale
+end
+
+local function write_lighting_data(self, block)
+	render3d.WriteCameraBlock(self, block)
+
+	for i, sample in ipairs(SSAO_KERNEL) do
+		sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
+	end
+
+	local lights = render3d.GetLights()
+	local light_count = math.min(#lights, MAX_LIGHTS)
+	block.light_count = light_count
+
+	for i = 0, MAX_LIGHTS - 1 do
+		local data = block.lights[i]
+		local light = lights[i + 1]
+
+		if light then
+			if light.LightType == "directional" or light.LightType == "sun" then
+				light.Owner.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
+				data.position[3] = 0
+			else
+				light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
+
+				if light.LightType == "point" then
+					data.position[3] = 1
+				elseif light.LightType == "spot" then
+					data.position[3] = 2
+				else
+					error("Unknown light type: " .. tostring(light.LightType), 2)
+				end
+			end
+
+			data.color[0] = light.Color.r
+			data.color[1] = light.Color.g
+			data.color[2] = light.Color.b
+			data.color[3] = light.Intensity
+			data.params[0] = light.Range
+			data.params[1] = light.InnerCone
+			data.params[2] = light.OuterCone
+			data.params[3] = 0
+		else
+			data.position[0] = 0
+			data.position[1] = 0
+			data.position[2] = 0
+			data.position[3] = 0
+			data.color[0] = 0
+			data.color[1] = 0
+			data.color[2] = 0
+			data.color[3] = 0
+			data.params[0] = 0
+			data.params[1] = 0
+			data.params[2] = 0
+			data.params[3] = 0
+		end
+	end
+
+	local sun = nil
+
+	for i, light in ipairs(lights) do
+		if i > MAX_LIGHTS then break end
+
+		if
+			(
+				light.LightType == "sun" or
+				light.LightType == "directional"
+			)
+			and
+			light:GetCastShadows()
+		then
+			sun = light
+
+			break
+		end
+	end
+
+	for i = 0, MAX_CASCADES - 1 do
+		block.shadows.shadow_map_indices[i] = -1
+		block.shadows.cascade_splits[i] = -1
+	end
+
+	if sun then
+		local shadow_map = sun:GetShadowMap()
+		local cascade_count = shadow_map:GetCascadeCount()
+
+		for i = 1, cascade_count do
+			block.shadows.shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
+			shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block.shadows.light_space_matrices[i - 1])
+			block.shadows.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
+		end
+
+		block.shadows.cascade_count = cascade_count
+	else
+		block.shadows.cascade_count = 0
+	end
+
+	render3d.WriteDebugBlock(self, block)
+	render3d.WriteGBufferBlock(self, block)
+	block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+	render3d.WriteLastFrameBlock(self, block)
+	render3d.WriteCommonBlock(self, block)
+
+	if lights[1] then
+		block.primary_sun_intensity = lights[1].Intensity
+	else
+		block.primary_sun_intensity = atmosphere.GetSunIntensity()
+	end
+
+	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
+	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
+		atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction())
+	)
+
+	if
+		not render3d.pipelines.ssr_resolve or
+		not render3d.pipelines.ssr_resolve.framebuffers
+	then
+		block.ssr_tex = -1
+	else
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
+		block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
+	end
+
+	for i = 0, MAX_PROBES - 1 do
+		block.probe_color_textures[i] = -1
+		block.probe_depth_textures[i] = -1
+		block.probe_positions[i][0] = 0
+		block.probe_positions[i][1] = 0
+		block.probe_positions[i][2] = 0
+		block.probe_positions[i][3] = 0
+	end
+
+	if lightprobes.IsEnabled() then
+		local probes = lightprobes.GetProbes()
+
+		for i = 0, MAX_PROBES - 1 do
+			local probe = probes[i + 1]
+
+			if probe then
+				if probe.cubemap then
+					block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
+				end
+
+				if probe.depth_cubemap then
+					block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
+				end
+
+				block.probe_positions[i][0] = probe.position.x
+				block.probe_positions[i][1] = probe.position.y
+				block.probe_positions[i][2] = probe.position.z
+				block.probe_positions[i][3] = probe.radius or 20
+			end
+		end
+	end
+
+	return block
+end
+
 return {
 	{
 		name = "lighting",
@@ -298,6 +471,7 @@ return {
 							64,
 						},
 					},
+					write = write_lighting_data,
 				},
 			},
 			shader = [[
