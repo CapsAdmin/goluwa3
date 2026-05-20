@@ -20,6 +20,22 @@ local function get_primary_sun_direction()
 	return sun_dir
 end
 
+local function get_primary_sun_intensity()
+	local lights = render3d.GetLights()
+
+	if lights[1] then return lights[1].Intensity end
+
+	return atmosphere.GetSunIntensity()
+end
+
+local function get_primary_sun_color()
+	local lights = render3d.GetLights()
+
+	if lights[1] then return lights[1].Color end
+
+	return Vec3(1, 1, 1)
+end
+
 return {
 	{
 		name = "ocean_waves_near",
@@ -321,6 +337,20 @@ return {
 							end,
 						},
 						{
+							"primary_sun_intensity",
+							"float",
+							function(self, block, key)
+								block[key] = get_primary_sun_intensity()
+							end,
+						},
+						{
+							"primary_sun_color",
+							"vec3",
+							function(self, block, key)
+								get_primary_sun_color():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
 							"ocean_enabled",
 							"int",
 							function(self, block, key)
@@ -595,6 +625,8 @@ return {
 				return (1.0 - gg) / (pow(1.0 + gg - 2.0 * g * mu, 1.5) * 4.0 * SEA_PI);
 			}
 
+			#define ATMOSPHERE_SUN_INTENSITY ocean_data.primary_sun_intensity
+
 			]] .. ibl.GetBRDFGLSLCode() .. [[
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
@@ -675,17 +707,18 @@ return {
 				vec3 base_color = apply_water_volume(refracted_scene, ambient_light, thickness);
 				vec3 color = mix(base_color, reflection_color, fresnel);
 				float no_l = max(dot(normal, sun_direction), 0.0);
-				float direct_sun = no_l * sun_visibility;
-				float subsurface_amount = 8.0 * henyey_greenstein(mu, 0.5) * direct_sun;
+				vec3 sun_radiance = ocean_data.primary_sun_color * (no_l * sun_visibility * ocean_data.primary_sun_intensity);
+				float sun_energy = max(max(sun_radiance.r, sun_radiance.g), sun_radiance.b);
+				float subsurface_amount = 1.0 * henyey_greenstein(mu, 0.5) * sun_energy;
 				vec3 water_scatter = 0.45 * vec3(0.18, 0.42, 0.7);
-				color += subsurface_amount * water_scatter * max(0.0, 1.0 + p.y - (ocean_data.ocean_level + 0.6 * SEA_HEIGHT));
+				color += subsurface_amount * water_scatter * ocean_data.primary_sun_color * max(0.0, 1.0 + p.y - (ocean_data.ocean_level + 0.6 * SEA_HEIGHT));
 				vec3 half_dir = normalize(view_dir + sun_direction);
 				float no_h = max(dot(normal, half_dir), 0.0);
-				color += vec3(1.0) * (0.18 * direct_sun) * (fresnel * D_GGX(0.05, no_h) / SEA_PI);
+				color += sun_radiance * (0.18 * fresnel * D_GGX(0.05, no_h) / SEA_PI);
 				float foam = smoothstep(0.18, 0.55, p.y - ocean_data.ocean_level) * smoothstep(0.65, 0.15, normal.y);
 				float shore_foam = smoothstep(2.0, 0.0, thickness) * max(0.0, normal.y);
-				vec3 foam_light = ambient_light + vec3(1.2) * direct_sun;
-					color += vec3(0.95, 0.98, 1.0) * (foam * 0.12 + shore_foam * 0.06) * foam_light;
+				vec3 foam_light = ambient_light * sun_radiance;
+				color += vec3(0.95, 0.98, 1.0) * (foam * 0.12 + shore_foam * 0.06) * foam_light;
 				return color;
 			}
 

@@ -546,7 +546,7 @@ function render3d.SetOceanEnabled(enabled)
 end
 
 function render3d.IsOceanEnabled()
-	if render3d.ocean_enabled == nil then return true end
+	if render3d.ocean_enabled == nil then return false end
 
 	return render3d.ocean_enabled == true
 end

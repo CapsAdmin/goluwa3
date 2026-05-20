@@ -13,9 +13,10 @@ local sun = Entity.New{
 	light = {
 		LightType = "sun",
 		Color = Color(1.0, 0.98, 1),
-		Intensity = 0.035,
+		Intensity = 2,
 	},
 }
+atmosphere.SetSunIntensity(sun.light.Intensity)
 sun.light:SetCastShadows{
 	size = Vec2() + 2048,
 	cascade_count = 3,
@@ -25,11 +26,11 @@ sun.light:SetCastShadows{
 		Vec2() + 2048,
 	},
 	cascade_zoom_factors = {
-		2,
 		1.5,
 		1,
+		1,
 	},
-	cascade_split_lambda = 0.2,
+	cascade_split_lambda = 0.9,
 	max_shadow_distance = 2700,
 	near_plane = 1,
 	far_plane = 2700,
@@ -53,6 +54,7 @@ event.AddListener("Update", "sun_orientation", function(dt)
 	rot:Normalize()
 	sun.transform:SetRotation(rot)
 	local sunDir = -rot:GetForward()
+	atmosphere.SetSunIntensity(sun.light.Intensity)
 	local sunColor = atmosphere.GetSunColor(sunDir)
 	sun.light:SetColor(Color(sunColor:Unpack()))
 end)

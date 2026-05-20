@@ -60,6 +60,11 @@ local ShadowVertexConstants = ffi.typeof([[
 		float tessellation_factor;
 	}
 ]])
+local ShadowTransformUniformDecl = [[
+	struct {
+		float world[16];
+	}
+]]
 
 function ShadowMap.New(config)
 	config = config or {}
@@ -117,6 +122,7 @@ function ShadowMap.New(config)
 	self.cascade_splits = {} -- Will store the split distances
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl())
+	self.shadow_transform_buffer = UniformBuffer.New(ShadowTransformUniformDecl)
 	local cascade_sizes = config.cascade_sizes or {}
 	local max_shadow_width = self.size.w
 	local max_shadow_height = self.size.h
@@ -208,23 +214,34 @@ function ShadowMap.New(config)
 					} pc;
 
 				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
+					layout(scalar, binding = 2) uniform ShadowTransform_t {
+						mat4 world;
+					} shadow_transform;
 
 					layout(location = 0) out vec2 out_uv;
 
 				]] .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation") .. [[
 
 					void main() {
-						vec3 world_pos = in_position;
-						vec3 world_normal = normalize(in_normal);
-						vec3 world_tangent = normalize(in_tangent.xyz);
+						vec3 local_pos = in_position;
+						vec3 world_pos = (shadow_transform.world * vec4(local_pos, 1.0)).xyz;
+						mat3 world_matrix3 = mat3(shadow_transform.world);
+						mat3 inv_world_matrix3 = inverse(world_matrix3);
+						vec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);
+						vec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);
 
 						if (pc.height_texture_index != -1 && pc.height_scale > 0.0) {
 							float height = texture(textures[nonuniformEXT(pc.height_texture_index)], in_uv).r;
 							world_pos += vec3(0.0, 1.0, 0.0) * ((height - pc.height_center) * pc.height_scale);
 						}
 
-						world_pos += get_vertex_animation_offset(world_pos, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);
-						gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
+						vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);
+
+						if (dot(world_offset, world_offset) > 0.0) {
+							local_pos += inv_world_matrix3 * world_offset;
+						}
+
+						gl_Position = pc.light_space_matrix * vec4(local_pos, 1.0);
 						out_uv = in_uv;
 					}
 				]],
@@ -283,6 +300,11 @@ function ShadowMap.New(config)
 						type = "uniform_buffer_dynamic",
 						binding_index = 1,
 						args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
+					},
+					{
+						type = "uniform_buffer_dynamic",
+						binding_index = 2,
+						args = {self.shadow_transform_buffer.buffer, self.shadow_transform_buffer.aligned_size},
 					},
 				},
 				push_constants = {
@@ -533,6 +555,9 @@ function ShadowMap.New(config)
 						} pc;
 
 					]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
+						layout(scalar, binding = 2) uniform ShadowTransform_t {
+							mat4 world;
+						} shadow_transform;
 
 						layout(triangles, equal_spacing, cw) in;
 						layout(location = 0) out vec2 out_uv;
@@ -556,20 +581,30 @@ function ShadowMap.New(config)
 						}
 
 						void main() {
-							vec3 world_pos = interpolate_vec3(in_position[0], in_position[1], in_position[2]);
-							vec3 world_normal = normalize(interpolate_vec3(in_normal[0], in_normal[1], in_normal[2]));
-							vec3 world_tangent = normalize(interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz));
+							vec3 local_pos = interpolate_vec3(in_position[0], in_position[1], in_position[2]);
+							vec3 local_normal = normalize(interpolate_vec3(in_normal[0], in_normal[1], in_normal[2]));
+							vec3 local_tangent = normalize(interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz));
 							vec2 uv = interpolate_vec2(in_uv[0], in_uv[1], in_uv[2]);
 							float texture_blend = interpolate_float(in_texture_blend[0], in_texture_blend[1], in_texture_blend[2]);
 							vec4 vertex_color = interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2]);
+							vec3 world_pos = (shadow_transform.world * vec4(local_pos, 1.0)).xyz;
+							mat3 world_matrix3 = mat3(shadow_transform.world);
+							mat3 inv_world_matrix3 = inverse(world_matrix3);
+							vec3 world_normal = normalize(transpose(inv_world_matrix3) * local_normal);
+							vec3 world_tangent = normalize(world_matrix3 * local_tangent);
 
 							if (pc.height_texture_index != -1 && pc.height_scale > 0.0) {
 								float height = texture(textures[nonuniformEXT(pc.height_texture_index)], uv).r;
 								world_pos += vec3(0.0, 1.0, 0.0) * ((height - pc.height_center) * pc.height_scale);
 							}
 
-							world_pos += get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
-							gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
+							vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
+
+							if (dot(world_offset, world_offset) > 0.0) {
+								local_pos += inv_world_matrix3 * world_offset;
+							}
+
+							gl_Position = pc.light_space_matrix * vec4(local_pos, 1.0);
 							out_uv = uv;
 						}
 					]],
@@ -583,6 +618,11 @@ function ShadowMap.New(config)
 							type = "uniform_buffer_dynamic",
 							binding_index = 1,
 							args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
+						},
+						{
+							type = "uniform_buffer_dynamic",
+							binding_index = 2,
+							args = {self.shadow_transform_buffer.buffer, self.shadow_transform_buffer.aligned_size},
 						},
 					},
 					push_constants = {
@@ -949,13 +989,15 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	end
 
 	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), material or render3d.GetDefaultMaterial())
+	world_matrix:CopyToFloatPointer(self.shadow_transform_buffer:GetData().world)
 	local frame_index = render.GetCurrentFrame()
 	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
+	local shadow_transform_offset = self.shadow_transform_buffer:Upload(frame_index)
 
 	if pipeline == self.tess_pipeline then
-		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset})
+		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_transform_offset})
 	else
-		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset})
+		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_transform_offset})
 	end
 
 	do

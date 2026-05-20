@@ -446,7 +446,7 @@ do
 
 	local function on_load_vmt(self, vmt)
 		self.vmt = vmt -- store for debugging
-		self:SetReverseXZNormalMap(true) -- Source engine normals need XY flip
+		--self:SetReverseXZNormalMap(true) -- Source engine normals need XY flip
 		self:SetInvertRoughnessTexture(true) -- Source engine normals need XY flip
 		self:SetMetallicMultiplier(0)
 

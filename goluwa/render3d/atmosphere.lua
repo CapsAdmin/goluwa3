@@ -26,9 +26,10 @@ local RAYLEIGH_BETA = Vec3(0.0058, 0.0135, 0.0331)
 local MIE_BETA = 0.021
 local MIE_BETA_EXT = 0.021 * 1.1
 local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
-local SUN_INTENSITY = 20.0
+local DEFAULT_SUN_INTENSITY = 1.0
 local SUN_RADIUS = 500.0
 local SUN_DISTANCE = 100000.0
+atmosphere.sun_intensity = atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
 local transmittance_glsl = [[
 	const int TRANSMITTANCE_STEPS = 40;
 	const float PI = 3.14159265359;
@@ -163,14 +164,16 @@ end
 local function get_sky_view_texture_key(cam_pos, sun_dir)
 	local camera = get_shader_camera_position(cam_pos)
 	local sun = get_normalized_sun_direction(sun_dir)
+	local sun_intensity = atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
 	return string.format(
-		"%.1f:%.1f:%.1f|%.3f:%.3f:%.3f",
+		"%.1f:%.1f:%.1f|%.3f:%.3f:%.3f|%.3f",
 		quantize(camera.x, SKY_VIEW_POSITION_QUANTIZATION),
 		quantize(camera.y, SKY_VIEW_POSITION_QUANTIZATION),
 		quantize(camera.z, SKY_VIEW_POSITION_QUANTIZATION),
 		quantize(sun.x, SKY_VIEW_DIRECTION_QUANTIZATION),
 		quantize(sun.y, SKY_VIEW_DIRECTION_QUANTIZATION),
-		quantize(sun.z, SKY_VIEW_DIRECTION_QUANTIZATION)
+		quantize(sun.z, SKY_VIEW_DIRECTION_QUANTIZATION),
+		quantize(sun_intensity, 0.01)
 	)
 end
 
@@ -187,7 +190,10 @@ local atmosphere_shared_glsl = [[
 	const float OZONE_WIDTH = 15.0;
 	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
 	const vec3 OZONE_BETA_ABS = vec3(0.00065, 0.00188, 0.000085);
-	const float SUN_INTENSITY = 20.0;
+
+	#ifndef ATMOSPHERE_SUN_INTENSITY
+	#define ATMOSPHERE_SUN_INTENSITY 1.0
+	#endif
 
 	vec2 ray_sphere_intersect(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
 		float b = dot(ray_origin, ray_dir);
@@ -272,13 +278,14 @@ local atmosphere_shared_glsl = [[
 	}
 ]]
 
-local function build_atmosphere_shader_prelude(extra)
-	return atmosphere_shared_glsl .. "\n" .. extra
+local function build_atmosphere_shader_prelude(extra, prefix)
+	return (prefix or "") .. atmosphere_shared_glsl .. "\n" .. extra
 end
 
 local function build_sky_view_glsl(cam_pos, sun_dir)
 	local camera = get_shader_camera_position(cam_pos)
 	local sun = get_normalized_sun_direction(sun_dir)
+	local sun_intensity = atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
 	return build_atmosphere_shader_prelude(
 		[[
 		const int SKY_VIEW_STEPS = ]] .. SKY_VIEW_STEPS .. [[;
@@ -348,14 +355,15 @@ local function build_sky_view_glsl(cam_pos, sun_dir)
 				total_mie += density_m * transmittance * step_size;
 			}
 
-			vec3 scattered_light = SUN_INTENSITY * (
+			vec3 scattered_light = ATMOSPHERE_SUN_INTENSITY * (
 				phase_r * RAYLEIGH_BETA * total_rayleigh +
 				phase_m * MIE_BETA * total_mie
 			);
 
 			return vec4(scattered_light, 1.0);
 		}
-	]]
+	]],
+		"#define ATMOSPHERE_SUN_INTENSITY " .. string.format("%.17g", sun_intensity) .. "\n"
 	)
 end
 
@@ -487,7 +495,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 		float rayleigh_visibility = mix(0.45, 1.0, clamp(sun_visibility, 0.0, 1.0));
 		float mie_visibility = mix(0.12, 1.0, clamp(sun_visibility, 0.0, 1.0));
-		vec3 scattered_light = SUN_INTENSITY * (
+		vec3 scattered_light = ATMOSPHERE_SUN_INTENSITY * (
 			phase_r * RAYLEIGH_BETA * total_rayleigh * rayleigh_visibility +
 			phase_m * MIE_BETA * total_mie * mie_visibility
 		);
@@ -541,7 +549,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			total_mie += density_m * transmittance * step_size;
 		}
 
-		vec3 scattered_light = SUN_INTENSITY * (
+		vec3 scattered_light = ATMOSPHERE_SUN_INTENSITY * (
 			phase_r * RAYLEIGH_BETA * total_rayleigh +
 			phase_m * MIE_BETA * total_mie
 		);
@@ -562,7 +570,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 radiance = vec3(16.0 * disk) + vec3(1.0, 0.95, 0.86) * (2.0 * corona_inner) + vec3(1.0, 0.98, 0.95) * corona_outer;
 		vec3 transmittance = sample_transmittance_lut(transmittance_texture_index, ray_origin, sun_dir);
 		float horizon_fade = smoothstep(-0.12, 0.04, sun_dir.y);
-		return radiance * SUN_INTENSITY * transmittance * 0.01 * horizon_fade;
+		return radiance * ATMOSPHERE_SUN_INTENSITY * transmittance * 0.01 * horizon_fade;
 	}
 ]]
 )
@@ -626,6 +634,19 @@ local function destroy_all_sky_view_textures()
 	end
 
 	atmosphere.sky_view_texture_order = {}
+end
+
+function atmosphere.SetSunIntensity(intensity)
+	intensity = intensity or DEFAULT_SUN_INTENSITY
+
+	if atmosphere.sun_intensity == intensity then return end
+
+	atmosphere.sun_intensity = intensity
+	destroy_all_sky_view_textures()
+end
+
+function atmosphere.GetSunIntensity()
+	return atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
 end
 
 local function create_sky_view_texture(cam_pos, sun_dir)
@@ -789,7 +810,7 @@ function atmosphere.GetSunColor(sunDir, camPos)
 
 	local tau = RAYLEIGH_BETA * opticalDepthR + Vec3(MIE_BETA_EXT, MIE_BETA_EXT, MIE_BETA_EXT) * opticalDepthM + OZONE_BETA_ABS * opticalDepthO
 	local attenuation = Vec3(math.exp(-tau.x), math.exp(-tau.y), math.exp(-tau.z))
-	local baseSunColor = Vec3(1.0, 0.98, 0.95) * SUN_INTENSITY
+	local baseSunColor = Vec3(1.0, 0.98, 0.95)
 	return attenuation * baseSunColor
 end
 

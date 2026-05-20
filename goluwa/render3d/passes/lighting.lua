@@ -189,6 +189,20 @@ return {
 						render3d.last_frame_block,
 						render3d.common_block,
 						{
+							"primary_sun_intensity",
+							"float",
+							function(self, block, key)
+								local lights = render3d.GetLights()
+
+								if lights[1] then
+									block[key] = lights[1].Intensity
+									return
+								end
+
+								block[key] = atmosphere.GetSunIntensity()
+							end,
+						},
+						{
 							"stars_texture_index",
 							"int",
 							function(self, block, key)
@@ -338,6 +352,8 @@ return {
 				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 			}
 
+			#define ATMOSPHERE_SUN_INTENSITY lighting_data.primary_sun_intensity
+
 
 			]] .. import("goluwa/render3d/atmosphere.lua").GetGLSLCode() .. [[
 
@@ -402,7 +418,6 @@ return {
 				if (shadow_map_idx < 0) return 1.0;
 				
 				float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
-				bias_val = 0;
 				vec3 offset_pos = world_pos + normal * bias_val;
 				vec4 light_space_pos = lighting_data.shadows.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
 				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
@@ -539,6 +554,44 @@ return {
 				return blend_environment_sources(global_env, probes_env / max(total_weight, 0.0001), min(total_weight, 1.0));
 			}
 
+			vec3 get_environment_irradiance(vec3 normal, vec3 world_pos) {
+				vec3 global_env = sample_environment_irradiance(lighting_data.env_tex, normal);
+
+				vec3 probes_env = vec3(0.0);
+				float total_weight = 0.0;
+
+				for (int i = 0; i < 64; i++) {
+					int color_tex = lighting_data.probe_color_textures[i];
+					int depth_tex = lighting_data.probe_depth_textures[i];
+					if (color_tex == -1 || depth_tex == -1) continue;
+
+					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
+					float sphere_radius = lighting_data.probe_positions[i].w;
+					vec3 probe_to_point = world_pos - probe_pos;
+					float dist_to_point = length(probe_to_point);
+
+					if (dist_to_point < sphere_radius) {
+						vec3 dir_to_point = normalize(probe_to_point);
+						float stored_depth = texture(CUBEMAP(depth_tex), dir_to_point).r;
+						float bias = 0.3;
+
+						if (dist_to_point > stored_depth + bias) continue;
+
+						float depth_diff = abs(stored_depth - dist_to_point);
+						float depth_weight = exp(-depth_diff * 0.5);
+						float edge_weight = smoothstep(sphere_radius, sphere_radius * 0.3, dist_to_point);
+						float weight = depth_weight * edge_weight;
+
+						if (weight > 0.001) {
+							probes_env += sample_environment_irradiance(color_tex, normal) * weight;
+							total_weight += weight;
+						}
+					}
+				}
+
+				return blend_environment_sources(global_env, probes_env / max(total_weight, 0.0001), min(total_weight, 1.0));
+			}
+
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
 				vec3 env = get_environment_reflection(normal, roughness, V, world_pos);
 				vec4 ssr = get_filtered_ssr_reflection(lighting_data.ssr_tex, in_uv);
@@ -546,7 +599,7 @@ return {
 			}
 
 			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {
-				return get_environment_reflection(normal, 1, V, world_pos);
+				return get_environment_irradiance(normal, world_pos);
 			}
 
 			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
