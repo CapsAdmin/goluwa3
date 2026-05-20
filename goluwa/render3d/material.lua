@@ -20,6 +20,7 @@ Material:GetSet("BlendTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainMaterialTexture", nil, {type = "render_texture"})
 Material:GetSet("MetallicTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
+Material:GetSet("OpacityTexture", nil, {type = "render_texture"})
 -- multipliers
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("EmissiveMultiplier", Color(1.0, 1.0, 1.0, 1.0))
@@ -42,8 +43,9 @@ Material:GetSet("HeightScale", 0.0)
 Material:GetSet("HeightCenter", 0.0)
 Material:GetSet("HeightLayers", 24)
 Material:GetSet("TessellationFactor", 1.0)
-Material:GetSet("VegetationBackDiffuse", Color(1.0, 1.0, 1.0, 1.0))
-Material:GetSet("VegetationBackViewDep", 0.5)
+Material:GetSet("TransmissionColor", Color(1.0, 1.0, 1.0, 1.0))
+Material:GetSet("TransmissionViewDependency", 0.5)
+Material:GetSet("TransmissionBlocking", 1.0)
 -- other
 Material:GetSet("AlphaCutoff", 0.5)
 Material:GetSet("IgnoreZ", false)
@@ -60,7 +62,7 @@ Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
-Material:GetSet("Vegetation", false, {callback = "InvalidateFlags"})
+Material:GetSet("Subsurface", false, {callback = "InvalidateFlags"})
 Material:EndStorable()
 
 function Material.New(config)
@@ -127,7 +129,7 @@ local FLAGS = {
 	"MetallicTextureAlphaIsEmissive",
 	"AlbedoAlphaIsEmissive",
 	"DoubleSided",
-	"Vegetation",
+	"Subsurface",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -209,11 +211,74 @@ do
 			srgb = true,
 		}
 	end
-	local LinearTexture = function(path)
-		return Texture.New{
-			path = path,
-			srgb = false,
+	local LinearTexture = function(path, config)
+		config = config or {}
+		config.path = path
+		config.srgb = false
+		return Texture.New(config)
+	end
+	local cry_specular_push_constant_t = ffi.typeof("int[1]")
+
+	local function shade_cry_specular_roughness_texture(roughness_texture, source_texture)
+		if not roughness_texture or not source_texture then return end
+
+		if type(roughness_texture.Shade) ~= "function" then return end
+
+		roughness_texture:Shade(
+			[[
+				vec4 spec_sample = texture(TEXTURE(cry_specular.source_tex), uv);
+				float specular_level = clamp(dot(spec_sample.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+				float roughness_linear = 1.0 - specular_level * 0.5;
+				float roughness_encoded = sqrt(clamp(roughness_linear, 0.0, 1.0));
+				return vec4(roughness_encoded, roughness_encoded, roughness_encoded, spec_sample.a);
+			]],
+			{
+				textures = {source_texture},
+				custom_declarations = [[
+					layout(push_constant, scalar) uniform CrySpecularRoughnessPush {
+						int source_tex;
+					} cry_specular;
+				]],
+				fragment_push_constants = {
+					size = ffi.sizeof(cry_specular_push_constant_t),
+					get_data = function(_, _, pipeline)
+						return cry_specular_push_constant_t(pipeline:GetTextureIndex(source_texture))
+					end,
+				},
+			}
+		)
+	end
+
+	local function CrySpecularRoughnessTexture(path)
+		local roughness_texture
+		local source_texture = LinearTexture(
+			path,
+			{
+				on_ready = function(texture)
+					if roughness_texture then
+						shade_cry_specular_roughness_texture(roughness_texture, texture)
+					end
+				end,
+			}
+		)
+
+		if type(source_texture.Shade) ~= "function" then return source_texture end
+
+		local sampler = source_texture.GetSamplerConfig and
+			table.copy(source_texture:GetSamplerConfig()) or
+			nil
+		roughness_texture = Texture.New{
+			width = math.max(source_texture:GetWidth(), 1),
+			height = math.max(source_texture:GetHeight(), 1),
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = source_texture:GetMipMapLevels() > 1 and "auto" or 1,
+			image = {
+				usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			},
+			sampler = sampler,
 		}
+		shade_cry_specular_roughness_texture(roughness_texture, source_texture)
+		return roughness_texture
 	end
 
 	local function find_child_by_tag(node, tag)
@@ -308,7 +373,7 @@ do
 		local is_vegetation = material_node.attrs and material_node.attrs.Shader == "Vegetation"
 		self:SetMetallicMultiplier(0)
 
-		if is_vegetation then self:SetVegetation(true) end
+		if is_vegetation then self:SetSubsurface(true) end
 
 		if material_node.attrs and material_node.attrs.Diffuse then
 			local r, g, b = unpack_csv_numbers(material_node.attrs.Diffuse)
@@ -331,9 +396,9 @@ do
 				local r, g, b = unpack_csv_numbers(public_params.attrs.BackDiffuse)
 				local multiplier = tonumber(public_params.attrs.BackDiffuseMultiplier) or 1
 				local back_view_dep = tonumber(public_params.attrs.BackViewDep)
-				self:SetVegetationBackDiffuse(Color(r or 1, g or 1, b or 1, multiplier))
+				self:SetTransmissionColor(Color(r or 1, g or 1, b or 1, multiplier))
 
-				if back_view_dep then self:SetVegetationBackViewDep(back_view_dep) end
+				if back_view_dep then self:SetTransmissionViewDependency(back_view_dep) end
 			end
 		end
 
@@ -349,11 +414,13 @@ do
 				self:SetNormalTexture(LinearTexture(resolved))
 				self:SetReverseXZNormalMap(true)
 			elseif attrs.Map == "Specular" and resolved then
-				self:SetRoughnessTexture(LinearTexture(resolved))
-				self:SetInvertRoughnessTexture(true)
+				self:SetRoughnessTexture(CrySpecularRoughnessTexture(resolved))
+				self:SetInvertRoughnessTexture(false)
 			elseif attrs.Map == "Detail" and resolved then
 				self:SetNormal2Texture(LinearTexture(resolved))
 			elseif attrs.Map == "Opacity" then
+				if resolved then self:SetOpacityTexture(LinearTexture(resolved)) end
+
 				self:SetAlphaTest(true)
 
 				if is_vegetation then self:SetDoubleSided(true) end

@@ -192,8 +192,8 @@ local function build_common_fragment_shader()
 				return val;
 			}
 
-			float get_vegetation(vec2 uv) {
-				if (!Vegetation) return 0.0;
+			float get_subsurface(vec2 uv) {
+				if (!Subsurface) return 0.0;
 
 				float strength = DoubleSided ? 1.0 : 0.35;
 
@@ -204,19 +204,54 @@ local function build_common_fragment_shader()
 				return clamp(strength, 0.0, 1.0);
 			}
 
-			float get_vegetation_back_view_dep() {
-				if (!Vegetation) return 0.0;
-				return clamp(model.VegetationBackViewDep, 0.0, 1.0);
+			float get_transmission_view_dependency() {
+				if (!Subsurface) return 0.0;
+				return clamp(model.TransmissionViewDependency, 0.0, 1.0);
 			}
 
-			vec3 get_vegetation_back_diffuse() {
-				if (!Vegetation) return vec3(0.0);
-				return model.VegetationBackDiffuse.rgb * model.VegetationBackDiffuse.a;
+			vec3 get_transmission_color() {
+				if (!Subsurface) return vec3(0.0);
+				return model.TransmissionColor.rgb * model.TransmissionColor.a;
+			}
+
+			float get_transmission_blocking_raw(vec2 uv) {
+				if (!Subsurface) return 0.0;
+
+				if (model.RoughnessTexture != -1) {
+					return clamp(texture(TEXTURE(model.RoughnessTexture), uv).a, 0.0, 1.0);
+				}
+
+				if (model.OpacityTexture != -1) {
+					vec4 mask = texture(TEXTURE(model.OpacityTexture), uv);
+					return clamp(max(max(mask.r, mask.g), max(mask.b, mask.a)), 0.0, 1.0);
+				}
+
+				return clamp(get_alpha_uv(uv), 0.0, 1.0);
+			}
+
+			float get_transmission_blocking(vec2 uv) {
+				if (!Subsurface) return 0.0;
+
+				float blocking = model.TransmissionBlocking;
+
+				if (model.RoughnessTexture != -1) {
+					blocking *= texture(TEXTURE(model.RoughnessTexture), uv).a;
+					return clamp(blocking, 0.0, 1.0);
+				}
+
+				if (model.OpacityTexture != -1) {
+					vec4 mask = texture(TEXTURE(model.OpacityTexture), uv);
+					blocking *= max(max(mask.r, mask.g), max(mask.b, mask.a));
+					return clamp(blocking, 0.0, 1.0);
+				}
+
+				blocking *= get_alpha_uv(uv);
+				return clamp(blocking, 0.0, 1.0);
 			}
 
 			vec3 get_emissive(vec2 uv) {
-				if (Vegetation) {
-					return get_vegetation_back_diffuse();
+				if (Subsurface) {
+					return get_transmission_color();
 				}
 
 				if (AlbedoAlphaIsEmissive) {
@@ -333,11 +368,13 @@ local function build_ssdm_fragment_shader()
 				set_alpha(alpha);
 				set_albedo(get_albedo_world(displacement.uv, displacement.world_pos));
 				set_normal(get_normal(displacement.uv, tbn));
-				set_vegetation_back_view_dep(get_vegetation_back_view_dep());
+				set_transmission_view_dep(get_transmission_view_dependency());
 				set_metallic(get_metallic(displacement.uv));
 				set_roughness(get_roughness(displacement.uv));
 				set_ao(get_ao(displacement.uv));
-				set_vegetation(get_vegetation(displacement.uv));
+				set_subsurface(get_subsurface(displacement.uv));
+				set_transmission_blocking(get_transmission_blocking(displacement.uv));
+				set_transmission_blocking_raw(get_transmission_blocking_raw(displacement.uv));
 				set_emissive(get_emissive(displacement.uv));
 				gl_FragDepth = has_heightmap() ? get_projected_depth(displacement.world_pos) : gl_FragCoord.z;
 			}
@@ -467,11 +504,13 @@ local function build_tessellation_fragment_shader()
 				set_alpha(alpha);
 				set_albedo(get_albedo_world(in_uv, in_position));
 				set_normal(get_normal(in_uv, tbn));
-				set_vegetation_back_view_dep(get_vegetation_back_view_dep());
+				set_transmission_view_dep(get_transmission_view_dependency());
 				set_metallic(get_metallic(in_uv));
 				set_roughness(get_roughness(in_uv));
 				set_ao(get_ao(in_uv));
-				set_vegetation(get_vegetation(in_uv));
+				set_subsurface(get_subsurface(in_uv));
+				set_transmission_blocking(get_transmission_blocking(in_uv));
+				set_transmission_blocking_raw(get_transmission_blocking_raw(in_uv));
 				set_emissive(get_emissive(in_uv));
 			}
 	]]
@@ -486,15 +525,16 @@ local function build_base_pass(fragment_shader)
 		end,
 		ColorFormat = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
-			{"r16g16b16a16_sfloat", {"normal", "rgb"}, {"vegetation_back_view_dep", "a"}},
+			{"r16g16b16a16_sfloat", {"normal", "rgb"}, {"transmission_view_dep", "a"}},
 			{
 				"r8g8b8a8_unorm",
 				{"metallic", "r"},
 				{"roughness", "g"},
 				{"ao", "b"},
-				{"vegetation", "a"},
+				{"subsurface", "a"},
 			},
-			{"r16g16b16a16_sfloat", {"emissive", "rgb"}},
+			{"r16g16b16a16_sfloat", {"emissive", "rgb"}, {"transmission_blocking", "a"}},
+			{"r16_sfloat", {"transmission_blocking_raw", "r"}},
 		},
 		DepthFormat = "d32_sfloat",
 		fragment = {

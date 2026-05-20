@@ -1,5 +1,9 @@
 for k, v in pairs(import.loaded) do
-	if k:find("goluwa/render3d") == 1 then import.loaded[k] = nil end
+	if k:find("goluwa/render3d") then
+		import.loaded[k] = nil
+		print(k)
+	end
 end
 
-assert(loadfile("goluwa/render3d/render3d.lua"))()
+local render3d = import("goluwa/render3d/render3d.lua")
+render3d.Initialize()

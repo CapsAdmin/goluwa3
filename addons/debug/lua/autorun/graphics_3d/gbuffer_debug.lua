@@ -29,6 +29,18 @@ local function format_view_name(name)
 
 	if name == "bitangent" then return "Bitangent" end
 
+	if name == "emissive" then return "Emissive / Transmission Color" end
+
+	if name == "subsurface" then return "Subsurface Mask" end
+
+	if name == "transmission_blocking" then return "Transmission Blocking" end
+
+	if name == "transmission_view_dep" then return "Transmission View Dependency" end
+
+	if name == "transmission_blocking_raw" then
+		return "Transmission Blocking Raw"
+	end
+
 	return name:gsub("_", " "):gsub("(%a)([%w_']*)", function(first, rest)
 		return first:upper() .. rest:lower()
 	end)

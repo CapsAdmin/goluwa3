@@ -71,17 +71,23 @@ local PBR_MATERIAL_FIELDS = {
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 	{
 		type = "vec4",
-		name = "VegetationBackDiffuse",
-		getter = "GetVegetationBackDiffuse",
+		name = "TransmissionColor",
+		getter = "GetTransmissionColor",
 	},
 	{
 		type = "float",
-		name = "VegetationBackViewDep",
-		getter = "GetVegetationBackViewDep",
+		name = "TransmissionViewDependency",
+		getter = "GetTransmissionViewDependency",
+	},
+	{
+		type = "float",
+		name = "TransmissionBlocking",
+		getter = "GetTransmissionBlocking",
 	},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "texture", name = "MetallicTexture", getter = "GetMetallicTexture"},
 	{type = "texture", name = "RoughnessTexture", getter = "GetRoughnessTexture"},
+	{type = "texture", name = "OpacityTexture", getter = "GetOpacityTexture"},
 }
 local PROBE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},

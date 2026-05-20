@@ -412,6 +412,25 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 		created[#created + 1] = {path = config.path, srgb = config.srgb}
 		return {
 			config = config,
+			Shade = function() end,
+			GetWidth = function()
+				return 4
+			end,
+			GetHeight = function()
+				return 4
+			end,
+			GetMipMapLevels = function()
+				return 1
+			end,
+			GetSamplerConfig = function()
+				return {
+					min_filter = "linear",
+					mag_filter = "linear",
+					mipmap_mode = "linear",
+					wrap_s = "repeat",
+					wrap_t = "repeat",
+				}
+			end,
 			IsReady = function()
 				return true
 			end,
@@ -420,24 +439,31 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	local material = Material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo.mtl", 0)
 	Texture.New = old_texture_new
 	T(material.cry_sub_material_name)["=="]("rock")
-	T(#created)["=="](3)
+	T(#created)["=="](5)
 	T(created[1].path)["=="](mount_root .. "/Game/Objects.pak/objects/demo/albedo.dds")
 	T(created[1].srgb)["=="](true)
 	T(created[2].path)["=="](mount_root .. "/Game/Objects.pak/objects/demo/normal.dds")
 	T(created[2].srgb)["=="](false)
 	T(created[3].path)["=="](mount_root .. "/Game/Textures.pak/textures/demo/spec.dds")
+	T(created[3].srgb)["=="](false)
+	T(created[4].path)["=="](nil)
+	T(created[5].path)["=="](mount_root .. "/Game/Textures.pak/textures/demo/spec.dds")
+	T(created[5].srgb)["=="](false)
 	T(material:GetAlphaTest())["=="](true)
 	T(material:GetAlphaCutoff())["=="](0.5)
 	T(material:GetDoubleSided())["=="](true)
-	T(material:GetVegetation())["=="](true)
+	T(material:GetSubsurface())["=="](true)
+	T(material:GetOpacityTexture() ~= nil)["=="](true)
+	T(material:GetRoughnessTexture() ~= nil)["=="](true)
 	T(material:GetMetallicMultiplier())["=="](0)
-	T(math.abs(material:GetVegetationBackDiffuse().r - 0.2))["<"](0.0001)
-	T(math.abs(material:GetVegetationBackDiffuse().g - 0.4))["<"](0.0001)
-	T(math.abs(material:GetVegetationBackDiffuse().b - 0.6))["<"](0.0001)
-	T(math.abs(material:GetVegetationBackDiffuse().a - 1.5))["<"](0.0001)
-	T(math.abs(material:GetVegetationBackViewDep() - 0.7))["<"](0.0001)
+	T(math.abs(material:GetTransmissionColor().r - 0.2))["<"](0.0001)
+	T(math.abs(material:GetTransmissionColor().g - 0.4))["<"](0.0001)
+	T(math.abs(material:GetTransmissionColor().b - 0.6))["<"](0.0001)
+	T(math.abs(material:GetTransmissionColor().a - 1.5))["<"](0.0001)
+	T(math.abs(material:GetTransmissionViewDependency() - 0.7))["<"](0.0001)
+	T(material:GetTransmissionBlocking())["=="](1)
 	T(material:GetReverseXZNormalMap())["=="](true)
-	T(material:GetInvertRoughnessTexture())["=="](true)
+	T(material:GetInvertRoughnessTexture())["=="](false)
 	vfs.Delete(mount_root .. "/Game/Objects.pak/materials/demo.mtl")
 	vfs.Delete(mount_root .. "/Game/Objects.pak/objects/demo/albedo.dds")
 	vfs.Delete(mount_root .. "/Game/Objects.pak/objects/demo/normal.dds")

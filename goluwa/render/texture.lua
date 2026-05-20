@@ -1334,6 +1334,8 @@ function Texture:Shade(glsl, extra_config)
 
 							layout(binding = 0) uniform sampler2D textures[%d];
 							layout(binding = 1) uniform samplerCube cubemaps[%d];
+							#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+							#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
 
 							layout(location = 0) in vec2 in_uv;
 							layout(location = 1) in vec3 in_dir;
@@ -1466,7 +1468,7 @@ function Texture:Shade(glsl, extra_config)
 
 		if fragment_push_constants then
 			local fragment_data = fragment_push_constants.get_data and
-				fragment_push_constants:get_data(i, self) or
+				fragment_push_constants.get_data(i, self, pipeline) or
 				fragment_push_constants.data
 
 			if fragment_data then
