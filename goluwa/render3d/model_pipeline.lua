@@ -170,6 +170,30 @@ function model_pipeline.BuildTransformBlockWriter(get_projection_view_world_matr
 	end
 end
 
+function model_pipeline.GetInstancedTransformBlock(get_projection_view_matrix)
+	return {
+		{"projection_view", "mat4"},
+	}
+end
+
+function model_pipeline.BuildInstancedTransformBlockWriter(get_projection_view_matrix)
+	get_projection_view_matrix = get_projection_view_matrix or render3d.GetProjectionViewMatrix
+	return function(self, block)
+		get_projection_view_matrix():CopyToFloatPointer(block.projection_view)
+		return block
+	end
+end
+
+function model_pipeline.GetInstanceAttributes()
+	return {
+		{"instance_world", "mat4"},
+	}
+end
+
+local function get_instance_world_expr()
+	return "mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
+end
+
 local function build_vertex_shader(options)
 	local lines = {
 		model_pipeline.BuildVertexAnimationGlsl("vertex_animation"),
@@ -214,6 +238,66 @@ local function build_vertex_shader(options)
 	return table.concat(lines, "\n")
 end
 
+local function build_instanced_vertex_shader(options)
+	local world_expr = get_instance_world_expr()
+	local lines = {
+		"void main() {",
+		"\tmat4 instance_world = " .. world_expr .. ";",
+		"\tvec3 local_position = in_position;",
+		"\tvec3 world_position = (instance_world * vec4(local_position, 1.0)).xyz;",
+		"\tmat3 world_matrix3 = mat3(instance_world);",
+		"\tmat3 inv_world_matrix3 = inverse(world_matrix3);",
+		"\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);",
+		"\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);",
+		"\tgl_Position = vertex.projection_view * vec4(world_position, 1.0);",
+	}
+
+	if options.position ~= false then
+		lines[#lines + 1] = "\tout_position = world_position;"
+	end
+
+	if options.normal then lines[#lines + 1] = "\tout_normal = world_normal;" end
+
+	if options.tangent then
+		lines[#lines + 1] = "\tout_tangent = vec4(world_tangent, in_tangent.w);"
+	end
+
+	if options.uv then lines[#lines + 1] = "\tout_uv = in_uv;" end
+
+	if options.texture_blend then
+		lines[#lines + 1] = "\tout_texture_blend = in_texture_blend;"
+	end
+
+	if options.vertex_color then
+		lines[#lines + 1] = "\tout_vertex_color = in_vertex_color;"
+	end
+
+	lines[#lines + 1] = "}"
+	return table.concat(lines, "\n")
+end
+
+local function get_vertex_stage_outputs(options)
+	local outputs = {}
+
+	if options.position ~= false then
+		outputs[#outputs + 1] = {"position", "vec3"}
+	end
+
+	if options.normal then outputs[#outputs + 1] = {"normal", "vec3"} end
+
+	if options.tangent then outputs[#outputs + 1] = {"tangent", "vec4"} end
+
+	if options.uv then outputs[#outputs + 1] = {"uv", "vec2"} end
+
+	if options.texture_blend then
+		outputs[#outputs + 1] = {"texture_blend", "float"}
+	end
+
+	if options.vertex_color then outputs[#outputs + 1] = {"vertex_color", "vec4"} end
+
+	return outputs
+end
+
 function model_pipeline.CreateVertexStage(options)
 	options = options or {}
 	local storage_key = options.transform_storage or "push_constants"
@@ -249,6 +333,36 @@ function model_pipeline.CreateVertexStage(options)
 		stage.uniform_buffers = animation_buffers
 	end
 
+	return stage
+end
+
+function model_pipeline.CreateInstancedVertexStage(options)
+	options = options or {}
+	local storage_key = options.transform_storage or "push_constants"
+	local stage = {
+		bindings = {
+			{
+				binding = options.binding_index or 0,
+				input_rate = "vertex",
+				attributes = model_pipeline.GetVertexAttributes(),
+			},
+			{
+				binding = options.instance_binding_index or 1,
+				input_rate = "instance",
+				attributes = model_pipeline.GetInstanceAttributes(),
+			},
+		},
+		[storage_key] = {
+			{
+				name = options.transform_block_name or "vertex",
+				block = model_pipeline.GetInstancedTransformBlock(options.get_projection_view_matrix),
+				write = model_pipeline.BuildInstancedTransformBlockWriter(options.get_projection_view_matrix),
+			},
+		},
+		outputs = get_vertex_stage_outputs(options),
+		shader = build_instanced_vertex_shader(options),
+	}
+	stage.uniform_buffers = nil
 	return stage
 end
 

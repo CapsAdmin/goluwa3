@@ -558,8 +558,10 @@ local function build_base_pass(fragment_shader)
 	return {
 		name = "gbuffer",
 		on_draw = function(self, cmd)
+			render3d.ResetQueuedGBufferInstances()
 			event.Call("PreDraw3D", dt)
 			event.Call("Draw3DGeometry", dt)
+			render3d.FlushQueuedGBufferInstances()
 		end,
 		ColorFormat = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
@@ -615,8 +617,25 @@ local function build_base_pass(fragment_shader)
 	}
 end
 
+local function build_instanced_pass(fragment_shader)
+	local pass = build_base_pass(fragment_shader)
+	pass.name = "gbuffer_instanced"
+	pass.draw_in_prerender = false
+	pass.dont_create_framebuffers = true
+	pass.on_draw = nil
+	pass.vertex = model_pipeline.CreateInstancedVertexStage{
+		normal = true,
+		tangent = true,
+		uv = true,
+		texture_blend = true,
+		vertex_color = true,
+	}
+	return pass
+end
+
 if supports_tessellation() then
 	local fallback = build_base_pass(build_ssdm_fragment_shader())
+	local instanced = build_instanced_pass(build_ssdm_fragment_shader())
 	fallback.vertex = model_pipeline.CreateVertexStage{
 		normal = true,
 		tangent = true,
@@ -688,10 +707,11 @@ if supports_tessellation() then
 			{"vertex_color", "vec4"},
 		},
 	}
-	return {fallback, pass}
+	return {fallback, instanced, pass}
 end
 
 local fallback = build_base_pass(build_ssdm_fragment_shader())
+local instanced = build_instanced_pass(build_ssdm_fragment_shader())
 fallback.vertex = model_pipeline.CreateVertexStage{
 	normal = true,
 	tangent = true,
@@ -699,4 +719,4 @@ fallback.vertex = model_pipeline.CreateVertexStage{
 	texture_blend = true,
 	vertex_color = true,
 }
-return {fallback}
+return {fallback, instanced}

@@ -550,11 +550,21 @@ function Visual:DrawEntriesForPass(ignore_z, upload_constants)
 			local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
 
 			if world_matrix then
-				render3d.SetWorldMatrix(world_matrix)
-				render3d.SetCurrentPolygon3D(entry.polygon3d)
-				render3d.SetMaterial(material)
-				upload_constants()
-				entry.polygon3d:Draw()
+				if
+					not ignore_z and
+					upload_constants == render3d.UploadGBufferConstants and
+					not self.using_conditional_rendering and
+					render3d.QueueGBufferInstance(entry.polygon3d, material, world_matrix, self:GetModelPath())
+				then
+					drew_any = true
+				else
+					render3d.SetWorldMatrix(world_matrix)
+					render3d.SetCurrentPolygon3D(entry.polygon3d)
+					render3d.SetMaterial(material)
+					upload_constants()
+					entry.polygon3d:Draw()
+				end
+
 				drew_any = true
 			end
 		end
