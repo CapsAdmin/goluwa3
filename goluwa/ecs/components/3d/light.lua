@@ -81,6 +81,7 @@ function Light:RenderShadows()
 	if not self:GetCastShadows() then return end
 
 	self:UpdateShadowMap()
+	event.Call("PrimeAllShadowMaterials", self.ShadowMap)
 
 	for cascade_idx = 1, self.ShadowMap:GetCascadeCount() do
 		local shadow_cmd = self.ShadowMap:Begin(cascade_idx)

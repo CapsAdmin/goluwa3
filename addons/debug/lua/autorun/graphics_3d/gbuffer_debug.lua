@@ -16,6 +16,11 @@ local fullscreen_views = {
 	{name = "vertex_normal", normal_debug_view = "vertex_normal"},
 	{name = "tangent", normal_debug_view = "tangent"},
 	{name = "bitangent", normal_debug_view = "bitangent"},
+	{name = "vertex_color", normal_debug_view = "vertex_color"},
+	{name = "vertex_color_r", normal_debug_view = "vertex_color_r"},
+	{name = "vertex_color_g", normal_debug_view = "vertex_color_g"},
+	{name = "vertex_color_b", normal_debug_view = "vertex_color_b"},
+	{name = "vertex_color_a", normal_debug_view = "vertex_color_a"},
 }
 
 local function format_view_name(name)
@@ -28,6 +33,16 @@ local function format_view_name(name)
 	if name == "tangent" then return "Tangent" end
 
 	if name == "bitangent" then return "Bitangent" end
+
+	if name == "vertex_color" then return "Vertex Color RGB" end
+
+	if name == "vertex_color_r" then return "Vertex Color R" end
+
+	if name == "vertex_color_g" then return "Vertex Color G" end
+
+	if name == "vertex_color_b" then return "Vertex Color B" end
+
+	if name == "vertex_color_a" then return "Vertex Color A" end
 
 	if name == "emissive" then return "Emissive / Transmission Color" end
 

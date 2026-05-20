@@ -3,12 +3,15 @@ local render = import("goluwa/render/render.lua")
 local render3d = nil
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
+local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local system = import("goluwa/system.lua")
 local prototype = import("goluwa/prototype.lua")
+local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local ShadowMap = prototype.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
@@ -61,6 +64,8 @@ function ShadowMap.New(config)
 	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
 	self.cascade_splits = {} -- Will store the split distances
 	self.cascade = {} -- Per-cascade data
+	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl())
+
 	-- Initialize cascades
 	for i = 1, self.cascade_count do
 		self.cascade[i] = {
@@ -122,6 +127,7 @@ function ShadowMap.New(config)
 					layout(location = 2) in vec2 in_uv;
 					layout(location = 3) in vec4 in_tangent;
 					layout(location = 4) in float in_texture_blend;
+					layout(location = 5) in vec4 in_vertex_color;
 
 					layout(push_constant, scalar) uniform Constants {
 						mat4 light_space_matrix;
@@ -129,19 +135,27 @@ function ShadowMap.New(config)
 						int flags;
 						float color_multiplier_a;
 						float alpha_cutoff;
-				} pc;
+					} pc;
 
-				layout(location = 0) out vec2 out_uv;
+				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
 
-				void main() {
-					gl_Position = pc.light_space_matrix * vec4(in_position, 1.0);
-					out_uv = in_uv;
+					layout(location = 0) out vec2 out_uv;
+
+				]] .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation") .. [[
+
+					void main() {
+						vec3 world_pos = in_position;
+						vec3 world_normal = normalize(in_normal);
+						vec3 world_tangent = normalize(in_tangent.xyz);
+						world_pos += get_vertex_animation_offset(world_pos, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);
+						gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
+						out_uv = in_uv;
 					}
 				]],
 				bindings = {
 					{
 						binding = 0,
-						stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1), -- Match render3d vertex format (pos, normal, uv, tangent, blend)
+						stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1 + 4), -- Match render3d vertex format (pos, normal, uv, tangent, blend, color)
 						input_rate = "vertex",
 					},
 				},
@@ -175,6 +189,19 @@ function ShadowMap.New(config)
 						location = 4,
 						format = "r32_sfloat",
 						offset = ffi.sizeof("float") * 12,
+					},
+					{
+						binding = 0,
+						location = 5,
+						format = "r32g32b32a32_sfloat",
+						offset = ffi.sizeof("float") * 13,
+					},
+				},
+				descriptor_sets = {
+					{
+						type = "uniform_buffer_dynamic",
+						binding_index = 1,
+						args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
 					},
 				},
 				push_constants = {
@@ -358,8 +385,6 @@ function ShadowMap:Begin(cascade_index)
 		h = h,
 		clear_depth = 1.0,
 	}
-	-- Bind shadow pipeline
-	self.pipeline:Bind(self.cmd)
 	-- Set viewport and scissor (dynamic states)
 	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
 	self.cmd:SetScissor(0, 0, w, h)
@@ -401,7 +426,17 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 		constants.alpha_cutoff = 0.5
 	end
 
+	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), material or render3d.GetDefaultMaterial())
+	local frame_index = render.GetCurrentFrame()
+	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
+	self.pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset})
 	self.pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, constants)
+end
+
+function ShadowMap:PrimeMaterial(material)
+	if not material then return end
+
+	self.pipeline:GetTextureIndex(material:GetAlbedoTexture())
 end
 
 -- End shadow pass for current cascade

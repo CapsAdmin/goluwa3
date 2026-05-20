@@ -20,6 +20,7 @@ function Polygon3D:__tostring2()
 end
 
 Polygon3D:GetSet("Vertices")
+Polygon3D:GetSet("BranchHelperPivots", {})
 Polygon3D:GetSet(
 	"AABB",
 	AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
@@ -76,7 +77,7 @@ function Polygon3D:Upload(indices)
 
 	if not self.Vertices[1].tangent then self:BuildTangents() end
 
-	-- Define vertex structure matching render3d pipeline: position (vec3), normal (vec3), uv (vec2), tangent (vec4), texture_blend (float)
+	-- Define vertex structure matching render3d pipeline: position, normal, uv, tangent, texture_blend, vertex_color
 	local VertexType = ffi.typeof([[
 		struct {
 			float position[3];
@@ -84,6 +85,7 @@ function Polygon3D:Upload(indices)
 			float uv[2];
 			float tangent[4];
 			float texture_blend;
+			float vertex_color[4];
 		}[?]
 	]])
 	local vertices = VertexType(vertex_count)
@@ -132,6 +134,20 @@ function Polygon3D:Upload(indices)
 
 		-- Texture Blend
 		vertices[idx].texture_blend = v.texture_blend or 0
+		-- Vertex Color
+		local vertex_color = v.vertex_color or v.color
+
+		if vertex_color then
+			vertices[idx].vertex_color[0] = vertex_color.r or vertex_color[1] or 0
+			vertices[idx].vertex_color[1] = vertex_color.g or vertex_color[2] or 0
+			vertices[idx].vertex_color[2] = vertex_color.b or vertex_color[3] or 0
+			vertices[idx].vertex_color[3] = vertex_color.a or vertex_color[4] or 0
+		else
+			vertices[idx].vertex_color[0] = 0
+			vertices[idx].vertex_color[1] = 0
+			vertices[idx].vertex_color[2] = 0
+			vertices[idx].vertex_color[3] = 0
+		end
 	end
 
 	-- Define vertex attributes matching the render3d pipeline
@@ -165,6 +181,12 @@ function Polygon3D:Upload(indices)
 			location = 4,
 			format = "r32_sfloat",
 			offset = ffi.sizeof("float") * 12,
+		},
+		{
+			binding = 0,
+			location = 5,
+			format = "r32g32b32a32_sfloat",
+			offset = ffi.sizeof("float") * 13,
 		},
 	}
 	local index_type = "uint16_t"
@@ -341,17 +363,17 @@ do -- helpers
 			local t = tan1[i]
 
 			if tan1[i] and tan2[i] and not self.Vertices[i].tangent then
-					local tangent = (t - n * n:GetDot(t)):Normalize()
-					local handedness = 1
+				local tangent = (t - n * n:GetDot(t)):Normalize()
+				local handedness = 1
 
-					if n:Cross(tangent):GetDot(tan2[i]) < 0 then handedness = -1 end
+				if n:Cross(tangent):GetDot(tan2[i]) < 0 then handedness = -1 end
 
-					self.Vertices[i].tangent = {
-						x = tangent.x,
-						y = tangent.y,
-						z = tangent.z,
-						w = handedness,
-					}
+				self.Vertices[i].tangent = {
+					x = tangent.x,
+					y = tangent.y,
+					z = tangent.z,
+					w = handedness,
+				}
 			end
 		end
 	end

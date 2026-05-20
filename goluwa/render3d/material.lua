@@ -46,6 +46,13 @@ Material:GetSet("TessellationFactor", 1.0)
 Material:GetSet("TransmissionColor", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TransmissionViewDependency", 0.5)
 Material:GetSet("TransmissionBlocking", 1.0)
+Material:GetSet("WindAmplitude", 0.0)
+Material:GetSet("WindFrequency", 1.0)
+Material:GetSet("WindDetailAmplitude", 0.0)
+Material:GetSet("WindDetailFrequency", 3.0)
+Material:GetSet("WindPhaseScale", 0.15)
+Material:GetSet("WindNormalInfluence", 0.35)
+Material:GetSet("WindDirection", Vec3(1.0, 0.0, 0.35))
 -- other
 Material:GetSet("AlphaCutoff", 0.5)
 Material:GetSet("IgnoreZ", false)
@@ -391,6 +398,13 @@ do
 
 		if is_vegetation then
 			local public_params = find_child_by_tag(material_node, "PublicParams")
+			self:SetWindAmplitude(0.08)
+			self:SetWindFrequency(0.9)
+			self:SetWindDetailAmplitude(0.03)
+			self:SetWindDetailFrequency(3.5)
+			self:SetWindPhaseScale(0.12)
+			self:SetWindNormalInfluence(0.35)
+			self:SetWindDirection(Vec3(1.0, 0.0, 0.35))
 
 			if public_params and public_params.attrs then
 				local r, g, b = unpack_csv_numbers(public_params.attrs.BackDiffuse)

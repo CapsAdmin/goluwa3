@@ -189,6 +189,20 @@ local function build_static_mesh_fixture_744(options)
 		id = 17,
 		body = table.concat(uv_body),
 	}
+	local color_body = {}
+	write_i32(color_body, 0)
+	write_i32(color_body, 3)
+	write_i32(color_body, 3)
+	write_i32(color_body, 4)
+	write_i32(color_body, 0)
+	write_i32(color_body, 0)
+	color_body[#color_body + 1] = string.char(255, 255, 255, 0, 255, 255, 255, 128, 255, 255, 255, 255)
+	chunks[#chunks + 1] = {
+		type = cgf.CHUNK_DATA_STREAM,
+		version = 0x800,
+		id = 18,
+		body = table.concat(color_body),
+	}
 	local index_body = {}
 	write_i32(index_body, 0)
 	write_i32(index_body, 5)
@@ -218,7 +232,7 @@ local function build_static_mesh_fixture_744(options)
 	write_i32(mesh_body, 14)
 	write_i32(mesh_body, 0)
 
-	for _, stream_id in ipairs{15, 16, 17, 0, 0, 19} do
+	for _, stream_id in ipairs{15, 16, 17, 18, 0, 19} do
 		write_i32(mesh_body, stream_id)
 	end
 
@@ -339,6 +353,9 @@ T.Test("CGF parser extracts a static triangle mesh from chunked streams", functi
 	T(entries[1].vertices[3].pos.z)["~"](-1)
 	T(entries[1].vertices[1].normal.y)["~"](1)
 	T(entries[1].vertices[2].uv.x)["~"](1)
+	T(entries[1].vertices[1].texture_blend)["~"](0)
+	T(entries[1].vertices[2].texture_blend)["~"](128 / 255)
+	T(entries[1].vertices[3].texture_blend)["~"](1)
 	parsed.file:Close()
 	vfs.Delete(path)
 end)

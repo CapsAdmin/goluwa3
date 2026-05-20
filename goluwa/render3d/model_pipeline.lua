@@ -1,6 +1,8 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local Material = import("goluwa/render3d/material.lua")
+local system = import("goluwa/system.lua")
 local model_pipeline = library()
+local MAX_BRANCH_HELPERS = 16
 local SURFACE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
@@ -142,6 +144,7 @@ function model_pipeline.GetVertexAttributes()
 		{"uv", "vec2", "r32g32_sfloat"},
 		{"tangent", "vec4", "r32g32b32a32_sfloat"},
 		{"texture_blend", "float", "r32_sfloat"},
+		{"vertex_color", "vec4", "r32g32b32a32_sfloat"},
 	}
 end
 
@@ -167,26 +170,42 @@ end
 
 local function build_vertex_shader(options)
 	local lines = {
+		model_pipeline.BuildVertexAnimationGlsl("vertex_animation"),
 		"void main() {",
-		"\tgl_Position = vertex.projection_view_world * vec4(in_position, 1.0);",
+		"\tvec3 local_position = in_position;",
+		"\tvec3 world_position = (vertex.world * vec4(local_position, 1.0)).xyz;",
+		"\tmat3 world_matrix3 = mat3(vertex.world);",
+		"\tmat3 inv_world_matrix3 = inverse(world_matrix3);",
+		"\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);",
+		"\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);",
+		"\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);",
+		"\tif (dot(world_offset, world_offset) > 0.0) {",
+		"\t\tlocal_position += inv_world_matrix3 * world_offset;",
+		"\t\tworld_position += world_offset;",
+		"\t\tworld_normal = bend_vertex_animation_direction(world_normal, world_offset);",
+		"\t\tworld_tangent = bend_vertex_animation_direction(world_tangent, world_offset);",
+		"\t}",
+		"\tgl_Position = vertex.projection_view_world * vec4(local_position, 1.0);",
 	}
 
 	if options.position ~= false then
-		lines[#lines + 1] = "\tout_position = (vertex.world * vec4(in_position, 1.0)).xyz;"
+		lines[#lines + 1] = "\tout_position = world_position;"
 	end
 
-	if options.normal then
-		lines[#lines + 1] = "\tout_normal = normalize(transpose(inverse(mat3(vertex.world))) * in_normal);"
-	end
+	if options.normal then lines[#lines + 1] = "\tout_normal = world_normal;" end
 
 	if options.tangent then
-		lines[#lines + 1] = "\tout_tangent = vec4(normalize(mat3(vertex.world) * in_tangent.xyz), in_tangent.w);"
+		lines[#lines + 1] = "\tout_tangent = vec4(world_tangent, in_tangent.w);"
 	end
 
 	if options.uv then lines[#lines + 1] = "\tout_uv = in_uv;" end
 
 	if options.texture_blend then
 		lines[#lines + 1] = "\tout_texture_blend = in_texture_blend;"
+	end
+
+	if options.vertex_color then
+		lines[#lines + 1] = "\tout_vertex_color = in_vertex_color;"
 	end
 
 	lines[#lines + 1] = "}"
@@ -196,17 +215,37 @@ end
 function model_pipeline.CreateVertexStage(options)
 	options = options or {}
 	local storage_key = options.transform_storage or "push_constants"
-	return {
+	local transform_buffers = {
+		{
+			name = options.transform_block_name or "vertex",
+			block = model_pipeline.GetTransformBlock(options.get_projection_view_world_matrix),
+		},
+	}
+	local animation_buffers = options.vertex_uniform_buffers or
+		{
+			{
+				name = "vertex_animation",
+				block = model_pipeline.GetVertexAnimationBlock(),
+			},
+		}
+	local stage = {
 		binding_index = options.binding_index or 0,
 		attributes = model_pipeline.GetVertexAttributes(),
-		[storage_key] = {
-			{
-				name = options.transform_block_name or "vertex",
-				block = model_pipeline.GetTransformBlock(options.get_projection_view_world_matrix),
-			},
-		},
+		[storage_key] = transform_buffers,
 		shader = build_vertex_shader(options),
 	}
+
+	if storage_key == "uniform_buffers" then
+		for _, buffer in ipairs(animation_buffers) do
+			table.insert(transform_buffers, buffer)
+		end
+
+		stage.uniform_buffers = transform_buffers
+	else
+		stage.uniform_buffers = animation_buffers
+	end
+
+	return stage
 end
 
 local function build_texture_field(field_name, getter_name)
@@ -242,12 +281,25 @@ local function build_vec4_field(field_name, getter_name)
 	}
 end
 
+local function build_vec3_field(field_name, getter_name)
+	return {
+		field_name,
+		"vec3",
+		function(self, block, key)
+			local material = get_material()
+			material[getter_name](material):CopyToFloatPointer(block[key])
+		end,
+	}
+end
+
 local function build_material_block(field_defs)
 	local block = {}
 
 	for i, def in ipairs(field_defs) do
 		if def.type == "texture" then
 			block[i] = build_texture_field(def.name, def.getter)
+		elseif def.type == "vec3" then
+			block[i] = build_vec3_field(def.name, def.getter)
 		elseif def.type == "vec4" then
 			block[i] = build_vec4_field(def.name, def.getter)
 		else
@@ -268,6 +320,332 @@ end
 
 function model_pipeline.GetProbeMaterialBlock()
 	return build_material_block(PROBE_MATERIAL_FIELDS)
+end
+
+function model_pipeline.GetVertexAnimationUniformBufferDecl()
+	local fields = {
+		"float Time;",
+		"float WindAmplitude;",
+		"float WindFrequency;",
+		"float WindDetailAmplitude;",
+		"float WindDetailFrequency;",
+		"float WindPhaseScale;",
+		"float WindNormalInfluence;",
+		"float WindDirection[3];",
+		"int BranchHelperCount;",
+	}
+
+	for i = 0, MAX_BRANCH_HELPERS - 1 do
+		fields[#fields + 1] = string.format("float BranchHelper%d[4];", i)
+	end
+
+	return ([[
+		struct {
+			%s
+		}
+	]]):format(table.concat(fields, "\n\t\t\t"))
+end
+
+function model_pipeline.BuildVertexAnimationUniformDeclaration(block_name, binding_index)
+	block_name = block_name or "vertex_animation"
+	binding_index = binding_index or 0
+	local fields = {
+		"\t\t\t\tfloat Time;",
+		"\t\t\t\tfloat WindAmplitude;",
+		"\t\t\t\tfloat WindFrequency;",
+		"\t\t\t\tfloat WindDetailAmplitude;",
+		"\t\t\t\tfloat WindDetailFrequency;",
+		"\t\t\t\tfloat WindPhaseScale;",
+		"\t\t\t\tfloat WindNormalInfluence;",
+		"\t\t\t\tvec3 WindDirection;",
+		"\t\t\t\tint BranchHelperCount;",
+	}
+
+	for i = 0, MAX_BRANCH_HELPERS - 1 do
+		fields[#fields + 1] = string.format("\t\t\t\tvec4 BranchHelper%d;", i)
+	end
+
+	return (
+		[[
+			layout(scalar, binding = %d) uniform VertexAnimation_t {
+		%s
+			} %s;
+	]]
+	):format(binding_index, table.concat(fields, "\n"), block_name)
+end
+
+function model_pipeline.FillVertexAnimationData(block, material)
+	material = material or get_material()
+	block.Time = system.GetElapsedTime()
+	block.WindAmplitude = material:GetWindAmplitude()
+	block.WindFrequency = material:GetWindFrequency()
+	block.WindDetailAmplitude = material:GetWindDetailAmplitude()
+	block.WindDetailFrequency = material:GetWindDetailFrequency()
+	block.WindPhaseScale = material:GetWindPhaseScale()
+	block.WindNormalInfluence = material:GetWindNormalInfluence()
+	local wind_direction = material:GetWindDirection()
+	block.WindDirection[0] = wind_direction.x
+	block.WindDirection[1] = wind_direction.y
+	block.WindDirection[2] = wind_direction.z
+	local polygon = render3d.GetCurrentPolygon3D()
+	local pivots = polygon and
+		polygon.GetBranchHelperPivots and
+		polygon:GetBranchHelperPivots() or
+		nil
+	local helper_count = math.min(pivots and #pivots or 0, MAX_BRANCH_HELPERS)
+	block.BranchHelperCount = helper_count
+
+	for i = 0, MAX_BRANCH_HELPERS - 1 do
+		local field = block["BranchHelper" .. tostring(i)]
+		local pivot = pivots and pivots[i + 1] or nil
+
+		if i < helper_count and pivot then
+			local world_matrix = render3d.GetWorldMatrix()
+			local world_pivot = world_matrix and world_matrix:TransformVector(pivot) or pivot
+			field[0] = world_pivot.x
+			field[1] = world_pivot.y
+			field[2] = world_pivot.z
+			field[3] = 1
+		else
+			field[0] = 0
+			field[1] = 0
+			field[2] = 0
+			field[3] = 0
+		end
+	end
+end
+
+function model_pipeline.GetVertexAnimationBlock()
+	local block = {
+		{
+			"Time",
+			"float",
+			function(self, block, key)
+				block[key] = system.GetElapsedTime()
+			end,
+		},
+		{
+			"WindAmplitude",
+			"float",
+			function(self, block, key)
+				block[key] = get_material():GetWindAmplitude()
+			end,
+		},
+		{
+			"WindFrequency",
+			"float",
+			function(self, block, key)
+				block[key] = get_material():GetWindFrequency()
+			end,
+		},
+		{
+			"WindDetailAmplitude",
+			"float",
+			function(self, block, key)
+				block[key] = get_material():GetWindDetailAmplitude()
+			end,
+		},
+		{
+			"WindDetailFrequency",
+			"float",
+			function(self, block, key)
+				block[key] = get_material():GetWindDetailFrequency()
+			end,
+		},
+		{
+			"WindPhaseScale",
+			"float",
+			function(self, block, key)
+				block[key] = get_material():GetWindPhaseScale()
+			end,
+		},
+		{
+			"WindNormalInfluence",
+			"float",
+			function(self, block, key)
+				block[key] = get_material():GetWindNormalInfluence()
+			end,
+		},
+		{
+			"WindDirection",
+			"vec3",
+			function(self, block, key)
+				get_material():GetWindDirection():CopyToFloatPointer(block[key])
+			end,
+		},
+		{
+			"BranchHelperCount",
+			"int",
+			function(self, block, key)
+				local polygon = render3d.GetCurrentPolygon3D()
+				local pivots = polygon and
+					polygon.GetBranchHelperPivots and
+					polygon:GetBranchHelperPivots() or
+					nil
+				block[key] = math.min(pivots and #pivots or 0, MAX_BRANCH_HELPERS)
+			end,
+		},
+	}
+
+	for i = 1, MAX_BRANCH_HELPERS do
+		local field_name = "BranchHelper" .. tostring(i - 1)
+		block[#block + 1] = {
+			field_name,
+			"vec4",
+			function(self, block, key)
+				local polygon = render3d.GetCurrentPolygon3D()
+				local pivots = polygon and
+					polygon.GetBranchHelperPivots and
+					polygon:GetBranchHelperPivots() or
+					nil
+				local pivot = pivots and pivots[i] or nil
+
+				if pivot then
+					local world_matrix = render3d.GetWorldMatrix()
+					local world_pivot = world_matrix and world_matrix:TransformVector(pivot) or pivot
+					block[key][0] = world_pivot.x
+					block[key][1] = world_pivot.y
+					block[key][2] = world_pivot.z
+					block[key][3] = 1
+				else
+					block[key][0] = 0
+					block[key][1] = 0
+					block[key][2] = 0
+					block[key][3] = 0
+				end
+			end,
+		}
+	end
+
+	return block
+end
+
+function model_pipeline.BuildVertexAnimationGlsl(block_name)
+	block_name = block_name or "vertex_animation"
+	local helper_cases = {}
+
+	for i = 0, MAX_BRANCH_HELPERS - 1 do
+		helper_cases[#helper_cases + 1] = string.format("\t\t\t\tif (index == %d) return %s.BranchHelper%d.xyz;", i, block_name, i)
+	end
+
+	return [[
+			bool has_authored_vertex_animation(vec4 vertex_color) {
+				return dot(vertex_color, vec4(1.0)) > 0.0001;
+			}
+
+			float get_vertex_animation_weight(vec2 uv, float texture_blend, vec4 vertex_color) {
+				if (has_authored_vertex_animation(vertex_color)) {
+					float leaf_mask = clamp(vertex_color.r, 0.0, 1.0);
+					float broad_bend = clamp(vertex_color.a, 0.0, 1.0);
+					return leaf_mask * broad_bend;
+				}
+
+				return clamp(max(texture_blend, uv.y), 0.0, 1.0);
+			}
+
+			bool has_vertex_animation() {
+				return ]] .. block_name .. [[.WindAmplitude > 0.0 || ]] .. block_name .. [[.WindDetailAmplitude > 0.0;
+			}
+
+			vec3 get_branch_helper_pivot(int index) {
+]] .. table.concat(helper_cases, "\n") .. [[
+				return vec3(0.0);
+			}
+
+			int get_nearest_branch_helper_index(vec3 world_pos) {
+				int helper_count = ]] .. block_name .. [[.BranchHelperCount;
+				if (helper_count <= 0) return -1;
+
+				int nearest_helper = 0;
+				float nearest_dist_sq = 1e30;
+
+				for (int i = 0; i < helper_count; i++) {
+					vec3 helper_pivot = get_branch_helper_pivot(i);
+					vec2 to_helper = world_pos.xz - helper_pivot.xz;
+					float dist_sq = dot(to_helper, to_helper);
+
+					if (dist_sq < nearest_dist_sq) {
+						nearest_dist_sq = dist_sq;
+						nearest_helper = i;
+					}
+				}
+
+				return nearest_helper;
+			}
+
+			float get_branch_helper_height(vec3 world_pos) {
+				int nearest_helper = get_nearest_branch_helper_index(world_pos);
+				if (nearest_helper < 0) return 0.0;
+				vec3 pivot = get_branch_helper_pivot(nearest_helper);
+				return max(world_pos.y - pivot.y, 0.0);
+			}
+
+			vec3 get_branch_helper_offset(vec3 world_pos, vec3 wind_dir, float carrier_bend) {
+				if (abs(carrier_bend) <= 0.00001) return wind_dir * carrier_bend;
+				int nearest_helper = get_nearest_branch_helper_index(world_pos);
+				if (nearest_helper < 0) return wind_dir * carrier_bend;
+				vec3 pivot = get_branch_helper_pivot(nearest_helper);
+				float rel_height = max(world_pos.y - pivot.y, 0.0);
+				return wind_dir * (rel_height * carrier_bend);
+			}
+
+			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec3 world_tangent, vec2 uv, float texture_blend, vec4 vertex_color) {
+				if (!has_vertex_animation()) return vec3(0.0);
+
+				vec3 wind_dir = ]] .. block_name .. [[.WindDirection;
+				float wind_len = length(wind_dir.xz);
+				if (wind_len <= 0.0001) wind_dir = vec3(1.0, 0.0, 0.0);
+				else wind_dir = normalize(vec3(wind_dir.x, 0.0, wind_dir.z));
+
+				vec4 authored = clamp(vertex_color, 0.0, 1.0);
+				bool use_authored = has_authored_vertex_animation(authored);
+				float weight = get_vertex_animation_weight(uv, texture_blend, authored);
+				float leaf_mask = use_authored ? authored.r : weight;
+				float carrier_weight = use_authored ? authored.g : weight;
+				float edge_weight = use_authored ? clamp(1.0 - authored.b, 0.0, 1.0) : clamp(1.0 - abs(uv.x * 2.0 - 1.0), 0.0, 1.0);
+				float broad_bend = use_authored ? authored.a : weight;
+				float helper_height = get_branch_helper_height(world_pos);
+				float white_rgb = use_authored ? smoothstep(0.95, 0.999, min(authored.r, min(authored.g, authored.b))) : 0.0;
+				float root_release = smoothstep(0.35, 1.5, helper_height);
+				float white_anchor = mix(0.05, 1.0, root_release);
+				float stiffness = use_authored ? clamp((1.0 - authored.r) * authored.b, 0.0, 1.0) : clamp(1.0 - weight, 0.0, 1.0);
+				stiffness = max(stiffness, white_rgb * (1.0 - root_release) * 0.95);
+				float flexibility = (1.0 - stiffness) * mix(1.0, white_anchor, white_rgb);
+				float carrier_flexibility = flexibility * flexibility;
+				broad_bend *= mix(1.0, white_anchor, white_rgb);
+				float phase_offset = uv.x * 6.2831853;
+				float carrier_phase = ]] .. block_name .. [[.Time * (]] .. block_name .. [[.WindFrequency * 0.65);
+				float carrier_wave = sin(carrier_phase);
+				float phase = ]] .. block_name .. [[.Time * ]] .. block_name .. [[.WindFrequency;
+				phase += dot(world_pos.xz, wind_dir.xz) * ]] .. block_name .. [[.WindPhaseScale;
+				phase += phase_offset;
+				float main_wave = sin(phase);
+
+				vec2 detail_dir = vec2(-wind_dir.z, wind_dir.x);
+				float detail_phase = ]] .. block_name .. [[.Time * (]] .. block_name .. [[.WindFrequency * ]] .. block_name .. [[.WindDetailFrequency);
+				detail_phase += dot(world_pos.xz, detail_dir) * (]] .. block_name .. [[.WindPhaseScale * 2.7);
+				detail_phase += phase_offset * 1.37;
+				float detail_wave = sin(detail_phase);
+
+				vec3 tangent_dir = normalize(world_tangent - world_normal * dot(world_tangent, world_normal));
+				if (length(tangent_dir) <= 0.0001) tangent_dir = normalize(cross(world_normal, vec3(0.0, 1.0, 0.0)));
+				if (length(tangent_dir) <= 0.0001) tangent_dir = vec3(1.0, 0.0, 0.0);
+
+				float carrier_bend = carrier_wave * ]] .. block_name .. [[.WindAmplitude * carrier_weight * broad_bend * carrier_flexibility * 0.18;
+				float branch_bend = main_wave * ]] .. block_name .. [[.WindAmplitude * broad_bend * leaf_mask * flexibility;
+				float edge_bend = detail_wave * ]] .. block_name .. [[.WindDetailAmplitude * broad_bend * edge_weight * leaf_mask * flexibility;
+				vec3 offset = get_branch_helper_offset(world_pos, wind_dir, carrier_bend);
+				offset += wind_dir * branch_bend;
+				offset += tangent_dir * edge_bend;
+				return offset;
+			}
+
+			vec3 bend_vertex_animation_direction(vec3 direction, vec3 world_offset) {
+				float offset_len = length(world_offset);
+				if (offset_len <= 0.00001 || ]] .. block_name .. [[.WindNormalInfluence <= 0.0) return normalize(direction);
+				return normalize(direction + normalize(world_offset) * (offset_len * ]] .. block_name .. [[.WindNormalInfluence));
+			}
+	]]
 end
 
 function model_pipeline.BuildSurfaceSamplingGlsl(model_var)

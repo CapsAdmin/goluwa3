@@ -36,16 +36,22 @@ local function expand_aabb_with_transformed(source, matrix, target)
 		local x, y, z = matrix:TransformVectorUnpacked(corner[1], corner[2], corner[3])
 
 		if x < target.min_x then target.min_x = x end
+
 		if y < target.min_y then target.min_y = y end
+
 		if z < target.min_z then target.min_z = z end
+
 		if x > target.max_x then target.max_x = x end
+
 		if y > target.max_y then target.max_y = y end
+
 		if z > target.max_z then target.max_z = z end
 	end
 end
 
 local function build_transformed_aabb(source, matrix)
 	if not source then return nil end
+
 	if not matrix then return source end
 
 	local out = create_empty_aabb()
@@ -109,7 +115,6 @@ function Visual:CreatePrimitiveEntity(polygon3d, material, name, local_matrix)
 	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
 	visual_primitive:SetPolygon3D(polygon3d)
 	visual_primitive:SetMaterial(material)
-
 	return primitive_entity, visual_primitive
 end
 
@@ -117,9 +122,7 @@ function Visual:RemovePrimitives()
 	local to_remove = {}
 
 	for _, child in ipairs(self.Owner:GetChildren()) do
-		if is_managed_visual_child(child) then
-			to_remove[#to_remove + 1] = child
-		end
+		if is_managed_visual_child(child) then to_remove[#to_remove + 1] = child end
 	end
 
 	for i = 1, #to_remove do
@@ -148,6 +151,7 @@ function Visual:SetModelPath(path)
 	end
 
 	local primitive_index = 0
+
 	model_loader.LoadModel(
 		path,
 		function()
@@ -241,13 +245,17 @@ function Visual:BuildAABB()
 end
 
 function Visual:GetWorldMatrix()
-	if self.Owner and self.Owner.transform then return self.Owner.transform:GetWorldMatrix() end
+	if self.Owner and self.Owner.transform then
+		return self.Owner.transform:GetWorldMatrix()
+	end
 
 	return nil
 end
 
 function Visual:GetWorldMatrixInverse()
-	if self.Owner and self.Owner.transform then return self.Owner.transform:GetWorldMatrixInverse() end
+	if self.Owner and self.Owner.transform then
+		return self.Owner.transform:GetWorldMatrixInverse()
+	end
 
 	return nil
 end
@@ -286,10 +294,15 @@ function Visual:GetWorldAABB()
 		local wx, wy, wz = world_matrix:TransformVectorUnpacked(corner[1], corner[2], corner[3])
 
 		if wx < world_aabb.min_x then world_aabb.min_x = wx end
+
 		if wy < world_aabb.min_y then world_aabb.min_y = wy end
+
 		if wz < world_aabb.min_z then world_aabb.min_z = wz end
+
 		if wx > world_aabb.max_x then world_aabb.max_x = wx end
+
 		if wy > world_aabb.max_y then world_aabb.max_y = wy end
+
 		if wz > world_aabb.max_z then world_aabb.max_z = wz end
 	end
 
@@ -430,6 +443,7 @@ do
 
 	local function is_aabb_visible_local(local_aabb, world_matrix)
 		if visual.noculling then return true end
+
 		if not local_aabb then return true end
 
 		local world_frustum = get_frustum_planes()
@@ -511,12 +525,15 @@ do
 
 		return is_aabb_visible_local(local_aabb, world_matrix)
 	end
+
 	Visual.Library = visual
 end
 
 function Visual:HasRenderEntriesForPass(ignore_z)
 	for _, entry in ipairs(self:GetRenderEntries()) do
-		if material_ignores_z(self:GetResolvedMaterial(entry)) == ignore_z then return true end
+		if material_ignores_z(self:GetResolvedMaterial(entry)) == ignore_z then
+			return true
+		end
 	end
 
 	return false
@@ -534,6 +551,7 @@ function Visual:DrawEntriesForPass(ignore_z, upload_constants)
 
 			if world_matrix then
 				render3d.SetWorldMatrix(world_matrix)
+				render3d.SetCurrentPolygon3D(entry.polygon3d)
 				render3d.SetMaterial(material)
 				upload_constants()
 				entry.polygon3d:Draw()
@@ -547,7 +565,9 @@ end
 
 function Visual:OnDraw3DGeometry()
 	if not self.Visible then return end
+
 	if not self:GetRenderEntries()[1] then return end
+
 	if not self:HasRenderEntriesForPass(false) then return end
 
 	local cmd = render.GetCommandBuffer()
@@ -560,7 +580,11 @@ function Visual:OnDraw3DGeometry()
 	self.frustum_culled = false
 	local using_occlusion = false
 
-	if self.UseOcclusionCulling and self.occlusion_query and visual.IsOcclusionCullingEnabled() then
+	if
+		self.UseOcclusionCulling and
+		self.occlusion_query and
+		visual.IsOcclusionCullingEnabled()
+	then
 		using_occlusion = self.occlusion_query:BeginConditional(cmd)
 		self.using_conditional_rendering = true
 	else
@@ -574,9 +598,13 @@ end
 
 function Visual:OnDraw3DForwardOverlay()
 	if not self.Visible then return end
+
 	if not self:GetRenderEntries()[1] then return end
+
 	if not self:HasRenderEntriesForPass(true) then return end
+
 	if not self:IsAABBVisibleLocal() then return end
+
 	self:DrawEntriesForPass(true, render3d.UploadForwardOverlayConstants)
 end
 
@@ -586,11 +614,13 @@ function Visual:DrawOcclusionQuery()
 	local cmd = render.GetCommandBuffer()
 
 	if visual.freeze_culling then return end
+
 	if not self:IsAABBVisibleLocal() then return end
 
 	local query = self.UseOcclusionCulling and self.occlusion_query
 
 	if query and query.needs_reset then query = nil end
+
 	if query then query:BeginQuery(cmd) end
 
 	for _, entry in ipairs(self:GetRenderEntries()) do
@@ -599,6 +629,7 @@ function Visual:DrawOcclusionQuery()
 
 		if world_matrix then
 			render3d.SetWorldMatrix(world_matrix)
+			render3d.SetCurrentPolygon3D(entry.polygon3d)
 			render3d.SetMaterial(self:GetResolvedMaterial(entry))
 			render3d.UploadGBufferConstants()
 			entry.polygon3d:Draw()
@@ -616,6 +647,7 @@ function Visual:DrawShadow(shadow_map, cascade_idx)
 		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
 
 		if world_matrix then
+			render3d.SetCurrentPolygon3D(entry.polygon3d)
 			shadow_map:UploadConstants(world_matrix, self:GetResolvedMaterial(entry), cascade_idx)
 			entry.polygon3d:Draw()
 		end
@@ -631,6 +663,7 @@ function Visual:DrawProbeGeometry(lightprobes)
 
 		if world_matrix then
 			render3d.SetWorldMatrix(world_matrix)
+			render3d.SetCurrentPolygon3D(entry.polygon3d)
 			render3d.SetMaterial(self:GetResolvedMaterial(entry))
 			lightprobes.UploadConstants()
 			entry.polygon3d:Draw()
@@ -663,6 +696,16 @@ function Visual:OnRemove()
 end
 
 function Visual:OnFirstCreated()
+	event.AddListener("PrimeAllShadowMaterials", "visual_shadow_prime", function(shadow_map)
+		for _, visual in ipairs(Visual.Instances) do
+			if visual.CastShadows then
+				for _, entry in ipairs(visual:GetRenderEntries()) do
+					shadow_map:PrimeMaterial(visual:GetResolvedMaterial(entry))
+				end
+			end
+		end
+	end)
+
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
 		for _, visual in ipairs(Visual.Instances) do
 			visual:DrawShadow(shadow_map, cascade_idx)
@@ -689,13 +732,25 @@ function Visual:OnFirstCreated()
 			if visual.freeze_culling then return end
 
 			for _, component in ipairs(Visual.Instances) do
-				if component.Visible and not (component.UseOcclusionCulling and component.occlusion_query) then
+				if
+					component.Visible and
+					not (
+						component.UseOcclusionCulling and
+						component.occlusion_query
+					)
+				then
 					component:DrawOcclusionQuery()
 				end
 			end
 
 			for _, component in ipairs(Visual.Instances) do
-				if component.Visible and (component.UseOcclusionCulling and component.occlusion_query) then
+				if
+					component.Visible and
+					(
+						component.UseOcclusionCulling and
+						component.occlusion_query
+					)
+				then
 					component:DrawOcclusionQuery()
 				end
 			end
@@ -723,6 +778,7 @@ end
 
 function Visual:OnLastRemoved()
 	event.RemoveListener("DrawAllShadows", "visual_shadow_draw")
+	event.RemoveListener("PrimeAllShadowMaterials", "visual_shadow_prime")
 	event.RemoveListener("PreRenderPass", "visual_occlusion_culling_maintenance")
 	event.RemoveListener("PreDraw3D", "visual_draw_occlusion_queries")
 	event.RemoveListener("PostRenderPass", "visual_copy_occlusion_results")

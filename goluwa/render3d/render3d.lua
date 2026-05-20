@@ -82,6 +82,11 @@ do
 		vertex_normal = 2,
 		tangent = 3,
 		bitangent = 4,
+		vertex_color = 5,
+		vertex_color_r = 6,
+		vertex_color_g = 7,
+		vertex_color_b = 8,
+		vertex_color_a = 9,
 	}
 
 	function render3d.SetDebugMode(mode_name)
@@ -309,6 +314,7 @@ function render3d.ResetState()
 	render3d.prev_view_matrix = Matrix44()
 	render3d.prev_projection_matrix = Matrix44()
 	render3d.current_material = render3d.GetDefaultMaterial()
+	render3d.current_polygon3d = nil
 	render3d.forward_overlay_clip_plane_enabled = false
 	render3d.forward_overlay_clip_plane_origin = Vec3(0, 0, 0)
 	render3d.forward_overlay_clip_plane_normal = Vec3(0, 0, 1)
@@ -478,6 +484,14 @@ end
 
 function render3d.GetMaterial()
 	return render3d.current_material or render3d.GetDefaultMaterial()
+end
+
+function render3d.SetCurrentPolygon3D(poly)
+	render3d.current_polygon3d = poly
+end
+
+function render3d.GetCurrentPolygon3D()
+	return render3d.current_polygon3d
 end
 
 function render3d.SetForwardOverlayClipPlane(origin, normal)

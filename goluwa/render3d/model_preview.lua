@@ -64,6 +64,7 @@ end
 
 local function get_preview_entries(model)
 	if not model then return nil end
+
 	return model:GetRenderEntries()
 end
 
@@ -78,9 +79,7 @@ local function get_previewable_model(target)
 
 	local entries = get_preview_entries(model)
 
-	if not model or not entries or not entries[1] then
-		return nil
-	end
+	if not model or not entries or not entries[1] then return nil end
 
 	return model
 end
@@ -338,8 +337,13 @@ function META:DrawActiveEntity(pipeline)
 
 		if polygon then
 			local final_matrix = world_matrix
-			local material = model.GetResolvedMaterial and model:GetResolvedMaterial(prim) or
-				(model.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
+			local material = model.GetResolvedMaterial and
+				model:GetResolvedMaterial(prim) or
+				(
+					model.MaterialOverride or
+					prim.material or
+					render3d.GetDefaultMaterial()
+				)
 
 			if prim.transform and prim.transform.GetWorldMatrix then
 				final_matrix = prim.transform:GetWorldMatrix()
@@ -348,6 +352,7 @@ function META:DrawActiveEntity(pipeline)
 			end
 
 			render3d.SetWorldMatrix(final_matrix)
+			render3d.SetCurrentPolygon3D(polygon)
 			render3d.SetMaterial(material)
 			upload_preview_constants(pipeline)
 			polygon:Draw()
@@ -383,6 +388,7 @@ function META:RenderTarget(target)
 	if pushed_camera then render3d.PopCamera() end
 
 	render3d.SetWorldMatrix(previous_world)
+	render3d.SetCurrentPolygon3D(nil)
 	render3d.SetMaterial(previous_material)
 	active_preview = nil
 

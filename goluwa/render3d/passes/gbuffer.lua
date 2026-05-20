@@ -61,6 +61,10 @@ local function build_common_fragment_shader()
 				return normalize(tbn[1]);
 			}
 
+			vec4 get_vertex_color() {
+				return clamp(in_vertex_color, 0.0, 1.0);
+			}
+
 			vec3 encode_debug_vector(vec3 v) {
 				return normalize(v) * 0.5 + 0.5;
 			}
@@ -124,6 +128,8 @@ local function build_common_fragment_shader()
 			}
 
 			vec3 get_normal(vec2 uv, mat3 tbn) {
+				vec4 vertex_color = get_vertex_color();
+
 				if (gbuffer_data.gbuffer_normal_debug_view == 1) {
 					return encode_debug_vector(get_normal_map(uv));
 				}
@@ -138,6 +144,26 @@ local function build_common_fragment_shader()
 
 				if (gbuffer_data.gbuffer_normal_debug_view == 4) {
 					return encode_debug_basis(get_vertex_bitangent(tbn));
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 5) {
+					return vertex_color.rgb;
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 6) {
+					return vec3(vertex_color.r);
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 7) {
+					return vec3(vertex_color.g);
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 8) {
+					return vec3(vertex_color.b);
+				}
+
+				if (gbuffer_data.gbuffer_normal_debug_view == 9) {
+					return vec3(vertex_color.a);
 				}
 
 				return get_combined_normal(uv, tbn);
@@ -418,6 +444,7 @@ local function build_tessellation_control_shader()
 				out_tangent[gl_InvocationID] = in_tangent[gl_InvocationID];
 				out_uv[gl_InvocationID] = in_uv[gl_InvocationID];
 				out_texture_blend[gl_InvocationID] = in_texture_blend[gl_InvocationID];
+				out_vertex_color[gl_InvocationID] = in_vertex_color[gl_InvocationID];
 				gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
 
 				if (gl_InvocationID == 0) {
@@ -436,7 +463,7 @@ local function build_tessellation_control_shader()
 end
 
 local function build_tessellation_evaluation_shader()
-	return Material.BuildGlslFlags("model.Flags") .. [[
+	return Material.BuildGlslFlags("model.Flags") .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation") .. [[
 			bool has_heightmap() {
 				return model.HeightTexture != -1 && model.HeightScale > 0.0;
 			}
@@ -467,6 +494,10 @@ local function build_tessellation_evaluation_shader()
 				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
 			}
 
+			vec4 interpolate_vec4(vec4 a, vec4 b, vec4 c) {
+				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+			}
+
 			float interpolate_float(float a, float b, float c) {
 				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
 			}
@@ -479,16 +510,23 @@ local function build_tessellation_evaluation_shader()
 				float tangent_w = interpolate_float(in_tangent[0].w, in_tangent[1].w, in_tangent[2].w);
 				vec2 uv = interpolate_vec2(in_uv[0], in_uv[1], in_uv[2]);
 				float texture_blend = interpolate_float(in_texture_blend[0], in_texture_blend[1], in_texture_blend[2]);
+				vec4 vertex_color = interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2]);
 
 				if (use_tessellated_displacement()) {
 					world_pos += displacement_normal * (get_height_centered_sample(uv) * model.HeightScale);
 				}
+
+				vec3 world_offset = get_vertex_animation_offset(world_pos, normal, tangent_xyz, uv, texture_blend, vertex_color);
+				world_pos += world_offset;
+				normal = bend_vertex_animation_direction(normal, world_offset);
+				tangent_xyz = bend_vertex_animation_direction(tangent_xyz, world_offset);
 
 				out_position = world_pos;
 				out_normal = normal;
 				out_tangent = vec4(tangent_xyz, tangent_w >= 0.0 ? 1.0 : -1.0);
 				out_uv = uv;
 				out_texture_blend = texture_blend;
+				out_vertex_color = vertex_color;
 				gl_Position = gbuffer_data.projection * gbuffer_data.view * vec4(world_pos, 1.0);
 			}
 	]]
@@ -582,6 +620,7 @@ if supports_tessellation() then
 		tangent = true,
 		uv = true,
 		texture_blend = true,
+		vertex_color = true,
 	}
 	local pass = build_base_pass(build_tessellation_fragment_shader())
 	pass.name = "gbuffer_tess"
@@ -594,6 +633,7 @@ if supports_tessellation() then
 		tangent = true,
 		uv = true,
 		texture_blend = true,
+		vertex_color = true,
 	}
 	pass.tessellation_control = {
 		uniform_buffers = {
@@ -626,6 +666,10 @@ if supports_tessellation() then
 				name = "model",
 				block = model_pipeline.GetPBRMaterialBlock(),
 			},
+			{
+				name = "vertex_animation",
+				block = model_pipeline.GetVertexAnimationBlock(),
+			},
 		},
 		shader = build_tessellation_evaluation_shader(),
 		outputs = {
@@ -634,6 +678,7 @@ if supports_tessellation() then
 			{"tangent", "vec4"},
 			{"uv", "vec2"},
 			{"texture_blend", "float"},
+			{"vertex_color", "vec4"},
 		},
 	}
 	return {fallback, pass}
@@ -645,5 +690,6 @@ fallback.vertex = model_pipeline.CreateVertexStage{
 	tangent = true,
 	uv = true,
 	texture_blend = true,
+	vertex_color = true,
 }
 return {fallback}
