@@ -485,10 +485,12 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			total_mie += density_m * transmittance * step_size;
 		}
 
+		float rayleigh_visibility = mix(0.45, 1.0, clamp(sun_visibility, 0.0, 1.0));
+		float mie_visibility = mix(0.12, 1.0, clamp(sun_visibility, 0.0, 1.0));
 		vec3 scattered_light = SUN_INTENSITY * (
-			phase_r * RAYLEIGH_BETA * total_rayleigh +
-			phase_m * MIE_BETA * total_mie
-		) * sun_visibility;
+			phase_r * RAYLEIGH_BETA * total_rayleigh * rayleigh_visibility +
+			phase_m * MIE_BETA * total_mie * mie_visibility
+		);
 		vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
 		return scene_color * view_transmittance + scattered_light;
 	}
@@ -690,6 +692,19 @@ end
 
 function atmosphere.GetAerialPerspectiveGLSLCode()
 	return atmosphere_glsl
+end
+
+function atmosphere.GetSurfaceAerialPerspectiveGLSLCode(background_color_expr)
+	background_color_expr = background_color_expr or "vec3(0.0)"
+	return atmosphere_glsl .. [[
+		vec3 get_atmosphere_background_color(vec3 dir) {
+			return clamp(]] .. background_color_expr .. [[, vec3(0.0), vec3(65504.0));
+		}
+
+		vec3 apply_surface_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
+			return apply_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, transmittance_texture_index, 1.0);
+		}
+	]]
 end
 
 function atmosphere.GetGLSLMainCode(
