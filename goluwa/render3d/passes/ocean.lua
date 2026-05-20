@@ -4,7 +4,6 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
-
 local WAVE_TEX_SIZE = 512
 local WAVE_TEX_WORLD_HALF = 1024.0
 local WAVE_NEAR_WORLD_HALF = 64.0
@@ -342,6 +341,7 @@ return {
 									block[key] = -1
 									return
 								end
+
 								block[key] = self:GetTextureIndex(render3d.pipelines.ocean_waves:GetFramebuffer():GetAttachment(1))
 							end,
 						},
@@ -363,6 +363,7 @@ return {
 									block[key] = -1
 									return
 								end
+
 								block[key] = self:GetTextureIndex(render3d.pipelines.ocean_waves_near:GetFramebuffer():GetAttachment(1))
 							end,
 						},
@@ -656,7 +657,8 @@ return {
 					ocean_world_pos,
 					sun_direction,
 					ocean_data.camera_position.xyz,
-					ocean_data.atmosphere_transmittance_texture_index
+					ocean_data.atmosphere_transmittance_texture_index,
+					1.0
 				);
 
 

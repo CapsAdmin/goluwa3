@@ -319,6 +319,7 @@ do -- helpers
 		local tan1 = {}
 		local tan2 = {}
 		local indices = self.indices or {}
+		local tangent_epsilon = 1e-9
 
 		if not self.indices then
 			for i = 1, #self.Vertices do
@@ -346,29 +347,60 @@ do -- helpers
 				local t1 = b.uv.y - a.uv.y
 				local t2 = c.uv.y - a.uv.y
 				local denom = (s1 * t2 - s2 * t1)
-				local r = 1 / (math.abs(denom) < 1e-9 and 1e-9 or denom)
-				local sdir = Vec3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r)
-				local tdir = Vec3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r)
-				tan1[ai] = (tan1[ai] or Vec3()) + sdir
-				tan1[bi] = (tan1[bi] or Vec3()) + sdir
-				tan1[ci] = (tan1[ci] or Vec3()) + sdir
-				tan2[ai] = (tan2[ai] or Vec3()) + tdir
-				tan2[bi] = (tan2[bi] or Vec3()) + tdir
-				tan2[ci] = (tan2[ci] or Vec3()) + tdir
+
+				if math.abs(denom) > tangent_epsilon then
+					local r = 1 / denom
+					local sdir = Vec3(
+						(t2 * x1 - t1 * x2) * r,
+						(t2 * y1 - t1 * y2) * r,
+						(t2 * z1 - t1 * z2) * r
+					)
+					local tdir = Vec3(
+						(s1 * x2 - s2 * x1) * r,
+						(s1 * y2 - s2 * y1) * r,
+						(s1 * z2 - s2 * z1) * r
+					)
+					tan1[ai] = (tan1[ai] or Vec3()) + sdir
+					tan1[bi] = (tan1[bi] or Vec3()) + sdir
+					tan1[ci] = (tan1[ci] or Vec3()) + sdir
+					tan2[ai] = (tan2[ai] or Vec3()) + tdir
+					tan2[bi] = (tan2[bi] or Vec3()) + tdir
+					tan2[ci] = (tan2[ci] or Vec3()) + tdir
+				end
 			end
 		end
 
 		for i = 1, #self.Vertices do
-			local n = self.Vertices[i].normal
-			local t = tan1[i]
+			local vertex = self.Vertices[i]
 
-			if tan1[i] and tan2[i] and not self.Vertices[i].tangent then
-				local tangent = (t - n * n:GetDot(t)):Normalize()
+			if not vertex.tangent and vertex.normal then
+				local normal = vertex.normal:GetNormalized()
+				local tangent = tan1[i]
+				local bitangent = tan2[i]
+
+				if tangent then tangent = tangent - normal * normal:GetDot(tangent) end
+
+				if not tangent or tangent:GetLengthSquared() <= tangent_epsilon then
+					local projected_bitangent = bitangent and (bitangent - normal * normal:GetDot(bitangent)) or nil
+
+					if projected_bitangent and projected_bitangent:GetLengthSquared() > tangent_epsilon then
+						tangent = projected_bitangent:GetCross(normal)
+					end
+				end
+
+				if not tangent or tangent:GetLengthSquared() <= tangent_epsilon then
+					local reference = math.abs(normal.y) < 0.999 and Vec3(0, 1, 0) or Vec3(1, 0, 0)
+					tangent = reference:GetCross(normal)
+				end
+
+				tangent = tangent:GetNormalized()
 				local handedness = 1
 
-				if n:Cross(tangent):GetDot(tan2[i]) < 0 then handedness = -1 end
+				if bitangent and bitangent:GetLengthSquared() > tangent_epsilon then
+					if normal:GetCross(tangent):GetDot(bitangent) < 0 then handedness = -1 end
+				end
 
-				self.Vertices[i].tangent = {
+				vertex.tangent = {
 					x = tangent.x,
 					y = tangent.y,
 					z = tangent.z,

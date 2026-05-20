@@ -642,7 +642,28 @@ end
 function Visual:DrawShadow(shadow_map, cascade_idx)
 	if not self.CastShadows then return end
 
-	for _, entry in ipairs(self:GetRenderEntries()) do
+	local render_entries = self:GetRenderEntries()
+	local can_use_shadow_aabb_cull = true
+
+	for _, entry in ipairs(render_entries) do
+		local material = self:GetResolvedMaterial(entry)
+
+		if material and material:GetHeightTexture() and material:GetHeightScale() > 0 then
+			can_use_shadow_aabb_cull = false
+
+			break
+		end
+	end
+
+	if can_use_shadow_aabb_cull then
+		local world_aabb = self:GetWorldAABB()
+
+		if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
+			return
+		end
+	end
+
+	for _, entry in ipairs(render_entries) do
 		local transform = entry.transform
 		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
 

@@ -433,7 +433,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return texture(TEXTURE(sky_view_texture_index), uv).rgb;
 	}
 
-	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
+	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index, float sun_visibility) {
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 		vec3 world_delta = (world_pos - cam_pos) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 		float target_distance = length(world_delta);
@@ -488,7 +488,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 scattered_light = SUN_INTENSITY * (
 			phase_r * RAYLEIGH_BETA * total_rayleigh +
 			phase_m * MIE_BETA * total_mie
-		);
+		) * sun_visibility;
 		vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
 		return scene_color * view_transmittance + scattered_light;
 	}

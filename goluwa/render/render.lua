@@ -777,6 +777,10 @@ function render.SubmitAndWait(cmd)
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, render.GetSyncFence())
 end
 
+function render.Submit(cmd, fence)
+	return render.GetQueue():SubmitNoWait(render.GetDevice(), cmd, fence or render.GetSyncFence())
+end
+
 function render.GetCommandPool()
 	return vulkan_instance.command_pool
 end

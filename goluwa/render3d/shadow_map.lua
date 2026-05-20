@@ -2,8 +2,11 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local render3d = nil
 local Texture = import("goluwa/render/texture.lua")
+local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local Material = import("goluwa/render3d/material.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
@@ -17,14 +20,44 @@ local ShadowMap = prototype.CreateTemplate("render3d_shadow_map")
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
+local TEMP_IDENTITY_CASCADE_OVERRIDE = false
+local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
+
+local function supports_tessellation()
+	local device = render.GetDevice and render.GetDevice()
+
+	if
+		not device or
+		not device.physical_device or
+		not device.physical_device.GetFeatures
+	then
+		return false
+	end
+
+	local features = device.physical_device:GetFeatures()
+	return features and features.tessellationShader == 1 or false
+end
+
+local function use_tessellated_shadow(material)
+	return supports_tessellation() and
+		material and
+		material:GetHeightTexture() and
+		material:GetHeightScale() > 0 and
+		material:GetTessellationFactor() > 1.0
+end
+
 -- Push constants for shadow pass (MVP matrix + texture index for alpha testing)
 local ShadowVertexConstants = ffi.typeof([[
 	struct {
 		float light_space_matrix[16];
 		int albedo_texture_index;
+		int height_texture_index;
 		int flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
+		float height_scale;
+		float height_center;
+		float tessellation_factor;
 	}
 ]])
 
@@ -43,9 +76,13 @@ function ShadowMap.New(config)
 					layout(push_constant, scalar) uniform Constants {
 						mat4 light_space_matrix;
 						int albedo_texture_index;
+						int height_texture_index;
 						int flags;
 						float color_multiplier_a;
 						float alpha_cutoff;
+						float height_scale;
+						float height_center;
+						float tessellation_factor;
 					} pc;
 
 					layout(location = 0) in vec2 in_uv;
@@ -53,6 +90,19 @@ function ShadowMap.New(config)
 					#define FLAGS pc.flags
 					]]
 	):format(bindless_texture_capacity)
+	local shadow_fragment_push_constants = [[
+					layout(push_constant, scalar) uniform Constants {
+						mat4 light_space_matrix;
+						int albedo_texture_index;
+						int height_texture_index;
+						int flags;
+						float color_multiplier_a;
+						float alpha_cutoff;
+						float height_scale;
+						float height_center;
+						float tessellation_factor;
+					} pc;
+	]]
 	self.size = config.size or DEFAULT_SIZE
 	self.format = config.format or DEFAULT_FORMAT
 	self.near_plane = config.near_plane or 0.1
@@ -60,23 +110,37 @@ function ShadowMap.New(config)
 	self.ortho_size = config.ortho_size or 50.0 -- Half-size of orthographic projection
 	-- Cascaded shadow map settings
 	self.cascade_count = config.cascade_count or DEFAULT_CASCADE_COUNT
+	assert(self.cascade_count <= 4, "shadow maps currently support up to 4 cascades")
 	self.cascade_split_lambda = config.cascade_split_lambda or 0.75 -- Blend between linear and logarithmic split
 	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
+	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
 	self.cascade_splits = {} -- Will store the split distances
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl())
+	local cascade_sizes = config.cascade_sizes or {}
+	local max_shadow_width = self.size.w
+	local max_shadow_height = self.size.h
 
 	-- Initialize cascades
 	for i = 1, self.cascade_count do
+		local cascade_size = cascade_sizes[i] or self.size
+
+		if cascade_size.w > max_shadow_width then max_shadow_width = cascade_size.w end
+
+		if cascade_size.h > max_shadow_height then max_shadow_height = cascade_size.h end
+
 		self.cascade[i] = {
 			position = Vec3(0, 0, 0),
+			size = cascade_size,
+			view_matrix = Matrix44(),
+			cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
 			light_space_matrix = Matrix44(),
 			is_sampleable = false,
 		}
 		-- Create depth texture for each cascade
 		self.cascade[i].depth_texture = Texture.New{
-			width = self.size.w,
-			height = self.size.h,
+			width = cascade_size.w,
+			height = cascade_size.h,
 			format = self.format,
 			image = {
 				usage = {"depth_stencil_attachment", "sampled"},
@@ -86,8 +150,8 @@ function ShadowMap.New(config)
 				aspect = "depth",
 			},
 			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
+				min_filter = "nearest",
+				mag_filter = "nearest",
 				wrap_s = "clamp_to_border",
 				wrap_t = "clamp_to_border",
 				border_color = "float_opaque_white",
@@ -101,14 +165,14 @@ function ShadowMap.New(config)
 		-- Even with dynamic states, must provide initial viewport/scissor matching what we'll use
 		ViewportX = 0,
 		ViewportY = 0,
-		ViewportWidth = self.size.w,
-		ViewportHeight = self.size.h,
+		ViewportWidth = max_shadow_width,
+		ViewportHeight = max_shadow_height,
 		ViewportMinDepth = 0,
 		ViewportMaxDepth = 1,
 		ScissorX = 0,
 		ScissorY = 0,
-		ScissorWidth = self.size.w,
-		ScissorHeight = self.size.h,
+		ScissorWidth = max_shadow_width,
+		ScissorHeight = max_shadow_height,
 		ColorFormat = false, -- No color attachment for shadow pass
 		DepthFormat = self.format,
 		RasterizationSamples = "1", -- Shadow map uses single sample
@@ -120,7 +184,10 @@ function ShadowMap.New(config)
 				type = "vertex",
 				code = [[
 					#version 450
+					#extension GL_EXT_nonuniform_qualifier : require
 					#extension GL_EXT_scalar_block_layout : require
+
+					layout(binding = 0) uniform sampler2D textures[];
 
 					layout(location = 0) in vec3 in_position;
 					layout(location = 1) in vec3 in_normal;
@@ -132,9 +199,12 @@ function ShadowMap.New(config)
 					layout(push_constant, scalar) uniform Constants {
 						mat4 light_space_matrix;
 						int albedo_texture_index;
+						int height_texture_index;
 						int flags;
 						float color_multiplier_a;
 						float alpha_cutoff;
+						float height_scale;
+						float height_center;
 					} pc;
 
 				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
@@ -147,6 +217,12 @@ function ShadowMap.New(config)
 						vec3 world_pos = in_position;
 						vec3 world_normal = normalize(in_normal);
 						vec3 world_tangent = normalize(in_tangent.xyz);
+
+						if (pc.height_texture_index != -1 && pc.height_scale > 0.0) {
+							float height = texture(textures[nonuniformEXT(pc.height_texture_index)], in_uv).r;
+							world_pos += vec3(0.0, 1.0, 0.0) * ((height - pc.height_center) * pc.height_scale);
+						}
+
 						world_pos += get_vertex_animation_offset(world_pos, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);
 						gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
 						out_uv = in_uv;
@@ -198,6 +274,11 @@ function ShadowMap.New(config)
 					},
 				},
 				descriptor_sets = {
+					{
+						type = "combined_image_sampler",
+						binding_index = 0,
+						count = bindless_texture_capacity,
+					},
 					{
 						type = "uniform_buffer_dynamic",
 						binding_index = 1,
@@ -261,11 +342,11 @@ function ShadowMap.New(config)
 		Discard = false,
 		PolygonMode = "fill",
 		LineWidth = 1.0,
-		CullMode = "none", -- Disabled - was causing device lost
-		FrontFace = "clockwise",
-		DepthBias = true, -- Disabled - was causing device lost with some primitives
-		DepthBiasConstantFactor = 0.0,
-		DepthBiasSlopeFactor = 0.0,
+		CullMode = "none",
+		FrontFace = orientation.FRONT_FACE,
+		DepthBias = true,
+		DepthBiasConstantFactor = 0.5,
+		DepthBiasSlopeFactor = 1.25,
 		LogicOpEnabled = false,
 		LogicOp = "copy",
 		BlendConstants = {0.0, 0.0, 0.0, 0.0},
@@ -275,9 +356,309 @@ function ShadowMap.New(config)
 		DepthBoundsTest = false,
 		StencilTest = false,
 	}
+
+	if supports_tessellation() then
+		self.tess_pipeline = render.CreateGraphicsPipeline{
+			ViewportX = 0,
+			ViewportY = 0,
+			ViewportWidth = max_shadow_width,
+			ViewportHeight = max_shadow_height,
+			ViewportMinDepth = 0,
+			ViewportMaxDepth = 1,
+			ScissorX = 0,
+			ScissorY = 0,
+			ScissorWidth = max_shadow_width,
+			ScissorHeight = max_shadow_height,
+			ColorFormat = false,
+			DepthFormat = self.format,
+			RasterizationSamples = "1",
+			DescriptorSetCount = 1,
+			Topology = "patch_list",
+			PatchControlPoints = 3,
+			PrimitiveRestart = false,
+			shader_stages = {
+				{
+					type = "vertex",
+					code = [[
+						#version 450
+
+						layout(location = 0) in vec3 in_position;
+						layout(location = 1) in vec3 in_normal;
+						layout(location = 2) in vec2 in_uv;
+						layout(location = 3) in vec4 in_tangent;
+						layout(location = 4) in float in_texture_blend;
+						layout(location = 5) in vec4 in_vertex_color;
+
+						layout(location = 0) out vec3 out_position;
+						layout(location = 1) out vec3 out_normal;
+						layout(location = 2) out vec4 out_tangent;
+						layout(location = 3) out vec2 out_uv;
+						layout(location = 4) out float out_texture_blend;
+						layout(location = 5) out vec4 out_vertex_color;
+
+						void main() {
+							out_position = in_position;
+							out_normal = in_normal;
+							out_tangent = in_tangent;
+							out_uv = in_uv;
+							out_texture_blend = in_texture_blend;
+							out_vertex_color = in_vertex_color;
+							gl_Position = vec4(in_position, 1.0);
+						}
+					]],
+					bindings = {
+						{
+							binding = 0,
+							stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1 + 4),
+							input_rate = "vertex",
+						},
+					},
+					attributes = {
+						{binding = 0, location = 0, format = "r32g32b32_sfloat", offset = 0},
+						{
+							binding = 0,
+							location = 1,
+							format = "r32g32b32_sfloat",
+							offset = ffi.sizeof("float") * 3,
+						},
+						{
+							binding = 0,
+							location = 2,
+							format = "r32g32_sfloat",
+							offset = ffi.sizeof("float") * 6,
+						},
+						{
+							binding = 0,
+							location = 3,
+							format = "r32g32b32a32_sfloat",
+							offset = ffi.sizeof("float") * 8,
+						},
+						{
+							binding = 0,
+							location = 4,
+							format = "r32_sfloat",
+							offset = ffi.sizeof("float") * 12,
+						},
+						{
+							binding = 0,
+							location = 5,
+							format = "r32g32b32a32_sfloat",
+							offset = ffi.sizeof("float") * 13,
+						},
+					},
+				},
+				{
+					type = "tessellation_control",
+					code = [[
+						#version 450
+						#extension GL_EXT_scalar_block_layout : require
+
+						layout(location = 0) in vec3 in_position[];
+						layout(location = 1) in vec3 in_normal[];
+						layout(location = 2) in vec4 in_tangent[];
+						layout(location = 3) in vec2 in_uv[];
+						layout(location = 4) in float in_texture_blend[];
+						layout(location = 5) in vec4 in_vertex_color[];
+
+						layout(location = 0) out vec3 out_position[];
+						layout(location = 1) out vec3 out_normal[];
+						layout(location = 2) out vec4 out_tangent[];
+						layout(location = 3) out vec2 out_uv[];
+						layout(location = 4) out float out_texture_blend[];
+						layout(location = 5) out vec4 out_vertex_color[];
+
+						layout(push_constant, scalar) uniform Constants {
+							mat4 light_space_matrix;
+							int albedo_texture_index;
+							int height_texture_index;
+							int flags;
+							float color_multiplier_a;
+							float alpha_cutoff;
+							float height_scale;
+							float height_center;
+							float tessellation_factor;
+						} pc;
+
+						layout(vertices = 3) out;
+
+						void main() {
+							out_position[gl_InvocationID] = in_position[gl_InvocationID];
+							out_normal[gl_InvocationID] = in_normal[gl_InvocationID];
+							out_tangent[gl_InvocationID] = in_tangent[gl_InvocationID];
+							out_uv[gl_InvocationID] = in_uv[gl_InvocationID];
+							out_texture_blend[gl_InvocationID] = in_texture_blend[gl_InvocationID];
+							out_vertex_color[gl_InvocationID] = in_vertex_color[gl_InvocationID];
+							gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
+
+							if (gl_InvocationID == 0) {
+								float tess = clamp(pc.tessellation_factor, 1.0, 64.0);
+								gl_TessLevelOuter[0] = tess;
+								gl_TessLevelOuter[1] = tess;
+								gl_TessLevelOuter[2] = tess;
+								gl_TessLevelInner[0] = tess;
+							}
+						}
+					]],
+					push_constants = {
+						size = ffi.sizeof(ShadowVertexConstants),
+						offset = 0,
+					},
+				},
+				{
+					type = "tessellation_evaluation",
+					code = [[
+						#version 450
+						#extension GL_EXT_nonuniform_qualifier : require
+						#extension GL_EXT_scalar_block_layout : require
+
+						layout(binding = 0) uniform sampler2D textures[];
+
+						layout(location = 0) in vec3 in_position[];
+						layout(location = 1) in vec3 in_normal[];
+						layout(location = 2) in vec4 in_tangent[];
+						layout(location = 3) in vec2 in_uv[];
+						layout(location = 4) in float in_texture_blend[];
+						layout(location = 5) in vec4 in_vertex_color[];
+
+						layout(push_constant, scalar) uniform Constants {
+							mat4 light_space_matrix;
+							int albedo_texture_index;
+							int height_texture_index;
+							int flags;
+							float color_multiplier_a;
+							float alpha_cutoff;
+							float height_scale;
+							float height_center;
+							float tessellation_factor;
+						} pc;
+
+					]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
+
+						layout(triangles, equal_spacing, cw) in;
+						layout(location = 0) out vec2 out_uv;
+
+					]] .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation") .. [[
+
+						vec3 interpolate_vec3(vec3 a, vec3 b, vec3 c) {
+							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+						}
+
+						vec2 interpolate_vec2(vec2 a, vec2 b, vec2 c) {
+							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+						}
+
+						vec4 interpolate_vec4(vec4 a, vec4 b, vec4 c) {
+							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+						}
+
+						float interpolate_float(float a, float b, float c) {
+							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+						}
+
+						void main() {
+							vec3 world_pos = interpolate_vec3(in_position[0], in_position[1], in_position[2]);
+							vec3 world_normal = normalize(interpolate_vec3(in_normal[0], in_normal[1], in_normal[2]));
+							vec3 world_tangent = normalize(interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz));
+							vec2 uv = interpolate_vec2(in_uv[0], in_uv[1], in_uv[2]);
+							float texture_blend = interpolate_float(in_texture_blend[0], in_texture_blend[1], in_texture_blend[2]);
+							vec4 vertex_color = interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2]);
+
+							if (pc.height_texture_index != -1 && pc.height_scale > 0.0) {
+								float height = texture(textures[nonuniformEXT(pc.height_texture_index)], uv).r;
+								world_pos += vec3(0.0, 1.0, 0.0) * ((height - pc.height_center) * pc.height_scale);
+							}
+
+							world_pos += get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
+							gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
+							out_uv = uv;
+						}
+					]],
+					descriptor_sets = {
+						{
+							type = "combined_image_sampler",
+							binding_index = 0,
+							count = bindless_texture_capacity,
+						},
+						{
+							type = "uniform_buffer_dynamic",
+							binding_index = 1,
+							args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
+						},
+					},
+					push_constants = {
+						size = ffi.sizeof(ShadowVertexConstants),
+						offset = 0,
+					},
+				},
+				{
+					type = "fragment",
+					code = bindless_fragment_prelude .. Material.BuildGlslFlags("pc.flags") .. [[
+
+						float get_alpha() {
+							if (
+								pc.albedo_texture_index == -1 ||
+								AlbedoTextureAlphaIsRoughness ||
+								AlbedoTextureAlphaIsRoughness
+							)
+							{
+								return pc.color_multiplier_a;
+							}
+
+							float alpha = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv).a * pc.color_multiplier_a;
+							return alpha;
+						}
+
+						void main() {
+							float alpha = get_alpha();
+
+							if (AlphaTest) {
+								if (alpha < pc.alpha_cutoff) {
+									discard;
+								}
+							} else if (Translucent) {
+								if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) {
+									discard;
+								}
+							}
+						}
+					]],
+					push_constants = {
+						size = ffi.sizeof(ShadowVertexConstants),
+						offset = 0,
+					},
+					descriptor_sets = {
+						{
+							type = "combined_image_sampler",
+							binding_index = 0,
+							count = bindless_texture_capacity,
+						},
+					},
+				},
+			},
+			DepthClamp = true,
+			Discard = false,
+			PolygonMode = "fill",
+			LineWidth = 1.0,
+			CullMode = "none",
+			FrontFace = orientation.FRONT_FACE,
+			DepthBias = true,
+			DepthBiasConstantFactor = 0.5,
+			DepthBiasSlopeFactor = 1.25,
+			LogicOpEnabled = false,
+			LogicOp = "copy",
+			BlendConstants = {0.0, 0.0, 0.0, 0.0},
+			DepthTest = true,
+			DepthWrite = true,
+			DepthCompareOp = "less",
+			DepthBoundsTest = false,
+			StencilTest = false,
+		}
+	end
+
 	-- Command buffer for shadow pass
 	self.command_pool = render.GetCommandPool()
 	self.cmd = self.command_pool:AllocateCommandBuffer()
+	self.fence = Fence.New(render.GetDevice())
 	self.is_recording_cascades = false
 	-- Current cascade being rendered (for Begin/End API)
 	self.current_cascade = 1
@@ -287,8 +668,10 @@ end
 -- Calculate cascade split distances using practical split scheme
 -- Blends between logarithmic and linear split based on lambda parameter
 function ShadowMap:CalculateCascadeSplits()
-	local view_near = self.near_plane
-	local view_far = math.min(self.far_plane, self.max_shadow_distance)
+	render3d = render3d or import("goluwa/render3d/render3d.lua")
+	local cam = render3d.GetCamera()
+	local view_near = cam:GetNearZ()
+	local view_far = math.min(cam:GetFarZ(), self.max_shadow_distance)
 	local lambda = self.cascade_split_lambda
 	self.cascade_splits = {}
 	local n = self.cascade_count
@@ -304,6 +687,37 @@ function ShadowMap:CalculateCascadeSplits()
 	end
 end
 
+local function get_frustum_slice_corners(cam, split_near, split_far)
+	local viewport = cam:GetViewport()
+	local aspect = viewport.w / viewport.h
+	local tan_half_fov = math.tan(cam:GetFOV() * 0.5)
+	local near_height = split_near * tan_half_fov
+	local near_width = near_height * aspect
+	local far_height = split_far * tan_half_fov
+	local far_width = far_height * aspect
+	local position = cam:GetPosition()
+	local rotation = cam:GetRotation()
+	local forward = rotation:GetForward()
+	local right = rotation:GetRight()
+	local up = rotation:GetUp()
+	local near_center = position + forward * split_near
+	local far_center = position + forward * split_far
+	local near_right = right * near_width
+	local near_up = up * near_height
+	local far_right = right * far_width
+	local far_up = up * far_height
+	return {
+		near_center - near_right - near_up,
+		near_center + near_right - near_up,
+		near_center + near_right + near_up,
+		near_center - near_right + near_up,
+		far_center - far_right - far_up,
+		far_center + far_right - far_up,
+		far_center + far_right + far_up,
+		far_center - far_right + far_up,
+	}
+end
+
 -- Update all cascade light matrices for cascaded shadow mapping
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_rotation: quaternion rotation of the directional light
@@ -312,36 +726,128 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 	local cam = render3d.GetCamera()
 	self:CalculateCascadeSplits()
 
-	for cascade_idx = 1, self.cascade_count do
-		local cascade_ortho_size = self.cascade_splits[cascade_idx] / 10
-		local shadow_center = cam:GetPosition()
-
-		if false then
-			-- Offset the shadow center forward based on camera yaw
-			-- Bias more forward for closer cascades
-			local forward_offset = cascade_ortho_size * (0.5 + (1 - cascade_scale) * 0.4)
-			local yaw = cam:GetAngles().y
-			local forward_x = math.cos(yaw) * forward_offset
-			local forward_y = math.sin(yaw) * forward_offset
-			shadow_center = shadow_center + Vec3(forward_x, forward_y, 0)
+	if TEMP_IDENTITY_CASCADE_OVERRIDE then
+		for cascade_idx = 1, self.cascade_count do
+			self.cascade[cascade_idx].position = Vec3(0, 0, 0)
+			self.cascade[cascade_idx].view_matrix = Matrix44()
+			self.cascade[cascade_idx].cull_aabb = AABB(-1000000, -1000000, -1000000, 1000000, 1000000, 1000000)
+			self.cascade[cascade_idx].light_space_matrix = Matrix44()
 		end
 
-		-- The shadow camera is positioned "behind" the shadow center
-		local shadow_cam_pos = shadow_center + light_rotation:GetForward() * -cascade_ortho_size
+		return
+	end
+
+	local world_to_light = light_rotation:GetConjugated():GetMatrix()
+	local light_to_world = light_rotation:GetMatrix()
+	local previous_split = cam:GetNearZ()
+
+	for cascade_idx = 1, self.cascade_count do
+		local split_far = self.cascade_splits[cascade_idx]
+		local corners = get_frustum_slice_corners(cam, previous_split, split_far)
+		local center = cam:GetPosition() + cam:GetRotation():GetForward() * (
+				previous_split + (
+					split_far - previous_split
+				) * 0.35
+			)
+		local center_ls = world_to_light:TransformVector(center)
+		local min_x, min_y, min_z = math.huge, math.huge, math.huge
+		local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+		for i = 1, #corners do
+			local corner = world_to_light:TransformVector(corners[i])
+
+			if corner.x < min_x then min_x = corner.x end
+
+			if corner.x > max_x then max_x = corner.x end
+
+			if corner.y < min_y then min_y = corner.y end
+
+			if corner.y > max_y then max_y = corner.y end
+
+			if corner.z < min_z then min_z = corner.z end
+
+			if corner.z > max_z then max_z = corner.z end
+		end
+
+		local zoom_factor = self.cascade_zoom_factors[cascade_idx] or 1
+		local radius = math.max(
+			max_x - center_ls.x,
+			center_ls.x - min_x,
+			max_y - center_ls.y,
+			center_ls.y - min_y
+		)
+		radius = radius / zoom_factor
+		radius = math.max(radius * 1.05, 0.0001)
+		local cascade_size = self.cascade[cascade_idx].size or self.size
+		local texel_world_x = math.max((radius * 2.0) / cascade_size.w, 0.0001)
+		local texel_world_y = math.max((radius * 2.0) / cascade_size.h, 0.0001)
+		center_ls.x = math.floor(center_ls.x / texel_world_x + 0.5) * texel_world_x
+		center_ls.y = math.floor(center_ls.y / texel_world_y + 0.5) * texel_world_y
+		local shadow_center = light_to_world:TransformVector(center_ls)
 		local tr = Matrix44()
-		tr:Translate(-shadow_cam_pos.x, -shadow_cam_pos.y, -shadow_cam_pos.z)
+		tr:Translate(-shadow_center.x, -shadow_center.y, -shadow_center.z)
 		tr:Multiply(light_rotation:GetConjugated():GetMatrix())
 		local view = tr
-		-- Build orthographic projection (same approach as working UpdateLightMatrix)
+		min_x, min_y, min_z = math.huge, math.huge, math.huge
+		max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+		for i = 1, #corners do
+			local corner = view:TransformVector(corners[i])
+
+			if corner.x < min_x then min_x = corner.x end
+
+			if corner.x > max_x then max_x = corner.x end
+
+			if corner.y < min_y then min_y = corner.y end
+
+			if corner.y > max_y then max_y = corner.y end
+
+			if corner.z < min_z then min_z = corner.z end
+
+			if corner.z > max_z then max_z = corner.z end
+		end
+
+		radius = math.max(math.abs(min_x), math.abs(max_x), math.abs(min_y), math.abs(max_y))
+		radius = radius / zoom_factor
+		radius = math.max(radius * 1.05, 0.0001)
+		min_x = -radius
+		max_x = radius
+		min_y = -radius
+		max_y = radius
+		local receiver_depth_span = max_z - min_z
+		local caster_depth_padding = math.max(receiver_depth_span * 4.0, split_far - previous_split, 100.0)
+		local caster_min_z = min_z - caster_depth_padding
+		local caster_max_z = max_z + caster_depth_padding
 		local projection = Matrix44()
-		local size = cascade_ortho_size * -10
-		-- Standard ortho: left=-size, right=size, bottom=-size, top=size
-		-- Near/far should encompass the shadow volume in front of the light
-		-- flip_y=true for 3D shadow rendering to match perspective projection
-		projection:Ortho(-size, size, -size, size, -cascade_ortho_size * 5, cascade_ortho_size * 20, true)
-		-- Store all cascade data
+		projection:Ortho(min_x, max_x, min_y, max_y, caster_min_z, caster_max_z, true)
+		self.cascade[cascade_idx].position = shadow_center
+		self.cascade[cascade_idx].view_matrix = view
+		self.cascade[cascade_idx].cull_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, caster_max_z)
 		self.cascade[cascade_idx].light_space_matrix = view * projection
+		previous_split = split_far
 	end
+
+	if TEMP_REUSE_FIRST_CASCADE_OVERRIDE and self.cascade_count > 1 then
+		local first = self.cascade[1]
+
+		for cascade_idx = 2, self.cascade_count do
+			self.cascade[cascade_idx].position = first.position:Copy()
+			self.cascade[cascade_idx].view_matrix = first.view_matrix:Copy()
+			self.cascade[cascade_idx].cull_aabb = first.cull_aabb:Copy()
+			self.cascade[cascade_idx].light_space_matrix = first.light_space_matrix:Copy()
+		end
+	end
+end
+
+function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
+	if not world_aabb then return true end
+
+	local cascade = self.cascade[cascade_index]
+
+	if not cascade then return true end
+
+	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, cascade.view_matrix)
+	return cascade.cull_aabb:IsBoxIntersecting(local_aabb)
 end
 
 -- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
@@ -351,6 +857,13 @@ function ShadowMap:Begin(cascade_index)
 	local depth_texture = self.cascade[cascade_index].depth_texture
 
 	if cascade_index == 1 then
+		local queue = render.GetQueue()
+
+		if queue:HasPendingSubmission(self.fence) then
+			self.fence:Wait(true)
+			queue:RetireFence(self.fence)
+		end
+
 		self.cmd:Reset()
 		self.cmd:Begin()
 		self.is_recording_cascades = true
@@ -412,31 +925,72 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	local constants = ShadowVertexConstants()
 	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
+	local pipeline = use_tessellated_shadow(material) and self.tess_pipeline or self.pipeline
 
 	-- If material is provided, get its albedo texture index and flags for alpha testing
 	if material then
-		constants.albedo_texture_index = self.pipeline:GetTextureIndex(material:GetAlbedoTexture())
+		constants.albedo_texture_index = pipeline:GetTextureIndex(material:GetAlbedoTexture())
+		constants.height_texture_index = pipeline:GetTextureIndex(material:GetHeightTexture())
 		constants.flags = material:GetFillFlags()
 		constants.color_multiplier_a = material:GetColorMultiplier().a
 		constants.alpha_cutoff = material:GetAlphaCutoff()
+		constants.height_scale = material:GetHeightScale()
+		constants.height_center = material:GetHeightCenter()
+		constants.tessellation_factor = material:GetTessellationFactor()
 	else
 		constants.albedo_texture_index = 0 -- No texture, no alpha test
+		constants.height_texture_index = -1
 		constants.flags = 0
 		constants.color_multiplier_a = 1.0
 		constants.alpha_cutoff = 0.5
+		constants.height_scale = 0.0
+		constants.height_center = 0.5
+		constants.tessellation_factor = 1.0
 	end
 
 	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), material or render3d.GetDefaultMaterial())
 	local frame_index = render.GetCurrentFrame()
 	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
-	self.pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset})
-	self.pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, constants)
+
+	if pipeline == self.tess_pipeline then
+		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset})
+	else
+		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset})
+	end
+
+	do
+		local depth_texture = self.cascade[cascade_index].depth_texture
+		local w = depth_texture:GetWidth()
+		local h = depth_texture:GetHeight()
+		self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
+		self.cmd:SetScissor(0, 0, w, h)
+	end
+
+	self.cmd:SetFrontFace(orientation.FRONT_FACE)
+	self.cmd:SetCullMode("none")
+
+	if pipeline == self.tess_pipeline then
+		pipeline:PushConstants(
+			self.cmd,
+			{"tessellation_control", "tessellation_evaluation", "fragment"},
+			0,
+			constants
+		)
+	else
+		pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, constants)
+	end
 end
 
 function ShadowMap:PrimeMaterial(material)
 	if not material then return end
 
 	self.pipeline:GetTextureIndex(material:GetAlbedoTexture())
+	self.pipeline:GetTextureIndex(material:GetHeightTexture())
+
+	if self.tess_pipeline then
+		self.tess_pipeline:GetTextureIndex(material:GetAlbedoTexture())
+		self.tess_pipeline:GetTextureIndex(material:GetHeightTexture())
+	end
 end
 
 -- End shadow pass for current cascade
@@ -468,8 +1022,8 @@ function ShadowMap:End(cascade_index)
 			self.cascade[i].is_sampleable = true
 		end
 
-		-- Submit once after all cascades are recorded.
-		render.SubmitAndWait(self.cmd)
+		-- Submit once after all cascades are recorded and let the next frame fence-gate reuse.
+		render.Submit(self.cmd, self.fence)
 	end
 end
 

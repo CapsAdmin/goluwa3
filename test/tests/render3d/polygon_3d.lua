@@ -155,9 +155,12 @@ T.Test3D("Polygon3D", function(draw)
 		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
 		poly:BuildTangents()
 
-		-- Should not crash and should produce some tangent
+		-- Should fall back to a valid tangent basis instead of storing a zero tangent
 		for i = 1, 3 do
-			T(poly.Vertices[i].tangent)["~="](nil)
+			local tangent = poly.Vertices[i].tangent
+			T(tangent)["~="](nil)
+			T(tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z)["~"](1)
+			T(tangent.z)["~"](0)
 		end
 	end)
 

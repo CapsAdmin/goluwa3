@@ -3,6 +3,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local input = import("goluwa/input.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local sun = Entity.New{
@@ -14,6 +15,24 @@ local sun = Entity.New{
 		Color = Color(1.0, 0.98, 1),
 		Intensity = 0.035,
 	},
+}
+sun.light:SetCastShadows{
+	size = Vec2() + 2048,
+	cascade_count = 3,
+	cascade_sizes = {
+		Vec2() + 4096,
+		Vec2() + 2048,
+		Vec2() + 2048,
+	},
+	cascade_zoom_factors = {
+		2,
+		1.5,
+		1,
+	},
+	cascade_split_lambda = 0.2,
+	max_shadow_distance = 2700,
+	near_plane = 1,
+	far_plane = 2700,
 }
 
 event.AddListener("Update", "sun_orientation", function(dt)

@@ -121,7 +121,7 @@ return {
 							"shadows",
 							{
 								{"light_space_matrices", "mat4", 4},
-								{"cascade_splits", "int", 4},
+								{"cascade_splits", "float", 4},
 								{"shadow_map_indices", "int", 4},
 								{"cascade_count", "int"},
 							},
@@ -385,7 +385,7 @@ return {
 
 			// Get cascade index based on view distance
 			int getCascadeIndex(vec3 world_pos) {
-				float dist = length(world_pos - lighting_data.camera_position.xyz);
+				float dist = -(lighting_data.view * vec4(world_pos, 1.0)).z;
 				
 				for (int i = 0; i < lighting_data.shadows.cascade_count; i++) {
 					if (dist < lighting_data.shadows.cascade_splits[i]) {
@@ -395,15 +395,14 @@ return {
 				return lighting_data.shadows.cascade_count - 1;
 			}
 
-			// PCF Shadow calculation
-			float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
-				int cascade_idx = getCascadeIndex(world_pos);
-				if (cascade_idx < 0) return 1.0;
-				
+			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
+				if (cascade_idx < 0 || cascade_idx >= lighting_data.shadows.cascade_count) return 1.0;
+
 				int shadow_map_idx = lighting_data.shadows.shadow_map_indices[cascade_idx];
 				if (shadow_map_idx < 0) return 1.0;
 				
 				float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
+				bias_val = 0;
 				vec3 offset_pos = world_pos + normal * bias_val;
 				vec4 light_space_pos = lighting_data.shadows.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
 				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
@@ -412,16 +411,57 @@ return {
 				if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
 					return 1.0;
 				}
-				vec2 texel_size = 1.0 / textureSize(TEXTURE(shadow_map_idx), 0);
+				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
+				vec2 texel_size = 1.0 / shadow_size;
 				float current_depth = proj_coords.z;
 				float shadow_val = 0.0;
-				for (int x = -1; x <= 1; ++x) {
-					for (int y = -1; y <= 1; ++y) {
-						float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + vec2(x, y) * texel_size).r;
-						shadow_val += current_depth - 0.001 > pcf_depth ? 0.0 : 1.0;
-					}
+				const vec2 POISSON_DISK[12] = vec2[12](
+					vec2(-0.326, -0.406),
+					vec2(-0.840, -0.074),
+					vec2(-0.696,  0.457),
+					vec2(-0.203,  0.621),
+					vec2( 0.962, -0.195),
+					vec2( 0.473, -0.480),
+					vec2( 0.519,  0.767),
+					vec2( 0.185, -0.893),
+					vec2( 0.507,  0.064),
+					vec2( 0.896,  0.412),
+					vec2(-0.322, -0.933),
+					vec2(-0.792, -0.598)
+				);
+				for (int i = 0; i < 12; ++i) {
+					vec2 offset = POISSON_DISK[i] * 1.35 * texel_size;
+					float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + offset).r;
+					shadow_val += current_depth - 0.0001 > pcf_depth ? 0.0 : 1.0;
 				}
-				return shadow_val / 9.0;
+				return shadow_val / 12.0;
+			}
+
+			// PCF Shadow calculation with cascade blending near split boundaries.
+			float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
+				int cascade_idx = getCascadeIndex(world_pos);
+				if (cascade_idx < 0) return 1.0;
+
+				float dist = -(lighting_data.view * vec4(world_pos, 1.0)).z;
+				float shadow = sampleShadowCascade(cascade_idx, world_pos, normal, light_dir);
+
+				if (cascade_idx >= lighting_data.shadows.cascade_count - 1) {
+					return shadow;
+				}
+
+				float previous_split = cascade_idx > 0 ? lighting_data.shadows.cascade_splits[cascade_idx - 1] : 0.0;
+				float current_split = lighting_data.shadows.cascade_splits[cascade_idx];
+				float cascade_span = max(current_split - previous_split, 0.0001);
+				float blend_band = max(cascade_span * 0.15, 8.0);
+				float blend_start = current_split - blend_band;
+
+				if (dist <= blend_start) {
+					return shadow;
+				}
+
+				float next_shadow = sampleShadowCascade(cascade_idx + 1, world_pos, normal, light_dir);
+				float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
+				return mix(shadow, next_shadow, blend);
 			}
 
 			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex) {
@@ -824,12 +864,19 @@ return {
 				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
 				vec3 sunDir = get_primary_sun_direction();
+				float atmosphere_sun_visibility = 1.0;
+
+				if (lighting_data.light_count > 0 && lighting_data.shadows.shadow_map_indices[0] >= 0) {
+					atmosphere_sun_visibility = calculateShadow(world_pos, N, sunDir);
+				}
+
 				color = apply_aerial_perspective(
 					color,
 					world_pos,
 					sunDir,
 					lighting_data.camera_position.xyz,
-					lighting_data.atmosphere_transmittance_texture_index
+					lighting_data.atmosphere_transmittance_texture_index,
+					atmosphere_sun_visibility
 				);
 
 				if (lighting_data.debug_cascade_colors != 0) {

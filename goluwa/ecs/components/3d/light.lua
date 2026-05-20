@@ -51,10 +51,16 @@ function Light:SetCastShadows(config)
 	end
 
 	self.CastShadows = config
+	local cascade_count = config.cascade_count or (config.cascade_sizes and #config.cascade_sizes) or nil
 
 	if self.LightType == "directional" or self.LightType == "sun" then
 		self.ShadowMap = ShadowMap.New{
 			size = config.size,
+			cascade_sizes = config.cascade_sizes,
+			cascade_zoom_factors = config.cascade_zoom_factors,
+			cascade_count = cascade_count,
+			cascade_split_lambda = config.cascade_split_lambda,
+			max_shadow_distance = config.max_shadow_distance or config.far_plane,
 			ortho_size = config.ortho_size or 50.0,
 			near_plane = config.near_plane or 1.0,
 			far_plane = config.far_plane or 200.0,

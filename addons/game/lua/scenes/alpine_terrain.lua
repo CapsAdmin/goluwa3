@@ -348,7 +348,7 @@ local function CreateAlpineTerrainRenderer()
 			{
 				chunk_world_size = 768,
 				radius = 1,
-				cast_shadows = false,
+				cast_shadows = true,
 				mesh_resolution = Vec2() + 128,
 				albedo_sampler = {min_filter = "linear", mag_filter = "linear"},
 				texture_size = 768,
@@ -362,7 +362,7 @@ local function CreateAlpineTerrainRenderer()
 			{
 				chunk_world_size = 2304,
 				radius = 2,
-				cast_shadows = false,
+				cast_shadows = true,
 				mesh_resolution = Vec2() + 60,
 				albedo_sampler = {min_filter = "linear", mag_filter = "linear"},
 				texture_size = 384,
@@ -377,7 +377,7 @@ local function CreateAlpineTerrainRenderer()
 		FarTerrain = {
 			outer_half_size = 49152,
 			snap_size = 6144,
-			cast_shadows = false,
+			cast_shadows = true,
 			mesh_resolution = Vec2() + 72,
 			albedo_sampler = {min_filter = "linear", mag_filter = "linear"},
 			texture_size = 320,
