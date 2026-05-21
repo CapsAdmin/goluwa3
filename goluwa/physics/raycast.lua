@@ -66,8 +66,17 @@ local function transform_ray(ray, world_to_local)
 	local local_dir_x = m.m00 * dx + m.m10 * dy + m.m20 * dz
 	local local_dir_y = m.m01 * dx + m.m11 * dy + m.m21 * dz
 	local local_dir_z = m.m02 * dx + m.m12 * dy + m.m22 * dz
-	local local_direction = Vec3(local_dir_x, local_dir_y, local_dir_z):GetNormalized()
-	return create_ray(local_origin, local_direction, ray.max_distance)
+	local local_direction = Vec3(local_dir_x, local_dir_y, local_dir_z)
+	local tbl = {}
+	tbl.origin = local_origin
+	tbl.direction = local_direction
+	tbl.max_distance = ray.max_distance
+	tbl.inv_direction = Vec3(
+		local_dir_x ~= 0 and 1 / local_dir_x or math.huge,
+		local_dir_y ~= 0 and 1 / local_dir_y or math.huge,
+		local_dir_z ~= 0 and 1 / local_dir_z or math.huge
+	)
+	return tbl
 end
 
 function raycast.InvalidateModelAcceleration()
@@ -77,7 +86,10 @@ end
 
 local function has_model_geometry(model)
 	local primitives = get_spatial_primitives(model)
-	return model and primitives and primitives[1] ~= nil and get_spatial_local_aabb(model) ~= nil
+	return model and
+		primitives and
+		primitives[1] ~= nil and
+		get_spatial_local_aabb(model) ~= nil
 end
 
 local function is_dynamic_model(model)
@@ -636,7 +648,7 @@ local function test_primitive_with_limit(
 		closest_hit = select(
 			1,
 			BVH.TraverseRay(
-				local_ray,
+				primitive_ray,
 				acceleration.root,
 				visit_triangle_bvh_leaf,
 				traversal_context,
@@ -676,9 +688,7 @@ local function test_primitive_with_limit(
 			primitive.local_matrix:TransformVectorUnpacked(local_position.x, local_position.y, local_position.z)
 		)
 		local normal_end = local_position + closest_hit.normal
-		local transformed_normal_end = Vec3(
-			primitive.local_matrix:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z)
-		)
+		local transformed_normal_end = Vec3(primitive.local_matrix:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z))
 		closest_hit.normal = (transformed_normal_end - closest_hit.position):GetNormalized()
 
 		if closest_hit.face_normal then
