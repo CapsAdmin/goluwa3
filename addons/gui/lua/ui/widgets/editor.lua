@@ -7,7 +7,9 @@ local MouseInput = import("goluwa/ecs/components/2d/mouse_input.lua")
 local prototype = import("goluwa/prototype.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local input = import("goluwa/input.lua")
+local raycast = import("goluwa/physics/raycast.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local debug_draw = import("goluwa/render3d/debug_draw.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
@@ -31,6 +33,7 @@ local Material = import("goluwa/render3d/material.lua")
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
+local NONVISUAL_HINT_TIME = 0.12
 
 local function clamp(value, min_value, max_value)
 	return math.max(min_value, math.min(max_value, value))
@@ -65,6 +68,59 @@ local function get_editor_viewport(world_size, window_pos, window_size)
 	end
 
 	return viewport_pos, viewport_size
+end
+
+local function get_camera_viewport_rect(cam)
+	local viewport = cam and cam.GetViewport and cam:GetViewport() or nil
+
+	if viewport and viewport.w and viewport.h and viewport.w > 0 and viewport.h > 0 then
+		return viewport
+	end
+
+	local world_size = Panel.World.transform:GetSize()
+	return {
+		x = 0,
+		y = 0,
+		w = world_size.x,
+		h = world_size.y,
+	}
+end
+
+local function get_viewport_mouse_position(input_window, cam)
+	local viewport = get_camera_viewport_rect(cam)
+	local mouse_pos = input_window and
+		input_window.GetMousePosition and
+		input_window:GetMousePosition() or
+		nil
+
+	if not mouse_pos then return nil, viewport, nil end
+
+	if mouse_pos.x < viewport.x or mouse_pos.y < viewport.y then
+		return nil, viewport, mouse_pos
+	end
+
+	if mouse_pos.x >= viewport.x + viewport.w or mouse_pos.y >= viewport.y + viewport.h then
+		return nil, viewport, mouse_pos
+	end
+
+	return Vec2(mouse_pos.x - viewport.x, mouse_pos.y - viewport.y),
+	viewport,
+	mouse_pos
+end
+
+local function get_mouse_world_ray(input_window)
+	local cam = render3d.GetCamera()
+
+	if not cam then return nil, nil, nil end
+
+	local _, _, mouse_pos = get_viewport_mouse_position(input_window, cam)
+
+	if not mouse_pos then return nil, nil, nil end
+
+	local screen_width, screen_height = render2d.GetSize()
+	local direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
+
+	return cam:GetPosition(), direction, mouse_pos
 end
 
 local function get_focus_owner()
@@ -330,6 +386,59 @@ local function is_hidden_editor_entity(entity, editor_window)
 	return is_transient_ui_entity(entity)
 end
 
+local function is_editor_control_rig_entity(entity)
+	if not (entity and entity.IsValid and entity:IsValid()) then return false end
+
+	if entity.HasComponent then
+		if
+			entity:HasComponent("player_input") or
+			entity:HasComponent("player_movement") or
+			entity:HasComponent("player_physgun")
+		then
+			return true
+		end
+	end
+
+	local key = entity.GetKey and entity:GetKey() or ""
+	local name = entity.GetName and entity:GetName() or ""
+	return key == "player_camera_rig" or name == "player_camera_rig"
+end
+
+local function has_editor_control_rig_ancestor(entity)
+	local current = entity
+
+	while current and current.IsValid and current:IsValid() do
+		if is_editor_control_rig_entity(current) then return true end
+
+		current = current:GetParent()
+	end
+
+	return false
+end
+
+local function is_editor_pick_excluded_entity(entity, excluded_entity)
+	if not (entity and entity.IsValid and entity:IsValid()) then return true end
+
+	if has_editor_control_rig_ancestor(entity) then return true end
+
+	local world = Entity.World
+	local player_camera_rig = world and world.GetKeyed and world:GetKeyed("player_camera_rig") or nil
+
+	if player_camera_rig and player_camera_rig.IsValid and player_camera_rig:IsValid() then
+		if entity == player_camera_rig or has_parent(entity, player_camera_rig) then
+			return true
+		end
+	end
+
+	if excluded_entity and excluded_entity.IsValid and excluded_entity:IsValid() then
+		if entity == excluded_entity or has_parent(entity, excluded_entity) then
+			return true
+		end
+	end
+
+	return false
+end
+
 local function should_ignore_editor_tree_change(entity, related_entity, editor_window)
 	return is_hidden_editor_entity(entity, editor_window) or
 		is_hidden_editor_entity(related_entity, editor_window)
@@ -363,6 +472,184 @@ local function get_valid_children(entity, editor_window)
 	end
 
 	return out
+end
+
+local function has_visual_pick_target(entity)
+	local visual = entity and entity.visual or nil
+
+	if not visual then return false end
+
+	local entries = visual.GetRenderEntries and visual:GetRenderEntries() or visual.Primitives or nil
+	return entries and entries[1] ~= nil or false
+end
+
+local function is_visual_pick_helper_entity(entity)
+	return entity and (entity.visual_primitive ~= nil or entity.VisualOwner ~= nil) or false
+end
+
+local function get_entity_world_position(entity)
+	if not (entity and entity.transform and entity.transform.GetWorldMatrix) then
+		return nil
+	end
+
+	local world_matrix = entity.transform:GetWorldMatrix()
+
+	if not world_matrix then return nil end
+
+	local x, y, z = world_matrix:TransformVectorUnpacked(0, 0, 0)
+	return Vec3(x, y, z)
+end
+
+local visit_world_entities
+
+local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
+	if is_hidden_editor_entity(entity, editor_window) then return false end
+
+	if is_editor_pick_excluded_entity(entity, excluded_entity) then return false end
+
+	if has_visual_pick_target(entity) or is_visual_pick_helper_entity(entity) then return false end
+
+	return get_entity_world_position(entity) ~= nil
+end
+
+local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selected_entity)
+	local cam = render3d.GetCamera()
+
+	if not cam then return end
+
+	local viewport = cam.GetViewport and cam:GetViewport() or nil
+	local screen_width = viewport and viewport.w or nil
+	local screen_height = viewport and viewport.h or nil
+
+	visit_world_entities(Entity.World, function(entity)
+		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then return end
+
+		local world_pos = get_entity_world_position(entity)
+
+		if not world_pos then return end
+
+		local _, visibility = cam:WorldPositionToScreen(world_pos, screen_width, screen_height)
+
+		if visibility ~= -1 then return end
+
+		local is_selected = entity == selected_entity
+		debug_draw.DrawSphere{
+			id = "editor_nonvisual_hint_" .. entity:GetGUID(),
+			position = world_pos,
+			radius = is_selected and 0.1 or 0.06,
+			color = is_selected and {0.45, 1.0, 0.45, 0.35} or {0.8, 0.9, 1.0, 0.16},
+			ignore_z = true,
+			time = NONVISUAL_HINT_TIME,
+		}
+	end)
+end
+
+function visit_world_entities(entity, callback)
+	if not (entity and entity.IsValid and entity:IsValid()) then return end
+
+	for _, child in ipairs(entity:GetChildren()) do
+		if child and child:IsValid() and child:GetParent() == entity then
+			callback(child)
+			visit_world_entities(child, callback)
+		end
+	end
+end
+
+local function find_nonvisual_entity_hit(
+	editor_window,
+	mouse_pos,
+	ray_origin,
+	ray_direction,
+	max_distance,
+	excluded_entity
+)
+	local cam = render3d.GetCamera()
+
+	if not (cam and mouse_pos and ray_origin and ray_direction) then return nil end
+
+	local best_hit = nil
+	local best_distance = max_distance or math.huge
+	local marker_radius = 12
+	local marker_radius_sq = marker_radius * marker_radius
+
+	visit_world_entities(Entity.World, function(entity)
+		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then return end
+
+		local world_pos = get_entity_world_position(entity)
+
+		if not world_pos then return end
+
+		local screen_pos, visibility = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
+
+		if visibility ~= -1 or not screen_pos then return end
+
+		local dx = screen_pos.x - mouse_pos.x
+		local dy = screen_pos.y - mouse_pos.y
+		local screen_distance_sq = dx * dx + dy * dy
+
+		if screen_distance_sq > marker_radius_sq then return end
+
+		local to_entity = world_pos - ray_origin
+		local ray_distance = to_entity:Dot(ray_direction)
+
+		if ray_distance <= 0 or ray_distance > best_distance then return end
+
+		if
+			not best_hit or
+			ray_distance < best_hit.distance or
+			(
+				ray_distance == best_hit.distance and
+				screen_distance_sq < best_hit.screen_distance_sq
+			)
+		then
+			best_hit = {
+				entity = entity,
+				distance = ray_distance,
+				position = world_pos:Copy(),
+				screen_distance_sq = screen_distance_sq,
+			}
+			best_distance = ray_distance
+		end
+	end)
+
+	return best_hit
+end
+
+local function find_world_pick_target(editor_window, excluded_entity)
+	local input_window = system.GetWindow()
+
+	if not input_window then return nil end
+
+	local ray_origin, ray_direction, mouse_pos = get_mouse_world_ray(input_window)
+
+	if not (ray_origin and ray_direction and mouse_pos) then return nil end
+
+	local visual_hit = raycast.CastClosest(
+		ray_origin,
+		ray_direction,
+		math.huge,
+		function(entity)
+			return entity:IsValid() and
+				get_entity_world_root(entity) == Entity.World and
+				not is_hidden_editor_entity(entity, editor_window)
+				and
+				not is_editor_pick_excluded_entity(entity, excluded_entity)
+		end
+	)
+	local fallback_hit = find_nonvisual_entity_hit(
+		editor_window,
+		mouse_pos,
+		ray_origin,
+		ray_direction,
+		math.huge,
+		excluded_entity
+	)
+
+	if fallback_hit then return fallback_hit.entity end
+
+	if visual_hit then return visual_hit.entity end
+
+	return nil
 end
 
 local function get_entity_by_guid(guid)
@@ -742,6 +1029,8 @@ return function(props)
 	local refresh_property_editor
 	local update_footer
 	local refresh_property_key
+	local set_selected_target
+	local reveal_selected_tree_item
 	local sync_tree_items
 	local sync_selection
 	local request_editor_sync
@@ -754,6 +1043,12 @@ return function(props)
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
 	local tracked_material_count = count_material_objects()
+	local world_click = {
+		button_down = false,
+		allow_pick = false,
+		dragged = false,
+		start_mouse_pos = nil,
+	}
 	local editor_camera = {
 		enabled = true,
 		scale_viewport = false,
@@ -775,6 +1070,7 @@ return function(props)
 	}
 	local active_camera_component = nil
 	local active_camera_was_active = false
+	local click_drag_threshold_sq = 16
 
 	local function run_editor_ui_mutation(callback, reason)
 		editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
@@ -906,6 +1202,65 @@ return function(props)
 
 		update_editor_camera_position(editor_camera, dt)
 		apply_editor_camera()
+	end
+
+	local function update_world_click_selection()
+		local input_window = system.GetWindow()
+
+		if not input_window then return end
+
+		local mouse_pos = input_window:GetMousePosition()
+		local gizmo_status = Gizmo.GetStatus()
+		local focus_blocks_selection = has_text_focus(window)
+		local world_blocked = context_menu_blocks_world(mouse_pos)
+		local ui_blocks_selection = is_ui_hovering()
+		local inside_world = mouse_in_editor_viewport(mouse_pos) and not mouse_in_editor_window(mouse_pos)
+		local selection_allowed = inside_world and
+			not focus_blocks_selection and
+			not world_blocked and
+			not ui_blocks_selection and
+			not gizmo_status.active_drag and
+			not gizmo_status.hovered_handle
+		local button_down = input.IsMouseDown("button_1")
+
+		if button_down and not world_click.button_down then
+			world_click.button_down = true
+			world_click.allow_pick = selection_allowed
+			world_click.dragged = false
+			world_click.start_mouse_pos = mouse_pos and mouse_pos:Copy() or nil
+			return
+		end
+
+		if button_down and world_click.button_down then
+			if world_click.allow_pick and world_click.start_mouse_pos then
+				local dx = mouse_pos.x - world_click.start_mouse_pos.x
+				local dy = mouse_pos.y - world_click.start_mouse_pos.y
+
+				if dx * dx + dy * dy > click_drag_threshold_sq then
+					world_click.dragged = true
+				end
+			end
+
+			return
+		end
+
+		if not button_down and world_click.button_down then
+			local should_pick = world_click.allow_pick and not world_click.dragged and selection_allowed
+			world_click.button_down = false
+			world_click.allow_pick = false
+			world_click.dragged = false
+			world_click.start_mouse_pos = nil
+
+			if not should_pick then return end
+
+			local excluded_entity = active_camera_component and active_camera_component.Owner or nil
+			local target = find_world_pick_target(window, excluded_entity)
+
+			if not (target and target.IsValid and target:IsValid()) then return end
+
+			set_selected_target(target, true, target:GetGUID())
+			sync_selection()
+		end
 	end
 
 	local function close_active_context_menu()
@@ -1044,7 +1399,7 @@ return function(props)
 		end
 	end
 
-	local function set_selected_target(target, ensure_visible, selected_key)
+	set_selected_target = function(target, ensure_visible, selected_key)
 		local entity = target and target.component_list and target or nil
 		local object = is_valid_object(target) and target or nil
 		local previous_guid = state.selected_entity_guid
@@ -1170,6 +1525,13 @@ return function(props)
 
 		refresh_property_editor()
 	end
+	reveal_selected_tree_item = function()
+		if not (tree_view and tree_view:IsValid()) then return end
+
+		tree_view:ExpandToKey(state.selected_entity_guid)
+		tree_view:SetSelectedKey(state.selected_entity_guid)
+		tree_view:EnsureVisible(state.selected_entity_guid, Rect(0, 12, 0, 12))
+	end
 	sync_tree_items = function()
 		if not tree_view or not tree_view:IsValid() then return end
 
@@ -1184,7 +1546,7 @@ return function(props)
 			tree_view:SetItems(tree_items)
 		end, "tree_set_items")
 
-		tree_view:SetSelectedKey(state.selected_entity_guid)
+		reveal_selected_tree_item()
 		update_footer(get_selected_object(), tree_items)
 		return state.selected_entity_guid ~= previous_guid
 	end
@@ -1219,12 +1581,12 @@ return function(props)
 		then
 			local selected_target, selected_key = resolve_selected_target(state.tree_items)
 			set_selected_target(selected_target, false, selected_key)
-			tree_view:SetSelectedKey(state.selected_entity_guid)
+			reveal_selected_tree_item()
 			update_footer(get_selected_object(), state.tree_items)
 			return state.selected_entity_guid ~= selected_guid
 		end
 
-		tree_view:SetSelectedKey(state.selected_entity_guid)
+		reveal_selected_tree_item()
 		update_footer(get_selected_object(), state.tree_items)
 		return false
 	end
@@ -1272,9 +1634,7 @@ return function(props)
 		set_selected_target(selected_target, false, selected_key)
 		refresh_selected_property_listeners()
 
-		if tree_view and tree_view:IsValid() then
-			tree_view:SetSelectedKey(state.selected_entity_guid)
-		end
+		reveal_selected_tree_item()
 
 		refresh_property_editor()
 		update_footer(get_selected_object(), state.tree_items)
@@ -1847,6 +2207,8 @@ return function(props)
 
 	function window:OnUpdate(dt)
 		update_editor_camera(dt)
+		draw_nonvisual_entity_hints(window, active_camera_component and active_camera_component.Owner or nil, get_selected_entity())
+		update_world_click_selection()
 		local material_count = count_material_objects()
 
 		if material_count ~= tracked_material_count then
