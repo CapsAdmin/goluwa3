@@ -199,7 +199,7 @@ local function build_shadow_projected_main(
 							inv_world_matrix3
 						);
 
-						gl_Position = pc.light_space_matrix * vec4(local_pos, 1.0);
+						gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
 						out_uv = uv;
 						out_world_pos = world_pos;
 					}
@@ -1047,13 +1047,12 @@ function ShadowMap:BeginAllCascades()
 	return cmds
 end
 
--- Upload shadow pass constants (light space matrix * world matrix)
+-- Upload shadow pass constants (light-space matrix; world transform is applied in shader)
 -- material: optional Material object for alpha testing (will use albedo texture)
 function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local constants = ShadowVertexConstants()
-	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
-	constants.light_space_matrix = mvp:GetFloatCopy()
+	constants.light_space_matrix = self.cascade[cascade_index].light_space_matrix:GetFloatCopy()
 	constants.light_position[0] = self.point_light_position.x
 	constants.light_position[1] = self.point_light_position.y
 	constants.light_position[2] = self.point_light_position.z
