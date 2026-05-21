@@ -248,6 +248,20 @@ local function get_entity_pivot(entity)
 	return fallback, 1
 end
 
+local function is_entity_origin_visible(entity)
+	local origin = get_entity_world_position(entity)
+
+	if not origin then return false end
+
+	local cam = render3d.GetCamera()
+
+	if not cam then return false end
+
+	local width, height = get_viewport_size()
+	local screen_pos, visibility = cam:WorldPositionToScreen(origin, width, height)
+	return visibility == -1 and screen_pos ~= nil
+end
+
 local function get_gizmo_scale(center, extent)
 	local cam = render3d.GetCamera()
 
@@ -1013,6 +1027,8 @@ end
 
 local function get_gizmo_definition(entity)
 	if not is_gizmo_entity(entity) then return nil end
+
+	if not is_entity_origin_visible(entity) then return nil end
 
 	local center, extent = get_entity_pivot(entity)
 
