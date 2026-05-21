@@ -124,6 +124,20 @@ do
 		vis
 	end
 
+	local function clip_to_world(matrix, x, y, z, out)
+		out = matrix:MultiplyVector(x, y, z, 1, out)
+		local w = out.m03
+
+		if math.abs(w) > 1e-6 then
+			out.m00 = out.m00 / w
+			out.m01 = out.m01 / w
+			out.m02 = out.m02 / w
+			out.m03 = 1
+		end
+
+		return out
+	end
+
 	function META:ScreenToWorldDirection(screen_pos, screen_width, screen_height)
 		screen_width = screen_width or render.GetWidth()
 		screen_height = screen_height or render.GetHeight()
@@ -144,8 +158,8 @@ do
 		local ndc_y = ((screen_pos.y - viewport_y) / viewport_height) * 2 - 1
 		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)
 		world_to_screen_matrix:GetInverse(screen_to_world_inverse)
-		local near_pos = screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 0, 1, screen_to_world_near)
-		local far_pos = screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 1, 1, screen_to_world_far)
+		local near_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 0, screen_to_world_near)
+		local far_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 1, screen_to_world_far)
 		return Vec3(far_pos.m00 - near_pos.m00, far_pos.m01 - near_pos.m01, far_pos.m02 - near_pos.m02):GetNormalized()
 	end
 end
