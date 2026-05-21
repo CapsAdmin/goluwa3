@@ -19,6 +19,7 @@ local sun = Entity.New{
 atmosphere.SetSunIntensity(sun.light.Intensity)
 sun.light:SetCastShadows{
 	size = Vec2() + 2048,
+	shadow_update_interval = 2,
 	cascade_count = 3,
 	cascade_sizes = {
 		Vec2() + 4096,

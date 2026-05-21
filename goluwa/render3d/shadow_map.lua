@@ -17,7 +17,7 @@ local prototype = import("goluwa/prototype.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local ShadowMap = prototype.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
-local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
+local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
@@ -904,12 +904,13 @@ function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
 end
 
 -- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
-function ShadowMap:Begin(cascade_index)
+function ShadowMap:Begin(cascade_index, is_first_in_batch)
 	cascade_index = cascade_index or 1
+	is_first_in_batch = is_first_in_batch == nil and cascade_index == 1 or is_first_in_batch
 	self.current_cascade = cascade_index
 
 	if self.mode == "point" then
-		if cascade_index == 1 then
+		if is_first_in_batch then
 			local queue = render.GetQueue()
 
 			if queue:HasPendingSubmission(self.fence) then
@@ -984,7 +985,7 @@ function ShadowMap:Begin(cascade_index)
 
 	local depth_texture = self.cascade[cascade_index].depth_texture
 
-	if cascade_index == 1 then
+	if is_first_in_batch then
 		local queue = render.GetQueue()
 
 		if queue:HasPendingSubmission(self.fence) then
@@ -1125,8 +1126,11 @@ function ShadowMap:PrimeMaterial(material)
 end
 
 -- End shadow pass for current cascade
-function ShadowMap:End(cascade_index)
+function ShadowMap:End(cascade_index, is_last_in_batch)
 	cascade_index = cascade_index or self.current_cascade
+	is_last_in_batch = is_last_in_batch == nil and
+		cascade_index == self.cascade_count or
+		is_last_in_batch
 
 	if self.mode == "point" then
 		self.cmd:EndRendering()
@@ -1149,7 +1153,7 @@ function ShadowMap:End(cascade_index)
 		}
 		self.cascade[cascade_index].is_sampleable = true
 
-		if cascade_index == self.cascade_count then
+		if is_last_in_batch then
 			self.cmd:End()
 			self.is_recording_cascades = false
 			render.Submit(self.cmd, self.fence)
@@ -1175,15 +1179,11 @@ function ShadowMap:End(cascade_index)
 			},
 		},
 	}
+	self.cascade[cascade_index].is_sampleable = true
 
-	if cascade_index == self.cascade_count then
+	if is_last_in_batch then
 		self.cmd:End()
 		self.is_recording_cascades = false
-
-		for i = 1, self.cascade_count do
-			self.cascade[i].is_sampleable = true
-		end
-
 		-- Submit once after all cascades are recorded and let the next frame fence-gate reuse.
 		render.Submit(self.cmd, self.fence)
 	end

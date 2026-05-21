@@ -50,11 +50,26 @@ for i = 1, 64 do
 	SSAO_KERNEL[i] = sample * scale
 end
 
+local function sort_lights(a, b)
+	if a.last_update_frame ~= b.last_update_frame then
+		return a.last_update_frame > b.last_update_frame
+	end
+
+	if a.distance_score ~= b.distance_score then
+		return a.distance_score < b.distance_score
+	end
+
+	return a.light_index < b.light_index
+end
+
 local function write_shadow_block(self, shadow_block, lights)
 	local sun, sun_light_index = get_primary_sun(lights)
 	local directional = nil
 	local directional_light_index = -1
 	local point_shadow_count = 0
+	local point_shadow_candidates = {}
+	local camera = render3d.GetCamera()
+	local camera_position = camera and camera:GetPosition()
 
 	for i = 0, MAX_CASCADES - 1 do
 		shadow_block.shadow_map_indices[i] = -1
@@ -96,18 +111,37 @@ local function write_shadow_block(self, shadow_block, lights)
 		then
 			directional = light
 			directional_light_index = light_index - 1
-		elseif
-			light.LightType == "point" and
-			light:GetCastShadows() and
-			point_shadow_count < MAX_POINT_SHADOWS
-		then
-			point_shadow_count = point_shadow_count + 1
-			local shadow_map = light:GetShadowMap()
-			shadow_block.point_shadow_map_indices[point_shadow_count - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture())
-			light.Owner.transform:GetPosition():CopyToFloatPointer(shadow_block.point_shadow_positions[point_shadow_count - 1])
-			shadow_block.point_shadow_positions[point_shadow_count - 1][3] = shadow_map:GetFarPlane()
-			shadow_block.point_shadow_light_indices[point_shadow_count - 1] = light_index - 1
+		elseif light.LightType == "point" and light:GetCastShadows() then
+			local position = light.Owner.transform:GetPosition()
+			local distance_score = 0
+
+			if camera_position then
+				local dx = position.x - camera_position.x
+				local dy = position.y - camera_position.y
+				local dz = position.z - camera_position.z
+				distance_score = dx * dx + dy * dy + dz * dz
+			end
+
+			point_shadow_candidates[#point_shadow_candidates + 1] = {
+				light = light,
+				light_index = light_index - 1,
+				last_update_frame = light.LastShadowUpdateFrame or -1,
+				distance_score = distance_score,
+			}
 		end
+	end
+
+	table.sort(point_shadow_candidates, sort_lights)
+
+	for i = 1, math.min(#point_shadow_candidates, MAX_POINT_SHADOWS) do
+		local candidate = point_shadow_candidates[i]
+		local light = candidate.light
+		local shadow_map = light:GetShadowMap()
+		point_shadow_count = point_shadow_count + 1
+		shadow_block.point_shadow_map_indices[point_shadow_count - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture())
+		light.Owner.transform:GetPosition():CopyToFloatPointer(shadow_block.point_shadow_positions[point_shadow_count - 1])
+		shadow_block.point_shadow_positions[point_shadow_count - 1][3] = shadow_map:GetFarPlane()
+		shadow_block.point_shadow_light_indices[point_shadow_count - 1] = candidate.light_index
 	end
 
 	shadow_block.point_shadow_count = point_shadow_count
