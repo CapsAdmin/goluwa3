@@ -909,6 +909,28 @@ return function(props)
 		return self
 	end
 
+	function tree:EnsureVisible(key, padding)
+		if key == nil then return self end
+
+		local info = row_infos[key]
+
+		if not (info and info.clip and info.clip:IsValid()) then return self end
+
+		local parent = self:GetParent()
+
+		while parent and parent.IsValid and parent:IsValid() do
+			if parent.ScrollChildIntoView then
+				parent:ScrollChildIntoView(info.clip, padding)
+
+				break
+			end
+
+			parent = parent:GetParent()
+		end
+
+		return self
+	end
+
 	function tree:Rebuild()
 		clear_drag_state()
 		row_infos = {}
