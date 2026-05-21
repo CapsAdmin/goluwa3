@@ -33,6 +33,8 @@ do
 
 		if packed == nil then
 			packed = table.pack(self[func_name](self, path_info))
+			cache[func_name] = cache[func_name] or {}
+			cache[func_name][self.Name] = cache[func_name][self.Name] or {}
 			cache[func_name][self.Name][path_info.full_path] = packed
 		end
 
