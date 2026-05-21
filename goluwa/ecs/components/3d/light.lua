@@ -47,6 +47,7 @@ function Light:SetCastShadows(config)
 	if not config then
 		self.CastShadows = false
 		self.ShadowMap = nil
+		self.InsetShadowMap = nil
 		return
 	end
 
@@ -65,6 +66,23 @@ function Light:SetCastShadows(config)
 			near_plane = config.near_plane or 1.0,
 			far_plane = config.far_plane or 200.0,
 		}
+
+		if config.inset_shadows then
+			local inset = config.inset_shadows
+			self.InsetShadowMap = ShadowMap.New{
+				size = inset.size or config.size,
+				cascade_count = 1,
+				cascade_sizes = {inset.size or config.size},
+				cascade_zoom_factors = {inset.zoom_factor or 1},
+				cascade_split_lambda = 1,
+				max_shadow_distance = inset.distance or 64,
+				ortho_size = inset.ortho_size or config.ortho_size or 50.0,
+				near_plane = inset.near_plane or config.near_plane or 1.0,
+				far_plane = inset.far_plane or inset.distance or config.far_plane or 200.0,
+			}
+		else
+			self.InsetShadowMap = nil
+		end
 	elseif self.LightType == "point" then
 		error("NYI point light", 2)
 		self.CastShadows = false
@@ -81,6 +99,10 @@ function Light:UpdateShadowMap()
 	if not self.ShadowMap then return end
 
 	self.ShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation())
+
+	if self.InsetShadowMap then
+		self.InsetShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation())
+	end
 end
 
 function Light:RenderShadows()
@@ -89,12 +111,26 @@ function Light:RenderShadows()
 	self:UpdateShadowMap()
 	event.Call("PrimeAllShadowMaterials", self.ShadowMap)
 
+	if self.InsetShadowMap then
+		event.Call("PrimeAllShadowMaterials", self.InsetShadowMap)
+	end
+
 	for cascade_idx = 1, self.ShadowMap:GetCascadeCount() do
 		local shadow_cmd = self.ShadowMap:Begin(cascade_idx)
 		render.PushCommandBuffer(shadow_cmd)
 		event.Call("DrawAllShadows", self.ShadowMap, cascade_idx)
 		render.PopCommandBuffer()
 		self.ShadowMap:End(cascade_idx)
+	end
+
+	if self.InsetShadowMap then
+		for cascade_idx = 1, self.InsetShadowMap:GetCascadeCount() do
+			local shadow_cmd = self.InsetShadowMap:Begin(cascade_idx)
+			render.PushCommandBuffer(shadow_cmd)
+			event.Call("DrawAllShadows", self.InsetShadowMap, cascade_idx)
+			render.PopCommandBuffer()
+			self.InsetShadowMap:End(cascade_idx)
+		end
 	end
 end
 

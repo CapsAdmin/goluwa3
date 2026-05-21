@@ -754,6 +754,9 @@ function CommandBuffer:SetDepthBias(constant_factor, clamp, slope_factor)
 	constant_factor = constant_factor or 0
 	clamp = clamp or 0
 	slope_factor = slope_factor or 0
+	local device = self.command_pool and self.command_pool.device
+
+	if device and not device.supports_depth_bias_clamp then clamp = 0 end
 
 	if
 		not should_apply_dynamic_state_tuple3(self, "depth_bias", constant_factor, clamp, slope_factor)

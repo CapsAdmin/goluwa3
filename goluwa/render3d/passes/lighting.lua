@@ -108,7 +108,12 @@ local function write_lighting_data(self, block)
 	for i = 0, MAX_CASCADES - 1 do
 		block.shadows.shadow_map_indices[i] = -1
 		block.shadows.cascade_splits[i] = -1
+		block.shadows.cascade_texel_world_sizes[i] = 0
 	end
+
+	block.shadows.inset_shadow_map_index = -1
+	block.shadows.inset_shadow_distance = 0
+	block.shadows.inset_shadow_texel_world_size = 0
 
 	if sun then
 		local shadow_map = sun:GetShadowMap()
@@ -118,9 +123,17 @@ local function write_lighting_data(self, block)
 			block.shadows.shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
 			shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block.shadows.light_space_matrices[i - 1])
 			block.shadows.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
+			block.shadows.cascade_texel_world_sizes[i - 1] = shadow_map:GetCascadeTexelWorldSize(i)
 		end
 
 		block.shadows.cascade_count = cascade_count
+
+		if sun.InsetShadowMap then
+			block.shadows.inset_shadow_map_index = self:GetTextureIndex(sun.InsetShadowMap:GetDepthTexture(1))
+			sun.InsetShadowMap:GetLightSpaceMatrix(1):CopyToFloatPointer(block.shadows.inset_light_space_matrix)
+			block.shadows.inset_shadow_distance = sun.InsetShadowMap:GetCascadeSplits()[1] or 0
+			block.shadows.inset_shadow_texel_world_size = sun.InsetShadowMap:GetCascadeTexelWorldSize(1)
+		end
 	else
 		block.shadows.cascade_count = 0
 	end
@@ -294,8 +307,13 @@ return {
 							"shadows",
 							{
 								{"light_space_matrices", "mat4", 4},
+								{"inset_light_space_matrix", "mat4"},
 								{"cascade_splits", "float", 4},
+								{"cascade_texel_world_sizes", "float", 4},
+								{"inset_shadow_distance", "float"},
+								{"inset_shadow_texel_world_size", "float"},
 								{"shadow_map_indices", "int", 4},
+								{"inset_shadow_map_index", "int"},
 								{"cascade_count", "int"},
 							},
 							function(self, block, key)
@@ -326,18 +344,34 @@ return {
 										block[key].shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
 										shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block[key].light_space_matrices[i - 1])
 										block[key].cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
+										block[key].cascade_texel_world_sizes[i - 1] = shadow_map:GetCascadeTexelWorldSize(i)
 									end
 
 									block[key].cascade_count = cascade_count
+									block[key].inset_shadow_map_index = -1
+									block[key].inset_shadow_distance = 0
+									block[key].inset_shadow_texel_world_size = 0
 
-									-- Fill remaining slots with -1
+									if sun.InsetShadowMap then
+										block[key].inset_shadow_map_index = self:GetTextureIndex(sun.InsetShadowMap:GetDepthTexture(1))
+										sun.InsetShadowMap:GetLightSpaceMatrix(1):CopyToFloatPointer(block[key].inset_light_space_matrix)
+										block[key].inset_shadow_distance = sun.InsetShadowMap:GetCascadeSplits()[1] or 0
+										block[key].inset_shadow_texel_world_size = sun.InsetShadowMap:GetCascadeTexelWorldSize(1)
+									end
+
+									-- Fill remaining slots with defaults
 									for i = cascade_count + 1, 4 do
+										block[key].cascade_texel_world_sizes[i - 1] = 0
 										block[key].shadow_map_indices[i - 1] = -1
 									end
 								else
 									block[key].cascade_count = 0
+									block[key].inset_shadow_map_index = -1
+									block[key].inset_shadow_distance = 0
+									block[key].inset_shadow_texel_world_size = 0
 
 									for i = 0, 3 do
+										block[key].cascade_texel_world_sizes[i] = 0
 										block[key].shadow_map_indices[i] = -1
 									end
 								end
@@ -585,24 +619,54 @@ return {
 				return lighting_data.shadows.cascade_count - 1;
 			}
 
-			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
-				if (cascade_idx < 0 || cascade_idx >= lighting_data.shadows.cascade_count) return 1.0;
+			float getShadowReceiverPlaneBias(vec2 uv, float current_depth, vec2 texel_size, float filter_radius_texels) {
+				vec2 uv_dx = dFdx(uv);
+				vec2 uv_dy = dFdy(uv);
+				float depth_dx = dFdx(current_depth);
+				float depth_dy = dFdy(current_depth);
+				float det = uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x;
 
-				int shadow_map_idx = lighting_data.shadows.shadow_map_indices[cascade_idx];
-				if (shadow_map_idx < 0) return 1.0;
-				
-				float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
-				vec3 offset_pos = world_pos + normal * bias_val;
-				vec4 light_space_pos = lighting_data.shadows.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
-				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
-				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
-				
-				if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
-					return 1.0;
+				if (abs(det) < 1e-8) {
+					return 0.0;
 				}
+
+				vec2 depth_grad_uv = vec2(
+					(depth_dx * uv_dy.y - depth_dy * uv_dx.y) / det,
+					(depth_dy * uv_dx.x - depth_dx * uv_dy.x) / det
+				);
+				return dot(abs(depth_grad_uv), texel_size * filter_radius_texels);
+			}
+
+			bool projectShadowMap(
+				mat4 light_space_matrix,
+				vec3 world_pos,
+				vec3 normal,
+				vec3 light_dir,
+				float texel_world_size,
+				out vec3 proj_coords
+			) {
+				float normal_bias = max(texel_world_size * 1.5, 0.0005);
+				float bias_val = normal_bias * max(1.0 - dot(normal, light_dir), 0.15);
+				vec3 offset_pos = world_pos + normal * bias_val;
+				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
+				proj_coords = light_space_pos.xyz / light_space_pos.w;
+				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
+				return !(
+					proj_coords.z > 1.0 ||
+					proj_coords.z < 0.0 ||
+					proj_coords.x < 0.0 ||
+					proj_coords.x > 1.0 ||
+					proj_coords.y < 0.0 ||
+					proj_coords.y > 1.0
+				);
+			}
+
+			float sampleShadowProjection(int shadow_map_idx, vec3 proj_coords, float filter_radius_texels) {
 				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
 				vec2 texel_size = 1.0 / shadow_size;
 				float current_depth = proj_coords.z;
+				float receiver_bias = getShadowReceiverPlaneBias(proj_coords.xy, current_depth, texel_size, filter_radius_texels);
+				receiver_bias = max(receiver_bias, 0.00002);
 				float shadow_val = 0.0;
 				const vec2 POISSON_DISK[12] = vec2[12](
 					vec2(-0.326, -0.406),
@@ -618,12 +682,57 @@ return {
 					vec2(-0.322, -0.933),
 					vec2(-0.792, -0.598)
 				);
+
 				for (int i = 0; i < 12; ++i) {
-					vec2 offset = POISSON_DISK[i] * 1.35 * texel_size;
+					vec2 offset = POISSON_DISK[i] * filter_radius_texels * texel_size;
 					float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + offset).r;
-					shadow_val += current_depth - 0.0001 > pcf_depth ? 0.0 : 1.0;
+					shadow_val += current_depth - receiver_bias > pcf_depth ? 0.0 : 1.0;
 				}
+
 				return shadow_val / 12.0;
+			}
+
+			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
+				if (cascade_idx < 0 || cascade_idx >= lighting_data.shadows.cascade_count) return 1.0;
+
+				int shadow_map_idx = lighting_data.shadows.shadow_map_indices[cascade_idx];
+				if (shadow_map_idx < 0) return 1.0;
+
+				vec3 proj_coords;
+
+				if (!projectShadowMap(
+					lighting_data.shadows.light_space_matrices[cascade_idx],
+					world_pos,
+					normal,
+					light_dir,
+					lighting_data.shadows.cascade_texel_world_sizes[cascade_idx],
+					proj_coords
+				)) {
+					return 1.0;
+				}
+
+				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
+			}
+
+			bool sampleInsetShadow(vec3 world_pos, vec3 normal, vec3 light_dir, out float shadow) {
+				shadow = 1.0;
+				if (lighting_data.shadows.inset_shadow_map_index < 0) return false;
+
+				vec3 proj_coords;
+
+				if (!projectShadowMap(
+					lighting_data.shadows.inset_light_space_matrix,
+					world_pos,
+					normal,
+					light_dir,
+					lighting_data.shadows.inset_shadow_texel_world_size,
+					proj_coords
+				)) {
+					return false;
+				}
+
+				shadow = sampleShadowProjection(lighting_data.shadows.inset_shadow_map_index, proj_coords, 1.0);
+				return true;
 			}
 
 			// PCF Shadow calculation with cascade blending near split boundaries.
@@ -634,23 +743,35 @@ return {
 				float dist = -(lighting_data.view * vec4(world_pos, 1.0)).z;
 				float shadow = sampleShadowCascade(cascade_idx, world_pos, normal, light_dir);
 
-				if (cascade_idx >= lighting_data.shadows.cascade_count - 1) {
-					return shadow;
+				if (cascade_idx < lighting_data.shadows.cascade_count - 1) {
+					float previous_split = cascade_idx > 0 ? lighting_data.shadows.cascade_splits[cascade_idx - 1] : 0.0;
+					float current_split = lighting_data.shadows.cascade_splits[cascade_idx];
+					float cascade_span = max(current_split - previous_split, 0.0001);
+					float blend_band = max(cascade_span * 0.15, 8.0);
+					float blend_start = current_split - blend_band;
+
+					if (dist > blend_start) {
+						float next_shadow = sampleShadowCascade(cascade_idx + 1, world_pos, normal, light_dir);
+						float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
+						shadow = mix(shadow, next_shadow, blend);
+					}
 				}
 
-				float previous_split = cascade_idx > 0 ? lighting_data.shadows.cascade_splits[cascade_idx - 1] : 0.0;
-				float current_split = lighting_data.shadows.cascade_splits[cascade_idx];
-				float cascade_span = max(current_split - previous_split, 0.0001);
-				float blend_band = max(cascade_span * 0.15, 8.0);
-				float blend_start = current_split - blend_band;
+				if (lighting_data.shadows.inset_shadow_map_index >= 0 && dist < lighting_data.shadows.inset_shadow_distance) {
+					float inset_shadow = 1.0;
 
-				if (dist <= blend_start) {
-					return shadow;
+					if (sampleInsetShadow(world_pos, normal, light_dir, inset_shadow)) {
+						float inset_band = max(lighting_data.shadows.inset_shadow_distance * 0.25, 4.0);
+						float inset_blend = 1.0 - smoothstep(
+							max(lighting_data.shadows.inset_shadow_distance - inset_band, 0.0),
+							lighting_data.shadows.inset_shadow_distance,
+							dist
+						);
+						shadow = mix(shadow, inset_shadow, inset_blend);
+					}
 				}
 
-				float next_shadow = sampleShadowCascade(cascade_idx + 1, world_pos, normal, light_dir);
-				float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
-				return mix(shadow, next_shadow, blend);
+				return shadow;
 			}
 
 			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex) {

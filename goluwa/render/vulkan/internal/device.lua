@@ -248,6 +248,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		enabled_features[0].depthClamp = 1
 	end
 
+	if physical_features.depthBiasClamp == 1 then
+		enabled_features[0].depthBiasClamp = 1
+	end
+
 	if physical_features.independentBlend == 1 then
 		enabled_features[0].independentBlend = 1
 	end
@@ -380,6 +384,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local device = Device:CreateObject{
 		ptr = ptr,
 		independent_blend = physical_features.independentBlend == 1,
+		supports_depth_bias_clamp = enabled_features[0].depthBiasClamp == 1,
 		fill_mode_non_solid_enabled = physical_features.fillModeNonSolid == 1,
 		has_extended_dynamic_state = has_extended_dynamic_state,
 		has_extended_dynamic_state2 = has_extended_dynamic_state2,

@@ -30,8 +30,13 @@ sun.light:SetCastShadows{
 		1,
 		1,
 	},
-	cascade_split_lambda = 0.9,
+	cascade_split_lambda = 0.75,
 	max_shadow_distance = 2700,
+	inset_shadows = {
+		size = Vec2() + 4096,
+		distance = 16,
+		zoom_factor = 1.75,
+	},
 	near_plane = 1,
 	far_plane = 2700,
 }

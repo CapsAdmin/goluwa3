@@ -387,6 +387,7 @@ local function build_shadow_pipeline_config(
 		FrontFace = orientation.FRONT_FACE,
 		DepthBias = true,
 		DepthBiasConstantFactor = 0.5,
+		DepthBiasClamp = 0.01,
 		DepthBiasSlopeFactor = 1.25,
 		LogicOpEnabled = false,
 		LogicOp = "copy",
@@ -439,6 +440,7 @@ function ShadowMap.New(config)
 		self.cascade[i] = {
 			position = Vec3(0, 0, 0),
 			size = cascade_size,
+			texel_world_size = 0,
 			view_matrix = Matrix44(),
 			cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
 			light_space_matrix = Matrix44(),
@@ -587,11 +589,22 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 	for cascade_idx = 1, self.cascade_count do
 		local split_far = self.cascade_splits[cascade_idx]
 		local corners = get_frustum_slice_corners(cam, previous_split, split_far)
-		local center = cam:GetPosition() + cam:GetRotation():GetForward() * (
-				previous_split + (
-					split_far - previous_split
-				) * 0.35
-			)
+		local center = Vec3(0, 0, 0)
+
+		for i = 1, #corners do
+			center = center + corners[i]
+		end
+
+		center = center / #corners
+		local sphere_radius = 0
+
+		for i = 1, #corners do
+			local offset = corners[i] - center
+			local distance = offset:GetLength()
+
+			if distance > sphere_radius then sphere_radius = distance end
+		end
+
 		local center_ls = world_to_light:TransformVector(center)
 		local min_x, min_y, min_z = math.huge, math.huge, math.huge
 		local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
@@ -613,17 +626,13 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 		end
 
 		local zoom_factor = self.cascade_zoom_factors[cascade_idx] or 1
-		local radius = math.max(
-			max_x - center_ls.x,
-			center_ls.x - min_x,
-			max_y - center_ls.y,
-			center_ls.y - min_y
-		)
+		local radius = sphere_radius
 		radius = radius / zoom_factor
 		radius = math.max(radius * 1.05, 0.0001)
 		local cascade_size = self.cascade[cascade_idx].size or self.size
 		local texel_world_x = math.max((radius * 2.0) / cascade_size.w, 0.0001)
 		local texel_world_y = math.max((radius * 2.0) / cascade_size.h, 0.0001)
+		self.cascade[cascade_idx].texel_world_size = math.max(texel_world_x, texel_world_y)
 		center_ls.x = math.floor(center_ls.x / texel_world_x + 0.5) * texel_world_x
 		center_ls.y = math.floor(center_ls.y / texel_world_y + 0.5) * texel_world_y
 		local shadow_center = light_to_world:TransformVector(center_ls)
@@ -650,9 +659,6 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 			if corner.z > max_z then max_z = corner.z end
 		end
 
-		radius = math.max(math.abs(min_x), math.abs(max_x), math.abs(min_y), math.abs(max_y))
-		radius = radius / zoom_factor
-		radius = math.max(radius * 1.05, 0.0001)
 		min_x = -radius
 		max_x = radius
 		min_y = -radius
@@ -886,6 +892,10 @@ end
 -- Get the light space matrix for transforming in main pass
 function ShadowMap:GetLightSpaceMatrix(cascade_index)
 	return self.cascade[cascade_index].light_space_matrix
+end
+
+function ShadowMap:GetCascadeTexelWorldSize(cascade_index)
+	return self.cascade[cascade_index].texel_world_size or 0
 end
 
 -- Get cascade split distances (view-space depth values)
