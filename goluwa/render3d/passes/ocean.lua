@@ -9,29 +9,38 @@ local WAVE_TEX_WORLD_HALF = 1024.0
 local WAVE_NEAR_WORLD_HALF = 64.0
 local WAVE_NEAR_REPEAT_WORLD_HALF = 64.0
 
+local function get_primary_sun(lights)
+	lights = lights or render3d.GetLights()
+
+	for _, light in ipairs(lights) do
+		if light.LightType == "sun" then return light end
+	end
+
+	return nil
+end
+
 local function get_primary_sun_direction()
 	local lights = render3d.GetLights()
 	local sun_dir = Vec3(0, 1, 0)
+	local sun = get_primary_sun(lights)
 
-	if lights[1] then
-		sun_dir = lights[1].Owner.transform:GetRotation():GetBackward()
-	end
+	if sun then sun_dir = sun.Owner.transform:GetRotation():GetBackward() end
 
 	return sun_dir
 end
 
 local function get_primary_sun_intensity()
-	local lights = render3d.GetLights()
+	local sun = get_primary_sun(render3d.GetLights())
 
-	if lights[1] then return lights[1].Intensity end
+	if sun then return sun.Intensity end
 
 	return atmosphere.GetSunIntensity()
 end
 
 local function get_primary_sun_color()
-	local lights = render3d.GetLights()
+	local sun = get_primary_sun(render3d.GetLights())
 
-	if lights[1] then return lights[1].Color end
+	if sun then return sun.Color end
 
 	return Vec3(1, 1, 1)
 end

@@ -1308,36 +1308,48 @@ function steam.SpawnMapEntities(path, parent)
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent.light_group = parent.light_group or Entity.New{Name = "lights", Parent = parent}
 					parent.light_group:SetName("lights")
-					local ent = Entity.New{Name = "light", Parent = parent.light_group}
+					local ent = Entity.New{Name = info.classname, Parent = parent.light_group}
 					local tr = ent:AddComponent("transform")
-					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
+					local position = source_pos_to_engine(info.origin)
 					tr:SetPosition(position)
 					local light = ent:AddComponent("light")
-					light:SetName("point")
-					light:SetLightType("point")
 					-- Color is already in linear space from parsing
 					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
 					local brightness = info._light.brightness
-					-- Source intensity formula with quadratic attenuation: I = brightness / d²
-					-- Scale intensity for our renderer (empirically tuned)
 					light:SetIntensity(math.clamp(brightness / 800, 1, 100))
-					-- Calculate range where light drops below ~1% intensity
-					-- At threshold 0.01: d = sqrt(brightness / 0.01) Source units
-					-- Then convert to meters
 					local threshold = 0.01
 					local range_source_units = math.sqrt(brightness / threshold)
 					local range = range_source_units * steam.source2meters
 
 					if info._zero_percent_distance and info._zero_percent_distance > 0 then
-						-- Source allows explicit cutoff distance (in Source units)
 						range = info._zero_percent_distance * steam.source2meters
 					elseif info._fifty_percent_distance and info._fifty_percent_distance > 0 then
-						-- 50% distance: intensity = brightness/d² = 0.5*brightness
-						-- So cutoff is roughly 2x this distance
 						range = info._fifty_percent_distance * steam.source2meters * 2
+					elseif info._distance and info._distance > 0 then
+						--range = info._distance * steam.source2meters
+						range = math.clamp(range * 4, 1, 150)
 					end
 
-					light:SetRange(math.clamp(range * 4, 1, 150))
+					if info.classname == "light_spot" then
+						local pitch = tonumber(info.pitch) or (info.angles and info.angles.x) or 0
+						local yaw = info.angles and info.angles.y or 0
+						local roll = info.angles and (info.angles.r or info.angles.z) or 0
+						local inner_cone = math.clamp(tonumber(info._inner_cone) or 45, 0, 180)
+						local outer_cone = math.clamp(tonumber(info._cone) or inner_cone, inner_cone, 180)
+						local source_angles = Deg3(pitch, yaw, roll)
+						local engine_forward = source_angles:GetForward()
+						local rotation = Quat()
+						rotation:SetAngles((-engine_forward):GetAngles())
+						tr:SetRotation(rotation)
+						light:SetLightType("directional")
+						light:SetRange(math.clamp(range, 1, 150))
+						light:SetInnerCone(math.cos(math.rad(inner_cone)))
+						light:SetOuterCone(math.cos(math.rad(outer_cone)))
+					else
+						light:SetLightType("point")
+						light:SetRange(math.clamp(range * 4, 1, 150))
+					end
+
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then
 

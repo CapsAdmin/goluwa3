@@ -54,8 +54,9 @@ function Light:SetCastShadows(config)
 	self.CastShadows = config
 	local cascade_count = config.cascade_count or (config.cascade_sizes and #config.cascade_sizes) or nil
 
-	if self.LightType == "directional" or self.LightType == "sun" then
+	if self.LightType == "sun" then
 		self.ShadowMap = ShadowMap.New{
+			mode = "sun",
 			size = config.size,
 			cascade_sizes = config.cascade_sizes,
 			cascade_zoom_factors = config.cascade_zoom_factors,
@@ -83,9 +84,26 @@ function Light:SetCastShadows(config)
 		else
 			self.InsetShadowMap = nil
 		end
+	elseif self.LightType == "directional" then
+		self.ShadowMap = ShadowMap.New{
+			mode = "directional",
+			size = config.size,
+			cascade_count = 1,
+			cascade_sizes = {config.size},
+			ortho_size = config.ortho_size or self.Range,
+			near_plane = config.near_plane or 0.1,
+			far_plane = config.far_plane or self.Range,
+			max_shadow_distance = config.max_shadow_distance or self.Range,
+		}
+		self.InsetShadowMap = nil
 	elseif self.LightType == "point" then
-		error("NYI point light", 2)
-		self.CastShadows = false
+		self.ShadowMap = ShadowMap.New{
+			mode = "point",
+			size = config.size,
+			near_plane = config.near_plane or 0.05,
+			far_plane = config.far_plane or config.range or self.Range,
+		}
+		self.InsetShadowMap = nil
 	elseif self.LightType == "spot" then
 		error("NYI spot light", 2)
 		self.CastShadows = false
@@ -98,7 +116,19 @@ end
 function Light:UpdateShadowMap()
 	if not self.ShadowMap then return end
 
-	self.ShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation())
+	if self.LightType == "point" then
+		self.ShadowMap:UpdatePointLightMatrices(self.Owner.transform:GetPosition())
+	elseif self.LightType == "directional" then
+		local shadow_rotation = self.Owner.transform:GetRotation() * Quat():SetAngles(Deg3(0, 180, 0))
+		self.ShadowMap:UpdateLocalDirectionalLightMatrices(
+			self.Owner.transform:GetPosition(),
+			shadow_rotation,
+			self.Range,
+			self.ShadowMap:GetSize().w > 0 and self.ShadowMap.ortho_size or self.Range
+		)
+	else
+		self.ShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation())
+	end
 
 	if self.InsetShadowMap then
 		self.InsetShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation())

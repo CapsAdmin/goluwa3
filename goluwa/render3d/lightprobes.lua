@@ -12,13 +12,22 @@ local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = {}
 
+local function get_primary_sun(lights)
+	lights = lights or render3d.GetLights()
+
+	for _, light in ipairs(lights) do
+		if light.LightType == "sun" then return light end
+	end
+
+	return nil
+end
+
 local function get_primary_sun_direction()
 	local lights = render3d.GetLights()
 	local sun_dir = Vec3(0, 1, 0)
+	local sun = get_primary_sun(lights)
 
-	if lights[1] then
-		sun_dir = lights[1].Owner.transform:GetRotation():GetBackward()
-	end
+	if sun then sun_dir = sun.Owner.transform:GetRotation():GetBackward() end
 
 	return sun_dir
 end
@@ -386,10 +395,10 @@ function lightprobes.CreatePipelines()
 							"sun_direction",
 							"vec4",
 							function(self, block, key)
-								local lights = render3d.GetLights()
+								local sun = get_primary_sun(render3d.GetLights())
 
-								if lights[1] then
-									lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+								if sun then
+									sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 								end
 							end,
 						},
@@ -497,10 +506,10 @@ function lightprobes.CreatePipelines()
 							"sun_direction",
 							"vec4",
 							function(self, block, key)
-								local lights = render3d.GetLights()
+								local sun = get_primary_sun(render3d.GetLights())
 
-								if lights[1] then
-									lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+								if sun then
+									sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 								end
 							end,
 						},
@@ -736,10 +745,10 @@ local function write_probe_data(self, block)
 	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
 	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
-	local lights = render3d.GetLights()
+	local sun = get_primary_sun(render3d.GetLights())
 
-	if lights[1] then
-		lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
+	if sun then
+		sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
 	else
 		block.sun_direction[0] = 0
 		block.sun_direction[1] = 1
@@ -759,10 +768,10 @@ local function write_sky_fragment_constants(self, block)
 	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
 	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
-	local lights = render3d.GetLights()
+	local sun = get_primary_sun(render3d.GetLights())
 
-	if lights[1] then
-		lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
+	if sun then
+		sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
 	else
 		block.sun_direction[0] = 0
 		block.sun_direction[1] = 1
@@ -814,11 +823,11 @@ end
 
 -- Check if sun direction has changed significantly
 function lightprobes.HasSunDirectionChanged()
-	local lights = render3d.GetLights()
+	local sun = get_primary_sun(render3d.GetLights())
 
-	if not lights[1] then return false end
+	if not sun then return false end
 
-	local current_sun_dir = lights[1].Owner.transform:GetRotation():GetBackward()
+	local current_sun_dir = sun.Owner.transform:GetRotation():GetBackward()
 
 	if not lightprobes.last_sun_direction then
 		lightprobes.last_sun_direction = current_sun_dir:Copy()

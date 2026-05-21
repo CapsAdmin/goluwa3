@@ -6,19 +6,38 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 
-local function get_primary_sun_direction()
-	local lights = render3d.GetLights()
-	local sun_dir = Vec3(0, 1, 0)
+local function get_primary_sun(lights)
+	lights = lights or render3d.GetLights()
 
-	if lights[1] then
-		sun_dir = lights[1].Owner.transform:GetRotation():GetBackward()
+	for i, light in ipairs(lights) do
+		if light.LightType == "sun" then return light, i - 1 end
 	end
+
+	return nil, -1
+end
+
+local function get_primary_sun_direction(lights)
+	lights = lights or render3d.GetLights()
+	local sun_dir = Vec3(0, 1, 0)
+	local sun = get_primary_sun(lights)
+
+	if sun then sun_dir = sun.Owner.transform:GetRotation():GetBackward() end
 
 	return sun_dir
 end
 
+local function get_primary_sun_intensity(lights)
+	lights = lights or render3d.GetLights()
+	local sun = get_primary_sun(lights)
+
+	if sun then return sun.Intensity end
+
+	return atmosphere.GetSunIntensity()
+end
+
 local MAX_LIGHTS = 128
 local MAX_CASCADES = 4
+local MAX_POINT_SHADOWS = 4
 local MAX_PROBES = 64
 local SSAO_KERNEL = {}
 
@@ -31,35 +50,127 @@ for i = 1, 64 do
 	SSAO_KERNEL[i] = sample * scale
 end
 
-local function write_lighting_data(self, block)
-	render3d.WriteCameraBlock(self, block)
+local function write_shadow_block(self, shadow_block, lights)
+	local sun, sun_light_index = get_primary_sun(lights)
+	local directional = nil
+	local directional_light_index = -1
+	local point_shadow_count = 0
 
-	for i, sample in ipairs(SSAO_KERNEL) do
-		sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
+	for i = 0, MAX_CASCADES - 1 do
+		shadow_block.shadow_map_indices[i] = -1
+		shadow_block.cascade_splits[i] = -1
+		shadow_block.cascade_texel_world_sizes[i] = 0
 	end
 
-	local lights = render3d.GetLights()
-	local light_count = math.min(#lights, MAX_LIGHTS)
-	block.light_count = light_count
+	shadow_block.inset_shadow_map_index = -1
+	shadow_block.inset_shadow_distance = 0
+	shadow_block.inset_shadow_texel_world_size = 0
+	shadow_block.directional_shadow_light_index = -1
+	shadow_block.local_directional_shadow_map_index = -1
+	shadow_block.local_directional_shadow_light_index = -1
+	shadow_block.local_directional_shadow_texel_world_size = 0
+	shadow_block.cascade_count = 0
 
+	for i = 0, 15 do
+		shadow_block.local_directional_light_space_matrix[i] = 0
+	end
+
+	for i = 0, MAX_POINT_SHADOWS - 1 do
+		shadow_block.point_shadow_map_indices[i] = -1
+		shadow_block.point_shadow_light_indices[i] = -1
+		shadow_block.point_shadow_positions[i][0] = 0
+		shadow_block.point_shadow_positions[i][1] = 0
+		shadow_block.point_shadow_positions[i][2] = 0
+		shadow_block.point_shadow_positions[i][3] = 0
+	end
+
+	shadow_block.point_shadow_count = 0
+
+	for light_index, light in ipairs(lights) do
+		if light_index > MAX_LIGHTS then break end
+
+		if
+			not directional and
+			light.LightType == "directional" and
+			light:GetCastShadows()
+		then
+			directional = light
+			directional_light_index = light_index - 1
+		elseif
+			light.LightType == "point" and
+			light:GetCastShadows() and
+			point_shadow_count < MAX_POINT_SHADOWS
+		then
+			point_shadow_count = point_shadow_count + 1
+			local shadow_map = light:GetShadowMap()
+			shadow_block.point_shadow_map_indices[point_shadow_count - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture())
+			light.Owner.transform:GetPosition():CopyToFloatPointer(shadow_block.point_shadow_positions[point_shadow_count - 1])
+			shadow_block.point_shadow_positions[point_shadow_count - 1][3] = shadow_map:GetFarPlane()
+			shadow_block.point_shadow_light_indices[point_shadow_count - 1] = light_index - 1
+		end
+	end
+
+	shadow_block.point_shadow_count = point_shadow_count
+
+	if sun and not sun:GetCastShadows() then
+		sun = nil
+		sun_light_index = -1
+	end
+
+	if sun then
+		local shadow_map = sun:GetShadowMap()
+		local cascade_count = shadow_map:GetCascadeCount()
+
+		for i = 1, cascade_count do
+			shadow_block.shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
+			shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[i - 1])
+			shadow_block.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
+			shadow_block.cascade_texel_world_sizes[i - 1] = shadow_map:GetCascadeTexelWorldSize(i)
+		end
+
+		shadow_block.cascade_count = cascade_count
+		shadow_block.directional_shadow_light_index = sun_light_index
+
+		if sun.InsetShadowMap then
+			shadow_block.inset_shadow_map_index = self:GetTextureIndex(sun.InsetShadowMap:GetDepthTexture(1))
+			sun.InsetShadowMap:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
+			shadow_block.inset_shadow_distance = sun.InsetShadowMap:GetCascadeSplits()[1] or 0
+			shadow_block.inset_shadow_texel_world_size = sun.InsetShadowMap:GetCascadeTexelWorldSize(1)
+		end
+	end
+
+	if directional then
+		local shadow_map = directional:GetShadowMap()
+		shadow_block.local_directional_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
+		shadow_block.local_directional_shadow_light_index = directional_light_index
+		shadow_block.local_directional_shadow_texel_world_size = shadow_map:GetCascadeTexelWorldSize(1)
+		shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.local_directional_light_space_matrix)
+	end
+end
+
+local function write_lights_block(lights_block, lights)
 	for i = 0, MAX_LIGHTS - 1 do
-		local data = block.lights[i]
+		local data = lights_block[i]
 		local light = lights[i + 1]
 
 		if light then
-			if light.LightType == "directional" or light.LightType == "sun" then
-				light.Owner.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
-				data.position[3] = 0
-			else
-				light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
+			local rotation = light.Owner.transform:GetRotation()
+			local direction = light.LightType == "directional" and
+				rotation:GetBackward() or
+				rotation:GetForward()
+			light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
+			direction:CopyToFloatPointer(data.direction)
 
-				if light.LightType == "point" then
-					data.position[3] = 1
-				elseif light.LightType == "spot" then
-					data.position[3] = 2
-				else
-					error("Unknown light type: " .. tostring(light.LightType), 2)
-				end
+			if light.LightType == "sun" then
+				data.position[3] = 0
+			elseif light.LightType == "point" then
+				data.position[3] = 1
+			elseif light.LightType == "directional" then
+				data.position[3] = 2
+			elseif light.LightType == "spot" then
+				data.position[3] = 3
+			else
+				error("Unknown light type: " .. tostring(light.LightType), 2)
 			end
 
 			data.color[0] = light.Color.r
@@ -75,6 +186,10 @@ local function write_lighting_data(self, block)
 			data.position[1] = 0
 			data.position[2] = 0
 			data.position[3] = 0
+			data.direction[0] = 0
+			data.direction[1] = 0
+			data.direction[2] = 1
+			data.direction[3] = 0
 			data.color[0] = 0
 			data.color[1] = 0
 			data.color[2] = 0
@@ -85,76 +200,32 @@ local function write_lighting_data(self, block)
 			data.params[3] = 0
 		end
 	end
+end
 
-	local sun = nil
+local function write_lighting_data(self, block)
+	render3d.WriteCameraBlock(self, block)
 
-	for i, light in ipairs(lights) do
-		if i > MAX_LIGHTS then break end
-
-		if
-			(
-				light.LightType == "sun" or
-				light.LightType == "directional"
-			)
-			and
-			light:GetCastShadows()
-		then
-			sun = light
-
-			break
-		end
+	for i, sample in ipairs(SSAO_KERNEL) do
+		sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
 	end
 
-	for i = 0, MAX_CASCADES - 1 do
-		block.shadows.shadow_map_indices[i] = -1
-		block.shadows.cascade_splits[i] = -1
-		block.shadows.cascade_texel_world_sizes[i] = 0
-	end
-
-	block.shadows.inset_shadow_map_index = -1
-	block.shadows.inset_shadow_distance = 0
-	block.shadows.inset_shadow_texel_world_size = 0
-
-	if sun then
-		local shadow_map = sun:GetShadowMap()
-		local cascade_count = shadow_map:GetCascadeCount()
-
-		for i = 1, cascade_count do
-			block.shadows.shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
-			shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block.shadows.light_space_matrices[i - 1])
-			block.shadows.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
-			block.shadows.cascade_texel_world_sizes[i - 1] = shadow_map:GetCascadeTexelWorldSize(i)
-		end
-
-		block.shadows.cascade_count = cascade_count
-
-		if sun.InsetShadowMap then
-			block.shadows.inset_shadow_map_index = self:GetTextureIndex(sun.InsetShadowMap:GetDepthTexture(1))
-			sun.InsetShadowMap:GetLightSpaceMatrix(1):CopyToFloatPointer(block.shadows.inset_light_space_matrix)
-			block.shadows.inset_shadow_distance = sun.InsetShadowMap:GetCascadeSplits()[1] or 0
-			block.shadows.inset_shadow_texel_world_size = sun.InsetShadowMap:GetCascadeTexelWorldSize(1)
-		end
-	else
-		block.shadows.cascade_count = 0
-	end
-
+	local lights = render3d.GetLights()
+	local light_count = math.min(#lights, MAX_LIGHTS)
+	block.light_count = light_count
+	write_lights_block(block.lights, lights)
+	write_shadow_block(self, block.shadows, lights)
 	render3d.WriteDebugBlock(self, block)
 	render3d.WriteGBufferBlock(self, block)
 	block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 	render3d.WriteLastFrameBlock(self, block)
 	render3d.WriteCommonBlock(self, block)
-
-	if lights[1] then
-		block.primary_sun_intensity = lights[1].Intensity
-	else
-		block.primary_sun_intensity = atmosphere.GetSunIntensity()
-	end
-
+	get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
+	block.primary_sun_intensity = get_primary_sun_intensity(lights)
 	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
 	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-		atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction())
+		atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(lights))
 	)
 
 	if
@@ -219,22 +290,8 @@ return {
 							"ssao_kernel",
 							"vec3",
 							function(self, block, key)
-								local kernel = {}
-
-								for i = 1, 64 do
-									math.randomseed(i)
-									local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
-									sample = sample * math.random()
-									local scale = (i - 1) / 64
-									scale = math.lerp(0.1, 1.0, scale * scale)
-									sample = sample * scale
-									table.insert(kernel, sample)
-								end
-
-								return function(self, block, key)
-									for i, v in ipairs(kernel) do
-										v:CopyToFloatPointer(block[key][i - 1])
-									end
+								for i, v in ipairs(SSAO_KERNEL) do
+									v:CopyToFloatPointer(block[key][i - 1])
 								end
 							end,
 							64,
@@ -243,56 +300,12 @@ return {
 							"lights",
 							{
 								{"position", "vec4"},
+								{"direction", "vec4"},
 								{"color", "vec4"},
 								{"params", "vec4"},
 							},
 							function(self, block, key)
-								local lights = render3d.GetLights()
-
-								for i = 0, 128 - 1 do
-									local data = block[key][i]
-									local light = lights[i + 1]
-
-									if light then
-										if light.LightType == "directional" or light.LightType == "sun" then
-											light.Owner.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
-										else
-											light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
-										end
-
-										if light.LightType == "directional" or light.LightType == "sun" then
-											data.position[3] = 0
-										elseif light.LightType == "point" then
-											data.position[3] = 1
-										elseif light.LightType == "spot" then
-											data.position[3] = 2
-										else
-											error("Unknown light type: " .. tostring(light.LightType), 2)
-										end
-
-										data.color[0] = light.Color.r
-										data.color[1] = light.Color.g
-										data.color[2] = light.Color.b
-										data.color[3] = light.Intensity
-										data.params[0] = light.Range
-										data.params[1] = light.InnerCone
-										data.params[2] = light.OuterCone
-										data.params[3] = 0
-									else
-										data.position[0] = 0
-										data.position[1] = 0
-										data.position[2] = 0
-										data.position[3] = 0
-										data.color[0] = 0
-										data.color[1] = 0
-										data.color[2] = 0
-										data.color[3] = 0
-										data.params[0] = 0
-										data.params[1] = 0
-										data.params[2] = 0
-										data.params[3] = 0
-									end
-								end
+								write_lights_block(block[key], render3d.GetLights())
 							end,
 							128,
 						},
@@ -307,74 +320,26 @@ return {
 							"shadows",
 							{
 								{"light_space_matrices", "mat4", 4},
+								{"local_directional_light_space_matrix", "mat4"},
 								{"inset_light_space_matrix", "mat4"},
 								{"cascade_splits", "float", 4},
 								{"cascade_texel_world_sizes", "float", 4},
+								{"local_directional_shadow_texel_world_size", "float"},
 								{"inset_shadow_distance", "float"},
 								{"inset_shadow_texel_world_size", "float"},
 								{"shadow_map_indices", "int", 4},
+								{"local_directional_shadow_map_index", "int"},
 								{"inset_shadow_map_index", "int"},
+								{"point_shadow_positions", "vec4", MAX_POINT_SHADOWS},
+								{"point_shadow_map_indices", "int", MAX_POINT_SHADOWS},
+								{"point_shadow_light_indices", "int", MAX_POINT_SHADOWS},
+								{"point_shadow_count", "int"},
+								{"directional_shadow_light_index", "int"},
+								{"local_directional_shadow_light_index", "int"},
 								{"cascade_count", "int"},
 							},
 							function(self, block, key)
-								local sun = nil
-
-								for i, light in ipairs(render3d.GetLights()) do
-									if i > 128 then break end
-
-									if
-										(
-											light.LightType == "sun" or
-											light.LightType == "directional"
-										)
-										and
-										light:GetCastShadows()
-									then
-										sun = light
-
-										break
-									end
-								end
-
-								if sun then
-									local shadow_map = sun:GetShadowMap()
-									local cascade_count = shadow_map:GetCascadeCount()
-
-									for i = 1, cascade_count do
-										block[key].shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
-										shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block[key].light_space_matrices[i - 1])
-										block[key].cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
-										block[key].cascade_texel_world_sizes[i - 1] = shadow_map:GetCascadeTexelWorldSize(i)
-									end
-
-									block[key].cascade_count = cascade_count
-									block[key].inset_shadow_map_index = -1
-									block[key].inset_shadow_distance = 0
-									block[key].inset_shadow_texel_world_size = 0
-
-									if sun.InsetShadowMap then
-										block[key].inset_shadow_map_index = self:GetTextureIndex(sun.InsetShadowMap:GetDepthTexture(1))
-										sun.InsetShadowMap:GetLightSpaceMatrix(1):CopyToFloatPointer(block[key].inset_light_space_matrix)
-										block[key].inset_shadow_distance = sun.InsetShadowMap:GetCascadeSplits()[1] or 0
-										block[key].inset_shadow_texel_world_size = sun.InsetShadowMap:GetCascadeTexelWorldSize(1)
-									end
-
-									-- Fill remaining slots with defaults
-									for i = cascade_count + 1, 4 do
-										block[key].cascade_texel_world_sizes[i - 1] = 0
-										block[key].shadow_map_indices[i - 1] = -1
-									end
-								else
-									block[key].cascade_count = 0
-									block[key].inset_shadow_map_index = -1
-									block[key].inset_shadow_distance = 0
-									block[key].inset_shadow_texel_world_size = 0
-
-									for i = 0, 3 do
-										block[key].cascade_texel_world_sizes[i] = 0
-										block[key].shadow_map_indices[i] = -1
-									end
-								end
+								write_shadow_block(self, block[key], render3d.GetLights())
 							end,
 						},
 						render3d.debug_block,
@@ -399,14 +364,14 @@ return {
 							"primary_sun_intensity",
 							"float",
 							function(self, block, key)
-								local lights = render3d.GetLights()
-
-								if lights[1] then
-									block[key] = lights[1].Intensity
-									return
-								end
-
-								block[key] = atmosphere.GetSunIntensity()
+								block[key] = get_primary_sun_intensity(render3d.GetLights())
+							end,
+						},
+						{
+							"primary_sun_direction",
+							"vec4",
+							function(self, block, key)
+								get_primary_sun_direction(render3d.GetLights()):CopyToFloatPointer(block[key])
 							end,
 						},
 						{
@@ -428,7 +393,7 @@ return {
 							"int",
 							function(self, block, key)
 								block[key] = self:GetTextureIndex(
-									atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction())
+									atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(render3d.GetLights()))
 								)
 							end,
 						},
@@ -692,6 +657,69 @@ return {
 				return shadow_val / 12.0;
 			}
 
+			int getPointShadowSlot(int light_index) {
+				for (int i = 0; i < lighting_data.shadows.point_shadow_count; i++) {
+					if (lighting_data.shadows.point_shadow_light_indices[i] == light_index) {
+						return i;
+					}
+				}
+
+				return -1;
+			}
+
+			float samplePointShadowProjection(int shadow_map_idx, vec3 sample_dir, float current_depth, float bias, float filter_radius_texels) {
+				vec3 lookup_dir = normalize(vec3(-sample_dir.x, sample_dir.y, sample_dir.z));
+				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
+				float angular_radius = filter_radius_texels / max(face_size, 1.0);
+				vec3 up = abs(lookup_dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+				vec3 tangent = normalize(cross(up, lookup_dir));
+				vec3 bitangent = cross(lookup_dir, tangent);
+				float visibility = 0.0;
+				const vec2 POISSON_DISK[8] = vec2[8](
+					vec2(-0.326, -0.406),
+					vec2(-0.840, -0.074),
+					vec2(-0.696,  0.457),
+					vec2(-0.203,  0.621),
+					vec2( 0.962, -0.195),
+					vec2( 0.473, -0.480),
+					vec2( 0.519,  0.767),
+					vec2( 0.185, -0.893)
+				);
+
+				for (int i = 0; i < 8; i++) {
+					vec2 offset = POISSON_DISK[i] * angular_radius;
+					vec3 tap_dir = normalize(lookup_dir + tangent * offset.x + bitangent * offset.y);
+					float stored_depth = texture(CUBEMAP(shadow_map_idx), tap_dir).r;
+					visibility += current_depth - bias > stored_depth ? 0.0 : 1.0;
+				}
+
+				return visibility / 8.0;
+			}
+
+			float calculatePointShadow(int shadow_slot, vec3 world_pos, vec3 normal, vec3 light_dir) {
+				if (shadow_slot < 0 || shadow_slot >= lighting_data.shadows.point_shadow_count) return 1.0;
+
+				int shadow_map_idx = lighting_data.shadows.point_shadow_map_indices[shadow_slot];
+				if (shadow_map_idx < 0) return 1.0;
+
+				vec3 light_pos = lighting_data.shadows.point_shadow_positions[shadow_slot].xyz;
+				float far_plane = lighting_data.shadows.point_shadow_positions[shadow_slot].w;
+				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
+				float texel_world_size = far_plane / max(face_size, 1.0);
+				float normal_bias = max(texel_world_size * 2.0, 0.01);
+				float bias_val = normal_bias * max(1.0 - dot(normal, light_dir), 0.2);
+				vec3 offset_pos = world_pos + normal * bias_val;
+				vec3 light_to_surface = offset_pos - light_pos;
+				float light_distance = length(light_to_surface);
+
+				if (light_distance <= 0.0001 || light_distance >= far_plane) return 1.0;
+
+				vec3 sample_dir = light_to_surface / light_distance;
+				float current_depth = light_distance / max(far_plane, 0.0001);
+				float normalized_bias = max(bias_val / max(far_plane, 0.0001), 0.0005);
+				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
+			}
+
 			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
 				if (cascade_idx < 0 || cascade_idx >= lighting_data.shadows.cascade_count) return 1.0;
 
@@ -706,6 +734,26 @@ return {
 					normal,
 					light_dir,
 					lighting_data.shadows.cascade_texel_world_sizes[cascade_idx],
+					proj_coords
+				)) {
+					return 1.0;
+				}
+
+				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
+			}
+
+			float calculateLocalDirectionalShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
+				int shadow_map_idx = lighting_data.shadows.local_directional_shadow_map_index;
+				if (shadow_map_idx < 0) return 1.0;
+
+				vec3 proj_coords;
+
+				if (!projectShadowMap(
+					lighting_data.shadows.local_directional_light_space_matrix,
+					world_pos,
+					normal,
+					light_dir,
+					lighting_data.shadows.local_directional_shadow_texel_world_size,
 					proj_coords
 				)) {
 					return 1.0;
@@ -1009,14 +1057,11 @@ return {
 			}
 
 				vec3 get_primary_sun_direction() {
-					vec3 sunDir = vec3(0, 1, 0);
-					if (lighting_data.light_count > 0) {
-						vec3 p = lighting_data.lights[0].position.xyz;
-						if (length(p) > 0.0001) {
-							sunDir = normalize(-p);
-						}
+					vec3 sunDir = lighting_data.primary_sun_direction.xyz;
+					if (length(sunDir) < 0.0001) {
+						sunDir = vec3(0.0, 1.0, 0.0);
 					}
-					return sunDir;
+					return normalize(sunDir);
 				}
 
 			vec3 get_sky() {
@@ -1077,18 +1122,38 @@ return {
                 for (int i = 0; i < lighting_data.light_count; i++) {
                     lights_t light = lighting_data.lights[i];
                     int type = int(light.position.w);
-                    vec3 L;
-                    float attenuation = 1.0;
-                    if (type == 0) {
-                        L = normalize(-light.position.xyz);
-                    } else {
-                        vec3 light_to_pos = light.position.xyz - world_pos;
-                        float dist = length(light_to_pos);
-                        L = normalize(light_to_pos);
-                        float range = light.params.x;
-                        attenuation = saturate(1.0 - dist / range);
-                        attenuation *= attenuation;
-                    }
+					vec3 light_dir = normalize(light.direction.xyz);
+					vec3 L;
+					float attenuation = 1.0;
+					if (type == 0) {
+						L = normalize(-light_dir);
+					} else if (type == 1) {
+						vec3 light_to_pos = light.position.xyz - world_pos;
+						float dist = length(light_to_pos);
+						L = normalize(light_to_pos);
+						float range = max(light.params.x, 0.0001);
+						attenuation = saturate(1.0 - dist / range);
+						attenuation *= attenuation;
+					} else if (type == 2 || type == 3) {
+						vec3 from_light = world_pos - light.position.xyz;
+						float dist = length(from_light);
+						vec3 cone_dir = dist > 0.0001 ? from_light / dist : light_dir;
+						float range = max(light.params.x, 0.0001);
+						float range_attenuation = saturate(1.0 - dist / range);
+						range_attenuation *= range_attenuation;
+						float inner_cone = clamp(light.params.y, -1.0, 1.0);
+						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
+						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, cone_dir));
+						attenuation = range_attenuation * cone_attenuation;
+
+						if (type == 2) {
+							L = normalize(-light_dir);
+						} else {
+							L = normalize(light.position.xyz - world_pos);
+						}
+					} else {
+						continue;
+					}
                     vec3 H = normalize(V + L);
                     float NoL = saturate(dot(N, L));
                     float NoH = saturate(dot(N, H));
@@ -1103,8 +1168,23 @@ return {
                     vec3 Fd = kD * albedo * Fd_Lambert();
 
                     float shadow_factor = 1.0;
-                    if (i == 0 && lighting_data.shadows.shadow_map_indices[0] >= 0) {
+					if (
+						i == lighting_data.shadows.directional_shadow_light_index &&
+						lighting_data.shadows.shadow_map_indices[0] >= 0 &&
+						type == 0
+					) {
                         shadow_factor = calculateShadow(world_pos, N, L);
+					} else if (
+						i == lighting_data.shadows.local_directional_shadow_light_index &&
+						lighting_data.shadows.local_directional_shadow_map_index >= 0 &&
+						type == 2
+					) {
+						shadow_factor = calculateLocalDirectionalShadow(world_pos, N, L);
+					} else if (type == 1) {
+						int point_shadow_slot = getPointShadowSlot(i);
+						if (point_shadow_slot >= 0) {
+							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, N, L);
+						}
                     }
                     vec3 radiance = light.color.rgb * light.color.a * attenuation;
 					vec3 transmission = vec3(0.0);
@@ -1214,7 +1294,11 @@ return {
 				vec3 sunDir = get_primary_sun_direction();
 				float atmosphere_sun_visibility = 1.0;
 
-				if (lighting_data.light_count > 0 && lighting_data.shadows.shadow_map_indices[0] >= 0) {
+				if (
+					lighting_data.light_count > 0 &&
+					lighting_data.shadows.shadow_map_indices[0] >= 0 &&
+					lighting_data.shadows.directional_shadow_light_index >= 0
+				) {
 					atmosphere_sun_visibility = calculateShadow(world_pos, N, sunDir);
 				}
 

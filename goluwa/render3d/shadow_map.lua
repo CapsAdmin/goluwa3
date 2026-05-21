@@ -19,9 +19,18 @@ local ShadowMap = prototype.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"
+local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
 local TEMP_IDENTITY_CASCADE_OVERRIDE = false
 local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
+local POINT_SHADOW_FACE_ANGLES = {
+	Deg3(0, -90 + 180, 0),
+	Deg3(0, 90 + 180, 0),
+	Deg3(90, 0 + 180, 0),
+	Deg3(-90, 0 + 180, 0),
+	Deg3(0, 0 + 180, 0),
+	Deg3(0, 180 + 180, 0),
+}
 
 local function supports_tessellation()
 	local device = render.GetDevice and render.GetDevice()
@@ -50,6 +59,8 @@ end
 local ShadowVertexConstants = ffi.typeof([[
 	struct {
 		float light_space_matrix[16];
+		float light_position[3];
+		float light_far_plane;
 		int albedo_texture_index;
 		int height_texture_index;
 		int flags;
@@ -68,6 +79,8 @@ local ShadowTransformUniformDecl = [[
 local SHADOW_PUSH_CONSTANT_GLSL = [[
 	layout(push_constant, scalar) uniform Constants {
 		mat4 light_space_matrix;
+			vec3 light_position;
+			float light_far_plane;
 		int albedo_texture_index;
 		int height_texture_index;
 		int flags;
@@ -111,7 +124,7 @@ local function get_shadow_geometry_descriptor_sets(self, bindless_texture_capaci
 	return descriptor_sets
 end
 
-local function build_shadow_fragment_shader(bindless_texture_capacity)
+local function build_shadow_fragment_shader(bindless_texture_capacity, linear_depth_output)
 	local prelude = (
 		[[
 					#version 450
@@ -122,16 +135,34 @@ local function build_shadow_fragment_shader(bindless_texture_capacity)
 
 					%s
 					layout(location = 0) in vec2 in_uv;
+					%s
+					%s
 
 					#define FLAGS pc.flags
 				]]
-	):format(bindless_texture_capacity, SHADOW_PUSH_CONSTANT_GLSL)
-	return prelude .. Material.BuildGlslFlags("pc.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("pc.albedo_texture_index", "pc.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("pc.alpha_cutoff") .. [[
+	):format(
+		bindless_texture_capacity,
+		SHADOW_PUSH_CONSTANT_GLSL,
+		linear_depth_output and "layout(location = 1) in vec3 in_world_pos;" or "",
+		linear_depth_output and "layout(location = 0) out float out_distance;" or ""
+	)
+	return prelude .. Material.BuildGlslFlags("pc.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("pc.albedo_texture_index", "pc.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("pc.alpha_cutoff") .. (
+			linear_depth_output and
+			[[
+					void main() {
+						float alpha = get_alpha();
+						compute_translucency_and_discard(alpha);
+						float light_distance = length(in_world_pos - pc.light_position);
+						out_distance = clamp(light_distance / max(pc.light_far_plane, 0.0001), 0.0, 1.0);
+					}
+				]] or
+			[[
 					void main() {
 						float alpha = get_alpha();
 						compute_translucency_and_discard(alpha);
 					}
 				]]
+		)
 end
 
 local function build_shadow_projected_main(
@@ -170,6 +201,7 @@ local function build_shadow_projected_main(
 
 						gl_Position = pc.light_space_matrix * vec4(local_pos, 1.0);
 						out_uv = uv;
+						out_world_pos = world_pos;
 					}
 				]]
 	):format(
@@ -206,6 +238,7 @@ local function build_shadow_vertex_stage(self, bindless_texture_capacity)
 					} shadow_transform;
 
 					layout(location = 0) out vec2 out_uv;
+					layout(location = 1) out vec3 out_world_pos;
 
 				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation") .. build_shadow_projected_main(
 				"in_position",
@@ -330,6 +363,7 @@ local function build_shadow_tess_evaluation_stage(self, bindless_texture_capacit
 
 					layout(triangles, equal_spacing, cw) in;
 					layout(location = 0) out vec2 out_uv;
+					layout(location = 1) out vec3 out_world_pos;
 
 				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation") .. model_pipeline.BuildTriangleInterpolationGlsl() .. build_shadow_projected_main(
 				"interpolate_vec3(in_position[0], in_position[1], in_position[2])",
@@ -344,10 +378,10 @@ local function build_shadow_tess_evaluation_stage(self, bindless_texture_capacit
 	}
 end
 
-local function build_shadow_fragment_stage(bindless_texture_capacity)
+local function build_shadow_fragment_stage(bindless_texture_capacity, linear_depth_output)
 	return {
 		type = "fragment",
-		code = build_shadow_fragment_shader(bindless_texture_capacity),
+		code = build_shadow_fragment_shader(bindless_texture_capacity, linear_depth_output),
 		push_constants = get_shadow_stage_push_constants(),
 		descriptor_sets = get_shadow_texture_descriptor_sets(bindless_texture_capacity),
 	}
@@ -359,7 +393,8 @@ local function build_shadow_pipeline_config(
 	max_shadow_height,
 	shader_stages,
 	topology,
-	patch_control_points
+	patch_control_points,
+	color_format
 )
 	local config = {
 		ViewportX = 0,
@@ -372,7 +407,7 @@ local function build_shadow_pipeline_config(
 		ScissorY = 0,
 		ScissorWidth = max_shadow_width,
 		ScissorHeight = max_shadow_height,
-		ColorFormat = false,
+		ColorFormat = color_format or false,
 		DepthFormat = format,
 		RasterizationSamples = "1",
 		DescriptorSetCount = 1,
@@ -406,18 +441,51 @@ local function build_shadow_pipeline_config(
 	return config
 end
 
+local function normalize_shadow_size(size)
+	if not size then return DEFAULT_SIZE:Copy() end
+
+	if type(size) == "number" then return Vec2(size, size) end
+
+	if size.Copy then return size:Copy() end
+
+	return Vec2(size.w or size.x, size.h or size.y)
+end
+
+local function create_point_face_views(cubemap)
+	local face_views = {}
+
+	for face = 0, 5 do
+		face_views[face + 1] = cubemap:GetImage():CreateView{
+			view_type = "2d",
+			base_array_layer = face,
+			layer_count = 1,
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	end
+
+	return face_views
+end
+
 function ShadowMap.New(config)
 	config = config or {}
 	local self = ShadowMap:CreateObject()
 	local bindless_texture_capacity = render.GetBindlessDescriptorCapacities().textures
-	self.size = config.size or DEFAULT_SIZE
+	self.mode = config.mode or "directional"
+	self.size = normalize_shadow_size(config.size)
 	self.format = config.format or DEFAULT_FORMAT
 	self.near_plane = config.near_plane or 0.1
 	self.far_plane = config.far_plane or 100.0
 	self.ortho_size = config.ortho_size or 50.0 -- Half-size of orthographic projection
+	self.point_color_format = config.point_color_format or DEFAULT_POINT_COLOR_FORMAT
+	self.point_light_position = Vec3(0, 0, 0)
 	-- Cascaded shadow map settings
-	self.cascade_count = config.cascade_count or DEFAULT_CASCADE_COUNT
-	assert(self.cascade_count <= 4, "shadow maps currently support up to 4 cascades")
+	self.cascade_count = config.cascade_count or (self.mode == "point" and 6 or DEFAULT_CASCADE_COUNT)
+
+	if self.mode ~= "point" then
+		assert(self.cascade_count <= 4, "shadow maps currently support up to 4 cascades")
+	end
+
 	self.cascade_split_lambda = config.cascade_split_lambda or 0.75 -- Blend between linear and logarithmic split
 	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
@@ -429,75 +497,160 @@ function ShadowMap.New(config)
 	local max_shadow_width = self.size.w
 	local max_shadow_height = self.size.h
 
-	-- Initialize cascades
-	for i = 1, self.cascade_count do
-		local cascade_size = cascade_sizes[i] or self.size
+	if self.mode == "point" then
+		max_shadow_width = self.size.w
+		max_shadow_height = self.size.h
 
-		if cascade_size.w > max_shadow_width then max_shadow_width = cascade_size.w end
+		for i = 1, 6 do
+			self.cascade[i] = {
+				position = Vec3(0, 0, 0),
+				size = self.size,
+				texel_world_size = 0,
+				view_matrix = Matrix44(),
+				cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
+				light_space_matrix = Matrix44(),
+				is_sampleable = false,
+			}
+		end
 
-		if cascade_size.h > max_shadow_height then max_shadow_height = cascade_size.h end
-
-		self.cascade[i] = {
-			position = Vec3(0, 0, 0),
-			size = cascade_size,
-			texel_world_size = 0,
-			view_matrix = Matrix44(),
-			cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
-			light_space_matrix = Matrix44(),
-			is_sampleable = false,
+		self.point_depth_cubemap = Texture.New{
+			width = self.size.w,
+			height = self.size.h,
+			format = self.point_color_format,
+			image = {
+				array_layers = 6,
+				flags = {"cube_compatible"},
+				usage = {"color_attachment", "sampled"},
+				properties = "device_local",
+			},
+			view = {
+				view_type = "cube",
+				layer_count = 6,
+			},
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+				wrap_r = "clamp_to_edge",
+			},
 		}
-		-- Create depth texture for each cascade
-		self.cascade[i].depth_texture = Texture.New{
-			width = cascade_size.w,
-			height = cascade_size.h,
+		self.point_face_views = create_point_face_views(self.point_depth_cubemap)
+		self.point_depth_buffer = Texture.New{
+			width = self.size.w,
+			height = self.size.h,
 			format = self.format,
 			image = {
-				usage = {"depth_stencil_attachment", "sampled"},
+				usage = {"depth_stencil_attachment"},
 				properties = "device_local",
 			},
 			view = {
 				aspect = "depth",
 			},
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-				wrap_s = "clamp_to_border",
-				wrap_t = "clamp_to_border",
-				border_color = "float_opaque_white",
-			-- No compare_enable - we do manual PCF in the shader
-			},
 		}
-	end
-
-	self.pipeline = render.CreateGraphicsPipeline(
-		build_shadow_pipeline_config(
-			self.format,
-			max_shadow_width,
-			max_shadow_height,
-			{
-				build_shadow_vertex_stage(self, bindless_texture_capacity),
-				build_shadow_fragment_stage(bindless_texture_capacity),
-			},
-			"triangle_list"
-		)
-	)
-
-	if supports_tessellation() then
-		self.tess_pipeline = render.CreateGraphicsPipeline(
+		self.point_depth_buffer_ready = false
+		self.pipeline = render.CreateGraphicsPipeline(
 			build_shadow_pipeline_config(
 				self.format,
 				max_shadow_width,
 				max_shadow_height,
 				{
-					build_shadow_tess_vertex_stage(),
-					build_shadow_tess_control_stage(),
-					build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
-					build_shadow_fragment_stage(bindless_texture_capacity),
+					build_shadow_vertex_stage(self, bindless_texture_capacity),
+					build_shadow_fragment_stage(bindless_texture_capacity, true),
 				},
-				"patch_list",
-				3
+				"triangle_list",
+				nil,
+				self.point_color_format
 			)
 		)
+
+		if supports_tessellation() then
+			self.tess_pipeline = render.CreateGraphicsPipeline(
+				build_shadow_pipeline_config(
+					self.format,
+					max_shadow_width,
+					max_shadow_height,
+					{
+						build_shadow_tess_vertex_stage(),
+						build_shadow_tess_control_stage(),
+						build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
+						build_shadow_fragment_stage(bindless_texture_capacity, true),
+					},
+					"patch_list",
+					3,
+					self.point_color_format
+				)
+			)
+		end
+	else
+		-- Initialize cascades
+		for i = 1, self.cascade_count do
+			local cascade_size = normalize_shadow_size(cascade_sizes[i] or self.size)
+
+			if cascade_size.w > max_shadow_width then max_shadow_width = cascade_size.w end
+
+			if cascade_size.h > max_shadow_height then max_shadow_height = cascade_size.h end
+
+			self.cascade[i] = {
+				position = Vec3(0, 0, 0),
+				size = cascade_size,
+				texel_world_size = 0,
+				view_matrix = Matrix44(),
+				cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
+				light_space_matrix = Matrix44(),
+				is_sampleable = false,
+			}
+			self.cascade[i].depth_texture = Texture.New{
+				width = cascade_size.w,
+				height = cascade_size.h,
+				format = self.format,
+				image = {
+					usage = {"depth_stencil_attachment", "sampled"},
+					properties = "device_local",
+				},
+				view = {
+					aspect = "depth",
+				},
+				sampler = {
+					min_filter = "nearest",
+					mag_filter = "nearest",
+					wrap_s = "clamp_to_border",
+					wrap_t = "clamp_to_border",
+					border_color = "float_opaque_white",
+				},
+			}
+		end
+
+		self.pipeline = render.CreateGraphicsPipeline(
+			build_shadow_pipeline_config(
+				self.format,
+				max_shadow_width,
+				max_shadow_height,
+				{
+					build_shadow_vertex_stage(self, bindless_texture_capacity),
+					build_shadow_fragment_stage(bindless_texture_capacity),
+				},
+				"triangle_list"
+			)
+		)
+
+		if supports_tessellation() then
+			self.tess_pipeline = render.CreateGraphicsPipeline(
+				build_shadow_pipeline_config(
+					self.format,
+					max_shadow_width,
+					max_shadow_height,
+					{
+						build_shadow_tess_vertex_stage(),
+						build_shadow_tess_control_stage(),
+						build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
+						build_shadow_fragment_stage(bindless_texture_capacity),
+					},
+					"patch_list",
+					3
+				)
+			)
+		end
 	end
 
 	-- Command buffer for shadow pass
@@ -508,6 +661,51 @@ function ShadowMap.New(config)
 	-- Current cascade being rendered (for Begin/End API)
 	self.current_cascade = 1
 	return self
+end
+
+function ShadowMap:UpdatePointLightMatrices(light_position)
+	self.point_light_position = light_position:Copy()
+	local projection = Matrix44()
+	projection:Perspective(math.rad(90), self.near_plane, self.far_plane, 1)
+
+	for face = 1, 6 do
+		local rotation = Quat():SetAngles(POINT_SHADOW_FACE_ANGLES[face])
+		local view = Matrix44()
+		view:Translate(-light_position.x, -light_position.y, -light_position.z)
+		view:Multiply(rotation:GetConjugated():GetMatrix())
+		self.cascade[face].position = light_position:Copy()
+		self.cascade[face].view_matrix = view
+		self.cascade[face].light_space_matrix = view * projection
+		self.cascade[face].texel_world_size = self.far_plane / math.max(self.size.w, self.size.h)
+		self.cascade[face].cull_aabb = AABB(
+			light_position.x - self.far_plane,
+			light_position.y - self.far_plane,
+			light_position.z - self.far_plane,
+			light_position.x + self.far_plane,
+			light_position.y + self.far_plane,
+			light_position.z + self.far_plane
+		)
+	end
+
+	self.cascade_splits[1] = self.far_plane
+end
+
+function ShadowMap:UpdateLocalDirectionalLightMatrices(light_position, light_rotation, range, ortho_size)
+	range = range or self.far_plane
+	ortho_size = ortho_size or self.ortho_size
+	local half_depth = math.max(range * 0.5, 0.001)
+	local view = Matrix44()
+	view:Translate(-light_position.x, -light_position.y, -light_position.z)
+	view:Multiply(light_rotation:GetConjugated():GetMatrix())
+	local projection = Matrix44()
+	projection:Ortho(-ortho_size, ortho_size, -ortho_size, ortho_size, -half_depth, half_depth, true)
+	local cascade = self.cascade[1]
+	cascade.position = light_position:Copy()
+	cascade.view_matrix = view
+	cascade.light_space_matrix = view * projection
+	cascade.texel_world_size = (ortho_size * 2.0) / math.max(self.size.w, self.size.h)
+	cascade.cull_aabb = AABB(-ortho_size, -ortho_size, -half_depth, ortho_size, ortho_size, half_depth)
+	self.cascade_splits[1] = range
 end
 
 -- Calculate cascade split distances using practical split scheme
@@ -567,6 +765,8 @@ end
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_rotation: quaternion rotation of the directional light
 function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
+	if self.mode == "point" then return end
+
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	local cam = render3d.GetCamera()
 	self:CalculateCascadeSplits()
@@ -691,6 +891,10 @@ end
 function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
 	if not world_aabb then return true end
 
+	if self.mode == "point" then
+		return world_aabb:IsOverlappedSphereInside(self.point_light_position, self.far_plane)
+	end
+
 	local cascade = self.cascade[cascade_index]
 
 	if not cascade then return true end
@@ -703,6 +907,81 @@ end
 function ShadowMap:Begin(cascade_index)
 	cascade_index = cascade_index or 1
 	self.current_cascade = cascade_index
+
+	if self.mode == "point" then
+		if cascade_index == 1 then
+			local queue = render.GetQueue()
+
+			if queue:HasPendingSubmission(self.fence) then
+				self.fence:Wait(true)
+				queue:RetireFence(self.fence)
+			end
+
+			self.cmd:Reset()
+			self.cmd:Begin()
+			self.is_recording_cascades = true
+		end
+
+		local color_view = self.point_face_views[cascade_index]
+		local old_layout = self.cascade[cascade_index].is_sampleable and
+			"shader_read_only_optimal" or
+			"undefined"
+		self.cmd:PipelineBarrier{
+			srcStage = "fragment_shader",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = self.point_depth_cubemap:GetImage(),
+					srcAccessMask = "shader_read",
+					dstAccessMask = "color_attachment_write",
+					oldLayout = old_layout,
+					newLayout = "color_attachment_optimal",
+					base_array_layer = cascade_index - 1,
+					layer_count = 1,
+					base_mip_level = 0,
+					level_count = 1,
+				},
+			},
+		}
+
+		if not self.point_depth_buffer_ready then
+			self.cmd:PipelineBarrier{
+				srcStage = "top_of_pipe",
+				dstStage = "early_fragment_tests",
+				imageBarriers = {
+					{
+						image = self.point_depth_buffer:GetImage(),
+						srcAccessMask = "none",
+						dstAccessMask = "depth_stencil_attachment_write",
+						oldLayout = "undefined",
+						newLayout = "depth_attachment_optimal",
+					},
+				},
+			}
+			self.point_depth_buffer_ready = true
+		end
+
+		self.cmd:BeginRendering{
+			color_attachments = {
+				{
+					color_image_view = color_view,
+					clear_color = {1, 0, 0, 0},
+					load_op = "clear",
+					store_op = "store",
+				},
+			},
+			depth_image_view = self.point_depth_buffer:GetView(),
+			clear_depth = 1.0,
+			depth_store = false,
+			depth_layout = "depth_attachment_optimal",
+			w = self.size.w,
+			h = self.size.h,
+		}
+		self.cmd:SetViewport(0.0, 0.0, self.size.w, self.size.h, 0.0, 1.0)
+		self.cmd:SetScissor(0, 0, self.size.w, self.size.h)
+		return self.cmd
+	end
+
 	local depth_texture = self.cascade[cascade_index].depth_texture
 
 	if cascade_index == 1 then
@@ -774,6 +1053,10 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	local constants = ShadowVertexConstants()
 	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
+	constants.light_position[0] = self.point_light_position.x
+	constants.light_position[1] = self.point_light_position.y
+	constants.light_position[2] = self.point_light_position.z
+	constants.light_far_plane = self.far_plane
 	local pipeline = use_tessellated_shadow(material) and self.tess_pipeline or self.pipeline
 
 	-- If material is provided, get its albedo texture index and flags for alpha testing
@@ -805,7 +1088,9 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_transform_offset})
 
 	do
-		local depth_texture = self.cascade[cascade_index].depth_texture
+		local depth_texture = self.mode == "point" and
+			self.point_depth_buffer or
+			self.cascade[cascade_index].depth_texture
 		local w = depth_texture:GetWidth()
 		local h = depth_texture:GetHeight()
 		self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
@@ -842,6 +1127,37 @@ end
 -- End shadow pass for current cascade
 function ShadowMap:End(cascade_index)
 	cascade_index = cascade_index or self.current_cascade
+
+	if self.mode == "point" then
+		self.cmd:EndRendering()
+		self.cmd:PipelineBarrier{
+			srcStage = "color_attachment_output",
+			dstStage = "fragment_shader",
+			imageBarriers = {
+				{
+					image = self.point_depth_cubemap:GetImage(),
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "color_attachment_optimal",
+					newLayout = "shader_read_only_optimal",
+					base_array_layer = cascade_index - 1,
+					layer_count = 1,
+					base_mip_level = 0,
+					level_count = 1,
+				},
+			},
+		}
+		self.cascade[cascade_index].is_sampleable = true
+
+		if cascade_index == self.cascade_count then
+			self.cmd:End()
+			self.is_recording_cascades = false
+			render.Submit(self.cmd, self.fence)
+		end
+
+		return
+	end
+
 	local depth_texture = self.cascade[cascade_index].depth_texture
 	self.cmd:EndRendering()
 	-- Transition depth texture to shader read optimal for sampling
@@ -875,11 +1191,15 @@ end
 
 -- Get the depth texture for sampling in main pass
 function ShadowMap:GetDepthTexture(cascade_index)
+	if self.mode == "point" then return self.point_depth_cubemap end
+
 	return self.cascade[cascade_index].depth_texture
 end
 
 -- Get all cascade depth textures
 function ShadowMap:GetCascadeDepthTextures()
+	if self.mode == "point" then return {self.point_depth_cubemap} end
+
 	local textures = {}
 
 	for i = 1, self.cascade_count do
@@ -892,6 +1212,18 @@ end
 -- Get the light space matrix for transforming in main pass
 function ShadowMap:GetLightSpaceMatrix(cascade_index)
 	return self.cascade[cascade_index].light_space_matrix
+end
+
+function ShadowMap:GetMode()
+	return self.mode
+end
+
+function ShadowMap:GetLightPosition()
+	return self.point_light_position
+end
+
+function ShadowMap:GetFarPlane()
+	return self.far_plane
 end
 
 function ShadowMap:GetCascadeTexelWorldSize(cascade_index)
