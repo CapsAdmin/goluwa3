@@ -21,14 +21,7 @@ local function supports_tessellation()
 end
 
 local function build_common_fragment_shader()
-	return [[
-			void compute_translucency_and_discard(inout float alpha) {
-				if (AlphaTest) {
-					if (alpha < model.AlphaCutoff) discard;
-				} else if (Translucent) {
-					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
-				}
-			}
+	return model_pipeline.BuildAlphaDiscardGlsl("model.AlphaCutoff") .. [[
 
 			vec3 get_vertex_normal() {
 				vec3 N = in_normal;
@@ -486,21 +479,7 @@ local function build_tessellation_evaluation_shader()
 
 			layout(triangles, equal_spacing, cw) in;
 
-			vec3 interpolate_vec3(vec3 a, vec3 b, vec3 c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
-
-			vec2 interpolate_vec2(vec2 a, vec2 b, vec2 c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
-
-			vec4 interpolate_vec4(vec4 a, vec4 b, vec4 c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
-
-			float interpolate_float(float a, float b, float c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
+		]] .. model_pipeline.BuildTriangleInterpolationGlsl() .. [[
 
 			void main() {
 				vec3 world_pos = interpolate_vec3(in_position[0], in_position[1], in_position[2]);

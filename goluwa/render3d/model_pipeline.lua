@@ -1,9 +1,11 @@
+local ffi = require("ffi")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local system = import("goluwa/system.lua")
 local model_pipeline = library()
 local MAX_BRANCH_HELPERS = 16
 local BRANCH_HELPER_KEYS = {}
+local FLOAT_SIZE = ffi.sizeof("float")
 
 for i = 0, MAX_BRANCH_HELPERS - 1 do
 	BRANCH_HELPER_KEYS[i + 1] = "BranchHelper" .. tostring(i)
@@ -143,15 +145,73 @@ local function get_material()
 	return render3d.GetMaterial()
 end
 
+local VERTEX_ATTRIBUTE_DEFS = {
+	{name = "position", type = "vec3", format = "r32g32b32_sfloat", float_count = 3},
+	{name = "normal", type = "vec3", format = "r32g32b32_sfloat", float_count = 3},
+	{name = "uv", type = "vec2", format = "r32g32_sfloat", float_count = 2},
+	{
+		name = "tangent",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		float_count = 4,
+	},
+	{name = "texture_blend", type = "float", format = "r32_sfloat", float_count = 1},
+	{
+		name = "vertex_color",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		float_count = 4,
+	},
+}
+
+local function get_vertex_stride()
+	local stride = 0
+
+	for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
+		stride = stride + def.float_count * FLOAT_SIZE
+	end
+
+	return stride
+end
+
 function model_pipeline.GetVertexAttributes()
+	local attributes = {}
+
+	for i, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
+		attributes[i] = {def.name, def.type, def.format}
+	end
+
+	return attributes
+end
+
+function model_pipeline.GetVertexStride()
+	return get_vertex_stride()
+end
+
+function model_pipeline.GetVertexBufferBinding(binding_index)
 	return {
-		{"position", "vec3", "r32g32b32_sfloat"},
-		{"normal", "vec3", "r32g32b32_sfloat"},
-		{"uv", "vec2", "r32g32_sfloat"},
-		{"tangent", "vec4", "r32g32b32a32_sfloat"},
-		{"texture_blend", "float", "r32_sfloat"},
-		{"vertex_color", "vec4", "r32g32b32a32_sfloat"},
+		binding = binding_index or 0,
+		stride = get_vertex_stride(),
+		input_rate = "vertex",
 	}
+end
+
+function model_pipeline.GetVertexAttributeLayout(binding_index)
+	binding_index = binding_index or 0
+	local attributes = {}
+	local offset = 0
+
+	for i, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
+		attributes[i] = {
+			binding = binding_index,
+			location = i - 1,
+			format = def.format,
+			offset = offset,
+		}
+		offset = offset + def.float_count * FLOAT_SIZE
+	end
+
+	return attributes
 end
 
 function model_pipeline.GetTransformBlock(get_projection_view_world_matrix)
@@ -721,6 +781,114 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name)
 				return normalize(direction + normalize(world_offset) * (offset_len * ]] .. block_name .. [[.WindNormalInfluence));
 			}
 	]]
+end
+
+function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name)
+	block_name = block_name or "vertex_animation"
+	return model_pipeline.BuildVertexAnimationGlsl(block_name) .. [[
+			bool shadow_has_heightmap() {
+				return pc.height_texture_index != -1 && pc.height_scale > 0.0;
+			}
+
+			float shadow_get_height_sample(vec2 uv) {
+				if (!shadow_has_heightmap()) {
+					return 1.0;
+				}
+
+				return texture(textures[nonuniformEXT(pc.height_texture_index)], uv).r;
+			}
+
+			float shadow_get_height_centered_sample(vec2 uv) {
+				return shadow_get_height_sample(uv) - pc.height_center;
+			}
+
+			void apply_shadow_geometry_deformation(
+				inout vec3 local_pos,
+				inout vec3 world_pos,
+				vec3 world_normal,
+				vec3 world_tangent,
+				vec2 uv,
+				float texture_blend,
+				vec4 vertex_color,
+				mat3 inv_world_matrix3
+			) {
+				if (shadow_has_heightmap()) {
+					world_pos += vec3(0.0, 1.0, 0.0) * (shadow_get_height_centered_sample(uv) * pc.height_scale);
+				}
+
+				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
+
+				if (dot(world_offset, world_offset) > 0.0) {
+					local_pos += inv_world_matrix3 * world_offset;
+					world_pos += world_offset;
+				}
+			}
+		]]
+end
+
+function model_pipeline.BuildTriangleInterpolationGlsl()
+	return [[
+			vec3 interpolate_vec3(vec3 a, vec3 b, vec3 c) {
+				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+			}
+
+			vec2 interpolate_vec2(vec2 a, vec2 b, vec2 c) {
+				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+			}
+
+			vec4 interpolate_vec4(vec4 a, vec4 b, vec4 c) {
+				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+			}
+
+			float interpolate_float(float a, float b, float c) {
+				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
+			}
+		]]
+end
+
+function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr)
+	alpha_cutoff_expr = alpha_cutoff_expr or "model.AlphaCutoff"
+	return (
+		[[
+			void compute_translucency_and_discard(inout float alpha) {
+				if (AlphaTest) {
+					if (alpha < %s) discard;
+				} else if (Translucent) {
+					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
+				}
+			}
+		]]
+	):format(alpha_cutoff_expr)
+end
+
+function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr)
+	texture_index_expr = texture_index_expr or "pc.albedo_texture_index"
+	color_multiplier_a_expr = color_multiplier_a_expr or "pc.color_multiplier_a"
+	return (
+		[[
+			float get_alpha_uv(vec2 uv) {
+				if (
+					%s == -1 ||
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoAlphaIsEmissive
+				) {
+					return %s;
+				}
+
+				return texture(textures[nonuniformEXT(%s)], uv).a * %s;
+			}
+
+			float get_alpha() {
+				return get_alpha_uv(in_uv);
+			}
+		]]
+	):format(
+		texture_index_expr,
+		color_multiplier_a_expr,
+		texture_index_expr,
+		color_multiplier_a_expr
+	)
 end
 
 function model_pipeline.BuildSurfaceSamplingGlsl(model_var)

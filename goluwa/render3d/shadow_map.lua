@@ -65,49 +65,350 @@ local ShadowTransformUniformDecl = [[
 		float world[16];
 	}
 ]]
+local SHADOW_PUSH_CONSTANT_GLSL = [[
+	layout(push_constant, scalar) uniform Constants {
+		mat4 light_space_matrix;
+		int albedo_texture_index;
+		int height_texture_index;
+		int flags;
+		float color_multiplier_a;
+		float alpha_cutoff;
+		float height_scale;
+		float height_center;
+		float tessellation_factor;
+	} pc;
+]]
 
-function ShadowMap.New(config)
-	config = config or {}
-	local self = ShadowMap:CreateObject()
-	local bindless_texture_capacity = render.GetBindlessDescriptorCapacities().textures
-	local bindless_fragment_prelude = (
+local function get_shadow_stage_push_constants()
+	return {
+		size = ffi.sizeof(ShadowVertexConstants),
+		offset = 0,
+	}
+end
+
+local function get_shadow_texture_descriptor_sets(bindless_texture_capacity)
+	return {
+		{
+			type = "combined_image_sampler",
+			binding_index = 0,
+			count = bindless_texture_capacity,
+		},
+	}
+end
+
+local function get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity)
+	local descriptor_sets = get_shadow_texture_descriptor_sets(bindless_texture_capacity)
+	descriptor_sets[2] = {
+		type = "uniform_buffer_dynamic",
+		binding_index = 1,
+		args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
+	}
+	descriptor_sets[3] = {
+		type = "uniform_buffer_dynamic",
+		binding_index = 2,
+		args = {self.shadow_transform_buffer.buffer, self.shadow_transform_buffer.aligned_size},
+	}
+	return descriptor_sets
+end
+
+local function build_shadow_fragment_shader(bindless_texture_capacity)
+	local prelude = (
 		[[
 					#version 450
 					#extension GL_EXT_nonuniform_qualifier : require
 					#extension GL_EXT_scalar_block_layout : require
 
-					layout(binding = 0) uniform sampler2D textures[%d]; // Bindless texture array
+					layout(binding = 0) uniform sampler2D textures[%d];
 
-					layout(push_constant, scalar) uniform Constants {
-						mat4 light_space_matrix;
-						int albedo_texture_index;
-						int height_texture_index;
-						int flags;
-						float color_multiplier_a;
-						float alpha_cutoff;
-						float height_scale;
-						float height_center;
-						float tessellation_factor;
-					} pc;
-
+					%s
 					layout(location = 0) in vec2 in_uv;
-					
+
 					#define FLAGS pc.flags
-					]]
-	):format(bindless_texture_capacity)
-	local shadow_fragment_push_constants = [[
-					layout(push_constant, scalar) uniform Constants {
-						mat4 light_space_matrix;
-						int albedo_texture_index;
-						int height_texture_index;
-						int flags;
-						float color_multiplier_a;
-						float alpha_cutoff;
-						float height_scale;
-						float height_center;
-						float tessellation_factor;
-					} pc;
-	]]
+				]]
+	):format(bindless_texture_capacity, SHADOW_PUSH_CONSTANT_GLSL)
+	return prelude .. Material.BuildGlslFlags("pc.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("pc.albedo_texture_index", "pc.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("pc.alpha_cutoff") .. [[
+					void main() {
+						float alpha = get_alpha();
+						compute_translucency_and_discard(alpha);
+					}
+				]]
+end
+
+local function build_shadow_projected_main(
+	local_pos_expr,
+	local_normal_expr,
+	local_tangent_expr,
+	uv_expr,
+	texture_blend_expr,
+	vertex_color_expr
+)
+	return (
+		[[
+					void main() {
+						vec3 local_pos = %s;
+						vec3 local_normal = normalize(%s);
+						vec3 local_tangent = normalize(%s);
+						vec2 uv = %s;
+						float texture_blend = %s;
+						vec4 vertex_color = %s;
+						vec3 world_pos = (shadow_transform.world * vec4(local_pos, 1.0)).xyz;
+						mat3 world_matrix3 = mat3(shadow_transform.world);
+						mat3 inv_world_matrix3 = inverse(world_matrix3);
+						vec3 world_normal = normalize(transpose(inv_world_matrix3) * local_normal);
+						vec3 world_tangent = normalize(world_matrix3 * local_tangent);
+
+						apply_shadow_geometry_deformation(
+							local_pos,
+							world_pos,
+							world_normal,
+							world_tangent,
+							uv,
+							texture_blend,
+							vertex_color,
+							inv_world_matrix3
+						);
+
+						gl_Position = pc.light_space_matrix * vec4(local_pos, 1.0);
+						out_uv = uv;
+					}
+				]]
+	):format(
+		local_pos_expr,
+		local_normal_expr,
+		local_tangent_expr,
+		uv_expr,
+		texture_blend_expr,
+		vertex_color_expr
+	)
+end
+
+local function build_shadow_vertex_stage(self, bindless_texture_capacity)
+	return {
+		type = "vertex",
+		code = [[
+					#version 450
+					#extension GL_EXT_nonuniform_qualifier : require
+					#extension GL_EXT_scalar_block_layout : require
+
+					layout(binding = 0) uniform sampler2D textures[];
+
+					layout(location = 0) in vec3 in_position;
+					layout(location = 1) in vec3 in_normal;
+					layout(location = 2) in vec2 in_uv;
+					layout(location = 3) in vec4 in_tangent;
+					layout(location = 4) in float in_texture_blend;
+					layout(location = 5) in vec4 in_vertex_color;
+
+					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
+				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
+					layout(scalar, binding = 2) uniform ShadowTransform_t {
+						mat4 world;
+					} shadow_transform;
+
+					layout(location = 0) out vec2 out_uv;
+
+				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation") .. build_shadow_projected_main(
+				"in_position",
+				"in_normal",
+				"in_tangent.xyz",
+				"in_uv",
+				"in_texture_blend",
+				"in_vertex_color"
+			),
+		bindings = {model_pipeline.GetVertexBufferBinding(0)},
+		attributes = model_pipeline.GetVertexAttributeLayout(0),
+		descriptor_sets = get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity),
+		push_constants = get_shadow_stage_push_constants(),
+	}
+end
+
+local function build_shadow_tess_vertex_stage()
+	return {
+		type = "vertex",
+		code = [[
+					#version 450
+
+					layout(location = 0) in vec3 in_position;
+					layout(location = 1) in vec3 in_normal;
+					layout(location = 2) in vec2 in_uv;
+					layout(location = 3) in vec4 in_tangent;
+					layout(location = 4) in float in_texture_blend;
+					layout(location = 5) in vec4 in_vertex_color;
+
+					layout(location = 0) out vec3 out_position;
+					layout(location = 1) out vec3 out_normal;
+					layout(location = 2) out vec4 out_tangent;
+					layout(location = 3) out vec2 out_uv;
+					layout(location = 4) out float out_texture_blend;
+					layout(location = 5) out vec4 out_vertex_color;
+
+					void main() {
+						out_position = in_position;
+						out_normal = in_normal;
+						out_tangent = in_tangent;
+						out_uv = in_uv;
+						out_texture_blend = in_texture_blend;
+						out_vertex_color = in_vertex_color;
+						gl_Position = vec4(in_position, 1.0);
+					}
+				]],
+		bindings = {model_pipeline.GetVertexBufferBinding(0)},
+		attributes = model_pipeline.GetVertexAttributeLayout(0),
+	}
+end
+
+local function build_shadow_tess_control_stage()
+	return {
+		type = "tessellation_control",
+		code = [[
+					#version 450
+					#extension GL_EXT_scalar_block_layout : require
+
+					layout(location = 0) in vec3 in_position[];
+					layout(location = 1) in vec3 in_normal[];
+					layout(location = 2) in vec4 in_tangent[];
+					layout(location = 3) in vec2 in_uv[];
+					layout(location = 4) in float in_texture_blend[];
+					layout(location = 5) in vec4 in_vertex_color[];
+
+					layout(location = 0) out vec3 out_position[];
+					layout(location = 1) out vec3 out_normal[];
+					layout(location = 2) out vec4 out_tangent[];
+					layout(location = 3) out vec2 out_uv[];
+					layout(location = 4) out float out_texture_blend[];
+					layout(location = 5) out vec4 out_vertex_color[];
+
+					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
+
+					layout(vertices = 3) out;
+
+					void main() {
+						out_position[gl_InvocationID] = in_position[gl_InvocationID];
+						out_normal[gl_InvocationID] = in_normal[gl_InvocationID];
+						out_tangent[gl_InvocationID] = in_tangent[gl_InvocationID];
+						out_uv[gl_InvocationID] = in_uv[gl_InvocationID];
+						out_texture_blend[gl_InvocationID] = in_texture_blend[gl_InvocationID];
+						out_vertex_color[gl_InvocationID] = in_vertex_color[gl_InvocationID];
+						gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
+
+						if (gl_InvocationID == 0) {
+							float tess = clamp(pc.tessellation_factor, 1.0, 64.0);
+							gl_TessLevelOuter[0] = tess;
+							gl_TessLevelOuter[1] = tess;
+							gl_TessLevelOuter[2] = tess;
+							gl_TessLevelInner[0] = tess;
+						}
+					}
+				]],
+		push_constants = get_shadow_stage_push_constants(),
+	}
+end
+
+local function build_shadow_tess_evaluation_stage(self, bindless_texture_capacity)
+	return {
+		type = "tessellation_evaluation",
+		code = [[
+					#version 450
+					#extension GL_EXT_nonuniform_qualifier : require
+					#extension GL_EXT_scalar_block_layout : require
+
+					layout(binding = 0) uniform sampler2D textures[];
+
+					layout(location = 0) in vec3 in_position[];
+					layout(location = 1) in vec3 in_normal[];
+					layout(location = 2) in vec4 in_tangent[];
+					layout(location = 3) in vec2 in_uv[];
+					layout(location = 4) in float in_texture_blend[];
+					layout(location = 5) in vec4 in_vertex_color[];
+
+					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
+
+				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
+					layout(scalar, binding = 2) uniform ShadowTransform_t {
+						mat4 world;
+					} shadow_transform;
+
+					layout(triangles, equal_spacing, cw) in;
+					layout(location = 0) out vec2 out_uv;
+
+				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation") .. model_pipeline.BuildTriangleInterpolationGlsl() .. build_shadow_projected_main(
+				"interpolate_vec3(in_position[0], in_position[1], in_position[2])",
+				"interpolate_vec3(in_normal[0], in_normal[1], in_normal[2])",
+				"interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz)",
+				"interpolate_vec2(in_uv[0], in_uv[1], in_uv[2])",
+				"interpolate_float(in_texture_blend[0], in_texture_blend[1], in_texture_blend[2])",
+				"interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2])"
+			),
+		descriptor_sets = get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity),
+		push_constants = get_shadow_stage_push_constants(),
+	}
+end
+
+local function build_shadow_fragment_stage(bindless_texture_capacity)
+	return {
+		type = "fragment",
+		code = build_shadow_fragment_shader(bindless_texture_capacity),
+		push_constants = get_shadow_stage_push_constants(),
+		descriptor_sets = get_shadow_texture_descriptor_sets(bindless_texture_capacity),
+	}
+end
+
+local function build_shadow_pipeline_config(
+	format,
+	max_shadow_width,
+	max_shadow_height,
+	shader_stages,
+	topology,
+	patch_control_points
+)
+	local config = {
+		ViewportX = 0,
+		ViewportY = 0,
+		ViewportWidth = max_shadow_width,
+		ViewportHeight = max_shadow_height,
+		ViewportMinDepth = 0,
+		ViewportMaxDepth = 1,
+		ScissorX = 0,
+		ScissorY = 0,
+		ScissorWidth = max_shadow_width,
+		ScissorHeight = max_shadow_height,
+		ColorFormat = false,
+		DepthFormat = format,
+		RasterizationSamples = "1",
+		DescriptorSetCount = 1,
+		Topology = topology,
+		PrimitiveRestart = false,
+		shader_stages = shader_stages,
+		DepthClamp = true,
+		Discard = false,
+		PolygonMode = "fill",
+		LineWidth = 1.0,
+		CullMode = "none",
+		FrontFace = orientation.FRONT_FACE,
+		DepthBias = true,
+		DepthBiasConstantFactor = 0.5,
+		DepthBiasSlopeFactor = 1.25,
+		LogicOpEnabled = false,
+		LogicOp = "copy",
+		BlendConstants = {0.0, 0.0, 0.0, 0.0},
+		DepthTest = true,
+		DepthWrite = true,
+		DepthCompareOp = "less",
+		DepthBoundsTest = false,
+		StencilTest = false,
+	}
+
+	if patch_control_points then
+		config.PatchControlPoints = patch_control_points
+	end
+
+	return config
+end
+
+function ShadowMap.New(config)
+	config = config or {}
+	local self = ShadowMap:CreateObject()
+	local bindless_texture_capacity = render.GetBindlessDescriptorCapacities().textures
 	self.size = config.size or DEFAULT_SIZE
 	self.format = config.format or DEFAULT_FORMAT
 	self.near_plane = config.near_plane or 0.1
@@ -166,533 +467,35 @@ function ShadowMap.New(config)
 		}
 	end
 
-	-- Create depth-only pipeline for shadow pass
-	self.pipeline = render.CreateGraphicsPipeline{
-		-- Even with dynamic states, must provide initial viewport/scissor matching what we'll use
-		ViewportX = 0,
-		ViewportY = 0,
-		ViewportWidth = max_shadow_width,
-		ViewportHeight = max_shadow_height,
-		ViewportMinDepth = 0,
-		ViewportMaxDepth = 1,
-		ScissorX = 0,
-		ScissorY = 0,
-		ScissorWidth = max_shadow_width,
-		ScissorHeight = max_shadow_height,
-		ColorFormat = false, -- No color attachment for shadow pass
-		DepthFormat = self.format,
-		RasterizationSamples = "1", -- Shadow map uses single sample
-		DescriptorSetCount = 1, -- Just bindless textures for alpha testing
-		Topology = "triangle_list",
-		PrimitiveRestart = false,
-		shader_stages = {
+	self.pipeline = render.CreateGraphicsPipeline(
+		build_shadow_pipeline_config(
+			self.format,
+			max_shadow_width,
+			max_shadow_height,
 			{
-				type = "vertex",
-				code = [[
-					#version 450
-					#extension GL_EXT_nonuniform_qualifier : require
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(binding = 0) uniform sampler2D textures[];
-
-					layout(location = 0) in vec3 in_position;
-					layout(location = 1) in vec3 in_normal;
-					layout(location = 2) in vec2 in_uv;
-					layout(location = 3) in vec4 in_tangent;
-					layout(location = 4) in float in_texture_blend;
-					layout(location = 5) in vec4 in_vertex_color;
-
-					layout(push_constant, scalar) uniform Constants {
-						mat4 light_space_matrix;
-						int albedo_texture_index;
-						int height_texture_index;
-						int flags;
-						float color_multiplier_a;
-						float alpha_cutoff;
-						float height_scale;
-						float height_center;
-					} pc;
-
-				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
-					layout(scalar, binding = 2) uniform ShadowTransform_t {
-						mat4 world;
-					} shadow_transform;
-
-					layout(location = 0) out vec2 out_uv;
-
-				]] .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation") .. [[
-
-					void main() {
-						vec3 local_pos = in_position;
-						vec3 world_pos = (shadow_transform.world * vec4(local_pos, 1.0)).xyz;
-						mat3 world_matrix3 = mat3(shadow_transform.world);
-						mat3 inv_world_matrix3 = inverse(world_matrix3);
-						vec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);
-						vec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);
-
-						if (pc.height_texture_index != -1 && pc.height_scale > 0.0) {
-							float height = texture(textures[nonuniformEXT(pc.height_texture_index)], in_uv).r;
-							world_pos += vec3(0.0, 1.0, 0.0) * ((height - pc.height_center) * pc.height_scale);
-						}
-
-						vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);
-
-						if (dot(world_offset, world_offset) > 0.0) {
-							local_pos += inv_world_matrix3 * world_offset;
-						}
-
-						gl_Position = pc.light_space_matrix * vec4(local_pos, 1.0);
-						out_uv = in_uv;
-					}
-				]],
-				bindings = {
-					{
-						binding = 0,
-						stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1 + 4), -- Match render3d vertex format (pos, normal, uv, tangent, blend, color)
-						input_rate = "vertex",
-					},
-				},
-				attributes = {
-					{
-						binding = 0,
-						location = 0,
-						format = "r32g32b32_sfloat",
-						offset = 0,
-					},
-					{
-						binding = 0,
-						location = 1,
-						format = "r32g32b32_sfloat",
-						offset = ffi.sizeof("float") * 3,
-					},
-					{
-						binding = 0,
-						location = 2,
-						format = "r32g32_sfloat",
-						offset = ffi.sizeof("float") * 6,
-					},
-					{
-						binding = 0,
-						location = 3,
-						format = "r32g32b32a32_sfloat",
-						offset = ffi.sizeof("float") * 8,
-					},
-					{
-						binding = 0,
-						location = 4,
-						format = "r32_sfloat",
-						offset = ffi.sizeof("float") * 12,
-					},
-					{
-						binding = 0,
-						location = 5,
-						format = "r32g32b32a32_sfloat",
-						offset = ffi.sizeof("float") * 13,
-					},
-				},
-				descriptor_sets = {
-					{
-						type = "combined_image_sampler",
-						binding_index = 0,
-						count = bindless_texture_capacity,
-					},
-					{
-						type = "uniform_buffer_dynamic",
-						binding_index = 1,
-						args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
-					},
-					{
-						type = "uniform_buffer_dynamic",
-						binding_index = 2,
-						args = {self.shadow_transform_buffer.buffer, self.shadow_transform_buffer.aligned_size},
-					},
-				},
-				push_constants = {
-					size = ffi.sizeof(ShadowVertexConstants),
-					offset = 0,
-				},
+				build_shadow_vertex_stage(self, bindless_texture_capacity),
+				build_shadow_fragment_stage(bindless_texture_capacity),
 			},
-			{
-				type = "fragment",
-				code = bindless_fragment_prelude .. Material.BuildGlslFlags("pc.flags") .. [[
-
-					// Get alpha using same logic as render3d.lua
-					float get_alpha() {
-						if (
-							pc.albedo_texture_index == -1 ||
-							AlbedoTextureAlphaIsRoughness ||
-							AlbedoTextureAlphaIsRoughness 
-						)
-						{
-							return pc.color_multiplier_a;
-						}
-
-						float alpha = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv).a * pc.color_multiplier_a;
-						return alpha;
-					}
-
-					void main() {
-						// Use same alpha logic as render3d.lua
-						float alpha = get_alpha();
-
-						if (AlphaTest) {
-							if (alpha < pc.alpha_cutoff) {
-								discard;
-							}
-						} else if (Translucent) {
-							if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) {
-								discard;
-							}
-						}
-						// Depth is written automatically for non-discarded fragments
-					}
-				]],
-				push_constants = {
-					size = ffi.sizeof(ShadowVertexConstants),
-					offset = 0,
-				},
-				descriptor_sets = {
-					{
-						type = "combined_image_sampler",
-						binding_index = 0,
-						count = bindless_texture_capacity,
-					},
-				},
-			},
-		},
-		DepthClamp = true,
-		Discard = false,
-		PolygonMode = "fill",
-		LineWidth = 1.0,
-		CullMode = "none",
-		FrontFace = orientation.FRONT_FACE,
-		DepthBias = true,
-		DepthBiasConstantFactor = 0.5,
-		DepthBiasSlopeFactor = 1.25,
-		LogicOpEnabled = false,
-		LogicOp = "copy",
-		BlendConstants = {0.0, 0.0, 0.0, 0.0},
-		DepthTest = true,
-		DepthWrite = true,
-		DepthCompareOp = "less",
-		DepthBoundsTest = false,
-		StencilTest = false,
-	}
+			"triangle_list"
+		)
+	)
 
 	if supports_tessellation() then
-		self.tess_pipeline = render.CreateGraphicsPipeline{
-			ViewportX = 0,
-			ViewportY = 0,
-			ViewportWidth = max_shadow_width,
-			ViewportHeight = max_shadow_height,
-			ViewportMinDepth = 0,
-			ViewportMaxDepth = 1,
-			ScissorX = 0,
-			ScissorY = 0,
-			ScissorWidth = max_shadow_width,
-			ScissorHeight = max_shadow_height,
-			ColorFormat = false,
-			DepthFormat = self.format,
-			RasterizationSamples = "1",
-			DescriptorSetCount = 1,
-			Topology = "patch_list",
-			PatchControlPoints = 3,
-			PrimitiveRestart = false,
-			shader_stages = {
+		self.tess_pipeline = render.CreateGraphicsPipeline(
+			build_shadow_pipeline_config(
+				self.format,
+				max_shadow_width,
+				max_shadow_height,
 				{
-					type = "vertex",
-					code = [[
-						#version 450
-
-						layout(location = 0) in vec3 in_position;
-						layout(location = 1) in vec3 in_normal;
-						layout(location = 2) in vec2 in_uv;
-						layout(location = 3) in vec4 in_tangent;
-						layout(location = 4) in float in_texture_blend;
-						layout(location = 5) in vec4 in_vertex_color;
-
-						layout(location = 0) out vec3 out_position;
-						layout(location = 1) out vec3 out_normal;
-						layout(location = 2) out vec4 out_tangent;
-						layout(location = 3) out vec2 out_uv;
-						layout(location = 4) out float out_texture_blend;
-						layout(location = 5) out vec4 out_vertex_color;
-
-						void main() {
-							out_position = in_position;
-							out_normal = in_normal;
-							out_tangent = in_tangent;
-							out_uv = in_uv;
-							out_texture_blend = in_texture_blend;
-							out_vertex_color = in_vertex_color;
-							gl_Position = vec4(in_position, 1.0);
-						}
-					]],
-					bindings = {
-						{
-							binding = 0,
-							stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1 + 4),
-							input_rate = "vertex",
-						},
-					},
-					attributes = {
-						{binding = 0, location = 0, format = "r32g32b32_sfloat", offset = 0},
-						{
-							binding = 0,
-							location = 1,
-							format = "r32g32b32_sfloat",
-							offset = ffi.sizeof("float") * 3,
-						},
-						{
-							binding = 0,
-							location = 2,
-							format = "r32g32_sfloat",
-							offset = ffi.sizeof("float") * 6,
-						},
-						{
-							binding = 0,
-							location = 3,
-							format = "r32g32b32a32_sfloat",
-							offset = ffi.sizeof("float") * 8,
-						},
-						{
-							binding = 0,
-							location = 4,
-							format = "r32_sfloat",
-							offset = ffi.sizeof("float") * 12,
-						},
-						{
-							binding = 0,
-							location = 5,
-							format = "r32g32b32a32_sfloat",
-							offset = ffi.sizeof("float") * 13,
-						},
-					},
+					build_shadow_tess_vertex_stage(),
+					build_shadow_tess_control_stage(),
+					build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
+					build_shadow_fragment_stage(bindless_texture_capacity),
 				},
-				{
-					type = "tessellation_control",
-					code = [[
-						#version 450
-						#extension GL_EXT_scalar_block_layout : require
-
-						layout(location = 0) in vec3 in_position[];
-						layout(location = 1) in vec3 in_normal[];
-						layout(location = 2) in vec4 in_tangent[];
-						layout(location = 3) in vec2 in_uv[];
-						layout(location = 4) in float in_texture_blend[];
-						layout(location = 5) in vec4 in_vertex_color[];
-
-						layout(location = 0) out vec3 out_position[];
-						layout(location = 1) out vec3 out_normal[];
-						layout(location = 2) out vec4 out_tangent[];
-						layout(location = 3) out vec2 out_uv[];
-						layout(location = 4) out float out_texture_blend[];
-						layout(location = 5) out vec4 out_vertex_color[];
-
-						layout(push_constant, scalar) uniform Constants {
-							mat4 light_space_matrix;
-							int albedo_texture_index;
-							int height_texture_index;
-							int flags;
-							float color_multiplier_a;
-							float alpha_cutoff;
-							float height_scale;
-							float height_center;
-							float tessellation_factor;
-						} pc;
-
-						layout(vertices = 3) out;
-
-						void main() {
-							out_position[gl_InvocationID] = in_position[gl_InvocationID];
-							out_normal[gl_InvocationID] = in_normal[gl_InvocationID];
-							out_tangent[gl_InvocationID] = in_tangent[gl_InvocationID];
-							out_uv[gl_InvocationID] = in_uv[gl_InvocationID];
-							out_texture_blend[gl_InvocationID] = in_texture_blend[gl_InvocationID];
-							out_vertex_color[gl_InvocationID] = in_vertex_color[gl_InvocationID];
-							gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
-
-							if (gl_InvocationID == 0) {
-								float tess = clamp(pc.tessellation_factor, 1.0, 64.0);
-								gl_TessLevelOuter[0] = tess;
-								gl_TessLevelOuter[1] = tess;
-								gl_TessLevelOuter[2] = tess;
-								gl_TessLevelInner[0] = tess;
-							}
-						}
-					]],
-					push_constants = {
-						size = ffi.sizeof(ShadowVertexConstants),
-						offset = 0,
-					},
-				},
-				{
-					type = "tessellation_evaluation",
-					code = [[
-						#version 450
-						#extension GL_EXT_nonuniform_qualifier : require
-						#extension GL_EXT_scalar_block_layout : require
-
-						layout(binding = 0) uniform sampler2D textures[];
-
-						layout(location = 0) in vec3 in_position[];
-						layout(location = 1) in vec3 in_normal[];
-						layout(location = 2) in vec4 in_tangent[];
-						layout(location = 3) in vec2 in_uv[];
-						layout(location = 4) in float in_texture_blend[];
-						layout(location = 5) in vec4 in_vertex_color[];
-
-						layout(push_constant, scalar) uniform Constants {
-							mat4 light_space_matrix;
-							int albedo_texture_index;
-							int height_texture_index;
-							int flags;
-							float color_multiplier_a;
-							float alpha_cutoff;
-							float height_scale;
-							float height_center;
-							float tessellation_factor;
-						} pc;
-
-					]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
-						layout(scalar, binding = 2) uniform ShadowTransform_t {
-							mat4 world;
-						} shadow_transform;
-
-						layout(triangles, equal_spacing, cw) in;
-						layout(location = 0) out vec2 out_uv;
-
-					]] .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation") .. [[
-
-						vec3 interpolate_vec3(vec3 a, vec3 b, vec3 c) {
-							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-						}
-
-						vec2 interpolate_vec2(vec2 a, vec2 b, vec2 c) {
-							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-						}
-
-						vec4 interpolate_vec4(vec4 a, vec4 b, vec4 c) {
-							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-						}
-
-						float interpolate_float(float a, float b, float c) {
-							return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-						}
-
-						void main() {
-							vec3 local_pos = interpolate_vec3(in_position[0], in_position[1], in_position[2]);
-							vec3 local_normal = normalize(interpolate_vec3(in_normal[0], in_normal[1], in_normal[2]));
-							vec3 local_tangent = normalize(interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz));
-							vec2 uv = interpolate_vec2(in_uv[0], in_uv[1], in_uv[2]);
-							float texture_blend = interpolate_float(in_texture_blend[0], in_texture_blend[1], in_texture_blend[2]);
-							vec4 vertex_color = interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2]);
-							vec3 world_pos = (shadow_transform.world * vec4(local_pos, 1.0)).xyz;
-							mat3 world_matrix3 = mat3(shadow_transform.world);
-							mat3 inv_world_matrix3 = inverse(world_matrix3);
-							vec3 world_normal = normalize(transpose(inv_world_matrix3) * local_normal);
-							vec3 world_tangent = normalize(world_matrix3 * local_tangent);
-
-							if (pc.height_texture_index != -1 && pc.height_scale > 0.0) {
-								float height = texture(textures[nonuniformEXT(pc.height_texture_index)], uv).r;
-								world_pos += vec3(0.0, 1.0, 0.0) * ((height - pc.height_center) * pc.height_scale);
-							}
-
-							vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
-
-							if (dot(world_offset, world_offset) > 0.0) {
-								local_pos += inv_world_matrix3 * world_offset;
-							}
-
-							gl_Position = pc.light_space_matrix * vec4(local_pos, 1.0);
-							out_uv = uv;
-						}
-					]],
-					descriptor_sets = {
-						{
-							type = "combined_image_sampler",
-							binding_index = 0,
-							count = bindless_texture_capacity,
-						},
-						{
-							type = "uniform_buffer_dynamic",
-							binding_index = 1,
-							args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
-						},
-						{
-							type = "uniform_buffer_dynamic",
-							binding_index = 2,
-							args = {self.shadow_transform_buffer.buffer, self.shadow_transform_buffer.aligned_size},
-						},
-					},
-					push_constants = {
-						size = ffi.sizeof(ShadowVertexConstants),
-						offset = 0,
-					},
-				},
-				{
-					type = "fragment",
-					code = bindless_fragment_prelude .. Material.BuildGlslFlags("pc.flags") .. [[
-
-						float get_alpha() {
-							if (
-								pc.albedo_texture_index == -1 ||
-								AlbedoTextureAlphaIsRoughness ||
-								AlbedoTextureAlphaIsRoughness
-							)
-							{
-								return pc.color_multiplier_a;
-							}
-
-							float alpha = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv).a * pc.color_multiplier_a;
-							return alpha;
-						}
-
-						void main() {
-							float alpha = get_alpha();
-
-							if (AlphaTest) {
-								if (alpha < pc.alpha_cutoff) {
-									discard;
-								}
-							} else if (Translucent) {
-								if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) {
-									discard;
-								}
-							}
-						}
-					]],
-					push_constants = {
-						size = ffi.sizeof(ShadowVertexConstants),
-						offset = 0,
-					},
-					descriptor_sets = {
-						{
-							type = "combined_image_sampler",
-							binding_index = 0,
-							count = bindless_texture_capacity,
-						},
-					},
-				},
-			},
-			DepthClamp = true,
-			Discard = false,
-			PolygonMode = "fill",
-			LineWidth = 1.0,
-			CullMode = "none",
-			FrontFace = orientation.FRONT_FACE,
-			DepthBias = true,
-			DepthBiasConstantFactor = 0.5,
-			DepthBiasSlopeFactor = 1.25,
-			LogicOpEnabled = false,
-			LogicOp = "copy",
-			BlendConstants = {0.0, 0.0, 0.0, 0.0},
-			DepthTest = true,
-			DepthWrite = true,
-			DepthCompareOp = "less",
-			DepthBoundsTest = false,
-			StencilTest = false,
-		}
+				"patch_list",
+				3
+			)
+		)
 	end
 
 	-- Command buffer for shadow pass
@@ -993,12 +796,7 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	local frame_index = render.GetCurrentFrame()
 	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
 	local shadow_transform_offset = self.shadow_transform_buffer:Upload(frame_index)
-
-	if pipeline == self.tess_pipeline then
-		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_transform_offset})
-	else
-		pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_transform_offset})
-	end
+	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_transform_offset})
 
 	do
 		local depth_texture = self.cascade[cascade_index].depth_texture
