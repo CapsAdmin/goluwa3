@@ -43,12 +43,47 @@ function Light:OnPreFrame(dt)
 	self:RenderShadows()
 end
 
+local function get_default_shadow_config(self)
+	if self.LightType == "sun" then
+		return {
+			ortho_size = 5,
+			near_plane = 1,
+			far_plane = 500,
+		}
+	elseif self.LightType == "directional" then
+		return {
+			ortho_size = self.Range,
+			near_plane = 0.1,
+			far_plane = self.Range,
+			max_shadow_distance = self.Range,
+		}
+	elseif self.LightType == "point" then
+		return {
+			near_plane = 0.05,
+			far_plane = self.Range,
+			range = self.Range,
+		}
+	elseif self.LightType == "spot" then
+		error("NYI spot light", 2)
+	end
+
+	error("Unknown light type: " .. tostring(self.LightType), 2)
+end
+
 function Light:SetCastShadows(config)
 	if not config then
 		self.CastShadows = false
 		self.ShadowMap = nil
 		self.InsetShadowMap = nil
 		return
+	end
+
+	if config == true then
+		config = type(self.CastShadows) == "table" and
+			self.CastShadows or
+			get_default_shadow_config(self)
+	elseif type(config) ~= "table" then
+		error("SetCastShadows expects false, true, or a config table", 2)
 	end
 
 	self.CastShadows = config
