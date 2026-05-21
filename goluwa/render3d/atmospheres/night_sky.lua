@@ -233,7 +233,7 @@ return [[
 			}
 		}
 
-		return color;
+		return color * 0.05;
 	}
 
 	vec3 get_stars(vec3 dir, vec3 sunDir) {

@@ -26,7 +26,7 @@ local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
 local scale = 1 / 0.0254
 local skyboxes = {
-	["gm_construct"] = {AABB(-400, -400, 255, 400, 400, 320) * scale, 0.003},
+	["gm_construct"] = {AABB(-400, -400, 255, 400, 400, 320) * scale, 0.0035},
 	["gm_construct_remaster"] = {AABB(-400, -400, 255, 400, 400, 320) * scale, 0.003},
 	["gm_flatgrass"] = {AABB(-400, -400, -430, 400, 400, -360) * scale, 0.003},
 	["gm_bluehills_test3"] = {AABB(130, 130, 340, 340, 320, 380) * scale, 0},
@@ -1326,9 +1326,10 @@ function steam.SpawnMapEntities(path, parent)
 					elseif info._fifty_percent_distance and info._fifty_percent_distance > 0 then
 						range = info._fifty_percent_distance * steam.source2meters * 2
 					elseif info._distance and info._distance > 0 then
-						--range = info._distance * steam.source2meters
-						range = math.clamp(range * 4, 1, 150)
+						range = info._distance * steam.source2meters
 					end
+
+					range = math.clamp(range, 4, 150)
 
 					if info.classname == "light_spot" then
 						local pitch = tonumber(info.pitch) or (info.angles and info.angles.x) or 0
@@ -1342,14 +1343,15 @@ function steam.SpawnMapEntities(path, parent)
 						rotation:SetAngles((-engine_forward):GetAngles())
 						tr:SetRotation(rotation)
 						light:SetLightType("directional")
-						light:SetRange(math.clamp(range, 1, 150))
+						light:SetRange(range)
 						light:SetInnerCone(math.cos(math.rad(inner_cone)))
 						light:SetOuterCone(math.cos(math.rad(outer_cone)))
 					else
 						light:SetLightType("point")
-						light:SetRange(math.clamp(range * 4, 1, 150))
+						light:SetRange(range)
 					end
 
+					--light:SetCastShadows{shadow_update_mode = "on_move"}
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then
 
