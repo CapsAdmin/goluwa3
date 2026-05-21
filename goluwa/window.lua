@@ -34,6 +34,15 @@ Window.Keys = {}
 Window.Buttons = {}
 
 function Window:SetMouseTrapped(b)
+	b = not not b
+	self.MouseTrapped = b
+
+	if not self:IsFocused() then
+		if self:IsMouseCaptured() then self:ReleaseMouse() end
+
+		return
+	end
+
 	if b then self:CaptureMouse() else self:ReleaseMouse() end
 end
 
@@ -107,10 +116,14 @@ function Window:OnMaximize()
 end
 
 function Window:OnGainedFocus()
+	if self.MouseTrapped then self:CaptureMouse() end
+
 	return event.Call("WindowGainedFocus", self)
 end
 
 function Window:OnLostFocus()
+	if self:IsMouseCaptured() then self:ReleaseMouse() end
+
 	local b = event.Call("WindowLostFocus", self)
 
 	if b ~= nil then return b end
