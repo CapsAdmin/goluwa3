@@ -249,6 +249,16 @@ return function(META)
 		if self.display then wayland.wl_client.wl_display_flush(self.display) end
 	end
 
+	local function apply_initial_window_geometry(self, width, height)
+		if self.xdg_surface then
+			self.xdg_surface:set_window_geometry(0, 0, width, height)
+		end
+
+		if self.surface_proxy then self.surface_proxy:commit() end
+
+		if self.display then wayland.wl_client.wl_display_flush(self.display) end
+	end
+
 	local function normalize_cursor_mode(mode)
 		if mode == "trapped" then return "hidden" end
 
@@ -522,6 +532,8 @@ return function(META)
 		-- Set title if provided
 		if self.Title then self.xdg_toplevel:set_title(tostring(self.Title)) end
 
+		if self.AppID then self.xdg_toplevel:set_app_id(tostring(self.AppID)) end
+
 		-- Request server-side decorations
 		if self.decoration_manager then
 			self.decoration = self.decoration_manager:get_toplevel_decoration(self.xdg_toplevel)
@@ -530,7 +542,7 @@ return function(META)
 			self.decoration:set_mode(2) --ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 		end
 
-		request_window_size(self, self.width, self.height)
+		apply_initial_window_geometry(self, self.width, self.height)
 		-- Commit
 		self.surface_proxy:commit()
 		wayland.wl_client.wl_display_roundtrip(self.display)
@@ -1174,6 +1186,10 @@ return function(META)
 
 	function META:SetTitle(title)
 		if self.xdg_toplevel then self.xdg_toplevel:set_title(tostring(title)) end
+	end
+
+	function META:SetAppID(app_id)
+		if self.xdg_toplevel then self.xdg_toplevel:set_app_id(tostring(app_id)) end
 	end
 
 	function META:GetMousePosition()
