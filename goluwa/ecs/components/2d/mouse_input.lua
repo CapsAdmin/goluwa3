@@ -44,6 +44,7 @@ end
 local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
 mouse_input.last_hovered = mouse_input.last_hovered or NULL
+mouse_input.active_hover_query = mouse_input.active_hover_query or nil
 local reverse_query_cache_key = {}
 local reverse_global_event_cache_key = {}
 
@@ -173,6 +174,21 @@ local function get_hovered_entity(entity, mouse_pos)
 	return query_children_reverse(entity, mouse_pos, hovered_entity_query_enter, hovered_entity_query_visit)
 end
 
+local function get_active_hovered_entity(entity, mouse_pos)
+	local cache = mouse_input.active_hover_query
+
+	if cache and cache.entity == entity and cache.pos == mouse_pos then
+		if not cache.resolved then
+			cache.hovered = get_hovered_entity(entity, mouse_pos) or NULL
+			cache.resolved = true
+		end
+
+		return cache.hovered
+	end
+
+	return get_hovered_entity(entity, mouse_pos)
+end
+
 local function call_global_event(entity, event_name, a, b, c, d, e, f, g)
 	local context = {
 		event_name = event_name,
@@ -206,7 +222,7 @@ function META:IsHoveredExclusively(mouse_pos)
 	if mouse_pos then
 		if not Panel.World then return false end
 
-		return get_hovered_entity(Panel.World, mouse_pos) == self.Owner
+		return get_active_hovered_entity(Panel.World, mouse_pos) == self.Owner
 	end
 
 	return mouse_input.last_hovered == self.Owner
@@ -219,87 +235,105 @@ function META:OnFirstCreated()
 		if not Panel.World then return end
 
 		local pos = system.GetWindow():GetMousePosition()
+		local result
+		mouse_input.active_hover_query = {
+			entity = world,
+			pos = pos,
+			resolved = false,
+			hovered = NULL,
+		}
 
-		do
-			local res, cmp = call_global_event(Panel.World, "OnGlobalMouseInput", button, press, pos)
+		repeat
+			local res, cmp = call_global_event(world, "OnGlobalMouseInput", button, press, pos)
 
-			if res and press then return true end
-		end
+			if res and press then
+				result = true
 
-		if press then
-			local hovered = get_hovered_entity(Panel.World, pos)
+				break
+			end
 
-			if hovered then
-				local mouse_comp = hovered.mouse_input
+			if press then
+				local hovered = get_active_hovered_entity(world, pos)
 
-				if mouse_comp then
-					mouse_input.pressed_entities[button] = hovered
-					mouse_comp.button_states = mouse_comp.button_states or {}
-					mouse_comp.button_states[button] = {press = press, pos = pos}
+				if hovered then
+					local mouse_comp = hovered.mouse_input
 
-					if mouse_comp:GetFocusOnClick() then
-						local target = hovered
+					if mouse_comp then
+						mouse_input.pressed_entities[button] = hovered
+						mouse_comp.button_states = mouse_comp.button_states or {}
+						mouse_comp.button_states[button] = {press = press, pos = pos}
 
-						if mouse_comp:GetRedirectFocus():IsValid() then
-							target = mouse_comp:GetRedirectFocus()
+						if mouse_comp:GetFocusOnClick() then
+							local target = hovered
+
+							if mouse_comp:GetRedirectFocus():IsValid() then
+								target = mouse_comp:GetRedirectFocus()
+							end
+
+							target:RequestFocus()
 						end
 
-						target:RequestFocus()
-					end
+						if mouse_comp:GetBringToFrontOnClick() then hovered:BringToFront() end
 
-					if mouse_comp:GetBringToFrontOnClick() then hovered:BringToFront() end
+						local current = hovered
 
-					local current = hovered
+						while current:IsValid() do
+							local transform = current.transform
 
-					while current:IsValid() do
-						local transform = current.transform
+							if not transform then break end
 
-						if not transform then break end
+							local local_pos = transform:GlobalToLocal(pos)
 
-						local local_pos = transform:GlobalToLocal(pos)
+							if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
+								break
+							end
 
-						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
-							break
+							current = current:GetParent()
 						end
 
-						current = current:GetParent()
-					end
+						result = true
 
-					return true
+						break
+					end
+				else
+					prototype.SetFocusedObject(NULL)
 				end
 			else
-				prototype.SetFocusedObject(NULL)
-			end
-		else
-			local pressed = mouse_input.pressed_entities[button] or NULL
+				local pressed = mouse_input.pressed_entities[button] or NULL
 
-			if pressed:IsValid() then
-				local mouse_comp = pressed.mouse_input
+				if pressed:IsValid() then
+					local mouse_comp = pressed.mouse_input
 
-				if mouse_comp then
-					mouse_comp.button_states = mouse_comp.button_states or {}
-					mouse_comp.button_states[button] = {press = press, pos = pos}
-					local current = pressed
+					if mouse_comp then
+						mouse_comp.button_states = mouse_comp.button_states or {}
+						mouse_comp.button_states[button] = {press = press, pos = pos}
+						local current = pressed
 
-					while current:IsValid() do
-						local transform = current.transform
+						while current:IsValid() do
+							local transform = current.transform
 
-						if not transform then break end
+							if not transform then break end
 
-						local local_pos = transform:GlobalToLocal(pos)
+							local local_pos = transform:GlobalToLocal(pos)
 
-						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
-							break
+							if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
+								break
+							end
+
+							current = current:GetParent()
 						end
-
-						current = current:GetParent()
 					end
-				end
 
-				mouse_input.pressed_entities[button] = nil
-				return true
-			end
-		end
+					mouse_input.pressed_entities[button] = nil
+					result = true
+
+					break
+				end
+			end		
+		until true
+
+		mouse_input.active_hover_query = nil
+		return result
 	end
 
 	function mouse_input.Update()
