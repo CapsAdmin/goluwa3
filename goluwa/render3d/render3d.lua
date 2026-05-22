@@ -520,6 +520,7 @@ function render3d.Initialize()
 		import("goluwa/render3d/passes/gbuffer.lua"),
 		import("goluwa/render3d/passes/ssr.lua"),
 		import("goluwa/render3d/passes/lighting.lua"),
+		import("goluwa/render3d/passes/clouds.lua"),
 		import("goluwa/render3d/passes/ocean.lua"),
 		import("goluwa/render3d/passes/forward_overlay.lua"),
 		import("goluwa/render3d/passes/volumetric_fog.lua"),

@@ -305,6 +305,34 @@ local atmosphere_shared_glsl = [[
 		return smoothstep(-0.08, 0.02, sun_dir.y);
 	}
 
+	const float CLOUD_CUMULUS_BASE_HEIGHT = 1.2;
+	const float CLOUD_CUMULUS_TOP_HEIGHT = 2.4;
+	const float CLOUD_ALTO_BASE_HEIGHT = 3.2;
+	const float CLOUD_ALTO_TOP_HEIGHT = 3.68;
+	const float CLOUD_CIRRUS_HEIGHT = 6.0;
+	const float CLOUD_CIRRUS_THICKNESS = 0.9;
+	const float CLOUD_EXTINCTION = 1.35;
+
+	struct CloudsParameters {
+		float cumulus_coverage;
+		float cumulus_detail_weight;
+		vec2 cumulus_edge_sharpening;
+		float cumulus_extinction;
+		float cumulus_scattering;
+		float alto_coverage;
+		float alto_detail_weight;
+		vec2 alto_edge_sharpening;
+		float alto_extinction;
+		float alto_scattering;
+		float cirrus_amount;
+	};
+
+	struct CloudsResult {
+		vec3 scattering;
+		float transmittance;
+		float apparent_distance;
+	};
+
 	vec3 get_scenery_fog_color(vec3 ray_dir, vec3 sun_dir, float sun_visibility) {
 		vec3 ambient = get_ambient_color(sun_dir);
 		float day_factor = smoothstep(-0.08, 0.2, sun_dir.y);
@@ -316,6 +344,471 @@ local atmosphere_shared_glsl = [[
 		vec3 indirect = ambient * ambient_visibility * 0.8;
 		vec3 direct = sun_tint * (0.03 + 0.1 * forward_scatter) * direct_visibility;
 		return indirect + direct * ATMOSPHERE_SUN_INTENSITY;
+	}
+
+	float cloud_henyey_greenstein(float mu, float g) {
+		float gg = g * g;
+		return (1.0 - gg) / (4.0 * PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
+	}
+
+	float clouds_phase_single(float cos_theta) {
+		float forward = max(cloud_henyey_greenstein(cos_theta, 0.82), cloud_henyey_greenstein(cos_theta, 0.55));
+		float backward = cloud_henyey_greenstein(cos_theta, -0.2);
+		return 0.8 * forward + 0.2 * backward;
+	}
+
+	float clouds_phase_multi(float cos_theta, vec3 g) {
+		return
+			0.65 * cloud_henyey_greenstein(cos_theta, g.x) +
+			0.10 * cloud_henyey_greenstein(cos_theta, g.y) +
+			0.25 * cloud_henyey_greenstein(cos_theta, -g.z);
+	}
+
+	float clouds_powder_effect(float density, float cos_theta) {
+		float powder = PI * density / (density + 0.15);
+		return mix(powder, 1.0, 0.8 * pow(clamp(cos_theta * 0.5 + 0.5, 0.0, 1.0), 2.0));
+	}
+
+	float cloud_lift(float value, float power) {
+		value = clamp(value, 0.0, 1.0);
+		return value / max(value + pow(max(1.0 - value, 0.0), power), 1e-5);
+	}
+
+	float cloud_hash12(vec2 p) {
+		return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+	}
+
+	ivec2 cloud_wrap_noise_coord(ivec2 coord, ivec2 size) {
+		return ivec2(
+			(coord.x % size.x + size.x) % size.x,
+			(coord.y % size.y + size.y) % size.y
+		);
+	}
+
+	float sample_cloud_noise_texel(int blue_noise_texture_index, ivec2 coord, ivec2 size) {
+		return texelFetch(TEXTURE(blue_noise_texture_index), cloud_wrap_noise_coord(coord, size), 0).r;
+	}
+
+	float cloud_noise(vec2 p) {
+		vec2 cell = floor(p);
+		vec2 frac_uv = fract(p);
+		frac_uv = frac_uv * frac_uv * (3.0 - 2.0 * frac_uv);
+		float a = cloud_hash12(cell);
+		float b = cloud_hash12(cell + vec2(1.0, 0.0));
+		float c = cloud_hash12(cell + vec2(0.0, 1.0));
+		float d = cloud_hash12(cell + vec2(1.0, 1.0));
+		return mix(mix(a, b, frac_uv.x), mix(c, d, frac_uv.x), frac_uv.y);
+	}
+
+	float cloud_blue_noise(vec2 p, int blue_noise_texture_index) {
+		if (blue_noise_texture_index == -1) {
+			return cloud_noise(p);
+		}
+
+		ivec2 noise_size = textureSize(TEXTURE(blue_noise_texture_index), 0);
+		vec2 cell_uv = p * 5.0;
+		ivec2 cell = ivec2(floor(cell_uv));
+		vec2 frac_uv = fract(cell_uv);
+		frac_uv = frac_uv * frac_uv * (3.0 - 2.0 * frac_uv);
+		float a = sample_cloud_noise_texel(blue_noise_texture_index, cell + ivec2(0, 0), noise_size);
+		float b = sample_cloud_noise_texel(blue_noise_texture_index, cell + ivec2(1, 0), noise_size);
+		float c = sample_cloud_noise_texel(blue_noise_texture_index, cell + ivec2(0, 1), noise_size);
+		float d = sample_cloud_noise_texel(blue_noise_texture_index, cell + ivec2(1, 1), noise_size);
+		return mix(mix(a, b, frac_uv.x), mix(c, d, frac_uv.x), frac_uv.y);
+	}
+
+	float cloud_blue_noise_raw(vec2 p, int blue_noise_texture_index) {
+		if (blue_noise_texture_index == -1) {
+			return cloud_hash12(floor(p));
+		}
+
+		ivec2 noise_size = textureSize(TEXTURE(blue_noise_texture_index), 0);
+		ivec2 cell = ivec2(floor(p));
+		return sample_cloud_noise_texel(blue_noise_texture_index, cell, noise_size);
+	}
+
+	float cloud_volume_noise(vec3 p, int blue_noise_texture_index) {
+		float xy = cloud_blue_noise(p.xy, blue_noise_texture_index);
+		float xz = cloud_blue_noise(p.xz + vec2(17.0, -9.0), blue_noise_texture_index);
+		float yz = cloud_blue_noise(p.yz + vec2(-4.0, 11.0), blue_noise_texture_index);
+		return (xy + xz + yz) / 3.0;
+	}
+
+	float cloud_volume_granular_noise(vec3 p, int blue_noise_texture_index) {
+		float xy = cloud_blue_noise_raw(p.xy, blue_noise_texture_index);
+		float xz = cloud_blue_noise_raw(p.xz + vec2(17.0, -9.0), blue_noise_texture_index);
+		float yz = cloud_blue_noise_raw(p.yz + vec2(-4.0, 11.0), blue_noise_texture_index);
+		return (xy + xz + yz) / 3.0;
+	}
+
+	CloudsParameters get_clouds_parameters(vec3 sun_dir) {
+		CloudsParameters params;
+		float daylight = smoothstep(-0.08, 0.18, sun_dir.y);
+		params.cumulus_coverage = 0.80;
+		params.cumulus_detail_weight = 0.22;
+		params.cumulus_edge_sharpening = vec2(3.0, 10.0);
+		params.cumulus_extinction = mix(0.08, 0.12, daylight);
+		params.cumulus_scattering = params.cumulus_extinction * 0.85;
+		params.alto_coverage = 0.56;
+		params.alto_detail_weight = 0.14;
+		params.alto_edge_sharpening = vec2(2.0, 7.0);
+		params.alto_extinction = mix(0.03, 0.05, daylight);
+		params.alto_scattering = params.alto_extinction * 0.9;
+		params.cirrus_amount = 0.42;
+		return params;
+	}
+
+	bool get_cloud_layer_segment(vec3 ray_origin, vec3 ray_dir, float inner_radius, float outer_radius, float max_distance, out float segment_near, out float segment_length) {
+		vec2 outer_hit = ray_sphere_intersect(ray_origin, ray_dir, outer_radius);
+		if (outer_hit.y <= 0.0) return false;
+
+		vec2 inner_hit = ray_sphere_intersect(ray_origin, ray_dir, inner_radius);
+		float origin_radius = length(ray_origin);
+		segment_near = 0.0;
+		float segment_far = outer_hit.y;
+
+		if (origin_radius < inner_radius) {
+			if (inner_hit.y <= 0.0) return false;
+			segment_near = max(inner_hit.y, 0.0);
+		} else if (origin_radius > outer_radius) {
+			segment_near = max(outer_hit.x, 0.0);
+			if (inner_hit.x > segment_near) {
+				segment_far = min(segment_far, inner_hit.x);
+			}
+		} else {
+			segment_near = 0.0;
+			if (inner_hit.x > 0.0) {
+				segment_far = min(segment_far, inner_hit.x);
+			}
+		}
+
+		if (max_distance > 0.0) {
+			segment_far = min(segment_far, max_distance);
+		}
+
+		segment_length = segment_far - segment_near;
+		return segment_length > 1e-5;
+	}
+
+	vec2 get_cloud_uv(vec3 cloud_point, float scale) {
+		return cloud_point.xz * scale;
+	}
+
+	float get_cloud_altitude_fraction(vec3 sample_point, float base_height, float top_height) {
+		float altitude = length(sample_point) - PLANET_RADIUS;
+		return clamp((altitude - base_height) / max(top_height - base_height, 1e-5), 0.0, 1.0);
+	}
+
+	float clouds_cumulus_density(vec3 sample_point, float cloud_time, int blue_noise_texture_index, CloudsParameters params) {
+		float altitude = length(sample_point) - PLANET_RADIUS;
+		if (altitude < CLOUD_CUMULUS_BASE_HEIGHT || altitude > CLOUD_CUMULUS_TOP_HEIGHT) return 0.0;
+
+		float height_u = get_cloud_altitude_fraction(sample_point, CLOUD_CUMULUS_BASE_HEIGHT, CLOUD_CUMULUS_TOP_HEIGHT);
+		vec2 wind = vec2(cloud_time * 0.0022, cloud_time * -0.0010);
+		vec2 base_pos = get_cloud_uv(sample_point, 0.045) + wind;
+		float coverage = mix(params.cumulus_coverage * 0.65, params.cumulus_coverage, cloud_blue_noise(base_pos * 0.25, blue_noise_texture_index));
+		float shape = cloud_blue_noise(base_pos, blue_noise_texture_index);
+		float density = smoothstep(0.92 - coverage, 1.0, shape);
+		float detail = cloud_volume_noise(vec3(base_pos * 3.2, height_u * 5.0), blue_noise_texture_index);
+		float erosion = cloud_volume_noise(vec3(base_pos * 7.0 + vec2(9.0, -3.0), height_u * 9.0), blue_noise_texture_index);
+		float granular = cloud_volume_granular_noise(vec3(base_pos * 18.0 + vec2(4.0, -7.0), height_u * 14.0), blue_noise_texture_index);
+		float granular_fine = cloud_volume_granular_noise(vec3(base_pos * 36.0 + vec2(-11.0, 5.0), height_u * 24.0), blue_noise_texture_index);
+		density -= params.cumulus_detail_weight * detail * (1.0 - density);
+		density -= 0.08 * erosion * (1.0 - density);
+		density -= 0.16 * granular * (0.35 + 0.65 * height_u) * (1.0 - density);
+		density -= 0.08 * granular_fine * smoothstep(0.15, 0.85, height_u) * (1.0 - density);
+		density = min(density + 0.08 * coverage, 1.0);
+		density -= smoothstep(0.2, 1.0, height_u) * 0.55;
+		density *= smoothstep(0.0, 0.2, height_u);
+		density = max(density, 0.0);
+		density = cloud_lift(density, mix(params.cumulus_edge_sharpening.x, params.cumulus_edge_sharpening.y, height_u));
+		density *= 1.0 - 0.18 * pow(max(granular - 0.55, 0.0), 1.5);
+		density *= mix(0.1, 1.0, smoothstep(0.2, 0.7, height_u));
+		return density;
+	}
+
+	float clouds_altocumulus_density(vec3 sample_point, float cloud_time, int blue_noise_texture_index, CloudsParameters params) {
+		float altitude = length(sample_point) - PLANET_RADIUS;
+		if (altitude < CLOUD_ALTO_BASE_HEIGHT || altitude > CLOUD_ALTO_TOP_HEIGHT) return 0.0;
+
+		float height_u = get_cloud_altitude_fraction(sample_point, CLOUD_ALTO_BASE_HEIGHT, CLOUD_ALTO_TOP_HEIGHT);
+		vec2 wind = vec2(cloud_time * 0.0030, cloud_time * 0.0007);
+		vec2 base_pos = get_cloud_uv(sample_point, 0.028) + wind;
+		float coverage = mix(params.alto_coverage * 0.5, params.alto_coverage, cloud_blue_noise(base_pos * 0.3 + vec2(0.3, 0.6), blue_noise_texture_index));
+		float shape = cloud_blue_noise(base_pos * 1.3 + vec2(0.2, -0.4), blue_noise_texture_index);
+		float density = smoothstep(0.95 - coverage, 1.0, shape);
+		float detail = cloud_volume_noise(vec3(base_pos * 4.5 + vec2(6.0, 1.0), height_u * 6.0), blue_noise_texture_index);
+		float granular = cloud_volume_granular_noise(vec3(base_pos * 22.0 + vec2(3.0, -8.0), height_u * 18.0), blue_noise_texture_index);
+		float granular_fine = cloud_volume_granular_noise(vec3(base_pos * 44.0 + vec2(-9.0, 4.0), height_u * 28.0), blue_noise_texture_index);
+		density -= params.alto_detail_weight * detail * (1.0 - density);
+		density -= 0.12 * granular * (1.0 - density);
+		density -= 0.06 * granular_fine * smoothstep(0.1, 0.9, height_u) * (1.0 - density);
+		density = min(density + 0.06 * coverage, 1.0);
+		density -= smoothstep(0.2, 1.0, height_u) * 0.6;
+		density *= smoothstep(0.0, 0.2, height_u);
+		density = max(density, 0.0);
+		density = cloud_lift(density, mix(params.alto_edge_sharpening.x, params.alto_edge_sharpening.y, height_u));
+		density *= 1.0 - 0.12 * pow(max(granular - 0.58, 0.0), 1.4);
+		density *= mix(0.1, 1.0, smoothstep(0.2, 0.7, height_u));
+		return density;
+	}
+
+	float clouds_cirrus_density(vec3 sample_point, float cloud_time, int blue_noise_texture_index, CloudsParameters params) {
+		float altitude = length(sample_point) - PLANET_RADIUS;
+		float height_u = 0.5 + (altitude - CLOUD_CIRRUS_HEIGHT) / max(CLOUD_CIRRUS_THICKNESS, 1e-5);
+		if (height_u < 0.0 || height_u > 1.0) return 0.0;
+		vec2 wind = vec2(cloud_time * 0.0040, cloud_time * -0.0015);
+		vec2 base_pos = get_cloud_uv(sample_point, 0.014) + wind;
+		float macro = 0.7 * cloud_blue_noise(base_pos * 0.6, blue_noise_texture_index) + 0.3 * cloud_blue_noise(base_pos * 2.0 + vec2(0.7, 0.2), blue_noise_texture_index);
+		float wisps = cloud_blue_noise(base_pos * 5.0 - vec2(0.4, 0.9), blue_noise_texture_index);
+		float height_shape = 1.0 - abs(1.0 - 2.0 * height_u);
+		float density = smoothstep(0.62 - params.cirrus_amount, 1.0, macro);
+		density -= 0.18 * wisps;
+		return pow(max(density, 0.0), 3.0) * height_shape * height_shape * 0.55;
+	}
+
+	float get_cloud_medium_density(vec3 sample_point, float cloud_time, int blue_noise_texture_index);
+
+	float sample_cloud_optical_depth(vec3 ray_origin, vec3 ray_dir, float cloud_time, int blue_noise_texture_index, int step_count) {
+		float segment_near;
+		float segment_length;
+		if (!get_cloud_layer_segment(ray_origin, ray_dir, PLANET_RADIUS + CLOUD_CUMULUS_BASE_HEIGHT, PLANET_RADIUS + CLOUD_ALTO_TOP_HEIGHT, -1.0, segment_near, segment_length)) {
+			return 0.0;
+		}
+
+		float step_size = segment_length / float(step_count);
+		float optical_depth = 0.0;
+
+		for (int i = 0; i < step_count; i++) {
+			float t = segment_near + (float(i) + 0.5) * step_size;
+			vec3 sample_point = ray_origin + ray_dir * t;
+			optical_depth += get_cloud_medium_density(sample_point, cloud_time, blue_noise_texture_index) * step_size;
+		}
+
+		return optical_depth;
+	}
+
+	CloudsResult blend_cloud_layers(CloudsResult back_layer, CloudsResult front_layer) {
+		bool front_is_nearer = front_layer.apparent_distance < back_layer.apparent_distance;
+		vec3 scattering_behind = front_is_nearer ? back_layer.scattering : front_layer.scattering;
+		vec3 scattering_front = front_is_nearer ? front_layer.scattering : back_layer.scattering;
+		float front_transmittance = front_is_nearer ? front_layer.transmittance : back_layer.transmittance;
+		return CloudsResult(
+			scattering_front + front_transmittance * scattering_behind,
+			back_layer.transmittance * front_layer.transmittance,
+			min(back_layer.apparent_distance, front_layer.apparent_distance)
+		);
+	}
+
+	float get_cloud_shadow_visibility(vec3 camera_origin, vec3 sample_point, vec3 up, vec3 sun_dir, float cloud_time, int blue_noise_texture_index) {
+		float day_visibility = smoothstep(-0.12, 0.08, sun_dir.y);
+		if (day_visibility <= 0.0001) return 1.0;
+
+		float segment_near;
+		float segment_length;
+		if (!get_cloud_layer_segment(sample_point, sun_dir, PLANET_RADIUS + CLOUD_CUMULUS_BASE_HEIGHT, PLANET_RADIUS + CLOUD_ALTO_TOP_HEIGHT, -1.0, segment_near, segment_length)) return 1.0;
+
+		const int CLOUD_SHADOW_STEPS = 4;
+		float step_size = segment_length / float(CLOUD_SHADOW_STEPS);
+		float optical_depth = 0.0;
+
+		for (int i = 0; i < CLOUD_SHADOW_STEPS; i++) {
+			float t = segment_near + (float(i) + 0.5) * step_size;
+			vec3 cloud_sample = sample_point + sun_dir * t;
+			optical_depth += get_cloud_medium_density(cloud_sample, cloud_time, blue_noise_texture_index) * step_size;
+		}
+
+		return mix(1.0, exp(-optical_depth * CLOUD_EXTINCTION), day_visibility);
+	}
+
+	float get_cloud_medium_density(vec3 sample_point, float cloud_time, int blue_noise_texture_index) {
+		if (length(sample_point) <= PLANET_RADIUS) return 0.0;
+		CloudsParameters params = get_clouds_parameters(vec3(0.0, 1.0, 0.0));
+		float cumulus = clouds_cumulus_density(sample_point, cloud_time, blue_noise_texture_index, params);
+		float alto = clouds_altocumulus_density(sample_point, cloud_time, blue_noise_texture_index, params);
+		return cumulus + 0.55 * alto;
+	}
+
+	CloudsResult draw_cumulus_clouds(vec3 camera_origin, vec3 dir, vec3 sky_color, vec3 sun_dir, float cloud_time, int blue_noise_texture_index, CloudsParameters params) {
+		float segment_near;
+		float segment_length;
+		if (!get_cloud_layer_segment(camera_origin, dir, PLANET_RADIUS + CLOUD_CUMULUS_BASE_HEIGHT, PLANET_RADIUS + CLOUD_CUMULUS_TOP_HEIGHT, -1.0, segment_near, segment_length)) {
+			return CloudsResult(vec3(0.0), 1.0, 1e6);
+		}
+
+		const int CLOUD_VIEW_STEPS = 20;
+		float step_size = segment_length / float(CLOUD_VIEW_STEPS);
+		float transmittance = 1.0;
+		vec2 scattering = vec2(0.0);
+		float distance_sum = 0.0;
+		float distance_weight_sum = 0.0;
+		vec3 light_dir = sun_dir;
+		float cos_theta = dot(dir, light_dir);
+		float bounced_light = 0.08 * max(light_dir.y, 0.0);
+
+		for (int i = 0; i < CLOUD_VIEW_STEPS; i++) {
+			if (transmittance < 0.06) break;
+			float t = segment_near + (float(i) + 0.5) * step_size;
+			vec3 sample_point = camera_origin + dir * t;
+			float density = clouds_cumulus_density(sample_point, cloud_time, blue_noise_texture_index, params);
+			if (density <= 1e-5) continue;
+
+			float step_optical_depth = density * params.cumulus_extinction * step_size;
+			float step_transmittance = exp(-step_optical_depth);
+			float light_optical_depth = sample_cloud_optical_depth(sample_point, light_dir, cloud_time, blue_noise_texture_index, 4);
+			float sky_optical_depth = sample_cloud_optical_depth(sample_point, vec3(0.0, 1.0, 0.0), cloud_time, blue_noise_texture_index, 3);
+			float ground_optical_depth = density * get_cloud_altitude_fraction(sample_point, CLOUD_CUMULUS_BASE_HEIGHT, CLOUD_CUMULUS_TOP_HEIGHT) * (CLOUD_CUMULUS_TOP_HEIGHT - CLOUD_CUMULUS_BASE_HEIGHT);
+			float scatter_integral_times_density = (1.0 - step_transmittance) / max(params.cumulus_extinction, 1e-5);
+			float powder = clouds_powder_effect(density, cos_theta);
+			float phase = clouds_phase_single(cos_theta);
+			vec3 phase_g = pow(vec3(0.6, 0.9, 0.3), vec3(1.0 + light_optical_depth));
+			float scatter_amount = params.cumulus_scattering;
+			float extinct_amount = params.cumulus_extinction;
+			vec2 step_scattering = vec2(0.0);
+
+			for (int j = 0; j < 6; j++) {
+				step_scattering.x += scatter_amount * exp(-extinct_amount * light_optical_depth) * phase;
+				step_scattering.x += scatter_amount * exp(-extinct_amount * ground_optical_depth) * (1.0 / (4.0 * PI)) * bounced_light;
+				step_scattering.y += scatter_amount * exp(-extinct_amount * sky_optical_depth) * (1.0 / (4.0 * PI));
+				scatter_amount *= 0.55 * powder;
+				extinct_amount *= 0.4;
+				phase_g *= 0.8;
+				powder = mix(powder, sqrt(powder), 0.5);
+				phase = clouds_phase_multi(cos_theta, phase_g);
+			}
+
+			scattering += step_scattering * scatter_integral_times_density * transmittance;
+			transmittance *= step_transmittance;
+			distance_sum += t * density;
+			distance_weight_sum += density;
+		}
+
+		vec3 light_color = mix(vec3(1.0, 0.72, 0.60), vec3(1.0, 0.98, 0.94), smoothstep(-0.05, 0.25, sun_dir.y)) * ATMOSPHERE_SUN_INTENSITY;
+		vec3 cloud_scattering = scattering.x * light_color + scattering.y * get_ambient_color(sun_dir);
+		float apparent_distance = distance_weight_sum > 0.0 ? distance_sum / distance_weight_sum : 1e6;
+		return CloudsResult(cloud_scattering, transmittance, apparent_distance);
+	}
+
+	CloudsResult draw_altocumulus_clouds(vec3 camera_origin, vec3 dir, vec3 sun_dir, float cloud_time, int blue_noise_texture_index, CloudsParameters params) {
+		float segment_near;
+		float segment_length;
+		if (!get_cloud_layer_segment(camera_origin, dir, PLANET_RADIUS + CLOUD_ALTO_BASE_HEIGHT, PLANET_RADIUS + CLOUD_ALTO_TOP_HEIGHT, -1.0, segment_near, segment_length)) {
+			return CloudsResult(vec3(0.0), 1.0, 1e6);
+		}
+
+		const int CLOUD_VIEW_STEPS = 14;
+		float step_size = segment_length / float(CLOUD_VIEW_STEPS);
+		float transmittance = 1.0;
+		vec2 scattering = vec2(0.0);
+		float distance_sum = 0.0;
+		float distance_weight_sum = 0.0;
+		float cos_theta = dot(dir, sun_dir);
+
+		for (int i = 0; i < CLOUD_VIEW_STEPS; i++) {
+			if (transmittance < 0.06) break;
+			float t = segment_near + (float(i) + 0.5) * step_size;
+			vec3 sample_point = camera_origin + dir * t;
+			float density = clouds_altocumulus_density(sample_point, cloud_time, blue_noise_texture_index, params);
+			if (density <= 1e-5) continue;
+
+			float step_optical_depth = density * params.alto_extinction * step_size;
+			float step_transmittance = exp(-step_optical_depth);
+			float light_optical_depth = sample_cloud_optical_depth(sample_point, sun_dir, cloud_time, blue_noise_texture_index, 3);
+			float sky_optical_depth = sample_cloud_optical_depth(sample_point, vec3(0.0, 1.0, 0.0), cloud_time, blue_noise_texture_index, 2);
+			float scatter_integral_times_density = (1.0 - step_transmittance) / max(params.alto_extinction, 1e-5);
+			float powder = clouds_powder_effect(density * 1.5, cos_theta);
+			float phase = clouds_phase_single(cos_theta);
+			vec3 phase_g = vec3(0.6, 0.9, 0.3);
+			float scatter_amount = params.alto_scattering;
+			float extinct_amount = params.alto_extinction;
+			vec2 step_scattering = vec2(0.0);
+
+			for (int j = 0; j < 5; j++) {
+				step_scattering.x += scatter_amount * exp(-extinct_amount * light_optical_depth) * phase;
+				step_scattering.y += scatter_amount * exp(-extinct_amount * sky_optical_depth) * (1.0 / (4.0 * PI));
+				scatter_amount *= 0.5 * powder;
+				extinct_amount *= 0.45;
+				phase_g *= 0.7;
+				powder = mix(powder, sqrt(powder), 0.5);
+				phase = clouds_phase_multi(cos_theta, phase_g);
+			}
+
+			scattering += step_scattering * scatter_integral_times_density * transmittance;
+			transmittance *= step_transmittance;
+			distance_sum += t * density;
+			distance_weight_sum += density;
+		}
+
+		vec3 light_color = mix(vec3(1.0, 0.74, 0.62), vec3(1.0, 0.96, 0.95), smoothstep(-0.05, 0.25, sun_dir.y)) * ATMOSPHERE_SUN_INTENSITY;
+		vec3 cloud_scattering = scattering.x * light_color + scattering.y * get_ambient_color(sun_dir) * 0.9;
+		float apparent_distance = distance_weight_sum > 0.0 ? distance_sum / distance_weight_sum : 1e6;
+		return CloudsResult(cloud_scattering, transmittance, apparent_distance);
+	}
+
+	CloudsResult draw_cirrus_clouds(vec3 camera_origin, vec3 dir, vec3 sun_dir, float cloud_time, int blue_noise_texture_index, CloudsParameters params) {
+		float segment_near;
+		float segment_length;
+		float inner_radius = PLANET_RADIUS + CLOUD_CIRRUS_HEIGHT - 0.5 * CLOUD_CIRRUS_THICKNESS;
+		float outer_radius = PLANET_RADIUS + CLOUD_CIRRUS_HEIGHT + 0.5 * CLOUD_CIRRUS_THICKNESS;
+		if (!get_cloud_layer_segment(camera_origin, dir, inner_radius, outer_radius, -1.0, segment_near, segment_length)) {
+			return CloudsResult(vec3(0.0), 1.0, 1e6);
+		}
+
+		const int CLOUD_VIEW_STEPS = 8;
+		float step_size = segment_length / float(CLOUD_VIEW_STEPS);
+		float transmittance = 1.0;
+		vec2 scattering = vec2(0.0);
+		float distance_sum = 0.0;
+		float distance_weight_sum = 0.0;
+		float cos_theta = dot(dir, sun_dir);
+
+		for (int i = 0; i < CLOUD_VIEW_STEPS; i++) {
+			float t = segment_near + (float(i) + 0.5) * step_size;
+			vec3 sample_point = camera_origin + dir * t;
+			float density = clouds_cirrus_density(sample_point, cloud_time, blue_noise_texture_index, params);
+			if (density <= 1e-5) continue;
+
+			float step_optical_depth = density * 0.15 * step_size;
+			float step_transmittance = exp(-step_optical_depth);
+			float light_optical_depth = sample_cloud_optical_depth(sample_point, sun_dir, cloud_time, blue_noise_texture_index, 2);
+			float scatter_integral = (1.0 - step_transmittance) / 0.15;
+			float powder = mix(8.0 * (1.0 - exp(-40.0 * density)), 1.0, pow(clamp(cos_theta * 0.5 + 0.5, 0.0, 1.0), 1.5));
+			float phase = clouds_phase_single(cos_theta);
+			vec2 step_scattering = vec2(0.0);
+			step_scattering.x += 0.15 * exp(-0.15 * light_optical_depth) * phase * powder * scatter_integral;
+			step_scattering.y += 0.15 * exp(-0.05 * density) * (1.0 / (4.0 * PI)) * scatter_integral;
+			scattering += step_scattering * transmittance;
+			transmittance *= step_transmittance;
+			distance_sum += t * density;
+			distance_weight_sum += density;
+		}
+
+		vec3 light_color = mix(vec3(1.0, 0.76, 0.70), vec3(1.0, 0.98, 0.98), smoothstep(-0.05, 0.25, sun_dir.y)) * ATMOSPHERE_SUN_INTENSITY;
+		vec3 cloud_scattering = scattering.x * light_color + scattering.y * get_ambient_color(sun_dir);
+		float apparent_distance = distance_weight_sum > 0.0 ? distance_sum / distance_weight_sum : 1e6;
+		return CloudsResult(cloud_scattering, transmittance, apparent_distance);
+	}
+
+	CloudsResult draw_clouds(vec3 camera_origin, vec3 dir, vec3 sky_color, vec3 sun_dir, float cloud_time, int blue_noise_texture_index) {
+		CloudsParameters params = get_clouds_parameters(sun_dir);
+		CloudsResult result = draw_cumulus_clouds(camera_origin, dir, sky_color, sun_dir, cloud_time, blue_noise_texture_index, params);
+		CloudsResult alto = draw_altocumulus_clouds(camera_origin, dir, sun_dir, cloud_time, blue_noise_texture_index, params);
+		result = blend_cloud_layers(result, alto);
+		CloudsResult cirrus = draw_cirrus_clouds(camera_origin, dir, sun_dir, cloud_time, blue_noise_texture_index, params);
+		result = blend_cloud_layers(result, cirrus);
+		return result;
+	}
+
+	vec3 apply_2d_clouds(vec3 sky_color, vec3 camera_origin, vec3 dir, vec3 sun_dir, vec3 up, float cloud_time, int blue_noise_texture_index) {
+		float day_visibility = smoothstep(-0.12, 0.08, sun_dir.y);
+		if (day_visibility <= 0.0001) return sky_color;
+		float horizon_fade = smoothstep(-0.08, 0.14, dot(dir, up));
+		CloudsResult result = draw_clouds(camera_origin, dir, sky_color, sun_dir, cloud_time, blue_noise_texture_index);
+		float cloud_alpha = (1.0 - result.transmittance) * horizon_fade * day_visibility;
+		if (cloud_alpha <= 1e-4) return sky_color;
+		vec3 attenuated_sky = sky_color * mix(1.0, result.transmittance, horizon_fade);
+		vec3 cloud_color = result.scattering * horizon_fade;
+		return attenuated_sky + cloud_color;
 	}
 ]]
 
@@ -906,25 +1399,35 @@ function atmosphere.GetGLSLMainCode(
 	stars_texture_index_var,
 	sky_view_texture_index_var,
 	transmittance_texture_index_var,
-	planet_occlusion_mode
+	time_var,
+	planet_occlusion_mode,
+	blue_noise_texture_index_var,
+	include_clouds_var
 )
 	sky_view_texture_index_var = sky_view_texture_index_var or "-1"
 	transmittance_texture_index_var = transmittance_texture_index_var or "-1"
+	time_var = time_var or "0.0"
+	blue_noise_texture_index_var = blue_noise_texture_index_var or "-1"
+	include_clouds_var = include_clouds_var or "true"
 	local occlusion_color_expr = "get_probe_ground_occlusion_color(atmos_dir, atmos_sun_dir, " .. cam_pos_var .. ")"
 	return [[
 		{
 			vec3 atmos_dir = normalize(]] .. dir_var .. [[);
 			vec3 atmos_sun_dir = normalize(]] .. sun_dir_var .. [[);
+			vec3 camera_origin = get_atmosphere_camera_origin(]] .. cam_pos_var .. [[);
+			vec3 up = normalize(camera_origin);
 			bool planet_occluded = ray_hits_planet(atmos_dir, ]] .. cam_pos_var .. [[);
 			vec3 atmosphere_color = sample_sky_view_lut(]] .. sky_view_texture_index_var .. [[, atmos_dir, atmos_sun_dir, ]] .. cam_pos_var .. [[);
 			atmosphere_color += get_sun_disc(atmos_dir, atmos_sun_dir, ]] .. cam_pos_var .. [[, ]] .. transmittance_texture_index_var .. [[);
+			if (]] .. include_clouds_var .. [[) {
+				atmosphere_color = apply_2d_clouds(atmosphere_color, camera_origin, atmos_dir, atmos_sun_dir, up, ]] .. time_var .. [[, ]] .. blue_noise_texture_index_var .. [[);
+			}
 			float sun_elevation = atmos_sun_dir.y;
 			float day_factor = smoothstep(-0.16, 0.06, sun_elevation);
 			float sky_luminance = dot(atmosphere_color, vec3(0.2126, 0.7152, 0.0722));
 			float sky_brightness = clamp(sky_luminance * 0.5, 0.0, 1.0);
 			float blend_factor = max(day_factor, sky_brightness);
 			vec3 space_color = vec3(0.0);
-			vec3 up = normalize(get_atmosphere_camera_origin(]] .. cam_pos_var .. [[));
 			float lower_hemisphere_blend = smoothstep(-0.4, 0.12, dot(atmos_dir, up));
 
 			if (]] .. stars_texture_index_var .. [[ != -1) {

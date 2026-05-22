@@ -1,5 +1,6 @@
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
+local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -8,7 +9,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local Texture = import("goluwa/render/texture.lua")
 local MAX_CASCADES = directional_shadows.MAX_CASCADES
-local ENABLE_VOLUMETRIC_FOG = true
+local ENABLE_VOLUMETRIC_FOG = false
 local DEBUG_GOD_RAY_BOOST = 1.0
 local DEBUG_GOD_RAY_SUN_FACING_BOOST = 1
 local DEBUG_GOD_RAY_SHADOW_CONTRAST = 1.0
@@ -297,6 +298,8 @@ local function write_scene_fog_constants(self, block)
 	render3d.WriteGBufferBlock(self, block)
 	get_raw_scene_source_texture(self, block, "source_tex")
 	write_ocean_distance_texture(self, block, "ocean_distance_tex")
+	block.time = system.GetElapsedTime()
+	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 	scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
 	block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
 	scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
@@ -309,6 +312,8 @@ local function write_volumetric_froxel_build_constants(self, block)
 	render3d.WriteCameraBlock(self, block)
 	render3d.WriteGBufferBlock(self, block)
 	write_ocean_distance_texture(self, block, "ocean_distance_tex")
+	block.time = system.GetElapsedTime()
+	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 	block.near_z = render3d.camera:GetNearZ()
 	block.far_z = render3d.camera:GetFarZ()
 	block.froxel_resolution[0] = volumetric_froxels.width
@@ -355,6 +360,8 @@ local r = {
 							"int",
 							write_ocean_distance_texture,
 						},
+						{"time", "float"},
+						{"blue_noise_tex", "int"},
 						{"near_z", "float"},
 						{"far_z", "float"},
 						{"froxel_resolution", "vec2"},
@@ -373,6 +380,8 @@ local r = {
 			const float DEBUG_GOD_RAY_SUN_FACING_BOOST = ]] .. DEBUG_GOD_RAY_SUN_FACING_BOOST .. [[;
 			const float DEBUG_GOD_RAY_SHADOW_CONTRAST = ]] .. DEBUG_GOD_RAY_SHADOW_CONTRAST .. [[;
 			const float DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = ]] .. DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE .. [[;
+			const float CLOUD_MEDIUM_EXTINCTION = 1.8;
+			const float CLOUD_DENSITY_SCALE = 1.35;
 
 			]] .. scene_lights.GetLightGLSLCode() .. [[
 
@@ -480,6 +489,14 @@ local r = {
 				float shadow_visibility = pow(clamp(sun_visibility, 0.0, 1.0), DEBUG_GOD_RAY_SHADOW_CONTRAST);
 				float direct_visibility = horizon_visibility * shadow_visibility;
 				return sun_tint * (0.015 + 0.14 * forward_scatter) * direct_visibility * ATMOSPHERE_SUN_INTENSITY * DEBUG_GOD_RAY_BOOST * sun_facing_boost;
+			}
+
+			float get_froxel_cloud_sun_visibility(vec3 world_pos, vec3 fog_sample, vec3 sun_dir) {
+				vec3 camera_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
+				vec3 up = normalize(camera_origin);
+				float scene_visibility = get_fog_sun_visibility(world_pos, sun_dir);
+				float cloud_visibility = get_cloud_shadow_visibility(camera_origin, fog_sample, up, sun_dir, froxel_data.time, froxel_data.blue_noise_tex);
+				return scene_visibility * cloud_visibility;
 			}
 
 			int getPointShadowSlot(int light_index) {
@@ -638,15 +655,7 @@ local r = {
 				vec3 ray_dir = get_world_ray();
 				vec3 sun_dir = get_current_primary_sun_direction();
 
-				float fog_near_world;
-				float fog_length_world;
 				float max_world_distance = length(get_world_pos_at_view_depth(froxel_data.far_z) - froxel_data.camera_position.xyz);
-				if (!get_fog_world_segment(ray_dir, max_world_distance, fog_near_world, fog_length_world)) {
-					set_color(vec4(0.0, 0.0, 0.0, 1.0));
-					return;
-				}
-
-				float fog_far_world = fog_near_world + fog_length_world;
 				vec3 fog_ray_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
 				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 				float slice_start_view = get_slice_view_depth(float(froxel_data.current_slice));
@@ -673,8 +682,8 @@ local r = {
 						vec3 sub_slice_end_world_pos = get_world_pos_at_view_depth(sub_slice_end_view);
 						float sub_slice_start_world = length(sub_slice_start_world_pos - froxel_data.camera_position.xyz);
 						float sub_slice_end_world = length(sub_slice_end_world_pos - froxel_data.camera_position.xyz);
-						float segment_start = max(sub_slice_start_world, fog_near_world);
-						float segment_end = min(sub_slice_end_world, fog_far_world);
+						float segment_start = sub_slice_start_world;
+						float segment_end = min(sub_slice_end_world, max_world_distance);
 
 						if (segment_end <= segment_start) continue;
 
@@ -684,15 +693,19 @@ local r = {
 						float sample_view_depth = 0.5 * (sub_slice_start_view + sub_slice_end_view);
 						vec3 world_sample = get_world_pos_at_view_depth(sample_view_depth);
 						vec3 fog_sample = fog_ray_origin + ray_dir * (sample_distance * fog_distance_scale);
-						float density = scenery_fog_density(fog_sample);
+						float fog_density = scenery_fog_density(fog_sample);
+						float cloud_density = get_cloud_medium_density(fog_sample, froxel_data.time, froxel_data.blue_noise_tex) * CLOUD_DENSITY_SCALE;
+						float density = fog_density + cloud_density;
 
 						if (density <= 1e-6) continue;
 
-						float tau = density * SCENERY_FOG_EXTINCTION * step_fog;
+						float tau = (fog_density * SCENERY_FOG_EXTINCTION + cloud_density * CLOUD_MEDIUM_EXTINCTION) * step_fog;
 						float segment_transmittance = exp(-tau);
 						float segment_scatter_amount = 1.0 - exp(-tau * 1);
-						float sun_visibility = get_fog_sun_visibility(world_sample, sun_dir);
+						float sun_visibility = get_froxel_cloud_sun_visibility(world_sample, fog_sample, sun_dir);
 						vec3 scattering_light = get_volumetric_scattering_light(ray_dir, sun_dir, sun_visibility);
+						float cloud_weight = clamp(cloud_density / max(density, 1e-5), 0.0, 1.0);
+						scattering_light *= mix(1.0, 1.45, cloud_weight);
 						scattering_light += get_additional_volumetric_light(ray_dir, world_sample);
 						total_scattering += total_transmittance * scattering_light * segment_scatter_amount;
 						total_transmittance *= segment_transmittance;
@@ -735,6 +748,8 @@ local r = {
 								end
 							end,
 						},
+						{"time", "float"},
+						{"blue_noise_tex", "int"},
 						unpack(build_scene_light_block_fields()),
 					},
 					write = write_scene_fog_constants,
@@ -803,6 +818,102 @@ local r = {
 				return true;
 			}
 
+			bool get_atmosphere_world_segment(vec3 ray_dir, float max_world_distance, out float segment_near_world, out float segment_length_world) {
+				vec3 ray_origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
+				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
+				vec2 atmosphere_hit = ray_sphere_intersect(ray_origin, ray_dir, ATMOSPHERE_RADIUS);
+
+				if (atmosphere_hit.y <= 0.0) {
+					return false;
+				}
+
+				segment_near_world = max(atmosphere_hit.x, 0.0) / fog_distance_scale;
+				float segment_far_world = atmosphere_hit.y / fog_distance_scale;
+
+				if (max_world_distance > 0.0) {
+					segment_far_world = min(segment_far_world, max_world_distance);
+				}
+
+				segment_length_world = segment_far_world - segment_near_world;
+				return segment_length_world > 1e-5;
+			}
+
+			float get_medium_density(vec3 sample_point) {
+				float fog_density = scenery_fog_density(sample_point);
+				float cloud_density = get_cloud_medium_density(sample_point, fog_data.time, fog_data.blue_noise_tex) * 1.35;
+				return fog_density + cloud_density;
+			}
+
+			float get_medium_extinction(vec3 sample_point) {
+				float fog_density = scenery_fog_density(sample_point);
+				float cloud_density = get_cloud_medium_density(sample_point, fog_data.time, fog_data.blue_noise_tex) * 1.35;
+				return fog_density * SCENERY_FOG_EXTINCTION + cloud_density * 1.8;
+			}
+
+			float get_sky_medium_sun_visibility(vec3 ray_dir, float max_world_distance, vec3 sun_dir) {
+				if (get_fog_sun_horizon_visibility(sun_dir) <= 0.0001) {
+					return 0.0;
+				}
+
+				float segment_near_world;
+				float segment_length_world;
+				if (!get_atmosphere_world_segment(ray_dir, max_world_distance, segment_near_world, segment_length_world)) {
+					return 1.0;
+				}
+
+				const int MEDIUM_VISIBILITY_STEPS = 8;
+				float step_size = segment_length_world / float(MEDIUM_VISIBILITY_STEPS);
+				float weighted_distance = 0.0;
+				float total_weight = 0.0;
+				vec3 ray_origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
+				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
+
+				for (int i = 0; i < MEDIUM_VISIBILITY_STEPS; i++) {
+					float world_t = segment_near_world + (float(i) + 0.5) * step_size;
+					vec3 sample_point = ray_origin + ray_dir * (world_t * fog_distance_scale);
+					float weight = max(get_medium_density(sample_point), 1e-4);
+					weighted_distance += world_t * weight;
+					total_weight += weight;
+				}
+
+				float representative_world_t = total_weight > 0.0
+					? weighted_distance / total_weight
+					: segment_near_world + segment_length_world * 0.5;
+				vec3 representative_world_pos = fog_data.camera_position.xyz + ray_dir * representative_world_t;
+				vec3 representative_sample = ray_origin + ray_dir * (representative_world_t * fog_distance_scale);
+				float scene_visibility = get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
+				float cloud_visibility = get_cloud_shadow_visibility(
+					ray_origin,
+					representative_sample,
+					normalize(ray_origin),
+					sun_dir,
+					fog_data.time,
+					fog_data.blue_noise_tex
+				);
+				return scene_visibility * cloud_visibility;
+			}
+
+			float get_sky_medium_transmittance(vec3 ray_dir, float max_world_distance) {
+				float segment_near_world;
+				float segment_length_world;
+				if (!get_atmosphere_world_segment(ray_dir, max_world_distance, segment_near_world, segment_length_world)) {
+					return 1.0;
+				}
+
+				vec3 ray_origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
+				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
+				float step_size = segment_length_world / float(AERIAL_PERSPECTIVE_STEPS);
+				float medium_od = 0.0;
+
+				for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
+					float world_t = segment_near_world + (float(i) + 0.5) * step_size;
+					vec3 sample_point = ray_origin + ray_dir * (world_t * fog_distance_scale);
+					medium_od += get_medium_extinction(sample_point) * (step_size * fog_distance_scale);
+				}
+
+				return exp(-medium_od);
+			}
+
 			float get_fog_ray_sun_visibility(vec3 ray_dir, float max_world_distance, vec3 sun_dir) {
 				if (get_fog_sun_horizon_visibility(sun_dir) <= 0.0001) {
 					return 0.0;
@@ -835,7 +946,17 @@ local r = {
 					? weighted_distance / total_weight
 					: fog_near_world + fog_length_world * 0.35;
 				vec3 representative_world_pos = fog_data.camera_position.xyz + ray_dir * representative_world_t;
-				return get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
+				vec3 representative_fog_sample = fog_ray_origin + ray_dir * (representative_world_t * fog_distance_scale);
+				float scene_visibility = get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
+				float cloud_visibility = get_cloud_shadow_visibility(
+					fog_ray_origin,
+					representative_fog_sample,
+					normalize(fog_ray_origin),
+					sun_dir,
+					fog_data.time,
+					-1
+				);
+				return scene_visibility * cloud_visibility;
 			}
 
 			float get_fog_geometry_sun_visibility(vec3 ray_dir, vec3 world_pos, float max_world_distance, vec3 sun_dir) {
@@ -843,7 +964,18 @@ local r = {
 					return 0.0;
 				}
 
-				return get_fog_sun_visibility(world_pos, get_normal(), sun_dir);
+				vec3 fog_ray_origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
+				vec3 fog_sample = fog_ray_origin + (world_pos - fog_data.camera_position.xyz) * (CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER);
+				float scene_visibility = get_fog_sun_visibility(world_pos, get_normal(), sun_dir);
+				float cloud_visibility = get_cloud_shadow_visibility(
+					fog_ray_origin,
+					fog_sample,
+					normalize(fog_ray_origin),
+					sun_dir,
+					fog_data.time,
+					-1
+				);
+				return scene_visibility * cloud_visibility;
 			}
 
 			float get_fog_transmittance(vec3 ray_dir, float max_world_distance) {
@@ -1022,11 +1154,11 @@ local r = {
 				float max_world_distance = ocean_distance > 0.0
 					? ocean_distance
 					: length(world_pos - fog_data.camera_position.xyz);
-				float fog_transmittance = is_sky ? get_fog_transmittance(ray_dir, -1.0) : get_fog_transmittance(ray_dir, max_world_distance);
+				float fog_transmittance = is_sky ? get_sky_medium_transmittance(ray_dir, -1.0) : get_fog_transmittance(ray_dir, max_world_distance);
 				float fog_amount = 1.0 - fog_transmittance;
 
 				if (is_sky) {
-					float sun_visibility = get_fog_ray_sun_visibility(ray_dir, -1.0, sun_dir);
+					float sun_visibility = get_sky_medium_sun_visibility(ray_dir, -1.0, sun_dir);
 
 					color = apply_scenery_fog_ray(
 						scene.rgb,

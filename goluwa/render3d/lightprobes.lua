@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local assets = import("goluwa/assets.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
@@ -397,6 +398,13 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 						{
+							"blue_noise_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+							end,
+						},
+						{
 							"sun_direction",
 							"vec4",
 							function(self, block, key)
@@ -508,6 +516,13 @@ function lightprobes.CreatePipelines()
 							end,
 						},
 						{
+							"blue_noise_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+							end,
+						},
+						{
 							"sun_direction",
 							"vec4",
 							function(self, block, key)
@@ -523,6 +538,13 @@ function lightprobes.CreatePipelines()
 							"vec4",
 							function(self, block, key)
 								lightprobes.camera:GetPosition():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
+							"time",
+							"float",
+							function(self, block, key)
+								block[key] = system.GetElapsedTime()
 							end,
 						},
 					},
@@ -543,7 +565,9 @@ function lightprobes.CreatePipelines()
 					"fragment.stars_texture_index",
 					"fragment.atmosphere_sky_view_texture_index",
 					"fragment.atmosphere_transmittance_texture_index",
-					"probe_ground_ambient"
+					"fragment.time",
+					"probe_ground_ambient",
+					"fragment.blue_noise_tex"
 				) .. [[
 					vec3 probe_ray_dir = normalize(in_direction);
 					vec3 probe_sun_dir = length(fragment.sun_direction.xyz) > 0.0001
@@ -762,6 +786,7 @@ local function write_probe_data(self, block)
 	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
 	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
+	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 	local sun = get_primary_sun(render3d.GetLights())
 
 	if sun then
@@ -797,6 +822,7 @@ local function write_sky_fragment_constants(self, block)
 	end
 
 	lightprobes.camera:GetPosition():CopyToFloatPointer(block.camera_position)
+	block.time = system.GetElapsedTime()
 	return block
 end
 

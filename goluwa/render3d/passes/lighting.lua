@@ -736,7 +736,11 @@ return {
 					"lighting_data.camera_position.xyz",
 					"lighting_data.stars_texture_index",
 					"lighting_data.atmosphere_sky_view_texture_index",
-					"lighting_data.atmosphere_transmittance_texture_index"
+					"lighting_data.atmosphere_transmittance_texture_index",
+					"lighting_data.time",
+					nil,
+					"lighting_data.blue_noise_tex",
+					"false"
 				) .. [[
 
 				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));

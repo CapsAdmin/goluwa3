@@ -37,6 +37,8 @@ local function write_ocean_data(self, block)
 
 	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 		block.scene_tex = -1
+	elseif render3d.pipelines.clouds_composite then
+		block.scene_tex = self:GetTextureIndex(render3d.pipelines.clouds_composite:GetFramebuffer():GetAttachment(1))
 	else
 		local current_idx = system.GetFrameNumber() % 2 + 1
 		block.scene_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))

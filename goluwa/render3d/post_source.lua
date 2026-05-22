@@ -28,6 +28,11 @@ function post_source.WriteRawSceneSourceTexture(self, block, key)
 		return
 	end
 
+	if render3d.pipelines.clouds_composite then
+		block[key] = self:GetTextureIndex(render3d.pipelines.clouds_composite:GetFramebuffer():GetAttachment(1))
+		return
+	end
+
 	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 		block[key] = -1
 		return
