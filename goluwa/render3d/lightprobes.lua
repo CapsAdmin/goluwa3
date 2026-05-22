@@ -540,6 +540,18 @@ function lightprobes.CreatePipelines()
 					"fragment.atmosphere_transmittance_texture_index",
 					"probe_ground_ambient"
 				) .. [[
+					vec3 probe_ray_dir = normalize(in_direction);
+					vec3 probe_sun_dir = length(fragment.sun_direction.xyz) > 0.0001
+						? normalize(fragment.sun_direction.xyz)
+						: vec3(0.0, 1.0, 0.0);
+					sky_color_output = apply_scenery_fog_ray(
+						sky_color_output,
+						probe_ray_dir,
+						probe_sun_dir,
+						fragment.camera_position.xyz,
+						-1.0,
+						get_fog_sun_horizon_visibility(probe_sun_dir)
+					);
                     // Clamp sky to prevent infinities
                     sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
                     set_color(vec4(sky_color_output, 1.0));

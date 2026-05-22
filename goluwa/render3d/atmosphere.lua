@@ -29,6 +29,7 @@ local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
 local DEFAULT_SUN_INTENSITY = 1.0
 local SUN_RADIUS = 500.0
 local SUN_DISTANCE = 100000.0
+local DEBUG_DISABLE_SCENERY_FOG = false
 atmosphere.sun_intensity = atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
 local transmittance_glsl = [[
 	const int TRANSMITTANCE_STEPS = 40;
@@ -183,9 +184,16 @@ local atmosphere_shared_glsl = [[
 	const float ATMOSPHERE_RADIUS = 6471.0;
 	const float RAYLEIGH_SCALE_HEIGHT = 8.0;
 	const float MIE_SCALE_HEIGHT = 1.2;
-	const float SCENERY_FOG_SCALE_HEIGHT = 0.35;
-	const float SCENERY_FOG_MIE_BOOST = 0.35;
-	const float SCENERY_FOG_EXTINCTION = 0.06;
+	const float SCENERY_FOG_ENABLED = ]] .. (
+		DEBUG_DISABLE_SCENERY_FOG and
+		"0.0" or
+		"1.0"
+	) .. [[;
+	const float SCENERY_FOG_SCALE_HEIGHT = 0.18;
+	const float SCENERY_FOG_BASE_DENSITY = 3.25;
+	const float SCENERY_FOG_TOP_HEIGHT = 1.4;
+	const float SCENERY_FOG_TOP_SOFTNESS = 0.45;
+	const float SCENERY_FOG_EXTINCTION = 0.18;
 	const float MIE_BETA = 0.021;
 	const float MIE_BETA_EXT = 0.0231;
 	const float MIE_G = 0.758;
@@ -229,9 +237,16 @@ local atmosphere_shared_glsl = [[
 	}
 
 	float scenery_fog_density(vec3 point) {
+		if (SCENERY_FOG_ENABLED < 0.5) return 0.0;
+
 		float altitude = max(length(point) - PLANET_RADIUS, 0.0);
-		float low_altitude_weight = exp(-altitude / SCENERY_FOG_SCALE_HEIGHT);
-		return mie_density(point) * mix(1.0, SCENERY_FOG_MIE_BOOST, low_altitude_weight);
+		float base_density = exp(-altitude / SCENERY_FOG_SCALE_HEIGHT);
+		float top_fade = 1.0 - smoothstep(
+			max(SCENERY_FOG_TOP_HEIGHT - SCENERY_FOG_TOP_SOFTNESS, 0.0),
+			SCENERY_FOG_TOP_HEIGHT,
+			altitude
+		);
+		return SCENERY_FOG_BASE_DENSITY * base_density * top_fade;
 	}
 
 	float rayleigh_phase(float mu) {
@@ -286,13 +301,21 @@ local atmosphere_shared_glsl = [[
 		return projected_sun;
 	}
 
+	float get_fog_sun_horizon_visibility(vec3 sun_dir) {
+		return smoothstep(-0.08, 0.02, sun_dir.y);
+	}
+
 	vec3 get_scenery_fog_color(vec3 ray_dir, vec3 sun_dir, float sun_visibility) {
 		vec3 ambient = get_ambient_color(sun_dir);
 		float day_factor = smoothstep(-0.08, 0.2, sun_dir.y);
+		float horizon_visibility = get_fog_sun_horizon_visibility(sun_dir);
+		float ambient_visibility = smoothstep(-0.04, 0.1, sun_dir.y);
 		float forward_scatter = pow(clamp(dot(ray_dir, sun_dir) * 0.5 + 0.5, 0.0, 1.0), 8.0);
 		vec3 sun_tint = mix(vec3(1.0, 0.6, 0.42), vec3(1.0, 0.97, 0.92), day_factor);
-		vec3 direct = sun_tint * (0.08 + 0.22 * forward_scatter) * mix(0.35, 1.0, clamp(sun_visibility, 0.0, 1.0));
-		return ambient + direct * ATMOSPHERE_SUN_INTENSITY;
+		float direct_visibility = horizon_visibility * clamp(sun_visibility, 0.0, 1.0);
+		vec3 indirect = ambient * ambient_visibility;
+		vec3 direct = sun_tint * (0.08 + 0.22 * forward_scatter) * direct_visibility;
+		return indirect + direct * ATMOSPHERE_SUN_INTENSITY;
 	}
 ]]
 
@@ -460,19 +483,26 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return texture(TEXTURE(sky_view_texture_index), uv).rgb;
 	}
 
-	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index, float sun_visibility) {
-		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
+	bool get_aerial_perspective_segment(
+		vec3 world_pos,
+		vec3 cam_pos,
+		out vec3 ray_origin,
+		out vec3 ray_dir,
+		out float atmosphere_near,
+		out float segment_length
+	) {
+		ray_origin = get_atmosphere_camera_origin(cam_pos);
 		vec3 world_delta = (world_pos - cam_pos) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 		float target_distance = length(world_delta);
 
-		if (target_distance <= 1e-5) return scene_color;
+		if (target_distance <= 1e-5) return false;
 
-		vec3 ray_dir = world_delta / target_distance;
+		ray_dir = world_delta / target_distance;
 		vec2 atmosphere_hit = ray_sphere_intersect(ray_origin, ray_dir, ATMOSPHERE_RADIUS);
 
-		if (atmosphere_hit.y <= 0.0) return scene_color;
+		if (atmosphere_hit.y <= 0.0) return false;
 
-		float atmosphere_near = max(atmosphere_hit.x, 0.0);
+		atmosphere_near = max(atmosphere_hit.x, 0.0);
 		float atmosphere_far = min(atmosphere_hit.y, target_distance);
 		vec2 ground_hit = ray_sphere_intersect(ray_origin, ray_dir, PLANET_RADIUS);
 
@@ -480,14 +510,80 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			atmosphere_far = min(atmosphere_far, ground_hit.x);
 		}
 
-		float segment_length = atmosphere_far - atmosphere_near;
-		if (segment_length <= 1e-5) return scene_color;
+		segment_length = atmosphere_far - atmosphere_near;
+		return segment_length > 1e-5;
+	}
+
+	bool get_scenery_fog_segment(
+		vec3 ray_origin,
+		vec3 ray_dir,
+		float max_distance,
+		out float fog_near,
+		out float fog_length
+	) {
+		if (SCENERY_FOG_ENABLED < 0.5) return false;
+
+		float fog_outer_radius = PLANET_RADIUS + SCENERY_FOG_TOP_HEIGHT;
+		vec2 fog_hit = ray_sphere_intersect(ray_origin, ray_dir, fog_outer_radius);
+
+		if (fog_hit.y <= 0.0) return false;
+
+		vec2 ground_hit = ray_sphere_intersect(ray_origin, ray_dir, PLANET_RADIUS);
+		float origin_radius = length(ray_origin);
+		float fog_far = fog_hit.y;
+
+		fog_near = origin_radius <= fog_outer_radius ? 0.0 : max(fog_hit.x, 0.0);
+
+		if (ground_hit.x > fog_near) {
+			fog_far = min(fog_far, ground_hit.x);
+		}
+
+		if (max_distance > 0.0) {
+			fog_far = min(fog_far, max_distance);
+		}
+
+		fog_length = fog_far - fog_near;
+		return fog_length > 1e-5;
+	}
+
+	vec3 apply_scenery_fog_segment(
+		vec3 scene_color,
+		vec3 ray_origin,
+		vec3 ray_dir,
+		float fog_near,
+		float fog_length,
+		vec3 sun_dir,
+		float sun_visibility
+	) {
+		float step_size = fog_length / float(AERIAL_PERSPECTIVE_STEPS);
+		float scenery_fog_od = 0.0;
+
+		for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
+			float t = fog_near + (float(i) + 0.5) * step_size;
+			vec3 sample_point = ray_origin + ray_dir * t;
+			scenery_fog_od += scenery_fog_density(sample_point) * step_size;
+		}
+
+		float scenery_fog_tau = scenery_fog_od * SCENERY_FOG_EXTINCTION;
+		vec3 fog_transmittance = exp(-vec3(scenery_fog_tau));
+		vec3 scenery_fog = get_scenery_fog_color(ray_dir, sun_dir, sun_visibility) * (1.0 - fog_transmittance);
+		return scene_color * fog_transmittance + scenery_fog;
+	}
+
+	vec3 apply_atmospheric_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index, float sun_visibility) {
+		vec3 ray_origin;
+		vec3 ray_dir;
+		float atmosphere_near;
+		float segment_length;
+
+		if (!get_aerial_perspective_segment(world_pos, cam_pos, ray_origin, ray_dir, atmosphere_near, segment_length)) {
+			return scene_color;
+		}
 
 		float step_size = segment_length / float(AERIAL_PERSPECTIVE_STEPS);
 		float view_rayleigh_od = 0.0;
 		float view_mie_od = 0.0;
 		float view_ozone_od = 0.0;
-		float scenery_fog_od = 0.0;
 		vec3 total_rayleigh = vec3(0.0);
 		vec3 total_mie = vec3(0.0);
 		float mu = dot(ray_dir, sun_dir);
@@ -500,12 +596,10 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			float density_r = rayleigh_density(sample_point);
 			float density_m = mie_density(sample_point);
 			float density_o = ozone_density(sample_point);
-			float density_f = scenery_fog_density(sample_point);
 
 			view_rayleigh_od += density_r * step_size;
 			view_mie_od += density_m * step_size;
 			view_ozone_od += density_o * step_size;
-			scenery_fog_od += density_f * step_size;
 
 			vec3 sun_transmittance = sample_transmittance_lut(transmittance_texture_index, sample_point, sun_dir);
 			vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
@@ -521,10 +615,45 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			phase_r * RAYLEIGH_BETA * total_rayleigh * rayleigh_visibility +
 			phase_m * MIE_BETA * total_mie * mie_visibility
 		);
-		float scenery_fog_tau = scenery_fog_od * SCENERY_FOG_EXTINCTION;
-		vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od) - vec3(scenery_fog_tau));
-		vec3 scenery_fog = get_scenery_fog_color(ray_dir, sun_dir, sun_visibility) * (1.0 - exp(-vec3(scenery_fog_tau)));
-		return scene_color * view_transmittance + scattered_light + scenery_fog;
+		vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
+		return scene_color * view_transmittance + scattered_light;
+	}
+
+	vec3 apply_scenery_fog(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility) {
+		vec3 ray_origin;
+		vec3 ray_dir;
+		float atmosphere_near;
+		float segment_length;
+
+		if (!get_aerial_perspective_segment(world_pos, cam_pos, ray_origin, ray_dir, atmosphere_near, segment_length)) {
+			return scene_color;
+		}
+
+		float fog_near;
+		float fog_length;
+
+		if (!get_scenery_fog_segment(ray_origin, ray_dir, atmosphere_near + segment_length, fog_near, fog_length)) {
+			return scene_color;
+		}
+
+		return apply_scenery_fog_segment(scene_color, ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility);
+	}
+
+	vec3 apply_scenery_fog_ray(vec3 scene_color, vec3 ray_dir, vec3 sun_dir, vec3 cam_pos, float max_distance, float sun_visibility) {
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
+		float fog_near;
+		float fog_length;
+
+		if (!get_scenery_fog_segment(ray_origin, normalize(ray_dir), max_distance, fog_near, fog_length)) {
+			return scene_color;
+		}
+
+		return apply_scenery_fog_segment(scene_color, ray_origin, normalize(ray_dir), fog_near, fog_length, sun_dir, sun_visibility);
+	}
+
+	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index, float sun_visibility) {
+		scene_color = apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, transmittance_texture_index, sun_visibility);
+		return apply_scenery_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility);
 	}
 
 	vec3 get_atmosphere(vec3 dir, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
@@ -747,7 +876,7 @@ function atmosphere.GetSurfaceAerialPerspectiveGLSLCode(background_color_expr)
 		}
 
 		vec3 apply_surface_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
-			return apply_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, transmittance_texture_index, 1.0);
+			return apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, transmittance_texture_index, 1.0);
 		}
 	]]
 end

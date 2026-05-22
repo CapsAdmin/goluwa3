@@ -1336,7 +1336,7 @@ return {
 					atmosphere_sun_visibility = calculateShadow(world_pos, N, sunDir);
 				}
 
-				color = apply_aerial_perspective(
+				color = apply_atmospheric_aerial_perspective(
 					color,
 					world_pos,
 					sunDir,
