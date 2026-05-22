@@ -1,49 +1,17 @@
-local Vec3 = import("goluwa/structs/vec3.lua")
 local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local WAVE_TEX_SIZE = 512
 local WAVE_TEX_WORLD_HALF = 1024.0
 local WAVE_NEAR_WORLD_HALF = 64.0
 local WAVE_NEAR_REPEAT_WORLD_HALF = 64.0
-
-local function get_primary_sun(lights)
-	lights = lights or render3d.GetLights()
-
-	for _, light in ipairs(lights) do
-		if light.LightType == "sun" then return light end
-	end
-
-	return nil
-end
-
-local function get_primary_sun_direction()
-	local lights = render3d.GetLights()
-	local sun_dir = Vec3(0, 1, 0)
-	local sun = get_primary_sun(lights)
-
-	if sun then sun_dir = sun.Owner.transform:GetRotation():GetBackward() end
-
-	return sun_dir
-end
-
-local function get_primary_sun_intensity()
-	local sun = get_primary_sun(render3d.GetLights())
-
-	if sun then return sun.Intensity end
-
-	return atmosphere.GetSunIntensity()
-end
-
-local function get_primary_sun_color()
-	local sun = get_primary_sun(render3d.GetLights())
-
-	if sun then return sun.Color end
-
-	return Vec3(1, 1, 1)
-end
+local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
+local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
+local get_primary_sun_color = directional_shadows.GetPrimarySunColor
 
 local function write_wave_precompute(self, block, wave_world_half)
 	render3d.WriteCommonBlock(self, block)
@@ -561,23 +529,9 @@ return {
 				return texture(TEXTURE(ocean_data.depth_tex), uv).r;
 			}
 
-			vec3 get_world_pos(vec2 uv, float depth) {
-				vec4 clip_pos = vec4(uv * 2.0 - 1.0, depth, 1.0);
-				vec4 view_pos = ocean_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				return (ocean_data.inv_view * view_pos).xyz;
-			}
 
-			vec3 get_view_ray(vec2 uv) {
-				vec4 near_clip_pos = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-				vec4 far_clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
-				vec4 near_view_pos = ocean_data.inv_projection * near_clip_pos;
-				vec4 far_view_pos = ocean_data.inv_projection * far_clip_pos;
-				near_view_pos /= near_view_pos.w;
-				far_view_pos /= far_view_pos.w;
-				vec3 view_dir = far_view_pos.xyz - near_view_pos.xyz;
-				return normalize(mat3(ocean_data.inv_view) * view_dir);
-			}
+			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[
+			]] .. screen_reconstruct.GetViewRayFromUVGLSL("ocean_data") .. [[
 
 			vec2 project_world_to_uv(vec3 world_pos) {
 				vec4 clip_pos = ocean_data.projection * ocean_data.view * vec4(world_pos, 1.0);
@@ -1126,16 +1080,8 @@ return {
 				return texture(TEXTURE(ocean_resolve_data.history_ocean_tex), uv);
 			}
 
-			vec3 get_view_ray(vec2 uv) {
-				vec4 near_clip_pos = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-				vec4 far_clip_pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
-				vec4 near_view_pos = ocean_resolve_data.inv_projection * near_clip_pos;
-				vec4 far_view_pos = ocean_resolve_data.inv_projection * far_clip_pos;
-				near_view_pos /= near_view_pos.w;
-				far_view_pos /= far_view_pos.w;
-				vec3 view_dir = far_view_pos.xyz - near_view_pos.xyz;
-				return normalize(mat3(ocean_resolve_data.inv_view) * view_dir);
-			}
+
+			]] .. screen_reconstruct.GetViewRayFromUVGLSL("ocean_resolve_data") .. [[
 
 			void main() {
 				vec4 current = get_current_ocean(in_uv);

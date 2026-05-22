@@ -1,5 +1,6 @@
 local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 
 local function write_ssr_data(self, block)
@@ -273,6 +274,8 @@ return {
                 
                 return vec4(0.0);
             }
+
+			]] .. screen_reconstruct.GetWorldPosGLSL("ssr_data") .. [[
             
             void main() {
                 vec3 N = get_normal();
@@ -284,10 +287,7 @@ return {
                     return;
                 }
 					
-                vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
-                vec4 view_pos = ssr_data.inv_projection * clip_pos;
-                view_pos /= view_pos.w;
-                vec3 world_pos = (ssr_data.inv_view * view_pos).xyz;
+				vec3 world_pos = get_world_pos(depth);
                 vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
                 
                 // SINGLE RAY with spatiotemporal blue noise

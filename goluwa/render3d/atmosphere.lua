@@ -189,11 +189,11 @@ local atmosphere_shared_glsl = [[
 		"0.0" or
 		"1.0"
 	) .. [[;
-	const float SCENERY_FOG_SCALE_HEIGHT = 0.18;
-	const float SCENERY_FOG_BASE_DENSITY = 3.25;
-	const float SCENERY_FOG_TOP_HEIGHT = 1.4;
-	const float SCENERY_FOG_TOP_SOFTNESS = 0.45;
-	const float SCENERY_FOG_EXTINCTION = 0.18;
+	const float SCENERY_FOG_SCALE_HEIGHT = 0.22;
+	const float SCENERY_FOG_BASE_DENSITY = 2.2;
+	const float SCENERY_FOG_TOP_HEIGHT = 1.1;
+	const float SCENERY_FOG_TOP_SOFTNESS = 0.3;
+	const float SCENERY_FOG_EXTINCTION = 0.22;
 	const float MIE_BETA = 0.021;
 	const float MIE_BETA_EXT = 0.0231;
 	const float MIE_G = 0.758;
@@ -313,8 +313,8 @@ local atmosphere_shared_glsl = [[
 		float forward_scatter = pow(clamp(dot(ray_dir, sun_dir) * 0.5 + 0.5, 0.0, 1.0), 8.0);
 		vec3 sun_tint = mix(vec3(1.0, 0.6, 0.42), vec3(1.0, 0.97, 0.92), day_factor);
 		float direct_visibility = horizon_visibility * clamp(sun_visibility, 0.0, 1.0);
-		vec3 indirect = ambient * ambient_visibility;
-		vec3 direct = sun_tint * (0.08 + 0.22 * forward_scatter) * direct_visibility;
+		vec3 indirect = ambient * ambient_visibility * 0.8;
+		vec3 direct = sun_tint * (0.03 + 0.1 * forward_scatter) * direct_visibility;
 		return indirect + direct * ATMOSPHERE_SUN_INTENSITY;
 	}
 ]]

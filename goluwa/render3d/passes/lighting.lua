@@ -3,38 +3,13 @@ local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
-
-local function get_primary_sun(lights)
-	lights = lights or render3d.GetLights()
-
-	for i, light in ipairs(lights) do
-		if light.LightType == "sun" then return light, i - 1 end
-	end
-
-	return nil, -1
-end
-
-local function get_primary_sun_direction(lights)
-	lights = lights or render3d.GetLights()
-	local sun_dir = Vec3(0, 1, 0)
-	local sun = get_primary_sun(lights)
-
-	if sun then sun_dir = sun.Owner.transform:GetRotation():GetBackward() end
-
-	return sun_dir
-end
-
-local function get_primary_sun_intensity(lights)
-	lights = lights or render3d.GetLights()
-	local sun = get_primary_sun(lights)
-
-	if sun then return sun.Intensity end
-
-	return atmosphere.GetSunIntensity()
-end
-
+local get_primary_sun = directional_shadows.GetPrimarySun
+local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
+local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
 local MAX_LIGHTS = 128
 local MAX_CASCADES = 4
 local MAX_POINT_SHADOWS = 4
@@ -606,90 +581,7 @@ return {
 				return vec3(x, y, z) * 2.0 - 1.0;
 			}
 
-			// Get cascade index based on view distance
-			int getCascadeIndex(vec3 world_pos) {
-				float dist = -(lighting_data.view * vec4(world_pos, 1.0)).z;
-				
-				for (int i = 0; i < lighting_data.shadows.cascade_count; i++) {
-					if (dist < lighting_data.shadows.cascade_splits[i]) {
-						return i;
-					}
-				}
-				return lighting_data.shadows.cascade_count - 1;
-			}
-
-			float getShadowReceiverPlaneBias(vec2 uv, float current_depth, vec2 texel_size, float filter_radius_texels) {
-				vec2 uv_dx = dFdx(uv);
-				vec2 uv_dy = dFdy(uv);
-				float depth_dx = dFdx(current_depth);
-				float depth_dy = dFdy(current_depth);
-				float det = uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x;
-
-				if (abs(det) < 1e-8) {
-					return 0.0;
-				}
-
-				vec2 depth_grad_uv = vec2(
-					(depth_dx * uv_dy.y - depth_dy * uv_dx.y) / det,
-					(depth_dy * uv_dx.x - depth_dx * uv_dy.x) / det
-				);
-				return dot(abs(depth_grad_uv), texel_size * filter_radius_texels);
-			}
-
-			bool projectShadowMap(
-				mat4 light_space_matrix,
-				vec3 world_pos,
-				vec3 normal,
-				vec3 light_dir,
-				float texel_world_size,
-				out vec3 proj_coords
-			) {
-				float normal_bias = max(texel_world_size * 1.5, 0.0005);
-				float bias_val = normal_bias * max(1.0 - dot(normal, light_dir), 0.15);
-				vec3 offset_pos = world_pos + normal * bias_val;
-				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
-				proj_coords = light_space_pos.xyz / light_space_pos.w;
-				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
-				return !(
-					proj_coords.z > 1.0 ||
-					proj_coords.z < 0.0 ||
-					proj_coords.x < 0.0 ||
-					proj_coords.x > 1.0 ||
-					proj_coords.y < 0.0 ||
-					proj_coords.y > 1.0
-				);
-			}
-
-			float sampleShadowProjection(int shadow_map_idx, vec3 proj_coords, float filter_radius_texels) {
-				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
-				vec2 texel_size = 1.0 / shadow_size;
-				float current_depth = proj_coords.z;
-				float receiver_bias = getShadowReceiverPlaneBias(proj_coords.xy, current_depth, texel_size, filter_radius_texels);
-				receiver_bias = max(receiver_bias, 0.00002);
-				float shadow_val = 0.0;
-				const vec2 POISSON_DISK[12] = vec2[12](
-					vec2(-0.326, -0.406),
-					vec2(-0.840, -0.074),
-					vec2(-0.696,  0.457),
-					vec2(-0.203,  0.621),
-					vec2( 0.962, -0.195),
-					vec2( 0.473, -0.480),
-					vec2( 0.519,  0.767),
-					vec2( 0.185, -0.893),
-					vec2( 0.507,  0.064),
-					vec2( 0.896,  0.412),
-					vec2(-0.322, -0.933),
-					vec2(-0.792, -0.598)
-				);
-
-				for (int i = 0; i < 12; ++i) {
-					vec2 offset = POISSON_DISK[i] * filter_radius_texels * texel_size;
-					float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + offset).r;
-					shadow_val += current_depth - receiver_bias > pcf_depth ? 0.0 : 1.0;
-				}
-
-				return shadow_val / 12.0;
-			}
+			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_data", "calculateShadow") .. [[
 
 			int getPointShadowSlot(int light_index) {
 				for (int i = 0; i < lighting_data.shadows.point_shadow_count; i++) {
@@ -754,28 +646,6 @@ return {
 				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
 			}
 
-			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
-				if (cascade_idx < 0 || cascade_idx >= lighting_data.shadows.cascade_count) return 1.0;
-
-				int shadow_map_idx = lighting_data.shadows.shadow_map_indices[cascade_idx];
-				if (shadow_map_idx < 0) return 1.0;
-
-				vec3 proj_coords;
-
-				if (!projectShadowMap(
-					lighting_data.shadows.light_space_matrices[cascade_idx],
-					world_pos,
-					normal,
-					light_dir,
-					lighting_data.shadows.cascade_texel_world_sizes[cascade_idx],
-					proj_coords
-				)) {
-					return 1.0;
-				}
-
-				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
-			}
-
 			float calculateLocalDirectionalShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
 				int shadow_map_idx = lighting_data.shadows.local_directional_shadow_map_index;
 				if (shadow_map_idx < 0) return 1.0;
@@ -794,66 +664,6 @@ return {
 				}
 
 				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
-			}
-
-			bool sampleInsetShadow(vec3 world_pos, vec3 normal, vec3 light_dir, out float shadow) {
-				shadow = 1.0;
-				if (lighting_data.shadows.inset_shadow_map_index < 0) return false;
-
-				vec3 proj_coords;
-
-				if (!projectShadowMap(
-					lighting_data.shadows.inset_light_space_matrix,
-					world_pos,
-					normal,
-					light_dir,
-					lighting_data.shadows.inset_shadow_texel_world_size,
-					proj_coords
-				)) {
-					return false;
-				}
-
-				shadow = sampleShadowProjection(lighting_data.shadows.inset_shadow_map_index, proj_coords, 1.0);
-				return true;
-			}
-
-			// PCF Shadow calculation with cascade blending near split boundaries.
-			float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
-				int cascade_idx = getCascadeIndex(world_pos);
-				if (cascade_idx < 0) return 1.0;
-
-				float dist = -(lighting_data.view * vec4(world_pos, 1.0)).z;
-				float shadow = sampleShadowCascade(cascade_idx, world_pos, normal, light_dir);
-
-				if (cascade_idx < lighting_data.shadows.cascade_count - 1) {
-					float previous_split = cascade_idx > 0 ? lighting_data.shadows.cascade_splits[cascade_idx - 1] : 0.0;
-					float current_split = lighting_data.shadows.cascade_splits[cascade_idx];
-					float cascade_span = max(current_split - previous_split, 0.0001);
-					float blend_band = max(cascade_span * 0.15, 8.0);
-					float blend_start = current_split - blend_band;
-
-					if (dist > blend_start) {
-						float next_shadow = sampleShadowCascade(cascade_idx + 1, world_pos, normal, light_dir);
-						float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
-						shadow = mix(shadow, next_shadow, blend);
-					}
-				}
-
-				if (lighting_data.shadows.inset_shadow_map_index >= 0 && dist < lighting_data.shadows.inset_shadow_distance) {
-					float inset_shadow = 1.0;
-
-					if (sampleInsetShadow(world_pos, normal, light_dir, inset_shadow)) {
-						float inset_band = max(lighting_data.shadows.inset_shadow_distance * 0.25, 4.0);
-						float inset_blend = 1.0 - smoothstep(
-							max(lighting_data.shadows.inset_shadow_distance - inset_band, 0.0),
-							lighting_data.shadows.inset_shadow_distance,
-							dist
-						);
-						shadow = mix(shadow, inset_shadow, inset_blend);
-					}
-				}
-
-				return shadow;
 			}
 
 			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex) {
@@ -1280,13 +1090,8 @@ return {
 				return ambient;
 			}
 
-			vec3 get_world_pos(float depth) {
-				// Reconstruct world position from depth
-				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
-				vec4 view_pos = lighting_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				return (lighting_data.inv_view * view_pos).xyz;
-			}
+
+			]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
 
 			vec3 get_view_normal(vec3 world_pos) {
 				return normalize(lighting_data.camera_position.xyz - world_pos);
