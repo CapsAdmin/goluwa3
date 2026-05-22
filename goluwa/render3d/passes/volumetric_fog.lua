@@ -12,7 +12,7 @@ local ENABLE_VOLUMETRIC_FOG = true
 local DEBUG_GOD_RAY_BOOST = 1.0
 local DEBUG_GOD_RAY_SUN_FACING_BOOST = 1
 local DEBUG_GOD_RAY_SHADOW_CONTRAST = 1.0
-local DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = 10.0
+local DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = 1.0
 local FROXEL_TILE_SIZE = 16
 local FROXEL_SLICE_COUNT = 64
 local volumetric_froxels = {
@@ -699,7 +699,7 @@ local r = {
 						float sun_visibility = get_fog_sun_visibility(world_sample, sun_dir);
 						vec3 scattering_light = get_volumetric_scattering_light(ray_dir, sun_dir, sun_visibility);
 						scattering_light += get_additional_volumetric_light(ray_dir, world_sample);
-						total_scattering += total_transmittance * scattering_light * 0.01;
+						total_scattering += total_transmittance * scattering_light * segment_scatter_amount;
 						total_transmittance *= segment_transmittance;
 					}
 				}
