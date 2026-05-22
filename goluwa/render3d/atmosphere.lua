@@ -115,10 +115,9 @@ end
 
 local function get_shader_camera_position(cam_pos)
 	cam_pos = cam_pos or Vec3(0, 0, 0)
-	local atmosphere_height = math.max(cam_pos.y * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER, 0)
 	return {
 		x = cam_pos.x * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
-		y = PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + atmosphere_height,
+		y = PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + cam_pos.y * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
 		z = cam_pos.z * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
 	}
 end
@@ -287,23 +286,13 @@ local atmosphere_shared_glsl = [[
 		return projected_sun;
 	}
 
-	float get_sun_lighting_factor(vec3 sun_dir) {
-		return smoothstep(-0.14, 0.02, sun_dir.y);
-	}
-
-	vec3 get_scenery_fog_ambient_color(vec3 sun_dir) {
+	vec3 get_scenery_fog_color(vec3 ray_dir, vec3 sun_dir, float sun_visibility) {
 		vec3 ambient = get_ambient_color(sun_dir);
 		float day_factor = smoothstep(-0.08, 0.2, sun_dir.y);
-		float fog_ambient_factor = mix(0.01, 1.0, day_factor);
-		return ambient * fog_ambient_factor;
-	}
-
-	vec3 get_scenery_fog_direct_color(vec3 ray_dir, vec3 sun_dir, float sun_visibility) {
-		float day_factor = smoothstep(-0.08, 0.2, sun_dir.y);
-		float sun_lighting = get_sun_lighting_factor(sun_dir);
 		float forward_scatter = pow(clamp(dot(ray_dir, sun_dir) * 0.5 + 0.5, 0.0, 1.0), 8.0);
 		vec3 sun_tint = mix(vec3(1.0, 0.6, 0.42), vec3(1.0, 0.97, 0.92), day_factor);
-		return sun_tint * (0.08 + 0.22 * forward_scatter) * mix(0.35, 1.0, clamp(sun_visibility, 0.0, 1.0)) * sun_lighting * ATMOSPHERE_SUN_INTENSITY;
+		vec3 direct = sun_tint * (0.08 + 0.22 * forward_scatter) * mix(0.35, 1.0, clamp(sun_visibility, 0.0, 1.0));
+		return ambient + direct * ATMOSPHERE_SUN_INTENSITY;
 	}
 ]]
 
@@ -408,28 +397,11 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 	vec3 get_atmosphere(vec3 dir, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index);
 
-	float get_atmosphere_camera_height(vec3 cam_pos) {
-		return max(cam_pos.y * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER, 0.0);
-	}
-
-	float get_atmosphere_scattering_camera_height(vec3 cam_pos) {
-		return cam_pos.y * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-	}
-
 	vec3 get_atmosphere_camera_origin(vec3 cam_pos) {
 		vec3 world_camera_offset = cam_pos * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 		return vec3(
 			world_camera_offset.x,
-			PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + get_atmosphere_camera_height(cam_pos),
-			world_camera_offset.z
-		);
-	}
-
-	vec3 get_atmosphere_scattering_camera_origin(vec3 cam_pos) {
-		vec3 world_camera_offset = cam_pos * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-		return vec3(
-			world_camera_offset.x,
-			PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + get_atmosphere_scattering_camera_height(cam_pos),
+			PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + world_camera_offset.y,
 			world_camera_offset.z
 		);
 	}
@@ -489,7 +461,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	}
 
 	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index, float sun_visibility) {
-		vec3 ray_origin = get_atmosphere_scattering_camera_origin(cam_pos);
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 		vec3 world_delta = (world_pos - cam_pos) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 		float target_distance = length(world_delta);
 
@@ -502,6 +474,11 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 		float atmosphere_near = max(atmosphere_hit.x, 0.0);
 		float atmosphere_far = min(atmosphere_hit.y, target_distance);
+		vec2 ground_hit = ray_sphere_intersect(ray_origin, ray_dir, PLANET_RADIUS);
+
+		if (ground_hit.x > atmosphere_near) {
+			atmosphere_far = min(atmosphere_far, ground_hit.x);
+		}
 
 		float segment_length = atmosphere_far - atmosphere_near;
 		if (segment_length <= 1e-5) return scene_color;
@@ -513,12 +490,9 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		float scenery_fog_od = 0.0;
 		vec3 total_rayleigh = vec3(0.0);
 		vec3 total_mie = vec3(0.0);
-		vec3 total_scenery_fog = vec3(0.0);
 		float mu = dot(ray_dir, sun_dir);
 		float phase_r = rayleigh_phase(mu);
 		float phase_m = mie_phase(mu);
-		vec3 scenery_fog_ambient = get_scenery_fog_ambient_color(sun_dir);
-		vec3 scenery_fog_direct = get_scenery_fog_direct_color(ray_dir, sun_dir, sun_visibility);
 
 		for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
 			float t = atmosphere_near + (float(i) + 0.5) * step_size;
@@ -534,26 +508,23 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			scenery_fog_od += density_f * step_size;
 
 			vec3 sun_transmittance = sample_transmittance_lut(transmittance_texture_index, sample_point, sun_dir);
-			float scenery_fog_tau = scenery_fog_od * SCENERY_FOG_EXTINCTION;
-			vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od) - vec3(scenery_fog_tau));
+			vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od));
 			vec3 transmittance = sun_transmittance * view_transmittance;
-			vec3 scenery_fog_scatter = scenery_fog_ambient * view_transmittance + scenery_fog_direct * transmittance;
 
 			total_rayleigh += density_r * transmittance * step_size;
 			total_mie += density_m * transmittance * step_size;
-			total_scenery_fog += density_f * scenery_fog_scatter * (SCENERY_FOG_EXTINCTION * step_size);
 		}
 
 		float rayleigh_visibility = mix(0.45, 1.0, clamp(sun_visibility, 0.0, 1.0));
 		float mie_visibility = mix(0.12, 1.0, clamp(sun_visibility, 0.0, 1.0));
-		float sun_lighting = get_sun_lighting_factor(sun_dir);
-		vec3 scattered_light = ATMOSPHERE_SUN_INTENSITY * sun_lighting * (
+		vec3 scattered_light = ATMOSPHERE_SUN_INTENSITY * (
 			phase_r * RAYLEIGH_BETA * total_rayleigh * rayleigh_visibility +
 			phase_m * MIE_BETA * total_mie * mie_visibility
 		);
 		float scenery_fog_tau = scenery_fog_od * SCENERY_FOG_EXTINCTION;
 		vec3 view_transmittance = exp(-compute_view_tau(view_rayleigh_od, view_mie_od, view_ozone_od) - vec3(scenery_fog_tau));
-		return scene_color * view_transmittance + scattered_light + total_scenery_fog;
+		vec3 scenery_fog = get_scenery_fog_color(ray_dir, sun_dir, sun_visibility) * (1.0 - exp(-vec3(scenery_fog_tau)));
+		return scene_color * view_transmittance + scattered_light + scenery_fog;
 	}
 
 	vec3 get_atmosphere(vec3 dir, vec3 sun_dir, vec3 cam_pos, int transmittance_texture_index) {
@@ -805,15 +776,9 @@ function atmosphere.GetGLSLMainCode(
 			float sky_luminance = dot(atmosphere_color, vec3(0.2126, 0.7152, 0.0722));
 			float sky_brightness = clamp(sky_luminance * 0.5, 0.0, 1.0);
 			float blend_factor = max(day_factor, sky_brightness);
-			float sun_lighting = get_sun_lighting_factor(atmos_sun_dir);
-			float horizon_visibility = 0*mix(0.05, 1.0, max(day_factor, sun_lighting));
 			vec3 space_color = vec3(0.0);
 			vec3 up = normalize(get_atmosphere_camera_origin(]] .. cam_pos_var .. [[));
-			float horizon_height = dot(atmos_dir, up);
 			float lower_hemisphere_blend = smoothstep(-0.4, 0.12, dot(atmos_dir, up));
-			float horizon_haze = 1.0 - smoothstep(0.0, 0.12, horizon_height);
-			float planet_occlusion_blend = planet_occluded ? (1.0 - smoothstep(-0.08, 0.03, horizon_height)) : 0.0;
-			vec3 horizon_fog_color = get_scenery_fog_ambient_color(atmos_sun_dir) + get_scenery_fog_direct_color(atmos_dir, atmos_sun_dir, 1.0) * 0.35;
 
 			if (]] .. stars_texture_index_var .. [[ != -1) {
 				float u = atan(atmos_dir.z, atmos_dir.x) / (2.0 * PI) + 0.5;
@@ -825,20 +790,20 @@ function atmosphere.GetGLSLMainCode(
 				space_color = get_stars(atmos_dir, atmos_sun_dir);
 			}
 
-			vec3 base_sky_color = mix(space_color, atmosphere_color, blend_factor);
-			vec3 hazy_sky_color = mix(base_sky_color, horizon_fog_color, horizon_haze * 0.1 * horizon_visibility);
-			vec3 occluded_sky_color = mix(]] .. occlusion_color_expr .. [[, atmosphere_color * horizon_visibility + ]] .. occlusion_color_expr .. [[, lower_hemisphere_blend);
-			sky_color_output = mix(hazy_sky_color, occluded_sky_color, planet_occlusion_blend);
+			if (planet_occluded) {
+				sky_color_output = mix(]] .. occlusion_color_expr .. [[, atmosphere_color + ]] .. occlusion_color_expr .. [[, lower_hemisphere_blend);
+			} else {
+				sky_color_output = mix(space_color, atmosphere_color, blend_factor);
+			}
 		}
 	]]
 end
 
 function atmosphere.GetSunColor(sunDir, camPos)
 	camPos = camPos or Vec3(0, 0, 0)
-	local atmosphere_height = math.max(camPos.y * CAMERA_METERS_TO_KM, 0)
 	local rayOrigin = Vec3(
 		camPos.x * CAMERA_METERS_TO_KM,
-		PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + atmosphere_height,
+		PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + camPos.y * CAMERA_METERS_TO_KM,
 		camPos.z * CAMERA_METERS_TO_KM
 	)
 	local tmin, tmax = raySphereIntersect(rayOrigin, sunDir, ATMOSPHERE_RADIUS)
