@@ -1,10 +1,19 @@
 require("goluwa.global_environment")
---import("goluwa/profiler.lua").Start("startup", {trace_recorder = false})
 --
 local crash_trace = import("goluwa/crash_trace.lua")
 crash_trace.Install()
-local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
+
+if false then
+	local profiler = import("goluwa/profiler.lua")
+	profiler.Start("startup", {trace_recorder = false})
+
+	event.AddListener("FrameEnd", function()
+		profiler.Stop("startup")
+	end)
+end
+
+local system = import("goluwa/system.lua")
 local process = import("goluwa/bindings/process.lua")
 local fs = import("goluwa/fs.lua")
 local vfs = import("goluwa/vfs.lua")
