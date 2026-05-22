@@ -4,6 +4,7 @@ local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -78,6 +79,46 @@ local function source_plane_to_engine(plane)
 		normal = Vec3(-plane.normal.y, plane.normal.z, -plane.normal.x),
 		dist = plane.dist * steam.source2meters,
 	}
+end
+
+local function source_height_to_engine_y(height)
+	return height * steam.source2meters
+end
+
+local function get_model_lowest_point(model)
+	if not model or not model.mins then return nil end
+
+	return source_height_to_engine_y(model.mins.z)
+end
+
+local function get_face_first_source_height(header, face)
+	if face.dispinfo ~= -1 then
+		local info = header.displacements[face.dispinfo + 1]
+
+		if info then
+			local base_face = header.faces[1 + info.MapFace]
+
+			if base_face then
+				local surfedge = header.surfedges[1 + base_face.firstedge]
+				local edge = surfedge and header.edges[1 + math.abs(surfedge)]
+				local vertex_index = edge and edge[1 + (surfedge < 0 and 1 or 0)]
+				local vertex = vertex_index and header.vertices[1 + vertex_index]
+
+				if vertex then return vertex.z end
+			end
+		end
+	end
+
+	for j = 1, face.numedges do
+		local surfedge = header.surfedges[face.firstedge + j]
+		local edge = surfedge and header.edges[1 + math.abs(surfedge)]
+		local current = edge and edge[surfedge < 0 and 2 or 1] and edge[surfedge < 0 and 2 or 1] + 1
+		local vertex = current and header.vertices[current]
+
+		if vertex then return vertex.z end
+	end
+
+	return nil
 end
 
 local function is_collidable_brush(brush)
@@ -1018,6 +1059,8 @@ function steam.LoadMap(path)
 
 	local models = {}
 	local displacement_collision_meshes = {}
+	header.lowest_point = get_model_lowest_point(header.models and header.models[1])
+	header.ocean_level = nil
 
 	do
 		local function add_vertex(model, texinfo, texdata, pos, blend)
@@ -1079,10 +1122,21 @@ function steam.LoadMap(path)
 				local texinfo = header.texinfos[1 + face.texinfo]
 				local texdata = texinfo and header.texdatas[1 + texinfo.texdata]
 				local texname = header.texdatastringdata[1 + texdata.nameStringTableID]
+				local texname_lower = texname:lower()
 
-				if texname:lower():find("skyb", nil, true) then goto continue end
+				if texname_lower:find("skyb", nil, true) then goto continue end
 
-				if texname:lower():find("water", nil, true) then goto continue end
+				if texname_lower:find("water", nil, true) then
+					if header.ocean_level == nil then
+						local source_height = get_face_first_source_height(header, face)
+
+						if source_height ~= nil then
+							header.ocean_level = source_height_to_engine_y(source_height)
+						end
+					end
+
+					goto continue
+				end
 
 				-- split the world up into sub models by texture
 				if not meshes[texname] then
@@ -1228,12 +1282,18 @@ function steam.LoadMap(path)
 	end
 
 	local physics_body, physics_body_info = build_bsp_physics_body(header, render_meshes, displacement_collision_meshes, steam.bsp_world)
+	local ocean_level = header.ocean_level
+
+	if ocean_level == nil then ocean_level = header.lowest_point or 0 end
+
+	render3d.SetOceanLevel(ocean_level - 2)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,
 		physics_body = physics_body,
 		physics_body_info = physics_body_info,
 		cubemaps = header.cubemaps,
+		ocean_level = ocean_level,
 		path = path, -- Store the absolute path
 	}
 
