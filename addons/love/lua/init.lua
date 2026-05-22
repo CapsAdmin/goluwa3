@@ -2,9 +2,9 @@ local commands = import("goluwa/commands.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
 local resource = import("goluwa/resource.lua")
-local line = import("lua/line.lua")
 
 commands.Add("love_run=string,var_arg", function(name, ...)
+	local line = import("lua/line.lua")
 	local found
 
 	if vfs.IsDirectory("lovers/" .. name) then
@@ -45,6 +45,8 @@ commands.Add("love_run=string,var_arg", function(name, ...)
 end)
 
 event.AddListener("WindowDrop", "line", function(wnd, paths)
+	local line = import("lua/line.lua")
+
 	for _, path in ipairs(paths) do
 		if vfs.IsDirectory(path) and vfs.IsFile(path .. "/main.lua") then
 			line.RunGame(path)
@@ -57,5 +59,6 @@ event.AddListener("WindowDrop", "line", function(wnd, paths)
 end)
 
 commands.Add("love=string", function(game)
+	local line = import("lua/line.lua")
 	line.RunGame("addons/love/games/" .. game)
 end)

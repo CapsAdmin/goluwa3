@@ -79,7 +79,9 @@ function fonts.New(props)
 end
 
 function fonts.GetDefaultFont()
-	if not default_font then default_font = fonts.New({}) end
+	if not default_font then
+		default_font = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 14}
+	end
 
 	return default_font
 end

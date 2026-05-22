@@ -2,6 +2,8 @@ local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local shaderc = import("goluwa/bindings/shaderc.lua")
+local fs = import("goluwa/fs.lua")
+local crypto = import("goluwa/crypto.lua")
 local ShaderModule = prototype.CreateTemplate("vulkan_shader_module")
 local shader_module_cache = setmetatable({}, {__mode = "k"})
 
@@ -14,6 +16,39 @@ local function get_device_cache(device)
 	end
 
 	return cache
+end
+
+local shaders_disk_cache_dir = "./storage/cache/shaders/"
+local shaders_disk_cache_dir_ready = false
+
+local function ensure_disk_cache_dir()
+	if shaders_disk_cache_dir_ready then return end
+
+	fs.create_directory_recursive(shaders_disk_cache_dir)
+	shaders_disk_cache_dir_ready = true
+end
+
+local function disk_cache_path(glsl, shader_type)
+	return shaders_disk_cache_dir .. crypto.CRC32(shader_type .. "|" .. glsl) .. ".spv"
+end
+
+local function load_disk_cache(glsl, shader_type)
+	local path = disk_cache_path(glsl, shader_type)
+
+	if not fs.is_file(path) then return nil end
+
+	local data = fs.read_file(path)
+
+	if not data or data == "" then return nil end
+
+	local copy = ffi.new("uint8_t[?]", #data)
+	ffi.copy(copy, data, #data)
+	return copy, #data
+end
+
+local function save_disk_cache(glsl, shader_type, spirv_data, spirv_size)
+	ensure_disk_cache_dir()
+	fs.write_file(disk_cache_path(glsl, shader_type), ffi.string(spirv_data, spirv_size))
 end
 
 local function get_or_create_cached_module(device, glsl, type)
@@ -29,7 +64,13 @@ local function get_or_create_cached_module(device, glsl, type)
 
 	if record then return record end
 
-	local spirv_data, spirv_size = shaderc.compile(glsl, type)
+	local spirv_data, spirv_size = load_disk_cache(glsl, type)
+
+	if not spirv_data then
+		spirv_data, spirv_size = shaderc.compile(glsl, type)
+		save_disk_cache(glsl, type, spirv_data, spirv_size)
+	end
+
 	local ptr = vulkan.T.Box(vulkan.vk.VkShaderModule)()
 	vulkan.assert(
 		vulkan.lib.vkCreateShaderModule(

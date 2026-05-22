@@ -1,4 +1,5 @@
 require("goluwa.global_environment")
+--import("goluwa/profiler.lua").Start("startup", {trace_recorder = false})
 --
 local crash_trace = import("goluwa/crash_trace.lua")
 crash_trace.Install()

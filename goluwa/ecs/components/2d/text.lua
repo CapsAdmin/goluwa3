@@ -11,11 +11,7 @@ local utf8 = import("goluwa/utf8.lua")
 local theme = import("addons/gui/lua/ui/theme.lua")
 local META = prototype.CreateTemplate("text")
 META:StartStorable()
-META:GetSet(
-	"Font",
-	fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 14},
-	{callback = "OnTextChanged"}
-)
+META:GetSet("Font", nil, {callback = "OnTextChanged"})
 META:GetSet("FontSize", 14, {callback = "OnTextChanged"})
 META:GetSet("Text", "", {callback = "OnTextChanged"})
 META:GetSet("Wrap", false, {callback = "OnTextChanged"})
@@ -325,6 +321,10 @@ function META:OnEditableChanged()
 end
 
 function META:Initialize()
+	if not self.Font then
+		self.Font = fonts.GetDefaultFont()
+	end
+
 	self.Owner:EnsureComponent("gui_element")
 	self.Owner:EnsureComponent("transform")
 	self:OnEditableChanged()

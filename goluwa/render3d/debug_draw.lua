@@ -17,7 +17,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local identity_rotation = Quat(0, 0, 0, 1)
 local zero_vec = Vec3(0, 0, 0)
-local overlay_font = fonts.New{Weight = "Regular", Size = 12}
+local overlay_font
 local unit_box_poly
 local unit_sphere_poly
 local convex_mesh_cache = setmetatable({}, {__mode = "k"})
@@ -463,6 +463,7 @@ function debug_draw.ProjectWorldPosition(position)
 end
 
 function debug_draw.DrawTextBlock(lines, x, y, options)
+	overlay_font = overlay_font or fonts.New{Weight = "Regular", Size = 12}
 	options = options or {}
 	fonts.SetFont(overlay_font)
 	render2d.SetTexture(nil)
