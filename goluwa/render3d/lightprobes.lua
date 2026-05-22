@@ -10,7 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
-local lightprobes = {}
+local lightprobes = library()
 
 local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()
@@ -43,16 +43,12 @@ lightprobes.UPDATE_MANUAL = "manual" -- Update only when requested
 lightprobes.ENVIRONMENT_SIZE = 512 -- Larger size for environment probe
 lightprobes.SCENE_SIZE = 128 -- Smaller size for scene probes
 lightprobes.UPDATE_FACES_PER_FRAME = 1 -- How many faces to update each frame
-lightprobes.enabled = true
+lightprobes.enabled = lightprobes.enabled ~= false
 -- State
 lightprobes.probes = lightprobes.probes or {}
-lightprobes.current_scene_probe_index = 1 -- Current scene probe being updated (1-based, skips environment)
-lightprobes.current_face = 0
-lightprobes.camera = nil
-lightprobes.pipeline = nil
-lightprobes.prefilter_pipeline = nil
-lightprobes.inv_projection_view = Matrix44()
-lightprobes.last_sun_direction = nil -- For detecting sun changes
+lightprobes.current_scene_probe_index = lightprobes.current_scene_probe_index or 1 -- Current scene probe being updated (1-based, skips environment)
+lightprobes.current_face = lightprobes.current_face or 0
+lightprobes.inv_projection_view = lightprobes.inv_projection_view or Matrix44()
 -- Face rotation angles for cubemap rendering
 local face_angles = {
 	Deg3(0, -90 + 180, 0), -- +X
@@ -328,6 +324,15 @@ function lightprobes.CreatePipelines()
 	local orientation = import("goluwa/render3d/orientation.lua")
 	local Material = import("goluwa/render3d/material.lua")
 	local Light = import("goluwa/ecs/components/3d/light.lua")
+
+	for _, key in ipairs({"scene_pipeline", "sky_pipeline", "prefilter_pipeline"}) do
+		local pipeline = lightprobes[key]
+
+		if pipeline then pipeline:Remove() end
+
+		lightprobes[key] = nil
+	end
+
 	-- Pipeline to render the scene into a cubemap face
 	lightprobes.scene_pipeline = EasyPipeline.New{
 		ColorFormat = {
@@ -1197,8 +1202,16 @@ event.AddListener("PreRenderPass", "lightprobes_update", function()
 	end
 end)
 
--- Initialize immediately if render3d is already initialized
-if HOTRELOAD or (render3d and render3d.pipelines and render3d.pipelines.gbuffer) then
+-- Initialize immediately only when render3d is already stable. During
+-- render3d hotreload the module is imported before the new Initialize()
+-- call finishes, and the persistent render3d table still holds the old
+-- pipeline table, which would otherwise double-create these pipelines.
+if
+	not render3d.initializing and
+	render3d and
+	render3d.pipelines and
+	render3d.pipelines.gbuffer
+then
 	lightprobes.Initialize()
 end
 

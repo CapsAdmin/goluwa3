@@ -2242,6 +2242,7 @@ function EasyPipeline.New(config)
 		)
 	then
 		self:RecreateFramebuffers()
+
 		if not self.config.FramebufferSize then
 			self:AddGlobalEvent("WindowFramebufferResized")
 		end
@@ -2290,6 +2291,35 @@ function EasyPipeline:RecreateFramebuffers()
 
 		-- Also set first one as default for backward compatibility
 		self.framebuffer = self.framebuffers[1]
+	end
+end
+
+function EasyPipeline:OnRemove()
+	if self.framebuffers then
+		for i = 1, #self.framebuffers do
+			local fb = self.framebuffers[i]
+
+			if fb then fb:Remove() end
+		end
+
+		self.framebuffers = nil
+		self.framebuffer = nil
+	elseif self.framebuffer then
+		self.framebuffer:Remove()
+		self.framebuffer = nil
+	end
+
+	if self.pipeline then
+		self.pipeline:Remove()
+		self.pipeline = nil
+	end
+
+	if self.uniform_buffers then
+		for _, ubo in pairs(self.uniform_buffers) do
+			if ubo then ubo:Remove() end
+		end
+
+		self.uniform_buffers = nil
 	end
 end
 

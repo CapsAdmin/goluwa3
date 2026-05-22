@@ -503,6 +503,16 @@ function render3d.WriteLastFrameBlock(self, block)
 end
 
 function render3d.Initialize()
+	render3d.initializing = true
+
+	if render3d.pipelines_i then
+		for i = 1, #render3d.pipelines_i do
+			local pipeline = render3d.pipelines_i[i]
+
+			if pipeline then pipeline:Remove() end
+		end
+	end
+
 	render3d.pipelines = {}
 	render3d.pipelines_i = {}
 	local i = 1
@@ -547,6 +557,13 @@ function render3d.Initialize()
 		render3d.Draw(dt)
 	end)
 
+	event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)
+		if render.target:IsValid() and render.target.config.offscreen then return end
+
+		render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
+	end)
+
+	render3d.initializing = false
 	event.Call("Render3DInitialized")
 end
 
@@ -1124,12 +1141,6 @@ function render3d.GetDebugCascadeColors()
 	return render3d.debug_cascade_colors
 end
 
-event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)
-	if render.target:IsValid() and render.target.config.offscreen then return end
-
-	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
-end)
-
 function render3d.SetMaterial(mat)
 	render3d.current_material = mat
 end
@@ -1230,7 +1241,5 @@ do -- mesh
 		)
 	end
 end
-
-if HOTRELOAD then render3d.Initialize() end
 
 return render3d

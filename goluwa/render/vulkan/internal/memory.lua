@@ -2,6 +2,9 @@ local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = prototype.CreateTemplate("vulkan_memory")
+local callstack = import("goluwa/helpers/callstack.lua")
+Memory.total_freed_count = Memory.total_freed_count or 0
+Memory.total_freed_bytes = Memory.total_freed_bytes or 0
 vulkan.SetupDebugFunctions(Memory, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_DEVICE_MEMORY)
 
 function Memory.New(device, config)
@@ -26,6 +29,8 @@ function Memory.New(device, config)
 	return Memory:CreateObject{
 		ptr = ptr,
 		device = device,
+		size = config.size,
+		traceback = callstack.traceback(),
 	}
 end
 
@@ -38,6 +43,8 @@ function Memory:OnRemove()
 
 		device:DeferRelease(function()
 			vulkan.lib.vkFreeMemory(device_ptr, memory_ptr, nil)
+			Memory.total_freed_count = (Memory.total_freed_count or 0) + 1
+			Memory.total_freed_bytes = (Memory.total_freed_bytes or 0) + (tonumber(self.size) or 0)
 		end)
 	end
 end
