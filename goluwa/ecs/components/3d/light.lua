@@ -153,6 +153,11 @@ function Light:OnPreFrame(dt)
 
 	local config = self.CastShadows
 	local mode = config.shadow_update_mode
+
+	if mode == nil then
+		mode = self.LightType == "sun" and "continuous" or "on_move"
+	end
+
 	local restart_shadow_update = false
 
 	if mode == "on_move" then
@@ -173,7 +178,7 @@ function Light:OnPreFrame(dt)
 		restart_shadow_update = true
 	end
 
-	if restart_shadow_update then
+	if restart_shadow_update and not self.ShadowNeedsCompletion then
 		self.NextShadowCascadeIndex = 1
 		self.NextInsetShadowCascadeIndex = 1
 	end

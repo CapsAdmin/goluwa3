@@ -4,11 +4,12 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local Texture = import("goluwa/render/texture.lua")
 local MAX_CASCADES = directional_shadows.MAX_CASCADES
-local FROXEL_TILE_SIZE = 8
-local FROXEL_SLICE_COUNT = 64
+local FROXEL_TILE_SIZE = 16
+local FROXEL_SLICE_COUNT = 32
 local volumetric_froxels = {
 	texture = nil,
 	layer_views = nil,
@@ -17,8 +18,6 @@ local volumetric_froxels = {
 	current_slice = 0,
 	sampler = nil,
 }
-local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
-local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
 local write_scene_fog_shadow_block = directional_shadows.WriteFogShadowBlock
 
 local function destroy_volumetric_froxel_resources()
@@ -178,50 +177,48 @@ end
 local get_raw_scene_source_texture = post_source.WriteRawSceneSourceTexture
 local get_scene_source_texture = post_source.WriteSceneSourceTexture
 
-local function write_shared_fog_atmosphere_constants(self, block)
-	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-	get_primary_sun_direction():CopyToFloatPointer(block.primary_sun_direction)
-	block.primary_sun_intensity = get_primary_sun_intensity()
-	write_scene_fog_shadow_block(self, block.shadows, render3d.GetLights())
-end
-
-local function write_primary_sun_intensity_field(self, block, key)
-	block[key] = get_primary_sun_intensity()
-end
-
-local function write_primary_sun_direction_field(self, block, key)
-	get_primary_sun_direction():CopyToFloatPointer(block[key])
-end
-
 local function write_atmosphere_transmittance_texture_field(self, block, key)
 	block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+end
+
+local function write_scene_fog_lights_field(self, block, key)
+	scene_lights.WriteLightsBlock(block[key], render3d.GetLights())
+end
+
+local function write_scene_fog_light_count_field(self, block, key)
+	block[key] = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
+end
+
+local function write_scene_fog_scene_shadows_field(self, block, key)
+	scene_lights.WriteShadowBlock(self, block[key], render3d.GetLights())
 end
 
 local function write_fog_shadow_block_field(self, block, key)
 	write_scene_fog_shadow_block(self, block[key], render3d.GetLights())
 end
 
-local function build_shared_fog_light_block_fields()
+local function build_scene_light_block_fields()
 	return {
 		{
-			"primary_sun_intensity",
-			"float",
-			write_primary_sun_intensity_field,
+			"lights",
+			scene_lights.BuildLightsBlockLayout(),
+			write_scene_fog_lights_field,
+			scene_lights.MAX_LIGHTS,
 		},
 		{
-			"primary_sun_direction",
-			"vec4",
-			write_primary_sun_direction_field,
+			"light_count",
+			"int",
+			write_scene_fog_light_count_field,
+		},
+		{
+			"shadows",
+			scene_lights.BuildShadowsBlockLayout(),
+			write_scene_fog_scene_shadows_field,
 		},
 		{
 			"atmosphere_transmittance_texture_index",
 			"int",
 			write_atmosphere_transmittance_texture_field,
-		},
-		{
-			"shadows",
-			directional_shadows.BuildFogShadowBlockLayout(),
-			write_fog_shadow_block_field,
 		},
 	}
 end
@@ -231,7 +228,10 @@ local function write_scene_fog_constants(self, block)
 	render3d.WriteGBufferBlock(self, block)
 	get_raw_scene_source_texture(self, block, "source_tex")
 	write_ocean_distance_texture(self, block, "ocean_distance_tex")
-	write_shared_fog_atmosphere_constants(self, block)
+	scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
+	block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
+	scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
+	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 	return block
 end
 
@@ -246,7 +246,10 @@ local function write_volumetric_froxel_build_constants(self, block)
 	block.froxel_resolution[1] = volumetric_froxels.height
 	block.current_slice = volumetric_froxels.current_slice or 0
 	block.slice_count = FROXEL_SLICE_COUNT
-	write_shared_fog_atmosphere_constants(self, block)
+	scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
+	block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
+	scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
+	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 	return block
 end
 
@@ -287,15 +290,52 @@ local r = {
 						{"froxel_resolution", "vec2"},
 						{"current_slice", "int"},
 						{"slice_count", "int"},
-						unpack(build_shared_fog_light_block_fields()),
+						unpack(build_scene_light_block_fields()),
 					},
 					write = write_volumetric_froxel_build_constants,
 				},
 			},
 			shader = [[
-			#define ATMOSPHERE_SUN_INTENSITY froxel_data.primary_sun_intensity
 			const int VOLUMETRIC_FROXEL_SLICE_COUNT = ]] .. FROXEL_SLICE_COUNT .. [[;
 			const int VOLUMETRIC_SLICE_INTEGRATION_STEPS = 4;
+			const int VOLUMETRIC_LOCAL_LIGHT_LIMIT = 8;
+
+			int get_light_type(lights_t light) {
+				return int(light.position.w);
+			}
+
+			int get_current_primary_sun_index() {
+				for (int i = 0; i < froxel_data.light_count; i++) {
+					if (get_light_type(froxel_data.lights[i]) == 0) {
+						return i;
+					}
+				}
+
+				return -1;
+			}
+
+			vec3 get_current_primary_sun_direction() {
+				int sun_index = get_current_primary_sun_index();
+
+				if (sun_index < 0) {
+					return vec3(0.0, 1.0, 0.0);
+				}
+
+				vec3 light_dir = froxel_data.lights[sun_index].direction.xyz;
+
+				if (length(light_dir) < 1e-4) {
+					return vec3(0.0, 1.0, 0.0);
+				}
+
+				return normalize(-light_dir);
+			}
+
+			float get_current_primary_sun_intensity() {
+				int sun_index = get_current_primary_sun_index();
+				return sun_index < 0 ? 1.0 : froxel_data.lights[sun_index].color.a;
+			}
+
+			#define ATMOSPHERE_SUN_INTENSITY get_current_primary_sun_intensity()
 
 			]] .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
 			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. [[
@@ -349,7 +389,7 @@ local r = {
 				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 				float max_fog_distance = max_world_distance > 0.0 ? max_world_distance * fog_distance_scale : -1.0;
 
-				if (!get_scenery_fog_segment(fog_ray_origin, ray_dir, max_fog_distance, fog_near, fog_length)) {
+				if (!get_scenery_fog_segment_with_ground_clip(fog_ray_origin, ray_dir, max_fog_distance, false, fog_near, fog_length)) {
 					return false;
 				}
 
@@ -367,15 +407,161 @@ local r = {
 				return sun_tint * (0.015 + 0.14 * forward_scatter) * direct_visibility * ATMOSPHERE_SUN_INTENSITY;
 			}
 
+			int getPointShadowSlot(int light_index) {
+				for (int i = 0; i < froxel_data.shadows.point_shadow_count; i++) {
+					if (froxel_data.shadows.point_shadow_light_indices[i] == light_index) {
+						return i;
+					}
+				}
+
+				return -1;
+			}
+
+			float samplePointShadowProjection(int shadow_map_idx, vec3 sample_dir, float current_depth, float bias, float filter_radius_texels) {
+				vec3 lookup_dir = normalize(vec3(-sample_dir.x, sample_dir.y, sample_dir.z));
+				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
+				float angular_radius = filter_radius_texels / max(face_size, 1.0);
+				vec3 up = abs(lookup_dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+				vec3 tangent = normalize(cross(up, lookup_dir));
+				vec3 bitangent = cross(lookup_dir, tangent);
+				float visibility = 0.0;
+				const vec2 POISSON_DISK[8] = vec2[8](
+					vec2(-0.326, -0.406),
+					vec2(-0.840, -0.074),
+					vec2(-0.696,  0.457),
+					vec2(-0.203,  0.621),
+					vec2( 0.962, -0.195),
+					vec2( 0.473, -0.480),
+					vec2( 0.519,  0.767),
+					vec2( 0.185, -0.893)
+				);
+
+				for (int i = 0; i < 8; i++) {
+					vec2 offset = POISSON_DISK[i] * angular_radius;
+					vec3 tap_dir = normalize(lookup_dir + tangent * offset.x + bitangent * offset.y);
+					float stored_depth = texture(CUBEMAP(shadow_map_idx), tap_dir).r;
+					visibility += current_depth - bias > stored_depth ? 0.0 : 1.0;
+				}
+
+				return visibility / 8.0;
+			}
+
+			float calculatePointMediumShadow(int shadow_slot, vec3 world_pos, vec3 light_dir_to_surface) {
+				if (shadow_slot < 0 || shadow_slot >= froxel_data.shadows.point_shadow_count) return 1.0;
+
+				int shadow_map_idx = froxel_data.shadows.point_shadow_map_indices[shadow_slot];
+				if (shadow_map_idx < 0) return 1.0;
+
+				vec3 light_pos = froxel_data.shadows.point_shadow_positions[shadow_slot].xyz;
+				float far_plane = froxel_data.shadows.point_shadow_positions[shadow_slot].w;
+				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
+				float texel_world_size = far_plane / max(face_size, 1.0);
+				float world_bias = max(texel_world_size * 1.5, 0.02);
+				vec3 offset_pos = world_pos + light_dir_to_surface * world_bias;
+				vec3 light_to_sample = offset_pos - light_pos;
+				float light_distance = length(light_to_sample);
+
+				if (light_distance <= 0.0001 || light_distance >= far_plane) return 1.0;
+
+				vec3 sample_dir = light_to_sample / light_distance;
+				float current_depth = light_distance / max(far_plane, 0.0001);
+				float normalized_bias = max(world_bias / max(far_plane, 0.0001), 0.0005);
+				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
+			}
+
+			float calculateLocalDirectionalMediumShadow(vec3 world_pos, vec3 light_dir) {
+				int shadow_map_idx = froxel_data.shadows.local_directional_shadow_map_index;
+				if (shadow_map_idx < 0) return 1.0;
+
+				vec3 proj_coords;
+
+				if (!projectMediumShadowMap(
+					froxel_data.shadows.local_directional_light_space_matrix,
+					world_pos,
+					light_dir,
+					froxel_data.shadows.local_directional_shadow_texel_world_size,
+					proj_coords
+				)) {
+					return 1.0;
+				}
+
+				return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
+			}
+
+			vec3 get_additional_volumetric_light(vec3 ray_dir, vec3 world_pos) {
+				vec3 fog_light = vec3(0.0);
+				int processed_local_lights = 0;
+
+				for (int i = 0; i < froxel_data.light_count; i++) {
+					lights_t light = froxel_data.lights[i];
+					int type = get_light_type(light);
+					if (type == 0) continue;
+					if (processed_local_lights >= VOLUMETRIC_LOCAL_LIGHT_LIMIT) break;
+
+					vec3 light_color = light.color.rgb * light.color.a;
+					vec3 L = vec3(0.0);
+					float attenuation = 1.0;
+
+					if (type == 1) {
+						vec3 to_light = light.position.xyz - world_pos;
+						float dist = length(to_light);
+						if (dist <= 0.0001) continue;
+						L = to_light / dist;
+						float range = max(light.params.x, 0.0001);
+						attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
+						attenuation *= attenuation;
+					} else if (type == 2 || type == 3) {
+						vec3 light_dir = normalize(light.direction.xyz);
+						vec3 cone_axis = light_dir;
+						vec3 from_light = world_pos - light.position.xyz;
+						float dist = length(from_light);
+						if (dist <= 0.0001) continue;
+
+						if (type == 2) {
+							L = normalize(-light_dir);
+						} else {
+							L = -from_light / dist;
+						}
+
+						float range = max(light.params.x, 0.0001);
+						float range_attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
+						range_attenuation *= range_attenuation;
+						float inner_cone = clamp(light.params.y, -1.0, 1.0);
+						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
+						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, from_light / dist));
+						attenuation = range_attenuation * cone_attenuation;
+					} else {
+						continue;
+					}
+
+					if (attenuation <= 0.0001) continue;
+					processed_local_lights++;
+
+					float shadow_factor = 1.0;
+
+					if (type == 1) {
+						int point_shadow_slot = getPointShadowSlot(i);
+						if (point_shadow_slot >= 0) {
+							shadow_factor = calculatePointMediumShadow(point_shadow_slot, world_pos, L);
+						}
+					} else if (
+						type == 2 &&
+						i == froxel_data.shadows.local_directional_shadow_light_index &&
+						froxel_data.shadows.local_directional_shadow_map_index >= 0
+					) {
+						shadow_factor = calculateLocalDirectionalMediumShadow(world_pos, L);
+					}
+
+					float phase = 0.03 + 0.18 * pow(clamp(dot(-ray_dir, L) * 0.5 + 0.5, 0.0, 1.0), 6.0);
+					fog_light += light_color * attenuation * shadow_factor * phase;
+				}
+
+				return fog_light;
+			}
+
 			void main() {
 				vec3 ray_dir = get_world_ray();
-				vec3 sun_dir = froxel_data.primary_sun_direction.xyz;
-
-				if (length(sun_dir) < 0.0001) {
-					sun_dir = vec3(0.0, 1.0, 0.0);
-				} else {
-					sun_dir = normalize(sun_dir);
-				}
+				vec3 sun_dir = get_current_primary_sun_direction();
 
 				float fog_near_world;
 				float fog_length_world;
@@ -431,6 +617,7 @@ local r = {
 						float segment_transmittance = exp(-tau);
 						float sun_visibility = get_fog_sun_visibility(world_sample, sun_dir);
 						vec3 scattering_light = get_volumetric_scattering_light(ray_dir, sun_dir, sun_visibility);
+						scattering_light += get_additional_volumetric_light(ray_dir, world_sample);
 						total_scattering += total_transmittance * scattering_light * (1.0 - segment_transmittance);
 						total_transmittance *= segment_transmittance;
 					}
@@ -472,13 +659,48 @@ local r = {
 								end
 							end,
 						},
-						unpack(build_shared_fog_light_block_fields()),
+						unpack(build_scene_light_block_fields()),
 					},
 					write = write_scene_fog_constants,
 				},
 			},
 			shader = [[
-			#define ATMOSPHERE_SUN_INTENSITY fog_data.primary_sun_intensity
+			int get_light_type(lights_t light) {
+				return int(light.position.w);
+			}
+
+			int get_current_primary_sun_index() {
+				for (int i = 0; i < fog_data.light_count; i++) {
+					if (get_light_type(fog_data.lights[i]) == 0) {
+						return i;
+					}
+				}
+
+				return -1;
+			}
+
+			vec3 get_current_primary_sun_direction() {
+				int sun_index = get_current_primary_sun_index();
+
+				if (sun_index < 0) {
+					return vec3(0.0, 1.0, 0.0);
+				}
+
+				vec3 light_dir = fog_data.lights[sun_index].direction.xyz;
+
+				if (length(light_dir) < 1e-4) {
+					return vec3(0.0, 1.0, 0.0);
+				}
+
+				return normalize(-light_dir);
+			}
+
+			float get_current_primary_sun_intensity() {
+				int sun_index = get_current_primary_sun_index();
+				return sun_index < 0 ? 1.0 : fog_data.lights[sun_index].color.a;
+			}
+
+			#define ATMOSPHERE_SUN_INTENSITY get_current_primary_sun_intensity()
 
 			]] .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
 			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility", {normal_expr = "normalize(normal)"}) .. [[
@@ -498,7 +720,7 @@ local r = {
 				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 				float max_fog_distance = max_world_distance > 0.0 ? max_world_distance * fog_distance_scale : -1.0;
 
-				if (!get_scenery_fog_segment(fog_ray_origin, ray_dir, max_fog_distance, fog_near, fog_length)) {
+				if (!get_scenery_fog_segment_with_ground_clip(fog_ray_origin, ray_dir, max_fog_distance, false, fog_near, fog_length)) {
 					return false;
 				}
 
@@ -550,6 +772,181 @@ local r = {
 				return get_fog_sun_visibility(world_pos, get_normal(), sun_dir);
 			}
 
+			float get_fog_transmittance(vec3 ray_dir, float max_world_distance) {
+				float fog_near_world;
+				float fog_length_world;
+
+				if (!get_fog_world_segment(ray_dir, max_world_distance, fog_near_world, fog_length_world)) {
+					return 1.0;
+				}
+
+				vec3 fog_ray_origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
+				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
+				float step_size = fog_length_world / float(AERIAL_PERSPECTIVE_STEPS);
+				float scenery_fog_od = 0.0;
+
+				for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
+					float world_t = fog_near_world + (float(i) + 0.5) * step_size;
+					vec3 sample_point = fog_ray_origin + ray_dir * (world_t * fog_distance_scale);
+					scenery_fog_od += scenery_fog_density(sample_point) * (step_size * fog_distance_scale);
+				}
+
+				return exp(-scenery_fog_od * SCENERY_FOG_EXTINCTION);
+			}
+
+			int getPointShadowSlot(int light_index) {
+				for (int i = 0; i < fog_data.shadows.point_shadow_count; i++) {
+					if (fog_data.shadows.point_shadow_light_indices[i] == light_index) {
+						return i;
+					}
+				}
+
+				return -1;
+			}
+
+			float samplePointShadowProjection(int shadow_map_idx, vec3 sample_dir, float current_depth, float bias, float filter_radius_texels) {
+				vec3 lookup_dir = normalize(vec3(-sample_dir.x, sample_dir.y, sample_dir.z));
+				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
+				float angular_radius = filter_radius_texels / max(face_size, 1.0);
+				vec3 up = abs(lookup_dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+				vec3 tangent = normalize(cross(up, lookup_dir));
+				vec3 bitangent = cross(lookup_dir, tangent);
+				float visibility = 0.0;
+				const vec2 POISSON_DISK[8] = vec2[8](
+					vec2(-0.326, -0.406),
+					vec2(-0.840, -0.074),
+					vec2(-0.696,  0.457),
+					vec2(-0.203,  0.621),
+					vec2( 0.962, -0.195),
+					vec2( 0.473, -0.480),
+					vec2( 0.519,  0.767),
+					vec2( 0.185, -0.893)
+				);
+
+				for (int i = 0; i < 8; i++) {
+					vec2 offset = POISSON_DISK[i] * angular_radius;
+					vec3 tap_dir = normalize(lookup_dir + tangent * offset.x + bitangent * offset.y);
+					float stored_depth = texture(CUBEMAP(shadow_map_idx), tap_dir).r;
+					visibility += current_depth - bias > stored_depth ? 0.0 : 1.0;
+				}
+
+				return visibility / 8.0;
+			}
+
+			float calculatePointFogShadow(int shadow_slot, vec3 world_pos, vec3 normal, vec3 light_dir) {
+				if (shadow_slot < 0 || shadow_slot >= fog_data.shadows.point_shadow_count) return 1.0;
+
+				int shadow_map_idx = fog_data.shadows.point_shadow_map_indices[shadow_slot];
+				if (shadow_map_idx < 0) return 1.0;
+
+				vec3 light_pos = fog_data.shadows.point_shadow_positions[shadow_slot].xyz;
+				float far_plane = fog_data.shadows.point_shadow_positions[shadow_slot].w;
+				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
+				float texel_world_size = far_plane / max(face_size, 1.0);
+				float normal_bias = max(texel_world_size * 2.0, 0.01);
+				float bias_val = normal_bias * max(1.0 - dot(normal, light_dir), 0.2);
+				vec3 offset_pos = world_pos + normal * bias_val;
+				vec3 light_to_surface = offset_pos - light_pos;
+				float light_distance = length(light_to_surface);
+
+				if (light_distance <= 0.0001 || light_distance >= far_plane) return 1.0;
+
+				vec3 sample_dir = light_to_surface / light_distance;
+				float current_depth = light_distance / max(far_plane, 0.0001);
+				float normalized_bias = max(bias_val / max(far_plane, 0.0001), 0.0005);
+				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
+			}
+
+			float calculateLocalDirectionalFogShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
+				int shadow_map_idx = fog_data.shadows.local_directional_shadow_map_index;
+				if (shadow_map_idx < 0) return 1.0;
+
+				vec3 proj_coords;
+
+				if (!projectShadowMap(
+					fog_data.shadows.local_directional_light_space_matrix,
+					world_pos,
+					normal,
+					light_dir,
+					fog_data.shadows.local_directional_shadow_texel_world_size,
+					proj_coords
+				)) {
+					return 1.0;
+				}
+
+				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
+			}
+
+			vec3 get_additional_scene_fog_light(vec3 ray_dir, vec3 world_pos, vec3 normal) {
+				vec3 fog_light = vec3(0.0);
+				float view_scatter = 0.25 + 0.75 * pow(clamp(dot(-ray_dir, normalize(ray_dir)) * 0.5 + 0.5, 0.0, 1.0), 2.0);
+
+				for (int i = 0; i < fog_data.light_count; i++) {
+					lights_t light = fog_data.lights[i];
+					int type = get_light_type(light);
+					if (type == 0) continue;
+
+					vec3 light_color = light.color.rgb * light.color.a;
+					vec3 L = vec3(0.0);
+					float attenuation = 1.0;
+
+					if (type == 1) {
+						vec3 light_to_pos = light.position.xyz - world_pos;
+						float dist = length(light_to_pos);
+						if (dist <= 0.0001) continue;
+						L = light_to_pos / dist;
+						float range = max(light.params.x, 0.0001);
+						attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
+						attenuation *= attenuation;
+					} else if (type == 2 || type == 3) {
+						vec3 light_dir = normalize(light.direction.xyz);
+						vec3 cone_axis = light_dir;
+						vec3 from_light = world_pos - light.position.xyz;
+						float dist = length(from_light);
+						if (dist <= 0.0001) continue;
+
+						if (type == 2) {
+							L = normalize(-light_dir);
+						} else {
+							L = -from_light / dist;
+						}
+
+						float range = max(light.params.x, 0.0001);
+						float range_attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
+						range_attenuation *= range_attenuation;
+						float inner_cone = clamp(light.params.y, -1.0, 1.0);
+						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
+						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, from_light / dist));
+						attenuation = range_attenuation * cone_attenuation;
+					} else {
+						continue;
+					}
+
+					if (attenuation <= 0.0001) continue;
+
+					float shadow_factor = 1.0;
+
+					if (type == 1) {
+						int point_shadow_slot = getPointShadowSlot(i);
+						if (point_shadow_slot >= 0) {
+							shadow_factor = calculatePointFogShadow(point_shadow_slot, world_pos, normal, L);
+						}
+					} else if (
+						type == 2 &&
+						i == fog_data.shadows.local_directional_shadow_light_index &&
+						fog_data.shadows.local_directional_shadow_map_index >= 0
+					) {
+						shadow_factor = calculateLocalDirectionalFogShadow(world_pos, normal, L);
+					}
+
+					float NoL = max(dot(normal, L), 0.0);
+					float phase = 0.15 + 0.35 * pow(clamp(dot(-ray_dir, L) * 0.5 + 0.5, 0.0, 1.0), 4.0);
+					fog_light += light_color * attenuation * shadow_factor * max(NoL * 0.5 + phase, 0.0) * view_scatter;
+				}
+
+				return fog_light;
+			}
+
 			void main() {
 				if (fog_data.source_tex == -1) {
 					set_color(vec4(0.0, 0.0, 0.0, 1.0));
@@ -570,18 +967,14 @@ local r = {
 				vec3 world_pos = ocean_distance > 0.0
 					? fog_data.camera_position.xyz + ray_dir * ocean_distance
 					: get_world_pos(depth);
-				vec3 sun_dir = fog_data.primary_sun_direction.xyz;
-
-				if (length(sun_dir) < 0.0001) {
-					sun_dir = vec3(0.0, 1.0, 0.0);
-				} else {
-					sun_dir = normalize(sun_dir);
-				}
+				vec3 sun_dir = get_current_primary_sun_direction();
 
 				vec3 color = scene.rgb;
 				float max_world_distance = ocean_distance > 0.0
 					? ocean_distance
 					: length(world_pos - fog_data.camera_position.xyz);
+				float fog_transmittance = is_sky ? get_fog_transmittance(ray_dir, -1.0) : get_fog_transmittance(ray_dir, max_world_distance);
+				float fog_amount = 1.0 - fog_transmittance;
 
 				if (is_sky) {
 					float sun_visibility = get_fog_ray_sun_visibility(ray_dir, -1.0, sun_dir);
@@ -604,6 +997,10 @@ local r = {
 						fog_data.camera_position.xyz,
 						sun_visibility
 					);
+
+					if (fog_amount > 1e-4) {
+						color += get_additional_scene_fog_light(ray_dir, world_pos, get_normal()) * fog_amount;
+					}
 				}
 
 				set_color(vec4(color, scene.a));

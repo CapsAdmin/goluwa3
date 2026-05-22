@@ -189,11 +189,11 @@ local atmosphere_shared_glsl = [[
 		"0.0" or
 		"1.0"
 	) .. [[;
-	const float SCENERY_FOG_SCALE_HEIGHT = 0.22;
-	const float SCENERY_FOG_BASE_DENSITY = 2.2;
+	const float SCENERY_FOG_SCALE_HEIGHT = 0.28;
+	const float SCENERY_FOG_BASE_DENSITY = 6.5;
 	const float SCENERY_FOG_TOP_HEIGHT = 1.1;
 	const float SCENERY_FOG_TOP_SOFTNESS = 0.3;
-	const float SCENERY_FOG_EXTINCTION = 0.22;
+	const float SCENERY_FOG_EXTINCTION = 0.34;
 	const float MIE_BETA = 0.021;
 	const float MIE_BETA_EXT = 0.0231;
 	const float MIE_G = 0.758;
@@ -514,10 +514,11 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return segment_length > 1e-5;
 	}
 
-	bool get_scenery_fog_segment(
+	bool get_scenery_fog_segment_with_ground_clip(
 		vec3 ray_origin,
 		vec3 ray_dir,
 		float max_distance,
+		bool clip_to_ground,
 		out float fog_near,
 		out float fog_length
 	) {
@@ -534,7 +535,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 		fog_near = origin_radius <= fog_outer_radius ? 0.0 : max(fog_hit.x, 0.0);
 
-		if (ground_hit.x > fog_near) {
+		if (clip_to_ground && ground_hit.x > fog_near) {
 			fog_far = min(fog_far, ground_hit.x);
 		}
 
@@ -544,6 +545,23 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 		fog_length = fog_far - fog_near;
 		return fog_length > 1e-5;
+	}
+
+	bool get_scenery_fog_segment(
+		vec3 ray_origin,
+		vec3 ray_dir,
+		float max_distance,
+		out float fog_near,
+		out float fog_length
+	) {
+		return get_scenery_fog_segment_with_ground_clip(
+			ray_origin,
+			ray_dir,
+			max_distance,
+			true,
+			fog_near,
+			fog_length
+		);
 	}
 
 	vec3 apply_scenery_fog_segment(

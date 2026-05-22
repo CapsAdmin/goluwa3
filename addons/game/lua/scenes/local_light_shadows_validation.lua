@@ -170,7 +170,7 @@ local function spawn_directional_light(parent, position)
 	component:SetLightType("directional")
 	component:SetColor(Color(0.42, 0.72, 1.0, 1.0))
 	component:SetIntensity(4.0)
-	component:SetRange(42)
+	component:SetRange(300)
 	component:SetInnerCone(0.72)
 	component:SetOuterCone(0.42)
 	component:SetCastShadows{
@@ -263,7 +263,7 @@ spawn_point_light(
 	warm_center + Vec3(0, 6.8, 0),
 	Color(1.0, 0.62, 0.34, 1.0),
 	22,
-	22
+	50
 )
 spawn_point_light(
 	root,
@@ -271,7 +271,7 @@ spawn_point_light(
 	cool_center + Vec3(0, 6.2, -2),
 	Color(0.42, 0.72, 1.0, 1.0),
 	20,
-	20
+	50
 )
 spawn_stage_floor(root, "directional_stage", directional_center, Vec3(30, 0, 28), floor_material)
 spawn_box(

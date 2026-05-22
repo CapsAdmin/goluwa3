@@ -1376,7 +1376,8 @@ function steam.SpawnMapEntities(path, parent)
 					-- Color is already in linear space from parsing
 					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
 					local brightness = info._light.brightness
-					light:SetIntensity(math.clamp(brightness / 800, 1, 100))
+					brightness = math.clamp(brightness / 4000, 0.005, 5)
+					light:SetIntensity(brightness)
 					local threshold = 0.01
 					local range_source_units = math.sqrt(brightness / threshold)
 					local range = range_source_units * steam.source2meters
@@ -1389,7 +1390,7 @@ function steam.SpawnMapEntities(path, parent)
 						range = info._distance * steam.source2meters
 					end
 
-					range = math.clamp(range, 4, 150)
+					range = math.clamp(range * 3, 4, 400)
 
 					if info.classname == "light_spot" then
 						local pitch = tonumber(info.pitch) or (info.angles and info.angles.x) or 0
