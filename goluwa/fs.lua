@@ -382,13 +382,32 @@ do
 	local bit = require("bit")
 	local event = import("goluwa/event.lua")
 
+	local function normalize_watch_paths(path)
+		if type(path) == "table" then
+			local paths = {}
+
+			for i = 1, #path do
+				local dir_path = path[i]
+
+				if dir_path:sub(-1) == "/" then dir_path = dir_path:sub(1, -2) end
+
+				paths[i] = dir_path
+			end
+
+			return paths
+		end
+
+		if path:sub(-1) == "/" then path = path:sub(1, -2) end
+
+		return {path}
+	end
+
 	if jit.os == "Linux" then
 		function fs.watch(path, callback, recursive)
+			local paths = normalize_watch_paths(path)
 			local inotify_fd = ffi.C.inotify_init1(fs.IN_NONBLOCK)
 
 			if inotify_fd == -1 then return nil, "Failed to initialize inotify" end
-
-			if path:sub(-1) == "/" then path = path:sub(1, -2) end
 
 			local wd_to_path = {}
 
@@ -423,7 +442,9 @@ do
 				end
 			end
 
-			if recursive then add_recursive(path) else add_watch(path) end
+			for _, dir_path in ipairs(paths) do
+				if recursive then add_recursive(dir_path) else add_watch(dir_path) end
+			end
 
 			local buffer = ffi.new("char[4096]")
 			local remove_event = event.AddListener("Update", {}, function()
@@ -477,8 +498,33 @@ do
 		end
 	elseif jit.os == "Windows" then
 		function fs.watch(path, callback, recursive)
-			if path:sub(-1) == "/" then path = path:sub(1, -2) end
+			local paths = normalize_watch_paths(path)
 
+			if #paths > 1 then
+				local stops = {}
+
+				for i = 1, #paths do
+					local stop, err = fs.watch(paths[i], callback, recursive)
+
+					if not stop then
+						for j = 1, #stops do
+							stops[j]()
+						end
+
+						return nil, err
+					end
+
+					stops[i] = stop
+				end
+
+				return function()
+					for i = 1, #stops do
+						stops[i]()
+					end
+				end
+			end
+
+			path = paths[1]
 			local handle = ffi.C.CreateFileA(
 				path,
 				fs.FILE_LIST_DIRECTORY,
@@ -697,8 +743,7 @@ do
 
 			if not lib then return nil, "CoreServices not loaded" end
 
-			if path:sub(-1) == "/" then path = path:sub(1, -2) end
-
+			local paths = normalize_watch_paths(path)
 			local results = {}
 
 			local function internal_callback(streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds)
@@ -724,8 +769,15 @@ do
 			if recursive == nil then recursive = true end
 
 			local c_callback = ffi.cast("FSEventStreamCallback", internal_callback)
-			local path_cf = lib.CFStringCreateWithCString(nil, path, fs.kCFStringEncodingUTF8)
-			local paths_array = lib.CFArrayCreate(nil, ffi.cast("const void **", ffi.new("void *[1]", {path_cf})), 1, nil)
+			local path_cfs = {}
+			local path_ptrs = ffi.new("void *[?]", #paths)
+
+			for i = 1, #paths do
+				path_cfs[i] = lib.CFStringCreateWithCString(nil, paths[i], fs.kCFStringEncodingUTF8)
+				path_ptrs[i - 1] = path_cfs[i]
+			end
+
+			local paths_array = lib.CFArrayCreate(nil, ffi.cast("const void **", path_ptrs), #paths, nil)
 			local flags = bit.bor(
 				fs.kFSEventStreamCreateFlagFileEvents,
 				fs.kFSEventStreamCreateFlagNoDefer,
@@ -743,7 +795,11 @@ do
 
 			if stream == nil then
 				lib.CFRelease(paths_array)
-				lib.CFRelease(path_cf)
+
+				for i = 1, #path_cfs do
+					lib.CFRelease(path_cfs[i])
+				end
+
 				return nil, "Failed to create FSEventStream"
 			end
 
@@ -755,7 +811,11 @@ do
 				lib.FSEventStreamInvalidate(stream)
 				lib.FSEventStreamRelease(stream)
 				lib.CFRelease(paths_array)
-				lib.CFRelease(path_cf)
+
+				for i = 1, #path_cfs do
+					lib.CFRelease(path_cfs[i])
+				end
+
 				return nil, "Failed to start FSEventStream"
 			end
 
@@ -777,7 +837,11 @@ do
 				lib.FSEventStreamInvalidate(stream)
 				lib.FSEventStreamRelease(stream)
 				lib.CFRelease(paths_array)
-				lib.CFRelease(path_cf)
+
+				for i = 1, #path_cfs do
+					lib.CFRelease(path_cfs[i])
+				end
+
 				active_watches[c_callback] = nil
 				c_callback:free()
 			end
