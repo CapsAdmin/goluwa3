@@ -190,7 +190,7 @@ local atmosphere_shared_glsl = [[
 		"1.0"
 	) .. [[;
 	const float SCENERY_FOG_SCALE_HEIGHT = 0.28;
-	const float SCENERY_FOG_BASE_DENSITY = 6.5;
+	const float SCENERY_FOG_BASE_DENSITY = 0.5;
 	const float SCENERY_FOG_TOP_HEIGHT = 1.1;
 	const float SCENERY_FOG_TOP_SOFTNESS = 0.3;
 	const float SCENERY_FOG_EXTINCTION = 0.34;
