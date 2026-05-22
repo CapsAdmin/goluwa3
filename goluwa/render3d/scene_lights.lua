@@ -49,6 +49,64 @@ function scene_lights.BuildShadowsBlockLayout()
 	}
 end
 
+function scene_lights.GetLightGLSLCode()
+	return [=[
+			int get_light_type(lights_t light) {
+				return int(light.position.w);
+			}
+
+			vec3 get_light_direction(lights_t light) {
+				return normalize(light.direction.xyz);
+			}
+
+			bool get_light_vector_and_attenuation(lights_t light, vec3 world_pos, out vec3 L, out float attenuation) {
+				int type = get_light_type(light);
+				vec3 light_dir = get_light_direction(light);
+				attenuation = 1.0;
+
+				if (type == 0) {
+					L = normalize(-light_dir);
+					return true;
+				}
+
+				if (type == 1) {
+					vec3 light_to_pos = light.position.xyz - world_pos;
+					float dist = length(light_to_pos);
+					float range = max(light.params.x, 0.0001);
+
+					if (dist <= 0.0001 || dist >= range) {
+						return false;
+					}
+
+					L = light_to_pos / dist;
+					attenuation = 1.0 / max(dist * dist, 0.0025);
+					return true;
+				}
+
+				if (type == 2 || type == 3) {
+					vec3 from_light = world_pos - light.position.xyz;
+					float dist = length(from_light);
+					float range = max(light.params.x, 0.0001);
+
+					if (dist <= 0.0001 || dist >= range) {
+						return false;
+					}
+
+					vec3 cone_axis = light_dir;
+					vec3 cone_dir = from_light / dist;
+					float inner_cone = clamp(light.params.y, -1.0, 1.0);
+					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
+					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, cone_dir));
+					attenuation = cone_attenuation / max(dist * dist, 0.0025);
+					L = type == 2 ? normalize(-light_dir) : normalize(light.position.xyz - world_pos);
+					return true;
+				}
+
+				return false;
+			}
+		]=]
+end
+
 function scene_lights.WriteLightsBlock(lights_block, lights)
 	for i = 0, scene_lights.MAX_LIGHTS - 1 do
 		local data = lights_block[i]

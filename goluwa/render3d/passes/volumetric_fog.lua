@@ -14,7 +14,7 @@ local DEBUG_GOD_RAY_SUN_FACING_BOOST = 1
 local DEBUG_GOD_RAY_SHADOW_CONTRAST = 1.0
 local DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = 1.0
 local FROXEL_TILE_SIZE = 16
-local FROXEL_SLICE_COUNT = 64
+local FROXEL_SLICE_COUNT = 32
 local volumetric_froxels = {
 	texture = nil,
 	sample_view = nil,
@@ -374,9 +374,7 @@ local r = {
 			const float DEBUG_GOD_RAY_SHADOW_CONTRAST = ]] .. DEBUG_GOD_RAY_SHADOW_CONTRAST .. [[;
 			const float DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = ]] .. DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE .. [[;
 
-			int get_light_type(lights_t light) {
-				return int(light.position.w);
-			}
+			]] .. scene_lights.GetLightGLSLCode() .. [[
 
 			int get_current_primary_sun_index() {
 				for (int i = 0; i < froxel_data.light_count; i++) {
@@ -582,17 +580,17 @@ local r = {
 					if (type == 1) {
 						vec3 to_light = light.position.xyz - world_pos;
 						float dist = length(to_light);
-						if (dist <= 0.0001) continue;
-						L = to_light / dist;
 						float range = max(light.params.x, 0.0001);
-						attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
-						attenuation *= attenuation;
+						if (dist <= 0.0001 || dist >= range) continue;
+						L = to_light / dist;
+						attenuation = 1.0 / max(dist * dist, 0.0025);
 					} else if (type == 2 || type == 3) {
 						vec3 light_dir = normalize(light.direction.xyz);
 						vec3 cone_axis = light_dir;
 						vec3 from_light = world_pos - light.position.xyz;
 						float dist = length(from_light);
-						if (dist <= 0.0001) continue;
+						float range = max(light.params.x, 0.0001);
+						if (dist <= 0.0001 || dist >= range) continue;
 
 						if (type == 2) {
 							L = normalize(-light_dir);
@@ -600,13 +598,10 @@ local r = {
 							L = -from_light / dist;
 						}
 
-						float range = max(light.params.x, 0.0001);
-						float range_attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
-						range_attenuation *= range_attenuation;
 						float inner_cone = clamp(light.params.y, -1.0, 1.0);
 						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
 						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, from_light / dist));
-						attenuation = range_attenuation * cone_attenuation;
+						attenuation = cone_attenuation / max(dist * dist, 0.0025);
 					} else {
 						continue;
 					}
@@ -746,9 +741,7 @@ local r = {
 				},
 			},
 			shader = [[
-			int get_light_type(lights_t light) {
-				return int(light.position.w);
-			}
+			]] .. scene_lights.GetLightGLSLCode() .. [[
 
 			int get_current_primary_sun_index() {
 				for (int i = 0; i < fog_data.light_count; i++) {
@@ -971,35 +964,7 @@ local r = {
 					vec3 L = vec3(0.0);
 					float attenuation = 1.0;
 
-					if (type == 1) {
-						vec3 light_to_pos = light.position.xyz - world_pos;
-						float dist = length(light_to_pos);
-						if (dist <= 0.0001) continue;
-						L = light_to_pos / dist;
-						float range = max(light.params.x, 0.0001);
-						attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
-						attenuation *= attenuation;
-					} else if (type == 2 || type == 3) {
-						vec3 light_dir = normalize(light.direction.xyz);
-						vec3 cone_axis = light_dir;
-						vec3 from_light = world_pos - light.position.xyz;
-						float dist = length(from_light);
-						if (dist <= 0.0001) continue;
-
-						if (type == 2) {
-							L = normalize(-light_dir);
-						} else {
-							L = -from_light / dist;
-						}
-
-						float range = max(light.params.x, 0.0001);
-						float range_attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
-						range_attenuation *= range_attenuation;
-						float inner_cone = clamp(light.params.y, -1.0, 1.0);
-						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
-						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, from_light / dist));
-						attenuation = range_attenuation * cone_attenuation;
-					} else {
+					if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation)) {
 						continue;
 					}
 

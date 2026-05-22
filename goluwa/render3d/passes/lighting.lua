@@ -370,6 +370,7 @@ return {
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
 			]] .. ibl.GetReflectionGLSLCode() .. [[
+			]] .. scene_lights.GetLightGLSLCode() .. [[
 
 			// Cascade debug colors
 			const vec3 CASCADE_COLORS[4] = vec3[4](
@@ -776,38 +777,10 @@ return {
 
                 for (int i = 0; i < lighting_data.light_count; i++) {
                     lights_t light = lighting_data.lights[i];
-                    int type = int(light.position.w);
-					vec3 light_dir = normalize(light.direction.xyz);
+					int type = get_light_type(light);
 					vec3 L;
 					float attenuation = 1.0;
-					if (type == 0) {
-						L = normalize(-light_dir);
-					} else if (type == 1) {
-						vec3 light_to_pos = light.position.xyz - world_pos;
-						float dist = length(light_to_pos);
-						L = normalize(light_to_pos);
-						float range = max(light.params.x, 0.0001);
-						attenuation = saturate(1.0 - dist / range);
-						attenuation *= attenuation;
-					} else if (type == 2 || type == 3) {
-						vec3 from_light = world_pos - light.position.xyz;
-						float dist = length(from_light);
-						vec3 cone_axis = light_dir;
-						vec3 cone_dir = dist > 0.0001 ? from_light / dist : cone_axis;
-						float range = max(light.params.x, 0.0001);
-						float range_attenuation = saturate(1.0 - dist / range);
-						range_attenuation *= range_attenuation;
-						float inner_cone = clamp(light.params.y, -1.0, 1.0);
-						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
-						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, cone_dir));
-						attenuation = range_attenuation * cone_attenuation;
-
-						if (type == 2) {
-							L = normalize(-light_dir);
-						} else {
-							L = normalize(light.position.xyz - world_pos);
-						}
-					} else {
+					if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation)) {
 						continue;
 					}
                     vec3 H = normalize(V + L);

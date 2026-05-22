@@ -51,6 +51,10 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_MONSTERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
+local BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD = 0.0001
+local BSP_LIGHT_INTENSITY_SCALE = 200
+local BSP_LIGHT_MIN_RANGE = 0.25
+local BSP_LIGHT_MAX_RANGE = 400
 
 local function build_bounds_from_vertices(vertices)
 	if not (vertices and vertices[1]) then return nil end
@@ -83,6 +87,19 @@ end
 
 local function source_height_to_engine_y(height)
 	return height * steam.source2meters
+end
+
+local function convert_source_light_to_engine(info)
+	local source_brightness = math.max(info._light and info._light.brightness or 0, 0)
+	local unit_scale = steam.source2meters
+	local intensity = source_brightness * unit_scale * unit_scale * BSP_LIGHT_INTENSITY_SCALE
+	local range = math.sqrt(source_brightness / BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD) * unit_scale
+
+	if info._zero_percent_distance and info._zero_percent_distance > 0 then
+		intensity = intensity * 0.5
+	end
+
+	return intensity, math.clamp(range, BSP_LIGHT_MIN_RANGE, BSP_LIGHT_MAX_RANGE)
 end
 
 local function get_model_lowest_point(model)
@@ -1375,22 +1392,7 @@ function steam.SpawnMapEntities(path, parent)
 					local light = ent:AddComponent("light")
 					-- Color is already in linear space from parsing
 					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
-					local brightness = info._light.brightness
-					brightness = math.clamp(brightness / 4000, 0.005, 5)
-					light:SetIntensity(brightness)
-					local threshold = 0.01
-					local range_source_units = math.sqrt(brightness / threshold)
-					local range = range_source_units * steam.source2meters
-
-					if info._zero_percent_distance and info._zero_percent_distance > 0 then
-						range = info._zero_percent_distance * steam.source2meters
-					elseif info._fifty_percent_distance and info._fifty_percent_distance > 0 then
-						range = info._fifty_percent_distance * steam.source2meters * 2
-					elseif info._distance and info._distance > 0 then
-						range = info._distance * steam.source2meters
-					end
-
-					range = math.clamp(range * 3, 4, 400)
+					local intensity, range = convert_source_light_to_engine(info)
 
 					if info.classname == "light_spot" then
 						local pitch = tonumber(info.pitch) or (info.angles and info.angles.x) or 0
@@ -1403,15 +1405,15 @@ function steam.SpawnMapEntities(path, parent)
 						local rotation = Quat()
 						rotation:SetAngles((-engine_forward):GetAngles())
 						tr:SetRotation(rotation)
-						light:SetLightType("directional")
-						light:SetRange(range)
+						light:SetLightType("spot")
 						light:SetInnerCone(math.cos(math.rad(inner_cone)))
 						light:SetOuterCone(math.cos(math.rad(outer_cone)))
 					else
 						light:SetLightType("point")
-						light:SetRange(range)
 					end
 
+					light:SetRange(range)
+					light:SetIntensity(intensity)
 					--light:SetCastShadows{shadow_update_mode = "on_move"}
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then
