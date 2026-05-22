@@ -567,7 +567,8 @@ function lightprobes.CreatePipelines()
 					"fragment.atmosphere_transmittance_texture_index",
 					"fragment.time",
 					"probe_ground_ambient",
-					"fragment.blue_noise_tex"
+					"fragment.blue_noise_tex",
+					render.clouds and "true" or "false"
 				) .. [[
 					vec3 probe_ray_dir = normalize(in_direction);
 					vec3 probe_sun_dir = length(fragment.sun_direction.xyz) > 0.0001

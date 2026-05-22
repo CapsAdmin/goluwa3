@@ -1,14 +1,14 @@
 local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
-local ENABLE_CLOUDS = false
 local CLOUD_PREP_SIZE = 512
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
 
-if not ENABLE_CLOUDS then return {} end
+if not render.clouds then return {} end
 
 local cloud_map_glsl = [[
 	const float CLOUD_PREP_WORLD_HALF = 120.0;
