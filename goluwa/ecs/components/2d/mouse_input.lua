@@ -13,6 +13,7 @@ META:GetSet("FocusOnClick", false)
 META:GetSet("BringToFrontOnClick", false)
 META:GetSet("RedirectFocus", NULL)
 META:GetSet("Cursor", "arrow")
+META:GetSet("RequestMouse", false)
 META:EndStorable()
 
 function META:SetHovered(b)
@@ -39,6 +40,45 @@ function META:IsMouseButtonDown(button)
 	self.button_states = self.button_states or {}
 	local state = self.button_states[button]
 	return state and state.press
+end
+
+function META:IsRequestMouseActive()
+	if not self:GetRequestMouse() then return false end
+
+	local gui = self.Owner.gui_element
+
+	if gui and not gui:GetVisible() then return false end
+
+	return true
+end
+
+function META:UpdateMouseRequest()
+	local window = system.GetWindow()
+
+	if not (window and window.PushMouseTrapRequest and window.PopMouseTrapRequest) then
+		self.mouse_request_active = false
+		return false
+	end
+
+	local active = self:IsRequestMouseActive()
+
+	if active then
+		window:PushMouseTrapRequest(self, false)
+	else
+		window:PopMouseTrapRequest(self)
+	end
+
+	self.mouse_request_active = active
+	return active
+end
+
+function META:SetRequestMouse(b)
+	b = not not b
+
+	if self.RequestMouse == b then return end
+
+	self.RequestMouse = b
+	self:UpdateMouseRequest()
 end
 
 local mouse_input = library()
@@ -407,6 +447,26 @@ function META:OnFirstCreated()
 
 	event.AddListener("MouseInput", "ecs_gui_system", mouse_input.MouseInput, {priority = 100})
 	event.AddListener("Update", "ecs_gui_system", mouse_input.Update, {priority = 100})
+end
+
+function META:Initialize()
+	self.Owner:EnsureComponent("gui_element")
+
+	self.Owner:AddLocalListener("OnVisibilityChanged", function()
+		self:UpdateMouseRequest()
+	end, self)
+
+	self:UpdateMouseRequest()
+end
+
+function META:OnRemove()
+	local window = system.GetWindow()
+
+	if window and window.PopMouseTrapRequest then
+		window:PopMouseTrapRequest(self)
+	end
+
+	self.mouse_request_active = false
 end
 
 function META:OnLastRemoved()

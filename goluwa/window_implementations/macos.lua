@@ -23,6 +23,14 @@ return function(META)
 		return cocoa.get_desktop_size()
 	end
 
+	function META:UpdateMouseTrapState()
+		local trapped = self:GetDesiredMouseTrapped()
+
+		if trapped then self:CaptureMouse() else self:ReleaseMouse() end
+
+		return trapped
+	end
+
 	function META:Initialize()
 		-- Create the cocoa window wrapper
 		self.cocoa_window = cocoa.window(self.Size.x, self.Size.y)
@@ -46,6 +54,7 @@ return function(META)
 		self.last_mouse_pos = Vec2(0, 0)
 		self.focused = false
 		self.mouse_inside = false
+		self.startup_capture_retry_frames = 120
 		self.is_minimized = self.cocoa_window:IsMinimized()
 		self.is_maximized = self.cocoa_window:IsMaximized()
 		return true
@@ -91,23 +100,27 @@ return function(META)
 			end
 		end
 
+		if self.startup_capture_retry_frames and self.startup_capture_retry_frames > 0 then
+			local trapped = self:GetDesiredMouseTrapped()
+
+			if trapped and not self.cocoa_window:IsMouseCaptured() then
+				self.cocoa_window:OpenWindow()
+				self.cocoa_window:CaptureMouse()
+			end
+
+			if self.focused or self.cocoa_window:IsMouseCaptured() or not trapped then
+				self.startup_capture_retry_frames = 0
+			else
+				self.startup_capture_retry_frames = self.startup_capture_retry_frames - 1
+			end
+		end
+
 		local focused = self.cocoa_window:IsFocused()
 
 		if focused ~= self.focused then
 			self.focused = focused
 
-			if focused then
-				-- Re-apply capture: CGAssociateMouseAndMouseCursorPosition(false) can fail
-				-- during startup before the process is fully active in the window server.
-				-- Re-calling it here ensures it takes effect once the app is truly active.
-				if self.cocoa_window:IsMouseCaptured() then
-					self.cocoa_window:CaptureMouse()
-				end
-
-				self:OnGainedFocus()
-			else
-				self:OnLostFocus()
-			end
+			if focused then self:OnGainedFocus() else self:OnLostFocus() end
 		end
 
 		local pos = self.cocoa_window:GetPosition()

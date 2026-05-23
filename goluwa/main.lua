@@ -146,6 +146,7 @@ end)
 commands.Add("game", function()
 	_G.GRAPHICS = true
 	_G.AUDIO = true
+	_G.PHYSICS = true
 	init_game()
 end)
 

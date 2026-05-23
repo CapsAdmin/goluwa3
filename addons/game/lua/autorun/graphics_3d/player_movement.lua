@@ -1,5 +1,6 @@
 import("goluwa/physics.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local system = import("goluwa/system.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 Entity.RegisterComponent("camera", import("lua/components/camera.lua"))
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
@@ -29,3 +30,4 @@ local rig = Entity.New{
 }
 rig.transform:SetPosition(cam:GetPosition():Copy())
 rig.player_input:SyncFromCamera(cam)
+system.GetWindow():SetMouseTrapped(true)

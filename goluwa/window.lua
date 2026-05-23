@@ -34,17 +34,80 @@ Window.Cursors = {
 Window.Keys = {}
 Window.Buttons = {}
 
-function Window:SetMouseTrapped(b)
-	b = not not b
-	self.MouseTrapped = b
+function Window:GetDesiredMouseTrapped()
+	local requests = self.mouse_trap_requests
+
+	if requests and #requests > 0 then return requests[#requests].trapped end
+
+	return not not self.MouseTrapped
+end
+
+function Window:UpdateMouseTrapState()
+	local trapped = self:GetDesiredMouseTrapped()
 
 	if not self:IsFocused() then
 		if self:IsMouseCaptured() then self:ReleaseMouse() end
 
-		return
+		return trapped
 	end
 
-	if b then self:CaptureMouse() else self:ReleaseMouse() end
+	if trapped then self:CaptureMouse() else self:ReleaseMouse() end
+
+	return trapped
+end
+
+function Window:PushMouseTrapRequest(id, trapped)
+	if id == nil then error("mouse trap request id is required", 2) end
+
+	trapped = not not trapped
+	self.mouse_trap_requests = self.mouse_trap_requests or {}
+	self.mouse_trap_request_lookup = self.mouse_trap_request_lookup or {}
+	local requests = self.mouse_trap_requests
+	local lookup = self.mouse_trap_request_lookup
+	local index = lookup[id]
+
+	if index then
+		table.remove(requests, index)
+
+		for i = index, #requests do
+			lookup[requests[i].id] = i
+		end
+	end
+
+	requests[#requests + 1] = {id = id, trapped = trapped}
+	lookup[id] = #requests
+	return self:UpdateMouseTrapState()
+end
+
+function Window:PopMouseTrapRequest(id)
+	local lookup = self.mouse_trap_request_lookup
+
+	if not lookup then return self:GetDesiredMouseTrapped() end
+
+	local index = lookup[id]
+
+	if not index then return self:GetDesiredMouseTrapped() end
+
+	local requests = self.mouse_trap_requests
+	table.remove(requests, index)
+	lookup[id] = nil
+
+	for i = index, #requests do
+		lookup[requests[i].id] = i
+	end
+
+	if #requests == 0 then
+		self.mouse_trap_requests = nil
+		self.mouse_trap_request_lookup = nil
+	end
+
+	return self:UpdateMouseTrapState()
+end
+
+function Window:SetMouseTrapped(b)
+	b = not not b
+	self.MouseTrapped = b
+	return self:UpdateMouseTrapState()
 end
 
 function Window:GetMouseTrapped()
@@ -117,8 +180,7 @@ function Window:OnMaximize()
 end
 
 function Window:OnGainedFocus()
-	if self.MouseTrapped then self:CaptureMouse() end
-
+	self:UpdateMouseTrapState()
 	return event.Call("WindowGainedFocus", self)
 end
 

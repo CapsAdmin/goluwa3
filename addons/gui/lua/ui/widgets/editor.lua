@@ -119,7 +119,6 @@ local function get_mouse_world_ray(input_window)
 
 	local screen_width, screen_height = render2d.GetSize()
 	local direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
-
 	return cam:GetPosition(), direction, mouse_pos
 end
 
@@ -507,7 +506,9 @@ local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entit
 
 	if is_editor_pick_excluded_entity(entity, excluded_entity) then return false end
 
-	if has_visual_pick_target(entity) or is_visual_pick_helper_entity(entity) then return false end
+	if has_visual_pick_target(entity) or is_visual_pick_helper_entity(entity) then
+		return false
+	end
 
 	return get_entity_world_position(entity) ~= nil
 end
@@ -522,7 +523,9 @@ local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selec
 	local screen_height = viewport and viewport.h or nil
 
 	visit_world_entities(Entity.World, function(entity)
-		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then return end
+		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
+			return
+		end
 
 		local world_pos = get_entity_world_position(entity)
 
@@ -573,7 +576,9 @@ local function find_nonvisual_entity_hit(
 	local marker_radius_sq = marker_radius * marker_radius
 
 	visit_world_entities(Entity.World, function(entity)
-		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then return end
+		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
+			return
+		end
 
 		local world_pos = get_entity_world_position(entity)
 
@@ -1633,9 +1638,7 @@ return function(props)
 		local selected_target, selected_key = resolve_selected_target(state.tree_items)
 		set_selected_target(selected_target, false, selected_key)
 		refresh_selected_property_listeners()
-
 		reveal_selected_tree_item()
-
 		refresh_property_editor()
 		update_footer(get_selected_object(), state.tree_items)
 	end
@@ -1918,6 +1921,7 @@ return function(props)
 	local position = props.Position or Vec2(0, 0)
 	window = Window{
 		Key = props.Key or "GameEditorWindow",
+		RequestMouse = props.RequestMouse,
 		Title = "ENTITY EDITOR",
 		Size = size,
 		Position = position,
@@ -2207,7 +2211,11 @@ return function(props)
 
 	function window:OnUpdate(dt)
 		update_editor_camera(dt)
-		draw_nonvisual_entity_hints(window, active_camera_component and active_camera_component.Owner or nil, get_selected_entity())
+		draw_nonvisual_entity_hints(
+			window,
+			active_camera_component and active_camera_component.Owner or nil,
+			get_selected_entity()
+		)
 		update_world_click_selection()
 		local material_count = count_material_objects()
 

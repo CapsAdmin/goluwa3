@@ -5,7 +5,7 @@ local cocoa = {}
 -- Load required frameworks
 objc.loadFramework("Cocoa")
 objc.loadFramework("QuartzCore")
-local cocoa_objc = objc.bind({
+local cocoa_objc = objc.bind{
 	classes = {
 		"NSArray",
 		"NSDate",
@@ -61,11 +61,14 @@ local cocoa_objc = objc.bind({
 				arrowCursor = "@#:",
 				closedHandCursor = "@#:",
 				crosshairCursor = "@#:",
+				hide = "v#:",
 				IBeamCursor = "@#:",
 				openHandCursor = "@#:",
 				pointingHandCursor = "@#:",
 				resizeLeftRightCursor = "@#:",
 				resizeUpDownCursor = "@#:",
+				setHiddenUntilMouseMoves = {selector = "setHiddenUntilMouseMoves:", types = "v#:B"},
+				unhide = "v#:",
 			},
 			instance = {
 				set = "v@:",
@@ -163,7 +166,7 @@ local cocoa_objc = objc.bind({
 			},
 		},
 	},
-})
+}
 local classes = cocoa_objc.classes
 local NSObject = cocoa_objc.methods.NSObject
 local NSArray = cocoa_objc.methods.NSArray
@@ -690,13 +693,7 @@ local dequeue = true
 local function poll_events(app, window, event_list)
 	local distantPast = NSDate.distantPast()
 	local mode = NSString.stringWithUTF8String("kCFRunLoopDefaultMode")
-	local event = NSApplication.nextEventMatchingMask_untilDate_inMode_dequeue(
-		app,
-		NSEventMaskAny,
-		distantPast,
-		mode,
-		dequeue
-	)
+	local event = NSApplication.nextEventMatchingMask_untilDate_inMode_dequeue(app, NSEventMaskAny, distantPast, mode, dequeue)
 
 	if event ~= nil and event ~= objc.ptr(nil) then
 		local event_type = tonumber(NSEvent.type(event))
@@ -808,8 +805,8 @@ function meta:SetTitle(str)
 end
 
 function meta:OpenWindow()
-	NSWindow.makeKeyAndOrderFront(self.window, nil_id)
 	NSApplication.activateIgnoringOtherApps(self.app, true)
+	NSWindow.makeKeyAndOrderFront(self.window, nil_id)
 end
 
 function meta:Minimize()
@@ -840,16 +837,20 @@ end
 
 function meta:HideCursor()
 	if not self.cursor_hidden then
-		CG.CGDisplayHideCursor(0)
+		NSCursor.setHiddenUntilMouseMoves(false)
+		NSCursor.hide()
 		self.cursor_hidden = true
 	end
 end
 
 function meta:ShowCursor()
-	if self.cursor_hidden then
+	for _ = 1, 8 do
 		CG.CGDisplayShowCursor(0)
-		self.cursor_hidden = false
+		NSCursor.unhide()
 	end
+
+	NSCursor.setHiddenUntilMouseMoves(false)
+	self.cursor_hidden = false
 end
 
 function meta:SetCursor(mode)
@@ -862,6 +863,7 @@ function meta:SetCursor(mode)
 
 	if not self.mouse_captured then self:ShowCursor() end
 
+	NSCursor.setHiddenUntilMouseMoves(false)
 	NSCursor.set(get_ns_cursor(self.cursor_mode))
 end
 
@@ -976,22 +978,36 @@ end
 
 function meta:CaptureMouse()
 	self:HideCursor()
-	CG.CGAssociateMouseAndMouseCursorPosition(false)
+	local err = tonumber(CG.CGAssociateMouseAndMouseCursorPosition(false)) or -1
 
-	if not self.mouse_captured then
+	if err == 0 and not self.mouse_captured then
 		self.mouse_captured = true
 		self.last_mouse_x = nil
 		self.last_mouse_y = nil
+	elseif err ~= 0 then
+		self.mouse_captured = false
+
+		if self.cursor_mode == "hidden" then
+			self:HideCursor()
+		else
+			self:ShowCursor()
+			NSCursor.set(get_ns_cursor(self.cursor_mode))
+		end
 	end
 end
 
 function meta:ReleaseMouse()
-	if self.mouse_captured then
+	if self.mouse_captured or self.cursor_hidden then
 		CG.CGAssociateMouseAndMouseCursorPosition(true)
 		self.mouse_captured = false
 		self.last_mouse_x = nil
 		self.last_mouse_y = nil
 		self:SetCursor(self.cursor_mode)
+
+		if self.cursor_mode ~= "hidden" then
+			local pos = self:GetMousePosition()
+			self:SetMousePosition(pos)
+		end
 	end
 end
 

@@ -93,11 +93,57 @@ do
 		end
 
 		function window:GetMouseTrapped()
+			local requests = self.mouse_trap_requests
+
+			if requests and #requests > 0 then return requests[#requests].trapped end
+
 			return self.mouse_trapped
 		end
 
 		function window:SetMouseTrapped(trapped)
 			self.mouse_trapped = not not trapped
+		end
+
+		function window:PushMouseTrapRequest(id, trapped)
+			self.mouse_trap_requests = self.mouse_trap_requests or {}
+			self.mouse_trap_request_lookup = self.mouse_trap_request_lookup or {}
+			local requests = self.mouse_trap_requests
+			local lookup = self.mouse_trap_request_lookup
+			local index = lookup[id]
+
+			if index then
+				table.remove(requests, index)
+
+				for i = index, #requests do
+					lookup[requests[i].id] = i
+				end
+			end
+
+			requests[#requests + 1] = {id = id, trapped = not not trapped}
+			lookup[id] = #requests
+		end
+
+		function window:PopMouseTrapRequest(id)
+			local lookup = self.mouse_trap_request_lookup
+
+			if not lookup then return end
+
+			local index = lookup[id]
+
+			if not index then return end
+
+			local requests = self.mouse_trap_requests
+			table.remove(requests, index)
+			lookup[id] = nil
+
+			for i = index, #requests do
+				lookup[requests[i].id] = i
+			end
+
+			if #requests == 0 then
+				self.mouse_trap_requests = nil
+				self.mouse_trap_request_lookup = nil
+			end
 		end
 
 		function window:IsFocused()

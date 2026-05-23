@@ -153,9 +153,20 @@ local function create_value(props)
 
 		local window = system.GetWindow()
 
-		if not (window and window.SetMouseTrapped) then return end
+		if not (window and window.PushMouseTrapRequest and window.PopMouseTrapRequest) then
+			if not (window and window.SetMouseTrapped) then return end
 
-		window:SetMouseTrapped(trapped)
+			window:SetMouseTrapped(trapped)
+			state.mouse_trapped = trapped
+			return
+		end
+
+		if trapped then
+			window:PushMouseTrapRequest(panel, true)
+		else
+			window:PopMouseTrapRequest(panel)
+		end
+
 		state.mouse_trapped = trapped
 	end
 

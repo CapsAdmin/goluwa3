@@ -51,7 +51,9 @@ return function(props)
 			return false
 		end,
 		gui_element = true,
-		mouse_input = true,
+		mouse_input = {
+			RequestMouse = props.RequestMouse,
+		},
 		clickable = true,
 		animation = true,
 	}{

@@ -3,19 +3,15 @@ local system = import("goluwa/system.lua")
 local init = false
 local editor_window = NULL
 local selected_entity_guid = nil
-local visible = false
 local suppress_close_callback = false
 local world_panel = NULL
 local toggle
-
-local function sync_mouse_trapped_state()
-	system.GetWindow():SetMouseTrapped(not visible)
-end
 
 local function lazy_init()
 	if init then return end
 
 	init = true
+	system.GetWindow():SetMouseTrapped(true)
 	local Panel = import("goluwa/ecs/panel.lua")
 	local Editor = import("lua/ui/widgets/editor.lua")
 	world_panel = Panel.World
@@ -33,11 +29,10 @@ local function lazy_init()
 			suppress_close_callback = false
 		end
 
-		visible = true
-		sync_mouse_trapped_state()
 		editor_window = world_panel:Ensure(
 			Editor{
 				Key = "GameEditorWindow",
+				RequestMouse = true,
 				SelectedEntityGUID = selected_entity_guid,
 				Position = position,
 				Size = size,
@@ -49,8 +44,6 @@ local function lazy_init()
 					if self and self:IsValid() then self:Remove() end
 
 					editor_window = NULL
-					visible = false
-					sync_mouse_trapped_state()
 				end,
 				OnThemeChange = function(guid, next_position, next_size)
 					selected_entity_guid = guid
@@ -62,17 +55,10 @@ local function lazy_init()
 	end
 
 	function toggle()
-		visible = not visible
-
-		if not visible then
+		if editor_window:IsValid() then
 			world_panel:RemoveKeyed("EditorMenuBarContextMenu")
-
-			if editor_window:IsValid() then
-				editor_window:Remove()
-				editor_window = NULL
-			end
-
-			sync_mouse_trapped_state()
+			editor_window:Remove()
+			editor_window = NULL
 			return false
 		end
 
@@ -91,7 +77,3 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 		return toggle()
 	end
 end)
-
-event.AddListener("WindowGainedFocus", "mouse_trap", function()
-	if not visible then sync_mouse_trapped_state() end
-end) --toggle()
