@@ -5,7 +5,7 @@ local input = import("goluwa/input.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local META = prototype.CreateTemplate("resizable")
 META:StartStorable()
-META:GetSet("ResizeBorder", Rect() + 4)
+META:GetSet("ResizeBorder", Rect() + 8)
 META:GetSet("MinimumSize", Vec2(10, 10))
 META:EndStorable()
 
@@ -85,6 +85,18 @@ local location2cursor = {
 	bottom_right = "bottom_right_resize",
 }
 
+local function is_resize_handle_hovered(owner, pos)
+	local gui = owner.gui_element
+
+	if gui and gui:IsHovered(pos) then return true end
+
+	local resizable = owner.resizable
+
+	if not resizable or not owner.transform then return false end
+
+	return resizable:GetResizeLocation(owner.transform:GlobalToLocal(pos)) ~= nil
+end
+
 function META:GetResizeCursor(local_pos)
 	local loc = self:GetResizeLocation(local_pos)
 	return location2cursor[loc]
@@ -102,12 +114,14 @@ function META:StartResizing(local_pos, button)
 	self.resize_prev_pos = transform:GetPosition():Copy()
 	self.resize_prev_size = transform:GetSize():Copy()
 	self.resize_button = button
+	self.Owner.mouse_input:SetCursorOverride(location2cursor[loc])
 	self:AddGlobalEvent("Update", {priority = 100})
 	return true
 end
 
 function META:StopResizing()
 	self.resize_start_pos = nil
+	self.Owner.mouse_input:ClearCursorOverride()
 	self:RemoveEvent("Update")
 end
 
@@ -177,10 +191,15 @@ end
 
 function META:OnGlobalMouseInput(button, press, pos)
 	local gui = self.Owner.gui_element
+	local mouse = self.Owner.mouse_input
 
 	if gui and not gui:GetVisible() then return end
 
 	if button == "button_1" and press then
+		if mouse and not mouse:IsExclusiveHitOrDescendant(pos, is_resize_handle_hovered) then
+			return
+		end
+
 		local local_pos = self.Owner.transform:GlobalToLocal(pos)
 
 		if self:StartResizing(local_pos, button) then return true end
@@ -200,8 +219,13 @@ function META:OnGlobalMouseMove(pos)
 	end
 
 	local gui = self.Owner.gui_element
+	local mouse = self.Owner.mouse_input
 
 	if gui and not gui:GetVisible() then return end
+
+	if mouse and not mouse:IsExclusiveHitOrDescendant(pos, is_resize_handle_hovered) then
+		return
+	end
 
 	local local_pos = self.Owner.transform:GlobalToLocal(pos)
 	local cursor = self:GetResizeCursor(local_pos)

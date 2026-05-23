@@ -85,6 +85,8 @@ local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
 mouse_input.last_hovered = mouse_input.last_hovered or NULL
 mouse_input.active_hover_query = mouse_input.active_hover_query or nil
+mouse_input.cursor_override = mouse_input.cursor_override or nil
+mouse_input.cursor_override_owner = mouse_input.cursor_override_owner or NULL
 local reverse_query_cache_key = {}
 local reverse_global_event_cache_key = {}
 
@@ -180,15 +182,22 @@ local function hovered_entity_query_enter(mouse_pos, owner)
 	return WALK_CONTINUE
 end
 
-local function hovered_entity_query_visit(mouse_pos, owner)
+local function hovered_entity_query_visit(context, owner)
 	if not owner.gui_element or not owner.mouse_input then return end
 
 	if owner.gmod_internal_dock then return end
 
-	if
-		not owner.mouse_input:GetIgnoreMouseInput() and
-		owner.gui_element:IsHovered(mouse_pos)
-	then
+	local mouse_pos = context.mouse_pos or context
+	local hit_test = context.hit_test
+	local is_hovered
+
+	if hit_test then
+		is_hovered = hit_test(owner, mouse_pos)
+	else
+		is_hovered = owner.gui_element:IsHovered(mouse_pos)
+	end
+
+	if not owner.mouse_input:GetIgnoreMouseInput() and is_hovered then
 		return owner
 	end
 end
@@ -206,12 +215,38 @@ local function global_event_query_visit(context, owner)
 			context.g
 		)
 
-		if res ~= nil then return res, owner.mouse_input end
+		if res then return res, owner.mouse_input end
 	end
 end
 
 local function get_hovered_entity(entity, mouse_pos)
-	return query_children_reverse(entity, mouse_pos, hovered_entity_query_enter, hovered_entity_query_visit)
+	return query_children_reverse(
+		entity,
+		{mouse_pos = mouse_pos},
+		hovered_entity_query_enter,
+		hovered_entity_query_visit
+	)
+end
+
+local function get_hovered_entity_with_hit_test(entity, mouse_pos, hit_test)
+	return query_children_reverse(
+		entity,
+		{mouse_pos = mouse_pos, hit_test = hit_test},
+		hovered_entity_query_enter,
+		hovered_entity_query_visit
+	)
+end
+
+local function is_owner_or_descendant(target, owner)
+	local current = target
+
+	while current and current:IsValid() do
+		if current == owner then return true end
+
+		current = current:GetParent()
+	end
+
+	return false
 end
 
 local function get_active_hovered_entity(entity, mouse_pos)
@@ -266,6 +301,36 @@ function META:IsHoveredExclusively(mouse_pos)
 	end
 
 	return mouse_input.last_hovered == self.Owner
+end
+
+function META:IsExclusiveHit(mouse_pos, hit_test)
+	if not Panel.World then return false end
+
+	return get_hovered_entity_with_hit_test(Panel.World, mouse_pos, hit_test) == self.Owner
+end
+
+function META:IsExclusiveHitOrDescendant(mouse_pos, hit_test)
+	if not Panel.World then return false end
+
+	local hovered = get_hovered_entity_with_hit_test(Panel.World, mouse_pos, hit_test)
+	return is_owner_or_descendant(hovered, self.Owner)
+end
+
+function META:SetCursorOverride(cursor)
+	mouse_input.cursor_override = cursor
+	mouse_input.cursor_override_owner = self.Owner
+	local window = system.GetWindow()
+
+	if window and window.GetCursor and window.SetCursor and window:GetCursor() ~= cursor then
+		window:SetCursor(cursor)
+	end
+end
+
+function META:ClearCursorOverride()
+	if mouse_input.cursor_override_owner == self.Owner then
+		mouse_input.cursor_override = nil
+		mouse_input.cursor_override_owner = NULL
+	end
 end
 
 function META:OnFirstCreated()
@@ -417,12 +482,26 @@ function META:OnFirstCreated()
 		local cursor = "arrow"
 		local global_handled_move = false
 
-		do
-			local res, cmp = call_global_event(Panel.World, "OnGlobalMouseMove", pos)
+		if
+			mouse_input.cursor_override_owner and
+			mouse_input.cursor_override_owner:IsValid() and
+			mouse_input.cursor_override
+		then
+			cursor = mouse_input.cursor_override
+			global_handled_move = true
+		else
+			mouse_input.cursor_override = nil
+			mouse_input.cursor_override_owner = NULL
+		end
 
-			if res then
-				cursor = cmp:GetCursor()
-				global_handled_move = true
+		if not global_handled_move then
+			do
+				local res, cmp = call_global_event(Panel.World, "OnGlobalMouseMove", pos)
+
+				if res then
+					cursor = cmp:GetCursor()
+					global_handled_move = true
+				end
 			end
 		end
 
