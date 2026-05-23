@@ -1,7 +1,6 @@
 local assets = library()
 local vfs = import("goluwa/vfs.lua")
 local Texture = import("goluwa/render/texture.lua")
-local model_loader = import("goluwa/render3d/model_loader.lua")
 assets.categories = assets.categories or {}
 assets.cache = assets.cache or {}
 assets.virtual_assets = assets.virtual_assets or {}
@@ -617,7 +616,7 @@ assets.RegisterCategory(
 				return entry
 			end
 
-			model_loader.LoadModel(
+			import("goluwa/render3d/model_loader.lua").LoadModel(
 				path,
 				function(data)
 					entry.value = data
