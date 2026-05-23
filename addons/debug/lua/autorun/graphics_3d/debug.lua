@@ -187,13 +187,12 @@ end)
 
 -- Debug: Show debug info
 local show_debug_info = false
-local font = fonts.New{Name = "Roboto", Weight = "Regular", Size = 20}
-fonts.SetFont(font)
 
 -- Debug: Freeze frustum for culling
 function events.Draw2D.debug_info(dt)
 	if not show_debug_info then return end
 
+	fonts.SetFont(fonts.GetDefaultFont())
 	local y = 50
 	local x = 10
 	render2d.SetTexture(nil)
