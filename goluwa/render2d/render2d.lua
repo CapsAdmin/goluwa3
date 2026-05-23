@@ -2090,6 +2090,7 @@ do
 		local clip_stack = {}
 		local clip_axis_alignment_epsilon = 0.001
 		local clip_projection_matrix = Matrix44()
+		local use_scissor_clip_rect_fast_path = not OSX
 
 		local function clip_point_to_screen(clip_matrix, screen_w, screen_h, px, py)
 			local clip_x, clip_y = clip_matrix:TransformVectorUnpacked(px, py, 0)
@@ -2195,7 +2196,7 @@ do
 		function render2d.PushClipRect(x, y, w, h)
 			local axis_aligned, scissor_x, scissor_y, scissor_w, scissor_h = project_clip_rect_to_screen(render2d.GetWorldMatrix(), x, y, w, h)
 
-			if axis_aligned then
+			if use_scissor_clip_rect_fast_path and axis_aligned then
 				render2d.PushScissor(scissor_x, scissor_y, scissor_w, scissor_h)
 				table.insert(clip_stack, {kind = "scissor"})
 				return

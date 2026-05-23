@@ -1392,3 +1392,49 @@ T.Test2D("Graphics render2d PushClipShape clips custom masks", function()
 		}
 	end
 end)
+
+T.Test2DFrames(
+	"Graphics render2d stacked PushClipRect stays stable across frames",
+	4,
+	function(width, height, frame)
+		render2d.SetColor(0, 0, 0, 1)
+		render2d.DrawRect(0, 0, width, height)
+
+		for i = 0, 7 do
+			local y = 40 + i * 48
+			local r = 0.15 + i * 0.08
+			local g = 0.35 + i * 0.04
+			local b = 0.75 - i * 0.06
+			render2d.PushClipRect(40, y, 240, 32)
+			render2d.SetColor(r, g, b, 1)
+			render2d.DrawRect(24, y - 8, 272, 48)
+			render2d.SetColor(1, 1, 1, 1)
+			render2d.DrawRect(56, y + 10, 96, 8)
+			render2d.PopClip()
+		end
+	end,
+	function(width, height, frame)
+		if frame ~= 4 then return end
+
+		T.AssertScreenPixel{
+			pos = {120, 54},
+			color = {1, 1, 1, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {120, 390},
+			color = {1, 1, 1, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {120, 34},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
+		}
+		T.AssertScreenPixel{
+			pos = {120, 422},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
+		}
+	end
+)

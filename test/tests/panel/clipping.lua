@@ -123,3 +123,62 @@ T.Test2D("panel scroll viewport masking uses semantic clip api", function(width,
 		if not ok then error(err, 0) end
 	end
 end)
+
+T.Test2D("panel nested clipped descendants update after scroll changes", function(width, height)
+	local old_world, world = create_test_world()
+	local viewport = Panel.New{
+		Parent = world,
+		transform = true,
+		gui_element = {
+			Clipping = true,
+		},
+	}
+	viewport.transform:SetPosition(Vec2(160, 140))
+	viewport.transform:SetSize(Vec2(90, 70))
+	viewport.transform:SetScrollEnabled(true)
+	local row = Panel.New{
+		Parent = viewport,
+		transform = true,
+		gui_element = true,
+	}
+	row.transform:SetPosition(Vec2(0, 50))
+	row.transform:SetSize(Vec2(90, 50))
+	local inner = Panel.New{
+		Parent = row,
+		transform = true,
+		gui_element = true,
+	}
+	inner.transform:SetPosition(Vec2(0, 18))
+	inner.transform:SetSize(Vec2(90, 28))
+	inner.transform:GetWorldMatrix()
+	viewport.transform:SetScroll(Vec2(0, 40))
+
+	function inner:OnDraw()
+		render2d.SetColor(1, 0.4, 0.1, 1)
+		render2d.DrawRect(0, 0, self.transform.Size.x, self.transform.Size.y)
+	end
+
+	render2d.SetColor(0, 0, 0, 1)
+	render2d.DrawRect(0, 0, width, height)
+	world.gui_element:DrawRecursive()
+	return function()
+		local ok, err = xpcall(
+			function()
+				T.AssertScreenPixel{
+					pos = {170, 170},
+					color = {1, 0.4, 0.1, 1},
+					tolerance = 0.1,
+				}
+				T.AssertScreenPixel{
+					pos = {170, 212},
+					color = {0, 0, 0, 1},
+					tolerance = 0.1,
+				}
+			end,
+			debug.traceback
+		)
+		cleanup_test_world(old_world, world)
+
+		if not ok then error(err, 0) end
+	end
+end)
