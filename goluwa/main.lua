@@ -29,7 +29,6 @@ local function init_game()
 	import("goluwa/filewatcher.lua").Start()
 
 	if _G.GRAPHICS then
-		_G.GRAPHICS_3D = true
 		local render = import("goluwa/render/render.lua")
 
 		if not render.available then
@@ -143,16 +142,26 @@ commands.Add("lua", function(code, ...)
 	assert(loadstring(code))(...)
 end)
 
-commands.Add("game", function()
+commands.Add("game=string[3d]", function(mode)
 	_G.GRAPHICS = true
+
+	if mode == "3d" then
+		_G.GRAPHICS_3D = true
+		_G.PHYSICS = true
+	elseif mode == "2d" then
+		_G.GRAPHICS_3D = false
+		_G.PHYSICS = false
+	end
+
 	_G.AUDIO = true
-	_G.PHYSICS = true
 	init_game()
 end)
 
 commands.Add("cli", function()
 	_G.GRAPHICS = false
 	_G.AUDIO = true
+	_G.GRAPHICS_3D = false
+	_G.PHYSICS = false
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
 
 	event.AddListener("FrameEnd", function()
