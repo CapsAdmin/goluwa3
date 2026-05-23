@@ -135,27 +135,8 @@ local function create_preview_pipeline()
 				{
 					name = "preview_data",
 					block = {
-						{
-							"LightDirectionStrength",
-							"vec4",
-							function(self, block, key)
-								local direction = active_preview:GetLightDirection()
-								block[key][0] = direction.x
-								block[key][1] = direction.y
-								block[key][2] = direction.z
-								block[key][3] = active_preview:GetLightStrength()
-							end,
-						},
-						{
-							"LightingParams",
-							"vec4",
-							function(self, block, key)
-								block[key][0] = active_preview:GetAmbientStrength()
-								block[key][1] = 0
-								block[key][2] = 0
-								block[key][3] = 0
-							end,
-						},
+						{"LightDirectionStrength", "vec4"},
+						{"LightingParams", "vec4"},
 					},
 					write = write_preview_data,
 				},

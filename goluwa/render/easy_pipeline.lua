@@ -186,10 +186,11 @@ function EasyPipeline.BuildFFIType(layout, struct_name, fields)
 
 	local function get_field_info(field)
 		local glsl_type = field[2]
+		local array_size = type(field[3]) == "number" and field[3] or nil
 		return {
 			name = field[1],
 			glsl_type = glsl_type,
-			array_size = type(field[4]) == "number" and field[4] or nil,
+			array_size = array_size,
 			is_struct = type(glsl_type) == "table",
 		}
 	end
@@ -473,6 +474,20 @@ local function clone_constant_block(block)
 	end
 
 	return copy
+end
+
+local function hoist_inline_block_metadata(block)
+	local inline_block = block.block
+
+	if type(inline_block) ~= "table" then return end
+
+	if block.write == nil and inline_block.write ~= nil then
+		block.write = inline_block.write
+	end
+
+	if block.source == nil and inline_block.source ~= nil then
+		block.source = inline_block.source
+	end
 end
 
 local function normalize_block_source(block, size, alignment, kind)
@@ -912,13 +927,11 @@ function EasyPipeline.New(config)
 	local function get_field_info(field)
 		local name = field[1]
 		local glsl_type = field[2]
-		local callback = field[3]
-		local array_size = type(field[4]) == "number" and field[4] or nil
+		local array_size = type(field[3]) == "number" and field[3] or nil
 		local is_struct = type(glsl_type) == "table"
 		return {
 			name = name,
 			glsl_type = glsl_type,
-			callback = type(callback) == "function" and callback or nil,
 			array_size = array_size,
 			is_struct = is_struct,
 		}
@@ -1384,6 +1397,7 @@ function EasyPipeline.New(config)
 				end
 
 				if not push_constant_blocks[block.name] then
+					hoist_inline_block_metadata(block)
 					block.block = flatten_fields(block.block)
 					push_constant_blocks[block.name] = block
 					table.insert(push_constant_block_order, block.name)
@@ -1467,6 +1481,7 @@ function EasyPipeline.New(config)
 					end
 				end
 
+				hoist_inline_block_metadata(block)
 				block.block = flatten_fields(block.block)
 
 				if not block.block[1] then
@@ -1627,21 +1642,6 @@ function EasyPipeline.New(config)
 	end
 
 	do
-		local function append_callback_lines(lines, block_expr, fields, target_expr)
-			for i, field in ipairs(fields) do
-				if type(field[3]) == "function" then
-					lines[#lines + 1] = string.format("do")
-					lines[#lines + 1] = string.format("    local field = %s[%d]", block_expr, i)
-					lines[#lines + 1] = "    local callback = field[3]"
-					lines[#lines + 1] = "    if callback then"
-					lines[#lines + 1] = string.format("        local result = callback(self, %s, %q)", target_expr, field[1])
-					lines[#lines + 1] = "        if type(result) == \"function\" then field[3] = result end"
-					lines[#lines + 1] = "    end"
-					lines[#lines + 1] = "end"
-				end
-			end
-		end
-
 		local upload_lines = {
 			"return function(self, cmd, render, ffi, active_stages, push_constant_blocks, push_constant_block_offsets, constant_structs, uniform_buffer_order, uniform_buffer_types)",
 		}
@@ -1658,8 +1658,6 @@ function EasyPipeline.New(config)
 			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = "    if block.write then"
 			upload_lines[#upload_lines + 1] = "        block.write(self, constants, block)"
-			upload_lines[#upload_lines + 1] = "    else"
-			append_callback_lines(upload_lines, "block.block", push_constant_blocks[name].block, "constants")
 			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = string.format(
 				"    self.pipeline:PushConstants(cmd, active_stages, push_constant_block_offsets[%q], constants)",
@@ -1682,13 +1680,6 @@ function EasyPipeline.New(config)
 			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = "    if info.block.write then"
 			upload_lines[#upload_lines + 1] = "        info.block.write(self, ubo_data, info.block)"
-			upload_lines[#upload_lines + 1] = "    else"
-			append_callback_lines(
-				upload_lines,
-				string.format("info.block.block"),
-				uniform_buffer_types[name].block.block,
-				"ubo_data"
-			)
 			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = string.format("    offsets[%d] = info.ubo:Upload(frame_index)", i)
 			upload_lines[#upload_lines + 1] = "end"
@@ -2517,13 +2508,7 @@ function EasyPipeline:BuildConstantBlockData(name)
 		ffi.copy(data, ffi.cast("uint8_t *", source_data) + block.source.offset, ffi.sizeof(data))
 	end
 
-	if block.write then
-		block.write(self, data, block)
-	else
-		for _, field in ipairs(block.block) do
-			if type(field[3]) == "function" then field[3](self, data, field[1]) end
-		end
-	end
+	if block.write then block.write(self, data, block) end
 
 	return data
 end
@@ -2638,6 +2623,14 @@ end
 
 function EasyPipeline.FragmentOnly(config)
 	assert_no_legacy_top_level_fields(config, 2)
+	local write = config.write
+	local source = config.source
+
+	if type(config.block) == "table" then
+		write = write or config.block.write
+		source = source or config.block.source
+	end
+
 	return EasyPipeline.New{
 		ColorFormat = config.ColorFormat,
 		RasterizationSamples = "1",
@@ -2654,10 +2647,14 @@ function EasyPipeline.FragmentOnly(config)
 			]],
 		},
 		fragment = {
-			push_constants = {{
-				name = "fragment",
-				block = config.block,
-			}},
+			push_constants = {
+				{
+					name = "fragment",
+					block = config.block,
+					write = write,
+					source = source,
+				},
+			},
 			shader = config.shader,
 		},
 	}

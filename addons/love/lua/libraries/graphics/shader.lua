@@ -340,17 +340,59 @@ local function get_shader_screen_size()
 	return size.x or 0, size.y or 0
 end
 
+local function get_shader_uniform_default_value(uniforms, name)
+	for _, info in ipairs(uniforms) do
+		if info.name == name then return clone_uniform_value(info.default) end
+	end
+
+	return nil
+end
+
+local function get_shader_uniform_value(obj, uniforms, name)
+	local value = obj.uniforms and obj.uniforms[name]
+
+	if value ~= nil then return value end
+
+	return get_shader_uniform_default_value(uniforms, name)
+end
+
+local function write_shader_uniform_block(obj, uniforms, self, data)
+	local w, h = get_shader_screen_size()
+	data.love_ScreenSize[0] = w
+	data.love_ScreenSize[1] = h
+
+	for _, uniform_info in ipairs(uniforms) do
+		local key = uniform_info.name
+		local value = get_shader_uniform_value(obj, uniforms, key)
+
+		if uniform_info.kind == "Image" or uniform_info.kind == "VolumeImage" then
+			local texture = value and (ENV.textures[value] or value)
+			data[key] = texture and self:GetTextureIndex(texture) or -1
+		elseif uniform_info.kind == "boolean" or uniform_info.kind == "bool" then
+			data[key] = value and 1 or 0
+		elseif type(value) == "table" then
+			for i = 1, #value do
+				data[key][i - 1] = value[i] or 0
+			end
+		else
+			data[key] = value or 0
+		end
+
+		if uniform_info.kind == "VolumeImage" then
+			local width, height, depth = get_volume_uniform_info(value)
+			data[key .. "_volume_info"][0] = width
+			data[key .. "_volume_info"][1] = height
+			data[key .. "_volume_info"][2] = depth
+			data[key .. "_volume_info"][3] = 0
+		end
+	end
+
+	return data
+end
+
 local function build_shader_uniform_block(obj, uniforms)
 	local block = {
-		{
-			"love_ScreenSize",
-			"vec2",
-			function(_, data, key)
-				local w, h = get_shader_screen_size()
-				data[key][0] = w
-				data[key][1] = h
-			end,
-		},
+		{"love_ScreenSize", "vec2"},
 	}
 
 	for _, uniform in ipairs(uniforms) do
@@ -365,61 +407,16 @@ local function build_shader_uniform_block(obj, uniforms)
 
 		if glsl_type == "boolean" then glsl_type = "int" end
 
-		block[#block + 1] = {
-			uniform_info.name,
-			glsl_type,
-			function(self, data, key)
-				local value = obj.uniforms and obj.uniforms[key]
-
-				if value == nil then
-					for _, info in ipairs(uniforms) do
-						if info.name == key then
-							value = clone_uniform_value(info.default)
-
-							break
-						end
-					end
-				end
-
-				if uniform_info.kind == "Image" or uniform_info.kind == "VolumeImage" then
-					local texture = value and (ENV.textures[value] or value)
-					data[key] = texture and self:GetTextureIndex(texture) or -1
-					return
-				end
-
-				if uniform_info.kind == "boolean" or uniform_info.kind == "bool" then
-					data[key] = value and 1 or 0
-					return
-				end
-
-				if type(value) == "table" then
-					for i = 1, #value do
-						data[key][i - 1] = value[i] or 0
-					end
-
-					return
-				end
-
-				data[key] = value or 0
-			end,
-		}
+		block[#block + 1] = {uniform_info.name, glsl_type}
 
 		if uniform_info.kind == "VolumeImage" then
-			block[#block + 1] = {
-				uniform_info.name .. "_volume_info",
-				"ivec4",
-				function(_, data, key)
-					local value = obj.uniforms and obj.uniforms[uniform_info.name]
-					local width, height, depth = get_volume_uniform_info(value)
-					data[key][0] = width
-					data[key][1] = height
-					data[key][2] = depth
-					data[key][3] = 0
-				end,
-			}
+			block[#block + 1] = {uniform_info.name .. "_volume_info", "ivec4"}
 		end
 	end
 
+	block.write = function(self, data)
+		return write_shader_uniform_block(obj, uniforms, self, data)
+	end
 	return block
 end
 
@@ -437,6 +434,33 @@ end
 
 local function copy_love_shader_world_matrix(ptr)
 	copy_love_shader_matrix(ptr, render2d.GetWorldMatrix())
+end
+
+local function write_love_shader_vertex_uniforms(_, data)
+	copy_love_shader_projection_matrix(data.projection_view_world)
+	copy_love_shader_world_matrix(data.world_matrix)
+	local compare_mode = render2d.GetDepthMode()
+	data.apply_love_depth = compare_mode ~= "none" and 1 or 0
+	return data
+end
+
+local function write_love_shader_fragment_uniforms(self, data)
+	local r, g, b, a = render2d.GetColor()
+	data.global_color[0] = r or 1
+	data.global_color[1] = g or 1
+	data.global_color[2] = b or 1
+	data.global_color[3] = a or 1
+	data.alpha_multiplier = render2d.GetAlphaMultiplier()
+	local texture = render2d.GetTexture()
+	data.texture_index = texture and self:GetTextureIndex(texture) or -1
+	local compare_mode = render2d.GetDepthMode()
+	data.discard_zero_alpha = compare_mode ~= "none" and 1 or 0
+	local x, y, w, h = render2d.GetUVTransform()
+	data.uv_offset[0] = x or 0
+	data.uv_offset[1] = y or 0
+	data.uv_scale[0] = w or 1
+	data.uv_scale[1] = h or 1
+	return data
 end
 
 local function load_shader_source_if_path(source)
@@ -551,28 +575,10 @@ local function build_fragment_pipeline(obj, source)
 			uniform_buffers = {
 				{
 					block = {
-						{
-							"projection_view_world",
-							"mat4",
-							function(self, data, key)
-								copy_love_shader_projection_matrix(data[key])
-							end,
-						},
-						{
-							"world_matrix",
-							"mat4",
-							function(self, data, key)
-								copy_love_shader_world_matrix(data[key])
-							end,
-						},
-						{
-							"apply_love_depth",
-							"int",
-							function(_, data, key)
-								local compare_mode = render2d.GetDepthMode()
-								data[key] = compare_mode ~= "none" and 1 or 0
-							end,
-						},
+						{"projection_view_world", "mat4"},
+						{"world_matrix", "mat4"},
+						{"apply_love_depth", "int"},
+						write = write_love_shader_vertex_uniforms,
 					},
 				},
 			},
@@ -597,58 +603,13 @@ local function build_fragment_pipeline(obj, source)
 			uniform_buffers = {
 				{
 					block = {
-						{
-							"global_color",
-							"vec4",
-							function(_, data, key)
-								local r, g, b, a = render2d.GetColor()
-								data[key][0] = r or 1
-								data[key][1] = g or 1
-								data[key][2] = b or 1
-								data[key][3] = a or 1
-							end,
-						},
-						{
-							"alpha_multiplier",
-							"float",
-							function(_, data, key)
-								data[key] = render2d.GetAlphaMultiplier()
-							end,
-						},
-						{
-							"texture_index",
-							"int",
-							function(self, data, key)
-								local texture = render2d.GetTexture()
-								data[key] = texture and self:GetTextureIndex(texture) or -1
-							end,
-						},
-						{
-							"discard_zero_alpha",
-							"int",
-							function(_, data, key)
-								local compare_mode = render2d.GetDepthMode()
-								data[key] = compare_mode ~= "none" and 1 or 0
-							end,
-						},
-						{
-							"uv_offset",
-							"vec2",
-							function(_, data, key)
-								local x, y = render2d.GetUVTransform()
-								data[key][0] = x or 0
-								data[key][1] = y or 0
-							end,
-						},
-						{
-							"uv_scale",
-							"vec2",
-							function(_, data, key)
-								local _, _, w, h = render2d.GetUVTransform()
-								data[key][0] = w or 1
-								data[key][1] = h or 1
-							end,
-						},
+						{"global_color", "vec4"},
+						{"alpha_multiplier", "float"},
+						{"texture_index", "int"},
+						{"discard_zero_alpha", "int"},
+						{"uv_offset", "vec2"},
+						{"uv_scale", "vec2"},
+						write = write_love_shader_fragment_uniforms,
 					},
 				},
 				{
@@ -790,28 +751,10 @@ local function build_vertex_fragment_pipeline(obj, source)
 			uniform_buffers = {
 				{
 					block = {
-						{
-							"projection_view_world",
-							"mat4",
-							function(self, data, key)
-								copy_love_shader_projection_matrix(data[key])
-							end,
-						},
-						{
-							"world_matrix",
-							"mat4",
-							function(self, data, key)
-								copy_love_shader_world_matrix(data[key])
-							end,
-						},
-						{
-							"apply_love_depth",
-							"int",
-							function(_, data, key)
-								local compare_mode = render2d.GetDepthMode()
-								data[key] = compare_mode ~= "none" and 1 or 0
-							end,
-						},
+						{"projection_view_world", "mat4"},
+						{"world_matrix", "mat4"},
+						{"apply_love_depth", "int"},
+						write = write_love_shader_vertex_uniforms,
 					},
 				},
 				{
@@ -841,58 +784,13 @@ local function build_vertex_fragment_pipeline(obj, source)
 			uniform_buffers = {
 				{
 					block = {
-						{
-							"global_color",
-							"vec4",
-							function(_, data, key)
-								local r, g, b, a = render2d.GetColor()
-								data[key][0] = r or 1
-								data[key][1] = g or 1
-								data[key][2] = b or 1
-								data[key][3] = a or 1
-							end,
-						},
-						{
-							"alpha_multiplier",
-							"float",
-							function(_, data, key)
-								data[key] = render2d.GetAlphaMultiplier()
-							end,
-						},
-						{
-							"texture_index",
-							"int",
-							function(self, data, key)
-								local texture = render2d.GetTexture()
-								data[key] = texture and self:GetTextureIndex(texture) or -1
-							end,
-						},
-						{
-							"discard_zero_alpha",
-							"int",
-							function(_, data, key)
-								local compare_mode = render2d.GetDepthMode()
-								data[key] = compare_mode ~= "none" and 1 or 0
-							end,
-						},
-						{
-							"uv_offset",
-							"vec2",
-							function(_, data, key)
-								local x, y = render2d.GetUVTransform()
-								data[key][0] = x or 0
-								data[key][1] = y or 0
-							end,
-						},
-						{
-							"uv_scale",
-							"vec2",
-							function(_, data, key)
-								local _, _, w, h = render2d.GetUVTransform()
-								data[key][0] = w or 1
-								data[key][1] = h or 1
-							end,
-						},
+						{"global_color", "vec4"},
+						{"alpha_multiplier", "float"},
+						{"texture_index", "int"},
+						{"discard_zero_alpha", "int"},
+						{"uv_offset", "vec2"},
+						{"uv_scale", "vec2"},
+						write = write_love_shader_fragment_uniforms,
 					},
 				},
 				{

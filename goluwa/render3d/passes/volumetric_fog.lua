@@ -247,49 +247,12 @@ end
 local get_raw_scene_source_texture = post_source.WriteRawSceneSourceTexture
 local get_scene_source_texture = post_source.WriteSceneSourceTexture
 
-local function write_atmosphere_transmittance_texture_field(self, block, key)
-	block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-end
-
-local function write_scene_fog_lights_field(self, block, key)
-	scene_lights.WriteLightsBlock(block[key], render3d.GetLights())
-end
-
-local function write_scene_fog_light_count_field(self, block, key)
-	block[key] = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
-end
-
-local function write_scene_fog_scene_shadows_field(self, block, key)
-	scene_lights.WriteShadowBlock(self, block[key], render3d.GetLights())
-end
-
-local function write_fog_shadow_block_field(self, block, key)
-	write_scene_fog_shadow_block(self, block[key], render3d.GetLights())
-end
-
 local function build_scene_light_block_fields()
 	return {
-		{
-			"lights",
-			scene_lights.BuildLightsBlockLayout(),
-			write_scene_fog_lights_field,
-			scene_lights.MAX_LIGHTS,
-		},
-		{
-			"light_count",
-			"int",
-			write_scene_fog_light_count_field,
-		},
-		{
-			"shadows",
-			scene_lights.BuildShadowsBlockLayout(),
-			write_scene_fog_scene_shadows_field,
-		},
-		{
-			"atmosphere_transmittance_texture_index",
-			"int",
-			write_atmosphere_transmittance_texture_field,
-		},
+		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+		{"light_count", "int"},
+		{"shadows", scene_lights.BuildShadowsBlockLayout()},
+		{"atmosphere_transmittance_texture_index", "int"},
 	}
 end
 
@@ -355,11 +318,7 @@ local r = {
 					block = {
 						render3d.camera_block,
 						render3d.gbuffer_block,
-						{
-							"ocean_distance_tex",
-							"int",
-							write_ocean_distance_texture,
-						},
+						{"ocean_distance_tex", "int"},
 						{"time", "float"},
 						{"blue_noise_tex", "int"},
 						{"near_z", "float"},
@@ -739,23 +698,8 @@ local r = {
 					block = {
 						render3d.camera_block,
 						render3d.gbuffer_block,
-						{
-							"source_tex",
-							"int",
-							get_raw_scene_source_texture,
-						},
-						{
-							"ocean_distance_tex",
-							"int",
-							function(self, block, key)
-								if render3d.pipelines.ocean and render3d.pipelines.ocean.framebuffers then
-									local current_idx = system.GetFrameNumber() % 2 + 1
-									block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(2))
-								else
-									block[key] = -1
-								end
-							end,
-						},
+						{"source_tex", "int"},
+						{"ocean_distance_tex", "int"},
 						{"time", "float"},
 						{"blue_noise_tex", "int"},
 						unpack(build_scene_light_block_fields()),
@@ -1251,21 +1195,9 @@ local r = {
 					block = {
 						render3d.camera_block,
 						render3d.gbuffer_block,
-						{
-							"source_tex",
-							"int",
-							get_scene_source_texture,
-						},
-						{
-							"raw_source_tex",
-							"int",
-							get_raw_scene_source_texture,
-						},
-						{
-							"ocean_distance_tex",
-							"int",
-							write_ocean_distance_texture,
-						},
+						{"source_tex", "int"},
+						{"raw_source_tex", "int"},
+						{"ocean_distance_tex", "int"},
 						{"near_z", "float"},
 						{"far_z", "float"},
 						{"slice_count", "int"},

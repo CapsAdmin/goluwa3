@@ -142,23 +142,8 @@ return {
 					binding_index = 3,
 					block = {
 						render3d.common_block,
-						{
-							"blue_noise_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-							end,
-						},
-						{
-							"wave_origin",
-							"vec2",
-							function(self, block, key)
-								local snap = WAVE_NEAR_WORLD_HALF * 2 / WAVE_TEX_SIZE
-								local cam = render3d.camera:GetPosition()
-								block[key][0] = math.floor(cam.x / snap) * snap
-								block[key][1] = math.floor(cam.z / snap) * snap
-							end,
-						},
+						{"blue_noise_tex", "int"},
+						{"wave_origin", "vec2"},
 					},
 					write = write_wave_precompute_near,
 				},
@@ -255,23 +240,8 @@ return {
 					binding_index = 3,
 					block = {
 						render3d.common_block,
-						{
-							"blue_noise_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-							end,
-						},
-						{
-							"wave_origin",
-							"vec2",
-							function(self, block, key)
-								local snap = WAVE_TEX_WORLD_HALF * 2 / WAVE_TEX_SIZE
-								local cam = render3d.camera:GetPosition()
-								block[key][0] = math.floor(cam.x / snap) * snap
-								block[key][1] = math.floor(cam.z / snap) * snap
-							end,
-						},
+						{"blue_noise_tex", "int"},
+						{"wave_origin", "vec2"},
 					},
 					write = write_wave_precompute_far,
 				},
@@ -370,138 +340,20 @@ return {
 					block = {
 						render3d.camera_block,
 						render3d.common_block,
-						{
-							"scene_tex",
-							"int",
-							function(self, block, key)
-								if
-									not render3d.pipelines.lighting or
-									not render3d.pipelines.lighting.framebuffers
-								then
-									block[key] = -1
-									return
-								end
-
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"depth_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-							end,
-						},
-						{
-							"env_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-							end,
-						},
-						{
-							"ssr_tex",
-							"int",
-							function(self, block, key)
-								if
-									not render3d.pipelines.ssr_resolve or
-									not render3d.pipelines.ssr_resolve.framebuffers
-								then
-									block[key] = -1
-									return
-								end
-
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"atmosphere_transmittance_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-							end,
-						},
-						{
-							"sun_direction",
-							"vec3",
-							function(self, block, key)
-								get_primary_sun_direction():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"primary_sun_intensity",
-							"float",
-							function(self, block, key)
-								block[key] = get_primary_sun_intensity()
-							end,
-						},
-						{
-							"primary_sun_color",
-							"vec3",
-							function(self, block, key)
-								get_primary_sun_color():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"ocean_enabled",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.IsOceanEnabled() and 1 or 0
-							end,
-						},
-						{
-							"ocean_level",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetOceanLevel()
-							end,
-						},
-						{
-							"wave_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.ocean_waves then
-									block[key] = -1
-									return
-								end
-
-								block[key] = self:GetTextureIndex(render3d.pipelines.ocean_waves:GetFramebuffer():GetAttachment(1))
-							end,
-						},
-						{
-							"wave_origin",
-							"vec2",
-							function(self, block, key)
-								local snap = WAVE_TEX_WORLD_HALF * 2 / WAVE_TEX_SIZE
-								local cam = render3d.camera:GetPosition()
-								block[key][0] = math.floor(cam.x / snap) * snap
-								block[key][1] = math.floor(cam.z / snap) * snap
-							end,
-						},
-						{
-							"wave_near_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.ocean_waves_near then
-									block[key] = -1
-									return
-								end
-
-								block[key] = self:GetTextureIndex(render3d.pipelines.ocean_waves_near:GetFramebuffer():GetAttachment(1))
-							end,
-						},
-						{
-							"wave_near_origin",
-							"vec2",
-							function(self, block, key)
-								local snap = WAVE_NEAR_WORLD_HALF * 2 / WAVE_TEX_SIZE
-								local cam = render3d.camera:GetPosition()
-								block[key][0] = math.floor(cam.x / snap) * snap
-								block[key][1] = math.floor(cam.z / snap) * snap
-							end,
-						},
+						{"scene_tex", "int"},
+						{"depth_tex", "int"},
+						{"env_tex", "int"},
+						{"ssr_tex", "int"},
+						{"atmosphere_transmittance_texture_index", "int"},
+						{"sun_direction", "vec3"},
+						{"primary_sun_intensity", "float"},
+						{"primary_sun_color", "vec3"},
+						{"ocean_enabled", "int"},
+						{"ocean_level", "float"},
+						{"wave_tex", "int"},
+						{"wave_origin", "vec2"},
+						{"wave_near_tex", "int"},
+						{"wave_near_origin", "vec2"},
 					},
 					write = write_ocean_data,
 				},
@@ -994,74 +846,11 @@ return {
 					binding_index = 3,
 					block = {
 						render3d.camera_block,
-						{
-							"current_ocean_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.ocean or not render3d.pipelines.ocean.framebuffers then
-									block[key] = -1
-									return
-								end
-
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"history_ocean_tex",
-							"int",
-							function(self, block, key)
-								if
-									not render3d.pipelines.ocean_resolve or
-									not render3d.pipelines.ocean_resolve.framebuffers
-								then
-									block[key] = -1
-									return
-								end
-
-								local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.ocean_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"current_ocean_distance_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.ocean or not render3d.pipelines.ocean.framebuffers then
-									block[key] = -1
-									return
-								end
-
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(2))
-							end,
-						},
-						{
-							"prev_view",
-							"mat4",
-							function(self, block, key)
-								local mat = render3d.prev_view_matrix
-
-								if mat then
-									mat:CopyToFloatPointer(block[key])
-								else
-									render3d.camera:BuildViewMatrix():CopyToFloatPointer(block[key])
-								end
-							end,
-						},
-						{
-							"prev_projection",
-							"mat4",
-							function(self, block, key)
-								local mat = render3d.prev_projection_matrix
-
-								if mat then
-									mat:CopyToFloatPointer(block[key])
-								else
-									render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
-								end
-							end,
-						},
+						{"current_ocean_tex", "int"},
+						{"history_ocean_tex", "int"},
+						{"current_ocean_distance_tex", "int"},
+						{"prev_view", "mat4"},
+						{"prev_projection", "mat4"},
 					},
 					write = write_ocean_resolve_data,
 				},

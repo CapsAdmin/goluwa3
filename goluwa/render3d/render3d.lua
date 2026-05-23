@@ -205,48 +205,12 @@ end
 
 do
 	render3d.debug_block = {
-		{
-			"debug_cascade_colors",
-			"int",
-			function(self, block, key)
-				block[key] = render3d.debug_cascade_colors and 1 or 0
-			end,
-		},
-		{
-			"debug_mode",
-			"int",
-			function(self, block, key)
-				block[key] = render3d.debug_mode or 1
-			end,
-		},
-		{
-			"gbuffer_normal_debug_view",
-			"int",
-			function(self, block, key)
-				block[key] = render3d.gbuffer_normal_debug_view or 0
-			end,
-		},
-		{
-			"near_z",
-			"float",
-			function(self, block, key)
-				block[key] = render3d.camera:GetNearZ()
-			end,
-		},
-		{
-			"far_z",
-			"float",
-			function(self, block, key)
-				block[key] = render3d.camera:GetFarZ()
-			end,
-		},
-		{
-			"debug_camera_position",
-			"vec3",
-			function(self, block, key)
-				render3d.camera:GetPosition():CopyToFloatPointer(block[key])
-			end,
-		},
+		{"debug_cascade_colors", "int"},
+		{"debug_mode", "int"},
+		{"gbuffer_normal_debug_view", "int"},
+		{"near_z", "float"},
+		{"far_z", "float"},
+		{"debug_camera_position", "vec3"},
 	}
 	local debug_modes = {
 		"none",
@@ -346,50 +310,12 @@ function render3d.WriteDebugBlock(self, block)
 end
 
 render3d.camera_block = {
-	{
-		"inv_view",
-		"mat4",
-		function(self, block, key)
-			render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block[key])
-		end,
-	},
-	{
-		"inv_projection",
-		"mat4",
-		function(self, block, key)
-			render3d.camera:BuildProjectionMatrix():GetInverse():CopyToFloatPointer(block[key])
-		end,
-	},
-	{
-		"view",
-		"mat4",
-		function(self, block, key)
-			render3d.camera:BuildViewMatrix():CopyToFloatPointer(block[key])
-		end,
-	},
-	{
-		"projection",
-		"mat4",
-		function(self, block, key)
-			render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
-		end,
-	},
-	{
-		"render_size",
-		"vec2",
-		function(self, block, key)
-			local size = render.GetRenderImageSize()
-			block[key][0] = size and size.x or 1
-			block[key][1] = size and size.y or 1
-		end,
-	},
-	{
-		"camera_position",
-		"vec3",
-		function(self, block, key)
-			render3d.camera:GetPosition():CopyToFloatPointer(block[key])
-		end,
-	},
+	{"inv_view", "mat4"},
+	{"inv_projection", "mat4"},
+	{"view", "mat4"},
+	{"projection", "mat4"},
+	{"render_size", "vec2"},
+	{"camera_position", "vec3"},
 }
 
 function render3d.WriteCameraBlock(self, block)
@@ -413,13 +339,7 @@ function render3d.WriteCameraDebugBlock(self, block)
 end
 
 render3d.common_block = {
-	{
-		"time",
-		"float",
-		function(self, block, key)
-			block[key] = system.GetElapsedTime()
-		end,
-	},
+	{"time", "float"},
 }
 
 function render3d.WriteCommonBlock(self, block)
@@ -428,41 +348,11 @@ function render3d.WriteCommonBlock(self, block)
 end
 
 render3d.gbuffer_block = {
-	{
-		"albedo_tex",
-		"int",
-		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1))
-		end,
-	},
-	{
-		"normal_tex",
-		"int",
-		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
-		end,
-	},
-	{
-		"mra_tex",
-		"int",
-		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
-		end,
-	},
-	{
-		"emissive_tex",
-		"int",
-		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(4))
-		end,
-	},
-	{
-		"depth_tex",
-		"int",
-		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-		end,
-	},
+	{"albedo_tex", "int"},
+	{"normal_tex", "int"},
+	{"mra_tex", "int"},
+	{"emissive_tex", "int"},
+	{"depth_tex", "int"},
 }
 
 function render3d.WriteGBufferBlock(self, block)
@@ -476,19 +366,7 @@ function render3d.WriteGBufferBlock(self, block)
 end
 
 render3d.last_frame_block = {
-	{
-		"last_frame_tex",
-		"int",
-		function(self, block, key)
-			if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
-				block[key] = -1
-				return
-			end
-
-			local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-			block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(prev_idx):GetAttachment(1))
-		end,
-	},
+	{"last_frame_tex", "int"},
 }
 
 function render3d.WriteLastFrameBlock(self, block)

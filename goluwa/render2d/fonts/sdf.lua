@@ -84,6 +84,38 @@ function META:GetAtlasFormat()
 	return render.target:GetColorFormat()
 end
 
+local function write_jfa_init_constants(self, block)
+	block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
+	block.mode = self.current_jfa_mode
+	block.size[0] = self.current_jfa_size.x
+	block.size[1] = self.current_jfa_size.y
+	return block
+end
+
+local function write_jfa_step_constants(self, block)
+	block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
+	block.step_size = self.current_jfa_step
+	block.size[0] = self.current_jfa_size.x
+	block.size[1] = self.current_jfa_size.y
+	return block
+end
+
+local function write_jfa_final_constants(self, block)
+	block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
+	block.size[0] = self.current_jfa_size.x
+	block.size[1] = self.current_jfa_size.y
+	block.max_dist = self.current_jfa_max_dist
+	return block
+end
+
+local function write_jfa_combine_constants(self, block)
+	block.dist_on_idx = self:GetTextureIndex(self.current_jfa_dist_on)
+	block.dist_off_idx = self:GetTextureIndex(self.current_jfa_dist_off)
+	block.mask_idx = self:GetTextureIndex(self.current_jfa_mask_tex)
+	block.max_dist = self.current_jfa_max_dist
+	return block
+end
+
 function META:GetJFAPipelines()
 	if self.jfa_pipelines then return self.jfa_pipelines end
 
@@ -91,29 +123,11 @@ function META:GetJFAPipelines()
 		init = EasyPipeline.FragmentOnly{
 			ColorFormat = {{"r32g32_sfloat", {"rg", "rg"}}},
 			block = {
-				{
-					"tex_idx",
-					"int",
-					function(p, b, k)
-						b[k] = p:GetTextureIndex(p.current_jfa_tex)
-					end,
-				},
-				{
-					"mode",
-					"int",
-					function(p, b, k)
-						b[k] = p.current_jfa_mode
-					end,
-				},
-				{
-					"size",
-					"vec2",
-					function(p, b, k)
-						b[k][0] = p.current_jfa_size.x
-						b[k][1] = p.current_jfa_size.y
-					end,
-				},
+				{"tex_idx", "int"},
+				{"mode", "int"},
+				{"size", "vec2"},
 			},
+			write = write_jfa_init_constants,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
@@ -131,29 +145,11 @@ function META:GetJFAPipelines()
 		step = EasyPipeline.FragmentOnly{
 			ColorFormat = {{"r32g32_sfloat", {"rg", "rg"}}},
 			block = {
-				{
-					"tex_idx",
-					"int",
-					function(p, b, k)
-						b[k] = p:GetTextureIndex(p.current_jfa_tex)
-					end,
-				},
-				{
-					"step_size",
-					"float",
-					function(p, b, k)
-						b[k] = p.current_jfa_step
-					end,
-				},
-				{
-					"size",
-					"vec2",
-					function(p, b, k)
-						b[k][0] = p.current_jfa_size.x
-						b[k][1] = p.current_jfa_size.y
-					end,
-				},
+				{"tex_idx", "int"},
+				{"step_size", "float"},
+				{"size", "vec2"},
 			},
+			write = write_jfa_step_constants,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
@@ -181,29 +177,11 @@ function META:GetJFAPipelines()
 		final = EasyPipeline.FragmentOnly{
 			ColorFormat = {{"r32_sfloat", {"r", "r"}}},
 			block = {
-				{
-					"tex_idx",
-					"int",
-					function(p, b, k)
-						b[k] = p:GetTextureIndex(p.current_jfa_tex)
-					end,
-				},
-				{
-					"size",
-					"vec2",
-					function(p, b, k)
-						b[k][0] = p.current_jfa_size.x
-						b[k][1] = p.current_jfa_size.y
-					end,
-				},
-				{
-					"max_dist",
-					"float",
-					function(p, b, k)
-						b[k] = p.current_jfa_max_dist
-					end,
-				},
+				{"tex_idx", "int"},
+				{"size", "vec2"},
+				{"max_dist", "float"},
 			},
+			write = write_jfa_final_constants,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
@@ -216,35 +194,12 @@ function META:GetJFAPipelines()
 		combine = EasyPipeline.FragmentOnly{
 			ColorFormat = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
 			block = {
-				{
-					"dist_on_idx",
-					"int",
-					function(p, b, k)
-						b[k] = p:GetTextureIndex(p.current_jfa_dist_on)
-					end,
-				},
-				{
-					"dist_off_idx",
-					"int",
-					function(p, b, k)
-						b[k] = p:GetTextureIndex(p.current_jfa_dist_off)
-					end,
-				},
-				{
-					"mask_idx",
-					"int",
-					function(p, b, k)
-						b[k] = p:GetTextureIndex(p.current_jfa_mask_tex)
-					end,
-				},
-				{
-					"max_dist",
-					"float",
-					function(p, b, k)
-						b[k] = p.current_jfa_max_dist
-					end,
-				},
+				{"dist_on_idx", "int"},
+				{"dist_off_idx", "int"},
+				{"mask_idx", "int"},
+				{"max_dist", "float"},
 			},
+			write = write_jfa_combine_constants,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {

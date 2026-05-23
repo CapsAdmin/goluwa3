@@ -65,45 +65,14 @@ return {
 					binding_index = 3,
 					block = {
 						render3d.camera_block,
-						{
-							"normal_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
-							end,
-						},
-						{
-							"mra_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
-							end,
-						},
-						{
-							"depth_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-							end,
-						},
-						{
-							"blue_noise_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-							end,
-						},
+						{"normal_tex", "int"},
+						{"mra_tex", "int"},
+						{"depth_tex", "int"},
+						{"blue_noise_tex", "int"},
 						render3d.last_frame_block,
 						render3d.common_block,
 						-- NEW: Frame index for temporal noise
-						{
-							"frame_index",
-							"int",
-							function(self, block, key)
-								render3d.ssr_frame_count = (render3d.ssr_frame_count or 0) + 1
-								block[key] = render3d.ssr_frame_count % 256
-							end,
-						},
+						{"frame_index", "int"},
 					},
 					write = write_ssr_data,
 				},
@@ -159,65 +128,65 @@ return {
                 
                 vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1*t1 - t2*t2)) * Vh;
                 return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(0.0, Nh.z)));
-            }
-            
-            // Robust tangent frame construction (Frisvad / revised Pixar method)
-            void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
+			}
+			
+			// Robust tangent frame construction (Frisvad / revised Pixar method)
+			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
 				float a = 1.0 / (1.0 + n.z);
 				float d = -n.x * n.y * a;
 				t = vec3(1.0 - n.x * n.x * a, d, -n.x);
 				b = vec3(d, 1.0 - n.y * n.y * a, -n.y);
-            }
-            
-            vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
-                if (ssr_data.last_frame_tex == -1) return vec4(0.0);
-                if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
-                
-                // Transform to view space
-                vec3 N_vs = normalize(mat3(ssr_data.view) * N);
-                vec3 V_vs = normalize(mat3(ssr_data.view) * V);
-                vec4 pos_vs = ssr_data.view * vec4(world_pos, 1.0);
-                
-                // VNDF importance sampling with robust tangent frame
-                vec3 T, B;
-                buildOrthonormalBasis(N_vs, T, B);
-                
-                vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
-                float alpha = max(0.001, roughness * roughness);
-                vec3 H_local = sampleGGXVNDF(V_local, alpha, xi);
-                vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
-                
-                vec3 R_vs = reflect(-V_vs, H_vs);
-                if (dot(N_vs, R_vs) < 0.0) return vec4(0.0);
-                
-                // Adaptive ray marching with jittered start
-                float jitter = fract(xi.x * 12.9898 + xi.y * 78.233);
-                float step_size = 0.05 + 0.05 * jitter; // Jittered initial step
-                vec3 current_pos = pos_vs.xyz + R_vs * step_size * jitter; // Jittered start position
-                int steps = int(mix(float(SSR_MAX_STEPS), float(SSR_MAX_STEPS/2), roughness));
-                
-                for (int i = 0; i < steps; i++) {
-                    current_pos += R_vs * step_size;
-                    
-                    vec4 proj = ssr_data.projection * vec4(current_pos, 1.0);
-                    proj.xyz /= proj.w;
-                    vec2 uv = proj.xy * 0.5 + 0.5;
-                    
-                    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
-                    
-                    float sampled_depth = texture(TEXTURE(ssr_data.depth_tex), uv).r;
-                    vec4 sampled_clip = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
-                    vec4 sampled_view = ssr_data.inv_projection * sampled_clip;
-                    sampled_view /= sampled_view.w;
-                    
-                    if (current_pos.z < sampled_view.z) {
-                        float depth_diff = abs(current_pos.z - sampled_view.z);
-                        float thickness = 0.5 + step_size * 2.0;
-                        thickness *= 1.0 + length(current_pos) * 0.005;
-                        
-                        if (depth_diff < thickness) {
-                            // Binary search refinement
-                            vec3 start = current_pos - R_vs * step_size;
+			}
+			
+			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
+				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
+				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
+				
+				// Transform to view space
+				vec3 N_vs = normalize(mat3(ssr_data.view) * N);
+				vec3 V_vs = normalize(mat3(ssr_data.view) * V);
+				vec4 pos_vs = ssr_data.view * vec4(world_pos, 1.0);
+				
+				// VNDF importance sampling with robust tangent frame
+				vec3 T, B;
+				buildOrthonormalBasis(N_vs, T, B);
+				
+				vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
+				float alpha = max(0.001, roughness * roughness);
+				vec3 H_local = sampleGGXVNDF(V_local, alpha, xi);
+				vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
+				
+				vec3 R_vs = reflect(-V_vs, H_vs);
+				if (dot(N_vs, R_vs) < 0.0) return vec4(0.0);
+				
+				// Adaptive ray marching with jittered start
+				float jitter = fract(xi.x * 12.9898 + xi.y * 78.233);
+				float step_size = 0.05 + 0.05 * jitter;
+				vec3 current_pos = pos_vs.xyz + R_vs * step_size * jitter;
+				int steps = int(mix(float(SSR_MAX_STEPS), float(SSR_MAX_STEPS/2), roughness));
+				
+				for (int i = 0; i < steps; i++) {
+					current_pos += R_vs * step_size;
+					
+					vec4 proj = ssr_data.projection * vec4(current_pos, 1.0);
+					proj.xyz /= proj.w;
+					vec2 uv = proj.xy * 0.5 + 0.5;
+					
+					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+					
+					float sampled_depth = texture(TEXTURE(ssr_data.depth_tex), uv).r;
+					vec4 sampled_clip = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
+					vec4 sampled_view = ssr_data.inv_projection * sampled_clip;
+					sampled_view /= sampled_view.w;
+					
+					if (current_pos.z < sampled_view.z) {
+						float depth_diff = abs(current_pos.z - sampled_view.z);
+						float thickness = 0.5 + step_size * 2.0;
+						thickness *= 1.0 + length(current_pos) * 0.005;
+						
+						if (depth_diff < thickness) {
+							// Binary search refinement
+							vec3 start = current_pos - R_vs * step_size;
                             vec3 end = current_pos;
                             
                             for (int j = 0; j < SSR_BINARY_STEPS; j++) {
@@ -313,67 +282,11 @@ return {
 					binding_index = 3,
 					block = {
 						render3d.camera_block,
-						{
-							"current_ssr_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.ssr then
-									block[key] = -1
-									return
-								end
-
-								block[key] = self:GetTextureIndex(render3d.pipelines.ssr:GetFramebuffer():GetAttachment(1))
-							end,
-						},
-						{
-							"history_ssr_tex",
-							"int",
-							function(self, block, key)
-								if
-									not render3d.pipelines.ssr_resolve or
-									not render3d.pipelines.ssr_resolve.framebuffers
-								then
-									block[key] = -1
-									return
-								end
-
-								local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.ssr_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"depth_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-							end,
-						},
-						{
-							"prev_inv_view",
-							"mat4",
-							function(self, block, key)
-								local mat = render3d.prev_view_matrix
-
-								if mat then
-									mat:GetInverse():CopyToFloatPointer(block[key])
-								else
-									render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block[key])
-								end
-							end,
-						},
-						{
-							"prev_projection",
-							"mat4",
-							function(self, block, key)
-								local mat = render3d.prev_projection_matrix
-
-								if mat then
-									mat:CopyToFloatPointer(block[key])
-								else
-									render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
-								end
-							end,
-						},
+						{"current_ssr_tex", "int"},
+						{"history_ssr_tex", "int"},
+						{"depth_tex", "int"},
+						{"prev_inv_view", "mat4"},
+						{"prev_projection", "mat4"},
 					},
 					write = write_resolve_data,
 				},

@@ -365,56 +365,12 @@ function lightprobes.CreatePipelines()
 					name = "probe_data",
 					binding_index = 3,
 					block = {
-						{
-							"camera_position",
-							"vec4",
-							function(self, block, key)
-								local p = lightprobes.camera:GetPosition()
-								block[key][0] = p.x
-								block[key][1] = p.y
-								block[key][2] = p.z
-								block[key][3] = 0
-							end,
-						},
-						{
-							"stars_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
-							end,
-						},
-						{
-							"atmosphere_transmittance_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-							end,
-						},
-						{
-							"atmosphere_sky_view_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
-							end,
-						},
-						{
-							"blue_noise_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-							end,
-						},
-						{
-							"sun_direction",
-							"vec4",
-							function(self, block, key)
-								local sun = get_primary_sun(render3d.GetLights())
-
-								if sun then
-									sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
-								end
-							end,
-						},
+						{"camera_position", "vec4"},
+						{"stars_texture_index", "int"},
+						{"atmosphere_transmittance_texture_index", "int"},
+						{"atmosphere_sky_view_texture_index", "int"},
+						{"blue_noise_tex", "int"},
+						{"sun_direction", "vec4"},
 					},
 					write = write_probe_data,
 				},
@@ -461,13 +417,7 @@ function lightprobes.CreatePipelines()
 				{
 					name = "vertex",
 					block = {
-						{
-							"inv_projection_view",
-							"mat4",
-							function(self, block, key)
-								lightprobes.inv_projection_view:CopyToFloatPointer(block[key])
-							end,
-						},
+						{"inv_projection_view", "mat4"},
 					},
 					write = write_sky_vertex_constants,
 				},
@@ -494,59 +444,13 @@ function lightprobes.CreatePipelines()
 				{
 					name = "fragment",
 					block = {
-						{
-							"stars_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
-							end,
-						},
-						{
-							"atmosphere_transmittance_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-							end,
-						},
-						{
-							"atmosphere_sky_view_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
-							end,
-						},
-						{
-							"blue_noise_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-							end,
-						},
-						{
-							"sun_direction",
-							"vec4",
-							function(self, block, key)
-								local sun = get_primary_sun(render3d.GetLights())
-
-								if sun then
-									sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
-								end
-							end,
-						},
-						{
-							"camera_position",
-							"vec4",
-							function(self, block, key)
-								lightprobes.camera:GetPosition():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"time",
-							"float",
-							function(self, block, key)
-								block[key] = system.GetElapsedTime()
-							end,
-						},
+						{"stars_texture_index", "int"},
+						{"atmosphere_transmittance_texture_index", "int"},
+						{"atmosphere_sky_view_texture_index", "int"},
+						{"blue_noise_tex", "int"},
+						{"sun_direction", "vec4"},
+						{"camera_position", "vec4"},
+						{"time", "float"},
 					},
 					write = write_sky_fragment_constants,
 				},
@@ -606,13 +510,7 @@ function lightprobes.CreatePipelines()
 				{
 					name = "vertex",
 					block = {
-						{
-							"inv_projection_view",
-							"mat4",
-							function(self, block, key)
-								lightprobes.inv_projection_view:CopyToFloatPointer(block[key])
-							end,
-						},
+						{"inv_projection_view", "mat4"},
 					},
 					write = write_sky_vertex_constants,
 				},
@@ -639,29 +537,9 @@ function lightprobes.CreatePipelines()
 				{
 					name = "fragment",
 					block = {
-						{
-							"roughness",
-							"float",
-							function(self, block, key)
-								block[key] = lightprobes.current_roughness or 0
-							end,
-						},
-						{
-							"input_texture_index",
-							"int",
-							function(self, block, key)
-								local probe = lightprobes.current_prefilter_probe
-								block[key] = self:GetTextureIndex(probe.source_cubemap)
-							end,
-						},
-						{
-							"resolution",
-							"float",
-							function(self, block, key)
-								local probe = lightprobes.current_prefilter_probe
-								block[key] = probe.size
-							end,
-						},
+						{"roughness", "float"},
+						{"input_texture_index", "int"},
+						{"resolution", "float"},
 					},
 					write = write_prefilter_fragment_constants,
 				},

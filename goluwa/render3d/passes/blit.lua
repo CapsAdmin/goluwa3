@@ -96,7 +96,7 @@ local r = {
 				{
 					name = "extract",
 					block = {
-						{"source_tex", "int", get_scene_source_texture},
+						{"source_tex", "int"},
 					},
 					write = write_extract_constants,
 				},
@@ -168,18 +168,7 @@ for i = 1, 3 do
 					{
 						name = "down",
 						block = {
-							{
-								"source_tex",
-								"int",
-								function(self, block, key)
-									if not render3d.pipelines[prev_name] then
-										block[key] = -1
-										return
-									end
-
-									block[key] = self:GetTextureIndex(render3d.pipelines[prev_name]:GetFramebuffer():GetAttachment(1))
-								end,
-							},
+							{"source_tex", "int"},
 						},
 						write = function(self, block)
 							return write_down_constants(self, block, prev_name)
@@ -247,30 +236,8 @@ for i = 3, 1, -1 do
 					{
 						name = "up",
 						block = {
-							{
-								"source_tex",
-								"int",
-								function(self, block, key)
-									if not render3d.pipelines[source_name] then
-										block[key] = -1
-										return
-									end
-
-									block[key] = self:GetTextureIndex(render3d.pipelines[source_name]:GetFramebuffer():GetAttachment(1))
-								end,
-							},
-							{
-								"merge_tex",
-								"int",
-								function(self, block, key)
-									if not render3d.pipelines[merge_name] then
-										block[key] = -1
-										return
-									end
-
-									block[key] = self:GetTextureIndex(render3d.pipelines[merge_name]:GetFramebuffer():GetAttachment(1))
-								end,
-							},
+							{"source_tex", "int"},
+							{"merge_tex", "int"},
 						},
 						write = function(self, block)
 							return write_up_constants(self, block, source_name, merge_name)
@@ -299,20 +266,8 @@ table.insert(
 				{
 					name = "lum",
 					block = {
-						{"source_tex", "int", get_scene_source_texture},
-						{
-							"prev_luma_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
-									block[key] = -1
-									return
-								end
-
-								local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.luminance:GetFramebuffer(prev_idx):GetAttachment(1))
-							end,
-						},
+						{"source_tex", "int"},
+						{"prev_luma_tex", "int"},
 					},
 					write = write_luminance_constants,
 				},
@@ -362,47 +317,12 @@ table.insert(
 				{
 					name = "blit",
 					block = {
-						{"source_tex", "int", get_blit_source_texture},
-						{"is_debug_view", "int", get_is_debug_view},
-						{
-							"bloom_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.bloom_up0 then
-									block[key] = -1
-									return
-								end
-
-								block[key] = self:GetTextureIndex(render3d.pipelines.bloom_up0:GetFramebuffer():GetAttachment(1))
-							end,
-						},
-						{
-							"luma_tex",
-							"int",
-							function(self, block, key)
-								if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
-									block[key] = -1
-									return
-								end
-
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.luminance:GetFramebuffer(current_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"requires_manual_gamma",
-							"int",
-							function(self, block, key)
-								block[key] = render.target:RequiresManualGamma() and 1 or 0
-							end,
-						},
-						{
-							"is_hdr",
-							"int",
-							function(self, block, key)
-								block[key] = render.target:IsHDR() and 1 or 0
-							end,
-						},
+						{"source_tex", "int"},
+						{"is_debug_view", "int"},
+						{"bloom_tex", "int"},
+						{"luma_tex", "int"},
+						{"requires_manual_gamma", "int"},
+						{"is_hdr", "int"},
 					},
 					write = write_blit_constants,
 				},

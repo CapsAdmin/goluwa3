@@ -50,8 +50,8 @@ local fragment_shape_constant_fields = {
 local fragment_patch_constant_fields = {
 	{"nine_patch_x_count", "int"},
 	{"nine_patch_y_count", "int"},
-	{"nine_patch_x_stretch", "float", nil, 6},
-	{"nine_patch_y_stretch", "float", nil, 6},
+	{"nine_patch_x_stretch", "float", 6},
+	{"nine_patch_y_stretch", "float", 6},
 }
 local fragment_constant_fields = append_fields(
 	append_fields(fragment_draw_constant_fields, fragment_shape_constant_fields),
@@ -63,7 +63,7 @@ local rect_draw_state_tail_fields = {
 	{"depth_write", "int"},
 	{"stencil_mode_id", "int"},
 	{"stencil_ref", "int"},
-	{"scissor", "int", nil, 4},
+	{"scissor", "int", 4},
 }
 local RectDrawState = EasyPipeline.BuildFFIType(
 	"scalar",

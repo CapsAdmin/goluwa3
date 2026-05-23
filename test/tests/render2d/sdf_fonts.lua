@@ -1,6 +1,31 @@
 local T = import("test/environment.lua")
+local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
+
+local function region_has_alpha_below(tex, min_x, min_y, max_x, max_y, max_alpha)
+	for y = min_y, max_y do
+		for x = min_x, max_x do
+			local _, _, _, a = tex:GetPixel(x, y)
+
+			if a / 255 <= max_alpha then return true end
+		end
+	end
+
+	return false
+end
+
+local function region_has_alpha_above(tex, min_x, min_y, max_x, max_y, min_alpha)
+	for y = min_y, max_y do
+		for x = min_x, max_x do
+			local _, _, _, a = tex:GetPixel(x, y)
+
+			if a / 255 >= min_alpha then return true end
+		end
+	end
+
+	return false
+end
 
 T.Test2D("sdf font", function()
 	local font = fonts.New{
@@ -13,11 +38,20 @@ T.Test2D("sdf font", function()
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hg", 10, 10)
 	return function()
+		local tex = render.target:GetTexture()
 		T.AssertScreenPixel{
 			pos = {48, 99},
 			color = {1, 1, 1, 1},
 			tolerance = 0.5,
 		}
+		assert(
+			region_has_alpha_above(tex, 12, 12, 120, 220, 0.7),
+			"expected opaque SDF glyph pixels"
+		)
+		assert(
+			region_has_alpha_below(tex, 12, 12, 120, 220, 0.2),
+			"expected transparent pixels around SDF glyph shape"
+		)
 	end
 end)
 

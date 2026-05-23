@@ -34,27 +34,9 @@ return {
 				{
 					name = "clip_plane",
 					block = {
-						{
-							"Enabled",
-							"int",
-							function(self, block, key)
-								block[key] = render3d.IsForwardOverlayClipPlaneEnabled() and 1 or 0
-							end,
-						},
-						{
-							"Origin",
-							"vec3",
-							function(self, block, key)
-								render3d.GetForwardOverlayClipPlaneOrigin():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"Normal",
-							"vec3",
-							function(self, block, key)
-								render3d.GetForwardOverlayClipPlaneNormal():CopyToFloatPointer(block[key])
-							end,
-						},
+						{"Enabled", "int"},
+						{"Origin", "vec3"},
+						{"Normal", "vec3"},
 					},
 					write = write_clip_plane_block,
 				},

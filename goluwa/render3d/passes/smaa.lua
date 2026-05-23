@@ -44,14 +44,7 @@ return {
 				{
 					name = "smaa",
 					block = {
-						{
-							"tex",
-							"int",
-							function(self, block, key)
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
-							end,
-						},
+						{"tex", "int"},
 					},
 					write = write_smaa_edge_constants,
 				},
@@ -113,33 +106,9 @@ return {
 				{
 					name = "smaa",
 					block = {
-						{
-							"edges_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.smaa_edge:GetFramebuffer():GetAttachment(1))
-							end,
-						},
-						{
-							"area_tex",
-							"int",
-							function()
-								local tex = import("goluwa/render/textures/smaa_area_tex.lua")
-								return function(self, block, key)
-									block[key] = self:GetTextureIndex(tex)
-								end
-							end,
-						},
-						{
-							"search_tex",
-							"int",
-							function()
-								local tex = import("goluwa/render/textures/smaa_search_tex.lua")
-								return function(self, block, key)
-									block[key] = self:GetTextureIndex(tex)
-								end
-							end,
-						},
+						{"edges_tex", "int"},
+						{"area_tex", "int"},
+						{"search_tex", "int"},
 					},
 					write = write_smaa_weight_constants,
 				},
@@ -323,21 +292,8 @@ return {
 				{
 					name = "smaa",
 					block = {
-						{
-							"color_tex",
-							"int",
-							function(self, block, key)
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"weight_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.smaa_weight:GetFramebuffer():GetAttachment(1))
-							end,
-						},
+						{"color_tex", "int"},
+						{"weight_tex", "int"},
 					},
 					write = write_smaa_blend_constants,
 				},
@@ -404,42 +360,11 @@ return {
 					binding_index = 2,
 					block = {
 						render3d.camera_block,
-						{
-							"current_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.smaa_blend:GetFramebuffer():GetAttachment(1))
-							end,
-						},
-						{
-							"history_tex",
-							"int",
-							function(self, block, key)
-								local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.pipelines.smaa_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
-							end,
-						},
-						{
-							"depth_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer().depth_texture)
-							end,
-						},
-						{
-							"prev_view",
-							"mat4",
-							function(self, block, key)
-								render3d.prev_view_matrix:CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"prev_projection",
-							"mat4",
-							function(self, block, key)
-								render3d.prev_projection_matrix:CopyToFloatPointer(block[key])
-							end,
-						},
+						{"current_tex", "int"},
+						{"history_tex", "int"},
+						{"depth_tex", "int"},
+						{"prev_view", "mat4"},
+						{"prev_projection", "mat4"},
 					},
 					write = write_smaa_resolve_constants,
 				},

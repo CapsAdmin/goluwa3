@@ -130,165 +130,25 @@ return {
 					binding_index = 3,
 					block = {
 						render3d.camera_block,
-						{
-							"ssao_kernel",
-							"vec3",
-							function(self, block, key)
-								for i, v in ipairs(SSAO_KERNEL) do
-									v:CopyToFloatPointer(block[key][i - 1])
-								end
-							end,
-							64,
-						},
-						{
-							"lights",
-							scene_lights.BuildLightsBlockLayout(),
-							function(self, block, key)
-								write_lights_block(block[key], render3d.GetLights())
-							end,
-							128,
-						},
-						{
-							"light_count",
-							"int",
-							function(self, block, key)
-								block[key] = math.min(#render3d.GetLights(), 128)
-							end,
-						},
-						{
-							"shadows",
-							scene_lights.BuildShadowsBlockLayout(),
-							function(self, block, key)
-								write_shadow_block(self, block[key], render3d.GetLights())
-							end,
-						},
+						{"ssao_kernel", "vec3", 64},
+						{"lights", scene_lights.BuildLightsBlockLayout(), 128},
+						{"light_count", "int"},
+						{"shadows", scene_lights.BuildShadowsBlockLayout()},
 						render3d.debug_block,
 						render3d.gbuffer_block,
-						{
-							"env_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-							end,
-						},
-						{
-							"blue_noise_tex",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-							end,
-						},
+						{"env_tex", "int"},
+						{"blue_noise_tex", "int"},
 						render3d.last_frame_block,
 						render3d.common_block,
-						{
-							"primary_sun_intensity",
-							"float",
-							function(self, block, key)
-								block[key] = get_primary_sun_intensity(render3d.GetLights())
-							end,
-						},
-						{
-							"primary_sun_direction",
-							"vec4",
-							function(self, block, key)
-								get_primary_sun_direction(render3d.GetLights()):CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"stars_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
-							end,
-						},
-						{
-							"atmosphere_transmittance_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-							end,
-						},
-						{
-							"atmosphere_sky_view_texture_index",
-							"int",
-							function(self, block, key)
-								block[key] = self:GetTextureIndex(
-									atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(render3d.GetLights()))
-								)
-							end,
-						},
-						{
-							"ssr_tex",
-							"int",
-							function(self, block, key)
-								if
-									not render3d.pipelines.ssr_resolve or
-									not render3d.pipelines.ssr_resolve.framebuffers
-								then
-									block[key] = -1
-									return
-								end
-
-								local current_idx = system.GetFrameNumber() % 2 + 1
-								local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
-								block[key] = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
-							end,
-						},
-						{
-							"probe_color_textures",
-							"int",
-							function(self, block, key)
-								for i = 0, 63 do
-									block[key][i] = -1
-
-									if lightprobes.IsEnabled() then
-										local probe = lightprobes.GetProbes()[i + 1]
-
-										if probe and probe.cubemap then
-											block[key][i] = self:GetTextureIndex(probe.cubemap)
-										end
-									end
-								end
-							end,
-							64,
-						},
-						{
-							"probe_depth_textures",
-							"int",
-							function(self, block, key)
-								for i = 0, 63 do
-									block[key][i] = -1
-
-									if lightprobes.IsEnabled() then
-										local probe = lightprobes.GetProbes()[i + 1]
-
-										if probe and probe.depth_cubemap then
-											block[key][i] = self:GetTextureIndex(probe.depth_cubemap)
-										end
-									end
-								end
-							end,
-							64,
-						},
-						{
-							"probe_positions",
-							"vec4",
-							function(self, block, key)
-								if not lightprobes.IsEnabled() then return end
-
-								for i = 0, 63 do
-									local probe = lightprobes.GetProbes()[i + 1]
-
-									if probe then
-										block[key][i][0] = probe.position.x
-										block[key][i][1] = probe.position.y
-										block[key][i][2] = probe.position.z
-										block[key][i][3] = probe.radius or 20
-									end
-								end
-							end,
-							64,
-						},
+						{"primary_sun_intensity", "float"},
+						{"primary_sun_direction", "vec4"},
+						{"stars_texture_index", "int"},
+						{"atmosphere_transmittance_texture_index", "int"},
+						{"atmosphere_sky_view_texture_index", "int"},
+						{"ssr_tex", "int"},
+						{"probe_color_textures", "int", 64},
+						{"probe_depth_textures", "int", 64},
+						{"probe_positions", "vec4", 64},
 					},
 					write = write_lighting_data,
 				},
