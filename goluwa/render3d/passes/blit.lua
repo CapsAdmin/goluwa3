@@ -241,7 +241,14 @@ table.insert(
 						end
 
 						local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-						block.prev_luma_tex = self:GetTextureIndex(render3d.pipelines.luminance:GetFramebuffer(prev_idx):GetAttachment(1))
+						local prev_fb = render3d.pipelines.luminance:GetFramebuffer(prev_idx)
+
+						if not prev_fb.initialized then
+							block.prev_luma_tex = -1
+							return block
+						end
+
+						block.prev_luma_tex = self:GetTextureIndex(prev_fb:GetAttachment(1))
 						return block
 					end,
 				},
