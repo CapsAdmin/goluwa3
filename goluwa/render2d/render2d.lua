@@ -693,39 +693,10 @@ local function sync_pipeline_state(force)
 	render2d.state.runtime.pipeline_state.synced_pipeline = pipeline
 end
 
-local function write_render2d_vertex_push_constants(self, block)
-	--render2d.GetMatrix():CopyToFloatPointer(block.projection_view_world)
-	block.projection_view_world = ffi.cast(block.projection_view_world, render2d.GetMatrix():GetFloatPointer())
-end
-
 local function get_render2d_fragment_constants_source()
 	return render2d.state.render.fragment.constants
 end
 
-local function write_render2d_fragment_draw_constants(self, block)
-	block.global_color[3] = block.global_color[3] * render2d.state.render.fragment.alpha_multiplier
-	block.texture_index = render2d.state.render.textures.texture and
-		self:GetTextureIndex(render2d.state.render.textures.texture) or
-		-1
-	block.gradient_texture_index = render2d.state.render.textures.gradient_texture and
-		self:GetTextureIndex(render2d.state.render.textures.gradient_texture) or
-		-1
-	return block
-end
-
-local function write_render2d_fragment_shape_constants(self, block)
-	block.rect_size[0] = render2d.state.render.fragment.rect_size.w
-	block.rect_size[1] = render2d.state.render.fragment.rect_size.h
-	block.sdf_rect_size[0] = render2d.state.render.fragment.rect_size.lw
-	block.sdf_rect_size[1] = render2d.state.render.fragment.rect_size.lh
-	return block
-end
-
-local function write_render2d_fragment_patch_constants(self, block)
-	return block
-end
-
--- Blend mode presets
 render2d.blend_modes = {
 	alpha = {
 		blend = true,
@@ -817,7 +788,9 @@ function render2d.Initialize()
 					name = "camera",
 					storage = "push",
 					block = vertex_push_constant_fields,
-					write = write_render2d_vertex_push_constants,
+					write = function(self, block)
+						block.projection_view_world = ffi.cast(block.projection_view_world, render2d.GetMatrix():GetFloatPointer())
+					end,
 				},
 			},
 			attributes = {
@@ -848,7 +821,16 @@ function render2d.Initialize()
 						field = "global_color",
 					},
 					block = fragment_draw_constant_fields,
-					write = write_render2d_fragment_draw_constants,
+					write = function(self, block)
+						block.global_color[3] = block.global_color[3] * render2d.state.render.fragment.alpha_multiplier
+						block.texture_index = render2d.state.render.textures.texture and
+							self:GetTextureIndex(render2d.state.render.textures.texture) or
+							-1
+						block.gradient_texture_index = render2d.state.render.textures.gradient_texture and
+							self:GetTextureIndex(render2d.state.render.textures.gradient_texture) or
+							-1
+						return block
+					end,
 				},
 				{
 					name = "shape",
@@ -861,7 +843,13 @@ function render2d.Initialize()
 						field = "blur",
 					},
 					block = fragment_shape_constant_fields,
-					write = write_render2d_fragment_shape_constants,
+					write = function(self, block)
+						block.rect_size[0] = render2d.state.render.fragment.rect_size.w
+						block.rect_size[1] = render2d.state.render.fragment.rect_size.h
+						block.sdf_rect_size[0] = render2d.state.render.fragment.rect_size.lw
+						block.sdf_rect_size[1] = render2d.state.render.fragment.rect_size.lh
+						return block
+					end,
 				},
 				{
 					name = "nine_patch",
@@ -874,7 +862,6 @@ function render2d.Initialize()
 						field = "nine_patch_x_count",
 					},
 					block = fragment_patch_constant_fields,
-					write = write_render2d_fragment_patch_constants,
 				},
 			},
 			shader = render2d.BuildShaderFlags("draw.flags") .. "\n" .. [[

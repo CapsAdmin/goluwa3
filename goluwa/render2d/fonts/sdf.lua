@@ -84,38 +84,6 @@ function META:GetAtlasFormat()
 	return render.target:GetColorFormat()
 end
 
-local function write_jfa_init_constants(self, block)
-	block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
-	block.mode = self.current_jfa_mode
-	block.size[0] = self.current_jfa_size.x
-	block.size[1] = self.current_jfa_size.y
-	return block
-end
-
-local function write_jfa_step_constants(self, block)
-	block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
-	block.step_size = self.current_jfa_step
-	block.size[0] = self.current_jfa_size.x
-	block.size[1] = self.current_jfa_size.y
-	return block
-end
-
-local function write_jfa_final_constants(self, block)
-	block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
-	block.size[0] = self.current_jfa_size.x
-	block.size[1] = self.current_jfa_size.y
-	block.max_dist = self.current_jfa_max_dist
-	return block
-end
-
-local function write_jfa_combine_constants(self, block)
-	block.dist_on_idx = self:GetTextureIndex(self.current_jfa_dist_on)
-	block.dist_off_idx = self:GetTextureIndex(self.current_jfa_dist_off)
-	block.mask_idx = self:GetTextureIndex(self.current_jfa_mask_tex)
-	block.max_dist = self.current_jfa_max_dist
-	return block
-end
-
 function META:GetJFAPipelines()
 	if self.jfa_pipelines then return self.jfa_pipelines end
 
@@ -127,7 +95,13 @@ function META:GetJFAPipelines()
 				{"mode", "int"},
 				{"size", "vec2"},
 			},
-			write = write_jfa_init_constants,
+			write = function(self, block)
+				block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
+				block.mode = self.current_jfa_mode
+				block.size[0] = self.current_jfa_size.x
+				block.size[1] = self.current_jfa_size.y
+				return block
+			end,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
@@ -149,7 +123,13 @@ function META:GetJFAPipelines()
 				{"step_size", "float"},
 				{"size", "vec2"},
 			},
-			write = write_jfa_step_constants,
+			write = function(self, block)
+				block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
+				block.step_size = self.current_jfa_step
+				block.size[0] = self.current_jfa_size.x
+				block.size[1] = self.current_jfa_size.y
+				return block
+			end,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
@@ -181,7 +161,13 @@ function META:GetJFAPipelines()
 				{"size", "vec2"},
 				{"max_dist", "float"},
 			},
-			write = write_jfa_final_constants,
+			write = function(self, block)
+				block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
+				block.size[0] = self.current_jfa_size.x
+				block.size[1] = self.current_jfa_size.y
+				block.max_dist = self.current_jfa_max_dist
+				return block
+			end,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
@@ -199,7 +185,13 @@ function META:GetJFAPipelines()
 				{"mask_idx", "int"},
 				{"max_dist", "float"},
 			},
-			write = write_jfa_combine_constants,
+			write = function(self, block)
+				block.dist_on_idx = self:GetTextureIndex(self.current_jfa_dist_on)
+				block.dist_off_idx = self:GetTextureIndex(self.current_jfa_dist_off)
+				block.mask_idx = self:GetTextureIndex(self.current_jfa_mask_tex)
+				block.max_dist = self.current_jfa_max_dist
+				return block
+			end,
 			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {

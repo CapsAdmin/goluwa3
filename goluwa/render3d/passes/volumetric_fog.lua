@@ -256,54 +256,6 @@ local function build_scene_light_block_fields()
 	}
 end
 
-local function write_scene_fog_constants(self, block)
-	render3d.WriteCameraBlock(self, block)
-	render3d.WriteGBufferBlock(self, block)
-	get_raw_scene_source_texture(self, block, "source_tex")
-	write_ocean_distance_texture(self, block, "ocean_distance_tex")
-	block.time = system.GetElapsedTime()
-	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-	scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
-	block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
-	scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
-	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-	return block
-end
-
-local function write_volumetric_froxel_build_constants(self, block)
-	ensure_volumetric_froxel_resources()
-	render3d.WriteCameraBlock(self, block)
-	render3d.WriteGBufferBlock(self, block)
-	write_ocean_distance_texture(self, block, "ocean_distance_tex")
-	block.time = system.GetElapsedTime()
-	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-	block.near_z = render3d.camera:GetNearZ()
-	block.far_z = render3d.camera:GetFarZ()
-	block.froxel_resolution[0] = volumetric_froxels.width
-	block.froxel_resolution[1] = volumetric_froxels.height
-	block.current_slice = volumetric_froxels.current_slice or 0
-	block.slice_count = FROXEL_SLICE_COUNT
-	scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
-	block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
-	scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
-	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-	return block
-end
-
-local function write_volumetric_fog_constants(self, block)
-	ensure_volumetric_froxel_resources()
-	render3d.WriteCameraBlock(self, block)
-	render3d.WriteGBufferBlock(self, block)
-	get_scene_source_texture(self, block, "source_tex")
-	get_raw_scene_source_texture(self, block, "raw_source_tex")
-	write_ocean_distance_texture(self, block, "ocean_distance_tex")
-	block.near_z = render3d.camera:GetNearZ()
-	block.far_z = render3d.camera:GetFarZ()
-	block.slice_count = FROXEL_SLICE_COUNT
-	block.volume_enabled = volumetric_froxels.texture and 1 or 0
-	return block
-end
-
 local r = {
 	{
 		name = "volumetric_froxel_build",
@@ -328,7 +280,25 @@ local r = {
 						{"slice_count", "int"},
 						unpack(build_scene_light_block_fields()),
 					},
-					write = write_volumetric_froxel_build_constants,
+					write = function(self, block)
+						ensure_volumetric_froxel_resources()
+						render3d.WriteCameraBlock(self, block)
+						render3d.WriteGBufferBlock(self, block)
+						write_ocean_distance_texture(self, block, "ocean_distance_tex")
+						block.time = system.GetElapsedTime()
+						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+						block.near_z = render3d.camera:GetNearZ()
+						block.far_z = render3d.camera:GetFarZ()
+						block.froxel_resolution[0] = volumetric_froxels.width
+						block.froxel_resolution[1] = volumetric_froxels.height
+						block.current_slice = volumetric_froxels.current_slice or 0
+						block.slice_count = FROXEL_SLICE_COUNT
+						scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
+						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
+						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
+						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+						return block
+					end,
 				},
 			},
 			shader = [[
@@ -704,7 +674,19 @@ local r = {
 						{"blue_noise_tex", "int"},
 						unpack(build_scene_light_block_fields()),
 					},
-					write = write_scene_fog_constants,
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						render3d.WriteGBufferBlock(self, block)
+						get_raw_scene_source_texture(self, block, "source_tex")
+						write_ocean_distance_texture(self, block, "ocean_distance_tex")
+						block.time = system.GetElapsedTime()
+						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+						scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
+						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
+						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
+						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+						return block
+					end,
 				},
 			},
 			shader = [[
@@ -1203,7 +1185,19 @@ local r = {
 						{"slice_count", "int"},
 						{"volume_enabled", "int"},
 					},
-					write = write_volumetric_fog_constants,
+					write = function(self, block)
+						ensure_volumetric_froxel_resources()
+						render3d.WriteCameraBlock(self, block)
+						render3d.WriteGBufferBlock(self, block)
+						get_scene_source_texture(self, block, "source_tex")
+						get_raw_scene_source_texture(self, block, "raw_source_tex")
+						write_ocean_distance_texture(self, block, "ocean_distance_tex")
+						block.near_z = render3d.camera:GetNearZ()
+						block.far_z = render3d.camera:GetFarZ()
+						block.slice_count = FROXEL_SLICE_COUNT
+						block.volume_enabled = volumetric_froxels.texture and 1 or 0
+						return block
+					end,
 				},
 			},
 			custom_declarations = [[

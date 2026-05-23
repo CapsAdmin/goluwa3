@@ -46,78 +46,6 @@ local function write_lights_block(lights_block, lights)
 	return scene_lights.WriteLightsBlock(lights_block, lights)
 end
 
-local function write_lighting_data(self, block)
-	render3d.WriteCameraBlock(self, block)
-
-	for i, sample in ipairs(SSAO_KERNEL) do
-		sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
-	end
-
-	local lights = render3d.GetLights()
-	local light_count = math.min(#lights, MAX_LIGHTS)
-	block.light_count = light_count
-	write_lights_block(block.lights, lights)
-	write_shadow_block(self, block.shadows, lights)
-	render3d.WriteDebugBlock(self, block)
-	render3d.WriteGBufferBlock(self, block)
-	block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-	render3d.WriteLastFrameBlock(self, block)
-	render3d.WriteCommonBlock(self, block)
-	get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
-	block.primary_sun_intensity = get_primary_sun_intensity(lights)
-	block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
-	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-		atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(lights))
-	)
-
-	if
-		not render3d.pipelines.ssr_resolve or
-		not render3d.pipelines.ssr_resolve.framebuffers
-	then
-		block.ssr_tex = -1
-	else
-		local current_idx = system.GetFrameNumber() % 2 + 1
-		local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
-		block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
-	end
-
-	for i = 0, MAX_PROBES - 1 do
-		block.probe_color_textures[i] = -1
-		block.probe_depth_textures[i] = -1
-		block.probe_positions[i][0] = 0
-		block.probe_positions[i][1] = 0
-		block.probe_positions[i][2] = 0
-		block.probe_positions[i][3] = 0
-	end
-
-	if lightprobes.IsEnabled() then
-		local probes = lightprobes.GetProbes()
-
-		for i = 0, MAX_PROBES - 1 do
-			local probe = probes[i + 1]
-
-			if probe then
-				if probe.cubemap then
-					block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
-				end
-
-				if probe.depth_cubemap then
-					block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
-				end
-
-				block.probe_positions[i][0] = probe.position.x
-				block.probe_positions[i][1] = probe.position.y
-				block.probe_positions[i][2] = probe.position.z
-				block.probe_positions[i][3] = probe.radius or 20
-			end
-		end
-	end
-
-	return block
-end
-
 return {
 	{
 		name = "lighting",
@@ -150,7 +78,77 @@ return {
 						{"probe_depth_textures", "int", 64},
 						{"probe_positions", "vec4", 64},
 					},
-					write = write_lighting_data,
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+
+						for i, sample in ipairs(SSAO_KERNEL) do
+							sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
+						end
+
+						local lights = render3d.GetLights()
+						local light_count = math.min(#lights, MAX_LIGHTS)
+						block.light_count = light_count
+						write_lights_block(block.lights, lights)
+						write_shadow_block(self, block.shadows, lights)
+						render3d.WriteDebugBlock(self, block)
+						render3d.WriteGBufferBlock(self, block)
+						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+						render3d.WriteLastFrameBlock(self, block)
+						render3d.WriteCommonBlock(self, block)
+						get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
+						block.primary_sun_intensity = get_primary_sun_intensity(lights)
+						block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
+						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+						block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
+							atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(lights))
+						)
+
+						if
+							not render3d.pipelines.ssr_resolve or
+							not render3d.pipelines.ssr_resolve.framebuffers
+						then
+							block.ssr_tex = -1
+						else
+							local current_idx = system.GetFrameNumber() % 2 + 1
+							local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
+							block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
+						end
+
+						for i = 0, MAX_PROBES - 1 do
+							block.probe_color_textures[i] = -1
+							block.probe_depth_textures[i] = -1
+							block.probe_positions[i][0] = 0
+							block.probe_positions[i][1] = 0
+							block.probe_positions[i][2] = 0
+							block.probe_positions[i][3] = 0
+						end
+
+						if lightprobes.IsEnabled() then
+							local probes = lightprobes.GetProbes()
+
+							for i = 0, MAX_PROBES - 1 do
+								local probe = probes[i + 1]
+
+								if probe then
+									if probe.cubemap then
+										block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
+									end
+
+									if probe.depth_cubemap then
+										block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
+									end
+
+									block.probe_positions[i][0] = probe.position.x
+									block.probe_positions[i][1] = probe.position.y
+									block.probe_positions[i][2] = probe.position.z
+									block.probe_positions[i][3] = probe.radius or 20
+								end
+							end
+						end
+
+						return block
+					end,
 				},
 			},
 			shader = [[

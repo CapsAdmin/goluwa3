@@ -48,74 +48,6 @@ local cloud_map_glsl = [[
 		return texture(TEXTURE(prep_tex), uv).b;
 	}
 ]]
-
-local function write_cloud_prep_data(self, block)
-	render3d.WriteCameraBlock(self, block)
-	render3d.WriteCommonBlock(self, block)
-	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-	get_primary_sun_direction(render3d.GetLights()):CopyToFloatPointer(block.sun_direction)
-	return block
-end
-
-local function write_cloud_render_data(self, block)
-	render3d.WriteCameraBlock(self, block)
-	render3d.WriteCommonBlock(self, block)
-	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-	block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-	block.cloud_prep_tex = self:GetTextureIndex(render3d.pipelines.cloud_prep:GetFramebuffer():GetAttachment(1))
-	block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-	block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-		atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(render3d.GetLights()))
-	)
-	get_primary_sun_direction(render3d.GetLights()):CopyToFloatPointer(block.sun_direction)
-	return block
-end
-
-local function write_cloud_resolve_data(self, block)
-	render3d.WriteCameraBlock(self, block)
-	block.current_cloud_tex = self:GetTextureIndex(render3d.pipelines.clouds:GetFramebuffer():GetAttachment(1))
-	block.current_cloud_data_tex = self:GetTextureIndex(render3d.pipelines.clouds:GetFramebuffer():GetAttachment(2))
-	block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-
-	if
-		not render3d.pipelines.clouds_resolve or
-		not render3d.pipelines.clouds_resolve.framebuffers
-	then
-		block.history_cloud_tex = -1
-		block.history_cloud_data_tex = -1
-	else
-		local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-		block.history_cloud_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
-		block.history_cloud_data_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(prev_idx):GetAttachment(2))
-	end
-
-	local prev_view = render3d.prev_view_matrix
-	local prev_projection = render3d.prev_projection_matrix
-
-	if prev_view then
-		prev_view:CopyToFloatPointer(block.prev_view)
-	else
-		render3d.camera:BuildViewMatrix():CopyToFloatPointer(block.prev_view)
-	end
-
-	if prev_projection then
-		prev_projection:CopyToFloatPointer(block.prev_projection)
-	else
-		render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
-	end
-
-	return block
-end
-
-local function write_cloud_composite_data(self, block)
-	render3d.WriteCameraBlock(self, block)
-	block.source_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
-	block.cloud_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
-	block.cloud_data_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
-	block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-	return block
-end
-
 return {
 	{
 		name = "cloud_prep",
@@ -132,7 +64,13 @@ return {
 						{"blue_noise_tex", "int"},
 						{"sun_direction", "vec4"},
 					},
-					write = write_cloud_prep_data,
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						render3d.WriteCommonBlock(self, block)
+						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+						get_primary_sun_direction(render3d.GetLights()):CopyToFloatPointer(block.sun_direction)
+						return block
+					end,
 				},
 			},
 			custom_declarations = atmosphere.GetAerialPerspectiveGLSLCode() .. cloud_map_glsl,
@@ -186,7 +124,19 @@ return {
 						{"atmosphere_transmittance_texture_index", "int"},
 						{"atmosphere_sky_view_texture_index", "int"},
 					},
-					write = write_cloud_render_data,
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						render3d.WriteCommonBlock(self, block)
+						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+						block.cloud_prep_tex = self:GetTextureIndex(render3d.pipelines.cloud_prep:GetFramebuffer():GetAttachment(1))
+						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+						block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
+							atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(render3d.GetLights()))
+						)
+						get_primary_sun_direction(render3d.GetLights()):CopyToFloatPointer(block.sun_direction)
+						return block
+					end,
 				},
 			},
 			custom_declarations = atmosphere.GetGLSLCode() .. cloud_map_glsl,
@@ -254,7 +204,41 @@ return {
 						{"prev_view", "mat4"},
 						{"prev_projection", "mat4"},
 					},
-					write = write_cloud_resolve_data,
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						block.current_cloud_tex = self:GetTextureIndex(render3d.pipelines.clouds:GetFramebuffer():GetAttachment(1))
+						block.current_cloud_data_tex = self:GetTextureIndex(render3d.pipelines.clouds:GetFramebuffer():GetAttachment(2))
+						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+
+						if
+							not render3d.pipelines.clouds_resolve or
+							not render3d.pipelines.clouds_resolve.framebuffers
+						then
+							block.history_cloud_tex = -1
+							block.history_cloud_data_tex = -1
+						else
+							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+							block.history_cloud_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
+							block.history_cloud_data_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(prev_idx):GetAttachment(2))
+						end
+
+						local prev_view = render3d.prev_view_matrix
+						local prev_projection = render3d.prev_projection_matrix
+
+						if prev_view then
+							prev_view:CopyToFloatPointer(block.prev_view)
+						else
+							render3d.camera:BuildViewMatrix():CopyToFloatPointer(block.prev_view)
+						end
+
+						if prev_projection then
+							prev_projection:CopyToFloatPointer(block.prev_projection)
+						else
+							render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
+						end
+
+						return block
+					end,
 				},
 			},
 			shader = screen_reconstruct.GetWorldPosFromUVGLSL("clouds_resolve_data") .. [[
@@ -358,7 +342,14 @@ return {
 						{"cloud_data_tex", "int"},
 						{"depth_tex", "int"},
 					},
-					write = write_cloud_composite_data,
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						block.source_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
+						block.cloud_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
+						block.cloud_data_tex = self:GetTextureIndex(render3d.pipelines.clouds_resolve:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
+						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+						return block
+					end,
 				},
 			},
 			shader = screen_reconstruct.GetWorldPosFromUVGLSL("clouds_composite_data") .. [[
