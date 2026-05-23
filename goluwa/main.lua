@@ -6,7 +6,7 @@ local event = import("goluwa/event.lua")
 
 if false then
 	local profiler = import("goluwa/profiler.lua")
-	profiler.Start("startup", {trace_recorder = false})
+	profiler.Start("startup", {trace_recorder = true})
 
 	event.AddListener("FrameEnd", function()
 		profiler.Stop("startup")
@@ -57,6 +57,8 @@ local function init_game()
 				import("goluwa/render3d/render3d.lua").Initialize()
 				import("goluwa/render3d/model_loader.lua")
 			end
+
+			if _G.PHYSICS then import("goluwa/physics.lua") end
 		end
 	end
 
@@ -69,6 +71,8 @@ local function init_game()
 
 		if _G.GRAPHICS_3D then vfs.AutorunAddons("graphics_3d/") end
 	end
+
+	if _G.PHYSICS then vfs.AutorunAddons("physics/") end
 
 	system.KeepAlive("game")
 
