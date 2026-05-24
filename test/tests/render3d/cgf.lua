@@ -486,3 +486,116 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	vfs.Delete(mount_root .. "/Game/Objects.pak/objects/demo/normal.dds")
 	vfs.Delete(mount_root .. "/Game/Textures.pak/textures/demo/spec.dds")
 end)
+
+T.Test("CryMTL loader logs and falls back when textures are missing", function()
+	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "cgf_crymtl_missing_test"
+	assert(vfs.CreateDirectory(mount_root))
+	assert(vfs.CreateDirectory(mount_root .. "/Game"))
+	assert(vfs.CreateDirectory(mount_root .. "/Game/Objects.pak"))
+	assert(vfs.CreateDirectory(mount_root .. "/Game/Objects.pak/materials"))
+	assert(
+		vfs.Write(
+			mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl",
+			[[<Material><SubMaterials><Material Name="rock"><Textures><Texture Map="Diffuse" File="objects/demo/missing_albedo.tif" /><Texture Map="Normalmap" File="objects/demo/missing_normal.tif" /><Texture Map="Specular" File="textures/demo/missing_spec.tif" /><Texture Map="Opacity" File="objects/demo/missing_opacity.tif" /></Textures></Material></SubMaterials></Material>]]
+		)
+	)
+	local fallback_texture = {tag = "fallback"}
+	local old_get_fallback = Texture.GetFallback
+	local old_logf = logf
+	local logs = {}
+
+	local function count_log_matches(pattern)
+		local count = 0
+
+		for _, line in ipairs(logs) do
+			if line:find(pattern, 1, true) then count = count + 1 end
+		end
+
+		return count
+	end
+
+	Texture.GetFallback = function()
+		return fallback_texture
+	end
+	logf = function(fmt, ...)
+		logs[#logs + 1] = string.format(fmt, ...)
+	end
+	local ok, err = xpcall(
+		function()
+			local material = Material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl", 0)
+			T(material:GetAlbedoTexture())["=="](fallback_texture)
+			T(material:GetNormalTexture())["=="](fallback_texture)
+			T(material:GetRoughnessTexture())["=="](fallback_texture)
+			T(material:GetOpacityTexture())["=="](fallback_texture)
+			T(material:GetAlphaTest())["=="](true)
+			T(count_log_matches("crytek texture not found"))["=="](4)
+			T(count_log_matches("  tried \""))[">"](0)
+			T(table.concat(logs):find("missing_albedo.tif", 1, true) ~= nil)["=="](true)
+		end,
+		debug.traceback
+	)
+	Texture.GetFallback = old_get_fallback
+	logf = old_logf
+
+	if not ok then error(err, 0) end
+
+	vfs.Delete(mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl")
+end)
+
+T.Test("CryMTL loader resolves demo-style objects.pak and textures.pak roots", function()
+	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "cgf_crymtl_demo_root_test"
+	assert(vfs.CreateDirectory(mount_root))
+	assert(vfs.CreateDirectory(mount_root .. "/objects.pak"))
+	assert(vfs.CreateDirectory(mount_root .. "/objects.pak/materials"))
+	assert(vfs.CreateDirectory(mount_root .. "/objects.pak/objects"))
+	assert(vfs.CreateDirectory(mount_root .. "/objects.pak/objects/demo"))
+	assert(vfs.CreateDirectory(mount_root .. "/textures.pak"))
+	assert(vfs.CreateDirectory(mount_root .. "/textures.pak/textures"))
+	assert(vfs.CreateDirectory(mount_root .. "/textures.pak/textures/demo"))
+	assert(
+		vfs.Write(
+			mount_root .. "/objects.pak/materials/demo_root.mtl",
+			[[<Material><SubMaterials><Material Name="rock"><Textures><Texture Map="Diffuse" File="objects/demo/albedo.tif" /><Texture Map="Specular" File="textures/demo/spec.tif" /></Textures></Material></SubMaterials></Material>]]
+		)
+	)
+	assert(vfs.Write(mount_root .. "/objects.pak/objects/demo/albedo.dds", "dds"))
+	assert(vfs.Write(mount_root .. "/textures.pak/textures/demo/spec.dds", "dds"))
+	local old_texture_new = Texture.New
+	local created = {}
+	Texture.New = function(config)
+		created[#created + 1] = {path = config.path, srgb = config.srgb}
+		return {
+			config = config,
+			Shade = function() end,
+			GetWidth = function()
+				return 4
+			end,
+			GetHeight = function()
+				return 4
+			end,
+			GetMipMapLevels = function()
+				return 1
+			end,
+			GetSamplerConfig = function()
+				return {
+					min_filter = "linear",
+					mag_filter = "linear",
+					mipmap_mode = "linear",
+					wrap_s = "repeat",
+					wrap_t = "repeat",
+				}
+			end,
+			IsReady = function()
+				return true
+			end,
+		}
+	end
+	local material = Material.FromCryMTL(mount_root .. "/objects.pak/materials/demo_root.mtl", 0)
+	Texture.New = old_texture_new
+	T(material.cry_sub_material_name)["=="]("rock")
+	T(created[1].path:lower())["=="]((mount_root .. "/objects.pak/objects/demo/albedo.dds"):lower())
+	T(created[2].path:lower())["=="]((mount_root .. "/textures.pak/textures/demo/spec.dds"):lower())
+	vfs.Delete(mount_root .. "/objects.pak/materials/demo_root.mtl")
+	vfs.Delete(mount_root .. "/objects.pak/objects/demo/albedo.dds")
+	vfs.Delete(mount_root .. "/textures.pak/textures/demo/spec.dds")
+end)

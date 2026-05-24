@@ -319,17 +319,33 @@ do
 		if type(path) ~= "string" then return nil end
 
 		local normalized = vfs.FixPathSlashes(path)
-		return normalized:match("^(.-/Game/)")
+		local lower = normalized:lower()
+		local game_start, game_end = lower:find("/game/", 1, true)
+
+		if game_start then return normalized:sub(1, game_end) end
+
+		local objects_start = lower:find("/objects.pak/", 1, true)
+
+		if objects_start then return normalized:sub(1, objects_start) end
+
+		local textures_start = lower:find("/textures.pak/", 1, true)
+
+		if textures_start then return normalized:sub(1, textures_start) end
+
+		return nil
 	end
 
 	local function resolve_cry_texture_path(material_path, texture_path)
-		if type(texture_path) ~= "string" or texture_path == "" then return nil end
+		if type(texture_path) ~= "string" or texture_path == "" then return nil, {} end
 
 		local normalized = vfs.FixPathSlashes(texture_path)
+		local normalized_lower = normalized:lower()
 		local base = vfs.RemoveExtensionFromPath(normalized)
 		local basename = vfs.GetFileNameFromPath(base .. ".dds"):lower()
 		local candidates = {}
 		local game_root = resolve_cry_game_root(material_path)
+		local is_game_relative = normalized_lower:starts_with("objects/") or
+			normalized_lower:starts_with("textures/")
 
 		local function add(path)
 			if path and path ~= "" then
@@ -337,41 +353,71 @@ do
 			end
 		end
 
+		local function add_pak_candidates(relative_path, relative_base)
+			if not game_root then return end
+
+			add(game_root .. relative_path)
+			add(game_root .. relative_base .. ".dds")
+			add(game_root .. "Objects.pak/" .. relative_path)
+			add(game_root .. "Objects.pak/" .. relative_base .. ".dds")
+			add(game_root .. "objects.pak/" .. relative_path)
+			add(game_root .. "objects.pak/" .. relative_base .. ".dds")
+			add(game_root .. "Textures.pak/" .. relative_path)
+			add(game_root .. "Textures.pak/" .. relative_base .. ".dds")
+			add(game_root .. "textures.pak/" .. relative_path)
+			add(game_root .. "textures.pak/" .. relative_base .. ".dds")
+		end
+
 		if vfs.IsPathAbsolutePath(normalized) then
 			add(normalized)
 			add(base .. ".dds")
 		else
 			local folder = vfs.GetFolderFromPath(material_path)
-			add(folder and (folder .. normalized) or normalized)
-			add(folder and (folder .. base .. ".dds") or (base .. ".dds"))
 
-			if game_root then
-				add(game_root .. normalized)
-				add(game_root .. base .. ".dds")
-				add(game_root .. "Objects.pak/" .. normalized)
-				add(game_root .. "Objects.pak/" .. base .. ".dds")
-				add(game_root .. "Textures.pak/" .. normalized)
-				add(game_root .. "Textures.pak/" .. base .. ".dds")
+			if is_game_relative then
+				add_pak_candidates(normalized, base)
+			else
+				add(folder and (folder .. normalized) or normalized)
+				add(folder and (folder .. base .. ".dds") or (base .. ".dds"))
+
+				if game_root then add_pak_candidates(normalized, base) end
 			end
 		end
 
 		for _, candidate in ipairs(candidates) do
 			local found = vfs.FindMixedCasePath(candidate)
 
-			if found then return found end
+			if found then return found, candidates end
 
-			if vfs.IsFile(candidate) then return candidate end
+			if vfs.IsFile(candidate) then return candidate, candidates end
 		end
 
 		if game_root and basename ~= "" then
 			for _, root in ipairs{game_root .. "Objects.pak/", game_root .. "Textures.pak/"} do
 				local resolved = vfs.FindFileByNameRecursive(root, basename)
 
-				if resolved then return resolved end
+				if resolved then return resolved, candidates end
 			end
 		end
 
-		return nil
+		return nil, candidates
+	end
+
+	local function get_missing_cry_texture(material_path, attrs, candidates)
+		if attrs.File and attrs.File ~= "" then
+			logf(
+				"crytek texture not found for %q referenced by %q (map %q)\n",
+				tostring(attrs.File),
+				tostring(material_path),
+				tostring(attrs.Map)
+			)
+
+			for _, candidate in ipairs(candidates) do
+				logf("  tried %q\n", candidate)
+			end
+		end
+
+		return Texture.GetFallback()
 	end
 
 	local function apply_cry_material_node(self, material_node, material_path)
@@ -420,21 +466,41 @@ do
 
 		for texture_node in iter_children_by_tag(textures, "Texture") do
 			local attrs = texture_node.attrs or {}
-			local resolved = resolve_cry_texture_path(material_path, attrs.File)
+			local resolved, candidates = resolve_cry_texture_path(material_path, attrs.File)
 
-			if attrs.Map == "Diffuse" and resolved then
-				self:SetAlbedoTexture(SRGBTexture(resolved))
-			elseif attrs.Map == "Normalmap" and resolved then
-				self:SetNormalTexture(LinearTexture(resolved))
-				self:SetReverseXZNormalMap(true)
-			elseif attrs.Map == "Specular" and resolved then
-				self:SetRoughnessTexture(CrySpecularRoughnessTexture(resolved))
+			if attrs.Map == "Diffuse" then
+				self:SetAlbedoTexture(
+					resolved and
+						SRGBTexture(resolved) or
+						get_missing_cry_texture(material_path, attrs, candidates)
+				)
+			elseif attrs.Map == "Normalmap" then
+				self:SetNormalTexture(
+					resolved and
+						LinearTexture(resolved) or
+						get_missing_cry_texture(material_path, attrs, candidates)
+				)
+
+				if resolved then self:SetReverseXZNormalMap(true) end
+			elseif attrs.Map == "Specular" then
+				self:SetRoughnessTexture(
+					resolved and
+						CrySpecularRoughnessTexture(resolved) or
+						get_missing_cry_texture(material_path, attrs, candidates)
+				)
 				self:SetInvertRoughnessTexture(false)
-			elseif attrs.Map == "Detail" and resolved then
-				self:SetNormal2Texture(LinearTexture(resolved))
+			elseif attrs.Map == "Detail" then
+				self:SetNormal2Texture(
+					resolved and
+						LinearTexture(resolved) or
+						get_missing_cry_texture(material_path, attrs, candidates)
+				)
 			elseif attrs.Map == "Opacity" then
-				if resolved then self:SetOpacityTexture(LinearTexture(resolved)) end
-
+				self:SetOpacityTexture(
+					resolved and
+						LinearTexture(resolved) or
+						get_missing_cry_texture(material_path, attrs, candidates)
+				)
 				self:SetAlphaTest(true)
 
 				if is_vegetation then self:SetDoubleSided(true) end

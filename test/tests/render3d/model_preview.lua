@@ -133,3 +133,19 @@ T.Test3D("Model preview samples albedo textures", function()
 
 	if not ok then error(err, 0) end
 end)
+
+T.Test3D("Visual MakeError creates a cube with the fallback texture", function()
+	local entity = Entity.New{Name = "visual_error_test"}
+	entity:AddComponent("transform")
+	entity:AddComponent("visual")
+	entity.visual:MakeError()
+	local children = entity:GetChildren()
+	local primitive = children[1] and children[1].visual_primitive or nil
+	local material = primitive and primitive:GetMaterial() or nil
+	T(#children)["=="](1)
+	T(primitive ~= nil)["=="](true)
+	T(material ~= nil)["=="](true)
+	T(material:GetAlbedoTexture() == Texture.GetFallback())["=="](true)
+	T(primitive:GetPolygon3D() ~= nil)["=="](true)
+	entity:Remove()
+end)

@@ -2,6 +2,7 @@ local vfs = import("goluwa/vfs.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Texture = import("goluwa/render/texture.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -554,7 +555,13 @@ function cgf.ExtractStaticMeshData(parsed)
 end
 
 function cgf.DecodeModel(path, full_path, mesh_callback)
-	local parsed = cgf.Open(full_path)
+	local ok_open, parsed_or_err = pcall(cgf.Open, full_path)
+
+	if not ok_open then
+		error(("failed to open cgf %q from %q: %s"):format(path, full_path, parsed_or_err), 0)
+	end
+
+	local parsed = parsed_or_err
 	local material_root = vfs.GetFolderFromPath(parsed.file.path_used or full_path)
 	local package_material_root = material_root and ("crytek package:" .. material_root) or nil
 	local ok, result = xpcall(function()
@@ -573,6 +580,14 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 
 				if vfs.IsFile(resolved_material_path) then
 					material = Material.FromCryMTL(resolved_material_path, entry.subset_material_id)
+				else
+					logf(
+						"crytek material not found for %q referenced by model %q\n",
+						tostring(material_path),
+						tostring(path)
+					)
+					material = Material.New()
+					material:SetAlbedoTexture(Texture.GetFallback())
 				end
 			end
 
