@@ -1,7 +1,10 @@
 local event = import("goluwa/event.lua")
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/ecs/entity.lua")
@@ -135,7 +138,19 @@ end
 function Visual:MakeError()
 	self:RemovePrimitives()
 	self:SetLoading(false)
-	self:SetModelPath("models/error.mdl")
+	local poly = Polygon3D.New()
+	poly:CreateCube(0.5, 1.0)
+	poly:BuildBoundingBox()
+	poly:Upload()
+	self:CreatePrimitiveEntity(
+		poly,
+		Material.New{
+			AlbedoTexture = Texture.GetFallback(),
+			DoubleSided = true,
+		},
+		((self.Owner and self.Owner.Name) or "visual") .. "_error"
+	)
+	self:BuildAABB()
 end
 
 function Visual:SetModelPath(path)
