@@ -403,6 +403,8 @@ function render3d.Initialize()
 		import("goluwa/render3d/passes/forward_overlay.lua"),
 		import("goluwa/render3d/passes/volumetric_fog.lua"),
 		--import("goluwa/render3d/passes/smaa.lua"),
+		import("goluwa/render3d/passes/bloom.lua"),
+		import("goluwa/render3d/passes/luminance.lua"),
 		import("goluwa/render3d/passes/blit.lua"),
 	}
 
