@@ -49,6 +49,7 @@ lightprobes.enabled = lightprobes.enabled ~= false
 lightprobes.probes = lightprobes.probes or {}
 lightprobes.current_scene_probe_index = lightprobes.current_scene_probe_index or 1 -- Current scene probe being updated (1-based, skips environment)
 lightprobes.current_face = lightprobes.current_face or 0
+lightprobes.inv_projection_view = lightprobes.inv_projection_view or Matrix44()
 -- Face rotation angles for cubemap rendering
 local face_angles = {
 	Deg3(0, -90 + 180, 0), -- +X
@@ -59,8 +60,8 @@ local face_angles = {
 	Deg3(0, 180 + 180, 0), -- -Z
 }
 
-local function write_capture_rotation_constants(self, block)
-	lightprobes.camera:GetRotation():GetMatrix():CopyToFloatPointer(block.rotation)
+local function write_sky_vertex_constants(self, block)
+	lightprobes.inv_projection_view:CopyToFloatPointer(block.inv_projection_view)
 	return block
 end
 
@@ -443,9 +444,9 @@ function lightprobes.CreatePipelines()
 				{
 					name = "vertex",
 					block = {
-						{"rotation", "mat4"},
+						{"inv_projection_view", "mat4"},
 					},
-					write = write_capture_rotation_constants,
+					write = write_sky_vertex_constants,
 				},
 			},
 			custom_declarations = [[
@@ -461,8 +462,8 @@ function lightprobes.CreatePipelines()
                 void main() {
                     vec2 pos = positions[gl_VertexIndex];
                     gl_Position = vec4(pos, 1.0, 1.0);
-					vec3 local_dir = normalize(vec3(pos.x, -pos.y, -1.0));
-					out_direction = normalize((vertex.rotation * vec4(local_dir, 0.0)).xyz);
+					vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+					out_direction = world_pos.xyz / world_pos.w;
                 }
             ]],
 		},
@@ -547,9 +548,9 @@ function lightprobes.CreatePipelines()
 				{
 					name = "vertex",
 					block = {
-						{"rotation", "mat4"},
+						{"inv_projection_view", "mat4"},
 					},
-					write = write_capture_rotation_constants,
+					write = write_sky_vertex_constants,
 				},
 			},
 			custom_declarations = [[
@@ -565,8 +566,8 @@ function lightprobes.CreatePipelines()
                 void main() {
                     vec2 pos = positions[gl_VertexIndex];
                     gl_Position = vec4(pos, 1.0, 1.0);
-					vec3 local_dir = normalize(vec3(pos.x, -pos.y, -1.0));
-					out_direction = normalize((vertex.rotation * vec4(local_dir, 0.0)).xyz);
+					vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+					out_direction = world_pos.xyz / world_pos.w;
                 }
             ]],
 		},
@@ -645,7 +646,7 @@ function lightprobes.CreatePipelines()
                     float roughness = clamp(fragment.roughness, 0.0, 1.0);
 
                     if (roughness < 0.001) {
-                        prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
+						prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
                         set_color(vec4(prefilteredColor, 1.0));
                         return;
                     }
@@ -669,7 +670,7 @@ function lightprobes.CreatePipelines()
                             float mipBias = max(saSample / saTexel, 1.0);
                             float lod = clamp(0.5 * log2(mipBias), 0.0, 8.0);
 
-                            vec3 sampledColor = textureLod(CUBEMAP(fragment.input_texture_index), L, lod).rgb;
+							vec3 sampledColor = textureLod(CUBEMAP(fragment.input_texture_index), L, lod).rgb;
                             sampledColor = min(sampledColor, vec3(65504.0));
                             
                             prefilteredColor += sampledColor * NoL;
@@ -680,7 +681,7 @@ function lightprobes.CreatePipelines()
                     if (totalWeight > 0.0001) {
                         prefilteredColor /= totalWeight;
                     } else {
-                        prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
+						prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
                     }
                     
                     prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));
@@ -790,6 +791,12 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 		local face_idx = lightprobes.current_face
 		-- Set camera rotation for this face
 		lightprobes.camera:SetAngles(face_angles[face_idx + 1])
+		-- Calculate inverse projection-view for sky rendering
+		local proj = lightprobes.camera:BuildProjectionMatrix()
+		local view = lightprobes.camera:BuildViewMatrix():Copy()
+		view.m30, view.m31, view.m32 = 0, 0, 0
+		local proj_view = view * proj
+		proj_view:GetInverse(lightprobes.inv_projection_view)
 		-- Transition source face to color attachment
 		cmd:PipelineBarrier{
 			srcStage = "fragment_shader",
@@ -958,6 +965,11 @@ function lightprobes.PrefilterProbe(cmd, probe)
 
 		for face = 0, 5 do
 			lightprobes.camera:SetAngles(face_angles[face + 1])
+			local proj = lightprobes.camera:BuildProjectionMatrix()
+			local view = lightprobes.camera:BuildViewMatrix():Copy()
+			view.m30, view.m31, view.m32 = 0, 0, 0
+			local proj_view = view * proj
+			proj_view:GetInverse(lightprobes.inv_projection_view)
 			-- Transition output face/mip to color attachment
 			cmd:PipelineBarrier{
 				srcStage = "fragment_shader",
@@ -1025,7 +1037,6 @@ function lightprobes.UpdateEnvironmentProbe(cmd)
 
 	local own_cmd
 	cmd, own_cmd = acquire_probe_command_buffer(cmd)
-	print("Updating environment probe...")
 	-- Save current face and render all 6 faces for environment
 	local saved_face = lightprobes.current_face
 	lightprobes.current_face = 0
