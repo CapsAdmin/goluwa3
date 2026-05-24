@@ -49,7 +49,6 @@ lightprobes.enabled = lightprobes.enabled ~= false
 lightprobes.probes = lightprobes.probes or {}
 lightprobes.current_scene_probe_index = lightprobes.current_scene_probe_index or 1 -- Current scene probe being updated (1-based, skips environment)
 lightprobes.current_face = lightprobes.current_face or 0
-lightprobes.inv_projection_view = lightprobes.inv_projection_view or Matrix44()
 -- Face rotation angles for cubemap rendering
 local face_angles = {
 	Deg3(0, -90 + 180, 0), -- +X
@@ -59,6 +58,11 @@ local face_angles = {
 	Deg3(0, 0 + 180, 0), -- +Z
 	Deg3(0, 180 + 180, 0), -- -Z
 }
+
+local function write_capture_rotation_constants(self, block)
+	lightprobes.camera:GetRotation():GetMatrix():CopyToFloatPointer(block.rotation)
+	return block
+end
 
 local function initialize_probe_layouts(cmd, probe)
 	if not probe then return end
@@ -439,9 +443,9 @@ function lightprobes.CreatePipelines()
 				{
 					name = "vertex",
 					block = {
-						{"inv_projection_view", "mat4"},
+						{"rotation", "mat4"},
 					},
-					write = write_sky_vertex_constants,
+					write = write_capture_rotation_constants,
 				},
 			},
 			custom_declarations = [[
@@ -453,11 +457,12 @@ function lightprobes.CreatePipelines()
                     vec2( 3.0, -1.0),
                     vec2(-1.0,  3.0)
                 );
+
                 void main() {
                     vec2 pos = positions[gl_VertexIndex];
                     gl_Position = vec4(pos, 1.0, 1.0);
-                    vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
-                    out_direction = world_pos.xyz / world_pos.w;
+					vec3 local_dir = normalize(vec3(pos.x, -pos.y, -1.0));
+					out_direction = normalize((vertex.rotation * vec4(local_dir, 0.0)).xyz);
                 }
             ]],
 		},
@@ -498,8 +503,8 @@ function lightprobes.CreatePipelines()
             ]],
 			shader = [[
                 void main() {
-                    vec3 sky_color_output;
-                    ]] .. atmosphere.GetGLSLMainCode(
+					vec3 sky_color_output;
+					]] .. atmosphere.GetGLSLMainCode(
 					"in_direction",
 					"fragment.sun_direction.xyz",
 					"fragment.camera_position.xyz",
@@ -519,9 +524,8 @@ function lightprobes.CreatePipelines()
 						-1.0,
 						get_fog_sun_horizon_visibility(probe_sun_dir)
 					);
-                    // Clamp sky to prevent infinities
-                    sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
-                    set_color(vec4(sky_color_output, 1.0));
+				    sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
+				    set_color(vec4(sky_color_output, 1.0));
                     // Sky is at infinite distance
                     set_linear_depth(1000.0);
                 }
@@ -543,9 +547,9 @@ function lightprobes.CreatePipelines()
 				{
 					name = "vertex",
 					block = {
-						{"inv_projection_view", "mat4"},
+						{"rotation", "mat4"},
 					},
-					write = write_sky_vertex_constants,
+					write = write_capture_rotation_constants,
 				},
 			},
 			custom_declarations = [[
@@ -557,11 +561,12 @@ function lightprobes.CreatePipelines()
                     vec2( 3.0, -1.0),
                     vec2(-1.0,  3.0)
                 );
+
                 void main() {
                     vec2 pos = positions[gl_VertexIndex];
                     gl_Position = vec4(pos, 1.0, 1.0);
-                    vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
-                    out_direction = world_pos.xyz / world_pos.w;
+					vec3 local_dir = normalize(vec3(pos.x, -pos.y, -1.0));
+					out_direction = normalize((vertex.rotation * vec4(local_dir, 0.0)).xyz);
                 }
             ]],
 		},
@@ -695,9 +700,24 @@ function lightprobes.GetProjectionViewWorldMatrix()
 	return pvm_cached
 end
 
-local function write_sky_vertex_constants(self, block)
-	lightprobes.inv_projection_view:CopyToFloatPointer(block.inv_projection_view)
-	return block
+local function acquire_probe_command_buffer(cmd)
+	if cmd then return cmd, false end
+
+	cmd = render.GetCommandBuffer()
+
+	if cmd then return cmd, false end
+
+	cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	return cmd, true
+end
+
+local function submit_probe_command_buffer(cmd, own_cmd)
+	if not own_cmd then return end
+
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	cmd:Remove()
 end
 
 function lightprobes.UploadConstants()
@@ -770,12 +790,6 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 		local face_idx = lightprobes.current_face
 		-- Set camera rotation for this face
 		lightprobes.camera:SetAngles(face_angles[face_idx + 1])
-		-- Calculate inverse projection-view for sky rendering
-		local proj = lightprobes.camera:BuildProjectionMatrix()
-		local view = lightprobes.camera:BuildViewMatrix():Copy()
-		view.m30, view.m31, view.m32 = 0, 0, 0
-		local proj_view = view * proj
-		proj_view:GetInverse(lightprobes.inv_projection_view)
 		-- Transition source face to color attachment
 		cmd:PipelineBarrier{
 			srcStage = "fragment_shader",
@@ -834,8 +848,8 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 		cmd:SetViewport(0, 0, SIZE, SIZE)
 		cmd:SetScissor(0, 0, SIZE, SIZE)
 		cmd:SetCullMode("none")
-		lightprobes.sky_pipeline:Bind(cmd, 1)
 		lightprobes.sky_pipeline:UploadConstants()
+		lightprobes.sky_pipeline:Bind(cmd)
 		cmd:Draw(3, 1, 0, 0)
 		cmd:EndRendering()
 
@@ -877,7 +891,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 			}
 			cmd:SetViewport(0, 0, SIZE, SIZE)
 			cmd:SetScissor(0, 0, SIZE, SIZE)
-			lightprobes.scene_pipeline:Bind(cmd, 1)
+			lightprobes.scene_pipeline:Bind(cmd)
 			event.Call("DrawProbeGeometry", lightprobes)
 			cmd:EndRendering()
 		end
@@ -944,11 +958,6 @@ function lightprobes.PrefilterProbe(cmd, probe)
 
 		for face = 0, 5 do
 			lightprobes.camera:SetAngles(face_angles[face + 1])
-			local proj = lightprobes.camera:BuildProjectionMatrix()
-			local view = lightprobes.camera:BuildViewMatrix():Copy()
-			view.m30, view.m31, view.m32 = 0, 0, 0
-			local proj_view = view * proj
-			proj_view:GetInverse(lightprobes.inv_projection_view)
 			-- Transition output face/mip to color attachment
 			cmd:PipelineBarrier{
 				srcStage = "fragment_shader",
@@ -976,8 +985,8 @@ function lightprobes.PrefilterProbe(cmd, probe)
 			cmd:SetViewport(0, 0, mip_size, mip_size)
 			cmd:SetScissor(0, 0, mip_size, mip_size)
 			cmd:SetCullMode("none")
-			lightprobes.prefilter_pipeline:Bind(cmd, 1)
 			lightprobes.prefilter_pipeline:UploadConstants()
+			lightprobes.prefilter_pipeline:Bind(cmd)
 			cmd:Draw(3, 1, 0, 0)
 			cmd:EndRendering()
 			-- Transition to shader read
@@ -1005,16 +1014,18 @@ function lightprobes.PrefilterProbe(cmd, probe)
 end
 
 -- Update the environment probe (called every frame if sun changed)
-function lightprobes.UpdateEnvironmentProbe()
+function lightprobes.UpdateEnvironmentProbe(cmd)
 	if not lightprobes.environment_probe then return end
 
-	local cmd = render.GetCommandBuffer()
 	local env_probe = lightprobes.environment_probe
 
 	if not lightprobes.HasSunDirectionChanged() and not env_probe.needs_update then
 		return
 	end
 
+	local own_cmd
+	cmd, own_cmd = acquire_probe_command_buffer(cmd)
+	print("Updating environment probe...")
 	-- Save current face and render all 6 faces for environment
 	local saved_face = lightprobes.current_face
 	lightprobes.current_face = 0
@@ -1024,6 +1035,7 @@ function lightprobes.UpdateEnvironmentProbe()
 	lightprobes.PrefilterProbe(cmd, env_probe)
 	lightprobes.current_face = saved_face
 	env_probe.needs_update = false
+	submit_probe_command_buffer(cmd, own_cmd)
 end
 
 function lightprobes.GetProbes()
@@ -1056,7 +1068,8 @@ event.AddListener("PreRenderPass", "lightprobes_update", function()
 
 	if not lightprobes.sky_pipeline then return end
 
-	lightprobes.UpdateEnvironmentProbe()
+	local cmd, own_cmd = acquire_probe_command_buffer()
+	lightprobes.UpdateEnvironmentProbe(cmd)
 	local scene_probe_index = lightprobes.current_scene_probe_index
 	local scene_probe = lightprobes.probes[scene_probe_index]
 
@@ -1092,6 +1105,8 @@ event.AddListener("PreRenderPass", "lightprobes_update", function()
 			end
 		end
 	end
+
+	submit_probe_command_buffer(cmd, own_cmd)
 end)
 
 -- Initialize immediately only when render3d is already stable. During
