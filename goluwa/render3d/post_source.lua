@@ -28,8 +28,9 @@ function post_source.WriteRawSceneSourceTexture(self, block, key)
 		return
 	end
 
-	if render3d.pipelines.clouds_composite then
-		block[key] = self:GetTextureIndex(render3d.pipelines.clouds_composite:GetFramebuffer():GetAttachment(1))
+	if render3d.pipelines.atmosphere and render3d.pipelines.atmosphere.framebuffers then
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		block[key] = self:GetTextureIndex(render3d.pipelines.atmosphere:GetFramebuffer(current_idx):GetAttachment(1))
 		return
 	end
 

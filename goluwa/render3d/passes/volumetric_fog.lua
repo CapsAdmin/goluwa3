@@ -1,6 +1,5 @@
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
-local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -309,8 +308,6 @@ local r = {
 			const float DEBUG_GOD_RAY_SUN_FACING_BOOST = ]] .. DEBUG_GOD_RAY_SUN_FACING_BOOST .. [[;
 			const float DEBUG_GOD_RAY_SHADOW_CONTRAST = ]] .. DEBUG_GOD_RAY_SHADOW_CONTRAST .. [[;
 			const float DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = ]] .. DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE .. [[;
-			const float CLOUD_MEDIUM_EXTINCTION = 1.8;
-			const float CLOUD_DENSITY_SCALE = 1.35;
 
 			]] .. scene_lights.GetLightGLSLCode() .. [[
 
@@ -420,16 +417,8 @@ local r = {
 				return sun_tint * (0.015 + 0.14 * forward_scatter) * direct_visibility * ATMOSPHERE_SUN_INTENSITY * DEBUG_GOD_RAY_BOOST * sun_facing_boost;
 			}
 
-			float get_froxel_cloud_sun_visibility(vec3 world_pos, vec3 fog_sample, vec3 sun_dir) {
-				vec3 camera_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
-				vec3 up = normalize(camera_origin);
-				float scene_visibility = get_fog_sun_visibility(world_pos, sun_dir);
-				float cloud_visibility = ]] .. (
-					render.clouds and
-					[[get_cloud_shadow_visibility(camera_origin, fog_sample, up, sun_dir, froxel_data.time, froxel_data.blue_noise_tex)]] or
-					[[1.0]]
-				) .. [[;
-				return scene_visibility * cloud_visibility;
+			float get_froxel_sun_visibility(vec3 world_pos, vec3 sun_dir) {
+				return get_fog_sun_visibility(world_pos, sun_dir);
 			}
 
 			int getPointShadowSlot(int light_index) {
@@ -627,22 +616,14 @@ local r = {
 						vec3 world_sample = get_world_pos_at_view_depth(sample_view_depth);
 						vec3 fog_sample = fog_ray_origin + ray_dir * (sample_distance * fog_distance_scale);
 						float fog_density = scenery_fog_density(fog_sample);
-						float cloud_density = ]] .. (
-					render.clouds and
-					[[get_cloud_medium_density(fog_sample, froxel_data.time, froxel_data.blue_noise_tex) * CLOUD_DENSITY_SCALE]] or
-					[[0.0]]
-				) .. [[;
-						float density = fog_density + cloud_density;
 
-						if (density <= 1e-6) continue;
+						if (fog_density <= 1e-6) continue;
 
-						float tau = (fog_density * SCENERY_FOG_EXTINCTION + cloud_density * CLOUD_MEDIUM_EXTINCTION) * step_fog;
+						float tau = fog_density * SCENERY_FOG_EXTINCTION * step_fog;
 						float segment_transmittance = exp(-tau);
 						float segment_scatter_amount = 1.0 - exp(-tau * 1);
-						float sun_visibility = get_froxel_cloud_sun_visibility(world_sample, fog_sample, sun_dir);
+						float sun_visibility = get_froxel_sun_visibility(world_sample, sun_dir);
 						vec3 scattering_light = get_volumetric_scattering_light(ray_dir, sun_dir, sun_visibility);
-						float cloud_weight = clamp(cloud_density / max(density, 1e-5), 0.0, 1.0);
-						scattering_light *= mix(1.0, 1.45, cloud_weight);
 						scattering_light += get_additional_volumetric_light(ray_dir, world_sample);
 						total_scattering += total_transmittance * scattering_light * segment_scatter_amount;
 						total_transmittance *= segment_transmittance;
@@ -670,8 +651,6 @@ local r = {
 						render3d.gbuffer_block,
 						{"source_tex", "int"},
 						{"ocean_distance_tex", "int"},
-						{"time", "float"},
-						{"blue_noise_tex", "int"},
 						unpack(build_scene_light_block_fields()),
 					},
 					write = function(self, block)
@@ -679,8 +658,6 @@ local r = {
 						render3d.WriteGBufferBlock(self, block)
 						get_raw_scene_source_texture(self, block, "source_tex")
 						write_ocean_distance_texture(self, block, "ocean_distance_tex")
-						block.time = system.GetElapsedTime()
-						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 						scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
 						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
 						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
@@ -773,23 +750,11 @@ local r = {
 			}
 
 			float get_medium_density(vec3 sample_point) {
-				float fog_density = scenery_fog_density(sample_point);
-				float cloud_density = ]] .. (
-					render.clouds and
-					[[get_cloud_medium_density(sample_point, fog_data.time, fog_data.blue_noise_tex) * 1.35]] or
-					[[0.0]]
-				) .. [[;
-				return fog_density + cloud_density;
+				return scenery_fog_density(sample_point);
 			}
 
 			float get_medium_extinction(vec3 sample_point) {
-				float fog_density = scenery_fog_density(sample_point);
-				float cloud_density = ]] .. (
-					render.clouds and
-					[[get_cloud_medium_density(sample_point, fog_data.time, fog_data.blue_noise_tex) * 1.35]] or
-					[[0.0]]
-				) .. [[;
-				return fog_density * SCENERY_FOG_EXTINCTION + cloud_density * 1.8;
+				return scenery_fog_density(sample_point) * SCENERY_FOG_EXTINCTION;
 			}
 
 			float get_sky_medium_sun_visibility(vec3 ray_dir, float max_world_distance, vec3 sun_dir) {
@@ -822,21 +787,7 @@ local r = {
 					? weighted_distance / total_weight
 					: segment_near_world + segment_length_world * 0.5;
 				vec3 representative_world_pos = fog_data.camera_position.xyz + ray_dir * representative_world_t;
-				vec3 representative_sample = ray_origin + ray_dir * (representative_world_t * fog_distance_scale);
-				float scene_visibility = get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
-				float cloud_visibility = ]] .. (
-					render.clouds and
-					[[get_cloud_shadow_visibility(
-					ray_origin,
-					representative_sample,
-					normalize(ray_origin),
-					sun_dir,
-					fog_data.time,
-					fog_data.blue_noise_tex
-				)]] or
-					[[1.0]]
-				) .. [[;
-				return scene_visibility * cloud_visibility;
+				return get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
 			}
 
 			float get_sky_medium_transmittance(vec3 ray_dir, float max_world_distance) {
@@ -892,21 +843,7 @@ local r = {
 					? weighted_distance / total_weight
 					: fog_near_world + fog_length_world * 0.35;
 				vec3 representative_world_pos = fog_data.camera_position.xyz + ray_dir * representative_world_t;
-				vec3 representative_fog_sample = fog_ray_origin + ray_dir * (representative_world_t * fog_distance_scale);
-				float scene_visibility = get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
-				float cloud_visibility = ]] .. (
-					render.clouds and
-					[[get_cloud_shadow_visibility(
-					fog_ray_origin,
-					representative_fog_sample,
-					normalize(fog_ray_origin),
-					sun_dir,
-					fog_data.time,
-					-1
-				)]] or
-					[[1.0]]
-				) .. [[;
-				return scene_visibility * cloud_visibility;
+				return get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
 			}
 
 			float get_fog_geometry_sun_visibility(vec3 ray_dir, vec3 world_pos, float max_world_distance, vec3 sun_dir) {
@@ -914,22 +851,7 @@ local r = {
 					return 0.0;
 				}
 
-				vec3 fog_ray_origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
-				vec3 fog_sample = fog_ray_origin + (world_pos - fog_data.camera_position.xyz) * (CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER);
-				float scene_visibility = get_fog_sun_visibility(world_pos, get_normal(), sun_dir);
-				float cloud_visibility = ]] .. (
-					render.clouds and
-					[[get_cloud_shadow_visibility(
-					fog_ray_origin,
-					fog_sample,
-					normalize(fog_ray_origin),
-					sun_dir,
-					fog_data.time,
-					-1
-				)]] or
-					[[1.0]]
-				) .. [[;
-				return scene_visibility * cloud_visibility;
+				return get_fog_sun_visibility(world_pos, get_normal(), sun_dir);
 			}
 
 			float get_fog_transmittance(vec3 ray_dir, float max_world_distance) {

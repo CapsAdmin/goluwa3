@@ -6,7 +6,6 @@ render.flush_callbacks = render.flush_callbacks or {}
 render.flush_callback_order = render.flush_callback_order or {}
 render.is_flushing_callbacks = false
 render.stats = false
-render.clouds = false
 local render_stats = import("goluwa/render/stats.lua")
 
 local function run_flush_callbacks(reason)

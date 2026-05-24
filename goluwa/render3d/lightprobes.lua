@@ -469,10 +469,8 @@ function lightprobes.CreatePipelines()
 						{"stars_texture_index", "int"},
 						{"atmosphere_transmittance_texture_index", "int"},
 						{"atmosphere_sky_view_texture_index", "int"},
-						{"blue_noise_tex", "int"},
 						{"sun_direction", "vec4"},
 						{"camera_position", "vec4"},
-						{"time", "float"},
 					},
 					write = function(self, block)
 						block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
@@ -490,7 +488,6 @@ function lightprobes.CreatePipelines()
 						end
 
 						lightprobes.camera:GetPosition():CopyToFloatPointer(block.camera_position)
-						block.time = system.GetElapsedTime()
 						return block
 					end,
 				},
@@ -508,11 +505,7 @@ function lightprobes.CreatePipelines()
 					"fragment.camera_position.xyz",
 					"fragment.stars_texture_index",
 					"fragment.atmosphere_sky_view_texture_index",
-					"fragment.atmosphere_transmittance_texture_index",
-					"fragment.time",
-					"probe_ground_ambient",
-					"fragment.blue_noise_tex",
-					render.clouds and "true" or "false"
+					"fragment.atmosphere_transmittance_texture_index"
 				) .. [[
 					vec3 probe_ray_dir = normalize(in_direction);
 					vec3 probe_sun_dir = length(fragment.sun_direction.xyz) > 0.0001

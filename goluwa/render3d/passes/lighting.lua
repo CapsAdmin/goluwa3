@@ -70,9 +70,7 @@ return {
 						render3d.common_block,
 						{"primary_sun_intensity", "float"},
 						{"primary_sun_direction", "vec4"},
-						{"stars_texture_index", "int"},
 						{"atmosphere_transmittance_texture_index", "int"},
-						{"atmosphere_sky_view_texture_index", "int"},
 						{"ssr_tex", "int"},
 						{"probe_color_textures", "int", 64},
 						{"probe_depth_textures", "int", 64},
@@ -98,11 +96,7 @@ return {
 						render3d.WriteCommonBlock(self, block)
 						get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
 						block.primary_sun_intensity = get_primary_sun_intensity(lights)
-						block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
 						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-						block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-							atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(lights))
-						)
 
 						if
 							not render3d.pipelines.ssr_resolve or
@@ -206,7 +200,7 @@ return {
 			#define ATMOSPHERE_SUN_INTENSITY lighting_data.primary_sun_intensity
 
 
-			]] .. import("goluwa/render3d/atmosphere.lua").GetGLSLCode() .. [[
+			]] .. import("goluwa/render3d/atmosphere.lua").GetAerialPerspectiveGLSLCode() .. [[
 
 
 			#define SSR 1
@@ -578,32 +572,6 @@ return {
 					return normalize(sunDir);
 				}
 
-			vec3 get_sky() {
-				// Skybox or background
-				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
-				vec4 view_pos = lighting_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
-				vec3 sky_dir = normalize(world_pos - lighting_data.camera_position.xyz);
-					vec3 sunDir = get_primary_sun_direction();
-				vec3 sky_color_output = vec3(0.0);
-
-				]] .. import("goluwa/render3d/atmosphere.lua").GetGLSLMainCode(
-					"sky_dir",
-					"sunDir",
-					"lighting_data.camera_position.xyz",
-					"lighting_data.stars_texture_index",
-					"lighting_data.atmosphere_sky_view_texture_index",
-					"lighting_data.atmosphere_transmittance_texture_index",
-					"lighting_data.time",
-					nil,
-					"lighting_data.blue_noise_tex",
-					"false"
-				) .. [[
-
-				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
-			}
-
 			vec3 subsurface_shading_back(vec3 eye_dir, vec3 light_dir, vec3 normal, vec3 transmission_color, float view_dependency)
 			{
 				float backlit = saturate(dot(-normal, light_dir));
@@ -745,16 +713,15 @@ return {
 			}
 
 			void main() {
-				float alpha = get_alpha();
-				if (alpha == 0.0) discard;
-				
 				float depth = get_depth();
 
 				if (depth == 1.0) {
-					
-					set_color(vec4(get_sky(), 1.0));
+					set_color(vec4(0.0, 0.0, 0.0, 1.0));
 					return;
 				}
+
+				float alpha = get_alpha();
+				if (alpha == 0.0) discard;
 
 
 				vec3 N = get_normal();
