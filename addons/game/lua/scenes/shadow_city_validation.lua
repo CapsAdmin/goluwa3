@@ -121,29 +121,6 @@ local function spawn_plane(parent, name, position, width, height, material, rota
 	return ent
 end
 
-local function spawn_directional_light(parent)
-	local light = create_entity(parent, "shadow_city_validation_sun", Vec3(0, 0, 0), make_rotation(52, -38, 0))
-	local light_component = light:AddComponent("light")
-	light_component:SetLightType("directional")
-	light_component:SetColor(Color(1.0, 0.97, 0.93, 1.0))
-	light_component:SetIntensity(1.75)
-	light_component:SetCastShadows{
-		size = Vec2() + 2048,
-		cascade_count = 4,
-		cascade_sizes = {
-			Vec2() + 4096,
-			Vec2() + 2048,
-			Vec2() + 2048,
-			Vec2() + 2048,
-		},
-		cascade_split_lambda = 0.35,
-		max_shadow_distance = 700,
-		near_plane = 1,
-		far_plane = 700,
-	}
-	return light
-end
-
 local function frame_camera()
 	local camera = render3d.GetCamera and render3d.GetCamera()
 
@@ -184,7 +161,6 @@ fence_material:SetMetallicTexture(shapes.Texture("return vec4(0.12);"))
 fence_material:SetAlphaTest(true)
 fence_material:SetAlphaCutoff(0.5)
 fence_material:SetDoubleSided(true)
---spawn_directional_light(root)
 spawn_box(
 	root,
 	"shadow_city_validation_ground",
