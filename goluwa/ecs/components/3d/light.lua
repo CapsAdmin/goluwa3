@@ -64,14 +64,7 @@ end
 function Light:SetLightType(light_type)
 	self.LightType = light_type
 
-	if light_type == "sun" then
-		self:SetName("sun")
-		self:SetCastShadows{
-			ortho_size = 5,
-			near_plane = 1,
-			far_plane = 500,
-		}
-	end
+	if light_type == "sun" then self:SetName("sun") end
 end
 
 local function position_changed(a, b, epsilon)
