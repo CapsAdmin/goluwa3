@@ -198,6 +198,8 @@ return function(name, base_path, get_valid_components)
 
 		for _, component in ipairs(self.component_list) do
 			if component.Initialize then component:Initialize() end
+
+			if component.OnAdd then component:OnAdd() end
 		end
 
 		if ref then ref(ent) end
@@ -261,6 +263,9 @@ return function(name, base_path, get_valid_components)
 		self.component_map[name] = component
 		self.component_list = self.component_list or {}
 		list.insert(self.component_list, component)
+
+		if not skip_init and component.OnAdd then component:OnAdd() end
+
 		self:NotifyWorldEvent("OnEntityComponentChanged", "added", name, component)
 		return component
 	end

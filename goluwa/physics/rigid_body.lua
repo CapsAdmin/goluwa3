@@ -331,15 +331,14 @@ do
 		return colliders[1]:GetShapeType()
 	end
 
-	function RigidBody:OnAdd(entity)
-		self.Owner = entity
-		local controller = entity.kinematic_controller
+	function RigidBody:OnAdd()
+		local controller = self.Owner.kinematic_controller
 
 		if controller and self:GetMotionType() ~= "kinematic" then
 			self:SetMotionType("kinematic")
 		end
 
-		if entity.transform then self:SynchronizeFromTransform() end
+		if self.Owner.transform then self:SynchronizeFromTransform() end
 	end
 
 	function RigidBody:OnRemove() end
