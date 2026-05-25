@@ -78,12 +78,24 @@ function META:InvalidateMatrices()
 		self.Owner.visual.WorldAABBCache = nil
 		self.Owner.visual.WorldAABBCacheMatrix = nil
 		self.Owner.visual.WorldAABBCacheSource = nil
+		local visual_library = self.Owner.visual.Library
+
+		if visual_library and visual_library.InvalidateSceneAcceleration then
+			visual_library.InvalidateSceneAcceleration()
+		end
 	end
 
 	if self.Owner and self.Owner.visual_primitive then
 		local visual = find_ancestor_visual(self.Owner)
 
-		if visual then visual:InvalidateHierarchyState() end
+		if visual then
+			visual:InvalidateHierarchyState()
+			local visual_library = visual.Library
+
+			if visual_library and visual_library.InvalidateSceneAcceleration then
+				visual_library.InvalidateSceneAcceleration()
+			end
+		end
 	end
 
 	self:InvalidateChildWorldMatrices()

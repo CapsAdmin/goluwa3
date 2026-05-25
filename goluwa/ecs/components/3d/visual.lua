@@ -1,5 +1,6 @@
 local event = import("goluwa/event.lua")
 local prototype = import("goluwa/prototype.lua")
+local BVH = import("goluwa/physics/bvh.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -67,6 +68,190 @@ end
 
 local function material_ignores_z(material)
 	return material and material.GetIgnoreZ and material:GetIgnoreZ() or false
+end
+
+local function invalidate_scene_acceleration()
+	visual.scene_acceleration = visual.scene_acceleration or {}
+	visual.scene_acceleration.dirty = true
+	visual.scene_acceleration.tree = nil
+	visual.scene_acceleration.visible_frame = nil
+	visual.scene_acceleration.visible_components = nil
+end
+
+local function is_visual_dynamic(component)
+	local owner = component and component.Owner
+
+	if owner and owner.rigid_body then return true end
+
+	local transform = owner and owner.transform
+	return transform and transform.IsFrameDynamic and transform:IsFrameDynamic() or false
+end
+
+local function add_scene_acceleration_item(items, component, bounds)
+	if not bounds or bounds.min_x > bounds.max_x then return end
+
+	items[#items + 1] = {
+		component = component,
+		world_aabb = bounds,
+		cull_distance = component.CullDistance,
+		min_x = bounds.min_x,
+		min_y = bounds.min_y,
+		min_z = bounds.min_z,
+		max_x = bounds.max_x,
+		max_y = bounds.max_y,
+		max_z = bounds.max_z,
+		centroid_x = (bounds.min_x + bounds.max_x) * 0.5,
+		centroid_y = (bounds.min_y + bounds.max_y) * 0.5,
+		centroid_z = (bounds.min_z + bounds.max_z) * 0.5,
+	}
+end
+
+local function get_scene_acceleration_item_bounds(item)
+	return item
+end
+
+local function get_scene_acceleration_item_centroid(item)
+	return item.centroid_x, item.centroid_y, item.centroid_z
+end
+
+local function annotate_tree_max_cull_distance(node, items)
+	if not node then return 0 end
+
+	if node.first then
+		local max_cull_distance = 0
+
+		for i = node.first, node.last do
+			local cull_distance = items[i].cull_distance or 0
+
+			if cull_distance > max_cull_distance then max_cull_distance = cull_distance end
+		end
+
+		node.max_cull_distance = max_cull_distance
+		return max_cull_distance
+	end
+
+	local left_distance = annotate_tree_max_cull_distance(node.left, items)
+	local right_distance = annotate_tree_max_cull_distance(node.right, items)
+	node.max_cull_distance = math.max(left_distance, right_distance)
+	return node.max_cull_distance
+end
+
+local function can_use_shadow_aabb_cull(component, render_entries)
+	render_entries = render_entries or component:GetRenderEntries()
+
+	for _, entry in ipairs(render_entries) do
+		local material = component:GetResolvedMaterial(entry)
+
+		if material and material:GetHeightTexture() and material:GetHeightScale() > 0 then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function rebuild_scene_acceleration()
+	local items = {}
+	local dynamic_components = {}
+	local shadow_items = {}
+	local dynamic_shadow_components = {}
+	local non_aabb_shadow_components = {}
+
+	for _, component in ipairs(Visual.Instances or {}) do
+		local render_entries = component:GetRenderEntries()
+
+		if render_entries[1] then
+			local world_aabb = component:GetWorldAABB()
+			local shadow_aabb_cull = component.CastShadows and can_use_shadow_aabb_cull(component, render_entries)
+
+			if is_visual_dynamic(component) then
+				dynamic_components[#dynamic_components + 1] = component
+
+				if component.CastShadows then
+					if shadow_aabb_cull then
+						dynamic_shadow_components[#dynamic_shadow_components + 1] = component
+					else
+						non_aabb_shadow_components[#non_aabb_shadow_components + 1] = component
+					end
+				end
+			else
+				add_scene_acceleration_item(items, component, world_aabb)
+
+				if component.CastShadows then
+					if shadow_aabb_cull then
+						add_scene_acceleration_item(shadow_items, component, world_aabb)
+					else
+						non_aabb_shadow_components[#non_aabb_shadow_components + 1] = component
+					end
+				end
+			end
+		end
+	end
+
+	visual.scene_acceleration = visual.scene_acceleration or {}
+	visual.scene_acceleration.items = items
+	visual.scene_acceleration.dynamic_components = dynamic_components
+	visual.scene_acceleration.shadow_items = shadow_items
+	visual.scene_acceleration.dynamic_shadow_components = dynamic_shadow_components
+	visual.scene_acceleration.non_aabb_shadow_components = non_aabb_shadow_components
+	visual.scene_acceleration.tree = #items > 0 and
+		BVH.Build(
+			items,
+			get_scene_acceleration_item_bounds,
+			get_scene_acceleration_item_centroid,
+			8
+		) or
+		nil
+	visual.scene_acceleration.shadow_tree = #shadow_items > 0 and
+		BVH.Build(
+			shadow_items,
+			get_scene_acceleration_item_bounds,
+			get_scene_acceleration_item_centroid,
+			8
+		) or
+		nil
+	visual.scene_acceleration.visual_count = #(Visual.Instances or {})
+	visual.scene_acceleration.dirty = false
+	visual.scene_acceleration.visible_frame = nil
+	visual.scene_acceleration.visible_components = nil
+
+	if visual.scene_acceleration.tree then
+		visual.scene_acceleration.tree.components = visual.scene_acceleration.tree.items
+		visual.scene_acceleration.tree.items = nil
+		annotate_tree_max_cull_distance(visual.scene_acceleration.tree.root, visual.scene_acceleration.tree.components)
+		visual.scene_acceleration.tree.traversal_context = visual.scene_acceleration.tree.traversal_context or {
+			node_stack = {},
+		}
+	end
+
+	if visual.scene_acceleration.shadow_tree then
+		visual.scene_acceleration.shadow_tree.components = visual.scene_acceleration.shadow_tree.items
+		visual.scene_acceleration.shadow_tree.items = nil
+		annotate_tree_max_cull_distance(visual.scene_acceleration.shadow_tree.root, visual.scene_acceleration.shadow_tree.components)
+		visual.scene_acceleration.shadow_tree.traversal_context = visual.scene_acceleration.shadow_tree.traversal_context or
+			{
+				node_stack = {},
+			}
+	end
+
+	return visual.scene_acceleration
+end
+
+local function ensure_scene_acceleration()
+	local acceleration = visual.scene_acceleration
+
+	if
+		not acceleration or
+		acceleration.dirty or
+		acceleration.visual_count ~= #(
+			Visual.Instances or
+			{}
+		)
+	then
+		return rebuild_scene_acceleration()
+	end
+
+	return acceleration
 end
 
 local function expand_aabb_with_transformed(source, matrix, target)
@@ -149,7 +334,7 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
-Visual:GetSet("CullDistance", 500)
+Visual:GetSet("CullDistance", 2000)
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("AABB", create_empty_aabb())
@@ -160,8 +345,6 @@ function Visual:Initialize()
 	self.RenderEntries = {}
 	self.RenderEntriesDirty = true
 	self.LoadGeneration = 0
-	self:AddGlobalEvent("Draw3DGeometry")
-	self:AddGlobalEvent("Draw3DForwardOverlay")
 end
 
 function Visual:SetUseOcclusionCulling(enabled)
@@ -190,6 +373,7 @@ function Visual:InvalidateRenderEntries()
 	self.WorldAABBCacheMatrix = nil
 	self.WorldAABBCacheSource = nil
 	self.raycast_primitive_acceleration = nil
+	invalidate_scene_acceleration()
 end
 
 function Visual:InvalidateHierarchyState()
@@ -490,6 +674,8 @@ do
 	local cached_frustum_frame = -1
 	local cached_frustum_view = nil
 	local cached_frustum_proj = nil
+	local cached_cull_camera_frame = -1
+	local cached_cull_camera_position = nil
 
 	local function matrix_equals(a, b)
 		if not a or not b then return false end
@@ -538,6 +724,19 @@ do
 		return cached_frustum_planes
 	end
 
+	local function get_cull_camera_position()
+		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+
+		if cached_cull_camera_frame == current_frame and cached_cull_camera_position then
+			return cached_cull_camera_position
+		end
+
+		local camera = render3d.GetCamera()
+		cached_cull_camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
+		cached_cull_camera_frame = current_frame
+		return cached_cull_camera_position
+	end
+
 	local function is_aabb_visible_world(world_aabb)
 		if visual.noculling then return true end
 
@@ -546,16 +745,12 @@ do
 		return is_aabb_visible_frustum(world_aabb, get_frustum_planes())
 	end
 
-	local function is_aabb_within_cull_distance(world_aabb, cull_distance)
+	local function is_aabb_within_cull_distance(world_aabb, cull_distance, camera_position)
 		if visual.noculling then return true end
 
 		if not world_aabb or not cull_distance or cull_distance <= 0 then return true end
 
-		local camera = render3d.GetCamera()
-
-		if not camera or not camera.GetPosition then return true end
-
-		local camera_position = camera:GetPosition()
+		camera_position = camera_position or get_cull_camera_position()
 
 		if not camera_position then return true end
 
@@ -566,6 +761,252 @@ do
 		local dy = camera_position.y - nearest_y
 		local dz = camera_position.z - nearest_z
 		return dx * dx + dy * dy + dz * dz <= cull_distance * cull_distance
+	end
+
+	local function is_node_within_cull_distance(node, camera_position)
+		return is_aabb_within_cull_distance(
+			node and node.aabb or nil,
+			node and node.max_cull_distance or nil,
+			camera_position
+		)
+	end
+
+	local function is_world_aabb_visible(component, world_aabb, frustum_planes)
+		if visual.noculling then return true end
+
+		if not world_aabb then return true end
+
+		if
+			not is_aabb_within_cull_distance(world_aabb, component:GetCullDistance(), get_cull_camera_position())
+		then
+			return false
+		end
+
+		return is_aabb_visible_frustum(world_aabb, frustum_planes or get_frustum_planes())
+	end
+
+	local function is_static_item_visible(item, frustum_planes)
+		if visual.noculling then return true end
+
+		local world_aabb = item.world_aabb
+
+		if not world_aabb then return true end
+
+		if
+			not is_aabb_within_cull_distance(world_aabb, item.cull_distance, get_cull_camera_position())
+		then
+			return false
+		end
+
+		return is_aabb_visible_frustum(world_aabb, frustum_planes)
+	end
+
+	local function append_visible_component(out, component, frustum_planes)
+		if not component.Visible then return out end
+
+		local render_entries = component:GetRenderEntries()
+
+		if not render_entries[1] then
+			component.frustum_culled = false
+			return out
+		end
+
+		local world_aabb = component:GetWorldAABB()
+		local visible = is_world_aabb_visible(component, world_aabb, frustum_planes)
+		component.frustum_culled = not visible
+
+		if visible then out[#out + 1] = component end
+
+		return out
+	end
+
+	local function append_visible_static_item(out, item, frustum_planes)
+		local component = item.component
+
+		if not component.Visible then return out end
+
+		local visible = is_static_item_visible(item, frustum_planes)
+		component.frustum_culled = not visible
+
+		if visible then out[#out + 1] = component end
+
+		return out
+	end
+
+	local function append_shadow_visible_component(out, component, shadow_map, cascade_idx, skip_shadow_aabb)
+		if not component.CastShadows then return out end
+
+		local render_entries = component:GetRenderEntries()
+
+		if not render_entries[1] then return out end
+
+		if not component:IsWithinCullDistance() then return out end
+
+		if not skip_shadow_aabb then
+			local world_aabb = component:GetWorldAABB()
+
+			if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
+				return out
+			end
+		end
+
+		out[#out + 1] = component
+		return out
+	end
+
+	local function append_shadow_visible_static_item(out, item, shadow_map, cascade_idx)
+		local component = item.component
+
+		if not component.CastShadows then return out end
+
+		if
+			not is_aabb_within_cull_distance(item.world_aabb, item.cull_distance, get_cull_camera_position())
+		then
+			return out
+		end
+
+		if not shadow_map:IsWorldAABBVisible(cascade_idx, item.world_aabb) then
+			return out
+		end
+
+		out[#out + 1] = component
+		return out
+	end
+
+	local function collect_visible_static_components(out, frustum_planes)
+		local acceleration = ensure_scene_acceleration()
+
+		if not (acceleration and acceleration.tree and acceleration.tree.root) then
+			return out
+		end
+
+		local tree = acceleration.tree
+		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
+		local camera_position = get_cull_camera_position()
+		node_stack[1] = tree.root
+		local stack_size = 1
+
+		while stack_size > 0 do
+			local node = node_stack[stack_size]
+			node_stack[stack_size] = nil
+			stack_size = stack_size - 1
+
+			if
+				is_node_within_cull_distance(node, camera_position) and
+				is_aabb_visible_frustum(node.aabb, frustum_planes)
+			then
+				if node.first then
+					for i = node.first, node.last do
+						append_visible_static_item(out, tree.components[i], frustum_planes)
+					end
+				else
+					if node.right then
+						stack_size = stack_size + 1
+						node_stack[stack_size] = node.right
+					end
+
+					if node.left then
+						stack_size = stack_size + 1
+						node_stack[stack_size] = node.left
+					end
+				end
+			end
+		end
+
+		return out
+	end
+
+	local function collect_shadow_visible_static_components(out, shadow_map, cascade_idx)
+		local acceleration = ensure_scene_acceleration()
+
+		if not (acceleration and acceleration.shadow_tree and acceleration.shadow_tree.root) then
+			return out
+		end
+
+		local tree = acceleration.shadow_tree
+		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
+		local camera_position = get_cull_camera_position()
+		node_stack[1] = tree.root
+		local stack_size = 1
+
+		while stack_size > 0 do
+			local node = node_stack[stack_size]
+			node_stack[stack_size] = nil
+			stack_size = stack_size - 1
+
+			if
+				is_node_within_cull_distance(node, camera_position) and
+				shadow_map:IsWorldAABBVisible(cascade_idx, node.aabb)
+			then
+				if node.first then
+					for i = node.first, node.last do
+						append_shadow_visible_static_item(out, tree.components[i], shadow_map, cascade_idx)
+					end
+				else
+					if node.right then
+						stack_size = stack_size + 1
+						node_stack[stack_size] = node.right
+					end
+
+					if node.left then
+						stack_size = stack_size + 1
+						node_stack[stack_size] = node.left
+					end
+				end
+			end
+		end
+
+		return out
+	end
+
+	function visual.InvalidateSceneAcceleration()
+		invalidate_scene_acceleration()
+	end
+
+	function visual.GetVisibleVisuals()
+		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+		local acceleration = ensure_scene_acceleration()
+
+		if acceleration.visible_frame == current_frame and acceleration.visible_components then
+			return acceleration.visible_components
+		end
+
+		local frustum_planes = get_frustum_planes()
+		local out = {}
+
+		for _, item in ipairs(acceleration.items or {}) do
+			item.component.frustum_culled = true
+		end
+
+		for _, component in ipairs(acceleration.dynamic_components or {}) do
+			component.frustum_culled = true
+		end
+
+		collect_visible_static_components(out, frustum_planes)
+
+		for _, component in ipairs(acceleration.dynamic_components or {}) do
+			append_visible_component(out, component, frustum_planes)
+		end
+
+		acceleration.visible_frame = current_frame
+		acceleration.visible_components = out
+		return out
+	end
+
+	function visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)
+		local out = {}
+		local acceleration = ensure_scene_acceleration()
+		collect_shadow_visible_static_components(out, shadow_map, cascade_idx)
+
+		for _, component in ipairs(acceleration.dynamic_shadow_components or {}) do
+			append_shadow_visible_component(out, component, shadow_map, cascade_idx)
+		end
+
+		for _, component in ipairs(acceleration.non_aabb_shadow_components or {}) do
+			append_shadow_visible_component(out, component, shadow_map, cascade_idx, true)
+		end
+
+		return out
 	end
 
 	function visual.IsOcclusionCullingEnabled()
@@ -636,11 +1077,7 @@ do
 
 		if not world_aabb then return true end
 
-		if not is_aabb_within_cull_distance(world_aabb, self:GetCullDistance()) then
-			return false
-		end
-
-		return is_aabb_visible_world(world_aabb)
+		return is_world_aabb_visible(self, world_aabb)
 	end
 
 	function Visual:IsWithinCullDistance()
@@ -703,10 +1140,10 @@ function Visual:DrawEntriesForPass(ignore_z, upload_constants, render_entries)
 	return drew_any
 end
 
-function Visual:OnDraw3DGeometry()
+function Visual:DrawGeometryPass(render_entries, skip_visibility)
 	if not self.Visible then return end
 
-	local render_entries = self:GetRenderEntries()
+	render_entries = render_entries or self:GetRenderEntries()
 
 	if not render_entries[1] then return end
 
@@ -714,7 +1151,7 @@ function Visual:OnDraw3DGeometry()
 
 	local cmd = render.GetCommandBuffer()
 
-	if not self:IsAABBVisibleLocal() then
+	if not skip_visibility and not self:IsAABBVisibleLocal() then
 		self.frustum_culled = true
 		return
 	end
@@ -738,28 +1175,36 @@ function Visual:OnDraw3DGeometry()
 	if using_occlusion then self.occlusion_query:EndConditional(cmd) end
 end
 
-function Visual:OnDraw3DForwardOverlay()
+function Visual:OnDraw3DGeometry()
+	return self:DrawGeometryPass()
+end
+
+function Visual:DrawForwardOverlayPass(render_entries, skip_visibility)
 	if not self.Visible then return end
 
-	local render_entries = self:GetRenderEntries()
+	render_entries = render_entries or self:GetRenderEntries()
 
 	if not render_entries[1] then return end
 
 	if not self:HasRenderEntriesForPass(true, render_entries) then return end
 
-	if not self:IsAABBVisibleLocal() then return end
+	if not skip_visibility and not self:IsAABBVisibleLocal() then return end
 
 	self:DrawEntriesForPass(true, render3d.UploadForwardOverlayConstants, render_entries)
 end
 
-function Visual:DrawOcclusionQuery()
+function Visual:OnDraw3DForwardOverlay()
+	return self:DrawForwardOverlayPass()
+end
+
+function Visual:DrawOcclusionQuery(skip_visibility)
 	if self.frustum_culled then return end
 
 	local cmd = render.GetCommandBuffer()
 
 	if visual.freeze_culling then return end
 
-	if not self:IsAABBVisibleLocal() then return end
+	if not skip_visibility and not self:IsAABBVisibleLocal() then return end
 
 	local query = self.UseOcclusionCulling and self.occlusion_query
 
@@ -781,31 +1226,24 @@ function Visual:DrawOcclusionQuery()
 	end
 
 	if query then query:EndQuery(cmd) end
+
+	return query ~= nil
 end
 
-function Visual:DrawShadow(shadow_map, cascade_idx)
+function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibility_checks)
 	if not self.CastShadows then return end
 
-	if not self:IsWithinCullDistance() then return end
+	render_entries = render_entries or self:GetRenderEntries()
 
-	local render_entries = self:GetRenderEntries()
-	local can_use_shadow_aabb_cull = true
+	if not skip_visibility_checks then
+		if not self:IsWithinCullDistance() then return end
 
-	for _, entry in ipairs(render_entries) do
-		local material = self:GetResolvedMaterial(entry)
+		if can_use_shadow_aabb_cull(self, render_entries) then
+			local world_aabb = self:GetWorldAABB()
 
-		if material and material:GetHeightTexture() and material:GetHeightScale() > 0 then
-			can_use_shadow_aabb_cull = false
-
-			break
-		end
-	end
-
-	if can_use_shadow_aabb_cull then
-		local world_aabb = self:GetWorldAABB()
-
-		if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
-			return
+			if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
+				return
+			end
 		end
 	end
 
@@ -853,6 +1291,7 @@ function Visual:OnAdd()
 		self.occlusion_query = render.CreateOcclusionQuery()
 	end
 
+	invalidate_scene_acceleration()
 	refresh_visual_registries(self)
 end
 
@@ -868,9 +1307,22 @@ function Visual:OnRemove()
 
 	self.RenderEntries = {}
 	self:InvalidateRenderEntries()
+	invalidate_scene_acceleration()
 end
 
 function Visual:OnFirstCreated()
+	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
+		for _, component in ipairs(visual.GetVisibleVisuals()) do
+			component:DrawGeometryPass(nil, true)
+		end
+	end)
+
+	event.AddListener("Draw3DForwardOverlay", "visual_forward_overlay_draw", function()
+		for _, component in ipairs(visual.GetVisibleVisuals()) do
+			component:DrawForwardOverlayPass(nil, true)
+		end
+	end)
+
 	event.AddListener("PrimeAllShadowMaterials", "visual_shadow_prime", function(shadow_map)
 		for _, component in ipairs(visual.shadow_casters) do
 			for _, entry in ipairs(component:GetRenderEntries()) do
@@ -880,8 +1332,8 @@ function Visual:OnFirstCreated()
 	end)
 
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
-		for _, component in ipairs(visual.shadow_casters) do
-			component:DrawShadow(shadow_map, cascade_idx)
+		for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
+			component:DrawShadow(shadow_map, cascade_idx, nil, true)
 		end
 	end)
 
@@ -902,12 +1354,16 @@ function Visual:OnFirstCreated()
 		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
 			if visual.freeze_culling then return end
 
-			for _, component in ipairs(visual.non_occlusion_visuals) do
-				if component.Visible then component:DrawOcclusionQuery() end
+			visual.occlusion_query_submitted = visual.occlusion_query_submitted or {}
+
+			for i = #visual.occlusion_query_submitted, 1, -1 do
+				visual.occlusion_query_submitted[i] = nil
 			end
 
-			for _, component in ipairs(visual.occlusion_query_visuals) do
-				if component.Visible then component:DrawOcclusionQuery() end
+			for _, component in ipairs(visual.GetVisibleVisuals()) do
+				if component:DrawOcclusionQuery(true) then
+					visual.occlusion_query_submitted[#visual.occlusion_query_submitted + 1] = component
+				end
 			end
 		end
 	end)
@@ -916,8 +1372,10 @@ function Visual:OnFirstCreated()
 		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
 			if visual.freeze_culling then return end
 
-			for _, component in ipairs(visual.occlusion_query_visuals) do
-				component.occlusion_query:CopyQueryResults(cmd)
+			for _, component in ipairs(visual.occlusion_query_submitted or {}) do
+				local query = component.occlusion_query
+
+				if query then query:CopyQueryResults(cmd) end
 			end
 		end
 	end)

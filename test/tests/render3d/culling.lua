@@ -1,4 +1,173 @@
 local T = import("test/environment.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Material = import("goluwa/render3d/material.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local Texture = import("goluwa/render/texture.lua")
+local Visual = import("goluwa/ecs/components/3d/visual.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Color = import("goluwa/structs/color.lua")
+local Entity = import("goluwa/ecs/entity.lua")
+
+local function attach_visual(entity, polygon3d, material)
+	entity:AddComponent("visual")
+	local primitive = Entity.New{
+		Name = (entity:GetName() or "culling") .. "_primitive",
+		Parent = entity,
+	}
+	primitive:AddComponent("transform")
+	local visual_primitive = primitive:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(polygon3d)
+	visual_primitive:SetMaterial(material)
+	entity.visual:BuildAABB()
+	entity.visual:SetUseOcclusionCulling(false)
+	return entity.visual
+end
+
+local function build_cube_polygon()
+	local polygon3d = Polygon3D.New()
+	polygon3d:CreateCube(1)
+	polygon3d:BuildBoundingBox()
+	polygon3d:Upload()
+	return polygon3d
+end
+
+local function configure_camera()
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(90))
+	camera:SetNearZ(0.1)
+	camera:SetFarZ(100)
+	camera:SetPosition(Vec3(0, 0, 0))
+	camera:SetRotation(Quat():Identity())
+	return camera
+end
+
+local function visible_lookup(components)
+	local lookup = {}
+
+	for _, component in ipairs(components) do
+		lookup[component] = true
+	end
+
+	return lookup
+end
+
+T.Test3D("Graphics render3d culling acceleration returns only frustum and distance visible visuals", function()
+	local sun = Entity.New{
+		transform = {},
+		light = {
+			LightType = "sun",
+			Color = Color(1, 1, 1),
+			Intensity = 1,
+		},
+	}
+	configure_camera()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local front = Entity.New({Name = "front_visual"})
+	front:AddComponent("transform")
+	front.transform:SetPosition(Vec3(0, 0, -6))
+	attach_visual(front, polygon3d, material)
+	local behind = Entity.New({Name = "behind_visual"})
+	behind:AddComponent("transform")
+	behind.transform:SetPosition(Vec3(0, 0, 6))
+	attach_visual(behind, polygon3d, material)
+	local far = Entity.New({Name = "far_visual"})
+	far:AddComponent("transform")
+	far.transform:SetPosition(Vec3(0, 0, -20))
+	attach_visual(far, polygon3d, material)
+	far.visual:SetCullDistance(2)
+	Visual.Library.InvalidateSceneAcceleration()
+	local visible = visible_lookup(Visual.Library.GetVisibleVisuals())
+	T(visible[front.visual])["=="](true)
+	T(visible[behind.visual])["=="](nil)
+	T(visible[far.visual])["=="](nil)
+	front:Remove()
+	behind:Remove()
+	far:Remove()
+	sun:Remove()
+end)
+
+T.Test3D("Graphics render3d culling acceleration invalidates after transform moves", function()
+	local sun = Entity.New{
+		transform = {},
+		light = {
+			LightType = "sun",
+			Color = Color(1, 1, 1),
+			Intensity = 1,
+		},
+	}
+	configure_camera()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local entity = Entity.New({Name = "moving_visual"})
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, 6))
+	attach_visual(entity, polygon3d, material)
+	Visual.Library.InvalidateSceneAcceleration()
+	local initially_visible = visible_lookup(Visual.Library.GetVisibleVisuals())
+	T(initially_visible[entity.visual])["=="](nil)
+	entity.transform:SetPosition(Vec3(0, 0, -6))
+	local moved_visible = visible_lookup(Visual.Library.GetVisibleVisuals())
+	T(moved_visible[entity.visual])["=="](true)
+	entity:Remove()
+	sun:Remove()
+end)
+
+T.Test3D("Graphics render3d shadow acceleration filters safe casters and preserves displaced fallback casters", function()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local displaced_material = Material.New()
+	displaced_material:SetHeightTexture(Texture.GetFallback())
+	displaced_material:SetHeightScale(1)
+	local inside = Entity.New({Name = "shadow_inside"})
+	inside:AddComponent("transform")
+	inside.transform:SetPosition(Vec3(0, 0, -6))
+	attach_visual(inside, polygon3d, material)
+	local outside = Entity.New({Name = "shadow_outside"})
+	outside:AddComponent("transform")
+	outside.transform:SetPosition(Vec3(50, 0, -6))
+	attach_visual(outside, polygon3d, material)
+	local displaced = Entity.New({Name = "shadow_displaced"})
+	displaced:AddComponent("transform")
+	displaced.transform:SetPosition(Vec3(60, 0, -6))
+	attach_visual(displaced, polygon3d, displaced_material)
+	Visual.Library.InvalidateSceneAcceleration()
+	local shadow_map = {
+		IsWorldAABBVisible = function(self, cascade_idx, world_aabb)
+			return world_aabb.min_x < 10
+		end,
+	}
+	local visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
+	T(visible[inside.visual])["=="](true)
+	T(visible[outside.visual])["=="](nil)
+	T(visible[displaced.visual])["=="](true)
+	inside:Remove()
+	outside:Remove()
+	displaced:Remove()
+end)
+
+T.Test3D("Graphics render3d shadow acceleration invalidates after transform moves", function()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local entity = Entity.New({Name = "moving_shadow"})
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(50, 0, -6))
+	attach_visual(entity, polygon3d, material)
+	Visual.Library.InvalidateSceneAcceleration()
+	local shadow_map = {
+		IsWorldAABBVisible = function(self, cascade_idx, world_aabb)
+			return world_aabb.min_x < 10
+		end,
+	}
+	local initially_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
+	T(initially_visible[entity.visual])["=="](nil)
+	entity.transform:SetPosition(Vec3(0, 0, -6))
+	local moved_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
+	T(moved_visible[entity.visual])["=="](true)
+	entity:Remove()
+end)
+
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
