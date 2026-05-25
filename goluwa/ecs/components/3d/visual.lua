@@ -13,6 +13,54 @@ local ffi = require("ffi")
 local Visual = prototype.CreateTemplate("visual")
 local visual = library()
 
+local function registry_insert(registry, index_field, component)
+	if component[index_field] then return end
+
+	registry[#registry + 1] = component
+	component[index_field] = #registry
+end
+
+local function registry_remove(registry, index_field, component)
+	local index = component[index_field]
+
+	if not index then return end
+
+	local last_index = #registry
+	local last_component = registry[last_index]
+	registry[index] = last_component
+	registry[last_index] = nil
+	component[index_field] = nil
+
+	if last_component and last_component ~= component then
+		last_component[index_field] = index
+	end
+end
+
+local function refresh_shadow_registry(component)
+	if component.CastShadows then
+		registry_insert(visual.shadow_casters, "shadow_registry_index", component)
+	else
+		registry_remove(visual.shadow_casters, "shadow_registry_index", component)
+	end
+end
+
+local function refresh_occlusion_registries(component)
+	local has_query = component.UseOcclusionCulling and component.occlusion_query ~= nil
+
+	if has_query then
+		registry_remove(visual.non_occlusion_visuals, "non_occlusion_registry_index", component)
+		registry_insert(visual.occlusion_query_visuals, "occlusion_registry_index", component)
+	else
+		registry_remove(visual.occlusion_query_visuals, "occlusion_registry_index", component)
+		registry_insert(visual.non_occlusion_visuals, "non_occlusion_registry_index", component)
+	end
+end
+
+local function refresh_visual_registries(component)
+	refresh_shadow_registry(component)
+	refresh_occlusion_registries(component)
+end
+
 local function create_empty_aabb()
 	return AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 end
@@ -24,32 +72,63 @@ end
 local function expand_aabb_with_transformed(source, matrix, target)
 	if not source then return end
 
-	local corners = {
-		{source.min_x, source.min_y, source.min_z},
-		{source.min_x, source.min_y, source.max_z},
-		{source.min_x, source.max_y, source.min_z},
-		{source.min_x, source.max_y, source.max_z},
-		{source.max_x, source.min_y, source.min_z},
-		{source.max_x, source.min_y, source.max_z},
-		{source.max_x, source.max_y, source.min_z},
-		{source.max_x, source.max_y, source.max_z},
-	}
+	if matrix.m03 == 0 and matrix.m13 == 0 and matrix.m23 == 0 and matrix.m33 == 1 then
+		local center_x = (source.min_x + source.max_x) * 0.5
+		local center_y = (source.min_y + source.max_y) * 0.5
+		local center_z = (source.min_z + source.max_z) * 0.5
+		local extent_x = (source.max_x - source.min_x) * 0.5
+		local extent_y = (source.max_y - source.min_y) * 0.5
+		local extent_z = (source.max_z - source.min_z) * 0.5
+		local world_x, world_y, world_z = matrix:TransformVectorUnpacked(center_x, center_y, center_z)
+		local world_extent_x = math.abs(matrix.m00) * extent_x + math.abs(matrix.m10) * extent_y + math.abs(matrix.m20) * extent_z
+		local world_extent_y = math.abs(matrix.m01) * extent_x + math.abs(matrix.m11) * extent_y + math.abs(matrix.m21) * extent_z
+		local world_extent_z = math.abs(matrix.m02) * extent_x + math.abs(matrix.m12) * extent_y + math.abs(matrix.m22) * extent_z
+		local min_x = world_x - world_extent_x
+		local min_y = world_y - world_extent_y
+		local min_z = world_z - world_extent_z
+		local max_x = world_x + world_extent_x
+		local max_y = world_y + world_extent_y
+		local max_z = world_z + world_extent_z
 
-	for _, corner in ipairs(corners) do
-		local x, y, z = matrix:TransformVectorUnpacked(corner[1], corner[2], corner[3])
+		if min_x < target.min_x then target.min_x = min_x end
 
-		if x < target.min_x then target.min_x = x end
+		if min_y < target.min_y then target.min_y = min_y end
 
-		if y < target.min_y then target.min_y = y end
+		if min_z < target.min_z then target.min_z = min_z end
 
-		if z < target.min_z then target.min_z = z end
+		if max_x > target.max_x then target.max_x = max_x end
 
-		if x > target.max_x then target.max_x = x end
+		if max_y > target.max_y then target.max_y = max_y end
 
-		if y > target.max_y then target.max_y = y end
+		if max_z > target.max_z then target.max_z = max_z end
 
-		if z > target.max_z then target.max_z = z end
+		return
 	end
+
+	local function expand_point(x, y, z)
+		local transformed_x, transformed_y, transformed_z = matrix:TransformVectorUnpacked(x, y, z)
+
+		if transformed_x < target.min_x then target.min_x = transformed_x end
+
+		if transformed_y < target.min_y then target.min_y = transformed_y end
+
+		if transformed_z < target.min_z then target.min_z = transformed_z end
+
+		if transformed_x > target.max_x then target.max_x = transformed_x end
+
+		if transformed_y > target.max_y then target.max_y = transformed_y end
+
+		if transformed_z > target.max_z then target.max_z = transformed_z end
+	end
+
+	expand_point(source.min_x, source.min_y, source.min_z)
+	expand_point(source.min_x, source.min_y, source.max_z)
+	expand_point(source.min_x, source.max_y, source.min_z)
+	expand_point(source.min_x, source.max_y, source.max_z)
+	expand_point(source.max_x, source.min_y, source.min_z)
+	expand_point(source.max_x, source.min_y, source.max_z)
+	expand_point(source.max_x, source.max_y, source.min_z)
+	expand_point(source.max_x, source.max_y, source.max_z)
 end
 
 local function build_transformed_aabb(source, matrix)
@@ -70,6 +149,7 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
+Visual:GetSet("CullDistance", 500)
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("AABB", create_empty_aabb())
@@ -89,11 +169,23 @@ function Visual:SetUseOcclusionCulling(enabled)
 
 	if enabled and not self.occlusion_query and visual.IsOcclusionCullingEnabled() then
 		self.occlusion_query = render.CreateOcclusionQuery()
+	elseif not enabled and self.occlusion_query then
+		self.occlusion_query:Delete()
+		self.occlusion_query = nil
 	end
+
+	refresh_occlusion_registries(self)
+end
+
+function Visual:SetCastShadows(enabled)
+	prototype.CommitProperty(self, "CastShadows", enabled)
+	refresh_shadow_registry(self)
 end
 
 function Visual:InvalidateRenderEntries()
 	self.RenderEntriesDirty = true
+	self.HasIgnoreZRenderEntries = false
+	self.HasOpaqueRenderEntries = false
 	self.WorldAABBCache = nil
 	self.WorldAABBCacheMatrix = nil
 	self.WorldAABBCacheSource = nil
@@ -207,6 +299,8 @@ end
 function Visual:RebuildRenderEntries()
 	local entries = {}
 	local bounds = create_empty_aabb()
+	local has_ignore_z_entries = false
+	local has_opaque_entries = false
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		local primitive = child.visual_primitive
@@ -217,6 +311,7 @@ function Visual:RebuildRenderEntries()
 			if polygon3d then
 				local source_aabb = primitive:GetLocalAABB()
 				local transform = child.transform
+				local material = primitive:GetMaterial()
 				local local_matrix = transform and transform:GetLocalMatrix() or nil
 				local local_matrix_inverse = local_matrix and local_matrix:GetInverse() or nil
 				local local_aabb = build_transformed_aabb(source_aabb, local_matrix)
@@ -228,10 +323,16 @@ function Visual:RebuildRenderEntries()
 					transform = transform,
 					local_matrix = local_matrix,
 					local_matrix_inverse = local_matrix_inverse,
-					material = primitive:GetMaterial(),
+					material = material,
 					aabb = local_aabb,
 					source_aabb = source_aabb,
 				}
+
+				if material_ignores_z(material) then
+					has_ignore_z_entries = true
+				else
+					has_opaque_entries = true
+				end
 
 				if local_aabb then bounds:Expand(local_aabb) end
 			end
@@ -240,6 +341,8 @@ function Visual:RebuildRenderEntries()
 
 	self.RenderEntries = entries
 	self.RenderEntriesDirty = false
+	self.HasIgnoreZRenderEntries = has_ignore_z_entries
+	self.HasOpaqueRenderEntries = has_opaque_entries
 	self:SetAABB(bounds)
 	return entries
 end
@@ -293,34 +396,8 @@ function Visual:GetWorldAABB()
 		return self.WorldAABBCache
 	end
 
-	local corners = {
-		{local_aabb.min_x, local_aabb.min_y, local_aabb.min_z},
-		{local_aabb.min_x, local_aabb.min_y, local_aabb.max_z},
-		{local_aabb.min_x, local_aabb.max_y, local_aabb.min_z},
-		{local_aabb.min_x, local_aabb.max_y, local_aabb.max_z},
-		{local_aabb.max_x, local_aabb.min_y, local_aabb.min_z},
-		{local_aabb.max_x, local_aabb.min_y, local_aabb.max_z},
-		{local_aabb.max_x, local_aabb.max_y, local_aabb.min_z},
-		{local_aabb.max_x, local_aabb.max_y, local_aabb.max_z},
-	}
 	local world_aabb = create_empty_aabb()
-
-	for _, corner in ipairs(corners) do
-		local wx, wy, wz = world_matrix:TransformVectorUnpacked(corner[1], corner[2], corner[3])
-
-		if wx < world_aabb.min_x then world_aabb.min_x = wx end
-
-		if wy < world_aabb.min_y then world_aabb.min_y = wy end
-
-		if wz < world_aabb.min_z then world_aabb.min_z = wz end
-
-		if wx > world_aabb.max_x then world_aabb.max_x = wx end
-
-		if wy > world_aabb.max_y then world_aabb.max_y = wy end
-
-		if wz > world_aabb.max_z then world_aabb.max_z = wz end
-	end
-
+	expand_aabb_with_transformed(local_aabb, world_matrix, world_aabb)
 	self.WorldAABBCache = world_aabb
 	self.WorldAABBCacheMatrix = world_matrix
 	self.WorldAABBCacheSource = local_aabb
@@ -338,6 +415,9 @@ do
 	visual.occlusion_query_fps = 30
 	visual.last_occlusion_query_time = 0
 	visual.should_run_queries_this_frame = true
+	visual.shadow_casters = visual.shadow_casters or {}
+	visual.occlusion_query_visuals = visual.occlusion_query_visuals or {}
+	visual.non_occlusion_visuals = visual.non_occlusion_visuals or {}
 
 	local function extract_frustum_planes(proj_view_matrix, out_planes)
 		local m = proj_view_matrix
@@ -466,6 +546,28 @@ do
 		return is_aabb_visible_frustum(world_aabb, get_frustum_planes())
 	end
 
+	local function is_aabb_within_cull_distance(world_aabb, cull_distance)
+		if visual.noculling then return true end
+
+		if not world_aabb or not cull_distance or cull_distance <= 0 then return true end
+
+		local camera = render3d.GetCamera()
+
+		if not camera or not camera.GetPosition then return true end
+
+		local camera_position = camera:GetPosition()
+
+		if not camera_position then return true end
+
+		local nearest_x = math.clamp(camera_position.x, world_aabb.min_x, world_aabb.max_x)
+		local nearest_y = math.clamp(camera_position.y, world_aabb.min_y, world_aabb.max_y)
+		local nearest_z = math.clamp(camera_position.z, world_aabb.min_z, world_aabb.max_z)
+		local dx = camera_position.x - nearest_x
+		local dy = camera_position.y - nearest_y
+		local dz = camera_position.z - nearest_z
+		return dx * dx + dy * dy + dz * dz <= cull_distance * cull_distance
+	end
+
 	function visual.IsOcclusionCullingEnabled()
 		return visual.occlusion_culling_enabled
 	end
@@ -534,26 +636,43 @@ do
 
 		if not world_aabb then return true end
 
+		if not is_aabb_within_cull_distance(world_aabb, self:GetCullDistance()) then
+			return false
+		end
+
 		return is_aabb_visible_world(world_aabb)
+	end
+
+	function Visual:IsWithinCullDistance()
+		if visual.noculling then return true end
+
+		local world_aabb = self:GetWorldAABB()
+
+		if not world_aabb then return true end
+
+		return is_aabb_within_cull_distance(world_aabb, self:GetCullDistance())
 	end
 
 	Visual.Library = visual
 end
 
-function Visual:HasRenderEntriesForPass(ignore_z)
-	for _, entry in ipairs(self:GetRenderEntries()) do
-		if material_ignores_z(self:GetResolvedMaterial(entry)) == ignore_z then
-			return true
-		end
+function Visual:HasRenderEntriesForPass(ignore_z, render_entries)
+	render_entries = render_entries or self:GetRenderEntries()
+
+	if not render_entries[1] then return false end
+
+	if self.MaterialOverride then
+		return material_ignores_z(self.MaterialOverride) == ignore_z
 	end
 
-	return false
+	return ignore_z and self.HasIgnoreZRenderEntries or self.HasOpaqueRenderEntries
 end
 
-function Visual:DrawEntriesForPass(ignore_z, upload_constants)
+function Visual:DrawEntriesForPass(ignore_z, upload_constants, render_entries)
 	local drew_any = false
+	render_entries = render_entries or self:GetRenderEntries()
 
-	for _, entry in ipairs(self:GetRenderEntries()) do
+	for _, entry in ipairs(render_entries) do
 		local material = self:GetResolvedMaterial(entry)
 
 		if material_ignores_z(material) == ignore_z then
@@ -587,9 +706,11 @@ end
 function Visual:OnDraw3DGeometry()
 	if not self.Visible then return end
 
-	if not self:GetRenderEntries()[1] then return end
+	local render_entries = self:GetRenderEntries()
 
-	if not self:HasRenderEntriesForPass(false) then return end
+	if not render_entries[1] then return end
+
+	if not self:HasRenderEntriesForPass(false, render_entries) then return end
 
 	local cmd = render.GetCommandBuffer()
 
@@ -612,7 +733,7 @@ function Visual:OnDraw3DGeometry()
 		self.using_conditional_rendering = false
 	end
 
-	self:DrawEntriesForPass(false, render3d.UploadGBufferConstants)
+	self:DrawEntriesForPass(false, render3d.UploadGBufferConstants, render_entries)
 
 	if using_occlusion then self.occlusion_query:EndConditional(cmd) end
 end
@@ -620,13 +741,15 @@ end
 function Visual:OnDraw3DForwardOverlay()
 	if not self.Visible then return end
 
-	if not self:GetRenderEntries()[1] then return end
+	local render_entries = self:GetRenderEntries()
 
-	if not self:HasRenderEntriesForPass(true) then return end
+	if not render_entries[1] then return end
+
+	if not self:HasRenderEntriesForPass(true, render_entries) then return end
 
 	if not self:IsAABBVisibleLocal() then return end
 
-	self:DrawEntriesForPass(true, render3d.UploadForwardOverlayConstants)
+	self:DrawEntriesForPass(true, render3d.UploadForwardOverlayConstants, render_entries)
 end
 
 function Visual:DrawOcclusionQuery()
@@ -662,6 +785,8 @@ end
 
 function Visual:DrawShadow(shadow_map, cascade_idx)
 	if not self.CastShadows then return end
+
+	if not self:IsWithinCullDistance() then return end
 
 	local render_entries = self:GetRenderEntries()
 	local can_use_shadow_aabb_cull = true
@@ -699,6 +824,8 @@ end
 function Visual:DrawProbeGeometry(lightprobes)
 	if not self.Visible then return end
 
+	if not self:IsWithinCullDistance() then return end
+
 	for _, entry in ipairs(self:GetRenderEntries()) do
 		local transform = entry.transform
 		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
@@ -725,9 +852,15 @@ function Visual:OnAdd()
 	if self.UseOcclusionCulling and visual.IsOcclusionCullingEnabled() then
 		self.occlusion_query = render.CreateOcclusionQuery()
 	end
+
+	refresh_visual_registries(self)
 end
 
 function Visual:OnRemove()
+	registry_remove(visual.shadow_casters, "shadow_registry_index", self)
+	registry_remove(visual.occlusion_query_visuals, "occlusion_registry_index", self)
+	registry_remove(visual.non_occlusion_visuals, "non_occlusion_registry_index", self)
+
 	if self.occlusion_query then
 		self.occlusion_query:Delete()
 		self.occlusion_query = nil
@@ -739,18 +872,16 @@ end
 
 function Visual:OnFirstCreated()
 	event.AddListener("PrimeAllShadowMaterials", "visual_shadow_prime", function(shadow_map)
-		for _, visual in ipairs(Visual.Instances) do
-			if visual.CastShadows then
-				for _, entry in ipairs(visual:GetRenderEntries()) do
-					shadow_map:PrimeMaterial(visual:GetResolvedMaterial(entry))
-				end
+		for _, component in ipairs(visual.shadow_casters) do
+			for _, entry in ipairs(component:GetRenderEntries()) do
+				shadow_map:PrimeMaterial(component:GetResolvedMaterial(entry))
 			end
 		end
 	end)
 
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
-		for _, visual in ipairs(Visual.Instances) do
-			visual:DrawShadow(shadow_map, cascade_idx)
+		for _, component in ipairs(visual.shadow_casters) do
+			component:DrawShadow(shadow_map, cascade_idx)
 		end
 	end)
 
@@ -761,10 +892,8 @@ function Visual:OnFirstCreated()
 		visual.UpdateOcclusionQueryTiming()
 
 		if visual.should_run_queries_this_frame and not visual.freeze_culling then
-			for _, component in ipairs(Visual.Instances) do
-				if component.UseOcclusionCulling and component.occlusion_query then
-					component.occlusion_query:ResetQuery(cmd)
-				end
+			for _, component in ipairs(visual.occlusion_query_visuals) do
+				component.occlusion_query:ResetQuery(cmd)
 			end
 		end
 	end)
@@ -773,28 +902,12 @@ function Visual:OnFirstCreated()
 		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
 			if visual.freeze_culling then return end
 
-			for _, component in ipairs(Visual.Instances) do
-				if
-					component.Visible and
-					not (
-						component.UseOcclusionCulling and
-						component.occlusion_query
-					)
-				then
-					component:DrawOcclusionQuery()
-				end
+			for _, component in ipairs(visual.non_occlusion_visuals) do
+				if component.Visible then component:DrawOcclusionQuery() end
 			end
 
-			for _, component in ipairs(Visual.Instances) do
-				if
-					component.Visible and
-					(
-						component.UseOcclusionCulling and
-						component.occlusion_query
-					)
-				then
-					component:DrawOcclusionQuery()
-				end
+			for _, component in ipairs(visual.occlusion_query_visuals) do
+				if component.Visible then component:DrawOcclusionQuery() end
 			end
 		end
 	end)
@@ -803,10 +916,8 @@ function Visual:OnFirstCreated()
 		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
 			if visual.freeze_culling then return end
 
-			for _, component in ipairs(Visual.Instances) do
-				if component.UseOcclusionCulling and component.occlusion_query then
-					component.occlusion_query:CopyQueryResults(cmd)
-				end
+			for _, component in ipairs(visual.occlusion_query_visuals) do
+				component.occlusion_query:CopyQueryResults(cmd)
 			end
 		end
 	end)
