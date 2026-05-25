@@ -877,7 +877,6 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 				if (
 					%s == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
-					AlbedoTextureAlphaIsRoughness ||
 					AlbedoAlphaIsEmissive
 				) {
 					return %s;

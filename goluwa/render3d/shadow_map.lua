@@ -132,7 +132,6 @@ local ShadowStateUniformDecl = [[
 		float height_scale;
 		float height_center;
 		float tessellation_factor;
-		int debug_force_opaque;
 	}
 ]]
 local SHADOW_PUSH_CONSTANT_GLSL = [[
@@ -154,7 +153,6 @@ local SHADOW_STATE_UNIFORM_GLSL = [[
 		float height_scale;
 		float height_center;
 		float tessellation_factor;
-		int debug_force_opaque;
 	} shadow_state;
 ]]
 local NO_SHADOW_STATE_MATERIAL = {}
@@ -255,7 +253,6 @@ local function build_shadow_fragment_shader(bindless_texture_capacity, linear_de
 			[[
 					void main() {
 						float alpha = get_alpha();
-						if (shadow_state.debug_force_opaque != 0) alpha = 1.0;
 						compute_translucency_and_discard(alpha);
 						float light_distance = length(in_world_pos - shadow_state.light_position);
 						out_distance = clamp(light_distance / max(shadow_state.light_far_plane, 0.0001), 0.0, 1.0);
@@ -264,7 +261,6 @@ local function build_shadow_fragment_shader(bindless_texture_capacity, linear_de
 			[[
 					void main() {
 						float alpha = get_alpha();
-						if (shadow_state.debug_force_opaque != 0) alpha = 1.0;
 						compute_translucency_and_discard(alpha);
 					}
 				]]
@@ -535,7 +531,6 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 		data.height_scale = material:GetHeightScale()
 		data.height_center = material:GetHeightCenter()
 		data.tessellation_factor = material:GetTessellationFactor()
-		data.debug_force_opaque = material.shadow_debug_force_opaque and 1 or 0
 	else
 		data.albedo_texture_index = 0
 		data.opacity_texture_index = -1
@@ -546,7 +541,6 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 		data.height_scale = 0.0
 		data.height_center = 0.5
 		data.tessellation_factor = 1.0
-		data.debug_force_opaque = 0
 	end
 
 	local offset = self.shadow_state_buffer:Upload(frame_index)
