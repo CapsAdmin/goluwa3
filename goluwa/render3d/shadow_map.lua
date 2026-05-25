@@ -55,13 +55,76 @@ local function use_tessellated_shadow(material)
 		material:GetTessellationFactor() > 1.0
 end
 
+local function get_shadow_material_texture_cache(self)
+	self.shadow_material_texture_cache = self.shadow_material_texture_cache or setmetatable({}, {__mode = "k"})
+	return self.shadow_material_texture_cache
+end
+
+local function cache_shadow_material_texture_indices(self, material, pipeline)
+	if not material or not pipeline then return nil end
+
+	local cache = get_shadow_material_texture_cache(self)
+	local material_cache = cache[material]
+
+	if not material_cache then
+		material_cache = setmetatable({}, {__mode = "k"})
+		cache[material] = material_cache
+	end
+
+	local entry = material_cache[pipeline] or {}
+	local albedo_texture = material:GetAlbedoTexture()
+	local opacity_texture = material:GetOpacityTexture()
+	local height_texture = material:GetHeightTexture()
+	local albedo_view = albedo_texture and albedo_texture:GetView() or nil
+	local opacity_view = opacity_texture and opacity_texture:GetView() or nil
+	local height_view = height_texture and height_texture:GetView() or nil
+
+	if
+		entry.albedo_texture ~= albedo_texture or
+		entry.albedo_view ~= albedo_view or
+		entry.opacity_texture ~= opacity_texture or
+		entry.opacity_view ~= opacity_view or
+		entry.height_texture ~= height_texture or
+		entry.height_view ~= height_view
+	then
+		entry.albedo_texture = albedo_texture
+		entry.albedo_view = albedo_view
+		entry.opacity_texture = opacity_texture
+		entry.opacity_view = opacity_view
+		entry.height_texture = height_texture
+		entry.height_view = height_view
+		entry.albedo_texture_index = pipeline:GetTextureIndex(albedo_texture)
+		entry.opacity_texture_index = pipeline:GetTextureIndex(opacity_texture)
+		entry.height_texture_index = pipeline:GetTextureIndex(height_texture)
+		material_cache[pipeline] = entry
+	end
+
+	return entry
+end
+
+local function get_cached_shadow_material_texture_indices(self, material, pipeline)
+	local cache = self.shadow_material_texture_cache
+	local material_cache = cache and cache[material] or nil
+	local entry = material_cache and material_cache[pipeline] or nil
+
+	if entry then return entry end
+
+	return nil
+end
+
 -- Push constants for shadow pass (MVP matrix + texture index for alpha testing)
-local ShadowVertexConstants = ffi.typeof([[
+local ShadowDrawPushConstants = ffi.typeof([[
+	struct {
+		float world[16];
+	}
+]])
+local ShadowStateUniformDecl = [[
 	struct {
 		float light_space_matrix[16];
 		float light_position[3];
 		float light_far_plane;
 		int albedo_texture_index;
+		int opacity_texture_index;
 		int height_texture_index;
 		int flags;
 		float color_multiplier_a;
@@ -69,19 +132,21 @@ local ShadowVertexConstants = ffi.typeof([[
 		float height_scale;
 		float height_center;
 		float tessellation_factor;
-	}
-]])
-local ShadowTransformUniformDecl = [[
-	struct {
-		float world[16];
+		int debug_force_opaque;
 	}
 ]]
 local SHADOW_PUSH_CONSTANT_GLSL = [[
 	layout(push_constant, scalar) uniform Constants {
+		mat4 world;
+	} pc;
+]]
+local SHADOW_STATE_UNIFORM_GLSL = [[
+	layout(scalar, binding = 2) uniform ShadowState_t {
 		mat4 light_space_matrix;
-			vec3 light_position;
-			float light_far_plane;
+		vec3 light_position;
+		float light_far_plane;
 		int albedo_texture_index;
+		int opacity_texture_index;
 		int height_texture_index;
 		int flags;
 		float color_multiplier_a;
@@ -89,39 +154,72 @@ local SHADOW_PUSH_CONSTANT_GLSL = [[
 		float height_scale;
 		float height_center;
 		float tessellation_factor;
-	} pc;
+		int debug_force_opaque;
+	} shadow_state;
 ]]
+local NO_SHADOW_STATE_MATERIAL = {}
 
 local function get_shadow_stage_push_constants()
 	return {
-		size = ffi.sizeof(ShadowVertexConstants),
+		size = ffi.sizeof(ShadowDrawPushConstants),
 		offset = 0,
 	}
 end
 
-local function get_shadow_texture_descriptor_sets(bindless_texture_capacity)
+local function get_shadow_texture_descriptor_sets(self, bindless_texture_capacity)
 	return {
 		{
 			type = "combined_image_sampler",
 			binding_index = 0,
 			count = bindless_texture_capacity,
 		},
+		{
+			type = "uniform_buffer_dynamic",
+			binding_index = 2,
+			args = {self.shadow_state_buffer.buffer, self.shadow_state_buffer.aligned_size},
+		},
 	}
 end
 
 local function get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity)
-	local descriptor_sets = get_shadow_texture_descriptor_sets(bindless_texture_capacity)
-	descriptor_sets[2] = {
-		type = "uniform_buffer_dynamic",
-		binding_index = 1,
-		args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
-	}
-	descriptor_sets[3] = {
-		type = "uniform_buffer_dynamic",
-		binding_index = 2,
-		args = {self.shadow_transform_buffer.buffer, self.shadow_transform_buffer.aligned_size},
+	local descriptor_sets = {
+		{
+			type = "combined_image_sampler",
+			binding_index = 0,
+			count = bindless_texture_capacity,
+		},
+		{
+			type = "uniform_buffer_dynamic",
+			binding_index = 1,
+			args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
+		},
+		{
+			type = "uniform_buffer_dynamic",
+			binding_index = 2,
+			args = {self.shadow_state_buffer.buffer, self.shadow_state_buffer.aligned_size},
+		},
 	}
 	return descriptor_sets
+end
+
+local function get_shadow_tess_control_descriptor_sets(self, bindless_texture_capacity)
+	return {
+		{
+			type = "combined_image_sampler",
+			binding_index = 0,
+			count = bindless_texture_capacity,
+		},
+		{
+			type = "uniform_buffer_dynamic",
+			binding_index = 1,
+			args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
+		},
+		{
+			type = "uniform_buffer_dynamic",
+			binding_index = 2,
+			args = {self.shadow_state_buffer.buffer, self.shadow_state_buffer.aligned_size},
+		},
+	}
 end
 
 local function build_shadow_fragment_shader(bindless_texture_capacity, linear_depth_output)
@@ -134,31 +232,39 @@ local function build_shadow_fragment_shader(bindless_texture_capacity, linear_de
 					layout(binding = 0) uniform sampler2D textures[%d];
 
 					%s
+					%s
 					layout(location = 0) in vec2 in_uv;
 					%s
 					%s
 
-					#define FLAGS pc.flags
+					#define FLAGS shadow_state.flags
 				]]
 	):format(
 		bindless_texture_capacity,
 		SHADOW_PUSH_CONSTANT_GLSL,
+		SHADOW_STATE_UNIFORM_GLSL,
 		linear_depth_output and "layout(location = 1) in vec3 in_world_pos;" or "",
 		linear_depth_output and "layout(location = 0) out float out_distance;" or ""
 	)
-	return prelude .. Material.BuildGlslFlags("pc.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("pc.albedo_texture_index", "pc.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("pc.alpha_cutoff") .. (
+	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl(
+			"shadow_state.albedo_texture_index",
+			"shadow_state.color_multiplier_a",
+			"shadow_state.opacity_texture_index"
+		) .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff") .. (
 			linear_depth_output and
 			[[
 					void main() {
 						float alpha = get_alpha();
+						if (shadow_state.debug_force_opaque != 0) alpha = 1.0;
 						compute_translucency_and_discard(alpha);
-						float light_distance = length(in_world_pos - pc.light_position);
-						out_distance = clamp(light_distance / max(pc.light_far_plane, 0.0001), 0.0, 1.0);
+						float light_distance = length(in_world_pos - shadow_state.light_position);
+						out_distance = clamp(light_distance / max(shadow_state.light_far_plane, 0.0001), 0.0, 1.0);
 					}
 				]] or
 			[[
 					void main() {
 						float alpha = get_alpha();
+						if (shadow_state.debug_force_opaque != 0) alpha = 1.0;
 						compute_translucency_and_discard(alpha);
 					}
 				]]
@@ -182,8 +288,8 @@ local function build_shadow_projected_main(
 						vec2 uv = %s;
 						float texture_blend = %s;
 						vec4 vertex_color = %s;
-						vec3 world_pos = (shadow_transform.world * vec4(local_pos, 1.0)).xyz;
-						mat3 world_matrix3 = mat3(shadow_transform.world);
+						vec3 world_pos = (pc.world * vec4(local_pos, 1.0)).xyz;
+						mat3 world_matrix3 = mat3(pc.world);
 						mat3 inv_world_matrix3 = inverse(world_matrix3);
 						vec3 world_normal = normalize(transpose(inv_world_matrix3) * local_normal);
 						vec3 world_tangent = normalize(world_matrix3 * local_tangent);
@@ -199,7 +305,7 @@ local function build_shadow_projected_main(
 							inv_world_matrix3
 						);
 
-						gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
+						gl_Position = shadow_state.light_space_matrix * vec4(world_pos, 1.0);
 						out_uv = uv;
 						out_world_pos = world_pos;
 					}
@@ -232,15 +338,12 @@ local function build_shadow_vertex_stage(self, bindless_texture_capacity)
 					layout(location = 5) in vec4 in_vertex_color;
 
 					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
+				]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
 				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
-					layout(scalar, binding = 2) uniform ShadowTransform_t {
-						mat4 world;
-					} shadow_transform;
-
 					layout(location = 0) out vec2 out_uv;
 					layout(location = 1) out vec3 out_world_pos;
 
-				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation") .. build_shadow_projected_main(
+				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation", "shadow_state") .. build_shadow_projected_main(
 				"in_position",
 				"in_normal",
 				"in_tangent.xyz",
@@ -290,7 +393,7 @@ local function build_shadow_tess_vertex_stage()
 	}
 end
 
-local function build_shadow_tess_control_stage()
+local function build_shadow_tess_control_stage(self, bindless_texture_capacity)
 	return {
 		type = "tessellation_control",
 		code = [[
@@ -311,7 +414,7 @@ local function build_shadow_tess_control_stage()
 					layout(location = 4) out float out_texture_blend[];
 					layout(location = 5) out vec4 out_vertex_color[];
 
-					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
+					]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
 
 					layout(vertices = 3) out;
 
@@ -325,7 +428,7 @@ local function build_shadow_tess_control_stage()
 						gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
 
 						if (gl_InvocationID == 0) {
-							float tess = clamp(pc.tessellation_factor, 1.0, 64.0);
+							float tess = clamp(shadow_state.tessellation_factor, 1.0, 64.0);
 							gl_TessLevelOuter[0] = tess;
 							gl_TessLevelOuter[1] = tess;
 							gl_TessLevelOuter[2] = tess;
@@ -333,7 +436,7 @@ local function build_shadow_tess_control_stage()
 						}
 					}
 				]],
-		push_constants = get_shadow_stage_push_constants(),
+		descriptor_sets = get_shadow_tess_control_descriptor_sets(self, bindless_texture_capacity),
 	}
 end
 
@@ -355,17 +458,14 @@ local function build_shadow_tess_evaluation_stage(self, bindless_texture_capacit
 					layout(location = 5) in vec4 in_vertex_color[];
 
 					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
+				]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
 
 				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
-					layout(scalar, binding = 2) uniform ShadowTransform_t {
-						mat4 world;
-					} shadow_transform;
-
 					layout(triangles, equal_spacing, cw) in;
 					layout(location = 0) out vec2 out_uv;
 					layout(location = 1) out vec3 out_world_pos;
 
-				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation") .. model_pipeline.BuildTriangleInterpolationGlsl() .. build_shadow_projected_main(
+				]] .. model_pipeline.BuildShadowGeometryDeformationGlsl("vertex_animation", "shadow_state") .. model_pipeline.BuildTriangleInterpolationGlsl() .. build_shadow_projected_main(
 				"interpolate_vec3(in_position[0], in_position[1], in_position[2])",
 				"interpolate_vec3(in_normal[0], in_normal[1], in_normal[2])",
 				"interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz)",
@@ -378,13 +478,80 @@ local function build_shadow_tess_evaluation_stage(self, bindless_texture_capacit
 	}
 end
 
-local function build_shadow_fragment_stage(bindless_texture_capacity, linear_depth_output)
+local function build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output)
 	return {
 		type = "fragment",
 		code = build_shadow_fragment_shader(bindless_texture_capacity, linear_depth_output),
-		push_constants = get_shadow_stage_push_constants(),
-		descriptor_sets = get_shadow_texture_descriptor_sets(bindless_texture_capacity),
+		descriptor_sets = get_shadow_texture_descriptor_sets(self, bindless_texture_capacity),
 	}
+end
+
+local function get_shadow_state_upload_cache(self, frame_index)
+	local cache = self.shadow_state_upload_cache
+
+	if not cache or cache.frame_index ~= frame_index then
+		cache = {frame_index = frame_index, pipelines = {}}
+		self.shadow_state_upload_cache = cache
+	end
+
+	return cache.pipelines
+end
+
+local function get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
+	local pipelines = get_shadow_state_upload_cache(self, frame_index)
+	local pipeline_cache = pipelines[pipeline]
+
+	if not pipeline_cache then
+		pipeline_cache = {}
+		pipelines[pipeline] = pipeline_cache
+	end
+
+	local material_key = material or NO_SHADOW_STATE_MATERIAL
+	local material_cache = pipeline_cache[material_key]
+
+	if not material_cache then
+		material_cache = {}
+		pipeline_cache[material_key] = material_cache
+	end
+
+	local cached_offset = material_cache[cascade_index]
+
+	if cached_offset then return cached_offset end
+
+	local data = self.shadow_state_buffer:GetData()
+	data.light_space_matrix = self.cascade[cascade_index].light_space_matrix:GetFloatCopy()
+	data.light_position[0] = self.point_light_position.x
+	data.light_position[1] = self.point_light_position.y
+	data.light_position[2] = self.point_light_position.z
+	data.light_far_plane = self.far_plane
+
+	if material then
+		data.albedo_texture_index = texture_entry and texture_entry.albedo_texture_index or 0
+		data.opacity_texture_index = texture_entry and texture_entry.opacity_texture_index or -1
+		data.height_texture_index = texture_entry and texture_entry.height_texture_index or -1
+		data.flags = material:GetFillFlags()
+		data.color_multiplier_a = material:GetColorMultiplier().a
+		data.alpha_cutoff = material:GetAlphaCutoff()
+		data.height_scale = material:GetHeightScale()
+		data.height_center = material:GetHeightCenter()
+		data.tessellation_factor = material:GetTessellationFactor()
+		data.debug_force_opaque = material.shadow_debug_force_opaque and 1 or 0
+	else
+		data.albedo_texture_index = 0
+		data.opacity_texture_index = -1
+		data.height_texture_index = -1
+		data.flags = 0
+		data.color_multiplier_a = 1.0
+		data.alpha_cutoff = 0.5
+		data.height_scale = 0.0
+		data.height_center = 0.5
+		data.tessellation_factor = 1.0
+		data.debug_force_opaque = 0
+	end
+
+	local offset = self.shadow_state_buffer:Upload(frame_index)
+	material_cache[cascade_index] = offset
+	return offset
 end
 
 local function build_shadow_pipeline_config(
@@ -492,7 +659,7 @@ function ShadowMap.New(config)
 	self.cascade_splits = {} -- Will store the split distances
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl())
-	self.shadow_transform_buffer = UniformBuffer.New(ShadowTransformUniformDecl)
+	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl)
 	local cascade_sizes = config.cascade_sizes or {}
 	local max_shadow_width = self.size.w
 	local max_shadow_height = self.size.h
@@ -556,7 +723,7 @@ function ShadowMap.New(config)
 				max_shadow_height,
 				{
 					build_shadow_vertex_stage(self, bindless_texture_capacity),
-					build_shadow_fragment_stage(bindless_texture_capacity, true),
+					build_shadow_fragment_stage(self, bindless_texture_capacity, true),
 				},
 				"triangle_list",
 				nil,
@@ -572,9 +739,9 @@ function ShadowMap.New(config)
 					max_shadow_height,
 					{
 						build_shadow_tess_vertex_stage(),
-						build_shadow_tess_control_stage(),
+						build_shadow_tess_control_stage(self, bindless_texture_capacity),
 						build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
-						build_shadow_fragment_stage(bindless_texture_capacity, true),
+						build_shadow_fragment_stage(self, bindless_texture_capacity, true),
 					},
 					"patch_list",
 					3,
@@ -628,7 +795,7 @@ function ShadowMap.New(config)
 				max_shadow_height,
 				{
 					build_shadow_vertex_stage(self, bindless_texture_capacity),
-					build_shadow_fragment_stage(bindless_texture_capacity),
+					build_shadow_fragment_stage(self, bindless_texture_capacity),
 				},
 				"triangle_list"
 			)
@@ -642,9 +809,9 @@ function ShadowMap.New(config)
 					max_shadow_height,
 					{
 						build_shadow_tess_vertex_stage(),
-						build_shadow_tess_control_stage(),
+						build_shadow_tess_control_stage(self, bindless_texture_capacity),
 						build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
-						build_shadow_fragment_stage(bindless_texture_capacity),
+						build_shadow_fragment_stage(self, bindless_texture_capacity),
 					},
 					"patch_list",
 					3
@@ -1051,41 +1218,21 @@ end
 -- material: optional Material object for alpha testing (will use albedo texture)
 function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
-	local constants = ShadowVertexConstants()
-	constants.light_space_matrix = self.cascade[cascade_index].light_space_matrix:GetFloatCopy()
-	constants.light_position[0] = self.point_light_position.x
-	constants.light_position[1] = self.point_light_position.y
-	constants.light_position[2] = self.point_light_position.z
-	constants.light_far_plane = self.far_plane
+	local push_constants = ShadowDrawPushConstants()
 	local pipeline = use_tessellated_shadow(material) and self.tess_pipeline or self.pipeline
+	local texture_entry = nil
 
 	-- If material is provided, get its albedo texture index and flags for alpha testing
 	if material then
-		constants.albedo_texture_index = pipeline:GetTextureIndex(material:GetAlbedoTexture())
-		constants.height_texture_index = pipeline:GetTextureIndex(material:GetHeightTexture())
-		constants.flags = material:GetFillFlags()
-		constants.color_multiplier_a = material:GetColorMultiplier().a
-		constants.alpha_cutoff = material:GetAlphaCutoff()
-		constants.height_scale = material:GetHeightScale()
-		constants.height_center = material:GetHeightCenter()
-		constants.tessellation_factor = material:GetTessellationFactor()
-	else
-		constants.albedo_texture_index = 0 -- No texture, no alpha test
-		constants.height_texture_index = -1
-		constants.flags = 0
-		constants.color_multiplier_a = 1.0
-		constants.alpha_cutoff = 0.5
-		constants.height_scale = 0.0
-		constants.height_center = 0.5
-		constants.tessellation_factor = 1.0
+		texture_entry = get_cached_shadow_material_texture_indices(self, material, pipeline)
 	end
 
 	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), material or render3d.GetDefaultMaterial())
-	world_matrix:CopyToFloatPointer(self.shadow_transform_buffer:GetData().world)
+	world_matrix:CopyToFloatPointer(push_constants.world)
 	local frame_index = render.GetCurrentFrame()
 	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
-	local shadow_transform_offset = self.shadow_transform_buffer:Upload(frame_index)
-	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_transform_offset})
+	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
+	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
 
 	do
 		local depth_texture = self.mode == "point" and
@@ -1101,26 +1248,19 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	self.cmd:SetCullMode("none")
 
 	if pipeline == self.tess_pipeline then
-		pipeline:PushConstants(
-			self.cmd,
-			{"tessellation_control", "tessellation_evaluation", "fragment"},
-			0,
-			constants
-		)
+		pipeline:PushConstants(self.cmd, {"tessellation_evaluation"}, 0, push_constants)
 	else
-		pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, constants)
+		pipeline:PushConstants(self.cmd, {"vertex"}, 0, push_constants)
 	end
 end
 
 function ShadowMap:PrimeMaterial(material)
 	if not material then return end
 
-	self.pipeline:GetTextureIndex(material:GetAlbedoTexture())
-	self.pipeline:GetTextureIndex(material:GetHeightTexture())
+	cache_shadow_material_texture_indices(self, material, self.pipeline)
 
 	if self.tess_pipeline then
-		self.tess_pipeline:GetTextureIndex(material:GetAlbedoTexture())
-		self.tess_pipeline:GetTextureIndex(material:GetHeightTexture())
+		cache_shadow_material_texture_indices(self, material, self.tess_pipeline)
 	end
 end
 

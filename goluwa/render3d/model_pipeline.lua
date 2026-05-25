@@ -783,11 +783,12 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name)
 	]]
 end
 
-function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name)
+function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var)
 	block_name = block_name or "vertex_animation"
+	shadow_state_var = shadow_state_var or "pc"
 	return model_pipeline.BuildVertexAnimationGlsl(block_name) .. [[
 			bool shadow_has_heightmap() {
-				return pc.height_texture_index != -1 && pc.height_scale > 0.0;
+				return ]] .. shadow_state_var .. [[.height_texture_index != -1 && ]] .. shadow_state_var .. [[.height_scale > 0.0;
 			}
 
 			float shadow_get_height_sample(vec2 uv) {
@@ -795,11 +796,11 @@ function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name)
 					return 1.0;
 				}
 
-				return texture(textures[nonuniformEXT(pc.height_texture_index)], uv).r;
+				return texture(textures[nonuniformEXT(]] .. shadow_state_var .. [[.height_texture_index)], uv).r;
 			}
 
 			float shadow_get_height_centered_sample(vec2 uv) {
-				return shadow_get_height_sample(uv) - pc.height_center;
+				return shadow_get_height_sample(uv) - ]] .. shadow_state_var .. [[.height_center;
 			}
 
 			void apply_shadow_geometry_deformation(
@@ -813,7 +814,7 @@ function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name)
 				mat3 inv_world_matrix3
 			) {
 				if (shadow_has_heightmap()) {
-					world_pos += vec3(0.0, 1.0, 0.0) * (shadow_get_height_centered_sample(uv) * pc.height_scale);
+					world_pos += vec3(0.0, 1.0, 0.0) * (shadow_get_height_centered_sample(uv) * ]] .. shadow_state_var .. [[.height_scale);
 				}
 
 				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
@@ -861,12 +862,18 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr)
 	):format(alpha_cutoff_expr)
 end
 
-function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr)
+function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr, opacity_texture_index_expr)
 	texture_index_expr = texture_index_expr or "pc.albedo_texture_index"
 	color_multiplier_a_expr = color_multiplier_a_expr or "pc.color_multiplier_a"
+	opacity_texture_index_expr = opacity_texture_index_expr or "-1"
 	return (
 		[[
 			float get_alpha_uv(vec2 uv) {
+				if (%s != -1) {
+					vec4 mask = textureLod(textures[nonuniformEXT(%s)], uv, 0.0);
+					return clamp(max(max(mask.r, mask.g), max(mask.b, mask.a)), 0.0, 1.0) * %s;
+				}
+
 				if (
 					%s == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
@@ -876,7 +883,7 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 					return %s;
 				}
 
-				return texture(textures[nonuniformEXT(%s)], uv).a * %s;
+				return textureLod(textures[nonuniformEXT(%s)], uv, 0.0).a * %s;
 			}
 
 			float get_alpha() {
@@ -884,6 +891,9 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 			}
 		]]
 	):format(
+		opacity_texture_index_expr,
+		opacity_texture_index_expr,
+		color_multiplier_a_expr,
 		texture_index_expr,
 		color_multiplier_a_expr,
 		texture_index_expr,

@@ -147,6 +147,7 @@ local small_prop_material = shapes.Material{Color = Color(0.74, 0.76, 0.80, 1), 
 local small_prop_alt_material = shapes.Material{Color = Color(0.20, 0.63, 0.88, 1), Roughness = 0.24, Metallic = 0.08}
 local fence_frame_material = shapes.Material{Color = Color(0.30, 0.22, 0.16, 1), Roughness = 0.88, Metallic = 0.0}
 local fence_material = Material.New()
+local coarse_fence_material = Material.New()
 fence_material:SetAlbedoTexture(
 	shapes.Texture([[
 			vec2 tiled = uv * vec2(20.0, 12.0);
@@ -161,6 +162,22 @@ fence_material:SetMetallicTexture(shapes.Texture("return vec4(0.12);"))
 fence_material:SetAlphaTest(true)
 fence_material:SetAlphaCutoff(0.5)
 fence_material:SetDoubleSided(true)
+coarse_fence_material:SetAlbedoTexture(
+	shapes.Texture([[
+			vec2 tiled = uv * vec2(4.0, 2.0);
+			vec2 local = fract(tiled);
+			float vertical_bar = step(0.34, local.x);
+			float horizontal_bar = step(0.34, local.y);
+			float alpha = max(vertical_bar, horizontal_bar);
+			vec3 bar_color = vec3(0.76, 0.80, 0.82);
+			return vec4(bar_color, alpha);
+		]])
+)
+coarse_fence_material:SetRoughnessTexture(shapes.Texture("return vec4(0.78);"))
+coarse_fence_material:SetMetallicTexture(shapes.Texture("return vec4(0.12);"))
+coarse_fence_material:SetAlphaTest(true)
+coarse_fence_material:SetAlphaCutoff(0.5)
+coarse_fence_material:SetDoubleSided(true)
 spawn_box(
 	root,
 	"shadow_city_validation_ground",
@@ -322,6 +339,15 @@ spawn_plane(
 	fence_material,
 	make_rotation()
 )
+spawn_plane(
+	root,
+	"shadow_city_validation_fence_coarse",
+	Vec3(7.5, 1.95, 4.0),
+	4.0,
+	3.8,
+	coarse_fence_material,
+	make_rotation()
+)
 spawn_box(
 	root,
 	"shadow_city_validation_fence_shadow_box",
@@ -333,6 +359,13 @@ spawn_box(
 	root,
 	"shadow_city_validation_fence_shadow_receiver",
 	Vec3(0.0, 0.2, 10.0),
+	Vec3(8.0, 0.4, 3.6),
+	ground_material
+)
+spawn_box(
+	root,
+	"shadow_city_validation_fence_coarse_shadow_receiver",
+	Vec3(7.5, 0.2, 10.0),
 	Vec3(8.0, 0.4, 3.6),
 	ground_material
 )

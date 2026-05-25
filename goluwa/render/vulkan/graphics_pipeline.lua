@@ -1765,6 +1765,10 @@ function GraphicsPipeline.New(vulkan_instance, config)
 			table.insert(layout, l)
 		end
 
+		table.sort(layout, function(a, b)
+			return a.binding_index < b.binding_index
+		end)
+
 		descriptorSetLayouts[set_index + 1] = DescriptorSetLayout.New(vulkan_instance.device, layout)
 	end
 

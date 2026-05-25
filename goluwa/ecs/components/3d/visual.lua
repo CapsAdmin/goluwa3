@@ -62,6 +62,67 @@ local function refresh_visual_registries(component)
 	refresh_occlusion_registries(component)
 end
 
+local function has_occlusion_query_visuals()
+	return visual.occlusion_query_visuals and visual.occlusion_query_visuals[1] ~= nil
+end
+
+local function get_shadow_debug_target_name(component)
+	local owner = component and component.Owner
+	return owner and owner.Name or tostring(component)
+end
+
+local function shadow_debug_matches(component)
+	local filter = visual.shadow_debug_filter
+
+	if filter == nil or filter == false then return false end
+
+	local name = get_shadow_debug_target_name(component)
+
+	if filter == true then return true end
+
+	return name == filter or name:find(filter, 1, true) ~= nil
+end
+
+local function get_shadow_debug_frame_hits()
+	local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+
+	if visual.shadow_debug_frame ~= frame then
+		visual.shadow_debug_frame = frame
+		visual.shadow_debug_hits = {}
+	end
+
+	return visual.shadow_debug_hits
+end
+
+local function record_shadow_debug_hit(component, cascade_idx, state, entries)
+	if not shadow_debug_matches(component) then return end
+
+	local name = get_shadow_debug_target_name(component)
+	local hits = get_shadow_debug_frame_hits()
+	local hit = hits[name]
+
+	if not hit then
+		hit = {name = name, states = {}}
+		hits[name] = hit
+	end
+
+	local state_key = tostring(cascade_idx) .. ":" .. state
+	hit.states[state_key] = (hit.states[state_key] or 0) + (entries or 0)
+
+	if visual.shadow_debug_log then
+		logn(
+			"[shadow-debug] ",
+			name,
+			" cascade=",
+			cascade_idx,
+			" state=",
+			state,
+			" entries=",
+			entries or 0
+		)
+	end
+end
+
 local function create_empty_aabb()
 	return AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 end
@@ -595,13 +656,33 @@ end
 do
 	visual.noculling = false
 	visual.freeze_culling = false
-	visual.occlusion_culling_enabled = true
+	visual.occlusion_culling_enabled = false
+	visual.shadow_debug_filter = nil
+	visual.shadow_debug_log = true
+	visual.shadow_debug_frame = -1
+	visual.shadow_debug_hits = {}
 	visual.occlusion_query_fps = 30
 	visual.last_occlusion_query_time = 0
 	visual.should_run_queries_this_frame = true
 	visual.shadow_casters = visual.shadow_casters or {}
 	visual.occlusion_query_visuals = visual.occlusion_query_visuals or {}
 	visual.non_occlusion_visuals = visual.non_occlusion_visuals or {}
+
+	function visual.EnableShadowDrawDebug(filter, should_log)
+		visual.shadow_debug_filter = filter == nil and true or filter
+		visual.shadow_debug_log = should_log ~= false
+		visual.shadow_debug_frame = -1
+		visual.shadow_debug_hits = {}
+	end
+
+	function visual.DisableShadowDrawDebug()
+		visual.shadow_debug_filter = nil
+		visual.shadow_debug_hits = {}
+	end
+
+	function visual.GetShadowDrawDebugHits()
+		return get_shadow_debug_frame_hits()
+	end
 
 	local function extract_frustum_planes(proj_view_matrix, out_planes)
 		local m = proj_view_matrix
@@ -1236,26 +1317,46 @@ function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibil
 	render_entries = render_entries or self:GetRenderEntries()
 
 	if not skip_visibility_checks then
-		if not self:IsWithinCullDistance() then return end
+		if not self:IsWithinCullDistance() then
+			record_shadow_debug_hit(self, cascade_idx, "culled_distance")
+			return
+		end
 
 		if can_use_shadow_aabb_cull(self, render_entries) then
 			local world_aabb = self:GetWorldAABB()
 
 			if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
+				record_shadow_debug_hit(self, cascade_idx, "culled_aabb")
 				return
 			end
 		end
 	end
+
+	local submitted_entries = 0
 
 	for _, entry in ipairs(render_entries) do
 		local transform = entry.transform
 		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
 
 		if world_matrix then
+			local material = self:GetResolvedMaterial(entry)
+
+			if material then
+				material.shadow_debug_force_opaque = shadow_debug_matches(self)
+			end
+
+			render3d.SetWorldMatrix(world_matrix)
 			render3d.SetCurrentPolygon3D(entry.polygon3d)
-			shadow_map:UploadConstants(world_matrix, self:GetResolvedMaterial(entry), cascade_idx)
+			shadow_map:UploadConstants(world_matrix, material, cascade_idx)
 			entry.polygon3d:Draw()
+			submitted_entries = submitted_entries + 1
 		end
+	end
+
+	if submitted_entries > 0 then
+		record_shadow_debug_hit(self, cascade_idx, "submitted", submitted_entries)
+	else
+		record_shadow_debug_hit(self, cascade_idx, "no_world_matrix")
 	end
 end
 
@@ -1340,6 +1441,8 @@ function Visual:OnFirstCreated()
 	event.AddListener("PreRenderPass", "visual_occlusion_culling_maintenance", function()
 		if not visual.IsOcclusionCullingEnabled() then return end
 
+		if not has_occlusion_query_visuals() then return end
+
 		local cmd = render.GetCommandBuffer()
 		visual.UpdateOcclusionQueryTiming()
 
@@ -1353,6 +1456,8 @@ function Visual:OnFirstCreated()
 	event.AddListener("PreDraw3D", "visual_draw_occlusion_queries", function()
 		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
 			if visual.freeze_culling then return end
+
+			if not has_occlusion_query_visuals() then return end
 
 			visual.occlusion_query_submitted = visual.occlusion_query_submitted or {}
 
@@ -1371,6 +1476,8 @@ function Visual:OnFirstCreated()
 	event.AddListener("PostRenderPass", "visual_copy_occlusion_results", function(cmd)
 		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
 			if visual.freeze_culling then return end
+
+			if not has_occlusion_query_visuals() then return end
 
 			for _, component in ipairs(visual.occlusion_query_submitted or {}) do
 				local query = component.occlusion_query

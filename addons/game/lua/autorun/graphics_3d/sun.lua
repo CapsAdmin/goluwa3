@@ -17,30 +17,33 @@ local sun = Entity.New{
 	},
 }
 atmosphere.SetSunIntensity(sun.light.Intensity)
-sun.light:SetCastShadows{
-	size = Vec2() + 2048,
-	shadow_update_interval = 2,
-	cascade_count = 3,
-	cascade_sizes = {
-		Vec2() + 4096,
-		Vec2() + 2048,
-		Vec2() + 2048,
-	},
-	cascade_zoom_factors = {
-		1.5,
-		1,
-		1,
-	},
-	cascade_split_lambda = 0.75,
-	max_shadow_distance = 2700,
-	inset_shadows = {
-		size = Vec2() + 4096,
-		distance = 16,
-		zoom_factor = 1.75,
-	},
-	near_plane = 1,
-	far_plane = 2700,
-}
+
+if true then
+	sun.light:SetCastShadows{
+		size = Vec2() + 2048,
+		shadow_update_interval = 2,
+		cascade_count = 3,
+		cascade_sizes = {
+			Vec2() + 4096,
+			Vec2() + 2048,
+			Vec2() + 2048,
+		},
+		cascade_zoom_factors = {
+			1.5,
+			1,
+			1,
+		},
+		cascade_split_lambda = 0.75,
+		max_shadow_distance = 2700,
+		inset_shadows = {
+			size = Vec2() + 4096,
+			distance = 16,
+			zoom_factor = 1.75,
+		},
+		near_plane = 1,
+		far_plane = 2700,
+	}
+end
 
 event.AddListener("Update", "sun_orientation", function(dt)
 	if not sun or not sun:IsValid() or not sun.transform then return end
