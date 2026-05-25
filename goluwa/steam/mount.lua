@@ -35,6 +35,10 @@ return function(steam)
 
 		if vfs.Delete("cache/steam_games") then ok = true end
 
+		steam.library_folders_cache = nil
+		steam.games_cache = nil
+		steam.source_games_cache = nil
+
 		if ok then
 			logn("removed cache/archive/*, data/source_games, and data/steam_games")
 		else
@@ -172,6 +176,11 @@ return function(steam)
 
 	function steam.GetLibraryFolders()
 		local base = steam.GetInstallPath()
+
+		if steam.library_folders_cache and steam.library_folders_cache.base == base then
+			return steam.library_folders_cache.folders
+		end
+
 		local tbl = {}
 		local done = {}
 
@@ -224,6 +233,7 @@ return function(steam)
 			end
 		end
 
+		steam.library_folders_cache = {base = base, folders = tbl}
 		return tbl
 	end
 
@@ -285,6 +295,14 @@ return function(steam)
 	function steam.GetGames()
 		local function get_games_cache()
 			local current_libraries = steam.GetLibraryFolders()
+
+			if
+				steam.games_cache and
+				are_cached_library_folders_valid(steam.games_cache.library_folders, current_libraries)
+			then
+				return steam.games_cache.games, current_libraries
+			end
+
 			local cached = codec.ReadFile("msgpack", "cache/steam_games")
 
 			if not cached then return nil, current_libraries end
@@ -293,6 +311,7 @@ return function(steam)
 				cached.games and
 				are_cached_library_folders_valid(cached.library_folders, current_libraries)
 			then
+				steam.games_cache = cached
 				return cached.games, current_libraries
 			end
 
@@ -402,6 +421,10 @@ return function(steam)
 				games = found,
 			}
 		)
+		steam.games_cache = {
+			library_folders = current_libraries,
+			games = found,
+		}
 		return found
 	end
 
@@ -475,6 +498,14 @@ return function(steam)
 
 		local function get_source_games_cache()
 			local current_libraries = steam.GetLibraryFolders()
+
+			if
+				steam.source_games_cache and
+				are_cached_library_folders_valid(steam.source_games_cache.library_folders, current_libraries)
+			then
+				return steam.source_games_cache.games, current_libraries
+			end
+
 			local cached = codec.ReadFile("msgpack", "cache/source_games")
 
 			if not cached then return nil, current_libraries end
@@ -483,6 +514,7 @@ return function(steam)
 				cached.games and
 				are_cached_library_folders_valid(cached.library_folders, current_libraries)
 			then
+				steam.source_games_cache = cached
 				return cached.games, current_libraries
 			end
 
@@ -720,6 +752,10 @@ return function(steam)
 				games = found,
 			}
 		)
+		steam.source_games_cache = {
+			library_folders = current_libraries,
+			games = found,
+		}
 		return found
 	end
 
