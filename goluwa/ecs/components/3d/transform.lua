@@ -13,10 +13,18 @@ local function find_ancestor_visual(entity)
 
 	while current and current.IsValid and current:IsValid() do
 		if current.visual then return current.visual end
+
 		current = current:GetParent()
 	end
 
 	return nil
+end
+
+local function update_temp_scale(self)
+	local scale = self.Scale or Vec3(1, 1, 1)
+	local size = self.Size or 1
+	self.temp_scale = scale * size
+	return self.temp_scale
 end
 
 META:StartStorable()
@@ -31,7 +39,7 @@ META:GetSet("OverrideRotation", nil, {callback = "InvalidateMatrices"})
 META:GetSet("AABB", AABB(-1, -1, -1, 1, 1, 1), {callback = "InvalidateMatrices"})
 
 function META:Initialize()
-	self.temp_scale = Vec3(1, 1, 1)
+	update_temp_scale(self)
 end
 
 function META:SetFromMatrix(matrix)
@@ -50,12 +58,12 @@ end
 
 function META:SetScale(vec3)
 	prototype.CommitProperty(self, "Scale", vec3)
-	self.temp_scale = self.Scale * self.Size
+	update_temp_scale(self)
 end
 
 function META:SetSize(num)
 	prototype.CommitProperty(self, "Size", num)
-	self.temp_scale = self.Size * self.Scale
+	update_temp_scale(self)
 end
 
 function META:InvalidateMatrices()
@@ -90,7 +98,6 @@ function META:InvalidateChildWorldMatrices()
 			child.transform.WorldMatrixInverse = nil
 			child.transform.WorldMatrixFrame = nil
 			child.transform.WorldMatrixInverseFrame = nil
-
 			child.transform:InvalidateChildWorldMatrices()
 		end
 	end
@@ -147,12 +154,13 @@ function META:GetLocalMatrix()
 			local interpolated_pos, interpolated_rot = self:GetRenderPositionRotation()
 			local pos = self.OverridePosition or interpolated_pos or self.Position
 			local rot = self.OverrideRotation or interpolated_rot or self.Rotation
+			local temp_scale = update_temp_scale(self)
 			self.LocalMatrix:Identity()
 			self.LocalMatrix:SetRotation(rot)
 
 			-- Apply scale if needed
-			if self.temp_scale.x ~= 1 or self.temp_scale.y ~= 1 or self.temp_scale.z ~= 1 then
-				self.LocalMatrix:Scale(self.temp_scale.x, self.temp_scale.y, self.temp_scale.z)
+			if temp_scale.x ~= 1 or temp_scale.y ~= 1 or temp_scale.z ~= 1 then
+				self.LocalMatrix:Scale(temp_scale.x, temp_scale.y, temp_scale.z)
 			end
 
 			self.LocalMatrix:SetTranslation(pos.x, pos.y, pos.z)

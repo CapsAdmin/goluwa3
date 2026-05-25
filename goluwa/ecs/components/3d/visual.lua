@@ -408,14 +408,29 @@ do
 
 	local cached_frustum_planes = ffi.new("float[24]")
 	local cached_frustum_frame = -1
-	local cached_frustum_view_m30 = 0
-	local cached_frustum_view_m31 = 0
-	local cached_frustum_view_m32 = 0
-	local cached_frustum_view_m00 = 0
-	local cached_frustum_view_m11 = 0
-	local cached_frustum_view_m22 = 0
-	local cached_frustum_proj_m00 = 0
-	local cached_frustum_proj_m11 = 0
+	local cached_frustum_view = nil
+	local cached_frustum_proj = nil
+
+	local function matrix_equals(a, b)
+		if not a or not b then return false end
+
+		return a.m00 == b.m00 and
+			a.m01 == b.m01 and
+			a.m02 == b.m02 and
+			a.m03 == b.m03 and
+			a.m10 == b.m10 and
+			a.m11 == b.m11 and
+			a.m12 == b.m12 and
+			a.m13 == b.m13 and
+			a.m20 == b.m20 and
+			a.m21 == b.m21 and
+			a.m22 == b.m22 and
+			a.m23 == b.m23 and
+			a.m30 == b.m30 and
+			a.m31 == b.m31 and
+			a.m32 == b.m32 and
+			a.m33 == b.m33
+	end
 
 	local function get_frustum_planes()
 		if visual.freeze_culling and cached_frustum_frame >= 0 then
@@ -429,45 +444,26 @@ do
 
 		if
 			cached_frustum_frame ~= current_frame or
-			cached_frustum_view_m30 ~= view.m30 or
-			cached_frustum_view_m31 ~= view.m31 or
-			cached_frustum_view_m32 ~= view.m32 or
-			cached_frustum_view_m00 ~= view.m00 or
-			cached_frustum_view_m11 ~= view.m11 or
-			cached_frustum_view_m22 ~= view.m22 or
-			cached_frustum_proj_m00 ~= proj.m00 or
-			cached_frustum_proj_m11 ~= proj.m11
+			not matrix_equals(cached_frustum_view, view)
+			or
+			not matrix_equals(cached_frustum_proj, proj)
 		then
 			local vp = view * proj
 			extract_frustum_planes(vp, cached_frustum_planes)
 			cached_frustum_frame = current_frame
-			cached_frustum_view_m30 = view.m30
-			cached_frustum_view_m31 = view.m31
-			cached_frustum_view_m32 = view.m32
-			cached_frustum_view_m00 = view.m00
-			cached_frustum_view_m11 = view.m11
-			cached_frustum_view_m22 = view.m22
-			cached_frustum_proj_m00 = proj.m00
-			cached_frustum_proj_m11 = proj.m11
+			cached_frustum_view = view:Copy()
+			cached_frustum_proj = proj:Copy()
 		end
 
 		return cached_frustum_planes
 	end
 
-	local local_frustum_planes = ffi.new("float[24]")
-
-	local function is_aabb_visible_local(local_aabb, world_matrix)
+	local function is_aabb_visible_world(world_aabb)
 		if visual.noculling then return true end
 
-		if not local_aabb then return true end
+		if not world_aabb then return true end
 
-		local world_frustum = get_frustum_planes()
-
-		for i = 0, 20, 4 do
-			transform_plane(i, world_frustum, world_matrix, i, local_frustum_planes)
-		end
-
-		return is_aabb_visible_frustum(local_aabb, local_frustum_planes)
+		return is_aabb_visible_frustum(world_aabb, get_frustum_planes())
 	end
 
 	function visual.IsOcclusionCullingEnabled()
@@ -534,11 +530,11 @@ do
 
 		if not local_aabb or local_aabb.min_x > local_aabb.max_x then return true end
 
-		local world_matrix = self:GetWorldMatrix()
+		local world_aabb = self:GetWorldAABB()
 
-		if not world_matrix then return true end
+		if not world_aabb then return true end
 
-		return is_aabb_visible_local(local_aabb, world_matrix)
+		return is_aabb_visible_world(world_aabb)
 	end
 
 	Visual.Library = visual
@@ -611,7 +607,7 @@ function Visual:OnDraw3DGeometry()
 		visual.IsOcclusionCullingEnabled()
 	then
 		using_occlusion = self.occlusion_query:BeginConditional(cmd)
-		self.using_conditional_rendering = true
+		self.using_conditional_rendering = using_occlusion
 	else
 		self.using_conditional_rendering = false
 	end

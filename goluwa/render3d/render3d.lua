@@ -518,14 +518,6 @@ local function material_has_vertex_animation(material)
 end
 
 local function get_gbuffer_instance_material_key(material)
-	if not material then return material end
-
-	if material.vmt_path then return "vmt:" .. material.vmt_path end
-
-	if material.cry_mtl_path then
-		return "crymtl:" .. material.cry_mtl_path .. "#" .. tostring(material.cry_sub_material_name or "")
-	end
-
 	return material
 end
 
@@ -676,7 +668,20 @@ local function clear_gbuffer_instance_pending_entry(pending)
 	if mesh_entries then mesh_entries[pending.material_key] = nil end
 
 	if render3d.queued_gbuffer_pending_entries and pending.queue_index then
-		render3d.queued_gbuffer_pending_entries[pending.queue_index] = nil
+		local queue = render3d.queued_gbuffer_pending_entries
+		local last_index = #queue
+		local queue_index = pending.queue_index
+
+		if queue_index <= last_index then
+			if queue_index ~= last_index then
+				local last_pending = queue[last_index]
+				queue[queue_index] = last_pending
+
+				if last_pending then last_pending.queue_index = queue_index end
+			end
+
+			queue[last_index] = nil
+		end
 	end
 
 	pending.queue_index = nil
