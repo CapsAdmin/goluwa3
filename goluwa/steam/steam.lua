@@ -5,6 +5,7 @@ local http = import("goluwa/sockets/http.lua")
 local steam = library()
 steam.source2meters = 0.01905
 import("goluwa/steam/mount.lua")(steam)
+import("goluwa/steam/crylevel.lua").Apply(steam)
 import("goluwa/steam/vmt.lua")(steam)
 steam.VDFToTable = import("goluwa/codecs/vdf.lua").Decode
 

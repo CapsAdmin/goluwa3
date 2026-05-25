@@ -500,6 +500,8 @@ function cgf.ExtractStaticMeshData(parsed)
 				end
 
 				if subsets.subsets[1] then
+					local shared_vertices = #subsets.subsets > 1
+
 					for _, subset in ipairs(subsets.subsets) do
 						if subset.num_indices <= 0 then goto continue_subset end
 
@@ -521,6 +523,7 @@ function cgf.ExtractStaticMeshData(parsed)
 							material_name = material and material.name or nil,
 							subset_material_id = subset.material_id,
 							branch_helper_pivots = helper_pivots,
+							vertices_shared = shared_vertices,
 							vertices = base_vertices,
 							indices = subset_indices,
 						}
@@ -543,6 +546,7 @@ function cgf.ExtractStaticMeshData(parsed)
 						material_chunk_id = node.material_chunk_id,
 						material_name = material and material.name or nil,
 						branch_helper_pivots = helper_pivots,
+						vertices_shared = false,
 						vertices = base_vertices,
 						indices = fixed_indices,
 					}
@@ -564,6 +568,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 	local parsed = parsed_or_err
 	local material_root = vfs.GetFolderFromPath(parsed.file.path_used or full_path)
 	local package_material_root = material_root and ("crytek package:" .. material_root) or nil
+	local resolved_material_paths = {}
 	local ok, result = xpcall(function()
 		for _, entry in ipairs(cgf.ExtractStaticMeshData(parsed)) do
 			local mesh = Polygon3D.New()
@@ -571,11 +576,17 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 
 			if entry.material_name then
 				local material_path = material_root .. entry.material_name .. ".mtl"
-				local resolved_material_path = vfs.FindMixedCasePath(material_path) or material_path
+				local resolved_material_path = resolved_material_paths[material_path]
 
-				if not vfs.IsFile(resolved_material_path) and package_material_root then
-					resolved_material_path = vfs.FindFileByNameRecursive(package_material_root, entry.material_name .. ".mtl") or
-						resolved_material_path
+				if resolved_material_path == nil then
+					resolved_material_path = vfs.FindMixedCasePath(material_path) or material_path
+
+					if not vfs.IsFile(resolved_material_path) and package_material_root then
+						resolved_material_path = vfs.FindFileByNameRecursive(package_material_root, entry.material_name .. ".mtl") or
+							resolved_material_path
+					end
+
+					resolved_material_paths[material_path] = resolved_material_path
 				end
 
 				if vfs.IsFile(resolved_material_path) then
@@ -591,7 +602,12 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 				end
 			end
 
-			mesh:SetVertices(clone_vertices(entry.vertices))
+			if entry.vertices_shared then
+				mesh:SetVertices(clone_vertices(entry.vertices))
+			else
+				mesh:SetVertices(entry.vertices)
+			end
+
 			mesh:SetBranchHelperPivots(entry.branch_helper_pivots)
 			mesh:SetName(path)
 			mesh:BuildBoundingBox()

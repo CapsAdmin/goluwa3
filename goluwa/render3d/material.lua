@@ -190,6 +190,17 @@ do
 	local vfs = import("goluwa/vfs.lua")
 	local xml = import("goluwa/codecs/xml.lua")
 	local cry_mtl_document_cache = {}
+	local cry_mtl_material_cache = {}
+	local cry_texture_path_cache = {}
+	local cry_texture_recursive_lookup_cache = {}
+
+	local function get_cry_mtl_cache_key(path, sub_material)
+		return path .. "\0" .. type(sub_material) .. ":" .. tostring(sub_material)
+	end
+
+	local function get_cry_texture_cache_key(material_path, texture_path)
+		return tostring(material_path) .. "\0" .. tostring(texture_path)
+	end
 
 	local function unpack_numbers(str)
 		str = str:gsub("%s+", " ")
@@ -336,6 +347,13 @@ do
 	end
 
 	local function resolve_cry_texture_path(material_path, texture_path)
+		local cache_key = get_cry_texture_cache_key(material_path, texture_path)
+		local cached = cry_texture_path_cache[cache_key]
+
+		if cached then
+			return cached.resolved ~= false and cached.resolved or nil, cached.candidates
+		end
+
 		if type(texture_path) ~= "string" or texture_path == "" then return nil, {} end
 
 		local normalized = vfs.FixPathSlashes(texture_path)
@@ -387,19 +405,35 @@ do
 		for _, candidate in ipairs(candidates) do
 			local found = vfs.FindMixedCasePath(candidate)
 
-			if found then return found, candidates end
+			if found then
+				cry_texture_path_cache[cache_key] = {resolved = found, candidates = candidates}
+				return found, candidates
+			end
 
-			if vfs.IsFile(candidate) then return candidate, candidates end
+			if vfs.IsFile(candidate) then
+				cry_texture_path_cache[cache_key] = {resolved = candidate, candidates = candidates}
+				return candidate, candidates
+			end
 		end
 
 		if game_root and basename ~= "" then
 			for _, root in ipairs{game_root .. "Objects.pak/", game_root .. "Textures.pak/"} do
-				local resolved = vfs.FindFileByNameRecursive(root, basename)
+				local recursive_cache_key = root .. "\0" .. basename
+				local resolved = cry_texture_recursive_lookup_cache[recursive_cache_key]
 
-				if resolved then return resolved, candidates end
+				if resolved == nil then
+					resolved = vfs.FindFileByNameRecursive(root, basename) or false
+					cry_texture_recursive_lookup_cache[recursive_cache_key] = resolved
+				end
+
+				if resolved ~= false then
+					cry_texture_path_cache[cache_key] = {resolved = resolved, candidates = candidates}
+					return resolved, candidates
+				end
 			end
 		end
 
+		cry_texture_path_cache[cache_key] = {resolved = false, candidates = candidates}
 		return nil, candidates
 	end
 
@@ -941,6 +975,11 @@ do
 	}
 
 	function Material.FromCryMTL(path, sub_material)
+		local cache_key = get_cry_mtl_cache_key(path, sub_material)
+		local cached_material = cry_mtl_material_cache[cache_key]
+
+		if cached_material then return cached_material end
+
 		local self = Material.New()
 		self.cry_mtl_path = path
 		local document = cry_mtl_document_cache[path]
@@ -950,6 +989,7 @@ do
 
 			if not data then
 				self:SetError(err or ("unable to read cry mtl " .. tostring(path)))
+				cry_mtl_material_cache[cache_key] = self
 				return self
 			end
 
@@ -959,12 +999,14 @@ do
 			if not ok or not document or not document.children or not document.children[1] then
 				cry_mtl_document_cache[path] = false
 				self:SetError("unable to parse cry mtl " .. tostring(path))
+				cry_mtl_material_cache[cache_key] = self
 				return self
 			end
 
 			cry_mtl_document_cache[path] = document
 		elseif document == false then
 			self:SetError("unable to parse cry mtl " .. tostring(path))
+			cry_mtl_material_cache[cache_key] = self
 			return self
 		end
 
@@ -1000,6 +1042,7 @@ do
 
 		if not material_node then
 			self:SetError("sub material not found in cry mtl " .. tostring(path))
+			cry_mtl_material_cache[cache_key] = self
 			return self
 		end
 
@@ -1008,6 +1051,7 @@ do
 		end
 
 		apply_cry_material_node(self, material_node, path)
+		cry_mtl_material_cache[cache_key] = self
 		return self
 	end
 
