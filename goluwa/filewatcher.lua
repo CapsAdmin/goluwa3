@@ -178,10 +178,13 @@ function hotreload.Start()
 
 			if not path:ends_with(".lua") and not path:ends_with(".nlua") then return end
 
-			if last_reloaded[path] and last_reloaded[path] > os.clock() then return end
+			if last_reloaded[path] and last_reloaded[path] > system.GetElapsedTime() then
+				return
+			end
 
-			last_reloaded[path] = os.clock() + 0.2
+			last_reloaded[path] = system.GetElapsedTime() + 0.2
 			on_reload(path)
+			last_reloaded[path] = system.GetElapsedTime() + 0.2
 		end,
 		true
 	)
