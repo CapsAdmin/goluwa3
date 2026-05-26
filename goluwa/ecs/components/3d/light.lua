@@ -1,11 +1,13 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local render = import("goluwa/render/render.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+local Visual = import("goluwa/ecs/components/3d/visual.lua")
 local event = import("goluwa/event.lua")
 local Light = prototype.CreateTemplate("light")
 local MAX_SHADOW_PASSES_PER_FRAME = 4
@@ -115,6 +117,72 @@ local function shadow_transform_dirty(self, config)
 
 	return position_changed(position, self.LastShadowPosition, position_epsilon) or
 		rotation_changed(rotation, self.LastShadowRotation, rotation_epsilon)
+end
+
+local function get_shadow_volume_change_version(shadow_map, cascade_idx)
+	local visual_library = Visual and Visual.Library
+
+	if not visual_library or not visual_library.GetShadowVolumeChangeVersion then
+		return nil
+	end
+
+	local world_aabb = shadow_map:GetCascadeWorldAABB(cascade_idx)
+
+	if not world_aabb then return nil end
+
+	return visual_library.GetShadowVolumeChangeVersion(world_aabb)
+end
+
+local function build_shadow_cascade_update_mask(self, shadow_map)
+	local config = self.CastShadows or {}
+
+	if not shadow_map or shadow_map.mode == "point" then return nil end
+
+	if config.farthest_cascade_update_mode ~= "world_changed" then return nil end
+
+	local farthest_cascade_idx = shadow_map:GetCascadeCount()
+
+	if farthest_cascade_idx <= 1 then return nil end
+
+	local mask = {}
+
+	for i = 1, farthest_cascade_idx do
+		mask[i] = true
+	end
+
+	local farthest_cascade = shadow_map.cascade[farthest_cascade_idx]
+
+	if not farthest_cascade or not farthest_cascade.last_rendered_frame then
+		return mask
+	end
+
+	local light_rotation = self.Owner and self.Owner.transform and self.Owner.transform:GetRotation() or nil
+
+	if
+		rotation_changed(light_rotation, self.LastShadowRotation, config.shadow_rotation_epsilon or 0)
+	then
+		return mask
+	end
+
+	local camera = render3d.GetCamera()
+	local camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
+	local camera_moved = position_changed(
+		camera_position,
+		farthest_cascade.last_camera_position,
+		config.farthest_cascade_camera_position_threshold or 0
+	)
+	local shadow_volume_change_version = get_shadow_volume_change_version(shadow_map, farthest_cascade_idx)
+	local world_changed = shadow_volume_change_version == nil or
+		shadow_volume_change_version > (
+			farthest_cascade.last_shadow_volume_change_version or
+			0
+		)
+
+	if not camera_moved and not world_changed then
+		mask[farthest_cascade_idx] = false
+	end
+
+	return mask
 end
 
 local function mark_shadow_update_progress(self, complete)
@@ -242,6 +310,16 @@ function Light:SetCastShadows(config)
 	local cascade_count = config.cascade_count or (config.cascade_sizes and #config.cascade_sizes) or nil
 
 	if self.LightType == "sun" then
+		local disable_vertex_animation_cascades = {}
+
+		if
+			config.farthest_cascade_disable_vertex_animation and
+			cascade_count and
+			cascade_count > 0
+		then
+			disable_vertex_animation_cascades[cascade_count] = true
+		end
+
 		self.ShadowMap = ShadowMap.New{
 			mode = "sun",
 			size = config.size,
@@ -249,6 +327,8 @@ function Light:SetCastShadows(config)
 			cascade_sizes = config.cascade_sizes,
 			cascade_zoom_factors = config.cascade_zoom_factors,
 			min_caster_texel_size = config.min_caster_texel_size,
+			sticky_cascade_index = cascade_count,
+			disable_vertex_animation_cascades = disable_vertex_animation_cascades,
 			cascade_count = cascade_count,
 			cascade_split_lambda = config.cascade_split_lambda,
 			max_shadow_distance = config.max_shadow_distance or config.far_plane,
@@ -307,7 +387,7 @@ function Light:SetCastShadows(config)
 	end
 end
 
-function Light:UpdateShadowMap()
+function Light:UpdateShadowMap(main_cascade_update_mask)
 	if not self.ShadowMap then return end
 
 	if self.LightType == "point" then
@@ -321,7 +401,7 @@ function Light:UpdateShadowMap()
 			self.ShadowMap:GetSize().w > 0 and self.ShadowMap.ortho_size or self.Range
 		)
 	else
-		self.ShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation())
+		self.ShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation(), main_cascade_update_mask)
 	end
 
 	if self.InsetShadowMap then
@@ -338,30 +418,50 @@ function Light:RenderShadows()
 
 		if start_index > cascade_count then start_index = 1 end
 
-		local passes_to_render = consume_shadow_pass_budget(cascade_count - start_index + 1)
+		local cascade_update_mask = next_index_key == "NextShadowCascadeIndex" and
+			build_shadow_cascade_update_mask(light, shadow_map) or
+			nil
+		local eligible_indices = {}
+
+		for cascade_idx = start_index, cascade_count do
+			if not cascade_update_mask or cascade_update_mask[cascade_idx] ~= false then
+				eligible_indices[#eligible_indices + 1] = cascade_idx
+			end
+		end
+
+		if #eligible_indices == 0 then
+			light[next_index_key] = 1
+			return true, false
+		end
+
+		local passes_to_render = consume_shadow_pass_budget(#eligible_indices)
 
 		if passes_to_render <= 0 then return false, false end
 
-		local end_index = start_index + passes_to_render - 1
-
-		for cascade_idx = start_index, end_index do
-			local shadow_cmd = shadow_map:Begin(cascade_idx, cascade_idx == start_index)
+		for i = 1, passes_to_render do
+			local cascade_idx = eligible_indices[i]
+			local shadow_cmd = shadow_map:Begin(cascade_idx, i == 1)
 			render.PushCommandBuffer(shadow_cmd)
 			event.Call("DrawAllShadows", shadow_map, cascade_idx)
 			render.PopCommandBuffer()
-			shadow_map:End(cascade_idx, cascade_idx == end_index)
+			shadow_map:End(cascade_idx, i == passes_to_render)
+			shadow_map:MarkCascadeRendered(
+				cascade_idx,
+				get_shadow_volume_change_version(shadow_map, cascade_idx),
+				render3d.GetCamera() and render3d.GetCamera():GetPosition() or nil
+			)
 		end
 
-		if end_index >= cascade_count then
+		if passes_to_render >= #eligible_indices then
 			light[next_index_key] = 1
 			return true, true
 		end
 
-		light[next_index_key] = end_index + 1
+		light[next_index_key] = eligible_indices[passes_to_render] + 1
 		return false, true
 	end
 
-	self:UpdateShadowMap()
+	self:UpdateShadowMap(build_shadow_cascade_update_mask(self, self.ShadowMap))
 	event.Call("PrimeAllShadowMaterials", self.ShadowMap)
 
 	if self.InsetShadowMap then

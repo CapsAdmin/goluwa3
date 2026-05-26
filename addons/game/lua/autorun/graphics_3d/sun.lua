@@ -39,6 +39,9 @@ if true then
 			1,
 			1,
 		},
+		farthest_cascade_update_mode = "world_changed",
+		farthest_cascade_camera_position_threshold = 96,
+		farthest_cascade_disable_vertex_animation = true,
 		cascade_split_lambda = 0.75,
 		max_shadow_distance = 2700,
 		inset_shadows = {

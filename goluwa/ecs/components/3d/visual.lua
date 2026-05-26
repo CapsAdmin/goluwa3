@@ -170,8 +170,20 @@ local function invalidate_scene_acceleration()
 	visual.scene_acceleration = visual.scene_acceleration or {}
 	visual.scene_acceleration.dirty = true
 	visual.scene_acceleration.tree = nil
+	visual.scene_acceleration.shadow_tree = nil
 	visual.scene_acceleration.visible_frame = nil
 	visual.scene_acceleration.visible_components = nil
+end
+
+local function next_shadow_change_version()
+	visual.shadow_change_version_counter = (visual.shadow_change_version_counter or 0) + 1
+	return visual.shadow_change_version_counter
+end
+
+local function mark_shadow_change(component)
+	if not component then return end
+
+	component.shadow_change_version = next_shadow_change_version()
 end
 
 local function is_visual_dynamic(component)
@@ -190,6 +202,7 @@ local function add_scene_acceleration_item(items, component, bounds)
 		component = component,
 		world_aabb = bounds,
 		cull_distance = component.CullDistance,
+		shadow_change_version = component.shadow_change_version or 0,
 		min_x = bounds.min_x,
 		min_y = bounds.min_y,
 		min_z = bounds.min_z,
@@ -230,6 +243,43 @@ local function annotate_tree_max_cull_distance(node, items)
 	local right_distance = annotate_tree_max_cull_distance(node.right, items)
 	node.max_cull_distance = math.max(left_distance, right_distance)
 	return node.max_cull_distance
+end
+
+local function annotate_tree_max_shadow_change_version(node, items)
+	if not node then return 0 end
+
+	if node.first then
+		local max_shadow_change_version = 0
+
+		for i = node.first, node.last do
+			local shadow_change_version = items[i].shadow_change_version or 0
+
+			if shadow_change_version > max_shadow_change_version then
+				max_shadow_change_version = shadow_change_version
+			end
+		end
+
+		node.max_shadow_change_version = max_shadow_change_version
+		return max_shadow_change_version
+	end
+
+	local left_version = annotate_tree_max_shadow_change_version(node.left, items)
+	local right_version = annotate_tree_max_shadow_change_version(node.right, items)
+	node.max_shadow_change_version = math.max(left_version, right_version)
+	return node.max_shadow_change_version
+end
+
+local function is_aabb_intersecting(a, b)
+	if not a or not b then return true end
+
+	return not (
+		a.min_x > b.max_x or
+		b.min_x > a.max_x or
+		a.min_y > b.max_y or
+		b.min_y > a.max_y or
+		a.min_z > b.max_z or
+		b.min_z > a.max_z
+	)
 end
 
 local function can_use_shadow_aabb_cull(component, render_entries)
@@ -324,6 +374,7 @@ local function rebuild_scene_acceleration()
 		visual.scene_acceleration.shadow_tree.components = visual.scene_acceleration.shadow_tree.items
 		visual.scene_acceleration.shadow_tree.items = nil
 		annotate_tree_max_cull_distance(visual.scene_acceleration.shadow_tree.root, visual.scene_acceleration.shadow_tree.components)
+		annotate_tree_max_shadow_change_version(visual.scene_acceleration.shadow_tree.root, visual.scene_acceleration.shadow_tree.components)
 		visual.scene_acceleration.shadow_tree.traversal_context = visual.scene_acceleration.shadow_tree.traversal_context or
 			{
 				node_stack = {},
@@ -458,6 +509,7 @@ end
 
 function Visual:SetCastShadows(enabled)
 	prototype.CommitProperty(self, "CastShadows", enabled)
+	mark_shadow_change(self)
 	refresh_shadow_registry(self)
 end
 
@@ -469,6 +521,7 @@ function Visual:InvalidateRenderEntries()
 	self.WorldAABBCacheMatrix = nil
 	self.WorldAABBCacheSource = nil
 	self.raycast_primitive_acceleration = nil
+	mark_shadow_change(self)
 	invalidate_scene_acceleration()
 end
 
@@ -697,6 +750,7 @@ do
 	visual.shadow_debug_frame = -1
 	visual.shadow_debug_hits = {}
 	visual.shadow_draw_call_stats = setmetatable({}, {__mode = "k"})
+	visual.shadow_change_version_counter = 0
 	visual.occlusion_query_fps = 30
 	visual.last_occlusion_query_time = 0
 	visual.should_run_queries_this_frame = true
@@ -723,6 +777,79 @@ do
 	function visual.GetShadowDrawCallStats(shadow_map)
 		local stats = get_shadow_draw_call_stats_store()
 		return stats[shadow_map] and stats[shadow_map].cascades or nil
+	end
+
+	local function get_shadow_tree_volume_change_version(query_aabb)
+		local acceleration = ensure_scene_acceleration()
+
+		if not (acceleration and acceleration.shadow_tree and acceleration.shadow_tree.root) then
+			return 0
+		end
+
+		local tree = acceleration.shadow_tree
+		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
+		node_stack[1] = tree.root
+		local stack_size = 1
+		local max_version = 0
+
+		while stack_size > 0 do
+			local node = node_stack[stack_size]
+			node_stack[stack_size] = nil
+			stack_size = stack_size - 1
+
+			if is_aabb_intersecting(node.aabb, query_aabb) then
+				if (node.max_shadow_change_version or 0) > max_version then
+					if node.first then
+						for i = node.first, node.last do
+							local item = tree.components[i]
+
+							if is_aabb_intersecting(item.world_aabb, query_aabb) then
+								max_version = math.max(max_version, item.shadow_change_version or 0)
+							end
+						end
+					else
+						if node.right then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.right
+						end
+
+						if node.left then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.left
+						end
+					end
+				end
+			end
+		end
+
+		return max_version
+	end
+
+	function visual.TouchShadowChange(component)
+		mark_shadow_change(component)
+	end
+
+	function visual.GetShadowVolumeChangeVersion(query_aabb)
+		local acceleration = ensure_scene_acceleration()
+		local max_version = get_shadow_tree_volume_change_version(query_aabb)
+
+		for _, component in ipairs(acceleration.dynamic_shadow_components or {}) do
+			local world_aabb = component:GetWorldAABB()
+
+			if is_aabb_intersecting(world_aabb, query_aabb) then
+				max_version = math.max(max_version, component.shadow_change_version or 0)
+			end
+		end
+
+		for _, component in ipairs(acceleration.non_aabb_shadow_components or {}) do
+			local world_aabb = component:GetWorldAABB()
+
+			if not world_aabb or is_aabb_intersecting(world_aabb, query_aabb) then
+				max_version = math.max(max_version, component.shadow_change_version or 0)
+			end
+		end
+
+		return max_version
 	end
 
 	local function extract_frustum_planes(proj_view_matrix, out_planes)
@@ -1469,6 +1596,8 @@ function Visual:OnChildRemove()
 end
 
 function Visual:OnAdd()
+	mark_shadow_change(self)
+
 	if self.UseOcclusionCulling and visual.IsOcclusionCullingEnabled() then
 		self.occlusion_query = render.CreateOcclusionQuery()
 	end

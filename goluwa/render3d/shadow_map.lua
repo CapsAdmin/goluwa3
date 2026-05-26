@@ -761,6 +761,31 @@ local function get_shadow_texel_coverage(self, cascade_index, world_aabb)
 	return width_texels, height_texels
 end
 
+local function build_world_aabb_from_local_aabb(local_aabb, local_to_world)
+	if not local_aabb then return nil end
+
+	if not local_to_world then return local_aabb end
+
+	local corners = {
+		Vec3(local_aabb.min_x, local_aabb.min_y, local_aabb.min_z),
+		Vec3(local_aabb.min_x, local_aabb.min_y, local_aabb.max_z),
+		Vec3(local_aabb.min_x, local_aabb.max_y, local_aabb.min_z),
+		Vec3(local_aabb.min_x, local_aabb.max_y, local_aabb.max_z),
+		Vec3(local_aabb.max_x, local_aabb.min_y, local_aabb.min_z),
+		Vec3(local_aabb.max_x, local_aabb.min_y, local_aabb.max_z),
+		Vec3(local_aabb.max_x, local_aabb.max_y, local_aabb.min_z),
+		Vec3(local_aabb.max_x, local_aabb.max_y, local_aabb.max_z),
+	}
+	local world_aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+	for i = 1, #corners do
+		local point = local_to_world:TransformVector(corners[i])
+		world_aabb:ExpandVec3(point)
+	end
+
+	return world_aabb
+end
+
 local function create_point_face_views(cubemap)
 	local face_views = {}
 
@@ -800,6 +825,8 @@ function ShadowMap.New(config)
 	self.cascade_split_lambda = config.cascade_split_lambda or 0.75 -- Blend between linear and logarithmic split
 	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
 	self.min_caster_texel_size = config.min_caster_texel_size or 0
+	self.sticky_cascade_index = config.sticky_cascade_index
+	self.disable_vertex_animation_cascades = config.disable_vertex_animation_cascades or {}
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
 	self.cascade_splits = {} -- Will store the split distances
 	self.cascade = {} -- Per-cascade data
@@ -822,6 +849,9 @@ function ShadowMap.New(config)
 				cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
 				light_space_matrix = Matrix44(),
 				frustum_planes = ffi.new("float[?]", FRUSTUM_PLANE_COMPONENT_COUNT),
+				last_shadow_volume_change_version = 0,
+				last_camera_position = nil,
+				last_rendered_frame = nil,
 				is_sampleable = false,
 			}
 		end
@@ -1050,7 +1080,7 @@ end
 -- Update all cascade light matrices for cascaded shadow mapping
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_rotation: quaternion rotation of the directional light
-function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
+function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mask)
 	if self.mode == "point" then return end
 
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
@@ -1075,6 +1105,13 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 
 	for cascade_idx = 1, self.cascade_count do
 		local split_far = self.cascade_splits[cascade_idx]
+
+		if cascade_update_mask and cascade_update_mask[cascade_idx] == false then
+			previous_split = split_far
+
+			goto continue
+		end
+
 		local corners = get_frustum_slice_corners(cam, previous_split, split_far)
 		local center = Vec3(0, 0, 0)
 
@@ -1162,6 +1199,8 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 		self.cascade[cascade_idx].light_space_matrix = view * projection
 		update_cascade_frustum_planes(self.cascade[cascade_idx])
 		previous_split = split_far
+
+		::continue::
 	end
 
 	if TEMP_REUSE_FIRST_CASCADE_OVERRIDE and self.cascade_count > 1 then
@@ -1203,6 +1242,30 @@ function ShadowMap:IsWorldAABBTooSmall(cascade_index, world_aabb)
 
 	local width_texels, height_texels = get_shadow_texel_coverage(self, cascade_index, world_aabb)
 	return width_texels < min_caster_texel_size and height_texels < min_caster_texel_size
+end
+
+function ShadowMap:GetCascadeWorldAABB(cascade_index)
+	local cascade = self.cascade[cascade_index]
+
+	if not cascade or not cascade.cull_aabb or not cascade.view_matrix then
+		return nil
+	end
+
+	return build_world_aabb_from_local_aabb(cascade.cull_aabb, cascade.view_matrix:GetInverse())
+end
+
+function ShadowMap:ShouldDisableVertexAnimation(cascade_index)
+	return self.disable_vertex_animation_cascades[cascade_index] == true
+end
+
+function ShadowMap:MarkCascadeRendered(cascade_index, shadow_volume_change_version, camera_position)
+	local cascade = self.cascade[cascade_index]
+
+	if not cascade then return end
+
+	cascade.last_shadow_volume_change_version = shadow_volume_change_version or cascade.last_shadow_volume_change_version or 0
+	cascade.last_camera_position = camera_position and camera_position:Copy() or nil
+	cascade.last_rendered_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 end
 
 function ShadowMap:UsesTessellatedMaterial(material)
@@ -1370,7 +1433,13 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 		end
 	end
 
-	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), material or render3d.GetDefaultMaterial())
+	local vertex_animation_material = self:ShouldDisableVertexAnimation(cascade_index) and
+		render3d.GetDefaultMaterial() or
+		(
+			material or
+			render3d.GetDefaultMaterial()
+		)
+	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
 	world_matrix:CopyToFloatPointer(push_constants.world)
 	local frame_index = render.GetCurrentFrame()
 	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)

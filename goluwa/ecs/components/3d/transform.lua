@@ -83,6 +83,10 @@ function META:InvalidateMatrices()
 		if visual_library and visual_library.InvalidateSceneAcceleration then
 			visual_library.InvalidateSceneAcceleration()
 		end
+
+		if visual_library and visual_library.TouchShadowChange then
+			visual_library.TouchShadowChange(self.Owner.visual)
+		end
 	end
 
 	if self.Owner and self.Owner.visual_primitive then
@@ -94,6 +98,10 @@ function META:InvalidateMatrices()
 
 			if visual_library and visual_library.InvalidateSceneAcceleration then
 				visual_library.InvalidateSceneAcceleration()
+			end
+
+			if visual_library and visual_library.TouchShadowChange then
+				visual_library.TouchShadowChange(visual)
 			end
 		end
 	end
