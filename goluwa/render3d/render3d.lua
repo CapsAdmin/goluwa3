@@ -782,14 +782,33 @@ function render3d.GetLiveInstancingCounters()
 	return render3d.instancing_counters
 end
 
+function render3d.GetRejectedInstancingAttempts(counters)
+	counters = counters or render3d.GetInstancingCounters()
+	local rejected = counters.rejected
+	return rejected.missing_args + rejected.missing_pipeline + rejected.wireframe + rejected.tessellated + rejected.vertex_animation + rejected.missing_mesh
+end
+
+function render3d.GetInstancingRejectionSummary(counters)
+	counters = counters or render3d.GetInstancingCounters()
+	local rejected = counters.rejected
+	return {
+		total = render3d.GetRejectedInstancingAttempts(counters),
+		missing_args = rejected.missing_args,
+		missing_pipeline = rejected.missing_pipeline,
+		wireframe = rejected.wireframe,
+		tessellated = rejected.tessellated,
+		vertex_animation = rejected.vertex_animation,
+		missing_mesh = rejected.missing_mesh,
+	}
+end
+
 do
 	local function get_last_instancing_counters()
 		return render3d.GetInstancingCounters()
 	end
 
-	local function get_rejected_instance_attempts()
-		local rejected = get_last_instancing_counters().rejected
-		return rejected.missing_args + rejected.missing_pipeline + rejected.wireframe + rejected.tessellated + rejected.vertex_animation + rejected.missing_mesh
+	local function get_last_rejected_instancing_summary()
+		return render3d.GetInstancingRejectionSummary(get_last_instancing_counters())
 	end
 
 	render_stats.RegisterField{
@@ -813,7 +832,55 @@ do
 		label = "R3D INST REJECTED",
 		group = "render3d_instancing",
 		getter = function()
-			return get_rejected_instance_attempts()
+			return get_last_rejected_instancing_summary().total
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_inst_reject_args",
+		label = "R3D INST RJ ARGS",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_rejected_instancing_summary().missing_args
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_inst_reject_pipeline",
+		label = "R3D INST RJ PIPE",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_rejected_instancing_summary().missing_pipeline
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_inst_reject_wire",
+		label = "R3D INST RJ WIRE",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_rejected_instancing_summary().wireframe
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_inst_reject_tess",
+		label = "R3D INST RJ TESS",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_rejected_instancing_summary().tessellated
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_inst_reject_anim",
+		label = "R3D INST RJ ANIM",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_rejected_instancing_summary().vertex_animation
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_inst_reject_mesh",
+		label = "R3D INST RJ MESH",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_rejected_instancing_summary().missing_mesh
 		end,
 	}
 end
@@ -838,11 +905,6 @@ function render3d.CanQueueGBufferInstance(polygon3d, material)
 
 	if use_tessellated_gbuffer(material) then
 		counters.rejected.tessellated = counters.rejected.tessellated + 1
-		return false
-	end
-
-	if material_has_vertex_animation(material) then
-		counters.rejected.vertex_animation = counters.rejected.vertex_animation + 1
 		return false
 	end
 
@@ -986,7 +1048,7 @@ function render3d.FlushQueuedGBufferInstances()
 			end
 
 			instance_buffer.buffer:CopyData(instance_buffer.data, batch.count * instance_buffer.stride)
-			render3d.SetCurrentPolygon3D(nil)
+			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			render3d.SetMaterial(batch.material)
 			render3d.UploadInstancedGBufferConstants()
 			batch.mesh:DrawInstanced(render.GetCommandBuffer(), batch.count, {instance_buffer})

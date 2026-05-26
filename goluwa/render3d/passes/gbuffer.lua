@@ -721,7 +721,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 end
 
 local function build_instanced_pass(fragment_shader)
-	local pass = build_base_pass(fragment_shader, false)
+	local pass = build_base_pass(fragment_shader, true)
 	pass.name = "gbuffer_instanced"
 	pass.draw_in_prerender = false
 	pass.dont_create_framebuffers = true
@@ -746,6 +746,7 @@ local function build_instanced_pass(fragment_shader)
 				write = render3d.WriteCameraDebugBlock,
 			},
 		},
+		enable_vertex_animation = true,
 	}
 	return pass
 end

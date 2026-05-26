@@ -287,7 +287,7 @@ local function build_vertex_shader(options)
 	local lines = {}
 
 	if enable_vertex_animation then
-		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl("vertex_animation")
+		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl("vertex_animation", "vertex.world")
 	end
 
 	lines[#lines + 1] = "void main() {"
@@ -341,16 +341,31 @@ end
 
 local function build_instanced_vertex_shader(options)
 	local world_expr = get_instance_world_expr()
-	local lines = {
-		"void main() {",
-		"\tmat4 instance_world = " .. world_expr .. ";",
-		"\tvec3 local_position = in_position;",
-		"\tvec3 world_position = (instance_world * vec4(local_position, 1.0)).xyz;",
-		"\tmat3 world_matrix3 = mat3(instance_world);",
-		"\tmat3 inv_world_matrix3 = inverse(world_matrix3);",
-		"\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);",
-		"\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);",
-	}
+	local enable_vertex_animation = options.enable_vertex_animation ~= false
+	local lines = {}
+
+	if enable_vertex_animation then
+		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl("vertex_animation", world_expr)
+	end
+
+	lines[#lines + 1] = "void main() {"
+	lines[#lines + 1] = "\tmat4 instance_world = " .. world_expr .. ";"
+	lines[#lines + 1] = "\tvec3 local_position = in_position;"
+	lines[#lines + 1] = "\tvec3 world_position = (instance_world * vec4(local_position, 1.0)).xyz;"
+	lines[#lines + 1] = "\tmat3 world_matrix3 = mat3(instance_world);"
+	lines[#lines + 1] = "\tmat3 inv_world_matrix3 = inverse(world_matrix3);"
+	lines[#lines + 1] = "\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);"
+	lines[#lines + 1] = "\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);"
+
+	if enable_vertex_animation then
+		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);"
+		lines[#lines + 1] = "\tif (dot(world_offset, world_offset) > 0.0) {"
+		lines[#lines + 1] = "\t\tlocal_position += inv_world_matrix3 * world_offset;"
+		lines[#lines + 1] = "\t\tworld_position += world_offset;"
+		lines[#lines + 1] = "\t\tworld_normal = bend_vertex_animation_direction(world_normal, world_offset);"
+		lines[#lines + 1] = "\t\tworld_tangent = bend_vertex_animation_direction(world_tangent, world_offset);"
+		lines[#lines + 1] = "\t}"
+	end
 
 	if options.include_projection_view == false then
 		local camera_uniform_block_name = options.camera_uniform_block_name or "camera_data"
@@ -476,8 +491,10 @@ end
 function model_pipeline.CreateInstancedVertexStage(options)
 	options = options or {}
 	local storage_key = options.transform_storage or "push_constants"
+	local enable_vertex_animation = options.enable_vertex_animation ~= false
 	local include_projection_view = options.include_projection_view ~= false
 	local transform_buffers = nil
+	local animation_buffers = {}
 	local extra_uniform_buffers = {}
 
 	if options.uniform_buffers then
@@ -494,6 +511,19 @@ function model_pipeline.CreateInstancedVertexStage(options)
 				write = model_pipeline.BuildInstancedTransformBlockWriter(include_projection_view, options.get_projection_view_matrix),
 			},
 		}
+	end
+
+	if enable_vertex_animation then
+		animation_buffers = options.vertex_uniform_buffers or
+			{
+				{
+					name = "vertex_animation",
+					upload_scope = "frame_keyed",
+					upload_key = model_pipeline.GetVertexAnimationUploadKey,
+					block = model_pipeline.GetVertexAnimationBlock(),
+					write = model_pipeline.WriteVertexAnimationBlock,
+				},
+			}
 	end
 
 	local stage = {
@@ -521,8 +551,22 @@ function model_pipeline.CreateInstancedVertexStage(options)
 		for _, buffer in ipairs(extra_uniform_buffers) do
 			table.insert(stage.uniform_buffers, buffer)
 		end
+
+		for _, buffer in ipairs(animation_buffers) do
+			table.insert(stage.uniform_buffers, buffer)
+		end
 	else
-		stage.uniform_buffers = extra_uniform_buffers[1] and extra_uniform_buffers or nil
+		local uniform_buffers = {}
+
+		for _, buffer in ipairs(extra_uniform_buffers) do
+			uniform_buffers[#uniform_buffers + 1] = buffer
+		end
+
+		for _, buffer in ipairs(animation_buffers) do
+			uniform_buffers[#uniform_buffers + 1] = buffer
+		end
+
+		stage.uniform_buffers = uniform_buffers[1] and uniform_buffers or nil
 	end
 
 	return stage
@@ -850,32 +894,6 @@ function model_pipeline.FillVertexAnimationData(block, material)
 		polygon:GetBranchHelperPivots() or
 		nil
 	local helper_count = math.min(pivots and #pivots or 0, MAX_BRANCH_HELPERS)
-	local world_matrix = render3d.GetWorldMatrix()
-	local has_world_matrix = world_matrix ~= nil
-	local m00, m10, m20, m30
-	local m01, m11, m21, m31
-	local m02, m12, m22, m32
-	local m03, m13, m23, m33
-
-	if has_world_matrix then
-		m00 = world_matrix.m00
-		m10 = world_matrix.m10
-		m20 = world_matrix.m20
-		m30 = world_matrix.m30
-		m01 = world_matrix.m01
-		m11 = world_matrix.m11
-		m21 = world_matrix.m21
-		m31 = world_matrix.m31
-		m02 = world_matrix.m02
-		m12 = world_matrix.m12
-		m22 = world_matrix.m22
-		m32 = world_matrix.m32
-		m03 = world_matrix.m03
-		m13 = world_matrix.m13
-		m23 = world_matrix.m23
-		m33 = world_matrix.m33
-	end
-
 	block.BranchHelperCount = helper_count
 
 	for i = 0, MAX_BRANCH_HELPERS - 1 do
@@ -883,21 +901,9 @@ function model_pipeline.FillVertexAnimationData(block, material)
 		local pivot = pivots and pivots[i + 1] or nil
 
 		if i < helper_count and pivot then
-			local x = pivot.x
-			local y = pivot.y
-			local z = pivot.z
-
-			if has_world_matrix then
-				local div = x * m03 + y * m13 + z * m23 + m33
-				field[0] = (x * m00 + y * m10 + z * m20 + m30) / div
-				field[1] = (x * m01 + y * m11 + z * m21 + m31) / div
-				field[2] = (x * m02 + y * m12 + z * m22 + m32) / div
-			else
-				field[0] = x
-				field[1] = y
-				field[2] = z
-			end
-
+			field[0] = pivot.x
+			field[1] = pivot.y
+			field[2] = pivot.z
 			field[3] = 1
 		else
 			field[0] = 0
@@ -944,12 +950,19 @@ function model_pipeline.GetVertexAnimationUploadKey()
 	return render3d.GetMaterialUploadKey()
 end
 
-function model_pipeline.BuildVertexAnimationGlsl(block_name)
+function model_pipeline.BuildVertexAnimationGlsl(block_name, helper_world_matrix_expr)
 	block_name = block_name or "vertex_animation"
+	helper_world_matrix_expr = helper_world_matrix_expr or "mat4(1.0)"
 	local helper_cases = {}
 
 	for i = 0, MAX_BRANCH_HELPERS - 1 do
-		helper_cases[#helper_cases + 1] = string.format("\t\t\t\tif (index == %d) return %s.BranchHelper%d.xyz;", i, block_name, i)
+		helper_cases[#helper_cases + 1] = string.format(
+			"\t\t\t\tif (index == %d) return (%s * vec4(%s.BranchHelper%d.xyz, 1.0)).xyz;",
+			i,
+			helper_world_matrix_expr,
+			block_name,
+			i
+		)
 	end
 
 	return [[
@@ -1075,7 +1088,7 @@ end
 function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var)
 	block_name = block_name or "vertex_animation"
 	shadow_state_var = shadow_state_var or "pc"
-	return model_pipeline.BuildVertexAnimationGlsl(block_name) .. [[
+	return model_pipeline.BuildVertexAnimationGlsl(block_name, "pc.world") .. [[
 			bool shadow_has_heightmap() {
 				return ]] .. shadow_state_var .. [[.height_texture_index != -1 && ]] .. shadow_state_var .. [[.height_scale > 0.0;
 			}
