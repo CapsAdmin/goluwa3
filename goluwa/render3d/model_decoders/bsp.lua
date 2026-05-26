@@ -1164,7 +1164,7 @@ function steam.LoadMap(path)
 
 					if GRAPHICS then
 						mesh:SetName(path .. ": " .. texname)
-						mesh.material = Material.FromVMT("materials/" .. texname .. ".vmt")
+						mesh.material = material
 					end
 
 					list.insert(models, meshes[texname])

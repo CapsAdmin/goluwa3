@@ -538,8 +538,13 @@ local function material_has_vertex_animation(material)
 		)
 end
 
+local function get_material_upload_key(material)
+	material = material or render3d.GetDefaultMaterial()
+	return material.upload_cache_key or material
+end
+
 local function get_gbuffer_instance_material_key(material)
-	return material
+	return get_material_upload_key(material)
 end
 
 local function get_gbuffer_instance_material_key_kind(material)
@@ -891,9 +896,19 @@ function render3d.UploadGBufferConstants()
 
 	local cmd = render.GetCommandBuffer()
 	local material = render3d.GetMaterial()
+	local animated = material_has_vertex_animation(material)
 	local pipeline = use_tessellated_gbuffer(material) and
-		render3d.pipelines.gbuffer_tess or
-		render3d.pipelines.gbuffer
+		(
+			animated and
+			render3d.pipelines.gbuffer_tess_anim or
+			render3d.pipelines.gbuffer_tess
+		)
+		or
+		(
+			animated and
+			render3d.pipelines.gbuffer_anim or
+			render3d.pipelines.gbuffer
+		)
 	local double_sided = material:GetDoubleSided()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
 	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
@@ -1096,6 +1111,10 @@ end
 
 function render3d.GetMaterial()
 	return render3d.current_material or render3d.GetDefaultMaterial()
+end
+
+function render3d.GetMaterialUploadKey()
+	return get_material_upload_key(render3d.GetMaterial())
 end
 
 function render3d.SetCurrentPolygon3D(poly)

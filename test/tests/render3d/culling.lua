@@ -4,6 +4,7 @@ local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Visual = import("goluwa/ecs/components/3d/visual.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -196,6 +197,45 @@ T.Test3D("Graphics render3d shadow acceleration invalidates after transform move
 	entity.transform:SetPosition(Vec3(0, 0, -6))
 	local moved_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
 	T(moved_visible[entity.visual])["=="](true)
+	entity:Remove()
+end)
+
+T.Test3D("Graphics render3d shadow visible list reuses stable cascades", function()
+	configure_camera()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local entity = Entity.New({Name = "stable_shadow_cache"})
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -6))
+	attach_visual(entity, polygon3d, material)
+	Visual.Library.InvalidateSceneAcceleration()
+	local query_aabb = AABB(-10, -10, -20, 10, 10, 0)
+	local visibility_checks = 0
+	local shadow_map = {
+		IsWorldAABBVisible = function(self, cascade_idx, world_aabb)
+			visibility_checks = visibility_checks + 1
+			return world_aabb.min_x < 10
+		end,
+		IsWorldAABBTooSmall = function()
+			return false
+		end,
+		UsesTessellatedMaterial = function()
+			return false
+		end,
+		GetCascadeWorldAABB = function()
+			return query_aabb
+		end,
+	}
+	local initially_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
+	local checks_after_first = visibility_checks
+	local cached_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
+	T(initially_visible[entity.visual])["=="](true)
+	T(cached_visible[entity.visual])["=="](true)
+	T(visibility_checks)["=="](checks_after_first)
+	entity.transform:SetPosition(Vec3(50, 0, -6))
+	local moved_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
+	T(visibility_checks == checks_after_first)["=="](false)
+	T(moved_visible[entity.visual])["=="](nil)
 	entity:Remove()
 end)
 

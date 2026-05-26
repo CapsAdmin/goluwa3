@@ -191,8 +191,10 @@ do
 	local xml = import("goluwa/codecs/xml.lua")
 	local cry_mtl_document_cache = {}
 	local cry_mtl_material_cache = {}
+	local vmt_material_cache = {}
 	local cry_texture_path_cache = {}
 	local cry_texture_recursive_lookup_cache = {}
+	local material_cache_stats = setmetatable({}, {__mode = "k"})
 
 	local function get_cry_mtl_cache_key(path, sub_material)
 		return path .. "\0" .. type(sub_material) .. ":" .. tostring(sub_material)
@@ -200,6 +202,67 @@ do
 
 	local function get_cry_texture_cache_key(material_path, texture_path)
 		return tostring(material_path) .. "\0" .. tostring(texture_path)
+	end
+
+	local function get_vmt_cache_key(path)
+		local normalized = vfs.FixPathSlashes(assert(path, "missing VMT path")):lower()
+
+		if not normalized:starts_with("materials/") then
+			normalized = "materials/" .. normalized
+		end
+
+		if not normalized:ends_with(".vmt") then normalized = normalized .. ".vmt" end
+
+		return normalized
+	end
+
+	local function record_material_cache_request(source, cache_key, material)
+		if not material then return end
+
+		local stats = material_cache_stats[material]
+
+		if not stats then
+			stats = {
+				requests = 0,
+				sources = {},
+				keys = {},
+				key_order = {},
+			}
+			material_cache_stats[material] = stats
+		end
+
+		stats.requests = stats.requests + 1
+		stats.sources[source] = true
+
+		if not stats.keys[cache_key] then
+			stats.keys[cache_key] = true
+			stats.key_order[#stats.key_order + 1] = cache_key
+		end
+	end
+
+	local function get_unique_cached_materials()
+		local seen = setmetatable({}, {__mode = "k"})
+		local list = {}
+
+		for _, material in pairs(vmt_material_cache) do
+			if material and not seen[material] then
+				seen[material] = true
+				list[#list + 1] = material
+			end
+		end
+
+		for _, material in pairs(cry_mtl_material_cache) do
+			if material and not seen[material] then
+				seen[material] = true
+				list[#list + 1] = material
+			end
+		end
+
+		return list
+	end
+
+	local function color_is_default(color)
+		return color and color.r == 1 and color.g == 1 and color.b == 1 and color.a == 1
 	end
 
 	local function unpack_numbers(str)
@@ -978,10 +1041,14 @@ do
 		local cache_key = get_cry_mtl_cache_key(path, sub_material)
 		local cached_material = cry_mtl_material_cache[cache_key]
 
-		if cached_material then return cached_material end
+		if cached_material then
+			record_material_cache_request("crymtl", cache_key, cached_material)
+			return cached_material
+		end
 
 		local self = Material.New()
 		self.cry_mtl_path = path
+		self.upload_cache_key = cache_key
 		local document = cry_mtl_document_cache[path]
 
 		if document == nil then
@@ -1052,25 +1119,238 @@ do
 
 		apply_cry_material_node(self, material_node, path)
 		cry_mtl_material_cache[cache_key] = self
+		record_material_cache_request("crymtl", cache_key, self)
 		return self
 	end
 
 	function Material.FromVMT(path)
+		local cache_key = get_vmt_cache_key(path)
+		local cached_material = vmt_material_cache[cache_key]
+
+		if cached_material then
+			record_material_cache_request("vmt", cache_key, cached_material)
+			return cached_material
+		end
+
 		local self = Material.New()
 		--self:SetName(path)
-		self.vmt_path = path -- Store path for debugging
-		local cb = steam.LoadVMT(path, function(vmt)
+		self.vmt_path = cache_key -- Store path for debugging
+		self.upload_cache_key = cache_key
+		vmt_material_cache[cache_key] = self
+		local cb = steam.LoadVMT(cache_key, function(vmt)
 			on_load_vmt(self, track_vmt(vmt))
 		end, function(err)
-			print("Material error for " .. path .. ": " .. err)
+			print("Material error for " .. cache_key .. ": " .. err)
 			self:SetError(err)
 		end)
 
 		--if tasks.GetActiveTask() then pcall(cb.Get, cb) end
 		if tasks.GetActiveTask() then cb:Get() end
 
+		record_material_cache_request("vmt", cache_key, self)
 		return self
 	end
+
+	commands.Add("dump_cached_materials", function()
+		local rows = {}
+
+		for material, stats in pairs(material_cache_stats) do
+			local sources = {}
+
+			for source in pairs(stats.sources) do
+				sources[#sources + 1] = source
+			end
+
+			table.sort(sources)
+			rows[#rows + 1] = {
+				material = material,
+				requests = stats.requests,
+				source = table.concat(sources, "+"),
+				primary_key = stats.key_order[1] or material.vmt_path or material.cry_mtl_path or "<unknown>",
+				key_count = #stats.key_order,
+			}
+		end
+
+		table.sort(rows, function(a, b)
+			if a.requests ~= b.requests then return a.requests > b.requests end
+
+			return a.primary_key < b.primary_key
+		end)
+
+		print(string.format("[cached_materials] unique=%d", #rows))
+
+		for _, row in ipairs(rows) do
+			print(
+				string.format(
+					"[cached_materials] requests=%d source=%s keys=%d material=%s",
+					row.requests,
+					row.source,
+					row.key_count,
+					row.primary_key
+				)
+			)
+		end
+	end)
+
+	commands.Add("dump_cached_material_feature_summary", function()
+		local materials = get_unique_cached_materials()
+		local counts = {
+			total = #materials,
+			vmt = 0,
+			crymtl = 0,
+			albedo = 0,
+			normal = 0,
+			detail_blend = 0,
+			detail_normal = 0,
+			metallic_roughness = 0,
+			metallic = 0,
+			roughness = 0,
+			opacity = 0,
+			ambient_occlusion_texture = 0,
+			emissive_texture = 0,
+			nondefault_factor = 0,
+			nondefault_color = 0,
+			nondefault_ao = 0,
+			emissive_enabled = 0,
+			displacement = 0,
+			terrain = 0,
+			transmission = 0,
+		}
+
+		for _, material in ipairs(materials) do
+			if material.vmt_path then counts.vmt = counts.vmt + 1 end
+
+			if material.cry_mtl_path then counts.crymtl = counts.crymtl + 1 end
+
+			if material:GetAlbedoTexture() ~= nil then counts.albedo = counts.albedo + 1 end
+
+			if material:GetNormalTexture() ~= nil then counts.normal = counts.normal + 1 end
+
+			if material:GetAlbedo2Texture() ~= nil or material:GetBlendTexture() ~= nil then
+				counts.detail_blend = counts.detail_blend + 1
+			end
+
+			if material:GetNormal2Texture() ~= nil then
+				counts.detail_normal = counts.detail_normal + 1
+			end
+
+			if material:GetMetallicRoughnessTexture() ~= nil then
+				counts.metallic_roughness = counts.metallic_roughness + 1
+			end
+
+			if material:GetMetallicTexture() ~= nil then
+				counts.metallic = counts.metallic + 1
+			end
+
+			if material:GetRoughnessTexture() ~= nil then
+				counts.roughness = counts.roughness + 1
+			end
+
+			if material:GetOpacityTexture() ~= nil then
+				counts.opacity = counts.opacity + 1
+			end
+
+			if material:GetAmbientOcclusionTexture() ~= nil then
+				counts.ambient_occlusion_texture = counts.ambient_occlusion_texture + 1
+			end
+
+			if material:GetEmissiveTexture() ~= nil then
+				counts.emissive_texture = counts.emissive_texture + 1
+			end
+
+			if not color_is_default(material:GetColorMultiplier()) then
+				counts.nondefault_color = counts.nondefault_color + 1
+			end
+
+			if
+				material:GetMetallicMultiplier() ~= 1.0 or
+				material:GetRoughnessMultiplier() ~= 1.0 or
+				material:GetAlphaCutoff() ~= 0.5
+			then
+				counts.nondefault_factor = counts.nondefault_factor + 1
+			end
+
+			if material:GetAmbientOcclusionMultiplier() ~= 1.0 then
+				counts.nondefault_ao = counts.nondefault_ao + 1
+			end
+
+			if
+				material:GetEmissiveTexture() ~= nil or
+				material:GetAlbedoAlphaIsEmissive() or
+				material:GetMetallicTextureAlphaIsEmissive()
+			then
+				counts.emissive_enabled = counts.emissive_enabled + 1
+			end
+
+			if material:GetHeightTexture() ~= nil and material:GetHeightScale() > 0 then
+				counts.displacement = counts.displacement + 1
+			end
+
+			if material:GetTerrainMaterialTexture() ~= nil then
+				counts.terrain = counts.terrain + 1
+			end
+
+			if material:GetSubsurface() then
+				counts.transmission = counts.transmission + 1
+			end
+		end
+
+		print(
+			string.format(
+				"[cached_material_features] total=%d vmt=%d crymtl=%d",
+				counts.total,
+				counts.vmt,
+				counts.crymtl
+			)
+		)
+		print(
+			string.format(
+				"[cached_material_features] base albedo=%d normal=%d",
+				counts.albedo,
+				counts.normal
+			)
+		)
+		print(
+			string.format(
+				"[cached_material_features] detail_blend=%d detail_normal=%d",
+				counts.detail_blend,
+				counts.detail_normal
+			)
+		)
+		print(
+			string.format(
+				"[cached_material_features] metallic_roughness=%d metallic=%d roughness=%d opacity=%d",
+				counts.metallic_roughness,
+				counts.metallic,
+				counts.roughness,
+				counts.opacity
+			)
+		)
+		print(
+			string.format(
+				"[cached_material_features] ao_texture=%d ao_nondefault=%d emissive_texture=%d emissive_enabled=%d",
+				counts.ambient_occlusion_texture,
+				counts.nondefault_ao,
+				counts.emissive_texture,
+				counts.emissive_enabled
+			)
+		)
+		print(
+			string.format(
+				"[cached_material_features] factor_nondefault=%d color_nondefault=%d",
+				counts.nondefault_factor,
+				counts.nondefault_color
+			)
+		)
+		print(
+			string.format(
+				"[cached_material_features] displacement=%d terrain=%d transmission=%d",
+				counts.displacement,
+				counts.terrain,
+				counts.transmission
+			)
+		)
+	end)
 
 	commands.Add("dump_unused_vmt_properties", function()
 		local unused = {}

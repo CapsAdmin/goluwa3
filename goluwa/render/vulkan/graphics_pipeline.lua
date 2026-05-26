@@ -1933,6 +1933,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self.cubemap_free_list = {}
 		self.max_textures = get_bindless_binding_capacity(self, 0) or 0
 		self.max_cubemaps = get_bindless_binding_capacity(self, 1) or 0
+		self.bindless_descriptor_sets_dirty = {}
 	end
 
 	local event = import("goluwa/event.lua")
@@ -2199,14 +2200,35 @@ local function get_texture_descriptor_write_count(array)
 	return count
 end
 
+local function update_texture_descriptor_set_frame(self, frame_index, binding_index, set_index, array, override_count)
+	self:UpdateDescriptorSetArray(frame_index, binding_index, set_index, array, override_count)
+end
+
+local function mark_texture_descriptor_frames_dirty(self, except_frame)
+	local dirty = self.bindless_descriptor_sets_dirty
+
+	for frame_i = 1, #self.descriptor_sets do
+		if frame_i ~= except_frame then dirty[frame_i] = true end
+	end
+end
+
+local function sync_texture_descriptor_sets_for_frame(self, frame_index)
+	local dirty = self.bindless_descriptor_sets_dirty
+
+	if not (dirty and dirty[frame_index]) then return end
+
+	local set_index = get_bindless_texture_set_index(self)
+	update_texture_descriptor_set_frame(self, frame_index, 0, set_index, self.texture_array)
+	update_texture_descriptor_set_frame(self, frame_index, 1, set_index, self.cubemap_array)
+	dirty[frame_index] = nil
+end
+
 local function update_texture_descriptor_sets(self, binding_index, set_index, array, override_count)
 	local count = override_count or get_texture_descriptor_write_count(array)
 
 	if count <= 0 then return end
 
-	for frame_i = 1, #self.descriptor_sets do
-		self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array, count)
-	end
+	mark_texture_descriptor_frames_dirty(self)
 end
 
 function normalize_pipeline_sampler_config(config)
@@ -2683,6 +2705,7 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 
 	-- Bind descriptor sets
 	if self.descriptor_sets then
+		sync_texture_descriptor_sets_for_frame(self, frame_index)
 		local sets = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
 
 		if sets then

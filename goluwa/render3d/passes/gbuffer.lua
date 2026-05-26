@@ -20,8 +20,23 @@ local function supports_tessellation()
 	return features and features.tessellationShader == 1 or false
 end
 
-local function build_common_fragment_shader()
-	return model_pipeline.BuildAlphaDiscardGlsl("model.AlphaCutoff") .. [[
+local function build_common_fragment_shader(
+	terrain_var,
+	transmission_var,
+	displacement_var,
+	detail_var,
+	aux_var,
+	factor_var,
+	color_var
+)
+	terrain_var = terrain_var or "model"
+	transmission_var = transmission_var or "model"
+	displacement_var = displacement_var or "model"
+	detail_var = detail_var or "model"
+	aux_var = aux_var or "model"
+	factor_var = factor_var or "model"
+	color_var = color_var or factor_var
+	return model_pipeline.BuildAlphaDiscardGlsl(factor_var .. ".AlphaCutoff") .. [[
 
 			vec3 get_vertex_normal() {
 				vec3 N = in_normal;
@@ -67,12 +82,12 @@ local function build_common_fragment_shader()
 			}
 
 			vec3 get_height_normal_tangent(vec2 uv) {
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(model.HeightTexture), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(]] .. displacement_var .. [[.HeightTexture), 0));
 				float left = get_height_centered_sample(uv - vec2(texel.x, 0.0));
 				float right = get_height_centered_sample(uv + vec2(texel.x, 0.0));
 				float down = get_height_centered_sample(uv - vec2(0.0, texel.y));
 				float up = get_height_centered_sample(uv + vec2(0.0, texel.y));
-				return normalize(vec3(left - right, down - up, max(model.HeightScale, 0.0001)));
+				return normalize(vec3(left - right, down - up, max(]] .. displacement_var .. [[.HeightScale, 0.0001)));
 			}
 
 			vec3 get_normal_map(vec2 uv) {
@@ -92,11 +107,11 @@ local function build_common_fragment_shader()
 
 				vec3 rgb1 = vec3(normal_xy1, sqrt(max(1.0 - dot(normal_xy1, normal_xy1), 0.0)));
 
-				if (model.Normal2Texture != -1) {
+				if (]] .. detail_var .. [[.Normal2Texture != -1) {
 					float blend = get_texture_blend_uv(uv);
 
 					if (blend != 0) {
-						vec2 normal_xy2 = texture(TEXTURE(model.Normal2Texture), uv).xy * 2.0 - 1.0;
+						vec2 normal_xy2 = texture(TEXTURE(]] .. detail_var .. [[.Normal2Texture), uv).xy * 2.0 - 1.0;
 
 						if (ReverseXZNormalMap) {
 							normal_xy2 = -normal_xy2;
@@ -165,17 +180,17 @@ local function build_common_fragment_shader()
 			float get_metallic(vec2 uv) {
 				float val = 1.0;
 
-				if (model.MetallicTexture != -1) {
-					val = texture(TEXTURE(model.MetallicTexture), uv).r;
-				} else if (model.MetallicRoughnessTexture != -1) {
-					val = texture(TEXTURE(model.MetallicRoughnessTexture), uv).b;
+				if (]] .. aux_var .. [[.MetallicTexture != -1) {
+					val = texture(TEXTURE(]] .. aux_var .. [[.MetallicTexture), uv).r;
+				} else if (]] .. aux_var .. [[.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(]] .. aux_var .. [[.MetallicRoughnessTexture), uv).b;
 				} else {
-					val = model.MetallicMultiplier;
+					val = ]] .. factor_var .. [[.MetallicMultiplier;
 					val = clamp(val, 0, 1);
 					return val;
 				}
 
-				val *= model.MetallicMultiplier;
+				val *= ]] .. factor_var .. [[.MetallicMultiplier;
 				val = clamp(val, 0, 1);
 
 				return val;
@@ -190,19 +205,19 @@ local function build_common_fragment_shader()
 					val = -texture(TEXTURE(model.NormalTexture), uv).a + 1.0;
 				} else if (AlbedoLuminanceIsRoughness) {
 					val = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
-				} else if (model.RoughnessTexture != -1) {
-					val = texture(TEXTURE(model.RoughnessTexture), uv).r;
-				} else if (model.MetallicRoughnessTexture != -1) {
-					val = texture(TEXTURE(model.MetallicRoughnessTexture), uv).g;
-				} else if (model.TerrainMaterialTexture != -1) {
-					val = dot(get_terrain_material_weights_uv(uv), model.TerrainLayerRoughness);
+				} else if (]] .. aux_var .. [[.RoughnessTexture != -1) {
+					val = texture(TEXTURE(]] .. aux_var .. [[.RoughnessTexture), uv).r;
+				} else if (]] .. aux_var .. [[.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(]] .. aux_var .. [[.MetallicRoughnessTexture), uv).g;
+				} else if (]] .. terrain_var .. [[.TerrainMaterialTexture != -1) {
+					val = dot(get_terrain_material_weights_uv(uv), ]] .. terrain_var .. [[.TerrainLayerRoughness);
 				} else {
-					val = model.RoughnessMultiplier;
+					val = ]] .. factor_var .. [[.RoughnessMultiplier;
 					val = clamp(val, 0.05, 0.95);
 					return val;
 				}
 
-				val *= model.RoughnessMultiplier;
+				val *= ]] .. factor_var .. [[.RoughnessMultiplier;
 
 				if (InvertRoughnessTexture) val = -val + 1.0;
 
@@ -225,23 +240,23 @@ local function build_common_fragment_shader()
 
 			float get_transmission_view_dependency() {
 				if (!Subsurface) return 0.0;
-				return clamp(model.TransmissionViewDependency, 0.0, 1.0);
+				return clamp(]] .. transmission_var .. [[.TransmissionViewDependency, 0.0, 1.0);
 			}
 
 			vec3 get_transmission_color() {
 				if (!Subsurface) return vec3(0.0);
-				return model.TransmissionColor.rgb * model.TransmissionColor.a;
+				return ]] .. transmission_var .. [[.TransmissionColor.rgb * ]] .. transmission_var .. [[.TransmissionColor.a;
 			}
 
 			float get_transmission_blocking_raw(vec2 uv) {
 				if (!Subsurface) return 0.0;
 
-				if (model.RoughnessTexture != -1) {
-					return clamp(texture(TEXTURE(model.RoughnessTexture), uv).a, 0.0, 1.0);
+				if (]] .. aux_var .. [[.RoughnessTexture != -1) {
+					return clamp(texture(TEXTURE(]] .. aux_var .. [[.RoughnessTexture), uv).a, 0.0, 1.0);
 				}
 
-				if (model.OpacityTexture != -1) {
-					vec4 mask = texture(TEXTURE(model.OpacityTexture), uv);
+				if (]] .. aux_var .. [[.OpacityTexture != -1) {
+					vec4 mask = texture(TEXTURE(]] .. aux_var .. [[.OpacityTexture), uv);
 					return clamp(max(max(mask.r, mask.g), max(mask.b, mask.a)), 0.0, 1.0);
 				}
 
@@ -251,15 +266,15 @@ local function build_common_fragment_shader()
 			float get_transmission_blocking(vec2 uv) {
 				if (!Subsurface) return 0.0;
 
-				float blocking = model.TransmissionBlocking;
+				float blocking = ]] .. transmission_var .. [[.TransmissionBlocking;
 
-				if (model.RoughnessTexture != -1) {
-					blocking *= texture(TEXTURE(model.RoughnessTexture), uv).a;
+				if (]] .. aux_var .. [[.RoughnessTexture != -1) {
+					blocking *= texture(TEXTURE(]] .. aux_var .. [[.RoughnessTexture), uv).a;
 					return clamp(blocking, 0.0, 1.0);
 				}
 
-				if (model.OpacityTexture != -1) {
-					vec4 mask = texture(TEXTURE(model.OpacityTexture), uv);
+				if (]] .. aux_var .. [[.OpacityTexture != -1) {
+					vec4 mask = texture(TEXTURE(]] .. aux_var .. [[.OpacityTexture), uv);
 					blocking *= max(max(mask.r, mask.g), max(mask.b, mask.a));
 					return clamp(blocking, 0.0, 1.0);
 				}
@@ -278,36 +293,37 @@ local function build_common_fragment_shader()
 					if (model.AlbedoTexture != -1) {
 						mask = texture(TEXTURE(model.AlbedoTexture), uv).a;
 					}
-					return get_albedo_uv(uv) * mask * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
-				} else if (model.EmissiveTexture != -1) {
-					float mask = texture(TEXTURE(model.EmissiveTexture), uv).r;
-					return get_albedo_uv(uv) * mask * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
-				} else if (model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
-					float mask = texture(TEXTURE(model.MetallicTexture), uv).a;
-					return get_albedo_uv(uv) * mask * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
-				} else if (model.EmissiveTexture != -1) {
-					vec3 emissive = texture(TEXTURE(model.EmissiveTexture), uv).rgb;
-					return emissive * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
+					return get_albedo_uv(uv) * mask * ]] .. aux_var .. [[.EmissiveMultiplier.rgb * ]] .. aux_var .. [[.EmissiveMultiplier.a;
+				} else if (]] .. aux_var .. [[.EmissiveTexture != -1) {
+					float mask = texture(TEXTURE(]] .. aux_var .. [[.EmissiveTexture), uv).r;
+					return get_albedo_uv(uv) * mask * ]] .. aux_var .. [[.EmissiveMultiplier.rgb * ]] .. aux_var .. [[.EmissiveMultiplier.a;
+				} else if (]] .. aux_var .. [[.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
+					float mask = texture(TEXTURE(]] .. aux_var .. [[.MetallicTexture), uv).a;
+					return get_albedo_uv(uv) * mask * ]] .. aux_var .. [[.EmissiveMultiplier.rgb * ]] .. aux_var .. [[.EmissiveMultiplier.a;
+				} else if (]] .. aux_var .. [[.EmissiveTexture != -1) {
+					vec3 emissive = texture(TEXTURE(]] .. aux_var .. [[.EmissiveTexture), uv).rgb;
+					return emissive * ]] .. aux_var .. [[.EmissiveMultiplier.rgb * ]] .. aux_var .. [[.EmissiveMultiplier.a;
 				}
 
 				return vec3(0.0);
 			}
 
 			float get_ao(vec2 uv) {
-				if (model.AmbientOcclusionTexture == -1) {
-					if (model.TerrainMaterialTexture != -1) {
-						return dot(get_terrain_material_weights_uv(uv), model.TerrainLayerAmbientOcclusion) * model.AmbientOcclusionMultiplier;
+				if (]] .. aux_var .. [[.AmbientOcclusionTexture == -1) {
+					if (]] .. terrain_var .. [[.TerrainMaterialTexture != -1) {
+						return dot(get_terrain_material_weights_uv(uv), ]] .. terrain_var .. [[.TerrainLayerAmbientOcclusion) * ]] .. aux_var .. [[.AmbientOcclusionMultiplier;
 					}
 
-					return 1.0 * model.AmbientOcclusionMultiplier;
+					return 1.0 * ]] .. aux_var .. [[.AmbientOcclusionMultiplier;
 				}
 
-				return texture(TEXTURE(model.AmbientOcclusionTexture), uv).r * model.AmbientOcclusionMultiplier;
+				return texture(TEXTURE(]] .. aux_var .. [[.AmbientOcclusionTexture), uv).r * ]] .. aux_var .. [[.AmbientOcclusionMultiplier;
 			}
 	]]
 end
 
-local function build_ssdm_fragment_shader()
+local function build_ssdm_fragment_shader(displacement_var)
+	displacement_var = displacement_var or "model"
 	return [[
 			struct SSDMData {
 				vec2 uv;
@@ -342,8 +358,8 @@ local function build_ssdm_fragment_shader()
 				float layer_depth = 1.0 / float(layer_count);
 				float current_layer_depth = 0.0;
 				vec2 current_uv = in_uv;
-				vec2 delta_uv = -(view_dir_tangent.xy / view_z) * model.HeightScale / float(layer_count);
-				float current_map_depth = 1.0 - (get_height_centered_sample(current_uv) + model.HeightCenter);
+				vec2 delta_uv = -(view_dir_tangent.xy / view_z) * ]] .. displacement_var .. [[.HeightScale / float(layer_count);
+				float current_map_depth = 1.0 - (get_height_centered_sample(current_uv) + ]] .. displacement_var .. [[.HeightCenter);
 				vec2 previous_uv = current_uv;
 				float previous_layer_depth = current_layer_depth;
 				float previous_map_depth = current_map_depth;
@@ -358,7 +374,7 @@ local function build_ssdm_fragment_shader()
 					previous_map_depth = current_map_depth;
 					current_uv = current_uv + delta_uv;
 					current_layer_depth += layer_depth;
-					current_map_depth = 1.0 - (get_height_centered_sample(current_uv) + model.HeightCenter);
+					current_map_depth = 1.0 - (get_height_centered_sample(current_uv) + ]] .. displacement_var .. [[.HeightCenter);
 				}
 
 				float after_depth = current_map_depth - current_layer_depth;
@@ -371,9 +387,9 @@ local function build_ssdm_fragment_shader()
 				}
 
 				float parallax_depth = mix(current_layer_depth, previous_layer_depth, weight);
-				float centered_height = parallax_depth - model.HeightCenter;
+				float centered_height = parallax_depth - ]] .. displacement_var .. [[.HeightCenter;
 				data.uv = mix(current_uv, previous_uv, weight);
-				data.height = centered_height * model.HeightScale;
+				data.height = centered_height * ]] .. displacement_var .. [[.HeightScale;
 				data.world_pos = in_position - view_dir_world * (data.height / view_z);
 				return data;
 			}
@@ -400,18 +416,19 @@ local function build_ssdm_fragment_shader()
 	]]
 end
 
-local function build_tessellation_control_shader()
+local function build_tessellation_control_shader(displacement_var)
+	displacement_var = displacement_var or "model"
 	return Material.BuildGlslFlags("model.Flags") .. [[
 			bool has_heightmap() {
-				return model.HeightTexture != -1 && model.HeightScale > 0.0;
+				return ]] .. displacement_var .. [[.HeightTexture != -1 && ]] .. displacement_var .. [[.HeightScale > 0.0;
 			}
 
 			bool use_tessellated_displacement() {
-				return has_heightmap() && model.TessellationFactor > 1.0;
+				return has_heightmap() && ]] .. displacement_var .. [[.TessellationFactor > 1.0;
 			}
 
 			float get_tessellation_factor() {
-				return clamp(model.TessellationFactor, 1.0, 64.0);
+				return clamp(]] .. displacement_var .. [[.TessellationFactor, 1.0, 64.0);
 			}
 
 			float get_edge_tessellation(vec3 a, vec3 b, float max_tess) {
@@ -423,7 +440,7 @@ local function build_tessellation_control_shader()
 				vec2 ndc_b = clip_b.xy * inv_w_b;
 				vec2 edge_pixels = (ndc_b - ndc_a) * 0.5 * gbuffer_data.render_size;
 				float projected_length = max(length(edge_pixels), 0.0001);
-				float displacement_boost = clamp(1.0 + model.HeightScale * 48.0, 1.0, 4.0);
+				float displacement_boost = clamp(1.0 + ]] .. displacement_var .. [[.HeightScale * 48.0, 1.0, 4.0);
 				float target_segment_pixels = 5.0 / displacement_boost;
 				float tess = projected_length / max(target_segment_pixels, 1.0);
 				return clamp(tess, 1.0, max_tess);
@@ -455,10 +472,18 @@ local function build_tessellation_control_shader()
 	]]
 end
 
-local function build_tessellation_evaluation_shader()
-	return Material.BuildGlslFlags("model.Flags") .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation") .. [[
+local function build_tessellation_evaluation_shader(enable_vertex_animation, displacement_var)
+	enable_vertex_animation = enable_vertex_animation ~= false
+	displacement_var = displacement_var or "model"
+	local str = Material.BuildGlslFlags("model.Flags")
+
+	if enable_vertex_animation then
+		str = str .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation")
+	end
+
+	str = str .. [[
 			bool has_heightmap() {
-				return model.HeightTexture != -1 && model.HeightScale > 0.0;
+				return ]] .. displacement_var .. [[.HeightTexture != -1 && ]] .. displacement_var .. [[.HeightScale > 0.0;
 			}
 
 			float get_height_sample(vec2 uv) {
@@ -466,15 +491,15 @@ local function build_tessellation_evaluation_shader()
 					return 1.0;
 				}
 
-				return texture(TEXTURE(model.HeightTexture), uv).r;
+				return texture(TEXTURE(]] .. displacement_var .. [[.HeightTexture), uv).r;
 			}
 
 			float get_height_centered_sample(vec2 uv) {
-				return get_height_sample(uv) - model.HeightCenter;
+				return get_height_sample(uv) - ]] .. displacement_var .. [[.HeightCenter;
 			}
 
 			bool use_tessellated_displacement() {
-				return has_heightmap() && model.TessellationFactor > 1.0;
+				return has_heightmap() && ]] .. displacement_var .. [[.TessellationFactor > 1.0;
 			}
 
 			layout(triangles, equal_spacing, cw) in;
@@ -492,13 +517,21 @@ local function build_tessellation_evaluation_shader()
 				vec4 vertex_color = interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2]);
 
 				if (use_tessellated_displacement()) {
-					world_pos += displacement_normal * (get_height_centered_sample(uv) * model.HeightScale);
+					world_pos += displacement_normal * (get_height_centered_sample(uv) * ]] .. displacement_var .. [[.HeightScale);
 				}
 
+	]]
+
+	if enable_vertex_animation then
+		str = str .. [[
 				vec3 world_offset = get_vertex_animation_offset(world_pos, normal, tangent_xyz, uv, texture_blend, vertex_color);
 				world_pos += world_offset;
 				normal = bend_vertex_animation_direction(normal, world_offset);
 				tangent_xyz = bend_vertex_animation_direction(tangent_xyz, world_offset);
+		]]
+	end
+
+	str = str .. [[
 
 				out_position = world_pos;
 				out_normal = normal;
@@ -509,6 +542,7 @@ local function build_tessellation_evaluation_shader()
 				gl_Position = gbuffer_data.projection * gbuffer_data.view * vec4(world_pos, 1.0);
 			}
 	]]
+	return str
 end
 
 local function build_tessellation_fragment_shader()
@@ -533,7 +567,7 @@ local function build_tessellation_fragment_shader()
 	]]
 end
 
-local function build_base_pass(fragment_shader)
+local function build_base_pass(fragment_shader, enable_vertex_animation)
 	return {
 		name = "gbuffer",
 		on_draw = function(self, cmd)
@@ -561,6 +595,7 @@ local function build_base_pass(fragment_shader)
 				{
 					name = "gbuffer_data",
 					binding_index = 3,
+					upload_scope = "frame",
 					block = {
 						render3d.camera_block,
 						render3d.debug_block,
@@ -569,12 +604,79 @@ local function build_base_pass(fragment_shader)
 				},
 				{
 					name = "model",
+					upload_scope = "persistent_keyed",
+					upload_key = render3d.GetMaterialUploadKey,
 					block = model_pipeline.GetPBRMaterialBlock(),
 					write = model_pipeline.WritePBRMaterialBlock,
 				},
+				{
+					name = "color_model",
+					upload_scope = "frame_keyed",
+					upload_key = model_pipeline.GetPBRColorUploadKey,
+					block = model_pipeline.GetPBRColorMaterialBlock(),
+					write = model_pipeline.WritePBRColorMaterialBlock,
+				},
+				{
+					name = "factor_model",
+					upload_scope = "persistent_keyed",
+					upload_key = model_pipeline.GetPBRFactorUploadKey,
+					block = model_pipeline.GetPBRFactorMaterialBlock(),
+					write = model_pipeline.WritePBRFactorMaterialBlock,
+				},
+				{
+					name = "detail_model",
+					upload_scope = "persistent_keyed",
+					upload_key = model_pipeline.GetPBRDetailUploadKey,
+					block = model_pipeline.GetPBRDetailMaterialBlock(),
+					write = model_pipeline.WritePBRDetailMaterialBlock,
+				},
+				{
+					name = "aux_model",
+					upload_scope = "frame_keyed",
+					upload_key = model_pipeline.GetPBRAuxUploadKey,
+					block = model_pipeline.GetPBRAuxMaterialBlock(),
+					write = model_pipeline.WritePBRAuxMaterialBlock,
+				},
+				{
+					name = "displacement_model",
+					upload_scope = "frame_keyed",
+					upload_key = model_pipeline.GetPBRDisplacementUploadKey,
+					block = model_pipeline.GetPBRDisplacementMaterialBlock(),
+					write = model_pipeline.WritePBRDisplacementMaterialBlock,
+				},
+				{
+					name = "terrain_model",
+					upload_scope = "frame_keyed",
+					upload_key = model_pipeline.GetPBRTerrainUploadKey,
+					block = model_pipeline.GetPBRTerrainMaterialBlock(),
+					write = model_pipeline.WritePBRTerrainMaterialBlock,
+				},
+				{
+					name = "transmission_model",
+					upload_scope = "frame_keyed",
+					upload_key = model_pipeline.GetPBRTransmissionUploadKey,
+					block = model_pipeline.GetPBRTransmissionMaterialBlock(),
+					write = model_pipeline.WritePBRTransmissionMaterialBlock,
+				},
 			},
 			shader = [[
-			]] .. model_pipeline.BuildPBRSamplingGlsl("model") .. build_common_fragment_shader() .. fragment_shader,
+			]] .. model_pipeline.BuildPBRSamplingGlsl(
+					"model",
+					"terrain_model",
+					"displacement_model",
+					"detail_model",
+					"aux_model",
+					"factor_model",
+					"color_model"
+				) .. build_common_fragment_shader(
+					"terrain_model",
+					"transmission_model",
+					"displacement_model",
+					"detail_model",
+					"aux_model",
+					"factor_model",
+					"color_model"
+				) .. fragment_shader,
 		},
 		DepthClamp = false,
 		Discard = false,
@@ -593,11 +695,33 @@ local function build_base_pass(fragment_shader)
 		DepthCompareOp = "less_or_equal",
 		DepthBoundsTest = false,
 		StencilTest = false,
+		vertex = model_pipeline.CreateVertexStage{
+			normal = true,
+			tangent = true,
+			uv = true,
+			texture_blend = true,
+			vertex_color = true,
+			include_projection_view_world = false,
+			camera_uniform_block_name = "gbuffer_data",
+			uniform_buffers = {
+				{
+					name = "gbuffer_data",
+					binding_index = 3,
+					upload_scope = "frame",
+					block = {
+						render3d.camera_block,
+						render3d.debug_block,
+					},
+					write = render3d.WriteCameraDebugBlock,
+				},
+			},
+			enable_vertex_animation = enable_vertex_animation,
+		},
 	}
 end
 
 local function build_instanced_pass(fragment_shader)
-	local pass = build_base_pass(fragment_shader)
+	local pass = build_base_pass(fragment_shader, false)
 	pass.name = "gbuffer_instanced"
 	pass.draw_in_prerender = false
 	pass.dont_create_framebuffers = true
@@ -608,38 +732,48 @@ local function build_instanced_pass(fragment_shader)
 		uv = true,
 		texture_blend = true,
 		vertex_color = true,
+		include_projection_view = false,
+		camera_uniform_block_name = "gbuffer_data",
+		uniform_buffers = {
+			{
+				name = "gbuffer_data",
+				binding_index = 3,
+				upload_scope = "frame",
+				block = {
+					render3d.camera_block,
+					render3d.debug_block,
+				},
+				write = render3d.WriteCameraDebugBlock,
+			},
+		},
 	}
 	return pass
 end
 
 if supports_tessellation() then
-	local fallback = build_base_pass(build_ssdm_fragment_shader())
-	local instanced = build_instanced_pass(build_ssdm_fragment_shader())
-	fallback.vertex = model_pipeline.CreateVertexStage{
-		normal = true,
-		tangent = true,
-		uv = true,
-		texture_blend = true,
-		vertex_color = true,
-	}
-	local pass = build_base_pass(build_tessellation_fragment_shader())
+	local fallback = build_base_pass(build_ssdm_fragment_shader("displacement_model"), false)
+	local fallback_anim = build_base_pass(build_ssdm_fragment_shader("displacement_model"), true)
+	fallback_anim.name = "gbuffer_anim"
+	fallback_anim.draw_in_prerender = false
+	local instanced = build_instanced_pass(build_ssdm_fragment_shader("displacement_model"))
+	local pass = build_base_pass(build_tessellation_fragment_shader(), false)
 	pass.name = "gbuffer_tess"
 	pass.draw_in_prerender = false
 	pass.Topology = "patch_list"
 	pass.PatchControlPoints = 3
 	pass.FrontFace = orientation.FRONT_FACE
-	pass.vertex = model_pipeline.CreateVertexStage{
-		normal = true,
-		tangent = true,
-		uv = true,
-		texture_blend = true,
-		vertex_color = true,
-	}
+	local pass_anim = build_base_pass(build_tessellation_fragment_shader(), true)
+	pass_anim.name = "gbuffer_tess_anim"
+	pass_anim.draw_in_prerender = false
+	pass_anim.Topology = "patch_list"
+	pass_anim.PatchControlPoints = 3
+	pass_anim.FrontFace = orientation.FRONT_FACE
 	pass.tessellation_control = {
 		uniform_buffers = {
 			{
 				name = "gbuffer_data",
 				binding_index = 3,
+				upload_scope = "frame",
 				block = {
 					render3d.camera_block,
 					render3d.debug_block,
@@ -648,17 +782,27 @@ if supports_tessellation() then
 			},
 			{
 				name = "model",
+				upload_scope = "frame_keyed",
+				upload_key = render3d.GetMaterialUploadKey,
 				block = model_pipeline.GetPBRMaterialBlock(),
 				write = model_pipeline.WritePBRMaterialBlock,
 			},
+			{
+				name = "displacement_model",
+				upload_scope = "frame_keyed",
+				upload_key = model_pipeline.GetPBRDisplacementUploadKey,
+				block = model_pipeline.GetPBRDisplacementMaterialBlock(),
+				write = model_pipeline.WritePBRDisplacementMaterialBlock,
+			},
 		},
-		shader = build_tessellation_control_shader(),
+		shader = build_tessellation_control_shader("displacement_model"),
 	}
 	pass.tessellation_evaluation = {
 		uniform_buffers = {
 			{
 				name = "gbuffer_data",
 				binding_index = 3,
+				upload_scope = "frame",
 				block = {
 					render3d.camera_block,
 					render3d.debug_block,
@@ -667,16 +811,20 @@ if supports_tessellation() then
 			},
 			{
 				name = "model",
+				upload_scope = "frame_keyed",
+				upload_key = render3d.GetMaterialUploadKey,
 				block = model_pipeline.GetPBRMaterialBlock(),
 				write = model_pipeline.WritePBRMaterialBlock,
 			},
 			{
-				name = "vertex_animation",
-				block = model_pipeline.GetVertexAnimationBlock(),
-				write = model_pipeline.WriteVertexAnimationBlock,
+				name = "displacement_model",
+				upload_scope = "frame_keyed",
+				upload_key = model_pipeline.GetPBRDisplacementUploadKey,
+				block = model_pipeline.GetPBRDisplacementMaterialBlock(),
+				write = model_pipeline.WritePBRDisplacementMaterialBlock,
 			},
 		},
-		shader = build_tessellation_evaluation_shader(),
+		shader = build_tessellation_evaluation_shader(false, "displacement_model"),
 		outputs = {
 			{"position", "vec3"},
 			{"normal", "vec3"},
@@ -686,16 +834,57 @@ if supports_tessellation() then
 			{"vertex_color", "vec4"},
 		},
 	}
-	return {fallback, instanced, pass}
+	pass_anim.tessellation_control = pass.tessellation_control
+	pass_anim.tessellation_evaluation = {
+		uniform_buffers = {
+			{
+				name = "gbuffer_data",
+				binding_index = 3,
+				upload_scope = "frame",
+				block = {
+					render3d.camera_block,
+					render3d.debug_block,
+				},
+				write = render3d.WriteCameraDebugBlock,
+			},
+			{
+				name = "model",
+				upload_scope = "frame_keyed",
+				upload_key = render3d.GetMaterialUploadKey,
+				block = model_pipeline.GetPBRMaterialBlock(),
+				write = model_pipeline.WritePBRMaterialBlock,
+			},
+			{
+				name = "displacement_model",
+				upload_scope = "frame_keyed",
+				upload_key = model_pipeline.GetPBRDisplacementUploadKey,
+				block = model_pipeline.GetPBRDisplacementMaterialBlock(),
+				write = model_pipeline.WritePBRDisplacementMaterialBlock,
+			},
+			{
+				name = "vertex_animation",
+				upload_scope = "frame_keyed",
+				upload_key = model_pipeline.GetVertexAnimationUploadKey,
+				block = model_pipeline.GetVertexAnimationBlock(),
+				write = model_pipeline.WriteVertexAnimationBlock,
+			},
+		},
+		shader = build_tessellation_evaluation_shader(true, "displacement_model"),
+		outputs = {
+			{"position", "vec3"},
+			{"normal", "vec3"},
+			{"tangent", "vec4"},
+			{"uv", "vec2"},
+			{"texture_blend", "float"},
+			{"vertex_color", "vec4"},
+		},
+	}
+	return {fallback, fallback_anim, instanced, pass, pass_anim}
 end
 
-local fallback = build_base_pass(build_ssdm_fragment_shader())
-local instanced = build_instanced_pass(build_ssdm_fragment_shader())
-fallback.vertex = model_pipeline.CreateVertexStage{
-	normal = true,
-	tangent = true,
-	uv = true,
-	texture_blend = true,
-	vertex_color = true,
-}
-return {fallback, instanced}
+local fallback = build_base_pass(build_ssdm_fragment_shader("displacement_model"), false)
+local fallback_anim = build_base_pass(build_ssdm_fragment_shader("displacement_model"), true)
+fallback_anim.name = "gbuffer_anim"
+fallback_anim.draw_in_prerender = false
+local instanced = build_instanced_pass(build_ssdm_fragment_shader("displacement_model"))
+return {fallback, fallback_anim, instanced}

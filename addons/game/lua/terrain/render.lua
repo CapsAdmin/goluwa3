@@ -624,11 +624,11 @@ function ProceduralTerrainHybridRenderer:GetChunkKey(chunk_x, chunk_z, ring_inde
 	return chunk_x .. ":" .. chunk_z
 end
 
-function ProceduralTerrainHybridRenderer:GetRingSlotKey(chunk_x, chunk_z, ring_index, slot_span)
-	local function wrap(value, span)
-		return ((value % span) + span) % span
-	end
+local function wrap(value, span)
+	return ((value % span) + span) % span
+end
 
+function ProceduralTerrainHybridRenderer:GetRingSlotKey(chunk_x, chunk_z, ring_index, slot_span)
 	return string.format(
 		"slot:%d:%d:%d",
 		ring_index or 0,
@@ -1559,6 +1559,20 @@ function ProceduralTerrainHybridRenderer:GatherDesiredRingTiles(position)
 	return pending
 end
 
+local function sort_tileset(a, b)
+	if (a.is_strip_update == true) ~= (b.is_strip_update == true) then
+		return a.is_strip_update == true
+	end
+
+	if a.config_index ~= b.config_index then
+		return a.config_index < b.config_index
+	end
+
+	if a.distance == b.distance then return (a.key or "") < (b.key or "") end
+
+	return a.distance < b.distance
+end
+
 function ProceduralTerrainHybridRenderer:UpdateTileSet()
 	local camera = render3d.GetCamera()
 
@@ -1568,21 +1582,7 @@ function ProceduralTerrainHybridRenderer:UpdateTileSet()
 	local pending = self.ChunkRings and
 		self:GatherDesiredRingTiles(position) or
 		self:GatherDesiredFixedTiles(position)
-
-	table.sort(pending, function(a, b)
-		if (a.is_strip_update == true) ~= (b.is_strip_update == true) then
-			return a.is_strip_update == true
-		end
-
-		if a.config_index ~= b.config_index then
-			return a.config_index < b.config_index
-		end
-
-		if a.distance == b.distance then return (a.key or "") < (b.key or "") end
-
-		return a.distance < b.distance
-	end)
-
+	table.sort(pending, sort_tileset)
 	local build_limit = math.min(self.BuildsPerUpdate, #pending)
 
 	if #pending > 0 and pending[1].is_strip_update then

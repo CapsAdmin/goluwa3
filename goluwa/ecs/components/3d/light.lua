@@ -303,6 +303,55 @@ local function mark_shadow_update_progress(self, complete)
 	self.NextInsetShadowCascadeIndex = 1
 end
 
+local function render_shadow_map_batch(light, shadow_map, next_index_key)
+	local start_index = light[next_index_key] or 1
+	local cascade_count = shadow_map:GetCascadeCount()
+
+	if start_index > cascade_count then start_index = 1 end
+
+	local cascade_update_mask = next_index_key == "NextShadowCascadeIndex" and
+		build_shadow_cascade_update_mask(light, shadow_map) or
+		nil
+	local eligible_indices = {}
+
+	for cascade_idx = start_index, cascade_count do
+		if not cascade_update_mask or cascade_update_mask[cascade_idx] ~= false then
+			eligible_indices[#eligible_indices + 1] = cascade_idx
+		end
+	end
+
+	if #eligible_indices == 0 then
+		light[next_index_key] = 1
+		return true, false
+	end
+
+	local passes_to_render = consume_shadow_pass_budget(#eligible_indices)
+
+	if passes_to_render <= 0 then return false, false end
+
+	for i = 1, passes_to_render do
+		local cascade_idx = eligible_indices[i]
+		local shadow_cmd = shadow_map:Begin(cascade_idx, i == 1)
+		render.PushCommandBuffer(shadow_cmd)
+		event.Call("DrawAllShadows", shadow_map, cascade_idx)
+		render.PopCommandBuffer()
+		shadow_map:End(cascade_idx, i == passes_to_render)
+		shadow_map:MarkCascadeRendered(
+			cascade_idx,
+			get_shadow_volume_change_version(shadow_map, cascade_idx),
+			render3d.GetCamera() and render3d.GetCamera():GetPosition() or nil
+		)
+	end
+
+	if passes_to_render >= #eligible_indices then
+		light[next_index_key] = 1
+		return true, true
+	end
+
+	light[next_index_key] = eligible_indices[passes_to_render] + 1
+	return false, true
+end
+
 function Light:OnPreFrame(dt)
 	if not self:GetCastShadows() then return end
 
@@ -505,55 +554,6 @@ end
 
 function Light:RenderShadows()
 	if not self:GetCastShadows() then return true, false end
-
-	local function render_shadow_map_batch(light, shadow_map, next_index_key)
-		local start_index = light[next_index_key] or 1
-		local cascade_count = shadow_map:GetCascadeCount()
-
-		if start_index > cascade_count then start_index = 1 end
-
-		local cascade_update_mask = next_index_key == "NextShadowCascadeIndex" and
-			build_shadow_cascade_update_mask(light, shadow_map) or
-			nil
-		local eligible_indices = {}
-
-		for cascade_idx = start_index, cascade_count do
-			if not cascade_update_mask or cascade_update_mask[cascade_idx] ~= false then
-				eligible_indices[#eligible_indices + 1] = cascade_idx
-			end
-		end
-
-		if #eligible_indices == 0 then
-			light[next_index_key] = 1
-			return true, false
-		end
-
-		local passes_to_render = consume_shadow_pass_budget(#eligible_indices)
-
-		if passes_to_render <= 0 then return false, false end
-
-		for i = 1, passes_to_render do
-			local cascade_idx = eligible_indices[i]
-			local shadow_cmd = shadow_map:Begin(cascade_idx, i == 1)
-			render.PushCommandBuffer(shadow_cmd)
-			event.Call("DrawAllShadows", shadow_map, cascade_idx)
-			render.PopCommandBuffer()
-			shadow_map:End(cascade_idx, i == passes_to_render)
-			shadow_map:MarkCascadeRendered(
-				cascade_idx,
-				get_shadow_volume_change_version(shadow_map, cascade_idx),
-				render3d.GetCamera() and render3d.GetCamera():GetPosition() or nil
-			)
-		end
-
-		if passes_to_render >= #eligible_indices then
-			light[next_index_key] = 1
-			return true, true
-		end
-
-		light[next_index_key] = eligible_indices[passes_to_render] + 1
-		return false, true
-	end
 
 	self:UpdateShadowMap(build_shadow_cascade_update_mask(self, self.ShadowMap))
 	event.Call("PrimeAllShadowMaterials", self.ShadowMap)

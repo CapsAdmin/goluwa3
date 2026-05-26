@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local render = import("goluwa/render/render.lua")
+local upload_probe = import("goluwa/render/upload_probe.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
@@ -13,6 +14,20 @@ local LEGACY_TOP_LEVEL_FIELD_NAMES = {
 	samples = "RasterizationSamples",
 	rasterization_samples = "RasterizationSamples",
 	descriptor_set_count = "DescriptorSetCount",
+}
+local FIELD_TYPE_BYTE_SIZE = {
+	float = 4,
+	int = 4,
+	bool = 4,
+	boolean = 4,
+	vec2 = 8,
+	vec3 = 12,
+	vec4 = 16,
+	ivec2 = 8,
+	ivec3 = 12,
+	ivec4 = 16,
+	mat4 = 64,
+	uint64_t = 8,
 }
 
 local function assert_no_legacy_top_level_fields(config, level)
@@ -100,6 +115,38 @@ local function assert_no_nested_property_config(config)
 			3
 		)
 	end
+end
+
+local function get_scalar_field_size(field)
+	local field_type = field[2]
+	local field_size
+
+	if type(field_type) == "table" then
+		field_size = ffi.sizeof(ffi.typeof(EasyPipeline.BuildFFIType("scalar", "ProbeField", field_type)))
+	else
+		field_size = FIELD_TYPE_BYTE_SIZE[field_type]
+	end
+
+	assert(field_size, "unknown scalar field size for type " .. tostring(field_type))
+
+	if type(field[3]) == "number" then field_size = field_size * field[3] end
+
+	return field_size
+end
+
+local function build_field_descriptors(struct_ctype, fields)
+	local descriptors = {}
+
+	for i = 1, #fields do
+		local field = fields[i]
+		descriptors[i] = {
+			name = field[1],
+			offset = ffi.offsetof(struct_ctype, field[1]),
+			size = get_scalar_field_size(field),
+		}
+	end
+
+	return descriptors
 end
 
 for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
@@ -1405,6 +1452,8 @@ function EasyPipeline.New(config)
 					local ffi_code = build_ffi_struct("scalar", block.block)
 					local ctype = ffi.typeof(ffi_code)
 					verify_layout("scalar", struct_name, block.block, ctype)
+					block.debug_name = (config.name or "pipeline") .. ".pc." .. block.name
+					block.field_descriptors = build_field_descriptors(ctype, block.block)
 					block.source = normalize_block_source(
 						block,
 						ffi.sizeof(ctype),
@@ -1530,6 +1579,8 @@ function EasyPipeline.New(config)
 					ubo = ubo,
 					block = block,
 					glsl = glsl_declaration,
+					debug_name = (config.name or "pipeline") .. ".ubo." .. block.name,
+					field_descriptors = build_field_descriptors(ubo.struct, block.block),
 					offsets = {}, -- Tracks offsets used in the current frame
 				}
 				uniform_buffers[block.name] = ubo
@@ -1641,16 +1692,98 @@ function EasyPipeline.New(config)
 		end
 	end
 
+	local active_stage_key = table.concat(active_stages, "|")
+	local push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
+
+	local function bytes_equal(lhs, rhs, size)
+		for i = 0, size - 1 do
+			if lhs[i] ~= rhs[i] then return false end
+		end
+
+		return true
+	end
+
+	local function ranges_overlap(lhs_offset, lhs_size, rhs_offset, rhs_size)
+		return lhs_offset < rhs_offset + rhs_size and rhs_offset < lhs_offset + lhs_size
+	end
+
+	local function get_push_constant_entries(cmd)
+		local entries = push_constant_cache_by_cmd[cmd]
+
+		if entries then return entries end
+
+		entries = {}
+		push_constant_cache_by_cmd[cmd] = entries
+		return entries
+	end
+
+	local function should_push_constants(cmd, pipeline_key, stage_key, offset, data, size)
+		local entries = get_push_constant_entries(cmd)
+		local src = ffi.cast("uint8_t *", data)
+
+		for i = 1, #entries do
+			local entry = entries[i]
+
+			if
+				entry.pipeline_key == pipeline_key and
+				entry.stage_key == stage_key and
+				entry.offset == offset and
+				entry.size == size
+			then
+				return not bytes_equal(entry.snapshot, src, size)
+			end
+		end
+
+		return true
+	end
+
+	local function note_push_constants(cmd, pipeline_key, stage_key, offset, data, size)
+		local entries = get_push_constant_entries(cmd)
+		local src = ffi.cast("uint8_t *", data)
+
+		for i = #entries, 1, -1 do
+			local entry = entries[i]
+
+			if
+				entry.pipeline_key == pipeline_key and
+				entry.stage_key == stage_key and
+				ranges_overlap(entry.offset, entry.size, offset, size)
+			then
+				table.remove(entries, i)
+			end
+		end
+
+		entries[#entries + 1] = {
+			pipeline_key = pipeline_key,
+			stage_key = stage_key,
+			offset = offset,
+			size = size,
+			snapshot = ffi.new("uint8_t[?]", size),
+		}
+		ffi.copy(entries[#entries].snapshot, src, size)
+	end
+
 	do
 		local upload_lines = {
-			"return function(self, cmd, render, ffi, active_stages, push_constant_blocks, push_constant_block_offsets, constant_structs, uniform_buffer_order, uniform_buffer_types)",
+			"local function bytes_equal(lhs, rhs, size)",
+			"    for i = 0, size - 1 do",
+			"        if lhs[i] ~= rhs[i] then return false end",
+			"    end",
+			"",
+			"    return true",
+			"end",
+			"",
+			"return function(self, cmd, render, ffi, system, upload_probe, active_stages, push_constant_stage_key, should_push_constants, note_push_constants, push_constant_blocks, push_constant_block_offsets, constant_structs, uniform_buffer_order, uniform_buffer_types)",
 		}
 
 		for _, name in ipairs(push_constant_block_order) do
 			local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
+			local offset_expr = string.format("push_constant_block_offsets[%q]", name)
 			upload_lines[#upload_lines + 1] = "do"
 			upload_lines[#upload_lines + 1] = string.format("    local block = push_constant_blocks[%q]", name)
 			upload_lines[#upload_lines + 1] = string.format("    local constants = constant_structs[%q]", struct_name)
+			upload_lines[#upload_lines + 1] = string.format("    local offset = %s", offset_expr)
+			upload_lines[#upload_lines + 1] = "    local pipeline_key = self.pipeline"
 			upload_lines[#upload_lines + 1] = "    if block.source then"
 			upload_lines[#upload_lines + 1] = "        local source_data = block.source.get(self, block)"
 			upload_lines[#upload_lines + 1] = "        if source_data == nil then error(\"push constant block source returned nil for \" .. tostring(block.name)) end"
@@ -1659,29 +1792,122 @@ function EasyPipeline.New(config)
 			upload_lines[#upload_lines + 1] = "    if block.write then"
 			upload_lines[#upload_lines + 1] = "        block.write(self, constants, block)"
 			upload_lines[#upload_lines + 1] = "    end"
+			upload_lines[#upload_lines + 1] = "    if should_push_constants(cmd, pipeline_key, push_constant_stage_key, offset, constants, ffi.sizeof(constants)) then"
+			upload_lines[#upload_lines + 1] = "        if upload_probe.IsEnabled() then"
+			upload_lines[#upload_lines + 1] = "            upload_probe.RecordUpload(block.debug_name, block.field_descriptors, constants, ffi.sizeof(constants), true)"
+			upload_lines[#upload_lines + 1] = "        end"
 			upload_lines[#upload_lines + 1] = string.format(
-				"    self.pipeline:PushConstants(cmd, active_stages, push_constant_block_offsets[%q], constants)",
-				name
+				"        self.pipeline:PushConstants(cmd, active_stages, %s, constants)",
+				offset_expr
 			)
+			upload_lines[#upload_lines + 1] = "        note_push_constants(cmd, pipeline_key, push_constant_stage_key, offset, constants, ffi.sizeof(constants))"
+			upload_lines[#upload_lines + 1] = "    end"
 			upload_lines[#upload_lines + 1] = "end"
 		end
 
 		upload_lines[#upload_lines + 1] = "local offsets = {}"
 		upload_lines[#upload_lines + 1] = "local frame_index = render.GetCurrentFrame()"
+		upload_lines[#upload_lines + 1] = "local frame_number = system.GetFrameNumber and system.GetFrameNumber() or 0"
 
 		for i, name in ipairs(uniform_buffer_order) do
 			upload_lines[#upload_lines + 1] = "do"
 			upload_lines[#upload_lines + 1] = string.format("    local info = uniform_buffer_types[%q]", name)
-			upload_lines[#upload_lines + 1] = "    local ubo_data = info.ubo:GetData()"
-			upload_lines[#upload_lines + 1] = "    if info.block.source then"
-			upload_lines[#upload_lines + 1] = "        local source_data = info.block.source.get(self, info.block)"
-			upload_lines[#upload_lines + 1] = "        if source_data == nil then error(\"uniform buffer block source returned nil for \" .. tostring(info.block.name)) end"
-			upload_lines[#upload_lines + 1] = "        ffi.copy(ubo_data, ffi.cast(\"uint8_t *\", source_data) + info.block.source.offset, ffi.sizeof(ubo_data))"
+			upload_lines[#upload_lines + 1] = "    local offset = nil"
+			upload_lines[#upload_lines + 1] = "    local cache_key = nil"
+			upload_lines[#upload_lines + 1] = "    local cache_hit = false"
+			upload_lines[#upload_lines + 1] = "    local persistent_entry = nil"
+			upload_lines[#upload_lines + 1] = "    local persistent_entries = nil"
+			upload_lines[#upload_lines + 1] = "    if info.block.upload_scope == \"frame\" then"
+			upload_lines[#upload_lines + 1] = "        cache_key = true"
+			upload_lines[#upload_lines + 1] = "    elseif (info.block.upload_scope == \"frame_keyed\" or info.block.upload_scope == \"persistent_keyed\") and info.block.upload_key then"
+			upload_lines[#upload_lines + 1] = "        cache_key = info.block.upload_key(self, info.block)"
 			upload_lines[#upload_lines + 1] = "    end"
-			upload_lines[#upload_lines + 1] = "    if info.block.write then"
-			upload_lines[#upload_lines + 1] = "        info.block.write(self, ubo_data, info.block)"
+			upload_lines[#upload_lines + 1] = "    if cache_key ~= nil then"
+			upload_lines[#upload_lines + 1] = "        local cache = info.offsets"
+			upload_lines[#upload_lines + 1] = "        if info.block.upload_scope == \"frame\" then"
+			upload_lines[#upload_lines + 1] = "            if cache.frame_number == frame_number and cache.key == cache_key then offset = cache.offset end"
+			upload_lines[#upload_lines + 1] = "            cache_hit = offset ~= nil"
+			upload_lines[#upload_lines + 1] = "        elseif info.block.upload_scope == \"frame_keyed\" then"
+			upload_lines[#upload_lines + 1] = "            if cache.frame_number ~= frame_number then"
+			upload_lines[#upload_lines + 1] = "                cache.frame_number = frame_number"
+			upload_lines[#upload_lines + 1] = "                cache.strong_entries = {}"
+			upload_lines[#upload_lines + 1] = "                cache.weak_entries = setmetatable({}, {__mode = \"k\"})"
+			upload_lines[#upload_lines + 1] = "            end"
+			upload_lines[#upload_lines + 1] = "            local key_type = type(cache_key)"
+			upload_lines[#upload_lines + 1] = "            local entries = (key_type == \"table\" or key_type == \"userdata\") and cache.weak_entries or cache.strong_entries"
+			upload_lines[#upload_lines + 1] = "            offset = entries[cache_key]"
+			upload_lines[#upload_lines + 1] = "            cache_hit = offset ~= nil"
+			upload_lines[#upload_lines + 1] = "        elseif info.block.upload_scope == \"persistent_keyed\" then"
+			upload_lines[#upload_lines + 1] = "            cache.strong_entries = cache.strong_entries or {}"
+			upload_lines[#upload_lines + 1] = "            cache.weak_entries = cache.weak_entries or setmetatable({}, {__mode = \"k\"})"
+			upload_lines[#upload_lines + 1] = "            local key_type = type(cache_key)"
+			upload_lines[#upload_lines + 1] = "            persistent_entries = (key_type == \"table\" or key_type == \"userdata\") and cache.weak_entries or cache.strong_entries"
+			upload_lines[#upload_lines + 1] = "            persistent_entry = persistent_entries[cache_key]"
+			upload_lines[#upload_lines + 1] = "            if persistent_entry then offset = info.ubo:GetOffset(frame_index, persistent_entry.slot) end"
+			upload_lines[#upload_lines + 1] = "        end"
 			upload_lines[#upload_lines + 1] = "    end"
-			upload_lines[#upload_lines + 1] = string.format("    offsets[%d] = info.ubo:Upload(frame_index)", i)
+			upload_lines[#upload_lines + 1] = "    if info.block.upload_scope == \"persistent_keyed\" and cache_key ~= nil then"
+			upload_lines[#upload_lines + 1] = "        local ubo_data = info.ubo:GetData()"
+			upload_lines[#upload_lines + 1] = "        if info.block.source then"
+			upload_lines[#upload_lines + 1] = "            local source_data = info.block.source.get(self, info.block)"
+			upload_lines[#upload_lines + 1] = "            if source_data == nil then error(\"uniform buffer block source returned nil for \" .. tostring(info.block.name)) end"
+			upload_lines[#upload_lines + 1] = "            ffi.copy(ubo_data, ffi.cast(\"uint8_t *\", source_data) + info.block.source.offset, ffi.sizeof(ubo_data))"
+			upload_lines[#upload_lines + 1] = "        end"
+			upload_lines[#upload_lines + 1] = "        if info.block.write then"
+			upload_lines[#upload_lines + 1] = "            info.block.write(self, ubo_data, info.block)"
+			upload_lines[#upload_lines + 1] = "        end"
+			upload_lines[#upload_lines + 1] = "        local src = ffi.cast(\"uint8_t *\", ubo_data)"
+			upload_lines[#upload_lines + 1] = "        if persistent_entry and persistent_entry.snapshot and bytes_equal(persistent_entry.snapshot, src, info.ubo.size) then"
+			upload_lines[#upload_lines + 1] = "            cache_hit = true"
+			upload_lines[#upload_lines + 1] = "            offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)"
+			upload_lines[#upload_lines + 1] = "        else"
+			upload_lines[#upload_lines + 1] = "            cache_hit = false"
+			upload_lines[#upload_lines + 1] = "            if upload_probe.IsEnabled() then"
+			upload_lines[#upload_lines + 1] = "                upload_probe.RecordUpload(info.debug_name, info.field_descriptors, ubo_data, info.ubo.size, cache_key)"
+			upload_lines[#upload_lines + 1] = "            end"
+			upload_lines[#upload_lines + 1] = "            if persistent_entry == nil then"
+			upload_lines[#upload_lines + 1] = "                persistent_entry = {slot = info.ubo:AllocatePersistentSlot(), snapshot = ffi.new(\"uint8_t[?]\", info.ubo.size)}"
+			upload_lines[#upload_lines + 1] = "                persistent_entries[cache_key] = persistent_entry"
+			upload_lines[#upload_lines + 1] = "            end"
+			upload_lines[#upload_lines + 1] = "            info.ubo:UploadPersistent(persistent_entry.slot)"
+			upload_lines[#upload_lines + 1] = "            ffi.copy(persistent_entry.snapshot, src, info.ubo.size)"
+			upload_lines[#upload_lines + 1] = "            offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)"
+			upload_lines[#upload_lines + 1] = "        end"
+			upload_lines[#upload_lines + 1] = "    elseif offset == nil then"
+			upload_lines[#upload_lines + 1] = "        local ubo_data = info.ubo:GetData()"
+			upload_lines[#upload_lines + 1] = "        if info.block.source then"
+			upload_lines[#upload_lines + 1] = "            local source_data = info.block.source.get(self, info.block)"
+			upload_lines[#upload_lines + 1] = "            if source_data == nil then error(\"uniform buffer block source returned nil for \" .. tostring(info.block.name)) end"
+			upload_lines[#upload_lines + 1] = "            ffi.copy(ubo_data, ffi.cast(\"uint8_t *\", source_data) + info.block.source.offset, ffi.sizeof(ubo_data))"
+			upload_lines[#upload_lines + 1] = "        end"
+			upload_lines[#upload_lines + 1] = "        if info.block.write then"
+			upload_lines[#upload_lines + 1] = "            info.block.write(self, ubo_data, info.block)"
+			upload_lines[#upload_lines + 1] = "        end"
+			upload_lines[#upload_lines + 1] = "        if upload_probe.IsEnabled() then"
+			upload_lines[#upload_lines + 1] = "            upload_probe.RecordUpload(info.debug_name, info.field_descriptors, ubo_data, info.ubo.size, cache_key)"
+			upload_lines[#upload_lines + 1] = "        end"
+			upload_lines[#upload_lines + 1] = "        offset = info.ubo:Upload(frame_index)"
+			upload_lines[#upload_lines + 1] = "        if info.block.upload_scope == \"frame\" then"
+			upload_lines[#upload_lines + 1] = "            local cache = info.offsets"
+			upload_lines[#upload_lines + 1] = "            cache.frame_number = frame_number"
+			upload_lines[#upload_lines + 1] = "            cache.key = true"
+			upload_lines[#upload_lines + 1] = "            cache.offset = offset"
+			upload_lines[#upload_lines + 1] = "        elseif info.block.upload_scope == \"frame_keyed\" and cache_key ~= nil then"
+			upload_lines[#upload_lines + 1] = "            local cache = info.offsets"
+			upload_lines[#upload_lines + 1] = "            if cache.frame_number ~= frame_number then"
+			upload_lines[#upload_lines + 1] = "                cache.frame_number = frame_number"
+			upload_lines[#upload_lines + 1] = "                cache.strong_entries = {}"
+			upload_lines[#upload_lines + 1] = "                cache.weak_entries = setmetatable({}, {__mode = \"k\"})"
+			upload_lines[#upload_lines + 1] = "            end"
+			upload_lines[#upload_lines + 1] = "            local key_type = type(cache_key)"
+			upload_lines[#upload_lines + 1] = "            local entries = (key_type == \"table\" or key_type == \"userdata\") and cache.weak_entries or cache.strong_entries"
+			upload_lines[#upload_lines + 1] = "            entries[cache_key] = offset"
+			upload_lines[#upload_lines + 1] = "        end"
+			upload_lines[#upload_lines + 1] = "    end"
+			upload_lines[#upload_lines + 1] = "    if upload_probe.IsEnabled() then"
+			upload_lines[#upload_lines + 1] = "        upload_probe.RecordCacheAccess(info.debug_name, cache_key, cache_hit)"
+			upload_lines[#upload_lines + 1] = "    end"
+			upload_lines[#upload_lines + 1] = string.format("    offsets[%d] = offset", i)
 			upload_lines[#upload_lines + 1] = "end"
 		end
 
@@ -1697,7 +1923,12 @@ function EasyPipeline.New(config)
 				render.GetCommandBuffer(),
 				render,
 				ffi,
+				system,
+				upload_probe,
 				active_stages,
+				active_stage_key,
+				should_push_constants,
+				note_push_constants,
 				push_constant_blocks,
 				push_constant_block_offsets,
 				constant_structs,

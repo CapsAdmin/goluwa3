@@ -128,6 +128,114 @@ local function get_shadow_draw_call_stats_store()
 	return visual.shadow_draw_call_stats
 end
 
+local function get_shadow_visible_list_cache_store()
+	visual.shadow_visible_list_cache = visual.shadow_visible_list_cache or setmetatable({}, {__mode = "k"})
+	return visual.shadow_visible_list_cache
+end
+
+local function get_shadow_visible_list_cache(shadow_map, cascade_idx)
+	local stats = get_shadow_visible_list_cache_store()
+	local map_stats = stats[shadow_map]
+
+	if not map_stats then
+		map_stats = {cascades = {}}
+		stats[shadow_map] = map_stats
+	end
+
+	local cascade_cache = map_stats.cascades[cascade_idx]
+
+	if not cascade_cache then
+		cascade_cache = {list = {}}
+		map_stats.cascades[cascade_idx] = cascade_cache
+	end
+
+	return cascade_cache
+end
+
+local function clear_array(list)
+	for i = #list, 1, -1 do
+		list[i] = nil
+	end
+end
+
+local function shadow_cache_matches_aabb(cache, query_aabb)
+	if cache.has_query_aabb ~= (query_aabb ~= nil) then return false end
+
+	if not query_aabb then return true end
+
+	return cache.query_min_x == query_aabb.min_x and
+		cache.query_min_y == query_aabb.min_y and
+		cache.query_min_z == query_aabb.min_z and
+		cache.query_max_x == query_aabb.max_x and
+		cache.query_max_y == query_aabb.max_y and
+		cache.query_max_z == query_aabb.max_z
+end
+
+local function shadow_cache_matches_camera(cache, camera_position)
+	if cache.has_camera_position ~= (camera_position ~= nil) then return false end
+
+	if not camera_position then return true end
+
+	return cache.camera_x == camera_position.x and
+		cache.camera_y == camera_position.y and
+		cache.camera_z == camera_position.z
+end
+
+local function can_reuse_shadow_visible_list(
+	cache,
+	query_aabb,
+	camera_position,
+	shadow_volume_change_version,
+	shadow_visible_list_version
+)
+	if not cache.valid then return false end
+
+	if not query_aabb then return false end
+
+	if cache.shadow_volume_change_version ~= shadow_volume_change_version then
+		return false
+	end
+
+	if cache.shadow_visible_list_version ~= shadow_visible_list_version then
+		return false
+	end
+
+	if not shadow_cache_matches_aabb(cache, query_aabb) then return false end
+
+	if not shadow_cache_matches_camera(cache, camera_position) then return false end
+
+	return true
+end
+
+local function update_shadow_visible_list_cache(
+	cache,
+	query_aabb,
+	camera_position,
+	shadow_volume_change_version,
+	shadow_visible_list_version
+)
+	cache.valid = true
+	cache.shadow_volume_change_version = shadow_volume_change_version
+	cache.shadow_visible_list_version = shadow_visible_list_version
+	cache.has_query_aabb = query_aabb ~= nil
+	cache.has_camera_position = camera_position ~= nil
+
+	if query_aabb then
+		cache.query_min_x = query_aabb.min_x
+		cache.query_min_y = query_aabb.min_y
+		cache.query_min_z = query_aabb.min_z
+		cache.query_max_x = query_aabb.max_x
+		cache.query_max_y = query_aabb.max_y
+		cache.query_max_z = query_aabb.max_z
+	end
+
+	if camera_position then
+		cache.camera_x = camera_position.x
+		cache.camera_y = camera_position.y
+		cache.camera_z = camera_position.z
+	end
+end
+
 local function record_shadow_draw_calls(shadow_map, cascade_idx, draw_call_count)
 	if not shadow_map or not cascade_idx or draw_call_count <= 0 then return end
 
@@ -173,6 +281,7 @@ local function invalidate_scene_acceleration()
 	visual.scene_acceleration.shadow_tree = nil
 	visual.scene_acceleration.visible_frame = nil
 	visual.scene_acceleration.visible_components = nil
+	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
 end
 
 local function next_shadow_change_version()
@@ -511,6 +620,7 @@ function Visual:SetCastShadows(enabled)
 	prototype.CommitProperty(self, "CastShadows", enabled)
 	mark_shadow_change(self)
 	refresh_shadow_registry(self)
+	invalidate_scene_acceleration()
 end
 
 function Visual:InvalidateRenderEntries()
@@ -750,6 +860,8 @@ do
 	visual.shadow_debug_frame = -1
 	visual.shadow_debug_hits = {}
 	visual.shadow_draw_call_stats = setmetatable({}, {__mode = "k"})
+	visual.shadow_visible_list_cache = setmetatable({}, {__mode = "k"})
+	visual.shadow_visible_list_version = 0
 	visual.shadow_change_version_counter = 0
 	visual.occlusion_query_fps = 30
 	visual.last_occlusion_query_time = 0
@@ -1142,22 +1254,27 @@ do
 		component:GetGUID()
 	end
 
+	local active_shadow_sort_map
+
+	local function compare_shadow_visible_components(a, b)
+		local a_pipeline, a_material, a_polygon, a_model, a_component = get_shadow_sort_state(a, active_shadow_sort_map)
+		local b_pipeline, b_material, b_polygon, b_model, b_component = get_shadow_sort_state(b, active_shadow_sort_map)
+
+		if a_pipeline ~= b_pipeline then return a_pipeline < b_pipeline end
+
+		if a_material ~= b_material then return a_material < b_material end
+
+		if a_polygon ~= b_polygon then return a_polygon < b_polygon end
+
+		if a_model ~= b_model then return a_model < b_model end
+
+		return a_component < b_component
+	end
+
 	local function sort_shadow_visible_components(out, shadow_map)
-		table.sort(out, function(a, b)
-			local a_pipeline, a_material, a_polygon, a_model, a_component = get_shadow_sort_state(a, shadow_map)
-			local b_pipeline, b_material, b_polygon, b_model, b_component = get_shadow_sort_state(b, shadow_map)
-
-			if a_pipeline ~= b_pipeline then return a_pipeline < b_pipeline end
-
-			if a_material ~= b_material then return a_material < b_material end
-
-			if a_polygon ~= b_polygon then return a_polygon < b_polygon end
-
-			if a_model ~= b_model then return a_model < b_model end
-
-			return a_component < b_component
-		end)
-
+		active_shadow_sort_map = shadow_map
+		table.sort(out, compare_shadow_visible_components)
+		active_shadow_sort_map = nil
 		return out
 	end
 
@@ -1282,8 +1399,29 @@ do
 	end
 
 	function visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)
-		local out = {}
+		local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
 		local acceleration = ensure_scene_acceleration()
+		local camera_position = get_cull_camera_position()
+		local query_aabb = shadow_map.GetCascadeWorldAABB and
+			shadow_map:GetCascadeWorldAABB(cascade_idx) or
+			nil
+		local shadow_volume_change_version = query_aabb and visual.GetShadowVolumeChangeVersion(query_aabb) or nil
+		local shadow_visible_list_version = visual.shadow_visible_list_version or 0
+
+		if
+			can_reuse_shadow_visible_list(
+				cache,
+				query_aabb,
+				camera_position,
+				shadow_volume_change_version,
+				shadow_visible_list_version
+			)
+		then
+			return cache.list
+		end
+
+		local out = cache.list
+		clear_array(out)
 		collect_shadow_visible_static_components(out, shadow_map, cascade_idx)
 
 		for _, component in ipairs(acceleration.dynamic_shadow_components or {}) do
@@ -1294,7 +1432,15 @@ do
 			append_shadow_visible_component(out, component, shadow_map, cascade_idx, true)
 		end
 
-		return sort_shadow_visible_components(out, shadow_map)
+		sort_shadow_visible_components(out, shadow_map)
+		update_shadow_visible_list_cache(
+			cache,
+			query_aabb,
+			camera_position,
+			shadow_volume_change_version,
+			shadow_visible_list_version
+		)
+		return out
 	end
 
 	function visual.IsOcclusionCullingEnabled()

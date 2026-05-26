@@ -77,6 +77,7 @@ function UniformBuffer.New(decl)
 	}
 	self.current_offset = 0
 	self.current_slot = 0
+	self.persistent_slot_count = 0
 	return self
 end
 
@@ -84,12 +85,44 @@ function UniformBuffer:GetData()
 	return self.data
 end
 
-function UniformBuffer:Upload(frame_index)
+function UniformBuffer:GetOffset(frame_index, slot)
 	frame_index = (frame_index or 0) % self.frame_count
-	self.current_slot = (self.current_slot + 1) % (self.max_uploads)
-	local offset = (frame_index * self.max_uploads + self.current_slot) * self.aligned_size
+	return (frame_index * self.max_uploads + slot) * self.aligned_size
+end
+
+function UniformBuffer:UploadToSlot(frame_index, slot)
+	local offset = self:GetOffset(frame_index, slot)
 	self.buffer:CopyData(self.data, self.size, offset)
 	return offset
+end
+
+function UniformBuffer:AllocatePersistentSlot()
+	if self.persistent_slot_count >= self.max_uploads then
+		error("uniform buffer persistent slot overflow")
+	end
+
+	local slot = self.persistent_slot_count
+	self.persistent_slot_count = self.persistent_slot_count + 1
+	return slot
+end
+
+function UniformBuffer:UploadPersistent(slot)
+	for frame_index = 0, self.frame_count - 1 do
+		self:UploadToSlot(frame_index, slot)
+	end
+
+	return self:GetOffset(0, slot)
+end
+
+function UniformBuffer:Upload(frame_index)
+	local transient_capacity = self.max_uploads - self.persistent_slot_count
+
+	if transient_capacity <= 0 then
+		error("uniform buffer transient slot overflow")
+	end
+
+	self.current_slot = (self.current_slot + 1) % transient_capacity
+	return self:UploadToSlot(frame_index, self.persistent_slot_count + self.current_slot)
 end
 
 return UniformBuffer:Register()
