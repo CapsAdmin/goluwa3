@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local render = import("goluwa/render/render.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -13,6 +14,16 @@ local Light = prototype.CreateTemplate("light")
 local MAX_SHADOW_PASSES_PER_FRAME = 4
 local shadow_pass_budget_frame = -1
 local shadow_passes_used = 0
+local shadow_overlay_summary = {
+	frame = -1,
+	shadow_lights = 0,
+	shadow_maps = 0,
+	shadow_draws = 0,
+	pending_passes = 0,
+	active_passes = 0,
+	budget_used = 0,
+	budget_max = MAX_SHADOW_PASSES_PER_FRAME,
+}
 
 local function reset_shadow_pass_budget()
 	local frame = system.GetFrameNumber()
@@ -29,6 +40,89 @@ local function consume_shadow_pass_budget(pass_count)
 	local granted = math.min(pass_count, remaining)
 	shadow_passes_used = shadow_passes_used + granted
 	return granted
+end
+
+local function append_shadow_map_draws(shadow_map)
+	if not shadow_map then return 0 end
+
+	local draw_stats = Visual.GetShadowDrawCallStats and
+		Visual.GetShadowDrawCallStats(shadow_map) or
+		nil
+
+	if not draw_stats then return 0 end
+
+	local total = 0
+
+	for cascade_idx = 1, shadow_map:GetCascadeCount() do
+		total = total + (draw_stats[cascade_idx] or 0)
+	end
+
+	return total
+end
+
+local function count_pending_shadow_passes(light, shadow_map, next_index_key)
+	if not light or not shadow_map then return 0 end
+
+	local next_index = light[next_index_key] or 1
+	local cascade_count = shadow_map:GetCascadeCount()
+
+	if next_index > cascade_count then return 0 end
+
+	return math.max(cascade_count - next_index + 1, 0)
+end
+
+local function get_shadow_overlay_summary()
+	local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+
+	if shadow_overlay_summary.frame == frame then return shadow_overlay_summary end
+
+	shadow_overlay_summary.frame = frame
+	shadow_overlay_summary.shadow_lights = 0
+	shadow_overlay_summary.shadow_maps = 0
+	shadow_overlay_summary.shadow_draws = 0
+	shadow_overlay_summary.pending_passes = 0
+	shadow_overlay_summary.active_passes = 0
+	shadow_overlay_summary.budget_used = shadow_pass_budget_frame == frame and shadow_passes_used or 0
+	shadow_overlay_summary.budget_max = MAX_SHADOW_PASSES_PER_FRAME
+
+	for _, light in ipairs(render3d.GetLights()) do
+		if light:GetCastShadows() and light.ShadowMap then
+			shadow_overlay_summary.shadow_lights = shadow_overlay_summary.shadow_lights + 1
+			shadow_overlay_summary.shadow_maps = shadow_overlay_summary.shadow_maps + 1
+			shadow_overlay_summary.shadow_draws = shadow_overlay_summary.shadow_draws + append_shadow_map_draws(light.ShadowMap)
+
+			if light.ShadowNeedsCompletion then
+				shadow_overlay_summary.pending_passes = shadow_overlay_summary.pending_passes + count_pending_shadow_passes(light, light.ShadowMap, "NextShadowCascadeIndex")
+			end
+
+			for cascade_idx = 1, light.ShadowMap:GetCascadeCount() do
+				local cascade = light.ShadowMap.cascade and light.ShadowMap.cascade[cascade_idx]
+
+				if cascade and cascade.last_rendered_frame == frame then
+					shadow_overlay_summary.active_passes = shadow_overlay_summary.active_passes + 1
+				end
+			end
+		end
+
+		if light.InsetShadowMap then
+			shadow_overlay_summary.shadow_maps = shadow_overlay_summary.shadow_maps + 1
+			shadow_overlay_summary.shadow_draws = shadow_overlay_summary.shadow_draws + append_shadow_map_draws(light.InsetShadowMap)
+
+			if light.ShadowNeedsCompletion then
+				shadow_overlay_summary.pending_passes = shadow_overlay_summary.pending_passes + count_pending_shadow_passes(light, light.InsetShadowMap, "NextInsetShadowCascadeIndex")
+			end
+
+			for cascade_idx = 1, light.InsetShadowMap:GetCascadeCount() do
+				local cascade = light.InsetShadowMap.cascade and light.InsetShadowMap.cascade[cascade_idx]
+
+				if cascade and cascade.last_rendered_frame == frame then
+					shadow_overlay_summary.active_passes = shadow_overlay_summary.active_passes + 1
+				end
+			end
+		end
+	end
+
+	return shadow_overlay_summary
 end
 
 Light.Events = {"PreFrame"}
@@ -477,6 +571,51 @@ function Light:RenderShadows()
 	end
 
 	return main_complete and inset_complete, main_rendered or inset_rendered
+end
+
+do
+	render_stats.RegisterField{
+		id = "r3d_shadow_lights",
+		label = "R3D SHADOW LIGHTS",
+		group = "render3d_shadows",
+		getter = function()
+			return get_shadow_overlay_summary().shadow_lights
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_maps",
+		label = "R3D SHADOW MAPS",
+		group = "render3d_shadows",
+		getter = function()
+			return get_shadow_overlay_summary().shadow_maps
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_draws",
+		label = "R3D SHADOW DRAWS",
+		group = "render3d_shadows",
+		getter = function()
+			return get_shadow_overlay_summary().shadow_draws
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_passes",
+		label = "R3D SHADOW PASSES",
+		group = "render3d_shadows",
+		getter = function()
+			local summary = get_shadow_overlay_summary()
+			return tostring(summary.active_passes) .. "/" .. tostring(summary.budget_used)
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_pending",
+		label = "R3D SHADOW PENDING",
+		group = "render3d_shadows",
+		getter = function()
+			local summary = get_shadow_overlay_summary()
+			return tostring(summary.pending_passes) .. "/" .. tostring(summary.budget_max)
+		end,
+	}
 end
 
 return Light:Register()

@@ -413,6 +413,11 @@ function events.KeyInput.render3d_debug(key, press)
 		print("SSR buffer debug: " .. (show_ssr_buffer and "ON" or "OFF"))
 	end
 
+	if key == "f4" then
+		render.stats = not render.stats
+		print("Render3D stats: " .. (render3d.stats and "ON" or "OFF"))
+	end
+
 	-- Toggle frustum culling
 	if key == "f8" then
 		Model.noculling = not Model.noculling

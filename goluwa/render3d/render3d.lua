@@ -16,6 +16,7 @@ local assets = import("goluwa/assets.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local system = import("goluwa/system.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local Light = import("goluwa/ecs/components/3d/light.lua")
@@ -774,6 +775,42 @@ end
 function render3d.GetLiveInstancingCounters()
 	render3d.instancing_counters = render3d.instancing_counters or new_instancing_counters()
 	return render3d.instancing_counters
+end
+
+do
+	local function get_last_instancing_counters()
+		return render3d.GetInstancingCounters()
+	end
+
+	local function get_rejected_instance_attempts()
+		local rejected = get_last_instancing_counters().rejected
+		return rejected.missing_args + rejected.missing_pipeline + rejected.wireframe + rejected.tessellated + rejected.vertex_animation + rejected.missing_mesh
+	end
+
+	render_stats.RegisterField{
+		id = "r3d_instanced_draws",
+		label = "R3D INST DRAWS",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_instancing_counters().instanced_draws
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_instanced_fallbacks",
+		label = "R3D INST FALLBACKS",
+		group = "render3d_instancing",
+		getter = function()
+			return get_last_instancing_counters().singleton_fallback_draws
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_instanced_rejected",
+		label = "R3D INST REJECTED",
+		group = "render3d_instancing",
+		getter = function()
+			return get_rejected_instance_attempts()
+		end,
+	}
 end
 
 function render3d.CanQueueGBufferInstance(polygon3d, material)

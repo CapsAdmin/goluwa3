@@ -8,6 +8,21 @@ local FRAMETIME_HISTORY_SIZE = 120
 local frametime_history = ffi.new("float[?]", FRAMETIME_HISTORY_SIZE)
 local frametime_history_count = 0
 local frametime_history_head = 0
+local registered_groups = {}
+local registered_group_order = {}
+local registered_fields = {}
+local registered_field_order = {}
+local registered_glyphs = {}
+local compiled_fields = {}
+local compiled_entries = {}
+local compiled_glyph_order = ""
+local compiled_glyph_masks = {}
+local glyph_index_by_byte = {}
+local overlay_config = {
+	field_order = nil,
+	extra_glyphs = "",
+	group_indent = "  ",
+}
 local public = {
 	current = current,
 	last_second = last_second,
@@ -15,12 +30,19 @@ local public = {
 	history_size = FRAMETIME_HISTORY_SIZE,
 	history_count = 0,
 	history_head = 0,
+	overlay = {
+		config = overlay_config,
+		fields = compiled_fields,
+		entries = compiled_entries,
+		glyphs = compiled_glyph_order,
+	},
 }
 local window_start = 0
 local started = false
 local suppress_depth = 0
 local overlay_pipeline
 local overlay_lines = {}
+local overlay_state_dirty = true
 local overlay_constants_type = ffi.typeof([[
 	struct {
 		float rect[4];
@@ -42,6 +64,143 @@ local GRAPH_BAR_GAP = 1
 local GRAPH_MS_MAX = 50
 local GRAPH_GRID_MINOR_MS = 16.6667
 local GRAPH_GRID_MAJOR_MS = 33.3333
+local BUILTIN_GLYPH_ORDER = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+local BUILTIN_GLYPH_MASKS = {
+	488166958,
+	432148639,
+	487701279,
+	487786030,
+	73759815,
+	1057949230,
+	261047854,
+	1041317000,
+	488064558,
+	488160324,
+	145292849,
+	1025459774,
+	488129070,
+	1025033790,
+	1057964575,
+	1057964560,
+	488132142,
+	589284913,
+	1044517023,
+	505645644,
+	594303537,
+	554189343,
+	599643697,
+	597481075,
+	488162862,
+	1025047056,
+	488166989,
+	1025047121,
+	487983662,
+	1044516996,
+	588826158,
+	588589188,
+	588830378,
+	581052977,
+	588583044,
+	1041441311,
+}
+
+local function pack_glyph(rows)
+	local value = 0
+
+	for y = 1, #rows do
+		local row = rows[y]
+
+		for x = 1, #row do
+			if row:sub(x, x) == "1" then
+				local bit_index = 4 - (x - 1) + (y - 1) * 5
+				value = bit.bor(value, bit.lshift(1, bit_index))
+			end
+		end
+	end
+
+	return value
+end
+
+local function register_builtin_glyphs()
+	for i = 1, #BUILTIN_GLYPH_ORDER do
+		registered_glyphs[BUILTIN_GLYPH_ORDER:sub(i, i)] = BUILTIN_GLYPH_MASKS[i]
+	end
+
+	registered_glyphs["."] = pack_glyph{
+		"00000",
+		"00000",
+		"00000",
+		"00000",
+		"01100",
+		"01100",
+	}
+	registered_glyphs[":"] = pack_glyph{
+		"00000",
+		"01100",
+		"01100",
+		"00000",
+		"01100",
+		"01100",
+	}
+	registered_glyphs["-"] = pack_glyph{
+		"00000",
+		"00000",
+		"11111",
+		"00000",
+		"00000",
+		"00000",
+	}
+	registered_glyphs["/"] = pack_glyph{
+		"00001",
+		"00010",
+		"00100",
+		"01000",
+		"10000",
+		"00000",
+	}
+	registered_glyphs["_"] = pack_glyph{
+		"00000",
+		"00000",
+		"00000",
+		"00000",
+		"00000",
+		"11111",
+	}
+	registered_glyphs["("] = pack_glyph{
+		"00010",
+		"00100",
+		"01000",
+		"01000",
+		"00100",
+		"00010",
+	}
+	registered_glyphs[")"] = pack_glyph{
+		"01000",
+		"00100",
+		"00010",
+		"00010",
+		"00100",
+		"01000",
+	}
+	registered_glyphs["+"] = pack_glyph{
+		"00000",
+		"00100",
+		"11111",
+		"00100",
+		"00000",
+		"00000",
+	}
+	registered_glyphs[","] = pack_glyph{
+		"00000",
+		"00000",
+		"00000",
+		"00000",
+		"00100",
+		"01000",
+	}
+end
+
+register_builtin_glyphs()
 
 local function reset_bucket(bucket)
 	bucket.seconds = 0
@@ -117,6 +276,7 @@ local function round_positive(value)
 end
 
 local function format_bytes(value)
+	value = tonumber(value) or 0
 	local unit_index = 1
 	local units = {"B", "KB", "MB", "GB"}
 
@@ -128,27 +288,318 @@ local function format_bytes(value)
 	return tostring(value) .. " " .. units[unit_index]
 end
 
-local function rebuild_overlay_lines(bucket)
-	overlay_lines[1] = "FPS " .. round_positive(bucket.fps)
-	overlay_lines[2] = "FRAME " .. round_positive(bucket.frametime_avg * 1000) .. " MS"
-	overlay_lines[3] = "PIPELINES " .. bucket.pipeline_switches
-	overlay_lines[4] = "UPLOAD " .. format_bytes(bucket.bytes_uploaded)
-	overlay_lines[5] = "UPLOAD CALLS " .. bucket.upload_calls
-	overlay_lines[6] = "DRAWS " .. bucket.draw_calls
-	overlay_lines[7] = "DESC WRITES " .. bucket.descriptor_writes
-	overlay_lines[8] = "DESC UPDATES " .. bucket.descriptor_update_calls
-	return 8
+local function format_integer(value)
+	return tostring(round_positive(value))
 end
 
-local function get_glyph_index(byte)
-	if byte >= 48 and byte <= 57 then return byte - 48 end
+local function format_frametime_ms(value)
+	return tostring(round_positive((tonumber(value) or 0) * 1000)) .. " MS"
+end
 
-	if byte >= 65 and byte <= 90 then return byte - 55 end
+local function append_unique_character(chars, char)
+	if char == " " or char == "" then return chars end
+
+	if not chars[char] then chars[char] = true end
+
+	return chars
+end
+
+local function collect_required_glyphs(chars, text)
+	text = tostring(text or ""):upper()
+
+	for i = 1, #text do
+		append_unique_character(chars, text:sub(i, i))
+	end
+
+	return chars
+end
+
+local function clear_overlay_lines(start_index)
+	for i = start_index, #overlay_lines do
+		overlay_lines[i] = nil
+	end
+end
+
+local function append_field_to_compiled(out, seen, required_chars, id)
+	if seen[id] then return end
+
+	local field = registered_fields[id]
+
+	if not field or field.enabled == false then return end
+
+	seen[id] = true
+	out[#out + 1] = field
+	collect_required_glyphs(required_chars, field.label)
+	collect_required_glyphs(required_chars, field.glyphs)
+end
+
+local function append_group_entry(out, required_chars, group_id)
+	local group = registered_groups[group_id]
+
+	if not group or group.enabled == false then return nil end
+
+	out[#out + 1] = {
+		kind = "group",
+		id = group.id,
+		label = group.label,
+		group = group,
+	}
+	collect_required_glyphs(required_chars, group.label)
+	collect_required_glyphs(required_chars, group.glyphs)
+	return group
+end
+
+local function rebuild_compiled_overlay_state()
+	local seen = {}
+	local out = {}
+	local entry_count = 0
+	local required_chars = {}
+	local field_order = overlay_config.field_order
+	local emitted_groups = {}
+
+	if field_order then
+		for i = 1, #field_order do
+			append_field_to_compiled(out, seen, required_chars, field_order[i])
+		end
+	end
+
+	for i = 1, #registered_field_order do
+		append_field_to_compiled(out, seen, required_chars, registered_field_order[i])
+	end
+
+	for i = 1, #out do
+		compiled_fields[i] = out[i]
+	end
+
+	for i = #out + 1, #compiled_fields do
+		compiled_fields[i] = nil
+	end
+
+	for i = 1, #out do
+		local field = out[i]
+		local group = nil
+
+		if field.group then
+			group = registered_groups[field.group]
+
+			if group and group.enabled ~= false and not emitted_groups[group.id] then
+				emitted_groups[group.id] = true
+				append_group_entry(compiled_entries, required_chars, group.id)
+				entry_count = entry_count + 1
+			end
+		end
+
+		entry_count = entry_count + 1
+		compiled_entries[entry_count] = {
+			kind = "field",
+			field = field,
+			indent = field.indent or
+				(
+					group and
+					group.indent
+				)
+				or
+				(
+					field.group and
+					overlay_config.group_indent
+				)
+				or
+				"",
+		}
+	end
+
+	for i = entry_count + 1, #compiled_entries do
+		compiled_entries[i] = nil
+	end
+
+	collect_required_glyphs(required_chars, overlay_config.extra_glyphs)
+	local glyph_order = BUILTIN_GLYPH_ORDER
+
+	for i = 1, #overlay_config.extra_glyphs do
+		local char = overlay_config.extra_glyphs:sub(i, i):upper()
+
+		if char ~= " " and not glyph_order:find(char, 1, true) then
+			if not registered_glyphs[char] then
+				error("render.stats missing glyph for '" .. char .. "'", 2)
+			end
+
+			glyph_order = glyph_order .. char
+		end
+	end
+
+	for char in pairs(required_chars) do
+		if not glyph_order:find(char, 1, true) then
+			if not registered_glyphs[char] then
+				error("render.stats missing glyph for '" .. char .. "'", 2)
+			end
+
+			glyph_order = glyph_order .. char
+		end
+	end
+
+	if compiled_glyph_order ~= glyph_order then
+		compiled_glyph_order = glyph_order
+
+		for i = 1, #compiled_glyph_order do
+			local char = compiled_glyph_order:sub(i, i)
+			compiled_glyph_masks[i] = registered_glyphs[char]
+		end
+
+		for i = #compiled_glyph_order + 1, #compiled_glyph_masks do
+			compiled_glyph_masks[i] = nil
+		end
+
+		for i = 0, 255 do
+			glyph_index_by_byte[i] = nil
+		end
+
+		for i = 1, #compiled_glyph_order do
+			glyph_index_by_byte[compiled_glyph_order:byte(i)] = i - 1
+		end
+
+		public.overlay.glyphs = compiled_glyph_order
+		overlay_pipeline = nil
+	end
+
+	public.overlay.fields = compiled_fields
+	public.overlay.entries = compiled_entries
+	overlay_state_dirty = false
+end
+
+local function ensure_overlay_state()
+	if overlay_state_dirty then rebuild_compiled_overlay_state() end
+end
+
+local function build_overlay_line(field, bucket)
+	local value
+
+	if field.getter then
+		value = field.getter(bucket, public, field)
+	elseif field.bucket_key then
+		value = bucket[field.bucket_key]
+	else
+		value = field.value
+	end
+
+	if value == nil and field.default ~= nil then value = field.default end
+
+	local text
+
+	if field.formatter then
+		text = field.formatter(value, bucket, public, field)
+	elseif type(value) == "boolean" then
+		text = value and "ON" or "OFF"
+	elseif type(value) == "number" then
+		text = format_integer(value)
+	elseif value == nil then
+		text = "-"
+	else
+		text = tostring(value)
+	end
+
+	text = tostring(text or "")
+
+	if field.label and field.label ~= "" then
+		if text == "" then return field.label end
+
+		return field.label .. " " .. text
+	end
+
+	return text
+end
+
+local function build_overlay_entry_line(entry, bucket)
+	if not entry then return nil end
+
+	if entry.kind == "group" then return entry.label end
+
+	if entry.kind == "field" then
+		local line = build_overlay_line(entry.field, bucket)
+
+		if not line or line == "" then return line end
+
+		if entry.indent and entry.indent ~= "" then return entry.indent .. line end
+
+		return line
+	end
 
 	return nil
 end
 
+local function rebuild_overlay_lines(bucket)
+	ensure_overlay_state()
+	local line_count = 0
+
+	for i = 1, #compiled_entries do
+		local line = build_overlay_entry_line(compiled_entries[i], bucket)
+
+		if line and line ~= "" then
+			line_count = line_count + 1
+			overlay_lines[line_count] = tostring(line):upper()
+		end
+	end
+
+	clear_overlay_lines(line_count + 1)
+	return line_count
+end
+
+local function get_glyph_index(byte)
+	if byte >= 97 and byte <= 122 then byte = byte - 32 end
+
+	return glyph_index_by_byte[byte]
+end
+
+local function build_fragment_shader_character_table()
+	local parts = {}
+
+	for i = 1, #compiled_glyph_masks do
+		parts[i] = tostring(compiled_glyph_masks[i])
+	end
+
+	return "const int CHARACTERS[] = int[" .. #parts .. "](" .. table.concat(parts, ",") .. ");"
+end
+
+local function build_overlay_fragment_shader()
+	return [[
+					#version 450
+
+					layout(location = 0) in vec2 out_uv;
+					layout(location = 0) out vec4 out_color;
+
+					layout(push_constant) uniform Constants {
+						vec4 rect;
+						vec4 viewport;
+						vec4 color;
+						ivec4 data;
+					} pc;
+
+					]] .. build_fragment_shader_character_table() .. [[
+
+					float chard(int digit, vec2 id) {
+						if (digit < 0 || digit >= CHARACTERS.length()) return 0.0;
+						if (id.x < 0.0 || id.y < 0.0 || id.x > 4.0 || id.y > 5.0) return 0.0;
+						return float(1 & (CHARACTERS[digit] >> (4 - int(id.x) + int(id.y) * 5)));
+					}
+
+					void main() {
+						if (pc.data.y == 0) {
+							out_color = pc.color;
+							return;
+						}
+
+						vec2 id = floor(out_uv * vec2(5.0, 6.0));
+						float alpha = chard(pc.data.x, id);
+
+						if (alpha <= 0.0) discard;
+
+						out_color = vec4(pc.color.rgb, pc.color.a * alpha);
+					}
+				]]
+end
+
 local function get_overlay_pipeline()
+	ensure_overlay_state()
+
 	if overlay_pipeline and overlay_pipeline.IsValid and not overlay_pipeline:IsValid() then
 		overlay_pipeline = nil
 	end
@@ -217,41 +668,7 @@ local function get_overlay_pipeline()
 			},
 			{
 				type = "fragment",
-				code = [[
-					#version 450
-
-					layout(location = 0) in vec2 out_uv;
-					layout(location = 0) out vec4 out_color;
-
-					layout(push_constant) uniform Constants {
-						vec4 rect;
-						vec4 viewport;
-						vec4 color;
-						ivec4 data;
-					} pc;
-
-					const int CHARACTERS[] = int[60](488166958,432148639,487701279,487786030,73759815,1057949230,261047854,1041317000,488064558,488160324,145292849,1025459774,488129070,1025033790,1057964575,1057964560,488132142,589284913,1044517023,505645644,594303537,554189343,599643697,597481075,488162862,1025047056,488166989,1025047121,487983662,1044516996,588826158,588589188,588830378,581052977,588583044,1041441311,198,139432064,31744,18157905,35787024,4539392,32506848,149360644,487657476,142876932,136382532,478421262,471926862,10813440,4333568,10813998,31,6212,545394753,490397199,589435185,368409920,145118798,138547332);
-
-					float chard(int digit, vec2 id) {
-						if (digit < 0 || digit >= CHARACTERS.length()) return 0.0;
-						if (id.x < 0.0 || id.y < 0.0 || id.x > 4.0 || id.y > 5.0) return 0.0;
-						return float(1 & (CHARACTERS[digit] >> (4 - int(id.x) + int(id.y) * 5)));
-					}
-
-					void main() {
-						if (pc.data.y == 0) {
-							out_color = pc.color;
-							return;
-						}
-
-						vec2 id = floor(out_uv * vec2(5.0, 6.0));
-						float alpha = chard(pc.data.x, id);
-
-						if (alpha <= 0.0) discard;
-
-						out_color = vec4(pc.color.rgb, pc.color.a * alpha);
-					}
-				]],
+				code = build_overlay_fragment_shader(),
 				push_constants = {
 					offset = 0,
 					size = ffi.sizeof(overlay_constants_type),
@@ -458,6 +875,8 @@ function stats.DrawOverlay(cmd)
 	local x
 	local y = OVERLAY_PADDING
 
+	if line_count == 0 then return end
+
 	for i = 1, line_count do
 		max_chars = math.max(max_chars, #overlay_lines[i])
 	end
@@ -588,8 +1007,225 @@ function stats.Reset()
 	reset_bucket(last_second)
 end
 
+function stats.RegisterGlyph(char, glyph)
+	if type(char) ~= "string" or #char ~= 1 then
+		error("render.stats glyph key must be a single character", 2)
+	end
+
+	char = char:upper()
+
+	if type(glyph) == "table" then glyph = pack_glyph(glyph) end
+
+	if type(glyph) ~= "number" then
+		error("render.stats glyph must be a packed integer or 5x6 row table", 2)
+	end
+
+	registered_glyphs[char] = glyph
+	overlay_state_dirty = true
+	return glyph
+end
+
+function stats.RegisterGroup(id, group)
+	if type(id) == "table" then
+		group = id
+		id = group and group.id
+	end
+
+	if not id then error("render.stats group id is required", 2) end
+
+	group = group or {}
+	group.id = id
+	group.label = group.label or tostring(id):upper()
+	group.indent = group.indent == nil and overlay_config.group_indent or tostring(group.indent)
+	registered_groups[id] = group
+	local found = false
+
+	for i = 1, #registered_group_order do
+		if registered_group_order[i] == id then
+			found = true
+
+			break
+		end
+	end
+
+	if not found then registered_group_order[#registered_group_order + 1] = id end
+
+	overlay_state_dirty = true
+	return group
+end
+
+function stats.UnregisterGroup(id)
+	if not registered_groups[id] then return end
+
+	registered_groups[id] = nil
+
+	for i = 1, #registered_group_order do
+		if registered_group_order[i] == id then
+			table.remove(registered_group_order, i)
+
+			break
+		end
+	end
+
+	overlay_state_dirty = true
+end
+
+function stats.RegisterField(id, field)
+	if type(id) == "table" then
+		field = id
+		id = field and field.id
+	end
+
+	if not id then error("render.stats field id is required", 2) end
+
+	field = field or {}
+	field.id = id
+	field.label = field.label or tostring(id):upper()
+	registered_fields[id] = field
+	local found = false
+
+	for i = 1, #registered_field_order do
+		if registered_field_order[i] == id then
+			found = true
+
+			break
+		end
+	end
+
+	if not found then registered_field_order[#registered_field_order + 1] = id end
+
+	overlay_state_dirty = true
+	return field
+end
+
+function stats.UnregisterField(id)
+	if not registered_fields[id] then return end
+
+	registered_fields[id] = nil
+
+	for i = 1, #registered_field_order do
+		if registered_field_order[i] == id then
+			table.remove(registered_field_order, i)
+
+			break
+		end
+	end
+
+	overlay_state_dirty = true
+end
+
+function stats.SetOverlayConfig(config)
+	config = config or {}
+	overlay_config.extra_glyphs = tostring(config.extra_glyphs or ""):upper()
+	overlay_config.group_indent = tostring(config.group_indent or "  ")
+	overlay_config.field_order = nil
+
+	if config.field_order then
+		overlay_config.field_order = {}
+
+		for i = 1, #config.field_order do
+			overlay_config.field_order[i] = config.field_order[i]
+		end
+	end
+
+	overlay_state_dirty = true
+	return overlay_config
+end
+
+function stats.GetOverlayConfig()
+	local config = {
+		extra_glyphs = overlay_config.extra_glyphs,
+		group_indent = overlay_config.group_indent,
+		field_order = nil,
+	}
+
+	if overlay_config.field_order then
+		config.field_order = {}
+
+		for i = 1, #overlay_config.field_order do
+			config.field_order[i] = overlay_config.field_order[i]
+		end
+	end
+
+	return config
+end
+
+function stats.FormatBytes(value)
+	return format_bytes(value)
+end
+
 function stats.Get()
+	ensure_overlay_state()
 	return public
 end
 
+stats.RegisterGroup{
+	id = "render",
+	label = "RENDER",
+}
+stats.RegisterGroup{
+	id = "render3d_shadows",
+	label = "RENDER3D SHADOWS",
+}
+stats.RegisterGroup{
+	id = "render3d_instancing",
+	label = "RENDER3D INSTANCING",
+}
+stats.RegisterField{
+	id = "fps",
+	label = "FPS",
+	bucket_key = "fps",
+	formatter = format_integer,
+	group = "render",
+}
+stats.RegisterField{
+	id = "frame_ms",
+	label = "FRAME",
+	bucket_key = "frametime_avg",
+	formatter = format_frametime_ms,
+	glyphs = ".",
+	group = "render",
+}
+stats.RegisterField{
+	id = "pipeline_switches",
+	label = "PIPELINES",
+	bucket_key = "pipeline_switches",
+	formatter = format_integer,
+	group = "render",
+}
+stats.RegisterField{
+	id = "bytes_uploaded",
+	label = "UPLOAD",
+	bucket_key = "bytes_uploaded",
+	formatter = format_bytes,
+	group = "render",
+}
+stats.RegisterField{
+	id = "upload_calls",
+	label = "UPLOAD CALLS",
+	bucket_key = "upload_calls",
+	formatter = format_integer,
+	group = "render",
+}
+stats.RegisterField{
+	id = "draw_calls",
+	label = "DRAWS",
+	bucket_key = "draw_calls",
+	formatter = format_integer,
+	group = "render",
+}
+stats.RegisterField{
+	id = "descriptor_writes",
+	label = "DESC WRITES",
+	bucket_key = "descriptor_writes",
+	formatter = format_integer,
+	group = "render",
+}
+stats.RegisterField{
+	id = "descriptor_update_calls",
+	label = "DESC UPDATES",
+	bucket_key = "descriptor_update_calls",
+	formatter = format_integer,
+	group = "render",
+}
 return stats
