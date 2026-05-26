@@ -100,18 +100,18 @@ end
 
 function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_fn_name)
 	result_fn_name = result_fn_name or "get_fog_sun_visibility"
-	return (
-		[[
+	local header = "\t\t\t#define MEDIUM_DIRECTIONAL_SHADOW_BLOCK " .. block_name .. "\n" .. "\t\t\t#define MEDIUM_DIRECTIONAL_SHADOW_FN " .. result_fn_name .. "\n\n"
+	return header .. [[
 			int getCascadeIndex(vec3 world_pos) {
-				float dist = -(%s.view * vec4(world_pos, 1.0)).z;
+				float dist = -(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.view * vec4(world_pos, 1.0)).z;
 
-				for (int i = 0; i < %s.shadows.cascade_count; i++) {
-					if (dist < %s.shadows.cascade_splits[i]) {
+				for (int i = 0; i < MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count; i++) {
+					if (dist < MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[i]) {
 						return i;
 					}
 				}
 
-				return %s.shadows.cascade_count - 1;
+				return MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count - 1;
 			}
 
 			bool projectMediumShadowMap(
@@ -167,18 +167,18 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 			}
 
 			float sampleMediumShadowCascade(int cascade_idx, vec3 world_pos, vec3 light_dir) {
-				if (cascade_idx < 0 || cascade_idx >= %s.shadows.cascade_count) return 1.0;
+				if (cascade_idx < 0 || cascade_idx >= MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return 1.0;
 
-				int shadow_map_idx = %s.shadows.shadow_map_indices[cascade_idx];
+				int shadow_map_idx = MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[cascade_idx];
 				if (shadow_map_idx < 0) return 1.0;
 
 				vec3 proj_coords;
 
 				if (!projectMediumShadowMap(
-					%s.shadows.light_space_matrices[cascade_idx],
+					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.light_space_matrices[cascade_idx],
 					world_pos,
 					light_dir,
-					%s.shadows.cascade_texel_world_sizes[cascade_idx],
+					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
 					proj_coords
 				)) {
 					return 1.0;
@@ -189,42 +189,41 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 
 			bool sampleMediumInsetShadow(vec3 world_pos, vec3 light_dir, out float shadow) {
 				shadow = 1.0;
-				if (%s.shadows.inset_shadow_map_index < 0) return false;
-
+				if (MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index < 0) return false;
 				vec3 proj_coords;
 
+
 				if (!projectMediumShadowMap(
-					%s.shadows.inset_light_space_matrix,
+					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix,
 					world_pos,
 					light_dir,
-					%s.shadows.inset_shadow_texel_world_size,
+					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
 					proj_coords
 				)) {
 					return false;
 				}
-
-				shadow = sampleMediumShadowProjection(%s.shadows.inset_shadow_map_index, proj_coords, 1.0);
+				shadow = sampleMediumShadowProjection(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index, proj_coords, 1.0);
 				return true;
 			}
 
-			float %s(vec3 world_pos, vec3 light_dir) {
+			float MEDIUM_DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 light_dir) {
 				if (get_fog_sun_horizon_visibility(light_dir) <= 0.0001) {
 					return 0.0;
 				}
 
-				if (%s.shadows.cascade_count <= 0 || %s.shadows.shadow_map_indices[0] < 0) {
+				if (MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count <= 0 || MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[0] < 0) {
 					return 1.0;
 				}
 
 				int cascade_idx = getCascadeIndex(world_pos);
 				if (cascade_idx < 0) return 1.0;
 
-				float dist = -(%s.view * vec4(world_pos, 1.0)).z;
+				float dist = -(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.view * vec4(world_pos, 1.0)).z;
 				float shadow = sampleMediumShadowCascade(cascade_idx, world_pos, light_dir);
 
-				if (cascade_idx < %s.shadows.cascade_count - 1) {
-					float previous_split = cascade_idx > 0 ? %s.shadows.cascade_splits[cascade_idx - 1] : 0.0;
-					float current_split = %s.shadows.cascade_splits[cascade_idx];
+				if (cascade_idx < MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count - 1) {
+					float previous_split = cascade_idx > 0 ? MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx - 1] : 0.0;
+					float current_split = MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx];
 					float cascade_span = max(current_split - previous_split, 0.0001);
 					float blend_band = max(cascade_span * 0.15, 8.0);
 					float blend_start = current_split - blend_band;
@@ -236,14 +235,14 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 					}
 				}
 
-				if (%s.shadows.inset_shadow_map_index >= 0 && dist < %s.shadows.inset_shadow_distance) {
+				if (MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index >= 0 && dist < MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance) {
 					float inset_shadow = 1.0;
 
 					if (sampleMediumInsetShadow(world_pos, light_dir, inset_shadow)) {
-						float inset_band = max(%s.shadows.inset_shadow_distance * 0.25, 4.0);
+						float inset_band = max(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance * 0.25, 4.0);
 						float inset_blend = 1.0 - smoothstep(
-							max(%s.shadows.inset_shadow_distance - inset_band, 0.0),
-							%s.shadows.inset_shadow_distance,
+							max(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance - inset_band, 0.0),
+							MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance,
 							dist
 						);
 						shadow = mix(shadow, inset_shadow, inset_blend);
@@ -252,42 +251,34 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 
 				return shadow;
 			}
+
+			#undef MEDIUM_DIRECTIONAL_SHADOW_FN
+			#undef MEDIUM_DIRECTIONAL_SHADOW_BLOCK
 		]]
-	):format(
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		result_fn_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name
-	)
 end
 
 function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_fn_name, options)
 	result_fn_name = result_fn_name or "calculateShadow"
 	options = options or {}
 	local normal_expr = options.normal_expr or "normal"
-	return (
-		[[
+	local header = "\t\t\t#define DIRECTIONAL_SHADOW_BLOCK " .. block_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_FN " .. result_fn_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_NORMAL " .. normal_expr .. "\n\n"
+	local header = header .. "\t\t\t#define DIRECTIONAL_SHADOW_USE_LEGACY_PCF 1\n\n"
+	return header .. [[
+			const vec2 SHADOW_POISSON_DISK[12] = vec2[12](
+				vec2(-0.326, -0.406),
+				vec2(-0.840, -0.074),
+				vec2(-0.696,  0.457),
+				vec2(-0.203,  0.621),
+				vec2( 0.962, -0.195),
+				vec2( 0.473, -0.480),
+				vec2( 0.519,  0.767),
+				vec2( 0.185, -0.893),
+				vec2( 0.507,  0.064),
+				vec2( 0.896,  0.412),
+				vec2(-0.322, -0.933),
+				vec2(-0.792, -0.598)
+			);
+
 			float getShadowReceiverPlaneBias(vec2 uv, float current_depth, vec2 texel_size, float filter_radius_texels) {
 				vec2 uv_dx = dFdx(uv);
 				vec2 uv_dy = dFdy(uv);
@@ -307,15 +298,15 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 			}
 
 			int getCascadeIndex(vec3 world_pos) {
-				float dist = -(%s.view * vec4(world_pos, 1.0)).z;
+				float dist = -(DIRECTIONAL_SHADOW_BLOCK.view * vec4(world_pos, 1.0)).z;
 
-				for (int i = 0; i < %s.shadows.cascade_count; i++) {
-					if (dist < %s.shadows.cascade_splits[i]) {
+				for (int i = 0; i < DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count; i++) {
+					if (dist < DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[i]) {
 						return i;
 					}
 				}
 
-				return %s.shadows.cascade_count - 1;
+				return DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count - 1;
 			}
 
 			bool projectShadowMap(
@@ -330,8 +321,8 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 
 				if (dot(normal, normal) > 1e-6) {
 					float normal_bias = max(texel_world_size * 1.5, 0.0005);
-					float bias_val = normal_bias * max(1.0 - dot(%s, light_dir), 0.15);
-					offset_pos += %s * bias_val;
+					float bias_val = normal_bias * max(1.0 - dot(DIRECTIONAL_SHADOW_NORMAL, light_dir), 0.15);
+					offset_pos += DIRECTIONAL_SHADOW_NORMAL * bias_val;
 				}
 
 				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
@@ -354,23 +345,9 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				float receiver_bias = getShadowReceiverPlaneBias(proj_coords.xy, current_depth, texel_size, filter_radius_texels);
 				receiver_bias = max(receiver_bias, 0.00002);
 				float visibility = 0.0;
-				const vec2 POISSON_DISK[12] = vec2[12](
-					vec2(-0.326, -0.406),
-					vec2(-0.840, -0.074),
-					vec2(-0.696,  0.457),
-					vec2(-0.203,  0.621),
-					vec2( 0.962, -0.195),
-					vec2( 0.473, -0.480),
-					vec2( 0.519,  0.767),
-					vec2( 0.185, -0.893),
-					vec2( 0.507,  0.064),
-					vec2( 0.896,  0.412),
-					vec2(-0.322, -0.933),
-					vec2(-0.792, -0.598)
-				);
 
 				for (int i = 0; i < 12; ++i) {
-					vec2 offset = POISSON_DISK[i] * filter_radius_texels * texel_size;
+					vec2 offset = SHADOW_POISSON_DISK[i] * filter_radius_texels * texel_size;
 					float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + offset).r;
 					visibility += current_depth - receiver_bias > pcf_depth ? 0.0 : 1.0;
 				}
@@ -378,78 +355,178 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				return visibility / 12.0;
 			}
 
-			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
-				if (cascade_idx < 0 || cascade_idx >= %s.shadows.cascade_count) return 1.0;
+			bool findShadowBlockerDepth(
+				int shadow_map_idx,
+				vec3 proj_coords,
+				float search_radius_texels,
+				out float avg_blocker_depth
+			) {
+				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
+				vec2 texel_size = 1.0 / shadow_size;
+				float current_depth = proj_coords.z;
+				float blocker_depth_sum = 0.0;
+				float blocker_count = 0.0;
 
-				int shadow_map_idx = %s.shadows.shadow_map_indices[cascade_idx];
+				for (int i = 0; i < 8; ++i) {
+					vec2 offset = SHADOW_POISSON_DISK[i] * search_radius_texels * texel_size;
+					float sample_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + offset).r;
+
+					if (sample_depth < current_depth) {
+						blocker_depth_sum += sample_depth;
+						blocker_count += 1.0;
+					}
+				}
+
+				if (blocker_count <= 0.0) {
+					avg_blocker_depth = current_depth;
+					return false;
+				}
+
+				avg_blocker_depth = blocker_depth_sum / blocker_count;
+				return true;
+			}
+
+			float sampleShadowProjectionPCSS(
+				int shadow_map_idx,
+				vec3 proj_coords,
+				float texel_world_size,
+				float receiver_distance_alpha,
+				float base_radius_texels,
+				float max_radius_texels
+			) {
+				float search_radius_texels = clamp(base_radius_texels + texel_world_size * 0.15, base_radius_texels, max_radius_texels * 0.5);
+				float avg_blocker_depth = proj_coords.z;
+
+				if (!findShadowBlockerDepth(shadow_map_idx, proj_coords, search_radius_texels, avg_blocker_depth)) {
+					return 1.0;
+				}
+
+				float depth_gap = max(proj_coords.z - avg_blocker_depth, 0.0);
+				float penumbra = depth_gap / max(avg_blocker_depth, 0.0001);
+				float cascade_softness = clamp(texel_world_size * 0.35, 0.0, 4.0);
+				float distance_softness = smoothstep(0.0, 1.0, receiver_distance_alpha) * (0.75 + cascade_softness * 0.5);
+				float filter_radius_texels = clamp(
+					base_radius_texels + sqrt(penumbra) * (4.0 + cascade_softness * 1.5) + distance_softness,
+					base_radius_texels,
+					max_radius_texels
+				);
+				return sampleShadowProjection(shadow_map_idx, proj_coords, filter_radius_texels);
+			}
+
+			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir, float receiver_dist) {
+				if (cascade_idx < 0 || cascade_idx >= DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return 1.0;
+
+				int shadow_map_idx = DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[cascade_idx];
 				if (shadow_map_idx < 0) return 1.0;
+				float previous_split = cascade_idx > 0 ? DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx - 1] : 0.0;
+				float current_split = DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx];
+				float receiver_distance_alpha = clamp(
+					(receiver_dist - previous_split) / max(current_split - previous_split, 0.0001),
+					0.0,
+					1.0
+				);
 
 				vec3 proj_coords;
 
 				if (!projectShadowMap(
-					%s.shadows.light_space_matrices[cascade_idx],
+					DIRECTIONAL_SHADOW_BLOCK.shadows.light_space_matrices[cascade_idx],
 					world_pos,
 					normal,
 					light_dir,
-					%s.shadows.cascade_texel_world_sizes[cascade_idx],
+					DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
 					proj_coords
 				)) {
 					return 1.0;
 				}
 
-				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
+				#if DIRECTIONAL_SHADOW_USE_LEGACY_PCF
+				return sampleShadowProjection(
+					shadow_map_idx,
+					proj_coords,
+					1.35
+				);
+				#else
+				return sampleShadowProjectionPCSS(
+					shadow_map_idx,
+					proj_coords,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
+					receiver_distance_alpha,
+					1.35,
+					8.5
+				);
+				#endif
 			}
 
-			bool sampleInsetShadow(vec3 world_pos, vec3 normal, vec3 light_dir, out float shadow) {
+			bool sampleInsetShadow(vec3 world_pos, vec3 normal, vec3 light_dir, float receiver_dist, out float shadow) {
 				shadow = 1.0;
-				if (%s.shadows.inset_shadow_map_index < 0) return false;
+				if (DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index < 0) return false;
+				float receiver_distance_alpha = clamp(
+					receiver_dist / max(DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance, 0.0001),
+					0.0,
+					1.0
+				);
 
 				vec3 proj_coords;
 
 				if (!projectShadowMap(
-					%s.shadows.inset_light_space_matrix,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix,
 					world_pos,
 					normal,
 					light_dir,
-					%s.shadows.inset_shadow_texel_world_size,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
 					proj_coords
 				)) {
 					return false;
 				}
 
-				shadow = sampleShadowProjection(%s.shadows.inset_shadow_map_index, proj_coords, 1.0);
+				#if DIRECTIONAL_SHADOW_USE_LEGACY_PCF
+				shadow = sampleShadowProjection(
+					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index,
+					proj_coords,
+					1.0
+				);
+				#else
+				shadow = sampleShadowProjectionPCSS(
+					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index,
+					proj_coords,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
+					receiver_distance_alpha,
+					1.0,
+					3.0
+				);
+				#endif
 				return true;
 			}
 
-			float %s(vec3 world_pos, vec3 normal, vec3 light_dir) {
+			float DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 normal, vec3 light_dir) {
 				int cascade_idx = getCascadeIndex(world_pos);
 				if (cascade_idx < 0) return 1.0;
 
-				float dist = -(%s.view * vec4(world_pos, 1.0)).z;
-				float shadow = sampleShadowCascade(cascade_idx, world_pos, normal, light_dir);
+				float dist = -(DIRECTIONAL_SHADOW_BLOCK.view * vec4(world_pos, 1.0)).z;
+				float shadow = sampleShadowCascade(cascade_idx, world_pos, normal, light_dir, dist);
 
-				if (cascade_idx < %s.shadows.cascade_count - 1) {
-					float previous_split = cascade_idx > 0 ? %s.shadows.cascade_splits[cascade_idx - 1] : 0.0;
-					float current_split = %s.shadows.cascade_splits[cascade_idx];
+				if (cascade_idx < DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count - 1) {
+					float previous_split = cascade_idx > 0 ? DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx - 1] : 0.0;
+					float current_split = DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx];
 					float cascade_span = max(current_split - previous_split, 0.0001);
 					float blend_band = max(cascade_span * 0.15, 8.0);
 					float blend_start = current_split - blend_band;
 
 					if (dist > blend_start) {
-						float next_shadow = sampleShadowCascade(cascade_idx + 1, world_pos, normal, light_dir);
+						float next_shadow = sampleShadowCascade(cascade_idx + 1, world_pos, normal, light_dir, dist);
 						float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
 						shadow = mix(shadow, next_shadow, blend);
 					}
 				}
 
-				if (%s.shadows.inset_shadow_map_index >= 0 && dist < %s.shadows.inset_shadow_distance) {
+				if (DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index >= 0 && dist < DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance) {
 					float inset_shadow = 1.0;
 
-					if (sampleInsetShadow(world_pos, normal, light_dir, inset_shadow)) {
-						float inset_band = max(%s.shadows.inset_shadow_distance * 0.25, 4.0);
+					if (sampleInsetShadow(world_pos, normal, light_dir, dist, inset_shadow)) {
+						float inset_band = max(DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance * 0.25, 4.0);
 						float inset_blend = 1.0 - smoothstep(
-							max(%s.shadows.inset_shadow_distance - inset_band, 0.0),
-							%s.shadows.inset_shadow_distance,
+							max(DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance - inset_band, 0.0),
+							DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_distance,
 							dist
 						);
 						shadow = mix(shadow, inset_shadow, inset_blend);
@@ -458,34 +535,12 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 
 				return shadow;
 			}
+
+			#undef DIRECTIONAL_SHADOW_NORMAL
+			#undef DIRECTIONAL_SHADOW_FN
+			#undef DIRECTIONAL_SHADOW_USE_LEGACY_PCF
+			#undef DIRECTIONAL_SHADOW_BLOCK
 		]]
-	):format(
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		normal_expr,
-		normal_expr,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		result_fn_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name
-	)
 end
 
 return directional_shadows

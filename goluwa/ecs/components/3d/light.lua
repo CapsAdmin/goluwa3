@@ -245,8 +245,10 @@ function Light:SetCastShadows(config)
 		self.ShadowMap = ShadowMap.New{
 			mode = "sun",
 			size = config.size,
+			cascade_formats = config.cascade_formats,
 			cascade_sizes = config.cascade_sizes,
 			cascade_zoom_factors = config.cascade_zoom_factors,
+			min_caster_texel_size = config.min_caster_texel_size,
 			cascade_count = cascade_count,
 			cascade_split_lambda = config.cascade_split_lambda,
 			max_shadow_distance = config.max_shadow_distance or config.far_plane,
@@ -260,8 +262,10 @@ function Light:SetCastShadows(config)
 			self.InsetShadowMap = ShadowMap.New{
 				size = inset.size or config.size,
 				cascade_count = 1,
+				cascade_formats = inset.cascade_formats,
 				cascade_sizes = {inset.size or config.size},
 				cascade_zoom_factors = {inset.zoom_factor or 1},
+				min_caster_texel_size = inset.min_caster_texel_size or config.min_caster_texel_size,
 				cascade_split_lambda = 1,
 				max_shadow_distance = inset.distance or 64,
 				ortho_size = inset.ortho_size or config.ortho_size or 50.0,
@@ -276,7 +280,9 @@ function Light:SetCastShadows(config)
 			mode = "directional",
 			size = config.size,
 			cascade_count = 1,
+			cascade_formats = config.cascade_formats,
 			cascade_sizes = {config.size},
+			min_caster_texel_size = config.min_caster_texel_size,
 			ortho_size = config.ortho_size or self.Range,
 			near_plane = config.near_plane or 0.1,
 			far_plane = config.far_plane or self.Range,
@@ -287,6 +293,7 @@ function Light:SetCastShadows(config)
 		self.ShadowMap = ShadowMap.New{
 			mode = "point",
 			size = config.size,
+			min_caster_texel_size = config.min_caster_texel_size,
 			near_plane = config.near_plane or 0.05,
 			far_plane = config.far_plane or config.range or self.Range,
 		}

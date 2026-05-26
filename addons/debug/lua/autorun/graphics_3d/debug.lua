@@ -300,6 +300,7 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 	-- Draw all cascade shadow maps
 	local cascade_count = shadow_map:GetCascadeCount()
 	local cascade_splits = shadow_map:GetCascadeSplits()
+	local cascade_draw_calls = Visual.GetShadowDrawCallStats(shadow_map) or {}
 	local size = 200
 	local margin = 10
 	local spacing = 10
@@ -315,10 +316,11 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 			local tex_size = depth_texture:GetSize()
 			local resolution = string.format("%dx%d", tex_size.x, tex_size.y)
 			local split_dist = cascade_splits[i] and string.format("%.1f", cascade_splits[i]) or "?"
+			local draw_calls = cascade_draw_calls[i] or 0
 			-- Dark backdrop so far-clear depth does not look like a missing cascade.
 			render2d.SetTexture(nil)
 			render2d.SetColor(0.06, 0.07, 0.09, 0.92)
-			gfx.DrawRoundedRect(x - panel_padding, y - panel_padding, size + panel_padding * 2, size + 46, 8)
+			gfx.DrawRoundedRect(x - panel_padding, y - panel_padding, size + panel_padding * 2, size + 64, 8)
 			-- Draw the raw depth preview tinted with the cascade color for quick association
 			-- with the in-scene cascade debug colors.
 			render2d.SetTexture(depth_texture)
@@ -333,6 +335,7 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 			fonts.GetFont():DrawText("Cascade " .. i .. " (z<" .. split_dist .. ")", x, y + size + 5)
 			render2d.SetColor(0.85, 0.88, 0.92, 1)
 			fonts.GetFont():DrawText("raw depth  " .. resolution, x, y + size + 23)
+			fonts.GetFont():DrawText("draw calls  " .. draw_calls, x, y + size + 41)
 		end
 	end
 end

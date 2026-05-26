@@ -123,6 +123,41 @@ local function record_shadow_debug_hit(component, cascade_idx, state, entries)
 	end
 end
 
+local function get_shadow_draw_call_stats_store()
+	visual.shadow_draw_call_stats = visual.shadow_draw_call_stats or setmetatable({}, {__mode = "k"})
+	return visual.shadow_draw_call_stats
+end
+
+local function record_shadow_draw_calls(shadow_map, cascade_idx, draw_call_count)
+	if not shadow_map or not cascade_idx or draw_call_count <= 0 then return end
+
+	local stats = get_shadow_draw_call_stats_store()
+	local map_stats = stats[shadow_map]
+
+	if not map_stats then
+		map_stats = {cascades = {}}
+		stats[shadow_map] = map_stats
+	end
+
+	map_stats.cascades[cascade_idx] = (map_stats.cascades[cascade_idx] or 0) + draw_call_count
+	map_stats.last_updated_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+end
+
+local function reset_shadow_draw_calls(shadow_map, cascade_idx)
+	if not shadow_map or not cascade_idx then return end
+
+	local stats = get_shadow_draw_call_stats_store()
+	local map_stats = stats[shadow_map]
+
+	if not map_stats then
+		map_stats = {cascades = {}}
+		stats[shadow_map] = map_stats
+	end
+
+	map_stats.cascades[cascade_idx] = 0
+	map_stats.last_updated_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+end
+
 local function create_empty_aabb()
 	return AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 end
@@ -395,7 +430,7 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
-Visual:GetSet("CullDistance", 2000)
+Visual:GetSet("CullDistance", 500)
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("AABB", create_empty_aabb())
@@ -661,6 +696,7 @@ do
 	visual.shadow_debug_log = true
 	visual.shadow_debug_frame = -1
 	visual.shadow_debug_hits = {}
+	visual.shadow_draw_call_stats = setmetatable({}, {__mode = "k"})
 	visual.occlusion_query_fps = 30
 	visual.last_occlusion_query_time = 0
 	visual.should_run_queries_this_frame = true
@@ -682,6 +718,11 @@ do
 
 	function visual.GetShadowDrawDebugHits()
 		return get_shadow_debug_frame_hits()
+	end
+
+	function visual.GetShadowDrawCallStats(shadow_map)
+		local stats = get_shadow_draw_call_stats_store()
+		return stats[shadow_map] and stats[shadow_map].cascades or nil
 	end
 
 	local function extract_frustum_planes(proj_view_matrix, out_planes)
@@ -929,6 +970,10 @@ do
 			if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
 				return out
 			end
+
+			if world_aabb and shadow_map:IsWorldAABBTooSmall(cascade_idx, world_aabb) then
+				return out
+			end
 		end
 
 		out[#out + 1] = component
@@ -950,7 +995,42 @@ do
 			return out
 		end
 
+		if shadow_map:IsWorldAABBTooSmall(cascade_idx, item.world_aabb) then
+			return out
+		end
+
 		out[#out + 1] = component
+		return out
+	end
+
+	local function get_shadow_sort_state(component, shadow_map)
+		local render_entries = component:GetRenderEntries()
+		local first_entry = render_entries[1]
+		local material = first_entry and component:GetResolvedMaterial(first_entry) or nil
+		local polygon3d = first_entry and first_entry.polygon3d or nil
+		return shadow_map:UsesTessellatedMaterial(material) and 1 or 0,
+		material and material:GetGUID() or "",
+		polygon3d and polygon3d:GetGUID() or "",
+		component:GetModelPath() or "",
+		component:GetGUID()
+	end
+
+	local function sort_shadow_visible_components(out, shadow_map)
+		table.sort(out, function(a, b)
+			local a_pipeline, a_material, a_polygon, a_model, a_component = get_shadow_sort_state(a, shadow_map)
+			local b_pipeline, b_material, b_polygon, b_model, b_component = get_shadow_sort_state(b, shadow_map)
+
+			if a_pipeline ~= b_pipeline then return a_pipeline < b_pipeline end
+
+			if a_material ~= b_material then return a_material < b_material end
+
+			if a_polygon ~= b_polygon then return a_polygon < b_polygon end
+
+			if a_model ~= b_model then return a_model < b_model end
+
+			return a_component < b_component
+		end)
+
 		return out
 	end
 
@@ -1087,7 +1167,7 @@ do
 			append_shadow_visible_component(out, component, shadow_map, cascade_idx, true)
 		end
 
-		return out
+		return sort_shadow_visible_components(out, shadow_map)
 	end
 
 	function visual.IsOcclusionCullingEnabled()
@@ -1354,6 +1434,7 @@ function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibil
 	end
 
 	if submitted_entries > 0 then
+		record_shadow_draw_calls(shadow_map, cascade_idx, submitted_entries)
 		record_shadow_debug_hit(self, cascade_idx, "submitted", submitted_entries)
 	else
 		record_shadow_debug_hit(self, cascade_idx, "no_world_matrix")
@@ -1433,6 +1514,8 @@ function Visual:OnFirstCreated()
 	end)
 
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
+		reset_shadow_draw_calls(shadow_map, cascade_idx)
+
 		for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
 			component:DrawShadow(shadow_map, cascade_idx, nil, true)
 		end

@@ -21,6 +21,7 @@ local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
+local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local TEMP_IDENTITY_CASCADE_OVERRIDE = false
 local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
 local POINT_SHADOW_FACE_ANGLES = {
@@ -612,6 +613,154 @@ local function normalize_shadow_size(size)
 	return Vec2(size.w or size.x, size.h or size.y)
 end
 
+local function get_cascade_depth_format(cascade_formats, cascade_index, default_format)
+	if not cascade_formats then return default_format end
+
+	return cascade_formats[cascade_index] or default_format
+end
+
+local function create_shadow_pipeline_variant(
+	self,
+	depth_format,
+	max_shadow_width,
+	max_shadow_height,
+	bindless_texture_capacity,
+	linear_depth_output,
+	color_format
+)
+	local pipeline = render.CreateGraphicsPipeline(
+		build_shadow_pipeline_config(
+			depth_format,
+			max_shadow_width,
+			max_shadow_height,
+			{
+				build_shadow_vertex_stage(self, bindless_texture_capacity),
+				build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output),
+			},
+			"triangle_list",
+			nil,
+			color_format
+		)
+	)
+	local tess_pipeline = nil
+
+	if supports_tessellation() then
+		tess_pipeline = render.CreateGraphicsPipeline(
+			build_shadow_pipeline_config(
+				depth_format,
+				max_shadow_width,
+				max_shadow_height,
+				{
+					build_shadow_tess_vertex_stage(),
+					build_shadow_tess_control_stage(self, bindless_texture_capacity),
+					build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
+					build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output),
+				},
+				"patch_list",
+				3,
+				color_format
+			)
+		)
+	end
+
+	return pipeline, tess_pipeline
+end
+
+local function get_pipeline_for_cascade(self, material, cascade_index)
+	local uses_tessellation = use_tessellated_shadow(material)
+
+	if self.mode == "point" then
+		return uses_tessellation and self.tess_pipeline or self.pipeline,
+		uses_tessellation
+	end
+
+	local cascade = self.cascade[cascade_index]
+	local depth_format = cascade and cascade.format or self.format
+	return uses_tessellation and
+		self.tess_pipeline_variants[depth_format] or
+		self.pipeline_variants[depth_format],
+	uses_tessellation
+end
+
+local function extract_frustum_planes(proj_view_matrix, out_planes)
+	local m = proj_view_matrix
+	out_planes[0] = m.m03 + m.m00
+	out_planes[1] = m.m13 + m.m10
+	out_planes[2] = m.m23 + m.m20
+	out_planes[3] = m.m33 + m.m30
+	out_planes[4] = m.m03 - m.m00
+	out_planes[5] = m.m13 - m.m10
+	out_planes[6] = m.m23 - m.m20
+	out_planes[7] = m.m33 - m.m30
+	out_planes[8] = m.m03 + m.m01
+	out_planes[9] = m.m13 + m.m11
+	out_planes[10] = m.m23 + m.m21
+	out_planes[11] = m.m33 + m.m31
+	out_planes[12] = m.m03 - m.m01
+	out_planes[13] = m.m13 - m.m11
+	out_planes[14] = m.m23 - m.m21
+	out_planes[15] = m.m33 - m.m31
+	out_planes[16] = m.m02
+	out_planes[17] = m.m12
+	out_planes[18] = m.m22
+	out_planes[19] = m.m32
+	out_planes[20] = m.m03 - m.m02
+	out_planes[21] = m.m13 - m.m12
+	out_planes[22] = m.m23 - m.m22
+	out_planes[23] = m.m33 - m.m32
+
+	for i = 0, 20, 4 do
+		local a, b, c = out_planes[i], out_planes[i + 1], out_planes[i + 2]
+		local len = math.sqrt(a * a + b * b + c * c)
+
+		if len > 0 then
+			local inv_len = 1.0 / len
+			out_planes[i] = a * inv_len
+			out_planes[i + 1] = b * inv_len
+			out_planes[i + 2] = c * inv_len
+			out_planes[i + 3] = out_planes[i + 3] * inv_len
+		end
+	end
+end
+
+local function is_aabb_visible_frustum(aabb, frustum_planes)
+	for i = 0, 20, 4 do
+		local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
+		local px = a > 0 and aabb.max_x or aabb.min_x
+		local py = b > 0 and aabb.max_y or aabb.min_y
+		local pz = c > 0 and aabb.max_z or aabb.min_z
+
+		if a * px + b * py + c * pz + d < 0 then return false end
+	end
+
+	return true
+end
+
+local function update_cascade_frustum_planes(cascade)
+	if not cascade or not cascade.light_space_matrix or not cascade.frustum_planes then
+		return
+	end
+
+	extract_frustum_planes(cascade.light_space_matrix, cascade.frustum_planes)
+end
+
+local function get_shadow_texel_coverage(self, cascade_index, world_aabb)
+	if self.mode == "point" or not world_aabb then return math.huge, math.huge end
+
+	local cascade = self.cascade[cascade_index]
+
+	if not cascade then return math.huge, math.huge end
+
+	local texel_world_size = cascade.texel_world_size or 0
+
+	if texel_world_size <= 0 then return math.huge, math.huge end
+
+	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, cascade.view_matrix)
+	local width_texels = (local_aabb.max_x - local_aabb.min_x) / texel_world_size
+	local height_texels = (local_aabb.max_y - local_aabb.min_y) / texel_world_size
+	return width_texels, height_texels
+end
+
 local function create_point_face_views(cubemap)
 	local face_views = {}
 
@@ -635,6 +784,7 @@ function ShadowMap.New(config)
 	self.mode = config.mode or "directional"
 	self.size = normalize_shadow_size(config.size)
 	self.format = config.format or DEFAULT_FORMAT
+	self.cascade_formats = config.cascade_formats
 	self.near_plane = config.near_plane or 0.1
 	self.far_plane = config.far_plane or 100.0
 	self.ortho_size = config.ortho_size or 50.0 -- Half-size of orthographic projection
@@ -649,6 +799,7 @@ function ShadowMap.New(config)
 
 	self.cascade_split_lambda = config.cascade_split_lambda or 0.75 -- Blend between linear and logarithmic split
 	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
+	self.min_caster_texel_size = config.min_caster_texel_size or 0
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
 	self.cascade_splits = {} -- Will store the split distances
 	self.cascade = {} -- Per-cascade data
@@ -670,6 +821,7 @@ function ShadowMap.New(config)
 				view_matrix = Matrix44(),
 				cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
 				light_space_matrix = Matrix44(),
+				frustum_planes = ffi.new("float[?]", FRUSTUM_PLANE_COMPONENT_COUNT),
 				is_sampleable = false,
 			}
 		end
@@ -710,43 +862,22 @@ function ShadowMap.New(config)
 			},
 		}
 		self.point_depth_buffer_ready = false
-		self.pipeline = render.CreateGraphicsPipeline(
-			build_shadow_pipeline_config(
-				self.format,
-				max_shadow_width,
-				max_shadow_height,
-				{
-					build_shadow_vertex_stage(self, bindless_texture_capacity),
-					build_shadow_fragment_stage(self, bindless_texture_capacity, true),
-				},
-				"triangle_list",
-				nil,
-				self.point_color_format
-			)
+		self.pipeline, self.tess_pipeline = create_shadow_pipeline_variant(
+			self,
+			self.format,
+			max_shadow_width,
+			max_shadow_height,
+			bindless_texture_capacity,
+			true,
+			self.point_color_format
 		)
-
-		if supports_tessellation() then
-			self.tess_pipeline = render.CreateGraphicsPipeline(
-				build_shadow_pipeline_config(
-					self.format,
-					max_shadow_width,
-					max_shadow_height,
-					{
-						build_shadow_tess_vertex_stage(),
-						build_shadow_tess_control_stage(self, bindless_texture_capacity),
-						build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
-						build_shadow_fragment_stage(self, bindless_texture_capacity, true),
-					},
-					"patch_list",
-					3,
-					self.point_color_format
-				)
-			)
-		end
 	else
+		local unique_formats = {}
+
 		-- Initialize cascades
 		for i = 1, self.cascade_count do
 			local cascade_size = normalize_shadow_size(cascade_sizes[i] or self.size)
+			local cascade_format = get_cascade_depth_format(self.cascade_formats, i, self.format)
 
 			if cascade_size.w > max_shadow_width then max_shadow_width = cascade_size.w end
 
@@ -755,16 +886,18 @@ function ShadowMap.New(config)
 			self.cascade[i] = {
 				position = Vec3(0, 0, 0),
 				size = cascade_size,
+				format = cascade_format,
 				texel_world_size = 0,
 				view_matrix = Matrix44(),
 				cull_aabb = AABB(-1, -1, -1, 1, 1, 1),
 				light_space_matrix = Matrix44(),
+				frustum_planes = ffi.new("float[?]", FRUSTUM_PLANE_COMPONENT_COUNT),
 				is_sampleable = false,
 			}
 			self.cascade[i].depth_texture = Texture.New{
 				width = cascade_size.w,
 				height = cascade_size.h,
-				format = self.format,
+				format = cascade_format,
 				image = {
 					usage = {"depth_stencil_attachment", "sampled"},
 					properties = "device_local",
@@ -780,38 +913,28 @@ function ShadowMap.New(config)
 					border_color = "float_opaque_white",
 				},
 			}
+			unique_formats[cascade_format] = true
 		end
 
-		self.pipeline = render.CreateGraphicsPipeline(
-			build_shadow_pipeline_config(
-				self.format,
+		self.pipeline_variants = {}
+		self.tess_pipeline_variants = {}
+
+		for depth_format in pairs(unique_formats) do
+			local pipeline, tess_pipeline = create_shadow_pipeline_variant(
+				self,
+				depth_format,
 				max_shadow_width,
 				max_shadow_height,
-				{
-					build_shadow_vertex_stage(self, bindless_texture_capacity),
-					build_shadow_fragment_stage(self, bindless_texture_capacity),
-				},
-				"triangle_list"
+				bindless_texture_capacity,
+				false,
+				nil
 			)
-		)
-
-		if supports_tessellation() then
-			self.tess_pipeline = render.CreateGraphicsPipeline(
-				build_shadow_pipeline_config(
-					self.format,
-					max_shadow_width,
-					max_shadow_height,
-					{
-						build_shadow_tess_vertex_stage(),
-						build_shadow_tess_control_stage(self, bindless_texture_capacity),
-						build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
-						build_shadow_fragment_stage(self, bindless_texture_capacity),
-					},
-					"patch_list",
-					3
-				)
-			)
+			self.pipeline_variants[depth_format] = pipeline
+			self.tess_pipeline_variants[depth_format] = tess_pipeline
 		end
+
+		self.pipeline = self.pipeline_variants[self.format]
+		self.tess_pipeline = self.tess_pipeline_variants[self.format]
 	end
 
 	-- Command buffer for shadow pass
@@ -846,6 +969,7 @@ function ShadowMap:UpdatePointLightMatrices(light_position)
 			light_position.y + self.far_plane,
 			light_position.z + self.far_plane
 		)
+		update_cascade_frustum_planes(self.cascade[face])
 	end
 
 	self.cascade_splits[1] = self.far_plane
@@ -866,6 +990,7 @@ function ShadowMap:UpdateLocalDirectionalLightMatrices(light_position, light_rot
 	cascade.light_space_matrix = view * projection
 	cascade.texel_world_size = (ortho_size * 2.0) / math.max(self.size.w, self.size.h)
 	cascade.cull_aabb = AABB(-ortho_size, -ortho_size, -half_depth, ortho_size, ortho_size, half_depth)
+	update_cascade_frustum_planes(cascade)
 	self.cascade_splits[1] = range
 end
 
@@ -938,6 +1063,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 			self.cascade[cascade_idx].view_matrix = Matrix44()
 			self.cascade[cascade_idx].cull_aabb = AABB(-1000000, -1000000, -1000000, 1000000, 1000000, 1000000)
 			self.cascade[cascade_idx].light_space_matrix = Matrix44()
+			update_cascade_frustum_planes(self.cascade[cascade_idx])
 		end
 
 		return
@@ -1034,6 +1160,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 		self.cascade[cascade_idx].view_matrix = view
 		self.cascade[cascade_idx].cull_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, caster_max_z)
 		self.cascade[cascade_idx].light_space_matrix = view * projection
+		update_cascade_frustum_planes(self.cascade[cascade_idx])
 		previous_split = split_far
 	end
 
@@ -1045,6 +1172,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 			self.cascade[cascade_idx].view_matrix = first.view_matrix:Copy()
 			self.cascade[cascade_idx].cull_aabb = first.cull_aabb:Copy()
 			self.cascade[cascade_idx].light_space_matrix = first.light_space_matrix:Copy()
+			update_cascade_frustum_planes(self.cascade[cascade_idx])
 		end
 	end
 end
@@ -1052,16 +1180,33 @@ end
 function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
 	if not world_aabb then return true end
 
-	if self.mode == "point" then
-		return world_aabb:IsOverlappedSphereInside(self.point_light_position, self.far_plane)
-	end
-
 	local cascade = self.cascade[cascade_index]
 
 	if not cascade then return true end
 
+	if self.mode == "point" then
+		return world_aabb:IsOverlappedSphereInside(self.point_light_position, self.far_plane) and
+			is_aabb_visible_frustum(world_aabb, cascade.frustum_planes)
+	end
+
 	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, cascade.view_matrix)
-	return cascade.cull_aabb:IsBoxIntersecting(local_aabb)
+
+	if not cascade.cull_aabb:IsBoxIntersecting(local_aabb) then return false end
+
+	return is_aabb_visible_frustum(world_aabb, cascade.frustum_planes)
+end
+
+function ShadowMap:IsWorldAABBTooSmall(cascade_index, world_aabb)
+	local min_caster_texel_size = self.min_caster_texel_size or 0
+
+	if min_caster_texel_size <= 0 then return false end
+
+	local width_texels, height_texels = get_shadow_texel_coverage(self, cascade_index, world_aabb)
+	return width_texels < min_caster_texel_size and height_texels < min_caster_texel_size
+end
+
+function ShadowMap:UsesTessellatedMaterial(material)
+	return use_tessellated_shadow(material)
 end
 
 -- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
@@ -1213,12 +1358,16 @@ end
 function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local push_constants = ShadowDrawPushConstants()
-	local pipeline = use_tessellated_shadow(material) and self.tess_pipeline or self.pipeline
+	local pipeline, uses_tessellation = get_pipeline_for_cascade(self, material, cascade_index)
 	local texture_entry = nil
 
 	-- If material is provided, get its albedo texture index and flags for alpha testing
 	if material then
 		texture_entry = get_cached_shadow_material_texture_indices(self, material, pipeline)
+
+		if not texture_entry then
+			texture_entry = cache_shadow_material_texture_indices(self, material, pipeline)
+		end
 	end
 
 	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), material or render3d.GetDefaultMaterial())
@@ -1241,7 +1390,7 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	self.cmd:SetFrontFace(orientation.FRONT_FACE)
 	self.cmd:SetCullMode("none")
 
-	if pipeline == self.tess_pipeline then
+	if uses_tessellation then
 		pipeline:PushConstants(self.cmd, {"tessellation_evaluation"}, 0, push_constants)
 	else
 		pipeline:PushConstants(self.cmd, {"vertex"}, 0, push_constants)
@@ -1251,10 +1400,24 @@ end
 function ShadowMap:PrimeMaterial(material)
 	if not material then return end
 
-	cache_shadow_material_texture_indices(self, material, self.pipeline)
+	if self.mode == "point" then
+		cache_shadow_material_texture_indices(self, material, self.pipeline)
 
-	if self.tess_pipeline then
-		cache_shadow_material_texture_indices(self, material, self.tess_pipeline)
+		if self.tess_pipeline then
+			cache_shadow_material_texture_indices(self, material, self.tess_pipeline)
+		end
+
+		return
+	end
+
+	for _, pipeline in pairs(self.pipeline_variants or {}) do
+		cache_shadow_material_texture_indices(self, material, pipeline)
+	end
+
+	for _, pipeline in pairs(self.tess_pipeline_variants or {}) do
+		if pipeline then
+			cache_shadow_material_texture_indices(self, material, pipeline)
+		end
 	end
 end
 

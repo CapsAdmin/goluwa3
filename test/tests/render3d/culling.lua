@@ -52,6 +52,25 @@ local function visible_lookup(components)
 	return lookup
 end
 
+local function list_contains(list, value)
+	for _, item in ipairs(list) do
+		if item == value then return true end
+	end
+
+	return false
+end
+
+T.Test("Graphics ecs config-created visual components run OnAdd registration", function()
+	local entity = Entity.New{
+		Name = "config_visual_registration",
+		transform = {},
+		visual = {},
+	}
+	T(list_contains(Visual.Library.shadow_casters, entity.visual))["=="](true)
+	entity:Remove()
+	T(list_contains(Visual.Library.shadow_casters, entity.visual))["=="](false)
+end)
+
 T.Test3D("Graphics render3d culling acceleration returns only frustum and distance visible visuals", function()
 	local sun = Entity.New{
 		transform = {},
@@ -137,6 +156,12 @@ T.Test3D("Graphics render3d shadow acceleration filters safe casters and preserv
 		IsWorldAABBVisible = function(self, cascade_idx, world_aabb)
 			return world_aabb.min_x < 10
 		end,
+		IsWorldAABBTooSmall = function()
+			return false
+		end,
+		UsesTessellatedMaterial = function()
+			return false
+		end,
 	}
 	local visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
 	T(visible[inside.visual])["=="](true)
@@ -158,6 +183,12 @@ T.Test3D("Graphics render3d shadow acceleration invalidates after transform move
 	local shadow_map = {
 		IsWorldAABBVisible = function(self, cascade_idx, world_aabb)
 			return world_aabb.min_x < 10
+		end,
+		IsWorldAABBTooSmall = function()
+			return false
+		end,
+		UsesTessellatedMaterial = function()
+			return false
 		end,
 	}
 	local initially_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
