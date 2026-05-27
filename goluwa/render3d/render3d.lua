@@ -19,6 +19,7 @@ local system = import("goluwa/system.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local scene_voxelizer = import("goluwa/render3d/scene_voxelizer.lua")
 local Light = import("goluwa/ecs/components/3d/light.lua")
 local prototype = import("goluwa/prototype.lua")
 local INSTANCE_MATRIX_ATTRIBUTES = {
@@ -406,6 +407,7 @@ function render3d.Initialize()
 	if true then
 		pipelines = list.flatten{
 			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/voxel_build.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			--import("goluwa/render3d/passes/lighting_simple.lua"),
@@ -421,12 +423,14 @@ function render3d.Initialize()
 	else
 		pipelines = list.flatten{
 			import("goluwa/render3d/passes/gbuffer.lua"),
+						import("goluwa/render3d/passes/voxel_build.lua"),
+
 			--import("goluwa/render3d/passes/ssr.lua"),
 			--import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/lighting_simple.lua"),
 			--import("goluwa/render3d/passes/atmosphere.lua"),
 			--import("goluwa/render3d/passes/ocean.lua"),
-			--import("goluwa/render3d/passes/forward_overlay.lua"),
+			import("goluwa/render3d/passes/forward_overlay.lua"),
 			--import("goluwa/render3d/passes/volumetric_fog.lua"),
 			--import("goluwa/render3d/passes/smaa.lua"),
 			--import("goluwa/render3d/passes/bloom.lua"),
@@ -451,6 +455,7 @@ function render3d.Initialize()
 		if not render3d.pipelines.gbuffer then return end
 
 		local sampler_config = render.GetSamplerFilterConfig()
+		render3d.GetSceneVoxelizer().Update(render3d.camera:GetPosition())
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
 			pipeline:SetSamplerConfig(sampler_config)
@@ -499,6 +504,7 @@ function render3d.ResetState()
 	render3d.instancing_reuse_observations = new_instancing_reuse_observations()
 	render3d.instancing_counters = reset_instancing_counters(render3d.instancing_counters)
 	render3d.last_instancing_counters = render3d.last_instancing_counters or new_instancing_counters()
+	render3d.scene_voxelizer = scene_voxelizer.ResetState()
 end
 
 function render3d.Draw(dt)
@@ -520,6 +526,11 @@ function render3d.Draw(dt)
 
 	render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
 	render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
+end
+
+function render3d.GetSceneVoxelizer()
+	render3d.scene_voxelizer = render3d.scene_voxelizer or scene_voxelizer
+	return render3d.scene_voxelizer
 end
 
 local function use_tessellated_gbuffer(material)

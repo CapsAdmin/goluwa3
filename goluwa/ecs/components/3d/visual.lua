@@ -1242,6 +1242,44 @@ do
 		return out
 	end
 
+	local function append_volume_visible_component(out, component, query_aabb)
+		if not component.Visible then return out end
+
+		local render_entries = component:GetRenderEntries()
+
+		if not render_entries[1] then return out end
+
+		if not component:IsWithinCullDistance() then return out end
+
+		local world_aabb = component:GetWorldAABB()
+
+		if world_aabb and query_aabb and not is_aabb_intersecting(world_aabb, query_aabb) then
+			return out
+		end
+
+		out[#out + 1] = component
+		return out
+	end
+
+	local function append_volume_visible_static_item(out, item, query_aabb)
+		local component = item.component
+
+		if not component.Visible then return out end
+
+		if
+			not is_aabb_within_cull_distance(item.world_aabb, item.cull_distance, get_cull_camera_position())
+		then
+			return out
+		end
+
+		if query_aabb and not is_aabb_intersecting(item.world_aabb, query_aabb) then
+			return out
+		end
+
+		out[#out + 1] = component
+		return out
+	end
+
 	local function get_shadow_sort_state(component, shadow_map)
 		local render_entries = component:GetRenderEntries()
 		local first_entry = render_entries[1]
@@ -1364,6 +1402,52 @@ do
 		return out
 	end
 
+	local function collect_volume_visible_static_components(out, query_aabb)
+		local acceleration = ensure_scene_acceleration()
+
+		if not (acceleration and acceleration.tree and acceleration.tree.root) then
+			return out
+		end
+
+		local tree = acceleration.tree
+		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
+		local camera_position = get_cull_camera_position()
+		node_stack[1] = tree.root
+		local stack_size = 1
+
+		while stack_size > 0 do
+			local node = node_stack[stack_size]
+			node_stack[stack_size] = nil
+			stack_size = stack_size - 1
+
+			if
+				is_node_within_cull_distance(node, camera_position) and
+				(
+					not query_aabb or
+					is_aabb_intersecting(node.aabb, query_aabb)
+				)
+			then
+				if node.first then
+					for i = node.first, node.last do
+						append_volume_visible_static_item(out, tree.components[i], query_aabb)
+					end
+				else
+					if node.right then
+						stack_size = stack_size + 1
+						node_stack[stack_size] = node.right
+					end
+
+					if node.left then
+						stack_size = stack_size + 1
+						node_stack[stack_size] = node.left
+					end
+				end
+			end
+		end
+
+		return out
+	end
+
 	function visual.InvalidateSceneAcceleration()
 		invalidate_scene_acceleration()
 	end
@@ -1441,6 +1525,22 @@ do
 			shadow_visible_list_version
 		)
 		return out
+	end
+
+	function visual.GetVolumeVisibleVisuals(query_aabb)
+		local acceleration = ensure_scene_acceleration()
+		local out = {}
+		collect_volume_visible_static_components(out, query_aabb)
+
+		for _, component in ipairs(acceleration.dynamic_components or {}) do
+			append_volume_visible_component(out, component, query_aabb)
+		end
+
+		return out
+	end
+
+	function visual.GetAABBVisibleVisuals(query_aabb)
+		return visual.GetVolumeVisibleVisuals(query_aabb)
 	end
 
 	function visual.IsOcclusionCullingEnabled()
@@ -1731,6 +1831,37 @@ function Visual:DrawProbeGeometry(lightprobes)
 			entry.polygon3d:Draw()
 		end
 	end
+end
+
+function Visual:DrawVoxelGeometry(scene_voxelizer, clipmap_index, submit_entry)
+	if not self.Visible then return 0 end
+
+	if not self:IsWithinCullDistance() then return 0 end
+
+	local submitted_entries = 0
+
+	for _, entry in ipairs(self:GetRenderEntries()) do
+		local transform = entry.transform
+		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
+
+		if world_matrix then
+			local material = self:GetResolvedMaterial(entry)
+
+			if scene_voxelizer.ShouldVoxelizeMaterial(material) then
+				render3d.SetWorldMatrix(world_matrix)
+				render3d.SetCurrentPolygon3D(entry.polygon3d)
+				render3d.SetMaterial(material)
+
+				if submit_entry then
+					submit_entry(scene_voxelizer, clipmap_index, self, entry, world_matrix, material)
+				end
+
+				submitted_entries = submitted_entries + 1
+			end
+		end
+	end
+
+	return submitted_entries
 end
 
 function Visual:OnChildAdd()
