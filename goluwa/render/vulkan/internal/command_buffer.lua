@@ -984,6 +984,12 @@ function CommandBuffer:SetBlendConstants(r, g, b, a)
 end
 
 function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
+	if not vulkan.ext.vkCmdSetColorBlendEnableEXT then return end
+
+	if not self.ptr or self.ptr[0] == nil or self.is_recording ~= true then
+		return
+	end
+
 	if
 		not should_apply_dynamic_state(
 			self,
@@ -1002,6 +1008,9 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 		count = 1
 	elseif type(blend_enable) == "table" then
 		count = #blend_enable
+
+		if count <= 0 then return end
+
 		enable_array = UInt32Array(count)
 
 		for i = 1, count do
@@ -1011,9 +1020,7 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 		error("blend_enable must be a boolean or table of booleans")
 	end
 
-	if vulkan.ext.vkCmdSetColorBlendEnableEXT then
 	vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
-	end
 end
 
 function CommandBuffer:SetColorWriteMask(first_attachment, color_write_mask)
