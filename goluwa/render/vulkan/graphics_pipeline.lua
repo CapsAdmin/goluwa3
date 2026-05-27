@@ -2545,6 +2545,13 @@ end
 
 function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	frame_index = frame_index or 1
+
+	if self.descriptor_sets then
+		if frame_index < 1 or self.descriptor_sets[frame_index] == nil then
+			frame_index = 1
+		end
+	end
+
 	local frame_number = system.GetFrameNumber and system.GetFrameNumber() or 0
 
 	if graphics_pipeline_switch_frame ~= frame_number then
