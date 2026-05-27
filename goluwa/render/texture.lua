@@ -185,6 +185,10 @@ local function get_bytes_per_pixel(format)
 		return 16
 	elseif format == "r16g16b16a16_sfloat" or format == "r16g16b16a16_unorm" then
 		return 8
+	elseif format == "r32g32_sfloat" then
+		return 8
+	elseif format == "r16g16_sfloat" or format == "r16g16_unorm" then
+		return 4
 	elseif format == "r32_sfloat" then
 		return 4
 	elseif format == "r16_sfloat" then
