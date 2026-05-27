@@ -1107,25 +1107,6 @@ function render2d.Initialize()
 						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + shape.outline_width)) :
 						smoothstep(smoothing, -smoothing, d);
 				}
-
-				vec3 compute_sdf_alpha(vec3 d, bool has_tex_sdf, bool has_rect_sdf) {
-					if (has_tex_sdf && !has_rect_sdf) {
-						float bias = -0.015;
-						float gamma = 1.1;
-						float softness = max(1.0, max(shape.blur.x, shape.blur.y) * 1.75);
-						vec3 alpha = (shape.outline_width > 0.0) ?
-							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
-							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
-						return pow(max(alpha, vec3(0.0)), vec3(gamma));
-					}
-
-					float smoothing = max(shape.blur.x, shape.blur.y);
-					smoothing = max(0.7, smoothing);
-					return (shape.outline_width > 0.0) ?
-						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + shape.outline_width)) :
-						smoothstep(smoothing, -smoothing, d);
-				}
-
 				float compute_blur_alpha(vec2 coords) {
 					vec2 p = (coords - 0.5) * shape.rect_size;
 					vec2 b = max(vec2(0.0), (shape.rect_size - shape.blur * 2.0) * 0.5);
