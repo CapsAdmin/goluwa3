@@ -185,44 +185,7 @@ function META:Build()
 					-- Wait, buffer is probably slower.
 					elseif data.texture then
 						local other = data.texture
-						-- Transition src to transfer_src
-						cmd:PipelineBarrier{
-							srcStage = "all_commands",
-							dstStage = "transfer",
-							imageBarriers = {
-								{
-									image = other:GetImage(),
-									oldLayout = other:GetImage().layout or "shader_read_only_optimal",
-									newLayout = "transfer_src_optimal",
-									srcAccessMask = "memory_read",
-									dstAccessMask = "transfer_read",
-								},
-							},
-						}
-						cmd:CopyImageToImage(
-							other:GetImage(),
-							page.texture:GetImage(),
-							data.w,
-							data.h,
-							0,
-							0,
-							data.page_x,
-							data.page_y
-						)
-						-- Transition src back later or now? Let's do it now to be safe.
-						cmd:PipelineBarrier{
-							srcStage = "transfer",
-							dstStage = "all_commands",
-							imageBarriers = {
-								{
-									image = other:GetImage(),
-									oldLayout = "transfer_src_optimal",
-									newLayout = "shader_read_only_optimal",
-									srcAccessMask = "transfer_read",
-									dstAccessMask = "memory_read",
-								},
-							},
-						}
+						page.texture:CopyFrom(other, data.w, data.h, 0, 0, data.page_x, data.page_y)
 						data.uploaded = true
 					end
 				end
@@ -262,7 +225,7 @@ function META:Build()
 
 	if false then
 		for _, page in ipairs(self.pages) do
-			page.texture:Download():SaveAs("debug_texture_" .. tostring(tex) .. ".png")
+			page.texture:Download():SaveAs("tmp/debug_texture_" .. tostring(page.texture) .. ".png")
 		end
 	end
 end

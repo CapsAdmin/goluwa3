@@ -5,7 +5,7 @@ local ComputePipeline = prototype.CreateTemplate("vulkan_compute_pipeline")
 
 function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	local info = vulkan.vk.s.PipelineShaderStageCreateInfo{
-		stage = compute,
+		stage = vulkan.vk.e.VkShaderStageFlagBits("compute"),
 		module = shaderModule.ptr[0],
 		pName = "main",
 	}

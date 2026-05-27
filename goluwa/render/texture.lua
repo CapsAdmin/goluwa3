@@ -670,6 +670,10 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 	local cmd_pool = render.GetCommandPool()
 	local cmd = render.GetCommandBufferOutsideRendering()
 	local internal_cmd = false
+	local src_image = other:GetImage()
+	local dst_image = self:GetImage()
+	local src_old_layout = src_image.layout or "shader_read_only_optimal"
+	local dst_old_layout = dst_image.layout or "shader_read_only_optimal"
 
 	if not cmd then
 		cmd = cmd_pool:AllocateCommandBuffer()
@@ -683,8 +687,8 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 		dstStage = "transfer",
 		imageBarriers = {
 			{
-				image = other:GetImage(),
-				oldLayout = other:GetImage().layout or "shader_read_only_optimal",
+				image = src_image,
+				oldLayout = src_old_layout,
 				newLayout = "transfer_src_optimal",
 				srcAccessMask = "memory_read",
 				dstAccessMask = "transfer_read",
@@ -697,31 +701,31 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 		dstStage = "transfer",
 		imageBarriers = {
 			{
-				image = self:GetImage(),
-				oldLayout = self:GetImage().layout or "shader_read_only_optimal",
+				image = dst_image,
+				oldLayout = dst_old_layout,
 				newLayout = "transfer_dst_optimal",
 				srcAccessMask = "none",
 				dstAccessMask = "transfer_write",
 			},
 		},
 	}
-	cmd:CopyImageToImage(other:GetImage(), self:GetImage(), width, height, srcX, srcY, dstX, dstY)
+	cmd:CopyImageToImage(src_image, dst_image, width, height, srcX, srcY, dstX, dstY)
 	-- Transition back
 	cmd:PipelineBarrier{
 		srcStage = "transfer",
 		dstStage = "all_commands",
 		imageBarriers = {
 			{
-				image = other:GetImage(),
+				image = src_image,
 				oldLayout = "transfer_src_optimal",
-				newLayout = other:GetImage().layout or "shader_read_only_optimal",
+				newLayout = src_old_layout,
 				srcAccessMask = "transfer_read",
 				dstAccessMask = "memory_read",
 			},
 			{
-				image = self:GetImage(),
+				image = dst_image,
 				oldLayout = "transfer_dst_optimal",
-				newLayout = "shader_read_only_optimal",
+				newLayout = dst_old_layout,
 				srcAccessMask = "transfer_write",
 				dstAccessMask = "memory_read",
 			},

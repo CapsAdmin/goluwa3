@@ -2772,7 +2772,7 @@ local function resolve_draw_framebuffer(self, framebuffer, frame_index)
 	return fb
 end
 
-local function begin_draw(self, cmd, fb)
+local function begin_draw(self, cmd, fb, frame_index)
 	if fb then fb:Begin(cmd) end
 
 	-- If this pass draws directly to the main target (no explicit framebuffer),
@@ -2787,7 +2787,7 @@ local function begin_draw(self, cmd, fb)
 		end
 	end
 
-	self:Bind(cmd)
+	self:Bind(cmd, frame_index)
 end
 
 -- Begin drawing to this pipeline's framebuffer
@@ -2796,7 +2796,7 @@ end
 function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
 	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
-	begin_draw(self, cmd, fb)
+	begin_draw(self, cmd, fb, frame_index)
 	return fb
 end
 
@@ -2817,7 +2817,7 @@ function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
 	render.PushCommandBuffer(cmd)
 	local began_framebuffer = fb ~= nil
-	begin_draw(self, cmd, fb)
+	begin_draw(self, cmd, fb, frame_index)
 
 	if self.on_draw then
 		self.on_draw(self, cmd)
@@ -2838,7 +2838,7 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	local began_framebuffer = fb ~= nil
 	local ok, err = xpcall(
 		function()
-			begin_draw(self, cmd, fb)
+			begin_draw(self, cmd, fb, frame_index)
 			self:UploadConstants()
 			cmd:DrawMeshTasks(gx, gy, gz)
 		end,
@@ -2850,6 +2850,49 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	render.PopCommandBuffer()
 
 	if not ok then error(err, 0) end
+end
+
+function EasyPipeline:Dispatch(cmd, group_count_x, group_count_y, group_count_z, frame_index, dynamic_offsets)
+	if not self.pipeline or not self.pipeline.Dispatch then
+		error("EasyPipeline:Dispatch is only available for compute pipelines", 2)
+	end
+
+	cmd = cmd or render.GetCommandBuffer()
+	render.PushCommandBuffer(cmd)
+
+	if self.on_draw then
+		self.on_draw(self, cmd)
+	else
+		self:UploadConstants()
+		self.pipeline:Dispatch(
+			cmd,
+			group_count_x or 1,
+			group_count_y or 1,
+			group_count_z or 1,
+			frame_index,
+			dynamic_offsets
+		)
+	end
+
+	render.PopCommandBuffer()
+end
+
+function EasyPipeline:DispatchForSize(cmd, width, height, depth, frame_index, dynamic_offsets)
+	if not self.pipeline or not self.pipeline.DispatchForSize then
+		error("EasyPipeline:DispatchForSize is only available for compute pipelines", 2)
+	end
+
+	cmd = cmd or render.GetCommandBuffer()
+	render.PushCommandBuffer(cmd)
+
+	if self.on_draw then
+		self.on_draw(self, cmd)
+	else
+		self:UploadConstants()
+		self.pipeline:DispatchForSize(cmd, width, height, depth, frame_index, dynamic_offsets)
+	end
+
+	render.PopCommandBuffer()
 end
 
 function EasyPipeline.FragmentOnly(config)
@@ -2889,6 +2932,164 @@ function EasyPipeline.FragmentOnly(config)
 			shader = config.shader,
 		},
 	}
+end
+
+function EasyPipeline.Compute(config)
+	assert_no_legacy_top_level_fields(config, 2)
+	local write = config.write
+	local source = config.source
+
+	if type(config.block) == "table" then
+		write = write or config.block.write
+		source = source or config.block.source
+	end
+
+	local self = EasyPipeline:CreateObject()
+	self.on_draw = config.on_draw or nil
+	local block = config.block or {}
+	local push_constant_type
+	local push_constant_size = 0
+
+	if #block > 0 then
+		push_constant_type = EasyPipeline.BuildFFIType("scalar", "ComputeConstants", block)
+		push_constant_size = ffi.sizeof(push_constant_type)
+	end
+
+	local push_constant_data = push_constant_type and push_constant_type() or nil
+	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
+	local bindless_texture_capacity = bindless_descriptor_capacities.textures
+	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
+	local shader_header = (
+		[[#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(set = 1, binding = 0) uniform sampler2D textures[%d];
+layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
+#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
+]]
+	):format(bindless_texture_capacity, bindless_cubemap_capacity)
+	local push_constant_glsl = ""
+
+	if #block > 0 then
+		local function flatten_fields(fields, out)
+			out = out or {}
+
+			for _, field in ipairs(fields) do
+				if type(field[1]) == "table" then
+					flatten_fields(field, out)
+				else
+					out[#out + 1] = field
+				end
+			end
+
+			return out
+		end
+
+		local function build_glsl_fields(fields)
+			local glsl_fields = ""
+
+			for _, field in ipairs(fields) do
+				local name = field[1]
+				local glsl_type = field[2]
+				local array_size = type(field[3]) == "number" and field[3] or nil
+
+				if array_size then
+					glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", glsl_type, name, array_size)
+				else
+					glsl_fields = glsl_fields .. string.format("    %s %s;\n", glsl_type, name)
+				end
+			end
+
+			return glsl_fields
+		end
+
+		push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. build_glsl_fields(flatten_fields(block)) .. "} compute;\n\n"
+	end
+
+	local descriptor_sets = {
+		{
+			type = "combined_image_sampler",
+			binding_index = 0,
+			count = bindless_texture_capacity,
+			set_index = 1,
+		},
+		{
+			type = "combined_image_sampler",
+			binding_index = 1,
+			count = bindless_cubemap_capacity,
+			set_index = 1,
+		},
+	}
+
+	for _, ds in ipairs(config.descriptor_sets or {}) do
+		descriptor_sets[#descriptor_sets + 1] = ds
+	end
+
+	self.pipeline = render.CreateComputePipeline{
+		DescriptorSetCount = config.DescriptorSetCount or
+			(
+				config.descriptor_set_count
+			)
+			or
+			(
+				render.target:IsValid() and
+				render.target.image_count
+			)
+			or
+			1,
+		LocalSize = config.LocalSize or config.local_size or config.workgroup_size,
+		shader_stages = {
+			{
+				type = "compute",
+				code = shader_header .. (
+						config.custom_declarations or
+						""
+					) .. push_constant_glsl .. (
+						config.shader or
+						""
+					),
+				descriptor_sets = descriptor_sets,
+				push_constants = push_constant_size > 0 and
+					{
+						offset = 0,
+						size = push_constant_size,
+					} or
+					nil,
+			},
+		},
+	}
+
+	function self:UploadConstants()
+		if not push_constant_data then return end
+
+		if source then
+			local source_data = source.get(self, source)
+
+			if source_data == nil then
+				error("compute push constant source returned nil", 2)
+			end
+
+			ffi.copy(
+				push_constant_data,
+				ffi.cast("uint8_t *", source_data) + (source.offset or 0),
+				push_constant_size
+			)
+		end
+
+		if write then write(self, push_constant_data) end
+
+		self.pipeline:PushConstants(
+			render.GetCommandBuffer(),
+			{"compute"},
+			0,
+			push_constant_data,
+			push_constant_size
+		)
+	end
+
+	return self
 end
 
 return EasyPipeline:Register()

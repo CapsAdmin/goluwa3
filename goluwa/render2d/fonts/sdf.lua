@@ -1,10 +1,11 @@
 --[[HOTRELOAD
-	os.execute("luajit glw test sdf_fonts")
+	--os.execute("luajit glw test sdf_fonts")
 ]]
 local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
 local prototype = import("goluwa/prototype.lua")
 local utf8 = import("goluwa/utf8.lua")
 local event = import("goluwa/event.lua")
@@ -47,11 +48,13 @@ function META:__copy()
 end
 
 local SUPER_SAMPLING_SCALE = 4
+local JFA_DESCRIPTOR_SET_COUNT = 256
 
 function META:ClearSizeCache()
 	self.text_size_cache = nil
 	self.wrap_string_cache = nil
 	self.draw_pass_cache = nil
+	self.metric_chars = nil
 	self.ascent = nil
 	self.descent = nil
 end
@@ -70,6 +73,10 @@ local function get_ascent_descent(self)
 	return self.ascent, self.descent
 end
 
+local function get_sdf_storage_format(target_format)
+	return "r8g8b8a8_unorm"
+end
+
 META:GetSet("LoadSpeed", 10)
 META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
@@ -81,68 +88,105 @@ function META:GetEffectiveSpread()
 end
 
 function META:GetAtlasFormat()
-	return render.target:GetColorFormat()
+	return get_sdf_storage_format(render.target:GetColorFormat())
 end
+
+local shared_jfa_pipelines = {}
 
 function META:GetJFAPipelines()
 	if self.jfa_pipelines then return self.jfa_pipelines end
 
+	local atlas_format = self:GetAtlasFormat()
+	local shared = shared_jfa_pipelines[atlas_format]
+
+	if shared then
+		self.jfa_pipelines = shared
+		return shared
+	end
+
 	self.jfa_pipelines = {
-		init = EasyPipeline.FragmentOnly{
-			ColorFormat = {{"r32g32_sfloat", {"rg", "rg"}}},
+		init = EasyPipeline.Compute{
+			DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
+			LocalSize = {x = 8, y = 8, z = 1},
+			descriptor_sets = {
+				{
+					type = "storage_image",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
 			block = {
-				{"tex_idx", "int"},
 				{"mode", "int"},
-				{"size", "vec2"},
 			},
 			write = function(self, block)
-				block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
 				block.mode = self.current_jfa_mode
-				block.size[0] = self.current_jfa_size.x
-				block.size[1] = self.current_jfa_size.y
 				return block
 			end,
 			shader = [[
-					layout(location = 0) in vec2 in_uv;
+					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+					layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_seed;
+					layout(set = 0, binding = 1) uniform sampler2D mask_tex;
 					void main() {
-						vec4 tex = texture(TEXTURE(fragment.tex_idx), in_uv);
+						ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+						ivec2 size = imageSize(out_seed);
+						if (pos.x >= size.x || pos.y >= size.y) return;
+						vec2 uv = (vec2(pos) + vec2(0.5)) / vec2(size);
+						vec4 tex = texture(mask_tex, uv);
 						float mask = max(tex.r, tex.a);
-						bool is_seed = (fragment.mode == 0) ? (mask > 0.02) : (mask < 0.98);
-						if (is_seed) {
-							set_rg(in_uv);
-						} else {
-							set_rg(vec2(-1.0));
-						}
+						vec2 seed = (compute.mode == 0) ? (mask > 0.02 ? vec2(pos) : vec2(-1.0)) : (mask < 0.98 ? vec2(pos) : vec2(-1.0));
+						imageStore(out_seed, pos, vec4(seed, 0.0, 0.0));
 					}
 				]],
 		},
-		step = EasyPipeline.FragmentOnly{
-			ColorFormat = {{"r32g32_sfloat", {"rg", "rg"}}},
+		step = EasyPipeline.Compute{
+			DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
+			LocalSize = {x = 8, y = 8, z = 1},
+			descriptor_sets = {
+				{
+					type = "storage_image",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
 			block = {
-				{"tex_idx", "int"},
-				{"step_size", "float"},
-				{"size", "vec2"},
+				{"step_size", "int"},
 			},
 			write = function(self, block)
-				block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
 				block.step_size = self.current_jfa_step
-				block.size[0] = self.current_jfa_size.x
-				block.size[1] = self.current_jfa_size.y
 				return block
 			end,
 			shader = [[
-					layout(location = 0) in vec2 in_uv;
+					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+					layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_seed;
+					layout(set = 0, binding = 1) uniform sampler2D in_seed;
 					void main() {
-						vec2 best_seed = texture(TEXTURE(fragment.tex_idx), in_uv).rg;
-						float best_dist = (best_seed.x < 0.0) ? 1e10 : length((best_seed - in_uv) * fragment.size);
+						ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+						ivec2 size = imageSize(out_seed);
+						if (pos.x >= size.x || pos.y >= size.y) return;
+						vec2 best_seed = texelFetch(in_seed, pos, 0).rg;
+						float best_dist = (best_seed.x < 0.0) ? 1e10 : length(best_seed - vec2(pos));
 
 						for (int y = -1; y <= 1; y++) {
 							for (int x = -1; x <= 1; x++) {
 								if (x == 0 && y == 0) continue;
-								vec2 sample_uv = in_uv + vec2(float(x), float(y)) * fragment.step_size / fragment.size;
-								vec2 seed = texture(TEXTURE(fragment.tex_idx), sample_uv).rg;
+								ivec2 sample_pos = clamp(pos + ivec2(x, y) * compute.step_size, ivec2(0), size - ivec2(1));
+								vec2 seed = texelFetch(in_seed, sample_pos, 0).rg;
 								if (seed.x >= 0.0) {
-									float dist = length((seed - in_uv) * fragment.size);
+									float dist = length(seed - vec2(pos));
 									if (dist < best_dist) {
 										best_dist = dist;
 										best_seed = seed;
@@ -150,81 +194,137 @@ function META:GetJFAPipelines()
 								}
 							}
 						}
-						set_rg(best_seed);
+
+						imageStore(out_seed, pos, vec4(best_seed, 0.0, 0.0));
 					}
 				]],
 		},
-		final = EasyPipeline.FragmentOnly{
-			ColorFormat = {{"r32_sfloat", {"r", "r"}}},
+		final = EasyPipeline.Compute{
+			DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
+			LocalSize = {x = 8, y = 8, z = 1},
+			descriptor_sets = {
+				{
+					type = "storage_image",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
 			block = {
-				{"tex_idx", "int"},
-				{"size", "vec2"},
 				{"max_dist", "float"},
 			},
 			write = function(self, block)
-				block.tex_idx = self:GetTextureIndex(self.current_jfa_tex)
-				block.size[0] = self.current_jfa_size.x
-				block.size[1] = self.current_jfa_size.y
 				block.max_dist = self.current_jfa_max_dist
 				return block
 			end,
 			shader = [[
-					layout(location = 0) in vec2 in_uv;
+					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+					layout(set = 0, binding = 0, r32f) uniform writeonly image2D out_dist;
+					layout(set = 0, binding = 1) uniform sampler2D in_seed;
 					void main() {
-						vec2 seed = texture(TEXTURE(fragment.tex_idx), in_uv).rg;
-						float dist = (seed.x < 0.0) ? fragment.max_dist : length((seed - in_uv) * fragment.size);
-						set_r(dist);
+						ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+						ivec2 size = imageSize(out_dist);
+						if (pos.x >= size.x || pos.y >= size.y) return;
+						vec2 seed = texelFetch(in_seed, pos, 0).rg;
+						float dist = (seed.x < 0.0) ? compute.max_dist : length(seed - vec2(pos));
+						imageStore(out_dist, pos, vec4(dist, 0.0, 0.0, 1.0));
 					}
 				]],
 		},
-		combine = EasyPipeline.FragmentOnly{
-			ColorFormat = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
+		combine = EasyPipeline.Compute{
+			DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
+			LocalSize = {x = 8, y = 8, z = 1},
+			descriptor_sets = {
+				{
+					type = "storage_image",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 2,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 3,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
 			block = {
-				{"dist_on_idx", "int"},
-				{"dist_off_idx", "int"},
-				{"mask_idx", "int"},
 				{"max_dist", "float"},
 			},
 			write = function(self, block)
-				block.dist_on_idx = self:GetTextureIndex(self.current_jfa_dist_on)
-				block.dist_off_idx = self:GetTextureIndex(self.current_jfa_dist_off)
-				block.mask_idx = self:GetTextureIndex(self.current_jfa_mask_tex)
 				block.max_dist = self.current_jfa_max_dist
 				return block
 			end,
 			shader = [[
-					layout(location = 0) in vec2 in_uv;
+					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+					layout(set = 0, binding = 0, rgba8) uniform writeonly image2D out_tex;
+					layout(set = 0, binding = 1) uniform sampler2D dist_on_tex;
+					layout(set = 0, binding = 2) uniform sampler2D dist_off_tex;
+					layout(set = 0, binding = 3) uniform sampler2D mask_tex;
+
+					float sample_bilinear_r(sampler2D tex, vec2 uv) {
+						ivec2 size = textureSize(tex, 0);
+						vec2 sample_pos = uv * vec2(size) - vec2(0.5);
+						ivec2 p0 = ivec2(floor(sample_pos));
+						vec2 frac = sample_pos - vec2(p0);
+						ivec2 p1 = p0 + ivec2(1, 1);
+						p0 = clamp(p0, ivec2(0), size - ivec2(1));
+						p1 = clamp(p1, ivec2(0), size - ivec2(1));
+
+						float v00 = texelFetch(tex, ivec2(p0.x, p0.y), 0).r;
+						float v10 = texelFetch(tex, ivec2(p1.x, p0.y), 0).r;
+						float v01 = texelFetch(tex, ivec2(p0.x, p1.y), 0).r;
+						float v11 = texelFetch(tex, ivec2(p1.x, p1.y), 0).r;
+						float vx0 = mix(v00, v10, frac.x);
+						float vx1 = mix(v01, v11, frac.x);
+						return mix(vx0, vx1, frac.y);
+					}
+
 					void main() {
-						float d_on = texture(TEXTURE(fragment.dist_on_idx), in_uv).r;
-						float d_off = texture(TEXTURE(fragment.dist_off_idx), in_uv).r;
-						vec4 mask_sample = texture(TEXTURE(fragment.mask_idx), in_uv);
+						ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+						ivec2 size = imageSize(out_tex);
+						if (pos.x >= size.x || pos.y >= size.y) return;
+						vec2 uv = (vec2(pos) + vec2(0.5)) / vec2(size);
+						float d_on = sample_bilinear_r(dist_on_tex, uv);
+						float d_off = sample_bilinear_r(dist_off_tex, uv);
+						vec4 mask_sample = texture(mask_tex, uv);
 						float coverage = max(mask_sample.r, mask_sample.a);
 						float dist = d_off - d_on;
-						float aa_offset = (coverage - 0.5);
-						float edge_weight = smoothstep(2.0, 0.0, abs(dist));
-						dist = mix(dist, -aa_offset, edge_weight);
-						float norm_dist = clamp(dist / (fragment.max_dist * 2.0) + 0.5, 0.0, 1.0);
-						set_rgba(vec4(norm_dist, norm_dist, norm_dist, 1.0));
+						float aa_offset = coverage - 0.5;
+						float edge_weight = 1.0 - smoothstep(0.0, 2.0, abs(dist));
+						float shaded_dist = mix(dist, -aa_offset, edge_weight);
+						float norm_dist = clamp(shaded_dist / (compute.max_dist * 2.0) + 0.5, 0.0, 1.0);
+						imageStore(out_tex, pos, vec4(norm_dist, norm_dist, norm_dist, 1.0));
 					}
 				]],
 		},
 	}
+	shared_jfa_pipelines[atlas_format] = self.jfa_pipelines
 	return self.jfa_pipelines
 end
 
 do
-	local function get_font_debug_name(self)
-		return string.format(
-			"render2d sdf font atlas %s size=%s",
-			tostring(self:GetName() or "unnamed"),
-			tostring(self:GetSize())
-		)
-	end
-
 	local function create_atlas(self)
 		local format = self:GetAtlasFormat()
 		self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-		self.texture_atlas:SetDebugName(get_font_debug_name(self))
 		self.texture_atlas:SetPadding(self:GetPadding())
 
 		for code in pairs(self.chars) do
@@ -312,6 +412,7 @@ end
 
 local scratch_size = {w = 0, h = 0}
 local fb_pool = {}
+local tex_pool = {}
 
 local function get_temp_fb(self, w, h, format, mip_maps, filter)
 	local key = w .. "_" .. h .. "_" .. format .. (
@@ -345,13 +446,61 @@ local function get_temp_fb(self, w, h, format, mip_maps, filter)
 			wrap_t = "clamp_to_edge",
 		}
 		fb._pool_key = key
+		fb._temp_kind = "fb"
 	end
 
 	return fb
 end
 
-local function release_temp_fb(fb)
-	local key = fb._pool_key
+local function get_temp_tex(self, w, h, format, filter)
+	local key = w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
+	local pool = tex_pool[key]
+
+	if not pool then
+		pool = {}
+		tex_pool[key] = pool
+	end
+
+	local tex = table.remove(pool)
+
+	if not tex then
+		tex = Texture.New{
+			width = w,
+			height = h,
+			format = format,
+			mip_map_levels = 1,
+			image = {
+				usage = {"storage", "sampled", "transfer_src", "transfer_dst"},
+			},
+			sampler = {
+				min_filter = filter or "linear",
+				mag_filter = filter or "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+		tex._pool_key = key
+		tex._temp_kind = "tex"
+	end
+
+	return tex
+end
+
+local function release_temp_resource(resource)
+	local key = resource._pool_key
+
+	if resource._temp_kind == "tex" then
+		local pool = tex_pool[key]
+
+		if not pool then
+			pool = {}
+			tex_pool[key] = pool
+		end
+
+		table.insert(pool, resource)
+		return
+	end
+
 	local pool = fb_pool[key]
 
 	if not pool then
@@ -359,81 +508,289 @@ local function release_temp_fb(fb)
 		fb_pool[key] = pool
 	end
 
-	table.insert(pool, fb)
+	table.insert(pool, resource)
+end
+
+local function glyph_has_drawable_outline(glyph)
+	local glyph_data = glyph and glyph.glyph_data
+
+	if not glyph_data then return false end
+
+	if not glyph_data.points or #glyph_data.points == 0 then return false end
+
+	if not glyph_data.end_pts_of_contours or #glyph_data.end_pts_of_contours == 0 then
+		return false
+	end
+
+	return true
+end
+
+local function get_metric_char(self, code)
+	local data = self.chars[code]
+
+	if data ~= nil then return data end
+
+	self.metric_chars = self.metric_chars or {}
+	data = self.metric_chars[code]
+
+	if data ~= nil then return data end
+
+	for i = 1, #self.Fonts do
+		local font = self.Fonts[i]
+		font:SetSize(self.Size)
+		data = font:GetGlyph(code)
+
+		if data then break end
+	end
+
+	if data == nil then data = false end
+
+	self.metric_chars[code] = data
+	return data
+end
+
+local function get_next_pow2_and_steps(n)
+	local r = 1
+	local steps = 0
+
+	while r < n do
+		r = r * 2
+		steps = steps + 1
+	end
+
+	return r, steps
+end
+
+local function estimate_glyph_sdf_descriptor_slots(self, code)
+	if self.chars[code] ~= nil then return 0 end
+
+	local glyph
+
+	for i = 1, #self.Fonts do
+		local font = self.Fonts[i]
+		font:SetSize(self.Size)
+		glyph = font:GetGlyph(code)
+
+		if glyph then break end
+	end
+
+	if not glyph or not glyph.glyph_data or glyph.w <= 0 or glyph.h <= 0 then
+		return 0
+	end
+
+	if not glyph_has_drawable_outline(glyph) then return 0 end
+
+	local spread = self:GetEffectiveSpread()
+	local scale = SUPER_SAMPLING_SCALE
+	local sw = (glyph.w + spread * 2) * scale
+	local sh = (glyph.h + spread * 2) * scale
+	local _, steps = get_next_pow2_and_steps(math.max(sw, sh))
+	return (steps + 4) * 2 + 1
 end
 
 function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local p = self:GetJFAPipelines()
-	local size = Vec2(sw, sh)
 	local max_dim = math.max(sw, sh)
 	local spread = self:GetEffectiveSpread()
-
-	local function get_next_pow2(n)
-		local r = 1
-
-		while r < n do
-			r = r * 2
-		end
-
-		return r
-	end
-
-	local p2 = get_next_pow2(max_dim)
-	local fb_a = get_temp_fb(self, sw, sh, "r32g32_sfloat", false, "nearest")
-	local fb_b = get_temp_fb(self, sw, sh, "r32g32_sfloat", false, "nearest")
-	local fb_dist_on = get_temp_fb(self, sw, sh, "r32_sfloat", false, "linear")
-	local fb_dist_off = get_temp_fb(self, sw, sh, "r32_sfloat", false, "linear")
-	table.insert(temp_fbs, fb_a)
-	table.insert(temp_fbs, fb_b)
-	table.insert(temp_fbs, fb_dist_on)
-	table.insert(temp_fbs, fb_dist_off)
-	-- Set shared properties on relevant pipelines
-	p.init.current_jfa_size = size
-	p.step.current_jfa_size = size
-	p.final.current_jfa_size = size
+	local cmd = assert(render.GetCommandBuffer(), "GenerateSDF requires an active command buffer")
+	local p2 = get_next_pow2_and_steps(max_dim)
+	local tex_a = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
+	local tex_b = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
+	local tex_dist_on = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
+	local tex_dist_off = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
+	table.insert(temp_fbs, tex_a)
+	table.insert(temp_fbs, tex_b)
+	table.insert(temp_fbs, tex_dist_on)
+	table.insert(temp_fbs, tex_dist_off)
 	-- Keep the encoded distance range aligned with the actual glyph padding while
 	-- still leaving a small minimum margin for blur and outline effects.
 	local max_dist = math.max(4, spread) * SUPER_SAMPLING_SCALE
 	p.final.current_jfa_max_dist = max_dist
 	p.combine.current_jfa_max_dist = max_dist
 
-	local function run_jfa(mode, out_fb)
-		p.init.current_jfa_tex = mask_tex
+	local function get_sampler(texture)
+		return texture.sampler or render.CreateSampler(texture:GetSamplerConfig())
+	end
+
+	local function transition_image(texture, src_stage, dst_stage, src_access, dst_access, new_layout)
+		local image = texture:GetImage()
+		local old_layout = image.layout or "undefined"
+
+		if old_layout == new_layout then return end
+
+		cmd:PipelineBarrier{
+			srcStage = src_stage,
+			dstStage = dst_stage,
+			imageBarriers = {
+				{
+					image = image,
+					srcAccessMask = src_access,
+					dstAccessMask = dst_access,
+					oldLayout = old_layout,
+					newLayout = new_layout,
+				},
+			},
+		}
+	end
+
+	local function transition_to_storage(texture)
+		local old_layout = texture:GetImage().layout or "undefined"
+		local src_stage = "top_of_pipe"
+		local src_access = "none"
+
+		if old_layout == "shader_read_only_optimal" then
+			src_stage = "compute"
+			src_access = "shader_read"
+		elseif old_layout == "general" then
+			src_stage = "compute"
+			src_access = "shader_read"
+		end
+
+		transition_image(texture, src_stage, "compute", src_access, "shader_write", "general")
+	end
+
+	local function transition_to_sampled(texture, dst_stage)
+		transition_image(
+			texture,
+			"compute",
+			dst_stage or "compute",
+			"shader_write",
+			"shader_read",
+			"shader_read_only_optimal"
+		)
+	end
+
+	local descriptor_limit = math.min(
+		p.init.pipeline:GetDescriptorSetCount(),
+		p.step.pipeline:GetDescriptorSetCount(),
+		p.final.pipeline:GetDescriptorSetCount(),
+		p.combine.pipeline:GetDescriptorSetCount()
+	)
+
+	if self._jfa_descriptor_slot_cmd ~= cmd then
+		self._jfa_descriptor_slot_cmd = cmd
+		self._jfa_descriptor_slot = 0
+	end
+
+	local function next_descriptor_slot()
+		self._jfa_descriptor_slot = (self._jfa_descriptor_slot or 0) + 1
+
+		if self._jfa_descriptor_slot > descriptor_limit then
+			error(
+				string.format(
+					"sdf compute descriptor set ring exhausted in one command buffer (%d > %d)",
+					self._jfa_descriptor_slot,
+					descriptor_limit
+				),
+				2
+			)
+		end
+
+		return self._jfa_descriptor_slot
+	end
+
+	local function run_jfa(mode, out_tex)
+		local mode_name = mode == 0 and "on" or "off"
 		p.init.current_jfa_mode = mode
-		p.init:Draw(nil, fb_a)
-		local current_fb = fb_a
-		local next_fb = fb_b
+		local slot = next_descriptor_slot()
+		transition_to_storage(tex_a)
+		p.init:UpdateDescriptorSet("storage_image", slot, 0, 0, tex_a:GetView())
+		p.init:UpdateDescriptorSet("combined_image_sampler", slot, 1, 0, mask_tex:GetView(), get_sampler(mask_tex))
+		p.init:DispatchForSize(nil, sw, sh, 1, slot)
+		transition_to_sampled(tex_a)
+		local current_tex = tex_a
+		local next_tex = tex_b
 		local step = p2 / 2
 
 		while step >= 1 do
-			p.step.current_jfa_tex = current_fb.color_texture
-			p.step.current_jfa_step = step
-			p.step:Draw(nil, next_fb)
-			current_fb, next_fb = next_fb, current_fb
+			local step_size = step
+			slot = next_descriptor_slot()
+			p.step.current_jfa_step = step_size
+			transition_to_storage(next_tex)
+			p.step:UpdateDescriptorSet("storage_image", slot, 0, 0, next_tex:GetView())
+			p.step:UpdateDescriptorSet(
+				"combined_image_sampler",
+				slot,
+				1,
+				0,
+				current_tex:GetView(),
+				get_sampler(current_tex)
+			)
+			p.step:DispatchForSize(nil, sw, sh, 1, slot)
+			transition_to_sampled(next_tex)
+			current_tex, next_tex = next_tex, current_tex
 			step = math.floor(step / 2)
 		end
 
 		-- Extra passes at step 1 to fix precision artifacts and "wiggling" spines
 		for i = 1, 2 do
-			p.step.current_jfa_tex = current_fb.color_texture
+			slot = next_descriptor_slot()
 			p.step.current_jfa_step = 1
-			p.step:Draw(nil, next_fb)
-			current_fb, next_fb = next_fb, current_fb
+			transition_to_storage(next_tex)
+			p.step:UpdateDescriptorSet("storage_image", slot, 0, 0, next_tex:GetView())
+			p.step:UpdateDescriptorSet(
+				"combined_image_sampler",
+				slot,
+				1,
+				0,
+				current_tex:GetView(),
+				get_sampler(current_tex)
+			)
+			p.step:DispatchForSize(nil, sw, sh, 1, slot)
+			transition_to_sampled(next_tex)
+			current_tex, next_tex = next_tex, current_tex
 		end
 
-		p.final.current_jfa_tex = current_fb.color_texture
-		p.final:Draw(nil, out_fb)
+		slot = next_descriptor_slot()
+		transition_to_storage(out_tex)
+		p.final:UpdateDescriptorSet("storage_image", slot, 0, 0, out_tex:GetView())
+		p.final:UpdateDescriptorSet(
+			"combined_image_sampler",
+			slot,
+			1,
+			0,
+			current_tex:GetView(),
+			get_sampler(current_tex)
+		)
+		p.final:DispatchForSize(nil, sw, sh, 1, slot)
+		transition_to_sampled(out_tex, "fragment")
 	end
 
-	run_jfa(0, fb_dist_on) -- Distance to ON pixels
-	run_jfa(1, fb_dist_off) -- Distance to OFF pixels
-	local fb_final = get_temp_fb(self, target_w, target_h, self:GetAtlasFormat(), false)
-	table.insert(temp_fbs, fb_final)
-	p.combine.current_jfa_dist_on = fb_dist_on.color_texture
-	p.combine.current_jfa_dist_off = fb_dist_off.color_texture
-	p.combine.current_jfa_mask_tex = mask_tex
-	p.combine:Draw(nil, fb_final)
-	return fb_final.color_texture
+	run_jfa(0, tex_dist_on) -- Distance to ON pixels
+	run_jfa(1, tex_dist_off) -- Distance to OFF pixels
+	local tex_final = get_temp_tex(self, target_w, target_h, self:GetAtlasFormat(), "linear")
+	table.insert(temp_fbs, tex_final)
+	local final_frame_index = next_descriptor_slot()
+	transition_to_storage(tex_final)
+	p.combine:UpdateDescriptorSet("storage_image", final_frame_index, 0, 0, tex_final:GetView())
+	p.combine:UpdateDescriptorSet(
+		"combined_image_sampler",
+		final_frame_index,
+		1,
+		0,
+		tex_dist_on:GetView(),
+		get_sampler(tex_dist_on)
+	)
+	p.combine:UpdateDescriptorSet(
+		"combined_image_sampler",
+		final_frame_index,
+		2,
+		0,
+		tex_dist_off:GetView(),
+		get_sampler(tex_dist_off)
+	)
+	p.combine:UpdateDescriptorSet(
+		"combined_image_sampler",
+		final_frame_index,
+		3,
+		0,
+		mask_tex:GetView(),
+		get_sampler(mask_tex)
+	)
+	p.combine.current_jfa_max_dist = max_dist
+	p.combine:DispatchForSize(nil, target_w, target_h, 1, final_frame_index)
+	transition_to_sampled(tex_final)
+	return tex_final
 end
 
 function META:LoadGlyph(code, temp_fbs)
@@ -519,14 +876,24 @@ function META:LoadGlyph(code, temp_fbs)
 			render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
 		end
 
-		glyph.texture = self:GenerateSDF(
-			fb_ss.color_texture,
-			sw,
-			sh,
-			glyph.w + spread * 2,
-			glyph.h + spread * 2,
-			used_temp_fbs
-		)
+		if glyph_has_drawable_outline(glyph) then
+			glyph.texture = self:GenerateSDF(
+				fb_ss.color_texture,
+				sw,
+				sh,
+				glyph.w + spread * 2,
+				glyph.h + spread * 2,
+				used_temp_fbs
+			)
+		else
+			local fb_final = get_temp_fb(self, glyph.w + spread * 2, glyph.h + spread * 2, format, false)
+			table.insert(used_temp_fbs, fb_final)
+			render.PushCommandBuffer(cmd)
+			fb_final:Begin()
+			fb_final:End()
+			render.PopCommandBuffer()
+			glyph.texture = fb_final.color_texture
+		end
 
 		if own_cmd then
 			local atlas_data = {
@@ -543,7 +910,7 @@ function META:LoadGlyph(code, temp_fbs)
 			render.SubmitAndWait(cmd)
 
 			for _, fb in ipairs(used_temp_fbs) do
-				release_temp_fb(fb)
+				release_temp_resource(fb)
 			end
 
 			self.rebuild = false
@@ -624,6 +991,18 @@ local function batch_load_glyphs(self, str)
 
 	while i <= len do
 		local cc = utf8.uint32(str, i)
+		local slots_needed = estimate_glyph_sdf_descriptor_slots(self, cc)
+		local used_slots = self._jfa_descriptor_slot_cmd == cmd and (self._jfa_descriptor_slot or 0) or 0
+
+		if slots_needed > 0 and used_slots + slots_needed > JFA_DESCRIPTOR_SET_COUNT then
+			render.PopCommandBuffer()
+			cmd:End()
+			render.SubmitAndWait(cmd)
+			cmd = render.GetCommandPool():AllocateCommandBuffer()
+			cmd:Begin()
+			render.PushCommandBuffer(cmd)
+		end
+
 		self:LoadGlyph(cc, temp_fbs)
 		i = i + utf8.byte_length(str, i)
 	end
@@ -635,7 +1014,7 @@ local function batch_load_glyphs(self, str)
 	self.rebuild = false
 
 	for _, fb in ipairs(temp_fbs) do
-		release_temp_fb(fb)
+		release_temp_resource(fb)
 	end
 end
 
@@ -767,7 +1146,6 @@ function META:GetTextSizeNotCached(str)
 	if not self:IsReady() then return 0, 0 end
 
 	str = tostring(str)
-	batch_load_glyphs(self, str)
 	local X, Y = 0, self:GetAscent()
 	local max_x = 0
 	local spacing = self.Spacing
@@ -791,7 +1169,7 @@ function META:GetTextSizeNotCached(str)
 		elseif char_code == 32 then -- space
 			X = X + half_size
 		elseif char_code == 9 then -- \t
-			local data = chars[32] or self:GetChar(32)
+			local data = chars[32] or get_metric_char(self, 32)
 
 			if data then
 				if monospace then
@@ -803,7 +1181,7 @@ function META:GetTextSizeNotCached(str)
 				X = X + self.Size * tab_mult
 			end
 		else
-			local data = chars[char_code]
+			local data = chars[char_code] or get_metric_char(self, char_code)
 
 			if data then
 				if monospace then
