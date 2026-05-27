@@ -1702,12 +1702,14 @@ do
 		end
 	end
 
-	function Texture:Download()
+	function Texture:Download(config)
+		config = config or {}
 		local image = assert(self:GetImage(), "Cannot download: texture has no image")
 		local width = assert(image:GetWidth(), "Cannot download: texture has no width")
 		local height = assert(image:GetHeight(), "Cannot download: texture has no height")
 		local format = self.format
 		local bytes_per_pixel = get_bytes_per_pixel(format)
+		local base_array_layer = math.max(math.floor(config.base_array_layer or 0), 0)
 
 		if width == 0 or height == 0 then
 			error(
@@ -1745,26 +1747,18 @@ do
 			}
 		end
 
-		vulkan.lib.vkCmdCopyImageToBuffer(
-			copy_cmd.ptr[0],
-			image.ptr[0],
-			vulkan.vk.e.VkImageLayout("transfer_src_optimal"),
-			staging_buffer.ptr[0],
-			1,
-			vulkan.vk.VkBufferImageCopy{
-				bufferOffset = 0,
-				bufferRowLength = 0,
-				bufferImageHeight = 0,
-				imageSubresource = vulkan.vk.s.ImageSubresourceLayers{
-					aspectMask = (image.format and image.format:match("^d")) and "depth" or "color",
-					mipLevel = 0,
-					baseArrayLayer = 0,
-					layerCount = 1,
-				},
-				imageOffset = vulkan.vk.VkOffset3D{x = 0, y = 0, z = 0},
-				imageExtent = vulkan.vk.VkExtent3D{width = width, height = height, depth = 1},
-			}
-		)
+		copy_cmd:CopyImageToBuffer{
+			image = image,
+			image_layout = "transfer_src_optimal",
+			buffer = staging_buffer,
+			aspect_mask = (image.format and image.format:match("^d")) and "depth" or "color",
+			mip_level = 0,
+			base_array_layer = base_array_layer,
+			layer_count = 1,
+			width = width,
+			height = height,
+			depth = 1,
+		}
 
 		if old_layout ~= "transfer_src_optimal" then
 			copy_cmd:PipelineBarrier{
@@ -1795,6 +1789,7 @@ do
 			width = width,
 			height = height,
 			format = format,
+			base_array_layer = base_array_layer,
 			bytes_per_pixel = bytes_per_pixel,
 			size = width * height * bytes_per_pixel,
 		}

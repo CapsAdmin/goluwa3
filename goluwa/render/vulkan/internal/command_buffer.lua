@@ -1012,7 +1012,7 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 	end
 
 	if vulkan.ext.vkCmdSetColorBlendEnableEXT then
-		vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
+	vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
 	end
 end
 
@@ -1434,29 +1434,58 @@ function CommandBuffer:PipelineBarrier(config)
 end
 
 function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height, srcX, srcY, dstX, dstY)
+	local config
+
+	if type(srcImage) == "table" and dstImage == nil then
+		config = srcImage
+	else
+		config = {
+			src_image = srcImage,
+			dst_image = dstImage,
+			width = width,
+			height = height,
+			src_x = srcX,
+			src_y = srcY,
+			dst_x = dstX,
+			dst_y = dstY,
+		}
+	end
+
 	local region = vulkan.vk.VkImageCopy{
 		srcSubresource = vulkan.vk.s.ImageSubresourceLayers{
-			aspectMask = "color",
-			mipLevel = 0,
-			baseArrayLayer = 0,
-			layerCount = 1,
+			aspectMask = config.aspect_mask or "color",
+			mipLevel = config.src_mip_level or 0,
+			baseArrayLayer = config.src_base_array_layer or 0,
+			layerCount = config.src_layer_count or config.layer_count or 1,
 		},
-		srcOffset = vulkan.vk.VkOffset3D{x = srcX or 0, y = srcY or 0, z = 0},
+		srcOffset = vulkan.vk.VkOffset3D{
+			x = config.src_x or 0,
+			y = config.src_y or 0,
+			z = config.src_z or 0,
+		},
 		dstSubresource = vulkan.vk.s.ImageSubresourceLayers{
-			aspectMask = "color",
-			mipLevel = 0,
-			baseArrayLayer = 0,
-			layerCount = 1,
+			aspectMask = config.aspect_mask or "color",
+			mipLevel = config.dst_mip_level or 0,
+			baseArrayLayer = config.dst_base_array_layer or 0,
+			layerCount = config.dst_layer_count or config.layer_count or 1,
 		},
-		dstOffset = vulkan.vk.VkOffset3D{x = dstX or 0, y = dstY or 0, z = 0},
-		extent = vulkan.vk.VkExtent3D{width = width, height = height, depth = 1},
+		dstOffset = vulkan.vk.VkOffset3D{
+			x = config.dst_x or 0,
+			y = config.dst_y or 0,
+			z = config.dst_z or 0,
+		},
+		extent = vulkan.vk.VkExtent3D{
+			width = config.width,
+			height = config.height,
+			depth = config.depth or 1,
+		},
 	}
 	vulkan.lib.vkCmdCopyImage(
 		self.ptr[0],
-		srcImage.ptr ~= nil and srcImage.ptr[0] or srcImage,
-		vulkan.vk.e.VkImageLayout("transfer_src_optimal"),
-		dstImage.ptr ~= nil and dstImage.ptr[0] or dstImage,
-		vulkan.vk.e.VkImageLayout("transfer_dst_optimal"),
+		config.src_image.ptr ~= nil and config.src_image.ptr[0] or config.src_image,
+		vulkan.vk.e.VkImageLayout(config.src_layout or "transfer_src_optimal"),
+		config.dst_image.ptr ~= nil and config.dst_image.ptr[0] or config.dst_image,
+		vulkan.vk.e.VkImageLayout(config.dst_layout or "transfer_dst_optimal"),
 		1,
 		region
 	)
