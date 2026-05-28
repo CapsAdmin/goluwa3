@@ -24,16 +24,26 @@ function DescriptorSetLayout.New(device, bindings)
 		bindingArray[i - 1].stageFlags = vulkan.vk.e.VkShaderStageFlagBits(b.stageFlags)
 		bindingArray[i - 1].pImmutableSamplers = nil
 
-		-- For bindless (large arrays), set flags for dynamic updates
-		-- But ONLY if there are no dynamic buffers, as required by Vulkan spec VUID-VkDescriptorSetLayoutCreateInfo-descriptorType-03001
+		local binding_flags = 0
+
+		-- For bindless (large arrays), set flags for dynamic updates.
+		-- But ONLY if there are no dynamic buffers, as required by Vulkan spec VUID-VkDescriptorSetLayoutCreateInfo-descriptorType-03001.
 		if (b.count or 1) > 1 and not has_dynamic_buffer then
-			bindingFlagsArray[i - 1] = bit.bor(
+			binding_flags = bit.bor(
+				binding_flags,
 				vulkan.vk.VkDescriptorBindingFlagBits.VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
 				vulkan.vk.VkDescriptorBindingFlagBits.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
 			)
-		else
-			bindingFlagsArray[i - 1] = 0
 		end
+
+		if b.update_after_bind and not has_dynamic_buffer then
+			binding_flags = bit.bor(
+				binding_flags,
+				vulkan.vk.VkDescriptorBindingFlagBits.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
+			)
+		end
+
+		bindingFlagsArray[i - 1] = binding_flags
 	end -- Add binding flags for descriptor indexing
 	local ptr = vulkan.T.Box(vulkan.vk.VkDescriptorSetLayout)()
 	local flags = has_dynamic_buffer and 0 or {"update_after_bind_pool"}

@@ -124,6 +124,39 @@ local function get_checkerboard_texture()
 	return checkerboard_texture
 end
 
+local function get_voxel_gi_tile_texture()
+	if not render3d.pipelines or not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
+		return nil
+	end
+
+	local current_idx = system.GetFrameNumber() % 2 + 1
+	local framebuffer = render3d.pipelines.lighting:GetFramebuffer(current_idx)
+	return framebuffer and framebuffer:GetAttachment(2) or nil
+end
+
+local function draw_debug_tile(x, y, size, texture, label, swizzle_mode)
+	if not texture then return false end
+
+	render2d.PushUV()
+	render2d.SetUV2(0, 0, size / 32, size / 32)
+	render2d.SetTexture(get_checkerboard_texture())
+	render2d.DrawRect(x, y, size, size)
+	render2d.PopUV()
+	render2d.PushUV()
+	render2d.SetUV2(0, 1, 1, 0)
+	render2d.SetTexture(texture)
+	render2d.PushSwizzleMode(swizzle_mode or 0)
+	render2d.DrawRect(x, y, size, size)
+	render2d.PopSwizzleMode()
+	render2d.PopUV()
+	render2d.SetTexture(nil)
+	render2d.SetColor(0, 0, 0, 0.5)
+	render2d.DrawRect(x, y, 150, 20)
+	render2d.SetColor(1, 1, 1, 1)
+	fonts.GetFont():DrawText(label, x + 5, y + 5)
+	return true
+end
+
 event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	if not render3d.pipelines then return end
 
@@ -196,25 +229,18 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	-- Draw color textures
 	for i, view in ipairs(render3d.pipelines.gbuffer:GetDebugViews()) do
 		local tex = render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(view.attachment_index)
-		-- Draw checkerboard background
-		render2d.PushUV()
-		render2d.SetUV2(0, 0, size / 32, size / 32)
-		render2d.SetTexture(get_checkerboard_texture())
-		render2d.DrawRect(x, y, size, size)
-		render2d.PopUV()
-		render2d.PushUV()
-		render2d.SetUV2(0, 1, 1, 0)
-		render2d.SetTexture(tex)
-		render2d.PushSwizzleMode(swizzle_to_mode[view.swizzle] or 0)
-		render2d.DrawRect(x, y, size, size)
-		render2d.PopSwizzleMode()
-		render2d.PopUV()
-		-- Draw label
-		render2d.SetTexture(nil)
-		render2d.SetColor(0, 0, 0, 0.5)
-		render2d.DrawRect(x, y, 150, 20)
-		render2d.SetColor(1, 1, 1, 1)
-		fonts.GetFont():DrawText(format_view_name(view.name), x + 5, y + 5)
+		draw_debug_tile(x, y, size, tex, format_view_name(view.name), swizzle_to_mode[view.swizzle] or 0)
+		x = x + size
+
+		if x + size > wnd_size.x then
+			x = 0
+			y = y + size
+		end
+	end
+
+	local voxel_gi_tex = get_voxel_gi_tile_texture()
+
+	if draw_debug_tile(x, y, size, voxel_gi_tex, "Voxel GI", 0) then
 		x = x + size
 
 		if x + size > wnd_size.x then
@@ -225,23 +251,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 
 	-- Draw depth texture
 	if render3d.pipelines.gbuffer:GetFramebuffer().depth_texture then
-		-- Draw checkerboard background
-		render2d.PushUV()
-		render2d.SetUV2(0, 0, size / 32, size / 32)
-		render2d.SetTexture(get_checkerboard_texture())
-		render2d.DrawRect(x, y, size, size)
-		render2d.PopUV()
-		render2d.PushUV()
-		render2d.SetUV2(0, 1, 1, 0)
-		render2d.SetTexture(render3d.pipelines.gbuffer:GetFramebuffer().depth_texture)
-		render2d.DrawRect(x, y, size, size)
-		render2d.PopUV()
-		-- Draw label
-		render2d.SetTexture(nil)
-		render2d.SetColor(0, 0, 0, 0.5)
-		render2d.DrawRect(x, y, 100, 20)
-		render2d.SetColor(1, 1, 1, 1)
-		fonts.GetFont():DrawText("Depth", x + 5, y + 5)
+		draw_debug_tile(x, y, size, render3d.pipelines.gbuffer:GetFramebuffer().depth_texture, "Depth", 0)
 	end
 end)
 
@@ -250,6 +260,7 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 
 	if key == "g" then
 		show_gbuffer = not show_gbuffer
+
 		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
 	elseif key == "f" then
 		local views = get_fullscreen_views()

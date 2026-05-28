@@ -1708,12 +1708,14 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 				if layout_map[binding_index] then
 					layout_map[binding_index].stageFlags = bit.bor(layout_map[binding_index].stageFlags, tonumber(ffi.cast("uint32_t", stage_bits)))
+					layout_map[binding_index].update_after_bind = layout_map[binding_index].update_after_bind or ds.update_after_bind or false
 				else
 					layout_map[binding_index] = {
 						binding_index = binding_index,
 						type = ds.type,
 						stageFlags = stage_bits,
 						count = ds.count or 1,
+						update_after_bind = ds.update_after_bind or false,
 					}
 					pool_size_map[ds.type] = (pool_size_map[ds.type] or 0) + (ds.count or 1)
 
@@ -1953,7 +1955,13 @@ function GraphicsPipeline.New(vulkan_instance, config)
 			if stage.descriptor_sets then
 				for i, ds in ipairs(stage.descriptor_sets) do
 					if ds.args then
-						self:UpdateDescriptorSet(ds.type, frame_index, ds.binding_index, ds.set_index or 0, unpack(ds.args))
+						local args = ds.args
+
+						if type(args) == "function" then args = args() end
+
+						if type(args) ~= "table" then args = {args} end
+
+						self:UpdateDescriptorSet(ds.type, frame_index, ds.binding_index, ds.set_index or 0, unpack(args))
 					end
 				end
 			end

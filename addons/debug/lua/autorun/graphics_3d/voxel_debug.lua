@@ -17,6 +17,8 @@ local current_debug_render_clipmap_index = 1
 local current_debug_exclusion_bounds = nil
 local voxel_dump_watch_enabled = false
 local voxel_dump_watch_last_signature = nil
+local current_debug_volume_kind = "scene"
+local DEBUG_VOLUME_KINDS = {"scene", "normals"}
 local get_command_clipmap_index
 local debug_pipeline_state = {
 	clipmap_index = 0,
@@ -29,9 +31,40 @@ local debug_pipeline_state = {
 	exclude_max = Vec3(0, 0, 0),
 	volume_valid = 0,
 	max_steps = 1,
+	view_mode = 0,
 	occupancy_threshold = 0.01,
-	overlay_alpha = 0.78,
+	overlay_alpha = 1,
 }
+
+local function get_debug_volume_kind_label()
+	if current_debug_volume_kind == "normals" then return "normals" end
+	return "scene"
+end
+
+local function get_debug_volume_kind_mode()
+	if current_debug_volume_kind == "normals" then return 1 end
+	return 0
+end
+
+local function get_debug_volume_origin(voxelizer, clipmap)
+	if not clipmap then return Vec3(0, 0, 0) end
+	if voxelizer and voxelizer.GetClipmapLightingOrigin then
+		return voxelizer.GetClipmapLightingOrigin(clipmap.index) or clipmap.origin
+	end
+
+	return clipmap.origin
+end
+
+local function cycle_debug_volume_kind()
+	for i, kind in ipairs(DEBUG_VOLUME_KINDS) do
+		if kind == current_debug_volume_kind then
+			current_debug_volume_kind = DEBUG_VOLUME_KINDS[(i % #DEBUG_VOLUME_KINDS) + 1]
+			return
+		end
+	end
+
+	current_debug_volume_kind = DEBUG_VOLUME_KINDS[1]
+end
 
 local function is_shift_down()
 	return input.IsKeyDown("left_shift") or
@@ -40,7 +73,9 @@ local function is_shift_down()
 end
 
 local function is_control_down()
-	return input.IsKeyDown("left_control") or
+	return 
+		input.IsKeyDown("left_control") or
+		input.IsKeyDown("left_super") or
 		input.IsKeyDown("right_control") or
 		input.IsKeyDown("control")
 end
@@ -69,6 +104,17 @@ local function format_pending_range(range)
 	)
 end
 
+local function format_axis_counts(values)
+	if not values then return "x=0 y=0 z=0" end
+
+	return string.format(
+		"x=%d y=%d z=%d",
+		values.x or 0,
+		values.y or 0,
+		values.z or 0
+	)
+end
+
 local function dump_voxel_debug_state(index)
 	local voxelizer = get_voxelizer()
 
@@ -90,14 +136,38 @@ local function dump_voxel_debug_state(index)
 	print("  latest origin " .. format_vec3(info.latest_origin) .. " stride=" .. string.format("%.3f", info.snap_stride or 0))
 	print("  active origin " .. format_vec3(info.origin) .. " offset_voxels=" .. format_vec3(info.active_to_latest_voxels))
 	print("  build origin  " .. format_vec3(info.build_origin) .. " offset_voxels=" .. format_vec3(info.build_to_latest_voxels))
+	print(
+		"  sampled       " .. tostring(info.sampled_source or "active") ..
+			" origin=" .. format_vec3(info.sampled_origin) ..
+			" offset_voxels=" .. format_vec3(info.sampled_to_latest_voxels)
+	)
+	print(
+		"  targets       active=" .. tostring(info.active_target_id or "nil") ..
+			" v=" .. tostring(info.active_content_version or 0) ..
+			" build=" .. tostring(info.build_target_id or "nil") ..
+			" v=" .. tostring(info.build_content_version or 0) ..
+			" sampled=" .. tostring(info.sampled_target_id or "nil") ..
+			" v=" .. tostring(info.sampled_content_version or 0)
+	)
+	print(
+		"  handoff       mode=" .. tostring(info.last_handoff_mode or "none") ..
+			" origin=" .. format_vec3(info.last_handoff_origin or Vec3(0, 0, 0)) ..
+			" active_v=" .. tostring(info.last_handoff_active_version or 0) ..
+			" build_v=" .. tostring(info.last_handoff_build_version or 0) ..
+			" rescheduled=" .. tostring(info.last_handoff_rescheduled)
+	)
 	print("  delta voxels  " .. format_vec3(info.delta))
 	print(
 		"  flags         dirty=" .. tostring(info.dirty) ..
 			" full=" .. tostring(info.full_rebuild) ..
 			" building=" .. tostring(info.building_into_scroll) ..
+			" scroll_ready=" .. tostring(info.build_scroll_ready) ..
 			" valid=" .. tostring(info.has_valid_data) ..
-			" pending_clear=" .. tostring(info.pending_clear)
+			" pending_clear=" .. tostring(info.pending_clear) ..
+			" pending_scroll=" .. tostring(info.pending_scroll)
 	)
+	print("  dirty slabs   " .. format_axis_counts(info.dirty_slabs) .. "  budget=" .. tostring(info.build_slice_budget or 0))
+	print("  pending count " .. format_axis_counts(info.pending_counts))
 	print("  pending x     " .. format_pending_range(info.pending_ranges and info.pending_ranges.x or nil))
 	print("  pending y     " .. format_pending_range(info.pending_ranges and info.pending_ranges.y or nil))
 	print("  pending z     " .. format_pending_range(info.pending_ranges and info.pending_ranges.z or nil))
@@ -201,18 +271,17 @@ local function get_selected_clipmap_data(index_override)
 	if not clipmap_index or clipmap_index < 1 or clipmap_index > count then return voxelizer, nil, nil end
 
 	local clipmap = voxelizer.GetClipmap(clipmap_index)
-	local resources = clipmap and clipmap.resources
 	local axis_targets = nil
 
-	if resources then
-		if clipmap and clipmap.building_into_scroll and voxelizer.GetClipmapBuildAxisTarget then
+	if clipmap then
+		if voxelizer.GetClipmapLightingAxisTarget then
 			axis_targets = {
-				x = voxelizer.GetClipmapBuildAxisTarget(clipmap_index, "x"),
-				y = voxelizer.GetClipmapBuildAxisTarget(clipmap_index, "y"),
-				z = voxelizer.GetClipmapBuildAxisTarget(clipmap_index, "z"),
+				x = voxelizer.GetClipmapLightingAxisTarget(clipmap_index, "x"),
+				y = voxelizer.GetClipmapLightingAxisTarget(clipmap_index, "y"),
+				z = voxelizer.GetClipmapLightingAxisTarget(clipmap_index, "z"),
 			}
-		else
-			axis_targets = resources.axis_targets
+		elseif clipmap.resources then
+			axis_targets = clipmap.resources.axis_targets
 		end
 	end
 
@@ -272,7 +341,7 @@ end
 
 local function get_voxel_debug_target_signature(clipmap_index)
 	local _, resolved_index, _, axis_targets = get_selected_clipmap_data(clipmap_index)
-	local parts = {tostring(resolved_index or 0)}
+	local parts = {get_debug_volume_kind_label(), tostring(resolved_index or 0)}
 
 	for _, axis_name in ipairs({"x", "y", "z"}) do
 		local target = axis_targets and axis_targets[axis_name] or nil
@@ -319,7 +388,8 @@ local function update_pipeline_state()
 	debug_pipeline_state.world_span = math.max(clipmap.world_span or debug_pipeline_state.voxel_size, debug_pipeline_state.voxel_size)
 	debug_pipeline_state.max_steps = math.max(math.floor(debug_pipeline_state.resolution * 4), 1)
 	debug_pipeline_state.volume_valid = 1
-	local debug_origin = clipmap.building_into_scroll and clipmap.build_origin or clipmap.origin
+	debug_pipeline_state.view_mode = get_debug_volume_kind_mode()
+	local debug_origin = get_debug_volume_origin(voxelizer, clipmap)
 	debug_pipeline_state.clipmap_origin.x = debug_origin.x
 	debug_pipeline_state.clipmap_origin.y = debug_origin.y
 	debug_pipeline_state.clipmap_origin.z = debug_origin.z
@@ -341,12 +411,13 @@ local function draw_stats_block(voxelizer, x, y)
 	local debug_state = voxelizer and voxelizer.GetDebugState and voxelizer.GetDebugState() or nil
 	local stats = debug_state and debug_state.frame_stats or nil
 	local clipmap_info = voxelizer and voxelizer.GetClipmapDebugInfo and voxelizer.GetClipmapDebugInfo(get_command_clipmap_index()) or nil
+	local block_height = clipmap_info and 260 or 132
 
 	if not stats then return end
 
 	render2d.SetTexture(nil)
 	render2d.SetColor(0, 0, 0, 0.55)
-	gfx.DrawRoundedRect(x, y, 356, clipmap_info and 170 or 132, 6)
+	gfx.DrawRoundedRect(x, y, 356, block_height, 6)
 	render2d.SetColor(1, 1, 1, 1)
 	fonts.SetFont(fonts.GetDefaultFont())
 	fonts.GetFont():DrawText(string.format("Voxel clipmaps: %d", debug_state.clipmap_count or 0), x + 8, y + 8)
@@ -380,20 +451,65 @@ local function draw_stats_block(voxelizer, x, y)
 		y + 68
 	)
 	fonts.GetFont():DrawText("Clipmap focus: " .. get_display_clipmap_label(voxelizer), x + 8, y + 88)
-	fonts.GetFont():DrawText("View: perspective voxel raymarch", x + 8, y + 108)
+	fonts.GetFont():DrawText("View: " .. get_debug_volume_kind_label() .. " perspective voxel raymarch", x + 8, y + 108)
 
 	if clipmap_info then
-		local status = clipmap_info.building_into_scroll and "Showing in-progress build volume" or "Showing current active volume"
+		local status = clipmap_info.build_scroll_ready and
+			"Build in progress; showing scrolled build volume" or
+			(clipmap_info.building_into_scroll and
+				"Build in progress; showing committed active volume" or
+				"Showing committed active volume")
 		local lag = clipmap_info.active_to_latest_voxels or Vec3(0, 0, 0)
+		local build_lag = clipmap_info.build_to_latest_voxels or Vec3(0, 0, 0)
+		local sampled_lag = clipmap_info.sampled_to_latest_voxels or Vec3(0, 0, 0)
 		fonts.GetFont():DrawText(status, x + 8, y + 124)
 		fonts.GetFont():DrawText(
 			string.format("Active lag voxels: (%.0f, %.0f, %.0f)", lag.x or 0, lag.y or 0, lag.z or 0),
 			x + 8,
 			y + 142
 		)
+		fonts.GetFont():DrawText(
+			string.format("Build lag voxels:  (%.0f, %.0f, %.0f)", build_lag.x or 0, build_lag.y or 0, build_lag.z or 0),
+			x + 8,
+			y + 160
+		)
+		fonts.GetFont():DrawText(
+			string.format(
+				"Sampled: %s lag=(%.0f, %.0f, %.0f)",
+				tostring(clipmap_info.sampled_source or "active"),
+				sampled_lag.x or 0,
+				sampled_lag.y or 0,
+				sampled_lag.z or 0
+			),
+			x + 8,
+			y + 178
+		)
+		fonts.GetFont():DrawText(
+			string.format(
+				"Dirty slabs: x=%d y=%d z=%d  Pending: x=%d y=%d z=%d",
+				clipmap_info.dirty_slabs and clipmap_info.dirty_slabs.x or 0,
+				clipmap_info.dirty_slabs and clipmap_info.dirty_slabs.y or 0,
+				clipmap_info.dirty_slabs and clipmap_info.dirty_slabs.z or 0,
+				clipmap_info.pending_counts and clipmap_info.pending_counts.x or 0,
+				clipmap_info.pending_counts and clipmap_info.pending_counts.y or 0,
+				clipmap_info.pending_counts and clipmap_info.pending_counts.z or 0
+			),
+			x + 8,
+			y + 196
+		)
+		fonts.GetFont():DrawText(
+			string.format(
+				"Budget: %d  Flags: scroll_ready=%s pending_scroll=%s",
+				clipmap_info.build_slice_budget or 0,
+				tostring(clipmap_info.build_scroll_ready),
+				tostring(clipmap_info.pending_scroll)
+			),
+			x + 8,
+			y + 214
+		)
 	end
 
-	fonts.GetFont():DrawText("F3: toggle  Shift+F3: all/clipmap", x + 8, y + (clipmap_info and 156 or 124))
+	fonts.GetFont():DrawText("F3: toggle  Shift+F3: all/clipmap  Ctrl+F3: scene/normals", x + 8, y + (clipmap_info and 232 or 124))
 end
 
 local function ensure_voxel_debug_pipeline(clipmap_index)
@@ -442,6 +558,7 @@ local function ensure_voxel_debug_pipeline(clipmap_index)
 						{"voxel_size", "float"},
 						{"world_span", "float"},
 						{"max_steps", "int"},
+						{"view_mode", "int"},
 						{"occupancy_threshold", "float"},
 						{"overlay_alpha", "float"},
 					},
@@ -458,6 +575,7 @@ local function ensure_voxel_debug_pipeline(clipmap_index)
 						block.voxel_size = debug_pipeline_state.voxel_size
 						block.world_span = debug_pipeline_state.world_span
 						block.max_steps = debug_pipeline_state.max_steps
+						block.view_mode = debug_pipeline_state.view_mode
 						block.occupancy_threshold = debug_pipeline_state.occupancy_threshold
 						block.overlay_alpha = debug_pipeline_state.overlay_alpha
 						return block
@@ -537,6 +655,56 @@ local function ensure_voxel_debug_pipeline(clipmap_index)
 				return vec4(color, occupancy);
 			}
 
+			vec4 sample_voxel_neighborhood(ivec3 voxel) {
+				vec3 accum = vec3(0.0);
+				float total_weight = 0.0;
+				float occupied_weight = 0.0;
+
+				for (int z = -1; z <= 1; z++) {
+					for (int y = -1; y <= 1; y++) {
+						for (int x = -1; x <= 1; x++) {
+							ivec3 coord = voxel + ivec3(x, y, z);
+
+							if (!voxel_in_bounds(coord)) continue;
+
+							vec4 sample_color = sample_voxel_axes(coord);
+
+							if (sample_color.a < voxel_debug_data.occupancy_threshold) continue;
+
+							float distance2 = float(x * x + y * y + z * z);
+							float weight = 1.0 / (1.0 + distance2);
+							accum += sample_color.rgb * weight;
+							total_weight += weight;
+							occupied_weight += weight;
+						}
+					}
+				}
+
+				if (total_weight <= 0.0) return vec4(0.0);
+
+				return vec4(accum / total_weight, occupied_weight > 0.0 ? 1.0 : 0.0);
+			}
+
+			float get_voxel_occupancy(ivec3 voxel) {
+				if (!voxel_in_bounds(voxel)) return 0.0;
+				return sample_voxel_axes(voxel).a;
+			}
+
+			vec3 estimate_voxel_normal(ivec3 voxel) {
+				float x0 = get_voxel_occupancy(voxel - ivec3(1, 0, 0));
+				float x1 = get_voxel_occupancy(voxel + ivec3(1, 0, 0));
+				float y0 = get_voxel_occupancy(voxel - ivec3(0, 1, 0));
+				float y1 = get_voxel_occupancy(voxel + ivec3(0, 1, 0));
+				float z0 = get_voxel_occupancy(voxel - ivec3(0, 0, 1));
+				float z1 = get_voxel_occupancy(voxel + ivec3(0, 0, 1));
+				vec3 gradient = vec3(x1 - x0, y1 - y0, z1 - z0);
+				float len2 = dot(gradient, gradient);
+
+				if (len2 <= 1e-6) return vec3(0.0, 1.0, 0.0);
+
+				return normalize(-gradient);
+			}
+
 			void main() {
 				if (voxel_debug_data.volume_valid == 0) {
 					frag_color = vec4(0.0);
@@ -596,10 +764,15 @@ local function ensure_voxel_debug_pipeline(clipmap_index)
 					}
 
 					if (voxel_in_bounds(voxel)) {
-						vec4 sample_color = sample_voxel_axes(voxel);
+						vec4 sample_color = sample_voxel_neighborhood(voxel);
 
 						if (sample_color.a >= voxel_debug_data.occupancy_threshold) {
-							frag_color = vec4(sample_color.rgb, voxel_debug_data.overlay_alpha);
+							if (voxel_debug_data.view_mode == 1) {
+								vec3 normal = estimate_voxel_normal(voxel);
+								frag_color = vec4(normal * 0.5 + 0.5, voxel_debug_data.overlay_alpha);
+							} else {
+								frag_color = vec4(sample_color.rgb, voxel_debug_data.overlay_alpha);
+							}
 							return;
 						}
 					}
@@ -650,7 +823,7 @@ local function get_debug_clipmap_exclusion_bounds(voxelizer, clipmap_index)
 
 	if not finer then return nil end
 
-	local finer_origin = finer.building_into_scroll and finer.build_origin or finer.origin
+	local finer_origin = get_debug_volume_origin(voxelizer, finer)
 	local finer_half_span = (finer.world_span or 0) * 0.5
 	return {
 		min_x = finer_origin.x - finer_half_span,
@@ -724,7 +897,7 @@ event.AddListener("Draw2D", "debug_voxel_targets", function(cmd, dt)
 	gfx.DrawRoundedRect(10, 10, 332, 74, 6)
 	render2d.SetColor(1, 1, 1, 1)
 	fonts.SetFont(fonts.GetDefaultFont())
-	fonts.GetFont():DrawText("Voxel debug clipmap " .. get_display_clipmap_label(voxelizer), 18, 18)
+	fonts.GetFont():DrawText("Voxel debug " .. get_debug_volume_kind_label() .. " clipmap " .. get_display_clipmap_label(voxelizer), 18, 18)
 	fonts.GetFont():DrawText(
 		string.format(
 			"Resolution %d  Voxel %.3f  Span %.3f",
@@ -750,6 +923,13 @@ end)
 
 event.AddListener("KeyInput", "debug_voxel_targets_toggle", function(key, press)
 	if not press or key ~= "f3" then return end
+
+	if is_control_down() then
+		cycle_debug_volume_kind()
+		invalidate_voxel_debug_pipeline()
+		print("Voxel debug volume: " .. get_debug_volume_kind_label())
+		return
+	end
 
 	if is_shift_down() then
 		local voxelizer = get_voxelizer()

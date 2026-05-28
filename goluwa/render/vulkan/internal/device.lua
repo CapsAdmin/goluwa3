@@ -661,11 +661,9 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		if type == "storage_image" then
 			local imageView = assert(...)
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
-			info[0] = vulkan.vk.s.DescriptorImageInfo{
-				sampler = nil,
-				imageView = view_handle,
-				imageLayout = "general",
-			}
+			info[0].sampler = nil
+			info[0].imageView = view_handle
+			info[0].imageLayout = vulkan.vk.e.VkImageLayout("general")
 		else -- combined_image_sampler
 			local imageView, sampler, fallback_view, fallback_sampler = ...
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
@@ -689,11 +687,9 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 					)
 			end
 
-			info[0] = vulkan.vk.s.DescriptorImageInfo{
-				sampler = sampler_handle,
-				imageView = view_handle,
-				imageLayout = "shader_read_only_optimal",
-			}
+			info[0].sampler = sampler_handle
+			info[0].imageView = view_handle
+			info[0].imageLayout = vulkan.vk.e.VkImageLayout("shader_read_only_optimal")
 		end
 
 		descriptor_info = info
@@ -702,16 +698,16 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		error("unsupported descriptor type: " .. tostring(type))
 	end
 
-	local descriptorWrite = vulkan.vk.s.WriteDescriptorSet{
-		dstSet = descriptorSet.ptr[0],
-		dstBinding = binding_index,
-		dstArrayElement = 0,
-		descriptorType = type,
-		descriptorCount = 1,
-		pBufferInfo = pBufferInfo,
-		pImageInfo = pImageInfo,
-	}
-	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)
+	local descriptorWrites = vulkan.T.Array(vulkan.vk.VkWriteDescriptorSet)(1)
+	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
+	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
+	descriptorWrites[0].dstBinding = binding_index
+	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType(type)
+	descriptorWrites[0].descriptorCount = 1
+	descriptorWrites[0].pBufferInfo = pBufferInfo
+	descriptorWrites[0].pImageInfo = pImageInfo
+	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
 end
 
 function Device:UpdateDescriptorSetArray(
@@ -730,7 +726,6 @@ function Device:UpdateDescriptorSetArray(
 	-- Create array of VkDescriptorImageInfo
 	-- Note: Luajit VLAs (via ffi.new("Type[?]", count)) are NOT zero-initialized
 	local imageInfoArray = vulkan.T.Array(vulkan.vk.VkDescriptorImageInfo)(count)
-	ffi.fill(imageInfoArray, ffi.sizeof(imageInfoArray), 0)
 	local fallback_view_handle = fallback_view and fallback_view.ptr and fallback_view.ptr[0]
 	local fallback_sampler_handle = fallback_sampler and fallback_sampler.ptr and fallback_sampler.ptr[0]
 
@@ -762,22 +757,20 @@ function Device:UpdateDescriptorSetArray(
 			sampler_handle = sampler_handle or fallback_sampler_handle
 		end
 
-		imageInfoArray[i - 1] = vulkan.vk.s.DescriptorImageInfo{
-			sampler = sampler_handle,
-			imageView = view_handle,
-			imageLayout = "shader_read_only_optimal",
-		}
+		imageInfoArray[i - 1].sampler = sampler_handle
+		imageInfoArray[i - 1].imageView = view_handle
+		imageInfoArray[i - 1].imageLayout = vulkan.vk.e.VkImageLayout("shader_read_only_optimal")
 	end
 
-	local descriptorWrite = vulkan.vk.s.WriteDescriptorSet{
-		dstSet = descriptorSet.ptr[0],
-		dstBinding = binding_index,
-		dstArrayElement = 0,
-		descriptorType = "combined_image_sampler",
-		descriptorCount = count,
-		pImageInfo = imageInfoArray,
-	}
-	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)
+	local descriptorWrites = vulkan.T.Array(vulkan.vk.VkWriteDescriptorSet)(1)
+	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
+	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
+	descriptorWrites[0].dstBinding = binding_index
+	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("combined_image_sampler")
+	descriptorWrites[0].descriptorCount = count
+	descriptorWrites[0].pImageInfo = imageInfoArray
+	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
 end
 
 function Device:GetImageMemoryRequirements(image)

@@ -28,7 +28,7 @@ function directional_shadows.GetPrimarySunIntensity(lights)
 	lights = lights or render3d.GetLights()
 	local sun = directional_shadows.GetPrimarySun(lights)
 
-	if sun then return sun.Intensity end
+	if sun and sun.Intensity ~= nil then return sun.Intensity end
 
 	return atmosphere.GetSunIntensity()
 end
@@ -37,7 +37,9 @@ function directional_shadows.GetPrimarySunColor(lights)
 	lights = lights or render3d.GetLights()
 	local sun = directional_shadows.GetPrimarySun(lights)
 
-	if sun then return sun.Color end
+	if sun and sun.Color then
+		return Vec3(sun.Color.x or 1, sun.Color.y or 1, sun.Color.z or 1)
+	end
 
 	return Vec3(1, 1, 1)
 end

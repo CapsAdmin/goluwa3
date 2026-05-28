@@ -274,6 +274,34 @@ local function material_ignores_z(material)
 	return material and material.GetIgnoreZ and material:GetIgnoreZ() or false
 end
 
+local last_scene_voxelizer_invalidation_frame = -1
+
+local function voxelizer_has_dirty_work(voxelizer)
+	if not voxelizer or not voxelizer.GetClipmaps then return false end
+
+	for _, clipmap in ipairs(voxelizer.GetClipmaps() or {}) do
+		if clipmap.dirty then return true end
+	end
+
+	return false
+end
+
+local function invalidate_scene_voxelizer(full_rebuild)
+	if not render3d or not render3d.GetSceneVoxelizer then return end
+
+	local voxelizer = render3d.GetSceneVoxelizer()
+
+	if not voxelizer or not voxelizer.InvalidateAll then return end
+	if voxelizer.IsEnabled and not voxelizer:IsEnabled() then return end
+
+	local frame = system.GetFrameNumber and system.GetFrameNumber() or -1
+
+	if last_scene_voxelizer_invalidation_frame == frame and voxelizer_has_dirty_work(voxelizer) then return end
+
+	last_scene_voxelizer_invalidation_frame = frame
+	voxelizer.InvalidateAll(full_rebuild ~= false)
+end
+
 local function invalidate_scene_acceleration()
 	visual.scene_acceleration = visual.scene_acceleration or {}
 	visual.scene_acceleration.dirty = true
@@ -282,6 +310,7 @@ local function invalidate_scene_acceleration()
 	visual.scene_acceleration.visible_frame = nil
 	visual.scene_acceleration.visible_components = nil
 	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
+	invalidate_scene_voxelizer(true)
 end
 
 local function next_shadow_change_version()
@@ -1541,6 +1570,10 @@ do
 
 	function visual.GetAABBVisibleVisuals(query_aabb)
 		return visual.GetVolumeVisibleVisuals(query_aabb)
+	end
+
+	function visual.GetSceneAccelerationVersion()
+		return visual.shadow_visible_list_version or 0
 	end
 
 	function visual.IsOcclusionCullingEnabled()

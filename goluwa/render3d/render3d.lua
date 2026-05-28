@@ -222,6 +222,7 @@ do
 		"ssr",
 		"probe",
 		"wireframe",
+		"voxel_gi",
 	}
 	render3d.debug_mode = render3d.debug_mode or 1
 	render3d.gbuffer_normal_debug_view = render3d.gbuffer_normal_debug_view or 0
@@ -297,6 +298,8 @@ do
 		} else if (debug_mode == 5) {
 			// Probe debug - show probe cubemap contribution
 			color = get_reflection(N, 0, V, world_pos);
+		} else if (debug_mode == 7) {
+			color = voxel_irradiance;
 		}
 	]]
 end
@@ -423,7 +426,7 @@ function render3d.Initialize()
 	else
 		pipelines = list.flatten{
 			import("goluwa/render3d/passes/gbuffer.lua"),
-						import("goluwa/render3d/passes/voxel_build.lua"),
+			import("goluwa/render3d/passes/voxel_build.lua"),
 
 			--import("goluwa/render3d/passes/ssr.lua"),
 			--import("goluwa/render3d/passes/lighting.lua"),

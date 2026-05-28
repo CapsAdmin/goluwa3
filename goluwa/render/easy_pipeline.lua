@@ -785,6 +785,7 @@ function EasyPipeline.New(config)
 	assert_no_dynamic_state_config(config)
 	assert_no_nested_property_config(config)
 	local self = EasyPipeline:CreateObject()
+	self.on_pre_draw = config.on_pre_draw or nil
 	self.on_draw = config.on_draw or nil
 	local color_format = config.ColorFormat
 	local depth_format = config.DepthFormat
@@ -2756,12 +2757,24 @@ function EasyPipeline:GetFramebuffer(index)
 	return self.framebuffer
 end
 
+local function resolve_draw_frame_index(self, frame_index)
+	if frame_index then return frame_index end
+
+	if self.framebuffers then
+		return system.GetFrameNumber() % #self.framebuffers + 1
+	end
+
+	return render.GetCurrentFrame()
+end
+
 local function resolve_draw_framebuffer(self, framebuffer, frame_index)
 	local fb = framebuffer
 
 	if not fb then
-		if frame_index then
-			fb = self:GetFramebuffer(frame_index)
+		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
+
+		if resolved_frame_index then
+			fb = self:GetFramebuffer(resolved_frame_index)
 		elseif self.framebuffers then
 			fb = self:GetFramebuffer(system.GetFrameNumber() % #self.framebuffers + 1)
 		else
@@ -2814,10 +2827,14 @@ end
 function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 	cmd = cmd or render.GetCommandBuffer()
 	vertex_count = vertex_count or 3
-	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
+	local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
+	local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
 	render.PushCommandBuffer(cmd)
 	local began_framebuffer = fb ~= nil
-	begin_draw(self, cmd, fb, frame_index)
+
+	if self.on_pre_draw then self.on_pre_draw(self, cmd, resolved_frame_index) end
+
+	begin_draw(self, cmd, fb, resolved_frame_index)
 
 	if self.on_draw then
 		self.on_draw(self, cmd)
@@ -2833,12 +2850,13 @@ end
 
 function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
-	local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
+	local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
+	local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
 	render.PushCommandBuffer(cmd)
 	local began_framebuffer = fb ~= nil
 	local ok, err = xpcall(
 		function()
-			begin_draw(self, cmd, fb, frame_index)
+			begin_draw(self, cmd, fb, resolved_frame_index)
 			self:UploadConstants()
 			cmd:DrawMeshTasks(gx, gy, gz)
 		end,
