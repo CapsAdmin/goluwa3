@@ -2021,9 +2021,12 @@ function EasyPipeline.New(config)
 					local attribute_name = attribute[1]
 					local attribute_type = attribute[2]
 					local attribute_format = attribute[3]
-					local attribute_offset = stride
 					local attribute_lua_type = glsl_to_lua_type[attribute_type]
 					local location_count = get_vertex_attribute_location_count(attribute_type)
+					local attribute_size = location_count * render.GetVulkanFormatSize(attribute_type == "mat4" and "r32g32b32a32_sfloat" or attribute_format)
+					local attribute_offset = attribute[4]
+
+					if attribute_offset == nil then attribute_offset = stride end
 					logical_attributes[#logical_attributes + 1] = {
 						binding = resolved_binding,
 						offset = attribute_offset,
@@ -2059,7 +2062,7 @@ function EasyPipeline.New(config)
 					end
 
 					append_vertex_shader_input(shader_inputs, attribute)
-					stride = stride + location_count * render.GetVulkanFormatSize(attribute_type == "mat4" and "r32g32b32a32_sfloat" or attribute_format)
+					stride = math.max(stride, attribute_offset + attribute_size)
 					location = location + location_count
 				end
 
@@ -2068,7 +2071,7 @@ function EasyPipeline.New(config)
 						bindings,
 						{
 							binding = resolved_binding,
-							stride = stride,
+							stride = binding.stride or stride,
 							input_rate = binding.input_rate or "vertex",
 						}
 					)

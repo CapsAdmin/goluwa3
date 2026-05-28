@@ -198,6 +198,32 @@ function model_pipeline.GetVertexAttributes()
 	return attributes
 end
 
+local function build_vertex_attribute_name_set(names)
+	local lookup = {}
+
+	for _, name in ipairs(names or {}) do
+		lookup[name] = true
+	end
+
+	return lookup
+end
+
+function model_pipeline.GetVertexAttributesSubset(names)
+	local include = build_vertex_attribute_name_set(names)
+	local attributes = {}
+	local offset = 0
+
+	for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
+		if include[def.name] then
+			attributes[#attributes + 1] = {def.name, def.type, def.format, offset}
+		end
+
+		offset = offset + def.float_count * FLOAT_SIZE
+	end
+
+	return attributes
+end
+
 function model_pipeline.GetVertexStride()
 	return get_vertex_stride()
 end
@@ -222,6 +248,30 @@ function model_pipeline.GetVertexAttributeLayout(binding_index)
 			format = def.format,
 			offset = offset,
 		}
+		offset = offset + def.float_count * FLOAT_SIZE
+	end
+
+	return attributes
+end
+
+function model_pipeline.GetVertexAttributeLayoutSubset(names, binding_index)
+	binding_index = binding_index or 0
+	local include = build_vertex_attribute_name_set(names)
+	local attributes = {}
+	local offset = 0
+	local location = 0
+
+	for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
+		if include[def.name] then
+			attributes[#attributes + 1] = {
+				binding = binding_index,
+				location = location,
+				format = def.format,
+				offset = offset,
+			}
+			location = location + 1
+		end
+
 		offset = offset + def.float_count * FLOAT_SIZE
 	end
 

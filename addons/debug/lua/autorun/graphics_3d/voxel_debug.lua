@@ -19,6 +19,7 @@ local voxel_dump_watch_enabled = false
 local voxel_dump_watch_last_signature = nil
 local current_debug_volume_kind = "scene"
 local DEBUG_VOLUME_KINDS = {"scene", "normals"}
+local DEBUG_VOXEL_MAX_STEP_FACTOR = 2
 local get_command_clipmap_index
 local debug_pipeline_state = {
 	clipmap_index = 0,
@@ -386,7 +387,7 @@ local function update_pipeline_state()
 	debug_pipeline_state.resolution = math.max(clipmap.resolution or 1, 1)
 	debug_pipeline_state.voxel_size = math.max(clipmap.voxel_size or 1, 0.001)
 	debug_pipeline_state.world_span = math.max(clipmap.world_span or debug_pipeline_state.voxel_size, debug_pipeline_state.voxel_size)
-	debug_pipeline_state.max_steps = math.max(math.floor(debug_pipeline_state.resolution * 4), 1)
+	debug_pipeline_state.max_steps = math.max(math.floor(debug_pipeline_state.resolution * DEBUG_VOXEL_MAX_STEP_FACTOR), 1)
 	debug_pipeline_state.volume_valid = 1
 	debug_pipeline_state.view_mode = get_debug_volume_kind_mode()
 	local debug_origin = get_debug_volume_origin(voxelizer, clipmap)
@@ -411,7 +412,7 @@ local function draw_stats_block(voxelizer, x, y)
 	local debug_state = voxelizer and voxelizer.GetDebugState and voxelizer.GetDebugState() or nil
 	local stats = debug_state and debug_state.frame_stats or nil
 	local clipmap_info = voxelizer and voxelizer.GetClipmapDebugInfo and voxelizer.GetClipmapDebugInfo(get_command_clipmap_index()) or nil
-	local block_height = clipmap_info and 260 or 132
+	local block_height = clipmap_info and 278 or 150
 
 	if not stats then return end
 
@@ -450,8 +451,19 @@ local function draw_stats_block(voxelizer, x, y)
 		x + 8,
 		y + 68
 	)
-	fonts.GetFont():DrawText("Clipmap focus: " .. get_display_clipmap_label(voxelizer), x + 8, y + 88)
-	fonts.GetFont():DrawText("View: " .. get_debug_volume_kind_label() .. " perspective voxel raymarch", x + 8, y + 108)
+	fonts.GetFont():DrawText(
+		string.format(
+			"Scroll copy: %d inline  %d fallback  %d submits  %d waits",
+			stats.voxel_scroll_inline_clipmaps or 0,
+			stats.voxel_scroll_submit_clipmaps or 0,
+			stats.voxel_scroll_submissions or 0,
+			stats.voxel_scroll_submit_waits or 0
+		),
+		x + 8,
+		y + 88
+	)
+	fonts.GetFont():DrawText("Clipmap focus: " .. get_display_clipmap_label(voxelizer), x + 8, y + 108)
+	fonts.GetFont():DrawText("View: " .. get_debug_volume_kind_label() .. " perspective voxel raymarch", x + 8, y + 128)
 
 	if clipmap_info then
 		local status = clipmap_info.build_scroll_ready and
@@ -462,16 +474,16 @@ local function draw_stats_block(voxelizer, x, y)
 		local lag = clipmap_info.active_to_latest_voxels or Vec3(0, 0, 0)
 		local build_lag = clipmap_info.build_to_latest_voxels or Vec3(0, 0, 0)
 		local sampled_lag = clipmap_info.sampled_to_latest_voxels or Vec3(0, 0, 0)
-		fonts.GetFont():DrawText(status, x + 8, y + 124)
+		fonts.GetFont():DrawText(status, x + 8, y + 144)
 		fonts.GetFont():DrawText(
 			string.format("Active lag voxels: (%.0f, %.0f, %.0f)", lag.x or 0, lag.y or 0, lag.z or 0),
 			x + 8,
-			y + 142
+			y + 162
 		)
 		fonts.GetFont():DrawText(
 			string.format("Build lag voxels:  (%.0f, %.0f, %.0f)", build_lag.x or 0, build_lag.y or 0, build_lag.z or 0),
 			x + 8,
-			y + 160
+			y + 180
 		)
 		fonts.GetFont():DrawText(
 			string.format(
@@ -482,7 +494,7 @@ local function draw_stats_block(voxelizer, x, y)
 				sampled_lag.z or 0
 			),
 			x + 8,
-			y + 178
+			y + 198
 		)
 		fonts.GetFont():DrawText(
 			string.format(
@@ -495,7 +507,7 @@ local function draw_stats_block(voxelizer, x, y)
 				clipmap_info.pending_counts and clipmap_info.pending_counts.z or 0
 			),
 			x + 8,
-			y + 196
+			y + 216
 		)
 		fonts.GetFont():DrawText(
 			string.format(
@@ -505,11 +517,11 @@ local function draw_stats_block(voxelizer, x, y)
 				tostring(clipmap_info.pending_scroll)
 			),
 			x + 8,
-			y + 214
+			y + 234
 		)
 	end
 
-	fonts.GetFont():DrawText("F3: toggle  Shift+F3: all/clipmap  Ctrl+F3: scene/normals", x + 8, y + (clipmap_info and 232 or 124))
+	fonts.GetFont():DrawText("F3: toggle  Shift+F3: all/clipmap  Ctrl+F3: scene/normals", x + 8, y + (clipmap_info and 250 or 142))
 end
 
 local function ensure_voxel_debug_pipeline(clipmap_index)
@@ -656,33 +668,35 @@ local function ensure_voxel_debug_pipeline(clipmap_index)
 			}
 
 			vec4 sample_voxel_neighborhood(ivec3 voxel) {
+				vec4 center = sample_voxel_axes(voxel);
+
+				if (center.a >= voxel_debug_data.occupancy_threshold) {
+					return center;
+				}
+
 				vec3 accum = vec3(0.0);
 				float total_weight = 0.0;
-				float occupied_weight = 0.0;
 
-				for (int z = -1; z <= 1; z++) {
-					for (int y = -1; y <= 1; y++) {
-						for (int x = -1; x <= 1; x++) {
-							ivec3 coord = voxel + ivec3(x, y, z);
+				for (int axis = 0; axis < 3; axis++) {
+					for (int direction = -1; direction <= 1; direction += 2) {
+						ivec3 offset = ivec3(0);
+						offset[axis] = direction;
+						ivec3 coord = voxel + offset;
 
-							if (!voxel_in_bounds(coord)) continue;
+						if (!voxel_in_bounds(coord)) continue;
 
-							vec4 sample_color = sample_voxel_axes(coord);
+						vec4 sample_color = sample_voxel_axes(coord);
 
-							if (sample_color.a < voxel_debug_data.occupancy_threshold) continue;
+						if (sample_color.a < voxel_debug_data.occupancy_threshold) continue;
 
-							float distance2 = float(x * x + y * y + z * z);
-							float weight = 1.0 / (1.0 + distance2);
-							accum += sample_color.rgb * weight;
-							total_weight += weight;
-							occupied_weight += weight;
-						}
+						accum += sample_color.rgb;
+						total_weight += 1.0;
 					}
 				}
 
 				if (total_weight <= 0.0) return vec4(0.0);
 
-				return vec4(accum / total_weight, occupied_weight > 0.0 ? 1.0 : 0.0);
+				return vec4(accum / total_weight, 1.0);
 			}
 
 			float get_voxel_occupancy(ivec3 voxel) {

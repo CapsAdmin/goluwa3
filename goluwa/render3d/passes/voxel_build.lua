@@ -1,6 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local Visual = import("goluwa/ecs/components/3d/visual.lua")
@@ -71,12 +72,38 @@ local function compare_voxel_draw_entries(a, b)
 	return false
 end
 
-local function create_lazy_voxel_slice_buckets()
-	return {
+local function create_voxel_slice_buckets(draw_list, clipmap)
+	local slice_buckets = {
 		x = {},
 		y = {},
 		z = {},
 	}
+
+	for _, entry in ipairs(draw_list or {}) do
+		for _, axis_name in ipairs({"x", "y", "z"}) do
+			local slice_range = entry.slice_ranges and entry.slice_ranges[axis_name] or nil
+			local dirty_mask = clipmap and clipmap.dirty_slice_masks and clipmap.dirty_slice_masks[axis_name] or nil
+
+			if slice_range and dirty_mask then
+				local axis_buckets = slice_buckets[axis_name]
+
+				for slice = slice_range.start_slice, slice_range.end_slice do
+					if dirty_mask[slice] then
+						local bucket = axis_buckets[slice]
+
+						if not bucket then
+							bucket = {}
+							axis_buckets[slice] = bucket
+						end
+
+						bucket[#bucket + 1] = entry
+					end
+				end
+			end
+		end
+	end
+
+	return slice_buckets
 end
 
 local function get_axis_index(axis_name)
@@ -149,6 +176,32 @@ local function transition_axis_target_from_compute(cmd, target)
 end
 
 local shared_scroll_compute_pipeline = nil
+local voxel_scroll_submit_fence = nil
+
+local function get_voxel_scroll_submit_fence()
+	if voxel_scroll_submit_fence and voxel_scroll_submit_fence:IsValid() then return voxel_scroll_submit_fence end
+
+	voxel_scroll_submit_fence = Fence.New(render.GetDevice())
+	return voxel_scroll_submit_fence
+end
+
+local function submit_voxel_scroll_command_buffer(voxelizer, cmd)
+	local fence = get_voxel_scroll_submit_fence()
+	local queue = render.GetQueue()
+	local wait_count = 0
+
+	if queue:HasPendingSubmission(fence) then
+		fence:Wait(true)
+		queue:RetireFence(fence)
+		wait_count = 1
+	end
+
+	render.Submit(cmd, fence)
+
+	if voxelizer and voxelizer.AddScrollSubmitWork then
+		voxelizer.AddScrollSubmitWork(1, 1, wait_count)
+	end
+end
 
 local function get_scroll_compute_pipeline()
 	if shared_scroll_compute_pipeline then return shared_scroll_compute_pipeline end
@@ -326,6 +379,8 @@ local function scroll_clipmap_targets(_, voxelizer, clipmap_index, pending_scrol
 		compute_cmd = render.GetCommandPool():AllocateCommandBuffer()
 		compute_cmd:Begin()
 		own_compute_cmd = true
+	elseif voxelizer and voxelizer.AddInlineScrollWork then
+		voxelizer.AddInlineScrollWork(1)
 	end
 
 	local frame_slot_base = ((render.GetCurrentFrame() or 1) - 1) * 9
@@ -340,7 +395,7 @@ local function scroll_clipmap_targets(_, voxelizer, clipmap_index, pending_scrol
 
 	if own_compute_cmd then
 		compute_cmd:End()
-		render.SubmitAndWait(compute_cmd)
+		submit_voxel_scroll_command_buffer(voxelizer, compute_cmd)
 	end
 end
 
@@ -383,6 +438,20 @@ end
 
 local function upload_voxel_build_constants(self)
 	self:UploadConstants()
+end
+
+local function push_voxel_vertex_constants(self, cmd, world_matrix)
+	local constants = self._voxel_vertex_push_constants
+
+	if not constants then
+		constants = self:GetPushConstantBlockType("vertex")()
+		self._voxel_vertex_push_constants = constants
+		self._voxel_vertex_push_offset = self:GetPushConstantBlockOffset("vertex")
+	end
+
+	current_build_state.projection_view_world:CopyToFloatPointer(constants.projection_view_world)
+	world_matrix:CopyToFloatPointer(constants.world)
+	self:PushConstants(cmd, {"vertex"}, self._voxel_vertex_push_offset, constants)
 end
 
 local TRANSFORMED_AABB_CORNERS = {
@@ -549,28 +618,11 @@ local function build_voxel_draw_list(voxelizer, clipmap_index, clipmap)
 	return draw_list, submitted_visuals, submitted_entries, cacheable
 end
 
-local function get_voxel_slice_bucket(slice_buckets, axis_name, slice, draw_list)
+local function get_voxel_slice_bucket(slice_buckets, axis_name, slice)
 	local axis_buckets = slice_buckets and slice_buckets[axis_name] or nil
 
 	if not axis_buckets then return nil end
-
-	local bucket = axis_buckets[slice]
-
-	if bucket == false then return nil end
-	if bucket then return bucket end
-
-	bucket = {}
-
-	for _, entry in ipairs(draw_list or {}) do
-		local slice_range = entry.slice_ranges and entry.slice_ranges[axis_name] or nil
-
-		if slice_range and slice >= slice_range.start_slice and slice <= slice_range.end_slice then
-			bucket[#bucket + 1] = entry
-		end
-	end
-
-	axis_buckets[slice] = bucket[1] and bucket or false
-	return axis_buckets[slice] or nil
+	return axis_buckets[slice]
 end
 
 local function draw_voxel_slice_geometry(self, cmd, clipmap_index, clipmap, axis_name, slice, draw_list)
@@ -586,12 +638,24 @@ local function draw_voxel_slice_geometry(self, cmd, clipmap_index, clipmap, axis
 	current_build_state.clipmap_origin.z = build_origin.z
 	update_slice_transform(clipmap, axis_name, slice, build_origin)
 	draw_list = draw_list or {}
+	local last_polygon3d = nil
+	local last_material = nil
 
 	for _, entry in ipairs(draw_list) do
 		render3d.SetWorldMatrix(entry.world_matrix)
-		render3d.SetCurrentPolygon3D(entry.polygon3d)
-		render3d.SetMaterial(entry.material)
-		upload_voxel_build_constants(self)
+
+		if entry.polygon3d ~= last_polygon3d then
+			render3d.SetCurrentPolygon3D(entry.polygon3d)
+			last_polygon3d = entry.polygon3d
+		end
+
+		if entry.material ~= last_material then
+			render3d.SetMaterial(entry.material)
+			last_material = entry.material
+			upload_voxel_build_constants(self)
+		end
+
+		push_voxel_vertex_constants(self, cmd, entry.world_matrix)
 		entry.polygon3d:Draw()
 	end
 
@@ -611,7 +675,7 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 		state.voxelizer.GetClipmapDirtySliceRepair(state.clipmap_index, axis_name, slice) or nil
 	local full_slice_repair = repair == nil or repair.full == true
 	local build_target_cleared = current_clipmap.build_target_cleared == true
-	local slice_draw_list = get_voxel_slice_bucket(state.slice_buckets, axis_name, slice, state.draw_list)
+	local slice_draw_list = get_voxel_slice_bucket(state.slice_buckets, axis_name, slice)
 	local has_geometry = slice_draw_list ~= nil and slice_draw_list[1] ~= nil
 
 	if build_target_cleared and not has_geometry then return end
@@ -708,7 +772,7 @@ local function draw_voxel_build(self, cmd)
 			else
 				local cacheable
 				draw_list, clipmap_visuals, clipmap_entries, cacheable = build_voxel_draw_list(voxelizer, clipmap_index, clipmap)
-				slice_buckets = create_lazy_voxel_slice_buckets()
+				slice_buckets = create_voxel_slice_buckets(draw_list, clipmap)
 
 				if cacheable then
 					clipmap.voxel_draw_cache = {
@@ -779,10 +843,32 @@ return {
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		dont_create_framebuffers = true,
 		on_draw = draw_voxel_build,
-		vertex = model_pipeline.CreateVertexStage{
-			position = true,
-			uv = true,
-			get_projection_view_world_matrix = get_voxel_projection_view_world_matrix,
+		vertex = {
+			bindings = {
+				{
+					binding = 0,
+					stride = model_pipeline.GetVertexStride(),
+					input_rate = "vertex",
+					attributes = model_pipeline.GetVertexAttributesSubset({"position", "uv"}),
+				},
+			},
+			outputs = {
+				{"uv", "vec2"},
+			},
+			push_constants = {
+				{
+					name = "vertex",
+					block = model_pipeline.GetTransformBlock(true),
+					write = model_pipeline.BuildTransformBlockWriter(true, get_voxel_projection_view_world_matrix),
+				},
+			},
+			shader = [[
+				void main() {
+					vec3 local_position = in_position;
+					gl_Position = vertex.projection_view_world * vec4(local_position, 1.0);
+					out_uv = in_uv;
+				}
+			]],
 		},
 		fragment = {
 			uniform_buffers = {

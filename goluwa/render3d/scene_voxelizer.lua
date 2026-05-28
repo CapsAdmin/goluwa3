@@ -613,6 +613,10 @@ function scene_voxelizer.ResetState(config)
 		voxel_build_clipmaps = 0,
 		voxel_build_axes = 0,
 		voxel_build_slices = 0,
+		voxel_scroll_inline_clipmaps = 0,
+		voxel_scroll_submit_clipmaps = 0,
+		voxel_scroll_submissions = 0,
+		voxel_scroll_submit_waits = 0,
 	}
 
 	for index = 1, scene_voxelizer.clipmap_count do
@@ -1018,12 +1022,30 @@ function scene_voxelizer.BeginBuildFrame()
 	scene_voxelizer.frame_stats.voxel_build_clipmaps = 0
 	scene_voxelizer.frame_stats.voxel_build_axes = 0
 	scene_voxelizer.frame_stats.voxel_build_slices = 0
+	scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps = 0
+	scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps = 0
+	scene_voxelizer.frame_stats.voxel_scroll_submissions = 0
+	scene_voxelizer.frame_stats.voxel_scroll_submit_waits = 0
 end
 
 function scene_voxelizer.AddBuildWork(clipmap_count, axis_count, slice_count)
 	scene_voxelizer.frame_stats.voxel_build_clipmaps = scene_voxelizer.frame_stats.voxel_build_clipmaps + (clipmap_count or 0)
 	scene_voxelizer.frame_stats.voxel_build_axes = scene_voxelizer.frame_stats.voxel_build_axes + (axis_count or 0)
 	scene_voxelizer.frame_stats.voxel_build_slices = scene_voxelizer.frame_stats.voxel_build_slices + (slice_count or 0)
+end
+
+function scene_voxelizer.AddScrollSubmitWork(clipmap_count, submission_count, wait_count)
+	scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps =
+		scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps + (clipmap_count or 0)
+	scene_voxelizer.frame_stats.voxel_scroll_submissions =
+		scene_voxelizer.frame_stats.voxel_scroll_submissions + (submission_count or 0)
+	scene_voxelizer.frame_stats.voxel_scroll_submit_waits =
+		scene_voxelizer.frame_stats.voxel_scroll_submit_waits + (wait_count or 0)
+end
+
+function scene_voxelizer.AddInlineScrollWork(clipmap_count)
+	scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps =
+		scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps + (clipmap_count or 0)
 end
 
 function scene_voxelizer.Update(camera_position)
@@ -1036,6 +1058,10 @@ function scene_voxelizer.Update(camera_position)
 		scene_voxelizer.frame_stats.voxel_build_clipmaps = 0
 		scene_voxelizer.frame_stats.voxel_build_axes = 0
 		scene_voxelizer.frame_stats.voxel_build_slices = 0
+		scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps = 0
+		scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps = 0
+		scene_voxelizer.frame_stats.voxel_scroll_submissions = 0
+		scene_voxelizer.frame_stats.voxel_scroll_submit_waits = 0
 		return false
 	end
 
@@ -1048,6 +1074,10 @@ function scene_voxelizer.Update(camera_position)
 	scene_voxelizer.frame_stats.voxel_build_clipmaps = 0
 	scene_voxelizer.frame_stats.voxel_build_axes = 0
 	scene_voxelizer.frame_stats.voxel_build_slices = 0
+	scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps = 0
+	scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps = 0
+	scene_voxelizer.frame_stats.voxel_scroll_submissions = 0
+	scene_voxelizer.frame_stats.voxel_scroll_submit_waits = 0
 	local any_dirty = false
 	local streaming_is_moving = false
 
