@@ -312,6 +312,8 @@ return {
 					{"primary_sun_intensity", "float"},
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
+					{"stars_texture_index", "int"},
+					{"atmosphere_sky_view_texture_index", "int"},
 					{"voxel_gi_clipmap_count", "int"},
 					{"voxel_gi_strength", "float"},
 					{"voxel_gi_clipmap_origins", "vec4", 3},
@@ -347,6 +349,10 @@ return {
 					block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
 					block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
 					block.primary_sun_color[3] = 0
+					block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
+					block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
+						atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(lights))
+					)
 					block.voxel_gi_clipmap_count = 0
 					block.voxel_gi_strength = 0.2
 
@@ -399,14 +405,11 @@ return {
 
 					block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 
-					if
-						not render3d.pipelines.ssr_resolve or
-						not render3d.pipelines.ssr_resolve.framebuffers
-					then
+					if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
 						block.ssr_tex = -1
 					else
 						local current_idx = system.GetFrameNumber() % 2 + 1
-						local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
+						local current_ssr_fb = render3d.pipelines.ssr:GetFramebuffer(current_idx)
 						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
 					end
 
@@ -528,8 +531,7 @@ return {
 
 			#define ATMOSPHERE_SUN_INTENSITY lighting_data.primary_sun_intensity
 
-
-			]] .. import("goluwa/render3d/atmosphere.lua").GetAerialPerspectiveGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLCode() .. [[
 
 
 			#define SSR 1
@@ -901,6 +903,27 @@ return {
 					return normalize(sunDir);
 				}
 
+				vec3 get_sky() {
+					vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
+					vec4 view_pos = lighting_data.inv_projection * clip_pos;
+					view_pos /= view_pos.w;
+					vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
+					vec3 sky_dir = normalize(world_pos - lighting_data.camera_position.xyz);
+					vec3 sun_dir = get_primary_sun_direction();
+					vec3 sky_color_output = vec3(0.0);
+
+					]] .. atmosphere.GetGLSLMainCode(
+				"sky_dir",
+				"sun_dir",
+				"lighting_data.camera_position.xyz",
+				"lighting_data.stars_texture_index",
+				"lighting_data.atmosphere_sky_view_texture_index",
+				"lighting_data.atmosphere_transmittance_texture_index"
+			) .. [[
+
+					return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
+				}
+
 			bool voxel_in_bounds(ivec3 voxel, int resolution) {
 				return all(greaterThanEqual(voxel, ivec3(0))) && all(lessThan(voxel, ivec3(resolution)));
 			}
@@ -1230,7 +1253,7 @@ return {
 				float depth = get_depth();
 
 				if (depth == 1.0) {
-					set_color(vec4(0.0, 0.0, 0.0, 1.0));
+					set_color(vec4(get_sky(), 1.0));
 					set_voxel_gi(vec4(0.0, 0.0, 0.0, 1.0));
 					return;
 				}

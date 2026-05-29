@@ -1,5 +1,4 @@
 local render = import("goluwa/render/render.lua")
-local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -9,35 +8,39 @@ local function get_scene_source_texture()
 	return post_source.GetSceneSourceTexture({name = "blit_compute"})
 end
 
-local function get_bloom_texture()
-	if not render3d.pipelines.bloom_up0 then return nil end
+local function get_bloom_source_texture()
+	if not render3d.pipelines.bloom_up2 then return nil end
 
-	local framebuffer = render3d.pipelines.bloom_up0:GetFramebuffer()
-
-	if not framebuffer then return nil end
-
-	return framebuffer:GetAttachment(1)
-end
-
-local function get_luminance_texture()
-	if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
-		return nil
-	end
-
-	local current_idx = system.GetFrameNumber() % 2 + 1
-	local framebuffer = render3d.pipelines.luminance:GetFramebuffer(current_idx)
+	local framebuffer = render3d.pipelines.bloom_up2:GetFramebuffer()
 
 	if not framebuffer then return nil end
 
 	return framebuffer:GetAttachment(1)
 end
 
+local function get_bloom_merge_texture()
+	return get_scene_source_texture()
+end
+
+local bloom_merge_strength = 0.65
+local bloom_threshold = 1.25
+local bloom_knee = 0.75
 local compute_shader = [[
 	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
-	layout(set = 0, binding = 2) uniform sampler2D bloom_tex;
-	layout(set = 0, binding = 3) uniform sampler2D luma_tex;
+	layout(set = 0, binding = 2) uniform sampler2D bloom_source_tex;
+	layout(set = 0, binding = 3) uniform sampler2D bloom_merge_tex;
 	]] .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. [[
+
+	vec3 extract_bloom(vec3 bloom_input) {
+		float brightness = dot(bloom_input, vec3(0.2126, 0.7152, 0.0722));
+		float soft = brightness - ]] .. string.format("%.3f", bloom_threshold) .. [[ + ]] .. string.format("%.3f", bloom_knee) .. [[;
+		soft = clamp(soft, 0.0, 2.0 * ]] .. string.format("%.3f", bloom_knee) .. [[);
+		soft = soft * soft / (4.0 * ]] .. string.format("%.3f", bloom_knee) .. [[ + 0.00001);
+		float contribution = max(soft, brightness - ]] .. string.format("%.3f", bloom_threshold) .. [[);
+		contribution /= max(brightness, 0.00001);
+		return bloom_input * contribution;
+	}
 
 	void main() {
 		ivec2 pos = get_screen_pos();
@@ -66,19 +69,34 @@ local compute_shader = [[
 
 		vec3 bloom = vec3(0.0);
 
-		if (compute.has_bloom_tex != 0) {
-			bloom = texture(bloom_tex, uv).rgb;
+		if (compute.has_bloom_source_tex != 0) {
+			vec2 texel_size = 1.0 / vec2(textureSize(bloom_source_tex, 0));
+			bloom += texture(bloom_source_tex, uv + vec2(-1, -1) * texel_size).rgb;
+			bloom += texture(bloom_source_tex, uv + vec2(0, -1) * texel_size).rgb * 2.0;
+			bloom += texture(bloom_source_tex, uv + vec2(1, -1) * texel_size).rgb;
+			bloom += texture(bloom_source_tex, uv + vec2(-1, 0) * texel_size).rgb * 2.0;
+			bloom += texture(bloom_source_tex, uv).rgb * 4.0;
+			bloom += texture(bloom_source_tex, uv + vec2(1, 0) * texel_size).rgb * 2.0;
+			bloom += texture(bloom_source_tex, uv + vec2(-1, 1) * texel_size).rgb;
+			bloom += texture(bloom_source_tex, uv + vec2(0, 1) * texel_size).rgb * 2.0;
+			bloom += texture(bloom_source_tex, uv + vec2(1, 1) * texel_size).rgb;
+			bloom /= 16.0;
+
+			if (compute.has_bloom_merge_tex != 0) {
+				bloom += extract_bloom(texture(bloom_merge_tex, uv).rgb) * ]] .. string.format("%.3f", bloom_merge_strength) .. [[;
+			}
 		}
 
 		float exposure = 1.0;
 
-		if (compute.has_luma_tex != 0) {
+		if (compute.has_source_tex != 0) {
 			float avg_log_luma = 0.0;
 			int samples = 0;
 
 			for (float y = 0.125; y < 1.0; y += 0.25) {
 				for (float x = 0.125; x < 1.0; x += 0.25) {
-					avg_log_luma += texture(luma_tex, vec2(x, y)).r;
+					vec3 luma_col = texture(source_tex, vec2(x, y)).rgb;
+					avg_log_luma += log2(max(dot(luma_col, vec3(0.2126, 0.7152, 0.0722)), 0.0001));
 					samples++;
 				}
 			}
@@ -135,26 +153,26 @@ local r = {
 			},
 			{
 				binding_index = 2,
-				get_texture = get_bloom_texture,
+				get_texture = get_bloom_source_texture,
 			},
 			{
 				binding_index = 3,
-				get_texture = get_luminance_texture,
+				get_texture = get_bloom_merge_texture,
 			},
 		},
 		block = {
 			{"has_source_tex", "int"},
 			{"is_debug_view", "int"},
-			{"has_bloom_tex", "int"},
-			{"has_luma_tex", "int"},
+			{"has_bloom_source_tex", "int"},
+			{"has_bloom_merge_tex", "int"},
 			{"requires_manual_gamma", "int"},
 			{"is_hdr", "int"},
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
 			block.is_debug_view = 0
-			block.has_bloom_tex = get_bloom_texture() and 1 or 0
-			block.has_luma_tex = get_luminance_texture() and 1 or 0
+			block.has_bloom_source_tex = get_bloom_source_texture() and 1 or 0
+			block.has_bloom_merge_tex = get_bloom_merge_texture() and 1 or 0
 			block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
 			block.is_hdr = render.target:IsHDR() and 1 or 0
 			return block

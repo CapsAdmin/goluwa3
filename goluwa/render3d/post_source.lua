@@ -25,11 +25,6 @@ function post_source.GetRawSceneSourceTexture(self)
 		return render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1)
 	end
 
-	if render3d.pipelines.atmosphere and render3d.pipelines.atmosphere.framebuffers then
-		local current_idx = system.GetFrameNumber() % 2 + 1
-		return render3d.pipelines.atmosphere:GetFramebuffer(current_idx):GetAttachment(1)
-	end
-
 	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 		return nil
 	end

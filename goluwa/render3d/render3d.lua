@@ -375,12 +375,6 @@ render3d.last_frame_block = {
 }
 
 function render3d.WriteLastFrameBlock(self, block)
-	if render3d.pipelines.atmosphere and render3d.pipelines.atmosphere.framebuffers then
-		local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-		block.last_frame_tex = self:GetTextureIndex(render3d.pipelines.atmosphere:GetFramebuffer(prev_idx):GetAttachment(1))
-		return block
-	end
-
 	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 		block.last_frame_tex = -1
 		return block
@@ -410,17 +404,15 @@ function render3d.Initialize()
 	if true then
 		pipelines = list.flatten{
 			import("goluwa/render3d/passes/gbuffer.lua"),
-			import("goluwa/render3d/passes/voxel_build.lua"),
+			--import("goluwa/render3d/passes/voxel_build.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			--import("goluwa/render3d/passes/lighting_simple.lua"),
-			import("goluwa/render3d/passes/atmosphere.lua"),
 			import("goluwa/render3d/passes/ocean.lua"),
 			import("goluwa/render3d/passes/forward_overlay.lua"),
-			import("goluwa/render3d/passes/volumetric_fog.lua"),
+			--import("goluwa/render3d/passes/volumetric_fog.lua"),
 			--import("goluwa/render3d/passes/smaa.lua"),
 			import("goluwa/render3d/passes/bloom.lua"),
-			import("goluwa/render3d/passes/luminance.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		}
 	else
@@ -430,13 +422,11 @@ function render3d.Initialize()
 			--import("goluwa/render3d/passes/ssr.lua"),
 			--import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/lighting_simple.lua"),
-			--import("goluwa/render3d/passes/atmosphere.lua"),
 			--import("goluwa/render3d/passes/ocean.lua"),
 			--import("goluwa/render3d/passes/forward_overlay.lua"),
 			--import("goluwa/render3d/passes/volumetric_fog.lua"),
 			--import("goluwa/render3d/passes/smaa.lua"),
 			--import("goluwa/render3d/passes/bloom.lua"),
-			--import("goluwa/render3d/passes/luminance.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		}
 	end

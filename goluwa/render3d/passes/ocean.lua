@@ -258,10 +258,7 @@ return {
 						render3d.WriteCameraBlock(self, block)
 						render3d.WriteCommonBlock(self, block)
 
-						if render3d.pipelines.atmosphere and render3d.pipelines.atmosphere.framebuffers then
-							local current_idx = system.GetFrameNumber() % 2 + 1
-							block.scene_tex = self:GetTextureIndex(render3d.pipelines.atmosphere:GetFramebuffer(current_idx):GetAttachment(1))
-						elseif not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
+						if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 							block.scene_tex = -1
 						else
 							local current_idx = system.GetFrameNumber() % 2 + 1
@@ -271,14 +268,11 @@ return {
 						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
 						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 
-						if
-							not render3d.pipelines.ssr_resolve or
-							not render3d.pipelines.ssr_resolve.framebuffers
-						then
+						if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
 							block.ssr_tex = -1
 						else
 							local current_idx = system.GetFrameNumber() % 2 + 1
-							block.ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx):GetAttachment(1))
+							block.ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr:GetFramebuffer(current_idx):GetAttachment(1))
 						end
 
 						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
