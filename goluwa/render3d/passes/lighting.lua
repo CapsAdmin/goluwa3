@@ -552,7 +552,7 @@ return {
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
-			]] .. ibl.GetReflectionGLSLCode() .. [[
+			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 			]] .. scene_lights.GetLightGLSLCode() .. [[
 
 			// Cascade debug colors
@@ -776,8 +776,8 @@ return {
 
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
 				vec3 env = get_environment_reflection(normal, roughness, V, world_pos);
-				vec4 ssr = get_filtered_ssr_reflection(lighting_data.ssr_tex, in_uv);
-				return combine_reflections(env, ssr, 1.0);
+				vec4 ssr = get_filtered_ssr_reflection(in_uv);
+				return combine_reflections(env, ssr, get_ssr_blend_weight(roughness));
 			}
 
 			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {

@@ -79,21 +79,39 @@ function ibl.GetEnvironmentGLSLCode()
 		]]
 end
 
-function ibl.GetReflectionGLSLCode(ssr_uniform_name)
-	ssr_uniform_name = ssr_uniform_name or "ssr_tex"
+function ibl.GetReflectionGLSLCode(uniform_name)
+	uniform_name = uniform_name or "lighting_data"
 	return [[
 			vec3 blend_environment_sources(vec3 global_env, vec3 local_env, float local_weight) {
 				return mix(global_env, local_env, clamp(local_weight, 0.0, 1.0));
 			}
 
-			vec4 get_filtered_ssr_reflection(int ssr_tex, vec2 uv) {
-				if (ssr_tex == -1) return vec4(0.0);
+			float get_ssr_blend_weight(float roughness) {
+				float stable_weight = 1.0 - smoothstep(0.08, 0.45, clamp(roughness, 0.0, 1.0));
+				return stable_weight * stable_weight;
+			}
+
+			float reconstruct_ssr_view_depth(vec2 uv, float depth) {
+				vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
+				vec4 view_pos = ]] .. uniform_name .. [[.inv_projection * clip;
+				view_pos /= max(abs(view_pos.w), 1e-5);
+				return view_pos.z;
+			}
+
+			vec4 get_filtered_ssr_reflection(vec2 uv) {
+				if (]] .. uniform_name .. [[.ssr_tex == -1) return vec4(0.0);
 				if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return vec4(0.0);
 
-				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(ssr_tex), 0));
-				vec4 center = texture(TEXTURE(ssr_tex), uv);
-				vec4 accum = vec4(center.rgb * center.a, center.a) * 4.0;
-				float total_weight = max(center.a, 0.0) * 4.0;
+				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(]] .. uniform_name .. [[.ssr_tex), 0));
+				vec4 center = texture(TEXTURE(]] .. uniform_name .. [[.ssr_tex), uv);
+				float center_depth = texture(TEXTURE(]] .. uniform_name .. [[.depth_tex), uv).r;
+				float center_view_depth = reconstruct_ssr_view_depth(uv, center_depth);
+				vec3 center_normal = texture(TEXTURE(]] .. uniform_name .. [[.normal_tex), uv).xyz;
+				float center_roughness = texture(TEXTURE(]] .. uniform_name .. [[.mra_tex), uv).g;
+				vec3 color_accum = center.rgb * max(center.a, 0.0) * 4.0;
+				float color_weight = max(center.a, 0.0) * 4.0;
+				float confidence_accum = max(center.a, 0.0) * 4.0;
+				float confidence_weight = 4.0;
 
 				for (int i = 0; i < 4; i++) {
 					vec2 offset = vec2(0.0);
@@ -104,16 +122,27 @@ function ibl.GetReflectionGLSLCode(ssr_uniform_name)
 					else offset = vec2(0.0, -texel_size.y);
 
 					vec2 tap_uv = clamp(uv + offset, vec2(0.001), vec2(0.999));
-					vec4 tap = texture(TEXTURE(ssr_tex), tap_uv);
-					float tap_weight = max(tap.a, 0.0);
-					accum += vec4(tap.rgb * tap_weight, tap.a);
-					total_weight += tap_weight;
+					vec4 tap = texture(TEXTURE(]] .. uniform_name .. [[.ssr_tex), tap_uv);
+					float tap_depth = texture(TEXTURE(]] .. uniform_name .. [[.depth_tex), tap_uv).r;
+					float tap_view_depth = reconstruct_ssr_view_depth(tap_uv, tap_depth);
+					vec3 tap_normal = texture(TEXTURE(]] .. uniform_name .. [[.normal_tex), tap_uv).xyz;
+					float tap_roughness = texture(TEXTURE(]] .. uniform_name .. [[.mra_tex), tap_uv).g;
+					float depth_scale = max(abs(center_view_depth) * 0.02, 0.05);
+					float depth_weight = exp(-abs(tap_view_depth - center_view_depth) / depth_scale);
+					float normal_weight = pow(max(dot(center_normal, tap_normal), 0.0), 32.0);
+					float roughness_weight = 1.0 - clamp(abs(tap_roughness - center_roughness) * 8.0, 0.0, 1.0);
+					float geometry_weight = depth_weight * normal_weight * roughness_weight;
+					float tap_weight = geometry_weight * max(tap.a, 0.0);
+					color_accum += tap.rgb * tap_weight;
+					color_weight += tap_weight;
+					confidence_accum += max(tap.a, 0.0) * geometry_weight;
+					confidence_weight += geometry_weight;
 				}
 
-				if (total_weight <= 1e-5) return vec4(0.0);
+				if (color_weight <= 1e-5 || confidence_weight <= 1e-5) return vec4(0.0);
 
-				vec3 filtered_rgb = accum.rgb / total_weight;
-				float filtered_confidence = clamp(accum.a / 8.0, 0.0, 1.0);
+				vec3 filtered_rgb = color_accum / color_weight;
+				float filtered_confidence = clamp(confidence_accum / confidence_weight, 0.0, 1.0);
 				filtered_confidence = smoothstep(0.35, 0.9, filtered_confidence);
 				return vec4(filtered_rgb, filtered_confidence);
 			}

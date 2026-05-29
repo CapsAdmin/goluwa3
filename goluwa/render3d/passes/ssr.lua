@@ -6,20 +6,6 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local TILE_WIDTH = COMPUTE_LOCAL_SIZE.x + 2
 local TILE_HEIGHT = COMPUTE_LOCAL_SIZE.y + 2
-
-local function get_previous_ssr_texture()
-	if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
-		return nil
-	end
-
-	local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-	local prev_fb = render3d.pipelines.ssr:GetFramebuffer(prev_idx)
-
-	if not prev_fb or not prev_fb.initialized then return nil end
-
-	return prev_fb:GetAttachment(1)
-end
-
 return {
 	{
 		name = "ssr",
@@ -42,24 +28,14 @@ return {
 					render3d.camera_block,
 					render3d.gbuffer_block,
 					render3d.last_frame_block,
-					{"history_ssr_tex", "int"},
 					{"blue_noise_tex", "int"},
 					{"prev_view", "mat4"},
 					{"prev_projection", "mat4"},
-					{"frame_index", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
-					local history = get_previous_ssr_texture()
-
-					if history then
-						block.history_ssr_tex = self:GetTextureIndex(history)
-					else
-						block.history_ssr_tex = -1
-					end
-
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					local prev_view = render3d.prev_view_matrix
 					local prev_projection = render3d.prev_projection_matrix
@@ -76,8 +52,6 @@ return {
 						render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
 					end
 
-					render3d.ssr_frame_count = (render3d.ssr_frame_count or 0) + 1
-					block.frame_index = render3d.ssr_frame_count % 256
 					return block
 				end,
 			},
@@ -91,6 +65,10 @@ return {
 			#define SSR_MAX_STEPS 64
 			#define SSR_BINARY_STEPS 8
 			#define SSR_ROUGHNESS_CUTOFF 1
+			#define SSR_SPATIAL_DEPTH_WEIGHT 48.0
+			#define SSR_SPATIAL_NORMAL_POWER 32.0
+			#define SSR_ROUGH_REFLECTION_THRESHOLD 0.08
+			#define SSR_ROUGH_MULTI_SAMPLES 3
 			#define SSR_TILE_WIDTH ]] .. tostring(TILE_WIDTH) .. "\n" .. [[
 			#define SSR_TILE_HEIGHT ]] .. tostring(TILE_HEIGHT) .. "\n" .. [[
 			#define PI 3.14159265359
@@ -99,6 +77,10 @@ return {
 
 			float saturate(float x) {
 				return clamp(x, 0.0, 1.0);
+			}
+
+			float luminance(vec3 color) {
+				return dot(color, vec3(0.2126, 0.7152, 0.0722));
 			}
 
 			vec2 get_clamped_screen_uv(ivec2 pos, ivec2 size) {
@@ -118,13 +100,9 @@ return {
 				return texture(TEXTURE(ssr_data.mra_tex), uv).g;
 			}
 
-			vec2 blue_noise(ivec2 pixel, int frame) {
+			vec2 blue_noise(ivec2 pixel) {
 				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
-				ivec2 offset = ivec2(
-					int(fract(float(frame) * 0.7548776662466927) * float(noise_size.x)),
-					int(fract(float(frame) * 0.5698402909980532) * float(noise_size.y))
-				);
-				return texelFetch(TEXTURE(ssr_data.blue_noise_tex), (pixel + offset) % noise_size, 0).rg;
+				return texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
 			}
 
 			vec3 sampleGGXVNDF(vec3 Ve, float alpha, vec2 xi) {
@@ -149,29 +127,55 @@ return {
 				b = vec3(d, 1.0 - n.y * n.y * a, -n.y);
 			}
 
-			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
-				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
-				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
+			vec3 clamp_reflection_fireflies(vec2 uv, vec3 hit_color, float mip_level, float roughness) {
+				if (roughness <= 0.02) {
+					return hit_color;
+				}
 
-				vec3 N_vs = normalize(mat3(ssr_data.view) * N);
-				vec3 V_vs = normalize(mat3(ssr_data.view) * V);
-				vec4 pos_vs = ssr_data.view * vec4(world_pos, 1.0);
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(ssr_data.last_frame_tex), 0));
+				vec2 radius = texel * (1.0 + roughness * 6.0);
+				vec3 neighborhood = textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(radius.x, 0.0), vec2(0.001), vec2(0.999)), mip_level).rgb;
+				neighborhood += textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(-radius.x, 0.0), vec2(0.001), vec2(0.999)), mip_level).rgb;
+				neighborhood += textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(0.0, radius.y), vec2(0.001), vec2(0.999)), mip_level).rgb;
+				neighborhood += textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(0.0, -radius.y), vec2(0.001), vec2(0.999)), mip_level).rgb;
+				neighborhood *= 0.25;
 
-				vec3 T;
-				vec3 B;
-				buildOrthonormalBasis(N_vs, T, B);
+				float neighborhood_luma = luminance(neighborhood);
+				float hit_luma = luminance(hit_color);
+				float clamp_scale = saturate((roughness - 0.02) * 3.0);
+				float allowed_luma = max(neighborhood_luma * mix(6.0, 2.0, clamp_scale), neighborhood_luma + 0.02);
 
-				vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
-				float alpha = max(0.001, roughness * roughness);
-				vec3 H_local = sampleGGXVNDF(V_local, alpha, xi);
-				vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
+				if (hit_luma <= allowed_luma || hit_luma <= 1e-5) {
+					return hit_color;
+				}
 
-				vec3 R_vs = reflect(-V_vs, H_vs);
-				if (dot(N_vs, R_vs) < 0.0) return vec4(0.0);
+				return hit_color * (allowed_luma / hit_luma);
+			}
 
-				float jitter = fract(xi.x * 12.9898 + xi.y * 78.233);
-				float step_size = 0.05 + 0.05 * jitter;
-				vec3 current_pos = pos_vs.xyz + R_vs * step_size * jitter;
+			vec2 get_last_frame_uv(vec3 hit_view_pos) {
+				vec4 world_hit = ssr_data.inv_view * vec4(hit_view_pos, 1.0);
+				vec4 prev_clip = ssr_data.prev_projection * (ssr_data.prev_view * vec4(world_hit.xyz, 1.0));
+
+				if (abs(prev_clip.w) <= 1e-5) {
+					return vec2(-1.0);
+				}
+
+				prev_clip /= prev_clip.w;
+				return prev_clip.xy * 0.5 + 0.5;
+			}
+
+			vec2 get_ssr_rough_sample_xi(vec2 xi, int index) {
+				if (index == 0) return xi;
+				if (index == 1) return fract(xi + vec2(0.5, 0.33333334));
+				return fract(xi + vec2(0.25, 0.6666667));
+			}
+
+			vec4 trace_ssr_direction(vec4 pos_vs, vec3 R_vs, float roughness, float jitter_seed) {
+				if (dot(R_vs, R_vs) <= 1e-5) return vec4(0.0);
+
+				float jitter = mix(0.9, 1.1, jitter_seed);
+				float step_size = 0.08 * jitter;
+				vec3 current_pos = pos_vs.xyz + R_vs * step_size;
 				int steps = int(mix(float(SSR_MAX_STEPS), float(SSR_MAX_STEPS / 2), roughness));
 
 				for (int i = 0; i < steps; i++) {
@@ -222,19 +226,30 @@ return {
 								continue;
 							}
 
+							vec2 last_frame_uv = get_last_frame_uv(end);
+
+							if (last_frame_uv.x <= 0.0 || last_frame_uv.x >= 1.0 || last_frame_uv.y <= 0.0 || last_frame_uv.y >= 1.0) {
+								return vec4(0.0);
+							}
+
 							vec3 hit_color;
 							float dist = length(current_pos - pos_vs.xyz);
+							float mip_level = 0.0;
 
 							if (roughness > 0.1) {
 								vec2 tex_size = vec2(textureSize(TEXTURE(ssr_data.last_frame_tex), 0));
 								float cone = roughness * dist * 0.05;
 								float mip = log2(max(1.0, cone * max(tex_size.x, tex_size.y)));
-								hit_color = textureLod(TEXTURE(ssr_data.last_frame_tex), uv, min(mip, 4.0)).rgb;
+								mip_level = min(mip + 0.75, 5.0);
+								hit_color = textureLod(TEXTURE(ssr_data.last_frame_tex), last_frame_uv, mip_level).rgb;
 							} else {
-								hit_color = texture(TEXTURE(ssr_data.last_frame_tex), uv).rgb;
+								hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb;
 							}
 
+							hit_color = clamp_reflection_fireflies(last_frame_uv, hit_color, mip_level, roughness);
+
 							float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
+							edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
 							float dist_fade = 1.0 - saturate(dist / 100.0);
 							float thick_conf = 1.0 - saturate(depth_diff / thickness);
 							float confidence = edge_fade * dist_fade * thick_conf;
@@ -246,6 +261,57 @@ return {
 				}
 
 				return vec4(0.0);
+			}
+
+			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
+				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
+				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
+
+				vec3 N_vs = normalize(mat3(ssr_data.view) * N);
+				vec3 V_vs = normalize(mat3(ssr_data.view) * V);
+				vec4 pos_vs = ssr_data.view * vec4(world_pos, 1.0);
+
+				vec3 T;
+				vec3 B;
+				buildOrthonormalBasis(N_vs, T, B);
+
+				vec3 mirror_R_vs = reflect(-V_vs, N_vs);
+
+				if (dot(N_vs, mirror_R_vs) < 0.0) return vec4(0.0);
+
+				if (roughness <= SSR_ROUGH_REFLECTION_THRESHOLD) {
+					return trace_ssr_direction(pos_vs, mirror_R_vs, roughness, xi.x);
+				}
+
+				vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
+				float alpha = max(0.001, roughness * roughness);
+				float rough_mix = saturate((roughness - SSR_ROUGH_REFLECTION_THRESHOLD) * 2.0);
+				vec3 color_accum = vec3(0.0);
+				float color_weight = 0.0;
+				float confidence_accum = 0.0;
+
+				for (int sample_index = 0; sample_index < SSR_ROUGH_MULTI_SAMPLES; sample_index++) {
+					vec2 sample_xi = get_ssr_rough_sample_xi(xi, sample_index);
+					vec3 H_local = sampleGGXVNDF(V_local, alpha, sample_xi);
+					vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
+					vec3 sample_R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
+
+					if (dot(N_vs, sample_R_vs) < 0.0) {
+						continue;
+					}
+
+					vec4 sample_hit = trace_ssr_direction(pos_vs, sample_R_vs, roughness, sample_xi.x);
+					float sample_weight = max(sample_hit.a, 0.0) + 0.0001;
+					color_accum += sample_hit.rgb * sample_weight;
+					color_weight += sample_weight;
+					confidence_accum += sample_hit.a;
+				}
+
+				if (color_weight <= 0.0001) {
+					return vec4(0.0);
+				}
+
+				return vec4(color_accum / color_weight, confidence_accum / float(SSR_ROUGH_MULTI_SAMPLES));
 			}
 
 			vec4 compute_current_ssr(ivec2 sample_pos, ivec2 size) {
@@ -261,7 +327,7 @@ return {
 				vec3 world_pos = get_world_pos(uv, depth);
 				vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
 				ivec2 clamped_pos = clamp(sample_pos, ivec2(0), size - ivec2(1));
-				vec2 xi = blue_noise(clamped_pos, ssr_data.frame_index);
+				vec2 xi = blue_noise(clamped_pos);
 				return cast_ssr_ray(world_pos, N, V, roughness, xi);
 			}
 
@@ -270,10 +336,6 @@ return {
 			}
 
 			vec4 resolve_current_ssr(ivec2 pos, ivec2 size, ivec2 local_pos, vec4 current) {
-				if (ssr_data.history_ssr_tex == -1) {
-					return current;
-				}
-
 				vec2 uv = get_screen_uv(pos, size);
 				float depth = get_depth(uv);
 
@@ -281,50 +343,51 @@ return {
 					return current;
 				}
 
-				vec3 world_pos = get_world_pos(uv, depth);
-				vec4 prev_clip = ssr_data.prev_projection * (ssr_data.prev_view * vec4(world_pos, 1.0));
-
-				if (abs(prev_clip.w) <= 0.00001) {
-					return current;
-				}
-
-				vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
-
-				if (prev_uv.x < 0.0 || prev_uv.x > 1.0 || prev_uv.y < 0.0 || prev_uv.y > 1.0) {
-					return current;
-				}
-
-				vec4 history = texture(TEXTURE(ssr_data.history_ssr_tex), prev_uv);
-				vec3 m1 = vec3(0.0);
-				vec3 m2 = vec3(0.0);
-				float a1 = 0.0;
-				float a2 = 0.0;
+				vec3 center_normal = get_normal(uv);
+				float center_roughness = get_roughness(uv);
+				vec4 accum = vec4(0.0);
+				float total_weight = 0.0;
 
 				for (int y = -1; y <= 1; y++) {
 					for (int x = -1; x <= 1; x++) {
+						ivec2 sample_pos = clamp(pos + ivec2(x, y), ivec2(0), size - ivec2(1));
+						vec2 sample_uv = get_screen_uv(sample_pos, size);
+						float sample_depth = get_depth(sample_uv);
+
+						if (sample_depth == 1.0) {
+							continue;
+						}
+
 						vec4 sample_value = ssr_tile[local_pos.y + 1 + y][local_pos.x + 1 + x];
-						m1 += sample_value.rgb;
-						m2 += sample_value.rgb * sample_value.rgb;
-						a1 += sample_value.a;
-						a2 += sample_value.a * sample_value.a;
+
+						if (sample_value.a <= 0.0001) {
+							continue;
+						}
+
+						vec3 sample_normal = get_normal(sample_uv);
+						float sample_roughness = get_roughness(sample_uv);
+						float depth_weight = exp(-abs(sample_depth - depth) * SSR_SPATIAL_DEPTH_WEIGHT);
+						float normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), SSR_SPATIAL_NORMAL_POWER);
+						float roughness_weight = 1.0 - saturate(abs(sample_roughness - center_roughness) * 6.0);
+						float kernel_weight = (x == 0 && y == 0) ? 4.0 : ((x == 0 || y == 0) ? 2.0 : 1.0);
+						float weight = kernel_weight * depth_weight * normal_weight * roughness_weight * sample_value.a;
+
+						if (weight <= 0.0001) {
+							continue;
+						}
+
+						accum += vec4(sample_value.rgb * weight, sample_value.a * weight);
+						total_weight += weight;
 					}
 				}
 
-				m1 /= 9.0;
-				m2 /= 9.0;
-				a1 /= 9.0;
-				a2 /= 9.0;
+				if (total_weight <= 0.0001) {
+					return current;
+				}
 
-				vec3 sigma = sqrt(max(vec3(0.0), m2 - m1 * m1));
-				float sigma_a = sqrt(max(0.0, a2 - a1 * a1));
-				float gamma = 1.5;
-				vec3 clamped_rgb = clamp(history.rgb, m1 - sigma * gamma, m1 + sigma * gamma);
-				float clamped_a = clamp(history.a, a1 - sigma_a * gamma, a1 + sigma_a * gamma);
-				vec4 clamped_history = vec4(clamped_rgb, clamped_a);
-				float blend = 0.5;
-				float clamp_diff = length(history.rgb - clamped_rgb);
-				blend *= 1.0 - saturate(clamp_diff * 2.0);
-				return mix(current, clamped_history, blend);
+				vec4 filtered = accum / total_weight;
+				float confidence = max(current.a, filtered.a);
+				return vec4(filtered.rgb, confidence);
 			}
 
 			void main() {

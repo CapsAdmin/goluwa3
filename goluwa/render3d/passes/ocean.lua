@@ -241,6 +241,8 @@ return {
 						render3d.common_block,
 						{"scene_tex", "int"},
 						{"depth_tex", "int"},
+						{"normal_tex", "int"},
+						{"mra_tex", "int"},
 						{"env_tex", "int"},
 						{"ssr_tex", "int"},
 						{"atmosphere_transmittance_texture_index", "int"},
@@ -266,6 +268,8 @@ return {
 						end
 
 						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+						block.normal_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
+						block.mra_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
 						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 
 						if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
@@ -512,7 +516,7 @@ return {
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
-			]] .. ibl.GetReflectionGLSLCode() .. [[
+			]] .. ibl.GetReflectionGLSLCode("ocean_data") .. [[
 
 			]] .. atmosphere.GetSurfaceAerialPerspectiveGLSLCode("get_environment_color(dir, 0.0)") .. [[
 
@@ -523,14 +527,14 @@ return {
 
 			vec3 get_reflection_color(vec3 reflection_dir, vec3 normal, vec2 ssr_uv, float ssr_weight) {
 				vec3 reflected = get_atmosphere_background_color(reflection_dir);
+				float roughness = get_ocean_reflection_roughness(normal);
 
 				if (ocean_data.env_tex != -1) {
-					float roughness = get_ocean_reflection_roughness(normal);
 					reflected = sample_environment_specular(ocean_data.env_tex, reflection_dir, normal, roughness);
 				}
 
-				vec4 ssr = get_filtered_ssr_reflection(ocean_data.ssr_tex, ssr_uv);
-				reflected = combine_reflections(reflected, ssr, ssr_weight);
+				vec4 ssr = get_filtered_ssr_reflection(ssr_uv);
+				reflected = combine_reflections(reflected, ssr, ssr_weight * get_ssr_blend_weight(roughness));
 
 				return reflected;
 			}
