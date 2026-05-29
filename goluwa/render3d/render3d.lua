@@ -448,6 +448,7 @@ function render3d.Initialize()
 		render3d.pipelines_i[i].name = config.name
 		render3d.pipelines_i[i].post_draw = config.post_draw
 		render3d.pipelines_i[i].draw_in_prerender = config.draw_in_prerender ~= false
+		render3d.pipelines_i[i].use_global_sampler_config = config.UseGlobalSamplerConfig ~= false
 	end
 
 	local size = render.GetRenderImageSize()
@@ -460,7 +461,11 @@ function render3d.Initialize()
 		render3d.GetSceneVoxelizer().Update(render3d.camera:GetPosition())
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
-			pipeline:SetSamplerConfig(sampler_config)
+			if pipeline.use_global_sampler_config then
+				pipeline:SetSamplerConfig(sampler_config)
+			else
+				pipeline:SetSamplerConfig(nil)
+			end
 
 			if pipeline.name ~= "blit" and pipeline.draw_in_prerender then
 				pipeline:Draw()
@@ -516,7 +521,11 @@ function render3d.Draw(dt)
 	local sampler_config = render.GetSamplerFilterConfig()
 
 	for _, pipeline in ipairs(render3d.pipelines_i) do
-		pipeline:SetSamplerConfig(sampler_config)
+		if pipeline.use_global_sampler_config then
+			pipeline:SetSamplerConfig(sampler_config)
+		else
+			pipeline:SetSamplerConfig(nil)
+		end
 	end
 
 	-- render to the screen

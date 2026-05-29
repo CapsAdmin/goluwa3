@@ -19,25 +19,6 @@ local function get_bloom_texture()
 	return framebuffer:GetAttachment(1)
 end
 
-local function get_blit_compute_texture()
-	if not render3d.pipelines.blit_compute then return nil end
-
-	local framebuffer = render3d.pipelines.blit_compute:GetFramebuffer()
-
-	if not framebuffer then return nil end
-
-	return framebuffer:GetAttachment(1)
-end
-
-local function get_descriptor_texture_args(texture)
-	texture = texture or render.GetErrorTexture()
-	return {
-		texture:GetView(),
-		texture.sampler or
-		render.CreateSampler(texture:GetSamplerConfig()),
-	}
-end
-
 local function get_luminance_texture()
 	if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
 		return nil
@@ -185,35 +166,22 @@ local r = {
 		RasterizationSamples = function()
 			return render.target.samples
 		end,
-		on_pre_draw = function(self, _, frame_index)
-			frame_index = frame_index or render.GetCurrentFrame() or 1
+		on_pre_draw = function(self)
+			self._cached_blit_source_tex = -1
 
-			if frame_index < 1 then frame_index = 1 end
+			if not render3d.pipelines.blit_compute then return end
 
-			if self:GetDescriptorSetCount() > 0 and frame_index > self:GetDescriptorSetCount() then
-				frame_index = ((frame_index - 1) % self:GetDescriptorSetCount()) + 1
-			end
+			local framebuffer = render3d.pipelines.blit_compute:GetFramebuffer()
 
-			self:UpdateDescriptorSet(
-				"combined_image_sampler",
-				frame_index,
-				0,
-				2,
-				unpack(get_descriptor_texture_args(get_blit_compute_texture()))
-			)
+			if not framebuffer then return end
+
+			local texture = framebuffer:GetAttachment(1)
+
+			if not texture then return end
+
+			self._cached_blit_source_tex = self:GetTextureIndex(texture)
 		end,
 		fragment = {
-			descriptor_sets = {
-				{
-					type = "combined_image_sampler",
-					binding_index = 0,
-					set_index = 2,
-					update_after_bind = true,
-					args = function()
-						return get_descriptor_texture_args(nil)
-					end,
-				},
-			},
 			push_constants = {
 				{
 					name = "blit_present",
@@ -221,25 +189,12 @@ local r = {
 						{"source_tex", "int"},
 					},
 					write = function(self, block)
-						if not render3d.pipelines.blit_compute then
-							block.source_tex = -1
-							return block
-						end
-
-						local framebuffer = render3d.pipelines.blit_compute:GetFramebuffer()
-
-						if not framebuffer then
-							block.source_tex = -1
-							return block
-						end
-
-						block.source_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
+						block.source_tex = self._cached_blit_source_tex or -1
 						return block
 					end,
 				},
 			},
 			shader = [[
-				layout(set = 2, binding = 0) uniform sampler2D blit_source_tex;
 				layout(location = 0) out vec4 frag_color;
 
 				void main() {
@@ -248,7 +203,7 @@ local r = {
 						return;
 					}
 
-					frag_color = texture(blit_source_tex, in_uv);
+					frag_color = texture(TEXTURE(blit_present.source_tex), in_uv);
 				}
 			]],
 		},

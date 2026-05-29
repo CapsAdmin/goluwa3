@@ -263,7 +263,12 @@ function CommandBuffer.New(command_pool)
 		),
 		"failed to allocate command buffer"
 	)
-	return CommandBuffer:CreateObject{ptr = ptr, command_pool = command_pool, is_recording = false}
+	return CommandBuffer:CreateObject{
+		ptr = ptr,
+		command_pool = command_pool,
+		is_recording = false,
+		recording_serial = 0,
+	}
 end
 
 function CommandBuffer:OnRemove()
@@ -291,6 +296,7 @@ function CommandBuffer:Begin()
 	self.bound_index_buffer = nil
 	self.dynamic_state_cache = {}
 	self.keepalive_resources = nil
+	self.recording_serial = (self.recording_serial or 0) + 1
 	vulkan.assert(
 		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
 			flags = "one_time_submit",

@@ -1839,13 +1839,17 @@ function EasyPipeline.New(config)
 	end
 
 	local function get_push_constant_entries(cmd)
-		local entries = push_constant_cache_by_cmd[cmd]
+		local serial = cmd and cmd.recording_serial or 0
+		local cache = push_constant_cache_by_cmd[cmd]
 
-		if entries then return entries end
+		if cache and cache.serial == serial then return cache.entries end
 
-		entries = {}
-		push_constant_cache_by_cmd[cmd] = entries
-		return entries
+		cache = {
+			serial = serial,
+			entries = {},
+		}
+		push_constant_cache_by_cmd[cmd] = cache
+		return cache.entries
 	end
 
 	local function should_push_constants(cmd, pipeline_key, stage_key, offset, data, size)
@@ -2951,7 +2955,6 @@ function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 		self.on_draw(self, cmd)
 	else
 		self:UploadConstants()
-		self:Bind(cmd, resolved_frame_index, self.dynamic_offsets)
 		cmd:Draw(vertex_count, 1, 0, 0)
 	end
 
@@ -2970,7 +2973,6 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 		function()
 			begin_draw(self, cmd, fb, resolved_frame_index)
 			self:UploadConstants()
-			self:Bind(cmd, resolved_frame_index, self.dynamic_offsets)
 			cmd:DrawMeshTasks(gx, gy, gz)
 		end,
 		debug.traceback
