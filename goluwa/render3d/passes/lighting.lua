@@ -6,6 +6,7 @@ local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
@@ -18,6 +19,7 @@ local MAX_CASCADES = scene_lights.MAX_CASCADES
 local MAX_POINT_SHADOWS = scene_lights.MAX_POINT_SHADOWS
 local MAX_PROBES = 64
 local MAX_VOXEL_GI_CLIPMAPS = 3
+local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local voxel_gi_fallback = {
 	texture = nil,
 	view = nil,
@@ -72,7 +74,6 @@ local function get_voxel_fallback_descriptor()
 	voxel_gi_fallback.texture = nil
 	voxel_gi_fallback.view = nil
 	voxel_gi_fallback.sampler = nil
-
 	voxel_gi_fallback.texture = Texture.New{
 		width = 1,
 		height = 1,
@@ -105,8 +106,10 @@ end
 local function get_voxel_axis_descriptor(clipmap_index, axis_name)
 	return function()
 		local voxelizer = render3d.GetSceneVoxelizer and render3d.GetSceneVoxelizer() or nil
-		local target = voxelizer and voxelizer.GetClipmapLightingAxisTarget and
-			voxelizer.GetClipmapLightingAxisTarget(clipmap_index, axis_name) or nil
+		local target = voxelizer and
+			voxelizer.GetClipmapLightingAxisTarget and
+			voxelizer.GetClipmapLightingAxisTarget(clipmap_index, axis_name) or
+			nil
 
 		if
 			target and
@@ -167,8 +170,10 @@ local function update_voxel_gi_descriptors(self, frame_index)
 		local clipmap_index = descriptor[1]
 		local axis_name = descriptor[2]
 		local binding_index = descriptor[3]
-		local target = voxelizer and voxelizer.GetClipmapLightingAxisTarget and
-			voxelizer.GetClipmapLightingAxisTarget(clipmap_index, axis_name) or nil
+		local target = voxelizer and
+			voxelizer.GetClipmapLightingAxisTarget and
+			voxelizer.GetClipmapLightingAxisTarget(clipmap_index, axis_name) or
+			nil
 		local target_view
 		local target_sampler
 
@@ -201,229 +206,249 @@ end
 return {
 	{
 		name = "lighting",
+		ComputePass = true,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"voxel_gi", "rgba"}},
 		},
 		framebuffer_count = 2,
-		on_pre_draw = function(self, _, frame_index)
-			update_voxel_gi_descriptors(self, frame_index)
-		end,
-		on_draw = function(self, cmd)
-			self:UploadConstants()
-			cmd:Draw(3, 1, 0, 0)
-		end,
-		fragment = {
-			descriptor_sets = {
-				{
-					type = "combined_image_sampler",
-					binding_index = 0,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(1, "x"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 1,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(1, "y"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 2,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(1, "z"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 3,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(2, "x"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 4,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(2, "y"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 5,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(2, "z"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 6,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(3, "x"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 7,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(3, "y"),
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 8,
-					set_index = 2,
-					update_after_bind = true,
-					args = get_voxel_axis_descriptor(3, "z"),
-				},
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = 0,
+				attachment = 1,
+				dst_stage = "fragment",
 			},
-			uniform_buffers = {
-				{
-					name = "lighting_data",
-					binding_index = 3,
-					block = {
-						render3d.camera_block,
-						{"ssao_kernel", "vec3", 64},
-						{"lights", scene_lights.BuildLightsBlockLayout(), 128},
-						{"light_count", "int"},
-						{"shadows", scene_lights.BuildShadowsBlockLayout()},
-						render3d.debug_block,
-						render3d.gbuffer_block,
-						{"env_tex", "int"},
-						{"blue_noise_tex", "int"},
-						render3d.last_frame_block,
-						render3d.common_block,
-						{"primary_sun_intensity", "float"},
-						{"primary_sun_color", "vec4"},
-						{"primary_sun_direction", "vec4"},
-						{"voxel_gi_clipmap_count", "int"},
-						{"voxel_gi_strength", "float"},
-						{"voxel_gi_clipmap_origins", "vec4", 3},
-						{"voxel_gi_clipmap_data", "vec4", 3},
-						{"atmosphere_transmittance_texture_index", "int"},
-						{"ssr_tex", "int"},
-						{"probe_color_textures", "int", 64},
-						{"probe_depth_textures", "int", 64},
-						{"probe_positions", "vec4", 64},
-					},
-					write = function(self, block)
-						render3d.WriteCameraBlock(self, block)
+			{
+				binding_index = 1,
+				attachment = 2,
+				dst_stage = "fragment",
+			},
+		},
+		on_pre_draw = function(self, _, frame_index, descriptor_frame_index)
+			update_voxel_gi_descriptors(self, descriptor_frame_index or frame_index)
+		end,
+		descriptor_sets = {
+			{
+				type = "combined_image_sampler",
+				binding_index = 0,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(1, "x"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 1,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(1, "y"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 2,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(1, "z"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 3,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(2, "x"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 4,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(2, "y"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 5,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(2, "z"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 6,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(3, "x"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 7,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(3, "y"),
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 8,
+				set_index = 2,
+				update_after_bind = true,
+				args = get_voxel_axis_descriptor(3, "z"),
+			},
+		},
+		uniform_buffers = {
+			{
+				name = "lighting_data",
+				binding_index = 3,
+				block = {
+					render3d.camera_block,
+					{"ssao_kernel", "vec3", 64},
+					{"lights", scene_lights.BuildLightsBlockLayout(), 128},
+					{"light_count", "int"},
+					{"shadows", scene_lights.BuildShadowsBlockLayout()},
+					render3d.debug_block,
+					render3d.gbuffer_block,
+					{"env_tex", "int"},
+					{"blue_noise_tex", "int"},
+					render3d.last_frame_block,
+					render3d.common_block,
+					{"primary_sun_intensity", "float"},
+					{"primary_sun_color", "vec4"},
+					{"primary_sun_direction", "vec4"},
+					{"voxel_gi_clipmap_count", "int"},
+					{"voxel_gi_strength", "float"},
+					{"voxel_gi_clipmap_origins", "vec4", 3},
+					{"voxel_gi_clipmap_data", "vec4", 3},
+					{"atmosphere_transmittance_texture_index", "int"},
+					{"ssr_tex", "int"},
+					{"probe_color_textures", "int", 64},
+					{"probe_depth_textures", "int", 64},
+					{"probe_positions", "vec4", 64},
+				},
+				write = function(self, block)
+					render3d.WriteCameraBlock(self, block)
 
-						for i, sample in ipairs(SSAO_KERNEL) do
-							sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
-						end
+					for i, sample in ipairs(SSAO_KERNEL) do
+						sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
+					end
 
-						local lights = render3d.GetLights()
-						local light_count = math.min(#lights, MAX_LIGHTS)
-						block.light_count = light_count
-						write_lights_block(block.lights, lights)
-						write_shadow_block(self, block.shadows, lights)
-						render3d.WriteDebugBlock(self, block)
-						render3d.WriteGBufferBlock(self, block)
-						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-						render3d.WriteLastFrameBlock(self, block)
-						render3d.WriteCommonBlock(self, block)
-						local primary_sun = get_primary_sun(lights)
-						get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
-						block.primary_sun_intensity = get_primary_sun_intensity(lights)
-						block.primary_sun_color[0] = primary_sun and primary_sun.Color.x or 1
-						block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
-						block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
-						block.primary_sun_color[3] = 0
-						block.voxel_gi_clipmap_count = 0
-						block.voxel_gi_strength = 0.2
+					local lights = render3d.GetLights()
+					local light_count = math.min(#lights, MAX_LIGHTS)
+					block.light_count = light_count
+					write_lights_block(block.lights, lights)
+					write_shadow_block(self, block.shadows, lights)
+					render3d.WriteDebugBlock(self, block)
+					render3d.WriteGBufferBlock(self, block)
+					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+					render3d.WriteLastFrameBlock(self, block)
+					render3d.WriteCommonBlock(self, block)
+					local primary_sun = get_primary_sun(lights)
+					get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
+					block.primary_sun_intensity = get_primary_sun_intensity(lights)
+					block.primary_sun_color[0] = primary_sun and primary_sun.Color.x or 1
+					block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
+					block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
+					block.primary_sun_color[3] = 0
+					block.voxel_gi_clipmap_count = 0
+					block.voxel_gi_strength = 0.2
 
-						for i = 0, MAX_VOXEL_GI_CLIPMAPS - 1 do
-							block.voxel_gi_clipmap_origins[i][0] = 0
-							block.voxel_gi_clipmap_origins[i][1] = 0
-							block.voxel_gi_clipmap_origins[i][2] = 0
-							block.voxel_gi_clipmap_origins[i][3] = 0
-							block.voxel_gi_clipmap_data[i][0] = 0
-							block.voxel_gi_clipmap_data[i][1] = 0
-							block.voxel_gi_clipmap_data[i][2] = 0
-							block.voxel_gi_clipmap_data[i][3] = 0
-						end
+					for i = 0, MAX_VOXEL_GI_CLIPMAPS - 1 do
+						block.voxel_gi_clipmap_origins[i][0] = 0
+						block.voxel_gi_clipmap_origins[i][1] = 0
+						block.voxel_gi_clipmap_origins[i][2] = 0
+						block.voxel_gi_clipmap_origins[i][3] = 0
+						block.voxel_gi_clipmap_data[i][0] = 0
+						block.voxel_gi_clipmap_data[i][1] = 0
+						block.voxel_gi_clipmap_data[i][2] = 0
+						block.voxel_gi_clipmap_data[i][3] = 0
+					end
 
-						local voxelizer = render3d.GetSceneVoxelizer and render3d.GetSceneVoxelizer() or nil
+					local voxelizer = render3d.GetSceneVoxelizer and render3d.GetSceneVoxelizer() or nil
 
-						if voxelizer and voxelizer.IsEnabled and voxelizer:IsEnabled() then
-							local clipmap_count = math.min(voxelizer.clipmap_count or 0, MAX_VOXEL_GI_CLIPMAPS)
+					if voxelizer and voxelizer.IsEnabled and voxelizer:IsEnabled() then
+						local clipmap_count = math.min(voxelizer.clipmap_count or 0, MAX_VOXEL_GI_CLIPMAPS)
 
-							for i = 1, clipmap_count do
-								local clipmap = voxelizer.GetClipmap and voxelizer.GetClipmap(i) or nil
-								local target = voxelizer.GetClipmapLightingAxisTarget and
-									voxelizer.GetClipmapLightingAxisTarget(i, "x") or nil
-								local lighting_origin = voxelizer.GetClipmapLightingOrigin and
-									voxelizer.GetClipmapLightingOrigin(i) or nil
-								local idx = i - 1
+						for i = 1, clipmap_count do
+							local clipmap = voxelizer.GetClipmap and voxelizer.GetClipmap(i) or nil
+							local target = voxelizer.GetClipmapLightingAxisTarget and
+								voxelizer.GetClipmapLightingAxisTarget(i, "x") or
+								nil
+							local lighting_origin = voxelizer.GetClipmapLightingOrigin and
+								voxelizer.GetClipmapLightingOrigin(i) or
+								nil
+							local idx = i - 1
 
-								if clipmap and lighting_origin and clipmap.has_valid_data == true and target and target.sample_view and target.sampler then
-									block.voxel_gi_clipmap_count = i
-									block.voxel_gi_clipmap_origins[idx][0] = lighting_origin.x
-									block.voxel_gi_clipmap_origins[idx][1] = lighting_origin.y
-									block.voxel_gi_clipmap_origins[idx][2] = lighting_origin.z
-									block.voxel_gi_clipmap_origins[idx][3] = 1
-									block.voxel_gi_clipmap_data[idx][0] = clipmap.voxel_size or 0
-									block.voxel_gi_clipmap_data[idx][1] = clipmap.world_span or 0
-									block.voxel_gi_clipmap_data[idx][2] = clipmap.resolution or 0
-									block.voxel_gi_clipmap_data[idx][3] = 1
-								end
+							if
+								clipmap and
+								lighting_origin and
+								clipmap.has_valid_data == true and
+								target and
+								target.sample_view and
+								target.sampler
+							then
+								block.voxel_gi_clipmap_count = i
+								block.voxel_gi_clipmap_origins[idx][0] = lighting_origin.x
+								block.voxel_gi_clipmap_origins[idx][1] = lighting_origin.y
+								block.voxel_gi_clipmap_origins[idx][2] = lighting_origin.z
+								block.voxel_gi_clipmap_origins[idx][3] = 1
+								block.voxel_gi_clipmap_data[idx][0] = clipmap.voxel_size or 0
+								block.voxel_gi_clipmap_data[idx][1] = clipmap.world_span or 0
+								block.voxel_gi_clipmap_data[idx][2] = clipmap.resolution or 0
+								block.voxel_gi_clipmap_data[idx][3] = 1
 							end
 						end
+					end
 
-						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+					block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 
-						if
-							not render3d.pipelines.ssr_resolve or
-							not render3d.pipelines.ssr_resolve.framebuffers
-						then
-							block.ssr_tex = -1
-						else
-							local current_idx = system.GetFrameNumber() % 2 + 1
-							local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
-							block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
-						end
+					if
+						not render3d.pipelines.ssr_resolve or
+						not render3d.pipelines.ssr_resolve.framebuffers
+					then
+						block.ssr_tex = -1
+					else
+						local current_idx = system.GetFrameNumber() % 2 + 1
+						local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
+						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
+					end
+
+					for i = 0, MAX_PROBES - 1 do
+						block.probe_color_textures[i] = -1
+						block.probe_depth_textures[i] = -1
+						block.probe_positions[i][0] = 0
+						block.probe_positions[i][1] = 0
+						block.probe_positions[i][2] = 0
+						block.probe_positions[i][3] = 0
+					end
+
+					if lightprobes.IsEnabled() then
+						local probes = lightprobes.GetProbes()
 
 						for i = 0, MAX_PROBES - 1 do
-							block.probe_color_textures[i] = -1
-							block.probe_depth_textures[i] = -1
-							block.probe_positions[i][0] = 0
-							block.probe_positions[i][1] = 0
-							block.probe_positions[i][2] = 0
-							block.probe_positions[i][3] = 0
-						end
+							local probe = probes[i + 1]
 
-						if lightprobes.IsEnabled() then
-							local probes = lightprobes.GetProbes()
-
-							for i = 0, MAX_PROBES - 1 do
-								local probe = probes[i + 1]
-
-								if probe then
-									if probe.cubemap then
-										block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
-									end
-
-									if probe.depth_cubemap then
-										block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
-									end
-
-									block.probe_positions[i][0] = probe.position.x
-									block.probe_positions[i][1] = probe.position.y
-									block.probe_positions[i][2] = probe.position.z
-									block.probe_positions[i][3] = probe.radius or 20
+							if probe then
+								if probe.cubemap then
+									block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
 								end
+
+								if probe.depth_cubemap then
+									block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
+								end
+
+								block.probe_positions[i][0] = probe.position.x
+								block.probe_positions[i][1] = probe.position.y
+								block.probe_positions[i][2] = probe.position.z
+								block.probe_positions[i][3] = probe.radius or 20
 							end
 						end
+					end
 
-						return block
-					end,
-				},
+					return block
+				end,
 			},
-			custom_declarations = [[
+		},
+		custom_declarations = [[
+				layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+				layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_voxel_gi;
 			layout(set = 2, binding = 0) uniform sampler2DArray voxel_volume_x_1;
 			layout(set = 2, binding = 1) uniform sampler2DArray voxel_volume_y_1;
 			layout(set = 2, binding = 2) uniform sampler2DArray voxel_volume_z_1;
@@ -434,7 +459,22 @@ return {
 			layout(set = 2, binding = 7) uniform sampler2DArray voxel_volume_y_3;
 			layout(set = 2, binding = 8) uniform sampler2DArray voxel_volume_z_3;
 			]],
-			shader = [[
+		shader = [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			vec2 get_compute_uv() {
+				return get_screen_uv(get_screen_pos(), imageSize(out_color));
+			}
+
+			vec2 in_uv;
+
+			void set_color(vec4 value) {
+				imageStore(out_color, get_screen_pos(), value);
+			}
+
+			void set_voxel_gi(vec4 value) {
+				imageStore(out_voxel_gi, get_screen_pos(), value);
+			}
+
 			vec3 get_albedo() {
 				return texture(TEXTURE(lighting_data.albedo_tex), in_uv).rgb;
 			}
@@ -534,7 +574,7 @@ return {
 				return vec3(x, y, z) * 2.0 - 1.0;
 			}
 
-			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_data", "calculateShadow") .. [[
+			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_data", "calculateShadow", {use_receiver_plane_bias = false}) .. [[
 
 			int getPointShadowSlot(int light_index) {
 				for (int i = 0; i < lighting_data.shadows.point_shadow_count; i++) {
@@ -1181,6 +1221,12 @@ return {
 			}
 
 			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+				in_uv = get_compute_uv();
+
 				float depth = get_depth();
 
 				if (depth == 1.0) {
@@ -1190,7 +1236,11 @@ return {
 				}
 
 				float alpha = get_alpha();
-				if (alpha == 0.0) discard;
+				if (alpha == 0.0) {
+					set_color(vec4(0.0, 0.0, 0.0, 0.0));
+					set_voxel_gi(vec4(0.0, 0.0, 0.0, 0.0));
+					return;
+				}
 
 
 				vec3 N = get_normal();
@@ -1211,9 +1261,9 @@ return {
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N);
 				vec3 voxel_irradiance = get_voxel_indirect_irradiance(world_pos, N);
 				vec3 irradiance = get_irradiance(N, V, world_pos) + voxel_irradiance;
-				set_color(vec4(irradiance, alpha));
+				/*set_color(vec4(irradiance, alpha));
 				set_voxel_gi(vec4(voxel_irradiance, alpha));
-				{return;}
+				{return;}*/
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, voxel_irradiance, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
@@ -1248,7 +1298,6 @@ return {
 				set_voxel_gi(vec4(voxel_irradiance, alpha));
 			}
 		]],
-		},
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,

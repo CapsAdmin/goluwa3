@@ -4,6 +4,28 @@ local prototype = import("goluwa/prototype.lua")
 local UniformBuffer = prototype.CreateTemplate("render_uniform_buffer")
 
 function UniformBuffer.New(decl)
+	if type(decl) ~= "string" then
+		local struct = decl
+		assert(ffi.sizeof(struct) > 0, "UniformBuffer struct size must be greater than 0")
+		local self = UniformBuffer:CreateObject()
+		self.size = ffi.sizeof(struct)
+		self.aligned_size = math.ceil(self.size / 256) * 256
+		self.max_uploads = 8192
+		self.frame_count = 3
+		self.ring_size = self.aligned_size * self.max_uploads * self.frame_count
+		self.data = struct()
+		self.struct = struct
+		self.buffer = render.CreateBuffer{
+			byte_size = self.ring_size,
+			buffer_usage = {"uniform_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+		}
+		self.current_offset = 0
+		self.current_slot = 0
+		self.persistent_slot_count = 0
+		return self
+	end
+
 	-- Check if this declaration contains $ placeholders (indicating nested structs)
 	local has_nested = decl:match("%$")
 	local struct

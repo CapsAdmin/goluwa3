@@ -2,207 +2,253 @@ local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
+local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 
-local function get_scene_source_texture(self, block, key)
-	post_source.WriteSceneSourceTexture(self, block, key)
+local function get_scene_source_texture()
+	return post_source.GetSceneSourceTexture({name = "blit_compute"})
 end
 
-local function get_blit_source_texture(self, block, key)
-	get_scene_source_texture(self, block, key)
+local function get_bloom_texture()
+	if not render3d.pipelines.bloom_up0 then return nil end
+
+	local framebuffer = render3d.pipelines.bloom_up0:GetFramebuffer()
+
+	if not framebuffer then return nil end
+
+	return framebuffer:GetAttachment(1)
 end
 
-local function get_is_debug_view(_, block, key)
-	block[key] = 0
+local function get_blit_compute_texture()
+	if not render3d.pipelines.blit_compute then return nil end
+
+	local framebuffer = render3d.pipelines.blit_compute:GetFramebuffer()
+
+	if not framebuffer then return nil end
+
+	return framebuffer:GetAttachment(1)
 end
 
+local function get_descriptor_texture_args(texture)
+	texture = texture or render.GetErrorTexture()
+	return {
+		texture:GetView(),
+		texture.sampler or
+		render.CreateSampler(texture:GetSamplerConfig()),
+	}
+end
+
+local function get_luminance_texture()
+	if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
+		return nil
+	end
+
+	local current_idx = system.GetFrameNumber() % 2 + 1
+	local framebuffer = render3d.pipelines.luminance:GetFramebuffer(current_idx)
+
+	if not framebuffer then return nil end
+
+	return framebuffer:GetAttachment(1)
+end
+
+local compute_shader = [[
+	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+	layout(set = 0, binding = 1) uniform sampler2D source_tex;
+	layout(set = 0, binding = 2) uniform sampler2D bloom_tex;
+	layout(set = 0, binding = 3) uniform sampler2D luma_tex;
+	]] .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. [[
+
+	void main() {
+		ivec2 pos = get_screen_pos();
+		ivec2 size = imageSize(out_color);
+
+		if (!is_screen_pos_in_bounds(pos, size)) return;
+
+		if (compute.has_source_tex == 0) {
+			imageStore(out_color, pos, vec4(1.0, 0.0, 1.0, 1.0));
+			return;
+		}
+
+		vec2 uv = get_screen_uv(pos, size);
+		vec3 col = texture(source_tex, uv).rgb;
+
+		if (compute.is_debug_view == 1) {
+			col = clamp(col, vec3(0.0), vec3(1.0));
+
+			if (compute.requires_manual_gamma == 1) {
+				col = LinearToSRGB(col);
+			}
+
+			imageStore(out_color, pos, vec4(col, 1.0));
+			return;
+		}
+
+		vec3 bloom = vec3(0.0);
+
+		if (compute.has_bloom_tex != 0) {
+			bloom = texture(bloom_tex, uv).rgb;
+		}
+
+		float exposure = 1.0;
+
+		if (compute.has_luma_tex != 0) {
+			float avg_log_luma = 0.0;
+			int samples = 0;
+
+			for (float y = 0.125; y < 1.0; y += 0.25) {
+				for (float x = 0.125; x < 1.0; x += 0.25) {
+					avg_log_luma += texture(luma_tex, vec2(x, y)).r;
+					samples++;
+				}
+			}
+
+			avg_log_luma /= float(samples);
+			float avg_luma = exp2(avg_log_luma);
+			float target_luma = 0.5;
+			exposure = target_luma / max(avg_luma, 0.001);
+			exposure = clamp(exposure, 0.1, 4.0);
+		}
+
+		float bloom_luma = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
+		float bloom_strength = 0.03;
+		float bloom_exposure_scale = clamp(1.0 / sqrt(max(exposure, 0.35)), 0.7, 1.25);
+		float bloom_soft_clip = 1.0 / (1.0 + bloom_luma * 0.35);
+		col += bloom * bloom_strength * bloom_exposure_scale * bloom_soft_clip;
+
+		if (compute.is_hdr == 1) {
+			col = tonemap(pow(col * 1.5, vec3(0.8)), exposure) * 1.2;
+		} else {
+			col = tonemap_lottes(col * exposure);
+		}
+
+		if (compute.requires_manual_gamma == 1) {
+			col = LinearToSRGB(col);
+		}
+
+		vec2 vignette_uv = uv * 2.0 - 1.0;
+		float aspect = float(textureSize(source_tex, 0).x) / float(textureSize(source_tex, 0).y);
+		vignette_uv.x *= aspect;
+		float vignette = smoothstep(4.0, 0.6, length(vignette_uv));
+		col *= vignette;
+
+		imageStore(out_color, pos, vec4(col, 1.0));
+	}
+]]
 local r = {
+	{
+		name = "blit_compute",
+		ComputePass = true,
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = 0,
+				attachment = 1,
+				dst_stage = "fragment",
+			},
+		},
+		sampled_images = {
+			{
+				binding_index = 1,
+				get_texture = get_scene_source_texture,
+			},
+			{
+				binding_index = 2,
+				get_texture = get_bloom_texture,
+			},
+			{
+				binding_index = 3,
+				get_texture = get_luminance_texture,
+			},
+		},
+		block = {
+			{"has_source_tex", "int"},
+			{"is_debug_view", "int"},
+			{"has_bloom_tex", "int"},
+			{"has_luma_tex", "int"},
+			{"requires_manual_gamma", "int"},
+			{"is_hdr", "int"},
+		},
+		write = function(self, block)
+			block.has_source_tex = get_scene_source_texture() and 1 or 0
+			block.is_debug_view = 0
+			block.has_bloom_tex = get_bloom_texture() and 1 or 0
+			block.has_luma_tex = get_luminance_texture() and 1 or 0
+			block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
+			block.is_hdr = render.target:IsHDR() and 1 or 0
+			return block
+		end,
+		shader = compute_shader,
+	},
 	{
 		name = "blit",
 		RasterizationSamples = function()
 			return render.target.samples
 		end,
+		on_pre_draw = function(self, _, frame_index)
+			frame_index = frame_index or render.GetCurrentFrame() or 1
+
+			if frame_index < 1 then frame_index = 1 end
+
+			if self:GetDescriptorSetCount() > 0 and frame_index > self:GetDescriptorSetCount() then
+				frame_index = ((frame_index - 1) % self:GetDescriptorSetCount()) + 1
+			end
+
+			self:UpdateDescriptorSet(
+				"combined_image_sampler",
+				frame_index,
+				0,
+				2,
+				unpack(get_descriptor_texture_args(get_blit_compute_texture()))
+			)
+		end,
 		fragment = {
+			descriptor_sets = {
+				{
+					type = "combined_image_sampler",
+					binding_index = 0,
+					set_index = 2,
+					update_after_bind = true,
+					args = function()
+						return get_descriptor_texture_args(nil)
+					end,
+				},
+			},
 			push_constants = {
 				{
-					name = "blit",
+					name = "blit_present",
 					block = {
 						{"source_tex", "int"},
-						{"is_debug_view", "int"},
-						{"bloom_tex", "int"},
-						{"luma_tex", "int"},
-						{"requires_manual_gamma", "int"},
-						{"is_hdr", "int"},
 					},
 					write = function(self, block)
-						get_blit_source_texture(self, block, "source_tex")
-						get_is_debug_view(self, block, "is_debug_view")
-
-						if not render3d.pipelines.bloom_up0 then
-							block.bloom_tex = -1
-						else
-							block.bloom_tex = self:GetTextureIndex(render3d.pipelines.bloom_up0:GetFramebuffer():GetAttachment(1))
+						if not render3d.pipelines.blit_compute then
+							block.source_tex = -1
+							return block
 						end
 
-						if not render3d.pipelines.luminance or not render3d.pipelines.luminance.framebuffers then
-							block.luma_tex = -1
-						else
-							local current_idx = system.GetFrameNumber() % 2 + 1
-							block.luma_tex = self:GetTextureIndex(render3d.pipelines.luminance:GetFramebuffer(current_idx):GetAttachment(1))
+						local framebuffer = render3d.pipelines.blit_compute:GetFramebuffer()
+
+						if not framebuffer then
+							block.source_tex = -1
+							return block
 						end
 
-						block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
-						block.is_hdr = render.target:IsHDR() and 1 or 0
+						block.source_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
 						return block
 					end,
 				},
 			},
 			shader = [[
+				layout(set = 2, binding = 0) uniform sampler2D blit_source_tex;
 				layout(location = 0) out vec4 frag_color;
 
-				vec3 ACESFilm(vec3 x) {
-					vec3 res = x;
-
-					res = res/10;
-					res = pow(res, vec3(0.5));
-					res *= 2.2;
-					
-					res *= vec3(1.09,  1.025,  1);
-
-					res.r = pow(res.r, 0.97);
-					res.b = pow(res.b, 1.05);
-					res = pow(res, vec3(1.1));
-
-					res *= mat3(
-						1.0,   0.0,   0.0,    
-						0.0,   1.0,   0.0,    
-						0.0,   0.0, 1.0     
-					);
-
-					return clamp(res, 0.0, 1.0);
-				}
-
-				vec3 ACESFilmHDR(vec3 x) {
-					return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
-				}
-
-				vec3 jodieReinhardTonemap(vec3 c){
-					float l = dot(c, vec3(0.7152, 0.7152, 0.7152));
-					vec3 tc = c / (c + 1.0);
-					vec3 c2 = mix(c / (l + 1.0), tc, tc);
-					c2 = pow(c2*1.5, vec3(1.5));
-					return c2;
-				}
-
-				vec3 LinearToSRGB(vec3 col) {
-					vec3 low = col * 12.92;
-					vec3 high = 1.055 * pow(col, vec3(1.0/2.4)) - 0.055;
-					return mix(low, high, step(0.0031308, col));
-				}
-
-				vec3 tonemap(vec3 x, float exposure) {
-					x *= exposure;
-					
-					const float a = 2.51;
-					const float b = 0.03;
-					const float c = 2.43;
-					const float d = 0.59;
-					const float e = 0.14;
-					vec3 col = (x * (a * x + b)) / (x * (c * x + d) + e);
-
-					col = pow(col*0.75, vec3(1.5))*1.25;
-
-					return col;
-				}
-
-
-				vec3 tonemap_lottes(vec3 rgb) {
-					const vec3 a = vec3(1.5); // Contrast
-					const vec3 d = vec3(0.91); // Shoulder contrast
-					const vec3 hdr_max = vec3(8.0); // White point
-					const vec3 mid_in = vec3(0.26); // Fixed midpoint x
-					const vec3 mid_out = vec3(0.32); // Fixed midput y
-
-					const vec3 b = (-pow(mid_in, a) + pow(hdr_max, a) * mid_out) /
-						((pow(hdr_max, a * d) - pow(mid_in, a * d)) * mid_out);
-					const vec3 c = (pow(hdr_max, a * d) * pow(mid_in, a) -
-									pow(hdr_max, a) * pow(mid_in, a * d) * mid_out) /
-						((pow(hdr_max, a * d) - pow(mid_in, a * d)) * mid_out);
-
-					return pow(rgb, a) / (pow(rgb, a * d) * b + c);
-				}
-
 				void main() {
-					if (blit.source_tex == -1) {
+					if (blit_present.source_tex == -1) {
 						frag_color = vec4(1.0, 0.0, 1.0, 1.0);
 						return;
 					}
-					
-					vec3 col = texture(TEXTURE(blit.source_tex), in_uv).rgb;
-					if (blit.is_debug_view == 1) {
-						col = clamp(col, vec3(0.0), vec3(1.0));
 
-						if (blit.requires_manual_gamma == 1) {
-							col = LinearToSRGB(col);
-						}
-
-						frag_color = vec4(col, 1.0);
-						return;
-					}
-
-					vec3 bloom = vec3(0.0);
-					if (blit.bloom_tex != -1) {
-						bloom = texture(TEXTURE(blit.bloom_tex), in_uv).rgb;
-					}
-					
-					// Calculate adaptive exposure
-					float exposure = 1.0;
-					if (blit.luma_tex != -1) {
-						// Average luminance across entire screen
-						float avg_log_luma = 0.0;
-						vec2 luma_size = vec2(textureSize(TEXTURE(blit.luma_tex), 0));
-						int samples = 0;
-						
-						// Sample at multiple points to get average
-						for (float y = 0.125; y < 1.0; y += 0.25) {
-							for (float x = 0.125; x < 1.0; x += 0.25) {
-								avg_log_luma += texture(TEXTURE(blit.luma_tex), vec2(x, y)).r;
-								samples++;
-							}
-						}
-						avg_log_luma /= float(samples);
-						
-						// Convert back from log space and calculate exposure
-						float avg_luma = exp2(avg_log_luma);
-						float target_luma = 0.5; // Middle gray target
-						exposure = target_luma / max(avg_luma, 0.001);
-						
-						// Clamp exposure to reasonable range
-						exposure = clamp(exposure, 0.1, 4.0);
-					}
-
-					float bloom_luma = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
-					float bloom_strength = 0.03;
-					float bloom_exposure_scale = clamp(1.0 / sqrt(max(exposure, 0.35)), 0.7, 1.25);
-					float bloom_soft_clip = 1.0 / (1.0 + bloom_luma * 0.35);
-					col += bloom * bloom_strength * bloom_exposure_scale * bloom_soft_clip;
-
-					if (blit.is_hdr == 1) {
-						col = tonemap(pow(col*1.5, vec3(0.8)), exposure)*1.2;
-					} else {
-						col = tonemap_lottes(col * exposure);
-					}
-					
-					if (blit.requires_manual_gamma == 1) {
-						col = LinearToSRGB(col);
-					}
-
-					vec2 vignette_uv = in_uv * 2.0 - 1.0;
-					float aspect = float(textureSize(TEXTURE(blit.source_tex), 0).x) / float(textureSize(TEXTURE(blit.source_tex), 0).y);
-					vignette_uv.x *= aspect;
-					float vignette = smoothstep(4.0, 0.6, length(vignette_uv));
-					col *= vignette;
-					
-					frag_color = vec4(col, 1.0);
+					frag_color = texture(blit_source_tex, in_uv);
 				}
 			]],
 		},

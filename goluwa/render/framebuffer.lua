@@ -15,11 +15,35 @@ local function apply_object_tags(obj, tags)
 	return obj
 end
 
+local function build_color_image_usage(config)
+	local usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"}
+	local extra_usage = config.color_image_usage
+
+	if not extra_usage then return usage end
+
+	for _, name in ipairs(extra_usage) do
+		local found = false
+
+		for i = 1, #usage do
+			if usage[i] == name then
+				found = true
+
+				break
+			end
+		end
+
+		if not found then usage[#usage + 1] = name end
+	end
+
+	return usage
+end
+
 function Framebuffer.New(config)
 	local width = config.width or 512
 	local height = config.height or 512
 	local samples = config.samples or "1"
 	local debug_name = config.name or config.label
+	local color_image_usage = build_color_image_usage(config)
 	local self = Framebuffer:CreateObject()
 	self.width = width
 	self.height = height
@@ -36,7 +60,7 @@ function Framebuffer.New(config)
 			format = format,
 			mip_map_levels = config.mip_map_levels or 1,
 			image = {
-				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+				usage = color_image_usage,
 				samples = samples,
 			},
 			sampler = {

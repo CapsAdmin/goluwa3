@@ -130,7 +130,6 @@ function META:GetJFAPipelines()
 				return block
 			end,
 			shader = [[
-					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 					layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_seed;
 					layout(set = 0, binding = 1) uniform sampler2D mask_tex;
 					void main() {
@@ -170,7 +169,6 @@ function META:GetJFAPipelines()
 				return block
 			end,
 			shader = [[
-					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 					layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_seed;
 					layout(set = 0, binding = 1) uniform sampler2D in_seed;
 					void main() {
@@ -224,7 +222,6 @@ function META:GetJFAPipelines()
 				return block
 			end,
 			shader = [[
-					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 					layout(set = 0, binding = 0, r32f) uniform writeonly image2D out_dist;
 					layout(set = 0, binding = 1) uniform sampler2D in_seed;
 					void main() {
@@ -274,7 +271,6 @@ function META:GetJFAPipelines()
 				return block
 			end,
 			shader = [[
-					layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 					layout(set = 0, binding = 0, rgba8) uniform writeonly image2D out_tex;
 					layout(set = 0, binding = 1) uniform sampler2D dist_on_tex;
 					layout(set = 0, binding = 2) uniform sampler2D dist_off_tex;

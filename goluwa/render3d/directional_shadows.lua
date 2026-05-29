@@ -263,24 +263,13 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 	result_fn_name = result_fn_name or "calculateShadow"
 	options = options or {}
 	local normal_expr = options.normal_expr or "normal"
+	local use_receiver_plane_bias = options.use_receiver_plane_bias ~= false
 	local header = "\t\t\t#define DIRECTIONAL_SHADOW_BLOCK " .. block_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_FN " .. result_fn_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_NORMAL " .. normal_expr .. "\n\n"
 	local header = header .. "\t\t\t#define DIRECTIONAL_SHADOW_USE_LEGACY_PCF 1\n\n"
-	return header .. [[
-			const vec2 SHADOW_POISSON_DISK[12] = vec2[12](
-				vec2(-0.326, -0.406),
-				vec2(-0.840, -0.074),
-				vec2(-0.696,  0.457),
-				vec2(-0.203,  0.621),
-				vec2( 0.962, -0.195),
-				vec2( 0.473, -0.480),
-				vec2( 0.519,  0.767),
-				vec2( 0.185, -0.893),
-				vec2( 0.507,  0.064),
-				vec2( 0.896,  0.412),
-				vec2(-0.322, -0.933),
-				vec2(-0.792, -0.598)
-			);
+	local receiver_plane_bias_glsl
 
+	if use_receiver_plane_bias then
+		receiver_plane_bias_glsl = [[
 			float getShadowReceiverPlaneBias(vec2 uv, float current_depth, vec2 texel_size, float filter_radius_texels) {
 				vec2 uv_dx = dFdx(uv);
 				vec2 uv_dy = dFdy(uv);
@@ -298,6 +287,31 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				);
 				return dot(abs(depth_grad_uv), texel_size * filter_radius_texels);
 			}
+		]]
+	else
+		receiver_plane_bias_glsl = [[
+			float getShadowReceiverPlaneBias(vec2 uv, float current_depth, vec2 texel_size, float filter_radius_texels) {
+				return 0.0;
+			}
+		]]
+	end
+
+	return header .. [[
+			const vec2 SHADOW_POISSON_DISK[12] = vec2[12](
+				vec2(-0.326, -0.406),
+				vec2(-0.840, -0.074),
+				vec2(-0.696,  0.457),
+				vec2(-0.203,  0.621),
+				vec2( 0.962, -0.195),
+				vec2( 0.473, -0.480),
+				vec2( 0.519,  0.767),
+				vec2( 0.185, -0.893),
+				vec2( 0.507,  0.064),
+				vec2( 0.896,  0.412),
+				vec2(-0.322, -0.933),
+				vec2(-0.792, -0.598)
+			);
+	]] .. receiver_plane_bias_glsl .. [[
 
 			int getCascadeIndex(vec3 world_pos) {
 				float dist = -(DIRECTIONAL_SHADOW_BLOCK.view * vec4(world_pos, 1.0)).z;

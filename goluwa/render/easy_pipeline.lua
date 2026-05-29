@@ -187,6 +187,131 @@ function EasyPipeline.GetColorFormats(config)
 	return formats
 end
 
+local function resolve_framebuffer_size(config)
+	local size = config.FramebufferSize or render.GetRenderImageSize()
+	local scale = config.scale or config.Scale
+
+	if type(size) == "function" then size = size() end
+
+	if type(scale) == "function" then scale = scale() end
+
+	local width = tonumber(size.x or size.width or size.w or 0) or 0
+	local height = tonumber(size.y or size.height or size.h or 0) or 0
+
+	if scale ~= nil then
+		width = math.max(1, math.floor(width * scale + 0.5))
+		height = math.max(1, math.floor(height * scale + 0.5))
+	end
+
+	return {x = width, y = height}
+end
+
+local function create_owned_framebuffers(self, extra_config)
+	local framebuffer_count = self.config.framebuffer_count or 1
+	local size = resolve_framebuffer_size(self.config)
+
+	if self.framebuffers then
+		for _, fb in ipairs(self.framebuffers) do
+			fb:Remove()
+		end
+
+		self.framebuffers = nil
+	elseif self.framebuffer then
+		self.framebuffer:Remove()
+		self.framebuffer = nil
+	end
+
+	local function build_framebuffer_config()
+		local config = {
+			width = size.x,
+			height = size.y,
+			formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
+			depth = self.config.DepthFormat ~= nil,
+			depth_format = self.config.DepthFormat,
+		}
+
+		if extra_config then
+			for key, value in pairs(extra_config) do
+				config[key] = value
+			end
+		end
+
+		return config
+	end
+
+	if framebuffer_count == 1 then
+		self.framebuffer = Framebuffer.New(build_framebuffer_config())
+	else
+		self.framebuffers = {}
+
+		for i = 1, framebuffer_count do
+			self.framebuffers[i] = Framebuffer.New(build_framebuffer_config())
+		end
+
+		self.framebuffer = self.framebuffers[1]
+	end
+end
+
+local function transition_compute_image(texture, cmd, src_stage, dst_stage, src_access, dst_access, new_layout)
+	local image = texture:GetImage()
+	local old_layout = image.layout or "undefined"
+
+	if old_layout == new_layout then return end
+
+	cmd:PipelineBarrier{
+		srcStage = src_stage,
+		dstStage = dst_stage,
+		imageBarriers = {
+			{
+				image = image,
+				srcAccessMask = src_access,
+				dstAccessMask = dst_access,
+				oldLayout = old_layout,
+				newLayout = new_layout,
+			},
+		},
+	}
+	image.layout = new_layout
+end
+
+local function transition_texture_to_compute_storage(texture, cmd)
+	local old_layout = texture:GetImage().layout or "undefined"
+	local src_stage = "top_of_pipe"
+	local src_access = "none"
+
+	if old_layout == "shader_read_only_optimal" then
+		src_stage = "fragment"
+		src_access = "shader_read"
+	elseif old_layout == "general" then
+		src_stage = "compute"
+		src_access = "shader_read"
+	elseif old_layout == "color_attachment_optimal" then
+		src_stage = "color_attachment_output"
+		src_access = "color_attachment_write"
+	end
+
+	transition_compute_image(texture, cmd, src_stage, "compute", src_access, "shader_write", "general")
+end
+
+local function transition_texture_from_compute_storage(texture, cmd, dst_stage)
+	transition_compute_image(
+		texture,
+		cmd,
+		"compute",
+		dst_stage or "fragment",
+		"shader_write",
+		"shader_read",
+		"shader_read_only_optimal"
+	)
+end
+
+local function get_compute_sampled_descriptor(texture)
+	texture = texture or render.GetErrorTexture()
+	assert(texture, "missing texture for compute sampled descriptor")
+	return texture:GetView(),
+	texture.sampler or render.CreateSampler(texture:GetSamplerConfig())
+end
+
 function EasyPipeline.BuildFFIType(layout, struct_name, fields)
 	layout = layout or "scalar"
 	struct_name = struct_name or "AnonymousLayout"
@@ -784,6 +909,11 @@ function EasyPipeline.New(config)
 	assert_no_legacy_top_level_fields(config)
 	assert_no_dynamic_state_config(config)
 	assert_no_nested_property_config(config)
+
+	if config.ComputePass or config.compute_pass then
+		return EasyPipeline.ComputePass(config)
+	end
+
 	local self = EasyPipeline:CreateObject()
 	self.on_pre_draw = config.on_pre_draw or nil
 	self.on_draw = config.on_draw or nil
@@ -1912,7 +2042,8 @@ function EasyPipeline.New(config)
 			upload_lines[#upload_lines + 1] = "end"
 		end
 
-		upload_lines[#upload_lines + 1] = "if #offsets > 0 then self.pipeline:Bind(cmd, frame_index, offsets) end"
+		upload_lines[#upload_lines + 1] = "self.dynamic_offsets = #offsets > 0 and offsets or nil"
+		upload_lines[#upload_lines + 1] = "if self.dynamic_offsets then self.pipeline:Bind(cmd, frame_index, self.dynamic_offsets) end"
 		upload_lines[#upload_lines + 1] = "end"
 		local upload_constants_source = table.concat(upload_lines, "\n")
 		local upload_constants_chunk = assert(loadstring(upload_constants_source, "UploadConstants_unrolled"))
@@ -2027,6 +2158,7 @@ function EasyPipeline.New(config)
 					local attribute_offset = attribute[4]
 
 					if attribute_offset == nil then attribute_offset = stride end
+
 					logical_attributes[#logical_attributes + 1] = {
 						binding = resolved_binding,
 						offset = attribute_offset,
@@ -2478,46 +2610,7 @@ function EasyPipeline.New(config)
 end
 
 function EasyPipeline:RecreateFramebuffers()
-	local framebuffer_count = self.config.framebuffer_count or 1
-	local size = self.config.FramebufferSize or render.GetRenderImageSize()
-
-	if self.framebuffers then
-		for _, fb in ipairs(self.framebuffers) do
-			fb:Remove()
-		end
-
-		self.framebuffers = nil
-	elseif self.framebuffer then
-		self.framebuffer:Remove()
-		self.framebuffer = nil
-	end
-
-	if framebuffer_count == 1 then
-		-- Single framebuffer (backward compatible)
-		self.framebuffer = Framebuffer.New{
-			width = size.x,
-			height = size.y,
-			formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
-			depth = self.config.DepthFormat ~= nil,
-			depth_format = self.config.DepthFormat,
-		}
-	else
-		-- Multiple framebuffers (ping-pong)
-		self.framebuffers = {}
-
-		for i = 1, framebuffer_count do
-			self.framebuffers[i] = Framebuffer.New{
-				width = size.x,
-				height = size.y,
-				formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
-				depth = self.config.DepthFormat ~= nil,
-				depth_format = self.config.DepthFormat,
-			}
-		end
-
-		-- Also set first one as default for backward compatibility
-		self.framebuffer = self.framebuffers[1]
-	end
+	create_owned_framebuffers(self)
 end
 
 function EasyPipeline:OnRemove()
@@ -2567,7 +2660,7 @@ function EasyPipeline:OnWindowFramebufferResized()
 
 				if fb.depth_texture then table.insert(textures, fb.depth_texture) end
 
-				if #textures > 0 then
+				if #textures > 0 and self.pipeline.UpdateDescriptorSetArray then
 					for i = 1, #self.pipeline.descriptor_sets do
 						self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
 					end
@@ -2657,15 +2750,30 @@ function EasyPipeline:GetTextureIndex(texture)
 end
 
 function EasyPipeline:SetSamplerConfig(config)
-	return self.pipeline:SetSamplerConfig(config)
+	if self.pipeline.SetSamplerConfig then
+		return self.pipeline:SetSamplerConfig(config)
+	end
+
+	self.sampler_config = config
+	return config
 end
 
 function EasyPipeline:GetSamplerConfig()
-	return self.pipeline:GetSamplerConfig()
+	if self.pipeline.GetSamplerConfig then
+		return self.pipeline:GetSamplerConfig()
+	end
+
+	return self.sampler_config
 end
 
 function EasyPipeline:SetSamplerConfigValue(key, value)
-	return self.pipeline:SetSamplerConfigValue(key, value)
+	if self.pipeline.SetSamplerConfigValue then
+		return self.pipeline:SetSamplerConfigValue(key, value)
+	end
+
+	self.sampler_config = self.sampler_config or {}
+	self.sampler_config[key] = value
+	return value
 end
 
 function EasyPipeline:GetPushConstantBlockOffset(name)
@@ -2843,6 +2951,7 @@ function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 		self.on_draw(self, cmd)
 	else
 		self:UploadConstants()
+		self:Bind(cmd, resolved_frame_index, self.dynamic_offsets)
 		cmd:Draw(vertex_count, 1, 0, 0)
 	end
 
@@ -2861,6 +2970,7 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 		function()
 			begin_draw(self, cmd, fb, resolved_frame_index)
 			self:UploadConstants()
+			self:Bind(cmd, resolved_frame_index, self.dynamic_offsets)
 			cmd:DrawMeshTasks(gx, gy, gz)
 		end,
 		debug.traceback
@@ -2891,7 +3001,7 @@ function EasyPipeline:Dispatch(cmd, group_count_x, group_count_y, group_count_z,
 			group_count_y or 1,
 			group_count_z or 1,
 			frame_index,
-			dynamic_offsets
+			dynamic_offsets or self.dynamic_offsets
 		)
 	end
 
@@ -2910,7 +3020,14 @@ function EasyPipeline:DispatchForSize(cmd, width, height, depth, frame_index, dy
 		self.on_draw(self, cmd)
 	else
 		self:UploadConstants()
-		self.pipeline:DispatchForSize(cmd, width, height, depth, frame_index, dynamic_offsets)
+		self.pipeline:DispatchForSize(
+			cmd,
+			width,
+			height,
+			depth,
+			frame_index,
+			dynamic_offsets or self.dynamic_offsets
+		)
 	end
 
 	render.PopCommandBuffer()
@@ -2967,19 +3084,302 @@ function EasyPipeline.Compute(config)
 
 	local self = EasyPipeline:CreateObject()
 	self.on_draw = config.on_draw or nil
+	self.config = config
+
+	local function flatten_compute_block_fields(fields, out)
+		out = out or {}
+
+		for _, field in ipairs(fields) do
+			if type(field[1]) == "table" then
+				flatten_compute_block_fields(field, out)
+			else
+				out[#out + 1] = field
+			end
+		end
+
+		return out
+	end
+
 	local block = config.block or {}
+	local flat_push_constant_block = #block > 0 and flatten_compute_block_fields(block) or block
 	local push_constant_type
 	local push_constant_size = 0
+	local push_constant_field_descriptors
+	local uniform_buffers = {}
+	local uniform_buffer_types = {}
+	local uniform_buffer_order = {}
 
 	if #block > 0 then
-		push_constant_type = EasyPipeline.BuildFFIType("scalar", "ComputeConstants", block)
+		push_constant_type = EasyPipeline.BuildFFIType("scalar", "ComputeConstants", flat_push_constant_block)
 		push_constant_size = ffi.sizeof(push_constant_type)
+		push_constant_field_descriptors = build_field_descriptors(push_constant_type, flat_push_constant_block)
 	end
 
 	local push_constant_data = push_constant_type and push_constant_type() or nil
 	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 	local bindless_texture_capacity = bindless_descriptor_capacities.textures
 	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
+	local compute_glsl_to_ffi = {
+		mat4 = "float",
+		vec4 = "float",
+		vec3 = "float",
+		vec2 = "float",
+		float = "float",
+		bool = "int",
+		boolean = "int",
+		int = "int",
+		ivec4 = "int",
+		ivec3 = "int",
+		ivec2 = "int",
+		uint64_t = "uint64_t",
+	}
+	local compute_glsl_to_array_size = {
+		mat4 = 16,
+		vec4 = 4,
+		vec3 = 3,
+		vec2 = 2,
+		ivec4 = 4,
+		ivec3 = 3,
+		ivec2 = 2,
+		uint64_t = 1,
+	}
+
+	local function get_compute_field_info(field)
+		local glsl_type = field[2]
+		local array_size = type(field[3]) == "number" and field[3] or nil
+		return {
+			name = field[1],
+			glsl_type = glsl_type,
+			array_size = array_size,
+			is_struct = type(glsl_type) == "table",
+		}
+	end
+
+	local function flatten_compute_fields(fields, out)
+		out = out or {}
+
+		for _, field in ipairs(fields) do
+			if type(field[1]) == "table" then
+				flatten_compute_fields(field, out)
+			else
+				out[#out + 1] = field
+			end
+		end
+
+		return out
+	end
+
+	local function build_compute_push_glsl_fields(fields)
+		local glsl_fields = ""
+
+		for _, field in ipairs(fields) do
+			local name = field[1]
+			local glsl_type = field[2]
+			local array_size = type(field[3]) == "number" and field[3] or nil
+
+			if array_size then
+				glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", glsl_type, name, array_size)
+			else
+				glsl_fields = glsl_fields .. string.format("    %s %s;\n", glsl_type, name)
+			end
+		end
+
+		return glsl_fields
+	end
+
+	local function build_compute_uniform_glsl_fields(fields)
+		local glsl_fields = ""
+		local struct_definitions = {}
+
+		for _, field in ipairs(fields) do
+			local info = get_compute_field_info(field)
+			local type_name = info.glsl_type
+
+			if info.is_struct then
+				local struct_name = info.name .. "_t"
+				local struct_code = "struct " .. struct_name .. " {\n"
+
+				for _, struct_field in ipairs(info.glsl_type) do
+					local sf_name = struct_field[1]
+					local sf_type = struct_field[2]
+					local sf_array_size = struct_field[3]
+
+					if sf_array_size then
+						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_type, sf_name, sf_array_size)
+					else
+						struct_code = struct_code .. string.format("    %s %s;\n", sf_type, sf_name)
+					end
+				end
+
+				struct_code = struct_code .. "};\n"
+				struct_definitions[#struct_definitions + 1] = struct_code
+				type_name = struct_name
+			end
+
+			if info.array_size then
+				glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", type_name, info.name, info.array_size)
+			else
+				glsl_fields = glsl_fields .. string.format("    %s %s;\n", type_name, info.name)
+			end
+		end
+
+		return glsl_fields, table.concat(struct_definitions, "")
+	end
+
+	local function get_compute_layout_info(glsl_type, array_size)
+		local base_alignment = 4
+		local size = 4
+
+		if type(glsl_type) == "table" then
+			local struct_size = 0
+			local max_alignment = 4
+
+			for _, field in ipairs(glsl_type) do
+				local field_alignment, field_size = get_compute_layout_info(field[2], field[3])
+				max_alignment = math.max(max_alignment, field_alignment)
+				struct_size = math.ceil(struct_size / field_alignment) * field_alignment
+				struct_size = struct_size + field_size
+			end
+
+			struct_size = math.ceil(struct_size / max_alignment) * max_alignment
+			base_alignment = max_alignment
+			size = struct_size
+		elseif
+			glsl_type == "float" or
+			glsl_type == "int" or
+			glsl_type == "bool" or
+			glsl_type == "boolean"
+		then
+			base_alignment = 4
+			size = 4
+		elseif glsl_type == "vec2" then
+			base_alignment = 4
+			size = 8
+		elseif glsl_type == "vec3" then
+			base_alignment = 4
+			size = 12
+		elseif glsl_type == "vec4" then
+			base_alignment = 4
+			size = 16
+		elseif glsl_type == "mat4" then
+			base_alignment = 4
+			size = 64
+		elseif glsl_type == "uint64_t" then
+			base_alignment = 8
+			size = 8
+		end
+
+		if array_size then size = size * array_size end
+
+		return base_alignment, size
+	end
+
+	local function build_compute_ffi_struct(fields)
+		local ffi_code = "struct __attribute__((packed)) {\n"
+		local current_offset = 0
+		local max_alignment = 16
+		local struct_definitions = {}
+
+		for _, field in ipairs(fields) do
+			local info = get_compute_field_info(field)
+			local ffi_type = compute_glsl_to_ffi[info.glsl_type] or info.glsl_type
+			local base_size = compute_glsl_to_array_size[info.glsl_type]
+
+			if info.is_struct then
+				local struct_code = "struct __attribute__((packed)) {\n"
+				local struct_offset = 0
+				local struct_max_align = 4
+
+				for _, struct_field in ipairs(info.glsl_type) do
+					local sf_name = struct_field[1]
+					local sf_type = struct_field[2]
+					local sf_array_size = struct_field[3]
+					local sf_ffi_type = compute_glsl_to_ffi[sf_type] or sf_type
+					local sf_base_size = compute_glsl_to_array_size[sf_type]
+					local sf_base_alignment, sf_size = get_compute_layout_info(sf_type, sf_array_size)
+					struct_max_align = math.max(struct_max_align, sf_base_alignment)
+					local sf_aligned_offset = math.ceil(struct_offset / sf_base_alignment) * sf_base_alignment
+
+					if sf_aligned_offset > struct_offset then
+						struct_code = struct_code .. string.format("    char _pad_%d[%d];\n", struct_offset, sf_aligned_offset - struct_offset)
+					end
+
+					if sf_array_size and sf_base_size and sf_base_size > 1 then
+						struct_code = struct_code .. string.format("    %s %s[%d][%d];\n", sf_ffi_type, sf_name, sf_array_size, sf_base_size)
+					elseif sf_array_size or (sf_base_size and sf_base_size > 1) then
+						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_ffi_type, sf_name, sf_array_size or sf_base_size)
+					else
+						struct_code = struct_code .. string.format("    %s %s;\n", sf_ffi_type, sf_name)
+					end
+
+					struct_offset = sf_aligned_offset + sf_size
+				end
+
+				local struct_final_size = math.ceil(struct_offset / struct_max_align) * struct_max_align
+
+				if struct_final_size > struct_offset then
+					struct_code = struct_code .. string.format("    char _pad_end[%d];\n", struct_final_size - struct_offset)
+				end
+
+				struct_code = struct_code .. "}"
+				struct_definitions[#struct_definitions + 1] = struct_code
+				ffi_type = "$"
+				base_size = nil
+				local base_alignment = struct_max_align
+				local size = struct_final_size
+
+				if info.array_size then size = size * info.array_size end
+
+				max_alignment = math.max(max_alignment, base_alignment)
+				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
+
+				if aligned_offset > current_offset then
+					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
+				end
+
+				if info.array_size then
+					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size)
+				else
+					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+				end
+
+				current_offset = aligned_offset + size
+			else
+				local base_alignment, size = get_compute_layout_info(info.glsl_type, info.array_size)
+				max_alignment = math.max(max_alignment, base_alignment)
+				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
+
+				if aligned_offset > current_offset then
+					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
+				end
+
+				if info.array_size and base_size and base_size > 1 then
+					ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
+				elseif info.array_size or (base_size and base_size > 1) then
+					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
+				else
+					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+				end
+
+				current_offset = aligned_offset + size
+			end
+		end
+
+		local final_size = math.ceil(current_offset / max_alignment) * max_alignment
+
+		if final_size > current_offset then
+			ffi_code = ffi_code .. string.format("    char _pad_end[%d];\n", final_size - current_offset)
+		end
+
+		ffi_code = ffi_code .. "}"
+
+		if #struct_definitions > 0 then
+			ffi_code = table.concat(struct_definitions, "\n") .. "\n" .. ffi_code
+		end
+
+		return ffi_code
+	end
+
 	local shader_header = (
 		[[#version 450
 #extension GL_EXT_nonuniform_qualifier : require
@@ -2994,39 +3394,7 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 	local push_constant_glsl = ""
 
 	if #block > 0 then
-		local function flatten_fields(fields, out)
-			out = out or {}
-
-			for _, field in ipairs(fields) do
-				if type(field[1]) == "table" then
-					flatten_fields(field, out)
-				else
-					out[#out + 1] = field
-				end
-			end
-
-			return out
-		end
-
-		local function build_glsl_fields(fields)
-			local glsl_fields = ""
-
-			for _, field in ipairs(fields) do
-				local name = field[1]
-				local glsl_type = field[2]
-				local array_size = type(field[3]) == "number" and field[3] or nil
-
-				if array_size then
-					glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", glsl_type, name, array_size)
-				else
-					glsl_fields = glsl_fields .. string.format("    %s %s;\n", glsl_type, name)
-				end
-			end
-
-			return glsl_fields
-		end
-
-		push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. build_glsl_fields(flatten_fields(block)) .. "} compute;\n\n"
+		push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. build_compute_push_glsl_fields(flat_push_constant_block) .. "} compute;\n\n"
 	end
 
 	local descriptor_sets = {
@@ -3048,6 +3416,101 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 		descriptor_sets[#descriptor_sets + 1] = ds
 	end
 
+	for _, block_info in ipairs(config.uniform_buffers or {}) do
+		if block_info.name == nil then
+			error("EasyPipeline.Compute: uniform buffer is missing a name", 2)
+		end
+
+		local info = {}
+
+		for key, value in pairs(block_info) do
+			info[key] = value
+		end
+
+		if info.binding_index == nil then
+			error(
+				"EasyPipeline.Compute: uniform buffer " .. tostring(info.name) .. " is missing binding_index",
+				2
+			)
+		end
+
+		hoist_inline_block_metadata(info)
+		info.block = flatten_compute_block_fields(info.block)
+
+		if not info.block[1] then
+			error(
+				"EasyPipeline.Compute: uniform buffer " .. tostring(info.name) .. " has no fields",
+				2
+			)
+		end
+
+		local ffi_code = build_compute_ffi_struct(info.block)
+		local glsl_fields, glsl_structs = build_compute_uniform_glsl_fields(info.block)
+		local ubo = UniformBuffer.New(ffi_code)
+		info.source = normalize_block_source(
+			info,
+			ffi.sizeof(ubo.struct),
+			get_scalar_block_alignment(info.block),
+			"uniform buffer block"
+		)
+		local block_type_name = info.name:sub(1, 1):upper() .. info.name:sub(2)
+
+		if block_type_name == info.name then
+			block_type_name = block_type_name .. "_t"
+		end
+
+		uniform_buffer_order[#uniform_buffer_order + 1] = info.name
+		uniform_buffer_types[info.name] = {
+			ubo = ubo,
+			block = info,
+			debug_name = (config.name or "pipeline") .. ".ubo." .. info.name,
+			field_descriptors = build_field_descriptors(ubo.struct, info.block),
+			glsl = string.format(
+				"%slayout(scalar, set = %d, binding = %d) uniform %s {\n%s} %s;",
+				glsl_structs,
+				info.set_index or 0,
+				info.binding_index,
+				block_type_name,
+				glsl_fields,
+				info.name
+			),
+		}
+		uniform_buffers[info.name] = ubo
+		descriptor_sets[#descriptor_sets + 1] = {
+			type = "uniform_buffer_dynamic",
+			binding_index = info.binding_index,
+			set_index = info.set_index or 0,
+			args = {ubo.buffer, ubo.aligned_size},
+		}
+	end
+
+	local local_size = config.LocalSize or config.local_size or config.workgroup_size
+	local local_size_glsl = ""
+	local uniform_buffer_glsl = ""
+
+	if local_size then
+		if type(local_size) == "number" then
+			local_size = {x = local_size, y = local_size, z = 1}
+		else
+			local_size = {
+				x = local_size.x or local_size[1] or 8,
+				y = local_size.y or local_size[2] or 8,
+				z = local_size.z or local_size[3] or 1,
+			}
+		end
+
+		local_size_glsl = string.format(
+			"layout(local_size_x = %d, local_size_y = %d, local_size_z = %d) in;\n\n",
+			local_size.x,
+			local_size.y,
+			local_size.z
+		)
+	end
+
+	for _, name in ipairs(uniform_buffer_order) do
+		uniform_buffer_glsl = uniform_buffer_glsl .. uniform_buffer_types[name].glsl .. "\n\n"
+	end
+
 	self.pipeline = render.CreateComputePipeline{
 		DescriptorSetCount = config.DescriptorSetCount or
 			(
@@ -3060,14 +3523,14 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 			)
 			or
 			1,
-		LocalSize = config.LocalSize or config.local_size or config.workgroup_size,
+		LocalSize = local_size,
 		shader_stages = {
 			{
 				type = "compute",
 				code = shader_header .. (
 						config.custom_declarations or
 						""
-					) .. push_constant_glsl .. (
+					) .. local_size_glsl .. push_constant_glsl .. uniform_buffer_glsl .. (
 						config.shader or
 						""
 					),
@@ -3083,6 +3546,38 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 	}
 
 	function self:UploadConstants()
+		self.dynamic_offsets = nil
+
+		if uniform_buffer_order[1] then
+			local offsets = {}
+			local frame_index = render.GetCurrentFrame() or 1
+
+			for i, name in ipairs(uniform_buffer_order) do
+				local info = uniform_buffer_types[name]
+				local data = info.ubo:GetData()
+
+				if info.block.source then
+					local source_data = info.block.source.get(self, info.block)
+
+					if source_data == nil then
+						error("compute uniform buffer source returned nil for " .. tostring(info.block.name), 2)
+					end
+
+					ffi.copy(
+						data,
+						ffi.cast("uint8_t *", source_data) + info.block.source.offset,
+						ffi.sizeof(data)
+					)
+				end
+
+				if info.block.write then info.block.write(self, data, info.block) end
+
+				offsets[i] = info.ubo:Upload(frame_index)
+			end
+
+			self.dynamic_offsets = offsets
+		end
+
 		if not push_constant_data then return end
 
 		if source then
@@ -3108,6 +3603,232 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 			push_constant_data,
 			push_constant_size
 		)
+	end
+
+	self.uniform_buffers = uniform_buffers
+	return self
+end
+
+function EasyPipeline.ComputePass(config)
+	assert_no_legacy_top_level_fields(config, 2)
+	local compute_config = table.copy(config)
+	local storage_images = {}
+	local sampled_images = {}
+	local output_bindings = config.storage_images or config.StorageImages or {}
+	local sampled_bindings = config.sampled_images or config.SampledImages or {}
+	local declared_descriptor_sets = {}
+	local user_on_draw = config.on_draw or nil
+
+	for _, descriptor in ipairs(config.descriptor_sets or {}) do
+		declared_descriptor_sets[#declared_descriptor_sets + 1] = descriptor
+	end
+
+	for _, info in ipairs(output_bindings) do
+		storage_images[#storage_images + 1] = {
+			binding_index = info.binding_index,
+			set_index = info.set_index or 0,
+			attachment = info.attachment,
+			get_texture = info.get_texture,
+			dst_stage = info.dst_stage,
+		}
+		declared_descriptor_sets[#declared_descriptor_sets + 1] = {
+			type = "storage_image",
+			binding_index = info.binding_index,
+			stageFlags = info.stageFlags or "compute",
+			set_index = info.set_index or 0,
+		}
+	end
+
+	for _, info in ipairs(sampled_bindings) do
+		sampled_images[#sampled_images + 1] = {
+			binding_index = info.binding_index,
+			set_index = info.set_index or 0,
+			get_texture = info.get_texture,
+			get_descriptor = info.get_descriptor,
+		}
+		declared_descriptor_sets[#declared_descriptor_sets + 1] = {
+			type = "combined_image_sampler",
+			binding_index = info.binding_index,
+			stageFlags = info.stageFlags or "compute",
+			set_index = info.set_index or 0,
+		}
+	end
+
+	compute_config.descriptor_sets = declared_descriptor_sets
+	compute_config.on_draw = nil
+	local compute_pass_frame_span = math.max(render.GetSwapchainImageCount() or 1, 1)
+	local compute_pass_slots_per_frame = config.DescriptorSetsPerFrame or config.descriptor_sets_per_frame or 16
+
+	if
+		compute_config.DescriptorSetCount == nil and
+		compute_config.descriptor_set_count == nil
+	then
+		compute_config.DescriptorSetCount = math.max(
+			compute_pass_frame_span * compute_pass_slots_per_frame,
+			config.framebuffer_count or 1,
+			compute_pass_frame_span
+		)
+	end
+
+	local self = EasyPipeline.Compute(compute_config)
+	self.config = config
+	self.actual_color_formats = EasyPipeline.GetColorFormats(config)
+	self.on_pre_draw = config.on_pre_draw or nil
+	self.on_draw = user_on_draw
+	self.storage_images = storage_images
+	self.sampled_images = sampled_images
+	self.compute_pass_frame_span = compute_pass_frame_span
+	self.compute_pass_slots_per_frame = compute_pass_slots_per_frame
+
+	if
+		not config.dont_create_framebuffers and
+		(
+			#self.actual_color_formats > 0 or
+			config.DepthFormat
+		)
+	then
+		create_owned_framebuffers(self, {color_image_usage = {"storage"}})
+
+		if not self.config.FramebufferSize then
+			self:AddGlobalEvent("WindowFramebufferResized")
+		end
+	end
+
+	function self:RecreateFramebuffers()
+		create_owned_framebuffers(self, {color_image_usage = {"storage"}})
+	end
+
+	function self:Draw(cmd, framebuffer, frame_index)
+		cmd = cmd or render.GetCommandBuffer()
+		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
+		local descriptor_count = self:GetDescriptorSetCount()
+		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
+
+		if not fb then
+			error(
+				"EasyPipeline.ComputePass: Draw requires an owned framebuffer or explicit framebuffer",
+				2
+			)
+		end
+
+		render.PushCommandBuffer(cmd)
+		local ok, err = xpcall(
+			function()
+				local current_frame_index = render.GetCurrentFrame() or frame_index or 1
+
+				if current_frame_index < 1 then current_frame_index = 1 end
+
+				if current_frame_index > self.compute_pass_frame_span then
+					current_frame_index = ((current_frame_index - 1) % self.compute_pass_frame_span) + 1
+				end
+
+				if self._compute_pass_descriptor_cmd ~= cmd then
+					self._compute_pass_descriptor_cmd = cmd
+					self._compute_pass_descriptor_slot = 0
+				end
+
+				local descriptor_slot = (self._compute_pass_descriptor_slot or 0) + 1
+				local descriptor_frame_index = ((current_frame_index - 1) * self.compute_pass_slots_per_frame) + descriptor_slot
+
+				if
+					descriptor_count and
+					descriptor_count > 0 and
+					descriptor_frame_index > descriptor_count
+				then
+					error(
+						string.format(
+							"EasyPipeline.ComputePass: descriptor set ring exhausted for frame %d (%d > %d)",
+							current_frame_index,
+							descriptor_frame_index,
+							descriptor_count
+						),
+						2
+					)
+				end
+
+				self._compute_pass_descriptor_slot = descriptor_slot
+				local transitioned = {}
+
+				if self.on_pre_draw then
+					self.on_pre_draw(self, cmd, resolved_frame_index, descriptor_frame_index)
+				end
+
+				for _, info in ipairs(self.storage_images) do
+					local texture = info.get_texture and
+						info.get_texture(self, fb, resolved_frame_index) or
+						fb:GetAttachment(info.attachment or 1)
+					assert(
+						texture,
+						"missing compute output texture for binding " .. tostring(info.binding_index)
+					)
+					transition_texture_to_compute_storage(texture, cmd)
+					self:UpdateDescriptorSet(
+						"storage_image",
+						descriptor_frame_index,
+						info.binding_index,
+						info.set_index,
+						texture:GetView()
+					)
+					transitioned[#transitioned + 1] = {
+						texture = texture,
+						dst_stage = info.dst_stage,
+					}
+				end
+
+				for _, info in ipairs(self.sampled_images) do
+					local view
+					local sampler
+
+					if info.get_descriptor then
+						local descriptor = info.get_descriptor(self, fb, resolved_frame_index)
+
+						if type(descriptor) == "table" then
+							view = descriptor[1]
+							sampler = descriptor[2]
+						end
+					elseif info.get_texture then
+						view, sampler = get_compute_sampled_descriptor(info.get_texture(self, fb, resolved_frame_index))
+					else
+						view, sampler = get_compute_sampled_descriptor(nil)
+					end
+
+					if not view or not sampler then
+						view, sampler = get_compute_sampled_descriptor(nil)
+					end
+
+					self:UpdateDescriptorSet(
+						"combined_image_sampler",
+						descriptor_frame_index,
+						info.binding_index,
+						info.set_index,
+						view,
+						sampler
+					)
+				end
+
+				if self.on_draw then
+					self.on_draw(self, cmd, fb, resolved_frame_index, descriptor_frame_index)
+				else
+					self:UploadConstants()
+					self.pipeline:DispatchForSize(
+						cmd,
+						fb.width,
+						fb.height,
+						1,
+						descriptor_frame_index,
+						self.dynamic_offsets
+					)
+				end
+
+				for _, info in ipairs(transitioned) do
+					transition_texture_from_compute_storage(info.texture, cmd, info.dst_stage)
+				end
+			end,
+			debug.traceback
+		)
+		render.PopCommandBuffer()
+
+		if not ok then error(err, 0) end
 	end
 
 	return self

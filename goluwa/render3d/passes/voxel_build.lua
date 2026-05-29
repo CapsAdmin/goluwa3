@@ -67,8 +67,14 @@ local function get_voxel_draw_sort_id(value)
 end
 
 local function compare_voxel_draw_entries(a, b)
-	if a.material_sort_id ~= b.material_sort_id then return a.material_sort_id < b.material_sort_id end
-	if a.polygon_sort_id ~= b.polygon_sort_id then return a.polygon_sort_id < b.polygon_sort_id end
+	if a.material_sort_id ~= b.material_sort_id then
+		return a.material_sort_id < b.material_sort_id
+	end
+
+	if a.polygon_sort_id ~= b.polygon_sort_id then
+		return a.polygon_sort_id < b.polygon_sort_id
+	end
+
 	return false
 end
 
@@ -82,7 +88,10 @@ local function create_voxel_slice_buckets(draw_list, clipmap)
 	for _, entry in ipairs(draw_list or {}) do
 		for _, axis_name in ipairs({"x", "y", "z"}) do
 			local slice_range = entry.slice_ranges and entry.slice_ranges[axis_name] or nil
-			local dirty_mask = clipmap and clipmap.dirty_slice_masks and clipmap.dirty_slice_masks[axis_name] or nil
+			local dirty_mask = clipmap and
+				clipmap.dirty_slice_masks and
+				clipmap.dirty_slice_masks[axis_name] or
+				nil
 
 			if slice_range and dirty_mask then
 				local axis_buckets = slice_buckets[axis_name]
@@ -179,7 +188,9 @@ local shared_scroll_compute_pipeline = nil
 local voxel_scroll_submit_fence = nil
 
 local function get_voxel_scroll_submit_fence()
-	if voxel_scroll_submit_fence and voxel_scroll_submit_fence:IsValid() then return voxel_scroll_submit_fence end
+	if voxel_scroll_submit_fence and voxel_scroll_submit_fence:IsValid() then
+		return voxel_scroll_submit_fence
+	end
 
 	voxel_scroll_submit_fence = Fence.New(render.GetDevice())
 	return voxel_scroll_submit_fence
@@ -248,7 +259,6 @@ local function get_scroll_compute_pipeline()
 			return block
 		end,
 		shader = [[
-			layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 			layout(set = 0, binding = 0, rgba16f) uniform readonly image2DArray src_volume;
 			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2DArray dst_volume;
 
@@ -283,7 +293,6 @@ local function get_scroll_compute_pipeline()
 			}
 		]],
 	}
-
 	return shared_scroll_compute_pipeline
 end
 
@@ -353,7 +362,6 @@ end
 
 local function scroll_axis_target(cmd, source_target, target, copy_config, descriptor_slot)
 	local pipeline = shared_scroll_compute_pipeline or get_scroll_compute_pipeline()
-
 	transition_axis_target_for_compute(cmd, source_target, false)
 	transition_axis_target_for_compute(cmd, target, true)
 	pipeline.current_scroll_copy = copy_config
@@ -489,7 +497,10 @@ local function build_world_aabb_from_local_aabb(local_aabb, local_to_world, targ
 	corners[6].x, corners[6].y, corners[6].z = local_aabb.max_x, local_aabb.min_y, local_aabb.max_z
 	corners[7].x, corners[7].y, corners[7].z = local_aabb.max_x, local_aabb.max_y, local_aabb.min_z
 	corners[8].x, corners[8].y, corners[8].z = local_aabb.max_x, local_aabb.max_y, local_aabb.max_z
-	local world_aabb = reset_aabb(target or AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
+	local world_aabb = reset_aabb(
+		target or
+			AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+	)
 
 	for i = 1, 8 do
 		local point = local_to_world:TransformVector(corners[i])
@@ -551,6 +562,7 @@ local function build_voxel_draw_list(voxelizer, clipmap_index, clipmap)
 	for _, component in ipairs(visuals) do
 		if component.Visible and component:IsWithinCullDistance() then
 			if cacheable and is_component_frame_dynamic(component) then cacheable = false end
+
 			local component_entries = 0
 			local component_world_matrix = component:GetWorldMatrix()
 			local material_override = component.MaterialOverride
@@ -581,7 +593,11 @@ local function build_voxel_draw_list(voxelizer, clipmap_index, clipmap)
 							end
 						end
 
-						if world_aabb and clipmap.build_world_aabb and clipmap.build_world_aabb:IsBoxIntersecting(world_aabb) then
+						if
+							world_aabb and
+							clipmap.build_world_aabb and
+							clipmap.build_world_aabb:IsBoxIntersecting(world_aabb)
+						then
 							local slice_ranges = {
 								x = build_entry_slice_range(world_aabb, clipmap, build_origin, "x"),
 								y = build_entry_slice_range(world_aabb, clipmap, build_origin, "y"),
@@ -611,9 +627,7 @@ local function build_voxel_draw_list(voxelizer, clipmap_index, clipmap)
 		end
 	end
 
-	if #draw_list > 1 then
-		table.sort(draw_list, compare_voxel_draw_entries)
-	end
+	if #draw_list > 1 then table.sort(draw_list, compare_voxel_draw_entries) end
 
 	return draw_list, submitted_visuals, submitted_entries, cacheable
 end
@@ -622,6 +636,7 @@ local function get_voxel_slice_bucket(slice_buckets, axis_name, slice)
 	local axis_buckets = slice_buckets and slice_buckets[axis_name] or nil
 
 	if not axis_buckets then return nil end
+
 	return axis_buckets[slice]
 end
 
@@ -672,7 +687,8 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 	local state = current_slice_draw_state
 	local cmd = state.cmd
 	local repair = state.voxelizer.GetClipmapDirtySliceRepair and
-		state.voxelizer.GetClipmapDirtySliceRepair(state.clipmap_index, axis_name, slice) or nil
+		state.voxelizer.GetClipmapDirtySliceRepair(state.clipmap_index, axis_name, slice) or
+		nil
 	local full_slice_repair = repair == nil or repair.full == true
 	local build_target_cleared = current_clipmap.build_target_cleared == true
 	local slice_draw_list = get_voxel_slice_bucket(state.slice_buckets, axis_name, slice)
@@ -698,7 +714,17 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 			{
 				color_image_view = target.layer_views[slice],
 				clear_color = {0, 0, 0, 0},
-				load_op = (not build_target_cleared and (current_clipmap.full_rebuild or current_clipmap.clear_dirty_slices or full_slice_repair)) and "clear" or "load",
+				load_op = (
+						not build_target_cleared and
+						(
+							current_clipmap.full_rebuild or
+							current_clipmap.clear_dirty_slices or
+							full_slice_repair
+						)
+					)
+					and
+					"clear" or
+					"load",
 				store_op = "store",
 			},
 		},
@@ -709,7 +735,15 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 
 	if full_slice_repair then
 		cmd:SetScissor(0, 0, current_clipmap.resolution, current_clipmap.resolution)
-		draw_voxel_slice_geometry(state.self, cmd, state.clipmap_index, current_clipmap, axis_name, slice, slice_draw_list)
+		draw_voxel_slice_geometry(
+			state.self,
+			cmd,
+			state.clipmap_index,
+			current_clipmap,
+			axis_name,
+			slice,
+			slice_draw_list
+		)
 	else
 		for _, rect in ipairs(repair.rects or {}) do
 			if not build_target_cleared then
@@ -721,10 +755,20 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 					h = rect.h,
 				}
 			end
+
 			cmd:SetScissor(rect.x, rect.y, rect.w, rect.h)
-			draw_voxel_slice_geometry(state.self, cmd, state.clipmap_index, current_clipmap, axis_name, slice, slice_draw_list)
+			draw_voxel_slice_geometry(
+				state.self,
+				cmd,
+				state.clipmap_index,
+				current_clipmap,
+				axis_name,
+				slice,
+				slice_draw_list
+			)
 		end
 	end
+
 	cmd:EndRendering()
 end
 
@@ -743,11 +787,17 @@ local function draw_voxel_build(self, cmd)
 		local clipmap = voxelizer.GetClipmap(clipmap_index)
 
 		if clipmap and clipmap.dirty then
-			local pending_scroll = voxelizer.ConsumeClipmapScroll and voxelizer.ConsumeClipmapScroll(clipmap_index) or nil
+			local pending_scroll = voxelizer.ConsumeClipmapScroll and
+				voxelizer.ConsumeClipmapScroll(clipmap_index) or
+				nil
 
 			if pending_scroll then
 				scroll_clipmap_targets(cmd, voxelizer, clipmap_index, pending_scroll)
-				if voxelizer.MarkClipmapScrollReady then voxelizer.MarkClipmapScrollReady(clipmap_index) end
+
+				if voxelizer.MarkClipmapScrollReady then
+					voxelizer.MarkClipmapScrollReady(clipmap_index)
+				end
+
 				clipmap = voxelizer.GetClipmap(clipmap_index)
 			end
 
@@ -790,7 +840,10 @@ local function draw_voxel_build(self, cmd)
 				end
 			end
 
-			if voxelizer.ConsumeClipmapClearPending and voxelizer.ConsumeClipmapClearPending(clipmap_index) then
+			if
+				voxelizer.ConsumeClipmapClearPending and
+				voxelizer.ConsumeClipmapClearPending(clipmap_index)
+			then
 				for _, axis_name in ipairs({"x", "y", "z"}) do
 					clear_axis_target(cmd, voxelizer.GetClipmapBuildAxisTarget(clipmap_index, axis_name))
 				end
@@ -806,10 +859,11 @@ local function draw_voxel_build(self, cmd)
 			current_slice_draw_state.axis_transitioned = axis_transitioned
 			local dirty_axes, dirty_slices, build_complete = voxelizer.ForEachDirtyAxisTarget(
 				clipmap_index,
-				voxelizer.GetClipmapBuildSliceBudget and voxelizer.GetClipmapBuildSliceBudget(clipmap_index) or voxelizer.build_slices_per_frame,
+				voxelizer.GetClipmapBuildSliceBudget and
+					voxelizer.GetClipmapBuildSliceBudget(clipmap_index) or
+					voxelizer.build_slices_per_frame,
 				draw_dirty_voxel_slice
 			)
-
 			total_visuals = total_visuals + clipmap_visuals
 			total_entries = total_entries + clipmap_entries
 

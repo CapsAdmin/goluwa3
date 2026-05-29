@@ -15,7 +15,7 @@ local CAMERA_TEST_MULTIPLIER = 1 --000.0
 local SKY_VIEW_LUT_WIDTH = 1024
 local SKY_VIEW_LUT_HEIGHT = 512
 local SKY_VIEW_STEPS = 32
-local SKY_VIEW_TEXTURE_CACHE_LIMIT = 4
+local SKY_VIEW_TEXTURE_CACHE_LIMIT = 16
 local SKY_VIEW_POSITION_QUANTIZATION = 2
 local SKY_VIEW_DIRECTION_QUANTIZATION = 0.002
 local RAYLEIGH_SCALE_HEIGHT = 8.0
@@ -799,6 +799,18 @@ local function destroy_sky_view_texture(key)
 	atmosphere.sky_view_textures[key] = nil
 end
 
+local function touch_sky_view_texture_key(key)
+	for i = 1, #atmosphere.sky_view_texture_order do
+		if atmosphere.sky_view_texture_order[i] == key then
+			table.remove(atmosphere.sky_view_texture_order, i)
+
+			break
+		end
+	end
+
+	table.insert(atmosphere.sky_view_texture_order, key)
+end
+
 local function destroy_all_sky_view_textures()
 	for key in pairs(atmosphere.sky_view_textures) do
 		destroy_sky_view_texture(key)
@@ -862,12 +874,15 @@ function atmosphere.GetSkyViewTexture(cam_pos, sun_dir)
 	local key = get_sky_view_texture_key(cam_pos, sun_dir)
 	local tex = atmosphere.sky_view_textures[key]
 
-	if tex and tex:IsValid() then return tex end
+	if tex and tex:IsValid() then
+		touch_sky_view_texture_key(key)
+		return tex
+	end
 
 	destroy_sky_view_texture(key)
 	tex = create_sky_view_texture(cam_pos, sun_dir)
 	atmosphere.sky_view_textures[key] = tex
-	table.insert(atmosphere.sky_view_texture_order, key)
+	touch_sky_view_texture_key(key)
 
 	while #atmosphere.sky_view_texture_order > SKY_VIEW_TEXTURE_CACHE_LIMIT do
 		local oldest = table.remove(atmosphere.sky_view_texture_order, 1)
