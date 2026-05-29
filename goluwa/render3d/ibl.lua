@@ -59,6 +59,10 @@ function ibl.GetEnvironmentGLSLCode()
 				return float(textureQueryLevels(CUBEMAP(env_tex)) - 1);
 			}
 
+			vec3 correct_environment_lookup_dir(vec3 dir) {
+				return normalize(vec3(dir.x, dir.y, dir.z));
+			}
+
 			vec3 get_specular_dominant_direction(vec3 reflection_dir, vec3 normal, float roughness) {
 				return normalize(mix(reflection_dir, normal, roughness * roughness));
 			}
@@ -66,14 +70,14 @@ function ibl.GetEnvironmentGLSLCode()
 			vec3 sample_environment_specular(int env_tex, vec3 reflection_dir, vec3 normal, float roughness) {
 				if (env_tex == -1) return vec3(0.0);
 				float max_mip = get_environment_max_mip(env_tex);
-				vec3 sample_dir = get_specular_dominant_direction(reflection_dir, normal, roughness);
+				vec3 sample_dir = correct_environment_lookup_dir(get_specular_dominant_direction(reflection_dir, normal, roughness));
 				return textureLod(CUBEMAP(env_tex), sample_dir, roughness * max_mip).rgb;
 			}
 
 			vec3 sample_environment_irradiance(int env_tex, vec3 normal) {
 				if (env_tex == -1) return vec3(0.0);
 				float max_mip = get_environment_max_mip(env_tex);
-				vec3 sample_dir = normalize(mix(vec3(0.0, 1.0, 0.0), normal, 0.35));
+				vec3 sample_dir = correct_environment_lookup_dir(normalize(mix(vec3(0.0, 1.0, 0.0), normal, 0.35)));
 				return textureLod(CUBEMAP(env_tex), sample_dir, max_mip * 0.8).rgb;
 			}
 		]]

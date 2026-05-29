@@ -1356,15 +1356,6 @@ function steam.SpawnMapEntities(path, parent)
 			if v.spawned_from_bsp then v:Remove() end
 		end
 
-		if data.cubemaps then
-			logn("emitting ", #data.cubemaps, " BSP cubemaps")
-
-			for k, v in pairs(data.cubemaps) do
-				local position = v.origin * steam.source2meters
-				event.Call("SpawnProbe", position)
-			end
-		end
-
 		local count = table.count(data.entities)
 		logn("spawning ", count, " entities from BSP")
 		local handled = {}
@@ -1477,6 +1468,15 @@ function steam.SpawnMapEntities(path, parent)
 			tasks.ReportProgress("spawning entities", count)
 
 			if i % 50 == 0 then tasks.Wait() end
+		end
+
+		if data.cubemaps then
+			logn("emitting ", #data.cubemaps, " BSP cubemaps")
+
+			for _, v in pairs(data.cubemaps) do
+				local position = v.origin * steam.source2meters
+				event.Call("SpawnProbe", position)
+			end
 		end
 
 		local unhandled = {}

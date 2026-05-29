@@ -138,11 +138,15 @@ local function build_common_fragment_shader(
 			vec3 get_normal(vec2 uv, mat3 tbn) {
 				vec4 vertex_color = get_vertex_color();
 
+				if ((gbuffer_data.debug_mode - 1) == 5) {
+					return get_vertex_normal();
+				}
+
 				if (gbuffer_data.gbuffer_normal_debug_view == 1) {
 					return encode_debug_vector(get_normal_map(uv));
 				}
 
-				if (gbuffer_data.gbuffer_normal_debug_view == 2 || (gbuffer_data.debug_mode - 1) == 5) {
+				if (gbuffer_data.gbuffer_normal_debug_view == 2) {
 					return encode_debug_vector(get_vertex_normal());
 				}
 

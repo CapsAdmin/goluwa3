@@ -401,7 +401,7 @@ function render3d.Initialize()
 	local i = 1
 	local pipelines
 
-	if true then
+	if false then
 		pipelines = list.flatten{
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			--import("goluwa/render3d/passes/voxel_build.lua"),
@@ -421,7 +421,7 @@ function render3d.Initialize()
 			--import("goluwa/render3d/passes/voxel_build.lua"),
 			--import("goluwa/render3d/passes/ssr.lua"),
 			--import("goluwa/render3d/passes/lighting.lua"),
-			import("goluwa/render3d/passes/lighting_simple.lua"),
+			import("goluwa/render3d/passes/lighting.lua"),
 			--import("goluwa/render3d/passes/ocean.lua"),
 			--import("goluwa/render3d/passes/forward_overlay.lua"),
 			--import("goluwa/render3d/passes/volumetric_fog.lua"),
