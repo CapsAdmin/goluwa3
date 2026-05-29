@@ -663,164 +663,6 @@ return {
 			vec3 correct_probe_depth_lookup_dir(vec3 dir) {
 				return normalize(vec3(-dir.x, dir.y, dir.z));
 			}
-			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex, out float hit_confidence) {
-				const int MAX_MARCH_STEPS = 16;
-				const int MAX_BINARY_STEPS = 6;
-				float origin_len2 = dot(ray_origin, ray_origin);
-				float radius2 = sphere_radius * sphere_radius;
-				float b = dot(ray_origin, R);
-				float c = origin_len2 - radius2;
-				float discriminant = b * b - c;
-
-				if (discriminant <= 0.0) {
-					hit_confidence = 0.0;
-					return normalize(ray_origin + R * sphere_radius);
-				}
-
-				float sphere_exit = -b + sqrt(discriminant);
-
-				if (sphere_exit <= 0.0) {
-					hit_confidence = 0.0;
-					return normalize(ray_origin + R * sphere_radius);
-				}
-
-				float t_prev = 0.0;
-				float march_step = max(sphere_exit / float(MAX_MARCH_STEPS), sphere_radius * 0.02);
-				float t = min(march_step, sphere_exit);
-				float closest_depth_gap = 1e20;
-				float closest_gap_t = sphere_exit;
-
-				for (int i = 0; i < MAX_MARCH_STEPS; i++) {
-					vec3 ray_pos = ray_origin + R * t;
-					vec3 ray_dir = normalize(ray_pos);
-					float ray_dist = length(ray_pos);
-					float stored_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(ray_dir)).r;
-					float depth_gap = max(stored_depth - ray_dist, 0.0);
-
-					if (depth_gap < closest_depth_gap) {
-						closest_depth_gap = depth_gap;
-						closest_gap_t = t;
-					}
-
-					if (ray_dist >= stored_depth) {
-						vec3 hit_pos = ray_pos;
-						float start_t = t_prev;
-						float end_t = t;
-
-						for (int j = 0; j < MAX_BINARY_STEPS; j++) {
-							float mid_t = (start_t + end_t) * 0.5;
-							vec3 mid_pos = ray_origin + R * mid_t;
-							vec3 mid_dir = normalize(mid_pos);
-							float mid_dist = length(mid_pos);
-							float mid_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(mid_dir)).r;
-
-							if (mid_dist >= mid_depth) {
-								end_t = mid_t;
-								hit_pos = mid_pos;
-							} else {
-								start_t = mid_t;
-							}
-						}
-
-						hit_confidence = 1.0;
-						return normalize(hit_pos);
-					}
-
-					if (t >= sphere_exit) {
-						break;
-					}
-
-					t_prev = t;
-					march_step *= 1.15;
-					t = min(t + march_step, sphere_exit);
-				}
-
-				vec3 exit_pos = ray_origin + R * sphere_exit;
-				vec3 exit_normal = normalize(exit_pos);
-				float open_space_confidence = smoothstep(sphere_radius * 0.04, sphere_radius * 0.28, closest_depth_gap);
-				float exit_alignment = saturate(dot(exit_normal, R));
-				float directional_confidence = smoothstep(0.15, 0.65, exit_alignment);
-				float blocker_proximity = 1.0 - smoothstep(0.35, 0.9, closest_gap_t / max(sphere_exit, 1e-5));
-				float blocker_suppression = mix(1.0, 0.2, blocker_proximity);
-				float miss_confidence = open_space_confidence * directional_confidence * blocker_suppression;
-				hit_confidence = max(miss_confidence, 0.02);
-				return normalize(exit_pos);
-			}
-
-
-
-			vec3 correct_probe_color_lookup_dir(vec3 dir) {
-				return normalize(dir);
-			}
-
-			vec3 get_environment_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				vec3 raw_R = reflect(-V, normal);
-				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
-
-
-				vec3 global_env = sample_environment_specular(lighting_data.env_tex, R, normal, roughness);
-
-				vec3 probes_env = vec3(0.0);
-				float total_weight = 0.0;
-				float normalized_weight_sum = 0.0;
-				float max_weight = 0.0;
-
-				for (int i = 0; i < 64; i++) {
-					int color_tex = lighting_data.probe_color_textures[i];
-					int depth_tex = lighting_data.probe_depth_textures[i];
-					if (color_tex == -1) continue;
-
-					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
-					float sphere_radius = lighting_data.probe_positions[i].w;
-					vec3 probe_to_point = world_pos - probe_pos;
-					float dist_to_point = length(probe_to_point);
-
-					if (dist_to_point < sphere_radius) {
-						vec3 dir_to_point = normalize(probe_to_point);
-
-						// Check visibility and how accurately this probe sees the surface
-						float stored_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(dir_to_point)).r;
-						float bias = 0.3;
-						float fade_band = 0.75;
-						float penetration = dist_to_point - (stored_depth + bias);
-						float occlusion_weight = 1.0 - smoothstep(0.0, fade_band, max(penetration, 0.0));
-						float depth_diff = abs(stored_depth - dist_to_point);
-
-						if (occlusion_weight <= 0.001) continue;
-
-						// Weight based on depth match quality - closer match = higher weight
-						// Using exponential falloff for smoother blending
-						float depth_weight = exp(-depth_diff * 0.5); // Tune the 0.5 multiplier
-						
-						// Also weight by distance from probe center for smooth edge falloff
-						float edge_weight = smoothstep(sphere_radius, sphere_radius * 0.3, dist_to_point);
-						
-						float weight = depth_weight * edge_weight * occlusion_weight;
-
-						if (weight > 0.001) {
-							float normalized_weight = pow(weight, mix(4.0, 1.5, roughness));
-							float hit_confidence;
-							vec3 reflected = parallax_depth(R, probe_to_point, sphere_radius, depth_tex, hit_confidence);
-							vec3 probe_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(R), 0.0).rgb;
-							vec3 corrected_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(reflected), 0.0).rgb;
-							float correction_confidence = smoothstep(0.15, 0.85, hit_confidence);
-							vec3 sample_color = mix(probe_sample, corrected_sample, correction_confidence);
-							probes_env += sample_color * normalized_weight;
-							total_weight += weight * hit_confidence;
-							normalized_weight_sum += normalized_weight;
-							max_weight = max(max_weight, weight * hit_confidence);
-						}
-					}
-				}
-
-				if (normalized_weight_sum > 0.001) {
-					vec3 local_env = probes_env / normalized_weight_sum;
-					float local_coverage = clamp(max_weight + total_weight * 0.35, 0.0, 1.0);
-					return blend_environment_sources(global_env, local_env, local_coverage);
-				}
-
-				return global_env;
-			}
 
 			vec3 get_environment_irradiance(vec3 normal, vec3 world_pos) {
 				vec3 global_env = sample_environment_irradiance(lighting_data.env_tex, normal);
@@ -871,10 +713,13 @@ return {
 			}
 
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				vec3 env = get_environment_reflection(normal, roughness, V, world_pos);
-				if (lighting_data.debug_mode == 5) return env;
+				if (lighting_data.ssr_tex == -1) {
+					vec3 raw_R = reflect(-V, normal);
+					return sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
+				}
+
 				vec4 ssr = get_filtered_ssr_reflection(in_uv);
-				return combine_reflections(env, ssr, get_ssr_blend_weight(roughness));
+				return ssr.rgb;
 			}
 
 			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {

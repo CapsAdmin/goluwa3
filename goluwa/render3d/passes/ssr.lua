@@ -1,4 +1,5 @@
 local assets = import("goluwa/assets.lua")
+local ibl = import("goluwa/render3d/ibl.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
@@ -6,6 +7,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local TILE_WIDTH = COMPUTE_LOCAL_SIZE.x + 2
 local TILE_HEIGHT = COMPUTE_LOCAL_SIZE.y + 2
+local MAX_PROBES = 64
 return {
 	{
 		name = "ssr",
@@ -26,17 +28,60 @@ return {
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
+					render3d.debug_block,
 					render3d.gbuffer_block,
 					render3d.last_frame_block,
 					{"blue_noise_tex", "int"},
+					{"env_tex", "int"},
+					{"probe_color_textures", "int", 64},
+					{"probe_depth_textures", "int", 64},
+					{"probe_positions", "vec4", 64},
 					{"prev_view", "mat4"},
 					{"prev_projection", "mat4"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
+					render3d.WriteDebugBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+
+					for i = 0, MAX_PROBES - 1 do
+						block.probe_color_textures[i] = -1
+						block.probe_depth_textures[i] = -1
+						block.probe_positions[i][0] = 0
+						block.probe_positions[i][1] = 0
+						block.probe_positions[i][2] = 0
+						block.probe_positions[i][3] = 0
+					end
+
+					local lightprobes = import.loaded["goluwa/render3d/lightprobes.lua"] or
+						import("goluwa/render3d/lightprobes.lua")
+
+					if lightprobes.IsEnabled() then
+						local probes = lightprobes.GetProbes()
+
+						for i = 0, MAX_PROBES - 1 do
+							local probe = probes[i + 1]
+
+							if probe then
+								if probe.cubemap then
+									block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
+								end
+
+								if probe.depth_cubemap then
+									block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
+								end
+
+								block.probe_positions[i][0] = probe.position.x
+								block.probe_positions[i][1] = probe.position.y
+								block.probe_positions[i][2] = probe.position.z
+								block.probe_positions[i][3] = probe.radius or 20
+							end
+						end
+					end
+
 					local prev_view = render3d.prev_view_matrix
 					local prev_projection = render3d.prev_projection_matrix
 
@@ -61,6 +106,7 @@ return {
 		]],
 		shader = [[
 		]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+		]] .. ibl.GetEnvironmentGLSLCode() .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
 			#define SSR_MAX_STEPS 64
 			#define SSR_BINARY_STEPS 8
@@ -98,6 +144,12 @@ return {
 
 			float get_roughness(vec2 uv) {
 				return texture(TEXTURE(ssr_data.mra_tex), uv).g;
+			}
+
+			vec3 get_debug_hit_color(vec2 uv) {
+				vec3 albedo = texture(TEXTURE(ssr_data.albedo_tex), uv).rgb;
+				vec3 emissive = texture(TEXTURE(ssr_data.emissive_tex), uv).rgb;
+				return albedo + emissive;
 			}
 
 			vec2 blue_noise(ivec2 pixel) {
@@ -170,8 +222,162 @@ return {
 				return fract(xi + vec2(0.25, 0.6666667));
 			}
 
+			vec3 correct_probe_depth_lookup_dir(vec3 dir) {
+				return normalize(vec3(-dir.x, dir.y, dir.z));
+			}
+
+			vec3 correct_probe_color_lookup_dir(vec3 dir) {
+				return normalize(dir);
+			}
+
+			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex, out float hit_confidence) {
+				const int MAX_MARCH_STEPS = 16;
+				const int MAX_BINARY_STEPS = 6;
+				float origin_len2 = dot(ray_origin, ray_origin);
+				float radius2 = sphere_radius * sphere_radius;
+				float b = dot(ray_origin, R);
+				float c = origin_len2 - radius2;
+				float discriminant = b * b - c;
+
+				if (discriminant <= 0.0) {
+					hit_confidence = 0.0;
+					return normalize(ray_origin + R * sphere_radius);
+				}
+
+				float sphere_exit = -b + sqrt(discriminant);
+
+				if (sphere_exit <= 0.0) {
+					hit_confidence = 0.0;
+					return normalize(ray_origin + R * sphere_radius);
+				}
+
+				float t_prev = 0.0;
+				float march_step = max(sphere_exit / float(MAX_MARCH_STEPS), sphere_radius * 0.02);
+				float t = min(march_step, sphere_exit);
+				float closest_depth_gap = 1e20;
+				float closest_gap_t = sphere_exit;
+
+				for (int i = 0; i < MAX_MARCH_STEPS; i++) {
+					vec3 ray_pos = ray_origin + R * t;
+					vec3 ray_dir = normalize(ray_pos);
+					float ray_dist = length(ray_pos);
+					float stored_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(ray_dir)).r;
+					float depth_gap = max(stored_depth - ray_dist, 0.0);
+
+					if (depth_gap < closest_depth_gap) {
+						closest_depth_gap = depth_gap;
+						closest_gap_t = t;
+					}
+
+					if (ray_dist >= stored_depth) {
+						vec3 hit_pos = ray_pos;
+						float start_t = t_prev;
+						float end_t = t;
+
+						for (int j = 0; j < MAX_BINARY_STEPS; j++) {
+							float mid_t = (start_t + end_t) * 0.5;
+							vec3 mid_pos = ray_origin + R * mid_t;
+							vec3 mid_dir = normalize(mid_pos);
+							float mid_dist = length(mid_pos);
+							float mid_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(mid_dir)).r;
+
+							if (mid_dist >= mid_depth) {
+								end_t = mid_t;
+								hit_pos = mid_pos;
+							} else {
+								start_t = mid_t;
+							}
+						}
+
+						hit_confidence = 1.0;
+						return normalize(hit_pos);
+					}
+
+					if (t >= sphere_exit) {
+						break;
+					}
+
+					t_prev = t;
+					march_step *= 1.15;
+					t = min(t + march_step, sphere_exit);
+				}
+
+				vec3 exit_pos = ray_origin + R * sphere_exit;
+				vec3 exit_normal = normalize(exit_pos);
+				float open_space_confidence = smoothstep(sphere_radius * 0.04, sphere_radius * 0.28, closest_depth_gap);
+				float exit_alignment = saturate(dot(exit_normal, R));
+				float directional_confidence = smoothstep(0.15, 0.65, exit_alignment);
+				float blocker_proximity = 1.0 - smoothstep(0.35, 0.9, closest_gap_t / max(sphere_exit, 1e-5));
+				float blocker_suppression = mix(1.0, 0.2, blocker_proximity);
+				float miss_confidence = open_space_confidence * directional_confidence * blocker_suppression;
+				hit_confidence = max(miss_confidence, 0.02);
+				return normalize(exit_pos);
+			}
+
+			vec3 get_probe_environment_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
+				vec3 raw_R = reflect(-V, normal);
+				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
+				vec3 global_env = sample_environment_specular(ssr_data.env_tex, R, normal, roughness);
+				vec3 probes_env = vec3(0.0);
+				float total_weight = 0.0;
+				float normalized_weight_sum = 0.0;
+				float max_weight = 0.0;
+
+				for (int i = 0; i < 64; i++) {
+					int color_tex = ssr_data.probe_color_textures[i];
+					int depth_tex = ssr_data.probe_depth_textures[i];
+					if (color_tex == -1) continue;
+
+					vec3 probe_pos = ssr_data.probe_positions[i].xyz;
+					float sphere_radius = ssr_data.probe_positions[i].w;
+					vec3 probe_to_point = world_pos - probe_pos;
+					float dist_to_point = length(probe_to_point);
+
+					if (dist_to_point < sphere_radius) {
+						vec3 dir_to_point = normalize(probe_to_point);
+						float stored_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(dir_to_point)).r;
+						float bias = 0.3;
+						float fade_band = 0.75;
+						float penetration = dist_to_point - (stored_depth + bias);
+						float occlusion_weight = 1.0 - smoothstep(0.0, fade_band, max(penetration, 0.0));
+						float depth_diff = abs(stored_depth - dist_to_point);
+
+						if (occlusion_weight <= 0.001) continue;
+
+						float depth_weight = exp(-depth_diff * 0.5);
+						float edge_weight = smoothstep(sphere_radius, sphere_radius * 0.3, dist_to_point);
+						float weight = depth_weight * edge_weight * occlusion_weight;
+
+						if (weight > 0.001) {
+							float normalized_weight = pow(weight, mix(4.0, 1.5, roughness));
+							float hit_confidence;
+							vec3 reflected = parallax_depth(R, probe_to_point, sphere_radius, depth_tex, hit_confidence);
+							float probe_max_mip = color_tex == -1 ? 0.0 : float(textureQueryLevels(CUBEMAP(color_tex)) - 1);
+							float probe_mip = roughness * probe_max_mip;
+							vec3 probe_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(R), probe_mip).rgb;
+							vec3 corrected_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(reflected), probe_mip).rgb;
+							float correction_confidence = smoothstep(0.15, 0.85, hit_confidence);
+							vec3 sample_color = mix(probe_sample, corrected_sample, correction_confidence);
+							probes_env += sample_color * normalized_weight;
+							total_weight += weight * hit_confidence;
+							normalized_weight_sum += normalized_weight;
+							max_weight = max(max_weight, weight * hit_confidence);
+						}
+					}
+				}
+
+				if (normalized_weight_sum > 0.001) {
+					vec3 local_env = probes_env / normalized_weight_sum;
+					float local_coverage = clamp(max_weight + total_weight * 0.35, 0.0, 1.0);
+					return mix(global_env, local_env, local_coverage);
+				}
+
+				return global_env;
+			}
+
 			vec4 trace_ssr_direction(vec4 pos_vs, vec3 R_vs, float roughness, float jitter_seed) {
 				if (dot(R_vs, R_vs) <= 1e-5) return vec4(0.0);
+				bool ssr_debug_mode = ssr_data.debug_mode == 5;
 
 				float jitter = mix(0.9, 1.1, jitter_seed);
 				float step_size = 0.08 * jitter;
@@ -232,8 +438,18 @@ return {
 								return vec4(0.0);
 							}
 
-							vec3 hit_color;
 							float dist = length(current_pos - pos_vs.xyz);
+							float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
+							edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
+							float dist_fade = 1.0 - saturate(dist / 100.0);
+							float thick_conf = 1.0 - saturate(depth_diff / thickness);
+							float confidence = edge_fade * dist_fade * thick_conf;
+
+							if (ssr_debug_mode) {
+								return vec4(get_debug_hit_color(uv), confidence);
+							}
+
+							vec3 hit_color;
 							float mip_level = 0.0;
 
 							if (roughness > 0.1) {
@@ -248,11 +464,6 @@ return {
 
 							hit_color = clamp_reflection_fireflies(last_frame_uv, hit_color, mip_level, roughness);
 
-							float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
-							edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
-							float dist_fade = 1.0 - saturate(dist / 100.0);
-							float thick_conf = 1.0 - saturate(depth_diff / thickness);
-							float confidence = edge_fade * dist_fade * thick_conf;
 							return vec4(hit_color, confidence);
 						}
 					}
@@ -264,8 +475,10 @@ return {
 			}
 
 			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
-				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
-				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
+				bool ssr_debug_mode = ssr_data.debug_mode == 5;
+				vec3 fallback_reflection = get_probe_environment_reflection(N, roughness, V, world_pos);
+				if (ssr_data.last_frame_tex == -1) return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
+				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
 
 				vec3 N_vs = normalize(mat3(ssr_data.view) * N);
 				vec3 V_vs = normalize(mat3(ssr_data.view) * V);
@@ -277,10 +490,13 @@ return {
 
 				vec3 mirror_R_vs = reflect(-V_vs, N_vs);
 
-				if (dot(N_vs, mirror_R_vs) < 0.0) return vec4(0.0);
+				if (dot(N_vs, mirror_R_vs) < 0.0) return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
 
 				if (roughness <= SSR_ROUGH_REFLECTION_THRESHOLD) {
-					return trace_ssr_direction(pos_vs, mirror_R_vs, roughness, xi.x);
+					vec4 hit = trace_ssr_direction(pos_vs, mirror_R_vs, roughness, xi.x);
+					if (ssr_debug_mode) return vec4(mix(fallback_reflection, hit.rgb, hit.a), hit.a);
+					if (hit.a <= 1e-5) return vec4(fallback_reflection, 0.0);
+					return hit;
 				}
 
 				vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
@@ -308,10 +524,14 @@ return {
 				}
 
 				if (color_weight <= 0.0001) {
-					return vec4(0.0);
+					return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
 				}
 
-				return vec4(color_accum / color_weight, confidence_accum / float(SSR_ROUGH_MULTI_SAMPLES));
+				float confidence = confidence_accum / float(SSR_ROUGH_MULTI_SAMPLES);
+				vec3 hit_color = color_accum / color_weight;
+				if (ssr_debug_mode) return vec4(mix(fallback_reflection, hit_color, confidence), confidence);
+				if (confidence <= 1e-5) return vec4(fallback_reflection, 0.0);
+				return vec4(hit_color, confidence);
 			}
 
 			vec4 compute_current_ssr(ivec2 sample_pos, ivec2 size) {

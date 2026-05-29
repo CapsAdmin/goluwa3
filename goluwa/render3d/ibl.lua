@@ -108,6 +108,11 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 
 				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(]] .. uniform_name .. [[.ssr_tex), 0));
 				vec4 center = texture(TEXTURE(]] .. uniform_name .. [[.ssr_tex), uv);
+
+				if (center.a <= 1e-5) {
+					return vec4(center.rgb, 0.0);
+				}
+
 				float center_depth = texture(TEXTURE(]] .. uniform_name .. [[.depth_tex), uv).r;
 				float center_view_depth = reconstruct_ssr_view_depth(uv, center_depth);
 				vec3 center_normal = texture(TEXTURE(]] .. uniform_name .. [[.normal_tex), uv).xyz;
@@ -143,7 +148,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 					confidence_weight += geometry_weight;
 				}
 
-				if (color_weight <= 1e-5 || confidence_weight <= 1e-5) return vec4(0.0);
+				if (color_weight <= 1e-5 || confidence_weight <= 1e-5) return vec4(center.rgb, 0.0);
 
 				vec3 filtered_rgb = color_accum / color_weight;
 				float filtered_confidence = clamp(confidence_accum / confidence_weight, 0.0, 1.0);

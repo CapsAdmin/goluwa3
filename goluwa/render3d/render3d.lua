@@ -220,7 +220,6 @@ do
 		"irradiance",
 		"ambient_occlusion",
 		"ssr",
-		"probe",
 		"wireframe",
 		"voxel_gi",
 	}
@@ -295,10 +294,7 @@ do
 			color = vec3(ambient_occlusion);
 		} else if (debug_mode == 4) {
 			color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
-		} else if (debug_mode == 5) {
-			// Probe debug - show probe cubemap contribution
-			color = get_reflection(N, 0, V, world_pos);
-		} else if (debug_mode == 7) {
+		} else if (debug_mode == 6) {
 			color = voxel_irradiance;
 		}
 	]]
@@ -401,7 +397,7 @@ function render3d.Initialize()
 	local i = 1
 	local pipelines
 
-	if false then
+	if true then
 		pipelines = list.flatten{
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			--import("goluwa/render3d/passes/voxel_build.lua"),
