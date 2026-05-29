@@ -3714,123 +3714,117 @@ function EasyPipeline.ComputePass(config)
 		end
 
 		render.PushCommandBuffer(cmd)
-		local ok, err = xpcall(
-			function()
-				local current_frame_index = render.GetCurrentFrame() or frame_index or 1
+		local current_frame_index = render.GetCurrentFrame() or frame_index or 1
 
-				if current_frame_index < 1 then current_frame_index = 1 end
+		if current_frame_index < 1 then current_frame_index = 1 end
 
-				if current_frame_index > self.compute_pass_frame_span then
-					current_frame_index = ((current_frame_index - 1) % self.compute_pass_frame_span) + 1
+		if current_frame_index > self.compute_pass_frame_span then
+			current_frame_index = ((current_frame_index - 1) % self.compute_pass_frame_span) + 1
+		end
+
+		if self._compute_pass_descriptor_cmd ~= cmd then
+			self._compute_pass_descriptor_cmd = cmd
+			self._compute_pass_descriptor_slot = 0
+		end
+
+		local descriptor_slot = (self._compute_pass_descriptor_slot or 0) + 1
+		local descriptor_frame_index = ((current_frame_index - 1) * self.compute_pass_slots_per_frame) + descriptor_slot
+
+		if
+			descriptor_count and
+			descriptor_count > 0 and
+			descriptor_frame_index > descriptor_count
+		then
+			error(
+				string.format(
+					"EasyPipeline.ComputePass: descriptor set ring exhausted for frame %d (%d > %d)",
+					current_frame_index,
+					descriptor_frame_index,
+					descriptor_count
+				),
+				2
+			)
+		end
+
+		self._compute_pass_descriptor_slot = descriptor_slot
+		local transitioned = {}
+
+		if self.on_pre_draw then
+			self.on_pre_draw(self, cmd, resolved_frame_index, descriptor_frame_index)
+		end
+
+		for _, info in ipairs(self.storage_images) do
+			local texture = info.get_texture and
+				info.get_texture(self, fb, resolved_frame_index) or
+				fb:GetAttachment(info.attachment or 1)
+			assert(
+				texture,
+				"missing compute output texture for binding " .. tostring(info.binding_index)
+			)
+			transition_texture_to_compute_storage(texture, cmd)
+			self:UpdateDescriptorSet(
+				"storage_image",
+				descriptor_frame_index,
+				info.binding_index,
+				info.set_index,
+				texture:GetView()
+			)
+			transitioned[#transitioned + 1] = {
+				texture = texture,
+				dst_stage = info.dst_stage,
+			}
+		end
+
+		for _, info in ipairs(self.sampled_images) do
+			local view
+			local sampler
+
+			if info.get_descriptor then
+				local descriptor = info.get_descriptor(self, fb, resolved_frame_index)
+
+				if type(descriptor) == "table" then
+					view = descriptor[1]
+					sampler = descriptor[2]
 				end
+			elseif info.get_texture then
+				view, sampler = get_compute_sampled_descriptor(info.get_texture(self, fb, resolved_frame_index))
+			else
+				view, sampler = get_compute_sampled_descriptor(nil)
+			end
 
-				if self._compute_pass_descriptor_cmd ~= cmd then
-					self._compute_pass_descriptor_cmd = cmd
-					self._compute_pass_descriptor_slot = 0
-				end
+			if not view or not sampler then
+				view, sampler = get_compute_sampled_descriptor(nil)
+			end
 
-				local descriptor_slot = (self._compute_pass_descriptor_slot or 0) + 1
-				local descriptor_frame_index = ((current_frame_index - 1) * self.compute_pass_slots_per_frame) + descriptor_slot
+			self:UpdateDescriptorSet(
+				"combined_image_sampler",
+				descriptor_frame_index,
+				info.binding_index,
+				info.set_index,
+				view,
+				sampler
+			)
+		end
 
-				if
-					descriptor_count and
-					descriptor_count > 0 and
-					descriptor_frame_index > descriptor_count
-				then
-					error(
-						string.format(
-							"EasyPipeline.ComputePass: descriptor set ring exhausted for frame %d (%d > %d)",
-							current_frame_index,
-							descriptor_frame_index,
-							descriptor_count
-						),
-						2
-					)
-				end
+		if self.on_draw then
+			self.on_draw(self, cmd, fb, resolved_frame_index, descriptor_frame_index)
+		else
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(
+				cmd,
+				fb.width,
+				fb.height,
+				1,
+				descriptor_frame_index,
+				self.dynamic_offsets
+			)
+		end
 
-				self._compute_pass_descriptor_slot = descriptor_slot
-				local transitioned = {}
+		for _, info in ipairs(transitioned) do
+			transition_texture_from_compute_storage(info.texture, cmd, info.dst_stage)
+		end
 
-				if self.on_pre_draw then
-					self.on_pre_draw(self, cmd, resolved_frame_index, descriptor_frame_index)
-				end
-
-				for _, info in ipairs(self.storage_images) do
-					local texture = info.get_texture and
-						info.get_texture(self, fb, resolved_frame_index) or
-						fb:GetAttachment(info.attachment or 1)
-					assert(
-						texture,
-						"missing compute output texture for binding " .. tostring(info.binding_index)
-					)
-					transition_texture_to_compute_storage(texture, cmd)
-					self:UpdateDescriptorSet(
-						"storage_image",
-						descriptor_frame_index,
-						info.binding_index,
-						info.set_index,
-						texture:GetView()
-					)
-					transitioned[#transitioned + 1] = {
-						texture = texture,
-						dst_stage = info.dst_stage,
-					}
-				end
-
-				for _, info in ipairs(self.sampled_images) do
-					local view
-					local sampler
-
-					if info.get_descriptor then
-						local descriptor = info.get_descriptor(self, fb, resolved_frame_index)
-
-						if type(descriptor) == "table" then
-							view = descriptor[1]
-							sampler = descriptor[2]
-						end
-					elseif info.get_texture then
-						view, sampler = get_compute_sampled_descriptor(info.get_texture(self, fb, resolved_frame_index))
-					else
-						view, sampler = get_compute_sampled_descriptor(nil)
-					end
-
-					if not view or not sampler then
-						view, sampler = get_compute_sampled_descriptor(nil)
-					end
-
-					self:UpdateDescriptorSet(
-						"combined_image_sampler",
-						descriptor_frame_index,
-						info.binding_index,
-						info.set_index,
-						view,
-						sampler
-					)
-				end
-
-				if self.on_draw then
-					self.on_draw(self, cmd, fb, resolved_frame_index, descriptor_frame_index)
-				else
-					self:UploadConstants()
-					self.pipeline:DispatchForSize(
-						cmd,
-						fb.width,
-						fb.height,
-						1,
-						descriptor_frame_index,
-						self.dynamic_offsets
-					)
-				end
-
-				for _, info in ipairs(transitioned) do
-					transition_texture_from_compute_storage(info.texture, cmd, info.dst_stage)
-				end
-			end,
-			debug.traceback
-		)
 		render.PopCommandBuffer()
-
-		if not ok then error(err, 0) end
 	end
 
 	return self
