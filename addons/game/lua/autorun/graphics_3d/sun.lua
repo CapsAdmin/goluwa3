@@ -20,36 +20,14 @@ atmosphere.SetSunIntensity(sun.light.Intensity)
 
 if true then
 	sun.light:SetCastShadows{
-		size = Vec2() + 2048,
+		size = Vec2() + 4096,
+		directional_projection_mode = "lispsm",
 		min_caster_texel_size = 4,
 		shadow_update_interval = 2,
-		cascade_count = 3,
 		cascade_formats = {
 			"d32_sfloat",
-			"d16_unorm",
-			"d16_unorm",
 		},
-		cascade_sizes = {
-			Vec2() + 4096,
-			Vec2() + 2048,
-			Vec2() + 2048,
-		},
-		cascade_zoom_factors = {
-			1.5,
-			1,
-			1,
-		},
-		farthest_cascade_update_mode = "world_changed",
-		farthest_cascade_camera_position_threshold = 96,
-		farthest_cascade_disable_vertex_animation = true,
-		cascade_split_lambda = 0.75,
 		max_shadow_distance = 2700,
-		inset_shadows = {
-			size = Vec2() + 4096,
-			distance = 16,
-			min_caster_texel_size = 1,
-			zoom_factor = 1.75,
-		},
 		near_plane = 1,
 		far_plane = 2700,
 	}

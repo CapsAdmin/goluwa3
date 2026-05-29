@@ -445,7 +445,6 @@ do
 			local function add_watch(dir_path)
 				if is_blacklisted_watch_path(dir_path, blacklist) then return -1 end
 
-				print("Watching directory:", dir_path)
 				local wd = ffi.C.inotify_add_watch(
 					inotify_fd,
 					dir_path,

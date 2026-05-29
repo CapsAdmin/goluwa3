@@ -36,4 +36,15 @@ function Fence:Wait(skip_reset)
 	end
 end
 
+function Fence:IsSignaled()
+	local result = vulkan.lib.vkGetFenceStatus(self.device.ptr[0], self.ptr[0])
+
+	if result == vulkan.vk.VkResult.VK_SUCCESS then return true end
+
+	if result == vulkan.vk.VkResult.VK_NOT_READY then return false end
+
+	vulkan.assert(result, "failed to query fence status")
+	return false
+end
+
 return Fence:Register()

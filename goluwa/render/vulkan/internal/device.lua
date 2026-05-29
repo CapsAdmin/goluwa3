@@ -641,11 +641,16 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 	local pBufferInfo = nil
 	local pImageInfo = nil
 
-	if type == "uniform_buffer" or type == "uniform_buffer_dynamic" then
+	if
+		type == "uniform_buffer" or
+		type == "uniform_buffer_dynamic" or
+		type == "storage_buffer" or
+		type == "storage_buffer_dynamic"
+	then
 		local buffer, range = ...
 
 		if not range then
-			logn("DEBUG: UBO UPDATE WITH NIL RANGE for " .. tostring(buffer))
+			logn("DEBUG: BUFFER UPDATE WITH NIL RANGE for " .. tostring(buffer))
 		end
 
 		-- Note: vulkan.vk.s.DescriptorBufferInfo is missing, use raw constructor via T.Array to get a pointer

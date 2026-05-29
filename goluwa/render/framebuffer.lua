@@ -85,7 +85,7 @@ function Framebuffer.New(config)
 			height = height,
 			format = config.depth_format or "d32_sfloat",
 			image = {
-				usage = {"depth_stencil_attachment", "sampled"},
+				usage = {"depth_stencil_attachment", "sampled", "transfer_src"},
 				properties = "device_local",
 				samples = samples,
 			},

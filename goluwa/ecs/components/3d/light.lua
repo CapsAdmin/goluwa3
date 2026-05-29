@@ -451,8 +451,29 @@ function Light:SetCastShadows(config)
 	self.ShadowSceneDirty = true
 	self.ShadowNeedsCompletion = false
 	local cascade_count = config.cascade_count or (config.cascade_sizes and #config.cascade_sizes) or nil
+	local use_directional_projection = config.directional_projection_mode and
+		config.directional_projection_mode ~= "orthographic"
 
 	if self.LightType == "sun" then
+		if use_directional_projection then
+			local primary_size = config.cascade_sizes and config.cascade_sizes[1] or config.size
+			self.ShadowMap = ShadowMap.New{
+				mode = "directional",
+				size = primary_size,
+				cascade_count = 1,
+				cascade_formats = config.cascade_formats,
+				cascade_sizes = {primary_size},
+				min_caster_texel_size = config.min_caster_texel_size,
+				directional_projection_mode = config.directional_projection_mode,
+				ortho_size = config.ortho_size or 50.0,
+				near_plane = config.near_plane or 1.0,
+				far_plane = config.far_plane or 200.0,
+				max_shadow_distance = config.max_shadow_distance or config.far_plane,
+			}
+			self.InsetShadowMap = nil
+			return
+		end
+
 		local disable_vertex_animation_cascades = {}
 
 		if
@@ -506,6 +527,7 @@ function Light:SetCastShadows(config)
 			cascade_formats = config.cascade_formats,
 			cascade_sizes = {config.size},
 			min_caster_texel_size = config.min_caster_texel_size,
+			directional_projection_mode = config.directional_projection_mode,
 			ortho_size = config.ortho_size or self.Range,
 			near_plane = config.near_plane or 0.1,
 			far_plane = config.far_plane or self.Range,
@@ -535,6 +557,14 @@ function Light:UpdateShadowMap(main_cascade_update_mask)
 
 	if self.LightType == "point" then
 		self.ShadowMap:UpdatePointLightMatrices(self.Owner.transform:GetPosition())
+	elseif self.LightType == "sun" and self.ShadowMap.mode == "directional" then
+		local shadow_range = self.ShadowMap.max_shadow_distance or self.ShadowMap.far_plane or self.Range
+		self.ShadowMap:UpdateLocalDirectionalLightMatrices(
+			self.Owner.transform:GetPosition(),
+			self.Owner.transform:GetRotation(),
+			shadow_range,
+			self.ShadowMap:GetSize().w > 0 and self.ShadowMap.ortho_size or self.Range
+		)
 	elseif self.LightType == "directional" then
 		local shadow_rotation = self.Owner.transform:GetRotation() * Quat():SetAngles(Deg3(0, 180, 0))
 		self.ShadowMap:UpdateLocalDirectionalLightMatrices(
