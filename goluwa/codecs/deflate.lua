@@ -179,7 +179,9 @@ local function get_output_buffer(output, initial_size)
 end
 
 local function get_input_state(input)
-	if type(input) == "table" and input.ptr and input.size and input.pos then return input end
+	if type(input) == "table" and input.ptr and input.size and input.pos then
+		return input
+	end
 
 	local buf = get_input_buffer(input)
 	local bit_pos = buf.BitPos and buf:BitPos() or buf.Position * 8
@@ -540,7 +542,6 @@ do
 	end
 
 	tdecode_len_nextrabits[285] = 0
-
 	skip = 1
 
 	for i = 1, 29, 2 do
@@ -571,7 +572,6 @@ local function parse_compressed_item(buf, outstate, littable, disttable)
 		--debug("Reading", nextrabits, "extra bits for length")
 		local extrabits = noeof(read_bits(buf, nextrabits))
 		local len = len_base + extrabits
-
 		local dist_val = huffman_table_read(disttable.look, disttable.minbits, buf)
 		local dist_base = tdecode_dist_base[dist_val]
 		local dist_nextrabits = tdecode_dist_nextrabits[dist_val]
@@ -643,9 +643,7 @@ function deflate.inflate(t)
 		end	
 	until is_final
 
-	if DEBUG then
-		debug("Inflation complete, output size:", outstate.outpos)
-	end
+	if DEBUG then debug("Inflation complete, output size:", outstate.outpos) end
 
 	outbuf.Position = outstate.outpos
 	outbuf:SetPosition(0)

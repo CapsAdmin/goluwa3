@@ -23,7 +23,6 @@ function DescriptorSetLayout.New(device, bindings)
 		bindingArray[i - 1].descriptorCount = b.count or 1
 		bindingArray[i - 1].stageFlags = vulkan.vk.e.VkShaderStageFlagBits(b.stageFlags)
 		bindingArray[i - 1].pImmutableSamplers = nil
-
 		local binding_flags = 0
 
 		-- For bindless (large arrays), set flags for dynamic updates.

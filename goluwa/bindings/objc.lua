@@ -1,6 +1,5 @@
 -- https://github.com/mogenson/lua-utils/blob/main/objc.lua
 local ffi = require("ffi")
-
 local C = ffi.C
 ---@alias cdata  userdata C types returned from FFI
 ---@alias id     cdata    Objective-C object
@@ -139,6 +138,7 @@ local function parse_encoded_types(types)
 	while index <= #types do
 		local token
 		token, index = parse_encoded_token(types, index)
+
 		if token then table.insert(out, token) end
 	end
 
@@ -166,10 +166,7 @@ end
 
 local function generate_arg_setup(c_type, arg_name)
 	if c_type == "char*" then
-		return "local " .. arg_name .. "_buffer = " .. arg_name ..
-			" ~= nil and ffi.new('char[?]', #" .. arg_name .. " + 1) or nil\n" ..
-			"if " .. arg_name .. "_buffer ~= nil then ffi.copy(" .. arg_name .. "_buffer, " .. arg_name .. ") end\n" ..
-			"local " .. arg_name .. "_value = " .. arg_name .. "_buffer ~= nil and cast(" .. string.format("%q", c_type) .. ", " .. arg_name .. "_buffer) or ffi.new(" .. string.format("%q", c_type) .. ")"
+		return "local " .. arg_name .. "_buffer = " .. arg_name .. " ~= nil and ffi.new('char[?]', #" .. arg_name .. " + 1) or nil\n" .. "if " .. arg_name .. "_buffer ~= nil then ffi.copy(" .. arg_name .. "_buffer, " .. arg_name .. ") end\n" .. "local " .. arg_name .. "_value = " .. arg_name .. "_buffer ~= nil and cast(" .. string.format("%q", c_type) .. ", " .. arg_name .. "_buffer) or ffi.new(" .. string.format("%q", c_type) .. ")"
 	end
 
 	if c_type == "id" then
@@ -198,7 +195,9 @@ end
 
 local function generate_bound_method(chunk_name, owner_name, receiver_expr, method_name, descriptor)
 	local selector_name = descriptor.selector or method_name
-	local tokens, c_types = objc_signature_to_c_signature(assert(descriptor.types, "missing types for " .. owner_name .. "." .. method_name))
+	local tokens, c_types = objc_signature_to_c_signature(
+		assert(descriptor.types, "missing types for " .. owner_name .. "." .. method_name)
+	)
 	local return_type = c_types[1]
 	local arg_count = #c_types - 3
 	local receiver_type = c_types[2]
@@ -217,11 +216,7 @@ local function generate_bound_method(chunk_name, owner_name, receiver_expr, meth
 		call_args[#call_args + 1] = arg_name .. "_value"
 	end
 
-	local fn_signature = string.format(
-		"%s(*)(%s)",
-		return_type,
-		table.concat(function_args, ",")
-	)
+	local fn_signature = string.format("%s(*)(%s)", return_type, table.concat(function_args, ","))
 	local params = {}
 
 	for index = 1, arg_count do
@@ -238,14 +233,25 @@ local function generate_bound_method(chunk_name, owner_name, receiver_expr, meth
 		source[#source + 1] = string.format("\nlocal receiver = cls(%q)", owner_name)
 		source[#source + 1] = string.format("\nreturn function(%s)", table.concat(params, ", "))
 	else
-		source[#source + 1] = string.format("\nreturn function(self%s%s)", arg_count > 0 and ", " or "", table.concat(params, ", "))
+		source[#source + 1] = string.format(
+			"\nreturn function(self%s%s)",
+			arg_count > 0 and ", " or "",
+			table.concat(params, ", ")
+		)
 	end
 
 	for _, line in ipairs(arg_setup) do
 		source[#source + 1] = "\n" .. line
 	end
 
-	local call_receiver = descriptor.kind == "class" and (descriptor.unbound and "self" or "receiver") or "self"
+	local call_receiver = descriptor.kind == "class" and
+		(
+			descriptor.unbound and
+			"self" or
+			"receiver"
+		)
+		or
+		"self"
 	local invocation = {call_receiver, "selector"}
 
 	for index = 1, arg_count do
@@ -273,6 +279,7 @@ local function bind(definition)
 		props = {},
 	}
 	local class_names = definition.classes or {}
+
 	local function resolve_class_if_available(class_name)
 		local ok, value = pcall(cls, class_name)
 
@@ -286,30 +293,22 @@ local function bind(definition)
 	for class_name, groups in pairs(definition.methods or {}) do
 		bindings.methods[class_name] = bindings.methods[class_name] or {}
 
-		if bindings.classes[class_name] == nil then resolve_class_if_available(class_name) end
+		if bindings.classes[class_name] == nil then
+			resolve_class_if_available(class_name)
+		end
 
 		for method_name, descriptor in pairs(groups.class or {}) do
 			if type(descriptor) == "string" then descriptor = {types = descriptor} end
+
 			descriptor.kind = "class"
-			bindings.methods[class_name][method_name] = generate_bound_method(
-				"objc.bind",
-				class_name,
-				"receiver",
-				method_name,
-				descriptor
-			)
+			bindings.methods[class_name][method_name] = generate_bound_method("objc.bind", class_name, "receiver", method_name, descriptor)
 		end
 
 		for method_name, descriptor in pairs(groups.instance or {}) do
 			if type(descriptor) == "string" then descriptor = {types = descriptor} end
+
 			descriptor.kind = "instance"
-			bindings.methods[class_name][method_name] = generate_bound_method(
-				"objc.bind",
-				class_name,
-				"self",
-				method_name,
-				descriptor
-			)
+			bindings.methods[class_name][method_name] = generate_bound_method("objc.bind", class_name, "self", method_name, descriptor)
 		end
 	end
 
@@ -318,15 +317,24 @@ local function bind(definition)
 
 		for property_name, descriptor in pairs(properties) do
 			if type(descriptor) == "string" then descriptor = {get = descriptor} end
+
 			local prop = {}
 
 			if descriptor.get then
-				local getter = {selector = descriptor.selector or property_name, types = descriptor.get, kind = "instance"}
+				local getter = {
+					selector = descriptor.selector or property_name,
+					types = descriptor.get,
+					kind = "instance",
+				}
 				prop.get = generate_bound_method("objc.bind", class_name, "self", property_name, getter)
 			end
 
 			if descriptor.set then
-				local setter = {selector = descriptor.setter or setter_name(property_name), types = descriptor.set, kind = "instance"}
+				local setter = {
+					selector = descriptor.setter or setter_name(property_name),
+					types = descriptor.set,
+					kind = "instance",
+				}
 				prop.set = generate_bound_method("objc.bind", class_name, "self", setter.selector, setter)
 			end
 

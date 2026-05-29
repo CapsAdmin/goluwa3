@@ -125,7 +125,11 @@ local function get_checkerboard_texture()
 end
 
 local function get_voxel_gi_tile_texture()
-	if not render3d.pipelines or not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
+	if
+		not render3d.pipelines or
+		not render3d.pipelines.lighting or
+		not render3d.pipelines.lighting.framebuffers
+	then
 		return nil
 	end
 
@@ -260,7 +264,6 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 
 	if key == "g" then
 		show_gbuffer = not show_gbuffer
-
 		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
 	elseif key == "f" then
 		local views = get_fullscreen_views()

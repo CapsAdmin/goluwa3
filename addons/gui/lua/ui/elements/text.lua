@@ -7,7 +7,6 @@ local fonts = import("goluwa/render2d/fonts.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 return function(props)
 	props = props or {}
-
 	local text_color
 
 	if props.InheritColor then

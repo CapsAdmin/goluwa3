@@ -136,9 +136,7 @@ local function complete_target_content_version(clipmap, group_name)
 end
 
 local function swap_target_content_versions(clipmap)
-	clipmap.active_content_version, clipmap.build_content_version =
-		clipmap.build_content_version,
-		clipmap.active_content_version
+	clipmap.active_content_version, clipmap.build_content_version = clipmap.build_content_version, clipmap.active_content_version
 end
 
 local function origins_match(a, b)
@@ -226,6 +224,7 @@ end
 
 local function copy_slice_region(region)
 	if not region then return nil end
+
 	if region.full then return {full = true} end
 
 	local copy = {full = false, rects = {}}
@@ -281,22 +280,15 @@ end
 
 local function shift_slice_region(clipmap, region, offset_x, offset_y)
 	if not region then return nil end
+
 	if region.full then return {full = true} end
 
 	local shifted = {full = false, rects = {}}
 
 	for _, rect in ipairs(region.rects or {}) do
-		local shifted_rect = clip_repair_rect(
-			clipmap.resolution,
-			rect.x + offset_x,
-			rect.y + offset_y,
-			rect.w,
-			rect.h
-		)
+		local shifted_rect = clip_repair_rect(clipmap.resolution, rect.x + offset_x, rect.y + offset_y, rect.w, rect.h)
 
-		if shifted_rect then
-			shifted.rects[#shifted.rects + 1] = shifted_rect
-		end
+		if shifted_rect then shifted.rects[#shifted.rects + 1] = shifted_rect end
 	end
 
 	if #shifted.rects == 0 then return nil end
@@ -333,7 +325,6 @@ end
 
 local function transport_axis_dirty_repairs(clipmap, axis_name)
 	local offset_x, offset_y, layer_offset = get_axis_scroll_offsets(axis_name, clipmap.delta)
-
 	local previous_masks = clipmap.dirty_slice_masks[axis_name]
 	local previous_regions = clipmap.dirty_slice_regions[axis_name]
 	clipmap.dirty_slice_masks[axis_name] = {}
@@ -404,7 +395,10 @@ local function has_any_dirty_slices(clipmap)
 end
 
 local function build_dirty_slice_list(clipmap, axis_name)
-	if scene_voxelizer.prefer_exposed_dirty_slices == true and clipmap.building_into_scroll then
+	if
+		scene_voxelizer.prefer_exposed_dirty_slices == true and
+		clipmap.building_into_scroll
+	then
 		local full_slices = {}
 		local partial_slices = {}
 		local mask = clipmap.dirty_slice_masks[axis_name]
@@ -506,7 +500,9 @@ end
 
 local function compare_build_selection_candidates(a, b)
 	if a.scroll_related ~= b.scroll_related then return a.scroll_related == true end
+
 	if a.distance ~= b.distance then return a.distance < b.distance end
+
 	return a.index < b.index
 end
 
@@ -551,10 +547,10 @@ end
 
 function scene_voxelizer.ApplyStreamingConfig(config)
 	config = config or {}
-	local default_build_slices = scene_voxelizer.build_slices_per_frame or scene_voxelizer.DEFAULT_BUILD_SLICES_PER_FRAME
+	local default_build_slices = scene_voxelizer.build_slices_per_frame or
+		scene_voxelizer.DEFAULT_BUILD_SLICES_PER_FRAME
 	local default_background_slices = scene_voxelizer.background_build_slices_per_frame or
 		scene_voxelizer.DEFAULT_BACKGROUND_BUILD_SLICES_PER_FRAME
-
 	scene_voxelizer.moving_build_slices_per_frame = config.moving_build_slices_per_frame or default_build_slices
 	scene_voxelizer.moving_background_build_slices_per_frame = config.moving_background_build_slices_per_frame or default_background_slices
 	scene_voxelizer.settled_build_slices_per_frame = config.settled_build_slices_per_frame or default_build_slices
@@ -572,7 +568,9 @@ end
 function scene_voxelizer.ResetState(config)
 	config = config or {}
 
-	if scene_voxelizer.scene_grid and scene_voxelizer.scene_grid.Shutdown then scene_voxelizer.scene_grid:Shutdown() end
+	if scene_voxelizer.scene_grid and scene_voxelizer.scene_grid.Shutdown then
+		scene_voxelizer.scene_grid:Shutdown()
+	end
 
 	scene_voxelizer.enabled = config.enabled ~= false
 	scene_voxelizer.base_resolution = config.base_resolution or scene_voxelizer.DEFAULT_CLIPMAP_RESOLUTION
@@ -728,6 +726,7 @@ function scene_voxelizer.GetClipmapDirtySliceRange(index, axis_name)
 	local clipmap = scene_voxelizer.GetClipmap(index)
 
 	if not clipmap then return nil end
+
 	local slices = build_dirty_slice_list(clipmap, axis_name)
 
 	if #slices == 0 then return nil end
@@ -769,6 +768,7 @@ function scene_voxelizer.ForEachDirtyAxisTarget(index, slice_budget, callback)
 	local clipmap = scene_voxelizer.GetClipmap(index)
 
 	if not clipmap or not clipmap.dirty then return 0, 0, false end
+
 	if (slice_budget or 0) <= 0 then return 0, 0, false end
 
 	scene_voxelizer.EnsureClipmapResources(index)
@@ -819,9 +819,7 @@ function scene_voxelizer.ForEachDirtyAxisTarget(index, slice_budget, callback)
 					dirty_axes = dirty_axes + 1
 				end
 
-				if pending.next_index > #slices then
-					pending_slices[axis_name] = nil
-				end
+				if pending.next_index > #slices then pending_slices[axis_name] = nil end
 
 				if remaining_slices <= 0 then break end
 			end
@@ -847,7 +845,9 @@ function scene_voxelizer.GetClipmapBuildSliceBudget(index)
 		scene_voxelizer.moving_max_active_clipmaps_per_frame or
 		scene_voxelizer.settled_max_active_clipmaps_per_frame
 
-	if max_active and max_active > 0 and clipmap.build_selected_this_frame == false then return 0 end
+	if max_active and max_active > 0 and clipmap.build_selected_this_frame == false then
+		return 0
+	end
 
 	local build_slices = scene_voxelizer.streaming_is_moving and
 		scene_voxelizer.moving_build_slices_per_frame or
@@ -857,7 +857,9 @@ function scene_voxelizer.GetClipmapBuildSliceBudget(index)
 		scene_voxelizer.settled_background_build_slices_per_frame
 
 	if clipmap.has_valid_data and clipmap.dirty then
-		return background_slices or build_slices or scene_voxelizer.background_build_slices_per_frame or
+		return background_slices or
+			build_slices or
+			scene_voxelizer.background_build_slices_per_frame or
 			scene_voxelizer.build_slices_per_frame
 	end
 
@@ -901,8 +903,8 @@ function scene_voxelizer.CommitClipmapScroll(index)
 	for _, axis_name in ipairs(AXES) do
 		scene_voxelizer.SwapClipmapAxisTarget(index, axis_name)
 	end
-	swap_target_content_versions(clipmap)
 
+	swap_target_content_versions(clipmap)
 	set_scene_origin(scene_voxelizer, clipmap, clipmap.build_origin)
 	clipmap.building_into_scroll = false
 	clipmap.has_valid_data = true
@@ -1035,17 +1037,13 @@ function scene_voxelizer.AddBuildWork(clipmap_count, axis_count, slice_count)
 end
 
 function scene_voxelizer.AddScrollSubmitWork(clipmap_count, submission_count, wait_count)
-	scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps =
-		scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps + (clipmap_count or 0)
-	scene_voxelizer.frame_stats.voxel_scroll_submissions =
-		scene_voxelizer.frame_stats.voxel_scroll_submissions + (submission_count or 0)
-	scene_voxelizer.frame_stats.voxel_scroll_submit_waits =
-		scene_voxelizer.frame_stats.voxel_scroll_submit_waits + (wait_count or 0)
+	scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps = scene_voxelizer.frame_stats.voxel_scroll_submit_clipmaps + (clipmap_count or 0)
+	scene_voxelizer.frame_stats.voxel_scroll_submissions = scene_voxelizer.frame_stats.voxel_scroll_submissions + (submission_count or 0)
+	scene_voxelizer.frame_stats.voxel_scroll_submit_waits = scene_voxelizer.frame_stats.voxel_scroll_submit_waits + (wait_count or 0)
 end
 
 function scene_voxelizer.AddInlineScrollWork(clipmap_count)
-	scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps =
-		scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps + (clipmap_count or 0)
+	scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps = scene_voxelizer.frame_stats.voxel_scroll_inline_clipmaps + (clipmap_count or 0)
 end
 
 function scene_voxelizer.Update(camera_position)
@@ -1137,7 +1135,9 @@ function scene_voxelizer.Update(camera_position)
 				mark_all_dirty_slices(clipmap)
 			end
 
-			if origin_changed and not full_rebuild_in_flight then reset_pending_build_state(clipmap) end
+			if origin_changed and not full_rebuild_in_flight then
+				reset_pending_build_state(clipmap)
+			end
 
 			scene_voxelizer.frame_stats.updated_clipmaps = scene_voxelizer.frame_stats.updated_clipmaps + 1
 			scene_voxelizer.frame_stats.full_rebuilds = scene_voxelizer.frame_stats.full_rebuilds + 1
@@ -1148,6 +1148,7 @@ function scene_voxelizer.Update(camera_position)
 			elseif not clipmap.build_scroll_ready and build_target_changed then
 				schedule_incremental_scroll_rebuild(scene_voxelizer, clipmap, target_origin)
 			end
+
 			scene_voxelizer.frame_stats.updated_clipmaps = scene_voxelizer.frame_stats.updated_clipmaps + 1
 			scene_voxelizer.frame_stats.incremental_rebuilds = scene_voxelizer.frame_stats.incremental_rebuilds + 1
 			any_dirty = true
@@ -1191,14 +1192,18 @@ function scene_voxelizer.Update(camera_position)
 			clipmap.build_scroll_ready = false
 		end
 
-		if origin_changed or clipmap.building_into_scroll or clipmap.pending_scroll ~= nil or clipmap.build_scroll_ready then
+		if
+			origin_changed or
+			clipmap.building_into_scroll or
+			clipmap.pending_scroll ~= nil or
+			clipmap.build_scroll_ready
+		then
 			streaming_is_moving = true
 		end
 	end
 
 	scene_voxelizer.streaming_is_moving = streaming_is_moving
 	update_build_selection()
-
 	return any_dirty
 end
 
@@ -1234,7 +1239,6 @@ function scene_voxelizer.MarkClipmapBuilt(index, axis_count, slice_count)
 		local latest_origin = build_snapped_origin(scene_voxelizer.last_camera_position, snap_stride)
 		local build_origin = Vec3(clipmap.build_origin.x, clipmap.build_origin.y, clipmap.build_origin.z)
 		complete_target_content_version(clipmap, "build")
-
 		scene_voxelizer.CommitClipmapScroll(index)
 		clipmap = scene_voxelizer.GetClipmap(index)
 
@@ -1257,7 +1261,6 @@ function scene_voxelizer.MarkClipmapBuilt(index, axis_count, slice_count)
 
 	scene_voxelizer.SwapClipmapBuildResults(index)
 	--set_scene_origin(scene_voxelizer, clipmap, clipmap.build_origin)
-
 	scene_voxelizer.MarkClipmapClean(index)
 end
 
@@ -1273,9 +1276,17 @@ function scene_voxelizer.GetClipmapDebugInfo(index)
 	local sampled_target = scene_voxelizer.GetClipmapLightingAxisTarget(index, "x")
 	local sampled_origin = scene_voxelizer.GetClipmapLightingOrigin(index) or clipmap.origin
 	local sampled_content_version = clipmap.build_scroll_ready and
-		(clipmap.build_content_version or 0) or
-		(clipmap.active_content_version or 0)
+		(
+			clipmap.build_content_version or
+			0
+		)
+		or
+		(
+			clipmap.active_content_version or
+			0
+		)
 	local pending_counts = {}
+
 	local function to_voxel_delta(from, to)
 		return Vec3(
 			(to.x - from.x) / clipmap.voxel_size,
@@ -1328,11 +1339,7 @@ function scene_voxelizer.GetClipmapDebugInfo(index)
 		build_content_version = clipmap.build_content_version or 0,
 		sampled_content_version = sampled_content_version,
 		last_handoff_mode = clipmap.last_handoff_mode,
-		last_handoff_origin = Vec3(
-			clipmap.last_handoff_origin.x,
-			clipmap.last_handoff_origin.y,
-			clipmap.last_handoff_origin.z
-		),
+		last_handoff_origin = Vec3(clipmap.last_handoff_origin.x, clipmap.last_handoff_origin.y, clipmap.last_handoff_origin.z),
 		last_handoff_active_version = clipmap.last_handoff_active_version or 0,
 		last_handoff_build_version = clipmap.last_handoff_build_version or 0,
 		last_handoff_rescheduled = clipmap.last_handoff_rescheduled == true,
@@ -1375,7 +1382,9 @@ function scene_voxelizer.GetDebugState()
 end
 
 function scene_voxelizer.Shutdown()
-	if scene_voxelizer.scene_grid and scene_voxelizer.scene_grid.Shutdown then scene_voxelizer.scene_grid:Shutdown() end
+	if scene_voxelizer.scene_grid and scene_voxelizer.scene_grid.Shutdown then
+		scene_voxelizer.scene_grid:Shutdown()
+	end
 end
 
 return scene_voxelizer.ResetState()

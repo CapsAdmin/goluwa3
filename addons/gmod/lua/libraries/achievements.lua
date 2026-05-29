@@ -8,9 +8,12 @@ for key, value in pairs(achievements) do
 	if type(value) == "function" then achievements[key] = noop end
 end
 
-setmetatable(achievements, {
-	__index = function(tbl, key)
-		rawset(tbl, key, noop)
-		return noop
-	end,
-})
+setmetatable(
+	achievements,
+	{
+		__index = function(tbl, key)
+			rawset(tbl, key, noop)
+			return noop
+		end,
+	}
+)

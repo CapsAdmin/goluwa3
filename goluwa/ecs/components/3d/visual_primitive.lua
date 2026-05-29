@@ -6,6 +6,7 @@ local function find_visual_component(entity)
 
 	while current and current.IsValid and current:IsValid() do
 		if current.visual then return current.visual end
+
 		current = current:GetParent()
 	end
 

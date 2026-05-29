@@ -2,7 +2,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
-
 local voxel_grid = {}
 voxel_grid.AXES = {"x", "y", "z"}
 
@@ -80,13 +79,17 @@ local function create_volume_target(grid, clipmap, axis_name, group_config)
 			wrap_r = "clamp_to_edge",
 		},
 	}
-	local target_name = table.concat({
-		"render3d",
-		grid.name or "voxel grid",
-		tostring(clipmap.index),
-		"axis",
-		axis_name,
-	}, " ")
+	local target_name = table.concat(
+		{
+			"render3d",
+			grid.name or
+			"voxel grid",
+			tostring(clipmap.index),
+			"axis",
+			axis_name,
+		},
+		" "
+	)
 
 	if group_config and group_config.label_suffix then
 		target_name = target_name .. " " .. tostring(group_config.label_suffix)
@@ -135,7 +138,6 @@ function voxel_grid.New(config)
 		},
 		clipmaps = {},
 	}
-
 	return setmetatable(self, {__index = voxel_grid})
 end
 
@@ -222,7 +224,9 @@ end
 function voxel_grid:SwapAxisTargets(index, group_a, group_b, axis_name)
 	local resources = self:EnsureResources(index)
 
-	if not resources or not resources[group_a] or not resources[group_b] then return end
+	if not resources or not resources[group_a] or not resources[group_b] then
+		return
+	end
 
 	resources[group_a][axis_name], resources[group_b][axis_name] = resources[group_b][axis_name], resources[group_a][axis_name]
 	return resources[group_a][axis_name], resources[group_b][axis_name]
@@ -277,7 +281,6 @@ function voxel_grid:WorldToVoxel(index, world_position)
 		voxel_y < clipmap.resolution and
 		voxel_z >= 0 and
 		voxel_z < clipmap.resolution
-
 	return {
 		clipmap_index = index,
 		inside = inside,

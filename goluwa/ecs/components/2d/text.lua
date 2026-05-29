@@ -321,9 +321,7 @@ function META:OnEditableChanged()
 end
 
 function META:Initialize()
-	if not self.Font then
-		self.Font = fonts.GetDefaultFont()
-	end
+	if not self.Font then self.Font = fonts.GetDefaultFont() end
 
 	self.Owner:EnsureComponent("gui_element")
 	self.Owner:EnsureComponent("transform")

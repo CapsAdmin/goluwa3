@@ -660,7 +660,7 @@ elseif jit.os == "OSX" then
 	local objc = import("goluwa/bindings/objc.lua")
 	-- Load AppKit framework for NSPasteboard
 	objc.loadFramework("AppKit")
-	local macos_objc = objc.bind({
+	local macos_objc = objc.bind{
 		classes = {"NSPasteboard", "NSString", "NSArray"},
 		methods = {
 			NSPasteboard = {
@@ -687,7 +687,7 @@ elseif jit.os == "OSX" then
 				},
 			},
 		},
-	})
+	}
 	local NSPasteboard = macos_objc.methods.NSPasteboard
 	local NSString = macos_objc.methods.NSString
 	local NSArray = macos_objc.methods.NSArray
@@ -696,10 +696,7 @@ elseif jit.os == "OSX" then
 		-- Get the general pasteboard
 		local pasteboard = NSPasteboard.generalPasteboard()
 		-- Get string from pasteboard
-		local nsstring = NSPasteboard.stringForType(
-			pasteboard,
-			NSString.stringWithUTF8String("public.utf8-plain-text")
-		)
+		local nsstring = NSPasteboard.stringForType(pasteboard, NSString.stringWithUTF8String("public.utf8-plain-text"))
 
 		if nsstring == nil then
 			-- Try NSStringPboardType as fallback

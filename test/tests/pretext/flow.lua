@@ -1,6 +1,5 @@
 local T = import("test/environment.lua")
 local pretext = import("goluwa/pretext/init.lua")
-
 local mock_measurer = {
 	MeasureText = function(_, text)
 		return text:utf8_length() * 8, 8
@@ -23,7 +22,6 @@ T.Test("pretext flow matches normal layout without obstacles", function()
 	local prepared = pretext.prepare("hello world again", mock_measurer)
 	local wrapped = pretext.layout_with_lines(prepared, 40, 8)
 	local flowed = pretext.layout_flow(prepared, {x = 0, y = 0, width = 40, height = 64}, 8, {}, {use_all_slots = false})
-
 	T(#flowed.lines)["=="](#wrapped.lines)
 
 	for i = 1, #wrapped.lines do
@@ -44,7 +42,6 @@ T.Test("pretext flow routes lines around a rectangle", function()
 		{{kind = "rect", x = 24, y = 0, width = 32, height = 16}},
 		{min_slot_width = 16, use_all_slots = true}
 	)
-
 	T(layout.lines[1].x)["=="](0)
 	T(layout.lines[2].x)["=="](56)
 	T(layout.lines[1].band_index)["=="](1)
@@ -55,12 +52,7 @@ T.Test("pretext flow routes lines around a rectangle", function()
 end)
 
 T.Test("pretext flow computes circle intervals per band", function()
-	local intervals = pretext.get_obstacle_intervals(
-		{{kind = "circle", cx = 40, cy = 20, radius = 10}},
-		16,
-		24
-	)
-
+	local intervals = pretext.get_obstacle_intervals({{kind = "circle", cx = 40, cy = 20, radius = 10}}, 16, 24)
 	T(#intervals)["=="](1)
 	assert(intervals[1].left < 40, "circle interval should extend left of center")
 	assert(intervals[1].right > 40, "circle interval should extend right of center")

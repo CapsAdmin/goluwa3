@@ -40,6 +40,7 @@ return function(props)
 	end
 
 	if precision == nil then precision = 2 end
+
 	local drag_precision_boost = node.DragPrecisionBoost or 2
 	local drag_step = node.DragStep
 	local control

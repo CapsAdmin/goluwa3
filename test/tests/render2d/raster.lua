@@ -23,14 +23,11 @@ T.Test2D("raster font draws opaque interior pixels", function()
 		Mode = "raster",
 		Unique = true,
 	}
-
 	render2d.SetTexture(nil)
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hg", 10, 10)
-
 	return function()
 		local tex = render.target:GetTexture()
-
 		T.AssertScreenPixel{
 			pos = {26, 47},
 			color = {1, 1, 1, 1},
@@ -41,8 +38,13 @@ T.Test2D("raster font draws opaque interior pixels", function()
 			color = {0, 0, 0, 1},
 			tolerance = 0.1,
 		}
-
-		assert(region_has_opaque_pixel(tex, 12, 12, 90, 140, 0.7), "expected opaque pixels in the left glyph region")
-		assert(region_has_opaque_pixel(tex, 70, 35, 170, 170, 0.7), "expected opaque pixels in the right glyph region")
+		assert(
+			region_has_opaque_pixel(tex, 12, 12, 90, 140, 0.7),
+			"expected opaque pixels in the left glyph region"
+		)
+		assert(
+			region_has_opaque_pixel(tex, 70, 35, 170, 170, 0.7),
+			"expected opaque pixels in the right glyph region"
+		)
 	end
 end)

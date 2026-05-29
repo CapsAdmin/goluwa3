@@ -28,7 +28,6 @@ local function create_mock_body(name, current_bounds, previous_bounds)
 		Rotation = identity_rotation,
 		PreviousRotation = identity_rotation,
 	}
-
 	set_mock_bounds(body, current_bounds, previous_bounds)
 
 	function body:SetBroadphaseBounds(new_current_bounds, new_previous_bounds)
@@ -145,7 +144,7 @@ T.Test("Broadphase overflow entries still report nearby overlaps", function()
 end)
 
 T.Test("Persistent broadphase updates pairs when bodies move apart", function()
-	local phase = broadphase.New({physics = mock_physics, cell_size = 1})
+	local phase = broadphase.New{physics = mock_physics, cell_size = 1}
 	local body_a = create_mock_body(
 		"dynamic_a",
 		{min_x = -0.5, min_y = -0.5, min_z = -0.5, max_x = 0.5, max_y = 0.5, max_z = 0.5},
@@ -153,8 +152,22 @@ T.Test("Persistent broadphase updates pairs when bodies move apart", function()
 	)
 	local body_b = create_mock_body(
 		"dynamic_b",
-		{min_x = 0.25, min_y = -0.5, min_z = -0.5, max_x = 1.25, max_y = 0.5, max_z = 0.5},
-		{min_x = 0.25, min_y = -0.5, min_z = -0.5, max_x = 1.25, max_y = 0.5, max_z = 0.5}
+		{
+			min_x = 0.25,
+			min_y = -0.5,
+			min_z = -0.5,
+			max_x = 1.25,
+			max_y = 0.5,
+			max_z = 0.5,
+		},
+		{
+			min_x = 0.25,
+			min_y = -0.5,
+			min_z = -0.5,
+			max_x = 1.25,
+			max_y = 0.5,
+			max_z = 0.5,
+		}
 	)
 	local pairs = phase:BuildCandidatePairs({body_a, body_b})
 	T(#pairs)["=="](1)
@@ -167,7 +180,7 @@ T.Test("Persistent broadphase updates pairs when bodies move apart", function()
 end)
 
 T.Test("Persistent broadphase removes stale pairs when bodies disappear", function()
-	local phase = broadphase.New({physics = mock_physics, cell_size = 1})
+	local phase = broadphase.New{physics = mock_physics, cell_size = 1}
 	local body_a = create_mock_body(
 		"remove_a",
 		{min_x = -0.5, min_y = -0.5, min_z = -0.5, max_x = 0.5, max_y = 0.5, max_z = 0.5},
@@ -175,8 +188,22 @@ T.Test("Persistent broadphase removes stale pairs when bodies disappear", functi
 	)
 	local body_b = create_mock_body(
 		"remove_b",
-		{min_x = 0.25, min_y = -0.5, min_z = -0.5, max_x = 1.25, max_y = 0.5, max_z = 0.5},
-		{min_x = 0.25, min_y = -0.5, min_z = -0.5, max_x = 1.25, max_y = 0.5, max_z = 0.5}
+		{
+			min_x = 0.25,
+			min_y = -0.5,
+			min_z = -0.5,
+			max_x = 1.25,
+			max_y = 0.5,
+			max_z = 0.5,
+		},
+		{
+			min_x = 0.25,
+			min_y = -0.5,
+			min_z = -0.5,
+			max_x = 1.25,
+			max_y = 0.5,
+			max_z = 0.5,
+		}
 	)
 	local pairs = phase:BuildCandidatePairs({body_a, body_b})
 	T(#pairs)["=="](1)
@@ -185,7 +212,7 @@ T.Test("Persistent broadphase removes stale pairs when bodies disappear", functi
 end)
 
 T.Test("Persistent broadphase overflow entries do not hang and still collide", function()
-	local phase = broadphase.New({physics = mock_physics, cell_size = 1, max_cells_per_entry = 8})
+	local phase = broadphase.New{physics = mock_physics, cell_size = 1, max_cells_per_entry = 8}
 	local giant = create_mock_body(
 		"persistent_overflow_giant",
 		{min_x = -10, min_y = -10, min_z = -10, max_x = 10, max_y = 10, max_z = 10},

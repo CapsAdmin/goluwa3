@@ -2,7 +2,6 @@ local T = import("test/environment.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
 local pretext = import("goluwa/pretext/init.lua")
-
 local mock_measurer = {
 	MeasureText = function(_, text)
 		return text:utf8_length() * 8, 8
@@ -69,7 +68,6 @@ T.Test("pretext walk_line_ranges exposes cheap line geometry", function()
 		widths[#widths + 1] = line.width
 		texts[#texts + 1] = pretext.materialize_line_range(prepared, line).text
 	end)
-
 	T(count)["=="](3)
 	T(widths[1])["=="](40)
 	T(widths[2])["=="](40)
@@ -97,10 +95,20 @@ T.Test("pretext wraps vector ttf fonts", function()
 	local wrapped = font:WrapString("hello world again", select(1, font:GetTextSize("hello world")))
 	local lines = split_lines(wrapped)
 	assert(#lines >= 2, "expected vector font wrapping to produce at least two lines")
-	assert(lines[1] == "hello" or lines[1] == "hello world", "unexpected first wrapped line: " .. tostring(lines[1]))
-	assert(lines[#lines] == "again" or lines[#lines] == "world again", "unexpected last wrapped line: " .. tostring(lines[#lines]))
+	assert(
+		lines[1] == "hello" or lines[1] == "hello world",
+		"unexpected first wrapped line: " .. tostring(lines[1])
+	)
+	assert(
+		lines[#lines] == "again" or lines[#lines] == "world again",
+		"unexpected last wrapped line: " .. tostring(lines[#lines])
+	)
+
 	for i = 1, #lines do
 		local width = select(1, font:GetTextSize(lines[i]))
-		assert(width <= select(1, font:GetTextSize("hello world")), "wrapped line exceeded requested width")
+		assert(
+			width <= select(1, font:GetTextSize("hello world")),
+			"wrapped line exceeded requested width"
+		)
 	end
 end)

@@ -292,11 +292,17 @@ local function invalidate_scene_voxelizer(full_rebuild)
 	local voxelizer = render3d.GetSceneVoxelizer()
 
 	if not voxelizer or not voxelizer.InvalidateAll then return end
+
 	if voxelizer.IsEnabled and not voxelizer:IsEnabled() then return end
 
 	local frame = system.GetFrameNumber and system.GetFrameNumber() or -1
 
-	if last_scene_voxelizer_invalidation_frame == frame and voxelizer_has_dirty_work(voxelizer) then return end
+	if
+		last_scene_voxelizer_invalidation_frame == frame and
+		voxelizer_has_dirty_work(voxelizer)
+	then
+		return
+	end
 
 	last_scene_voxelizer_invalidation_frame = frame
 	voxelizer.InvalidateAll(full_rebuild ~= false)

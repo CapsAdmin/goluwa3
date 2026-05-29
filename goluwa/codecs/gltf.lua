@@ -943,7 +943,6 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
 		visual_primitive:SetPolygon3D(polygon3d)
 		visual_primitive:SetMaterial(material)
-
 		visual:BuildAABB()
 		return visual
 	end

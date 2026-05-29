@@ -192,7 +192,6 @@ T.Test("Manifold solver uses extra passes only for slow resting multi-contact pa
 	solver.RESTING_MANIFOLD_MAX_RELATIVE_SPEED = 1.5
 	solver.RESTING_MANIFOLD_MAX_TANGENT_SPEED = 0.75
 	solver.RESTING_MANIFOLD_MAX_ANGULAR_SPEED = 2.5
-
 	local body_a = create_mock_body{
 		Velocity = Vec3(0.1, -0.02, 0.05),
 		AngularVelocity = Vec3(0.05, 0, 0.1),

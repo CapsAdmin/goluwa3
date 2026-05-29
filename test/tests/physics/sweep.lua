@@ -46,12 +46,15 @@ local function create_brush_box_body(name, mins, maxs)
 			},
 		},
 	}
-	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = model},
-		MotionType = "static",
-		GravityScale = 0,
-		WorldGeometry = true,
-	})
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Model = model},
+			MotionType = "static",
+			GravityScale = 0,
+			WorldGeometry = true,
+		}
+	)
 	return ent
 end
 
@@ -65,12 +68,15 @@ local function create_triangle_world_body(name)
 	poly:BuildBoundingBox()
 	poly:Upload()
 	local visual = attach_visual_primitive(ent, poly)
-	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = visual},
-		MotionType = "static",
-		GravityScale = 0,
-		WorldGeometry = true,
-	})
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Model = visual},
+			MotionType = "static",
+			GravityScale = 0,
+			WorldGeometry = true,
+		}
+	)
 	return ent
 end
 
@@ -85,11 +91,14 @@ local function create_mesh_body(name, position)
 	poly:BuildBoundingBox()
 	poly:Upload()
 	local visual = attach_visual_primitive(ent, poly)
-	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = visual},
-		MotionType = "static",
-		GravityScale = 0,
-	})
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Model = visual},
+			MotionType = "static",
+			GravityScale = 0,
+		}
+	)
 	return ent
 end
 

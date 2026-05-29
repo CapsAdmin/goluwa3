@@ -144,7 +144,6 @@ function META:GetHSV()
 	if max == 0 then return 0, 0, v end
 
 	s = delta / max -- rofl deltamax :|
-
 	if delta == 0 then return 0, 0, v end
 
 	if r == max then

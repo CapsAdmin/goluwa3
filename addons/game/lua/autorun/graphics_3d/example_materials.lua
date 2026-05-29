@@ -1,7 +1,6 @@
 local assets = import("goluwa/assets.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
-
 local DEFAULT_TEXTURE_WIDTH = 256
 local DEFAULT_TEXTURE_HEIGHT = 128
 
@@ -16,32 +15,35 @@ end
 
 local function register_material_asset(path, name, config, texture_paths)
 	local material
-	assets.RegisterVirtualAsset(path, {
-		category = "materials",
-		kind = "lua",
-		load = function()
-			if not material then
-				material = Material.New(config)
-				material:SetName(name)
+	assets.RegisterVirtualAsset(
+		path,
+		{
+			category = "materials",
+			kind = "lua",
+			load = function()
+				if not material then
+					material = Material.New(config)
+					material:SetName(name)
 
-				if texture_paths then
-					material:SetAlbedoTexture(assets.GetTexture(texture_paths.AlbedoTexture, {config = {srgb = true}}))
-					material:SetMetallicTexture(assets.GetTexture(texture_paths.MetallicTexture, {config = {srgb = false}}))
-					material:SetRoughnessTexture(assets.GetTexture(texture_paths.RoughnessTexture, {config = {srgb = false}}))
-					material:SetNormalTexture(assets.GetTexture(texture_paths.NormalTexture, {config = {srgb = false}}))
+					if texture_paths then
+						material:SetAlbedoTexture(assets.GetTexture(texture_paths.AlbedoTexture, {config = {srgb = true}}))
+						material:SetMetallicTexture(assets.GetTexture(texture_paths.MetallicTexture, {config = {srgb = false}}))
+						material:SetRoughnessTexture(assets.GetTexture(texture_paths.RoughnessTexture, {config = {srgb = false}}))
+						material:SetNormalTexture(assets.GetTexture(texture_paths.NormalTexture, {config = {srgb = false}}))
+					end
 				end
-			end
 
-			return material
-		end,
-	})
+				return material
+			end,
+		}
+	)
 	return material
 end
 
 local function build_showcase_texture(shader, is_srgb, options, header)
 	local request = options and options.config or nil
 	local sampler = request and request.sampler or build_default_sampler()
-	local texture = Texture.New({
+	local texture = Texture.New{
 		width = request and request.width or DEFAULT_TEXTURE_WIDTH,
 		height = request and request.height or DEFAULT_TEXTURE_HEIGHT,
 		format = request and request.format or "r8g8b8a8_unorm",
@@ -49,7 +51,7 @@ local function build_showcase_texture(shader, is_srgb, options, header)
 		anisotropy = request and request.anisotropy or 0,
 		srgb = request and request.srgb ~= nil and request.srgb or is_srgb,
 		sampler = sampler,
-	})
+	}
 	texture:Shade(shader, {header = header})
 	return texture
 end
@@ -155,7 +157,6 @@ local shared = [[
 		#define p (get_equirect_dir(uv) * 3.0)
 		#define n get_equirect_dir(uv)
 ]]
-
 local showcase_materials = {
 	{
 		path = "materials/examples/polished_gold.lua",

@@ -13,7 +13,6 @@ function gine.env.ColorToHSV(r, g, b)
 	r = r / 255
 	g = g / 255
 	b = b / 255
-
 	local min = math.min(r, g, b)
 	local max = math.max(r, g, b)
 	local v = max

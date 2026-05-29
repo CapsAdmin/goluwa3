@@ -33,11 +33,14 @@ local function create_world_brush_body(mins, maxs)
 			},
 		},
 	}
-	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = model},
-		MotionType = "static",
-		WorldGeometry = true,
-	})
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Model = model},
+			MotionType = "static",
+			WorldGeometry = true,
+		}
+	)
 	return ent
 end
 

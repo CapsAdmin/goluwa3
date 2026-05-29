@@ -67,7 +67,6 @@ local function draw_visual_model_overlay(entity)
 		translucent = true,
 		double_sided = true,
 	}
-
 	local entries = target.GetRenderEntries and target:GetRenderEntries() or target.Primitives or {}
 
 	for _, prim in ipairs(entries) do

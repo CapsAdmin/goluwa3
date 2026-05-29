@@ -2,7 +2,9 @@ local T = import("test/environment.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
 T.Test("wayland SetSize requests compositor resize", function()
-	if jit.os ~= "Linux" then return T.Unavailable("Wayland backend tests require Linux") end
+	if jit.os ~= "Linux" then
+		return T.Unavailable("Wayland backend tests require Linux")
+	end
 
 	local ffi = require("ffi")
 	local wayland = import("goluwa/bindings/wayland/core.lua")

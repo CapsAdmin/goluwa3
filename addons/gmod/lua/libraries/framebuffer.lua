@@ -35,7 +35,9 @@ local function get_render_size()
 	if lib.GetRenderImageSize then
 		local ok, size = pcall(lib.GetRenderImageSize)
 
-		if ok and size and size.x and size.y and size.x > 0 and size.y > 0 then return size end
+		if ok and size and size.x and size.y and size.x > 0 and size.y > 0 then
+			return size
+		end
 	end
 
 	local window = system.GetCurrentWindow and system.GetCurrentWindow()
@@ -67,6 +69,7 @@ local function resolve_rt_size(w, h, size_mode)
 	local mode = size_mode or "default"
 
 	if width <= 0 then width = screen.x end
+
 	if height <= 0 then height = screen.y end
 
 	if mode == "full_frame_buffer" or mode == "offscreen" or mode == "default" then
@@ -77,9 +80,7 @@ local function resolve_rt_size(w, h, size_mode)
 		return Vec2(pow2ceil(width), pow2ceil(height))
 	end
 
-	if mode == "no_change" then
-		return screen
-	end
+	if mode == "no_change" then return screen end
 
 	return Vec2(math.max(1, math.floor(width)), math.max(1, math.floor(height)))
 end
@@ -126,7 +127,8 @@ function gine.env.GetRenderTargetEx(name, w, h, size_mode, depth_mode, texture_f
 		texture_flags = texture_flags_str,
 		rt_flags = rt_flags_str,
 		image_format = image_format,
-	})]] local ok, fb = pcall(lib.CreateFrameBuffer, size)
+	})]]
+	local ok, fb = pcall(lib.CreateFrameBuffer, size)
 
 	if not ok or not fb then
 		local fallback = get_error_texture()
@@ -140,7 +142,10 @@ function gine.env.GetRenderTargetEx(name, w, h, size_mode, depth_mode, texture_f
 	end
 
 	local depth_tex = fb.GetDepthTexture and fb:GetDepthTexture()
-	local color_tex = fb.GetColorTexture and fb:GetColorTexture() or fb.GetAttachment and fb:GetAttachment("color")
+	local color_tex = fb.GetColorTexture and
+		fb:GetColorTexture() or
+		fb.GetAttachment and
+		fb:GetAttachment("color")
 	local wrapped_tex = color_tex or depth_tex
 
 	if not wrapped_tex then

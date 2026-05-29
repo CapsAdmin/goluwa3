@@ -33,11 +33,26 @@ local function create_brush_room(name, half_extent, height, thickness)
 	ent:AddComponent("transform")
 	local primitives = {
 		create_brush_primitive(Vec3(-half_extent, -thickness, -half_extent), Vec3(half_extent, 0, half_extent)),
-		create_brush_primitive(Vec3(-half_extent, height, -half_extent), Vec3(half_extent, height + thickness, half_extent)),
-		create_brush_primitive(Vec3(-half_extent - thickness, 0, -half_extent), Vec3(-half_extent, height, half_extent)),
-		create_brush_primitive(Vec3(half_extent, 0, -half_extent), Vec3(half_extent + thickness, height, half_extent)),
-		create_brush_primitive(Vec3(-half_extent, 0, -half_extent - thickness), Vec3(half_extent, height, -half_extent)),
-		create_brush_primitive(Vec3(-half_extent, 0, half_extent), Vec3(half_extent, height, half_extent + thickness)),
+		create_brush_primitive(
+			Vec3(-half_extent, height, -half_extent),
+			Vec3(half_extent, height + thickness, half_extent)
+		),
+		create_brush_primitive(
+			Vec3(-half_extent - thickness, 0, -half_extent),
+			Vec3(-half_extent, height, half_extent)
+		),
+		create_brush_primitive(
+			Vec3(half_extent, 0, -half_extent),
+			Vec3(half_extent + thickness, height, half_extent)
+		),
+		create_brush_primitive(
+			Vec3(-half_extent, 0, -half_extent - thickness),
+			Vec3(half_extent, height, -half_extent)
+		),
+		create_brush_primitive(
+			Vec3(-half_extent, 0, half_extent),
+			Vec3(half_extent, height, half_extent + thickness)
+		),
 	}
 	local model = {
 		Owner = ent,
@@ -53,12 +68,15 @@ local function create_brush_room(name, half_extent, height, thickness)
 		),
 		Primitives = primitives,
 	}
-	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = model},
-		MotionType = "static",
-		GravityScale = 0,
-		WorldGeometry = true,
-	})
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Model = model},
+			MotionType = "static",
+			GravityScale = 0,
+			WorldGeometry = true,
+		}
+	)
 	return ent
 end
 
@@ -66,17 +84,20 @@ local function create_capsule(name, position)
 	local ent = Entity.New({Name = name or "brush_capsule"})
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(position or Vec3())
-	local body = ent:AddComponent("rigid_body", {
-		Shape = CapsuleShape.New(0.35, 2.0),
-		GravityScale = 0,
-		LinearDamping = 0,
-		AngularDamping = 0,
-		AirLinearDamping = 0,
-		AirAngularDamping = 0,
-		CCD = true,
-		AutoCCD = false,
-		MaxLinearSpeed = 1000,
-	})
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.35, 2.0),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			CCD = true,
+			AutoCCD = false,
+			MaxLinearSpeed = 1000,
+		}
+	)
 	return ent, body
 end
 

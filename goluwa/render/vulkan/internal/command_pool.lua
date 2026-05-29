@@ -27,6 +27,7 @@ function CommandPool:OnRemove()
 		local device_ptr = device.ptr[0]
 		local pool_ptr = self.ptr[0]
 		self.ptr[0] = nil
+
 		device:DeferRelease(function()
 			vulkan.lib.vkDestroyCommandPool(device_ptr, pool_ptr, nil)
 		end)

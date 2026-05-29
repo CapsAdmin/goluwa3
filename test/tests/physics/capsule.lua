@@ -180,9 +180,11 @@ T.Test3D("Capsule rigid body settles in a concave heightmap pit", function()
 			AngularDamping = 0,
 		}
 	)
+
 	with_fixed_step(1 / 60, function()
 		simulate_physics(720, 1 / 60)
 	end)
+
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(body:GetAwake())["=="](false)
@@ -209,9 +211,11 @@ T.Test3D("Tilted capsule on terrain can rotate out of its initial lean", functio
 			Friction = 0.9,
 		}
 	)
+
 	with_fixed_step(1 / 60, function()
 		simulate_physics(240, 1 / 60)
 	end)
+
 	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
 	T(math.abs(math.abs(axis.y) - 0.70710678118655))[">"](0.12)
 	body_ent:Remove()
@@ -234,9 +238,11 @@ T.Test3D("Rolling capsule on terrain does not keep spinning in place", function(
 		}
 	)
 	body:SetAngularVelocity(Vec3(0, 0, 5.5))
+
 	with_fixed_step(1 / 60, function()
 		simulate_physics(420, 1 / 60)
 	end)
+
 	T(body:GetGrounded())["=="](true)
 	T(body:GetAwake())["=="](false)
 	T(body:GetVelocity():GetLength())["<"](0.08)
@@ -288,9 +294,11 @@ T.Test3D("Rolling capsule on shallow terrain retains angular motion while transl
 	)
 	body:SetVelocity(Vec3(3.4, 0, 0))
 	body:SetAngularVelocity(Vec3(0, 0, -5.6))
+
 	with_fixed_step(1 / 60, function()
 		simulate_physics(120, 1 / 60)
 	end)
+
 	local velocity = body:GetVelocity()
 	local angular_speed = body:GetAngularVelocity():GetLength()
 	local horizontal_speed = Vec3(velocity.x, 0, velocity.z):GetLength()

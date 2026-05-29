@@ -101,7 +101,6 @@ function ProceduralTerrainSource:BuildBakeShaderExtraConfig(
 	texture_width = math.max(1, texture_width or 1)
 	texture_height = math.max(1, texture_height or texture_width)
 	normal_strength = normal_strength or 1
-
 	return {
 		custom_declarations = TERRAIN_BAKE_PUSH_CONSTANT_DECLARATIONS,
 		fragment_push_constants = {

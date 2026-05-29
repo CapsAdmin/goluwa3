@@ -39,16 +39,19 @@ local debug_pipeline_state = {
 
 local function get_debug_volume_kind_label()
 	if current_debug_volume_kind == "normals" then return "normals" end
+
 	return "scene"
 end
 
 local function get_debug_volume_kind_mode()
 	if current_debug_volume_kind == "normals" then return 1 end
+
 	return 0
 end
 
 local function get_debug_volume_origin(voxelizer, clipmap)
 	if not clipmap then return Vec3(0, 0, 0) end
+
 	if voxelizer and voxelizer.GetClipmapLightingOrigin then
 		return voxelizer.GetClipmapLightingOrigin(clipmap.index) or clipmap.origin
 	end
@@ -74,8 +77,7 @@ local function is_shift_down()
 end
 
 local function is_control_down()
-	return 
-		input.IsKeyDown("left_control") or
+	return input.IsKeyDown("left_control") or
 		input.IsKeyDown("left_super") or
 		input.IsKeyDown("right_control") or
 		input.IsKeyDown("control")
@@ -108,12 +110,7 @@ end
 local function format_axis_counts(values)
 	if not values then return "x=0 y=0 z=0" end
 
-	return string.format(
-		"x=%d y=%d z=%d",
-		values.x or 0,
-		values.y or 0,
-		values.z or 0
-	)
+	return string.format("x=%d y=%d z=%d", values.x or 0, values.y or 0, values.z or 0)
 end
 
 local function dump_voxel_debug_state(index)
@@ -134,44 +131,41 @@ local function dump_voxel_debug_state(index)
 
 	print("Voxel debug clipmap " .. tostring(index))
 	print("  camera        " .. format_vec3(info.camera_position))
-	print("  latest origin " .. format_vec3(info.latest_origin) .. " stride=" .. string.format("%.3f", info.snap_stride or 0))
-	print("  active origin " .. format_vec3(info.origin) .. " offset_voxels=" .. format_vec3(info.active_to_latest_voxels))
-	print("  build origin  " .. format_vec3(info.build_origin) .. " offset_voxels=" .. format_vec3(info.build_to_latest_voxels))
 	print(
-		"  sampled       " .. tostring(info.sampled_source or "active") ..
-			" origin=" .. format_vec3(info.sampled_origin) ..
-			" offset_voxels=" .. format_vec3(info.sampled_to_latest_voxels)
+		"  latest origin " .. format_vec3(info.latest_origin) .. " stride=" .. string.format("%.3f", info.snap_stride or 0)
 	)
 	print(
-		"  targets       active=" .. tostring(info.active_target_id or "nil") ..
-			" v=" .. tostring(info.active_content_version or 0) ..
-			" build=" .. tostring(info.build_target_id or "nil") ..
-			" v=" .. tostring(info.build_content_version or 0) ..
-			" sampled=" .. tostring(info.sampled_target_id or "nil") ..
-			" v=" .. tostring(info.sampled_content_version or 0)
+		"  active origin " .. format_vec3(info.origin) .. " offset_voxels=" .. format_vec3(info.active_to_latest_voxels)
 	)
 	print(
-		"  handoff       mode=" .. tostring(info.last_handoff_mode or "none") ..
-			" origin=" .. format_vec3(info.last_handoff_origin or Vec3(0, 0, 0)) ..
-			" active_v=" .. tostring(info.last_handoff_active_version or 0) ..
-			" build_v=" .. tostring(info.last_handoff_build_version or 0) ..
-			" rescheduled=" .. tostring(info.last_handoff_rescheduled)
+		"  build origin  " .. format_vec3(info.build_origin) .. " offset_voxels=" .. format_vec3(info.build_to_latest_voxels)
+	)
+	print(
+		"  sampled       " .. tostring(info.sampled_source or "active") .. " origin=" .. format_vec3(info.sampled_origin) .. " offset_voxels=" .. format_vec3(info.sampled_to_latest_voxels)
+	)
+	print(
+		"  targets       active=" .. tostring(info.active_target_id or "nil") .. " v=" .. tostring(info.active_content_version or 0) .. " build=" .. tostring(info.build_target_id or "nil") .. " v=" .. tostring(info.build_content_version or 0) .. " sampled=" .. tostring(info.sampled_target_id or "nil") .. " v=" .. tostring(info.sampled_content_version or 0)
+	)
+	print(
+		"  handoff       mode=" .. tostring(info.last_handoff_mode or "none") .. " origin=" .. format_vec3(info.last_handoff_origin or Vec3(0, 0, 0)) .. " active_v=" .. tostring(info.last_handoff_active_version or 0) .. " build_v=" .. tostring(info.last_handoff_build_version or 0) .. " rescheduled=" .. tostring(info.last_handoff_rescheduled)
 	)
 	print("  delta voxels  " .. format_vec3(info.delta))
 	print(
-		"  flags         dirty=" .. tostring(info.dirty) ..
-			" full=" .. tostring(info.full_rebuild) ..
-			" building=" .. tostring(info.building_into_scroll) ..
-			" scroll_ready=" .. tostring(info.build_scroll_ready) ..
-			" valid=" .. tostring(info.has_valid_data) ..
-			" pending_clear=" .. tostring(info.pending_clear) ..
-			" pending_scroll=" .. tostring(info.pending_scroll)
+		"  flags         dirty=" .. tostring(info.dirty) .. " full=" .. tostring(info.full_rebuild) .. " building=" .. tostring(info.building_into_scroll) .. " scroll_ready=" .. tostring(info.build_scroll_ready) .. " valid=" .. tostring(info.has_valid_data) .. " pending_clear=" .. tostring(info.pending_clear) .. " pending_scroll=" .. tostring(info.pending_scroll)
 	)
-	print("  dirty slabs   " .. format_axis_counts(info.dirty_slabs) .. "  budget=" .. tostring(info.build_slice_budget or 0))
+	print(
+		"  dirty slabs   " .. format_axis_counts(info.dirty_slabs) .. "  budget=" .. tostring(info.build_slice_budget or 0)
+	)
 	print("  pending count " .. format_axis_counts(info.pending_counts))
-	print("  pending x     " .. format_pending_range(info.pending_ranges and info.pending_ranges.x or nil))
-	print("  pending y     " .. format_pending_range(info.pending_ranges and info.pending_ranges.y or nil))
-	print("  pending z     " .. format_pending_range(info.pending_ranges and info.pending_ranges.z or nil))
+	print(
+		"  pending x     " .. format_pending_range(info.pending_ranges and info.pending_ranges.x or nil)
+	)
+	print(
+		"  pending y     " .. format_pending_range(info.pending_ranges and info.pending_ranges.y or nil)
+	)
+	print(
+		"  pending z     " .. format_pending_range(info.pending_ranges and info.pending_ranges.z or nil)
+	)
 end
 
 local function dump_voxel_camera_mapping(index)
@@ -204,7 +198,6 @@ local function dump_voxel_camera_mapping(index)
 		camera_position.y - voxel_center.y,
 		camera_position.z - voxel_center.z
 	)
-
 	print("Voxel camera mapping clipmap " .. tostring(index))
 	print("  camera        " .. format_vec3(camera_position))
 	print("  voxel index   " .. format_vec3(mapping.voxel))
@@ -223,22 +216,25 @@ local function get_voxel_debug_signature(index)
 
 	if not info then return nil end
 
-	return table.concat({
-		string.format("%.3f", info.camera_position.x),
-		string.format("%.3f", info.camera_position.y),
-		string.format("%.3f", info.camera_position.z),
-		string.format("%.3f", info.latest_origin.x),
-		string.format("%.3f", info.latest_origin.y),
-		string.format("%.3f", info.latest_origin.z),
-		string.format("%.3f", info.origin.x),
-		string.format("%.3f", info.origin.y),
-		string.format("%.3f", info.origin.z),
-		string.format("%.3f", info.build_origin.x),
-		string.format("%.3f", info.build_origin.y),
-		string.format("%.3f", info.build_origin.z),
-		tostring(info.dirty),
-		tostring(info.building_into_scroll),
-	}, "|")
+	return table.concat(
+		{
+			string.format("%.3f", info.camera_position.x),
+			string.format("%.3f", info.camera_position.y),
+			string.format("%.3f", info.camera_position.z),
+			string.format("%.3f", info.latest_origin.x),
+			string.format("%.3f", info.latest_origin.y),
+			string.format("%.3f", info.latest_origin.z),
+			string.format("%.3f", info.origin.x),
+			string.format("%.3f", info.origin.y),
+			string.format("%.3f", info.origin.z),
+			string.format("%.3f", info.build_origin.x),
+			string.format("%.3f", info.build_origin.y),
+			string.format("%.3f", info.build_origin.z),
+			tostring(info.dirty),
+			tostring(info.building_into_scroll),
+		},
+		"|"
+	)
 end
 
 local function clamp_selected_clipmap_index(voxelizer)
@@ -249,7 +245,11 @@ local function clamp_selected_clipmap_index(voxelizer)
 		return nil
 	end
 
-	if selected_clipmap_index == nil or selected_clipmap_index < 0 or selected_clipmap_index > count then
+	if
+		selected_clipmap_index == nil or
+		selected_clipmap_index < 0 or
+		selected_clipmap_index > count
+	then
 		selected_clipmap_index = 0
 	end
 
@@ -265,11 +265,15 @@ local function get_selected_clipmap_data(index_override)
 	local count = voxelizer.clipmap_count or 0
 	local clipmap_index = index_override
 
-	if clipmap_index == nil then clipmap_index = current_debug_render_clipmap_index or selected_clipmap_index or 1 end
+	if clipmap_index == nil then
+		clipmap_index = current_debug_render_clipmap_index or selected_clipmap_index or 1
+	end
 
 	if clipmap_index == 0 and count > 0 then clipmap_index = 1 end
 
-	if not clipmap_index or clipmap_index < 1 or clipmap_index > count then return voxelizer, nil, nil end
+	if not clipmap_index or clipmap_index < 1 or clipmap_index > count then
+		return voxelizer, nil, nil
+	end
 
 	local clipmap = voxelizer.GetClipmap(clipmap_index)
 	local axis_targets = nil
@@ -411,7 +415,10 @@ end
 local function draw_stats_block(voxelizer, x, y)
 	local debug_state = voxelizer and voxelizer.GetDebugState and voxelizer.GetDebugState() or nil
 	local stats = debug_state and debug_state.frame_stats or nil
-	local clipmap_info = voxelizer and voxelizer.GetClipmapDebugInfo and voxelizer.GetClipmapDebugInfo(get_command_clipmap_index()) or nil
+	local clipmap_info = voxelizer and
+		voxelizer.GetClipmapDebugInfo and
+		voxelizer.GetClipmapDebugInfo(get_command_clipmap_index()) or
+		nil
 	local block_height = clipmap_info and 278 or 150
 
 	if not stats then return end
@@ -463,14 +470,20 @@ local function draw_stats_block(voxelizer, x, y)
 		y + 88
 	)
 	fonts.GetFont():DrawText("Clipmap focus: " .. get_display_clipmap_label(voxelizer), x + 8, y + 108)
-	fonts.GetFont():DrawText("View: " .. get_debug_volume_kind_label() .. " perspective voxel raymarch", x + 8, y + 128)
+	fonts.GetFont():DrawText(
+		"View: " .. get_debug_volume_kind_label() .. " perspective voxel raymarch",
+		x + 8,
+		y + 128
+	)
 
 	if clipmap_info then
 		local status = clipmap_info.build_scroll_ready and
 			"Build in progress; showing scrolled build volume" or
-			(clipmap_info.building_into_scroll and
+			(
+				clipmap_info.building_into_scroll and
 				"Build in progress; showing committed active volume" or
-				"Showing committed active volume")
+				"Showing committed active volume"
+			)
 		local lag = clipmap_info.active_to_latest_voxels or Vec3(0, 0, 0)
 		local build_lag = clipmap_info.build_to_latest_voxels or Vec3(0, 0, 0)
 		local sampled_lag = clipmap_info.sampled_to_latest_voxels or Vec3(0, 0, 0)
@@ -481,7 +494,12 @@ local function draw_stats_block(voxelizer, x, y)
 			y + 162
 		)
 		fonts.GetFont():DrawText(
-			string.format("Build lag voxels:  (%.0f, %.0f, %.0f)", build_lag.x or 0, build_lag.y or 0, build_lag.z or 0),
+			string.format(
+				"Build lag voxels:  (%.0f, %.0f, %.0f)",
+				build_lag.x or 0,
+				build_lag.y or 0,
+				build_lag.z or 0
+			),
 			x + 8,
 			y + 180
 		)
@@ -521,7 +539,11 @@ local function draw_stats_block(voxelizer, x, y)
 		)
 	end
 
-	fonts.GetFont():DrawText("F3: toggle  Shift+F3: all/clipmap  Ctrl+F3: scene/normals", x + 8, y + (clipmap_info and 250 or 142))
+	fonts.GetFont():DrawText(
+		"F3: toggle  Shift+F3: all/clipmap  Ctrl+F3: scene/normals",
+		x + 8,
+		y + (clipmap_info and 250 or 142)
+	)
 end
 
 local function ensure_voxel_debug_pipeline(clipmap_index)
@@ -851,7 +873,9 @@ end
 
 local function draw_voxel_debug_clipmap(voxelizer, clipmap_index)
 	current_debug_render_clipmap_index = clipmap_index
-	current_debug_exclusion_bounds = selected_clipmap_index == 0 and get_debug_clipmap_exclusion_bounds(voxelizer, clipmap_index) or nil
+	current_debug_exclusion_bounds = selected_clipmap_index == 0 and
+		get_debug_clipmap_exclusion_bounds(voxelizer, clipmap_index) or
+		nil
 	local pipeline = ensure_voxel_debug_pipeline(clipmap_index)
 	pipeline:SetSamplerConfig(render.GetSamplerFilterConfig())
 	pipeline:Draw(render.GetCommandBuffer())
@@ -911,7 +935,11 @@ event.AddListener("Draw2D", "debug_voxel_targets", function(cmd, dt)
 	gfx.DrawRoundedRect(10, 10, 332, 74, 6)
 	render2d.SetColor(1, 1, 1, 1)
 	fonts.SetFont(fonts.GetDefaultFont())
-	fonts.GetFont():DrawText("Voxel debug " .. get_debug_volume_kind_label() .. " clipmap " .. get_display_clipmap_label(voxelizer), 18, 18)
+	fonts.GetFont():DrawText(
+		"Voxel debug " .. get_debug_volume_kind_label() .. " clipmap " .. get_display_clipmap_label(voxelizer),
+		18,
+		18
+	)
 	fonts.GetFont():DrawText(
 		string.format(
 			"Resolution %d  Voxel %.3f  Span %.3f",
@@ -962,7 +990,9 @@ event.AddListener("KeyInput", "debug_voxel_targets_toggle", function(key, press)
 	end
 
 	show_voxel_debug = not show_voxel_debug
+
 	if not show_voxel_debug then invalidate_voxel_debug_pipeline() end
+
 	print("Voxel debug: " .. (show_voxel_debug and "ON" or "OFF"))
 end)
 
@@ -979,5 +1009,7 @@ commands.Add("voxel_dump_watch", function()
 	voxel_dump_watch_last_signature = nil
 	print("Voxel debug watch: " .. (voxel_dump_watch_enabled and "ON" or "OFF"))
 
-	if voxel_dump_watch_enabled then dump_voxel_debug_state(get_command_clipmap_index()) end
+	if voxel_dump_watch_enabled then
+		dump_voxel_debug_state(get_command_clipmap_index())
+	end
 end)

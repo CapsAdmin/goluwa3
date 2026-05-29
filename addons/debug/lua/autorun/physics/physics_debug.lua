@@ -777,9 +777,11 @@ local function rebuild_debug_model(body, entry)
 	end
 
 	sync_debug_transform(body, debug_ent)
+
 	for _, child in ipairs(debug_ent:GetChildren()) do
 		child:Remove()
 	end
+
 	append_shape(debug_ent.visual, body, body:GetPhysicsShape() or body.Shape, Matrix44():Identity())
 	debug_ent.visual:BuildAABB()
 	debug_ent.visual:SetVisible(debug_enabled and body == focused_body)
