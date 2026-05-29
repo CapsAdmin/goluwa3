@@ -402,9 +402,40 @@ do
 		return {path}
 	end
 
+	local function normalize_watch_blacklist(blacklist)
+		if not blacklist then return nil end
+
+		if type(blacklist) == "string" then blacklist = {blacklist} end
+
+		local normalized = {}
+
+		for i = 1, #blacklist do
+			local entry = blacklist[i]
+
+			if entry:sub(-1) == "/" then entry = entry:sub(1, -2) end
+
+			normalized[i] = entry
+		end
+
+		return normalized
+	end
+
+	local function is_blacklisted_watch_path(path, blacklist)
+		if not blacklist then return false end
+
+		for i = 1, #blacklist do
+			local entry = blacklist[i]
+
+			if path == entry or path:find("/" .. entry, 1, true) then return true end
+		end
+
+		return false
+	end
+
 	if jit.os == "Linux" then
-		function fs.watch(path, callback, recursive)
+		function fs.watch(path, callback, recursive, blacklist)
 			local paths = normalize_watch_paths(path)
+			blacklist = normalize_watch_blacklist(blacklist)
 			local inotify_fd = ffi.C.inotify_init1(fs.IN_NONBLOCK)
 
 			if inotify_fd == -1 then return nil, "Failed to initialize inotify" end
@@ -412,6 +443,9 @@ do
 			local wd_to_path = {}
 
 			local function add_watch(dir_path)
+				if is_blacklisted_watch_path(dir_path, blacklist) then return -1 end
+
+				print("Watching directory:", dir_path)
 				local wd = ffi.C.inotify_add_watch(
 					inotify_fd,
 					dir_path,
@@ -431,15 +465,17 @@ do
 
 			local function add_recursive(dir_path)
 				add_watch(dir_path)
-				local files = fs.get_files(dir_path)
 
-				if files then
-					for _, name in ipairs(files) do
-						local full = dir_path .. "/" .. name
-
-						if fs.is_directory(full) then add_recursive(full) end
-					end
-				end
+				fs.walk(
+					dir_path .. "/",
+					nil,
+					{},
+					function(name)
+						add_watch(name)
+						return true
+					end,
+					true
+				)
 			end
 
 			for _, dir_path in ipairs(paths) do
@@ -472,7 +508,9 @@ do
 								type = "renamed"
 							end
 
-							callback(full_path, type)
+							if not is_blacklisted_watch_path(full_path, blacklist) then
+								callback(full_path, type)
+							end
 
 							if
 								recursive and
@@ -497,14 +535,15 @@ do
 			end
 		end
 	elseif jit.os == "Windows" then
-		function fs.watch(path, callback, recursive)
+		function fs.watch(path, callback, recursive, blacklist)
 			local paths = normalize_watch_paths(path)
+			blacklist = normalize_watch_blacklist(blacklist)
 
 			if #paths > 1 then
 				local stops = {}
 
 				for i = 1, #paths do
-					local stop, err = fs.watch(paths[i], callback, recursive)
+					local stop, err = fs.watch(paths[i], callback, recursive, blacklist)
 
 					if not stop then
 						for j = 1, #stops do
@@ -525,6 +564,9 @@ do
 			end
 
 			path = paths[1]
+
+			if is_blacklisted_watch_path(path, blacklist) then return function() end end
+
 			local handle = ffi.C.CreateFileA(
 				path,
 				fs.FILE_LIST_DIRECTORY,
@@ -611,7 +653,11 @@ do
 							type = "renamed"
 						end
 
-						callback(path .. "/" .. filename, type)
+						local full_path = path .. "/" .. filename
+
+						if not is_blacklisted_watch_path(full_path, blacklist) then
+							callback(full_path, type)
+						end
 
 						if info.NextEntryOffset == 0 then break end
 
@@ -738,12 +784,13 @@ do
 			lib.CFRunLoopAddTimer(rl, timer, lib.kCFRunLoopDefaultMode)
 		end
 
-		function fs.watch(path, callback, recursive)
+		function fs.watch(path, callback, recursive, blacklist)
 			local lib = fs.CoreServices
 
 			if not lib then return nil, "CoreServices not loaded" end
 
 			local paths = normalize_watch_paths(path)
+			blacklist = normalize_watch_blacklist(blacklist)
 			local results = {}
 
 			local function internal_callback(streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds)
@@ -751,6 +798,9 @@ do
 
 				for i = 0, tonumber(numEvents) - 1 do
 					local full_path = ffi.string(paths_ptr[i])
+
+					if is_blacklisted_watch_path(full_path, blacklist) then goto continue end
+
 					local flags = eventFlags[i]
 					local type = "modified"
 
@@ -763,6 +813,8 @@ do
 					end
 
 					table.insert(results, {path = full_path, type = type})
+
+					::continue::
 				end
 			end
 

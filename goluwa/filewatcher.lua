@@ -186,7 +186,8 @@ function hotreload.Start()
 			on_reload(path)
 			last_reloaded[path] = system.GetElapsedTime() + 0.2
 		end,
-		true
+		true,
+		{".git", "gmod/src", "love/games"}
 	)
 end
 
