@@ -149,6 +149,7 @@ else
 		int backtrace(void **buffer, int size);
 		void backtrace_symbols_fd(void *const *buffer, int size, int fd);
 		intptr_t write(int fd, const void *buf, size_t count);
+		void _exit(int status);
 	]])
 	write_stderr = function(str)
 		ffi.C.write(2, str, #str)
@@ -175,15 +176,6 @@ else
 				ffi.C.backtrace_symbols_fd(frames, size, 2)
 				reset_signal(received)
 				ffi.C.kill(ffi.C.getpid(), received)
-			end)
-			ffi.C.signal(signum, installed_handlers[what])
-		end
-
-		for _, what in ipairs(term_signals) do
-			local signum = signals[what]
-			installed_handlers[what] = ffi.cast("sighandler_t", function(received)
-				write_stderr("\nreceived signal " .. what .. ", exiting\n")
-				os.exit(128 + received)
 			end)
 			ffi.C.signal(signum, installed_handlers[what])
 		end
