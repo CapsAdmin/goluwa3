@@ -59,7 +59,11 @@ return {
 					local lightprobes = import.loaded["goluwa/render3d/lightprobes.lua"] or
 						import("goluwa/render3d/lightprobes.lua")
 
-					if lightprobes.IsEnabled() then
+					if
+						lightprobes.IsEnabled() and
+						lightprobes.AreSceneProbesEnabled() and
+						render3d.ShouldUseProbeReflections()
+					then
 						local probes = lightprobes.GetProbes()
 
 						for i = 0, MAX_PROBES - 1 do
@@ -82,8 +86,8 @@ return {
 						end
 					end
 
-					local prev_view = render3d.prev_view_matrix
-					local prev_projection = render3d.prev_projection_matrix
+					local prev_view = render3d.GetPreviousViewMatrix()
+					local prev_projection = render3d.GetPreviousProjectionMatrix()
 
 					if prev_view then
 						prev_view:CopyToFloatPointer(block.prev_view)

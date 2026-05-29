@@ -32,6 +32,88 @@ local INSTANCE_MATRIX_ATTRIBUTES = {
 local NO_INDEX_BUFFER_KEY = {}
 local NO_MODEL_PATH_KEY = {}
 
+local function get_pipeline_configs()
+	return list.flatten{
+		import("goluwa/render3d/passes/gbuffer.lua"),
+		--import("goluwa/render3d/passes/voxel_build.lua"),
+		import("goluwa/render3d/passes/ssr.lua"),
+		import("goluwa/render3d/passes/lighting.lua"),
+		--import("goluwa/render3d/passes/lighting_simple.lua"),
+		import("goluwa/render3d/passes/ocean.lua"),
+		import("goluwa/render3d/passes/forward_overlay.lua"),
+		--import("goluwa/render3d/passes/volumetric_fog.lua"),
+		--import("goluwa/render3d/passes/smaa.lua"),
+		import("goluwa/render3d/passes/bloom.lua"),
+		import("goluwa/render3d/passes/blit.lua"),
+	}
+end
+
+local function decorate_pipeline_instance(pipeline, config)
+	pipeline.name = config.name
+	pipeline.post_draw = config.post_draw
+	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
+	pipeline.use_global_sampler_config = config.UseGlobalSamplerConfig ~= false
+	return pipeline
+end
+
+local function instantiate_pipeline_bundle(options)
+	options = options or {}
+	local bundle = {
+		pipelines = {},
+		pipelines_i = {},
+		options = options,
+	}
+	local framebuffer_size = options.framebuffer_size
+	local filter = options.filter
+	local include_names = options.include_names
+	local exclude_names = options.exclude_names or {}
+
+	for _, source_config in ipairs(get_pipeline_configs()) do
+		local name = source_config.name
+
+		if
+			not exclude_names[name] and
+			(
+				not include_names or
+				include_names[name]
+			)
+			and
+			(
+				not filter or
+				filter(name, source_config) ~= false
+			)
+		then
+			local config = table.copy(source_config)
+
+			if framebuffer_size and not config.FramebufferSize then
+				config.FramebufferSize = {
+					x = framebuffer_size.x,
+					y = framebuffer_size.y,
+				}
+			end
+
+			local pipeline = decorate_pipeline_instance(EasyPipeline.New(config), config)
+			bundle.pipelines_i[#bundle.pipelines_i + 1] = pipeline
+			bundle.pipelines[name] = pipeline
+		end
+	end
+
+	return bundle
+end
+
+local function remove_pipeline_bundle(bundle)
+	if not bundle or not bundle.pipelines_i then return end
+
+	for i = 1, #bundle.pipelines_i do
+		local pipeline = bundle.pipelines_i[i]
+
+		if pipeline then pipeline:Remove() end
+	end
+
+	bundle.pipelines = {}
+	bundle.pipelines_i = {}
+end
+
 local function new_instancing_reuse_summary()
 	return {
 		unique_keys = 0,
@@ -302,7 +384,7 @@ end
 
 function render3d.WriteDebugBlock(self, block)
 	block.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
-	block.debug_mode = render3d.debug_mode or 1
+	block.debug_mode = render3d.GetDebugMode()
 	block.gbuffer_normal_debug_view = render3d.gbuffer_normal_debug_view or 0
 	block.near_z = render3d.camera:GetNearZ()
 	block.far_z = render3d.camera:GetFarZ()
@@ -371,6 +453,11 @@ render3d.last_frame_block = {
 }
 
 function render3d.WriteLastFrameBlock(self, block)
+	if not render3d.ShouldUseLastFrameHistory() then
+		block.last_frame_tex = -1
+		return block
+	end
+
 	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 		block.last_frame_tex = -1
 		return block
@@ -381,62 +468,163 @@ function render3d.WriteLastFrameBlock(self, block)
 	return block
 end
 
+function render3d.GetActiveRenderContext()
+	return render3d.active_render_context
+end
+
+function render3d.GetDebugMode()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.debug_mode ~= nil then return context.debug_mode end
+
+	return render3d.debug_mode or 1
+end
+
+function render3d.ShouldUseLastFrameHistory()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.allow_last_frame_history ~= nil then
+		return context.allow_last_frame_history == true
+	end
+
+	return true
+end
+
+function render3d.ShouldUseLightProbes()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.allow_lightprobes ~= nil then
+		return context.allow_lightprobes == true
+	end
+
+	return true
+end
+
+function render3d.ShouldUseProbeReflections()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.allow_probe_reflections ~= nil then
+		return context.allow_probe_reflections == true
+	end
+
+	return render3d.ShouldUseLightProbes()
+end
+
+function render3d.GetPreviousViewMatrix()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.prev_view_matrix ~= nil then
+		return context.prev_view_matrix
+	end
+
+	return render3d.prev_view_matrix
+end
+
+function render3d.GetPreviousProjectionMatrix()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.prev_projection_matrix ~= nil then
+		return context.prev_projection_matrix
+	end
+
+	return render3d.prev_projection_matrix
+end
+
+function render3d.IsPipelineEnabled(name)
+	local context = render3d.GetActiveRenderContext()
+	local pipeline_flags = context and context.pipeline_flags or nil
+
+	if pipeline_flags and pipeline_flags[name] ~= nil then
+		return pipeline_flags[name] == true
+	end
+
+	return true
+end
+
+function render3d.PushRenderContext(context)
+	render3d.render_context_stack = render3d.render_context_stack or {}
+	table.insert(
+		render3d.render_context_stack,
+		{
+			pipelines = render3d.pipelines,
+			pipelines_i = render3d.pipelines_i,
+			context = render3d.active_render_context,
+		}
+	)
+	render3d.active_render_context = context
+
+	if context then
+		if context.pipelines then render3d.pipelines = context.pipelines end
+
+		if context.pipelines_i then render3d.pipelines_i = context.pipelines_i end
+	end
+
+	return context
+end
+
+function render3d.PopRenderContext()
+	render3d.render_context_stack = render3d.render_context_stack or {}
+	local state = table.remove(render3d.render_context_stack)
+
+	if not state then return nil end
+
+	render3d.pipelines = state.pipelines
+	render3d.pipelines_i = state.pipelines_i
+	render3d.active_render_context = state.context
+	return render3d.active_render_context
+end
+
+function render3d.WithRenderContext(context, callback)
+	render3d.PushRenderContext(context)
+	local ok, a, b, c, d = xpcall(callback, debug.traceback)
+	render3d.PopRenderContext()
+
+	if not ok then error(a, 0) end
+
+	return a, b, c, d
+end
+
+function render3d.CreatePipelineBundle(options)
+	return instantiate_pipeline_bundle(options)
+end
+
+function render3d.RemovePipelineBundle(bundle)
+	remove_pipeline_bundle(bundle)
+end
+
+function render3d.RunPipelineBundle(bundle, cmd, context)
+	if not bundle or not bundle.pipelines_i then return end
+
+	local sampler_config = render.GetSamplerFilterConfig()
+	local active_context = context or {}
+	active_context.pipelines = bundle.pipelines
+	active_context.pipelines_i = bundle.pipelines_i
+
+	render3d.WithRenderContext(active_context, function()
+		for _, pipeline in ipairs(bundle.pipelines_i) do
+			if pipeline.use_global_sampler_config then
+				pipeline:SetSamplerConfig(sampler_config)
+			else
+				pipeline:SetSamplerConfig(nil)
+			end
+
+			if pipeline.draw_in_prerender and render3d.IsPipelineEnabled(pipeline.name) then
+				pipeline:Draw(cmd)
+			end
+		end
+	end)
+end
+
 function render3d.Initialize()
 	render3d.initializing = true
 
-	if render3d.pipelines_i then
-		for i = 1, #render3d.pipelines_i do
-			local pipeline = render3d.pipelines_i[i]
-
-			if pipeline then pipeline:Remove() end
-		end
+	if render3d.main_pipeline_bundle then
+		render3d.RemovePipelineBundle(render3d.main_pipeline_bundle)
 	end
 
-	render3d.pipelines = {}
-	render3d.pipelines_i = {}
-	local i = 1
-	local pipelines
-
-	if true then
-		pipelines = list.flatten{
-			import("goluwa/render3d/passes/gbuffer.lua"),
-			--import("goluwa/render3d/passes/voxel_build.lua"),
-			import("goluwa/render3d/passes/ssr.lua"),
-			import("goluwa/render3d/passes/lighting.lua"),
-			--import("goluwa/render3d/passes/lighting_simple.lua"),
-			import("goluwa/render3d/passes/ocean.lua"),
-			import("goluwa/render3d/passes/forward_overlay.lua"),
-			--import("goluwa/render3d/passes/volumetric_fog.lua"),
-			--import("goluwa/render3d/passes/smaa.lua"),
-			import("goluwa/render3d/passes/bloom.lua"),
-			import("goluwa/render3d/passes/blit.lua"),
-		}
-	else
-		pipelines = list.flatten{
-			import("goluwa/render3d/passes/gbuffer.lua"),
-			--import("goluwa/render3d/passes/voxel_build.lua"),
-			--import("goluwa/render3d/passes/ssr.lua"),
-			--import("goluwa/render3d/passes/lighting.lua"),
-			import("goluwa/render3d/passes/lighting.lua"),
-			--import("goluwa/render3d/passes/ocean.lua"),
-			--import("goluwa/render3d/passes/forward_overlay.lua"),
-			--import("goluwa/render3d/passes/volumetric_fog.lua"),
-			--import("goluwa/render3d/passes/smaa.lua"),
-			--import("goluwa/render3d/passes/bloom.lua"),
-			import("goluwa/render3d/passes/blit.lua"),
-		}
-	end
-
-	for i, config in ipairs(pipelines) do
-		render3d.pipelines_i[i] = EasyPipeline.New(config)
-		render3d.pipelines[config.name] = render3d.pipelines_i[i]
-		--
-		render3d.pipelines_i[i].name = config.name
-		render3d.pipelines_i[i].post_draw = config.post_draw
-		render3d.pipelines_i[i].draw_in_prerender = config.draw_in_prerender ~= false
-		render3d.pipelines_i[i].use_global_sampler_config = config.UseGlobalSamplerConfig ~= false
-	end
-
+	render3d.main_pipeline_bundle = render3d.CreatePipelineBundle()
+	render3d.pipelines = render3d.main_pipeline_bundle.pipelines
+	render3d.pipelines_i = render3d.main_pipeline_bundle.pipelines_i
 	local size = render.GetRenderImageSize()
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 
@@ -1239,6 +1427,12 @@ function render3d.SetEnvironmentTexture(texture)
 end
 
 function render3d.GetEnvironmentTexture()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.environment_texture ~= nil then
+		return context.environment_texture
+	end
+
 	return render3d.environment_texture
 end
 
@@ -1247,6 +1441,12 @@ function render3d.SetOceanEnabled(enabled)
 end
 
 function render3d.IsOceanEnabled()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.ocean_enabled ~= nil then
+		return context.ocean_enabled == true
+	end
+
 	if render3d.ocean_enabled == nil then return false end
 
 	return render3d.ocean_enabled == true

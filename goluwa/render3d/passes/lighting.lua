@@ -422,7 +422,11 @@ return {
 						block.probe_positions[i][3] = 0
 					end
 
-					if lightprobes.IsEnabled() then
+					if
+						lightprobes.IsEnabled() and
+						lightprobes.AreSceneProbesEnabled() and
+						render3d.ShouldUseLightProbes()
+					then
 						local probes = lightprobes.GetProbes()
 
 						for i = 0, MAX_PROBES - 1 do

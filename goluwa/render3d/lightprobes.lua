@@ -14,6 +14,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local lightprobes = library()
 
 local function get_primary_sun(lights)
@@ -51,6 +52,11 @@ lightprobes.SCENE_MIN_SPACING = lightprobes.SCENE_MIN_SPACING or 24
 lightprobes.GRID_SPACING = lightprobes.GRID_SPACING or 192
 lightprobes.UPDATE_FACES_PER_FRAME = 1 -- How many faces to update each frame
 lightprobes.enabled = lightprobes.enabled ~= false
+lightprobes.scene_probes_enabled = false
+lightprobes.capture_pipeline_flags = lightprobes.capture_pipeline_flags or {
+	ssr = true,
+	ocean = true,
+}
 -- State
 lightprobes.probes = lightprobes.probes or {}
 lightprobes.current_scene_probe_index = lightprobes.current_scene_probe_index or 1 -- Current scene probe being updated (1-based, skips environment)
@@ -975,12 +981,17 @@ end
 
 function lightprobes.CreatePipelines()
 	local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-	local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
+	local ibl = import.loaded["goluwa/render3d/ibl.lua"] or import("goluwa/render3d/ibl.lua")
 	local orientation = import("goluwa/render3d/orientation.lua")
 	local Material = import("goluwa/render3d/material.lua")
 	local Light = import("goluwa/ecs/components/3d/light.lua")
 
-	for _, key in ipairs({"scene_pipeline", "sky_pipeline", "prefilter_pipeline"}) do
+	for _, key in ipairs{
+		"sky_pipeline",
+		"prefilter_pipeline",
+		"capture_copy_pipeline",
+		"capture_depth_pipeline",
+	} do
 		local pipeline = lightprobes[key]
 
 		if pipeline then pipeline:Remove() end
@@ -988,97 +999,14 @@ function lightprobes.CreatePipelines()
 		lightprobes[key] = nil
 	end
 
-	-- Pipeline to render the scene into a cubemap face
-	lightprobes.scene_pipeline = EasyPipeline.New{
-		ColorFormat = {
-			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
-			{"r32_sfloat", {"linear_depth", "r"}},
-		},
-		DepthFormat = "d32_sfloat",
-		RasterizationSamples = "1",
-		Blend = false,
-		ColorWriteMask = {"r", "g", "b", "a"},
-		vertex = model_pipeline.CreateVertexStage{
-			transform_storage = "uniform_buffers",
-			get_projection_view_world_matrix = lightprobes.GetProjectionViewWorldMatrix,
-			normal = true,
-			tangent = true,
-			uv = true,
-			texture_blend = true,
-		},
-		fragment = {
-			custom_declarations = [[
-                struct Light {
-                    vec4 position;
-                    vec4 color;
-                    vec4 params;
-                };
-            ]],
-			uniform_buffers = {
-				{
-					name = "probe_data",
-					binding_index = 3,
-					block = {
-						{"camera_position", "vec4"},
-						{"stars_texture_index", "int"},
-						{"atmosphere_transmittance_texture_index", "int"},
-						{"atmosphere_sky_view_texture_index", "int"},
-						{"blue_noise_tex", "int"},
-						{"sun_direction", "vec4"},
-					},
-					write = function(self, block)
-						local p = lightprobes.camera:GetPosition()
-						block.camera_position[0] = p.x
-						block.camera_position[1] = p.y
-						block.camera_position[2] = p.z
-						block.camera_position[3] = 0
-						block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
-						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-						block.atmosphere_sky_view_texture_index = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
-						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-						local sun = get_primary_sun(render3d.GetLights())
+	if lightprobes.capture_bundles then
+		for _, bundle in pairs(lightprobes.capture_bundles) do
+			render3d.RemovePipelineBundle(bundle)
+		end
 
-						if sun then
-							sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
-						else
-							block.sun_direction[0] = 0
-							block.sun_direction[1] = 1
-							block.sun_direction[2] = 0
-							block.sun_direction[3] = 0
-						end
+		lightprobes.capture_bundles = nil
+	end
 
-						return block
-					end,
-				},
-				{
-					name = "model",
-					binding_index = 4,
-					block = model_pipeline.GetProbeMaterialBlock(),
-					write = model_pipeline.WriteProbeMaterialBlock,
-				},
-			},
-			shader = [[
-				]] .. model_pipeline.BuildProbeSamplingGlsl("model") .. [[
-              
-                void main() {
-					vec3 albedo = get_albedo();
-                    
-                    set_color(vec4(albedo, 1.0));
-					set_linear_depth(length(in_position - probe_data.camera_position.xyz));
-                }
-            ]],
-		},
-		DepthClamp = false,
-		Discard = false,
-		PolygonMode = "fill",
-		LineWidth = 1.0,
-		CullMode = "front",
-		FrontFace = orientation.FRONT_FACE,
-		DepthBias = false,
-		DepthTest = true,
-		DepthWrite = true,
-		DepthCompareOp = "less",
-	}
 	-- Sky-only pipeline (for environment probe and scene probe backgrounds)
 	lightprobes.sky_pipeline = EasyPipeline.New{
 		ColorFormat = {
@@ -1184,6 +1112,81 @@ function lightprobes.CreatePipelines()
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
+	}
+	lightprobes.capture_copy_pipeline = EasyPipeline.New{
+		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
+		dont_create_framebuffers = true,
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+		fragment = {
+			push_constants = {
+				{
+					name = "probe_capture_copy",
+					block = {
+						{"source_tex", "int"},
+					},
+					write = function(self, block)
+						block.source_tex = self:GetTextureIndex(lightprobes.current_capture_source_texture)
+						return block
+					end,
+				},
+			},
+			shader = [[
+				void main() {
+					if (probe_capture_copy.source_tex == -1) {
+						set_color(vec4(0.0, 0.0, 0.0, 1.0));
+						return;
+					}
+
+					set_color(texture(TEXTURE(probe_capture_copy.source_tex), in_uv));
+				}
+			]],
+		},
+	}
+	lightprobes.capture_depth_pipeline = EasyPipeline.New{
+		ColorFormat = {{"r32_sfloat", {"linear_depth", "r"}}},
+		dont_create_framebuffers = true,
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "probe_depth_data",
+					binding_index = 3,
+					block = {
+						render3d.camera_block,
+						{"depth_tex", "int"},
+					},
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						block.depth_tex = self:GetTextureIndex(lightprobes.current_capture_depth_texture)
+						return block
+					end,
+				},
+			},
+			shader = [[
+			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("probe_depth_data") .. [[
+				void main() {
+					if (probe_depth_data.depth_tex == -1) {
+						set_linear_depth(1000.0);
+						return;
+					}
+
+					float depth = texture(TEXTURE(probe_depth_data.depth_tex), in_uv).r;
+
+					if (depth >= 0.999999) {
+						set_linear_depth(1000.0);
+						return;
+					}
+
+					vec3 world_pos = get_world_pos(in_uv, depth);
+					float radial_depth = length(world_pos - probe_depth_data.camera_position.xyz);
+					set_linear_depth(radial_depth);
+				}
+			]],
+		},
 	}
 	-- Prefilter pipeline for IBL
 	lightprobes.prefilter_pipeline = EasyPipeline.New{
@@ -1370,34 +1373,61 @@ local function submit_probe_command_buffer(cmd, own_cmd)
 	cmd:Remove()
 end
 
-function lightprobes.UploadConstants()
-	if lightprobes.scene_pipeline then
-		local cmd = render.GetCommandBuffer()
-		cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or "front")
-		lightprobes.scene_pipeline:UploadConstants()
-	end
+local function get_probe_capture_bundle(size)
+	lightprobes.capture_bundles = lightprobes.capture_bundles or {}
+	local bundle = lightprobes.capture_bundles[size]
+
+	if bundle then return bundle end
+
+	bundle = render3d.CreatePipelineBundle{
+		framebuffer_size = {x = size, y = size},
+		filter = function(name)
+			return name:find("^gbuffer") ~= nil or
+				name == "ssr" or
+				name == "lighting" or
+				name == "ocean"
+		end,
+	}
+	lightprobes.capture_bundles[size] = bundle
+	return bundle
 end
 
--- Create depth buffer for probe rendering
-function lightprobes.GetOrCreateDepthBuffer(size)
-	if not lightprobes.depth_buffers then lightprobes.depth_buffers = {} end
+local function get_probe_capture_context()
+	return {
+		debug_mode = 1,
+		allow_lightprobes = false,
+		allow_probe_reflections = false,
+		allow_last_frame_history = false,
+		pipeline_flags = {
+			ssr = lightprobes.capture_pipeline_flags.ssr ~= false,
+			ocean = lightprobes.capture_pipeline_flags.ocean ~= false,
+		},
+	}
+end
 
-	if not lightprobes.depth_buffers[size] then
-		lightprobes.depth_buffers[size] = Texture.New{
-			width = size,
-			height = size,
-			format = "d32_sfloat",
-			image = {
-				usage = {"depth_stencil_attachment"},
-				properties = "device_local",
-			},
-			view = {
-				aspect = "depth",
-			},
-		}
+local function get_probe_capture_source_texture(bundle)
+	local current_idx = system.GetFrameNumber() % 2 + 1
+
+	if
+		lightprobes.capture_pipeline_flags.ocean ~= false and
+		bundle.pipelines.ocean and
+		bundle.pipelines.ocean.framebuffers
+	then
+		return bundle.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1)
 	end
 
-	return lightprobes.depth_buffers[size]
+	if bundle.pipelines.lighting and bundle.pipelines.lighting.framebuffers then
+		return bundle.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1)
+	end
+
+	return nil
+end
+
+local function get_probe_capture_depth_texture(bundle)
+	if not bundle.pipelines.gbuffer then return nil end
+
+	local framebuffer = bundle.pipelines.gbuffer:GetFramebuffer()
+	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
 -- Check if sun direction has changed significantly
@@ -1434,7 +1464,6 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 	local SIZE = probe.size
 	lightprobes.camera:SetPosition(probe.position)
 	lightprobes.camera:SetViewport(Rect(0, 0, SIZE, SIZE))
-	local depth_tex = lightprobes.GetOrCreateDepthBuffer(SIZE)
 
 	for _ = 1, num_faces do
 		local face_idx = lightprobes.current_face
@@ -1446,83 +1475,40 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 		view.m30, view.m31, view.m32 = 0, 0, 0
 		local proj_view = view * proj
 		proj_view:GetInverse(lightprobes.inv_projection_view)
-		-- Transition source face to color attachment
-		cmd:PipelineBarrier{
-			srcStage = "fragment_shader",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = probe.source_cubemap:GetImage(),
-					oldLayout = "shader_read_only_optimal",
-					newLayout = "color_attachment_optimal",
-					srcAccessMask = "shader_read",
-					dstAccessMask = "color_attachment_write",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
-		-- Transition depth face to color attachment
-		cmd:PipelineBarrier{
-			srcStage = "fragment_shader",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = probe.depth_cubemap:GetImage(),
-					oldLayout = "shader_read_only_optimal",
-					newLayout = "color_attachment_optimal",
-					srcAccessMask = "shader_read",
-					dstAccessMask = "color_attachment_write",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
-		-- First render sky background
-		cmd:BeginRendering{
-			color_attachments = {
-				{
-					color_image_view = probe.source_face_views[face_idx],
-					clear_color = {0, 0, 0, 1},
-					load_op = "clear",
-					store_op = "store",
-				},
-				{
-					color_image_view = probe.depth_face_views[face_idx],
-					clear_color = {1000, 0, 0, 0},
-					load_op = "clear",
-					store_op = "store",
-				},
-			},
-			w = SIZE,
-			h = SIZE,
-		}
-		cmd:SetViewport(0, 0, SIZE, SIZE)
-		cmd:SetScissor(0, 0, SIZE, SIZE)
-		cmd:SetCullMode("none")
-		lightprobes.sky_pipeline:UploadConstants()
-		lightprobes.sky_pipeline:Bind(cmd)
-		cmd:Draw(3, 1, 0, 0)
-		cmd:EndRendering()
 
-		-- Render scene geometry if requested (for scene probes)
-		if render_geometry and lightprobes.scene_pipeline then
-			-- Transition depth to depth attachment
+		if render_geometry then
+			local bundle = get_probe_capture_bundle(SIZE)
+			local capture_context = get_probe_capture_context()
+			render3d.PushCamera(lightprobes.camera)
+			render3d.RunPipelineBundle(bundle, cmd, capture_context)
+			render3d.PopCamera()
+			lightprobes.current_capture_source_texture = get_probe_capture_source_texture(bundle)
+			lightprobes.current_capture_depth_texture = get_probe_capture_depth_texture(bundle)
 			cmd:PipelineBarrier{
-				srcStage = "top_of_pipe",
-				dstStage = {"early_fragment_tests", "late_fragment_tests"},
+				srcStage = "fragment_shader",
+				dstStage = "color_attachment_output",
 				imageBarriers = {
 					{
-						image = depth_tex:GetImage(),
-						oldLayout = "undefined",
-						newLayout = "depth_attachment_optimal",
-						srcAccessMask = "none",
-						dstAccessMask = "depth_stencil_attachment_write",
-					-- aspect is automatically determined from image format by PipelineBarrier
+						image = probe.source_cubemap:GetImage(),
+						oldLayout = "shader_read_only_optimal",
+						newLayout = "color_attachment_optimal",
+						srcAccessMask = "shader_read",
+						dstAccessMask = "color_attachment_write",
+						base_array_layer = face_idx,
+						layer_count = 1,
+						base_mip_level = 0,
+						level_count = 1,
+					},
+					{
+						image = probe.depth_cubemap:GetImage(),
+						oldLayout = "shader_read_only_optimal",
+						newLayout = "color_attachment_optimal",
+						srcAccessMask = "shader_read",
+						dstAccessMask = "color_attachment_write",
+						base_array_layer = face_idx,
+						layer_count = 1,
+						base_mip_level = 0,
+						level_count = 1,
 					},
 				},
 			}
@@ -1530,25 +1516,102 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				color_attachments = {
 					{
 						color_image_view = probe.source_face_views[face_idx],
-						load_op = "load",
-						store_op = "store",
-					},
-					{
-						color_image_view = probe.depth_face_views[face_idx],
-						load_op = "load",
+						clear_color = {0, 0, 0, 1},
+						load_op = "clear",
 						store_op = "store",
 					},
 				},
-				depth_image_view = depth_tex:GetView(),
-				clear_depth = 1.0,
-				depth_store = false,
 				w = SIZE,
 				h = SIZE,
 			}
 			cmd:SetViewport(0, 0, SIZE, SIZE)
 			cmd:SetScissor(0, 0, SIZE, SIZE)
-			lightprobes.scene_pipeline:Bind(cmd)
-			event.Call("DrawProbeGeometry", cmd, lightprobes)
+			cmd:SetCullMode("none")
+			lightprobes.capture_copy_pipeline:UploadConstants()
+			lightprobes.capture_copy_pipeline:Bind(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			cmd:EndRendering()
+			cmd:BeginRendering{
+				color_attachments = {
+					{
+						color_image_view = probe.depth_face_views[face_idx],
+						clear_color = {1000, 0, 0, 0},
+						load_op = "clear",
+						store_op = "store",
+					},
+				},
+				w = SIZE,
+				h = SIZE,
+			}
+			cmd:SetViewport(0, 0, SIZE, SIZE)
+			cmd:SetScissor(0, 0, SIZE, SIZE)
+			cmd:SetCullMode("none")
+			lightprobes.capture_depth_pipeline:UploadConstants()
+			lightprobes.capture_depth_pipeline:Bind(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			cmd:EndRendering()
+		else
+			-- Transition source face to color attachment
+			cmd:PipelineBarrier{
+				srcStage = "fragment_shader",
+				dstStage = "color_attachment_output",
+				imageBarriers = {
+					{
+						image = probe.source_cubemap:GetImage(),
+						oldLayout = "shader_read_only_optimal",
+						newLayout = "color_attachment_optimal",
+						srcAccessMask = "shader_read",
+						dstAccessMask = "color_attachment_write",
+						base_array_layer = face_idx,
+						layer_count = 1,
+						base_mip_level = 0,
+						level_count = 1,
+					},
+				},
+			}
+			-- Transition depth face to color attachment
+			cmd:PipelineBarrier{
+				srcStage = "fragment_shader",
+				dstStage = "color_attachment_output",
+				imageBarriers = {
+					{
+						image = probe.depth_cubemap:GetImage(),
+						oldLayout = "shader_read_only_optimal",
+						newLayout = "color_attachment_optimal",
+						srcAccessMask = "shader_read",
+						dstAccessMask = "color_attachment_write",
+						base_array_layer = face_idx,
+						layer_count = 1,
+						base_mip_level = 0,
+						level_count = 1,
+					},
+				},
+			}
+			-- First render sky background
+			cmd:BeginRendering{
+				color_attachments = {
+					{
+						color_image_view = probe.source_face_views[face_idx],
+						clear_color = {0, 0, 0, 1},
+						load_op = "clear",
+						store_op = "store",
+					},
+					{
+						color_image_view = probe.depth_face_views[face_idx],
+						clear_color = {1000, 0, 0, 0},
+						load_op = "clear",
+						store_op = "store",
+					},
+				},
+				w = SIZE,
+				h = SIZE,
+			}
+			cmd:SetViewport(0, 0, SIZE, SIZE)
+			cmd:SetScissor(0, 0, SIZE, SIZE)
+			cmd:SetCullMode("none")
+			lightprobes.sky_pipeline:UploadConstants()
+			lightprobes.sky_pipeline:Bind(cmd)
+			cmd:Draw(3, 1, 0, 0)
 			cmd:EndRendering()
 		end
 
@@ -1709,6 +1772,20 @@ function lightprobes.IsEnabled()
 	return lightprobes.enabled
 end
 
+function lightprobes.SetSceneProbesEnabled(enabled)
+	local value = enabled ~= false
+
+	if lightprobes.scene_probes_enabled == value then return end
+
+	lightprobes.scene_probes_enabled = value
+
+	if value then lightprobes.MarkAllSceneProbesDirty() end
+end
+
+function lightprobes.AreSceneProbesEnabled()
+	return lightprobes.scene_probes_enabled
+end
+
 -- Compatibility with old skybox API
 function lightprobes.SetStarsTexture(texture)
 	atmosphere.SetStarsTexture(texture)
@@ -1733,38 +1810,41 @@ event.AddListener("PreRenderPass", "lightprobes_update", function()
 	if sun_changed then lightprobes.MarkAllSceneProbesDirty() end
 
 	lightprobes.UpdateEnvironmentProbe(cmd, sun_changed)
-	local scene_probe_index = lightprobes.current_scene_probe_index
-	local scene_probe = lightprobes.probes[scene_probe_index]
 
-	if scene_probe and scene_probe.type == lightprobes.TYPE_SCENE then
-		-- Only update if the probe needs it (static probes only update once)
-		if
-			scene_probe.needs_update or
-			scene_probe.update_mode == lightprobes.UPDATE_DYNAMIC
-		then
-			local t = system.GetTime()
+	if lightprobes.scene_probes_enabled then
+		local scene_probe_index = lightprobes.current_scene_probe_index
+		local scene_probe = lightprobes.probes[scene_probe_index]
 
-			if (t - scene_probe.last_rendered) > 1 / 10 then
-				lightprobes.RenderProbeFaces(cmd, scene_probe, lightprobes.UPDATE_FACES_PER_FRAME, true)
+		if scene_probe and scene_probe.type == lightprobes.TYPE_SCENE then
+			-- Only update if the probe needs it (static probes only update once)
+			if
+				scene_probe.needs_update or
+				scene_probe.update_mode == lightprobes.UPDATE_DYNAMIC
+			then
+				local t = system.GetTime()
 
-				-- When we complete a full cycle (back to face 0), prefilter and move to next probe
-				if lightprobes.current_face == 0 then
-					lightprobes.PrefilterProbe(cmd, scene_probe)
-					scene_probe.needs_update = false
+				if (t - scene_probe.last_rendered) > 1 / 10 then
+					lightprobes.RenderProbeFaces(cmd, scene_probe, lightprobes.UPDATE_FACES_PER_FRAME, true)
 
-					-- Move to next scene probe
-					repeat
-						scene_probe_index = scene_probe_index + 1
+					-- When we complete a full cycle (back to face 0), prefilter and move to next probe
+					if lightprobes.current_face == 0 then
+						lightprobes.PrefilterProbe(cmd, scene_probe)
+						scene_probe.needs_update = false
 
-						if scene_probe_index > #lightprobes.probes then
-							scene_probe_index = 1
-						end					
-					until lightprobes.probes[scene_probe_index] or scene_probe_index == lightprobes.current_scene_probe_index
+						-- Move to next scene probe
+						repeat
+							scene_probe_index = scene_probe_index + 1
 
-					lightprobes.current_scene_probe_index = scene_probe_index
+							if scene_probe_index > #lightprobes.probes then
+								scene_probe_index = 1
+							end						
+						until lightprobes.probes[scene_probe_index] or scene_probe_index == lightprobes.current_scene_probe_index
+
+						lightprobes.current_scene_probe_index = scene_probe_index
+					end
+
+					scene_probe.last_rendered = t
 				end
-
-				scene_probe.last_rendered = t
 			end
 		end
 	end
@@ -1774,6 +1854,11 @@ end)
 
 commands.Add("lightprobes_dump=number|nil", function(limit)
 	lightprobes.Dump(limit)
+end)
+
+commands.Add("lightprobes_scene_probes=boolean[true]", function(enabled)
+	lightprobes.SetSceneProbesEnabled(enabled)
+	logf("[lightprobes] scene probes %s\n", enabled and "enabled" or "disabled")
 end)
 
 commands.Add("lightprobes_debug_draw=boolean[true]", function(enabled)
