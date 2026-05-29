@@ -30,7 +30,6 @@ function Memory.New(device, config)
 		ptr = ptr,
 		device = device,
 		size = config.size,
-		traceback = callstack.traceback(),
 	}
 end
 
