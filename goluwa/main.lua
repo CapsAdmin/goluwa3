@@ -8,7 +8,7 @@ if false then
 	local profiler = import("goluwa/profiler.lua")
 	profiler.Start("startup", {trace_recorder = true})
 
-	event.AddListener("FrameEnd", function()
+	event.AddListener("Initialize", function()
 		profiler.Stop("startup")
 	end)
 end
