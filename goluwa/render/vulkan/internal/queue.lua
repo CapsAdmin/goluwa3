@@ -75,14 +75,13 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 	self:TrackSubmission(commandBuffer, inFlightFence, {imageAvailableSemaphore, renderFinishedSemaphore})
 end
 
-function Queue:SubmitNoWait(device, commandBuffer, fence)
+function Queue:SubmitNoWait(commandBuffer, fence)
 	if flags.render_noop then
 		self:RetireFence(self:TrackSubmission(commandBuffer, fence, {}).fence)
 		return
 	end
 
 	local submission = self:TrackSubmission(commandBuffer, fence, {})
-	vulkan.lib.vkResetFences(device.ptr[0], 1, fence.ptr)
 	vulkan.assert(
 		vulkan.lib.vkQueueSubmit(
 			self.ptr[0],
@@ -101,43 +100,6 @@ function Queue:SubmitNoWait(device, commandBuffer, fence)
 		"failed to submit queue"
 	)
 	return submission
-end
-
-function Queue:SubmitAndWait(device, commandBuffer, fence)
-	if flags.render_noop then
-		local submission = self:TrackSubmission(commandBuffer, fence, {})
-
-		if commandBuffer then
-			commandBuffer.keepalive_resources = nil
-			commandBuffer.is_recording = false
-			commandBuffer.is_rendering = false
-		end
-
-		self:RetireFence(submission.fence)
-		return
-	end
-
-	local submission = self:TrackSubmission(commandBuffer, fence, {})
-	vulkan.lib.vkResetFences(device.ptr[0], 1, fence.ptr)
-	vulkan.assert(
-		vulkan.lib.vkQueueSubmit(
-			self.ptr[0],
-			1,
-			vulkan.vk.s.SubmitInfo{
-				waitSemaphoreCount = 0,
-				pWaitSemaphores = nil,
-				pWaitDstStageMask = nil,
-				commandBufferCount = 1,
-				pCommandBuffers = commandBuffer.ptr,
-				signalSemaphoreCount = 0,
-				pSignalSemaphores = nil,
-			},
-			fence.ptr[0]
-		),
-		"failed to submit queue"
-	)
-	vulkan.lib.vkWaitForFences(device.ptr[0], 1, fence.ptr, 1, ffi.cast("uint64_t", -1))
-	self:RetireFence(submission.fence)
 end
 
 return Queue:Register()

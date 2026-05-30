@@ -774,11 +774,25 @@ function render.GetSyncFence()
 end
 
 function render.SubmitAndWait(cmd)
-	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, render.GetSyncFence())
+	local fence = render.GetSyncFence()
+	local queue = render.GetQueue()
+
+	if not flags.render_noop then fence:Reset() end
+
+	queue:SubmitNoWait(cmd, fence)
+
+	if flags.render_noop then return end
+
+	fence:Wait(true)
+	queue:RetireFence(fence)
 end
 
 function render.Submit(cmd, fence)
-	return render.GetQueue():SubmitNoWait(render.GetDevice(), cmd, fence or render.GetSyncFence())
+	fence = fence or render.GetSyncFence()
+
+	if not flags.render_noop then fence:Reset() end
+
+	return render.GetQueue():SubmitNoWait(cmd, fence)
 end
 
 function render.GetCommandPool()

@@ -198,7 +198,11 @@ function Image:TransitionLayout(old_layout, new_layout)
 	cmd:End()
 	-- Submit and wait for completion
 	local fence = Fence.New(device)
-	queue:SubmitAndWait(device, cmd, fence)
+	local submission_queue = queue
+	fence:Reset()
+	submission_queue:SubmitNoWait(cmd, fence)
+	fence:Wait(true)
+	submission_queue:RetireFence(fence)
 end
 
 return Image:Register()

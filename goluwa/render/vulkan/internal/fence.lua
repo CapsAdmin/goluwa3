@@ -28,12 +28,14 @@ function Fence:OnRemove()
 	end
 end
 
+function Fence:Reset()
+	vulkan.lib.vkResetFences(self.device.ptr[0], 1, self.ptr)
+end
+
 function Fence:Wait(skip_reset)
 	vulkan.lib.vkWaitForFences(self.device.ptr[0], 1, self.ptr, 1, ffi.cast("uint64_t", -1))
 
-	if not skip_reset then
-		vulkan.lib.vkResetFences(self.device.ptr[0], 1, self.ptr)
-	end
+	if not skip_reset then self:Reset() end
 end
 
 function Fence:IsSignaled()

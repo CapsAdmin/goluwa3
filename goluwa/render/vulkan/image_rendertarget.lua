@@ -564,7 +564,15 @@ function ImageRenderTarget:EndFrame()
 	if self.config.offscreen then
 		-- Offscreen: simple submit and wait
 		local fence = Fence.New(self.vulkan_instance.device)
-		self.vulkan_instance.queue:SubmitAndWait(self.vulkan_instance.device, command_buffer, fence)
+		local queue = self.vulkan_instance.queue
+
+		if not flags.render_noop then fence:Reset() end
+
+		queue:SubmitNoWait(command_buffer, fence)
+
+		if not flags.render_noop then fence:Wait(true) end
+
+		queue:RetireFence(fence)
 	else
 		-- Windowed: submit with semaphores
 		-- Use current_frame for image_available (wait) semaphore and fence
