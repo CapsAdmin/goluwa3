@@ -4,7 +4,7 @@ local crash_trace = import("goluwa/crash_trace.lua")
 crash_trace.Install()
 local event = import("goluwa/event.lua")
 
-if false then
+if true then
 	local profiler = import("goluwa/profiler.lua")
 	profiler.Start("startup", {trace_recorder = true})
 

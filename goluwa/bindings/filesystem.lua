@@ -1242,4 +1242,529 @@ do
 	end
 end
 
+do
+	local ffi = require("ffi")
+	local bit = require("bit")
+	local event = import("goluwa/event.lua")
+
+	local function trim_trailing_path_separator(path)
+		if path == "/" then return path end
+
+		if path:sub(-1) == "/" then return path:sub(1, -2) end
+
+		return path
+	end
+
+	local function fix_path_slashes(path)
+		return (path:gsub("\\", "/"):gsub("(/+)", "/"))
+	end
+
+	local function normalize_watch_paths(path)
+		if type(path) == "table" then
+			local paths = {}
+
+			for i = 1, #path do
+				paths[i] = trim_trailing_path_separator(fix_path_slashes(path[i]))
+			end
+
+			return paths
+		end
+
+		return {trim_trailing_path_separator(fix_path_slashes(path))}
+	end
+
+	local function normalize_watch_blacklist(blacklist)
+		if not blacklist then return nil end
+
+		if type(blacklist) == "string" then blacklist = {blacklist} end
+
+		local normalized = {}
+
+		for i = 1, #blacklist do
+			normalized[i] = trim_trailing_path_separator(fix_path_slashes(blacklist[i]))
+		end
+
+		return normalized
+	end
+
+	local function is_blacklisted_watch_path(path, blacklist)
+		if not blacklist then return false end
+
+		for i = 1, #blacklist do
+			local entry = blacklist[i]
+
+			if path == entry or path:find("/" .. entry, 1, true) then return true end
+		end
+
+		return false
+	end
+
+	if jit.os == "Linux" then
+		function fs.watch(path, callback, recursive, blacklist)
+			local paths = normalize_watch_paths(path)
+			blacklist = normalize_watch_blacklist(blacklist)
+			local inotify_fd = ffi.C.inotify_init1(fs.IN_NONBLOCK)
+
+			if inotify_fd == -1 then return nil, "Failed to initialize inotify" end
+
+			local wd_to_path = {}
+
+			local function add_watch(dir_path)
+				if is_blacklisted_watch_path(dir_path, blacklist) then return -1 end
+
+				local wd = ffi.C.inotify_add_watch(
+					inotify_fd,
+					dir_path,
+					bit.bor(
+						fs.IN_MODIFY,
+						fs.IN_CREATE,
+						fs.IN_DELETE,
+						fs.IN_MOVE,
+						fs.IN_CLOSE_WRITE
+					)
+				)
+
+				if wd ~= -1 then wd_to_path[wd] = dir_path end
+
+				return wd
+			end
+
+			local function add_recursive(dir_path)
+				add_watch(dir_path)
+
+				fs.walk(
+					dir_path .. "/",
+					nil,
+					{},
+					function(name)
+						add_watch(name)
+						return true
+					end,
+					true
+				)
+			end
+
+			for _, dir_path in ipairs(paths) do
+				if recursive then add_recursive(dir_path) else add_watch(dir_path) end
+			end
+
+			local buffer = ffi.new("char[4096]")
+			local remove_event = event.AddListener("Update", {}, function()
+				while true do
+					local length = ffi.C.read(inotify_fd, buffer, 4096)
+
+					if length <= 0 then break end
+
+					local i = 0
+
+					while i < length do
+						local event = ffi.cast("struct inotify_event *", ffi.cast("char *", buffer) + i)
+						local dir_path = wd_to_path[event.wd]
+
+						if dir_path then
+							local name = ffi.string(event.name)
+							local full_path = dir_path .. "/" .. name
+							local type = "modified"
+
+							if bit.band(event.mask, fs.IN_CREATE) ~= 0 then
+								type = "created"
+							elseif bit.band(event.mask, fs.IN_DELETE) ~= 0 then
+								type = "deleted"
+							elseif bit.band(event.mask, fs.IN_MOVE) ~= 0 then
+								type = "renamed"
+							end
+
+							if not is_blacklisted_watch_path(full_path, blacklist) then
+								callback(full_path, type)
+							end
+
+							if
+								recursive and
+								bit.band(event.mask, fs.IN_ISDIR) ~= 0 and
+								bit.band(bit.bor(fs.IN_CREATE, fs.IN_MOVED_TO), event.mask) ~= 0
+							then
+								add_recursive(full_path)
+							end
+						end
+
+						i = i + ffi.sizeof("struct inotify_event") + event.len
+					end
+				end
+			end)
+			return function()
+				for wd, _ in pairs(wd_to_path) do
+					ffi.C.inotify_rm_watch(inotify_fd, wd)
+				end
+
+				ffi.C.close(inotify_fd)
+				remove_event()
+			end
+		end
+	elseif jit.os == "Windows" then
+		function fs.watch(path, callback, recursive, blacklist)
+			local paths = normalize_watch_paths(path)
+			blacklist = normalize_watch_blacklist(blacklist)
+
+			if #paths > 1 then
+				local stops = {}
+
+				for i = 1, #paths do
+					local stop, err = fs.watch(paths[i], callback, recursive, blacklist)
+
+					if not stop then
+						for j = 1, #stops do
+							stops[j]()
+						end
+
+						return nil, err
+					end
+
+					stops[i] = stop
+				end
+
+				return function()
+					for i = 1, #stops do
+						stops[i]()
+					end
+				end
+			end
+
+			path = paths[1]
+
+			if is_blacklisted_watch_path(path, blacklist) then return function() end end
+
+			local handle = ffi.C.CreateFileA(
+				path,
+				fs.FILE_LIST_DIRECTORY,
+				7,
+				nil,
+				3,
+				bit.bor(fs.FILE_FLAG_BACKUP_SEMANTICS, fs.FILE_FLAG_OVERLAPPED),
+				nil
+			)
+
+			if handle == ffi.cast("void *", -1) then return nil end
+
+			local buffer = ffi.new("uint8_t[4096]")
+			local overlapped = ffi.new("OVERLAPPED")
+
+			local function read_changes()
+				ffi.C.ReadDirectoryChangesW(
+					handle,
+					buffer,
+					4096,
+					recursive and 1 or 0,
+					bit.bor(
+						fs.FILE_NOTIFY_CHANGE_FILE_NAME,
+						fs.FILE_NOTIFY_CHANGE_DIR_NAME,
+						fs.FILE_NOTIFY_CHANGE_LAST_WRITE
+					),
+					nil,
+					overlapped,
+					nil
+				)
+			end
+
+			read_changes()
+			local remove_event = event.AddListener("Update", {}, function()
+				if ffi.cast("uintptr_t", overlapped.Internal) ~= 0x103 then
+					local offset = 0
+
+					while true do
+						local info = ffi.cast(
+							[[
+						struct {
+							uint32_t NextEntryOffset;
+							uint32_t Action;
+							uint32_t FileNameLength;
+							uint16_t FileName[1];
+						} *
+					]],
+							ffi.cast("char *", buffer) + offset
+						)
+						local filename_w = info.FileName
+						local filename_len = info.FileNameLength / 2
+						local bytes_needed = ffi.C.WideCharToMultiByte(
+							65001,
+							0,
+							filename_w,
+							filename_len,
+							nil,
+							0,
+							nil,
+							nil
+						)
+						local out_buf = ffi.new("char[?]", bytes_needed)
+						ffi.C.WideCharToMultiByte(
+							65001,
+							0,
+							filename_w,
+							filename_len,
+							out_buf,
+							bytes_needed,
+							nil,
+							nil
+						)
+						local filename = ffi.string(out_buf, bytes_needed)
+						local type = "modified"
+
+						if info.Action == fs.FILE_ACTION_ADDED then
+							type = "created"
+						elseif info.Action == fs.FILE_ACTION_REMOVED then
+							type = "deleted"
+						elseif
+							info.Action == fs.FILE_ACTION_RENAMED_OLD_NAME or
+							info.Action == fs.FILE_ACTION_RENAMED_NEW_NAME
+						then
+							type = "renamed"
+						end
+
+						local full_path = path .. "/" .. filename
+
+						if not is_blacklisted_watch_path(full_path, blacklist) then
+							callback(full_path, type)
+						end
+
+						if info.NextEntryOffset == 0 then break end
+
+						offset = offset + info.NextEntryOffset
+					end
+
+					read_changes()
+				end
+			end)
+			return function()
+				remove_event()
+				ffi.C.CloseHandle(handle)
+			end
+		end
+	elseif jit.os == "OSX" then
+		local active_watches = {}
+		local ffi = require("ffi")
+		ffi.cdef([[
+            typedef uint32_t FSEventStreamCreateFlags;
+            typedef uint32_t FSEventStreamEventFlags;
+            typedef uint64_t FSEventStreamEventId;
+            typedef struct __FSEventStream *FSEventStreamRef;
+            typedef void (*FSEventStreamCallback)(
+                FSEventStreamRef streamRef,
+                void *clientCallBackInfo,
+                size_t numEvents,
+                void *eventPaths,
+                const FSEventStreamEventFlags eventFlags[],
+                const FSEventStreamEventId eventIds[]
+            );
+
+            typedef struct {
+                long version;
+                void *info;
+                void *retain;
+                void *release;
+                void *copyDescription;
+            } FSEventStreamContext;
+
+            FSEventStreamRef FSEventStreamCreate(
+                void *allocator,
+                FSEventStreamCallback callback,
+                FSEventStreamContext *context,
+                void *pathsToWatch,
+                FSEventStreamEventId sinceWhen,
+                double latency,
+                FSEventStreamCreateFlags flags
+            );
+
+            void FSEventStreamScheduleWithRunLoop(
+                FSEventStreamRef streamRef,
+                void *runLoop,
+                void *runLoopMode
+            );
+
+            bool FSEventStreamStart(FSEventStreamRef streamRef);
+            void FSEventStreamStop(FSEventStreamRef streamRef);
+            void FSEventStreamInvalidate(FSEventStreamRef streamRef);
+            void FSEventStreamRelease(FSEventStreamRef streamRef);
+
+            void *CFArrayCreate(void *allocator, const void **values, long numValues, void *callBacks);
+            void CFRelease(void *cf);
+            void *CFStringCreateWithCString(void *alloc, const char *cStr, uint32_t encoding);
+            extern void *kCFRunLoopDefaultMode;
+            void *CFRunLoopGetCurrent(void);
+            int32_t CFRunLoopRunInMode(void *mode, double seconds, bool returnAfterSourceHandled);
+            void CFRunLoopRun(void);
+            void CFRunLoopStop(void *runLoop);
+
+			typedef void (*CFRunLoopTimerCallBack)(void *timer, void *info);
+			void *CFRunLoopTimerCreate(void *allocator, double fireDate, double interval, uint32_t flags, int32_t order, CFRunLoopTimerCallBack callout, void *context);
+			void CFRunLoopAddTimer(void *rl, void *timer, void *mode);
+        ]])
+		fs.kFSEventStreamCreateFlagNone = 0x00000000
+		fs.kFSEventStreamCreateFlagUseCFTypes = 0x00000001
+		fs.kFSEventStreamCreateFlagNoDefer = 0x00000002
+		fs.kFSEventStreamCreateFlagWatchRoot = 0x00000004
+		fs.kFSEventStreamCreateFlagIgnoreSelf = 0x00000008
+		fs.kFSEventStreamCreateFlagFileEvents = 0x00000010
+		fs.kFSEventStreamEventFlagNone = 0x00000000
+		fs.kFSEventStreamEventFlagMustScanSubDirs = 0x00000001
+		fs.kFSEventStreamEventFlagUserDropped = 0x00000002
+		fs.kFSEventStreamEventFlagKernelDropped = 0x00000004
+		fs.kFSEventStreamEventFlagEventIdsWrapped = 0x00000008
+		fs.kFSEventStreamEventFlagHistoryDone = 0x00000010
+		fs.kFSEventStreamEventFlagRootChanged = 0x00000020
+		fs.kFSEventStreamEventFlagMount = 0x00000040
+		fs.kFSEventStreamEventFlagUnmount = 0x00000080
+		fs.kFSEventStreamEventFlagItemCreated = 0x00000100
+		fs.kFSEventStreamEventFlagItemRemoved = 0x00000200
+		fs.kFSEventStreamEventFlagItemInodeMetaMod = 0x00000400
+		fs.kFSEventStreamEventFlagItemRenamed = 0x00000800
+		fs.kFSEventStreamEventFlagItemModified = 0x00001000
+		fs.kFSEventStreamEventFlagItemFinderInfoMod = 0x00002000
+		fs.kFSEventStreamEventFlagItemChangeOwner = 0x00004000
+		fs.kFSEventStreamEventFlagItemXattrMod = 0x00008000
+		fs.kFSEventStreamEventFlagItemIsFile = 0x00010000
+		fs.kFSEventStreamEventFlagItemIsDir = 0x00020000
+		fs.kFSEventStreamEventFlagItemIsSymlink = 0x00040000
+		fs.kCFStringEncodingUTF8 = 0x08000100
+		fs.kFSEventStreamEventIdSinceNow = 0xFFFFFFFFFFFFFFFFULL
+		local ok, lib = pcall(ffi.load, "/System/Library/Frameworks/CoreServices.framework/CoreServices")
+
+		if ok then
+			fs.CoreServices = lib
+		else
+			-- Fallback to default if load fails, though CF functions might be missing
+			fs.CoreServices = ffi.C
+		end
+
+		local function setup_macos_watch_timer(lib)
+			if _G.MACOS_WATCH_TIMER_SETUP then return end
+
+			_G.MACOS_WATCH_TIMER_SETUP = true
+
+			local function timer_callback(timer, info) -- Just a dummy callback to keep the run loop alive and returning
+			end
+
+			local c_timer_callback = ffi.cast("CFRunLoopTimerCallBack", timer_callback)
+			-- Anchor the callback
+			active_watches[c_timer_callback] = {timer_callback, c_timer_callback}
+			local rl = lib.CFRunLoopGetCurrent()
+			local timer = lib.CFRunLoopTimerCreate(nil, 0, 0.1, 0, 0, c_timer_callback, nil)
+			lib.CFRunLoopAddTimer(rl, timer, lib.kCFRunLoopDefaultMode)
+		end
+
+		function fs.watch(path, callback, recursive, blacklist)
+			local lib = fs.CoreServices
+
+			if not lib then return nil, "CoreServices not loaded" end
+
+			local paths = normalize_watch_paths(path)
+			blacklist = normalize_watch_blacklist(blacklist)
+			local results = {}
+
+			local function internal_callback(streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds)
+				local paths_ptr = ffi.cast("char **", eventPaths)
+
+				for i = 0, tonumber(numEvents) - 1 do
+					local full_path = ffi.string(paths_ptr[i])
+
+					if is_blacklisted_watch_path(full_path, blacklist) then goto continue end
+
+					local flags = eventFlags[i]
+					local type = "modified"
+
+					if bit.band(flags, fs.kFSEventStreamEventFlagItemCreated) ~= 0 then
+						type = "created"
+					elseif bit.band(flags, fs.kFSEventStreamEventFlagItemRemoved) ~= 0 then
+						type = "deleted"
+					elseif bit.band(flags, fs.kFSEventStreamEventFlagItemRenamed) ~= 0 then
+						type = "renamed"
+					end
+
+					table.insert(results, {path = full_path, type = type})
+
+					::continue::
+				end
+			end
+
+			if recursive == nil then recursive = true end
+
+			local c_callback = ffi.cast("FSEventStreamCallback", internal_callback)
+			local path_cfs = {}
+			local path_ptrs = ffi.new("void *[?]", #paths)
+
+			for i = 1, #paths do
+				path_cfs[i] = lib.CFStringCreateWithCString(nil, paths[i], fs.kCFStringEncodingUTF8)
+				path_ptrs[i - 1] = path_cfs[i]
+			end
+
+			local paths_array = lib.CFArrayCreate(nil, ffi.cast("const void **", path_ptrs), #paths, nil)
+			local flags = bit.bor(
+				fs.kFSEventStreamCreateFlagFileEvents,
+				fs.kFSEventStreamCreateFlagNoDefer,
+				fs.kFSEventStreamCreateFlagWatchRoot
+			)
+			local stream = lib.FSEventStreamCreate(
+				nil,
+				c_callback,
+				nil,
+				paths_array,
+				fs.kFSEventStreamEventIdSinceNow,
+				0.1,
+				flags
+			)
+
+			if stream == nil then
+				lib.CFRelease(paths_array)
+
+				for i = 1, #path_cfs do
+					lib.CFRelease(path_cfs[i])
+				end
+
+				return nil, "Failed to create FSEventStream"
+			end
+
+			setup_macos_watch_timer(lib)
+			active_watches[c_callback] = {internal_callback, c_callback}
+			lib.FSEventStreamScheduleWithRunLoop(stream, lib.CFRunLoopGetCurrent(), lib.kCFRunLoopDefaultMode)
+
+			if not lib.FSEventStreamStart(stream) then
+				lib.FSEventStreamInvalidate(stream)
+				lib.FSEventStreamRelease(stream)
+				lib.CFRelease(paths_array)
+
+				for i = 1, #path_cfs do
+					lib.CFRelease(path_cfs[i])
+				end
+
+				return nil, "Failed to start FSEventStream"
+			end
+
+			local remove_event = event.AddListener("Update", {}, function()
+				if lib.CFRunLoopRunInMode then
+					lib.CFRunLoopRunInMode(lib.kCFRunLoopDefaultMode, 0, true)
+				end
+
+				if #results > 0 then
+					for i, res in ipairs(results) do
+						callback(res.path, res.type)
+						results[i] = nil
+					end
+				end
+			end)
+			return function()
+				remove_event()
+				lib.FSEventStreamStop(stream)
+				lib.FSEventStreamInvalidate(stream)
+				lib.FSEventStreamRelease(stream)
+				lib.CFRelease(paths_array)
+
+				for i = 1, #path_cfs do
+					lib.CFRelease(path_cfs[i])
+				end
+
+				active_watches[c_callback] = nil
+				c_callback:free()
+			end
+		end
+	end
+end
+
 return fs
