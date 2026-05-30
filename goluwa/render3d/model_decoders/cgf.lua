@@ -1,4 +1,5 @@
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -566,7 +567,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 	end
 
 	local parsed = parsed_or_err
-	local material_root = vfs.GetFolderFromPath(parsed.file.path_used or full_path)
+	local material_root = file_path.GetFolderFromPath(parsed.file.path_used or full_path)
 	local package_material_root = material_root and ("crytek package:" .. material_root) or nil
 	local resolved_material_paths = {}
 	local ok, result = xpcall(function()

@@ -2,6 +2,7 @@ local http = import("goluwa/sockets/http.lua")
 local callback = import("goluwa/callback.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 
 local function get_http_client()
 	return import("goluwa/sockets/http/http11_client.lua")
@@ -45,11 +46,11 @@ local function find_best_name(client)
 
 	for _, url in ipairs(client:GetRedirectHistory()) do
 		local score = 0
-		local name = vfs.GetFileNameFromPath(url):gsub("%%(%x%x)", function(hex)
+		local name = file_path.GetFileNameFromPath(url):gsub("%%(%x%x)", function(hex)
 			return string.char(tonumber(hex, 16))
 		end)
 		name = name:gsub("^(.+)%?.+$", "%1")
-		local ext = vfs.GetExtensionFromPath(name)
+		local ext = file_path.GetExtensionFromPath(name)
 
 		if #ext > 0 then score = score + 10 end
 
@@ -63,17 +64,17 @@ local function find_best_name(client)
 
 	local name = contestants[1].name
 
-	if client.http.header["content-type"] and #vfs.GetExtensionFromPath(name) == 0 then
+	if client.http.header["content-type"] and #file_path.GetExtensionFromPath(name) == 0 then
 		local mime = client.http.header["content-type"]:match("^(.-);") or
 			client.http.header["content-type"]
-		name = name .. "." .. http.MimeToExtension[mime] or "dat"
+		name = name .. "." .. (http.MimeToExtension[mime] or "dat")
 	end
 
 	return name
 end
 
 local function move_and_finish(path, on_finish)
-	assert(vfs.Rename(path .. ".part", vfs.GetFileNameFromPath(path)))
+	assert(vfs.Rename(path .. ".part", file_path.GetFileNameFromPath(path)))
 	on_finish(path)
 end
 

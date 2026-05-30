@@ -1,4 +1,5 @@
 local prototype = import("goluwa/prototype.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local vfs = {}
 vfs.use_appdata = false
 vfs.mounted_paths = vfs.mounted_paths or {}
@@ -121,7 +122,7 @@ do -- mounting/links
 					out_i = out_i + 1
 				elseif
 					not is_folder and
-					context:IsFolder{full_path = vfs.GetParentFolderFromPath(path_info.full_path)}
+					context:IsFolder{full_path = file_path.GetParentFolderFromPath(path_info.full_path)}
 				then
 					out[out_i] = {path_info = path_info, context = context, userdata = path_info.userdata}
 					out_i = out_i + 1
@@ -222,7 +223,7 @@ do -- translate path to useful data
 			local folders = {}
 
 			for i = 0, 100 do
-				local folder = vfs.GetParentFolderFromPath(self.full_path, i)
+				local folder = file_path.GetParentFolderFromPath(self.full_path, i)
 
 				if folder == "" then break end
 
@@ -310,7 +311,15 @@ function vfs.Open(path, mode, sub_mode)
 end
 
 import.loaded["goluwa/filesystem/vfs.lua"] = vfs
-import("goluwa/filesystem/path_utilities.lua")
+
+do
+	local path_utilities = import("goluwa/filesystem/path_utilities.lua")
+
+	for k, v in pairs(path_utilities) do
+		if vfs[k] == nil then vfs[k] = v end
+	end
+end
+
 import("goluwa/filesystem/base_file.lua")
 import("goluwa/filesystem/find.lua")
 import("goluwa/filesystem/helpers.lua")

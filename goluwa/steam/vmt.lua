@@ -1,4 +1,5 @@
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local resource = import("goluwa/resource.lua")
 local callback = import("goluwa/callback.lua")
 return function(steam)
@@ -103,7 +104,7 @@ return function(steam)
 
 			-- Auto-discover normal maps - these will be resolved later by the resource.Download loop
 			if not vmt.bumpmap and vmt.basetexture and not special_textures[vmt.basetexture] then
-				local new_path = vfs.FixPathSlashes(vmt.basetexture)
+				local new_path = file_path.FixPathSlashes(vmt.basetexture)
 
 				if vfs.IsFile("materials/" .. new_path .. "_normal.vtf") then
 					vmt.bumpmap = new_path .. "_normal" -- Set without materials/ prefix or .vtf, will be resolved later
@@ -127,7 +128,7 @@ return function(steam)
 
 					-- Keep the value as-is for black/white
 					else
-						local new_path = vfs.FixPathSlashes("materials/" .. v)
+						local new_path = file_path.FixPathSlashes("materials/" .. v)
 
 						if not new_path:ends_with(".vtf") then new_path = new_path .. ".vtf" end
 

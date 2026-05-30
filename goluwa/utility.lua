@@ -1,8 +1,9 @@
 local utility = library()
+local file_path = import("goluwa/helpers/file_path.lua")
 
 function utility.GetLikelyLibraryDependencies(path)
-	local ext = vfs.GetExtensionFromPath(path)
-	local original = vfs.GetFileNameFromPath(path)
+	local ext = file_path.GetExtensionFromPath(path)
+	local original = file_path.GetFileNameFromPath(path)
 
 	if not vfs.IsFile(path) then return nil, "file not found" end
 
@@ -114,7 +115,7 @@ end
 do
 	local function go(path, done)
 		local data = utility.GetLikelyLibraryDependencies(path)
-		local dir = vfs.GetFolderFromPath(R(path))
+		local dir = file_path.GetFolderFromPath(R(path))
 
 		if WINDOWS then
 			for _, info in ipairs(data.dependencies) do
@@ -133,7 +134,7 @@ do
 	end
 
 	function utility.FetchDependencies(path)
-		logn("finding missing libraries for ", vfs.GetFileNameFromPath(path))
+		logn("finding missing libraries for ", file_path.GetFileNameFromPath(path))
 		return go(path, {})
 	end
 end
@@ -199,19 +200,22 @@ do
 			end)
 		elseif handle_path(str):ends_with("/*") then
 			for _, path in ipairs(vfs.Find(handle_path(str:sub(0, -2)), true)) do
-				if not extensions or vfs.GetExtensionFromPath(path):ends_with_these(extensions) then
+				if
+					not extensions or
+					file_path.GetExtensionFromPath(path):ends_with_these(extensions)
+				then
 					list.insert(paths, path)
 				end
 			end
 		elseif str:find(",", nil, true) then
 			for i, path in ipairs(str:split(",")) do
-				path = handle_path(vfs.FixPathSlashes(path:trim()))
+				path = handle_path(file_path.FixPathSlashes(path:trim()))
 
 				if
 					vfs.IsFile(path) and
 					(
 						not extensions or
-						vfs.GetExtensionFromPath(path):ends_with_these(extensions)
+						file_path.GetExtensionFromPath(path):ends_with_these(extensions)
 					)
 				then
 					list.insert(paths, R(path))
@@ -219,13 +223,13 @@ do
 			end
 		elseif LINUX and str:find("%s") then
 			for i, path in ipairs(str:split(" ")) do
-				path = handle_path(vfs.FixPathSlashes(path:trim()))
+				path = handle_path(file_path.FixPathSlashes(path:trim()))
 
 				if
 					vfs.IsFile(path) and
 					(
 						not extensions or
-						vfs.GetExtensionFromPath(path):ends_with_these(extensions)
+						file_path.GetExtensionFromPath(path):ends_with_these(extensions)
 					)
 				then
 					list.insert(paths, R(path))
@@ -235,7 +239,7 @@ do
 			vfs.IsFile(handle_path(str)) and
 			(
 				not extensions or
-				vfs.GetExtensionFromPath(str):ends_with_these(extensions)
+				file_path.GetExtensionFromPath(str):ends_with_these(extensions)
 			)
 		then
 			list.insert(paths, R(handle_path(str)))

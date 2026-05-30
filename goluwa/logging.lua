@@ -1,4 +1,5 @@
 local output = import("goluwa/output.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local list_concat = table.concat
 local select = select
 local logging = library()
@@ -81,7 +82,7 @@ function logging.LibraryLog(fmt, ...)
 			"[%s] %s\n",
 			main_category or
 				sub_category or
-				vfs.RemoveExtensionFromPath(vfs.GetFileNameFromPath(source)),
+				file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(source)),
 			str
 		)
 	else

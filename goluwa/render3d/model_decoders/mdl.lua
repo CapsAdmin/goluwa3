@@ -2,6 +2,7 @@ local codec = import("goluwa/codec.lua")
 local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local tasks = import("goluwa/tasks.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -322,7 +323,7 @@ local function load_mdl(path)
 
 					if string_pos < buffer:GetSize() then
 						buffer:PushPosition(string_pos)
-						local mat = vfs.FixPathSlashes(buffer:ReadString())
+						local mat = file_path.FixPathSlashes(buffer:ReadString())
 						buffer:PopPosition()
 
 						if mat ~= "" and not mat:ends_with("/") then
@@ -340,7 +341,7 @@ local function load_mdl(path)
 		parse("texturedir", function(data, i)
 			local offset = buffer:ReadLong()
 			buffer:PushPosition(offset)
-			data.path = "materials/" .. vfs.FixPathSlashes(buffer:ReadString())
+			data.path = "materials/" .. file_path.FixPathSlashes(buffer:ReadString())
 			buffer:PopPosition()
 		end)
 	end

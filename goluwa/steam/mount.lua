@@ -1,6 +1,7 @@
 local commands = import("goluwa/commands.lua")
 local pvars = import("goluwa/pvars.lua")
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local codec = import("goluwa/codec.lua")
 local utility = import("goluwa/utility.lua")
 local Entity = import("goluwa/ecs/entity.lua")
@@ -116,7 +117,7 @@ return function(steam)
 	commands.Add("map=string_trim|nil", function(name)
 		if not name then
 			for _, path in ipairs(vfs.Find("maps/.-%.bsp")) do
-				print(vfs.RemoveExtensionFromPath(path))
+				print(file_path.RemoveExtensionFromPath(path))
 			end
 
 			return
@@ -185,7 +186,7 @@ return function(steam)
 		local done = {}
 
 		local function add_library(path)
-			path = vfs.FixPathSlashes(path)
+			path = file_path.FixPathSlashes(path)
 
 			if not path:ends_with("/steamapps") then path = path .. "/steamapps" end
 
@@ -360,7 +361,7 @@ return function(steam)
 			for _, manifest_name in ipairs(vfs.Find(library .. "appmanifest_.-%.acf$")) do
 				local manifest_path = manifest_name
 
-				if not vfs.IsPathAbsolutePath(manifest_path) then
+				if not file_path.IsPathAbsolutePath(manifest_path) then
 					manifest_path = library .. manifest_path
 				end
 
@@ -469,7 +470,7 @@ return function(steam)
 			end
 
 			local function add_path(path)
-				path = vfs.FixPathSlashes(path)
+				path = file_path.FixPathSlashes(path)
 
 				if path:ends_with(".vpk") then
 					path = path:gsub("%.vpk$", "_dir.vpk") .. "/"
@@ -571,7 +572,7 @@ return function(steam)
 							local path = "os:" .. dir .. "gameinfo.gi"
 							local str = vfs.Read(path)
 							local game_info_dir = dir
-							dir = vfs.GetParentFolderFromPath(dir)
+							dir = file_path.GetParentFolderFromPath(dir)
 
 							if str then
 								local tbl = steam.VDFToTable(str, true)
@@ -605,7 +606,7 @@ return function(steam)
 					end
 
 					local game_info_dir = dir
-					dir = vfs.GetParentFolderFromPath(dir)
+					dir = file_path.GetParentFolderFromPath(dir)
 
 					if str then
 						local tbl = steam.VDFToTable(str, true)
@@ -663,9 +664,11 @@ return function(steam)
 							end
 
 							-- Make ALL relative paths absolute by prepending vdf_directory
-							if not vfs.IsPathAbsolutePath(path) then path = gameinfo.game_dir .. path end
+							if not file_path.IsPathAbsolutePath(path) then
+								path = gameinfo.game_dir .. path
+							end
 
-							path = vfs.FixPathSlashes(path)
+							path = file_path.FixPathSlashes(path)
 
 							if path:ends_with("*") then
 								if not done[path] then

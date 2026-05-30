@@ -1,3 +1,5 @@
+local file_path = import("goluwa/helpers/file_path.lua")
+
 do
 	local file
 	local max_lines = 10000
@@ -94,7 +96,7 @@ function debug.get_pretty_source(level, append_line, full_folder)
 			pretty_source = info.source:sub(2)
 
 			if not full_folder and vfs then
-				pretty_source = vfs.FixPathSlashes(pretty_source:replace(vfs.GetStorageDirectory("root"), ""))
+				pretty_source = file_path.FixPathSlashes(pretty_source:replace(vfs.GetStorageDirectory("root"), ""))
 			end
 
 			if append_line then

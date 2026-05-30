@@ -1,4 +1,5 @@
 local fs = import("goluwa/bindings/filesystem.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 
 function fs.write_file(path, data)
 	local file, err = io.open(path, "wb")
@@ -39,37 +40,15 @@ function fs.iterate(dir, pattern)
 end
 
 function fs.get_parent_directory(path)
-	-- Normalize path separators to forward slash
-	path = path:gsub("\\", "/")
-
-	-- Remove trailing slash if present
-	if path:sub(-1) == "/" and path ~= "/" then path = path:sub(1, -2) end
-
-	-- Extract parent directory
-	local parent = path:match("(.+)/[^/]+$")
-
-	-- Handle special cases
-	if not parent then
-		if path == "/" then
-			return nil -- Root has no parent
-		else
-			return "." -- Current directory is parent
-		end
-	end
-
-	-- Return the parent directory
-	return parent
+	return file_path.GetParentDirectoryFromPath(path)
 end
 
 function fs.create_directory_recursive(path)
 	-- Handle empty or root path
 	if path == "" or path == "/" then return true end
 
-	-- Normalize path separators to forward slash
-	path = path:gsub("\\", "/")
-
-	-- Remove trailing slash if present
-	if path:sub(-1) == "/" then path = path:sub(1, -2) end
+	path = file_path.FixPathSlashes(path)
+	path = file_path.TrimTrailingPathSeparator(path)
 
 	-- Check if directory already exists
 	if fs.exists(path) then
@@ -387,19 +366,13 @@ do
 			local paths = {}
 
 			for i = 1, #path do
-				local dir_path = path[i]
-
-				if dir_path:sub(-1) == "/" then dir_path = dir_path:sub(1, -2) end
-
-				paths[i] = dir_path
+				paths[i] = file_path.TrimTrailingPathSeparator(file_path.FixPathSlashes(path[i]))
 			end
 
 			return paths
 		end
 
-		if path:sub(-1) == "/" then path = path:sub(1, -2) end
-
-		return {path}
+		return {file_path.TrimTrailingPathSeparator(file_path.FixPathSlashes(path))}
 	end
 
 	local function normalize_watch_blacklist(blacklist)
@@ -410,11 +383,7 @@ do
 		local normalized = {}
 
 		for i = 1, #blacklist do
-			local entry = blacklist[i]
-
-			if entry:sub(-1) == "/" then entry = entry:sub(1, -2) end
-
-			normalized[i] = entry
+			normalized[i] = file_path.TrimTrailingPathSeparator(file_path.FixPathSlashes(blacklist[i]))
 		end
 
 		return normalized

@@ -2,6 +2,7 @@ local pvars = import("goluwa/pvars.lua")
 local module_require = import("goluwa/require.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local R = vfs.GetAbsolutePath
 local line = library()
 line.speed = 1
@@ -307,7 +308,7 @@ function line.RunGame(folder, ...)
 		print("os.execute: ", str)
 
 		if str:find("__LOVE_BINARY__") then
-			local path = vfs.FixPathSlashes(str:match(".+\"(.+%.love)\""))
+			local path = file_path.FixPathSlashes(str:match(".+\"(.+%.love)\""))
 
 			if vfs.IsFile(path) then line.RunGame(path) end
 

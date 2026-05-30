@@ -1,5 +1,6 @@
 local xml = import("goluwa/codecs/xml.lua")
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -32,8 +33,8 @@ local function clear_mounts(mounts)
 end
 
 local function find_mounted_case_path(root, relative_path)
-	local normalized_root = vfs.FixPathSlashes(root or "")
-	local normalized_relative = vfs.FixPathSlashes(relative_path or "")
+	local normalized_root = file_path.FixPathSlashes(root or "")
+	local normalized_relative = file_path.FixPathSlashes(relative_path or "")
 
 	if normalized_root == "" or normalized_relative == "" then return nil end
 
@@ -83,7 +84,7 @@ local function find_mounted_case_path(root, relative_path)
 end
 
 local function ensure_trailing_slash(path)
-	path = vfs.FixPathSlashes(path or "")
+	path = file_path.FixPathSlashes(path or "")
 
 	if path ~= "" and not path:ends_with("/") then path = path .. "/" end
 
@@ -307,7 +308,7 @@ function crylevel.GetVisualGeometryPath(attrs)
 
 	if type(path) ~= "string" or path == "" then return nil end
 
-	path = vfs.FixPathSlashes(path)
+	path = file_path.FixPathSlashes(path)
 
 	if not path:lower():ends_with(".cgf") then return nil end
 
@@ -342,7 +343,7 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, build_lo
 
 		if model_path then
 			out[#out + 1] = {
-				name = attrs.Name or vfs.GetFileNameFromPath(model_path),
+				name = attrs.Name or file_path.GetFileNameFromPath(model_path),
 				model_path = model_path,
 				type = object_type,
 				world_matrix = world_matrix,
@@ -504,13 +505,13 @@ function crylevel.ParseVegetationMapDocument(document)
 	for node in iter_children_by_tag(objects, "Object") do
 		local attrs = node.attrs or {}
 		local prototype_id = tonumber(attrs.Id)
-		local model_path = vfs.FixPathSlashes(attrs.FileName or "")
+		local model_path = file_path.FixPathSlashes(attrs.FileName or "")
 
 		if prototype_id and model_path ~= "" and model_path:lower():ends_with(".cgf") then
 			local prototype = {
 				id = prototype_id,
 				model_path = model_path,
-				name = attrs.Name or vfs.GetFileNameFromPath(model_path),
+				name = attrs.Name or file_path.GetFileNameFromPath(model_path),
 				align_to_terrain = parse_bool_flag(attrs.AlignToTerrain),
 				random_rotation = parse_bool_flag(attrs.RandomRotation),
 				use_terrain_color = parse_bool_flag(attrs.UseTerrainColor),
@@ -1298,7 +1299,7 @@ function crylevel.ResolveLevelDirectory(steam, level)
 
 	if vfs.IsDirectory(normalized) then return normalized end
 
-	if not vfs.IsPathAbsolutePath(normalized) then
+	if not file_path.IsPathAbsolutePath(normalized) then
 		local game, err = crylevel.FindCryGame(steam)
 
 		if not game then return nil, err end
@@ -1312,7 +1313,7 @@ function crylevel.ResolveLevelDirectory(steam, level)
 end
 
 function crylevel.ResolveModelPath(steam, level_dir, model_path)
-	local normalized = vfs.FixPathSlashes(model_path)
+	local normalized = file_path.FixPathSlashes(model_path)
 	local candidates = {normalized}
 	local game = select(1, crylevel.FindCryGame(steam))
 	local root, rest = normalized:match("^([^/]+)/(.+)$")
@@ -1328,7 +1329,7 @@ function crylevel.ResolveModelPath(steam, level_dir, model_path)
 
 		if mounted then return mounted end
 
-		local mounted_by_name = vfs.FindFileByNameRecursive(mounted_root .. "/", vfs.GetFileNameFromPath(rest))
+		local mounted_by_name = vfs.FindFileByNameRecursive(mounted_root .. "/", file_path.GetFileNameFromPath(rest))
 
 		if mounted_by_name then return mounted_by_name end
 	end
@@ -1336,7 +1337,7 @@ function crylevel.ResolveModelPath(steam, level_dir, model_path)
 	if level_dir then
 		candidates[#candidates + 1] = level_dir .. "level.pak/" .. normalized
 		candidates[#candidates + 1] = level_dir .. "terraintexture.pak/" .. normalized
-		candidates[#candidates + 1] = level_dir .. vfs.GetFileNameFromPath(level_dir:sub(1, -2)) .. ".cry/" .. normalized
+		candidates[#candidates + 1] = level_dir .. file_path.GetFileNameFromPath(level_dir:sub(1, -2)) .. ".cry/" .. normalized
 	end
 
 	if game and game.game_dir then

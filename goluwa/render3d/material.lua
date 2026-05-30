@@ -188,6 +188,7 @@ end
 do
 	local steam = import("goluwa/steam/steam.lua")
 	local vfs = import("goluwa/vfs.lua")
+	local file_path = import("goluwa/helpers/file_path.lua")
 	local xml = import("goluwa/codecs/xml.lua")
 	local cry_mtl_document_cache = {}
 	local cry_mtl_material_cache = {}
@@ -205,7 +206,7 @@ do
 	end
 
 	local function get_vmt_cache_key(path)
-		local normalized = vfs.FixPathSlashes(assert(path, "missing VMT path")):lower()
+		local normalized = file_path.FixPathSlashes(assert(path, "missing VMT path")):lower()
 
 		if not normalized:starts_with("materials/") then
 			normalized = "materials/" .. normalized
@@ -392,7 +393,7 @@ do
 	local function resolve_cry_game_root(path)
 		if type(path) ~= "string" then return nil end
 
-		local normalized = vfs.FixPathSlashes(path)
+		local normalized = file_path.FixPathSlashes(path)
 		local lower = normalized:lower()
 		local game_start, game_end = lower:find("/game/", 1, true)
 
@@ -419,10 +420,10 @@ do
 
 		if type(texture_path) ~= "string" or texture_path == "" then return nil, {} end
 
-		local normalized = vfs.FixPathSlashes(texture_path)
+		local normalized = file_path.FixPathSlashes(texture_path)
 		local normalized_lower = normalized:lower()
-		local base = vfs.RemoveExtensionFromPath(normalized)
-		local basename = vfs.GetFileNameFromPath(base .. ".dds"):lower()
+		local base = file_path.RemoveExtensionFromPath(normalized)
+		local basename = file_path.GetFileNameFromPath(base .. ".dds"):lower()
 		local candidates = {}
 		local game_root = resolve_cry_game_root(material_path)
 		local is_game_relative = normalized_lower:starts_with("objects/") or
@@ -430,7 +431,7 @@ do
 
 		local function add(path)
 			if path and path ~= "" then
-				candidates[#candidates + 1] = vfs.FixPathSlashes(path)
+				candidates[#candidates + 1] = file_path.FixPathSlashes(path)
 			end
 		end
 
@@ -449,11 +450,11 @@ do
 			add(game_root .. "textures.pak/" .. relative_base .. ".dds")
 		end
 
-		if vfs.IsPathAbsolutePath(normalized) then
+		if file_path.IsPathAbsolutePath(normalized) then
 			add(normalized)
 			add(base .. ".dds")
 		else
-			local folder = vfs.GetFolderFromPath(material_path)
+			local folder = file_path.GetFolderFromPath(material_path)
 
 			if is_game_relative then
 				add_pak_candidates(normalized, base)

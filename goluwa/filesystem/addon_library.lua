@@ -1,5 +1,6 @@
 local module_require = require("goluwa.require")
 local vfs = import("goluwa/filesystem/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local addon_library = vfs.addon_library or {}
 vfs.addon_library = addon_library
 addon_library.module_directories = addon_library.module_directories or {}
@@ -73,7 +74,7 @@ local function get_file_run_directory()
 
 	if not last then return {} end
 
-	local dir = vfs.GetFolderFromPath(last)
+	local dir = file_path.GetFolderFromPath(last)
 
 	if dir then return {dir} end
 

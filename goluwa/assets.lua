@@ -1,4 +1,5 @@
 local assets = library()
+local file_path = import("goluwa/helpers/file_path.lua")
 local vfs = import("goluwa/vfs.lua")
 local Texture = import("goluwa/render/texture.lua")
 assets.categories = assets.categories or {}
@@ -39,7 +40,7 @@ local function has_extension(path)
 end
 
 local function get_file_stem(path)
-	local name = vfs.GetFileNameFromPath(path)
+	local name = file_path.GetFileNameFromPath(path)
 	return (name:gsub("%.[^./]+$", ""))
 end
 
@@ -247,7 +248,7 @@ local function make_folder_entry(category_name, path, root)
 		path = path,
 		category = category_name,
 		root = root,
-		name = vfs.GetFolderNameFromPath(path),
+		name = file_path.GetFolderNameFromPath(path),
 	}
 end
 

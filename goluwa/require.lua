@@ -27,40 +27,8 @@ local function get_vfs()
 end
 
 do -- loaders
-	local function normalize_path(path)
-		local is_absolute = path:sub(1, 1) == "/"
-		local parts = {}
-		local count = 0
-		path = path:gsub("\\", "/")
-		path = path:gsub("/+", "/")
-
-		for part in path:gmatch("[^/]+") do
-			if part ~= "." and part ~= "" then
-				if part == ".." then
-					if count > 0 and parts[count] ~= ".." then
-						parts[count] = nil
-						count = count - 1
-					elseif not is_absolute then
-						count = count + 1
-						parts[count] = part
-					end
-				else
-					count = count + 1
-					parts[count] = part
-				end
-			end
-		end
-
-		path = table.concat(parts, "/")
-
-		if is_absolute then path = "/" .. path end
-
-		if path == "" then return is_absolute and "/" or "." end
-
-		if #path > 1 then path = path:gsub("/+$", "") end
-
-		return path
-	end
+	local file_path = _G.require("goluwa.helpers.file_path")
+	local normalize_path = file_path.Normalize
 
 	local function get_base_path(path)
 		local base_path = path:match("(.*/)")

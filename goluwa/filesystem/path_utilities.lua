@@ -1,4 +1,4 @@
-local vfs = import("goluwa/filesystem/vfs.lua")
+local vfs = import.loaded["goluwa/filesystem/vfs.lua"] or {}
 
 do
 	local ext = OSX and "dylib" or UNIX and "so" or WINDOWS and "dll"
@@ -20,60 +20,6 @@ function vfs.AbsoluteToRelativePath(root, abs)
 	return abs_info.full_path:sub(#root_info.full_path + 2)
 end
 
-function vfs.GetParentFolderFromPath(str, level)
-	level = level or 1
-
-	for i = #str, 1, -1 do
-		local char = str:sub(i, i)
-
-		if char == "/" then level = level - 1 end
-
-		if level == -1 then return str:sub(0, i) end
-	end
-
-	return ""
-end
-
-function vfs.GetFolderNameFromPath(str)
-	if str:sub(#str, #str) == "/" then str = str:sub(0, #str - 1) end
-
-	return str:match(".+/(.+)") or
-		str:match(".+/(.+)/") or
-		str:match(".+/(.+)") or
-		str:match("(.+)/")
-end
-
-function vfs.GetFileNameFromPath(str)
-	local pos = (str):reverse():find("/", 0, true)
-	return pos and str:sub(-pos + 1) or str
-end
-
-function vfs.RemoveExtensionFromPath(str)
-	return str:match("(.+)%..+") or str
-end
-
-function vfs.GetExtensionFromPath(str)
-	return vfs.GetFileNameFromPath(str):match(".-%.([%w-_%.]+)") or ""
-end
-
-function vfs.GetFolderFromPath(str)
-	local pre = str:match("(.*)/")
-
-	if not pre then return nil end
-
-	return pre .. "/"
-end
-
-function vfs.GetFileFromPath(str)
-	return str:match(".*/(.*)")
-end
-
-function vfs.IsPathAbsolutePath(path)
-	if LINUX then return path:sub(1, 1) == "/" end
-
-	if WINDOWS then return path:sub(1, 2):find("%a:") ~= nil end
-end
-
 function vfs.ParsePathVariables(path)
 	-- windows
 	path = path:gsub("%%(.-)%%", vfs.GetEnv)
@@ -82,32 +28,6 @@ function vfs.ParsePathVariables(path)
 	-- linux
 	path = path:gsub("%$%((.-)%)", "%1")
 	return path
-end
-
-local character_translation = {
-	["\\"] = "⟍",
-	[":"] = "⠅",
-	["*"] = "✱",
-	["?"] = "❔",
-	["<"] = "ᐸ",
-	[">"] = "𝈷",
-	["|"] = "ᥣ",
-	["~"] = "𝀈",
-	["#"] = "⧣",
-	["\""] = "‟",
-	["^"] = "ᣔ",
-}
-
-function vfs.ReplaceIllegalPathSymbols(path, forward_slash)
-	local out = path:gsub(".", character_translation)
-
-	if forward_slash then out = out:gsub("/", "⟋") end
-
-	return out
-end
-
-function vfs.FixPathSlashes(path)
-	return (path:gsub("\\", "/"):gsub("(/+)", "/"))
 end
 
 function vfs.CreateDirectoriesFromPath(path, force)
@@ -163,3 +83,5 @@ function vfs.GetAbsolutePath(path, is_folder)
 
 	return nil, path .. " does not exist\n" .. table.concat(err, "\n")
 end
+
+return vfs

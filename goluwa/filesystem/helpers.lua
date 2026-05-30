@@ -1,4 +1,5 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
+local file_path = import("goluwa/helpers/file_path.lua")
 local mixed_case_path_cache = {}
 local recursive_basename_index_cache = {}
 
@@ -13,7 +14,7 @@ do
 end
 
 local function get_recursive_basename_index(root)
-	root = vfs.FixPathSlashes(root)
+	root = file_path.FixPathSlashes(root)
 	local cached = recursive_basename_index_cache[root]
 
 	if cached then return cached end
@@ -21,7 +22,7 @@ local function get_recursive_basename_index(root)
 	local index = {}
 
 	vfs.GetFilesRecursive(root, nil, function(found_path)
-		local basename = vfs.GetFileNameFromPath(found_path):lower()
+		local basename = file_path.GetFileNameFromPath(found_path):lower()
 
 		if basename ~= "" and not index[basename] then index[basename] = found_path end
 	end)
@@ -33,8 +34,8 @@ end
 function vfs.FindFileByNameRecursive(root, file_name)
 	if type(root) ~= "string" or type(file_name) ~= "string" then return nil end
 
-	local normalized_root = vfs.FixPathSlashes(root)
-	local normalized_name = vfs.GetFileNameFromPath(vfs.FixPathSlashes(file_name)):lower()
+	local normalized_root = file_path.FixPathSlashes(root)
+	local normalized_name = file_path.GetFileNameFromPath(file_path.FixPathSlashes(file_name)):lower()
 
 	if normalized_root == "" or normalized_name == "" then return nil end
 
@@ -53,7 +54,7 @@ end
 function vfs.FindMixedCasePath(path)
 	if type(path) ~= "string" then return nil end
 
-	path = vfs.FixPathSlashes(path)
+	path = file_path.FixPathSlashes(path)
 	local cached = mixed_case_path_cache[path]
 
 	if cached ~= nil then return cached ~= false and cached or nil end
@@ -175,7 +176,7 @@ function vfs.GetAttribute(path, key)
 end
 
 function vfs.CopyFile(from, to)
-	local ok, err = vfs.CreateDirectoriesFromPath(vfs.GetFolderFromPath(to))
+	local ok, err = vfs.CreateDirectoriesFromPath(file_path.GetFolderFromPath(to))
 
 	if not ok then return ok, err end
 
@@ -191,11 +192,11 @@ function vfs.CopyFileFileOnBoot(from, to)
 
 	if not from then return nil, "source does not exist" end
 
-	local ok, err = vfs.CreateDirectoriesFromPath(vfs.GetFolderFromPath(to:starts_with("os:") and to or ("os:" .. to)))
+	local ok, err = vfs.CreateDirectoriesFromPath(file_path.GetFolderFromPath(to:starts_with("os:") and to or ("os:" .. to)))
 
 	if not ok then return ok, err end
 
-	if not vfs.GetAbsolutePath(vfs.GetFolderFromPath(to)) then
+	if not vfs.GetAbsolutePath(file_path.GetFolderFromPath(to)) then
 		return nil, "destination directory does not exist"
 	end
 
@@ -226,12 +227,12 @@ function vfs.LinkFile(from, to)
 
 	if not from then return nil, "source does not exist" end
 
-	local dir = vfs.GetFolderFromPath(to)
+	local dir = file_path.GetFolderFromPath(to)
 	dir = R(dir)
 
 	if not dir then return nil, "destination directory does not exist" end
 
-	local to = dir .. vfs.GetFileNameFromPath(to)
+	local to = dir .. file_path.GetFileNameFromPath(to)
 
 	if UNIX then os.execute("ln -s '" .. from .. "' '" .. to .. "'") end
 
@@ -252,7 +253,7 @@ local function add_helper(name, func, mode, cb)
 
 				if codec then
 					if name == "Write" then
-						local ext = vfs.GetExtensionFromPath(path)
+						local ext = file_path.GetExtensionFromPath(path)
 
 						if codec.GetLibrary(ext) then ret = {codec.Encode(ext, data)} end
 					end
@@ -281,7 +282,7 @@ local function add_helper(name, func, mode, cb)
 
 				if codec then
 					if name == "Read" then
-						local ext = vfs.GetExtensionFromPath(path)
+						local ext = file_path.GetExtensionFromPath(path)
 
 						if codec.GetLibrary(ext) then
 							local res, err = codec.Decode(ext, res)
@@ -387,8 +388,8 @@ function vfs.CreateDirectory(path, force)
 	if vfs.IsDirectory(path) then return true end
 
 	local path_info = vfs.GetPathInfo(path, true)
-	local dir_name = vfs.GetFolderNameFromPath(path_info.full_path) or path_info.full_path
-	local parent_dir = vfs.GetParentFolderFromPath(path_info.full_path)
+	local dir_name = file_path.GetFolderNameFromPath(path_info.full_path) or path_info.full_path
+	local parent_dir = file_path.GetParentFolderFromPath(path_info.full_path)
 	local full_path = vfs.GetAbsolutePath(parent_dir, true)
 
 	if not full_path then
