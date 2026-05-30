@@ -235,6 +235,10 @@ do
 		return wnd
 	end
 
+	function system.IsWindowOpen(index)
+		return state.active[index or 1] ~= nil
+	end
+
 	function system.GetCurrentWindow()
 		return state.current or system.GetWindow()
 	end

@@ -83,7 +83,7 @@ local function init_game()
 		vfs.InitAddons()
 	end
 
-	do
+	if _G.GRAPHICS then
 		local assets = import("goluwa/assets.lua")
 
 		local function register_virtual_texture(path, module_path)

@@ -4,6 +4,8 @@ local accumulated_time = 0
 local accumulated_frames = 0
 
 event.AddListener("Update", "window_title", function(dt)
+	if not system.IsWindowOpen(index) then return end
+
 	accumulated_time = accumulated_time + dt
 	accumulated_frames = accumulated_frames + 1
 
