@@ -17,8 +17,22 @@ local sun = Entity.New{
 	},
 }
 atmosphere.SetSunIntensity(sun.light.Intensity)
+local MODE = "lispsm"
 
-if true then
+if MODE == "lispsm" then
+	sun.light:SetCastShadows{
+		size = Vec2() + 4096,
+		directional_projection_mode = "lispsm",
+		min_caster_texel_size = 4,
+		shadow_update_interval = 2,
+		cascade_formats = {
+			"d32_sfloat",
+		},
+		max_shadow_distance = 2700,
+		near_plane = 1,
+		far_plane = 2700,
+	}
+elseif MODE == "cascade" then
 	sun.light:SetCastShadows{
 		size = Vec2() + 2048,
 		min_caster_texel_size = 4,

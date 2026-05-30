@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local render3d = nil
+local ShadowMapLispsm = import("goluwa/render3d/shadow_map_lispsm.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -21,6 +22,7 @@ local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
+local DEFAULT_DIRECTIONAL_PROJECTION_MODE = ShadowMapLispsm.DEFAULT_DIRECTIONAL_PROJECTION_MODE
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local TEMP_IDENTITY_CASCADE_OVERRIDE = false
 local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
@@ -802,6 +804,139 @@ local function create_point_face_views(cubemap)
 	return face_views
 end
 
+local get_frustum_slice_corners
+
+local function set_directional_cascade_state(
+	self,
+	cascade,
+	light_position,
+	view,
+	light_space_matrix,
+	texel_world_size,
+	cull_aabb,
+	range
+)
+	cascade.position = light_position:Copy()
+	cascade.view_matrix = view
+	cascade.light_space_matrix = light_space_matrix
+	cascade.texel_world_size = texel_world_size
+	cascade.cull_aabb = cull_aabb
+	update_cascade_frustum_planes(cascade)
+	self.cascade_splits[1] = range
+end
+
+local function update_local_directional_orthographic(self, light_position, light_rotation, range, ortho_size)
+	range = range or self.far_plane
+	ortho_size = ortho_size or self.ortho_size
+	local half_depth = math.max(range * 0.5, 0.001)
+	local view = Matrix44()
+	view:Translate(-light_position.x, -light_position.y, -light_position.z)
+	view:Multiply(light_rotation:GetConjugated():GetMatrix())
+	local projection = Matrix44()
+	projection:Ortho(-ortho_size, ortho_size, -ortho_size, ortho_size, -half_depth, half_depth, true)
+	local cascade = self.cascade[1]
+	set_directional_cascade_state(
+		self,
+		cascade,
+		light_position,
+		view,
+		view * projection,
+		(ortho_size * 2.0) / math.max(self.size.w, self.size.h),
+		AABB(-ortho_size, -ortho_size, -half_depth, ortho_size, ortho_size, half_depth),
+		range
+	)
+end
+
+local function get_camera_shadow_corners(max_distance)
+	render3d = render3d or import("goluwa/render3d/render3d.lua")
+	local cam = render3d.GetCamera()
+
+	if not cam then return nil end
+
+	local split_near = cam:GetNearZ()
+	local split_far = math.min(cam:GetFarZ(), max_distance or cam:GetFarZ())
+
+	if split_far <= split_near then return nil end
+
+	return cam,
+	get_frustum_slice_corners(cam, split_near, split_far),
+	split_near,
+	split_far
+end
+
+local function depth_to_linear_distance(depth, near_plane, far_plane)
+	if depth == nil or depth >= 1.0 or depth <= 0.0 then return nil end
+
+	local denom = far_plane - depth * (far_plane - near_plane)
+
+	if denom <= 1e-6 then return nil end
+
+	return (near_plane * far_plane) / denom
+end
+
+local function get_depth_fit_percentile(sorted_values, percentile)
+	if #sorted_values == 0 then return nil end
+
+	local index = math.floor(math.clamp(percentile, 0, 1) * (#sorted_values - 1) + 1.5)
+	index = math.clamp(index, 1, #sorted_values)
+	return index
+end
+
+local function partition_depth_values(values, left, right, pivot_index)
+	local pivot_value = values[pivot_index]
+	values[pivot_index], values[right] = values[right], values[pivot_index]
+	local store_index = left
+
+	for i = left, right - 1 do
+		if values[i] < pivot_value then
+			values[store_index], values[i] = values[i], values[store_index]
+			store_index = store_index + 1
+		end
+	end
+
+	values[right], values[store_index] = values[store_index], values[right]
+	return store_index
+end
+
+local function quickselect_depth_value(values, target_index)
+	local left = 1
+	local right = #values
+
+	while left <= right do
+		if left == right then return values[left] end
+
+		local mid = math.floor((left + right) * 0.5)
+		local a = values[left]
+		local b = values[mid]
+		local c = values[right]
+		local pivot_index = mid
+
+		if a > b then a, b = b, a end
+
+		if b > c then b, c = c, b end
+
+		if a > b then b = a end
+
+		if b == values[left] then
+			pivot_index = left
+		elseif b == values[right] then
+			pivot_index = right
+		end
+
+		pivot_index = partition_depth_values(values, left, right, pivot_index)
+
+		if target_index == pivot_index then return values[target_index] end
+
+		if target_index < pivot_index then
+			right = pivot_index - 1
+		else
+			left = pivot_index + 1
+		end
+	end
+
+	return nil
+end
+
 function ShadowMap.New(config)
 	config = config or {}
 	local self = ShadowMap:CreateObject()
@@ -809,6 +944,12 @@ function ShadowMap.New(config)
 	self.mode = config.mode or "directional"
 	self.size = normalize_shadow_size(config.size)
 	self.format = config.format or DEFAULT_FORMAT
+	self.directional_projection_mode = ShadowMapLispsm.NormalizeDirectionalProjectionMode(config.directional_projection_mode or
+		(
+			self.mode == "directional" and
+			DEFAULT_DIRECTIONAL_PROJECTION_MODE or
+			"orthographic"
+		))
 	self.cascade_formats = config.cascade_formats
 	self.near_plane = config.near_plane or 0.1
 	self.far_plane = config.far_plane or 100.0
@@ -1006,22 +1147,21 @@ function ShadowMap:UpdatePointLightMatrices(light_position)
 end
 
 function ShadowMap:UpdateLocalDirectionalLightMatrices(light_position, light_rotation, range, ortho_size)
-	range = range or self.far_plane
-	ortho_size = ortho_size or self.ortho_size
-	local half_depth = math.max(range * 0.5, 0.001)
-	local view = Matrix44()
-	view:Translate(-light_position.x, -light_position.y, -light_position.z)
-	view:Multiply(light_rotation:GetConjugated():GetMatrix())
-	local projection = Matrix44()
-	projection:Ortho(-ortho_size, ortho_size, -ortho_size, ortho_size, -half_depth, half_depth, true)
-	local cascade = self.cascade[1]
-	cascade.position = light_position:Copy()
-	cascade.view_matrix = view
-	cascade.light_space_matrix = view * projection
-	cascade.texel_world_size = (ortho_size * 2.0) / math.max(self.size.w, self.size.h)
-	cascade.cull_aabb = AABB(-ortho_size, -ortho_size, -half_depth, ortho_size, ortho_size, half_depth)
-	update_cascade_frustum_planes(cascade)
-	self.cascade_splits[1] = range
+	if
+		self.directional_projection_mode ~= "orthographic" and
+		ShadowMapLispsm.UpdateLocalDirectional(
+			self,
+			light_position,
+			light_rotation,
+			range,
+			get_frustum_slice_corners,
+			set_directional_cascade_state
+		)
+	then
+		return
+	end
+
+	update_local_directional_orthographic(self, light_position, light_rotation, range, ortho_size)
 end
 
 -- Calculate cascade split distances using practical split scheme
@@ -1046,7 +1186,7 @@ function ShadowMap:CalculateCascadeSplits()
 	end
 end
 
-local function get_frustum_slice_corners(cam, split_near, split_far)
+function get_frustum_slice_corners(cam, split_near, split_far)
 	local viewport = cam:GetViewport()
 	local aspect = viewport.w / viewport.h
 	local tan_half_fov = math.tan(cam:GetFOV() * 0.5)
