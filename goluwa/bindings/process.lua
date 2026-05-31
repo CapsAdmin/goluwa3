@@ -125,6 +125,7 @@ if ffi.os == "Windows" then
 		DWORD WaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds);
 		BOOL GetExitCodeProcess(HANDLE hProcess, DWORD* lpExitCode);
 		BOOL SetHandleInformation(HANDLE hObject, DWORD dwMask, DWORD dwFlags);
+		DWORD GetModuleFileNameA(HANDLE hModule, char* lpFilename, DWORD nSize);
 		DWORD GetCurrentDirectoryA(DWORD nBufferLength, char* lpBuffer);
 		int SetEnvironmentVariableA(const char *key, const char *val);
 
@@ -156,6 +157,15 @@ if ffi.os == "Windows" then
 			},
 			meta
 		)
+	end
+
+	function process.get_executable_path()
+		local buffer = ffi.new("char[?]", 4096)
+		local len = ffi.C.GetModuleFileNameA(nil, buffer, 4096)
+
+		if len == 0 then return nil, lasterror() end
+
+		return ffi.string(buffer, len):gsub("\\", "/")
 	end
 
 	function process.from_id(pid)
@@ -424,6 +434,7 @@ else
 	pid_t fork(void);
 	int execve(const char *pathname, char *const argv[], char *const envp[]);
 	int execvp(const char *file, char *const argv[]);
+	ssize_t readlink(const char *path, char *buf, size_t bufsiz);
 	int pipe(int pipefd[2]);
 		int close(int fd);
 		ssize_t read(int fd, void *buf, size_t count);
@@ -509,6 +520,20 @@ else
 		return setmetatable({
 			pid = tonumber(ffi.C.getpid()),
 		}, meta)
+	end
+
+	function process.get_executable_path()
+		if ffi.os ~= "Linux" then
+			return nil, "executable path is not implemented for " .. ffi.os
+		end
+
+		local buffer = ffi.new("char[?]", 4096)
+		local len = ffi.C.readlink("/proc/self/exe", buffer, 4095)
+
+		if len < 0 then return nil, lasterror() end
+
+		buffer[len] = 0
+		return ffi.string(buffer, len)
 	end
 
 	function process.from_id(pid)

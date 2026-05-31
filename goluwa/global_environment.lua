@@ -29,7 +29,27 @@ do
 	_G.require = require("goluwa.require")
 	_G.import.loaded["goluwa/import.lua"] = package.loaded["goluwa.import"]
 	_G.import.loaded["goluwa/require.lua"] = package.loaded["goluwa.require"]
-	package.path = package.path .. ";" .. "bin/LuaJIT/src/?.lua"
+
+	local function append_package_path(path)
+		if not path or path == "" then return end
+
+		for template in package.path:gmatch("[^;]+") do
+			if template == path then return end
+		end
+
+		package.path = package.path .. ";" .. path
+	end
+
+	append_package_path("bin/LuaJIT/src/?.lua")
+	local process = import("goluwa/bindings/process.lua")
+	local executable_path = process.get_executable_path and process.get_executable_path() or nil
+
+	if executable_path then
+		executable_path = executable_path:gsub("\\", "/")
+		local executable_dir = executable_path:match("^(.*)/[^/]+$")
+
+		if executable_dir then append_package_path(executable_dir .. "/?.lua") end
+	end
 end
 
 import("goluwa/helpers/jit_options.lua").SetOptimized()
