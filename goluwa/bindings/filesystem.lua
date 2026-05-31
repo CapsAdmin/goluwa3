@@ -240,38 +240,55 @@ if jit.os ~= "Windows" then
 
 		function fs.walk(path, tbl, errors, can_traverse, files_only)
 			tbl = tbl or {}
-			local ptr = ffi.C.opendir(path or "")
+			local stack = {path}
+			local stack_size = 1
 
-			if ptr == nil then
-				table.insert(errors, {path = path, error = last_error()})
-				return
-			end
+			while stack_size > 0 do
+				local current_path = stack[stack_size]
+				stack[stack_size] = nil
+				stack_size = stack_size - 1
+				local ptr = ffi.C.opendir(current_path or "")
 
-			if not files_only then
-				tbl.n = (tbl.n or 0) + 1
-				tbl[tbl.n] = path
-			end
-
-			while true do
-				local dir_info = ffi.C.readdir(ptr)
-
-				if dir_info == nil then break end
-
-				if not is_dots(dir_info.d_name) then
-					local name = path .. ffi.string(dir_info.d_name)
-
-					if dir_info.d_type == 4 then
-						if not can_traverse or can_traverse(name) ~= false then
-							fs.walk(name .. "/", tbl, errors, can_traverse, files_only)
-						end
-					else
+				if ptr == nil then
+					table.insert(errors, {path = current_path, error = last_error()})
+				else
+					if not files_only then
 						tbl.n = (tbl.n or 0) + 1
-						tbl[tbl.n] = name
+						tbl[tbl.n] = current_path
+					end
+
+					local directories = {}
+					local directory_count = 0
+
+					while true do
+						local dir_info = ffi.C.readdir(ptr)
+
+						if dir_info == nil then break end
+
+						if not is_dots(dir_info.d_name) then
+							local name = current_path .. ffi.string(dir_info.d_name)
+
+							if dir_info.d_type == 4 then
+								if not can_traverse or can_traverse(name) ~= false then
+									directory_count = directory_count + 1
+									directories[directory_count] = name .. "/"
+								end
+							else
+								tbl.n = (tbl.n or 0) + 1
+								tbl[tbl.n] = name
+							end
+						end
+					end
+
+					ffi.C.closedir(ptr)
+
+					for i = directory_count, 1, -1 do
+						stack_size = stack_size + 1
+						stack[stack_size] = directories[i]
 					end
 				end
 			end
 
-			ffi.C.closedir(ptr)
 			return tbl
 		end
 	end
@@ -520,37 +537,51 @@ else
 
 		function fs.walk(path, tbl, errors, can_traverse, files_only)
 			tbl = tbl or {}
-			local handle = ffi.C.FindFirstFileA(path .. "*", data)
+			local stack = {path}
+			local stack_size = 1
 
-			if handle == nil then
-				table.insert(errors, {path = path, error = last_error()})
-				return
-			end
+			while stack_size > 0 do
+				local current_path = stack[stack_size]
+				stack[stack_size] = nil
+				stack_size = stack_size - 1
+				local handle = ffi.C.FindFirstFileA(current_path .. "*", data)
 
-			if not files_only then
-				tbl.n = (tbl.n or 0) + 1
-				tbl[tbl.n] = path
-			end
+				if handle == nil then
+					table.insert(errors, {path = current_path, error = last_error()})
+				else
+					if not files_only then
+						tbl.n = (tbl.n or 0) + 1
+						tbl[tbl.n] = current_path
+					end
 
-			if handle ~= INVALID_FILE then
-				local i = 1
+					if handle ~= INVALID_FILE then
+						local directories = {}
+						local directory_count = 0
 
-				repeat
-					if not is_dots(data[0].cFileName) then
-						local name = path .. ffi_string(data[0].cFileName)
+						repeat
+							if not is_dots(data[0].cFileName) then
+								local name = current_path .. ffi_string(data[0].cFileName)
 
-						if bit.band(data[0].dwFileAttributes, DIRECTORY) == DIRECTORY then
-							if not can_traverse or can_traverse(name) ~= false then
-								fs.walk(name .. "/", tbl, errors)
-							end
-						else
-							tbl.n = (tbl.n or 0) + 1
-							tbl[tbl.n] = name
+								if bit.band(data[0].dwFileAttributes, DIRECTORY) == DIRECTORY then
+									if not can_traverse or can_traverse(name) ~= false then
+										directory_count = directory_count + 1
+										directories[directory_count] = name .. "/"
+									end
+								else
+									tbl.n = (tbl.n or 0) + 1
+									tbl[tbl.n] = name
+								end
+							end						
+						until ffi.C.FindNextFileA(handle, data) == 0
+
+						if ffi.C.FindClose(handle) == 0 then return nil, last_error() end
+
+						for i = directory_count, 1, -1 do
+							stack_size = stack_size + 1
+							stack[stack_size] = directories[i]
 						end
-					end				
-				until ffi.C.FindNextFileA(handle, data) == 0
-
-				if ffi.C.FindClose(handle) == 0 then return nil, last_error() end
+					end
+				end
 			end
 
 			return tbl
