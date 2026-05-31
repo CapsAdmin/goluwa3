@@ -5,7 +5,6 @@ local profiler = library()
 local jit_profiler
 
 function profiler.Start(id, config)
-	debug.trace()
 	time_start = system.GetTime()
 	local path = "storage/logs/jit_profile_" .. id .. ".html"
 	local directory = fs.get_parent_directory(path)
@@ -24,7 +23,6 @@ function profiler.Start(id, config)
 end
 
 function profiler.Stop()
-	debug.trace()
 	jit_profiler:Stop()
 end
 
