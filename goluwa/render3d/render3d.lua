@@ -20,6 +20,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local scene_voxelizer = import("goluwa/render3d/scene_voxelizer.lua")
+local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Light = import("goluwa/ecs/components/3d/light.lua")
 local prototype = import("goluwa/prototype.lua")
 local INSTANCE_MATRIX_ATTRIBUTES = {
@@ -112,6 +113,10 @@ local function remove_pipeline_bundle(bundle)
 
 	bundle.pipelines = {}
 	bundle.pipelines_i = {}
+end
+
+function render3d.GetGPUCulling()
+	return gpu_culling
 end
 
 local function new_instancing_reuse_summary()
@@ -1254,6 +1259,80 @@ function render3d.FlushQueuedGBufferInstances()
 	render3d.last_instancing_counters = copy_instancing_counters(render3d.last_instancing_counters, counters)
 	render3d.last_instancing_counters.completed_frame = system.GetFrameNumber()
 	render3d.ResetQueuedGBufferInstances()
+end
+
+function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
+	if not (cull_result and render3d.pipelines and render3d.pipelines.gbuffer_instanced) then
+		return {
+			drew_any = false,
+			submitted_entry_count = 0,
+			draw_call_count = 0,
+			active_batch_count = 0,
+			total_batch_count = 0,
+		}
+	end
+
+	if render3d.IsWireframeDebugMode() then
+		return {
+			drew_any = false,
+			submitted_entry_count = 0,
+			draw_call_count = 0,
+			active_batch_count = 0,
+			total_batch_count = 0,
+		}
+	end
+
+	local dataset = gpu_culling.GetSceneDataset()
+	local frame_buffers = gpu_culling.GetFrameBuffers()
+	local output = frame_buffers and frame_buffers[cull_result.frame_index] or nil
+	local batches = dataset and dataset.main_instanced_batches or nil
+
+	if not (output and batches and batches[1]) then
+		return {
+			drew_any = false,
+			submitted_entry_count = 0,
+			draw_call_count = 0,
+			active_batch_count = 0,
+			total_batch_count = 0,
+		}
+	end
+
+	local counts = ffi.cast("uint32_t *", output.visible_instanced_batch_count_buffer:Map())
+	local drew_any = false
+	local submitted_entry_count = 0
+	local draw_call_count = 0
+	local active_batch_count = 0
+
+	for batch_index, batch in ipairs(batches) do
+		local instance_count = tonumber(counts[batch_index - 1])
+
+		if instance_count > 0 then
+			active_batch_count = active_batch_count + 1
+			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
+			render3d.SetMaterial(batch.material)
+			render3d.UploadInstancedGBufferConstants()
+			batch.mesh:DrawInstanced(
+				render.GetCommandBuffer(),
+				instance_count,
+				{output.visible_instance_vertex_buffer},
+				nil,
+				nil,
+				nil,
+				batch.output_offset
+			)
+			drew_any = true
+			submitted_entry_count = submitted_entry_count + instance_count
+			draw_call_count = draw_call_count + 1
+		end
+	end
+
+	return {
+		drew_any = drew_any,
+		submitted_entry_count = submitted_entry_count,
+		draw_call_count = draw_call_count,
+		active_batch_count = active_batch_count,
+		total_batch_count = #batches,
+	}
 end
 
 function render3d.UploadForwardOverlayConstants()

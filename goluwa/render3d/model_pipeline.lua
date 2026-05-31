@@ -1135,10 +1135,11 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name, helper_world_matrix
 	]]
 end
 
-function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var)
+function model_pipeline.BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var, world_matrix_expr)
 	block_name = block_name or "vertex_animation"
 	shadow_state_var = shadow_state_var or "pc"
-	return model_pipeline.BuildVertexAnimationGlsl(block_name, "pc.world") .. [[
+	world_matrix_expr = world_matrix_expr or "pc.world"
+	return model_pipeline.BuildVertexAnimationGlsl(block_name, world_matrix_expr) .. [[
 			bool shadow_has_heightmap() {
 				return ]] .. shadow_state_var .. [[.height_texture_index != -1 && ]] .. shadow_state_var .. [[.height_scale > 0.0;
 			}

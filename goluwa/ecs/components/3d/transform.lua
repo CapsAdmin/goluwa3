@@ -73,6 +73,10 @@ function META:InvalidateMatrices()
 	self.LocalMatrixFrame = nil
 	self.WorldMatrixFrame = nil
 	self.WorldMatrixInverseFrame = nil
+	self.ShouldUseInterpolatedPhysicsTransformFrame = nil
+	self.ShouldUseInterpolatedPhysicsTransformCached = nil
+	self.IsFrameDynamicFrame = nil
+	self.IsFrameDynamicCached = nil
 
 	if self.Owner and self.Owner.visual then
 		self.Owner.visual.WorldAABBCache = nil
@@ -124,19 +128,38 @@ function META:InvalidateChildWorldMatrices()
 end
 
 function META:ShouldUseInterpolatedPhysicsTransform()
+	local frame = system.GetFrameNumber()
+
+	if self.ShouldUseInterpolatedPhysicsTransformFrame == frame then
+		return self.ShouldUseInterpolatedPhysicsTransformCached
+	end
+
 	local owner = self.Owner
 	local body = owner and owner.rigid_body
-	return body and
+	local should_interpolate = body and
 		body.ShouldInterpolateTransform and
 		body:ShouldInterpolateTransform() or
 		false
+	self.ShouldUseInterpolatedPhysicsTransformFrame = frame
+	self.ShouldUseInterpolatedPhysicsTransformCached = should_interpolate
+	return should_interpolate
 end
 
 function META:IsFrameDynamic()
-	if self:ShouldUseInterpolatedPhysicsTransform() then return true end
+	local frame = system.GetFrameNumber()
 
-	local parent = self.Owner and self.Owner:GetParent()
-	return parent and parent.transform and parent.transform:IsFrameDynamic() or false
+	if self.IsFrameDynamicFrame == frame then return self.IsFrameDynamicCached end
+
+	local dynamic = self:ShouldUseInterpolatedPhysicsTransform()
+
+	if not dynamic then
+		local parent = self.Owner and self.Owner:GetParent()
+		dynamic = parent and parent.transform and parent.transform:IsFrameDynamic() or false
+	end
+
+	self.IsFrameDynamicFrame = frame
+	self.IsFrameDynamicCached = dynamic
+	return dynamic
 end
 
 function META:GetRenderPositionRotation()
