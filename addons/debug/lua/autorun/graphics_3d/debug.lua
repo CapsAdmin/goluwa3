@@ -6,6 +6,7 @@ local input = import("goluwa/input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local steam = import("goluwa/steam/steam.lua")
 local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
 local callstack = import("goluwa/helpers/callstack.lua")
 local Visual = import("goluwa/ecs/components/3d/visual.lua").Library
@@ -342,6 +343,184 @@ end
 
 -- Debug: Draw SSR buffer
 local show_ssr_buffer = false
+local show_cry_terrain_textures = false
+
+local function is_valid_texture(texture)
+	return texture and texture.IsValid and texture:IsValid()
+end
+
+local function get_active_cry_terrain_render_data()
+	local renderer = steam.active_cry_terrain_renderer
+
+	if not renderer then return nil end
+
+	local keys = {}
+
+	for _, tile in pairs(renderer.ActiveTiles or {}) do
+		local cache_key = tile.render_cache_key
+
+		if cache_key and renderer.TileRenderCache and renderer.TileRenderCache[cache_key] then
+			keys[cache_key] = true
+		end
+	end
+
+	if
+		renderer.FarState and
+		renderer.FarState.render_cache_key and
+		renderer.TileRenderCache[renderer.FarState.render_cache_key]
+	then
+		keys[renderer.FarState.render_cache_key] = true
+	end
+
+	local sorted = {}
+
+	for cache_key in pairs(keys) do
+		list.insert(sorted, cache_key)
+	end
+
+	if not sorted[1] then
+		for cache_key in pairs(renderer.TileRenderCache or {}) do
+			list.insert(sorted, cache_key)
+		end
+	end
+
+	table.sort(sorted)
+
+	if not sorted[1] then return nil end
+
+	local cache_key = sorted[1]
+	return renderer.TileRenderCache[cache_key], cache_key, #sorted, renderer
+end
+
+local function draw_texture_preview(texture, title, subtitle, x, y, size)
+	render2d.SetTexture(nil)
+	render2d.SetColor(0.06, 0.07, 0.09, 0.94)
+	gfx.DrawRoundedRect(x - 6, y - 6, size + 12, size + 42, 8)
+
+	if is_valid_texture(texture) then
+		render2d.SetTexture(texture)
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.DrawRect(x, y, size, size)
+	else
+		render2d.SetTexture(nil)
+		render2d.SetColor(0.16, 0.16, 0.18, 1)
+		render2d.DrawRect(x, y, size, size)
+		render2d.SetColor(0.85, 0.4, 0.4, 1)
+		fonts.GetFont():DrawText("missing", x + 8, y + size * 0.5 - 8)
+	end
+
+	render2d.SetTexture(nil)
+	render2d.SetColor(0.85, 0.88, 0.92, 1)
+	fonts.GetFont():DrawText(title, x, y + size + 4)
+
+	if subtitle and subtitle ~= "" then
+		render2d.SetColor(0.58, 0.64, 0.70, 1)
+		fonts.GetFont():DrawText(subtitle, x, y + size + 20)
+	end
+end
+
+function events.Draw2D.debug_cry_terrain_textures(cmd, dt)
+	if not show_cry_terrain_textures then return end
+
+	local render_data, cache_key, cache_count = get_active_cry_terrain_render_data()
+	fonts.SetFont(fonts.GetDefaultFont())
+
+	if not render_data or not render_data.material then
+		render2d.SetTexture(nil)
+		render2d.SetColor(0.06, 0.07, 0.09, 0.94)
+		gfx.DrawRoundedRect(10, 320, 360, 56, 8)
+		render2d.SetColor(0.85, 0.88, 0.92, 1)
+		fonts.GetFont():DrawText("Cry terrain textures: no active terrain tile cache", 18, 336)
+		return
+	end
+
+	local material = render_data.material
+	local size = 144
+	local spacing = 14
+	local start_x = 10
+	local start_y = 320
+	local titles = {
+		{"weights", material:GetTerrainMaterialTexture(), "tile weights"},
+		{"baked albedo", render_data.albedo_texture, "macro baked color"},
+		{"baked normal", render_data.normal_texture, "tile normal"},
+		{
+			render_data.terrain_layer_names and
+			render_data.terrain_layer_names[1] or
+			"layer 1",
+			material:GetTerrainLayer1Texture(),
+			render_data.terrain_layer_slots and
+			render_data.terrain_layer_slots[1] and
+			(
+				"slot " .. render_data.terrain_layer_slots[1]
+			)
+			or
+			"",
+		},
+		{
+			render_data.terrain_layer_names and
+			render_data.terrain_layer_names[2] or
+			"layer 2",
+			material:GetTerrainLayer2Texture(),
+			render_data.terrain_layer_slots and
+			render_data.terrain_layer_slots[2] and
+			(
+				"slot " .. render_data.terrain_layer_slots[2]
+			)
+			or
+			"",
+		},
+		{
+			render_data.terrain_layer_names and
+			render_data.terrain_layer_names[3] or
+			"layer 3",
+			material:GetTerrainLayer3Texture(),
+			render_data.terrain_layer_slots and
+			render_data.terrain_layer_slots[3] and
+			(
+				"slot " .. render_data.terrain_layer_slots[3]
+			)
+			or
+			"",
+		},
+		{
+			render_data.terrain_layer_names and
+			render_data.terrain_layer_names[4] or
+			"layer 4",
+			material:GetTerrainLayer4Texture(),
+			render_data.terrain_layer_slots and
+			render_data.terrain_layer_slots[4] and
+			(
+				"slot " .. render_data.terrain_layer_slots[4]
+			)
+			or
+			"",
+		},
+	}
+	render2d.SetTexture(nil)
+	render2d.SetColor(0.06, 0.07, 0.09, 0.90)
+	gfx.DrawRoundedRect(start_x - 10, start_y - 28, size * 3 + spacing * 2 + 20, size * 3 + 132, 10)
+	render2d.SetColor(0.95, 0.97, 1.0, 1)
+	fonts.GetFont():DrawText("Cry Terrain Texture Debug", start_x, start_y - 18)
+	render2d.SetColor(0.58, 0.64, 0.70, 1)
+	fonts.GetFont():DrawText(
+		string.format("cache %s (%d live)", tostring(cache_key), cache_count or 0),
+		start_x,
+		start_y
+	)
+
+	for i, entry in ipairs(titles) do
+		local column = (i - 1) % 3
+		local row = math.floor((i - 1) / 3)
+		draw_texture_preview(
+			entry[2],
+			entry[1],
+			entry[3],
+			start_x + column * (size + spacing),
+			start_y + 22 + row * (size + 54),
+			size
+		)
+	end
+end
 
 function events.Draw2D.debug_ssr_buffer(cmd, dt)
 	if not show_ssr_buffer then return end
@@ -411,6 +590,11 @@ function events.KeyInput.render3d_debug(key, press)
 	if key == "f7" then
 		show_ssr_buffer = not show_ssr_buffer
 		print("SSR buffer debug: " .. (show_ssr_buffer and "ON" or "OFF"))
+	end
+
+	if key == "f5" then
+		show_cry_terrain_textures = not show_cry_terrain_textures
+		print("Cry terrain texture debug: " .. (show_cry_terrain_textures and "ON" or "OFF"))
 	end
 
 	if key == "f4" then

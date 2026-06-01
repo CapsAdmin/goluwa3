@@ -720,64 +720,24 @@ function ProceduralTerrainHybridRenderer:GetSharedPatchPolygon(cache_key, mesh_r
 	return polygon
 end
 
-local function build_height_texture_sampler(height_texture)
-	local downloaded = height_texture:Download()
-	local width = downloaded:GetWidth()
-	local height = downloaded:GetHeight()
-	local texel_u = 1 / math.max(width - 1, 1)
-	local texel_v = 1 / math.max(height - 1, 1)
+function ProceduralTerrainHybridRenderer:CreateTilePatchPolygon(mesh_resolution, patch_type, trim_rect)
+	local patch_variant = classify_patch_variant(patch_type, trim_rect)
+	local cache_key = get_mesh_resolution_key(mesh_resolution) .. "|" .. patch_variant.key
+	local cached = self.SharedPatchCache[cache_key]
 
-	if downloaded.format == "r32_sfloat" then
-		local floats = ffi.cast("float*", downloaded.pixels)
-		return function(u, v)
-			local x = math.clamp(math.floor(u * (width - 1) + 0.5), 0, width - 1)
-			local y = math.clamp(math.floor(v * (height - 1) + 0.5), 0, height - 1)
-			return floats[y * width + x]
-		end,
-		texel_u,
-		texel_v
-	end
+	if cached then return cached end
 
-	return function(u, v)
-		local x = math.clamp(math.floor(u * (width - 1) + 0.5), 0, width - 1)
-		local y = math.clamp(math.floor(v * (height - 1) + 0.5), 0, height - 1)
-		local r = downloaded:GetRawPixelColor(x, y)
-		return (r or 0) / 255
-	end,
-	texel_u,
-	texel_v
-end
-
-function ProceduralTerrainHybridRenderer:CreateTilePatchPolygon(height_texture, mesh_resolution, patch_type, trim_rect)
 	local polygon = Polygon3D.New()
 	local segments_x, segments_y = get_mesh_segments(mesh_resolution)
-	local patch_variant = classify_patch_variant(patch_type, trim_rect)
 	local x_coords = build_patch_axis_coords(segments_x, patch_variant.inject_x_split)
 	local z_coords = build_patch_axis_coords(segments_y, patch_variant.inject_z_split)
-	local sample_height01, texel_u, texel_v = build_height_texture_sampler(height_texture)
-	local height_scale = self.HeightScale
 	local has_trim_rect = trim_rect ~= nil
-	local normal_scale_u = math.max(texel_u * 2, 1e-6)
-	local normal_scale_v = math.max(texel_v * 2, 1e-6)
 	local vertex_indices = {}
 	local triangle_indices = {}
 
 	if trim_rect then
 		x_coords = merge_patch_axis_coords(x_coords, {trim_rect.min_x, trim_rect.max_x})
 		z_coords = merge_patch_axis_coords(z_coords, {trim_rect.min_z, trim_rect.max_z})
-	end
-
-	local function get_surface_basis(u, v)
-		local left = sample_height01(math.clamp(u - texel_u, 0, 1), v) * height_scale
-		local right = sample_height01(math.clamp(u + texel_u, 0, 1), v) * height_scale
-		local down = sample_height01(u, math.clamp(v - texel_v, 0, 1)) * height_scale
-		local up = sample_height01(u, math.clamp(v + texel_v, 0, 1)) * height_scale
-		local dx = (right - left) / normal_scale_u
-		local dz = (up - down) / normal_scale_v
-		local normal_inverse_length = 1 / math.sqrt(dx * dx + dz * dz + 1)
-		local tangent_inverse_length = 1 / math.sqrt(dx * dx + 1)
-		return Vec3(-dx * normal_inverse_length, normal_inverse_length, -dz * normal_inverse_length),
-		Vec3(tangent_inverse_length, dx * tangent_inverse_length, 0)
 	end
 
 	local function get_vertex_index(x, z)
@@ -793,12 +753,11 @@ function ProceduralTerrainHybridRenderer:CreateTilePatchPolygon(height_texture, 
 
 		local u = x + 0.5
 		local v = 0.5 - z
-		local normal, tangent = get_surface_basis(u, v)
 		polygon:AddVertex{
 			pos = Vec3(x, 0, -z),
 			uv = Vec2(u, v),
-			normal = normal,
-			tangent = tangent,
+			normal = Vec3(0, 1, 0),
+			tangent = Vec3(1, 0, 0),
 		}
 		local index = polygon.i - 1
 		x_vertices[z] = index
@@ -848,6 +807,7 @@ function ProceduralTerrainHybridRenderer:CreateTilePatchPolygon(height_texture, 
 	end
 
 	polygon:Upload(triangle_indices)
+	self.SharedPatchCache[cache_key] = polygon
 	return polygon
 end
 
@@ -957,12 +917,7 @@ function ProceduralTerrainHybridRenderer:GetOrCreateTileRenderData(bounds, confi
 	local patch_variant = classify_patch_variant(patch_type, trim_rect)
 	local render_data = {
 		cache_key = cache_key,
-		polygon = self:CreateTilePatchPolygon(
-			height_texture,
-			config.mesh_resolution,
-			patch_variant.patch_type,
-			trim_rect
-		),
+		polygon = self:CreateTilePatchPolygon(config.mesh_resolution, patch_variant.patch_type, trim_rect),
 		material = material,
 		height_texture = height_texture,
 		albedo_texture = albedo_texture,

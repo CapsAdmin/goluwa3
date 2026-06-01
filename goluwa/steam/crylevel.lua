@@ -2,6 +2,7 @@ local xml = import("goluwa/codecs/xml.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/helpers/file_path.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
+local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -154,6 +155,64 @@ end
 
 local function parse_bool_flag(value)
 	return tostring(value or "0") == "1"
+end
+
+local function parse_cover_ctc_metadata(data)
+	if type(data) ~= "string" or #data < 0x2c then
+		return nil, "cover.ctc is truncated"
+	end
+
+	local magic = string.char(data:byte(1) or 0, data:byte(2) or 0, data:byte(3) or 0)
+
+	if magic ~= "CRY" then return nil, "cover.ctc has invalid magic" end
+
+	local texture_resolution = read_u32_le(data, 0x11) or 0
+	local surface_slot_count = read_u32_le(data, 0x15) or 0
+	local cover_tile_count = read_u32_le(data, 0x29) or 0
+	local transition_lookup = {}
+	local lookup_offset = 0x2d
+	local lookup_entry_count = surface_slot_count * surface_slot_count
+	local lookup_bytes = lookup_entry_count * 2
+
+	if surface_slot_count <= 0 then
+		return nil, "cover.ctc has invalid surface slot count"
+	end
+
+	if #data >= lookup_offset + lookup_bytes - 1 then
+		for row = 1, surface_slot_count do
+			local row_entries = {}
+			local row_base = lookup_offset + ((row - 1) * surface_slot_count * 2)
+
+			for column = 1, surface_slot_count do
+				local value = read_u16_le(data, row_base + ((column - 1) * 2)) or 0xffff
+				row_entries[column] = value ~= 0xffff and value or false
+			end
+
+			transition_lookup[row] = row_entries
+		end
+	end
+
+	return {
+		magic = magic,
+		texture_resolution = texture_resolution,
+		surface_slot_count = surface_slot_count,
+		cover_tile_count = cover_tile_count,
+		transition_lookup = transition_lookup,
+	}
+end
+
+local function parse_surface_type_node(node)
+	local attrs = node and node.attrs or {}
+	local detail_scale_x = tonumber(attrs.DetailScaleX) or 1
+	local detail_scale_y = tonumber(attrs.DetailScaleY) or detail_scale_x
+	return {
+		name = attrs.Name or "",
+		detail_texture = file_path.FixPathSlashes(attrs.DetailTexture or ""),
+		detail_material = file_path.FixPathSlashes(attrs.DetailMaterial or ""),
+		detail_scale_x = detail_scale_x,
+		detail_scale_y = detail_scale_y,
+		project_axis = tonumber(attrs.ProjectAxis) or tonumber(attrs.ProjAxis) or 2,
+	}
 end
 
 function crylevel.CryVec3ToEngine(vec)
@@ -441,6 +500,7 @@ end
 function crylevel.ParseLevelDataDocument(document)
 	local root = document and document.children and document.children[1]
 	local info = root and find_child_by_tag(root, "LevelInfo") or nil
+	local surface_types_node = root and find_child_by_tag(root, "SurfaceTypes") or nil
 	local attrs = info and info.attrs or nil
 
 	if not attrs then return nil, "missing LevelInfo" end
@@ -449,12 +509,19 @@ function crylevel.ParseLevelDataDocument(document)
 	local heightmap_unit_size = tonumber(attrs.HeightmapUnitSize) or 0
 	local terrain_sector_size = tonumber(attrs.TerrainSectorSizeInMeters) or 0
 	local world_size = heightmap_size * heightmap_unit_size
+	local surface_types = {}
+
+	for node in iter_children_by_tag(surface_types_node, "SurfaceType") do
+		surface_types[#surface_types + 1] = parse_surface_type_node(node)
+	end
+
 	return {
 		heightmap_size = heightmap_size,
 		heightmap_unit_size = heightmap_unit_size,
 		heightmap_max_height = tonumber(attrs.HeightmapMaxHeight) or 0,
 		water_level = tonumber(attrs.WaterLevel) or 0,
 		terrain_sector_size = terrain_sector_size,
+		surface_types = surface_types,
 		world_size = world_size,
 	}
 end
@@ -472,6 +539,8 @@ end
 function crylevel.ParseEditorLevelDocument(document)
 	local root = document and document.children and document.children[1]
 	local attrs = root and root.attrs or nil
+	local heightmap = root and find_child_by_tag(root, "Heightmap") or nil
+	local heightmap_attrs = heightmap and heightmap.attrs or {}
 
 	if not attrs then return nil, "missing Level root" end
 
@@ -481,6 +550,7 @@ function crylevel.ParseEditorLevelDocument(document)
 		tile_count_x = tonumber(attrs.TileCountX) or 0,
 		tile_count_y = tonumber(attrs.TileCountY) or 0,
 		tile_resolution = tonumber(attrs.TileResolution) or 0,
+		texture_size = tonumber(heightmap_attrs.TextureSize) or 0,
 	}
 end
 
@@ -708,6 +778,25 @@ local function rebuild_terrain_albedo_cache(terrain)
 	terrain.albedo_tile_max_y = math.max((terrain.grid_height or 1) - 1, 0)
 end
 
+local function rebuild_terrain_surface_slot_cache(terrain)
+	local width = terrain.surface_slot_width or 0
+	local height = terrain.surface_slot_height or width
+	local sample_count = width * height
+	terrain.surface_slot_max_x = width - 1
+	terrain.surface_slot_max_y = height - 1
+	terrain.surface_slot_world_to_sample_x = width > 1 and ((width - 1) / math.max(terrain.world_size or 0, 1)) or 0
+	terrain.surface_slot_world_to_sample_y = height > 1 and ((height - 1) / math.max(terrain.world_size or 0, 1)) or 0
+
+	if not terrain.surface_slot_data or sample_count <= 0 then
+		terrain.surface_slot_samples = nil
+		return
+	end
+
+	local samples = ffi.new("uint8_t[?]", sample_count)
+	ffi.copy(samples, terrain.surface_slot_data, sample_count)
+	terrain.surface_slot_samples = samples
+end
+
 local function decode_terrain_texture_tile(tile)
 	if tile.rgba_buffer then return tile.rgba_buffer, tile.width, tile.height end
 
@@ -741,7 +830,7 @@ local function decode_terrain_texture_tile(tile)
 	local dst = 0
 
 	for _ = 1, width * height do
-		local r, g, b = data:byte(src, src + 2)
+		local b, g, r = data:byte(src, src + 2)
 		rgba_buffer[dst + 0] = r or 0
 		rgba_buffer[dst + 1] = g or 0
 		rgba_buffer[dst + 2] = b or 0
@@ -787,7 +876,7 @@ local function get_terrain_tile_material(tile)
 	return tile.material
 end
 
-function crylevel.LoadTerrainData(level_dir)
+function crylevel.LoadTerrainData(steam, level_dir)
 	local level_data_path = level_dir .. "level.pak/leveldata.xml"
 	local level_data_xml, level_data_err = vfs.Read(level_data_path)
 
@@ -799,10 +888,13 @@ function crylevel.LoadTerrainData(level_dir)
 
 	if not terrain then return nil, parse_err end
 
+	terrain.level_dir = level_dir
 	local tiles = {}
 	local terrain_texture_dir = level_dir .. "terraintexture.pak/"
+	local cover_texture_path = level_dir .. "level.pak/terrain/cover.ctc"
 	local max_x = -1
 	local max_y = -1
+	local game = steam and select(1, crylevel.FindCryGame(steam)) or nil
 
 	for _, file_name in ipairs(vfs.Find(terrain_texture_dir) or {}) do
 		local tile_x, tile_y = file_name:match("^tile(%d+)_(%d+)%.raw$")
@@ -817,6 +909,30 @@ function crylevel.LoadTerrainData(level_dir)
 				y = tile_y,
 				path = terrain_texture_dir .. file_name,
 			}
+		end
+	end
+
+	do
+		local cover_data, cover_err = vfs.Read(cover_texture_path)
+
+		if cover_data then
+			local cover_metadata, cover_parse_err = parse_cover_ctc_metadata(cover_data)
+
+			if cover_metadata then
+				terrain.cover = cover_metadata
+			else
+				wlog(
+					"failed to parse cry terrain cover metadata %s: %s",
+					tostring(cover_texture_path),
+					tostring(cover_parse_err)
+				)
+			end
+		elseif cover_err then
+			wlog(
+				"failed to read cry terrain cover file %s: %s",
+				tostring(cover_texture_path),
+				tostring(cover_err)
+			)
 		end
 	end
 
@@ -842,6 +958,45 @@ function crylevel.LoadTerrainData(level_dir)
 				tostring(editor_level_err)
 			)
 		end
+	end
+
+	local surface_slot_path = level_dir .. level_name .. ".cry/heightmaplayeridbitmap.editor_data"
+	local surface_slot_data, surface_slot_err = vfs.Read(surface_slot_path)
+
+	if surface_slot_data then
+		local surface_slot_width = terrain.editor_level and
+			terrain.editor_level.heightmap_width or
+			terrain.heightmap_size
+		local surface_slot_height = terrain.editor_level and
+			terrain.editor_level.heightmap_height or
+			terrain.heightmap_size
+		local expected_size = surface_slot_width * surface_slot_height
+
+		if
+			surface_slot_width > 0 and
+			surface_slot_height > 0 and
+			#surface_slot_data == expected_size
+		then
+			terrain.surface_slot_data = surface_slot_data
+			terrain.surface_slot_width = surface_slot_width
+			terrain.surface_slot_height = surface_slot_height
+			rebuild_terrain_surface_slot_cache(terrain)
+		else
+			wlog(
+				"cry terrain surface slot bitmap %s size mismatch: got %d expected %d (%dx%d samples)",
+				tostring(surface_slot_path),
+				#surface_slot_data,
+				expected_size,
+				surface_slot_width,
+				surface_slot_height
+			)
+		end
+	elseif surface_slot_err then
+		wlog(
+			"failed to read cry terrain surface slot bitmap %s: %s",
+			tostring(surface_slot_path),
+			tostring(surface_slot_err)
+		)
 	end
 
 	local heightmap_path = level_dir .. level_name .. ".cry/heightmapdataw.editor_data"
@@ -889,6 +1044,33 @@ function crylevel.LoadTerrainData(level_dir)
 
 	terrain.tiles = tiles
 	terrain.tile_lookup = {}
+	terrain.surface_types = terrain.surface_types or {}
+
+	for i = 1, #terrain.surface_types do
+		local surface_type = terrain.surface_types[i]
+
+		if surface_type.detail_material ~= "" then
+			local material_path = surface_type.detail_material
+
+			if not material_path:lower():ends_with(".mtl") then
+				material_path = material_path .. ".mtl"
+			end
+
+			surface_type.detail_material_path = crylevel.ResolveModelPath(steam, level_dir, material_path)
+
+			if
+				game and
+				type(surface_type.detail_material_path) == "string" and
+				not file_path.IsPathAbsolutePath(surface_type.detail_material_path)
+			then
+				local absolute_material = vfs.FindMixedCasePath(game.game_dir .. "Game/GameData.pak/" .. surface_type.detail_material_path)
+
+				if absolute_material then
+					surface_type.detail_material_path = absolute_material
+				end
+			end
+		end
+	end
 
 	for _, tile in ipairs(tiles) do
 		terrain.tile_lookup[tile.y] = terrain.tile_lookup[tile.y] or {}
@@ -1145,6 +1327,54 @@ local function sample_terrain_albedo_at_world(terrain, world_x, world_z)
 	return sample_terrain_tile_rgba(tile, local_x / tile_world_size, local_y / tile_world_size)
 end
 
+local function decode_terrain_surface_slot(raw_value)
+	raw_value = tonumber(raw_value) or 0
+
+	if raw_value <= 0 then return 0 end
+
+	return math.floor(raw_value * 0.5)
+end
+
+local function get_terrain_surface_slot_sample(terrain, sample_x, sample_y)
+	local width = terrain.surface_slot_width or 0
+	local height = terrain.surface_slot_height or width
+
+	if width <= 0 or height <= 0 then return 0 end
+
+	sample_x = math.floor(sample_x + 0.5)
+	sample_y = math.floor(sample_y + 0.5)
+
+	if sample_x < 0 then
+		sample_x = 0
+	elseif sample_x > (terrain.surface_slot_max_x or (width - 1)) then
+		sample_x = terrain.surface_slot_max_x or (width - 1)
+	end
+
+	if sample_y < 0 then
+		sample_y = 0
+	elseif sample_y > (terrain.surface_slot_max_y or (height - 1)) then
+		sample_y = terrain.surface_slot_max_y or (height - 1)
+	end
+
+	local raw
+
+	if terrain.surface_slot_samples then
+		raw = terrain.surface_slot_samples[sample_y * width + sample_x]
+	else
+		raw = terrain.surface_slot_data:byte(sample_y * width + sample_x + 1) or 0
+	end
+
+	return decode_terrain_surface_slot(raw)
+end
+
+local function sample_terrain_surface_slot_at_world(terrain, world_x, world_z)
+	if not terrain.surface_slot_data then return 0 end
+
+	local sample_x = world_x * (terrain.surface_slot_world_to_sample_x or 0)
+	local sample_y = (-world_z) * (terrain.surface_slot_world_to_sample_y or 0)
+	return get_terrain_surface_slot_sample(terrain, sample_x, sample_y)
+end
+
 local cry_terrain_bake_push_constant_t = ffi.typeof([[struct {
 	float chunk_min_x;
 	float chunk_min_z;
@@ -1189,7 +1419,7 @@ local function get_or_create_cry_height_texture(terrain)
 		width = terrain.height_sample_width,
 		height = terrain.height_sample_height,
 		format = "r16_unorm",
-		buffer = terrain.height_data,
+		buffer = terrain.height_samples or terrain.height_data,
 		mip_map_levels = 1,
 		sampler = {
 			min_filter = "linear",
@@ -1245,7 +1475,7 @@ local function get_or_create_cry_albedo_texture(terrain)
 	terrain.albedo_texture = Texture.New{
 		width = atlas_width,
 		height = atlas_height,
-		format = "r8g8b8a8_srgb",
+		format = "r8g8b8a8_unorm",
 		buffer = atlas_buffer,
 		mip_map_levels = 1,
 		sampler = {
@@ -1258,15 +1488,349 @@ local function get_or_create_cry_albedo_texture(terrain)
 	return terrain.albedo_texture
 end
 
+local function get_cry_material_module()
+	return import.loaded["goluwa/render3d/material.lua"] or
+		import("goluwa/render3d/material.lua")
+end
+
+local guess_cry_surface_color
+
+local function build_cry_surface_material_layer(surface_type)
+	local Material = get_cry_material_module()
+	local color = Color(1, 1, 1, 1)
+	local roughness = 1
+	local detail_strength = 1
+	local effective_detail_scale = math.min(surface_type.detail_scale_x or 1, surface_type.detail_scale_y or 1)
+
+	if surface_type.detail_material_path and surface_type.detail_material_path ~= "" then
+		local material = Material.FromCryMTL(surface_type.detail_material_path)
+
+		if material and not (material.GetError and material:GetError()) then
+			if material.GetColorMultiplier then color = material:GetColorMultiplier() end
+
+			if material.GetAlbedoTexture then
+				surface_type.detail_albedo_texture = material:GetAlbedoTexture()
+			end
+
+			if material.cry_public_params and material.cry_public_params.DetailTextureStrength then
+				detail_strength = tonumber(material.cry_public_params.DetailTextureStrength) or detail_strength
+			end
+
+			local diffuse_map_info = material.cry_texture_maps and material.cry_texture_maps.Diffuse or nil
+
+			if diffuse_map_info then
+				local tile_u = tonumber(diffuse_map_info.tile_u) or 1
+				local tile_v = tonumber(diffuse_map_info.tile_v) or tile_u
+
+				if tile_u > 0 and tile_v > 0 then
+					effective_detail_scale = effective_detail_scale * math.sqrt(tile_u * tile_v)
+				end
+			end
+
+			if material.GetRoughnessMultiplier then
+				roughness = material:GetRoughnessMultiplier() or roughness
+			end
+		end
+	end
+
+	local checker_scale = 1 / math.max(effective_detail_scale, 0.0001)
+
+	if color.r == 1 and color.g == 1 and color.b == 1 then
+		color = guess_cry_surface_color(surface_type)
+	end
+
+	return {
+		name = surface_type.name,
+		detail_texture = surface_type.detail_albedo_texture,
+		detail_strength = detail_strength,
+		checker_scale = checker_scale,
+		roughness = roughness,
+		ambient_occlusion = 1,
+		color_a = {color.r, color.g, color.b},
+		color_b = {color.r, color.g, color.b},
+	}
+end
+
+guess_cry_surface_color = function(surface_type)
+	local key = (
+			(
+				surface_type and
+				surface_type.name
+			)
+			or
+			""
+		) .. " " .. (
+			(
+				surface_type and
+				surface_type.detail_material
+			)
+			or
+			""
+		)
+	key = key:lower()
+
+	if
+		key:find("grass", 1, true) or
+		key:find("fern", 1, true) or
+		key:find("leaf", 1, true)
+	then
+		return Color(0.28, 0.40, 0.18, 1)
+	end
+
+	if key:find("sand", 1, true) or key:find("beach", 1, true) then
+		return Color(0.72, 0.66, 0.46, 1)
+	end
+
+	if
+		key:find("cliff", 1, true) or
+		key:find("rock", 1, true) or
+		key:find("stone", 1, true) or
+		key:find("pep", 1, true)
+	then
+		return Color(0.47, 0.45, 0.42, 1)
+	end
+
+	if
+		key:find("road", 1, true) or
+		key:find("asphalt", 1, true) or
+		key:find("con", 1, true)
+	then
+		return Color(0.36, 0.35, 0.33, 1)
+	end
+
+	if
+		key:find("soil", 1, true) or
+		key:find("earth", 1, true) or
+		key:find("ground", 1, true) or
+		key:find("mud", 1, true)
+	then
+		return Color(0.41, 0.31, 0.21, 1)
+	end
+
+	if
+		key:find("river", 1, true) or
+		key:find("wet", 1, true) or
+		key:find("underwater", 1, true)
+	then
+		return Color(0.30, 0.34, 0.30, 1)
+	end
+
+	return Color(0.5, 0.48, 0.43, 1)
+end
+
+local function build_cry_surface_material_layers(terrain)
+	if terrain.surface_material_layers then
+		return terrain.surface_material_layers
+	end
+
+	local layers = {}
+
+	for i = 1, math.min(#(terrain.surface_types or {}), 4) do
+		local surface_type = terrain.surface_types[i]
+		layers[i] = build_cry_surface_material_layer(surface_type)
+	end
+
+	for i = #layers + 1, 4 do
+		layers[i] = {
+			checker_scale = 1,
+			roughness = 1,
+			ambient_occlusion = 1,
+			color_a = {1, 1, 1},
+			color_b = {1, 1, 1},
+		}
+	end
+
+	terrain.surface_material_layers = layers
+	return layers
+end
+
+local function get_cry_layer_colors(layer)
+	local color_a = layer.color_a or {1, 1, 1}
+	local color_b = layer.color_b or color_a
+	return Color(color_a[1] or 1, color_a[2] or 1, color_a[3] or 1, 1),
+	Color(
+		color_b[1] or color_a[1] or 1,
+		color_b[2] or color_a[2] or 1,
+		color_b[3] or color_a[3] or 1,
+		1
+	)
+end
+
+local function apply_cry_material_layers(material, layers)
+	local layer1 = layers[1] or {}
+	local layer2 = layers[2] or {}
+	local layer3 = layers[3] or {}
+	local layer4 = layers[4] or {}
+	material:SetTerrainCheckerScales(
+		Color(
+			layer1.checker_scale or 1,
+			layer2.checker_scale or 1,
+			layer3.checker_scale or 1,
+			layer4.checker_scale or 1
+		)
+	)
+	material:SetTerrainLayer1ColorA(get_cry_layer_colors(layer1))
+	material:SetTerrainLayer1ColorB(select(2, get_cry_layer_colors(layer1)))
+	material:SetTerrainLayer1Texture(layer1.detail_texture)
+	material:SetTerrainLayer2ColorA(get_cry_layer_colors(layer2))
+	material:SetTerrainLayer2ColorB(select(2, get_cry_layer_colors(layer2)))
+	material:SetTerrainLayer2Texture(layer2.detail_texture)
+	material:SetTerrainLayer3ColorA(get_cry_layer_colors(layer3))
+	material:SetTerrainLayer3ColorB(select(2, get_cry_layer_colors(layer3)))
+	material:SetTerrainLayer3Texture(layer3.detail_texture)
+	material:SetTerrainLayer4ColorA(get_cry_layer_colors(layer4))
+	material:SetTerrainLayer4ColorB(select(2, get_cry_layer_colors(layer4)))
+	material:SetTerrainLayer4Texture(layer4.detail_texture)
+	material:SetTerrainLayerRoughness(
+		Color(
+			layer1.roughness or 0.9,
+			layer2.roughness or 0.8,
+			layer3.roughness or 0.7,
+			layer4.roughness or 0.5
+		)
+	)
+	material:SetTerrainLayerDetailStrength(
+		Color(
+			layer1.detail_strength or 1,
+			layer2.detail_strength or 1,
+			layer3.detail_strength or 1,
+			layer4.detail_strength or 1
+		)
+	)
+	material:SetTerrainLayerAmbientOcclusion(
+		Color(
+			layer1.ambient_occlusion or layer1.ao or 1,
+			layer2.ambient_occlusion or layer2.ao or 1,
+			layer3.ambient_occlusion or layer3.ao or 1,
+			layer4.ambient_occlusion or layer4.ao or 1
+		)
+	)
+end
+
+local function build_cry_tile_material_weights(terrain, bounds, texture_size)
+	if not terrain.surface_slot_data then return nil end
+
+	texture_size = math.max(math.floor(texture_size or 0), 1)
+	local world_size_x = math.max(bounds.max_x - bounds.min_x, 0.0001)
+	local world_size_z = math.max(bounds.max_z - bounds.min_z, 0.0001)
+	local slot_counts = {}
+
+	for row = 0, texture_size - 1 do
+		local v = (row + 0.5) / texture_size
+		local world_z = bounds.min_z + v * world_size_z
+
+		for column = 0, texture_size - 1 do
+			local u = (column + 0.5) / texture_size
+			local world_x = bounds.min_x + u * world_size_x
+			local slot = sample_terrain_surface_slot_at_world(terrain, world_x, world_z)
+
+			if slot > 0 and terrain.surface_types[slot] then
+				slot_counts[slot] = (slot_counts[slot] or 0) + 1
+			end
+		end
+	end
+
+	local ranked_slots = {}
+
+	for slot, count in pairs(slot_counts) do
+		ranked_slots[#ranked_slots + 1] = {slot = slot, count = count}
+	end
+
+	table.sort(ranked_slots, function(a, b)
+		if a.count == b.count then return a.slot < b.slot end
+
+		return a.count > b.count
+	end)
+
+	local local_slots = {}
+	local slot_to_channel = {}
+
+	for i = 1, math.min(#ranked_slots, 4) do
+		local slot = ranked_slots[i].slot
+		local_slots[i] = slot
+		slot_to_channel[slot] = i
+	end
+
+	if not local_slots[1] then return nil end
+
+	local layers = {}
+
+	for i = 1, 4 do
+		local slot = local_slots[i]
+		local surface_type = slot and terrain.surface_types[slot] or nil
+		layers[i] = surface_type and
+			build_cry_surface_material_layer(surface_type) or
+			{
+				checker_scale = 1,
+				roughness = 1,
+				ambient_occlusion = 1,
+				color_a = {1, 1, 1},
+				color_b = {1, 1, 1},
+			}
+	end
+
+	local dominant_channel = slot_to_channel[local_slots[1]] or 1
+	local buffer = ffi.new("uint8_t[?]", texture_size * texture_size * 4)
+	local write_index = 0
+
+	for row = 0, texture_size - 1 do
+		local v = (row + 0.5) / texture_size
+		local world_z = bounds.min_z + v * world_size_z
+
+		for column = 0, texture_size - 1 do
+			local u = (column + 0.5) / texture_size
+			local world_x = bounds.min_x + u * world_size_x
+			local slot = sample_terrain_surface_slot_at_world(terrain, world_x, world_z)
+			local channel = slot_to_channel[slot] or dominant_channel
+			buffer[write_index + 0] = channel == 1 and 255 or 0
+			buffer[write_index + 1] = channel == 2 and 255 or 0
+			buffer[write_index + 2] = channel == 3 and 255 or 0
+			buffer[write_index + 3] = channel == 4 and 255 or 0
+			write_index = write_index + 4
+		end
+	end
+
+	return {
+		texture = Texture.New{
+			width = texture_size,
+			height = texture_size,
+			format = "r8g8b8a8_unorm",
+			buffer = buffer,
+			mip_map_levels = 1,
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		},
+		layers = layers,
+		slots = local_slots,
+	}
+end
+
+local function get_cry_chunk_bake_texture_size(terrain, chunk_world_size, minimum_size, maximum_size)
+	minimum_size = minimum_size or 256
+	maximum_size = maximum_size or 1024
+	local world_size = math.max(terrain.world_size or 0, 1)
+	local full_texture_size = terrain.editor_level and terrain.editor_level.texture_size or 0
+
+	if full_texture_size <= 0 then return minimum_size end
+
+	local scaled = math.ceil((chunk_world_size / world_size) * full_texture_size)
+	return math.clamp(scaled, minimum_size, maximum_size)
+end
+
 local function build_cry_terrain_source(terrain)
 	local ProceduralTerrainSource = import("addons/game/lua/terrain/source.lua")
-	local white = {1, 1, 1}
 	local world_size = math.max(terrain.world_size or 0, 1)
 	local height_texture = get_or_create_cry_height_texture(terrain)
 	local albedo_texture = get_or_create_cry_albedo_texture(terrain)
+	local material_layers = build_cry_surface_material_layers(terrain)
 	local source = ProceduralTerrainSource.New{
 		HeightScale = terrain.heightmap_max_height,
 		VerticalOffset = terrain.heightmap_max_height * 0.5,
+		HasRealMaterialWeights = false,
 		TerrainShaderGLSL = "",
 		SceneShaderGLSL = string.format(
 			[[
@@ -1306,36 +1870,7 @@ local function build_cry_terrain_source(terrain)
 			world_size
 		),
 		NormalShaderGLSL = "",
-		MaterialLayers = {
-			{
-				checker_scale = 1,
-				roughness = 1,
-				ambient_occlusion = 1,
-				color_a = white,
-				color_b = white,
-			},
-			{
-				checker_scale = 1,
-				roughness = 1,
-				ambient_occlusion = 1,
-				color_a = white,
-				color_b = white,
-			},
-			{
-				checker_scale = 1,
-				roughness = 1,
-				ambient_occlusion = 1,
-				color_a = white,
-				color_b = white,
-			},
-			{
-				checker_scale = 1,
-				roughness = 1,
-				ambient_occlusion = 1,
-				color_a = white,
-				color_b = white,
-			},
-		},
+		MaterialLayers = material_layers,
 	}
 
 	function source:BuildBakeShaderExtraConfig(
@@ -1395,6 +1930,13 @@ function CryTerrainHybridRenderer.New(terrain)
 		terrain.tile_world_size or 512,
 		512
 	)
+	local near_albedo_size = get_cry_chunk_bake_texture_size(
+		terrain,
+		math.max(chunk_world_size * 0.5, terrain.tile_world_size or 512),
+		512,
+		1024
+	)
+	local far_albedo_size = get_cry_chunk_bake_texture_size(terrain, chunk_world_size, 512, 1024)
 	local self = ProceduralTerrainHybridRenderer.New{
 		Name = "cry_terrain",
 		Source = build_cry_terrain_source(terrain),
@@ -1409,9 +1951,9 @@ function CryTerrainHybridRenderer.New(terrain)
 				radius = 1,
 				cast_shadows = true,
 				mesh_resolution = Vec2() + 96,
-				texture_size = 256,
-				height_texture_size = 257,
-				normal_texture_size = 256,
+				texture_size = near_albedo_size,
+				height_texture_size = near_albedo_size + 1,
+				normal_texture_size = near_albedo_size,
 				material_texture_size = 32,
 				normal_strength = 1,
 				height_layers = 20,
@@ -1422,9 +1964,9 @@ function CryTerrainHybridRenderer.New(terrain)
 				radius = 2,
 				cast_shadows = true,
 				mesh_resolution = Vec2() + 72,
-				texture_size = 192,
-				height_texture_size = 193,
-				normal_texture_size = 192,
+				texture_size = far_albedo_size,
+				height_texture_size = far_albedo_size + 1,
+				normal_texture_size = far_albedo_size,
 				material_texture_size = 32,
 				normal_strength = 1,
 				height_layers = 14,
@@ -1435,6 +1977,49 @@ function CryTerrainHybridRenderer.New(terrain)
 	setmetatable(self, CryTerrainHybridRenderer)
 	self.TerrainData = terrain
 	return self
+end
+
+function CryTerrainHybridRenderer:GetOrCreateTileRenderData(bounds, config, ring_index, patch_type, trim_rect)
+	local render_data = get_procedural_terrain_hybrid_renderer().GetOrCreateTileRenderData(self, bounds, config, ring_index, patch_type, trim_rect)
+	local terrain = self.TerrainData
+	local material_info = terrain and
+		build_cry_tile_material_weights(terrain, bounds, config.material_texture_size or config.texture_size or 32) or
+		nil
+
+	if material_info and render_data and render_data.material then
+		if
+			render_data.material_texture and
+			render_data.material_texture ~= material_info.texture
+		then
+			render_data.material_texture:Remove()
+		end
+
+		render_data.material_texture = material_info.texture
+		render_data.terrain_layer_slots = material_info.slots
+		render_data.terrain_layer_names = {}
+
+		for i = 1, 4 do
+			local slot = material_info.slots and material_info.slots[i] or nil
+			local surface_type = slot and terrain and terrain.surface_types and terrain.surface_types[slot] or nil
+			render_data.terrain_layer_names[i] = surface_type and surface_type.name or nil
+		end
+
+		render_data.material:SetTerrainMaterialTexture(material_info.texture)
+		apply_cry_material_layers(render_data.material, material_info.layers)
+	elseif
+		not (
+			self.Source and
+			self.Source.HasRealMaterialWeights
+		) and
+		render_data and
+		render_data.material
+	then
+		render_data.terrain_layer_slots = nil
+		render_data.terrain_layer_names = nil
+		render_data.material:SetTerrainMaterialTexture(nil)
+	end
+
+	return render_data
 end
 
 function crylevel.SpawnTerrain(level_data, parent)
@@ -1501,6 +2086,8 @@ function crylevel.ResolveModelPath(steam, level_dir, model_path)
 	local root_lower = root and root:lower() or nil
 	local mounted_root = root_lower == "objects" and
 		"Objects" or
+		root_lower == "materials" and
+		"Materials" or
 		root_lower == "textures" and
 		"Textures" or
 		nil
@@ -1523,6 +2110,7 @@ function crylevel.ResolveModelPath(steam, level_dir, model_path)
 
 	if game and game.game_dir then
 		candidates[#candidates + 1] = game.game_dir .. "Game/" .. normalized
+		candidates[#candidates + 1] = game.game_dir .. "Game/GameData.pak/" .. normalized
 		candidates[#candidates + 1] = game.game_dir .. "Game/Objects.pak/" .. normalized
 		candidates[#candidates + 1] = game.game_dir .. "Game/Textures.pak/" .. normalized
 	end
@@ -1561,6 +2149,7 @@ function crylevel.EnsureLevelMounts(steam, level_dir)
 
 	mount(game.game_dir .. "Game/Objects.pak/")
 	mount(game.game_dir .. "Game/Textures.pak/")
+	mount(game.game_dir .. "Game/GameData.pak/")
 	mount(level_dir .. "level.pak/")
 	mount(level_dir .. "terraintexture.pak/")
 	mount(level_dir .. (level_dir:match("/([^/]+)/$") or "") .. ".cry/")
@@ -1636,7 +2225,7 @@ function crylevel.Apply(steam)
 			end
 		end
 
-		local terrain = select(1, crylevel.LoadTerrainData(level_dir))
+		local terrain = select(1, crylevel.LoadTerrainData(steam, level_dir))
 		local vegetation_entries = {}
 		local level_name = level_dir:match("/([^/]+)/$") or ""
 		local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"

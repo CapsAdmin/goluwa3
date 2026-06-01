@@ -18,6 +18,10 @@ Material:GetSet("Albedo2Texture", nil, {type = "render_texture"})
 Material:GetSet("Normal2Texture", nil, {type = "render_texture"})
 Material:GetSet("BlendTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainMaterialTexture", nil, {type = "render_texture"})
+Material:GetSet("TerrainLayer1Texture", nil, {type = "render_texture"})
+Material:GetSet("TerrainLayer2Texture", nil, {type = "render_texture"})
+Material:GetSet("TerrainLayer3Texture", nil, {type = "render_texture"})
+Material:GetSet("TerrainLayer4Texture", nil, {type = "render_texture"})
 Material:GetSet("MetallicTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
 Material:GetSet("OpacityTexture", nil, {type = "render_texture"})
@@ -33,6 +37,7 @@ Material:GetSet("TerrainLayer3ColorA", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayer3ColorB", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayer4ColorA", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayer4ColorB", Color(1.0, 1.0, 1.0, 1.0))
+Material:GetSet("TerrainLayerDetailStrength", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerRoughness", Color(0.9, 0.8, 0.7, 0.5))
 Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
@@ -423,6 +428,7 @@ do
 		local normalized = file_path.FixPathSlashes(texture_path)
 		local normalized_lower = normalized:lower()
 		local base = file_path.RemoveExtensionFromPath(normalized)
+		local original_basename = file_path.GetFileNameFromPath(normalized):lower()
 		local basename = file_path.GetFileNameFromPath(base .. ".dds"):lower()
 		local candidates = {}
 		local game_root = resolve_cry_game_root(material_path)
@@ -480,19 +486,23 @@ do
 			end
 		end
 
-		if game_root and basename ~= "" then
+		if game_root and (basename ~= "" or original_basename ~= "") then
 			for _, root in ipairs{game_root .. "Objects.pak/", game_root .. "Textures.pak/"} do
-				local recursive_cache_key = root .. "\0" .. basename
-				local resolved = cry_texture_recursive_lookup_cache[recursive_cache_key]
+				for _, recursive_name in ipairs{original_basename, basename} do
+					if recursive_name ~= "" then
+						local recursive_cache_key = root .. "\0" .. recursive_name
+						local resolved = cry_texture_recursive_lookup_cache[recursive_cache_key]
 
-				if resolved == nil then
-					resolved = vfs.FindFileByNameRecursive(root, basename) or false
-					cry_texture_recursive_lookup_cache[recursive_cache_key] = resolved
-				end
+						if resolved == nil then
+							resolved = vfs.FindFileByNameRecursive(root, recursive_name) or false
+							cry_texture_recursive_lookup_cache[recursive_cache_key] = resolved
+						end
 
-				if resolved ~= false then
-					cry_texture_path_cache[cache_key] = {resolved = resolved, candidates = candidates}
-					return resolved, candidates
+						if resolved ~= false then
+							cry_texture_path_cache[cache_key] = {resolved = resolved, candidates = candidates}
+							return resolved, candidates
+						end
+					end
 				end
 			end
 		end
@@ -521,6 +531,8 @@ do
 	local function apply_cry_material_node(self, material_node, material_path)
 		if not material_node then return self end
 
+		self.cry_texture_maps = self.cry_texture_maps or {}
+		self.cry_public_params = self.cry_public_params or {}
 		local is_vegetation = material_node.attrs and material_node.attrs.Shader == "Vegetation"
 		self:SetMetallicMultiplier(0)
 
@@ -537,6 +549,16 @@ do
 			if alpha_test and alpha_test > 0 then
 				self:SetAlphaTest(true)
 				self:SetAlphaCutoff(alpha_test)
+			end
+		end
+
+		do
+			local public_params = find_child_by_tag(material_node, "PublicParams")
+
+			if public_params and public_params.attrs then
+				for key, value in pairs(public_params.attrs) do
+					self.cry_public_params[key] = value
+				end
 			end
 		end
 
@@ -565,6 +587,19 @@ do
 		for texture_node in iter_children_by_tag(textures, "Texture") do
 			local attrs = texture_node.attrs or {}
 			local resolved, candidates = resolve_cry_texture_path(material_path, attrs.File)
+			local tex_mod = find_child_by_tag(texture_node, "TexMod")
+			local tex_mod_attrs = tex_mod and tex_mod.attrs or nil
+			local map_name = attrs.Map
+			local map_info = {
+				file = attrs.File,
+				resolved = resolved,
+				tile_u = tex_mod_attrs and tonumber(tex_mod_attrs.TileU) or 1,
+				tile_v = tex_mod_attrs and tonumber(tex_mod_attrs.TileV) or 1,
+			}
+
+			if map_name and map_name ~= "" then
+				self.cry_texture_maps[map_name] = map_info
+			end
 
 			if attrs.Map == "Diffuse" then
 				self:SetAlbedoTexture(

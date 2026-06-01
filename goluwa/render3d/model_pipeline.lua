@@ -73,6 +73,26 @@ local PBR_TERRAIN_FIELDS = {
 		getter = "GetTerrainMaterialTexture",
 	},
 	{
+		type = "texture",
+		name = "TerrainLayer1Texture",
+		getter = "GetTerrainLayer1Texture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer2Texture",
+		getter = "GetTerrainLayer2Texture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer3Texture",
+		getter = "GetTerrainLayer3Texture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer4Texture",
+		getter = "GetTerrainLayer4Texture",
+	},
+	{
 		type = "vec4",
 		name = "TerrainCheckerScales",
 		getter = "GetTerrainCheckerScales",
@@ -94,6 +114,11 @@ local PBR_TERRAIN_FIELDS = {
 		type = "vec4",
 		name = "TerrainLayerAmbientOcclusion",
 		getter = "GetTerrainLayerAmbientOcclusion",
+	},
+	{
+		type = "vec4",
+		name = "TerrainLayerDetailStrength",
+		getter = "GetTerrainLayerDetailStrength",
 	},
 }
 local PBR_TRANSMISSION_FIELDS = {
@@ -128,6 +153,26 @@ local PROBE_MATERIAL_FIELDS = {
 	},
 	{
 		type = "texture",
+		name = "TerrainLayer1Texture",
+		getter = "GetTerrainLayer1Texture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer2Texture",
+		getter = "GetTerrainLayer2Texture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer3Texture",
+		getter = "GetTerrainLayer3Texture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer4Texture",
+		getter = "GetTerrainLayer4Texture",
+	},
+	{
+		type = "texture",
 		name = "MetallicRoughnessTexture",
 		getter = "GetMetallicRoughnessTexture",
 	},
@@ -146,6 +191,11 @@ local PROBE_MATERIAL_FIELDS = {
 	{type = "vec4", name = "TerrainLayer3ColorB", getter = "GetTerrainLayer3ColorB"},
 	{type = "vec4", name = "TerrainLayer4ColorA", getter = "GetTerrainLayer4ColorA"},
 	{type = "vec4", name = "TerrainLayer4ColorB", getter = "GetTerrainLayer4ColorB"},
+	{
+		type = "vec4",
+		name = "TerrainLayerDetailStrength",
+		getter = "GetTerrainLayerDetailStrength",
+	},
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
 	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
@@ -1379,6 +1429,19 @@ function model_pipeline.BuildPBRSamplingGlsl(
 				return mix(color_a, color_b, blend);
 			}
 
+			vec3 sample_terrain_layer_detail(int tex, vec2 world_pos, float checker_scale, float detail_strength, vec3 color_a, vec3 color_b) {
+				vec3 base = sample_terrain_checker(world_pos, checker_scale, color_a, color_b);
+
+				if (tex == -1) {
+					return base;
+				}
+
+				float safe_scale = max(checker_scale, 0.0001);
+				vec2 sample_pos = world_pos / safe_scale;
+				vec3 detail = texture(TEXTURE(tex), sample_pos).rgb;
+				return base * mix(vec3(1.0), detail, clamp(detail_strength, 0.0, 2.0));
+			}
+
 			vec4 get_terrain_material_weights_uv(vec2 uv) {
 				if (]] .. terrain_var .. [[.TerrainMaterialTexture == -1) {
 					return vec4(0.0);
@@ -1402,10 +1465,10 @@ function model_pipeline.BuildPBRSamplingGlsl(
 					return ]] .. color_var .. [[.ColorMultiplier.rgb;
 				}
 				vec2 terrain_pos = world_pos.xz;
-				vec3 layer1 = sample_terrain_checker(terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.x, ]] .. terrain_var .. [[.TerrainLayer1ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer1ColorB.rgb);
-				vec3 layer2 = sample_terrain_checker(terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.y, ]] .. terrain_var .. [[.TerrainLayer2ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer2ColorB.rgb);
-				vec3 layer3 = sample_terrain_checker(terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.z, ]] .. terrain_var .. [[.TerrainLayer3ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer3ColorB.rgb);
-				vec3 layer4 = sample_terrain_checker(terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.w, ]] .. terrain_var .. [[.TerrainLayer4ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer4ColorB.rgb);
+				vec3 layer1 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer1Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.x, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.x, ]] .. terrain_var .. [[.TerrainLayer1ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer1ColorB.rgb);
+				vec3 layer2 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer2Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.y, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.y, ]] .. terrain_var .. [[.TerrainLayer2ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer2ColorB.rgb);
+				vec3 layer3 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer3Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.z, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.z, ]] .. terrain_var .. [[.TerrainLayer3ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer3ColorB.rgb);
+				vec3 layer4 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer4Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.w, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.w, ]] .. terrain_var .. [[.TerrainLayer4ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer4ColorB.rgb);
 				vec3 color = layer1 * weights.r + layer2 * weights.g + layer3 * weights.b + layer4 * weights.a;
 
 				if (]] .. model_var .. [[.AlbedoTexture != -1) {
@@ -1507,6 +1570,19 @@ function model_pipeline.BuildProbeSamplingGlsl(model_var)
 				return mix(color_a, color_b, blend);
 			}
 
+			vec3 sample_terrain_layer_detail(int tex, vec2 world_pos, float checker_scale, float detail_strength, vec3 color_a, vec3 color_b) {
+				vec3 base = sample_terrain_checker(world_pos, checker_scale, color_a, color_b);
+
+				if (tex == -1) {
+					return base;
+				}
+
+				float safe_scale = max(checker_scale, 0.0001);
+				vec2 sample_pos = world_pos / safe_scale;
+				vec3 detail = texture(TEXTURE(tex), sample_pos).rgb;
+				return base * mix(vec3(1.0), detail, clamp(detail_strength, 0.0, 2.0));
+			}
+
 			vec4 get_terrain_material_weights_uv(vec2 uv) {
 				if (]] .. model_var .. [[.TerrainMaterialTexture == -1) {
 					return vec4(0.0);
@@ -1531,10 +1607,10 @@ function model_pipeline.BuildProbeSamplingGlsl(model_var)
 				}
 
 				vec2 terrain_pos = world_pos.xz;
-				vec3 layer1 = sample_terrain_checker(terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.x, ]] .. model_var .. [[.TerrainLayer1ColorA.rgb, ]] .. model_var .. [[.TerrainLayer1ColorB.rgb);
-				vec3 layer2 = sample_terrain_checker(terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.y, ]] .. model_var .. [[.TerrainLayer2ColorA.rgb, ]] .. model_var .. [[.TerrainLayer2ColorB.rgb);
-				vec3 layer3 = sample_terrain_checker(terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.z, ]] .. model_var .. [[.TerrainLayer3ColorA.rgb, ]] .. model_var .. [[.TerrainLayer3ColorB.rgb);
-				vec3 layer4 = sample_terrain_checker(terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.w, ]] .. model_var .. [[.TerrainLayer4ColorA.rgb, ]] .. model_var .. [[.TerrainLayer4ColorB.rgb);
+				vec3 layer1 = sample_terrain_layer_detail(]] .. model_var .. [[.TerrainLayer1Texture, terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.x, ]] .. model_var .. [[.TerrainLayerDetailStrength.x, ]] .. model_var .. [[.TerrainLayer1ColorA.rgb, ]] .. model_var .. [[.TerrainLayer1ColorB.rgb);
+				vec3 layer2 = sample_terrain_layer_detail(]] .. model_var .. [[.TerrainLayer2Texture, terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.y, ]] .. model_var .. [[.TerrainLayerDetailStrength.y, ]] .. model_var .. [[.TerrainLayer2ColorA.rgb, ]] .. model_var .. [[.TerrainLayer2ColorB.rgb);
+				vec3 layer3 = sample_terrain_layer_detail(]] .. model_var .. [[.TerrainLayer3Texture, terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.z, ]] .. model_var .. [[.TerrainLayerDetailStrength.z, ]] .. model_var .. [[.TerrainLayer3ColorA.rgb, ]] .. model_var .. [[.TerrainLayer3ColorB.rgb);
+				vec3 layer4 = sample_terrain_layer_detail(]] .. model_var .. [[.TerrainLayer4Texture, terrain_pos, ]] .. model_var .. [[.TerrainCheckerScales.w, ]] .. model_var .. [[.TerrainLayerDetailStrength.w, ]] .. model_var .. [[.TerrainLayer4ColorA.rgb, ]] .. model_var .. [[.TerrainLayer4ColorB.rgb);
 				vec3 color = layer1 * weights.r + layer2 * weights.g + layer3 * weights.b + layer4 * weights.a;
 
 				if (]] .. model_var .. [[.AlbedoTexture != -1) {
