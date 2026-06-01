@@ -509,19 +509,48 @@ function CommandBuffer:BindPipeline(pipeline, bind_point)
 end
 
 function CommandBuffer:BindVertexBuffers(firstBinding, buffers, offsets)
+	firstBinding = firstBinding or 0
 	local bufferCount = #buffers
+	self.bound_vertex_buffers = self.bound_vertex_buffers or {}
 	local bufferArray = get_cached_ffi_array(self, "cached_vk_buffer_arrays", VkBufferArray, bufferCount)
 	local offsetArray = get_cached_ffi_array(self, "cached_vk_device_size_arrays", VkDeviceSizeArray, bufferCount)
 	local hasOffsets = offsets ~= nil
+	local all_match = true
+
+	for i = 1, bufferCount do
+		local binding = firstBinding + i - 1
+		local cached = self.bound_vertex_buffers[binding]
+		local offset = hasOffsets and offsets[i] or 0
+
+		if not (cached and cached.buffer == buffers[i] and cached.offset == offset) then
+			all_match = false
+
+			break
+		end
+	end
+
+	if all_match then return end
+
 	keepalive(self, buffers)
 
 	for i = 1, bufferCount do
 		local buffer = buffers[i]
+		local binding = firstBinding + i - 1
+		local offset = hasOffsets and offsets[i] or 0
+		local cached = self.bound_vertex_buffers[binding]
+
+		if not cached then
+			cached = {}
+			self.bound_vertex_buffers[binding] = cached
+		end
+
 		bufferArray[i - 1] = buffer.ptr[0]
-		offsetArray[i - 1] = hasOffsets and offsets[i] or 0
+		offsetArray[i - 1] = offset
+		cached.buffer = buffer
+		cached.offset = offset
 	end
 
-	vulkan.lib.vkCmdBindVertexBuffers(self.ptr[0], firstBinding or 0, bufferCount, bufferArray, offsetArray)
+	vulkan.lib.vkCmdBindVertexBuffers(self.ptr[0], firstBinding, bufferCount, bufferArray, offsetArray)
 end
 
 function CommandBuffer:BindVertexBuffer(buffer, binding, offset)
@@ -642,6 +671,32 @@ function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertex
 		firstIndex or 0,
 		vertexOffset or 0,
 		firstInstance or 0
+	)
+end
+
+function CommandBuffer:DrawIndirect(buffer, offset, drawCount, stride)
+	if render.stats then render_stats.AddDrawCalls(drawCount or 1) end
+
+	keepalive(self, buffer)
+	vulkan.lib.vkCmdDrawIndirect(
+		self.ptr[0],
+		buffer.ptr[0],
+		offset or 0,
+		drawCount or 1,
+		stride or ffi.sizeof(vulkan.vk.VkDrawIndirectCommand)
+	)
+end
+
+function CommandBuffer:DrawIndexedIndirect(buffer, offset, drawCount, stride)
+	if render.stats then render_stats.AddDrawCalls(drawCount or 1) end
+
+	keepalive(self, buffer)
+	vulkan.lib.vkCmdDrawIndexedIndirect(
+		self.ptr[0],
+		buffer.ptr[0],
+		offset or 0,
+		drawCount or 1,
+		stride or ffi.sizeof(vulkan.vk.VkDrawIndexedIndirectCommand)
 	)
 end
 

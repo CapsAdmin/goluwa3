@@ -250,6 +250,26 @@ function Mesh:DrawInstanced(
 	)
 end
 
+function Mesh:DrawInstancedIndirect(cmd, indirect_buffer, indirect_offset, extra_vertex_buffers, draw_count, stride)
+	if not is_command_buffer(cmd) then
+		stride = draw_count
+		draw_count = extra_vertex_buffers
+		extra_vertex_buffers = indirect_offset
+		indirect_offset = indirect_buffer
+		indirect_buffer = cmd
+		cmd = get_active_command_buffer(2)
+	end
+
+	self:BindInstanced(cmd, extra_vertex_buffers, 0)
+
+	if self.index_buffer then
+		cmd:DrawIndexedIndirect(indirect_buffer, indirect_offset or 0, draw_count or 1, stride)
+		return
+	end
+
+	cmd:DrawIndirect(indirect_buffer, indirect_offset or 0, draw_count or 1, stride)
+end
+
 function Mesh:GetVertices()
 	return self.vertex_buffer:GetVertices()
 end

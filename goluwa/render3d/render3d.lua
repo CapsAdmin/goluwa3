@@ -3,6 +3,7 @@ import.loaded["goluwa/render3d/render3d.lua"] = render3d
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local vk = import("goluwa/bindings/vk.lua")
 local event = import("goluwa/event.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -1301,34 +1302,30 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 		}
 	end
 
-	local counts = ffi.cast("uint32_t *", output.visible_instanced_batch_count_buffer:Map())
 	local active_batch_count_ptr = ffi.cast("uint32_t *", output.active_batch_count_buffer:Map())
 	local active_batch_indices = ffi.cast("uint32_t *", output.active_batch_index_buffer:Map())
 	local drew_any = false
-	local submitted_entry_count = 0
+	local submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
 	local draw_call_count = 0
 	local active_batch_count = tonumber(active_batch_count_ptr[0])
 
 	for active_index = 0, active_batch_count - 1 do
 		local batch_index = tonumber(active_batch_indices[active_index]) + 1
 		local batch = batches[batch_index]
-		local instance_count = batch and tonumber(counts[batch_index - 1]) or 0
 
-		if batch and instance_count > 0 then
+		if batch then
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			render3d.SetMaterial(batch.material)
 			render3d.UploadInstancedGBufferConstants()
-			batch.mesh:DrawInstanced(
+			batch.mesh:DrawInstancedIndirect(
 				render.GetCommandBuffer(),
-				instance_count,
+				output.visible_batch_indirect_command_buffer,
+				(batch_index - 1) * ffi.sizeof(vk.VkDrawIndexedIndirectCommand),
 				{output.visible_instance_vertex_buffer},
-				nil,
-				nil,
-				nil,
-				batch.output_offset
+				1,
+				ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
 			)
 			drew_any = true
-			submitted_entry_count = submitted_entry_count + instance_count
 			draw_call_count = draw_call_count + 1
 		end
 	end

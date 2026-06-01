@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local vk = import("goluwa/bindings/vk.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = nil
 local ShadowMapLispsm = import("goluwa/render3d/shadow_map_lispsm.lua")
@@ -2088,34 +2089,30 @@ function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index
 		return result
 	end
 
-	local counts = ffi.cast("uint32_t *", output.shadow_visible_instanced_batch_count_buffer:Map())
 	local active_batch_count_ptr = ffi.cast("uint32_t *", output.shadow_active_batch_count_buffer:Map())
 	local active_batch_indices = ffi.cast("uint32_t *", output.shadow_active_batch_index_buffer:Map())
 	local active_batch_count = tonumber(active_batch_count_ptr[0])
 	local drew_any = false
-	local submitted_entry_count = 0
+	local submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
 	local draw_call_count = 0
 
 	for active_index = 0, active_batch_count - 1 do
 		local batch_index = tonumber(active_batch_indices[active_index]) + 1
 		local batch = batches[batch_index]
-		local instance_count = batch and tonumber(counts[batch_index - 1]) or 0
 
-		if batch and instance_count > 0 then
+		if batch then
 			render3d.SetWorldMatrix(batch.first_world_matrix)
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			bind_instanced_shadow_constants(self, batch.material, cascade_index)
-			batch.mesh:DrawInstanced(
+			batch.mesh:DrawInstancedIndirect(
 				self.cmd,
-				instance_count,
+				output.shadow_visible_batch_indirect_command_buffer,
+				(batch_index - 1) * ffi.sizeof(vk.VkDrawIndexedIndirectCommand),
 				get_visible_instance_vertex_buffer_list(output),
-				nil,
-				nil,
-				nil,
-				batch.output_offset
+				1,
+				ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
 			)
 			drew_any = true
-			submitted_entry_count = submitted_entry_count + instance_count
 			draw_call_count = draw_call_count + 1
 		end
 	end

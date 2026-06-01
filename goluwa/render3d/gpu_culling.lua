@@ -74,7 +74,7 @@ local GPUCullEntryRecord = ffi.typeof([[struct {
 local GPUCullInstancedBatchRecord = ffi.typeof([[struct {
 	uint32_t output_offset;
 	uint32_t max_count;
-	uint32_t reserved0;
+	uint32_t index_count;
 	uint32_t reserved1;
 }]])
 local GPUCullNodeRecord = ffi.typeof([[struct {
@@ -1180,7 +1180,11 @@ local function flatten_instanced_batch_upload(dataset)
 		local batch_record = batch_records[batch_index - 1]
 		batch_record.output_offset = batch.output_offset or 0
 		batch_record.max_count = batch.max_count or 0
-		batch_record.reserved0 = 0
+		batch_record.index_count = batch.mesh and
+			batch.mesh.index_buffer and
+			batch.mesh.index_buffer.GetIndexCount and
+			batch.mesh.index_buffer:GetIndexCount() or
+			0
 		batch_record.reserved1 = 0
 	end
 
@@ -1199,7 +1203,11 @@ local function flatten_shadow_instanced_batch_upload(dataset)
 		local batch_record = batch_records[batch_index - 1]
 		batch_record.output_offset = batch.output_offset or 0
 		batch_record.max_count = batch.max_count or 0
-		batch_record.reserved0 = 0
+		batch_record.index_count = batch.mesh and
+			batch.mesh.index_buffer and
+			batch.mesh.index_buffer.GetIndexCount and
+			batch.mesh.index_buffer:GetIndexCount() or
+			0
 		batch_record.reserved1 = 0
 	end
 
@@ -1334,9 +1342,11 @@ local function clear_frame_buffers()
 		remove_buffer(frame_buffers.indirect_command_buffer)
 		remove_buffer(frame_buffers.indirect_count_buffer)
 		remove_buffer(frame_buffers.visible_instanced_batch_count_buffer)
+		remove_buffer(frame_buffers.visible_batch_indirect_command_buffer)
 		remove_buffer(frame_buffers.active_batch_index_buffer)
 		remove_buffer(frame_buffers.active_batch_count_buffer)
 		remove_buffer(frame_buffers.shadow_visible_instanced_batch_count_buffer)
+		remove_buffer(frame_buffers.shadow_visible_batch_indirect_command_buffer)
 
 		if frame_buffers.visible_instance_vertex_buffer then
 			frame_buffers.visible_instance_vertex_buffer:Remove()
@@ -1527,8 +1537,14 @@ local function get_main_view_cull_pass()
 				set_index = 0,
 			},
 			{
-				type = "combined_image_sampler",
+				type = "storage_buffer",
 				binding_index = 13,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 14,
 				stageFlags = "compute",
 				set_index = 0,
 			},
@@ -1615,7 +1631,7 @@ local function get_main_view_cull_pass()
 			struct InstancedBatchRecord {
 				uint output_offset;
 				uint max_count;
-				uint reserved0;
+				uint index_count;
 				uint reserved1;
 			};
 
@@ -1679,7 +1695,11 @@ local function get_main_view_cull_pass()
 				uint active_batch_count[];
 			};
 
-			layout(set = 0, binding = 13) uniform sampler2D source_depth_tex;
+			layout(std430, set = 0, binding = 13) buffer VisibleBatchIndirectCommandBuffer {
+				DrawIndexedIndirectCommand batch_commands[];
+			};
+
+			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
 
 			const uint VISUAL_FLAG_VISIBLE = 1u;
 			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
@@ -1836,7 +1856,13 @@ local function get_main_view_cull_pass()
 						if (local_index == 0u) {
 							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
 							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
+							batch_commands[entry_record.instanced_batch_index].indexCount = batch_record.index_count;
+							batch_commands[entry_record.instanced_batch_index].firstIndex = 0u;
+							batch_commands[entry_record.instanced_batch_index].vertexOffset = 0;
+							batch_commands[entry_record.instanced_batch_index].firstInstance = batch_record.output_offset;
 						}
+
+						atomicAdd(batch_commands[entry_record.instanced_batch_index].instanceCount, 1u);
 
 						if (local_index < batch_record.max_count) {
 							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
@@ -1936,8 +1962,20 @@ local function get_shadow_view_aabb_cull_pass()
 				set_index = 0,
 			},
 			{
-				type = "combined_image_sampler",
+				type = "storage_buffer",
 				binding_index = 12,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+			{
+				type = "storage_buffer",
+				binding_index = 13,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 14,
 				stageFlags = "compute",
 				set_index = 0,
 			},
@@ -2017,8 +2055,16 @@ local function get_shadow_view_aabb_cull_pass()
 			struct InstancedBatchRecord {
 				uint output_offset;
 				uint max_count;
-				uint reserved0;
+				uint index_count;
 				uint reserved1;
+			};
+
+			struct DrawIndexedIndirectCommand {
+				uint indexCount;
+				uint instanceCount;
+				uint firstIndex;
+				int vertexOffset;
+				uint firstInstance;
 			};
 
 			layout(std430, set = 0, binding = 0) readonly buffer VisualBuffer {
@@ -2069,7 +2115,11 @@ local function get_shadow_view_aabb_cull_pass()
 				uint active_batch_count[];
 			};
 
-			layout(set = 0, binding = 12) uniform sampler2D source_depth_tex;
+			layout(std430, set = 0, binding = 12) buffer VisibleBatchIndirectCommandBuffer {
+				DrawIndexedIndirectCommand batch_commands[];
+			};
+
+			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
 
 			const uint VISUAL_FLAG_CAST_SHADOWS = 2u;
 			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
@@ -2184,7 +2234,13 @@ local function get_shadow_view_aabb_cull_pass()
 						if (local_index == 0u) {
 							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
 							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
+							batch_commands[entry_record.instanced_batch_index].indexCount = batch_record.index_count;
+							batch_commands[entry_record.instanced_batch_index].firstIndex = 0u;
+							batch_commands[entry_record.instanced_batch_index].vertexOffset = 0;
+							batch_commands[entry_record.instanced_batch_index].firstInstance = batch_record.output_offset;
 						}
+
+						atomicAdd(batch_commands[entry_record.instanced_batch_index].instanceCount, 1u);
 
 						if (local_index < batch_record.max_count) {
 							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
@@ -2352,6 +2408,15 @@ local function build_frame_buffers(dataset)
 				instanced_batch_count * UINT32_SIZE,
 				{"storage_buffer"}
 			),
+			visible_batch_indirect_zero_data = ffi.new(
+				"uint8_t[?]",
+				math.max(instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE, 1)
+			),
+			visible_batch_indirect_command_buffer = create_buffer(
+				"gpu_culling_visible_batch_indirect_commands_" .. frame_index,
+				instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
+				{"storage_buffer", "indirect_buffer"}
+			),
 			active_batch_index_buffer = create_buffer(
 				"gpu_culling_active_batch_indices_" .. frame_index,
 				instanced_batch_count * UINT32_SIZE,
@@ -2378,6 +2443,15 @@ local function build_frame_buffers(dataset)
 				"gpu_culling_shadow_visible_instanced_batch_counts_" .. frame_index,
 				shadow_instanced_batch_count * UINT32_SIZE,
 				{"storage_buffer"}
+			),
+			shadow_visible_batch_indirect_zero_data = ffi.new(
+				"uint8_t[?]",
+				math.max(shadow_instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE, 1)
+			),
+			shadow_visible_batch_indirect_command_buffer = create_buffer(
+				"gpu_culling_shadow_visible_batch_indirect_commands_" .. frame_index,
+				shadow_instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
+				{"storage_buffer", "indirect_buffer"}
 			),
 			shadow_visible_instance_vertex_buffer = VertexBuffer.New(
 				shadow_instance_capacity,
@@ -2719,6 +2793,11 @@ function gpu_culling.RunMainViewFrustumCulling(
 	output.indirect_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
 	output.fallback_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
 	output.active_batch_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
+	output.visible_batch_indirect_command_buffer:CopyData(
+		output.visible_batch_indirect_zero_data,
+		output.visible_batch_indirect_command_buffer.size,
+		0
+	)
 	output.visible_instanced_batch_count_buffer:CopyData(
 		output.visible_instanced_batch_count_zero_data,
 		output.visible_instanced_batch_count_buffer.size,
@@ -2834,6 +2913,14 @@ function gpu_culling.RunMainViewFrustumCulling(
 		output.active_batch_count_buffer,
 		output.active_batch_count_buffer.size
 	)
+	pass:UpdateDescriptorSet(
+		"storage_buffer",
+		slot,
+		13,
+		0,
+		output.visible_batch_indirect_command_buffer,
+		output.visible_batch_indirect_command_buffer.size
+	)
 	local cmd = output.main_view_cull_cmd
 	cmd:Reset()
 	cmd:Begin()
@@ -2850,7 +2937,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 		pass:UpdateDescriptorSet(
 			"combined_image_sampler",
 			slot,
-			13,
+			14,
 			0,
 			occlusion_depth_view,
 			occlusion_depth_sampler,
@@ -2881,6 +2968,12 @@ function gpu_culling.RunMainViewFrustumCulling(
 			size = output.active_batch_count_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
+		},
+		{
+			buffer = output.visible_batch_indirect_command_buffer,
+			size = output.visible_batch_indirect_command_buffer.size,
+			srcAccessMask = "shader_write",
+			dstAccessMask = "indirect_command_read",
 		},
 		{
 			buffer = output.visible_instance_vertex_buffer.buffer,
@@ -2940,7 +3033,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 
 	cmd:PipelineBarrier{
 		srcStage = "compute",
-		dstStage = {"host", "vertex_input"},
+		dstStage = {"host", "vertex_input", "draw_indirect"},
 		bufferBarriers = buffer_barriers,
 	}
 	cmd:End()
@@ -3019,6 +3112,11 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	output.shadow_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
 	output.shadow_fallback_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
 	output.shadow_active_batch_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
+	output.shadow_visible_batch_indirect_command_buffer:CopyData(
+		output.shadow_visible_batch_indirect_zero_data,
+		output.shadow_visible_batch_indirect_command_buffer.size,
+		0
+	)
 	output.shadow_visible_instanced_batch_count_buffer:CopyData(
 		output.shadow_visible_instanced_batch_count_zero_data,
 		output.shadow_visible_instanced_batch_count_buffer.size,
@@ -3124,6 +3222,14 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 		output.shadow_active_batch_count_buffer,
 		output.shadow_active_batch_count_buffer.size
 	)
+	pass:UpdateDescriptorSet(
+		"storage_buffer",
+		slot,
+		12,
+		0,
+		output.shadow_visible_batch_indirect_command_buffer,
+		output.shadow_visible_batch_indirect_command_buffer.size
+	)
 	local cmd = gpu_culling.shadow_view_aabb_cull_cmd
 	cmd:Reset()
 	cmd:Begin()
@@ -3135,7 +3241,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	pass:UpdateDescriptorSet(
 		"combined_image_sampler",
 		slot,
-		12,
+		14,
 		0,
 		occlusion_depth_view,
 		occlusion_depth_sampler,
@@ -3181,6 +3287,12 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
 		},
+		{
+			buffer = output.shadow_visible_batch_indirect_command_buffer,
+			size = output.shadow_visible_batch_indirect_command_buffer.size,
+			srcAccessMask = "shader_write",
+			dstAccessMask = "indirect_command_read",
+		},
 	}
 
 	if read_visible_entry_indices then
@@ -3211,7 +3323,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 
 	cmd:PipelineBarrier{
 		srcStage = "compute",
-		dstStage = {"host", "vertex_input"},
+		dstStage = {"host", "vertex_input", "draw_indirect"},
 		bufferBarriers = buffer_barriers,
 	}
 	cmd:End()
