@@ -678,6 +678,36 @@ local function get_terrain_texture_tile_size(terrain)
 	return terrain.world_size > 0 and (terrain.world_size / tile_span) or 0
 end
 
+local function rebuild_terrain_height_cache(terrain)
+	local width = terrain.height_samples_width or terrain.height_samples_per_side or 0
+	local height = terrain.height_samples_height or terrain.height_samples_per_side or width
+	local sample_count = width * height
+	terrain.height_sample_width = width
+	terrain.height_sample_height = height
+	terrain.height_sample_max_x = width - 1
+	terrain.height_sample_max_y = height - 1
+	terrain.height_world_to_sample_x = width > 1 and ((width - 1) / math.max(terrain.world_size or 0, 1)) or 0
+	terrain.height_world_to_sample_y = height > 1 and ((height - 1) / math.max(terrain.world_size or 0, 1)) or 0
+
+	if not terrain.height_data or sample_count <= 0 then
+		terrain.height_samples = nil
+		return
+	end
+
+	local samples = ffi.new("uint16_t[?]", sample_count)
+	ffi.copy(samples, terrain.height_data, sample_count * 2)
+	terrain.height_samples = samples
+end
+
+local function rebuild_terrain_albedo_cache(terrain)
+	local tile_world_size = math.max(terrain.tile_world_size or 0, 1)
+	terrain.albedo_tile_world_size = tile_world_size
+	terrain.albedo_world_to_tile_x = 1 / tile_world_size
+	terrain.albedo_world_to_tile_y = 1 / tile_world_size
+	terrain.albedo_tile_max_x = math.max((terrain.grid_width or 1) - 1, 0)
+	terrain.albedo_tile_max_y = math.max((terrain.grid_height or 1) - 1, 0)
+end
+
 local function decode_terrain_texture_tile(tile)
 	if tile.rgba_buffer then return tile.rgba_buffer, tile.width, tile.height end
 
@@ -838,6 +868,7 @@ function crylevel.LoadTerrainData(level_dir)
 			terrain.height_samples_height = height_samples_h
 			terrain.height_sample_scale = terrain.heightmap_max_height / 65535
 			terrain.tile_height_resolution = math.floor(height_samples_w / math.max(max_x + 1, 1))
+			rebuild_terrain_height_cache(terrain)
 		else
 			wlog(
 				"cry terrain editor heightmap %s size mismatch: got %d expected %d (%dx%d samples)",
@@ -867,31 +898,51 @@ function crylevel.LoadTerrainData(level_dir)
 	terrain.grid_width = max_x + 1
 	terrain.grid_height = max_y + 1
 	terrain.tile_world_size = get_terrain_texture_tile_size(terrain)
+	rebuild_terrain_albedo_cache(terrain)
 	return terrain
 end
 
 local function get_terrain_height_sample(terrain, sample_x, sample_y)
 	if not terrain.height_data then return 0 end
 
-	sample_x = math.clamp(
-		math.floor(sample_x),
-		0,
-		(terrain.height_samples_width or terrain.height_samples_per_side) - 1
-	)
-	sample_y = math.clamp(
-		math.floor(sample_y),
-		0,
-		(terrain.height_samples_height or terrain.height_samples_per_side) - 1
-	)
-	local offset = terrain.height_data_offset + (
+	local width = terrain.height_sample_width or
+		terrain.height_samples_width or
+		terrain.height_samples_per_side or
+		0
+	local max_x = terrain.height_sample_max_x or (width - 1)
+	local max_y = terrain.height_sample_max_y or
+		(
 			(
-				sample_y * (
-					terrain.height_samples_width or
-					terrain.height_samples_per_side
-				) + sample_x
-			) * 2
+				terrain.height_sample_height or
+				terrain.height_samples_height or
+				terrain.height_samples_per_side or
+				width
+			) - 1
 		)
-	local raw = read_u16_le(terrain.height_data, offset) or 0
+	sample_x = math.floor(sample_x)
+	sample_y = math.floor(sample_y)
+
+	if sample_x < 0 then
+		sample_x = 0
+	elseif sample_x > max_x then
+		sample_x = max_x
+	end
+
+	if sample_y < 0 then
+		sample_y = 0
+	elseif sample_y > max_y then
+		sample_y = max_y
+	end
+
+	local raw
+
+	if terrain.height_samples then
+		raw = terrain.height_samples[sample_y * width + sample_x]
+	else
+		local offset = terrain.height_data_offset + (((sample_y * width) + sample_x) * 2)
+		raw = read_u16_le(terrain.height_data, offset) or 0
+	end
+
 	return raw * (terrain.height_sample_scale or 1)
 end
 
@@ -963,63 +1014,104 @@ end
 local function sample_terrain_height_raw(terrain, sample_x, sample_y)
 	if not terrain.height_data then return 0 end
 
-	local width = terrain.height_samples_width or terrain.height_samples_per_side or 0
-	local height = terrain.height_samples_height or terrain.height_samples_per_side or width
+	local width = terrain.height_sample_width or
+		terrain.height_samples_width or
+		terrain.height_samples_per_side or
+		0
+	local height = terrain.height_sample_height or
+		terrain.height_samples_height or
+		terrain.height_samples_per_side or
+		width
 
 	if width <= 0 or height <= 0 then return 0 end
 
-	sample_x = math.clamp(sample_x, 0, width - 1)
-	sample_y = math.clamp(sample_y, 0, height - 1)
+	if sample_x < 0 then
+		sample_x = 0
+	elseif sample_x > width - 1 then
+		sample_x = width - 1
+	end
+
+	if sample_y < 0 then
+		sample_y = 0
+	elseif sample_y > height - 1 then
+		sample_y = height - 1
+	end
+
 	local x0 = math.floor(sample_x)
 	local y0 = math.floor(sample_y)
 	local x1 = math.min(x0 + 1, width - 1)
 	local y1 = math.min(y0 + 1, height - 1)
 	local tx = sample_x - x0
 	local ty = sample_y - y0
-	local stride = width
-	local base = terrain.height_data_offset or 1
-	local raw00 = read_u16_le(terrain.height_data, base + ((y0 * stride + x0) * 2)) or 0
-	local raw10 = read_u16_le(terrain.height_data, base + ((y0 * stride + x1) * 2)) or 0
-	local raw01 = read_u16_le(terrain.height_data, base + ((y1 * stride + x0) * 2)) or 0
-	local raw11 = read_u16_le(terrain.height_data, base + ((y1 * stride + x1) * 2)) or 0
+	local raw00, raw10, raw01, raw11
+
+	if terrain.height_samples then
+		local samples = terrain.height_samples
+		local row0 = y0 * width
+		local row1 = y1 * width
+		raw00 = samples[row0 + x0]
+		raw10 = samples[row0 + x1]
+		raw01 = samples[row1 + x0]
+		raw11 = samples[row1 + x1]
+	else
+		local stride = width
+		local base = terrain.height_data_offset or 1
+		raw00 = read_u16_le(terrain.height_data, base + ((y0 * stride + x0) * 2)) or 0
+		raw10 = read_u16_le(terrain.height_data, base + ((y0 * stride + x1) * 2)) or 0
+		raw01 = read_u16_le(terrain.height_data, base + ((y1 * stride + x0) * 2)) or 0
+		raw11 = read_u16_le(terrain.height_data, base + ((y1 * stride + x1) * 2)) or 0
+	end
+
 	return bilerp(raw00, raw10, raw01, raw11, tx, ty)
 end
 
 sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	if not terrain.height_data then return 0 end
 
-	local width = terrain.height_samples_width or terrain.height_samples_per_side or 0
-	local height = terrain.height_samples_height or terrain.height_samples_per_side or width
+	local width = terrain.height_sample_width or
+		terrain.height_samples_width or
+		terrain.height_samples_per_side or
+		0
+	local height = terrain.height_sample_height or
+		terrain.height_samples_height or
+		terrain.height_samples_per_side or
+		width
 
 	if width <= 0 or height <= 0 then return 0 end
 
-	local u, v = get_terrain_world_uv(terrain, world_x, world_z)
-	local raw = sample_terrain_height_raw(terrain, u * (width - 1), v * (height - 1))
+	local sample_x = world_x * (terrain.height_world_to_sample_x or 0)
+	local sample_y = (-world_z) * (terrain.height_world_to_sample_y or 0)
+	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
 
 local function sample_terrain_tile_rgba(tile, u, v)
 	local buffer, width, height = assert(decode_terrain_texture_tile(tile))
-	u = math.clamp(u, 0, 1)
-	v = math.clamp(v, 0, 1)
-	local sample_x = u * (width - 1)
-	local sample_y = v * (height - 1)
+
+	if u < 0 then u = 0 elseif u > 1 then u = 1 end
+
+	if v < 0 then v = 0 elseif v > 1 then v = 1 end
+
+	local width_max = width - 1
+	local height_max = height - 1
+	local sample_x = u * width_max
+	local sample_y = v * height_max
 	local x0 = math.floor(sample_x)
 	local y0 = math.floor(sample_y)
-	local x1 = math.min(x0 + 1, width - 1)
-	local y1 = math.min(y0 + 1, height - 1)
+	local x1 = x0 < width_max and (x0 + 1) or width_max
+	local y1 = y0 < height_max and (y0 + 1) or height_max
 	local tx = sample_x - x0
 	local ty = sample_y - y0
-
-	local function read_pixel(x, y)
-		local index = (y * width + x) * 4
-		return buffer[index + 0], buffer[index + 1], buffer[index + 2], buffer[index + 3]
-	end
-
-	local r00, g00, b00, a00 = read_pixel(x0, y0)
-	local r10, g10, b10, a10 = read_pixel(x1, y0)
-	local r01, g01, b01, a01 = read_pixel(x0, y1)
-	local r11, g11, b11, a11 = read_pixel(x1, y1)
+	local row0 = y0 * width * 4
+	local row1 = y1 * width * 4
+	local i00 = row0 + x0 * 4
+	local i10 = row0 + x1 * 4
+	local i01 = row1 + x0 * 4
+	local i11 = row1 + x1 * 4
+	local r00, g00, b00, a00 = buffer[i00 + 0], buffer[i00 + 1], buffer[i00 + 2], buffer[i00 + 3]
+	local r10, g10, b10, a10 = buffer[i10 + 0], buffer[i10 + 1], buffer[i10 + 2], buffer[i10 + 3]
+	local r01, g01, b01, a01 = buffer[i01 + 0], buffer[i01 + 1], buffer[i01 + 2], buffer[i01 + 3]
+	local r11, g11, b11, a11 = buffer[i11 + 0], buffer[i11 + 1], buffer[i11 + 2], buffer[i11 + 3]
 	return bilerp(r00, r10, r01, r11, tx, ty),
 	bilerp(g00, g10, g01, g11, tx, ty),
 	bilerp(b00, b10, b01, b11, tx, ty),
@@ -1027,11 +1119,22 @@ local function sample_terrain_tile_rgba(tile, u, v)
 end
 
 local function sample_terrain_albedo_at_world(terrain, world_x, world_z)
-	local tile_world_size = math.max(terrain.tile_world_size or 0, 1)
-	local max_x = math.max((terrain.grid_width or 1) - 1, 0)
-	local max_y = math.max((terrain.grid_height or 1) - 1, 0)
-	local tile_x = math.clamp(math.floor(world_x / tile_world_size), 0, max_x)
-	local tile_y = math.clamp(math.floor((-world_z) / tile_world_size), 0, max_y)
+	local tile_world_size = terrain.albedo_tile_world_size or math.max(terrain.tile_world_size or 0, 1)
+	local tile_x = math.floor(world_x * (terrain.albedo_world_to_tile_x or (1 / tile_world_size)))
+	local tile_y = math.floor((-world_z) * (terrain.albedo_world_to_tile_y or (1 / tile_world_size)))
+
+	if tile_x < 0 then
+		tile_x = 0
+	elseif tile_x > (terrain.albedo_tile_max_x or 0) then
+		tile_x = terrain.albedo_tile_max_x or 0
+	end
+
+	if tile_y < 0 then
+		tile_y = 0
+	elseif tile_y > (terrain.albedo_tile_max_y or 0) then
+		tile_y = terrain.albedo_tile_max_y or 0
+	end
+
 	local row = terrain.tile_lookup and terrain.tile_lookup[tile_y] or nil
 	local tile = row and row[tile_x] or nil
 
@@ -1042,31 +1145,167 @@ local function sample_terrain_albedo_at_world(terrain, world_x, world_z)
 	return sample_terrain_tile_rgba(tile, local_x / tile_world_size, local_y / tile_world_size)
 end
 
-local function create_cpu_texture(width, height, format, buffer, sampler)
-	return Texture.New{
-		width = width,
-		height = height,
-		format = format,
-		buffer = buffer,
+local cry_terrain_bake_push_constant_t = ffi.typeof([[struct {
+	float chunk_min_x;
+	float chunk_min_z;
+	float chunk_world_size;
+	float texture_width;
+	float texture_height;
+	float sample_step_x;
+	float sample_step_y;
+	float normal_strength;
+	float vertical_offset;
+	float height_scale;
+	float seed_offset_x;
+	float seed_offset_y;
+	int height_tex;
+	int albedo_tex;
+}]])
+local CRY_TERRAIN_BAKE_PUSH_CONSTANT_DECLARATIONS = [[
+layout(push_constant, scalar) uniform TerrainBakeConstants {
+	float chunk_min_x;
+	float chunk_min_z;
+	float chunk_world_size;
+	float texture_width;
+	float texture_height;
+	float sample_step_x;
+	float sample_step_y;
+	float normal_strength;
+	float vertical_offset;
+	float height_scale;
+	float seed_offset_x;
+	float seed_offset_y;
+	int height_tex;
+	int albedo_tex;
+} terrain_bake;
+]]
+
+local function get_or_create_cry_height_texture(terrain)
+	if terrain.height_texture and terrain.height_texture:IsValid() then
+		return terrain.height_texture
+	end
+
+	terrain.height_texture = Texture.New{
+		width = terrain.height_sample_width,
+		height = terrain.height_sample_height,
+		format = "r16_unorm",
+		buffer = terrain.height_data,
 		mip_map_levels = 1,
-		image = {
-			usage = {"sampled", "transfer_dst", "transfer_src"},
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
 		},
-		sampler = sampler or
-			{
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
 	}
+	return terrain.height_texture
+end
+
+local function get_or_create_cry_albedo_texture(terrain)
+	if terrain.albedo_texture and terrain.albedo_texture:IsValid() then
+		return terrain.albedo_texture
+	end
+
+	local tile_width = 0
+	local tile_height = 0
+
+	for _, tile in ipairs(terrain.tiles or {}) do
+		local _, width, height = assert(decode_terrain_texture_tile(tile))
+		tile_width = math.max(tile_width, width)
+		tile_height = math.max(tile_height, height)
+	end
+
+	local atlas_width = math.max(terrain.grid_width or 1, 1) * tile_width
+	local atlas_height = math.max(terrain.grid_height or 1, 1) * tile_height
+	local atlas_buffer = ffi.new("uint8_t[?]", atlas_width * atlas_height * 4)
+	local atlas_ptr = ffi.cast("uint8_t *", atlas_buffer)
+	local atlas_stride = atlas_width * 4
+
+	for _, tile in ipairs(terrain.tiles or {}) do
+		local _, width, height = assert(decode_terrain_texture_tile(tile))
+		local dst_x = tile.x * tile_width * 4
+		local dst_y = tile.y * tile_height
+
+		for row = 0, tile_height - 1 do
+			local v = tile_height > 1 and (row / (tile_height - 1)) or 0
+			local dst = atlas_ptr + ((dst_y + row) * atlas_stride) + dst_x
+
+			for column = 0, tile_width - 1 do
+				local u = tile_width > 1 and (column / (tile_width - 1)) or 0
+				local r, g, b, a = sample_terrain_tile_rgba(tile, u, v)
+				local pixel = column * 4
+				dst[pixel + 0] = math.floor(r + 0.5)
+				dst[pixel + 1] = math.floor(g + 0.5)
+				dst[pixel + 2] = math.floor(b + 0.5)
+				dst[pixel + 3] = math.floor(a + 0.5)
+			end
+		end
+	end
+
+	terrain.albedo_texture = Texture.New{
+		width = atlas_width,
+		height = atlas_height,
+		format = "r8g8b8a8_srgb",
+		buffer = atlas_buffer,
+		mip_map_levels = 1,
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
+	return terrain.albedo_texture
 end
 
 local function build_cry_terrain_source(terrain)
+	local ProceduralTerrainSource = import("addons/game/lua/terrain/source.lua")
 	local white = {1, 1, 1}
-	return {
+	local world_size = math.max(terrain.world_size or 0, 1)
+	local height_texture = get_or_create_cry_height_texture(terrain)
+	local albedo_texture = get_or_create_cry_albedo_texture(terrain)
+	local source = ProceduralTerrainSource.New{
 		HeightScale = terrain.heightmap_max_height,
 		VerticalOffset = terrain.heightmap_max_height * 0.5,
+		TerrainShaderGLSL = "",
+		SceneShaderGLSL = string.format(
+			[[
+			vec2 getCryTerrainWorldUV(vec2 terrain_world_pos) {
+				return clamp(vec2(terrain_world_pos.x / %.6f, -terrain_world_pos.y / %.6f), vec2(0.0), vec2(1.0));
+			}
+
+			float sampleSceneTerrainHeight01(vec2 _source_world_pos, vec2 terrain_world_pos) {
+				return texture(TEXTURE(terrain_bake.height_tex), getCryTerrainWorldUV(terrain_world_pos)).r;
+			}
+
+			float sampleSceneTerrainSlope01(vec2 source_world_pos, vec2 terrain_world_pos, vec2 sample_step, float height_scale) {
+				float h_left = sampleSceneTerrainHeight01(source_world_pos - vec2(sample_step.x, 0.0), terrain_world_pos - vec2(sample_step.x, 0.0)) * height_scale;
+				float h_right = sampleSceneTerrainHeight01(source_world_pos + vec2(sample_step.x, 0.0), terrain_world_pos + vec2(sample_step.x, 0.0)) * height_scale;
+				float h_down = sampleSceneTerrainHeight01(source_world_pos - vec2(0.0, sample_step.y), terrain_world_pos - vec2(0.0, sample_step.y)) * height_scale;
+				float h_up = sampleSceneTerrainHeight01(source_world_pos + vec2(0.0, sample_step.y), terrain_world_pos + vec2(0.0, sample_step.y)) * height_scale;
+				float dx = (h_right - h_left) / max(sample_step.x * 2.0, 0.0001);
+				float dz = (h_up - h_down) / max(sample_step.y * 2.0, 0.0001);
+				float slope = sqrt(dx * dx + dz * dz);
+				float normal_y = 1.0 / sqrt(1.0 + slope * slope);
+				return clamp(1.0 - normal_y, 0.0, 1.0);
+			}
+
+			float sampleSceneTerrainDisplacement01(vec2 _source_world_pos, vec2 _terrain_world_pos, float h01) {
+				return h01;
+			}
+
+			vec4 sampleSceneTerrainMaterialWeights(vec2 _source_world_pos, vec2 _terrain_world_pos, float _elevation, float _h01, float _slope01) {
+				return vec4(1.0, 0.0, 0.0, 0.0);
+			}
+
+			vec3 sampleSceneTerrainAlbedo(vec2 _source_world_pos, vec2 terrain_world_pos, float _elevation, float _h01, float _slope01) {
+				return texture(TEXTURE(terrain_bake.albedo_tex), getCryTerrainWorldUV(terrain_world_pos)).rgb;
+			}
+		]],
+			world_size,
+			world_size
+		),
+		NormalShaderGLSL = "",
 		MaterialLayers = {
 			{
 				checker_scale = 1,
@@ -1098,6 +1337,46 @@ local function build_cry_terrain_source(terrain)
 			},
 		},
 	}
+
+	function source:BuildBakeShaderExtraConfig(
+		chunk_min_x,
+		chunk_min_z,
+		chunk_world_size,
+		texture_width,
+		texture_height,
+		normal_strength
+	)
+		texture_width = math.max(1, texture_width or 1)
+		texture_height = math.max(1, texture_height or texture_width)
+		normal_strength = normal_strength or 1
+		return {
+			textures = {height_texture, albedo_texture},
+			custom_declarations = CRY_TERRAIN_BAKE_PUSH_CONSTANT_DECLARATIONS,
+			fragment_push_constants = {
+				size = ffi.sizeof(cry_terrain_bake_push_constant_t),
+				get_data = function(_, _, pipeline)
+					return cry_terrain_bake_push_constant_t(
+						chunk_min_x,
+						chunk_min_z,
+						chunk_world_size,
+						texture_width,
+						texture_height,
+						chunk_world_size / math.max(texture_width - 1, 1),
+						chunk_world_size / math.max(texture_height - 1, 1),
+						normal_strength,
+						self.VerticalOffset,
+						self.HeightScale,
+						self.SeedOffset.x,
+						self.SeedOffset.y,
+						pipeline:GetTextureIndex(height_texture),
+						pipeline:GetTextureIndex(albedo_texture)
+					)
+				end,
+			},
+		}
+	end
+
+	return source
 end
 
 local function get_procedural_terrain_hybrid_renderer()
@@ -1156,104 +1435,6 @@ function CryTerrainHybridRenderer.New(terrain)
 	setmetatable(self, CryTerrainHybridRenderer)
 	self.TerrainData = terrain
 	return self
-end
-
-function CryTerrainHybridRenderer:CreateTileTextures(bounds, config)
-	local terrain = self.TerrainData
-	local world_size_x = bounds.max_x - bounds.min_x
-	local world_size_z = bounds.max_z - bounds.min_z
-	local height_size = config.height_texture_size or
-		config.displacement_texture_size or
-		config.texture_size or
-		128
-	local albedo_size = config.texture_size or 128
-	local normal_size = config.normal_texture_size or albedo_size
-	local material_size = config.material_texture_size or 32
-	local height_buffer = ffi.new("float[?]", height_size * height_size)
-	local albedo_buffer = ffi.new("uint8_t[?]", albedo_size * albedo_size * 4)
-	local normal_buffer = ffi.new("uint8_t[?]", normal_size * normal_size * 4)
-	local material_buffer = ffi.new("uint8_t[?]", material_size * material_size * 4)
-
-	for y = 0, height_size - 1 do
-		local v = height_size > 1 and (y / (height_size - 1)) or 0
-		local world_z = bounds.min_z + v * world_size_z
-
-		for x = 0, height_size - 1 do
-			local u = height_size > 1 and (x / (height_size - 1)) or 0
-			local world_x = bounds.min_x + u * world_size_x
-			height_buffer[y * height_size + x] = sample_terrain_height01_at_world(terrain, world_x, world_z)
-		end
-	end
-
-	for y = 0, albedo_size - 1 do
-		local v = albedo_size > 1 and (y / (albedo_size - 1)) or 0
-		local world_z = bounds.min_z + v * world_size_z
-
-		for x = 0, albedo_size - 1 do
-			local u = albedo_size > 1 and (x / (albedo_size - 1)) or 0
-			local world_x = bounds.min_x + u * world_size_x
-			local r, g, b, a = sample_terrain_albedo_at_world(terrain, world_x, world_z)
-			local index = (y * albedo_size + x) * 4
-			albedo_buffer[index + 0] = math.floor(math.clamp(r, 0, 255) + 0.5)
-			albedo_buffer[index + 1] = math.floor(math.clamp(g, 0, 255) + 0.5)
-			albedo_buffer[index + 2] = math.floor(math.clamp(b, 0, 255) + 0.5)
-			albedo_buffer[index + 3] = math.floor(math.clamp(a, 0, 255) + 0.5)
-		end
-	end
-
-	local normal_step_x = world_size_x / math.max(normal_size - 1, 1)
-	local normal_step_z = world_size_z / math.max(normal_size - 1, 1)
-	local height_scale = self.HeightScale
-	local normal_strength = config.normal_strength or 1
-
-	for y = 0, normal_size - 1 do
-		local v = normal_size > 1 and (y / (normal_size - 1)) or 0
-		local world_z = bounds.min_z + v * world_size_z
-
-		for x = 0, normal_size - 1 do
-			local u = normal_size > 1 and (x / (normal_size - 1)) or 0
-			local world_x = bounds.min_x + u * world_size_x
-			local h_left = sample_terrain_height01_at_world(terrain, world_x - normal_step_x, world_z) * height_scale
-			local h_right = sample_terrain_height01_at_world(terrain, world_x + normal_step_x, world_z) * height_scale
-			local h_down = sample_terrain_height01_at_world(terrain, world_x, world_z - normal_step_z) * height_scale
-			local h_up = sample_terrain_height01_at_world(terrain, world_x, world_z + normal_step_z) * height_scale
-			local nx = (h_left - h_right) * normal_strength
-			local ny = (h_down - h_up) * normal_strength
-			local nz = normal_step_x + normal_step_z
-			local length = math.sqrt(nx * nx + ny * ny + nz * nz)
-
-			if length <= 0.000001 then
-				nx = 0
-				ny = 0
-				nz = 1
-				length = 1
-			end
-
-			nx = nx / length
-			ny = ny / length
-			nz = nz / length
-			local index = (y * normal_size + x) * 4
-			normal_buffer[index + 0] = math.floor(math.clamp((nx * 0.5 + 0.5) * 255, 0, 255) + 0.5)
-			normal_buffer[index + 1] = math.floor(math.clamp((ny * 0.5 + 0.5) * 255, 0, 255) + 0.5)
-			normal_buffer[index + 2] = math.floor(math.clamp((nz * 0.5 + 0.5) * 255, 0, 255) + 0.5)
-			normal_buffer[index + 3] = 255
-		end
-	end
-
-	for y = 0, material_size - 1 do
-		for x = 0, material_size - 1 do
-			local index = (y * material_size + x) * 4
-			material_buffer[index + 0] = 255
-			material_buffer[index + 1] = 0
-			material_buffer[index + 2] = 0
-			material_buffer[index + 3] = 0
-		end
-	end
-
-	return create_cpu_texture(height_size, height_size, "r32_sfloat", height_buffer),
-	create_cpu_texture(albedo_size, albedo_size, "r8g8b8a8_srgb", albedo_buffer),
-	create_cpu_texture(normal_size, normal_size, "r8g8b8a8_unorm", normal_buffer),
-	create_cpu_texture(material_size, material_size, "r8g8b8a8_unorm", material_buffer)
 end
 
 function crylevel.SpawnTerrain(level_data, parent)
@@ -1510,30 +1691,32 @@ function crylevel.Apply(steam)
 
 		steam.active_cry_terrain_renderer = crylevel.SpawnTerrain(data, parent)
 
-		for _, entry in ipairs(data.entries) do
-			local transform_data = entry.transform_space == "editor_world" and
-				crylevel.ConvertCryEditorWorldMatrixToEngineTransform(entry.world_matrix) or
-				crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
-			local entity = Entity.New{Name = entry.name or "cry_object", Parent = parent}
-			local transform = entity:AddComponent("transform")
-			entity:AddComponent("visual")
-			transform:SetPosition(transform_data.position)
-			transform:SetRotation(transform_data.rotation)
-			transform:SetScale(transform_data.scale)
-			entity.visual:SetModelPath(entry.model_path)
-			entity.spawned_from_cry_level = true
-		end
+		if true then
+			for _, entry in ipairs(data.entries) do
+				local transform_data = entry.transform_space == "editor_world" and
+					crylevel.ConvertCryEditorWorldMatrixToEngineTransform(entry.world_matrix) or
+					crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
+				local entity = Entity.New{Name = entry.name or "cry_object", Parent = parent}
+				local transform = entity:AddComponent("transform")
+				entity:AddComponent("visual")
+				transform:SetPosition(transform_data.position)
+				transform:SetRotation(transform_data.rotation)
+				transform:SetScale(transform_data.scale)
+				entity.visual:SetModelPath(entry.model_path)
+				entity.spawned_from_cry_level = true
+			end
 
-		for _, entry in ipairs(data.vegetation_entries or {}) do
-			local transform_data = crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
-			local entity = Entity.New{Name = entry.name or "cry_vegetation", Parent = parent}
-			local transform = entity:AddComponent("transform")
-			entity:AddComponent("visual")
-			transform:SetPosition(transform_data.position)
-			transform:SetRotation(transform_data.rotation)
-			transform:SetScale(transform_data.scale)
-			entity.visual:SetModelPath(entry.model_path)
-			entity.spawned_from_cry_level = true
+			for _, entry in ipairs(data.vegetation_entries or {}) do
+				local transform_data = crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
+				local entity = Entity.New{Name = entry.name or "cry_vegetation", Parent = parent}
+				local transform = entity:AddComponent("transform")
+				entity:AddComponent("visual")
+				transform:SetPosition(transform_data.position)
+				transform:SetRotation(transform_data.rotation)
+				transform:SetScale(transform_data.scale)
+				entity.visual:SetModelPath(entry.model_path)
+				entity.spawned_from_cry_level = true
+			end
 		end
 
 		return data
