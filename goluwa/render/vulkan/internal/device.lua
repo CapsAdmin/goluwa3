@@ -670,7 +670,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			info[0].imageView = view_handle
 			info[0].imageLayout = vulkan.vk.e.VkImageLayout("general")
 		else -- combined_image_sampler
-			local imageView, sampler, fallback_view, fallback_sampler = ...
+			local imageView, sampler, fallback_view, fallback_sampler, image_layout = ...
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
 			local sampler_handle = (sampler:IsValid() and sampler.ptr) and sampler.ptr[0] or nil
 
@@ -694,7 +694,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 
 			info[0].sampler = sampler_handle
 			info[0].imageView = view_handle
-			info[0].imageLayout = vulkan.vk.e.VkImageLayout("shader_read_only_optimal")
+			info[0].imageLayout = vulkan.vk.e.VkImageLayout(image_layout or "shader_read_only_optimal")
 		end
 
 		descriptor_info = info

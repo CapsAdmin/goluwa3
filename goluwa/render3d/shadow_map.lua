@@ -1785,6 +1785,81 @@ local function ensure_shadow_instance_buffer(batch, instance_count)
 	return batch.instance_buffer
 end
 
+local function get_shadow_draw_submission_context(self, track_component_stats)
+	local context = self.shadow_draw_submission_context
+
+	if not context then
+		context = {
+			instanced_batches = {},
+			ordered_batches = {},
+			used_batch_keys = {},
+			submission_stats = {
+				submitted_entry_count = 0,
+				missing_world_matrix_count = 0,
+			},
+			submitted_by_component = setmetatable({}, {__mode = "k"}),
+			missing_world_matrix_components = setmetatable({}, {__mode = "k"}),
+		}
+		self.shadow_draw_submission_context = context
+	end
+
+	for i = 1, #context.used_batch_keys do
+		local batch_key = context.used_batch_keys[i]
+		context.instanced_batches[batch_key] = nil
+		context.used_batch_keys[i] = nil
+	end
+
+	table.clear(context.ordered_batches)
+	context.submission_stats.submitted_entry_count = 0
+	context.submission_stats.missing_world_matrix_count = 0
+
+	if track_component_stats then
+		table.clear(context.submitted_by_component)
+		table.clear(context.missing_world_matrix_components)
+	end
+
+	return context,
+	context.submission_stats,
+	track_component_stats and context.submitted_by_component or nil,
+	track_component_stats and context.missing_world_matrix_components or nil
+end
+
+local function get_shadow_instance_buffer_list(batch, instance_buffer)
+	local list = batch.instance_buffer_list or {}
+	list[1] = instance_buffer
+	batch.instance_buffer_list = list
+	return list
+end
+
+local function get_visible_instance_vertex_buffer_list(output)
+	local list = output.shadow_visible_instance_vertex_buffer_list or {}
+	list[1] = output.shadow_visible_instance_vertex_buffer
+	output.shadow_visible_instance_vertex_buffer_list = list
+	return list
+end
+
+local function get_shadow_draw_result(self)
+	local result = self.shadow_draw_result
+
+	if not result then
+		result = {}
+		self.shadow_draw_result = result
+	end
+
+	return result
+end
+
+local function get_shadow_gpu_instanced_draw_result(self)
+	local result = self.shadow_gpu_instanced_draw_result
+
+	if not result then
+		result = {}
+		self.shadow_gpu_instanced_draw_result = result
+	end
+
+	return result
+end
+
 local function get_shadow_instance_batch(self, batch_key, mesh, material, first_polygon3d, first_world_matrix)
 	self.shadow_instance_batches = self.shadow_instance_batches or {}
 	local batch = self.shadow_instance_batches[batch_key]
@@ -1841,8 +1916,7 @@ local function collect_shadow_visible_entry(
 	component,
 	entry,
 	cascade_index,
-	instanced_batches,
-	ordered_batches,
+	submission_context,
 	submission_stats,
 	submitted_by_component,
 	missing_world_matrix_components
@@ -1869,6 +1943,7 @@ local function collect_shadow_visible_entry(
 	if mesh and not uses_tessellation and not uses_vertex_animation then
 		local instanced_pipeline = get_instanced_pipeline_for_cascade(self, cascade_index)
 		local batch_key = tostring(instanced_pipeline) .. ":" .. tostring(mesh) .. ":" .. tostring(material and (material.upload_cache_key or material) or false)
+		local instanced_batches = submission_context.instanced_batches
 		local batch = instanced_batches[batch_key]
 
 		if not batch then
@@ -1881,7 +1956,8 @@ local function collect_shadow_visible_entry(
 				world_matrix
 			)
 			instanced_batches[batch_key] = batch
-			ordered_batches[#ordered_batches + 1] = batch
+			submission_context.ordered_batches[#submission_context.ordered_batches + 1] = batch
+			submission_context.used_batch_keys[#submission_context.used_batch_keys + 1] = batch_key
 		end
 
 		batch.count = batch.count + 1
@@ -1903,9 +1979,11 @@ local function collect_shadow_visible_entry(
 	end
 end
 
-local function flush_shadow_instance_batches(self, ordered_batches, submission_stats, submitted_by_component, cascade_index)
+local function flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
 	local instanced_draws = 0
 	local fallback_draws = 0
+	local ordered_batches = submission_context.ordered_batches
+	local submission_stats = submission_context.submission_stats
 
 	for _, batch in ipairs(ordered_batches) do
 		if batch.count <= 1 then
@@ -1939,7 +2017,11 @@ local function flush_shadow_instance_batches(self, ordered_batches, submission_s
 			render3d.SetWorldMatrix(batch.first_world_matrix)
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			bind_instanced_shadow_constants(self, batch.material, cascade_index)
-			batch.mesh:DrawInstanced(self.cmd, batch.count, {instance_buffer})
+			batch.mesh:DrawInstanced(
+				self.cmd,
+				batch.count,
+				get_shadow_instance_buffer_list(batch, instance_buffer)
+			)
 			instanced_draws = instanced_draws + 1
 		end
 	end
@@ -1949,14 +2031,7 @@ end
 
 function ShadowMap:DrawVisibleEntries(visible_entries, cascade_index, track_component_stats)
 	cascade_index = cascade_index or self.current_cascade
-	local instanced_batches = {}
-	local ordered_batches = {}
-	local submission_stats = {
-		submitted_entry_count = 0,
-		missing_world_matrix_count = 0,
-	}
-	local submitted_by_component = track_component_stats and setmetatable({}, {__mode = "k"}) or nil
-	local missing_world_matrix_components = track_component_stats and setmetatable({}, {__mode = "k"}) or nil
+	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 
 	for _, visible_entry in ipairs(visible_entries or {}) do
 		collect_shadow_visible_entry(
@@ -1964,39 +2039,39 @@ function ShadowMap:DrawVisibleEntries(visible_entries, cascade_index, track_comp
 			visible_entry.component,
 			visible_entry.entry,
 			cascade_index,
-			instanced_batches,
-			ordered_batches,
+			submission_context,
 			submission_stats,
 			submitted_by_component,
 			missing_world_matrix_components
 		)
 	end
 
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(
-		self,
-		ordered_batches,
-		submission_stats,
-		submitted_by_component,
-		cascade_index
-	)
-	return {
-		submitted_entry_count = submission_stats.submitted_entry_count,
-		missing_world_matrix_count = submission_stats.missing_world_matrix_count,
-		submitted_by_component = submitted_by_component,
-		missing_world_matrix_components = missing_world_matrix_components,
-		instanced_draws = instanced_draws,
-		fallback_draws = fallback_draws,
-	}
+	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
+	local result = get_shadow_draw_result(self)
+	result.submitted_entry_count = submission_stats.submitted_entry_count
+	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
+	result.submitted_by_component = submitted_by_component
+	result.missing_world_matrix_components = missing_world_matrix_components
+	result.gpu_instanced_entry_count = 0
+	result.gpu_instanced_draw_calls = 0
+	result.gpu_active_batch_count = 0
+	result.gpu_total_batch_count = 0
+	result.instanced_draws = instanced_draws
+	result.fallback_draws = fallback_draws
+	return result
 end
 
 function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
+	local result = get_shadow_gpu_instanced_draw_result(self)
 
 	if not cull_result then
-		return {
-			drew_any = false,
-			submitted_entry_count = 0,
-		}
+		result.drew_any = false
+		result.submitted_entry_count = 0
+		result.draw_call_count = 0
+		result.active_batch_count = 0
+		result.total_batch_count = 0
+		return result
 	end
 
 	local dataset = gpu_culling.GetSceneDataset()
@@ -2005,10 +2080,12 @@ function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index
 	local batches = dataset and dataset.shadow_instanced_batches or nil
 
 	if not (output and batches and batches[1]) then
-		return {
-			drew_any = false,
-			submitted_entry_count = 0,
-		}
+		result.drew_any = false
+		result.submitted_entry_count = 0
+		result.draw_call_count = 0
+		result.active_batch_count = 0
+		result.total_batch_count = 0
+		return result
 	end
 
 	local counts = ffi.cast("uint32_t *", output.shadow_visible_instanced_batch_count_buffer:Map())
@@ -2031,7 +2108,7 @@ function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index
 			batch.mesh:DrawInstanced(
 				self.cmd,
 				instance_count,
-				{output.shadow_visible_instance_vertex_buffer},
+				get_visible_instance_vertex_buffer_list(output),
 				nil,
 				nil,
 				nil,
@@ -2043,35 +2120,29 @@ function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index
 		end
 	end
 
-	return {
-		drew_any = drew_any,
-		submitted_entry_count = submitted_entry_count,
-		draw_call_count = draw_call_count,
-		active_batch_count = active_batch_count,
-		total_batch_count = #batches,
-	}
+	result.drew_any = drew_any
+	result.submitted_entry_count = submitted_entry_count
+	result.draw_call_count = draw_call_count
+	result.active_batch_count = active_batch_count
+	result.total_batch_count = #batches
+	return result
 end
 
 function ShadowMap:DrawVisibleEntryIndices(
 	entry_records,
-	visible_entry_indices,
+	visible_entry_index_ptr,
+	visible_entry_count,
 	cascade_index,
 	cull_result,
 	track_component_stats
 )
 	cascade_index = cascade_index or self.current_cascade
-	local instanced_batches = {}
-	local ordered_batches = {}
-	local submission_stats = {
-		submitted_entry_count = 0,
-		missing_world_matrix_count = 0,
-	}
-	local submitted_by_component = track_component_stats and setmetatable({}, {__mode = "k"}) or nil
-	local missing_world_matrix_components = track_component_stats and setmetatable({}, {__mode = "k"}) or nil
+	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 	local gpu_instanced_result = self:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index)
 	local gpu_instanced_drawn = gpu_instanced_result.drew_any
 
-	for _, entry_index in ipairs(visible_entry_indices or {}) do
+	for i = 0, (visible_entry_count or 0) - 1 do
+		local entry_index = tonumber(visible_entry_index_ptr[i])
 		local visible_entry = entry_records and entry_records[entry_index + 1] or nil
 
 		if visible_entry and visible_entry.component and visible_entry.source_entry then
@@ -2084,8 +2155,7 @@ function ShadowMap:DrawVisibleEntryIndices(
 				visible_entry.component,
 				visible_entry.source_entry,
 				cascade_index,
-				instanced_batches,
-				ordered_batches,
+				submission_context,
 				submission_stats,
 				submitted_by_component,
 				missing_world_matrix_components
@@ -2095,37 +2165,24 @@ function ShadowMap:DrawVisibleEntryIndices(
 		::continue::
 	end
 
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(
-		self,
-		ordered_batches,
-		submission_stats,
-		submitted_by_component,
-		cascade_index
-	)
-	return {
-		submitted_entry_count = submission_stats.submitted_entry_count,
-		missing_world_matrix_count = submission_stats.missing_world_matrix_count,
-		submitted_by_component = submitted_by_component,
-		missing_world_matrix_components = missing_world_matrix_components,
-		gpu_instanced_entry_count = gpu_instanced_result.submitted_entry_count or 0,
-		gpu_instanced_draw_calls = gpu_instanced_result.draw_call_count or 0,
-		gpu_active_batch_count = gpu_instanced_result.active_batch_count or 0,
-		gpu_total_batch_count = gpu_instanced_result.total_batch_count or 0,
-		instanced_draws = instanced_draws,
-		fallback_draws = fallback_draws,
-	}
+	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
+	local result = get_shadow_draw_result(self)
+	result.submitted_entry_count = submission_stats.submitted_entry_count
+	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
+	result.submitted_by_component = submitted_by_component
+	result.missing_world_matrix_components = missing_world_matrix_components
+	result.gpu_instanced_entry_count = gpu_instanced_result.submitted_entry_count or 0
+	result.gpu_instanced_draw_calls = gpu_instanced_result.draw_call_count or 0
+	result.gpu_active_batch_count = gpu_instanced_result.active_batch_count or 0
+	result.gpu_total_batch_count = gpu_instanced_result.total_batch_count or 0
+	result.instanced_draws = instanced_draws
+	result.fallback_draws = fallback_draws
+	return result
 end
 
 function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, track_component_stats)
 	cascade_index = cascade_index or self.current_cascade
-	local instanced_batches = {}
-	local ordered_batches = {}
-	local submission_stats = {
-		submitted_entry_count = 0,
-		missing_world_matrix_count = 0,
-	}
-	local submitted_by_component = track_component_stats and setmetatable({}, {__mode = "k"}) or nil
-	local missing_world_matrix_components = track_component_stats and setmetatable({}, {__mode = "k"}) or nil
+	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 
 	for _, component in ipairs(visible_components or {}) do
 		for _, entry in ipairs(component:GetRenderEntries() or {}) do
@@ -2134,8 +2191,7 @@ function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, trac
 				component,
 				entry,
 				cascade_index,
-				instanced_batches,
-				ordered_batches,
+				submission_context,
 				submission_stats,
 				submitted_by_component,
 				missing_world_matrix_components
@@ -2143,21 +2199,19 @@ function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, trac
 		end
 	end
 
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(
-		self,
-		ordered_batches,
-		submission_stats,
-		submitted_by_component,
-		cascade_index
-	)
-	return {
-		submitted_entry_count = submission_stats.submitted_entry_count,
-		missing_world_matrix_count = submission_stats.missing_world_matrix_count,
-		submitted_by_component = submitted_by_component,
-		missing_world_matrix_components = missing_world_matrix_components,
-		instanced_draws = instanced_draws,
-		fallback_draws = fallback_draws,
-	}
+	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
+	local result = get_shadow_draw_result(self)
+	result.submitted_entry_count = submission_stats.submitted_entry_count
+	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
+	result.submitted_by_component = submitted_by_component
+	result.missing_world_matrix_components = missing_world_matrix_components
+	result.gpu_instanced_entry_count = 0
+	result.gpu_instanced_draw_calls = 0
+	result.gpu_active_batch_count = 0
+	result.gpu_total_batch_count = 0
+	result.instanced_draws = instanced_draws
+	result.fallback_draws = fallback_draws
+	return result
 end
 
 function ShadowMap:PrimeMaterial(material)

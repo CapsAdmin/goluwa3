@@ -648,6 +648,10 @@ function render3d.Initialize()
 
 			if pipeline.name ~= "blit" and pipeline.draw_in_prerender then
 				pipeline:Draw()
+
+				if pipeline.name == "gbuffer" then
+					gpu_culling.PrepareMainViewHiZ(render.GetCurrentFrame(), render.GetCommandBuffer())
+				end
 			end
 		end
 	end)
@@ -1298,16 +1302,19 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 	end
 
 	local counts = ffi.cast("uint32_t *", output.visible_instanced_batch_count_buffer:Map())
+	local active_batch_count_ptr = ffi.cast("uint32_t *", output.active_batch_count_buffer:Map())
+	local active_batch_indices = ffi.cast("uint32_t *", output.active_batch_index_buffer:Map())
 	local drew_any = false
 	local submitted_entry_count = 0
 	local draw_call_count = 0
-	local active_batch_count = 0
+	local active_batch_count = tonumber(active_batch_count_ptr[0])
 
-	for batch_index, batch in ipairs(batches) do
-		local instance_count = tonumber(counts[batch_index - 1])
+	for active_index = 0, active_batch_count - 1 do
+		local batch_index = tonumber(active_batch_indices[active_index]) + 1
+		local batch = batches[batch_index]
+		local instance_count = batch and tonumber(counts[batch_index - 1]) or 0
 
-		if instance_count > 0 then
-			active_batch_count = active_batch_count + 1
+		if batch and instance_count > 0 then
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			render3d.SetMaterial(batch.material)
 			render3d.UploadInstancedGBufferConstants()

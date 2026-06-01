@@ -108,6 +108,11 @@ function OcclusionQuery:CopyQueryResults(cmd)
 	self.query_executed = false
 end
 
+function OcclusionQuery:IsVisible()
+	local result_ptr = ffi.cast("uint32_t *", self.conditional_buffer:Map())
+	return tonumber(result_ptr[0]) ~= 0
+end
+
 -- Begin conditional rendering block
 -- Drawing commands between Begin and End will only execute if the buffer contains non-zero
 function OcclusionQuery:BeginConditional(cmd)

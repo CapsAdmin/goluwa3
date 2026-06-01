@@ -59,14 +59,48 @@ local function configure_camera()
 	return camera
 end
 
-local function visible_lookup(components)
+local function visible_lookup(components, visible_entry_index_ptr, visible_entry_count)
 	local lookup = {}
 
+	if visible_entry_index_ptr then
+		for i = 0, (visible_entry_count or 0) - 1 do
+			local record = components[tonumber(visible_entry_index_ptr[i]) + 1]
+			local resolved = record and record.component or nil
+
+			if resolved then lookup[resolved] = true end
+		end
+
+		return lookup
+	end
+
 	for _, component in ipairs(components) do
-		lookup[component] = true
+		local resolved = component and component.component or component
+
+		if resolved then lookup[resolved] = true end
 	end
 
 	return lookup
+end
+
+local function read_entry_indices(result, prefer_visible_entry_indices)
+	if not result then return {} end
+
+	local legacy = prefer_visible_entry_indices == false and
+		result.fallback_visible_entry_indices or
+		result.visible_entry_indices
+
+	if legacy then return legacy end
+
+	local entry_index_ptr, entry_count = gpu_culling.GetVisibleEntrySpan(result, prefer_visible_entry_indices)
+	local out = {}
+
+	if not entry_index_ptr then return out end
+
+	for i = 0, entry_count - 1 do
+		out[i + 1] = tonumber(entry_index_ptr[i])
+	end
+
+	return out
 end
 
 local function list_contains(list, value)
@@ -188,8 +222,9 @@ T.Test3D("Graphics render3d gpu culling shadow AABB pass writes visible entry in
 	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0))
 	local dataset = gpu_culling.GetSceneDataset()
 	local visible = {}
+	local visible_entry_indices = read_entry_indices(result, true)
 
-	for _, entry_index in ipairs(result.visible_entry_indices or {}) do
+	for _, entry_index in ipairs(visible_entry_indices) do
 		local entry = dataset.shadow_entries[entry_index + 1]
 
 		if entry and entry.component then visible[entry.component] = true end
@@ -223,8 +258,9 @@ T.Test3D("Graphics render3d gpu culling shadow AABB pass splits instanced and fa
 	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0))
 	local dataset = gpu_culling.GetSceneDataset()
 	local fallback_visible = {}
+	local fallback_visible_entry_indices = read_entry_indices(result, false)
 
-	for _, entry_index in ipairs(result.fallback_visible_entry_indices or {}) do
+	for _, entry_index in ipairs(fallback_visible_entry_indices) do
 		local entry = dataset.shadow_entries[entry_index + 1]
 
 		if entry and entry.component then
@@ -261,8 +297,9 @@ T.Test3D("Graphics render3d gpu culling shadow AABB keeps vertex animated entrie
 	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0))
 	local dataset = gpu_culling.GetSceneDataset()
 	local fallback_visible = {}
+	local fallback_visible_entry_indices = read_entry_indices(result, false)
 
-	for _, entry_index in ipairs(result.fallback_visible_entry_indices or {}) do
+	for _, entry_index in ipairs(fallback_visible_entry_indices) do
 		local entry = dataset.shadow_entries[entry_index + 1]
 
 		if entry and entry.component then
@@ -424,10 +461,11 @@ T.Test3D("Graphics render3d gpu culling compute pass writes visible main-view in
 	Visual.Library.GetVisibleVisuals()
 	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
 	local result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
+	local visible_entry_indices = read_entry_indices(result, true)
 	T(result ~= nil)["=="](true)
 	T(result.visible_entry_count)["=="](1)
-	T(#result.visible_entry_indices)["=="](1)
-	T(result.visible_entry_indices[1])["=="](0)
+	T(#visible_entry_indices)["=="](1)
+	T(visible_entry_indices[1])["=="](0)
 	front:Remove()
 	behind:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
@@ -451,11 +489,12 @@ T.Test3D("Graphics render3d gpu culling compute pass expands visible visuals int
 	Visual.Library.GetVisibleVisuals()
 	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
 	local result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
+	local visible_entry_indices = read_entry_indices(result, true)
 	T(result ~= nil)["=="](true)
 	T(result.visible_entry_count)["=="](2)
-	T(#result.visible_entry_indices)["=="](2)
-	T(result.visible_entry_indices[1])["=="](0)
-	T(result.visible_entry_indices[2])["=="](1)
+	T(#visible_entry_indices)["=="](2)
+	T(visible_entry_indices[1])["=="](0)
+	T(visible_entry_indices[2])["=="](1)
 	visible:Remove()
 	hidden:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
@@ -662,6 +701,58 @@ T.Test3D("Graphics render3d shadow visible list reuses stable cascades", functio
 	entity:Remove()
 end)
 
+T.Test3D("Graphics render3d shadows honor main-view occlusion", function(draw)
+	configure_camera()
+	Visual.Library.SetOcclusionCulling(true)
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local occluder = Entity.New({Name = "shadow_occluder"})
+	occluder:AddComponent("transform")
+	occluder.transform:SetPosition(Vec3(0, 0, -5))
+	attach_visual(occluder, polygon3d, material)
+	occluder.transform:SetScale(Vec3(6, 6, 2))
+	local occluded = Entity.New({Name = "shadow_occluded"})
+	occluded:AddComponent("transform")
+	occluded.transform:SetPosition(Vec3(0, 0, -10))
+	attach_visual(occluded, polygon3d, material)
+	occluded.visual:SetUseOcclusionCulling(true)
+	Visual.Library.InvalidateSceneAcceleration()
+	local shadow_map = {
+		IsWorldAABBVisible = function()
+			return true
+		end,
+		IsWorldAABBTooSmall = function()
+			return false
+		end,
+		UsesTessellatedMaterial = function()
+			return false
+		end,
+		GetCascadeWorldAABB = function()
+			return AABB(-20, -20, -20, 20, 20, 0)
+		end,
+	}
+	draw()
+	draw()
+	local visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
+	local render_entries = Visual.Library.GetShadowVisibleRenderEntries(shadow_map, 1)
+	local found_occluded_entry = false
+
+	for _, payload in ipairs(render_entries) do
+		if payload.component == occluded.visual then
+			found_occluded_entry = true
+
+			break
+		end
+	end
+
+	occluder:Remove()
+	occluded:Remove()
+	Visual.Library.SetOcclusionCulling(false)
+	T(visible[occluder.visual])["=="](true)
+	T(visible[occluded.visual])["=="](nil)
+	T(found_occluded_entry)["=="](false)
+end)
+
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -709,20 +800,20 @@ T.Test3D("culling and occlusion", function(draw)
 	T.Test3D("frustum culling front/back", function(draw)
 		local ent, mdl = spawn_sphere(Vec3(0, 0, -10)) -- In front
 		draw()
-		T(mdl.frustum_culled)["=="](false)
+		T(mdl:IsCulled())["=="](false)
 		ent.transform:SetPosition(Vec3(0, 0, 10)) -- Behind
 		draw()
-		T(mdl.frustum_culled)["=="](true)
+		T(mdl:IsCulled())["=="](true)
 		ent:Remove()
 	end)
 
 	T.Test3D("frustum culling sides", function(draw)
 		local ent, mdl = spawn_sphere(Vec3(20, 0, -10)) -- Far right
 		draw()
-		T(mdl.frustum_culled)["=="](true)
+		T(mdl:IsCulled())["=="](true)
 		ent.transform:SetPosition(Vec3(0, 0, -10)) -- Center
 		draw()
-		T(mdl.frustum_culled)["=="](false)
+		T(mdl:IsCulled())["=="](false)
 		ent:Remove()
 	end)
 

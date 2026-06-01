@@ -49,25 +49,24 @@ local function refresh_shadow_registry(component)
 	end
 end
 
-local function refresh_occlusion_registries(component)
-	local has_query = component.UseOcclusionCulling and component.occlusion_query ~= nil
-
-	if has_query then
-		registry_remove(visual.non_occlusion_visuals, "non_occlusion_registry_index", component)
-		registry_insert(visual.occlusion_query_visuals, "occlusion_registry_index", component)
+local function refresh_forward_overlay_registry(component)
+	if component.HasIgnoreZRenderEntries then
+		registry_insert(visual.forward_overlay_components, "forward_overlay_registry_index", component)
 	else
-		registry_remove(visual.occlusion_query_visuals, "occlusion_registry_index", component)
-		registry_insert(visual.non_occlusion_visuals, "non_occlusion_registry_index", component)
+		registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", component)
 	end
+end
+
+local function refresh_occlusion_registries(component)
+	component.using_conditional_rendering = component.UseOcclusionCulling and
+		visual.IsOcclusionCullingEnabled and
+		visual.IsOcclusionCullingEnabled() or
+		false
 end
 
 local function refresh_visual_registries(component)
 	refresh_shadow_registry(component)
 	refresh_occlusion_registries(component)
-end
-
-local function has_occlusion_query_visuals()
-	return visual.occlusion_query_visuals and visual.occlusion_query_visuals[1] ~= nil
 end
 
 local function get_shadow_debug_target_name(component)
@@ -289,6 +288,21 @@ local function get_cached_shadow_volume_change_version(cache, query_aabb)
 	return shadow_volume_change_version
 end
 
+local function get_shadow_visibility_cache_version()
+	local version = visual.shadow_visible_list_version or 0
+
+	if
+		visual.IsOcclusionCullingEnabled() and
+		gpu_culling.IsEnabled() and
+		gpu_culling.GetOcclusionMode and
+		gpu_culling.GetOcclusionMode() == "hiz"
+	then
+		version = version + (system.GetFrameNumber and system.GetFrameNumber() or 0)
+	end
+
+	return version
+end
+
 local function update_shadow_visible_list_cache(
 	cache,
 	query_aabb,
@@ -313,7 +327,7 @@ local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visib
 		shadow_map:GetCascadeWorldAABB(cascade_idx) or
 		nil
 	local shadow_volume_change_version = get_cached_shadow_volume_change_version(cache, query_aabb)
-	local shadow_visible_list_version = visual.shadow_visible_list_version or 0
+	local shadow_visible_list_version = get_shadow_visibility_cache_version()
 	local read_visible_entry_indices = include_visible_entry_indices ~= false
 
 	if
@@ -326,7 +340,7 @@ local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visib
 		) and
 		(
 			not read_visible_entry_indices or
-			cache.gpu_cull_result.visible_entry_indices ~= nil
+			cache.gpu_cull_result.visible_entry_indices_ready
 		)
 	then
 		return gpu_culling.GetSceneDataset(),
@@ -817,7 +831,7 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
-Visual:GetSet("CullDistance", 500)
+Visual:GetSet("CullDistance", 15000)
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("AABB", create_empty_aabb())
@@ -828,18 +842,11 @@ function Visual:Initialize()
 	self.RenderEntries = {}
 	self.RenderEntriesDirty = true
 	self.LoadGeneration = 0
+	refresh_forward_overlay_registry(self)
 end
 
 function Visual:SetUseOcclusionCulling(enabled)
 	self.UseOcclusionCulling = enabled
-
-	if enabled and not self.occlusion_query and visual.IsOcclusionCullingEnabled() then
-		self.occlusion_query = render.CreateOcclusionQuery()
-	elseif not enabled and self.occlusion_query then
-		self.occlusion_query:Delete()
-		self.occlusion_query = nil
-	end
-
 	refresh_occlusion_registries(self)
 end
 
@@ -859,6 +866,7 @@ function Visual:InvalidateRenderEntries()
 	self.WorldAABBCacheSource = nil
 	self.raycast_primitive_acceleration = nil
 	mark_shadow_change(self)
+	refresh_forward_overlay_registry(self)
 	invalidate_scene_acceleration()
 end
 
@@ -1014,6 +1022,7 @@ function Visual:RebuildRenderEntries()
 	self.HasIgnoreZRenderEntries = has_ignore_z_entries
 	self.HasOpaqueRenderEntries = has_opaque_entries
 	self:SetAABB(bounds)
+	refresh_forward_overlay_registry(self)
 	return entries
 end
 
@@ -1081,7 +1090,7 @@ end
 do
 	visual.noculling = false
 	visual.freeze_culling = false
-	visual.occlusion_culling_enabled = false
+	visual.occlusion_culling_enabled = true
 	visual.shadow_debug_filter = nil
 	visual.shadow_debug_log = true
 	visual.shadow_debug_frame = -1
@@ -1093,12 +1102,8 @@ do
 	visual.shadow_prime_versions = setmetatable({}, {__mode = "k"})
 	visual.shadow_visible_list_version = 0
 	visual.shadow_change_version_counter = 0
-	visual.occlusion_query_fps = 30
-	visual.last_occlusion_query_time = 0
-	visual.should_run_queries_this_frame = true
 	visual.shadow_casters = visual.shadow_casters or {}
-	visual.occlusion_query_visuals = visual.occlusion_query_visuals or {}
-	visual.non_occlusion_visuals = visual.non_occlusion_visuals or {}
+	visual.forward_overlay_components = visual.forward_overlay_components or {}
 
 	function visual.EnableShadowDrawDebug(filter, should_log)
 		visual.shadow_debug_filter = filter == nil and true or filter
@@ -1556,47 +1561,71 @@ do
 		return is_aabb_visible_frustum(world_aabb, frustum_planes)
 	end
 
-	local function mark_component_frustum_visibility(component, visible, frame)
-		component.frustum_culled = not visible
-		component.frustum_visibility_frame = frame
-		component.frustum_visible_frame = visible and frame or nil
+	local function is_component_visible_in_current_cpu_list(component, frame)
+		local acceleration = ensure_scene_acceleration()
+
+		if acceleration.visible_frame ~= frame or not acceleration.visible_components then
+			return nil
+		end
+
+		for i = 1, #acceleration.visible_components do
+			if acceleration.visible_components[i] == component then return true end
+		end
+
+		return false
 	end
 
-	local function begin_frustum_visibility_publish(frame)
-		visual.frustum_visibility_publish_frame = frame
+	local function is_component_visible_in_main_gpu_lookup(component, frame)
+		local acceleration = ensure_scene_acceleration()
+		local cull_result = nil
+
+		if acceleration.visible_frame == frame and acceleration.visible_cull_result then
+			cull_result = acceleration.visible_cull_result
+		elseif
+			acceleration.visible_gpu_cull_result_frame == frame and
+			acceleration.visible_gpu_cull_result
+		then
+			cull_result = acceleration.visible_gpu_cull_result
+		else
+			return nil
+		end
+
+		local entry_count = component.main_gpu_entry_count or 0
+
+		if entry_count <= 0 then return nil end
+
+		local entry_offset = component.main_gpu_entry_offset or 0
+		return gpu_culling.IsAnyVisibleEntryInRange(cull_result, entry_offset, entry_count, true)
 	end
 
 	local function is_component_frustum_culled(component)
 		local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+		local gpu_visible = is_component_visible_in_main_gpu_lookup(component, frame)
 
-		if component.frustum_visibility_frame == frame then
-			return component.frustum_visible_frame ~= frame
-		end
+		if gpu_visible ~= nil then return not gpu_visible end
 
-		if visual.frustum_visibility_publish_frame == frame then
-			return component.frustum_visible_frame ~= frame
-		end
+		local cpu_visible = is_component_visible_in_current_cpu_list(component, frame)
 
-		return component.frustum_culled
+		if cpu_visible ~= nil then return not cpu_visible end
+
+		if not component.Visible then return true end
+
+		if not component:GetRenderEntries()[1] then return false end
+
+		return not is_world_aabb_visible(component, component:GetWorldAABB(), get_frustum_planes())
 	end
 
-	visual.MarkComponentFrustumVisibility = mark_component_frustum_visibility
 	visual.IsComponentFrustumCulled = is_component_frustum_culled
 
 	local function append_visible_component(out, component, frustum_planes)
 		if not component.Visible then return out end
 
-		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local render_entries = component:GetRenderEntries()
 
-		if not render_entries[1] then
-			mark_component_frustum_visibility(component, true, current_frame)
-			return out
-		end
+		if not render_entries[1] then return out end
 
 		local world_aabb = component:GetWorldAABB()
 		local visible = is_world_aabb_visible(component, world_aabb, frustum_planes)
-		mark_component_frustum_visibility(component, visible, current_frame)
 
 		if visible then out[#out + 1] = component end
 
@@ -1628,12 +1657,10 @@ do
 
 	local function append_visible_static_item(out, item, frustum_planes)
 		local component = item.component
-		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 
 		if not component.Visible then return out end
 
 		local visible = is_static_item_visible(item, frustum_planes)
-		mark_component_frustum_visibility(component, visible, current_frame)
 
 		if visible then out[#out + 1] = component end
 
@@ -1909,27 +1936,18 @@ do
 			cached_result and
 			(
 				not read_visible_entry_indices or
-				cached_result.visible_entry_indices ~= nil
+				cached_result.visible_entry_indices_ready
 			)
 		then
 			return gpu_culling.GetSceneDataset(), cached_result
 		end
 
-		if
-			not gpu_culling.IsEnabled() or
-			visual.noculling or
-			(
-				visual.IsOcclusionCullingEnabled() and
-				has_occlusion_query_visuals()
-			)
-		then
-			return nil, nil
-		end
+		if not gpu_culling.IsEnabled() or visual.noculling then return nil, nil end
 
-		local camera = render3d.GetCamera and render3d.GetCamera() or nil
+		local camera = render3d.GetCamera()
 		local dataset = gpu_culling.GetSceneDataset()
 
-		if not (camera and dataset) then return nil, nil end
+		if not dataset then return nil, nil end
 
 		local cull_result = gpu_culling.RunMainViewFrustumCulling(
 			camera:BuildViewMatrix() * camera:BuildProjectionMatrix(),
@@ -1950,58 +1968,42 @@ do
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local acceleration = ensure_scene_acceleration()
 
-		if acceleration.visible_frame == current_frame and acceleration.visible_components then
-			return acceleration.visible_components
+		if acceleration.visible_frame == current_frame then
+			if
+				acceleration.visible_cull_result and
+				acceleration.visible_cull_result.visible_entry_indices_ready
+			then
+				local dataset = gpu_culling.GetSceneDataset()
+				local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(acceleration.visible_cull_result, true)
+				return dataset and dataset.main_entries or nil,
+				visible_entry_index_ptr,
+				visible_entry_count,
+				acceleration.visible_cull_result
+			end
+
+			if acceleration.visible_components then
+				return acceleration.visible_components, nil, 0, nil
+			end
 		end
 
 		local frustum_planes = get_frustum_planes()
 		local out = acceleration.visible_components or {}
 		table.clear(out)
-		begin_frustum_visibility_publish(current_frame)
-		local published_components = acceleration.gpu_visible_published_components or {}
 
-		for _, component in ipairs(published_components) do
-			component.frustum_culled = true
-		end
-
-		table.clear(published_components)
-		acceleration.gpu_visible_published_components = published_components
-
-		if
-			gpu_culling.IsEnabled() and
-			not visual.noculling and
-			not (
-				visual.IsOcclusionCullingEnabled() and
-				has_occlusion_query_visuals()
-			)
-		then
+		if gpu_culling.IsEnabled() and not visual.noculling then
 			local dataset, cull_result = get_visible_main_gpu_cull_result(true)
 
 			if cull_result then
-				local visible_components = acceleration.visible_components or {}
-				local seen = acceleration.visible_seen or setmetatable({}, {__mode = "k"})
-				table.clear(visible_components)
-				table.clear(seen)
-				acceleration.visible_seen = seen
-
-				for _, entry_index in ipairs(cull_result.visible_entry_indices or {}) do
-					local entry = dataset.main_entries[entry_index + 1]
-					local component = entry and entry.component or nil
-
-					if component and not seen[component] then
-						seen[component] = true
-						mark_component_frustum_visibility(component, true, current_frame)
-						visible_components[#visible_components + 1] = component
-						published_components[#published_components + 1] = component
-					end
-				end
-
+				local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
 				acceleration.visible_frame = current_frame
 				acceleration.visible_cull_result = cull_result
-				acceleration.visible_components = visible_components
+				acceleration.visible_components = nil
 				acceleration.visible_render_entries = nil
 				acceleration.visible_render_entries_frame = nil
-				return visible_components
+				return dataset.main_entries,
+				visible_entry_index_ptr,
+				visible_entry_count,
+				cull_result
 			end
 		end
 
@@ -2016,7 +2018,7 @@ do
 		acceleration.visible_components = out
 		acceleration.visible_render_entries = nil
 		acceleration.visible_render_entries_frame = nil
-		return out
+		return out, nil, 0, nil
 	end
 
 	function visual.GetVisibleRenderEntries()
@@ -2038,8 +2040,11 @@ do
 		local cull_result = acceleration.visible_cull_result
 		acceleration.visible_render_entry_payloads = payloads
 
-		if dataset and cull_result and cull_result.visible_entry_indices then
-			for _, entry_index in ipairs(cull_result.visible_entry_indices) do
+		if dataset and cull_result and cull_result.visible_entry_indices_ready then
+			local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
+
+			for i = 0, visible_entry_count - 1 do
+				local entry_index = tonumber(visible_entry_index_ptr[i])
 				local record = dataset.main_entries[entry_index + 1]
 
 				if record and record.component and record.source_entry then
@@ -2072,46 +2077,16 @@ do
 		local dataset, cull_result = get_visible_main_gpu_cull_result(read_visible_entry_indices)
 		local acceleration = ensure_scene_acceleration()
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
-		local published_components = acceleration.main_gpu_published_components or {}
 
 		if dataset and cull_result then
-			begin_frustum_visibility_publish(current_frame)
-
-			for _, component in ipairs(published_components) do
-				component.frustum_culled = true
-			end
-
-			table.clear(published_components)
-			acceleration.main_gpu_published_components = published_components
-
-			for _, entry_index in ipairs(
-				cull_result.visible_entry_indices or
-					cull_result.fallback_visible_entry_indices or
-					{}
-			) do
-				local entry = dataset.main_entries[entry_index + 1]
-				local component = entry and entry.component or nil
-
-				if component then
-					mark_component_frustum_visibility(component, true, current_frame)
-					published_components[#published_components + 1] = component
-				end
-			end
-		end
-
-		if dataset and cull_result and cull_result.visible_entry_indices then
+			local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
 			return dataset.main_entries,
-			cull_result.fallback_visible_entry_indices or cull_result.visible_entry_indices,
+			visible_entry_index_ptr,
+			visible_entry_count,
 			cull_result
 		end
 
-		if dataset and cull_result then
-			return dataset.main_entries,
-			cull_result.fallback_visible_entry_indices or {},
-			cull_result
-		end
-
-		return nil, nil, nil
+		return nil, nil, 0, nil
 	end
 
 	function visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)
@@ -2122,7 +2097,7 @@ do
 			shadow_map:GetCascadeWorldAABB(cascade_idx) or
 			nil
 		local shadow_volume_change_version = get_cached_shadow_volume_change_version(cache, query_aabb)
-		local shadow_visible_list_version = visual.shadow_visible_list_version or 0
+		local shadow_visible_list_version = get_shadow_visibility_cache_version()
 
 		if
 			can_reuse_shadow_visible_list(
@@ -2138,23 +2113,22 @@ do
 
 		local out = cache.list
 		table.clear(out)
-		cache.gpu_cull_result = nil
-		cache.gpu_cull_result_valid = false
 
 		if gpu_culling.IsEnabled() and not visual.noculling and query_aabb then
 			local dataset, cull_result = get_shadow_gpu_cull_result(shadow_map, cascade_idx, true)
 
-			if cull_result then
+			if dataset and cull_result then
 				local candidates = cache.candidates or {}
 				local seen = cache.gpu_seen or setmetatable({}, {__mode = "k"})
 				table.clear(candidates)
 				table.clear(seen)
 				cache.candidates = candidates
 				cache.gpu_seen = seen
+				local entry_index_ptr, entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
 
-				for _, entry_index in ipairs(cull_result.visible_entry_indices or {}) do
-					local entry = dataset.shadow_entries[entry_index + 1]
-					local component = entry and entry.component or nil
+				for i = 0, entry_count - 1 do
+					local record = dataset.shadow_entries[tonumber(entry_index_ptr[i]) + 1]
+					local component = record and record.component or nil
 
 					if component and not seen[component] then
 						seen[component] = true
@@ -2201,34 +2175,104 @@ do
 
 	function visual.GetShadowVisibleGPUEntries(shadow_map, cascade_idx)
 		local dataset, cull_result = get_shadow_gpu_cull_result(shadow_map, cascade_idx, false)
-
-		if dataset and cull_result and cull_result.visible_entry_indices then
-			return dataset.shadow_entries,
-			cull_result.fallback_visible_entry_indices or cull_result.visible_entry_indices,
-			cull_result
-		end
+		local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, false)
 
 		if dataset and cull_result then
 			return dataset.shadow_entries,
-			cull_result.fallback_visible_entry_indices or {},
+			visible_entry_index_ptr,
+			visible_entry_count,
 			cull_result
 		end
 
-		return nil, nil, nil
+		return nil, nil, 0, nil
 	end
 
 	function visual.GetShadowVisibleRenderEntries(shadow_map, cascade_idx)
 		local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
+		local camera_position = get_cull_camera_position()
+		local query_aabb = shadow_map.GetCascadeWorldAABB and
+			shadow_map:GetCascadeWorldAABB(cascade_idx) or
+			nil
+		local shadow_volume_change_version = get_cached_shadow_volume_change_version(cache, query_aabb)
+		local shadow_visible_list_version = get_shadow_visibility_cache_version()
+
+		if
+			cache.render_entries_valid and
+			can_reuse_shadow_visible_list(
+				cache,
+				query_aabb,
+				camera_position,
+				shadow_volume_change_version,
+				shadow_visible_list_version
+			) and
+			cache.render_entries
+		then
+			return cache.render_entries
+		end
+
 		local out = cache.render_entries or {}
 		local payloads = cache.render_entry_payloads or {}
 		table.clear(out)
 		cache.render_entry_payloads = payloads
+		local entry_records = nil
+		local visible_entry_index_ptr = nil
+		local visible_entry_count = 0
+		local dataset, cull_result = get_shadow_gpu_cull_result(shadow_map, cascade_idx, true)
+
+		if dataset and cull_result then
+			entry_records = dataset.shadow_entries
+			visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
+		end
+
+		if entry_records and visible_entry_index_ptr then
+			for i = 0, visible_entry_count - 1 do
+				local entry_index = tonumber(visible_entry_index_ptr[i])
+				local record = entry_records[entry_index + 1]
+
+				if record and record.component and record.source_entry then
+					local index = #out + 1
+					local payload = payloads[index]
+
+					if not payload then
+						payload = {
+							component = record.component,
+							entry = record.source_entry,
+						}
+						payloads[index] = payload
+					else
+						payload.component = record.component
+						payload.entry = record.source_entry
+					end
+
+					out[index] = payload
+				end
+			end
+
+			cache.render_entries = out
+			cache.render_entries_valid = true
+			update_shadow_cache_query_state(
+				cache,
+				query_aabb,
+				camera_position,
+				shadow_volume_change_version,
+				shadow_visible_list_version
+			)
+			return out
+		end
 
 		for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
 			append_component_render_entries(out, component, payloads)
 		end
 
 		cache.render_entries = out
+		cache.render_entries_valid = true
+		update_shadow_cache_query_state(
+			cache,
+			query_aabb,
+			camera_position,
+			shadow_volume_change_version,
+			shadow_visible_list_version
+		)
 		return out
 	end
 
@@ -2257,23 +2301,21 @@ do
 	end
 
 	function visual.SetOcclusionCulling(enabled)
-		visual.occlusion_culling_enabled = enabled
-	end
+		if visual.occlusion_culling_enabled == enabled then return end
 
-	function visual.UpdateOcclusionQueryTiming()
-		if visual.occlusion_query_fps == 0 then
-			visual.should_run_queries_this_frame = true
-			return
+		visual.occlusion_culling_enabled = enabled
+
+		if gpu_culling.IsEnabled() and gpu_culling.SetOcclusionMode then
+			gpu_culling.SetOcclusionMode(enabled and "hiz" or "disabled")
 		end
 
-		local current_time = system.GetElapsedTime()
-		local min_interval = 1.0 / visual.occlusion_query_fps
-
-		if current_time - visual.last_occlusion_query_time >= min_interval then
-			visual.last_occlusion_query_time = current_time
-			visual.should_run_queries_this_frame = true
-		else
-			visual.should_run_queries_this_frame = false
+		for _, component in ipairs(Visual.Instances or {}) do
+			if component.UseOcclusionCulling then
+				component:SetUseOcclusionCulling(true)
+			else
+				component.using_conditional_rendering = false
+				refresh_occlusion_registries(component)
+			end
 		end
 	end
 
@@ -2291,7 +2333,7 @@ do
 					frustum_culled = frustum_culled + 1
 				end
 
-				if component.UseOcclusionCulling and component.occlusion_query then
+				if component.UseOcclusionCulling then
 					with_occlusion = with_occlusion + 1
 				end
 
@@ -2323,6 +2365,10 @@ do
 		if not world_aabb then return true end
 
 		return is_world_aabb_visible(self, world_aabb)
+	end
+
+	function Visual:IsCulled()
+		return is_component_frustum_culled(self)
 	end
 
 	function Visual:IsWithinCullDistance()
@@ -2439,28 +2485,9 @@ function Visual:DrawGeometryPass(render_entries, skip_visibility)
 
 	local cmd = render.GetCommandBuffer()
 
-	if not skip_visibility and not self:IsAABBVisibleLocal() then
-		visual.MarkComponentFrustumVisibility(self, false, system.GetFrameNumber and system.GetFrameNumber() or 0)
-		return
-	end
-
-	visual.MarkComponentFrustumVisibility(self, true, system.GetFrameNumber and system.GetFrameNumber() or 0)
-	local using_occlusion = false
-
-	if
-		self.UseOcclusionCulling and
-		self.occlusion_query and
-		visual.IsOcclusionCullingEnabled()
-	then
-		using_occlusion = self.occlusion_query:BeginConditional(cmd)
-		self.using_conditional_rendering = using_occlusion
-	else
-		self.using_conditional_rendering = false
-	end
+	if not skip_visibility and not self:IsAABBVisibleLocal() then return end
 
 	self:DrawEntriesForPass(false, render3d.UploadGBufferConstants, render_entries)
-
-	if using_occlusion then self.occlusion_query:EndConditional(cmd) end
 end
 
 function Visual:OnDraw3DGeometry()
@@ -2483,39 +2510,6 @@ end
 
 function Visual:OnDraw3DForwardOverlay()
 	return self:DrawForwardOverlayPass()
-end
-
-function Visual:DrawOcclusionQuery(skip_visibility)
-	if visual.IsComponentFrustumCulled(self) then return end
-
-	local cmd = render.GetCommandBuffer()
-
-	if visual.freeze_culling then return end
-
-	if not skip_visibility and not self:IsAABBVisibleLocal() then return end
-
-	local query = self.UseOcclusionCulling and self.occlusion_query
-
-	if query and query.needs_reset then query = nil end
-
-	if query then query:BeginQuery(cmd) end
-
-	for _, entry in ipairs(self:GetRenderEntries()) do
-		local transform = entry.transform
-		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
-
-		if world_matrix then
-			render3d.SetWorldMatrix(world_matrix)
-			render3d.SetCurrentPolygon3D(entry.polygon3d)
-			render3d.SetMaterial(self:GetResolvedMaterial(entry))
-			render3d.UploadGBufferConstants()
-			entry.polygon3d:Draw()
-		end
-	end
-
-	if query then query:EndQuery(cmd) end
-
-	return query ~= nil
 end
 
 function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibility_checks)
@@ -2627,27 +2621,14 @@ function Visual:OnChildRemove()
 end
 
 function Visual:OnAdd()
-	self.frustum_culled = true
 	mark_shadow_change(self)
-
-	if self.UseOcclusionCulling and visual.IsOcclusionCullingEnabled() then
-		self.occlusion_query = render.CreateOcclusionQuery()
-	end
-
 	invalidate_scene_acceleration()
 	refresh_visual_registries(self)
 end
 
 function Visual:OnRemove()
 	registry_remove(visual.shadow_casters, "shadow_registry_index", self)
-	registry_remove(visual.occlusion_query_visuals, "occlusion_registry_index", self)
-	registry_remove(visual.non_occlusion_visuals, "non_occlusion_registry_index", self)
-
-	if self.occlusion_query then
-		self.occlusion_query:Delete()
-		self.occlusion_query = nil
-	end
-
+	registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", self)
 	self.RenderEntries = {}
 	self:InvalidateRenderEntries()
 	invalidate_scene_acceleration()
@@ -2655,22 +2636,16 @@ end
 
 function Visual:OnFirstCreated()
 	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
-		if
-			gpu_culling.IsEnabled() and
-			not (
-				visual.IsOcclusionCullingEnabled() and
-				has_occlusion_query_visuals()
-			)
-		then
-			local entry_records, visible_entry_indices, cull_result = visual.GetVisibleMainGPUEntries()
+		if gpu_culling.IsEnabled() and not visual.noculling then
+			local entry_records, visible_entry_index_ptr, visible_entry_count, cull_result = visual.GetVisibleMainGPUEntries()
 
-			if entry_records and visible_entry_indices then
+			if entry_records and visible_entry_index_ptr then
 				local gpu_instanced_result = render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 				local gpu_instanced_drawn = gpu_instanced_result.drew_any
 				local fallback_submitted_entry_count = 0
 
-				for _, entry_index in ipairs(visible_entry_indices) do
-					local record = entry_records[entry_index + 1]
+				for i = 0, visible_entry_count - 1 do
+					local record = entry_records[tonumber(visible_entry_index_ptr[i]) + 1]
 
 					if record and record.component and record.source_entry then
 						if gpu_instanced_drawn and record.instanced_batch_index ~= nil then
@@ -2700,7 +2675,7 @@ function Visual:OnFirstCreated()
 						),
 					fallback_visible_entry_count = cull_result and
 						cull_result.fallback_visible_entry_count or
-						#visible_entry_indices,
+						visible_entry_count,
 					gpu_packed_entry_count = gpu_instanced_result.submitted_entry_count or 0,
 					gpu_packed_draw_calls = gpu_instanced_result.draw_call_count or 0,
 					gpu_active_batch_count = gpu_instanced_result.active_batch_count or 0,
@@ -2713,15 +2688,33 @@ function Visual:OnFirstCreated()
 				end
 			end
 		else
-			for _, component in ipairs(visual.GetVisibleVisuals()) do
-				component:DrawGeometryPass(nil, true)
+			local visible_items, visible_entry_index_ptr, visible_entry_count = visual.GetVisibleVisuals()
+
+			if visible_entry_index_ptr then
+				local last_component = nil
+
+				for i = 0, visible_entry_count - 1 do
+					local record = visible_items[tonumber(visible_entry_index_ptr[i]) + 1]
+					local component = record and record.component or nil
+
+					if component and component ~= last_component then
+						last_component = component
+						component:DrawGeometryPass(nil, true)
+					end
+				end
+			else
+				for _, component in ipairs(visible_items) do
+					component:DrawGeometryPass(nil, true)
+				end
 			end
 		end
 	end)
 
 	event.AddListener("Draw3DForwardOverlay", "visual_forward_overlay_draw", function()
-		for _, component in ipairs(visual.GetVisibleVisuals()) do
-			component:DrawForwardOverlayPass(nil, true)
+		for _, component in ipairs(visual.forward_overlay_components) do
+			if not component:IsCulled() then
+				component:DrawForwardOverlayPass(nil, true)
+			end
 		end
 	end)
 
@@ -2767,12 +2760,13 @@ function Visual:OnFirstCreated()
 
 		if gpu_culling.IsEnabled() then
 			local track_shadow_debug = visual.shadow_debug_filter ~= nil
-			local entry_records, visible_entry_indices, cull_result = visual.GetShadowVisibleGPUEntries(shadow_map, cascade_idx)
+			local entry_records, visible_entry_index_ptr, visible_entry_count, cull_result = visual.GetShadowVisibleGPUEntries(shadow_map, cascade_idx)
 			local draw_result = entry_records and
-				visible_entry_indices and
+				visible_entry_index_ptr and
 				shadow_map:DrawVisibleEntryIndices(
 					entry_records,
-					visible_entry_indices,
+					visible_entry_index_ptr,
+					visible_entry_count,
 					cascade_idx,
 					cull_result,
 					track_shadow_debug
@@ -2818,9 +2812,12 @@ function Visual:OnFirstCreated()
 				visual.shadow_debug_filter ~= nil and
 				entry_records and
 				cull_result and
-				cull_result.visible_entry_indices
+				cull_result.visible_entry_indices_ready
 			then
-				for _, entry_index in ipairs(cull_result.visible_entry_indices) do
+				local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
+
+				for i = 0, visible_entry_count - 1 do
+					local entry_index = tonumber(visible_entry_index_ptr[i])
 					local record = entry_records[entry_index + 1]
 
 					if record and record.component and record.instanced_batch_index ~= nil then
@@ -2858,55 +2855,6 @@ function Visual:OnFirstCreated()
 		end
 	end)
 
-	event.AddListener("PreRenderPass", "visual_occlusion_culling_maintenance", function()
-		if not visual.IsOcclusionCullingEnabled() then return end
-
-		if not has_occlusion_query_visuals() then return end
-
-		local cmd = render.GetCommandBuffer()
-		visual.UpdateOcclusionQueryTiming()
-
-		if visual.should_run_queries_this_frame and not visual.freeze_culling then
-			for _, component in ipairs(visual.occlusion_query_visuals) do
-				component.occlusion_query:ResetQuery(cmd)
-			end
-		end
-	end)
-
-	event.AddListener("PreDraw3D", "visual_draw_occlusion_queries", function()
-		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
-			if visual.freeze_culling then return end
-
-			if not has_occlusion_query_visuals() then return end
-
-			visual.occlusion_query_submitted = visual.occlusion_query_submitted or {}
-
-			for i = #visual.occlusion_query_submitted, 1, -1 do
-				visual.occlusion_query_submitted[i] = nil
-			end
-
-			for _, component in ipairs(visual.GetVisibleVisuals()) do
-				if component:DrawOcclusionQuery(true) then
-					visual.occlusion_query_submitted[#visual.occlusion_query_submitted + 1] = component
-				end
-			end
-		end
-	end)
-
-	event.AddListener("PostRenderPass", "visual_copy_occlusion_results", function(cmd)
-		if visual.IsOcclusionCullingEnabled() and visual.should_run_queries_this_frame then
-			if visual.freeze_culling then return end
-
-			if not has_occlusion_query_visuals() then return end
-
-			for _, component in ipairs(visual.occlusion_query_submitted or {}) do
-				local query = component.occlusion_query
-
-				if query then query:CopyQueryResults(cmd) end
-			end
-		end
-	end)
-
 	event.AddListener("DrawProbeGeometry", "visual_probe_draw", function(cmd, lightprobes)
 		for _, visual in ipairs(Visual.Instances) do
 			visual:DrawProbeGeometry(lightprobes)
@@ -2917,9 +2865,6 @@ end
 function Visual:OnLastRemoved()
 	event.RemoveListener("DrawAllShadows", "visual_shadow_draw")
 	event.RemoveListener("PrimeAllShadowMaterials", "visual_shadow_prime")
-	event.RemoveListener("PreRenderPass", "visual_occlusion_culling_maintenance")
-	event.RemoveListener("PreDraw3D", "visual_draw_occlusion_queries")
-	event.RemoveListener("PostRenderPass", "visual_copy_occlusion_results")
 	event.RemoveListener("DrawProbeGeometry", "visual_probe_draw")
 end
 

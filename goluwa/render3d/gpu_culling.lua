@@ -1,15 +1,17 @@
 local ffi = require("ffi")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
 local test_helper = import("goluwa/helpers/test.lua")
 local tasks = import("goluwa/tasks.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local vk = import("goluwa/bindings/vk.lua")
+local render3d = nil
 local gpu_culling = library()
 gpu_culling.enabled = gpu_culling.enabled ~= false
 gpu_culling.async_main_view_enabled = gpu_culling.async_main_view_enabled == true
-gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "disabled"
+gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "hiz"
 gpu_culling.scene_acceleration = gpu_culling.scene_acceleration or nil
 gpu_culling.scene_dataset = gpu_culling.scene_dataset or nil
 gpu_culling.frame_buffers = gpu_culling.frame_buffers or nil
@@ -20,7 +22,6 @@ gpu_culling.frame_buffers_generation = gpu_culling.frame_buffers_generation or -
 gpu_culling.main_view_async_submission_serial = gpu_culling.main_view_async_submission_serial or 0
 local VALID_OCCLUSION_MODES = {
 	disabled = true,
-	queries = true,
 	hiz = true,
 }
 local UINT32_SIZE = ffi.sizeof("uint32_t")
@@ -43,6 +44,7 @@ local GPUCullVisualRecord = ffi.typeof([[struct {
 	float max_x;
 	float max_y;
 	float max_z;
+	float sphere_radius;
 	float cull_distance;
 	uint32_t flags;
 	uint32_t entry_offset;
@@ -93,6 +95,323 @@ local GPUCullNodeRecord = ffi.typeof([[struct {
 }]])
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local ZERO_UINT32 = ffi.new("uint32_t[1]", 0)
+
+local function get_main_view_depth_texture()
+	render3d = render3d or import("goluwa/render3d/render3d.lua")
+	local pipelines = render3d and render3d.pipelines or nil
+	local gbuffer = pipelines and pipelines.gbuffer or nil
+	local framebuffer = gbuffer and gbuffer.GetFramebuffer and gbuffer:GetFramebuffer() or nil
+	return framebuffer and
+		framebuffer.GetDepthTexture and
+		framebuffer:GetDepthTexture() or
+		nil
+end
+
+local function ensure_main_view_hiz_state(width, height)
+	width = math.max(1, math.floor(tonumber(width) or 1))
+	height = math.max(1, math.floor(tonumber(height) or 1))
+	local state = gpu_culling.main_view_hiz_state
+
+	if
+		state and
+		state.width == width and
+		state.height == height and
+		state.texture and
+		state.texture:IsValid()
+	then
+		return state
+	end
+
+	if state and state.texture then state.texture:Remove() end
+
+	local texture = Texture.New{
+		width = width,
+		height = height,
+		format = "r32_sfloat",
+		mip_map_levels = (width > 1 or height > 1) and 2 or 1,
+		image = {
+			usage = {"sampled", "storage"},
+			properties = "device_local",
+		},
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			mipmap_mode = "nearest",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
+	texture:SetDebugName("gpu culling main view hiz")
+	local image = texture:GetImage()
+	local mip_count = texture:GetMipMapLevels()
+	local single_mip_views = {}
+
+	for mip_level = 0, mip_count - 1 do
+		single_mip_views[mip_level + 1] = image:CreateView{
+			format = "r32_sfloat",
+			base_mip_level = mip_level,
+			level_count = 1,
+			aspect = "color",
+		}
+
+		if single_mip_views[mip_level + 1].SetDebugName then
+			single_mip_views[mip_level + 1]:SetDebugName("gpu culling main view hiz mip " .. mip_level)
+		end
+	end
+
+	image:TransitionLayout(image.layout or "undefined", "general")
+	state = {
+		width = width,
+		height = height,
+		texture = texture,
+		full_view = texture:GetView(),
+		sampler = texture.sampler or render.CreateSampler(texture:GetSamplerConfig()),
+		max_mip = math.max(0, mip_count - 1),
+		single_mip_views = single_mip_views,
+	}
+	gpu_culling.main_view_hiz_state = state
+	return state
+end
+
+local function get_main_view_occlusion_source()
+	local depth_texture = get_main_view_depth_texture()
+	local state = ensure_main_view_hiz_state(
+		depth_texture and depth_texture:GetWidth() or 1,
+		depth_texture and depth_texture:GetHeight() or 1
+	)
+
+	if not depth_texture then
+		return nil, state.full_view, state.sampler, state.max_mip, state
+	end
+
+	return depth_texture, state.full_view, state.sampler, state.max_mip, state
+end
+
+local function get_main_view_hiz_build_pass()
+	if gpu_culling.main_view_hiz_build_pass then
+		return gpu_culling.main_view_hiz_build_pass
+	end
+
+	gpu_culling.main_view_hiz_build_pass = EasyPipeline.Compute{
+		DescriptorSetCount = 64,
+		name = "gpu_culling_main_view_hiz_copy",
+		LocalSize = {x = 8, y = 8, z = 1},
+		descriptor_sets = {
+			{
+				type = "combined_image_sampler",
+				binding_index = 0,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+			{
+				type = "storage_image",
+				binding_index = 1,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+		},
+		shader = [[
+			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
+			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_hiz;
+
+			void main() {
+				ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+				ivec2 dst_size = imageSize(out_hiz);
+
+				if (any(greaterThanEqual(pos, dst_size))) return;
+
+				ivec2 src_size = textureSize(source_depth_tex, 0);
+				if (any(greaterThanEqual(pos, src_size))) return;
+				imageStore(out_hiz, pos, vec4(texelFetch(source_depth_tex, pos, 0).r, 0.0, 0.0, 1.0));
+			}
+		]],
+	}
+	return gpu_culling.main_view_hiz_build_pass
+end
+
+local function get_main_view_hiz_reduce_pass()
+	if gpu_culling.main_view_hiz_reduce_pass then
+		return gpu_culling.main_view_hiz_reduce_pass
+	end
+
+	gpu_culling.main_view_hiz_reduce_pass = EasyPipeline.Compute{
+		DescriptorSetCount = 64,
+		name = "gpu_culling_main_view_hiz_reduce",
+		LocalSize = {x = 8, y = 8, z = 1},
+		descriptor_sets = {
+			{
+				type = "storage_image",
+				binding_index = 0,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+			{
+				type = "storage_image",
+				binding_index = 1,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+		},
+		shader = [[
+			layout(set = 0, binding = 0, r32f) uniform readonly image2D source_hiz;
+			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_hiz;
+
+			void main() {
+				ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+				ivec2 dst_size = imageSize(out_hiz);
+
+				if (any(greaterThanEqual(pos, dst_size))) return;
+
+				ivec2 src_size = imageSize(source_hiz);
+				ivec2 src_base = pos * 2;
+				float max_depth = 0.0;
+
+				for (int y = 0; y < 2; ++y) {
+					for (int x = 0; x < 2; ++x) {
+						ivec2 src_pos = min(src_base + ivec2(x, y), src_size - 1);
+						max_depth = max(max_depth, imageLoad(source_hiz, src_pos).r);
+					}
+				}
+
+				imageStore(out_hiz, pos, vec4(max_depth, 0.0, 0.0, 1.0));
+			}
+		]],
+	}
+	return gpu_culling.main_view_hiz_reduce_pass
+end
+
+local function build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
+	if not (cmd and depth_texture and state and state.texture) then return end
+
+	local copy_pass = get_main_view_hiz_build_pass()
+	local reduce_pass = get_main_view_hiz_reduce_pass()
+	local descriptor_base = descriptor_slot * 16
+	local image = state.texture:GetImage()
+	local depth_view = depth_texture:GetView()
+	local depth_sampler = depth_texture.sampler or render.CreateSampler(depth_texture:GetSamplerConfig())
+	cmd:PipelineBarrier{
+		srcStage = "top_of_pipe",
+		dstStage = "compute",
+		imageBarriers = {
+			{
+				image = image,
+				srcAccessMask = "none",
+				dstAccessMask = "shader_write",
+				oldLayout = image.layout or "undefined",
+				newLayout = "general",
+				base_mip_level = 0,
+				level_count = state.max_mip + 1,
+				layer_count = 1,
+			},
+		},
+	}
+	copy_pass:UpdateDescriptorSet("combined_image_sampler", descriptor_base, 0, 0, depth_view, depth_sampler)
+	copy_pass:UpdateDescriptorSet("storage_image", descriptor_base, 1, 0, state.single_mip_views[1])
+	copy_pass:DispatchForSize(cmd, state.width, state.height, 1, descriptor_base)
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = "compute",
+		imageBarriers = {
+			{
+				image = image,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "shader_read",
+				oldLayout = "general",
+				newLayout = "general",
+				base_mip_level = 0,
+				level_count = 1,
+				layer_count = 1,
+			},
+		},
+	}
+
+	for mip_level = 1, state.max_mip do
+		local reduce_descriptor_slot = descriptor_base + mip_level
+		reduce_pass:UpdateDescriptorSet(
+			"storage_image",
+			reduce_descriptor_slot,
+			0,
+			0,
+			state.single_mip_views[mip_level]
+		)
+		reduce_pass:UpdateDescriptorSet(
+			"storage_image",
+			reduce_descriptor_slot,
+			1,
+			0,
+			state.single_mip_views[mip_level + 1]
+		)
+		reduce_pass:DispatchForSize(
+			cmd,
+			math.max(1, math.floor((state.width + (2 ^ mip_level) - 1) / (2 ^ mip_level))),
+			math.max(1, math.floor((state.height + (2 ^ mip_level) - 1) / (2 ^ mip_level))),
+			1,
+			reduce_descriptor_slot
+		)
+		cmd:PipelineBarrier{
+			srcStage = "compute",
+			dstStage = "compute",
+			imageBarriers = {
+				{
+					image = image,
+					srcAccessMask = "shader_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "general",
+					newLayout = "general",
+					base_mip_level = mip_level,
+					level_count = 1,
+					layer_count = 1,
+				},
+			},
+		}
+	end
+end
+
+local function get_main_view_hiz_frame_stamp(frame_index)
+	return frame_index or render.GetCurrentFrame() or 1
+end
+
+local function get_main_view_hiz_descriptor_slot(frame_index)
+	local slot = frame_index or render.GetCurrentFrame() or 1
+
+	if slot < 1 then slot = 1 end
+
+	return slot
+end
+
+local function ensure_main_view_hiz_built(cmd, descriptor_slot, frame_index, depth_texture, state)
+	if not (cmd and depth_texture and state and state.texture) then return false end
+
+	local frame_stamp = get_main_view_hiz_frame_stamp(frame_index)
+
+	if
+		state.last_built_frame_stamp == frame_stamp and
+		state.last_built_depth_texture == depth_texture
+	then
+		return false
+	end
+
+	build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
+	state.last_built_frame_stamp = frame_stamp
+	state.last_built_depth_texture = depth_texture
+	return true
+end
+
+function gpu_culling.PrepareMainViewHiZ(frame_index, cmd)
+	local depth_texture, depth_view, depth_sampler, max_mip, state = get_main_view_occlusion_source()
+
+	if gpu_culling.GetOcclusionMode() == "hiz" and depth_texture and state then
+		ensure_main_view_hiz_built(
+			cmd or render.GetCommandBuffer(),
+			get_main_view_hiz_descriptor_slot(frame_index),
+			frame_index,
+			depth_texture,
+			state
+		)
+	end
+
+	return depth_texture, depth_view, depth_sampler, max_mip, state
+end
 
 function gpu_culling.IsEnabled()
 	return gpu_culling.enabled
@@ -259,6 +578,15 @@ local function serialize_component(component, dynamic)
 	local entries = component:GetRenderEntries()
 	local serialized_entries = {}
 	local shadow_aabb_cullable = true
+	local world_aabb = serialize_aabb(component and component.GetWorldAABB and component:GetWorldAABB() or nil)
+	local sphere_radius = 0
+
+	if world_aabb then
+		local extent_x = math.max((world_aabb.max_x or 0) - (world_aabb.min_x or 0), 0)
+		local extent_y = math.max((world_aabb.max_y or 0) - (world_aabb.min_y or 0), 0)
+		local extent_z = math.max((world_aabb.max_z or 0) - (world_aabb.min_z or 0), 0)
+		sphere_radius = math.sqrt(extent_x * extent_x + extent_y * extent_y + extent_z * extent_z) * 0.5
+	end
 
 	for i, entry in ipairs(entries) do
 		serialized_entries[i] = serialize_render_entry(component, entry, i, dynamic)
@@ -281,11 +609,19 @@ local function serialize_component(component, dynamic)
 		cull_distance = component and component.GetCullDistance and component:GetCullDistance() or nil,
 		model_path = component and component.GetModelPath and component:GetModelPath() or "",
 		shadow_change_version = component and component.shadow_change_version or 0,
-		world_aabb = serialize_aabb(component and component.GetWorldAABB and component:GetWorldAABB() or nil),
+		world_aabb = world_aabb,
+		sphere_radius = sphere_radius,
 		shadow_aabb_cullable = shadow_aabb_cullable,
 		render_entry_count = #serialized_entries,
 		entries = serialized_entries,
 	}
+end
+
+local function assign_component_entry_span(component, offset_field, count_field, entry_offset, entry_count)
+	if not component then return end
+
+	component[offset_field] = entry_offset
+	component[count_field] = entry_count
 end
 
 local function serialize_bvh_node(node, out_nodes)
@@ -356,7 +692,9 @@ local function build_scene_dataset(acceleration)
 	}
 
 	for i, item in ipairs(acceleration.items or {}) do
-		local serialized = serialize_component(item.component, false)
+		local component = item.component
+		local entry_offset = #dataset.main_entries
+		local serialized = serialize_component(component, false)
 		dataset.static_visuals[i] = serialized
 		dataset.main_visuals[#dataset.main_visuals + 1] = serialized
 
@@ -364,11 +702,19 @@ local function build_scene_dataset(acceleration)
 			dataset.main_entries[#dataset.main_entries + 1] = entry
 		end
 
+		assign_component_entry_span(
+			component,
+			"main_gpu_entry_offset",
+			"main_gpu_entry_count",
+			entry_offset,
+			serialized.render_entry_count
+		)
 		dataset.static_visual_count = dataset.static_visual_count + 1
 		dataset.static_entry_count = dataset.static_entry_count + serialized.render_entry_count
 	end
 
 	for i, component in ipairs(acceleration.dynamic_components or {}) do
+		local entry_offset = #dataset.main_entries
 		local serialized = serialize_component(component, true)
 		dataset.dynamic_visuals[i] = serialized
 		dataset.main_visuals[#dataset.main_visuals + 1] = serialized
@@ -377,23 +723,40 @@ local function build_scene_dataset(acceleration)
 			dataset.main_entries[#dataset.main_entries + 1] = entry
 		end
 
+		assign_component_entry_span(
+			component,
+			"main_gpu_entry_offset",
+			"main_gpu_entry_count",
+			entry_offset,
+			serialized.render_entry_count
+		)
 		dataset.dynamic_visual_count = dataset.dynamic_visual_count + 1
 		dataset.dynamic_entry_count = dataset.dynamic_entry_count + serialized.render_entry_count
 	end
 
 	for i, item in ipairs(acceleration.shadow_items or {}) do
-		local serialized = serialize_component(item.component, false)
+		local component = item.component
+		local entry_offset = #dataset.shadow_entries
+		local serialized = serialize_component(component, false)
 		dataset.shadow_static_visuals[i] = serialized
 
 		for _, entry in ipairs(serialized.entries) do
 			dataset.shadow_entries[#dataset.shadow_entries + 1] = entry
 		end
 
+		assign_component_entry_span(
+			component,
+			"shadow_gpu_entry_offset",
+			"shadow_gpu_entry_count",
+			entry_offset,
+			serialized.render_entry_count
+		)
 		dataset.shadow_static_visual_count = dataset.shadow_static_visual_count + 1
 		dataset.shadow_entry_count = dataset.shadow_entry_count + serialized.render_entry_count
 	end
 
 	for i, component in ipairs(acceleration.dynamic_shadow_components or {}) do
+		local entry_offset = #dataset.shadow_entries
 		local serialized = serialize_component(component, true)
 		dataset.shadow_dynamic_visuals[i] = serialized
 
@@ -401,11 +764,19 @@ local function build_scene_dataset(acceleration)
 			dataset.shadow_entries[#dataset.shadow_entries + 1] = entry
 		end
 
+		assign_component_entry_span(
+			component,
+			"shadow_gpu_entry_offset",
+			"shadow_gpu_entry_count",
+			entry_offset,
+			serialized.render_entry_count
+		)
 		dataset.shadow_dynamic_visual_count = dataset.shadow_dynamic_visual_count + 1
 		dataset.shadow_entry_count = dataset.shadow_entry_count + serialized.render_entry_count
 	end
 
 	for i, component in ipairs(acceleration.non_aabb_shadow_components or {}) do
+		local entry_offset = #dataset.shadow_entries
 		local serialized = serialize_component(component, true)
 		dataset.non_aabb_shadow_visuals[i] = serialized
 
@@ -413,6 +784,13 @@ local function build_scene_dataset(acceleration)
 			dataset.shadow_entries[#dataset.shadow_entries + 1] = entry
 		end
 
+		assign_component_entry_span(
+			component,
+			"shadow_gpu_entry_offset",
+			"shadow_gpu_entry_count",
+			entry_offset,
+			serialized.render_entry_count
+		)
 		dataset.non_aabb_shadow_visual_count = dataset.non_aabb_shadow_visual_count + 1
 		dataset.shadow_entry_count = dataset.shadow_entry_count + serialized.render_entry_count
 	end
@@ -543,6 +921,7 @@ local function build_scene_dataset(acceleration)
 							first_world_matrix = entry.world_matrix,
 							output_offset = 0,
 							max_count = 0,
+							entries = {},
 						}
 						mesh_batches[material_key] = batch
 						dataset.shadow_instanced_batches[#dataset.shadow_instanced_batches + 1] = batch
@@ -551,6 +930,7 @@ local function build_scene_dataset(acceleration)
 					entry.instanced_batch_index = batch.batch_index
 					entry.static_matrix_index = dataset.shadow_instance_count
 					batch.max_count = batch.max_count + 1
+					batch.entries[#batch.entries + 1] = entry
 					dataset.shadow_instance_count = dataset.shadow_instance_count + 1
 					dataset.shadow_instance_world_change_version = math.max(dataset.shadow_instance_world_change_version, visual.shadow_change_version or 0)
 				end
@@ -579,6 +959,7 @@ local function build_scene_dataset(acceleration)
 							first_world_matrix = entry.world_matrix,
 							output_offset = 0,
 							max_count = 0,
+							entries = {},
 						}
 						mesh_batches[material_key] = batch
 						dataset.shadow_instanced_batches[#dataset.shadow_instanced_batches + 1] = batch
@@ -587,6 +968,7 @@ local function build_scene_dataset(acceleration)
 					entry.instanced_batch_index = batch.batch_index
 					entry.static_matrix_index = dataset.shadow_instance_count
 					batch.max_count = batch.max_count + 1
+					batch.entries[#batch.entries + 1] = entry
 					dataset.shadow_instance_count = dataset.shadow_instance_count + 1
 					dataset.shadow_instance_world_change_version = math.max(dataset.shadow_instance_world_change_version, visual.shadow_change_version or 0)
 				end
@@ -705,6 +1087,7 @@ local function flatten_visual_upload(visuals, extra_flags)
 	for visual_index, visual in ipairs(visuals) do
 		local visual_record = visual_records[visual_index - 1]
 		set_record_aabb(visual_record, "min_", "max_", visual.world_aabb)
+		visual_record.sphere_radius = visual.sphere_radius or 0
 		visual_record.cull_distance = visual.cull_distance or 0
 		visual_record.flags = get_visual_flags(visual, extra_flags)
 		visual_record.entry_offset = entry_offset
@@ -951,6 +1334,8 @@ local function clear_frame_buffers()
 		remove_buffer(frame_buffers.indirect_command_buffer)
 		remove_buffer(frame_buffers.indirect_count_buffer)
 		remove_buffer(frame_buffers.visible_instanced_batch_count_buffer)
+		remove_buffer(frame_buffers.active_batch_index_buffer)
+		remove_buffer(frame_buffers.active_batch_count_buffer)
 		remove_buffer(frame_buffers.shadow_visible_instanced_batch_count_buffer)
 
 		if frame_buffers.visible_instance_vertex_buffer then
@@ -1129,11 +1514,36 @@ local function get_main_view_cull_pass()
 				stageFlags = "compute",
 				set_index = 0,
 			},
+			{
+				type = "storage_buffer",
+				binding_index = 11,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+			{
+				type = "storage_buffer",
+				binding_index = 12,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 13,
+				stageFlags = "compute",
+				set_index = 0,
+			},
 		},
 		block = {
 			{"visual_count", "int"},
 			{"camera_position", "vec3"},
 			{"frustum_planes", "vec4", 6},
+			{"view_projection", "mat4"},
+			{"viewport_height", "float"},
+			{"min_screen_diameter_px", "float"},
+			{"occlusion_enabled", "int"},
+			{"has_source_depth_texture", "int"},
+			{"occlusion_max_mip", "int"},
+			{"occlusion_depth_bias", "float"},
 		},
 		write = function(self, block)
 			block.visual_count = self.current_visual_count or 0
@@ -1151,6 +1561,18 @@ local function get_main_view_cull_pass()
 				ffi.fill(block.frustum_planes, ffi.sizeof("float") * FRUSTUM_PLANE_COMPONENT_COUNT, 0)
 			end
 
+			if self.current_view_projection then
+				self.current_view_projection:CopyToFloatPointer(block.view_projection)
+			else
+				ffi.fill(block.view_projection, ffi.sizeof("float") * 16, 0)
+			end
+
+			block.viewport_height = self.current_viewport_height or 0
+			block.min_screen_diameter_px = self.current_min_screen_diameter_px or 1.0
+			block.occlusion_enabled = self.current_occlusion_enabled and 1 or 0
+			block.has_source_depth_texture = self.current_occlusion_depth_texture and 1 or 0
+			block.occlusion_max_mip = self.current_occlusion_max_mip or 0
+			block.occlusion_depth_bias = self.current_occlusion_depth_bias or 0.0015
 			return block
 		end,
 		shader = [[
@@ -1161,6 +1583,7 @@ local function get_main_view_cull_pass()
 				float max_x;
 				float max_y;
 				float max_z;
+				float sphere_radius;
 				float cull_distance;
 				uint flags;
 				uint entry_offset;
@@ -1248,7 +1671,18 @@ local function get_main_view_cull_pass()
 				uint fallback_visible_count[];
 			};
 
+			layout(std430, set = 0, binding = 11) writeonly buffer ActiveBatchIndexBuffer {
+				uint active_batch_indices[];
+			};
+
+			layout(std430, set = 0, binding = 12) buffer ActiveBatchCountBuffer {
+				uint active_batch_count[];
+			};
+
+			layout(set = 0, binding = 13) uniform sampler2D source_depth_tex;
+
 			const uint VISUAL_FLAG_VISIBLE = 1u;
+			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
 			const uint INVALID_INDEX = 0xFFFFFFFFu;
 
 			bool is_within_cull_distance(VisualRecord visual_record) {
@@ -1278,16 +1712,108 @@ local function get_main_view_cull_pass()
 				return true;
 			}
 
+			vec4 project_world_position(vec3 world_pos) {
+				return compute.view_projection * vec4(world_pos, 1.0);
+			}
+
+			bool is_camera_inside_aabb(VisualRecord visual_record) {
+				return compute.camera_position.x >= visual_record.min_x &&
+					compute.camera_position.x <= visual_record.max_x &&
+					compute.camera_position.y >= visual_record.min_y &&
+					compute.camera_position.y <= visual_record.max_y &&
+					compute.camera_position.z >= visual_record.min_z &&
+					compute.camera_position.z <= visual_record.max_z;
+			}
+
+			bool is_large_enough_in_screen_space(VisualRecord visual_record) {
+				if (compute.viewport_height <= 0.0) return true;
+				if (visual_record.sphere_radius <= 0.0) return true;
+
+				vec3 center = vec3(
+					(visual_record.min_x + visual_record.max_x) * 0.5,
+					(visual_record.min_y + visual_record.max_y) * 0.5,
+					(visual_record.min_z + visual_record.max_z) * 0.5
+				);
+				vec4 clip = project_world_position(center);
+
+				if (clip.w <= 0.0) return true;
+
+				float projected_radius_px = abs(compute.view_projection[1][1]) * visual_record.sphere_radius * compute.viewport_height / max(clip.w * 2.0, 1e-5);
+				return projected_radius_px * 2.0 >= compute.min_screen_diameter_px;
+			}
+
+			int choose_occlusion_mip(vec2 min_uv, vec2 max_uv) {
+				vec2 uv_span = max(max_uv - min_uv, vec2(0.0));
+				vec2 hi_z_size = vec2(textureSize(source_depth_tex, 0));
+				float max_span = max(max(uv_span.x * hi_z_size.x, uv_span.y * hi_z_size.y), 1.0);
+				return clamp(int(ceil(log2(max_span))), 0, compute.occlusion_max_mip);
+			}
+
+			bool is_occluded(VisualRecord visual_record) {
+				if (compute.occlusion_enabled == 0 || compute.has_source_depth_texture == 0) return false;
+				if ((visual_record.flags & VISUAL_FLAG_USE_OCCLUSION) == 0u) return false;
+
+				vec3 corners[8] = vec3[](
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.max_z)
+				);
+
+				vec2 min_uv = vec2(1.0);
+				vec2 max_uv = vec2(0.0);
+				float nearest_depth = 1.0;
+				bool any_valid = false;
+
+				for (int i = 0; i < 8; ++i) {
+					vec4 clip = project_world_position(corners[i]);
+
+					if (clip.w <= 0.0) continue;
+
+					vec3 ndc = clip.xyz / clip.w;
+					vec2 uv = ndc.xy * 0.5 + 0.5;
+					min_uv = min(min_uv, uv);
+					max_uv = max(max_uv, uv);
+					nearest_depth = min(nearest_depth, ndc.z);
+					any_valid = true;
+				}
+
+				if (!any_valid) return false;
+				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
+
+				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
+				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
+				int mip_level = choose_occlusion_mip(min_uv, max_uv);
+				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
+				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+
+				float sampled_depth = 0.0;
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
+
+				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
+			}
+
 			void main() {
 				uint visual_index = gl_GlobalInvocationID.x;
 
 				if (visual_index >= uint(max(compute.visual_count, 0))) return;
 
 				VisualRecord visual_record = visuals[visual_index];
+				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
 
 				if ((visual_record.flags & VISUAL_FLAG_VISIBLE) == 0u) return;
 				if (!is_within_cull_distance(visual_record)) return;
 				if (!is_visible_in_frustum(visual_record)) return;
+				if (!camera_inside_aabb && !is_large_enough_in_screen_space(visual_record)) return;
+				if (!camera_inside_aabb && is_occluded(visual_record)) return;
 
 				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
 					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
@@ -1306,6 +1832,11 @@ local function get_main_view_cull_pass()
 					if (entry_record.instanced_batch_index != INVALID_INDEX && entry_record.static_matrix_index != INVALID_INDEX) {
 						InstancedBatchRecord batch_record = instanced_batches[entry_record.instanced_batch_index];
 						uint local_index = atomicAdd(visible_instanced_batch_counts[entry_record.instanced_batch_index], 1u);
+
+						if (local_index == 0u) {
+							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
+							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
+						}
 
 						if (local_index < batch_record.max_count) {
 							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
@@ -1404,11 +1935,23 @@ local function get_shadow_view_aabb_cull_pass()
 				stageFlags = "compute",
 				set_index = 0,
 			},
+			{
+				type = "combined_image_sampler",
+				binding_index = 12,
+				stageFlags = "compute",
+				set_index = 0,
+			},
 		},
 		block = {
 			{"visual_count", "int"},
 			{"query_min", "vec3"},
 			{"query_max", "vec3"},
+			{"camera_position", "vec3"},
+			{"view_projection", "mat4"},
+			{"occlusion_enabled", "int"},
+			{"has_source_depth_texture", "int"},
+			{"occlusion_max_mip", "int"},
+			{"occlusion_depth_bias", "float"},
 		},
 		write = function(self, block)
 			block.visual_count = self.current_visual_count or 0
@@ -1418,6 +1961,20 @@ local function get_shadow_view_aabb_cull_pass()
 			block.query_max[0] = self.current_query_aabb and self.current_query_aabb.max_x or 0
 			block.query_max[1] = self.current_query_aabb and self.current_query_aabb.max_y or 0
 			block.query_max[2] = self.current_query_aabb and self.current_query_aabb.max_z or 0
+			block.camera_position[0] = self.current_camera_position and self.current_camera_position.x or 0
+			block.camera_position[1] = self.current_camera_position and self.current_camera_position.y or 0
+			block.camera_position[2] = self.current_camera_position and self.current_camera_position.z or 0
+
+			if self.current_view_projection then
+				self.current_view_projection:CopyToFloatPointer(block.view_projection)
+			else
+				ffi.fill(block.view_projection, ffi.sizeof("float") * 16, 0)
+			end
+
+			block.occlusion_enabled = self.current_occlusion_enabled and 1 or 0
+			block.has_source_depth_texture = self.current_occlusion_depth_texture and 1 or 0
+			block.occlusion_max_mip = self.current_occlusion_max_mip or 0
+			block.occlusion_depth_bias = self.current_occlusion_depth_bias or 0.0015
 			return block
 		end,
 		shader = [[
@@ -1428,6 +1985,7 @@ local function get_shadow_view_aabb_cull_pass()
 				float max_x;
 				float max_y;
 				float max_z;
+				float sphere_radius;
 				float cull_distance;
 				uint flags;
 				uint entry_offset;
@@ -1511,7 +2069,10 @@ local function get_shadow_view_aabb_cull_pass()
 				uint active_batch_count[];
 			};
 
+			layout(set = 0, binding = 12) uniform sampler2D source_depth_tex;
+
 			const uint VISUAL_FLAG_CAST_SHADOWS = 2u;
+			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
 			const uint INVALID_INDEX = 0xFFFFFFFFu;
 
 			bool overlaps_query(VisualRecord visual_record) {
@@ -1523,15 +2084,89 @@ local function get_shadow_view_aabb_cull_pass()
 					visual_record.min_z <= compute.query_max.z;
 			}
 
+			vec4 project_world_position(vec3 world_pos) {
+				return compute.view_projection * vec4(world_pos, 1.0);
+			}
+
+			bool is_camera_inside_aabb(VisualRecord visual_record) {
+				return compute.camera_position.x >= visual_record.min_x &&
+					compute.camera_position.x <= visual_record.max_x &&
+					compute.camera_position.y >= visual_record.min_y &&
+					compute.camera_position.y <= visual_record.max_y &&
+					compute.camera_position.z >= visual_record.min_z &&
+					compute.camera_position.z <= visual_record.max_z;
+			}
+
+			int choose_occlusion_mip(vec2 min_uv, vec2 max_uv) {
+				vec2 uv_span = max(max_uv - min_uv, vec2(0.0));
+				vec2 hi_z_size = vec2(textureSize(source_depth_tex, 0));
+				float max_span = max(max(uv_span.x * hi_z_size.x, uv_span.y * hi_z_size.y), 1.0);
+				return clamp(int(ceil(log2(max_span))), 0, compute.occlusion_max_mip);
+			}
+
+			bool is_occluded(VisualRecord visual_record) {
+				if (compute.occlusion_enabled == 0 || compute.has_source_depth_texture == 0) return false;
+				if ((visual_record.flags & VISUAL_FLAG_USE_OCCLUSION) == 0u) return false;
+
+				vec3 corners[8] = vec3[](
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.max_z)
+				);
+
+				vec2 min_uv = vec2(1.0);
+				vec2 max_uv = vec2(0.0);
+				float nearest_depth = 1.0;
+				bool any_valid = false;
+
+				for (int i = 0; i < 8; ++i) {
+					vec4 clip = project_world_position(corners[i]);
+
+					if (clip.w <= 0.0) continue;
+
+					vec3 ndc = clip.xyz / clip.w;
+					vec2 uv = ndc.xy * 0.5 + 0.5;
+					min_uv = min(min_uv, uv);
+					max_uv = max(max_uv, uv);
+					nearest_depth = min(nearest_depth, ndc.z);
+					any_valid = true;
+				}
+
+				if (!any_valid) return false;
+				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
+
+				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
+				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
+				int mip_level = choose_occlusion_mip(min_uv, max_uv);
+				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
+				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+
+				float sampled_depth = 0.0;
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
+
+				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
+			}
+
 			void main() {
 				uint visual_index = gl_GlobalInvocationID.x;
 
 				if (visual_index >= uint(max(compute.visual_count, 0))) return;
 
 				VisualRecord visual_record = visuals[visual_index];
+				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
 
 				if ((visual_record.flags & VISUAL_FLAG_CAST_SHADOWS) == 0u) return;
 				if (!overlaps_query(visual_record)) return;
+				if (!camera_inside_aabb && is_occluded(visual_record)) return;
 
 				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
 					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
@@ -1575,6 +2210,30 @@ local function resolve_frame_slot(frame_index)
 	if slot > frame_count then slot = ((slot - 1) % frame_count) + 1 end
 
 	return slot
+end
+
+local function update_cull_result(
+	result,
+	frame_index,
+	visible_count,
+	visible_entry_index_ptr,
+	fallback_visible_entry_count,
+	fallback_visible_entry_index_ptr,
+	indirect_command_count,
+	visible_entry_indices_ready
+)
+	result.frame_index = frame_index
+	result.visible_count = visible_count
+	result.visible_indices = nil
+	result.visible_entry_count = visible_count
+	result.visible_entry_index_ptr = visible_entry_index_ptr
+	result.visible_entry_indices = nil
+	result.fallback_visible_entry_count = fallback_visible_entry_count or 0
+	result.fallback_visible_entry_index_ptr = fallback_visible_entry_index_ptr
+	result.fallback_visible_entry_indices = nil
+	result.indirect_command_count = indirect_command_count
+	result.visible_entry_indices_ready = visible_entry_indices_ready == true
+	return result
 end
 
 local function ensure_dataset_buffers(dataset)
@@ -1693,6 +2352,16 @@ local function build_frame_buffers(dataset)
 				instanced_batch_count * UINT32_SIZE,
 				{"storage_buffer"}
 			),
+			active_batch_index_buffer = create_buffer(
+				"gpu_culling_active_batch_indices_" .. frame_index,
+				instanced_batch_count * UINT32_SIZE,
+				{"storage_buffer"}
+			),
+			active_batch_count_buffer = create_buffer(
+				"gpu_culling_active_batch_count_" .. frame_index,
+				UINT32_SIZE,
+				{"storage_buffer"}
+			),
 			visible_instance_vertex_buffer = VertexBuffer.New(
 				static_instance_capacity,
 				{
@@ -1725,8 +2394,9 @@ local function build_frame_buffers(dataset)
 			main_view_cull_fence = Fence.New(device),
 			main_view_cull_pending_serial = nil,
 			main_view_cull_completed_serial = nil,
-			main_view_cull_cached_fallback_visible_indices = {},
 			main_view_cull_cached_result = nil,
+			main_view_cull_result = nil,
+			shadow_view_cull_result = nil,
 		}
 	end
 
@@ -1746,24 +2416,16 @@ local function update_main_view_async_slot_completion(output, queue)
 	local fallback_visible_count_ptr = ffi.cast("uint32_t*", output.fallback_visible_count_buffer:Map())
 	local fallback_visible_count = tonumber(fallback_visible_count_ptr[0])
 	local fallback_visible_index_ptr = ffi.cast("uint32_t*", output.fallback_visible_index_buffer:Map())
-	local fallback_visible_indices = output.main_view_cull_cached_fallback_visible_indices or {}
-	table.clear(fallback_visible_indices)
-
-	for i = 0, fallback_visible_count - 1 do
-		fallback_visible_indices[#fallback_visible_indices + 1] = tonumber(fallback_visible_index_ptr[i])
-	end
-
-	output.main_view_cull_cached_fallback_visible_indices = fallback_visible_indices
-	output.main_view_cull_cached_result = {
-		frame_index = output.frame_index,
-		visible_count = nil,
-		visible_indices = nil,
-		visible_entry_count = nil,
-		visible_entry_indices = nil,
-		fallback_visible_entry_count = fallback_visible_count,
-		fallback_visible_entry_indices = fallback_visible_indices,
-		indirect_command_count = nil,
-	}
+	output.main_view_cull_cached_result = update_cull_result(
+		output.main_view_cull_cached_result or {},
+		output.frame_index,
+		nil,
+		nil,
+		fallback_visible_count,
+		fallback_visible_index_ptr,
+		nil,
+		false
+	)
 	output.main_view_cull_completed_serial = output.main_view_cull_pending_serial
 	output.main_view_cull_pending_serial = nil
 end
@@ -2016,11 +2678,17 @@ function gpu_culling.RunMainViewFrustumCulling(
 	local visual_count = dataset_buffers.layout and dataset_buffers.layout.main_visual_count or 0
 
 	if visual_count <= 0 then
-		return {
-			frame_index = resolve_frame_slot(frame_index),
-			visible_count = 0,
-			visible_indices = {},
-		}
+		gpu_culling.empty_main_view_cull_result = update_cull_result(
+			gpu_culling.empty_main_view_cull_result or {},
+			resolve_frame_slot(frame_index),
+			0,
+			nil,
+			0,
+			nil,
+			0,
+			read_visible_entry_indices
+		)
+		return gpu_culling.empty_main_view_cull_result
 	end
 
 	local pass = get_main_view_cull_pass()
@@ -2028,6 +2696,14 @@ function gpu_culling.RunMainViewFrustumCulling(
 		gpu_culling.main_view_async_slot_index or
 		resolve_frame_slot(frame_index)
 	local output = frame_buffers[slot]
+	local occlusion_enabled = gpu_culling.GetOcclusionMode() == "hiz"
+	local occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = get_main_view_occlusion_source()
+	local viewport_height = 0
+
+	if occlusion_depth_texture and occlusion_depth_texture.GetSize then
+		local size = occlusion_depth_texture:GetSize()
+		viewport_height = size and size.y or 0
+	end
 
 	if use_async_main_view and output.main_view_cull_pending_serial then
 		update_main_view_async_slot_completion(output, render.GetQueue())
@@ -2042,6 +2718,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 	upload_main_instance_worlds(output, dataset)
 	output.indirect_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
 	output.fallback_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
+	output.active_batch_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
 	output.visible_instanced_batch_count_buffer:CopyData(
 		output.visible_instanced_batch_count_zero_data,
 		output.visible_instanced_batch_count_buffer.size,
@@ -2050,6 +2727,9 @@ function gpu_culling.RunMainViewFrustumCulling(
 	pass.current_visual_count = visual_count
 	pass.current_camera_position = camera_position
 	pass.current_frustum_planes = frustum_planes
+	pass.current_view_projection = view_projection_matrix
+	pass.current_viewport_height = viewport_height
+	pass.current_min_screen_diameter_px = 1.0
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
 		slot,
@@ -2138,14 +2818,67 @@ function gpu_culling.RunMainViewFrustumCulling(
 		output.fallback_visible_count_buffer,
 		output.fallback_visible_count_buffer.size
 	)
+	pass:UpdateDescriptorSet(
+		"storage_buffer",
+		slot,
+		11,
+		0,
+		output.active_batch_index_buffer,
+		output.active_batch_index_buffer.size
+	)
+	pass:UpdateDescriptorSet(
+		"storage_buffer",
+		slot,
+		12,
+		0,
+		output.active_batch_count_buffer,
+		output.active_batch_count_buffer.size
+	)
 	local cmd = output.main_view_cull_cmd
 	cmd:Reset()
 	cmd:Begin()
+	occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = gpu_culling.PrepareMainViewHiZ(frame_index, cmd)
+	pass.current_occlusion_enabled = occlusion_enabled
+	pass.current_occlusion_depth_texture = occlusion_enabled and occlusion_depth_texture or nil
+	pass.current_occlusion_max_mip = occlusion_enabled and occlusion_max_mip or 0
+	pass.current_occlusion_depth_bias = 0.0015
+
+	if
+		output.last_main_view_occlusion_view ~= occlusion_depth_view or
+		output.last_main_view_occlusion_sampler ~= occlusion_depth_sampler
+	then
+		pass:UpdateDescriptorSet(
+			"combined_image_sampler",
+			slot,
+			13,
+			0,
+			occlusion_depth_view,
+			occlusion_depth_sampler,
+			nil,
+			nil,
+			"general"
+		)
+		output.last_main_view_occlusion_view = occlusion_depth_view
+		output.last_main_view_occlusion_sampler = occlusion_depth_sampler
+	end
+
 	pass:DispatchForSize(cmd, visual_count, 1, 1, slot)
 	local buffer_barriers = {
 		{
 			buffer = output.visible_instanced_batch_count_buffer,
 			size = output.visible_instanced_batch_count_buffer.size,
+			srcAccessMask = "shader_write",
+			dstAccessMask = "host_read",
+		},
+		{
+			buffer = output.active_batch_index_buffer,
+			size = output.active_batch_index_buffer.size,
+			srcAccessMask = "shader_write",
+			dstAccessMask = "host_read",
+		},
+		{
+			buffer = output.active_batch_count_buffer,
+			size = output.active_batch_count_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
 		},
@@ -2224,8 +2957,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 	local fallback_visible_count_ptr = ffi.cast("uint32_t*", output.fallback_visible_count_buffer:Map())
 	local fallback_visible_count = tonumber(fallback_visible_count_ptr[0])
 	local fallback_visible_index_ptr = ffi.cast("uint32_t*", output.fallback_visible_index_buffer:Map())
-	local visible_indices = read_visible_entry_indices and {} or nil
-	local fallback_visible_indices = {}
+	local visible_index_ptr = nil
 
 	if read_indirect_results then
 		local visible_count_ptr = ffi.cast("uint32_t*", output.indirect_count_buffer:Map())
@@ -2233,27 +2965,20 @@ function gpu_culling.RunMainViewFrustumCulling(
 	end
 
 	if read_visible_entry_indices then
-		local visible_index_ptr = ffi.cast("uint32_t*", output.visible_index_buffer:Map())
-
-		for i = 0, visible_count - 1 do
-			visible_indices[#visible_indices + 1] = tonumber(visible_index_ptr[i])
-		end
+		visible_index_ptr = ffi.cast("uint32_t*", output.visible_index_buffer:Map())
 	end
 
-	for i = 0, fallback_visible_count - 1 do
-		fallback_visible_indices[#fallback_visible_indices + 1] = tonumber(fallback_visible_index_ptr[i])
-	end
-
-	return {
-		frame_index = slot,
-		visible_count = visible_count,
-		visible_indices = visible_indices,
-		visible_entry_count = visible_count,
-		visible_entry_indices = visible_indices,
-		fallback_visible_entry_count = fallback_visible_count,
-		fallback_visible_entry_indices = fallback_visible_indices,
-		indirect_command_count = visible_count,
-	}
+	output.main_view_cull_result = update_cull_result(
+		output.main_view_cull_result or {},
+		slot,
+		visible_count,
+		visible_index_ptr,
+		fallback_visible_count,
+		fallback_visible_index_ptr,
+		visible_count,
+		read_visible_entry_indices
+	)
+	return output.main_view_cull_result
 end
 
 function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_visible_entry_indices)
@@ -2270,16 +2995,26 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	local visual_count = dataset_buffers.layout and dataset_buffers.layout.shadow_visual_count or 0
 
 	if visual_count <= 0 then
-		return {
-			frame_index = resolve_frame_slot(frame_index),
-			visible_count = 0,
-			visible_indices = {},
-		}
+		gpu_culling.empty_shadow_view_cull_result = update_cull_result(
+			gpu_culling.empty_shadow_view_cull_result or {},
+			resolve_frame_slot(frame_index),
+			0,
+			nil,
+			0,
+			nil,
+			0,
+			read_visible_entry_indices
+		)
+		return gpu_culling.empty_shadow_view_cull_result
 	end
 
 	local pass = get_shadow_view_aabb_cull_pass()
 	local slot = resolve_frame_slot(frame_index)
 	local output = frame_buffers[slot]
+	local occlusion_enabled = gpu_culling.GetOcclusionMode() == "hiz"
+	local occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = get_main_view_occlusion_source()
+	local camera = render3d.GetCamera()
+	local view_projection_matrix = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
 	upload_shadow_instance_worlds(output, dataset)
 	output.shadow_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
 	output.shadow_fallback_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
@@ -2291,6 +3026,8 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	)
 	pass.current_visual_count = visual_count
 	pass.current_query_aabb = query_aabb
+	pass.current_camera_position = camera:GetPosition()
+	pass.current_view_projection = view_projection_matrix
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
 		slot,
@@ -2390,6 +3127,22 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	local cmd = gpu_culling.shadow_view_aabb_cull_cmd
 	cmd:Reset()
 	cmd:Begin()
+	occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = gpu_culling.PrepareMainViewHiZ(frame_index, cmd)
+	pass.current_occlusion_enabled = occlusion_enabled
+	pass.current_occlusion_depth_texture = occlusion_enabled and occlusion_depth_texture or nil
+	pass.current_occlusion_max_mip = occlusion_enabled and occlusion_max_mip or 0
+	pass.current_occlusion_depth_bias = 0.0015
+	pass:UpdateDescriptorSet(
+		"combined_image_sampler",
+		slot,
+		12,
+		0,
+		occlusion_depth_view,
+		occlusion_depth_sampler,
+		nil,
+		nil,
+		"general"
+	)
 	pass:DispatchForSize(cmd, visual_count, 1, 1, slot)
 	local buffer_barriers = {
 		{
@@ -2467,8 +3220,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	local fallback_visible_count_ptr = ffi.cast("uint32_t*", output.shadow_fallback_visible_count_buffer:Map())
 	local fallback_visible_count = tonumber(fallback_visible_count_ptr[0])
 	local fallback_visible_index_ptr = ffi.cast("uint32_t*", output.shadow_fallback_visible_index_buffer:Map())
-	local visible_indices = read_visible_entry_indices and {} or nil
-	local fallback_visible_indices = {}
+	local visible_index_ptr = nil
 
 	if read_visible_results then
 		local visible_count_ptr = ffi.cast("uint32_t*", output.shadow_visible_count_buffer:Map())
@@ -2476,26 +3228,92 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	end
 
 	if read_visible_entry_indices then
-		local visible_index_ptr = ffi.cast("uint32_t*", output.shadow_visible_index_buffer:Map())
+		visible_index_ptr = ffi.cast("uint32_t*", output.shadow_visible_index_buffer:Map())
+	end
 
-		for i = 0, visible_count - 1 do
-			visible_indices[#visible_indices + 1] = tonumber(visible_index_ptr[i])
+	output.shadow_view_cull_result = update_cull_result(
+		output.shadow_view_cull_result or {},
+		slot,
+		visible_count,
+		visible_index_ptr,
+		fallback_visible_count,
+		fallback_visible_index_ptr,
+		visible_count,
+		read_visible_entry_indices
+	)
+	return output.shadow_view_cull_result
+end
+
+function gpu_culling.GetVisibleEntrySpan(cull_result, prefer_visible_entry_indices)
+	if not cull_result then return nil, 0 end
+
+	if prefer_visible_entry_indices ~= false then
+		if cull_result.visible_entry_indices_ready then
+			return cull_result.visible_entry_index_ptr, cull_result.visible_entry_count or 0
+		end
+
+		return cull_result.fallback_visible_entry_index_ptr,
+		cull_result.fallback_visible_entry_count or 0
+	end
+
+	return cull_result.fallback_visible_entry_index_ptr,
+	cull_result.fallback_visible_entry_count or 0
+end
+
+function gpu_culling.GetShadowActiveBatchSpan(cull_result)
+	if not cull_result then return nil, 0 end
+
+	local frame_buffers = gpu_culling.frame_buffers
+	local output = frame_buffers and frame_buffers[cull_result.frame_index] or nil
+
+	if not output then return nil, 0 end
+
+	local active_batch_count_ptr = ffi.cast("uint32_t *", output.shadow_active_batch_count_buffer:Map())
+	local active_batch_indices = ffi.cast("uint32_t *", output.shadow_active_batch_index_buffer:Map())
+	return active_batch_indices, tonumber(active_batch_count_ptr[0] or 0)
+end
+
+function gpu_culling.IsAnyVisibleEntryInRange(cull_result, first_entry_index, entry_count, prefer_visible_entry_indices)
+	if not cull_result then return nil end
+
+	if not first_entry_index or not entry_count or entry_count <= 0 then
+		return false
+	end
+
+	local entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, prefer_visible_entry_indices)
+
+	if not entry_index_ptr or visible_entry_count <= 0 then return false end
+
+	local last_entry_index = first_entry_index + entry_count - 1
+	local low = 0
+	local high = visible_entry_count - 1
+
+	while low <= high do
+		local mid = math.floor((low + high) * 0.5)
+		local entry_index = tonumber(entry_index_ptr[mid])
+
+		if entry_index < first_entry_index then
+			low = mid + 1
+		elseif entry_index > last_entry_index then
+			high = mid - 1
+		else
+			return true
 		end
 	end
 
-	for i = 0, fallback_visible_count - 1 do
-		fallback_visible_indices[#fallback_visible_indices + 1] = tonumber(fallback_visible_index_ptr[i])
+	return false
+end
+
+function gpu_culling.ForEachVisibleEntryIndex(cull_result, callback, prefer_visible_entry_indices)
+	local entry_index_ptr, entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, prefer_visible_entry_indices)
+
+	if not entry_index_ptr then return 0 end
+
+	for i = 0, entry_count - 1 do
+		callback(tonumber(entry_index_ptr[i]), i + 1)
 	end
 
-	return {
-		frame_index = slot,
-		visible_count = visible_count,
-		visible_indices = visible_indices,
-		visible_entry_count = visible_count,
-		visible_entry_indices = visible_indices,
-		fallback_visible_entry_count = fallback_visible_count,
-		fallback_visible_entry_indices = fallback_visible_indices,
-	}
+	return entry_count
 end
 
 function gpu_culling.IsSceneAccelerationDirty()
