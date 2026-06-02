@@ -320,6 +320,42 @@ local function update_shadow_visible_list_cache(
 	)
 end
 
+local function ensure_shadow_gpu_cull_output(cache, shadow_map, cascade_idx)
+	if shadow_map.GetShadowCullOutput then
+		return shadow_map:GetShadowCullOutput(cascade_idx)
+	end
+
+	local dataset_buffers = gpu_culling.GetDatasetBuffers()
+	local layout = dataset_buffers and dataset_buffers.layout or nil
+	local shadow_entry_capacity = math.max(layout and layout.shadow_entry_count or 0, 1)
+	local shadow_instanced_batch_count = math.max(layout and layout.shadow_instanced_batch_count or 0, 1)
+	local shadow_instance_capacity = math.max(layout and layout.shadow_instance_count or 0, 1)
+	local output = cache.gpu_cull_output
+
+	if
+		output and
+		output.shadow_entry_capacity == shadow_entry_capacity and
+		output.shadow_instanced_batch_count == shadow_instanced_batch_count and
+		output.shadow_instance_capacity == shadow_instance_capacity
+	then
+		return output
+	end
+
+	local descriptor_slot = output and output.descriptor_slot or nil
+
+	if output then gpu_culling.RemoveShadowQueryOutput(output) end
+
+	output = gpu_culling.CreateShadowQueryOutput(
+		string.format("visual_shadow_query_%s_%s", tostring(shadow_map), tostring(cascade_idx)),
+		shadow_entry_capacity,
+		shadow_instanced_batch_count,
+		shadow_instance_capacity,
+		descriptor_slot
+	)
+	cache.gpu_cull_output = output
+	return output
+end
+
 local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visible_entry_indices)
 	local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
 	local camera_position = get_cull_camera_position()
@@ -357,8 +393,9 @@ local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visib
 
 	if gpu_culling.IsEnabled() and not visual.noculling and query_aabb then
 		local dataset = gpu_culling.GetSceneDataset()
+		local shadow_output = ensure_shadow_gpu_cull_output(cache, shadow_map, cascade_idx)
 		local cull_result = dataset and
-			gpu_culling.RunShadowViewAABBCulling(query_aabb, nil, read_visible_entry_indices) or
+			gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, nil, read_visible_entry_indices) or
 			nil
 
 		if cull_result then
@@ -831,7 +868,7 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
-Visual:GetSet("CullDistance", 15000)
+Visual:GetSet("CullDistance", 2000)
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("AABB", create_empty_aabb())

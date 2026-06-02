@@ -103,6 +103,10 @@ local function read_entry_indices(result, prefer_visible_entry_indices)
 	return out
 end
 
+local function create_shadow_query_output(label_suffix)
+	return gpu_culling.CreateShadowQueryOutput("test_shadow_query_" .. tostring(label_suffix or "output"))
+end
+
 local function list_contains(list, value)
 	for _, item in ipairs(list) do
 		if item == value then return true end
@@ -219,7 +223,8 @@ T.Test3D("Graphics render3d gpu culling shadow AABB pass writes visible entry in
 	attach_visual(outside, polygon3d, material)
 	Visual.Library.InvalidateSceneAcceleration()
 	Visual.Library.GetVisibleVisuals()
-	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0))
+	local shadow_output = create_shadow_query_output("writes_visible_entry_indices")
+	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output)
 	local dataset = gpu_culling.GetSceneDataset()
 	local visible = {}
 	local visible_entry_indices = read_entry_indices(result, true)
@@ -235,6 +240,7 @@ T.Test3D("Graphics render3d gpu culling shadow AABB pass writes visible entry in
 	T(result.fallback_visible_entry_count)["=="](0)
 	T(visible[inside.visual])["=="](true)
 	T(visible[outside.visual])["=="](nil)
+	gpu_culling.RemoveShadowQueryOutput(shadow_output)
 	inside:Remove()
 	outside:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
@@ -255,7 +261,8 @@ T.Test3D("Graphics render3d gpu culling shadow AABB pass splits instanced and fa
 	attach_visual(dynamic_entity, polygon3d, material)
 	Visual.Library.InvalidateSceneAcceleration()
 	Visual.Library.GetVisibleVisuals()
-	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0))
+	local shadow_output = create_shadow_query_output("splits_instanced_and_fallback")
+	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output)
 	local dataset = gpu_culling.GetSceneDataset()
 	local fallback_visible = {}
 	local fallback_visible_entry_indices = read_entry_indices(result, false)
@@ -273,6 +280,7 @@ T.Test3D("Graphics render3d gpu culling shadow AABB pass splits instanced and fa
 	T(result.fallback_visible_entry_count)["=="](0)
 	T(fallback_visible[static_entity.visual])["=="](nil)
 	T(fallback_visible[dynamic_entity.visual])["=="](nil)
+	gpu_culling.RemoveShadowQueryOutput(shadow_output)
 	static_entity:Remove()
 	dynamic_entity:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
@@ -294,7 +302,8 @@ T.Test3D("Graphics render3d gpu culling shadow AABB keeps vertex animated entrie
 	attach_visual(dynamic_entity, polygon3d, material)
 	Visual.Library.InvalidateSceneAcceleration()
 	Visual.Library.GetVisibleVisuals()
-	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0))
+	local shadow_output = create_shadow_query_output("keeps_vertex_animated_entries_instanced")
+	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output)
 	local dataset = gpu_culling.GetSceneDataset()
 	local fallback_visible = {}
 	local fallback_visible_entry_indices = read_entry_indices(result, false)
@@ -312,8 +321,58 @@ T.Test3D("Graphics render3d gpu culling shadow AABB keeps vertex animated entrie
 	T(result.fallback_visible_entry_count)["=="](0)
 	T(fallback_visible[static_entity.visual])["=="](nil)
 	T(fallback_visible[dynamic_entity.visual])["=="](nil)
+	gpu_culling.RemoveShadowQueryOutput(shadow_output)
 	static_entity:Remove()
 	dynamic_entity:Remove()
+	Visual.Library.InvalidateSceneAcceleration()
+end)
+
+T.Test3D("Graphics render3d gpu culling shadow AABB results stay isolated per query", function()
+	configure_camera()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local left = Entity.New({Name = "gpu_culling_shadow_left"})
+	left:AddComponent("transform")
+	left.transform:SetPosition(Vec3(-8, 0, -6))
+	attach_visual(left, polygon3d, material)
+	local right = Entity.New({Name = "gpu_culling_shadow_right"})
+	right:AddComponent("transform")
+	right.transform:SetPosition(Vec3(8, 0, -6))
+	attach_visual(right, polygon3d, material)
+	Visual.Library.InvalidateSceneAcceleration()
+	Visual.Library.GetVisibleVisuals()
+	local left_output = create_shadow_query_output("left_query")
+	local right_output = create_shadow_query_output("right_query")
+	local left_result = gpu_culling.RunShadowViewAABBCulling(AABB(-12, -4, -20, -4, 4, 0), left_output)
+	local right_result = gpu_culling.RunShadowViewAABBCulling(AABB(4, -4, -20, 12, 4, 0), right_output)
+	local dataset = gpu_culling.GetSceneDataset()
+	local left_visible = {}
+	local right_visible = {}
+
+	for _, entry_index in ipairs(read_entry_indices(left_result, true)) do
+		local entry = dataset.shadow_entries[entry_index + 1]
+
+		if entry and entry.component then left_visible[entry.component] = true end
+	end
+
+	for _, entry_index in ipairs(read_entry_indices(right_result, true)) do
+		local entry = dataset.shadow_entries[entry_index + 1]
+
+		if entry and entry.component then right_visible[entry.component] = true end
+	end
+
+	T(left_result ~= nil)["=="](true)
+	T(right_result ~= nil)["=="](true)
+	T(left_result.visible_entry_count)["=="](1)
+	T(right_result.visible_entry_count)["=="](1)
+	T(left_visible[left.visual])["=="](true)
+	T(left_visible[right.visual])["=="](nil)
+	T(right_visible[left.visual])["=="](nil)
+	T(right_visible[right.visual])["=="](true)
+	gpu_culling.RemoveShadowQueryOutput(left_output)
+	gpu_culling.RemoveShadowQueryOutput(right_output)
+	left:Remove()
+	right:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
 end)
 

@@ -1260,6 +1260,15 @@ function ShadowMap.New(config)
 	return self
 end
 
+function ShadowMap:OnRemove()
+	for _, cascade in ipairs(self.cascade or {}) do
+		if cascade.gpu_cull_output then
+			gpu_culling.RemoveShadowQueryOutput(cascade.gpu_cull_output)
+			cascade.gpu_cull_output = nil
+		end
+	end
+end
+
 function ShadowMap:UpdatePointLightMatrices(light_position)
 	self.point_light_position = light_position:Copy()
 	local projection = Matrix44()
@@ -1786,6 +1795,50 @@ local function ensure_shadow_instance_buffer(batch, instance_count)
 	return batch.instance_buffer
 end
 
+local function get_shadow_cull_output_requirements()
+	local dataset_buffers = gpu_culling.GetDatasetBuffers and gpu_culling.GetDatasetBuffers() or nil
+	local layout = dataset_buffers and dataset_buffers.layout or nil
+	return math.max(layout and layout.shadow_entry_count or 0, 1),
+	math.max(layout and layout.shadow_instanced_batch_count or 0, 1),
+	math.max(layout and layout.shadow_instance_count or 0, 1)
+end
+
+local function ensure_shadow_cull_output(self, cascade_index)
+	local cascade = self.cascade and self.cascade[cascade_index] or nil
+
+	if not cascade then return nil end
+
+	local shadow_entry_capacity, shadow_instanced_batch_count, shadow_instance_capacity = get_shadow_cull_output_requirements()
+	local output = cascade.gpu_cull_output
+
+	if
+		output and
+		output.shadow_entry_capacity == shadow_entry_capacity and
+		output.shadow_instanced_batch_count == shadow_instanced_batch_count and
+		output.shadow_instance_capacity == shadow_instance_capacity
+	then
+		return output
+	end
+
+	local descriptor_slot = output and output.descriptor_slot or nil
+
+	if output then gpu_culling.RemoveShadowQueryOutput(output) end
+
+	output = gpu_culling.CreateShadowQueryOutput(
+		string.format("render3d_shadow_query_%s_%d", tostring(self), cascade_index),
+		shadow_entry_capacity,
+		shadow_instanced_batch_count,
+		shadow_instance_capacity,
+		descriptor_slot
+	)
+	cascade.gpu_cull_output = output
+	return output
+end
+
+function ShadowMap:GetShadowCullOutput(cascade_index)
+	return ensure_shadow_cull_output(self, cascade_index or self.current_cascade)
+end
+
 local function get_shadow_draw_submission_context(self, track_component_stats)
 	local context = self.shadow_draw_submission_context
 
@@ -2076,8 +2129,13 @@ function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index
 	end
 
 	local dataset = gpu_culling.GetSceneDataset()
-	local frame_buffers = gpu_culling.GetFrameBuffers()
-	local output = frame_buffers and frame_buffers[cull_result.frame_index] or nil
+	local output = cull_result.shadow_output
+
+	if not output then
+		local frame_buffers = gpu_culling.GetFrameBuffers()
+		output = frame_buffers and frame_buffers[cull_result.frame_index] or nil
+	end
+
 	local batches = dataset and dataset.shadow_instanced_batches or nil
 
 	if not (output and batches and batches[1]) then

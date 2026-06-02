@@ -1331,12 +1331,6 @@ local function clear_frame_buffers()
 		remove_buffer(frame_buffers.visible_index_buffer)
 		remove_buffer(frame_buffers.fallback_visible_index_buffer)
 		remove_buffer(frame_buffers.fallback_visible_count_buffer)
-		remove_buffer(frame_buffers.shadow_visible_index_buffer)
-		remove_buffer(frame_buffers.shadow_visible_count_buffer)
-		remove_buffer(frame_buffers.shadow_fallback_visible_index_buffer)
-		remove_buffer(frame_buffers.shadow_fallback_visible_count_buffer)
-		remove_buffer(frame_buffers.shadow_active_batch_index_buffer)
-		remove_buffer(frame_buffers.shadow_active_batch_count_buffer)
 		remove_buffer(frame_buffers.main_instance_world_buffer)
 		remove_buffer(frame_buffers.shadow_instance_world_buffer)
 		remove_buffer(frame_buffers.indirect_command_buffer)
@@ -1345,15 +1339,9 @@ local function clear_frame_buffers()
 		remove_buffer(frame_buffers.visible_batch_indirect_command_buffer)
 		remove_buffer(frame_buffers.active_batch_index_buffer)
 		remove_buffer(frame_buffers.active_batch_count_buffer)
-		remove_buffer(frame_buffers.shadow_visible_instanced_batch_count_buffer)
-		remove_buffer(frame_buffers.shadow_visible_batch_indirect_command_buffer)
 
 		if frame_buffers.visible_instance_vertex_buffer then
 			frame_buffers.visible_instance_vertex_buffer:Remove()
-		end
-
-		if frame_buffers.shadow_visible_instance_vertex_buffer then
-			frame_buffers.shadow_visible_instance_vertex_buffer:Remove()
 		end
 
 		if frame_buffers.main_view_cull_cmd then
@@ -1378,6 +1366,144 @@ local function create_buffer(label, byte_size, usage, data)
 		label = label,
 		data = data,
 	}
+end
+
+local function reset_shadow_query_output_pass()
+	local pass = gpu_culling.shadow_view_aabb_cull_pass
+
+	if pass and pass.Remove then pass:Remove() end
+
+	gpu_culling.shadow_view_aabb_cull_pass = nil
+end
+
+local function ensure_shadow_query_output_descriptor_capacity(descriptor_slot)
+	descriptor_slot = math.max(tonumber(descriptor_slot) or 1, 1)
+
+	if descriptor_slot > (gpu_culling.shadow_query_output_descriptor_count or 0) then
+		gpu_culling.shadow_query_output_descriptor_count = descriptor_slot
+		reset_shadow_query_output_pass()
+	end
+
+	return descriptor_slot
+end
+
+local function allocate_shadow_query_output_descriptor_slot()
+	local descriptor_slot = (gpu_culling.next_shadow_query_output_descriptor_slot or 0) + 1
+	gpu_culling.next_shadow_query_output_descriptor_slot = descriptor_slot
+	return ensure_shadow_query_output_descriptor_capacity(descriptor_slot)
+end
+
+local function create_shadow_query_output(
+	label_prefix,
+	shadow_entry_capacity,
+	shadow_instanced_batch_count,
+	shadow_instance_capacity,
+	descriptor_slot
+)
+	local layout = gpu_culling.dataset_buffers and gpu_culling.dataset_buffers.layout or nil
+	shadow_entry_capacity = math.max(shadow_entry_capacity or (layout and layout.shadow_entry_count) or 0, 1)
+	shadow_instanced_batch_count = math.max(
+		shadow_instanced_batch_count or
+			(
+				layout and
+				layout.shadow_instanced_batch_count
+			)
+			or
+			0,
+		1
+	)
+	shadow_instance_capacity = math.max(shadow_instance_capacity or (layout and layout.shadow_instance_count) or 0, 1)
+	label_prefix = label_prefix or "gpu_culling_shadow_query"
+	descriptor_slot = descriptor_slot and
+		ensure_shadow_query_output_descriptor_capacity(descriptor_slot) or
+		allocate_shadow_query_output_descriptor_slot()
+	return {
+		descriptor_slot = descriptor_slot,
+		shadow_entry_capacity = shadow_entry_capacity,
+		shadow_instanced_batch_count = shadow_instanced_batch_count,
+		shadow_instance_capacity = shadow_instance_capacity,
+		shadow_visible_index_buffer = create_buffer(
+			label_prefix .. "_visible_indices",
+			shadow_entry_capacity * UINT32_SIZE,
+			{"storage_buffer"}
+		),
+		shadow_visible_count_buffer = create_buffer(label_prefix .. "_visible_count", UINT32_SIZE, {"storage_buffer"}),
+		shadow_fallback_visible_index_buffer = create_buffer(
+			label_prefix .. "_fallback_visible_indices",
+			shadow_entry_capacity * UINT32_SIZE,
+			{"storage_buffer"}
+		),
+		shadow_fallback_visible_count_buffer = create_buffer(label_prefix .. "_fallback_visible_count", UINT32_SIZE, {"storage_buffer"}),
+		shadow_active_batch_index_buffer = create_buffer(
+			label_prefix .. "_active_batch_indices",
+			shadow_instanced_batch_count * UINT32_SIZE,
+			{"storage_buffer"}
+		),
+		shadow_active_batch_count_buffer = create_buffer(label_prefix .. "_active_batch_count", UINT32_SIZE, {"storage_buffer"}),
+		shadow_visible_instanced_batch_count_zero_data = ffi.new("uint32_t[?]", shadow_instanced_batch_count),
+		shadow_visible_instanced_batch_count_buffer = create_buffer(
+			label_prefix .. "_visible_instanced_batch_counts",
+			shadow_instanced_batch_count * UINT32_SIZE,
+			{"storage_buffer"}
+		),
+		shadow_visible_batch_indirect_zero_data = ffi.new(
+			"uint8_t[?]",
+			math.max(shadow_instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE, 1)
+		),
+		shadow_visible_batch_indirect_command_buffer = create_buffer(
+			label_prefix .. "_visible_batch_indirect_commands",
+			shadow_instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
+			{"storage_buffer", "indirect_buffer"}
+		),
+		shadow_visible_instance_vertex_buffer = VertexBuffer.New(
+			shadow_instance_capacity,
+			{
+				{
+					lua_name = "instance_world",
+					lua_type = ffi.typeof("float[16]"),
+					offset = 0,
+				},
+			},
+			label_prefix .. "_visible_instances"
+		),
+	}
+end
+
+local function remove_shadow_query_output(output)
+	if not output then return end
+
+	remove_buffer(output.shadow_visible_index_buffer)
+	remove_buffer(output.shadow_visible_count_buffer)
+	remove_buffer(output.shadow_fallback_visible_index_buffer)
+	remove_buffer(output.shadow_fallback_visible_count_buffer)
+	remove_buffer(output.shadow_active_batch_index_buffer)
+	remove_buffer(output.shadow_active_batch_count_buffer)
+	remove_buffer(output.shadow_visible_instanced_batch_count_buffer)
+	remove_buffer(output.shadow_visible_batch_indirect_command_buffer)
+
+	if output.shadow_visible_instance_vertex_buffer then
+		output.shadow_visible_instance_vertex_buffer:Remove()
+	end
+end
+
+function gpu_culling.CreateShadowQueryOutput(
+	label_prefix,
+	shadow_entry_capacity,
+	shadow_instanced_batch_count,
+	shadow_instance_capacity,
+	descriptor_slot
+)
+	return create_shadow_query_output(
+		label_prefix,
+		shadow_entry_capacity,
+		shadow_instanced_batch_count,
+		shadow_instance_capacity,
+		descriptor_slot
+	)
+end
+
+function gpu_culling.RemoveShadowQueryOutput(output)
+	remove_shadow_query_output(output)
 end
 
 local function build_dataset_buffers(dataset)
@@ -1885,7 +2011,7 @@ local function get_shadow_view_aabb_cull_pass()
 	end
 
 	gpu_culling.shadow_view_aabb_cull_pass = EasyPipeline.Compute{
-		DescriptorSetCount = math.max(render.GetSwapchainImageCount() or 1, 1),
+		DescriptorSetCount = math.max(gpu_culling.shadow_query_output_descriptor_count or 1, 1),
 		name = "gpu_culling_shadow_view_aabb",
 		LocalSize = {x = 64, y = 1, z = 1},
 		descriptor_sets = {
@@ -2323,8 +2449,6 @@ local function build_frame_buffers(dataset)
 	local visible_entry_capacity = math.max((dataset.static_entry_count or 0) + (dataset.dynamic_entry_count or 0), 1)
 	local instanced_batch_count = math.max(#(dataset.main_instanced_batches or {}), 1)
 	local static_instance_capacity = math.max(dataset.main_static_instance_count or 0, 1)
-	local shadow_entry_capacity = math.max(dataset.shadow_entry_count or 0, 1)
-	local shadow_instanced_batch_count = math.max(#(dataset.shadow_instanced_batches or {}), 1)
 	local shadow_instance_capacity = math.max(dataset.shadow_instance_count or 0, 1)
 	local frame_buffers = {}
 
@@ -2332,7 +2456,6 @@ local function build_frame_buffers(dataset)
 		frame_buffers[frame_index] = {
 			frame_index = frame_index,
 			visible_entry_capacity = visible_entry_capacity,
-			shadow_entry_capacity = shadow_entry_capacity,
 			visible_index_buffer = create_buffer(
 				"gpu_culling_visible_indices_" .. frame_index,
 				visible_entry_capacity * UINT32_SIZE,
@@ -2345,36 +2468,6 @@ local function build_frame_buffers(dataset)
 			),
 			fallback_visible_count_buffer = create_buffer(
 				"gpu_culling_fallback_visible_count_" .. frame_index,
-				UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			shadow_visible_index_buffer = create_buffer(
-				"gpu_culling_shadow_visible_indices_" .. frame_index,
-				shadow_entry_capacity * UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			shadow_visible_count_buffer = create_buffer(
-				"gpu_culling_shadow_visible_count_" .. frame_index,
-				UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			shadow_fallback_visible_index_buffer = create_buffer(
-				"gpu_culling_shadow_fallback_visible_indices_" .. frame_index,
-				shadow_entry_capacity * UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			shadow_fallback_visible_count_buffer = create_buffer(
-				"gpu_culling_shadow_fallback_visible_count_" .. frame_index,
-				UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			shadow_active_batch_index_buffer = create_buffer(
-				"gpu_culling_shadow_active_batch_indices_" .. frame_index,
-				shadow_instanced_batch_count * UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			shadow_active_batch_count_buffer = create_buffer(
-				"gpu_culling_shadow_active_batch_count_" .. frame_index,
 				UINT32_SIZE,
 				{"storage_buffer"}
 			),
@@ -2437,32 +2530,6 @@ local function build_frame_buffers(dataset)
 					},
 				},
 				"gpu_culling_visible_instances_" .. frame_index
-			),
-			shadow_visible_instanced_batch_count_zero_data = ffi.new("uint32_t[?]", shadow_instanced_batch_count),
-			shadow_visible_instanced_batch_count_buffer = create_buffer(
-				"gpu_culling_shadow_visible_instanced_batch_counts_" .. frame_index,
-				shadow_instanced_batch_count * UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			shadow_visible_batch_indirect_zero_data = ffi.new(
-				"uint8_t[?]",
-				math.max(shadow_instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE, 1)
-			),
-			shadow_visible_batch_indirect_command_buffer = create_buffer(
-				"gpu_culling_shadow_visible_batch_indirect_commands_" .. frame_index,
-				shadow_instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
-				{"storage_buffer", "indirect_buffer"}
-			),
-			shadow_visible_instance_vertex_buffer = VertexBuffer.New(
-				shadow_instance_capacity,
-				{
-					{
-						lua_name = "instance_world",
-						lua_type = ffi.typeof("float[16]"),
-						offset = 0,
-					},
-				},
-				"gpu_culling_shadow_visible_instances_" .. frame_index
 			),
 			main_view_cull_cmd = render.CreateCommandBuffer(),
 			main_view_cull_fence = Fence.New(device),
@@ -3074,14 +3141,22 @@ function gpu_culling.RunMainViewFrustumCulling(
 	return output.main_view_cull_result
 end
 
-function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_visible_entry_indices)
+function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_index, include_visible_entry_indices)
 	local dataset = gpu_culling.scene_dataset
 	local dataset_buffers = gpu_culling.dataset_buffers
 	local frame_buffers = gpu_culling.frame_buffers
 	local read_visible_entry_indices = include_visible_entry_indices ~= false
 	local read_visible_results = read_visible_entry_indices
 
-	if not (query_aabb and dataset and dataset_buffers and frame_buffers) then
+	if
+		not (
+			query_aabb and
+			shadow_output and
+			dataset and
+			dataset_buffers and
+			frame_buffers
+		)
+	then
 		return nil
 	end
 
@@ -3104,22 +3179,26 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	local pass = get_shadow_view_aabb_cull_pass()
 	local slot = resolve_frame_slot(frame_index)
 	local output = frame_buffers[slot]
+	local descriptor_slot = shadow_output.descriptor_slot
+
+	if not (output and descriptor_slot) then return nil end
+
 	local occlusion_enabled = gpu_culling.GetOcclusionMode() == "hiz"
 	local occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = get_main_view_occlusion_source()
 	local camera = render3d.GetCamera()
 	local view_projection_matrix = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
 	upload_shadow_instance_worlds(output, dataset)
-	output.shadow_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
-	output.shadow_fallback_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
-	output.shadow_active_batch_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
-	output.shadow_visible_batch_indirect_command_buffer:CopyData(
-		output.shadow_visible_batch_indirect_zero_data,
-		output.shadow_visible_batch_indirect_command_buffer.size,
+	shadow_output.shadow_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
+	shadow_output.shadow_fallback_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
+	shadow_output.shadow_active_batch_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
+	shadow_output.shadow_visible_batch_indirect_command_buffer:CopyData(
+		shadow_output.shadow_visible_batch_indirect_zero_data,
+		shadow_output.shadow_visible_batch_indirect_command_buffer.size,
 		0
 	)
-	output.shadow_visible_instanced_batch_count_buffer:CopyData(
-		output.shadow_visible_instanced_batch_count_zero_data,
-		output.shadow_visible_instanced_batch_count_buffer.size,
+	shadow_output.shadow_visible_instanced_batch_count_buffer:CopyData(
+		shadow_output.shadow_visible_instanced_batch_count_zero_data,
+		shadow_output.shadow_visible_instanced_batch_count_buffer.size,
 		0
 	)
 	pass.current_visual_count = visual_count
@@ -3128,7 +3207,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	pass.current_view_projection = view_projection_matrix
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		0,
 		0,
 		dataset_buffers.shadow_visual_buffer,
@@ -3136,23 +3215,23 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		1,
 		0,
-		output.shadow_visible_index_buffer,
-		output.shadow_visible_index_buffer.size
+		shadow_output.shadow_visible_index_buffer,
+		shadow_output.shadow_visible_index_buffer.size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		2,
 		0,
-		output.shadow_visible_count_buffer,
-		output.shadow_visible_count_buffer.size
+		shadow_output.shadow_visible_count_buffer,
+		shadow_output.shadow_visible_count_buffer.size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		3,
 		0,
 		dataset_buffers.shadow_entry_buffer,
@@ -3160,7 +3239,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		4,
 		0,
 		output.shadow_instance_world_buffer,
@@ -3168,7 +3247,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		5,
 		0,
 		dataset_buffers.shadow_instanced_batch_buffer,
@@ -3176,59 +3255,59 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		6,
 		0,
-		output.shadow_visible_instance_vertex_buffer.buffer,
-		output.shadow_visible_instance_vertex_buffer.byte_size
+		shadow_output.shadow_visible_instance_vertex_buffer.buffer,
+		shadow_output.shadow_visible_instance_vertex_buffer.byte_size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		7,
 		0,
-		output.shadow_visible_instanced_batch_count_buffer,
-		output.shadow_visible_instanced_batch_count_buffer.size
+		shadow_output.shadow_visible_instanced_batch_count_buffer,
+		shadow_output.shadow_visible_instanced_batch_count_buffer.size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		8,
 		0,
-		output.shadow_fallback_visible_index_buffer,
-		output.shadow_fallback_visible_index_buffer.size
+		shadow_output.shadow_fallback_visible_index_buffer,
+		shadow_output.shadow_fallback_visible_index_buffer.size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		9,
 		0,
-		output.shadow_fallback_visible_count_buffer,
-		output.shadow_fallback_visible_count_buffer.size
+		shadow_output.shadow_fallback_visible_count_buffer,
+		shadow_output.shadow_fallback_visible_count_buffer.size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		10,
 		0,
-		output.shadow_active_batch_index_buffer,
-		output.shadow_active_batch_index_buffer.size
+		shadow_output.shadow_active_batch_index_buffer,
+		shadow_output.shadow_active_batch_index_buffer.size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		11,
 		0,
-		output.shadow_active_batch_count_buffer,
-		output.shadow_active_batch_count_buffer.size
+		shadow_output.shadow_active_batch_count_buffer,
+		shadow_output.shadow_active_batch_count_buffer.size
 	)
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
-		slot,
+		descriptor_slot,
 		12,
 		0,
-		output.shadow_visible_batch_indirect_command_buffer,
-		output.shadow_visible_batch_indirect_command_buffer.size
+		shadow_output.shadow_visible_batch_indirect_command_buffer,
+		shadow_output.shadow_visible_batch_indirect_command_buffer.size
 	)
 	local cmd = gpu_culling.shadow_view_aabb_cull_cmd
 	cmd:Reset()
@@ -3240,7 +3319,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	pass.current_occlusion_depth_bias = 0.0015
 	pass:UpdateDescriptorSet(
 		"combined_image_sampler",
-		slot,
+		descriptor_slot,
 		14,
 		0,
 		occlusion_depth_view,
@@ -3249,47 +3328,47 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 		nil,
 		"general"
 	)
-	pass:DispatchForSize(cmd, visual_count, 1, 1, slot)
+	pass:DispatchForSize(cmd, visual_count, 1, 1, descriptor_slot)
 	local buffer_barriers = {
 		{
-			buffer = output.shadow_visible_instanced_batch_count_buffer,
-			size = output.shadow_visible_instanced_batch_count_buffer.size,
+			buffer = shadow_output.shadow_visible_instanced_batch_count_buffer,
+			size = shadow_output.shadow_visible_instanced_batch_count_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
 		},
 		{
-			buffer = output.shadow_visible_instance_vertex_buffer.buffer,
-			size = output.shadow_visible_instance_vertex_buffer.byte_size,
+			buffer = shadow_output.shadow_visible_instance_vertex_buffer.buffer,
+			size = shadow_output.shadow_visible_instance_vertex_buffer.byte_size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "vertex_attribute_read",
 		},
 		{
-			buffer = output.shadow_fallback_visible_index_buffer,
-			size = output.shadow_fallback_visible_index_buffer.size,
+			buffer = shadow_output.shadow_fallback_visible_index_buffer,
+			size = shadow_output.shadow_fallback_visible_index_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
 		},
 		{
-			buffer = output.shadow_fallback_visible_count_buffer,
-			size = output.shadow_fallback_visible_count_buffer.size,
+			buffer = shadow_output.shadow_fallback_visible_count_buffer,
+			size = shadow_output.shadow_fallback_visible_count_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
 		},
 		{
-			buffer = output.shadow_active_batch_index_buffer,
-			size = output.shadow_active_batch_index_buffer.size,
+			buffer = shadow_output.shadow_active_batch_index_buffer,
+			size = shadow_output.shadow_active_batch_index_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
 		},
 		{
-			buffer = output.shadow_active_batch_count_buffer,
-			size = output.shadow_active_batch_count_buffer.size,
+			buffer = shadow_output.shadow_active_batch_count_buffer,
+			size = shadow_output.shadow_active_batch_count_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "host_read",
 		},
 		{
-			buffer = output.shadow_visible_batch_indirect_command_buffer,
-			size = output.shadow_visible_batch_indirect_command_buffer.size,
+			buffer = shadow_output.shadow_visible_batch_indirect_command_buffer,
+			size = shadow_output.shadow_visible_batch_indirect_command_buffer.size,
 			srcAccessMask = "shader_write",
 			dstAccessMask = "indirect_command_read",
 		},
@@ -3300,8 +3379,8 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 			buffer_barriers,
 			1,
 			{
-				buffer = output.shadow_visible_index_buffer,
-				size = output.shadow_visible_index_buffer.size,
+				buffer = shadow_output.shadow_visible_index_buffer,
+				size = shadow_output.shadow_visible_index_buffer.size,
 				srcAccessMask = "shader_write",
 				dstAccessMask = "host_read",
 			}
@@ -3313,8 +3392,8 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 			buffer_barriers,
 			1,
 			{
-				buffer = output.shadow_visible_count_buffer,
-				size = output.shadow_visible_count_buffer.size,
+				buffer = shadow_output.shadow_visible_count_buffer,
+				size = shadow_output.shadow_visible_count_buffer.size,
 				srcAccessMask = "shader_write",
 				dstAccessMask = "host_read",
 			}
@@ -3329,22 +3408,22 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	local visible_count = nil
-	local fallback_visible_count_ptr = ffi.cast("uint32_t*", output.shadow_fallback_visible_count_buffer:Map())
+	local fallback_visible_count_ptr = ffi.cast("uint32_t*", shadow_output.shadow_fallback_visible_count_buffer:Map())
 	local fallback_visible_count = tonumber(fallback_visible_count_ptr[0])
-	local fallback_visible_index_ptr = ffi.cast("uint32_t*", output.shadow_fallback_visible_index_buffer:Map())
+	local fallback_visible_index_ptr = ffi.cast("uint32_t*", shadow_output.shadow_fallback_visible_index_buffer:Map())
 	local visible_index_ptr = nil
 
 	if read_visible_results then
-		local visible_count_ptr = ffi.cast("uint32_t*", output.shadow_visible_count_buffer:Map())
+		local visible_count_ptr = ffi.cast("uint32_t*", shadow_output.shadow_visible_count_buffer:Map())
 		visible_count = tonumber(visible_count_ptr[0])
 	end
 
 	if read_visible_entry_indices then
-		visible_index_ptr = ffi.cast("uint32_t*", output.shadow_visible_index_buffer:Map())
+		visible_index_ptr = ffi.cast("uint32_t*", shadow_output.shadow_visible_index_buffer:Map())
 	end
 
-	output.shadow_view_cull_result = update_cull_result(
-		output.shadow_view_cull_result or {},
+	local result = update_cull_result(
+		{},
 		slot,
 		visible_count,
 		visible_index_ptr,
@@ -3353,7 +3432,8 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, frame_index, include_v
 		visible_count,
 		read_visible_entry_indices
 	)
-	return output.shadow_view_cull_result
+	result.shadow_output = shadow_output
+	return result
 end
 
 function gpu_culling.GetVisibleEntrySpan(cull_result, prefer_visible_entry_indices)
@@ -3375,8 +3455,7 @@ end
 function gpu_culling.GetShadowActiveBatchSpan(cull_result)
 	if not cull_result then return nil, 0 end
 
-	local frame_buffers = gpu_culling.frame_buffers
-	local output = frame_buffers and frame_buffers[cull_result.frame_index] or nil
+	local output = cull_result.shadow_output
 
 	if not output then return nil, 0 end
 
