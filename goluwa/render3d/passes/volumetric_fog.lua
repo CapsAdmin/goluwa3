@@ -6,6 +6,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
+local assets = import("goluwa/assets.lua")
 local Texture = import("goluwa/render/texture.lua")
 local MAX_CASCADES = directional_shadows.MAX_CASCADES
 local ENABLE_VOLUMETRIC_FOG = false
