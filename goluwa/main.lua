@@ -41,8 +41,8 @@ local function init_game()
 				local desktop_size = system.GetDesktopSize()
 
 				if desktop_size then
-					window_width = math.max(1, math.floor(desktop_size.x / 1.5))
-					window_height = math.max(1, math.floor(desktop_size.y / 1.5))
+					window_width = math.max(1, math.floor(desktop_size.x / 2))
+					window_height = math.max(1, math.floor(desktop_size.y / 2))
 				end
 
 				system.OpenWindow(window_width, window_height)

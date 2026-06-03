@@ -17,7 +17,7 @@ local sun = Entity.New{
 	},
 }
 atmosphere.SetSunIntensity(sun.light.Intensity)
-local MODE = "lispsm"
+local MODE = "cascade"
 
 if MODE == "lispsm" then
 	sun.light:SetCastShadows{

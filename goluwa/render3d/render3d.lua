@@ -35,6 +35,15 @@ local NO_INDEX_BUFFER_KEY = {}
 local NO_MODEL_PATH_KEY = {}
 
 local function get_pipeline_configs()
+	if false then
+		return list.flatten{
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/lighting_simple.lua"),
+			import("goluwa/render3d/passes/forward_overlay.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		}
+	end
+
 	return list.flatten{
 		import("goluwa/render3d/passes/gbuffer.lua"),
 		--import("goluwa/render3d/passes/voxel_build.lua"),
@@ -43,7 +52,7 @@ local function get_pipeline_configs()
 		--import("goluwa/render3d/passes/lighting_simple.lua"),
 		import("goluwa/render3d/passes/ocean.lua"),
 		import("goluwa/render3d/passes/forward_overlay.lua"),
-		--import("goluwa/render3d/passes/volumetric_fog.lua"),
+		import("goluwa/render3d/passes/volumetric_fog.lua"),
 		--import("goluwa/render3d/passes/smaa.lua"),
 		import("goluwa/render3d/passes/bloom.lua"),
 		import("goluwa/render3d/passes/blit.lua"),

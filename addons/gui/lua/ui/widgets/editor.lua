@@ -7,7 +7,7 @@ local MouseInput = import("goluwa/ecs/components/2d/mouse_input.lua")
 local prototype = import("goluwa/prototype.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local input = import("goluwa/input.lua")
-local raycast = import("goluwa/physics/raycast.lua")
+local raycast = GRAPHICS_3D and import("goluwa/physics/raycast.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local debug_draw = import("goluwa/render3d/debug_draw.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -621,6 +621,8 @@ local function find_nonvisual_entity_hit(
 end
 
 local function find_world_pick_target(editor_window, excluded_entity)
+	if not raycast then return nil end
+
 	local input_window = system.GetWindow()
 
 	if not input_window then return nil end
