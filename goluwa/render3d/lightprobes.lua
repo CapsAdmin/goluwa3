@@ -6,6 +6,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local assets = import("goluwa/assets.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
+local ibl = import("goluwa/render3d/ibl.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -1243,48 +1244,7 @@ function lightprobes.CreatePipelines()
 			},
 			custom_declarations = [[
                 layout(location = 0) in vec3 in_direction;
-
-                const float PI = 3.14159265359;
-
-                float D_GGX(float NoH, float roughness) {
-                    float a = roughness * roughness;
-                    float a2 = a * a;
-                    float NoH2 = NoH * NoH;
-                    float denom = (NoH2 * (a2 - 1.0) + 1.0);
-                    return a2 / (PI * denom * denom);
-                }
-
-                float RadicalInverse_Vdc(uint bits) {
-                    bits = (bits << 16u) | (bits >> 16u);
-                    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-                    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-                    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-                    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-                    return float(bits) * 2.3283064365386963e-10;
-                }
-
-                vec2 Hammersley(uint i, uint N) {
-                    return vec2(float(i)/float(N), RadicalInverse_Vdc(i));
-                }
-
-                vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
-                    float a = roughness*roughness;
-                    float phi = 2.0 * PI * Xi.x;
-                    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
-                    float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
-                    
-                    vec3 H;
-                    H.x = cos(phi) * sinTheta;
-                    H.y = sin(phi) * sinTheta;
-                    H.z = cosTheta;
-                    
-                    vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-                    vec3 tangent = normalize(cross(up, N));
-                    vec3 bitangent = cross(N, tangent);
-                    
-                    vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
-                    return normalize(sampleVec);
-                }
+            ]] .. ibl.GetBRDFGLSLCode() .. [[
             ]],
 			shader = [[
                 void main() {
@@ -1312,12 +1272,12 @@ function lightprobes.CreatePipelines()
                         if(NoL > 0.0) {
                             float NoH = max(dot(N, H), 0.0);
                             float VoH = max(dot(V, H), 0.0001);
-                            float D = D_GGX(NoH, roughness);
+							float D = D_GGXPerceptual(roughness, NoH);
                             float pdf = max((D * NoH / (4.0 * VoH)), 0.0001);
 
                             float resolution = fragment.resolution;
                             float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf);
-                            float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
+                            float saTexel  = 4.0 * BRDF_PI / (6.0 * resolution * resolution);
 
                             float mipBias = max(saSample / saTexel, 1.0);
                             float lod = clamp(0.5 * log2(mipBias), 0.0, 8.0);

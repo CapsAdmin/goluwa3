@@ -306,6 +306,7 @@ return {
 					render3d.debug_block,
 					render3d.gbuffer_block,
 					{"env_tex", "int"},
+					{"brdf_lut_tex", "int"},
 					{"blue_noise_tex", "int"},
 					render3d.last_frame_block,
 					render3d.common_block,
@@ -339,6 +340,7 @@ return {
 					render3d.WriteDebugBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)
 					render3d.WriteCommonBlock(self, block)
@@ -1077,7 +1079,7 @@ return {
 				out_specular = specular * specular_color;
 			}
 
-			vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float r2, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 world_pos, vec3 V, vec3 N)
+			vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 world_pos, vec3 V, vec3 N)
 			{
 				vec3 Lo = vec3(0.0);
 				float subsurface_factor = subsurface;
@@ -1095,13 +1097,13 @@ return {
                     float NoH = saturate(dot(N, H));
                     float LoH = saturate(dot(L, H));
 
-					float D = D_GGX(r2, NoH);
-					float V_func = V_SmithGGXCorrelated(r2, NdotV, NoL);
+					float D = D_GGXAlpha(roughness_alpha, NoH);
+					float V_func = V_SmithGGXCorrelated(roughness_alpha, NdotV, NoL);
                     vec3 F = F_Schlick(F0, LoH);
 
-                    vec3 Fr = (D * V_func) * F;
-                    vec3 kD = vec3(1.0 - metallic);
-                    vec3 Fd = kD * albedo * Fd_Lambert();
+					vec3 Fr = (D * V_func) * F;
+					vec3 kD = (1.0 - F) * (1.0 - metallic);
+					vec3 Fd = kD * albedo * Fd_Burley(NoL, NdotV, LoH, perceptual_roughness);
 
                     float shadow_factor = 1.0;
 					if (
@@ -1128,7 +1130,7 @@ return {
 					vec3 subsurface_spec = vec3(0.0);
 
 					if (subsurface > 0.0) {
-						float subsurface_gloss = mix(6.0, 24.0, 1.0 - r2);
+						float subsurface_gloss = mix(6.0, 24.0, 1.0 - roughness_alpha);
 						float blocking_detail = get_transmission_blocking_detail(transmission_blocking);
 						float transmission_amount = 1.0 - blocking_detail;
 						float front_amount = blocking_detail;
@@ -1150,20 +1152,20 @@ return {
 				return Lo;				
 			}
 
-			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 voxel_irradiance, vec3 world_pos, vec3 V, vec3 N)
+			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 voxel_irradiance, vec3 world_pos, vec3 V, vec3 N)
 			{
 				float subsurface_factor = subsurface;
 				float blocking_detail = get_transmission_blocking_detail(transmission_blocking);
 				float transmission_amount = 1.0 - blocking_detail;
-				float effective_roughness = roughness;
-				vec3 reflection = get_reflection(N, effective_roughness, V, world_pos);
+				float perceptual_roughness = sqrt(clamp(roughness_alpha, 0.0, 1.0));
+				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos);
 				float ambient_front_amount = blocking_detail;
 				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N);
 
 				vec3 irradiance = get_irradiance(N, V, world_pos) + voxel_irradiance;
 				vec3 back_irradiance = get_irradiance(-N, V, world_pos);
-				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, effective_roughness);
+				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
 				vec3 ambient_diffuse = kD_ambient * irradiance * albedo * ambient_occlusion;
 				ambient_diffuse *= mix(1.0, ambient_front_amount, subsurface_factor);
@@ -1173,8 +1175,11 @@ return {
 				ambient_subsurface *= mix(0.3, 1.0, transmission_view_dependency);
 				subsurface_ambient += ambient_subsurface;
 
-				vec2 envBRDF = envBRDFApprox(NdotV, effective_roughness);
-				vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y) * ambient_occlusion;
+				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
+
+				vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y);
+				ambient_specular *= GGXEnergyCompensation(F0, envBRDF);
+				ambient_specular *= SpecularOcclusion(NdotV, ambient_occlusion, perceptual_roughness);
 				ambient_specular *= 1.0 - subsurface_factor;
 
 				vec3 ambient = ambient_diffuse + ambient_specular;
@@ -1220,6 +1225,7 @@ return {
 				vec3 albedo = get_albedo();
 				float metallic = get_metallic();
 				float roughness = get_roughness();
+				float perceptual_roughness = sqrt(clamp(roughness, 0.0, 1.0));
 				float subsurface = get_subsurface();
 				float transmission_blocking = get_transmission_blocking();
 				vec3 transmission_color = get_transmission_color();
@@ -1233,7 +1239,7 @@ return {
 				/*set_color(vec4(irradiance, alpha));
 				set_voxel_gi(vec4(voxel_irradiance, alpha));
 				{return;}*/
-				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
+				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, voxel_irradiance, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
 				vec3 sunDir = get_primary_sun_direction();

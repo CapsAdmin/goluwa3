@@ -599,7 +599,7 @@ return {
 				color += subsurface_amount * water_scatter * ocean_data.primary_sun_color * max(0.0, 1.0 + p.y - (ocean_data.ocean_level + 0.6 * SEA_HEIGHT));
 				vec3 half_dir = normalize(view_dir + sun_direction);
 				float no_h = max(dot(normal, half_dir), 0.0);
-				color += sun_radiance * (0.18 * fresnel * D_GGX(0.05, no_h) / SEA_PI);
+				color += sun_radiance * (0.18 * fresnel * D_GGXAlpha(0.05, no_h) / SEA_PI);
 				float foam = smoothstep(0.18, 0.55, p.y - ocean_data.ocean_level) * smoothstep(0.65, 0.15, normal.y);
 				float shore_foam = smoothstep(2.0, 0.0, thickness) * max(0.0, normal.y);
 				vec3 foam_light = ambient_light * sun_radiance;

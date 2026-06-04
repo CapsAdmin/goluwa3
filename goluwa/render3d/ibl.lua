@@ -3,21 +3,29 @@ local ibl = {}
 function ibl.GetBRDFGLSLCode()
 	return [[
 			const float BRDF_PI = 3.14159265359;
+			#ifndef saturate
+			#define saturate(x) clamp(x, 0.0, 1.0)
+			#endif
 
 			float pow5(float x) {
 				float x2 = x * x;
 				return x2 * x2 * x;
 			}
 
-			float D_GGX(float roughness, float NoH) {
-				float oneMinusNoHSquared = 1.0 - NoH * NoH;
-				float a = NoH * roughness;
-				float k = roughness / (oneMinusNoHSquared + a * a);
-				return k * (k * (1.0 / BRDF_PI));
+			float D_GGXAlpha(float alpha, float NoH) {
+				alpha = max(alpha, 0.0001);
+				float alpha2 = alpha * alpha;
+				float NoH2 = NoH * NoH;
+				float denom = max(NoH2 * (alpha2 - 1.0) + 1.0, 1e-6);
+				return alpha2 / (BRDF_PI * denom * denom);
 			}
 
-			float V_SmithGGXCorrelated(float roughness, float NoV, float NoL) {
-				float a2 = roughness * roughness;
+			float D_GGXPerceptual(float perceptual_roughness, float NoH) {
+				return D_GGXAlpha(perceptual_roughness * perceptual_roughness, NoH);
+			}
+
+			float V_SmithGGXCorrelated(float alpha, float NoV, float NoL) {
+				float a2 = alpha * alpha;
 				float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
 				float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
 				return 0.5 / (lambdaV + lambdaL);
@@ -33,21 +41,76 @@ function ibl.GetBRDFGLSLCode()
 				return f + f0 * (1.0 - f);
 			}
 
-			vec3 F_SchlickRoughness(vec3 f0, float NdotV, float roughness) {
+			vec3 F_SchlickRoughness(vec3 f0, float NdotV, float perceptual_roughness) {
 				float f = pow5(1.0 - NdotV);
-				return f0 + (max(vec3(1.0 - roughness), f0) - f0) * f;
+				return f0 + (max(vec3(1.0 - perceptual_roughness), f0) - f0) * f;
 			}
 
 			float Fd_Lambert() {
 				return 1.0 / BRDF_PI;
 			}
 
-			vec2 envBRDFApprox(float NdotV, float roughness) {
-				vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-				vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-				vec4 r = roughness * c0 + c1;
-				float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
-				return vec2(-1.04, 1.04) * a004 + r.zw;
+			float Fd_Burley(float NoL, float NoV, float LoH, float perceptual_roughness) {
+				float F90 = 0.5 + 2.0 * perceptual_roughness * LoH * LoH;
+				float light_scatter = 1.0 + (F90 - 1.0) * pow5(1.0 - NoL);
+				float view_scatter = 1.0 + (F90 - 1.0) * pow5(1.0 - NoV);
+				return light_scatter * view_scatter * (1.0 / BRDF_PI);
+			}
+
+			float SpecularOcclusion(float NoV, float ambient_occlusion, float perceptual_roughness) {
+				float exponent = exp2(-16.0 * perceptual_roughness - 1.0);
+				return saturate(pow(NoV + ambient_occlusion, exponent) - 1.0 + ambient_occlusion);
+			}
+
+			vec3 GGXEnergyCompensation(vec3 f0, vec2 env_brdf) {
+				return 1.0 + f0 * (1.0 / max(env_brdf.x + env_brdf.y, 0.001) - 1.0);
+			}
+
+			float RadicalInverse_Vdc(uint bits) {
+				bits = (bits << 16u) | (bits >> 16u);
+				bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+				bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+				bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+				bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+				return float(bits) * 2.3283064365386963e-10;
+			}
+
+			vec2 Hammersley(uint i, uint N) {
+				return vec2(float(i) / float(N), RadicalInverse_Vdc(i));
+			}
+
+			vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float perceptual_roughness) {
+				float a = perceptual_roughness * perceptual_roughness;
+				float phi = 2.0 * BRDF_PI * Xi.x;
+				float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
+				float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+
+				vec3 H;
+				H.x = cos(phi) * sinTheta;
+				H.y = sin(phi) * sinTheta;
+				H.z = cosTheta;
+
+				vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+				vec3 tangent = normalize(cross(up, N));
+				vec3 bitangent = cross(N, tangent);
+
+				vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
+				return normalize(sampleVec);
+			}
+
+			vec3 ImportanceSampleGGXVNDF(vec3 Ve, float alpha, vec2 xi) {
+				vec3 Vh = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+				float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+				vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) / sqrt(lensq) : vec3(1.0, 0.0, 0.0);
+				vec3 T2 = cross(Vh, T1);
+				float r = sqrt(xi.x);
+				float phi = 2.0 * BRDF_PI * xi.y;
+				float t1 = r * cos(phi);
+				float t2 = r * sin(phi);
+				float s = 0.5 * (1.0 + Vh.z);
+				t2 = (1.0 - s) * sqrt(1.0 - t1 * t1) + s * t2;
+				vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+				return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(0.0, Nh.z)));
 			}
 		]]
 end
@@ -60,18 +123,19 @@ function ibl.GetEnvironmentGLSLCode()
 			}
 
 			vec3 correct_environment_lookup_dir(vec3 dir) {
-				return normalize(vec3(dir.x, dir.y, dir.z));
+				return normalize(vec3(-dir.x, dir.y, dir.z));
 			}
 
-			vec3 get_specular_dominant_direction(vec3 reflection_dir, vec3 normal, float roughness) {
-				return normalize(mix(reflection_dir, normal, roughness * roughness));
+			vec3 get_specular_dominant_direction(vec3 reflection_dir, vec3 normal, float perceptual_roughness) {
+				return normalize(mix(reflection_dir, normal, perceptual_roughness * perceptual_roughness));
 			}
 
-			vec3 sample_environment_specular(int env_tex, vec3 reflection_dir, vec3 normal, float roughness) {
+			vec3 sample_environment_specular(int env_tex, vec3 reflection_dir, vec3 normal, float perceptual_roughness) {
 				if (env_tex == -1) return vec3(0.0);
 				float max_mip = get_environment_max_mip(env_tex);
-				vec3 sample_dir = correct_environment_lookup_dir(get_specular_dominant_direction(reflection_dir, normal, roughness));
-				return textureLod(CUBEMAP(env_tex), sample_dir, roughness * max_mip).rgb;
+				vec3 sample_dir = correct_environment_lookup_dir(get_specular_dominant_direction(reflection_dir, normal, perceptual_roughness));
+				float horizon = saturate(1.0 + dot(reflection_dir, normal));
+				return textureLod(CUBEMAP(env_tex), sample_dir, perceptual_roughness * max_mip).rgb * horizon * horizon;
 			}
 
 			vec3 sample_environment_irradiance(int env_tex, vec3 normal) {
@@ -90,8 +154,8 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return mix(global_env, local_env, clamp(local_weight, 0.0, 1.0));
 			}
 
-			float get_ssr_blend_weight(float roughness) {
-				float stable_weight = 1.0 - smoothstep(0.08, 0.45, clamp(roughness, 0.0, 1.0));
+			float get_ssr_blend_weight(float perceptual_roughness) {
+				float stable_weight = 1.0 - smoothstep(0.08, 0.45, clamp(perceptual_roughness, 0.0, 1.0));
 				return stable_weight * stable_weight;
 			}
 

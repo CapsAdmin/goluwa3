@@ -110,6 +110,7 @@ return {
 		]],
 		shader = [[
 		]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+		]] .. ibl.GetBRDFGLSLCode() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
 			#define SSR_MAX_STEPS 64
@@ -121,13 +122,8 @@ return {
 			#define SSR_ROUGH_MULTI_SAMPLES 3
 			#define SSR_TILE_WIDTH ]] .. tostring(TILE_WIDTH) .. "\n" .. [[
 			#define SSR_TILE_HEIGHT ]] .. tostring(TILE_HEIGHT) .. "\n" .. [[
-			#define PI 3.14159265359
 
 			shared vec4 ssr_tile[SSR_TILE_HEIGHT][SSR_TILE_WIDTH];
-
-			float saturate(float x) {
-				return clamp(x, 0.0, 1.0);
-			}
 
 			float luminance(vec3 color) {
 				return dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -159,21 +155,6 @@ return {
 			vec2 blue_noise(ivec2 pixel) {
 				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
 				return texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
-			}
-
-			vec3 sampleGGXVNDF(vec3 Ve, float alpha, vec2 xi) {
-				vec3 Vh = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
-				float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
-				vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) / sqrt(lensq) : vec3(1.0, 0.0, 0.0);
-				vec3 T2 = cross(Vh, T1);
-				float r = sqrt(xi.x);
-				float phi = 2.0 * PI * xi.y;
-				float t1 = r * cos(phi);
-				float t2 = r * sin(phi);
-				float s = 0.5 * (1.0 + Vh.z);
-				t2 = (1.0 - s) * sqrt(1.0 - t1 * t1) + s * t2;
-				vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
-				return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(0.0, Nh.z)));
 			}
 
 			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
@@ -512,7 +493,7 @@ return {
 
 				for (int sample_index = 0; sample_index < SSR_ROUGH_MULTI_SAMPLES; sample_index++) {
 					vec2 sample_xi = get_ssr_rough_sample_xi(xi, sample_index);
-					vec3 H_local = sampleGGXVNDF(V_local, alpha, sample_xi);
+					vec3 H_local = ImportanceSampleGGXVNDF(V_local, alpha, sample_xi);
 					vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
 					vec3 sample_R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
 
