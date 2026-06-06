@@ -519,7 +519,7 @@ function Light:SetCastShadows(config)
 		else
 			self.InsetShadowMap = nil
 		end
-	elseif self.LightType == "directional" then
+	elseif self.LightType == "directional" or self.LightType == "spot" then
 		self.ShadowMap = ShadowMap.New{
 			mode = "directional",
 			size = config.size,
@@ -543,9 +543,6 @@ function Light:SetCastShadows(config)
 			far_plane = config.far_plane or config.range or self.Range,
 		}
 		self.InsetShadowMap = nil
-	elseif self.LightType == "spot" then
-		error("NYI spot light", 2)
-		self.CastShadows = false
 	else
 		error("Unknown light type: " .. tostring(self.LightType), 2)
 		self.CastShadows = false
