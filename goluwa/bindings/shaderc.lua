@@ -206,7 +206,6 @@ function mod.compile(source, shader_type, entry_point)
 			error_message = "empty error message, status: " .. tostring(status) .. " (" .. tostring(tonumber(status)) .. ") result: " .. tostring(result) .. " stage: " .. tostring(shader_type)
 		end
 
-		local hash = import("goluwa/crypto.lua").CRC32(source)
 		local path = "./storage/logs/last_shader_error.glsl"
 		import("goluwa/fs.lua").write_file(path, source)
 		error_message = error_message:gsub(shader_type .. ":", path .. ":")
