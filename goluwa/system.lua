@@ -7,6 +7,7 @@ local Window = import("goluwa/window.lua")
 ffi.cdef([[
 	int fflush(void *stream);
 	int _exit(int status);
+	int isatty(int fd);
 ]])
 
 function system.GetTime()
@@ -146,7 +147,7 @@ function system.IsTTY()
 		return false
 	end
 
-	return true
+	return ffi.C.isatty(0) == 1
 end
 
 local sleep = import("goluwa/bindings/threads.lua").sleep -- in ms
