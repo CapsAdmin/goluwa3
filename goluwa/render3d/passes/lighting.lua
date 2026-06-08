@@ -321,6 +321,10 @@ return {
 					{"voxel_gi_clipmap_data", "vec4", 3},
 					{"atmosphere_transmittance_texture_index", "int"},
 					{"ssr_tex", "int"},
+					{"ssgi_filter_2_tex", "int"},
+					{"ssgi_raw_tex", "int"},
+					{"ssgi_filter_1_tex", "int"},
+					{"ssgi_debug_mode", "int"},
 					{"probe_color_textures", "int", 64},
 					{"probe_depth_textures", "int", 64},
 					{"probe_positions", "vec4", 64},
@@ -413,6 +417,13 @@ return {
 						local current_idx = system.GetFrameNumber() % 2 + 1
 						local current_ssr_fb = render3d.pipelines.ssr:GetFramebuffer(current_idx)
 						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
+					end
+
+					if render3d.pipelines.ssgi then
+						block.ssgi_raw_tex = self:GetTextureIndex(render3d.pipelines.ssgi:GetFramebuffer(system.GetFrameNumber() % 3 + 1):GetAttachment(1))
+						block.ssgi_filter_2_tex = self:GetTextureIndex(render3d.pipelines.ssgi_filter_2:GetFramebuffer(1):GetAttachment(1))
+						block.ssgi_filter_1_tex = self:GetTextureIndex(render3d.pipelines.ssgi_filter_1:GetFramebuffer(1):GetAttachment(1))
+						block.ssgi_debug_mode = render3d.ssgi_debug_mode or 0
 					end
 
 					for i = 0, MAX_PROBES - 1 do
@@ -726,6 +737,11 @@ return {
 
 				vec4 ssr = get_filtered_ssr_reflection(in_uv);
 				return ssr.rgb;
+			}
+
+			vec3 get_ssgi_indirect(vec2 uv, vec3 world_pos, vec3 N, vec3 V) {
+				vec4 ssgi = texture(TEXTURE(lighting_data.ssgi_filter_2_tex), uv);
+				return ssgi.rgb;
 			}
 
 			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {
@@ -1210,17 +1226,16 @@ return {
 				}
 
 				float alpha = get_alpha();
+
 				if (alpha == 0.0) {
 					set_color(vec4(0.0, 0.0, 0.0, 0.0));
 					set_voxel_gi(vec4(0.0, 0.0, 0.0, 0.0));
 					return;
 				}
 
-
 				vec3 N = get_normal();
 				vec3 world_pos = get_world_pos(depth);
 				vec3 V = get_view_normal(world_pos);
-
 
 				vec3 albedo = get_albedo();
 				float metallic = get_metallic();
@@ -1236,9 +1251,6 @@ return {
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N);
 				vec3 voxel_irradiance = get_voxel_indirect_irradiance(world_pos, N);
 				vec3 irradiance = get_irradiance(N, V, world_pos) + voxel_irradiance;
-				/*set_color(vec4(irradiance, alpha));
-				set_voxel_gi(vec4(voxel_irradiance, alpha));
-				{return;}*/
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, voxel_irradiance, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
@@ -1273,8 +1285,5 @@ return {
 				set_voxel_gi(vec4(voxel_irradiance, alpha));
 			}
 		]],
-		CullMode = "none",
-		DepthTest = false,
-		DepthWrite = false,
 	},
 }

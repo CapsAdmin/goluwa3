@@ -3806,7 +3806,7 @@ function EasyPipeline.ComputePass(config)
 				fb:GetAttachment(info.attachment or 1)
 			assert(
 				texture,
-				"missing compute output texture for binding " .. tostring(info.binding_index)
+				self.name .. " is missing compute output texture for binding " .. tostring(info.binding_index)
 			)
 			transition_texture_to_compute_storage(texture, cmd)
 			self:UpdateDescriptorSet(

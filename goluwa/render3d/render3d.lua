@@ -47,14 +47,15 @@ local function get_pipeline_configs()
 	return list.flatten{
 		import("goluwa/render3d/passes/gbuffer.lua"),
 		--import("goluwa/render3d/passes/voxel_build.lua"),
-		import("goluwa/render3d/passes/ssr.lua"),
+		--import("goluwa/render3d/passes/ssr.lua"),
 		import("goluwa/render3d/passes/lighting.lua"),
+		import("goluwa/render3d/passes/ssgi.lua"),
 		--import("goluwa/render3d/passes/lighting_simple.lua"),
-		import("goluwa/render3d/passes/ocean.lua"),
-		import("goluwa/render3d/passes/forward_overlay.lua"),
-		import("goluwa/render3d/passes/volumetric_fog.lua"),
+		--import("goluwa/render3d/passes/ocean.lua"),
+		--import("goluwa/render3d/passes/forward_overlay.lua"),
+		--import("goluwa/render3d/passes/volumetric_fog.lua"),
 		--import("goluwa/render3d/passes/smaa.lua"),
-		import("goluwa/render3d/passes/bloom.lua"),
+		--import("goluwa/render3d/passes/bloom.lua"),
 		import("goluwa/render3d/passes/blit.lua"),
 	}
 end
@@ -317,6 +318,7 @@ do
 		"irradiance",
 		"ambient_occlusion",
 		"ssr",
+		"ssgi",
 		"wireframe",
 		"voxel_gi",
 	}
@@ -363,6 +365,41 @@ do
 		return (mode_name or render3d.GetDebugModeName()) == "wireframe"
 	end
 
+	-- SSGI debug modes
+	local ssgi_debug_modes = {
+		"ssgi_final", -- 0: Final denoised SSGI
+		"ssgi_raw", -- 1: Raw GI (before denoising)
+		"ssgi_denoised", -- 2: After first denoise pass
+		"ssgi_raw_conf", -- 3: Raw GI with confidence overlay
+		"ssgi_confidence", -- 4: Confidence channel only
+		"ssgi_raw_conf_only", -- 5: Raw confidence only
+	}
+	render3d.ssgi_debug_mode = render3d.ssgi_debug_mode or 0
+
+	function render3d.SetSSGIDebugMode(mode_name)
+		for i, name in ipairs(ssgi_debug_modes) do
+			if name == mode_name then
+				render3d.ssgi_debug_mode = i - 1
+				return true
+			end
+		end
+
+		return false
+	end
+
+	function render3d.GetSSGIDebugModes()
+		return ssgi_debug_modes
+	end
+
+	function render3d.CycleSSGIDebugMode()
+		render3d.ssgi_debug_mode = (render3d.ssgi_debug_mode + 1) % #ssgi_debug_modes
+		return ssgi_debug_modes[render3d.ssgi_debug_mode + 1]
+	end
+
+	function render3d.GetSSGIDebugModeName()
+		return ssgi_debug_modes[render3d.ssgi_debug_mode + 1]
+	end
+
 	function render3d.SetGBufferNormalDebugView(mode_name)
 		local mode = gbuffer_normal_debug_views[mode_name]
 
@@ -388,10 +425,12 @@ do
 		} else if (debug_mode == 2) {
 			color = irradiance;
 		} else if (debug_mode == 3) {
-			color = vec3(ambient_occlusion);
+			//color = vec3(ambient_occlusion);
 		} else if (debug_mode == 4) {
 			color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
-		} else if (debug_mode == 6) {
+		} else if (debug_mode == 5) {
+			color = texture(TEXTURE(lighting_data.ssgi_filter_2_tex), in_uv).rgb;
+		} else if (debug_mode == 7) {
 			color = voxel_irradiance;
 		}
 	]]

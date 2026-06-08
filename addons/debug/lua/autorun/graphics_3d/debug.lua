@@ -516,4 +516,5 @@ function events.KeyInput.render3d_debug(key, press)
 
 	-- Toggle debug modes
 	if key == "h" then print("Debug mode: " .. render3d.CycleDebugMode()) end
+	if key == "u" then print("SSGI debug: " .. render3d.CycleSSGIDebugMode()) end
 end
