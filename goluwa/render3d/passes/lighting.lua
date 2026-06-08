@@ -96,10 +96,7 @@ return {
 					{"voxel_irradiance_tex", "int"},
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
-					{"ssgi_filter_2_tex", "int"},
-					{"ssgi_raw_tex", "int"},
-					{"ssgi_filter_1_tex", "int"},
-					{"ssgi_debug_mode", "int"},
+					{"ssgi_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -149,10 +146,7 @@ return {
 					end
 
 					if render3d.pipelines.ssgi then
-						block.ssgi_raw_tex = self:GetTextureIndex(render3d.pipelines.ssgi:GetFramebuffer(system.GetFrameNumber() % 3 + 1):GetAttachment(1))
-						block.ssgi_filter_2_tex = self:GetTextureIndex(render3d.pipelines.ssgi_filter_2:GetFramebuffer(1):GetAttachment(1))
-						block.ssgi_filter_1_tex = self:GetTextureIndex(render3d.pipelines.ssgi_filter_1:GetFramebuffer(1):GetAttachment(1))
-						block.ssgi_debug_mode = render3d.ssgi_debug_mode or 0
+						block.ssgi_tex = self:GetTextureIndex(render3d.pipelines.ssgi_filter_2:GetFramebuffer(1):GetAttachment(1))
 					end
 
 					return block
@@ -367,12 +361,33 @@ return {
 				return ssr.rgb;
 			}
 
-			vec3 get_ssgi_indirect(vec2 uv, vec3 world_pos, vec3 N, vec3 V) {
-				vec4 ssgi = texture(TEXTURE(lighting_data.ssgi_filter_2_tex), uv);
-				return ssgi.rgb;
+			vec3 get_ssgi_irradiance(float roughness) {
+				if (lighting_data.ssgi_tex == -1) {
+					return vec3(1.0);
+				}
+				// Sample from SSGI mip chain based on roughness
+				// Rougher surfaces get more blurred (lower mip levels)
+				float max_mip = 5.0;
+				float lod = roughness * roughness * max_mip;
+				lod = clamp(lod, 0.0, max_mip);
+				return textureLod(TEXTURE(lighting_data.ssgi_tex), in_uv, lod).rgb;
 			}
 
-			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {
+			float get_ssgi_confidence(float roughness) {
+				if (lighting_data.ssgi_tex == -1) {
+					return 0.0;
+				}
+				// Use same LOD as get_ssgi_irradiance for consistency
+				float max_mip = 5.0;
+				float lod = roughness * roughness * max_mip;
+				lod = clamp(lod, 0.0, max_mip);
+				return textureLod(TEXTURE(lighting_data.ssgi_tex), in_uv, lod).a;
+			}
+
+			vec3 get_probe_irradiance() {
+				if (lighting_data.probe_irradiance_tex == -1) {
+					return vec3(1.0);
+				}
 				return texture(TEXTURE(lighting_data.probe_irradiance_tex), in_uv).rgb;
 			}
 
@@ -380,24 +395,24 @@ return {
 				return texture(TEXTURE(lighting_data.ambient_occlusion_tex), uv).r;
 			}
 
-				vec3 get_primary_sun_direction() {
-					vec3 sunDir = lighting_data.primary_sun_direction.xyz;
-					if (length(sunDir) < 0.0001) {
-						sunDir = vec3(0.0, 1.0, 0.0);
-					}
-					return normalize(sunDir);
+			vec3 get_primary_sun_direction() {
+				vec3 sunDir = lighting_data.primary_sun_direction.xyz;
+				if (length(sunDir) < 0.0001) {
+					sunDir = vec3(0.0, 1.0, 0.0);
 				}
+				return normalize(sunDir);
+			}
 
-				vec3 get_sky() {
-					vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
-					vec4 view_pos = lighting_data.inv_projection * clip_pos;
-					view_pos /= view_pos.w;
-					vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
-					vec3 sky_dir = normalize(world_pos - lighting_data.camera_position.xyz);
-					vec3 sun_dir = get_primary_sun_direction();
-					vec3 sky_color_output = vec3(0.0);
+			vec3 get_sky() {
+				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
+				vec4 view_pos = lighting_data.inv_projection * clip_pos;
+				view_pos /= view_pos.w;
+				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
+				vec3 sky_dir = normalize(world_pos - lighting_data.camera_position.xyz);
+				vec3 sun_dir = get_primary_sun_direction();
+				vec3 sky_color_output = vec3(0.0);
 
-					]] .. atmosphere.GetGLSLMainCode(
+				]] .. atmosphere.GetGLSLMainCode(
 				"sky_dir",
 				"sun_dir",
 				"lighting_data.camera_position.xyz",
@@ -406,8 +421,8 @@ return {
 				"lighting_data.atmosphere_transmittance_texture_index"
 			) .. [[
 
-					return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
-				}
+				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
+			}
 
 			vec3 subsurface_shading_back(vec3 eye_dir, vec3 light_dir, vec3 normal, vec3 transmission_color, float view_dependency)
 			{
@@ -510,7 +525,7 @@ return {
 				return Lo;				
 			}
 
-			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 voxel_irradiance, vec3 world_pos, vec3 V, vec3 N)
+			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 world_pos, vec3 V, vec3 N)
 			{
 				float subsurface_factor = subsurface;
 				float blocking_detail = get_transmission_blocking_detail(transmission_blocking);
@@ -521,8 +536,9 @@ return {
 				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N);
 
-				vec3 irradiance = get_irradiance(N, V, world_pos) + voxel_irradiance;
-				vec3 back_irradiance = get_irradiance(-N, V, world_pos);
+				vec3 irradiance = mix(get_probe_irradiance(), get_ssgi_irradiance(perceptual_roughness), get_ssgi_confidence(perceptual_roughness));
+
+				vec3 back_irradiance = irradiance;
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
 				vec3 ambient_diffuse = kD_ambient * irradiance * albedo * ambient_occlusion;
@@ -589,11 +605,8 @@ return {
 				vec3 emissive = subsurface > 0.0 ? vec3(0.0) : get_emissive();
 				vec3 F0 = mix(vec3(0.04), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
-				vec3 voxel_irradiance = texture(TEXTURE(lighting_data.voxel_irradiance_tex), in_uv).rgb;
-				voxel_irradiance = vec3(0.0); // Disable voxel GI for now
-				vec3 irradiance = get_irradiance(N, V, world_pos) + voxel_irradiance;
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
-				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, voxel_irradiance, world_pos, V, N);
+				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
 				vec3 sunDir = get_primary_sun_direction();
 				float atmosphere_sun_visibility = 1.0;

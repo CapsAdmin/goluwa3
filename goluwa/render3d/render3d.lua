@@ -48,11 +48,11 @@ local function get_pipeline_configs()
 		import("goluwa/render3d/passes/gbuffer.lua"),
 		import("goluwa/render3d/passes/ambient_occlusion.lua"),
 		import("goluwa/render3d/passes/probe_irradiance.lua"),
+		import("goluwa/render3d/passes/ssgi.lua"),
 		--import("goluwa/render3d/passes/voxel_build.lua"),
 		--import("goluwa/render3d/passes/voxel_irradiance.lua"),
 		--import("goluwa/render3d/passes/ssr.lua"),
 		import("goluwa/render3d/passes/lighting.lua"),
-		--import("goluwa/render3d/passes/ssgi.lua"),
 		--import("goluwa/render3d/passes/lighting_simple.lua"),
 		--import("goluwa/render3d/passes/ocean.lua"),
 		--import("goluwa/render3d/passes/forward_overlay.lua"),
@@ -426,15 +426,13 @@ do
 		if (debug_mode == 1) {
 			color = N * 0.5 + 0.5;
 		} else if (debug_mode == 2) {
-			color = irradiance;
+			color = indirect;
 		} else if (debug_mode == 3) {
 			//color = vec3(ambient_occlusion);
 		} else if (debug_mode == 4) {
 			color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
 		} else if (debug_mode == 5) {
-			color = texture(TEXTURE(lighting_data.ssgi_filter_2_tex), in_uv).rgb;
-		} else if (debug_mode == 7) {
-			color = voxel_irradiance;
+			color = texture(TEXTURE(lighting_data.ssgi_tex), in_uv).rgb;
 		}
 	]]
 end

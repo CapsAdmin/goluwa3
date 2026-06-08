@@ -1,24 +1,38 @@
 local assets = import("goluwa/assets.lua")
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local TILE_WIDTH = COMPUTE_LOCAL_SIZE.x + 2
-local TILE_HEIGHT = COMPUTE_LOCAL_SIZE.y + 2
+local TILE_WIDTH = COMPUTE_LOCAL_SIZE.x + 4
+local TILE_HEIGHT = COMPUTE_LOCAL_SIZE.y + 4
+local SSGI_MAX_MIP = 5
+local SSGI_MIP_LEVELS = SSGI_MAX_MIP + 1
+
+local function pow2(n)
+	return 2 ^ n
+end
+
 local passes = {
 	{
 		name = "ssgi",
 		ComputePass = true,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"ssgi", "rgba"}}},
-		framebuffer_count = 3,
+		framebuffer_count = 1,
+		mip_map_levels = SSGI_MIP_LEVELS,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
 				binding_index = 0,
 				attachment = 1,
 				dst_stage = "fragment",
+			},
+		},
+		sampled_images = {
+			{
+				binding_index = 1,
 			},
 		},
 		uniform_buffers = {
@@ -54,7 +68,7 @@ local passes = {
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
 					block.ssgi_max_steps = 32
 					block.ssgi_step_size = 0.3
-					block.ssgi_max_distance = 50.0
+					block.ssgi_max_distance = 30.0
 					block.ssgi_max_mip = 5
 					block.ssgi_ray_offset = 0.01
 					block.ssgi_rough_cutoff = 0.1
@@ -68,6 +82,181 @@ local passes = {
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_ssgi;
 		]],
+		on_draw = function(self, cmd, fb, frame_index, descriptor_frame_index)
+			-- 1. Execute main SSGI ray tracing shader
+			local ssgi_tex = fb:GetAttachment(1)
+			assert(ssgi_tex, "ssgi: missing output texture")
+			local ssgi_img = ssgi_tex:GetImage()
+			local old_layout = ssgi_img.layout or "undefined"
+
+			if old_layout ~= "general" then
+				cmd:PipelineBarrier{
+					srcStage = "fragment",
+					dstStage = "compute_shader",
+					imageBarriers = {
+						{
+							image = ssgi_img,
+							srcAccessMask = "shader_read",
+							dstAccessMask = "shader_write",
+							oldLayout = old_layout,
+							newLayout = "general",
+						},
+					},
+				}
+				ssgi_img.layout = "general"
+			end
+
+			self:UpdateDescriptorSet("storage_image", descriptor_frame_index, 0, 0, ssgi_tex:GetView())
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(cmd, fb.width, fb.height, 1, descriptor_frame_index, self.dynamic_offsets)
+
+			-- Transition output back to shader_read
+			if ssgi_img.layout ~= "shader_read_only_optimal" then
+				cmd:PipelineBarrier{
+					srcStage = "compute_shader",
+					dstStage = "fragment",
+					imageBarriers = {
+						{
+							image = ssgi_img,
+							srcAccessMask = "shader_write",
+							dstAccessMask = "shader_read",
+							oldLayout = "general",
+							newLayout = "shader_read_only_optimal",
+						},
+					},
+				}
+				ssgi_img.layout = "shader_read_only_optimal"
+			end
+
+			-- 2. Generate mip levels 1..SSGI_MAX_MIP by downsampling into the SSGI framebuffer's mip chain
+			for lod = 1, SSGI_MAX_MIP do
+				local src_fb = render3d.pipelines.ssgi:GetFramebuffer(frame_index)
+
+				if not src_fb then return end
+
+				local src_tex = src_fb:GetAttachment(1)
+
+				if not src_tex then return end
+
+				-- Read and write to the SAME SSGI framebuffer, different mip levels
+				-- Source: mip level lod-1, Destination: mip level lod
+				local src_w = math.max(1, math.floor(fb.width / pow2(lod - 1)))
+				local src_h = math.max(1, math.floor(fb.height / pow2(lod - 1)))
+				local dst_w = math.max(1, math.floor(fb.width / pow2(lod)))
+				local dst_h = math.max(1, math.floor(fb.height / pow2(lod)))
+				-- Transition source from shader_read to general for compute read
+				local src_img = src_tex:GetImage()
+				local old_src_layout = src_img.layout or "shader_read_only_optimal"
+
+				if old_src_layout ~= "general" then
+					cmd:PipelineBarrier{
+						srcStage = "fragment",
+						dstStage = "compute_shader",
+						imageBarriers = {
+							{
+								image = src_img,
+								srcAccessMask = "shader_read",
+								dstAccessMask = "shader_read",
+								oldLayout = old_src_layout,
+								newLayout = "general",
+								baseMipLevel = lod - 1,
+								levelCount = 1,
+							},
+						},
+					}
+					src_img.layout = "general"
+				end
+
+				-- Transition destination (same texture, different mip level) to general for compute write
+				local dst_img = src_tex:GetImage()
+				local old_dst_layout = dst_img.layout or "undefined"
+
+				if old_dst_layout ~= "general" then
+					cmd:PipelineBarrier{
+						srcStage = "top_of_pipe",
+						dstStage = "compute_shader",
+						imageBarriers = {
+							{
+								image = dst_img,
+								srcAccessMask = "none",
+								dstAccessMask = "shader_write",
+								oldLayout = old_dst_layout,
+								newLayout = "general",
+								baseMipLevel = lod,
+								levelCount = 1,
+							},
+						},
+					}
+					dst_img.layout = "general"
+				end
+
+				-- Bind source as sampled (read from mip level lod-1)
+				local src_view = src_tex:GetImage():CreateView{view_type = "2d", baseMipLevel = lod - 1, levelCount = 1}
+				local src_sampler = render.CreateSampler(src_tex:GetSamplerConfig())
+				-- Use a separate descriptor set (descriptor_frame_index + 1) to avoid invalidating the main shader's descriptor set
+				render.GetDevice():UpdateDescriptorSet(
+					"combined_image_sampler",
+					self.pipeline.descriptor_sets[descriptor_frame_index + 1][1],
+					1,
+					src_view,
+					src_sampler,
+					self:GetFallbackView(),
+					self:GetFallbackSampler()
+				)
+				-- Bind destination as storage (write to mip level lod, same texture)
+				self:UpdateDescriptorSet(
+					"storage_image",
+					descriptor_frame_index + 1,
+					0,
+					0,
+					src_tex:GetImage():CreateView{view_type = "2d", baseMipLevel = lod, levelCount = 1}
+				)
+				-- Dispatch at destination resolution (each thread writes one texel at destination mip)
+				local dispatch_x = math.ceil(dst_w / COMPUTE_LOCAL_SIZE.x)
+				local dispatch_y = math.ceil(dst_h / COMPUTE_LOCAL_SIZE.y)
+				cmd:Dispatch(dispatch_x, dispatch_y, 1)
+
+				-- Transition destination back to shader_read
+				if dst_img.layout ~= "shader_read_only_optimal" then
+					cmd:PipelineBarrier{
+						srcStage = "compute_shader",
+						dstStage = "fragment",
+						imageBarriers = {
+							{
+								image = dst_img,
+								srcAccessMask = "shader_write",
+								dstAccessMask = "shader_read",
+								oldLayout = "general",
+								newLayout = "shader_read_only_optimal",
+								baseMipLevel = lod,
+								levelCount = 1,
+							},
+						},
+					}
+					dst_img.layout = "shader_read_only_optimal"
+				end
+
+				-- Transition source back to shader_read_only_optimal
+				if src_img.layout ~= "shader_read_only_optimal" then
+					cmd:PipelineBarrier{
+						srcStage = "compute_shader",
+						dstStage = "fragment",
+						imageBarriers = {
+							{
+								image = src_img,
+								srcAccessMask = "shader_read",
+								dstAccessMask = "shader_read",
+								oldLayout = "general",
+								newLayout = "shader_read_only_optimal",
+								baseMipLevel = lod - 1,
+								levelCount = 1,
+							},
+						},
+					}
+					src_img.layout = "shader_read_only_optimal"
+				end
+			end
+		end,
 		shader = [[
 		]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
@@ -250,7 +439,7 @@ local passes = {
 
 							// Upward-facing transfer function (TurboGI style)
 							// Only count surfaces facing away from center (floors/ceilings)
-							float trns = saturate(dot(surfN_ws, sV_ws)) * ceil(dot(hit_normal_ws, sV_ws));
+							float trns = saturate(saturate(dot(surfN_ws, sV_ws)) * ceil(dot(hit_normal_ws, sV_ws)));
 
 							// Two-term distance attenuation (TurboGI style)
 							float z_atten = 1.0 / (1.0 + 0.5 * dot(hit_pos_ws.z - pos_ws.z, hit_pos_ws.z - pos_ws.z) / (1.0 + 0.05 * length(pos_vs.xyz)));
@@ -375,28 +564,21 @@ for i = 1, 2 do
 					dst_stage = "fragment",
 				},
 			},
+			sampled_images = {
+				{
+					binding_index = 1,
+				},
+			},
 			uniform_buffers = {
 				{
 					name = "ssgi_data",
 					binding_index = 3,
 					block = {
 						render3d.gbuffer_block,
-						{"main_tex", "int"},
+						{"ssgi_tex", "int"},
 					},
 					write = function(self, block)
-						do
-							local idx = frame_index or (system.GetFrameNumber() % 3 + 1)
-							local fb
-
-							if i == 1 then
-								fb = render3d.pipelines.ssgi
-							elseif i > 1 then
-								fb = render3d.pipelines["ssgi_filter_" .. (i - 1)]
-							end
-
-							block.main_tex = self:GetTextureIndex(fb:GetFramebuffer(idx):GetAttachment(1))
-						end
-
+						block.ssgi_tex = self:GetTextureIndex(render3d.pipelines.ssgi:GetFramebuffer(1):GetAttachment(1))
 						return block
 					end,
 				},
@@ -431,7 +613,13 @@ for i = 1, 2 do
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
 				vec2 uv = get_screen_uv(pos, size);
-				vec4 current = texture(TEXTURE(ssgi_data.main_tex), uv);
+
+				// Determine which mip level to sample based on pass index
+				// Pass 1: sample from mip 0 (full res) and nearby pixels at mip 0
+				// Pass 2: sample from mip 1 (half res) and nearby pixels at mip 1
+				int lod = ]] .. tostring(i - 1) .. [[;
+
+				vec4 current = textureLod(TEXTURE(ssgi_data.ssgi_tex), uv, float(lod));
 				float cenD = get_depth(uv);
 				vec3 cenN = get_normal(uv);
 
@@ -439,10 +627,10 @@ for i = 1, 2 do
 				vec4 shCol = vec4(0.0);
 				float accw = 0.0;
 
-				for (int i = 0; i < 5; i++) {
-					vec2 nxy = uv + vec2(float(ioff[i].x), float(ioff[i].y)) / vec2(size);
+				for (int s = 0; s < 5; s++) {
+					vec2 nxy = uv + vec2(float(ioff[s].x), float(ioff[s].y)) / vec2(size);
 
-					vec4 samC = texture(TEXTURE(ssgi_data.main_tex), nxy);
+					vec4 samC = textureLod(TEXTURE(ssgi_data.ssgi_tex), nxy, float(lod));
 					float samD = get_depth(nxy);
 					vec3 samN = get_normal(nxy);
 
@@ -460,13 +648,18 @@ for i = 1, 2 do
 					accw += w;
 				}
 
+				if (accw < 0.0001) {
+					imageStore(out_image, pos, current);
+					return;
+				}
+					
 				shLum /= accw;
 				shCol /= accw;
 
-				vec3 filtered = shCol.rgb * shLum.r;
+				vec3 filtered = shCol.rgb * shLum.r * vec3(1,0,0);
 
 				// Blend with unfiltered center
-				float blend = 0.85;
+				float blend = 0.5;
 				imageStore(out_image, pos, vec4(mix(current.rgb, filtered, blend), current.a));
 			}
 		]],
