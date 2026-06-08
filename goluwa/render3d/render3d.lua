@@ -46,10 +46,12 @@ local function get_pipeline_configs()
 
 	return list.flatten{
 		import("goluwa/render3d/passes/gbuffer.lua"),
+		import("goluwa/render3d/passes/probe_irradiance.lua"),
 		--import("goluwa/render3d/passes/voxel_build.lua"),
+		--import("goluwa/render3d/passes/voxel_irradiance.lua"),
 		--import("goluwa/render3d/passes/ssr.lua"),
 		import("goluwa/render3d/passes/lighting.lua"),
-		import("goluwa/render3d/passes/ssgi.lua"),
+		--import("goluwa/render3d/passes/ssgi.lua"),
 		--import("goluwa/render3d/passes/lighting_simple.lua"),
 		--import("goluwa/render3d/passes/ocean.lua"),
 		--import("goluwa/render3d/passes/forward_overlay.lua"),

@@ -6,6 +6,193 @@ local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
+	local function BuildPBRSamplingGlsl(
+		model_var,
+		terrain_var,
+		displacement_var,
+		detail_var,
+		aux_var,
+		factor_var,
+		color_var
+	)
+		model_var = model_var or "model"
+		terrain_var = terrain_var or model_var
+		displacement_var = displacement_var or model_var
+		detail_var = detail_var or model_var
+		aux_var = aux_var or model_var
+		factor_var = factor_var or model_var
+		color_var = color_var or factor_var
+		return Material.BuildGlslFlags(model_var .. ".Flags") .. [[
+
+			bool has_heightmap() {
+				return ]] .. displacement_var .. [[.HeightTexture != -1 && ]] .. displacement_var .. [[.HeightScale > 0.0;
+			}
+
+			float get_height_sample(vec2 uv) {
+				if (!has_heightmap()) {
+					return 1.0;
+				}
+
+				return texture(TEXTURE(]] .. displacement_var .. [[.HeightTexture), uv).r;
+			}
+
+			float get_height_centered_sample(vec2 uv) {
+				return get_height_sample(uv) - ]] .. displacement_var .. [[.HeightCenter;
+			}
+
+			bool use_tessellated_displacement() {
+				return has_heightmap() && ]] .. displacement_var .. [[.TessellationFactor > 1.0;
+			}
+
+			float get_tessellation_factor() {
+				return clamp(]] .. displacement_var .. [[.TessellationFactor, 1.0, 64.0);
+			}
+
+			int get_height_layers() {
+				return clamp(]] .. displacement_var .. [[.HeightLayers, 4, 64);
+			}
+
+			float get_texture_blend_uv(vec2 uv) {
+				if (]] .. detail_var .. [[.BlendTexture == -1) {
+					return in_texture_blend;
+				}
+
+				float blend = in_texture_blend;
+				vec2 blend_data = texture(TEXTURE(]] .. detail_var .. [[.BlendTexture), uv).rg;
+				float minb = blend_data.r;
+				float maxb = blend_data.g;
+				blend = clamp((blend - minb) / (maxb - minb + 0.001), 0.0, 1.0);
+				return blend;
+			}
+
+			float get_texture_blend() {
+				return get_texture_blend_uv(in_uv);
+			}
+
+			float sample_terrain_hash(vec2 p) {
+				return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+			}
+
+			float sample_terrain_noise(vec2 p) {
+				vec2 cell = floor(p);
+				vec2 frac = fract(p);
+				frac = frac * frac * (3.0 - 2.0 * frac);
+				return mix(
+					mix(sample_terrain_hash(cell), sample_terrain_hash(cell + vec2(1.0, 0.0)), frac.x),
+					mix(sample_terrain_hash(cell + vec2(0.0, 1.0)), sample_terrain_hash(cell + vec2(1.0, 1.0)), frac.x),
+					frac.y
+				);
+			}
+
+			vec3 sample_terrain_checker(vec2 world_pos, float checker_scale, vec3 color_a, vec3 color_b) {
+				float safe_scale = max(checker_scale, 0.0001);
+				vec2 sample_pos = world_pos / safe_scale;
+				float macro = sample_terrain_noise(sample_pos);
+				float micro = sample_terrain_noise(sample_pos * 2.7 + vec2(19.1, -7.3));
+				float blend = clamp(macro * 0.72 + micro * 0.28, 0.0, 1.0);
+				return mix(color_a, color_b, blend);
+			}
+
+			vec3 sample_terrain_layer_detail(int tex, vec2 world_pos, float checker_scale, float detail_strength, vec3 color_a, vec3 color_b) {
+				vec3 base = sample_terrain_checker(world_pos, checker_scale, color_a, color_b);
+
+				if (tex == -1) {
+					return base;
+				}
+
+				float safe_scale = max(checker_scale, 0.0001);
+				vec2 sample_pos = world_pos / safe_scale;
+				vec3 detail = texture(TEXTURE(tex), sample_pos).rgb;
+				return base * mix(vec3(1.0), detail, clamp(detail_strength, 0.0, 2.0));
+			}
+
+			vec4 get_terrain_material_weights_uv(vec2 uv) {
+				if (]] .. terrain_var .. [[.TerrainMaterialTexture == -1) {
+					return vec4(0.0);
+				}
+
+				vec4 weights = texture(TEXTURE(]] .. terrain_var .. [[.TerrainMaterialTexture), uv);
+				weights = max(weights, vec4(0.0));
+				float weight_sum = dot(weights, vec4(1.0));
+
+				if (weight_sum <= 0.0001) {
+					return vec4(0.0);
+				}
+
+				return weights / weight_sum;
+			}
+
+			vec3 get_terrain_albedo_uv(vec2 uv, vec3 world_pos) {
+				vec4 weights = get_terrain_material_weights_uv(uv);
+
+				if (dot(weights, vec4(1.0)) <= 0.0001) {
+					return ]] .. color_var .. [[.ColorMultiplier.rgb;
+				}
+				vec2 terrain_pos = world_pos.xz;
+				vec3 layer1 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer1Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.x, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.x, ]] .. terrain_var .. [[.TerrainLayer1ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer1ColorB.rgb);
+				vec3 layer2 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer2Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.y, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.y, ]] .. terrain_var .. [[.TerrainLayer2ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer2ColorB.rgb);
+				vec3 layer3 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer3Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.z, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.z, ]] .. terrain_var .. [[.TerrainLayer3ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer3ColorB.rgb);
+				vec3 layer4 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer4Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.w, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.w, ]] .. terrain_var .. [[.TerrainLayer4ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer4ColorB.rgb);
+				vec3 color = layer1 * weights.r + layer2 * weights.g + layer3 * weights.b + layer4 * weights.a;
+
+				if (]] .. model_var .. [[.AlbedoTexture != -1) {
+					vec3 detail = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
+					color *= detail;
+				}
+
+				return color * ]] .. color_var .. [[.ColorMultiplier.rgb;
+			}
+
+			vec3 get_albedo_world(vec2 uv, vec3 world_pos) {
+				if (]] .. terrain_var .. [[.TerrainMaterialTexture != -1) {
+					return get_terrain_albedo_uv(uv, world_pos);
+				}
+
+				if (]] .. model_var .. [[.AlbedoTexture == -1) {
+					return ]] .. color_var .. [[.ColorMultiplier.rgb;
+				}
+
+				vec3 rgb1 = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
+
+				if (]] .. detail_var .. [[.Albedo2Texture != -1) {
+					float blend = get_texture_blend_uv(uv);
+
+					if (blend != 0) {
+						vec3 rgb2 = texture(TEXTURE(]] .. detail_var .. [[.Albedo2Texture), uv).rgb;
+						rgb1 = mix(rgb1, rgb2, blend);
+					}
+				}
+
+				return rgb1 * ]] .. color_var .. [[.ColorMultiplier.rgb;
+			}
+
+			vec3 get_albedo_uv(vec2 uv) {
+				return get_albedo_world(uv, in_position);
+			}
+
+			vec3 get_albedo() {
+				return get_albedo_uv(in_uv);
+			}
+
+			float get_alpha_uv(vec2 uv) {
+				if (
+					]] .. model_var .. [[.AlbedoTexture == -1 ||
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoAlphaIsEmissive
+				) {
+					return ]] .. color_var .. [[.ColorMultiplier.a;
+				}
+
+				return texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).a * ]] .. color_var .. [[.ColorMultiplier.a;
+			}
+
+			float get_alpha() {
+				return get_alpha_uv(in_uv);
+			}
+	]]
+	end
+
 	return {
 		name = "gbuffer",
 		on_draw = function(self, cmd)
@@ -98,7 +285,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 				},
 			},
 			shader = [[
-			]] .. model_pipeline.BuildPBRSamplingGlsl(
+			]] .. BuildPBRSamplingGlsl(
 					"model",
 					"terrain_model",
 					"displacement_model",
