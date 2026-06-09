@@ -125,26 +125,34 @@ return {
 
 					if render3d.pipelines.voxel_irradiance then
 						block.voxel_irradiance_tex = self:GetTextureIndex(render3d.pipelines.voxel_irradiance:GetFramebuffer(1):GetAttachment(1))
+					else
+						block.voxel_irradiance_tex = -1
 					end
 
 					if render3d.pipelines.probe_irradiance then
 						block.probe_irradiance_tex = self:GetTextureIndex(render3d.pipelines.probe_irradiance:GetFramebuffer(1):GetAttachment(1))
+					else
+						block.probe_irradiance_tex = -1
 					end
 
 					if render3d.pipelines.ambient_occlusion then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion:GetFramebuffer(1):GetAttachment(1))
+					else
+						block.ambient_occlusion_tex = -1
 					end
 
-					if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
-						block.ssr_tex = -1
-					else
+					if render3d.pipelines.ssr then
 						local current_idx = system.GetFrameNumber() % 2 + 1
 						local current_ssr_fb = render3d.pipelines.ssr:GetFramebuffer(current_idx)
 						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
+					else
+						block.ssr_tex = -1
 					end
 
 					if render3d.pipelines.ssgi then
 						block.ssgi_tex = self:GetTextureIndex(render3d.pipelines.ssgi_filter_2:GetFramebuffer(1):GetAttachment(1))
+					else
+						block.ssgi_tex = -1
 					end
 
 					return block

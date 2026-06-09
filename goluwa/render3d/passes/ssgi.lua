@@ -22,7 +22,9 @@ local passes = {
 		ColorFormat = {{"r16g16b16a16_sfloat", {"ssgi", "rgba"}}},
 		framebuffer_count = 1,
 		mip_map_levels = SSGI_MIP_LEVELS,
+		color_image_usage = {"transfer_dst_optimal"},
 		LocalSize = COMPUTE_LOCAL_SIZE,
+		scale = 0.5,
 		storage_images = {
 			{
 				binding_index = 0,
@@ -50,29 +52,22 @@ local passes = {
 					{"ssgi_max_distance", "float"},
 					{"ssgi_max_mip", "int"},
 					{"ssgi_ray_offset", "float"},
-					{"ssgi_rough_cutoff", "float"},
-					{"ssgi_rough_samples", "int"},
 					{"ssgi_samples", "int"},
-					{"ssgi_strength", "float"},
 					{"lighting_direct_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
-					-- Direct lighting texture for GI (optional, set when lighting_direct pass is enabled)
 					block.lighting_direct_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1))
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
-					block.ssgi_max_steps = 32
-					block.ssgi_step_size = 0.3
-					block.ssgi_max_distance = 30.0
+					block.ssgi_max_steps = 64
+					block.ssgi_step_size = 0.1
+					block.ssgi_max_distance = 50.0
 					block.ssgi_max_mip = 5
 					block.ssgi_ray_offset = 0.01
-					block.ssgi_rough_cutoff = 0.1
-					block.ssgi_rough_samples = 12
 					block.ssgi_samples = 6
-					block.ssgi_strength = 5
 					return block
 				end,
 			},
@@ -555,6 +550,7 @@ for i = 1, 2 do
 			ColorFormat = {{"r16g16b16a16_sfloat", {"ssgi_filter_" .. i, "rgba"}}},
 			framebuffer_count = 1,
 			LocalSize = COMPUTE_LOCAL_SIZE,
+			scale = 0.25,
 			storage_images = {
 				{
 					binding_index = 0,

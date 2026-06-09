@@ -144,12 +144,6 @@ return {
 				return texture(TEXTURE(ssr_data.mra_tex), uv).g;
 			}
 
-			vec3 get_debug_hit_color(vec2 uv) {
-				vec3 albedo = texture(TEXTURE(ssr_data.albedo_tex), uv).rgb;
-				vec3 emissive = texture(TEXTURE(ssr_data.emissive_tex), uv).rgb;
-				return albedo + emissive;
-			}
-
 			vec2 blue_noise(ivec2 pixel) {
 				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
 				return texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
@@ -471,7 +465,6 @@ return {
 
 				if (roughness <= SSR_ROUGH_REFLECTION_THRESHOLD) {
 					vec4 hit = trace_ssr_direction(pos_vs, mirror_R_vs, roughness, xi.x);
-					if (ssr_debug_mode) return vec4(mix(fallback_reflection, hit.rgb, hit.a), hit.a);
 					if (hit.a <= 1e-5) return vec4(fallback_reflection, 0.0);
 					return hit;
 				}
@@ -501,12 +494,11 @@ return {
 				}
 
 				if (color_weight <= 0.0001) {
-					return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
+					return vec4(fallback_reflection, 0.0);
 				}
 
 				float confidence = confidence_accum / float(SSR_ROUGH_MULTI_SAMPLES);
 				vec3 hit_color = color_accum / color_weight;
-				if (ssr_debug_mode) return vec4(mix(fallback_reflection, hit_color, confidence), confidence);
 				if (confidence <= 1e-5) return vec4(fallback_reflection, 0.0);
 				return vec4(hit_color, confidence);
 			}
