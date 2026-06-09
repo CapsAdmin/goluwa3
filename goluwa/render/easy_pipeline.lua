@@ -29,6 +29,323 @@ local FIELD_TYPE_BYTE_SIZE = {
 	mat4 = 64,
 	uint64_t = 8,
 }
+local struct_counter = 0
+local GLSL_TO_FFI = {
+	mat4 = "float",
+	vec4 = "float",
+	vec3 = "float",
+	vec2 = "float",
+	float = "float",
+	bool = "int",
+	boolean = "int",
+	int = "int",
+	ivec4 = "int",
+	ivec3 = "int",
+	ivec2 = "int",
+	uint64_t = "uint64_t",
+}
+local GLSL_TO_ARRAY_SIZE = {
+	mat4 = 16,
+	vec4 = 4,
+	vec3 = 3,
+	vec2 = 2,
+	ivec4 = 4,
+	ivec3 = 3,
+	ivec2 = 2,
+	uint64_t = 1,
+}
+
+local function flatten_fields(fields, out)
+	out = out or {}
+
+	for _, field in ipairs(fields) do
+		if type(field[1]) == "table" then
+			flatten_fields(field, out)
+		else
+			table.insert(out, field)
+		end
+	end
+
+	return out
+end
+
+local function get_field_info(field)
+	local glsl_type = field[2]
+	local array_size = type(field[3]) == "number" and field[3] or nil
+	return {
+		name = field[1],
+		glsl_type = glsl_type,
+		array_size = array_size,
+		is_struct = type(glsl_type) == "table",
+	}
+end
+
+local function get_layout_info(layout, glsl_type, array_size)
+	layout = layout or "scalar"
+	local base_alignment = 4
+	local size = 4
+
+	if type(glsl_type) == "table" then
+		local struct_size = 0
+		local max_alignment = 4
+
+		for _, field in ipairs(glsl_type) do
+			local field_alignment, field_size = get_layout_info(layout, field[2], field[3])
+			max_alignment = math.max(max_alignment, field_alignment)
+			struct_size = math.ceil(struct_size / field_alignment) * field_alignment
+			struct_size = struct_size + field_size
+		end
+
+		struct_size = math.ceil(struct_size / max_alignment) * max_alignment
+		base_alignment = max_alignment
+		size = struct_size
+	elseif
+		glsl_type == "float" or
+		glsl_type == "int" or
+		glsl_type == "bool" or
+		glsl_type == "boolean"
+	then
+		base_alignment = 4
+		size = 4
+	elseif glsl_type == "vec2" then
+		base_alignment = 8
+		size = 8
+	elseif glsl_type == "vec3" then
+		base_alignment = 16
+		size = 12
+	elseif glsl_type == "vec4" then
+		base_alignment = 16
+		size = 16
+	elseif glsl_type == "mat4" then
+		base_alignment = 16
+		size = 64
+	elseif glsl_type == "uint64_t" then
+		base_alignment = 8
+		size = 8
+	end
+
+	if layout == "scalar" then
+		if
+			glsl_type == "vec2" or
+			glsl_type == "vec3" or
+			glsl_type == "vec4" or
+			glsl_type == "mat4"
+		then
+			base_alignment = 4
+		end
+	end
+
+	if layout == "std140" then
+		if array_size then
+			base_alignment = math.max(base_alignment, 16)
+			size = math.max(size, 16) * array_size
+		end
+	elseif array_size then
+		size = size * array_size
+	end
+
+	return base_alignment, size
+end
+
+local function build_ffi_struct(layout, fields)
+	layout = layout or "scalar"
+	local local_struct_counter = 0
+	local ffi_code = "struct __attribute__((packed)) {\n"
+	local current_offset = 0
+	local max_alignment = 16
+	local struct_definitions = {}
+
+	for _, field in ipairs(fields) do
+		local info = get_field_info(field)
+		local ffi_type = GLSL_TO_FFI[info.glsl_type] or info.glsl_type
+		local base_size = GLSL_TO_ARRAY_SIZE[info.glsl_type]
+
+		if info.is_struct then
+			local_struct_counter = local_struct_counter + 1
+			local struct_code = "struct __attribute__((packed)) {\n"
+			local struct_offset = 0
+			local struct_max_align = 4
+
+			for _, struct_field in ipairs(info.glsl_type) do
+				local sf_name = struct_field[1]
+				local sf_type = struct_field[2]
+				local sf_array_size = struct_field[3]
+				local sf_ffi_type = GLSL_TO_FFI[sf_type] or sf_type
+				local sf_base_size = GLSL_TO_ARRAY_SIZE[sf_type]
+				local sf_base_alignment, sf_size = get_layout_info(layout, sf_type, sf_array_size)
+				struct_max_align = math.max(struct_max_align, sf_base_alignment)
+				local sf_aligned_offset = math.ceil(struct_offset / sf_base_alignment) * sf_base_alignment
+
+				if sf_aligned_offset > struct_offset then
+					struct_code = struct_code .. string.format("    char _pad_%d[%d];\n", struct_offset, sf_aligned_offset - struct_offset)
+				end
+
+				if sf_array_size and sf_base_size and sf_base_size > 1 then
+					struct_code = struct_code .. string.format("    %s %s[%d][%d];\n", sf_ffi_type, sf_name, sf_array_size, sf_base_size)
+				elseif sf_array_size or (sf_base_size and sf_base_size > 1) then
+					struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_ffi_type, sf_name, sf_array_size or sf_base_size)
+				else
+					struct_code = struct_code .. string.format("    %s %s;\n", sf_ffi_type, sf_name)
+				end
+
+				struct_offset = sf_aligned_offset + sf_size
+			end
+
+			local struct_final_size = math.ceil(struct_offset / struct_max_align) * struct_max_align
+
+			if struct_final_size > struct_offset then
+				struct_code = struct_code .. string.format("    char _pad_end[%d];\n", struct_final_size - struct_offset)
+			end
+
+			struct_code = struct_code .. "}"
+			table.insert(struct_definitions, struct_code)
+			ffi_type = "$"
+			base_size = nil
+			local base_alignment = struct_max_align
+			local size = struct_final_size
+
+			if info.array_size then size = size * info.array_size end
+
+			max_alignment = math.max(max_alignment, base_alignment)
+			local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
+
+			if aligned_offset > current_offset then
+				ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
+			end
+
+			if info.array_size then
+				ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size)
+			else
+				ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+			end
+
+			current_offset = aligned_offset + size
+		else
+			local base_alignment, size = get_layout_info(layout, info.glsl_type, info.array_size)
+			max_alignment = math.max(max_alignment, base_alignment)
+			local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
+
+			if aligned_offset > current_offset then
+				ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
+			end
+
+			if info.array_size and base_size and base_size > 1 then
+				ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
+			elseif info.array_size or (base_size and base_size > 1) then
+				ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
+			else
+				ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+			end
+
+			current_offset = aligned_offset + size
+		end
+	end
+
+	local final_size = math.ceil(current_offset / max_alignment) * max_alignment
+
+	if final_size > current_offset then
+		ffi_code = ffi_code .. string.format("    char _pad_end[%d];\n", final_size - current_offset)
+	end
+
+	ffi_code = ffi_code .. "}"
+
+	if #struct_definitions > 0 then
+		ffi_code = table.concat(struct_definitions, "\n") .. "\n" .. ffi_code
+	end
+
+	return ffi_code
+end
+
+local function verify_layout(layout, struct_name, fields, ctype)
+	layout = layout or "scalar"
+	local current_offset = 0
+	local max_alignment = (layout == "std140" or layout == "std430") and 16 or 4
+
+	for _, field in ipairs(fields) do
+		local info = get_field_info(field)
+		local base_alignment, size = get_layout_info(layout, info.glsl_type, info.array_size)
+		max_alignment = math.max(max_alignment, base_alignment)
+		current_offset = math.ceil(current_offset / base_alignment) * base_alignment
+		local ffi_offset = tonumber(ffi.offsetof(ctype, info.name))
+
+		if ffi_offset ~= current_offset then
+			error(
+				string.format(
+					"Uniform buffer/Push constant '%s' field '%s' has incorrect alignment for layout '%s'!\nGLSL expected offset: %d\nFFI (C) actual offset: %d\nType: %s%s",
+					struct_name,
+					info.name,
+					layout,
+					current_offset,
+					ffi_offset,
+					info.glsl_type,
+					info.array_size and ("[" .. info.array_size .. "]") or ""
+				),
+				3
+			)
+		end
+
+		current_offset = current_offset + size
+	end
+
+	local expected_total_size = math.ceil(current_offset / max_alignment) * max_alignment
+
+	if layout == "std140" then
+		expected_total_size = math.ceil(expected_total_size / 16) * 16
+	end
+
+	if ffi.sizeof(ctype) < expected_total_size then
+		error(
+			string.format(
+				"Uniform buffer/Push constant '%s' has incorrect total size for layout '%s'!\nGLSL expected size: %d\nFFI (C) actual size: %d\nFFI (C) actual alignment: %d",
+				struct_name,
+				layout,
+				expected_total_size,
+				ffi.sizeof(ctype),
+				ffi.alignof(ctype)
+			),
+			3
+		)
+	end
+end
+
+local function build_glsl_fields(fields)
+	local glsl_fields = ""
+	local struct_definitions = {}
+
+	for _, field in ipairs(fields) do
+		local info = get_field_info(field)
+		local type_name = info.glsl_type
+
+		if info.is_struct then
+			local struct_name = info.name .. "_t"
+			local struct_code = "struct " .. struct_name .. " {\n"
+
+			for _, struct_field in ipairs(info.glsl_type) do
+				local sf_name = struct_field[1]
+				local sf_type = struct_field[2]
+				local sf_array_size = struct_field[3]
+
+				if sf_array_size then
+					struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_type, sf_name, sf_array_size)
+				else
+					struct_code = struct_code .. string.format("    %s %s;\n", sf_type, sf_name)
+				end
+			end
+
+			struct_code = struct_code .. "};\n"
+			table.insert(struct_definitions, struct_code)
+			type_name = struct_name
+		end
+
+		if info.array_size then
+			glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", type_name, info.name, info.array_size)
+		else
+			glsl_fields = glsl_fields .. string.format("    %s %s;\n", type_name, info.name)
+		end
+	end
+
+	return glsl_fields, table.concat(struct_definitions, "")
+end
 
 local function assert_no_legacy_top_level_fields(config, level)
 	for field_name, public_name in pairs(LEGACY_TOP_LEVEL_FIELD_NAMES) do
@@ -326,279 +643,6 @@ function EasyPipeline.BuildFFIType(layout, struct_name, fields)
 	layout = layout or "scalar"
 	struct_name = struct_name or "AnonymousLayout"
 	fields = fields or {}
-	local glsl_to_ffi = {
-		mat4 = "float",
-		vec4 = "float",
-		vec3 = "float",
-		vec2 = "float",
-		float = "float",
-		bool = "int",
-		boolean = "int",
-		int = "int",
-		ivec4 = "int",
-		ivec3 = "int",
-		ivec2 = "int",
-		uint64_t = "uint64_t",
-	}
-	local glsl_to_array_size = {
-		mat4 = 16,
-		vec4 = 4,
-		vec3 = 3,
-		vec2 = 2,
-		ivec4 = 4,
-		ivec3 = 3,
-		ivec2 = 2,
-		uint64_t = 1,
-	}
-	local struct_counter = 0
-
-	local function flatten_fields(input_fields, out)
-		out = out or {}
-
-		for _, field in ipairs(input_fields) do
-			if type(field[1]) == "table" then
-				flatten_fields(field, out)
-			else
-				out[#out + 1] = field
-			end
-		end
-
-		return out
-	end
-
-	local function get_field_info(field)
-		local glsl_type = field[2]
-		local array_size = type(field[3]) == "number" and field[3] or nil
-		return {
-			name = field[1],
-			glsl_type = glsl_type,
-			array_size = array_size,
-			is_struct = type(glsl_type) == "table",
-		}
-	end
-
-	local function get_layout_info(inner_layout, glsl_type, array_size)
-		local base_alignment = 4
-		local size = 4
-
-		if type(glsl_type) == "table" then
-			local struct_size = 0
-			local max_alignment = 4
-
-			for _, field in ipairs(glsl_type) do
-				local field_alignment, field_size = get_layout_info(inner_layout, field[2], field[3])
-				max_alignment = math.max(max_alignment, field_alignment)
-				struct_size = math.ceil(struct_size / field_alignment) * field_alignment
-				struct_size = struct_size + field_size
-			end
-
-			struct_size = math.ceil(struct_size / max_alignment) * max_alignment
-			base_alignment = max_alignment
-			size = struct_size
-		elseif
-			glsl_type == "float" or
-			glsl_type == "int" or
-			glsl_type == "bool" or
-			glsl_type == "boolean"
-		then
-			base_alignment = 4
-			size = 4
-		elseif glsl_type == "vec2" then
-			base_alignment = 8
-			size = 8
-		elseif glsl_type == "vec3" then
-			base_alignment = 16
-			size = 12
-		elseif glsl_type == "vec4" then
-			base_alignment = 16
-			size = 16
-		elseif glsl_type == "mat4" then
-			base_alignment = 16
-			size = 64
-		elseif glsl_type == "uint64_t" then
-			base_alignment = 8
-			size = 8
-		end
-
-		if inner_layout == "scalar" then
-			if
-				glsl_type == "vec2" or
-				glsl_type == "vec3" or
-				glsl_type == "vec4" or
-				glsl_type == "mat4"
-			then
-				base_alignment = 4
-			end
-		end
-
-		if inner_layout == "std140" then
-			if array_size then
-				base_alignment = math.max(base_alignment, 16)
-				size = math.max(size, 16) * array_size
-			end
-		elseif array_size then
-			size = size * array_size
-		end
-
-		return base_alignment, size
-	end
-
-	local function build_ffi_struct(inner_layout, input_fields)
-		local ffi_code = "struct __attribute__((packed)) {\n"
-		local current_offset = 0
-		local max_alignment = 16
-		local struct_definitions = {}
-
-		for _, field in ipairs(input_fields) do
-			local info = get_field_info(field)
-			local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
-			local base_size = glsl_to_array_size[info.glsl_type]
-
-			if info.is_struct then
-				struct_counter = struct_counter + 1
-				local struct_code = "struct __attribute__((packed)) {\n"
-				local struct_offset = 0
-				local struct_max_align = 4
-
-				for _, struct_field in ipairs(info.glsl_type) do
-					local sf_name = struct_field[1]
-					local sf_type = struct_field[2]
-					local sf_array_size = struct_field[3]
-					local sf_ffi_type = glsl_to_ffi[sf_type] or sf_type
-					local sf_base_size = glsl_to_array_size[sf_type]
-					local sf_base_alignment, sf_size = get_layout_info(inner_layout, sf_type, sf_array_size)
-					struct_max_align = math.max(struct_max_align, sf_base_alignment)
-					local sf_aligned_offset = math.ceil(struct_offset / sf_base_alignment) * sf_base_alignment
-
-					if sf_aligned_offset > struct_offset then
-						struct_code = struct_code .. string.format("    char _pad_%d[%d];\n", struct_offset, sf_aligned_offset - struct_offset)
-					end
-
-					if sf_array_size and sf_base_size and sf_base_size > 1 then
-						struct_code = struct_code .. string.format("    %s %s[%d][%d];\n", sf_ffi_type, sf_name, sf_array_size, sf_base_size)
-					elseif sf_array_size or (sf_base_size and sf_base_size > 1) then
-						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_ffi_type, sf_name, sf_array_size or sf_base_size)
-					else
-						struct_code = struct_code .. string.format("    %s %s;\n", sf_ffi_type, sf_name)
-					end
-
-					struct_offset = sf_aligned_offset + sf_size
-				end
-
-				local struct_final_size = math.ceil(struct_offset / struct_max_align) * struct_max_align
-
-				if struct_final_size > struct_offset then
-					struct_code = struct_code .. string.format("    char _pad_end[%d];\n", struct_final_size - struct_offset)
-				end
-
-				struct_code = struct_code .. "}"
-				struct_definitions[#struct_definitions + 1] = struct_code
-				ffi_type = "$"
-				base_size = nil
-				local base_alignment = struct_max_align
-				local size = struct_final_size
-
-				if info.array_size then size = size * info.array_size end
-
-				max_alignment = math.max(max_alignment, base_alignment)
-				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
-
-				if aligned_offset > current_offset then
-					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
-				end
-
-				if info.array_size then
-					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size)
-				else
-					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-				end
-
-				current_offset = aligned_offset + size
-			else
-				local base_alignment, size = get_layout_info(inner_layout, info.glsl_type, info.array_size)
-				max_alignment = math.max(max_alignment, base_alignment)
-				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
-
-				if aligned_offset > current_offset then
-					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
-				end
-
-				if info.array_size and base_size and base_size > 1 then
-					ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
-				elseif info.array_size or (base_size and base_size > 1) then
-					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
-				else
-					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-				end
-
-				current_offset = aligned_offset + size
-			end
-		end
-
-		local final_size = math.ceil(current_offset / max_alignment) * max_alignment
-
-		if final_size > current_offset then
-			ffi_code = ffi_code .. string.format("    char _pad_end[%d];\n", final_size - current_offset)
-		end
-
-		ffi_code = ffi_code .. "}"
-
-		if #struct_definitions > 0 then
-			ffi_code = table.concat(struct_definitions, "\n") .. "\n" .. ffi_code
-		end
-
-		return ffi_code
-	end
-
-	local function verify_layout(inner_layout, name, input_fields, ctype)
-		local current_offset = 0
-		local max_alignment = (inner_layout == "std140" or inner_layout == "std430") and 16 or 4
-
-		for _, field in ipairs(input_fields) do
-			local info = get_field_info(field)
-			local base_alignment, size = get_layout_info(inner_layout, info.glsl_type, info.array_size)
-			max_alignment = math.max(max_alignment, base_alignment)
-			current_offset = math.ceil(current_offset / base_alignment) * base_alignment
-			local ffi_offset = tonumber(ffi.offsetof(ctype, info.name))
-
-			if ffi_offset ~= current_offset then
-				error(
-					string.format(
-						"Uniform buffer/Push constant '%s' field '%s' has incorrect alignment for layout '%s'!\nGLSL expected offset: %d\nFFI (C) actual offset: %d\nType: %s%s",
-						name,
-						info.name,
-						inner_layout,
-						current_offset,
-						ffi_offset,
-						info.glsl_type,
-						info.array_size and ("[" .. info.array_size .. "]") or ""
-					)
-				)
-			end
-
-			current_offset = current_offset + size
-		end
-
-		local expected_total_size = math.ceil(current_offset / max_alignment) * max_alignment
-
-		if inner_layout == "std140" then
-			expected_total_size = math.ceil(expected_total_size / 16) * 16
-		end
-
-		if ffi.sizeof(ctype) < expected_total_size then
-			error(
-				string.format(
-					"Uniform buffer/Push constant '%s' has incorrect total size for layout '%s'!\nGLSL expected size: %d\nFFI (C) actual size: %d\nFFI (C) actual alignment: %d",
-					name,
-					inner_layout,
-					expected_total_size,
-					ffi.sizeof(ctype),
-					ffi.alignof(ctype)
-				)
-			)
-		end
-	end
-
 	local flat_fields = flatten_fields(fields)
 	local ctype = ffi.typeof(build_ffi_struct(layout, flat_fields))
 	verify_layout(layout, struct_name, flat_fields, ctype)
@@ -973,30 +1017,6 @@ function EasyPipeline.New(config)
 		end
 	end
 
-	local glsl_to_ffi = {
-		mat4 = "float",
-		vec4 = "float",
-		vec3 = "float",
-		vec2 = "float",
-		float = "float",
-		bool = "int",
-		boolean = "int",
-		int = "int",
-		ivec4 = "int",
-		ivec3 = "int",
-		ivec2 = "int",
-		uint64_t = "uint64_t",
-	}
-	local glsl_to_array_size = {
-		mat4 = 16,
-		vec4 = 4,
-		vec3 = 3,
-		vec2 = 2,
-		ivec4 = 4,
-		ivec3 = 3,
-		ivec2 = 2,
-		uint64_t = 1,
-	}
 	local push_constant_types = {}
 	local possible_stages = {
 		"task_ext",
@@ -1096,320 +1116,6 @@ function EasyPipeline.New(config)
 				)
 			end
 		end
-	end
-
-	local function flatten_fields(fields, out)
-		out = out or {}
-
-		for _, field in ipairs(fields) do
-			if type(field[1]) == "table" then
-				flatten_fields(field, out)
-			else
-				table.insert(out, field)
-			end
-		end
-
-		return out
-	end
-
-	local function get_field_info(field)
-		local name = field[1]
-		local glsl_type = field[2]
-		local array_size = type(field[3]) == "number" and field[3] or nil
-		local is_struct = type(glsl_type) == "table"
-		return {
-			name = name,
-			glsl_type = glsl_type,
-			array_size = array_size,
-			is_struct = is_struct,
-		}
-	end
-
-	local function get_layout_info(layout, glsl_type, array_size, struct_fields)
-		local base_alignment = 4
-		local size = 4
-
-		-- Handle struct types
-		if type(glsl_type) == "table" then
-			local struct_size = 0
-			local max_alignment = 4
-
-			for _, field in ipairs(glsl_type) do
-				local field_name = field[1]
-				local field_type = field[2]
-				local field_array_size = field[3]
-				local field_base_alignment, field_size = get_layout_info(layout, field_type, field_array_size)
-				max_alignment = math.max(max_alignment, field_base_alignment)
-				struct_size = math.ceil(struct_size / field_base_alignment) * field_base_alignment
-				struct_size = struct_size + field_size
-			end
-
-			-- Round up to alignment
-			struct_size = math.ceil(struct_size / max_alignment) * max_alignment
-			base_alignment = max_alignment
-			size = struct_size
-		elseif
-			glsl_type == "float" or
-			glsl_type == "int" or
-			glsl_type == "bool" or
-			glsl_type == "boolean"
-		then
-			base_alignment = 4
-			size = 4
-		elseif glsl_type == "vec2" then
-			base_alignment = 8
-			size = 8
-		elseif glsl_type == "vec3" then
-			base_alignment = 16
-			size = 12
-		elseif glsl_type == "vec4" then
-			base_alignment = 16
-			size = 16
-		elseif glsl_type == "mat4" then
-			base_alignment = 16
-			size = 64
-		elseif glsl_type == "uint64_t" then
-			base_alignment = 8
-			size = 8
-		end
-
-		if layout == "scalar" then
-			if glsl_type == "vec2" then
-				base_alignment = 4
-			elseif glsl_type == "vec3" then
-				base_alignment = 4
-			elseif glsl_type == "vec4" then
-				base_alignment = 4
-			elseif glsl_type == "mat4" then
-				base_alignment = 4
-			end
-		end
-
-		if layout == "std140" then
-			if array_size then
-				-- Rule 4: Each element is aligned to 16 bytes
-				base_alignment = math.max(base_alignment, 16)
-				local element_size = math.max(size, 16) -- Stride is at least 16
-				size = element_size * array_size
-			end
-		else
-			if array_size then size = size * array_size end
-		end
-
-		return base_alignment, size
-	end
-
-	local function verify_layout(layout, struct_name, fields, ctype)
-		local current_offset = 0
-		local max_alignment = (layout == "std140" or layout == "std430") and 16 or 4
-
-		for _, field in ipairs(fields) do
-			local info = get_field_info(field)
-			local base_alignment, size = get_layout_info(layout, info.glsl_type, info.array_size, info.is_struct and field[2] or nil)
-			max_alignment = math.max(max_alignment, base_alignment)
-			-- Round up current_offset to base_alignment
-			current_offset = math.ceil(current_offset / base_alignment) * base_alignment
-			local ffi_offset = tonumber(ffi.offsetof(ctype, info.name))
-
-			if ffi_offset ~= current_offset then
-				error(
-					string.format(
-						"Uniform buffer/Push constant '%s' field '%s' has incorrect alignment for layout '%s'!\n" .. "GLSL expected offset: %d\n" .. "FFI (C) actual offset: %d\n" .. "Type: %s%s",
-						struct_name,
-						info.name,
-						layout,
-						current_offset,
-						ffi_offset,
-						info.glsl_type,
-						info.array_size and ("[" .. info.array_size .. "]") or ""
-					)
-				)
-			end
-
-			current_offset = current_offset + size
-		end
-
-		local expected_total_size = math.ceil(current_offset / max_alignment) * max_alignment
-
-		if layout == "std140" then
-			expected_total_size = math.ceil(expected_total_size / 16) * 16
-		end
-
-		local ffi_size = ffi.sizeof(ctype)
-		local ffi_alignment = ffi.alignof(ctype)
-
-		if ffi_size < expected_total_size then
-			error(
-				string.format(
-					"Uniform buffer/Push constant '%s' has incorrect total size for layout '%s'!\n" .. "GLSL expected size: %d\n" .. "FFI (C) actual size: %d\n" .. "FFI (C) actual alignment: %d\n" .. "Hint: You might need to add padding or use __attribute__((aligned(%d)))",
-					struct_name,
-					layout,
-					expected_total_size,
-					ffi_size,
-					ffi_alignment,
-					max_alignment
-				)
-			)
-		end
-	end
-
-	local struct_counter = 0
-
-	local function build_ffi_struct(layout, fields)
-		local ffi_code = "struct __attribute__((packed)) {\n"
-		local current_offset = 0
-		local max_alignment = 16
-		local struct_definitions = {}
-
-		for _, field in ipairs(fields) do
-			local info = get_field_info(field)
-			local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
-			local base_size = glsl_to_array_size[info.glsl_type]
-
-			-- Handle struct types
-			if info.is_struct then
-				struct_counter = struct_counter + 1
-				local struct_name = "Struct_" .. info.name .. "_" .. struct_counter
-				local struct_code = "struct __attribute__((packed)) {\n"
-				local struct_offset = 0
-				local struct_max_align = 4
-
-				for _, struct_field in ipairs(info.glsl_type) do
-					local sf_name = struct_field[1]
-					local sf_type = struct_field[2]
-					local sf_array_size = struct_field[3]
-					local sf_ffi_type = glsl_to_ffi[sf_type] or sf_type
-					local sf_base_size = glsl_to_array_size[sf_type]
-					local sf_base_alignment, sf_size = get_layout_info(layout, sf_type, sf_array_size)
-					struct_max_align = math.max(struct_max_align, sf_base_alignment)
-					local sf_aligned_offset = math.ceil(struct_offset / sf_base_alignment) * sf_base_alignment
-
-					if sf_aligned_offset > struct_offset then
-						struct_code = struct_code .. string.format("    char _pad_%d[%d];\n", struct_offset, sf_aligned_offset - struct_offset)
-					end
-
-					if sf_array_size and sf_base_size and sf_base_size > 1 then
-						struct_code = struct_code .. string.format("    %s %s[%d][%d];\n", sf_ffi_type, sf_name, sf_array_size, sf_base_size)
-					elseif sf_array_size or (sf_base_size and sf_base_size > 1) then
-						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_ffi_type, sf_name, sf_array_size or sf_base_size)
-					else
-						struct_code = struct_code .. string.format("    %s %s;\n", sf_ffi_type, sf_name)
-					end
-
-					struct_offset = sf_aligned_offset + sf_size
-				end
-
-				-- Pad struct to alignment
-				local struct_final_size = math.ceil(struct_offset / struct_max_align) * struct_max_align
-
-				if struct_final_size > struct_offset then
-					struct_code = struct_code .. string.format("    char _pad_end[%d];\n", struct_final_size - struct_offset)
-				end
-
-				struct_code = struct_code .. "}"
-				-- Store the struct definition without the struct keyword
-				table.insert(struct_definitions, struct_code)
-				-- Use '$' as a placeholder for the nested ctype
-				ffi_type = "$"
-				base_size = nil
-				-- Calculate struct size and alignment for parent
-				local base_alignment = struct_max_align
-				local size = struct_final_size
-
-				if info.array_size then size = size * info.array_size end
-
-				max_alignment = math.max(max_alignment, base_alignment)
-				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
-
-				if aligned_offset > current_offset then
-					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
-				end
-
-				if info.array_size then
-					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size)
-				else
-					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-				end
-
-				current_offset = aligned_offset + size
-			else
-				local base_alignment, size = get_layout_info(layout, info.glsl_type, info.array_size)
-				max_alignment = math.max(max_alignment, base_alignment)
-				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
-
-				if aligned_offset > current_offset then
-					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
-				end
-
-				if info.array_size and base_size and base_size > 1 then
-					ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
-				elseif info.array_size or (base_size and base_size > 1) then
-					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
-				else
-					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-				end
-
-				current_offset = aligned_offset + size
-			end
-		end
-
-		local final_size = math.ceil(current_offset / max_alignment) * max_alignment
-
-		if final_size > current_offset then
-			ffi_code = ffi_code .. string.format("    char _pad_end[%d];\n", final_size - current_offset)
-		end
-
-		ffi_code = ffi_code .. "}"
-
-		-- Prepend struct definitions
-		if #struct_definitions > 0 then
-			ffi_code = table.concat(struct_definitions, "\n") .. "\n" .. ffi_code
-		end
-
-		return ffi_code
-	end
-
-	local struct_glsl_counter = 0
-
-	local function build_glsl_fields(fields)
-		local glsl_fields = ""
-		local struct_definitions = {}
-
-		for _, field in ipairs(fields) do
-			local info = get_field_info(field)
-			local type_name = info.glsl_type
-
-			-- Handle struct types
-			if info.is_struct then
-				local struct_name = info.name .. "_t"
-				local struct_code = "struct " .. struct_name .. " {\n"
-
-				for _, struct_field in ipairs(info.glsl_type) do
-					local sf_name = struct_field[1]
-					local sf_type = struct_field[2]
-					local sf_array_size = struct_field[3]
-
-					if sf_array_size then
-						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_type, sf_name, sf_array_size)
-					else
-						struct_code = struct_code .. string.format("    %s %s;\n", sf_type, sf_name)
-					end
-				end
-
-				struct_code = struct_code .. "};\n"
-				table.insert(struct_definitions, struct_code)
-				type_name = struct_name
-			end
-
-			if info.array_size then
-				glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", type_name, info.name, info.array_size)
-			else
-				glsl_fields = glsl_fields .. string.format("    %s %s;\n", type_name, info.name)
-			end
-		end
-
-		-- Prepend struct definitions
-		return glsl_fields, table.concat(struct_definitions, "")
 	end
 
 	local function resolve_stage_constants()
@@ -1749,16 +1455,7 @@ function EasyPipeline.New(config)
 	end)
 
 	local function get_glsl_push_constants(stage)
-		local stage_config = config[stage] or
-			(
-				stage == "mesh_ext" and
-				config.mesh
-			)
-			or
-			(
-				stage == "task_ext" and
-				config.task
-			)
+		local stage_config = get_constant_stage_config(config, stage)
 
 		if not stage_config or not stage_config.push_constants then return "" end
 
@@ -3095,23 +2792,8 @@ function EasyPipeline.Compute(config)
 	local self = EasyPipeline:CreateObject()
 	self.on_draw = config.on_draw or nil
 	self.config = config
-
-	local function flatten_compute_block_fields(fields, out)
-		out = out or {}
-
-		for _, field in ipairs(fields) do
-			if type(field[1]) == "table" then
-				flatten_compute_block_fields(field, out)
-			else
-				out[#out + 1] = field
-			end
-		end
-
-		return out
-	end
-
 	local block = config.block or {}
-	local flat_push_constant_block = #block > 0 and flatten_compute_block_fields(block) or block
+	local flat_push_constant_block = #block > 0 and flatten_fields(block) or block
 	local push_constant_type
 	local push_constant_size = 0
 	local push_constant_field_descriptors
@@ -3129,267 +2811,6 @@ function EasyPipeline.Compute(config)
 	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 	local bindless_texture_capacity = bindless_descriptor_capacities.textures
 	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
-	local compute_glsl_to_ffi = {
-		mat4 = "float",
-		vec4 = "float",
-		vec3 = "float",
-		vec2 = "float",
-		float = "float",
-		bool = "int",
-		boolean = "int",
-		int = "int",
-		ivec4 = "int",
-		ivec3 = "int",
-		ivec2 = "int",
-		uint64_t = "uint64_t",
-	}
-	local compute_glsl_to_array_size = {
-		mat4 = 16,
-		vec4 = 4,
-		vec3 = 3,
-		vec2 = 2,
-		ivec4 = 4,
-		ivec3 = 3,
-		ivec2 = 2,
-		uint64_t = 1,
-	}
-
-	local function get_compute_field_info(field)
-		local glsl_type = field[2]
-		local array_size = type(field[3]) == "number" and field[3] or nil
-		return {
-			name = field[1],
-			glsl_type = glsl_type,
-			array_size = array_size,
-			is_struct = type(glsl_type) == "table",
-		}
-	end
-
-	local function flatten_compute_fields(fields, out)
-		out = out or {}
-
-		for _, field in ipairs(fields) do
-			if type(field[1]) == "table" then
-				flatten_compute_fields(field, out)
-			else
-				out[#out + 1] = field
-			end
-		end
-
-		return out
-	end
-
-	local function build_compute_push_glsl_fields(fields)
-		local glsl_fields = ""
-
-		for _, field in ipairs(fields) do
-			local name = field[1]
-			local glsl_type = field[2]
-			local array_size = type(field[3]) == "number" and field[3] or nil
-
-			if array_size then
-				glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", glsl_type, name, array_size)
-			else
-				glsl_fields = glsl_fields .. string.format("    %s %s;\n", glsl_type, name)
-			end
-		end
-
-		return glsl_fields
-	end
-
-	local function build_compute_uniform_glsl_fields(fields)
-		local glsl_fields = ""
-		local struct_definitions = {}
-
-		for _, field in ipairs(fields) do
-			local info = get_compute_field_info(field)
-			local type_name = info.glsl_type
-
-			if info.is_struct then
-				local struct_name = info.name .. "_t"
-				local struct_code = "struct " .. struct_name .. " {\n"
-
-				for _, struct_field in ipairs(info.glsl_type) do
-					local sf_name = struct_field[1]
-					local sf_type = struct_field[2]
-					local sf_array_size = struct_field[3]
-
-					if sf_array_size then
-						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_type, sf_name, sf_array_size)
-					else
-						struct_code = struct_code .. string.format("    %s %s;\n", sf_type, sf_name)
-					end
-				end
-
-				struct_code = struct_code .. "};\n"
-				struct_definitions[#struct_definitions + 1] = struct_code
-				type_name = struct_name
-			end
-
-			if info.array_size then
-				glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", type_name, info.name, info.array_size)
-			else
-				glsl_fields = glsl_fields .. string.format("    %s %s;\n", type_name, info.name)
-			end
-		end
-
-		return glsl_fields, table.concat(struct_definitions, "")
-	end
-
-	local function get_compute_layout_info(glsl_type, array_size)
-		local base_alignment = 4
-		local size = 4
-
-		if type(glsl_type) == "table" then
-			local struct_size = 0
-			local max_alignment = 4
-
-			for _, field in ipairs(glsl_type) do
-				local field_alignment, field_size = get_compute_layout_info(field[2], field[3])
-				max_alignment = math.max(max_alignment, field_alignment)
-				struct_size = math.ceil(struct_size / field_alignment) * field_alignment
-				struct_size = struct_size + field_size
-			end
-
-			struct_size = math.ceil(struct_size / max_alignment) * max_alignment
-			base_alignment = max_alignment
-			size = struct_size
-		elseif
-			glsl_type == "float" or
-			glsl_type == "int" or
-			glsl_type == "bool" or
-			glsl_type == "boolean"
-		then
-			base_alignment = 4
-			size = 4
-		elseif glsl_type == "vec2" then
-			base_alignment = 4
-			size = 8
-		elseif glsl_type == "vec3" then
-			base_alignment = 4
-			size = 12
-		elseif glsl_type == "vec4" then
-			base_alignment = 4
-			size = 16
-		elseif glsl_type == "mat4" then
-			base_alignment = 4
-			size = 64
-		elseif glsl_type == "uint64_t" then
-			base_alignment = 8
-			size = 8
-		end
-
-		if array_size then size = size * array_size end
-
-		return base_alignment, size
-	end
-
-	local function build_compute_ffi_struct(fields)
-		local ffi_code = "struct __attribute__((packed)) {\n"
-		local current_offset = 0
-		local max_alignment = 16
-		local struct_definitions = {}
-
-		for _, field in ipairs(fields) do
-			local info = get_compute_field_info(field)
-			local ffi_type = compute_glsl_to_ffi[info.glsl_type] or info.glsl_type
-			local base_size = compute_glsl_to_array_size[info.glsl_type]
-
-			if info.is_struct then
-				local struct_code = "struct __attribute__((packed)) {\n"
-				local struct_offset = 0
-				local struct_max_align = 4
-
-				for _, struct_field in ipairs(info.glsl_type) do
-					local sf_name = struct_field[1]
-					local sf_type = struct_field[2]
-					local sf_array_size = struct_field[3]
-					local sf_ffi_type = compute_glsl_to_ffi[sf_type] or sf_type
-					local sf_base_size = compute_glsl_to_array_size[sf_type]
-					local sf_base_alignment, sf_size = get_compute_layout_info(sf_type, sf_array_size)
-					struct_max_align = math.max(struct_max_align, sf_base_alignment)
-					local sf_aligned_offset = math.ceil(struct_offset / sf_base_alignment) * sf_base_alignment
-
-					if sf_aligned_offset > struct_offset then
-						struct_code = struct_code .. string.format("    char _pad_%d[%d];\n", struct_offset, sf_aligned_offset - struct_offset)
-					end
-
-					if sf_array_size and sf_base_size and sf_base_size > 1 then
-						struct_code = struct_code .. string.format("    %s %s[%d][%d];\n", sf_ffi_type, sf_name, sf_array_size, sf_base_size)
-					elseif sf_array_size or (sf_base_size and sf_base_size > 1) then
-						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_ffi_type, sf_name, sf_array_size or sf_base_size)
-					else
-						struct_code = struct_code .. string.format("    %s %s;\n", sf_ffi_type, sf_name)
-					end
-
-					struct_offset = sf_aligned_offset + sf_size
-				end
-
-				local struct_final_size = math.ceil(struct_offset / struct_max_align) * struct_max_align
-
-				if struct_final_size > struct_offset then
-					struct_code = struct_code .. string.format("    char _pad_end[%d];\n", struct_final_size - struct_offset)
-				end
-
-				struct_code = struct_code .. "}"
-				struct_definitions[#struct_definitions + 1] = struct_code
-				ffi_type = "$"
-				base_size = nil
-				local base_alignment = struct_max_align
-				local size = struct_final_size
-
-				if info.array_size then size = size * info.array_size end
-
-				max_alignment = math.max(max_alignment, base_alignment)
-				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
-
-				if aligned_offset > current_offset then
-					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
-				end
-
-				if info.array_size then
-					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size)
-				else
-					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-				end
-
-				current_offset = aligned_offset + size
-			else
-				local base_alignment, size = get_compute_layout_info(info.glsl_type, info.array_size)
-				max_alignment = math.max(max_alignment, base_alignment)
-				local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
-
-				if aligned_offset > current_offset then
-					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
-				end
-
-				if info.array_size and base_size and base_size > 1 then
-					ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
-				elseif info.array_size or (base_size and base_size > 1) then
-					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
-				else
-					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-				end
-
-				current_offset = aligned_offset + size
-			end
-		end
-
-		local final_size = math.ceil(current_offset / max_alignment) * max_alignment
-
-		if final_size > current_offset then
-			ffi_code = ffi_code .. string.format("    char _pad_end[%d];\n", final_size - current_offset)
-		end
-
-		ffi_code = ffi_code .. "}"
-
-		if #struct_definitions > 0 then
-			ffi_code = table.concat(struct_definitions, "\n") .. "\n" .. ffi_code
-		end
-
-		return ffi_code
-	end
-
 	local shader_header = (
 		[[#version 450
 #extension GL_EXT_nonuniform_qualifier : require
@@ -3404,7 +2825,7 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 	local push_constant_glsl = ""
 
 	if #block > 0 then
-		push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. build_compute_push_glsl_fields(flat_push_constant_block) .. "} compute;\n\n"
+		push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. build_glsl_fields(flat_push_constant_block) .. "} compute;\n\n"
 	end
 
 	local descriptor_sets = {
@@ -3445,7 +2866,7 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 		end
 
 		hoist_inline_block_metadata(info)
-		info.block = flatten_compute_block_fields(info.block)
+		info.block = flatten_fields(info.block)
 
 		if not info.block[1] then
 			error(
@@ -3454,8 +2875,8 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 			)
 		end
 
-		local ffi_code = build_compute_ffi_struct(info.block)
-		local glsl_fields, glsl_structs = build_compute_uniform_glsl_fields(info.block)
+		local ffi_code = build_ffi_struct("scalar", info.block)
+		local glsl_fields, glsl_structs = build_glsl_fields(info.block)
 		local ubo = UniformBuffer.New(ffi_code)
 		info.source = normalize_block_source(
 			info,
