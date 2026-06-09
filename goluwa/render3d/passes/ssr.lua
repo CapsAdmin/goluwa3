@@ -28,7 +28,6 @@ return {
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
-					render3d.debug_block,
 					render3d.gbuffer_block,
 					render3d.last_frame_block,
 					{"blue_noise_tex", "int"},
@@ -41,7 +40,6 @@ return {
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					render3d.WriteDebugBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
@@ -362,7 +360,6 @@ return {
 
 			vec4 trace_ssr_direction(vec4 pos_vs, vec3 R_vs, float roughness, float jitter_seed) {
 				if (dot(R_vs, R_vs) <= 1e-5) return vec4(0.0);
-				bool ssr_debug_mode = ssr_data.debug_mode == 5;
 
 				float jitter = mix(0.9, 1.1, jitter_seed);
 				float step_size = 0.08 * jitter;
@@ -430,10 +427,6 @@ return {
 							float thick_conf = 1.0 - saturate(depth_diff / thickness);
 							float confidence = edge_fade * dist_fade * thick_conf;
 
-							if (ssr_debug_mode) {
-								return vec4(get_debug_hit_color(uv), confidence);
-							}
-
 							vec3 hit_color;
 							float mip_level = 0.0;
 
@@ -460,10 +453,9 @@ return {
 			}
 
 			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
-				bool ssr_debug_mode = ssr_data.debug_mode == 5;
 				vec3 fallback_reflection = get_probe_environment_reflection(N, roughness, V, world_pos);
-				if (ssr_data.last_frame_tex == -1) return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
-				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
+				if (ssr_data.last_frame_tex == -1) return vec4(fallback_reflection, 0.0);
+				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(fallback_reflection, 0.0);
 
 				vec3 N_vs = normalize(mat3(ssr_data.view) * N);
 				vec3 V_vs = normalize(mat3(ssr_data.view) * V);
@@ -475,7 +467,7 @@ return {
 
 				vec3 mirror_R_vs = reflect(-V_vs, N_vs);
 
-				if (dot(N_vs, mirror_R_vs) < 0.0) return vec4(ssr_debug_mode ? vec3(0.0) : fallback_reflection, 0.0);
+				if (dot(N_vs, mirror_R_vs) < 0.0) return vec4(fallback_reflection, 0.0);
 
 				if (roughness <= SSR_ROUGH_REFLECTION_THRESHOLD) {
 					vec4 hit = trace_ssr_direction(pos_vs, mirror_R_vs, roughness, xi.x);

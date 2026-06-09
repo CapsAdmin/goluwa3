@@ -45,7 +45,6 @@ return {
 					{"lights", scene_lights.BuildLightsBlockLayout(), 128},
 					{"light_count", "int"},
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
-					render3d.debug_block,
 					render3d.gbuffer_block,
 					{"env_tex", "int"},
 					{"brdf_lut_tex", "int"},
@@ -73,7 +72,6 @@ return {
 					local lights = render3d.GetLights()
 					local light_count = math.min(#lights, MAX_LIGHTS)
 					block.light_count = light_count
-					render3d.WriteDebugBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))

@@ -8,112 +8,16 @@ local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
 local fonts = import("goluwa/render2d/fonts.lua")
 local show_gbuffer = false
-local fullscreen_index = 0
 local checkerboard_texture
-local fullscreen_views = {
-	{name = "normal", normal_debug_view = "combined"},
-	{name = "normal_map", normal_debug_view = "normal_map"},
-	{name = "vertex_normal", normal_debug_view = "vertex_normal"},
-	{name = "tangent", normal_debug_view = "tangent"},
-	{name = "bitangent", normal_debug_view = "bitangent"},
-	{name = "vertex_color", normal_debug_view = "vertex_color"},
-	{name = "vertex_color_r", normal_debug_view = "vertex_color_r"},
-	{name = "vertex_color_g", normal_debug_view = "vertex_color_g"},
-	{name = "vertex_color_b", normal_debug_view = "vertex_color_b"},
-	{name = "vertex_color_a", normal_debug_view = "vertex_color_a"},
-}
-
-local function format_view_name(name)
-	if name == "normal" then return "View Normal" end
-
-	if name == "normal_map" then return "Normal Map" end
-
-	if name == "vertex_normal" then return "Vertex Normal" end
-
-	if name == "tangent" then return "Tangent" end
-
-	if name == "bitangent" then return "Bitangent" end
-
-	if name == "vertex_color" then return "Vertex Color RGB" end
-
-	if name == "vertex_color_r" then return "Vertex Color R" end
-
-	if name == "vertex_color_g" then return "Vertex Color G" end
-
-	if name == "vertex_color_b" then return "Vertex Color B" end
-
-	if name == "vertex_color_a" then return "Vertex Color A" end
-
-	if name == "emissive" then return "Emissive / Transmission Color" end
-
-	if name == "subsurface" then return "Subsurface Mask" end
-
-	if name == "transmission_blocking" then return "Transmission Blocking" end
-
-	if name == "transmission_view_dep" then return "Transmission View Dependency" end
-
-	if name == "transmission_blocking_raw" then
-		return "Transmission Blocking Raw"
-	end
-
-	return name:gsub("_", " "):gsub("(%a)([%w_']*)", function(first, rest)
-		return first:upper() .. rest:lower()
-	end)
-end
-
-local function get_fullscreen_views()
-	local views = render3d.pipelines.gbuffer and render3d.pipelines.gbuffer:GetDebugViews() or {}
-	local out = {}
-
-	for _, view in ipairs(views) do
-		if view.name == "normal" then
-			for _, fullscreen_view in ipairs(fullscreen_views) do
-				table.insert(
-					out,
-					{
-						name = fullscreen_view.name,
-						attachment_index = view.attachment_index,
-						swizzle = view.swizzle,
-						normal_debug_view = fullscreen_view.normal_debug_view,
-					}
-				)
-			end
-		else
-			table.insert(out, view)
-		end
-	end
-
-	return out
-end
-
-local function sync_normal_debug_view()
-	local view = get_fullscreen_views()[fullscreen_index]
-	render3d.SetGBufferNormalDebugView(view and view.normal_debug_view or "combined")
-end
 
 local function get_checkerboard_texture()
 	if checkerboard_texture then return checkerboard_texture end
 
-	local size = 32
-	local buffer = ffi.new("uint8_t[?]", size * size * 4)
-
-	for y = 0, size - 1 do
-		for x = 0, size - 1 do
-			local is_gray = ((math.floor(x / 8) + math.floor(y / 8)) % 2) == 0
-			local val = is_gray and 200 or 150
-			local idx = (y * size + x) * 4
-			buffer[idx + 0] = val
-			buffer[idx + 1] = val
-			buffer[idx + 2] = val
-			buffer[idx + 3] = 255
-		end
-	end
-
 	checkerboard_texture = Texture.New{
-		width = size,
-		height = size,
+		width = 8,
+		height = 8,
 		format = "r8g8b8a8_unorm",
-		buffer = buffer,
+		mip_map_levels = 1,
 		sampler = {
 			min_filter = "nearest",
 			mag_filter = "nearest",
@@ -121,21 +25,19 @@ local function get_checkerboard_texture()
 			wrap_t = "repeat",
 		},
 	}
+	checkerboard_texture:Shade([[	
+		vec4 color1 = vec4(0.5, 0.5, 0.5, 1);
+		vec4 color2 = vec4(0.7, 0.7, 0.7, 1);
+		int x = int(gl_FragCoord.x) / 4;
+		int y = int(gl_FragCoord.y) / 4;
+		if ((x + y) % 2 == 0) {
+			return color1;
+		} else {
+			return color2;
+		}
+
+	]])
 	return checkerboard_texture
-end
-
-local function get_voxel_gi_tile_texture()
-	if
-		not render3d.pipelines or
-		not render3d.pipelines.lighting or
-		not render3d.pipelines.lighting.framebuffers
-	then
-		return nil
-	end
-
-	local current_idx = system.GetFrameNumber() % 2 + 1
-	local framebuffer = render3d.pipelines.lighting:GetFramebuffer(current_idx)
-	return framebuffer and framebuffer:GetAttachment(2) or nil
 end
 
 local function draw_debug_tile(x, y, size, texture, label, swizzle_mode)
@@ -161,6 +63,15 @@ local function draw_debug_tile(x, y, size, texture, label, swizzle_mode)
 	return true
 end
 
+local function add_pass(views, name)
+	if render3d.pipelines[name] then
+		for i, v in ipairs(render3d.pipelines[name]:GetDebugViews()) do
+			v.pipeline = render3d.pipelines[name]
+			table.insert(views, v)
+		end
+	end
+end
+
 event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	if not render3d.pipelines then return end
 
@@ -184,67 +95,31 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		rgb = 5,
 	}
 
-	if fullscreen_index > 0 then
-		local views = get_fullscreen_views()
-		local tex, name, swizzle
-
-		if fullscreen_index <= #views then
-			local view = views[fullscreen_index]
-			tex = render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(view.attachment_index)
-			name = format_view_name(view.name)
-			swizzle = view.swizzle
-		else
-			tex = render3d.pipelines.gbuffer:GetFramebuffer().depth_texture
-			name = "Depth"
-		end
-
-		if tex then
-			render2d.SetColor(1, 1, 1, 1)
-			render2d.PushUV()
-			render2d.SetUV2(0, 0, wnd_size.x / 32, wnd_size.y / 32)
-			render2d.SetTexture(get_checkerboard_texture())
-			render2d.DrawRect(0, 0, wnd_size.x, wnd_size.y)
-			render2d.PopUV()
-			render2d.PushUV()
-			render2d.SetUV2(0, 1, 1, 0)
-			render2d.SetTexture(tex)
-			render2d.PushSwizzleMode(swizzle_to_mode[swizzle] or 0)
-			render2d.DrawRect(0, 0, wnd_size.x, wnd_size.y)
-			render2d.PopSwizzleMode()
-			render2d.PopUV()
-			-- Label
-			render2d.SetTexture(nil)
-			render2d.SetColor(0, 0, 0, 0.5)
-			render2d.DrawRect(5, 5, 200, 30)
-			render2d.SetColor(1, 1, 1, 1)
-			fonts.GetFont():DrawText("Fullscreen: " .. name, 10, 10)
-		end
-
-		return
-	end
-
 	if not show_gbuffer then return end
 
 	local size = 256
 	local x = 0
 	local y = 0
 	render2d.SetColor(1, 1, 1, 1)
+	local views = {}
+	add_pass(views, "gbuffer")
+	add_pass(views, "ambient_occlusion")
+	add_pass(views, "ssr")
+	add_pass(views, "ssgi_filter_1")
+	add_pass(views, "ssgi_filter_2")
+	add_pass(views, "ssgi")
+	add_pass(views, "probe_irradiance")
 
-	-- Draw color textures
-	for i, view in ipairs(render3d.pipelines.gbuffer:GetDebugViews()) do
-		local tex = render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(view.attachment_index)
-		draw_debug_tile(x, y, size, tex, format_view_name(view.name), swizzle_to_mode[view.swizzle] or 0)
-		x = x + size
-
-		if x + size > wnd_size.x then
-			x = 0
-			y = y + size
-		end
-	end
-
-	local voxel_gi_tex = get_voxel_gi_tile_texture()
-
-	if draw_debug_tile(x, y, size, voxel_gi_tex, "Voxel GI", 0) then
+	for i, view in ipairs(views) do
+		local tex = view.pipeline:GetFramebuffer():GetAttachment(view.attachment_index)
+		draw_debug_tile(
+			x,
+			y,
+			size,
+			tex,
+			view.pipeline.name .. " " .. view.name,
+			swizzle_to_mode[view.swizzle] or 0
+		)
 		x = x + size
 
 		if x + size > wnd_size.x then
@@ -265,27 +140,5 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 	if key == "g" then
 		show_gbuffer = not show_gbuffer
 		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
-	elseif key == "f" then
-		local views = get_fullscreen_views()
-		local count = #views + (
-				render3d.pipelines.gbuffer and
-				render3d.pipelines.gbuffer:GetFramebuffer() and
-				render3d.pipelines.gbuffer:GetFramebuffer().depth_texture and
-				1 or
-				0
-			)
-		fullscreen_index = fullscreen_index + 1
-
-		if fullscreen_index > count then fullscreen_index = 0 end
-
-		sync_normal_debug_view()
-
-		if fullscreen_index == 0 then
-			print("G-buffer fullscreen: OFF")
-		elseif fullscreen_index <= #views then
-			print("G-buffer fullscreen: " .. format_view_name(views[fullscreen_index].name))
-		else
-			print("G-buffer fullscreen: Depth")
-		end
 	end
 end)

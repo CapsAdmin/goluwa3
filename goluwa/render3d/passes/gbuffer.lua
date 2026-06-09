@@ -223,9 +223,8 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 					upload_scope = "frame",
 					block = {
 						render3d.camera_block,
-						render3d.debug_block,
 					},
-					write = render3d.WriteCameraDebugBlock,
+					write = render3d.WriteCameraBlock,
 				},
 				{
 					name = "model",
@@ -393,46 +392,6 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 
 					vec3 get_normal(vec2 uv, mat3 tbn) {
 						vec4 vertex_color = get_vertex_color();
-
-						if ((gbuffer_data.debug_mode - 1) == 5) {
-							return get_vertex_normal();
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 1) {
-							return encode_debug_vector(get_normal_map(uv));
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 2) {
-							return encode_debug_vector(get_vertex_normal());
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 3) {
-							return encode_debug_basis(get_vertex_tangent(tbn));
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 4) {
-							return encode_debug_basis(get_vertex_bitangent(tbn));
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 5) {
-							return vertex_color.rgb;
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 6) {
-							return vec3(vertex_color.r);
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 7) {
-							return vec3(vertex_color.g);
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 8) {
-							return vec3(vertex_color.b);
-						}
-
-						if (gbuffer_data.gbuffer_normal_debug_view == 9) {
-							return vec3(vertex_color.a);
-						}
 
 						return get_combined_normal(uv, tbn);
 					}
@@ -613,9 +572,8 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 					upload_scope = "frame",
 					block = {
 						render3d.camera_block,
-						render3d.debug_block,
 					},
-					write = render3d.WriteCameraDebugBlock,
+					write = render3d.WriteCameraBlock,
 				},
 			},
 			enable_vertex_animation = enable_vertex_animation,
@@ -644,9 +602,8 @@ local function build_instanced_pass(fragment_shader)
 				upload_scope = "frame",
 				block = {
 					render3d.camera_block,
-					render3d.debug_block,
 				},
-				write = render3d.WriteCameraDebugBlock,
+				write = render3d.WriteCameraBlock,
 			},
 		},
 		enable_vertex_animation = true,
@@ -866,9 +823,8 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 				upload_scope = "frame",
 				block = {
 					render3d.camera_block,
-					render3d.debug_block,
 				},
-				write = render3d.WriteCameraDebugBlock,
+				write = render3d.WriteCameraBlock,
 			},
 			{
 				name = "model",
@@ -946,9 +902,8 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 				upload_scope = "frame",
 				block = {
 					render3d.camera_block,
-					render3d.debug_block,
 				},
-				write = render3d.WriteCameraDebugBlock,
+				write = render3d.WriteCameraBlock,
 			},
 			{
 				name = "model",
@@ -984,9 +939,8 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 				upload_scope = "frame",
 				block = {
 					render3d.camera_block,
-					render3d.debug_block,
 				},
-				write = render3d.WriteCameraDebugBlock,
+				write = render3d.WriteCameraBlock,
 			},
 			{
 				name = "model",

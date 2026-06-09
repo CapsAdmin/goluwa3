@@ -160,6 +160,7 @@ end
 
 function EasyPipeline.GetColorFormats(config)
 	local formats = {}
+	local debug_views = {}
 	local color_format = config.ColorFormat
 
 	if type(color_format) == "function" then color_format = color_format() end
@@ -175,16 +176,32 @@ function EasyPipeline.GetColorFormats(config)
 				end
 
 				table.insert(formats, actual_format)
+				table.insert(
+					debug_views,
+					{
+						name = format[2][1],
+						attachment_index = i,
+						swizzle = format[2][2],
+					}
+				)
 			else
 				-- Resolve function to get actual format
 				if type(format) == "function" then format = format() end
 
 				table.insert(formats, format)
+				table.insert(
+					debug_views,
+					{
+						name = format[2][1],
+						attachment_index = i,
+						swizzle = format[2][2],
+					}
+				)
 			end
 		end
 	end
 
-	return formats
+	return formats, debug_views
 end
 
 local function resolve_framebuffer_size(config)
@@ -228,6 +245,8 @@ local function create_owned_framebuffers(self, extra_config)
 			formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
 			depth = self.config.DepthFormat ~= nil,
 			depth_format = self.config.DepthFormat,
+			mip_map_levels = self.config.mip_map_levels,
+			color_image_usage = self.config.color_image_usage,
 		}
 
 		if extra_config then
@@ -1007,9 +1026,9 @@ function EasyPipeline.New(config)
 	local debug_views = {}
 	local color_formats = color_format
 
-	if type(color_formats) == "string" then color_formats = {color_formats} end
+	if color_formats then
+		if type(color_formats) == "string" then color_formats = {color_formats} end
 
-	if type(color_formats) == "table" then
 		for i, format in ipairs(color_formats) do
 			if type(format) == "table" then
 				local actual_format = format[1]
@@ -3721,7 +3740,7 @@ function EasyPipeline.ComputePass(config)
 
 	local self = EasyPipeline.Compute(compute_config)
 	self.config = config
-	self.actual_color_formats = EasyPipeline.GetColorFormats(config)
+	self.actual_color_formats, self.debug_views = EasyPipeline.GetColorFormats(config)
 	self.on_pre_draw = config.on_pre_draw or nil
 	self.on_draw = user_on_draw
 	self.storage_images = storage_images

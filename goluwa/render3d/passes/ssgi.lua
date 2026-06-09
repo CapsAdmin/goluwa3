@@ -41,7 +41,6 @@ local passes = {
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
-					render3d.debug_block,
 					render3d.gbuffer_block,
 					render3d.last_frame_block,
 					{"env_tex", "int"},
@@ -59,7 +58,6 @@ local passes = {
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					render3d.WriteDebugBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					-- Direct lighting texture for GI (optional, set when lighting_direct pass is enabled)

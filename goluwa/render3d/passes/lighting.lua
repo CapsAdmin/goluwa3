@@ -79,7 +79,6 @@ return {
 					{"lights", scene_lights.BuildLightsBlockLayout(), 128},
 					{"light_count", "int"},
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
-					render3d.debug_block,
 					render3d.gbuffer_block,
 					{"env_tex", "int"},
 					{"brdf_lut_tex", "int"},
@@ -105,7 +104,6 @@ return {
 					block.light_count = light_count
 					write_lights_block(block.lights, lights)
 					write_shadow_block(self, block.shadows, lights)
-					render3d.WriteDebugBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
@@ -627,13 +625,6 @@ return {
 					lighting_data.atmosphere_transmittance_texture_index,
 					atmosphere_sun_visibility
 				);
-
-				if (lighting_data.debug_cascade_colors != 0) {
-					int cascade_idx = getCascadeIndex(world_pos);
-					color = mix(color, CASCADE_COLORS[cascade_idx], 0.4);
-				}
-
-				]] .. render3d.debug_mode_glsl .. [[
 
 				set_color(vec4(color, alpha));
 			}

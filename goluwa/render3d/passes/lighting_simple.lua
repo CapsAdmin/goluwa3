@@ -36,7 +36,6 @@ return {
 						render3d.WriteCameraBlock(self, block)
 						render3d.WriteGBufferBlock(self, block)
 						directional_shadows.WriteFogShadowBlock(self, block.shadows, render3d.GetLights())
-						block.debug_mode = render3d.debug_mode or 1
 						local sun = get_primary_sun(render3d.GetLights())
 						local sun_direction = sun and sun.Owner.transform:GetRotation():GetForward()
 						local sun_color = sun and sun.Color
@@ -200,16 +199,6 @@ return {
 					float roughness_softening = mix(1.0, 0.6, roughness);
 					vec3 direct = albedo * sun_color * (sun_intensity * NdotL * diffuse_strength * roughness_softening * shadow);
 					vec3 color = ambient + direct + emissive;
-
-					int debug_mode = lighting_simple.debug_mode - 1;
-
-					if (debug_mode == 1) {
-						color = N * 0.5 + 0.5;
-					} else if (debug_mode == 3) {
-						color = vec3(ao);
-					} else if (debug_mode == 6) {
-						color = vec3(0.0);
-					}
 
 					set_color(vec4(color, alpha));
 				}

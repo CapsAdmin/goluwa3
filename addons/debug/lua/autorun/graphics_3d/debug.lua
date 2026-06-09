@@ -487,25 +487,6 @@ function events.KeyInput.render3d_debug(key, press)
 		return
 	end
 
-	-- Toggle shadow map debug view
-	if key == "f9" then
-		show_shadow_map = not show_shadow_map
-		-- Also toggle cascade color visualization in the shader
-		render3d.SetDebugCascadeColors(show_shadow_map)
-		print("Shadow map debug: " .. (show_shadow_map and "ON" or "OFF"))
-	end
-
-	-- Toggle SSR buffer debug view
-	if key == "f7" then
-		show_ssr_buffer = not show_ssr_buffer
-		print("SSR buffer debug: " .. (show_ssr_buffer and "ON" or "OFF"))
-	end
-
-	if key == "f5" then
-		show_cry_terrain_textures = not show_cry_terrain_textures
-		print("Cry terrain texture debug: " .. (show_cry_terrain_textures and "ON" or "OFF"))
-	end
-
 	if key == "f4" then
 		render.stats = not render.stats
 		print("Render3D stats: " .. (render3d.stats and "ON" or "OFF"))
@@ -513,8 +494,4 @@ function events.KeyInput.render3d_debug(key, press)
 
 	-- Toggle freeze frustum
 	if key == "f" then render3d.freeze_culling = not render3d.freeze_culling end
-
-	-- Toggle debug modes
-	if key == "h" then print("Debug mode: " .. render3d.CycleDebugMode()) end
-	if key == "u" then print("SSGI debug: " .. render3d.CycleSSGIDebugMode()) end
 end

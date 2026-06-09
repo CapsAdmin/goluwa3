@@ -306,145 +306,8 @@ local function copy_instancing_counters(dst, src)
 	return dst
 end
 
-do
-	render3d.debug_block = {
-		{"debug_cascade_colors", "int"},
-		{"debug_mode", "int"},
-		{"gbuffer_normal_debug_view", "int"},
-		{"near_z", "float"},
-		{"far_z", "float"},
-		{"debug_camera_position", "vec3"},
-	}
-	local debug_modes = {
-		"none",
-		"normals",
-		"irradiance",
-		"ambient_occlusion",
-		"ssr",
-		"ssgi",
-		"wireframe",
-		"voxel_gi",
-	}
-	render3d.debug_mode = render3d.debug_mode or 1
-	render3d.gbuffer_normal_debug_view = render3d.gbuffer_normal_debug_view or 0
-	local gbuffer_normal_debug_views = {
-		combined = 0,
-		normal_map = 1,
-		vertex_normal = 2,
-		tangent = 3,
-		bitangent = 4,
-		vertex_color = 5,
-		vertex_color_r = 6,
-		vertex_color_g = 7,
-		vertex_color_b = 8,
-		vertex_color_a = 9,
-	}
-
-	function render3d.SetDebugMode(mode_name)
-		for i, name in ipairs(debug_modes) do
-			if name == mode_name then
-				render3d.debug_mode = i
-				return true
-			end
-		end
-
-		return false
-	end
-
-	function render3d.GetDebugModes()
-		return debug_modes
-	end
-
-	function render3d.CycleDebugMode()
-		render3d.debug_mode = render3d.debug_mode % #debug_modes + 1
-		return debug_modes[render3d.debug_mode]
-	end
-
-	function render3d.GetDebugModeName()
-		return debug_modes[render3d.debug_mode]
-	end
-
-	function render3d.IsWireframeDebugMode(mode_name)
-		return (mode_name or render3d.GetDebugModeName()) == "wireframe"
-	end
-
-	-- SSGI debug modes
-	local ssgi_debug_modes = {
-		"ssgi_final", -- 0: Final denoised SSGI
-		"ssgi_raw", -- 1: Raw GI (before denoising)
-		"ssgi_denoised", -- 2: After first denoise pass
-		"ssgi_raw_conf", -- 3: Raw GI with confidence overlay
-		"ssgi_confidence", -- 4: Confidence channel only
-		"ssgi_raw_conf_only", -- 5: Raw confidence only
-	}
-	render3d.ssgi_debug_mode = render3d.ssgi_debug_mode or 0
-
-	function render3d.SetSSGIDebugMode(mode_name)
-		for i, name in ipairs(ssgi_debug_modes) do
-			if name == mode_name then
-				render3d.ssgi_debug_mode = i - 1
-				return true
-			end
-		end
-
-		return false
-	end
-
-	function render3d.GetSSGIDebugModes()
-		return ssgi_debug_modes
-	end
-
-	function render3d.CycleSSGIDebugMode()
-		render3d.ssgi_debug_mode = (render3d.ssgi_debug_mode + 1) % #ssgi_debug_modes
-		return ssgi_debug_modes[render3d.ssgi_debug_mode + 1]
-	end
-
-	function render3d.GetSSGIDebugModeName()
-		return ssgi_debug_modes[render3d.ssgi_debug_mode + 1]
-	end
-
-	function render3d.SetGBufferNormalDebugView(mode_name)
-		local mode = gbuffer_normal_debug_views[mode_name]
-
-		if mode == nil then return false end
-
-		render3d.gbuffer_normal_debug_view = mode
-		return true
-	end
-
-	function render3d.GetGBufferNormalDebugView()
-		for name, mode in pairs(gbuffer_normal_debug_views) do
-			if mode == render3d.gbuffer_normal_debug_view then return name end
-		end
-
-		return "combined"
-	end
-
-	render3d.debug_mode_glsl = [[
-		int debug_mode = lighting_data.debug_mode - 1;
-
-		if (debug_mode == 1) {
-			color = N * 0.5 + 0.5;
-		} else if (debug_mode == 2) {
-			color = indirect;
-		} else if (debug_mode == 3) {
-			//color = vec3(ambient_occlusion);
-		} else if (debug_mode == 4) {
-			color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
-		} else if (debug_mode == 5) {
-			color = texture(TEXTURE(lighting_data.ssgi_tex), in_uv).rgb;
-		}
-	]]
-end
-
-function render3d.WriteDebugBlock(self, block)
-	block.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
-	block.debug_mode = render3d.GetDebugMode()
-	block.gbuffer_normal_debug_view = render3d.gbuffer_normal_debug_view or 0
-	block.near_z = render3d.camera:GetNearZ()
-	block.far_z = render3d.camera:GetFarZ()
-	render3d.camera:GetPosition():CopyToFloatPointer(block.debug_camera_position)
-	return block
+function render3d.IsWireframeDebugMode()
+	return false
 end
 
 render3d.camera_block = {
@@ -467,12 +330,6 @@ function render3d.WriteCameraBlock(self, block)
 	block.render_size[0] = size and size.x or 1
 	block.render_size[1] = size and size.y or 1
 	render3d.camera:GetPosition():CopyToFloatPointer(block.camera_position)
-	return block
-end
-
-function render3d.WriteCameraDebugBlock(self, block)
-	render3d.WriteCameraBlock(self, block)
-	render3d.WriteDebugBlock(self, block)
 	return block
 end
 
@@ -525,14 +382,6 @@ end
 
 function render3d.GetActiveRenderContext()
 	return render3d.active_render_context
-end
-
-function render3d.GetDebugMode()
-	local context = render3d.GetActiveRenderContext()
-
-	if context and context.debug_mode ~= nil then return context.debug_mode end
-
-	return render3d.debug_mode or 1
 end
 
 function render3d.ShouldUseLastFrameHistory()
@@ -734,9 +583,6 @@ function render3d.ResetState()
 	render3d.environment_texture = nil
 	render3d.ocean_enabled = true
 	render3d.ocean_level = nil
-	render3d.debug_cascade_colors = false
-	render3d.debug_mode = 1
-	render3d.gbuffer_normal_debug_view = 0
 	render3d.gbuffer_instance_batches = {}
 	render3d.queued_gbuffer_instance_batches = {}
 	render3d.pending_gbuffer_instance_entries = {}
@@ -1482,17 +1328,6 @@ end
 
 function render3d.GetLights()
 	return Light.Instances
-end
-
--- Debug state for cascade visualization
-render3d.debug_cascade_colors = false
-
-function render3d.SetDebugCascadeColors(enabled)
-	render3d.debug_cascade_colors = enabled
-end
-
-function render3d.GetDebugCascadeColors()
-	return render3d.debug_cascade_colors
 end
 
 function render3d.SetMaterial(mat)
