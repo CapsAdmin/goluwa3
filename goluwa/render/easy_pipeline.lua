@@ -233,9 +233,6 @@ local function create_owned_framebuffers(self, extra_config)
 		end
 
 		self.framebuffers = nil
-	elseif self.framebuffer then
-		self.framebuffer:Remove()
-		self.framebuffer = nil
 	end
 
 	local function build_framebuffer_config()
@@ -258,16 +255,10 @@ local function create_owned_framebuffers(self, extra_config)
 		return config
 	end
 
-	if framebuffer_count == 1 then
-		self.framebuffer = Framebuffer.New(build_framebuffer_config())
-	else
-		self.framebuffers = {}
+	self.framebuffers = {}
 
-		for i = 1, framebuffer_count do
-			self.framebuffers[i] = Framebuffer.New(build_framebuffer_config())
-		end
-
-		self.framebuffer = self.framebuffers[1]
+	for i = 1, framebuffer_count do
+		self.framebuffers[i] = Framebuffer.New(build_framebuffer_config())
 	end
 end
 
@@ -2692,10 +2683,6 @@ function EasyPipeline:OnRemove()
 		end
 
 		self.framebuffers = nil
-		self.framebuffer = nil
-	elseif self.framebuffer then
-		self.framebuffer:Remove()
-		self.framebuffer = nil
 	end
 
 	if self.pipeline then
@@ -2721,7 +2708,7 @@ function EasyPipeline:OnWindowFramebufferResized()
 			self:RecreateFramebuffers()
 			-- Update descriptor sets if they reference framebuffer textures
 			local textures = {}
-			local fb = self.framebuffer
+			local fb = self.framebuffers[1]
 
 			if fb then
 				for _, tex in ipairs(fb.color_textures or {}) do
@@ -2931,17 +2918,13 @@ function EasyPipeline:PushConstants(...)
 end
 
 function EasyPipeline:GetFramebuffer(index)
-	if index then
-		return self.framebuffers and self.framebuffers[index] or self.framebuffer
-	end
-
-	return self.framebuffer
+	return self.framebuffers and (self.framebuffers[index] or self.framebuffers[1])
 end
 
 local function resolve_draw_frame_index(self, frame_index)
 	if frame_index then return frame_index end
 
-	if self.framebuffers then
+	if self.framebuffers and self.framebuffers[2] then
 		return system.GetFrameNumber() % #self.framebuffers + 1
 	end
 
@@ -2958,8 +2941,6 @@ local function resolve_draw_framebuffer(self, framebuffer, frame_index)
 			fb = self:GetFramebuffer(resolved_frame_index)
 		elseif self.framebuffers then
 			fb = self:GetFramebuffer(system.GetFrameNumber() % #self.framebuffers + 1)
-		else
-			fb = self.framebuffer
 		end
 	end
 
@@ -3099,45 +3080,6 @@ function EasyPipeline:DispatchForSize(cmd, width, height, depth, frame_index, dy
 	end
 
 	render.PopCommandBuffer()
-end
-
-function EasyPipeline.FragmentOnly(config)
-	assert_no_legacy_top_level_fields(config, 2)
-	local write = config.write
-	local source = config.source
-
-	if type(config.block) == "table" then
-		write = write or config.block.write
-		source = source or config.block.source
-	end
-
-	return EasyPipeline.New{
-		ColorFormat = config.ColorFormat,
-		RasterizationSamples = "1",
-		CullMode = "none",
-		vertex = {
-			shader = [[
-				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
-				layout(location = 0) out vec2 out_uv;
-				void main() {
-					vec2 pos = positions[gl_VertexIndex];
-					gl_Position = vec4(pos, 0.0, 1.0);
-					out_uv = pos * 0.5 + 0.5;
-				}
-			]],
-		},
-		fragment = {
-			push_constants = {
-				{
-					name = "fragment",
-					block = config.block,
-					write = write,
-					source = source,
-				},
-			},
-			shader = config.shader,
-		},
-	}
 end
 
 function EasyPipeline.Compute(config)
