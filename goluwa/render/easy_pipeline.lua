@@ -54,6 +54,18 @@ local GLSL_TO_ARRAY_SIZE = {
 	ivec2 = 2,
 	uint64_t = 1,
 }
+local GLSL_TO_LUA_TYPE = {
+	mat4 = ffi.typeof("float[16]"),
+	vec4 = ffi.typeof("float[4]"),
+	vec3 = ffi.typeof("float[3]"),
+	vec2 = ffi.typeof("float[2]"),
+	float = ffi.typeof("float"),
+	int = ffi.typeof("int"),
+	ivec4 = ffi.typeof("int[4]"),
+	ivec3 = ffi.typeof("int[3]"),
+	ivec2 = ffi.typeof("int[2]"),
+	uint64_t = ffi.typeof("uint64_t"),
+}
 
 local function flatten_fields(fields, out)
 	out = out or {}
@@ -306,6 +318,79 @@ local function verify_layout(layout, struct_name, fields, ctype)
 			3
 		)
 	end
+end
+
+local function normalize_block_type_name(name)
+	local type_name = name:sub(1, 1):upper() .. name:sub(2)
+
+	if type_name == name then type_name = type_name .. "_t" end
+
+	return type_name
+end
+
+local function sanitize_color_blend_attachments(attachments)
+	if not attachments or not attachments[1] then return nil end
+
+	local result = {attachments = {}}
+
+	for i, info in ipairs(attachments) do
+		local attachment_info = type(info) == "table" and table.copy(info) or info
+
+		if i == 1 and type(attachment_info) == "table" then
+			attachment_info.blend = nil
+			attachment_info.src_color_blend_factor = nil
+			attachment_info.dst_color_blend_factor = nil
+			attachment_info.color_blend_op = nil
+			attachment_info.src_alpha_blend_factor = nil
+			attachment_info.dst_alpha_blend_factor = nil
+			attachment_info.alpha_blend_op = nil
+			attachment_info.color_write_mask = nil
+		end
+
+		result.attachments[i] = attachment_info
+	end
+
+	return result
+end
+
+local function build_shader_header(bindless_texture_capacity, bindless_cubemap_capacity, extra_extensions)
+	local header = [=[#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+
+	layout(set = 1, binding = 0) uniform sampler2D textures[%d];
+	layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
+	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]]=]
+	header = header:format(bindless_texture_capacity, bindless_cubemap_capacity)
+
+	if extra_extensions then
+		for _, ext in ipairs(extra_extensions) do
+			header = header .. "\n" .. ext
+		end
+	end
+
+	return header .. "\n"
+end
+
+local function build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
+	return {
+		{
+			type = "combined_image_sampler",
+			binding_index = 0,
+			count = bindless_texture_capacity,
+			set_index = 1,
+		},
+		{
+			type = "combined_image_sampler",
+			binding_index = 1,
+			count = bindless_cubemap_capacity,
+			set_index = 1,
+		},
+	}
 end
 
 local function build_glsl_fields(fields)
@@ -1406,13 +1491,7 @@ function EasyPipeline.New(config)
 					get_scalar_block_alignment(block.block),
 					"uniform buffer block"
 				)
-				local block_type_name = block.name:sub(1, 1):upper() .. block.name:sub(2)
-
-				-- Ensure the block type name differs from the instance name (GLSL forbids identical names)
-				if block_type_name == block.name then
-					block_type_name = block_type_name .. "_t"
-				end
-
+				local block_type_name = normalize_block_type_name(block.name)
 				local glsl_declaration = string.format(
 					"%slayout(scalar, binding = %d) uniform %s {\n%s} %s;",
 					glsl_structs,
@@ -1828,18 +1907,6 @@ function EasyPipeline.New(config)
 		end
 	end
 
-	local glsl_to_lua_type = {
-		mat4 = ffi.typeof("float[16]"),
-		vec4 = ffi.typeof("float[4]"),
-		vec3 = ffi.typeof("float[3]"),
-		vec2 = ffi.typeof("float[2]"),
-		float = ffi.typeof("float"),
-		int = ffi.typeof("int"),
-		ivec4 = ffi.typeof("int[4]"),
-		ivec3 = ffi.typeof("int[3]"),
-		ivec2 = ffi.typeof("int[2]"),
-		uint64_t = ffi.typeof("uint64_t"),
-	}
 	-- Store uniform buffers for external access
 	self.uniform_buffers = uniform_buffers
 	self.push_constant_blocks = push_constant_blocks
@@ -1910,7 +1977,7 @@ function EasyPipeline.New(config)
 					local attribute_name = attribute[1]
 					local attribute_type = attribute[2]
 					local attribute_format = attribute[3]
-					local attribute_lua_type = glsl_to_lua_type[attribute_type]
+					local attribute_lua_type = GLSL_TO_LUA_TYPE[attribute_type]
 					local location_count = get_vertex_attribute_location_count(attribute_type)
 					local attribute_size = location_count * render.GetVulkanFormatSize(attribute_type == "mat4" and "r32g32b32a32_sfloat" or attribute_format)
 					local attribute_offset = attribute[4]
@@ -1982,25 +2049,12 @@ function EasyPipeline.New(config)
 		tess_control_outputs
 	local final_fragment_inputs = config.tessellation_evaluation and tess_eval_outputs or shader_outputs
 	-- Build shader header and I/O
-	local shader_header = (
-		[[#version 450
-#extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_scalar_block_layout : require
-#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_buffer_reference2 : require
-
-	layout(set = 1, binding = 0) uniform sampler2D textures[%d];
-	layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
-	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
-	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
-]]
-	):format(bindless_texture_capacity, bindless_cubemap_capacity)
-
-	if config.mesh or config.mesh_ext or config.task or config.task_ext then
-		shader_header = shader_header .. "#extension GL_EXT_mesh_shader : require\n"
-	end
-
+	local mesh_ext = config.mesh or config.mesh_ext or config.task or config.task_ext
+	local shader_header = build_shader_header(
+		bindless_texture_capacity,
+		bindless_cubemap_capacity,
+		mesh_ext and {"#extension GL_EXT_mesh_shader : require"} or nil
+	)
 	local vertex_input = ""
 	local vertex_output = ""
 	local tess_control_input = ""
@@ -2040,22 +2094,7 @@ function EasyPipeline.New(config)
 	end
 
 	-- Build descriptor sets
-	local descriptor_sets = {
-		-- Texture array sampler (binding 0)
-		{
-			type = "combined_image_sampler",
-			binding_index = 0,
-			count = bindless_texture_capacity,
-			set_index = 1,
-		},
-		-- Cubemap array sampler (binding 1)
-		{
-			type = "combined_image_sampler",
-			binding_index = 1,
-			count = bindless_cubemap_capacity,
-			set_index = 1,
-		},
-	}
+	local descriptor_sets = build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
 	-- Add uniform buffers from and descriptors from all stages
 	local uniform_buffer_order = {}
 
@@ -2227,44 +2266,7 @@ function EasyPipeline.New(config)
 
 	-- Create pipeline
 	local color_blend = config.color_blend or {}
-	local attachments = color_blend.attachments
-	local sanitized_color_blend
-
-	if attachments and attachments[2] then
-		sanitized_color_blend = {attachments = {}}
-
-		for i, info in ipairs(attachments) do
-			local attachment_info = type(info) == "table" and table.copy(info) or info
-
-			if i == 1 and type(attachment_info) == "table" then
-				attachment_info.blend = nil
-				attachment_info.src_color_blend_factor = nil
-				attachment_info.dst_color_blend_factor = nil
-				attachment_info.color_blend_op = nil
-				attachment_info.src_alpha_blend_factor = nil
-				attachment_info.dst_alpha_blend_factor = nil
-				attachment_info.alpha_blend_op = nil
-				attachment_info.color_write_mask = nil
-			end
-
-			sanitized_color_blend.attachments[i] = attachment_info
-		end
-	elseif
-		color_blend.attachments and
-		color_blend.attachments[1] and
-		color_blend.attachments[2] == nil
-	then
-		sanitized_color_blend = {attachments = {table.copy(color_blend.attachments[1])}}
-		sanitized_color_blend.attachments[1].blend = nil
-		sanitized_color_blend.attachments[1].src_color_blend_factor = nil
-		sanitized_color_blend.attachments[1].dst_color_blend_factor = nil
-		sanitized_color_blend.attachments[1].color_blend_op = nil
-		sanitized_color_blend.attachments[1].src_alpha_blend_factor = nil
-		sanitized_color_blend.attachments[1].dst_alpha_blend_factor = nil
-		sanitized_color_blend.attachments[1].alpha_blend_op = nil
-		sanitized_color_blend.attachments[1].color_write_mask = nil
-	end
-
+	local sanitized_color_blend = sanitize_color_blend_attachments(color_blend.attachments)
 	local pipeline_config = {
 		ColorFormat = #actual_color_formats > 0 and actual_color_formats or color_format,
 		DepthFormat = depth_format,
@@ -2811,37 +2813,14 @@ function EasyPipeline.Compute(config)
 	local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 	local bindless_texture_capacity = bindless_descriptor_capacities.textures
 	local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
-	local shader_header = (
-		[[#version 450
-#extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_scalar_block_layout : require
-
-layout(set = 1, binding = 0) uniform sampler2D textures[%d];
-layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
-#define TEXTURE(idx) textures[nonuniformEXT(idx)]
-#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
-]]
-	):format(bindless_texture_capacity, bindless_cubemap_capacity)
+	local shader_header = build_shader_header(bindless_texture_capacity, bindless_cubemap_capacity)
 	local push_constant_glsl = ""
 
 	if #block > 0 then
 		push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. build_glsl_fields(flat_push_constant_block) .. "} compute;\n\n"
 	end
 
-	local descriptor_sets = {
-		{
-			type = "combined_image_sampler",
-			binding_index = 0,
-			count = bindless_texture_capacity,
-			set_index = 1,
-		},
-		{
-			type = "combined_image_sampler",
-			binding_index = 1,
-			count = bindless_cubemap_capacity,
-			set_index = 1,
-		},
-	}
+	local descriptor_sets = build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
 
 	for _, ds in ipairs(config.descriptor_sets or {}) do
 		descriptor_sets[#descriptor_sets + 1] = ds
@@ -2884,12 +2863,7 @@ layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 			get_scalar_block_alignment(info.block),
 			"uniform buffer block"
 		)
-		local block_type_name = info.name:sub(1, 1):upper() .. info.name:sub(2)
-
-		if block_type_name == info.name then
-			block_type_name = block_type_name .. "_t"
-		end
-
+		local block_type_name = normalize_block_type_name(info.name)
 		uniform_buffer_order[#uniform_buffer_order + 1] = info.name
 		uniform_buffer_types[info.name] = {
 			ubo = ubo,
