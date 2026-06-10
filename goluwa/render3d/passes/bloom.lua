@@ -77,14 +77,19 @@ local function build_downsample_pass(i, prev_name)
 					ivec2 pos = get_screen_pos();
 					ivec2 size = imageSize(out_bloom);
 
-					if (!is_screen_pos_in_bounds(pos, size)) return;
+					bool in_bounds = is_screen_pos_in_bounds(pos, size);
 
 					if (compute.has_source_tex == 0) {
-						imageStore(out_bloom, pos, vec4(0.0));
-						return;
+						for (int ty = int(gl_LocalInvocationID.y); ty < %d; ty += %d) {
+							for (int tx = int(gl_LocalInvocationID.x); tx < %d; tx += %d) {
+								bloom_tile[ty][tx] = vec3(0.0);
+							}
+						}
+						memoryBarrierShared();
+						barrier();
+					} else {
+						%s
 					}
-
-					%s
 
 					vec3 sum = vec3(0.0);
 					ivec2 tile_pos = ivec2(gl_LocalInvocationID.xy) + ivec2(%d);
@@ -99,7 +104,9 @@ local function build_downsample_pass(i, prev_name)
 					sum += bloom_tile[tile_pos.y + 2][tile_pos.x] * 2.0;
 					sum += bloom_tile[tile_pos.y + 2][tile_pos.x + 2];
 
-					imageStore(out_bloom, pos, vec4(sum / 16.0, 1.0));
+					if (in_bounds) {
+						imageStore(out_bloom, pos, vec4(sum / 16.0, 1.0));
+					}
 				}
 			]],
 				BLOOM_TILE_HEIGHT,
@@ -109,6 +116,10 @@ local function build_downsample_pass(i, prev_name)
 				BLOOM_KNEE,
 				BLOOM_KNEE,
 				BLOOM_THRESHOLD,
+				BLOOM_TILE_HEIGHT,
+				COMPUTE_LOCAL_SIZE.y,
+				BLOOM_TILE_WIDTH,
+				COMPUTE_LOCAL_SIZE.x,
 				build_tile_loader_glsl("extract_bloom(texture(source_tex, sample_uv).rgb)"),
 				BLOOM_KERNEL_HALO
 			)
@@ -124,14 +135,19 @@ local function build_downsample_pass(i, prev_name)
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_bloom);
 
-				if (!is_screen_pos_in_bounds(pos, size)) return;
+				bool in_bounds = is_screen_pos_in_bounds(pos, size);
 
 				if (compute.has_source_tex == 0) {
-					imageStore(out_bloom, pos, vec4(0.0));
-					return;
+					for (int ty = int(gl_LocalInvocationID.y); ty < %d; ty += %d) {
+						for (int tx = int(gl_LocalInvocationID.x); tx < %d; tx += %d) {
+							bloom_tile[ty][tx] = vec3(0.0);
+						}
+					}
+					memoryBarrierShared();
+					barrier();
+				} else {
+					%s
 				}
-
-				%s
 
 				vec3 sum = vec3(0.0);
 				ivec2 tile_pos = ivec2(gl_LocalInvocationID.xy) + ivec2(%d);
@@ -146,11 +162,17 @@ local function build_downsample_pass(i, prev_name)
 				sum += bloom_tile[tile_pos.y + 2][tile_pos.x] * 2.0;
 				sum += bloom_tile[tile_pos.y + 2][tile_pos.x + 2];
 
-				imageStore(out_bloom, pos, vec4(sum / 16.0, 1.0));
+				if (in_bounds) {
+					imageStore(out_bloom, pos, vec4(sum / 16.0, 1.0));
+				}
 			}
 		]],
 			BLOOM_TILE_HEIGHT,
 			BLOOM_TILE_WIDTH,
+			BLOOM_TILE_HEIGHT,
+			COMPUTE_LOCAL_SIZE.y,
+			BLOOM_TILE_WIDTH,
+			COMPUTE_LOCAL_SIZE.x,
 			build_tile_loader_glsl("texture(source_tex, sample_uv).rgb"),
 			BLOOM_KERNEL_HALO
 		)
@@ -246,14 +268,19 @@ local function build_upsample_pass(i, source_name, merge_name, idx)
 					ivec2 pos = get_screen_pos();
 					ivec2 size = imageSize(out_bloom);
 
-					if (!is_screen_pos_in_bounds(pos, size)) return;
+					bool in_bounds = is_screen_pos_in_bounds(pos, size);
 
 					if (compute.has_source_tex == 0) {
-						imageStore(out_bloom, pos, vec4(0.0));
-						return;
+						for (int ty = int(gl_LocalInvocationID.y); ty < %d; ty += %d) {
+							for (int tx = int(gl_LocalInvocationID.x); tx < %d; tx += %d) {
+								bloom_tile[ty][tx] = vec3(0.0);
+							}
+						}
+						memoryBarrierShared();
+						barrier();
+					} else {
+						%s
 					}
-
-					%s
 
 					vec2 uv = get_screen_uv(pos, size);
 					vec3 sum = vec3(0.0);
@@ -275,11 +302,17 @@ local function build_upsample_pass(i, source_name, merge_name, idx)
 						result += texture(merge_tex, uv).rgb * %.3f;
 					}
 
-					imageStore(out_bloom, pos, vec4(result, 1.0));
+					if (in_bounds) {
+						imageStore(out_bloom, pos, vec4(result, 1.0));
+					}
 				}
 			]],
 				BLOOM_TILE_HEIGHT,
 				BLOOM_TILE_WIDTH,
+				BLOOM_TILE_HEIGHT,
+				COMPUTE_LOCAL_SIZE.y,
+				BLOOM_TILE_WIDTH,
+				COMPUTE_LOCAL_SIZE.x,
 				build_tile_loader_glsl("texture(source_tex, sample_uv).rgb"),
 				BLOOM_KERNEL_HALO,
 				upsample_merge_strength
