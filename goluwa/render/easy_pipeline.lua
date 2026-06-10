@@ -1602,6 +1602,63 @@ do
 		return self.pipeline:PushConstants(...)
 	end
 
+	local function get_glsl_push_constants(config, push_constant_block_offsets, stage)
+		local stage_config = get_constant_stage_config(config, stage)
+
+		if not stage_config or not stage_config.push_constants then return "" end
+
+		local blocks = stage_config.push_constants
+		local str = ""
+
+		for _, block in ipairs(blocks) do
+			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+			local glsl_fields, glsl_structs = build_glsl_fields(block.block)
+			str = str .. glsl_structs .. "struct " .. struct_name .. " {\n" .. glsl_fields .. "};\n\n"
+		end
+
+		str = str .. "layout(push_constant, scalar) uniform Constants {\n"
+
+		for _, block in ipairs(blocks) do
+			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+			local offset = push_constant_block_offsets[block.name]
+			str = str .. "    layout(offset = " .. offset .. ") " .. struct_name .. " " .. block.name .. ";\n"
+		end
+
+		str = str .. "} pc;\n\n"
+
+		-- Emit shortcut #defines: named block -> #define name pc.name
+		-- unnamed block -> #define U pc._u
+		for _, block in ipairs(blocks) do
+			if block._is_unnamed then
+				str = str .. "#define U pc." .. block.name .. "\n"
+			else
+				str = str .. "#define " .. block.name .. " pc." .. block.name .. "\n"
+			end
+		end
+
+		str = str .. "\n"
+		return str
+	end
+
+	local function get_glsl_uniform_buffers(config, uniform_buffer_types, stage)
+		local stage_config = config[stage]
+
+		if not stage_config or not stage_config.uniform_buffers then return "" end
+
+		local glsl = ""
+
+		for _, block in ipairs(stage_config.uniform_buffers) do
+			glsl = glsl .. uniform_buffer_types[block.name].glsl .. "\n\n"
+
+			-- Emit #define U for unnamed UBOs
+			if block._is_unnamed then
+				glsl = glsl .. "#define U " .. block.name .. "\n\n"
+			end
+		end
+
+		return glsl
+	end
+
 	-- Graphics constructor
 	function EasyPipelineGraphics.New(config)
 		if config.ComputePass or config.compute_pass then
@@ -1758,7 +1815,9 @@ do
 			end
 		end
 
-		local function resolve_stage_constants()
+		local constant_resolution
+
+		do
 			local placement = config.ConstantPlacement or {}
 			local push_budget = placement.push_budget
 
@@ -1908,14 +1967,12 @@ do
 				end
 			end
 
-			return {
+			constant_resolution = {
 				push_budget = push_budget,
 				fallback = fallback_storage,
 				blocks = constant_blocks,
 			}
 		end
-
-		local constant_resolution = resolve_stage_constants()
 
 		-- Process push constants and uniform buffers
 		-- First pass: Collect all unique push constant blocks across all stages to assign shared offsets
@@ -2087,63 +2144,6 @@ do
 
 			return a < b
 		end)
-
-		local function get_glsl_push_constants(stage)
-			local stage_config = get_constant_stage_config(config, stage)
-
-			if not stage_config or not stage_config.push_constants then return "" end
-
-			local blocks = stage_config.push_constants
-			local str = ""
-
-			for _, block in ipairs(blocks) do
-				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-				local glsl_fields, glsl_structs = build_glsl_fields(block.block)
-				str = str .. glsl_structs .. "struct " .. struct_name .. " {\n" .. glsl_fields .. "};\n\n"
-			end
-
-			str = str .. "layout(push_constant, scalar) uniform Constants {\n"
-
-			for _, block in ipairs(blocks) do
-				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-				local offset = push_constant_block_offsets[block.name]
-				str = str .. "    layout(offset = " .. offset .. ") " .. struct_name .. " " .. block.name .. ";\n"
-			end
-
-			str = str .. "} pc;\n\n"
-
-			-- Emit shortcut #defines: named block -> #define name pc.name
-			-- unnamed block -> #define U pc._u
-			for _, block in ipairs(blocks) do
-				if block._is_unnamed then
-					str = str .. "#define U pc." .. block.name .. "\n"
-				else
-					str = str .. "#define " .. block.name .. " pc." .. block.name .. "\n"
-				end
-			end
-
-			str = str .. "\n"
-			return str
-		end
-
-		local function get_glsl_uniform_buffers(stage)
-			local stage_config = config[stage]
-
-			if not stage_config or not stage_config.uniform_buffers then return "" end
-
-			local glsl = ""
-
-			for _, block in ipairs(stage_config.uniform_buffers) do
-				glsl = glsl .. uniform_buffer_types[block.name].glsl .. "\n\n"
-
-				-- Emit #define U for unnamed UBOs
-				if block._is_unnamed then
-					glsl = glsl .. "#define U " .. block.name .. "\n\n"
-				end
-			end
-
-			return glsl
-		end
 
 		-- Build constants upload function
 		local constant_structs = {}
@@ -2385,7 +2385,7 @@ do
 			local task_code = shader_header:gsub("#version 450", "#version 450\n#pragma shader_stage(task)") .. (
 					task_config.custom_declarations or
 					""
-				) .. get_glsl_push_constants("task_ext") .. get_glsl_uniform_buffers("task_ext") .. (
+				) .. get_glsl_push_constants(config, push_constant_block_offsets, "task_ext") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "task_ext") .. (
 					task_config.shader or
 					""
 				)
@@ -2407,7 +2407,7 @@ do
 			local mesh_code = shader_header:gsub("#version 450", "#version 450\n#pragma shader_stage(mesh)") .. (
 					mesh_config.custom_declarations or
 					""
-				) .. get_glsl_push_constants("mesh_ext") .. get_glsl_uniform_buffers("mesh_ext") .. (
+				) .. get_glsl_push_constants(config, push_constant_block_offsets, "mesh_ext") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "mesh_ext") .. (
 					mesh_config.shader or
 					""
 				)
@@ -2424,7 +2424,7 @@ do
 
 		-- Vertex stage
 		if config.vertex and resolved_vertex_shader then
-			local vertex_code = shader_header .. vertex_input .. vertex_output .. get_glsl_push_constants("vertex") .. get_glsl_uniform_buffers("vertex") .. (
+			local vertex_code = shader_header .. vertex_input .. vertex_output .. get_glsl_push_constants(config, push_constant_block_offsets, "vertex") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "vertex") .. (
 					config.vertex.custom_declarations or
 					""
 				) .. (
@@ -2449,7 +2449,7 @@ do
 			local tess_control_code = shader_header .. tess_control_input .. tess_control_output .. (
 					config.tessellation_control.custom_declarations or
 					""
-				) .. get_glsl_push_constants("tessellation_control") .. get_glsl_uniform_buffers("tessellation_control") .. (
+				) .. get_glsl_push_constants(config, push_constant_block_offsets, "tessellation_control") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "tessellation_control") .. (
 					config.tessellation_control.shader or
 					""
 				)
@@ -2469,7 +2469,7 @@ do
 			local tess_eval_code = shader_header .. tess_eval_input .. tess_eval_output .. (
 					config.tessellation_evaluation.custom_declarations or
 					""
-				) .. get_glsl_push_constants("tessellation_evaluation") .. get_glsl_uniform_buffers("tessellation_evaluation") .. (
+				) .. get_glsl_push_constants(config, push_constant_block_offsets, "tessellation_evaluation") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "tessellation_evaluation") .. (
 					config.tessellation_evaluation.shader or
 					""
 				)
@@ -2489,7 +2489,7 @@ do
 			local fragment_code = shader_header .. fragment_input .. fragment_outputs .. (
 					config.fragment.custom_declarations or
 					""
-				) .. get_glsl_push_constants("fragment") .. get_glsl_uniform_buffers("fragment") .. (
+				) .. get_glsl_push_constants(config, push_constant_block_offsets, "fragment") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "fragment") .. (
 					resolved_fragment_shader or
 					""
 				)
