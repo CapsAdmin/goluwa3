@@ -8,37 +8,6 @@ local Framebuffer = import("goluwa/render/framebuffer.lua")
 local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
 local glsl_meta = import("goluwa/render/glsl_metadata.lua")
-local flatten_fields = glsl_meta.flatten_fields
-local get_field_info = glsl_meta.get_field_info
-local get_layout_info = glsl_meta.get_layout_info
-local build_ffi_struct = glsl_meta.build_ffi_struct
-local verify_layout = glsl_meta.verify_layout
-local build_ffi_type = glsl_meta.build_ffi_type
-local normalize_block_type_name = glsl_meta.normalize_block_type_name
-local build_glsl_fields = glsl_meta.build_glsl_fields
-local get_scalar_field_size = glsl_meta.get_scalar_field_size
-local build_field_descriptors = glsl_meta.build_field_descriptors
-local get_scalar_layout_alignment = glsl_meta.get_scalar_layout_alignment
-local get_scalar_block_alignment = glsl_meta.get_scalar_block_alignment
-local align_offset = glsl_meta.align_offset
-local clone_constant_block = glsl_meta.clone_constant_block
-local hoist_inline_block_metadata = glsl_meta.hoist_inline_block_metadata
-local normalize_block_source = glsl_meta.normalize_block_source
-local GLSL_TO_LUA_TYPE = glsl_meta.GLSL_TO_LUA_TYPE
-local sanitize_color_blend_attachments = glsl_meta.sanitize_color_blend_attachments
-local build_shader_header = glsl_meta.build_shader_header
-local build_base_descriptor_sets = glsl_meta.build_base_descriptor_sets
-local get_nested_property_path = glsl_meta.get_nested_property_path
-local has_nested_value = glsl_meta.has_nested_value
-local get_constant_stage_config = glsl_meta.get_constant_stage_config
-local escape_lua_pattern = glsl_meta.escape_lua_pattern
-local build_passthrough_vertex_shader = glsl_meta.build_passthrough_vertex_shader
-local build_fragment_adapter_declaration = glsl_meta.build_fragment_adapter_declaration
-local normalize_fragment_adapter = glsl_meta.normalize_fragment_adapter
-local get_vertex_attribute_location_count = glsl_meta.get_vertex_attribute_location_count
-local append_vertex_shader_input = glsl_meta.append_vertex_shader_input
-local build_fragment_shader = glsl_meta.build_fragment_shader
-local get_color_formats = glsl_meta.get_color_formats
 
 local function resolve_framebuffer_size(config)
 	local size = config.FramebufferSize or render.GetRenderImageSize()
@@ -219,7 +188,7 @@ local EasyPipeline = prototype.CreateTemplate("render_easy_pipeline")
 
 do
 	-- Static methods (shared across all variants)
-	EasyPipeline.BuildFFIType = build_ffi_type
+	EasyPipeline.BuildFFIType = glsl_meta.build_ffi_type
 
 	-- Delegate storable variable methods from GraphicsPipeline
 	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
@@ -790,7 +759,7 @@ do
 
 		for _, block in ipairs(blocks) do
 			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-			local glsl_fields, glsl_structs = build_glsl_fields(block.block)
+			local glsl_fields, glsl_structs = glsl_meta.build_glsl_fields(block.block)
 			str = str .. glsl_structs .. "struct " .. struct_name .. " {\n" .. glsl_fields .. "};\n\n"
 		end
 
@@ -1032,10 +1001,10 @@ do
 
 						if not seen_explicit_push_blocks[block.name] then
 							seen_explicit_push_blocks[block.name] = true
-							local flat_block = flatten_fields(block.block)
-							local alignment = get_scalar_block_alignment(flat_block)
-							local ctype = ffi.typeof(build_ffi_struct("scalar", flat_block))
-							explicit_push_span = align_offset(explicit_push_span, alignment) + ffi.sizeof(ctype)
+							local flat_block = glsl_meta.flatten_fields(block.block)
+							local alignment = glsl_meta.get_scalar_block_alignment(flat_block)
+							local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", flat_block))
+							explicit_push_span = glsl_meta.align_offset(explicit_push_span, alignment) + ffi.sizeof(ctype)
 						end
 					end
 				end
@@ -1055,18 +1024,18 @@ do
 
 						if not resolved then
 							constant_order = constant_order + 1
-							resolved = clone_constant_block(block)
-							resolved.block = flatten_fields(resolved.block)
+							resolved = glsl_meta.clone_constant_block(block)
+							resolved.block = glsl_meta.flatten_fields(resolved.block)
 							resolved._constant_order = constant_order
 							resolved._requested_storage = resolved.storage or default_mode
 							resolved._preferred_storage = resolved.prefer or "push"
 							resolved._priority = tonumber(resolved.priority) or 0
 							local struct_name = resolved.name:sub(1, 1):upper() .. resolved.name:sub(2) .. "Constants"
-							local ctype = ffi.typeof(build_ffi_struct("scalar", resolved.block))
-							verify_layout("scalar", struct_name, resolved.block, ctype)
+							local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", resolved.block))
+							glsl_meta.verify_layout("scalar", struct_name, resolved.block, ctype)
 							resolved._size = ffi.sizeof(ctype)
-							resolved._alignment = get_scalar_block_alignment(resolved.block)
-							resolved.source = normalize_block_source(resolved, resolved._size, resolved._alignment, "constant block")
+							resolved._alignment = glsl_meta.get_scalar_block_alignment(resolved.block)
+							resolved.source = glsl_meta.normalize_block_source(resolved, resolved._size, resolved._alignment, "constant block")
 							constant_blocks[resolved.name] = resolved
 
 							if resolved._requested_storage == "push" then
@@ -1166,20 +1135,20 @@ do
 					end
 
 					if not push_constant_blocks[block.name] then
-						hoist_inline_block_metadata(block)
-						block.block = flatten_fields(block.block)
+						glsl_meta.hoist_inline_block_metadata(block)
+						block.block = glsl_meta.flatten_fields(block.block)
 						push_constant_blocks[block.name] = block
 						table.insert(push_constant_block_order, block.name)
 						local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-						local ffi_code = build_ffi_struct("scalar", block.block)
+						local ffi_code = glsl_meta.build_ffi_struct("scalar", block.block)
 						local ctype = ffi.typeof(ffi_code)
-						verify_layout("scalar", struct_name, block.block, ctype)
+						glsl_meta.verify_layout("scalar", struct_name, block.block, ctype)
 						block.debug_name = (config.name or "pipeline") .. ".pc." .. block.name
-						block.field_descriptors = build_field_descriptors(ctype, block.block)
-						block.source = normalize_block_source(
+						block.field_descriptors = glsl_meta.build_field_descriptors(ctype, block.block)
+						block.source = glsl_meta.normalize_block_source(
 							block,
 							ffi.sizeof(ctype),
-							get_scalar_block_alignment(block.block),
+							glsl_meta.get_scalar_block_alignment(block.block),
 							"push constant block"
 						)
 						push_constant_types[struct_name] = ctype
@@ -1193,7 +1162,10 @@ do
 		local current_push_offset = 0
 
 		for _, name in ipairs(push_constant_block_order) do
-			current_push_offset = align_offset(current_push_offset, get_scalar_block_alignment(push_constant_blocks[name].block))
+			current_push_offset = glsl_meta.align_offset(
+				current_push_offset,
+				glsl_meta.get_scalar_block_alignment(push_constant_blocks[name].block)
+			)
 			push_constant_block_offsets[name] = current_push_offset
 			local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
 			current_push_offset = current_push_offset + ffi.sizeof(push_constant_types[struct_name])
@@ -1252,8 +1224,8 @@ do
 						end
 					end
 
-					hoist_inline_block_metadata(block)
-					block.block = flatten_fields(block.block)
+					glsl_meta.hoist_inline_block_metadata(block)
+					block.block = glsl_meta.flatten_fields(block.block)
 
 					if not block.block[1] then
 						error("Uniform buffer " .. block.name .. " has no fields!")
@@ -1271,17 +1243,17 @@ do
 						goto continue_uniform_buffer
 					end
 
-					local ffi_code = build_ffi_struct("scalar", block.block)
-					local glsl_fields, glsl_structs = build_glsl_fields(block.block)
+					local ffi_code = glsl_meta.build_ffi_struct("scalar", block.block)
+					local glsl_fields, glsl_structs = glsl_meta.build_glsl_fields(block.block)
 					local ubo = UniformBuffer.New(ffi_code)
-					verify_layout("scalar", block.name, block.block, ubo.struct)
-					block.source = normalize_block_source(
+					glsl_meta.verify_layout("scalar", block.name, block.block, ubo.struct)
+					block.source = glsl_meta.normalize_block_source(
 						block,
 						ffi.sizeof(ubo.struct),
-						get_scalar_block_alignment(block.block),
+						glsl_meta.get_scalar_block_alignment(block.block),
 						"uniform buffer block"
 					)
-					local block_type_name = normalize_block_type_name(block.name)
+					local block_type_name = glsl_meta.normalize_block_type_name(block.name)
 					local glsl_declaration = string.format(
 						"%slayout(scalar, binding = %d) uniform %s {\n%s} %s;",
 						glsl_structs,
@@ -1296,7 +1268,7 @@ do
 						block = block,
 						glsl = glsl_declaration,
 						debug_name = (config.name or "pipeline") .. ".ubo." .. block.name,
-						field_descriptors = build_field_descriptors(ubo.struct, block.block),
+						field_descriptors = glsl_meta.build_field_descriptors(ubo.struct, block.block),
 						offsets = {}, -- Tracks offsets used in the current frame
 					}
 					uniform_buffers[block.name] = ubo
@@ -1395,8 +1367,8 @@ do
 						local attribute_name = attribute[1]
 						local attribute_type = attribute[2]
 						local attribute_format = attribute[3]
-						local attribute_lua_type = GLSL_TO_LUA_TYPE[attribute_type]
-						local location_count = get_vertex_attribute_location_count(attribute_type)
+						local attribute_lua_type = glsl_meta.GLSL_TO_LUA_TYPE[attribute_type]
+						local location_count = glsl_meta.get_vertex_attribute_location_count(attribute_type)
 						local attribute_size = location_count * render.GetVulkanFormatSize(attribute_type == "mat4" and "r32g32b32a32_sfloat" or attribute_format)
 						local attribute_offset = attribute[4]
 
@@ -1436,7 +1408,7 @@ do
 							)
 						end
 
-						append_vertex_shader_input(shader_inputs, attribute)
+						glsl_meta.append_vertex_shader_input(shader_inputs, attribute)
 						stride = math.max(stride, attribute_offset + attribute_size)
 						location = location + location_count
 					end
@@ -1468,7 +1440,7 @@ do
 		local final_fragment_inputs = config.tessellation_evaluation and tess_eval_outputs or shader_outputs
 		-- Build shader header and I/O
 		local mesh_ext = config.mesh or config.mesh_ext or config.task or config.task_ext
-		local shader_header = build_shader_header(
+		local shader_header = glsl_meta.build_shader_header(
 			bindless_texture_capacity,
 			bindless_cubemap_capacity,
 			mesh_ext and {"#extension GL_EXT_mesh_shader : require"} or nil
@@ -1504,15 +1476,15 @@ do
 		end
 
 		if config.vertex and not resolved_vertex_shader and config.vertex.passthrough then
-			resolved_vertex_shader = build_passthrough_vertex_shader(config.vertex, shader_outputs, shader_inputs)
+			resolved_vertex_shader = glsl_meta.build_passthrough_vertex_shader(config.vertex, shader_outputs, shader_inputs)
 		end
 
 		if config.fragment then
-			resolved_fragment_shader = build_fragment_shader(config.fragment)
+			resolved_fragment_shader = glsl_meta.build_fragment_shader(config.fragment)
 		end
 
 		-- Build descriptor sets
-		local descriptor_sets = build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
+		local descriptor_sets = glsl_meta.build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
 		-- Add uniform buffers from and descriptors from all stages
 		local uniform_buffer_order_desc = {}
 
@@ -1684,7 +1656,7 @@ do
 
 		-- Create pipeline
 		local color_blend = config.color_blend or {}
-		local sanitized_color_blend = sanitize_color_blend_attachments(color_blend.attachments)
+		local sanitized_color_blend = glsl_meta.sanitize_color_blend_attachments(color_blend.attachments)
 		local pipeline_config = {
 			ColorFormat = #actual_color_formats > 0 and actual_color_formats or color_format,
 			DepthFormat = depth_format,
@@ -2023,7 +1995,7 @@ do
 		self.on_draw = config.on_draw or nil
 		self.config = config
 		local block = config.block or {}
-		local flat_push_constant_block = #block > 0 and flatten_fields(block) or block
+		local flat_push_constant_block = #block > 0 and glsl_meta.flatten_fields(block) or block
 		local push_constant_type
 		local push_constant_size = 0
 		local push_constant_field_descriptors
@@ -2034,7 +2006,7 @@ do
 		if #block > 0 then
 			push_constant_type = EasyPipeline.BuildFFIType("scalar", "ComputeConstants", flat_push_constant_block)
 			push_constant_size = ffi.sizeof(push_constant_type)
-			push_constant_field_descriptors = build_field_descriptors(push_constant_type, flat_push_constant_block)
+			push_constant_field_descriptors = glsl_meta.build_field_descriptors(push_constant_type, flat_push_constant_block)
 		end
 
 		self.push_constant_data = push_constant_type and push_constant_type() or nil
@@ -2047,14 +2019,14 @@ do
 		local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 		local bindless_texture_capacity = bindless_descriptor_capacities.textures
 		local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
-		local shader_header = build_shader_header(bindless_texture_capacity, bindless_cubemap_capacity)
+		local shader_header = glsl_meta.build_shader_header(bindless_texture_capacity, bindless_cubemap_capacity)
 		local push_constant_glsl = ""
 
 		if #block > 0 then
-			push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. build_glsl_fields(flat_push_constant_block) .. "} compute;\n\n"
+			push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. glsl_meta.build_glsl_fields(flat_push_constant_block) .. "} compute;\n\n"
 		end
 
-		local descriptor_sets = build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
+		local descriptor_sets = glsl_meta.build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
 
 		for _, ds in ipairs(config.descriptor_sets or {}) do
 			descriptor_sets[#descriptor_sets + 1] = ds
@@ -2078,8 +2050,8 @@ do
 				)
 			end
 
-			hoist_inline_block_metadata(info)
-			info.block = flatten_fields(info.block)
+			glsl_meta.hoist_inline_block_metadata(info)
+			info.block = glsl_meta.flatten_fields(info.block)
 
 			if not info.block[1] then
 				error(
@@ -2088,22 +2060,22 @@ do
 				)
 			end
 
-			local ffi_code = build_ffi_struct("scalar", info.block)
-			local glsl_fields, glsl_structs = build_glsl_fields(info.block)
+			local ffi_code = glsl_meta.build_ffi_struct("scalar", info.block)
+			local glsl_fields, glsl_structs = glsl_meta.build_glsl_fields(info.block)
 			local ubo = UniformBuffer.New(ffi_code)
-			info.source = normalize_block_source(
+			info.source = glsl_meta.normalize_block_source(
 				info,
 				ffi.sizeof(ubo.struct),
-				get_scalar_block_alignment(info.block),
+				glsl_meta.get_scalar_block_alignment(info.block),
 				"uniform buffer block"
 			)
-			local block_type_name = normalize_block_type_name(info.name)
+			local block_type_name = glsl_meta.normalize_block_type_name(info.name)
 			uniform_buffer_order[#uniform_buffer_order + 1] = info.name
 			uniform_buffer_types[info.name] = {
 				ubo = ubo,
 				block = info,
 				debug_name = (config.name or "pipeline") .. ".ubo." .. info.name,
-				field_descriptors = build_field_descriptors(ubo.struct, info.block),
+				field_descriptors = glsl_meta.build_field_descriptors(ubo.struct, info.block),
 				glsl = string.format(
 					"%slayout(scalar, set = %d, binding = %d) uniform %s {\n%s} %s;",
 					glsl_structs,
@@ -2249,7 +2221,7 @@ do
 
 		local self = EasyPipelineCompute.Compute(compute_config)
 		self.config = config
-		self.actual_color_formats, self.debug_views = get_color_formats(config)
+		self.actual_color_formats, self.debug_views = glsl_meta.get_color_formats(config)
 		self.on_pre_draw = config.on_pre_draw or nil
 		self.on_draw = user_on_draw
 		self.storage_images = storage_images
