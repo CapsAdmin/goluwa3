@@ -2177,82 +2177,7 @@ do
 		self.uniform_buffer_order = uniform_buffer_order
 		self.uniform_buffer_types = uniform_buffer_types
 		self.uniform_buffers = uniform_buffers
-		-- Push constant caching (graphics-specific optimization)
-		local push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
-
-		local function bytes_equal(lhs, rhs, size)
-			for i = 0, size - 1 do
-				if lhs[i] ~= rhs[i] then return false end
-			end
-
-			return true
-		end
-
-		local function ranges_overlap(lhs_offset, lhs_size, rhs_offset, rhs_size)
-			return lhs_offset < rhs_offset + rhs_size and rhs_offset < lhs_offset + rhs_size
-		end
-
-		local function get_push_constant_entries(cmd)
-			local serial = cmd and cmd.recording_serial or 0
-			local cache = push_constant_cache_by_cmd[cmd]
-
-			if cache and cache.serial == serial then return cache.entries end
-
-			cache = {
-				serial = serial,
-				entries = {},
-			}
-			push_constant_cache_by_cmd[cmd] = cache
-			return cache.entries
-		end
-
-		function self:ShouldPushConstants(cmd, pipeline_key, stage_key, offset, data, size)
-			local entries = get_push_constant_entries(cmd)
-			local src = ffi.cast("uint8_t *", data)
-
-			for i = 1, #entries do
-				local entry = entries[i]
-
-				if
-					entry.pipeline_key == pipeline_key and
-					entry.stage_key == stage_key and
-					entry.offset == offset and
-					entry.size == size
-				then
-					return not bytes_equal(entry.snapshot, src, size)
-				end
-			end
-
-			return true
-		end
-
-		function self:NotePushConstants(cmd, pipeline_key, stage_key, offset, data, size)
-			local entries = get_push_constant_entries(cmd)
-			local src = ffi.cast("uint8_t *", data)
-
-			for i = #entries, 1, -1 do
-				local entry = entries[i]
-
-				if
-					entry.pipeline_key == pipeline_key and
-					entry.stage_key == stage_key and
-					ranges_overlap(entry.offset, entry.size, offset, size)
-				then
-					table.remove(entries, i)
-				end
-			end
-
-			entries[#entries + 1] = {
-				pipeline_key = pipeline_key,
-				stage_key = stage_key,
-				offset = offset,
-				size = size,
-				snapshot = ffi.new("uint8_t[?]", size),
-			}
-			ffi.copy(entries[#entries].snapshot, src, size)
-		end
-
-		self.BytesEqual = bytes_equal
+		self.push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
 		-- Build vertex attributes
 		local attributes = {}
 		local logical_attributes = {}
@@ -2682,6 +2607,82 @@ do
 		end
 
 		return self
+	end
+
+	do
+		local function bytes_equal(lhs, rhs, size)
+			for i = 0, size - 1 do
+				if lhs[i] ~= rhs[i] then return false end
+			end
+
+			return true
+		end
+
+		EasyPipelineGraphics.BytesEqual = bytes_equal
+
+		local function ranges_overlap(lhs_offset, lhs_size, rhs_offset, rhs_size)
+			return lhs_offset < rhs_offset + rhs_size and rhs_offset < lhs_offset + rhs_size
+		end
+
+		local function get_push_constant_entries(cache, cmd)
+			local serial = cmd and cmd.recording_serial or 0
+			local cache = cache[cmd]
+
+			if cache and cache.serial == serial then return cache.entries end
+
+			cache = {
+				serial = serial,
+				entries = {},
+			}
+			cache[cmd] = cache
+			return cache.entries
+		end
+
+		function EasyPipelineGraphics:ShouldPushConstants(cmd, pipeline_key, stage_key, offset, data, size)
+			local entries = get_push_constant_entries(self.push_constant_cache_by_cmd, cmd)
+			local src = ffi.cast("uint8_t *", data)
+
+			for i = 1, #entries do
+				local entry = entries[i]
+
+				if
+					entry.pipeline_key == pipeline_key and
+					entry.stage_key == stage_key and
+					entry.offset == offset and
+					entry.size == size
+				then
+					return not bytes_equal(entry.snapshot, src, size)
+				end
+			end
+
+			return true
+		end
+
+		function EasyPipelineGraphics:NotePushConstants(cmd, pipeline_key, stage_key, offset, data, size)
+			local entries = get_push_constant_entries(self.push_constant_cache_by_cmd, cmd)
+			local src = ffi.cast("uint8_t *", data)
+
+			for i = #entries, 1, -1 do
+				local entry = entries[i]
+
+				if
+					entry.pipeline_key == pipeline_key and
+					entry.stage_key == stage_key and
+					ranges_overlap(entry.offset, entry.size, offset, size)
+				then
+					table.remove(entries, i)
+				end
+			end
+
+			entries[#entries + 1] = {
+				pipeline_key = pipeline_key,
+				stage_key = stage_key,
+				offset = offset,
+				size = size,
+				snapshot = ffi.new("uint8_t[?]", size),
+			}
+			ffi.copy(entries[#entries].snapshot, src, size)
+		end
 	end
 
 	EasyPipelineGraphics:Register()
