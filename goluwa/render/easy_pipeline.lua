@@ -40,59 +40,6 @@ local append_vertex_shader_input = glsl_meta.append_vertex_shader_input
 local build_fragment_shader = glsl_meta.build_fragment_shader
 local get_color_formats = glsl_meta.get_color_formats
 
-local FIELD_TYPE_BYTE_SIZE = {
-	float = 4,
-	int = 4,
-	bool = 4,
-	boolean = 4,
-	vec2 = 8,
-	vec3 = 12,
-	vec4 = 16,
-	ivec2 = 8,
-	ivec3 = 12,
-	ivec4 = 16,
-	mat4 = 64,
-	uint64_t = 8,
-}
-local struct_counter = 0
-local GLSL_TO_FFI = {
-	mat4 = "float",
-	vec4 = "float",
-	vec3 = "float",
-	vec2 = "float",
-	float = "float",
-	bool = "int",
-	boolean = "int",
-	int = "int",
-	ivec4 = "int",
-	ivec3 = "int",
-	ivec2 = "int",
-	uint64_t = "uint64_t",
-}
-local GLSL_TO_ARRAY_SIZE = {
-	mat4 = 16,
-	vec4 = 4,
-	vec3 = 3,
-	vec2 = 2,
-	ivec4 = 4,
-	ivec3 = 3,
-	ivec2 = 2,
-	uint64_t = 1,
-}
-local GLSL_TO_LUA_TYPE = {
-	mat4 = ffi.typeof("float[16]"),
-	vec4 = ffi.typeof("float[4]"),
-	vec3 = ffi.typeof("float[3]"),
-	vec2 = ffi.typeof("float[2]"),
-	float = ffi.typeof("float"),
-	int = ffi.typeof("int"),
-	ivec4 = ffi.typeof("int[4]"),
-	ivec3 = ffi.typeof("int[3]"),
-	ivec2 = ffi.typeof("int[2]"),
-	uint64_t = ffi.typeof("uint64_t"),
-}
-
-
 local function resolve_framebuffer_size(config)
 	local size = config.FramebufferSize or render.GetRenderImageSize()
 	local scale = config.scale or config.Scale
@@ -211,7 +158,6 @@ local function get_compute_sampled_descriptor(texture)
 	texture.sampler or render.CreateSampler(texture:GetSamplerConfig())
 end
 
-
 local function get_constant_stage_config(config, stage_name)
 	return config[stage_name] or
 		(
@@ -224,8 +170,6 @@ local function get_constant_stage_config(config, stage_name)
 			config.task
 		)
 end
-
-
 
 local function resolve_draw_frame_index(self, frame_index)
 	if frame_index then return frame_index end
@@ -2327,138 +2271,138 @@ do
 			end
 		end
 
-		function self:RecreateFramebuffers()
-			create_owned_framebuffers(self, {color_image_usage = {"storage"}})
-		end
-
-		function self:Draw(cmd, framebuffer, frame_index)
-			cmd = cmd or render.GetCommandBuffer()
-			local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
-			local descriptor_count = self:GetDescriptorSetCount()
-			local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
-
-			if not fb then
-				error(
-					"EasyPipeline.ComputePass: Draw requires an owned framebuffer or explicit framebuffer",
-					2
-				)
-			end
-
-			render.PushCommandBuffer(cmd)
-			local current_frame_index = render.GetCurrentFrame() or frame_index or 1
-
-			if current_frame_index < 1 then current_frame_index = 1 end
-
-			if current_frame_index > self.compute_pass_frame_span then
-				current_frame_index = ((current_frame_index - 1) % self.compute_pass_frame_span) + 1
-			end
-
-			if self._compute_pass_descriptor_cmd ~= cmd then
-				self._compute_pass_descriptor_cmd = cmd
-				self._compute_pass_descriptor_slot = 0
-			end
-
-			local descriptor_slot = (self._compute_pass_descriptor_slot or 0) + 1
-			local descriptor_frame_index = ((current_frame_index - 1) * self.compute_pass_slots_per_frame) + descriptor_slot
-
-			if
-				descriptor_count and
-				descriptor_count > 0 and
-				descriptor_frame_index > descriptor_count
-			then
-				error(
-					string.format(
-						"EasyPipeline.ComputePass: descriptor set ring exhausted for frame %d (%d > %d)",
-						current_frame_index,
-						descriptor_frame_index,
-						descriptor_count
-					),
-					2
-				)
-			end
-
-			self._compute_pass_descriptor_slot = descriptor_slot
-			local transitioned = {}
-
-			if self.on_pre_draw then
-				self.on_pre_draw(self, cmd, resolved_frame_index, descriptor_frame_index)
-			end
-
-			for _, info in ipairs(self.storage_images) do
-				local texture = info.get_texture and
-					info.get_texture(self, fb, resolved_frame_index) or
-					fb:GetAttachment(info.attachment or 1)
-				assert(
-					texture,
-					self.name .. " is missing compute output texture for binding " .. tostring(info.binding_index)
-				)
-				transition_texture_to_compute_storage(texture, cmd)
-				self:UpdateDescriptorSet(
-					"storage_image",
-					descriptor_frame_index,
-					info.binding_index,
-					info.set_index,
-					texture:GetView()
-				)
-				transitioned[#transitioned + 1] = {
-					texture = texture,
-					dst_stage = info.dst_stage,
-				}
-			end
-
-			for _, info in ipairs(self.sampled_images) do
-				local view
-				local sampler
-
-				if info.get_descriptor then
-					local descriptor = info.get_descriptor(self, fb, resolved_frame_index)
-
-					if type(descriptor) == "table" then
-						view = descriptor[1]
-						sampler = descriptor[2]
-					end
-				elseif info.get_texture then
-					view, sampler = get_compute_sampled_descriptor(info.get_texture(self, fb, resolved_frame_index))
-				else
-					view, sampler = get_compute_sampled_descriptor(nil)
-				end
-
-				if not view or not sampler then
-					view, sampler = get_compute_sampled_descriptor(nil)
-				end
-
-				self:UpdateDescriptorSet(
-					"combined_image_sampler",
-					descriptor_frame_index,
-					info.binding_index,
-					info.set_index,
-					view,
-					sampler
-				)
-			end
-
-			if self.on_draw then
-				self.on_draw(self, cmd, fb, resolved_frame_index, descriptor_frame_index)
-			else
-				self:UploadConstants()
-				self.pipeline:DispatchForSize(
-					cmd,
-					fb.width,
-					fb.height,
-					1,
-					descriptor_frame_index,
-					self.dynamic_offsets
-				)
-			end
-
-			for _, info in ipairs(transitioned) do
-				transition_texture_from_compute_storage(info.texture, cmd, info.dst_stage)
-			end
-
-			render.PopCommandBuffer()
-		end
-
 		return self
+	end
+
+	function EasyPipelineCompute:RecreateFramebuffers()
+		create_owned_framebuffers(self, {color_image_usage = {"storage"}})
+	end
+
+	function EasyPipelineCompute:Draw(cmd, framebuffer, frame_index)
+		cmd = cmd or render.GetCommandBuffer()
+		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
+		local descriptor_count = self:GetDescriptorSetCount()
+		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
+
+		if not fb then
+			error(
+				"EasyPipeline.ComputePass: Draw requires an owned framebuffer or explicit framebuffer",
+				2
+			)
+		end
+
+		render.PushCommandBuffer(cmd)
+		local current_frame_index = render.GetCurrentFrame() or frame_index or 1
+
+		if current_frame_index < 1 then current_frame_index = 1 end
+
+		if current_frame_index > self.compute_pass_frame_span then
+			current_frame_index = ((current_frame_index - 1) % self.compute_pass_frame_span) + 1
+		end
+
+		if self._compute_pass_descriptor_cmd ~= cmd then
+			self._compute_pass_descriptor_cmd = cmd
+			self._compute_pass_descriptor_slot = 0
+		end
+
+		local descriptor_slot = (self._compute_pass_descriptor_slot or 0) + 1
+		local descriptor_frame_index = ((current_frame_index - 1) * self.compute_pass_slots_per_frame) + descriptor_slot
+
+		if
+			descriptor_count and
+			descriptor_count > 0 and
+			descriptor_frame_index > descriptor_count
+		then
+			error(
+				string.format(
+					"EasyPipeline.ComputePass: descriptor set ring exhausted for frame %d (%d > %d)",
+					current_frame_index,
+					descriptor_frame_index,
+					descriptor_count
+				),
+				2
+			)
+		end
+
+		self._compute_pass_descriptor_slot = descriptor_slot
+		local transitioned = {}
+
+		if self.on_pre_draw then
+			self.on_pre_draw(self, cmd, resolved_frame_index, descriptor_frame_index)
+		end
+
+		for _, info in ipairs(self.storage_images) do
+			local texture = info.get_texture and
+				info.get_texture(self, fb, resolved_frame_index) or
+				fb:GetAttachment(info.attachment or 1)
+			assert(
+				texture,
+				self.name .. " is missing compute output texture for binding " .. tostring(info.binding_index)
+			)
+			transition_texture_to_compute_storage(texture, cmd)
+			self:UpdateDescriptorSet(
+				"storage_image",
+				descriptor_frame_index,
+				info.binding_index,
+				info.set_index,
+				texture:GetView()
+			)
+			transitioned[#transitioned + 1] = {
+				texture = texture,
+				dst_stage = info.dst_stage,
+			}
+		end
+
+		for _, info in ipairs(self.sampled_images) do
+			local view
+			local sampler
+
+			if info.get_descriptor then
+				local descriptor = info.get_descriptor(self, fb, resolved_frame_index)
+
+				if type(descriptor) == "table" then
+					view = descriptor[1]
+					sampler = descriptor[2]
+				end
+			elseif info.get_texture then
+				view, sampler = get_compute_sampled_descriptor(info.get_texture(self, fb, resolved_frame_index))
+			else
+				view, sampler = get_compute_sampled_descriptor(nil)
+			end
+
+			if not view or not sampler then
+				view, sampler = get_compute_sampled_descriptor(nil)
+			end
+
+			self:UpdateDescriptorSet(
+				"combined_image_sampler",
+				descriptor_frame_index,
+				info.binding_index,
+				info.set_index,
+				view,
+				sampler
+			)
+		end
+
+		if self.on_draw then
+			self.on_draw(self, cmd, fb, resolved_frame_index, descriptor_frame_index)
+		else
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(
+				cmd,
+				fb.width,
+				fb.height,
+				1,
+				descriptor_frame_index,
+				self.dynamic_offsets
+			)
+		end
+
+		for _, info in ipairs(transitioned) do
+			transition_texture_from_compute_storage(info.texture, cmd, info.dst_stage)
+		end
+
+		render.PopCommandBuffer()
 	end
 
 	EasyPipelineCompute:Register()
