@@ -9,64 +9,6 @@ local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
 local glsl_meta = import("goluwa/render/glsl_metadata.lua")
 
-local function resolve_framebuffer_size(config)
-	local size = config.FramebufferSize or render.GetRenderImageSize()
-	local scale = config.scale or config.Scale
-
-	if type(size) == "function" then size = size() end
-
-	if type(scale) == "function" then scale = scale() end
-
-	local width = tonumber(size.x or size.width or size.w or 0) or 0
-	local height = tonumber(size.y or size.height or size.h or 0) or 0
-
-	if scale ~= nil then
-		width = math.max(1, math.floor(width * scale + 0.5))
-		height = math.max(1, math.floor(height * scale + 0.5))
-	end
-
-	return {x = width, y = height}
-end
-
-local function create_owned_framebuffers(self, extra_config)
-	local framebuffer_count = self.config.framebuffer_count or 1
-	local size = resolve_framebuffer_size(self.config)
-
-	if self.framebuffers then
-		for _, fb in ipairs(self.framebuffers) do
-			fb:Remove()
-		end
-
-		self.framebuffers = nil
-	end
-
-	local function build_framebuffer_config()
-		local config = {
-			width = size.x,
-			height = size.y,
-			formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
-			depth = self.config.DepthFormat ~= nil,
-			depth_format = self.config.DepthFormat,
-			mip_map_levels = self.config.mip_map_levels,
-			color_image_usage = self.config.color_image_usage,
-		}
-
-		if extra_config then
-			for key, value in pairs(extra_config) do
-				config[key] = value
-			end
-		end
-
-		return config
-	end
-
-	self.framebuffers = {}
-
-	for i = 1, framebuffer_count do
-		self.framebuffers[i] = Framebuffer.New(build_framebuffer_config())
-	end
-end
-
 local function transition_compute_image(texture, cmd, src_stage, dst_stage, src_access, dst_access, new_layout)
 	local image = texture:GetImage()
 	local old_layout = image.layout or "undefined"
@@ -106,18 +48,6 @@ local function transition_texture_to_compute_storage(texture, cmd)
 	end
 
 	transition_compute_image(texture, cmd, src_stage, "compute", src_access, "shader_write", "general")
-end
-
-local function transition_texture_from_compute_storage(texture, cmd, dst_stage)
-	transition_compute_image(
-		texture,
-		cmd,
-		"compute",
-		dst_stage or "fragment",
-		"shader_write",
-		"shader_read",
-		"shader_read_only_optimal"
-	)
 end
 
 local function get_compute_sampled_descriptor(texture)
@@ -391,7 +321,67 @@ do
 	end
 
 	function EasyPipeline:RecreateFramebuffers()
-		create_owned_framebuffers(self)
+		self:CreateOwnedFramebuffers()
+	end
+
+	do
+		local function resolve_framebuffer_size(config)
+			local size = config.FramebufferSize or render.GetRenderImageSize()
+			local scale = config.scale or config.Scale
+
+			if type(size) == "function" then size = size() end
+
+			if type(scale) == "function" then scale = scale() end
+
+			local width = tonumber(size.x or size.width or size.w or 0) or 0
+			local height = tonumber(size.y or size.height or size.h or 0) or 0
+
+			if scale ~= nil then
+				width = math.max(1, math.floor(width * scale + 0.5))
+				height = math.max(1, math.floor(height * scale + 0.5))
+			end
+
+			return {x = width, y = height}
+		end
+
+		function EasyPipeline:CreateOwnedFramebuffers(extra_config)
+			local framebuffer_count = self.config.framebuffer_count or 1
+			local size = resolve_framebuffer_size(self.config)
+
+			if self.framebuffers then
+				for _, fb in ipairs(self.framebuffers) do
+					fb:Remove()
+				end
+
+				self.framebuffers = nil
+			end
+
+			local function build_framebuffer_config()
+				local config = {
+					width = size.x,
+					height = size.y,
+					formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
+					depth = self.config.DepthFormat ~= nil,
+					depth_format = self.config.DepthFormat,
+					mip_map_levels = self.config.mip_map_levels,
+					color_image_usage = self.config.color_image_usage,
+				}
+
+				if extra_config then
+					for key, value in pairs(extra_config) do
+						config[key] = value
+					end
+				end
+
+				return config
+			end
+
+			self.framebuffers = {}
+
+			for i = 1, framebuffer_count do
+				self.framebuffers[i] = Framebuffer.New(build_framebuffer_config())
+			end
+		end
 	end
 
 	function EasyPipeline:OnWindowFramebufferResized()
@@ -2236,7 +2226,7 @@ do
 				config.DepthFormat
 			)
 		then
-			create_owned_framebuffers(self, {color_image_usage = {"storage"}})
+			self:RecreateFramebuffers()
 
 			if not self.config.FramebufferSize then
 				self:AddGlobalEvent("WindowFramebufferResized")
@@ -2247,7 +2237,7 @@ do
 	end
 
 	function EasyPipelineCompute:RecreateFramebuffers()
-		create_owned_framebuffers(self, {color_image_usage = {"storage"}})
+		self:CreateOwnedFramebuffers({color_image_usage = {"storage"}})
 	end
 
 	function EasyPipelineCompute:Draw(cmd, framebuffer, frame_index)
@@ -2371,7 +2361,15 @@ do
 		end
 
 		for _, info in ipairs(transitioned) do
-			transition_texture_from_compute_storage(info.texture, cmd, info.dst_stage)
+			transition_compute_image(
+				info.texture,
+				cmd,
+				"compute",
+				info.dst_stage or "fragment",
+				"shader_write",
+				"shader_read",
+				"shader_read_only_optimal"
+			)
 		end
 
 		render.PopCommandBuffer()
