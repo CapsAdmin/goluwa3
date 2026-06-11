@@ -184,23 +184,21 @@ local function draw_volumetric_froxel_build(self, cmd)
 	if not texture then return end
 
 	local image = texture:GetImage()
-	cmd:PipelineBarrier{
-		srcStage = "fragment_shader",
-		dstStage = "color_attachment_output",
-		imageBarriers = {
-			{
-				image = image,
-				oldLayout = image.layout or "shader_read_only_optimal",
-				newLayout = "color_attachment_optimal",
-				srcAccessMask = "shader_read",
-				dstAccessMask = "color_attachment_write",
-				base_array_layer = 0,
-				layer_count = FROXEL_SLICE_COUNT,
-				base_mip_level = 0,
-				level_count = 1,
-			},
-		},
-	}
+	render.TransitionResourceTo(
+		texture,
+		"color_attachment_optimal",
+		{
+			cmd = cmd,
+			srcStage = "fragment_shader",
+			srcAccess = "shader_read",
+			dstStage = "color_attachment_output",
+			dstAccess = "color_attachment_write",
+			base_array_layer = 0,
+			layer_count = FROXEL_SLICE_COUNT,
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	)
 
 	for slice = 0, FROXEL_SLICE_COUNT - 1 do
 		volumetric_froxels.current_slice = slice
@@ -224,24 +222,21 @@ local function draw_volumetric_froxel_build(self, cmd)
 		cmd:EndRendering()
 	end
 
-	cmd:PipelineBarrier{
-		srcStage = "color_attachment_output",
-		dstStage = "fragment_shader",
-		imageBarriers = {
-			{
-				image = image,
-				oldLayout = "color_attachment_optimal",
-				newLayout = "shader_read_only_optimal",
-				srcAccessMask = "color_attachment_write",
-				dstAccessMask = "shader_read",
-				base_array_layer = 0,
-				layer_count = FROXEL_SLICE_COUNT,
-				base_mip_level = 0,
-				level_count = 1,
-			},
-		},
-	}
-	image.layout = "shader_read_only_optimal"
+	render.TransitionResourceFrom(
+		texture,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "color_attachment_output",
+			srcAccess = "color_attachment_write",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = FROXEL_SLICE_COUNT,
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	)
 end
 
 local get_raw_scene_source_texture = post_source.WriteRawSceneSourceTexture

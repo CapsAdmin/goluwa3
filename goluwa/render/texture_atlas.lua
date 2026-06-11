@@ -162,19 +162,15 @@ function META:Build()
 	for _, page in ipairs(self.pages) do
 		if page.dirty then
 			-- Transition page texture to transfer_dst
-			cmd:PipelineBarrier{
-				srcStage = "all_commands",
-				dstStage = "transfer",
-				imageBarriers = {
-					{
-						image = page.texture:GetImage(),
-						oldLayout = page.texture:GetImage().layout or "shader_read_only_optimal",
-						newLayout = "transfer_dst_optimal",
-						srcAccessMask = "none",
-						dstAccessMask = "transfer_write",
-					},
-				},
-			}
+			render.TransitionResourceTo(
+				page.texture,
+				"transfer_dst_optimal",
+				{
+					cmd = cmd,
+					srcStage = "all_commands",
+					dstStage = "transfer",
+				}
+			)
 
 			for _, data in pairs(page.textures) do
 				if not data.uploaded then
@@ -195,19 +191,15 @@ function META:Build()
 			if page.texture:GetMipMapLevels() > 1 then
 				page.texture:GenerateMipmaps("transfer_dst_optimal")
 			else
-				cmd:PipelineBarrier{
-					srcStage = "transfer",
-					dstStage = "all_commands",
-					imageBarriers = {
-						{
-							image = page.texture:GetImage(),
-							oldLayout = "transfer_dst_optimal",
-							newLayout = "shader_read_only_optimal",
-							srcAccessMask = "transfer_write",
-							dstAccessMask = "memory_read",
-						},
-					},
-				}
+				render.TransitionResourceFrom(
+					page.texture,
+					"shader_read_only_optimal",
+					{
+						cmd = cmd,
+						srcStage = "transfer",
+						dstStage = "all_commands",
+					}
+				)
 			end
 
 			page.dirty = false

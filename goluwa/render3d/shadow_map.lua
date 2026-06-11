@@ -1629,41 +1629,34 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		end
 
 		local color_view = self.point_face_views[cascade_index]
-		local old_layout = self.cascade[cascade_index].is_sampleable and
-			"shader_read_only_optimal" or
-			"undefined"
-		self.cmd:PipelineBarrier{
-			srcStage = "fragment_shader",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = self.point_depth_cubemap:GetImage(),
-					srcAccessMask = "shader_read",
-					dstAccessMask = "color_attachment_write",
-					oldLayout = old_layout,
-					newLayout = "color_attachment_optimal",
-					base_array_layer = cascade_index - 1,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
+		render.TransitionResourceTo(
+			self.point_depth_cubemap,
+			"color_attachment_optimal",
+			{
+				cmd = self.cmd,
+				srcStage = "fragment_shader",
+				srcAccess = "shader_read",
+				dstStage = "color_attachment_output",
+				dstAccess = "color_attachment_write",
+				base_array_layer = cascade_index - 1,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
 
 		if not self.point_depth_buffer_ready then
-			self.cmd:PipelineBarrier{
-				srcStage = "top_of_pipe",
-				dstStage = "early_fragment_tests",
-				imageBarriers = {
-					{
-						image = self.point_depth_buffer:GetImage(),
-						srcAccessMask = "none",
-						dstAccessMask = "depth_stencil_attachment_write",
-						oldLayout = "undefined",
-						newLayout = "depth_attachment_optimal",
-					},
-				},
-			}
+			render.TransitionResourceTo(
+				self.point_depth_buffer,
+				"depth_attachment_optimal",
+				{
+					cmd = self.cmd,
+					srcStage = "top_of_pipe",
+					srcAccess = "none",
+					dstStage = "early_fragment_tests",
+					dstAccess = "depth_stencil_attachment_write",
+				}
+			)
 			self.point_depth_buffer_ready = true
 		end
 
@@ -1704,22 +1697,17 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 	end
 
 	-- Transition depth texture to depth attachment optimal
-	self.cmd:PipelineBarrier{
-		srcStage = "fragment",
-		dstStage = "early_fragment_tests",
-		imageBarriers = {
-			{
-				image = depth_texture:GetImage(),
-				srcAccessMask = "shader_read",
-				dstAccessMask = "depth_stencil_attachment_write",
-				oldLayout = self.cascade[cascade_index].is_sampleable and
-					"shader_read_only_optimal" or
-					"undefined",
-				newLayout = "depth_attachment_optimal",
-			-- aspect is automatically determined from image format by PipelineBarrier
-			},
-		},
-	}
+	render.TransitionResourceTo(
+		depth_texture,
+		"depth_attachment_optimal",
+		{
+			cmd = self.cmd,
+			srcStage = "fragment",
+			srcAccess = "shader_read",
+			dstStage = "early_fragment_tests",
+			dstAccess = "depth_stencil_attachment_write",
+		}
+	)
 	-- Use integer values from the depth texture to ensure consistency
 	local w = depth_texture:GetWidth()
 	local h = depth_texture:GetHeight()
@@ -2354,23 +2342,21 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 
 	if self.mode == "point" then
 		self.cmd:EndRendering()
-		self.cmd:PipelineBarrier{
-			srcStage = "color_attachment_output",
-			dstStage = "fragment_shader",
-			imageBarriers = {
-				{
-					image = self.point_depth_cubemap:GetImage(),
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-					base_array_layer = cascade_index - 1,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
+		render.TransitionResourceFrom(
+			self.point_depth_cubemap,
+			"shader_read_only_optimal",
+			{
+				cmd = self.cmd,
+				srcStage = "color_attachment_output",
+				srcAccess = "color_attachment_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+				base_array_layer = cascade_index - 1,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
 		self.cascade[cascade_index].is_sampleable = true
 
 		if is_last_in_batch then
@@ -2385,20 +2371,17 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 	local depth_texture = self.cascade[cascade_index].depth_texture
 	self.cmd:EndRendering()
 	-- Transition depth texture to shader read optimal for sampling
-	self.cmd:PipelineBarrier{
-		srcStage = "late_fragment_tests",
-		dstStage = "fragment",
-		imageBarriers = {
-			{
-				image = depth_texture:GetImage(),
-				srcAccessMask = "depth_stencil_attachment_write",
-				dstAccessMask = "shader_read",
-				oldLayout = "depth_attachment_optimal",
-				newLayout = "shader_read_only_optimal",
-			-- aspect is automatically determined from image format by PipelineBarrier
-			},
-		},
-	}
+	render.TransitionResourceFrom(
+		depth_texture,
+		"shader_read_only_optimal",
+		{
+			cmd = self.cmd,
+			srcStage = "late_fragment_tests",
+			srcAccess = "depth_stencil_attachment_write",
+			dstStage = "fragment",
+			dstAccess = "shader_read",
+		}
+	)
 	self.cascade[cascade_index].is_sampleable = true
 
 	if is_last_in_batch then

@@ -670,10 +670,6 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 	local cmd_pool = render.GetCommandPool()
 	local cmd = render.GetCommandBufferOutsideRendering()
 	local internal_cmd = false
-	local src_image = other:GetImage()
-	local dst_image = self:GetImage()
-	local src_old_layout = src_image.layout or "shader_read_only_optimal"
-	local dst_old_layout = dst_image.layout or "shader_read_only_optimal"
 
 	if not cmd then
 		cmd = cmd_pool:AllocateCommandBuffer()
@@ -681,56 +677,33 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 		internal_cmd = true
 	end
 
-	-- Transition src to transfer_src
-	cmd:PipelineBarrier{
-		srcStage = "all_commands",
-		dstStage = "transfer",
-		imageBarriers = {
-			{
-				image = src_image,
-				oldLayout = src_old_layout,
-				newLayout = "transfer_src_optimal",
-				srcAccessMask = "memory_read",
-				dstAccessMask = "transfer_read",
-			},
-		},
-	}
-	-- Transition dst to transfer_dst
-	cmd:PipelineBarrier{
-		srcStage = "all_commands",
-		dstStage = "transfer",
-		imageBarriers = {
-			{
-				image = dst_image,
-				oldLayout = dst_old_layout,
-				newLayout = "transfer_dst_optimal",
-				srcAccessMask = "none",
-				dstAccessMask = "transfer_write",
-			},
-		},
-	}
-	cmd:CopyImageToImage(src_image, dst_image, width, height, srcX, srcY, dstX, dstY)
-	-- Transition back
-	cmd:PipelineBarrier{
-		srcStage = "transfer",
-		dstStage = "all_commands",
-		imageBarriers = {
-			{
-				image = src_image,
-				oldLayout = "transfer_src_optimal",
-				newLayout = src_old_layout,
-				srcAccessMask = "transfer_read",
-				dstAccessMask = "memory_read",
-			},
-			{
-				image = dst_image,
-				oldLayout = "transfer_dst_optimal",
-				newLayout = dst_old_layout,
-				srcAccessMask = "transfer_write",
-				dstAccessMask = "memory_read",
-			},
-		},
-	}
+	-- Transition both resources
+	local src_old_layout, dst_old_layout = render.TransitionResources(
+		other,
+		self,
+		"transfer_src_optimal",
+		"transfer_dst_optimal",
+		{
+			cmd = cmd,
+			srcStage = "all_commands",
+			dstStage = "transfer",
+		}
+	)
+	cmd:CopyImageToImage(other:GetImage(), self:GetImage(), width, height, srcX, srcY, dstX, dstY)
+	-- Restore both resources
+	render.RestoreResources(
+		other,
+		self,
+		src_old_layout,
+		dst_old_layout,
+		{
+			cmd = cmd,
+			src_new_layout = "transfer_src_optimal",
+			dst_new_layout = "transfer_dst_optimal",
+			srcStage = "transfer",
+			dstStage = "all_commands",
+		}
+	)
 
 	if internal_cmd then
 		cmd:End()
@@ -800,21 +773,19 @@ function Texture:Upload(data, keep_in_transfer_dst)
 
 	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition image to transfer dst (only mip level 0)
-	cmd:PipelineBarrier{
-		srcStage = "compute",
-		dstStage = "transfer",
-		imageBarriers = {
-			{
-				image = self.image,
-				srcAccessMask = "none",
-				dstAccessMask = "transfer_write",
-				oldLayout = "undefined",
-				newLayout = "transfer_dst_optimal",
-				base_mip_level = 0,
-				level_count = 1,
-			},
-		},
-	}
+	render.TransitionResourceTo(
+		self,
+		"transfer_dst_optimal",
+		{
+			cmd = cmd,
+			srcStage = "compute",
+			srcAccess = "none",
+			dstStage = "transfer",
+			dstAccess = "transfer_write",
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	)
 	-- Copy buffer to image
 	cmd:CopyBufferToImage(staging_buffer, self.image, width, height, x, y)
 
@@ -836,21 +807,19 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		end
 
 		-- Transition to final layout
-		cmd:PipelineBarrier{
-			srcStage = "transfer",
-			dstStage = dst_stage,
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "transfer_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "transfer_dst_optimal",
-					newLayout = final_layout,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
+		render.TransitionResourceFrom(
+			self,
+			final_layout,
+			{
+				cmd = cmd,
+				srcStage = "transfer",
+				srcAccess = "transfer_write",
+				dstStage = dst_stage,
+				dstAccess = "shader_read",
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
 	end
 
 	if internal_cmd then
@@ -889,21 +858,19 @@ function Texture:UploadCompressed(data, vulkan_info)
 
 	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition all mip levels to transfer dst
-	cmd:PipelineBarrier{
-		srcStage = "top_of_pipe",
-		dstStage = "transfer",
-		imageBarriers = {
-			{
-				image = self.image,
-				srcAccessMask = "none",
-				dstAccessMask = "transfer_write",
-				oldLayout = "undefined",
-				newLayout = "transfer_dst_optimal",
-				base_mip_level = 0,
-				level_count = mip_count,
-			},
-		},
-	}
+	render.TransitionResourceTo(
+		self,
+		"transfer_dst_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "transfer",
+			dstAccess = "transfer_write",
+			base_mip_level = 0,
+			level_count = mip_count,
+		}
+	)
 
 	-- Copy each mip level from the staging buffer
 	for mip = 1, mip_count do
@@ -923,21 +890,19 @@ function Texture:UploadCompressed(data, vulkan_info)
 	end
 
 	-- Transition all mip levels to shader read optimal
-	cmd:PipelineBarrier{
-		srcStage = "transfer",
-		dstStage = "fragment",
-		imageBarriers = {
-			{
-				image = self.image,
-				srcAccessMask = "transfer_write",
-				dstAccessMask = "shader_read",
-				oldLayout = "transfer_dst_optimal",
-				newLayout = "shader_read_only_optimal",
-				base_mip_level = 0,
-				level_count = mip_count,
-			},
-		},
-	}
+	render.TransitionResourceFrom(
+		self,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "transfer",
+			srcAccess = "transfer_write",
+			dstStage = "fragment",
+			dstAccess = "shader_read",
+			base_mip_level = 0,
+			level_count = mip_count,
+		}
+	)
 
 	if internal_cmd then
 		cmd:End()
@@ -1452,23 +1417,21 @@ function Texture:Shade(glsl, extra_config)
 	-- Begin recording commands
 	cmd:Reset()
 	cmd:Begin()
-	-- Transition image from undefined/shader_read to color_attachment_optimal
-	local old_layout = self.image.layout or "undefined"
-	cmd:PipelineBarrier{
-		srcStage = "top_of_pipe",
-		dstStage = "color_attachment_output",
-		imageBarriers = {
-			{
-				image = self.image,
-				srcAccessMask = "none",
-				dstAccessMask = "color_attachment_write",
-				oldLayout = (extra_config.load_op == "load") and old_layout or "undefined",
-				newLayout = "color_attachment_optimal",
-				level_count = 1,
-				layer_count = layers,
-			},
-		},
-	}
+	-- Transition image to color_attachment_optimal
+	render.TransitionResourceTo(
+		self,
+		"color_attachment_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "color_attachment_output",
+			dstAccess = "color_attachment_write",
+			oldLayout = (extra_config.load_op == "load") and (self.image.layout or "undefined") or "undefined",
+			level_count = 1,
+			layer_count = layers,
+		}
+	)
 	pipeline:Bind(cmd)
 
 	for i = 0, layers - 1 do
@@ -1507,21 +1470,19 @@ function Texture:Shade(glsl, extra_config)
 		render.PopCommandBuffer()
 	else
 		-- Transition to shader_read_only_optimal
-		cmd:PipelineBarrier{
-			srcStage = "color_attachment_output",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-					level_count = 1,
-					layer_count = layers,
-				},
-			},
-		}
+		render.TransitionResourceFrom(
+			self,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "color_attachment_output",
+				srcAccess = "color_attachment_write",
+				dstStage = "fragment",
+				dstAccess = "shader_read",
+				level_count = 1,
+				layer_count = layers,
+			}
+		)
 	end
 
 	-- End command buffer
@@ -1729,24 +1690,16 @@ do
 		-- Create command buffer for copy
 		local copy_cmd = render.GetCommandPool():AllocateCommandBuffer()
 		copy_cmd:Begin()
-		local old_layout = image.layout or "undefined"
-
-		if old_layout ~= "transfer_src_optimal" then
-			copy_cmd:PipelineBarrier{
+		-- Transition to transfer_src for copy
+		local old_layout = render.TransitionResourceTo(
+			self,
+			"transfer_src_optimal",
+			{
+				cmd = copy_cmd,
 				srcStage = "all_commands",
 				dstStage = "transfer",
-				imageBarriers = {
-					{
-						image = image,
-						oldLayout = old_layout,
-						newLayout = "transfer_src_optimal",
-						srcAccessMask = "memory_read",
-						dstAccessMask = "transfer_read",
-					},
-				},
 			}
-		end
-
+		)
 		copy_cmd:CopyImageToBuffer{
 			image = image,
 			image_layout = "transfer_src_optimal",
@@ -1760,20 +1713,17 @@ do
 			depth = 1,
 		}
 
+		-- Restore original layout
 		if old_layout ~= "transfer_src_optimal" then
-			copy_cmd:PipelineBarrier{
-				srcStage = "transfer",
-				dstStage = "all_commands",
-				imageBarriers = {
-					{
-						image = image,
-						oldLayout = "transfer_src_optimal",
-						newLayout = old_layout,
-						srcAccessMask = "transfer_read",
-						dstAccessMask = "memory_read",
-					},
-				},
-			}
+			render.TransitionResourceFrom(
+				self,
+				old_layout,
+				{
+					cmd = copy_cmd,
+					srcStage = "transfer",
+					dstStage = "all_commands",
+				}
+			)
 		end
 
 		copy_cmd:End()

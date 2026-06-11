@@ -79,47 +79,12 @@ local passes = {
 			-- 1. Execute main SSGI ray tracing shader
 			local ssgi_tex = fb:GetAttachment(1)
 			assert(ssgi_tex, "ssgi: missing output texture")
-			local ssgi_img = ssgi_tex:GetImage()
-			local old_layout = ssgi_img.layout or "undefined"
-
-			if old_layout ~= "general" then
-				cmd:PipelineBarrier{
-					srcStage = "fragment",
-					dstStage = "compute_shader",
-					imageBarriers = {
-						{
-							image = ssgi_img,
-							srcAccessMask = "shader_read",
-							dstAccessMask = "shader_write",
-							oldLayout = old_layout,
-							newLayout = "general",
-						},
-					},
-				}
-				ssgi_img.layout = "general"
-			end
-
+			render.TransitionResourceToComputeStorage(ssgi_tex, {cmd = cmd})
 			self:UpdateDescriptorSet("storage_image", descriptor_frame_index, 0, 0, ssgi_tex:GetView())
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(cmd, fb.width, fb.height, 1, descriptor_frame_index, self.dynamic_offsets)
-
 			-- Transition output back to shader_read
-			if ssgi_img.layout ~= "shader_read_only_optimal" then
-				cmd:PipelineBarrier{
-					srcStage = "compute_shader",
-					dstStage = "fragment",
-					imageBarriers = {
-						{
-							image = ssgi_img,
-							srcAccessMask = "shader_write",
-							dstAccessMask = "shader_read",
-							oldLayout = "general",
-							newLayout = "shader_read_only_optimal",
-						},
-					},
-				}
-				ssgi_img.layout = "shader_read_only_optimal"
-			end
+			render.TransitionResourceFrom(ssgi_tex, "shader_read_only_optimal", {cmd = cmd})
 
 			-- 2. Generate mip levels 1..SSGI_MAX_MIP by downsampling into the SSGI framebuffer's mip chain
 			for lod = 1, SSGI_MAX_MIP do

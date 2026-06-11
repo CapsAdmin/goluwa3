@@ -9,47 +9,6 @@ local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
 local glsl_meta = import("goluwa/render/glsl_metadata.lua")
 
-local function transition_compute_image(texture, cmd, src_stage, dst_stage, src_access, dst_access, new_layout)
-	local image = texture:GetImage()
-	local old_layout = image.layout or "undefined"
-
-	if old_layout == new_layout then return end
-
-	cmd:PipelineBarrier{
-		srcStage = src_stage,
-		dstStage = dst_stage,
-		imageBarriers = {
-			{
-				image = image,
-				srcAccessMask = src_access,
-				dstAccessMask = dst_access,
-				oldLayout = old_layout,
-				newLayout = new_layout,
-			},
-		},
-	}
-	image.layout = new_layout
-end
-
-local function transition_texture_to_compute_storage(texture, cmd)
-	local old_layout = texture:GetImage().layout or "undefined"
-	local src_stage = "top_of_pipe"
-	local src_access = "none"
-
-	if old_layout == "shader_read_only_optimal" then
-		src_stage = "fragment"
-		src_access = "shader_read"
-	elseif old_layout == "general" then
-		src_stage = "compute"
-		src_access = "shader_read"
-	elseif old_layout == "color_attachment_optimal" then
-		src_stage = "color_attachment_output"
-		src_access = "color_attachment_write"
-	end
-
-	transition_compute_image(texture, cmd, src_stage, "compute", src_access, "shader_write", "general")
-end
-
 local function get_compute_sampled_descriptor(texture)
 	texture = texture or render.GetErrorTexture()
 	assert(texture, "missing texture for compute sampled descriptor")
@@ -2301,7 +2260,7 @@ do
 				texture,
 				self.name .. " is missing compute output texture for binding " .. tostring(info.binding_index)
 			)
-			transition_texture_to_compute_storage(texture, cmd)
+			render.TransitionResourceToComputeStorage(texture, {cmd = cmd})
 			self:UpdateDescriptorSet(
 				"storage_image",
 				descriptor_frame_index,
@@ -2361,14 +2320,16 @@ do
 		end
 
 		for _, info in ipairs(transitioned) do
-			transition_compute_image(
+			render.TransitionResourceFrom(
 				info.texture,
-				cmd,
-				"compute",
-				info.dst_stage or "fragment",
-				"shader_write",
-				"shader_read",
-				"shader_read_only_optimal"
+				"shader_read_only_optimal",
+				{
+					cmd = cmd,
+					srcStage = "compute",
+					srcAccess = "shader_write",
+					dstStage = info.dst_stage or "fragment",
+					dstAccess = "shader_read",
+				}
 			)
 		end
 

@@ -683,6 +683,387 @@ do
 	end
 end
 
+do
+	local layout_access = {
+		["undefined"] = {srcStage = "top_of_pipe", srcAccess = "none"},
+		["general"] = {srcStage = "compute", srcAccess = "shader_read"},
+		["shader_read_only_optimal"] = {srcStage = "fragment", srcAccess = "shader_read"},
+		["color_attachment_optimal"] = {srcStage = "color_attachment_output", srcAccess = "color_attachment_write"},
+		["transfer_src_optimal"] = {srcStage = "transfer", srcAccess = "transfer_read"},
+		["transfer_dst_optimal"] = {srcStage = "transfer", srcAccess = "transfer_write"},
+		["depth_attachment_optimal"] = {srcStage = "color_attachment_output", srcAccess = "color_attachment_write"},
+		["depth_read_only_optimal"] = {srcStage = "fragment", srcAccess = "shader_read"},
+		["depth_stencil_attachment_optimal"] = {srcStage = "color_attachment_output", srcAccess = "color_attachment_write"},
+		["depth_stencil_read_only_optimal"] = {srcStage = "fragment", srcAccess = "shader_read"},
+		["present_src_khr"] = {srcStage = "color_attachment_output", srcAccess = "color_attachment_write"},
+	}
+	-- Destination access based on target layout
+	local layout_dst_access = {
+		["general"] = {dstStage = "compute", dstAccess = "shader_write"},
+		["shader_read_only_optimal"] = {dstStage = "fragment", dstAccess = "shader_read"},
+		["color_attachment_optimal"] = {dstStage = "color_attachment_output", dstAccess = "color_attachment_write"},
+		["transfer_src_optimal"] = {dstStage = "transfer", dstAccess = "transfer_read"},
+		["transfer_dst_optimal"] = {dstStage = "transfer", dstAccess = "transfer_write"},
+		["depth_attachment_optimal"] = {dstStage = "color_attachment_output", dstAccess = "color_attachment_write"},
+		["depth_read_only_optimal"] = {dstStage = "fragment", dstAccess = "shader_read"},
+		["depth_stencil_attachment_optimal"] = {dstStage = "color_attachment_output", dstAccess = "color_attachment_write"},
+		["depth_stencil_read_only_optimal"] = {dstStage = "fragment", dstAccess = "shader_read"},
+		["present_src_khr"] = {dstStage = "color_attachment_output", dstAccess = "none"},
+	}
+
+	local function resolve_resource(resource)
+		local image = resource
+		local get_image = resource.GetImage
+
+		if get_image then image = get_image(resource) end
+
+		local old_layout = image.layout or "undefined"
+		return image, old_layout
+	end
+
+	function render.TransitionImage(image, old_layout, new_layout, config)
+		config = config or {}
+
+		if old_layout == new_layout then return nil end
+
+		local src = layout_access[old_layout]
+		local dst = layout_dst_access[new_layout]
+
+		if not src then
+			error("render.TransitionImage: unknown old layout '" .. old_layout .. "'", 2)
+		end
+
+		if not dst then
+			error("render.TransitionImage: unknown new layout '" .. new_layout .. "'", 2)
+		end
+
+		local srcStage = config.srcStage or src.srcStage
+		local srcAccess = config.srcAccess or src.srcAccess
+		local dstStage = config.dstStage or dst.dstStage
+		local dstAccess = config.dstAccess or dst.dstAccess
+		local level_count = config.level_count
+
+		if not level_count then
+			local get_mip_levels = image.GetMipLevels
+
+			if get_mip_levels then
+				level_count = get_mip_levels(image)
+			else
+				level_count = 1
+			end
+		end
+
+		local layer_count = config.layer_count
+
+		if not layer_count then
+			local get_array_layers = image.GetArrayLayers
+
+			if get_array_layers then
+				layer_count = get_array_layers(image)
+			else
+				layer_count = 1
+			end
+		end
+
+		return {
+			srcStage = srcStage,
+			dstStage = dstStage,
+			imageBarriers = {
+				{
+					image = image,
+					srcAccessMask = srcAccess,
+					dstAccessMask = dstAccess,
+					oldLayout = old_layout,
+					newLayout = new_layout,
+					base_mip_level = config.base_mip_level or 0,
+					level_count = level_count,
+					base_array_layer = config.base_array_layer or 0,
+					layer_count = layer_count,
+				},
+			},
+		}
+	end
+
+	function render.TransitionResource(resource, new_layout, config)
+		config = config or {}
+		local image, old_layout = resolve_resource(resource)
+
+		if old_layout == new_layout then return nil end
+
+		local barrier = render.TransitionImage(image, old_layout, new_layout, config)
+
+		if not barrier then return nil end
+
+		local cmd = config.cmd or render.GetCommandBuffer()
+
+		if not cmd then
+			error("render.TransitionResource: no command buffer available", 2)
+		end
+
+		cmd:PipelineBarrier(barrier)
+		image.layout = new_layout
+		return barrier
+	end
+
+	function render.TransitionResourceTo(resource, new_layout, config)
+		config = config or {}
+		local image, old_layout = resolve_resource(resource)
+
+		if old_layout == new_layout then return old_layout end
+
+		local barrier = render.TransitionImage(image, old_layout, new_layout, config)
+
+		if not barrier then return old_layout end
+
+		local cmd = config.cmd or render.GetCommandBuffer()
+
+		if not cmd then
+			error("render.TransitionResourceTo: no command buffer available", 2)
+		end
+
+		cmd:PipelineBarrier(barrier)
+		image.layout = new_layout
+		return old_layout
+	end
+
+	function render.TransitionResourceFrom(resource, new_layout, config)
+		config = config or {}
+		local image = resource
+		local get_image = resource.GetImage
+
+		if get_image then image = get_image(resource) end
+
+		local actual_old_layout = image.layout or "undefined"
+
+		if actual_old_layout == new_layout then return nil end
+
+		local barrier = render.TransitionImage(image, actual_old_layout, new_layout, config)
+
+		if not barrier then return nil end
+
+		local cmd = config.cmd or render.GetCommandBuffer()
+
+		if not cmd then
+			error("render.TransitionResourceFrom: no command buffer available", 2)
+		end
+
+		cmd:PipelineBarrier(barrier)
+		image.layout = new_layout
+		return barrier
+	end
+
+	function render.TransitionResources(src, dst, new_src_layout, new_dst_layout, config)
+		config = config or {}
+		local src_image, src_old = resolve_resource(src)
+		local dst_image, dst_old = resolve_resource(dst)
+		local barriers = {}
+
+		if src_old ~= new_src_layout then
+			barriers["src"] = render.TransitionImage(src_image, src_old, new_src_layout, config)
+		end
+
+		if dst_old ~= new_dst_layout then
+			barriers["dst"] = render.TransitionImage(dst_image, dst_old, new_dst_layout, config)
+		end
+
+		local cmd = config.cmd or render.GetCommandBuffer()
+
+		if not cmd then
+			error("render.TransitionResources: no command buffer available", 2)
+		end
+
+		for _, barrier in pairs(barriers) do
+			cmd:PipelineBarrier(barrier)
+		end
+
+		if barriers.src then src_image.layout = new_src_layout end
+
+		if barriers.dst then dst_image.layout = new_dst_layout end
+
+		return src_old, dst_old
+	end
+
+	function render.RestoreResources(src, dst, src_old_layout, dst_old_layout, config)
+		config = config or {}
+		local src_image = src
+		local src_get_image = src.GetImage
+
+		if src_get_image then src_image = src_get_image(src) end
+
+		local dst_image = dst
+		local dst_get_image = dst.GetImage
+
+		if dst_get_image then dst_image = dst_get_image(dst) end
+
+		local barriers = {}
+		local src_actual_layout = src_image.layout or "undefined"
+		local dst_actual_layout = dst_image.layout or "undefined"
+
+		if src_actual_layout ~= src_old_layout then
+			barriers["src"] = render.TransitionImage(src_image, src_actual_layout, src_old_layout, config)
+		end
+
+		if dst_actual_layout ~= dst_old_layout then
+			barriers["dst"] = render.TransitionImage(dst_image, dst_actual_layout, dst_old_layout, config)
+		end
+
+		local cmd = config.cmd or render.GetCommandBuffer()
+
+		if not cmd then
+			error("render.RestoreResources: no command buffer available", 2)
+		end
+
+		for _, barrier in pairs(barriers) do
+			cmd:PipelineBarrier(barrier)
+		end
+
+		if barriers.src then src_image.layout = src_old_layout end
+
+		if barriers.dst then dst_image.layout = dst_old_layout end
+
+		return barriers
+	end
+
+	function render.TransitionResourceToComputeStorage(resource, config)
+		config = config or {}
+		local image, old_layout = resolve_resource(resource)
+		local srcStage = config.srcStage or "top_of_pipe"
+		local srcAccess = config.srcAccess or "none"
+
+		if old_layout == "shader_read_only_optimal" then
+			srcStage = config.srcStage or "fragment"
+			srcAccess = config.srcAccess or "shader_read"
+		elseif old_layout == "general" then
+			srcStage = config.srcStage or "compute"
+			srcAccess = config.srcAccess or "shader_read"
+		elseif old_layout == "color_attachment_optimal" then
+			srcStage = config.srcStage or "color_attachment_output"
+			srcAccess = config.srcAccess or "color_attachment_write"
+		end
+
+		return render.TransitionResource(
+			resource,
+			"general",
+			table.merge(
+				config,
+				{
+					srcStage = srcStage,
+					srcAccess = srcAccess,
+					dstStage = "compute",
+					dstAccess = "shader_write",
+				}
+			)
+		)
+	end
+
+	function render.TransitionResourceToShaderRead(resource, config)
+		config = config or {}
+		local image, old_layout = resolve_resource(resource)
+		local srcStage = config.srcStage or "transfer"
+		local srcAccess = config.srcAccess or "transfer_write"
+
+		if old_layout == "color_attachment_optimal" then
+			srcStage = config.srcStage or "color_attachment_output"
+			srcAccess = config.srcAccess or "color_attachment_write"
+		elseif old_layout == "general" then
+			srcStage = config.srcStage or "compute"
+			srcAccess = config.srcAccess or "shader_write"
+		end
+
+		return render.TransitionResource(
+			resource,
+			"shader_read_only_optimal",
+			table.merge(
+				config,
+				{
+					srcStage = srcStage,
+					srcAccess = srcAccess,
+					dstStage = "fragment",
+					dstAccess = "shader_read",
+				}
+			)
+		)
+	end
+
+	function render.TransitionResourceToTransferSrc(resource, config)
+		config = config or {}
+		local image, old_layout = resolve_resource(resource)
+		local srcStage = config.srcStage or "transfer"
+		local srcAccess = config.srcAccess or "transfer_write"
+
+		if old_layout == "shader_read_only_optimal" then
+			srcStage = config.srcStage or "fragment"
+			srcAccess = config.srcAccess or "shader_read"
+		elseif old_layout == "color_attachment_optimal" then
+			srcStage = config.srcStage or "color_attachment_output"
+			srcAccess = config.srcAccess or "color_attachment_write"
+		end
+
+		return render.TransitionResource(
+			resource,
+			"transfer_src_optimal",
+			table.merge(
+				config,
+				{
+					srcStage = srcStage,
+					srcAccess = srcAccess,
+					dstStage = "transfer",
+					dstAccess = "transfer_read",
+				}
+			)
+		)
+	end
+
+	function render.TransitionResourceToTransferDst(resource, config)
+		config = config or {}
+		local image, old_layout = resolve_resource(resource)
+		local srcStage = config.srcStage or "top_of_pipe"
+		local srcAccess = config.srcAccess or "none"
+
+		if old_layout == "shader_read_only_optimal" then
+			srcStage = config.srcStage or "fragment"
+			srcAccess = config.srcAccess or "shader_read"
+		elseif old_layout == "color_attachment_optimal" then
+			srcStage = config.srcStage or "color_attachment_output"
+			srcAccess = config.srcAccess or "color_attachment_write"
+		end
+
+		return render.TransitionResource(
+			resource,
+			"transfer_dst_optimal",
+			table.merge(
+				config,
+				{
+					srcStage = srcStage,
+					srcAccess = srcAccess,
+					dstStage = "transfer",
+					dstAccess = "transfer_write",
+				}
+			)
+		)
+	end
+
+	function render.TransitionResourceToColorAttachment(resource, config)
+		config = config or {}
+		local image, old_layout = resolve_resource(resource)
+		local oldOrUndefined = config.load_op == "load" and old_layout or "undefined"
+		return render.TransitionResource(
+			resource,
+			"color_attachment_optimal",
+			table.merge(
+				config,
+				{
+					srcStage = "top_of_pipe",
+					srcAccess = "none",
+					dstStage = "color_attachment_output",
+					dstAccess = "color_attachment_write",
+					oldLayout = oldOrUndefined,
+				}
+			)
+		)
+	end
+end
+
 local function assert_no_legacy_graphics_pipeline_fields(config)
 	for _, field_name in ipairs{
 		"color_format",

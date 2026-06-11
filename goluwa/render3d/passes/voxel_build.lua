@@ -124,63 +124,52 @@ local function get_axis_index(axis_name)
 end
 
 local function transition_axis_target(cmd, target, new_layout, src_stage, dst_stage, src_access, dst_access)
-	local image = target.texture:GetImage()
-	cmd:PipelineBarrier{
-		srcStage = src_stage,
-		dstStage = dst_stage,
-		imageBarriers = {
-			{
-				image = image,
-				oldLayout = image.layout or "shader_read_only_optimal",
-				newLayout = new_layout,
-				srcAccessMask = src_access,
-				dstAccessMask = dst_access,
-				base_array_layer = 0,
-				layer_count = target.texture:GetHeight(),
-				base_mip_level = 0,
-				level_count = 1,
-			},
-		},
-	}
-	image.layout = new_layout
+	render.TransitionResourceTo(
+		target.texture,
+		new_layout,
+		{
+			cmd = cmd,
+			srcStage = src_stage,
+			srcAccess = src_access,
+			dstStage = dst_stage,
+			dstAccess = dst_access,
+			base_array_layer = 0,
+			layer_count = target.texture:GetHeight(),
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	)
 end
 
 local function transition_axis_target_for_compute(cmd, target, write)
-	local image = target.texture:GetImage()
-	local old_layout = image.layout or "undefined"
-	local src_stage = "top_of_pipe"
-	local src_access = "none"
-	local dst_access = write and "shader_write" or "shader_read"
-
-	if old_layout == "shader_read_only_optimal" then
-		src_stage = "fragment_shader"
-		src_access = "shader_read"
-	elseif old_layout == "general" then
-		src_stage = "compute"
-		src_access = write and "shader_write" or "shader_read"
-	elseif old_layout == "transfer_dst_optimal" then
-		src_stage = "transfer"
-		src_access = "transfer_write"
-	elseif old_layout == "transfer_src_optimal" then
-		src_stage = "transfer"
-		src_access = "transfer_read"
-	elseif old_layout == "color_attachment_optimal" then
-		src_stage = "color_attachment_output"
-		src_access = "color_attachment_write"
-	end
-
-	transition_axis_target(cmd, target, "general", src_stage, "compute", src_access, dst_access)
+	render.TransitionResourceToComputeStorage(
+		target.texture,
+		{
+			cmd = cmd,
+			dstAccess = write and "shader_write" or "shader_read",
+			base_array_layer = 0,
+			layer_count = target.texture:GetHeight(),
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	)
 end
 
 local function transition_axis_target_from_compute(cmd, target)
-	transition_axis_target(
-		cmd,
-		target,
+	render.TransitionResourceFrom(
+		target.texture,
 		"shader_read_only_optimal",
-		"compute",
-		"fragment_shader",
-		"shader_write",
-		"shader_read"
+		{
+			cmd = cmd,
+			srcStage = "compute",
+			srcAccess = "shader_write",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = target.texture:GetHeight(),
+			base_mip_level = 0,
+			level_count = 1,
+		}
 	)
 end
 

@@ -93,57 +93,51 @@ end
 local function initialize_probe_layouts(cmd, probe)
 	if not probe then return end
 
-	cmd:PipelineBarrier{
-		srcStage = "top_of_pipe",
-		dstStage = "fragment_shader",
-		imageBarriers = {
-			{
-				image = probe.source_cubemap:GetImage(),
-				oldLayout = "undefined",
-				newLayout = "shader_read_only_optimal",
-				srcAccessMask = "none",
-				dstAccessMask = "shader_read",
-				base_array_layer = 0,
-				layer_count = 6,
-				base_mip_level = 0,
-				level_count = probe.source_cubemap.mip_map_levels,
-			},
-		},
-	}
-	cmd:PipelineBarrier{
-		srcStage = "top_of_pipe",
-		dstStage = "fragment_shader",
-		imageBarriers = {
-			{
-				image = probe.cubemap:GetImage(),
-				oldLayout = "undefined",
-				newLayout = "shader_read_only_optimal",
-				srcAccessMask = "none",
-				dstAccessMask = "shader_read",
-				base_array_layer = 0,
-				layer_count = 6,
-				base_mip_level = 0,
-				level_count = probe.cubemap.mip_map_levels,
-			},
-		},
-	}
-	cmd:PipelineBarrier{
-		srcStage = "top_of_pipe",
-		dstStage = "fragment_shader",
-		imageBarriers = {
-			{
-				image = probe.depth_cubemap:GetImage(),
-				oldLayout = "undefined",
-				newLayout = "shader_read_only_optimal",
-				srcAccessMask = "none",
-				dstAccessMask = "shader_read",
-				base_array_layer = 0,
-				layer_count = 6,
-				base_mip_level = 0,
-				level_count = 1,
-			},
-		},
-	}
+	render.TransitionResourceTo(
+		probe.source_cubemap,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = 6,
+			base_mip_level = 0,
+			level_count = probe.source_cubemap.mip_map_levels,
+		}
+	)
+	render.TransitionResourceTo(
+		probe.cubemap,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = 6,
+			base_mip_level = 0,
+			level_count = probe.cubemap.mip_map_levels,
+		}
+	)
+	render.TransitionResourceTo(
+		probe.depth_cubemap,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = 6,
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	)
 end
 
 local function initialize_probe_layouts_now(probe)
@@ -1444,34 +1438,36 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 			render3d.PopCamera()
 			lightprobes.current_capture_source_texture = get_probe_capture_source_texture(bundle)
 			lightprobes.current_capture_depth_texture = get_probe_capture_depth_texture(bundle)
-			cmd:PipelineBarrier{
-				srcStage = "fragment_shader",
-				dstStage = "color_attachment_output",
-				imageBarriers = {
-					{
-						image = probe.source_cubemap:GetImage(),
-						oldLayout = "shader_read_only_optimal",
-						newLayout = "color_attachment_optimal",
-						srcAccessMask = "shader_read",
-						dstAccessMask = "color_attachment_write",
-						base_array_layer = face_idx,
-						layer_count = 1,
-						base_mip_level = 0,
-						level_count = 1,
-					},
-					{
-						image = probe.depth_cubemap:GetImage(),
-						oldLayout = "shader_read_only_optimal",
-						newLayout = "color_attachment_optimal",
-						srcAccessMask = "shader_read",
-						dstAccessMask = "color_attachment_write",
-						base_array_layer = face_idx,
-						layer_count = 1,
-						base_mip_level = 0,
-						level_count = 1,
-					},
-				},
-			}
+			render.TransitionResourceTo(
+				probe.source_cubemap,
+				"color_attachment_optimal",
+				{
+					cmd = cmd,
+					srcStage = "fragment_shader",
+					srcAccess = "shader_read",
+					dstStage = "color_attachment_output",
+					dstAccess = "color_attachment_write",
+					base_array_layer = face_idx,
+					layer_count = 1,
+					base_mip_level = 0,
+					level_count = 1,
+				}
+			)
+			render.TransitionResourceTo(
+				probe.depth_cubemap,
+				"color_attachment_optimal",
+				{
+					cmd = cmd,
+					srcStage = "fragment_shader",
+					srcAccess = "shader_read",
+					dstStage = "color_attachment_output",
+					dstAccess = "color_attachment_write",
+					base_array_layer = face_idx,
+					layer_count = 1,
+					base_mip_level = 0,
+					level_count = 1,
+				}
+			)
 			cmd:BeginRendering{
 				color_attachments = {
 					{
@@ -1512,41 +1508,37 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 			cmd:EndRendering()
 		else
 			-- Transition source face to color attachment
-			cmd:PipelineBarrier{
-				srcStage = "fragment_shader",
-				dstStage = "color_attachment_output",
-				imageBarriers = {
-					{
-						image = probe.source_cubemap:GetImage(),
-						oldLayout = "shader_read_only_optimal",
-						newLayout = "color_attachment_optimal",
-						srcAccessMask = "shader_read",
-						dstAccessMask = "color_attachment_write",
-						base_array_layer = face_idx,
-						layer_count = 1,
-						base_mip_level = 0,
-						level_count = 1,
-					},
-				},
-			}
+			render.TransitionResourceTo(
+				probe.source_cubemap,
+				"color_attachment_optimal",
+				{
+					cmd = cmd,
+					srcStage = "fragment_shader",
+					srcAccess = "shader_read",
+					dstStage = "color_attachment_output",
+					dstAccess = "color_attachment_write",
+					base_array_layer = face_idx,
+					layer_count = 1,
+					base_mip_level = 0,
+					level_count = 1,
+				}
+			)
 			-- Transition depth face to color attachment
-			cmd:PipelineBarrier{
-				srcStage = "fragment_shader",
-				dstStage = "color_attachment_output",
-				imageBarriers = {
-					{
-						image = probe.depth_cubemap:GetImage(),
-						oldLayout = "shader_read_only_optimal",
-						newLayout = "color_attachment_optimal",
-						srcAccessMask = "shader_read",
-						dstAccessMask = "color_attachment_write",
-						base_array_layer = face_idx,
-						layer_count = 1,
-						base_mip_level = 0,
-						level_count = 1,
-					},
-				},
-			}
+			render.TransitionResourceTo(
+				probe.depth_cubemap,
+				"color_attachment_optimal",
+				{
+					cmd = cmd,
+					srcStage = "fragment_shader",
+					srcAccess = "shader_read",
+					dstStage = "color_attachment_output",
+					dstAccess = "color_attachment_write",
+					base_array_layer = face_idx,
+					layer_count = 1,
+					base_mip_level = 0,
+					level_count = 1,
+				}
+			)
 			-- First render sky background
 			cmd:BeginRendering{
 				color_attachments = {
@@ -1576,41 +1568,37 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 		end
 
 		-- Transition source face to shader read
-		cmd:PipelineBarrier{
-			srcStage = "color_attachment_output",
-			dstStage = "fragment_shader",
-			imageBarriers = {
-				{
-					image = probe.source_cubemap:GetImage(),
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
+		render.TransitionResourceFrom(
+			probe.source_cubemap,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "color_attachment_output",
+				srcAccess = "color_attachment_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+				base_array_layer = face_idx,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
 		-- Transition depth face to shader read
-		cmd:PipelineBarrier{
-			srcStage = "color_attachment_output",
-			dstStage = "fragment_shader",
-			imageBarriers = {
-				{
-					image = probe.depth_cubemap:GetImage(),
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				},
-			},
-		}
+		render.TransitionResourceFrom(
+			probe.depth_cubemap,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "color_attachment_output",
+				srcAccess = "color_attachment_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+				base_array_layer = face_idx,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
 		lightprobes.current_face = (lightprobes.current_face + 1) % 6
 	end
 
@@ -1643,23 +1631,21 @@ function lightprobes.PrefilterProbe(cmd, probe)
 			local proj_view = view * proj
 			proj_view:GetInverse(lightprobes.inv_projection_view)
 			-- Transition output face/mip to color attachment
-			cmd:PipelineBarrier{
-				srcStage = "fragment_shader",
-				dstStage = "color_attachment_output",
-				imageBarriers = {
-					{
-						image = probe.cubemap:GetImage(),
-						oldLayout = "shader_read_only_optimal",
-						newLayout = "color_attachment_optimal",
-						srcAccessMask = "shader_read",
-						dstAccessMask = "color_attachment_write",
-						base_array_layer = face,
-						layer_count = 1,
-						base_mip_level = m,
-						level_count = 1,
-					},
-				},
-			}
+			render.TransitionResourceTo(
+				probe.cubemap,
+				"color_attachment_optimal",
+				{
+					cmd = cmd,
+					srcStage = "fragment_shader",
+					srcAccess = "shader_read",
+					dstStage = "color_attachment_output",
+					dstAccess = "color_attachment_write",
+					base_array_layer = face,
+					layer_count = 1,
+					base_mip_level = m,
+					level_count = 1,
+				}
+			)
 			cmd:BeginRendering{
 				color_image_view = probe.mip_face_views[m][face],
 				w = mip_size,
@@ -1674,23 +1660,21 @@ function lightprobes.PrefilterProbe(cmd, probe)
 			cmd:Draw(3, 1, 0, 0)
 			cmd:EndRendering()
 			-- Transition to shader read
-			cmd:PipelineBarrier{
-				srcStage = "color_attachment_output",
-				dstStage = "fragment_shader",
-				imageBarriers = {
-					{
-						image = probe.cubemap:GetImage(),
-						oldLayout = "color_attachment_optimal",
-						newLayout = "shader_read_only_optimal",
-						srcAccessMask = "color_attachment_write",
-						dstAccessMask = "shader_read",
-						base_array_layer = face,
-						layer_count = 1,
-						base_mip_level = m,
-						level_count = 1,
-					},
-				},
-			}
+			render.TransitionResourceFrom(
+				probe.cubemap,
+				"shader_read_only_optimal",
+				{
+					cmd = cmd,
+					srcStage = "color_attachment_output",
+					srcAccess = "color_attachment_write",
+					dstStage = "fragment_shader",
+					dstAccess = "shader_read",
+					base_array_layer = face,
+					layer_count = 1,
+					base_mip_level = m,
+					level_count = 1,
+				}
+			)
 		end
 	end
 

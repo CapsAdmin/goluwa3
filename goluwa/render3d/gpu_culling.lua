@@ -289,22 +289,19 @@ local function build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
 	local image = state.texture:GetImage()
 	local depth_view = depth_texture:GetView()
 	local depth_sampler = depth_texture.sampler or render.CreateSampler(depth_texture:GetSamplerConfig())
-	cmd:PipelineBarrier{
-		srcStage = "top_of_pipe",
-		dstStage = "compute",
-		imageBarriers = {
-			{
-				image = image,
-				srcAccessMask = "none",
-				dstAccessMask = "shader_write",
-				oldLayout = image.layout or "undefined",
-				newLayout = "general",
-				base_mip_level = 0,
-				level_count = state.max_mip + 1,
-				layer_count = 1,
-			},
-		},
-	}
+	render.TransitionResourceToComputeStorage(
+		state.texture,
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "compute",
+			dstAccess = "shader_write",
+			base_mip_level = 0,
+			level_count = state.max_mip + 1,
+			layer_count = 1,
+		}
+	)
 	copy_pass:UpdateDescriptorSet("combined_image_sampler", descriptor_base, 0, 0, depth_view, depth_sampler)
 	copy_pass:UpdateDescriptorSet("storage_image", descriptor_base, 1, 0, state.single_mip_views[1])
 	copy_pass:DispatchForSize(cmd, state.width, state.height, 1, descriptor_base)

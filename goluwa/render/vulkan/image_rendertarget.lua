@@ -461,50 +461,49 @@ function ImageRenderTarget:BeginFrame()
 	local cmd = self:GetCommandBuffer()
 	cmd:Reset()
 	cmd:Begin()
-	local imageBarriers = {
+	-- Transition color image
+	render.TransitionResourceTo(
+		self:GetImage(),
+		"color_attachment_optimal",
 		{
-			image = self:GetImage(),
-			srcAccessMask = "none",
-			dstAccessMask = "color_attachment_write",
-			oldLayout = "undefined",
-			newLayout = "color_attachment_optimal",
-		},
-	}
+			cmd = cmd,
+			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+			srcAccess = "none",
+			dstStage = "color_attachment_output",
+			dstAccess = "color_attachment_write",
+		}
+	)
 
-	-- Add depth barrier
+	-- Transition depth image
 	if self.depth_texture then
-		table.insert(
-			imageBarriers,
+		render.TransitionResourceTo(
+			self.depth_texture,
+			"depth_stencil_attachment_optimal",
 			{
-				image = self.depth_texture:GetImage(),
-				srcAccessMask = "none",
-				dstAccessMask = "depth_stencil_attachment_write",
-				oldLayout = "undefined",
-				newLayout = "depth_stencil_attachment_optimal",
-			-- aspect is automatically determined from image format by PipelineBarrier
+				cmd = cmd,
+				srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+				srcAccess = "none",
+				dstStage = "early_fragment_tests",
+				dstAccess = "depth_stencil_attachment_write",
 			}
 		)
 	end
 
-	-- Add MSAA barrier
+	-- Transition MSAA image
 	if self.msaa_image then
-		table.insert(
-			imageBarriers,
+		render.TransitionResourceTo(
+			self.msaa_image,
+			"color_attachment_optimal",
 			{
-				image = self.msaa_image:GetImage(),
-				srcAccessMask = "none",
-				dstAccessMask = "color_attachment_write",
-				oldLayout = "undefined",
-				newLayout = "color_attachment_optimal",
+				cmd = cmd,
+				srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+				srcAccess = "none",
+				dstStage = "color_attachment_output",
+				dstAccess = "color_attachment_write",
 			}
 		)
 	end
 
-	cmd:PipelineBarrier{
-		srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-		dstStage = {"early_fragment_tests", "color_attachment_output"},
-		imageBarriers = imageBarriers,
-	}
 	local extent = self:GetExtent()
 	render.PushCommandBuffer(cmd)
 	event.Call("PreRenderPass")
@@ -543,19 +542,17 @@ function ImageRenderTarget:EndFrame()
 	local final_layout = self.config.offscreen and self.final_layout or "present_src_khr"
 	local dst_stage = self.config.offscreen and "transfer" or "color_attachment_output"
 	local dst_access = self.config.offscreen and "transfer_read" or "none"
-	command_buffer:PipelineBarrier{
-		srcStage = "color_attachment_output",
-		dstStage = dst_stage,
-		imageBarriers = {
-			{
-				image = self:GetImage(),
-				srcAccessMask = "color_attachment_write",
-				dstAccessMask = dst_access,
-				oldLayout = "color_attachment_optimal",
-				newLayout = final_layout,
-			},
-		},
-	}
+	render.TransitionResourceFrom(
+		self:GetImage(),
+		final_layout,
+		{
+			cmd = command_buffer,
+			srcStage = "color_attachment_output",
+			srcAccess = "color_attachment_write",
+			dstStage = dst_stage,
+			dstAccess = dst_access,
+		}
+	)
 	command_buffer:End()
 
 	if flags.render_noop and not self.config.offscreen then return end
@@ -636,19 +633,17 @@ function ImageRenderTarget:WriteMode(cmd)
 		return -- Only applicable in offscreen mode
 	end
 
-	cmd:PipelineBarrier{
-		srcStage = "fragment",
-		dstStage = "all_commands",
-		imageBarriers = {
-			{
-				image = self:GetImage(),
-				srcAccessMask = "shader_read",
-				dstAccessMask = "color_attachment_write",
-				oldLayout = "shader_read_only_optimal",
-				newLayout = "color_attachment_optimal",
-			},
-		},
-	}
+	render.TransitionResourceFrom(
+		self:GetImage(),
+		"color_attachment_optimal",
+		{
+			cmd = cmd,
+			srcStage = "fragment",
+			srcAccess = "shader_read",
+			dstStage = "all_commands",
+			dstAccess = "color_attachment_write",
+		}
+	)
 end
 
 function ImageRenderTarget:ReadMode(cmd)
@@ -656,19 +651,17 @@ function ImageRenderTarget:ReadMode(cmd)
 		return -- Only applicable in offscreen mode
 	end
 
-	cmd:PipelineBarrier{
-		srcStage = "all_commands",
-		dstStage = "fragment",
-		imageBarriers = {
-			{
-				image = self:GetImage(),
-				srcAccessMask = "color_attachment_write",
-				dstAccessMask = "shader_read",
-				oldLayout = "color_attachment_optimal",
-				newLayout = "shader_read_only_optimal",
-			},
-		},
-	}
+	render.TransitionResourceTo(
+		self:GetImage(),
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "all_commands",
+			srcAccess = "color_attachment_write",
+			dstStage = "fragment",
+			dstAccess = "shader_read",
+		}
+	)
 end
 
 return ImageRenderTarget:Register()
