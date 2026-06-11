@@ -20,6 +20,7 @@ gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_gener
 gpu_culling.published_scene_acceleration_generation = gpu_culling.published_scene_acceleration_generation or 0
 gpu_culling.frame_buffers_generation = gpu_culling.frame_buffers_generation or -1
 gpu_culling.main_view_async_submission_serial = gpu_culling.main_view_async_submission_serial or 0
+local float16 = ffi.typeof("float[16]")
 local VALID_OCCLUSION_MODES = {
 	disabled = true,
 	hiz = true,
@@ -96,15 +97,890 @@ local GPUCullNodeRecord = ffi.typeof([[struct {
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local ZERO_UINT32 = ffi.new("uint32_t[1]", 0)
 
-local function get_main_view_depth_texture()
-	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local pipelines = render3d and render3d.pipelines or nil
-	local gbuffer = pipelines and pipelines.gbuffer or nil
-	local framebuffer = gbuffer and gbuffer.GetFramebuffer and gbuffer:GetFramebuffer() or nil
-	return framebuffer and
-		framebuffer.GetDepthTexture and
-		framebuffer:GetDepthTexture() or
-		nil
+function gpu_culling.Initialize()
+	render3d = import("goluwa/render3d/render3d.lua")
+
+	do -- main view hiz build pass
+		gpu_culling.main_view_hiz_build_pass = EasyPipeline.Compute{
+			DescriptorSetCount = 64,
+			name = "gpu_culling_main_view_hiz_copy",
+			LocalSize = {x = 8, y = 8, z = 1},
+			descriptor_sets = {
+				{
+					type = "combined_image_sampler",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_image",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
+			shader = [[
+			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
+			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_hiz;
+
+			void main() {
+				ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+				ivec2 dst_size = imageSize(out_hiz);
+
+				if (any(greaterThanEqual(pos, dst_size))) return;
+
+				ivec2 src_size = textureSize(source_depth_tex, 0);
+				if (any(greaterThanEqual(pos, src_size))) return;
+				imageStore(out_hiz, pos, vec4(texelFetch(source_depth_tex, pos, 0).r, 0.0, 0.0, 1.0));
+			}
+		]],
+		}
+	end
+
+	do -- main view hiz reduce pass
+		gpu_culling.main_view_hiz_reduce_pass = EasyPipeline.Compute{
+			DescriptorSetCount = 64,
+			name = "gpu_culling_main_view_hiz_reduce",
+			LocalSize = {x = 8, y = 8, z = 1},
+			descriptor_sets = {
+				{
+					type = "storage_image",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_image",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
+			shader = [[
+			layout(set = 0, binding = 0, r32f) uniform readonly image2D source_hiz;
+			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_hiz;
+
+			void main() {
+				ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+				ivec2 dst_size = imageSize(out_hiz);
+
+				if (any(greaterThanEqual(pos, dst_size))) return;
+
+				ivec2 src_size = imageSize(source_hiz);
+				ivec2 src_base = pos * 2;
+				float max_depth = 0.0;
+
+				for (int y = 0; y < 2; ++y) {
+					for (int x = 0; x < 2; ++x) {
+						ivec2 src_pos = min(src_base + ivec2(x, y), src_size - 1);
+						max_depth = max(max_depth, imageLoad(source_hiz, src_pos).r);
+					}
+				}
+
+				imageStore(out_hiz, pos, vec4(max_depth, 0.0, 0.0, 1.0));
+			}
+		]],
+		}
+	end
+
+	do -- view cull pass
+		gpu_culling.main_view_cull_pass = EasyPipeline.Compute{
+			DescriptorSetCount = math.max((render.GetSwapchainImageCount() or 1) + 1, 1),
+			name = "gpu_culling_main_view_linear",
+			LocalSize = {x = 64, y = 1, z = 1},
+			descriptor_sets = {
+				{
+					type = "storage_buffer",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 2,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 3,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 4,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 5,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 6,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 7,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 8,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 9,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 10,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 11,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 12,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 13,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 14,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
+			block = {
+				{"visual_count", "int"},
+				{"camera_position", "vec3"},
+				{"frustum_planes", "vec4", 6},
+				{"view_projection", "mat4"},
+				{"viewport_height", "float"},
+				{"min_screen_diameter_px", "float"},
+				{"occlusion_enabled", "int"},
+				{"has_source_depth_texture", "int"},
+				{"occlusion_max_mip", "int"},
+				{"occlusion_depth_bias", "float"},
+			},
+			write = function(self, block)
+				block.visual_count = self.current_visual_count or 0
+				block.camera_position[0] = self.current_camera_position and self.current_camera_position.x or 0
+				block.camera_position[1] = self.current_camera_position and self.current_camera_position.y or 0
+				block.camera_position[2] = self.current_camera_position and self.current_camera_position.z or 0
+
+				if self.current_frustum_planes then
+					ffi.copy(
+						block.frustum_planes,
+						self.current_frustum_planes,
+						ffi.sizeof("float") * FRUSTUM_PLANE_COMPONENT_COUNT
+					)
+				else
+					ffi.fill(block.frustum_planes, ffi.sizeof("float") * FRUSTUM_PLANE_COMPONENT_COUNT, 0)
+				end
+
+				if self.current_view_projection then
+					self.current_view_projection:CopyToFloatPointer(block.view_projection)
+				else
+					ffi.fill(block.view_projection, ffi.sizeof("float") * 16, 0)
+				end
+
+				block.viewport_height = self.current_viewport_height or 0
+				block.min_screen_diameter_px = self.current_min_screen_diameter_px or 1.0
+				block.occlusion_enabled = self.current_occlusion_enabled and 1 or 0
+				block.has_source_depth_texture = self.current_occlusion_depth_texture and 1 or 0
+				block.occlusion_max_mip = self.current_occlusion_max_mip or 0
+				block.occlusion_depth_bias = self.current_occlusion_depth_bias or 0.0015
+				return block
+			end,
+			shader = [[
+			struct VisualRecord {
+				float min_x;
+				float min_y;
+				float min_z;
+				float max_x;
+				float max_y;
+				float max_z;
+				float sphere_radius;
+				float cull_distance;
+				uint flags;
+				uint entry_offset;
+				uint entry_count;
+				uint shadow_change_version;
+			};
+
+			struct EntryRecord {
+				float local_min_x;
+				float local_min_y;
+				float local_min_z;
+				float local_max_x;
+				float local_max_y;
+				float local_max_z;
+				float source_min_x;
+				float source_min_y;
+				float source_min_z;
+				float source_max_x;
+				float source_max_y;
+				float source_max_z;
+				uint visual_index;
+				uint entry_index;
+				uint index_count;
+				uint flags;
+				uint instanced_batch_index;
+				uint static_matrix_index;
+			};
+
+			struct InstancedBatchRecord {
+				uint output_offset;
+				uint max_count;
+				uint index_count;
+				uint reserved1;
+			};
+
+			struct DrawIndexedIndirectCommand {
+				uint indexCount;
+				uint instanceCount;
+				uint firstIndex;
+				int vertexOffset;
+				uint firstInstance;
+			};
+
+			layout(std430, set = 0, binding = 0) readonly buffer VisualBuffer {
+				VisualRecord visuals[];
+			};
+
+			layout(std430, set = 0, binding = 1) writeonly buffer VisibleIndexBuffer {
+				uint visible_indices[];
+			};
+
+			layout(std430, set = 0, binding = 2) buffer VisibleCountBuffer {
+				uint visible_count[];
+			};
+
+			layout(std430, set = 0, binding = 3) readonly buffer EntryBuffer {
+				EntryRecord entries[];
+			};
+
+			layout(std430, set = 0, binding = 4) writeonly buffer IndirectCommandBuffer {
+				DrawIndexedIndirectCommand commands[];
+			};
+
+			layout(std430, set = 0, binding = 5) readonly buffer StaticInstanceWorldBuffer {
+				mat4 static_instance_worlds[];
+			};
+
+			layout(std430, set = 0, binding = 6) readonly buffer InstancedBatchBuffer {
+				InstancedBatchRecord instanced_batches[];
+			};
+
+			layout(std430, set = 0, binding = 7) writeonly buffer VisibleInstanceWorldBuffer {
+				mat4 visible_instance_worlds[];
+			};
+
+			layout(std430, set = 0, binding = 8) buffer VisibleInstancedBatchCountBuffer {
+				uint visible_instanced_batch_counts[];
+			};
+
+			layout(std430, set = 0, binding = 9) writeonly buffer FallbackVisibleIndexBuffer {
+				uint fallback_visible_indices[];
+			};
+
+			layout(std430, set = 0, binding = 10) buffer FallbackVisibleCountBuffer {
+				uint fallback_visible_count[];
+			};
+
+			layout(std430, set = 0, binding = 11) writeonly buffer ActiveBatchIndexBuffer {
+				uint active_batch_indices[];
+			};
+
+			layout(std430, set = 0, binding = 12) buffer ActiveBatchCountBuffer {
+				uint active_batch_count[];
+			};
+
+			layout(std430, set = 0, binding = 13) buffer VisibleBatchIndirectCommandBuffer {
+				DrawIndexedIndirectCommand batch_commands[];
+			};
+
+			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
+
+			const uint VISUAL_FLAG_VISIBLE = 1u;
+			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
+			const uint INVALID_INDEX = 0xFFFFFFFFu;
+
+			bool is_within_cull_distance(VisualRecord visual_record) {
+				if (visual_record.cull_distance <= 0.0) return true;
+
+				float nearest_x = clamp(compute.camera_position.x, visual_record.min_x, visual_record.max_x);
+				float nearest_y = clamp(compute.camera_position.y, visual_record.min_y, visual_record.max_y);
+				float nearest_z = clamp(compute.camera_position.z, visual_record.min_z, visual_record.max_z);
+				float dx = compute.camera_position.x - nearest_x;
+				float dy = compute.camera_position.y - nearest_y;
+				float dz = compute.camera_position.z - nearest_z;
+				return dx * dx + dy * dy + dz * dz <= visual_record.cull_distance * visual_record.cull_distance;
+			}
+
+			bool is_visible_in_frustum(VisualRecord visual_record) {
+				for (int i = 0; i < 6; i++) {
+					vec4 plane = compute.frustum_planes[i];
+					float px = plane.x > 0.0 ? visual_record.max_x : visual_record.min_x;
+					float py = plane.y > 0.0 ? visual_record.max_y : visual_record.min_y;
+					float pz = plane.z > 0.0 ? visual_record.max_z : visual_record.min_z;
+
+					if (plane.x * px + plane.y * py + plane.z * pz + plane.w < 0.0) {
+						return false;
+					}
+				}
+
+				return true;
+			}
+
+			vec4 project_world_position(vec3 world_pos) {
+				return compute.view_projection * vec4(world_pos, 1.0);
+			}
+
+			bool is_camera_inside_aabb(VisualRecord visual_record) {
+				return compute.camera_position.x >= visual_record.min_x &&
+					compute.camera_position.x <= visual_record.max_x &&
+					compute.camera_position.y >= visual_record.min_y &&
+					compute.camera_position.y <= visual_record.max_y &&
+					compute.camera_position.z >= visual_record.min_z &&
+					compute.camera_position.z <= visual_record.max_z;
+			}
+
+			bool is_large_enough_in_screen_space(VisualRecord visual_record) {
+				if (compute.viewport_height <= 0.0) return true;
+				if (visual_record.sphere_radius <= 0.0) return true;
+
+				vec3 center = vec3(
+					(visual_record.min_x + visual_record.max_x) * 0.5,
+					(visual_record.min_y + visual_record.max_y) * 0.5,
+					(visual_record.min_z + visual_record.max_z) * 0.5
+				);
+				vec4 clip = project_world_position(center);
+
+				if (clip.w <= 0.0) return true;
+
+				float projected_radius_px = abs(compute.view_projection[1][1]) * visual_record.sphere_radius * compute.viewport_height / max(clip.w * 2.0, 1e-5);
+				return projected_radius_px * 2.0 >= compute.min_screen_diameter_px;
+			}
+
+			int choose_occlusion_mip(vec2 min_uv, vec2 max_uv) {
+				vec2 uv_span = max(max_uv - min_uv, vec2(0.0));
+				vec2 hi_z_size = vec2(textureSize(source_depth_tex, 0));
+				float max_span = max(max(uv_span.x * hi_z_size.x, uv_span.y * hi_z_size.y), 1.0);
+				return clamp(int(ceil(log2(max_span))), 0, compute.occlusion_max_mip);
+			}
+
+			bool is_occluded(VisualRecord visual_record) {
+				if (compute.occlusion_enabled == 0 || compute.has_source_depth_texture == 0) return false;
+				if ((visual_record.flags & VISUAL_FLAG_USE_OCCLUSION) == 0u) return false;
+
+				vec3 corners[8] = vec3[](
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.max_z)
+				);
+
+				vec2 min_uv = vec2(1.0);
+				vec2 max_uv = vec2(0.0);
+				float nearest_depth = 1.0;
+				bool any_valid = false;
+
+				for (int i = 0; i < 8; ++i) {
+					vec4 clip = project_world_position(corners[i]);
+
+					if (clip.w <= 0.0) continue;
+
+					vec3 ndc = clip.xyz / clip.w;
+					vec2 uv = ndc.xy * 0.5 + 0.5;
+					min_uv = min(min_uv, uv);
+					max_uv = max(max_uv, uv);
+					nearest_depth = min(nearest_depth, ndc.z);
+					any_valid = true;
+				}
+
+				if (!any_valid) return false;
+				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
+
+				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
+				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
+				int mip_level = choose_occlusion_mip(min_uv, max_uv);
+				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
+				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+
+				float sampled_depth = 0.0;
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
+
+				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
+			}
+
+			void main() {
+				uint visual_index = gl_GlobalInvocationID.x;
+
+				if (visual_index >= uint(max(compute.visual_count, 0))) return;
+
+				VisualRecord visual_record = visuals[visual_index];
+				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
+
+				if ((visual_record.flags & VISUAL_FLAG_VISIBLE) == 0u) return;
+				if (!is_within_cull_distance(visual_record)) return;
+				if (!is_visible_in_frustum(visual_record)) return;
+				if (!camera_inside_aabb && !is_large_enough_in_screen_space(visual_record)) return;
+				if (!camera_inside_aabb && is_occluded(visual_record)) return;
+
+				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
+					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
+
+					if (entry_record.index_count == 0u) continue;
+
+					uint write_index = atomicAdd(visible_count[0], 1u);
+					uint entry_index = visual_record.entry_offset + entry_offset;
+					visible_indices[write_index] = entry_index;
+					commands[write_index].indexCount = entry_record.index_count;
+					commands[write_index].instanceCount = 1u;
+					commands[write_index].firstIndex = 0u;
+					commands[write_index].vertexOffset = 0;
+					commands[write_index].firstInstance = entry_index;
+
+					if (entry_record.instanced_batch_index != INVALID_INDEX && entry_record.static_matrix_index != INVALID_INDEX) {
+						InstancedBatchRecord batch_record = instanced_batches[entry_record.instanced_batch_index];
+						uint local_index = atomicAdd(visible_instanced_batch_counts[entry_record.instanced_batch_index], 1u);
+
+						if (local_index == 0u) {
+							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
+							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
+							batch_commands[entry_record.instanced_batch_index].indexCount = batch_record.index_count;
+							batch_commands[entry_record.instanced_batch_index].firstIndex = 0u;
+							batch_commands[entry_record.instanced_batch_index].vertexOffset = 0;
+							batch_commands[entry_record.instanced_batch_index].firstInstance = batch_record.output_offset;
+						}
+
+						atomicAdd(batch_commands[entry_record.instanced_batch_index].instanceCount, 1u);
+
+						if (local_index < batch_record.max_count) {
+							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
+						}
+					} else {
+						uint fallback_write_index = atomicAdd(fallback_visible_count[0], 1u);
+						fallback_visible_indices[fallback_write_index] = entry_index;
+					}
+				}
+			}
+		]],
+		}
+		gpu_culling.main_view_cull_frustum_planes = ffi.new("float[24]")
+	end
+
+	do -- view aabb cull pass
+		gpu_culling.shadow_view_aabb_cull_pass = EasyPipeline.Compute{
+			DescriptorSetCount = math.max(gpu_culling.shadow_query_output_descriptor_count or 1, 1),
+			name = "gpu_culling_shadow_view_aabb",
+			LocalSize = {x = 64, y = 1, z = 1},
+			descriptor_sets = {
+				{
+					type = "storage_buffer",
+					binding_index = 0,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 1,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 2,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 3,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 4,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 5,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 6,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 7,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 8,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 9,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 10,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 11,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 12,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 13,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 14,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+			},
+			block = {
+				{"visual_count", "int"},
+				{"query_min", "vec3"},
+				{"query_max", "vec3"},
+				{"camera_position", "vec3"},
+				{"view_projection", "mat4"},
+				{"occlusion_enabled", "int"},
+				{"has_source_depth_texture", "int"},
+				{"occlusion_max_mip", "int"},
+				{"occlusion_depth_bias", "float"},
+			},
+			write = function(self, block)
+				block.visual_count = self.current_visual_count or 0
+				block.query_min[0] = self.current_query_aabb and self.current_query_aabb.min_x or 0
+				block.query_min[1] = self.current_query_aabb and self.current_query_aabb.min_y or 0
+				block.query_min[2] = self.current_query_aabb and self.current_query_aabb.min_z or 0
+				block.query_max[0] = self.current_query_aabb and self.current_query_aabb.max_x or 0
+				block.query_max[1] = self.current_query_aabb and self.current_query_aabb.max_y or 0
+				block.query_max[2] = self.current_query_aabb and self.current_query_aabb.max_z or 0
+				block.camera_position[0] = self.current_camera_position and self.current_camera_position.x or 0
+				block.camera_position[1] = self.current_camera_position and self.current_camera_position.y or 0
+				block.camera_position[2] = self.current_camera_position and self.current_camera_position.z or 0
+
+				if self.current_view_projection then
+					self.current_view_projection:CopyToFloatPointer(block.view_projection)
+				else
+					ffi.fill(block.view_projection, ffi.sizeof("float") * 16, 0)
+				end
+
+				block.occlusion_enabled = self.current_occlusion_enabled and 1 or 0
+				block.has_source_depth_texture = self.current_occlusion_depth_texture and 1 or 0
+				block.occlusion_max_mip = self.current_occlusion_max_mip or 0
+				block.occlusion_depth_bias = self.current_occlusion_depth_bias or 0.0015
+				return block
+			end,
+			shader = [[
+			struct VisualRecord {
+				float min_x;
+				float min_y;
+				float min_z;
+				float max_x;
+				float max_y;
+				float max_z;
+				float sphere_radius;
+				float cull_distance;
+				uint flags;
+				uint entry_offset;
+				uint entry_count;
+				uint shadow_change_version;
+			};
+
+			struct EntryRecord {
+				float local_min_x;
+				float local_min_y;
+				float local_min_z;
+				float local_max_x;
+				float local_max_y;
+				float local_max_z;
+				float source_min_x;
+				float source_min_y;
+				float source_min_z;
+				float source_max_x;
+				float source_max_y;
+				float source_max_z;
+				uint visual_index;
+				uint entry_index;
+				uint index_count;
+				uint flags;
+				uint instanced_batch_index;
+				uint static_matrix_index;
+			};
+
+			struct InstancedBatchRecord {
+				uint output_offset;
+				uint max_count;
+				uint index_count;
+				uint reserved1;
+			};
+
+			struct DrawIndexedIndirectCommand {
+				uint indexCount;
+				uint instanceCount;
+				uint firstIndex;
+				int vertexOffset;
+				uint firstInstance;
+			};
+
+			layout(std430, set = 0, binding = 0) readonly buffer VisualBuffer {
+				VisualRecord visuals[];
+			};
+
+			layout(std430, set = 0, binding = 1) writeonly buffer VisibleIndexBuffer {
+				uint visible_indices[];
+			};
+
+			layout(std430, set = 0, binding = 2) buffer VisibleCountBuffer {
+				uint visible_count[];
+			};
+
+			layout(std430, set = 0, binding = 3) readonly buffer EntryBuffer {
+				EntryRecord entries[];
+			};
+
+			layout(std430, set = 0, binding = 4) readonly buffer StaticInstanceWorldBuffer {
+				mat4 static_instance_worlds[];
+			};
+
+			layout(std430, set = 0, binding = 5) readonly buffer InstancedBatchBuffer {
+				InstancedBatchRecord instanced_batches[];
+			};
+
+			layout(std430, set = 0, binding = 6) writeonly buffer VisibleInstanceWorldBuffer {
+				mat4 visible_instance_worlds[];
+			};
+
+			layout(std430, set = 0, binding = 7) buffer VisibleInstancedBatchCountBuffer {
+				uint visible_instanced_batch_counts[];
+			};
+
+			layout(std430, set = 0, binding = 8) writeonly buffer FallbackVisibleIndexBuffer {
+				uint fallback_visible_indices[];
+			};
+
+			layout(std430, set = 0, binding = 9) buffer FallbackVisibleCountBuffer {
+				uint fallback_visible_count[];
+			};
+
+			layout(std430, set = 0, binding = 10) writeonly buffer ActiveBatchIndexBuffer {
+				uint active_batch_indices[];
+			};
+
+			layout(std430, set = 0, binding = 11) buffer ActiveBatchCountBuffer {
+				uint active_batch_count[];
+			};
+
+			layout(std430, set = 0, binding = 12) buffer VisibleBatchIndirectCommandBuffer {
+				DrawIndexedIndirectCommand batch_commands[];
+			};
+
+			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
+
+			const uint VISUAL_FLAG_CAST_SHADOWS = 2u;
+			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
+			const uint INVALID_INDEX = 0xFFFFFFFFu;
+
+			bool overlaps_query(VisualRecord visual_record) {
+				return visual_record.max_x >= compute.query_min.x &&
+					visual_record.min_x <= compute.query_max.x &&
+					visual_record.max_y >= compute.query_min.y &&
+					visual_record.min_y <= compute.query_max.y &&
+					visual_record.max_z >= compute.query_min.z &&
+					visual_record.min_z <= compute.query_max.z;
+			}
+
+			vec4 project_world_position(vec3 world_pos) {
+				return compute.view_projection * vec4(world_pos, 1.0);
+			}
+
+			bool is_camera_inside_aabb(VisualRecord visual_record) {
+				return compute.camera_position.x >= visual_record.min_x &&
+					compute.camera_position.x <= visual_record.max_x &&
+					compute.camera_position.y >= visual_record.min_y &&
+					compute.camera_position.y <= visual_record.max_y &&
+					compute.camera_position.z >= visual_record.min_z &&
+					compute.camera_position.z <= visual_record.max_z;
+			}
+
+			int choose_occlusion_mip(vec2 min_uv, vec2 max_uv) {
+				vec2 uv_span = max(max_uv - min_uv, vec2(0.0));
+				vec2 hi_z_size = vec2(textureSize(source_depth_tex, 0));
+				float max_span = max(max(uv_span.x * hi_z_size.x, uv_span.y * hi_z_size.y), 1.0);
+				return clamp(int(ceil(log2(max_span))), 0, compute.occlusion_max_mip);
+			}
+
+			bool is_occluded(VisualRecord visual_record) {
+				if (compute.occlusion_enabled == 0 || compute.has_source_depth_texture == 0) return false;
+				if ((visual_record.flags & VISUAL_FLAG_USE_OCCLUSION) == 0u) return false;
+
+				vec3 corners[8] = vec3[](
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.min_x, visual_record.max_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.min_y, visual_record.max_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.min_z),
+					vec3(visual_record.max_x, visual_record.max_y, visual_record.max_z)
+				);
+
+				vec2 min_uv = vec2(1.0);
+				vec2 max_uv = vec2(0.0);
+				float nearest_depth = 1.0;
+				bool any_valid = false;
+
+				for (int i = 0; i < 8; ++i) {
+					vec4 clip = project_world_position(corners[i]);
+
+					if (clip.w <= 0.0) continue;
+
+					vec3 ndc = clip.xyz / clip.w;
+					vec2 uv = ndc.xy * 0.5 + 0.5;
+					min_uv = min(min_uv, uv);
+					max_uv = max(max_uv, uv);
+					nearest_depth = min(nearest_depth, ndc.z);
+					any_valid = true;
+				}
+
+				if (!any_valid) return false;
+				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
+
+				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
+				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
+				int mip_level = choose_occlusion_mip(min_uv, max_uv);
+				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
+				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+
+				float sampled_depth = 0.0;
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
+				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
+
+				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
+			}
+
+			void main() {
+				uint visual_index = gl_GlobalInvocationID.x;
+
+				if (visual_index >= uint(max(compute.visual_count, 0))) return;
+
+				VisualRecord visual_record = visuals[visual_index];
+				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
+
+				if ((visual_record.flags & VISUAL_FLAG_CAST_SHADOWS) == 0u) return;
+				if (!overlaps_query(visual_record)) return;
+				if (!camera_inside_aabb && is_occluded(visual_record)) return;
+
+				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
+					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
+
+					if (entry_record.index_count == 0u) continue;
+
+					uint write_index = atomicAdd(visible_count[0], 1u);
+					uint entry_index = visual_record.entry_offset + entry_offset;
+					visible_indices[write_index] = entry_index;
+
+					if (entry_record.instanced_batch_index != INVALID_INDEX && entry_record.static_matrix_index != INVALID_INDEX) {
+						InstancedBatchRecord batch_record = instanced_batches[entry_record.instanced_batch_index];
+						uint local_index = atomicAdd(visible_instanced_batch_counts[entry_record.instanced_batch_index], 1u);
+
+						if (local_index == 0u) {
+							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
+							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
+							batch_commands[entry_record.instanced_batch_index].indexCount = batch_record.index_count;
+							batch_commands[entry_record.instanced_batch_index].firstIndex = 0u;
+							batch_commands[entry_record.instanced_batch_index].vertexOffset = 0;
+							batch_commands[entry_record.instanced_batch_index].firstInstance = batch_record.output_offset;
+						}
+
+						atomicAdd(batch_commands[entry_record.instanced_batch_index].instanceCount, 1u);
+
+						if (local_index < batch_record.max_count) {
+							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
+						}
+					} else {
+						uint fallback_write_index = atomicAdd(fallback_visible_count[0], 1u);
+						fallback_visible_indices[fallback_write_index] = entry_index;
+					}
+				}
+			}
+		]],
+		}
+		gpu_culling.shadow_view_aabb_cull_cmd = render.CreateCommandBuffer()
+	end
 end
 
 local function ensure_main_view_hiz_state(width, height)
@@ -174,117 +1050,14 @@ local function ensure_main_view_hiz_state(width, height)
 end
 
 local function get_main_view_occlusion_source()
-	local depth_texture = get_main_view_depth_texture()
-	local state = ensure_main_view_hiz_state(
-		depth_texture and depth_texture:GetWidth() or 1,
-		depth_texture and depth_texture:GetHeight() or 1
-	)
-
-	if not depth_texture then
-		return nil, state.full_view, state.sampler, state.max_mip, state
-	end
-
+	local depth_texture = render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture()
+	local state = ensure_main_view_hiz_state(depth_texture:GetWidth(), depth_texture:GetHeight())
 	return depth_texture, state.full_view, state.sampler, state.max_mip, state
-end
-
-local function get_main_view_hiz_build_pass()
-	if gpu_culling.main_view_hiz_build_pass then
-		return gpu_culling.main_view_hiz_build_pass
-	end
-
-	gpu_culling.main_view_hiz_build_pass = EasyPipeline.Compute{
-		DescriptorSetCount = 64,
-		name = "gpu_culling_main_view_hiz_copy",
-		LocalSize = {x = 8, y = 8, z = 1},
-		descriptor_sets = {
-			{
-				type = "combined_image_sampler",
-				binding_index = 0,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_image",
-				binding_index = 1,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-		},
-		shader = [[
-			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
-			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_hiz;
-
-			void main() {
-				ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-				ivec2 dst_size = imageSize(out_hiz);
-
-				if (any(greaterThanEqual(pos, dst_size))) return;
-
-				ivec2 src_size = textureSize(source_depth_tex, 0);
-				if (any(greaterThanEqual(pos, src_size))) return;
-				imageStore(out_hiz, pos, vec4(texelFetch(source_depth_tex, pos, 0).r, 0.0, 0.0, 1.0));
-			}
-		]],
-	}
-	return gpu_culling.main_view_hiz_build_pass
-end
-
-local function get_main_view_hiz_reduce_pass()
-	if gpu_culling.main_view_hiz_reduce_pass then
-		return gpu_culling.main_view_hiz_reduce_pass
-	end
-
-	gpu_culling.main_view_hiz_reduce_pass = EasyPipeline.Compute{
-		DescriptorSetCount = 64,
-		name = "gpu_culling_main_view_hiz_reduce",
-		LocalSize = {x = 8, y = 8, z = 1},
-		descriptor_sets = {
-			{
-				type = "storage_image",
-				binding_index = 0,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_image",
-				binding_index = 1,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-		},
-		shader = [[
-			layout(set = 0, binding = 0, r32f) uniform readonly image2D source_hiz;
-			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_hiz;
-
-			void main() {
-				ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-				ivec2 dst_size = imageSize(out_hiz);
-
-				if (any(greaterThanEqual(pos, dst_size))) return;
-
-				ivec2 src_size = imageSize(source_hiz);
-				ivec2 src_base = pos * 2;
-				float max_depth = 0.0;
-
-				for (int y = 0; y < 2; ++y) {
-					for (int x = 0; x < 2; ++x) {
-						ivec2 src_pos = min(src_base + ivec2(x, y), src_size - 1);
-						max_depth = max(max_depth, imageLoad(source_hiz, src_pos).r);
-					}
-				}
-
-				imageStore(out_hiz, pos, vec4(max_depth, 0.0, 0.0, 1.0));
-			}
-		]],
-	}
-	return gpu_culling.main_view_hiz_reduce_pass
 end
 
 local function build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
 	if not (cmd and depth_texture and state and state.texture) then return end
 
-	local copy_pass = get_main_view_hiz_build_pass()
-	local reduce_pass = get_main_view_hiz_reduce_pass()
 	local descriptor_base = descriptor_slot * 16
 	local image = state.texture:GetImage()
 	local depth_view = depth_texture:GetView()
@@ -302,6 +1075,7 @@ local function build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
 			layer_count = 1,
 		}
 	)
+	local copy_pass = gpu_culling.main_view_hiz_build_pass
 	copy_pass:UpdateDescriptorSet("combined_image_sampler", descriptor_base, 0, 0, depth_view, depth_sampler)
 	copy_pass:UpdateDescriptorSet("storage_image", descriptor_base, 1, 0, state.single_mip_views[1])
 	copy_pass:DispatchForSize(cmd, state.width, state.height, 1, descriptor_base)
@@ -321,6 +1095,7 @@ local function build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
 			},
 		},
 	}
+	local reduce_pass = gpu_culling.main_view_hiz_reduce_pass
 
 	for mip_level = 1, state.max_mip do
 		local reduce_descriptor_slot = descriptor_base + mip_level
@@ -544,19 +1319,14 @@ end
 
 local function serialize_render_entry(component, entry, entry_index, dynamic)
 	local material = component:GetResolvedMaterial(entry)
-	local polygon3d = entry.polygon3d
 	local _, index_buffer = ensure_entry_index_buffer(entry)
-	local transform = entry and entry.transform or nil
-	local world_matrix = transform and
-		transform.GetWorldMatrix and
-		transform:GetWorldMatrix() or
-		component:GetWorldMatrix()
+	local world_matrix = entry.transform:GetWorldMatrix()
 	return {
 		component = component,
 		source_entry = entry,
 		entry_index = entry_index,
-		polygon_guid = polygon3d and polygon3d.GetGUID and polygon3d:GetGUID() or nil,
-		material_guid = material and material.GetGUID and material:GetGUID() or nil,
+		polygon_guid = entry.polygon3d:GetGUID(),
+		material_guid = material:GetGUID(),
 		ignore_z = material and material.GetIgnoreZ and material:GetIgnoreZ() or false,
 		has_height_displacement = entry_has_height_displacement(material),
 		gbuffer_instancing_eligible = entry_can_use_gbuffer_instancing(entry, material),
@@ -1022,8 +1792,12 @@ local function extract_frustum_planes(proj_view_matrix, out_planes)
 	end
 end
 
+local cache = {}
+
 local function new_ffi_array(ctype, count)
-	return ffi.new(ffi.typeof("$[?]", ctype), math.max(count, 1))
+	cache[ctype] = cache[ctype] or {}
+	cache[ctype][count] = cache[ctype][count] or ffi.typeof("$[?]", ctype)
+	return ffi.new(cache[ctype][count], math.max(count, 1))
 end
 
 local function set_record_aabb(record, min_prefix, max_prefix, aabb)
@@ -1365,20 +2139,17 @@ local function create_buffer(label, byte_size, usage, data)
 	}
 end
 
-local function reset_shadow_query_output_pass()
-	local pass = gpu_culling.shadow_view_aabb_cull_pass
-
-	if pass and pass.Remove then pass:Remove() end
-
-	gpu_culling.shadow_view_aabb_cull_pass = nil
-end
-
 local function ensure_shadow_query_output_descriptor_capacity(descriptor_slot)
 	descriptor_slot = math.max(tonumber(descriptor_slot) or 1, 1)
 
 	if descriptor_slot > (gpu_culling.shadow_query_output_descriptor_count or 0) then
 		gpu_culling.shadow_query_output_descriptor_count = descriptor_slot
-		reset_shadow_query_output_pass()
+
+		if gpu_culling.shadow_view_aabb_cull_pass then
+			gpu_culling.shadow_view_aabb_cull_pass:Remove()
+		end
+
+		gpu_culling.shadow_view_aabb_cull_pass = nil
 	end
 
 	return descriptor_slot
@@ -1457,7 +2228,7 @@ local function create_shadow_query_output(
 			{
 				{
 					lua_name = "instance_world",
-					lua_type = ffi.typeof("float[16]"),
+					lua_type = float16,
 					offset = 0,
 				},
 			},
@@ -1569,815 +2340,6 @@ local function build_dataset_buffers(dataset)
 			upload.shadow_bvh.node_records
 		),
 	}
-end
-
-local function get_main_view_cull_pass()
-	if gpu_culling.main_view_cull_pass then
-		return gpu_culling.main_view_cull_pass
-	end
-
-	gpu_culling.main_view_cull_pass = EasyPipeline.Compute{
-		DescriptorSetCount = math.max((render.GetSwapchainImageCount() or 1) + 1, 1),
-		name = "gpu_culling_main_view_linear",
-		LocalSize = {x = 64, y = 1, z = 1},
-		descriptor_sets = {
-			{
-				type = "storage_buffer",
-				binding_index = 0,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 1,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 2,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 3,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 4,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 5,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 6,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 7,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 8,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 9,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 10,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 11,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 12,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 13,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "combined_image_sampler",
-				binding_index = 14,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-		},
-		block = {
-			{"visual_count", "int"},
-			{"camera_position", "vec3"},
-			{"frustum_planes", "vec4", 6},
-			{"view_projection", "mat4"},
-			{"viewport_height", "float"},
-			{"min_screen_diameter_px", "float"},
-			{"occlusion_enabled", "int"},
-			{"has_source_depth_texture", "int"},
-			{"occlusion_max_mip", "int"},
-			{"occlusion_depth_bias", "float"},
-		},
-		write = function(self, block)
-			block.visual_count = self.current_visual_count or 0
-			block.camera_position[0] = self.current_camera_position and self.current_camera_position.x or 0
-			block.camera_position[1] = self.current_camera_position and self.current_camera_position.y or 0
-			block.camera_position[2] = self.current_camera_position and self.current_camera_position.z or 0
-
-			if self.current_frustum_planes then
-				ffi.copy(
-					block.frustum_planes,
-					self.current_frustum_planes,
-					ffi.sizeof("float") * FRUSTUM_PLANE_COMPONENT_COUNT
-				)
-			else
-				ffi.fill(block.frustum_planes, ffi.sizeof("float") * FRUSTUM_PLANE_COMPONENT_COUNT, 0)
-			end
-
-			if self.current_view_projection then
-				self.current_view_projection:CopyToFloatPointer(block.view_projection)
-			else
-				ffi.fill(block.view_projection, ffi.sizeof("float") * 16, 0)
-			end
-
-			block.viewport_height = self.current_viewport_height or 0
-			block.min_screen_diameter_px = self.current_min_screen_diameter_px or 1.0
-			block.occlusion_enabled = self.current_occlusion_enabled and 1 or 0
-			block.has_source_depth_texture = self.current_occlusion_depth_texture and 1 or 0
-			block.occlusion_max_mip = self.current_occlusion_max_mip or 0
-			block.occlusion_depth_bias = self.current_occlusion_depth_bias or 0.0015
-			return block
-		end,
-		shader = [[
-			struct VisualRecord {
-				float min_x;
-				float min_y;
-				float min_z;
-				float max_x;
-				float max_y;
-				float max_z;
-				float sphere_radius;
-				float cull_distance;
-				uint flags;
-				uint entry_offset;
-				uint entry_count;
-				uint shadow_change_version;
-			};
-
-			struct EntryRecord {
-				float local_min_x;
-				float local_min_y;
-				float local_min_z;
-				float local_max_x;
-				float local_max_y;
-				float local_max_z;
-				float source_min_x;
-				float source_min_y;
-				float source_min_z;
-				float source_max_x;
-				float source_max_y;
-				float source_max_z;
-				uint visual_index;
-				uint entry_index;
-				uint index_count;
-				uint flags;
-				uint instanced_batch_index;
-				uint static_matrix_index;
-			};
-
-			struct InstancedBatchRecord {
-				uint output_offset;
-				uint max_count;
-				uint index_count;
-				uint reserved1;
-			};
-
-			struct DrawIndexedIndirectCommand {
-				uint indexCount;
-				uint instanceCount;
-				uint firstIndex;
-				int vertexOffset;
-				uint firstInstance;
-			};
-
-			layout(std430, set = 0, binding = 0) readonly buffer VisualBuffer {
-				VisualRecord visuals[];
-			};
-
-			layout(std430, set = 0, binding = 1) writeonly buffer VisibleIndexBuffer {
-				uint visible_indices[];
-			};
-
-			layout(std430, set = 0, binding = 2) buffer VisibleCountBuffer {
-				uint visible_count[];
-			};
-
-			layout(std430, set = 0, binding = 3) readonly buffer EntryBuffer {
-				EntryRecord entries[];
-			};
-
-			layout(std430, set = 0, binding = 4) writeonly buffer IndirectCommandBuffer {
-				DrawIndexedIndirectCommand commands[];
-			};
-
-			layout(std430, set = 0, binding = 5) readonly buffer StaticInstanceWorldBuffer {
-				mat4 static_instance_worlds[];
-			};
-
-			layout(std430, set = 0, binding = 6) readonly buffer InstancedBatchBuffer {
-				InstancedBatchRecord instanced_batches[];
-			};
-
-			layout(std430, set = 0, binding = 7) writeonly buffer VisibleInstanceWorldBuffer {
-				mat4 visible_instance_worlds[];
-			};
-
-			layout(std430, set = 0, binding = 8) buffer VisibleInstancedBatchCountBuffer {
-				uint visible_instanced_batch_counts[];
-			};
-
-			layout(std430, set = 0, binding = 9) writeonly buffer FallbackVisibleIndexBuffer {
-				uint fallback_visible_indices[];
-			};
-
-			layout(std430, set = 0, binding = 10) buffer FallbackVisibleCountBuffer {
-				uint fallback_visible_count[];
-			};
-
-			layout(std430, set = 0, binding = 11) writeonly buffer ActiveBatchIndexBuffer {
-				uint active_batch_indices[];
-			};
-
-			layout(std430, set = 0, binding = 12) buffer ActiveBatchCountBuffer {
-				uint active_batch_count[];
-			};
-
-			layout(std430, set = 0, binding = 13) buffer VisibleBatchIndirectCommandBuffer {
-				DrawIndexedIndirectCommand batch_commands[];
-			};
-
-			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
-
-			const uint VISUAL_FLAG_VISIBLE = 1u;
-			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
-			const uint INVALID_INDEX = 0xFFFFFFFFu;
-
-			bool is_within_cull_distance(VisualRecord visual_record) {
-				if (visual_record.cull_distance <= 0.0) return true;
-
-				float nearest_x = clamp(compute.camera_position.x, visual_record.min_x, visual_record.max_x);
-				float nearest_y = clamp(compute.camera_position.y, visual_record.min_y, visual_record.max_y);
-				float nearest_z = clamp(compute.camera_position.z, visual_record.min_z, visual_record.max_z);
-				float dx = compute.camera_position.x - nearest_x;
-				float dy = compute.camera_position.y - nearest_y;
-				float dz = compute.camera_position.z - nearest_z;
-				return dx * dx + dy * dy + dz * dz <= visual_record.cull_distance * visual_record.cull_distance;
-			}
-
-			bool is_visible_in_frustum(VisualRecord visual_record) {
-				for (int i = 0; i < 6; i++) {
-					vec4 plane = compute.frustum_planes[i];
-					float px = plane.x > 0.0 ? visual_record.max_x : visual_record.min_x;
-					float py = plane.y > 0.0 ? visual_record.max_y : visual_record.min_y;
-					float pz = plane.z > 0.0 ? visual_record.max_z : visual_record.min_z;
-
-					if (plane.x * px + plane.y * py + plane.z * pz + plane.w < 0.0) {
-						return false;
-					}
-				}
-
-				return true;
-			}
-
-			vec4 project_world_position(vec3 world_pos) {
-				return compute.view_projection * vec4(world_pos, 1.0);
-			}
-
-			bool is_camera_inside_aabb(VisualRecord visual_record) {
-				return compute.camera_position.x >= visual_record.min_x &&
-					compute.camera_position.x <= visual_record.max_x &&
-					compute.camera_position.y >= visual_record.min_y &&
-					compute.camera_position.y <= visual_record.max_y &&
-					compute.camera_position.z >= visual_record.min_z &&
-					compute.camera_position.z <= visual_record.max_z;
-			}
-
-			bool is_large_enough_in_screen_space(VisualRecord visual_record) {
-				if (compute.viewport_height <= 0.0) return true;
-				if (visual_record.sphere_radius <= 0.0) return true;
-
-				vec3 center = vec3(
-					(visual_record.min_x + visual_record.max_x) * 0.5,
-					(visual_record.min_y + visual_record.max_y) * 0.5,
-					(visual_record.min_z + visual_record.max_z) * 0.5
-				);
-				vec4 clip = project_world_position(center);
-
-				if (clip.w <= 0.0) return true;
-
-				float projected_radius_px = abs(compute.view_projection[1][1]) * visual_record.sphere_radius * compute.viewport_height / max(clip.w * 2.0, 1e-5);
-				return projected_radius_px * 2.0 >= compute.min_screen_diameter_px;
-			}
-
-			int choose_occlusion_mip(vec2 min_uv, vec2 max_uv) {
-				vec2 uv_span = max(max_uv - min_uv, vec2(0.0));
-				vec2 hi_z_size = vec2(textureSize(source_depth_tex, 0));
-				float max_span = max(max(uv_span.x * hi_z_size.x, uv_span.y * hi_z_size.y), 1.0);
-				return clamp(int(ceil(log2(max_span))), 0, compute.occlusion_max_mip);
-			}
-
-			bool is_occluded(VisualRecord visual_record) {
-				if (compute.occlusion_enabled == 0 || compute.has_source_depth_texture == 0) return false;
-				if ((visual_record.flags & VISUAL_FLAG_USE_OCCLUSION) == 0u) return false;
-
-				vec3 corners[8] = vec3[](
-					vec3(visual_record.min_x, visual_record.min_y, visual_record.min_z),
-					vec3(visual_record.min_x, visual_record.min_y, visual_record.max_z),
-					vec3(visual_record.min_x, visual_record.max_y, visual_record.min_z),
-					vec3(visual_record.min_x, visual_record.max_y, visual_record.max_z),
-					vec3(visual_record.max_x, visual_record.min_y, visual_record.min_z),
-					vec3(visual_record.max_x, visual_record.min_y, visual_record.max_z),
-					vec3(visual_record.max_x, visual_record.max_y, visual_record.min_z),
-					vec3(visual_record.max_x, visual_record.max_y, visual_record.max_z)
-				);
-
-				vec2 min_uv = vec2(1.0);
-				vec2 max_uv = vec2(0.0);
-				float nearest_depth = 1.0;
-				bool any_valid = false;
-
-				for (int i = 0; i < 8; ++i) {
-					vec4 clip = project_world_position(corners[i]);
-
-					if (clip.w <= 0.0) continue;
-
-					vec3 ndc = clip.xyz / clip.w;
-					vec2 uv = ndc.xy * 0.5 + 0.5;
-					min_uv = min(min_uv, uv);
-					max_uv = max(max_uv, uv);
-					nearest_depth = min(nearest_depth, ndc.z);
-					any_valid = true;
-				}
-
-				if (!any_valid) return false;
-				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
-
-				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
-				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
-				int mip_level = choose_occlusion_mip(min_uv, max_uv);
-				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
-				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
-				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
-
-				float sampled_depth = 0.0;
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
-
-				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
-			}
-
-			void main() {
-				uint visual_index = gl_GlobalInvocationID.x;
-
-				if (visual_index >= uint(max(compute.visual_count, 0))) return;
-
-				VisualRecord visual_record = visuals[visual_index];
-				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
-
-				if ((visual_record.flags & VISUAL_FLAG_VISIBLE) == 0u) return;
-				if (!is_within_cull_distance(visual_record)) return;
-				if (!is_visible_in_frustum(visual_record)) return;
-				if (!camera_inside_aabb && !is_large_enough_in_screen_space(visual_record)) return;
-				if (!camera_inside_aabb && is_occluded(visual_record)) return;
-
-				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
-					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
-
-					if (entry_record.index_count == 0u) continue;
-
-					uint write_index = atomicAdd(visible_count[0], 1u);
-					uint entry_index = visual_record.entry_offset + entry_offset;
-					visible_indices[write_index] = entry_index;
-					commands[write_index].indexCount = entry_record.index_count;
-					commands[write_index].instanceCount = 1u;
-					commands[write_index].firstIndex = 0u;
-					commands[write_index].vertexOffset = 0;
-					commands[write_index].firstInstance = entry_index;
-
-					if (entry_record.instanced_batch_index != INVALID_INDEX && entry_record.static_matrix_index != INVALID_INDEX) {
-						InstancedBatchRecord batch_record = instanced_batches[entry_record.instanced_batch_index];
-						uint local_index = atomicAdd(visible_instanced_batch_counts[entry_record.instanced_batch_index], 1u);
-
-						if (local_index == 0u) {
-							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
-							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
-							batch_commands[entry_record.instanced_batch_index].indexCount = batch_record.index_count;
-							batch_commands[entry_record.instanced_batch_index].firstIndex = 0u;
-							batch_commands[entry_record.instanced_batch_index].vertexOffset = 0;
-							batch_commands[entry_record.instanced_batch_index].firstInstance = batch_record.output_offset;
-						}
-
-						atomicAdd(batch_commands[entry_record.instanced_batch_index].instanceCount, 1u);
-
-						if (local_index < batch_record.max_count) {
-							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
-						}
-					} else {
-						uint fallback_write_index = atomicAdd(fallback_visible_count[0], 1u);
-						fallback_visible_indices[fallback_write_index] = entry_index;
-					}
-				}
-			}
-		]],
-	}
-	gpu_culling.main_view_cull_frustum_planes = gpu_culling.main_view_cull_frustum_planes or ffi.new("float[24]")
-	return gpu_culling.main_view_cull_pass
-end
-
-local function get_shadow_view_aabb_cull_pass()
-	if gpu_culling.shadow_view_aabb_cull_pass then
-		return gpu_culling.shadow_view_aabb_cull_pass
-	end
-
-	gpu_culling.shadow_view_aabb_cull_pass = EasyPipeline.Compute{
-		DescriptorSetCount = math.max(gpu_culling.shadow_query_output_descriptor_count or 1, 1),
-		name = "gpu_culling_shadow_view_aabb",
-		LocalSize = {x = 64, y = 1, z = 1},
-		descriptor_sets = {
-			{
-				type = "storage_buffer",
-				binding_index = 0,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 1,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 2,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 3,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 4,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 5,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 6,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 7,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 8,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 9,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 10,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 11,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 12,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "storage_buffer",
-				binding_index = 13,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-			{
-				type = "combined_image_sampler",
-				binding_index = 14,
-				stageFlags = "compute",
-				set_index = 0,
-			},
-		},
-		block = {
-			{"visual_count", "int"},
-			{"query_min", "vec3"},
-			{"query_max", "vec3"},
-			{"camera_position", "vec3"},
-			{"view_projection", "mat4"},
-			{"occlusion_enabled", "int"},
-			{"has_source_depth_texture", "int"},
-			{"occlusion_max_mip", "int"},
-			{"occlusion_depth_bias", "float"},
-		},
-		write = function(self, block)
-			block.visual_count = self.current_visual_count or 0
-			block.query_min[0] = self.current_query_aabb and self.current_query_aabb.min_x or 0
-			block.query_min[1] = self.current_query_aabb and self.current_query_aabb.min_y or 0
-			block.query_min[2] = self.current_query_aabb and self.current_query_aabb.min_z or 0
-			block.query_max[0] = self.current_query_aabb and self.current_query_aabb.max_x or 0
-			block.query_max[1] = self.current_query_aabb and self.current_query_aabb.max_y or 0
-			block.query_max[2] = self.current_query_aabb and self.current_query_aabb.max_z or 0
-			block.camera_position[0] = self.current_camera_position and self.current_camera_position.x or 0
-			block.camera_position[1] = self.current_camera_position and self.current_camera_position.y or 0
-			block.camera_position[2] = self.current_camera_position and self.current_camera_position.z or 0
-
-			if self.current_view_projection then
-				self.current_view_projection:CopyToFloatPointer(block.view_projection)
-			else
-				ffi.fill(block.view_projection, ffi.sizeof("float") * 16, 0)
-			end
-
-			block.occlusion_enabled = self.current_occlusion_enabled and 1 or 0
-			block.has_source_depth_texture = self.current_occlusion_depth_texture and 1 or 0
-			block.occlusion_max_mip = self.current_occlusion_max_mip or 0
-			block.occlusion_depth_bias = self.current_occlusion_depth_bias or 0.0015
-			return block
-		end,
-		shader = [[
-			struct VisualRecord {
-				float min_x;
-				float min_y;
-				float min_z;
-				float max_x;
-				float max_y;
-				float max_z;
-				float sphere_radius;
-				float cull_distance;
-				uint flags;
-				uint entry_offset;
-				uint entry_count;
-				uint shadow_change_version;
-			};
-
-			struct EntryRecord {
-				float local_min_x;
-				float local_min_y;
-				float local_min_z;
-				float local_max_x;
-				float local_max_y;
-				float local_max_z;
-				float source_min_x;
-				float source_min_y;
-				float source_min_z;
-				float source_max_x;
-				float source_max_y;
-				float source_max_z;
-				uint visual_index;
-				uint entry_index;
-				uint index_count;
-				uint flags;
-				uint instanced_batch_index;
-				uint static_matrix_index;
-			};
-
-			struct InstancedBatchRecord {
-				uint output_offset;
-				uint max_count;
-				uint index_count;
-				uint reserved1;
-			};
-
-			struct DrawIndexedIndirectCommand {
-				uint indexCount;
-				uint instanceCount;
-				uint firstIndex;
-				int vertexOffset;
-				uint firstInstance;
-			};
-
-			layout(std430, set = 0, binding = 0) readonly buffer VisualBuffer {
-				VisualRecord visuals[];
-			};
-
-			layout(std430, set = 0, binding = 1) writeonly buffer VisibleIndexBuffer {
-				uint visible_indices[];
-			};
-
-			layout(std430, set = 0, binding = 2) buffer VisibleCountBuffer {
-				uint visible_count[];
-			};
-
-			layout(std430, set = 0, binding = 3) readonly buffer EntryBuffer {
-				EntryRecord entries[];
-			};
-
-			layout(std430, set = 0, binding = 4) readonly buffer StaticInstanceWorldBuffer {
-				mat4 static_instance_worlds[];
-			};
-
-			layout(std430, set = 0, binding = 5) readonly buffer InstancedBatchBuffer {
-				InstancedBatchRecord instanced_batches[];
-			};
-
-			layout(std430, set = 0, binding = 6) writeonly buffer VisibleInstanceWorldBuffer {
-				mat4 visible_instance_worlds[];
-			};
-
-			layout(std430, set = 0, binding = 7) buffer VisibleInstancedBatchCountBuffer {
-				uint visible_instanced_batch_counts[];
-			};
-
-			layout(std430, set = 0, binding = 8) writeonly buffer FallbackVisibleIndexBuffer {
-				uint fallback_visible_indices[];
-			};
-
-			layout(std430, set = 0, binding = 9) buffer FallbackVisibleCountBuffer {
-				uint fallback_visible_count[];
-			};
-
-			layout(std430, set = 0, binding = 10) writeonly buffer ActiveBatchIndexBuffer {
-				uint active_batch_indices[];
-			};
-
-			layout(std430, set = 0, binding = 11) buffer ActiveBatchCountBuffer {
-				uint active_batch_count[];
-			};
-
-			layout(std430, set = 0, binding = 12) buffer VisibleBatchIndirectCommandBuffer {
-				DrawIndexedIndirectCommand batch_commands[];
-			};
-
-			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
-
-			const uint VISUAL_FLAG_CAST_SHADOWS = 2u;
-			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
-			const uint INVALID_INDEX = 0xFFFFFFFFu;
-
-			bool overlaps_query(VisualRecord visual_record) {
-				return visual_record.max_x >= compute.query_min.x &&
-					visual_record.min_x <= compute.query_max.x &&
-					visual_record.max_y >= compute.query_min.y &&
-					visual_record.min_y <= compute.query_max.y &&
-					visual_record.max_z >= compute.query_min.z &&
-					visual_record.min_z <= compute.query_max.z;
-			}
-
-			vec4 project_world_position(vec3 world_pos) {
-				return compute.view_projection * vec4(world_pos, 1.0);
-			}
-
-			bool is_camera_inside_aabb(VisualRecord visual_record) {
-				return compute.camera_position.x >= visual_record.min_x &&
-					compute.camera_position.x <= visual_record.max_x &&
-					compute.camera_position.y >= visual_record.min_y &&
-					compute.camera_position.y <= visual_record.max_y &&
-					compute.camera_position.z >= visual_record.min_z &&
-					compute.camera_position.z <= visual_record.max_z;
-			}
-
-			int choose_occlusion_mip(vec2 min_uv, vec2 max_uv) {
-				vec2 uv_span = max(max_uv - min_uv, vec2(0.0));
-				vec2 hi_z_size = vec2(textureSize(source_depth_tex, 0));
-				float max_span = max(max(uv_span.x * hi_z_size.x, uv_span.y * hi_z_size.y), 1.0);
-				return clamp(int(ceil(log2(max_span))), 0, compute.occlusion_max_mip);
-			}
-
-			bool is_occluded(VisualRecord visual_record) {
-				if (compute.occlusion_enabled == 0 || compute.has_source_depth_texture == 0) return false;
-				if ((visual_record.flags & VISUAL_FLAG_USE_OCCLUSION) == 0u) return false;
-
-				vec3 corners[8] = vec3[](
-					vec3(visual_record.min_x, visual_record.min_y, visual_record.min_z),
-					vec3(visual_record.min_x, visual_record.min_y, visual_record.max_z),
-					vec3(visual_record.min_x, visual_record.max_y, visual_record.min_z),
-					vec3(visual_record.min_x, visual_record.max_y, visual_record.max_z),
-					vec3(visual_record.max_x, visual_record.min_y, visual_record.min_z),
-					vec3(visual_record.max_x, visual_record.min_y, visual_record.max_z),
-					vec3(visual_record.max_x, visual_record.max_y, visual_record.min_z),
-					vec3(visual_record.max_x, visual_record.max_y, visual_record.max_z)
-				);
-
-				vec2 min_uv = vec2(1.0);
-				vec2 max_uv = vec2(0.0);
-				float nearest_depth = 1.0;
-				bool any_valid = false;
-
-				for (int i = 0; i < 8; ++i) {
-					vec4 clip = project_world_position(corners[i]);
-
-					if (clip.w <= 0.0) continue;
-
-					vec3 ndc = clip.xyz / clip.w;
-					vec2 uv = ndc.xy * 0.5 + 0.5;
-					min_uv = min(min_uv, uv);
-					max_uv = max(max_uv, uv);
-					nearest_depth = min(nearest_depth, ndc.z);
-					any_valid = true;
-				}
-
-				if (!any_valid) return false;
-				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
-
-				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
-				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
-				int mip_level = choose_occlusion_mip(min_uv, max_uv);
-				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
-				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
-				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
-
-				float sampled_depth = 0.0;
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
-
-				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
-			}
-
-			void main() {
-				uint visual_index = gl_GlobalInvocationID.x;
-
-				if (visual_index >= uint(max(compute.visual_count, 0))) return;
-
-				VisualRecord visual_record = visuals[visual_index];
-				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
-
-				if ((visual_record.flags & VISUAL_FLAG_CAST_SHADOWS) == 0u) return;
-				if (!overlaps_query(visual_record)) return;
-				if (!camera_inside_aabb && is_occluded(visual_record)) return;
-
-				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
-					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
-
-					if (entry_record.index_count == 0u) continue;
-
-					uint write_index = atomicAdd(visible_count[0], 1u);
-					uint entry_index = visual_record.entry_offset + entry_offset;
-					visible_indices[write_index] = entry_index;
-
-					if (entry_record.instanced_batch_index != INVALID_INDEX && entry_record.static_matrix_index != INVALID_INDEX) {
-						InstancedBatchRecord batch_record = instanced_batches[entry_record.instanced_batch_index];
-						uint local_index = atomicAdd(visible_instanced_batch_counts[entry_record.instanced_batch_index], 1u);
-
-						if (local_index == 0u) {
-							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
-							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
-							batch_commands[entry_record.instanced_batch_index].indexCount = batch_record.index_count;
-							batch_commands[entry_record.instanced_batch_index].firstIndex = 0u;
-							batch_commands[entry_record.instanced_batch_index].vertexOffset = 0;
-							batch_commands[entry_record.instanced_batch_index].firstInstance = batch_record.output_offset;
-						}
-
-						atomicAdd(batch_commands[entry_record.instanced_batch_index].instanceCount, 1u);
-
-						if (local_index < batch_record.max_count) {
-							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
-						}
-					} else {
-						uint fallback_write_index = atomicAdd(fallback_visible_count[0], 1u);
-						fallback_visible_indices[fallback_write_index] = entry_index;
-					}
-				}
-			}
-		]],
-	}
-	gpu_culling.shadow_view_aabb_cull_cmd = gpu_culling.shadow_view_aabb_cull_cmd or render.CreateCommandBuffer()
-	return gpu_culling.shadow_view_aabb_cull_pass
 end
 
 local function resolve_frame_slot(frame_index)
@@ -2522,7 +2484,7 @@ local function build_frame_buffers(dataset)
 				{
 					{
 						lua_name = "instance_world",
-						lua_type = ffi.typeof("float[16]"),
+						lua_type = float16,
 						offset = 0,
 					},
 				},
@@ -2829,7 +2791,6 @@ function gpu_culling.RunMainViewFrustumCulling(
 		return gpu_culling.empty_main_view_cull_result
 	end
 
-	local pass = get_main_view_cull_pass()
 	local slot = use_async_main_view and
 		gpu_culling.main_view_async_slot_index or
 		resolve_frame_slot(frame_index)
@@ -2867,6 +2828,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 		output.visible_instanced_batch_count_buffer.size,
 		0
 	)
+	local pass = gpu_culling.main_view_cull_pass
 	pass.current_visual_count = visual_count
 	pass.current_camera_position = camera_position
 	pass.current_frustum_planes = frustum_planes
@@ -3139,6 +3101,8 @@ function gpu_culling.RunMainViewFrustumCulling(
 end
 
 function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_index, include_visible_entry_indices)
+	if not gpu_culling.shadow_view_aabb_cull_pass then return nil end
+
 	local dataset = gpu_culling.scene_dataset
 	local dataset_buffers = gpu_culling.dataset_buffers
 	local frame_buffers = gpu_culling.frame_buffers
@@ -3173,7 +3137,6 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 		return gpu_culling.empty_shadow_view_cull_result
 	end
 
-	local pass = get_shadow_view_aabb_cull_pass()
 	local slot = resolve_frame_slot(frame_index)
 	local output = frame_buffers[slot]
 	local descriptor_slot = shadow_output.descriptor_slot
@@ -3198,6 +3161,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 		shadow_output.shadow_visible_instanced_batch_count_buffer.size,
 		0
 	)
+	local pass = gpu_culling.shadow_view_aabb_cull_pass
 	pass.current_visual_count = visual_count
 	pass.current_query_aabb = query_aabb
 	pass.current_camera_position = camera:GetPosition()

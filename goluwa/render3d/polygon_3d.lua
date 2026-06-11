@@ -51,6 +51,17 @@ function Polygon3D:GetMesh()
 	return self.mesh
 end
 
+local VertexType = ffi.typeof([[
+	struct {
+		float position[3];
+		float normal[3];
+		float uv[2];
+		float tangent[4];
+		float texture_blend;
+		float vertex_color[4];
+	}[?]
+]])
+
 function Polygon3D:Upload(indices)
 	self.indices = indices
 
@@ -78,16 +89,6 @@ function Polygon3D:Upload(indices)
 	if not self.Vertices[1].tangent then self:BuildTangents() end
 
 	-- Define vertex structure matching render3d pipeline: position, normal, uv, tangent, texture_blend, vertex_color
-	local VertexType = ffi.typeof([[
-		struct {
-			float position[3];
-			float normal[3];
-			float uv[2];
-			float tangent[4];
-			float texture_blend;
-			float vertex_color[4];
-		}[?]
-	]])
 	local vertices = VertexType(vertex_count)
 
 	-- Copy vertex data from Lua tables to FFI array

@@ -565,6 +565,7 @@ function render3d.Initialize()
 		render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 	end)
 
+	gpu_culling.Initialize()
 	render3d.initializing = false
 	event.Call("Render3DInitialized")
 end

@@ -709,9 +709,7 @@ function assets.Load(path, options)
 		local entry = make_model_entry(resolved, key)
 		assets.cache[key] = entry
 		queue_callbacks(entry, options)
-		local ok, result = xpcall(function()
-			return load(resolved, options, entry)
-		end, debug.traceback)
+		local ok, result = xpcall(load, debug.traceback, resolved, options, entry)
 
 		if not ok then
 			assets.cache[key] = nil
@@ -724,9 +722,7 @@ function assets.Load(path, options)
 		return result
 	end
 
-	local ok, result = xpcall(function()
-		return load(resolved, options)
-	end, debug.traceback)
+	local ok, result = xpcall(load, debug.traceback, resolved, options)
 
 	if not ok then
 		if options.on_error then options.on_error(result) end
