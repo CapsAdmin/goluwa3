@@ -1,6 +1,11 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/commands.lua")
 local prototype = import("goluwa/prototype.lua")
+
+-- Pre-register to break import cycle: visual -> render3d -> light -> visual
+local Visual = prototype.CreateTemplate("visual")
+import.loaded["goluwa/ecs/components/3d/visual.lua"] = Visual
+
 local BVH = import("goluwa/physics/bvh.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -10,12 +15,10 @@ local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local test_helper = import("goluwa/helpers/test.lua")
-local render3d = import("goluwa/render3d/render3d.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
-local Visual = prototype.CreateTemplate("visual")
 local visual = library()
 
 local function registry_insert(registry, index_field, component)
