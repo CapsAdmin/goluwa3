@@ -4,6 +4,7 @@ local fs = import("goluwa/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local ttf = import("goluwa/codecs/ttf.lua")
 local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
+local math2d = import("goluwa/render2d/math2d.lua")
 local cached_path = nil
 
 local function decode_font_name(path)

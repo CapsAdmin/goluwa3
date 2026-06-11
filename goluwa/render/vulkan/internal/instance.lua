@@ -133,7 +133,7 @@ do
 
 			if pUserData ~= nil then
 				io_write("Lua stack trace:\n")
-				local trace = get_traceback(ffi.cast("goluwa_vk_debug_context*", pUserData))
+				local trace = tostring(get_traceback(ffi.cast("goluwa_vk_debug_context*", pUserData)))
 				io_write(trace)
 			end
 

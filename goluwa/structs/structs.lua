@@ -141,6 +141,7 @@ local function parse_args(META, lua, sep, protect)
 end
 
 function structs.AddOperator(META, operator, ...)
+	if not META.NumberType then META.NumberType = structs.NumberType end
 	if operator == "tostring" then
 		local lua = [==[
 		local META, structs = ...

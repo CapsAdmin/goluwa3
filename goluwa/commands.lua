@@ -975,7 +975,8 @@ do -- commands
 		local ok, msg = commands.ExecuteCommandString(line)
 
 		if not ok and not msg:find("could not find command") then
-			logn(msg)
+			io.stderr:write(msg, "\n")
+			io.stderr:flush()
 			return
 		end
 
@@ -985,7 +986,8 @@ do -- commands
 
 		if not ok then
 			msg = msg:match("^.-:%d+:%s+(.+)") or msg
-			logn(msg)
+			io.stderr:write(msg, "\n")
+			io.stderr:flush()
 		end
 	end
 
@@ -1023,7 +1025,8 @@ do -- commands
 		local ok, msg = commands.ExecuteCommandArguments(alias, command_args)
 
 		if not ok and not msg:find("could not find command") then
-			logn(msg)
+			io.stderr:write(msg, "\n")
+			io.stderr:flush()
 			return
 		end
 
@@ -1033,7 +1036,8 @@ do -- commands
 
 		if not ok then
 			msg = msg:match("^.-:%d+:%s+(.+)") or msg
-			logn(msg)
+			io.stderr:write(msg, "\n")
+			io.stderr:flush()
 		end
 	end
 

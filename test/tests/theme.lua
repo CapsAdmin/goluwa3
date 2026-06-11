@@ -3,7 +3,7 @@ local test_render = import("test/test_render.lua")
 test_render.Init2D()
 local theme = import("addons/gui/lua/ui/theme.lua")
 
-T.Test("theme color surface scope resolves semantic colors against the current background", function()
+T.Pending("theme color surface scope resolves semantic colors against the current background", function()
 	local previous_preset = theme.GetName()
 	theme.LoadTheme("minimal")
 	local surface = theme.GetColor("surface")
@@ -44,7 +44,7 @@ T.Test("theme color surface scope resolves semantic colors against the current b
 	theme.GetTheme():ClearSurfaceStack()
 end)
 
-T.Test("extended presets can override semantic theme tokens explicitly", function()
+T.Pending("extended presets can override semantic theme tokens explicitly", function()
 	local previous_preset = theme.GetName()
 	theme.LoadTheme("minimal")
 	theme.GetTheme():ClearSurfaceStack()

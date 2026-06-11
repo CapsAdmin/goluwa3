@@ -351,6 +351,35 @@ function module.CreateStubBody(data)
 		return data.HasSignificantRotation == true
 	end
 
+	function body:GetPhysics()
+		if not body._physics then
+			local solver = {
+				WARM_START_SCALE = 0.9,
+				TANGENT_WARM_START_SCALE = 0.1,
+				MAX_TANGENT_WARM_SPEED = 0.25,
+				MANIFOLD_SOLVER_PASSES = 1,
+				RESTING_MANIFOLD_SOLVER_PASSES = 2,
+			}
+			function solver:GetPairRestitution() return data.Restitution or 0 end
+			function solver:GetPairFriction() return data.Friction or 0 end
+			function solver:GetPairStaticFriction() return data.StaticFriction or data.Friction or 0 end
+			function solver:GetPairRollingFriction() return 0 end
+			function solver:ShouldUseStaticFriction(contact, tangent_speed, tangent_impulse_length, max_static_impulse)
+				local enter_speed = solver.STATIC_FRICTION_SPEED or 0
+				local exit_speed = solver.STATIC_FRICTION_EXIT_SPEED or enter_speed
+				max_static_impulse = math.max(max_static_impulse or 0, 0)
+				if max_static_impulse > 0 and (tangent_impulse_length or math.huge) <= max_static_impulse then return true end
+				if tangent_speed <= enter_speed then return true end
+				return contact and contact.static_friction_active == true and tangent_speed <= exit_speed or false
+			end
+			function solver:GetManifoldSolverPasses()
+				return math.max(1, solver.MANIFOLD_SOLVER_PASSES or 1)
+			end
+			body._physics = {solver = solver}
+		end
+		return body._physics
+	end
+
 	return body
 end
 
@@ -411,6 +440,18 @@ function module.CreateTestRigidBody(data)
 		if data.StaticFriction ~= nil then return data.StaticFriction end
 
 		return data.Friction or 0
+	end
+
+	function body:GetPhysics()
+		return body._physics or {
+			solver = {
+				WARM_START_SCALE = 0.9,
+				TANGENT_WARM_START_SCALE = 0.1,
+				MAX_TANGENT_WARM_SPEED = 0.25,
+				MANIFOLD_SOLVER_PASSES = 1,
+				RESTING_MANIFOLD_SOLVER_PASSES = 2,
+			},
+		}
 	end
 
 	return body

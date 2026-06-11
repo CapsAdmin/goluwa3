@@ -1535,7 +1535,7 @@ else
 		local size = ffi.typeof("$[1]", ffi.typeof("$", winsize))()
 
 		function meta:GetSize()
-			local fd_no = ffi.C.fileno(self.output)
+			local fd_no = ffi.C.fileno(self.input)
 			local num = ffi.C.ioctl(fd_no, TIOCGWINSZ, size)
 
 			if num ~= 0 then error(lasterror(), 2) end

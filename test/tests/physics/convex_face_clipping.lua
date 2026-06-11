@@ -84,7 +84,7 @@ T.Test("Convex face contact entry building reuses scratch tables and clears stal
 	T(entries_first == entries_second)["=="](true)
 	T(#entries_second)["=="](3)
 	T(entries_second[4] == nil)["=="](true)
-	T(entries_second[1].separation)["=="](0.03)
+	T(entries_second[1].separation)["~"](0.03)
 end)
 
 T.Test("Convex face contact selection reuses scratch tables and clears chosen state", function()

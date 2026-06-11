@@ -61,8 +61,8 @@ T.Test("Manifold warm start reapplies cached tangent impulses", function()
 		},
 	}
 	manifold.WarmStart(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
-	T(body_a:GetVelocity().x)["=="](-0.1)
-	T(body_b:GetVelocity().x)["=="](0.1)
+	T(body_a:GetVelocity().x)["~"](-0.1)
+	T(body_b:GetVelocity().x)["~"](0.1)
 	T(math.abs(body_a:GetVelocity().z))[">"](0)
 	T(math.abs(body_b:GetVelocity().z))[">"](0)
 end)

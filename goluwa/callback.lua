@@ -80,9 +80,21 @@ do
 		end
 
 		if not handled and self.warn_unhandled then
-			logn(self, " unhandled reject: ", ...)
-			logn(debug.traceback("current trace:"))
-			logn(self.debug_trace)
+			-- Check if any child (or descendant) has rejection handlers
+			local function child_has_reject_handlers(cb)
+				for _, c in ipairs(cb.children) do
+					if c.funcs.rejected[1] or child_has_reject_handlers(c) then
+						return true
+					end
+				end
+				return false
+			end
+
+			if not child_has_reject_handlers(self) then
+				logn(self, " unhandled reject: ", ...)
+				logn(debug.traceback("current trace:"))
+				logn(self.debug_trace)
+			end
 		end
 
 		for _, fn in ipairs(self.funcs.done) do
