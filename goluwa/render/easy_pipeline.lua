@@ -55,22 +55,381 @@ local function resolve_draw_framebuffer(self, framebuffer, frame_index)
 	return fb
 end
 
-local function begin_draw(self, cmd, fb, frame_index)
-	if fb then fb:Begin(cmd) end
 
-	-- If this pass draws directly to the main target (no explicit framebuffer),
-	-- make sure viewport/scissor are reset to full render size. Otherwise the
-	-- command buffer may still have a tiny viewport from a previous downsample pass.
-	if not fb then
-		local size = render.GetRenderImageSize()
 
-		if size and size.x and size.y and size.x > 0 and size.y > 0 then
-			cmd:SetViewport(0, 0, size.x, size.y, 0, 1)
-			cmd:SetScissor(0, 0, size.x, size.y)
+local function assign_auto_binding(block, next_auto_binding, uniform_buffer_types)
+	if block.binding_index == nil then
+		local existing = uniform_buffer_types[block.name]
+
+		if existing then
+			block.binding_index = existing.block.binding_index
+		else
+			block.binding_index = next_auto_binding
+			next_auto_binding = next_auto_binding + 1
 		end
 	end
 
-	self:Bind(cmd, frame_index)
+	return next_auto_binding
+end
+
+local function upload_block(self, block, data, name)
+	if block.source then
+		local source_data = block.source.get(self, block)
+
+		if source_data == nil then
+			error("block source returned nil for " .. tostring(name), 2)
+		end
+
+		ffi.copy(data, ffi.cast("uint8_t *", source_data) + block.source.offset, ffi.sizeof(data))
+	end
+
+	if block.write then block.write(self, data, block) end
+end
+
+-- Resolve constant placement (push vs uniform buffer) based on budget and preferences
+-- Upload and cache a uniform buffer block, returning the dynamic offset
+-- This is a hot code path - no closures inside
+local function upload_ubo(
+	self,
+	info,
+	frame_index,
+	frame_number,
+	probe_enabled,
+	probe_record_upload,
+	probe_record_cache_access,
+	persistent_bytes_equal
+)
+	local offset = nil
+	local cache_key = nil
+	local cache_hit = false
+	local persistent_entry = nil
+	local persistent_entries = nil
+	local upload_scope = info.block.upload_scope
+
+	if upload_scope == "frame" then
+		cache_key = true
+	elseif
+		(
+			upload_scope == "frame_keyed" or
+			upload_scope == "persistent_keyed"
+		)
+		and
+		info.block.upload_key
+	then
+		cache_key = info.block.upload_key(self, info.block)
+	end
+
+	if cache_key ~= nil then
+		local cache = info.offsets
+
+		if upload_scope == "frame" then
+			if cache.frame_number == frame_number and cache.key == cache_key then
+				offset = cache.offset
+			end
+
+			cache_hit = offset ~= nil
+		elseif upload_scope == "frame_keyed" then
+			if cache.frame_number ~= frame_number then
+				cache.frame_number = frame_number
+				cache.strong_entries = {}
+				cache.weak_entries = setmetatable({}, {__mode = "k"})
+			end
+
+			local key_type = type(cache_key)
+			local entries = (
+					key_type == "table" or
+					key_type == "userdata"
+				)
+				and
+				cache.weak_entries or
+				cache.strong_entries
+			offset = entries[cache_key]
+			cache_hit = offset ~= nil
+		elseif upload_scope == "persistent_keyed" then
+			cache.strong_entries = cache.strong_entries or {}
+			cache.weak_entries = cache.weak_entries or setmetatable({}, {__mode = "k"})
+			local key_type = type(cache_key)
+			persistent_entries = (
+					key_type == "table" or
+					key_type == "userdata"
+				)
+				and
+				cache.weak_entries or
+				cache.strong_entries
+			persistent_entry = persistent_entries[cache_key]
+
+			if persistent_entry then
+				offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
+			end
+		end
+	end
+
+	if upload_scope == "persistent_keyed" and cache_key ~= nil then
+		local ubo_data = info.ubo:GetData()
+
+		if info.block.source then
+			local source_data = info.block.source.get(self, info.block)
+
+			if source_data == nil then
+				error("uniform buffer block source returned nil for " .. tostring(info.block.name), 2)
+			end
+
+			ffi.copy(
+				ubo_data,
+				ffi.cast("uint8_t *", source_data) + info.block.source.offset,
+				ffi.sizeof(ubo_data)
+			)
+		end
+
+		if info.block.write then info.block.write(self, ubo_data, info.block) end
+
+		local src = ffi.cast("uint8_t *", ubo_data)
+
+		if
+			persistent_entry and
+			persistent_entry.snapshot and
+			persistent_bytes_equal(persistent_entry.snapshot, src, info.ubo.size)
+		then
+			cache_hit = true
+			offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
+		else
+			cache_hit = false
+
+			if probe_enabled then
+				probe_record_upload(info.debug_name, info.field_descriptors, ubo_data, info.ubo.size, cache_key)
+			end
+
+			if persistent_entry == nil then
+				persistent_entry = {
+					slot = info.ubo:AllocatePersistentSlot(),
+					snapshot = ffi.new("uint8_t[?]", info.ubo.size),
+				}
+				persistent_entries[cache_key] = persistent_entry
+			end
+
+			info.ubo:UploadPersistent(persistent_entry.slot)
+			ffi.copy(persistent_entry.snapshot, src, info.ubo.size)
+			offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
+		end
+	elseif offset == nil then
+		local ubo_data = info.ubo:GetData()
+
+		if info.block.source then
+			local source_data = info.block.source.get(self, info.block)
+
+			if source_data == nil then
+				error("uniform buffer block source returned nil for " .. tostring(info.block.name), 2)
+			end
+
+			ffi.copy(
+				ubo_data,
+				ffi.cast("uint8_t *", source_data) + info.block.source.offset,
+				ffi.sizeof(ubo_data)
+			)
+		end
+
+		if info.block.write then info.block.write(self, ubo_data, info.block) end
+
+		if probe_enabled then
+			probe_record_upload(info.debug_name, info.field_descriptors, ubo_data, info.ubo.size, cache_key)
+		end
+
+		offset = info.ubo:Upload(frame_index)
+
+		if upload_scope == "frame" then
+			local cache = info.offsets
+			cache.frame_number = frame_number
+			cache.key = true
+			cache.offset = offset
+		elseif upload_scope == "frame_keyed" and cache_key ~= nil then
+			local cache = info.offsets
+
+			if cache.frame_number ~= frame_number then
+				cache.frame_number = frame_number
+				cache.strong_entries = {}
+				cache.weak_entries = setmetatable({}, {__mode = "k"})
+			end
+
+			local key_type = type(cache_key)
+			local entries = (
+					key_type == "table" or
+					key_type == "userdata"
+				)
+				and
+				cache.weak_entries or
+				cache.strong_entries
+			entries[cache_key] = offset
+		end
+	end
+
+	if probe_enabled then
+		probe_record_cache_access(info.debug_name, cache_key, cache_hit)
+	end
+
+	return offset
+end
+
+local function resolve_constant_placement(config, possible_stages)
+	local placement = config.ConstantPlacement or {}
+	local push_budget = placement.push_budget
+
+	if push_budget == nil or push_budget == "device" then
+		push_budget = render.GetDevice().physical_device:GetProperties().limits.maxPushConstantsSize
+	end
+
+	push_budget = assert(
+		tonumber(push_budget),
+		"EasyPipeline.New: ConstantPlacement.push_budget must be a number or 'device'"
+	)
+	push_budget = push_budget - math.max(0, tonumber(placement.reserve_push_bytes) or 0)
+
+	if push_budget < 0 then push_budget = 0 end
+
+	local fallback_storage = placement.fallback or "uniform_buffer"
+	local default_mode = placement.mode or "auto"
+	local constant_blocks = {}
+	local auto_blocks = {}
+	local explicit_push_span = 0
+	local hard_push_size = 0
+	local constant_order = 0
+	local seen_explicit_push_blocks = {}
+
+	-- First pass: measure explicit push constant blocks
+	for _, stage_name in ipairs(possible_stages) do
+		local stage_config = get_constant_stage_config(config, stage_name)
+
+		if type(stage_config) == "table" and stage_config.push_constants then
+			for _, block in ipairs(stage_config.push_constants) do
+				if block.name == nil then
+					block.name = "_u_" .. stage_name
+					block._is_unnamed = true
+				end
+
+				if not seen_explicit_push_blocks[block.name] then
+					seen_explicit_push_blocks[block.name] = true
+					local flat_block = glsl_meta.flatten_fields(block.block)
+					local alignment = glsl_meta.get_scalar_block_alignment(flat_block)
+					local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", flat_block))
+					explicit_push_span = glsl_meta.align_offset(explicit_push_span, alignment) + ffi.sizeof(ctype)
+				end
+			end
+		end
+	end
+
+	-- Second pass: process constant blocks
+	for _, stage_name in ipairs(possible_stages) do
+		local stage_config = get_constant_stage_config(config, stage_name)
+
+		if type(stage_config) == "table" and stage_config.constants then
+			for _, block in ipairs(stage_config.constants) do
+				if block.name == nil then
+					block.name = "_c_" .. stage_name
+					block._is_unnamed = true
+				end
+
+				local resolved = constant_blocks[block.name]
+
+				if not resolved then
+					constant_order = constant_order + 1
+					resolved = glsl_meta.clone_constant_block(block)
+					resolved.block = glsl_meta.flatten_fields(resolved.block)
+					resolved._constant_order = constant_order
+					resolved._requested_storage = resolved.storage or default_mode
+					resolved._preferred_storage = resolved.prefer or "push"
+					resolved._priority = tonumber(resolved.priority) or 0
+					local struct_name = resolved.name:sub(1, 1):upper() .. resolved.name:sub(2) .. "Constants"
+					local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", resolved.block))
+					glsl_meta.verify_layout("scalar", struct_name, resolved.block, ctype)
+					resolved._size = ffi.sizeof(ctype)
+					resolved._alignment = glsl_meta.get_scalar_block_alignment(resolved.block)
+					resolved.source = glsl_meta.normalize_block_source(resolved, resolved._size, resolved._alignment, "constant block")
+					constant_blocks[resolved.name] = resolved
+
+					if resolved._requested_storage == "push" then
+						resolved._resolved_storage = "push"
+						hard_push_size = hard_push_size + resolved._size
+					elseif resolved._requested_storage == "uniform_buffer" then
+						resolved._resolved_storage = "uniform_buffer"
+					elseif resolved._requested_storage == "auto" then
+						table.insert(auto_blocks, resolved)
+					else
+						error(
+							"EasyPipeline.New: invalid constants storage '" .. tostring(resolved._requested_storage) .. "'",
+							3
+						)
+					end
+				end
+			end
+		end
+	end
+
+	-- Validate budget
+	if explicit_push_span + hard_push_size > push_budget then
+		error(
+			string.format(
+				"EasyPipeline.New: explicit and forced push constant blocks require %d bytes but the configured budget is %d",
+				explicit_push_span + hard_push_size,
+				push_budget
+			),
+			3
+		)
+	end
+
+	-- Sort auto blocks by preference (push first), priority, size (smaller first), then order
+	table.sort(auto_blocks, function(a, b)
+		local a_push = a._preferred_storage == "push" and 1 or 0
+		local b_push = b._preferred_storage == "push" and 1 or 0
+
+		if a_push ~= b_push then return a_push > b_push end
+
+		if a._priority ~= b._priority then return a._priority > b._priority end
+
+		if a._size ~= b._size then return a._size < b._size end
+
+		return a._constant_order < b._constant_order
+	end)
+
+	-- Assign storage based on budget
+	local remaining_push_budget = push_budget - explicit_push_span - hard_push_size
+
+	for _, block in ipairs(auto_blocks) do
+		if block._size <= remaining_push_budget then
+			block._resolved_storage = "push"
+			remaining_push_budget = remaining_push_budget - block._size
+		elseif fallback_storage == "uniform_buffer" then
+			block._resolved_storage = "uniform_buffer"
+		else
+			error(
+				string.format(
+					"EasyPipeline.New: constant block '%s' (%d bytes) does not fit in the remaining push constant budget (%d bytes)",
+					block.name,
+					block._size,
+					remaining_push_budget
+				),
+				3
+			)
+		end
+	end
+
+	-- Reassign blocks to push_constants or uniform_buffers based on resolved storage
+	for _, stage_name in ipairs(possible_stages) do
+		local stage_config = get_constant_stage_config(config, stage_name)
+
+		if type(stage_config) == "table" and stage_config.constants then
+			for _, block in ipairs(stage_config.constants) do
+				local resolved = assert(constant_blocks[block.name], "missing resolved constant block")
+				local target_key = resolved._resolved_storage == "push" and "push_constants" or "uniform_buffers"
+				stage_config[target_key] = stage_config[target_key] or {}
+				table.insert(stage_config[target_key], resolved)
+			end
+		end
+	end
+
+	return {
+		push_budget = push_budget,
+		fallback = fallback_storage,
+		blocks = constant_blocks,
+	}
 end
 
 local EasyPipeline = prototype.CreateTemplate("render_easy_pipeline")
@@ -90,6 +449,29 @@ do
 	end
 
 	-- Shared instance methods (available on all pipeline variants)
+	function EasyPipeline:OnRemove()
+		if self.framebuffers then
+			for _, fb in ipairs(self.framebuffers) do
+				if fb then fb:Remove() end
+			end
+
+			self.framebuffers = nil
+		end
+
+		if self.pipeline then
+			self.pipeline:Remove()
+			self.pipeline = nil
+		end
+
+		if self.uniform_buffers then
+			for _, ubo in pairs(self.uniform_buffers) do
+				if ubo then ubo:Remove() end
+			end
+
+			self.uniform_buffers = nil
+		end
+	end
+
 	function EasyPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		cmd = cmd or render.GetCommandBuffer()
 		frame_index = frame_index or render.GetCurrentFrame()
@@ -128,20 +510,8 @@ do
 		return self.pipeline:GetRasterizationSamples(...)
 	end
 
-	function EasyPipeline:GetSamples(...)
-		return self.pipeline:GetRasterizationSamples(...)
-	end
-
 	function EasyPipeline:GetDescriptorSetCount(...)
 		return self.pipeline:GetDescriptorSetCount(...)
-	end
-
-	function EasyPipeline:GetFallbackView(...)
-		return self.pipeline:GetFallbackView(...)
-	end
-
-	function EasyPipeline:GetFallbackSampler(...)
-		return self.pipeline:GetFallbackSampler(...)
 	end
 
 	function EasyPipeline:GetDebugViews()
@@ -169,27 +539,15 @@ do
 	end
 
 	function EasyPipeline:SetSamplerConfig(config)
-		if self.pipeline.SetSamplerConfig then
-			return self.pipeline:SetSamplerConfig(config)
-		end
-
 		self.sampler_config = config
 		return config
 	end
 
 	function EasyPipeline:GetSamplerConfig()
-		if self.pipeline.GetSamplerConfig then
-			return self.pipeline:GetSamplerConfig()
-		end
-
 		return self.sampler_config
 	end
 
 	function EasyPipeline:SetSamplerConfigValue(key, value)
-		if self.pipeline.SetSamplerConfigValue then
-			return self.pipeline:SetSamplerConfigValue(key, value)
-		end
-
 		self.sampler_config = self.sampler_config or {}
 		self.sampler_config[key] = value
 		return value
@@ -260,18 +618,7 @@ do
 			data = ffi.typeof(ubo_data)()
 		end
 
-		if block.source then
-			local source_data = block.source.get(self, block)
-
-			if source_data == nil then
-				error("constant block source returned nil for " .. tostring(block.name), 2)
-			end
-
-			ffi.copy(data, ffi.cast("uint8_t *", source_data) + block.source.offset, ffi.sizeof(data))
-		end
-
-		if block.write then block.write(self, data, block) end
-
+		upload_block(self, block, data, name)
 		return data
 	end
 
@@ -378,32 +725,6 @@ local EasyPipelineGraphics = prototype.CreateTemplate("render_easy_pipeline_grap
 do
 	EasyPipelineGraphics.Base = EasyPipeline
 
-	-- Graphics-specific instance methods
-	function EasyPipelineGraphics:OnRemove()
-		if self.framebuffers then
-			for i = 1, #self.framebuffers do
-				local fb = self.framebuffers[i]
-
-				if fb then fb:Remove() end
-			end
-
-			self.framebuffers = nil
-		end
-
-		if self.pipeline then
-			self.pipeline:Remove()
-			self.pipeline = nil
-		end
-
-		if self.uniform_buffers then
-			for _, ubo in pairs(self.uniform_buffers) do
-				if ubo then ubo:Remove() end
-			end
-
-			self.uniform_buffers = nil
-		end
-	end
-
 	function EasyPipelineGraphics:UploadConstants()
 		local cmd = render.GetCommandBuffer()
 		local pipeline_key = self.pipeline
@@ -415,22 +736,7 @@ do
 			local constants = self.constant_structs[struct_name]
 			local offset = self.push_constant_block_offsets[name]
 			local constants_size = ffi.sizeof(constants)
-
-			if block.source then
-				local source_data = block.source.get(self, block)
-
-				if source_data == nil then
-					error("push constant block source returned nil for " .. tostring(block.name))
-				end
-
-				ffi.copy(
-					constants,
-					ffi.cast("uint8_t *", source_data) + block.source.offset,
-					constants_size
-				)
-			end
-
-			if block.write then block.write(self, constants, block) end
+			upload_block(self, block, constants, name)
 
 			if
 				self:ShouldPushConstants(cmd, pipeline_key, self.active_stage_key, offset, constants, constants_size)
@@ -440,7 +746,6 @@ do
 				end
 
 				self.pipeline:PushConstants(cmd, self.active_stages, offset, constants)
-				self:NotePushConstants(cmd, pipeline_key, self.active_stage_key, offset, constants, constants_size)
 			end
 		end
 
@@ -450,174 +755,16 @@ do
 
 		for i, name in ipairs(self.uniform_buffer_order) do
 			local info = self.uniform_buffer_types[name]
-			local offset = nil
-			local cache_key = nil
-			local cache_hit = false
-			local persistent_entry = nil
-			local persistent_entries = nil
-			local upload_scope = info.block.upload_scope
-
-			if upload_scope == "frame" then
-				cache_key = true
-			elseif
-				(
-					upload_scope == "frame_keyed" or
-					upload_scope == "persistent_keyed"
-				)
-				and
-				info.block.upload_key
-			then
-				cache_key = info.block.upload_key(self, info.block)
-			end
-
-			if cache_key ~= nil then
-				local cache = info.offsets
-
-				if upload_scope == "frame" then
-					if cache.frame_number == frame_number and cache.key == cache_key then
-						offset = cache.offset
-					end
-
-					cache_hit = offset ~= nil
-				elseif upload_scope == "frame_keyed" then
-					if cache.frame_number ~= frame_number then
-						cache.frame_number = frame_number
-						cache.strong_entries = {}
-						cache.weak_entries = setmetatable({}, {__mode = "k"})
-					end
-
-					local key_type = type(cache_key)
-					local entries = (
-							key_type == "table" or
-							key_type == "userdata"
-						)
-						and
-						cache.weak_entries or
-						cache.strong_entries
-					offset = entries[cache_key]
-					cache_hit = offset ~= nil
-				elseif upload_scope == "persistent_keyed" then
-					cache.strong_entries = cache.strong_entries or {}
-					cache.weak_entries = cache.weak_entries or setmetatable({}, {__mode = "k"})
-					local key_type = type(cache_key)
-					persistent_entries = (
-							key_type == "table" or
-							key_type == "userdata"
-						)
-						and
-						cache.weak_entries or
-						cache.strong_entries
-					persistent_entry = persistent_entries[cache_key]
-
-					if persistent_entry then
-						offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
-					end
-				end
-			end
-
-			if upload_scope == "persistent_keyed" and cache_key ~= nil then
-				local ubo_data = info.ubo:GetData()
-
-				if info.block.source then
-					local source_data = info.block.source.get(self, info.block)
-
-					if source_data == nil then
-						error("uniform buffer block source returned nil for " .. tostring(info.block.name))
-					end
-
-					ffi.copy(
-						ubo_data,
-						ffi.cast("uint8_t *", source_data) + info.block.source.offset,
-						ffi.sizeof(ubo_data)
-					)
-				end
-
-				if info.block.write then info.block.write(self, ubo_data, info.block) end
-
-				local src = ffi.cast("uint8_t *", ubo_data)
-
-				if
-					persistent_entry and
-					persistent_entry.snapshot and
-					self.BytesEqual(persistent_entry.snapshot, src, info.ubo.size)
-				then
-					cache_hit = true
-					offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
-				else
-					cache_hit = false
-
-					if probe_enabled then
-						upload_probe.RecordUpload(info.debug_name, info.field_descriptors, ubo_data, info.ubo.size, cache_key)
-					end
-
-					if persistent_entry == nil then
-						persistent_entry = {
-							slot = info.ubo:AllocatePersistentSlot(),
-							snapshot = ffi.new("uint8_t[?]", info.ubo.size),
-						}
-						persistent_entries[cache_key] = persistent_entry
-					end
-
-					info.ubo:UploadPersistent(persistent_entry.slot)
-					ffi.copy(persistent_entry.snapshot, src, info.ubo.size)
-					offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
-				end
-			elseif offset == nil then
-				local ubo_data = info.ubo:GetData()
-
-				if info.block.source then
-					local source_data = info.block.source.get(self, info.block)
-
-					if source_data == nil then
-						error("uniform buffer block source returned nil for " .. tostring(info.block.name))
-					end
-
-					ffi.copy(
-						ubo_data,
-						ffi.cast("uint8_t *", source_data) + info.block.source.offset,
-						ffi.sizeof(ubo_data)
-					)
-				end
-
-				if info.block.write then info.block.write(self, ubo_data, info.block) end
-
-				if probe_enabled then
-					upload_probe.RecordUpload(info.debug_name, info.field_descriptors, ubo_data, info.ubo.size, cache_key)
-				end
-
-				offset = info.ubo:Upload(frame_index)
-
-				if upload_scope == "frame" then
-					local cache = info.offsets
-					cache.frame_number = frame_number
-					cache.key = true
-					cache.offset = offset
-				elseif upload_scope == "frame_keyed" and cache_key ~= nil then
-					local cache = info.offsets
-
-					if cache.frame_number ~= frame_number then
-						cache.frame_number = frame_number
-						cache.strong_entries = {}
-						cache.weak_entries = setmetatable({}, {__mode = "k"})
-					end
-
-					local key_type = type(cache_key)
-					local entries = (
-							key_type == "table" or
-							key_type == "userdata"
-						)
-						and
-						cache.weak_entries or
-						cache.strong_entries
-					entries[cache_key] = offset
-				end
-			end
-
-			if probe_enabled then
-				upload_probe.RecordCacheAccess(info.debug_name, cache_key, cache_hit)
-			end
-
-			offsets[i] = offset
+			offsets[i] = upload_ubo(
+				self,
+				info,
+				frame_index,
+				frame_number,
+				probe_enabled,
+				upload_probe.RecordUpload,
+				upload_probe.RecordCacheAccess,
+				self.BytesEqual
+			)
 		end
 
 		self.dynamic_offsets = #offsets > 0 and offsets or nil
@@ -633,7 +780,20 @@ do
 	function EasyPipelineGraphics:BeginDraw(cmd, framebuffer, frame_index)
 		cmd = cmd or render.GetCommandBuffer()
 		local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
-		begin_draw(self, cmd, fb, frame_index)
+
+		if fb then fb:Begin(cmd) end
+
+		-- If drawing directly to the main target, reset viewport/scissor to full size
+		if not fb then
+			local size = render.GetRenderImageSize()
+
+			if size and size.x > 0 and size.y > 0 then
+				cmd:SetViewport(0, 0, size.x, size.y, 0, 1)
+				cmd:SetScissor(0, 0, size.x, size.y)
+			end
+		end
+
+		self:Bind(cmd, frame_index)
 		return fb
 	end
 
@@ -654,20 +814,31 @@ do
 		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
 		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
 		render.PushCommandBuffer(cmd)
-		local began_framebuffer = fb ~= nil
 
 		if self.on_pre_draw then self.on_pre_draw(self, cmd, resolved_frame_index) end
 
-		begin_draw(self, cmd, fb, resolved_frame_index)
+		if fb then fb:Begin(cmd) end
+
+		-- Reset viewport/scissor when drawing directly to the main target
+		if not fb then
+			local size = render.GetRenderImageSize()
+
+			if size and size.x > 0 and size.y > 0 then
+				cmd:SetViewport(0, 0, size.x, size.y, 0, 1)
+				cmd:SetScissor(0, 0, size.x, size.y)
+			end
+		end
+
+		self:Bind(cmd, resolved_frame_index)
 
 		if self.on_draw then
-			self.on_draw(self, cmd)
+			self:on_draw(cmd)
 		else
 			self:UploadConstants()
 			cmd:Draw(vertex_count, 1, 0, 0)
 		end
 
-		if began_framebuffer then self:EndDraw(cmd, fb) end
+		if fb then fb:End(cmd) end
 
 		render.PopCommandBuffer()
 	end
@@ -677,17 +848,32 @@ do
 		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
 		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
 		render.PushCommandBuffer(cmd)
-		local began_framebuffer = fb ~= nil
 		local ok, err = xpcall(
 			function()
-				begin_draw(self, cmd, fb, resolved_frame_index)
-				self:UploadConstants()
-				cmd:DrawMeshTasks(gx, gy, gz)
+				if fb then fb:Begin(cmd) end
+
+				if not fb then
+					local size = render.GetRenderImageSize()
+
+					if size and size.x > 0 and size.y > 0 then
+						cmd:SetViewport(0, 0, size.x, size.y, 0, 1)
+						cmd:SetScissor(0, 0, size.x, size.y)
+					end
+				end
+
+				self:Bind(cmd, resolved_frame_index)
+
+				if self.on_draw then
+					self:on_draw(cmd)
+				else
+					self:UploadConstants()
+					cmd:DrawMeshTasks(gx, gy, gz)
+				end
 			end,
 			debug.traceback
 		)
 
-		if began_framebuffer then self:EndDraw(cmd, fb) end
+		if fb then fb:End(cmd) end
 
 		render.PopCommandBuffer()
 
@@ -698,7 +884,7 @@ do
 		return self.pipeline:PushConstants(...)
 	end
 
-	local function get_glsl_push_constants(config, push_constant_block_offsets, stage)
+	local function get_glsl_push_constants(config, push_constant_block_offsets, stage, header)
 		local stage_config = get_constant_stage_config(config, stage)
 
 		if not stage_config or not stage_config.push_constants then return "" end
@@ -753,6 +939,69 @@ do
 		end
 
 		return glsl
+	end
+
+	-- Build a shader stage table from config
+	local function build_shader_stage(
+		config,
+		type_name,
+		input,
+		output,
+		custom_declarations,
+		shader,
+		extra,
+		header,
+		ds,
+		pc_info,
+		pcbo,
+		uniform_buffer_types
+	)
+		local stage_config = get_constant_stage_config(config, type_name)
+
+		if
+			not stage_config or
+			not stage_config.shader and
+			type_name ~= "vertex" or
+			not shader
+		then
+			-- For vertex, shader may be nil if using passthrough
+			if type_name == "vertex" and (not stage_config or not stage_config.shader) then
+				return
+			end
+
+			return
+		end
+
+		local code = header .. (input or "") .. (output or "")
+		code = code .. get_glsl_push_constants(config, pcbo, type_name, header)
+		code = code .. get_glsl_uniform_buffers(config, uniform_buffer_types, type_name)
+		code = code .. (custom_declarations or "")
+		code = code .. (shader or "")
+		return {
+			type = type_name,
+			code = code,
+			descriptor_sets = ds,
+			push_constants = stage_config.push_constants and pc_info or nil,
+		}
+	end
+
+	-- Build task/mesh shader stage with pragma injection
+	local function build_task_mesh_stage(config, type_name, pragma, header, ds, pc_info, pcbo)
+		local stage_config = get_constant_stage_config(config, type_name)
+
+		if not stage_config or not stage_config.shader then return end
+
+		local code = header:gsub("#version 450", "#version 450\n#pragma shader_stage(" .. pragma .. ")")
+		code = code .. (stage_config.custom_declarations or "")
+		code = code .. get_glsl_push_constants(config, pcbo, type_name, header)
+		code = code .. get_glsl_uniform_buffers(config, uniform_buffer_types, type_name)
+		code = code .. (stage_config.shader or "")
+		return {
+			type = type_name,
+			code = code,
+			descriptor_sets = ds,
+			push_constants = stage_config.push_constants and pc_info or nil,
+		}
 	end
 
 	-- Graphics constructor
@@ -911,164 +1160,7 @@ do
 			end
 		end
 
-		local constant_resolution
-
-		do
-			local placement = config.ConstantPlacement or {}
-			local push_budget = placement.push_budget
-
-			if push_budget == nil or push_budget == "device" then
-				push_budget = render.GetDevice().physical_device:GetProperties().limits.maxPushConstantsSize
-			end
-
-			push_budget = assert(
-				tonumber(push_budget),
-				"EasyPipeline.New: ConstantPlacement.push_budget must be a number or 'device'"
-			)
-			push_budget = push_budget - math.max(0, tonumber(placement.reserve_push_bytes) or 0)
-
-			if push_budget < 0 then push_budget = 0 end
-
-			local fallback_storage = placement.fallback or "uniform_buffer"
-			local default_mode = placement.mode or "auto"
-			local constant_blocks = {}
-			local auto_blocks = {}
-			local explicit_push_span = 0
-			local hard_push_size = 0
-			local constant_order = 0
-			local seen_explicit_push_blocks = {}
-
-			for _, stage_name in ipairs(possible_stages) do
-				local stage_config = get_constant_stage_config(config, stage_name)
-
-				if type(stage_config) == "table" and stage_config.push_constants then
-					for _, block in ipairs(stage_config.push_constants) do
-						if block.name == nil then
-							block.name = "_u_" .. stage_name
-							block._is_unnamed = true
-						end
-
-						if not seen_explicit_push_blocks[block.name] then
-							seen_explicit_push_blocks[block.name] = true
-							local flat_block = glsl_meta.flatten_fields(block.block)
-							local alignment = glsl_meta.get_scalar_block_alignment(flat_block)
-							local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", flat_block))
-							explicit_push_span = glsl_meta.align_offset(explicit_push_span, alignment) + ffi.sizeof(ctype)
-						end
-					end
-				end
-			end
-
-			for _, stage_name in ipairs(possible_stages) do
-				local stage_config = get_constant_stage_config(config, stage_name)
-
-				if type(stage_config) == "table" and stage_config.constants then
-					for _, block in ipairs(stage_config.constants) do
-						if block.name == nil then
-							block.name = "_c_" .. stage_name
-							block._is_unnamed = true
-						end
-
-						local resolved = constant_blocks[block.name]
-
-						if not resolved then
-							constant_order = constant_order + 1
-							resolved = glsl_meta.clone_constant_block(block)
-							resolved.block = glsl_meta.flatten_fields(resolved.block)
-							resolved._constant_order = constant_order
-							resolved._requested_storage = resolved.storage or default_mode
-							resolved._preferred_storage = resolved.prefer or "push"
-							resolved._priority = tonumber(resolved.priority) or 0
-							local struct_name = resolved.name:sub(1, 1):upper() .. resolved.name:sub(2) .. "Constants"
-							local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", resolved.block))
-							glsl_meta.verify_layout("scalar", struct_name, resolved.block, ctype)
-							resolved._size = ffi.sizeof(ctype)
-							resolved._alignment = glsl_meta.get_scalar_block_alignment(resolved.block)
-							resolved.source = glsl_meta.normalize_block_source(resolved, resolved._size, resolved._alignment, "constant block")
-							constant_blocks[resolved.name] = resolved
-
-							if resolved._requested_storage == "push" then
-								resolved._resolved_storage = "push"
-								hard_push_size = hard_push_size + resolved._size
-							elseif resolved._requested_storage == "uniform_buffer" then
-								resolved._resolved_storage = "uniform_buffer"
-							elseif resolved._requested_storage == "auto" then
-								table.insert(auto_blocks, resolved)
-							else
-								error(
-									"EasyPipeline.New: invalid constants storage '" .. tostring(resolved._requested_storage) .. "'",
-									3
-								)
-							end
-						end
-					end
-				end
-			end
-
-			if explicit_push_span + hard_push_size > push_budget then
-				error(
-					string.format(
-						"EasyPipeline.New: explicit and forced push constant blocks require %d bytes but the configured budget is %d",
-						explicit_push_span + hard_push_size,
-						push_budget
-					),
-					3
-				)
-			end
-
-			table.sort(auto_blocks, function(a, b)
-				local a_push = a._preferred_storage == "push" and 1 or 0
-				local b_push = b._preferred_storage == "push" and 1 or 0
-
-				if a_push ~= b_push then return a_push > b_push end
-
-				if a._priority ~= b._priority then return a._priority > b._priority end
-
-				if a._size ~= b._size then return a._size < b._size end
-
-				return a._constant_order < b._constant_order
-			end)
-
-			local remaining_push_budget = push_budget - explicit_push_span - hard_push_size
-
-			for _, block in ipairs(auto_blocks) do
-				if block._size <= remaining_push_budget then
-					block._resolved_storage = "push"
-					remaining_push_budget = remaining_push_budget - block._size
-				elseif fallback_storage == "uniform_buffer" then
-					block._resolved_storage = "uniform_buffer"
-				else
-					error(
-						string.format(
-							"EasyPipeline.New: constant block '%s' (%d bytes) does not fit in the remaining push constant budget (%d bytes)",
-							block.name,
-							block._size,
-							remaining_push_budget
-						),
-						3
-					)
-				end
-			end
-
-			for _, stage_name in ipairs(possible_stages) do
-				local stage_config = get_constant_stage_config(config, stage_name)
-
-				if type(stage_config) == "table" and stage_config.constants then
-					for _, block in ipairs(stage_config.constants) do
-						local resolved = assert(constant_blocks[block.name], "missing resolved constant block")
-						local target_key = resolved._resolved_storage == "push" and "push_constants" or "uniform_buffers"
-						stage_config[target_key] = stage_config[target_key] or {}
-						table.insert(stage_config[target_key], resolved)
-					end
-				end
-			end
-
-			constant_resolution = {
-				push_budget = push_budget,
-				fallback = fallback_storage,
-				blocks = constant_blocks,
-			}
-		end
+		local constant_resolution = resolve_constant_placement(config, possible_stages)
 
 		-- Process push constants and uniform buffers
 		-- First pass: Collect all unique push constant blocks across all stages to assign shared offsets
@@ -1162,17 +1254,7 @@ do
 					end
 
 					-- Auto-assign binding index if not specified
-					if block.binding_index == nil then
-						local existing = uniform_buffer_types[block.name]
-
-						if existing then
-							block.binding_index = existing.block.binding_index
-						else
-							block.binding_index = next_auto_binding
-							next_auto_binding = next_auto_binding + 1
-						end
-					end
-
+					next_auto_binding = assign_auto_binding(block, next_auto_binding, uniform_buffer_types)
 					glsl_meta.hoist_inline_block_metadata(block)
 					block.block = glsl_meta.flatten_fields(block.block)
 
@@ -1478,130 +1560,111 @@ do
 		end
 
 		-- Task stage
-		local task_config = config.task_ext or config.task
+		local task_stage = build_task_mesh_stage(
+			config,
+			"task_ext",
+			"task",
+			shader_header,
+			descriptor_sets,
+			push_constant_info,
+			push_constant_block_offsets,
+			uniform_buffer_types
+		)
 
-		if task_config then
-			local task_code = shader_header:gsub("#version 450", "#version 450\n#pragma shader_stage(task)") .. (
-					task_config.custom_declarations or
-					""
-				) .. get_glsl_push_constants(config, push_constant_block_offsets, "task_ext") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "task_ext") .. (
-					task_config.shader or
-					""
-				)
-			table.insert(
-				shader_stages,
-				{
-					type = "task_ext",
-					code = task_code,
-					descriptor_sets = descriptor_sets,
-					push_constants = task_config.push_constants and push_constant_info or nil,
-				}
-			)
-		end
+		if task_stage then table.insert(shader_stages, task_stage) end
 
 		-- Mesh stage
-		local mesh_config = config.mesh_ext or config.mesh
+		local mesh_stage = build_task_mesh_stage(
+			config,
+			"mesh_ext",
+			"mesh",
+			shader_header,
+			descriptor_sets,
+			push_constant_info,
+			push_constant_block_offsets,
+			uniform_buffer_types
+		)
 
-		if mesh_config then
-			local mesh_code = shader_header:gsub("#version 450", "#version 450\n#pragma shader_stage(mesh)") .. (
-					mesh_config.custom_declarations or
-					""
-				) .. get_glsl_push_constants(config, push_constant_block_offsets, "mesh_ext") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "mesh_ext") .. (
-					mesh_config.shader or
-					""
-				)
-			table.insert(
-				shader_stages,
-				{
-					type = "mesh_ext",
-					code = mesh_code,
-					descriptor_sets = descriptor_sets,
-					push_constants = mesh_config.push_constants and push_constant_info or nil,
-				}
-			)
-		end
+		if mesh_stage then table.insert(shader_stages, mesh_stage) end
 
 		-- Vertex stage
 		if config.vertex and resolved_vertex_shader then
-			local vertex_code = shader_header .. vertex_input .. vertex_output .. get_glsl_push_constants(config, push_constant_block_offsets, "vertex") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "vertex") .. (
-					config.vertex.custom_declarations or
-					""
-				) .. (
-					resolved_vertex_shader or
-					""
-				)
-			table.insert(
-				shader_stages,
-				{
-					type = "vertex",
-					code = vertex_code,
-					descriptor_sets = descriptor_sets,
-					bindings = bindings,
-					attributes = attributes,
-					push_constants = config.vertex.push_constants and push_constant_info or nil,
-				}
+			local vertex_stage = build_shader_stage(
+				config,
+				"vertex",
+				vertex_input,
+				vertex_output,
+				config.vertex.custom_declarations,
+				resolved_vertex_shader,
+				nil,
+				shader_header,
+				descriptor_sets,
+				push_constant_info,
+				push_constant_block_offsets,
+				uniform_buffer_types
 			)
+
+			if vertex_stage then
+				vertex_stage.bindings = bindings
+				vertex_stage.attributes = attributes
+				table.insert(shader_stages, vertex_stage)
+			end
 		end
 
 		-- Tessellation control stage
-		if config.tessellation_control then
-			local tess_control_code = shader_header .. tess_control_input .. tess_control_output .. (
-					config.tessellation_control.custom_declarations or
-					""
-				) .. get_glsl_push_constants(config, push_constant_block_offsets, "tessellation_control") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "tessellation_control") .. (
-					config.tessellation_control.shader or
-					""
-				)
-			table.insert(
-				shader_stages,
-				{
-					type = "tessellation_control",
-					code = tess_control_code,
-					descriptor_sets = descriptor_sets,
-					push_constants = config.tessellation_control.push_constants and push_constant_info or nil,
-				}
-			)
-		end
+		local tess_control_stage = build_shader_stage(
+			config,
+			"tessellation_control",
+			tess_control_input,
+			tess_control_output,
+			config.tessellation_control and config.tessellation_control.custom_declarations,
+			config.tessellation_control and config.tessellation_control.shader,
+			nil,
+			shader_header,
+			descriptor_sets,
+			push_constant_info,
+			push_constant_block_offsets,
+			uniform_buffer_types
+		)
+
+		if tess_control_stage then table.insert(shader_stages, tess_control_stage) end
 
 		-- Tessellation evaluation stage
-		if config.tessellation_evaluation then
-			local tess_eval_code = shader_header .. tess_eval_input .. tess_eval_output .. (
-					config.tessellation_evaluation.custom_declarations or
-					""
-				) .. get_glsl_push_constants(config, push_constant_block_offsets, "tessellation_evaluation") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "tessellation_evaluation") .. (
-					config.tessellation_evaluation.shader or
-					""
-				)
-			table.insert(
-				shader_stages,
-				{
-					type = "tessellation_evaluation",
-					code = tess_eval_code,
-					descriptor_sets = descriptor_sets,
-					push_constants = config.tessellation_evaluation.push_constants and push_constant_info or nil,
-				}
-			)
-		end
+		local tess_eval_stage = build_shader_stage(
+			config,
+			"tessellation_evaluation",
+			tess_eval_input,
+			tess_eval_output,
+			config.tessellation_evaluation and
+				config.tessellation_evaluation.custom_declarations,
+			config.tessellation_evaluation and config.tessellation_evaluation.shader,
+			nil,
+			shader_header,
+			descriptor_sets,
+			push_constant_info,
+			push_constant_block_offsets,
+			uniform_buffer_types
+		)
+
+		if tess_eval_stage then table.insert(shader_stages, tess_eval_stage) end
 
 		-- Fragment stage
-		if config.fragment then
-			local fragment_code = shader_header .. fragment_input .. fragment_outputs .. (
-					config.fragment.custom_declarations or
-					""
-				) .. get_glsl_push_constants(config, push_constant_block_offsets, "fragment") .. get_glsl_uniform_buffers(config, uniform_buffer_types, "fragment") .. (
-					resolved_fragment_shader or
-					""
-				)
-			table.insert(
-				shader_stages,
-				{
-					type = "fragment",
-					code = fragment_code,
-					descriptor_sets = descriptor_sets,
-					push_constants = config.fragment.push_constants and push_constant_info or nil,
-				}
-			)
-		end
+		local fragment_stage = build_shader_stage(
+			config,
+			"fragment",
+			fragment_input,
+			fragment_outputs,
+			config.fragment and config.fragment.custom_declarations,
+			resolved_fragment_shader,
+			nil,
+			shader_header,
+			descriptor_sets,
+			push_constant_info,
+			push_constant_block_offsets,
+			uniform_buffer_types
+		)
+
+		if fragment_stage then table.insert(shader_stages, fragment_stage) end
 
 		-- Create pipeline
 		local color_blend = config.color_blend or {}
@@ -1723,44 +1786,19 @@ do
 			return lhs_offset < rhs_offset + rhs_size and rhs_offset < lhs_offset + rhs_size
 		end
 
-		local function get_push_constant_entries(cache, cmd)
-			local serial = cmd and cmd.recording_serial or 0
-			local cache = cache[cmd]
-
-			if cache and cache.serial == serial then return cache.entries end
-
-			cache = {
-				serial = serial,
-				entries = {},
-			}
-			cache[cmd] = cache
-			return cache.entries
-		end
-
 		function EasyPipelineGraphics:ShouldPushConstants(cmd, pipeline_key, stage_key, offset, data, size)
-			local entries = get_push_constant_entries(self.push_constant_cache_by_cmd, cmd)
-			local src = ffi.cast("uint8_t *", data)
+			local cache = self.push_constant_cache_by_cmd[cmd]
+			local serial = cmd and cmd.recording_serial or 0
 
-			for i = 1, #entries do
-				local entry = entries[i]
-
-				if
-					entry.pipeline_key == pipeline_key and
-					entry.stage_key == stage_key and
-					entry.offset == offset and
-					entry.size == size
-				then
-					return not bytes_equal(entry.snapshot, src, size)
-				end
+			if not cache or cache.serial ~= serial then
+				cache = {serial = serial, entries = {}}
+				self.push_constant_cache_by_cmd[cmd] = cache
 			end
 
-			return true
-		end
-
-		function EasyPipelineGraphics:NotePushConstants(cmd, pipeline_key, stage_key, offset, data, size)
-			local entries = get_push_constant_entries(self.push_constant_cache_by_cmd, cmd)
+			local entries = cache.entries
 			local src = ffi.cast("uint8_t *", data)
 
+			-- Remove overlapping entries from previous pushes in this frame
 			for i = #entries, 1, -1 do
 				local entry = entries[i]
 
@@ -1773,6 +1811,19 @@ do
 				end
 			end
 
+			-- Check if this push differs from a previous one
+			for _, entry in ipairs(entries) do
+				if
+					entry.pipeline_key == pipeline_key and
+					entry.stage_key == stage_key and
+					entry.offset == offset and
+					entry.size == size
+				then
+					return not bytes_equal(entry.snapshot, src, size)
+				end
+			end
+
+			-- Record this push
 			entries[#entries + 1] = {
 				pipeline_key = pipeline_key,
 				stage_key = stage_key,
@@ -1781,6 +1832,7 @@ do
 				snapshot = ffi.new("uint8_t[?]", size),
 			}
 			ffi.copy(entries[#entries].snapshot, src, size)
+			return true
 		end
 	end
 
@@ -1792,32 +1844,6 @@ local EasyPipelineCompute = prototype.CreateTemplate("render_easy_pipeline_compu
 do
 	EasyPipelineCompute.Base = EasyPipeline
 
-	-- Compute-specific instance methods
-	function EasyPipelineCompute:OnRemove()
-		if self.framebuffers then
-			for i = 1, #self.framebuffers do
-				local fb = self.framebuffers[i]
-
-				if fb then fb:Remove() end
-			end
-
-			self.framebuffers = nil
-		end
-
-		if self.pipeline then
-			self.pipeline:Remove()
-			self.pipeline = nil
-		end
-
-		if self.uniform_buffers then
-			for _, ubo in pairs(self.uniform_buffers) do
-				if ubo then ubo:Remove() end
-			end
-
-			self.uniform_buffers = nil
-		end
-	end
-
 	function EasyPipelineCompute:UploadConstants()
 		self.dynamic_offsets = nil
 
@@ -1828,23 +1854,7 @@ do
 			for i, name in ipairs(self.uniform_buffer_order) do
 				local info = self.uniform_buffer_types[name]
 				local data = info.ubo:GetData()
-
-				if info.block.source then
-					local source_data = info.block.source.get(self, info.block)
-
-					if source_data == nil then
-						error("compute uniform buffer source returned nil for " .. tostring(info.block.name), 2)
-					end
-
-					ffi.copy(
-						data,
-						ffi.cast("uint8_t *", source_data) + info.block.source.offset,
-						ffi.sizeof(data)
-					)
-				end
-
-				if info.block.write then info.block.write(self, data, info.block) end
-
+				upload_block(self, info.block, data, name)
 				offsets[i] = info.ubo:Upload(frame_index)
 			end
 
@@ -1889,7 +1899,7 @@ do
 		render.PushCommandBuffer(cmd)
 
 		if self.on_draw then
-			self.on_draw(self, cmd)
+			self:on_draw(cmd)
 		else
 			self:UploadConstants()
 			self.pipeline:Dispatch(
@@ -1914,7 +1924,7 @@ do
 		render.PushCommandBuffer(cmd)
 
 		if self.on_draw then
-			self.on_draw(self, cmd)
+			self:on_draw(cmd)
 		else
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(
@@ -2107,6 +2117,41 @@ do
 		return self
 	end
 
+	-- Build descriptor sets for ComputePass from storage/sampled image bindings
+	local function build_compute_pass_descriptor_sets(config)
+		local descriptor_sets = {}
+
+		for _, ds in ipairs(config.descriptor_sets or {}) do
+			table.insert(descriptor_sets, ds)
+		end
+
+		for _, info in ipairs(config.storage_images or config.StorageImages or {}) do
+			table.insert(
+				descriptor_sets,
+				{
+					type = "storage_image",
+					binding_index = info.binding_index,
+					stageFlags = info.stageFlags or "compute",
+					set_index = info.set_index or 0,
+				}
+			)
+		end
+
+		for _, info in ipairs(config.sampled_images or config.SampledImages or {}) do
+			table.insert(
+				descriptor_sets,
+				{
+					type = "combined_image_sampler",
+					binding_index = info.binding_index,
+					stageFlags = info.stageFlags or "compute",
+					set_index = info.set_index or 0,
+				}
+			)
+		end
+
+		return descriptor_sets
+	end
+
 	-- ComputePass: special compute pipeline with framebuffer + image transition handling
 	function EasyPipelineCompute.ComputePass(config)
 		local compute_config = table.copy(config)
@@ -2114,12 +2159,8 @@ do
 		local sampled_images = {}
 		local output_bindings = config.storage_images or config.StorageImages or {}
 		local sampled_bindings = config.sampled_images or config.SampledImages or {}
-		local declared_descriptor_sets = {}
+		local declared_descriptor_sets = build_compute_pass_descriptor_sets(config)
 		local user_on_draw = config.on_draw or nil
-
-		for _, descriptor in ipairs(config.descriptor_sets or {}) do
-			declared_descriptor_sets[#declared_descriptor_sets + 1] = descriptor
-		end
 
 		for _, info in ipairs(output_bindings) do
 			storage_images[#storage_images + 1] = {
@@ -2129,12 +2170,6 @@ do
 				get_texture = info.get_texture,
 				dst_stage = info.dst_stage,
 			}
-			declared_descriptor_sets[#declared_descriptor_sets + 1] = {
-				type = "storage_image",
-				binding_index = info.binding_index,
-				stageFlags = info.stageFlags or "compute",
-				set_index = info.set_index or 0,
-			}
 		end
 
 		for _, info in ipairs(sampled_bindings) do
@@ -2143,12 +2178,6 @@ do
 				set_index = info.set_index or 0,
 				get_texture = info.get_texture,
 				get_descriptor = info.get_descriptor,
-			}
-			declared_descriptor_sets[#declared_descriptor_sets + 1] = {
-				type = "combined_image_sampler",
-				binding_index = info.binding_index,
-				stageFlags = info.stageFlags or "compute",
-				set_index = info.set_index or 0,
 			}
 		end
 
@@ -2306,7 +2335,7 @@ do
 		end
 
 		if self.on_draw then
-			self.on_draw(self, cmd, fb, resolved_frame_index, descriptor_frame_index)
+			self:on_draw(cmd, fb, resolved_frame_index, descriptor_frame_index)
 		else
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(
