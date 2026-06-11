@@ -233,7 +233,8 @@ T.Test2D("Graphics render2d multiple instanced segments render in order", functi
 	render2d.DrawRect(80, 96, 96, 72)
 	local state = render2d.GetBatchState()
 	T(state.pending_draws)["=="](2)
-	T(#state.segments)["=="](2)
+	-- In instanced mode color is per-instance data, so both rects share one segment
+	T(#state.segments)["=="](1)
 	render2d.SetRectBatchMode("replay")
 	T(state.pending_draws)["=="](2)
 	return function()
@@ -404,7 +405,9 @@ end)
 T.Test2D("Graphics render2d alpha multiplier rendering", function()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(0.5)
+	render2d.SetRectBatchMode("immediate")
 	render2d.DrawRect(20, 20, 1, 1)
+	render2d.SetRectBatchMode("instanced")
 	render2d.SetAlphaMultiplier(1)
 	T(render2d.GetAlphaMultiplier())["=="](1.0)
 	return function()
@@ -902,6 +905,8 @@ T.Test2DFrames(
 				end
 
 				render2d.SetColor(1, 1, 1, 1)
+				render2d.FlushBatches("mesh")
+				render2d.BindPipeline()
 				local cmd = render.GetCommandBuffer()
 				mesh:Bind(cmd, 0)
 				render2d.PushMatrix()
@@ -956,6 +961,8 @@ T.Test2DFrames(
 
 				mesh:UpdateBuffer()
 				render2d.SetColor(1, 1, 1, 1)
+				render2d.FlushBatches("mesh")
+				render2d.BindPipeline()
 				local cmd = render.GetCommandBuffer()
 				mesh:Bind(cmd, 0)
 				render2d.PushMatrix()
@@ -1008,6 +1015,8 @@ T.Test2DFrames(
 				end
 
 				render2d.SetColor(1, 1, 1, 1)
+				render2d.FlushBatches("mesh")
+				render2d.BindPipeline()
 				local cmd = render.GetCommandBuffer()
 				mesh:Bind(cmd, 0)
 				render2d.PushMatrix()
