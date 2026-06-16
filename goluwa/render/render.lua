@@ -1111,7 +1111,7 @@ function render.CreateGraphicsPipeline(config)
 	assert_no_legacy_graphics_pipeline_fields(config)
 
 	if config.ColorFormat == nil and config.ColorFormat ~= false then
-		config.ColorFormat = render.target:GetColorFormat()
+		config.ColorFormat = {render.target:GetColorFormat()}
 	elseif config.ColorFormat == false then
 		config.ColorFormat = nil
 	end

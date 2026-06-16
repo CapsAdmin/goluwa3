@@ -9,244 +9,26 @@ local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
+local Hash = import("goluwa/helpers/hash.lua")
 local GraphicsPipeline = prototype.CreateTemplate("render_graphics_pipeline")
 local normalize_pipeline_sampler_config
-local NIL_VALUE = {}
-local ID_LEAF = {}
-local RASTERIZER_STATE_KEYS = {
-	polygon_mode = true,
-	cull_mode = true,
-	front_face = true,
-	depth_bias = true,
-	depth_bias_constant_factor = true,
-	depth_bias_clamp = true,
-	depth_bias_slope_factor = true,
-	line_width = true,
-	depth_clamp = true,
-	discard = true,
-}
-local STENCIL_FACE_KEYS = {
-	fail_op = true,
-	pass_op = true,
-	depth_fail_op = true,
-	compare_op = true,
-	reference = true,
-	compare_mask = true,
-	write_mask = true,
-}
-local DEPTH_STENCIL_STATE_KEYS = {
-	depth_test = true,
-	depth_write = true,
-	depth_compare_op = true,
-	depth_bounds_test = true,
-	stencil_test = true,
-	front = true,
-	back = true,
-}
-local VIEWPORT_STATE_KEYS = {
-	x = true,
-	y = true,
-	w = true,
-	h = true,
-	min_depth = true,
-	max_depth = true,
-}
-local SCISSOR_STATE_KEYS = {
-	x = true,
-	y = true,
-	w = true,
-	h = true,
-}
-local MULTISAMPLING_STATE_KEYS = {
-	rasterization_samples = true,
-	sample_shading = true,
-	min_sample_shading = true,
-}
-local TESSELLATION_STATE_KEYS = {
-	patch_control_points = true,
-}
-local COLOR_BLEND_ATTACHMENT_KEYS = {
-	blend = true,
-	src_color_blend_factor = true,
-	dst_color_blend_factor = true,
-	color_blend_op = true,
-	src_alpha_blend_factor = true,
-	dst_alpha_blend_factor = true,
-	alpha_blend_op = true,
-	color_write_mask = true,
-}
-local COLOR_BLEND_STATE_KEYS = {
-	blend = true,
-	src_color_blend_factor = true,
-	dst_color_blend_factor = true,
-	color_blend_op = true,
-	src_alpha_blend_factor = true,
-	dst_alpha_blend_factor = true,
-	alpha_blend_op = true,
-	color_write_mask = true,
-	logic_op_enabled = true,
-	logic_op = true,
-	constants = true,
-	attachments = true,
-}
-local TOPOLOGIES = {
-	"point_list",
-	"line_list",
-	"line_strip",
-	"triangle_list",
-	"triangle_strip",
-	"triangle_fan",
-	"line_list_with_adjacency",
-	"line_strip_with_adjacency",
-	"triangle_list_with_adjacency",
-	"triangle_strip_with_adjacency",
-	"patch_list",
-}
-local INPUT_ASSEMBLY_STATE_KEYS = {
-	topology = true,
-	primitive_restart = true,
-}
-local STENCIL_FACE_DEFAULTS = {
-	fail_op = "keep",
-	pass_op = "keep",
-	depth_fail_op = "keep",
-	compare_op = "always",
-	reference = 0,
-	compare_mask = 0xFF,
-	write_mask = 0xFF,
-}
-local POLYGON_MODES = {"fill", "line", "point"}
-local CULL_MODES = {"none", "front", "back", "front_and_back"}
-local FRONT_FACES = {"clockwise", "counter_clockwise"}
-local COMPARE_OPS = {
-	"never",
-	"less",
-	"equal",
-	"less_or_equal",
-	"greater",
-	"not_equal",
-	"greater_or_equal",
-	"always",
-}
-local STENCIL_OPS = {
-	"keep",
-	"zero",
-	"replace",
-	"increment_and_clamp",
-	"decrement_and_clamp",
-	"invert",
-	"increment_and_wrap",
-	"decrement_and_wrap",
-}
-local BLEND_FACTORS = {
-	"zero",
-	"one",
-	"src_color",
-	"one_minus_src_color",
-	"dst_color",
-	"one_minus_dst_color",
-	"src_alpha",
-	"one_minus_src_alpha",
-	"dst_alpha",
-	"one_minus_dst_alpha",
-	"constant_color",
-	"one_minus_constant_color",
-	"constant_alpha",
-	"one_minus_constant_alpha",
-	"src_alpha_saturate",
-	"src1_color",
-	"one_minus_src1_color",
-	"src1_alpha",
-	"one_minus_src1_alpha",
-}
-local BLEND_OPS = {"add", "subtract", "reverse_subtract", "min", "max"}
-local LOGIC_OPS = {
-	"clear",
-	"and",
-	"and_reverse",
-	"copy",
-	"and_inverted",
-	"noop",
-	"xor",
-	"or",
-	"nor",
-	"equivalent",
-	"invert",
-	"or_reverse",
-	"copy_inverted",
-	"or_inverted",
-	"nand",
-	"set",
-}
-local COLOR_MASK_CHANNELS = {"r", "g", "b", "a", "R", "G", "B", "A"}
-local PROPERTY_DYNAMIC_STATE_KEYS = {
-	input_assembly = {
-		primitive_restart = "primitive_restart_enable",
-	},
-	rasterizer = {
-		polygon_mode = "polygon_mode_ext",
-		cull_mode = "cull_mode",
-		front_face = "front_face",
-		depth_bias = "depth_bias_enable",
-		depth_bias_constant_factor = "depth_bias",
-		depth_bias_clamp = "depth_bias",
-		depth_bias_slope_factor = "depth_bias",
-		depth_clamp = "depth_clamp_enable_ext",
-		discard = "rasterizer_discard_enable",
-	},
-	depth_stencil = {
-		depth_test = "depth_test_enable",
-		depth_write = "depth_write_enable",
-		depth_compare_op = "depth_compare_op",
-		stencil_test = "stencil_test_enable",
-	},
-	viewport = {
-		x = "viewport",
-		y = "viewport",
-		w = "viewport",
-		h = "viewport",
-		min_depth = "viewport",
-		max_depth = "viewport",
-	},
-	scissor = {
-		x = "scissor",
-		y = "scissor",
-		w = "scissor",
-		h = "scissor",
-	},
-	color_blend = {
-		blend = "color_blend_enable_ext",
-		src_color_blend_factor = "color_blend_equation_ext",
-		dst_color_blend_factor = "color_blend_equation_ext",
-		color_blend_op = "color_blend_equation_ext",
-		src_alpha_blend_factor = "color_blend_equation_ext",
-		dst_alpha_blend_factor = "color_blend_equation_ext",
-		alpha_blend_op = "color_blend_equation_ext",
-		color_write_mask = "color_write_mask_ext",
-		logic_op_enabled = "logic_op_enable_ext",
-		logic_op = "logic_op_ext",
-	},
-}
-local STENCIL_FACE_DYNAMIC_STATE_KEYS = {
-	fail_op = "stencil_op",
-	pass_op = "stencil_op",
-	depth_fail_op = "stencil_op",
-	compare_op = "stencil_op",
-	reference = "stencil_reference",
-	compare_mask = "stencil_compare_mask",
-	write_mask = "stencil_write_mask",
-}
-
-local function copy_list(values)
-	if type(values) ~= "table" then return values end
-
-	local out = {}
-
-	for i = 1, #values do
-		out[i] = values[i]
-	end
-
-	return out
+local state_keys = {}
+local state_defaults = {}
+local hash_key_groups = {}
+local cache_rules = {}
+local vulkan_bindings = {}
+-- Dynamic state availability callbacks
+local has_dynamic_state_basic = function()
+	return true
+end
+local has_dynamic_state_extended = function(device)
+	return device.has_extended_dynamic_state
+end
+local has_dynamic_state_extended2 = function(device)
+	return device.has_extended_dynamic_state2
+end
+local has_dynamic_state_extended3 = function(device)
+	return device.has_extended_dynamic_state3
 end
 
 do
@@ -254,18 +36,136 @@ do
 	GraphicsPipeline:GetSet(
 		"Topology",
 		"triangle_list",
-		{path = "input_assembly.topology", enums = TOPOLOGIES}
+		{
+			path = "input_assembly.topology",
+			enums = {
+				"point_list",
+				"line_list",
+				"line_strip",
+				"triangle_list",
+				"triangle_strip",
+				"triangle_fan",
+				"line_list_with_adjacency",
+				"line_strip_with_adjacency",
+				"triangle_list_with_adjacency",
+				"triangle_strip_with_adjacency",
+				"patch_list",
+			},
+		}
 	)
-	GraphicsPipeline:GetSet("ViewportX", 0, {path = "viewport.x", validate = "number"})
-	GraphicsPipeline:GetSet("ViewportY", 0, {path = "viewport.y", validate = "number"})
-	GraphicsPipeline:GetSet("ViewportWidth", nil, {path = "viewport.w", validate = "number"})
-	GraphicsPipeline:GetSet("ViewportHeight", nil, {path = "viewport.h", validate = "number"})
-	GraphicsPipeline:GetSet("ViewportMinDepth", 0, {path = "viewport.min_depth", validate = "number"})
-	GraphicsPipeline:GetSet("ViewportMaxDepth", 1, {path = "viewport.max_depth", validate = "number"})
-	GraphicsPipeline:GetSet("ScissorX", 0, {path = "scissor.x", validate = "number"})
-	GraphicsPipeline:GetSet("ScissorY", 0, {path = "scissor.y", validate = "number"})
-	GraphicsPipeline:GetSet("ScissorWidth", nil, {path = "scissor.w", validate = "number"})
-	GraphicsPipeline:GetSet("ScissorHeight", nil, {path = "scissor.h", validate = "number"})
+	GraphicsPipeline:GetSet(
+		"ViewportX",
+		0,
+		{
+			path = "viewport.x",
+			validate = "number",
+			dynamic_state = "viewport",
+			setter = function(cmd, cache, val)
+				cmd:SetViewport(
+					cache.viewport_x,
+					cache.viewport_y,
+					cache.viewport_width,
+					cache.viewport_height,
+					cache.viewport_min_depth,
+					cache.viewport_max_depth
+				)
+			end,
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ViewportY",
+		0,
+		{
+			path = "viewport.y",
+			validate = "number",
+			dynamic_state = "viewport",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ViewportWidth",
+		nil,
+		{
+			path = "viewport.w",
+			validate = "number",
+			dynamic_state = "viewport",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ViewportHeight",
+		nil,
+		{
+			path = "viewport.h",
+			validate = "number",
+			dynamic_state = "viewport",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ViewportMinDepth",
+		0,
+		{
+			path = "viewport.min_depth",
+			validate = "number",
+			dynamic_state = "viewport",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ViewportMaxDepth",
+		1,
+		{
+			path = "viewport.max_depth",
+			validate = "number",
+			dynamic_state = "viewport",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ScissorX",
+		0,
+		{
+			path = "scissor.x",
+			validate = "number",
+			dynamic_state = "scissor",
+			setter = function(cmd, cache, val)
+				cmd:SetScissor(cache.scissor_x, cache.scissor_y, cache.scissor_width, cache.scissor_height)
+			end,
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ScissorY",
+		0,
+		{
+			path = "scissor.y",
+			validate = "number",
+			dynamic_state = "scissor",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ScissorWidth",
+		nil,
+		{
+			path = "scissor.w",
+			validate = "number",
+			dynamic_state = "scissor",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"ScissorHeight",
+		nil,
+		{
+			path = "scissor.h",
+			validate = "number",
+			dynamic_state = "scissor",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
 	GraphicsPipeline:GetSet(
 		"RasterizationSamples",
 		"1",
@@ -284,7 +184,15 @@ do
 	GraphicsPipeline:GetSet(
 		"PrimitiveRestart",
 		false,
-		{path = "input_assembly.primitive_restart", validate = "boolean"}
+		{
+			path = "input_assembly.primitive_restart",
+			validate = "boolean",
+			dynamic_state = "primitive_restart_enable",
+			setter = function(cmd, cache, val)
+				cmd:SetPrimitiveRestartEnable(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended2,
+		}
 	)
 	GraphicsPipeline:GetSet(
 		"PatchControlPoints",
@@ -294,15 +202,72 @@ do
 	GraphicsPipeline:GetSet(
 		"PolygonMode",
 		"fill",
-		{path = "rasterizer.polygon_mode", enums = POLYGON_MODES}
+		{
+			path = "rasterizer.polygon_mode",
+			enums = {"fill", "line", "point"},
+			dynamic_state = "polygon_mode_ext",
+			setter = function(cmd, cache, val)
+				cmd:SetPolygonMode(val)
+			end,
+			has_dynamic_state = function(device)
+				if not device.has_extended_dynamic_state3 then return false end
+
+				return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3PolygonMode
+			end,
+		}
 	)
-	GraphicsPipeline:GetSet("CullMode", "back", {path = "rasterizer.cull_mode", enums = CULL_MODES})
+	GraphicsPipeline:GetSet(
+		"CullMode",
+		"back",
+		{
+			path = "rasterizer.cull_mode",
+			enums = {"none", "front", "back", "front_and_back"},
+			dynamic_state = "cull_mode",
+			setter = function(cmd, cache, val)
+				cmd:SetCullMode(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
+		}
+	)
 	GraphicsPipeline:GetSet(
 		"FrontFace",
 		"clockwise",
-		{path = "rasterizer.front_face", enums = FRONT_FACES}
+		{
+			path = "rasterizer.front_face",
+			enums = {"clockwise", "counter_clockwise"},
+			dynamic_state = "front_face",
+			setter = function(cmd, cache, val)
+				cmd:SetFrontFace(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
+		}
 	)
-	GraphicsPipeline:GetSet("DepthBias", false, {path = "rasterizer.depth_bias", validate = "boolean"})
+	GraphicsPipeline:GetSet(
+		"DepthBiasEnable",
+		false,
+		{
+			path = "rasterizer.depth_bias_enable",
+			validate = "boolean",
+			dynamic_state = "depth_bias_enable",
+			setter = function(cmd, cache, val)
+				cmd:SetDepthBiasEnable(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended2,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"DepthBias",
+		false,
+		{
+			path = "rasterizer.depth_bias",
+			validate = "boolean",
+			dynamic_state = "depth_bias",
+			setter = function(cmd, cache, val)
+				cmd:SetDepthBias(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended2,
+		}
+	)
 	GraphicsPipeline:GetSet(
 		"DepthBiasConstantFactor",
 		0,
@@ -318,19 +283,71 @@ do
 		0,
 		{path = "rasterizer.depth_bias_slope_factor", validate = "number"}
 	)
-	GraphicsPipeline:GetSet("LineWidth", 1, {path = "rasterizer.line_width", validate = "number"})
-	GraphicsPipeline:GetSet("DepthClamp", false, {path = "rasterizer.depth_clamp", validate = "boolean"})
-	GraphicsPipeline:GetSet("Discard", false, {path = "rasterizer.discard", validate = "boolean"})
-	GraphicsPipeline:GetSet("DepthTest", false, {path = "depth_stencil.depth_test", validate = "boolean"})
+	GraphicsPipeline:GetSet(
+		"LineWidth",
+		1,
+		{
+			path = "rasterizer.line_width",
+			validate = "number",
+			dynamic_state = "line_width",
+			has_dynamic_state = has_dynamic_state_basic,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"DepthClamp",
+		false,
+		{
+			path = "rasterizer.depth_clamp",
+			validate = "boolean",
+			dynamic_state = "depth_clamp_enable_ext",
+			setter = function(cmd, cache, val)
+				cmd:SetDepthClampEnable(val)
+			end,
+			has_dynamic_state = function(device)
+				if not device.has_extended_dynamic_state3 then return false end
+
+				return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3DepthClampEnable
+			end,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"Discard",
+		false,
+		{
+			path = "rasterizer.discard",
+			validate = "boolean",
+			dynamic_state = "rasterizer_discard_enable",
+			setter = function(cmd, cache, val)
+				cmd:SetRasterizerDiscardEnable(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended2,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"DepthTest",
+		false,
+		{
+			path = "depth_stencil.depth_test",
+			validate = "boolean",
+			dynamic_state = "depth_test_enable",
+			setter = function(cmd, cache, val)
+				cmd:SetDepthTestEnable(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
+		}
+	)
 	GraphicsPipeline:GetSet(
 		"DepthWrite",
 		false,
-		{path = "depth_stencil.depth_write", validate = "boolean"}
-	)
-	GraphicsPipeline:GetSet(
-		"DepthCompareOp",
-		"less",
-		{path = "depth_stencil.depth_compare_op", enums = COMPARE_OPS}
+		{
+			path = "depth_stencil.depth_write",
+			validate = "boolean",
+			dynamic_state = "depth_write_enable",
+			setter = function(cmd, cache, val)
+				cmd:SetDepthWriteEnable(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
+		}
 	)
 	GraphicsPipeline:GetSet(
 		"DepthBoundsTest",
@@ -340,167 +357,441 @@ do
 	GraphicsPipeline:GetSet(
 		"StencilTest",
 		false,
-		{path = "depth_stencil.stencil_test", validate = "boolean"}
-	)
-	GraphicsPipeline:GetSet(
-		"FrontStencilFailOp",
-		STENCIL_FACE_DEFAULTS.fail_op,
 		{
-			path = "depth_stencil.front.fail_op",
-			enums = STENCIL_OPS,
-		}
-	)
-	GraphicsPipeline:GetSet(
-		"FrontStencilPassOp",
-		STENCIL_FACE_DEFAULTS.pass_op,
-		{
-			path = "depth_stencil.front.pass_op",
-			enums = STENCIL_OPS,
-		}
-	)
-	GraphicsPipeline:GetSet(
-		"FrontStencilDepthFailOp",
-		STENCIL_FACE_DEFAULTS.depth_fail_op,
-		{
-			path = "depth_stencil.front.depth_fail_op",
-			enums = STENCIL_OPS,
-		}
-	)
-	GraphicsPipeline:GetSet(
-		"FrontStencilCompareOp",
-		STENCIL_FACE_DEFAULTS.compare_op,
-		{
-			path = "depth_stencil.front.compare_op",
-			enums = COMPARE_OPS,
+			path = "depth_stencil.stencil_test",
+			validate = "boolean",
+			dynamic_state = "stencil_test_enable",
+			setter = function(cmd, cache, val)
+				cmd:SetStencilTestEnable(val)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
 		}
 	)
 	GraphicsPipeline:GetSet(
 		"FrontStencilReference",
-		STENCIL_FACE_DEFAULTS.reference,
+		0,
 		{
 			path = "depth_stencil.front.reference",
 			validate = "integer",
+			dynamic_state = "stencil_reference",
+			setter = function(cmd, cache, val)
+				cmd:SetStencilReference("front_and_back", cache.stencil_reference)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
 		}
 	)
+
+	do
+		local STENCIL_OPS = {
+			"keep",
+			"zero",
+			"replace",
+			"increment_and_clamp",
+			"decrement_and_clamp",
+			"invert",
+			"increment_and_wrap",
+			"decrement_and_wrap",
+		}
+		GraphicsPipeline:GetSet(
+			"FrontStencilFailOp",
+			"keep",
+			{
+				path = "depth_stencil.front.fail_op",
+				enums = STENCIL_OPS,
+				dynamic_state = "stencil_op",
+				setter = function(cmd, cache, val)
+					cmd:SetStencilOp(
+						"front_and_back",
+						cache.stencil_fail_op,
+						cache.stencil_pass_op,
+						cache.stencil_depth_fail_op,
+						cache.stencil_compare_op
+					)
+				end,
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"FrontStencilPassOp",
+			"keep",
+			{
+				path = "depth_stencil.front.pass_op",
+				enums = STENCIL_OPS,
+				dynamic_state = "stencil_op",
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"FrontStencilDepthFailOp",
+			"keep",
+			{
+				path = "depth_stencil.front.depth_fail_op",
+				enums = STENCIL_OPS,
+				dynamic_state = "stencil_op",
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"BackStencilFailOp",
+			"keep",
+			{
+				path = "depth_stencil.back.fail_op",
+				enums = STENCIL_OPS,
+				dynamic_state = "stencil_op",
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"BackStencilPassOp",
+			"keep",
+			{
+				path = "depth_stencil.back.pass_op",
+				enums = STENCIL_OPS,
+				dynamic_state = "stencil_op",
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"BackStencilDepthFailOp",
+			"keep",
+			{
+				path = "depth_stencil.back.depth_fail_op",
+				enums = STENCIL_OPS,
+				dynamic_state = "stencil_op",
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+	end
+
+	do
+		local COMPARE_OPS = {
+			"never",
+			"less",
+			"equal",
+			"less_or_equal",
+			"greater",
+			"not_equal",
+			"greater_or_equal",
+			"always",
+		}
+		GraphicsPipeline:GetSet(
+			"FrontStencilCompareOp",
+			"always",
+			{
+				path = "depth_stencil.front.compare_op",
+				enums = COMPARE_OPS,
+				dynamic_state = "stencil_op",
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"BackStencilCompareOp",
+			"always",
+			{
+				path = "depth_stencil.back.compare_op",
+				enums = COMPARE_OPS,
+				dynamic_state = "stencil_op",
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"DepthCompareOp",
+			"less",
+			{
+				path = "depth_stencil.depth_compare_op",
+				enums = COMPARE_OPS,
+				dynamic_state = "depth_compare_op",
+				setter = function(cmd, cache, val)
+					cmd:SetDepthCompareOp(val)
+				end,
+				has_dynamic_state = has_dynamic_state_extended,
+			}
+		)
+	end
+
 	GraphicsPipeline:GetSet(
 		"FrontStencilCompareMask",
-		STENCIL_FACE_DEFAULTS.compare_mask,
+		0xFF,
 		{
 			path = "depth_stencil.front.compare_mask",
 			validate = "integer",
+			dynamic_state = "stencil_compare_mask",
+			setter = function(cmd, cache, val)
+				cmd:SetStencilCompareMask("front_and_back", cache.stencil_compare_mask)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
 		}
 	)
 	GraphicsPipeline:GetSet(
 		"FrontStencilWriteMask",
-		STENCIL_FACE_DEFAULTS.write_mask,
+		0xFF,
 		{
 			path = "depth_stencil.front.write_mask",
 			validate = "integer",
-		}
-	)
-	GraphicsPipeline:GetSet(
-		"BackStencilFailOp",
-		STENCIL_FACE_DEFAULTS.fail_op,
-		{
-			path = "depth_stencil.back.fail_op",
-			enums = STENCIL_OPS,
-		}
-	)
-	GraphicsPipeline:GetSet(
-		"BackStencilPassOp",
-		STENCIL_FACE_DEFAULTS.pass_op,
-		{
-			path = "depth_stencil.back.pass_op",
-			enums = STENCIL_OPS,
-		}
-	)
-	GraphicsPipeline:GetSet(
-		"BackStencilDepthFailOp",
-		STENCIL_FACE_DEFAULTS.depth_fail_op,
-		{
-			path = "depth_stencil.back.depth_fail_op",
-			enums = STENCIL_OPS,
-		}
-	)
-	GraphicsPipeline:GetSet(
-		"BackStencilCompareOp",
-		STENCIL_FACE_DEFAULTS.compare_op,
-		{
-			path = "depth_stencil.back.compare_op",
-			enums = COMPARE_OPS,
+			dynamic_state = "stencil_write_mask",
+			setter = function(cmd, cache, val)
+				cmd:SetStencilWriteMask("front_and_back", cache.stencil_write_mask)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
 		}
 	)
 	GraphicsPipeline:GetSet(
 		"BackStencilReference",
-		STENCIL_FACE_DEFAULTS.reference,
+		0,
 		{
 			path = "depth_stencil.back.reference",
 			validate = "integer",
+			dynamic_state = "stencil_reference",
+			setter = function(cmd, cache, val)
+				cmd:SetStencilReference("front_and_back", cache.stencil_reference)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
 		}
 	)
 	GraphicsPipeline:GetSet(
 		"BackStencilCompareMask",
-		STENCIL_FACE_DEFAULTS.compare_mask,
+		0xFF,
 		{
 			path = "depth_stencil.back.compare_mask",
 			validate = "integer",
+			dynamic_state = "stencil_compare_mask",
+			setter = function(cmd, cache, val)
+				cmd:SetStencilCompareMask("front_and_back", cache.stencil_compare_mask)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
 		}
 	)
 	GraphicsPipeline:GetSet(
 		"BackStencilWriteMask",
-		STENCIL_FACE_DEFAULTS.write_mask,
+		0xFF,
 		{
 			path = "depth_stencil.back.write_mask",
 			validate = "integer",
+			dynamic_state = "stencil_write_mask",
+			setter = function(cmd, cache, val)
+				cmd:SetStencilWriteMask("front_and_back", cache.stencil_write_mask)
+			end,
+			has_dynamic_state = has_dynamic_state_extended,
 		}
 	)
-	GraphicsPipeline:GetSet("Blend", false, {path = "color_blend.blend", validate = "boolean"})
 	GraphicsPipeline:GetSet(
-		"SrcColorBlendFactor",
-		"one",
-		{path = "color_blend.src_color_blend_factor", enums = BLEND_FACTORS}
+		"Blend",
+		false,
+		{
+			path = "color_blend.blend",
+			validate = "boolean",
+			dynamic_state = "color_blend_enable_ext",
+			setter = function(cmd, cache, val)
+				cmd:SetColorBlendEnableExt(val)
+			end,
+			has_dynamic_state = function(device)
+				if not device.has_extended_dynamic_state3 then return false end
+
+				return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorBlendEnable
+			end,
+		}
 	)
-	GraphicsPipeline:GetSet(
-		"DstColorBlendFactor",
-		"zero",
-		{path = "color_blend.dst_color_blend_factor", enums = BLEND_FACTORS}
-	)
-	GraphicsPipeline:GetSet(
-		"ColorBlendOp",
-		"add",
-		{path = "color_blend.color_blend_op", enums = BLEND_OPS}
-	)
-	GraphicsPipeline:GetSet(
-		"SrcAlphaBlendFactor",
-		"one",
-		{path = "color_blend.src_alpha_blend_factor", enums = BLEND_FACTORS}
-	)
-	GraphicsPipeline:GetSet(
-		"DstAlphaBlendFactor",
-		"zero",
-		{path = "color_blend.dst_alpha_blend_factor", enums = BLEND_FACTORS}
-	)
-	GraphicsPipeline:GetSet(
-		"AlphaBlendOp",
-		"add",
-		{path = "color_blend.alpha_blend_op", enums = BLEND_OPS}
-	)
+
+	do
+		local BLEND_FACTORS = {
+			"zero",
+			"one",
+			"src_color",
+			"one_minus_src_color",
+			"dst_color",
+			"one_minus_dst_color",
+			"src_alpha",
+			"one_minus_src_alpha",
+			"dst_alpha",
+			"one_minus_dst_alpha",
+			"constant_color",
+			"one_minus_constant_color",
+			"constant_alpha",
+			"one_minus_constant_alpha",
+			"src_alpha_saturate",
+			"src1_color",
+			"one_minus_src1_color",
+			"src1_alpha",
+			"one_minus_src1_alpha",
+		}
+		GraphicsPipeline:GetSet(
+			"SrcColorBlendFactor",
+			"one",
+			{
+				path = "color_blend.src_color_blend_factor",
+				enums = BLEND_FACTORS,
+				dynamic_state = "color_blend_equation_ext",
+				setter = function(cmd, cache, val)
+					cmd:SetColorBlendEquationExt(val)
+				end,
+				has_dynamic_state = function(device)
+					if not device.has_extended_dynamic_state3 then return false end
+
+					return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorBlendEquation
+				end,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"DstColorBlendFactor",
+			"zero",
+			{
+				path = "color_blend.dst_color_blend_factor",
+				enums = BLEND_FACTORS,
+				dynamic_state = "color_blend_equation_ext",
+				setter = function(cmd, cache, val)
+					cmd:SetColorBlendEquationExt(val)
+				end,
+				has_dynamic_state = function(device)
+					if not device.has_extended_dynamic_state3 then return false end
+
+					return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorBlendEquation
+				end,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"SrcAlphaBlendFactor",
+			"one",
+			{
+				path = "color_blend.src_alpha_blend_factor",
+				enums = BLEND_FACTORS,
+				dynamic_state = "color_blend_equation_ext",
+				setter = function(cmd, cache, val)
+					cmd:SetColorBlendEquationExt(val)
+				end,
+				has_dynamic_state = function(device)
+					if not device.has_extended_dynamic_state3 then return false end
+
+					return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorBlendEquation
+				end,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"DstAlphaBlendFactor",
+			"zero",
+			{
+				path = "color_blend.dst_alpha_blend_factor",
+				enums = BLEND_FACTORS,
+				dynamic_state = "color_blend_equation_ext",
+				setter = function(cmd, cache, val)
+					cmd:SetColorBlendEquationExt(val)
+				end,
+				has_dynamic_state = function(device)
+					if not device.has_extended_dynamic_state3 then return false end
+
+					return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorBlendEquation
+				end,
+			}
+		)
+	end
+
+	do
+		local BLEND_OPS = {"add", "subtract", "reverse_subtract", "min", "max"}
+		GraphicsPipeline:GetSet(
+			"AlphaBlendOp",
+			"add",
+			{
+				path = "color_blend.alpha_blend_op",
+				enums = BLEND_OPS,
+				dynamic_state = "color_blend_equation_ext",
+				setter = function(cmd, cache, val)
+					cmd:SetColorBlendEquationExt(val)
+				end,
+				has_dynamic_state = function(device)
+					if not device.has_extended_dynamic_state3 then return false end
+
+					return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorBlendEquation
+				end,
+			}
+		)
+		GraphicsPipeline:GetSet(
+			"ColorBlendOp",
+			"add",
+			{
+				path = "color_blend.color_blend_op",
+				enums = BLEND_OPS,
+				dynamic_state = "color_blend_equation_ext",
+				setter = function(cmd, cache, val)
+					cmd:SetColorBlendEquationExt(val)
+				end,
+				has_dynamic_state = function(device)
+					if not device.has_extended_dynamic_state3 then return false end
+
+					return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorBlendEquation
+				end,
+			}
+		)
+	end
+
 	GraphicsPipeline:GetSet(
 		"ColorWriteMask",
 		{"r", "g", "b", "a"},
 		{
 			path = "color_blend.color_write_mask",
 			list_type = "string",
-			list_enums = COLOR_MASK_CHANNELS,
+			list_enums = {"r", "g", "b", "a", "R", "G", "B", "A"},
 			compare = "list",
+			dynamic_state = "color_write_mask_ext",
+			setter = function(cmd, cache, val)
+				cmd:SetColorWriteMaskExt(val)
+			end,
+			has_dynamic_state = function(device)
+				if not device.has_extended_dynamic_state3 then return false end
+
+				return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorWriteMask
+			end,
 		}
 	)
 	GraphicsPipeline:GetSet(
 		"LogicOpEnabled",
 		false,
-		{path = "color_blend.logic_op_enabled", validate = "boolean"}
+		{
+			path = "color_blend.logic_op_enabled",
+			validate = "boolean",
+			dynamic_state = "logic_op_enable_ext",
+			setter = function(cmd, cache, val)
+				cmd:SetLogicOpEnable(val)
+			end,
+			has_dynamic_state = function(device)
+				if not device.has_extended_dynamic_state3 then return false end
+
+				return device.has_logic_op_enable_dynamic_state
+			end,
+		}
 	)
-	GraphicsPipeline:GetSet("LogicOp", "copy", {path = "color_blend.logic_op", enums = LOGIC_OPS})
+	GraphicsPipeline:GetSet(
+		"LogicOp",
+		"copy",
+		{
+			path = "color_blend.logic_op",
+			enums = {
+				"clear",
+				"and",
+				"and_reverse",
+				"copy",
+				"and_inverted",
+				"noop",
+				"xor",
+				"or",
+				"nor",
+				"equivalent",
+				"invert",
+				"or_reverse",
+				"copy_inverted",
+				"or_inverted",
+				"nand",
+				"set",
+			},
+			dynamic_state = "logic_op_ext",
+			setter = function(cmd, cache, val)
+				cmd:SetLogicOp(val)
+			end,
+			has_dynamic_state = function(device)
+				if not device.has_extended_dynamic_state2 then return false end
+
+				return device.has_logic_op_dynamic_state
+			end,
+		}
+	)
 	GraphicsPipeline:GetSet(
 		"BlendConstants",
 		{0, 0, 0, 0},
@@ -514,59 +805,7 @@ do
 	GraphicsPipeline:EndStorable()
 end
 
-local GRAPHICS_PIPELINE_PROPERTY_INFO = {}
 local GRAPHICS_PIPELINE_STATE_PROPERTY_INFO = {}
-local LEGACY_CONSTRUCTOR_FIELD_NAMES = {
-	color_format = "ColorFormat",
-	depth_format = "DepthFormat",
-	samples = "RasterizationSamples",
-	rasterization_samples = "RasterizationSamples",
-	descriptor_set_count = "DescriptorSetCount",
-	static = "Static",
-}
-
-local function assert_no_legacy_constructor_fields(config, level)
-	for _, field_name in ipairs{
-		"color_format",
-		"depth_format",
-		"samples",
-		"rasterization_samples",
-		"descriptor_set_count",
-		"static",
-	} do
-		if config[field_name] ~= nil then
-			error(
-				string.format(
-					"GraphicsPipeline.New: use PascalCase %s instead of snake_case %s",
-					LEGACY_CONSTRUCTOR_FIELD_NAMES[field_name],
-					field_name
-				),
-				level or 3
-			)
-		end
-	end
-
-	if config.Samples ~= nil then
-		error("GraphicsPipeline.New: use RasterizationSamples instead of Samples", level or 3)
-	end
-
-	if
-		config.dynamic_state ~= nil or
-		config.dynamic_states ~= nil or
-		config.DynamicStates ~= nil
-	then
-		error("GraphicsPipeline.New: dynamic state is handled internally", level or 3)
-	end
-end
-
-local function get_property_dynamic_state_name(info)
-	if info.state_section == "depth_stencil" and info.state_subkey then
-		return STENCIL_FACE_DYNAMIC_STATE_KEYS[info.state_subkey]
-	end
-
-	local section = PROPERTY_DYNAMIC_STATE_KEYS[info.state_section]
-	return section and section[info.state_key] or nil
-end
 
 local function get_state_property_entry(section, key)
 	local section_info = GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[section]
@@ -616,8 +855,8 @@ for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
 	info.state_section = info.path_keys[1]
 	info.state_key = info.path_keys[2]
 	info.state_subkey = info.path_keys[3]
-	info.dynamic_state_name = get_property_dynamic_state_name(info)
 	info.state_value_path = {info.state_key}
+	info.dynamic_state_name = info.dynamic_state
 
 	if info.state_subkey then info.state_value_path[2] = info.state_subkey end
 
@@ -640,7 +879,6 @@ for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
 		end
 	end
 
-	GRAPHICS_PIPELINE_PROPERTY_INFO[info.var_name] = info
 	GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section] = GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section] or {}
 
 	if info.state_subkey then
@@ -649,93 +887,103 @@ for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
 	else
 		GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section][info.state_key] = info
 	end
-end
 
-local function get_constructor_property_path(info)
-	return info.constructor_path_string
-end
+	-- Derive metadata only for properties with a valid state_section and state_key
+	if not info.state_section or not info.state_key then goto continue end
 
-local function get_constructor_nested_property_value(config, info)
-	local section = config[info.state_section]
+	-- Derive state_keys (for assert_known_keys validation)
+	local section = info.state_section
+	local key = info.state_key
+	local subkey = info.state_subkey
 
-	if type(section) ~= "table" then return nil, false end
+	if not section or not key then goto continue end
 
-	return get_path_value(section, info.constructor_value_path)
-end
+	-- Derive state_keys for all properties except color_blend attachment properties
+	-- (color_blend attachment properties are validated separately)
+	if not info.is_color_blend_attachment_property then
+		state_keys[section] = state_keys[section] or {}
 
-local function set_constructor_property_value(config, info, value)
-	value = prototype.ValidatePropertyValue(info, value, 3)
-	config[info.var_name] = nil
-	local section = config[info.state_section]
+		if subkey then
+			state_keys[section][key] = state_keys[section][key] or {}
+			state_keys[section][key][subkey] = true
+		else
+			state_keys[section][key] = true
+		end
 
-	if type(section) ~= "table" then
-		section = {}
-		config[info.state_section] = section
-	end
+		-- Derive state_defaults
+		state_defaults[section] = state_defaults[section] or {}
 
-	set_path_value(
-		section,
-		info.constructor_value_path,
-		info.compare == "list" and copy_list(value) or value
-	)
-end
+		if subkey then
+			state_defaults[section][key] = state_defaults[section][key] or {}
+			state_defaults[section][key][subkey] = info.default
+		else
+			state_defaults[section][key] = info.default
+		end
 
-local function normalize_constructor_properties(config)
-	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
-		local top_level = config[info.var_name]
-		local _, has_nested = get_constructor_nested_property_value(config, info)
+		-- Derive hash_key_groups (ordered list of keys per section/subsection)
+		-- We collect them in registration order, which gives stable hash ordering
+		if subkey then
+			hash_key_groups[section] = hash_key_groups[section] or {}
+			hash_key_groups[section][subkey] = hash_key_groups[section][subkey] or {}
+			table.insert(hash_key_groups[section][subkey], key)
+		else
+			hash_key_groups[section] = hash_key_groups[section] or {}
 
-		if top_level ~= nil and has_nested then
-			error(
-				string.format(
-					"GraphicsPipeline.New: property %s was provided both as top-level %s and nested %s",
-					info.var_name,
-					info.var_name,
-					get_constructor_property_path(info)
-				),
-				3
+			if not hash_key_groups[section][key] then
+				hash_key_groups[section][key] = true
+			end
+		end
+
+		-- Derive cache_rules and vulkan_bindings from dynamic_state_name
+		if info.dynamic_state_name then
+			local ds = info.dynamic_state_name
+			-- For stencil face subkeys, prefix with "stencil_" to match expected cache field names
+			local field
+
+			if section == "depth_stencil" and subkey then
+				field = "stencil_" .. info.state_subkey
+			else
+				field = info.state_key
+			end
+
+			-- Determine if value needs normalization (only for booleans)
+			local normalize = false
+
+			if info.validate == "boolean" then normalize = true end
+
+			cache_rules[ds] = cache_rules[ds] or {}
+			table.insert(
+				cache_rules[ds],
+				{
+					field = field,
+					section = section,
+					key = key,
+					subkey = subkey,
+					default = info.default,
+					normalize = normalize,
+				}
+			)
+			vulkan_bindings[ds] = vulkan_bindings[ds] or {}
+			table.insert(
+				vulkan_bindings[ds],
+				{
+					field = field,
+					section = section,
+					key = key,
+					subkey = subkey,
+					setter = info.setter,
+				}
 			)
 		end
-
-		if has_nested then
-			error(
-				string.format(
-					"GraphicsPipeline.New: use top-level PascalCase property %s instead of nested %s",
-					info.var_name,
-					get_constructor_property_path(info)
-				),
-				3
-			)
-		end
-
-		if top_level ~= nil then
-			set_constructor_property_value(config, info, top_level)
-		end
-	end
-end
-
-local function descend_id_node(node, value)
-	if value == nil then value = NIL_VALUE end
-
-	local child = node[value]
-
-	if not child then
-		child = {}
-		node[value] = child
 	end
 
-	return child
-end
+	-- Derive color_blend state_keys (includes both top-level and attachment properties)
+	if section == "color_blend" then
+		state_keys.color_blend = state_keys.color_blend or {}
+		state_keys.color_blend[key] = true
+	end
 
-local function finalize_id(self, node, next_id_name)
-	local id = node[ID_LEAF]
-
-	if id then return id end
-
-	id = (self[next_id_name] or 0) + 1
-	self[next_id_name] = id
-	node[ID_LEAF] = id
-	return id
+	::continue::
 end
 
 local function assert_known_keys(section_name, tbl, known)
@@ -772,230 +1020,19 @@ local function normalize_color_write_mask(mask)
 	return bits
 end
 
-local function normalize_attachment_format(entry)
-	return type(entry) == "table" and entry[1] or entry or false
-end
-
-local function normalize_enabled(value)
-	return value ~= nil and value ~= false and value ~= 0
-end
-
-local function descend_number_list(node, values)
-	if type(values) ~= "table" then return descend_id_node(node, values) end
-
-	node = descend_id_node(node, #values)
-
-	for i = 1, #values do
-		node = descend_id_node(node, values[i])
-	end
-
-	return node
-end
-
-local function descend_stencil_face(node, face)
-	if type(face) ~= "table" then return descend_id_node(node, nil) end
-
-	assert_known_keys("depth_stencil face", face, STENCIL_FACE_KEYS)
-	node = descend_id_node(node, face.fail_op)
-	node = descend_id_node(node, face.pass_op)
-	node = descend_id_node(node, face.depth_fail_op)
-	node = descend_id_node(node, face.compare_op)
-	node = descend_id_node(node, face.reference)
-	node = descend_id_node(node, face.compare_mask)
-	node = descend_id_node(node, face.write_mask)
-	return node
-end
-
 local function get_signature_id(self, signature)
-	local node = self.signature_id_root
-	local color_format = signature.color_format
+	local color_format = signature.color_format or {}
+	local formats = {}
 
-	if type(color_format) == "table" then
-		node = descend_id_node(node, #color_format)
-
-		for i = 1, #color_format do
-			node = descend_id_node(node, normalize_attachment_format(color_format[i]))
-		end
-	else
-		node = descend_id_node(node, 1)
-		node = descend_id_node(node, color_format or false)
-	end
-
-	node = descend_id_node(node, signature.depth_format or false)
-	node = descend_id_node(node, signature.samples or "1")
-	return finalize_id(self, node, "next_signature_id")
-end
-
-local function get_rasterizer_state_id(self, rasterizer)
-	local node = self.rasterizer_state_id_root
-
-	if type(rasterizer) == "table" then
-		assert_known_keys("rasterizer", rasterizer, RASTERIZER_STATE_KEYS)
-		node = descend_id_node(node, rasterizer.polygon_mode)
-		node = descend_id_node(node, rasterizer.cull_mode)
-		node = descend_id_node(node, rasterizer.front_face)
-		node = descend_id_node(node, rasterizer.depth_bias)
-		node = descend_id_node(node, rasterizer.depth_bias_constant_factor)
-		node = descend_id_node(node, rasterizer.depth_bias_clamp)
-		node = descend_id_node(node, rasterizer.depth_bias_slope_factor)
-		node = descend_id_node(node, rasterizer.line_width)
-		node = descend_id_node(node, rasterizer.depth_clamp)
-		node = descend_id_node(node, rasterizer.discard)
-	end
-
-	return finalize_id(self, node, "next_rasterizer_state_id")
-end
-
-local function get_depth_stencil_state_id(self, depth_stencil)
-	local node = self.depth_stencil_state_id_root
-
-	if type(depth_stencil) == "table" then
-		assert_known_keys("depth_stencil", depth_stencil, DEPTH_STENCIL_STATE_KEYS)
-		node = descend_id_node(node, depth_stencil.depth_test)
-		node = descend_id_node(node, depth_stencil.depth_write)
-		node = descend_id_node(node, depth_stencil.depth_compare_op)
-		node = descend_id_node(node, depth_stencil.depth_bounds_test)
-		node = descend_id_node(node, depth_stencil.stencil_test)
-		node = descend_stencil_face(node, depth_stencil.front)
-		node = descend_stencil_face(node, depth_stencil.back)
-	end
-
-	return finalize_id(self, node, "next_depth_stencil_state_id")
-end
-
-local function descend_color_blend_attachment(node, attachment)
-	if type(attachment) ~= "table" then return descend_id_node(node, nil) end
-
-	assert_known_keys("color_blend attachment", attachment, COLOR_BLEND_ATTACHMENT_KEYS)
-	node = descend_id_node(node, attachment.blend)
-	node = descend_id_node(node, attachment.src_color_blend_factor)
-	node = descend_id_node(node, attachment.dst_color_blend_factor)
-	node = descend_id_node(node, attachment.color_blend_op)
-	node = descend_id_node(node, attachment.src_alpha_blend_factor)
-	node = descend_id_node(node, attachment.dst_alpha_blend_factor)
-	node = descend_id_node(node, attachment.alpha_blend_op)
-	node = descend_id_node(node, normalize_color_write_mask(attachment.color_write_mask))
-	return node
-end
-
-local function get_color_blend_state_id(self, color_blend)
-	local node = self.color_blend_state_id_root
-
-	if type(color_blend) == "table" then
-		assert_known_keys("color_blend", color_blend, COLOR_BLEND_STATE_KEYS)
-		node = descend_id_node(node, color_blend.blend)
-		node = descend_id_node(node, color_blend.src_color_blend_factor)
-		node = descend_id_node(node, color_blend.dst_color_blend_factor)
-		node = descend_id_node(node, color_blend.color_blend_op)
-		node = descend_id_node(node, color_blend.src_alpha_blend_factor)
-		node = descend_id_node(node, color_blend.dst_alpha_blend_factor)
-		node = descend_id_node(node, color_blend.alpha_blend_op)
-		node = descend_id_node(node, normalize_color_write_mask(color_blend.color_write_mask))
-		node = descend_id_node(node, color_blend.logic_op_enabled)
-		node = descend_id_node(node, color_blend.logic_op)
-		node = descend_number_list(node, color_blend.constants)
-		local attachments = color_blend.attachments
-		node = descend_id_node(node, attachments and #attachments or 0)
-
-		if attachments then
-			for i = 1, #attachments do
-				node = descend_color_blend_attachment(node, attachments[i])
-			end
+	for i = 1, #color_format do
+		if type(color_format[i]) == "table" then
+			formats[i] = color_format[i][1]
+		else
+			formats[i] = color_format[i] or false
 		end
 	end
 
-	return finalize_id(self, node, "next_color_blend_state_id")
-end
-
-local function get_viewport_state_id(self, viewport)
-	local node = self.viewport_state_id_root
-
-	if type(viewport) == "table" then
-		assert_known_keys("viewport", viewport, VIEWPORT_STATE_KEYS)
-		node = descend_id_node(node, viewport.x)
-		node = descend_id_node(node, viewport.y)
-		node = descend_id_node(node, viewport.w)
-		node = descend_id_node(node, viewport.h)
-		node = descend_id_node(node, viewport.min_depth)
-		node = descend_id_node(node, viewport.max_depth)
-	end
-
-	return finalize_id(self, node, "next_viewport_state_id")
-end
-
-local function get_scissor_state_id(self, scissor)
-	local node = self.scissor_state_id_root
-
-	if type(scissor) == "table" then
-		assert_known_keys("scissor", scissor, SCISSOR_STATE_KEYS)
-		node = descend_id_node(node, scissor.x)
-		node = descend_id_node(node, scissor.y)
-		node = descend_id_node(node, scissor.w)
-		node = descend_id_node(node, scissor.h)
-	end
-
-	return finalize_id(self, node, "next_scissor_state_id")
-end
-
-local function get_multisampling_state_id(self, multisampling)
-	local node = self.multisampling_state_id_root
-
-	if type(multisampling) == "table" then
-		assert_known_keys("multisampling", multisampling, MULTISAMPLING_STATE_KEYS)
-		node = descend_id_node(node, multisampling.rasterization_samples)
-		node = descend_id_node(node, multisampling.sample_shading)
-		node = descend_id_node(node, multisampling.min_sample_shading)
-	end
-
-	return finalize_id(self, node, "next_multisampling_state_id")
-end
-
-local function get_tessellation_state_id(self, tessellation)
-	local node = self.tessellation_state_id_root
-
-	if type(tessellation) == "table" then
-		assert_known_keys("tessellation", tessellation, TESSELLATION_STATE_KEYS)
-		node = descend_id_node(node, tessellation.patch_control_points)
-	end
-
-	return finalize_id(self, node, "next_tessellation_state_id")
-end
-
-local function get_pipeline_variant_id(
-	self,
-	signature_id,
-	input_assembly_state_id,
-	tessellation_state_id,
-	multisampling_state_id,
-	rasterizer_state_id,
-	depth_stencil_state_id,
-	viewport_state_id,
-	scissor_state_id,
-	color_blend_state_id
-)
-	local node = self.pipeline_variant_id_root
-	node = descend_id_node(node, signature_id)
-	node = descend_id_node(node, input_assembly_state_id)
-	node = descend_id_node(node, tessellation_state_id)
-	node = descend_id_node(node, multisampling_state_id)
-	node = descend_id_node(node, rasterizer_state_id)
-	node = descend_id_node(node, depth_stencil_state_id)
-	node = descend_id_node(node, viewport_state_id)
-	node = descend_id_node(node, scissor_state_id)
-	node = descend_id_node(node, color_blend_state_id)
-	return finalize_id(self, node, "next_pipeline_variant_id")
-end
-
-local function get_input_assembly_state_id(self, input_assembly)
-	local node = self.input_assembly_state_id_root
-
-	if type(input_assembly) == "table" then
-		assert_known_keys("input_assembly", input_assembly, INPUT_ASSEMBLY_STATE_KEYS)
-		node = descend_id_node(node, input_assembly.topology)
-		node = descend_id_node(node, input_assembly.primitive_restart)
-	end
-
-	return finalize_id(self, node, "next_input_assembly_state_id")
+	return self.signature_interner:intern(formats, signature.depth_format or false, signature.samples or "1")
 end
 
 local function has_static_state_change(self, info)
@@ -1003,30 +1040,237 @@ local function has_static_state_change(self, info)
 		not self.dynamic_states[info.dynamic_state_name]
 end
 
-local function has_static_override_change(self, section, key, value)
-	local info = get_state_property_info(section, key)
+do
+	local function has_static_override_change(self, section, key, value)
+		local info = get_state_property_info(section, key)
 
-	if info then return has_static_state_change(self, info) end
+		if info then return has_static_state_change(self, info) end
 
-	local entry = get_state_property_entry(section, key)
+		local entry = get_state_property_entry(section, key)
 
-	if type(value) ~= "table" or type(entry) ~= "table" then return true end
+		if type(value) ~= "table" or type(entry) ~= "table" then return true end
 
-	for subkey in pairs(value) do
-		info = entry[subkey]
+		for subkey in pairs(value) do
+			info = entry[subkey]
 
-		if info == nil or has_static_state_change(self, info) then return true end
+			if info == nil or has_static_state_change(self, info) then return true end
+		end
+
+		return false
 	end
 
-	return false
+	local function get_input_assembly_state_id(self, input_assembly)
+		if type(input_assembly) ~= "table" then
+			return self.input_assembly_state_interner:intern()
+		end
+
+		assert_known_keys("input_assembly", input_assembly, state_keys.input_assembly)
+		return self.input_assembly_state_interner:internWith(input_assembly, "topology", "primitive_restart")
+	end
+
+	local function get_tessellation_state_id(self, tessellation)
+		if type(tessellation) ~= "table" then
+			return self.tessellation_state_interner:intern()
+		end
+
+		assert_known_keys("tessellation", tessellation, state_keys.tessellation)
+		return self.tessellation_state_interner:internWith(tessellation, "patch_control_points")
+	end
+
+	local function get_multisampling_state_id(self, multisampling)
+		if type(multisampling) ~= "table" then
+			return self.multisampling_state_interner:intern()
+		end
+
+		assert_known_keys("multisampling", multisampling, state_keys.multisampling)
+		return self.multisampling_state_interner:internWith(multisampling, "rasterization_samples", "sample_shading", "min_sample_shading")
+	end
+
+	local function get_rasterizer_state_id(self, rasterizer)
+		if type(rasterizer) ~= "table" then
+			return self.rasterizer_state_interner:intern()
+		end
+
+		assert_known_keys("rasterizer", rasterizer, state_keys.rasterizer)
+		return self.rasterizer_state_interner:internWith(
+			rasterizer,
+			"polygon_mode",
+			"cull_mode",
+			"front_face",
+			"depth_bias",
+			"depth_bias_constant_factor",
+			"depth_bias_clamp",
+			"depth_bias_slope_factor",
+			"line_width",
+			"depth_clamp",
+			"discard"
+		)
+	end
+
+	local function get_depth_stencil_state_id(self, depth_stencil)
+		if type(depth_stencil) ~= "table" then
+			return self.depth_stencil_state_interner:intern()
+		end
+
+		assert_known_keys("depth_stencil", depth_stencil, state_keys.depth_stencil)
+		-- Build args list: depth_stencil fields
+		local args = {
+			depth_stencil.depth_test,
+			depth_stencil.depth_write,
+			depth_stencil.depth_compare_op,
+			depth_stencil.depth_bounds_test,
+			depth_stencil.stencil_test,
+		}
+
+		-- Add stencil face values using derived hash_key_groups
+		for _, face in ipairs({"front", "back"}) do
+			local f = depth_stencil[face]
+			local keys = hash_key_groups.depth_stencil and hash_key_groups.depth_stencil[face]
+
+			if f and type(f) == "table" and keys and #keys > 0 then
+				for _, k in ipairs(keys) do
+					table.insert(args, f[k])
+				end
+			else
+				-- No keys defined for this face, insert nil values for each expected key
+				local expected_keys = state_defaults.depth_stencil and state_defaults.depth_stencil[face]
+
+				if expected_keys then
+					for _ in pairs(expected_keys) do
+						table.insert(args, nil)
+					end
+				end
+			end
+		end
+
+		return self.depth_stencil_state_interner:intern(unpack(args))
+	end
+
+	local function get_viewport_state_id(self, viewport)
+		if type(viewport) ~= "table" then
+			return self.viewport_state_interner:intern()
+		end
+
+		assert_known_keys("viewport", viewport, state_keys.viewport)
+		return self.viewport_state_interner:internWith(viewport, "x", "y", "w", "h", "min_depth", "max_depth")
+	end
+
+	local function get_scissor_state_id(self, scissor)
+		if type(scissor) ~= "table" then
+			return self.scissor_state_interner:intern()
+		end
+
+		assert_known_keys("scissor", scissor, state_keys.scissor)
+		return self.scissor_state_interner:internWith(scissor, "x", "y", "w", "h")
+	end
+
+	local function get_color_blend_state_id(self, color_blend)
+		if type(color_blend) ~= "table" then
+			return self.color_blend_state_interner:intern()
+		end
+
+		assert_known_keys("color_blend", color_blend, state_keys.color_blend)
+		local attachments = color_blend.attachments
+		local attachment_count = attachments and #attachments or 0
+		-- Build args list: color_blend fields + attachment_count + attachment values
+		local args = {
+			color_blend.blend,
+			color_blend.src_color_blend_factor,
+			color_blend.dst_color_blend_factor,
+			color_blend.color_blend_op,
+			color_blend.src_alpha_blend_factor,
+			color_blend.dst_alpha_blend_factor,
+			color_blend.alpha_blend_op,
+			normalize_color_write_mask(color_blend.color_write_mask),
+			color_blend.logic_op_enabled,
+			color_blend.logic_op,
+			color_blend.constants,
+			attachment_count,
+		}
+
+		-- Add each attachment's values as separate arguments (matching original descend_color_blend_attachment)
+		if attachment_count > 0 then
+			for i = 1, attachment_count do
+				local a = attachments[i]
+
+				if type(a) == "table" then
+					table.insert(args, a.blend)
+					table.insert(args, a.src_color_blend_factor)
+					table.insert(args, a.dst_color_blend_factor)
+					table.insert(args, a.color_blend_op)
+					table.insert(args, a.src_alpha_blend_factor)
+					table.insert(args, a.dst_alpha_blend_factor)
+					table.insert(args, a.alpha_blend_op)
+					table.insert(args, normalize_color_write_mask(a.color_write_mask))
+				else
+					table.insert(args, nil)
+				end
+			end
+		end
+
+		return self.color_blend_state_interner:intern(unpack(args))
+	end
+
+	function GraphicsPipeline:GetVariantId(overrides, signature)
+		signature = signature or self.base_pipeline_signature
+		local signature_id = get_signature_id(self, signature)
+		-- Generate a cache key for this variant using only STATIC overrides
+		local static_overrides = {}
+
+		for section, changes in pairs(overrides or {}) do
+			if
+				section ~= "input_assembly" and
+				section ~= "multisampling" and
+				section ~= "rasterizer" and
+				section ~= "depth_stencil" and
+				section ~= "viewport" and
+				section ~= "scissor" and
+				section ~= "color_blend"
+			then
+				error("unknown static pipeline state section for variant cache: " .. tostring(section))
+			end
+
+			local static_changes = {}
+			local has_static = false
+
+			for k, v in pairs(changes or {}) do
+				if has_static_override_change(self, section, k, v) then
+					static_changes[k] = v
+					has_static = true
+				end
+			end
+
+			if has_static then static_overrides[section] = static_changes end
+		end
+
+		local input_assembly_state_id = get_input_assembly_state_id(self, static_overrides.input_assembly)
+		local tessellation_state_id = get_tessellation_state_id(self, static_overrides.tessellation)
+		local multisampling_state_id = get_multisampling_state_id(self, static_overrides.multisampling)
+		local rasterizer_state_id = get_rasterizer_state_id(self, static_overrides.rasterizer)
+		local depth_stencil_state_id = get_depth_stencil_state_id(self, static_overrides.depth_stencil)
+		local viewport_state_id = get_viewport_state_id(self, static_overrides.viewport)
+		local scissor_state_id = get_scissor_state_id(self, static_overrides.scissor)
+		local color_blend_state_id = get_color_blend_state_id(self, static_overrides.color_blend)
+		return self.pipeline_variant_interner:intern(
+			signature_id,
+			input_assembly_state_id,
+			tessellation_state_id,
+			multisampling_state_id,
+			rasterizer_state_id,
+			depth_stencil_state_id,
+			viewport_state_id,
+			scissor_state_id,
+			color_blend_state_id
+		)
+	end
 end
 
-local function get_active_config(self)
+function GraphicsPipeline:GetConfig()
 	return self.active_config or self.config
 end
 
 local function get_color_attachment_count(self)
-	local config = get_active_config(self)
+	local config = self:GetConfig()
 
 	if type(config.ColorFormat) == "table" then
 		return math.max(#config.ColorFormat, 1)
@@ -1035,7 +1279,19 @@ local function get_color_attachment_count(self)
 	return 1
 end
 
-local function get_config_state(config, section, key, subkey)
+local function get_state(self, section, key, subkey)
+	local config = self:GetConfig()
+
+	if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
+		local val = self.overridden_state[section][key]
+
+		if subkey and type(val) == "table" and val[subkey] ~= nil then
+			return val[subkey]
+		end
+
+		return val
+	end
+
 	if section == "color_blend" then
 		local cb = config.color_blend
 
@@ -1057,42 +1313,17 @@ local function get_config_state(config, section, key, subkey)
 	return nil
 end
 
-local function get_state(self, section, key, subkey)
-	local config = get_active_config(self)
-
-	if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
-		local val = self.overridden_state[section][key]
-
-		if subkey and type(val) == "table" and val[subkey] ~= nil then
-			return val[subkey]
-		end
-
-		return val
-	end
-
-	return get_config_state(config, section, key, subkey)
-end
-
 local function get_default_state_value(info)
-	if info.compare == "list" then return copy_list(info.default) end
+	if info.compare == "list" then return list.copy(info.default) end
 
 	return info.default
 end
 
-local function get_property_effective_value(self, info)
-	local value = get_state(self, info.state_section, info.state_key, info.state_subkey)
-
-	if value == nil then return get_default_state_value(info) end
-
-	if info.compare == "list" then return copy_list(value) end
-
-	return value
-end
-
 local function get_effective_stencil_face(self, face)
 	local out = {}
+	local defaults = state_defaults.depth_stencil[face] or {}
 
-	for key, default in pairs(STENCIL_FACE_DEFAULTS) do
+	for key, default in pairs(defaults) do
 		local value = get_state(self, "depth_stencil", face, key)
 		out[key] = value == nil and default or value
 	end
@@ -1100,99 +1331,45 @@ local function get_effective_stencil_face(self, face)
 	return out
 end
 
-local function store_property_override(self, info, value)
-	local section_name = info.state_section
-	local key = info.state_key
-	local subkey = info.state_subkey
-	local section_overrides = self.overridden_state[section_name] or {}
-	local changed_static = has_static_state_change(self, info)
-	local stored_value = info.compare == "list" and copy_list(value) or value
+local function resolve_color_blend_state(self, index, key)
+	local overridden = self.overridden_state.color_blend
+	local config = self:GetConfig().color_blend
 
-	if subkey then
-		section_overrides[key] = get_effective_stencil_face(self, key)
+	-- 1. overridden attachment
+	if overridden and overridden.attachments then
+		local a = overridden.attachments[index]
+
+		if a and a[key] ~= nil then return a[key] end
 	end
 
-	set_path_value(section_overrides, info.state_value_path, stored_value)
-	self.overridden_state[section_name] = section_overrides
-	self.bind_state_dirty = true
+	-- 2. top-level override (get_state checks overrides)
+	if key ~= "blend" then
+		local val = get_state(self, "color_blend", key)
 
-	if changed_static then self.static_variant_dirty = true end
-end
-
-local function get_color_blend_enable(self, index)
-	local overridden_color_blend = self.overridden_state.color_blend
-
-	if overridden_color_blend and overridden_color_blend.attachments then
-		local attachment = overridden_color_blend.attachments[index]
-
-		if attachment and attachment.blend ~= nil then
-			return normalize_enabled(attachment.blend)
-		end
+		if val ~= nil then return val end
 	end
 
-	local color_blend = get_active_config(self).color_blend
+	-- 3. config attachment
+	if config and config.attachments then
+		local a = config.attachments[index]
 
-	if color_blend and color_blend.attachments then
-		local attachment = color_blend.attachments[index]
+		if a and a[key] ~= nil then return a[key] end
 
-		if attachment and attachment.blend ~= nil then
-			return normalize_enabled(attachment.blend)
-		end
+		-- 4. config first attachment fallback
+		local first = config.attachments[1]
 
-		local default_attachment = color_blend.attachments[1]
-
-		if default_attachment and default_attachment.blend ~= nil then
-			return normalize_enabled(default_attachment.blend)
-		end
+		if first and first[key] ~= nil then return first[key] end
 	end
 
-	if overridden_color_blend and overridden_color_blend.blend ~= nil then
-		return normalize_enabled(overridden_color_blend.blend)
+	-- 5. overridden top-level
+	if overridden and overridden[key] ~= nil then return overridden[key] end
+
+	-- 6. config first attachment final fallback
+	if config and config.attachments and config.attachments[1] then
+		return config.attachments[1][key]
 	end
 
-	if color_blend and color_blend.attachments and color_blend.attachments[1] then
-		return normalize_enabled(color_blend.attachments[1].blend)
-	end
-
-	return false
-end
-
-local function get_color_blend_state(self, index, key, default)
-	local overridden_color_blend = self.overridden_state.color_blend
-
-	if overridden_color_blend and overridden_color_blend.attachments then
-		local attachment = overridden_color_blend.attachments[index]
-
-		if attachment and attachment[key] ~= nil then return attachment[key] end
-	end
-
-	local val = get_state(self, "color_blend", key)
-
-	if val ~= nil then return val end
-
-	local color_blend = get_active_config(self).color_blend
-
-	if color_blend and color_blend.attachments then
-		local attachment = color_blend.attachments[index]
-
-		if attachment and attachment[key] ~= nil then return attachment[key] end
-
-		local default_attachment = color_blend.attachments[1]
-
-		if default_attachment and default_attachment[key] ~= nil then
-			return default_attachment[key]
-		end
-	end
-
-	if overridden_color_blend and overridden_color_blend[key] ~= nil then
-		return overridden_color_blend[key]
-	end
-
-	return default
-end
-
-local function get_color_write_mask(self, index)
-	return normalize_color_write_mask(get_color_blend_state(self, index, "color_write_mask", {"r", "g", "b", "a"}))
+	return nil
 end
 
 local function build_zero_offsets(count)
@@ -1214,7 +1391,7 @@ local graphics_pipeline_switch_frame = -1
 local warned_graphics_pipeline_switch_frame = -1
 
 local function build_bind_state_cache(self)
-	local config = get_active_config(self)
+	local config = self:GetConfig()
 	local cache = {
 		zero_dynamic_offsets = build_zero_offsets(self.dynamic_descriptor_count or 0),
 	}
@@ -1226,7 +1403,7 @@ local function build_bind_state_cache(self)
 			local enables = {}
 
 			for i = 1, attachment_count do
-				enables[i] = get_color_blend_enable(self, i)
+				enables[i] = resolve_color_blend_state(self, i, "blend") or false
 			end
 
 			cache.color_blend_enable = enables
@@ -1241,12 +1418,14 @@ local function build_bind_state_cache(self)
 
 			for i = 1, attachment_count do
 				equations[i] = {
-					src_color_blend_factor = get_color_blend_state(self, i, "src_color_blend_factor", "src_alpha"),
-					dst_color_blend_factor = get_color_blend_state(self, i, "dst_color_blend_factor", "one_minus_src_alpha"),
-					color_blend_op = get_color_blend_state(self, i, "color_blend_op", "add"),
-					src_alpha_blend_factor = get_color_blend_state(self, i, "src_alpha_blend_factor", "one"),
-					dst_alpha_blend_factor = get_color_blend_state(self, i, "dst_alpha_blend_factor", "one_minus_src_alpha"),
-					alpha_blend_op = get_color_blend_state(self, i, "alpha_blend_op", "add"),
+					src_color_blend_factor = resolve_color_blend_state(self, i, "src_color_blend_factor") or "src_alpha",
+					dst_color_blend_factor = resolve_color_blend_state(self, i, "dst_color_blend_factor") or
+						"one_minus_src_alpha",
+					color_blend_op = resolve_color_blend_state(self, i, "color_blend_op") or "add",
+					src_alpha_blend_factor = resolve_color_blend_state(self, i, "src_alpha_blend_factor") or "one",
+					dst_alpha_blend_factor = resolve_color_blend_state(self, i, "dst_alpha_blend_factor") or
+						"one_minus_src_alpha",
+					alpha_blend_op = resolve_color_blend_state(self, i, "alpha_blend_op") or "add",
 				}
 			end
 
@@ -1261,206 +1440,78 @@ local function build_bind_state_cache(self)
 			local masks = {}
 
 			for i = 1, attachment_count do
-				masks[i] = get_color_write_mask(self, i)
+				masks[i] = normalize_color_write_mask(resolve_color_blend_state(self, i, "color_write_mask") or {"r", "g", "b", "a"})
 			end
 
 			cache.color_write_mask = masks
 		end
 	end
 
-	if self.dynamic_states.logic_op_enable_ext then
-		local logic_op_enabled = get_state(self, "color_blend", "logic_op_enabled")
-		cache.logic_op_enable = logic_op_enabled ~= nil and logic_op_enabled ~= false and logic_op_enabled ~= 0
+	-- Derive cache values from dynamic_states using cache_rules
+	for ds_name, rules in pairs(cache_rules) do
+		if self.dynamic_states[ds_name] then
+			for _, rule in ipairs(rules) do
+				local val
+
+				if rule.subkey then
+					val = get_state(self, rule.section, rule.key, rule.subkey)
+				else
+					val = get_state(self, rule.section, rule.key)
+				end
+
+				-- Apply normalization if needed
+				if rule.normalize and val ~= nil and val ~= false and val ~= 0 then
+					val = true
+				end
+
+				-- Apply default if nil
+				if val == nil then val = rule.default end
+
+				cache[rule.field] = val
+			end
+		end
 	end
 
-	if self.dynamic_states.logic_op_ext then
-		cache.logic_op = get_state(self, "color_blend", "logic_op") or "copy"
-	end
-
-	if self.dynamic_states.polygon_mode_ext then
-		cache.polygon_mode = get_state(self, "rasterizer", "polygon_mode") or "fill"
-	end
-
-	if self.dynamic_states.cull_mode then
-		cache.cull_mode = get_state(self, "rasterizer", "cull_mode") or "none"
-	end
-
-	if self.dynamic_states.front_face then
-		cache.front_face = get_state(self, "rasterizer", "front_face") or "clockwise"
-	end
-
-	if self.dynamic_states.depth_clamp_enable_ext then
-		cache.depth_clamp_enable = normalize_enabled(get_state(self, "rasterizer", "depth_clamp"))
-	end
-
-	if self.dynamic_states.rasterizer_discard_enable then
-		local discard = get_state(self, "rasterizer", "discard")
-		cache.rasterizer_discard_enable = discard ~= nil and discard ~= false and discard ~= 0
-	end
-
-	if self.dynamic_states.depth_bias_enable then
-		local depth_bias = get_state(self, "rasterizer", "depth_bias")
-		cache.depth_bias_enable = depth_bias ~= nil and depth_bias ~= false and depth_bias ~= 0
-		cache.depth_bias_constant_factor = get_state(self, "rasterizer", "depth_bias_constant_factor") or 0
-		cache.depth_bias_clamp = get_state(self, "rasterizer", "depth_bias_clamp") or 0
-		cache.depth_bias_slope_factor = get_state(self, "rasterizer", "depth_bias_slope_factor") or 0
-	end
-
-	if self.dynamic_states.depth_test_enable then
-		cache.depth_test_enable = normalize_enabled(get_state(self, "depth_stencil", "depth_test"))
-	end
-
-	if self.dynamic_states.depth_write_enable then
-		cache.depth_write_enable = normalize_enabled(get_state(self, "depth_stencil", "depth_write"))
-	end
-
-	if self.dynamic_states.depth_compare_op then
-		cache.depth_compare_op = get_state(self, "depth_stencil", "depth_compare_op") or "less"
-	end
-
-	if self.dynamic_states.primitive_restart_enable then
-		local primitive_restart = get_state(self, "input_assembly", "primitive_restart")
-		cache.primitive_restart_enable = primitive_restart ~= nil and
-			primitive_restart ~= false and
-			primitive_restart ~= 0
-	end
-
-	if self.dynamic_states.stencil_test_enable then
-		cache.stencil_test_enable = normalize_enabled(get_state(self, "depth_stencil", "stencil_test"))
-	end
-
-	if self.dynamic_states.stencil_op then
-		cache.stencil_fail_op = get_state(self, "depth_stencil", "front", "fail_op") or "keep"
-		cache.stencil_pass_op = get_state(self, "depth_stencil", "front", "pass_op") or "keep"
-		cache.stencil_depth_fail_op = get_state(self, "depth_stencil", "front", "depth_fail_op") or "keep"
-		cache.stencil_compare_op = get_state(self, "depth_stencil", "front", "compare_op") or "always"
-	end
-
-	if self.dynamic_states.stencil_reference then
-		cache.stencil_reference = get_state(self, "depth_stencil", "front", "reference") or 0
-	end
-
-	if self.dynamic_states.stencil_compare_mask then
-		cache.stencil_compare_mask = get_state(self, "depth_stencil", "front", "compare_mask") or 0xFF
-	end
-
-	if self.dynamic_states.stencil_write_mask then
-		cache.stencil_write_mask = get_state(self, "depth_stencil", "front", "write_mask") or 0xFF
-	end
-
+	-- Special handling for viewport/scissor (need config fallbacks)
 	if self.dynamic_states.viewport then
-		cache.viewport_x = (
-				get_state(self, "viewport", "x")
-			) or
-			(
-				config.viewport and
-				config.viewport.x
-			)
-			or
+		cache.viewport_x = get_state(self, "viewport", "x") or config.viewport and config.viewport.x or 0
+		cache.viewport_y = get_state(self, "viewport", "y") or config.viewport and config.viewport.y or 0
+		cache.viewport_width = get_state(self, "viewport", "w") or
+			config.extent and
+			config.extent.width or
+			config.viewport and
+			config.viewport.w or
 			0
-		cache.viewport_y = (
-				get_state(self, "viewport", "y")
-			) or
-			(
-				config.viewport and
-				config.viewport.y
-			)
-			or
+		cache.viewport_height = get_state(self, "viewport", "h") or
+			config.extent and
+			config.extent.height or
+			config.viewport and
+			config.viewport.h or
 			0
-		cache.viewport_width = (
-				get_state(self, "viewport", "w")
-			) or
-			(
-				config.extent and
-				config.extent.width
-			)
-			or
-			(
-				config.viewport and
-				config.viewport.w
-			)
-			or
+		cache.viewport_min_depth = get_state(self, "viewport", "min_depth") or
+			config.viewport and
+			config.viewport.min_depth or
 			0
-		cache.viewport_height = (
-				get_state(self, "viewport", "h")
-			) or
-			(
-				config.extent and
-				config.extent.height
-			)
-			or
-			(
-				config.viewport and
-				config.viewport.h
-			)
-			or
-			0
-		cache.viewport_min_depth = (
-				get_state(self, "viewport", "min_depth")
-			) or
-			(
-				config.viewport and
-				config.viewport.min_depth
-			)
-			or
-			0
-		cache.viewport_max_depth = (
-				get_state(self, "viewport", "max_depth")
-			) or
-			(
-				config.viewport and
-				config.viewport.max_depth
-			)
-			or
+		cache.viewport_max_depth = get_state(self, "viewport", "max_depth") or
+			config.viewport and
+			config.viewport.max_depth or
 			1
 	end
 
 	if self.dynamic_states.scissor then
-		cache.scissor_x = (
-				get_state(self, "scissor", "x")
-			) or
-			(
-				config.scissor and
-				config.scissor.x
-			)
-			or
+		cache.scissor_x = get_state(self, "scissor", "x") or config.scissor and config.scissor.x or 0
+		cache.scissor_y = get_state(self, "scissor", "y") or config.scissor and config.scissor.y or 0
+		cache.scissor_width = get_state(self, "scissor", "w") or
+			config.extent and
+			config.extent.width or
+			config.scissor and
+			config.scissor.w or
 			0
-		cache.scissor_y = (
-				get_state(self, "scissor", "y")
-			) or
-			(
-				config.scissor and
-				config.scissor.y
-			)
-			or
-			0
-		cache.scissor_width = (
-				get_state(self, "scissor", "w")
-			) or
-			(
-				config.extent and
-				config.extent.width
-			)
-			or
-			(
-				config.scissor and
-				config.scissor.w
-			)
-			or
-			0
-		cache.scissor_height = (
-				get_state(self, "scissor", "h")
-			) or
-			(
-				config.extent and
-				config.extent.height
-			)
-			or
-			(
-				config.scissor and
-				config.scissor.h
-			)
-			or
+		cache.scissor_height = get_state(self, "scissor", "h") or
+			config.extent and
+			config.extent.height or
+			config.scissor and
+			config.scissor.h or
 			0
 	end
 
@@ -1477,12 +1528,12 @@ local function get_pipeline_signature(self, cmd)
 		}
 	local color_format = base.color_format
 
-	if rendering_state then
-		if rendering_state.color_formats and #rendering_state.color_formats > 0 then
-			color_format = rendering_state.color_formats
-		else
-			color_format = rendering_state.color_format
-		end
+	if
+		rendering_state and
+		rendering_state.color_formats and
+		#rendering_state.color_formats > 0
+	then
+		color_format = rendering_state.color_formats
 	end
 
 	return {
@@ -1575,72 +1626,19 @@ local function build_internal_pipeline(vulkan_instance, pipeline_layout, config,
 	return pipeline, shader_modules
 end
 
-local function build_dynamic_state_list(device, is_static)
-	if is_static then return nil end
+local function build_dynamic_state_list(device)
+	local dynamic_states = {}
+	local seen = {}
 
-	local dynamic_states = {"viewport", "scissor"}
+	for _, var_info in pairs(GraphicsPipeline.prototype_variables) do
+		local ds = var_info.dynamic_state
+		local has_ds = var_info.has_dynamic_state
 
-	if device.has_extended_dynamic_state then
-		table.insert(dynamic_states, "cull_mode")
-		table.insert(dynamic_states, "front_face")
-		table.insert(dynamic_states, "depth_test_enable")
-		table.insert(dynamic_states, "depth_write_enable")
-		table.insert(dynamic_states, "depth_compare_op")
-		table.insert(dynamic_states, "stencil_test_enable")
-		table.insert(dynamic_states, "stencil_op")
-		table.insert(dynamic_states, "stencil_compare_mask")
-		table.insert(dynamic_states, "stencil_write_mask")
-		table.insert(dynamic_states, "stencil_reference")
-	end
-
-	if device.has_extended_dynamic_state2 then
-		table.insert(dynamic_states, "depth_bias_enable")
-		table.insert(dynamic_states, "depth_bias")
-		table.insert(dynamic_states, "primitive_restart_enable")
-		table.insert(dynamic_states, "rasterizer_discard_enable")
-
-		if device.has_logic_op_dynamic_state then
-			table.insert(dynamic_states, "logic_op_ext")
-		end
-	end
-
-	if device.has_extended_dynamic_state3 then
-		local dyn3 = device.physical_device:GetExtendedDynamicStateFeatures()
-
-		if dyn3.extendedDynamicState3ColorBlendEnable then
-			table.insert(dynamic_states, "color_blend_enable_ext")
-		end
-
-		if dyn3.extendedDynamicState3ColorBlendEquation then
-			table.insert(dynamic_states, "color_blend_equation_ext")
-		end
-
-		if dyn3.extendedDynamicState3PolygonMode then
-			table.insert(dynamic_states, "polygon_mode_ext")
-		end
-
-		if dyn3.extendedDynamicState3DepthClampEnable then
-			table.insert(dynamic_states, "depth_clamp_enable_ext")
-		end
-
-		if dyn3.extendedDynamicState3ColorWriteMask then
-			table.insert(dynamic_states, "color_write_mask_ext")
-		end
-
-		if device.has_logic_op_enable_dynamic_state then
-			table.insert(dynamic_states, "logic_op_enable_ext")
-		end
-	end
-
-	local unique = {}
-
-	for i = #dynamic_states, 1, -1 do
-		local state_name = dynamic_states[i]
-
-		if unique[state_name] then
-			table.remove(dynamic_states, i)
-		else
-			unique[state_name] = true
+		if ds and has_ds and has_ds(device) then
+			if not seen[ds] then
+				seen[ds] = true
+				table.insert(dynamic_states, ds)
+			end
 		end
 	end
 
@@ -1669,8 +1667,26 @@ local function get_shader_stage_bits_u32(stage)
 end
 
 function GraphicsPipeline.New(vulkan_instance, config)
-	assert_no_legacy_constructor_fields(config, 3)
-	normalize_constructor_properties(config)
+	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+		local top_level = config[info.var_name]
+
+		if top_level ~= nil then
+			local top_level = prototype.ValidatePropertyValue(info, top_level, 3)
+			config[info.var_name] = nil
+			local section = config[info.state_section]
+
+			if type(section) ~= "table" then
+				section = {}
+				config[info.state_section] = section
+			end
+
+			set_path_value(
+				section,
+				info.constructor_value_path,
+				info.compare == "list" and list.copy(top_level) or top_level
+			)
+		end
+	end
 
 	if
 		config.multisampling and
@@ -1847,11 +1863,23 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		end
 	end
 
+	if not config.Static then
+		local dynamic_state_list = build_dynamic_state_list(vulkan_instance.device)
+		self.dynamic_state_list = dynamic_state_list and list.copy(dynamic_state_list) or nil
+		self.dynamic_states = {}
+
+		for _, s in ipairs(dynamic_state_list) do
+			self.dynamic_states[s] = true
+		end
+	else
+		self.dynamic_state_list = nil
+		self.dynamic_states = {}
+	end
+
 	-- Always use format and samples to ensure they match
 	local multisampling_config = config.multisampling or {}
 	multisampling_config.rasterization_samples = config.RasterizationSamples or "1"
-	local dynamic_state_list = build_dynamic_state_list(vulkan_instance.device, config.Static)
-	pipeline, shader_modules = build_internal_pipeline(vulkan_instance, pipelineLayout, config, dynamic_state_list)
+	pipeline, shader_modules = build_internal_pipeline(vulkan_instance, pipelineLayout, config, self.dynamic_state_list)
 	self.pipeline = pipeline
 	self.descriptor_sets = descriptorSets
 	self.pipeline_layout = pipelineLayout
@@ -1871,48 +1899,20 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		depth_format = config.DepthFormat,
 		samples = config.RasterizationSamples or "1",
 	}
-	self.dynamic_state_list = dynamic_state_list and copy_list(dynamic_state_list) or nil
 	self.overridden_state = {}
-	self.dynamic_states = {}
-
-	if dynamic_state_list then
-		for _, s in ipairs(dynamic_state_list) do
-			self.dynamic_states[s] = true
-		end
-	end
-
 	self.pipeline_variants = {}
-	self.signature_id_root = {}
-	self.input_assembly_state_id_root = {}
-	self.tessellation_state_id_root = {}
-	self.multisampling_state_id_root = {}
-	self.rasterizer_state_id_root = {}
-	self.depth_stencil_state_id_root = {}
-	self.viewport_state_id_root = {}
-	self.scissor_state_id_root = {}
-	self.color_blend_state_id_root = {}
-	self.pipeline_variant_id_root = {}
+	self.signature_interner = Hash.New()
+	self.input_assembly_state_interner = Hash.New()
+	self.tessellation_state_interner = Hash.New()
+	self.multisampling_state_interner = Hash.New()
+	self.rasterizer_state_interner = Hash.New()
+	self.depth_stencil_state_interner = Hash.New()
+	self.viewport_state_interner = Hash.New()
+	self.scissor_state_interner = Hash.New()
+	self.color_blend_state_interner = Hash.New()
+	self.pipeline_variant_interner = Hash.New()
 	self.base_signature_id = get_signature_id(self, self.base_pipeline_signature)
-	self.base_input_assembly_state_id = get_input_assembly_state_id(self)
-	self.base_tessellation_state_id = get_tessellation_state_id(self)
-	self.base_multisampling_state_id = get_multisampling_state_id(self)
-	self.base_rasterizer_state_id = get_rasterizer_state_id(self)
-	self.base_depth_stencil_state_id = get_depth_stencil_state_id(self)
-	self.base_viewport_state_id = get_viewport_state_id(self)
-	self.base_scissor_state_id = get_scissor_state_id(self)
-	self.base_color_blend_state_id = get_color_blend_state_id(self)
-	self.base_variant_id = get_pipeline_variant_id(
-		self,
-		self.base_signature_id,
-		self.base_input_assembly_state_id,
-		self.base_tessellation_state_id,
-		self.base_multisampling_state_id,
-		self.base_rasterizer_state_id,
-		self.base_depth_stencil_state_id,
-		self.base_viewport_state_id,
-		self.base_scissor_state_id,
-		self.base_color_blend_state_id
-	)
+	self.base_variant_id = self:GetVariantId()
 	self.pipeline_variants[self.base_variant_id] = {
 		pipeline = pipeline,
 		config = config,
@@ -1980,7 +1980,7 @@ function GraphicsPipeline:GetDepthFormat()
 end
 
 function GraphicsPipeline:GetRasterizationSamples()
-	return self.base_pipeline_signature.samples
+	return self.RasterizationSamples or self.base_pipeline_signature.samples
 end
 
 function GraphicsPipeline:GetSamples()
@@ -2008,9 +2008,6 @@ local sampler_config_keys = {
 	"compare_op",
 	"flags",
 }
-local sampler_config_key_cache = setmetatable({}, {__mode = "k"})
-local NIL_SAMPLER_CONFIG_CACHE_KEY = {}
-local FALSE_SAMPLER_CONFIG_CACHE_KEY = {}
 
 local function copy_sampler_config(config)
 	if config == false then return false end
@@ -2028,405 +2025,366 @@ local function copy_sampler_config(config)
 	return out
 end
 
-local NIL_SAMPLER_CONFIG_VALUE = {}
-local sampler_config_key_ids = {next_id = 1}
+do
+	local sampler_config_key_cache = setmetatable({}, {__mode = "k"})
+	local NIL_SAMPLER_CONFIG_CACHE_KEY = {}
+	local FALSE_SAMPLER_CONFIG_CACHE_KEY = {}
+	local sampler_config_interner = Hash.New()
 
-local function intern_sampler_config_key(config)
-	local node = sampler_config_key_ids
+	local function intern_sampler_config_key(config)
+		if type(config) ~= "table" then return sampler_config_interner:intern() end
 
-	for _, key in ipairs(sampler_config_keys) do
-		local value = config[key]
-
-		if value == nil then value = NIL_SAMPLER_CONFIG_VALUE end
-
-		local next_node = node[value]
-
-		if not next_node then
-			next_node = {}
-			node[value] = next_node
-		end
-
-		node = next_node
+		return sampler_config_interner:intern(
+			config.min_filter,
+			config.mag_filter,
+			config.mipmap_mode,
+			config.wrap_s,
+			config.wrap_t,
+			config.wrap_r,
+			config.max_lod,
+			config.min_lod,
+			config.mip_lod_bias,
+			config.anisotropy,
+			config.border_color,
+			config.unnormalized_coordinates,
+			config.compare_enable,
+			config.compare_op,
+			config.flags
+		)
 	end
 
-	local id = node.id
+	local function merge_sampler_configs(...)
+		local merged = nil
 
-	if not id then
-		id = sampler_config_key_ids.next_id
-		sampler_config_key_ids.next_id = id + 1
-		node.id = id
-	end
+		for i = 1, select("#", ...) do
+			local config = select(i, ...)
 
-	return id
-end
+			if config == false then return false end
 
-local function merge_sampler_configs(...)
-	local merged = nil
+			if type(config) == "table" then
+				merged = merged or {}
 
-	for i = 1, select("#", ...) do
-		local config = select(i, ...)
+				for _, key in ipairs(sampler_config_keys) do
+					local value = config[key]
 
-		if config == false then return false end
-
-		if type(config) == "table" then
-			merged = merged or {}
-
-			for _, key in ipairs(sampler_config_keys) do
-				local value = config[key]
-
-				if value ~= nil then merged[key] = value end
+					if value ~= nil then merged[key] = value end
+				end
 			end
 		end
+
+		return merged
 	end
 
-	return merged
-end
+	local function get_sampler_config_key(config)
+		if config == false then return false end
 
-local function get_sampler_config_key(config)
-	if config == false then return false end
+		if type(config) ~= "table" then return nil end
 
-	if type(config) ~= "table" then return nil end
+		local cached = sampler_config_key_cache[config]
 
-	local cached = sampler_config_key_cache[config]
+		if cached ~= nil then return cached end
 
-	if cached ~= nil then return cached end
-
-	cached = intern_sampler_config_key(config)
-	sampler_config_key_cache[config] = cached
-	return cached
-end
-
-local function get_sampler_config_hash(config)
-	return get_sampler_config_key(config)
-end
-
-local function get_sampler_binding_cache_key(config)
-	if config == nil then return NIL_SAMPLER_CONFIG_CACHE_KEY end
-
-	if config == false then return FALSE_SAMPLER_CONFIG_CACHE_KEY end
-
-	return config
-end
-
-local function get_sampler_binding_cache_level(parent, key)
-	local node = parent[key]
-
-	if node then return node end
-
-	node = setmetatable({}, {__mode = "k"})
-	parent[key] = node
-	return node
-end
-
-local function get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
-	local cache = self.resolved_sampler_bindings
-
-	if not cache then
-		cache = setmetatable({}, {__mode = "k"})
-		self.resolved_sampler_bindings = cache
+		cached = intern_sampler_config_key(config)
+		sampler_config_key_cache[config] = cached
+		return cached
 	end
 
-	local by_texture = get_sampler_binding_cache_level(cache, get_sampler_binding_cache_key(texture_sampler_config))
-	local by_pipeline = get_sampler_binding_cache_level(by_texture, get_sampler_binding_cache_key(self.sampler_config))
-	local override_key = get_sampler_binding_cache_key(sampler_config_override)
-	return by_pipeline[override_key], by_pipeline, override_key
-end
-
-local function resolve_sampler_config(config)
-	if config == false or config == nil then return nil end
-
-	return render.CreateSampler(config)
-end
-
-local function get_texture_sampler_config(texture)
-	if not texture then return nil end
-
-	if texture.GetSamplerConfig then return texture:GetSamplerConfig() end
-
-	return nil
-end
-
-local function resolve_sampler_binding(self, tex, sampler_config_override)
-	local texture_sampler_config = tex and get_texture_sampler_config(tex) or nil
-	local cached_entry, cache_bucket, cache_key = get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
-
-	if cached_entry then
-		return cached_entry.config, cached_entry.hash, cached_entry.sampler
+	local function get_sampler_config_hash(config)
+		return get_sampler_config_key(config)
 	end
 
-	local effective_config = merge_sampler_configs(texture_sampler_config, self.sampler_config, sampler_config_override)
+	local function get_sampler_binding_cache_key(config)
+		if config == nil then return NIL_SAMPLER_CONFIG_CACHE_KEY end
 
-	if effective_config == false or effective_config == nil then
-		effective_config = self:GetFallbackSamplerConfig()
-		return effective_config,
-		get_sampler_config_hash(effective_config),
-		resolve_sampler_config(effective_config)
+		if config == false then return FALSE_SAMPLER_CONFIG_CACHE_KEY end
+
+		return config
 	end
 
-	local hash = get_sampler_config_hash(effective_config)
-	local sampler = resolve_sampler_config(effective_config)
-	cache_bucket[cache_key] = {
-		config = effective_config,
-		hash = hash,
-		sampler = sampler,
-	}
-	return effective_config, hash, sampler
-end
+	local function get_sampler_binding_cache_level(parent, key)
+		local node = parent[key]
 
-local function build_texture_descriptor_entry(self, tex, sampler_config_override)
-	local view = tex and tex:GetView() or self:GetFallbackView()
-	local sampler_config, sampler_hash, sampler = resolve_sampler_binding(self, tex, sampler_config_override)
-	return {
-		texture = tex,
-		view = view,
-		sampler = sampler,
-		sampler_config = sampler_config,
-		sampler_config_override = copy_sampler_config(sampler_config_override),
-		sampler_hash = sampler_hash,
-	}
-end
+		if node then return node end
 
-local nil_sampler_hash_key = {}
-
-local function get_texture_variant_key(sampler_hash)
-	if sampler_hash == nil then return nil_sampler_hash_key end
-
-	return sampler_hash
-end
-
-local function get_texture_descriptor_write_count(array)
-	local count = #array
-
-	while count > 0 do
-		local entry = array[count]
-
-		if entry and entry.texture ~= nil then break end
-
-		count = count - 1
+		node = setmetatable({}, {__mode = "k"})
+		parent[key] = node
+		return node
 	end
 
-	return count
-end
+	local function get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
+		local cache = self.resolved_sampler_bindings
 
-local function update_texture_descriptor_set_frame(self, frame_index, binding_index, set_index, array, override_count)
-	self:UpdateDescriptorSetArray(frame_index, binding_index, set_index, array, override_count)
-end
+		if not cache then
+			cache = setmetatable({}, {__mode = "k"})
+			self.resolved_sampler_bindings = cache
+		end
 
-local function mark_texture_descriptor_frames_dirty(self, except_frame)
-	local dirty = self.bindless_descriptor_sets_dirty
-
-	for frame_i = 1, #self.descriptor_sets do
-		if frame_i ~= except_frame then dirty[frame_i] = true end
+		local by_texture = get_sampler_binding_cache_level(cache, get_sampler_binding_cache_key(texture_sampler_config))
+		local by_pipeline = get_sampler_binding_cache_level(by_texture, get_sampler_binding_cache_key(self.sampler_config))
+		local override_key = get_sampler_binding_cache_key(sampler_config_override)
+		return by_pipeline[override_key], by_pipeline, override_key
 	end
-end
 
-local function sync_texture_descriptor_sets_for_frame(self, frame_index)
-	local dirty = self.bindless_descriptor_sets_dirty
+	local function resolve_sampler_config(config)
+		if config == false or config == nil then return nil end
 
-	if not (dirty and dirty[frame_index]) then return end
+		return render.CreateSampler(config)
+	end
 
-	local set_index = get_bindless_texture_set_index(self)
-	update_texture_descriptor_set_frame(self, frame_index, 0, set_index, self.texture_array)
-	update_texture_descriptor_set_frame(self, frame_index, 1, set_index, self.cubemap_array)
-	dirty[frame_index] = nil
-end
+	function GraphicsPipeline:ResolveSamplerBinding(tex, sampler_config_override)
+		local texture_sampler_config = tex and tex:GetSamplerConfig() or nil
+		local cached_entry, cache_bucket, cache_key = get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
 
-local function update_texture_descriptor_sets(self, binding_index, set_index, array, override_count)
-	local count = override_count or get_texture_descriptor_write_count(array)
+		if cached_entry then
+			return cached_entry.config, cached_entry.hash, cached_entry.sampler
+		end
 
-	if count <= 0 then return end
+		local effective_config = merge_sampler_configs(texture_sampler_config, self.sampler_config, sampler_config_override)
 
-	mark_texture_descriptor_frames_dirty(self)
-end
+		if effective_config == false or effective_config == nil then
+			effective_config = self:GetFallbackSamplerConfig()
+			return effective_config,
+			get_sampler_config_hash(effective_config),
+			resolve_sampler_config(effective_config)
+		end
 
-function normalize_pipeline_sampler_config(config)
-	if config == nil or config == false then return nil end
+		local hash = get_sampler_config_hash(effective_config)
+		local sampler = resolve_sampler_config(effective_config)
+		cache_bucket[cache_key] = {
+			config = effective_config,
+			hash = hash,
+			sampler = sampler,
+		}
+		return effective_config, hash, sampler
+	end
 
-	return copy_sampler_config(config)
-end
+	function normalize_pipeline_sampler_config(config)
+		if config == nil or config == false then return nil end
 
-get_bindless_texture_set_index = function(self)
-	return #self.descriptor_set_layouts > 1 and 1 or 0
-end
-get_descriptor_binding_count = function(self, set_index, binding_index)
-	local set_counts = self.descriptor_binding_counts and self.descriptor_binding_counts[set_index]
-	return set_counts and set_counts[binding_index] or nil
-end
-get_bindless_binding_capacity = function(self, binding_index)
-	return get_descriptor_binding_count(self, get_bindless_texture_set_index(self), binding_index)
-end
+		return copy_sampler_config(config)
+	end
 
-local function refresh_texture_descriptor_array(self, array, binding_index, set_index)
-	local changed = false
+	get_bindless_texture_set_index = function(self)
+		return #self.descriptor_set_layouts > 1 and 1 or 0
+	end
+	get_descriptor_binding_count = function(self, set_index, binding_index)
+		local set_counts = self.descriptor_binding_counts and self.descriptor_binding_counts[set_index]
+		return set_counts and set_counts[binding_index] or nil
+	end
+	get_bindless_binding_capacity = function(self, binding_index)
+		return get_descriptor_binding_count(self, get_bindless_texture_set_index(self), binding_index)
+	end
 
-	for i = 1, #array do
-		local entry = array[i]
-		local next_entry = build_texture_descriptor_entry(
-			self,
-			entry and entry.texture or nil,
-			entry and entry.sampler_config_override or nil
-		)
+	function GraphicsPipeline:GetFallbackView()
+		local Texture = import("goluwa/render/texture.lua")
+		local fallback = Texture.GetFallback()
+
+		if fallback and fallback.GetView then return fallback:GetView() end
+
+		return fallback and fallback.view
+	end
+
+	function GraphicsPipeline:GetFallbackSamplerConfig()
+		local Texture = import("goluwa/render/texture.lua")
+		local fallback = Texture.GetFallback()
+
+		if fallback and fallback.GetSamplerConfig then
+			return fallback:GetSamplerConfig()
+		end
+
+		return fallback and
+			copy_sampler_config(fallback.config and fallback.config.sampler) or
+			nil
+	end
+
+	function GraphicsPipeline:GetFallbackSampler()
+		return resolve_sampler_config(self:GetFallbackSamplerConfig())
+	end
+
+	function GraphicsPipeline:GetSamplerConfig()
+		return copy_sampler_config(self.sampler_config)
+	end
+
+	function GraphicsPipeline:SetSamplerConfigValue(key, value)
+		local config = self:GetSamplerConfig() or {}
+
+		if value == nil then config[key] = nil else config[key] = value end
+
+		if next(config) == nil then config = nil end
+
+		return self:SetSamplerConfig(config)
+	end
+
+	function GraphicsPipeline:SetSamplerConfig(config)
+		local normalized = normalize_pipeline_sampler_config(config)
 
 		if
-			entry == nil or
-			entry.view ~= next_entry.view or
-			entry.sampler_hash ~= next_entry.sampler_hash
+			get_sampler_config_hash(self.sampler_config) == get_sampler_config_hash(normalized)
 		then
-			array[i] = next_entry
-			changed = true
+			return self:GetSamplerConfig()
 		end
-	end
 
-	if not changed then return end
-
-	update_texture_descriptor_sets(self, binding_index, set_index, array)
-end
-
-local function refresh_texture_descriptor_arrays(self)
-	local set_index = get_bindless_texture_set_index(self)
-	refresh_texture_descriptor_array(self, self.texture_array, 0, set_index)
-	refresh_texture_descriptor_array(self, self.cubemap_array, 1, set_index)
-end
-
-function GraphicsPipeline:GetFallbackView()
-	local Texture = import("goluwa/render/texture.lua")
-	local fallback = Texture.GetFallback()
-
-	if fallback and fallback.GetView then return fallback:GetView() end
-
-	return fallback and fallback.view
-end
-
-function GraphicsPipeline:GetFallbackSamplerConfig()
-	local Texture = import("goluwa/render/texture.lua")
-	local fallback = Texture.GetFallback()
-
-	if fallback and fallback.GetSamplerConfig then
-		return fallback:GetSamplerConfig()
-	end
-
-	return fallback and
-		copy_sampler_config(fallback.config and fallback.config.sampler) or
-		nil
-end
-
-function GraphicsPipeline:GetFallbackSampler()
-	return resolve_sampler_config(self:GetFallbackSamplerConfig())
-end
-
-function GraphicsPipeline:SetSamplerConfig(config)
-	local normalized = normalize_pipeline_sampler_config(config)
-
-	if
-		get_sampler_config_hash(self.sampler_config) == get_sampler_config_hash(normalized)
-	then
+		self.sampler_config = normalized
+		local set_index = get_bindless_texture_set_index(self)
+		self:RefreshTextureDescriptorArray(self.texture_array, 0, set_index)
+		self:RefreshTextureDescriptorArray(self.cubemap_array, 1, set_index)
 		return self:GetSamplerConfig()
 	end
-
-	self.sampler_config = normalized
-	refresh_texture_descriptor_arrays(self)
-	return self:GetSamplerConfig()
 end
 
-function GraphicsPipeline:GetSamplerConfig()
-	return copy_sampler_config(self.sampler_config)
-end
+do
+	local function get_texture_descriptor_write_count(array)
+		local count = #array
 
-function GraphicsPipeline:SetSamplerConfigValue(key, value)
-	local config = self:GetSamplerConfig() or {}
+		while count > 0 do
+			local entry = array[count]
 
-	if value == nil then config[key] = nil else config[key] = value end
+			if entry and entry.texture ~= nil then break end
 
-	if next(config) == nil then config = nil end
-
-	return self:SetSamplerConfig(config)
-end
-
-function GraphicsPipeline:ReleaseTextureIndex(tex, set_index)
-	set_index = set_index or 0
-
-	if not tex or type(tex) ~= "table" then return end
-
-	local is_cube = tex.IsCubemap and tex:IsCubemap()
-	local registry = is_cube and self.cubemap_registry or self.texture_registry
-	local array = is_cube and self.cubemap_array or self.texture_array
-	local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
-	local binding_index = is_cube and 1 or 0
-	local variant_indices = registry[tex]
-
-	if variant_indices then
-		registry[tex] = nil
-
-		for _, index in pairs(variant_indices) do
-			table.insert(free_list, index)
-			array[index + 1] = build_texture_descriptor_entry(self)
+			count = count - 1
 		end
 
-		update_texture_descriptor_sets(self, binding_index, set_index, array)
+		return count
 	end
-end
 
-function GraphicsPipeline:GetTextureIndex(tex, set_index, sampler_config_override)
-	set_index = set_index or 0
+	local function update_texture_descriptor_sets(self, binding_index, set_index, array, override_count)
+		local count = override_count or get_texture_descriptor_write_count(array)
 
-	if not tex or type(tex) ~= "table" then return -1 end
+		if count <= 0 then return end
 
-	local is_cube = tex.IsCubemap and tex:IsCubemap()
-	local registry = is_cube and self.cubemap_registry or self.texture_registry
-	local array = is_cube and self.cubemap_array or self.texture_array
-	local index_key = is_cube and "next_cubemap_index" or "next_texture_index"
-	local limit_key = is_cube and "max_cubemaps" or "max_textures"
-	local binding_index = is_cube and 1 or 0
-	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
-	local variant_key = get_texture_variant_key(next_entry.sampler_hash)
-	local variant_indices = registry[tex]
-	local index = variant_indices and variant_indices[variant_key]
+		local dirty = self.bindless_descriptor_sets_dirty
 
-	if index then
-		local entry = array[index + 1]
+		for frame_i = 1, #self.descriptor_sets do
+			if frame_i ~= except_frame then dirty[frame_i] = true end
+		end
+	end
 
-		if
-			next_entry.view and
-			next_entry.sampler and
-			(
+	function GraphicsPipeline:BuildTextureDescriptorEntry(tex, sampler_config_override)
+		local view = tex and tex:GetView() or self:GetFallbackView()
+		local sampler_config, sampler_hash, sampler = self:ResolveSamplerBinding(tex, sampler_config_override)
+		return {
+			texture = tex,
+			view = view,
+			sampler = sampler,
+			sampler_config = sampler_config,
+			sampler_config_override = copy_sampler_config(sampler_config_override),
+			sampler_hash = sampler_hash,
+		}
+	end
+
+	function GraphicsPipeline:RefreshTextureDescriptorArray(array, binding_index, set_index)
+		local changed = false
+
+		for i = 1, #array do
+			local entry = array[i]
+			local next_entry = self:BuildTextureDescriptorEntry(
+				entry and entry.texture or nil,
+				entry and entry.sampler_config_override or nil
+			)
+
+			if
 				entry == nil or
 				entry.view ~= next_entry.view or
 				entry.sampler_hash ~= next_entry.sampler_hash
-			)
-		then
-			array[index + 1] = next_entry
-			update_texture_descriptor_sets(self, binding_index, set_index, array, index + 1)
+			then
+				array[i] = next_entry
+				changed = true
+			end
 		end
 
+		if not changed then return end
+
+		update_texture_descriptor_sets(self, binding_index, set_index, array)
+	end
+
+	function GraphicsPipeline:ReleaseTextureIndex(tex, set_index)
+		set_index = set_index or 0
+
+		if not tex or type(tex) ~= "table" then return end
+
+		local is_cube = tex.IsCubemap and tex:IsCubemap()
+		local registry = is_cube and self.cubemap_registry or self.texture_registry
+		local array = is_cube and self.cubemap_array or self.texture_array
+		local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
+		local binding_index = is_cube and 1 or 0
+		local variant_indices = registry[tex]
+
+		if variant_indices then
+			registry[tex] = nil
+
+			for _, index in pairs(variant_indices) do
+				table.insert(free_list, index)
+				array[index + 1] = self:BuildTextureDescriptorEntry()
+			end
+
+			update_texture_descriptor_sets(self, binding_index, set_index, array)
+		end
+	end
+
+	local nil_sampler_hash_key = {}
+
+	function GraphicsPipeline:GetTextureIndex(tex, set_index, sampler_config_override)
+		set_index = set_index or 0
+
+		if not tex or type(tex) ~= "table" then return -1 end
+
+		local is_cube = tex.IsCubemap and tex:IsCubemap()
+		local registry = is_cube and self.cubemap_registry or self.texture_registry
+		local array = is_cube and self.cubemap_array or self.texture_array
+		local index_key = is_cube and "next_cubemap_index" or "next_texture_index"
+		local limit_key = is_cube and "max_cubemaps" or "max_textures"
+		local binding_index = is_cube and 1 or 0
+		local next_entry = self:BuildTextureDescriptorEntry(tex, sampler_config_override)
+		local variant_key = next_entry.sampler_hash or nil_sampler_hash_key
+		local variant_indices = registry[tex]
+		local index = variant_indices and variant_indices[variant_key]
+
+		if index then
+			local entry = array[index + 1]
+
+			if
+				next_entry.view and
+				next_entry.sampler and
+				(
+					entry == nil or
+					entry.view ~= next_entry.view or
+					entry.sampler_hash ~= next_entry.sampler_hash
+				)
+			then
+				array[index + 1] = next_entry
+				update_texture_descriptor_sets(self, binding_index, set_index, array, index + 1)
+			end
+
+			return index
+		end
+
+		local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
+
+		if #free_list > 0 then
+			index = table.remove(free_list)
+		else
+			if self[index_key] >= self[limit_key] then
+				-- This is where leaks will eventually manifest if textures are created/destroyed rapidly
+				error(
+					(
+							is_cube and
+							"Cubemap" or
+							"Texture"
+						) .. " registry full for binding " .. binding_index .. "! Max descriptors: " .. self[limit_key]
+				)
+			end
+
+			index = self[index_key]
+			self[index_key] = index + 1
+		end
+
+		variant_indices = variant_indices or {}
+		variant_indices[variant_key] = index
+		registry[tex] = variant_indices
+		array[index + 1] = next_entry
+		update_texture_descriptor_sets(self, binding_index, set_index, array, index + 1)
 		return index
 	end
-
-	local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
-
-	if #free_list > 0 then
-		index = table.remove(free_list)
-	else
-		if self[index_key] >= self[limit_key] then
-			-- This is where leaks will eventually manifest if textures are created/destroyed rapidly
-			error(
-				(
-						is_cube and
-						"Cubemap" or
-						"Texture"
-					) .. " registry full for binding " .. binding_index .. "! Max descriptors: " .. self[limit_key]
-			)
-		end
-
-		index = self[index_key]
-		self[index_key] = index + 1
-	end
-
-	variant_indices = variant_indices or {}
-	variant_indices[variant_key] = index
-	registry[tex] = variant_indices
-	array[index + 1] = next_entry
-	update_texture_descriptor_sets(self, binding_index, set_index, array, index + 1)
-	return index
 end
 
 function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, set_index, ...)
@@ -2444,14 +2402,14 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, set_in
 			local array = {}
 
 			for i, tex in ipairs(textures) do
-				array[i] = build_texture_descriptor_entry(self, tex)
+				array[i] = self:BuildTextureDescriptorEntry(tex)
 			end
 
 			self:UpdateDescriptorSetArray(index, binding_index, set_index, array)
 			return
 		elseif count == 1 then
 			local tex = ...
-			local entry = build_texture_descriptor_entry(self, tex)
+			local entry = self:BuildTextureDescriptorEntry(tex)
 
 			if render.stats then render_stats.AddDescriptorWrites(1) end
 
@@ -2644,83 +2602,46 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		cmd:SetDepthClampEnable(cache.depth_clamp_enable)
 	end
 
-	if self.dynamic_states.rasterizer_discard_enable then
-		cmd:SetRasterizerDiscardEnable(cache.rasterizer_discard_enable)
-	end
+	-- Derive Vulkan API calls from vulkan_bindings
+	for ds_name, bindings in pairs(vulkan_bindings) do
+		if self.dynamic_states[ds_name] then
+			for _, binding in ipairs(bindings) do
+				local val = cache[binding.field]
 
-	if self.dynamic_states.depth_bias_enable then
-		cmd:SetDepthBiasEnable(cache.depth_bias_enable)
-		cmd:SetDepthBias(
-			cache.depth_bias_constant_factor,
-			cache.depth_bias_clamp,
-			cache.depth_bias_slope_factor
-		)
-	end
+				-- Special handling for viewport/scissor (need size check)
+				if
+					ds_name == "viewport" and
+					(
+						cache.viewport_width <= 0 or
+						cache.viewport_height <= 0
+					)
+				then
+					break
+				end
 
-	if self.dynamic_states.depth_test_enable then
-		cmd:SetDepthTestEnable(cache.depth_test_enable)
-	end
+				if ds_name == "scissor" and (cache.scissor_width <= 0 or cache.scissor_height <= 0) then
+					break
+				end
 
-	if self.dynamic_states.depth_write_enable then
-		cmd:SetDepthWriteEnable(cache.depth_write_enable)
-	end
-
-	if self.dynamic_states.depth_compare_op then
-		cmd:SetDepthCompareOp(cache.depth_compare_op)
-	end
-
-	if self.dynamic_states.primitive_restart_enable then
-		cmd:SetPrimitiveRestartEnable(cache.primitive_restart_enable)
-	end
-
-	if self.dynamic_states.stencil_test_enable then
-		cmd:SetStencilTestEnable(cache.stencil_test_enable)
-	end
-
-	if self.dynamic_states.stencil_op then
-		cmd:SetStencilOp(
-			"front_and_back",
-			cache.stencil_fail_op,
-			cache.stencil_pass_op,
-			cache.stencil_depth_fail_op,
-			cache.stencil_compare_op
-		)
-	end
-
-	if self.dynamic_states.stencil_reference then
-		cmd:SetStencilReference("front_and_back", cache.stencil_reference)
-	end
-
-	if self.dynamic_states.stencil_compare_mask then
-		cmd:SetStencilCompareMask("front_and_back", cache.stencil_compare_mask)
-	end
-
-	if self.dynamic_states.stencil_write_mask then
-		cmd:SetStencilWriteMask("front_and_back", cache.stencil_write_mask)
-	end
-
-	if self.dynamic_states.viewport then
-		if cache.viewport_width > 0 and cache.viewport_height > 0 then
-			cmd:SetViewport(
-				cache.viewport_x,
-				cache.viewport_y,
-				cache.viewport_width,
-				cache.viewport_height,
-				cache.viewport_min_depth,
-				cache.viewport_max_depth
-			)
-		end
-	end
-
-	if self.dynamic_states.scissor then
-		if cache.scissor_width > 0 and cache.scissor_height > 0 then
-			cmd:SetScissor(cache.scissor_x, cache.scissor_y, cache.scissor_width, cache.scissor_height)
+				-- Call the Vulkan setter from metadata
+				if binding.setter then binding.setter(cmd, cache, val) end
+			end
 		end
 	end
 
 	-- Bind descriptor sets
 	if self.descriptor_sets then
-		sync_texture_descriptor_sets_for_frame(self, frame_index)
+		do
+			local dirty = self.bindless_descriptor_sets_dirty
+
+			if dirty and dirty[frame_index] then
+				local set_index = get_bindless_texture_set_index(self)
+				self:UpdateDescriptorSetArray(frame_index, 0, set_index, self.texture_array)
+				self:UpdateDescriptorSetArray(frame_index, 1, set_index, self.cubemap_array)
+				dirty[frame_index] = nil
+			end
+		end
+
 		local sets = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
 
 		if sets then
@@ -2735,48 +2656,58 @@ end
 
 function GraphicsPipeline:GetVertexAttributes()
 	-- Find the vertex shader stage in config
-	for _, stage in ipairs(get_active_config(self).shader_stages) do
+	for _, stage in ipairs(self:GetConfig().shader_stages) do
 		if stage.type == "vertex" then return stage.attributes end
 	end
 
 	return nil
 end
 
--- Helper function to deep copy a table (for pipeline config variants)
-local function deep_copy(obj, seen)
-	if type(obj) ~= "table" then return obj end
+do
+	local function get_property_effective_value(self, info)
+		local value = get_state(self, info.state_section, info.state_key, info.state_subkey)
 
-	if seen and seen[obj] then return seen[obj] end
+		if value == nil then return get_default_state_value(info) end
 
-	local s = seen or {}
-	local res = {}
-	s[obj] = res
+		if info.compare == "list" then return list.copy(value) end
 
-	for k, v in pairs(obj) do
-		res[deep_copy(k, s)] = deep_copy(v, s)
+		return value
 	end
 
-	return setmetatable(res, getmetatable(obj))
-end
+	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+		GraphicsPipeline[info.set_name] = function(self, value)
+			if value == nil then
+				value = get_default_state_value(info)
+			else
+				value = prototype.ValidatePropertyValue(info, value, 2)
 
-for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
-	GraphicsPipeline[info.set_name] = function(self, value)
-		if value == nil then
-			value = get_default_state_value(info)
-		else
-			value = prototype.ValidatePropertyValue(info, value, 2)
+				if info.compare == "list" then value = list.copy(value) end
+			end
 
-			if info.compare == "list" then value = copy_list(value) end
+			local current = get_property_effective_value(self, info)
+
+			if prototype.ComparePropertyValues(info, current, value) then return end
+
+			local section_name = info.state_section
+			local key = info.state_key
+			local subkey = info.state_subkey
+			local section_overrides = self.overridden_state[section_name] or {}
+			local changed_static = has_static_state_change(self, info)
+			local stored_value = info.compare == "list" and list.copy(value) or value
+
+			if subkey then
+				section_overrides[key] = get_effective_stencil_face(self, key)
+			end
+
+			set_path_value(section_overrides, info.state_value_path, stored_value)
+			self.overridden_state[section_name] = section_overrides
+			self.bind_state_dirty = true
+
+			if changed_static then self.static_variant_dirty = true end
 		end
-
-		local current = get_property_effective_value(self, info)
-
-		if prototype.ComparePropertyValues(info, current, value) then return end
-
-		store_property_override(self, info, value)
-	end
-	GraphicsPipeline[info.get_name] = function(self)
-		return get_property_effective_value(self, info)
+		GraphicsPipeline[info.get_name] = function(self)
+			return get_property_effective_value(self, info)
+		end
 	end
 end
 
@@ -2838,56 +2769,8 @@ end
 -- overrides: table where keys are sections (e.g., "color_blend") and values are change tables
 function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	signature = signature or self.base_pipeline_signature
+	local variant_id = self:GetVariantId(overrides, signature)
 	local signature_id = get_signature_id(self, signature)
-	-- Generate a cache key for this variant using only STATIC overrides
-	local static_overrides = {}
-
-	for section, changes in pairs(overrides) do
-		if
-			section ~= "input_assembly" and
-			section ~= "multisampling" and
-			section ~= "rasterizer" and
-			section ~= "depth_stencil" and
-			section ~= "viewport" and
-			section ~= "scissor" and
-			section ~= "color_blend"
-		then
-			error("unknown static pipeline state section for variant cache: " .. tostring(section))
-		end
-
-		local static_changes = {}
-		local has_static = false
-
-		for k, v in pairs(changes or {}) do
-			if has_static_override_change(self, section, k, v) then
-				static_changes[k] = v
-				has_static = true
-			end
-		end
-
-		if has_static then static_overrides[section] = static_changes end
-	end
-
-	local input_assembly_state_id = get_input_assembly_state_id(self, static_overrides.input_assembly)
-	local tessellation_state_id = get_tessellation_state_id(self, static_overrides.tessellation)
-	local multisampling_state_id = get_multisampling_state_id(self, static_overrides.multisampling)
-	local rasterizer_state_id = get_rasterizer_state_id(self, static_overrides.rasterizer)
-	local depth_stencil_state_id = get_depth_stencil_state_id(self, static_overrides.depth_stencil)
-	local viewport_state_id = get_viewport_state_id(self, static_overrides.viewport)
-	local scissor_state_id = get_scissor_state_id(self, static_overrides.scissor)
-	local color_blend_state_id = get_color_blend_state_id(self, static_overrides.color_blend)
-	local variant_id = get_pipeline_variant_id(
-		self,
-		signature_id,
-		input_assembly_state_id,
-		tessellation_state_id,
-		multisampling_state_id,
-		rasterizer_state_id,
-		depth_stencil_state_id,
-		viewport_state_id,
-		scissor_state_id,
-		color_blend_state_id
-	)
 
 	if self.current_variant_id == variant_id and self.pipeline then
 		self.current_signature_id = signature_id
@@ -2916,7 +2799,7 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	end
 
 	-- Create a modified config
-	local modified_config = deep_copy(self.config)
+	local modified_config = table.copy(self.config, true)
 	modified_config.ColorFormat = signature.color_format
 	modified_config.DepthFormat = signature.depth_format
 	modified_config.RasterizationSamples = signature.samples
@@ -2941,7 +2824,7 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 
 			for k, v in pairs(changes) do
 				if type(v) == "table" and type(modified_config[section][k]) == "table" then
-					modified_config[section][k] = deep_copy(modified_config[section][k])
+					modified_config[section][k] = table.copy(modified_config[section][k])
 
 					for subkey, subvalue in pairs(v) do
 						modified_config[section][k][subkey] = subvalue
