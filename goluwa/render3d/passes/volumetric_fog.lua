@@ -164,6 +164,22 @@ local function ensure_volumetric_froxel_resources()
 	end
 
 	volumetric_froxels.sampler = render.CreateSampler(texture:GetSamplerConfig())
+
+	-- Update the volumetric fog pipeline's descriptor set with the new resources
+	if render3d.pipelines and render3d.pipelines.volumetric_fog then
+		local pipeline = render3d.pipelines.volumetric_fog
+		local view = volumetric_froxels.sample_view
+		local sampler = volumetric_froxels.sampler
+
+		if not view then
+			_, view, sampler = ensure_volumetric_froxel_fallback_resources()
+		end
+
+		for frame_index = 1, pipeline:GetDescriptorSetCount() do
+			pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, 2, view, sampler)
+		end
+	end
+
 	return texture
 end
 
