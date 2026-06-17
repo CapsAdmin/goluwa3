@@ -122,9 +122,11 @@ commands.Add("run", function(path, ...)
 
 	_G.AUDIO = true
 
-	event.AddListener("FrameEnd", function()
-		system.ShutDown(0)
-	end)
+	if system.GetFrameNumber() == 0 then
+		event.AddListener("FrameEnd", function()
+			system.ShutDown(0)
+		end)
+	end
 
 	init_game()
 	assert(loadfile(normalize_path(path)))(...)
@@ -135,9 +137,11 @@ commands.Add("lua", function(code, ...)
 
 	_G.AUDIO = true
 
-	event.AddListener("FrameEnd", function()
-		system.ShutDown(0)
-	end)
+	if system.GetFrameNumber() == 0 then
+		event.AddListener("FrameEnd", function()
+			system.ShutDown(0)
+		end)
+	end
 
 	init_game()
 	assert(loadstring(code))(...)
@@ -165,7 +169,7 @@ commands.Add("cli", function()
 	_G.PHYSICS = false
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
 
-	event.AddListener("FrameEnd", function()
+	event.AddListener("ShutDown", function()
 		fs.remove_file(".running_pid")
 	end)
 
@@ -206,8 +210,6 @@ commands.Add("renderdoc", function()
 	init_game()
 	logf("[renderdoc] initialized\n")
 end)
-
-local function shutdown_and_exit(code, remove_pid) end
 
 return function(...)
 	local args = {...}
