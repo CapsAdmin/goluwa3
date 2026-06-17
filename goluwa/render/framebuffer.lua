@@ -218,7 +218,7 @@ function Framebuffer:End(cmd)
 
 	cmd:PipelineBarrier{
 		srcStage = {"color_attachment_output", "late_fragment_tests"},
-		dstStage = "fragment",
+		dstStage = {"fragment", "compute"},
 		imageBarriers = imageBarriers,
 	}
 	self.initialized = true

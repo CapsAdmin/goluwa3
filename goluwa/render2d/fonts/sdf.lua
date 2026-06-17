@@ -12,6 +12,83 @@ local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local pretext = import("goluwa/pretext/init.lua")
+-- Debug mode: enables texture readback assertions after each JFA pass
+local DEBUG = false
+
+local function debug_assert_sdf_texture(tex, name, min_valid, min_valid_count, desc)
+	if not DEBUG or not tex then return end
+
+	local cmd = render.GetCommandBuffer()
+
+	if cmd then
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		cmd:Begin()
+		render.PushCommandBuffer(cmd)
+	end
+
+	-- Submit any pending command buffer so the texture is written before we read it back
+	local data = tex:Download()
+
+	if not data then
+		error(string.format("SDF debug [%s]: failed to download texture", name), 0)
+	end
+
+	local w, h = tex:GetWidth(), tex:GetHeight()
+	local valid_count = 0
+	local invalid_count = 0
+	local min_val = 1e10
+	local max_val = -1e10
+
+	data:ForEachPixel(function(x, y, r, g, b, a)
+		local is_valid = (r >= min_valid and g >= min_valid) or (a >= min_valid)
+
+		if is_valid then
+			valid_count = valid_count + 1
+		else
+			invalid_count = invalid_count + 1
+		end
+
+		local v = math.min(math.min(r, g), math.min(b, a))
+
+		if v < min_val then min_val = v end
+
+		v = math.max(math.max(r, g), math.max(b, a))
+
+		if v > max_val then max_val = v end
+	end)
+
+	if valid_count < min_valid_count then
+		error(
+			string.format(
+				"SDF debug [%s] FAILED: %s\n  valid=%d invalid=%d range=[%.4f, %.4f]\n  texture=%dx%d format=%s",
+				name,
+				desc,
+				valid_count,
+				invalid_count,
+				min_val / 255,
+				max_val / 255,
+				w,
+				h,
+				tex.format
+			),
+			0
+		)
+	end
+
+	print(
+		string.format(
+			"SDF debug [%s] OK: %s valid=%d invalid=%d range=[%.4f, %.4f]",
+			name,
+			desc,
+			valid_count,
+			invalid_count,
+			min_val / 255,
+			max_val / 255
+		)
+	)
+end
+
 local META = prototype.CreateTemplate("sdf_font")
 META.IsFont = true
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
@@ -590,6 +667,8 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local spread = self:GetEffectiveSpread()
 	local cmd = assert(render.GetCommandBuffer(), "GenerateSDF requires an active command buffer")
 	local p2 = get_next_pow2_and_steps(max_dim)
+	-- Verify mask texture before JFA (need at least 20 valid pixels)
+	debug_assert_sdf_texture(mask_tex, "mask_input", 5, 20, "mask texture (must have glyph pixels, not empty)")
 	local tex_a = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
 	local tex_b = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
 	local tex_dist_on = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
@@ -753,7 +832,9 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	end
 
 	run_jfa(0, tex_dist_on) -- Distance to ON pixels
+	debug_assert_sdf_texture(tex_dist_on, "dist_on", 0, 20, "distance to ON pixels (after init+JFA)")
 	run_jfa(1, tex_dist_off) -- Distance to OFF pixels
+	debug_assert_sdf_texture(tex_dist_off, "dist_off", 0, 20, "distance to OFF pixels (after init+JFA)")
 	local tex_final = get_temp_tex(self, target_w, target_h, self:GetAtlasFormat(), "linear")
 	table.insert(temp_fbs, tex_final)
 	local final_frame_index = next_descriptor_slot()
@@ -786,6 +867,18 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	p.combine.current_jfa_max_dist = max_dist
 	p.combine:DispatchForSize(nil, target_w, target_h, 1, final_frame_index)
 	transition_to_sampled(tex_final)
+	-- need to also wait for some reason
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	cmd:Begin()
+	-- Check that SDF has meaningful variation (not all same value)
+	debug_assert_sdf_texture(
+		tex_final,
+		"final_sdf",
+		10,
+		20,
+		"final SDF output (must have variation, not uniform)"
+	)
 	return tex_final
 end
 
@@ -839,6 +932,27 @@ function META:LoadGlyph(code, temp_fbs)
 		end
 
 		do
+			-- Debug: check glyph data
+			if DEBUG then
+				local gd = glyph.glyph_data
+				local poly = gd and gd.poly
+				local verts = gd and gd.points
+				local contours = gd and gd.end_pts_of_contours
+				print(
+					string.format(
+						"SDF debug glyph %d: has_poly=%d points=%d contours=%d glyph.w=%d h=%d bitmap_left=%d bitmap_top=%d",
+						code,
+						poly and 1 or 0,
+						#((verts) or {}),
+						#((contours) or {}),
+						glyph.w,
+						glyph.h,
+						glyph.bitmap_left,
+						glyph.bitmap_top
+					)
+				)
+			end
+
 			render2d.ResetState()
 			local old_w, old_h = render2d.GetSize()
 			render.PushCommandBuffer(cmd)
