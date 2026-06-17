@@ -1041,7 +1041,7 @@ do -- commands
 		end
 	end
 
-	commands.Add("help|usage=string|nil", function(cmd)
+	commands.Add("help|--help|usage=string|nil", function(cmd)
 		if not cmd then
 			for k, v in table.sorted_pairs(commands.GetCommands()) do
 				logn(assert(commands.GetHelpText(k)))
