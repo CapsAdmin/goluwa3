@@ -1,5 +1,6 @@
 local module_require = require("goluwa.require")
 local vfs = import("goluwa/filesystem/vfs.lua")
+local fs = import("goluwa/fs.lua")
 local file_path = import("goluwa/helpers/file_path.lua")
 local addon_library = vfs.addon_library or {}
 vfs.addon_library = addon_library
@@ -99,15 +100,41 @@ function addon_library.AddModuleDirectory(dir, loaders)
 end
 
 module_require.AddImportPathHook(function(path, current_path, caller_path)
-	if path:find("lua/ui/", 1, true) ~= 1 then return path end
+	-- Handle lua/ui/ paths relative to the calling addon
+	if path:find("lua/ui/", 1, true) == 1 then
+		local parent_path = current_path or caller_path
 
-	local parent_path = current_path or caller_path
+		if parent_path then
+			local addon_lua_base = module_require.GetAddonLuaBase(parent_path)
 
-	if not parent_path then return path end
+			if addon_lua_base then return addon_lua_base .. path:sub(5) end
+		end
 
-	local addon_lua_base = module_require.GetAddonLuaBase(parent_path)
+		return path
+	end
 
-	if addon_lua_base then return addon_lua_base .. path:sub(5) end
+	-- Handle lua/line.lua by searching addon directories (for thread worker context)
+	if path == "lua/line.lua" then
+		local project_addons = vfs.GetStorageDirectory("root") .. "addons/"
+
+		-- Search all addon subdirectories under the project's addons/ folder
+		if fs.is_directory(project_addons) then
+			for _, addon_name in ipairs(fs.get_files(project_addons) or {}) do
+				local addon_path = project_addons .. addon_name .. "/lua/line.lua"
+
+				if vfs.IsFile(addon_path) then return addon_path end
+			end
+		end
+
+		-- Also check explicitly loaded addons
+		for _, info in ipairs(vfs.loaded_addons or {}) do
+			local addon_path = info.path .. "lua/line.lua"
+
+			if vfs.IsFile(addon_path) then return addon_path end
+		end
+
+		return path
+	end
 
 	return path
 end)

@@ -352,7 +352,13 @@ local thread_worker_source = [[
 		end
 
 		require("goluwa.global_environment")
-		local line = import("lua/line.lua")
+		local vfs = import("goluwa/vfs.lua")
+		vfs.MountStorageDirectories()
+		local line_path = "addons/love/lua/line.lua"
+		local line_chunk, line_err = loadfile(line_path)
+
+		if not line_chunk then error("Error loading " .. line_path .. ": " .. tostring(line_err), 2) end
+		local line = line_chunk()
 		local function create_thread_love_env(version)
 			local love = {
 				_line_env = {},
