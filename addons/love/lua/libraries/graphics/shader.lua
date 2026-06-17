@@ -1017,6 +1017,8 @@ function love.graphics.newShader(frag, vert)
 	end
 
 	obj.pipeline = obj.shader
+	-- Delegate GetTextureIndex to the shader's inner pipeline so textures are registered correctly
+	obj.GetTextureIndex = function(self, texture, ...) return self.shader.pipeline:GetTextureIndex(texture, ...) end
 	return obj
 end
 

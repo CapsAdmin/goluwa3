@@ -713,7 +713,7 @@ render2d.blend_modes = {
 		src_color_blend_factor = "src_alpha",
 		dst_color_blend_factor = "one",
 		color_blend_op = "add",
-		src_alpha_blend_factor = "one",
+		src_alpha_blend_factor = "zero",
 		dst_alpha_blend_factor = "one",
 		alpha_blend_op = "add",
 		color_write_mask = {"r", "g", "b", "a"},
@@ -1695,6 +1695,12 @@ do
 	do
 		function render2d.SetTexture(tex)
 			render2d.state.render.textures.texture = tex
+			-- Register texture with the pipeline BEFORE sync_pipeline_state is called.
+			-- This ensures the descriptor set includes the texture when it's bound.
+			local pipeline = get_active_pipeline()
+			if pipeline and tex then
+				pipeline:GetTextureIndex(tex, 1, render.GetSamplerFilterConfig())
+			end
 		end
 
 		function render2d.GetTexture()
@@ -2540,6 +2546,19 @@ restore_rect_draw_state = function(state)
 	)
 	render2d.state.render.textures.texture = state.texture
 	render2d.state.render.textures.gradient_texture = state.gradient_texture
+	-- Register textures with the pipeline BEFORE bind_mesh_immediate/sync_pipeline_state
+	-- is called, so the descriptor set is updated with the correct textures.
+	-- If we wait until UploadConstants (which calls GetTextureIndex), the descriptor set
+	-- has already been bound and won't include the newly registered texture.
+	local pipeline = get_active_pipeline()
+	if pipeline then
+		if state.texture then
+			pipeline:GetTextureIndex(state.texture, 1, render.GetSamplerFilterConfig())
+		end
+		if state.gradient_texture then
+			pipeline:GetTextureIndex(state.gradient_texture, 1, render.GetSamplerFilterConfig())
+		end
+	end
 	render2d.state.render.pipeline.blend = state.blend_mode
 	render2d.state.render.pipeline.depth.mode = depth_mode_names[state.rect_state_snapshot.depth_mode_id]
 	render2d.state.render.pipeline.depth.write = state.rect_state_snapshot.depth_write == 1
@@ -2873,6 +2892,13 @@ render2d.state.runtime.pipeline_state.dirty = true
 
 render.RegisterFlushCallback("render2d", function(reason)
 	if reason == "begin_frame" then reset_rect_batch_instance_frame_state() end
+
+	-- Don't flush on pop_command_buffer when there's no active command buffer.
+	-- This happens during canvas switching: the old canvas is popped before
+	-- the new canvas is pushed, so there's nothing to draw to.
+	if reason == "pop_command_buffer" and not render.GetCommandBuffer() then
+		return false
+	end
 
 	return render2d.FlushBatches(reason)
 end)
