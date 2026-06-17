@@ -1,11 +1,9 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/commands.lua")
 local prototype = import("goluwa/prototype.lua")
-
 -- Pre-register to break import cycle: visual -> render3d -> light -> visual
 local Visual = prototype.CreateTemplate("visual")
 import.loaded["goluwa/ecs/components/3d/visual.lua"] = Visual
-
 local BVH = import("goluwa/physics/bvh.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -546,15 +544,6 @@ end
 local function invalidate_scene_acceleration()
 	visual.scene_acceleration = visual.scene_acceleration or {}
 	visual.scene_acceleration.dirty = true
-	visual.scene_acceleration.tree = nil
-	visual.scene_acceleration.shadow_tree = nil
-	visual.scene_acceleration.visible_frame = nil
-	visual.scene_acceleration.visible_cull_result = nil
-	visual.scene_acceleration.visible_gpu_cull_result = nil
-	visual.scene_acceleration.visible_gpu_cull_result_frame = nil
-	visual.scene_acceleration.visible_components = nil
-	visual.scene_acceleration.visible_render_entries = nil
-	visual.scene_acceleration.visible_render_entries_frame = nil
 	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
 	gpu_culling.InvalidateSceneAcceleration()
 	invalidate_scene_voxelizer(true)
@@ -783,6 +772,11 @@ local function ensure_scene_acceleration()
 		acceleration.visual_count ~= #(
 			Visual.Instances or
 			{}
+		)
+		or
+		(
+			gpu_culling.IsSceneAccelerationDirty() and
+			gpu_culling.GetPublishedSceneAccelerationGeneration() ~= gpu_culling.GetSceneAccelerationGeneration()
 		)
 	then
 		return rebuild_scene_acceleration()

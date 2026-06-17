@@ -59,6 +59,14 @@ local function configure_camera()
 	return camera
 end
 
+local function clear_visual_instances()
+	for _, visual in ipairs(Visual.Instances or {}) do
+		if visual and visual.IsValid and visual:IsValid() then
+			visual.Owner:Remove()
+		end
+	end
+end
+
 local function visible_lookup(components, visible_entry_index_ptr, visible_entry_count)
 	local lookup = {}
 

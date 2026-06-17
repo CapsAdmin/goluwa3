@@ -57,8 +57,9 @@ local function TestCullingBehavior(name, cb)
 		cam:SetFarZ(100)
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat():Identity()) -- Looking at -Z (default)
-		cb(draw)
+		local ok, err = pcall(cb, draw)
 		sun:Remove()
+		if not ok then error(err, 0) end
 	end)
 end
 

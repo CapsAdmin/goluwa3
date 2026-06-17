@@ -1,4 +1,5 @@
 local event = import("goluwa/event.lua")
+local prototype = import("goluwa/prototype.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local commands = import("goluwa/commands.lua")
@@ -97,14 +98,20 @@ function test_render.Draw3D(cb)
 	test_render.Init3D()
 	render3d.ResetState()
 	cb(draw_3d_func)
+	prototype.CheckRemovedObjects()
 	local found = false
+	local children = Entity.World:GetChildrenList()
 
-	for _, ent in ipairs(Entity.World:GetChildrenList()) do
+	for _, ent in ipairs(children) do
 		if ent:IsValid() then
 			ent:Remove()
 			print("Entity not removed: " .. tostring(ent))
 			found = true
 		end
+	end
+
+	if found then
+		print("World children count after callback: " .. #Entity.World:GetChildrenList())
 	end
 
 	for _, ent in ipairs(Panel.World:GetChildrenList()) do

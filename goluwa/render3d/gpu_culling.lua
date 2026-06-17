@@ -611,7 +611,7 @@ function gpu_culling.Initialize()
 
 	do -- view aabb cull pass
 		gpu_culling.shadow_view_aabb_cull_pass = EasyPipeline.Compute{
-			DescriptorSetCount = math.max(gpu_culling.shadow_query_output_descriptor_count or 1, 1),
+			DescriptorSetCount = 64,
 			name = "gpu_culling_shadow_view_aabb",
 			LocalSize = {x = 64, y = 1, z = 1},
 			descriptor_sets = {
@@ -2145,11 +2145,6 @@ local function ensure_shadow_query_output_descriptor_capacity(descriptor_slot)
 	if descriptor_slot > (gpu_culling.shadow_query_output_descriptor_count or 0) then
 		gpu_culling.shadow_query_output_descriptor_count = descriptor_slot
 
-		if gpu_culling.shadow_view_aabb_cull_pass then
-			gpu_culling.shadow_view_aabb_cull_pass:Remove()
-		end
-
-		gpu_culling.shadow_view_aabb_cull_pass = nil
 	end
 
 	return descriptor_slot
