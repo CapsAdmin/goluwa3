@@ -1,4 +1,4 @@
-local callstack = import("goluwa/helpers/callstack.lua")
+local callstack = import("goluwa/debug/callstack.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
 vfs.loaded_addons = vfs.loaded_addons or {}
 vfs.disabled_addons = vfs.disabled_addons or {}

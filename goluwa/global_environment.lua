@@ -52,7 +52,7 @@ do
 	end
 end
 
-import("goluwa/helpers/jit_options.lua").SetOptimized()
+import("goluwa/jit/options.lua").SetOptimized()
 
 do
 	_G.registered_libs = _G.registered_libs or {}
@@ -103,11 +103,11 @@ end
 
 _G.list = import("goluwa/helpers/list.lua")
 _G.setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
-import("goluwa/helpers/debug.lua")
-import("goluwa/helpers/table.lua")
+import("goluwa/debug/debug.lua")
+import("goluwa/table/table.lua")
 import("goluwa/string/string.lua")
 import("goluwa/string/string_format.lua")
-import("goluwa/helpers/math.lua")
+import("goluwa/math/math.lua")
 import("goluwa/helpers/globals.lua")
 
 do

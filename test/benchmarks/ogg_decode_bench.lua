@@ -1,6 +1,6 @@
 local fs = import("goluwa/fs.lua")
 local ogg = import("goluwa/codecs/ogg.lua")
-local JitProfiler = import("goluwa/helpers/jit_profiler.lua")
+local JitProfiler = import("goluwa/jit/profiler.lua")
 local system = import("goluwa/system.lua")
 local report_lines = {}
 local report_path = "storage/logs/ogg_decode_bench_report.txt"

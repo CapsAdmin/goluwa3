@@ -1,5 +1,5 @@
 local event = library()
-local callstack = import("goluwa/helpers/callstack.lua")
+local callstack = import("goluwa/debug/callstack.lua")
 event.active = event.active or {}
 event.destroy_tag = event.destroy_tag or {}
 

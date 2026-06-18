@@ -1,4 +1,4 @@
-local JitProfiler = import("goluwa/helpers/jit_profiler.lua")
+local JitProfiler = import("goluwa/jit/profiler.lua")
 local fs = import("goluwa/fs.lua")
 local system = import("goluwa/system.lua")
 local profiler = library()

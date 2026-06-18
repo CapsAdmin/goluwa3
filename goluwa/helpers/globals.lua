@@ -158,7 +158,7 @@ function typex(var)
 end
 
 do
-	local callstack = import("goluwa/helpers/callstack.lua")
+	local callstack = import("goluwa/debug/callstack.lua")
 	local import_global = import
 	local select_global = select
 	local tostring_global = tostring

@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local traceback = import("goluwa/helpers/traceback.lua")
+local traceback = import("goluwa/debug/traceback.lua")
 local timer = library()
 timer.timers = timer.timers or {}
 timer.MaxThinkerIterations = timer.MaxThinkerIterations or 128

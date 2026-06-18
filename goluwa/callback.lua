@@ -1,5 +1,5 @@
 local timer = import("goluwa/timer.lua")
-local callstack = import("goluwa/helpers/callstack.lua")
+local callstack = import("goluwa/debug/callstack.lua")
 local tasks = import("goluwa/tasks.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -87,6 +87,7 @@ do
 						return true
 					end
 				end
+
 				return false
 			end
 
