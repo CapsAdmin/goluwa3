@@ -71,6 +71,34 @@ do
 
 		return _G.registered_libs[key]
 	end
+
+	function _G.get_libraries()
+		local out = {libs = {}, types = {}}
+
+		for key, lib in pairs(registered_libs) do
+			local name = key:strip_prefix("goluwa/"):strip_suffix(".lua")
+			local parts = name:split("/")
+			local out = out.libs
+
+			while #parts > 1 do
+				local key = table.remove(parts, 1)
+
+				if not out[key] then out[key] = {} end
+
+				out = out[key]
+			end
+
+			out[parts[1]] = lib
+		end
+
+		local prototype = import("goluwa/prototype.lua")
+
+		for name, meta in pairs(prototype.GetAllRegistered()) do
+			out.types[meta.Type] = meta
+		end
+
+		return out
+	end
 end
 
 _G.list = import("goluwa/helpers/list.lua")
