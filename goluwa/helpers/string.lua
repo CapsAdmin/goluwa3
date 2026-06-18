@@ -140,6 +140,14 @@ function string.starts_with(a, b)
 	return a:sub(0, #b) == b
 end
 
+function string.strip_prefix(a, b)
+	if a:sub(0, #b) == b then return a:sub(#b + 1) end
+end
+
+function string.strip_suffix(a, b)
+	if a:sub(-#b) == b then return a:sub(1, -#b - 1) end
+end
+
 do
 	local utf8 = import("goluwa/utf8.lua")
 
