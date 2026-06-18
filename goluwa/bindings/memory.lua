@@ -2,7 +2,7 @@
 local memory = {}
 local OS = jit and jit.os
 
-if OS == "OSX" then
+if jit.os == "OSX" then
 	local ffi = require("ffi")
 	ffi.cdef[[
         unsigned int mach_task_self();

@@ -329,7 +329,7 @@ if ffi then
 	end
 
 	local function handle_windows_symbols(path, clib)
-		if WINDOWS and clib then
+		if jit.os == "Windows" and clib then
 			return setmetatable(
 				{},
 				{

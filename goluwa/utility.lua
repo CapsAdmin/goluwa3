@@ -117,7 +117,7 @@ do
 		local data = utility.GetLikelyLibraryDependencies(path)
 		local dir = file_path.GetFolderFromPath(R(path))
 
-		if WINDOWS then
+		if jit.os == "Windows" then
 			for _, info in ipairs(data.dependencies) do
 				if info.status == "MISSING" and not done[info.name] then
 					local path = "C:/msys64/usr/bin/" .. info.name
@@ -221,7 +221,7 @@ do
 					list.insert(paths, R(path))
 				end
 			end
-		elseif LINUX and str:find("%s") then
+		elseif jit.os == "Linux" and str:find("%s") then
 			for i, path in ipairs(str:split(" ")) do
 				path = handle_path(file_path.FixPathSlashes(path:trim()))
 

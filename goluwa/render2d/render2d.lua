@@ -2065,7 +2065,7 @@ do
 		local clip_stack = {}
 		local clip_axis_alignment_epsilon = 0.001
 		local clip_projection_matrix = Matrix44()
-		local use_scissor_clip_rect_fast_path = not OSX
+		local use_scissor_clip_rect_fast_path = jit.os ~= "OSX"
 
 		local function clip_point_to_screen(clip_matrix, screen_w, screen_h, px, py)
 			local clip_x, clip_y = clip_matrix:TransformVectorUnpacked(px, py, 0)

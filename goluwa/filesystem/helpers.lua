@@ -139,7 +139,7 @@ function vfs.Rename(path, name, ...)
 	if abs_path then
 		local dst = abs_path:match("(.+/)") .. name
 
-		if WINDOWS then if vfs.IsFile(dst) then vfs.Delete(dst) end end
+		if jit.os == "Windows" then if vfs.IsFile(dst) then vfs.Delete(dst) end end
 
 		local ok, err = os.rename(abs_path, dst)
 		vfs.ClearCallCache()
@@ -234,9 +234,13 @@ function vfs.LinkFile(from, to)
 
 	local to = dir .. file_path.GetFileNameFromPath(to)
 
-	if UNIX then os.execute("ln -s '" .. from .. "' '" .. to .. "'") end
+	if jit.os == "Linux" or jit.os == "OSX" then
+		os.execute("ln -s '" .. from .. "' '" .. to .. "'")
+	end
 
-	if WINDOWS then os.execute("MKLINK /H '" .. to .. "' '" .. from .. "'") end
+	if jit.os == "Windows" then
+		os.execute("MKLINK /H '" .. to .. "' '" .. from .. "'")
+	end
 end
 
 local function add_helper(name, func, mode, cb)

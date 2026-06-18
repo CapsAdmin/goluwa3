@@ -22,7 +22,7 @@ function mod.find_library()
 		"Could not load shaderc shared library.\n" .. table.concat(errors, "\n")
 	end
 
-	if ffi.os == "OSX" then
+	if jit.os == "OSX" then
 		local paths = {}
 		local home = os.getenv("HOME")
 

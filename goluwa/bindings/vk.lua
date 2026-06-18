@@ -53,7 +53,7 @@ function mod.find_library()
 		end
 
 		return assert(try_load({"vulkan-1.dll"}))
-	elseif ffi.os == "OSX" then
+	elseif jit.os == "OSX" then
 		local home = os.getenv("HOME")
 		local vulkan_sdk = os.getenv("VULKAN_SDK")
 		local paths = {}

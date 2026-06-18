@@ -147,14 +147,14 @@ return function(steam)
 	function steam.GetInstallPath()
 		local path
 
-		if WINDOWS then
+		if jit.os == "Windows" then
 			path = system.GetRegistryValue("CurrentUser/Software/Valve/Steam/SteamPath") or
 				(
 					X64 and
 					"C:\\Program Files (x86)\\Steam" or
 					"C:\\Program Files\\Steam"
 				)
-		elseif OSX then
+		elseif jit.os == "OSX" then
 			path = os.getenv("HOME") .. "/Library/Application Support/Steam"
 		else
 			path = os.getenv("HOME") .. "/.steam/steam"

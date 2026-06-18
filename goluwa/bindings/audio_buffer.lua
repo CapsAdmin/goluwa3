@@ -100,7 +100,7 @@ end
 
 local audio = {}
 
-if ffi.os == "OSX" then
+if jit.os == "OSX" then
 	local AudioToolbox = ffi.load("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
 	ffi.cdef[[
 		typedef struct OpaqueAudioQueue *AudioQueueRef;

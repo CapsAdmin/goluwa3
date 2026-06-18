@@ -74,10 +74,6 @@ do
 end
 
 _G.list = import("goluwa/helpers/list.lua")
-_G.WINDOWS = jit.os == "Windows"
-_G.LINUX = jit.os == "Linux"
-_G.OSX = jit.os == "OSX"
-_G.UNIX = _G.LINUX or _G.OSX
 _G.setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
 import("goluwa/helpers/debug.lua")
 import("goluwa/helpers/table.lua")

@@ -100,7 +100,7 @@ do
 	}]])
 
 	-- https://www.cs.dartmouth.edu/~sergey/cs60/on-sockaddr-structs.txt
-	if ffi.os == "OSX" then
+	if jit.os == "OSX" then
 		sockaddr = ffi.typeof([[
 			struct {
 				uint8_t sa_len;
@@ -446,7 +446,7 @@ do
 			local F_SETFL = 4
 			local O_NONBLOCK = 04000
 
-			if ffi.os == "OSX" then O_NONBLOCK = 0x0004 end
+			if jit.os == "OSX" then O_NONBLOCK = 0x0004 end
 
 			function socket.blocking(fd, b)
 				local flags = fcntl(fd, F_GETFL, 0)
@@ -882,7 +882,7 @@ do
 		errno.ETIMEDOUT = 10060
 	end
 
-	if ffi.os == "OSX" then
+	if jit.os == "OSX" then
 		e.SOL_SOCKET = 0xffff
 		e.SO_DEBUG = 0x0001
 		e.SO_ACCEPTCONN = 0x0002

@@ -16,7 +16,7 @@ if ffi.os == "Windows" then
 		local elapsed = time[0] - start_time[0]
 		return ffi.cast("uint64_t", elapsed * 1000000000ULL / freq)
 	end
-elseif ffi.os == "OSX" then
+elseif jit.os == "OSX" then
 	pcall(
 		ffi.cdef,
 		[[

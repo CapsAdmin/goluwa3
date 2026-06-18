@@ -1,7 +1,12 @@
 local vfs = import.loaded["goluwa/filesystem/vfs.lua"] or {}
 
 do
-	local ext = OSX and "dylib" or UNIX and "so" or WINDOWS and "dll"
+	local ext = jit.os == "OSX" and
+		"dylib" or
+		jit.os == "Linux" and
+		"so" or
+		jit.os == "Windows" and
+		"dll"
 
 	function vfs.GetSharedLibraryExtension()
 		return ext

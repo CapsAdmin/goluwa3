@@ -324,7 +324,7 @@ else
 
 	local FLAG_SC_NPROCESSORS_ONLN = 83
 
-	if ffi.os == "OSX" then FLAG_SC_NPROCESSORS_ONLN = 58 end
+	if jit.os == "OSX" then FLAG_SC_NPROCESSORS_ONLN = 58 end
 
 	function threads.get_thread_count()
 		return tonumber(ffi.C.sysconf(FLAG_SC_NPROCESSORS_ONLN))

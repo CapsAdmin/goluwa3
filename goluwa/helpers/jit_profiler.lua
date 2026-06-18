@@ -24,7 +24,7 @@ local function get_time_function()
 
 	local tonumber = _G.tonumber
 
-	if ffi.os == "OSX" then
+	if jit.os == "OSX" then
 		ffi.cdef([[
 			uint64_t clock_gettime_nsec_np(int clock_id);
 		]])

@@ -103,18 +103,18 @@ end
 function fonts.GetSystemFonts()
 	local paths = {}
 
-	if WINDOWS then
+	if jit.os == "Windows" then
 		table.insert(paths, os.getenv("WINDIR") .. "/Fonts")
 		local local_app_data = os.getenv("LOCALAPPDATA")
 
 		if local_app_data then
 			table.insert(paths, local_app_data .. "/Microsoft/Windows/Fonts")
 		end
-	elseif OSX then
+	elseif jit.os == "OSX" then
 		table.insert(paths, "/System/Library/Fonts")
 		table.insert(paths, "/Library/Fonts")
 		table.insert(paths, os.getenv("HOME") .. "/Library/Fonts")
-	elseif LINUX then
+	elseif jit.os == "Linux" then
 		table.insert(paths, "/usr/share/fonts")
 		table.insert(paths, "/usr/local/share/fonts")
 		table.insert(paths, os.getenv("HOME") .. "/.fonts")
@@ -188,11 +188,11 @@ function fonts.GetDefaultSystemFontPath()
 		return path:gsub("%b[]", "")
 	end
 
-	if WINDOWS then
+	if jit.os == "Windows" then
 		return os.getenv("WINDIR") .. "/Fonts/arial.ttf"
-	elseif OSX then
+	elseif jit.os == "OSX" then
 		return "/Library/Fonts/Arial Unicode.ttf"
-	elseif LINUX then
+	elseif jit.os == "Linux" then
 		-- Try fc-match first (most reliable on Linux)
 		local handle = io.popen("fc-match -f '%{file}'")
 

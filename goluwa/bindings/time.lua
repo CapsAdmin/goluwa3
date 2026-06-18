@@ -16,7 +16,7 @@ if ffi.os == "Windows" then
 		time[0] = time[0] - start_time[0]
 		return tonumber(time[0]) / freq
 	end
-elseif ffi.os == "OSX" then
+elseif jit.os == "OSX" then
 	pcall(
 		ffi.cdef,
 		[[

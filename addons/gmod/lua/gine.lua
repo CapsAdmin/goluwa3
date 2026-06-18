@@ -223,7 +223,7 @@ do
 			return system.OSCommandExists(name)
 		end
 
-		local probe = WINDOWS and
+		local probe = jit.os == "Windows" and
 			(
 				"where " .. name .. " >nul 2>nul"
 			)
