@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local utf8 = import("goluwa/utf8.lua")
+local utf8 = import("goluwa/string/utf8.lua")
 local pretext = import("goluwa/pretext/init.lua")
 
 local function new_mock_font()

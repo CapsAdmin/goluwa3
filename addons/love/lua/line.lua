@@ -332,7 +332,7 @@ function line.RunGame(folder, ...)
 		["socket.smtp"] = "goluwa/sockets/luasocket/smtp.lua",
 		["socket.tp"] = "goluwa/sockets/luasocket/tp.lua",
 		["socket.url"] = "goluwa/sockets/luasocket/url.lua",
-		["utf8"] = "goluwa/utf8.lua",
+		["utf8"] = "goluwa/string/utf8.lua",
 	}
 	love._line_env.filesystem_source = game_source
 

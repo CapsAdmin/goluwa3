@@ -3,7 +3,7 @@ local math = _G.math
 local setmetatable = _G.setmetatable
 local ipairs = _G.ipairs
 local assert = _G.assert
-local MOD = {}
+local string = _G.string
 
 local function tokenize(text)
 	local chars = {}
@@ -151,9 +151,7 @@ local function diff_tokens(old, new)
 	return diff
 end
 
-function MOD.diff(old, new)
+function string.diff(old, new)
 	local d = diff_tokens(tokenize(old), tokenize(new))
 	return format_as_ascii(d)
 end
-
-return MOD

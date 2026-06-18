@@ -1,4 +1,4 @@
-local utf8 = import("goluwa/utf8.lua")
+local utf8 = import("goluwa/string/utf8.lua")
 local prototype = import("goluwa/prototype.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")

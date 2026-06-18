@@ -1,4 +1,4 @@
-local utf8 = import("goluwa/utf8.lua")
+local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
 local prototype = import("goluwa/prototype.lua")

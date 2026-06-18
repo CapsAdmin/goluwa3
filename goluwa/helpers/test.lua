@@ -1,7 +1,6 @@
 local io = require("io")
 local io_write = io.write
 local io_stderr = io.stderr
-local diff = import("goluwa/helpers/diff.lua")
 local fs = import("goluwa/fs.lua")
 local debug = require("debug")
 local pcall = _G.pcall

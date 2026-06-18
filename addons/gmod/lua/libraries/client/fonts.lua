@@ -1,5 +1,5 @@
 local steam = import("goluwa/steam/steam.lua")
-local utf8 = import("goluwa/utf8.lua")
+local utf8 = import("goluwa/string/utf8.lua")
 local vfs = import("goluwa/vfs.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local gfx = import("goluwa/render2d/gfx.lua")

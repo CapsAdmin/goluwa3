@@ -1,4 +1,3 @@
-local diff = import("goluwa/helpers/diff.lua")
 local attest = {}
 
 function attest.equal(a, b, LEVEL)
@@ -153,7 +152,7 @@ end
 attest.throws = attest.fails
 
 function attest.diff(input, expect)
-	print(diff.diff(input, expect))
+	logn(input:diff(expect))
 end
 
 function attest.ok(b, LEVEL)

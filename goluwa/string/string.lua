@@ -149,7 +149,7 @@ function string.strip_suffix(a, b)
 end
 
 do
-	local utf8 = import("goluwa/utf8.lua")
+	local utf8 = import("goluwa/string/utf8.lua")
 
 	function string.levenshtein(a, b)
 		local distance = {}

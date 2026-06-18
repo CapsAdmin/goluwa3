@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local utf8 = import("goluwa/utf8.lua")
+local utf8 = import("goluwa/string/utf8.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
