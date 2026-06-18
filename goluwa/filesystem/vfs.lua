@@ -1,5 +1,5 @@
 local prototype = import("goluwa/prototype.lua")
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 local vfs = {}
 vfs.use_appdata = false
 vfs.mounted_paths = vfs.mounted_paths or {}

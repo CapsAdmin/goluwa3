@@ -1,7 +1,7 @@
 local module_require = require("goluwa.require")
 local vfs = import("goluwa/filesystem/vfs.lua")
 local fs = import("goluwa/fs.lua")
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 local addon_library = vfs.addon_library or {}
 vfs.addon_library = addon_library
 addon_library.module_directories = addon_library.module_directories or {}

@@ -101,14 +101,14 @@ do
 	end
 end
 
-_G.list = import("goluwa/helpers/list.lua")
-_G.setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
+_G.list = import("goluwa/list.lua")
+_G.setmetatable = import("goluwa/setmetatable_gc.lua")
 import("goluwa/debug/debug.lua")
 import("goluwa/table/table.lua")
 import("goluwa/string/string.lua")
 import("goluwa/string/string_format.lua")
 import("goluwa/math/math.lua")
-import("goluwa/helpers/globals.lua")
+import("goluwa/globals.lua")
 
 do
 	local logging = import("goluwa/logging.lua")

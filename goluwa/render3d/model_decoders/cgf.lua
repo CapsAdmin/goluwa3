@@ -1,5 +1,5 @@
 local vfs = import("goluwa/vfs.lua")
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")

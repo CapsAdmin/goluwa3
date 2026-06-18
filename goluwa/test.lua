@@ -13,7 +13,7 @@ local profiler = import("goluwa/profiler.lua")
 local jit = _G.jit
 local table = _G.table
 local memory = import("goluwa/bindings/memory.lua")
-local colors = import("goluwa/helpers/colors.lua")
+local colors = import("goluwa/colors.lua")
 local callstack = import("goluwa/debug/callstack.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
@@ -1159,7 +1159,7 @@ function test.TexturePixel(tex, x, y, r, g, b, a, tolerance)
 	end
 end
 
-local attest = import("goluwa/helpers/attest.lua")
+local attest = import("goluwa/attest.lua")
 setmetatable(test, {
 	__call = function(_, val)
 		return attest.AssertHelper(val)
@@ -1168,7 +1168,7 @@ setmetatable(test, {
 local event = import("goluwa/event.lua")
 local threads = import("goluwa/bindings/threads.lua")
 local system = import("goluwa/system.lua")
-local colors = import("goluwa/helpers/colors.lua")
+local colors = import("goluwa/colors.lua")
 local commands = import("goluwa/commands.lua")
 
 commands.Add({
@@ -1258,7 +1258,7 @@ commands.Add({
 			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
 
 			local ok, run_err = pcall(function()
-				local t = import("goluwa/helpers/test.lua")
+				local t = import("goluwa/test.lua")
 				t.BeginTests(true, false, nil, input.verbose, true, input.subfilter, input.failures_only)
 				t.SetTestPaths({{name = input.name, path = input.path}})
 				has_tests = t.RunSingleTestSet({name = input.name, path = input.path})

@@ -1,5 +1,5 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 local mixed_case_path_cache = {}
 local recursive_basename_index_cache = {}
 

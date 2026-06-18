@@ -7,7 +7,7 @@ local CallbackState
 
 do
 	local ffi = require("ffi")
-	local setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
+	local setmetatable = import("goluwa/setmetatable_gc.lua")
 	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	CallbackState = {}
 	local meta = {}

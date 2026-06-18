@@ -1,5 +1,5 @@
 local fs = import("goluwa/bindings/filesystem.lua")
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 
 function fs.write_file(path, data)
 	local file, err = io.open(path, "wb")

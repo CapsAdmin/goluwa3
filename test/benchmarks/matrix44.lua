@@ -1,4 +1,4 @@
-local benchmark = import("goluwa/helpers/benchmark.lua")
+local benchmark = import("goluwa/benchmark.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 
 local function RandomMatrix()

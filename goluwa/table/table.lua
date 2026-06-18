@@ -318,5 +318,5 @@ end
 
 table.sort = import("goluwa/table/sort.lua")
 table.new = require("table.new")
-table.print = import("goluwa/helpers/tostring_object.lua").dump_object
-table.tostring = import("goluwa/helpers/tostring_object.lua").tostring_object
+table.print = import("goluwa/tostring_object.lua").dump_object
+table.tostring = import("goluwa/tostring_object.lua").tostring_object

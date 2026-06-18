@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
+local setmetatable = import("goluwa/setmetatable_gc.lua")
 local process = {}
 
 -- Platform-specific error handling

@@ -36,7 +36,7 @@
 
 - Do not call import() and require() inline. favor using import at the top. In case of circular dependency, see how import.loaded is used
 
-- If you are using a library like render2d, and it's missing functionality, add it to render2d rather than patching IF the the functionality is generally useful. The same can be applied for standard lua libraries like string and table functions. See goluwa/helpers/*
+- If you are using a library like render2d, and it's missing functionality, add it to render2d rather than patching IF the the functionality is generally useful. The same can be applied for standard lua libraries like string and table functions. See goluwa/*
 
 - Consider using functions like table.merge, math.clamp, etc, over creating local functions that duplicate existing functionality
 

@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
-local test_helper = import("goluwa/helpers/test.lua")
+local test_helper = import("goluwa/test.lua")
 local tasks = import("goluwa/tasks.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
@@ -2144,7 +2144,6 @@ local function ensure_shadow_query_output_descriptor_capacity(descriptor_slot)
 
 	if descriptor_slot > (gpu_culling.shadow_query_output_descriptor_count or 0) then
 		gpu_culling.shadow_query_output_descriptor_count = descriptor_slot
-
 	end
 
 	return descriptor_slot

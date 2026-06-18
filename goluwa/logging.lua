@@ -1,5 +1,5 @@
 local output = import("goluwa/output.lua")
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 local list_concat = table.concat
 local select = select
 local logging = library()

@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
-local Hash = import("goluwa/helpers/hash.lua")
+local Hash = import("goluwa/hash.lua")
 local pipeline_common = {}
 -- ============================================================
 -- SECTION 1: Sampler Config Utilities
@@ -153,9 +153,11 @@ end
 
 function pipeline_common.resolve_sampler_binding(self, tex, sampler_config_override)
 	local texture_sampler_config = nil
+
 	if tex then
 		texture_sampler_config = tex.GetSamplerConfig and tex:GetSamplerConfig() or nil
 	end
+
 	local cached_entry, cache_bucket, cache_key = pipeline_common.get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
 
 	if cached_entry then
@@ -229,10 +231,11 @@ local nil_sampler_hash_key = {}
 
 local function build_texture_descriptor_entry(self, tex, sampler_config_override)
 	local view
-	if tex then
-		view = tex.GetView and tex:GetView() or tex.view
-	end
+
+	if tex then view = tex.GetView and tex:GetView() or tex.view end
+
 	if not view then view = self:GetFallbackView() end
+
 	local sampler_config, sampler_hash, sampler = pipeline_common.resolve_sampler_binding(self, tex, sampler_config_override)
 	return {
 		texture = tex,
@@ -425,7 +428,6 @@ function pipeline_common.bind_sampler_config_methods(self)
 
 		return self:SetSamplerConfig(config)
 	end
-
 	self.GetFallbackSamplerConfig = function()
 		return pipeline_common.get_fallback_sampler_config()
 	end
@@ -444,10 +446,9 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 
 	if descriptor_type == "combined_image_sampler" then
 		local tex_count = 0
+
 		for _, arg in ipairs(args) do
-			if type(arg) == "table" and arg.GetView then
-				tex_count = tex_count + 1
-			end
+			if type(arg) == "table" and arg.GetView then tex_count = tex_count + 1 end
 		end
 
 		if tex_count > 1 then
@@ -485,7 +486,12 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 
 	if render.stats then render_stats.AddDescriptorWrites(1) end
 
-	self.vulkan_instance.device:UpdateDescriptorSet(descriptor_type, self.descriptor_sets[index][set_index + 1], binding_index, unpack(args))
+	self.vulkan_instance.device:UpdateDescriptorSet(
+		descriptor_type,
+		self.descriptor_sets[index][set_index + 1],
+		binding_index,
+		unpack(args)
+	)
 end
 
 function pipeline_common.update_descriptor_set_array(self, frame_index, binding_index, set_index, texture_array, override_count)

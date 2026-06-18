@@ -1,5 +1,5 @@
 local utility = import("goluwa/utility.lua")
-local tostringx = import("goluwa/helpers/tostring_object.lua").tostring_object
+local tostringx = import("goluwa/tostring_object.lua").tostring_object
 local traceback = library()
 -- this should be used for xpcall
 local suppress = false

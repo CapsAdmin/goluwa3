@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local attest = import("goluwa/helpers/attest.lua")
+local attest = import("goluwa/attest.lua")
 local commands = import("goluwa/commands.lua")
 local gine = import("lua/gine.lua")
 local event = import("goluwa/event.lua")

@@ -1,5 +1,5 @@
-local test = import("goluwa/helpers/test.lua")
-local attest = import("goluwa/helpers/attest.lua")
+local test = import("goluwa/test.lua")
+local attest = import("goluwa/attest.lua")
 local commands = import("goluwa/commands.lua")
 
 local function with_temp_command(spec, callback, cb)

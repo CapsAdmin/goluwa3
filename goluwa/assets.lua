@@ -1,5 +1,5 @@
 local assets = library()
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 local vfs = import("goluwa/vfs.lua")
 local Texture = import("goluwa/render/texture.lua")
 assets.categories = assets.categories or {}

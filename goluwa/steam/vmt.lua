@@ -1,5 +1,5 @@
 local vfs = import("goluwa/vfs.lua")
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 local resource = import("goluwa/resource.lua")
 local callback = import("goluwa/callback.lua")
 return function(steam)

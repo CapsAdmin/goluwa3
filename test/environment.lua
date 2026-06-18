@@ -159,7 +159,7 @@ do
 end
 
 local test_render = import("test/test_render.lua")
-local T = import("goluwa/helpers/test.lua")
+local T = import("goluwa/test.lua")
 local gmod_initialized_files = {}
 T.TestGmod = function(name, cb, gamemode)
 	gamemode = gamemode or "sandbox"

@@ -22,7 +22,7 @@ local commands = import("goluwa/commands.lua")
 import.loadfile = vfs.LoadFile
 vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
-import("goluwa/helpers/test.lua") -- add test command
+import("goluwa/test.lua") -- add test command
 local function init_game()
 	import("goluwa/pvars.lua").Initialize()
 	import("goluwa/repl.lua").Initialize()

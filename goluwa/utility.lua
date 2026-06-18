@@ -1,5 +1,5 @@
 local utility = library()
-local file_path = import("goluwa/helpers/file_path.lua")
+local file_path = import("goluwa/file_path.lua")
 
 function utility.GetLikelyLibraryDependencies(path)
 	local ext = file_path.GetExtensionFromPath(path)
