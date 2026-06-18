@@ -14,14 +14,30 @@ local META = prototype.CreateTemplate("font_ttf")
 META.IsFont = true
 META:GetSet("Path", nil)
 META:GetSet("Size", 16, {callback = "UpdateScale"})
+META.scale_override = nil
 
 function META:__copy()
 	return self
 end
 
+function META:SetScale(v)
+	self.scale_override = v
+end
+
+function META:GetScale()
+	if self.scale_override then return self.scale_override end
+
+	return Vec2(self.scale)
+end
+
 function META:UpdateScale()
 	if self.font then
-		self.scale = self.Size / self.font.units_per_em
+		if self.scale_override then
+			self.scale = self.scale_override.x or self.scale_override
+		else
+			self.scale = self.Size / self.font.units_per_em
+		end
+
 		-- Use CapHeight for layout if available, otherwise heuristic 70% of EM or typo_ascent
 		self.ascent = (
 				self.font.cap_height or

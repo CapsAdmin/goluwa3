@@ -144,7 +144,7 @@ render2d.state = {
 		pipeline = {
 			blend = nil,
 			depth = {mode = DEFAULT_DEPTH_MODE, write = false},
-			stencil = {mode = "none", ref = 1},
+			stencil = {mode = "none", ref = 0},
 			scissor = {x = 0, y = 0, w = 0, h = 0},
 		},
 		options = {
@@ -1698,6 +1698,7 @@ do
 			-- Register texture with the pipeline BEFORE sync_pipeline_state is called.
 			-- This ensures the descriptor set includes the texture when it's bound.
 			local pipeline = get_active_pipeline()
+
 			if pipeline and tex then
 				pipeline:GetTextureIndex(tex, 1, render.GetSamplerFilterConfig())
 			end
@@ -2551,14 +2552,17 @@ restore_rect_draw_state = function(state)
 	-- If we wait until UploadConstants (which calls GetTextureIndex), the descriptor set
 	-- has already been bound and won't include the newly registered texture.
 	local pipeline = get_active_pipeline()
+
 	if pipeline then
 		if state.texture then
 			pipeline:GetTextureIndex(state.texture, 1, render.GetSamplerFilterConfig())
 		end
+
 		if state.gradient_texture then
 			pipeline:GetTextureIndex(state.gradient_texture, 1, render.GetSamplerFilterConfig())
 		end
 	end
+
 	render2d.state.render.pipeline.blend = state.blend_mode
 	render2d.state.render.pipeline.depth.mode = depth_mode_names[state.rect_state_snapshot.depth_mode_id]
 	render2d.state.render.pipeline.depth.write = state.rect_state_snapshot.depth_write == 1
