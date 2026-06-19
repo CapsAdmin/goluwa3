@@ -17,7 +17,7 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
-local visual = library()
+local visual = {}
 
 local function registry_insert(registry, index_field, component)
 	if component[index_field] then return end

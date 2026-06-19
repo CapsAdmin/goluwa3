@@ -142,10 +142,14 @@ end
 
 function string.strip_prefix(a, b)
 	if a:sub(0, #b) == b then return a:sub(#b + 1) end
+
+	return a
 end
 
 function string.strip_suffix(a, b)
 	if a:sub(-#b) == b then return a:sub(1, -#b - 1) end
+
+	return a
 end
 
 do

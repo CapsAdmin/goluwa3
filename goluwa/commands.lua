@@ -903,13 +903,8 @@ do -- commands
 		end
 
 		function commands.RunLuaString(line, env_name)
-			commands.SetLuaEnvironmentVariable("commands", commands)
-			commands.SetLuaEnvironmentVariable("steam", safe_import("goluwa/steam/steam.lua"))
-			commands.SetLuaEnvironmentVariable("vfs", safe_import("goluwa/vfs.lua"))
-			commands.SetLuaEnvironmentVariable("render3d", safe_import("goluwa/render3d/render3d.lua"))
 			commands.SetLuaEnvironmentVariable("ffi", desire("ffi"))
-			commands.SetLuaEnvironmentVariable("prototype", prototype)
-			commands.SetLuaEnvironmentVariable("findo", prototype.FindObject)
+			commands.SetLuaEnvironmentVariable("goluwa", _G.get_libraries().libs)
 
 			if WINDOW then
 				commands.SetLuaEnvironmentVariable("copy", window.SetClipboard)
