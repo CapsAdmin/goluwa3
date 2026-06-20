@@ -1,8 +1,8 @@
 local test = import("goluwa/test.lua")
 local attest = import("goluwa/attest.lua")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
-local repl = import("goluwa/repl.lua")
+local repl = import("goluwa/cli/repl.lua")
 
 test.Test("repl input", function()
 	local function reset()
@@ -390,13 +390,13 @@ end)
 
 test.Test("repl multiline submit preserves chunk", function()
 	local old_run_string = commands.RunString
-	local old_flush = import("goluwa/output.lua").Flush
+	local old_flush = import("goluwa/cli/output.lua").Flush
 	local captured = nil
 	local flushed = false
 	commands.RunString = function(line, skip_lua, skip_split)
 		captured = {line = line, skip_lua = skip_lua, skip_split = skip_split}
 	end
-	import("goluwa/output.lua").Flush = function()
+	import("goluwa/cli/output.lua").Flush = function()
 		flushed = true
 	end
 	repl.InputLua("local x = 1\nprint(x)")
@@ -405,5 +405,5 @@ test.Test("repl multiline submit preserves chunk", function()
 	attest.equal(captured.skip_split, true)
 	attest.equal(flushed, true)
 	commands.RunString = old_run_string
-	import("goluwa/output.lua").Flush = old_flush
+	import("goluwa/cli/output.lua").Flush = old_flush
 end)

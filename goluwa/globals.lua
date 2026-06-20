@@ -166,7 +166,7 @@ do
 	local string_format = string.format
 	local logging
 	print = function(...)
-		logging = logging or import_global("goluwa/logging.lua")
+		logging = logging or import_global("goluwa/cli/logging.lua")
 		local str = {}
 
 		for i = 1, select_global("#", ...) do

@@ -1,5 +1,5 @@
-local pvars = import("goluwa/pvars.lua")
-local commands = import("goluwa/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+local commands = import("goluwa/cli/commands.lua")
 
 commands.Add("hostname", function(line)
 	network.SetHostName(line)

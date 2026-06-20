@@ -7,7 +7,7 @@ local TuiPanel = import("goluwa/ecs/tui_panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local event = import("goluwa/event.lua")
-local repl = import("goluwa/repl.lua")
+local repl = import("goluwa/cli/repl.lua")
 -- ── state ──────────────────────────────────────────────────────────────────
 local needs_redraw = true
 local lines = {}

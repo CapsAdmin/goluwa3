@@ -4,8 +4,8 @@ test("repl")
 local event = import("goluwa/event.lua")
 local terminal = import("goluwa/bindings/terminal.lua")
 local system = import("goluwa/system.lua")
-local output = import("goluwa/output.lua")
-local commands = import("goluwa/commands.lua")
+local output = import("goluwa/cli/output.lua")
+local commands = import("goluwa/cli/commands.lua")
 local codec = import("goluwa/codec.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local utf8 = import("goluwa/string/utf8.lua")
@@ -675,7 +675,7 @@ function repl.GetTerminal()
 end
 
 function repl.Initialize()
-	import("goluwa/logging.lua").ReplMode()
+	import("goluwa/cli/logging.lua").ReplMode()
 
 	if not system.IsTTY() then
 		repl.enabled = false

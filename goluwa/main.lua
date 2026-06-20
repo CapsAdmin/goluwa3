@@ -18,14 +18,14 @@ local process = import("goluwa/bindings/process.lua")
 local fs = import("goluwa/fs.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 import.loadfile = vfs.LoadFile
 vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
 import("goluwa/test.lua") -- add test command
 local function init_game()
-	import("goluwa/pvars.lua").Initialize()
-	import("goluwa/repl.lua").Initialize()
+	import("goluwa/cli/pvars.lua").Initialize()
+	import("goluwa/cli/repl.lua").Initialize()
 	import("goluwa/filewatcher.lua").Start()
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
 

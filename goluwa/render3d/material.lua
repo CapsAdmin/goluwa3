@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 local tasks = import("goluwa/tasks.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Color = import("goluwa/structs/color.lua")

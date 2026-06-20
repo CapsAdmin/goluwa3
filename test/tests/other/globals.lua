@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local logging = import("goluwa/logging.lua")
+local logging = import("goluwa/cli/logging.lua")
 
 T.Test("global print survives rebound environment", function()
 	local old_env = getfenv(print)

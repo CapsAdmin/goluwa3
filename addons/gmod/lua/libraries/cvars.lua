@@ -1,5 +1,5 @@
 local gine = ... or _G.gine
-local pvars = import("goluwa/pvars.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 
 function gine.env.CreateConVar(name, def, flags, help)
 	return gine.WrapObject(pvars.Setup(name, tostring(def), nil, help, true), "ConVar")

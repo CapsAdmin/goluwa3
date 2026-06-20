@@ -1,5 +1,5 @@
-local commands = import("goluwa/commands.lua")
-local pvars = import("goluwa/pvars.lua")
+local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/file_path.lua")
 local codec = import("goluwa/codec.lua")

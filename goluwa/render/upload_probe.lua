@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local system = import("goluwa/system.lua")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 local probe = {}
 local STRONG_KEY = {}
 probe.enabled = false

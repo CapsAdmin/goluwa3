@@ -1,4 +1,4 @@
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
 local resource = import("goluwa/resource.lua")

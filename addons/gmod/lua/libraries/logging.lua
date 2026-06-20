@@ -1,5 +1,5 @@
 local gine = ... or _G.gine
-local repl = import("goluwa/repl.lua")
+local repl = import("goluwa/cli/repl.lua")
 local system = import("goluwa/system.lua")
 
 local function write(str)

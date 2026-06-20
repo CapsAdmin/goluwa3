@@ -1,4 +1,4 @@
-local repl = import("goluwa/repl.lua")
+local repl = import("goluwa/cli/repl.lua")
 local valid = nil
 local TuiPanel = import("goluwa/ecs/base.lua")("tui_panel", "ecs.components.tui.", function()
 	valid = valid or
@@ -38,7 +38,7 @@ TuiPanel.World:SetName("TuiWorldPanel")
 TuiPanel.World.transform:SetPosition(Vec2(1, 1))
 
 local function sync_terminal_size()
-	local repl = import("goluwa/repl.lua")
+	local repl = import("goluwa/cli/repl.lua")
 	local term = repl.GetTerminal()
 
 	if not term then return end
@@ -146,7 +146,7 @@ do
 end
 
 do
-	local repl = import("goluwa/repl.lua")
+	local repl = import("goluwa/cli/repl.lua")
 	local event = import("goluwa/event.lua")
 	local system = import("goluwa/system.lua")
 	local input = import("goluwa/input.lua")

@@ -1,6 +1,6 @@
 local test = import("goluwa/test.lua")
 local attest = import("goluwa/attest.lua")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 
 local function with_temp_command(spec, callback, cb)
 	if cb == nil then

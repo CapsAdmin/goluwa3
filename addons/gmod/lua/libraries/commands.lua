@@ -1,4 +1,4 @@
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 
 function gine.env.AddConsoleCommand(name)
 	if commands.IsAdded(name) then

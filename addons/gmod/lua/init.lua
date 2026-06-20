@@ -1,5 +1,5 @@
 local utility = import("goluwa/utility.lua")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 
 commands.Add("ginit=string[sandbox],boolean", function(gamemode, skip_addons)

@@ -58,7 +58,7 @@ end
 spawn_sphere(Vec3(-10, 0, -10), Vec3(1, 1, 1), Color(1, 0, 0, 1), true)
 spawn_sphere(Vec3(10, 0, -10), Vec3(1, 1, 1), Color(0, 1, 0, 1), true)
 print("Culling demo loaded. Use 'goluwa_occlusion_culling 1' to enable.")
-local command = import("goluwa/commands.lua")
+local command = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")

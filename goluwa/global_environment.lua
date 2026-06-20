@@ -111,7 +111,7 @@ import("goluwa/math/math.lua")
 import("goluwa/globals.lua")
 
 do
-	local logging = import("goluwa/logging.lua")
+	local logging = import("goluwa/cli/logging.lua")
 	_G.logf_nospam = logging.LogFormatNoSpam
 	_G.logn_nospam = logging.LogNewlineNoSpam
 	_G.vprint = logging.VariablePrint

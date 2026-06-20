@@ -1,7 +1,7 @@
 local vfs = import("goluwa/vfs.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
-local pvars = import("goluwa/pvars.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local language = library()
 language.known_strings = language.known_strings or {}
 language.current_translation = language.current_translation or {}

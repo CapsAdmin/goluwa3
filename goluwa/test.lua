@@ -13,7 +13,7 @@ local profiler = import("goluwa/profiler.lua")
 local jit = _G.jit
 local table = _G.table
 local memory = import("goluwa/bindings/memory.lua")
-local colors = import("goluwa/colors.lua")
+local colors = import("goluwa/cli/colors.lua")
 local callstack = import("goluwa/debug/callstack.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
@@ -1168,8 +1168,8 @@ setmetatable(test, {
 local event = import("goluwa/event.lua")
 local threads = import("goluwa/bindings/threads.lua")
 local system = import("goluwa/system.lua")
-local colors = import("goluwa/colors.lua")
-local commands = import("goluwa/commands.lua")
+local colors = import("goluwa/cli/colors.lua")
+local commands = import("goluwa/cli/commands.lua")
 
 commands.Add({
 	aliases = "test",

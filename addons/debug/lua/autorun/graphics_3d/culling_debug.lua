@@ -1,5 +1,5 @@
 local event = import("goluwa/event.lua")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")

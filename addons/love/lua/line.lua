@@ -1,4 +1,4 @@
-local pvars = import("goluwa/pvars.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local module_require = import("goluwa/require.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")

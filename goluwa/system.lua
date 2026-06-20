@@ -42,7 +42,7 @@ do
 
 	function os.realexit(code)
 		-- Flush stdout pipe before exiting so any pending output is captured
-		local output = import("goluwa/output.lua")
+		local output = import("goluwa/cli/output.lua")
 		output.Flush()
 		output.Shutdown()
 		io.flush()

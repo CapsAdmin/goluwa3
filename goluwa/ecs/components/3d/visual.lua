@@ -1,5 +1,5 @@
 local event = import("goluwa/event.lua")
-local commands = import("goluwa/commands.lua")
+local commands = import("goluwa/cli/commands.lua")
 local prototype = import("goluwa/prototype.lua")
 -- Pre-register to break import cycle: visual -> render3d -> light -> visual
 local Visual = prototype.CreateTemplate("visual")

@@ -947,7 +947,7 @@ do -- commands
 			return
 		end
 
-		local pvars = import("goluwa/pvars.lua")
+		local pvars = import("goluwa/cli/pvars.lua")
 
 		if pvars then
 			local key, val = line:match("^([%w_]+)%s+(.+)")
@@ -990,7 +990,7 @@ do -- commands
 		if not args or not args[1] then return end
 
 		local line = join_args(args, " ")
-		local pvars = import("goluwa/pvars.lua")
+		local pvars = import("goluwa/cli/pvars.lua")
 
 		if pvars then
 			local key, val = line:match("^([%w_]+)%s+(.+)")

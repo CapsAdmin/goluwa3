@@ -1,6 +1,6 @@
 local audio = import("goluwa/audio.lua")
 local line = import("lua/line.lua")
-local pvars = import("goluwa/pvars.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local vfs = import("goluwa/vfs.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local love = ... or _G.love
