@@ -1,7 +1,7 @@
 import("goluwa/physics.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 Entity.RegisterComponent("camera", import("lua/components/camera.lua"))
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
 Entity.RegisterComponent("player_physgun", import("lua/components/player_physgun.lua"))

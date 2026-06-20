@@ -6,7 +6,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local RigidBody = prototype.CreateTemplate("rigid_body")
 RigidBody.Physics = nil
 

@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")

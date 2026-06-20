@@ -1,6 +1,6 @@
 local HOTRELOAD = _G.HOTRELOAD
 _G.HOTRELOAD = false
-local TuiPanel = import("goluwa/ecs/tui_panel.lua")
+local TuiPanel = import("goluwa/cli/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local event = import("goluwa/event.lua")

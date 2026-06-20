@@ -9,7 +9,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
 local callstack = import("goluwa/debug/callstack.lua")
-local Visual = import("goluwa/ecs/components/3d/visual.lua").Library
+local Visual = import("goluwa/entities/components/visual.lua").Library
 local fonts = import("goluwa/render2d/fonts.lua")
 local renderdoc = import("goluwa/bindings/renderdoc.lua")
 

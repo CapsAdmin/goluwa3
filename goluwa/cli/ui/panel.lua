@@ -1,25 +1,25 @@
 local repl = import("goluwa/cli/repl.lua")
 local valid = nil
-local TuiPanel = import("goluwa/ecs/base.lua")("tui_panel", "ecs.components.tui.", function()
+local TuiPanel = import("goluwa/entities/base.lua")("tui_panel", "ecs.components.tui.", function()
 	valid = valid or
 		{
 			-- reuse 2d components
 			transform = import("goluwa/render2d/ui/components/transform.lua"),
 			layout = import("goluwa/render2d/ui/components/layout.lua"),
 			-- tui-specific  components
-			tui_element = import("goluwa/ecs/components/tui/tui_element.lua"),
-			tui_text = import("goluwa/ecs/components/tui/tui_text.lua"),
-			tui_border = import("goluwa/ecs/components/tui/tui_border.lua"),
-			tui_mouse_input = import("goluwa/ecs/components/tui/tui_mouse_input.lua"),
-			tui_key_input = import("goluwa/ecs/components/tui/tui_key_input.lua"),
-			tui_clickable = import("goluwa/ecs/components/tui/tui_clickable.lua"),
-			tui_resizable = import("goluwa/ecs/components/tui/tui_resizable.lua"),
-			tui_draggable = import("goluwa/ecs/components/tui/tui_draggable.lua"),
-			tui_animation = import("goluwa/ecs/components/tui/tui_animation.lua"),
+			tui_element = import("goluwa/cli/ui/components/element.lua"),
+			tui_text = import("goluwa/cli/ui/components/text.lua"),
+			tui_border = import("goluwa/cli/ui/components/border.lua"),
+			tui_mouse_input = import("goluwa/cli/ui/components/mouse_input.lua"),
+			tui_key_input = import("goluwa/cli/ui/components/key_input.lua"),
+			tui_clickable = import("goluwa/cli/ui/components/clickable.lua"),
+			tui_resizable = import("goluwa/cli/ui/components/resizable.lua"),
+			tui_draggable = import("goluwa/cli/ui/components/draggable.lua"),
+			tui_animation = import("goluwa/cli/ui/components/animation.lua"),
 		}
 	return valid
 end)
-import.loaded["goluwa/ecs/tui_panel.lua"] = TuiPanel
+import.loaded["goluwa/cli/ui/panel.lua"] = TuiPanel
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
 TuiPanel.World = TuiPanel.New{

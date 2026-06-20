@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local prototype = import("goluwa/prototype.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local commands = import("goluwa/cli/commands.lua")
 local gine = import("addons/gmod/lua/gine.lua")

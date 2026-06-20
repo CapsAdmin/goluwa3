@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")

@@ -2266,7 +2266,7 @@ function crylevel.Apply(steam)
 	end
 
 	function steam.SpawnCryLevel(level, parent)
-		local Entity = import("goluwa/ecs/entity.lua")
+		local Entity = import("goluwa/entities/entity.lua")
 		local data = steam.LoadCryLevel(level)
 
 		if steam.active_cry_terrain_renderer then
@@ -2312,7 +2312,7 @@ function crylevel.Apply(steam)
 	end
 
 	function steam.SetCryLevel(level)
-		local Entity = import("goluwa/ecs/entity.lua")
+		local Entity = import("goluwa/entities/entity.lua")
 		steam.cry_level_world = steam.cry_level_world or Entity.New({Name = "cry_level_world"})
 		local level_dir = assert(crylevel.ResolveLevelDirectory(steam, level))
 		local level_name = level_dir:match("/([^/]+)/$") or level_dir

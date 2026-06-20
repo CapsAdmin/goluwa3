@@ -3,7 +3,7 @@ local commands = import("goluwa/cli/commands.lua")
 local prototype = import("goluwa/prototype.lua")
 -- Pre-register to break import cycle: visual -> render3d -> light -> visual
 local Visual = prototype.CreateTemplate("visual")
-import.loaded["goluwa/ecs/components/3d/visual.lua"] = Visual
+import.loaded["goluwa/entities/components/visual.lua"] = Visual
 local BVH = import("goluwa/physics/bvh.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -14,7 +14,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local test_helper = import("goluwa/test.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local visual = {}

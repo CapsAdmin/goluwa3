@@ -3,7 +3,7 @@ local physics_constants = import("goluwa/physics/constants.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local VisualComponent = import("goluwa/ecs/components/3d/visual.lua")
+local VisualComponent = import("goluwa/entities/components/visual.lua")
 local static_model_query = {}
 
 local function for_each_spatial_component(callback)

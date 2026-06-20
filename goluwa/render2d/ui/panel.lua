@@ -1,5 +1,5 @@
 local valid = nil
-local Panel = import("goluwa/ecs/base.lua")("panel", "ecs.components.2d.", function()
+local Panel = import("goluwa/entities/base.lua")("panel", "ecs.components.2d.", function()
 	valid = valid or
 		{
 			animation = import("goluwa/render2d/ui/components/animation.lua"),

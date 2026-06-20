@@ -50,7 +50,7 @@ end
 
 function META:OnFirstCreated()
 	local function get_world()
-		local tp = import.loaded["goluwa/ecs/tui_panel/lua"]
+		local tp = import.loaded["goluwa/cli/ui/panel.lua"]
 		return tp and tp.World
 	end
 

@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local debug_draw = import("goluwa/render3d/debug_draw.lua")
-local Visual = import("goluwa/ecs/components/3d/visual.lua")
+local Visual = import("goluwa/entities/components/visual.lua")
 local aabb_enabled = false
 
 event.AddListener("KeyInput", "aabb_debug_toggle", function(key, press)

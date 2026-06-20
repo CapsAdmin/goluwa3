@@ -5,7 +5,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 
 local function get_screen_pixel(x, y)
 	local r, g, b, a = render.target:GetTexture():GetPixel(x, y)

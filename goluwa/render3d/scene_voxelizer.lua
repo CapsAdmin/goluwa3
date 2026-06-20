@@ -71,8 +71,8 @@ local function build_snapped_origin(camera_position, voxel_size)
 end
 
 local function get_visual_library()
-	local Visual = import.loaded["goluwa/ecs/components/3d/visual.lua"] or
-		import("goluwa/ecs/components/3d/visual.lua")
+	local Visual = import.loaded["goluwa/entities/components/visual.lua"] or
+		import("goluwa/entities/components/visual.lua")
 	return Visual and Visual.Library or nil
 end
 

@@ -8,7 +8,7 @@ _G.HOTRELOAD = false
 -- then type: runfile("addons/test/lua/examples/tui_ecs_demo.lua")
 --
 -- Ctrl+C returns to the REPL.
-local TuiPanel = import("goluwa/ecs/tui_panel.lua")
+local TuiPanel = import("goluwa/cli/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
 local repl = import("goluwa/cli/repl.lua")

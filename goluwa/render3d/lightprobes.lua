@@ -979,7 +979,7 @@ function lightprobes.CreatePipelines()
 	local ibl = import.loaded["goluwa/render3d/ibl.lua"] or import("goluwa/render3d/ibl.lua")
 	local orientation = import("goluwa/render3d/orientation.lua")
 	local Material = import("goluwa/render3d/material.lua")
-	local Light = import("goluwa/ecs/components/3d/light.lua")
+	local Light = import("goluwa/entities/components/light.lua")
 
 	for _, key in ipairs{
 		"sky_pipeline",

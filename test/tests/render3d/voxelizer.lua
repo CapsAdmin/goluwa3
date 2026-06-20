@@ -6,7 +6,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 
 local function attach_visual(entity, polygon3d, material, primitive_scale)
 	entity:AddComponent("visual")

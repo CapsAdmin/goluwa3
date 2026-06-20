@@ -1,10 +1,8 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
-
 -- Pre-register to break import cycle: light -> render3d -> light
 local Light = prototype.CreateTemplate("light")
-import.loaded["goluwa/ecs/components/3d/light.lua"] = Light
-
+import.loaded["goluwa/entities/components/light.lua"] = Light
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -13,7 +11,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
-local Visual = import("goluwa/ecs/components/3d/visual.lua")
+local Visual = import("goluwa/entities/components/visual.lua")
 local event = import("goluwa/event.lua")
 local MAX_SHADOW_PASSES_PER_FRAME = 4
 local shadow_pass_budget_frame = -1

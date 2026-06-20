@@ -1,5 +1,5 @@
 local steam = import("goluwa/steam/steam.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local info = list.find(steam.GetGames(), function(game)

@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 
 T.Test("entity world hierarchy change events", function()
 	local events = {}

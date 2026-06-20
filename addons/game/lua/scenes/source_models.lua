@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Entity = import("goluwa/ecs/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local vfs = import("goluwa/vfs.lua")
 local steam = import("goluwa/steam/steam.lua")
 steam.MountSourceGame("gmod")
