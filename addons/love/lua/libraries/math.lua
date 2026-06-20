@@ -39,7 +39,7 @@ do
 	end
 
 	do
-		local noise = import("goluwa/noise.lua")
+		local noise = import("goluwa/math/noise.lua")
 
 		function love.math.noise(x, y, w, h)
 			if x and y and z and w then
