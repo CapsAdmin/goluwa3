@@ -1,6 +1,6 @@
 require("goluwa.global_environment")
 --
-local crash_trace = import("goluwa/crash_trace.lua")
+local crash_trace = import("goluwa/bindings/crash_trace.lua")
 crash_trace.Install()
 local event = import("goluwa/event.lua")
 

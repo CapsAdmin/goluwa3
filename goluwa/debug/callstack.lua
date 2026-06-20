@@ -93,21 +93,6 @@ function callstack.get_path_line(level--[[#: 1 .. inf]])
 	return line:sub(1, colon - 1), line:sub(colon + 1), line
 end
 
-do
-	local ffi = require("ffi")
-	ffi.cdef([[
-		int backtrace (void **buffer, int size);
-		char ** backtrace_symbols_fd(void *const *buffer, int size, int fd);
-	]])
-
-	function callstack.c_traceback()
-		local max = 64
-		local array = ffi.new("void *[?]", max)
-		local size = ffi.C.backtrace(array, max)
-		ffi.C.backtrace_symbols_fd(array, size, 1)
-	end
-end
-
 local function on_error(msg)
 	local sep = "\n  "
 	local lines = callstack.format(callstack.traceback(""))
