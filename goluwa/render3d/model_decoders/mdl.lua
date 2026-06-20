@@ -2,7 +2,7 @@ local codec = import("goluwa/codec.lua")
 local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-local file_path = import("goluwa/file_path.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 local tasks = import("goluwa/tasks.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -11,7 +11,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local _debug = false
 local header = [[
 	string id[4]; // Model format ID, such as "IDST" (0x49 0x44 0x53 0x54)

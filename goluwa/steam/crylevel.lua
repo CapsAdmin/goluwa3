@@ -1,6 +1,6 @@
 local xml = import("goluwa/codecs/xml.lua")
 local vfs = import("goluwa/vfs.lua")
-local file_path = import("goluwa/file_path.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")

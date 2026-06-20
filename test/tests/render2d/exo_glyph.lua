@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local gfonts = import("goluwa/gfonts.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local ttf = import("goluwa/codecs/ttf.lua")
 local ttf_font = import("goluwa/render2d/fonts/ttf.lua")

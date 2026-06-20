@@ -27,7 +27,7 @@ local function get_vfs()
 end
 
 do -- loaders
-	local file_path = _G.require("goluwa.file_path")
+	local file_path = _G.require("goluwa.filesystem/path")
 	local normalize_path = file_path.Normalize
 
 	local function get_base_path(path)

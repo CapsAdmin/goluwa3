@@ -1,4 +1,4 @@
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local png = import("goluwa/codecs/png.lua")
 local profiler = import("goluwa/profiler.lua")
 local Buffer = import("goluwa/structs/buffer.lua")

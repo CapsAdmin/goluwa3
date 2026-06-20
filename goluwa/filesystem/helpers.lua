@@ -1,5 +1,5 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
-local file_path = import("goluwa/file_path.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 local mixed_case_path_cache = {}
 local recursive_basename_index_cache = {}
 
@@ -91,7 +91,7 @@ function vfs.FindMixedCasePath(path)
 			local abs_dir = vfs.GetAbsolutePath(dir == "" and "." or dir, true)
 
 			if abs_dir then
-				local fs = import("goluwa/fs.lua")
+				local fs = import("goluwa/filesystem/fs.lua")
 				local files = fs.get_files(abs_dir)
 
 				if files then
@@ -119,7 +119,7 @@ function vfs.FindMixedCasePath(path)
 	return nil
 end
 
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 
 function vfs.Delete(path, ...)
 	local abs_path = vfs.GetAbsolutePath(path, ...)

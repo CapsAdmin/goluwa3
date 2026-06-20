@@ -1,4 +1,4 @@
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local ogg = import("goluwa/codecs/ogg.lua")
 local JitProfiler = import("goluwa/jit/profiler.lua")
 local system = import("goluwa/system.lua")

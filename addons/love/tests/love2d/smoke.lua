@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local base64 = import("goluwa/codecs/base64.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local line = import("lua/line.lua")
 local frame = import("addons/love/lua/libraries/graphics/frame.lua")
 local render = import("goluwa/render/render.lua")

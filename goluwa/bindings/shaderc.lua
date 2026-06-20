@@ -207,7 +207,7 @@ function mod.compile(source, shader_type, entry_point)
 		end
 
 		local path = "./storage/logs/last_shader_error.glsl"
-		import("goluwa/fs.lua").write_file(path, source)
+		import("goluwa/filesystem/fs.lua").write_file(path, source)
 		error_message = error_message:gsub(shader_type .. ":", path .. ":")
 		lib.shaderc_result_release(result)
 		lib.shaderc_compile_options_release(options)

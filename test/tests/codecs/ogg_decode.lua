@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
 local ogg = import("goluwa/codecs/ogg.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local resource = import("goluwa/resource.lua")
 
 T.Test("Ogg/Vorbis decoder", function()

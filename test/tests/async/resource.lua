@@ -5,7 +5,7 @@ local timer = import("goluwa/timer.lua")
 local vfs = import("goluwa/vfs.lua")
 local http = import("goluwa/sockets/http.lua")
 local crypto = import("goluwa/crypto.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 
 local function remove_recursive(path)
 	if fs.is_directory(path) then

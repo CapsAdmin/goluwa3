@@ -193,7 +193,7 @@ end
 do
 	local steam = import("goluwa/steam/steam.lua")
 	local vfs = import("goluwa/vfs.lua")
-	local file_path = import("goluwa/file_path.lua")
+	local file_path = import("goluwa/filesystem/path.lua")
 	local xml = import("goluwa/codecs/xml.lua")
 	local cry_mtl_document_cache = {}
 	local cry_mtl_material_cache = {}

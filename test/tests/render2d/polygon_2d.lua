@@ -3,7 +3,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local width = 512
 local height = 512
 

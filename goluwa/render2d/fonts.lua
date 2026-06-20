@@ -1,4 +1,4 @@
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local gfonts = import("goluwa/gfonts.lua")
 local Color = import("goluwa/structs/color.lua")

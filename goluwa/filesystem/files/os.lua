@@ -1,4 +1,4 @@
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local ffi = desire("ffi")
 local vfs = import("goluwa/filesystem/vfs.lua")
 local prototype = import("goluwa/prototype.lua")

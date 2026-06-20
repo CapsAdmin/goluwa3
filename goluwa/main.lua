@@ -15,7 +15,7 @@ end
 
 local system = import("goluwa/system.lua")
 local process = import("goluwa/bindings/process.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local commands = import("goluwa/cli/commands.lua")
@@ -26,7 +26,7 @@ import("goluwa/test.lua") -- add test command
 local function init_game()
 	import("goluwa/cli/pvars.lua").Initialize()
 	import("goluwa/cli/repl.lua").Initialize()
-	import("goluwa/filewatcher.lua").Start()
+	import("goluwa/filesystem/watcher.lua").Start()
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
 
 	event.AddListener("ShutDown", function()

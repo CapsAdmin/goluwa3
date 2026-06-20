@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local json = import("goluwa/codecs/json.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local base64 = import("goluwa/codecs/base64.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")

@@ -2,7 +2,7 @@ local http = import("goluwa/sockets/http.lua")
 local callback = import("goluwa/callback.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
-local file_path = import("goluwa/file_path.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 
 local function get_http_client()
 	return import("goluwa/sockets/http/http11_client.lua")

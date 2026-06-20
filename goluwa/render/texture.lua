@@ -1656,7 +1656,7 @@ do
 
 	do
 		local png = import("goluwa/codecs/png.lua")
-		local fs = import("goluwa/fs.lua")
+		local fs = import("goluwa/filesystem/fs.lua")
 
 		function Texture:SaveAs(path)
 			return self:Download():SaveAs(path)

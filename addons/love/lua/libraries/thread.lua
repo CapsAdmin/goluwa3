@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local buffer = require("string.buffer")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local native_fs = import("goluwa/bindings/filesystem.lua")
 local native_threads = import("goluwa/bindings/threads.lua")
 local system = import("goluwa/system.lua")

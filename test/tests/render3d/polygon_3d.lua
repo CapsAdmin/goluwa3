@@ -12,7 +12,7 @@ local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Entity = import("goluwa/ecs/entity.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 
 T.Test3D("Polygon3D", function(draw)
 	-- ============================================================================

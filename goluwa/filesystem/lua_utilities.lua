@@ -1,5 +1,5 @@
 local utility = import("goluwa/utility.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
 local event = import("goluwa/event.lua")
 vfs.files_ran_ = vfs.files_ran_ or {}

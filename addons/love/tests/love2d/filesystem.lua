@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 
 local function create_love_filesystem_env()
 	local love = {_line_env = {}}

@@ -843,7 +843,7 @@ function lightprobes.ExportProbeDepth(index)
 		return nil
 	end
 
-	local fs = import("goluwa/fs.lua")
+	local fs = import("goluwa/filesystem/fs.lua")
 	local dir = "tmp/lightprobes/"
 	assert(fs.create_directory_recursive(dir))
 

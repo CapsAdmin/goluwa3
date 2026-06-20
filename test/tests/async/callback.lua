@@ -2,7 +2,7 @@ local T = import("test/environment.lua")
 local callback = import("goluwa/callback.lua")
 local timer = import("goluwa/timer.lua")
 local process = import("goluwa/bindings/process.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 
 local function wait_for_process(proc, timeout)
 	local stdout = ""

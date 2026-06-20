@@ -10,7 +10,7 @@ agent:AddMessage{
 }
 
 local function image(path)
-	local fs = import("goluwa/fs.lua")
+	local fs = import("goluwa/filesystem/fs.lua")
 	local codec = import("goluwa/codec.lua")
 	local content = assert(fs.read_file(path))
 	return "data:image/jpeg;base64," .. codec.Encode("base64", content)

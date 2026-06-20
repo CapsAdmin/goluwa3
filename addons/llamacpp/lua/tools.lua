@@ -1,4 +1,4 @@
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 return {
 	glob = {
 		description = [[Find files matching a glob pattern (e.g., '**/*.py', 'src/**/*.js'). 

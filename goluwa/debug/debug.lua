@@ -1,4 +1,4 @@
-local file_path = import("goluwa/file_path.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 
 do
 	local file

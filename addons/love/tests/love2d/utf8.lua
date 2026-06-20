@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local line = import("lua/line.lua")
 
 T.Test2D("love game environment exposes utf8 compatibility helpers", function()

@@ -1,5 +1,5 @@
 local vfs = import("goluwa/vfs.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local crypto = import("goluwa/crypto.lua")
 local callback = import("goluwa/callback.lua")
 local codec = import("goluwa/codec.lua")

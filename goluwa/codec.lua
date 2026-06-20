@@ -1,5 +1,5 @@
 local vfs = import("goluwa/vfs.lua")
-local fs = import("goluwa/fs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local codec = library()
 local codec_modules
