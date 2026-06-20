@@ -5,7 +5,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local Column = import("../elements/column.lua")
 local Text = import("../elements/text.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 
 local function draw_background(self)
 	local transform = self.transform

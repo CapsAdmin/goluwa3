@@ -4,8 +4,8 @@ local TuiPanel = import("goluwa/ecs/base.lua")("tui_panel", "ecs.components.tui.
 	valid = valid or
 		{
 			-- reuse 2d components
-			transform = import("goluwa/ecs/components/2d/transform.lua"),
-			layout = import("goluwa/ecs/components/2d/layout.lua"),
+			transform = import("goluwa/render2d/ui/components/transform.lua"),
+			layout = import("goluwa/render2d/ui/components/layout.lua"),
 			-- tui-specific  components
 			tui_element = import("goluwa/ecs/components/tui/tui_element.lua"),
 			tui_text = import("goluwa/ecs/components/tui/tui_text.lua"),

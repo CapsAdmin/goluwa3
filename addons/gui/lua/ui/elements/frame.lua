@@ -6,7 +6,7 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local prototype = import("goluwa/prototype.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	return Panel.New{

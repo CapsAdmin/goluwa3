@@ -1,5 +1,5 @@
 local Text = import("../elements/text.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local ScrollablePanel = import("../elements/scrollable_panel.lua")
 local Column = import("../elements/column.lua")
 local Button = import("../widgets/button.lua")

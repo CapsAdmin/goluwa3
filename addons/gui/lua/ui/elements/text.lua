@@ -4,7 +4,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 return function(props)
 	props = props or {}
 	local text_color

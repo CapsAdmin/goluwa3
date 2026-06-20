@@ -10,7 +10,7 @@ local Splitter = import("../elements/splitter.lua")
 local Text = import("../elements/text.lua")
 local Window = import("../widgets/window.lua")
 local ScrollablePanel = import("../elements/scrollable_panel.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local timer = import("goluwa/timer.lua")
 
 local function update_layout_now(entity)

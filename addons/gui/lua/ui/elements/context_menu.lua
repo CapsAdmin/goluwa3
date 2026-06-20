@@ -1,6 +1,6 @@
 local render2d = import("goluwa/render2d/render2d.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
 local MenuContainer = import("lua/ui/elements/menu_container.lua")

@@ -1,5 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Text = import("lua/ui/elements/text.lua")
 local Value = import("lua/ui/widgets/properties/value.lua")
 local Checkbox = import("lua/ui/elements/checkbox.lua")

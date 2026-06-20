@@ -1,6 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Text = import("lua/ui/elements/text.lua")
 local ScrollablePanel = import("lua/ui/elements/scrollable_panel.lua")
 local theme = import("lua/ui/theme.lua")

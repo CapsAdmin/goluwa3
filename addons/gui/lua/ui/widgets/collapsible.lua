@@ -1,5 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Collapsible = import("../elements/collapsible.lua")
 local Clickable = import("../elements/clickable.lua")
 local Text = import("../elements/text.lua")

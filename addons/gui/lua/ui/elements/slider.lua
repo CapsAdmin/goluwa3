@@ -4,7 +4,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("lua/ui/theme.lua")
 return function(props)
 	local mode = props.Mode or "horizontal"

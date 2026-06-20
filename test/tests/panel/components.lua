@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
@@ -123,7 +123,7 @@ end)
 T.Pending("panel mouse simulation and hover", function()
 	local system = import("goluwa/system.lua")
 	local event = import("goluwa/event.lua")
-	local world = import("goluwa/ecs/panel.lua").World
+	local world = import("goluwa/render2d/ui/panel.lua").World
 	world:RemoveChildren()
 	world.transform:SetSize(Vec2(2000, 2000))
 	local pnl = Panel.New{

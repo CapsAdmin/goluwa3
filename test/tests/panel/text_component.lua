@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local pretext = import("goluwa/pretext/init.lua")

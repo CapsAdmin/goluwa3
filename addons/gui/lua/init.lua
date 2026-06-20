@@ -12,7 +12,7 @@ local function lazy_init()
 
 	init = true
 	system.GetWindow():SetMouseTrapped(true)
-	local Panel = import("goluwa/ecs/panel.lua")
+	local Panel = import("goluwa/render2d/ui/panel.lua")
 	local Editor = import("lua/ui/widgets/editor.lua")
 	world_panel = Panel.World
 	world_panel:RemoveKeyed("GameMenuPanel")

@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local Window = import("addons/gui/lua/ui/widgets/window.lua")

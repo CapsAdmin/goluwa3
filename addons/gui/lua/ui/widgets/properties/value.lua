@@ -1,6 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local ContextMenu = import("lua/ui/elements/context_menu.lua")
 local MenuItem = import("lua/ui/elements/context_menu_item.lua")

@@ -287,7 +287,7 @@ local function call_global_event(entity, event_name, a, b, c, d, e, f, g)
 	end
 end
 
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 
 function META.GetHoveredObject()
 	return mouse_input.last_hovered

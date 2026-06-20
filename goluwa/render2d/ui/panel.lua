@@ -2,23 +2,23 @@ local valid = nil
 local Panel = import("goluwa/ecs/base.lua")("panel", "ecs.components.2d.", function()
 	valid = valid or
 		{
-			animation = import("goluwa/ecs/components/2d/animation.lua"),
-			clickable = import("goluwa/ecs/components/2d/clickable.lua"),
-			ui_debug = import("goluwa/ecs/components/2d/ui_debug.lua"),
-			gui_element = import("goluwa/ecs/components/2d/gui_element.lua"),
-			key_input = import("goluwa/ecs/components/2d/key_input.lua"),
-			layout = import("goluwa/ecs/components/2d/layout.lua"),
-			mouse_input = import("goluwa/ecs/components/2d/mouse_input.lua"),
-			rect = import("goluwa/ecs/components/2d/rect.lua"),
-			resizable = import("goluwa/ecs/components/2d/resizable.lua"),
-			style = import("goluwa/ecs/components/2d/style.lua"),
-			text = import("goluwa/ecs/components/2d/text.lua"),
-			transform = import("goluwa/ecs/components/2d/transform.lua"),
-			draggable = import("goluwa/ecs/components/2d/draggable.lua"),
+			animation = import("goluwa/render2d/ui/components/animation.lua"),
+			clickable = import("goluwa/render2d/ui/components/clickable.lua"),
+			ui_debug = import("goluwa/render2d/ui/components/ui_debug.lua"),
+			gui_element = import("goluwa/render2d/ui/components/gui_element.lua"),
+			key_input = import("goluwa/render2d/ui/components/key_input.lua"),
+			layout = import("goluwa/render2d/ui/components/layout.lua"),
+			mouse_input = import("goluwa/render2d/ui/components/mouse_input.lua"),
+			rect = import("goluwa/render2d/ui/components/rect.lua"),
+			resizable = import("goluwa/render2d/ui/components/resizable.lua"),
+			style = import("goluwa/render2d/ui/components/style.lua"),
+			text = import("goluwa/render2d/ui/components/text.lua"),
+			transform = import("goluwa/render2d/ui/components/transform.lua"),
+			draggable = import("goluwa/render2d/ui/components/draggable.lua"),
 		}
 	return valid
 end)
-import.loaded["goluwa/ecs/panel.lua"] = Panel
+import.loaded["goluwa/render2d/ui/panel.lua"] = Panel
 
 do
 	local base_new = Panel.New

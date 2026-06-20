@@ -7,7 +7,7 @@ local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local resource = import("goluwa/resource.lua")
 local system = import("goluwa/system.lua")
-local Panel = import("goluwa/ecs/panel.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
 local function pump_draws(frame_count)
