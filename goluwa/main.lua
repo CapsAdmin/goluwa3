@@ -27,6 +27,11 @@ local function init_game()
 	import("goluwa/pvars.lua").Initialize()
 	import("goluwa/repl.lua").Initialize()
 	import("goluwa/filewatcher.lua").Start()
+	fs.write_file(".running_pid", tostring(process.current:get_id()))
+
+	event.AddListener("ShutDown", function()
+		fs.remove_file(".running_pid")
+	end)
 
 	if _G.GRAPHICS then
 		local render = import("goluwa/render/render.lua")
@@ -117,17 +122,19 @@ local function normalize_path(path)
 	return path
 end
 
-commands.Add("run", function(path, ...)
-	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
-
-	_G.AUDIO = true
-
+local function run_once()
 	if system.GetFrameNumber() == 0 then
 		event.AddListener("FrameEnd", function()
 			system.ShutDown(0)
 		end)
 	end
+end
 
+commands.Add("run", function(path, ...)
+	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
+
+	_G.AUDIO = true
+	run_once()
 	init_game()
 	assert(loadfile(normalize_path(path)))(...)
 end)
@@ -136,13 +143,7 @@ commands.Add("lua", function(code, ...)
 	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
 
 	_G.AUDIO = true
-
-	if system.GetFrameNumber() == 0 then
-		event.AddListener("FrameEnd", function()
-			system.ShutDown(0)
-		end)
-	end
-
+	run_once()
 	init_game()
 	assert(loadstring(code))(...)
 end)
@@ -167,10 +168,10 @@ commands.Add("cli", function()
 	_G.AUDIO = true
 	_G.GRAPHICS_3D = false
 	_G.PHYSICS = false
-	fs.write_file(".running_pid", tostring(process.current:get_id()))
+	local native_threads = import("goluwa/bindings/threads.lua")
 
-	event.AddListener("ShutDown", function()
-		fs.remove_file(".running_pid")
+	event.AddListener("Update", "cli_limit_fps", function()
+		native_threads.sleep(1000 / 30)
 	end)
 
 	init_game()
