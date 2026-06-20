@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
-local gfonts = import("goluwa/gfonts.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local ttf = import("goluwa/codecs/ttf.lua")
 local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
@@ -42,7 +42,7 @@ local function get_exo_regular_path()
 	end
 
 	local ok, path = pcall(function()
-		return gfonts.Download{name = "Exo", weight = "Regular"}:Get()
+		return fonts.DownloadGoogleFont{name = "Exo", weight = "Regular"}:Get()
 	end)
 
 	if ok and path then

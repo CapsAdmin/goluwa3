@@ -1,24 +1,23 @@
 local T = import("test/environment.lua")
-local gfonts = import("goluwa/gfonts.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local tasks = import("goluwa/tasks.lua")
 
 T.Test("gfonts download Orbitron", function()
-	local promise = gfonts.Download{name = "Orbitron", weight = "Regular"}
+	local promise = fonts.DownloadGoogleFont{name = "Orbitron", weight = "Regular"}
 	local path, changed = promise:Get()
 	T(type(path))["=="]("string")
 	T(path:find(".ttf", 1, true))["~="](nil)
 end)
 
 T.Test("gfonts download Monoton", function()
-	local promise = gfonts.Download{name = "Monoton", weight = "Regular"}
+	local promise = fonts.DownloadGoogleFont{name = "Monoton", weight = "Regular"}
 	local path, changed = promise:Get()
 	T(type(path))["=="]("string")
 	T(path:find(".ttf", 1, true))["~="](nil)
 end)
 
 T.Test("gfonts download invalid font", function()
-	local promise = gfonts.Download{name = "ThisFontDoesNotExistProbably12345", weight = "Regular"}
+	local promise = fonts.DownloadGoogleFont{name = "ThisFontDoesNotExistProbably12345", weight = "Regular"}
 	local ok, err = pcall(function()
 		promise:Get()
 	end)
