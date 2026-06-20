@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local buffer = require("string.buffer")
-local setmetatable = import("goluwa/setmetatable_gc.lua")
+local setmetatable = import("goluwa/table/setmetatable_gc.lua")
 local LuaState = import("goluwa/bindings/luajit.lua")
 local threads = {}
 local live_threads = {}

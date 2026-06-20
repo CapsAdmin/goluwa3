@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local setmetatable = import("goluwa/setmetatable_gc.lua")
+local setmetatable = import("goluwa/table/setmetatable_gc.lua")
 local LuaState = {}
 LuaState.__index = LuaState
 ffi.cdef[[

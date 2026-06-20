@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local setmetatable_with_gc = dofile("goluwa/setmetatable_gc.lua")
+local setmetatable_with_gc = dofile("goluwa/table/setmetatable_gc.lua")
 
 T.Test("setmetatable_gc triggers during runtime GC", function()
 	local gc_called = false

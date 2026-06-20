@@ -1,4 +1,4 @@
-local setmetatable = import("goluwa/setmetatable_gc.lua")
+local setmetatable = import("goluwa/table/setmetatable_gc.lua")
 local ffi = require("ffi")
 -- FILE operations
 ffi.cdef[[

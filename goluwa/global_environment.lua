@@ -102,7 +102,7 @@ do
 end
 
 _G.list = import("goluwa/list.lua")
-_G.setmetatable = import("goluwa/setmetatable_gc.lua")
+_G.setmetatable = import("goluwa/table/setmetatable_gc.lua")
 import("goluwa/debug/debug.lua")
 import("goluwa/table/table.lua")
 import("goluwa/string/string.lua")
