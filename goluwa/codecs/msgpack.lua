@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local bit = require("bit")
 local math = require("math")
 local msgpack = library()
-local IS_LUAFFI = not rawget(_G, "jit")
 -- standard cdefs
 ffi.cdef[[
   void free(void *ptr);
@@ -250,11 +249,7 @@ packers["function"] = function(data)
 	error("unimplemented")
 end
 packers.userdata = function(data)
-	if IS_LUAFFI then
-		return packers.cdata(data)
-	else
-		error("unimplemented")
-	end
+	return packers.cdata(data)
 end
 packers.thread = function(data)
 	error("unimplemented")
