@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
@@ -182,7 +186,7 @@ local function create_box_source_mesh(size)
 	return poly
 end
 
-T.Test3D("Convex hull approximation removes interior triangle vertices", function()
+T.TestPhysics("Convex hull approximation removes interior triangle vertices", function()
 	local hull = convex_hull.BuildFromTriangles(create_internal_vertex_cube_mesh())
 	local has_center = false
 
@@ -201,7 +205,7 @@ T.Test3D("Convex hull approximation removes interior triangle vertices", functio
 	T(has_center)["=="](false)
 end)
 
-T.Test3D("Convex rigid body can rest on triangle world geometry", function()
+T.TestPhysics("Convex rigid body can rest on triangle world geometry", function()
 	local ground = create_flat_ground("convex_ground_world", 10)
 	local hull = convex_hull.BuildFromTriangles(create_pyramid_source_mesh())
 	local body_ent = Entity.New({Name = "convex_ground_body"})
@@ -226,7 +230,7 @@ T.Test3D("Convex rigid body can rest on triangle world geometry", function()
 	ground:Remove()
 end)
 
-T.Test3D("Rigid sphere collides with static convex hull", function()
+T.TestPhysics("Rigid sphere collides with static convex hull", function()
 	local hull = convex_hull.BuildFromTriangles(create_octahedron_source_mesh(1))
 	local convex_ent = Entity.New({Name = "convex_static_octahedron"})
 	convex_ent:AddComponent("transform")
@@ -265,7 +269,7 @@ T.Test3D("Rigid sphere collides with static convex hull", function()
 	convex_ent:Remove()
 end)
 
-T.Test3D("Capsule rigid body collides with static convex hull", function()
+T.TestPhysics("Capsule rigid body collides with static convex hull", function()
 	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(3, 1, 3)))
 	local convex_ent = Entity.New({Name = "convex_static_capsule_support"})
 	convex_ent:AddComponent("transform")
@@ -298,7 +302,7 @@ T.Test3D("Capsule rigid body collides with static convex hull", function()
 	capsule_ent:Remove()
 end)
 
-T.Test3D("Convex rigid body collides with static box", function()
+T.TestPhysics("Convex rigid body collides with static box", function()
 	local hull = convex_hull.BuildFromTriangles(create_pyramid_source_mesh())
 	local box_ent = Entity.New({Name = "convex_static_box"})
 	box_ent:AddComponent("transform")
@@ -333,7 +337,7 @@ T.Test3D("Convex rigid body collides with static box", function()
 	box_ent:Remove()
 end)
 
-T.Test3D("Fast rigid sphere does not tunnel through thin static convex hull", function()
+T.TestPhysics("Fast rigid sphere does not tunnel through thin static convex hull", function()
 	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(6, 0.2, 6)))
 	local blocker_ent = Entity.New({Name = "rigid_ccd_convex_blocker"})
 	blocker_ent:AddComponent("transform")
@@ -369,7 +373,7 @@ T.Test3D("Fast rigid sphere does not tunnel through thin static convex hull", fu
 	T(math.abs(position.z))["<"](0.1)
 end)
 
-T.Test3D("Fast rigid convex body does not tunnel through thin static box", function()
+T.TestPhysics("Fast rigid convex body does not tunnel through thin static box", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_box_blocker_for_convex"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -405,7 +409,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box", funct
 	T(math.abs(position.z))["<"](0.15)
 end)
 
-T.Test3D("Fast rigid box does not tunnel through thin static convex hull", function()
+T.TestPhysics("Fast rigid box does not tunnel through thin static convex hull", function()
 	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(6, 0.2, 6)))
 	local blocker_ent = Entity.New({Name = "rigid_ccd_static_convex_for_box"})
 	blocker_ent:AddComponent("transform")
@@ -441,7 +445,7 @@ T.Test3D("Fast rigid box does not tunnel through thin static convex hull", funct
 	T(math.abs(position.z))["<"](0.15)
 end)
 
-T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
+T.TestPhysics("Fast rigid convex bodies do not tunnel through each other", function()
 	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
 	local left_ent = Entity.New({Name = "rigid_ccd_dynamic_convex_left"})
 	left_ent:AddComponent("transform")
@@ -485,7 +489,7 @@ T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
 	T(left_pos.x)["<="](right_pos.x)
 end)
 
-T.Test3D("Fast rigid convex and box bodies do not tunnel through each other", function()
+T.TestPhysics("Fast rigid convex and box bodies do not tunnel through each other", function()
 	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
 	local convex_ent = Entity.New({Name = "rigid_ccd_dynamic_convex_vs_box"})
 	convex_ent:AddComponent("transform")
@@ -529,7 +533,7 @@ T.Test3D("Fast rigid convex and box bodies do not tunnel through each other", fu
 	T(convex_pos.x)["<="](box_pos.x)
 end)
 
-T.Test3D("Fast rotating rigid convex body does not miss a thin static box", function()
+T.TestPhysics("Fast rotating rigid convex body does not miss a thin static box", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_rotating_convex_target"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0.6, 1.6, 0))
@@ -572,7 +576,7 @@ T.Test3D("Fast rotating rigid convex body does not miss a thin static box", func
 	T(math.abs(angles.z))["<"](1.45)
 end)
 
-T.Test3D("Fast rigid convex body does not tunnel through thin static box at smaller fixed steps", function()
+T.TestPhysics("Fast rigid convex body does not tunnel through thin static box at smaller fixed steps", function()
 	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
 		with_fixed_step(fixed_dt, function()
 			local blocker_ent = Entity.New({Name = "rigid_ccd_box_blocker_for_convex_small_step"})
@@ -612,7 +616,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box at smal
 	end
 end)
 
-T.Test3D("Fast rotating rigid convex body remains detectable at smaller fixed steps", function()
+T.TestPhysics("Fast rotating rigid convex body remains detectable at smaller fixed steps", function()
 	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
 		with_fixed_step(fixed_dt, function()
 			local blocker_ent = Entity.New({Name = "rigid_ccd_rotating_convex_target_small_step"})

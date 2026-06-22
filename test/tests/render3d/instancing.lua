@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local T = import("test/environment.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")

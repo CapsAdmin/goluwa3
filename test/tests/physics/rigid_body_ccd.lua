@@ -77,7 +77,7 @@ local function create_world_geometry_ground(name, size)
 	return ground
 end
 
-T.Test3D("Fast rigid sphere tunnels through thin static box with auto CCD disabled", function()
+T.TestPhysics("Fast rigid sphere tunnels through thin static box with auto CCD disabled", function()
 	local blocker_ent = Entity.New({Name = "rigid_discrete_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -134,7 +134,7 @@ T.Test("Auto CCD stays disabled for short motion", function()
 	T(pair_solver_helpers.ShouldUseCCD(body))["=="](false)
 end)
 
-T.Test3D("Fast rigid sphere does not tunnel through thin static box with auto CCD", function()
+T.TestPhysics("Fast rigid sphere does not tunnel through thin static box with auto CCD", function()
 	local blocker_ent = Entity.New({Name = "rigid_auto_ccd_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -168,7 +168,7 @@ T.Test3D("Fast rigid sphere does not tunnel through thin static box with auto CC
 	sphere_ent:Remove()
 end)
 
-T.Test3D("Fast rigid sphere does not tunnel through thin static box when CCD is enabled", function()
+T.TestPhysics("Fast rigid sphere does not tunnel through thin static box when CCD is enabled", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -202,7 +202,7 @@ T.Test3D("Fast rigid sphere does not tunnel through thin static box when CCD is 
 	sphere_ent:Remove()
 end)
 
-T.Test3D("Fast rigid boxes do not tunnel through thin static world geometry", function()
+T.TestPhysics("Fast rigid boxes do not tunnel through thin static world geometry", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_box_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -237,7 +237,7 @@ T.Test3D("Fast rigid boxes do not tunnel through thin static world geometry", fu
 	T(math.abs(position.z))["<"](0.15)
 end)
 
-T.Test3D("Fast rigid box does not tunnel through triangle world floor", function()
+T.TestPhysics("Fast rigid box does not tunnel through triangle world floor", function()
 	local ground = create_world_geometry_ground("rigid_ccd_triangle_box_ground", 8)
 	local box_ent = Entity.New({Name = "rigid_ccd_triangle_box"})
 	box_ent:AddComponent("transform")
@@ -261,7 +261,7 @@ T.Test3D("Fast rigid box does not tunnel through triangle world floor", function
 	box_ent:Remove()
 end)
 
-T.Test3D("Fast rigid capsule does not tunnel through triangle world floor", function()
+T.TestPhysics("Fast rigid capsule does not tunnel through triangle world floor", function()
 	local ground = create_world_geometry_ground("rigid_ccd_triangle_capsule_ground", 8)
 	local capsule_ent = Entity.New({Name = "rigid_ccd_triangle_capsule"})
 	capsule_ent:AddComponent("transform")
@@ -284,7 +284,7 @@ T.Test3D("Fast rigid capsule does not tunnel through triangle world floor", func
 	capsule_ent:Remove()
 end)
 
-T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", function()
+T.TestPhysics("Fast rigid bodies do not tunnel through other moving rigid bodies", function()
 	local left_ent = Entity.New({Name = "rigid_ccd_dynamic_left"})
 	left_ent:AddComponent("transform")
 	left_ent.transform:SetPosition(Vec3(-4, 1, 0))
@@ -327,7 +327,7 @@ T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", fu
 	T(left_pos.x)["<="](right_pos.x)
 end)
 
-T.Test3D("Fast rotating rigid box does not miss a thin static box", function()
+T.TestPhysics("Fast rotating rigid box does not miss a thin static box", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_rotating_box_target"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0.6, 1.6, 0))

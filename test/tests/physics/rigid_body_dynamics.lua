@@ -12,7 +12,7 @@ local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
-T.Test3D("Rigid body collision response supports friction and restitution", function()
+T.TestPhysics("Rigid body collision response supports friction and restitution", function()
 	local platform_ent = Entity.New({Name = "rigid_material_platform"})
 	platform_ent:AddComponent("transform")
 	platform_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -53,7 +53,7 @@ T.Test3D("Rigid body collision response supports friction and restitution", func
 	sphere_ent:Remove()
 end)
 
-T.Test3D("Rigid bodies can sleep and wake on contact", function()
+T.TestPhysics("Rigid bodies can sleep and wake on contact", function()
 	local ground_ent = Entity.New({Name = "rigid_sleep_ground"})
 	ground_ent:AddComponent("transform")
 	ground_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -95,7 +95,7 @@ T.Test3D("Rigid bodies can sleep and wake on contact", function()
 	sphere_ent:Remove()
 end)
 
-T.Test3D("Rigid boxes respect sleep delay before regular sleep", function()
+T.TestPhysics("Rigid boxes respect sleep delay before regular sleep", function()
 	local box_ent = Entity.New({Name = "rigid_sleep_delay_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 1.5, 0))
@@ -131,7 +131,7 @@ T.Test3D("Rigid boxes respect sleep delay before regular sleep", function()
 	box_ent:Remove()
 end)
 
-T.Test3D("Rigid boxes do not force grounded sleep on awake dynamic supports", function()
+T.TestPhysics("Rigid boxes do not force grounded sleep on awake dynamic supports", function()
 	local support_ent = Entity.New({Name = "rigid_sleep_support_box"})
 	support_ent:AddComponent("transform")
 	support_ent.transform:SetPosition(Vec3(0, 0.5, 0))
@@ -185,7 +185,7 @@ T.Test3D("Rigid boxes do not force grounded sleep on awake dynamic supports", fu
 	support_ent:Remove()
 end)
 
-T.Test3D("Sleeping bodies wake when their sleeping dynamic support drops", function()
+T.TestPhysics("Sleeping bodies wake when their sleeping dynamic support drops", function()
 	local support_ent = Entity.New({Name = "rigid_drop_support_box"})
 	support_ent:AddComponent("transform")
 	support_ent.transform:SetPosition(Vec3(0, 0.5, 0))
@@ -238,7 +238,7 @@ T.Test3D("Sleeping bodies wake when their sleeping dynamic support drops", funct
 	support_ent:Remove()
 end)
 
-T.Test3D("Rigid body force and impulse API", function()
+T.TestPhysics("Rigid body force and impulse API", function()
 	local sphere_ent = Entity.New({Name = "rigid_force_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 0, 0))
@@ -299,7 +299,7 @@ T.Test3D("Rigid body force and impulse API", function()
 	box_ent:Remove()
 end)
 
-T.Test3D("Rigid body collisions apply angular impulse from off-center impacts", function()
+T.TestPhysics("Rigid body collisions apply angular impulse from off-center impacts", function()
 	local sphere_ent = Entity.New({Name = "rigid_angular_hit_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(-3, 1.45, 0))
@@ -345,7 +345,7 @@ T.Test3D("Rigid body collisions apply angular impulse from off-center impacts", 
 	T(sphere_position.x)["<"](box_position.x)
 end)
 
-T.Test3D("Sphere dropped above the scene box edge does not snag on the platform", function()
+T.TestPhysics("Sphere dropped above the scene box edge does not snag on the platform", function()
 	local box_center = Vec3(1.4, 1.85, 0)
 	local box_size = Vec3(6, 0.7, 4.5)
 	local sphere_radius = 0.28

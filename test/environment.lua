@@ -201,4 +201,19 @@ T.Test3D = function(name, cb)
 		test_render.Draw3D(cb)
 	end)
 end
+
+T.TestPhysics = function(name, cb)
+	return T.Test(name, function()
+		local physics = import("goluwa/physics.lua")
+		local Entity = import("goluwa/entities/entity.lua")
+		cb()
+		-- Clean up entities created during test
+		for _, ent in ipairs(Entity.World:GetChildrenList()) do
+			if ent:IsValid() then ent:Remove() end
+		end
+		-- Reset physics state (broadphase, solver, collision pairs)
+		if physics.ResetState then physics:ResetState() end
+	end)
+end
+
 return T

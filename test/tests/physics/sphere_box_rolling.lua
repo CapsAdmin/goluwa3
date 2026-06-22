@@ -43,7 +43,7 @@ local function run_roll_probe(platform_name, spawn_platform)
 	return velocity, angular, ratio, grounded
 end
 
-T.Test3D("Sphere rolling on a rigid box keeps linear and angular motion in sync", function()
+T.TestPhysics("Sphere rolling on a rigid box keeps linear and angular motion in sync", function()
 	local velocity, angular, ratio, grounded = run_roll_probe("box", function()
 		local platform_ent = Entity.New({Name = "rigid_box_roll_platform"})
 		platform_ent:AddComponent("transform")

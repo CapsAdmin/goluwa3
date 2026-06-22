@@ -70,7 +70,7 @@ local function spawn_sphere(name, position, radius)
 	return ent, body
 end
 
-T.Test3D("Compound void ramps do not trap spheres between platforms", function()
+T.TestPhysics("Compound void ramps do not trap spheres between platforms", function()
 	local ramps = {
 		spawn_void_ramp("compound_void_ramp_top", Vec3(0, 1.5, 0), -34, 8),
 	}

@@ -12,7 +12,7 @@ local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
-T.Test3D("Rigid body materials support richer friction and restitution combination behavior", function()
+T.TestPhysics("Rigid body materials support richer friction and restitution combination behavior", function()
 	do
 		local platform_ent = Entity.New({Name = "rigid_material_average_platform"})
 		platform_ent:AddComponent("transform")
@@ -96,7 +96,7 @@ T.Test3D("Rigid body materials support richer friction and restitution combinati
 	end
 end)
 
-T.Test3D("Rigid body materials support rolling friction", function()
+T.TestPhysics("Rigid body materials support rolling friction", function()
 	local platform_ent = Entity.New({Name = "rigid_material_rolling_platform"})
 	platform_ent:AddComponent("transform")
 	platform_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -167,7 +167,7 @@ T.Test("Rigid body materials expose separate static friction combination behavio
 	T(static_friction)[">"](dynamic_friction)
 end)
 
-T.Test3D("Rigid body static friction reduces shallow-slope drift", function()
+T.TestPhysics("Rigid body static friction reduces shallow-slope drift", function()
 	local function run_probe(name, static_friction)
 		local ramp_ent = Entity.New({Name = name .. "_ramp"})
 		ramp_ent:AddComponent("transform")

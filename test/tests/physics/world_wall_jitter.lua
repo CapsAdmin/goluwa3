@@ -58,7 +58,7 @@ local function create_brush_box_body(mins, maxs)
 	return create_brush_body("world_brush_box_source", mins, maxs)
 end
 
-T.Test3D("Dynamic sphere slides along brush world wall without sticking", function()
+T.TestPhysics("Dynamic sphere slides along brush world wall without sticking", function()
 	local world_ent = create_brush_wall_body()
 	local sphere_ent = Entity.New({Name = "world_wall_slide_sphere"})
 	sphere_ent:AddComponent("transform")
@@ -103,7 +103,7 @@ T.Test3D("Dynamic sphere slides along brush world wall without sticking", functi
 	T(final_velocity.z)[">"](1.0)
 end)
 
-T.Test3D("Dynamic sphere dropped above brush top edge does not sink deeply", function()
+T.TestPhysics("Dynamic sphere dropped above brush top edge does not sink deeply", function()
 	local world_ent = create_brush_box_body(Vec3(-3, 0, -3), Vec3(3, 1, 3))
 	local sphere_ent = Entity.New({Name = "world_brush_edge_drop_sphere"})
 	sphere_ent:AddComponent("transform")
@@ -138,7 +138,7 @@ T.Test3D("Dynamic sphere dropped above brush top edge does not sink deeply", fun
 	T(min_edge_distance)[">="](0.48)
 end)
 
-T.Test3D("Dynamic sphere hitting brush ceiling corner does not sink deeply", function()
+T.TestPhysics("Dynamic sphere hitting brush ceiling corner does not sink deeply", function()
 	local world_ent = create_brush_box_body(Vec3(-2, 2, -2), Vec3(2, 3, 2))
 	local sphere_ent = Entity.New({Name = "world_brush_ceiling_corner_sphere"})
 	sphere_ent:AddComponent("transform")
@@ -178,7 +178,7 @@ T.Test3D("Dynamic sphere hitting brush ceiling corner does not sink deeply", fun
 	T(min_corner_distance)[">="](0.48)
 end)
 
-T.Test3D("Physgun-style sphere push against brush platform edge does not stick deeply", function()
+T.TestPhysics("Physgun-style sphere push against brush platform edge does not stick deeply", function()
 	local world_ent = create_brush_box_body(Vec3(-2, 2, -2), Vec3(2, 3, 2))
 	local sphere_ent = Entity.New({Name = "world_brush_physgun_edge_sphere"})
 	sphere_ent:AddComponent("transform")
@@ -215,7 +215,7 @@ T.Test3D("Physgun-style sphere push against brush platform edge does not stick d
 	T(min_corner_distance)[">="](0.48)
 end)
 
-T.Test3D("Dynamic box pushed into brush ceiling corner escapes without getting stuck", function()
+T.TestPhysics("Dynamic box pushed into brush ceiling corner escapes without getting stuck", function()
 	local world_ent = create_brush_box_body(Vec3(-2, 2, -2), Vec3(2, 3, 2))
 	local box_ent = Entity.New({Name = "world_brush_ceiling_corner_box"})
 	box_ent:AddComponent("transform")
@@ -263,7 +263,7 @@ T.Test3D("Dynamic box pushed into brush ceiling corner escapes without getting s
 	T(final_velocity.y)[">"](-0.05)
 end)
 
-T.Test3D("Dynamic box rests stably on brush world support patch", function()
+T.TestPhysics("Dynamic box rests stably on brush world support patch", function()
 	local world_ent = create_brush_box_body(Vec3(-3, 0, -3), Vec3(3, 1, 3))
 	local box_ent = Entity.New({Name = "world_brush_support_box"})
 	box_ent:AddComponent("transform")
@@ -300,7 +300,7 @@ T.Test3D("Dynamic box rests stably on brush world support patch", function()
 	T(box:GetAngularVelocity():GetLength())["<"](0.8)
 end)
 
-T.Test3D("Dynamic box slides along brush wall without sticking or twisting deeply", function()
+T.TestPhysics("Dynamic box slides along brush wall without sticking or twisting deeply", function()
 	local world_ent = create_brush_wall_body()
 	local box_ent = Entity.New({Name = "world_wall_slide_box"})
 	box_ent:AddComponent("transform")

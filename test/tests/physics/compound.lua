@@ -80,7 +80,7 @@ local function create_split_box_mesh()
 	return poly
 end
 
-T.Test3D("Compound mesh builder splits disconnected triangle islands", function()
+T.TestPhysics("Compound mesh builder splits disconnected triangle islands", function()
 	local compound = convex_hull.BuildCompoundShapeFromTriangles(create_split_box_mesh())
 	T(compound ~= nil)["=="](true)
 	T(type(compound.children))["=="]("table")
@@ -98,7 +98,7 @@ T.Test3D("Compound mesh builder splits disconnected triangle islands", function(
 	T(x_values[2])[">"](0.5)
 end)
 
-T.Test3D("Static compound collider preserves concave gap from generated child hulls", function()
+T.TestPhysics("Static compound collider preserves concave gap from generated child hulls", function()
 	local ground = create_flat_ground("compound_gap_ground", 12)
 	local compound_desc = convex_hull.BuildCompoundShapeFromTriangles(create_split_box_mesh())
 	local support_ent = Entity.New({Name = "compound_gap_support"})

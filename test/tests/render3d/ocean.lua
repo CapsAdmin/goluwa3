@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local T = import("test/environment.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")

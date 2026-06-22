@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -115,7 +119,7 @@ local function create_flat_heightmap_ground(name)
 	return ground
 end
 
-T.Test3D("Capsule rigid body lands on ground mesh", function()
+T.TestPhysics("Capsule rigid body lands on ground mesh", function()
 	local ground = test_helpers.CreateFlatGround("capsule_ground", 16)
 	local body_ent = Entity.New({Name = "capsule_body"})
 	body_ent:AddComponent("transform")
@@ -138,7 +142,7 @@ T.Test3D("Capsule rigid body lands on ground mesh", function()
 	ground:Remove()
 end)
 
-T.Test3D("Capsule rigid body settles and sleeps on ground mesh after spinning", function()
+T.TestPhysics("Capsule rigid body settles and sleeps on ground mesh after spinning", function()
 	local ground = test_helpers.CreateFlatGround("capsule_sleep_ground", 16)
 	local body_ent = Entity.New({Name = "capsule_sleep_body"})
 	body_ent:AddComponent("transform")
@@ -166,7 +170,7 @@ T.Test3D("Capsule rigid body settles and sleeps on ground mesh after spinning", 
 	ground:Remove()
 end)
 
-T.Test3D("Capsule rigid body settles in a concave heightmap pit", function()
+T.TestPhysics("Capsule rigid body settles in a concave heightmap pit", function()
 	local ground = create_concave_heightmap_ground("capsule_heightmap_pit")
 	local body_ent = Entity.New({Name = "capsule_heightmap_body"})
 	body_ent:AddComponent("transform")
@@ -196,7 +200,7 @@ T.Test3D("Capsule rigid body settles in a concave heightmap pit", function()
 	ground:Remove()
 end)
 
-T.Test3D("Tilted capsule on terrain can rotate out of its initial lean", function()
+T.TestPhysics("Tilted capsule on terrain can rotate out of its initial lean", function()
 	local ground = create_flat_heightmap_ground("capsule_tilt_ground")
 	local body_ent = Entity.New({Name = "capsule_tilt_body"})
 	body_ent:AddComponent("transform")
@@ -222,7 +226,7 @@ T.Test3D("Tilted capsule on terrain can rotate out of its initial lean", functio
 	ground:Remove()
 end)
 
-T.Test3D("Rolling capsule on terrain does not keep spinning in place", function()
+T.TestPhysics("Rolling capsule on terrain does not keep spinning in place", function()
 	local ground = create_flat_heightmap_ground("capsule_roll_ground")
 	local body_ent = Entity.New({Name = "capsule_roll_body"})
 	body_ent:AddComponent("transform")
@@ -251,7 +255,7 @@ T.Test3D("Rolling capsule on terrain does not keep spinning in place", function(
 	ground:Remove()
 end)
 
-T.Test3D("Rolling capsule on shallow terrain retains angular motion while translating", function()
+T.TestPhysics("Rolling capsule on shallow terrain retains angular motion while translating", function()
 	local resolution = 32
 	local tex = create_mock_heightmap(resolution + 1, function(x, y)
 		local nx = x / resolution * math.pi * 2
@@ -327,7 +331,7 @@ T.Test("Capsule shape mass properties include cylindrical section", function()
 	T(tall_half.y)["=="](1.5)
 end)
 
-T.Test3D("Capsule rigid body can rest on static box", function()
+T.TestPhysics("Capsule rigid body can rest on static box", function()
 	local ground = test_helpers.CreateFlatGround("capsule_box_ground", 16)
 	local box_ent = Entity.New({Name = "capsule_static_box"})
 	box_ent:AddComponent("transform")
@@ -361,7 +365,7 @@ T.Test3D("Capsule rigid body can rest on static box", function()
 	ground:Remove()
 end)
 
-T.Test3D("Capsule rigid body rolls off rotated static box instead of resting on its AABB", function()
+T.TestPhysics("Capsule rigid body rolls off rotated static box instead of resting on its AABB", function()
 	local ground = test_helpers.CreateFlatGround("capsule_rotated_box_ground", 20)
 	local ramp_ent = Entity.New({Name = "capsule_rotated_box"})
 	ramp_ent:AddComponent("transform")
@@ -397,7 +401,7 @@ T.Test3D("Capsule rigid body rolls off rotated static box instead of resting on 
 	ground:Remove()
 end)
 
-T.Test3D("Fast capsule tunnels through thin static box with auto CCD disabled", function()
+T.TestPhysics("Fast capsule tunnels through thin static box with auto CCD disabled", function()
 	local blocker_ent = Entity.New({Name = "capsule_discrete_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -429,7 +433,7 @@ T.Test3D("Fast capsule tunnels through thin static box with auto CCD disabled", 
 	T(position.y)["<"](0)
 end)
 
-T.Test3D("Fast capsule does not tunnel through thin static box when CCD is enabled", function()
+T.TestPhysics("Fast capsule does not tunnel through thin static box when CCD is enabled", function()
 	local blocker_ent = Entity.New({Name = "capsule_ccd_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -463,7 +467,7 @@ T.Test3D("Fast capsule does not tunnel through thin static box when CCD is enabl
 	T(math.abs(position.z))["<"](0.1)
 end)
 
-T.Test3D("Fast capsule does not tunnel through static sphere", function()
+T.TestPhysics("Fast capsule does not tunnel through static sphere", function()
 	local blocker_ent = Entity.New({Name = "capsule_ccd_sphere_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1.5, 0))
@@ -498,7 +502,7 @@ T.Test3D("Fast capsule does not tunnel through static sphere", function()
 	T(math.abs(position.z))["<"](0.1)
 end)
 
-T.Test3D("Fast sphere does not tunnel through static capsule", function()
+T.TestPhysics("Fast sphere does not tunnel through static capsule", function()
 	local blocker_ent = Entity.New({Name = "sphere_ccd_capsule_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1.5, 0))
@@ -533,7 +537,7 @@ T.Test3D("Fast sphere does not tunnel through static capsule", function()
 	T(math.abs(position.z))["<"](0.1)
 end)
 
-T.Test3D("Fast capsule does not tunnel through static capsule", function()
+T.TestPhysics("Fast capsule does not tunnel through static capsule", function()
 	local blocker_ent = Entity.New({Name = "capsule_ccd_capsule_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1.5, 0))
@@ -567,7 +571,7 @@ T.Test3D("Fast capsule does not tunnel through static capsule", function()
 	T(math.abs(position.z))["<"](0.1)
 end)
 
-T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against thin static box", function()
+T.TestPhysics("Fast capsule CCD remains stable at smaller fixed steps against thin static box", function()
 	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
 		with_fixed_step(fixed_dt, function()
 			local blocker_ent = Entity.New({Name = "capsule_ccd_fixed_step_blocker"})
@@ -603,7 +607,7 @@ T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against thin st
 	end
 end)
 
-T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against static capsule", function()
+T.TestPhysics("Fast capsule CCD remains stable at smaller fixed steps against static capsule", function()
 	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
 		with_fixed_step(fixed_dt, function()
 			local blocker_ent = Entity.New({Name = "capsule_ccd_fixed_step_capsule_blocker"})

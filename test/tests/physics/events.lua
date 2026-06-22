@@ -20,7 +20,7 @@ local function simulate_physics(steps, dt)
 	end
 end
 
-T.Test3D("Rigid bodies support collision layers and collision events", function()
+T.TestPhysics("Rigid bodies support collision layers and collision events", function()
 	local function spawn_pair(prefix, config_a, config_b)
 		local a = Entity.New({Name = prefix .. "_a"})
 		a:AddComponent("transform")
@@ -125,7 +125,7 @@ T.Test3D("Rigid bodies support collision layers and collision events", function(
 	hit_b:Remove()
 end)
 
-T.Test3D("Rigid bodies emit enter, stay, and exit collision events for static world geometry", function()
+T.TestPhysics("Rigid bodies emit enter, stay, and exit collision events for static world geometry", function()
 	local ground = Entity.New({Name = "rigid_world_events_ground"})
 	ground:AddComponent("transform")
 	local poly = Polygon3D.New()

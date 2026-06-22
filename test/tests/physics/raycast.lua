@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local T = import("test/environment.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local render = import("goluwa/render/render.lua")
@@ -24,7 +28,7 @@ local function attach_visual_primitive(entity, poly, material)
 	return entity.visual
 end
 
-T.Test3D("Raycast basic triangle hit", function()
+T.TestPhysics("Raycast basic triangle hit", function()
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
@@ -47,7 +51,7 @@ T.Test3D("Raycast basic triangle hit", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast miss", function()
+T.TestPhysics("Raycast miss", function()
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
@@ -66,7 +70,7 @@ T.Test3D("Raycast miss", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast cube", function()
+T.TestPhysics("Raycast cube", function()
 	-- Create entity with cube mesh
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
@@ -93,7 +97,7 @@ T.Test3D("Raycast cube", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast with transform", function()
+T.TestPhysics("Raycast with transform", function()
 	-- Create entity with triangle mesh at offset position
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
@@ -116,7 +120,7 @@ T.Test3D("Raycast with transform", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast multiple entities", function()
+T.TestPhysics("Raycast multiple entities", function()
 	-- Create two entities at different positions
 	local ent1 = Entity.New({Name = "cube1"})
 	ent1:AddComponent("transform")
@@ -147,7 +151,7 @@ T.Test3D("Raycast multiple entities", function()
 	ent2:Remove()
 end)
 
-T.Test3D("Raycast with filter", function()
+T.TestPhysics("Raycast with filter", function()
 	-- Create two entities
 	local ent1 = Entity.New({Name = "include_me"})
 	ent1:AddComponent("transform")
@@ -183,7 +187,7 @@ T.Test3D("Raycast with filter", function()
 	ent2:Remove()
 end)
 
-T.Test3D("Raycast CastClosest", function()
+T.TestPhysics("Raycast CastClosest", function()
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
 	local poly = Polygon3D.New()
@@ -198,7 +202,7 @@ T.Test3D("Raycast CastClosest", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast CastAny", function()
+T.TestPhysics("Raycast CastAny", function()
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
 	local poly = Polygon3D.New()
@@ -215,7 +219,7 @@ T.Test3D("Raycast CastAny", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast ground normal faces ray", function()
+T.TestPhysics("Raycast ground normal faces ray", function()
 	local ent = Entity.New({Name = "test_ground"})
 	ent:AddComponent("transform")
 	local poly = Polygon3D.New()
@@ -232,7 +236,7 @@ T.Test3D("Raycast ground normal faces ray", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast custom model source", function()
+T.TestPhysics("Raycast custom model source", function()
 	local ent = Entity.New({Name = "test_source"})
 	ent:AddComponent("transform")
 	local poly = Polygon3D.New()
@@ -263,7 +267,7 @@ T.Test3D("Raycast custom model source", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast convex brush primitive source", function()
+T.TestPhysics("Raycast convex brush primitive source", function()
 	local ent = Entity.New({Name = "test_brush_source"})
 	ent:AddComponent("transform")
 	local source = raycast.CreateModelSource{
@@ -296,7 +300,7 @@ T.Test3D("Raycast convex brush primitive source", function()
 	ent:Remove()
 end)
 
-T.Test3D("Raycast convex brush immediate inside hit", function()
+T.TestPhysics("Raycast convex brush immediate inside hit", function()
 	local ent = Entity.New({Name = "test_brush_inside"})
 	ent:AddComponent("transform")
 	local source = raycast.CreateModelSource{

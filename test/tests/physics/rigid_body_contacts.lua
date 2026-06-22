@@ -13,7 +13,7 @@ local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
-T.Test3D("Rigid bodies support persistent multi-point contact manifolds", function()
+T.TestPhysics("Rigid bodies support persistent multi-point contact manifolds", function()
 	local left_support = Entity.New({Name = "rigid_manifold_left"})
 	left_support:AddComponent("transform")
 	left_support.transform:SetPosition(Vec3(-1.6, 1, 0))
@@ -61,7 +61,7 @@ T.Test3D("Rigid bodies support persistent multi-point contact manifolds", functi
 	T(math.abs(angles.z))["<"](0.35)
 end)
 
-T.Test3D("Rigid body depenetration stays bounded in stacked boxes", function()
+T.TestPhysics("Rigid body depenetration stays bounded in stacked boxes", function()
 	local ground = create_flat_ground("rigid_tall_stack_ground", 12)
 	local base_ent = Entity.New({Name = "rigid_tall_stack_base"})
 	base_ent:AddComponent("transform")
@@ -126,7 +126,7 @@ T.Test3D("Rigid body depenetration stays bounded in stacked boxes", function()
 	T(bottom_grounded)["=="](true)
 end)
 
-T.Test3D("Rigid bodies keep warm-started persistent contact manifolds stable across frames", function()
+T.TestPhysics("Rigid bodies keep warm-started persistent contact manifolds stable across frames", function()
 	local ground = create_flat_ground("rigid_manifold_warm_start_ground", 12)
 	local base_ent = Entity.New({Name = "rigid_manifold_warm_start_base"})
 	base_ent:AddComponent("transform")
@@ -179,7 +179,7 @@ T.Test3D("Rigid bodies keep warm-started persistent contact manifolds stable acr
 	T(top:GetAngularVelocity():GetLength())["<"](0.4)
 end)
 
-T.Test3D("Rigid rotated boxes generate stable multi-point contact patches", function()
+T.TestPhysics("Rigid rotated boxes generate stable multi-point contact patches", function()
 	local ground = create_flat_ground("rigid_rotated_patch_ground", 12)
 	local base_ent = Entity.New({Name = "rigid_rotated_patch_base"})
 	base_ent:AddComponent("transform")
@@ -225,7 +225,7 @@ T.Test3D("Rigid rotated boxes generate stable multi-point contact patches", func
 	T(top:GetAngularVelocity():GetLength())["<"](1.25)
 end)
 
-T.Test3D("Rigid bodies generate stable multi-point contacts against static triangle world geometry", function()
+T.TestPhysics("Rigid bodies generate stable multi-point contacts against static triangle world geometry", function()
 	local ground = Entity.New({Name = "rigid_world_patch_ground"})
 	ground:AddComponent("transform")
 	local triangles = Polygon3D.New()
@@ -277,7 +277,7 @@ T.Test3D("Rigid bodies generate stable multi-point contacts against static trian
 	T(plank:GetAngularVelocity():GetLength())["<"](0.6)
 end)
 
-T.Test3D("Rigid bodies rest stably on static triangle seam patches over time", function()
+T.TestPhysics("Rigid bodies rest stably on static triangle seam patches over time", function()
 	local ground = Entity.New({Name = "rigid_world_seam_ground"})
 	ground:AddComponent("transform")
 	local triangles = Polygon3D.New()
@@ -331,7 +331,7 @@ T.Test3D("Rigid bodies rest stably on static triangle seam patches over time", f
 	T(box:GetAngularVelocity():GetLength())["<"](0.9)
 end)
 
-T.Test3D("Rigid bodies slide along static triangle wall seams without sticking", function()
+T.TestPhysics("Rigid bodies slide along static triangle wall seams without sticking", function()
 	local wall = Entity.New({Name = "rigid_world_wall_seam"})
 	wall:AddComponent("transform")
 	local triangles = Polygon3D.New()
@@ -383,7 +383,7 @@ T.Test3D("Rigid bodies slide along static triangle wall seams without sticking",
 	T(box:GetAngularVelocity():GetLength())["<"](1.6)
 end)
 
-T.Test3D("Rigid bodies keep frictional sliding stable on static triangle wall seams", function()
+T.TestPhysics("Rigid bodies keep frictional sliding stable on static triangle wall seams", function()
 	local wall = Entity.New({Name = "rigid_world_wall_friction_seam"})
 	wall:AddComponent("transform")
 	local triangles = Polygon3D.New()

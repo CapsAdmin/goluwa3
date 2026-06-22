@@ -102,7 +102,7 @@ local function create_mesh_body(name, position)
 	return ent
 end
 
-T.Test3D("Physics sweep sphere hits brush world", function()
+T.TestPhysics("Physics sweep sphere hits brush world", function()
 	local world_ent = create_brush_box_body("sweep_world_brush", Vec3(-2, 0, -2), Vec3(2, 1, 2))
 	local hit = physics.Sweep(
 		Vec3(2.8, 0.5, 0),
@@ -120,7 +120,7 @@ T.Test3D("Physics sweep sphere hits brush world", function()
 	world_ent:Remove()
 end)
 
-T.Test3D("Physics sweep point hits triangle floor", function()
+T.TestPhysics("Physics sweep point hits triangle floor", function()
 	local ent = create_triangle_world_body("sweep_world_triangle")
 	local hit = physics.Sweep(Vec3(0, 2, 0), Vec3(0, -3, 0), 0, nil, nil, {UseRenderMeshes = false})
 	T(hit)["~="](nil)
@@ -132,7 +132,7 @@ T.Test3D("Physics sweep point hits triangle floor", function()
 	ent:Remove()
 end)
 
-T.Test3D("Physics sweep collider box hits triangle floor", function()
+T.TestPhysics("Physics sweep collider box hits triangle floor", function()
 	local world_ent = create_triangle_world_body("sweep_world_triangle_box")
 	local ent = Entity.New({Name = "sweep_box_body"})
 	ent:AddComponent("transform")
@@ -154,7 +154,7 @@ T.Test3D("Physics sweep collider box hits triangle floor", function()
 	world_ent:Remove()
 end)
 
-T.Test3D("Physics sweep collider capsule hits triangle floor", function()
+T.TestPhysics("Physics sweep collider capsule hits triangle floor", function()
 	local world_ent = create_triangle_world_body("sweep_world_triangle_capsule")
 	local ent = Entity.New({Name = "sweep_capsule_body"})
 	ent:AddComponent("transform")
@@ -173,7 +173,7 @@ T.Test3D("Physics sweep collider capsule hits triangle floor", function()
 	world_ent:Remove()
 end)
 
-T.Test3D("Physics sweep sphere hits rigid body box", function()
+T.TestPhysics("Physics sweep sphere hits rigid body box", function()
 	local ent = Entity.New({Name = "sweep_body_box"})
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(Vec3(0, 0.5, 0))
@@ -202,7 +202,7 @@ T.Test3D("Physics sweep sphere hits rigid body box", function()
 	ent:Remove()
 end)
 
-T.Test3D("Physics sweep sphere hits rigid body sphere", function()
+T.TestPhysics("Physics sweep sphere hits rigid body sphere", function()
 	local ent = Entity.New({Name = "sweep_body_sphere"})
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(Vec3(0, 0, 0))
@@ -232,7 +232,7 @@ T.Test3D("Physics sweep sphere hits rigid body sphere", function()
 	ent:Remove()
 end)
 
-T.Test3D("Physics sweep sphere uses moving rigid body previous pose", function()
+T.TestPhysics("Physics sweep sphere uses moving rigid body previous pose", function()
 	local ent = Entity.New({Name = "sweep_body_sphere_moving"})
 	ent:AddComponent("transform")
 	local body = ent:AddComponent(
@@ -263,7 +263,7 @@ T.Test3D("Physics sweep sphere uses moving rigid body previous pose", function()
 	ent:Remove()
 end)
 
-T.Test3D("Physics sweep collider box hits rigid body box", function()
+T.TestPhysics("Physics sweep collider box hits rigid body box", function()
 	local target = Entity.New({Name = "sweep_target_box"})
 	target:AddComponent("transform")
 	target.transform:SetPosition(Vec3(0, 0.5, 0))
@@ -303,7 +303,7 @@ T.Test3D("Physics sweep collider box hits rigid body box", function()
 	target:Remove()
 end)
 
-T.Test3D("Physics sweep collider capsule hits rigid body sphere", function()
+T.TestPhysics("Physics sweep collider capsule hits rigid body sphere", function()
 	local target = Entity.New({Name = "sweep_target_sphere"})
 	target:AddComponent("transform")
 	target.transform:SetPosition(Vec3(0, 0.8, 0))
@@ -344,7 +344,7 @@ T.Test3D("Physics sweep collider capsule hits rigid body sphere", function()
 	target:Remove()
 end)
 
-T.Test3D("Physics sweep sphere hits rigid body mesh", function()
+T.TestPhysics("Physics sweep sphere hits rigid body mesh", function()
 	local target = create_mesh_body("sweep_target_mesh", Vec3(0, 0, 0))
 	local hit = physics.Sweep(
 		Vec3(0, 2, 0),
@@ -368,7 +368,7 @@ T.Test3D("Physics sweep sphere hits rigid body mesh", function()
 	target:Remove()
 end)
 
-T.Test3D("Physics sweep collider box hits rigid body mesh", function()
+T.TestPhysics("Physics sweep collider box hits rigid body mesh", function()
 	local target = create_mesh_body("sweep_target_mesh_box", Vec3(0, 0, 0))
 	local query = Entity.New({Name = "sweep_query_box_mesh"})
 	query:AddComponent("transform")
@@ -401,7 +401,7 @@ T.Test3D("Physics sweep collider box hits rigid body mesh", function()
 	target:Remove()
 end)
 
-T.Test3D("Physics sweep hits world geometry rigid body by default", function()
+T.TestPhysics("Physics sweep hits world geometry rigid body by default", function()
 	local target = create_mesh_body("sweep_target_world_mesh", Vec3(0, 0, 0))
 	target.rigid_body.WorldGeometry = true
 	local hit = physics.Sweep(
@@ -422,7 +422,7 @@ T.Test3D("Physics sweep hits world geometry rigid body by default", function()
 	target:Remove()
 end)
 
-T.Test3D("Physics sweep collider box uses moving rigid body previous pose", function()
+T.TestPhysics("Physics sweep collider box uses moving rigid body previous pose", function()
 	local target = Entity.New({Name = "sweep_target_box_moving"})
 	target:AddComponent("transform")
 	local target_body = target:AddComponent(
@@ -463,7 +463,7 @@ T.Test3D("Physics sweep collider box uses moving rigid body previous pose", func
 	target:Remove()
 end)
 
-T.Test3D("Physics sweep collider box handles rotating rigid body target pose", function()
+T.TestPhysics("Physics sweep collider box handles rotating rigid body target pose", function()
 	local target = Entity.New({Name = "sweep_target_box_rotating"})
 	target:AddComponent("transform")
 	target.transform:SetPosition(Vec3(0, 0.5, 0))
@@ -510,7 +510,7 @@ T.Test3D("Physics sweep collider box handles rotating rigid body target pose", f
 	target:Remove()
 end)
 
-T.Test3D("Physics sweep sphere handles rotating rigid body target pose", function()
+T.TestPhysics("Physics sweep sphere handles rotating rigid body target pose", function()
 	local target = Entity.New({Name = "sweep_target_box_rotating_sphere_query"})
 	target:AddComponent("transform")
 	local target_body = target:AddComponent(

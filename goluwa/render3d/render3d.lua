@@ -568,6 +568,11 @@ function render3d.Initialize()
 	gpu_culling.Initialize()
 	render3d.initializing = false
 	event.Call("Render3DInitialized")
+	render3d.ready = true
+end
+
+function render3d.IsReady()
+	return render3d.ready == true
 end
 
 function render3d.ResetState()

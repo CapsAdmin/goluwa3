@@ -26,7 +26,7 @@ local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
-T.Test3D("Rigid bodies rest on static mesh rigid bodies", function()
+T.TestPhysics("Rigid bodies rest on static mesh rigid bodies", function()
 	local ground_ent = Entity.New({Name = "rigid_mesh_ground"})
 	ground_ent:AddComponent("transform")
 	ground_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -76,7 +76,7 @@ T.Test3D("Rigid bodies rest on static mesh rigid bodies", function()
 	T(box:GetAngularVelocity():GetLength())["<"](0.8)
 end)
 
-T.Test3D("Static mesh rigid bodies collide with falling spheres", function()
+T.TestPhysics("Static mesh rigid bodies collide with falling spheres", function()
 	local ground_ent = Entity.New({Name = "rigid_mesh_sphere_ground"})
 	ground_ent:AddComponent("transform")
 	ground_ent.transform:SetPosition(Vec3(0, 1, 0))

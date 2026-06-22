@@ -101,7 +101,7 @@ local function create_capsule(name, position)
 	return ent, body
 end
 
-T.Test3D("Physics sweep collider capsule hits brush room wall", function()
+T.TestPhysics("Physics sweep collider capsule hits brush room wall", function()
 	local room = create_brush_room("brush_room_sweep")
 	local ent, body = create_capsule("brush_room_sweep_capsule", Vec3(0, 1.1, 0))
 	local hit = physics.SweepCollider(
@@ -121,7 +121,7 @@ T.Test3D("Physics sweep collider capsule hits brush room wall", function()
 	room:Remove()
 end)
 
-T.Test3D("Dynamic capsule with CCD stays inside brush room", function()
+T.TestPhysics("Dynamic capsule with CCD stays inside brush room", function()
 	local room = create_brush_room("brush_room_dynamic")
 	local ent, body = create_capsule("brush_room_dynamic_capsule", Vec3(0, 1.1, 0))
 	body:SetVelocity(Vec3(40, 0, 0))
@@ -136,7 +136,7 @@ T.Test3D("Dynamic capsule with CCD stays inside brush room", function()
 	T(math.abs(velocity.x))["<"](40)
 end)
 
-T.Test3D("Dynamic capsule does not escape brush room over multiple pushes", function()
+T.TestPhysics("Dynamic capsule does not escape brush room over multiple pushes", function()
 	local room = create_brush_room("brush_room_multi")
 	local ent, body = create_capsule("brush_room_multi_capsule", Vec3(0, 1.1, 0))
 	body:SetVelocity(Vec3(20, 0, 0))

@@ -38,7 +38,7 @@ local function create_dynamic_sphere(name, position, config)
 	return ent, body
 end
 
-T.Test3D("Distance constraint keeps two dynamic bodies linked", function()
+T.TestPhysics("Distance constraint keeps two dynamic bodies linked", function()
 	physics.RemoveAllConstraints()
 	local ent0, body0 = create_dynamic_sphere("constraint_link_body0", Vec3(-1, 2, 0))
 	local ent1, body1 = create_dynamic_sphere("constraint_link_body1", Vec3(1, 2, 0))
@@ -67,7 +67,7 @@ T.Test3D("Distance constraint keeps two dynamic bodies linked", function()
 	T(body1_velocity_x)[">"](0.5)
 end)
 
-T.Test3D("Distance constraint supports world anchors", function()
+T.TestPhysics("Distance constraint supports world anchors", function()
 	physics.RemoveAllConstraints()
 	local anchor = Vec3(0, 2, 0)
 	local ent, body = create_dynamic_sphere("constraint_anchor_body", Vec3(3, 2, 0))
@@ -84,7 +84,7 @@ T.Test3D("Distance constraint supports world anchors", function()
 	T(math.abs(position.y - 2))["<"](0.02)
 end)
 
-T.Test3D("Unilateral distance constraint behaves like a rope", function()
+T.TestPhysics("Unilateral distance constraint behaves like a rope", function()
 	physics.RemoveAllConstraints()
 	local anchor = Vec3(0, 0, 0)
 	local ent, body = create_dynamic_sphere("constraint_rope_body", Vec3(1, 0, 0))

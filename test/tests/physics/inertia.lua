@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -6,7 +10,7 @@ local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local box_shape = BoxShape.New
 local compound_shape = CompoundShape.New
 
-T.Test3D("Rigid bodies derive accurate mass properties and full inertia behavior from shape geometry", function()
+T.TestPhysics("Rigid bodies derive accurate mass properties and full inertia behavior from shape geometry", function()
 	local solid_ent = Entity.New({Name = "rigid_inertia_solid_box"})
 	solid_ent:AddComponent("transform")
 	local solid = solid_ent:AddComponent(

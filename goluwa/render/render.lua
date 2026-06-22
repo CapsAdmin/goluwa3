@@ -285,6 +285,11 @@ function render.Initialize(config)
 	end
 
 	event.AddListener("Update", "window_update", render.Draw)
+	render.ready = true
+end
+
+function render.IsReady()
+	return render.ready == true
 end
 
 function render.BeginFrame()

@@ -1397,11 +1397,6 @@ commands.Add({
 
 				if status and status ~= 0 then
 					local result, join_err = t:join()
-					-- Graphics/audio workers can still hold FFI callback state that is not
-					-- safe to lua_close() here even after worker-local shutdown. Drop the
-					-- state reference so GC won't attempt a late close either.
-					t.lua_state = nil
-					t.func_ptr = nil
 
 					if join_err then
 						io.write("thread error for " .. t.test_name .. ": " .. tostring(join_err) .. "\n")
@@ -1430,6 +1425,8 @@ commands.Add({
 						io.flush()
 					end
 
+					t:close()
+					collectgarbage("collect")
 					table.remove(running, i)
 				end
 			end
