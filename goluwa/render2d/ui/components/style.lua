@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local META = prototype.CreateTemplate("style")
+local objects = import("goluwa/objects/objects.lua")
+local META = objects.CreateTemplate("style")
 META:StartStorable()
 META:GetSet("ForegroundColor", nil)
 META:GetSet("BackgroundColor", nil)

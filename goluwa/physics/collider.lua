@@ -1,11 +1,11 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
-local META = prototype.CreateTemplate("physics_collider")
+local META = objects.CreateTemplate("physics_collider")
 
 local function copy_position(position)
 	if position and position.Copy then return position:Copy() end
@@ -330,7 +330,7 @@ for _, name in ipairs{
 	"GetBodyPolyhedron",
 	"BodyHasSignificantRotation",
 } do
-	prototype.Delegate(META, "Body", name)
+	objects.Delegate(META, "Body", name)
 end
 
 function META:GetPosition()

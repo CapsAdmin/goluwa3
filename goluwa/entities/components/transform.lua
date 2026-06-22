@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -6,7 +6,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local system = import("goluwa/system.lua")
 local physics
-local META = prototype.CreateTemplate("transform_3d")
+local META = objects.CreateTemplate("transform_3d")
 
 local function find_ancestor_visual(entity)
 	local current = entity
@@ -57,12 +57,12 @@ function META:SetAngles(ang)
 end
 
 function META:SetScale(vec3)
-	prototype.CommitProperty(self, "Scale", vec3)
+	objects.CommitProperty(self, "Scale", vec3)
 	update_temp_scale(self)
 end
 
 function META:SetSize(num)
-	prototype.CommitProperty(self, "Size", num)
+	objects.CommitProperty(self, "Size", num)
 	update_temp_scale(self)
 end
 

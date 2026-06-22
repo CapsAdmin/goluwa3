@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local Surface = prototype.CreateTemplate("vulkan_surface")
+local Surface = objects.CreateTemplate("vulkan_surface")
 local WIN32_SURFACE_CREATE_INFO_T = ffi.typeof([[struct {
 	uint32_t sType;
 	const void *pNext;

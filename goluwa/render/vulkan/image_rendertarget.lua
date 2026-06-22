@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
@@ -13,7 +13,7 @@ local Texture = import("goluwa/render/texture.lua")
 local event = import("goluwa/event.lua")
 local flags = import("goluwa/flags.lua")
 local render = import("goluwa/render/render.lua")
-local ImageRenderTarget = prototype.CreateTemplate("render_image_rendertarget")
+local ImageRenderTarget = objects.CreateTemplate("render_image_rendertarget")
 local default_config = {
 	-- Mode selection
 	offscreen = false, -- Set to true for offscreen rendering

@@ -18,9 +18,9 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local system = import("goluwa/system.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
-local ShadowMap = prototype.CreateTemplate("render3d_shadow_map")
+local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"

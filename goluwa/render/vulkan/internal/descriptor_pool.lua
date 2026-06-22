@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local DescriptorPool = prototype.CreateTemplate("vulkan_descriptor_pool")
+local DescriptorPool = objects.CreateTemplate("vulkan_descriptor_pool")
 
 function DescriptorPool.New(device, poolSizes, maxSets)
 	-- poolSizes is an array of tables: {{type, count}, ...}

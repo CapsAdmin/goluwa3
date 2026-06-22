@@ -4,7 +4,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local input = import("goluwa/input.lua")
 local raycast = GRAPHICS_3D and import("goluwa/physics/raycast.lua")
@@ -123,7 +123,7 @@ local function get_mouse_world_ray(input_window)
 end
 
 local function get_focus_owner()
-	local focused = prototype.GetFocusedObject and prototype.GetFocusedObject() or NULL
+	local focused = objects.GetFocusedObject and objects.GetFocusedObject() or NULL
 	return focused
 end
 
@@ -320,8 +320,8 @@ local function build_virtual_property_children(entity)
 		if component and component.IsValid and component:IsValid() then
 			local component_name = get_component_name(entity, component)
 
-			for _, info in ipairs(prototype.GetStorableVariables(component)) do
-				local value = prototype.GetProperty(component, info.var_name)
+			for _, info in ipairs(objects.GetStorableVariables(component)) do
+				local value = objects.GetProperty(component, info.var_name)
 
 				if is_virtual_child_object(value) then
 					children[#children + 1] = build_shared_object_node(
@@ -662,7 +662,7 @@ end
 local function get_entity_by_guid(guid)
 	if not guid or guid == "" then return nil end
 
-	local entity = prototype.GetObjectByGUID(guid)
+	local entity = objects.GetObjectByGUID(guid)
 
 	if entity and entity:IsValid() then return entity end
 
@@ -735,14 +735,14 @@ local open_material_picker
 local open_texture_picker
 
 local function build_property_node(target, category_key, category_name, info, hooks)
-	local value = prototype.GetProperty(target, info.var_name)
+	local value = objects.GetProperty(target, info.var_name)
 	local node = {
 		Key = category_key .. "/" .. info.var_name,
 		Text = info.var_name,
 		Value = value,
 		Default = info.copy and info.copy() or info.default,
 		GetValue = function()
-			return prototype.GetProperty(target, info.var_name)
+			return objects.GetProperty(target, info.var_name)
 		end,
 	}
 	local property_type = info.enums and "enum" or info.type
@@ -812,7 +812,7 @@ local function build_property_node(target, category_key, category_name, info, ho
 		end
 
 		local ok, err = pcall(function()
-			prototype.SetProperty(target, info.var_name, next_value)
+			objects.SetProperty(target, info.var_name, next_value)
 		end)
 
 		if hooks and hooks.OnPropertyChangeEnd then
@@ -837,7 +837,7 @@ end
 local function build_storable_property_group(target, group_key, group_text, hooks)
 	local children = {}
 
-	for _, info in ipairs(prototype.GetStorableVariables(target)) do
+	for _, info in ipairs(objects.GetStorableVariables(target)) do
 		children[#children + 1] = build_property_node(target, group_key, group_text, info, hooks)
 	end
 
@@ -1302,7 +1302,7 @@ return function(props)
 
 		if is_valid_object(state.selected_object) then return state.selected_object end
 
-		state.selected_object = prototype.GetObjectByGUID(state.selected_entity_guid)
+		state.selected_object = objects.GetObjectByGUID(state.selected_entity_guid)
 		return is_valid_object(state.selected_object) and state.selected_object or nil
 	end
 
@@ -2056,7 +2056,7 @@ return function(props)
 							)
 							or
 							get_entity_by_guid(key) or
-							prototype.GetObjectByGUID(key)
+							objects.GetObjectByGUID(key)
 						set_selected_target(target, true, key)
 						sync_selection()
 					end,

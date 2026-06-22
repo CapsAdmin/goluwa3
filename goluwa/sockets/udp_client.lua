@@ -1,6 +1,6 @@
 local ljsocket = import("goluwa/bindings/socket.lua")
-local prototype = import("goluwa/prototype.lua")
-local UDPClient = prototype.CreateTemplate("socket_udp_client")
+local objects = import("goluwa/objects/objects.lua")
+local UDPClient = objects.CreateTemplate("socket_udp_client")
 
 function UDPClient:assert(val, err)
 	if not val then self:Error(err) end

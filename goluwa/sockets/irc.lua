@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 return function(sockets)
-	local META = prototype.CreateTemplate("irc_client")
+	local META = objects.CreateTemplate("irc_client")
 	META:GetSet("Nick", e.USERNAME:gsub("^(.)", string.upper) .. "Bot")
 	META:GetSet("Users", {})
 	-- https://github.com/msva/lua-irc/blob/master/src/irc/constants.lua

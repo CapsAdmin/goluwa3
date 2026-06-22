@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local brush_hull = import("goluwa/physics/brush_hull.lua")
@@ -6,7 +6,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
-local META = prototype.CreateTemplate("physics_shape_mesh")
+local META = objects.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
 local MESH_POLYGON_BVH_THRESHOLD = 12
 local MESH_POLYGON_BVH_LEAF_COUNT = 6

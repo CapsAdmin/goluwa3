@@ -3,9 +3,9 @@ local llamacpp = import("lua/api.lua")
 local tools = import("lua/tools.lua")
 local codec = import("goluwa/codec.lua")
 local colors = import("goluwa/cli/colors.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local tasks = import("goluwa/tasks.lua")
-local Agent = prototype.CreateTemplate("llamacpp_agent")
+local Agent = objects.CreateTemplate("llamacpp_agent")
 tools.sub_agent = {
 	description = [[
 		creates a new sub-agent with its own model and system prompt. 

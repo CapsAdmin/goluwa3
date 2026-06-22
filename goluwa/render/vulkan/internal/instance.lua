@@ -1,8 +1,8 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PhysicalDevice = import("goluwa/render/vulkan/internal/physical_device.lua")
-local Instance = prototype.CreateTemplate("vulkan_instance")
+local Instance = objects.CreateTemplate("vulkan_instance")
 local CallbackState
 
 do

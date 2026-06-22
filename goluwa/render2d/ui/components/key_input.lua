@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
-local META = prototype.CreateTemplate("key_input")
+local META = objects.CreateTemplate("key_input")
 
 function META:KeyInput(key, press)
 	return self.Owner:CallLocalEvent("OnKeyInput", key, press)
@@ -15,7 +15,7 @@ function META:OnFirstCreated()
 		"KeyInput",
 		"ecs_key_input_system",
 		function(key, press)
-			local focused = prototype.GetFocusedObject()
+			local focused = objects.GetFocusedObject()
 
 			if focused and focused:IsValid() and focused.key_input then
 				if focused.key_input:KeyInput(key, press) then return true end
@@ -28,7 +28,7 @@ function META:OnFirstCreated()
 		"CharInput",
 		"ecs_key_input_system",
 		function(char)
-			local focused = prototype.GetFocusedObject()
+			local focused = objects.GetFocusedObject()
 
 			if focused and focused:IsValid() and focused.key_input then
 				if focused.key_input:CharInput(char) then return true end

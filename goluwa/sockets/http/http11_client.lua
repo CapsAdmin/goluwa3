@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local http = import("goluwa/sockets/http.lua")
-local HTTPClient = prototype.CreateTemplate("socket_http11_client")
+local HTTPClient = objects.CreateTemplate("socket_http11_client")
 HTTPClient.Base = import("goluwa/sockets/tcp_client.lua")
 HTTPClient.Stage = "none"
 
@@ -118,7 +118,7 @@ function HTTPClient.New(socket)
 end
 
 function HTTPClient.ConnectedTCP2HTTP(obj)
-	setmetatable(obj, prototype.GetRegistered(HTTPClient.Type))
+	setmetatable(obj, objects.GetRegistered(HTTPClient.Type))
 	obj:InitializeHTTPParser()
 	obj:OnConnect()
 	obj.connected = true

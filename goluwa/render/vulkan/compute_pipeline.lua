@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
 local DescriptorSetLayout = import("goluwa/render/vulkan/internal/descriptor_set_layout.lua")
 local PipelineLayout = import("goluwa/render/vulkan/internal/pipeline_layout.lua")
@@ -8,7 +8,7 @@ local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local common = import("goluwa/render/vulkan/pipeline_common.lua")
-local ComputePipeline = prototype.CreateTemplate("render_compute_pipeline")
+local ComputePipeline = objects.CreateTemplate("render_compute_pipeline")
 
 local function normalize_compat_config(config)
 	if config.shader_stages then return config end

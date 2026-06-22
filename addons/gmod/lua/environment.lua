@@ -1,6 +1,6 @@
 local gine = import("lua/gine.lua")
 local vfs = import("goluwa/vfs.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local repl = import("goluwa/cli/repl.lua")
 local timer = import("goluwa/timer.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -13,7 +13,7 @@ env._G = env
 setmetatable(env, {__index = _G})
 env.gine = gine
 env.repl = repl
-env.prototype = prototype
+env.objects = objects
 env.timer = timer
 env.Vec2 = Vec2
 env.Vec3 = Vec3
@@ -217,7 +217,7 @@ do
 
 			if self.__obj then
 				timer.Delay(0, function()
-					prototype.SafeRemove(self.__obj)
+					objects.SafeRemove(self.__obj)
 				end)
 			end
 		end
@@ -328,7 +328,7 @@ for meta_name, functions in pairs(data.meta) do
 				self.__removed = true
 
 				timer.Delay(0, function()
-					prototype.SafeRemove(self.__obj)
+					objects.SafeRemove(self.__obj)
 				end)
 			end
 		end

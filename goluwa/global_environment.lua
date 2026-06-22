@@ -91,9 +91,9 @@ do
 			out[parts[1]] = lib
 		end
 
-		local prototype = import("goluwa/prototype.lua")
+		local objects = import("goluwa/objects/objects.lua")
 
-		for name, meta in pairs(prototype.GetAllRegistered()) do
+		for name, meta in pairs(objects.GetAllRegistered()) do
 			out.types[meta.Type] = meta
 		end
 

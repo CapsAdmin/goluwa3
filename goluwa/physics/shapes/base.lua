@@ -1,10 +1,10 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
-local META = prototype.CreateTemplate("physics_shape_base")
+local META = objects.CreateTemplate("physics_shape_base")
 
 function META.New(data)
 	return META:CreateObject(data or {})

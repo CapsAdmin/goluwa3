@@ -1,10 +1,10 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local animations = import("goluwa/animations.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local META = prototype.CreateTemplate("tui_animation")
+local META = objects.CreateTemplate("tui_animation")
 
 function META:Animate(config)
 	assert(config.id, "tui_animation: config must have an .id field")

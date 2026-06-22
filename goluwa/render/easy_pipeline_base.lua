@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
 local upload_probe = import("goluwa/render/upload_probe.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
@@ -13,7 +13,7 @@ local function get_compute_sampled_descriptor(texture)
 	texture = texture or render.GetErrorTexture()
 	assert(texture, "missing texture for compute sampled descriptor")
 	return texture:GetView(),
-		texture.sampler or render.CreateSampler(texture:GetSamplerConfig())
+	texture.sampler or render.CreateSampler(texture:GetSamplerConfig())
 end
 
 local function get_constant_stage_config(config, stage_name)
@@ -21,7 +21,8 @@ local function get_constant_stage_config(config, stage_name)
 		(
 			stage_name == "mesh_ext" and
 			config.mesh
-		) or
+		)
+		or
 		(
 			stage_name == "task_ext" and
 			config.task
@@ -432,13 +433,10 @@ end
 -- Handles both wrapped blocks (block.block) and direct blocks (the block itself is the field list)
 local function build_push_constant_block(name, block)
 	glsl_meta.hoist_inline_block_metadata(block)
-
 	-- Determine the actual field list: block.block if present, otherwise block itself
 	local raw_block = block.block or block
 
-	if type(raw_block) ~= "table" or #raw_block == 0 then
-		return nil, nil
-	end
+	if type(raw_block) ~= "table" or #raw_block == 0 then return nil, nil end
 
 	local flat_block = glsl_meta.flatten_fields(raw_block)
 
@@ -463,17 +461,16 @@ local function build_push_constant_block(name, block)
 	return struct_name, ctype
 end
 
-local EasyPipeline = prototype.CreateTemplate("render_easy_pipeline")
+local EasyPipeline = objects.CreateTemplate("render_easy_pipeline")
 
 do
 	-- Static methods (shared across all variants)
 	EasyPipeline.BuildFFIType = glsl_meta.build_ffi_type
-
 	-- Shared push constant block builder (used by both graphics and compute constructors)
 	EasyPipeline.BuildPushConstantBlock = build_push_constant_block
 
 	-- Delegate storable variable methods from GraphicsPipeline
-	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		EasyPipeline[info.set_name] = function(self, ...)
 			return self.pipeline[info.set_name](self.pipeline, ...)
 		end
@@ -509,9 +506,11 @@ do
 	-- Push constant upload helpers (shared by graphics and compute)
 	function EasyPipeline:_BytesEqual(lhs, rhs, size)
 		if not size or size <= 0 then return false end
+
 		for i = 0, size - 1 do
 			if lhs[i] ~= rhs[i] then return false end
 		end
+
 		return true
 	end
 
@@ -537,9 +536,7 @@ do
 				entry.offset == offset and
 				entry.size == size
 			then
-				if self:_BytesEqual(entry.snapshot, src, size) then
-					return false
-				end
+				if self:_BytesEqual(entry.snapshot, src, size) then return false end
 
 				table.remove(entries, i)
 			end
@@ -560,7 +557,9 @@ do
 	-- Default: upload all push constant blocks and push once
 	-- Override in graphics pipeline for per-stage uploads
 	function EasyPipeline:UploadPushConstants()
-		if not self.push_constant_block_order or #self.push_constant_block_order == 0 then return end
+		if not self.push_constant_block_order or #self.push_constant_block_order == 0 then
+			return
+		end
 
 		local cmd = render.GetCommandBuffer()
 		local pipeline_key = self.pipeline
@@ -574,7 +573,9 @@ do
 			local constants_size = ffi.sizeof(constants)
 			upload_block(self, block, constants, name)
 
-			if self:ShouldPushConstants(cmd, pipeline_key, name, offset, constants, constants_size) then
+			if
+				self:ShouldPushConstants(cmd, pipeline_key, name, offset, constants, constants_size)
+			then
 				self.pipeline:PushConstants(cmd, stages, offset, constants, constants_size)
 			end
 		end

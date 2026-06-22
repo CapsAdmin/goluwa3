@@ -1,8 +1,8 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
-local META = prototype.CreateTemplate("ui_debug_2d")
+local META = objects.CreateTemplate("ui_debug_2d")
 META.LayoutDebugEnabled = false
 META.LayoutDebugFadeDuration = 0.5
 META:StartStorable()

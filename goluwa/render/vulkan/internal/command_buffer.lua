@@ -1,9 +1,9 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local CommandBuffer = prototype.CreateTemplate("vulkan_command_buffer")
+local CommandBuffer = objects.CreateTemplate("vulkan_command_buffer")
 local type = _G.type
 local VkBufferArray = vulkan.T.Array(vulkan.vk.VkBuffer)
 local VkBufferArray1 = vulkan.T.Array(vulkan.vk.VkBuffer, 1)

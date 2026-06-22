@@ -1,8 +1,8 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
-local META = prototype.CreateTemplate("render2d_quadric_bezier_curve")
+local META = objects.CreateTemplate("render2d_quadric_bezier_curve")
 META:GetSet("JoinLast", true)
 META:GetSet("MaxLines", 0)
 

@@ -38,8 +38,8 @@ return {
 								OnClick = leaf("File > Open Recent > ui_gallery.scene"),
 							},
 							MenuItem{
-								Text = "prototype.layout",
-								OnClick = leaf("File > Open Recent > prototype.layout"),
+								Text = "objects.layout",
+								OnClick = leaf("File > Open Recent > objects.layout"),
 							},
 							MenuSpacer(),
 							MenuItem{

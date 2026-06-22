@@ -1,7 +1,7 @@
 local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local commands = library()
 
 do

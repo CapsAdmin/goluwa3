@@ -14,7 +14,7 @@ local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
 local vfs = import("goluwa/vfs.lua")
 local R = vfs.GetAbsolutePath
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -22,7 +22,7 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local utility = import("goluwa/utility.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
-_G.prototype = prototype
+_G.objects = objects
 _G.Vec2 = Vec2
 _G.Vec3 = Vec3
 _G.Matrix44 = Matrix44
@@ -120,7 +120,7 @@ function gine.WrapObject(obj, meta)
 					end
 
 					timer.Delay(function()
-						prototype.MakeNULL(obj)
+						objects.MakeNULL(obj)
 					end)
 
 					gine.objects[meta][obj] = nil

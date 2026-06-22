@@ -1,5 +1,5 @@
 do
-	local META = prototype.CreateTemplate("gmod_weapon")
+	local META = objects.CreateTemplate("gmod_weapon")
 	META:Register()
 
 	function gine.CreateWeapon(class_name)

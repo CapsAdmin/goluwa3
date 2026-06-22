@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
-local prototype = import("goluwa/prototype.lua")
-local VertexBuffer = prototype.CreateTemplate("render_vertex_buffer")
+local objects = import("goluwa/objects/objects.lua")
+local VertexBuffer = objects.CreateTemplate("render_vertex_buffer")
 
 -- Calculate vertex stride from vertex attributes
 local function calculate_stride(vertex_attributes)

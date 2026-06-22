@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local PhysicalDevice = prototype.CreateTemplate("vulkan_physical_device")
+local PhysicalDevice = objects.CreateTemplate("vulkan_physical_device")
 
 function PhysicalDevice.New(ptr)
 	assert(type(ptr) == "cdata", "ptr must be a cdata VkPhysicalDevice")

@@ -1,9 +1,9 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local camera_system = {}
-local META = prototype.CreateTemplate("camera")
+local META = objects.CreateTemplate("camera")
 META:GetSet("Active", false)
 META:GetSet("ViewOffset", Vec3(0, 0, 0))
 camera_system.active_camera = camera_system.active_camera or nil

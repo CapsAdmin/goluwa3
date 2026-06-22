@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local META = prototype.CreateTemplate("tree")
+local objects = import("goluwa/objects/objects.lua")
+local META = objects.CreateTemplate("tree")
 
 function META:SetEntry(str, value)
 	local keys = str:split(self.delimiter)

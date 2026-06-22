@@ -2,8 +2,8 @@ local Texture = import("goluwa/render/texture.lua")
 local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
 local render = import("goluwa/render/render.lua")
-local prototype = import("goluwa/prototype.lua")
-local Framebuffer = prototype.CreateTemplate("render_framebuffer")
+local objects = import("goluwa/objects/objects.lua")
+local Framebuffer = objects.CreateTemplate("render_framebuffer")
 
 local function apply_object_tags(obj, tags)
 	if not tags then return obj end

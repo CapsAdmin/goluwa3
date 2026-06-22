@@ -1,6 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local base = import("addons/gui/lua/ui/themes/base.lua")
 local jrpg = import("addons/gui/lua/ui/themes/jrpg.lua")

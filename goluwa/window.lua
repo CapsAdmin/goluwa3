@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local Window = prototype.CreateTemplate("window")
+local objects = import("goluwa/objects/objects.lua")
+local Window = objects.CreateTemplate("window")
 import.loaded["goluwa/window.lua"] = Window
 local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")

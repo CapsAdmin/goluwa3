@@ -2,8 +2,8 @@ local ffi = require("ffi")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local IndexBuffer = import("goluwa/render/index_buffer.lua")
 local render = import("goluwa/render/render.lua")
-local prototype = import("goluwa/prototype.lua")
-local Mesh = prototype.CreateTemplate("render_mesh")
+local objects = import("goluwa/objects/objects.lua")
+local Mesh = objects.CreateTemplate("render_mesh")
 
 local function get_attribute_component_count(attribute)
 	if attribute.lua_type then

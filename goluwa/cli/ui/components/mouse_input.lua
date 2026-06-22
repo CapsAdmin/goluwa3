@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local META = prototype.CreateTemplate("tui_mouse_input")
+local objects = import("goluwa/objects/objects.lua")
+local META = objects.CreateTemplate("tui_mouse_input")
 META:StartStorable()
 META:GetSet("Hovered", false)
 META:GetSet("IgnoreMouseInput", false)
@@ -130,7 +130,7 @@ function META:OnFirstCreated()
 					end
 				end
 			else
-				prototype.SetFocusedObject(NULL)
+				objects.SetFocusedObject(NULL)
 			end
 		else
 			local pressed = pressed_entities[button] or NULL

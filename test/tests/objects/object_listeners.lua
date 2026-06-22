@@ -1,12 +1,12 @@
 local T = import("test/environment.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 
-T.Test("prototype property listeners", function()
-	local META = prototype.CreateTemplate("test_property_listeners")
+T.Test("objects property listeners", function()
+	local META = objects.CreateTemplate("test_property_listeners")
 	META:GetSet("Val", 0)
 	META:GetSet("Name", "hello")
 	META:Register()
-	local obj = prototype.CreateObject(META)
+	local obj = objects.CreateObject(META)
 	local any_calls = {}
 	local named_calls = {}
 	local remove_any = obj:AddPropertyListener(function(_, key, value, old_value)
@@ -43,8 +43,8 @@ T.Test("prototype property listeners", function()
 	T(#named_calls)["=="](2)
 end)
 
-T.Test("prototype commit property from overridden setter", function()
-	local META = prototype.CreateTemplate("test_commit_property")
+T.Test("objects commit property from overridden setter", function()
+	local META = objects.CreateTemplate("test_commit_property")
 	local callback_count = 0
 	local listener_count = 0
 
@@ -56,15 +56,15 @@ T.Test("prototype commit property from overridden setter", function()
 
 	function META:SetVal(val)
 		self.override_calls = (self.override_calls or 0) + 1
-		prototype.CommitProperty(self, "Val", val)
+		objects.CommitProperty(self, "Val", val)
 	end
 
 	META:Register()
-	local obj = prototype.CreateObject(META)
+	local obj = objects.CreateObject(META)
 	local remove_listener = obj:AddPropertyListenerFor("Val", function()
 		listener_count = listener_count + 1
 	end)
-	prototype.SetProperty(obj, "Val", 7)
+	objects.SetProperty(obj, "Val", 7)
 	T(obj:GetVal())["=="](7)
 	T(obj.override_calls)["=="](1)
 	T(callback_count)["=="](1)

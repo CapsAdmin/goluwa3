@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local vfs = {}
 vfs.use_appdata = false

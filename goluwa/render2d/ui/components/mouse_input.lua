@@ -1,11 +1,11 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
-local META = prototype.CreateTemplate("mouse_input")
+local META = objects.CreateTemplate("mouse_input")
 META:StartStorable()
 META:GetSet("Hovered", false)
 META:GetSet("IgnoreMouseInput", false)
@@ -401,7 +401,7 @@ function META:OnFirstCreated()
 						break
 					end
 				else
-					prototype.SetFocusedObject(NULL)
+					objects.SetFocusedObject(NULL)
 				end
 			else
 				local pressed = mouse_input.pressed_entities[button] or NULL

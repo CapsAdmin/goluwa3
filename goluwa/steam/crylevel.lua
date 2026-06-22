@@ -578,7 +578,7 @@ function crylevel.ParseVegetationMapDocument(document)
 		local model_path = file_path.FixPathSlashes(attrs.FileName or "")
 
 		if prototype_id and model_path ~= "" and model_path:lower():ends_with(".cgf") then
-			local prototype = {
+			local objects = {
 				id = prototype_id,
 				model_path = model_path,
 				name = attrs.Name or file_path.GetFileNameFromPath(model_path),
@@ -608,7 +608,7 @@ function crylevel.ParseVegetationMapData(data)
 end
 
 function crylevel.IsVegetationPrototypeSupportedFirstPass(prototype, terrain)
-	return prototype and (not prototype.align_to_terrain or terrain ~= nil)
+	return prototype and (not objects.align_to_terrain or terrain ~= nil)
 end
 
 function crylevel.DecodeVegetationYawFromRecord(data, offset)
@@ -661,7 +661,7 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 		local offset = index * stride + 1
 		local prototype_bits = read_u32_le(data, offset + 16) or 0
 		local prototype_id = bit.band(prototype_bits, 0xFF)
-		local prototype = prototypes and prototypes.by_id and prototypes.by_id[prototype_id] or nil
+		local objects = prototypes and prototypes.by_id and prototypes.by_id[prototype_id] or nil
 
 		if crylevel.IsVegetationPrototypeSupportedFirstPass(prototype, terrain) then
 			local yaw, yaw_strength = crylevel.DecodeVegetationYawFromRecord(data, offset)
@@ -672,14 +672,14 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 			)
 			local terrain_normal
 
-			if prototype.align_to_terrain and terrain then
+			if objects.align_to_terrain and terrain then
 				local engine_position = crylevel.CryLevelWorldVec3ToEngine(position)
 				terrain_normal = sample_terrain_normal_at_world(terrain, engine_position.x, engine_position.z)
 			end
 
 			entries[#entries + 1] = {
 				name = string.format("vegetation_%d_%d", prototype_id, index + 1),
-				model_path = prototype.model_path,
+				model_path = objects.model_path,
 				transform_space = "vegetation_world",
 				prototype_id = prototype_id,
 				position = position,

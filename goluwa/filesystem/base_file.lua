@@ -1,7 +1,7 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
 local system = import("goluwa/system.lua")
-local CONTEXT = prototype.CreateTemplate("file_system_base")
+local CONTEXT = objects.CreateTemplate("file_system_base")
 CONTEXT.Name = "base"
 CONTEXT:GetSet("Mode", "read")
 

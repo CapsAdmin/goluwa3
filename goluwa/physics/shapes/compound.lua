@@ -1,8 +1,8 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
-local META = prototype.CreateTemplate("physics_shape_compound")
+local META = objects.CreateTemplate("physics_shape_compound")
 
 local function get_child_shape(child)
 	local shape = child.Shape or child.shape

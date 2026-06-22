@@ -1,10 +1,10 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local event = import("goluwa/event.lua")
 local UIDebug = import("goluwa/render2d/ui/components/ui_debug.lua")
 local layout_lib = library()
-local META = prototype.CreateTemplate("layout")
+local META = objects.CreateTemplate("layout")
 META.layout_count = 0
 META:StartStorable()
 META:GetSet("MinSize", Vec2(0, 0), {callback = "InvalidateLayout"})

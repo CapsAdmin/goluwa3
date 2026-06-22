@@ -173,7 +173,7 @@ T.Pending("panel mouse simulation and hover", function()
 end)
 
 T.Test("panel key simulation", function()
-	local prototype = import("goluwa/prototype.lua")
+	local objects = import("goluwa/objects/objects.lua")
 	local event = import("goluwa/event.lua")
 	local pnl = Panel.New{
 		Name = "key_test",
@@ -189,7 +189,7 @@ T.Test("panel key simulation", function()
 	end
 
 	pnl:RequestFocus()
-	T(prototype.GetFocusedObject())["=="](pnl)
+	T(objects.GetFocusedObject())["=="](pnl)
 	event.Call("KeyInput", "a", true)
 	T(key_received)["=="](true)
 end)

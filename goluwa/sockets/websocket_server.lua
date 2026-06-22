@@ -1,8 +1,8 @@
 local frame = import("goluwa/sockets/websocket/frame.lua")
 local crypto = import("goluwa/crypto.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
-local WebSocketServer = prototype.CreateTemplate("socket_websocket_server")
+local WebSocketServer = objects.CreateTemplate("socket_websocket_server")
 WebSocketServer.Base = import("goluwa/sockets/tcp_server.lua")
 
 local function header_to_table(header)

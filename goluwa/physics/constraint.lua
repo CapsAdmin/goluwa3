@@ -2,8 +2,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local motion = import("goluwa/physics/motion.lua")
-local prototype = import("goluwa/prototype.lua")
-local DistanceConstraint = prototype.CreateTemplate("physics_constraint")
+local objects = import("goluwa/objects/objects.lua")
+local DistanceConstraint = objects.CreateTemplate("physics_constraint")
 
 local function integrate_rotation(rotation, angular_velocity, dt)
 	if angular_velocity:GetLength() == 0 then return rotation:Copy() end

@@ -1,8 +1,8 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 -- Pre-register to break import cycle: visual -> render3d -> light -> visual
-local Visual = prototype.CreateTemplate("visual")
+local Visual = objects.CreateTemplate("visual")
 import.loaded["goluwa/entities/components/visual.lua"] = Visual
 local BVH = import("goluwa/physics/bvh.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -885,7 +885,7 @@ function Visual:SetUseOcclusionCulling(enabled)
 end
 
 function Visual:SetCastShadows(enabled)
-	prototype.CommitProperty(self, "CastShadows", enabled)
+	objects.CommitProperty(self, "CastShadows", enabled)
 	mark_shadow_change(self)
 	refresh_shadow_registry(self)
 	invalidate_scene_acceleration()
@@ -961,7 +961,7 @@ function Visual:SetModelPath(path)
 	self.LoadGeneration = (self.LoadGeneration or 0) + 1
 	local load_generation = self.LoadGeneration
 	self:RemovePrimitives()
-	prototype.CommitProperty(self, "ModelPath", path)
+	objects.CommitProperty(self, "ModelPath", path)
 	self:SetLoading(true)
 
 	if path == "" then

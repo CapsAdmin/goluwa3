@@ -1,7 +1,7 @@
 local ljsocket = import("goluwa/bindings/socket.lua")
-local prototype = import("goluwa/prototype.lua")
+local pool = import("goluwa/objects/pool.lua")
 local event = import("goluwa/event.lua")
-local pool = prototype.CreateObjectPool("sockets")
+local pool = pool.New("sockets")
 
 event.AddListener("Update", "sockets", function()
 	if pool.list[1] == nil then return end

@@ -1,9 +1,9 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
-local META = prototype.CreateTemplate("tui_key_input")
+local META = objects.CreateTemplate("tui_key_input")
 
 local function focused_ki()
-	local focused = prototype.GetFocusedObject()
+	local focused = objects.GetFocusedObject()
 
 	if focused and focused:IsValid() and focused.tui_key_input then
 		return focused.tui_key_input

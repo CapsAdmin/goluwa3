@@ -1,11 +1,11 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local islands = import("goluwa/physics/islands.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
-local Solver = prototype.CreateTemplate("physics_solver")
+local Solver = objects.CreateTemplate("physics_solver")
 import.loaded["goluwa/physics/solver.lua"] = Solver
 local COMBINE_MODE_PRIORITY = {
 	average = 0,

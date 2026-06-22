@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local VisualPrimitive = prototype.CreateTemplate("visual_primitive")
+local objects = import("goluwa/objects/objects.lua")
+local VisualPrimitive = objects.CreateTemplate("visual_primitive")
 
 local function find_visual_component(entity)
 	local current = entity

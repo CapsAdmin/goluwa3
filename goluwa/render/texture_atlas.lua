@@ -1,9 +1,9 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Texture = import("goluwa/render/texture.lua")
-local META = prototype.CreateTemplate("render_texture_atlas")
+local META = objects.CreateTemplate("render_texture_atlas")
 META:GetSet("Padding", 1)
 META:GetSet("MipMapLevels", 1)
 

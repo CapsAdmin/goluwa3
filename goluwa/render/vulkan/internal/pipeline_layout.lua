@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local PipelineLayout = prototype.CreateTemplate("vulkan_pipeline_layout")
+local PipelineLayout = objects.CreateTemplate("vulkan_pipeline_layout")
 
 -- used to pass data to shaders
 function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)

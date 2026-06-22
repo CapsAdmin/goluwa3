@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local CollisionPairs = prototype.CreateTemplate("physics_collision_pairs")
+local objects = import("goluwa/objects/objects.lua")
+local CollisionPairs = objects.CreateTemplate("physics_collision_pairs")
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 
 local function new_weak_key_table()

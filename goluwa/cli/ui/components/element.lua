@@ -1,8 +1,8 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
-local META = prototype.CreateTemplate("tui_element")
+local META = objects.CreateTemplate("tui_element")
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)

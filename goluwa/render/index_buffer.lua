@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
-local prototype = import("goluwa/prototype.lua")
-local IndexBuffer = prototype.CreateTemplate("render_index_buffer")
+local objects = import("goluwa/objects/objects.lua")
+local IndexBuffer = objects.CreateTemplate("render_index_buffer")
 
 -- Convert indices to appropriate format
 local function indices_to_array(indices, index_type)

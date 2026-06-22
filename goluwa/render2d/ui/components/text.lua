@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -9,7 +9,7 @@ local sequence_editor = import("goluwa/sequence_editor.lua")
 local pretext = import("goluwa/pretext/init.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local theme = import("addons/gui/lua/ui/theme.lua")
-local META = prototype.CreateTemplate("text")
+local META = objects.CreateTemplate("text")
 META:StartStorable()
 META:GetSet("Font", nil, {callback = "OnTextChanged"})
 META:GetSet("FontSize", 14, {callback = "OnTextChanged"})
@@ -335,7 +335,7 @@ function META:Initialize()
 	self.Owner:AddLocalListener(
 		"OnKeyInput",
 		function(pnl, key, press)
-			if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
+			if self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner then
 				if key == "left_shift" or key == "right_shift" then
 					self.editor:SetShiftDown(press)
 				elseif key == "left_control" or key == "right_control" then
@@ -362,7 +362,7 @@ function META:Initialize()
 
 			if char:byte() == 127 then return end
 
-			if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
+			if self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner then
 				self.preferred_caret_x = nil
 				self.editor:OnCharInput(char)
 				self:ResetCaretBlink()
@@ -580,7 +580,7 @@ function META:OnDraw()
 	local lx, ly = self:GetTextOffset()
 	local tw, th = self:GetTextSize()
 	local descent = font:GetDescent()
-	local is_focused_editable = self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner
+	local is_focused_editable = self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner
 	local line_height = font:GetLineHeight()
 	local foreground = self:GetColor()
 	local background

@@ -1,9 +1,9 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local tools = import("goluwa/sockets/websocket/tools.lua")
 local frame = import("goluwa/sockets/websocket/frame.lua")
 local handshake = import("goluwa/sockets/websocket/handshake.lua")
 local TCPClient = import("goluwa/sockets/tcp_client.lua")
-local WebSocketClient = prototype.CreateTemplate("websocket_client")
+local WebSocketClient = objects.CreateTemplate("websocket_client")
 
 function WebSocketClient:Connect(url, ws_protocol, ssl_params)
 	if type(ws_protocol) == "number" then

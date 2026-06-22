@@ -23,7 +23,7 @@ local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local scene_voxelizer = import("goluwa/render3d/scene_voxelizer.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Light = import("goluwa/entities/components/light.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local INSTANCE_MATRIX_ATTRIBUTES = {
 	{
 		lua_name = "instance_world",

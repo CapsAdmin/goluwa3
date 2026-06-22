@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
-local prototype = import("goluwa/prototype.lua")
-local UniformBuffer = prototype.CreateTemplate("render_uniform_buffer")
+local objects = import("goluwa/objects/objects.lua")
+local UniformBuffer = objects.CreateTemplate("render_uniform_buffer")
 
 function UniformBuffer.New(decl)
 	if type(decl) ~= "string" then

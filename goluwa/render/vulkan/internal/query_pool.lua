@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local QueryPool = prototype.CreateTemplate("vulkan_query_pool")
+local QueryPool = objects.CreateTemplate("vulkan_query_pool")
 
 function QueryPool.New(device, query_type, query_count)
 	local ptr = vulkan.T.Box(vulkan.vk.VkQueryPool)()

@@ -1,6 +1,6 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
-local prototype = import("goluwa/prototype.lua")
-local CONTEXT = prototype.CreateTemplate("file_system_vpk")
+local objects = import("goluwa/objects/objects.lua")
+local CONTEXT = objects.CreateTemplate("file_system_vpk")
 CONTEXT.Name = "valve package"
 CONTEXT.NameEndsWith = "_dir"
 CONTEXT.Extension = "vpk"

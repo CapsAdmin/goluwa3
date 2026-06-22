@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local ImageView = prototype.CreateTemplate("vulkan_image_view")
+local ImageView = objects.CreateTemplate("vulkan_image_view")
 vulkan.SetupDebugFunctions(ImageView, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_IMAGE_VIEW)
 
 function ImageView.New(config)

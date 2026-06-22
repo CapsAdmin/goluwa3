@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
-local HTTPServer = prototype.CreateTemplate("socket_http11_server")
+local HTTPServer = objects.CreateTemplate("socket_http11_server")
 HTTPServer.Base = import("goluwa/sockets/tcp_server.lua")
 
 function HTTPServer:OnClientConnected(client)

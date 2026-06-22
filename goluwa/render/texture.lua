@@ -8,8 +8,8 @@ local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
-local prototype = import("goluwa/prototype.lua")
-local Texture = prototype.CreateTemplate("render_texture")
+local objects = import("goluwa/objects/objects.lua")
+local Texture = objects.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
 local shade_pipeline_cache = {}
@@ -1495,7 +1495,7 @@ end
 
 do
 	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-	local TextureDownloaded = prototype.CreateTemplate("texture_downloaded")
+	local TextureDownloaded = objects.CreateTemplate("texture_downloaded")
 
 	function TextureDownloaded:GetWidth()
 		return self.width

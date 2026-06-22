@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local META = prototype.CreateTemplate("kinematic_controller")
+local META = objects.CreateTemplate("kinematic_controller")
 META:GetSet("Enabled", true)
 META:GetSet("DesiredVelocity", Vec3(0, 0, 0))
 META:GetSet("Velocity", Vec3(0, 0, 0))

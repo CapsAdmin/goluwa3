@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local META = prototype.CreateTemplate("tui_clickable")
+local objects = import("goluwa/objects/objects.lua")
+local META = objects.CreateTemplate("tui_clickable")
 
 function META:Initialize()
 	self.Owner:EnsureComponent("tui_mouse_input")

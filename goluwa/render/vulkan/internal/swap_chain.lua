@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local Swapchain = prototype.CreateTemplate("vulkan_swap_chain")
+local Swapchain = objects.CreateTemplate("vulkan_swap_chain")
 
 local function get_image_count(config)
 	local desired = config.image_count or config.surface_capabilities.minImageCount

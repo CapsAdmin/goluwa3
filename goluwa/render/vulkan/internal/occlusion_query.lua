@@ -1,8 +1,8 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
-local OcclusionQuery = prototype.CreateTemplate("vulkan_occlusion_query")
+local OcclusionQuery = objects.CreateTemplate("vulkan_occlusion_query")
 
 function OcclusionQuery.New(config)
 	local device = config.device

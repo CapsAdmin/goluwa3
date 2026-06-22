@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
 local upload_probe = import("goluwa/render/upload_probe.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
@@ -16,8 +16,7 @@ local assign_auto_binding = base.assign_auto_binding
 local upload_block = base.upload_block
 local upload_ubo = base.upload_ubo
 local get_compute_sampled_descriptor = base.get_compute_sampled_descriptor
-
-local EasyPipelineGraphics = prototype.CreateTemplate("render_easy_pipeline_graphics")
+local EasyPipelineGraphics = objects.CreateTemplate("render_easy_pipeline_graphics")
 
 do
 	EasyPipelineGraphics.Base = EasyPipeline
@@ -664,7 +663,6 @@ do
 		self.uniform_buffer_types = uniform_buffer_types
 		self.uniform_buffers = uniform_buffers
 		self.push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
-
 		-- Map each stage to the push constant blocks it uses
 		self._per_stage_push_blocks = {}
 
@@ -679,6 +677,7 @@ do
 				end
 			end
 		end
+
 		-- Build vertex attributes
 		local attributes = {}
 		local logical_attributes = {}

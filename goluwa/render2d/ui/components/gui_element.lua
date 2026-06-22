@@ -1,11 +1,11 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local UIDebug = import("goluwa/render2d/ui/components/ui_debug.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
-local META = prototype.CreateTemplate("gui_element")
+local META = objects.CreateTemplate("gui_element")
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)

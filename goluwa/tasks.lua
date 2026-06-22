@@ -1,7 +1,7 @@
 local timer = import("goluwa/timer.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local callstack = import("goluwa/debug/callstack.lua")
 local tasks = library()
 tasks.max = 128
@@ -28,7 +28,7 @@ function tasks.WaitForTask(name, callback)
 	end)
 end
 
-local META = prototype.CreateTemplate("task")
+local META = objects.CreateTemplate("task")
 tasks.TaskMeta = META
 META:GetSet("Name", "unknown")
 META:GetSet("Frequency", 0)

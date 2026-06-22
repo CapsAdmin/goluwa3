@@ -1,7 +1,7 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local META = prototype.CreateTemplate("render2d_sprite_batch")
+local META = objects.CreateTemplate("render2d_sprite_batch")
 META:GetSet("AutoFlush", true)
 
 function META.New(count)

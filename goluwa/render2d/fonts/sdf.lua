@@ -6,7 +6,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
@@ -89,7 +89,7 @@ local function debug_assert_sdf_texture(tex, name, min_valid, min_valid_count, d
 	)
 end
 
-local META = prototype.CreateTemplate("sdf_font")
+local META = objects.CreateTemplate("sdf_font")
 META.IsFont = true
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
 META:GetSet("Spread", 16, {callback = "ClearSizeCache"})

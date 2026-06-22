@@ -1,9 +1,9 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
-local META = prototype.CreateTemplate("physics_shape_convex")
+local META = objects.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
 local CONVEX_SUPPORT_CONTACT_CONTEXT = {

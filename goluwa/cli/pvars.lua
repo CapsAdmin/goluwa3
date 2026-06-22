@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local codec = import("goluwa/codec.lua")
 local timer = import("goluwa/timer.lua")
 local event = import("goluwa/event.lua")
@@ -57,7 +57,7 @@ function pvars.Save()
 	end
 end
 
-local META = prototype.CreateTemplate("pvar")
+local META = objects.CreateTemplate("pvar")
 
 function META:Get()
 	return pvars.Get(self.key)

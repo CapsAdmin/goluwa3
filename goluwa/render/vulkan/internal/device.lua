@@ -1,8 +1,8 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local flags = import("goluwa/flags.lua")
-local Device = prototype.CreateTemplate("vulkan_device")
+local Device = objects.CreateTemplate("vulkan_device")
 Device.GetQueue = import("goluwa/render/vulkan/internal/queue.lua").New
 
 function Device.New(physical_device, extensions, graphicsQueueFamily)

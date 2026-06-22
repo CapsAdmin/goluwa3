@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
@@ -8,7 +8,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
-local META = prototype.CreateTemplate("physics_shape_sphere")
+local META = objects.CreateTemplate("physics_shape_sphere")
 META.Base = BaseShape
 META:GetSet("Radius", 0.5)
 local EPSILON = physics_constants.EPSILON

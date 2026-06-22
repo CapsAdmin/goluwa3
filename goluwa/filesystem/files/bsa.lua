@@ -1,6 +1,6 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
-local prototype = import("goluwa/prototype.lua")
-local CONTEXT = prototype.CreateTemplate("file_system_bethesda_archive")
+local objects = import("goluwa/objects/objects.lua")
+local CONTEXT = objects.CreateTemplate("file_system_bethesda_archive")
 CONTEXT.Name = "bethesda archive"
 CONTEXT.Extension = "bsa"
 CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")

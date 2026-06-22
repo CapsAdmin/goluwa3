@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -204,7 +204,7 @@ function module.Attach(audio)
 	audio._sync_active_sound_state = sync_active_sound_state
 	audio._clear_sound_slot = clear_sound_slot
 	audio._get_sound_current_sample_info = get_sound_current_sample_info
-	local Sound = prototype.CreateTemplate("audio_sound")
+	local Sound = objects.CreateTemplate("audio_sound")
 	Sound:StartStorable()
 	Sound:GetSet("Volume", 1)
 	Sound:GetSet("Pitch", 1)

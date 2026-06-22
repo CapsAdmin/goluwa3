@@ -1,7 +1,7 @@
 local ljsocket = import("goluwa/bindings/socket.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local socket_pool = import("goluwa/sockets/socket_pool.lua")
-local UDPClient = prototype.CreateTemplate("socket_tcp_client")
+local UDPClient = objects.CreateTemplate("socket_tcp_client")
 UDPClient:GetSet("BufferSize", 64000)
 
 function UDPClient:assert(val, err)

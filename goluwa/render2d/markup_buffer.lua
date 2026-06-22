@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
-local MarkupBuffer = prototype.CreateTemplate("markup_buffer")
+local MarkupBuffer = objects.CreateTemplate("markup_buffer")
 MarkupBuffer.Base = import("goluwa/sequence_buffer.lua")
 
 function MarkupBuffer.New(str_or_chunks, markup_obj)

@@ -1,9 +1,9 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
-local META = prototype.CreateTemplate("physics_shape_box")
+local META = objects.CreateTemplate("physics_shape_box")
 META.Base = BaseShape
 META:GetSet("Size", Vec3(1, 1, 1))
 local BOX_FACE_NORMALS = {

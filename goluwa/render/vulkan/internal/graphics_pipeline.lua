@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local GraphicsPipeline = prototype.CreateTemplate("vulkan_graphics_pipeline")
+local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
 
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)

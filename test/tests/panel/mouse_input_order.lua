@@ -3,7 +3,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 
 T.Test("mouse input event order (local and global)", function()
 	local old_world = Panel.World

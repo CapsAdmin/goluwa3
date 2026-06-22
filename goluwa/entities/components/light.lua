@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 -- Pre-register to break import cycle: light -> render3d -> light
-local Light = prototype.CreateTemplate("light")
+local Light = objects.CreateTemplate("light")
 import.loaded["goluwa/entities/components/light.lua"] = Light
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")

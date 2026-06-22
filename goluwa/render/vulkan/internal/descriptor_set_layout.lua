@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local DescriptorSetLayout = prototype.CreateTemplate("vulkan_descriptor_set_layout")
+local DescriptorSetLayout = objects.CreateTemplate("vulkan_descriptor_set_layout")
 
 function DescriptorSetLayout.New(device, bindings)
 	-- bindings is an array of tables: {{binding, type, stageFlags, count}, ...}

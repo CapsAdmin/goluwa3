@@ -1,5 +1,5 @@
-local prototype = import("goluwa/prototype.lua")
-local META = prototype.CreateTemplate("render2d_rect_batch")
+local objects = import("goluwa/objects/objects.lua")
+local META = objects.CreateTemplate("render2d_rect_batch")
 
 function META.New()
 	local self = META:CreateObject()

@@ -1,9 +1,9 @@
 local T = import("test/environment.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
-T.Test("prototype property callback stabilizer", function()
-	local META = prototype.CreateTemplate("test_stabilizer")
+T.Test("objects property callback stabilizer", function()
+	local META = objects.CreateTemplate("test_stabilizer")
 	local call_count = 0
 
 	function META:OnChanged()
@@ -14,7 +14,7 @@ T.Test("prototype property callback stabilizer", function()
 	META:GetSet("Text", "hello", {callback = "OnChanged"})
 	META:GetSet("Pos", Vec2(0, 0), {callback = "OnChanged"})
 	META:Register()
-	local obj = prototype.CreateObject(META)
+	local obj = objects.CreateObject(META)
 	-- 1. Initial set to a NEW value
 	obj:SetVal(10)
 	T(call_count)["=="](1)
@@ -48,8 +48,8 @@ T.Test("prototype property callback stabilizer", function()
 	T(call_count)["=="](6) -- Should NOT increase
 end)
 
-T.Test("prototype property callback stabilizer IsSet", function()
-	local META = prototype.CreateTemplate("test_stabilizer_is")
+T.Test("objects property callback stabilizer IsSet", function()
+	local META = objects.CreateTemplate("test_stabilizer_is")
 	local call_count = 0
 
 	function META:OnChanged()
@@ -58,7 +58,7 @@ T.Test("prototype property callback stabilizer IsSet", function()
 
 	META:IsSet("Cool", false, {callback = "OnChanged"})
 	META:Register()
-	local obj = prototype.CreateObject(META)
+	local obj = objects.CreateObject(META)
 	obj:SetCool(true)
 	T(call_count)["=="](1)
 	obj:SetCool(true)

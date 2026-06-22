@@ -1,10 +1,10 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
-local Buffer = prototype.CreateTemplate("vulkan_buffer")
+local Buffer = objects.CreateTemplate("vulkan_buffer")
 
 local function build_buffer_memory_name(name)
 	if not name or name == "" then return nil end

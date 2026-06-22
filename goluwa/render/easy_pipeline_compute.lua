@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
@@ -10,8 +10,7 @@ local EasyPipeline = base.EasyPipeline
 local resolve_draw_frame_index = base.resolve_draw_frame_index
 local resolve_draw_framebuffer = base.resolve_draw_framebuffer
 local get_compute_sampled_descriptor = base.get_compute_sampled_descriptor
-
-local EasyPipelineCompute = prototype.CreateTemplate("render_easy_pipeline_compute")
+local EasyPipelineCompute = objects.CreateTemplate("render_easy_pipeline_compute")
 
 do
 	EasyPipelineCompute.Base = EasyPipeline
@@ -103,15 +102,18 @@ do
 		local uniform_buffers = {}
 		local uniform_buffer_types = {}
 		local uniform_buffer_order = {}
-
 		-- Process push constant block using shared builder
 		local push_constant_size = 0
+
 		if #block > 0 then
 			block.name = "_u_compute"
 			block._is_unnamed = true
+
 			-- Transfer write/source from config level to block level
 			if block.write == nil and write then block.write = write end
+
 			if block.source == nil and source then block.source = source end
+
 			local struct_name, ctype = EasyPipeline.BuildPushConstantBlock(block.name, block)
 			push_constant_size = ffi.sizeof(ctype)
 			self.push_constant_structs = {[struct_name] = ctype()}

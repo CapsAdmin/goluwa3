@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
-local META = prototype.CreateTemplate("clickable")
+local META = objects.CreateTemplate("clickable")
 local shared_double_click_times = setmetatable({}, {__mode = "k"})
 META:StartStorable()
 META:GetSet("DoubleClickTime", 0.3)

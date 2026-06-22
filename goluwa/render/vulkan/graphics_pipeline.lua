@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
 local DescriptorSetLayout = import("goluwa/render/vulkan/internal/descriptor_set_layout.lua")
 local PipelineLayout = import("goluwa/render/vulkan/internal/pipeline_layout.lua")
@@ -11,7 +11,7 @@ local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local Hash = import("goluwa/hash.lua")
 local common = import("goluwa/render/vulkan/pipeline_common.lua")
-local GraphicsPipeline = prototype.CreateTemplate("render_graphics_pipeline")
+local GraphicsPipeline = objects.CreateTemplate("render_graphics_pipeline")
 local state_keys = {}
 local state_defaults = {}
 local hash_key_groups = {}
@@ -848,7 +848,7 @@ local function set_path_value(tbl, path, value)
 	node[path[#path]] = value
 end
 
-for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 	info.path_string = info.path or
 		error("GraphicsPipeline property is missing a path: " .. tostring(info.var_name))
 	info.path_keys = info.path_string:split(".")
@@ -1630,7 +1630,7 @@ local function build_dynamic_state_list(device)
 	local dynamic_states = {}
 	local seen = {}
 
-	for _, var_info in pairs(GraphicsPipeline.prototype_variables) do
+	for _, var_info in pairs(GraphicsPipeline.objects_variables) do
 		local ds = var_info.dynamic_state
 		local has_ds = var_info.has_dynamic_state
 
@@ -1646,11 +1646,11 @@ local function build_dynamic_state_list(device)
 end
 
 function GraphicsPipeline.New(vulkan_instance, config)
-	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		local top_level = config[info.var_name]
 
 		if top_level ~= nil then
-			local top_level = prototype.ValidatePropertyValue(info, top_level, 3)
+			local top_level = objects.ValidatePropertyValue(info, top_level, 3)
 			config[info.var_name] = nil
 			local section = config[info.state_section]
 
@@ -2136,19 +2136,19 @@ do
 		return value
 	end
 
-	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		GraphicsPipeline[info.set_name] = function(self, value)
 			if value == nil then
 				value = get_default_state_value(info)
 			else
-				value = prototype.ValidatePropertyValue(info, value, 2)
+				value = objects.ValidatePropertyValue(info, value, 2)
 
 				if info.compare == "list" then value = list.copy(value) end
 			end
 
 			local current = get_property_effective_value(self, info)
 
-			if prototype.ComparePropertyValues(info, current, value) then return end
+			if objects.ComparePropertyValues(info, current, value) then return end
 
 			local section_name = info.state_section
 			local key = info.state_key
@@ -2176,7 +2176,7 @@ end
 function GraphicsPipeline:ApplyProperties(properties)
 	local property_info = {}
 
-	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		property_info[info.var_name] = info
 	end
 

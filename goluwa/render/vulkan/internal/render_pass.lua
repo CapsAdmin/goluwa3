@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local RenderPass = prototype.CreateTemplate("vulkan_render_pass")
+local RenderPass = objects.CreateTemplate("vulkan_render_pass")
 
 function RenderPass.New(device, config)
 	config.samples = config.samples or "1"

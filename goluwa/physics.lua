@@ -1,6 +1,6 @@
 local singleton = {}
 import.loaded["goluwa/physics.lua"] = singleton
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Broadphase = import("goluwa/physics/broadphase.lua")
 local CollisionPairs = import("goluwa/physics/collision_pairs.lua")
 import("goluwa/physics/convex_hull.lua")
@@ -14,7 +14,7 @@ local world_step = import("goluwa/physics/world_step.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
-local Physics = prototype.CreateTemplate("physics_engine")
+local Physics = objects.CreateTemplate("physics_engine")
 Physics.EPSILON = physics_constants.EPSILON
 
 function Physics.New(config)

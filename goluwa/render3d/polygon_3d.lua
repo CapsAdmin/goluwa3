@@ -1,11 +1,11 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Mesh = import("goluwa/render/mesh.lua")
 local ffi = require("ffi")
 local tasks = import("goluwa/tasks.lua")
-local Polygon3D = prototype.CreateTemplate("render3d_polygon_3d")
+local Polygon3D = objects.CreateTemplate("render3d_polygon_3d")
 
 function Polygon3D.New()
 	local self = Polygon3D:CreateObject()

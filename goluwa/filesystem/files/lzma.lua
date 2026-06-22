@@ -1,8 +1,8 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
 local lzma = import("goluwa/codecs/lzma.lua")
 local crypto = import("goluwa/crypto.lua")
-local prototype = import("goluwa/prototype.lua")
-local CONTEXT = prototype.CreateTemplate("file_system_lzma")
+local objects = import("goluwa/objects/objects.lua")
+local CONTEXT = objects.CreateTemplate("file_system_lzma")
 CONTEXT.Name = "lzma archive"
 CONTEXT.Extension = {"lzma", "bin"}
 CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")

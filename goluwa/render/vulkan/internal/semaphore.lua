@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local Semaphore = prototype.CreateTemplate("vulkan_semaphore")
+local Semaphore = objects.CreateTemplate("vulkan_semaphore")
 
 function Semaphore.New(device)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSemaphore)()

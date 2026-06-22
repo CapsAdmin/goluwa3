@@ -1,8 +1,8 @@
 return function(name, base_path, get_valid_components)
 	local event = import("goluwa/event.lua")
-	local prototype = import("goluwa/prototype.lua")
-	local BaseEntity = prototype.CreateTemplate(name)
-	prototype.ParentingTemplate(BaseEntity)
+	local objects = import("goluwa/objects/objects.lua")
+	local BaseEntity = objects.CreateTemplate(name)
+	objects.ParentingTemplate(BaseEntity)
 	local valid_components
 
 	local function set_property(obj, key, val)
@@ -10,7 +10,7 @@ return function(name, base_path, get_valid_components)
 
 		if new_val ~= nil then val = new_val end
 
-		return prototype.SetProperty(obj, key, val), val
+		return objects.SetProperty(obj, key, val), val
 	end
 
 	local function apply_config(instance, config)
@@ -162,7 +162,7 @@ return function(name, base_path, get_valid_components)
 
 								if not found then
 									for comp_name, comp_meta in pairs(valid_components) do
-										if prototype.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
+										if objects.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
 											local component = ent:AddComponent(comp_name, nil, true)
 											table.insert(components, component)
 											set_property(component, key, new_val)

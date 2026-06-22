@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local Fence = prototype.CreateTemplate("vulkan_fence")
+local Fence = objects.CreateTemplate("vulkan_fence")
 
 function Fence.New(device)
 	local fenceCreateInfo = vulkan.vk.s.FenceCreateInfo{

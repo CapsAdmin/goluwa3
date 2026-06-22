@@ -2,7 +2,7 @@ local window = import("goluwa/window.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local HostColor = import("goluwa/structs/color.lua")
@@ -689,7 +689,7 @@ do
 	end
 
 	function vgui.FocusedHasParent(parent)
-		local focused = prototype.GetFocusedObject()
+		local focused = objects.GetFocusedObject()
 
 		if focused and focused:IsValid() and parent and parent.__obj then
 			return parent.__obj:HasChild(focused)
@@ -697,7 +697,7 @@ do
 	end
 
 	function vgui.GetKeyboardFocus()
-		local focused = prototype.GetFocusedObject()
+		local focused = objects.GetFocusedObject()
 
 		if focused and focused:IsValid() then
 			return gine.WrapObject(focused, "Panel")
@@ -1886,7 +1886,7 @@ do
 	end
 
 	function META:HasFocus()
-		local focused = prototype.GetFocusedObject()
+		local focused = objects.GetFocusedObject()
 		return focused ~= nil and focused == self.__obj
 	end
 
@@ -1899,7 +1899,7 @@ do
 	end
 
 	function META:HasHierarchicalFocus()
-		local focused = prototype.GetFocusedObject()
+		local focused = objects.GetFocusedObject()
 
 		if not (focused and focused:IsValid()) then return false end
 

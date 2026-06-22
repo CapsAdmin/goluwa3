@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local math2d = library()
 
@@ -954,7 +954,7 @@ do
 end
 
 do
-	local META = prototype.CreateTemplate("render2d_bezier_curve")
+	local META = objects.CreateTemplate("render2d_bezier_curve")
 
 	function math2d.CreateBezierCurve(coordinates)
 		local self = META:CreateObject()

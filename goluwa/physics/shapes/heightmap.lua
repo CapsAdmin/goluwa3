@@ -1,10 +1,10 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
-local META = prototype.CreateTemplate("physics_shape_heightmap")
+local META = objects.CreateTemplate("physics_shape_heightmap")
 META.Base = BaseShape
 local HEIGHTMAP_BOUNDS_CORNERS = {
 	Vec3(),

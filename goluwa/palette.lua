@@ -1,6 +1,6 @@
 local Color = import("goluwa/structs/color.lua")
-local prototype = import("goluwa/prototype.lua")
-local ColorPalette = prototype.CreateTemplate("color_palette")
+local objects = import("goluwa/objects/objects.lua")
+local ColorPalette = objects.CreateTemplate("color_palette")
 local accent_names = {"red", "yellow", "blue", "green", "purple", "brown"}
 local accent_hues = {
 	red = 0 / 6,

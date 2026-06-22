@@ -1,10 +1,10 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local shaderc = import("goluwa/bindings/shaderc.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local crypto = import("goluwa/crypto.lua")
-local ShaderModule = prototype.CreateTemplate("vulkan_shader_module")
+local ShaderModule = objects.CreateTemplate("vulkan_shader_module")
 local shader_module_cache = setmetatable({}, {__mode = "k"})
 
 local function get_device_cache(device)

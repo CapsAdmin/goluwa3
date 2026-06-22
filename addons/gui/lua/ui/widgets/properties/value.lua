@@ -5,7 +5,7 @@ local clipboard = import("goluwa/bindings/clipboard.lua")
 local ContextMenu = import("lua/ui/elements/context_menu.lua")
 local MenuItem = import("lua/ui/elements/context_menu_item.lua")
 local Text = import("lua/ui/elements/text.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local theme = import("lua/ui/theme.lua")
 local Value = {}
@@ -232,7 +232,7 @@ local function create_value(props)
 		end
 
 		panel:SetValue(next_value, commit == true)
-		prototype.SetFocusedObject(NULL)
+		objects.SetFocusedObject(NULL)
 		update_visual_state()
 		return true
 	end

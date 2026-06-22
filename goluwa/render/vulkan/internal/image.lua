@@ -1,11 +1,11 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
-local Image = prototype.CreateTemplate("vulkan_image")
+local Image = objects.CreateTemplate("vulkan_image")
 
 local function build_image_memory_name(name)
 	if not name or name == "" then return nil end

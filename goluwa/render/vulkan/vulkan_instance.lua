@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Instance = import("goluwa/render/vulkan/internal/instance.lua")
 local Device = import("goluwa/render/vulkan/internal/device.lua")
@@ -19,7 +19,7 @@ if jit.os == "OSX" then
 end
 
 -- On Linux, VK_LAYER_PATH should be set by the environment (e.g., nix develop)
-local VulkanInstance = prototype.CreateTemplate("render_vulkan_instance")
+local VulkanInstance = objects.CreateTemplate("render_vulkan_instance")
 
 function VulkanInstance.New(surface_handle, display_handle)
 	local self = VulkanInstance:CreateObject({})

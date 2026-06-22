@@ -1,4 +1,4 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local bit = require("bit")
 local physics_constants = import("goluwa/physics/constants.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -7,7 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local RigidBody = prototype.CreateTemplate("rigid_body")
+local RigidBody = objects.CreateTemplate("rigid_body")
 RigidBody.Physics = nil
 
 do

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local Memory = prototype.CreateTemplate("vulkan_memory")
+local Memory = objects.CreateTemplate("vulkan_memory")
 local callstack = import("goluwa/debug/callstack.lua")
 Memory.total_freed_count = Memory.total_freed_count or 0
 Memory.total_freed_bytes = Memory.total_freed_bytes or 0

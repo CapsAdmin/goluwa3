@@ -1,8 +1,8 @@
 local fs = import("goluwa/filesystem/fs.lua")
 local ffi = desire("ffi")
 local vfs = import("goluwa/filesystem/vfs.lua")
-local prototype = import("goluwa/prototype.lua")
-local CONTEXT = prototype.CreateTemplate("file_system_os")
+local objects = import("goluwa/objects/objects.lua")
+local CONTEXT = objects.CreateTemplate("file_system_os")
 CONTEXT.Base = import("goluwa/filesystem/base_file.lua")
 CONTEXT.Name = "os"
 CONTEXT.Position = 0
@@ -168,7 +168,7 @@ function CONTEXT:OnRemove()
 	if self.file ~= nil then
 		self.file:close()
 		self.file = nil
-		prototype.MakeNULL(self)
+		objects.MakeNULL(self)
 	end
 end
 

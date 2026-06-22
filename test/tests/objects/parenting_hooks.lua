@@ -1,16 +1,16 @@
 local T = import("test/environment.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 
-T.Test("prototype parenting hooks", function()
-	local META = prototype.CreateTemplate("test_parenting_hooks")
-	prototype.ParentingTemplate(META)
+T.Test("objects parenting hooks", function()
+	local META = objects.CreateTemplate("test_parenting_hooks")
+	objects.ParentingTemplate(META)
 	META:Register()
-	local CHILD_META = prototype.CreateTemplate("test_child")
-	prototype.ParentingTemplate(CHILD_META)
+	local CHILD_META = objects.CreateTemplate("test_child")
+	objects.ParentingTemplate(CHILD_META)
 	CHILD_META:Register()
-	local parent = prototype.CreateObject(META)
-	local child1 = prototype.CreateObject(CHILD_META)
-	local child2 = prototype.CreateObject(CHILD_META)
+	local parent = objects.CreateObject(META)
+	local child1 = objects.CreateObject(CHILD_META)
+	local child2 = objects.CreateObject(CHILD_META)
 	-- 1. Test standard AddChild
 	parent:AddChild(child1)
 	T(#parent:GetChildren())["=="](1)
@@ -35,7 +35,7 @@ T.Test("prototype parenting hooks", function()
 	parent:AddChild(child2, 5)
 	T(captured_pos)["=="](5)
 	-- 3. Test PreChildAdd redirection
-	local container = prototype.CreateObject(CHILD_META)
+	local container = objects.CreateObject(CHILD_META)
 	parent:AddChild(container)
 	T(#parent:GetChildren())["=="](2)
 
@@ -46,13 +46,13 @@ T.Test("prototype parenting hooks", function()
 		end
 	end
 
-	local child3 = prototype.CreateObject(CHILD_META)
+	local child3 = objects.CreateObject(CHILD_META)
 	parent:AddChild(child3)
 	T(#parent:GetChildren())["=="](2) -- Should still be 2 (container and child1)
 	T(child3:GetParent())["=="](container) -- Should be redirected to container
 	-- 4. Test PreRemoveChildren blocking
-	local p2 = prototype.CreateObject(META)
-	local c1 = prototype.CreateObject(CHILD_META)
+	local p2 = objects.CreateObject(META)
+	local c1 = objects.CreateObject(CHILD_META)
 	p2:AddChild(c1)
 	T(#p2:GetChildren())["=="](1)
 
@@ -64,17 +64,17 @@ T.Test("prototype parenting hooks", function()
 	T(#p2:GetChildren())["=="](1) -- Should NOT be removed
 	T(c1:IsValid())["=="](true)
 	-- 5. Test PreRemoveChildren custom logic
-	local p3 = prototype.CreateObject(META)
-	local sub_container = prototype.CreateObject(CHILD_META)
+	local p3 = objects.CreateObject(META)
+	local sub_container = objects.CreateObject(CHILD_META)
 	p3:AddChild(sub_container)
 
 	function sub_container:PreChildAdd()
 		return true
 	end -- allow all
-	local internal_child = prototype.CreateObject(CHILD_META)
+	local internal_child = objects.CreateObject(CHILD_META)
 	internal_child.IsInternal = true
 	sub_container:AddChild(internal_child)
-	local external_child = prototype.CreateObject(CHILD_META)
+	local external_child = objects.CreateObject(CHILD_META)
 	sub_container:AddChild(external_child)
 	T(#sub_container:GetChildren())["=="](2)
 
@@ -99,9 +99,9 @@ T.Test("prototype parenting hooks", function()
 	T(external_child:IsValid())["=="](false)
 end)
 
-T.Test("prototype RemoveChildren bulk semantics", function()
-	local META = prototype.CreateTemplate("test_remove_children_bulk")
-	prototype.ParentingTemplate(META)
+T.Test("objects RemoveChildren bulk semantics", function()
+	local META = objects.CreateTemplate("test_remove_children_bulk")
+	objects.ParentingTemplate(META)
 
 	function META:OnRemove()
 		self:UnParent()
@@ -109,10 +109,10 @@ T.Test("prototype RemoveChildren bulk semantics", function()
 	end
 
 	META:Register()
-	local parent = prototype.CreateObject(META)
-	local child_a = prototype.CreateObject(META)
-	local child_b = prototype.CreateObject(META)
-	local grandchild = prototype.CreateObject(META)
+	local parent = objects.CreateObject(META)
+	local child_a = objects.CreateObject(META)
+	local child_b = objects.CreateObject(META)
+	local grandchild = objects.CreateObject(META)
 	local unparent_calls = 0
 	local child_remove_calls = 0
 
@@ -152,14 +152,14 @@ T.Test("prototype RemoveChildren bulk semantics", function()
 	T(#parent:GetChildrenList())["=="](0)
 end)
 
-T.Test("prototype BringToFront and SendToBack reorder without reparent", function()
-	local META = prototype.CreateTemplate("test_reorder_without_reparent")
-	prototype.ParentingTemplate(META)
+T.Test("objects BringToFront and SendToBack reorder without reparent", function()
+	local META = objects.CreateTemplate("test_reorder_without_reparent")
+	objects.ParentingTemplate(META)
 	META:Register()
-	local parent = prototype.CreateObject(META)
-	local child_a = prototype.CreateObject(META)
-	local child_b = prototype.CreateObject(META)
-	local child_c = prototype.CreateObject(META)
+	local parent = objects.CreateObject(META)
+	local child_a = objects.CreateObject(META)
+	local child_b = objects.CreateObject(META)
+	local child_c = objects.CreateObject(META)
 	local parent_calls = 0
 	local unparent_calls = 0
 

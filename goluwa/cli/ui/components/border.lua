@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
-local META = prototype.CreateTemplate("tui_border")
+local META = objects.CreateTemplate("tui_border")
 META:StartStorable()
 -- Optional title shown in the top border ("" = no title)
 META:GetSet("Title", "")

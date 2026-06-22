@@ -1,6 +1,6 @@
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
-local SequenceBuffer = prototype.CreateTemplate("sequence_buffer")
+local SequenceBuffer = objects.CreateTemplate("sequence_buffer")
 
 function SequenceBuffer.New(str)
 	return SequenceBuffer:CreateObject{

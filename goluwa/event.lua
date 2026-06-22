@@ -110,7 +110,7 @@ function event.RemoveListener(event_type, id)
 end
 
 function event.SkipCallback(cb)
-	-- used by prototype CallLocalEvent
+	-- used by objects CallLocalEvent
 	event.skip_callback = cb
 end
 

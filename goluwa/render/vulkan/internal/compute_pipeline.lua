@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local ComputePipeline = prototype.CreateTemplate("vulkan_compute_pipeline")
+local ComputePipeline = objects.CreateTemplate("vulkan_compute_pipeline")
 
 function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	local info = vulkan.vk.s.PipelineShaderStageCreateInfo{

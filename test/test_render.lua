@@ -1,5 +1,5 @@
 local event = import("goluwa/event.lua")
-local prototype = import("goluwa/prototype.lua")
+local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local commands = import("goluwa/cli/commands.lua")
@@ -98,7 +98,7 @@ function test_render.Draw3D(cb)
 	test_render.Init3D()
 	render3d.ResetState()
 	cb(draw_3d_func)
-	prototype.CheckRemovedObjects()
+	objects.CheckRemovedObjects()
 	local found = false
 	local children = Entity.World:GetChildrenList()
 
