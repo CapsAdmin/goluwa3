@@ -4,6 +4,15 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local camera_block = {
+	name = "gbuffer_data",
+	binding_index = 3,
+	block = {
+		render3d.camera_block,
+	},
+	write = render3d.WriteCameraBlock,
+	upload_scope = "frame",
+}
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
 	local function BuildPBRSamplingGlsl(
@@ -217,15 +226,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		DepthFormat = "d32_sfloat",
 		fragment = {
 			uniform_buffers = {
-				{
-					name = "gbuffer_data",
-					binding_index = 3,
-					upload_scope = "frame",
-					block = {
-						render3d.camera_block,
-					},
-					write = render3d.WriteCameraBlock,
-				},
+				camera_block,
 				{
 					name = "model",
 					upload_scope = "persistent_keyed",
@@ -566,15 +567,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			include_projection_view_world = false,
 			camera_uniform_block_name = "gbuffer_data",
 			uniform_buffers = {
-				{
-					name = "gbuffer_data",
-					binding_index = 3,
-					upload_scope = "frame",
-					block = {
-						render3d.camera_block,
-					},
-					write = render3d.WriteCameraBlock,
-				},
+				camera_block,
 			},
 			enable_vertex_animation = enable_vertex_animation,
 		},
@@ -596,15 +589,7 @@ local function build_instanced_pass(fragment_shader)
 		include_projection_view = false,
 		camera_uniform_block_name = "gbuffer_data",
 		uniform_buffers = {
-			{
-				name = "gbuffer_data",
-				binding_index = 3,
-				upload_scope = "frame",
-				block = {
-					render3d.camera_block,
-				},
-				write = render3d.WriteCameraBlock,
-			},
+			camera_block,
 		},
 		enable_vertex_animation = true,
 	}
@@ -817,15 +802,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 	pass_anim.FrontFace = orientation.FRONT_FACE
 	pass.tessellation_control = {
 		uniform_buffers = {
-			{
-				name = "gbuffer_data",
-				binding_index = 3,
-				upload_scope = "frame",
-				block = {
-					render3d.camera_block,
-				},
-				write = render3d.WriteCameraBlock,
-			},
+			camera_block,
 			{
 				name = "model",
 				upload_scope = "frame_keyed",
@@ -896,15 +873,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 	}
 	pass.tessellation_evaluation = {
 		uniform_buffers = {
-			{
-				name = "gbuffer_data",
-				binding_index = 3,
-				upload_scope = "frame",
-				block = {
-					render3d.camera_block,
-				},
-				write = render3d.WriteCameraBlock,
-			},
+			camera_block,
 			{
 				name = "model",
 				upload_scope = "frame_keyed",
@@ -933,15 +902,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 	pass_anim.tessellation_control = pass.tessellation_control
 	pass_anim.tessellation_evaluation = {
 		uniform_buffers = {
-			{
-				name = "gbuffer_data",
-				binding_index = 3,
-				upload_scope = "frame",
-				block = {
-					render3d.camera_block,
-				},
-				write = render3d.WriteCameraBlock,
-			},
+			camera_block,
 			{
 				name = "model",
 				upload_scope = "frame_keyed",

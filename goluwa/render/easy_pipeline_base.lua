@@ -120,13 +120,20 @@ local function upload_ubo(
 		local cache = info.offsets
 
 		if upload_scope == "frame" then
-			if cache.frame_number == frame_number and cache.key == cache_key then
+			if
+				cache.frame_number == frame_number and
+				cache.key == cache_key and
+				cache.sys_frame_number == system.GetFrameNumber()
+			then
 				offset = cache.offset
 			end
 
 			cache_hit = offset ~= nil
 		elseif upload_scope == "frame_keyed" then
-			if cache.frame_number ~= frame_number then
+			if
+				cache.frame_number ~= frame_number and
+				cache.sys_frame_number ~= system.GetFrameNumber()
+			then
 				cache.frame_number = frame_number
 				cache.strong_entries = {}
 				cache.weak_entries = setmetatable({}, {__mode = "k"})
@@ -236,6 +243,7 @@ local function upload_ubo(
 		if upload_scope == "frame" then
 			local cache = info.offsets
 			cache.frame_number = frame_number
+			cache.sys_frame_number = system.GetFrameNumber()
 			cache.key = true
 			cache.offset = offset
 		elseif upload_scope == "frame_keyed" and cache_key ~= nil then
@@ -243,6 +251,7 @@ local function upload_ubo(
 
 			if cache.frame_number ~= frame_number then
 				cache.frame_number = frame_number
+				cache.sys_frame_number = system.GetFrameNumber()
 				cache.strong_entries = {}
 				cache.weak_entries = setmetatable({}, {__mode = "k"})
 			end

@@ -34,86 +34,12 @@ local INSTANCE_MATRIX_ATTRIBUTES = {
 local NO_INDEX_BUFFER_KEY = {}
 local NO_MODEL_PATH_KEY = {}
 
-local function get_pipeline_configs()
-	if false then
-		return list.flatten{
-			import("goluwa/render3d/passes/gbuffer.lua"),
-			import("goluwa/render3d/passes/lighting_simple.lua"),
-			import("goluwa/render3d/passes/forward_overlay.lua"),
-			import("goluwa/render3d/passes/blit.lua"),
-		}
-	end
-
-	return list.flatten{
-		import("goluwa/render3d/passes/gbuffer.lua"),
-		import("goluwa/render3d/passes/ambient_occlusion.lua"),
-		import("goluwa/render3d/passes/probe_irradiance.lua"),
-		--import("goluwa/render3d/passes/ssgi.lua"),
-		--import("goluwa/render3d/passes/voxel_build.lua"),
-		--import("goluwa/render3d/passes/voxel_irradiance.lua"),
-		import("goluwa/render3d/passes/ssr.lua"),
-		import("goluwa/render3d/passes/lighting.lua"),
-		--import("goluwa/render3d/passes/lighting_simple.lua"),
-		import("goluwa/render3d/passes/ocean.lua"),
-		import("goluwa/render3d/passes/forward_overlay.lua"),
-		import("goluwa/render3d/passes/volumetric_fog.lua"),
-		--import("goluwa/render3d/passes/smaa.lua"),
-		import("goluwa/render3d/passes/bloom.lua"),
-		import("goluwa/render3d/passes/blit.lua"),
-	}
-end
-
 local function decorate_pipeline_instance(pipeline, config)
 	pipeline.name = config.name
 	pipeline.post_draw = config.post_draw
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
 	pipeline.use_global_sampler_config = config.UseGlobalSamplerConfig ~= false
 	return pipeline
-end
-
-local function instantiate_pipeline_bundle(options)
-	options = options or {}
-	local bundle = {
-		pipelines = {},
-		pipelines_i = {},
-		options = options,
-	}
-	local framebuffer_size = options.framebuffer_size
-	local filter = options.filter
-	local include_names = options.include_names
-	local exclude_names = options.exclude_names or {}
-
-	for _, source_config in ipairs(get_pipeline_configs()) do
-		local name = source_config.name
-
-		if
-			not exclude_names[name] and
-			(
-				not include_names or
-				include_names[name]
-			)
-			and
-			(
-				not filter or
-				filter(name, source_config) ~= false
-			)
-		then
-			local config = table.copy(source_config)
-
-			if framebuffer_size and not config.FramebufferSize then
-				config.FramebufferSize = {
-					x = framebuffer_size.x,
-					y = framebuffer_size.y,
-				}
-			end
-
-			local pipeline = decorate_pipeline_instance(EasyPipeline.New(config), config)
-			bundle.pipelines_i[#bundle.pipelines_i + 1] = pipeline
-			bundle.pipelines[name] = pipeline
-		end
-	end
-
-	return bundle
 end
 
 local function remove_pipeline_bundle(bundle)
@@ -489,7 +415,66 @@ function render3d.WithRenderContext(context, callback)
 end
 
 function render3d.CreatePipelineBundle(options)
-	return instantiate_pipeline_bundle(options)
+	options = options or {}
+	local bundle = {
+		pipelines = {},
+		pipelines_i = {},
+		options = options,
+	}
+	local framebuffer_size = options.framebuffer_size
+	local filter = options.filter
+	local include_names = options.include_names
+	local exclude_names = options.exclude_names or {}
+	local passes = options.passes or
+		{
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/ambient_occlusion.lua"),
+			import("goluwa/render3d/passes/probe_irradiance.lua"),
+			--import("goluwa/render3d/passes/ssgi.lua"),
+			--import("goluwa/render3d/passes/voxel_build.lua"),
+			--import("goluwa/render3d/passes/voxel_irradiance.lua"),
+			import("goluwa/render3d/passes/ssr.lua"),
+			import("goluwa/render3d/passes/lighting.lua"),
+			--import("goluwa/render3d/passes/lighting_simple.lua"),
+			import("goluwa/render3d/passes/ocean.lua"),
+			import("goluwa/render3d/passes/forward_overlay.lua"),
+			import("goluwa/render3d/passes/volumetric_fog.lua"),
+			--import("goluwa/render3d/passes/smaa.lua"),
+			import("goluwa/render3d/passes/bloom.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		}
+
+	for _, source_config in ipairs(list.flatten(passes)) do
+		local name = source_config.name
+
+		if
+			not exclude_names[name] and
+			(
+				not include_names or
+				include_names[name]
+			)
+			and
+			(
+				not filter or
+				filter(name, source_config) ~= false
+			)
+		then
+			local config = table.copy(source_config)
+
+			if framebuffer_size and not config.FramebufferSize then
+				config.FramebufferSize = {
+					x = framebuffer_size.x,
+					y = framebuffer_size.y,
+				}
+			end
+
+			local pipeline = decorate_pipeline_instance(EasyPipeline.New(config), config)
+			bundle.pipelines_i[#bundle.pipelines_i + 1] = pipeline
+			bundle.pipelines[name] = pipeline
+		end
+	end
+
+	return bundle
 end
 
 function render3d.RemovePipelineBundle(bundle)
@@ -519,14 +504,14 @@ function render3d.RunPipelineBundle(bundle, cmd, context)
 	end)
 end
 
-function render3d.Initialize()
+function render3d.Initialize(config)
 	render3d.initializing = true
 
 	if render3d.main_pipeline_bundle then
 		render3d.RemovePipelineBundle(render3d.main_pipeline_bundle)
 	end
 
-	render3d.main_pipeline_bundle = render3d.CreatePipelineBundle()
+	render3d.main_pipeline_bundle = render3d.CreatePipelineBundle(config and {passes = config.passes})
 	render3d.pipelines = render3d.main_pipeline_bundle.pipelines
 	render3d.pipelines_i = render3d.main_pipeline_bundle.pipelines_i
 	local size = render.GetRenderImageSize()

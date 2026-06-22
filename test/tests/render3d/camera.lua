@@ -113,21 +113,6 @@ local function TestCamera(name, cb, opts)
 			white_tex:Shade("return vec4(1, 1, 1, 1);")
 		end
 
-		local sun = Entity.New{
-			transform = {
-				Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
-			},
-			light = {
-				LightType = "sun",
-				Color = Color(1.0, 1, 1),
-				Intensity = 1,
-			},
-		}
-		sun:SetName("sun")
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(90))
-		table.insert(ents, sun)
-
 		--
 		do -- faces
 			-- Forward (+Z): Blue
@@ -183,151 +168,149 @@ local function orient_camera(ang, pos)
 	cam:SetRotation(q)
 end
 
-T.Test3D("camera tests", function(draw)
-	TestCamera(
-		"Identity rotation",
-		function(draw)
-			local cam = render3d.GetCamera()
-			cam:SetPosition(Vec3(0, 0, 0))
-			cam:SetRotation(Quat(0, 0, 0, 1))
-			draw()
-			test_color("center", "yellow") -- Should see Yellow (-Z)
-		end,
-		{skip_center_cube = true}
-	)
-
-	TestCamera("Pitch 90 degrees should look Up", function(draw)
-		orient_camera(Deg3(90, 0, 0))
-		draw()
-		test_color("center", "green")
-	end)
-
-	TestCamera("Yaw 180 degrees should look Forward", function(draw)
-		orient_camera(Deg3(0, 180, 0))
-		draw()
-		test_color("center", "blue") -- Should see Blue (+Z)
-	end)
-
-	TestCamera("Yaw 90 degrees should look Right", function(draw)
-		orient_camera(Deg3(0, -90, 0))
-		draw()
-		test_color("center", "red") -- Should see Red (+X)
-	end)
-
-	TestCamera("Camera look left and up", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 0))
-		local q = Quat()
-		q:Identity()
-		q:RotateYaw(math.rad(90)) -- Turn Left
-		q:RotatePitch(math.rad(90)) -- Look Up
-		cam:SetRotation(q)
-		draw()
-		test_color("center", "green")
-	end)
-
-	TestCamera("Camera look left and up 2", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 0))
-		local q = Quat()
-		q:Identity()
-		q:RotateYaw(math.rad(180)) -- Turn Backward (to Forward)
-		q:RotatePitch(math.rad(90)) -- Look Up
-		cam:SetRotation(q)
-		draw()
-		test_color("center", "green")
-		test_color("left_center", "red")
-	end)
-
-	TestCamera("Camera look up and move forward", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(120))
-		cam:SetRotation(Quat():SetAngles(Deg3(90, 0, 0)))
-		cam:SetPosition(cam:GetRotation():GetForward() * 5)
-		draw()
-		test_color_all("green")
-	end)
-
-	TestCamera("Pitch -90 degrees should look Down", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(120))
-		cam:SetRotation(Quat():SetAngles(Deg3(-89, 0, 0))) -- 89 to prevent culling, TODO
-		cam:SetPosition(cam:GetRotation():GetForward() * 5)
-		draw()
-		test_color_all("magenta")
-	end)
-
-	TestCamera("Camera movement up", function(draw)
+TestCamera(
+	"Identity rotation",
+	function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1))
-		local up = cam:GetRotation():Up()
-		T(up.x)["=="](0)
-		T(up.y)["=="](1)
-		T(up.z)["=="](0)
-		cam:SetPosition(cam:GetPosition() + up * 5)
-		T(cam:GetPosition().y)["=="](5)
 		draw()
-		test_color("center", "yellow")
-		test_color("top_center", "green")
-	end)
+		test_color("center", "yellow") -- Should see Yellow (-Z)
+	end,
+	{skip_center_cube = true}
+)
 
-	TestCamera("Camera movement backward", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 10))
-		draw()
-		test_color("center", "white")
-	end)
+TestCamera("Pitch 90 degrees should look Up", function(draw)
+	orient_camera(Deg3(89, 0, 0))
+	draw()
+	test_color("center", "green")
+end)
 
-	TestCamera("Camera movement left", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(-10, 0, 0))
-		draw()
-		-- left half of the screen should be black
-		-- top right should be green 
-		-- right should be yellow 
-		-- bottom right should be magenta
-		test_color("left_center", "black")
-		test_color("top_right", "green")
-		test_color("right_center", "yellow")
-		test_color("bottom_right", "magenta")
-	end)
+TestCamera("Yaw 180 degrees should look Forward", function(draw)
+	orient_camera(Deg3(0, 179, 0))
+	draw()
+	test_color("center", "blue") -- Should see Blue (+Z)
+end)
 
-	TestCamera("Camera roll", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 5))
-		local q = Quat()
-		q:SetAngles(Deg3(0, 0, -90))
-		cam:SetRotation(q)
-		draw()
-		test_color("left_center", "green")
-	end)
+TestCamera("Yaw 90 degrees should look Right", function(draw)
+	orient_camera(Deg3(0, -89, 0))
+	draw()
+	test_color("center", "red") -- Should see Red (+X)
+end)
 
-	TestCamera("Camera near plane clipping", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetNearZ(2.0)
-		cam:SetPosition(Vec3(0, 0, 1)) -- 1 unit away from center cube
-		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube
-		draw()
-		test_color("center", "yellow")
-	end)
+TestCamera("Camera look left and up", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFOV(math.rad(120))
+	cam:SetPosition(Vec3(0, 0, 0))
+	local q = Quat()
+	q:Identity()
+	q:RotateYaw(math.rad(89)) -- Turn Left
+	q:RotatePitch(math.rad(89)) -- Look Up
+	cam:SetRotation(q)
+	draw()
+	test_color("center", "green")
+end)
 
-	TestCamera("Camera far plane clipping", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetFarZ(10 - 0.1) -- Just before the Yellow face
-		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 0))
-		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at Yellow face (-Z)
-		draw()
-		test_color("center", "black") -- center is clipped, so black
-		test_color("top_center", "green") -- top is green
-		test_color("bottom_center", "magenta") -- bottom is magenta
-		test_color("left_center", "cyan") -- left is cyan
-		test_color("right_center", "red") -- right is red
-	end)
+TestCamera("Camera look left and up 2", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFOV(math.rad(120))
+	cam:SetPosition(Vec3(0, 0, 0))
+	local q = Quat()
+	q:Identity()
+	q:RotateYaw(math.rad(179)) -- Turn Backward (to Forward)
+	q:RotatePitch(math.rad(89)) -- Look Up
+	cam:SetRotation(q)
+	draw()
+	test_color("center", "green")
+	test_color("left_center", "red")
+end)
+
+TestCamera("Camera look up and move forward", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFOV(math.rad(120))
+	cam:SetRotation(Quat():SetAngles(Deg3(89, 0, 0)))
+	cam:SetPosition(cam:GetRotation():GetForward() * 5)
+	draw()
+	test_color_all("green")
+end)
+
+TestCamera("Pitch -90 degrees should look Down", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFOV(math.rad(120))
+	cam:SetRotation(Quat():SetAngles(Deg3(-89, 0, 0))) -- 89 to prevent culling, TODO
+	cam:SetPosition(cam:GetRotation():GetForward() * 5)
+	draw()
+	test_color_all("magenta")
+end)
+
+TestCamera("Camera movement up", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetPosition(Vec3(0, 0, 0))
+	cam:SetRotation(Quat(0, 0, 0, 1))
+	local up = cam:GetRotation():Up()
+	T(up.x)["=="](0)
+	T(up.y)["=="](1)
+	T(up.z)["=="](0)
+	cam:SetPosition(cam:GetPosition() + up * 5)
+	T(cam:GetPosition().y)["=="](5)
+	draw()
+	test_color("center", "yellow")
+	test_color("top_center", "green")
+end)
+
+TestCamera("Camera movement backward", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFOV(math.rad(120))
+	cam:SetPosition(Vec3(0, 0, 10))
+	draw()
+	test_color("center", "white")
+end)
+
+TestCamera("Camera movement left", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFOV(math.rad(120))
+	cam:SetPosition(Vec3(-10, 0, 0))
+	draw()
+	-- left half of the screen should be black
+	-- top right should be green 
+	-- right should be yellow 
+	-- bottom right should be magenta
+	test_color("left_center", "black")
+	test_color("top_right", "green")
+	test_color("right_center", "yellow")
+	test_color("bottom_right", "magenta")
+end)
+
+TestCamera("Camera roll", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFOV(math.rad(120))
+	cam:SetPosition(Vec3(0, 0, 5))
+	local q = Quat()
+	q:SetAngles(Deg3(0, 0, -89))
+	cam:SetRotation(q)
+	draw()
+	test_color("left_center", "green")
+end)
+
+TestCamera("Camera near plane clipping", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetNearZ(2.0)
+	cam:SetPosition(Vec3(0, 0, 1)) -- 1 unit away from center cube
+	cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube
+	draw()
+	test_color("center", "yellow")
+end)
+
+TestCamera("Camera far plane clipping", function(draw)
+	local cam = render3d.GetCamera()
+	cam:SetFarZ(10 - 0.1) -- Just before the Yellow face
+	cam:SetFOV(math.rad(120))
+	cam:SetPosition(Vec3(0, 0, 0))
+	cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at Yellow face (-Z)
+	draw()
+	test_color("center", "black") -- center is clipped, so black
+	test_color("top_center", "green") -- top is green
+	test_color("bottom_center", "magenta") -- bottom is magenta
+	test_color("left_center", "cyan") -- left is cyan
+	test_color("right_center", "red") -- right is red
 end)

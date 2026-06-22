@@ -3,11 +3,11 @@ local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local commands = import("goluwa/cli/commands.lua")
+local system = import("goluwa/system.lua")
 local gine = import("addons/gmod/lua/gine.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics
 local render
 local render3d
 local render2d
@@ -39,7 +39,12 @@ function test_render.Init3D()
 	if not render3d then render3d = import("goluwa/render3d/render3d.lua") end
 
 	if not test_render.render3d_init then
-		render3d.Initialize()
+		render3d.Initialize{
+			passes = {
+				import("goluwa/render3d/passes/gbuffer.lua"),
+				import("goluwa/render3d/passes/blit.lua"),
+			},
+		}
 		test_render.render3d_init = true
 	end
 end
@@ -91,6 +96,7 @@ function test_render.Draw2DFrames(frame_count, cb, after_frame)
 end
 
 local function draw_3d_func()
+	system.SetFrameNumber(system.GetFrameNumber() + 1)
 	render.Draw(1)
 end
 
@@ -120,12 +126,6 @@ function test_render.Draw3D(cb)
 			print("Entity not removed: " .. tostring(ent))
 			found = true
 		end
-	end
-
-	if not physics then
-		physics = import("goluwa/physics.lua")
-	elseif physics.ResetState then
-		physics.ResetState()
 	end
 
 	if found then error("Not all entities were removed after test!") end
