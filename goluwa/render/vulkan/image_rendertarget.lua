@@ -627,6 +627,18 @@ function ImageRenderTarget:GetSwapchainImageCount()
 	return #self.textures
 end
 
+function ImageRenderTarget:Clear(r, g, b, a, depth, stencil)
+	local cmd = render.GetCommandBuffer()
+	local extent = self:GetExtent()
+	cmd:ClearAttachments{
+		color = {r, g, b, a},
+		depth = depth,
+		stencil = stencil,
+		w = extent.width,
+		h = extent.height,
+	}
+end
+
 -- Additional methods for offscreen mode compatibility
 function ImageRenderTarget:WriteMode(cmd)
 	if not self.config.offscreen then
