@@ -568,7 +568,7 @@ function line.RunGame(folder, ...)
 
 		love.conf(config)
 		love._line_env.config = config
-		apply_love_version(love, config.version)
+		line.ApplyVersion(love, config.version)
 	end
 
 	local config = love._line_env.config
