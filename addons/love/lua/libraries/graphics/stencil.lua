@@ -23,8 +23,8 @@ function love.graphics.setStencilTest(mode, val)
 			render2d.SetStencilMode("none", 0)
 		elseif mode == "equal" then
 			render2d.SetStencilMode("test", val)
-		elseif mode == "greater" and val == 0 then
-			render2d.SetStencilMode("test_inverse", val)
+		elseif mode == "greater" then
+			render2d.SetStencilMode("greater", val)
 		else
 			error("unsupported stencil test mode: " .. tostring(mode), 2)
 		end

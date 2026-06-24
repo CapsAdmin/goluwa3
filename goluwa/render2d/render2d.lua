@@ -111,6 +111,7 @@ local stencil_mode_ids = {
 	mask_decrement = 5,
 	test = 6,
 	test_inverse = 7,
+	greater = 8,
 }
 local stencil_mode_names = {
 	[1] = "none",
@@ -120,6 +121,7 @@ local stencil_mode_names = {
 	[5] = "mask_decrement",
 	[6] = "test",
 	[7] = "test_inverse",
+	[8] = "greater",
 }
 local bind_mesh_immediate
 local capture_rect_draw_state
@@ -1908,6 +1910,16 @@ do
 				pass_op = "keep",
 				depth_fail_op = "keep",
 				compare_op = "equal",
+			},
+			color_write_mask = {"r", "g", "b", "a"},
+		},
+		greater = {
+			stencil_test = true,
+			front = {
+				fail_op = "keep",
+				pass_op = "keep",
+				depth_fail_op = "keep",
+				compare_op = "greater",
 			},
 			color_write_mask = {"r", "g", "b", "a"},
 		},

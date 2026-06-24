@@ -259,7 +259,7 @@ local function create_depth_buffer(self)
 		},
 		view = {
 			format = self.depth_format,
-			aspect = "depth",
+			aspect = {"depth", "stencil"},
 		},
 		sampler = false,
 	}
