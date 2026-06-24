@@ -180,7 +180,6 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			render2d.Scalef(sx, sy)
 			render2d.UploadConstants()
 			-- Sync pipeline state to bind descriptor set with registered textures
-			render2d.BindPipeline()
 			drawable:Draw()
 			render2d.PopMatrix()
 			render2d.PopTexture()
@@ -267,7 +266,7 @@ local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy
 	render2d.Scalef(sx, sy)
 	render2d.UploadConstants()
 	-- Sync pipeline state to bind descriptor set with registered textures
-	render2d.BindPipeline()
+	--render2d.BindPipeline()
 	drawable:DrawInstanced(instance_count, {instance_mesh.vertex_buffer})
 	render2d.PopMatrix()
 	render2d.PopTexture()

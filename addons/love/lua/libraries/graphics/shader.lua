@@ -1019,7 +1019,9 @@ function love.graphics.newShader(frag, vert)
 
 	obj.pipeline = obj.shader
 	-- Delegate GetTextureIndex to the shader's inner pipeline so textures are registered correctly
-	obj.GetTextureIndex = function(self, texture, ...) return self.shader.pipeline:GetTextureIndex(texture, ...) end
+	obj.GetTextureIndex = function(self, texture, ...)
+		return self.shader.pipeline:GetTextureIndex(texture, ...)
+	end
 	return obj
 end
 
@@ -1029,8 +1031,6 @@ love.graphics.newPixelEffect = love.graphics.newShader
 function love.graphics.setShader(obj)
 	ENV.current_shader = obj
 	render2d.shader_override = obj and obj.pipeline or nil
-
-	if render.GetCommandBuffer() then render2d.BindPipeline() end
 end
 
 function love.graphics.getShader()
