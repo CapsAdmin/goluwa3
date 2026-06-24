@@ -1,8 +1,7 @@
-local bootstrap = import("lua/examples/love2d/_bootstrap.lua")
-local love = bootstrap("love2d_text_probe")
-local font_small
-local font_large
+local love = import("lua/love.lua")
 local text = "Sphinx of black quartz, judge my vow"
+local font_small = love.graphics.newFont(18)
+local font_large = love.graphics.newFont(42)
 local wrap_text = "Wrapped text should stay inside the panel, honor alignment, and not inherit stale UV or texture state from earlier draws."
 local time = 0
 
@@ -17,11 +16,6 @@ local function draw_crosshair(x, y)
 	love.graphics.setColor(255, 180, 40, 255)
 	love.graphics.line(x - 8, y, x + 8, y)
 	love.graphics.line(x, y - 8, x, y + 8)
-end
-
-function love.load()
-	font_small = love.graphics.newFont(18)
-	font_large = love.graphics.newFont(42)
 end
 
 function love.update(dt)

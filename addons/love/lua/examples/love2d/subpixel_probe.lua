@@ -1,29 +1,20 @@
-local bootstrap = import("lua/examples/love2d/_bootstrap.lua")
-local love = bootstrap("love2d_subpixel_probe")
-local sprite
+local love = import("lua/love.lua")
 local time = 0
+local data = love.image.newImageData(24, 24)
 
-local function make_sprite()
-	local data = love.image.newImageData(24, 24)
-
-	for y = 0, 23 do
-		for x = 0, 23 do
-			local alpha = (x > 2 and x < 21 and y > 2 and y < 21) and 255 or 0
-			data:setPixel(x, y, 255, 180, 36, alpha)
-		end
+for y = 0, 23 do
+	for x = 0, 23 do
+		local alpha = (x > 2 and x < 21 and y > 2 and y < 21) and 255 or 0
+		data:setPixel(x, y, 255, 180, 36, alpha)
 	end
-
-	for i = 0, 23 do
-		data:setPixel(i, 12, 255, 255, 255, 255)
-		data:setPixel(12, i, 255, 255, 255, 255)
-	end
-
-	sprite = love.graphics.newImage(data)
 end
 
-function love.load()
-	make_sprite()
+for i = 0, 23 do
+	data:setPixel(i, 12, 255, 255, 255, 255)
+	data:setPixel(12, i, 255, 255, 255, 255)
 end
+
+local sprite = love.graphics.newImage(data)
 
 function love.update(dt)
 	time = time + dt

@@ -1,5 +1,4 @@
-local bootstrap = import("lua/examples/love2d/_bootstrap.lua")
-local love = bootstrap("love2d_canvas_probe")
+local love = import("lua/love.lua")
 local canvas
 local checker
 local quad

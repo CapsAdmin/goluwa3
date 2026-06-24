@@ -20,18 +20,6 @@ function love.line_update(dt)
 	end
 
 	if love.update then line.pcall(love, love.update, dt) end
-
-	for _, module in ipairs(love._line_env.update_modules or {}) do
-		local update = type(module) == "table" and rawget(module, "update") or nil
-
-		if type(update) == "function" then
-			local request = rawget(module, "request")
-
-			if type(request) == "table" and next(request) ~= nil then system.Sleep(0.001) end
-
-			line.pcall(love, update, 0.001)
-		end
-	end
 end
 
 function love.line_draw(dt)
@@ -92,11 +80,7 @@ event.AddListener("LoveNewIndex", "line_love", function(love, key, val)
 	elseif key == "draw" then
 		if val then
 			event.AddListener("Draw2D", "line", function(dt)
-				if menu and menu.IsVisible() then render2d.PushHSV(1, 0, 1) end
-
 				line.CallEvent("line_draw", dt)
-
-				if menu and menu.IsVisible() then render2d.PopHSV() end
 			end)
 		else
 			event.RemoveListener("Draw2D", "line")

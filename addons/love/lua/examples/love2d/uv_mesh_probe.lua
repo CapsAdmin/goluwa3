@@ -1,8 +1,33 @@
-local bootstrap = import("lua/examples/love2d/_bootstrap.lua")
-local love = bootstrap("love2d_uv_mesh_probe")
-local image
-local quad
-local mesh
+local love = import("lua/love.lua")
+local data = love.image.newImageData(64, 64)
+
+for y = 0, 63 do
+	for x = 0, 63 do
+		local r = x < 32 and 255 or 40
+		local g = y < 32 and 255 or 60
+		local b = x >= 32 and y >= 32 and 255 or 40
+		data:setPixel(x, y, r, g, b, 255)
+	end
+end
+
+for x = 0, 63 do
+	data:setPixel(x, 31, 255, 255, 255, 255)
+	data:setPixel(31, x, 255, 255, 255, 255)
+end
+
+local image = love.graphics.newImage(data)
+image:setFilter("nearest", "nearest", 1)
+local quad = love.graphics.newQuad(0, 0, 32, 32, 64, 64)
+local mesh = love.graphics.newMesh(
+	{
+		{0, 0, 0, 0, 255, 255, 255, 255},
+		{192, 0, 1, 0, 255, 255, 255, 255},
+		{192, 192, 1, 1, 255, 255, 255, 255},
+		{0, 192, 0, 1, 255, 255, 255, 255},
+	},
+	image,
+	"fan"
+)
 
 local function draw_panel_outline(x, y, w, h)
 	love.graphics.setColor(240, 244, 250, 255)
@@ -20,42 +45,6 @@ local function draw_corner_markers(x, y)
 	love.graphics.rectangle("fill", x - 12, y + 196, 8, 8)
 	love.graphics.setColor(0, 128, 255, 255)
 	love.graphics.rectangle("fill", x + 196, y + 196, 8, 8)
-end
-
-local function make_test_image()
-	local data = love.image.newImageData(64, 64)
-
-	for y = 0, 63 do
-		for x = 0, 63 do
-			local r = x < 32 and 255 or 40
-			local g = y < 32 and 255 or 60
-			local b = x >= 32 and y >= 32 and 255 or 40
-			data:setPixel(x, y, r, g, b, 255)
-		end
-	end
-
-	for x = 0, 63 do
-		data:setPixel(x, 31, 255, 255, 255, 255)
-		data:setPixel(31, x, 255, 255, 255, 255)
-	end
-
-	image = love.graphics.newImage(data)
-	quad = love.graphics.newQuad(0, 0, 32, 32, 64, 64)
-	mesh = love.graphics.newMesh(
-		{
-			{0, 0, 0, 0, 255, 255, 255, 255},
-			{192, 0, 1, 0, 255, 255, 255, 255},
-			{192, 192, 1, 1, 255, 255, 255, 255},
-			{0, 192, 0, 1, 255, 255, 255, 255},
-		},
-		image,
-		"fan"
-	)
-end
-
-function love.load()
-	make_test_image()
-	image:setFilter("nearest", "nearest", 1)
 end
 
 function love.draw()
