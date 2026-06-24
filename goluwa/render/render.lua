@@ -269,9 +269,10 @@ function render.Initialize(config)
 	function render.Draw(dt)
 		if render.in_frame then return end
 
-		-- Wait for previous frame before starting shadow passes
-		render.target:WaitForPreviousFrame()
 		-- Shadow passes run before main frame (before swapchain acquire)
+		-- Note: WaitForPreviousFrame removed - BeginFrame() already waits on fence
+		-- after acquiring swapchain image, which provides correct synchronization.
+		-- The swapchain semaphore ensures GPU is done with the image.
 		event.Call("PreFrame", dt)
 
 		if render.BeginFrame() then

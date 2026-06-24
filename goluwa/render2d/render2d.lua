@@ -170,6 +170,7 @@ render2d.state = {
 			next_entry_slot = 1,
 			next_world_matrix_slot = 1,
 			next_draw_matrix_slot = 1,
+			next_rect_draw_state_snapshot_slot = 1,
 		},
 		ids = {
 			roots = {
@@ -247,10 +248,23 @@ local function get_rect_batch_entry(slot)
 	return entry
 end
 
+local function get_rect_draw_state_snapshot(slot)
+	render2d.rect_batch_state_snapshots = render2d.rect_batch_state_snapshots or {}
+	local snapshot = render2d.rect_batch_state_snapshots[slot]
+
+	if not snapshot then
+		snapshot = RectDrawState()
+		render2d.rect_batch_state_snapshots[slot] = snapshot
+	end
+
+	return snapshot
+end
+
 local function reset_rect_batch_matrix_pool_state()
 	render2d.state.runtime.batch.next_entry_slot = 1
 	render2d.state.runtime.batch.next_world_matrix_slot = 1
 	render2d.state.runtime.batch.next_draw_matrix_slot = 1
+	render2d.state.runtime.batch.next_rect_draw_state_snapshot_slot = 1
 end
 
 local function acquire_rect_batch_world_matrix()
@@ -313,6 +327,20 @@ local function build_rect_draw_matrix(base_world_matrix, x, y, w, h, a, ox, oy, 
 		else
 			projected:Translate(math.ceil(x - margin), math.ceil(y - margin), 0)
 		end
+	end
+
+	-- Fast path for text rendering: no rotation, no offset
+	if not a and not ox then
+		if w and h then
+			if use_float then
+				projected:Scale(qw, qh, 1)
+			else
+				projected:Scale(math.ceil(qw), math.ceil(qh), 1)
+			end
+		end
+
+		projected:GetMultiplied(render2d.GetProjectionViewMatrix(), projected)
+		return projected, qw, qh
 	end
 
 	if a then projected:Rotate(a, 0, 0, 1) end
@@ -2520,7 +2548,10 @@ local function can_batch_rect_draw()
 end
 
 capture_rect_draw_state = function(world_matrix, u1, v1, u2, v2)
-	local rect_state_snapshot = RectDrawState()
+	local batch_runtime = render2d.state.runtime.batch
+	local slot = batch_runtime.next_rect_draw_state_snapshot_slot
+	batch_runtime.next_rect_draw_state_snapshot_slot = slot + 1
+	local rect_state_snapshot = get_rect_draw_state_snapshot(slot)
 	ffi.copy(
 		rect_state_snapshot,
 		render2d.state.render.fragment.constants,
@@ -2891,7 +2922,7 @@ do
 end
 
 function render2d.BindPipeline()
-	sync_pipeline_state(true)
+	sync_pipeline_state()
 	-- Reset mesh binding cache since command buffer state was reset
 	render2d.state.runtime.mesh.last_bound = nil
 end
