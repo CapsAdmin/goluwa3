@@ -211,6 +211,7 @@ local function build_shader_vertex_bindings(attributes)
 			attributes = {
 				{"pos", "vec3", "r32g32b32_sfloat"},
 				{"uv", "vec2", "r32g32_sfloat"},
+				{"sample_uv", "vec2", "r32g32_sfloat"},
 				{"color", "vec4", "r32g32b32a32_sfloat"},
 			},
 		},
