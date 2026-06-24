@@ -24,19 +24,9 @@ local function assert_pixel_close(data, x, y, expected, tolerance)
 	T(math.abs(a - expected[4]) <= tolerance)["=="](true)
 end
 
-local function apply_love_version(love, version)
-	version = tostring(version or "0.10.1")
-	local major, minor, revision = version:match("^(%d+)%.(%d+)%.?(%d*)$")
-	revision = revision ~= "" and revision or "0"
-	love._version_major = tonumber(major) or 0
-	love._version_minor = tonumber(minor) or 0
-	love._version_revision = tonumber(revision) or 0
-	love._version = string.format("%d.%d.%d", love._version_major, love._version_minor, love._version_revision)
-end
-
 local function new_love_graphics_env(version)
 	local love = {_line_env = {}}
-	apply_love_version(love, version)
+	line.ApplyVersion(love, version)
 	assert(loadfile("addons/love/lua/libraries/image_data.lua"))(love)
 	assert(loadfile("addons/love/lua/libraries/graphics.lua"))(love)
 	return love
@@ -44,7 +34,7 @@ end
 
 local function new_love_mouse_env(version)
 	local love = {_line_env = {}}
-	apply_love_version(love, version)
+	line.ApplyVersion(love, version)
 	assert(loadfile("addons/love/lua/libraries/event.lua"))(love)
 	assert(loadfile("addons/love/lua/libraries/mouse.lua"))(love)
 	return love
@@ -52,7 +42,7 @@ end
 
 local function new_love_draw_env(version)
 	local love = {_line_env = {}}
-	apply_love_version(love, version)
+	line.ApplyVersion(love, version)
 	assert(loadfile("addons/love/lua/libraries/image_data.lua"))(love)
 	assert(loadfile("addons/love/lua/libraries/graphics.lua"))(love)
 	assert(loadfile("addons/love/lua/libraries/love.lua"))(love)

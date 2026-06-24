@@ -8,20 +8,6 @@ local line = library()
 line.speed = 1
 line.love_envs = line.love_envs or table.weak()
 pvars.Setup("line_enable_audio", true)
-pvars.Setup("line_version", "0.10.1")
-
-local function apply_love_version(love, version)
-	version = tostring(version or pvars.Get("line_version") or "0.10.1")
-	local major, minor, revision = version:match("^(%d+)%.(%d+)%.?(%d*)$")
-
-	if not major then major, minor, revision = "0", "10", "1" end
-
-	revision = revision ~= "" and revision or "0"
-	love._version_major = tonumber(major) or 0
-	love._version_minor = tonumber(minor) or 0
-	love._version_revision = tonumber(revision) or 0
-	love._version = string.format("%d.%d.%d", love._version_major, love._version_minor, love._version_revision)
-end
 
 do
 	local function base_typeOf(self, str)
@@ -147,10 +133,62 @@ function line.ReloadLoveLibrary(path)
 	return result
 end
 
+do
+	local var = pvars.Setup("line_version", "0.11.1")
+
+	function line.ApplyVersion(love, version)
+		local major, minor, revision = tostring(version or var:Get()):match("^(%d+)%.(%d+)%.?(%d*)$")
+
+		do
+			major = tonumber(major)
+			minor = tonumber(minor)
+			assert(major)
+			assert(minor)
+			revision = tonumber(revision)
+
+			if not revision then revision = 0 end
+		end
+
+		love._version_major = major
+		love._version_minor = minor
+		love._version_revision = revision
+		love._version = string.format("%d.%d.%d", major, minor, revision)
+	end
+end
+
+function line.CreateLoveEnvThread(version)
+	local love = {
+		_line_env = {},
+		_modules = {},
+		package_loaders = {},
+	}
+	line.ApplyVersion(love, version)
+
+	local function load_library(path, key)
+		line.LoadLoveLibrary(love, path)
+
+		if key then love._modules[key] = true end
+	end
+
+	load_library("addons/love/lua/libraries/arg.lua", "arg")
+	load_library("addons/love/lua/libraries/event.lua", "event")
+	load_library("addons/love/lua/libraries/love.lua")
+	load_library("addons/love/lua/libraries/system.lua", "system")
+	load_library("addons/love/lua/libraries/timer.lua", "timer")
+	load_library("addons/love/lua/libraries/filesystem.lua", "filesystem")
+	load_library("addons/love/lua/libraries/data.lua", "data")
+	load_library("addons/love/lua/libraries/image_data.lua", "image")
+	load_library("addons/love/lua/libraries/audio.lua", "audio")
+	load_library("addons/love/lua/libraries/math.lua", "math")
+	load_library("addons/love/lua/libraries/particles.lua", "particles")
+	load_library("addons/love/lua/libraries/sound.lua", "sound")
+	load_library("addons/love/lua/libraries/thread.lua", "thread")
+	return love
+end
+
 function line.CreateLoveEnv(version)
-	version = version or pvars.Get("line_version")
 	local love = {}
-	apply_love_version(love, version)
+	line.ApplyVersion(love, version)
 	love._line_env = {}
 	love._modules = {}
 	love.package_loaders = {}

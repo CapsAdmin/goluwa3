@@ -359,51 +359,9 @@ local thread_worker_source = [[
 
 		if not line_chunk then error("Error loading " .. line_path .. ": " .. tostring(line_err), 2) end
 		local line = line_chunk()
-		local function create_thread_love_env(version)
-			local love = {
-				_line_env = {},
-				_modules = {},
-				package_loaders = {},
-			}
-			version = tostring(version or "0.10.1")
-			local major, minor, revision = version:match("^(%d+)%.(%d+)%.?(%d*)$")
+		
 
-			if not major then major, minor, revision = "0", "10", "1" end
-
-			revision = revision ~= "" and revision or "0"
-			love._version_major = tonumber(major) or 0
-			love._version_minor = tonumber(minor) or 0
-			love._version_revision = tonumber(revision) or 0
-			love._version = string.format(
-				"%d.%d.%d",
-				love._version_major,
-				love._version_minor,
-				love._version_revision
-			)
-
-			local function load_library(path, key)
-				line.LoadLoveLibrary(love, path)
-
-				if key then love._modules[key] = true end
-			end
-
-			load_library("addons/love/lua/libraries/arg.lua", "arg")
-			load_library("addons/love/lua/libraries/event.lua", "event")
-			load_library("addons/love/lua/libraries/love.lua")
-			load_library("addons/love/lua/libraries/system.lua", "system")
-			load_library("addons/love/lua/libraries/timer.lua", "timer")
-			load_library("addons/love/lua/libraries/filesystem.lua", "filesystem")
-			load_library("addons/love/lua/libraries/data.lua", "data")
-			load_library("addons/love/lua/libraries/image_data.lua", "image")
-			load_library("addons/love/lua/libraries/audio.lua", "audio")
-			load_library("addons/love/lua/libraries/math.lua", "math")
-			load_library("addons/love/lua/libraries/particles.lua", "particles")
-			load_library("addons/love/lua/libraries/sound.lua", "sound")
-			load_library("addons/love/lua/libraries/thread.lua", "thread")
-			return love
-		end
-
-		local love = create_thread_love_env(payload.version)
+		local love = line.CreateLoveEnvThread(payload.version)
 		local ENV = love._line_env
 		ENV.filesystem_source = payload.filesystem_source or ""
 		love.filesystem.setIdentity(payload.filesystem_identity or "none")

@@ -1,18 +1,9 @@
 local T = import("test/environment.lua")
-
-local function apply_love_version(love, version)
-	version = tostring(version or "11.0.0")
-	local major, minor, revision = version:match("^(%d+)%.(%d+)%.?(%d*)$")
-	revision = revision ~= "" and revision or "0"
-	love._version_major = tonumber(major) or 0
-	love._version_minor = tonumber(minor) or 0
-	love._version_revision = tonumber(revision) or 0
-	love._version = string.format("%d.%d.%d", love._version_major, love._version_minor, love._version_revision)
-end
+local line = import("lua/line.lua")
 
 local function new_love_graphics_env(version)
 	local love = {_line_env = {}}
-	apply_love_version(love, version)
+	line.ApplyVersion(love, version)
 	assert(loadfile("addons/love/lua/libraries/image_data.lua"))(love)
 	assert(loadfile("addons/love/lua/libraries/graphics.lua"))(love)
 	return love
