@@ -2,11 +2,14 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local DescriptorSetLayout = objects.CreateTemplate("vulkan_descriptor_set_layout")
+local VkDescriptorSetLayoutBindingArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorSetLayoutBinding)
+local VkDescriptorBindingFlagsArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorBindingFlags)
+local VkDescriptorSetLayoutBox = ffi.typeof("$[1]", vulkan.vk.VkDescriptorSetLayout)
 
 function DescriptorSetLayout.New(device, bindings)
 	-- bindings is an array of tables: {{binding, type, stageFlags, count}, ...}
-	local bindingArray = vulkan.T.Array(vulkan.vk.VkDescriptorSetLayoutBinding)(#bindings)
-	local bindingFlagsArray = vulkan.T.Array(vulkan.vk.VkDescriptorBindingFlags)(#bindings)
+	local bindingArray = VkDescriptorSetLayoutBindingArray(#bindings)
+	local bindingFlagsArray = VkDescriptorBindingFlagsArray(#bindings)
 	local has_dynamic_buffer = false
 
 	for _, b in ipairs(bindings) do
@@ -44,7 +47,7 @@ function DescriptorSetLayout.New(device, bindings)
 
 		bindingFlagsArray[i - 1] = binding_flags
 	end -- Add binding flags for descriptor indexing
-	local ptr = vulkan.T.Box(vulkan.vk.VkDescriptorSetLayout)()
+	local ptr = VkDescriptorSetLayoutBox()
 	local flags = has_dynamic_buffer and 0 or {"update_after_bind_pool"}
 	vulkan.assert(
 		vulkan.lib.vkCreateDescriptorSetLayout(

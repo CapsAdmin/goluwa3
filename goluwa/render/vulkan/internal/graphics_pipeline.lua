@@ -3,6 +3,10 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
+local VkVertexInputBindingDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputBindingDescription)
+local VkVertexInputAttributeDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputAttributeDescription)
+local VkPipelineColorBlendAttachmentStateArray = ffi.typeof("$[?]", vulkan.vk.VkPipelineColorBlendAttachmentState)
+local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
 
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local stageArrayType = ffi.typeof("$ [" .. #config.shaderModules .. "]", vulkan.vk.VkPipelineShaderStageCreateInfo)
@@ -40,7 +44,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 		if config.vertexBindings then
 			bindingCount = #config.vertexBindings
-			bindingArray = vulkan.T.Array(vulkan.vk.VkVertexInputBindingDescription)(bindingCount)
+			bindingArray = VkVertexInputBindingDescriptionArray(bindingCount)
 
 			for i, binding in ipairs(config.vertexBindings) do
 				bindingArray[i - 1].binding = binding.binding
@@ -51,7 +55,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 		if config.vertexAttributes then
 			attributeCount = #config.vertexAttributes
-			attributeArray = vulkan.T.Array(vulkan.vk.VkVertexInputAttributeDescription)(attributeCount)
+			attributeArray = VkVertexInputAttributeDescriptionArray(attributeCount)
 
 			for i, attr in ipairs(config.vertexAttributes) do
 				attributeArray[i - 1].location = attr.location
@@ -174,7 +178,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		end
 	end
 
-	local colorBlendAttachment = vulkan.T.Array(vulkan.vk.VkPipelineColorBlendAttachmentState)(#colorBlendAttachments)
+	local colorBlendAttachment = VkPipelineColorBlendAttachmentStateArray(#colorBlendAttachments)
 
 	-- Copy attachments to array
 	for i = 1, #colorBlendAttachments do
@@ -303,7 +307,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		basePipelineHandle = nil,
 		basePipelineIndex = -1,
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkPipeline)()
+	local ptr = VkPipelineBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateGraphicsPipelines(device.ptr[0], nil, 1, pipelineInfo, nil, ptr),
 		"failed to create graphics pipeline"

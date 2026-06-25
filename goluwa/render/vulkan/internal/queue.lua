@@ -3,9 +3,10 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local flags = import("goluwa/flags.lua")
 local Queue = objects.CreateTemplate("vulkan_queue")
+local VkQueueBox = ffi.typeof("$[1]", vulkan.vk.VkQueue)
 
 function Queue.New(device, graphicsQueueFamily)
-	local ptr = vulkan.T.Box(vulkan.vk.VkQueue)()
+	local ptr = VkQueueBox()
 	vulkan.lib.vkGetDeviceQueue(device.ptr[0], graphicsQueueFamily, 0, ptr)
 	return Queue:CreateObject{ptr = ptr, device = device, pending_submissions = {}}
 end

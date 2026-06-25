@@ -3,6 +3,7 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Sampler = objects.CreateTemplate("vulkan_sampler")
 vulkan.SetupDebugFunctions(Sampler, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_SAMPLER)
+local VkSamplerBox = ffi.typeof("$[1]", vulkan.vk.VkSampler)
 
 local function copy_config(config)
 	local out = {}
@@ -17,7 +18,7 @@ end
 function Sampler.New(config)
 	config = config or {}
 	assert(config.device)
-	local ptr = vulkan.T.Box(vulkan.vk.VkSampler)()
+	local ptr = VkSamplerBox()
 	local anisotropy = nil
 	local anisotropyEnable = nil
 

@@ -2,10 +2,13 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local DescriptorPool = objects.CreateTemplate("vulkan_descriptor_pool")
+local VkDescriptorPoolSizeArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorPoolSize)
+local VkDescriptorPoolBox = ffi.typeof("$[1]", vulkan.vk.VkDescriptorPool)
+local VkDescriptorSetBox = ffi.typeof("$[1]", vulkan.vk.VkDescriptorSet)
 
 function DescriptorPool.New(device, poolSizes, maxSets)
 	-- poolSizes is an array of tables: {{type, count}, ...}
-	local poolSizeArray = vulkan.T.Array(vulkan.vk.VkDescriptorPoolSize)(#poolSizes)
+	local poolSizeArray = VkDescriptorPoolSizeArray(#poolSizes)
 	local has_dynamic_buffer = false
 
 	for i, ps in ipairs(poolSizes) do
@@ -23,7 +26,7 @@ function DescriptorPool.New(device, poolSizes, maxSets)
 		pPoolSizes = poolSizeArray,
 		maxSets = maxSets or 1,
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkDescriptorPool)()
+	local ptr = VkDescriptorPoolBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateDescriptorPool(device.ptr[0], poolInfo, nil, ptr),
 		"failed to create descriptor pool"
@@ -57,7 +60,7 @@ function DescriptorPool:AllocateDescriptorSet(layout)
 		descriptorSetCount = 1,
 		pSetLayouts = layout.ptr,
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkDescriptorSet)()
+	local ptr = VkDescriptorSetBox()
 	vulkan.assert(
 		vulkan.lib.vkAllocateDescriptorSets(self.device.ptr[0], allocInfo, ptr),
 		"failed to allocate descriptor set"

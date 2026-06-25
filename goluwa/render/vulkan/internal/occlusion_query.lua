@@ -3,12 +3,13 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local OcclusionQuery = objects.CreateTemplate("vulkan_occlusion_query")
+local VkQueryPoolBox = ffi.typeof("$[1]", vulkan.vk.VkQueryPool)
 
 function OcclusionQuery.New(config)
 	local device = config.device
 	local instance = config.instance
 	-- Create a query pool for occlusion queries
-	local query_pool_ptr = vulkan.T.Box(vulkan.vk.VkQueryPool)()
+	local query_pool_ptr = VkQueryPoolBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateQueryPool(
 			device.ptr[0],

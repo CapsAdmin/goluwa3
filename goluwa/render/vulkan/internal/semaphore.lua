@@ -2,9 +2,10 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Semaphore = objects.CreateTemplate("vulkan_semaphore")
+local VkSemaphoreBox = ffi.typeof("$[1]", vulkan.vk.VkSemaphore)
 
 function Semaphore.New(device)
-	local ptr = vulkan.T.Box(vulkan.vk.VkSemaphore)()
+	local ptr = VkSemaphoreBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateSemaphore(device.ptr[0], vulkan.vk.s.SemaphoreCreateInfo{
 			flags = 0,

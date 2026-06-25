@@ -2,6 +2,9 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PipelineLayout = objects.CreateTemplate("vulkan_pipeline_layout")
+local VkDescriptorSetLayoutArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorSetLayout)
+local VkPushConstantRangeArray = ffi.typeof("$[?]", vulkan.vk.VkPushConstantRange)
+local VkPipelineLayoutBox = ffi.typeof("$[1]", vulkan.vk.VkPipelineLayout)
 
 -- used to pass data to shaders
 function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
@@ -12,7 +15,7 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 
 	if descriptorSetLayouts and #descriptorSetLayouts > 0 then
 		setLayoutCount = #descriptorSetLayouts
-		setLayoutArray = vulkan.T.Array(vulkan.vk.VkDescriptorSetLayout)(setLayoutCount)
+		setLayoutArray = VkDescriptorSetLayoutArray(setLayoutCount)
 
 		for i, layout in ipairs(descriptorSetLayouts) do
 			setLayoutArray[i - 1] = layout.ptr[0]
@@ -24,7 +27,7 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 
 	if pushConstantRanges and #pushConstantRanges > 0 then
 		pushConstantCount = #pushConstantRanges
-		pushConstantArray = vulkan.T.Array(vulkan.vk.VkPushConstantRange)(pushConstantCount)
+		pushConstantArray = VkPushConstantRangeArray(pushConstantCount)
 
 		for i, range in ipairs(pushConstantRanges) do
 			pushConstantArray[i - 1] = {
@@ -42,7 +45,7 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 		pPushConstantRanges = pushConstantArray,
 		flags = 0,
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkPipelineLayout)()
+	local ptr = VkPipelineLayoutBox()
 	vulkan.assert(
 		vulkan.lib.vkCreatePipelineLayout(device.ptr[0], pipelineLayoutInfo, nil, ptr),
 		"failed to create pipeline layout"

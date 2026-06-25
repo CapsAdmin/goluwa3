@@ -5,11 +5,15 @@ local render_stats = import("goluwa/render/stats.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local CommandBuffer = objects.CreateTemplate("vulkan_command_buffer")
 local type = _G.type
-local VkBufferArray = vulkan.T.Array(vulkan.vk.VkBuffer)
-local VkBufferArray1 = vulkan.T.Array(vulkan.vk.VkBuffer, 1)
-local VkDescriptorSetArray = vulkan.T.Array(vulkan.vk.VkDescriptorSet)
-local VkDeviceSizeArray = vulkan.T.Array(vulkan.vk.VkDeviceSize)
-local VkDeviceSizeArray1 = vulkan.T.Array(vulkan.vk.VkDeviceSize, 1)
+local VkBufferArray = ffi.typeof("$[?]", vulkan.vk.VkBuffer)
+local VkDescriptorSetArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorSet)
+local VkDeviceSizeArray = ffi.typeof("$[?]", vulkan.vk.VkDeviceSize)
+local VkClearAttachmentArray = ffi.typeof("$[?]", vulkan.vk.VkClearAttachment)
+local VkClearRectArray = ffi.typeof("$[?]", vulkan.vk.VkClearRect)
+local VkRenderingAttachmentInfoArray = ffi.typeof("$[?]", vulkan.vk.VkRenderingAttachmentInfo)
+local VkImageMemoryBarrierArray = ffi.typeof("$[?]", vulkan.vk.VkImageMemoryBarrier)
+local VkBufferMemoryBarrierArray = ffi.typeof("$[?]", vulkan.vk.VkBufferMemoryBarrier)
+local VkCommandBufferBox = ffi.typeof("$[1]", vulkan.vk.VkCommandBuffer)
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local UInt32Array1 = ffi.typeof("uint32_t[1]")
 
@@ -259,7 +263,7 @@ local function get_view_samples(view)
 end
 
 function CommandBuffer.New(command_pool)
-	local ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
+	local ptr = VkCommandBufferBox()
 	vulkan.assert(
 		vulkan.lib.vkAllocateCommandBuffers(
 			command_pool.device.ptr[0],
@@ -288,7 +292,7 @@ function CommandBuffer:OnRemove()
 		local device = self.command_pool.device
 		local device_ptr = device.ptr[0]
 		local pool_ptr = self.command_pool.ptr[0]
-		local cmd_ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
+		local cmd_ptr = VkCommandBufferBox()
 		cmd_ptr[0] = self.ptr[0]
 		self.ptr[0] = nil
 
@@ -348,7 +352,7 @@ function CommandBuffer:BeginRendering(config)
 
 	if config.color_attachments then
 		colorAttachmentCount = #config.color_attachments
-		colorAttachmentInfo = vulkan.T.Array(vulkan.vk.VkRenderingAttachmentInfo)(colorAttachmentCount)
+		colorAttachmentInfo = VkRenderingAttachmentInfoArray(colorAttachmentCount)
 		rendering_color_formats = {}
 
 		for i = 1, colorAttachmentCount do
@@ -557,8 +561,8 @@ function CommandBuffer:BindVertexBuffer(buffer, binding, offset)
 
 	if cached and cached.buffer == buffer and cached.offset == offset then return end
 
-	local bufferArray = self.cached_vk_buffer_array1 or VkBufferArray1()
-	local offsetArray = self.cached_vk_device_size_array1 or VkDeviceSizeArray1()
+	local bufferArray = self.cached_vk_buffer_array1 or VkBufferArray(1)
+	local offsetArray = self.cached_vk_device_size_array1 or VkDeviceSizeArray(1)
 	self.cached_vk_buffer_array1 = bufferArray
 	self.cached_vk_device_size_array1 = offsetArray
 	keepalive(self, buffer)
@@ -1262,7 +1266,7 @@ function CommandBuffer:ClearAttachments(config)
 
 	if attachment_count == 0 then return end
 
-	local attachment_array = vulkan.T.Array(vulkan.vk.VkClearAttachment, attachment_count)()
+	local attachment_array = VkClearAttachmentArray(attachment_count)
 	local idx = 0
 
 	if config.color then
@@ -1298,7 +1302,7 @@ function CommandBuffer:ClearAttachments(config)
 	end
 
 	local clear_rect_count = 1
-	local clear_rect_array = vulkan.T.Array(vulkan.vk.VkClearRect, 1)()
+	local clear_rect_array = VkClearRectArray(1)
 	clear_rect_array[0].rect.offset.x = config.x or 0
 	clear_rect_array[0].rect.offset.y = config.y or 0
 	clear_rect_array[0].rect.extent.width = config.w or 0
@@ -1409,7 +1413,7 @@ function CommandBuffer:PipelineBarrier(config)
 
 	if config.imageBarriers then
 		imageBarrierCount = #config.imageBarriers
-		imageBarriers = vulkan.T.Array(vulkan.vk.VkImageMemoryBarrier)(imageBarrierCount)
+		imageBarriers = VkImageMemoryBarrierArray(imageBarrierCount)
 
 		for i, barrier in ipairs(config.imageBarriers) do
 			local aspect = barrier.aspect
@@ -1470,7 +1474,7 @@ function CommandBuffer:PipelineBarrier(config)
 
 	if config.bufferBarriers then
 		bufferBarrierCount = #config.bufferBarriers
-		bufferBarriers = vulkan.T.Array(vulkan.vk.VkBufferMemoryBarrier)(bufferBarrierCount)
+		bufferBarriers = VkBufferMemoryBarrierArray(bufferBarrierCount)
 
 		for i, barrier in ipairs(config.bufferBarriers) do
 			bufferBarriers[i - 1] = vulkan.vk.s.BufferMemoryBarrier{

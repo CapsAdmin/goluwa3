@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local ComputePipeline = objects.CreateTemplate("vulkan_compute_pipeline")
+local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
 
 function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	local info = vulkan.vk.s.PipelineShaderStageCreateInfo{
@@ -15,7 +16,7 @@ function ComputePipeline.New(device, shaderModule, pipelineLayout)
 		basePipelineHandle = nil,
 		basePipelineIndex = -1,
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkPipeline)()
+	local ptr = VkPipelineBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateComputePipelines(device.ptr[0], nil, 1, computePipelineCreateInfo, nil, ptr),
 		"failed to create compute pipeline"

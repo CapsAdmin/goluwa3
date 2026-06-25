@@ -6,6 +6,7 @@ local fs = import("goluwa/filesystem/fs.lua")
 local crypto = import("goluwa/crypto.lua")
 local ShaderModule = objects.CreateTemplate("vulkan_shader_module")
 local shader_module_cache = setmetatable({}, {__mode = "k"})
+local VkShaderModuleBox = ffi.typeof("$[1]", vulkan.vk.VkShaderModule)
 
 local function get_device_cache(device)
 	local cache = shader_module_cache[device]
@@ -71,7 +72,7 @@ local function get_or_create_cached_module(device, glsl, type)
 		save_disk_cache(glsl, type, spirv_data, spirv_size)
 	end
 
-	local ptr = vulkan.T.Box(vulkan.vk.VkShaderModule)()
+	local ptr = VkShaderModuleBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateShaderModule(
 			device.ptr[0],

@@ -2,9 +2,10 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local QueryPool = objects.CreateTemplate("vulkan_query_pool")
+local VkQueryPoolBox = ffi.typeof("$[1]", vulkan.vk.VkQueryPool)
 
 function QueryPool.New(device, query_type, query_count)
-	local ptr = vulkan.T.Box(vulkan.vk.VkQueryPool)()
+	local ptr = VkQueryPoolBox()
 	local createInfo = vulkan.vk.s.QueryPoolCreateInfo{
 		queryType = vulkan.vk.e.VkQueryType(query_type or "occlusion"),
 		queryCount = query_count or 1,

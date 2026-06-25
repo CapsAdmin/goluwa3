@@ -3,12 +3,13 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = objects.CreateTemplate("vulkan_memory")
 local callstack = import("goluwa/debug/callstack.lua")
+local VkDeviceMemoryBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceMemory)
 Memory.total_freed_count = Memory.total_freed_count or 0
 Memory.total_freed_bytes = Memory.total_freed_bytes or 0
 vulkan.SetupDebugFunctions(Memory, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_DEVICE_MEMORY)
 
 function Memory.New(device, config)
-	local ptr = vulkan.T.Box(vulkan.vk.VkDeviceMemory)()
+	local ptr = VkDeviceMemoryBox()
 	local allocate_info = vulkan.vk.s.MemoryAllocateInfo{
 		allocationSize = config.size,
 		memoryTypeIndex = config.type_index,

@@ -6,6 +6,7 @@ local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Image = objects.CreateTemplate("vulkan_image")
+local VkImageBox = ffi.typeof("$[1]", vulkan.vk.VkImage)
 
 local function build_image_memory_name(name)
 	if not name or name == "" then return nil end
@@ -37,7 +38,7 @@ function Image.New(config)
 	assert(config.height)
 	assert(config.format)
 	assert(config.usage)
-	local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
+	local ptr = VkImageBox()
 	local mip_levels = config.mip_levels or 1
 	vulkan.assert(
 		vulkan.lib.vkCreateImage(

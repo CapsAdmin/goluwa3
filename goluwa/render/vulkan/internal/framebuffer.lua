@@ -3,6 +3,8 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Framebuffer = objects.CreateTemplate("vulkan_framebuffer")
 vulkan.SetupDebugFunctions(Framebuffer, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_FRAMEBUFFER)
+local VkImageViewArray = ffi.typeof("$[?]", vulkan.vk.VkImageView)
+local VkFramebufferBox = ffi.typeof("$[1]", vulkan.vk.VkFramebuffer)
 
 function Framebuffer.New(config)
 	local device = config.device
@@ -17,7 +19,7 @@ function Framebuffer.New(config)
 
 	if msaa_image_view and depth_image_view then
 		-- MSAA with depth: MSAA color, resolve target (swapchain), MSAA depth
-		local attachment_array = vulkan.T.Array(vulkan.vk.VkImageView)(3)
+		local attachment_array = VkImageViewArray(3)
 		attachment_array[0] = msaa_image_view.ptr[0]
 		attachment_array[1] = image_view.ptr[0]
 		attachment_array[2] = depth_image_view.ptr[0]
@@ -25,27 +27,27 @@ function Framebuffer.New(config)
 		attachmentCount = 3
 	elseif msaa_image_view then
 		-- MSAA without depth: MSAA color, resolve target (swapchain)
-		local attachment_array = vulkan.T.Array(vulkan.vk.VkImageView)(2)
+		local attachment_array = VkImageViewArray(2)
 		attachment_array[0] = msaa_image_view.ptr[0]
 		attachment_array[1] = image_view.ptr[0]
 		attachments = attachment_array
 		attachmentCount = 2
 	elseif depth_image_view then
 		-- Non-MSAA with depth: color + depth
-		local attachment_array = vulkan.T.Array(vulkan.vk.VkImageView)(2)
+		local attachment_array = VkImageViewArray(2)
 		attachment_array[0] = image_view.ptr[0]
 		attachment_array[1] = depth_image_view.ptr[0]
 		attachments = attachment_array
 		attachmentCount = 2
 	else
 		-- Non-MSAA: single attachment
-		local attachment_array = vulkan.T.Array(vulkan.vk.VkImageView)(1)
+		local attachment_array = VkImageViewArray(1)
 		attachment_array[0] = image_view.ptr[0]
 		attachments = attachment_array
 		attachmentCount = 1
 	end
 
-	local ptr = vulkan.T.Box(vulkan.vk.VkFramebuffer)()
+	local ptr = VkFramebufferBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateFramebuffer(
 			device.ptr[0],

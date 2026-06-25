@@ -3,13 +3,14 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local ImageView = objects.CreateTemplate("vulkan_image_view")
 vulkan.SetupDebugFunctions(ImageView, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_IMAGE_VIEW)
+local VkImageViewBox = ffi.typeof("$[1]", vulkan.vk.VkImageView)
 
 function ImageView.New(config)
 	config = config or {}
 	assert(config.device)
 	assert(config.image)
 	assert(config.format)
-	local ptr = vulkan.T.Box(vulkan.vk.VkImageView)()
+	local ptr = VkImageViewBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateImageView(
 			config.device.ptr[0],

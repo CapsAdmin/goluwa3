@@ -2,6 +2,9 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Swapchain = objects.CreateTemplate("vulkan_swap_chain")
+local VkImageArray = ffi.typeof("$[?]", vulkan.vk.VkImage)
+local VkSwapchainKHRBox = ffi.typeof("$[1]", vulkan.vk.VkSwapchainKHR)
+local VkImageBox = ffi.typeof("$[1]", vulkan.vk.VkImage)
 
 local function get_image_count(config)
 	local desired = config.image_count or config.surface_capabilities.minImageCount
@@ -14,7 +17,7 @@ local function get_image_count(config)
 end
 
 function Swapchain.New(config)
-	local ptr = vulkan.T.Box(vulkan.vk.VkSwapchainKHR)()
+	local ptr = VkSwapchainKHRBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateSwapchainKHR(
 			config.device.ptr[0],
@@ -61,13 +64,13 @@ end
 function Swapchain:GetImages()
 	local imageCount = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, nil)
-	local swapchainImages = vulkan.T.Array(vulkan.vk.VkImage)(imageCount[0])
+	local swapchainImages = VkImageArray(imageCount[0])
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, swapchainImages)
 	local Image = import("goluwa/render/vulkan/internal/image.lua")
 	local out = {}
 
 	for i = 0, imageCount[0] - 1 do
-		local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
+		local ptr = VkImageBox()
 		ptr[0] = swapchainImages[i]
 		out[i + 1] = Image:CreateObject{
 			ptr = ptr,

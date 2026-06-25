@@ -4,6 +4,25 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local flags = import("goluwa/flags.lua")
 local Device = objects.CreateTemplate("vulkan_device")
 Device.GetQueue = import("goluwa/render/vulkan/internal/queue.lua").New
+local ConstCharArray = ffi.typeof("$[?]", ffi.typeof("const char*"))
+local VkDescriptorBufferInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorBufferInfo)
+local VkDescriptorImageInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorImageInfo)
+local VkWriteDescriptorSetArray = ffi.typeof("$[?]", vulkan.vk.VkWriteDescriptorSet)
+local VkPhysicalDeviceMaintenance4FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceMaintenance4Features)
+local VkPhysicalDeviceVulkan11FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan11Features)
+local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT)
+local VkPhysicalDeviceMeshShaderFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)
+local VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT)
+local VkPhysicalDeviceExtendedDynamicState2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT)
+local VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT)
+local VkPhysicalDeviceDynamicRenderingFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)
+local VkPhysicalDeviceConditionalRenderingFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceConditionalRenderingFeaturesEXT)
+local VkPhysicalDeviceFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceFeatures)
+local VkPhysicalDeviceVulkan12FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan12Features)
+local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT)
+local VkDeviceQueueCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceQueueCreateInfo)
+local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
+local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
 
 function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local available_extensions = physical_device:GetAvailableDeviceExtensions()
@@ -54,7 +73,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	-- Query available features if extension is present
 	local pNextChain = nil
 	-- Maintenance4 features
-	local maintenance4Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceMaintenance4Features)(
+	local maintenance4Features = VkPhysicalDeviceMaintenance4FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceMaintenance4Features{
 			sType = "physical_device_maintenance_4_features",
 			pNext = nil,
@@ -64,7 +83,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	pNextChain = maintenance4Features
 	-- Query available Vulkan 1.1 features
 	local availableVulkan11Features = physical_device:GetVulkan11Features()
-	local vulkan11Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceVulkan11Features)(
+	local vulkan11Features = VkPhysicalDeviceVulkan11FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceVulkan11Features{
 			sType = "physical_device_vulkan_1_1_features",
 			pNext = pNextChain,
@@ -85,7 +104,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	)
 	pNextChain = vulkan11Features
 	-- Shader demote features
-	local demoteFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT)(
+	local demoteFeatures = VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceShaderDemoteToHelperInvocationFeatures{
 			sType = "physical_device_shader_demote_to_helper_invocation_features",
 			pNext = pNextChain,
@@ -119,7 +138,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	if has_mesh_shader then
-		local meshShaderFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)(
+		local meshShaderFeatures = VkPhysicalDeviceMeshShaderFeaturesEXTBox(
 			vulkan.vk.s.PhysicalDeviceMeshShaderFeaturesEXT{
 				sType = "physical_device_mesh_shader_features_ext",
 				pNext = pNextChain,
@@ -134,7 +153,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	if has_extended_dynamic_state then
-		local extendedDynamicStateFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT)(
+		local extendedDynamicStateFeatures = VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox(
 			vulkan.vk.s.PhysicalDeviceExtendedDynamicStateFeaturesEXT{
 				sType = "physical_device_extended_dynamic_state_features_ext",
 				pNext = pNextChain,
@@ -145,7 +164,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	if has_extended_dynamic_state2 then
-		local extendedDynamicState2Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT)(
+		local extendedDynamicState2Features = VkPhysicalDeviceExtendedDynamicState2FeaturesEXTBox(
 			vulkan.vk.s.PhysicalDeviceExtendedDynamicState2FeaturesEXT{
 				sType = "physical_device_extended_dynamic_state_2_features_ext",
 				pNext = pNextChain,
@@ -158,7 +177,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	if has_extended_dynamic_state3 then
-		local extendedDynamicState3Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT)(
+		local extendedDynamicState3Features = VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox(
 			vulkan.vk.s.PhysicalDeviceExtendedDynamicState3FeaturesEXT{
 				sType = "physical_device_extended_dynamic_state_3_features_ext",
 				pNext = pNextChain,
@@ -199,7 +218,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	if hasDynamicRenderingFeatures then
-		local dynamicRenderingFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)(
+		local dynamicRenderingFeatures = VkPhysicalDeviceDynamicRenderingFeaturesBox(
 			vulkan.vk.s.PhysicalDeviceDynamicRenderingFeatures{
 				sType = "physical_device_dynamic_rendering_features",
 				pNext = pNextChain,
@@ -210,7 +229,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	if table.has_value(available_extensions, "VK_EXT_conditional_rendering") then
-		local conditionalRenderingFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceConditionalRenderingFeaturesEXT)(
+		local conditionalRenderingFeatures = VkPhysicalDeviceConditionalRenderingFeaturesEXTBox(
 			vulkan.vk.s.PhysicalDeviceConditionalRenderingFeaturesEXT{
 				sType = "physical_device_conditional_rendering_features_ext",
 				pNext = pNextChain,
@@ -222,7 +241,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	local physical_features = physical_device:GetFeatures()
-	local enabled_features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceFeatures)()
+	local enabled_features = VkPhysicalDeviceFeaturesBox()
 
 	if physical_features.samplerAnisotropy == 1 then
 		enabled_features[0].samplerAnisotropy = 1
@@ -259,7 +278,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	-- Enable scalar block layout feature for push constants
 	-- and descriptor indexing features for bindless textures
 	local availableVulkan12Features = physical_device:GetVulkan12Features()
-	local vulkan12Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceVulkan12Features)(
+	local vulkan12Features = VkPhysicalDeviceVulkan12FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceVulkan12Features{
 			sType = "physical_device_vulkan_1_2_features",
 			pNext = pNextChain,
@@ -322,7 +341,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 		if robustness2Features.nullDescriptor == 1 then
 			has_null_descriptor = true
-			local enabledRobustness2Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT)(
+			local enabledRobustness2Features = VkPhysicalDeviceRobustness2FeaturesEXTBox(
 				vulkan.vk.s.PhysicalDeviceRobustness2FeaturesEXT{
 					sType = "physical_device_robustness_2_features_ext",
 					pNext = pNextChain,
@@ -336,7 +355,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	local queuePriority = ffi.new("float[1]", 1.0)
-	local queueCreateInfo = vulkan.T.Box(vulkan.vk.VkDeviceQueueCreateInfo)(
+	local queueCreateInfo = VkDeviceQueueCreateInfoBox(
 		vulkan.vk.s.DeviceQueueCreateInfo{
 			queueFamilyIndex = graphicsQueueFamily,
 			queueCount = 1,
@@ -349,7 +368,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.has_value(available_extensions, "VK_KHR_shader_demote_to_helper_invocation")
 	then
 		table.insert(finalExtensions, "VK_KHR_shader_demote_to_helper_invocation")
-		local demoteFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)(
+		local demoteFeatures = VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox(
 			vulkan.vk.s.PhysicalDeviceShaderDemoteToHelperInvocationFeatures{
 				sType = "physical_device_shader_demote_to_helper_invocation_features",
 				pNext = pNextChain,
@@ -359,7 +378,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		pNextChain = demoteFeatures
 	end
 
-	local deviceExtensions = vulkan.T.Array(ffi.typeof("const char*"))(#finalExtensions)
+	local deviceExtensions = ConstCharArray(#finalExtensions)
 
 	for i, ext in ipairs(finalExtensions) do
 		deviceExtensions[i - 1] = ext
@@ -376,7 +395,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		ppEnabledLayerNames = nil,
 		pEnabledFeatures = enabled_features,
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkDevice)()
+	local ptr = VkDeviceBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateDevice(physical_device.ptr[0], deviceCreateInfo, nil, ptr),
 		"failed to create device"
@@ -654,14 +673,14 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		end
 
 		-- Note: vulkan.vk.s.DescriptorBufferInfo is missing, use raw constructor via T.Array to get a pointer
-		local info = vulkan.T.Array(vulkan.vk.VkDescriptorBufferInfo)(1)
+		local info = VkDescriptorBufferInfoArray(1)
 		info[0].buffer = buffer.ptr[0]
 		info[0].offset = 0
 		info[0].range = range or buffer.size
 		descriptor_info = info
 		pBufferInfo = info
 	elseif type == "storage_image" or type == "combined_image_sampler" then
-		local info = vulkan.T.Array(vulkan.vk.VkDescriptorImageInfo)(1)
+		local info = VkDescriptorImageInfoArray(1)
 
 		if type == "storage_image" then
 			local imageView = assert(...)
@@ -703,7 +722,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		error("unsupported descriptor type: " .. tostring(type))
 	end
 
-	local descriptorWrites = vulkan.T.Array(vulkan.vk.VkWriteDescriptorSet)(1)
+	local descriptorWrites = VkWriteDescriptorSetArray(1)
 	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
 	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
 	descriptorWrites[0].dstBinding = binding_index
@@ -730,7 +749,7 @@ function Device:UpdateDescriptorSetArray(
 
 	-- Create array of VkDescriptorImageInfo
 	-- Note: Luajit VLAs (via ffi.new("Type[?]", count)) are NOT zero-initialized
-	local imageInfoArray = vulkan.T.Array(vulkan.vk.VkDescriptorImageInfo)(count)
+	local imageInfoArray = VkDescriptorImageInfoArray(count)
 	local fallback_view_handle = fallback_view and fallback_view.ptr and fallback_view.ptr[0]
 	local fallback_sampler_handle = fallback_sampler and fallback_sampler.ptr and fallback_sampler.ptr[0]
 
@@ -767,7 +786,7 @@ function Device:UpdateDescriptorSetArray(
 		imageInfoArray[i - 1].imageLayout = vulkan.vk.e.VkImageLayout("shader_read_only_optimal")
 	end
 
-	local descriptorWrites = vulkan.T.Array(vulkan.vk.VkWriteDescriptorSet)(1)
+	local descriptorWrites = VkWriteDescriptorSetArray(1)
 	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
 	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
 	descriptorWrites[0].dstBinding = binding_index

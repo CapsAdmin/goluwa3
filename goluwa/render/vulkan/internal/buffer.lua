@@ -5,6 +5,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Buffer = objects.CreateTemplate("vulkan_buffer")
+local VkBufferBox = ffi.typeof("$[1]", vulkan.vk.VkBuffer)
 
 local function build_buffer_memory_name(name)
 	if not name or name == "" then return nil end
@@ -35,7 +36,7 @@ function Buffer.New(config)
 	assert(size > 0, "buffer size must be greater than 0")
 	local usage = config.usage
 	local properties = config.properties
-	local ptr = vulkan.T.Box(vulkan.vk.VkBuffer)()
+	local ptr = VkBufferBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateBuffer(
 			device.ptr[0],

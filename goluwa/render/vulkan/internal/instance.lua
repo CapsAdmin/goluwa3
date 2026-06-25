@@ -3,6 +3,10 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PhysicalDevice = import("goluwa/render/vulkan/internal/physical_device.lua")
 local Instance = objects.CreateTemplate("vulkan_instance")
+local ConstCharArray = ffi.typeof("$[?]", ffi.typeof("const char*"))
+local VkPhysicalDeviceArray = ffi.typeof("$[?]", vulkan.vk.VkPhysicalDevice)
+local VkInstanceBox = ffi.typeof("$[1]", vulkan.vk.VkInstance)
+local VkDebugUtilsMessengerEXTBox = ffi.typeof("$[1]", vulkan.vk.VkDebugUtilsMessengerEXT)
 local CallbackState
 
 do
@@ -270,9 +274,9 @@ function Instance.New(extensions, layers)
 	end
 
 	local extension_names = extensions and
-		vulkan.T.Array(ffi.typeof("const char*"), #extensions, extensions) or
+		ConstCharArray(#extensions, extensions) or
 		nil
-	local layer_names = layers and vulkan.T.Array(ffi.typeof("const char*"), #layers, layers) or nil
+	local layer_names = layers and ConstCharArray(#layers, layers) or nil
 	-- Create debug messenger create info
 	local debug_create_info
 
@@ -292,7 +296,7 @@ function Instance.New(extensions, layers)
 
 	if jit.os == "OSX" then instance_flags = "enumerate_portability_khr" end
 
-	local ptr = vulkan.T.Box(vulkan.vk.VkInstance)()
+	local ptr = VkInstanceBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateInstance(
 			vulkan.vk.s.InstanceCreateInfo{
@@ -318,7 +322,7 @@ function Instance.New(extensions, layers)
 		self:HasExtension("vkCreateDebugUtilsMessengerEXT")
 	then
 		local vkCreateDebugUtilsMessengerEXT = self:GetExtension("vkCreateDebugUtilsMessengerEXT")
-		local messenger_ptr = vulkan.T.Box(vulkan.vk.VkDebugUtilsMessengerEXT)()
+		local messenger_ptr = VkDebugUtilsMessengerEXTBox()
 		vulkan.assert(
 			vkCreateDebugUtilsMessengerEXT(ptr[0], debug_create_info, nil, messenger_ptr),
 			"failed to create debug messenger"
@@ -352,7 +356,7 @@ function Instance:GetPhysicalDevices()
 
 	if deviceCount[0] == 0 then error("no physical devices found") end
 
-	local physicalDevices = vulkan.T.Array(vulkan.vk.VkPhysicalDevice)(deviceCount[0])
+	local physicalDevices = VkPhysicalDeviceArray(deviceCount[0])
 	vulkan.assert(
 		vulkan.lib.vkEnumeratePhysicalDevices(self.ptr[0], deviceCount, physicalDevices),
 		"failed to enumerate physical devices"

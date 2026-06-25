@@ -4,36 +4,8 @@ local vulkan = {}
 vulkan.ext = {}
 vulkan.vk = vk
 vulkan.lib = vulkan.vk.find_library()
-vulkan.T = {}
-
-do
-	local fixed_len_cache = {}
-	local var_len_cache = {}
-
-	local function array_type(t, len)
-		local key = tonumber(t)
-
-		if len then
-			fixed_len_cache[key] = fixed_len_cache[key] or ffi.typeof("$[" .. len .. "]", t)
-			return fixed_len_cache[key]
-		end
-
-		var_len_cache[key] = var_len_cache[key] or ffi.typeof("$[?]", t)
-		return var_len_cache[key]
-	end
-
-	function vulkan.T.Array(t, len, ctor)
-		if ctor then return array_type(t, len)(ctor) end
-
-		return array_type(t, len)
-	end
-
-	function vulkan.T.Box(t, ctor)
-		if ctor then return array_type(t, 1)({ctor}) end
-
-		return array_type(t, 1)
-	end
-end
+local VkLayerPropertiesArray = ffi.typeof("$[?]", vulkan.vk.VkLayerProperties)
+local VkExtensionPropertiesArray = ffi.typeof("$[?]", vulkan.vk.VkExtensionProperties)
 
 function vulkan.assert(result, msg)
 	if result ~= 0 then
@@ -102,7 +74,7 @@ function vulkan.GetAvailableLayers()
 	local out = {}
 
 	if layerCount[0] > 0 then
-		local availableLayers = vulkan.T.Array(vulkan.vk.VkLayerProperties)(layerCount[0])
+		local availableLayers = VkLayerPropertiesArray(layerCount[0])
 		vulkan.lib.vkEnumerateInstanceLayerProperties(layerCount, availableLayers)
 
 		for i = 0, layerCount[0] - 1 do
@@ -121,7 +93,7 @@ function vulkan.GetAvailableExtensions()
 	local out = {}
 
 	if extensionCount[0] > 0 then
-		local availableExtensions = vulkan.T.Array(vulkan.vk.VkExtensionProperties)(extensionCount[0])
+		local availableExtensions = VkExtensionPropertiesArray(extensionCount[0])
 		vulkan.lib.vkEnumerateInstanceExtensionProperties(nil, extensionCount, availableExtensions)
 
 		for i = 0, extensionCount[0] - 1 do

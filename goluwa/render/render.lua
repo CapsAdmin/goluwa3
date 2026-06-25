@@ -98,6 +98,8 @@ local Texture = import("goluwa/render/texture.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local VkPhysicalDeviceDescriptorIndexingPropertiesArray = ffi.typeof("$[?]", vulkan.vk.VkPhysicalDeviceDescriptorIndexingProperties)
+local VkPhysicalDeviceProperties2Array = ffi.typeof("$[?]", vulkan.vk.VkPhysicalDeviceProperties2)
 local vulkan_instance
 local sync_fence = NULL
 render.command_buffer_stack = render.command_buffer_stack or {}
@@ -115,10 +117,10 @@ local function query_bindless_sampled_image_limit()
 
 	local properties = vulkan_instance.physical_device:GetProperties()
 	local limits = properties.limits
-	local descriptor_indexing_properties = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceDescriptorIndexingProperties)()
+	local descriptor_indexing_properties = VkPhysicalDeviceDescriptorIndexingPropertiesArray(1)
 	descriptor_indexing_properties[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES
 	descriptor_indexing_properties[0].pNext = nil
-	local properties2 = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceProperties2)()
+	local properties2 = VkPhysicalDeviceProperties2Array(1)
 	properties2[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
 	properties2[0].pNext = descriptor_indexing_properties
 	vulkan.lib.vkGetPhysicalDeviceProperties2(vulkan_instance.physical_device.ptr[0], properties2)

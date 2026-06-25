@@ -3,13 +3,14 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local CommandPool = objects.CreateTemplate("vulkan_command_pool")
 CommandPool.AllocateCommandBuffer = import("goluwa/render/vulkan/internal/command_buffer.lua").New
+local VkCommandPoolBox = ffi.typeof("$[1]", vulkan.vk.VkCommandPool)
 
 function CommandPool.New(device, graphicsQueueFamily)
 	local info = vulkan.vk.s.CommandPoolCreateInfo{
 		queueFamilyIndex = graphicsQueueFamily,
 		flags = "reset_command_buffer",
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkCommandPool)()
+	local ptr = VkCommandPoolBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateCommandPool(device.ptr[0], info, nil, ptr),
 		"failed to create command pool"

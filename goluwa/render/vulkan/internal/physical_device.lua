@@ -2,10 +2,23 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PhysicalDevice = objects.CreateTemplate("vulkan_physical_device")
+local VkSurfaceFormatKHRArray = ffi.typeof("$[?]", vulkan.vk.VkSurfaceFormatKHR)
+local VkQueueFamilyPropertiesArray = ffi.typeof("$[?]", vulkan.vk.VkQueueFamilyProperties)
+local VkExtensionPropertiesArray = ffi.typeof("$[?]", vulkan.vk.VkExtensionProperties)
+local VkPhysicalDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDevice)
+local VkPhysicalDevicePropertiesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceProperties)
+local VkPhysicalDeviceFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceFeatures)
+local VkPhysicalDeviceVulkan11FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan11Features)
+local VkPhysicalDeviceVulkan12FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan12Features)
+local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT)
+local VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT)
+local VkPhysicalDeviceExtendedDynamicState2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT)
+local VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT)
+local VkPhysicalDeviceDynamicRenderingFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)
 
 function PhysicalDevice.New(ptr)
 	assert(type(ptr) == "cdata", "ptr must be a cdata VkPhysicalDevice")
-	local ptr_boxed = vulkan.T.Box(vulkan.vk.VkPhysicalDevice)()
+	local ptr_boxed = VkPhysicalDeviceBox()
 	ptr_boxed[0] = ptr
 	return PhysicalDevice:CreateObject({ptr = ptr_boxed})
 end
@@ -96,7 +109,7 @@ function PhysicalDevice:GetSurfaceFormats(surface)
 		return {}
 	end
 
-	local formats = vulkan.T.Array(vulkan.vk.VkSurfaceFormatKHR)(count)
+	local formats = VkSurfaceFormatKHRArray(count)
 	result_code = vulkan.lib.vkGetPhysicalDeviceSurfaceFormatsKHR(self.ptr[0], surface.ptr[0], formatCount, formats)
 	local result = {}
 
@@ -114,7 +127,7 @@ function PhysicalDevice:GetQueueFamilyProperties()
 	local count = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkGetPhysicalDeviceQueueFamilyProperties(self.ptr[0], count, nil)
 	local queue_family_count = count[0]
-	local queue_families = vulkan.T.Array(vulkan.vk.VkQueueFamilyProperties)(queue_family_count)
+	local queue_families = VkQueueFamilyPropertiesArray(queue_family_count)
 	vulkan.lib.vkGetPhysicalDeviceQueueFamilyProperties(self.ptr[0], count, queue_families)
 	local result = {}
 
@@ -153,7 +166,7 @@ end
 function PhysicalDevice:GetAvailableDeviceExtensions()
 	local extensionCount = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkEnumerateDeviceExtensionProperties(self.ptr[0], nil, extensionCount, nil)
-	local availableExtensions = vulkan.T.Array(vulkan.vk.VkExtensionProperties)(extensionCount[0])
+	local availableExtensions = VkExtensionPropertiesArray(extensionCount[0])
 	vulkan.lib.vkEnumerateDeviceExtensionProperties(self.ptr[0], nil, extensionCount, availableExtensions)
 	local out = {}
 
@@ -165,7 +178,7 @@ function PhysicalDevice:GetAvailableDeviceExtensions()
 end
 
 function PhysicalDevice:GetProperties()
-	local properties = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceProperties)()
+	local properties = VkPhysicalDevicePropertiesBox()
 	vulkan.lib.vkGetPhysicalDeviceProperties(self.ptr[0], properties)
 	return properties[0]
 end
@@ -178,13 +191,13 @@ function PhysicalDevice:GetFormatProperties(format)
 end
 
 function PhysicalDevice:GetFeatures()
-	local features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceFeatures)()
+	local features = VkPhysicalDeviceFeaturesBox()
 	vulkan.lib.vkGetPhysicalDeviceFeatures(self.ptr[0], features)
 	return features[0]
 end
 
 function PhysicalDevice:GetVulkan11Features()
-	local vulkan11Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceVulkan11Features)(
+	local vulkan11Features = VkPhysicalDeviceVulkan11FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceVulkan11Features{
 			sType = "physical_device_vulkan_1_1_features",
 			pNext = nil,
@@ -212,7 +225,7 @@ function PhysicalDevice:GetVulkan11Features()
 end
 
 function PhysicalDevice:GetVulkan12Features()
-	local vulkan12Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceVulkan12Features)(
+	local vulkan12Features = VkPhysicalDeviceVulkan12FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceVulkan12Features{
 			sType = "physical_device_vulkan_1_2_features",
 			pNext = nil,
@@ -275,7 +288,7 @@ function PhysicalDevice:GetVulkan12Features()
 end
 
 function PhysicalDevice:GetRobustness2Features()
-	local robustness2Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT){
+	local robustness2Features = VkPhysicalDeviceRobustness2FeaturesEXTBox{
 		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT,
 		pNext = nil,
 		robustBufferAccess2 = 0,
@@ -293,7 +306,7 @@ end
 
 function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	-- Chain v1, v2, and v3 feature queries together
-	local queryFeaturesV3 = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT)(
+	local queryFeaturesV3 = VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceExtendedDynamicState3FeaturesEXT{
 			sType = "physical_device_extended_dynamic_state_3_features_ext",
 			pNext = nil,
@@ -330,7 +343,7 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 			extendedDynamicState3ShadingRateImageEnable = 0,
 		}
 	)
-	local queryFeaturesV2 = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT)(
+	local queryFeaturesV2 = VkPhysicalDeviceExtendedDynamicState2FeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceExtendedDynamicState2FeaturesEXT{
 			sType = "physical_device_extended_dynamic_state_2_features_ext",
 			pNext = queryFeaturesV3,
@@ -339,7 +352,7 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 			extendedDynamicState2PatchControlPoints = 0,
 		}
 	)
-	local queryFeaturesV1 = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT)(
+	local queryFeaturesV1 = VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceExtendedDynamicStateFeaturesEXT{
 			sType = "physical_device_extended_dynamic_state_features_ext",
 			pNext = queryFeaturesV2,
@@ -393,7 +406,7 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 end
 
 function PhysicalDevice:GetDynamicRenderingFeatures()
-	local queryDynamicRenderingFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)(
+	local queryDynamicRenderingFeatures = VkPhysicalDeviceDynamicRenderingFeaturesBox(
 		vulkan.vk.s.PhysicalDeviceDynamicRenderingFeatures{
 			sType = "physical_device_dynamic_rendering_features",
 			pNext = nil,

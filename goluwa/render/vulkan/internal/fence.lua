@@ -2,12 +2,13 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Fence = objects.CreateTemplate("vulkan_fence")
+local VkFenceBox = ffi.typeof("$[1]", vulkan.vk.VkFence)
 
 function Fence.New(device)
 	local fenceCreateInfo = vulkan.vk.s.FenceCreateInfo{
 		flags = "signaled",
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkFence)()
+	local ptr = VkFenceBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateFence(device.ptr[0], fenceCreateInfo, nil, ptr),
 		"failed to create fence"

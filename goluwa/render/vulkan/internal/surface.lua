@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Surface = objects.CreateTemplate("vulkan_surface")
+local VkSurfaceKHRBox = ffi.typeof("$[1]", vulkan.vk.VkSurfaceKHR)
 local WIN32_SURFACE_CREATE_INFO_T = ffi.typeof([[struct {
 	uint32_t sType;
 	const void *pNext;
@@ -51,7 +52,7 @@ function Surface.New(instance, surface_handle, display_handle)
 		vkCreateSurface = instance:GetExtension("vkCreateWaylandSurfaceKHR")
 	end
 
-	local ptr = vulkan.T.Box(vulkan.vk.VkSurfaceKHR)()
+	local ptr = VkSurfaceKHRBox()
 	local result = vkCreateSurface(instance.ptr[0], info, nil, ptr)
 	vulkan.assert(result, "failed to create surface")
 	return Surface:CreateObject{

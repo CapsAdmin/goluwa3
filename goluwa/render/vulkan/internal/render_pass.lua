@@ -2,6 +2,8 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local RenderPass = objects.CreateTemplate("vulkan_render_pass")
+local VkAttachmentDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkAttachmentDescription)
+local VkRenderPassBox = ffi.typeof("$[1]", vulkan.vk.VkRenderPass)
 
 function RenderPass.New(device, config)
 	config.samples = config.samples or "1"
@@ -15,11 +17,8 @@ function RenderPass.New(device, config)
 	if config.samples == "1" then
 		if has_depth then
 			attachment_count = 2
-			attachments = vulkan.T.Array(
-				vulkan.vk.VkAttachmentDescription,
-				2,
-				{
-					-- Attachment 0: Color
+			attachments = VkAttachmentDescriptionArray(2, {
+				-- Attachment 0: Color
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
@@ -62,11 +61,8 @@ function RenderPass.New(device, config)
 	else
 		if has_depth then
 			attachment_count = 3
-			attachments = vulkan.T.Array(
-				vulkan.vk.VkAttachmentDescription,
-				3,
-				{
-					-- Attachment 0: MSAA color attachment
+			attachments = VkAttachmentDescriptionArray(3, {
+				-- Attachment 0: MSAA color attachment
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
@@ -106,11 +102,8 @@ function RenderPass.New(device, config)
 			)
 		else
 			attachment_count = 2
-			attachments = vulkan.T.Array(
-				vulkan.vk.VkAttachmentDescription,
-				2,
-				{
-					-- Attachment 0: MSAA color attachment
+			attachments = VkAttachmentDescriptionArray(2, {
+				-- Attachment 0: MSAA color attachment
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
@@ -198,7 +191,7 @@ function RenderPass.New(device, config)
 		dependencyCount = 1,
 		pDependencies = dependency,
 	}
-	local ptr = vulkan.T.Box(vulkan.vk.VkRenderPass)()
+	local ptr = VkRenderPassBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateRenderPass(device.ptr[0], renderPassInfo, nil, ptr),
 		"failed to create render pass with MSAA"
