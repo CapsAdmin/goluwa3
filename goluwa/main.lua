@@ -139,6 +139,14 @@ commands.Add("run", function(path, ...)
 	assert(loadfile(normalize_path(path)))(...)
 end)
 
+commands.Add("run_forever", function(path, ...)
+	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
+
+	_G.AUDIO = true
+	init_game()
+	assert(loadfile(normalize_path(path)))(...)
+end)
+
 commands.Add("lua", function(code, ...)
 	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
 
