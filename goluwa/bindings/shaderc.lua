@@ -211,7 +211,6 @@ function mod.compile(source, shader_type, entry_point)
 		error_message = error_message:gsub(shader_type .. ":", path .. ":")
 		lib.shaderc_result_release(result)
 		lib.shaderc_compile_options_release(options)
-		lib.shaderc_compiler_release(mod.compiler)
 		error("\n" .. error_message, 2)
 	end
 
@@ -222,7 +221,6 @@ function mod.compile(source, shader_type, entry_point)
 	ffi.copy(spirv_copy, spirv_data, spirv_size)
 	lib.shaderc_result_release(result)
 	lib.shaderc_compile_options_release(options)
-	--lib.shaderc_compiler_release(mod.compiler)
 	return spirv_copy, spirv_size
 end
 
