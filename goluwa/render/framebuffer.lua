@@ -109,6 +109,7 @@ end
 function Framebuffer:Begin(cmd, load_op)
 	cmd = cmd or render.GetCommandBufferOutsideRendering() or self.cmd
 	load_op = load_op or "clear"
+	self._active_cmd = cmd
 
 	if cmd == self.cmd then
 		self.cmd:Reset()
@@ -263,6 +264,92 @@ end
 
 function Framebuffer:GetExtent()
 	return {width = self.width, height = self.height}
+end
+
+function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
+	-- Detect if first arg is a command buffer or a clear parameter
+	local is_cmd = type(cmd) == "table" and cmd.GetImage
+
+	if not is_cmd then
+		-- First arg is actually 'key', shift everything
+		-- User passes: Clear(key, r, g, b, depth, stencil)
+		-- Lua sees: cmd=key, key=r, g=g, b=b, depth=depth, stencil=stencil
+		local saved_depth = depth
+		local saved_stencil = stencil
+		b = g
+		g = r
+		r = key
+		key = cmd
+		cmd = self._active_cmd or self.cmd
+		-- Restore depth/stencil for color clears (they were shifted into b/g)
+		if type(key) == "string" and key ~= "depth" then
+			depth = saved_depth
+			stencil = saved_stencil
+		end
+	end
+
+	if type(key) == "string" then
+		if key == "color" then
+			key = 1
+		elseif key == "depth" then
+			assert(self.depth_texture, "Framebuffer has no depth texture")
+			-- After shift: r=depth_val, g=stencil_val (from user's Clear("depth", depth_val, stencil_val))
+			cmd:ClearAttachments{
+				depth = r or 1.0,
+				stencil = g or 0,
+				w = self.width,
+				h = self.height,
+			}
+
+			return
+		else
+			error("Unknown clear key: " .. tostring(key))
+		end
+	end
+
+	key = tonumber(key)
+	assert(key and key >= 1 and key <= #self.color_textures, "Invalid color attachment index: " .. tostring(key))
+
+	local clear_color = r ~= nil and {r, g, b, a} or self.clear_colors[key]
+	cmd:ClearAttachments{
+		color = clear_color,
+		color_attachment = key - 1,
+		w = self.width,
+		h = self.height,
+	}
+end
+
+function Framebuffer:ClearAll(cmd, r, g, b, a, depth, stencil)
+	if type(cmd) ~= "table" or not cmd.GetImage then
+		-- First arg is actually 'r', shift everything
+		depth = b
+		b = a
+		a = g
+		g = r
+		r = cmd
+		cmd = self._active_cmd or self.cmd
+	end
+
+	-- Clear each color attachment
+	for i = 1, #self.color_textures do
+		local clear_color = r ~= nil and {r, g, b, a} or self.clear_colors[i]
+		cmd:ClearAttachments{
+			color = clear_color,
+			color_attachment = i - 1,
+			w = self.width,
+			h = self.height,
+		}
+	end
+
+	-- Clear depth and stencil if present
+	if self.depth_texture then
+		cmd:ClearAttachments{
+			depth = depth or 1.0,
+			stencil = stencil or 0,
+			w = self.width,
+			h = self.height,
+		}
+	end
 end
 
 return Framebuffer:Register()

@@ -1227,83 +1227,85 @@ end
 
 function CommandBuffer:ClearColorImage(config)
 	local clear_value = vulkan.vk.VkClearColorValue()
-	clear_value.float32 = config.color or {0.0, 0.0, 0.0, 1.0}
+	clear_value.float32[0] = (config.color and config.color[1]) or 0.0
+	clear_value.float32[1] = (config.color and config.color[2]) or 0.0
+	clear_value.float32[2] = (config.color and config.color[3]) or 0.0
+	clear_value.float32[3] = (config.color and config.color[4]) or 1.0
+	local subresource_range = vulkan.vk.VkImageSubresourceRange()
+	subresource_range.aspectMask = vulkan.vk.e.VkImageAspectFlagBits(config.aspect_mask or "color")
+	subresource_range.baseMipLevel = config.base_mip_level or 0
+	subresource_range.levelCount = config.level_count or 1
+	subresource_range.baseArrayLayer = config.base_array_layer or 0
+	subresource_range.layerCount = config.layer_count or 1
 	vulkan.lib.vkCmdClearColorImage(
 		self.ptr[0],
 		config.image.ptr[0],
 		vulkan.vk.e.VkImageLayout("transfer_dst_optimal"),
 		clear_value,
 		1,
-		vulkan.vk.s.ImageSubresourceRange{
-			aspectMask = config.aspect_mask or "color",
-			baseMipLevel = config.base_mip_level or 0,
-			levelCount = config.level_count or 1,
-			baseArrayLayer = config.base_array_layer or 0,
-			layerCount = config.layer_count or 1,
-		}
+		subresource_range
 	)
 end
 
 function CommandBuffer:ClearAttachments(config)
-	local attachments = {}
 	local stencil_value = config.stencil
 
 	if stencil_value == false then stencil_value = nil end
 
+	local attachment_count = 0
+
+	if config.color then attachment_count = attachment_count + 1 end
+
+	if config.depth ~= nil then attachment_count = attachment_count + 1 end
+
+	if stencil_value ~= nil then attachment_count = attachment_count + 1 end
+
+	if attachment_count == 0 then return end
+
+	local attachment_array = vulkan.T.Array(vulkan.vk.VkClearAttachment, attachment_count)()
+	local idx = 0
+
 	if config.color then
-		local clear_value = vulkan.vk.VkClearValue()
-		clear_value.color.float32[0] = config.color[1] or 0.0
-		clear_value.color.float32[1] = config.color[2] or 0.0
-		clear_value.color.float32[2] = config.color[3] or 0.0
-		clear_value.color.float32[3] = config.color[4] or 1.0
-		attachments[#attachments + 1] = {
-			aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color"),
-			colorAttachment = config.color_attachment or 0,
-			clearValue = clear_value,
-		}
+		local cv = vulkan.vk.VkClearValue()
+		cv.color.float32[0] = config.color[1] or 0.0
+		cv.color.float32[1] = config.color[2] or 0.0
+		cv.color.float32[2] = config.color[3] or 0.0
+		cv.color.float32[3] = config.color[4] or 1.0
+		attachment_array[idx].aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
+		attachment_array[idx].colorAttachment = config.color_attachment or 0
+		attachment_array[idx].clearValue = cv
+		idx = idx + 1
 	end
 
 	if config.depth ~= nil then
-		local clear_value = vulkan.vk.VkClearValue()
-		clear_value.depthStencil.depth = config.depth
-		clear_value.depthStencil.stencil = stencil_value or 0
-		attachments[#attachments + 1] = {
-			aspectMask = vulkan.vk.e.VkImageAspectFlagBits("depth"),
-			colorAttachment = 0,
-			clearValue = clear_value,
-		}
+		local cv = vulkan.vk.VkClearValue()
+		cv.depthStencil.depth = config.depth
+		cv.depthStencil.stencil = stencil_value or 0
+		attachment_array[idx].aspectMask = vulkan.vk.e.VkImageAspectFlagBits("depth")
+		attachment_array[idx].colorAttachment = 0
+		attachment_array[idx].clearValue = cv
+		idx = idx + 1
 	end
 
 	if stencil_value ~= nil then
-		local clear_value = vulkan.vk.VkClearValue()
-		clear_value.depthStencil.depth = config.depth or 1.0
-		clear_value.depthStencil.stencil = stencil_value
-		attachments[#attachments + 1] = {
-			aspectMask = vulkan.vk.e.VkImageAspectFlagBits("stencil"),
-			colorAttachment = 0,
-			clearValue = clear_value,
-		}
+		local cv = vulkan.vk.VkClearValue()
+		cv.depthStencil.depth = config.depth or 1.0
+		cv.depthStencil.stencil = stencil_value
+		attachment_array[idx].aspectMask = vulkan.vk.e.VkImageAspectFlagBits("stencil")
+		attachment_array[idx].colorAttachment = 0
+		attachment_array[idx].clearValue = cv
+		idx = idx + 1
 	end
 
-	if #attachments == 0 then return end
-
-	local clear_rect = {
-		rect = {
-			offset = {x = config.x or 0, y = config.y or 0},
-			extent = {width = config.w or 0, height = config.h or 0},
-		},
-		baseArrayLayer = 0,
-		layerCount = 1,
-	}
-	local attachment_array = vulkan.T.Array(vulkan.vk.VkClearAttachment, #attachments)()
-
-	for i, attachment in ipairs(attachments) do
-		attachment_array[i - 1] = vulkan.vk.VkClearAttachment(attachment)
-	end
-
+	local clear_rect_count = 1
 	local clear_rect_array = vulkan.T.Array(vulkan.vk.VkClearRect, 1)()
-	clear_rect_array[0] = vulkan.vk.VkClearRect(clear_rect)
-	vulkan.lib.vkCmdClearAttachments(self.ptr[0], #attachments, attachment_array, 1, clear_rect_array)
+	clear_rect_array[0].rect.offset.x = config.x or 0
+	clear_rect_array[0].rect.offset.y = config.y or 0
+	clear_rect_array[0].rect.extent.width = config.w or 0
+	clear_rect_array[0].rect.extent.height = config.h or 0
+	clear_rect_array[0].baseArrayLayer = 0
+	clear_rect_array[0].layerCount = 1
+	vulkan.lib.vkCmdClearAttachments(self.ptr[0], attachment_count, attachment_array, clear_rect_count, clear_rect_array)
 end
 
 function CommandBuffer:CopyImageToBuffer(config)
@@ -1439,32 +1441,30 @@ function CommandBuffer:PipelineBarrier(config)
 			end
 
 			barrier.image.layout = new_layout
-			imageBarriers[i - 1] = vulkan.vk.s.ImageMemoryBarrier{
-				srcAccessMask = barrier.srcAccessMask or "none",
-				dstAccessMask = barrier.dstAccessMask or "none",
-				oldLayout = old_layout,
-				newLayout = new_layout,
-				srcQueueFamilyIndex = 0xFFFFFFFF,
-				dstQueueFamilyIndex = 0xFFFFFFFF,
-				image = barrier.image.ptr[0],
-				subresourceRange = {
-					aspectMask = aspect,
-					baseMipLevel = barrier.base_mip_level or 0,
-					levelCount = barrier.level_count or
-						(
-							barrier.image.GetMipLevels and
-							barrier.image:GetMipLevels() or
-							1
-						),
-					baseArrayLayer = barrier.base_array_layer or 0,
-					layerCount = barrier.layer_count or
-						(
-							barrier.image.GetArrayLayers and
-							barrier.image:GetArrayLayers() or
-							1
-						),
-				},
-			}
+			local imb = imageBarriers[i - 1]
+			imb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+			imb.srcAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.srcAccessMask or "none")
+			imb.dstAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.dstAccessMask or "none")
+			imb.oldLayout = vulkan.vk.e.VkImageLayout(old_layout)
+			imb.newLayout = vulkan.vk.e.VkImageLayout(new_layout)
+			imb.srcQueueFamilyIndex = 0xFFFFFFFF
+			imb.dstQueueFamilyIndex = 0xFFFFFFFF
+			imb.image = barrier.image.ptr[0]
+			imb.subresourceRange.aspectMask = vulkan.vk.e.VkImageAspectFlagBits(aspect)
+			imb.subresourceRange.baseMipLevel = barrier.base_mip_level or 0
+			imb.subresourceRange.levelCount = barrier.level_count or
+				(
+					barrier.image.GetMipLevels and
+					barrier.image:GetMipLevels() or
+					1
+				)
+			imb.subresourceRange.baseArrayLayer = barrier.base_array_layer or 0
+			imb.subresourceRange.layerCount = barrier.layer_count or
+				(
+					barrier.image.GetArrayLayers and
+					barrier.image:GetArrayLayers() or
+					1
+				)
 		end
 	end
 

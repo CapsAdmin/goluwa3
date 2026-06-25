@@ -1264,4 +1264,13 @@ function render.TriggerValidationError()
 	)
 end
 
+function render.CreateOffscreenRenderTarget(config)
+	config = config or {}
+	config.offscreen = true
+	if not config.width then config.width = 512 end
+	if not config.height then config.height = 512 end
+	local ImageRenderTarget = import("goluwa/render/vulkan/image_rendertarget.lua")
+	return ImageRenderTarget.New(vulkan_instance, config)
+end
+
 return render
