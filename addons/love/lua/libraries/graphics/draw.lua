@@ -9,7 +9,6 @@ if type(love) == "string" then love = nil end
 love = love or _G.love
 local ctx = shared.Get(love)
 local ENV = ctx.ENV
-local get_internal_color = ctx.get_internal_color
 
 local function drawable_uses_linear_filter(drawable)
 	local min = drawable and drawable.filter_min or ENV.graphics_filter_min
@@ -83,20 +82,18 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	r = r or 0
 	kx = kx or 0
 	ky = ky or 0
-	local cr, cg, cb, ca = get_internal_color()
-	ca = ca or 255
 	local uv_x, uv_y, uv_w, uv_h = get_quad_uv_rect(drawable, quad)
 	local draw_x, draw_y, draw_w, draw_h = get_quad_draw_rect(drawable, quad, x, y, sx, sy, ox, oy, r, kx, ky)
 	local dpi_scale = drawable and drawable.dpi_scale or 1
-	render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
-	render2d.PushSwizzleMode(render2d.GetSwizzleMode())
-	render2d.SetSwizzleMode(0)
+	render2d.PushColor(ctx.get_draw_fg_color())
+	render2d.PushSwizzleMode(0)
 	render2d.PushTexture(ENV.textures[drawable])
 	render2d.SetUV(uv_x, -uv_y, uv_w, -uv_h, quad.sw * dpi_scale, quad.sh * dpi_scale)
 	render2d.DrawRectf(draw_x, draw_y, draw_w, draw_h, r, ox * sx, oy * sy)
 	render2d.SetUV()
 	render2d.PopTexture()
 	render2d.PopSwizzleMode()
+	render2d.PopColor()
 end
 
 function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
@@ -109,7 +106,7 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			line.Type(drawable) == "Canvas"
 		)
 	then
-		if drawable.fb and drawable.fb.GetColorTexture then
+		if drawable.fb then
 			drawable_texture = drawable.fb:GetColorTexture()
 			ENV.textures[drawable] = drawable_texture
 		end
@@ -137,19 +134,17 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 				tex_w, tex_h = tex:GetSize():Unpack()
 			end
 
-			local cr, cg, cb, ca = get_internal_color()
-			ca = ca or 255
-			render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
+			render2d.PushColor(ctx.get_draw_fg_color())
 			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 			render2d.SetSwizzleMode(0)
 			render2d.PushTexture(tex)
-			render2d.PushUV()
 			local uv_w, uv_h = tex:GetSize():Unpack()
 			render2d.SetUV(0, 0, uv_w, -uv_h, uv_w, uv_h)
 			render2d.DrawRectf(x, y, tex_w * sx, tex_h * sy, r, ox * sx, oy * sy)
-			render2d.PopUV()
+			render2d.SetUV()
 			render2d.PopTexture()
 			render2d.PopSwizzleMode()
+			render2d.PopColor()
 		end
 	else
 		x = x or 0
@@ -179,7 +174,6 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 
 			render2d.Scalef(sx, sy)
 			render2d.UploadConstants()
-			-- Sync pipeline state to bind descriptor set with registered textures
 			drawable:Draw()
 			render2d.PopMatrix()
 			render2d.PopTexture()
@@ -306,7 +300,6 @@ local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox
 	ky = ky or 0
 	ENV.graphics_instanced_quad = ENV.graphics_instanced_quad or love.graphics.newQuad(0, 0, 1, 1, texture)
 	local quad = ENV.graphics_instanced_quad
-	local base_r, base_g, base_b, base_a = get_internal_color()
 	render2d.PushMatrix()
 	render2d.Translatef(x, y)
 	render2d.Rotate(r)
@@ -316,36 +309,23 @@ local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox
 	if kx ~= 0 or ky ~= 0 then render2d.Shear(kx, ky) end
 
 	render2d.Scalef(sx, sy)
+	render2d.PushColor(ctx.get_draw_fg_color())
 
 	for index = 1, instance_count do
 		local inst_x, inst_y = get_attached_mesh_attribute(drawable, "InstancePosition", index, 0, 0)
 		local uv_x, uv_y = get_attached_mesh_attribute(drawable, "UVOffset", index, 0, 0)
 		local img_w, img_h = get_attached_mesh_attribute(drawable, "ImageDim", index, 0, 0)
-		local shade = select(1, get_attached_mesh_attribute(drawable, "ImageShade", index, 1)) or 1
+		--local shade = select(1, get_attached_mesh_attribute(drawable, "ImageShade", index, 1)) or 1
 		local scale_x, scale_y = get_attached_mesh_attribute(drawable, "Scale", index, 1, 1)
 
 		if img_w ~= 0 and img_h ~= 0 then
 			quad:setViewport(uv_x, uv_y, img_w, img_h)
-			ENV.graphics_color_r = base_r * shade
-			ENV.graphics_color_g = base_g * shade
-			ENV.graphics_color_b = base_b * shade
-			ENV.graphics_color_a = base_a
-			render2d.SetColor(
-				ENV.graphics_color_r / 255,
-				ENV.graphics_color_g / 255,
-				ENV.graphics_color_b / 255,
-				ENV.graphics_color_a / 255
-			)
 			love.graphics.drawq(texture, quad, inst_x, inst_y, 0, scale_x, scale_y)
 		end
 	end
 
+	render2d.PopColor()
 	render2d.PopMatrix()
-	ENV.graphics_color_r = base_r
-	ENV.graphics_color_g = base_g
-	ENV.graphics_color_b = base_b
-	ENV.graphics_color_a = base_a
-	render2d.SetColor(base_r / 255, base_g / 255, base_b / 255, base_a / 255)
 	return true
 end
 

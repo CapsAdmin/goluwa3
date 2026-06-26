@@ -2,7 +2,6 @@ local love = ... or _G.love
 local line = import("lua/line.lua")
 local shared = import("addons/love/lua/libraries/graphics/shared.lua")
 local env_loaded_modules = {
-	"addons/love/lua/libraries/graphics/frame.lua",
 	"addons/love/lua/libraries/graphics/transform.lua",
 	"addons/love/lua/libraries/graphics/state.lua",
 	"addons/love/lua/libraries/graphics/color.lua",

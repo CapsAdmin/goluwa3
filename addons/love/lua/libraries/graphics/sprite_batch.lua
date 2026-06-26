@@ -8,9 +8,6 @@ if type(love) == "string" then love = nil end
 
 love = love or _G.love
 local ctx = shared.Get(love)
-local parse_color_bytes = ctx.parse_color_bytes
-local get_api_default_alpha = ctx.get_api_default_alpha
-local get_internal_color = ctx.get_internal_color
 local SpriteBatch = line.TypeTemplate("SpriteBatch", love)
 
 local function store_entry(self, id, entry)
@@ -82,11 +79,7 @@ end
 SpriteBatch.addq = SpriteBatch.add
 
 function SpriteBatch:setColor(r, g, b, a)
-	r, g, b, a = parse_color_bytes(r, g, b, a, get_api_default_alpha())
-	self.r = r / 255
-	self.g = g / 255
-	self.b = b / 255
-	self.a = a / 255
+	self.r, self.g, self.b, self.a = ctx.color_to_engine(r, g, b, a)
 end
 
 function SpriteBatch:clear()
@@ -127,9 +120,7 @@ function SpriteBatch:Draw(...)
 	oy = oy or 0
 	kx = kx or 0
 	ky = ky or 0
-	local cr, cg, cb, ca = get_internal_color()
-	local restore = {cr, cg, cb, ca}
-	love.graphics.setColor(cr * (self.r or 1), cg * (self.g or 1), cb * (self.b or 1), ca * (self.a or 1))
+	render2d.PushColor(ctx.get_draw_fg_color(self.r, self.g, self.b, self.a))
 	render2d.PushMatrix()
 	render2d.Translatef(x, y)
 	render2d.Rotate(r)
@@ -176,7 +167,7 @@ function SpriteBatch:Draw(...)
 	end
 
 	render2d.PopMatrix()
-	love.graphics.setColor(unpack(restore))
+	render2d.PopColor()
 end
 
 function love.graphics.newSpriteBatch(image, size, usagehint)

@@ -683,7 +683,7 @@ local function sync_pipeline_state(force)
 	local stencil_ref = stencil_state.ref or 1
 	local stencil_mode = render2d.stencil_modes[stencil_mode_name]
 	local depth_compare_op = depth_mode_to_compare_op[depth_mode_name] or "always"
-	local cmd = render.GetCommandBuffer()
+	local cmd = assert(render.GetCommandBuffer())
 
 	do -- blend
 		pipeline:SetBlend(blend_mode.blend)
@@ -2946,6 +2946,13 @@ render.RegisterFlushCallback("render2d", function(reason)
 	if reason == "pop_command_buffer" and not render.GetCommandBuffer() then
 		return false
 	end
+
+	-- Don't flush when the active command buffer is not inside a render pass.
+	-- This happens when temporary command buffers are pushed (e.g. SDF glyph
+	-- loading) that record transfer/compute work outside of rendering.
+	local cmd = render.GetCommandBuffer()
+
+	if cmd and not cmd.is_rendering then return false end
 
 	return render2d.FlushBatches(reason)
 end)

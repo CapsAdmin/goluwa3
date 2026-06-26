@@ -1,6 +1,5 @@
 local render2d = import("goluwa/render2d/render2d.lua")
 local shared = import("addons/love/lua/libraries/graphics/shared.lua")
-local frame = import("addons/love/lua/libraries/graphics/frame.lua")
 local love = ...
 
 if type(love) == "string" then love = nil end
@@ -8,7 +7,6 @@ if type(love) == "string" then love = nil end
 love = love or _G.love
 local ctx = shared.Get(love)
 local ENV = ctx.ENV
-local clear_love_stencil_target = frame.Get(love).clear_love_stencil_target
 
 function love.graphics.newStencil(func) end
 
@@ -46,8 +44,6 @@ function love.graphics.stencil(func, action, num, keep)
 	if action ~= "replace" then
 		error("unsupported stencil action: " .. tostring(action), 2)
 	end
-
-	if not keep then clear_love_stencil_target(0) end
 
 	local old_mode, old_val = love.graphics.getStencilTest()
 	local old_r, old_g, old_b, old_a = love.graphics.getColor()

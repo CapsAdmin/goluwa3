@@ -19,7 +19,7 @@ local function clamp_byte(value)
 end
 
 local function image_uses_normalized_color_range()
-	return (love._version_major or 0) >= 11
+	return love._version_major >= 11
 end
 
 local function color_component_to_public(value)

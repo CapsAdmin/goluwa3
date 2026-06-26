@@ -8,9 +8,9 @@ function love.load() end
 function love.conf(t) end
 
 function love.getVersion()
-	return love._version_major or 0,
-	love._version_minor or 0,
-	love._version_revision or 0,
+	return love._version_major,
+	love._version_minor,
+	love._version_revision,
 	"goluwa"
 end
 
@@ -46,8 +46,8 @@ end
 function love.errhand(msg)
 	love.graphics.setFont()
 	msg = tostring(msg)
-	love.graphics.setBackgroundColor(89, 157, 220)
-	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.setBackgroundColor(0.34, 0.61, 0.86)
+	love.graphics.setColor(1, 1, 1, 1)
 	local trace = debug.traceback()
 	local err = {}
 	list.insert(err, "Error\n")

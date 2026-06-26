@@ -134,7 +134,7 @@ function line.ReloadLoveLibrary(path)
 end
 
 do
-	local var = pvars.Setup("line_version", "0.11.1")
+	local var = pvars.Setup("line_version", "11.0.0")
 
 	function line.ApplyVersion(love, version)
 		local major, minor, revision = tostring(version or var:Get()):match("^(%d+)%.(%d+)%.?(%d*)$")

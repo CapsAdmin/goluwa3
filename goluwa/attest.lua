@@ -164,7 +164,7 @@ function attest.AssertHelper(val)
 		{},
 		{
 			__index = function(_, op)
-				return function(expected)
+				return function(expected, ...)
 					local LEVEL = 4
 
 					if op == "==" then
@@ -180,7 +180,7 @@ function attest.AssertHelper(val)
 					elseif op == "<=" then
 						attest.less_or_equal(val, expected, LEVEL)
 					elseif op == "~" or op == "close" then
-						attest.almost_equal(val, expected, nil, LEVEL)
+						attest.almost_equal(val, expected, ..., LEVEL)
 					elseif op == "match" then
 						attest.match(val, expected, LEVEL)
 					elseif op == "contains" then

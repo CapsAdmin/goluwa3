@@ -131,7 +131,7 @@ for k, v in pairs(mouse_keymap_10) do
 end
 
 local function mouse_uses_numeric_buttons()
-	return (love._version_major or 0) >= 11
+	return love._version_major >= 11
 end
 
 local function refresh_loveframes_hover_state()

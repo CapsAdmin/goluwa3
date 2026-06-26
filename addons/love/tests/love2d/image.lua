@@ -1,8 +1,10 @@
 local T = import("test/environment.lua")
 local vfs = import("goluwa/vfs.lua")
+local line = import("lua/line.lua")
 
-local function new_love_image_env(with_graphics)
+local function new_line_env(with_graphics)
 	local love = {_line_env = {}}
+	line.ApplyVersion(love, "0.10.0")
 	assert(loadfile("addons/love/lua/libraries/image_data.lua"))(love)
 
 	if with_graphics then
@@ -22,7 +24,7 @@ local function write_fixture_png(love)
 end
 
 T.Test("love image data compatibility", function()
-	local love = new_love_image_env(false)
+	local love = new_line_env(false)
 	local data = love.image.newImageData(2, 2)
 	T(data.__line_type)["=="]("ImageData")
 	T(data:getWidth())["=="](2)
@@ -57,7 +59,7 @@ T.Test("love image data compatibility", function()
 end)
 
 T.Test2D("love graphics image from image data", function()
-	local love = new_love_image_env(true)
+	local love = new_line_env(true)
 	local data = love.image.newImageData(2, 1)
 	data:setPixel(0, 0, 12, 34, 56, 78)
 	data:setPixel(1, 0, 90, 87, 65, 43)

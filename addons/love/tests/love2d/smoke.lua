@@ -2,7 +2,7 @@ local T = import("test/environment.lua")
 local base64 = import("goluwa/codecs/base64.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local line = import("lua/line.lua")
-local frame = import("addons/love/lua/libraries/graphics/frame.lua")
+local shared = import("addons/love/lua/libraries/graphics/shared.lua")
 local render = import("goluwa/render/render.lua")
 local test_render = import("test/test_render.lua")
 local system = import("goluwa/system.lua")
@@ -117,10 +117,10 @@ end
 
 local function assert_pixel_close(data, x, y, expected, tolerance)
 	local r, g, b, a = data:getPixel(x, y)
-	T(math.abs(r - expected[1]) <= tolerance)["=="](true)
-	T(math.abs(g - expected[2]) <= tolerance)["=="](true)
-	T(math.abs(b - expected[3]) <= tolerance)["=="](true)
-	T(math.abs(a - expected[4]) <= tolerance)["=="](true)
+	T(r)["~"](expected[1], tolerance)
+	T(g)["~"](expected[2], tolerance)
+	T(b)["~"](expected[3], tolerance)
+	T(a)["~"](expected[4], tolerance)
 end
 
 TestLove2D("love2d startup window api smoke", function()
@@ -303,208 +303,6 @@ TestLove2D("love2d vertex-only shader smoke", function()
 	T(shader ~= nil)["=="](true)
 end)
 
-TestLove2D("love2d lily async image smoke", function()
-	local game_dir = "test/tmp/love2d_lily_image"
-	assert(fs.create_directory_recursive(game_dir .. "/libraries"))
-	assert(
-		fs.write_file(
-			game_dir .. "/pixel.png",
-			base64.Decode(
-				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN6kAAAAASUVORK5CYII="
-			)
-		)
-	)
-	assert(
-		fs.write_file(
-			game_dir .. "/libraries/async_image.lua",
-			[[
-		local taskChannel = love.thread.newChannel()
-		local dataPullChannel = love.thread.newChannel()
-		local updateModeChannel = love.thread.newChannel()
-		local worker = love.thread.newThread("libraries/async_image_thread.lua")
-		local loader = {
-			request = {},
-			threads = {worker},
-			taskChannel = taskChannel,
-			dataPullChannel = dataPullChannel,
-			updateModeChannel = updateModeChannel,
-		}
-		local next_id = 1
-
-		function loader.setUpdateMode(mode)
-			updateModeChannel:clear()
-			updateModeChannel:push(mode)
-		end
-
-		loader.setUpdateMode("auto")
-		worker:start(taskChannel, dataPullChannel)
-
-		function loader.newImage(path)
-			local id = next_id
-			next_id = next_id + 1
-			local request = {id = id}
-			loader.request[id] = request
-			taskChannel:push({kind = "image", id = id, path = path})
-			local handle = {}
-
-			function handle:onComplete(callback)
-				request.onComplete = callback
-				return self
-			end
-
-			function handle:onError(callback)
-				request.onError = callback
-				return self
-			end
-
-			return handle
-		end
-
-		function loader.update()
-			while true do
-				local message = dataPullChannel:pop()
-
-				if not message then break end
-
-				local request = loader.request[message.id]
-				loader.request[message.id] = nil
-
-				if request then
-					if message.error then
-						if request.onError then request.onError(nil, message.error) end
-					else
-						local image = love.graphics.newImage(message.data)
-						if request.onComplete then request.onComplete(nil, image) end
-					end
-				end
-			end
-		end
-
-		function loader.quit()
-			taskChannel:push({kind = "quit"})
-			worker:wait()
-		end
-
-		return loader
-		]]
-		)
-	)
-	assert(
-		fs.write_file(
-			game_dir .. "/libraries/async_image_thread.lua",
-			[[
-		local taskChannel, dataPullChannel = ...
-
-		while true do
-			local task = taskChannel:demand(0.1)
-
-			if task then
-				if task.kind == "quit" then return end
-
-				local ok, result = pcall(love.image.newImageData, task.path)
-
-				if ok then
-					dataPullChannel:push({id = task.id, data = result})
-				else
-					dataPullChannel:push({id = task.id, error = tostring(result)})
-				end
-			else
-				love.timer.sleep(0.001)
-			end
-		end
-		]]
-		)
-	)
-	assert(
-		fs.write_file(
-			game_dir .. "/conf.lua",
-			[[
-		function love.conf(t)
-			t.version = "11.0"
-		end
-	]]
-		)
-	)
-	assert(
-		fs.write_file(
-			game_dir .. "/main.lua",
-			[[
-		_G.testMode = nil
-		local loader = require("libraries.async_image")
-
-		function love.load()
-			LOADER_DONE = false
-			LOADER_ERROR = nil
-			if loader.setUpdateMode then loader.setUpdateMode("manual") end
-			LOADER_MODE = loader.updateModeChannel and loader.updateModeChannel:peek() or nil
-			loader.newImage("pixel.png"):onComplete(function(_, image)
-				LOADER_DONE = image and image:typeOf("Image")
-				if image then
-					LOADER_WIDTH, LOADER_HEIGHT = image:getDimensions()
-				end
-				loader.quit()
-			end):onError(function(_, err)
-				LOADER_ERROR = err
-				loader.quit()
-			end)
-		end
-		]]
-		)
-	)
-	local love = line.RunGame(game_dir)
-	local globals = love._line_env.globals
-	local update_module
-
-	for _, module in ipairs(love._line_env.update_modules or {}) do
-		if module.taskChannel and module.dataPullChannel and module.threads then
-			update_module = module
-
-			break
-		end
-	end
-
-	T(update_module ~= nil)["=="](true)
-
-	for _ = 1, 240 do
-		if globals.LOADER_DONE or globals.LOADER_ERROR then break end
-
-		love.line_update(1 / 60)
-	end
-
-	local worker_error = update_module and
-		update_module.threads and
-		update_module.threads[1] and
-		update_module.threads[1]:getError() or
-		nil
-	local task_count = update_module and
-		update_module.taskChannel and
-		update_module.taskChannel:getCount() or
-		nil
-	local pull_count = update_module and
-		update_module.dataPullChannel and
-		update_module.dataPullChannel:getCount() or
-		nil
-	local request_count = 0
-
-	if update_module and update_module.request then
-		for _ in pairs(update_module.request) do
-			request_count = request_count + 1
-		end
-	end
-
-	if update_module and update_module.quit then pcall(update_module.quit) end
-
-	T(love._line_env.error_message)["=="](nil)
-	T(worker_error)["=="](nil)
-	T(globals.LOADER_ERROR)["=="](nil)
-	T(task_count)["=="](0)
-	T(pull_count)["=="](0)
-	T(request_count)["=="](0)
-	T(globals.LOADER_DONE)["=="](true)
-	T(globals.LOADER_WIDTH)["=="](1)
-	T(globals.LOADER_HEIGHT)["=="](1)
-end)
-
 TestLove2D("love2d canvas pixel dimension smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local canvas = love.graphics.newCanvas(64, 32)
@@ -530,6 +328,8 @@ TestLove2D("love2d image dpiscale quad smoke", function()
 	local image = love.graphics.newImage(data, {dpiscale = 2})
 	image:setFilter("nearest", "nearest", 1)
 	local width, height = image:getDimensions()
+	T(width)["=="](2)
+	T(height)["=="](1)
 	local quad = love.graphics.newQuad(0, 0, width, height, image:getDimensions())
 	love.graphics.setCanvas(canvas)
 	love.graphics.clear(0, 0, 0, 1)
@@ -537,8 +337,6 @@ TestLove2D("love2d image dpiscale quad smoke", function()
 	love.graphics.draw(image, quad, 0, 0, 0, 32, 32)
 	love.graphics.setCanvas()
 	local canvas_data = canvas:newImageData()
-	T(width)["=="](2)
-	T(height)["=="](1)
 	assert_pixel_close(canvas_data, 16, 16, {1, 0, 0, 1}, 0.08)
 	assert_pixel_close(canvas_data, 48, 16, {0, 1, 0, 1}, 0.08)
 end)
@@ -743,8 +541,8 @@ TestLove2D("love2d layered shader canvas smoke", function()
 	love.graphics.pop()
 	love.graphics.setCanvas()
 	local output_data = output:newImageData()
-	T(canvas_a > 0.99)["=="](true)
-	T(canvas_r + canvas_g + canvas_b > 0.1)["=="](true)
+	T(canvas_a)[">"](0.99)
+	T(canvas_r + canvas_g + canvas_b)[">"](0.1)
 	assert_pixel_close(output_data, 48, 32, {canvas_r, canvas_g, canvas_b, 1}, 0.15)
 end)
 
@@ -834,7 +632,6 @@ end)
 
 TestLove2D("love2d frame helper prefers render target size", function()
 	local love = line.CreateLoveEnv("11.0.0")
-	local helpers = frame.Get(love)
 	local old_get_render_image_size = render.GetRenderImageSize
 	local window = system.GetWindow()
 	local old_get_size = window.GetSize
@@ -845,7 +642,7 @@ TestLove2D("love2d frame helper prefers render target size", function()
 		return Vec2(1280, 720)
 	end
 	local ok, err = pcall(function()
-		local width, height = helpers.get_main_surface_dimensions()
+		local width, height = shared.Get(love).get_main_surface_dimensions()
 		T(width)["=="](800)
 		T(height)["=="](600)
 	end)

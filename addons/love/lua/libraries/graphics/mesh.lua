@@ -9,7 +9,7 @@ local love = ...
 if type(love) == "string" then love = nil end
 
 love = love or _G.love
-local get_api_default_alpha = shared.Get(love).get_api_default_alpha
+local ctx = shared.Get(love)
 local Mesh = line.TypeTemplate("Mesh", love)
 local attribute_translation = {
 	VertexPosition = "pos",
@@ -228,19 +228,7 @@ function Mesh:setVertex(index, vertex, ...)
 		end
 
 		if info[1] == "VertexColor" then
-			for component_index = 1, 4 do
-				local value = values[component_index]
-
-				if value == nil then
-					value = component_index == 4 and get_api_default_alpha() or get_api_default_alpha()
-				end
-
-				if value > 1 then
-					values[component_index] = value / 255
-				else
-					values[component_index] = value
-				end
-			end
+			ctx.mesh_vertex_color_to_engine(values)
 		else
 			for component_index = 1, component_count do
 				values[component_index] = values[component_index] or 0

@@ -11,7 +11,6 @@ if type(love) == "string" then love = nil end
 love = love or _G.love
 local ctx = shared.Get(love)
 local ENV = ctx.ENV
-local get_internal_color = ctx.get_internal_color
 local Font = line.TypeTemplate("Font", love)
 local LOVE_TTF_FONT_COMPAT_SCALE = 0.78
 
@@ -209,9 +208,8 @@ local function draw_text(text, x, y, r, sx, sy, ox, oy, kx, ky, align, limit)
 	oy = oy or 0
 	kx = kx or 0
 	ky = ky or 0
-	local cr, cg, cb, ca = get_internal_color()
-	ca = ca or 255
-	render2d.PushColor(cr / 255, cg / 255, cb / 255, ca / 255)
+	local cr, cg, cb, ca = ctx.get_draw_fg_color()
+	render2d.PushColor(cr, cg, cb, ca)
 	render2d.PushMatrix(x, y, sx, sy, r)
 	render2d.Translate(ox, oy)
 

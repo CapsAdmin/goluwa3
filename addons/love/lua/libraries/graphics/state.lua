@@ -1,11 +1,9 @@
 local render2d = import("goluwa/render2d/render2d.lua")
-local frame = import("addons/love/lua/libraries/graphics/frame.lua")
 local love = ...
 
 if type(love) == "string" then love = nil end
 
 love = love or _G.love
-local ensure_love_depth_target_initialized = frame.Get(love).ensure_love_depth_target_initialized
 
 function love.graphics.flushBatch()
 	render2d.FlushBatches("love.graphics.flushBatch")
@@ -18,7 +16,6 @@ function love.graphics.setDepthMode(compare_mode, write)
 	end
 
 	render2d.SetDepthMode(compare_mode, write)
-	ensure_love_depth_target_initialized(compare_mode)
 end
 
 function love.graphics.getDepthMode()

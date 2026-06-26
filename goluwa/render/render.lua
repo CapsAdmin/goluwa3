@@ -320,8 +320,8 @@ function render.SetCommandBuffer(cmd)
 end
 
 function render.PushCommandBuffer(cmd)
-	run_flush_callbacks("push_command_buffer")
 	render.command_buffer_stack[#render.command_buffer_stack + 1] = cmd
+	run_flush_callbacks("push_command_buffer")
 	return cmd
 end
 
