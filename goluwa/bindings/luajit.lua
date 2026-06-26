@@ -78,7 +78,7 @@ end
 function LuaState:Close()
 	if not self.lua_state then return true end
 
-	ffi.C.lua_close(self.lua_state)
+	--ffi.C.lua_close(self.lua_state)
 	self.lua_state = nil
 	self.func_ptr = nil
 	return true
