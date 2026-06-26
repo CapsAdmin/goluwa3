@@ -202,7 +202,6 @@ function render.Shutdown()
 
 	render.command_buffer_stack = {}
 	render.cmd = NULL
-	render.in_frame = false
 	render.target = NULL
 	vulkan_instance = NULL
 	render.cached_samplers = {}
@@ -269,12 +268,6 @@ function render.Initialize(config)
 	end)
 
 	function render.Draw(dt)
-		if render.in_frame then return end
-
-		-- Shadow passes run before main frame (before swapchain acquire)
-		-- Note: WaitForPreviousFrame removed - BeginFrame() already waits on fence
-		-- after acquiring swapchain image, which provides correct synchronization.
-		-- The swapchain semaphore ensures GPU is done with the image.
 		event.Call("PreFrame", dt)
 
 		if render.BeginFrame() then
@@ -299,24 +292,7 @@ function render.BeginFrame()
 	run_flush_callbacks("begin_frame")
 	render.cmd = render.target:BeginFrame()
 
-	if render.cmd then render.in_frame = true end
-
-	return render.GetCommandBuffer()
-end
-
-function render.SetCommandBuffer(cmd)
-	run_flush_callbacks("set_command_buffer")
-	local stack = render.command_buffer_stack
-
-	if #stack > 0 then
-		local previous = stack[#stack]
-		stack[#stack] = cmd
-		return previous
-	end
-
-	local previous = render.cmd
-	render.cmd = cmd
-	return previous
+	return render.cmd
 end
 
 function render.PushCommandBuffer(cmd)
@@ -352,14 +328,6 @@ function render.GetCommandBuffer()
 	return get_active_recording_command_buffer()
 end
 
-function render.GetCommandBufferOutsideRendering()
-	local cmd = get_active_recording_command_buffer()
-
-	if cmd and cmd.is_rendering then return nil end
-
-	return cmd
-end
-
 function render.KeepCommandBufferResource(resource, cmd)
 	cmd = cmd or render.GetCommandBuffer()
 
@@ -371,7 +339,7 @@ function render.KeepCommandBufferResource(resource, cmd)
 end
 
 function render.EndFrame()
-	if not render.in_frame then return end
+	if not render.cmd then return end
 
 	if render.stats then render_stats.RecordFrame(system.GetFrameTime()) end
 
@@ -379,7 +347,6 @@ function render.EndFrame()
 	render.target:EndFrame()
 	render.command_buffer_stack = {}
 	render.cmd = nil
-	render.in_frame = false
 end
 
 function render.GetStats()

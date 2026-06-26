@@ -130,31 +130,23 @@ function META:Build()
 		page.dirty = true
 	end
 
-	local cmd = render.GetCommandBufferOutsideRendering()
+	-- Check if there are any dirty pages
+	local dirty = false
 
-	if #self.dirty_textures == 0 and not cmd then
-		local dirty = false
+	for _, page in ipairs(self.pages) do
+		if page.dirty then
+			dirty = true
 
-		for _, page in ipairs(self.pages) do
-			if page.dirty then
-				dirty = true
-
-				break
-			end
+			break
 		end
-
-		if not dirty then return end
 	end
+
+	if not dirty then return end
 
 	self.dirty_textures = {}
-	local own_cmd = false
-
-	if not cmd then
-		local cmd_pool = render.GetCommandPool()
-		cmd = cmd_pool:AllocateCommandBuffer()
-		cmd:Begin()
-		own_cmd = true
-	end
+	local cmd_pool = render.GetCommandPool()
+	local cmd = cmd_pool:AllocateCommandBuffer()
+	cmd:Begin()
 
 	render.PushCommandBuffer(cmd)
 	local transitioned_textures = {}
@@ -208,10 +200,8 @@ function META:Build()
 
 	render.PopCommandBuffer()
 
-	if own_cmd then
-		cmd:End()
-		render.SubmitAndWait(cmd)
-	end
+	cmd:End()
+	render.SubmitAndWait(cmd)
 
 	self.dirty_textures = {}
 

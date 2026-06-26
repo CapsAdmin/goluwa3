@@ -165,7 +165,8 @@ function love.graphics.setCanvas(canvas, ...)
 
 	if canvas then
 		ENV.graphics_current_canvas = canvas
-		ENV.old_command_buffer = render.SetCommandBuffer(assert(canvas.fb:Begin()))
+		canvas.fb:Begin()
+		render.PushCommandBuffer(canvas.fb:GetCommandBuffer())
 		render2d.UpdateScreenSize(canvas.w, canvas.h)
 		render2d.BindPipeline()
 	else
@@ -173,10 +174,7 @@ function love.graphics.setCanvas(canvas, ...)
 
 		if canvas then
 			canvas.fb:End()
-
-			if ENV.old_command_buffer then
-				render.SetCommandBuffer(ENV.old_command_buffer)
-			end
+			render.PopCommandBuffer()
 		end
 
 		ENV.graphics_current_canvas = nil

@@ -668,13 +668,13 @@ end
 
 function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 	local cmd_pool = render.GetCommandPool()
-	local cmd = render.GetCommandBufferOutsideRendering()
-	local internal_cmd = false
+	local cmd = render.GetCommandBuffer()
+	local own_cmd = false
 
 	if not cmd then
 		cmd = cmd_pool:AllocateCommandBuffer()
 		cmd:Begin()
-		internal_cmd = true
+		own_cmd = true
 	end
 
 	-- Transition both resources
@@ -705,7 +705,7 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 		}
 	)
 
-	if internal_cmd then
+	if own_cmd then
 		cmd:End()
 		render.SubmitAndWait(cmd)
 	end
@@ -762,14 +762,8 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	staging_buffer:CopyData(buffer, pixel_count * bytes_per_pixel)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
-	local cmd = render.GetCommandBufferOutsideRendering()
-	local internal_cmd = false
-
-	if not cmd then
-		cmd = cmd_pool:AllocateCommandBuffer()
-		cmd:Begin()
-		internal_cmd = true
-	end
+	local cmd = cmd_pool:AllocateCommandBuffer()
+	cmd:Begin()
 
 	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition image to transfer dst (only mip level 0)
@@ -822,11 +816,8 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		)
 	end
 
-	if internal_cmd then
-		cmd:End()
-		-- Submit and wait
-		render.SubmitAndWait(cmd)
-	end
+	cmd:End()
+	render.SubmitAndWait(cmd)
 end
 
 function Texture:UploadCompressed(data, vulkan_info)
@@ -847,14 +838,8 @@ function Texture:UploadCompressed(data, vulkan_info)
 	staging_buffer:CopyData(data, total_size)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
-	local cmd = render.GetCommandBufferOutsideRendering()
-	local internal_cmd = false
-
-	if not cmd then
-		cmd = cmd_pool:AllocateCommandBuffer()
-		cmd:Begin()
-		internal_cmd = true
-	end
+	local cmd = cmd_pool:AllocateCommandBuffer()
+	cmd:Begin()
 
 	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition all mip levels to transfer dst
@@ -904,11 +889,8 @@ function Texture:UploadCompressed(data, vulkan_info)
 		}
 	)
 
-	if internal_cmd then
-		cmd:End()
-		-- Submit and wait
-		render.SubmitAndWait(cmd)
-	end
+	cmd:End()
+	render.SubmitAndWait(cmd)
 end
 
 function Texture:GetImage()
@@ -1026,13 +1008,13 @@ function Texture:GenerateMipmaps(initial_layout)
 	if not self.image or self.mip_map_levels <= 1 then return end
 
 	local command_pool = render.GetCommandPool()
-	local internal_cmd = false
-	local cmd = render.GetCommandBufferOutsideRendering()
+	local cmd = render.GetCommandBuffer()
+	local own_cmd = false
 
 	if not cmd then
 		cmd = command_pool:AllocateCommandBuffer()
 		cmd:Begin()
-		internal_cmd = true
+		own_cmd = true
 	end
 
 	local is_cube = self:IsCubemap()
@@ -1083,12 +1065,11 @@ function Texture:GenerateMipmaps(initial_layout)
 			},
 		}
 
-		if internal_cmd then
+		if own_cmd then
 			cmd:End()
 			render.SubmitAndWait(cmd)
 			command_pool:FreeCommandBuffer(cmd)
 		end
-
 		return
 	end
 
@@ -1188,7 +1169,7 @@ function Texture:GenerateMipmaps(initial_layout)
 		},
 	}
 
-	if internal_cmd then
+	if own_cmd then
 		cmd:End()
 		render.SubmitAndWait(cmd)
 		cmd:Remove()

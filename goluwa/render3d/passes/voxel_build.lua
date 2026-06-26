@@ -369,16 +369,8 @@ local function scroll_axis_target(cmd, source_target, target, copy_config, descr
 end
 
 local function scroll_clipmap_targets(_, voxelizer, clipmap_index, pending_scroll)
-	local compute_cmd = render.GetCommandBufferOutsideRendering()
-	local own_compute_cmd = false
-
-	if not compute_cmd then
-		compute_cmd = render.GetCommandPool():AllocateCommandBuffer()
-		compute_cmd:Begin()
-		own_compute_cmd = true
-	elseif voxelizer and voxelizer.AddInlineScrollWork then
-		voxelizer.AddInlineScrollWork(1)
-	end
+	local compute_cmd = render.GetCommandPool():AllocateCommandBuffer()
+	compute_cmd:Begin()
 
 	local frame_slot_base = ((render.GetCurrentFrame() or 1) - 1) * 9
 
@@ -390,10 +382,8 @@ local function scroll_clipmap_targets(_, voxelizer, clipmap_index, pending_scrol
 		scroll_axis_target(compute_cmd, source_target, target, copy_config, descriptor_slot)
 	end
 
-	if own_compute_cmd then
-		compute_cmd:End()
-		submit_voxel_scroll_command_buffer(voxelizer, compute_cmd)
-	end
+	compute_cmd:End()
+	submit_voxel_scroll_command_buffer(voxelizer, compute_cmd)
 end
 
 local function get_voxel_projection_view_world_matrix()

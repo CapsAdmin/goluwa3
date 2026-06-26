@@ -236,7 +236,7 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.ResetState()
 		local old_w, old_h = render2d.GetSize()
 		render.PushCommandBuffer(cmd)
-		fb:Begin()
+		fb:Begin(cmd)
 		local old_color = {render2d.GetColor()}
 		local old_blend_mode = render2d.GetBlendMode()
 		render2d.SetColor(1, 1, 1, 1)
