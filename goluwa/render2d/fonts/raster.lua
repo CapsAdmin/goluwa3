@@ -218,19 +218,17 @@ end
 
 local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 	local padding = self:GetPadding()
+	-- Use bitmap_top as the effective height to ensure the full glyph fits
+	-- bitmap_top is the distance from baseline to top of bitmap
+	local effective_h = math.max(glyph.h, glyph.bitmap_top)
 	local width = math.max(1, math.ceil(glyph.w + padding * 2))
-	local height = math.max(1, math.ceil(glyph.h + padding * 2))
+	local height = math.max(1, math.ceil(effective_h + padding * 2))
 	local format = self:GetAtlasFormat()
 	local fb = get_temp_fb(self, width, height, format, true, self.Filtering)
 	table.insert(temp_fbs, fb)
 	local own_cmd = false
-	local cmd = render.GetCommandBuffer()
-
-	if not cmd then
-		cmd = render.GetCommandPool():AllocateCommandBuffer()
-		cmd:Begin()
-		own_cmd = true
-	end
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
 
 	do
 		render2d.ResetState()
@@ -249,7 +247,8 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.SetSwizzleMode(0)
 		render2d.PushMatrix()
 		render2d.LoadIdentity()
-		render2d.Translate(padding, glyph.h + padding)
+		-- Position baseline so the full glyph (including ascenders) fits in the framebuffer
+		render2d.Translate(padding, effective_h + padding)
 		render2d.Scale(1, -1)
 		render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 		glyph_source_font:DrawGlyph(glyph.glyph_data)
@@ -264,10 +263,8 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
 	end
 
-	if own_cmd then
-		cmd:End()
-		render.SubmitAndWait(cmd)
-	end
+	cmd:End()
+	render.SubmitAndWait(cmd)
 
 	return fb.color_texture, width, height
 end
@@ -297,14 +294,16 @@ function META:LoadGlyph(code, temp_fbs)
 		return
 	end
 
-	if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
+	-- Always render raster glyphs to our own texture (ignore any pre-existing texture)
+	if glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
 		if not render.available or not render.target then return end
 
 		local used_temp_fbs = {}
 		glyph.texture, glyph.raster_w, glyph.raster_h = render_glyph_to_texture(self, glyph_source_font, glyph, used_temp_fbs)
 		local padding = self:GetPadding()
+		local effective_h = math.max(glyph.h, glyph.bitmap_top)
 		local atlas_w = math.max(1, math.ceil(glyph.w + padding * 2))
-		local atlas_h = math.max(1, math.ceil(glyph.h + padding * 2))
+		local atlas_h = math.max(1, math.ceil(effective_h + padding * 2))
 
 		if not temp_fbs then
 			for _, fb in ipairs(used_temp_fbs) do
@@ -325,8 +324,6 @@ function META:LoadGlyph(code, temp_fbs)
 				flip_y = glyph.flip_y,
 			}
 		)
-		self.chars[code] = glyph
-		return
 	end
 
 	self.chars[code] = glyph
@@ -473,6 +470,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 	local len = #str
 	local padding = self:GetPadding()
 	extra_space_advance = extra_space_advance or 0
+	local last_texture = nil
 
 	while i <= len do
 		local char_code = utf8.uint32(str, i)
@@ -502,18 +500,23 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 
 				if atlas_data and atlas_data.page then
 					local texture = atlas_data.page.texture
-					render2d.PushTexture(texture)
+					if texture ~= last_texture then
+						render2d.SetTexture(texture)
+						last_texture = texture
+					end
+
 					local uv = atlas_data.page_uv_normalized
-					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
-					render2d.DrawRectf(
-						x + (X + data.bitmap_left - padding) * self.Scale.x,
-						y + (Y + data.bitmap_top - padding) * self.Scale.y,
-						atlas_data.w * self.Scale.x,
-						atlas_data.h * self.Scale.y
+					local rx = x + (X + data.bitmap_left - padding) * self.Scale.x
+					local ry = y + (Y + data.bitmap_top - padding) * self.Scale.y
+					local rw = atlas_data.w * self.Scale.x
+					local rh = atlas_data.h * self.Scale.y
+					local result = render2d.DrawRectUV2f(
+						rx, ry, rw, rh,
+						uv[1], uv[2], uv[3], uv[4]
 					)
 
 					if self.debug then
-						render2d.PushTexture(nil)
+						render2d.SetTexture(nil)
 						render2d.PushColor(1, 0, 0, 0.25)
 						render2d.DrawRect(
 							x + (X - padding) * self.Scale.x,
@@ -522,10 +525,8 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 							self:GetLineHeight() * self.Scale.y
 						)
 						render2d.PopColor()
-						render2d.PopTexture()
+						render2d.SetTexture(texture)
 					end
-
-					render2d.PopTexture()
 				end
 
 				if self.Monospace then
