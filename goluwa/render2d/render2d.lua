@@ -311,10 +311,6 @@ end
 
 utility.MakePushPopFunction(render2d, "RectBatchMode")
 
-local function get_active_pipeline()
-	return render2d.shader_override or render2d.pipeline
-end
-
 local function build_rect_draw_matrix(base_world_matrix, x, y, w, h, a, ox, oy, margin, use_float, out_matrix)
 	local projected = out_matrix or Matrix44()
 	local qw = w + margin * 2
@@ -656,14 +652,12 @@ local function get_blend_preset_state(mode_name)
 	return canonicalize_blend_mode_state(preset)
 end
 
-local function mark_pipeline_state_dirty()
+function render2d.MarkPipelineStateDirty()
 	render2d.state.runtime.pipeline_state.dirty = true
 end
 
 local function sync_pipeline_state(force)
-	local pipeline = get_active_pipeline()
-
-	if not pipeline then return end
+	local pipeline = render2d.GetActivePipeline()
 
 	if
 		not force and
@@ -1727,7 +1721,7 @@ do
 			render2d.state.render.textures.texture = tex
 			-- Register texture with the pipeline BEFORE sync_pipeline_state is called.
 			-- This ensures the descriptor set includes the texture when it's bound.
-			local pipeline = get_active_pipeline()
+			local pipeline = render2d.GetActivePipeline()
 
 			if pipeline and tex then
 				pipeline:GetTextureIndex(tex, 1, render.GetSamplerFilterConfig())
@@ -1767,13 +1761,13 @@ do
 		end
 
 		render2d.state.render.pipeline.blend = next_state
-		mark_pipeline_state_dirty()
+		render2d.MarkPipelineStateDirty()
 	end
 
 	function render2d.SetBlendPreset(mode_name)
 		local next_state = get_blend_preset_state(mode_name)
 		render2d.state.render.pipeline.blend = next_state
-		mark_pipeline_state_dirty()
+		render2d.MarkPipelineStateDirty()
 	end
 
 	function render2d.GetBlendMode()
@@ -1976,7 +1970,7 @@ do
 			render2d.state.render.pipeline.depth.write = write
 			render2d.state.render.fragment.constants.depth_mode_id = depth_mode_ids[mode_name]
 			render2d.state.render.fragment.constants.depth_write = write and 1 or 0
-			mark_pipeline_state_dirty()
+			render2d.MarkPipelineStateDirty()
 		end
 
 		function render2d.GetDepthMode()
@@ -1998,7 +1992,7 @@ do
 			render2d.state.render.pipeline.stencil.ref = ref
 			render2d.state.render.fragment.constants.stencil_mode_id = stencil_mode_ids[mode_name]
 			render2d.state.render.fragment.constants.stencil_ref = ref
-			mark_pipeline_state_dirty()
+			render2d.MarkPipelineStateDirty()
 		end
 
 		function render2d.GetStencilMode()
@@ -2282,7 +2276,7 @@ do
 		render2d.state.render.fragment.rect_size.h = h or 0
 		render2d.state.render.fragment.rect_size.lw = lw or w or 0
 		render2d.state.render.fragment.rect_size.lh = lh or h or 0
-		local pipeline = get_active_pipeline()
+		local pipeline = render2d.GetActivePipeline()
 
 		if pipeline then pipeline:UploadConstants() end
 	end
@@ -2594,7 +2588,7 @@ restore_rect_draw_state = function(state)
 	-- is called, so the descriptor set is updated with the correct textures.
 	-- If we wait until UploadConstants (which calls GetTextureIndex), the descriptor set
 	-- has already been bound and won't include the newly registered texture.
-	local pipeline = get_active_pipeline()
+	local pipeline = render2d.GetActivePipeline()
 
 	if pipeline then
 		if state.texture then
@@ -2616,7 +2610,7 @@ restore_rect_draw_state = function(state)
 	render2d.state.render.pipeline.scissor.y = state.rect_state_snapshot.scissor[1]
 	render2d.state.render.pipeline.scissor.w = state.rect_state_snapshot.scissor[2]
 	render2d.state.render.pipeline.scissor.h = state.rect_state_snapshot.scissor[3]
-	mark_pipeline_state_dirty()
+	render2d.MarkPipelineStateDirty()
 	apply_scissor_to_command_buffer(
 		state.rect_state_snapshot.scissor[0],
 		state.rect_state_snapshot.scissor[1],
@@ -2921,14 +2915,14 @@ do
 	end
 end
 
-function render2d.BindPipeline()
-	sync_pipeline_state()
+function render2d.BindPipeline(force)
+	sync_pipeline_state(force)
 	-- Reset mesh binding cache since command buffer state was reset
 	render2d.state.runtime.mesh.last_bound = nil
 end
 
 function render2d.GetActivePipeline()
-	return get_active_pipeline()
+	return render2d.shader_override or render2d.pipeline
 end
 
 render2d.SetColor(1, 1, 1, 1)

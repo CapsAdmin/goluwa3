@@ -1231,7 +1231,10 @@ commands.Add({
 		-- (e.g. `local io = require("io")`) would be nil in the new Lua state
 		-- because string.dump does not preserve upvalue values.
 		local thread_worker = [[
+			local crash_trace = import("goluwa/bindings/crash_trace.lua")
 			local input = ...
+			crash_trace.Install()
+			return crash_trace.Run(function()
 			local io = require("io")
 			local output_parts = {}
 			local function capture(...)
@@ -1328,6 +1331,7 @@ commands.Add({
 				test_count = test_count,
 				test_file_count = has_tests and 1 or 0,
 			}
+			end)
 		]]
 		local start_time = system.GetTime()
 		local total_exit_code = 0
@@ -1337,6 +1341,7 @@ commands.Add({
 		local failed_file_names = {}
 		local running = {}
 		local pending = {}
+		-- local max_running = parallel and math.min(threads.get_thread_count(), 4) or 1
 		local max_running = parallel and threads.get_thread_count() or 1
 
 		for i, test_item in ipairs(tests) do
@@ -1397,6 +1402,8 @@ commands.Add({
 
 				if status and status ~= 0 then
 					local result, join_err = t:join()
+
+					if not result then join_err = "thread result is falsy" end
 
 					if join_err then
 						io.write("thread error for " .. t.test_name .. ": " .. tostring(join_err) .. "\n")

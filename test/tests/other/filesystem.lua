@@ -253,5 +253,8 @@ T.Test("filesystem shared path utility helpers", function()
 	T(file_path.GetExtensionFromPath("a/b/c.tar.gz"))["=="]("tar.gz")
 	T(file_path.GetFolderFromPath("a/b/c.txt"))["=="]("a/b/")
 	T(file_path.GetFileFromPath("a/b/c.txt"))["=="]("c.txt")
-	T(file_path.IsPathAbsolutePath("/tmp/test"))["=="](jit.os == "Linux")
+
+	if jit.os ~= "Windows" then
+		T(file_path.IsPathAbsolutePath("/tmp/test"))["=="](true)
+	end
 end)

@@ -106,9 +106,9 @@ function file_path.GetFileFromPath(str)
 end
 
 function file_path.IsPathAbsolutePath(path)
-	if jit.os == "Linux" then return path:sub(1, 1) == "/" end
-
 	if jit.os == "Windows" then return path:sub(1, 2):find("%a:") ~= nil end
+
+	return path:sub(1, 1) == "/"
 end
 
 local character_translation = {

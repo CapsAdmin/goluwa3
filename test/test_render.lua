@@ -71,6 +71,7 @@ function test_render.Draw2D(cb)
 	test_render.Init2D()
 
 	if render.BeginFrame() then
+		render2d.MarkPipelineStateDirty()
 		render2d.BindPipeline()
 		render2d.ResetState()
 		local finish = cb(width, height)
@@ -85,6 +86,7 @@ function test_render.Draw2DFrames(frame_count, cb, after_frame)
 
 	for frame = 1, frame_count do
 		if render.BeginFrame() then
+			render2d.MarkPipelineStateDirty()
 			render2d.BindPipeline()
 			render2d.ResetState()
 			cb(width, height, frame)

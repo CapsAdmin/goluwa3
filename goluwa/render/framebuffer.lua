@@ -181,10 +181,13 @@ function Framebuffer:Begin(cmd, load_op)
 	cmd:BeginRendering(rendering_info)
 	cmd:SetViewport(0.0, 0.0, self.width, self.height, 0.0, 1.0)
 	cmd:SetScissor(0, 0, self.width, self.height)
+	self.began = true
 	return cmd
 end
 
 function Framebuffer:End(cmd)
+	if not self.began then error("must call Begin before End") end
+
 	cmd = cmd or render.GetCommandBuffer() or self.cmd
 	cmd:EndRendering()
 	-- Transition color attachments to shader read layout
@@ -281,6 +284,7 @@ function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 		r = key
 		key = cmd
 		cmd = self._active_cmd or self.cmd
+
 		-- Restore depth/stencil for color clears (they were shifted into b/g)
 		if type(key) == "string" and key ~= "depth" then
 			depth = saved_depth
@@ -300,7 +304,6 @@ function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 				w = self.width,
 				h = self.height,
 			}
-
 			return
 		else
 			error("Unknown clear key: " .. tostring(key))
@@ -308,8 +311,10 @@ function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 	end
 
 	key = tonumber(key)
-	assert(key and key >= 1 and key <= #self.color_textures, "Invalid color attachment index: " .. tostring(key))
-
+	assert(
+		key and key >= 1 and key <= #self.color_textures,
+		"Invalid color attachment index: " .. tostring(key)
+	)
 	local clear_color = r ~= nil and {r, g, b, a} or self.clear_colors[key]
 	cmd:ClearAttachments{
 		color = clear_color,
