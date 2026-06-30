@@ -1344,6 +1344,15 @@ commands.Add({
 		-- local max_running = parallel and math.min(threads.get_thread_count(), 4) or 1
 		local max_running = parallel and threads.get_thread_count() or 1
 
+		-- Pre-load Vulkan library in the main thread before spawning workers.
+		-- Multiple threads calling dlopen("libvulkan.so") simultaneously triggers
+		-- LLVM static initializers in OpenCL backends, causing "Option registered
+		-- more than once" crashes. Loading once upfront serializes this safely.
+		pcall(function()
+			local vk = import("goluwa/bindings/vk.lua")
+			vk.find_library()
+		end)
+
 		for i, test_item in ipairs(tests) do
 			pending[i] = test_item
 		end

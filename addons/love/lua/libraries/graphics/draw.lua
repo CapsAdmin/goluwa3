@@ -58,13 +58,24 @@ end
 
 function love.graphics.rectangle(mode, x, y, w, h)
 	if mode == "fill" then
-		render2d.SetTexture()
+		render2d.PushTexture()
+		render2d.PushColor(ctx.get_draw_bg_color())
+		render2d.PushSwizzleMode(0)
 		render2d.DrawRect(x, y, w, h)
+		render2d.PopSwizzleMode()
+		render2d.PopColor()
+		render2d.PopTexture()
 	else
+		render2d.PushTexture()
+		render2d.PushColor(ctx.get_draw_fg_color())
+		render2d.PushSwizzleMode(0)
 		gfx.DrawLine(x, y, x + w, y)
 		gfx.DrawLine(x, y, x, y + h)
 		gfx.DrawLine(x + w, y, x + w, y + h)
 		gfx.DrawLine(x, y + h, x + w, y + h)
+		render2d.PopSwizzleMode()
+		render2d.PopColor()
+		render2d.PopTexture()
 	end
 end
 

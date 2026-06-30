@@ -270,7 +270,9 @@ function render.Initialize(config)
 	function render.Draw(dt)
 		event.Call("PreFrame", dt)
 
-		if render.BeginFrame() then
+		local began = render.BeginFrame()
+
+		if began then
 			event.Call("Draw", dt)
 			event.Call("PostDraw", dt)
 
@@ -289,6 +291,8 @@ function render.IsReady()
 end
 
 function render.BeginFrame()
+	if render.cmd then return false end
+
 	run_flush_callbacks("begin_frame")
 	render.cmd = assert(render.target:BeginFrame())
 	return true
@@ -340,7 +344,6 @@ end
 function render.EndFrame()
 	assert(render.cmd)
 
-	--if not render.cmd then return end
 	if render.stats then render_stats.RecordFrame(system.GetFrameTime()) end
 
 	run_flush_callbacks("end_frame")

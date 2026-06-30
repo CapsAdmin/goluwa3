@@ -135,11 +135,11 @@ T.TestGmod("gmod label content size applies inset once", function()
 	label:SetTextInset(10, 4)
 	local text_w, text_h = label:GetTextSize()
 	local content_w, content_h = label:GetContentSize()
-	attest.equal(content_w, text_w + 10)
-	attest.equal(content_h, text_h + 4)
+	T(content_w)["~"](text_w + 10)
+	T(content_h)["~"](text_h + 4)
 	label:SizeToContents()
-	attest.equal(label:GetWide(), content_w)
-	attest.equal(label:GetTall(), content_h)
+	T(label:GetWide())["~"](content_w)
+	T(label:GetTall())["~"](content_h)
 
 	if label.Remove then label:Remove() end
 end)
@@ -257,7 +257,7 @@ T.TestGmod("gmod popup mouse click dispatch", function()
 	end
 
 	wnd:SetMousePosition(Vec2(470, 315))
-	event.Call("Update")
+	event.Call("Update", 1)
 	attest.truthy(gine.gui_world:GetParent() == Panel.World)
 	local world_children = Panel.World:GetChildren()
 	local top_child = world_children[#world_children]

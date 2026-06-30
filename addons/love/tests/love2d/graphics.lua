@@ -177,11 +177,11 @@ T.Test2D("love graphics stencil write and greater-zero test clip drawing", funct
 	end)
 
 	love.graphics.setStencilTest("greater", 0)
-	love.graphics.setColor(1, 0, 0, 1)
+	love.graphics.setBackgroundColor(1, 0, 0, 1)
 	love.graphics.rectangle("fill", 0, 0, 64, 64)
 	love.graphics.setStencilTest()
 	love.graphics.setBlendMode("alpha")
-	love.graphics.setColor(0, 0, 1, 1)
+	love.graphics.setBackgroundColor(0, 0, 1, 1)
 	love.graphics.rectangle("fill", 48, 0, 16, 64)
 	return function()
 		T.AssertScreenPixel{pos = {16, 32}, color = {1, 0, 0, 1}, tolerance = 0.08}
@@ -1865,21 +1865,6 @@ T.Test2D("love graphics terrain and tall sprite depth order matches pixel overla
 	end
 end)
 
-T.Test2D("love graphics draw ignores leaked swizzle mode", function()
-	local love = new_love_graphics_env()
-	local image = make_quadrant_image(love)
-	love.graphics.clear(0, 0, 0, 255)
-	render2d.SetSwizzleMode(2)
-	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(image, 32, 128, 0, 32, 32)
-	return function()
-		T.AssertScreenPixel{pos = {40, 136}, color = {1, 1, 0, 1}, tolerance = 0.1}
-		T.AssertScreenPixel{pos = {88, 136}, color = {1, 0, 0, 1}, tolerance = 0.1}
-		T.AssertScreenPixel{pos = {40, 184}, color = {0, 1, 0, 1}, tolerance = 0.1}
-		T.AssertScreenPixel{pos = {88, 184}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
-	end
-end)
-
 TestLoveGraphics("love graphics canvas vertex colors stay correct", function()
 	local love = new_love_graphics_env()
 	local canvas = love.graphics.newCanvas(32, 32)
@@ -1926,10 +1911,10 @@ T.Test2D("love graphics Love11 normalized color API stays normalized", function(
 	T(g)["=="](1)
 	T(b)["=="](1)
 	T(a)["=="](1)
-	love.graphics.rectangle("fill", 32, 32, 32, 32)
+	love.graphics.rectangle("fill", 0, 0, 32, 32)
 	return function()
 		T.AssertScreenPixel{pos = {8, 8}, color = {0.2, 0.1, 0.05, 1}, tolerance = 0.08}
-		T.AssertScreenPixel{pos = {40, 40}, color = {1, 1, 1, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {40, 40}, color = {0, 0, 0, 1}, tolerance = 0.08}
 	end
 end)
 

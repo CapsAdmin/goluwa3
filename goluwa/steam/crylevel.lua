@@ -566,11 +566,18 @@ end
 
 function crylevel.ParseVegetationMapDocument(document)
 	local root = document and document.children and document.children[1]
-	local vegetation_map = root and find_child_by_tag(root, "VegetationMap") or nil
-	local objects = vegetation_map and find_child_by_tag(vegetation_map, "Objects") or nil
-	local prototypes = {list = {}, by_id = {}}
 
-	if not objects then return prototypes end
+	if not root then return nil, "no root" end
+
+	local vegetation_map = find_child_by_tag(root, "VegetationMap")
+
+	if not vegetation_map then return nil, "no VegetationMap" end
+
+	local objects = find_child_by_tag(vegetation_map, "Objects")
+
+	if not objects then return nil, "no Objects" end
+
+	local prototypes = {list = {}, by_id = {}}
 
 	for node in iter_children_by_tag(objects, "Object") do
 		local attrs = node.attrs or {}
@@ -578,7 +585,7 @@ function crylevel.ParseVegetationMapDocument(document)
 		local model_path = file_path.FixPathSlashes(attrs.FileName or "")
 
 		if prototype_id and model_path ~= "" and model_path:lower():ends_with(".cgf") then
-			local objects = {
+			local prototype = {
 				id = prototype_id,
 				model_path = model_path,
 				name = attrs.Name or file_path.GetFileNameFromPath(model_path),
@@ -661,7 +668,7 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 		local offset = index * stride + 1
 		local prototype_bits = read_u32_le(data, offset + 16) or 0
 		local prototype_id = bit.band(prototype_bits, 0xFF)
-		local objects = prototypes and prototypes.by_id and prototypes.by_id[prototype_id] or nil
+		local prototype = prototypes and prototypes.by_id and prototypes.by_id[prototype_id] or nil
 
 		if crylevel.IsVegetationPrototypeSupportedFirstPass(prototype, terrain) then
 			local yaw, yaw_strength = crylevel.DecodeVegetationYawFromRecord(data, offset)
@@ -672,14 +679,14 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 			)
 			local terrain_normal
 
-			if objects.align_to_terrain and terrain then
+			if prototype.align_to_terrain and terrain then
 				local engine_position = crylevel.CryLevelWorldVec3ToEngine(position)
 				terrain_normal = sample_terrain_normal_at_world(terrain, engine_position.x, engine_position.z)
 			end
 
 			entries[#entries + 1] = {
 				name = string.format("vegetation_%d_%d", prototype_id, index + 1),
-				model_path = objects.model_path,
+				model_path = prototype.model_path,
 				transform_space = "vegetation_world",
 				prototype_id = prototype_id,
 				position = position,
