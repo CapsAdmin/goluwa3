@@ -1,4 +1,5 @@
 local render2d = import("goluwa/render2d/render2d.lua")
+local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local shared = import("addons/love/lua/libraries/graphics/shared.lua")
@@ -24,11 +25,11 @@ function love.graphics.setCaption(title)
 end
 
 function love.graphics.getWidth()
-	return system.GetWindow():GetSize().x
+	return render.GetWidth()
 end
 
 function love.graphics.getHeight()
-	return system.GetWindow():GetSize().y
+	return render.GetHeight()
 end
 
 function love.graphics.setMode(width, height, fullscreen, vsync, fsaa)
@@ -42,7 +43,7 @@ function love.graphics.getMode()
 end
 
 function love.graphics.getDimensions()
-	return system.GetWindow():GetSize():Unpack()
+	return render.GetRenderImageSize():Unpack()
 end
 
 function love.graphics.getDPIScale()

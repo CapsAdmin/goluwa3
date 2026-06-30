@@ -166,6 +166,7 @@ function love.graphics.newMesh(...)
 	end
 
 	self.vertex_format = resolved_vertex_format
+	self._is_default_vertex_format = not vertex_format
 	self.vertex_buffer:SetDrawHint(usage)
 	self:setDrawMode(mode)
 
@@ -207,6 +208,33 @@ end
 
 function Mesh:setVertex(index, vertex, ...)
 	if type(vertex) == "number" then vertex = {vertex, ...} end
+
+	-- For default love format, convert to render2d format (pos:3, uv:2, sample_uv:2, color:4)
+	if self._is_default_vertex_format and vertex then
+		local x = vertex[1] or 0
+		local y = vertex[2] or 0
+		local u = vertex[3] or 0
+		local v = vertex[4] or 0
+
+		-- Use existing color conversion for proper normalized/byte handling
+		local r, g, b, a
+		if #vertex >= 8 then
+			r, g, b, a = vertex[5], vertex[6], vertex[7], vertex[8]
+		else
+			r, g, b, a = 255, 255, 255, 255
+		end
+
+		local color_vals = {r, g, b, a}
+		ctx.mesh_vertex_color_to_engine(color_vals)
+		r, g, b, a = color_vals[1], color_vals[2], color_vals[3], color_vals[4]
+
+		self.vertex_buffer:SetVertex(index, "pos", x, y, 0)
+		self.vertex_buffer:SetVertex(index, "uv", u, v)
+		self.vertex_buffer:SetVertex(index, "sample_uv", u, v)
+		self.vertex_buffer:SetVertex(index, "color", r, g, b, a)
+		self._line_dirty_buffers = true
+		return
+	end
 
 	local source_index = 1
 

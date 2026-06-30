@@ -76,7 +76,6 @@ T.Test2D("love graphics renderer info reports Vulkan", function()
 end)
 
 TestLoveGraphics("love graphics dimensions follow render target size on main surface", function()
-	local love = new_love_graphics_env("11.0.0")
 	local window = system.GetWindow()
 	local old_window_get_size = window.GetSize
 	local old_render_get_width = render.GetWidth
@@ -94,6 +93,7 @@ TestLoveGraphics("love graphics dimensions follow render target size on main sur
 	render.GetRenderImageSize = function()
 		return Vec2(800, 600)
 	end
+	local love = new_love_graphics_env("11.0.0")
 	local ok, err = pcall(function()
 		T(({love.graphics.getDimensions()})[1])["=="](800)
 		T(({love.graphics.getDimensions()})[2])["=="](600)

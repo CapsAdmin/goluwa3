@@ -1,11 +1,13 @@
 local render2d = import("goluwa/render2d/render2d.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local IndexBuffer = import("goluwa/render/index_buffer.lua")
+local shared = import("addons/love/lua/libraries/graphics/shared.lua")
 local love = ...
 
 if type(love) == "string" then love = nil end
 
 love = love or _G.love
+local ctx = shared.Get(love)
 local mesh = render2d.CreateMesh(2048)
 
 for i = 1, 2048 do
@@ -54,6 +56,7 @@ end
 
 local function polygon(mode, points, join)
 	render2d.PushTexture()
+	render2d.PushColor(ctx.get_draw_fg_color())
 	local idx = 1
 
 	if mode == "line" then

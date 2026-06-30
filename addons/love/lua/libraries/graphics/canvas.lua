@@ -84,6 +84,7 @@ function Canvas:newImageData(...)
 end
 
 function Canvas:clear(...)
+	local args = {...}
 	local count = select("#", ...)
 	local depth
 	local stencil
@@ -91,11 +92,11 @@ function Canvas:clear(...)
 	-- Extract depth/stencil when present (count > 4 means r,g,b,a + optional stencil/depth)
 	if count > 4 then
 		if count == 6 then
-			depth = select(-1, ...)
-			stencil = select(count - 1, ...)
+			depth = args[count]
+			stencil = args[count - 1]
 		else -- count == 5
 			depth = nil
-			stencil = select(-1, ...)
+			stencil = args[count]
 		end
 
 		if depth == true then depth = 0 elseif not tonumber(depth) then depth = nil end
@@ -107,20 +108,94 @@ function Canvas:clear(...)
 		end
 	end
 
-	local colors = {select(1, ...)}
+	local colors = {}
 
-	if type(colors[1]) == "number" then
-		colors[1] = {select(1, ...), select(2, ...), select(3, ...), (select(4, ...))}
+	for i = 1, math.min(count, 4) do
+		table.insert(colors, args[i])
 	end
 
-	if count > 4 then
+	if type(colors[1]) == "number" then
+		colors[1] = {args[1], args[2], args[3], args[4]}
+
+		-- Remove extra elements left over from the initial numeric array
 		for i = #colors, 2, -1 do
 			table.remove(colors, i)
 		end
 	end
 
+	local was_current = ENV.graphics_current_canvas == self
+	local cmd = self.fb:GetCommandBuffer()
+
+	if not was_current then
+		-- Standalone clear: begin the framebuffer's own render pass on its
+		-- command buffer. We do NOT push to the main render command buffer
+		-- stack since this is a self-contained operation.
+		self.fb:Begin()
+	end
+
 	for i, color in ipairs(colors) do
-		self.fb:Clear(i, color[1], color[2], color[3], color[4], depth, stencil)
+		-- Canvas:clear API receives 0-255 color values; normalize to 0-1 for Vulkan
+		local r = math.min(color[1] / 255, 1)
+		local g = math.min(color[2] / 255, 1)
+		local b = math.min(color[3] / 255, 1)
+		local a = math.min(color[4] / 255, 1)
+
+		cmd:ClearAttachments{
+			color = {r, g, b, a},
+			color_attachment = i - 1,
+			w = self.w,
+			h = self.h,
+		}
+	end
+
+	if not was_current then
+		cmd:EndRendering()
+		-- Transition to shader read layout
+		local imageBarriers = {}
+
+		for _, tex in ipairs(self.fb.color_textures) do
+			table.insert(
+				imageBarriers,
+				{
+					image = tex:GetImage(),
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "color_attachment_optimal",
+					newLayout = "shader_read_only_optimal",
+				}
+			)
+		end
+
+		if self.fb.depth_texture then
+			table.insert(
+				imageBarriers,
+				{
+					image = self.fb.depth_texture:GetImage(),
+					srcAccessMask = "depth_stencil_attachment_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "depth_attachment_optimal",
+					newLayout = "shader_read_only_optimal",
+				}
+			)
+		end
+
+		cmd:PipelineBarrier{
+			srcStage = {"color_attachment_output", "late_fragment_tests"},
+			dstStage = {"fragment", "compute"},
+			imageBarriers = imageBarriers,
+		}
+
+		for _, tex in ipairs(self.fb.color_textures) do
+			tex:GetImage().layout = "shader_read_only_optimal"
+		end
+
+		if self.fb.depth_texture then
+			self.fb.depth_texture:GetImage().layout = "shader_read_only_optimal"
+		end
+
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		self.fb.initialized = true
 	end
 end
 
@@ -156,14 +231,21 @@ function love.graphics.newCanvas(w, h)
 end
 
 function love.graphics.setCanvas(canvas, ...)
-	if canvas and canvas[1] then
-		canvas = canvas[1]
-		print("multiple canvases are not supported")
-	elseif ... then
-		print("multiple arguments are not supported")
+	-- Handle table argument: {canvas, depth = true}
+	local depth_option
+
+	if type(canvas) == "table" and canvas[1] then
+		local options = canvas
+		canvas = options[1]
+		depth_option = options.depth
 	end
 
 	if canvas then
+		-- Recreate framebuffer with depth if requested
+		if depth_option and not canvas.fb.depth_texture then
+			canvas.fb:EnableDepth()
+		end
+
 		ENV.graphics_current_canvas = canvas
 		canvas.fb:Begin()
 		render.PushCommandBuffer(canvas.fb:GetCommandBuffer())
@@ -173,6 +255,8 @@ function love.graphics.setCanvas(canvas, ...)
 		local canvas = ENV.graphics_current_canvas
 
 		if canvas then
+			-- Flush any pending batched draws before ending the canvas render pass
+			render2d.FlushBatches("setCanvas")
 			canvas.fb:End()
 			render.PopCommandBuffer()
 		end

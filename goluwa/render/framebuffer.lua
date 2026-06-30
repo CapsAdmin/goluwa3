@@ -106,6 +106,29 @@ function Framebuffer.New(config)
 	return self
 end
 
+function Framebuffer:EnableDepth(format)
+	if self.depth_texture then return end
+
+	format = format or "d32_sfloat"
+	self.depth_texture = Texture.New{
+		width = self.width,
+		height = self.height,
+		format = format,
+		image = {
+			usage = {"depth_stencil_attachment", "sampled", "transfer_src"},
+			properties = "device_local",
+			samples = self.samples,
+		},
+		view = {
+			aspect = "depth",
+		},
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+		},
+	}
+end
+
 function Framebuffer:Begin(cmd, load_op)
 	cmd = cmd or self.cmd
 	load_op = load_op or "clear"
@@ -292,6 +315,13 @@ function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 		end
 	end
 
+	-- Validate state: command buffer must exist and be usable
+	assert(cmd, "Framebuffer:Clear requires a command buffer")
+	assert(
+		type(cmd) == "table" and cmd.ClearAttachments,
+		"Framebuffer:Clear: second argument must be a command buffer table"
+	)
+
 	if type(key) == "string" then
 		if key == "color" then
 			key = 1
@@ -334,6 +364,12 @@ function Framebuffer:ClearAll(cmd, r, g, b, a, depth, stencil)
 		r = cmd
 		cmd = self._active_cmd or self.cmd
 	end
+
+	assert(cmd, "Framebuffer:ClearAll requires a command buffer")
+	assert(
+		type(cmd) == "table" and cmd.ClearAttachments,
+		"Framebuffer:ClearAll: argument must be a command buffer table"
+	)
 
 	-- Clear each color attachment
 	for i = 1, #self.color_textures do
