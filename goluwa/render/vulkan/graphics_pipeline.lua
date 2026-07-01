@@ -1980,7 +1980,7 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		end
 	end
 
-	local frame_number = system.GetFrameNumber and system.GetFrameNumber() or 0
+	local frame_number = system.GetFrameNumber()
 
 	if graphics_pipeline_switch_frame ~= frame_number then
 		graphics_pipeline_switch_frame = frame_number
@@ -2085,7 +2085,6 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 					break
 				end
 
-				-- Call the Vulkan setter from metadata
 				if binding.setter then binding.setter(cmd, cache, val) end
 			end
 		end

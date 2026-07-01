@@ -1390,12 +1390,8 @@ function render2d.ResetState()
 	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetScissor(0, 0, render2d.GetSize())
 	render2d.SetBlendPreset("alpha")
-
-	if render2d.SetDepthMode then
 		render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
-	end
-
-	if render2d.SetStencilMode then render2d.SetStencilMode("none") end
+	render2d.SetStencilMode("none")
 end
 
 do

@@ -41,27 +41,27 @@ local function create(love)
 	end
 
 	do
-		ENV.graphics_bg_color_r = 0
-		ENV.graphics_bg_color_g = 0
-		ENV.graphics_bg_color_b = 0
-		ENV.graphics_bg_color_a = 1
+		ENV.graphics_clear_color_r = 0
+		ENV.graphics_clear_color_g = 0
+		ENV.graphics_clear_color_b = 0
+		ENV.graphics_clear_color_a = 1
 
-		function ctx.set_bg_color(r, g, b, a)
-			ENV.graphics_bg_color_r, ENV.graphics_bg_color_g, ENV.graphics_bg_color_b, ENV.graphics_bg_color_a = ctx.color_to_engine(r, g, b, a)
+		function ctx.set_clear_color(r, g, b, a)
+			ENV.graphics_clear_color_r, ENV.graphics_clear_color_g, ENV.graphics_clear_color_b, ENV.graphics_clear_color_a = ctx.color_to_engine(r, g, b, a)
 		end
 
-		function ctx.get_bg_color()
+		function ctx.get_clear_color()
 			if ctx.love_uses_normalized_color_range() then
-				return ENV.graphics_bg_color_r,
-				ENV.graphics_bg_color_g,
-				ENV.graphics_bg_color_b,
-				ENV.graphics_bg_color_a
+				return ENV.graphics_clear_color_r,
+				ENV.graphics_clear_color_g,
+				ENV.graphics_clear_color_b,
+				ENV.graphics_clear_color_a
 			end
 
-			return math.floor(ENV.graphics_bg_color_r * 255 + 0.5),
-			math.floor(ENV.graphics_bg_color_g * 255 + 0.5),
-			math.floor(ENV.graphics_bg_color_b * 255 + 0.5),
-			math.floor(ENV.graphics_bg_color_a * 255 + 0.5)
+			return math.floor(ENV.graphics_clear_color_r * 255 + 0.5),
+			math.floor(ENV.graphics_clear_color_g * 255 + 0.5),
+			math.floor(ENV.graphics_clear_color_b * 255 + 0.5),
+			math.floor(ENV.graphics_clear_color_a * 255 + 0.5)
 		end
 	end
 
@@ -107,12 +107,12 @@ local function create(love)
 		return r, g, b, a or 1
 	end
 
-	function ctx.get_draw_bg_color(r, g, b, a)
+	function ctx.get_draw_clear_color(r, g, b, a)
 		if not r then
-			r, g, b, a = ENV.graphics_bg_color_r or 0,
-			ENV.graphics_bg_color_g or 0,
-			ENV.graphics_bg_color_b or 0,
-			ENV.graphics_bg_color_a or 1
+			r, g, b, a = ENV.graphics_clear_color_r or 0,
+			ENV.graphics_clear_color_g or 0,
+			ENV.graphics_clear_color_b or 0,
+			ENV.graphics_clear_color_a or 1
 		end
 
 		return r, g, b, a or 1

@@ -8,14 +8,21 @@ if type(love) == "string" then love = nil end
 
 love = love or _G.love
 local ctx = shared.Get(love)
-local mesh = render2d.CreateMesh(2048)
+local MESH_POOL_SIZE = 16
+local mesh_pool = {}
+local mesh_cycle = 0
 
-for i = 1, 2048 do
-	mesh:SetVertex(i, "color", 1, 1, 1, 1)
+for i = 1, MESH_POOL_SIZE do
+	local mesh = render2d.CreateMesh(2048)
+
+	for j = 1, 2048 do
+		mesh:SetVertex(j, "color", 1, 1, 1, 1)
+	end
+
+	local idx = IndexBuffer.New()
+	idx:LoadIndices(2048)
+	mesh_pool[i] = {mesh = mesh, idx = idx}
 end
-
-local mesh_idx = IndexBuffer.New()
-mesh_idx:LoadIndices(2048)
 
 local function triangle_list_indices(mode, source_indices)
 	mode = mode or "triangles"
@@ -55,8 +62,13 @@ local function triangle_list_indices(mode, source_indices)
 end
 
 local function polygon(mode, points, join)
+	mesh_cycle = (mesh_cycle % MESH_POOL_SIZE) + 1
+	local slot = mesh_pool[mesh_cycle]
+	local mesh = slot.mesh
+	local mesh_idx = slot.idx
 	render2d.PushTexture()
 	render2d.PushColor(ctx.get_draw_fg_color())
+	--render2d.PushRectBatchMode("replay")
 	local idx = 1
 
 	if mode == "line" then
@@ -108,6 +120,8 @@ local function polygon(mode, points, join)
 	render2d.BindMesh(mesh)
 	render2d.UploadConstants()
 	mesh:Draw(mesh_idx, idx)
+	--render2d.PopRectBatchMode()
+	render2d.PopColor()
 	render2d.PopTexture()
 end
 

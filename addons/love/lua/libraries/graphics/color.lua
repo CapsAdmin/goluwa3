@@ -28,11 +28,11 @@ function love.graphics.setBackgroundColor(r, g, b, a)
 		return
 	end
 
-	ctx.set_bg_color(r, g, b, a)
+	ctx.set_clear_color(r, g, b, a)
 end
 
 function love.graphics.getBackgroundColor()
-	return ctx.get_bg_color()
+	return ctx.get_clear_color()
 end
 
 function love.graphics.clear(...)
@@ -82,10 +82,13 @@ function love.graphics.clear(...)
 		if stencil == true then
 			stencil = 0
 		elseif stencil == false then
-			-- Keep false as-is (means "don't clear stencil")
+
+		-- Keep false as-is (means "don't clear stencil")
 		elseif not tonumber(stencil) then
 			stencil = nil
 		end
+	else
+		stencil = 0
 	end
 
 	local colors = {}
@@ -132,14 +135,10 @@ function love.graphics.clear(...)
 		local r, g, b, a
 		local c = colors[1]
 
-		if c then r, g, b, a = ctx.get_draw_bg_color(c[1], c[2], c[3], c[4]) end
-
-		-- Normalize for engine (Vulkan expects 0-1)
-		if not ctx.love_uses_normalized_color_range() then
-			r = r ~= nil and math.min(r / 255, 1) or nil
-			g = g ~= nil and math.min(g / 255, 1) or nil
-			b = b ~= nil and math.min(b / 255, 1) or nil
-			a = a ~= nil and math.min(a / 255, 1) or nil
+		if c then
+			r, g, b, a = ctx.get_draw_clear_color(c[1], c[2], c[3], c[4])
+		else
+			r, g, b, a = ctx.get_draw_clear_color()
 		end
 
 		render.target:Clear(r, g, b, a, depth, stencil)

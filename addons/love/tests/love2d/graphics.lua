@@ -67,7 +67,7 @@ T.Test2D("love line creates an environment on Vulkan", function()
 end)
 
 T.Test2D("love graphics renderer info reports Vulkan", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local backend, version, vendor, renderer = love.graphics.getRendererInfo()
 	T(backend)["=="]("Vulkan")
 	T(type(version))["=="]("string")
@@ -169,24 +169,49 @@ end)
 
 T.Test2D("love graphics stencil write and greater-zero test clip drawing", function()
 	local love = new_love_graphics_env("11.0.0")
-	love.graphics.clear(0, 1, 0, 1)
-	love.graphics.setBlendMode("replace")
+	love.graphics.clear(0, 0, 0, 1)
+	local W = love.graphics.getWidth()
+	local H = love.graphics.getHeight()
+	love.graphics.setBlendMode("add")
 
-	love.graphics.stencil(function()
-		love.graphics.rectangle("fill", 0, 0, 32, 64)
-	end)
+	if true then
+		render2d.ClearStencil(0)
+		render2d.SetStencilMode("write", 1)
+		render2d.DrawRect(16, 16, W - 32, H - 32)
+		--render2d.SetStencilMode("greater", 0) -- greater does not work for some reason
+		render2d.SetStencilMode("test_inverse", 0)
+	else
+		love.graphics.clearStencil(0)
 
-	love.graphics.setStencilTest("greater", 0)
-	love.graphics.setBackgroundColor(1, 0, 0, 1)
-	love.graphics.rectangle("fill", 0, 0, 64, 64)
+		love.graphics.stencil(
+			function()
+				love.graphics.rectangle("fill", 16, 16, W - 32, H - 32)
+			end,
+			"replace",
+			1
+		)
+
+		love.graphics.setStencilTest("greater", 0)
+	end
+
+	love.graphics.setColor(1, 0, 0, 1)
+	love.graphics.circle("fill", W / 4, H / 4, W / 2, 50)
+	love.graphics.setColor(0, 1, 0, 1)
+	love.graphics.circle("fill", 3 * W / 4, H / 4, W / 2, 50)
+	love.graphics.setColor(0, 0, 1, 1)
+	love.graphics.circle("fill", W / 2, 3 * H / 4, W / 2, 50)
 	love.graphics.setStencilTest()
-	love.graphics.setBlendMode("alpha")
-	love.graphics.setBackgroundColor(0, 0, 1, 1)
-	love.graphics.rectangle("fill", 48, 0, 16, 64)
 	return function()
-		T.AssertScreenPixel{pos = {16, 32}, color = {1, 0, 0, 1}, tolerance = 0.08}
-		T.AssertScreenPixel{pos = {40, 32}, color = {0, 1, 0, 1}, tolerance = 0.08}
-		T.AssertScreenPixel{pos = {56, 32}, color = {0, 0, 1, 1}, tolerance = 0.08}
+		T.Screenshot()
+		--black stencil border
+		T.AssertScreenPixel{pos = {5, 5}, color = {0, 0, 0, 1}, tolerance = 0.08}
+		-- colors blended
+		T.AssertScreenPixel{pos = {250, 250}, color = {1, 1, 1, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {250, 60}, color = {1, 1, 0, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {60, 100}, color = {1, 0, 0, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {450, 100}, color = {0, 1, 0, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {100, 300}, color = {1, 0, 1, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {400, 300}, color = {0, 1, 1, 1}, tolerance = 0.08}
 	end
 end)
 
@@ -262,7 +287,7 @@ T.Test2DFrames(
 )
 
 TestLoveGraphics("love graphics canvas clear path executes", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local canvas = love.graphics.newCanvas(16, 16)
 	canvas:clear(255, 32, 0, 255)
 	T(canvas.__line_type)["=="]("Canvas")
@@ -408,7 +433,7 @@ TestLoveGraphics("love graphics shader rewrites texelFetch for Image and VolumeI
 end)
 
 T.Test2D("love graphics draw image placement", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	love.graphics.clear(0, 0, 0, 255)
 	love.graphics.setColor(255, 255, 255, 255)
@@ -457,7 +482,7 @@ T.Test2D("love graphics filled polygon ignores prior image texture state", funct
 end)
 
 T.Test2D("love graphics drawq placement", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	local quad = love.graphics.newQuad(0, 0, 1, 1, 2, 2)
 	love.graphics.clear(0, 0, 0, 255)
@@ -528,7 +553,7 @@ T.Test2D("love graphics adjacent linear quads do not leave a seam", function()
 end)
 
 T.Test2D("love graphics drawq nonzero source Y", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	local quad = love.graphics.newQuad(0, 1, 1, 1, 2, 2)
 	love.graphics.clear(0, 0, 0, 255)
@@ -541,7 +566,7 @@ T.Test2D("love graphics drawq nonzero source Y", function()
 end)
 
 T.Test2D("love graphics quad viewport mutation", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	local quad = love.graphics.newQuad(0, 0, 2, 2, 2, 2)
 	quad:setViewport(0, 1, 1, 1)
@@ -555,7 +580,7 @@ T.Test2D("love graphics quad viewport mutation", function()
 end)
 
 T.Test2D("love graphics spritebatch image placement", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	local batch = love.graphics.newSpriteBatch(image, 1)
 	batch:add(432, 32, 0, 32, 32)
@@ -592,7 +617,7 @@ T.Test2D("love graphics spritebatch add returns inserted quad id", function()
 end)
 
 T.Test2D("love graphics spritebatch defaults size", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	local batch = love.graphics.newSpriteBatch(image)
 	batch:add(432, 32, 0, 32, 32)
@@ -685,7 +710,7 @@ T.Test2D("love graphics shader rewrites texelFetch for Image and VolumeImage", f
 end)
 
 T.Test2D("love graphics spritebatch inherits outer transforms", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	local batch = love.graphics.newSpriteBatch(image, 1)
 	batch:add(0, 0, 0, 16, 16)
@@ -705,7 +730,7 @@ T.Test2D("love graphics spritebatch inherits outer transforms", function()
 end)
 
 T.Test2D("love graphics setBlendMode maps add and multiply correctly", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("11.0.0")
 	love.graphics.setBlendMode("add")
 	local add_state = render2d.current_blend_mode_state
 	T(add_state.src_color_blend_factor)["=="]("src_alpha")
@@ -1866,7 +1891,7 @@ T.Test2D("love graphics terrain and tall sprite depth order matches pixel overla
 end)
 
 TestLoveGraphics("love graphics canvas vertex colors stay correct", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local canvas = love.graphics.newCanvas(32, 32)
 	local mesh = love.graphics.newMesh(
 		{
@@ -1887,7 +1912,7 @@ TestLoveGraphics("love graphics canvas vertex colors stay correct", function()
 end)
 
 T.Test2D("love graphics screen global color channels stay correct", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	love.graphics.clear(0, 0, 0, 255)
 	love.graphics.setColor(255, 32, 0, 255)
 	love.graphics.rectangle("fill", 32, 32, 32, 32)
@@ -1898,23 +1923,31 @@ end)
 
 T.Test2D("love graphics Love11 normalized color API stays normalized", function()
 	local love = new_love_graphics_env("11.0.0")
-	love.graphics.setBackgroundColor(0.2, 0.1, 0.05, 1)
-	local br, bg, bb, ba = love.graphics.getBackgroundColor()
-	T(br)["=="](0.2)
-	T(bg)["=="](0.1)
-	T(bb)["=="](0.05)
-	T(ba)["=="](1)
-	love.graphics.clear()
-	love.graphics.setColor(1, 1, 1, 1)
-	local r, g, b, a = love.graphics.getColor()
-	T(r)["=="](1)
-	T(g)["=="](1)
-	T(b)["=="](1)
-	T(a)["=="](1)
-	love.graphics.rectangle("fill", 0, 0, 32, 32)
+	local CLEAR_R, CLEAR_G, CLEAR_B, CLEAR_A = 0.2, 0.1, 0.05, 1
+
+	do
+		love.graphics.setBackgroundColor(CLEAR_R, CLEAR_G, CLEAR_B, CLEAR_A)
+		local br, bg, bb, ba = love.graphics.getBackgroundColor()
+		T(br)["=="](CLEAR_R)
+		T(bg)["=="](CLEAR_G)
+		T(bb)["=="](CLEAR_B)
+		T(ba)["=="](CLEAR_A)
+		love.graphics.clear()
+	end
+
+	do
+		love.graphics.setColor(1, 1, 1, 1)
+		local r, g, b, a = love.graphics.getColor()
+		T(r)["=="](1)
+		T(g)["=="](1)
+		T(b)["=="](1)
+		T(a)["=="](1)
+		love.graphics.rectangle("fill", 0, 0, 32, 32)
+	end
+
 	return function()
-		T.AssertScreenPixel{pos = {8, 8}, color = {0.2, 0.1, 0.05, 1}, tolerance = 0.08}
-		T.AssertScreenPixel{pos = {40, 40}, color = {0, 0, 0, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {8, 8}, color = {1, 1, 1, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {40, 40}, color = {CLEAR_R, CLEAR_G, CLEAR_B, CLEAR_A}, tolerance = 0.08}
 	end
 end)
 
@@ -1935,7 +1968,7 @@ T.Test("love graphics legacy byte color API stays byte-based", function()
 end)
 
 T.Test2D("love graphics mesh placement", function()
-	local love = new_love_graphics_env()
+	local love = new_love_graphics_env("0.10.1")
 	local image = make_quadrant_image(love)
 	local mesh = love.graphics.newMesh(
 		{

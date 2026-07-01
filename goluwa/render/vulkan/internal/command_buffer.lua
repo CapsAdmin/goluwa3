@@ -1253,11 +1253,17 @@ end
 
 function CommandBuffer:ClearAttachments(config)
 	if self.is_recording ~= true then
-		error("vkCmdClearAttachments: command buffer is not recording (is_recording=" .. tostring(self.is_recording) .. ")", 2)
+		error(
+			"vkCmdClearAttachments: command buffer is not recording (is_recording=" .. tostring(self.is_recording) .. ")",
+			2
+		)
 	end
 
 	if self.is_rendering ~= true then
-		error("vkCmdClearAttachments: no active render pass (is_rendering=" .. tostring(self.is_rendering) .. ")", 2)
+		error(
+			"vkCmdClearAttachments: no active render pass (is_rendering=" .. tostring(self.is_rendering) .. ")",
+			2
+		)
 	end
 
 	local stencil_value = config.stencil
