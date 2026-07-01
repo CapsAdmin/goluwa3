@@ -1078,6 +1078,7 @@ function test.RunUntil2(condition, timeout)
 end
 
 function test.Screenshot(name)
+	name = name or "tmp/test.png"
 	local render = import("goluwa/render/render.lua")
 	render.target:GetTexture():SaveAs(name)
 end
