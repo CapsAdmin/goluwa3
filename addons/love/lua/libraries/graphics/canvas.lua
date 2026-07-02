@@ -139,7 +139,6 @@ function Canvas:clear(...)
 		local g = math.min(color[2] / 255, 1)
 		local b = math.min(color[3] / 255, 1)
 		local a = math.min(color[4] / 255, 1)
-
 		cmd:ClearAttachments{
 			color = {r, g, b, a},
 			color_attachment = i - 1,

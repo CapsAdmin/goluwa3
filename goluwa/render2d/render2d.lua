@@ -674,7 +674,7 @@ local function sync_pipeline_state(force)
 	local depth_mode_name = depth_state.mode or DEFAULT_DEPTH_MODE
 	local depth_write = depth_state.write == true
 	local stencil_mode_name = stencil_state.mode or "none"
-	local stencil_ref = stencil_state.ref or 1
+	local stencil_ref = stencil_state.ref ~= nil and stencil_state.ref or 1
 	local stencil_mode = render2d.stencil_modes[stencil_mode_name]
 	local depth_compare_op = depth_mode_to_compare_op[depth_mode_name] or "always"
 	local cmd = assert(render.GetCommandBuffer())
@@ -1390,7 +1390,7 @@ function render2d.ResetState()
 	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetScissor(0, 0, render2d.GetSize())
 	render2d.SetBlendPreset("alpha")
-		render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
+	render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
 	render2d.SetStencilMode("none")
 end
 
@@ -1979,7 +1979,13 @@ do
 		render2d.stencil_level = 0
 
 		function render2d.SetStencilMode(mode_name, ref)
-			ref = ref or render2d.state.render.pipeline.stencil.ref
+			if ref == nil then ref = render2d.state.render.pipeline.stencil.ref end
+
+			-- Workaround: "greater" with reference 0 doesn't work correctly on some systems.
+			-- Since ref=0 and unsigned stencil values, "greater" is equivalent to "not_equal".
+			-- Map to test_inverse for reliability.
+			if ref == 0 and mode_name == "greater" then mode_name = "test_inverse" end
+
 			local mode = render2d.stencil_modes[mode_name]
 
 			if not mode then error("Invalid stencil mode: " .. tostring(mode_name)) end

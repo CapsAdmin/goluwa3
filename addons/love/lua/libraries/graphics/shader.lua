@@ -492,31 +492,6 @@ local function is_balatro_shader_source(source, path_hint)
 	return path_hint:find("balatro/resources/shaders/", 1, true) ~= nil
 end
 
-local function patch_balatro_hover_shader_source(source, path_hint)
-	if type(source) ~= "string" or source == "" then return source end
-
-	if not is_balatro_shader_source(source, path_hint) then return source end
-
-	if not source:find("mouse_screen_pos", 1, true) then return source end
-
-	if not source:find("screen_scale", 1, true) then return source end
-
-	if not source:find("love_ScreenSize", 1, true) then return source end
-
-	if not source:find("vec4 position", 1, true) then return source end
-
-	local patched = source
-	patched = patched:gsub(
-		"vertex_position%.xy%s*%-%s*0%.5%s*%*%s*love_ScreenSize%.xy",
-		"((U.world_matrix * vertex_position).xy - 0.5*love_ScreenSize.xy)"
-	)
-	patched = patched:gsub(
-		"vertex_position%.xy%s*%-%s*mouse_screen_pos%.xy",
-		"((U.world_matrix * vertex_position).xy - mouse_screen_pos.xy)"
-	)
-	return patched
-end
-
 local function append_generated_stage(user_source, generated_source)
 	user_source = user_source or ""
 
@@ -550,6 +525,7 @@ local function build_fragment_pipeline(obj, source)
 	local volume_uniform_declarations = build_volume_uniform_declarations(uniforms)
 	register_shader_uniform(obj, "love_ScreenSize")
 	local block = build_shader_uniform_block(obj, uniforms)
+	local compare_mode = render2d.GetDepthMode()
 	local defines = {
 		"#define number float",
 		"#define Image int",
@@ -586,6 +562,7 @@ local function build_fragment_pipeline(obj, source)
 			attributes = {
 				{"pos", "vec3", "r32g32b32_sfloat"},
 				{"uv", "vec2", "r32g32_sfloat"},
+				{"sample_uv", "vec2", "r32g32_sfloat"},
 				{"color", "vec4", "r32g32b32a32_sfloat"},
 			},
 			shader = [[
@@ -741,6 +718,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 		]]
 	end
 
+	local compare_mode = render2d.GetDepthMode()
 	return EasyPipeline.New{
 		name = "love_shader_vertex_fragment",
 		dont_create_framebuffers = true,
@@ -948,77 +926,28 @@ function love.graphics.newShader(frag, vert)
 	local vert_path = type(vert) == "string" and vert or nil
 	frag = load_shader_source_if_path(frag)
 	vert = load_shader_source_if_path(vert)
-	frag = patch_balatro_hover_shader_source(frag, frag_path)
-	vert = patch_balatro_hover_shader_source(vert, vert_path)
 	local obj = line.CreateObject("Shader", love)
 	obj.uniforms = {}
 	obj.uniform_names = {}
 	obj.source = {fragment = frag, vertex = vert}
 	obj.warning_message = nil
+	-- Construct combined source for pipeline building
+	local source
 
-	if render.CreateShader then
-		obj.shader = render.CreateShader{
-			fragment = {
-				mesh_layout = {
-					{uv = "vec2"},
-				},
-				variables = {
-					love_ScreenSize = {
-						vec2 = function()
-							if ENV.graphics_current_canvas then
-								local tex_w, tex_h = ENV.graphics_current_canvas.fb:GetColorTexture():GetSize():Unpack()
-								return Vec2(tex_w, tex_h)
-							end
-
-							return get_window_size()
-						end,
-					},
-					current_texture = {
-						texture = function()
-							return render2d.shader and render2d.shader.tex or nil
-						end,
-					},
-					current_color = {
-						color = function()
-							return render2d.shader and render2d.shader.global_color or nil
-						end,
-					},
-				},
-				include_directories = {
-					"shaders/include/",
-				},
-				source = [[
-						#version 430 core
-
-						#define number float
-						#define Image sampler2D
-						#define Texel texture2D
-						#define extern uniform
-						#define PIXEL 1
-
-						]] .. frag .. [[
-
-						out vec4 out_color;
-
-						void main()
-						{
-							out_color = effect(current_color, current_texture, uv, gl_FragCoord.xy);
-						}
-					]],
-			},
-		}
+	if frag and vert then
+		-- Both provided: combine with guards
+		source = "#ifdef VERTEX\n" .. vert .. "\n#endif\n#ifdef PIXEL\n" .. frag .. "\n#endif\n"
 	else
-		if frag and frag:find("#ifdef%s+VERTEX") then
-			obj.shader = build_vertex_fragment_pipeline(obj, frag)
-		else
-			obj.shader = build_fragment_pipeline(obj, frag)
-		end
-
-		if not obj.shader then warn_missing_custom_shader_backend() end
+		-- Only fragment provided, assume it contains both sections
+		source = frag
 	end
 
-	obj.pipeline = obj.shader
-	-- Delegate GetTextureIndex to the shader's inner pipeline so textures are registered correctly
+	if source:find("#ifdef%s+VERTEX") then
+		obj.pipeline = build_vertex_fragment_pipeline(obj, source)
+	else
+		obj.pipeline = build_fragment_pipeline(obj, source)
+	end
+
 	obj.GetTextureIndex = function(self, texture, ...)
 		return self.shader.pipeline:GetTextureIndex(texture, ...)
 	end
