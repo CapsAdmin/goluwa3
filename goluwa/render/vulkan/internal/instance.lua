@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PhysicalDevice = import("goluwa/render/vulkan/internal/physical_device.lua")
+local LuaState = import("goluwa/bindings/luajit.lua")
 local Instance = objects.CreateTemplate("vulkan_instance")
 local ConstCharArray = ffi.typeof("$[?]", ffi.typeof("const char*"))
 local VkPhysicalDeviceArray = ffi.typeof("$[?]", vulkan.vk.VkPhysicalDevice)
@@ -16,37 +17,6 @@ do
 	CallbackState = {}
 	local meta = {}
 	meta.__index = meta
-	ffi.cdef[[
-		typedef struct lua_State lua_State;
-		typedef struct lua_Debug {
-			int event;
-			const char *name;
-			const char *namewhat;
-			const char *what;
-			const char *source;
-			int currentline;
-			int nups;
-			int linedefined;
-			int lastlinedefined;
-			char short_src[60];
-			int i_ci;
-		} lua_Debug;
-		lua_State *luaL_newstate(void);
-		void luaL_openlibs(lua_State *L);
-		void lua_close(lua_State *L);
-		int luaL_loadstring(lua_State *L, const char *s);
-		int lua_pcall(lua_State *L, int nargs, int nresults, int errfunc);
-		void lua_settop(lua_State *L, int index);
-		const char *lua_tolstring(lua_State *L, int index, size_t *len);
-		const void *lua_topointer(lua_State *L, int index);
-		int lua_getstack(lua_State *L, int level, lua_Debug *ar);
-		int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar);
-
-		typedef struct {
-			lua_State *main_state;
-			lua_State *trace_state;
-		} goluwa_vk_debug_context;
-	]]
 	local callback_source = [=[
 		jit.off()
 		local ffi = require("ffi")
@@ -55,6 +25,7 @@ do
 			require("goluwa.global_environment")
 		end
 
+		local LuaState = import("goluwa/bindings/luajit.lua")
 		local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 		local VkDebugUtilsMessageTypeFlagBitsEXT = vulkan.vk.str.VkDebugUtilsMessageTypeFlagBitsEXT
 		local VkDebugUtilsMessageSeverityFlagBitsEXT = vulkan.vk.str.VkDebugUtilsMessageSeverityFlagBitsEXT
@@ -67,60 +38,11 @@ do
 		local ipairs = ipairs
 		local ffi_new = ffi.new
 
-		ffi.cdef[[
-			typedef struct lua_State lua_State;
-			typedef struct lua_Debug {
-				int event;
-				const char *name;
-				const char *namewhat;
-				const char *what;
-				const char *source;
-				int currentline;
-				int nups;
-				int linedefined;
-				int lastlinedefined;
-				char short_src[60];
-				int i_ci;
-			} lua_Debug;
-			int lua_getstack(lua_State *L, int level, lua_Debug *ar);
-			int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar);
-
-			typedef struct {
-				lua_State *main_state;
-				lua_State *trace_state;
-			} goluwa_vk_debug_context;
-		]]
-
 		local suppressed_warnings = {
 			"vk_loader_settings.json",
 			"Path to given binary",
 			"terminator_CreateInstance",
 		}
-
-		local function get_traceback(ctx)
-			if ctx == nil or ctx.main_state == nil then return nil end
-
-			local frames = {}
-			local ar = ffi_new("lua_Debug[1]")
-			local level = 0
-
-			while level < 64 and ffi.C.lua_getstack(ctx.main_state, level, ar) ~= 0 do
-				if ffi.C.lua_getinfo(ctx.main_state, "Sl", ar) == 0 then break end
-
-				local info = ar[0]
-				local short_src = ffi_string(info.short_src)
-				local what = info.what ~= nil and ffi_string(info.what) or "?"
-				local line = info.currentline >= 0 and info.currentline or info.linedefined
-				if what == "Lua" then
-					frames[#frames + 1] = string_format("\t%s:%d", short_src, line)
-				end
-				level = level + 1
-			end
-
-			if #frames == 0 then return nil end
-
-			return table_concat(frames, "\n")
-		end
 
 		local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
 			local data = pCallbackData[0]
@@ -134,10 +56,9 @@ do
 
 			io_write("\n[" .. severity_flags .. "] [" .. type_flags .. "]\n" .. msg)
 
-
 			if pUserData ~= nil then
 				io_write("Lua stack trace:\n")
-				local trace = tostring(get_traceback(ffi.cast("goluwa_vk_debug_context*", pUserData)))
+				local trace = tostring(LuaState.FromLuaState(ffi.cast("lua_State*", pUserData)):TraceBack())
 				io_write(trace)
 			end
 
@@ -148,58 +69,15 @@ do
 
 		_G.__goluwa_vk_debug_callback = debug_callback
 		_G.__goluwa_vk_debug_callback_ptr = ffi.cast(vulkan.vk.PFN_vkDebugUtilsMessengerCallbackEXT, debug_callback)
-		return ffi.new("uintptr_t[1]", ffi.cast("uintptr_t", _G.__goluwa_vk_debug_callback_ptr))
+		return tostring(ffi.new("uintptr_t", ffi.cast("uintptr_t", _G.__goluwa_vk_debug_callback_ptr)))
 	]=]
-
-	local function check_error(L, ret)
-		if ret == 0 then return end
-
-		local chr = ffi.C.lua_tolstring(L, -1, nil)
-		local msg = chr ~= nil and ffi.string(chr) or "unknown Lua state error"
-		error(msg, 3)
-	end
-
-	local function create_state()
-		local L = ffi.C.luaL_newstate()
-
-		if L == nil then
-			error("Failed to create debug callback Lua state: Out of memory", 3)
-		end
-
-		ffi.C.luaL_openlibs(L)
-		return L
-	end
-
-	local function get_main_lua_state()
-		local ptr = rawget(_G, "__goluwa_main_lua_state_ptr")
-
-		if ptr ~= nil then return ffi.cast("lua_State*", ptr) end
-
-		local thread = coroutine.running()
-
-		if thread == nil then return nil end
-
-		local addr = tostring(thread):match("0x%x+")
-
-		if addr == nil then return nil end
-
-		return ffi.cast("lua_State*", tonumber(addr))
-	end
 
 	function CallbackState.New()
 		local self = setmetatable({}, meta)
-		local L = create_state()
-		self.lua_state = L
-		self.main_state = get_main_lua_state()
-		self.context = ffi.new("goluwa_vk_debug_context[1]")
-		self.context[0].main_state = self.main_state
-		self.context[0].trace_state = nil
-		check_error(L, ffi.C.luaL_loadstring(L, callback_source))
-		check_error(L, ffi.C.lua_pcall(L, 0, 1, 0))
-		local ptr = ffi.C.lua_topointer(L, -1)
-		local box = ffi.cast("uintptr_t*", ptr)
-		self.debug_callback_ptr = ffi.cast(vulkan.vk.PFN_vkDebugUtilsMessengerCallbackEXT, box[0])
-		ffi.C.lua_settop(L, 0)
+		self.guest_state = LuaState.New()
+		self.host_state = LuaState.GetMainLuaState()
+		local ptr = self.guest_state:Run(callback_source)
+		self.debug_callback_ptr = ffi.cast(vulkan.vk.PFN_vkDebugUtilsMessengerCallbackEXT, ptr)
 		return self
 	end
 
@@ -208,17 +86,15 @@ do
 	end
 
 	function meta:GetUserDataPointer()
-		return self.context
+		return self.host_state
 	end
 
 	function meta:Close()
-		if not self.lua_state then return end
+		if not self.guest_state then return end
 
 		self.debug_callback_ptr = nil
-		ffi.C.lua_close(self.lua_state)
-		self.lua_state = nil
-		self.context = nil
-		self.main_state = nil
+		self.guest_state:Close()
+		self.guest_state = nil
 	end
 
 	meta.__gc = meta.Close
@@ -273,9 +149,7 @@ function Instance.New(extensions, layers)
 		has_debug_utils = true
 	end
 
-	local extension_names = extensions and
-		ConstCharArray(#extensions, extensions) or
-		nil
+	local extension_names = extensions and ConstCharArray(#extensions, extensions) or nil
 	local layer_names = layers and ConstCharArray(#layers, layers) or nil
 	-- Create debug messenger create info
 	local debug_create_info
@@ -344,7 +218,7 @@ function Instance:OnRemove()
 		self.debug_callback_state = nil
 	end
 
-	vulkan.lib.vkDestroyInstance(self.ptr[0], nil)
+	if self.ptr then vulkan.lib.vkDestroyInstance(self.ptr[0], nil) end
 end
 
 function Instance:GetPhysicalDevices()

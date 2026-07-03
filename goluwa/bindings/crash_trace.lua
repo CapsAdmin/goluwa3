@@ -197,7 +197,7 @@ function crash_trace.Run(func, ...)
 
 	if result[1] then return unpack(result, 2) end
 
-	stderr:write(result[2], "\n")
+	std_err:write(result[2], "\n")
 	exit(1)
 end
 
