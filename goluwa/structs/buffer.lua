@@ -1,13 +1,8 @@
 local META = {}
 META.__index = META
 local ffi = require("ffi")
+local memory = import("goluwa/bindings/memory.lua")
 local ffi_string = ffi.string
-ffi.cdef[[
-	void* malloc(size_t size);
-	void* realloc(void* ptr, size_t size);
-	void free(void* ptr);
-	void* memcpy(void* dest, const void* src, size_t n);
-]]
 META.CType = ffi.typeof([[
 	struct {
 		uint8_t * Buffer;
@@ -48,7 +43,7 @@ do
 
 				if self.OwnsMemory then
 					-- Use realloc for buffers we own
-					local new_buffer = ffi.C.realloc(self.Buffer, new_size)
+					local new_buffer = memory.realloc(self.Buffer, new_size)
 
 					if new_buffer == nil then
 						error("Failed to reallocate buffer to size " .. new_size)
@@ -57,13 +52,13 @@ do
 					self.Buffer = ffi.cast("uint8_t*", new_buffer)
 				else
 					-- Allocate new buffer and copy data
-					local new_buffer = ffi.C.malloc(new_size)
+					local new_buffer = memory.malloc(new_size)
 
 					if new_buffer == nil then
 						error("Failed to allocate buffer of size " .. new_size)
 					end
 
-					ffi.C.memcpy(new_buffer, self.Buffer, self.ByteSize)
+					memory.memcpy(new_buffer, self.Buffer, self.ByteSize)
 					self.Buffer = ffi.cast("uint8_t*", new_buffer)
 					self.OwnsMemory = true
 				end
@@ -108,7 +103,7 @@ do
 
 			if self.OwnsMemory then
 				-- Use realloc for buffers we own
-				local new_buffer = ffi.C.realloc(self.Buffer, new_size)
+				local new_buffer = memory.realloc(self.Buffer, new_size)
 
 				if new_buffer == nil then
 					error("Failed to reallocate buffer to size " .. new_size)
@@ -117,13 +112,13 @@ do
 				self.Buffer = ffi.cast("uint8_t*", new_buffer)
 			else
 				-- Allocate new buffer and copy data
-				local new_buffer = ffi.C.malloc(new_size)
+				local new_buffer = memory.malloc(new_size)
 
 				if new_buffer == nil then
 					error("Failed to allocate buffer of size " .. new_size)
 				end
 
-				ffi.C.memcpy(new_buffer, self.Buffer, self.ByteSize)
+				memory.memcpy(new_buffer, self.Buffer, self.ByteSize)
 				self.Buffer = ffi.cast("uint8_t*", new_buffer)
 				self.OwnsMemory = true
 			end
@@ -942,7 +937,7 @@ function META.New(data, len)
 	if data == nil then
 		-- Allocate new buffer with malloc
 		local size = len or 1024
-		local buffer = ffi.C.malloc(size)
+		local buffer = memory.malloc(size)
 
 		if buffer == nil then
 			error("Failed to allocate buffer of size " .. size)
@@ -968,7 +963,7 @@ end
 
 function META:__gc()
 	if self.OwnsMemory and self.Buffer ~= nil then
-		ffi.C.free(self.Buffer)
+		memory.free(self.Buffer)
 		self.Buffer = nil
 	end
 end

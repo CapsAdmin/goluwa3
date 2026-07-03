@@ -12,7 +12,7 @@ local loadfile = _G.loadfile
 local profiler = import("goluwa/profiler.lua")
 local jit = _G.jit
 local table = _G.table
-local memory = import("goluwa/bindings/memory.lua")
+local process = import("goluwa/bindings/process.lua")
 local colors = import("goluwa/cli/colors.lua")
 local callstack = import("goluwa/debug/callstack.lua")
 local system = import("goluwa/system.lua")
@@ -251,12 +251,12 @@ function test._CreateTestTask(name, cb, start, stop, options)
 	-- Start timing for this file if this is the first test
 	if tests_by_file[current_test_name] == 1 then
 		current_test_start_time = system.GetTime()
-		current_test_start_gc = memory.get_usage_kb()
+		current_test_start_gc = process.current:get_residential_memory_kb()
 	end
 
 	-- Capture start time when test is added to queue
 	local test_start_time = system.GetTime()
-	local test_start_gc = memory.get_usage_kb()
+	local test_start_gc = process.current:get_residential_memory_kb()
 	-- Need to capture task info before closure
 	local task_failed = false
 	local task_error = nil
@@ -297,7 +297,7 @@ function test._CreateTestTask(name, cb, start, stop, options)
 		function(self, res)
 			-- OnFinish
 			local test_time = system.GetTime() - test_start_time
-			local test_gc = memory.get_usage_kb() - test_start_gc
+			local test_gc = process.current:get_residential_memory_kb() - test_start_gc
 			local file = test_file_name
 
 			if file and tests_by_file[file] then
@@ -384,7 +384,7 @@ function test._CreateTestTask(name, cb, start, stop, options)
 
 			-- Record test completion even on failure
 			local test_time = system.GetTime() - test_start_time
-			local test_gc = memory.get_usage_kb() - test_start_gc
+			local test_gc = process.current:get_residential_memory_kb() - test_start_gc
 			local file = test_file_name
 
 			if file and tests_by_file[file] then
@@ -464,7 +464,7 @@ function test._CreatePendingTask(name, options)
 	-- Start timing for this file if this is the first test
 	if tests_by_file[current_test_name] == 1 then
 		current_test_start_time = system.GetTime()
-		current_test_start_gc = memory.get_usage_kb()
+		current_test_start_gc = process.current:get_residential_memory_kb()
 	end
 
 	local task = tasks.CreateTask(

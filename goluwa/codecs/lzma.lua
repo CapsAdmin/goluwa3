@@ -114,7 +114,6 @@ function LZMADecoder.new(properties)
 end
 
 function LZMADecoder:decode(bitReader, uncompressedSize)
-	-- Create output buffer with initial size using malloc
 	local initialSize = math.max(uncompressedSize, 1024)
 	local outputBuffer = Buffer.New(nil, initialSize)
 	outputBuffer:MakeWritable()

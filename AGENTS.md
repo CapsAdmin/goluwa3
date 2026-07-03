@@ -40,6 +40,8 @@
 
 - Consider using functions like table.merge, math.clamp, etc, over creating local functions that duplicate existing functionality
 
+- Always call ffi.cdef and ffi.typeof at the module level, never adhoc inside of a function.
+
 # line and gine wrapper
 - Never modify for example a love game's source code. Always fix issues in the wrapper layer.
 

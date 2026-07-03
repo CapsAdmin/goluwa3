@@ -2,12 +2,7 @@ local ffi = require("ffi")
 local bit = require("bit")
 local math = require("math")
 local msgpack = library()
--- standard cdefs
-ffi.cdef[[
-  void free(void *ptr);
-  void *realloc(void *ptr, size_t size);
-  void *malloc(size_t size);
-]]
+local memory = import("goluwa/bindings/memory.lua")
 -- cache bitops
 local bor, band, rshift = bit.bor, bit.band, bit.rshift
 -- shared ffi data
@@ -30,11 +25,11 @@ local buffer = {}
 local sbuffer_init = function(self)
 	self.size = 0
 	self.alloc = MSGPACK_SBUFFER_INIT_SIZE
-	self.data = ffi.cast("unsigned char *", ffi.C.malloc(MSGPACK_SBUFFER_INIT_SIZE))
+	self.data = ffi.cast("unsigned char *", memory.malloc(MSGPACK_SBUFFER_INIT_SIZE))
 end
 local sbuffer_destroy = function(self)
 	if self.data ~= nil then
-		ffi.C.free(self.data)
+		memory.free(self.data)
 		self.data = nil
 	end
 
@@ -49,7 +44,7 @@ local sbuffer_realloc = function(self, len)
 			nsize = nsize * 2
 		end
 
-		self.data = ffi.cast("unsigned char *", ffi.C.realloc(self.data, nsize))
+		self.data = ffi.cast("unsigned char *", memory.realloc(self.data, nsize))
 		self.alloc = nsize
 	end
 end

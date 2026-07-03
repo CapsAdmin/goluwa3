@@ -452,6 +452,7 @@ else
 		char **environ;
 
 		pid_t getpid(void);
+		int getpagesize(void);
 	]]
 	local WNOHANG = 1
 	local O_NONBLOCK = 0x0004 -- macOS
@@ -701,6 +702,61 @@ else
 		if ffi.C.kill(self.pid, signal) < 0 then return nil, lasterror() end
 
 		return true
+	end
+
+	if jit.os == "OSX" then
+		ffi.cdef[[
+			unsigned int mach_task_self();
+			int task_info(unsigned int target_task, int flavor, void* task_info_out, unsigned int* task_info_outCnt);
+		]]
+		-- macOS task basic info struct type (pre-defined for performance)
+		local task_basic_info_t = ffi.typeof([[ struct {
+			uint64_t virtual_size;
+			uint64_t resident_size;
+			uint64_t resident_size_max;
+			uint64_t user_time;
+			uint64_t system_time;
+			int policy;
+			int suspend_count;
+		} ]])
+
+		function meta:get_residential_memory_kb()
+			-- macOS: only support current process due to task_for_pid restrictions
+			if self.pid ~= ffi.C.getpid() then
+				return nil, "cannot get memory info for other processes on macOS"
+			end
+
+			local TASK_BASIC_INFO = 20
+			local info = task_basic_info_t()
+			local count = ffi.new("int[1]", ffi.sizeof(info) / 4)
+			local task = ffi.C.mach_task_self()
+			local result = ffi.C.task_info(task, TASK_BASIC_INFO, info, count)
+
+			if result == 0 then return tonumber(info.resident_size) / 1024 end
+
+			return nil, "task_info failed with error: " .. result
+		end
+	else
+		function meta:get_residential_memory_kb()
+			local path = "/proc/" .. self.pid .. "/statm"
+			local fd = ffi.C.open(path, 0) -- O_RDONLY
+			if fd == -1 then return nil, "failed to open " .. path end
+
+			local buffer = ffi.new("char[256]")
+			local bytes_read = ffi.C.read(fd, buffer, 256)
+			ffi.C.close(fd)
+
+			if bytes_read < 0 then return nil, "failed to read " .. path end
+
+			local _, _, size, rss = string.find(ffi.string(buffer, bytes_read), "(%d+) (%d+)")
+
+			if size and rss then
+				local page_size = ffi.C.getpagesize() or 4096
+				return tonumber(rss) * (page_size / 1024)
+			end
+
+			return nil, "failed to parse " .. path
+		end
 	end
 
 	function meta:write(data)
