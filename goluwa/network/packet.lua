@@ -38,7 +38,7 @@ local function prepend_header(id, buffer)
 	if not id then return end
 
 	-- Create a new buffer with the header prepended
-	local header_buf = packet.CreateBuffer():WriteShort(id)
+	local header_buf = packet.CreateBuffer():WriteI16(id)
 	local result = packet.CreateBuffer()
 
 	-- Write header bytes first
@@ -57,7 +57,7 @@ local function prepend_header(id, buffer)
 end
 
 local function read_header(buffer)
-	local id = buffer:ReadShort()
+	local id = buffer:ReadI16()
 	id = packet.GetNetwork():IDToString(id)
 	list.remove(buffer.buffer, 1)
 	list.remove(buffer.buffer, 1)
@@ -144,8 +144,12 @@ do -- buffer object
 		return val
 	end
 
-	-- this adds ReadLong, WriteShort, WriteFloat, WriteStructure, etc
-	import("goluwa/filesystem/buffer_template.lua")(META)
+	-- this adds ReadI32, WriteI16, WriteFloat, WriteStructure, etc
+	local buffer_template = import("goluwa/buffer_template.lua")
+	buffer_template.AddBasicFunctions(META)
+	buffer_template.AddBasicDataTypes(META)
+	buffer_template.AddStringFunctions(META)
+	buffer_template.AddStructFunctions(META)
 
 	do -- generic
 		function META:GetBuffer()
@@ -217,10 +221,10 @@ do -- buffer object
 	end
 
 	META.WriteNetString = function(self, str)
-		self:WriteShort(packet.GetNetwork():AddString(str))
+		self:WriteI16(packet.GetNetwork():AddString(str))
 	end
 	META.ReadNetString = function(self)
-		return packet.GetNetwork():IDToString(self:ReadShort())
+		return packet.GetNetwork():IDToString(self:ReadI16())
 	end
 
 	function packet.CreateBuffer(val)

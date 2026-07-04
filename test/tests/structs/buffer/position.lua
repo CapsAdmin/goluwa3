@@ -1,0 +1,13 @@
+local T = import("test/environment.lua")
+local ffi = require("ffi")
+local Buffer = import("goluwa/structs/buffer.lua")
+
+T.Test("Buffer push/pop position", function()
+	local buf = ffi.new("uint8_t[10]", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+	local buffer = Buffer.New(buf, 10)
+	T(buffer:ReadByte())["=="](1)
+	buffer:PushPosition(5)
+	T(buffer:ReadByte())["=="](6)
+	buffer:PopPosition()
+	T(buffer:ReadByte())["=="](2)
+end)

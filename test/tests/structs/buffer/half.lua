@@ -1,0 +1,12 @@
+local T = import("test/environment.lua")
+local ffi = require("ffi")
+local Buffer = import("goluwa/structs/buffer.lua")
+
+T.Test("Buffer half precision float", function()
+	local buf = ffi.new("uint8_t[10]")
+	local buffer = Buffer.New(buf, 10)
+	buffer:WriteHalf(3.14159)
+	buffer:SetPosition(0)
+	local val = buffer:ReadHalf()
+	T(val)["~"](3.140625)
+end)

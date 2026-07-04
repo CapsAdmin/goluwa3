@@ -60,7 +60,7 @@ function CONTEXT:Lines()
 	local temp = {}
 	return function()
 		while not self:TheEnd() do
-			local char = self:ReadChar()
+			local char = self:ReadByte()
 
 			if char == "\n" then
 				local str = list.concat(temp)
@@ -143,5 +143,7 @@ function CONTEXT:IsArchive(path_info)
 	return false
 end
 
-import("goluwa/filesystem/buffer_template.lua")(CONTEXT)
+local buffer_template = import("goluwa/buffer_template.lua")
+buffer_template.AddBasicFunctions(CONTEXT)
+buffer_template.AddStringFunctions(CONTEXT)
 return CONTEXT:Register()
