@@ -1,10 +1,4 @@
 local message = library()
-import.loaded["goluwa/network/message.lua"] = message
-local commands = import("goluwa/cli/commands.lua")
-local event = import("goluwa/event.lua")
-local packet = import("goluwa/network/packet.lua")
--- "-1" is a reserved id
-local packet_id = -1
 message.listeners = message.listeners or {}
 
 function message.AddListener(id, callback)
@@ -13,6 +7,24 @@ end
 
 function message.RemoveListener(id)
 	message.listeners[id] = nil
+end
+
+import.loaded["goluwa/network/message.lua"] = message
+local commands = import("goluwa/cli/commands.lua")
+local event = import("goluwa/event.lua")
+local packet = import("goluwa/network/packet.lua")
+-- "-1" is a reserved id
+local packet_id = -1
+
+function message.Initialize()
+	packet.ExtendBuffer("Null", function(buffer, client)
+		buffer:WriteByte(0)
+	end, function(buffer)
+		buffer:ReadByte()
+		return NULL
+	end)
+
+	packet.AddListener(packet_id, message.OnMessageReceived)
 end
 
 if CLIENT then
@@ -39,8 +51,6 @@ if CLIENT then
 
 		if message.listeners[id] then message.listeners[id](unpack(args)) end
 	end
-
-	packet.AddListener(packet_id, message.OnMessageReceived)
 end
 
 if SERVER then
@@ -63,8 +73,6 @@ if SERVER then
 			message.listeners[id](client, unpack(args))
 		end
 	end
-
-	packet.AddListener(packet_id, message.OnMessageReceived)
 end
 
 do -- console extension
@@ -147,13 +155,6 @@ do -- event extension
 		end
 	end
 end
-
-packet.ExtendBuffer("Null", function(buffer, client)
-	buffer:WriteByte(0)
-end, function(buffer)
-	buffer:ReadByte()
-	return NULL
-end)
 
 if CLIENT then
 	function message.PrintOnServer(str)

@@ -1,23 +1,10 @@
 local packet = library()
 import.loaded["goluwa/network/packet.lua"] = packet
 local event = import("goluwa/event.lua")
-local network
-local clients
+local network = import("goluwa/network/network.lua")
+local clients = import("goluwa/network/clients.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
-
-function packet.GetNetwork()
-	if not network then network = import("goluwa/network/network.lua") end
-
-	return network
-end
-
-function packet.GetClients()
-	if not clients then clients = import("goluwa/network/clients.lua") end
-
-	return clients
-end
-
 packet.listeners = packet.listeners or {}
 
 function packet.AddListener(id, callback)
@@ -29,11 +16,9 @@ function packet.RemoveListener(id)
 end
 
 local function prepend_header(id, buffer)
-	local net = packet.GetNetwork()
+	if CLIENT then id = network.StringToID(id) end
 
-	if CLIENT then id = net.StringToID(id) end
-
-	if SERVER then id = net.AddString(id) end
+	if SERVER then id = network.AddString(id) end
 
 	if not id then return end
 
@@ -58,7 +43,7 @@ end
 
 local function read_header(buffer)
 	local id = buffer:ReadI16()
-	id = packet.GetNetwork().IDToString(id)
+	id = network.IDToString(id)
 	list.remove(buffer.buffer, 1)
 	list.remove(buffer.buffer, 1)
 	buffer:SetPosition(0)
@@ -70,7 +55,7 @@ if CLIENT then
 		flags = flags or "unsequenced"
 		local data = prepend_header(id, buffer)
 
-		if data then packet.GetNetwork().SendPacketToHost(data, flags, channel) end
+		if data then network.SendPacketToHost(data, flags, channel) end
 	end
 
 	function packet.OnPacketReceived(str)
@@ -94,17 +79,17 @@ if SERVER then
 		local data = prepend_header(id, buffer)
 
 		if data then
-			local net = packet.GetNetwork()
-
 			if typex(filter) == "client" then
-				net.SendPacketToPeer(filter.socket, data, flags, channel)
+				network.SendPacketToPeer(filter.socket, data, flags, channel)
 			elseif typex(filter) == "client_filter" then
 				for _, client in pairs(filter:GetAll()) do
-					net.SendPacketToPeer(client.socket, data, flags, channel)
+					network.SendPacketToPeer(client.socket, data, flags, channel)
 				end
 			else
-				for _, client in ipairs(packet.GetClients().GetAll()) do
-					net.SendPacketToPeer(client.socket, data, flags, channel)
+				for _, client in ipairs(clients.GetAll()) do
+					if client.socket:IsValid() then
+						network.SendPacketToPeer(client.socket, data, flags, channel)
+					end
 				end
 			end
 		end
@@ -237,10 +222,10 @@ do -- buffer object
 	end
 
 	META.WriteNetString = function(self, str)
-		self:WriteI16(packet.GetNetwork().AddString(str))
+		self:WriteI16(network.AddString(str))
 	end
 	META.ReadNetString = function(self)
-		return packet.GetNetwork().IDToString(self:ReadI16())
+		return network.IDToString(self:ReadI16())
 	end
 
 	function packet.CreateBuffer(val)

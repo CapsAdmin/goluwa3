@@ -1,13 +1,10 @@
+local nvars = library()
+import.loaded["goluwa/network/nvars.lua"] = nvars
 local message = import("goluwa/network/message.lua")
 local objects = import("goluwa/objects/objects.lua")
 local clients = import("goluwa/network/clients.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local nvars = library()
-import.loaded["goluwa/network/nvars.lua"] = nvars
-
-local function get_network()
-	return import("goluwa/network/network.lua")
-end
+local network = import("goluwa/network/network.lua")
 nvars.Environments = nvars.Environments or {}
 nvars.added_cvars = nvars.added_cvars or {}
 
@@ -21,7 +18,7 @@ local function get_is_set(is, meta, name, default, cvar)
 
 		if CLIENT then
 			pvars.Setup(cvar, default, function(var)
-				if get_network().IsConnected() then
+				if network.IsConnected() then
 					message.Send("ncv", cvar, var)
 				else
 					clients.GetLocalClient().nv[name] = var
@@ -86,7 +83,7 @@ if CLIENT then
 			pvars.Set(cvar, pvars.Get(cvar))
 		end
 
-		if get_network().debug or nvars.debug then logn("done synchronizing nvars") end
+		if network.debug or nvars.debug then logn("done synchronizing nvars") end
 
 		message.Send("nvsync")
 	end
@@ -109,7 +106,7 @@ if SERVER then
 	end
 
 	message.AddListener("nvsync", function(client)
-		if get_network().debug or nvars.debug then
+		if network.debug or nvars.debug then
 			logf("client %s said it was done synchronizing nvars\n", client)
 		end
 
@@ -131,7 +128,7 @@ function nvars.Set(key, value, env, client)
 	nvars.Environments[env] = nvars.Environments[env] or {}
 	nvars.Environments[env][key] = value
 
-	if get_network().debug or nvars.debug then
+	if network.debug or nvars.debug then
 		if not env:find("string_table") then
 			logf("nvars.%s.%s = %s\n", env, key, value)
 		end

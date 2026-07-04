@@ -4,19 +4,20 @@ local Client = import("goluwa/network/client.lua")
 local crypto = import("goluwa/crypto.lua")
 local event = import("goluwa/event.lua")
 local message = import("goluwa/network/message.lua")
-local nvars
+local nvars = import("goluwa/network/nvars.lua")
 local packet = import("goluwa/network/packet.lua")
 local objects = import("goluwa/objects/objects.lua")
 local timer = import("goluwa/timer.lua")
-
-local function get_nvars()
-	if not nvars then nvars = import("goluwa/network/nvars.lua") end
-
-	return nvars
-end
-
 clients.active_clients_uid = clients.active_clients_uid or {}
 clients.active_clients = clients.active_clients or {}
+
+function clients.Initialize()
+	packet.ExtendBuffer("Client", function(buffer, client)
+		buffer:WriteString(client:GetUniqueID())
+	end, function(buffer)
+		return clients.GetByUniqueID(buffer:ReadString())
+	end)
+end
 
 function clients.GetAll()
 	return clients.active_clients
@@ -54,11 +55,9 @@ function clients.Create(uniqueid, is_bot, clientside, filter, local_client, exis
 	clients.active_clients_uid[self.UniqueID] = self
 	list.insert(clients.active_clients, self)
 	-- add a networked table to the client
-	self.nv = get_nvars().CreateObject(uniqueid)
+	self.nv = nvars.CreateObject(uniqueid)
 
-	if is_bot then
-		self:SetBot(is_bot)
-	end
+	if is_bot then self:SetBot(is_bot) end
 
 	if SERVER then
 		if is_bot then
@@ -89,7 +88,7 @@ if CLIENT then
 		if local_client then
 			client = clients.local_client
 			local old_nv = client.nv
-			client.nv = get_nvars().CreateObject(uniqueid)
+			client.nv = nvars.CreateObject(uniqueid)
 
 			for k, v in pairs(old_nv) do
 				if k ~= "Env" then client.nv[k] = v end
@@ -160,12 +159,6 @@ do -- filter
 
 	META:Register()
 end
-
-packet.ExtendBuffer("Client", function(buffer, client)
-	buffer:WriteString(client:GetUniqueID())
-end, function(buffer)
-	return clients.GetByUniqueID(buffer:ReadString())
-end)
 
 if CLIENT then
 	clients.local_client = clients.local_client or clients.Create("unconnected")

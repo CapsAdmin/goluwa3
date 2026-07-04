@@ -20,6 +20,7 @@ if not _G.Color then
 end
 
 local clients = import("goluwa/network/clients.lua")
+clients.Initialize()
 
 T.Test("Clients registry creates and retrieves client", function()
 	local client = clients.Create("registry_test_1", false)

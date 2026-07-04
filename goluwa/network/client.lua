@@ -11,6 +11,7 @@ local timer = import("goluwa/timer.lua")
 local input = import("goluwa/input.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local META = objects.CreateTemplate("client")
 META.Name = "client"

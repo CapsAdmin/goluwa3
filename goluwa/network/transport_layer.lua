@@ -21,19 +21,19 @@ function transport_layer.Update()
 end
 
 do -- peer template
-	local CLIENT = objects.CreateTemplate("enet_peer")
+	local PeerClient = objects.CreateTemplate("peer_client")
 	-- Ping property (RTT not yet measured, defaults to 0)
-	CLIENT.ping = 0
+	PeerClient.ping = 0
 
-	function CLIENT:SetPing(val)
+	function PeerClient:SetPing(val)
 		self.ping = val
 	end
 
-	function CLIENT:GetPing()
+	function PeerClient:GetPing()
 		return self.ping
 	end
 
-	function CLIENT:Connect(ip, port, channels)
+	function PeerClient:Connect(ip, port, channels)
 		if not self.socket then
 			self.socket = UDPClient.New()
 			self.socket:SetAddress(ip, port)
@@ -49,7 +49,7 @@ do -- peer template
 		self.address = {ip = ip, port = port}
 	end
 
-	function CLIENT:Disconnect(code)
+	function PeerClient:Disconnect(code)
 		self.connected = false
 
 		if self.socket then
@@ -58,7 +58,7 @@ do -- peer template
 		end
 	end
 
-	function CLIENT:Remove()
+	function PeerClient:Remove()
 		if self.socket then
 			if self.socket.OnRemove then
 				self.socket:OnRemove()
@@ -72,70 +72,68 @@ do -- peer template
 		self.connected = false
 	end
 
-	function CLIENT:Send(str, flags, channel)
+	function PeerClient:Send(str, flags, channel)
 		if not self.socket or not self.address then return end
 
 		self.socket:Send(str, self.address.ip, self.address.port)
 	end
 
-	function CLIENT:OnReceiveChunk(chunk, address)
-		if self.OnReceive then
-			self:OnReceive(chunk, "data")
-		end
+	function PeerClient:OnReceiveChunk(chunk, address)
+		if self.OnReceive then self:OnReceive(chunk, "data") end
 	end
 
-	function CLIENT:GetIP()
+	function PeerClient:GetIP()
 		return self.address and self.address.ip or "0.0.0.0"
 	end
 
-	function CLIENT:GetPort()
+	function PeerClient:GetPort()
 		return self.address and self.address.port or 0
 	end
 
-	function CLIENT:IsConnected()
+	function PeerClient:IsConnected()
 		return self.connected == true
 	end
 
-	function CLIENT:IsValid()
+	function PeerClient:IsValid()
 		return self.connected == true
 	end
 
-	function CLIENT:OnConnect() end
+	function PeerClient:OnConnect() end
 
-	function CLIENT:OnDisconnect() end
+	function PeerClient:OnDisconnect() end
 
-	function CLIENT:OnReceive(str, flags, channel) end
+	function PeerClient:OnReceive(str, flags, channel) end
 
-	CLIENT.peer = CLIENT.peer or {}
-	CLIENT.peer.roundTripTime = 0
-	CLIENT.connected = false
+	PeerClient.peer = PeerClient.peer or {}
+	PeerClient.peer.roundTripTime = 0
+	PeerClient.connected = false
 
 	function transport_layer.CreatePeer(ip, port, max_connections, max_channels, incomming_bandwidth, outgoing_bandwidth)
-		local self = CLIENT:CreateObject()
+		local self = PeerClient:CreateObject()
 		self:Connect(ip, port)
 		list.insert(transport_layer.sockets, self)
 		return self
 	end
 
 	function transport_layer.CreateDummyPeer()
-		local self = CLIENT:CreateObject()
+		local self = PeerClient:CreateObject()
 		self.connected = true
 		return self
 	end
 
-	objects.Register(CLIENT)
+	objects.Register(PeerClient)
 end
 
 do -- server template
-	local SERVER = objects.CreateTemplate("enet_server")
+	local PeerServer = objects.CreateTemplate("peer_server")
 
-	function SERVER:OnReceive(peer, str, flags, channel) end
+	function PeerServer:OnReceive(peer, str, flags, channel) end
 
-	function SERVER:OnPeerConnect(peer) end
+	function PeerServer:OnPeerConnect(peer) end
 
-	function SERVER:OnPeerDisconnect(peer, code) end
+	function PeerServer:OnPeerDisconnect(peer, code) end
 
-	objects.Register(SERVER)
+	objects.Register(PeerServer)
 
 	function transport_layer.CreateServer(ip, port, max_connections, max_channels, incomming_bandwidth, outgoing_bandwidth)
 		local server = UDPServer.New()
@@ -210,22 +208,20 @@ do -- server template
 			local key = address:get_ip() .. ":" .. tostring(address:get_port())
 
 			if not self.peers[key] then
-				local peer_meta = objects.GetRegistered("enet_peer")
+				local peer_meta = objects.GetRegistered("peer_client")
 
 				if not peer_meta then
-					wlog("transport_layer: enet_peer template not registered, skipping peer creation")
+					wlog("transport_layer: peer_client template not registered, skipping peer creation")
 					return
 				end
 
 				local peer = objects.CreateObject(peer_meta)
 				peer.address = {ip = address:get_ip(), port = address:get_port()}
 				peer.connected = true
-
 				-- Create a UDP socket for this peer so we can send data back
 				peer.socket = UDPClient.New()
 				peer.socket:SetAddress(peer.address.ip, peer.address.port)
 				list.insert(transport_layer.sockets, peer)
-
 				self.peers[key] = peer
 				llog("[transport] Created peer for %s:%d", peer.address.ip, peer.address.port)
 				self:OnPeerConnect(peer)
