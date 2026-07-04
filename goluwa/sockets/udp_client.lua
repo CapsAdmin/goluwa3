@@ -29,14 +29,14 @@ function UDPClient:Close(reason)
 end
 
 function UDPClient:SetAddress(host, port)
-	self.address = ljsocket.find_first_address_info(host, port, nil, "inet", "dgram", "udp")
+	self.address = assert(ljsocket.find_first_address_info(host, port, nil, "inet", "dgram", "udp"))
 end
 
 function UDPClient:Send(data, host, port)
 	local address = self.address
 
 	if host then
-		address = ljsocket.find_first_address_info(host, port, nil, "inet", "dgram", "udp")
+		address = assert(ljsocket.find_first_address_info(host, port, nil, "inet", "dgram", "udp"))
 	end
 
 	return self.socket:send_to(address, data)

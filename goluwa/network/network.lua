@@ -1,3 +1,5 @@
+local network = library()
+import.loaded["goluwa/network/network.lua"] = network
 local transport_layer = import("goluwa/network/transport_layer.lua")
 local clients = import("goluwa/network/clients.lua")
 local event = import("goluwa/event.lua")
@@ -8,8 +10,6 @@ local codec = import("goluwa/codec.lua")
 local http = import("goluwa/sockets/http.lua")
 local IRCClient = import("goluwa/sockets/irc.lua")
 local nvars
-local network = library()
-import.loaded["goluwa/network/network.lua"] = network
 network.socket = network.socket or NULL
 
 local function get_nvars()
@@ -149,17 +149,12 @@ if SERVER then
 end
 
 do
-	local ffi = require("ffi")
-	local ipport_to_uid
+	local function ipport_to_uid(peer)
+		if peer.address then
+			return peer.address.ip .. ":" .. peer.address.port
+		end
 
-	if ffi then
-		function ipport_to_uid(peer)
-			return tostring(tonumber(ffi.cast("unsigned long *", peer.peer.data)[0]))
-		end
-	else
-		function ipport_to_uid(peer)
-			return tostring(peer)
-		end
+		return tostring(peer)
 	end
 
 	event.AddListener("PeerReceivePacket", "network", function(str, peer, type)
@@ -210,7 +205,7 @@ do
 			if network.debug then llog("client %s connected", client) end
 
 			if event.Call("ClientConnect", client) ~= false then
-				get_nvars():Synchronize(client, function(client)
+				get_nvars().Synchronize(client, function(client)
 					if network.debug then
 						llog("client %s done synchronizing nvars", client)
 					end
@@ -250,13 +245,13 @@ do
 				-- -1 is reserved for the message library
 				if type(str) == "number" then return str end
 
-				local id = get_nvars():Get(str, nil, "string_table1")
+				local id = get_nvars().Get(str, nil, "string_table1")
 
 				if id then return id end
 
 				i = i + 1
-				get_nvars():Set(str, i, "string_table1")
-				get_nvars():Set(i, str, "string_table2")
+				get_nvars().Set(str, i, "string_table1")
+				get_nvars().Set(i, str, "string_table2")
 				return i
 			end
 		end
@@ -264,13 +259,13 @@ do
 		function network.StringToID(str)
 			if type(str) == "number" then return str end
 
-			return get_nvars():Get(str, nil, "string_table1")
+			return get_nvars().Get(str, nil, "string_table1")
 		end
 
 		function network.IDToString(id)
 			if id < 0 then return id end
 
-			return get_nvars():Get(id, nil, "string_table2")
+			return get_nvars().Get(id, nil, "string_table2")
 		end
 	end
 
@@ -286,11 +281,11 @@ do
 		network.serverbrowser_port = 6667
 
 		function network.SetHostName(str)
-			get_nvars():Set("hostname", str)
+			get_nvars().Set("hostname", str)
 		end
 
 		function network.GetHostname()
-			return get_nvars():Get("hostname", e.USERNAME .. "'s server")
+			return get_nvars().Get("hostname", e.USERNAME .. "'s server")
 		end
 
 		function network.GetAvailableServers()

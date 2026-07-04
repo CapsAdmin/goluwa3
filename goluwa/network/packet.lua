@@ -31,9 +31,9 @@ end
 local function prepend_header(id, buffer)
 	local net = packet.GetNetwork()
 
-	if CLIENT then id = net:StringToID(id) end
+	if CLIENT then id = net.StringToID(id) end
 
-	if SERVER then id = net:AddString(id) end
+	if SERVER then id = net.AddString(id) end
 
 	if not id then return end
 
@@ -58,7 +58,7 @@ end
 
 local function read_header(buffer)
 	local id = buffer:ReadI16()
-	id = packet.GetNetwork():IDToString(id)
+	id = packet.GetNetwork().IDToString(id)
 	list.remove(buffer.buffer, 1)
 	list.remove(buffer.buffer, 1)
 	buffer:SetPosition(0)
@@ -70,7 +70,7 @@ if CLIENT then
 		flags = flags or "unsequenced"
 		local data = prepend_header(id, buffer)
 
-		if data then packet.GetNetwork():SendPacketToHost(data, flags, channel) end
+		if data then packet.GetNetwork().SendPacketToHost(data, flags, channel) end
 	end
 
 	function packet.OnPacketReceived(str)
@@ -97,14 +97,14 @@ if SERVER then
 			local net = packet.GetNetwork()
 
 			if typex(filter) == "client" then
-				net:SendPacketToPeer(filter.socket, data, flags, channel)
+				net.SendPacketToPeer(filter.socket, data, flags, channel)
 			elseif typex(filter) == "client_filter" then
 				for _, client in pairs(filter:GetAll()) do
-					net:SendPacketToPeer(client.socket, data, flags, channel)
+					net.SendPacketToPeer(client.socket, data, flags, channel)
 				end
 			else
 				for _, client in ipairs(packet.GetClients():GetAll()) do
-					net:SendPacketToPeer(client.socket, data, flags, channel)
+					net.SendPacketToPeer(client.socket, data, flags, channel)
 				end
 			end
 		end
@@ -237,10 +237,10 @@ do -- buffer object
 	end
 
 	META.WriteNetString = function(self, str)
-		self:WriteI16(packet.GetNetwork():AddString(str))
+		self:WriteI16(packet.GetNetwork().AddString(str))
 	end
 	META.ReadNetString = function(self)
-		return packet.GetNetwork():IDToString(self:ReadI16())
+		return packet.GetNetwork().IDToString(self:ReadI16())
 	end
 
 	function packet.CreateBuffer(val)

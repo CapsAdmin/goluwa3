@@ -112,6 +112,12 @@ local function init_game()
 		)
 		register_virtual_texture("textures/render/metal_frame.lua", "goluwa/render/textures/metal_frame.lua")
 	end
+
+	if SERVER or CLIENT then
+		import("goluwa/network/network.lua")
+		import("goluwa/network/commands.lua")
+		import("goluwa/network/chat.lua")
+	end
 end
 
 local function normalize_path(path)
@@ -157,6 +163,7 @@ commands.Add("lua", function(code, ...)
 end)
 
 commands.Add("game=string[3d]", function(mode)
+	_G.CLIENT = true
 	_G.GRAPHICS = true
 
 	if mode == "3d" then
@@ -172,6 +179,23 @@ commands.Add("game=string[3d]", function(mode)
 end)
 
 commands.Add("cli", function()
+	_G.CLIENT = true
+	_G.GRAPHICS = false
+	_G.AUDIO = true
+	_G.GRAPHICS_3D = false
+	_G.PHYSICS = false
+	local native_threads = import("goluwa/bindings/threads.lua")
+
+	event.AddListener("Update", "cli_limit_fps", function()
+		native_threads.sleep(1000 / 30)
+	end)
+
+	init_game()
+end)
+
+commands.Add("server", function()
+	_G.CLIENT = false
+	_G.SERVER = true
 	_G.GRAPHICS = false
 	_G.AUDIO = true
 	_G.GRAPHICS_3D = false

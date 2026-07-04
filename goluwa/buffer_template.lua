@@ -34,7 +34,6 @@ function buffer_template.AddBasicFunctions(META)
 
 	function META:GetDebugString()
 		local pos = self:GetPosition()
-
 		self:SetPosition(1)
 		local str = self:GetString():readable_hex()
 		self:SetPosition(pos)
@@ -502,6 +501,7 @@ function buffer_template.AddBasicDataTypes(META)
 			if signed and size < SZINT then
 				-- sign extend: if MSB of the highest byte is set, fill upper bits with 1s
 				local msb = bit.lshift(1, (size - 1) * NB + NB - 1)
+
 				if bit.band(res, msb) ~= 0 then
 					res = bit.bor(res, bit.bnot(bit.lshift(1, size * NB) - 1))
 				end
@@ -767,6 +767,7 @@ function buffer_template.AddStringFunctions(META)
 
 	function META:WriteStringNonNullterminated(str)
 		assert(META.WriteU32, "missing META:WriteU32")
+
 		if #str > 0xFFFFFFFF then error("string is too long!", 2) end
 
 		self:WriteU32(#str)
@@ -860,6 +861,16 @@ function buffer_template.AddStructFunctions(META)
 	local Color = import("goluwa/structs/color.lua")
 	local Ang3 = import("goluwa/structs/ang3.lua")
 
+	function META:WriteNumber(n)
+		self:WriteDouble(n)
+		return self
+	end
+
+	function META:ReadNumber()
+		self:ReadDouble()
+		return nil
+	end
+
 	-- nil
 	function META:WriteNil()
 		self:WriteByte(0)
@@ -934,8 +945,8 @@ function buffer_template.AddStructFunctions(META)
 
 	-- vec2
 	function META:WriteVec2Short(v)
-		self:WriteShort(v.x)
-		self:WriteShort(v.y)
+		self:WriteI16(v.x)
+		self:WriteI16(v.y)
 		return self
 	end
 
@@ -1075,8 +1086,10 @@ function buffer_template.AddStructFunctions(META)
 
 			for k, v in pairs(tbl) do
 				local t = type_func(k)
+
 				-- Map Lua "number" to a default numeric type for table keys
 				if t == "number" then t = "double" end
+
 				local id = self:GetTypeID(t)
 
 				if not id then error("tried to write unknown type " .. t, 2) end
@@ -1084,8 +1097,10 @@ function buffer_template.AddStructFunctions(META)
 				self:WriteByte(id)
 				self:WriteType(k, t, type_func)
 				t = type_func(v)
+
 				-- Map Lua "number" to a default numeric type for values
 				if t == "number" then t = "double" end
+
 				id = self:GetTypeID(t)
 
 				if not id then error("tried to write unknown type " .. t, 2) end
