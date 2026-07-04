@@ -1,6 +1,6 @@
 local clients = import("goluwa/network/clients.lua")
 local nvars = import("goluwa/network/nvars.lua")
-local prototype = import("goluwa/objects/objects.lua")
+local objects = import("goluwa/objects/objects.lua")
 local crypto = import("goluwa/crypto.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -11,7 +11,7 @@ local input = import("goluwa/input.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
-local META = prototype.CreateTemplate("client")
+local META = objects.CreateTemplate("client")
 META.Name = "client"
 META.socket = NULL
 META:GetSet("UniqueID", "???")
@@ -25,7 +25,6 @@ nvars.GetSet(
 	"cl_avatar_path"
 )
 nvars.GetSet(META, "Ping", -1)
-
 local client = library()
 import.loaded["goluwa/network/client.lua"] = client
 client.META = META

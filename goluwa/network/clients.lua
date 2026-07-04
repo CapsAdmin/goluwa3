@@ -1,13 +1,12 @@
 local clients = library()
 import.loaded["goluwa/network/clients.lua"] = clients
-
 local Client = import("goluwa/network/client.lua")
 local crypto = import("goluwa/crypto.lua")
 local event = import("goluwa/event.lua")
 local message = import("goluwa/network/message.lua")
 local nvars
 local packet = import("goluwa/network/packet.lua")
-local prototype = import("goluwa/objects/objects.lua")
+local objects = import("goluwa/objects/objects.lua")
 local timer = import("goluwa/timer.lua")
 
 local function get_nvars()
@@ -117,7 +116,7 @@ if CLIENT then
 end
 
 do -- filter
-	local META = prototype.CreateTemplate("client_filter")
+	local META = objects.CreateTemplate("client_filter")
 
 	function META:AddAll()
 		for _, client in ipairs(clients.GetAll()) do
@@ -154,7 +153,7 @@ do -- filter
 	end
 
 	function clients.CreateFilter()
-		return prototype.CreateObject(META, {clients = {}}, true)
+		return objects.CreateObject(META, {clients = {}}, true)
 	end
 
 	META:Register()

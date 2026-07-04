@@ -1,5 +1,5 @@
 local message = import("goluwa/network/message.lua")
-local prototype = import("goluwa/objects/objects.lua")
+local objects = import("goluwa/objects/objects.lua")
 local clients = import("goluwa/network/clients.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local network = import("goluwa/network/network.lua")
@@ -58,8 +58,8 @@ local function get_is_set(is, meta, name, default, cvar)
 
 	-- this is important because it sets up property info for this object for editors and such to use
 	return is and
-		prototype.IsSet(meta, name, default) or
-		prototype.GetSet(meta, name, default)
+		objects.IsSet(meta, name, default) or
+		objects.GetSet(meta, name, default)
 end
 
 nvars.GetSet = function(...)

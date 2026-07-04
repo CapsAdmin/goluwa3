@@ -3,7 +3,7 @@ local packet = library()
 import.loaded["goluwa/network/packet.lua"] = packet
 local network
 local clients
-local prototype = import("goluwa/objects/objects.lua")
+local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 
 function packet.GetNetwork()
@@ -130,7 +130,7 @@ if SERVER then
 end
 
 do -- buffer object
-	local META = prototype.CreateTemplate("packet_buffer")
+	local META = objects.CreateTemplate("packet_buffer")
 
 	-- byte
 	function META:WriteByte(byte)
@@ -249,10 +249,10 @@ do -- buffer object
 		META["Read" .. name] = read_callback
 		META["Write" .. name] = write_callback
 		META:GenerateTypes()
-		prototype.Register(META)
+		objects.Register(META)
 	end
 
-	prototype.Register(META)
+	objects.Register(META)
 end
 
 return packet

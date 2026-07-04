@@ -1,4 +1,4 @@
-local META = prototype.CreateTemplate()
+local META = objects.CreateTemplate()
 META.Name = "network"
 -- these are either part the base object or the entity itself
 META.Network = {
