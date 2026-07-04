@@ -1,4 +1,4 @@
-local enet = import("goluwa/network/enet.lua")
+local enet = import("goluwa/network/transport_layer.lua")
 local clients = import("goluwa/network/clients.lua")
 local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")

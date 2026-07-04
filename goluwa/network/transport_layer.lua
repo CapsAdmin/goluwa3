@@ -1,8 +1,8 @@
 local objects = import("goluwa/objects/objects.lua")
-local enet = {}
-enet.sockets = enet.sockets or {}
+local transport_layer = {}
+transport_layer.sockets = transport_layer.sockets or {}
 
-function enet.Initialize() -- mock: no real enet library
+function transport_layer.Initialize() -- mock: no real transport_layer library
 end
 
 do -- peer template
@@ -42,13 +42,13 @@ do -- peer template
 	CLIENT.peer.roundTripTime = 0
 	CLIENT.connected = true
 
-	function enet.CreatePeer(ip, port, max_connections, max_channels, incomming_bandwidth, outgoing_bandwidth)
+	function transport_layer.CreatePeer(ip, port, max_connections, max_channels, incomming_bandwidth, outgoing_bandwidth)
 		local self = CLIENT:CreateObject()
-		list.insert(enet.sockets, self)
+		list.insert(transport_layer.sockets, self)
 		return self
 	end
 
-	function enet.CreateDummyPeer()
+	function transport_layer.CreateDummyPeer()
 		return CLIENT:CreateObject()
 	end
 
@@ -76,13 +76,13 @@ do -- server template
 
 	function SERVER:OnPeerDisconnect(peer, code) end
 
-	function enet.CreateServer(ip, port, max_connections, max_channels, incomming_bandwidth, outgoing_bandwidth)
+	function transport_layer.CreateServer(ip, port, max_connections, max_channels, incomming_bandwidth, outgoing_bandwidth)
 		local self = SERVER:CreateObject()
-		list.insert(enet.sockets, self)
+		list.insert(transport_layer.sockets, self)
 		return self
 	end
 
 	objects.Register(SERVER)
 end
 
-return enet
+return transport_layer

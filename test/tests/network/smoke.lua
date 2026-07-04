@@ -6,25 +6,46 @@ _G.e = _G.e or {USERNAME = "testuser"}
 -- Register a dummy generic_buffer prototype so packet.CreateBuffer works
 -- Only register if generic_buffer is not already registered
 local objects = import("goluwa/objects/objects.lua")
+
 if not objects.GetRegistered("generic_buffer") then
 	local generic_buffer_meta = objects.CreateTemplate("generic_buffer")
-	generic_buffer_meta.WriteByte = function(self, val) table.insert(self.buffer, val) end
-	generic_buffer_meta.ReadByte = function(self) return table.remove(self.buffer, 1) end
+	generic_buffer_meta.WriteByte = function(self, val)
+		table.insert(self.buffer, val)
+	end
+	generic_buffer_meta.ReadByte = function(self)
+		return table.remove(self.buffer, 1)
+	end
 	-- Mock FFI-dependent methods
 	generic_buffer_meta.GetString = function(self)
 		local out = {}
+
 		for i = self.position, #self.buffer do
 			table.insert(out, string.char(self.buffer[i]))
 		end
+
 		return table.concat(out)
 	end
-	generic_buffer_meta.GetSize = function(self) return #self.buffer end
-	generic_buffer_meta.GetPosition = function(self) return self.position or 1 end
-	generic_buffer_meta.SetPosition = function(self, pos) self.position = pos end
-	generic_buffer_meta.TheEnd = function(self) return self.position > #self.buffer end
-	generic_buffer_meta.Clear = function(self) self.buffer = {}; self.position = 1 end
+	generic_buffer_meta.GetSize = function(self)
+		return #self.buffer
+	end
+	generic_buffer_meta.GetPosition = function(self)
+		return self.position or 1
+	end
+	generic_buffer_meta.SetPosition = function(self, pos)
+		self.position = pos
+	end
+	generic_buffer_meta.TheEnd = function(self)
+		return self.position > #self.buffer
+	end
+	generic_buffer_meta.Clear = function(self)
+		self.buffer = {}
+		
+		self.position = 1
+	end
 	-- Add WriteTestExtend for packet.ExtendBuffer test
-	generic_buffer_meta.WriteTestExtend = function(self, val) table.insert(self.buffer, val) end
+	generic_buffer_meta.WriteTestExtend = function(self, val)
+		table.insert(self.buffer, val)
+	end
 	generic_buffer_meta:Register()
 end
 
@@ -32,6 +53,7 @@ end
 if not _G.Color then
 	_G.Color = function(r, g, b, a)
 		local c = {r = r or 0, g = g or 0, b = b or 0, a = a or 255}
+
 		function c:SetLightness(lightness)
 			self.r = math.min(255, math.max(0, self.r * lightness))
 			self.g = math.min(255, math.max(0, self.g * lightness))
@@ -44,7 +66,7 @@ if not _G.Color then
 end
 
 T.Test("network modules load without error", function()
-	local enet = import("goluwa/network/enet.lua")
+	local enet = import("goluwa/network/transport_layer.lua")
 	local packet = import("goluwa/network/packet.lua")
 	local message = import("goluwa/network/message.lua")
 	local clients = import("goluwa/network/clients.lua")
@@ -61,13 +83,13 @@ T.Test("network modules load without error", function()
 end)
 
 T.Test("network enet mock provides Initialize", function()
-	local enet = import("goluwa/network/enet.lua")
+	local enet = import("goluwa/network/transport_layer.lua")
 	-- Should not error
 	enet.Initialize()
 end)
 
 T.Test("network enet mock creates peer and server", function()
-	local enet = import("goluwa/network/enet.lua")
+	local enet = import("goluwa/network/transport_layer.lua")
 	local peer = enet.CreatePeer("127.0.0.1", 27015)
 	T(peer:IsValid())["=="](true)
 	T(peer:IsConnected())["=="](true)
