@@ -140,7 +140,7 @@ do -- buffer object
 
 	function META:ReadByte()
 		local val = self.buffer[self.position]
-		self.position = math.min(self.position + 1, #self.buffer)
+		self.position = self.position + 1
 		return val
 	end
 
@@ -161,7 +161,7 @@ do -- buffer object
 		end
 
 		function META:TheEnd()
-			return self:GetPosition() >= self:GetSize()
+			return self:GetPosition() > self:GetSize()
 		end
 
 		function META:Clear()
@@ -174,6 +174,22 @@ do -- buffer object
 
 			for _, v in ipairs(self.buffer) do
 				temp[#temp + 1] = string.char(v)
+			end
+
+			return list.concat(temp)
+		end
+
+		function META:GetStringSlice(start, stop)
+			start = start or 1
+			stop = stop or self:GetSize()
+
+			if start > self:GetSize() then return "" end
+
+			stop = math.min(stop, self:GetSize())
+			local temp = {}
+
+			for i = start, stop do
+				temp[#temp + 1] = string.char(self.buffer[i])
 			end
 
 			return list.concat(temp)
