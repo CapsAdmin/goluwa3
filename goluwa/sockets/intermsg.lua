@@ -1,4 +1,7 @@
-local sockets = import("goluwa/sockets.lua")
+local TCPClient = import("goluwa/sockets/tcp_client.lua")
+local UDPClient = import("goluwa/sockets/udp_client.lua")
+local TCPServer = import("goluwa/sockets/tcp_server.lua")
+local UDPServer = import("goluwa/sockets/udp_server.lua")
 local intermsg = _G.intermsg or {}
 intermsg.client_sockets = intermsg.client_sockets or {udp = {}, tcp = {}}
 intermsg.server_sockets = intermsg.server_sockets or {udp = {}, tcp = {}}
@@ -25,7 +28,7 @@ function intermsg.Send(ip, port, str, typ)
 	local sck = intermsg.client_sockets[typ][ip .. port] or NULL
 
 	if not sck:IsValid() then
-		sck = sockets.CreateClient(typ)
+		sck = typ == "udp" and UDPClient() or TCPClient()
 		sck:SetTimeout()
 		sck:Connect(ip, port, true)
 	end
@@ -47,7 +50,7 @@ function intermsg.StartServer(ip, port, callback, typ)
 
 	if sck:IsValid() then sck:Remove() end
 
-	sck = sockets.CreateServer(typ)
+	sck = typ == "udp" and UDPServer() or TCPServer()
 	sck:Host(ip, port)
 
 	function sck:OnClientConnected(client, ip, port)

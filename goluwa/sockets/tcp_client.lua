@@ -1,38 +1,38 @@
 local ljsocket = import("goluwa/bindings/socket.lua")
 local objects = import("goluwa/objects/objects.lua")
 local socket_pool = import("goluwa/sockets/socket_pool.lua")
-local UDPClient = objects.CreateTemplate("socket_tcp_client")
-UDPClient:GetSet("BufferSize", 64000)
+local TCPClient = objects.CreateTemplate("socket_tcp_client")
+TCPClient:GetSet("BufferSize", 64000)
 
-function UDPClient:assert(val, err)
+function TCPClient:assert(val, err)
 	if not val then self:Error(err) end
 
 	return val, err
 end
 
-function UDPClient:__tostring2()
+function TCPClient:__tostring2()
 	return "[" .. tostring(self.socket) .. "]"
 end
 
-function UDPClient:InsertIntoSocketPool()
+function TCPClient:InsertIntoSocketPool()
 	if self.in_socket_pool then return end
 
 	socket_pool:insert(self)
 	self.in_socket_pool = true
 end
 
-function UDPClient:RemoveFromSocketPool()
+function TCPClient:RemoveFromSocketPool()
 	if not self.in_socket_pool then return end
 
 	socket_pool:remove(self)
 	self.in_socket_pool = nil
 end
 
-function UDPClient:Initialize(socket)
+function TCPClient:Initialize(socket)
 	self:SocketRestart(socket)
 end
 
-function UDPClient:SocketRestart(socket)
+function TCPClient:SocketRestart(socket)
 	self.socket = socket or ljsocket.create("inet", "stream", "tcp")
 	self:assert(self.socket:set_blocking(false))
 	self.socket:set_option("nodelay", true, "tcp")
@@ -45,7 +45,7 @@ end
 do
 	local ssl = import("goluwa/bindings/tls.lua")
 
-	function UDPClient:SetupTLS()
+	function TCPClient:SetupTLS()
 		if self.tls_setup then return end
 
 		ssl.initialize()
@@ -74,7 +74,7 @@ do
 	end
 end
 
-function UDPClient:OnRemove()
+function TCPClient:OnRemove()
 	self:RemoveFromSocketPool()
 	self.connected = false
 	self.connecting = false
@@ -84,7 +84,7 @@ function UDPClient:OnRemove()
 	if socket and socket.fd and socket.fd >= 0 then socket:close() end
 end
 
-function UDPClient:Close(reason)
+function TCPClient:Close(reason)
 	self:Remove()
 end
 
@@ -94,7 +94,7 @@ local services = {
 	http = "80",
 }
 
-function UDPClient:Connect(host, service)
+function TCPClient:Connect(host, service)
 	if service == "https" then self:SetupTLS() end
 
 	local ok, err = self.socket:connect(host, services[service] or service)
@@ -108,7 +108,7 @@ function UDPClient:Connect(host, service)
 	return self:Error("Unable to connect to " .. host .. ":" .. service .. ": " .. err)
 end
 
-function UDPClient:Send(data)
+function TCPClient:Send(data)
 	local ok, err
 
 	if self.socket:is_connected() and not self.connecting then
@@ -145,11 +145,11 @@ function UDPClient:Send(data)
 	return ok, err
 end
 
-function UDPClient:GetPollSocket()
+function TCPClient:GetPollSocket()
 	return self.socket
 end
 
-function UDPClient:GetPollFlags()
+function TCPClient:GetPollFlags()
 	if self.connecting then return {"in", "out"} end
 
 	if self.connected then
@@ -163,7 +163,7 @@ function UDPClient:GetPollFlags()
 	error(tostring(self) .. " is in socket pool without an active poll state")
 end
 
-function UDPClient:HandleConnectReady()
+function TCPClient:HandleConnectReady()
 	if self.connecting then
 		-- For TLS sockets, try_connect handles the handshake
 		-- For regular sockets, just check if connected
@@ -203,7 +203,7 @@ function UDPClient:HandleConnectReady()
 	end
 end
 
-function UDPClient:HandleWriteReady()
+function TCPClient:HandleWriteReady()
 	if self.connected and self.buffered_send then
 		for _ = 1, #self.buffered_send * 4 do
 			local data = self.buffered_send[1]
@@ -221,7 +221,7 @@ function UDPClient:HandleWriteReady()
 	end
 end
 
-function UDPClient:HandleReadReady()
+function TCPClient:HandleReadReady()
 	if self.connected then
 		for i = 1, 500 do
 			local chunk, err = self.socket:receive(self.BufferSize)
@@ -252,7 +252,7 @@ function UDPClient:HandleReadReady()
 	end
 end
 
-function UDPClient:OnPollReady(events)
+function TCPClient:OnPollReady(events)
 	if
 		self.connecting and
 		(
@@ -275,7 +275,7 @@ function UDPClient:OnPollReady(events)
 	end
 end
 
-function UDPClient:Update()
+function TCPClient:Update()
 	self:OnPollReady{
 		["in"] = true,
 		out = true,
@@ -285,29 +285,29 @@ function UDPClient:Update()
 	}
 end
 
-function UDPClient:Error(message, ...)
+function TCPClient:Error(message, ...)
 	local tr = debug.traceback()
 	self:OnError(message, tr, ...)
 	return false, message
 end
 
-function UDPClient:OnError(str, tr)
+function TCPClient:OnError(str, tr)
 	self:Remove(str)
 	error(str)
 end
 
-function UDPClient:OnReceiveChunk(str) end
+function TCPClient:OnReceiveChunk(str) end
 
-function UDPClient:OnClose()
+function TCPClient:OnClose()
 	self:Close()
 end
 
-function UDPClient:OnConnect() end
+function TCPClient:OnConnect() end
 
-function UDPClient.New(socket)
-	local self = UDPClient:CreateObject()
+function TCPClient.New(socket)
+	local self = TCPClient:CreateObject()
 	self:Initialize(socket)
 	return self
 end
 
-return UDPClient:Register()
+return TCPClient:Register()
