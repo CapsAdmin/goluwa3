@@ -1,5 +1,6 @@
 local ljsocket = import("goluwa/bindings/socket.lua")
 local objects = import("goluwa/objects/objects.lua")
+local socket_pool = import("goluwa/sockets/socket_pool.lua")
 local UDPClient = objects.CreateTemplate("socket_udp_client")
 
 function UDPClient:assert(val, err)
@@ -14,13 +15,16 @@ end
 
 function UDPClient:Initialize(socket)
 	self:SocketRestart(socket)
+	socket_pool:insert(self)
 end
 
 function UDPClient:SocketRestart(socket)
 	self.socket = socket or ljsocket.create("inet", "dgram", "udp")
+	self:assert(self.socket:set_blocking(false))
 end
 
 function UDPClient:OnRemove()
+	socket_pool:remove(self)
 	self.socket:close()
 end
 
@@ -40,6 +44,41 @@ function UDPClient:Send(data, host, port)
 	end
 
 	return self.socket:send_to(address, data)
+end
+
+function UDPClient:GetPollSocket()
+	return self.socket
+end
+
+function UDPClient:GetPollFlags()
+	return {"in"}
+end
+
+function UDPClient:OnPollReady(events)
+	if not (events["in"] or events.err or events.hup or events.nval) then return end
+
+	local chunk, err = self.socket:receive_from()
+
+	if chunk then
+		if self.OnReceiveChunk then
+			self:OnReceiveChunk(chunk, err)
+		end
+	else
+		if err == "closed" then
+			self:OnClose("receive")
+		elseif err ~= "timeout" and err ~= "tryagain" then
+			self:Error(err)
+		end
+	end
+end
+
+function UDPClient:Update()
+	self:OnPollReady{
+		["in"] = true,
+		err = true,
+		hup = true,
+		nval = true,
+	}
 end
 
 function UDPClient:Error(message, ...)

@@ -37,6 +37,12 @@ do -- peer template
 		if not self.socket then
 			self.socket = UDPClient.New()
 			self.socket:SetAddress(ip, port)
+			-- Wire up receive callback to forward to peer
+			local peer = self
+
+			function self.socket:OnReceiveChunk(chunk, address)
+				peer:OnReceiveChunk(chunk, address)
+			end
 		end
 
 		self.connected = true
@@ -70,6 +76,12 @@ do -- peer template
 		if not self.socket or not self.address then return end
 
 		self.socket:Send(str, self.address.ip, self.address.port)
+	end
+
+	function CLIENT:OnReceiveChunk(chunk, address)
+		if self.OnReceive then
+			self:OnReceive(chunk, "data")
+		end
 	end
 
 	function CLIENT:GetIP()
@@ -208,7 +220,14 @@ do -- server template
 				local peer = objects.CreateObject(peer_meta)
 				peer.address = {ip = address:get_ip(), port = address:get_port()}
 				peer.connected = true
+
+				-- Create a UDP socket for this peer so we can send data back
+				peer.socket = UDPClient.New()
+				peer.socket:SetAddress(peer.address.ip, peer.address.port)
+				list.insert(transport_layer.sockets, peer)
+
 				self.peers[key] = peer
+				llog("[transport] Created peer for %s:%d", peer.address.ip, peer.address.port)
 				self:OnPeerConnect(peer)
 			end
 

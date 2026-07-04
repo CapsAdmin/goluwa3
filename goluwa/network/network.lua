@@ -4,6 +4,7 @@ local transport_layer = import("goluwa/network/transport_layer.lua")
 local clients = import("goluwa/network/clients.lua")
 local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
+local message = import("goluwa/network/message.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local codec = import("goluwa/codec.lua")
@@ -54,6 +55,8 @@ if CLIENT then
 		network.socket = peer
 		network.just_disconnected = nil
 		event.Call("NetworkStarted")
+		-- Send initial connection message to the server
+		message.Send("connect", ip, port)
 		return peer
 	end
 
@@ -81,6 +84,12 @@ if CLIENT then
 			network.socket:Send(str, flags, channel)
 		end
 	end
+
+	message.AddListener("connected", function()
+		if network.debug then llog("server confirmed connection") end
+
+		event.Call("Connected")
+	end)
 end
 
 if SERVER then
@@ -136,9 +145,7 @@ if SERVER then
 	end
 
 	function network.SendPacketToPeer(peer, str, flags, channel)
-		if peer and type(peer.IsValid) == "function" and peer:IsValid() then
-			peer:Send(str, flags, channel)
-		end
+		peer:Send(str, flags, channel)
 	end
 
 	function network.BroadcastPacket(str)
@@ -150,9 +157,7 @@ end
 
 do
 	local function ipport_to_uid(peer)
-		if peer.address then
-			return peer.address.ip .. ":" .. peer.address.port
-		end
+		if peer.address then return peer.address.ip .. ":" .. peer.address.port end
 
 		return tostring(peer)
 	end
@@ -187,6 +192,14 @@ do
 	end
 
 	if SERVER then
+		message.AddListener("connect", function(client, ip, port)
+			if network.debug then llog("client %s:%s connected", ip, port) end
+
+			-- The peer should already be created by OnReceiveChunk
+			-- Send confirmation back to the client
+			message.Send("connected", client)
+		end)
+
 		event.AddListener("PeerDisconnect", "network", function(peer, code)
 			local uid = ipport_to_uid(peer)
 			local client = clients.GetByUniqueID(uid)
@@ -201,6 +214,11 @@ do
 			local uid = ipport_to_uid(peer)
 			local client = clients.Create(uid, false, false) -- create the client serverside for now
 			client.socket = peer
+			llog(
+				"[debug] PeerConnect: uid=%s, client.socket=%s",
+				uid,
+				client.socket and "valid" or "NULL"
+			)
 
 			if network.debug then llog("client %s connected", client) end
 

@@ -1,6 +1,6 @@
-local event = import("goluwa/event.lua")
 local packet = library()
 import.loaded["goluwa/network/packet.lua"] = packet
+local event = import("goluwa/event.lua")
 local network
 local clients
 local objects = import("goluwa/objects/objects.lua")
@@ -103,7 +103,7 @@ if SERVER then
 					net.SendPacketToPeer(client.socket, data, flags, channel)
 				end
 			else
-				for _, client in ipairs(packet.GetClients():GetAll()) do
+				for _, client in ipairs(packet.GetClients().GetAll()) do
 					net.SendPacketToPeer(client.socket, data, flags, channel)
 				end
 			end

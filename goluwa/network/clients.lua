@@ -56,7 +56,9 @@ function clients.Create(uniqueid, is_bot, clientside, filter, local_client, exis
 	-- add a networked table to the client
 	self.nv = get_nvars().CreateObject(uniqueid)
 
-	if is_bot ~= nil then self:SetBot(is_bot) end
+	if is_bot then
+		self:SetBot(is_bot)
+	end
 
 	if SERVER then
 		if is_bot then

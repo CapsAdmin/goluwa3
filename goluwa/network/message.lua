@@ -1,8 +1,8 @@
+local message = library()
+import.loaded["goluwa/network/message.lua"] = message
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local packet = import("goluwa/network/packet.lua")
-local message = library()
-import.loaded["goluwa/network/message.lua"] = message
 -- "-1" is a reserved id
 local packet_id = -1
 message.listeners = message.listeners or {}

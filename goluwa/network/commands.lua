@@ -1,5 +1,6 @@
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local clients = import("goluwa/network/clients.lua")
 local network = import("goluwa/network/network.lua")
 local default_ip = "*"
 local default_port = 1234
@@ -39,3 +40,11 @@ if SERVER then
 		network.Host(ip, port)
 	end)
 end
+
+commands.Add("status", function()
+	logn("hostname: ", network.GetHostname())
+
+	for k, v in pairs(clients.GetAll()) do
+		logn(v)
+	end
+end)

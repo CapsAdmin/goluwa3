@@ -1,5 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local codec = import("goluwa/codec.lua")
+local callstack = import("goluwa/debug/callstack.lua")
 local timer = import("goluwa/timer.lua")
 local event = import("goluwa/event.lua")
 local pvars = library()
@@ -162,7 +163,7 @@ function pvars.Set(key, val)
 
 	if info.callback and not info.in_callback then
 		info.in_callback = true
-		system.pcall(info.callback, pvars.Get(key))
+		callstack.pcall(info.callback, pvars.Get(key))
 		info.in_callback = nil
 	end
 
