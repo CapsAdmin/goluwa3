@@ -1,4 +1,4 @@
-local enet = import("goluwa/network/transport_layer.lua")
+local transport_layer = import("goluwa/network/transport_layer.lua")
 local clients = import("goluwa/network/clients.lua")
 local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
@@ -19,7 +19,7 @@ local function get_nvars()
 end
 
 function network.Initialize()
-	enet.Initialize()
+	transport_layer.Initialize()
 end
 
 function network.IsStarted()
@@ -45,7 +45,7 @@ if CLIENT then
 			end)
 		end
 
-		local peer = enet.CreatePeer(ip, port)
+		local peer = transport_layer.CreatePeer(ip, port)
 
 		function peer:OnReceive(str, type)
 			event.Call("PeerReceivePacket", str, nil, type)
@@ -99,12 +99,12 @@ if SERVER then
 			return
 		end
 
-		if not enet then
-			wlog("unable to host server: enet not found")
+		if not transport_layer then
+			wlog("unable to host server: transport_layer not found")
 			return
 		end
 
-		local server = enet.CreateServer(ip, port)
+		local server = transport_layer.CreateServer(ip, port)
 
 		function server:OnReceive(peer, str, type)
 			event.Call("PeerReceivePacket", str, peer, type)
