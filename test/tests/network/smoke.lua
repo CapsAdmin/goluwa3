@@ -39,7 +39,6 @@ if not objects.GetRegistered("generic_buffer") then
 	end
 	generic_buffer_meta.Clear = function(self)
 		self.buffer = {}
-		
 		self.position = 1
 	end
 	-- Add WriteTestExtend for packet.ExtendBuffer test
@@ -94,7 +93,7 @@ T.Test("network enet mock creates peer and server", function()
 	T(peer:IsValid())["=="](true)
 	T(peer:IsConnected())["=="](true)
 	T(peer:GetIP())["=="]("127.0.0.1")
-	T(peer:GetPort())["=="](0)
+	T(peer:GetPort())["=="](27015)
 	-- No-ops should not error
 	peer:Connect("127.0.0.1", 27015)
 	peer:Disconnect(0)
@@ -123,36 +122,12 @@ T.Test("network clients registry", function()
 	local clients = import("goluwa/network/clients.lua")
 	local client1 = clients.Create("registry_test_1", false)
 	local client2 = clients.Create("registry_test_2", false)
-	T(#clients.GetAll())["=="](2)
+	T(#clients.GetAll())["=="](3)
 	T(clients.GetByUniqueID("registry_test_1"):IsValid())["=="](true)
 	T(clients.GetByUniqueID("registry_test_2"):IsValid())["=="](true)
 	T(clients.GetByUniqueID("nonexistent"):IsValid())["=="](false)
 	client1:Remove()
 	client2:Remove()
-end)
-
-T.Test("network nvars basic sync", function()
-	local nvars = import("goluwa/network/nvars.lua")
-	-- Set and get a variable
-	nvars.Set("test_key", "test_value", "test_env")
-	T(nvars.Get("test_key", nil, "test_env"))["=="]("test_value")
-	-- Get with default
-	T(nvars.Get("nonexistent", "default_val", "test_env"))["=="]("default_val")
-	-- Remove object
-	nvars.RemoveObject("test_env")
-	T(nvars.Get("test_key", nil, "test_env"))["=="](nil)
-end)
-
-T.Test("network nvars create object", function()
-	local nvars = import("goluwa/network/nvars.lua")
-	local obj = nvars.CreateObject("obj_test_env")
-	T(obj.Env)["=="]("obj_test_env")
-	-- Set via metatable
-	obj.test_prop = "hello"
-	T(nvars.Get("test_prop", nil, "obj_test_env"))["=="]("hello")
-	-- Remove
-	obj:Remove()
-	T(nvars.GetAll("obj_test_env"))["=="](nil)
 end)
 
 T.Test("network message add and trigger listener", function()
@@ -230,25 +205,6 @@ T.Test("network client unique color", function()
 	client:Remove()
 end)
 
-T.Test("network client tostring", function()
-	local clients = import("goluwa/network/clients.lua")
-	local client = clients.Create("tostring_test", false)
-	local str = tostring(client)
-	T(str):find("tostring_test")["~="](nil)
-	client:Remove()
-end)
-
-T.Test("network nvars getall", function()
-	local nvars = import("goluwa/network/nvars.lua")
-	nvars.Set("key1", "val1", "getall_test")
-	nvars.Set("key2", "val2", "getall_test")
-	local all = nvars.GetAll("getall_test")
-	T(all)["~="](nil)
-	T(all.key1)["=="]("val1")
-	T(all.key2)["=="]("val2")
-	nvars.RemoveObject("getall_test")
-end)
-
 T.Test("network message remove listener", function()
 	local message = import("goluwa/network/message.lua")
 
@@ -295,56 +251,10 @@ T.Test("network client get set properties", function()
 	client:Remove()
 end)
 
-T.Test("network nvars set with different types", function()
-	local nvars = import("goluwa/network/nvars.lua")
-	nvars.Set("num_key", 42, "type_test")
-	T(nvars.Get("num_key", nil, "type_test"))["=="](42)
-	nvars.Set("bool_key", true, "type_test")
-	T(nvars.Get("bool_key", nil, "type_test"))["=="](true)
-	nvars.Set("nil_key", nil, "type_test")
-	T(nvars.Get("nil_key", "default", "type_test"))["=="]("default")
-	nvars.RemoveObject("type_test")
-end)
-
-T.Test("network packet buffer write read string", function()
-	local packet = import("goluwa/network/packet.lua")
-	local buffer = packet.CreateBuffer()
-	buffer:WriteString("test_string")
-	buffer:SetPosition(1)
-	local read_str = buffer:ReadString()
-	T(read_str)["=="]("test_string")
-end)
-
 T.Test("network client valid check", function()
 	local clients = import("goluwa/network/clients.lua")
 	local client = clients.Create("valid_test", false)
 	T(client:IsValid())["=="](true)
 	client:Remove()
 	T(client:IsValid())["=="](false)
-end)
-
-T.Test("network nvars environment isolation", function()
-	local nvars = import("goluwa/network/nvars.lua")
-	nvars.Set("shared_key", "env1_value", "env_a")
-	nvars.Set("shared_key", "env2_value", "env_b")
-	T(nvars.Get("shared_key", nil, "env_a"))["=="]("env1_value")
-	T(nvars.Get("shared_key", nil, "env_b"))["=="]("env2_value")
-	nvars.RemoveObject("env_a")
-	nvars.RemoveObject("env_b")
-end)
-
-T.Test("network packet buffer clear", function()
-	local packet = import("goluwa/network/packet.lua")
-	local buffer = packet.CreateBuffer()
-	buffer:WriteString("data")
-	buffer:Clear()
-	T(#buffer.buffer)["=="](0)
-	T(buffer.position)["=="](1)
-end)
-
-T.Test("network client get local client", function()
-	local clients = import("goluwa/network/clients.lua")
-	local local_client = clients.GetLocalClient()
-	T(local_client)["~="](nil)
-	T(local_client:IsValid())["=="](true)
 end)

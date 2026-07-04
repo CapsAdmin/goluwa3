@@ -166,15 +166,7 @@ end, function(buffer)
 end)
 
 if CLIENT then
-	local function ensure_local_client()
-		if not clients.local_client then
-			clients.local_client = clients.Create("unconnected")
-		end
-
-		return clients.local_client
-	end
-
-	clients.GetOrCreateLocalClient = ensure_local_client
+	clients.local_client = clients.local_client or clients.Create("unconnected")
 end
 
 return clients

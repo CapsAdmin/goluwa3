@@ -349,19 +349,4 @@ do -- send lua
 	end
 end
 
-if SERVER then
-	timer.Repeat(
-		"update_clients",
-		1,
-		0,
-		function()
-			for _, client in ipairs(clients:GetAll()) do
-				if not client:IsBot() then
-					client:SetPing(client.socket.peer.roundTripTime)
-				end
-			end
-		end
-	)
-end
-
 return META:Register()
