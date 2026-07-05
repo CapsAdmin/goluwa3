@@ -1,10 +1,10 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Text = import("../elements/text.lua")
-local Slider = import("../elements/slider.lua")
-local Row = import("../elements/row.lua")
-local Column = import("../elements/column.lua")
-local theme = import("../theme.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
+local Slider = import("goluwa/render2d/ui/elements/slider.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local Color = import("goluwa/structs/color.lua")
 return {
 	Name = "sliders",

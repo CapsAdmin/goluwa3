@@ -59,7 +59,7 @@ do
 		local ent = base_new(config)
 
 		if tooltip_state.source ~= nil then
-			import("lua/ui/tooltip.lua").Attach(ent, tooltip_state.source, tooltip_state.options)
+			import("goluwa/render2d/ui/tooltip.lua").Attach(ent, tooltip_state.source, tooltip_state.options)
 		end
 
 		return ent

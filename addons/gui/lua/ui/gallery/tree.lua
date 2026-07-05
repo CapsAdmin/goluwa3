@@ -1,15 +1,15 @@
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Button = import("../widgets/button.lua")
-local Checkbox = import("../elements/checkbox.lua")
-local Column = import("../elements/column.lua")
-local Frame = import("../elements/frame.lua")
-local Row = import("../elements/row.lua")
-local ScrollablePanel = import("../elements/scrollable_panel.lua")
-local Splitter = import("../elements/splitter.lua")
-local SVG = import("../elements/svg.lua")
-local Text = import("../elements/text.lua")
-local Tree = import("../widgets/tree.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Frame = import("goluwa/render2d/ui/elements/frame.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
+local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
+local SVG = import("goluwa/render2d/ui/elements/svg.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
+local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 local ICON_SOURCES = {
 	folder = "https://api.iconify.design/ic/baseline-folder.svg",
 	file = "https://api.iconify.design/ic/round-insert-drive-file.svg",
@@ -111,13 +111,13 @@ local function build_demo_items(show_hidden)
 									Description = "Reusable UI controls such as buttons, splitters, editors, and now tree views.",
 									Children = {
 										{
-											Key = "project/lua/ui/elements/tree.lua",
+											Key = "project/goluwa/render2d/ui/elements/tree.lua",
 											Text = "tree.lua",
 											Kind = "file",
 											Description = "The new data-driven tree element with keyed expansion, selection, and rebuild helpers.",
 										},
 										{
-											Key = "project/lua/ui/elements/collapsible.lua",
+											Key = "project/goluwa/render2d/ui/elements/collapsible.lua",
 											Text = "collapsible.lua",
 											Kind = "file",
 											Description = "Animated container used as a reference for disclosure-style interactions.",
@@ -266,7 +266,7 @@ return {
 	Create = function()
 		local state = {
 			show_hidden = false,
-			selected_key = "project/lua/ui/elements/tree.lua",
+			selected_key = "project/goluwa/render2d/ui/elements/tree.lua",
 			items = build_demo_items(false),
 			last_drop = "Drag rows by their labels. Drop near an edge to place before or after, or in the middle of a folder to move into it.",
 		}
@@ -355,7 +355,7 @@ return {
 					Text = "Focus tree.lua",
 					Mode = "outline",
 					OnClick = function()
-						state.selected_key = "project/lua/ui/elements/tree.lua"
+						state.selected_key = "project/goluwa/render2d/ui/elements/tree.lua"
 
 						if tree_view and tree_view:IsValid() then
 							tree_view:ExpandToKey(state.selected_key)

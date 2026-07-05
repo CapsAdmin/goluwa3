@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Clickable = import("addons/gui/lua/ui/elements/clickable.lua")
-local theme = import("addons/gui/lua/ui/theme.lua")
+local Clickable = import("addons/gui/goluwa/render2d/ui/elements/clickable.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 
 T.Test("clickable creates panel with correct name and initial state", function()
 	-- Ensure theme is initialized

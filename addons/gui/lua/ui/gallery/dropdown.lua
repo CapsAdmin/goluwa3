@@ -1,7 +1,7 @@
-local Column = import("../elements/column.lua")
-local Dropdown = import("../widgets/dropdown.lua")
-local Row = import("../elements/row.lua")
-local Text = import("../elements/text.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
 
 local function build_options(prefix, count)
 	local options = {}

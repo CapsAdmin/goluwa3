@@ -2,7 +2,7 @@ local T = import("test/environment.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
-local Window = import("addons/gui/lua/ui/widgets/window.lua")
+local Window = import("addons/gui/goluwa/render2d/ui/widgets/window.lua")
 
 T.Test2D("request mouse follows panel visibility and removal", function()
 	local old_world = Panel.World

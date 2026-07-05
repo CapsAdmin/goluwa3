@@ -1,11 +1,11 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Text = import("../elements/text.lua")
-local ProgressBar = import("../elements/progress_bar.lua")
-local Column = import("../elements/column.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
+local ProgressBar = import("goluwa/render2d/ui/elements/progress_bar.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
 local timer = import("goluwa/timer.lua")
 local Color = import("goluwa/structs/color.lua")
-local theme = import("../theme.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 return {
 	Name = "progress bars",
 	Create = function()

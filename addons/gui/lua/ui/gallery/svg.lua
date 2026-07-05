@@ -1,13 +1,13 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Button = import("../widgets/button.lua")
-local Column = import("../elements/column.lua")
-local Frame = import("../elements/frame.lua")
-local Row = import("../elements/row.lua")
-local Slider = import("../elements/slider.lua")
-local SVG = import("../elements/svg.lua")
-local Text = import("../elements/text.lua")
-local TextEdit = import("../elements/text_edit.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Frame = import("goluwa/render2d/ui/elements/frame.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Slider = import("goluwa/render2d/ui/elements/slider.lua")
+local SVG = import("goluwa/render2d/ui/elements/svg.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
+local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local icon_sources = {
 	{"Home", "https://api.iconify.design/mdi-light/home.svg"},
 	{"Heart", "https://api.iconify.design/mdi-light/heart.svg"},

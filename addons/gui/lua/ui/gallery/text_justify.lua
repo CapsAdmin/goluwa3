@@ -1,9 +1,9 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
-local Column = import("../elements/column.lua")
-local Row = import("../elements/row.lua")
-local Text = import("../elements/text.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local ARTICLE = [[
 Justified text stretches the spaces on each interior line so the paragraph reaches both edges of the column. It is the same core idea as CSS text-align: justify: break the lines first, then distribute the remaining width across the expandable spaces.
