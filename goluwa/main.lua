@@ -115,9 +115,9 @@ local function init_game()
 
 	if SERVER or CLIENT then
 		local network = import("goluwa/network/network.lua")
-		import("goluwa/network/commands.lua")
-		import("goluwa/network/chat.lua")
 		network.Initialize()
+
+		if SERVER then commands.RunString("host") end
 	end
 end
 
