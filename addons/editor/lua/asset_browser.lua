@@ -17,7 +17,7 @@ local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Material = import("goluwa/render3d/material.lua")
-local ModelPreview = import("addons/gui/lua/model_preview.lua")
+local ModelPreview = import("lua/model_preview.lua")
 local DEFAULT_CATEGORY_ORDER = {
 	{name = "models", label = "models"},
 	{name = "textures", label = "textures"},

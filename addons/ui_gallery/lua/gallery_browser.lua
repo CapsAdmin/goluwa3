@@ -30,10 +30,10 @@ end
 
 local function build_gallery(props)
 	local pages = {}
-	local gallery_files = vfs.Find("lua/ui/gallery/%.lua$")
+	local gallery_files = vfs.Find("lua/gallery/%.lua$")
 
 	for _, file in ipairs(gallery_files) do
-		local ok, page = pcall(import, "lua/ui/gallery/" .. file)
+		local ok, page = pcall(import, "lua/gallery/" .. file)
 
 		if ok then
 			table.insert(pages, page)

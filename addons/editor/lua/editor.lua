@@ -27,8 +27,7 @@ local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-local Gallery = import("./gallery.lua")
-local AssetBrowser = import("./asset_browser.lua")
+local AssetBrowser = import("lua/asset_browser.lua")
 local Material = import("goluwa/render3d/material.lua")
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
@@ -1646,6 +1645,7 @@ return function(props)
 	end
 
 	local function open_gallery()
+		local Gallery = import("addons/ui_gallery/lua/gallery_browser.lua")
 		Panel.World:Ensure(Gallery({Key = "GalleryWindow"}))
 	end
 
