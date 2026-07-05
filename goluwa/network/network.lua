@@ -15,8 +15,7 @@ network.socket = network.socket or NULL
 
 function network.Initialize()
 	transport_layer.Initialize()
-	local packet = import("goluwa/network/packet.lua")
-	packet.Initialize()
+	message.Initialize()
 	clients.Initialize()
 end
 

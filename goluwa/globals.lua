@@ -166,7 +166,6 @@ do
 	local string_format = string.format
 	local logging
 	print = function(...)
-		logging = logging or import_global("goluwa/cli/logging.lua")
 		local str = {}
 
 		for i = 1, select_global("#", ...) do
@@ -181,14 +180,14 @@ do
 			if path:find("tostring_object") then path = callstack.get_line(3) end
 
 			if path:starts_with("[string]:1") then
-				logging.RawLog(str)
+				io.write(str)
 				return
 			end
 
 			if path then str = string_format("%s %s", path, str) end
 		end
 
-		logging.RawLog(str)
+		io.write(str)
 	end
 end
 

@@ -126,6 +126,7 @@ end
 
 do -- server template
 	local PeerServer = objects.CreateTemplate("peer_server")
+	PeerServer.Base = import("goluwa/sockets/udp_server.lua")
 
 	function PeerServer:OnReceive(peer, str, flags, channel) end
 
@@ -133,109 +134,91 @@ do -- server template
 
 	function PeerServer:OnPeerDisconnect(peer, code) end
 
+	function PeerServer:Broadcast(str, flags, channel)
+		for _, peer in pairs(self.peers) do
+			if peer:IsValid() and peer.socket then
+				peer.socket:Send(str, peer.address.ip, peer.address.port)
+			end
+		end
+	end
+
+	function PeerServer:GetPeers()
+		local result = {}
+
+		for _, peer in pairs(self.peers) do
+			if peer:IsValid() then table.insert(result, peer) end
+		end
+
+		return result
+	end
+
+	local socket_pool = import("goluwa/sockets/socket_pool.lua")
+
+	function PeerServer:Remove()
+		for _, peer in pairs(self.peers) do
+			if peer:IsValid() then
+				peer:OnDisconnect()
+				peer:Remove()
+			end
+		end
+
+		self.peers = {}
+
+		if self.socket then
+			-- server.socket is a raw socket, not a UDPServer. Remove from pool directly.
+			socket_pool:remove(self)
+			self.socket:close()
+			self.socket = nil
+		end
+
+		-- Remove from transport_layer.servers
+		for i, s in ipairs(transport_layer.servers) do
+			if s == self then
+				table.remove(transport_layer.servers, i)
+
+				break
+			end
+		end
+	end
+
+	function PeerServer:OnReceiveChunk(chunk, address)
+		if not address then return end
+
+		local key = address:get_ip() .. ":" .. tostring(address:get_port())
+
+		if not self.peers[key] then
+			local peer = objects.CreateObject(objects.GetRegistered("peer_client"))
+			peer.address = {ip = address:get_ip(), port = address:get_port()}
+			peer.connected = true
+			-- Create a UDP socket for this peer so we can send data back
+			peer.socket = UDPClient.New()
+			peer.socket:SetAddress(peer.address.ip, peer.address.port)
+			list.insert(transport_layer.sockets, peer)
+			self.peers[key] = peer
+			llog("[transport] Created peer for %s:%d", peer.address.ip, peer.address.port)
+			self:OnPeerConnect(peer)
+		end
+
+		local peer = self.peers[key]
+
+		if peer and peer:IsValid() then self:OnReceive(peer, chunk, 0, 0) end
+
+		self.BaseClass.OnReceiveChunk(self, chunk, address)
+	end
+
+	function PeerServer:IsValid()
+		return self.socket ~= nil
+	end
+
 	objects.Register(PeerServer)
 
 	function transport_layer.CreateServer(ip, port, max_connections, max_channels, incomming_bandwidth, outgoing_bandwidth)
-		local server = UDPServer.New()
+		local server = PeerServer:CreateObject()
+		server:Initialize()
 		server.peers = {}
 		server:SetAddress(ip, port)
 		-- Bind the socket to the address
 		server.socket:bind(ip, port)
-
-		-- Attach transport layer methods to the server instance
-		function server:GetPeers()
-			local result = {}
-
-			for _, peer in pairs(self.peers) do
-				if peer:IsValid() then table.insert(result, peer) end
-			end
-
-			return result
-		end
-
-		function server:Broadcast(str, flags, channel)
-			for _, peer in pairs(self.peers) do
-				if peer:IsValid() and peer.socket then
-					peer.socket:Send(str, peer.address.ip, peer.address.port)
-				end
-			end
-		end
-
-		function server:Remove()
-			for _, peer in pairs(self.peers) do
-				if peer:IsValid() then
-					peer:OnDisconnect()
-					peer:Remove()
-				end
-			end
-
-			self.peers = {}
-
-			if self.socket then
-				-- server.socket is a raw socket, not a UDPServer. Remove from pool directly.
-				local socket_pool = import("goluwa/sockets/socket_pool.lua")
-				socket_pool:remove(self)
-				self.socket:close()
-				self.socket = nil
-			end
-
-			-- Remove from transport_layer.servers
-			for i, s in ipairs(transport_layer.servers) do
-				if s == self then
-					table.remove(transport_layer.servers, i)
-
-					break
-				end
-			end
-		end
-
-		function server:IsValid()
-			return self.socket ~= nil
-		end
-
-		function server:OnReceive(peer, str, flags, channel) end
-
-		function server:OnPeerConnect(peer) end
-
-		function server:OnPeerDisconnect(peer, code) end
-
-		-- Override OnReceiveChunk to dispatch to peers
-		local original_on_receive_chunk = server.OnReceiveChunk
-
-		function server:OnReceiveChunk(chunk, address)
-			if not address then return end
-
-			local key = address:get_ip() .. ":" .. tostring(address:get_port())
-
-			if not self.peers[key] then
-				local peer_meta = objects.GetRegistered("peer_client")
-
-				if not peer_meta then
-					wlog("transport_layer: peer_client template not registered, skipping peer creation")
-					return
-				end
-
-				local peer = objects.CreateObject(peer_meta)
-				peer.address = {ip = address:get_ip(), port = address:get_port()}
-				peer.connected = true
-				-- Create a UDP socket for this peer so we can send data back
-				peer.socket = UDPClient.New()
-				peer.socket:SetAddress(peer.address.ip, peer.address.port)
-				list.insert(transport_layer.sockets, peer)
-				self.peers[key] = peer
-				llog("[transport] Created peer for %s:%d", peer.address.ip, peer.address.port)
-				self:OnPeerConnect(peer)
-			end
-
-			local peer = self.peers[key]
-
-			if peer and peer:IsValid() then self:OnReceive(peer, chunk, 0, 0) end
-
-			if original_on_receive_chunk then
-				original_on_receive_chunk(self, chunk, address)
-			end
-		end
-
 		table.insert(transport_layer.servers, server)
 		return server
 	end
