@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local META = objects.CreateTemplate()
 META.Name = "network"
 -- these are either part the base object or the entity itself
@@ -364,10 +368,10 @@ if NETWORK then
 
 	packet.ExtendBuffer("Entity", function(buffer, ent)
 		if ent:IsValid() and ent.GetNetworkId then
-			buffer:WriteLong(ent:GetNetworkId())
+			buffer:WriteI32(ent:GetNetworkId())
 		end
 	end, function(buffer)
-		local component = spawned_networked[buffer:ReadLong()] or NULL
+		local component = spawned_networked[buffer:ReadI32()] or NULL
 
 		if component:IsValid() then return component:GetEntity() end
 

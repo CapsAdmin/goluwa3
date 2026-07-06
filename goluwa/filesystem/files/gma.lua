@@ -16,8 +16,8 @@ function CONTEXT:OnParseArchive(file, archive_path)
 	if file:ReadBytes(4) ~= "GMAD" then return false, "not a gmad archive" end
 
 	info.format_version = file:ReadByte()
-	info.steamid = file:ReadUnsignedLongLong()
-	info.timestamp = file:ReadUnsignedLongLong()
+	info.steamid = file:ReadU64()
+	info.timestamp = file:ReadU64()
 	local junk = file:ReadString()
 
 	repeat
@@ -28,17 +28,17 @@ function CONTEXT:OnParseArchive(file, archive_path)
 	info.name = file:ReadString()
 	info.desc = file:ReadString()
 	info.author = file:ReadString()
-	file:ReadInt()
+	file:ReadI32()
 	info.entries = {}
 	local file_number = 1
 	local offset = 0
 
-	while file:ReadInt() ~= 0 do
+	while file:ReadI32() ~= 0 do
 		local entry = {}
 		entry.full_path = file:ReadString()
 		entry.archive_path = "os:" .. archive_path
-		entry.size = tonumber(file:ReadLongLong())
-		file:ReadUnsignedLong()
+		entry.size = tonumber(file:ReadI64())
+		file:ReadU32()
 		entry.offset = offset
 		entry.file_number = file_number
 		offset = offset + entry.size

@@ -316,7 +316,7 @@ local function load_mdl(path)
 
 			for i = 1, header.material_count do
 				local material_pos = buffer:GetPosition()
-				local offset = buffer:ReadInt()
+				local offset = buffer:ReadI32()
 
 				if offset > 0 then
 					local string_pos = material_pos + offset
@@ -339,7 +339,7 @@ local function load_mdl(path)
 		end
 
 		parse("texturedir", function(data, i)
-			local offset = buffer:ReadLong()
+			local offset = buffer:ReadI32()
 			buffer:PushPosition(offset)
 			data.path = "materials/" .. file_path.FixPathSlashes(buffer:ReadString())
 			buffer:PopPosition()
@@ -353,7 +353,7 @@ local function load_mdl(path)
 
 	parse("bone", function(data, i)
 		do -- bone name
-			local offset = buffer:ReadInt()
+			local offset = buffer:ReadI32()
 			if not bone_names then
 				bone_names = {}
 				buffer:PushPosition(header.bone_offset + offset)
@@ -365,13 +365,13 @@ local function load_mdl(path)
 			data.name = bone_names[i]
 		end
 
-		data.parent_bone_index = buffer:ReadInt()
+		data.parent_bone_index = buffer:ReadI32()
 
 		do
 			data.controller_index = {}
 
 			for i = 1, 6 do
-				data.controller_index[i] = buffer:ReadInt()
+				data.controller_index[i] = buffer:ReadI32()
 			end
 		end
 
@@ -393,13 +393,13 @@ local function load_mdl(path)
 
 		data.quat_alignment = buffer:ReadQuat()
 
-		data.flags = buffer:ReadInt()
-		data.procedural_rule_type = buffer:ReadInt()
-		data.procedural_rule_offset = buffer:ReadInt()
-		data.physics_bone_index = buffer:ReadInt()
+		data.flags = buffer:ReadI32()
+		data.procedural_rule_type = buffer:ReadI32()
+		data.procedural_rule_offset = buffer:ReadI32()
+		data.physics_bone_index = buffer:ReadI32()
 
 		do -- bone name
-			local offset = buffer:ReadInt()
+			local offset = buffer:ReadI32()
 			if not render2d_prop_names then
 				render2d_prop_names = {}
 				buffer:PushPosition(header.bone_offset + offset)
@@ -411,66 +411,66 @@ local function load_mdl(path)
 			data.render2d_prop_name = render2d_prop_names[i]
 		end
 
-		data.contents = buffer:ReadInt()
+		data.contents = buffer:ReadI32()
 
 		buffer:Advance(32)
 	end)
 
 	parse("mouths", function(data, i)
-		data.bone_index = buffer:ReadInt()
+		data.bone_index = buffer:ReadI32()
 		data.forward = buffer:ReadVec3()
-		data.flex_desc_index = buffer:ReadInt()
+		data.flex_desc_index = buffer:ReadI32()
 	end)
 
 	parse("localseq", function(data, i)
 		do return end
-		data.base_header_offset = buffer:ReadInt()
-		data.name = string_from_offset(header.localanim_offset, buffer:ReadInt())
-		data.activity_name = string_from_offset(header.localanim_offset, buffer:ReadInt())
-		data.flags = buffer:ReadInt()
-		data.activity = buffer:ReadInt()
-		data.activity_weight = buffer:ReadInt()
-		data.event_count = buffer:ReadInt()
-		data.event_offset = buffer:ReadInt()
+		data.base_header_offset = buffer:ReadI32()
+		data.name = string_from_offset(header.localanim_offset, buffer:ReadI32())
+		data.activity_name = string_from_offset(header.localanim_offset, buffer:ReadI32())
+		data.flags = buffer:ReadI32()
+		data.activity = buffer:ReadI32()
+		data.activity_weight = buffer:ReadI32()
+		data.event_count = buffer:ReadI32()
+		data.event_offset = buffer:ReadI32()
 
 		data.bb_min = buffer:ReadVec3()
 		data.bb_max = buffer:ReadVec3()
 
-		data.blend_count = buffer:ReadInt()
-		data.anim_index_offset = buffer:ReadInt()
+		data.blend_count = buffer:ReadI32()
+		data.anim_index_offset = buffer:ReadI32()
 
-		data.group_size = {buffer:ReadInt(), buffer:ReadInt()}
+		data.group_size = {buffer:ReadI32(), buffer:ReadI32()}
 
-		data.param_index = {buffer:ReadInt(), buffer:ReadInt()}
+		data.param_index = {buffer:ReadI32(), buffer:ReadI32()}
 		data.param_start = {buffer:ReadFloat(), buffer:ReadFloat()}
 		data.param_end = {buffer:ReadFloat(), buffer:ReadFloat()}
-		data.param_parent = buffer:ReadInt()
+		data.param_parent = buffer:ReadI32()
 
 		data.fade_in_time = buffer:ReadFloat()
 		data.fade_out_time = buffer:ReadFloat()
 
-		data.localEntryNodeIndex = buffer:ReadInt()
-		data.localExitNodeIndex = buffer:ReadInt()
-		data.nodeFlags = buffer:ReadInt()
+		data.localEntryNodeIndex = buffer:ReadI32()
+		data.localExitNodeIndex = buffer:ReadI32()
+		data.nodeFlags = buffer:ReadI32()
 
 		data.entryPhase = buffer:ReadFloat()
 		data.exitPhase = buffer:ReadFloat()
 		data.lastFrame = buffer:ReadFloat()
 
-		data.nextSeq = buffer:ReadInt()
-		data.pose = buffer:ReadInt()
+		data.nextSeq = buffer:ReadI32()
+		data.pose = buffer:ReadI32()
 
-		data.ikRuleCount = buffer:ReadInt()
-		data.autoLayerCount = buffer:ReadInt()
-		data.autoLayerOffset = buffer:ReadInt()
-		data.weightOffset = buffer:ReadInt()
-		data.poseKeyOffset = buffer:ReadInt()
+		data.ikRuleCount = buffer:ReadI32()
+		data.autoLayerCount = buffer:ReadI32()
+		data.autoLayerOffset = buffer:ReadI32()
+		data.weightOffset = buffer:ReadI32()
+		data.poseKeyOffset = buffer:ReadI32()
 
-		data.ikLockCount = buffer:ReadInt()
-		data.ikLockOffset = buffer:ReadInt()
-		data.keyValueOffset = buffer:ReadInt()
-		data.keyValueSize = buffer:ReadInt()
-		data.cyclePoseIndex = buffer:ReadInt()
+		data.ikLockCount = buffer:ReadI32()
+		data.ikLockOffset = buffer:ReadI32()
+		data.keyValueOffset = buffer:ReadI32()
+		data.keyValueSize = buffer:ReadI32()
+		data.cyclePoseIndex = buffer:ReadI32()
 	end)
 
 	buffer:PushPosition(header.keyvalue_offset)
@@ -508,16 +508,16 @@ local function load_vtx(path)
 		long lod_count;
 		long material_replacement_list_offset;
 	]])
-	vtx.body_part_count = buffer:ReadLong()
-	vtx.body_part_offset = buffer:ReadLong()
+	vtx.body_part_count = buffer:ReadI32()
+	vtx.body_part_offset = buffer:ReadI32()
 	buffer:PushPosition(vtx.body_part_offset)
 	vtx.body_parts = {}
 
 	for i = 1, vtx.body_part_count do
 		local stream_pos = buffer:GetPosition()
 		local body_part = {}
-		body_part.model_count = buffer:ReadLong()
-		body_part.model_offset = buffer:ReadLong()
+		body_part.model_count = buffer:ReadI32()
+		body_part.model_offset = buffer:ReadI32()
 		vtx.body_parts[i] = body_part
 		buffer:PushPosition(stream_pos + body_part.model_offset)
 		body_part.models = {}
@@ -525,8 +525,8 @@ local function load_vtx(path)
 		for i = 1, body_part.model_count do
 			local stream_pos = buffer:GetPosition()
 			local model = {}
-			model.lod_count = buffer:ReadLong()
-			model.lod_offset = buffer:ReadLong()
+			model.lod_count = buffer:ReadI32()
+			model.lod_offset = buffer:ReadI32()
 			body_part.models[i] = model
 			buffer:PushPosition(stream_pos + model.lod_offset)
 			model.model_lods = {}
@@ -534,8 +534,8 @@ local function load_vtx(path)
 			for i = 1, model.lod_count do
 				local stream_pos = buffer:GetPosition()
 				local lod_model = {}
-				lod_model.mesh_count = buffer:ReadLong()
-				lod_model.mesh_offset = buffer:ReadLong()
+				lod_model.mesh_count = buffer:ReadI32()
+				lod_model.mesh_offset = buffer:ReadI32()
 				lod_model.switchPoint = buffer:Advance(4) --buffer:ReadFloat()
 				model.model_lods[i] = lod_model
 				buffer:PushPosition(stream_pos + lod_model.mesh_offset)
@@ -544,8 +544,8 @@ local function load_vtx(path)
 				for i = 1, lod_model.mesh_count do
 					local stream_pos = buffer:GetPosition()
 					local mesh = {}
-					mesh.strip_group_count = buffer:ReadLong()
-					mesh.strip_group_offset = buffer:ReadLong()
+					mesh.strip_group_count = buffer:ReadI32()
+					mesh.strip_group_offset = buffer:ReadI32()
 					mesh.flags = buffer:ReadByte()
 					lod_model.meshes[i] = mesh
 					buffer:PushPosition(stream_pos + mesh.strip_group_offset)
@@ -554,12 +554,12 @@ local function load_vtx(path)
 					for i = 1, mesh.strip_group_count do
 						local stream_pos = buffer:GetPosition()
 						local strip_group = {}
-						strip_group.vertices_count = buffer:ReadLong()
-						strip_group.vertices_offset = buffer:ReadLong()
-						strip_group.indices_count = buffer:ReadLong()
-						strip_group.indices_offset = buffer:ReadLong()
-						strip_group.strip_count = buffer:ReadLong()
-						strip_group.strip_offset = buffer:ReadLong()
+						strip_group.vertices_count = buffer:ReadI32()
+						strip_group.vertices_offset = buffer:ReadI32()
+						strip_group.indices_count = buffer:ReadI32()
+						strip_group.indices_offset = buffer:ReadI32()
+						strip_group.strip_count = buffer:ReadI32()
+						strip_group.strip_offset = buffer:ReadI32()
 						strip_group.flags = buffer:ReadByte()
 						mesh.strip_groups[i] = strip_group
 						local vertices = {}
@@ -574,7 +574,7 @@ local function load_vtx(path)
 							end
 							vertex.bone_count = buffer:ReadByte()
 							]]
-							vertex.mesh_vertex_index = buffer:ReadShort()
+							vertex.mesh_vertex_index = buffer:ReadI16()
 							buffer:Advance(MAX_NUM_BONES_PER_VERT)
 							--[[
 							for i = 1, MAX_NUM_BONES_PER_VERT do
@@ -588,7 +588,7 @@ local function load_vtx(path)
 						buffer:PushPosition(stream_pos + strip_group.indices_offset)
 
 						for i = 1, strip_group.indices_count do
-							indices[i] = buffer:ReadShort() + 1
+							indices[i] = buffer:ReadI16() + 1
 						end
 
 						buffer:PopPosition()
@@ -598,23 +598,23 @@ local function load_vtx(path)
 						for i = 1, strip_group.strip_count do
 							local stream_pos = buffer:GetPosition()
 							local strip = {}
-							strip.indices_count = buffer:ReadLong()
-							strip.indices_offset = buffer:ReadLong()
-							strip.vertices_count = buffer:ReadLong()
-							strip.vertices_offset = buffer:ReadLong()
+							strip.indices_count = buffer:ReadI32()
+							strip.indices_offset = buffer:ReadI32()
+							strip.vertices_count = buffer:ReadI32()
+							strip.vertices_offset = buffer:ReadI32()
 							buffer:Advance(2 + 1 + 8)
-							--strip.bone_count = buffer:ReadShort()
+							--strip.bone_count = buffer:ReadI16()
 							--strip.flags = buffer:ReadByte()
 							--[[
-							strip.bone_state_change_count = buffer:ReadLong()
-							strip.bone_state_change_offset = buffer:ReadLong()
+							strip.bone_state_change_count = buffer:ReadI32()
+							strip.bone_state_change_offset = buffer:ReadI32()
 
 							local bone_state_changes = {}
 							buffer:PushPosition(stream_pos + strip.bone_state_change_offset)
 							for i = 1, strip.bone_state_change_count do
 								bone_state_changes[i] = {}
-								bone_state_changes[i].hardware_id = buffer:ReadLong()
-								bone_state_changes[i].new_bone_id = buffer:ReadLong()
+								bone_state_changes[i].hardware_id = buffer:ReadI32()
+								bone_state_changes[i].new_bone_id = buffer:ReadI32()
 							end
 							buffer:PopPosition()
 							strip.bone_state_changes = bone_state_changes
@@ -659,18 +659,18 @@ local function load_vvd(path)
 	local buffer = find_file(path, ".vvd")
 	local vvd = {lod_vertices_count = {}}
 	vvd.id = buffer:ReadBytes(4)
-	vvd.version = buffer:ReadLong()
-	vvd.checksum = buffer:ReadLong()
-	vvd.lod_count = buffer:ReadLong()
+	vvd.version = buffer:ReadI32()
+	vvd.checksum = buffer:ReadI32()
+	vvd.lod_count = buffer:ReadI32()
 
 	for i = 1, MAX_NUM_LODS do
-		vvd.lod_vertices_count[i] = buffer:ReadLong()
+		vvd.lod_vertices_count[i] = buffer:ReadI32()
 	end
 
-	vvd.fixup_count = buffer:ReadLong()
-	vvd.fixup_offset = buffer:ReadLong()
-	vvd.vertices_offset = buffer:ReadLong()
-	vvd.tangentDataOffset = buffer:ReadLong()
+	vvd.fixup_count = buffer:ReadI32()
+	vvd.fixup_offset = buffer:ReadI32()
+	vvd.vertices_offset = buffer:ReadI32()
+	vvd.tangentDataOffset = buffer:ReadI32()
 	vvd.vertices = {}
 
 	local function read_vertex(i)
@@ -719,9 +719,9 @@ local function load_vvd(path)
 
 		for i = 1, vvd.fixup_count do
 			local fixup = {}
-			fixup.lod_index = buffer:ReadLong() + 1
-			fixup.vertex_index = buffer:ReadLong() + 1
-			fixup.vertices_count = buffer:ReadLong()
+			fixup.lod_index = buffer:ReadI32() + 1
+			fixup.vertex_index = buffer:ReadI32() + 1
+			fixup.vertices_count = buffer:ReadI32()
 			vvd.theFixups[i] = fixup
 		end
 

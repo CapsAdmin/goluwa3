@@ -1241,6 +1241,20 @@ function buffer_template.AddStructureFunctions(META)
 	end
 
 	local cache = table.weak()
+	local map = {
+		["short"] = "16",
+		["long"] = "32",
+		["int"] = "32",
+		["long long"] = "64",
+		["unsigned short"] = "u16",
+		["unsigned long"] = "u32",
+		["unsigned int"] = "u32",
+		["unsigned long long"] = "u64",
+		["signed short"] = "i16",
+		["signed long"] = "i32",
+		["signed int"] = "i32",
+		["signed long long"] = "i64",
+	}
 
 	function META:ReadStructure(structure, ordered)
 		if cache[structure] then
@@ -1249,6 +1263,14 @@ function buffer_template.AddStructureFunctions(META)
 
 		if type(structure) == "string" then
 			-- if the string is something like "vec3" just call ReadType
+			if map[structure] then
+				structure = map[structure]
+
+				if not structure:starts_with("i") and not structure:starts_with("u") then
+					structure = "i" .. structure
+				end
+			end
+
 			if META.read_functions[structure] then return self:ReadType(structure) end
 
 			local data = header_to_table(structure)
@@ -1269,7 +1291,18 @@ function buffer_template.AddStructureFunctions(META)
 				end
 			end
 
-			local read_type = data.signed and data[1] or "unsigned " .. data[1]
+			local read_type = data[1]
+
+			if map[read_type] then
+				read_type = map[read_type]
+
+				if data.signed then
+					read_type = "i" .. read_type
+				else
+					read_type = "u" .. read_type
+				end
+			end
+
 			local val
 
 			if data.length then

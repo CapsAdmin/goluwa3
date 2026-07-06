@@ -164,11 +164,11 @@ do
 		end
 
 		function gine.env.net.WriteInt(v)
-			BUFFER:WriteLongLong(v)
+			BUFFER:WriteI64(v)
 		end
 
 		function gine.env.net.WriteUInt(v)
-			BUFFER:WriteUnsignedLongLong(v)
+			BUFFER:WriteU64(v)
 		end
 
 		function gine.env.net.ReadAngle()
@@ -196,7 +196,7 @@ do
 		end
 
 		function gine.env.net.ReadInt()
-			return tonumber(BUFFER:ReadLongLong())
+			return tonumber(BUFFER:ReadI64())
 		end
 
 		function gine.env.net.ReadMatrix()
@@ -212,7 +212,7 @@ do
 		end
 
 		function gine.env.net.ReadUInt()
-			return tonumber(BUFFER:ReadUnsignedLongLong())
+			return tonumber(BUFFER:ReadU64())
 		end
 
 		function gine.env.net.ReadVector()
@@ -220,7 +220,7 @@ do
 		end
 
 		function gine.env.net.ReadHeader()
-			return BUFFER:ReadInt()
+			return BUFFER:ReadI32()
 		end
 	end
 end

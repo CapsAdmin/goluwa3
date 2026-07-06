@@ -635,7 +635,7 @@ function steam.LoadMap(path)
 		tasks.Wait()
 	end
 
-	header.map_revision = bsp_file:ReadLong()
+	header.map_revision = bsp_file:ReadI32()
 
 	if steam.debug then
 		logn("BSP ", header.ident)
@@ -731,19 +731,19 @@ function steam.LoadMap(path)
 		tasks.Report("reading game lump")
 		local lump = header.lumps[36]
 		bsp_file:SetPosition(lump.fileofs)
-		local game_lumps = bsp_file:ReadLong()
+		local game_lumps = bsp_file:ReadI32()
 
 		for _ = 1, game_lumps do
 			local id = bsp_file:ReadBytes(4)
-			local flags = bsp_file:ReadShort()
-			local version = bsp_file:ReadShort()
-			local fileofs = bsp_file:ReadLong()
-			local filelen = bsp_file:ReadLong()
+			local flags = bsp_file:ReadI16()
+			local version = bsp_file:ReadI16()
+			local fileofs = bsp_file:ReadI32()
+			local filelen = bsp_file:ReadI32()
 
 			if id == "prps" then
 				bsp_file:PushPosition(fileofs)
 				local count
-				count = bsp_file:ReadLong()
+				count = bsp_file:ReadI32()
 				local paths = {}
 
 				for i = 1, count do
@@ -752,14 +752,14 @@ function steam.LoadMap(path)
 					if str ~= "" then paths[i] = str end
 				end
 
-				count = bsp_file:ReadLong()
+				count = bsp_file:ReadI32()
 				local leafs = {}
 
 				for i = 1, count do
-					leafs[i] = bsp_file:ReadShort()
+					leafs[i] = bsp_file:ReadI16()
 				end
 
-				count = bsp_file:ReadLong()
+				count = bsp_file:ReadI32()
 				local lump_size = ((filelen + fileofs) - bsp_file:GetPosition()) / count
 
 				for i = 1, count do
@@ -784,8 +784,8 @@ function steam.LoadMap(path)
 					if version >= 5 then lump.forced_fade_scale = bsp_file:ReadFloat() end
 
 					if version == 6 or version == 7 then
-						lump.min_dx_level = bsp_file:ReadUnsignedShort()
-						lump.max_dx_level = bsp_file:ReadUnsignedShort()
+						lump.min_dx_level = bsp_file:ReadU16()
+						lump.max_dx_level = bsp_file:ReadU16()
 					end
 
 					if version >= 8 then
@@ -805,9 +805,7 @@ function steam.LoadMap(path)
 							lump.disable_xbox360 = bsp_file:ReadBoolean()
 						end
 
-						if version >= 10 then
-							lump.flags_ex = bsp_file:ReadUnsignedLong()
-						end
+						if version >= 10 then lump.flags_ex = bsp_file:ReadU32() end
 
 						if version >= 11 then lump.uniform_scale = bsp_file:ReadFloat() end
 					else
@@ -831,7 +829,7 @@ function steam.LoadMap(path)
 		--[[if id == "prpd" then
 				bsp_file:PushPosition(fileofs)
 
-				local count = bsp_file:ReadLong()
+				local count = bsp_file:ReadI32()
 				local paths = {}
 				logf("prpd paths = %s\n", count)
 
@@ -848,7 +846,7 @@ function steam.LoadMap(path)
 			if id == "tlpd" then
 				bsp_file:PushPosition(fileofs)
 
-				local count = bsp_file:ReadLong()
+				local count = bsp_file:ReadI32()
 				logf("tlpd paths = %s\n", count)
 				--for i = 1, count do
 				--	local a = bsp_file:ReadBytes(4)
@@ -933,7 +931,7 @@ function steam.LoadMap(path)
 		13,
 		4,
 		function()
-			return {bsp_file:ReadUnsignedShort(), bsp_file:ReadUnsignedShort()}
+			return {bsp_file:ReadU16(), bsp_file:ReadU16()}
 		end
 	)
 	header.faces = read_lump_data(

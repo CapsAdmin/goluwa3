@@ -145,5 +145,10 @@ end
 
 local buffer_template = import("goluwa/buffer_template.lua")
 buffer_template.AddBasicFunctions(CONTEXT)
+buffer_template.AddBasicDataTypes(CONTEXT)
 buffer_template.AddStringFunctions(CONTEXT)
+buffer_template.AddPushPopFunctions(CONTEXT)
+buffer_template.AddBitFunctions(CONTEXT)
+buffer_template.AddStructFunctions(CONTEXT)
+buffer_template.AddStructureFunctions(CONTEXT)
 return CONTEXT:Register()

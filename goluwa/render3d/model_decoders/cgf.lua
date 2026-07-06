@@ -119,9 +119,9 @@ function cgf.ReadHeader(file)
 
 	local header = {
 		signature = signature,
-		file_type = file:ReadUnsignedLong(),
-		version = file:ReadUnsignedLong(),
-		chunk_table_offset = file:ReadUnsignedLong(),
+		file_type = file:ReadU32LE(),
+		version = file:ReadU32LE(),
+		chunk_table_offset = file:ReadU32LE(),
 	}
 	assert_old_cgf_version(header.version)
 	return header
@@ -130,21 +130,21 @@ end
 function cgf.ReadChunks(file, header)
 	header = header or cgf.ReadHeader(file)
 	file:PushPosition(header.chunk_table_offset)
-	local chunk_count = file:ReadUnsignedLong()
+	local chunk_count = file:ReadU32()
 	local entry_size = get_chunk_entry_size(header.version)
 	local chunks = {}
 
 	for index = 1, chunk_count do
 		local chunk = {
 			index = index,
-			type = file:ReadUnsignedLong(),
-			raw_version = file:ReadUnsignedLong(),
-			offset = file:ReadUnsignedLong(),
-			id = file:ReadUnsignedLong(),
+			type = file:ReadU32(),
+			raw_version = file:ReadU32(),
+			offset = file:ReadU32(),
+			id = file:ReadU32(),
 		}
 		chunk.version = normalize_chunk_version(chunk.raw_version)
 
-		if entry_size == 20 then chunk.size = file:ReadUnsignedLong() end
+		if entry_size == 20 then chunk.size = file:ReadU32() end
 
 		chunks[index] = chunk
 	end
@@ -161,10 +161,10 @@ end
 function cgf.ReadChunkEmbeddedHeader(file, chunk)
 	file:PushPosition(chunk.offset)
 	local embedded = {
-		type = file:ReadUnsignedLong(),
-		raw_version = file:ReadUnsignedLong(),
-		offset = file:ReadUnsignedLong(),
-		id = file:ReadUnsignedLong(),
+		type = file:ReadU32(),
+		raw_version = file:ReadU32(),
+		offset = file:ReadU32(),
+		id = file:ReadU32(),
 	}
 	file:PopPosition()
 	embedded.version = normalize_chunk_version(embedded.raw_version)
@@ -193,23 +193,23 @@ function cgf.ReadMeshChunk(file, chunk)
 	file:PushPosition(chunk_body_offset(chunk))
 	local mesh = {
 		chunk = chunk,
-		flags = file:ReadLong(),
-		flags2 = file:ReadLong(),
-		num_vertices = file:ReadLong(),
-		num_indices = file:ReadLong(),
-		num_subsets = file:ReadLong(),
-		subsets_chunk_id = file:ReadLong(),
-		vertex_animation_chunk_id = file:ReadLong(),
+		flags = file:ReadI32(),
+		flags2 = file:ReadI32(),
+		num_vertices = file:ReadI32(),
+		num_indices = file:ReadI32(),
+		num_subsets = file:ReadI32(),
+		subsets_chunk_id = file:ReadI32(),
+		vertex_animation_chunk_id = file:ReadI32(),
 		stream_chunk_ids = {},
 		physics_data_chunk_ids = {},
 	}
 
 	for index = 1, 16 do
-		mesh.stream_chunk_ids[index] = file:ReadLong()
+		mesh.stream_chunk_ids[index] = file:ReadI32()
 	end
 
 	for index = 1, 4 do
-		mesh.physics_data_chunk_ids[index] = file:ReadLong()
+		mesh.physics_data_chunk_ids[index] = file:ReadI32()
 	end
 
 	mesh.bounds_min = read_vec3(file)
@@ -223,19 +223,19 @@ function cgf.ReadMeshSubsetsChunk(file, chunk)
 	file:PushPosition(chunk_body_offset(chunk))
 	local out = {
 		chunk = chunk,
-		flags = file:ReadLong(),
-		count = file:ReadLong(),
+		flags = file:ReadI32(),
+		count = file:ReadI32(),
 		subsets = {},
 	}
 	file:Advance(8)
 
 	for index = 1, out.count do
 		out.subsets[index] = {
-			first_index = file:ReadLong(),
-			num_indices = file:ReadLong(),
-			first_vertex = file:ReadLong(),
-			num_vertices = file:ReadLong(),
-			material_id = file:ReadLong(),
+			first_index = file:ReadI32(),
+			num_indices = file:ReadI32(),
+			first_vertex = file:ReadI32(),
+			num_vertices = file:ReadI32(),
+			material_id = file:ReadI32(),
 			radius = file:ReadFloat(),
 			center = read_vec3(file),
 		}
@@ -249,10 +249,10 @@ function cgf.ReadDataStreamChunk(file, chunk)
 	file:PushPosition(chunk_body_offset(chunk))
 	local stream = {
 		chunk = chunk,
-		flags = file:ReadLong(),
-		stream_type = file:ReadLong(),
-		count = file:ReadLong(),
-		element_size = file:ReadLong(),
+		flags = file:ReadI32(),
+		stream_type = file:ReadI32(),
+		count = file:ReadI32(),
+		element_size = file:ReadI32(),
 	}
 	file:Advance(8)
 
@@ -283,7 +283,7 @@ function cgf.ReadDataStreamChunk(file, chunk)
 		stream.values = {}
 
 		for index = 1, stream.count do
-			stream.values[index] = file:ReadUnsignedShort() + 1
+			stream.values[index] = file:ReadU16() + 1
 		end
 	else
 		stream.values = false
@@ -297,8 +297,8 @@ function cgf.ReadMaterialNameChunk(file, chunk)
 	file:PushPosition(chunk_body_offset(chunk))
 	local material = {
 		chunk = chunk,
-		kind = file:ReadLong(),
-		flags = file:ReadLong(),
+		kind = file:ReadI32(),
+		flags = file:ReadI32(),
 		name = file:ReadString(128):remove_padding(),
 	}
 	file:PopPosition()
@@ -311,10 +311,10 @@ function cgf.ReadNodeChunk(file, chunk)
 		id = chunk.id,
 		chunk = chunk,
 		name = file:ReadString(64):remove_padding(),
-		object_id = file:ReadLong(),
-		parent_id = file:ReadLong(),
-		num_children = file:ReadLong(),
-		material_chunk_id = file:ReadLong(),
+		object_id = file:ReadI32(),
+		parent_id = file:ReadI32(),
+		num_children = file:ReadI32(),
+		material_chunk_id = file:ReadI32(),
 		is_group_head = file:ReadByte() ~= 0,
 		is_group_member = file:ReadByte() ~= 0,
 	}
@@ -323,9 +323,9 @@ function cgf.ReadNodeChunk(file, chunk)
 	node.position = read_vec3(file)
 	node.rotation = Quat(file:ReadFloat(), file:ReadFloat(), file:ReadFloat(), file:ReadFloat())
 	node.scale = read_vec3(file)
-	node.position_controller_id = file:ReadLong()
-	node.rotation_controller_id = file:ReadLong()
-	node.scale_controller_id = file:ReadLong()
+	node.position_controller_id = file:ReadI32()
+	node.rotation_controller_id = file:ReadI32()
+	node.scale_controller_id = file:ReadI32()
 	file:PopPosition()
 	return node
 end

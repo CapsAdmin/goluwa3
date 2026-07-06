@@ -192,7 +192,7 @@ do
 	end
 
 	function META:WriteLong(num)
-		return self.__obj:WriteLong(num)
+		return self.__obj:WriteI32(num)
 	end
 
 	function META:ReadShort()
