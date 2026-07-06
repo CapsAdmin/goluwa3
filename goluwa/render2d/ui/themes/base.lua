@@ -793,7 +793,7 @@ do
 			end
 
 			if state.mode == "outline" then
-				outline_token = accent_token
+				outline_token = "border"
 				outline_alpha = state.disabled and 0.5 or 1
 
 				if state.disabled then
@@ -804,7 +804,7 @@ do
 					overlay_alpha = 0.12
 				end
 			elseif state.active and not state.disabled and state.mode ~= "menu" then
-				outline_token = accent_token
+				outline_token = "border"
 				outline_alpha = state.mode == "text" and 0.5 or 0.6
 			end
 
