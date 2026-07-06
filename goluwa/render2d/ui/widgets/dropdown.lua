@@ -89,7 +89,6 @@ return function(props)
 				Direction = "x",
 				GrowWidth = 1,
 				FitHeight = true,
-				Padding = "M",
 			},
 			mouse_input = {
 				IgnoreMouseInput = true,
@@ -299,7 +298,6 @@ return function(props)
 				ScrollBarContentShiftMode = "auto_shift",
 				ScrollBarColor = props.ScrollBarColor or "scrollbar",
 				ScrollBarTrackColor = props.ScrollBarTrackColor or "scrollbar_track",
-				Padding = Rect(0, 0, 0, 0),
 				layout = {
 					GrowWidth = 1,
 					MinSize = Vec2(0, body_height),
@@ -381,7 +379,11 @@ return function(props)
 		Disabled = props.Disabled,
 		Mode = props.Mode or "outline",
 		animation = true,
-		layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
+		layout = {
+			Direction = "x",
+			FitHeight = true,
+			AlignmentY = "center",
+		},
 		OnClick = open_menu,
 	}{
 		Text{

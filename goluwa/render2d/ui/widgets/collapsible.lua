@@ -26,7 +26,7 @@ return function(props)
 				FitHeight = true,
 				MinSize = props.HeaderHeight and Vec2(0, props.HeaderHeight) or nil,
 				MaxSize = props.HeaderHeight and Vec2(0, props.HeaderHeight) or nil,
-				Padding = props.HeaderPadding or "M",
+				Padding = props.HeaderPadding or "S",
 				ChildGap = props.HeaderGap or "M",
 			},
 			OnClick = function(self)
