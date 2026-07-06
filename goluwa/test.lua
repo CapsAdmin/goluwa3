@@ -40,7 +40,6 @@ local NO_SUMMARY = false
 local SUBFILTER = nil
 local FAILURES_ONLY = false
 local completed_test_count = 0
-local shown_running_line = false
 local has_failed_tests = false
 local collecting_test_definitions = nil
 
@@ -48,30 +47,6 @@ local function flush_output_stream(handle)
 	if handle and handle.flush then pcall(handle.flush, handle) end
 
 	io.flush()
-end
-
-local function write_crash_marker(kind, file_name, test_name)
-	local label = file_name ~= "" and file_name or "<unknown>"
-	local suffix = test_name and (" :: " .. test_name) or ""
-	local line = string.format("[running %s] %s%s\n", kind, label, suffix)
-
-	if shown_running_line and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
-		io_write("\r" .. string.rep(" ", 80) .. "\r")
-		shown_running_line = false
-		io.flush()
-	end
-
-	if io_stderr and io_stderr.write then
-		local ok = pcall(io_stderr.write, io_stderr, line)
-
-		if ok then
-			flush_output_stream(io_stderr)
-			return
-		end
-	end
-
-	io_write(line)
-	flush_output_stream(nil)
 end
 
 local function traceback(msg, co_lines)
@@ -265,7 +240,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 			task_self.is_test_task = true
 			current_running_test_name = name
 			task_self.test_timeout_time = test.ResetCurrentFileTimeout()
-			write_crash_marker("test", test_file_name, name)
 
 			-- Check for timeout at start
 			if task_self.test_timeout_time and system.GetTime() > task_self.test_timeout_time then
@@ -324,12 +298,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 			completed_test_count = completed_test_count + 1
 
 			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
-				-- Clear the RUNNING line if it's still there
-				if shown_running_line then
-					io_write("\r" .. string.rep(" ", 80) .. "\r")
-					shown_running_line = false
-				end
-
 				if VERBOSE then
 					-- Show full test name in verbose mode
 					io_write(string.format("[%d/%d] %s\n", completed_test_count, total_test_count, name))
@@ -411,12 +379,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 			completed_test_count = completed_test_count + 1
 
 			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
-				-- Clear the RUNNING line if it's still there
-				if shown_running_line then
-					io_write("\r" .. string.rep(" ", 80) .. "\r")
-					shown_running_line = false
-				end
-
 				-- Show progress dot
 				if not NESTING then
 					io_write(colors.red("✗"))
@@ -497,11 +459,6 @@ function test._CreatePendingTask(name, options)
 			completed_test_count = completed_test_count + 1
 
 			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
-				if shown_running_line then
-					io_write("\r" .. string.rep(" ", 80) .. "\r")
-					shown_running_line = false
-				end
-
 				io_write(colors.yellow("?"))
 				io.flush()
 
@@ -678,10 +635,8 @@ do
 		if status == "RUNNING" and IS_TERMINAL then
 			local spinner = spinner_chars[spinner_index]
 			io_write(string.format("%s%s %s RUNNING...", cr, padded_name, spinner))
-			shown_running_line = true
 		elseif status == "DONE" then
 			io_write(string.format("%s%s %s  %s\n", cr, padded_name, time_str, gc_str))
-			shown_running_line = false
 		end
 
 		io.flush()
@@ -732,7 +687,6 @@ do
 		test_results = {}
 		test_order = {}
 		completed_test_count = 0
-		shown_running_line = false
 		has_failed_tests = false
 
 		if PROFILING then profiler.Start(profiling_mode) end
@@ -799,7 +753,6 @@ do
 		current_test_name = test_item.name
 		current_running_test_name = ""
 		test.ResetCurrentFileTimeout()
-		write_crash_marker("file", test_item.name, nil)
 		local file_test_count_before = tests_by_file[current_test_name] or 0
 
 		-- You'll need to pass the expected test count somehow, or estimate it
@@ -847,15 +800,7 @@ do
 
 		local registered_test_count = (tests_by_file[current_test_name] or 0) - file_test_count_before
 
-		if registered_test_count <= 0 then
-			if LOGGING and shown_running_line then
-				io_write("\r" .. string.rep(" ", 80) .. "\r")
-				io.flush()
-				shown_running_line = false
-			end
-
-			return false
-		end
+		if registered_test_count <= 0 then return false end
 
 		-- Track the order for display later only for files that actually registered tests.
 		table.insert(test_order, test_item.name)
@@ -1367,7 +1312,6 @@ commands.Add({
 		while #pending > 0 or #running > 0 do
 			while #running < max_running and #pending > 0 do
 				local test_item = table.remove(pending, 1)
-				write_crash_marker("file", test_item.name, nil)
 				local ok, thread_or_err = pcall(function()
 					local t = threads.new(thread_worker)
 					t:run{
