@@ -9,6 +9,8 @@ return function(props)
 	return Collapsible{
 		Ref = function(panel)
 			container = panel
+
+			if props.Ref then props.Ref(panel) end
 		end,
 		Header = Clickable{
 			IsInternal = true,
