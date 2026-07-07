@@ -125,7 +125,7 @@ function META:__copy()
 end
 
 local SUPER_SAMPLING_SCALE = 4
-local JFA_DESCRIPTOR_SET_COUNT = 256
+local JFA_DESCRIPTOR_SET_COUNT = 1024
 
 function META:ClearSizeCache()
 	self.text_size_cache = nil
