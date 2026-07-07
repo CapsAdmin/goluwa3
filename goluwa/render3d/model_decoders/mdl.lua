@@ -871,18 +871,3 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 	--utility.PopTimeWarning("model generation", 0)
 	return models
 end)
-
-if HOTRELOAD then
-	render3d.model_cache = {}
-	render3d.model_loader_cb = utility.CreateCallbackThing(render3d.model_cache)
-	steam.MountSourceGame("hl2")
-	steam.MountSourceGame("csgo")
-	utility.PushTimeWarning()
-	local ent = utility.RemoveOldObject(entities.Create({Name = "visual"}), "test")
-	local mdl = "models/props_wasteland/exterior_fence001b.mdl"
-	local mdl = "models/props_interiors/sinkkitchen01a.mdl"
-	local mdl = "models/inventory_items/trophy_majors.mdl"
-	ent:SetModelPath(mdl)
-	ent:SetPosition(render3d.GetCamera():GetPosition() + render3d.GetCamera():GetAngles():GetForward() * 3)
-	utility.PopTimeWarning("mdl", 0)
-end

@@ -76,7 +76,7 @@ function string.hex(str)
 	return list.concat(copy)
 end
 
-function string.readable_hex(str)
+function string.hex_readable(str)
 	return (
 		str:gsub("(.)", function(str)
 			str = ("%X"):format(str:byte())
@@ -143,7 +143,7 @@ do
 		["F"] = "𝙵",
 	}
 
-	function string.readablebinary(str)
+	function string.bin_readable(str)
 		local str = (
 			str:gsub("(.)", function(str)
 				local byte = str:byte()
@@ -168,7 +168,7 @@ function string.hex_format(str, chunk_width, row_width, space_separator)
 	row_width = row_width or 4
 	chunk_width = chunk_width or 4
 	space_separator = space_separator or " "
-	local str = str:readable_hex():lower():split(" ")
+	local str = str:hex_readable():lower():split(" ")
 	local out = {}
 	local chunk_i = 1
 	local row_i = 1
@@ -262,4 +262,29 @@ function string.oct_format(str, row_width, space_separator, with_hex)
 	end
 
 	return list.concat(out):trim()
+end
+
+do
+	local size_units = {
+		"B",
+		"KiB",
+		"MiB",
+		"GiB",
+		"TiB",
+		"PiB",
+		"EiB",
+		"ZiB",
+		"YiB",
+	}
+
+	function string.size_format(size)
+		local unit_index = 1
+
+		while size >= 1024 and size_units[unit_index + 1] do
+			size = size / 1024
+			unit_index = unit_index + 1
+		end
+
+		return tostring(math.floor(size * 100 + 0.5) / 100) .. " " .. size_units[unit_index]
+	end
 end

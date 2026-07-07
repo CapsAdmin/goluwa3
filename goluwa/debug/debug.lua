@@ -357,7 +357,7 @@ function debug.dump_call(level, line, info_match)
 			val = data.val:sub(0, 10)
 
 			if val ~= data.val then
-				val = val .. " .. " .. utility.FormatFileSize(#data.val)
+				val = val .. " .. " .. string.size_format(#data.val)
 			end
 		else
 			val = codec.GetLibrary("luadata").ToString(data.val)

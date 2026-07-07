@@ -272,7 +272,7 @@ if NETWORK then
 							self,
 							info.component,
 							info.key,
-							utility.FormatFileSize(buffer:GetSize()),
+							string.size_format(buffer:GetSize()),
 							client
 						)
 					end

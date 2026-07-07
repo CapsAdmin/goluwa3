@@ -109,7 +109,7 @@ function traceback.OnError(msg, ...)
 				val = param.val:sub(0, 10)
 
 				if val ~= param.val then
-					val = val .. " .. " .. utility.FormatFileSize(#param.val)
+					val = val .. " .. " .. string.size_format(#param.val)
 				end
 			else
 				val = tostringx(param.val)

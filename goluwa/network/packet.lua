@@ -209,7 +209,7 @@ do -- buffer object
 		META.__len = META.GetSize
 
 		function META:GetDebugString()
-			return self:GetString():readable_hex()
+			return self:GetString():hex_readable()
 		end
 
 		function META:AddHeader(buffer)

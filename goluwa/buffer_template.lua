@@ -35,7 +35,7 @@ function buffer_template.AddBasicFunctions(META)
 	function META:GetDebugString()
 		local pos = self:GetPosition()
 		self:SetPosition(1)
-		local str = self:GetString():readable_hex()
+		local str = self:GetString():hex_readable()
 		self:SetPosition(pos)
 		return str
 	end

@@ -167,7 +167,7 @@ do
 		end
 
 		if network.debug == 2 then
-			llog("received %s packet (%s) from %s", type, utility.FormatFileSize(#str), peer)
+			llog("received %s packet (%s) from %s", type, string.size_format(#str), peer)
 		end
 
 		if SERVER and not client:IsValid() then error("client is NULL") end
