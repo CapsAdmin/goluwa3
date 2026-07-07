@@ -180,6 +180,8 @@ return function(props)
 	local shared_key_width = props.KeyWidth or 180
 	local divider_width = props.DividerWidth or 6
 	local divider_draw_alpha = props.DividerDrawAlpha or 1
+	local property_change_start = props.OnPropertyChangeStart
+	local property_change_end = props.OnPropertyChangeEnd
 
 	local function resolve_padding_rect(padding)
 		if type(padding) == "string" then return Rect() + theme.GetPadding(padding) end
@@ -251,6 +253,9 @@ return function(props)
 	local function commit_value(node, value, key, path, panel)
 		local applied_value = value
 		local applied = true
+
+		if property_change_start then property_change_start() end
+
 		node.Value = applied_value
 
 		if panel then
@@ -283,6 +288,8 @@ return function(props)
 		if applied and props.OnChange then
 			props.OnChange(node, applied_value, key, path)
 		end
+
+		if property_change_end then property_change_end() end
 	end
 
 	local function trigger_action(node, key, path)

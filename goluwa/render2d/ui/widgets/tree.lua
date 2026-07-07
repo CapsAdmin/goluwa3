@@ -1,11 +1,19 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 
 local function has_entries(list)
 	return list and next(list) ~= nil
+end
+
+local function draw_shared_instance_marker(self, size, color)
+	render2d.SetTexture(nil)
+	render2d.SetColor(color:Unpack())
+	render2d.DrawRect(2, math.floor(size.y * 0.5) - 1, math.max(1, size.x - 4), 2)
+	render2d.DrawRect(math.floor(size.x * 0.5) - 1, 2, 2, math.max(1, size.y - 4))
 end
 
 local function build_path(parent_path, index)
@@ -38,6 +46,7 @@ return function(props)
 	local animation_time = props.AnimationTime or 0.18
 	local drag_threshold = props.DragThreshold or 6
 	local drag_enabled = props.OnDrop ~= nil
+	local shared_instance_color = props.SharedInstanceColor
 	local row_click_times = {}
 	local tree
 	local is_expanded
@@ -95,11 +104,43 @@ return function(props)
 	end
 
 	local function get_node_panel(node, path, key, selected, has_children, expanded)
+		if node.SharedInstance and shared_instance_color then
+			return Panel.New{
+				IsInternal = true,
+				Name = "TreeSharedInstanceMarker",
+				transform = {
+					Size = Vec2(12, 12),
+				},
+				layout = {
+					SelfAlignmentY = "center",
+					GrowWidth = 0,
+					FitWidth = false,
+				},
+				mouse_input = {
+					IgnoreMouseInput = true,
+				},
+				gui_element = {
+					OnDraw = function(self)
+						local size = self.Owner.transform:GetSize()
+						draw_shared_instance_marker(self, size, shared_instance_color)
+					end,
+				},
+			}
+		end
+
 		if props.GetNodePanel then
 			return props.GetNodePanel(node, path, key, selected, has_children, expanded)
 		end
 
 		return nil
+	end
+
+	local function should_include_node(node, path, key)
+		if props.ShouldIncludeNode then
+			return not not props.ShouldIncludeNode(node, path, key)
+		end
+
+		return true
 	end
 
 	local function can_drag_node(node, path, key)
@@ -662,6 +703,9 @@ return function(props)
 	local function add_node(node, meta, parent_path, insert_index)
 		local path = build_path(parent_path, meta.index)
 		local key = get_key(node, path)
+
+		if not should_include_node(node, path, key) then return insert_index end
+
 		local children = get_children(node, path)
 		local has_children = has_children(node, path)
 		local expanded = is_expanded(node, path, key, has_children)
