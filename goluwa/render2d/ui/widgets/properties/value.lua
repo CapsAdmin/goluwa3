@@ -191,9 +191,9 @@ local function create_value(props)
 		end
 
 		if state.editing then
-			surface_color = theme.GetColor(props.EditPanelColor or "surface_alt")
+			surface_color = theme.active:GetColor(props.EditPanelColor or "surface_alt")
 		elseif state.hovered then
-			surface_color = theme.GetColor(props.HoverPanelColor or "surface_alt"):Copy()
+			surface_color = theme.active:GetColor(props.HoverPanelColor or "surface_alt"):Copy()
 			surface_color.a = surface_color.a * 0.45
 		else
 			surface_color = idle_color

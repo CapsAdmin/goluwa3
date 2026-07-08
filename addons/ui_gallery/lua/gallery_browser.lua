@@ -57,7 +57,7 @@ local function build_gallery(props)
 			GrowWidth = 1,
 			GrowHeight = 1,
 		},
-		Padding = Rect() + theme.GetPadding("S"),
+		Padding = Rect() + theme.active:GetPadding("S"),
 	}
 	local selected_page = find_page_by_name(props.SelectedPage)
 	local window
@@ -132,8 +132,8 @@ local function build_gallery(props)
 			IgnoreMouseInput = true,
 		},
 		Dropdown{
-			Text = theme.GetName(),
-			Value = theme.GetName(),
+			Text = theme.active:GetName(),
+			Value = theme.active:GetName(),
 			Options = (function()
 				local options = {}
 
@@ -147,10 +147,10 @@ local function build_gallery(props)
 				return options
 			end)(),
 			GetValue = function()
-				return theme.GetName()
+				return theme.active:GetName()
 			end,
 			GetText = function()
-				return theme.GetName()
+				return theme.active:GetName()
 			end,
 			OnSelect = function(name)
 				theme.LoadTheme(name)
@@ -186,7 +186,7 @@ local function build_gallery(props)
 				layout = {
 					GrowHeight = 1,
 				},
-				Padding = Rect() + theme.GetPadding("XXS"),
+				Padding = Rect() + theme.active:GetPadding("XXS"),
 			}{
 				Column{
 					layout = {

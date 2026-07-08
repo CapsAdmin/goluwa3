@@ -13,7 +13,7 @@ return function(props)
 	local function SetValueFromPosition(ent, local_pos)
 		local state = ent:GetState()
 		local size = ent.transform:GetSize()
-		local knob_size = theme.GetSize("S")
+		local knob_size = theme.active:GetSize("S")
 
 		if state.mode == "2d" then
 			local usable_width = size.x - knob_size
@@ -53,21 +53,21 @@ return function(props)
 		Name = "slider",
 		transform = {
 			Size = mode == "vertical" and
-				Vec2(theme.GetSize("M"), 100) or
+				Vec2(theme.active:GetSize("M"), 100) or
 				(
 					mode == "2d" and
 					Vec2(100, 100) or
-					Vec2(100, theme.GetSize("M"))
+					Vec2(100, theme.active:GetSize("M"))
 				),
 		},
 		layout = {
 			{
 				MinSize = mode == "vertical" and
-					Vec2(theme.GetSize("M"), 100) or
+					Vec2(theme.active:GetSize("M"), 100) or
 					(
 						mode == "2d" and
 						Vec2(100, 100) or
-						Vec2(100, theme.GetSize("M"))
+						Vec2(100, theme.active:GetSize("M"))
 					),
 			},
 			props.layout,

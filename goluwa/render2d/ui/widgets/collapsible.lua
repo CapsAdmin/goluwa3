@@ -38,7 +38,7 @@ return function(props)
 				Name = "ArrowContainer",
 				style = true,
 				transform = {
-					Size = Vec2() + theme.GetFontSize(props.HeaderFontSize or "M"),
+					Size = Vec2() + theme.active:ResolveFontSize(props.HeaderFontSize or "M"),
 				},
 				gui_element = {
 					OnDraw = function(self)
@@ -50,7 +50,7 @@ return function(props)
 							{
 								thickness = 2,
 								open_fraction = open_fraction,
-								color = theme.GetColorOn(props.HeaderTextColor or "text", background),
+								color = theme.active:ResolveColor(props.HeaderTextColor or "text", background),
 							}
 						)
 					end,

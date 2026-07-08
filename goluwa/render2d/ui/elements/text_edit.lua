@@ -90,7 +90,7 @@ return function(props)
 				Editable = editable,
 				Wrap = wrap,
 				Color = props.TextColor or "text",
-				SelectionColor = props.SelectionColor or theme.GetColor("text_selection"),
+				SelectionColor = props.SelectionColor or theme.active:GetColor("text_selection"),
 				FontName = props.FontName,
 				FontSize = props.FontSize,
 				text = props.text,

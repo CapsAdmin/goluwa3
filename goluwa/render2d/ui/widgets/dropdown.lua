@@ -24,10 +24,10 @@ return function(props)
 	local search_enabled = props.Searchable == true or props.EnableSearch == true
 	local search_threshold = props.SearchThreshold or 300
 	local search_input_height = props.SearchInputHeight or 34
-	local search_gap = props.SearchGap or theme.GetPadding("M")
+	local search_gap = props.SearchGap or theme.active:GetPadding("M")
 	local scroll_threshold = props.ScrollThreshold or search_threshold
 	local search_body_height = math.max(80, search_threshold - search_input_height - search_gap)
-	local estimated_item_height = theme.GetFontSize(props.FontSize) + theme.GetPadding("M") * 2
+	local estimated_item_height = theme.active:ResolveFontSize(props.FontSize) + theme.active:GetPadding("M") * 2
 
 	local function get_current_value()
 		if props.GetValue then return props.GetValue() end
@@ -268,7 +268,7 @@ return function(props)
 					PanelColor = props.SearchPanelColor or "surface_alt",
 					BackgroundColor = props.SearchBackgroundColor or "surface",
 					TextColor = props.TextColor or "text",
-					SelectionColor = props.SelectionColor or theme.GetColor("text_selection"),
+					SelectionColor = props.SelectionColor or theme.active:GetColor("text_selection"),
 					Font = props.Font,
 					FontName = props.FontName,
 					FontSize = props.FontSize,
@@ -404,7 +404,7 @@ return function(props)
 			Name = "DropdownIndicator",
 			style = true,
 			transform = {
-				Size = Vec2() + theme.GetFontSize(props.FontSize),
+				Size = Vec2() + theme.active:ResolveFontSize(props.FontSize),
 			},
 			gui_element = {
 				OnDraw = function(self)
@@ -415,7 +415,7 @@ return function(props)
 						{
 							thickness = 2,
 							open_fraction = menu_open_fraction,
-							color = theme.GetColorOn(props.Disabled and "text_disabled" or "text", background),
+							color = theme.active:ResolveColor(props.Disabled and "text_disabled" or "text", background),
 						}
 					)
 				end,

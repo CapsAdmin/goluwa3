@@ -131,7 +131,7 @@ return {
 				},
 			},
 			Frame{
-				Padding = Rect() + theme.GetPadding("S"),
+				Padding = Rect() + theme.active:GetPadding("S"),
 				layout = {
 					Direction = "y",
 					GrowWidth = 1,

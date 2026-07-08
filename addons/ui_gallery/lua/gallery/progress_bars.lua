@@ -17,10 +17,10 @@ return {
 				ChildGap = 20,
 				AlignmentX = "start",
 				Padding = Rect(
-					theme.GetPadding("M"),
-					theme.GetPadding("M"),
-					theme.GetPadding("M"),
-					theme.GetPadding("M")
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M")
 				),
 			},
 		}
@@ -29,7 +29,7 @@ return {
 			Text{
 				Text = "Static Progress Bars",
 				FontName = "heading",
-				Size = Vec2() + theme.GetSize("L"),
+				Size = Vec2() + theme.active:GetSize("L"),
 			},
 			Column{layout = {ChildGap = 5}}{
 				Text({Text = "Default (25%)"}),

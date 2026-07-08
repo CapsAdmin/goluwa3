@@ -8,7 +8,9 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 
 local function normalize_padding(padding)
-	if type(padding) == "string" then return Rect() + theme.GetPadding(padding) end
+	if type(padding) == "string" then
+		return Rect() + theme.active:GetPadding(padding)
+	end
 
 	if type(padding) == "number" then return Rect() + padding end
 
@@ -358,7 +360,9 @@ return function(props)
 				s:SetState("color", props.ScrollBarTrackColor or "scrollbar_track")
 			end,
 			transform = {
-				Size = is_v and Vec2(theme.GetSize("M"), 40) or Vec2(40, theme.GetSize("M")),
+				Size = is_v and
+					Vec2(theme.active:GetSize("M"), 40) or
+					Vec2(40, theme.active:GetSize("M")),
 			},
 			gui_element = {
 				Visible = false,
@@ -384,7 +388,9 @@ return function(props)
 				s:AddLocalListener("OnTransformChanged", update_handle)
 			end,
 			transform = {
-				Size = is_v and Vec2(theme.GetSize("M"), 40) or Vec2(40, theme.GetSize("M")),
+				Size = is_v and
+					Vec2(theme.active:GetSize("M"), 40) or
+					Vec2(40, theme.active:GetSize("M")),
 			},
 			gui_element = {
 				Visible = false,

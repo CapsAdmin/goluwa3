@@ -58,6 +58,36 @@ function BaseTheme:New(theme_context)
 	return obj
 end
 
+do
+	local FONT_SIZE_ORDER = {"XS", "S", "M", "L", "XL", "XXL", "XXXL"}
+
+	function BaseTheme:GetFontSizesList()
+		local list = {}
+		local font_sizes = self:GetFontSizes()
+
+		for _, name in ipairs(FONT_SIZE_ORDER) do
+			if font_sizes[name] then table.insert(list, name) end
+		end
+
+		return list
+	end
+end
+
+do
+	local FONT_NAME_ORDER = {"heading", "body_weak", "body", "body_strong"}
+
+	function BaseTheme:GetFontNamesList()
+		local list = {}
+		local font_styles = self:GetFontStyles()
+
+		for _, name in ipairs(FONT_NAME_ORDER) do
+			if font_styles[name] then table.insert(list, name) end
+		end
+
+		return list
+	end
+end
+
 function BaseTheme:MergeTables(base_tbl, override_tbl)
 	local merged = table.shallow_copy(base_tbl)
 

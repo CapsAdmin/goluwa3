@@ -17,10 +17,10 @@ return {
 				ChildGap = 20,
 				AlignmentX = "start",
 				Padding = Rect(
-					theme.GetPadding("M"),
-					theme.GetPadding("M"),
-					theme.GetPadding("M"),
-					theme.GetPadding("M")
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M")
 				),
 			},
 		}
@@ -46,7 +46,7 @@ return {
 			Text{
 				Text = "2D Color Picker Demo",
 				FontName = "heading",
-				Size = Vec2() + theme.GetSize("L"),
+				Size = Vec2() + theme.active:GetSize("L"),
 			},
 			Row{
 				layout = {
@@ -85,7 +85,7 @@ return {
 							canvas.state.hue = val
 							update_preview()
 						end,
-						layout = {MinSize = Vec2(theme.GetSize("S"), 200)},
+						layout = {MinSize = Vec2(theme.active:GetSize("S"), 200)},
 					},
 				},
 				Column{
@@ -99,7 +99,7 @@ return {
 			Text{
 				Text = "Orientation Layouts",
 				FontName = "heading",
-				Size = Vec2() + theme.GetSize("L"),
+				Size = Vec2() + theme.active:GetSize("L"),
 			},
 			Row{
 				layout = {Direction = "x", ChildGap = 40, AlignmentY = "center", FitHeight = true},

@@ -115,7 +115,7 @@ return function(props)
 						self.Owner.transform:GetSize(),
 						{
 							thickness = 2,
-							color = theme.GetColor(props.Disabled and "text_disabled" or "text"),
+							color = theme.active:GetColor(props.Disabled and "text_disabled" or "text"),
 						}
 					)
 				end,

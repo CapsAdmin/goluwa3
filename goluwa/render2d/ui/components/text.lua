@@ -596,7 +596,7 @@ function META:OnDraw()
 	if foreground == nil then foreground = "text" end
 
 	if theme and theme.active then
-		foreground = theme.GetColorOn(foreground, background)
+		foreground = theme.active:ResolveColor(foreground, background)
 	end
 
 	if self.wrap_layout_info and self:GetAlignX() == "justify" then

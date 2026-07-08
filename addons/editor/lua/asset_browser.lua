@@ -872,7 +872,7 @@ return function(props)
 					FitHeight = false,
 					AlignmentX = "stretch",
 					ChildGap = 8,
-					Padding = Rect() + theme.GetPadding("XS"),
+					Padding = Rect() + theme.active:GetPadding("XS"),
 				},
 			}{
 				TextEdit{
@@ -946,7 +946,7 @@ return function(props)
 					FitHeight = false,
 					AlignmentX = "stretch",
 					ChildGap = 8,
-					Padding = Rect() + theme.GetPadding("XS"),
+					Padding = Rect() + theme.active:GetPadding("XS"),
 				},
 			}{
 				Text{
@@ -961,7 +961,7 @@ return function(props)
 					},
 				},
 				ScrollablePanel{
-					Padding = Rect() + theme.GetPadding("XS"),
+					Padding = Rect() + theme.active:GetPadding("XS"),
 					ScrollX = false,
 					ScrollY = true,
 					layout = {

@@ -4,7 +4,7 @@ local theme = import("goluwa/render2d/ui/theme.lua")
 return function(props)
 	props = props or {}
 	local is_vertical = props.Vertical == true
-	local spacer_extent = theme.GetSize(props.Size or "XS")
+	local spacer_extent = theme.active:GetSize(props.Size or "XS")
 	local panel = Panel.New{
 		Name = "MenuSpacer",
 		transform = {

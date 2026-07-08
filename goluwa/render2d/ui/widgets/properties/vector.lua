@@ -33,7 +33,7 @@ local function values_equal(a, b, components)
 end
 
 local function resolve_size(value)
-	if type(value) == "string" then return theme.GetSize(value) end
+	if type(value) == "string" then return theme.active:GetSize(value) end
 
 	return value
 end
@@ -226,7 +226,7 @@ return function(props)
 				if self.gui_element then
 					self.gui_element.OnDraw = function(gui)
 						gui.Owner:SetState("preview_fill", self.surface_color)
-						gui.Owner:SetState("preview_radius", theme.GetRadius("md"))
+						gui.Owner:SetState("preview_radius", theme.active:GetRadius("md"))
 						theme.active:Draw(gui.Owner)
 					end
 					self.gui_element.OnPostDraw = function(gui) end

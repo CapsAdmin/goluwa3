@@ -6,11 +6,11 @@ return function(props)
 		props,
 		Name = "progress_bar",
 		transform = {
-			Size = props.Size or Vec2(200, theme.GetSize("S")),
+			Size = props.Size or Vec2(200, theme.active:GetSize("S")),
 		},
 		layout = {
 			{
-				MinSize = Vec2(100, theme.GetSize("M")),
+				MinSize = Vec2(100, theme.active:GetSize("M")),
 			},
 			props.layout,
 		},

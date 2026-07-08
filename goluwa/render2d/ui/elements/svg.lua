@@ -25,7 +25,7 @@ end
 
 local function normalize_padding(padding)
 	if type(padding) == "string" then
-		padding = Rect() + theme.GetPadding(padding)
+		padding = Rect() + theme.active:GetPadding(padding)
 	elseif type(padding) == "number" then
 		padding = Rect() + padding
 	end
@@ -185,7 +185,9 @@ return function(props)
 						local draw_h = bounds_h * scale
 						local offset_x = padding.left + (available_w - draw_w) / 2
 						local offset_y = padding.top + (available_h - draw_h) / 2
-						local color = props.Color and theme.GetColor(props.Color) or theme.GetColor("text")
+						local color = props.Color and
+							theme.active:GetColor(props.Color) or
+							theme.active:GetColor("text")
 						render2d.PushTexture(state.sdf_texture)
 						render2d.PushSDFMode(true)
 						render2d.PushSDFThreshold(0.5)
@@ -211,7 +213,9 @@ return function(props)
 						local draw_h = bounds_h * scale
 						local offset_x = padding.left + (available_w - draw_w) / 2
 						local offset_y = padding.top + (available_h - draw_h) / 2
-						local color = props.Color and theme.GetColor(props.Color) or theme.GetColor("text")
+						local color = props.Color and
+							theme.active:GetColor(props.Color) or
+							theme.active:GetColor("text")
 						render2d.PushMatrix()
 						render2d.Translatef(offset_x, offset_y)
 						render2d.Scalef(scale, scale)

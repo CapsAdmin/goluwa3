@@ -184,7 +184,9 @@ return function(props)
 	local property_change_end = props.OnPropertyChangeEnd
 
 	local function resolve_padding_rect(padding)
-		if type(padding) == "string" then return Rect() + theme.GetPadding(padding) end
+		if type(padding) == "string" then
+			return Rect() + theme.active:GetPadding(padding)
+		end
 
 		if type(padding) == "number" then return Rect() + padding end
 
@@ -204,7 +206,7 @@ return function(props)
 	local header_gap = props.HeaderGap ~= nil and props.HeaderGap or "XXS"
 	local compact_row_height = props.RowHeight or
 		(
-			theme.GetFontSize(compact_font_size) + get_padding_height(compact_padding)
+			theme.active:ResolveFontSize(compact_font_size) + get_padding_height(compact_padding)
 		)
 	local multiline_row_height = props.MultilineRowHeight or compact_row_height * 3
 	local collapsed_state = {}
@@ -220,8 +222,8 @@ return function(props)
 
 		info.text.text:SetColor(
 			selected_key == info.key and
-				theme.GetColorOn("text", "property_selection") or
-				theme.GetColor("text")
+				theme.active:ResolveColor("text", "property_selection") or
+				theme.active:GetColor("text")
 		)
 	end
 

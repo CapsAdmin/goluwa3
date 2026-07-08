@@ -6,8 +6,6 @@ local base = import("goluwa/render2d/ui/themes/base.lua")
 local jrpg = import("goluwa/render2d/ui/themes/jrpg.lua")
 local theme = library()
 local DEFAULT_PRESET_NAME = base.Name
-local FONT_SIZE_ORDER = {"XS", "S", "M", "L", "XL", "XXL", "XXXL"}
-local FONT_NAME_ORDER = {"heading", "body_weak", "body", "body_strong"}
 theme.themes = {base, jrpg}
 theme.implementations = {}
 theme.active = nil
@@ -39,19 +37,15 @@ function theme.LoadTheme(name)
 	return object
 end
 
-function theme.GetTheme()
-	return theme.active
-end
-
 function theme.OnSetProperty(obj, key, val)
 	if key == "Padding" then
-		if type(val) == "string" then return Rect() + theme.GetPadding(val) end
+		if type(val) == "string" then return Rect() + theme.active:GetPadding(val) end
 	elseif key == "Color" then
-		if type(val) == "string" then return theme.GetColor(val) end
+		if type(val) == "string" then return theme.active:GetColor(val) end
 	elseif key == "ChildGap" then
-		if type(val) == "string" then return theme.GetSize(val) end
+		if type(val) == "string" then return theme.active:GetSize(val) end
 	elseif key == "Size" then
-		if type(val) == "string" then return Vec2() + theme.GetSize(val) end
+		if type(val) == "string" then return Vec2() + theme.active:GetSize(val) end
 	elseif key == "Font" then
 		if type(val) == "string" then
 			local style, size = val:match("([^%s]+)%s*(.*)")
@@ -69,7 +63,7 @@ function theme.OnSetProperty(obj, key, val)
 
 			if size then obj.theme_font_size = size end
 
-			local font, size_val = theme.GetFont(obj.theme_font_style, obj.theme_font_size)
+			local font, size_val = theme.active:GetFont(obj.theme_font_style, obj.theme_font_size)
 
 			if font and obj.SetFontSize then obj:SetFontSize(size_val) end
 
@@ -86,14 +80,14 @@ function theme.OnSetProperty(obj, key, val)
 
 		if type(val) == "string" then
 			obj.theme_font_size = val
-			size_val = theme.GetFontSize(val)
+			size_val = theme.active:ResolveFontSize(val)
 		else
 			obj.theme_font_size = nil
 			size_val = val
 		end
 
 		if obj.SetFont then
-			local font = theme.GetFont(obj.theme_font_style or "body", obj.theme_font_size or size_val)
+			local font = theme.active:GetFont(obj.theme_font_style or "body", obj.theme_font_size or size_val)
 
 			if font then obj:SetFont(font) end
 		end
@@ -111,10 +105,6 @@ event.AddListener("OnEntityStateChanged", "theme", function(pnl, key, val)
 end)
 
 do
-	function theme.GetName()
-		return theme.active:GetName()
-	end
-
 	function theme.GetAvailable()
 		local out = {}
 
@@ -123,60 +113,6 @@ do
 		end
 
 		return out
-	end
-
-	function theme.GetColor(name, opts)
-		return theme.active:GetColor(name, opts)
-	end
-
-	function theme.GetColorOn(name, surface)
-		return theme.active:GetColorOn(name, surface)
-	end
-
-	function theme.ResolveColor(value, fallback)
-		return theme.active:ResolveColor(value, fallback)
-	end
-
-	function theme.GetSize(size_name)
-		return theme.active:GetSize(size_name)
-	end
-
-	function theme.GetPadding(size_name)
-		return theme.active:GetPadding(size_name)
-	end
-
-	function theme.GetRadius(radius_name)
-		return theme.active:GetRadius(radius_name)
-	end
-
-	function theme.GetFontSizes()
-		local list = {}
-		local font_sizes = theme.active:GetFontSizes()
-
-		for _, name in ipairs(FONT_SIZE_ORDER) do
-			if font_sizes[name] then table.insert(list, name) end
-		end
-
-		return list
-	end
-
-	function theme.GetFontNames()
-		local list = {}
-		local font_styles = theme.active:GetFontStyles()
-
-		for _, name in ipairs(FONT_NAME_ORDER) do
-			if font_styles[name] then table.insert(list, name) end
-		end
-
-		return list
-	end
-
-	function theme.GetFontSize(size_name)
-		return theme.active:ResolveFontSize(size_name)
-	end
-
-	function theme.GetFont(name, size_name)
-		return theme.active:GetFont(name, size_name)
 	end
 
 	theme.LoadTheme(DEFAULT_PRESET_NAME)

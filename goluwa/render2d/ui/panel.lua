@@ -21,8 +21,6 @@ end)
 import.loaded["goluwa/render2d/ui/panel.lua"] = Panel
 
 do
-	local base_new = Panel.New
-
 	local function find_tooltip_props(config, state)
 		if type(config) ~= "table" then return end
 
@@ -52,6 +50,8 @@ do
 			find_tooltip_props(config[i], state)
 		end
 	end
+
+	local base_new = Panel.New
 
 	function Panel.New(config)
 		local tooltip_state = {}

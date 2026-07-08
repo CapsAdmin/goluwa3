@@ -1345,12 +1345,12 @@ return function(props)
 		local items = {}
 
 		for _, label in ipairs(theme.GetAvailable()) do
-			if label == theme.GetName() then label = label .. " (active)" end
+			if label == theme.active:GetName() then label = label .. " (active)" end
 
 			items[#items + 1] = MenuItem{
 				Text = label,
 				OnClick = function()
-					if label == theme.GetName() then return end
+					if label == theme.active:GetName() then return end
 
 					theme.LoadTheme(label)
 

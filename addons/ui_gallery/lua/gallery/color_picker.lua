@@ -82,10 +82,10 @@ return {
 				FitHeight = true,
 				ChildGap = 16,
 				Padding = Rect(
-					theme.GetPadding("M"),
-					theme.GetPadding("M"),
-					theme.GetPadding("M"),
-					theme.GetPadding("M")
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("M")
 				),
 			},
 		}{
@@ -150,7 +150,7 @@ return {
 
 								render2d.SetColor(preview_color:Unpack())
 								render2d.DrawRect(0, 0, size.x, size.y)
-								render2d.SetColor(theme.GetColor("border"):Unpack())
+								render2d.SetColor(theme.active:GetColor("border"):Unpack())
 								render2d.DrawRect(0, 0, size.x, 1)
 								render2d.DrawRect(0, size.y - 1, size.x, 1)
 								render2d.DrawRect(0, 0, 1, size.y)

@@ -35,7 +35,7 @@ return function(props)
 	local expanded_state = {}
 	local row_infos = {}
 	local row_order = {}
-	local indent_size = props.IndentSize or theme.GetSize("M")
+	local indent_size = props.IndentSize or theme.active:GetSize("M")
 	local toggle_size = props.ToggleSize or 16
 	local guide_step = props.GuideStep or math.max(indent_size, toggle_size)
 	local box_size = props.BoxSize or 10
@@ -639,7 +639,7 @@ return function(props)
 					self.Owner:SetState("hovered", row_info.hovered)
 					self.Owner:SetState(
 						"hover_color",
-						theme.GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08)
+						theme.active:GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08)
 					)
 					theme.active:Draw(self.Owner)
 				end,
