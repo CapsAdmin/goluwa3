@@ -377,6 +377,176 @@ T.Test("layout - text wrapping", function()
 	container:Remove()
 end)
 
+T.Test("layout - wrapped text in nested fit layouts does not inflate on first measure", function()
+	-- Regression: when a Text(Wrap) sits inside nested FitHeight layouts whose
+	-- transforms have not been laid out yet, the measurement must not use the
+	-- default 1px transform width as the wrap width. Doing so wraps every
+	-- character on its own line and inflates the intrinsic height into the
+	-- thousands, which propagates up and creates huge gaps between rows.
+	local function make_tile(parent)
+		local tile = Panel.New{
+			Parent = parent,
+			Name = "Tile",
+			transform = true,
+			layout = {
+				FitWidth = true,
+				FitHeight = true,
+				MinSize = Vec2(180, 120),
+			},
+		}
+		local inner = Panel.New{
+			Parent = tile,
+			Name = "Inner",
+			transform = true,
+			layout = {
+				GrowWidth = 1,
+				FitHeight = true,
+				AlignmentX = "stretch",
+				ChildGap = 8,
+			},
+		}
+		local label = Panel.New{
+			Parent = inner,
+			Name = "Label",
+			transform = true,
+		}
+		label:AddComponent("text")
+		label.text:SetText("Title")
+		local desc = Panel.New{
+			Parent = inner,
+			Name = "Desc",
+			transform = true,
+			layout = {
+				GrowWidth = 1,
+			},
+		}
+		local desc_comp = desc:AddComponent("text")
+		local long_text = "This is a reasonably long description that should wrap naturally when given proper width."
+		desc_comp:SetText(long_text)
+		desc_comp:SetWrap(true)
+		return tile, inner, desc, desc_comp
+	end
+
+	local font = {
+		GetTextSize = function(self, text)
+			local width = 0
+			local height = 0
+
+			for _, line in ipairs(tostring(text or ""):split("\n", true)) do
+				width = math.max(width, #line * 8)
+				height = height + 16
+			end
+
+			return width, math.max(height, 16)
+		end,
+		MeasureText = function(self, text)
+			return self:GetTextSize(text)
+		end,
+		GetLineHeight = function()
+			return 16
+		end,
+		GetSpaceAdvance = function()
+			return 8
+		end,
+		GetTabAdvance = function(_, space_width, tab_size)
+			return (space_width or 8) * (tab_size or 4)
+		end,
+		GetGlyphAdvance = function()
+			return 8
+		end,
+		GetSpacing = function()
+			return 0
+		end,
+		GetAscent = function()
+			return 16
+		end,
+		GetDescent = function()
+			return 0
+		end,
+		DrawText = function() end,
+		WrapString = function(self, text, width)
+			local words = tostring(text or ""):split(" ", true)
+			if #words <= 1 then return text end
+			local lines = {}
+			local current = ""
+
+			for _, word in ipairs(words) do
+				if #current == 0 then
+					current = word
+				elseif current .. " " .. word:len() <= width / 8 then
+					current = current .. " " .. word
+				else
+					lines[#lines + 1] = current
+					current = word
+				end
+			end
+
+			if #current > 0 then lines[#lines + 1] = current end
+			return table.concat(lines, "\n")
+		end,
+	}
+
+	local tile1, _, desc1, desc_comp1 = make_tile()
+	desc1:AddComponent("layout")
+	desc_comp1.GetFont = function()
+		return font
+	end
+
+	local tile2, _, desc2, desc_comp2 = make_tile()
+	desc2:AddComponent("layout")
+	desc_comp2.GetFont = function()
+		return font
+	end
+
+	local row = Panel.New{
+		Name = "Row",
+		transform = true,
+		layout = {
+			Direction = "x",
+			GrowWidth = 1,
+			FitHeight = true,
+			AlignmentX = "stretch",
+			ChildGap = 12,
+		},
+	}
+	tile1:SetParent(row)
+	tile2:SetParent(row)
+
+	local inner_col = Panel.New{
+		Name = "InnerCol",
+		transform = true,
+		layout = {
+			GrowWidth = 1,
+			FitHeight = true,
+			AlignmentX = "stretch",
+			ChildGap = 12,
+		},
+	}
+	row:SetParent(inner_col)
+
+	local outer_col = Panel.New{
+		Name = "OuterCol",
+		transform = true,
+		layout = {
+			Direction = "y",
+			FitHeight = true,
+			GrowWidth = 1,
+			ChildGap = 14,
+			Padding = Rect(20, 20, 20, 20),
+			AlignmentX = "stretch",
+		},
+	}
+	inner_col:SetParent(outer_col)
+
+	-- Measure WITHOUT setting any transform sizes first.
+	-- Before the fix the wrapped description would wrap at ~1px and produce
+	-- an intrinsic height in the thousands. After the fix it should stay
+	-- reasonable (under 300px for the whole tree).
+	outer_col.layout:UpdateLayout()
+	T(outer_col.layout.intrinsic_size.y)["<"](300)
+	outer_col:Remove()
+end)
+
 T.Test("layout - fit height parent defers child reflow", function()
 	local row = Panel.New{
 		Name = "Row",

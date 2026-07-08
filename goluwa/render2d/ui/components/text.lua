@@ -116,7 +116,22 @@ local function get_wrap_width(self, available_width)
 		self.Owner:GetParent() and
 		self.Owner:GetParent().transform
 	then
-		width = self.Owner:GetParent().transform.Size.x
+		local parent_width = self.Owner:GetParent().transform.Size.x
+
+		local parent_entity = self.Owner:GetParent()
+
+		if parent_entity and parent_entity.layout then
+			local parent_padding = parent_entity.layout:GetPadding()
+			parent_width = parent_width - parent_padding.x - parent_padding.w
+		end
+
+		-- If the parent chain hasn't been laid out yet (width collapsed to
+		-- the 1px default or negative from cascading padding), fall back to
+		-- the element's own transform width which may have been set by
+		-- cross-axis stretch during a previous Arrange pass.
+		if parent_width >= 10 then
+			width = parent_width
+		end
 	end
 
 	if self.Owner.layout then
@@ -403,8 +418,14 @@ function META:Initialize()
 		if self:GetWrap() then
 			local width = get_wrap_width(self)
 
-			if self.last_wrap_width ~= width then
+			-- On the first layout pass, the wrap layout was built at the
+			-- default 1px transform width, producing an incorrect height.
+			-- Always rebuild on the first transform change after init so we
+			-- get the correct wrapping based on the actually allocated width;
+			-- subsequent changes only rebuild when the width differs.
+			if not self._wrap_layout_initialized or self.last_wrap_width ~= width then
 				self.last_wrap_width = width
+				self._wrap_layout_initialized = true
 				self:OnTextChanged()
 			end
 		elseif self:GetElide() then

@@ -296,7 +296,7 @@ function META:Measure()
 	if count == 0 and self.Owner.text then
 		local text_component = self.Owner.text
 		local font = text_component:GetFont()
-		local text = text_component.wrapped_text or text_component:GetText()
+		local text = text_component:GetText()
 
 		if font and text then
 			local w, h
@@ -322,9 +322,25 @@ function META:Measure()
 					end
 				end
 
-				local wrapped = text_component:GetWrappedSize(current_inner_width)
-				w = current_inner_width
-				h = wrapped.y
+				-- On the first measurement pass, neither the text's transform nor
+				-- its parent's transform has been laid out yet (still at default
+				-- ~1px). Wrapping at 1px produces absurdly tall lines that inflate
+				-- every ancestor layout.
+				-- Estimate a reasonable wrap width from the font's space advance
+				-- (~60 chars per line) so the intrinsic height is realistic;
+				-- Arrange then sets the real width, triggering OnTransformChanged →
+				-- re-measure with proper wrapping on the next pass.
+				if current_inner_width < 10 then
+					local space_advance = font:GetSpaceAdvance()
+					local estimated_width = space_advance and (space_advance * 60) or 600
+					local wrapped = text_component:GetWrappedSize(estimated_width)
+					w = estimated_width
+					h = wrapped.y
+				else
+					local wrapped = text_component:GetWrappedSize(current_inner_width)
+					w = current_inner_width
+					h = wrapped.y
+				end
 			else
 				w, h = font:GetTextSize(text)
 			end
@@ -600,7 +616,7 @@ function META:Arrange()
 		elseif cross_alignment == "end" then
 			cross_pos = cross_pos + (available_cross - child_total_cross)
 		elseif cross_alignment == "stretch" then
-			final_cross = available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
+			final_cross = math.max(0, available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end])
 		end
 
 		if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
@@ -637,7 +653,17 @@ function META:UpdateLayout()
 	self.busy = self.busy + 1
 	local tr = self.Owner.transform
 
-	if self:GetFitWidth() then tr:SetWidth(intrinsic_size.x) end
+	if self:GetFitWidth() then
+		tr:SetWidth(intrinsic_size.x)
+	elseif
+		self:GetGrowWidth() > 0 and tr:GetSize().x <= 1
+	then
+		-- GrowWidth signals the layout wants to fill available space, but no
+		-- parent layout has constrained it yet (still at the 1px default).
+		-- Expand to intrinsic width so children — especially wrapped text —
+		-- have a reasonable cross-axis size instead of collapsing.
+		tr:SetWidth(intrinsic_size.x)
+	end
 
 	if self:GetFitHeight() then tr:SetHeight(intrinsic_size.y) end
 
