@@ -380,20 +380,24 @@ do -- events
 				real_event_name,
 				"objects_events:" .. event_type,
 				function(a, b, c, d, e, f, g)
+					local ra, rb, rc, rd, re
+
 					for i = 1, #events[event_type] do
 						local self = events[event_type][i]
 
 						if self then
-							local func = config and config.callback or self[func_name]
+							local func = self[func_name]
 
 							if func then
-								func(self, a, b, c, d, e, f, g)
+								ra, rb, rc, rd, re = func(self, a, b, c, d, e, f, g)
 							else
 								wlog("%s.%s is nil", self, func_name)
 								self:RemoveEvent(event_type)
 							end
 						end
 					end
+
+					return ra, rb, rc, rd, re
 				end,
 				config
 			)
