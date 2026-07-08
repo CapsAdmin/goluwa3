@@ -1,7 +1,3 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
-local Rect = import("goluwa/structs/rect.lua")
-local objects = import("goluwa/objects/objects.lua")
-local event = import("goluwa/event.lua")
 local base = import("goluwa/render2d/ui/themes/base.lua")
 local jrpg = import("goluwa/render2d/ui/themes/jrpg.lua")
 local theme = library()
