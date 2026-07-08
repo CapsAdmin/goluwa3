@@ -1,5 +1,4 @@
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local love = ...
 
 if type(love) == "string" then love = nil end
@@ -35,7 +34,7 @@ function love.graphics.point(x, y)
 		render2d.DrawRect(x, y, SIZE, SIZE, nil, SIZE / 2, SIZE / 2)
 		render2d.PopTexture()
 	else
-		gfx.DrawFilledCircle(x, y, SIZE)
+		render2d.DrawFilledCircle(x, y, SIZE)
 	end
 end
 

@@ -1,7 +1,6 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local debug_draw = import("goluwa/render3d/debug_draw.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -115,7 +114,7 @@ event.AddListener("Draw2D", "culling_debug_panel", function()
 	local panel_height = 186
 	render2d.SetTexture(nil)
 	render2d.SetColor(0.05, 0.07, 0.10, 0.93)
-	gfx.DrawRoundedRect(x - 8, y - 10, panel_width, panel_height, 10)
+	render2d.DrawRoundedRect(x - 8, y - 10, panel_width, panel_height, 10)
 	render2d.SetColor(colors.text[1], colors.text[2], colors.text[3], colors.text[4])
 	font:DrawText("Culling Debug", x, y)
 	y = y + line_height

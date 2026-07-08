@@ -5,7 +5,6 @@ local Color = import("goluwa/structs/color.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local input = import("goluwa/input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 
 local function normalize_padding(padding)
 	if type(padding) == "string" then

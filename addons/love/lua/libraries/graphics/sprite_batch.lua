@@ -1,5 +1,5 @@
 local line = import("lua/line.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
+local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local shared = import("addons/love/lua/libraries/graphics/shared.lua")
 local love = ...
@@ -173,7 +173,7 @@ end
 function love.graphics.newSpriteBatch(image, size, usagehint)
 	size = size or 1000
 	local self = line.CreateObject("SpriteBatch", love)
-	local poly = gfx.CreatePolygon2D(size * 6)
+	local poly = Polygon2D.New(size * 6)
 	self.size = size
 	self.poly = poly
 	self.img = image

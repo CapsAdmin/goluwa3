@@ -6,7 +6,6 @@ local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local system = import("goluwa/system.lua")
 local pretext = import("goluwa/pretext/init.lua")
 local ARTICLE = [[
@@ -59,9 +58,9 @@ end
 local function draw_obstacle(obstacle)
 	if obstacle.kind == "circle" then
 		render2d.SetColor(0.95, 0.62, 0.18, 0.9)
-		gfx.DrawFilledCircle(obstacle.cx, obstacle.cy, obstacle.radius)
+		render2d.DrawFilledCircle(obstacle.cx, obstacle.cy, obstacle.radius)
 		render2d.SetColor(1, 1, 1, 0.14)
-		gfx.DrawCircle(obstacle.cx, obstacle.cy, obstacle.radius + 5, 2, 48)
+		render2d.DrawCircle(obstacle.cx, obstacle.cy, obstacle.radius + 5, 2, 48)
 	elseif obstacle.kind == "rect" then
 		render2d.SetColor(0.18, 0.42, 0.74, 0.88)
 		render2d.DrawRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height)

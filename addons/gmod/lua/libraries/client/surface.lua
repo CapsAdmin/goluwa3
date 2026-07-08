@@ -1,6 +1,5 @@
 local gine = ... or _G.gine
 local render = import("goluwa/render/render.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local surface = gine.env.surface
 
@@ -78,7 +77,7 @@ function surface.DrawTexturedRectUV(x, y, w, h, u1, v1, u2, v2)
 end
 
 function surface.DrawLine(...)
-	gfx.DrawLine(...)
+	render2d.DrawLine(...)
 end
 
 function surface.DisableClipping(b)

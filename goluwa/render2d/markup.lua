@@ -3,7 +3,6 @@ local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
@@ -386,7 +385,7 @@ do -- tags
 		end,
 		post_draw_chunks = function(markup, self, chunk)
 			local y_offset = markup.HeightSpacing - 5
-			gfx.DrawLine(chunk.x - 2, chunk.top - y_offset, chunk.right + 2, chunk.top - y_offset)
+			render2d.DrawLine(chunk.x - 2, chunk.top - y_offset, chunk.right + 2, chunk.top - y_offset)
 		end,
 	}
 	Markup.tags.console = {
@@ -412,7 +411,7 @@ do -- tags
 		end,
 		post_draw_chunks = function(markup, self, chunk)
 			local y_offset = markup.HeightSpacing + 1
-			gfx.DrawLine(chunk.x - 2, chunk.top - y_offset, chunk.right + 2, chunk.top - y_offset)
+			render2d.DrawLine(chunk.x - 2, chunk.top - y_offset, chunk.right + 2, chunk.top - y_offset)
 		end,
 	}
 	Markup.tags.nolinebreak = {
@@ -452,7 +451,7 @@ do -- tags
 			local y_offset = markup.HeightSpacing - 5
 
 			for x = chunk.x, chunk.right do
-				gfx.DrawLine(x, chunk.top + math.sin(x) - y_offset, x + 1, chunk.top + math.sin(x) - y_offset)
+				render2d.DrawLine(x, chunk.top + math.sin(x) - y_offset, x + 1, chunk.top + math.sin(x) - y_offset)
 			end
 
 			render2d.PopColor()

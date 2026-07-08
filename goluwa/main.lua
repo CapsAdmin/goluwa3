@@ -55,7 +55,6 @@ local function init_game()
 
 			render.Initialize({samples = "1"})
 			import("goluwa/render2d/render2d.lua").Initialize()
-			import("goluwa/render2d/gfx.lua").Initialize()
 
 			if _G.GRAPHICS_3D then
 				import("goluwa/render3d/render3d.lua").Initialize()

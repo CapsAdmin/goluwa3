@@ -2,7 +2,6 @@ local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local system = import("goluwa/system.lua")
 local font_small = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 14}

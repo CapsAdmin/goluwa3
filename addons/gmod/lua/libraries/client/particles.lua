@@ -1,5 +1,3 @@
-local gfx = import("goluwa/render2d/gfx.lua")
-
 do
 	function gine.env.ParticleEmitter()
 		local emitter = {}

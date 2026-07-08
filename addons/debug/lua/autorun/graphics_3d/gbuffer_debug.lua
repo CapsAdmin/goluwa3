@@ -1,7 +1,6 @@
 local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Texture = import("goluwa/render/texture.lua")

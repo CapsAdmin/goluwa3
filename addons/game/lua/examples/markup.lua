@@ -1,11 +1,11 @@
 local Markup = import("goluwa/render2d/markup.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local vfs = import("goluwa/vfs.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
 local m
 local markup = Markup.New()
 markup:SetEditable(true)
@@ -126,12 +126,12 @@ Self publishing
 (Possibly email address or contact data)]])
 
 event.AddListener("Draw2D", "markup_test", function()
-	local x, y = gfx.GetMousePosition()
+	local x, y = system.GetWindow():GetMousePosition():Unpack()
 	x = x - 50
 	y = y - 50
 	markup:SetMousePosition(Vec2(x, y))
 	local x = (os.clock() * 10) % 500
-	x = gfx.GetMousePosition()
+	x = system.GetWindow():GetMousePosition() / x
 	x = 500
 	render2d.SetColor(0, 0, 0, 0.2)
 	render2d.DrawRect(50, 50, x, 1000)
@@ -140,7 +140,7 @@ event.AddListener("Draw2D", "markup_test", function()
 	markup:Draw()
 	markup:SetMaxWidth(x)
 	render2d.SetColor(1, 1, 1, 1)
-	gfx.DrawLine(x, 0, x, 1000)
+	render2d.DrawLine(x, 0, x, 1000)
 	render2d.PopMatrix()
 end)
 

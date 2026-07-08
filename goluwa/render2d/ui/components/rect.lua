@@ -1,7 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local META = objects.CreateTemplate("rect")
@@ -27,7 +26,7 @@ function META:OnDraw()
 		local borderRadius = self.Owner.gui_element:GetBorderRadius()
 
 		if borderRadius > 0 then
-			gfx.DrawRoundedRect(0, 0, s.x, s.y, borderRadius)
+			render2d.DrawRoundedRect(0, 0, s.x, s.y, borderRadius)
 		else
 			render2d.DrawRect(0, 0, s.x, s.y)
 		end

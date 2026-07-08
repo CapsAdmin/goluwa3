@@ -3,7 +3,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Texture = import("goluwa/render/texture.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local system = import("goluwa/system.lua")
 local objects = import("goluwa/objects/objects.lua")
 local BaseTheme = import("./base.lua")
@@ -777,7 +776,7 @@ function JRPGTheme:DrawSurface(size, color, radius)
 
 	if radius > 0 then
 		render2d.PushClampBorderRadius(false)
-		gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
+		render2d.DrawRoundedRect(0, 0, size.x, size.y, radius)
 		render2d.PopClampBorderRadius()
 	else
 		render2d.DrawRect(0, 0, size.x, size.y)

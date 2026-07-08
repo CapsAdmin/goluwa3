@@ -6,14 +6,13 @@ local objects = import("goluwa/objects/objects.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local HostColor = import("goluwa/structs/color.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local render = import("goluwa/render/render.lua")
 local surface = gine.env.surface
 
 local function wrap_text(font, text, max_width)
-	if gfx.WrapString then return gfx.WrapString(text, max_width, font) end
+	if render2d.WrapString then return render2d.WrapString(text, max_width, font) end
 
 	if font and font.WrapString then return font:WrapString(text, max_width) end
 
@@ -21,7 +20,9 @@ local function wrap_text(font, text, max_width)
 end
 
 local function limit_text(font, text, max_width)
-	if gfx.DotLimitText then return gfx.DotLimitText(text, max_width, font) end
+	if render2d.DotLimitText then
+		return render2d.DotLimitText(text, max_width, font)
+	end
 
 	return text
 end

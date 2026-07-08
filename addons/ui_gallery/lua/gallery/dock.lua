@@ -2,7 +2,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
@@ -15,7 +14,7 @@ local function draw_background(self)
 	render2d.SetColor(self.surface_color:Unpack())
 
 	if radius > 0 then
-		gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
+		render2d.DrawRoundedRect(0, 0, size.x, size.y, radius)
 	else
 		render2d.DrawRect(0, 0, size.x, size.y)
 	end

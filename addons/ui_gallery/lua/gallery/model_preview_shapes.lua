@@ -13,7 +13,6 @@ local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local system = import("goluwa/system.lua")
 
 local function create_material(color, emissive)
@@ -137,7 +136,7 @@ local function build_tile(definition)
 					render2d.SetColor(0.05, 0.06, 0.08, 1)
 					render2d.DrawRect(0, 0, size.x, size.y)
 					render2d.SetColor(1, 1, 1, 0.05)
-					gfx.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
+					render2d.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
 
 					if preview and preview.IsValid and preview:IsValid() then
 						render2d.SetTexture(preview:GetTexture())

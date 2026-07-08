@@ -1,7 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
 local META = objects.CreateTemplate("ui_debug_2d")
 META.LayoutDebugEnabled = false
 META.LayoutDebugFadeDuration = 0.5
@@ -57,7 +56,7 @@ local function draw_layout_debug_outline(owner)
 
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
-	gfx.DrawOutlinedRect(0, 0, transform.Size.x, transform.Size.y, 1, 0, 0.2, 0.45, 1.0, alpha)
+	render2d.DrawOutlinedRect(0, 0, transform.Size.x, transform.Size.y, 1, 0, 0.2, 0.45, 1.0, alpha)
 	render2d.PopMatrix()
 end
 
