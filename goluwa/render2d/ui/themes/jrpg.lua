@@ -12,8 +12,8 @@ JRPGTheme.Base = BaseTheme
 JRPGTheme.Name = "jrpg"
 local primary = Color.FromHex("#062a67"):SetAlpha(0.9)
 
-function JRPGTheme:Initialize()
-	self.BaseClass.Initialize(self)
+function JRPGTheme:Initialize(theme_context)
+	self.BaseClass.Initialize(self, theme_context)
 	local bright_white = Color(1, 1, 1, 1)
 	local palette = self:GetPalette():Copy()
 	palette:SetShades{

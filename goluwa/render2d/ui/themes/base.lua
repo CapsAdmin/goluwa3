@@ -1,5 +1,6 @@
 local Color = import("goluwa/structs/color.lua")
 local ColorPalette = import("goluwa/palette.lua")
+local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
@@ -50,13 +51,6 @@ BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
 BaseTheme:GetSet("PrimaryColor", Color.FromHex("#0066cc"))
 BaseTheme:GetSet("DefaultFontPath", "")
-
-function BaseTheme:New(theme_context)
-	local obj = self:CreateObject()
-	obj:SetThemeContext(theme_context)
-	obj:Initialize()
-	return obj
-end
 
 do
 	local FONT_SIZE_ORDER = {"XS", "S", "M", "L", "XL", "XXL", "XXXL"}
@@ -170,7 +164,11 @@ function BaseTheme:CreatePalette()
 	return semantic_palette
 end
 
-function BaseTheme:Initialize()
+function BaseTheme:Initialize(theme_context)
+	self:AddGlobalEvent("OnEntitySetProperty", {func_name = "OnEntitySetProperty"})
+	self:AddGlobalEvent("OnEntityStateChanged", {func_name = "OnEntityStateChanged"})
+	self:SetThemeContext(theme_context)
+
 	if self:GetDefaultFontPath() == "" then
 		self:SetDefaultFontPath(fonts.GetDefaultSystemFontPath())
 	end
@@ -1523,6 +1521,10 @@ function BaseTheme:DrawPost(pnl)
 	end
 end
 
+function BaseTheme:OnEntityStateChanged(pnl, key, val)
+	self:UpdateAnimations(pnl)
+end
+
 function BaseTheme:UpdateAnimations(pnl)
 	if pnl.Name == "checkbox" then return self:UpdateCheckboxAnimations(pnl) end
 
@@ -1531,6 +1533,67 @@ function BaseTheme:UpdateAnimations(pnl)
 	if pnl.Name == "clickable" then return self:UpdateButtonAnimations(pnl) end
 
 	if pnl.Name == "slider" then return self:UpdateSliderAnimations(pnl) end
+end
+
+function BaseTheme:OnEntitySetProperty(obj, key, val)
+	if key == "Padding" then
+		if type(val) == "string" then return Rect() + self:GetPadding(val) end
+	elseif key == "Color" then
+		if type(val) == "string" then return self:GetColor(val) end
+	elseif key == "ChildGap" then
+		if type(val) == "string" then return self:GetSize(val) end
+	elseif key == "Size" then
+		if type(val) == "string" then return Vec2() + self:GetSize(val) end
+	elseif key == "Font" then
+		if type(val) == "string" then
+			local style, size = val:match("([^%s]+)%s*(.*)")
+
+			if size == "" then size = nil end
+
+			if not style or style == "" then style = "body" end
+
+			if self.ThemeContext.font_sizes[style] and not self.ThemeContext.font_styles[style] then
+				size = style
+				style = "body"
+			end
+
+			obj.theme_font_style = style
+
+			if size then obj.theme_font_size = size end
+
+			local font, size_val = self:GetFont(obj.theme_font_style, obj.theme_font_size)
+
+			if font and obj.SetFontSize then obj:SetFontSize(size_val) end
+
+			return font
+		elseif type(val) == "table" and val.IsFont then
+			obj.theme_font_style = nil
+
+			if obj.SetFontSize then obj:SetFontSize(val:GetSize()) end
+
+			return val
+		end
+	elseif key == "FontSize" then
+		local size_val
+
+		if type(val) == "string" then
+			obj.theme_font_size = val
+			size_val = self:ResolveFontSize(val)
+		else
+			obj.theme_font_size = nil
+			size_val = val
+		end
+
+		if obj.SetFont then
+			local font = self:GetFont(obj.theme_font_style or "body", obj.theme_font_size or size_val)
+
+			if font then obj:SetFont(font) end
+		end
+
+		return size_val
+	end
+
+	return val
 end
 
 return BaseTheme:Register()
