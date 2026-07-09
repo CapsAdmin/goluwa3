@@ -107,6 +107,18 @@ function input.ReleaseAll(name, callback)
 	end
 end
 
+function input.IsShiftDown()
+	return input.IsKeyDown("left_shift") or
+		input.IsKeyDown("right_shift") or
+		input.IsKeyDown("shift")
+end
+
+function input.IsControlDown()
+	return input.IsKeyDown("left_control") or
+		input.IsKeyDown("right_control") or
+		input.IsKeyDown("control")
+end
+
 do
 	input.binds = {}
 
