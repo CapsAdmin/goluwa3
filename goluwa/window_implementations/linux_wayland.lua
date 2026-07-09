@@ -950,19 +950,22 @@ return function(META)
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then
 				if event.is_repeat then
-					self:OnKeyInputRepeat(event.key, true)
+					if self:OnKeyInputRepeat(event.key, true) == false then break end
 				else
-					self:OnKeyInput(event.key, true)
+					if self:OnKeyInput(event.key, true) == false then break end
 				end
 
 				-- Fire character input if available
-				if event.char and event.char ~= "" then self:OnCharInput(event.char) end
+				if event.char and event.char ~= "" then
+					if self:OnCharInput(event.char) == false then return end
+				end
 			elseif event.type == "key_release" then
-				self:OnKeyInput(event.key, false)
+				if self:OnKeyInput(event.key, false) == false then break end
 			elseif event.type == "mouse_button" then
 				local button = button_translate[event.button] or "button_" .. tostring(event.button)
 				local pressed = event.action == "pressed"
-				self:OnMouseInput(button, pressed)
+
+				if self:OnMouseInput(button, pressed) == false then return end
 			elseif event.type == "mouse_move" then
 				-- Update mouse position
 				self.last_mouse_pos = Vec2(event.x, event.y)
@@ -978,7 +981,9 @@ return function(META)
 					self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
 				end
 			elseif event.type == "mouse_scroll" then
-				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y))
+				if self:OnMouseScroll(Vec2(event.delta_x, event.delta_y)) == false then
+					return
+				end
 			elseif event.type == "drop" then
 				self:OnDrop(event.paths)
 			elseif event.type == "window_close" then
