@@ -20,6 +20,8 @@ return function(props)
 	local min_size = props.MinSize or Vec2(100, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
 	local editable = props.Editable ~= false
+	local auto_resize = props.AutoResize == true
+	local max_lines = props.MaxLines or 4
 	local panel_color = props.PanelColor or "surface_alt"
 	local background_color = props.BackgroundColor or "surface"
 	local text_panel
@@ -27,15 +29,28 @@ return function(props)
 	local last_text = props.Text or ""
 
 	local function sync_text_changed(panel)
-		if not props.OnTextChanged then return end
-
 		local next_text = text_panel and text_panel.text and text_panel.text:GetText() or ""
 
 		if next_text == last_text then return end
 
 		local old_text = last_text
 		last_text = next_text
-		props.OnTextChanged(panel, next_text, old_text, panel)
+
+		if auto_resize and text_panel and text_panel.text then
+			local lines, line_height, vertical_step = text_panel.text:GetTextSize2()
+
+			if lines then
+				local line_count = math.min(#lines, max_lines)
+				local w = panel.layout:GetMinSize().x
+				local h = line_count * vertical_step + vertical_step
+				panel.layout:SetMinSize(Vec2(w, h))
+				panel.layout:SetMaxSize(Vec2(w, h))
+			end
+		end
+
+		if props.OnTextChanged then
+			props.OnTextChanged(panel, next_text, old_text, panel)
+		end
 	end
 
 	local panel = Panel.New{
@@ -168,7 +183,26 @@ return function(props)
 
 		local caret_x = lx + cw
 		local caret_y = ly + (line - 1) * vertical_step
+
+		if line > 1 then caret_y = caret_y + line_height end
+
 		scroll_panel:ScrollRectIntoView(caret_x, caret_y, caret_x, caret_y + line_height)
+	end
+
+	function panel:SetAutoResize(value)
+		auto_resize = value == true
+	end
+
+	function panel:GetAutoResize()
+		return auto_resize
+	end
+
+	function panel:SetMaxLines(value)
+		max_lines = value
+	end
+
+	function panel:GetMaxLines()
+		return max_lines
 	end
 
 	function panel:RequestTextFocus()

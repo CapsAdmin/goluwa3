@@ -171,21 +171,13 @@ function chatbox.Create()
 			Editable = true,
 			ScrollY = true,
 			FontSize = "M",
-			MaxLines = 4,
 			Wrap = true,
 			MinSize = Vec2(0, 30),
+			AutoResize = true,
+			MaxLines = 4,
 			OnTextChanged = function(self, text)
-				event.Call("ChatTextChanged", text)
-				local lines, line_height, vertical_step, visible_start, visible_stop = chatbox.edit:GetTextPanel().text:GetTextSize2()
-
-				if not lines then return end
-
-				local line_count = math.min(#lines, 4)
-				local w = self.layout:GetMinSize().x
-				local h = line_count * vertical_step + vertical_step
-				self.layout:SetMinSize(Vec2(w, h))
-				self.layout:SetMaxSize(Vec2(w, h))
 				chatbox.edit:ScrollCaretIntoView()
+				event.Call("ChatTextChanged", text)
 			end,
 			OnKeyInput = function(self, key, press)
 				chatbox.edit:ScrollCaretIntoView()
