@@ -67,23 +67,22 @@ return function(META)
 
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then
-				if event.is_repeat then
-					if self:OnKeyInputRepeat(event.key, true) == false then return end
-				else
-					if self:OnKeyInput(event.key, true) == false then return end
+				if event.char and event.char ~= "" then
+					if self:OnCharInput(event.char) == false then break end
 				end
 
-				-- Fire character input if available
-				if event.char and event.char ~= "" then
-					if self:OnCharInput(event.char) == false then return end
+				if event.is_repeat then
+					if self:OnKeyInputRepeat(event.key, true) == false then break end
+				else
+					if self:OnKeyInput(event.key, true) == false then break end
 				end
 			elseif event.type == "key_release" then
-				if self:OnKeyInput(event.key, false) == false then return end
+				if self:OnKeyInput(event.key, false) == false then break end
 			elseif event.type == "mouse_button" then
 				local button = button_translate[event.button] or event.button
 				local pressed = event.action == "pressed"
 
-				if self:OnMouseInput(button, pressed) == false then return end
+				if self:OnMouseInput(button, pressed) == false then break end
 			elseif event.type == "mouse_move" then
 				self.last_mouse_pos.x = event.x
 				self.last_mouse_pos.y = event.y
@@ -91,7 +90,7 @@ return function(META)
 				self:OnCursorPosition(Vec2(event.x, event.y))
 			elseif event.type == "mouse_scroll" then
 				if self:OnMouseScroll(Vec2(event.delta_x, event.delta_y)) == false then
-					return
+					break
 				end
 			elseif event.type == "drop" then
 				self:OnDrop(event.paths)

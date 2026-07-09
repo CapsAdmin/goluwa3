@@ -117,7 +117,6 @@ local function get_wrap_width(self, available_width)
 		self.Owner:GetParent().transform
 	then
 		local parent_width = self.Owner:GetParent().transform.Size.x
-
 		local parent_entity = self.Owner:GetParent()
 
 		if parent_entity and parent_entity.layout then
@@ -129,9 +128,7 @@ local function get_wrap_width(self, available_width)
 		-- the 1px default or negative from cascading padding), fall back to
 		-- the element's own transform width which may have been set by
 		-- cross-axis stretch during a previous Arrange pass.
-		if parent_width >= 10 then
-			width = parent_width
-		end
+		if parent_width >= 10 then width = parent_width end
 	end
 
 	if self.Owner.layout then
@@ -364,10 +361,12 @@ function META:Initialize()
 
 					self.editor:OnKeyInput(key)
 					self:ResetCaretBlink()
+				--return false
 				end
 			end
 		end,
-		"text_edit"
+		"text_edit",
+		{priority = math.huge}
 	)
 
 	self.Owner:AddLocalListener(
@@ -381,9 +380,11 @@ function META:Initialize()
 				self.preferred_caret_x = nil
 				self.editor:OnCharInput(char)
 				self:ResetCaretBlink()
+				return false
 			end
 		end,
-		"text_edit"
+		"text_edit",
+		{priority = math.huge}
 	)
 
 	self.Owner:AddLocalListener(

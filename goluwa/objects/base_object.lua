@@ -298,7 +298,7 @@ do -- serializing
 	end
 end
 
-function META:AddLocalListener(what, callback, id)
+function META:AddLocalListener(what, callback, id, config)
 	self.local_events = self.local_events or {}
 
 	if not self.local_events[what] then
@@ -309,7 +309,7 @@ function META:AddLocalListener(what, callback, id)
 		end
 	end
 
-	local remover = event.AddListener(self.local_events[what], id or callback, callback, {self_arg = self})
+	local remover = event.AddListener(self.local_events[what], id or callback, callback, table.merge({self_arg = self}, config or {}))
 	self.local_event_removers = self.local_event_removers or {}
 	self.local_event_removers[remover] = true
 	return function(...)

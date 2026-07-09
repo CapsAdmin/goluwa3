@@ -18,7 +18,7 @@ function META:OnFirstCreated()
 			local focused = objects.GetFocusedObject()
 
 			if focused and focused:IsValid() and focused.key_input then
-				if focused.key_input:KeyInput(key, press) then return true end
+				return focused.key_input:KeyInput(key, press)
 			end
 		end,
 		{priority = 100}
@@ -31,7 +31,7 @@ function META:OnFirstCreated()
 			local focused = objects.GetFocusedObject()
 
 			if focused and focused:IsValid() and focused.key_input then
-				if focused.key_input:CharInput(char) then return true end
+				return focused.key_input:CharInput(char)
 			end
 		end,
 		{priority = 100}
