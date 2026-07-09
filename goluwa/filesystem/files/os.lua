@@ -1,5 +1,5 @@
 local fs = import("goluwa/filesystem/fs.lua")
-local ffi = desire("ffi")
+local ffi = require("ffi")
 local vfs = import("goluwa/filesystem/vfs.lua")
 local objects = import("goluwa/objects/objects.lua")
 local CONTEXT = objects.CreateTemplate("file_system_os")

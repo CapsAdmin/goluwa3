@@ -317,9 +317,9 @@ function vfs.AddModuleDirectory(dir, loaders)
 	return vfs.addon_library.AddModuleDirectory(dir, loaders)
 end
 
-local ffi = desire("ffi")
+do
+	local ffi = require("ffi")
 
-if ffi then
 	local function warn_pcall(func, ...)
 		local res = {pcall(func, ...)}
 
