@@ -232,6 +232,7 @@ local function build_wrap_layout(self, font, text, width)
 
 		-- Handle trailing newline by adding an empty line for proper caret positioning
 		local ends_with_newline = raw_length > 0 and utf8.sub(text, raw_length, raw_length) == "\n"
+
 		if ends_with_newline then
 			local next_line_idx = #lines + 1
 			lines[next_line_idx] = ""
@@ -360,26 +361,31 @@ function META:Initialize()
 		if font == self:GetFont() or true then self:OnTextChanged() end
 	end)
 
-	self.Owner:AddLocalListener(
-		"OnKeyInput",
-		function(pnl, key, press)
-			if self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner then
-				if key == "left_shift" or key == "right_shift" then
-					self.editor:SetShiftDown(press)
-				elseif key == "left_control" or key == "right_control" then
-					self.editor:SetControlDown(press)
-				end
-
-				if press then
-					if key ~= "up" and key ~= "down" and key ~= "pageup" and key ~= "pagedown" then
-						self.preferred_caret_x = nil
-					end
-
-					self.editor:OnKeyInput(key)
-					self:ResetCaretBlink()
-				--return false
-				end
+	local function key_input(pnl, key, press)
+		if self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner then
+			if key == "left_shift" or key == "right_shift" then
+				self.editor:SetShiftDown(press)
+			elseif key == "left_control" or key == "right_control" then
+				self.editor:SetControlDown(press)
 			end
+
+			if press then
+				if key ~= "up" and key ~= "down" and key ~= "pageup" and key ~= "pagedown" then
+					self.preferred_caret_x = nil
+				end
+
+				self.editor:OnKeyInput(key)
+				self:ResetCaretBlink()
+			end
+		end
+	end
+
+	self.Owner:AddLocalListener("OnKeyInput", key_input, "text_edit", {priority = math.huge})
+
+	self.Owner:AddLocalListener(
+		"OnKeyInputRepeat",
+		function(pnl, key)
+			return key_input(pnl, key, true)
 		end,
 		"text_edit",
 		{priority = math.huge}

@@ -6,6 +6,10 @@ function META:KeyInput(key, press)
 	return self.Owner:CallLocalEvent("OnKeyInput", key, press)
 end
 
+function META:KeyInputRepeat(key)
+	return self.Owner:CallLocalEvent("OnKeyInputRepeat", key)
+end
+
 function META:CharInput(char)
 	return self.Owner:CallLocalEvent("OnCharInput", char)
 end
@@ -19,6 +23,19 @@ function META:OnFirstCreated()
 
 			if focused and focused:IsValid() and focused.key_input then
 				return focused.key_input:KeyInput(key, press)
+			end
+		end,
+		{priority = 100}
+	)
+
+	event.AddListener(
+		"KeyInputRepeat",
+		"ecs_key_input_system",
+		function(key)
+			local focused = objects.GetFocusedObject()
+
+			if focused and focused:IsValid() and focused.key_input then
+				return focused.key_input:KeyInputRepeat(key)
 			end
 		end,
 		{priority = 100}

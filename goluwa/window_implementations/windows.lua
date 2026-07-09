@@ -734,7 +734,7 @@ return function(META)
 			if event.type == "key" then
 				if event.pressed then
 					if event.is_repeat then
-						if self:OnKeyInputRepeat(event.key, true) == false then break end
+						if self:OnKeyInputRepeat(event.key) == false then break end
 					else
 						if self:OnKeyInput(event.key, true) == false then break end
 					end

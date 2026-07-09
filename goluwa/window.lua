@@ -258,16 +258,14 @@ function Window:OnKeyInput(key, press)
 	return event.Call("KeyInput", key, press)
 end
 
-function Window:OnKeyInputRepeat(key, press)
-	local b = event.Call("WindowKeyInputRepeat", self, key, press)
+function Window:OnKeyInputRepeat(key)
+	local b = event.Call("WindowKeyInputRepeat", self, key)
 
 	if b ~= nil then return b end
 
-	b = event.Call("KeyInputRepeat", key, press)
+	b = event.Call("KeyInputRepeat", key)
 
 	if b ~= nil then return b end
-
-	return self:OnKeyInput(key, press)
 end
 
 function Window:OnMouseInput(key, press)
