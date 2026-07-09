@@ -229,6 +229,22 @@ local function build_wrap_layout(self, font, text, width)
 				justified = display_line.justified,
 			}
 		end
+
+		-- Handle trailing newline by adding an empty line for proper caret positioning
+		local ends_with_newline = raw_length > 0 and utf8.sub(text, raw_length, raw_length) == "\n"
+		if ends_with_newline then
+			local next_line_idx = #lines + 1
+			lines[next_line_idx] = ""
+			ranges[next_line_idx] = {
+				text = "",
+				start = raw_length + 1,
+				stop = raw_length + 1,
+				width = 0,
+				display_width = 0,
+				justified = false,
+			}
+			display_lines[next_line_idx] = build_display_line(font, "", 0, width, false)
+		end
 	end
 
 	return {

@@ -219,3 +219,32 @@ T.Test("wrapped text layout measure respects parent width when WrapToParent is e
 	child:Remove()
 	parent:Remove()
 end)
+
+T.Test("text component caret moves to new line after trailing newline", function()
+	local pnl = Panel.New{
+		Name = "caret_newline_test",
+		transform = true,
+		text = true,
+	}
+	pnl.transform:SetSize(Vec2(100, 64))
+	pnl.text:SetFont(new_mock_font())
+	pnl.text:SetEditable(true)
+	pnl.text:SetWrap(true)
+	pnl.text:SetWrapToParent(true)
+	pnl.text:SetText("foo")
+	-- Move cursor to the end (simulating having typed "foo")
+	pnl.text.editor:SetCursor(#pnl.text:GetText() + 1)
+	-- Simulate pressing Enter at the end
+	pnl.text.editor:OnKeyInput("enter")
+	-- After Enter, text should be "foo\n"
+	T(pnl.text:GetText())["=="]("foo\n")
+	-- Cursor should be at position 5 (after newline)
+	T(pnl.text.editor.Cursor)["=="](5)
+	local line, col = pnl.text:GetLineColFromIndex(pnl.text.editor.Cursor)
+	T(line)["=="](2)
+	T(col)["=="](1)
+	-- wrap_layout_info should have 2 lines
+	T(#pnl.text.wrap_layout_info.lines)["=="](2)
+	T(pnl.text.wrap_layout_info.lines[2])["=="]("")
+	pnl:Remove()
+end)
