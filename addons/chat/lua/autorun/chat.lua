@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local commands = import("goluwa/cli/commands.lua")
+local clients = import("goluwa/network/clients.lua")
 local Color = import("goluwa/structs/color.lua")
 local message = import("goluwa/network/message.lua")
 local chat = library()
@@ -76,6 +77,7 @@ chat.seed = 0
 
 function chat.ClientSay(client, str, skip_log, seed)
 	local seed = seed or chat.seed
+	print(client, str, skip_log, seed)
 
 	if event.Call("ClientChat", client, str, seed) ~= false then
 		chat.Append(client, str, skip_log)
@@ -98,6 +100,12 @@ if SERVER then
 		message.Broadcast("say", NULL, str)
 		chat.Append(NULL, str)
 	end
+end
+
+if CLIENT then
+	event.AddListener("ChatBoxInput", "chat", function(str)
+		chat.Say(str)
+	end)
 end
 
 commands.Add("say=arg_line", function(text)
