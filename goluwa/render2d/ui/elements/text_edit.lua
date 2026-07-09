@@ -23,6 +23,7 @@ return function(props)
 	local panel_color = props.PanelColor or "surface_alt"
 	local background_color = props.BackgroundColor or "surface"
 	local text_panel
+	local scroll_panel
 	local last_text = props.Text or ""
 
 	local function sync_text_changed(panel)
@@ -68,6 +69,9 @@ return function(props)
 		end,
 	}{
 		ScrollablePanel{
+			Ref = function(self)
+				scroll_panel = self
+			end,
 			Color = background_color,
 			Cursor = editable and "text_input" or nil,
 			ScrollX = scroll_x,
@@ -130,6 +134,41 @@ return function(props)
 
 		last_text = value
 		return self
+	end
+
+	function panel:ScrollToBottom()
+		scroll_panel:ScrollRectIntoView(0, 1e6, 0, 1e6)
+	end
+
+	function panel:ScrollCaretIntoView()
+		if not text_panel or not text_panel:IsValid() then return end
+
+		local text = text_panel.text
+
+		if not text or not text.editor then return end
+
+		local cursor = text.editor.Cursor
+		local line, col = text:GetLineColFromIndex(cursor)
+		local font = text:GetFont()
+		local lx, ly = text:GetTextOffset()
+		local line_height = font:GetLineHeight()
+		local vertical_step = line_height + font:GetSpacing()
+		local display_lines = text.wrap_layout_info and text.wrap_layout_info.display_lines
+		local display_line = display_lines and display_lines[line]
+		local line_text = text.wrap_layout_info and text.wrap_layout_info.lines[line] or ""
+		local cw
+
+		if display_line and display_line.positions then
+			local max_col = #display_line.positions
+			local clamped = math.max(1, math.min(col, max_col))
+			cw = display_line.positions[clamped] or 0
+		else
+			cw = font:GetTextSize(utf8.sub(line_text, 1, col - 1))
+		end
+
+		local caret_x = lx + cw
+		local caret_y = ly + (line - 1) * vertical_step
+		scroll_panel:ScrollRectIntoView(caret_x, caret_y, caret_x, caret_y + line_height)
 	end
 
 	function panel:RequestTextFocus()

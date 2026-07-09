@@ -175,14 +175,21 @@ function chatbox.Create()
 			Wrap = true,
 			MinSize = Vec2(0, 30),
 			OnTextChanged = function(self, text)
+				event.Call("ChatTextChanged", text)
 				local lines, line_height, vertical_step, visible_start, visible_stop = chatbox.edit:GetTextPanel().text:GetTextSize2()
+
+				if not lines then return end
+
 				local line_count = math.min(#lines, 4)
 				local w = self.layout:GetMinSize().x
-				self.layout:SetMinSize(Vec2(w, line_count * vertical_step))
-				self.layout:SetMaxSize(Vec2(w, line_count * vertical_step))
-				event.Call("ChatTextChanged", text)
+				local h = line_count * vertical_step + vertical_step
+				self.layout:SetMinSize(Vec2(w, h))
+				self.layout:SetMaxSize(Vec2(w, h))
+				chatbox.edit:ScrollCaretIntoView()
 			end,
 			OnKeyInput = function(self, key, press)
+				chatbox.edit:ScrollCaretIntoView()
+
 				if key == "escape" and press then
 					chatbox.HideInput()
 					return true
