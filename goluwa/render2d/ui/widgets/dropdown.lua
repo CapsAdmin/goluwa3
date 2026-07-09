@@ -275,7 +275,7 @@ return function(props)
 					Size = Vec2(0, effective_search_input_height),
 					MinSize = Vec2(0, effective_search_input_height),
 					MaxSize = Vec2(0, effective_search_input_height),
-					OnTextChanged = function(text)
+					OnTextChanged = function(self, text)
 						search_query = tostring(text or ""):lower()
 						rebuild_results()
 					end,

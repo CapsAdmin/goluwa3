@@ -505,7 +505,7 @@ return function(props)
 					update_hex_text()
 				end,
 				Text = format_hex(current_color),
-				OnTextChanged = function(text)
+				OnTextChanged = function(self, text)
 					apply_hex_text(text)
 				end,
 				FontName = "body_strong",

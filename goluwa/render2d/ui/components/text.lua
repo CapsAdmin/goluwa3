@@ -444,6 +444,43 @@ function META:OnRemove()
 	event.RemoveListener("OnFontsChanged", self)
 end
 
+function META:GetTextSize2()
+	local transform = self.Owner.transform
+	local font = self:GetFont() or fonts.GetDefaultFont()
+	local text = self.wrapped_text or self:GetText()
+	local lx, ly = self:GetTextOffset()
+	local tw, th = self:GetTextSize()
+	local descent = font:GetDescent()
+	local is_focused_editable = self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner
+	local line_height = font:GetLineHeight()
+
+	if self.wrap_layout_info and self:GetAlignX() == "justify" then
+		tw = math.max(tw, self.wrap_layout_info.width or 0)
+	end
+
+	if is_focused_editable then
+		th = math.max(th, line_height)
+		tw = math.max(tw, 2)
+	end
+
+	local clip_x1, clip_y1, clip_x2, clip_y2
+
+	if self:GetDisableViewportCulling() then
+		clip_x1 = lx
+		clip_y1 = ly
+		clip_x2 = lx + tw
+		clip_y2 = ly + th + descent
+	else
+		clip_x1, clip_y1, clip_x2, clip_y2 = transform:GetVisibleLocalRect(lx, ly, tw, th + descent)
+	end
+
+	if clip_x1 == nil then return end
+
+	local source_lines = self.wrap_layout_info and self.wrap_layout_info.lines or text
+	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(source_lines, font, lx, ly, clip_y1, clip_y2)
+	return lines, line_height, vertical_step, visible_start, visible_stop
+end
+
 function META:GetTextSize()
 	if self:GetWrap() and self.wrap_layout_info then
 		return self.wrap_layout_info.measured_width,

@@ -169,12 +169,17 @@ function chatbox.Create()
 			end,
 			Text = "",
 			Editable = true,
-			SingleLine = true,
-			Wrap = false,
+			ScrollY = true,
 			FontSize = "M",
-			Padding = Rect() + 8,
+			MaxLines = 4,
+			Wrap = true,
 			MinSize = Vec2(0, 30),
 			OnTextChanged = function(self, text)
+				local lines, line_height, vertical_step, visible_start, visible_stop = chatbox.edit:GetTextPanel().text:GetTextSize2()
+				local line_count = math.min(#lines, 4)
+				local w = self.layout:GetMinSize().x
+				self.layout:SetMinSize(Vec2(w, line_count * vertical_step))
+				self.layout:SetMaxSize(Vec2(w, line_count * vertical_step))
 				event.Call("ChatTextChanged", text)
 			end,
 			OnKeyInput = function(self, key, press)
@@ -193,10 +198,6 @@ function chatbox.Create()
 					end
 				end
 			end,
-			layout = {
-				GrowWidth = 1,
-				MinSize = Vec2(0, 30),
-			},
 		},
 	}
 	chatbox.panel:AddGlobalEvent("WindowFramebufferResized")

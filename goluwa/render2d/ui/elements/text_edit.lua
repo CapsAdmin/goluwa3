@@ -34,7 +34,7 @@ return function(props)
 
 		local old_text = last_text
 		last_text = next_text
-		props.OnTextChanged(next_text, old_text, panel)
+		props.OnTextChanged(panel, next_text, old_text, panel)
 	end
 
 	local panel = Panel.New{
