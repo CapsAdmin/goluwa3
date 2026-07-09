@@ -54,12 +54,6 @@ end
 
 function META:UpdateMouseRequest()
 	local window = system.GetWindow()
-
-	if not (window and window.PushMouseTrapRequest and window.PopMouseTrapRequest) then
-		self.mouse_request_active = false
-		return false
-	end
-
 	local active = self:IsRequestMouseActive()
 
 	if active then

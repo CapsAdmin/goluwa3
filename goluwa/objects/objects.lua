@@ -851,19 +851,19 @@ do
 	objects.focused_obj = NULL
 
 	function objects.SetFocusedObject(obj)
-		if obj.Owner and obj.Owner:IsValid() then
+		if obj and obj.Owner and obj.Owner:IsValid() then
 			return objects.SetFocusedObject(obj.Owner)
 		end
 
 		if objects.focused_obj == obj then return end
 
-		local old = objects.focused_obj
+		local old = objects.focused_obj or NULL
 
 		if old:IsValid() then if old.OnUnfocus then old:OnUnfocus() end end
 
-		objects.focused_obj = obj
+		objects.focused_obj = obj or NULL
 
-		if obj:IsValid() then if obj.OnFocus then obj:OnFocus() end end
+		if obj and obj:IsValid() then if obj.OnFocus then obj:OnFocus() end end
 	end
 
 	function objects.GetFocusedObject()

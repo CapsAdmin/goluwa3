@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
+local system = import("goluwa/system.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
@@ -94,6 +95,15 @@ return function(props)
 				FontName = props.FontName,
 				FontSize = props.FontSize,
 				text = props.text,
+				OnKeyInput = function(self, key, press)
+					if props.OnKeyInput then return props.OnKeyInput(self, key, press) end
+				end,
+				OnFocus = function(self, ...)
+					self.mouse_input:SetRequestMouse(true)
+				end,
+				OnUnfocus = function(self, ...)
+					self.mouse_input:SetRequestMouse(false)
+				end,
 				layout = {
 					GrowWidth = 1,
 					FitWidth = false,
@@ -125,6 +135,15 @@ return function(props)
 	function panel:RequestTextFocus()
 		if text_panel and text_panel:IsValid() then
 			text_panel:RequestFocus()
+			return true
+		end
+
+		return false
+	end
+
+	function panel:RequestTextUnFocus()
+		if text_panel and text_panel:IsValid() then
+			text_panel:RequestUnFocus()
 			return true
 		end
 

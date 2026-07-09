@@ -123,6 +123,10 @@ function META:RequestFocus()
 	objects.SetFocusedObject(self)
 end
 
+function META:RequestUnFocus()
+	objects.SetFocusedObject()
+end
+
 do
 	objects.remove_these = objects.remove_these or {}
 	local event_added = false
