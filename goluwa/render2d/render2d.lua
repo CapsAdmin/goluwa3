@@ -419,6 +419,7 @@ local rect_batch_fragment_passthrough_fields = {
 		format = "r32g32b32a32_sfloat",
 		write = function(vertex, entry, state, rect_state_snapshot)
 			ffi.copy(vertex.batch_global_color, rect_state_snapshot.global_color, ffi.sizeof("float") * 4)
+			vertex.batch_global_color[3] = vertex.batch_global_color[3] * state.alpha_multiplier
 		end,
 		fragment_values = {
 			{"draw.global_color", "batch_global_color", "in_batch_global_color"},
@@ -2482,6 +2483,7 @@ capture_rect_draw_state = function(world_matrix, u1, v1, u2, v2)
 		gradient_texture = render2d.state.render.textures.gradient_texture,
 		blend_mode = blend_mode,
 		pipeline_state_id = render2d.state.runtime.ids.current.rect_batch_pipeline,
+		alpha_multiplier = render2d.state.render.fragment.alpha_multiplier,
 	}
 end
 restore_rect_draw_state = function(state)
@@ -2490,6 +2492,7 @@ restore_rect_draw_state = function(state)
 		state.rect_state_snapshot,
 		render2d.state.render.fragment.constants_size
 	)
+	render2d.state.render.fragment.alpha_multiplier = state.alpha_multiplier
 	render2d.state.render.textures.texture = state.texture
 	render2d.state.render.textures.gradient_texture = state.gradient_texture
 	-- Register textures with the pipeline BEFORE bind_mesh_immediate/sync_pipeline_state
