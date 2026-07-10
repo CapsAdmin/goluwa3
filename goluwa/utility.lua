@@ -410,16 +410,16 @@ function utility.CreateCallbackThing(cache)
 	return self
 end
 
-function utility.MakePushPopFunction(lib, name, count, func_set, func_get, reset)
+function utility.MakePushPopFunction(lib, name, count)
 	assert(type(count) == "number")
-	func_set = func_set or lib["Set" .. name]
-	func_get = func_get or lib["Get" .. name]
+	local func_set = lib["Set" .. name]
+	local func_get = lib["Get" .. name]
 	lib.push_pop_context_values = lib.push_pop_context_values or {}
 	lib.push_pop_context_values[name] = {}
 	local stack = lib.push_pop_context_values[name]
 	local TEMPLATE = [==[
 	local i = 1
-	local name, lib, stack, func_set, func_get, reset = ...
+	local name, lib, stack, func_get, func_set = ...
 	lib["Push" .. name] = function(ARGS)
 		stack[i] = stack[i] or {}
 		STACK = func_get()
@@ -430,8 +430,6 @@ function utility.MakePushPopFunction(lib, name, count, func_set, func_get, reset
 		i = i - 1
 
 		if i < 1 then error("stack underflow", 2) end
-
-		if i == 1 and reset then reset() end
 
 		func_set(STACK)
 	end
@@ -451,7 +449,7 @@ function utility.MakePushPopFunction(lib, name, count, func_set, func_get, reset
 		lua = lua:replace("STACK", table.concat(stack_line, ", "))
 	end
 
-	assert(loadstring(lua))(name, lib, stack, func_set, func_get, reset)
+	assert(loadstring(lua))(name, lib, stack, func_get, func_set)
 end
 
 do
