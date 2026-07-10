@@ -1,5 +1,7 @@
 local render2d = import("goluwa/render2d/render2d.lua")
 local Texture = import("goluwa/render/texture.lua")
+local Color = import("goluwa/structs/color.lua")
+local render = import("goluwa/render/render.lua")
 
 function render2d.CreateGradient(config)
 	local width = config.width or 256
