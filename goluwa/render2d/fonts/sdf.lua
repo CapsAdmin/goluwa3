@@ -1310,12 +1310,13 @@ function META:GetTextSizeNotCached(str)
 	return X * self.Scale.x, Y * self.Scale.y
 end
 
+local render2d_SetTexture = render2d.SetTexture
+local render2d_DrawRectUV2f = render2d.DrawRectUV2f
+local render2d_PushColor = render2d.PushColor
+local render2d_DrawRect = render2d.DrawRect
+local render2d_PopColor = render2d.PopColor
+
 function META:DrawPassImmediate(str, x, y, spacing, atlas, extra_space_advance)
-	local render2d_SetTexture = render2d.SetTexture
-	local render2d_DrawRectUV2f = render2d.DrawRectUV2f
-	local render2d_PushColor = render2d.PushColor
-	local render2d_DrawRect = render2d.DrawRect
-	local render2d_PopColor = render2d.PopColor
 	local old_texture = render2d.GetTexture()
 	local last_texture = old_texture
 	local debug = self.debug
