@@ -137,6 +137,7 @@ render2d.state = {
 			constants_size = ffi.sizeof(RectDrawState),
 			rect_size = {w = 0, h = 0, lw = 0, lh = 0},
 			uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
+			uv2 = {u1 = nil, v1 = nil, u2 = nil, v2 = nil},
 			alpha_multiplier = 1,
 		},
 		textures = {
@@ -2313,13 +2314,28 @@ do -- uv
 	end
 
 	function render2d.SetUV2(u1, v1, u2, v2)
+		u1 = u1 or 0
+		v1 = v1 or 0
+		u2 = u2 or 1
+		v2 = v2 or 1
 		-- Calculate offset and scale from UV coordinates
 		local constants = render2d.state.render.fragment.constants
 		constants.uv_offset[0] = u1
 		constants.uv_offset[1] = v1
 		constants.uv_scale[0] = u2 - u1
 		constants.uv_scale[1] = v2 - v1
+		render2d.state.render.fragment.uv2.u1 = u1
+		render2d.state.render.fragment.uv2.v1 = v1
+		render2d.state.render.fragment.uv2.u2 = u2
+		render2d.state.render.fragment.uv2.v2 = v2
 	end
+
+	function render2d.GetUV2()
+		local uv2 = render2d.state.render.fragment.uv2
+		return uv2.u1, uv2.v1, uv2.u2, uv2.v2
+	end
+
+	utility.MakePushPopFunction(render2d, "UV2", 4)
 end
 
 do -- camera
