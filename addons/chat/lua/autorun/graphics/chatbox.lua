@@ -11,22 +11,25 @@ local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local chat = import("addons/chat/lua/autorun/chat.lua")
 local chatbox = {}
-chatbox.panel = nil
-chatbox.edit = nil
-chatbox.scroll_panel = nil
-chatbox.markup = nil
+chatbox.window = NULL
+chatbox.text_edit = NULL
+chatbox.markup_chatbox = NULL
+chatbox.markup_hud = NULL
 chatbox.life_time = 30
 local panel_width = 400
 local input_height = 50
 
 do
 	-- Initialize global markup template
-	chatbox.markup = Markup.New()
-	chatbox.markup:SetEditable(false)
-	chatbox.markup:SetSelectable(false)
-	-- Font and emote shortcuts (keep for reference)
+	chatbox.markup_chatbox = Markup.New()
+	chatbox.markup_chatbox:SetEditable(false)
+	chatbox.markup_chatbox:SetSelectable(true)
+	chatbox.markup_hud = Markup.New()
+	chatbox.markup_hud:SetEditable(false)
+	chatbox.markup_hud:SetSelectable(false)
 	chatbox.font_modifiers = {}
 	chatbox.emote_shortucts = chatbox.emote_shortucts or
 		{
@@ -36,19 +39,15 @@ do
 end
 
 function chatbox.IsVisible()
-	return chatbox.panel and chatbox.panel:IsValid() and chatbox.panel.gui_element.Visible
+	return chatbox.window.gui_element:IsVisible()
 end
 
 function chatbox.SetInputText(str)
-	if not chatbox.edit or not chatbox.edit:GetTextPanel() then return end
-
-	chatbox.edit:SetText(str or "")
+	chatbox.text_edit:SetText(str or "")
 end
 
 function chatbox.GetInputText()
-	if not chatbox.edit or not chatbox.edit.GetText then return "" end
-
-	return chatbox.edit:GetText()
+	return chatbox.text_edit:GetText()
 end
 
 function chatbox.AddText(...)
@@ -63,7 +62,8 @@ function chatbox.AddText(...)
 			list.insert(args, Color(1, 1, 1, 1))
 		elseif t == "string" then
 			if v == ": sh" or v == "sh" or v:find("%ssh%s") then
-				chatbox.markup:TagPanic()
+				chatbox.markup_hud:TagPanic()
+				chatbox.markup_chatbox:TagPanic()
 			end
 
 			v = v:gsub("<remember=(.-)>(.-)</remember>", function(key, val)
@@ -90,203 +90,182 @@ function chatbox.AddText(...)
 	end
 
 	event.Call("ChatAddText", args)
-	local markup = chatbox.markup
-	markup:BeginLifeTime(chatbox.life_time)
-	-- this will make everything added here get removed after said life time
-	markup:AddFont(chatbox.font) -- also reset the font just in case
-	markup:AddTable(args, true)
-	markup:AddTagStopper()
-	markup:AddString("\n")
-	markup:EndLifeTime()
+	chatbox.markup_hud:BeginLifeTime(chatbox.life_time)
+
+	do
+		chatbox.markup_hud:AddFont(chatbox.font) -- also reset the font just in case
+		chatbox.markup_hud:AddTable(args, true)
+		chatbox.markup_hud:AddTagStopper()
+		chatbox.markup_hud:AddString("\n")
+	end
+
+	do
+		chatbox.markup_chatbox:AddFont(chatbox.font) -- also reset the font just in case
+		chatbox.markup_chatbox:AddTable(args, true)
+		chatbox.markup_chatbox:AddTagStopper()
+		chatbox.markup_chatbox:AddString("\n")
+	end
+
+	chatbox.markup_hud:EndLifeTime()
 
 	--markup:SetMaxWidth(render2d.GetSize() * pos_mult:Get().x)
 	for k, v in pairs(chatbox.tags) do
-		markup.tags[k] = v
+		chatbox.markup_chatbox.tags[k] = v
+		chatbox.markup_hud.tags[k] = v
 	end
-end
-
-function chatbox.Create()
-	if chatbox.panel and chatbox.panel:IsValid() then return chatbox.panel end
-
-	if false then
-		resource.Download("data/steam_emotes.json"):Then(function(path)
-			local i = 0
-
-			for _, emote in ipairs(vfs.Read(path)) do
-				local name = emote.name:sub(2, -2)
-				chathud.emote_shortucts[name] = "<texture=http://cdn.steamcommunity.com/economy/emoticon/" .. name .. ">"
-				i = i + 1
-			end
-		end)
-	end
-
-	local window_size = system.GetWindow():GetSize()
-	local panel_x = 50
-	local panel_height = window_size.y - input_height - 100
-	local panel_y = window_size.y - panel_height
-	chatbox.panel = Panel.New{
-		Name = "chatbox",
-		transform = {
-			Size = Vec2(panel_width, panel_height),
-			Position = Vec2(panel_x, panel_y),
-		},
-		layout = {
-			Direction = "y",
-			GrowHeight = 1,
-			Padding = Rect() + 8,
-			ChildGap = 6,
-		},
-		gui_element = {
-			Visible = true,
-		},
-		style = {
-			BackgroundColor = "surface",
-		},
-	}{
-		ScrollablePanel{
-			Ref = function(self)
-				chatbox.scroll_panel = self
-			end,
-			ScrollY = true,
-			ScrollBarAutoHide = true,
-			ScrollBarVisible = true,
-			Padding = Rect() + 2,
-			layout = {
-				MinSize = Vec2(0, 0),
-				MaxSize = Vec2(10000, 10000),
-				GrowHeight = 1,
-			},
-		}{
-			-- Container panel that draws the global markup object
-			Panel.New{
-				Name = "markup_container",
-				transform = true,
-				layout = {
-					MinSize = Vec2(50, 50),
-				},
-				gui_element = true,
-				OnDraw = function(self)
-					local w = chatbox.markup.width or 0
-					local h = chatbox.markup.height or 0
-					--render2d.SetColor(1, 0, 0, 1)
-					--render2d.DrawRect(0, 0, w, h)
-					local transform = self.transform
-					chatbox.markup:Update()
-					chatbox.markup:Draw()
-					chatbox.markup:SetMaxWidth(render2d.GetSize() * 0.6)
-					transform:SetSize(Vec2(w, h))
-				end,
-			},
-		},
-		TextEdit{
-			Ref = function(self)
-				chatbox.edit = self
-			end,
-			Text = "",
-			Editable = true,
-			ScrollY = true,
-			FontSize = "M",
-			Wrap = true,
-			MinSize = Vec2(0, input_height),
-			AutoResize = true,
-			MaxLines = 4,
-			OnTextChanged = function(self, text)
-				chatbox.edit:ScrollCaretIntoView()
-				event.Call("ChatTextChanged", text)
-			end,
-			OnKeyInput = function(self, key, press)
-				if not press then return end
-
-				chatbox.edit:ScrollCaretIntoView()
-
-				if key == "escape" then
-					chatbox.HideInput()
-					return true
-				elseif key == "enter" then
-					local text = chatbox.edit:GetText()
-
-					if text and text ~= "" and not input.IsShiftDown() then
-						event.Call("ChatBoxInput", tostring(text))
-						chatbox.HideInput()
-						return true
-					end
-				end
-			end,
-		},
-	}
-	chatbox.panel:AddGlobalEvent("WindowFramebufferResized")
-
-	event.AddListener("WindowFramebufferResized", "chatbox_resize", function(window, size)
-		if not chatbox.panel or not chatbox.panel:IsValid() then return end
-
-		local new_panel_height = size.y - input_height - 100
-		local new_y = size.y - new_panel_height
-		chatbox.panel.transform:SetPosition(Vec2(50, new_y))
-		chatbox.panel.transform:SetSize(Vec2(panel_width, new_panel_height))
-	end)
-
-	-- Dynamically adjust panel height based on TextEdit's actual size
-	local function UpdatePanelHeight()
-		if not chatbox.edit or not chatbox.panel or not chatbox.panel:IsValid() then
-			return
-		end
-
-		local text_panel = chatbox.edit:GetTextPanel()
-
-		if not text_panel or not text_panel.transform or not text_panel.transform.size then
-			return
-		end
-
-		local edit_height = text_panel.transform.size.y
-		local min_edit_height = input_height
-		local extra_height = math.max(0, edit_height - min_edit_height)
-		-- Calculate total panel height needed
-		local current_size = chatbox.panel.transform.size
-
-		if not current_size then return end
-
-		local new_panel_height = current_size.y + extra_height
-		local window_size = system.GetWindow():GetSize()
-		-- Ensure we don't exceed screen bounds
-		local max_allowed_height = window_size.y - input_height - 100
-		new_panel_height = math.min(new_panel_height, max_allowed_height)
-		-- Update panel size and position to keep bottom aligned
-		local new_y = window_size.y - new_panel_height
-		chatbox.panel.transform:SetPosition(Vec2(50, new_y))
-		chatbox.panel.transform:SetSize(Vec2(panel_width, new_panel_height))
-	end
-
-	-- Set up listener for text changes
-	if chatbox.edit and chatbox.edit:GetTextPanel() then
-		UpdatePanelHeight()
-
-		event.AddListener("ChatTextChanged", "update_chatbox_height", function(text)
-			UpdatePanelHeight()
-		end)
-	end
-
-	return chatbox.panel
 end
 
 function chatbox.Show()
 	if event.Call("ChatOpen") == false then return end
 
-	chatbox.Create()
+	if not chatbox.window:IsValid() then
+		if false then
+			resource.Download("data/steam_emotes.json"):Then(function(path)
+				local i = 0
 
-	if not chatbox.panel or not chatbox.panel:IsValid() then return end
+				for _, emote in ipairs(vfs.Read(path)) do
+					local name = emote.name:sub(2, -2)
+					chathud.emote_shortucts[name] = "<texture=http://cdn.steamcommunity.com/economy/emoticon/" .. name .. ">"
+					i = i + 1
+				end
+			end)
+		end
 
-	chatbox.panel.gui_element.Visible = true
-	chatbox.edit.gui_element.Visible = true
+		local window_size = system.GetWindow():GetSize()
+		local panel_x = 50
+		local panel_height = window_size.y - input_height - 100
+		local panel_y = window_size.y - panel_height
+		chatbox.window = Window{
+			Name = "chatbox",
+			Title = "chat",
+			Padding = "XS",
+		}{
+			ScrollablePanel{
+				ScrollY = true,
+				ScrollBarAutoHide = true,
+				ScrollBarVisible = true,
+				layout = {
+					MinSize = Vec2(0, 0),
+					MaxSize = Vec2(10000, 10000),
+					GrowHeight = 1,
+				},
+			}{
+				-- Container panel that draws the global markup object
+				Panel.New{
+					Name = "markup_container",
+					transform = true,
+					layout = {
+						MinSize = Vec2(50, 50),
+					},
+					gui_element = true,
+					OnDraw = function(self)
+						local w = chatbox.markup_chatbox.width or 0
+						local h = chatbox.markup_chatbox.height or 0
+						local size = self:GetParent().transform:GetSize()
+						render2d.SetColor(0, 0, 0, 1)
+						render2d.DrawRect(0, 0, size.x, size.y)
+						render2d.PushMatrix(4, 4)
+						chatbox.markup_chatbox:Update()
+						chatbox.markup_chatbox:Draw()
+						chatbox.markup_chatbox:SetMaxWidth(render2d.GetSize() * 0.6)
+						self.transform:SetSize(Vec2(w, h))
+						render2d.PopMatrix()
+					end,
+				},
+			},
+			TextEdit{
+				Ref = function(self)
+					chatbox.text_edit = self
+				end,
+				Text = "",
+				Editable = true,
+				ScrollY = true,
+				FontSize = "M",
+				Wrap = true,
+				MinSize = Vec2(0, input_height),
+				AutoResize = true,
+				OnTextChanged = function(self, text)
+					chatbox.text_edit:ScrollCaretIntoView()
+					event.Call("ChatTextChanged", text)
+				end,
+				OnKeyInput = function(self, key, press)
+					if not press then return end
 
-	if chatbox.edit then chatbox.edit:RequestTextFocus() end
+					chatbox.text_edit:ScrollCaretIntoView()
+
+					if key == "escape" then
+						chatbox.Hide()
+						return true
+					elseif key == "enter" then
+						local text = chatbox.text_edit:GetText()
+
+						if text and text ~= "" and not input.IsShiftDown() then
+							event.Call("ChatBoxInput", tostring(text))
+							chatbox.Hide()
+							return true
+						end
+					end
+				end,
+			},
+		}
+
+		local function UpdatePanelHeight()
+			if not chatbox.text_edit or not chatbox.window or not chatbox.window:IsValid() then
+				return
+			end
+
+			local text_panel = chatbox.text_edit:GetTextPanel()
+
+			if not text_panel or not text_panel.transform or not text_panel.transform.size then
+				return
+			end
+
+			local edit_height = text_panel.transform.size.y
+			local min_edit_height = input_height
+			local extra_height = math.max(0, edit_height - min_edit_height)
+			-- Calculate total panel height needed
+			local current_size = chatbox.window.transform.size
+
+			if not current_size then return end
+
+			local new_panel_height = current_size.y + extra_height
+			local window_size = system.GetWindow():GetSize()
+			-- Ensure we don't exceed screen bounds
+			local max_allowed_height = window_size.y - input_height - 100
+			new_panel_height = math.min(new_panel_height, max_allowed_height)
+			-- Update panel size and position to keep bottom aligned
+			local new_y = window_size.y - new_panel_height
+			chatbox.window.transform:SetPosition(Vec2(50, new_y))
+			chatbox.window.transform:SetSize(Vec2(panel_width, new_panel_height))
+		end
+
+		-- Set up listener for text changes
+		UpdatePanelHeight()
+
+		event.AddListener("ChatTextChanged", "update_chatbox_height", function(text)
+			UpdatePanelHeight()
+		end)
+
+		event.AddListener("Draw2D", "chatbox_hud", function()
+			local w, h = render2d.GetSize()
+			render2d.PushMatrix(50, h / 2)
+			local w = chatbox.markup_hud.width or 0
+			local h = chatbox.markup_hud.height or 0
+			chatbox.markup_hud:Update()
+			chatbox.markup_hud:Draw()
+			chatbox.markup_hud:SetMaxWidth(render2d.GetSize() * 0.3)
+			render2d.PopMatrix()
+		end)
+	end
+
+	chatbox.window.gui_element:SetVisible(true)
+	chatbox.text_edit:RequestTextFocus()
 end
 
-function chatbox.HideInput()
-	if not chatbox.edit or not chatbox.edit.gui_element then return end
-
-	chatbox.edit.gui_element.Visible = false
-	chatbox.edit:SetText("")
-	chatbox.edit:RequestTextUnFocus()
+function chatbox.Hide()
+	chatbox.window.gui_element:SetVisible(false)
+	chatbox.text_edit:SetText("")
+	chatbox.text_edit:RequestTextUnFocus()
 end
 
 -- Bind Y key to open/close chat input 
@@ -308,9 +287,9 @@ event.AddListener("Chat", "chatbox", function(name, str, client)
 end)
 
 if RELOAD then
-	if chatbox.panel and chatbox.panel:IsValid() then
-		chatbox.panel:Remove()
-		chatbox.panel = nil
+	if chatbox.window and chatbox.window:IsValid() then
+		chatbox.window:Remove()
+		chatbox.window = nil
 	end
 
 	chatbox.Show()
