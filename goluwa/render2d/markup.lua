@@ -12,7 +12,7 @@ local vfs = import("goluwa/vfs.lua")
 local expression = import("goluwa/expression.lua")
 local Texture = import("goluwa/render/texture.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
-local sequence_editor = import("goluwa/sequence_editor.lua")
+local SequenceEditor = import("goluwa/sequence_editor.lua")
 local MarkupBuffer = import("goluwa/render2d/markup_buffer.lua")
 local pretext = import("goluwa/pretext/init.lua")
 local Markup = objects.CreateTemplate("markup")
@@ -64,10 +64,9 @@ function Markup.New(str, skip_invalidate)
 		cull_w = math.huge,
 		cull_h = math.huge,
 		blink_offset = 0,
-		remove_these = {},
 		started_tags = {},
 	}
-	self.editor = sequence_editor.New(MarkupBuffer.New(nil, self))
+	self.editor = SequenceEditor.New(MarkupBuffer.New(nil, self))
 	self.editor.OnMoveUp = function()
 		move_editor_vertically(self, -1)
 	end
@@ -109,8 +108,7 @@ end
 
 function Markup:Clear(skip_invalidate)
 	self.editor.Buffer:Clear()
-	table.clear(self.chunks)
-	table.clear(self.remove_these)
+	table.clear(self.prepared_chunks)
 	table.clear(self.started_tags)
 
 	if not skip_invalidate then self:Invalidate() end
@@ -185,7 +183,7 @@ function Markup:Add(var, tags)
 end
 
 function Markup:TagPanic()
-	for _, v in ipairs(self.chunks) do
+	for _, v in ipairs(self.prepared_chunks) do
 		if v.type == "custom" then v.panic = true end
 	end
 end
@@ -369,9 +367,9 @@ do -- tags
 				local str = ""
 
 				for i = self.i + 1, math.huge do
-					local chunk = markup.chunks[i]
+					local chunk = markup.prepared_chunks[i]
 
-					if chunk.type == self.type or i > #markup.chunks then
+					if chunk.type == self.type or i > #markup.prepared_chunks then
 						system.OpenURL(str)
 
 						break
@@ -395,9 +393,9 @@ do -- tags
 				local str = ""
 
 				for i = self.i + 1, math.huge do
-					local chunk = markup.chunks[i]
+					local chunk = markup.prepared_chunks[i]
 
-					if chunk.type == self.type or i > #markup.chunks then
+					if chunk.type == self.type or i > #markup.prepared_chunks then
 						commands.RunString(str)
 
 						break
@@ -419,8 +417,8 @@ do -- tags
 		post_init = function(markup, self)
 			local ok = false
 
-			for i = 1, #markup.chunks do
-				local chunk = markup.chunks[i]
+			for i = 1, #markup.prepared_chunks do
+				local chunk = markup.prepared_chunks[i]
 
 				if ok then chunk.nolinebreak = true end
 
@@ -489,7 +487,7 @@ do -- tags
 			render2d.PushColor(r, g, b, 1)
 
 			for i = self.i + 1, math.huge do
-				local chunk = markup.chunks[i]
+				local chunk = markup.prepared_chunks[i]
 
 				if
 					not chunk or
@@ -517,7 +515,7 @@ do -- tags
 			render2d.PushColor(r, g, b, 1)
 
 			for i = self.i + 1, math.huge do
-				local chunk = markup.chunks[i]
+				local chunk = markup.prepared_chunks[i]
 
 				if
 					not chunk or
@@ -552,7 +550,7 @@ do -- tags
 		pre_draw = function(markup, self, x, y, force)
 			local delta = system.GetFrameTime() * 2
 
-			for _, v in ipairs(markup.chunks) do
+			for _, v in ipairs(markup.prepared_chunks) do
 				if v ~= self and v.w > 0 and v.h > 0 then
 					if not v.phys then
 						v.phys = {
@@ -648,7 +646,7 @@ do -- tags
 			if not self.font then return end
 
 			for i = self.i + 1, math.huge do
-				local chunk = markup.chunks[i]
+				local chunk = markup.prepared_chunks[i]
 
 				if not chunk or chunk.type == "tag_stopper" then break end
 
@@ -663,7 +661,7 @@ do -- tags
 		arguments = {"roboto black", 18, 0, 0, 0, 0, 1, 0},
 		pre_draw = function(markup, self, x, y, font)
 			for i = self.i + 1, math.huge do
-				local chunk = markup.chunks[i]
+				local chunk = markup.prepared_chunks[i]
 
 				if not chunk or chunk.type == "tag_stopper" then break end
 
@@ -1207,7 +1205,7 @@ do -- invalidate
 	end
 
 	function Markup:DumpState()
-		for _, chunk in ipairs(self.chunks) do
+		for _, chunk in ipairs(self.prepared_chunks) do
 			log(chunk.i, ": ")
 
 			if chunk.internal then log(" INTERNAL ") end
@@ -1284,7 +1282,7 @@ do -- invalidate
 		end
 	end
 
-	local function prepare_chunks(self)
+	local function prepare_chunks(self, input_chunks)
 		-- this is needed when invalidating the chunks table again
 		-- anything that need to add more chunks need to store the
 		-- old chunk as old_chunk key
@@ -1292,7 +1290,7 @@ do -- invalidate
 		local found = {}
 		local last_type
 
-		for _, chunk in ipairs(self.chunks) do
+		for _, chunk in ipairs(input_chunks) do
 			if chunk.type == "font" then
 				-- set the font so GetTextSize will be correct
 				set_font(self, chunk.val)
@@ -1366,7 +1364,7 @@ do -- invalidate
 		add_chunk(self, out, {type = "color", val = Color(1, 1, 1, 1), internal = true}, 1)
 		add_chunk(self, out, {type = "string", val = "", internal = true})
 
-		for _, chunk in ipairs(self.chunks) do
+		for _, chunk in ipairs(input_chunks) do
 			if chunk.type == "custom" and not chunk.post_init_called then
 				self:CallTagFunction(chunk, "post_init")
 				chunk.post_init_called = true
@@ -1832,12 +1830,11 @@ do -- invalidate
 
 		if self.suppress_layout then return end
 
-		self.chunks = self.editor.Buffer.chunks
-		local chunks = prepare_chunks(self)
+		local chunks = prepare_chunks(self, self.editor.Buffer.chunks)
 		solve_max_width(self, chunks)
 		store_tag_info(self, chunks)
 		--P"align y axis"
-		self.chunks = chunks
+		self.prepared_chunks = chunks
 
 		-- preserve caret positions
 		if self.editor.Cursor then
@@ -1864,7 +1861,7 @@ do -- invalidate
 		local strings = {}
 		local data
 
-		for _, chunk in ipairs(self.chunks) do
+		for _, chunk in ipairs(self.prepared_chunks) do
 			if chunk.type == "string" or chunk.type == "newline" then
 				if chunk.font then
 					if not chunk.font:IsReady() then return nil, "fonts not ready" end
@@ -2367,7 +2364,7 @@ do -- input
 	end
 
 	function Markup:OnMouseInput(button, press)
-		if not self.chunks then return end
+		if not self.prepared_chunks then return end
 
 		if button == "mwheel_up" or button == "mwheel_down" then return end
 
@@ -2443,6 +2440,49 @@ do -- drawing
 	end
 
 	function Markup:Update()
+		local remove_start = nil
+		local remove_stop = nil
+
+		for i, chunk in ipairs(self.prepared_chunks) do
+			if chunk.type == "start_fade" then
+				if chunk.alpha <= 0 then
+					remove_start = chunk
+
+					for i = i + 1, #self.prepared_chunks do
+						local chunk = self.prepared_chunks[i]
+
+						if chunk.type == "end_fade" then
+							remove_stop = chunk
+
+							break
+						end
+					end
+
+					break
+				end
+			end
+		end
+
+		if remove_start and remove_stop then
+			self.need_layout = true
+			local remove = false
+
+			for i = #self.editor.Buffer.chunks, 1, -1 do
+				local chunk = self.editor.Buffer.chunks[i]
+
+				if chunk == remove_stop then
+					table.remove(self.editor.Buffer.chunks, i)
+					remove = true
+				elseif chunk == remove_start then
+					table.remove(self.editor.Buffer.chunks, i)
+
+					break
+				elseif remove then
+					table.remove(self.editor.Buffer.chunks, i)
+				end
+			end
+		end
+
 		if self.need_layout and not self.suppress_layout then
 			self:Invalidate()
 			self.need_layout = false
@@ -2460,8 +2500,6 @@ do -- drawing
 		end
 	end
 
-	local start_remove = false
-	local remove_these = false
 	local started_tags = false
 
 	function Markup:Draw(max_w)
@@ -2474,16 +2512,14 @@ do -- drawing
 			if self.SuperLightMode then return end
 		end
 
-		if not self.chunks[1] then return end
+		if not self.prepared_chunks[1] then return end
 
 		-- reset font and color for every line
 		set_font(self, fonts.GetDefaultFont())
 		render2d.SetColor(1, 1, 1, 1)
-		start_remove = false
-		remove_these = false
 		started_tags = false
 
-		for i, chunk in ipairs(self.chunks) do
+		for i, chunk in ipairs(self.prepared_chunks) do
 			if not chunk.internal then
 				if not chunk.x then return end -- UMM
 				if
@@ -2499,8 +2535,6 @@ do -- drawing
 						chunk.type == "start_fade" or
 						chunk.type == "end_fade"
 					)
-					or
-					start_remove
 				then
 					if chunk.type == "start_fade" then
 						local time = chunk.val - system.GetElapsedTime()
@@ -2512,13 +2546,6 @@ do -- drawing
 						end
 
 						render2d.PushAlphaMultiplier(chunk.alpha)
-
-						if chunk.alpha <= 0 then start_remove = true end
-					end
-
-					if start_remove then
-						self.remove_these[i] = true
-						remove_these = true
 					end
 
 					if chunk.type == "string" and not self.LightMode then
@@ -2586,10 +2613,7 @@ do -- drawing
 						end
 					end
 
-					if chunk.type == "end_fade" then
-						render2d.PopAlphaMultiplier()
-						start_remove = false
-					end
+					if chunk.type == "end_fade" then render2d.PopAlphaMultiplier() end
 
 					if started_tags then
 						if chunk.type == "tag_stopper" then
@@ -2620,16 +2644,6 @@ do -- drawing
 			end
 
 			table.clear(self.started_tags)
-		end
-
-		if remove_these then
-			for i in pairs(self.remove_these) do
-				self.chunks[i] = nil
-			end
-
-			table.clear(self.remove_these)
-			list.fix_indices(self.chunks)
-			self:Invalidate()
 		end
 
 		if self.Selectable then self:DrawSelection() end
