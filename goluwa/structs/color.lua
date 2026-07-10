@@ -67,7 +67,6 @@ function META:SetSaturation(s)
 	self.r = new.r
 	self.g = new.g
 	self.b = new.b
-	self.a = new.a
 	return self
 end
 
@@ -77,7 +76,6 @@ function META:SetLightness(l)
 	self.r = new.r
 	self.g = new.g
 	self.b = new.b
-	self.a = new.a
 	return self
 end
 
@@ -371,7 +369,7 @@ function META.FromHSV(h, s, v)
 	v = v or 1
 	a = a or 1
 
-	if s == 0 then return META.CType(v, v, v) end
+	if s == 0 then return META.CType(v, v, v, 1) end
 
 	local i = math.floor(h)
 	local f = h - i
@@ -380,15 +378,15 @@ function META.FromHSV(h, s, v)
 	local t = v * (1 - s * (1 - f))
 
 	if i == 0 then
-		return META.CType(v, t, p)
+		return META.CType(v, t, p, 1)
 	elseif i == 1 then
-		return META.CType(q, v, p)
+		return META.CType(q, v, p, 1)
 	elseif i == 2 then
-		return META.CType(p, v, t)
+		return META.CType(p, v, t, 1)
 	elseif i == 3 then
-		return META.CType(p, q, v)
+		return META.CType(p, q, v, 1)
 	elseif i == 4 then
-		return META.CType(t, p, v)
+		return META.CType(t, p, v, 1)
 	end
 
 	return META.CType(v, p, q, 1)
