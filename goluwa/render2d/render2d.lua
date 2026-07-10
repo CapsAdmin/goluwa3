@@ -1036,7 +1036,7 @@ function render2d.Initialize()
 					return shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0;
 				}
 
-				#define FLAGS_SDF_ENABLED  (FLAGS_SWIZZLE == 10)
+				#define FLAGS_SDF_ENABLED  (FLAGS_SDF != 0)
 
 				bool has_texture_sdf_enabled() {
 					return draw.texture_index >= 0 && FLAGS_SDF_ENABLED;
@@ -1406,6 +1406,7 @@ do
 				{name = "SWIZZLE", mask = 0xF, shift = 0},
 				{name = "SAMPLE_UV", mask = 0xF, shift = 4},
 				{name = "CLAMP_BORDER_RADIUS", mask = 0x1, shift = 8},
+				{name = "SDF", mask = 0x1, shift = 9},
 			}
 
 			-- Build getter/setter for each flag from the FLAGS table
@@ -1486,21 +1487,17 @@ do
 		end
 
 		do
-			-- SDF is a computed flag: swizzle == 10
 			function render2d.SetSDFMode(mode)
 				if mode then
-					local sample_uv = render2d.GetSAMPLE_UV()
-					render2d.SetSWIZZLE(10)
-					render2d.SetSAMPLE_UV(sample_uv)
-					render2d.state.render.options.computed_margin_dirty = true
-				elseif render2d.GetSWIZZLE() == 10 then
-					render2d.SetSWIZZLE(0)
-					render2d.state.render.options.computed_margin_dirty = true
+					render2d.SetSDF(1)
+				else
+					render2d.SetSDF(0)
 				end
+				render2d.state.render.options.computed_margin_dirty = true
 			end
 
 			function render2d.GetSDFMode()
-				return render2d.GetSWIZZLE() == 10 and 1 or 0
+				return render2d.GetSDF()
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFMode", 1)
@@ -2566,7 +2563,7 @@ do
 		local content_m = constants.outline_width
 		local swizzle = bit.band(constants.flags, 0xF)
 
-		if swizzle == 10 or swizzle == 1 then
+		if bit.band(constants.flags, bit.lshift(1, 9)) ~= 0 or swizzle == 1 then
 			content_m = content_m + math.max(constants.blur[0], constants.blur[1])
 		end
 

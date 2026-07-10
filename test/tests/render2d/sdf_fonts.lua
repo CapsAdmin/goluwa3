@@ -214,7 +214,7 @@ do
 				for _, segment in ipairs(state.segments) do
 					for _, entry in ipairs(segment.entries) do
 						if entry.state.texture ~= nil then
-							T(bit.band(entry.state.rect_state_snapshot.flags, 0xF))["=="](10)
+							T(bit.band(entry.state.rect_state_snapshot.flags, bit.lshift(1, 9)))["~="](0)
 							found_font_entry = true
 
 							break
