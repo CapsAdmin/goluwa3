@@ -58,7 +58,7 @@ function Markup.New(str, skip_invalidate)
 	local self = Markup:CreateObject{
 		w = 0,
 		h = 0,
-		chunks = {},
+		prepared_chunks = {},
 		cull_x = 0,
 		cull_y = 0,
 		cull_w = math.huge,

@@ -177,7 +177,7 @@ T.Test2D("Markup wraps oversized tokens with pretext", function()
 	local parts = {}
 	local lines = {}
 
-	for _, chunk in ipairs(m.chunks) do
+	for _, chunk in ipairs(m.prepared_chunks) do
 		if chunk.type == "string" and chunk.val ~= "" and not chunk.internal then
 			parts[#parts + 1] = chunk.val
 			lines[#lines + 1] = chunk.line
@@ -197,7 +197,7 @@ T.Test2D("Markup preserves word wrapping with fixed metrics", function()
 	local words = {}
 	local lines = {}
 
-	for _, chunk in ipairs(m.chunks) do
+	for _, chunk in ipairs(m.prepared_chunks) do
 		if chunk.type == "string" and chunk.val:find("^%S+$") and not chunk.internal then
 			words[#words + 1] = chunk.val
 			lines[#lines + 1] = chunk.line
