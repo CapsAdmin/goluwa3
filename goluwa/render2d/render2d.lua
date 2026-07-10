@@ -1489,16 +1489,12 @@ do
 
 		do
 			function render2d.SetSDFMode(mode)
-				if mode then
-					render2d.SetSDF(1)
-				else
-					render2d.SetSDF(0)
-				end
+				render2d.SetSDF(mode and 1 or 0)
 				render2d.state.render.options.computed_margin_dirty = true
 			end
 
 			function render2d.GetSDFMode()
-				return render2d.GetSDF()
+				return render2d.GetSDF() == 1
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFMode", 1)
@@ -1948,9 +1944,8 @@ do
 		function render2d.PopStencilMask()
 			render2d.stencil_level = render2d.stencil_level - 1
 			local saved = table.remove(render2d._stencil_mask_stack)
-			if saved then
-				render2d.SetStencilMode(saved.mode, saved.ref)
-			end
+
+			if saved then render2d.SetStencilMode(saved.mode, saved.ref) end
 		end
 
 		utility.MakePushPopFunction(render2d, "StencilMode", 1)
