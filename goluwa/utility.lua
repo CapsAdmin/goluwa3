@@ -410,17 +410,20 @@ function utility.CreateCallbackThing(cache)
 	return self
 end
 
-function utility.MakePushPopFunction(lib, name, func_set, func_get, reset)
+function utility.MakePushPopFunction(lib, name, count, func_set, func_get, reset)
+	assert(type(count) == "number")
 	func_set = func_set or lib["Set" .. name]
 	func_get = func_get or lib["Get" .. name]
 	lib.push_pop_context_values = lib.push_pop_context_values or {}
 	lib.push_pop_context_values[name] = {}
 	local stack = lib.push_pop_context_values[name]
+	local TEMPLATE = [==[
 	local i = 1
-	lib["Push" .. name] = function(a, b, c, d)
+	local name, lib, stack, func_set, func_get, reset = ...
+	lib["Push" .. name] = function(ARGS)
 		stack[i] = stack[i] or {}
-		stack[i][1], stack[i][2], stack[i][3], stack[i][4] = func_get()
-		func_set(a, b, c, d)
+		STACK = func_get()
+		func_set(ARGS)
 		i = i + 1
 	end
 	lib["Pop" .. name] = function()
@@ -430,8 +433,25 @@ function utility.MakePushPopFunction(lib, name, func_set, func_get, reset)
 
 		if i == 1 and reset then reset() end
 
-		func_set(stack[i][1], stack[i][2], stack[i][3], stack[i][4])
+		func_set(STACK)
 	end
+	]==]
+	local lua = TEMPLATE
+
+	do
+		local args_line = {}
+		local stack_line = {}
+
+		for i = 1, count do
+			args_line[i] = "_" .. i
+			stack_line[i] = "stack[i][" .. i .. "]"
+		end
+
+		lua = lua:replace("ARGS", table.concat(args_line, ", "))
+		lua = lua:replace("STACK", table.concat(stack_line, ", "))
+	end
+
+	assert(loadstring(lua))(name, lib, stack, func_set, func_get, reset)
 end
 
 do

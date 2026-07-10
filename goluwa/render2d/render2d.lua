@@ -309,7 +309,7 @@ function render2d.GetRectBatchMode()
 	return render2d.state.render.options.rect_batch_mode
 end
 
-utility.MakePushPopFunction(render2d, "RectBatchMode")
+utility.MakePushPopFunction(render2d, "RectBatchMode", 1)
 
 local function build_rect_draw_matrix(base_world_matrix, x, y, w, h, a, ox, oy, margin, use_float, out_matrix)
 	local projected = out_matrix or Matrix44()
@@ -1395,7 +1395,7 @@ do
 			constants.global_color[3]
 		end
 
-		utility.MakePushPopFunction(render2d, "Color")
+		utility.MakePushPopFunction(render2d, "Color", 4)
 	end
 
 	do
@@ -1469,7 +1469,7 @@ do
 				return render2d.GetSWIZZLE()
 			end
 
-			utility.MakePushPopFunction(render2d, "SwizzleMode")
+			utility.MakePushPopFunction(render2d, "SwizzleMode", 1)
 		end
 
 		do
@@ -1481,7 +1481,7 @@ do
 				return render2d.GetSAMPLE_UV()
 			end
 
-			utility.MakePushPopFunction(render2d, "SampleUVMode")
+			utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
 		end
 
 		do
@@ -1502,7 +1502,7 @@ do
 				return render2d.GetSWIZZLE() == 10 and 1 or 0
 			end
 
-			utility.MakePushPopFunction(render2d, "SDFMode")
+			utility.MakePushPopFunction(render2d, "SDFMode", 1)
 		end
 
 		do
@@ -1514,7 +1514,7 @@ do
 				return render2d.state.render.fragment.constants.sdf_threshold
 			end
 
-			utility.MakePushPopFunction(render2d, "SDFThreshold")
+			utility.MakePushPopFunction(render2d, "SDFThreshold", 1)
 
 			function render2d.SetSDFTexelRange(range)
 				render2d.state.render.fragment.constants.sdf_texel_range = range or 1
@@ -1524,7 +1524,7 @@ do
 				return render2d.state.render.fragment.constants.sdf_texel_range
 			end
 
-			utility.MakePushPopFunction(render2d, "SDFTexelRange")
+			utility.MakePushPopFunction(render2d, "SDFTexelRange", 1)
 
 			function render2d.SetDisableRectSDF(enabled)
 				local normalized = enabled == true
@@ -1536,7 +1536,7 @@ do
 				return render2d.state.render.options.disable_rect_sdf
 			end
 
-			utility.MakePushPopFunction(render2d, "DisableRectSDF")
+			utility.MakePushPopFunction(render2d, "DisableRectSDF", 1)
 		end
 
 		do
@@ -1550,7 +1550,7 @@ do
 				return render2d.state.render.options.clamp_border_radius
 			end
 
-			utility.MakePushPopFunction(render2d, "ClampBorderRadius")
+			utility.MakePushPopFunction(render2d, "ClampBorderRadius", 1)
 		end
 
 		do
@@ -1566,7 +1566,7 @@ do
 				return constants.blur[0], constants.blur[1]
 			end
 
-			utility.MakePushPopFunction(render2d, "Blur")
+			utility.MakePushPopFunction(render2d, "Blur", 2)
 		end
 
 		do
@@ -1578,7 +1578,7 @@ do
 				return render2d.state.render.textures.gradient_texture
 			end
 
-			utility.MakePushPopFunction(render2d, "SDFGradientTexture")
+			utility.MakePushPopFunction(render2d, "SDFGradientTexture", 1)
 		end
 	end
 
@@ -1606,7 +1606,7 @@ do
 			constants.border_radius[3]
 		end
 
-		utility.MakePushPopFunction(render2d, "BorderRadius")
+		utility.MakePushPopFunction(render2d, "BorderRadius", 4)
 	end
 
 	do
@@ -1619,7 +1619,7 @@ do
 			return render2d.state.render.fragment.constants.outline_width
 		end
 
-		utility.MakePushPopFunction(render2d, "OutlineWidth")
+		utility.MakePushPopFunction(render2d, "OutlineWidth", 1)
 	end
 
 	do
@@ -1691,7 +1691,7 @@ do
 			return render2d.state.render.fragment.alpha_multiplier
 		end
 
-		utility.MakePushPopFunction(render2d, "AlphaMultiplier")
+		utility.MakePushPopFunction(render2d, "AlphaMultiplier", 1)
 	end
 
 	do
@@ -1710,7 +1710,7 @@ do
 			return render2d.state.render.textures.texture
 		end
 
-		utility.MakePushPopFunction(render2d, "Texture")
+		utility.MakePushPopFunction(render2d, "Texture", 1)
 	end
 
 	function render2d.SetBlendMode(mode_name, force, ...)
@@ -1948,7 +1948,7 @@ do
 			render2d.stencil_level = render2d.stencil_level - 1
 		end
 
-		utility.MakePushPopFunction(render2d, "StencilMode")
+		utility.MakePushPopFunction(render2d, "StencilMode", 1)
 	end
 
 	function render2d.SetBlendConstants(r, g, b, a)
@@ -2255,37 +2255,41 @@ do -- mesh
 end
 
 do -- uv
-	function render2d.SetUV(x, y, w, h, sx, sy)
-		local constants = render2d.state.render.fragment.constants
+	do
+		function render2d.SetUV(x, y, w, h, sx, sy)
+			local constants = render2d.state.render.fragment.constants
 
-		if not x then
-			-- Reset to default (no transformation)
-			constants.uv_offset[0] = 0
-			constants.uv_offset[1] = 0
-			constants.uv_scale[0] = 1
-			constants.uv_scale[1] = 1
-		else
-			sx = sx or 1
-			sy = sy or 1
-			local y = -y - h
-			-- Set UV offset and scale
-			constants.uv_offset[0] = x / sx
-			constants.uv_offset[1] = y / sy
-			constants.uv_scale[0] = w / sx
-			constants.uv_scale[1] = h / sy
+			if not x then
+				-- Reset to default (no transformation)
+				constants.uv_offset[0] = 0
+				constants.uv_offset[1] = 0
+				constants.uv_scale[0] = 1
+				constants.uv_scale[1] = 1
+			else
+				sx = sx or 1
+				sy = sy or 1
+				local y_transformed = -y - h
+				-- Set UV offset and scale
+				constants.uv_offset[0] = x / sx
+				constants.uv_offset[1] = y_transformed / sy
+				constants.uv_scale[0] = w / sx
+				constants.uv_scale[1] = h / sy
+			end
+
+			render2d.state.render.fragment.uv.x = x
+			render2d.state.render.fragment.uv.y = y
+			render2d.state.render.fragment.uv.w = w
+			render2d.state.render.fragment.uv.h = h
+			render2d.state.render.fragment.uv.sx = sx
+			render2d.state.render.fragment.uv.sy = sy
 		end
 
-		render2d.state.render.fragment.uv.x = x
-		render2d.state.render.fragment.uv.y = y
-		render2d.state.render.fragment.uv.w = w
-		render2d.state.render.fragment.uv.h = h
-		render2d.state.render.fragment.uv.sx = sx
-		render2d.state.render.fragment.uv.sy = sy
-	end
+		function render2d.GetUV()
+			local uv = render2d.state.render.fragment.uv
+			return uv.x, uv.y, uv.w, uv.h, uv.sx, uv.sy
+		end
 
-	function render2d.GetUV()
-		local uv = render2d.state.render.fragment.uv
-		return uv.x, uv.y, uv.w, uv.h, uv.sx, uv.sy
+		utility.MakePushPopFunction(render2d, "UV", 6)
 	end
 
 	function render2d.GetUVTransform()
@@ -2296,12 +2300,16 @@ do -- uv
 		constants.uv_scale[1]
 	end
 
-	function render2d.SetSampleUVMode(mode)
-		render2d.SetSAMPLE_UV(mode or 0)
-	end
+	do
+		function render2d.SetSampleUVMode(mode)
+			render2d.SetSAMPLE_UV(mode or 0)
+		end
 
-	function render2d.GetSampleUVMode()
-		return render2d.GetSAMPLE_UV()
+		function render2d.GetSampleUVMode()
+			return render2d.GetSAMPLE_UV()
+		end
+
+		utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
 	end
 
 	function render2d.SetUV2(u1, v1, u2, v2)
@@ -2312,9 +2320,6 @@ do -- uv
 		constants.uv_scale[0] = u2 - u1
 		constants.uv_scale[1] = v2 - v1
 	end
-
-	utility.MakePushPopFunction(render2d, "UV")
-	utility.MakePushPopFunction(render2d, "SampleUVMode")
 end
 
 do -- camera

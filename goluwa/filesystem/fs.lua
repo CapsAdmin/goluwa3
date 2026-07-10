@@ -351,7 +351,7 @@ end
 do
 	fs.SetWorkingDirectory = fs.set_current_directory
 	fs.GetWorkingDirectory = fs.get_current_directory
-	import("goluwa/utility.lua").MakePushPopFunction(fs, "WorkingDirectory")
+	import("goluwa/utility.lua").MakePushPopFunction(fs, "WorkingDirectory", 1)
 end
 
 fs.GetAttributes = fs.get_attributes
