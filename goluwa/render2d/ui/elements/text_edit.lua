@@ -42,7 +42,7 @@ return function(props)
 			if lines then
 				local line_count = math.min(#lines, max_lines)
 				local w = panel.layout:GetMinSize().x
-				local h = line_count * vertical_step + vertical_step
+				local h = line_count * vertical_step + vertical_step + 9
 				panel.layout:SetMinSize(Vec2(w, h))
 				panel.layout:SetMaxSize(Vec2(w, h))
 			end
