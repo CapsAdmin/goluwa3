@@ -1011,7 +1011,10 @@ function Texture:GenerateMipmaps(initial_layout)
 	local cmd = render.GetCommandBuffer()
 	local own_cmd = false
 
-	if not cmd then
+	-- PipelineBarrier cannot be called inside a dynamic render pass.
+	-- If the current command buffer is mid-render (e.g. download callback
+	-- firing during render2d), allocate our own buffer instead.
+	if not cmd or cmd.is_rendering then
 		cmd = command_pool:AllocateCommandBuffer()
 		cmd:Begin()
 		own_cmd = true
@@ -1172,7 +1175,7 @@ function Texture:GenerateMipmaps(initial_layout)
 	if own_cmd then
 		cmd:End()
 		render.SubmitAndWait(cmd)
-		cmd:Remove()
+		command_pool:FreeCommandBuffer(cmd)
 	end
 end
 
