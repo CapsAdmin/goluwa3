@@ -4,14 +4,11 @@ local commands = import("goluwa/cli/commands.lua")
 local clients = import("goluwa/network/clients.lua")
 local Color = import("goluwa/structs/color.lua")
 local message = import("goluwa/network/message.lua")
+local network = import("goluwa/network/network.lua")
 local chat = library()
 
 local function getnick(client)
 	return client:IsValid() and client:GetNick() or "server"
-end
-
-local function get_network()
-	return import("goluwa/network/network.lua")
 end
 
 local enabled = pvars.Setup("chat_timestamps", true)
@@ -46,7 +43,7 @@ function chat.Append(var, str, skip_log)
 		var = getnick(var)
 	elseif typex(var) == "null" then
 		var = "disconnected"
-	elseif not get_network().IsConnected() then
+	elseif not network.IsConnected() then
 		var = "server"
 	else
 		var = tostring(var)
@@ -65,7 +62,7 @@ if CLIENT then
 	function chat.Say(str)
 		str = tostring(str)
 
-		if get_network().IsConnected() then
+		if network.IsConnected() then
 			message.Send("say", str)
 		else
 			chat.ClientSay(clients.GetLocalClient(), str)
@@ -84,7 +81,7 @@ function chat.ClientSay(client, str, skip_log, seed)
 
 		if SERVER then message.Broadcast("say", client, str, chat.seed) end
 
-		if SERVER or not get_network().IsConnected() then chat.seed = chat.seed + 1 end
+		if SERVER or not network.IsConnected() then chat.seed = chat.seed + 1 end
 	end
 
 	return false
