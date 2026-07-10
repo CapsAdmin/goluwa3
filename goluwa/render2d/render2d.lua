@@ -1345,6 +1345,7 @@ end
 function render2d.ResetState()
 	local constants = render2d.state.render.fragment.constants
 	render2d.ClearPendingBatches()
+	render2d.stencil_level = 0
 	render2d.SetRectBatchMode("instanced")
 	reset_rect_batch_instance_frame_state()
 	render2d.SetTexture()
@@ -1882,6 +1883,7 @@ do
 
 	do
 		render2d.stencil_level = 0
+		render2d._stencil_mask_stack = {}
 
 		function render2d.SetStencilMode(mode_name, ref)
 			if ref == nil then ref = render2d.state.render.pipeline.stencil.ref end
@@ -1933,7 +1935,9 @@ do
 		end
 
 		function render2d.PushStencilMask()
-			render2d.PushStencilMode("mask_write", render2d.stencil_level)
+			local old_mode, old_ref = render2d.GetStencilMode()
+			table.insert(render2d._stencil_mask_stack, {mode = old_mode, ref = old_ref})
+			render2d.SetStencilMode("mask_write", render2d.stencil_level)
 			render2d.stencil_level = render2d.stencil_level + 1
 		end
 
@@ -1942,8 +1946,11 @@ do
 		end
 
 		function render2d.PopStencilMask()
-			render2d.PopStencilMode()
 			render2d.stencil_level = render2d.stencil_level - 1
+			local saved = table.remove(render2d._stencil_mask_stack)
+			if saved then
+				render2d.SetStencilMode(saved.mode, saved.ref)
+			end
 		end
 
 		utility.MakePushPopFunction(render2d, "StencilMode", 1)
