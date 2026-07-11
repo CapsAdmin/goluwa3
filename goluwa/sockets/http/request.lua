@@ -1,6 +1,7 @@
 local http = import("goluwa/sockets/http.lua")
 local timer = import("goluwa/timer.lua")
 local event = import("goluwa/event.lua")
+local tasks = import("goluwa/tasks.lua")
 local multipart_boundary = "Goluwa" .. os.time()
 local multipart = string.format("multipart/form-data;boundary=%q", multipart_boundary)
 
