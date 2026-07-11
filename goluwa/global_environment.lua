@@ -105,6 +105,12 @@ do
 	end
 end
 
+function _G.nil_fallback(val, fallback)
+	if val == nil then return fallback end
+
+	return val
+end
+
 _G.list = import("goluwa/list.lua")
 _G.setmetatable = import("goluwa/table/setmetatable_gc.lua")
 import("goluwa/debug/debug.lua")
