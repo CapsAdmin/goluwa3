@@ -74,7 +74,6 @@ chat.seed = 0
 
 function chat.ClientSay(client, str, skip_log, seed)
 	local seed = seed or chat.seed
-	print(client, str, skip_log, seed)
 
 	if event.Call("ClientChat", client, str, seed) ~= false then
 		chat.Append(client, str, skip_log)

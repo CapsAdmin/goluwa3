@@ -65,9 +65,12 @@ local function init_game()
 		end
 	end
 
-	vfs.AutorunAddons()
+	if _G.AUDIO then
+		local audio = import("goluwa/audio.lua")
+		audio.Initialize()
+	end
 
-	if _G.AUDIO then vfs.AutorunAddons("audio/") end
+	vfs.AutorunAddons()
 
 	if _G.GRAPHICS then
 		vfs.AutorunAddons("graphics/")
@@ -76,6 +79,12 @@ local function init_game()
 	end
 
 	if _G.PHYSICS then vfs.AutorunAddons("physics/") end
+
+	if _G.AUDIO then vfs.AutorunAddons("audio/") end
+
+	if _G.CLIENT then vfs.AutorunAddons("client/") end
+
+	if _G.SERVER then vfs.AutorunAddons("server/") end
 
 	system.KeepAlive("game")
 
