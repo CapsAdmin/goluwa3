@@ -280,19 +280,8 @@ local function get_cached_wrap_layout(self, width)
 		return layout
 	end
 
-	layout = self.measure_wrap_layout_info
-
-	if
-		layout and
-		layout.width == wrapped_width and
-		layout.font == font and
-		layout.source_text == text
-	then
-		return layout
-	end
-
 	layout = build_wrap_layout(self, font, text, wrapped_width)
-	self.measure_wrap_layout_info = layout
+	self.wrap_layout_info = layout
 	return layout
 end
 
@@ -559,7 +548,6 @@ function META:OnTextChanged()
 	if not self.Owner.transform then return end -- not ready yet
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self:GetText()
-	self.measure_wrap_layout_info = nil
 
 	if self.editor and not self._is_updating_from_editor then
 		if self.editor:GetText() ~= text then self.editor:SetText(text) end
@@ -570,7 +558,6 @@ function META:OnTextChanged()
 	if self:GetWrap() then
 		local width = get_wrap_width(self)
 		self.wrap_layout_info = build_wrap_layout(self, font, text, width)
-		self.measure_wrap_layout_info = self.wrap_layout_info
 		self.wrapped_text = self.wrap_layout_info.text
 		self.draw_text = self.wrapped_text
 		self.last_elide_width = nil
