@@ -286,6 +286,8 @@ return function(props)
 	end
 
 	local function scroll_rect_into_view(x1, y1, x2, y2, padding)
+		padding = padding or base_padding
+
 		if not viewport or not viewport:IsValid() then return false end
 
 		local content_size = viewport.layout and viewport.layout.content_size
