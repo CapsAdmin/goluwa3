@@ -167,7 +167,7 @@ function chatbox.Show()
 						render2d.PushMatrix(4, 4)
 						chatbox.markup_chatbox:Update()
 						chatbox.markup_chatbox:Draw()
-						chatbox.markup_chatbox:SetMaxWidth(render2d.GetSize() * 0.6)
+						chatbox.markup_chatbox:SetMaxWidth(size.w)
 						self.transform:SetSize(Vec2(w, h))
 						render2d.PopMatrix()
 					end,
