@@ -3,6 +3,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
+local utf8 = import("goluwa/string/utf8.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 return function(props)
@@ -20,23 +21,20 @@ return function(props)
 	local min_size = props.MinSize or Vec2(100, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
 	local editable = props.Editable ~= false
-	local auto_resize = props.AutoResize == true
+	local AutoScrollToCaret = nil_fallback(props.AutoScrollToCaret, true)
+	local AutoResize = props.AutoResize == true
 	local max_lines = props.MaxLines or 4
 	local panel_color = props.PanelColor or "surface_alt"
 	local background_color = props.BackgroundColor or "surface"
 	local text_panel
 	local scroll_panel
 	local last_text = props.Text or ""
+	local panel
 
-	local function sync_text_changed(panel)
-		local next_text = text_panel and text_panel.text and text_panel.text:GetText() or ""
+	local function sync_text_changed()
+		if AutoScrollToCaret then panel:ScrollCaretIntoView() end
 
-		if next_text == last_text then return end
-
-		local old_text = last_text
-		last_text = next_text
-
-		if auto_resize and text_panel and text_panel.text then
+		if AutoResize then
 			local lines, line_height, vertical_step = text_panel.text:GetTextSize2()
 
 			if lines then
@@ -48,12 +46,19 @@ return function(props)
 			end
 		end
 
+		local next_text = text_panel.text:GetText()
+
+		if next_text == last_text then return end
+
+		local old_text = last_text
+		last_text = next_text
+
 		if props.OnTextChanged then
 			props.OnTextChanged(panel, next_text, old_text, panel)
 		end
 	end
 
-	local panel = Panel.New{
+	panel = Panel.New{
 		Name = "text_edit",
 		Tooltip = props.Tooltip,
 		TooltipOptions = props.TooltipOptions,
@@ -78,10 +83,10 @@ return function(props)
 				theme.active:DrawPost(self.Owner)
 			end,
 		},
-		mouse_input = true,
-		OnUpdate = function(self)
-			sync_text_changed(self)
+		OnParentVisibilityChanged = function(self, visible)
+			sync_text_changed()
 		end,
+		mouse_input = true,
 	}{
 		ScrollablePanel{
 			Ref = function(self)
@@ -116,6 +121,14 @@ return function(props)
 				text = props.text,
 				OnKeyInput = function(self, key, press)
 					if props.OnKeyInput then return props.OnKeyInput(self, key, press) end
+
+					sync_text_changed()
+				end,
+				OnKeyInputRepeat = function(self, key)
+					sync_text_changed()
+				end,
+				OnCharInput = function(self, char)
+					sync_text_changed()
 				end,
 				OnFocus = function(self, ...)
 					self.mouse_input:SetRequestMouse(true)
@@ -148,6 +161,7 @@ return function(props)
 		if text_panel and text_panel.text then text_panel.text:SetText(value) end
 
 		last_text = value
+		sync_text_changed()
 		return self
 	end
 
@@ -190,11 +204,11 @@ return function(props)
 	end
 
 	function panel:SetAutoResize(value)
-		auto_resize = value == true
+		AutoResize = value == true
 	end
 
 	function panel:GetAutoResize()
-		return auto_resize
+		return AutoResize
 	end
 
 	function panel:SetMaxLines(value)

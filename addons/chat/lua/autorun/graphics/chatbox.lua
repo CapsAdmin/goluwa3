@@ -185,13 +185,10 @@ function chatbox.Show()
 				MinSize = Vec2(0, input_height),
 				AutoResize = true,
 				OnTextChanged = function(self, text)
-					chatbox.text_edit:ScrollCaretIntoView()
 					event.Call("ChatTextChanged", text)
 				end,
 				OnKeyInput = function(self, key, press)
 					if not press then return end
-
-					chatbox.text_edit:ScrollCaretIntoView()
 
 					if key == "escape" then
 						chatbox.Hide()
@@ -209,44 +206,7 @@ function chatbox.Show()
 			},
 		}
 
-		local function UpdatePanelHeight()
-			if not chatbox.text_edit or not chatbox.window or not chatbox.window:IsValid() then
-				return
-			end
-
-			local text_panel = chatbox.text_edit:GetTextPanel()
-
-			if not text_panel or not text_panel.transform or not text_panel.transform.size then
-				return
-			end
-
-			local edit_height = text_panel.transform.size.y
-			local min_edit_height = input_height
-			local extra_height = math.max(0, edit_height - min_edit_height)
-			-- Calculate total panel height needed
-			local current_size = chatbox.window.transform.size
-
-			if not current_size then return end
-
-			local new_panel_height = current_size.y + extra_height
-			local window_size = system.GetWindow():GetSize()
-			-- Ensure we don't exceed screen bounds
-			local max_allowed_height = window_size.y - input_height - 100
-			new_panel_height = math.min(new_panel_height, max_allowed_height)
-			-- Update panel size and position to keep bottom aligned
-			local new_y = window_size.y - new_panel_height
-			chatbox.window.transform:SetPosition(Vec2(50, new_y))
-			chatbox.window.transform:SetSize(Vec2(panel_width, new_panel_height))
-		end
-
-		-- Set up listener for text changes
-		UpdatePanelHeight()
-
-		event.AddListener("ChatTextChanged", "update_chatbox_height", function(text)
-			UpdatePanelHeight()
-		end)
-
-		event.AddListener("Draw2D", "chatbox_hud", function()
+		event.AddListener("PreDraw2D", "chatbox_hud", function()
 			local w, h = render2d.GetSize()
 			render2d.PushMatrix(50, h / 2)
 			local w = chatbox.markup_hud.width or 0
