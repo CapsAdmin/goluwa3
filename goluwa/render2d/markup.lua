@@ -681,6 +681,16 @@ do -- tags
 			}
 		end,
 	}
+	Markup.tags.circle = {
+		arguments = {32, {min = 4, max = 128}},
+		get_size = function(markup, self, size)
+			return tonumber(size), tonumber(size)
+		end,
+		pre_draw = function(markup, self, x, y, size)
+			render2d.SetTexture(nil)
+			render2d.DrawFilledCircle(x, y, tonumber(size))
+		end,
+	}
 	Markup.tags.texture = {
 		arguments = {"error", {min = 4, max = 128}, {min = 4, max = 128}},
 		init = function(markup, self, path)
@@ -1033,6 +1043,7 @@ do -- parse tags
 				-- maybe the string was "sdasd :> sdsadasd <color123>..."
 				if current_tag then
 					local tag_str = list.concat(current_tag, "") .. ">"
+					tag_str = tag_str:gsub("/>", ">")
 					local tag, arg_str = tag_str:match("<(.-)=(.+)>")
 					local stop_tag = false
 
@@ -1495,6 +1506,7 @@ do -- invalidate
 				if not chunk.nolinebreak then
 					y = y + chunk_height + self.HeightSpacing
 					x = 0
+					chunk_height = 0
 				end
 
 				chunk.w = 0
@@ -1576,6 +1588,8 @@ do -- invalidate
 
 			if h > height then height = h end
 
+			local prev_line_height = line_height
+
 			if chunk.h > line_height then line_height = chunk.h end
 
 			line_width = line_width + chunk.w
@@ -1587,7 +1601,7 @@ do -- invalidate
 				for _, chunk in ipairs(chunk_line) do
 					--if type(chunk.val) == "string" and chunk.val:find("bigtable") then print("\n\n",chunk,"\n\n")  end
 					--		log(chunk.type == "string" and chunk.val or ( "<"..  chunk.type .. ">"))
-					chunk.line_height = line_height
+					chunk.line_height = prev_line_height
 					chunk.line_width = line_width
 				end
 

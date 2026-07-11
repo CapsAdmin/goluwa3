@@ -221,3 +221,47 @@ T.Test2D("Markup visual down movement follows wrapped layout", function()
 	m:OnKeyInput("down")
 	T(m.editor.Cursor)["=="](expected.i)
 end)
+
+T.Test2D("Markup line height does not bleed from tall line to subsequent lines", function()
+	-- This test reproduces a bug where if a line has a very tall element,
+	-- subsequent lines incorrectly inherit the same line_height value.
+	-- Create markup with text that will have different line heights
+	local m = Markup.New(nil, true)
+	m:AddFont(base_font.New())
+	-- Add text with newlines to create multiple lines
+	m:AddString("A\n")
+	m:AddString("B\n")
+	m:AddString("C\n")
+	m:AddString("<circle=64/>\n", true)
+	m:AddString("D\n")
+	m:AddString("E\n")
+	m:AddString("F\n")
+	m:SetMaxWidth(200)
+	m:Invalidate()
+	-- Check that all lines have consistent line_height values
+	local line_heights = {}
+
+	for _, chunk in ipairs(m.prepared_chunks) do
+		print(chunk.type)
+
+		if chunk.type == "string" and chunk.val ~= "" then
+			line_heights[chunk.line] = chunk.line_height
+		end
+	end
+
+	-- All lines should have the same line_height (since they use the same font)
+	local first_line_height = line_heights[1]
+	T(first_line_height)["~="](nil, "line 1 should have a line_height")
+
+	for line_num, lh in pairs(line_heights) do
+		T(lh)["=="](
+			first_line_height,
+			string.format(
+				"line %d line_height=%s should equal line 1's line_height=%s",
+				line_num,
+				lh,
+				first_line_height
+			)
+		)
+	end
+end)
