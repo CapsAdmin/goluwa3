@@ -365,6 +365,7 @@ function META:Initialize()
 
 				self.editor:OnKeyInput(key)
 				self:ResetCaretBlink()
+				self:CursorMoved()
 			end
 		end
 	end
@@ -391,6 +392,7 @@ function META:Initialize()
 				self.preferred_caret_x = nil
 				self.editor:OnCharInput(char)
 				self:ResetCaretBlink()
+				self:CursorMoved()
 				return false
 			end
 		end,
@@ -407,6 +409,7 @@ function META:Initialize()
 				self.preferred_caret_x = nil
 				self.editor:SetCursor(index)
 				self:ResetCaretBlink()
+				self:CursorMoved()
 			end
 		end,
 		"text_selection"
@@ -420,6 +423,7 @@ function META:Initialize()
 
 				if self.editor and self.editor.Cursor == self.editor.SelectionStart then
 					self.editor:SetSelectionStart(nil)
+					self:CursorMoved()
 				end
 			end
 		end,
@@ -439,6 +443,7 @@ function META:Initialize()
 				self.last_wrap_width = width
 				self._wrap_layout_initialized = true
 				self:OnTextChanged()
+				self:CursorMoved()
 			end
 		elseif self:GetElide() then
 			local width = get_elide_width(self)
@@ -446,6 +451,7 @@ function META:Initialize()
 			if self.last_elide_width ~= width then
 				self.last_elide_width = width
 				self:OnTextChanged()
+				self:CursorMoved()
 			end
 		end
 	end)
@@ -592,6 +598,10 @@ function META:OnTextChanged()
 	end
 
 	if self.Owner.layout then self.Owner.layout:InvalidateLayout() end
+end
+
+function META:CursorMoved()
+	self.Owner:CallLocalEvent("OnCursorMoved")
 end
 
 function META:GetWrappedSize(width)

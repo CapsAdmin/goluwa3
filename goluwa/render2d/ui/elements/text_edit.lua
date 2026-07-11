@@ -38,9 +38,9 @@ return function(props)
 			local lines, line_height, vertical_step = text_panel.text:GetTextSize2()
 
 			if lines then
-				local line_count = math.min(#lines, max_lines)
+				local line_count = math.clamp(#lines, 1, max_lines)
 				local w = panel.layout:GetMinSize().x
-				local h = line_count * vertical_step + vertical_step + 9
+				local h = (line_count + 1) * vertical_step
 				panel.layout:SetMinSize(Vec2(w, h))
 				panel.layout:SetMaxSize(Vec2(w, h))
 			end
@@ -121,13 +121,10 @@ return function(props)
 				text = props.text,
 				OnKeyInput = function(self, key, press)
 					if props.OnKeyInput then return props.OnKeyInput(self, key, press) end
+				end,
+				OnCursorMoved = function()
+					if not text_panel or not panel then return end
 
-					sync_text_changed()
-				end,
-				OnKeyInputRepeat = function(self, key)
-					sync_text_changed()
-				end,
-				OnCharInput = function(self, char)
 					sync_text_changed()
 				end,
 				OnFocus = function(self, ...)
@@ -200,7 +197,7 @@ return function(props)
 
 		if line > 1 then caret_y = caret_y + line_height end
 
-		scroll_panel:ScrollRectIntoView(caret_x, caret_y, caret_x, caret_y + line_height)
+		scroll_panel:ScrollRectIntoView(caret_x, caret_y, caret_x, caret_y)
 	end
 
 	function panel:SetAutoResize(value)
