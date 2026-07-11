@@ -17,8 +17,16 @@ function META:Initialize()
 end
 
 function META:SetVisible(visible)
+	local changed = visible ~= self.Visible
 	self.Visible = visible
-	self.Owner:CallLocalEvent("OnVisibilityChanged", visible)
+
+	if changed then
+		self.Owner:CallLocalEvent("OnVisibilityChanged", visible)
+
+		for _, child in ipairs(self.Owner:GetChildrenList()) do
+			child:CallLocalEvent("OnParentVisibilityChanged", visible)
+		end
+	end
 end
 
 function META:IsHovered(mouse_pos)
