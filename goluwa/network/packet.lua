@@ -250,7 +250,7 @@ do -- buffer object
 		META["Read" .. name] = read_callback
 		META["Write" .. name] = write_callback
 		META:GenerateTypes()
-		objects.Register(META)
+		objects.Register(META, true)
 	end
 
 	objects.Register(META)
