@@ -1,10 +1,28 @@
-local Entity = import("goluwa/entities/base.lua")("entity", function()
-	return {
-		transform = import("goluwa/entities/components/transform.lua"),
-		light = import("goluwa/entities/components/light.lua"),
-		visual = import("goluwa/entities/components/visual.lua"),
-		visual_primitive = import("goluwa/entities/components/visual_primitive.lua"),
-	}
-end)
+local objects = import("goluwa/objects/objects.lua")
+local Entity = objects.CreateTemplate("entity")
+Entity.Base = import("goluwa/entities/base.lua")
+local valid_components = {}
+
+function Entity.RegisterComponent(name, meta)
+	valid_components[name] = meta
+end
+
+function Entity.GetValidComponents()
+	if not valid_components.transform then
+		valid_components.transform = import("goluwa/entities/components/transform.lua")
+		valid_components.light = import("goluwa/entities/components/light.lua")
+		valid_components.visual = import("goluwa/entities/components/visual.lua")
+		valid_components.visual_primitive = import("goluwa/entities/components/visual_primitive.lua")
+	end
+
+	return valid_components
+end
+
+function Entity:OnCreate(config)
+	self.World = Entity.World
+	Entity.BaseClass.OnCreate(self, config)
+end
+
+Entity:Register()
 Entity.World = Entity.New()
 return Entity

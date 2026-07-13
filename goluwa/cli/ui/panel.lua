@@ -1,27 +1,44 @@
 local repl = import("goluwa/cli/repl.lua")
-local valid = nil
-local TuiPanel = import("goluwa/entities/base.lua")("tui_panel", function()
-	valid = valid or
-		{
-			-- reuse 2d components
-			transform = import("goluwa/render2d/ui/components/transform.lua"),
-			layout = import("goluwa/render2d/ui/components/layout.lua"),
-			-- tui-specific  components
-			tui_element = import("goluwa/cli/ui/components/element.lua"),
-			tui_text = import("goluwa/cli/ui/components/text.lua"),
-			tui_border = import("goluwa/cli/ui/components/border.lua"),
-			tui_mouse_input = import("goluwa/cli/ui/components/mouse_input.lua"),
-			tui_key_input = import("goluwa/cli/ui/components/key_input.lua"),
-			tui_clickable = import("goluwa/cli/ui/components/clickable.lua"),
-			tui_resizable = import("goluwa/cli/ui/components/resizable.lua"),
-			tui_draggable = import("goluwa/cli/ui/components/draggable.lua"),
-			tui_animation = import("goluwa/cli/ui/components/animation.lua"),
-		}
-	return valid
-end)
-import.loaded["goluwa/cli/ui/panel.lua"] = TuiPanel
+local system = import("goluwa/system.lua")
+local input = import("goluwa/input.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
+local objects = import("goluwa/objects/objects.lua")
+local TuiPanel = objects.CreateTemplate("tui_panel")
+TuiPanel.Base = import("goluwa/entities/base.lua")
+local valid_components = {}
+
+function TuiPanel.RegisterComponent(name, meta)
+	valid_components[name] = meta
+end
+
+function TuiPanel.GetValidComponents()
+	if not valid_components.animation then
+		-- reuse 2d components
+		valid_components.transform = import("goluwa/render2d/ui/components/transform.lua")
+		valid_components.layout = import("goluwa/render2d/ui/components/layout.lua")
+		-- tui-specific  components
+		valid_components.tui_element = import("goluwa/cli/ui/components/element.lua")
+		valid_components.tui_text = import("goluwa/cli/ui/components/text.lua")
+		valid_components.tui_border = import("goluwa/cli/ui/components/border.lua")
+		valid_components.tui_mouse_input = import("goluwa/cli/ui/components/mouse_input.lua")
+		valid_components.tui_key_input = import("goluwa/cli/ui/components/key_input.lua")
+		valid_components.tui_clickable = import("goluwa/cli/ui/components/clickable.lua")
+		valid_components.tui_resizable = import("goluwa/cli/ui/components/resizable.lua")
+		valid_components.tui_draggable = import("goluwa/cli/ui/components/draggable.lua")
+		valid_components.tui_animation = import("goluwa/cli/ui/components/animation.lua")
+	end
+
+	return valid_components
+end
+
+function TuiPanel:OnCreate(config)
+	self.World = TuiPanel.World
+	TuiPanel.BaseClass.OnCreate(self, config)
+end
+
+TuiPanel:Register()
+import.loaded["goluwa/cli/ui/panel.lua"] = TuiPanel
 TuiPanel.World = TuiPanel.New{
 	ComponentSet = {
 		"transform",
@@ -146,10 +163,6 @@ do
 end
 
 do
-	local repl = import("goluwa/cli/repl.lua")
-	local event = import("goluwa/event.lua")
-	local system = import("goluwa/system.lua")
-	local input = import("goluwa/input.lua")
 	local tui = library()
 	local key_trigger = input.SetupInputEvent("TerminalKey")
 	local mouse_trigger = input.SetupInputEvent("TerminalMouse")

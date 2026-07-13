@@ -213,6 +213,8 @@ function objects.RebuildMetatables(what)
 			meta.BaseClass = copy.BaseClass
 			copy.objects_variables = objects_variables
 			objects.prepared_metatables[type_name] = copy
+
+			if meta.BaseClass then assert(meta.Type ~= meta.BaseClass.Type) end
 		end
 	end
 end
@@ -272,7 +274,7 @@ do
 	objects.created_objects_list = objects.created_objects_list or {}
 
 	function objects.CreateObject(meta, override, ...)
-		meta = objects.GetRegistered(meta.Type) or meta
+		meta = assert(objects.GetRegistered(meta.Type))
 
 		if not meta.__gc then meta.__gc = remove_callback end
 

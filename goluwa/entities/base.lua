@@ -1,376 +1,361 @@
-return function(name, get_valid_components)
-	local event = import("goluwa/event.lua")
-	local objects = import("goluwa/objects/objects.lua")
-	local BaseEntity = objects.CreateTemplate(name)
-	objects.ParentingTemplate(BaseEntity)
-	local valid_components
+local event = import("goluwa/event.lua")
+local objects = import("goluwa/objects/objects.lua")
+local BaseEntity = objects.CreateTemplate("base_entity")
+objects.ParentingTemplate(BaseEntity)
+local valid_components
 
-	local function set_property(obj, key, val)
-		local new_val = event.Call("OnEntitySetProperty", obj, key, val)
+local function set_property(obj, key, val)
+	local new_val = event.Call("OnEntitySetProperty", obj, key, val)
 
-		if new_val ~= nil then val = new_val end
+	if new_val ~= nil then val = new_val end
 
-		return objects.SetProperty(obj, key, val), val
+	return objects.SetProperty(obj, key, val), val
+end
+
+local function apply_config(instance, config)
+	if type(config) ~= "table" then return end
+
+	for key, value in pairs(config) do
+		if type(key) == "string" then
+			if key:starts_with("On") then
+				instance[key] = value
+			else
+				local ok, new_value = set_property(instance, key, value)
+
+				if not ok then instance[key] = new_value end
+			end
+		end
 	end
 
-	local function apply_config(instance, config)
+	for i = 1, #config do
+		apply_config(instance, config[i])
+	end
+end
+
+function BaseEntity:NotifyWorldEvent(event_name, a, b, c, d, e, f, g)
+	local world = self.World
+
+	if world and world.IsValid and world:IsValid() then
+		return world:CallLocalEvent(event_name, self, a, b, c, d, e, f, g)
+	end
+end
+
+local function notify_parented(self, parent)
+	self:NotifyWorldEvent("OnEntityHierarchyChanged", "parented", parent)
+end
+
+local function notify_unparented(self, old_parent)
+	self:NotifyWorldEvent("OnEntityHierarchyChanged", "unparented", old_parent)
+end
+
+function BaseEntity:OnCreate(config)
+	self.Children = {}
+	self.ChildrenMap = {}
+	self.component_map = {}
+	self.component_list = {}
+	local components = {}
+	local local_events = {}
+	local ref local
+	parent = self.World
+
+	local function find_special_props(config)
 		if type(config) ~= "table" then return end
 
-		for key, value in pairs(config) do
-			if type(key) == "string" then
-				if key:starts_with("On") then
-					instance[key] = value
-				else
-					local ok, new_value = set_property(instance, key, value)
+		if config.Ref then
+			ref = config.Ref
+			config.Ref = nil
+		end
 
-					if not ok then instance[key] = new_value end
-				end
-			end
+		if config.Parent then
+			parent = config.Parent
+			config.Parent = nil
 		end
 
 		for i = 1, #config do
-			apply_config(instance, config[i])
+			find_special_props(config[i])
 		end
 	end
 
-	function BaseEntity:NotifyWorldEvent(event_name, a, b, c, d, e, f, g)
-		local world = BaseEntity.World
+	find_special_props(config)
+	self:AddLocalListener("OnParent", notify_parented)
+	self:AddLocalListener("OnUnParent", notify_unparented)
+	self:SetParent(parent)
 
-		if world and world.IsValid and world:IsValid() then
-			return world:CallLocalEvent(event_name, self, a, b, c, d, e, f, g)
-		end
-	end
-
-	local function notify_parented(self, parent)
-		self:NotifyWorldEvent("OnEntityHierarchyChanged", "parented", parent)
-	end
-
-	local function notify_unparented(self, old_parent)
-		self:NotifyWorldEvent("OnEntityHierarchyChanged", "unparented", old_parent)
-	end
-
-	function BaseEntity.RegisterComponent(name, meta)
-		BaseEntity.RegieredComponents = BaseEntity.RegieredComponents or get_valid_components()
-		BaseEntity.RegieredComponents[name] = meta
-	end
-
-	function BaseEntity.GetValidComponents()
-		BaseEntity.RegieredComponents = BaseEntity.RegieredComponents or get_valid_components()
-		return BaseEntity.RegieredComponents
-	end
-
-	function BaseEntity:OnCreate(config)
-		self.Children = {}
-		self.ChildrenMap = {}
-		self.component_map = {}
-		self.component_list = {}
-		local ent = self
-		local components = {}
-		local local_events = {}
-		local ref local
-		parent = BaseEntity.World
-
-		local function find_special_props(config)
+	if config then
+		local function apply_root_config(config)
 			if type(config) ~= "table" then return end
 
-			if config.Ref then
-				ref = config.Ref
-				config.Ref = nil
+			if config.ComponentSet then
+				for _, lib in ipairs(config.ComponentSet) do
+					table.insert(components, self:AddComponent(lib, nil, true))
+				end
 			end
 
-			if config.Parent then
-				parent = config.Parent
-				config.Parent = nil
+			if config.Events then
+				for event_name, handler in pairs(config.Events) do
+					self:AddLocalListener(event_name, handler)
+				end
 			end
 
-			for i = 1, #config do
-				find_special_props(config[i])
-			end
-		end
+			local valid_components = self.GetValidComponents()
 
-		find_special_props(config)
-		self:AddLocalListener("OnParent", notify_parented)
-		self:AddLocalListener("OnUnParent", notify_unparented)
-		self:SetParent(parent)
-
-		if config then
-			local function apply_root_config(config)
-				if type(config) ~= "table" then return end
-
-				if config.ComponentSet then
-					for _, lib in ipairs(config.ComponentSet) do
-						table.insert(components, ent:AddComponent(lib, nil, true))
+			for key, val in pairs(config) do
+				if
+					type(key) == "table" and
+					key.Component or
+					(
+						type(key) == "string" and
+						valid_components[key]
+					)
+				then
+					if not self:HasComponent(key) then
+						table.insert(components, self:AddComponent(key, val, true))
+					else
+						local instance = self.component_map[key]
+						apply_config(instance, val)
 					end
 				end
+			end
 
-				if config.Events then
-					for event_name, handler in pairs(config.Events) do
-						self:AddLocalListener(event_name, handler)
-					end
-				end
-
-				local valid_components = BaseEntity.GetValidComponents()
-
-				for key, val in pairs(config) do
-					if
+			for key, val in pairs(config) do
+				if
+					not (
 						type(key) == "table" and
 						key.Component or
 						(
 							type(key) == "string" and
 							valid_components[key]
 						)
-					then
-						if not ent:HasComponent(key) then
-							table.insert(components, ent:AddComponent(key, val, true))
-						else
-							local instance = ent.component_map[key]
-							apply_config(instance, val)
-						end
-					end
-				end
+					) and
+					type(key) == "string" and
+					key ~= "ComponentSet"
+				then
+					if key:starts_with("On") then
+						self[key] = val
+					else
+						local ok, new_val = set_property(self, key, val)
 
-				for key, val in pairs(config) do
-					if
-						not (
-							type(key) == "table" and
-							key.Component or
-							(
-								type(key) == "string" and
-								valid_components[key]
-							)
-						) and
-						type(key) == "string" and
-						key ~= "ComponentSet"
-					then
-						if key:starts_with("On") then
-							ent[key] = val
-						else
-							local ok, new_val = set_property(ent, key, val)
+						if not ok then
+							local found = false
 
-							if not ok then
-								local found = false
+							for _, component in ipairs(self.component_list) do
+								if set_property(component, key, new_val) then
+									found = true
 
-								for _, component in ipairs(ent.component_list) do
-									if set_property(component, key, new_val) then
+									break
+								end
+							end
+
+							if not found then
+								for comp_name, comp_meta in pairs(valid_components) do
+									if objects.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
+										local component = self:AddComponent(comp_name, nil, true)
+										table.insert(components, component)
+										set_property(component, key, new_val)
 										found = true
 
 										break
 									end
 								end
-
-								if not found then
-									for comp_name, comp_meta in pairs(valid_components) do
-										if objects.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
-											local component = ent:AddComponent(comp_name, nil, true)
-											table.insert(components, component)
-											set_property(component, key, new_val)
-											found = true
-
-											break
-										end
-									end
-								end
-
-								if not found then ent[key] = new_val end
 							end
+
+							if not found then self[key] = new_val end
 						end
 					end
 				end
-
-				for i = 1, #config do
-					apply_root_config(config[i])
-				end
 			end
 
-			apply_root_config(config)
-		end
-
-		if self:GetKey() ~= "" and self.Parent:IsValid() then
-			self.Parent.keyed_children = self.Parent.keyed_children or {}
-			local existing = self.Parent.keyed_children[self:GetKey()]
-
-			if existing and existing:IsValid() then existing:Remove() end
-
-			self.Parent.keyed_children[self:GetKey()] = self
-		end
-
-		for _, component in ipairs(self.component_list) do
-			if component.Initialize then component:Initialize() end
-
-			if component.OnAdd then component:OnAdd() end
-		end
-
-		if ref then ref(ent) end
-
-		return self
-	end
-
-	function BaseEntity:EnsureComponent(name, tbl)
-		if self[name] then return self[name] end
-
-		return self:AddComponent(name, tbl)
-	end
-
-	function BaseEntity:__call(...)
-		self:SetChildren({...})
-		return self
-	end
-
-	function BaseEntity:SetChildren(children)
-		local lst = list.flatten(children or {})
-
-		for i = #lst, 1, -1 do
-			local child = lst[i]
-
-			if type(child) == "table" and child.UnParent then child:UnParent() end
-		end
-
-		self:RemoveChildren()
-
-		for _, child in ipairs(lst) do
-			self:AddChild(child)
-		end
-	end
-
-	function BaseEntity:OnRemove()
-		local parent = self:GetParent()
-		self:UnParent()
-
-		if parent and parent:IsValid() and parent.keyed_children then
-			local key = self:GetKey()
-
-			if key ~= "" and parent.keyed_children[key] == self then
-				parent.keyed_children[key] = nil
+			for i = 1, #config do
+				apply_root_config(config[i])
 			end
 		end
 
-		self:RemoveChildren()
+		apply_root_config(config)
 	end
 
-	function BaseEntity:AddComponent(name, tbl, skip_init)
-		local valid_components = BaseEntity.GetValidComponents()
-		local meta = valid_components[name]
-		local component = self:CreateSubObject(meta)
-		self[name] = component
-		apply_config(component, tbl)
+	if self:GetKey() ~= "" and self.Parent:IsValid() then
+		self.Parent.keyed_children = self.Parent.keyed_children or {}
+		local existing = self.Parent.keyed_children[self:GetKey()]
 
-		if not skip_init then
-			if component.Initialize then component:Initialize() end
-		end
+		if existing and existing:IsValid() then existing:Remove() end
 
-		self.component_map[name] = component
-		self.component_list = self.component_list or {}
-		list.insert(self.component_list, component)
-
-		if not skip_init and component.OnAdd then component:OnAdd() end
-
-		self:NotifyWorldEvent("OnEntityComponentChanged", "added", name, component)
-		return component
+		self.Parent.keyed_children[self:GetKey()] = self
 	end
 
-	function BaseEntity:RemoveComponent(name)
-		local component = self[name]
+	for _, component in ipairs(self.component_list) do
+		if component.Initialize then component:Initialize() end
 
-		if not component then return end
-
-		component:Remove()
-		self[name] = nil
-		self.component_map[name] = nil
-
-		for i, other in ipairs(self.component_list) do
-			if other == component then
-				table.remove(self.component_list, i)
-
-				break
-			end
-		end
-
-		self:NotifyWorldEvent("OnEntityComponentChanged", "removed", name, component)
+		if component.OnAdd then component:OnAdd() end
 	end
 
-	function BaseEntity:HasComponent(name)
-		return self[name] ~= nil
+	if ref then ref(self) end
+end
+
+function BaseEntity:EnsureComponent(name, tbl)
+	if self[name] then return self[name] end
+
+	return self:AddComponent(name, tbl)
+end
+
+function BaseEntity:__call(...)
+	self:SetChildren({...})
+	return self
+end
+
+function BaseEntity:SetChildren(children)
+	local lst = list.flatten(children or {})
+
+	for i = #lst, 1, -1 do
+		local child = lst[i]
+
+		if type(child) == "table" and child.UnParent then child:UnParent() end
 	end
 
-	function BaseEntity:GetKeyed(key)
-		local ent = self.keyed_children and self.keyed_children[key]
+	self:RemoveChildren()
 
-		if ent and ent:IsValid() then return ent end
+	for _, child in ipairs(lst) do
+		self:AddChild(child)
 	end
+end
 
-	function BaseEntity:RemoveKeyed(key)
-		local entity = self:GetKeyed(key)
+function BaseEntity:OnRemove()
+	local parent = self:GetParent()
+	self:UnParent()
 
-		if entity and entity:IsValid() then
-			if entity:GetParent() == self then entity:Remove() end
+	if parent and parent:IsValid() and parent.keyed_children then
+		local key = self:GetKey()
 
-			self.keyed_children[key] = nil
+		if key ~= "" and parent.keyed_children[key] == self then
+			parent.keyed_children[key] = nil
 		end
 	end
 
-	function BaseEntity:Ensure(ent)
-		if not ent then return end
+	self:RemoveChildren()
+end
 
-		if type(ent) == "table" and not ent.IsValid then
-			local key = ent.Key
+function BaseEntity:AddComponent(name, tbl, skip_init)
+	local valid_components = self.GetValidComponents()
+	local meta = valid_components[name]
+	local component = self:CreateSubObject(meta)
+	self[name] = component
+	apply_config(component, tbl)
 
-			if key and key ~= "" then
-				local existing = self:GetKeyed(key)
+	if not skip_init then
+		if component.Initialize then component:Initialize() end
+	end
 
-				if existing then return existing end
-			end
+	self.component_map[name] = component
+	self.component_list = self.component_list or {}
+	list.insert(self.component_list, component)
 
-			ent.Parent = self
-			return BaseEntity.New(ent)
+	if not skip_init and component.OnAdd then component:OnAdd() end
+
+	self:NotifyWorldEvent("OnEntityComponentChanged", "added", name, component)
+	return component
+end
+
+function BaseEntity:RemoveComponent(name)
+	local component = self[name]
+
+	if not component then return end
+
+	component:Remove()
+	self[name] = nil
+	self.component_map[name] = nil
+
+	for i, other in ipairs(self.component_list) do
+		if other == component then
+			table.remove(self.component_list, i)
+
+			break
 		end
+	end
 
-		local key = ent:GetKey()
+	self:NotifyWorldEvent("OnEntityComponentChanged", "removed", name, component)
+end
 
-		if key ~= "" then
+function BaseEntity:HasComponent(name)
+	return self[name] ~= nil
+end
+
+function BaseEntity:GetKeyed(key)
+	local ent = self.keyed_children and self.keyed_children[key]
+
+	if ent and ent:IsValid() then return ent end
+end
+
+function BaseEntity:RemoveKeyed(key)
+	local entity = self:GetKeyed(key)
+
+	if entity and entity:IsValid() then
+		if entity:GetParent() == self then entity:Remove() end
+
+		self.keyed_children[key] = nil
+	end
+end
+
+function BaseEntity:Ensure(ent)
+	if not ent then return end
+
+	if type(ent) == "table" and not ent.IsValid then
+		local key = ent.Key
+
+		if key and key ~= "" then
 			local existing = self:GetKeyed(key)
 
-			if existing and existing ~= ent then
-				-- if we actually already has an existing one that is DIFFERENT from the one passed,
-				-- we should probably keep the old one and remove the new one.
-				-- but BaseEntity.New already removed the old one if it was keyed to the same parent.
-				-- so this case might only happen if the parent was changed or keys were changed.
-				ent:Remove()
-				return existing
-			end
+			if existing then return existing end
 		end
 
-		ent:SetParent(self)
-		return ent
+		ent.Parent = self
+		return self.New(ent)
 	end
 
-	function BaseEntity:Conditional(condition, props)
-		local key = props.Key
+	local key = ent:GetKey()
 
-		if not key then error("Conditional requires a Key prop") end
+	if key ~= "" then
+		local existing = self:GetKeyed(key)
 
-		if condition then
-			return self:Ensure(props)
-		else
-			self:RemoveKeyed(key)
-			return nil
+		if existing and existing ~= ent then
+			-- if we actually already has an existing one that is DIFFERENT from the one passed,
+			-- we should probably keep the old one and remove the new one.
+			-- but BaseEntity.New already removed the old one if it was keyed to the same parent.
+			-- so this case might only happen if the parent was changed or keys were changed.
+			ent:Remove()
+			return existing
 		end
 	end
 
-	function BaseEntity:SetState(key, val)
-		self.state = self.state or {}
-
-		if self.state[key] == val then return end
-
-		self.state[key] = val
-		self:CallLocalEvent("OnStateChanged", key, val)
-		event.Call("OnEntityStateChanged", self, key, val)
-	end
-
-	function BaseEntity:GetState(key)
-		if not key then return self.state end
-
-		return self.state and self.state[key]
-	end
-
-	return BaseEntity:Register()
+	ent:SetParent(self)
+	return ent
 end
+
+function BaseEntity:Conditional(condition, props)
+	local key = props.Key
+
+	if not key then error("Conditional requires a Key prop") end
+
+	if condition then
+		return self:Ensure(props)
+	else
+		self:RemoveKeyed(key)
+		return nil
+	end
+end
+
+function BaseEntity:SetState(key, val)
+	self.state = self.state or {}
+
+	if self.state[key] == val then return end
+
+	self.state[key] = val
+	self:CallLocalEvent("OnStateChanged", key, val)
+	event.Call("OnEntityStateChanged", self, key, val)
+end
+
+function BaseEntity:GetState(key)
+	if not key then return self.state end
+
+	return self.state and self.state[key]
+end
+
+return BaseEntity:Register()

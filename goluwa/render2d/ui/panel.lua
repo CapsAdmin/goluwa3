@@ -1,84 +1,90 @@
-local valid = nil
-local Panel = import("goluwa/entities/base.lua")("panel", function()
-	valid = valid or
-		{
-			animation = import("goluwa/render2d/ui/components/animation.lua"),
-			clickable = import("goluwa/render2d/ui/components/clickable.lua"),
-			ui_debug = import("goluwa/render2d/ui/components/ui_debug.lua"),
-			gui_element = import("goluwa/render2d/ui/components/gui_element.lua"),
-			key_input = import("goluwa/render2d/ui/components/key_input.lua"),
-			layout = import("goluwa/render2d/ui/components/layout.lua"),
-			mouse_input = import("goluwa/render2d/ui/components/mouse_input.lua"),
-			rect = import("goluwa/render2d/ui/components/rect.lua"),
-			resizable = import("goluwa/render2d/ui/components/resizable.lua"),
-			style = import("goluwa/render2d/ui/components/style.lua"),
-			text = import("goluwa/render2d/ui/components/text.lua"),
-			transform = import("goluwa/render2d/ui/components/transform.lua"),
-			draggable = import("goluwa/render2d/ui/components/draggable.lua"),
-		}
-	return valid
-end)
-import.loaded["goluwa/render2d/ui/panel.lua"] = Panel
+local system = import("goluwa/system.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local objects = import("goluwa/objects/objects.lua")
+local Panel = objects.CreateTemplate("panel")
+Panel.Base = import("goluwa/entities/base.lua")
+local valid_components = {}
 
-do
-	local function find_tooltip_props(config, state)
-		if type(config) ~= "table" then return end
+function Panel.RegisterComponent(name, meta)
+	valid_components[name] = meta
+end
 
-		if config.Tooltip ~= nil then
-			state.source = config.Tooltip
-			config.Tooltip = nil
-		end
-
-		if config.TooltipOptions ~= nil then
-			state.options = table.shallow_copy(config.TooltipOptions)
-			config.TooltipOptions = nil
-		end
-
-		if config.TooltipMaxWidth ~= nil then
-			state.options = state.options or {}
-			state.options.MaxWidth = config.TooltipMaxWidth
-			config.TooltipMaxWidth = nil
-		end
-
-		if config.TooltipOffset ~= nil then
-			state.options = state.options or {}
-			state.options.Offset = config.TooltipOffset
-			config.TooltipOffset = nil
-		end
-
-		for i = 1, #config do
-			find_tooltip_props(config[i], state)
-		end
+function Panel.GetValidComponents()
+	if not valid_components.animation then
+		valid_components.animation = import("goluwa/render2d/ui/components/animation.lua")
+		valid_components.clickable = import("goluwa/render2d/ui/components/clickable.lua")
+		valid_components.ui_debug = import("goluwa/render2d/ui/components/ui_debug.lua")
+		valid_components.gui_element = import("goluwa/render2d/ui/components/gui_element.lua")
+		valid_components.key_input = import("goluwa/render2d/ui/components/key_input.lua")
+		valid_components.layout = import("goluwa/render2d/ui/components/layout.lua")
+		valid_components.mouse_input = import("goluwa/render2d/ui/components/mouse_input.lua")
+		valid_components.rect = import("goluwa/render2d/ui/components/rect.lua")
+		valid_components.resizable = import("goluwa/render2d/ui/components/resizable.lua")
+		valid_components.style = import("goluwa/render2d/ui/components/style.lua")
+		valid_components.text = import("goluwa/render2d/ui/components/text.lua")
+		valid_components.transform = import("goluwa/render2d/ui/components/transform.lua")
+		valid_components.draggable = import("goluwa/render2d/ui/components/draggable.lua")
 	end
 
-	function Panel.AddTooltipFunctionality(ent, config)
-		local tooltip_state = {}
-		find_tooltip_props(config, tooltip_state)
+	return valid_components
+end
 
-		if tooltip_state.source ~= nil then
-			import("goluwa/render2d/ui/tooltip.lua").Attach(ent, tooltip_state.source, tooltip_state.options)
-		end
+local function find_tooltip_props(config, state)
+	if type(config) ~= "table" then return end
+
+	if config.Tooltip ~= nil then
+		state.source = config.Tooltip
+		config.Tooltip = nil
 	end
 
-	local base_oncreate = Panel.OnCreate
+	if config.TooltipOptions ~= nil then
+		state.options = table.shallow_copy(config.TooltipOptions)
+		config.TooltipOptions = nil
+	end
 
-	function Panel:OnCreate(config)
-		base_oncreate(self, config)
-		Panel.AddTooltipFunctionality(self, config)
+	if config.TooltipMaxWidth ~= nil then
+		state.options = state.options or {}
+		state.options.MaxWidth = config.TooltipMaxWidth
+		config.TooltipMaxWidth = nil
+	end
+
+	if config.TooltipOffset ~= nil then
+		state.options = state.options or {}
+		state.options.Offset = config.TooltipOffset
+		config.TooltipOffset = nil
+	end
+
+	for i = 1, #config do
+		find_tooltip_props(config[i], state)
 	end
 end
 
-Panel.World = Panel.New{
-	ComponentSet = {
-		"transform",
-		"ui_debug",
-		"gui_element",
-	},
-}
+local function add_tooltip_functionality(ent, config)
+	local tooltip_state = {}
+	find_tooltip_props(config, tooltip_state)
+
+	if tooltip_state.source ~= nil then
+		import("goluwa/render2d/ui/tooltip.lua").Attach(ent, tooltip_state.source, tooltip_state.options)
+	end
+end
+
+function Panel:OnCreate(config)
+	self.World = Panel.World
+	Panel.BaseClass.OnCreate(self, config)
+	add_tooltip_functionality(self, config)
+end
+
+Panel:Register()
+import.loaded["goluwa/render2d/ui/panel.lua"] = Panel
 
 do
-	local system = import("goluwa/system.lua")
-	local Vec2 = import("goluwa/structs/vec2.lua")
+	Panel.World = Panel.New{
+		ComponentSet = {
+			"transform",
+			"ui_debug",
+			"gui_element",
+		},
+	}
 	Panel.World:SetName("WorldPanel")
 	local window = system.GetWindow()
 	Panel.World.transform:SetSize(Vec2(window and window:GetSize() or Vec2()))
