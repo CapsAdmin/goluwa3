@@ -1,4 +1,4 @@
-return function(name, base_path, get_valid_components)
+return function(name, get_valid_components)
 	local event = import("goluwa/event.lua")
 	local objects = import("goluwa/objects/objects.lua")
 	local BaseEntity = objects.CreateTemplate(name)
@@ -59,13 +59,11 @@ return function(name, base_path, get_valid_components)
 		return BaseEntity.RegieredComponents
 	end
 
-	function BaseEntity.New(config)
-		local self = BaseEntity:CreateObject{
-			Children = {},
-			ChildrenMap = {},
-			component_map = {},
-			component_list = {},
-		}
+	function BaseEntity:OnCreate(config)
+		self.Children = {}
+		self.ChildrenMap = {}
+		self.component_map = {}
+		self.component_list = {}
 		local ent = self
 		local components = {}
 		local local_events = {}
@@ -251,7 +249,7 @@ return function(name, base_path, get_valid_components)
 
 	function BaseEntity:AddComponent(name, tbl, skip_init)
 		local valid_components = BaseEntity.GetValidComponents()
-		local meta = valid_components[name] --require(base_path .. name)
+		local meta = valid_components[name]
 		local component = self:CreateSubObject(meta)
 		self[name] = component
 		apply_config(component, tbl)

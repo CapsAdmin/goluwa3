@@ -27,6 +27,10 @@ function objects.CreateTemplate(type_name)
 		template[key] = objects[key]
 	end
 
+	function template.New(...)
+		return template:CreateObject(nil, ...)
+	end
+
 	return template
 end
 
@@ -267,14 +271,12 @@ do
 	objects.created_objects = objects.created_objects or table.weak()
 	objects.created_objects_list = objects.created_objects_list or {}
 
-	function objects.CreateObject(meta, override)
-		override = override or objects.override_object or {}
-		-- this has to be done in order to ensure we have the prepared metatable with bases
+	function objects.CreateObject(meta, override, ...)
 		meta = objects.GetRegistered(meta.Type) or meta
 
 		if not meta.__gc then meta.__gc = remove_callback end
 
-		local self = setmetatable(override, meta)
+		local self = setmetatable(override or {}, meta)
 
 		if meta.copy_variables then
 			for _, info in ipairs(meta.copy_variables) do
@@ -283,6 +285,8 @@ do
 		end
 
 		if not meta.Instances then meta.Instances = table.weak() end
+
+		if self.OnCreate then self:OnCreate(...) end
 
 		if self.OnFirstCreated and not meta.Instances[1] then
 			self:OnFirstCreated()

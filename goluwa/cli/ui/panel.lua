@@ -1,6 +1,6 @@
 local repl = import("goluwa/cli/repl.lua")
 local valid = nil
-local TuiPanel = import("goluwa/entities/base.lua")("tui_panel", "ecs.components.tui.", function()
+local TuiPanel = import("goluwa/entities/base.lua")("tui_panel", function()
 	valid = valid or
 		{
 			-- reuse 2d components

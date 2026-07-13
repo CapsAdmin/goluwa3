@@ -1,5 +1,5 @@
 local valid = nil
-local Panel = import("goluwa/entities/base.lua")("panel", "ecs.components.2d.", function()
+local Panel = import("goluwa/entities/base.lua")("panel", function()
 	valid = valid or
 		{
 			animation = import("goluwa/render2d/ui/components/animation.lua"),
@@ -51,18 +51,20 @@ do
 		end
 	end
 
-	local base_new = Panel.New
-
-	function Panel.New(config)
+	function Panel.AddTooltipFunctionality(ent, config)
 		local tooltip_state = {}
 		find_tooltip_props(config, tooltip_state)
-		local ent = base_new(config)
 
 		if tooltip_state.source ~= nil then
 			import("goluwa/render2d/ui/tooltip.lua").Attach(ent, tooltip_state.source, tooltip_state.options)
 		end
+	end
 
-		return ent
+	local base_oncreate = Panel.OnCreate
+
+	function Panel:OnCreate(config)
+		base_oncreate(self, config)
+		Panel.AddTooltipFunctionality(self, config)
 	end
 end
 

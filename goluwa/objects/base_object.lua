@@ -100,8 +100,8 @@ function META:IsValid()
 end
 
 do -- sub objects
-	function META:CreateSubObject(meta, override)
-		local obj = objects.CreateObject(meta, override)
+	function META:CreateSubObject(meta, ...)
+		local obj = objects.CreateObject(meta, ...)
 		obj:SetOwner(self)
 
 		self:CallOnRemove(function()

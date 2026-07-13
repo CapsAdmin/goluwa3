@@ -1,4 +1,4 @@
-local Entity = import("goluwa/entities/base.lua")("entity", "ecs.components.3d.", function()
+local Entity = import("goluwa/entities/base.lua")("entity", function()
 	return {
 		transform = import("goluwa/entities/components/transform.lua"),
 		light = import("goluwa/entities/components/light.lua"),
