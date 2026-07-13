@@ -6,92 +6,13 @@ local system = import("goluwa/system.lua")
 local module = {}
 
 function module.Attach(audio)
-	local MAIN_BACKEND_PREBUFFER_PERIODS = 4
-	local MAIN_BACKEND_MAX_UPDATES_PER_FRAME = 8
 
-	local function stop_main_backend()
-		if audio.main_audio_buffer then
-			audio.main_audio_buffer.stop()
-			audio.main_audio_buffer = nil
-			audio.main_config = nil
-			audio.main_update_period = nil
-			audio.main_pending_time = nil
-			audio.main_last_update_time = nil
-		end
-
-		event.RemoveListener("Update", "audio_main_thread_driver")
-
-		if audio.backend_mode == "main" then
-			audio.backend_mode = "none"
-			audio.state.debug_worker_stage = 0
-		end
-	end
-
-	local function start_main_backend()
-		if audio.main_audio_buffer then return true end
-
-		local audio_buffer = import("goluwa/bindings/audio_buffer.lua")
-		audio.state.debug_worker_stage = 101
-		audio_buffer.callback = function(out_buffer, num_samples)
-			mix.MixOutputBuffer(audio.state, out_buffer, num_samples)
-		end
-		local config = audio_buffer.start{
-			sample_rate = 44100,
-			buffer_size = 512,
-			channels = 2,
-		}
-		audio.state.debug_worker_stage = 102
-		audio.main_audio_buffer = audio_buffer
-		audio.main_config = config
-		audio.main_update_period = config.buffer_size / config.sample_rate
-		audio.main_pending_time = 0
-
-		for _ = 1, MAIN_BACKEND_PREBUFFER_PERIODS do
-			audio.main_audio_buffer.update()
-		end
-
-		audio.main_last_update_time = system.GetTime()
-		audio.backend_mode = "main"
-
-		event.AddListener("Update", "audio_main_thread_driver", function()
-			if audio.backend_mode ~= "main" or not audio.main_audio_buffer then return end
-
-			local now = system.GetTime()
-			local elapsed = now - (audio.main_last_update_time or now)
-
-			if elapsed < 0 then elapsed = 0 end
-
-			audio.main_last_update_time = now
-			audio.main_pending_time = math.min(
-				(audio.main_pending_time or 0) + elapsed,
-				(audio.main_update_period or 0) * MAIN_BACKEND_MAX_UPDATES_PER_FRAME
-			)
-			audio.state.debug_worker_stage = 103
-
-			while
-				audio.main_pending_time >= (
-					audio.main_update_period or
-					math.huge
-				)
-				and
-				audio.backend_mode == "main" and
-				audio.main_audio_buffer
-			do
-				audio.main_audio_buffer.update()
-				audio.main_pending_time = audio.main_pending_time - audio.main_update_period
-			end
-
-			audio.state.debug_worker_stage = 104
-		end)
-
-		return true
-	end
-
-	local function mixer_worker(shared_state_ptr)
+	local mixer_worker_source = [[
 		local ffi = require("ffi")
+		local input = ...
 		local mix_mod = import("goluwa/audio/mix.lua")
 		local audio = import("goluwa/audio/state.lua")
-		local state = ffi.cast(audio.mixer_state_ptr_t, shared_state_ptr)
+		local state = ffi.cast(audio.mixer_state_ptr_t, input)
 		state.debug_worker_stage = 1
 		local audio_buffer = import("goluwa/bindings/audio_buffer.lua")
 		state.debug_worker_stage = 2
@@ -116,7 +37,7 @@ function module.Attach(audio)
 		state.debug_worker_stage = 6
 		audio_buffer.stop()
 		state.debug_worker_stage = 7
-	end
+	]]
 
 	function audio.GetDebugState()
 		local thread_status = audio.thread and threads.get_status(audio.thread) or nil
@@ -154,34 +75,34 @@ function module.Attach(audio)
 
 		if audio.thread or audio.main_audio_buffer then return end
 
-		local ok, thread_or_err = pcall(threads.new, mixer_worker)
+		-- Create audio mixer thread with proper string source
+		local ok, thread_or_err = pcall(threads.new, mixer_worker_source)
 
-		if ok and thread_or_err then
-			audio.thread = thread_or_err
-			audio.thread:run(audio.state, true)
-			audio.backend_mode = "thread"
-		else
-			start_main_backend()
-			return
+		if not ok or not thread_or_err then
+			error("Failed to create audio mixer thread: " .. tostring(thread_or_err))
 		end
 
+		audio.thread = thread_or_err
+		audio.thread:run(audio.state, true)
+		audio.backend_mode = "thread"
+
+		-- Verify thread started successfully
 		import("goluwa/timer.lua").Delay(0.1, function()
 			if audio.thread and threads.get_status(audio.thread) == threads.STATUS_ERROR then
 				local ok2, err = audio.thread:join()
 
 				if not ok2 and err then
-					logn("Audio mixer thread initialization error: ", err)
+					error("Audio mixer thread failed: " .. tostring(err))
 				end
 
 				audio.thread = nil
-				start_main_backend()
+				error("Audio mixer thread exited with error")
 			end
 		end)
 	end
 
 	function audio.Shutdown()
 		audio.initialized = false
-		stop_main_backend()
 
 		if audio.thread then
 			audio.state.shutdown = true
@@ -200,10 +121,9 @@ function module.Attach(audio)
 	event.AddListener("Update", "audio_backend_watchdog", function()
 		if not audio.initialized then return end
 
-		if audio.backend_mode == "thread" and audio.thread == nil then
-			start_main_backend()
-		elseif audio.backend_mode == "none" and next(audio.active_sounds) ~= nil then
-			start_main_backend()
+		-- Thread should never be nil once started, but handle gracefully
+		if audio.backend_mode == "none" and next(audio.active_sounds) ~= nil then
+			error("Audio thread exited unexpectedly while sounds are active")
 		end
 	end)
 
