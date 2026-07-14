@@ -128,14 +128,11 @@ local function draw_recursive_enter(_, owner)
 
 	if not transform then return WALK_SKIP_SUBTREE end
 
-	local text_component = owner.text
-
 	if
 		not (
 			(
-				text_component and
-				text_component.GetDisableViewportCulling and
-				text_component:GetDisableViewportCulling()
+				owner.text and
+				owner.text:GetDisableViewportCulling()
 			) or
 			transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
 		)
@@ -154,7 +151,6 @@ local function draw_recursive_enter(_, owner)
 	end
 
 	render2d.SetColor(1, 1, 1, current.DrawAlpha)
-	render2d.SetSDFMode(false)
 	owner:CallLocalEvent("OnPreDraw")
 	owner:CallLocalEvent("OnDraw")
 	return WALK_CONTINUE, {clipping = clipping}

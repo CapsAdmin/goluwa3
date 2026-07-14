@@ -226,7 +226,6 @@ local function push_decorative_texture_state(texture)
 	render2d.SetUV()
 	render2d.SetSampleUVMode(0)
 	render2d.SetSwizzleMode(0)
-	render2d.SetSDFMode(false)
 end
 
 local function pop_decorative_texture_state()
