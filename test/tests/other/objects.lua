@@ -2,7 +2,7 @@ local T = import("test/environment.lua")
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 
-T.Test("prototype basic registration and creation", function()
+T.Test("objects basic registration and creation", function()
 	local META = objects.CreateTemplate("test_type")
 
 	function META:Foo()
@@ -18,7 +18,7 @@ T.Test("prototype basic registration and creation", function()
 	T(obj:IsValid())["=="](false)
 end)
 
-T.Test("prototype .Instances feature", function()
+T.Test("objects .Instances feature", function()
 	local META = objects.CreateTemplate("instance_test")
 	META:Register()
 	local obj1 = objects.CreateObject(META)
@@ -36,7 +36,7 @@ T.Test("prototype .Instances feature", function()
 	T(obj2.Instances[1])["=="](obj2)
 end)
 
-T.Test("prototype .Instances update immediately on remove", function()
+T.Test("objects .Instances update immediately on remove", function()
 	local META = objects.CreateTemplate("instance_immediate_remove_test")
 	META:Register()
 	local obj1 = objects.CreateObject(META)
@@ -51,7 +51,7 @@ T.Test("prototype .Instances update immediately on remove", function()
 	event.Call("Update")
 end)
 
-T.Test("prototype properties GetSet", function()
+T.Test("objects properties GetSet", function()
 	local META = objects.CreateTemplate("test_props")
 	META:GetSet("Value", 123)
 	META:Register()
@@ -62,7 +62,7 @@ T.Test("prototype properties GetSet", function()
 	T(obj.Value)["=="](456)
 end)
 
-T.Test("prototype properties IsSet", function()
+T.Test("objects properties IsSet", function()
 	local META = objects.CreateTemplate("test_is")
 	META:IsSet("Cool", false)
 	META:Register()
@@ -72,7 +72,7 @@ T.Test("prototype properties IsSet", function()
 	T(obj:IsCool())["=="](true)
 end)
 
-T.Test("prototype inheritance Base", function()
+T.Test("objects inheritance Base", function()
 	local BASE = objects.CreateTemplate("base")
 
 	function BASE:Identify()
@@ -97,7 +97,7 @@ T.Test("prototype inheritance Base", function()
 	T(obj:BaseIdentify())["=="]("base")
 end)
 
-T.Test("prototype Base", function()
+T.Test("objects Base", function()
 	local BASE = objects.CreateTemplate("base_test")
 
 	function BASE:Hello()
@@ -112,7 +112,105 @@ T.Test("prototype Base", function()
 	T(obj:Hello())["=="]("world")
 end)
 
-T.Test("prototype storable", function()
+T.Test("objects inheritance Base", function()
+	local BASE = objects.CreateTemplate("base_identify")
+
+	function BASE:Identify()
+		return "base"
+	end
+
+	BASE:Register()
+	local SUB = objects.CreateTemplate("sub_identify")
+	SUB.Base = BASE
+
+	function SUB:Identify()
+		return "sub"
+	end
+
+	function SUB:BaseIdentify()
+		return self.BaseClass.Identify(self)
+	end
+
+	SUB:Register()
+	local obj = objects.CreateObject(SUB)
+	T(obj:Identify())["=="]("sub")
+	T(obj:BaseIdentify())["=="]("base")
+end)
+
+T.Test("objects registered lookup by table key", function()
+	local BASE = objects.CreateTemplate("reg_lookup_base")
+
+	function BASE:Foo()
+		return "bar"
+	end
+
+	BASE:Register()
+	T(objects.registered["reg_lookup_base"])["=="](BASE)
+end)
+
+T.Test("objects registered lookup by Type string", function()
+	local BASE = objects.CreateTemplate("reg_lookup_type")
+
+	function BASE:Foo()
+		return "bar"
+	end
+
+	BASE:Register()
+	-- Looking up by .Type string should work
+	T(objects.registered[BASE.Type])["=="](BASE)
+end)
+
+T.Test("objects registered has string keys", function()
+	local T1 = objects.CreateTemplate("diag_t1")
+	T1:Register()
+	local T2 = objects.CreateTemplate("diag_t2")
+	T2.Base = T1
+	T2:Register()
+	-- Check that registered keys are strings (type names)
+	local key_types = {}
+
+	for k, v in pairs(objects.registered) do
+		key_types[type(k)] = true
+	end
+
+	T(key_types["string"])["=="](true)
+	-- Check that looking up by table fails
+	T(objects.registered[T1])["=="](nil)
+	-- Check that looking up by .Type works
+	T(objects.registered[T1.Type])["=="](T1)
+end)
+
+T.Test("objects Base inheritance chain", function()
+	local GRAND = objects.CreateTemplate("grand_parent")
+
+	function GRAND:GrandMethod()
+		return "grand"
+	end
+
+	GRAND:Register()
+	local PARENT = objects.CreateTemplate("parent_of_grand")
+	PARENT.Base = GRAND
+
+	function PARENT:ParentMethod()
+		return "parent"
+	end
+
+	PARENT:Register()
+	local CHILD = objects.CreateTemplate("child_of_parent")
+	CHILD.Base = PARENT
+
+	function CHILD:ChildMethod()
+		return "child"
+	end
+
+	CHILD:Register()
+	local obj = objects.CreateObject(CHILD)
+	T(obj:ChildMethod())["=="]("child")
+	T(obj:ParentMethod())["=="]("parent")
+	T(obj:GrandMethod())["=="]("grand")
+end)
+
+T.Test("objects storable", function()
 	local META = objects.CreateTemplate("storable_test")
 	META:StartStorable()
 	META:GetSet("A", 1)
@@ -131,7 +229,7 @@ T.Test("prototype storable", function()
 	T(obj2:GetB())["=="]("ten")
 end)
 
-T.Test("prototype parenting", function()
+T.Test("objects parenting", function()
 	local META = objects.CreateTemplate("parenting_test")
 	objects.ParentingTemplate(META)
 	META:Register()
@@ -149,7 +247,7 @@ T.Test("prototype parenting", function()
 	T(parent:HasChildren())["=="](false)
 end)
 
-T.Test("prototype GUID", function()
+T.Test("objects GUID", function()
 	local META = objects.CreateTemplate("guid_test")
 	META:Register()
 	local obj = objects.CreateObject(META)
@@ -159,7 +257,7 @@ T.Test("prototype GUID", function()
 	T(objects.GetObjectByGUID(guid))["=="](obj)
 end)
 
-T.Test("prototype parenting OnUnParent once", function()
+T.Test("objects parenting OnUnParent once", function()
 	local META = objects.CreateTemplate("test_unparent")
 	objects.ParentingTemplate(META)
 	local unparent_count = 0
@@ -184,7 +282,7 @@ T.Test("prototype parenting OnUnParent once", function()
 	T(unparent_count)["=="](1)
 end)
 
-T.Test("prototype UpdateObjects hot reload", function()
+T.Test("objects UpdateObjects hot reload", function()
 	local META = objects.CreateTemplate("update_test")
 
 	function META:Foo()
@@ -213,7 +311,7 @@ T.Test("prototype UpdateObjects hot reload", function()
 	T(rawget(obj, "Foo"))["~="](nil)
 end)
 
-T.Test("prototype GC callback", function()
+T.Test("objects GC callback", function()
 	local gc_called = false
 	local META = objects.CreateTemplate("gc_test")
 
@@ -233,7 +331,7 @@ T.Test("prototype GC callback", function()
 	T(gc_called)["=="](true)
 end)
 
-T.Pending("prototype PropertyLink memory leak and removal", function()
+T.Pending("objects PropertyLink memory leak and removal", function()
 	local META = objects.CreateTemplate("test")
 	META:GetSet("Value", 0)
 	META:Register()
@@ -251,7 +349,7 @@ T.Pending("prototype PropertyLink memory leak and removal", function()
 	T(obj1:GetValue())["~="](456)
 end)
 
-T.Test("prototype DelegateProperties", function()
+T.Test("objects DelegateProperties", function()
 	local FROM = objects.CreateTemplate("from")
 	FROM:StartStorable()
 	FROM:GetSet("Value", 0)
@@ -268,7 +366,7 @@ T.Test("prototype DelegateProperties", function()
 	T(to_obj:GetValue())["=="](789)
 end)
 
-T.Test("prototype parenting cycle", function()
+T.Test("objects parenting cycle", function()
 	local META = objects.CreateTemplate("test")
 	objects.ParentingTemplate(META)
 	META:Register()
@@ -281,7 +379,7 @@ T.Test("prototype parenting cycle", function()
 	T(a:SetParent(c))["=="](false)
 end)
 
-T.Test("prototype OnFirstCreated", function()
+T.Test("objects OnFirstCreated", function()
 	local first_created_called = false
 	local META = objects.CreateTemplate("first_created_test")
 
@@ -304,7 +402,7 @@ T.Test("prototype OnFirstCreated", function()
 	event.Call("Update")
 end)
 
-T.Test("prototype OnLastRemoved", function()
+T.Test("objects OnLastRemoved", function()
 	local last_removed_called = false
 	local META = objects.CreateTemplate("last_removed_test")
 
@@ -326,7 +424,7 @@ T.Test("prototype OnLastRemoved", function()
 	T(last_removed_called)["=="](true)
 end)
 
-T.Test("prototype OnFirstCreated and OnLastRemoved cycle", function()
+T.Test("objects OnFirstCreated and OnLastRemoved cycle", function()
 	local first_count = 0
 	local last_count = 0
 	local META = objects.CreateTemplate("lifecycle_test")
@@ -358,7 +456,7 @@ T.Test("prototype OnFirstCreated and OnLastRemoved cycle", function()
 	T(last_count)["=="](2)
 end)
 
-T.Test("prototype .Instances sequential list", function()
+T.Test("objects .Instances sequential list", function()
 	local META = objects.CreateTemplate("instances_sequential_test")
 	META:Register()
 	local obj1 = objects.CreateObject(META)
@@ -388,7 +486,7 @@ T.Test("prototype .Instances sequential list", function()
 	event.Call("Update")
 end)
 
-T.Test("prototype .Instances no holes after multiple removals", function()
+T.Test("objects .Instances no holes after multiple removals", function()
 	local META = objects.CreateTemplate("instances_no_holes_test")
 	META:Register()
 	local objs = {}
@@ -426,7 +524,7 @@ T.Test("prototype .Instances no holes after multiple removals", function()
 	event.Call("Update")
 end)
 
-T.Test("prototype .Instances integrity after mixed operations", function()
+T.Test("objects .Instances integrity after mixed operations", function()
 	local META = objects.CreateTemplate("instances_integrity_test")
 	META:Register()
 	local obj1 = objects.CreateObject(META)
@@ -454,7 +552,7 @@ T.Test("prototype .Instances integrity after mixed operations", function()
 	event.Call("Update")
 end)
 
-T.Test("prototype local event system", function()
+T.Test("objects local event system", function()
 	local META = objects.CreateTemplate("local_event_test")
 	META:Register()
 	local obj = objects.CreateObject(META)
@@ -506,7 +604,7 @@ T.Test("prototype local event system", function()
 	T(unique_called)["=="](true)
 end)
 
-T.Test("prototype local event cleanup on remove", function()
+T.Test("objects local event cleanup on remove", function()
 	local META = objects.CreateTemplate("cleanup_test")
 	META:Register()
 	local obj = objects.CreateObject(META)
@@ -531,7 +629,7 @@ T.Test("prototype local event cleanup on remove", function()
 	T(count)["=="](0)
 end)
 
-T.Test("prototype global event cleanup on remove", function()
+T.Test("objects global event cleanup on remove", function()
 	local META = objects.CreateTemplate("global_cleanup_test")
 	META:Register()
 	local obj = objects.CreateObject(META)
@@ -548,7 +646,7 @@ T.Test("prototype global event cleanup on remove", function()
 	T(event.active["MyGlobalEvent"] == nil or #event.active["MyGlobalEvent"] == 0)["=="](true)
 end)
 
-T.Test("prototype global event with custom name cleanup", function()
+T.Test("objects global event with custom name cleanup", function()
 	local META = objects.CreateTemplate("global_custom_cleanup_test")
 	META:Register()
 	local obj = objects.CreateObject(META)
