@@ -571,6 +571,21 @@ function render2d.ClearPendingBatches()
 	reset_rect_batch_matrix_pool_state()
 end
 
+function render2d.SaveBatchState()
+	local batch = render2d.state.runtime.batch
+	local state = batch.state
+	return {
+		pending_draws = state.pending_draws,
+		segments = list.copy(state.segments),
+	}
+end
+
+function render2d.RestoreBatchState(saved)
+	local state = render2d.state.runtime.batch.state
+	state.pending_draws = saved.pending_draws
+	state.segments = saved.segments
+end
+
 function render2d.MarkPipelineStateDirty()
 	render2d.state.runtime.pipeline_state.dirty = true
 end

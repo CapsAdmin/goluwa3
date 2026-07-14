@@ -949,11 +949,12 @@ function META:LoadGlyph(code, temp_fbs)
 						glyph.bitmap_left,
 						glyph.bitmap_top
 					)
-				)
+)
 			end
 
+			local saved_batch = render2d.SaveBatchState()
+			render2d.state.runtime.batch.state:ClearPending()
 			fb_ss:Begin(cmd)
-			render2d.ClearPendingBatches()
 			render2d.PushBlendPreset("alpha")
 			render.PushCommandBuffer(cmd)
 			render2d.PushScreenSize(sw, sh)
@@ -965,10 +966,12 @@ function META:LoadGlyph(code, temp_fbs)
 			-- Shift glyph to be at (0, 0) in the padded area
 			render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 			glyph_source_font:DrawGlyph(glyph.glyph_data)
+			render2d.FlushBatches("glyph_load")
 			render2d.PopMatrix()
 			render.PopCommandBuffer()
 			render2d.PopScreenSize()
 			render2d.PopBlendMode()
+			render2d.RestoreBatchState(saved_batch)
 			fb_ss:End()
 		end
 
