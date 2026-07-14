@@ -12,9 +12,13 @@
 
 # general coding rules
 
+- Only use :IsValid when nesseceary, never use it if you are not sure. I'd rather have errors than silent failures.
+
 - If you see code that does the below, consider refactoring if relevant to the task at hand.
 
 - Do not worry about whitespace as the formatter will take care of it.
+
+- never use camelCase. use snake_case for locals and private fields, PascalCase for methods and globals 
 
 - Do not write backwards compatible code unless explicitly asked to.
 
