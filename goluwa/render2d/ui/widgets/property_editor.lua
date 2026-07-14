@@ -864,13 +864,13 @@ return function(props)
 		return self
 	end
 
-	function editor:ExpandToKey(key, instant)
+	function editor:ExpandToKey(key)
 		local _, _, category_key = find_node_by_key(items, key)
 
 		if category_key then
 			local category = category_refs[category_key]
 
-			if category and category:IsValid() then category:SetCollapsed(false, instant) end
+			if category and category:IsValid() then category:SetCollapsed(false) end
 		end
 
 		return self

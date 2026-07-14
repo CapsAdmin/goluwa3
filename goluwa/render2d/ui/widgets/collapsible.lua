@@ -30,7 +30,7 @@ return function(props)
 				ChildGap = props.HeaderGap or "M",
 			},
 			OnClick = function(self)
-				container:ToggleCollapsed()
+				container:SetCollapsed(not container:GetCollapsed())
 			end,
 		}{
 			Panel.New{

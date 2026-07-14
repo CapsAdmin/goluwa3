@@ -498,7 +498,7 @@ return {
 					OnClick = function()
 						if not editor or not editor:IsValid() then return end
 
-						editor:ExpandToKey("metadata/notes", true)
+						editor:ExpandToKey("metadata/notes")
 						editor:SetSelectedKey("metadata/notes")
 
 						if property_scroll and property_scroll:IsValid() then

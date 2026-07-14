@@ -54,7 +54,9 @@ return {
 					Collapsible{
 						Title = "Sub-Collapsible",
 						Collapsed = true,
-					}(Text({Text = "Nested content depth 2"})),
+					}(Text{
+						Text = "Nested content depth 2",
+					}),
 				}
 			),
 			Collapsible{

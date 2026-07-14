@@ -1,71 +1,50 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Rect = import("goluwa/structs/rect.lua")
-local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	local external_ref = props.Ref
+local Panel = import("goluwa/render2d/ui/panel.lua")
+local META = Panel:CreateTemplate("colllapsible")
+META.Name = "Collapsible"
+META.CMP.transform = {}
+META.CMP.layout = {
+	Direction = "y",
+	FitHeight = true,
+	GrowWidth = 1,
+}
+META.CMP.gui_element = {}
+META.CMP.animation = {}
+META:GetSet("OpenFraction", 1)
+META:GetSet("Collapsed", false)
 
-	if external_ref then
-		props = table.shallow_copy(props)
-		props.Ref = nil
-	end
+function META.OnToggle(b) end
 
-	local collapsed = props.Collapsed or false
-	local body_panel = NULL
-	local clip_panel = NULL
-	local open_fraction = collapsed and 0 or 1
-	local container = Panel.New{
-		props,
-		{
-			Name = "Collapsible",
-			transform = true,
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-				GrowWidth = 1,
-			},
-			PreChildAdd = function(self, child)
-				if child.IsInternal then return end
-
-				if not body_panel:IsValid() then return end
-
-				body_panel:AddChild(child)
-				return false
-			end,
-			PreRemoveChildren = function(self)
-				if not body_panel:IsValid() then return end
-
-				body_panel:RemoveChildren()
-				return false
-			end,
-			gui_element = true,
-			animation = true,
+function META:OnCreate(props)
+	self.BaseClass.OnCreate(self, props)
+	self.body_panel = NULL
+	self:AddChild(props.Header)
+	self.clip_panel = Panel.New{
+		Parent = self,
+		IsInternal = true,
+		Name = "ClipContainer",
+		OnLayoutUpdated = function()
+			self:UpdateHeight()
+		end,
+		OnTransformChanged = function()
+			self:UpdateHeight()
+		end,
+		transform = {
+			Size = Vec2(0, 0),
+		},
+		layout = {
+			FitHeight = false,
+			GrowWidth = 1,
+		},
+		gui_element = {
+			Clipping = true,
+			Visible = not self:GetCollapsed(),
 		},
 	}
-
-	local function update_height()
-		if not body_panel:IsValid() or not clip_panel:IsValid() or not container:IsValid() then
-			return
-		end
-
-		local clip_w = clip_panel.transform:GetWidth()
-		local body_w = body_panel.transform:GetWidth()
-
-		if body_w ~= clip_w then body_panel.transform:SetWidth(clip_w) end
-
-		local h = body_panel.transform:GetHeight()
-		local target_h = h * open_fraction
-		local target_visible = open_fraction > 0.001
-		local target_y = -(h - target_h)
-		clip_panel.transform:SetHeight(target_h)
-		clip_panel.gui_element:SetVisible(target_visible)
-		body_panel.transform:SetY(target_y)
-	end
-
-	body_panel = Panel.New{
+	self.body_panel = Panel.New{
+		Parent = self.clip_panel,
 		IsInternal = true,
 		Name = "Body",
 		layout = {
@@ -78,80 +57,61 @@ return function(props)
 		},
 		transform = true,
 		gui_element = true,
-		Events = {
-			OnLayoutUpdated = function()
-				update_height()
-			end,
-		},
+		OnLayoutUpdated = function()
+			self:UpdateHeight()
+		end,
 	}
-	clip_panel = Panel.New{
-		IsInternal = true,
-		Name = "ClipContainer",
-		Events = {
-			OnLayoutUpdated = update_height,
-			OnTransformChanged = update_height,
-		},
-		transform = {
-			Size = Vec2(0, 0),
-		},
-		layout = {
-			FitHeight = false,
-			GrowWidth = 1,
-		},
-		gui_element = {
-			Clipping = true,
-			Visible = not collapsed,
-		},
-	}(body_panel)
-
-	function container:SetCollapsed(value, instant)
-		collapsed = value == true
-		local target = collapsed and 0 or 1
-
-		if props.OnToggle then props.OnToggle(collapsed) end
-
-		if instant then
-			open_fraction = target
-			update_height()
-			return
-		end
-
-		self.animation:Animate{
-			id = "collapsible_slide",
-			get = function()
-				return open_fraction
-			end,
-			set = function(v)
-				open_fraction = v
-				update_height()
-			end,
-			to = target,
-			time = 0.3,
-			interpolation = "outExpo",
-		}
-		return self
-	end
-
-	function container:GetCollapsed()
-		return collapsed
-	end
-
-	function container:GetOpenFraction()
-		return open_fraction
-	end
-
-	function container:ToggleCollapsed(instant)
-		self:SetCollapsed(not collapsed, instant)
-		return self
-	end
-
-	update_height()
-	container = container{
-		props.Header,
-		clip_panel,
-	}
-
-	if external_ref then external_ref(container) end
-
-	return container
+	self:SetOpenFraction(self:GetCollapsed() and 0 or 1)
+	self:SetCollapsed(props.Collapsed or false)
+	self:UpdateHeight()
 end
+
+function META:PreChildAdd(child)
+	if child.IsInternal then return end
+
+	if not self.body_panel:IsValid() then return end
+
+	self.body_panel:AddChild(child)
+	return false
+end
+
+function META:PreRemoveChildren()
+	self.body_panel:RemoveChildren()
+	return false
+end
+
+function META:UpdateHeight()
+	local clip_w = self.clip_panel.transform:GetWidth()
+	local body_w = self.body_panel.transform:GetWidth()
+
+	if body_w ~= clip_w then self.body_panel.transform:SetWidth(clip_w) end
+
+	local h = self.body_panel.transform:GetHeight()
+	local target_h = h * self:GetOpenFraction()
+	local target_y = -(h - target_h)
+	self.clip_panel.transform:SetHeight(target_h)
+	self.clip_panel.gui_element:SetVisible(self:GetOpenFraction() > 0.001)
+	self.body_panel.transform:SetY(target_y)
+end
+
+function META:SetCollapsed(value)
+	self.Collapsed = value
+	self.animation:Animate{
+		id = "collapsible_slide",
+		get = function()
+			return self:GetOpenFraction()
+		end,
+		set = function(v)
+			self:SetOpenFraction(v)
+			self:UpdateHeight()
+		end,
+		to = self:GetCollapsed() and 0 or 1,
+		time = 0.3,
+		interpolation = "outExpo",
+	}
+	self.OnToggle(self:GetCollapsed())
+	return self
+end
+
+META:Register()
+return META.New
