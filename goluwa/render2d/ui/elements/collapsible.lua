@@ -5,13 +5,6 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-
-local function resolve_size(value)
-	if type(value) == "string" then return theme.active:GetSize(value) end
-
-	return value
-end
-
 return function(props)
 	local external_ref = props.Ref
 
