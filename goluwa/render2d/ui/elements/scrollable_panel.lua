@@ -137,17 +137,7 @@ function META:ScrollRectIntoView(x1, y1, x2, y2, padding)
 end
 
 function META:ScrollChildIntoView(child, padding)
-	if
-		not child or
-		not child:IsValid()
-		or
-		not child.transform or
-		not self.scrollableViewport or
-		not self.scrollableViewport:IsValid()
-	then
-		return false
-	end
-
+	assert(child.transform)
 	self:updateDirtyLayout(child)
 	self:updateDirtyLayout(self)
 	local current = child
@@ -238,10 +228,6 @@ end
 
 -- Scrollbar handle update
 function META:updateHandle()
-	if not self.scrollableViewport or not self.scrollableViewport:IsValid() then
-		return
-	end
-
 	if not self.scrollableHandleV or not self.scrollableHandleH then return end
 
 	local content_size = self.scrollableViewport.layout.content_size
@@ -285,23 +271,10 @@ function META:updateHandle()
 
 	if not content_size or not view_size then
 		self:clampScrollToBounds(Vec2(0, 0), Vec2(0, 0))
-
-		if self.scrollableTrackV and self.scrollableTrackV:IsValid() then
-			self.scrollableTrackV.gui_element:SetVisible(false)
-		end
-
-		if self.scrollableTrackH and self.scrollableTrackH:IsValid() then
-			self.scrollableTrackH.gui_element:SetVisible(false)
-		end
-
-		if self.scrollableHandleV:IsValid() then
-			self.scrollableHandleV.gui_element:SetVisible(false)
-		end
-
-		if self.scrollableHandleH:IsValid() then
-			self.scrollableHandleH.gui_element:SetVisible(false)
-		end
-
+		self.scrollableTrackV.gui_element:SetVisible(false)
+		self.scrollableTrackH.gui_element:SetVisible(false)
+		self.scrollableHandleV.gui_element:SetVisible(false)
+		self.scrollableHandleH.gui_element:SetVisible(false)
 		return
 	end
 
@@ -320,10 +293,8 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	local content_dim = content_size[axis]
 	local scroll_dim = scroll[axis]
 
-	if not handle:IsValid() then return end
-
 	if not show then
-		if track and track:IsValid() then track.gui_element:SetVisible(false) end
+		if track then track.gui_element:SetVisible(false) end
 
 		handle.gui_element:SetVisible(false)
 		return
@@ -332,7 +303,7 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	local max_scroll_view = math.max(1, available)
 	local max_scroll = math.max(0, content_dim - max_scroll_view)
 
-	if track and track:IsValid() then
+	if track then
 		track.gui_element:SetVisible(true)
 
 		if is_v then
@@ -365,10 +336,6 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 end
 
 function META:clampScrollToBounds(content_size, view_size)
-	if not self.scrollableViewport or not self.scrollableViewport:IsValid() then
-		return nil, false
-	end
-
 	local state = self:computeScrollbarState(content_size, view_size)
 	local effective_view_size = Vec2(state.available_w, state.available_h)
 	local scroll = self.scrollableViewport.transform:GetScroll():Copy()
@@ -444,11 +411,6 @@ end
 -- Scroll-into-view helpers
 function META:scrollRectIntoView(x1, y1, x2, y2, padding)
 	padding = padding or self.scrollableBasePadding
-
-	if not self.scrollableViewport or not self.scrollableViewport:IsValid() then
-		return false
-	end
-
 	local content_size = self.scrollableViewport.layout and self.scrollableViewport.layout.content_size
 	local view_size = self.scrollableViewport.transform and self.scrollableViewport.transform.Size
 
