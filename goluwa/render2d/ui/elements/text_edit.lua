@@ -192,6 +192,7 @@ return function(props)
 			cw = font:GetTextSize(utf8.sub(line_text, 1, col - 1))
 		end
 
+		local caret_x = lx + cw
 		local caret_y_top = ly + (line - 1) * vertical_step
 		local caret_y_bottom = (ly + (line + 1) * vertical_step)
 		scroll_panel:ScrollRectIntoView(caret_x, caret_y_top, caret_x, caret_y_bottom, 4)
