@@ -1,50 +1,48 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
-local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	local panel = Panel.New{
-		Name = "checkbox",
-		transform = {
-			Size = props.Size or "M",
-		},
-		layout = {
-			props.layout,
-		},
-		OnClick = function(self)
-			self:SetValue(not self:GetValue(), true)
-		end,
-		mouse_input = {
-			Cursor = "hand",
-			OnHover = function(cmp, hovered)
-				cmp.Owner:SetState("hovered", hovered)
-			end,
-		},
-		gui_element = {
-			OnDraw = function(cmp)
-				theme.active:Draw(cmp.Owner)
-			end,
-		},
-		animation = true,
-		clickable = true,
-	}
+local objects = import("goluwa/objects/objects.lua")
+local META = Panel:CreateTemplate("checkbox")
+META.CMP.animation = {}
+META.CMP.clickable = {}
+META.CMP.transform.Size = "M"
+META.CMP.mouse_input.Cursor = "hand"
 
-	function panel:SetValue(new_value, notify)
-		local old_value = self:GetValue()
-		self:SetState("value", new_value)
-
-		if notify and old_value ~= new_value then
-			if props.OnChange then props.OnChange(new_value) end
-		end
-
-		return self
-	end
-
-	function panel:GetValue()
-		return self:GetState("value")
-	end
-
-	panel:SetValue(props.Value ~= nil and props.Value or false, false)
-	return panel
+function META.CMP.mouse_input:OnHover(hovered)
+	self.Owner:SetState("hovered", hovered)
 end
+
+function META.CMP.gui_element:OnDraw()
+	theme.active:Draw(self.Owner)
+end
+
+function META:OnCreate(props)
+	self.BaseClass.OnCreate(self, props)
+
+	if props.Size then self.transform:SetSize(props.Size) end
+
+	self:SetValue(props.Value ~= nil and props.Value or false, false)
+	self.props = props
+	return self
+end
+
+function META.OnChange(val) end
+
+function META:OnClick()
+	self:SetValue(not self:GetValue(), true)
+end
+
+function META:SetValue(new_value, notify)
+	local old_value = self:GetValue()
+	self:SetState("value", new_value)
+
+	if notify and old_value ~= new_value then self.OnChange(new_value) end
+
+	return self
+end
+
+function META:GetValue()
+	return self:GetState("value")
+end
+
+META:Register()
+return META.New

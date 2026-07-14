@@ -111,7 +111,7 @@ function BaseEntity:OnCreate(config)
 					if not self:HasComponent(key) then
 						table.insert(components, self:AddComponent(key, val, true))
 					else
-						local instance = self.component_map[key]
+						local instance = assert(self.component_map[key], key)
 						apply_config(instance, val)
 					end
 				end

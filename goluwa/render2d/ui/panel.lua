@@ -70,6 +70,19 @@ end
 
 function Panel:OnCreate(config)
 	self.World = Panel.World
+
+	if self.ComponentSet and self.CMP then
+		for i, name in ipairs(self.ComponentSet) do
+			if self.CMP[name] then
+				if next(self.CMP[name]) then
+					config[name] = self.CMP[name]
+				else
+					config[name] = true
+				end
+			end
+		end
+	end
+
 	Panel.BaseClass.OnCreate(self, config)
 	add_tooltip_functionality(self, config)
 end
@@ -93,6 +106,36 @@ do
 	function Panel.World:OnWindowFramebufferResized(window, size)
 		self.transform:SetSize(size)
 	end
+end
+
+function Panel:CreateTemplate(name)
+	local META = objects.CreateTemplate(Panel.Type .. "_" .. name)
+	META.Base = import("goluwa/render2d/ui/panel.lua")
+	META.Name = name
+	META.ComponentSet = {}
+	META.CMP = setmetatable(
+		{},
+		{
+			__newindex = function(s, k, v)
+				if not list.has_value(META.ComponentSet, k) then
+					list.insert(META.ComponentSet, k)
+				end
+
+				rawset(s, k, v)
+			end,
+			__index = function(s, k)
+				local t = {}
+				rawset(s, k, t)
+
+				if not list.has_value(META.ComponentSet, k) then
+					list.insert(META.ComponentSet, k)
+				end
+
+				return t
+			end,
+		}
+	)
+	return META
 end
 
 return Panel
