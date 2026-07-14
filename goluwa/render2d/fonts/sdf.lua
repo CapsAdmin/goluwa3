@@ -483,7 +483,6 @@ function META:RebuildFromScratch()
 	end
 end
 
-local scratch_size = {w = 0, h = 0}
 local fb_pool = {}
 local tex_pool = {}
 
@@ -953,20 +952,11 @@ function META:LoadGlyph(code, temp_fbs)
 				)
 			end
 
-			render2d.ResetState()
-			local old_w, old_h = render2d.GetSize()
-			render.PushCommandBuffer(cmd)
 			fb_ss:Begin(cmd)
-			local old_color = {render2d.GetColor()}
-			render2d.SetColor(1, 1, 1, 1)
-			local old_blend_mode = render2d.GetBlendMode()
-			render2d.SetBlendPreset("alpha")
-			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
-			scratch_size.w = sw
-			scratch_size.h = sh
-			render2d.SetScreenSize(scratch_size.w, scratch_size.h)
-			render2d.BindPipeline()
-			render2d.SetSwizzleMode(0)
+			render2d.ClearPendingBatches()
+			render2d.PushBlendPreset("alpha")
+			render.PushCommandBuffer(cmd)
+			render2d.PushScreenSize(sw, sh)
 			render2d.PushMatrix()
 			render2d.LoadIdentity()
 			-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
@@ -976,14 +966,10 @@ function META:LoadGlyph(code, temp_fbs)
 			render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 			glyph_source_font:DrawGlyph(glyph.glyph_data)
 			render2d.PopMatrix()
-			render2d.PopSwizzleMode()
-			render2d.SetBlendMode(old_blend_mode, true)
-			render2d.SetColor(unpack(old_color))
-			fb_ss:End()
 			render.PopCommandBuffer()
-			scratch_size.w = old_w
-			scratch_size.h = old_h
-			render2d.SetScreenSize(scratch_size.w, scratch_size.h)
+			render2d.PopScreenSize()
+			render2d.PopBlendMode()
+			fb_ss:End()
 		end
 
 		if glyph_has_drawable_outline(glyph) then
