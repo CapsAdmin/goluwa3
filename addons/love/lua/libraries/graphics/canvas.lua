@@ -248,7 +248,7 @@ function love.graphics.setCanvas(canvas, ...)
 		ENV.graphics_current_canvas = canvas
 		canvas.fb:Begin()
 		render.PushCommandBuffer(canvas.fb:GetCommandBuffer())
-		render2d.UpdateScreenSize(canvas.w, canvas.h)
+		render2d.SetScreenSize(canvas.w, canvas.h)
 		render2d.BindPipeline()
 	else
 		local canvas = ENV.graphics_current_canvas
@@ -262,7 +262,7 @@ function love.graphics.setCanvas(canvas, ...)
 
 		ENV.graphics_current_canvas = nil
 		local width, height = ctx.get_main_surface_dimensions()
-		render2d.UpdateScreenSize(width, height)
+		render2d.SetScreenSize(width, height)
 	end
 end
 

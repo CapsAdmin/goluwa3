@@ -242,7 +242,7 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 		scratch_size.w = width
 		scratch_size.h = height
-		render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
+		render2d.SetScreenSize(scratch_size.w, scratch_size.h)
 		render2d.BindPipeline()
 		render2d.SetSwizzleMode(0)
 		render2d.PushMatrix()
@@ -260,12 +260,11 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render.PopCommandBuffer()
 		scratch_size.w = old_w
 		scratch_size.h = old_h
-		render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
+		render2d.SetScreenSize(scratch_size.w, scratch_size.h)
 	end
 
 	cmd:End()
 	render.SubmitAndWait(cmd)
-
 	return fb.color_texture, width, height
 end
 
@@ -500,6 +499,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 
 				if atlas_data and atlas_data.page then
 					local texture = atlas_data.page.texture
+
 					if texture ~= last_texture then
 						render2d.SetTexture(texture)
 						last_texture = texture
@@ -510,10 +510,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 					local ry = y + (Y + data.bitmap_top - padding) * self.Scale.y
 					local rw = atlas_data.w * self.Scale.x
 					local rh = atlas_data.h * self.Scale.y
-					local result = render2d.DrawRectUV2f(
-						rx, ry, rw, rh,
-						uv[1], uv[2], uv[3], uv[4]
-					)
+					local result = render2d.DrawRectUV2f(rx, ry, rw, rh, uv[1], uv[2], uv[3], uv[4])
 
 					if self.debug then
 						render2d.SetTexture(nil)

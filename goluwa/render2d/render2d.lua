@@ -1371,7 +1371,7 @@ function render2d.ResetState()
 	end
 
 	render2d.SetSDFThreshold(0.5)
-	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
+	render2d.SetScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetScissor(0, 0, render2d.GetSize())
 	render2d.SetBlendPreset("alpha")
 	render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
@@ -2370,11 +2370,19 @@ do -- camera
 		update_proj_view()
 	end
 
-	function render2d.UpdateScreenSize(w, h)
-		camera_state.viewport.w = w
-		camera_state.viewport.h = h
-		update_projection()
-		update_view()
+	do
+		function render2d.SetScreenSize(w, h)
+			camera_state.viewport.w = w
+			camera_state.viewport.h = h
+			update_projection()
+			update_view()
+		end
+
+		function render2d.GetScreenSize()
+			return camera_state.viewport.w, camera_state.viewport.h
+		end
+
+		utility.MakePushPopFunction(render2d, "ScreenSize", 2)
 	end
 
 	function render2d.GetMatrix()
@@ -2875,7 +2883,7 @@ end)
 event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
 	if render.target:IsValid() and render.target.config.offscreen then return end
 
-	render2d.UpdateScreenSize(size.x, size.y)
+	render2d.SetScreenSize(size.x, size.y)
 end)
 
 if HOTRELOAD then

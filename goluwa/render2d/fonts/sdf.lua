@@ -964,7 +964,7 @@ function META:LoadGlyph(code, temp_fbs)
 			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 			scratch_size.w = sw
 			scratch_size.h = sh
-			render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
+			render2d.SetScreenSize(scratch_size.w, scratch_size.h)
 			render2d.BindPipeline()
 			render2d.SetSwizzleMode(0)
 			render2d.PushMatrix()
@@ -983,7 +983,7 @@ function META:LoadGlyph(code, temp_fbs)
 			render.PopCommandBuffer()
 			scratch_size.w = old_w
 			scratch_size.h = old_h
-			render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
+			render2d.SetScreenSize(scratch_size.w, scratch_size.h)
 		end
 
 		if glyph_has_drawable_outline(glyph) then
