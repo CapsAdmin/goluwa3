@@ -126,7 +126,6 @@ local stencil_mode_names = {
 local bind_mesh_immediate
 local capture_rect_draw_state
 local restore_rect_draw_state
-local flush_rect_batch_queue
 local draw_rect_immediate
 local ensure_rect_batch_instance_buffer
 local apply_scissor_to_command_buffer
@@ -572,20 +571,8 @@ function render2d.ClearPendingBatches()
 	reset_rect_batch_matrix_pool_state()
 end
 
-function render2d.FlushBatches(reason)
-	local batch_state = render2d.state.runtime.batch.state
-
-	if not batch_state:BeginFlush(reason) then return false end
-
-	if not flush_rect_batch_queue then
-		batch_state:AbortFlush()
-		error(
-			"render2d has pending batched draws but batch submission is not implemented yet",
-			2
-		)
-	end
-
-	return flush_rect_batch_queue()
+function render2d.MarkPipelineStateDirty()
+	render2d.state.runtime.pipeline_state.dirty = true
 end
 
 local function get_valid_blend_preset_error(mode_name)
@@ -654,10 +641,6 @@ local function get_blend_preset_state(mode_name)
 	return canonicalize_blend_mode_state(preset)
 end
 
-function render2d.MarkPipelineStateDirty()
-	render2d.state.runtime.pipeline_state.dirty = true
-end
-
 local function sync_pipeline_state(force)
 	local pipeline = render2d.GetActivePipeline()
 
@@ -721,6 +704,94 @@ end
 
 local function get_render2d_fragment_constants_source()
 	return render2d.state.render.fragment.constants
+end
+
+function render2d.FlushBatches(reason)
+	local batch_state = render2d.state.runtime.batch.state
+
+	if not batch_state:BeginFlush(reason) then return false end
+
+	local batch_state = render2d.state.runtime.batch.state
+	local saved_state = capture_rect_draw_state()
+	local saved_batched_rect_draws_enabled = render2d.state.render.options.batched_rect_draws_enabled
+	local saved_shader_override = render2d.shader_override
+	local flushed_draws = 0
+	local gpu_rect_draw_calls = 0
+	local instanced_draws = 0
+	local instanced_segments = 0
+	local replay_draws = 0
+	local max_segment_size = 0
+	render2d.state.render.options.batched_rect_draws_enabled = false
+
+	for _, segment in ipairs(batch_state.segments) do
+		max_segment_size = math.max(max_segment_size, #segment.entries)
+
+		if
+			segment.kind == "rect" and
+			segment.entries[1] and
+			segment.entries[1].batch_mode == "instanced" and
+			render2d.rect_batch_pipeline
+		then
+			local first = segment.entries[1]
+			local instance_buffer = ensure_rect_batch_instance_buffer(render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot, #segment.entries)
+			local vertices = instance_buffer:GetVertices()
+			render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot + 1
+
+			for i, entry in ipairs(segment.entries) do
+				write_rect_batch_instance(vertices[i - 1], entry)
+			end
+
+			instance_buffer:Upload()
+			restore_rect_draw_state(first.state)
+			render2d.shader_override = render2d.rect_batch_pipeline
+			sync_pipeline_state(true)
+			render2d.rect_mesh:BindInstanced(render.GetCommandBuffer(), {instance_buffer}, 0)
+			render2d.UploadConstants(first.qw, first.qh, first.w, first.h)
+			render2d.rect_mesh:DrawIndexed(render.GetCommandBuffer(), 6, #segment.entries, 0, 0, 0)
+			gpu_rect_draw_calls = gpu_rect_draw_calls + 1
+			instanced_draws = instanced_draws + #segment.entries
+			instanced_segments = instanced_segments + 1
+			render2d.shader_override = saved_shader_override
+			render2d.state.runtime.mesh.last_bound = nil
+			flushed_draws = flushed_draws + #segment.entries
+		else
+			for _, entry in ipairs(segment.entries) do
+				restore_rect_draw_state(entry.state)
+				draw_rect_immediate(
+					entry.x,
+					entry.y,
+					entry.w,
+					entry.h,
+					entry.a,
+					entry.ox,
+					entry.oy,
+					entry.margin,
+					entry.use_float
+				)
+				gpu_rect_draw_calls = gpu_rect_draw_calls + 1
+				replay_draws = replay_draws + 1
+				flushed_draws = flushed_draws + 1
+			end
+		end
+	end
+
+	restore_rect_draw_state(saved_state)
+	render2d.shader_override = saved_shader_override
+	render2d.state.render.options.batched_rect_draws_enabled = saved_batched_rect_draws_enabled
+	batch_state:FinishFlush(
+		flushed_draws,
+		{
+			queued_draws = flushed_draws,
+			queued_segments = #batch_state.segments,
+			gpu_rect_draw_calls = gpu_rect_draw_calls,
+			instanced_draws = instanced_draws,
+			instanced_segments = instanced_segments,
+			replay_draws = replay_draws,
+			max_segment_size = max_segment_size,
+		}
+	)
+	reset_rect_batch_matrix_pool_state()
+	return flushed_draws > 0
 end
 
 render2d.blend_modes = {
@@ -1344,6 +1415,7 @@ end
 
 function render2d.ResetState()
 	local constants = render2d.state.render.fragment.constants
+	render2d.FlushBatches("reset_state")
 	render2d.ClearPendingBatches()
 	render2d.stencil_level = 0
 	render2d.SetRectBatchMode("instanced")
@@ -2750,90 +2822,6 @@ do
 	function render2d.DrawRectUV2f(x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
 		return draw_rect_with_uv2(true, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
 	end
-end
-
-flush_rect_batch_queue = function()
-	local batch_state = render2d.state.runtime.batch.state
-	local saved_state = capture_rect_draw_state()
-	local saved_batched_rect_draws_enabled = render2d.state.render.options.batched_rect_draws_enabled
-	local saved_shader_override = render2d.shader_override
-	local flushed_draws = 0
-	local gpu_rect_draw_calls = 0
-	local instanced_draws = 0
-	local instanced_segments = 0
-	local replay_draws = 0
-	local max_segment_size = 0
-	render2d.state.render.options.batched_rect_draws_enabled = false
-
-	for _, segment in ipairs(batch_state.segments) do
-		max_segment_size = math.max(max_segment_size, #segment.entries)
-
-		if
-			segment.kind == "rect" and
-			segment.entries[1] and
-			segment.entries[1].batch_mode == "instanced" and
-			render2d.rect_batch_pipeline
-		then
-			local first = segment.entries[1]
-			local instance_buffer = ensure_rect_batch_instance_buffer(render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot, #segment.entries)
-			local vertices = instance_buffer:GetVertices()
-			render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot + 1
-
-			for i, entry in ipairs(segment.entries) do
-				write_rect_batch_instance(vertices[i - 1], entry)
-			end
-
-			instance_buffer:Upload()
-			restore_rect_draw_state(first.state)
-			render2d.shader_override = render2d.rect_batch_pipeline
-			sync_pipeline_state(true)
-			render2d.rect_mesh:BindInstanced(render.GetCommandBuffer(), {instance_buffer}, 0)
-			render2d.UploadConstants(first.qw, first.qh, first.w, first.h)
-			render2d.rect_mesh:DrawIndexed(render.GetCommandBuffer(), 6, #segment.entries, 0, 0, 0)
-			gpu_rect_draw_calls = gpu_rect_draw_calls + 1
-			instanced_draws = instanced_draws + #segment.entries
-			instanced_segments = instanced_segments + 1
-			render2d.shader_override = saved_shader_override
-			render2d.state.runtime.mesh.last_bound = nil
-			flushed_draws = flushed_draws + #segment.entries
-		else
-			for _, entry in ipairs(segment.entries) do
-				restore_rect_draw_state(entry.state)
-				draw_rect_immediate(
-					entry.x,
-					entry.y,
-					entry.w,
-					entry.h,
-					entry.a,
-					entry.ox,
-					entry.oy,
-					entry.margin,
-					entry.use_float
-				)
-				gpu_rect_draw_calls = gpu_rect_draw_calls + 1
-				replay_draws = replay_draws + 1
-				flushed_draws = flushed_draws + 1
-			end
-		end
-	end
-
-	restore_rect_draw_state(saved_state)
-	render2d.shader_override = saved_shader_override
-	render2d.state.render.options.batched_rect_draws_enabled = saved_batched_rect_draws_enabled
-	batch_state:FinishFlush(
-		flushed_draws,
-		{
-			queued_draws = flushed_draws,
-			queued_segments = #batch_state.segments,
-			gpu_rect_draw_calls = gpu_rect_draw_calls,
-			instanced_draws = instanced_draws,
-			instanced_segments = instanced_segments,
-			replay_draws = replay_draws,
-			max_segment_size = max_segment_size,
-		}
-	)
-	reset_rect_batch_matrix_pool_state()
-	return flushed_draws > 0
 end
 
 function render2d.BindPipeline(force)
