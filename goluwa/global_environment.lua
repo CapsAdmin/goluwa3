@@ -117,6 +117,7 @@ import("goluwa/debug/debug.lua")
 import("goluwa/table/table.lua")
 import("goluwa/string/string.lua")
 import("goluwa/string/string_format.lua")
+import("goluwa/string/random.lua")
 import("goluwa/math/math.lua")
 import("goluwa/globals.lua")
 

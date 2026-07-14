@@ -20,7 +20,7 @@ return {
 				Collapsed = false,
 			}(
 				Text{
-					Text = "This is a basic collapsible panel. You can put any elements inside it, and it will expand or shrink to fit its content.",
+					Text = string.random_words(50),
 					Wrap = true,
 					layout = {
 						GrowWidth = 1,
@@ -55,7 +55,7 @@ return {
 						Title = "Sub-Collapsible",
 						Collapsed = true,
 					}(Text{
-						Text = "Nested content depth 2",
+						Text = string.random_words(5),
 					}),
 				}
 			),
@@ -64,7 +64,7 @@ return {
 				Collapsed = true,
 			}(
 				Text{
-					Text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
+					Text = string.random_words(300),
 					Wrap = true,
 					layout = {
 						GrowWidth = 1,
