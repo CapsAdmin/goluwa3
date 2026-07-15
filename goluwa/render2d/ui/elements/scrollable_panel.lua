@@ -119,13 +119,8 @@ function META:PreRemoveChildren()
 	return false
 end
 
--- Public API
 function META:GetViewport()
 	return self.Viewport
-end
-
-function META:ScrollRectIntoView(x1, y1, x2, y2, padding)
-	return self:scrollRectIntoView(x1, y1, x2, y2, padding)
 end
 
 function META:ScrollChildIntoView(child, padding)
@@ -148,7 +143,7 @@ function META:ScrollChildIntoView(child, padding)
 	if current ~= self.Viewport then return false end
 
 	local size = child.transform:GetSize()
-	return self:scrollRectIntoView(x, y, x + size.x, y + size.y, padding)
+	return self:ScrollRectIntoView(x, y, x + size.x, y + size.y, padding)
 end
 
 -- Scrollbar state computation
@@ -256,11 +251,6 @@ function META:updateHandle()
 		state = self:computeScrollbarState(content_size, view_size)
 	end
 
-	if false then
-		print(self.transform:GetSize(), content_size, view_size)
-		table.print(state)
-	end
-
 	if not content_size or not view_size then
 		self:clampScrollToBounds(Vec2(0, 0), Vec2(0, 0))
 		self.TrackY.gui_element:SetVisible(false)
@@ -277,11 +267,11 @@ function META:updateHandle()
 end
 
 function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, base_padding)
-	local is_v = axis == "y"
-	local handle = is_v and self.HandleY or self.HandleX
-	local track = is_v and self.TrackY or self.TrackX
-	local show = is_v and state.show_y or state.show_x
-	local available = is_v and state.available_h or state.available_w
+	local is_y = axis == "y"
+	local handle = is_y and self.HandleY or self.HandleX
+	local track = is_y and self.TrackY or self.TrackX
+	local show = is_y and state.show_y or state.show_x
+	local available = is_y and state.available_h or state.available_w
 	local content_dim = content_size[axis]
 	local scroll_dim = scroll[axis]
 
@@ -298,7 +288,7 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	if track then
 		track.gui_element:SetVisible(true)
 
-		if is_v then
+		if is_y then
 			track.transform:SetSize(Vec2(6, available))
 			track.transform:SetPosition(Vec2(self.transform:GetSize().x - 8, base_padding.y))
 		else
@@ -318,7 +308,7 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 		handle_pos = (scroll_dim / max_scroll) * scroll_track_range
 	end
 
-	if is_v then
+	if is_y then
 		handle.transform:SetSize(Vec2(6, handle_len))
 		handle.transform:SetPosition(Vec2(self.transform:GetSize().x - 8, handle_pos + base_padding.y))
 	else
@@ -391,7 +381,7 @@ function META:handleWheelScroll(target, button)
 end
 
 -- Scroll-into-view helpers
-function META:scrollRectIntoView(x1, y1, x2, y2, padding)
+function META:ScrollRectIntoView(x1, y1, x2, y2, padding)
 	padding = padding or self.Padding
 	local content_size = self.Viewport.layout and self.Viewport.layout.content_size
 	local view_size = self.Viewport.transform and self.Viewport.transform.Size
@@ -486,7 +476,7 @@ do
 	end
 
 	function META:createHandle(axis)
-		local is_v = axis == "y"
+		local is_y = axis == "y"
 		local scrollable_panel = self
 		return Panel.New{
 			IsInternal = true,
@@ -498,7 +488,7 @@ do
 				s:SetState("color", scrollable_panel.HandleColor or "scrollbar")
 			end,
 			transform = {
-				Size = is_v and
+				Size = is_y and
 					Vec2(theme.active:GetSize("M"), 40) or
 					Vec2(40, theme.active:GetSize("M")),
 			},
@@ -527,9 +517,9 @@ do
 
 				if max_scroll <= 0 then return end
 
-				local handle_len = is_v and self.transform:GetHeight() or self.transform:GetWidth()
+				local handle_len = is_y and self.transform:GetHeight() or self.transform:GetWidth()
 				local base_padding = scrollable_panel.Padding
-				local track_len = is_v and
+				local track_len = is_y and
 					(
 						effective_view_size.y - base_padding.y - base_padding.h
 					)
