@@ -95,6 +95,8 @@ end
 
 function META:SetCollapsed(value)
 	self.Collapsed = value
+	self.animation:StopAnimations()
+	self:UpdateHeight()
 	self.animation:Animate{
 		id = "collapsible_slide",
 		get = function()

@@ -31,6 +31,7 @@ return function(props)
 			},
 			OnClick = function(self)
 				container:SetCollapsed(not container:GetCollapsed())
+				return true
 			end,
 		}{
 			Panel.New{
