@@ -23,6 +23,8 @@ META.CMP.gui_element = {
 	end,
 }
 META.CMP.mouse_input = {}
+META:GetSet("AutoResize", false)
+META:GetSet("MaxLines", 4)
 
 function META:OnCreate(props)
 	props = props or {}
@@ -192,9 +194,6 @@ function META:scroll_caret_into_view()
 	local caret_y_bottom = (ly + (line + 1) * vertical_step)
 	self.scroll_panel:ScrollRectIntoView(caret_x, caret_y_top, caret_x, caret_y_bottom, 4)
 end
-
-META:GetSet("AutoResize", false)
-META:GetSet("MaxLines", 4)
 
 function META:RequestTextFocus()
 	self.text_panel:RequestFocus()
