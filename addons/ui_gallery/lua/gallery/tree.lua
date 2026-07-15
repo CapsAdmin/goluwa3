@@ -424,7 +424,7 @@ return {
 						Tree{
 							Items = state.items,
 							SelectedKey = state.selected_key,
-							GetNodePanel = function(node, path, key, selected, has_children)
+							OnGetNodePanel = function(node, path, key, selected, has_children)
 								return SVG{
 									Source = has_children and ICON_SOURCES.folder or ICON_SOURCES.file,
 									Color = selected and "text_on_accent" or "text",
@@ -448,7 +448,7 @@ return {
 								state.selected_key = key
 								refresh_details(node)
 							end,
-							CanDropInside = function(node)
+							OnCanDropInside = function(node)
 								return node.Kind == "folder"
 							end,
 							OnDrop = function(drop_info)

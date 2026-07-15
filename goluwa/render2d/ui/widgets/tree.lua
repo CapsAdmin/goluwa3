@@ -4,9 +4,46 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local META = Panel:CreateTemplate("tree")
+META.CMP.transform = {}
+META.CMP.layout = {
+	Direction = "y",
+	GrowWidth = 1,
+	FitHeight = true,
+	AlignmentX = "stretch",
+}
+META.CMP.gui_element = {}
+META.CMP.mouse_input = {}
+META.CMP.clickable = {}
+META.CMP.animation = {}
+META:StartStorable()
+META:GetSet("IndentSize", nil)
+META:GetSet("ToggleSize", 16)
+META:GetSet("GuideStep", nil)
+META:GetSet("BoxSize", 10)
+META:GetSet("CustomPanelPosition", "before_label")
+META:GetSet("LabelGrow", nil)
+META:GetSet("ToggleOnRowClick", false)
+META:GetSet("DoubleClickTime", 0.3)
+META:GetSet("AnimationTime", 0.18)
+META:GetSet("DragThreshold", 6)
+META:GetSet("SharedInstanceColor", nil)
+META:GetSet("LineColor", "border")
+META:GetSet("BoxFillColor", "surface")
+META:GetSet("BoxOutlineColor", "border")
+META:GetSet("GlyphColor", "text")
+META:GetSet("SelectedColor", "primary")
+META:GetSet("HoverColor", "primary")
+META:GetSet("RowFont", "body")
+META:GetSet("LabelPadding", "XS")
+META:GetSet("RowGap", 3)
+META:GetSet("DropIndicatorColor", "primary")
+META:EndStorable()
 
-local function has_entries(list)
-	return list and next(list) ~= nil
+local function build_path(parent_path, index)
+	if parent_path then return parent_path .. "/" .. index end
+
+	return tostring(index)
 end
 
 local function draw_shared_instance_marker(self, size, color)
@@ -16,565 +53,840 @@ local function draw_shared_instance_marker(self, size, color)
 	render2d.DrawRect(math.floor(size.x * 0.5) - 1, 2, 2, math.max(1, size.y - 4))
 end
 
-local function build_path(parent_path, index)
-	if parent_path then return parent_path .. "/" .. index end
+function META:OnCreate(props)
+	if props.layout then
+		props.layout = table.merge(META.CMP.layout, props.layout)
+	end
 
-	return tostring(index)
+	-- State (before BaseClass.OnCreate which may fire events that call back into us)
+	self._items = props.Items or {}
+	self._selected_key = props.SelectedKey
+	self._expanded_state = {}
+	self._row_infos = {}
+	self._row_order = {}
+	self._drag_state = {active = false, source_key = nil, drop_info = nil}
+	self._row_click_times = {}
+	self._pending_expand_animation_key = nil
+	self._ready = false
+	self.BaseClass.OnCreate(self, props)
+	self:Rebuild()
+	self._pending_expand_animation_key = nil
+	self._ready = true
+	self._drag_enabled = true
 end
 
-return function(props)
-	local external_ref = props.Ref
+function META.OnGetText() end
 
-	if external_ref then
-		props = table.shallow_copy(props)
-		props.Ref = nil
-	end
+function META.OnGetNodePanel() end
 
-	local items = props.Items or {}
-	local selected_key = props.SelectedKey
-	local expanded_state = {}
-	local row_infos = {}
-	local row_order = {}
-	local indent_size = props.IndentSize or theme.active:GetSize("M")
-	local toggle_size = props.ToggleSize or 16
-	local guide_step = props.GuideStep or math.max(indent_size, toggle_size)
-	local box_size = props.BoxSize or 10
-	local custom_panel_position = props.CustomPanelPosition == "after_label" and "after_label" or "before_label"
-	local label_grow = props.LabelGrow == true or custom_panel_position == "after_label"
-	local toggle_on_row_click = props.ToggleOnRowClick == true
-	local double_click_time = props.DoubleClickTime or 0.3
-	local animation_time = props.AnimationTime or 0.18
-	local drag_threshold = props.DragThreshold or 6
-	local drag_enabled = props.OnDrop ~= nil
-	local shared_instance_color = props.SharedInstanceColor
-	local row_click_times = {}
-	local tree
-	local is_expanded
-	local set_selected
-	local pending_expand_animation_key = nil
-	local drag_state = {
-		active = false,
-		source_key = nil,
-		drop_info = nil,
-	}
+function META.OnIncludeNode() end
 
-	local function update_layout_now(entity)
-		if not entity or not entity:IsValid() or not entity.layout then return end
+function META.OnCanDragNode() end
 
-		entity.layout:InvalidateLayout()
-		local root = entity.layout
-		local parent = entity:GetParent()
+function META.OnCanDropInside() end
 
-		while parent and parent:IsValid() and parent.layout do
-			root = parent.layout
-			parent = parent:GetParent()
+function META.OnCanDrop() end
+
+function META.OnIsExpanded() end
+
+function META.OnGetTextColor() end
+
+function META.OnSelect() end
+
+function META.OnToggle() end
+
+function META.OnDrop() end
+
+function META.OnNodeHover() end
+
+function META.OnNodeContextMenu() end
+
+-- ---------------------------------------------------------------------------
+-- Public API
+-- ---------------------------------------------------------------------------
+function META:SetItems(new_items)
+	self._items = new_items or {}
+	self:Rebuild()
+	return self
+end
+
+function META:GetItems()
+	return self._items
+end
+
+function META:SetSelectedKey(key)
+	local previous_key = self._selected_key
+	self._selected_key = key
+	self:refresh_row_text(self._row_infos[previous_key])
+	self:refresh_row_text(self._row_infos[key])
+	return self
+end
+
+function META:GetSelectedKey()
+	return self._selected_key
+end
+
+function META:ExpandAll()
+	self:apply_branch_state(self._items, nil, true)
+	self:refresh_visibility()
+	return self
+end
+
+function META:CollapseAll()
+	self:apply_branch_state(self._items, nil, false)
+	self:refresh_visibility()
+	return self
+end
+
+function META:ExpandToKey(key)
+	self:expand_to_key(self._items, nil, key)
+	self:refresh_visibility()
+	return self
+end
+
+function META:EnsureVisible(key, padding)
+	if key == nil then return self end
+
+	local info = self._row_infos[key]
+
+	if not (info and info.clip and info.clip:IsValid()) then return self end
+
+	local parent = self:GetParent()
+
+	while parent and parent.IsValid and parent:IsValid() do
+		if parent.ScrollChildIntoView then
+			parent:ScrollChildIntoView(info.clip, padding)
+
+			break
 		end
 
-		root:UpdateLayout()
+		parent = parent:GetParent()
 	end
 
-	local function get_text(node, path)
-		if props.GetText then return tostring(props.GetText(node, path)) end
+	return self
+end
 
-		return tostring(node.Text or node.Label or node.Name or node.Value or node.Id or "Item")
+function META:Rebuild()
+	if not self._ready then return self end
+
+	self:clear_drag_state()
+	self._row_infos = {}
+	self._row_order = {}
+	self:RemoveChildren()
+
+	for index, node in ipairs(self._items) do
+		self:add_node(
+			node,
+			{
+				level = 0,
+				index = index,
+				is_last = index == #self._items,
+				parent_key = nil,
+				continuations = {},
+			},
+			nil
+		)
 	end
 
-	local function get_children(node, path)
-		if props.GetChildren then return props.GetChildren(node, path) or {} end
+	self:refresh_visibility()
+	return self
+end
 
-		return node.Children or {}
+function META:RefreshBranchForKey(key)
+	if key == nil then return self:Rebuild() end
+
+	local descriptor = self:find_item_descriptor(self._items, nil, nil, 0, {}, key)
+
+	if not descriptor then return self:Rebuild() end
+
+	local start_index
+	local end_index
+
+	for i, row_key in ipairs(self._row_order) do
+		if row_key == key then
+			start_index = i
+			end_index = i
+
+			break
+		end
 	end
 
-	local function has_children(node, path)
-		local children = get_children(node, path)
+	if not start_index then return self:Rebuild() end
 
-		if has_entries(children) then return true end
+	for i = start_index + 1, #self._row_order do
+		local info = self._row_infos[self._row_order[i]]
 
-		if props.HasChildren then return not not props.HasChildren(node, path) end
+		if not (info and self:is_key_in_branch(key, info.key)) then break end
 
-		if node.HasChildren ~= nil then return not not node.HasChildren end
-
-		return false
+		end_index = i
 	end
 
-	local function get_key(node, path)
-		if props.GetKey then return tostring(props.GetKey(node, path)) end
+	self:clear_drag_state()
 
-		return tostring(node.Key or node.Id or path)
+	for i = end_index, start_index, -1 do
+		local row_key = self._row_order[i]
+		local info = self._row_infos[row_key]
+
+		if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
+
+		self._row_infos[row_key] = nil
+		table.remove(self._row_order, i)
 	end
 
-	local function get_node_panel(node, path, key, selected, has_children, expanded)
-		if node.SharedInstance and shared_instance_color then
-			return Panel.New{
-				IsInternal = true,
-				Name = "TreeSharedInstanceMarker",
-				transform = {
-					Size = Vec2(12, 12),
-				},
-				layout = {
-					SelfAlignmentY = "center",
-					GrowWidth = 0,
-					FitWidth = false,
-				},
-				mouse_input = {
-					IgnoreMouseInput = true,
-				},
-				gui_element = {
-					OnDraw = function(self)
-						local size = self.Owner.transform:GetSize()
-						draw_shared_instance_marker(self, size, shared_instance_color)
-					end,
-				},
+	self:add_node(descriptor.node, descriptor.meta, descriptor.parent_path)
+	self:refresh_visibility()
+
+	if self._pending_expand_animation_key == key then
+		self._pending_expand_animation_key = nil
+	end
+
+	return self
+end
+
+-- ---------------------------------------------------------------------------
+-- Internal helpers
+-- ---------------------------------------------------------------------------
+function META:update_layout_now(entity)
+	if not entity or not entity:IsValid() or not entity.layout then return end
+
+	entity.layout:InvalidateLayout()
+	local root = entity.layout
+	local parent = entity:GetParent()
+
+	while parent and parent:IsValid() and parent.layout do
+		root = parent.layout
+		parent = parent:GetParent()
+	end
+
+	if root.busy ~= nil then root:UpdateLayout() end
+end
+
+-- Callback accessors (callback or fallback)
+function META:get_text(node, path)
+	local val = self.OnGetText(node, path)
+
+	if val ~= nil then return tostring(val) end
+
+	return tostring(node.Text or node.Label or node.Name or node.Value or node.Id or "Item")
+end
+
+function META:get_children(node, path)
+	return node.Children or {}
+end
+
+function META:has_children(node, path)
+	if next(self:get_children(node, path)) then return true end
+
+	if node.HasChildren ~= nil then return not not node.HasChildren end
+
+	return false
+end
+
+function META:get_key(node, path)
+	return tostring(node.Key or node.Id or path)
+end
+
+function META:is_selected(node, path, key)
+	return self._selected_key ~= nil and self._selected_key == key
+end
+
+function META:is_expanded(node, path, key, has_children)
+	if not has_children then return false end
+
+	local val = self.OnIsExpanded(node, path, key)
+
+	if val ~= nil then return not not val end
+
+	local expanded = self._expanded_state[key]
+
+	if expanded == nil then
+		expanded = node.Expanded == true
+		self._expanded_state[key] = expanded
+	end
+
+	return expanded
+end
+
+function META:get_text_token(node, path, key)
+	if node.Disabled then return "text_disabled" end
+
+	if self:is_selected(node, path, key) then return "text_on_accent" end
+
+	local color = self.OnGetTextColor(node, path, key)
+
+	if color ~= nil then return color end
+
+	if node.TextColor ~= nil then return node.TextColor end
+
+	return "text"
+end
+
+function META:refresh_row_text(info)
+	if not info or not info.text or not info.text:IsValid() then return end
+
+	local selected = self:is_selected(info.node, info.path, info.key)
+	info.text.style:SetBackgroundColor(selected and self.SelectedColor or nil)
+	info.text.text:SetColor(self:get_text_token(info.node, info.path, info.key))
+end
+
+-- Walk up parent chain to check if candidate is under source
+function META:is_key_in_branch(source_key, candidate_key)
+	local current_key = candidate_key
+
+	while current_key do
+		if current_key == source_key then return true end
+
+		local current_info = self._row_infos[current_key]
+
+		if not current_info then break end
+
+		current_key = current_info.parent_key
+	end
+
+	return false
+end
+
+function META:should_seed_open_fraction(meta)
+	return meta.parent_key and
+		self._pending_expand_animation_key and
+		self:is_key_in_branch(self._pending_expand_animation_key, meta.parent_key)
+end
+
+function META:clear_drag_state()
+	self._drag_state.active = false
+	self._drag_state.source_key = nil
+	self._drag_state.drop_info = nil
+end
+
+function META:can_drag_node(node, path, key)
+	local val = self.OnCanDragNode(node, path, key)
+
+	if val ~= nil then return not not val end
+
+	return not node.Disabled
+end
+
+function META:can_drop_inside(node, path, key, has_children)
+	local val = self.OnCanDropInside(node, path, key, has_children)
+
+	if val ~= nil then return not not val end
+
+	return has_children
+end
+
+function META:find_drop_info(source_info, global_pos)
+	if not source_info then return nil end
+
+	for _, key in ipairs(self._row_order) do
+		local target_info = self._row_infos[key]
+
+		if
+			target_info and
+			target_info.clip and
+			target_info.clip:IsValid() and
+			target_info.clip.gui_element and
+			target_info.clip.gui_element:GetVisible() and
+			target_info.clip.gui_element:IsHovered(global_pos)
+		then
+			if target_info.key == source_info.key then return nil end
+
+			local local_pos = target_info.clip.transform:GlobalToLocal(global_pos)
+			local height = math.max(target_info.clip.transform:GetHeight(), 1)
+			local position
+			local allow_inside = self:can_drop_inside(target_info.node, target_info.path, target_info.key, target_info.has_children)
+
+			if allow_inside then
+				local edge_size = math.max(4, height * 0.25)
+
+				if local_pos.y <= edge_size then
+					position = "before"
+				elseif local_pos.y >= height - edge_size then
+					position = "after"
+				else
+					position = "inside"
+				end
+			else
+				position = local_pos.y < height / 2 and "before" or "after"
+			end
+
+			local parent_info
+			local parent_key
+
+			if position == "inside" then
+				parent_info = target_info
+				parent_key = target_info.key
+			else
+				parent_key = target_info.parent_key
+				parent_info = parent_key and self._row_infos[parent_key] or nil
+			end
+
+			if self:is_key_in_branch(source_info.key, parent_key) then return nil end
+
+			local drop_info = {
+				source_node = source_info.node,
+				source_key = source_info.key,
+				source_path = source_info.path,
+				target_node = target_info.node,
+				target_key = target_info.key,
+				target_path = target_info.path,
+				parent_node = parent_info and parent_info.node or nil,
+				parent_key = parent_key,
+				parent_path = parent_info and parent_info.path or nil,
+				position = position,
 			}
-		end
+			local can_drop = self.OnCanDrop(drop_info)
 
-		if props.GetNodePanel then
-			return props.GetNodePanel(node, path, key, selected, has_children, expanded)
-		end
+			if can_drop ~= nil and not can_drop then return nil end
 
-		return nil
+			return drop_info
+		end
 	end
 
-	local function should_include_node(node, path, key)
-		if props.ShouldIncludeNode then
-			return not not props.ShouldIncludeNode(node, path, key)
+	return nil
+end
+
+-- Drag lifecycle
+function META:begin_drag(row_info)
+	if not self._drag_enabled or not row_info then return end
+
+	if
+		row_info.toggle and
+		row_info.toggle.mouse_input and
+		row_info.toggle.mouse_input:GetHovered()
+	then
+		if
+			row_info.body and
+			row_info.body.draggable and
+			row_info.body.draggable:IsDragging()
+		then
+			row_info.body.draggable:StopDragging()
 		end
 
+		return
+	end
+
+	self._drag_state.active = false
+	self._drag_state.source_key = row_info.key
+	self._drag_state.drop_info = nil
+	self:set_selected(row_info.node, row_info.path, row_info.key)
+end
+
+function META:update_drag(row_info, delta, global_pos)
+	if
+		not self._drag_enabled or
+		not row_info or
+		self._drag_state.source_key ~= row_info.key
+	then
 		return true
 	end
 
-	local function can_drag_node(node, path, key)
-		if props.CanDragNode then return not not props.CanDragNode(node, path, key) end
+	if not self._drag_state.active then
+		if delta:GetLength() < self.DragThreshold then return true end
 
-		return not node.Disabled
+		self._drag_state.active = true
 	end
 
-	local function can_drop_inside(node, path, key, has_children)
-		if props.CanDropInside then
-			return not not props.CanDropInside(node, path, key, has_children)
-		end
+	self._drag_state.drop_info = self:find_drop_info(row_info, global_pos)
+	return true
+end
 
-		return has_children
+function META:finish_drag(row_info)
+	if
+		not self._drag_enabled or
+		not row_info or
+		self._drag_state.source_key ~= row_info.key
+	then
+		return
 	end
 
-	local function is_selected(node, path, key)
-		if props.IsSelected then return not not props.IsSelected(node, path, key) end
+	local drop_info = self._drag_state.active and self._drag_state.drop_info or nil
+	self:clear_drag_state()
 
-		return selected_key ~= nil and selected_key == key
+	if drop_info then self.OnDrop(drop_info) end
+end
+
+-- Row display (expand/collapse animation)
+function META:update_row_display(info)
+	if not self._ready then return end
+
+	if
+		not (
+			info and
+			info.clip and
+			info.clip:IsValid() and
+			info.body and
+			info.body:IsValid()
+		)
+	then
+		return
 	end
 
-	local function get_text_token(node, path, key)
-		if node.Disabled then return "text_disabled" end
+	local clip_w = info.clip.transform:GetWidth()
+	local open_fraction = info.open_fraction or 0
 
-		if is_selected(node, path, key) then return "text_on_accent" end
+	if open_fraction > 0.001 then info.clip.gui_element:SetVisible(true) end
 
-		if props.GetTextColor then
-			local color = props.GetTextColor(node, path, key)
+	info.body.transform:SetWidth(clip_w)
+	local body_h = info.body.transform:GetHeight()
 
-			if color ~= nil then return color end
-		end
-
-		if node.TextColor ~= nil then return node.TextColor end
-
-		return "text"
+	if open_fraction > 0.001 and body_h <= 0.001 then
+		self:update_layout_now(info.clip)
+		body_h = info.body.transform:GetHeight()
 	end
 
-	local function refresh_row_text(info)
-		if not info or not info.text or not info.text:IsValid() then return end
+	local target_h = body_h * open_fraction
+	info.clip.transform:SetHeight(target_h)
+	info.clip.gui_element:SetVisible(target_h > 0.001)
+	info.body.transform:SetY(-(body_h - target_h))
+end
 
-		local selected = is_selected(info.node, info.path, info.key)
-		local surface = selected and (props.SelectedColor or "primary") or nil
-		info.text.style:SetBackgroundColor(surface)
-		info.text.text:SetColor(get_text_token(info.node, info.path, info.key))
-	end
+function META:is_row_visible(info)
+	local parent_key = info and info.parent_key
 
-	local function should_seed_open_fraction(meta)
-		if not pending_expand_animation_key or not meta.parent_key then return false end
+	while parent_key do
+		local parent_info = self._row_infos[parent_key]
 
-		local current_key = meta.parent_key
-
-		while current_key do
-			if current_key == pending_expand_animation_key then return true end
-
-			local current_info = row_infos[current_key]
-
-			if not current_info then break end
-
-			current_key = current_info.parent_key
-		end
-
-		return false
-	end
-
-	local function clear_drag_state()
-		drag_state.active = false
-		drag_state.source_key = nil
-		drag_state.drop_info = nil
-	end
-
-	local function is_key_in_branch(source_key, candidate_key)
-		local current_key = candidate_key
-
-		while current_key do
-			if current_key == source_key then return true end
-
-			local current_info = row_infos[current_key]
-
-			if not current_info then break end
-
-			current_key = current_info.parent_key
-		end
-
-		return false
-	end
-
-	local function find_drop_info(source_info, global_pos)
-		if not source_info then return nil end
-
-		for _, key in ipairs(row_order) do
-			local target_info = row_infos[key]
-
-			if
-				target_info and
-				target_info.clip and
-				target_info.clip:IsValid() and
-				target_info.clip.gui_element and
-				target_info.clip.gui_element:GetVisible() and
-				target_info.clip.gui_element:IsHovered(global_pos)
-			then
-				if target_info.key == source_info.key then return nil end
-
-				local local_pos = target_info.clip.transform:GlobalToLocal(global_pos)
-				local height = math.max(target_info.clip.transform:GetHeight(), 1)
-				local position
-				local allow_inside = can_drop_inside(target_info.node, target_info.path, target_info.key, target_info.has_children)
-
-				if allow_inside then
-					local edge_size = math.max(4, height * 0.25)
-
-					if local_pos.y <= edge_size then
-						position = "before"
-					elseif local_pos.y >= height - edge_size then
-						position = "after"
-					else
-						position = "inside"
-					end
-				else
-					position = local_pos.y < height / 2 and "before" or "after"
-				end
-
-				local parent_info
-				local parent_key
-
-				if position == "inside" then
-					parent_info = target_info
-					parent_key = target_info.key
-				else
-					parent_key = target_info.parent_key
-					parent_info = parent_key and row_infos[parent_key] or nil
-				end
-
-				if is_key_in_branch(source_info.key, parent_key) then return nil end
-
-				local drop_info = {
-					source_node = source_info.node,
-					source_key = source_info.key,
-					source_path = source_info.path,
-					target_node = target_info.node,
-					target_key = target_info.key,
-					target_path = target_info.path,
-					parent_node = parent_info and parent_info.node or nil,
-					parent_key = parent_key,
-					parent_path = parent_info and parent_info.path or nil,
-					position = position,
-				}
-
-				if props.CanDrop and not props.CanDrop(drop_info) then return nil end
-
-				return drop_info
-			end
-		end
-
-		return nil
-	end
-
-	local function begin_drag(row_info)
-		if not drag_enabled or not row_info then return end
+		if not parent_info then break end
 
 		if
-			row_info.toggle and
-			row_info.toggle.mouse_input and
-			row_info.toggle.mouse_input:GetHovered()
+			not self:is_expanded(parent_info.node, parent_info.path, parent_info.key, parent_info.has_children)
 		then
-			if
-				row_info.body and
-				row_info.body.draggable and
-				row_info.body.draggable:IsDragging()
-			then
-				row_info.body.draggable:StopDragging()
-			end
-
-			return
+			return false
 		end
 
-		drag_state.active = false
-		drag_state.source_key = row_info.key
-		drag_state.drop_info = nil
-		set_selected(row_info.node, row_info.path, row_info.key)
+		parent_key = parent_info.parent_key
 	end
 
-	local function update_drag(row_info, delta, global_pos)
-		if not drag_enabled or not row_info or drag_state.source_key ~= row_info.key then
+	return true
+end
+
+function META:refresh_visibility()
+	for _, key in ipairs(self._row_order) do
+		local info = self._row_infos[key]
+
+		if not (info and info.clip and info.clip:IsValid() and info.clip.gui_element) then
+			goto continue
+		end
+
+		local target = self:is_row_visible(info) and 1 or 0
+
+		if info.open_fraction == nil then
+			info.open_fraction = target
+			self:update_row_display(info)
+		elseif info.open_fraction ~= target then
+			if self.AnimationTime <= 0 then
+				info.open_fraction = target
+				self:update_row_display(info)
+			else
+				local tree = self
+				local animation_time = self.AnimationTime
+				tree.animation:Animate{
+					id = "tree_row_open_" .. key,
+					get = function()
+						return info.open_fraction or 0
+					end,
+					set = function(v)
+						info.open_fraction = v
+						tree:update_row_display(info)
+					end,
+					to = target,
+					time = animation_time,
+					interpolation = target > (info.open_fraction or 0) and "outExpo" or "outCubic",
+				}
+			end
+		end
+
+		::continue::
+	end
+
+	self:update_layout_now(self)
+end
+
+-- Fire toggle callback + set expanded state (used by set_expanded, apply_branch_state, expand_to_key)
+function META:fire_toggle(node, expanded, key, path)
+	local val = self.OnIsExpanded(node, path, key)
+
+	if val == nil then self._expanded_state[key] = expanded end
+
+	self.OnToggle(node, expanded, key, path)
+end
+
+function META:set_expanded(node, path, key, expanded)
+	if self.OnIsExpanded(node, path, key) ~= nil and expanded then
+		self._pending_expand_animation_key = key
+	end
+
+	self:fire_toggle(node, expanded, key, path)
+	self:refresh_visibility()
+end
+
+function META:set_selected(node, path, key)
+	local previous_key = self._selected_key
+	self._selected_key = key
+	self.OnSelect(node, key, path)
+	self:refresh_row_text(self._row_infos[previous_key])
+	self:refresh_row_text(self._row_infos[key])
+end
+
+function META:apply_branch_state(nodes, parent_path, expanded)
+	for index, node in ipairs(nodes) do
+		local path = build_path(parent_path, index)
+		local key = self:get_key(node, path)
+		local children = self:get_children(node, path)
+
+		if next(children) then
+			self:fire_toggle(node, expanded, key, path)
+			self:apply_branch_state(children, path, expanded)
+		end
+	end
+end
+
+function META:find_item_descriptor(nodes, parent_path, parent_key, level, continuations, target_key)
+	for index, node in ipairs(nodes) do
+		local path = build_path(parent_path, index)
+		local key = self:get_key(node, path)
+		local meta = {
+			level = level,
+			index = index,
+			is_last = index == #nodes,
+			parent_key = parent_key,
+			continuations = continuations,
+		}
+
+		if key == target_key then
+			return {node = node, path = path, key = key, meta = meta, parent_path = parent_path}
+		end
+
+		local children = self:get_children(node, path)
+
+		if next(children) then
+			local child_continuations = table.shallow_copy(continuations)
+			child_continuations[level + 1] = index ~= #nodes
+			local found = self:find_item_descriptor(children, path, key, level + 1, child_continuations, target_key)
+
+			if found then return found end
+		end
+	end
+end
+
+function META:expand_to_key(nodes, parent_path, target_key)
+	for index, node in ipairs(nodes) do
+		local path = build_path(parent_path, index)
+		local key = self:get_key(node, path)
+		local children = self:get_children(node, path)
+
+		if key == target_key then return true end
+
+		if next(children) and self:expand_to_key(children, path, target_key) then
+			self:fire_toggle(node, true, key, path)
 			return true
 		end
-
-		if not drag_state.active then
-			if delta:GetLength() < drag_threshold then return true end
-
-			drag_state.active = true
-		end
-
-		drag_state.drop_info = find_drop_info(row_info, global_pos)
-		return true
 	end
 
-	local function finish_drag(row_info)
-		if not drag_enabled or not row_info or drag_state.source_key ~= row_info.key then
-			return
-		end
+	return false
+end
 
-		local drop_info = drag_state.active and drag_state.drop_info or nil
-		clear_drag_state()
+-- ---------------------------------------------------------------------------
+-- Row / node building
+-- ---------------------------------------------------------------------------
+function META:add_node(node, meta, parent_path, insert_index)
+	insert_index = insert_index or 1
+	local path = build_path(parent_path, meta.index)
+	local key = self:get_key(node, path)
+	local include = self.OnIncludeNode(node, path, key)
 
-		if drop_info and props.OnDrop then props.OnDrop(drop_info) end
+	if include ~= nil and not include then return insert_index end
+
+	local children = self:get_children(node, path)
+	local has_children = self:has_children(node, path)
+	local expanded = self:is_expanded(node, path, key, has_children)
+	local selected = self:is_selected(node, path, key)
+	local custom_panel = self:get_node_panel(node, path, key, selected, has_children, expanded)
+	local tree = self
+	local row_info = {
+		tree = tree,
+		node = node,
+		path = path,
+		key = key,
+		surface = selected and self.SelectedColor or nil,
+		parent_key = meta.parent_key,
+		has_children = has_children,
+		open_fraction = self:should_seed_open_fraction(meta) and 0 or nil,
+		toggle = nil,
+	}
+	self._row_infos[key] = row_info
+	table.insert(self._row_order, insert_index, key)
+	local label = self:make_label(node, path, key, selected, row_info)
+	local row_children = {
+		has_children and
+		self:make_toggle(node, path, key, meta, row_info) or
+		self:make_toggle_placeholder(meta),
+	}
+
+	if self.CustomPanelPosition == "before_label" then
+		if custom_panel then row_children[#row_children + 1] = custom_panel end
+
+		row_children[#row_children + 1] = label
+	else
+		row_children[#row_children + 1] = label
+
+		if custom_panel then row_children[#row_children + 1] = custom_panel end
 	end
 
-	local function update_row_display(info)
-		if
-			not info or
-			not info.clip or
-			not info.clip:IsValid()
-			or
-			not info.body or
-			not info.body:IsValid()
-		then
-			return
-		end
-
-		local row_key = info.key or info.path or "<unknown>"
-		local clip_w = info.clip.transform:GetWidth()
-		local open_fraction = info.open_fraction or 0
-
-		if open_fraction > 0.001 then info.clip.gui_element:SetVisible(true) end
-
-		local old_body_w = info.body.transform:GetWidth()
-		info.body.transform:SetWidth(clip_w)
-		local body_h = info.body.transform:GetHeight()
-
-		if open_fraction > 0.001 and body_h <= 0.001 then
-			update_layout_now(info.clip)
-			body_h = info.body.transform:GetHeight()
-		end
-
-		local target_h = body_h * open_fraction
-		local target_y = -(body_h - target_h)
-		local target_visible = target_h > 0.001
-		local old_body_y = info.body.transform:GetY()
-		info.clip.transform:SetHeight(target_h)
-		info.clip.gui_element:SetVisible(target_visible)
-		info.body.transform:SetY(target_y)
+	-- Shared listener setup for clip/body transform changes
+	local function on_row_layout_changed()
+		tree:update_row_display(row_info)
 	end
 
-	local function is_row_visible(info)
-		local parent_key = info and info.parent_key
+	local row = Panel.New{
+		IsInternal = true,
+		Name = "TreeRowBody",
+		transform = true,
+		layout = {
+			Direction = "x",
+			AlignmentY = "stretch",
+			FitHeight = true,
+			GrowWidth = 1,
+			FitWidth = false,
+			ChildGap = self.RowGap,
+			Floating = true,
+		},
+		gui_element = true,
+		mouse_input = {
+			Cursor = node.Disabled and "arrow" or "pointer",
+			OnHover = function(self, is_hovered)
+				row_info.hovered = is_hovered
+				tree.OnNodeHover(node, key, path, row_info, is_hovered, self.Owner)
+			end,
+		},
+		draggable = self._drag_enabled and self:can_drag_node(node, path, key),
+		OnDragStarted = function()
+			tree:begin_drag(row_info)
+		end,
+		OnDrag = function(self, delta, global_pos)
+			return tree:update_drag(row_info, delta, global_pos)
+		end,
+		OnDragStopped = function()
+			tree:finish_drag(row_info)
+		end,
+		clickable = {
+			DoubleClickKey = key,
+			DoubleClickTime = self.DoubleClickTime,
+		},
+		OnClick = function(self)
+			if node.Disabled then return end
 
-		while parent_key do
-			local parent_info = row_infos[parent_key]
+			local now = system.GetElapsedTime()
+			local last_click = tree._row_click_times[key]
+			local is_double_click = last_click and now - last_click <= tree.DoubleClickTime
 
-			if not parent_info then break end
-
-			if
-				not is_expanded(parent_info.node, parent_info.path, parent_info.key, parent_info.has_children)
-			then
-				return false
+			if is_double_click then
+				tree._row_click_times[key] = nil
+			else
+				tree._row_click_times[key] = now
 			end
 
-			parent_key = parent_info.parent_key
-		end
+			tree:set_selected(node, path, key)
 
-		return true
-	end
-
-	local function refresh_visibility()
-		for _, key in ipairs(row_order) do
-			local info = row_infos[key]
-
-			if info and info.clip and info.clip:IsValid() and info.clip.gui_element then
-				local target = is_row_visible(info) and 1 or 0
-
-				if info.open_fraction == nil then
-					info.open_fraction = target
-					update_row_display(info)
-				elseif info.open_fraction ~= target then
-					if animation_time <= 0 then
-						info.open_fraction = target
-						update_row_display(info)
-					else
-						tree.animation:Animate{
-							id = "tree_row_open_" .. key,
-							get = function()
-								return info.open_fraction or 0
-							end,
-							set = function(v)
-								info.open_fraction = v
-								update_row_display(info)
-							end,
-							to = target,
-							time = animation_time,
-							interpolation = target > (info.open_fraction or 0) and "outExpo" or "outCubic",
-						}
-					end
+			if has_children then
+				if tree.ToggleOnRowClick or is_double_click then
+					tree:set_expanded(node, path, key, not tree:is_expanded(node, path, key, has_children))
 				end
 			end
-		end
 
-		update_layout_now(tree)
-	end
+			return true
+		end,
+		OnDoubleClick = function() end,
+		OnRightClick = function(self)
+			if node.Disabled then return end
 
-	function is_expanded(node, path, key, has_children)
-		if not has_children then return false end
+			tree:set_selected(node, path, key)
+			return tree.OnNodeContextMenu(node, key, path, row_info, self.Owner)
+		end,
+	}(row_children)
+	row_info.body = row
+	row:AddLocalListener("OnTransformChanged", on_row_layout_changed)
+	row:AddLocalListener("OnLayoutUpdated", on_row_layout_changed)
+	local clip = Panel.New{
+		IsInternal = true,
+		Name = "TreeRow",
+		Ref = function(self)
+			row_info.clip = self
+		end,
+		transform = {
+			Size = Vec2(0, 0),
+		},
+		layout = {
+			GrowWidth = 1,
+			FitHeight = false,
+		},
+		gui_element = {
+			Clipping = true,
+			Visible = false,
+			OnPostDraw = function(self)
+				local drop_info = tree._drag_state.active and tree._drag_state.drop_info or nil
+				local is_source = tree._drag_state.active and tree._drag_state.source_key == key
 
-		if props.IsExpanded then return not not props.IsExpanded(node, path, key) end
-
-		local expanded = expanded_state[key]
-
-		if expanded == nil then
-			expanded = node.Expanded == true
-			expanded_state[key] = expanded
-		end
-
-		return expanded
-	end
-
-	local function set_expanded(node, path, key, expanded)
-		if props.IsExpanded and expanded then pending_expand_animation_key = key end
-
-		if props.IsExpanded then
-			if props.OnToggle then props.OnToggle(node, expanded, key, path) end
-		else
-			expanded_state[key] = expanded
-
-			if props.OnToggle then props.OnToggle(node, expanded, key, path) end
-		end
-
-		refresh_visibility()
-	end
-
-	function set_selected(node, path, key)
-		local previous_key = selected_key
-
-		if props.IsSelected then
-			if props.OnSelect then props.OnSelect(node, key, path) end
-		else
-			selected_key = key
-
-			if props.OnSelect then props.OnSelect(node, key, path) end
-		end
-
-		refresh_row_text(row_infos[previous_key])
-		refresh_row_text(row_infos[key])
-	end
-
-	local function apply_branch_state(nodes, parent_path, expanded)
-		for index, node in ipairs(nodes) do
-			local path = build_path(parent_path, index)
-			local key = get_key(node, path)
-			local children = get_children(node, path)
-
-			if has_entries(children) then
-				if props.IsExpanded then
-					if props.OnToggle then props.OnToggle(node, expanded, key, path) end
-				else
-					expanded_state[key] = expanded
-
-					if props.OnToggle then props.OnToggle(node, expanded, key, path) end
+				if not is_source and (not drop_info or drop_info.target_key ~= key) then
+					return
 				end
 
-				apply_branch_state(children, path, expanded)
-			end
-		end
-	end
-
-	local function find_item_descriptor(nodes, parent_path, parent_key, level, continuations, target_key)
-		for index, node in ipairs(nodes) do
-			local path = build_path(parent_path, index)
-			local key = get_key(node, path)
-			local is_last = index == #nodes
-			local meta = {
-				level = level,
-				index = index,
-				is_last = is_last,
-				parent_key = parent_key,
-				continuations = continuations,
-			}
-
-			if key == target_key then
-				return {
-					node = node,
-					path = path,
-					key = key,
-					meta = meta,
-					parent_path = parent_path,
-				}
-			end
-
-			local children = get_children(node, path)
-
-			if has_entries(children) then
-				local child_continuations = table.shallow_copy(continuations)
-				child_continuations[level + 1] = not is_last
-				local found = find_item_descriptor(
-					children,
-					path,
-					key,
-					level + 1,
-					child_continuations,
-					target_key
+				self.Owner:SetState("theme_role", "tree_drop_indicator")
+				self.Owner:SetState(
+					"drop_indicator_opts",
+					{
+						color = tree.DropIndicatorColor,
+						source = is_source,
+						position = drop_info and drop_info.target_key == key and drop_info.position or nil,
+						thickness = 2,
+					}
 				)
+				theme.active:DrawPost(self.Owner)
+			end,
+		},
+		mouse_input = true,
+		animation = true,
+	}(row)
+	clip:AddLocalListener("OnTransformChanged", on_row_layout_changed)
+	clip:AddLocalListener("OnLayoutUpdated", on_row_layout_changed)
+	tree:AddChild(clip, insert_index)
+	insert_index = insert_index + 1
 
-				if found then return found end
-			end
+	if has_children then
+		local child_continuations = table.shallow_copy(meta.continuations)
+		child_continuations[meta.level + 1] = not meta.is_last
+
+		for child_index, child in ipairs(children) do
+			insert_index = tree:add_node(
+				child,
+				{
+					level = meta.level + 1,
+					index = child_index,
+					is_last = child_index == #children,
+					parent_key = key,
+					continuations = child_continuations,
+				},
+				path,
+				insert_index
+			)
 		end
 	end
 
-	local function expand_to_key(nodes, parent_path, target_key)
-		for index, node in ipairs(nodes) do
-			local path = build_path(parent_path, index)
-			local key = get_key(node, path)
-			local children = get_children(node, path)
+	return insert_index
+end
 
-			if key == target_key then return true end
-
-			if has_entries(children) and expand_to_key(children, path, target_key) then
-				if props.IsExpanded then
-					if props.OnToggle then props.OnToggle(node, true, key, path) end
-				else
-					expanded_state[key] = true
-
-					if props.OnToggle then props.OnToggle(node, true, key, path) end
-				end
-
-				return true
-			end
-		end
-
-		return false
-	end
-
-	local function make_toggle(node, path, key, expanded, selected, meta, row_info)
+-- ---------------------------------------------------------------------------
+-- Panel builders (toggle, label, placeholder)
+-- ---------------------------------------------------------------------------
+do
+	function META:make_toggle(node, path, key, meta, row_info)
+		local tree = self
+		local toggle_size = self.ToggleSize
+		local guide_step = self.GuideStep or
+			math.max(self.IndentSize or theme.active:GetSize("M"), toggle_size)
+		local box_size = self.BoxSize
 		local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
 		local half_box = math.floor(box_size / 2)
-		local box_x = center_x - half_box
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeToggle",
@@ -586,23 +898,21 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					local row_has_children = has_children(node, path)
-					local current_selected = is_selected(node, path, key)
-					local current_expanded = is_expanded(node, path, key, row_has_children)
-					local line_start_x = row_has_children and (center_x + half_box) or center_x
+					local row_has_children = tree:has_children(node, path)
+					local current_expanded = tree:is_expanded(node, path, key, row_has_children)
 					self.Owner:SetState("theme_role", row_has_children and "tree_toggle" or "tree_guides")
 					self.Owner:SetState("tree_meta", meta)
 					self.Owner:SetState(
 						"tree_opts",
 						{
-							line_color = props.LineColor or "border",
-							box_fill = props.BoxFillColor or "surface",
-							box_outline = props.BoxOutlineColor or "border",
-							glyph_color = props.GlyphColor or "text",
+							line_color = tree.LineColor,
+							box_fill = tree.BoxFillColor,
+							box_outline = tree.BoxOutlineColor,
+							glyph_color = tree.GlyphColor,
 							toggle_size = toggle_size,
 							guide_step = guide_step,
 							box_size = box_size,
-							line_start_x = line_start_x,
+							line_start_x = row_has_children and (center_x + half_box) or center_x,
 							expanded = current_expanded,
 						}
 					)
@@ -613,14 +923,16 @@ return function(props)
 				Cursor = "pointer",
 			},
 			OnClick = function()
-				set_expanded(node, path, key, not is_expanded(node, path, key, true))
+				tree:set_expanded(node, path, key, not tree:is_expanded(node, path, key, true))
 				return true
 			end,
 			clickable = true,
 		}
 	end
 
-	local function make_label(node, path, key, selected, has_children, expanded, row_info)
+	function META:make_label(node, path, key, selected, row_info)
+		local tree = self
+		local label_grow = tree.LabelGrow == true or tree.CustomPanelPosition == "after_label"
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeLabel",
@@ -629,18 +941,15 @@ return function(props)
 				FitWidth = not label_grow,
 				FitHeight = true,
 				GrowWidth = label_grow and 1 or nil,
-				Padding = props.LabelPadding or "XS",
+				Padding = tree.LabelPadding,
 			},
 			gui_element = {
 				OnDraw = function(self)
 					self.Owner:SetState("theme_role", "tree_label")
-					self.Owner:SetState("selected", is_selected(node, path, key))
-					self.Owner:SetState("selected_color", props.SelectedColor or "primary")
+					self.Owner:SetState("selected", tree:is_selected(node, path, key))
+					self.Owner:SetState("selected_color", tree.SelectedColor)
 					self.Owner:SetState("hovered", row_info.hovered)
-					self.Owner:SetState(
-						"hover_color",
-						theme.active:GetColor(props.HoverColor or "primary"):Copy():SetAlpha(0.08)
-					)
+					self.Owner:SetState("hover_color", theme.active:GetColor(tree.HoverColor):Copy():SetAlpha(0.08))
 					theme.active:Draw(self.Owner)
 				end,
 			},
@@ -651,11 +960,11 @@ return function(props)
 			Text{
 				Ref = function(self)
 					row_info.text = self
-					refresh_row_text(row_info)
+					tree:refresh_row_text(row_info)
 				end,
-				Text = get_text(node, path),
-				Font = node.Font or props.RowFont or "body",
-				BackgroundColor = selected and (props.SelectedColor or "primary") or nil,
+				Text = tree:get_text(node, path),
+				Font = node.Font or (tree.RowFont),
+				BackgroundColor = selected and tree.SelectedColor or nil,
 				Color = node.Disabled and
 					"text_disabled" or
 					(
@@ -672,7 +981,10 @@ return function(props)
 		}
 	end
 
-	local function make_toggle_placeholder(meta)
+	function META:make_toggle_placeholder(meta)
+		local toggle_size = self.ToggleSize
+		local guide_step = self.GuideStep or
+			math.max(self.IndentSize or theme.active:GetSize("M"), toggle_size)
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeTogglePlaceholder",
@@ -686,7 +998,7 @@ return function(props)
 					self.Owner:SetState(
 						"tree_opts",
 						{
-							line_color = props.LineColor or "border",
+							line_color = self.LineColor,
 							toggle_size = toggle_size,
 							guide_step = guide_step,
 						}
@@ -699,363 +1011,39 @@ return function(props)
 			},
 		}
 	end
+end
 
-	local function add_node(node, meta, parent_path, insert_index)
-		local path = build_path(parent_path, meta.index)
-		local key = get_key(node, path)
-
-		if not should_include_node(node, path, key) then return insert_index end
-
-		local children = get_children(node, path)
-		local has_children = has_children(node, path)
-		local expanded = is_expanded(node, path, key, has_children)
-		local selected = is_selected(node, path, key)
-		local custom_panel = get_node_panel(node, path, key, selected, has_children, expanded)
-		local row_info = {
-			node = node,
-			path = path,
-			key = key,
-			surface = selected and (props.SelectedColor or "primary") or nil,
-			parent_key = meta.parent_key,
-			has_children = has_children,
-			open_fraction = should_seed_open_fraction(meta) and 0 or nil,
-			toggle = nil,
-		}
-		row_infos[key] = row_info
-		table.insert(row_order, insert_index, key)
-		local label = make_label(node, path, key, selected, has_children, expanded, row_info)
-		local row_children = {
-			has_children and
-			make_toggle(node, path, key, expanded, selected, meta, row_info) or
-			make_toggle_placeholder(meta),
-		}
-
-		if custom_panel_position == "before_label" then
-			if custom_panel then row_children[#row_children + 1] = custom_panel end
-
-			row_children[#row_children + 1] = label
-		else
-			row_children[#row_children + 1] = label
-
-			if custom_panel then row_children[#row_children + 1] = custom_panel end
-		end
-
-		local row = Panel.New{
+-- ---------------------------------------------------------------------------
+-- Shared instance marker
+-- ---------------------------------------------------------------------------
+function META:get_node_panel(node, path, key, selected, has_children, expanded)
+	if node.SharedInstance and self.SharedInstanceColor then
+		local shared_instance_color = self.SharedInstanceColor
+		return Panel.New{
 			IsInternal = true,
-			Name = "TreeRowBody",
-			transform = true,
-			layout = {
-				Direction = "x",
-				AlignmentY = "stretch",
-				FitHeight = true,
-				GrowWidth = 1,
-				FitWidth = false,
-				ChildGap = props.RowGap or 3,
-				Floating = true,
-			},
-			gui_element = true,
-			mouse_input = {
-				Cursor = node.Disabled and "arrow" or "pointer",
-				OnHover = function(self, is_hovered)
-					row_info.hovered = is_hovered
-
-					if props.OnNodeHover then
-						props.OnNodeHover(node, key, path, row_info, is_hovered, self.Owner)
-					end
-				end,
-			},
-			draggable = drag_enabled and can_drag_node(node, path, key),
-			OnDragStarted = function()
-				begin_drag(row_info)
-			end,
-			OnDrag = function(self, delta, global_pos)
-				return update_drag(row_info, delta, global_pos)
-			end,
-			OnDragStopped = function()
-				finish_drag(row_info)
-			end,
-			clickable = {
-				DoubleClickKey = key,
-				DoubleClickTime = double_click_time,
-			},
-			OnClick = function(self)
-				if node.Disabled then return end
-
-				local now = system.GetElapsedTime()
-				local last_click = row_click_times[key]
-				local is_double_click = last_click and now - last_click <= double_click_time
-
-				if is_double_click then
-					row_click_times[key] = nil
-				else
-					row_click_times[key] = now
-				end
-
-				set_selected(node, path, key)
-
-				if has_children and toggle_on_row_click then
-					set_expanded(node, path, key, not is_expanded(node, path, key, has_children))
-				elseif is_double_click and has_children then
-					set_expanded(node, path, key, not is_expanded(node, path, key, has_children))
-				end
-
-				return true
-			end,
-			OnDoubleClick = function() end,
-			OnRightClick = function(self)
-				if not props.OnNodeContextMenu or node.Disabled then return end
-
-				set_selected(node, path, key)
-				return props.OnNodeContextMenu(node, key, path, row_info, self.Owner)
-			end,
-		}(row_children)
-		row_info.body = row
-		local clip = Panel.New{
-			IsInternal = true,
-			Name = "TreeRow",
-			Ref = function(self)
-				row_info.clip = self
-
-				self:AddLocalListener("OnTransformChanged", function()
-					update_row_display(row_info)
-				end)
-
-				self:AddLocalListener("OnLayoutUpdated", function()
-					update_row_display(row_info)
-				end)
-			end,
+			Name = "TreeSharedInstanceMarker",
 			transform = {
-				Size = Vec2(0, 0),
+				Size = Vec2(12, 12),
 			},
 			layout = {
-				GrowWidth = 1,
-				FitHeight = false,
+				SelfAlignmentY = "center",
+				GrowWidth = 0,
+				FitWidth = false,
+			},
+			mouse_input = {
+				IgnoreMouseInput = true,
 			},
 			gui_element = {
-				Clipping = true,
-				Visible = false,
-				OnPostDraw = function(self)
-					local drop_info = drag_state.active and drag_state.drop_info or nil
-					local is_source = drag_state.active and drag_state.source_key == key
-
-					if not is_source and (not drop_info or drop_info.target_key ~= key) then
-						return
-					end
-
-					self.Owner:SetState("theme_role", "tree_drop_indicator")
-					self.Owner:SetState(
-						"drop_indicator_opts",
-						{
-							color = props.DropIndicatorColor or "primary",
-							source = is_source,
-							position = drop_info and drop_info.target_key == key and drop_info.position or nil,
-							thickness = 2,
-						}
-					)
-					theme.active:DrawPost(self.Owner)
+				OnDraw = function(self)
+					local size = self.Owner.transform:GetSize()
+					draw_shared_instance_marker(self, size, shared_instance_color)
 				end,
 			},
-			mouse_input = true,
-			animation = true,
-		}(row)
-
-		row:AddLocalListener("OnTransformChanged", function()
-			update_row_display(row_info)
-		end)
-
-		row:AddLocalListener("OnLayoutUpdated", function()
-			update_row_display(row_info)
-		end)
-
-		tree:AddChild(clip, insert_index)
-		insert_index = insert_index + 1
-
-		if has_children then
-			local child_continuations = table.shallow_copy(meta.continuations)
-			child_continuations[meta.level + 1] = not meta.is_last
-
-			for child_index, child in ipairs(children) do
-				insert_index = add_node(
-					child,
-					{
-						level = meta.level + 1,
-						index = child_index,
-						is_last = child_index == #children,
-						parent_key = key,
-						continuations = child_continuations,
-					},
-					path,
-					insert_index
-				)
-			end
-		end
-
-		return insert_index
+		}
 	end
 
-	tree = Panel.New{
-		props,
-		{
-			Name = "Tree",
-			layout = {
-				Direction = "y",
-				GrowWidth = 1,
-				FitHeight = true,
-				AlignmentX = "stretch",
-				ChildGap = props.ChildGap or 0,
-				props.layout,
-			},
-			transform = true,
-			gui_element = true,
-			mouse_input = true,
-			clickable = true,
-			animation = true,
-		},
-	}
-
-	function tree:SetItems(new_items)
-		items = new_items or {}
-		self:Rebuild()
-		return self
-	end
-
-	function tree:GetItems()
-		return items
-	end
-
-	function tree:SetSelectedKey(key)
-		local previous_key = selected_key
-		selected_key = key
-		refresh_row_text(row_infos[previous_key])
-		refresh_row_text(row_infos[key])
-		return self
-	end
-
-	function tree:GetSelectedKey()
-		return selected_key
-	end
-
-	function tree:ExpandAll()
-		apply_branch_state(items, nil, true)
-		refresh_visibility()
-		return self
-	end
-
-	function tree:CollapseAll()
-		apply_branch_state(items, nil, false)
-		refresh_visibility()
-		return self
-	end
-
-	function tree:ExpandToKey(key)
-		expand_to_key(items, nil, key)
-		refresh_visibility()
-		return self
-	end
-
-	function tree:EnsureVisible(key, padding)
-		if key == nil then return self end
-
-		local info = row_infos[key]
-
-		if not (info and info.clip and info.clip:IsValid()) then return self end
-
-		local parent = self:GetParent()
-
-		while parent and parent.IsValid and parent:IsValid() do
-			if parent.ScrollChildIntoView then
-				parent:ScrollChildIntoView(info.clip, padding)
-
-				break
-			end
-
-			parent = parent:GetParent()
-		end
-
-		return self
-	end
-
-	function tree:Rebuild()
-		clear_drag_state()
-		row_infos = {}
-		row_order = {}
-		self:RemoveChildren()
-		local insert_index = 1
-
-		for index, node in ipairs(items) do
-			insert_index = add_node(
-				node,
-				{
-					level = 0,
-					index = index,
-					is_last = index == #items,
-					parent_key = nil,
-					continuations = {},
-				},
-				nil,
-				insert_index
-			)
-		end
-
-		refresh_visibility()
-		return self
-	end
-
-	function tree:RefreshBranchForKey(key)
-		if key == nil then return self:Rebuild() end
-
-		local descriptor = find_item_descriptor(items, nil, nil, 0, {}, key)
-
-		if not descriptor then return self:Rebuild() end
-
-		local start_index
-		local end_index
-
-		for i, row_key in ipairs(row_order) do
-			if row_key == key then
-				start_index = i
-				end_index = i
-
-				break
-			end
-		end
-
-		if not start_index then return self:Rebuild() end
-
-		for i = start_index + 1, #row_order do
-			local info = row_infos[row_order[i]]
-
-			if not (info and is_key_in_branch(key, info.key)) then break end
-
-			end_index = i
-		end
-
-		clear_drag_state()
-
-		for i = end_index, start_index, -1 do
-			local row_key = row_order[i]
-			local info = row_infos[row_key]
-
-			if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
-
-			row_infos[row_key] = nil
-			table.remove(row_order, i)
-		end
-
-		add_node(descriptor.node, descriptor.meta, descriptor.parent_path, start_index)
-		refresh_visibility()
-
-		if pending_expand_animation_key == key then
-			pending_expand_animation_key = nil
-		end
-
-		return self
-	end
-
-	tree:Rebuild()
-	pending_expand_animation_key = nil
-
-	if external_ref then external_ref(tree) end
-
-	return tree
+	return self.OnGetNodePanel(node, path, key, selected, has_children, expanded)
 end
+
+META:Register()
+return META.New

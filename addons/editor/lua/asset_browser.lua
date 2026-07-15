@@ -834,7 +834,7 @@ return function(props)
 	local function sync_filter_from_edit()
 		if not (filter_edit and filter_edit:IsValid()) then return end
 
-		local text = filter_edit:GetText()
+		local text = filter_edit:OnGetText()
 
 		if text == state.last_filter_text then return end
 
@@ -879,7 +879,7 @@ return function(props)
 					Ref = function(self)
 						filter_edit = self
 						self:SetText(props.Filter or "")
-						state.last_filter_text = self:GetText()
+						state.last_filter_text = self:OnGetText()
 						state.query = state.last_filter_text
 					end,
 					Text = props.Filter or "",
@@ -913,7 +913,7 @@ return function(props)
 							GrowWidth = 1,
 							FitHeight = true,
 						},
-						IsExpanded = function(node, path, key)
+						OnIsExpanded = function(node, path, key)
 							return expanded_keys[key] == true
 						end,
 						OnSelect = function(node)

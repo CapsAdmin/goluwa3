@@ -1530,7 +1530,7 @@ return function(props)
 					Items = state.tree_items,
 					SelectedKey = state.selected_entity_guid,
 					SharedInstanceColor = SHARED_INSTANCE_COLOR,
-					GetTextColor = function(node)
+					OnGetTextColor = function(node)
 						return node and node.SharedInstance and SHARED_INSTANCE_COLOR or nil
 					end,
 					layout = {
@@ -1538,7 +1538,7 @@ return function(props)
 						--GrowHeight = 1,
 						FitHeight = true,
 					},
-					IsExpanded = function(node, path, key)
+					OnIsExpanded = function(node, path, key)
 						return state.expanded_entities[key] == true
 					end,
 					OnSelect = function(node, key)
@@ -1586,10 +1586,10 @@ return function(props)
 					OnNodeContextMenu = function(node)
 						return open_tree_context_menu(node and node.Entity or nil)
 					end,
-					CanDragNode = function(node)
+					OnCanDragNode = function(node)
 						return node and node.Entity and not tree_builder.is_world_root(node.Entity)
 					end,
-					CanDropInside = function()
+					OnCanDropInside = function()
 						return true
 					end,
 					OnDrop = function(drop_info)
