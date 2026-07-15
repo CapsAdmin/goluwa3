@@ -161,8 +161,14 @@ local function query_children_reverse(entity, context, on_enter, on_visit)
 end
 
 local function hovered_entity_query_enter(mouse_pos, owner)
-	if owner.gui_element and not owner.gui_element:GetVisible() then
-		return WALK_SKIP_SUBTREE
+	if owner.gui_element then
+		if not owner.gui_element:GetVisible() then
+			return WALK_SKIP_SUBTREE
+		end
+
+		if owner.gui_element.DrawAlpha <= 0 then
+			return WALK_SKIP_SUBTREE
+		end
 	end
 
 	if
@@ -439,18 +445,7 @@ function META:OnFirstCreated()
 		if not Panel.World then return end
 
 		local pos = system.GetWindow():GetMousePosition()
-		local delta = system.GetWindow():GetMouseDelta()
-		local has_relative_motion = delta and (delta.x ~= 0 or delta.y ~= 0)
 
-		if
-			mouse_input.last_mouse_pos and
-			mouse_input.last_mouse_pos == pos and
-			not has_relative_motion
-		then
-			return
-		end
-
-		mouse_input.last_mouse_pos = pos
 		local hovered = get_hovered_entity(Panel.World, pos) or NULL
 
 		if hovered ~= mouse_input.last_hovered then
