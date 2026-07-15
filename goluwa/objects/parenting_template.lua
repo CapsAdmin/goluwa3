@@ -238,7 +238,25 @@ return function(META)
 
 		self:InvalidateChildrenList()
 
-		if not obj.suppress_parent_events then
+		if obj.suppress_parent_events then
+			-- super hacky, TODO
+			local timer = import("goluwa/timer.lua")
+			self.deferred_callbacks = self.deferred_callbacks or {}
+
+			list.insert(self.deferred_callbacks, function()
+				timer.Delay(0, function()
+					self:CallLocalEvent("OnChildAdd", obj)
+				end)
+			end)
+
+			obj.deferred_callbacks = obj.deferred_callbacks or {}
+
+			list.insert(obj.deferred_callbacks, function()
+				timer.Delay(0, function()
+					obj:CallLocalEvent("OnParent", self)
+				end)
+			end)
+		else
 			obj.suppress_parent_events = true
 			obj:CallLocalEvent("OnParent", self)
 			self:CallLocalEvent("OnChildAdd", obj)
