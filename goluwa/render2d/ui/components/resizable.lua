@@ -56,13 +56,13 @@ function META:GetMouseLocation(pos)
 
 	if is_bottom and is_right then return "bottom_right" end
 
-	if is_left then return "left" end
+	if is_left and pos.y >= 0 and pos.y <= siz.y then return "left" end
 
-	if is_right then return "right" end
+	if is_right and pos.y >= 0 and pos.y <= siz.y then return "right" end
 
-	if is_bottom then return "bottom" end
+	if is_bottom and pos.x >= 0 and pos.x <= siz.x then return "bottom" end
 
-	if is_top then return "top" end
+	if is_top and pos.x >= 0 and pos.x <= siz.x then return "top" end
 
 	return "center"
 end
