@@ -39,7 +39,6 @@ function META:OnCreate(props)
 		},
 		gui_element = {
 			Clipping = true,
-			Visible = not self:GetCollapsed(),
 		},
 	}
 	self.body_panel = Panel.New{
