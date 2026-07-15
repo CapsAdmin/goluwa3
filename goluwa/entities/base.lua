@@ -70,6 +70,12 @@ function BaseEntity:OnCreate(config)
 				end
 			end
 
+			if config.Events then
+				for event_name, handler in pairs(config.Events) do
+					self:AddLocalListener(event_name, handler)
+				end
+			end
+
 			local valid_components = self.GetValidComponents()
 
 			for key, val in pairs(config) do
@@ -106,7 +112,7 @@ function BaseEntity:OnCreate(config)
 					key ~= "Parent"
 				then
 					if key:starts_with("On") then
-						table.insert(events, {self, key, val})
+						self[key] = val
 					else
 						local ok, new_val = set_property(self, key, val)
 
@@ -134,7 +140,7 @@ function BaseEntity:OnCreate(config)
 								end
 							end
 
-							if not found then table.insert(events, {self, key, new_val}) end
+							if not found then self[key] = new_val end
 						end
 					end
 				end
@@ -143,21 +149,9 @@ function BaseEntity:OnCreate(config)
 			for i = 1, #config do
 				apply_root_config(config[i])
 			end
-
-			if config.Events then
-				for event_name, handler in pairs(config.Events) do
-					self:AddLocalListener(event_name, handler)
-				end
-			end
 		end
 
 		apply_root_config(config)
-
-		-- add callbacks after properties have been set to avoid callbacks from being called during setup
-		for i, v in ipairs(events) do
-			local self, key, val = v[1], v[2], v[3]
-			self[key] = val
-		end
 	end
 
 	if self:GetKey() ~= "" and self.Parent:IsValid() then
@@ -202,9 +196,7 @@ function BaseEntity:OnPostCreate(config)
 
 	if ref_func then ref_func(self) end
 
-	self.suppress_parent_events = true
 	self:SetParent(parent)
-	self.suppress_parent_events = nil
 end
 
 function BaseEntity:EnsureComponent(name, tbl)
@@ -223,8 +215,7 @@ function BaseEntity:SetChildren(children)
 
 	for i = #lst, 1, -1 do
 		local child = lst[i]
-
-		if type(child) == "table" and child.UnParent then child:UnParent() end
+		child:UnParent()
 	end
 
 	self:RemoveChildren()

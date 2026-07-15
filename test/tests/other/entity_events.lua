@@ -12,11 +12,15 @@ T.Test("entity world hierarchy change events", function()
 			parent = parent,
 		}
 	end)
-	local child = Entity.New{Name = "entity_event_child", Parent = parent_a}
-	T(#events)["=="](1)
+	local child = Entity.New{Name = "entity_event_child"}
+	child:SetParent(parent_a)
+	T(#events)["=="](2)
 	T(events[1].entity)["=="](child)
-	T(events[1].action)["=="]("parented")
-	T(events[1].parent)["=="](parent_a)
+	T(events[1].action)["=="]("unparented")
+	T(events[1].parent)["=="](Entity.World)
+	T(events[2].entity)["=="](child)
+	T(events[2].action)["=="]("parented")
+	T(events[2].parent)["=="](parent_a)
 	events = {}
 	child:SetParent(parent_b)
 	T(#events)["=="](2)

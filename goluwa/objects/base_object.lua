@@ -8,6 +8,7 @@ objects.GetSet(META, "HideFromEditor", false)
 objects.GetSet(META, "GUID", "")
 objects.GetSet(META, "Owner", nil)
 objects.GetSet(META, "Key", "")
+objects.GetSet(META, "SuppressEvents", false)
 objects.StartStorable(META)
 objects.GetSet(META, "Name", "")
 objects.GetSet(META, "Description", "")
@@ -321,6 +322,8 @@ function META:AddLocalListener(what, callback, id, config)
 end
 
 function META:CallLocalEvent(what, a, b, c, d, e, f, g)
+	if self.SuppressEvents then return end
+
 	local ret = nil
 
 	if self[what] then
@@ -437,15 +440,6 @@ do -- events
 		end
 
 		self.added_events[event_type] = nil
-	end
-end
-
-function META:FlushDeferredCallbacks()
-	if self.deferred_callbacks then
-		for _, cb in ipairs(self.deferred_callbacks) do
-			cb()
-		end
-		self.deferred_callbacks = nil
 	end
 end
 

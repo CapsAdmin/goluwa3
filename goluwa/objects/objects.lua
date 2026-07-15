@@ -288,11 +288,13 @@ do
 
 		if not meta.Instances then meta.Instances = table.weak() end
 
+		self:SetSuppressEvents(true)
+
 		if self.OnCreate then self:OnCreate(...) end
 
 		if self.OnPostCreate then self:OnPostCreate(...) end
 
-		if self.FlushDeferredCallbacks then self:FlushDeferredCallbacks() end
+		self:SetSuppressEvents(false)
 
 		if self.OnFirstCreated and not meta.Instances[1] then
 			self:OnFirstCreated()
