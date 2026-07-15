@@ -1,11 +1,21 @@
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local objects = import("goluwa/objects/objects.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local META = Panel:CreateTemplate("checkbox")
 META.CMP.animation = {}
 META.CMP.clickable = {}
 META.CMP.transform.Size = "M"
 META.CMP.mouse_input.Cursor = "hand"
+META:GetSet(
+	"Size",
+	Vec2() + 10,
+	{
+		callback = function(self, val)
+			self.transform:SetSize(val)
+		end,
+	}
+)
 
 function META.CMP.mouse_input:OnHover(hovered)
 	self.Owner:SetState("hovered", hovered)
@@ -17,9 +27,6 @@ end
 
 function META:OnCreate(props)
 	self.BaseClass.OnCreate(self, props)
-
-	if props.Size then self.transform:SetSize(props.Size) end
-
 	self:SetValue(props.Value ~= nil and props.Value or false, false)
 	self.props = props
 	return self

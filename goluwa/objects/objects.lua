@@ -719,7 +719,13 @@ do -- get is set
 			self[name] = var
 
 			if callback then
-				if var ~= old_value then self[callback](self, name, old_value, var) end
+				if var ~= old_value then
+					if type(callback) == "string" then
+						self[callback](self, name, old_value, var)
+					else
+						callback(self, var, old_value, name)
+					end
+				end
 			end
 
 			if listeners then notify_property_listeners(self, info, old_value, var) end
