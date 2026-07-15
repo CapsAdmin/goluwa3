@@ -7,15 +7,10 @@ META.CMP.animation = {}
 META.CMP.clickable = {}
 META.CMP.transform.Size = "M"
 META.CMP.mouse_input.Cursor = "hand"
-META:GetSet(
-	"Size",
-	Vec2() + 10,
-	{
-		callback = function(self, val)
-			self.transform:SetSize(val)
-		end,
-	}
-)
+
+META:GetSet("Size", Vec2() + 10, function(self, val)
+	self.transform:SetSize(val)
+end)
 
 function META.CMP.mouse_input:OnHover(hovered)
 	self.Owner:SetState("hovered", hovered)
