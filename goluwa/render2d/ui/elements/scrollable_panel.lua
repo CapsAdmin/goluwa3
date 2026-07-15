@@ -4,7 +4,6 @@ local Rect = import("goluwa/structs/rect.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local input = import("goluwa/input.lua")
 local META = Panel:CreateTemplate("scrollable_panel")
-META.Name = "ScrollablePanel"
 META.CMP.transform = {}
 META.CMP.layout = {
 	AlignmentX = "stretch",

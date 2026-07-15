@@ -3,7 +3,6 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local META = Panel:CreateTemplate("colllapsible")
-META.Name = "Collapsible"
 META.CMP.transform = {}
 META.CMP.layout = {
 	Direction = "y",
