@@ -66,7 +66,6 @@ local function build_gallery(props)
 		if not page then return end
 
 		selected_page = page
-		print("Selecting page: " .. tostring(page.Name))
 		local viewport
 
 		for _, child in ipairs(content_panel:GetChildren()) do
