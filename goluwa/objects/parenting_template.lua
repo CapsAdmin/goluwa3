@@ -241,12 +241,12 @@ return function(META)
 		end
 
 		self:InvalidateChildrenList()
-		obj:CallLocalEvent("OnParent", self)
 
-		if not obj.suppress_child_add then
-			obj.suppress_child_add = true
+		if not obj.suppress_parent_events then
+			obj.suppress_parent_events = true
+			obj:CallLocalEvent("OnParent", self)
 			self:CallLocalEvent("OnChildAdd", obj)
-			obj.suppress_child_add = nil
+			obj.suppress_parent_events = nil
 		end
 
 		if self:HasParent() then self:GetParent():SortChildren() end

@@ -202,7 +202,9 @@ function BaseEntity:OnPostCreate(config)
 
 	if ref_func then ref_func(self) end
 
+	self.suppress_parent_events = true
 	self:SetParent(parent)
+	self.suppress_parent_events = nil
 end
 
 function BaseEntity:EnsureComponent(name, tbl)
