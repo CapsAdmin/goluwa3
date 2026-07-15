@@ -292,6 +292,8 @@ do
 
 		if self.OnPostCreate then self:OnPostCreate(...) end
 
+		if self.FlushDeferredCallbacks then self:FlushDeferredCallbacks() end
+
 		if self.OnFirstCreated and not meta.Instances[1] then
 			self:OnFirstCreated()
 		end
@@ -677,6 +679,7 @@ do -- get is set
 		local set_name = info.set_name
 		local get_name = info.get_name
 		local callback = info.callback
+		local defer_callback = info.defer_callback
 		local has_validation = info.validate or
 			info.enums or
 			info.list_type or
@@ -720,8 +723,18 @@ do -- get is set
 			local old_value = self[name]
 			self[name] = var
 
-			if callback then
-				if var ~= old_value then
+			if callback and var ~= old_value then
+				if defer_callback then
+					self.deferred_callbacks = self.deferred_callbacks or {}
+
+					list.insert(self.deferred_callbacks, function()
+						if type(callback) == "string" then
+							self[callback](self, name, old_value, var)
+						else
+							callback(self, var, old_value, name)
+						end
+					end)
+				else
 					if type(callback) == "string" then
 						self[callback](self, name, old_value, var)
 					else

@@ -1,4 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
@@ -14,11 +15,14 @@ META.CMP.animation = {}
 META:GetSet("OpenFraction", 1)
 META:GetSet("Collapsed", false)
 
+META:GetSet("Padding", Rect(), function(self, val)
+	self.body_panel.layout:SetPadding(val)
+end)
+
 function META.OnToggle(b) end
 
 function META:OnCreate(props)
 	self.BaseClass.OnCreate(self, props)
-	self.body_panel = NULL
 	self:AddChild(props.Header)
 	self.clip_panel = Panel.New{
 		Parent = self,
@@ -50,7 +54,6 @@ function META:OnCreate(props)
 			FitHeight = true,
 			GrowWidth = 1,
 			AlignmentX = "stretch",
-			Padding = props.ContentPadding,
 			Floating = true,
 		},
 		transform = true,
@@ -60,14 +63,12 @@ function META:OnCreate(props)
 		end,
 	}
 	self:SetOpenFraction(self:GetCollapsed() and 0 or 1)
-	self:SetCollapsed(props.Collapsed or false)
+	self:SetCollapsed(props.Collapsed)
 	self:UpdateHeight()
 end
 
 function META:PreChildAdd(child)
 	if child.IsInternal then return end
-
-	if not self.body_panel:IsValid() then return end
 
 	self.body_panel:AddChild(child)
 	return false

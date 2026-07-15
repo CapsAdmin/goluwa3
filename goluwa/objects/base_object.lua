@@ -440,4 +440,13 @@ do -- events
 	end
 end
 
+function META:FlushDeferredCallbacks()
+	if self.deferred_callbacks then
+		for _, cb in ipairs(self.deferred_callbacks) do
+			cb()
+		end
+		self.deferred_callbacks = nil
+	end
+end
+
 objects.base_metatable = META
