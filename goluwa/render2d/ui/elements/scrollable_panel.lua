@@ -13,6 +13,60 @@ META.CMP.gui_element = {}
 META.CMP.mouse_input = {}
 META.CMP.clickable = {}
 META.CMP.animation = {}
+META:StartStorable()
+
+META:GetSet("ScrollY", true, function(self, val)
+	self.Viewport.layout:SetAlignmentY(val and "start" or "stretch")
+	self.Viewport.layout:SetMaxSize(Vec2(self.ScrollX and 1 or 0, val and 1 or 0))
+	self.TrackY.gui_element:SetVisible(val)
+	self:updateHandle()
+	print("scroll y", val, "!?")
+end)
+
+META:GetSet("ScrollX", false, function(self, val)
+	self.Viewport.layout:SetAlignmentX(val and "start" or "stretch")
+	self.Viewport.layout:SetMaxSize(Vec2(val and 1 or 0, self.ScrollY and 1 or 0))
+	self.TrackX.gui_element:SetVisible(val)
+	self:updateHandle()
+	print("scroll x", val, "!?")
+end)
+
+META:GetSet("ScrollbarVisible", true, function(self, val)
+	self:updateHandle()
+end)
+
+META:GetSet("ScrollbarAutoHide", true, function(self, val)
+	self:updateHandle()
+end)
+
+META:GetSet(
+	"Direction",
+	"y",
+	{enums = {"y", "x"}},
+	function(self, val)
+		self.Viewport.layout:SetDirection(val)
+	end
+)
+
+META:GetSet(
+	"ScrollbarShiftMode",
+	"always_shift",
+	{
+		enums = {"always_shift", "auto_shift", "no_shift"},
+	}
+)
+META:GetSet("ScrollbarReserve", 10)
+META:GetSet("CaptureWheelAtExtents", true)
+
+META:GetSet("Padding", Rect(), function(self, val)
+	self.Viewport.layout:SetPadding(val)
+end)
+
+META:GetSet("Cursor", "arrow", function(self, val)
+	self.Viewport.mouse_input:SetCursor(val)
+end)
+
+META:EndStorable()
 
 function META:OnCreate(props)
 	if props.layout then
@@ -20,33 +74,6 @@ function META:OnCreate(props)
 	end
 
 	self.BaseClass.OnCreate(self, props)
-	self.ScrollY = props.ScrollY ~= false
-	self.ScrollX = props.ScrollX == true
-	self.ScrollbarVisible = props.ScrollBarVisible ~= false
-	self.ScrollbarAutoHide = props.ScrollBarAutoHide ~= false
-	self.ScrollbarShiftMode = props.ScrollBarContentShiftMode or "always_shift"
-	self.ScrollbarReserve = props.ScrollBarReserve or 10
-	self.CaptureWheelAtExtents = props.CaptureWheelAtExtents == true
-	local padding = props.Padding
-
-	if type(padding) == "string" then
-		self.Padding = Rect() + theme.active:GetPadding(padding)
-	elseif type(padding) == "number" then
-		self.Padding = Rect() + padding
-	elseif padding then
-		self.Padding = padding:Copy()
-	else
-		self.Padding = Rect(0, 0, 0, 0)
-	end
-
-	if
-		self.ScrollbarShiftMode ~= "no_shift" and
-		self.ScrollbarShiftMode ~= "auto_shift" and
-		self.ScrollbarShiftMode ~= "always_shift"
-	then
-		self.ScrollbarShiftMode = "always_shift"
-	end
-
 	local scrollable_panel = self
 	self.Viewport = Panel.New{
 		IsInternal = true,
@@ -60,21 +87,14 @@ function META:OnCreate(props)
 		gui_element = {
 			Clipping = true,
 		},
-		mouse_input = {
-			Cursor = props.Cursor,
-		},
+		mouse_input = true,
 		transform = {
 			ScrollEnabled = true,
 		},
 		layout = {
 			GrowWidth = 1,
 			GrowHeight = 1,
-			Direction = props.Direction or "y",
-			AlignmentX = self.ScrollX and "start" or "stretch",
-			AlignmentY = self.ScrollY and "start" or "stretch",
 			MinSize = Vec2(1, 1),
-			MaxSize = Vec2(self.ScrollX and 1 or 0, self.ScrollY and 1 or 0),
-			Padding = self.Padding,
 		},
 		mouse_input = true,
 		clickable = true,
@@ -96,15 +116,11 @@ function META:OnCreate(props)
 			return scrollable_panel:handleWheelScroll(self, button)
 		end,
 	}
-	self.TrackY = self:createTrack("y")
-	self.TrackX = self:createTrack("x")
-	self.HandleY = self:createHandle("y")
-	self.HandleX = self:createHandle("x")
 	self:AddChild(self.Viewport)
-	self:AddChild(self.TrackY)
-	self:AddChild(self.TrackX)
-	self:AddChild(self.HandleY)
-	self:AddChild(self.HandleX)
+	self.TrackY = self:AddChild(self:createTrack("y"))
+	self.TrackX = self:AddChild(self:createTrack("x"))
+	self.HandleY = self:AddChild(self:createHandle("y"))
+	self.HandleX = self:AddChild(self:createHandle("x"))
 end
 
 function META:PreChildAdd(child)

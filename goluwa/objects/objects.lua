@@ -686,6 +686,8 @@ do -- get is set
 			info.list_enums or
 			info.list_length
 		local cast
+		local init_callback = info.init_callback
+		local first_time = true
 
 		if type(default) == "number" then
 			cast = function(var, default)
@@ -715,15 +717,16 @@ do -- get is set
 			end
 
 			local listeners = self.property_change_listeners
+			local run_once = first_time and init_callback
 
 			if (callback or listeners) and objects.ComparePropertyValues(info, self[name], var) then
-				return
+				if not run_once then return end
 			end
 
 			local old_value = self[name]
 			self[name] = var
 
-			if callback and var ~= old_value then
+			if callback and (var ~= old_value or run_once) then
 				if defer_callback then
 					self.deferred_callbacks = self.deferred_callbacks or {}
 
@@ -744,6 +747,8 @@ do -- get is set
 			end
 
 			if listeners then notify_property_listeners(self, info, old_value, var) end
+
+			if run_once then first_time = false end
 		end
 
 		info.commit = commit

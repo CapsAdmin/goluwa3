@@ -213,13 +213,9 @@ return function(META)
 	function META:AddChild(obj, pos)
 		if self.PreChildAdd and self:PreChildAdd(obj, pos) == false then return false end
 
-		if not obj.HasParent then for k, v in pairs(obj) do
-			print(k, v)
-		end end
-
 		if not obj or not obj:IsValid() then
 			self:UnParent()
-			return
+			return false
 		end
 
 		if self == obj or self:ContainsParent(obj) then return false end
@@ -256,7 +252,7 @@ return function(META)
 		obj:SortChildren()
 		self:SortChildren()
 		obj:InvalidateParentListPartial(self:GetParentList(), self)
-		return true
+		return obj
 	end
 
 	do

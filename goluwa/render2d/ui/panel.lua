@@ -138,10 +138,17 @@ function Panel:CreateTemplate(name)
 	local GetSet = META.GetSet
 	META.GetSet = function(s, k, d, c, ...)
 		if type(c) == "function" then
-			return GetSet(s, k, d, {
-				defer_callback = true,
-				callback = c,
-			}, ...)
+			return GetSet(
+				s,
+				k,
+				d,
+				{
+					init_callback = true,
+					defer_callback = true,
+					callback = c,
+				},
+				...
+			)
 		end
 
 		return GetSet(s, k, d, c, ...)
