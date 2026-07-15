@@ -42,15 +42,13 @@ return function(props)
 				},
 				gui_element = {
 					OnDraw = function(self)
-						local background = self.Owner.style and self.Owner.style:GetResolvedBackgroundColor()
-						local open_fraction = container and container:IsValid() and container:GetOpenFraction() or 0
 						theme.active:DrawIcon(
 							"disclosure",
 							self.Owner.transform:GetSize(),
 							{
 								thickness = 2,
-								open_fraction = open_fraction,
-								color = theme.active:ResolveColor(props.HeaderTextColor or "text", background),
+								open_fraction = container:GetOpenFraction(),
+								color = theme.active:ResolveColor(props.HeaderTextColor or "text", self.Owner.style:GetResolvedBackgroundColor()),
 							}
 						)
 					end,
