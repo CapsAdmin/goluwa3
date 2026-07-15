@@ -55,31 +55,8 @@ function BaseEntity:OnCreate(config)
 	self.component_list = {}
 	local components = {}
 	local local_events = {}
-	local ref local
-	parent = self.World
-
-	local function find_special_props(config)
-		if type(config) ~= "table" then return end
-
-		if config.Ref then
-			ref = config.Ref
-			config.Ref = nil
-		end
-
-		if config.Parent then
-			parent = config.Parent
-			config.Parent = nil
-		end
-
-		for i = 1, #config do
-			find_special_props(config[i])
-		end
-	end
-
-	find_special_props(config)
 	self:AddLocalListener("OnParent", notify_parented)
 	self:AddLocalListener("OnUnParent", notify_unparented)
-	self:SetParent(parent)
 
 	if config then
 		local function apply_root_config(config)
@@ -128,7 +105,9 @@ function BaseEntity:OnCreate(config)
 						)
 					) and
 					type(key) == "string" and
-					key ~= "ComponentSet"
+					key ~= "ComponentSet" and
+					key ~= "Ref" and
+					key ~= "Parent"
 				then
 					if key:starts_with("On") then
 						self[key] = val
@@ -187,8 +166,35 @@ function BaseEntity:OnCreate(config)
 
 		if component.OnAdd then component:OnAdd() end
 	end
+end
 
-	if ref then ref(self) end
+function BaseEntity:OnPostCreate(config)
+	local ref_func
+	local parent = self.World
+
+	local function find_special_props(config)
+		if type(config) ~= "table" then return end
+
+		if config.Ref then
+			ref_func = config.Ref
+			config.Ref = nil
+		end
+
+		if config.Parent then
+			parent = config.Parent
+			config.Parent = nil
+		end
+
+		for i = 1, #config do
+			find_special_props(config[i])
+		end
+	end
+
+	find_special_props(config)
+
+	if ref_func then ref_func(self) end
+
+	self:SetParent(parent)
 end
 
 function BaseEntity:EnsureComponent(name, tbl)

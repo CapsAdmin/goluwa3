@@ -290,6 +290,8 @@ do
 
 		if self.OnCreate then self:OnCreate(...) end
 
+		if self.OnPostCreate then self:OnPostCreate(...) end
+
 		if self.OnFirstCreated and not meta.Instances[1] then
 			self:OnFirstCreated()
 		end
