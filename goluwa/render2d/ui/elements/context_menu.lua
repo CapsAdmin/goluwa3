@@ -73,6 +73,7 @@ function META:OnCreate(props)
 	root.ContextMenuPlacement = self.contextMenuAnchorPlacement
 	self.contextMenuRoot = root
 	self.transform:SetSize(Vec2(render2d.GetSize()))
+	self.transform:SetPosition(Vec2(0, 0))
 	root:RequestFocus()
 	self:AddChild(root)
 	self:updateMenuPosition(root)
