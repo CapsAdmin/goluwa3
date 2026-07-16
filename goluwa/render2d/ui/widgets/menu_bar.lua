@@ -110,7 +110,7 @@ function META:OnCreate(props)
 	self.BaseClass.OnCreate(self, create_props)
 	self.buttons = {}
 	self.active_index = nil
-	self.context_menu = nil
+	self.context_menu = NULL
 	local items = props.Items or {}
 	self:SetItems(items)
 	local row_children = {}
@@ -125,11 +125,7 @@ function META:OnCreate(props)
 			self:OpenMenu(index)
 			return true
 		end, function()
-			if
-				self.context_menu and
-				self.context_menu:IsValid() and
-				self.active_index ~= index
-			then
+			if self.context_menu:IsValid() and self.active_index ~= index then
 				self:OpenMenu(index)
 			end
 		end)
@@ -146,37 +142,38 @@ function META:OnCreate(props)
 			AlignmentY = "center",
 		},
 	}(row_children)
-	self:_start_update_listener()
+	self:AddGlobalEvent("Update")
+	self:AddGlobalEvent("KeyInput", {priority = math.huge})
 end
 
-function META:_start_update_listener()
-	event.AddListener(
-		"Update",
-		self,
-		function()
-			if not self:IsValid() then return event.destroy_tag end
+function META:OnUpdate()
+	if not self.context_menu:IsValid() then return end
 
-			if not self.context_menu or not self.context_menu:IsValid() then return end
+	local mouse_pos = system.GetWindow():GetMousePosition()
 
-			local mouse_pos = system.GetWindow():GetMousePosition()
+	for index, button in ipairs(self.buttons) do
+		if
+			button and
+			button:IsValid() and
+			button.gui_element and
+			button.gui_element:IsHovered(mouse_pos) and
+			self.active_index ~= index and
+			not self:GetItems()[index].Disabled
+		then
+			self:OpenMenu(index)
 
-			for index, button in ipairs(self.buttons) do
-				if
-					button and
-					button:IsValid() and
-					button.gui_element and
-					button.gui_element:IsHovered(mouse_pos) and
-					self.active_index ~= index and
-					not self:GetItems()[index].Disabled
-				then
-					self:OpenMenu(index)
+			break
+		end
+	end
+end
 
-					break
-				end
-			end
-		end,
-		{priority = -200}
-	)
+function META:OnKeyInput(key, press)
+	if not self.context_menu:IsValid() then return end
+
+	if press and key == "escape" then
+		self:CloseMenu()
+		return false
+	end
 end
 
 function META:_sync_button_state()
@@ -188,11 +185,9 @@ function META:_sync_button_state()
 end
 
 function META:CloseMenu()
-	if self.context_menu and self.context_menu:IsValid() then
-		self.context_menu:Remove()
-	end
+	if self.context_menu:IsValid() then self.context_menu:Remove() end
 
-	self.context_menu = nil
+	self.context_menu = NULL
 	self.active_index = nil
 	self:_sync_button_state()
 	return self
@@ -215,12 +210,8 @@ function META:OpenMenu(index)
 		return
 	end
 
-	if self.context_menu and self.context_menu:IsValid() then
-		self.context_menu:Remove()
-	end
-
+	self:CloseMenu()
 	self.active_index = index
-	self:_sync_button_state()
 	self.context_menu = Panel.World:Ensure(
 		ContextMenu{
 			Key = self:GetMenuKey(),
@@ -229,12 +220,13 @@ function META:OpenMenu(index)
 			SourceMenuBar = self,
 			OnClose = function(ent)
 				ent:Remove()
-				self.context_menu = nil
+				self.context_menu = NULL
 				self.active_index = nil
 				self:_sync_button_state()
 			end,
 		}(unpack(menu_items))
 	)
+	self:_sync_button_state()
 end
 
 META:Register()

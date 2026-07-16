@@ -283,13 +283,8 @@ function META:OpenSubmenu(item, submenu_props)
 
 	if item.SetSubmenuOpen then item:SetSubmenuOpen(true) end
 
-	-- Defer adding submenu so the current mouse release event completes first
-	timer.Delay(0, function()
-		if not self:IsValid() or not submenu:IsValid() then return end
-
-		self:AddChild(submenu)
-		self:updateMenuPosition(submenu)
-	end)
+	self:AddChild(submenu)
+	self:updateMenuPosition(submenu)
 end
 
 META:Register()

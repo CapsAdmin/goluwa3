@@ -1363,7 +1363,7 @@ return function(props)
 					end
 				end,
 			}
-		end
+			end
 
 		return items
 	end
@@ -1384,7 +1384,7 @@ return function(props)
 				end,
 			},
 			MenuSpacer(),
-			MenuItem{Text = "Theme", Items = build_theme_menu_items()},
+			MenuItem{Text = "Theme", Items = function() return build_theme_menu_items() end},
 		}
 	end
 
