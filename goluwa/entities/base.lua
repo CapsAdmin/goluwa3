@@ -211,11 +211,15 @@ function BaseEntity:__call(...)
 end
 
 function BaseEntity:SetChildren(children)
-	local lst = list.flatten(children or {})
+	if not children then
+		self:RemoveChildren()
+		return
+	end
+
+	local lst = list.flatten_with_holes(children)
 
 	for i = #lst, 1, -1 do
-		local child = lst[i]
-		child:UnParent()
+		lst[i]:UnParent()
 	end
 
 	self:RemoveChildren()

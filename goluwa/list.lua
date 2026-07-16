@@ -51,6 +51,44 @@ do
 	end
 end
 
+do
+	local function is_array_like(t)
+		for k in pairs(t) do
+			if type(k) ~= "number" then return false end
+		end
+
+		return true
+	end
+
+	local function flatten_with_holes(tbl, out)
+		local max_index = 0
+
+		for k in pairs(tbl) do
+			if type(k) == "number" and k > max_index then max_index = k end
+		end
+
+		for i = 1, max_index do
+			local v = tbl[i]
+
+			if v == nil then goto skip end
+
+			if type(v) == "table" and is_array_like(v) then
+				flatten_with_holes(v, out)
+			else
+				out[#out + 1] = v
+			end
+
+			::skip::
+		end
+	end
+
+	function list.flatten_with_holes(lst)
+		local out = {}
+		flatten_with_holes(lst, out)
+		return out
+	end
+end
+
 function list.slice(tbl, first, last, step)
 	local sliced = {}
 
