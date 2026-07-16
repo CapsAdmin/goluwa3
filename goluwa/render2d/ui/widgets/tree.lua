@@ -174,8 +174,9 @@ function META:Rebuild()
 	self._row_order = {}
 	self:RemoveChildren()
 
+	local insert_index = 1
 	for index, node in ipairs(self._items) do
-		self:add_node(
+		insert_index = self:add_node(
 			node,
 			{
 				level = 0,
@@ -184,7 +185,8 @@ function META:Rebuild()
 				parent_key = nil,
 				continuations = {},
 			},
-			nil
+			nil,
+			insert_index
 		)
 	end
 
@@ -233,7 +235,7 @@ function META:RefreshBranchForKey(key)
 		table.remove(self._row_order, i)
 	end
 
-	self:add_node(descriptor.node, descriptor.meta, descriptor.parent_path)
+	self:add_node(descriptor.node, descriptor.meta, descriptor.parent_path, start_index)
 	self:refresh_visibility()
 
 	if self._pending_expand_animation_key == key then
