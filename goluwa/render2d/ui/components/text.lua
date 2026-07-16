@@ -20,6 +20,7 @@ META:GetSet("Elide", false, {callback = "OnTextChanged"})
 META:GetSet("ElideString", "...", {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
+META:GetSet("Hint", "")
 META:GetSet("DisableViewportCulling", false)
 META:GetSet("Color", nil)
 META:GetSet("SelectionColor", Color(1, 1, 1, 0.3))
@@ -675,6 +676,18 @@ function META:OnDraw()
 
 	if theme and theme.active then
 		foreground = theme.active:ResolveColor(foreground, background)
+	end
+
+	-- Use hint text when actual text is empty
+	local use_hint = text == "" and self:GetHint() ~= ""
+	if use_hint then
+		text = self:GetHint()
+		foreground = "text_disabled"
+		if theme and theme.active then
+			foreground = theme.active:ResolveColor(foreground, background)
+		end
+		-- Use hint text dimensions so clipping rect is non-zero
+		tw, th = font:GetTextSize(text)
 	end
 
 	if self.wrap_layout_info and self:GetAlignX() == "justify" then

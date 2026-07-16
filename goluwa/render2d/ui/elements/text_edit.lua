@@ -82,6 +82,7 @@ function META:OnCreate(props)
 						self.text_panel = s
 					end,
 					Text = props.Text or "",
+					Hint = props.Hint or "",
 					Cursor = editable and "text_input" or nil,
 					Editable = editable,
 					Wrap = wrap,
