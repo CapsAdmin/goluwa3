@@ -48,6 +48,18 @@ local function notify_unparented(self, old_parent)
 	self:NotifyWorldEvent("OnEntityHierarchyChanged", "unparented", old_parent)
 end
 
+local function set_keyed(self)
+	self.Parent.keyed_children = self.Parent.keyed_children or {}
+	local existing = self.Parent.keyed_children[self:GetKey()]
+
+	if existing and existing:IsValid() then
+		print("removing ", existing, self:GetKey(), "!!")
+		existing:Remove()
+	end
+
+	self.Parent.keyed_children[self:GetKey()] = self
+end
+
 function BaseEntity:OnCreate(config)
 	self.Children = {}
 	self.ChildrenMap = {}
@@ -154,14 +166,7 @@ function BaseEntity:OnCreate(config)
 		apply_root_config(config)
 	end
 
-	if self:GetKey() ~= "" and self.Parent:IsValid() then
-		self.Parent.keyed_children = self.Parent.keyed_children or {}
-		local existing = self.Parent.keyed_children[self:GetKey()]
-
-		if existing and existing:IsValid() then existing:Remove() end
-
-		self.Parent.keyed_children[self:GetKey()] = self
-	end
+	if self:GetKey() ~= "" and self.Parent:IsValid() then set_keyed(self) end
 
 	for _, component in ipairs(self.component_list) do
 		if component.Initialize then component:Initialize() end
@@ -309,29 +314,24 @@ function BaseEntity:Ensure(ent)
 	if not ent then return end
 
 	if type(ent) == "table" and not ent.IsValid then
-		local key = ent.Key
+		local key = assert(ent.Key, "missing key")
+		local existing = self:GetKeyed(key)
 
-		if key and key ~= "" then
-			local existing = self:GetKeyed(key)
-
-			if existing then return existing end
-		end
+		if existing then return existing end
 
 		ent.Parent = self
 		return self.New(ent)
 	end
 
-	local key = ent:GetKey()
+	local key = assert(ent:GetKey(), "missing key")
+	local existing = self:GetKeyed(key)
 
-	if key ~= "" then
-		local existing = self:GetKeyed(key)
-
-		if existing and existing ~= ent then
-			ent:Remove()
-			return existing
-		end
+	if existing and existing ~= ent then
+		ent:Remove()
+		return existing
 	end
 
+	set_keyed(ent)
 	ent:SetParent(self)
 	return ent
 end
