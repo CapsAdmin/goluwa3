@@ -91,6 +91,9 @@ return function(props)
 				Name = "Title",
 				Text = props.Title or "Window",
 				FontName = "heading",
+				mouse_input = {
+					IgnoreMouseInput = true,
+				},
 				layout = {
 					GrowWidth = 1,
 					FitHeight = true,
