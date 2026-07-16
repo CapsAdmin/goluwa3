@@ -282,7 +282,7 @@ function BaseEntity:RemoveComponent(name)
 end
 
 function BaseEntity:HasComponent(name)
-	return self[name] ~= nil
+	return self.component_map[name] ~= nil
 end
 
 function BaseEntity:GetKeyed(key)
@@ -323,10 +323,6 @@ function BaseEntity:Ensure(ent)
 		local existing = self:GetKeyed(key)
 
 		if existing and existing ~= ent then
-			-- if we actually already has an existing one that is DIFFERENT from the one passed,
-			-- we should probably keep the old one and remove the new one.
-			-- but BaseEntity.New already removed the old one if it was keyed to the same parent.
-			-- so this case might only happen if the parent was changed or keys were changed.
 			ent:Remove()
 			return existing
 		end
