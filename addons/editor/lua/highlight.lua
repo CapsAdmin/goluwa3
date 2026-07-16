@@ -30,11 +30,7 @@ local function is_drawable_model_entity(entity)
 end
 
 local function is_drawable_2d_entity(entity)
-	return is_valid_entity(entity) and
-		entity.transform and
-		entity.gui_element and
-		entity.gui_element.GetVisible and
-		entity.gui_element:GetVisible()
+	return is_valid_entity(entity) and entity.transform
 end
 
 local function draw_overlay_polygon(polygon, material, world_matrix)
@@ -87,7 +83,6 @@ local function draw_2d_overlay(entity)
 	if not is_drawable_2d_entity(entity) then return end
 
 	local transform = entity.transform
-	local gui = entity.gui_element
 	local size = transform:GetSize()
 
 	if size.x <= 0 or size.y <= 0 then return end
@@ -95,7 +90,6 @@ local function draw_2d_overlay(entity)
 	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
 	local fill_alpha = 0.05 + pulse * 0.08
 	local outline_alpha = 0.45 + pulse * 0.35
-	local radius = gui.GetBorderRadius and gui:GetBorderRadius() or 0
 	local masked, clip_x1, clip_y1, clip_x2, clip_y2 = transform:BeginScrollViewportMask(0, 0, size.x, size.y)
 
 	if masked == nil then return end
@@ -104,15 +98,10 @@ local function draw_2d_overlay(entity)
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
 	render2d.SetTexture(nil)
 	render2d.SetColor(1, 0.55 + pulse * 0.25, 0.18, fill_alpha)
-
-	if radius > 0 then
-		render2d.SetBorderRadius(radius, radius, radius, radius)
-	end
-
 	render2d.DrawRect(0, 0, size.x, size.y)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetColor(1, 0.7 + pulse * 0.2, 0.3, outline_alpha)
-	render2d.DrawOutlinedRect(0, 0, size.x, size.y, 2, radius)
+	render2d.DrawOutlinedRect(0, 0, size.x, size.y, 2)
 	render2d.PopMatrix()
 	transform:EndScrollViewportMask(masked, clip_x1, clip_y1, clip_x2, clip_y2)
 end
