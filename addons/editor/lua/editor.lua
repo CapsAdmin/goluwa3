@@ -1821,7 +1821,6 @@ return function(props)
 	}
 	window:AddChild(picker_button)
 	window:AddGlobalEvent("Update")
-	print(picker_button)
 
 	function window:OnUpdate(dt)
 		-- Position picker button at bottom-right of tree view
