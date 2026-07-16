@@ -162,13 +162,9 @@ end
 
 local function hovered_entity_query_enter(mouse_pos, owner)
 	if owner.gui_element then
-		if not owner.gui_element:GetVisible() then
-			return WALK_SKIP_SUBTREE
-		end
+		if not owner.gui_element:GetVisible() then return WALK_SKIP_SUBTREE end
 
-		if owner.gui_element.DrawAlpha <= 0 then
-			return WALK_SKIP_SUBTREE
-		end
+		if owner.gui_element.DrawAlpha <= 0 then return WALK_SKIP_SUBTREE end
 	end
 
 	if
@@ -378,7 +374,25 @@ function META:OnFirstCreated()
 							target:RequestFocus()
 						end
 
-						if mouse_comp:GetBringToFrontOnClick() then hovered:BringToFront() end
+						local bring_to_front_target = NULL
+
+						if mouse_comp:GetBringToFrontOnClick() then
+							bring_to_front_target = hovered
+						else
+							local ancestor = hovered:GetParent()
+
+							while ancestor:IsValid() do
+								if ancestor.mouse_input and ancestor.mouse_input:GetBringToFrontOnClick() then
+									bring_to_front_target = ancestor
+
+									break
+								end
+
+								ancestor = ancestor:GetParent()
+							end
+						end
+
+						if bring_to_front_target:IsValid() then bring_to_front_target:BringToFront() end
 
 						local current = hovered
 
@@ -445,7 +459,6 @@ function META:OnFirstCreated()
 		if not Panel.World then return end
 
 		local pos = system.GetWindow():GetMousePosition()
-
 		local hovered = get_hovered_entity(Panel.World, pos) or NULL
 
 		if hovered ~= mouse_input.last_hovered then

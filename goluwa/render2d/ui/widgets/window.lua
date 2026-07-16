@@ -35,6 +35,7 @@ return function(props)
 		},
 		resizable = {
 			MinimumSize = props.MinSize or Vec2(100, 100),
+			BringToFrontOnResize = true,
 		},
 		PreChildAdd = function(self, child)
 			if child.IsInternal then return end
@@ -53,6 +54,7 @@ return function(props)
 		gui_element = true,
 		mouse_input = {
 			RequestMouse = props.RequestMouse,
+			BringToFrontOnClick = true,
 		},
 		clickable = true,
 		animation = true,

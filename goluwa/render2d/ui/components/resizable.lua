@@ -7,6 +7,7 @@ local META = objects.CreateTemplate("resizable")
 META:StartStorable()
 META:GetSet("ResizeBorder", Rect() + 8)
 META:GetSet("MinimumSize", Vec2(10, 10))
+META:GetSet("BringToFrontOnResize", false)
 META:EndStorable()
 
 function META:Initialize()
@@ -114,9 +115,10 @@ function META:StartResizing(local_pos, button)
 	self.resize_prev_pos = transform:GetPosition():Copy()
 	self.resize_prev_size = transform:GetSize():Copy()
 	self.resize_button = button
-	self.Owner.mouse_input:SetCursorOverride(location2cursor[loc])
-	self:AddGlobalEvent("Update", {priority = 100})
-	return true
+		self.Owner.mouse_input:SetCursorOverride(location2cursor[loc])
+		if self:GetBringToFrontOnResize() then self.Owner:BringToFront() end
+		self:AddGlobalEvent("Update", {priority = 100})
+		return true
 end
 
 function META:StopResizing()
