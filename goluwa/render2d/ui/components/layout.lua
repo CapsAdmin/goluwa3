@@ -12,19 +12,48 @@ META:GetSet("MaxSize", Vec2(0, 0), {callback = "InvalidateLayout"})
 META:GetSet("Margin", Rect(0, 0, 0, 0), {callback = "InvalidateLayout"})
 META:GetSet("Padding", Rect(0, 0, 0, 0), {callback = "InvalidateLayout"})
 META:GetSet("ChildGap", 0, {callback = "InvalidateLayout"})
-META:GetSet("Direction", "x", {callback = "InvalidateLayout"})
+META:GetSet("Direction", "x", {callback = "InvalidateLayout", enums = {"x", "y"}})
 META:GetSet("GrowWidth", 0, {callback = "InvalidateLayout"})
 META:GetSet("GrowHeight", 0, {callback = "InvalidateLayout"})
 META:GetSet("ShrinkWidth", 0, {callback = "InvalidateLayout"})
 META:GetSet("ShrinkHeight", 0, {callback = "InvalidateLayout"})
 META:GetSet("FitWidth", false, {callback = "InvalidateLayout"})
 META:GetSet("FitHeight", false, {callback = "InvalidateLayout"})
-META:GetSet("AlignmentX", "stretch", {callback = "InvalidateLayout"})
-META:GetSet("AlignmentY", "stretch", {callback = "InvalidateLayout"})
-META:GetSet("SelfAlignmentX", "auto", {callback = "InvalidateLayout"})
-META:GetSet("SelfAlignmentY", "auto", {callback = "InvalidateLayout"})
+META:GetSet(
+	"AlignmentX",
+	"stretch",
+	{callback = "InvalidateLayout", enums = {"start", "center", "end", "stretch"}}
+)
+META:GetSet(
+	"AlignmentY",
+	"stretch",
+	{callback = "InvalidateLayout", enums = {"start", "center", "end", "stretch"}}
+)
+META:GetSet(
+	"SelfAlignmentX",
+	"auto",
+	{
+		callback = "InvalidateLayout",
+		enums = {"auto", "start", "center", "end", "stretch"},
+	}
+)
+META:GetSet(
+	"SelfAlignmentY",
+	"auto",
+	{
+		callback = "InvalidateLayout",
+		enums = {"auto", "start", "center", "end", "stretch"},
+	}
+)
 META:GetSet("Floating", false, {callback = "InvalidateLayout"})
-META:GetSet("Dock", "none", {callback = "InvalidateLayout"})
+META:GetSet(
+	"Dock",
+	"none",
+	{
+		callback = "InvalidateLayout",
+		enums = {"none", "top", "bottom", "left", "right", "fill"},
+	}
+)
 META:GetSet("Dirty", false)
 META:EndStorable()
 META:GetSet("LastSize", Vec2(0, 0))
@@ -616,7 +645,10 @@ function META:Arrange()
 		elseif cross_alignment == "end" then
 			cross_pos = cross_pos + (available_cross - child_total_cross)
 		elseif cross_alignment == "stretch" then
-			final_cross = math.max(0, available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end])
+			final_cross = math.max(
+				0,
+				available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
+			)
 		end
 
 		if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
@@ -655,9 +687,7 @@ function META:UpdateLayout()
 
 	if self:GetFitWidth() then
 		tr:SetWidth(intrinsic_size.x)
-	elseif
-		self:GetGrowWidth() > 0 and tr:GetSize().x <= 1
-	then
+	elseif self:GetGrowWidth() > 0 and tr:GetSize().x <= 1 then
 		-- GrowWidth signals the layout wants to fill available space, but no
 		-- parent layout has constrained it yet (still at the 1px default).
 		-- Expand to intrinsic width so children — especially wrapped text —
