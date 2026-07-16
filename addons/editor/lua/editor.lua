@@ -536,6 +536,7 @@ return function(props)
 		tree_items = {},
 	}
 	local tree_view
+	local tree_panel
 	local property_editor
 	local property_editor_frame
 	local footer_text
@@ -787,6 +788,53 @@ return function(props)
 
 	local function set_hovered_entity(entity)
 		Highlight.EnableHighlight(entity)
+	end
+
+	local picker_2d_active = false
+	local picker_2d_cursor_override = nil
+	local picker_2d_last_button_down = false
+	local picker_2d_scroll_to_guid = nil
+
+	local function update_picker_2d()
+		if not picker_2d_active then
+			if picker_2d_cursor_override then
+				picker_2d_cursor_override:ClearCursorOverride()
+				picker_2d_cursor_override = nil
+			end
+
+			return
+		end
+
+		if input.IsKeyDown("escape") then
+			picker_2d_active = false
+			set_hovered_entity(nil)
+			return
+		end
+
+		local hovered = MouseInput.GetHoveredObject()
+
+		if not (hovered and hovered.IsValid and hovered:IsValid()) then
+			set_hovered_entity(nil)
+			return
+		end
+
+		if has_parent(hovered, window) then
+			set_hovered_entity(nil)
+			return
+		end
+
+		set_hovered_entity(hovered)
+		local button_down = input.IsMouseDown("button_1")
+
+		if button_down and not picker_2d_last_button_down then
+			set_selected_target(hovered, true, hovered:GetGUID())
+			sync_tree_items()
+			sync_selection()
+			picker_2d_scroll_to_guid = hovered:GetGUID()
+			picker_2d_active = false
+		end
+
+		picker_2d_last_button_down = button_down
 	end
 
 	local function get_selected_entity()
@@ -1363,7 +1411,7 @@ return function(props)
 					end
 				end,
 			}
-			end
+		end
 
 		return items
 	end
@@ -1384,7 +1432,12 @@ return function(props)
 				end,
 			},
 			MenuSpacer(),
-			MenuItem{Text = "Theme", Items = function() return build_theme_menu_items() end},
+			MenuItem{
+				Text = "Theme",
+				Items = function()
+					return build_theme_menu_items()
+				end,
+			},
 		}
 	end
 
@@ -1505,6 +1558,9 @@ return function(props)
 			},
 		}{
 			ScrollablePanel{
+				Ref = function(self)
+					tree_panel = self
+				end,
 				Padding = "XXS",
 				ScrollX = false,
 				ScrollY = true,
@@ -1714,9 +1770,73 @@ return function(props)
 
 	sync_editor_camera_from_render_camera()
 	update_editor_camera_viewport()
+	-- Create 2D picker button, positioned at bottom-right of tree view
+	local picker_button = Panel.New{
+		Name = "Picker2DButton",
+		transform = {
+			Size = Vec2(28, 28),
+			Position = Vec2(0, 0),
+		},
+		gui_element = {
+			OnDraw = function(self)
+				local btn_size = self.Owner.transform:GetSize()
+				render2d.SetTexture(nil)
+
+				if picker_2d_active then
+					render2d.SetColor(1.0, 0.35, 0.15, 0.9)
+				else
+					render2d.SetColor(0.5, 0.5, 0.55, 0.7)
+				end
+
+				render2d.DrawRect(0, 0, btn_size.x, btn_size.y)
+				render2d.SetColor(1, 1, 1, 1)
+				-- crosshair icon
+				local cx, cy = btn_size.x / 2, btn_size.y / 2
+				render2d.DrawRect(cx - 1, cy - 6, 2, 5)
+				render2d.DrawRect(cx - 1, cy + 1, 2, 5)
+				render2d.DrawRect(cx - 6, cy - 1, 5, 2)
+				render2d.DrawRect(cx + 1, cy - 1, 5, 2)
+			end,
+		},
+		mouse_input = {
+			Cursor = "hand",
+			OnMouseInput = function(self, button, press)
+				if button ~= "button_1" or not press then return end
+
+				picker_2d_active = not picker_2d_active
+
+				if picker_2d_active then
+					self:SetCursorOverride("crosshair")
+					picker_2d_cursor_override = self
+				else
+					self:ClearCursorOverride()
+					picker_2d_cursor_override = nil
+					set_hovered_entity(nil)
+				end
+			end,
+		},
+		layout = {
+			Floating = true,
+		},
+	}
+	window:AddChild(picker_button)
 	window:AddGlobalEvent("Update")
+	print(picker_button)
 
 	function window:OnUpdate(dt)
+		-- Position picker button at bottom-right of tree view
+		if picker_button and picker_button:IsValid() and tree_panel and tree_panel:IsValid() then
+			local _, _, x, y = tree_panel.transform:GetWorldRectFast()
+			local btn_size = picker_button.transform:GetSize()
+			picker_button.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
+		end
+
+		-- Deferred scroll to picked entity
+		if picker_2d_scroll_to_guid then
+			tree_view:EnsureVisible(picker_2d_scroll_to_guid, Rect(0, 12, 0, 12))
+			picker_2d_scroll_to_guid = nil
+		end
+
 		update_editor_camera(dt)
 		draw_nonvisual_entity_hints(
 			window,
@@ -1724,6 +1844,7 @@ return function(props)
 			get_selected_entity()
 		)
 		update_world_click_selection()
+		update_picker_2d()
 		local material_count = tree_builder.count_material_objects()
 
 		if material_count ~= tracked_material_count then
