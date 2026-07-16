@@ -1352,8 +1352,8 @@ return function(props)
 			ContextMenu{
 				Key = "EditorTreeContextMenu",
 				Position = system.GetWindow():GetMousePosition():Copy(),
-				OnClose = function(ent)
-					ent:Remove()
+				OnClose = function(self)
+					self:Remove()
 				end,
 			}{
 				can_create_shapes and
