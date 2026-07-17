@@ -16,6 +16,14 @@ return function(props)
 		style:SetForegroundColor(context.foreground_token)
 	end
 
+	local function mouse_input(self, button, press, local_pos)
+		self.mouse_input:SetCursor(self:GetState("disabled") and "arrow" or "hand")
+
+		if self:GetState("disabled") then return end
+
+		if button == "button_1" then self:SetState("pressed", press) end
+	end
+
 	local panel = Panel.New{
 		props,
 		{
@@ -49,11 +57,7 @@ return function(props)
 			mouse_input = {
 				Cursor = "hand",
 				OnMouseInput = function(self, button, press, local_pos)
-					self:SetCursor(self.Owner:GetState("disabled") and "arrow" or "hand")
-
-					if self.Owner:GetState("disabled") then return end
-
-					if button == "button_1" then self.Owner:SetState("pressed", press) end
+					mouse_input(self.Owner, button, press, local_pos)
 				end,
 				OnHover = function(self, hovered)
 					self:SetCursor(self.Owner:GetState("disabled") and "arrow" or "hand")
@@ -63,9 +67,12 @@ return function(props)
 			animation = true,
 			clickable = true,
 			OnClick = not props.Disabled and props.OnClick or nil,
-			OnStartClick = not props.Disabled and function()
-				return true
-			end or nil,
+			OnStartClick = not props.Disabled and
+				function(self, button, press, pos)
+					mouse_input(self, button, press, local_pos)
+					return true
+				end or
+				nil,
 		},
 	}
 	panel:SetState("hovered", false)
