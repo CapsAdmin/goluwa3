@@ -173,8 +173,8 @@ function META:Rebuild()
 	self._row_infos = {}
 	self._row_order = {}
 	self:RemoveChildren()
-
 	local insert_index = 1
+
 	for index, node in ipairs(self._items) do
 		insert_index = self:add_node(
 			node,
@@ -242,6 +242,100 @@ function META:RefreshBranchForKey(key)
 		self._pending_expand_animation_key = nil
 	end
 
+	return self
+end
+
+function META:AddNode(node, parent_key)
+	if not node then return self end
+
+	-- Find the parent row to determine insert position
+	local insert_after_index = #self._row_order
+
+	if parent_key then
+		local parent_info = self._row_infos[parent_key]
+
+		if not parent_info then return self:Rebuild() end
+
+		-- Find the last child of this parent in row_order
+		local found_child = false
+
+		for i = #self._row_order, 1, -1 do
+			local info = self._row_infos[self._row_order[i]]
+
+			if info and info.parent_key == parent_key then
+				insert_after_index = i
+				found_child = true
+
+				break
+			end
+		end
+
+		-- If no children found, insert right after the parent
+		if not found_child then
+			for i = 1, #self._row_order do
+				if self._row_order[i] == parent_key then
+					insert_after_index = i
+
+					break
+				end
+			end
+		end
+
+		-- Parent must be expanded for children to be visible
+		if
+			not self:is_expanded(parent_info.node, parent_info.path, parent_key, parent_info.has_children)
+		then
+			return self
+		end
+	end
+
+	-- Build path for the new node
+	local parent_info = parent_key and self._row_infos[parent_key] or nil
+	local parent_path = parent_info and parent_info.path or nil
+	local child_index = parent_info and #self:get_children(parent_info.node, parent_info.path) + 1 or 1
+	local path = build_path(parent_path, child_index)
+	local key = self:get_key(node, path)
+
+	-- Check if node already exists
+	if self._row_infos[key] then return self end
+
+	-- Build continuations by walking up ancestor chain
+	local continuations = {}
+
+	if parent_info then
+		local current = parent_info
+
+		while current do
+			local depth = 1
+
+			for _ in current.path:gmatch("/") do
+				depth = depth + 1
+			end
+
+			local last_idx = tonumber(current.path:match("[^/]+$")) or 1
+			continuations[depth] = last_idx ~= #self:get_children(current.node, current.path)
+			current = current.parent_key and self._row_infos[current.parent_key] or nil
+		end
+	end
+
+	local level = 0
+
+	if parent_info then
+		for _ in parent_info.path:gmatch("/") do
+			level = level + 1
+		end
+	end
+
+	local meta = {
+		level = level + 1,
+		index = child_index,
+		is_last = true,
+		parent_key = parent_key,
+		continuations = continuations,
+	}
+	-- Insert the row in the UI (caller is responsible for updating the data structure)
+	self:add_node(node, meta, parent_path, insert_after_index + 1)
+	self:refresh_visibility()
 	return self
 end
 

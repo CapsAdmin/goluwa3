@@ -843,7 +843,11 @@ return function(props)
 	function editor:RefreshValueForKey(key)
 		local info = row_infos[key]
 
-		if not (info and info.node and info.node.GetValue) then return false end
+		if not info then return false end
+
+		if not info.node then return false end
+
+		if not info.node.GetValue then return false end
 
 		return self:UpdateValueForKey(key, info.node.GetValue(info.node, key, info.path))
 	end

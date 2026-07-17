@@ -1041,6 +1041,116 @@ return function(props)
 		return get_entity_by_guid(guid)
 	end
 
+	local function try_incremental_tree_insert(entity, parent)
+		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
+			return false
+		end
+
+		if not (parent and parent:IsValid()) then return false end
+
+		-- Parent must be in the tree and expanded
+		local parent_item = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
+
+		if not parent_item then return false end
+
+		if not state.expanded_entities[parent:GetGUID()] then return false end
+
+		-- Build the new tree item
+		local new_item = tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
+
+		if not new_item then return false end
+
+		-- Insert into tree data structure
+		tree_builder.insert_tree_item(state.tree_items, parent:GetGUID(), new_item)
+		-- Add to UI
+		tree_view:AddNode(new_item, parent:GetGUID())
+		return true
+	end
+
+	local function try_incremental_tree_remove(entity)
+		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
+			return false
+		end
+
+		local guid = entity:GetGUID()
+		-- Entity must be in the tree
+		local item = tree_builder.find_tree_item(state.tree_items, guid)
+
+		if not item then return false end
+
+		-- Remove from tree data structure
+		tree_builder.remove_tree_item(state.tree_items, guid)
+		-- Remove from UI: find and remove all rows for this entity and its children
+		local keys_to_remove = {}
+
+		local function collect_keys(items)
+			for _, i in ipairs(items or {}) do
+				keys_to_remove[i.Key] = true
+				collect_keys(i.Children)
+			end
+		end
+
+		collect_keys(item.Children)
+		keys_to_remove[guid] = true
+
+		-- Remove rows in reverse order to maintain indices
+		for i = #tree_view._row_order, 1, -1 do
+			local row_key = tree_view._row_order[i]
+
+			if keys_to_remove[row_key] then
+				local info = tree_view._row_infos[row_key]
+
+				if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
+
+				tree_view._row_infos[row_key] = nil
+				table.remove(tree_view._row_order, i)
+			end
+		end
+
+		tree_view:refresh_visibility()
+		return true
+	end
+
+	local function try_incremental_tree_expand(entity)
+		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
+			return false
+		end
+
+		local guid = entity:GetGUID()
+		-- Entity must be in the tree
+		local parent_item = tree_builder.find_tree_item(state.tree_items, guid)
+
+		if not parent_item then return false end
+
+		-- Get valid children
+		local valid_children = tree_builder.get_valid_children(entity, window)
+
+		if not valid_children[1] then return false end
+
+		local visited = {}
+		visited[entity] = true
+
+		for _, child in ipairs(valid_children) do
+			local new_item = tree_builder.build_tree_snapshot(child, state.expanded_entities, visited, window)
+
+			if new_item then
+				tree_builder.insert_tree_item(state.tree_items, guid, new_item)
+				tree_view:AddNode(new_item, guid)
+			end
+		end
+
+		-- Also handle virtual property children
+		local virtual_children = tree_builder.build_virtual_property_children(entity)
+
+		for _, child_node in ipairs(virtual_children) do
+			tree_builder.insert_tree_item(state.tree_items, guid, child_node)
+			tree_view:AddNode(child_node, guid)
+		end
+
+		visited[entity] = nil
+		return true
+	end
+
 	local function refresh_tree_branch(entity)
 		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
 			return sync_tree_items()
@@ -1091,9 +1201,12 @@ return function(props)
 			return
 		end
 
-		if property_editor:RefreshValueForKey(row_key) then return end
+		local refreshed = property_editor:RefreshValueForKey(row_key)
 
-		refresh_property_editor()
+		if refreshed then return end
+
+		-- property not in the editor, ignore silently
+		return
 	end
 	reveal_selected_tree_item = function()
 		if not (tree_view and tree_view:IsValid()) then return end
@@ -1316,7 +1429,6 @@ return function(props)
 			end
 
 			set_selected_target(entity, true, entity:GetGUID())
-			sync_tree_items()
 			sync_selection()
 		end
 	end
@@ -1335,7 +1447,6 @@ return function(props)
 		end
 
 		entity:Remove()
-		sync_tree_items()
 		sync_selection()
 	end
 
@@ -1626,8 +1737,10 @@ return function(props)
 						local branch_entity = node.Entity or get_tree_branch_entity_by_guid(key)
 
 						if branch_entity and branch_entity:IsValid() then
-							request_editor_sync(true, false, branch_entity)
-							flush_pending_editor_sync(true)
+							if not try_incremental_tree_expand(branch_entity) then
+								request_editor_sync(true, false, branch_entity)
+								flush_pending_editor_sync(true)
+							end
 						end
 					end,
 					OnNodeHover = function(node, key, path, row_info, hovered)
@@ -1883,6 +1996,32 @@ return function(props)
 
 				if tree_builder.should_ignore_editor_tree_change(entity, parent, window) then
 					return
+				end
+
+				-- If neither the entity nor its parent are in the tree, skip
+				if parent and parent:IsValid() then
+					local parent_in_tree = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
+
+					if not parent_in_tree then
+						local entity_in_tree = tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
+
+						if not entity_in_tree then return end
+					end
+				end
+
+				-- For removals, if entity is not in tree, skip
+				if action == "unparented" then
+					local entity_in_tree = tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
+
+					if not entity_in_tree then return end
+				end
+
+				if action == "parented" and parent and parent:IsValid() then
+					-- Try incremental insert for added entities
+					if try_incremental_tree_insert(entity, parent) then return end
+				elseif action == "unparented" then
+					-- Try incremental remove for removed entities
+					if try_incremental_tree_remove(entity) then return end
 				end
 
 				local branch_entity = parent and

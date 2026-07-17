@@ -332,6 +332,37 @@ local function replace_tree_item(items, key, replacement)
 	return false
 end
 
+local function insert_tree_item(items, parent_key, new_item)
+	if parent_key == nil then
+		table.insert(items, new_item)
+		return true
+	end
+
+	for _, item in ipairs(items or {}) do
+		if item.Key == parent_key then
+			table.insert(item.Children, new_item)
+			return true
+		end
+
+		if insert_tree_item(item.Children, parent_key, new_item) then return true end
+	end
+
+	return false
+end
+
+local function remove_tree_item(items, key)
+	for index, item in ipairs(items or {}) do
+		if item.Key == key then
+			table.remove(items, index)
+			return true
+		end
+
+		if remove_tree_item(item.Children, key) then return true end
+	end
+
+	return false
+end
+
 return {
 	build_tree_items = build_tree_items,
 	build_tree_snapshot = build_tree_snapshot,
@@ -339,6 +370,8 @@ return {
 	build_material_tree_item = build_material_tree_item,
 	find_tree_item = find_tree_item,
 	replace_tree_item = replace_tree_item,
+	insert_tree_item = insert_tree_item,
+	remove_tree_item = remove_tree_item,
 	build_shared_object_node = build_shared_object_node,
 	build_virtual_property_children = build_virtual_property_children,
 	build_material_root_key = build_material_root_key,
