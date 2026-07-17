@@ -63,6 +63,9 @@ return function(props)
 			animation = true,
 			clickable = true,
 			OnClick = not props.Disabled and props.OnClick or nil,
+			OnStartClick = not props.Disabled and function()
+				return true
+			end or nil,
 		},
 	}
 	panel:SetState("hovered", false)

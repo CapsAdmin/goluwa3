@@ -18,6 +18,7 @@ function META:OnMouseInput(button, press, pos)
 	if button == "button_1" then
 		if press then
 			self.is_pressing_left = true
+			return self.Owner:CallLocalEvent("OnStartClick")
 		else
 			if self.is_pressing_left then
 				self.is_pressing_left = false
