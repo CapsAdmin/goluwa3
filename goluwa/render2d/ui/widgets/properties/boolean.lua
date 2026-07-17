@@ -74,14 +74,12 @@ return function(props)
 			OnHover = function(self, hovered)
 				checkbox:SetState("hovered", hovered)
 			end,
-			OnMouseInput = function(self, button, press)
-				if button ~= "button_1" or not press then return end
-
+		},
+		clickable = {
+			OnClick = function()
 				control:SetValue(not control:GetValue(), true)
-				return true
 			end,
 		},
-		clickable = true,
 		animation = true,
 	}{
 		checkbox,
