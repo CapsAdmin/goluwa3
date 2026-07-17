@@ -173,7 +173,7 @@ return function(props)
 	local items = props.Items or {}
 	local selected_key = props.SelectedKey
 	local number_precision = props.NumberPrecision or 2
-	local value_width = props.ValueWidth or 220
+	local value_width = props.ValueWidth or 10
 	local compact_font_size = props.FontSize or "S"
 	local compact_padding = props.Padding or props.RowPadding or "XS"
 	local compact_gap = props.Gap or "none"
@@ -504,7 +504,7 @@ return function(props)
 				GrowWidth = 1,
 				MinSize = Vec2(0, get_row_height(entry.node)),
 				MaxSize = Vec2(0, get_row_height(entry.node)),
-				Padding = Rect(editor_value_inset, 0, 0, 0),
+				Padding = Rect(0, 0, 0, 0),
 				AlignmentY = entry.node.Multiline and "start" or "center",
 			},
 			gui_element = {

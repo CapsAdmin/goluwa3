@@ -13,6 +13,9 @@ return function(props)
 			FitHeight = true,
 			props.layout,
 		},
+		transform = {
+			Size = props.Size,
+		},
 		OnClick = props.OnClick,
 		Padding = props.Padding or "S",
 	}(

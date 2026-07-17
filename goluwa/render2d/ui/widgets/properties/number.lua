@@ -1,6 +1,9 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Value = import("goluwa/render2d/ui/widgets/properties/value.lua")
 local input = import("goluwa/input.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 
 local function is_finite(value)
 	return value ~= math.huge and value ~= -math.huge
@@ -29,6 +32,11 @@ return function(props)
 	local node = props.node
 	local min = node.Min ~= nil and node.Min or -math.huge
 	local max = node.Max ~= nil and node.Max or math.huge
+	local number_type = node.NumberType or "float"
+	local is_int = number_type == "int"
+	local show_stepper = node.ShowStepper == true
+	local show_slider = node.ShowSlider == true
+	local step = node.Step or (is_int and 1 or 0.01)
 	local precision = node.Precision
 
 	if precision == nil then
@@ -39,7 +47,7 @@ return function(props)
 		end
 	end
 
-	if precision == nil then precision = 2 end
+	if precision == nil then precision = is_int and 0 or 2 end
 
 	local drag_precision_boost = node.DragPrecisionBoost or 2
 	local drag_step = node.DragStep
@@ -68,6 +76,61 @@ return function(props)
 		return 1
 	end
 
+	-- Build right elements (stepper buttons)
+	local right_elements = {}
+
+	if show_stepper then
+		right_elements[#right_elements + 1] = Column{
+			layout = {
+				ChildGap = 0,
+				FitWidth = true,
+				GrowWidth = 0,
+				AlignmentX = "stretch",
+			},
+		}{
+			Button{
+				Text = "+",
+				Mode = "outline",
+				Size = "XS",
+				Padding = "none",
+				FontSize = props.font_size,
+				OnClick = function()
+					local new_value = clamp_number(control:GetValue() + step, min, max)
+					control:SetValue(new_value, true)
+					return true
+				end,
+			},
+			Button{
+				Text = "-",
+				Mode = "outline",
+				Size = "XS",
+				Padding = "none",
+				FontSize = props.font_size,
+				OnClick = function()
+					local new_value = clamp_number(control:GetValue() - step, min, max)
+					control:SetValue(new_value, true)
+					return true
+				end,
+			},
+		}
+	end
+
+	-- Build slider background drawer
+	local draw_background = nil
+
+	if show_slider then
+		local slider_height = 2
+		draw_background = function(panel, current_value)
+			local total_size = panel.transform:GetTotalSize()
+			local y = total_size.y - slider_height
+			local w = total_size.x
+			local t = math.clamp((current_value - min) / (max - min), 0, 1)
+			local fill_w = t * w
+			theme.active:DrawRoundRect(0, y, w, slider_height, 0, theme.active:GetColor("surface_alt"), 0.3)
+			theme.active:DrawRoundRect(0, y, fill_w, slider_height, 0, theme.active:GetColor("primary"), 0.6)
+		end
+	end
+
 	control = Value{
 		Name = node.Name or props.name or "property_number_value",
 		Ref = props.Ref,
@@ -78,6 +141,8 @@ return function(props)
 		Padding = props.padding,
 		FontSize = props.font_size,
 		Cursor = node.Cursor or "vertical_resize",
+		RightElements = right_elements,
+		DrawBackground = draw_background,
 		layout = props.layout or {
 			FitWidth = false,
 		},
@@ -96,15 +161,15 @@ return function(props)
 			return clamp_number(numeric, min, max)
 		end,
 		OnDragValue = function(delta, start_value)
-			local step = get_drag_step()
+			local drag_step = get_drag_step()
 			local rounding_precision = precision
 
 			if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
-				step = step * 0.1
+				drag_step = drag_step * 0.1
 				rounding_precision = precision + drag_precision_boost
 			end
 
-			local next_value = (tonumber(start_value) or 0) - delta.y * step
+			local next_value = (tonumber(start_value) or 0) - delta.y * drag_step
 
 			if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
 				next_value = math.round(next_value)

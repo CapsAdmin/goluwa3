@@ -130,6 +130,10 @@ local function create_value(props)
 	local size = props.Size or Vec2(220, 34)
 	local min_size = props.MinSize or Vec2(80, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
+	local right_elements = props.RightElements or {}
+	local bottom_elements = props.BottomElements or {}
+	local has_right = #right_elements > 0
+	local has_bottom = #bottom_elements > 0
 	local text_panel
 	local panel
 	local idle_color = Color(0, 0, 0, 0.001)
@@ -261,6 +265,65 @@ local function create_value(props)
 		return true
 	end
 
+	local main_direction = has_bottom and "y" or "x"
+	local main_children = {}
+	-- Build the input row: text field + optional right elements
+	local input_row_children = {
+		Text{
+			Ref = function(self)
+				text_panel = self
+
+				if self.mouse_input then self.mouse_input:SetIgnoreMouseInput(true) end
+
+				update_display_text()
+				update_visual_state()
+			end,
+			Text = format_value(value),
+			Font = props.Font,
+			FontName = props.FontName,
+			FontSize = props.FontSize,
+			Editable = false,
+			Wrap = false,
+			Cursor = nil,
+			Color = props.TextColor or "text",
+			AlignY = "center",
+			layout = {
+				GrowWidth = 1,
+				FitWidth = false,
+			},
+			OnKeyInput = function(self, key, press)
+				if not state.editing or not press then return end
+
+				if key == "enter" then return stop_editing(true) end
+
+				if key == "escape" then return stop_editing(false) end
+			end,
+		},
+	}
+
+	for _, element in ipairs(right_elements) do
+		input_row_children[#input_row_children + 1] = element
+	end
+
+	if has_right then
+		main_children[#main_children + 1] = Panel.New{
+			Name = "ValueInputRow",
+			layout = {
+				Direction = "x",
+				GrowWidth = 1,
+				ChildGap = 0,
+				AlignmentY = "center",
+			},
+		}(input_row_children)
+	else
+		main_children[#main_children + 1] = input_row_children[1]
+	end
+
+	-- Append bottom elements
+	for _, element in ipairs(bottom_elements) do
+		main_children[#main_children + 1] = element
+	end
+
 	panel = Panel.New{
 		Name = props.Name or "value",
 		Tooltip = props.Tooltip,
@@ -269,12 +332,13 @@ local function create_value(props)
 			Size = size,
 		},
 		layout = {
-			Direction = "x",
+			Direction = main_direction,
 			AlignmentY = "center",
 			GrowWidth = 1,
 			MinSize = min_size,
 			MaxSize = max_size,
 			Padding = props.Padding or "XS",
+			ChildGap = has_bottom and 4 or 0,
 			props.layout,
 		},
 		gui_element = {
@@ -288,6 +352,8 @@ local function create_value(props)
 			end,
 			OnPostDraw = function(self)
 				if state.editing then return end
+
+				if props.DrawBackground then props.DrawBackground(self.Owner, value) end
 			end,
 		},
 		mouse_input = {
@@ -403,38 +469,7 @@ local function create_value(props)
 		},
 		clickable = true,
 		animation = true,
-	}{
-		Text{
-			Ref = function(self)
-				text_panel = self
-
-				if self.mouse_input then self.mouse_input:SetIgnoreMouseInput(true) end
-
-				update_display_text()
-				update_visual_state()
-			end,
-			Text = format_value(value),
-			Font = props.Font,
-			FontName = props.FontName,
-			FontSize = props.FontSize,
-			Editable = false,
-			Wrap = false,
-			Cursor = nil,
-			Color = props.TextColor or "text",
-			AlignY = "center",
-			layout = {
-				GrowWidth = 1,
-				FitWidth = false,
-			},
-			OnKeyInput = function(self, key, press)
-				if not state.editing or not press then return end
-
-				if key == "enter" then return stop_editing(true) end
-
-				if key == "escape" then return stop_editing(false) end
-			end,
-		},
-	}
+	}(table.unpack(main_children))
 	panel:SetState("theme_role", "property_value")
 
 	function panel:SetValue(new_value, notify)

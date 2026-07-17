@@ -211,7 +211,8 @@ local function build_items(state, refresh_preview, refresh_editor)
 					Min = 0,
 					Max = 3,
 					Precision = 2,
-					Description = "Scales the emissive response of the part.",
+					ShowSlider = true,
+					Description = "Scales the emissive response of the part. Shows visual slider indicator.",
 					OnChange = function(_, value)
 						state.brightness = value
 						refresh_preview()
@@ -229,11 +230,15 @@ local function build_items(state, refresh_preview, refresh_editor)
 					Key = "motion/spin_speed",
 					Text = "Spin Speed",
 					Type = "number",
+					NumberType = "int",
 					Value = state.spin_speed,
 					Min = 0,
 					Max = 120,
-					Precision = 1,
-					Description = "Degrees per second for the idle spin loop.",
+					Precision = 0,
+					ShowStepper = true,
+					ShowSlider = true,
+					Step = 5,
+					Description = "Degrees per second for the idle spin loop. Uses integer type with stepper and slider.",
 					OnChange = function(_, value)
 						state.spin_speed = value
 						refresh_preview()
@@ -243,11 +248,15 @@ local function build_items(state, refresh_preview, refresh_editor)
 					Key = "motion/bob_height",
 					Text = "Bob Height",
 					Type = "number",
+					NumberType = "int",
 					Value = state.bob_height,
 					Min = 0,
 					Max = 20,
-					Precision = 1,
-					Description = "Vertical displacement for the idle bob.",
+					Precision = 0,
+					ShowStepper = true,
+					ShowSlider = true,
+					Step = 1,
+					Description = "Vertical displacement for the idle bob. Integer with stepper and slider.",
 					OnChange = function(_, value)
 						state.bob_height = value
 						refresh_preview()
@@ -554,8 +563,6 @@ return {
 							OnSelect = refresh_selected_details,
 							layout = {
 								GrowHeight = 1,
-								MinSize = Vec2(760, 0),
-								MaxSize = Vec2(760, 0),
 								FitWidth = false,
 							},
 						},
