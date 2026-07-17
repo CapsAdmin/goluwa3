@@ -1542,8 +1542,12 @@ function BaseTheme:OnEntitySetProperty(obj, key, val)
 		if type(val) == "string" then return self:GetColor(val) end
 	elseif key == "ChildGap" then
 		if type(val) == "string" then return self:GetSize(val) end
-	elseif key == "Size" then
-		if type(val) == "string" then return Vec2() + self:GetSize(val) end
+	elseif key == "Size" or key == "IconSize" or key == "MinSize" or key == "MaxSize" then
+		if type(val) == "string" then
+			return Vec2() + self:GetSize(val)
+		elseif type(val) == "number" then
+			return Vec2() + val
+		end
 	elseif key == "Font" then
 		if type(val) == "string" then
 			local style, size = val:match("([^%s]+)%s*(.*)")

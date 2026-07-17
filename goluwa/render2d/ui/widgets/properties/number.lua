@@ -1,8 +1,9 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Value = import("goluwa/render2d/ui/widgets/properties/value.lua")
 local input = import("goluwa/input.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 
 local function is_finite(value)
@@ -80,7 +81,7 @@ return function(props)
 	local right_elements = {}
 
 	if show_stepper then
-		right_elements[#right_elements + 1] = Column{
+		right_elements[#right_elements + 1] = Row{
 			layout = {
 				ChildGap = 0,
 				FitWidth = true,
@@ -88,26 +89,26 @@ return function(props)
 				AlignmentX = "stretch",
 			},
 		}{
-			Button{
-				Text = "+",
-				Mode = "outline",
-				Size = "XS",
+			IconButton{
+				Text = "-",
+				IconSize = "M",
+				FontSize = "M",
 				Padding = "none",
-				FontSize = props.font_size,
+				Mode = "outline",
 				OnClick = function()
-					local new_value = clamp_number(control:GetValue() + step, min, max)
+					local new_value = clamp_number(control:GetValue() - step, min, max)
 					control:SetValue(new_value, true)
 					return true
 				end,
 			},
-			Button{
-				Text = "-",
-				Mode = "outline",
-				Size = "XS",
+			IconButton{
+				Text = "+",
+				IconSize = "M",
+				FontSize = "M",
 				Padding = "none",
-				FontSize = props.font_size,
+				Mode = "outline",
 				OnClick = function()
-					local new_value = clamp_number(control:GetValue() - step, min, max)
+					local new_value = clamp_number(control:GetValue() + step, min, max)
 					control:SetValue(new_value, true)
 					return true
 				end,

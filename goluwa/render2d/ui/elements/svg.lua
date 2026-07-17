@@ -153,6 +153,7 @@ return function(props)
 			Name = "svg",
 			transform = {
 				Size = props.Size or Vec2(96, 96),
+				Position = Vec2(),
 			},
 			layout = {
 				MinSize = props.MinSize,

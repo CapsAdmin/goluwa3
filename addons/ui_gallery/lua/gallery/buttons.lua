@@ -1,4 +1,5 @@
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
 local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
@@ -190,6 +191,126 @@ return {
 					ChildGap = 10,
 				},
 			}{},
+			Text{
+				Text = "Icon Buttons",
+				Font = "body_strong S",
+				IgnoreMouseInput = true,
+			},
+			Text{
+				Text = "Compact buttons that display text or SVG icons. Supports all button modes and colors.",
+				Wrap = true,
+				IgnoreMouseInput = true,
+				layout = {
+					GrowWidth = 1,
+				},
+			},
+			Text{
+				Text = "Text Icon Buttons",
+				IgnoreMouseInput = true,
+			},
+			Row{
+				layout = {
+					GrowWidth = 1,
+					ChildGap = 8,
+					AlignmentY = "center",
+				},
+			}{
+				IconButton{
+					Text = "+",
+					FontSize = "L",
+					Mode = "filled",
+				},
+				IconButton{
+					Text = "×",
+					FontSize = "L",
+					Mode = "filled",
+					ButtonColor = "negative",
+				},
+				IconButton{
+					Text = "↗",
+					FontSize = "XL",
+					Mode = "outline",
+				},
+				IconButton{
+					Text = "…",
+					FontSize = "L",
+					Mode = "text",
+				},
+				IconButton{
+					Text = "Aa",
+					FontSize = "M",
+					Mode = "filled",
+					ButtonColor = "positive",
+				},
+			},
+			Text{
+				Text = "SVG Icon Buttons",
+				IgnoreMouseInput = true,
+			},
+			Row{
+				layout = {
+					GrowWidth = 1,
+					ChildGap = 8,
+					AlignmentY = "center",
+				},
+			}{
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/add-rounded.svg",
+					Mode = "filled",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/delete-rounded.svg",
+					Mode = "filled",
+					ButtonColor = "negative",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/edit-rounded.svg",
+					Mode = "outline",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/settings-rounded.svg",
+					Mode = "filled",
+					ButtonColor = "neutral",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/favorite-rounded.svg",
+					Mode = "text",
+					ButtonColor = "positive",
+					TextColor = "positive",
+				},
+			},
+			Text{
+				Text = "Sizes",
+				IgnoreMouseInput = true,
+			},
+			Row{
+				layout = {
+					GrowWidth = 1,
+					ChildGap = 8,
+					AlignmentY = "center",
+				},
+			}{
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
+					IconSize = "S",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
+					IconSize = "M",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
+					IconSize = "L",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
+					IconSize = "XL",
+				},
+				IconButton{
+					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
+					IconSize = "XXL",
+				},
+			},
 		}
 		rebuild_preview()
 		return pnl
