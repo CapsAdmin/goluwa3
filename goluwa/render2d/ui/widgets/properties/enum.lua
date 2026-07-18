@@ -48,6 +48,7 @@ return function(props)
 	local control = Dropdown{
 		Text = get_option_text(node.Options, node.Value),
 		FontSize = props.font_size,
+		ItemPadding = "S",
 		Value = node.Value,
 		Options = node.Options or {},
 		Searchable = node.Searchable ~= false,

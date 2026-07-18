@@ -72,6 +72,7 @@ return function(props)
 		menu_props = menu_props or {}
 		return MenuItem{
 			Text = text,
+			Padding = props.ItemPadding,
 			Selected = get_current_value() == val,
 			Font = props.Font,
 			FontName = props.FontName,
