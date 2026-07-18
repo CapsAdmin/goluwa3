@@ -730,7 +730,7 @@ return function(props)
 					end,
 					OnNodeContextMenu = function(node)
 						local entity = node and node.Entity or nil
-						local can_create_shapes = tree_builder.get_entity_world_root(entity) == Entity.World
+						local can_create_shapes = entity:GetRoot() == Entity.World
 						local can_remove = not tree_builder.is_world_root(entity)
 
 						if not can_create_shapes and not can_remove then return false end
@@ -795,7 +795,7 @@ return function(props)
 
 							if drop_info.parent_node then return drop_info.parent_node.Entity end
 
-							return tree_builder.get_entity_world_root(source_entity) or Entity.World
+							return source_entity:GetRoot()
 						end
 
 						local source_entity = drop_info.source_node.Entity
@@ -804,14 +804,12 @@ return function(props)
 						if tree_builder.is_world_root(source_entity) then return false end
 
 						if not next_parent:IsValid() then
-							next_parent = tree_builder.get_entity_world_root(source_entity) or Entity.World
+							next_parent = source_entity:GetRoot()
 						end
 
 						if next_parent == source_entity then return false end
 
-						if
-							tree_builder.get_entity_world_root(source_entity) ~= tree_builder.get_entity_world_root(next_parent)
-						then
+						if source_entity:GetRoot() ~= next_parent:GetRoot() then
 							return false
 						end
 
@@ -1111,7 +1109,7 @@ return function(props)
 				math.huge,
 				function(entity)
 					return entity:IsValid() and
-						tree_builder.get_entity_world_root(entity) == Entity.World and
+						entity:GetRoot() == Entity.World and
 						not tree_builder.is_hidden_editor_entity(entity, editor_window)
 						and
 						not is_editor_pick_excluded_entity(entity, excluded_entity)
@@ -1515,10 +1513,7 @@ return function(props)
 					if try_incremental_tree_remove(entity) then return end
 				end
 
-				local branch_entity = parent and
-					parent:IsValid() and
-					parent or
-					tree_builder.get_entity_world_root(entity)
+				local branch_entity = parent and parent:IsValid() and parent or entity:GetRoot()
 
 				if branch_entity and should_defer_tree_refresh(branch_entity) then return end
 

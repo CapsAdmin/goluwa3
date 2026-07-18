@@ -52,18 +52,6 @@ local function is_world_root(entity)
 	return entity == Entity.World or entity == Panel.World
 end
 
-local function get_entity_world_root(entity)
-	local current = entity
-
-	while current and current.IsValid and current:IsValid() do
-		if is_world_root(current) then return current end
-
-		current = current:GetParent()
-	end
-
-	return nil
-end
-
 local transient_ui_keys = {
 	ActiveContextMenu = true,
 	ActiveMenuBarContextMenu = true,
@@ -385,7 +373,6 @@ return {
 	get_valid_children = get_valid_children,
 	can_preserve_hidden_selection = can_preserve_hidden_selection,
 	should_ignore_editor_tree_change = should_ignore_editor_tree_change,
-	get_entity_world_root = get_entity_world_root,
 	MATERIAL_ROOT_KEY = MATERIAL_ROOT_KEY,
 	SHARED_INSTANCE_COLOR = SHARED_INSTANCE_COLOR,
 }
