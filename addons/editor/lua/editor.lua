@@ -74,20 +74,13 @@ return function(props)
 		},
 		tree_items = {},
 	}
-	local tree_view
-	local tree_scroll_container
-	local property_editor
-	local property_editor_container
-	local editor_window
+	local tree_view = NULL
+	local tree_scroll_container = NULL
+	local property_editor = NULL
+	local editor_window = NULL
 	local selected_property_listener_removers = {}
 	local property_change_sync_blocked = 0
-	local set_selected_target
-	local reveal_selected_tree_item
-	local sync_tree_items
 	local sync_selection
-	local request_editor_sync
-	local flush_pending_editor_sync
-	local flush_pending_tree_branch_refreshes
 	local pending_tree_sync = false
 	local pending_tree_branch_keys = {}
 	local pending_selection_sync = false
@@ -193,7 +186,8 @@ return function(props)
 			property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
 		end,
 	}
-	set_selected_target = function(target, ensure_visible, selected_key)
+
+	local function set_selected_target(target, ensure_visible, selected_key)
 		local entity = target and target.component_list and target or nil
 		local object = property_builder.is_valid_object(target) and target or nil
 		local previous_guid = state.selected_entity_guid
@@ -244,15 +238,16 @@ return function(props)
 		return objects.GetObjectByGUID(guid)
 	end
 
-	reveal_selected_tree_item = function()
-		if not (tree_view and tree_view:IsValid()) then return end
+	local function reveal_selected_tree_item()
+		if not tree_view:IsValid() then return end
 
 		tree_view:ExpandToKey(state.selected_entity_guid)
 		tree_view:SetSelectedKey(state.selected_entity_guid)
 		tree_view:EnsureVisible(state.selected_entity_guid, Rect(0, 12, 0, 12))
 	end
-	sync_tree_items = function()
-		if not tree_view or not tree_view:IsValid() then return end
+
+	local function sync_tree_items()
+		if not tree_view:IsValid() then return end
 
 		pending_tree_sync = false
 		local previous_guid = state.selected_entity_guid
@@ -305,7 +300,7 @@ return function(props)
 			return false
 		end
 
-		flush_pending_tree_branch_refreshes = function()
+		local function flush_pending_tree_branch_refreshes()
 			local branch_keys = {}
 
 			for key in pairs(pending_tree_branch_keys) do
@@ -345,7 +340,7 @@ return function(props)
 		end
 	end
 
-	request_editor_sync = function(tree_dirty, selection_dirty, branch_entity)
+	local function request_editor_sync(tree_dirty, selection_dirty, branch_entity)
 		if tree_dirty then
 			if branch_entity and branch_entity:IsValid() then
 				pending_tree_branch_keys[branch_entity:GetGUID()] = true
@@ -358,7 +353,8 @@ return function(props)
 
 		pending_sync_deadline = system.GetElapsedTime() + sync_debounce_time
 	end
-	flush_pending_editor_sync = function(force)
+
+	local function flush_pending_editor_sync(force)
 		if
 			not pending_tree_sync and
 			not next(pending_tree_branch_keys)
@@ -430,7 +426,7 @@ return function(props)
 
 			reveal_selected_tree_item()
 
-			if property_editor and property_editor:IsValid() then
+			if property_editor:IsValid() then
 				run_editor_ui_mutation(
 					function()
 						property_editor:SetItems(property_builder.build_property_items(get_selected_object(), property_node_hooks))
@@ -858,9 +854,6 @@ return function(props)
 				},
 			}{
 				Panel.New{
-					Ref = function(self)
-						property_editor_container = self
-					end,
 					Name = "PropertyEditorFrame",
 					transform = true,
 					layout = {
@@ -967,7 +960,7 @@ return function(props)
 			Floating = true,
 		},
 		OnUpdate = function(self)
-			if tree_scroll_container and tree_scroll_container:IsValid() then
+			if tree_scroll_container:IsValid() then
 				local _, _, x, y = tree_scroll_container.transform:GetWorldRectFast()
 				local btn_size = self.transform:GetSize()
 				self.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
