@@ -41,7 +41,7 @@ local function has_text_focus(window)
 
 	if not focused:IsValid() then return false end
 
-	if window and not window:ContainsParent(focused) then return false end
+	if not window:ContainsParent(focused) then return false end
 
 	return focused.text ~= nil or focused.Name == "TextEdit"
 end
