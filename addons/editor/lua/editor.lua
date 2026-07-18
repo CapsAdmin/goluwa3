@@ -875,7 +875,7 @@ return function(props)
 						OnDraw = function(self)
 							local selected_item = tree_builder.find_tree_item(state.tree_items, state.selected_entity_guid)
 
-							if selected_item and selected_item.SharedInstance == true then return end
+							if selected_item and not selected_item.SharedInstance then return end
 
 							local panel_size = self.Owner.transform:GetSize()
 							render2d.SetTexture(nil)
@@ -967,7 +967,15 @@ return function(props)
 		layout = {
 			Floating = true,
 		},
+		OnUpdate = function(self)
+			if tree_panel and tree_panel:IsValid() then
+				local _, _, x, y = tree_panel.transform:GetWorldRectFast()
+				local btn_size = self.transform:GetSize()
+				self.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
+			end
+		end,
 	}
+	picker_button:AddGlobalEvent("Update")
 	window:AddChild(picker_button)
 	window:AddGlobalEvent("Update")
 
@@ -1301,13 +1309,6 @@ return function(props)
 		end
 
 		function window:OnUpdate(dt)
-			-- Position picker button at bottom-right of tree view
-			if picker_button and picker_button:IsValid() and tree_panel and tree_panel:IsValid() then
-				local _, _, x, y = tree_panel.transform:GetWorldRectFast()
-				local btn_size = picker_button.transform:GetSize()
-				picker_button.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
-			end
-
 			-- Deferred scroll to picked entity
 			if picker_2d_scroll_to_guid then
 				tree_view:EnsureVisible(picker_2d_scroll_to_guid, Rect(0, 12, 0, 12))
