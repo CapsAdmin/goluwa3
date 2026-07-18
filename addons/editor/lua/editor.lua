@@ -464,12 +464,6 @@ return function(props)
 		end
 	end
 
-	local function close_active_context_menu()
-		local active = Panel.World:GetKeyed("EditorTreeContextMenu")
-
-		if active and active:IsValid() then active:Remove() end
-	end
-
 	local function set_hovered_entity(entity)
 		Highlight.EnableHighlight(entity)
 	end
@@ -1033,129 +1027,6 @@ return function(props)
 		sync_selection()
 	end
 
-	local function open_tree_context_menu(entity)
-		local can_create_shapes = tree_builder.get_entity_world_root(entity) == Entity.World
-		local can_remove = not tree_builder.is_world_root(entity)
-
-		if not can_create_shapes and not can_remove then return false end
-
-		close_active_context_menu()
-		Panel.World:Ensure(
-			ContextMenu{
-				Key = "EditorTreeContextMenu",
-				Position = system.GetWindow():GetMousePosition():Copy(),
-				OnClose = function(self)
-					self:Remove()
-				end,
-			}{
-				can_create_shapes and
-				MenuItem{
-					Text = "Sphere",
-					OnClick = function()
-						create_child_shape(entity, "sphere")
-					end,
-				} or
-				nil,
-				can_create_shapes and
-				MenuItem{
-					Text = "Box",
-					OnClick = function()
-						create_child_shape(entity, "box")
-					end,
-				} or
-				nil,
-				can_create_shapes and
-				can_remove and
-				MenuSpacer() or
-				nil,
-				can_remove and
-				MenuItem{
-					Text = "Remove",
-					OnClick = function()
-						remove_entity(entity)
-					end,
-				} or
-				nil,
-			}
-		)
-		return true
-	end
-
-	local function build_theme_menu_items()
-		local items = {}
-
-		for _, label in ipairs(theme.GetAvailable()) do
-			if label == theme.active:GetName() then label = label .. " (active)" end
-
-			items[#items + 1] = MenuItem{
-				Text = label,
-				OnClick = function()
-					if label == theme.active:GetName() then return end
-
-					theme.LoadTheme(label)
-
-					if props.OnThemeChange then
-						props.OnThemeChange(
-							state.selected_entity_guid,
-							window.transform:GetPosition():Copy(),
-							window.transform:GetSize():Copy()
-						)
-					end
-				end,
-			}
-		end
-
-		return items
-	end
-
-	local function build_options_menu_items()
-		local viewport_label = "Scale 3D Viewport"
-
-		if editor_camera.scale_viewport then
-			viewport_label = viewport_label .. " (active)"
-		end
-
-		return {
-			MenuItem{
-				Text = viewport_label,
-				OnClick = function()
-					editor_camera.scale_viewport = not editor_camera.scale_viewport
-				end,
-			},
-			MenuSpacer(),
-			MenuItem{
-				Text = "Theme",
-				Items = function()
-					return build_theme_menu_items()
-				end,
-			},
-		}
-	end
-
-	local function build_gizmo_menu_items()
-		local function add_gizmo_menu_item(label, setter, value, current)
-			if value == current then label = label .. " (active)" end
-
-			return MenuItem{
-				Text = label,
-				OnClick = function()
-					setter(value)
-					update_footer(get_selected_object())
-				end,
-			}
-		end
-
-		return {
-			add_gizmo_menu_item("Move", Gizmo.SetMode, "move", Gizmo.GetMode()),
-			add_gizmo_menu_item("Rotate", Gizmo.SetMode, "rotate", Gizmo.GetMode()),
-			add_gizmo_menu_item("Scale", Gizmo.SetMode, "scale", Gizmo.GetMode()),
-			add_gizmo_menu_item("Combined", Gizmo.SetMode, "combined", Gizmo.GetMode()),
-			MenuSpacer(),
-			add_gizmo_menu_item("Local Space", Gizmo.SetSpace, "local", Gizmo.GetSpace()),
-			add_gizmo_menu_item("World Space", Gizmo.SetSpace, "world", Gizmo.GetSpace()),
-		}
-	end
-
 	set_selected_target(get_selected_object(), true, state.selected_entity_guid)
 	Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 	Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
@@ -1172,6 +1043,13 @@ return function(props)
 	if not props.Size then size = Vec2(400, world_size.y) end
 
 	local position = props.Position or Vec2(0, 0)
+
+	local function close_active_context_menu()
+		local active = Panel.World:GetKeyed("EditorTreeContextMenu")
+
+		if active and active:IsValid() then active:Remove() end
+	end
+
 	window = Window{
 		Key = props.Key or "GameEditorWindow",
 		RequestMouse = props.RequestMouse,
@@ -1211,13 +1089,76 @@ return function(props)
 				{
 					Text = "GIZMO",
 					Items = function()
-						return build_gizmo_menu_items()
+						local function add_gizmo_menu_item(label, setter, value, current)
+							if value == current then label = label .. " (active)" end
+
+							return MenuItem{
+								Text = label,
+								OnClick = function()
+									setter(value)
+									update_footer(get_selected_object())
+								end,
+							}
+						end
+
+						return {
+							add_gizmo_menu_item("Move", Gizmo.SetMode, "move", Gizmo.GetMode()),
+							add_gizmo_menu_item("Rotate", Gizmo.SetMode, "rotate", Gizmo.GetMode()),
+							add_gizmo_menu_item("Scale", Gizmo.SetMode, "scale", Gizmo.GetMode()),
+							add_gizmo_menu_item("Combined", Gizmo.SetMode, "combined", Gizmo.GetMode()),
+							MenuSpacer(),
+							add_gizmo_menu_item("Local Space", Gizmo.SetSpace, "local", Gizmo.GetSpace()),
+							add_gizmo_menu_item("World Space", Gizmo.SetSpace, "world", Gizmo.GetSpace()),
+						}
 					end,
 				},
 				{
 					Text = "OPTIONS",
 					Items = function()
-						return build_options_menu_items()
+						local viewport_label = "Scale 3D Viewport"
+
+						if editor_camera.scale_viewport then
+							viewport_label = viewport_label .. " (active)"
+						end
+
+						return {
+							MenuItem{
+								Text = viewport_label,
+								OnClick = function()
+									editor_camera.scale_viewport = not editor_camera.scale_viewport
+								end,
+							},
+							MenuSpacer(),
+							MenuItem{
+								Text = "Theme",
+								Items = function()
+									local items = {}
+
+									for _, label in ipairs(theme.GetAvailable()) do
+										if label == theme.active:GetName() then label = label .. " (active)" end
+
+										items[#items + 1] = MenuItem{
+											Text = label,
+											OnClick = function()
+												if label == theme.active:GetName() then return end
+
+												theme.LoadTheme(label)
+
+												if props.OnThemeChange then
+													props.OnThemeChange(
+														state.selected_entity_guid,
+														window.transform:GetPosition():Copy(),
+														window.transform:GetSize():Copy()
+													)
+												end
+											end,
+										}
+									end
+
+									return items
+								end,
+							},
+						}
 					end,
 				},
 			},
@@ -1243,13 +1184,6 @@ return function(props)
 				ScrollY = true,
 				Padding = Rect(),
 				ScrollBarContentShiftMode = "auto_shift",
-				mouse_input = {
-					OnMouseInput = function(self, button, press)
-						if button ~= "button_2" or not press then return end
-
-						return open_tree_context_menu(Entity.World)
-					end,
-				},
 				layout = {
 					GrowWidth = 1,
 					GrowHeight = 1,
@@ -1319,7 +1253,52 @@ return function(props)
 						end
 					end,
 					OnNodeContextMenu = function(node)
-						return open_tree_context_menu(node and node.Entity or nil)
+						local entity = node and node.Entity or nil
+						local can_create_shapes = tree_builder.get_entity_world_root(entity) == Entity.World
+						local can_remove = not tree_builder.is_world_root(entity)
+
+						if not can_create_shapes and not can_remove then return false end
+
+						close_active_context_menu()
+						Panel.World:Ensure(
+							ContextMenu{
+								Key = "EditorTreeContextMenu",
+								Position = system.GetWindow():GetMousePosition():Copy(),
+								OnClose = function(self)
+									self:Remove()
+								end,
+							}{
+								can_create_shapes and
+								MenuItem{
+									Text = "Sphere",
+									OnClick = function()
+										create_child_shape(entity, "sphere")
+									end,
+								} or
+								nil,
+								can_create_shapes and
+								MenuItem{
+									Text = "Box",
+									OnClick = function()
+										create_child_shape(entity, "box")
+									end,
+								} or
+								nil,
+								can_create_shapes and
+								can_remove and
+								MenuSpacer() or
+								nil,
+								can_remove and
+								MenuItem{
+									Text = "Remove",
+									OnClick = function()
+										remove_entity(entity)
+									end,
+								} or
+								nil,
+							}
+						)
+						return true
 					end,
 					OnCanDragNode = function(node)
 						return node and node.Entity and not tree_builder.is_world_root(node.Entity)
