@@ -88,24 +88,8 @@ return function(props)
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
 	local tracked_material_count = tree_builder.count_material_objects()
-	local editor_camera = {
-		enabled = true,
-		scale_viewport = false,
-		position = nil,
-		rotation = nil,
-		pitch = 0,
-		velocity = Vec3(),
-		viewport_rect = Rect(0, 0, 1, 1),
-		mouse_sensitivity = 0.0075,
-		min_pitch = -math.pi / 2 + 0.01,
-		max_pitch = math.pi / 2 - 0.01,
-		speed = 18,
-		sprint_multiplier = 2.25,
-		acceleration = 220,
-		slow_multiplier = 0.2,
-		dragging = false,
-		block_movement = false,
-	}
+	local editor_camera = import("lua/editor_camera.lua")
+	editor_camera.Initialize()
 	local click_drag_threshold_sq = 16
 
 	local function run_editor_ui_mutation(callback, reason)
@@ -256,78 +240,78 @@ return function(props)
 		return state.selected_entity_guid ~= previous_guid
 	end
 
-		local function build_tree_branch_item(entity)
-			if not (entity and entity.IsValid and entity:IsValid()) then return nil end
+	local function build_tree_branch_item(entity)
+		if not (entity and entity.IsValid and entity:IsValid()) then return nil end
 
-			if entity == Entity.World then
-				return tree_builder.build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, editor_window)
-			end
-
-			if entity == Panel.World then
-				return tree_builder.build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, editor_window)
-			end
-
-			return tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, editor_window)
+		if entity == Entity.World then
+			return tree_builder.build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, editor_window)
 		end
 
-		local function refresh_tree_branch(entity)
-			local replacement = build_tree_branch_item(entity)
-
-			if not replacement then return sync_tree_items() end
-
-			if
-				not tree_builder.replace_tree_item(state.tree_items, entity:GetGUID(), replacement)
-			then
-				return sync_tree_items()
-			end
-
-			run_editor_ui_mutation(
-				function()
-					tree_view:RefreshBranchForKey(entity:GetGUID())
-				end,
-				"tree_refresh_branch"
-			)
-
-			return false
+		if entity == Panel.World then
+			return tree_builder.build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, editor_window)
 		end
 
-		local function flush_pending_tree_branch_refreshes()
-			local branch_keys = {}
+		return tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, editor_window)
+	end
 
-			for key in pairs(pending_tree_branch_keys) do
-				branch_keys[#branch_keys + 1] = key
-			end
+	local function refresh_tree_branch(entity)
+		local replacement = build_tree_branch_item(entity)
 
-			pending_tree_branch_keys = {}
+		if not replacement then return sync_tree_items() end
 
-			if branch_keys[1] == nil then return false end
+		if
+			not tree_builder.replace_tree_item(state.tree_items, entity:GetGUID(), replacement)
+		then
+			return sync_tree_items()
+		end
 
-			local selected_guid = state.selected_entity_guid
+		run_editor_ui_mutation(
+			function()
+				tree_view:RefreshBranchForKey(entity:GetGUID())
+			end,
+			"tree_refresh_branch"
+		)
 
-			for _, key in ipairs(branch_keys) do
-				local entity = get_tree_branch_entity_by_guid(key)
+		return false
+	end
 
-				if not (entity and entity:IsValid()) then return sync_tree_items() end
+	local function flush_pending_tree_branch_refreshes()
+		local branch_keys = {}
 
-				local selection_changed = refresh_tree_branch(entity)
+		for key in pairs(pending_tree_branch_keys) do
+			branch_keys[#branch_keys + 1] = key
+		end
 
-				if selection_changed then return true end
-			end
+		pending_tree_branch_keys = {}
 
-			if
-				selected_guid ~= nil and
-				not tree_builder.find_tree_item(state.tree_items, selected_guid)
-				and
-				not tree_builder.can_preserve_hidden_selection(get_selected_object(), editor_window)
-			then
-				local selected_target, selected_key = resolve_selected_target(state.tree_items)
-				set_selected_target(selected_target, false, selected_key)
-				reveal_selected_tree_item()
-				return state.selected_entity_guid ~= selected_guid
-			end
+		if branch_keys[1] == nil then return false end
 
+		local selected_guid = state.selected_entity_guid
+
+		for _, key in ipairs(branch_keys) do
+			local entity = get_tree_branch_entity_by_guid(key)
+
+			if not (entity and entity:IsValid()) then return sync_tree_items() end
+
+			local selection_changed = refresh_tree_branch(entity)
+
+			if selection_changed then return true end
+		end
+
+		if
+			selected_guid ~= nil and
+			not tree_builder.find_tree_item(state.tree_items, selected_guid)
+			and
+			not tree_builder.can_preserve_hidden_selection(get_selected_object(), editor_window)
+		then
+			local selected_target, selected_key = resolve_selected_target(state.tree_items)
+			set_selected_target(selected_target, false, selected_key)
 			reveal_selected_tree_item()
-			return false
+			return state.selected_entity_guid ~= selected_guid
+		end
+
+		reveal_selected_tree_item()
+		return false
 	end
 
 	local function request_editor_sync(tree_dirty, selection_dirty, branch_entity)
@@ -429,8 +413,8 @@ return function(props)
 	end
 
 	local function create_child_shape(parent_entity, kind)
-		local camera_forward = editor_camera.rotation:GetForward()
-		local spawn_world_position = editor_camera.position + camera_forward * 2
+		local camera_forward = editor_camera.GetForward()
+		local spawn_world_position = editor_camera.GetPosition() + camera_forward * 2
 		local config = {
 			Name = kind == "sphere" and "sphere" or "box",
 			Collision = false,
@@ -563,7 +547,7 @@ return function(props)
 					Items = function()
 						local viewport_label = "Scale 3D Viewport"
 
-						if editor_camera.scale_viewport then
+						if editor_camera.GetScaleViewport() then
 							viewport_label = viewport_label .. " (active)"
 						end
 
@@ -571,7 +555,7 @@ return function(props)
 							MenuItem{
 								Text = viewport_label,
 								OnClick = function()
-									editor_camera.scale_viewport = not editor_camera.scale_viewport
+									editor_camera.SetScaleViewport(not editor_camera.GetScaleViewport())
 								end,
 							},
 							MenuSpacer(),
@@ -888,11 +872,11 @@ return function(props)
 
 	do
 		local camera = render3d.GetCamera()
-		editor_camera.position = camera:GetPosition():Copy()
-		editor_camera.rotation = camera:GetRotation():Copy()
-		local forward = editor_camera.rotation:GetForward()
-		editor_camera.pitch = math.asin(math.clamp(forward.y, -1, 1))
-		editor_camera.velocity = Vec3()
+		editor_camera.SetPosition(camera:GetPosition():Copy())
+		editor_camera.SetRotation(camera:GetRotation():Copy())
+		local forward = editor_camera.GetForward()
+		editor_camera.SetPitch(math.asin(math.clamp(forward.y, -1, 1)))
+		editor_camera.SetVelocity(Vec3())
 	end
 
 	-- Create 2D picker button, positioned at bottom-right of tree view
@@ -962,11 +946,11 @@ return function(props)
 		end
 
 		local function mouse_in_editor_viewport(mouse_pos)
-			if not editor_camera.scale_viewport then
+			if not editor_camera.GetScaleViewport() then
 				return not editor_window.transform:GetRect():IsPosInside(mouse_pos)
 			end
 
-			return editor_camera.viewport_rect:IsPosInside(mouse_pos)
+			return editor_camera.IsInsideViewport(mouse_pos)
 		end
 
 		local function has_visual_pick_target(entity)
@@ -1269,28 +1253,6 @@ return function(props)
 			picker_2d_last_button_down = input.IsMouseDown("button_1")
 		end
 
-		local function update_editor_camera_viewport()
-			local camera = render3d.GetCamera()
-			local world_size = Panel.World.transform:GetSize()
-			local viewport_rect = Rect(0, 0, world_size.x, world_size.y)
-
-			if editor_camera.scale_viewport then
-				local window_rect = editor_window.transform:GetRect()
-				local clamped_x = math.clamp(window_rect.x, 0, world_size.x)
-				local clamped_y = math.clamp(window_rect.y, 0, world_size.y)
-				local clamped_w = math.max(0, math.min(window_rect.w, world_size.x - clamped_x))
-				local clamped_h = math.max(0, math.min(window_rect.h, world_size.y - clamped_y))
-
-				if clamped_x <= 0 and clamped_w > 0 then
-					viewport_rect.x = math.clamp(clamped_x + clamped_w, 0, world_size.x)
-					viewport_rect.w = math.max(1, world_size.x - viewport_rect.x)
-				end
-			end
-
-			editor_camera.viewport_rect = viewport_rect
-			camera:SetViewport(viewport_rect)
-		end
-
 		function editor_window:OnUpdate(dt)
 			-- Deferred scroll to picked entity
 			if picker_2d_scroll_to_guid then
@@ -1298,97 +1260,27 @@ return function(props)
 				picker_2d_scroll_to_guid = nil
 			end
 
-			if editor_camera.enabled then
-				update_editor_camera_viewport()
+			if not has_text_focus(editor_window) then
 				local mouse_pos = system.GetWindow():GetMousePosition()
-				local focus_blocks_movement = has_text_focus(editor_window)
-				local world_blocked = context_menu_blocks_world(mouse_pos)
-				local ui_blocks_movement = is_ui_hovering()
-				local gizmo_status = Gizmo.GetStatus()
-				local can_drag = mouse_in_editor_viewport(mouse_pos) and
-					not focus_blocks_movement and
-					not editor_window.transform:GetRect():IsPosInside(mouse_pos)
-					and
-					not world_blocked and
-					not ui_blocks_movement
-				local wants_drag = can_drag and input.IsMouseDown("button_1")
-
-				if editor_camera.dragging then
-					editor_camera.dragging = wants_drag and not gizmo_status.active_drag
-				else
-					editor_camera.dragging = wants_drag and
-						not gizmo_status.active_drag and
-						not gizmo_status.hovered_handle
-				end
-
-				editor_camera.block_movement = focus_blocks_movement or
-					world_blocked or
-					ui_blocks_movement or
-					not mouse_in_editor_viewport(mouse_pos)
-
-				if editor_camera.dragging then
-					local mouse_delta = system.GetWindow():GetMouseDelta() / 2
-
-					if mouse_delta.x ~= 0 or mouse_delta.y ~= 0 then
-						local scaled_delta = mouse_delta * editor_camera.mouse_sensitivity
-						local new_pitch = math.clamp(editor_camera.pitch + scaled_delta.y, editor_camera.min_pitch, editor_camera.max_pitch)
-						local pitch_delta = new_pitch - editor_camera.pitch
-						local yaw_quat = Quat():Identity()
-						yaw_quat:RotateYaw(-scaled_delta.x)
-						editor_camera.rotation = (yaw_quat * editor_camera.rotation:Copy()):GetNormalized()
-						editor_camera.rotation:RotatePitch(-pitch_delta)
-						editor_camera.pitch = new_pitch
-					end
-				end
-
-				if editor_camera.block_movement then
-					editor_camera.velocity = approach_vec(editor_camera.velocity, Vec3(), editor_camera.acceleration * dt)
-				else
-					local move_local = Vec3()
-
-					if input.IsKeyDown("w") then move_local.z = move_local.z + 1 end
-
-					if input.IsKeyDown("s") then move_local.z = move_local.z - 1 end
-
-					if input.IsKeyDown("a") then move_local.x = move_local.x - 1 end
-
-					if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
-
-					if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
-
-					if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
-
-					local move = Vec3()
-
-					if move_local:GetLength() > 0.0001 then
-						move_local = move_local:GetNormalized()
-						move = editor_camera.rotation:GetForward() * move_local.z + editor_camera.rotation:GetRight() * move_local.x + editor_camera.rotation:GetUp() * move_local.y
-
-						if move:GetLength() > 0.0001 then move = move:GetNormalized() end
-					end
-
-					local speed = editor_camera.speed
-
-					if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
-						speed = speed * editor_camera.slow_multiplier
-					end
-
-					if input.IsKeyDown("left_shift") then
-						speed = speed * editor_camera.sprint_multiplier
-					end
-
-					editor_camera.velocity = approach_vec(editor_camera.velocity, move * speed, editor_camera.acceleration * dt)
-				end
-
-				editor_camera.position = editor_camera.position + editor_camera.velocity * dt
-				local camera = render3d.GetCamera()
-				camera:SetPosition(editor_camera.position)
-				camera:SetRotation(editor_camera.rotation)
+				editor_camera.Update(
+					dt,
+					{
+						world_size = Panel.World.transform:GetSize(),
+						window_rect = editor_window.transform:GetRect(),
+						block_movement = has_text_focus(editor_window) or
+							context_menu_blocks_world(mouse_pos) or
+							is_ui_hovering() or
+							not mouse_in_editor_viewport(mouse_pos),
+						mouse_in_viewport = mouse_in_editor_viewport,
+					}
+				)
 			end
 
 			draw_nonvisual_entity_hints(
 				editor_window,
-				active_camera_component and active_camera_component.Owner or nil,
+				CameraComponent.GetActiveCameraComponent() and
+					CameraComponent.GetActiveCameraComponent().Owner or
+					nil,
 				get_selected_entity()
 			)
 			update_world_click_selection()
