@@ -53,6 +53,13 @@ function META:IsPosInside(v)
 	return v.x >= self.x and v.y >= self.y and v.x < self.x + self.w and v.y < self.y + self.h
 end
 
+function META:Intersects(other)
+	return self.x < other.x + other.w and
+		self.x + self.w > other.x and
+		self.y < other.y + other.h and
+		self.y + self.h > other.y
+end
+
 function META.IsRectInside(a, b)
 	return not (
 		b.x > a.x + a.w or

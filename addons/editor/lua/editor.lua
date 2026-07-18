@@ -36,13 +36,6 @@ local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
-local function rects_overlap(pos_a, size_a, pos_b, size_b)
-	return pos_a.x < pos_b.x + size_b.x and
-		pos_a.x + size_a.x > pos_b.x and
-		pos_a.y < pos_b.y + size_b.y and
-		pos_a.y + size_a.y > pos_b.y
-end
-
 local function get_mouse_world_ray(input_window)
 	local cam = render3d.GetCamera()
 
@@ -594,12 +587,7 @@ return function(props)
 
 		if not (menu and menu.IsValid and menu:IsValid()) then return false end
 
-		return rects_overlap(
-			mouse_pos,
-			Vec2(1, 1),
-			menu.transform:GetPosition(),
-			menu.transform:GetSize()
-		)
+		return Rect(mouse_pos.x, mouse_pos.y, 1, 1):Intersects(menu.transform:GetRect())
 	end
 
 	local function apply_editor_camera()
@@ -656,7 +644,8 @@ return function(props)
 		local focus_blocks_selection = has_text_focus(window)
 		local world_blocked = context_menu_blocks_world(mouse_pos)
 		local ui_blocks_selection = is_ui_hovering()
-		local inside_world = mouse_in_editor_viewport(mouse_pos) and not window.transform:GetRect():IsPosInside(mouse_pos)
+		local inside_world = mouse_in_editor_viewport(mouse_pos) and
+			not window.transform:GetRect():IsPosInside(mouse_pos)
 		local selection_allowed = inside_world and
 			not focus_blocks_selection and
 			not world_blocked and
