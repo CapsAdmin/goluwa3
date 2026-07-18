@@ -8,6 +8,10 @@ META:GetSet("Active", false)
 META:GetSet("ViewOffset", Vec3(0, 0, 0))
 camera_system.active_camera = camera_system.active_camera or nil
 
+function META.GetActiveCameraComponent()
+	return camera_system.active_camera
+end
+
 function META:SetActive(active)
 	active = not not active
 

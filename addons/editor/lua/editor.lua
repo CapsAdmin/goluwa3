@@ -46,50 +46,6 @@ local function has_text_focus(window)
 		)
 end
 
-local function is_editor_control_rig_entity(entity)
-	if
-		entity:HasComponent("player_input") or
-		entity:HasComponent("player_movement") or
-		entity:HasComponent("player_physgun")
-	then
-		return true
-	end
-
-	return entity:GetKey() == "player_camera_rig" or entity:GetName() == "player_camera_rig"
-end
-
-local function has_editor_control_rig_ancestor(entity)
-	local current = entity
-
-	while current and current:IsValid() do
-		if is_editor_control_rig_entity(current) then return true end
-
-		current = current:GetParent()
-	end
-
-	return false
-end
-
-local function is_editor_pick_excluded_entity(entity, excluded_entity)
-	if has_editor_control_rig_ancestor(entity) then return true end
-
-	local player_camera_rig = Entity.World:GetKeyed("player_camera_rig")
-
-	if player_camera_rig and player_camera_rig:IsValid() then
-		if entity == player_camera_rig or player_camera_rig:ContainsParent(entity) then
-			return true
-		end
-	end
-
-	if excluded_entity and excluded_entity:IsValid() then
-		if entity == excluded_entity or excluded_entity:ContainsParent(entity) then
-			return true
-		end
-	end
-
-	return false
-end
-
 local function get_first_spawned_entity(editor_window)
 	for _, world in ipairs{Entity.World, Panel.World} do
 		for _, child in ipairs(world:GetChildren()) do
@@ -103,24 +59,6 @@ local function get_first_spawned_entity(editor_window)
 	end
 
 	return nil
-end
-
-local function get_entity_by_guid(guid)
-	local entity = objects.GetObjectByGUID(guid)
-	return entity and entity:IsValid() and entity or nil
-end
-
-local function get_drop_parent(drop_info, source_entity)
-	if drop_info.position == "inside" then return drop_info.target_node.Entity end
-
-	if drop_info.parent_node then return drop_info.parent_node.Entity end
-
-	return tree_builder.get_entity_world_root(source_entity) or Entity.World
-end
-
-local function count_valid_children(entity, editor_window)
-	local children = tree_builder.get_valid_children(entity, editor_window)
-	return #children
 end
 
 return function(props)
@@ -195,14 +133,6 @@ return function(props)
 		return result_a, result_b, result_c
 	end
 
-	local function get_active_camera_component()
-		for _, camera in ipairs(CameraComponent.Instances) do
-			if camera:GetActive() then return camera end
-		end
-
-		return NULL
-	end
-
 	local function context_menu_blocks_world(mouse_pos)
 		local menu = Panel.World:GetKeyed("EditorMenuBarContextMenu") or
 			Panel.World:GetKeyed("EditorTreeContextMenu")
@@ -210,10 +140,6 @@ return function(props)
 		if not (menu and menu.IsValid and menu:IsValid()) then return false end
 
 		return Rect(mouse_pos.x, mouse_pos.y, 1, 1):Intersects(menu.transform:GetRect())
-	end
-
-	local function set_hovered_entity(entity)
-		Highlight.EnableHighlight(entity)
 	end
 
 	local picker_2d_active = false
@@ -226,7 +152,7 @@ return function(props)
 			return state.selected_entity
 		end
 
-		state.selected_entity = get_entity_by_guid(state.selected_entity_guid)
+		state.selected_entity = objects.GetObjectByGUID(state.selected_entity_guid)
 		return state.selected_entity
 	end
 
@@ -251,11 +177,6 @@ return function(props)
 			nil
 	end
 
-	local function is_selected_shared_instance()
-		local selected_item = tree_builder.find_tree_item(state.tree_items, state.selected_entity_guid)
-		return selected_item and selected_item.SharedInstance == true or false
-	end
-
 	local function clear_selected_property_listeners()
 		for i = 1, #selected_property_listener_removers do
 			selected_property_listener_removers[i]()
@@ -263,8 +184,6 @@ return function(props)
 
 		list.clear(selected_property_listener_removers)
 	end
-
-	local function refresh_selected_property_listeners() end
 
 	local property_node_hooks = {
 		OnPropertyChangeStart = function()
@@ -274,16 +193,6 @@ return function(props)
 			property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
 		end,
 	}
-
-	local function ensure_expanded_path(entity)
-		local current = entity and entity:GetParent() or nil
-
-		while current and current:IsValid() and not tree_builder.is_world_root(current) do
-			state.expanded_entities[current:GetGUID()] = true
-			current = current:GetParent()
-		end
-	end
-
 	set_selected_target = function(target, ensure_visible, selected_key)
 		local entity = target and target.component_list and target or nil
 		local object = property_builder.is_valid_object(target) and target or nil
@@ -294,7 +203,12 @@ return function(props)
 		Gizmo.EnableGizmo(entity)
 
 		if ensure_visible and entity and state.selected_entity_guid ~= previous_guid then
-			ensure_expanded_path(entity)
+			local current = entity and entity:GetParent() or nil
+
+			while current and current:IsValid() and not tree_builder.is_world_root(current) do
+				state.expanded_entities[current:GetGUID()] = true
+				current = current:GetParent()
+			end
 		end
 	end
 
@@ -320,20 +234,6 @@ return function(props)
 		first and first.Key or nil
 	end
 
-	local function build_tree_branch_item(entity)
-		if not (entity and entity.IsValid and entity:IsValid()) then return nil end
-
-		if entity == Entity.World then
-			return tree_builder.build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, window)
-		end
-
-		if entity == Panel.World then
-			return tree_builder.build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, window)
-		end
-
-		return tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
-	end
-
 	local function get_tree_branch_entity_by_guid(guid)
 		if guid == Entity.World:GetGUID() then return Entity.World end
 
@@ -341,7 +241,7 @@ return function(props)
 
 		if guid == MATERIAL_ROOT_KEY then return nil end
 
-		return get_entity_by_guid(guid)
+		return objects.GetObjectByGUID(guid)
 	end
 
 	reveal_selected_tree_item = function()
@@ -370,6 +270,20 @@ return function(props)
 	end
 
 	do
+		local function build_tree_branch_item(entity)
+			if not (entity and entity.IsValid and entity:IsValid()) then return nil end
+
+			if entity == Entity.World then
+				return tree_builder.build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, window)
+			end
+
+			if entity == Panel.World then
+				return tree_builder.build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, window)
+			end
+
+			return tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
+		end
+
 		local function refresh_tree_branch(entity)
 			local replacement = build_tree_branch_item(entity)
 
@@ -761,7 +675,6 @@ return function(props)
 								node.Object
 							)
 							or
-							get_entity_by_guid(key) or
 							objects.GetObjectByGUID(key)
 						set_selected_target(target, true, key)
 						sync_selection()
@@ -825,9 +738,9 @@ return function(props)
 						local entity = node and node.Entity or nil
 
 						if hovered then
-							set_hovered_entity(entity)
+							Highlight.EnableHighlight(entity)
 						else
-							set_hovered_entity(nil)
+							Highlight.EnableHighlight(nil)
 						end
 					end,
 					OnNodeContextMenu = function(node)
@@ -892,6 +805,14 @@ return function(props)
 						return true
 					end,
 					OnDrop = function(drop_info)
+						local function get_drop_parent(drop_info, source_entity)
+							if drop_info.position == "inside" then return drop_info.target_node.Entity end
+
+							if drop_info.parent_node then return drop_info.parent_node.Entity end
+
+							return tree_builder.get_entity_world_root(source_entity) or Entity.World
+						end
+
 						local source_entity = drop_info.source_node.Entity
 						local next_parent = get_drop_parent(drop_info, source_entity)
 
@@ -952,7 +873,9 @@ return function(props)
 					},
 					gui_element = {
 						OnDraw = function(self)
-							if not is_selected_shared_instance() then return end
+							local selected_item = tree_builder.find_tree_item(state.tree_items, state.selected_entity_guid)
+
+							if selected_item and selected_item.SharedInstance == true then return end
 
 							local panel_size = self.Owner.transform:GetSize()
 							render2d.SetTexture(nil)
@@ -982,7 +905,7 @@ return function(props)
 			},
 		},
 	}
-	active_camera_component = get_active_camera_component()
+	active_camera_component = CameraComponent.GetActiveCameraComponent()
 	active_camera_was_active = active_camera_component:IsValid()
 
 	if active_camera_was_active then active_camera_component:SetActive(false) end
@@ -1037,7 +960,7 @@ return function(props)
 				else
 					self:ClearCursorOverride()
 					picker_2d_cursor_override = nil
-					set_hovered_entity(nil)
+					Highlight.EnableHighlight(nil)
 				end
 			end,
 		},
@@ -1069,6 +992,50 @@ return function(props)
 
 		local function is_visual_pick_helper_entity(entity)
 			return entity.visual_primitive ~= nil or entity.VisualOwner ~= nil
+		end
+
+		local function is_editor_control_rig_entity(entity)
+			if
+				entity:HasComponent("player_input") or
+				entity:HasComponent("player_movement") or
+				entity:HasComponent("player_physgun")
+			then
+				return true
+			end
+
+			return entity:GetKey() == "player_camera_rig" or entity:GetName() == "player_camera_rig"
+		end
+
+		local function has_editor_control_rig_ancestor(entity)
+			local current = entity
+
+			while current and current:IsValid() do
+				if is_editor_control_rig_entity(current) then return true end
+
+				current = current:GetParent()
+			end
+
+			return false
+		end
+
+		local function is_editor_pick_excluded_entity(entity, excluded_entity)
+			if has_editor_control_rig_ancestor(entity) then return true end
+
+			local player_camera_rig = Entity.World:GetKeyed("player_camera_rig")
+
+			if player_camera_rig and player_camera_rig:IsValid() then
+				if entity == player_camera_rig or player_camera_rig:ContainsParent(entity) then
+					return true
+				end
+			end
+
+			if excluded_entity and excluded_entity:IsValid() then
+				if entity == excluded_entity or excluded_entity:ContainsParent(entity) then
+					return true
+				end
+			end
+
+			return false
 		end
 
 		local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
@@ -1287,18 +1254,18 @@ return function(props)
 
 			if input.IsKeyDown("escape") then
 				picker_2d_active = false
-				set_hovered_entity(nil)
+				Highlight.EnableHighlight(nil)
 				return
 			end
 
 			local hovered = MouseInput.GetHoveredObject()
 
 			if not hovered:IsValid() or window:ContainsParent(hovered) then
-				set_hovered_entity(nil)
+				Highlight.EnableHighlight(nil)
 				return
 			end
 
-			set_hovered_entity(hovered)
+			Highlight.EnableHighlight(hovered)
 
 			if input.IsMouseDown("button_1") and not picker_2d_last_button_down then
 				set_selected_target(hovered, true, hovered:GetGUID())
