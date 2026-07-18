@@ -256,7 +256,6 @@ return function(props)
 		return state.selected_entity_guid ~= previous_guid
 	end
 
-	do
 		local function build_tree_branch_item(entity)
 			if not (entity and entity.IsValid and entity:IsValid()) then return nil end
 
@@ -329,7 +328,6 @@ return function(props)
 
 			reveal_selected_tree_item()
 			return false
-		end
 	end
 
 	local function request_editor_sync(tree_dirty, selection_dirty, branch_entity)
