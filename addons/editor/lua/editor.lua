@@ -36,20 +36,6 @@ local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
-local function get_mouse_world_ray(input_window)
-	local cam = render3d.GetCamera()
-
-	if not cam then return nil, nil, nil end
-
-	local mouse_pos = input_window and input_window:GetMousePosition()
-
-	if not mouse_pos then return nil, nil, nil end
-
-	local screen_width, screen_height = render2d.GetSize()
-	local direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
-	return cam:GetPosition(), direction, mouse_pos
-end
-
 local function has_parent(panel, parent)
 	local current = panel
 
@@ -372,7 +358,17 @@ local function find_world_pick_target(editor_window, excluded_entity)
 
 	if not input_window then return nil end
 
-	local ray_origin, ray_direction, mouse_pos = get_mouse_world_ray(input_window)
+	local cam = render3d.GetCamera()
+
+	if not cam then return nil end
+
+	local mouse_pos = input_window:GetMousePosition()
+
+	if not mouse_pos then return nil end
+
+	local screen_width, screen_height = render2d.GetSize()
+	local ray_origin = cam:GetPosition()
+	local ray_direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
 
 	if not (ray_origin and ray_direction and mouse_pos) then return nil end
 
