@@ -119,6 +119,10 @@ function META:GetWorldRectFast()
 	return x, y, x + self.Size.x, y + self.Size.y
 end
 
+function META:GetRect()
+	return Rect(self.Position.x, self.Position.y, self.Size.x, self.Size.y)
+end
+
 function META:GetWorldBounds(x, y, w, h)
 	x = x or 0
 	y = y or 0

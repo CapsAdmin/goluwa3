@@ -36,35 +36,11 @@ local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
-local function point_in_rect(point, rect_pos, rect_size)
-	return point.x >= rect_pos.x and
-		point.y >= rect_pos.y and
-		point.x < rect_pos.x + rect_size.x and
-		point.y < rect_pos.y + rect_size.y
-end
-
 local function rects_overlap(pos_a, size_a, pos_b, size_b)
 	return pos_a.x < pos_b.x + size_b.x and
 		pos_a.x + size_a.x > pos_b.x and
 		pos_a.y < pos_b.y + size_b.y and
 		pos_a.y + size_a.y > pos_b.y
-end
-
-local function get_editor_viewport(world_size, window_pos, window_size)
-	local viewport_pos = Vec2(0, 0)
-	local viewport_size = world_size:Copy()
-	local clamped_window_pos = Vec2(math.clamp(window_pos.x, 0, world_size.x), math.clamp(window_pos.y, 0, world_size.y))
-	local clamped_window_size = Vec2(
-		math.max(0, math.min(window_size.x, world_size.x - clamped_window_pos.x)),
-		math.max(0, math.min(window_size.y, world_size.y - clamped_window_pos.y))
-	)
-
-	if clamped_window_pos.x <= 0 and clamped_window_size.x > 0 then
-		viewport_pos.x = math.clamp(clamped_window_pos.x + clamped_window_size.x, 0, world_size.x)
-		viewport_size.x = math.max(1, world_size.x - viewport_pos.x)
-	end
-
-	return viewport_pos, viewport_size
 end
 
 local function get_mouse_world_ray(input_window)
@@ -522,8 +498,7 @@ return function(props)
 		rotation = nil,
 		pitch = 0,
 		velocity = Vec3(),
-		viewport_pos = Vec2(),
-		viewport_size = Vec2(1, 1),
+		viewport_rect = Rect(0, 0, 1, 1),
 		mouse_sensitivity = 0.0075,
 		min_pitch = -math.pi / 2 + 0.01,
 		max_pitch = math.pi / 2 - 0.01,
@@ -582,43 +557,35 @@ return function(props)
 	local function update_editor_camera_viewport()
 		local camera = render3d.GetCamera()
 		local world_size = Panel.World.transform:GetSize()
-		local viewport_pos = Vec2(0, 0)
-		local viewport_size = world_size:Copy()
+		local viewport_rect = Rect(0, 0, world_size.x, world_size.y)
 
 		if editor_camera.scale_viewport then
-			local window_pos = window.transform:GetPosition()
-			local window_size = window.transform:GetSize()
-			local clamped_window_pos = Vec2(math.clamp(window_pos.x, 0, world_size.x), math.clamp(window_pos.y, 0, world_size.y))
-			local clamped_window_size = Vec2(
-				math.max(0, math.min(window_size.x, world_size.x - clamped_window_pos.x)),
-				math.max(0, math.min(window_size.y, world_size.y - clamped_window_pos.y))
-			)
+			local window_rect = window.transform:GetRect()
+			local clamped_x = math.clamp(window_rect.x, 0, world_size.x)
+			local clamped_y = math.clamp(window_rect.y, 0, world_size.y)
+			local clamped_w = math.max(0, math.min(window_rect.w, world_size.x - clamped_x))
+			local clamped_h = math.max(0, math.min(window_rect.h, world_size.y - clamped_y))
 
-			if clamped_window_pos.x <= 0 and clamped_window_size.x > 0 then
-				viewport_pos.x = math.clamp(clamped_window_pos.x + clamped_window_size.x, 0, world_size.x)
-				viewport_size.x = math.max(1, world_size.x - viewport_pos.x)
+			if clamped_x <= 0 and clamped_w > 0 then
+				viewport_rect.x = math.clamp(clamped_x + clamped_w, 0, world_size.x)
+				viewport_rect.w = math.max(1, world_size.x - viewport_rect.x)
 			end
 		end
 
-		editor_camera.viewport_pos = viewport_pos
-		editor_camera.viewport_size = viewport_size
-		camera:SetViewport(Rect(viewport_pos.x, viewport_pos.y, viewport_size.x, viewport_size.y))
+		editor_camera.viewport_rect = viewport_rect
+		camera:SetViewport(viewport_rect)
 	end
 
 	local function restore_editor_camera_viewport()
 		render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
 	end
 
-	local function mouse_in_editor_window(mouse_pos)
-		return point_in_rect(mouse_pos, window.transform:GetPosition(), window.transform:GetSize())
-	end
-
 	local function mouse_in_editor_viewport(mouse_pos)
 		if not editor_camera.scale_viewport then
-			return not mouse_in_editor_window(mouse_pos)
+			return not window.transform:GetRect():IsPosInside(mouse_pos)
 		end
 
-		return point_in_rect(mouse_pos, editor_camera.viewport_pos, editor_camera.viewport_size)
+		return editor_camera.viewport_rect:IsPosInside(mouse_pos)
 	end
 
 	local function context_menu_blocks_world(mouse_pos)
@@ -652,7 +619,7 @@ return function(props)
 		local gizmo_status = Gizmo.GetStatus()
 		local can_drag = mouse_in_editor_viewport(mouse_pos) and
 			not focus_blocks_movement and
-			not mouse_in_editor_window(mouse_pos)
+			not window.transform:GetRect():IsPosInside(mouse_pos)
 			and
 			not world_blocked and
 			not ui_blocks_movement
@@ -689,7 +656,7 @@ return function(props)
 		local focus_blocks_selection = has_text_focus(window)
 		local world_blocked = context_menu_blocks_world(mouse_pos)
 		local ui_blocks_selection = is_ui_hovering()
-		local inside_world = mouse_in_editor_viewport(mouse_pos) and not mouse_in_editor_window(mouse_pos)
+		local inside_world = mouse_in_editor_viewport(mouse_pos) and not window.transform:GetRect():IsPosInside(mouse_pos)
 		local selection_allowed = inside_world and
 			not focus_blocks_selection and
 			not world_blocked and

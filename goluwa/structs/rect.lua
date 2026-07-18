@@ -50,7 +50,7 @@ function META:SetPosition(x, y)
 end
 
 function META:IsPosInside(v)
-	return v.x > self.x and v.y > self.y and v.x < self.w and v.y < self.h
+	return v.x >= self.x and v.y >= self.y and v.x < self.x + self.w and v.y < self.y + self.h
 end
 
 function META.IsRectInside(a, b)
