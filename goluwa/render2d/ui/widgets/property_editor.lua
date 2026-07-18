@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -94,6 +95,12 @@ local vector_kinds = {
 			return Vec3(values[1], values[2], values[3])
 		end,
 	},
+	ang3 = {
+		components = {"x", "y", "z"},
+		factory = function(values)
+			return Ang3(values[1], values[2], values[3])
+		end,
+	},
 	rect = {
 		components = {"x", "y", "w", "h"},
 		factory = function(values)
@@ -118,6 +125,8 @@ local function normalize_kind(kind)
 	if kind == "Vec2" then return "vec2" end
 
 	if kind == "Vec3" then return "vec3" end
+
+	if kind == "Ang3" then return "ang3" end
 
 	if kind == "Rect" then return "rect" end
 

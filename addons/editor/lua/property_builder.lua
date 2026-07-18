@@ -118,6 +118,8 @@ local function build_property_node(target, category_key, category_name, info, ho
 		node.Type = "quat"
 	elseif property_type == "color" or property_type == "Color" then
 		node.Type = "color"
+	elseif property_type == "ang3" or property_type == "Ang3" then
+		node.Type = "ang3"
 	elseif property_type == "enum" then
 		node.Type = "enum"
 		node.Options = {}
