@@ -31,6 +31,7 @@ local AssetBrowser = import("lua/asset_browser.lua")
 local Material = import("goluwa/render3d/material.lua")
 local tree_builder = import("addons/editor/lua/tree_builder.lua")
 local property_builder = import("addons/editor/lua/property_builder.lua")
+local CameraComponent = import("lua/components/camera.lua")
 local MATERIAL_ROOT_KEY = tree_builder.MATERIAL_ROOT_KEY
 local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
@@ -472,34 +473,11 @@ return function(props)
 	end
 
 	local function get_active_camera_component()
-		local function walk(entity)
-			if
-				entity and
-				entity:IsValid() and
-				entity.camera and
-				entity.camera.GetActive and
-				entity.camera:GetActive()
-			then
-				return entity.camera
-			end
-
-			for _, child in ipairs(entity:GetChildren()) do
-				local found = walk(child)
-
-				if found then return found end
-			end
+		for _, camera in ipairs(CameraComponent.Instances) do
+			if camera:GetActive() then return camera end
 		end
 
-		return walk(Entity.World)
-	end
-
-	local function sync_editor_camera_from_render_camera()
-		local camera = render3d.GetCamera()
-		editor_camera.position = camera:GetPosition():Copy()
-		editor_camera.rotation = camera:GetRotation():Copy()
-		local forward = editor_camera.rotation:GetForward()
-		editor_camera.pitch = math.asin(math.clamp(forward.y, -1, 1))
-		editor_camera.velocity = Vec3()
+		return NULL
 	end
 
 	local function update_editor_camera_viewport()
@@ -522,10 +500,6 @@ return function(props)
 
 		editor_camera.viewport_rect = viewport_rect
 		camera:SetViewport(viewport_rect)
-	end
-
-	local function restore_editor_camera_viewport()
-		render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
 	end
 
 	local function mouse_in_editor_viewport(mouse_pos)
@@ -1744,13 +1718,19 @@ return function(props)
 		},
 	}
 	active_camera_component = get_active_camera_component()
-	active_camera_was_active = active_camera_component and active_camera_component:GetActive() or false
+	active_camera_was_active = active_camera_component:IsValid()
 
-	if active_camera_component and active_camera_was_active then
-		active_camera_component:SetActive(false)
+	if active_camera_was_active then active_camera_component:SetActive(false) end
+
+	do
+		local camera = render3d.GetCamera()
+		editor_camera.position = camera:GetPosition():Copy()
+		editor_camera.rotation = camera:GetRotation():Copy()
+		local forward = editor_camera.rotation:GetForward()
+		editor_camera.pitch = math.asin(math.clamp(forward.y, -1, 1))
+		editor_camera.velocity = Vec3()
 	end
 
-	sync_editor_camera_from_render_camera()
 	update_editor_camera_viewport()
 	-- Create 2D picker button, positioned at bottom-right of tree view
 	local picker_button = Panel.New{
@@ -1845,13 +1825,9 @@ return function(props)
 			clear_selected_property_listeners()
 			Highlight.Clear()
 			Gizmo.Clear(window)
-			restore_editor_camera_viewport()
+			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
 
-			if
-				active_camera_component and
-				active_camera_component.IsValid and
-				active_camera_component:IsValid()
-			then
+			if active_camera_component:IsValid() then
 				active_camera_component:SetActive(active_camera_was_active)
 			end
 		end,
