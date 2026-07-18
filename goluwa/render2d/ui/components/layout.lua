@@ -54,8 +54,8 @@ META:GetSet(
 		enums = {"none", "top", "bottom", "left", "right", "fill"},
 	}
 )
-META:GetSet("Dirty", false)
 META:EndStorable()
+META:GetSet("Dirty", false)
 META:GetSet("LastSize", Vec2(0, 0))
 
 function META:Initialize()
