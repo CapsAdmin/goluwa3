@@ -30,7 +30,9 @@ local function is_drawable_model_entity(entity)
 end
 
 local function is_drawable_2d_entity(entity)
-	return is_valid_entity(entity) and entity.transform
+	return is_valid_entity(entity) and
+		entity.transform and
+		entity.transform.Type == "transform_2d"
 end
 
 local function draw_overlay_polygon(polygon, material, world_matrix)

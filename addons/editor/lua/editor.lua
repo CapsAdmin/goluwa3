@@ -36,10 +36,6 @@ local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
-local function clamp(value, min_value, max_value)
-	return math.max(min_value, math.min(max_value, value))
-end
-
 local function point_in_rect(point, rect_pos, rect_size)
 	return point.x >= rect_pos.x and
 		point.y >= rect_pos.y and
@@ -57,56 +53,18 @@ end
 local function get_editor_viewport(world_size, window_pos, window_size)
 	local viewport_pos = Vec2(0, 0)
 	local viewport_size = world_size:Copy()
-	local clamped_window_pos = Vec2(clamp(window_pos.x, 0, world_size.x), clamp(window_pos.y, 0, world_size.y))
+	local clamped_window_pos = Vec2(math.clamp(window_pos.x, 0, world_size.x), math.clamp(window_pos.y, 0, world_size.y))
 	local clamped_window_size = Vec2(
 		math.max(0, math.min(window_size.x, world_size.x - clamped_window_pos.x)),
 		math.max(0, math.min(window_size.y, world_size.y - clamped_window_pos.y))
 	)
 
 	if clamped_window_pos.x <= 0 and clamped_window_size.x > 0 then
-		viewport_pos.x = clamp(clamped_window_pos.x + clamped_window_size.x, 0, world_size.x)
+		viewport_pos.x = math.clamp(clamped_window_pos.x + clamped_window_size.x, 0, world_size.x)
 		viewport_size.x = math.max(1, world_size.x - viewport_pos.x)
 	end
 
 	return viewport_pos, viewport_size
-end
-
-local function get_camera_viewport_rect(cam)
-	local viewport = cam and cam.GetViewport and cam:GetViewport() or nil
-
-	if viewport and viewport.w and viewport.h and viewport.w > 0 and viewport.h > 0 then
-		return viewport
-	end
-
-	local world_size = Panel.World.transform:GetSize()
-	return {
-		x = 0,
-		y = 0,
-		w = world_size.x,
-		h = world_size.y,
-	}
-end
-
-local function get_viewport_mouse_position(input_window, cam)
-	local viewport = get_camera_viewport_rect(cam)
-	local mouse_pos = input_window and
-		input_window.GetMousePosition and
-		input_window:GetMousePosition() or
-		nil
-
-	if not mouse_pos then return nil, viewport, nil end
-
-	if mouse_pos.x < viewport.x or mouse_pos.y < viewport.y then
-		return nil, viewport, mouse_pos
-	end
-
-	if mouse_pos.x >= viewport.x + viewport.w or mouse_pos.y >= viewport.y + viewport.h then
-		return nil, viewport, mouse_pos
-	end
-
-	return Vec2(mouse_pos.x - viewport.x, mouse_pos.y - viewport.y),
-	viewport,
-	mouse_pos
 end
 
 local function get_mouse_world_ray(input_window)
@@ -114,18 +72,13 @@ local function get_mouse_world_ray(input_window)
 
 	if not cam then return nil, nil, nil end
 
-	local _, _, mouse_pos = get_viewport_mouse_position(input_window, cam)
+	local mouse_pos = input_window and input_window:GetMousePosition()
 
 	if not mouse_pos then return nil, nil, nil end
 
 	local screen_width, screen_height = render2d.GetSize()
 	local direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
 	return cam:GetPosition(), direction, mouse_pos
-end
-
-local function get_focus_owner()
-	local focused = objects.GetFocusedObject and objects.GetFocusedObject() or NULL
-	return focused
 end
 
 local function has_parent(panel, parent)
@@ -141,9 +94,9 @@ local function has_parent(panel, parent)
 end
 
 local function has_text_focus(window)
-	local focused = get_focus_owner()
+	local focused = objects:GetFocusedObject()
 
-	if not (focused and focused.IsValid and focused:IsValid()) then return false end
+	if not focused:IsValid() then return false end
 
 	if window and not has_parent(focused, window) then return false end
 
@@ -151,12 +104,8 @@ local function has_text_focus(window)
 end
 
 local function is_ui_hovering()
-	local hovered = MouseInput.GetHoveredObject and MouseInput.GetHoveredObject() or NULL
-	return hovered and
-		hovered.IsValid and
-		hovered:IsValid() and
-		hovered ~= Panel.World or
-		false
+	local hovered = MouseInput.GetHoveredObject()
+	return hovered:IsValid() and hovered ~= Panel.World
 end
 
 local function approach_vec(current, target, delta)
@@ -175,7 +124,7 @@ local function update_editor_camera_rotation(camera_state, mouse_delta)
 
 	local rotation = camera_state.rotation:Copy()
 	local scaled_delta = mouse_delta * camera_state.mouse_sensitivity
-	local new_pitch = clamp(camera_state.pitch + scaled_delta.y, camera_state.min_pitch, camera_state.max_pitch)
+	local new_pitch = math.clamp(camera_state.pitch + scaled_delta.y, camera_state.min_pitch, camera_state.max_pitch)
 	local pitch_delta = new_pitch - camera_state.pitch
 	local yaw_quat = Quat():Identity()
 	yaw_quat:RotateYaw(-scaled_delta.x)
@@ -242,8 +191,8 @@ local function is_editor_control_rig_entity(entity)
 		end
 	end
 
-	local key = entity.GetKey and entity:GetKey() or ""
-	local name = entity.GetName and entity:GetName() or ""
+	local key = entity:GetKey()
+	local name = entity:GetName()
 	return key == "player_camera_rig" or name == "player_camera_rig"
 end
 
@@ -303,7 +252,7 @@ local function has_visual_pick_target(entity)
 
 	if not visual then return false end
 
-	local entries = visual.GetRenderEntries and visual:GetRenderEntries() or visual.Primitives or nil
+	local entries = visual:GetRenderEntries()
 	return entries and entries[1] ~= nil or false
 end
 
@@ -345,7 +294,7 @@ local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selec
 
 	if not cam then return end
 
-	local viewport = cam.GetViewport and cam:GetViewport() or nil
+	local viewport = cam:GetViewport()
 	local screen_width = viewport and viewport.w or nil
 	local screen_height = viewport and viewport.h or nil
 
@@ -626,7 +575,7 @@ return function(props)
 		editor_camera.position = camera:GetPosition():Copy()
 		editor_camera.rotation = camera:GetRotation():Copy()
 		local forward = editor_camera.rotation:GetForward()
-		editor_camera.pitch = math.asin(clamp(forward.y, -1, 1))
+		editor_camera.pitch = math.asin(math.clamp(forward.y, -1, 1))
 		editor_camera.velocity = Vec3()
 	end
 
@@ -639,7 +588,16 @@ return function(props)
 		if editor_camera.scale_viewport then
 			local window_pos = window.transform:GetPosition()
 			local window_size = window.transform:GetSize()
-			viewport_pos, viewport_size = get_editor_viewport(world_size, window_pos, window_size)
+			local clamped_window_pos = Vec2(math.clamp(window_pos.x, 0, world_size.x), math.clamp(window_pos.y, 0, world_size.y))
+			local clamped_window_size = Vec2(
+				math.max(0, math.min(window_size.x, world_size.x - clamped_window_pos.x)),
+				math.max(0, math.min(window_size.y, world_size.y - clamped_window_pos.y))
+			)
+
+			if clamped_window_pos.x <= 0 and clamped_window_size.x > 0 then
+				viewport_pos.x = math.clamp(clamped_window_pos.x + clamped_window_size.x, 0, world_size.x)
+				viewport_size.x = math.max(1, world_size.x - viewport_pos.x)
+			end
 		end
 
 		editor_camera.viewport_pos = viewport_pos
