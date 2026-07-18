@@ -302,12 +302,10 @@ return function(props)
 	local tree_panel
 	local property_editor
 	local property_editor_frame
-	local footer_text
 	local window
 	local selected_property_listener_removers = {}
 	local property_change_sync_blocked = 0
 	local refresh_property_editor
-	local update_footer
 	local refresh_property_key
 	local set_selected_target
 	local reveal_selected_tree_item
@@ -552,33 +550,7 @@ return function(props)
 		list.clear(selected_property_listener_removers)
 	end
 
-	local function refresh_selected_property_listeners()
-		clear_selected_property_listeners()
-		local target = get_selected_object()
-
-		if not property_builder.is_valid_object(target) then return end
-
-		if target.component_list then
-			for _, component in ipairs(target.component_list or {}) do
-				if component and component.IsValid and component:IsValid() then
-					local component_name = property_builder.get_component_name(target, component)
-					selected_property_listener_removers[#selected_property_listener_removers + 1] = component:AddPropertyListener(function(_, key)
-						if property_change_sync_blocked > 0 then return end
-
-						refresh_property_key(target:GetGUID() .. "/" .. component_name, key, target)
-					end)
-				end
-			end
-
-			return
-		end
-
-		selected_property_listener_removers[#selected_property_listener_removers + 1] = target:AddPropertyListener(function(_, key)
-			if property_change_sync_blocked > 0 then return end
-
-			refresh_property_key(target:GetGUID() .. "/properties", key, target)
-		end)
-	end
+	local function refresh_selected_property_listeners() end
 
 	local property_node_hooks = {
 		OnPropertyChangeStart = function()
@@ -588,47 +560,6 @@ return function(props)
 			property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
 		end,
 	}
-	update_footer = function(selected)
-		local gizmo_status_info = Gizmo.GetStatus()
-		local gizmo_status = string.format("gizmo: %s/%s", gizmo_status_info.mode, gizmo_status_info.space)
-
-		if gizmo_status_info.active_drag then
-			gizmo_status = string.format(
-				"%s [%s %s]",
-				gizmo_status,
-				gizmo_status_info.active_drag.kind,
-				gizmo_status_info.active_drag.axis_id:upper()
-			)
-		end
-
-		local root_3d_count = count_valid_children(Entity.World, window)
-		local root_2d_count = count_valid_children(Panel.World, window)
-
-		if not selected then
-			footer_text.text:SetText(
-				string.format(
-					"3D roots: %d  |  2D roots: %d  |  %s",
-					root_3d_count,
-					root_2d_count,
-					gizmo_status
-				)
-			)
-			return
-		end
-
-		local label = selected.component_list and
-			tree_builder.get_entity_label(selected) or
-			tree_builder.get_object_label(selected)
-		footer_text.text:SetText(
-			string.format(
-				"3D roots: %d  |  2D roots: %d  |  selected: %s  |  %s",
-				root_3d_count,
-				root_2d_count,
-				label,
-				gizmo_status
-			)
-		)
-	end
 
 	local function ensure_expanded_path(entity)
 		local current = entity and entity:GetParent() or nil
@@ -835,7 +766,6 @@ return function(props)
 		if property_name == "Name" or property_name == "Key" or property_name == "Material" then
 			property_editor:RefreshValueForKey(row_key)
 			request_editor_sync(true, false, nil)
-			update_footer(get_selected_object())
 			return
 		end
 
@@ -863,7 +793,6 @@ return function(props)
 		end, "tree_set_items")
 
 		reveal_selected_tree_item()
-		update_footer(get_selected_object())
 		return state.selected_entity_guid ~= previous_guid
 	end
 	flush_pending_tree_branch_refreshes = function()
@@ -898,12 +827,10 @@ return function(props)
 			local selected_target, selected_key = resolve_selected_target(state.tree_items)
 			set_selected_target(selected_target, false, selected_key)
 			reveal_selected_tree_item()
-			update_footer(get_selected_object())
 			return state.selected_entity_guid ~= selected_guid
 		end
 
 		reveal_selected_tree_item()
-		update_footer(get_selected_object())
 		return false
 	end
 	request_editor_sync = function(tree_dirty, selection_dirty, branch_entity)
@@ -948,37 +875,35 @@ return function(props)
 		pending_selection_sync = false
 		local selected_target, selected_key = resolve_selected_target(state.tree_items)
 		set_selected_target(selected_target, false, selected_key)
-		refresh_selected_property_listeners()
+
+		do
+			clear_selected_property_listeners()
+			local target = get_selected_object()
+
+			if property_builder.is_valid_object(target) then
+				if target.component_list then
+					for _, component in ipairs(target.component_list or {}) do
+						if component and component.IsValid and component:IsValid() then
+							local component_name = property_builder.get_component_name(target, component)
+							selected_property_listener_removers[#selected_property_listener_removers + 1] = component:AddPropertyListener(function(_, key)
+								if property_change_sync_blocked > 0 then return end
+
+								refresh_property_key(target:GetGUID() .. "/" .. component_name, key, target)
+							end)
+						end
+					end
+				else
+					selected_property_listener_removers[#selected_property_listener_removers + 1] = target:AddPropertyListener(function(_, key)
+						if property_change_sync_blocked > 0 then return end
+
+						refresh_property_key(target:GetGUID() .. "/properties", key, target)
+					end)
+				end
+			end
+		end
+
 		reveal_selected_tree_item()
 		refresh_property_editor()
-		update_footer(get_selected_object())
-	end
-
-	local function open_gallery()
-		local Gallery = import("addons/ui_gallery/lua/gallery_browser.lua")
-		Panel.World:Ensure(Gallery({Key = "GalleryWindow"}))
-	end
-
-	local function open_asset_browser()
-		Panel.World:Ensure(AssetBrowser({Key = "AssetBrowserWindow"}))
-	end
-
-	local function open_asset_picker(picker_key, title, category, node, target, info, key, path, panel, commit_value)
-		Panel.World:Ensure(
-			AssetBrowser{
-				Key = picker_key,
-				Title = title,
-				PickerCategory = category,
-				Categories = {category},
-				SelectedKey = category,
-				ShowGridByDefault = true,
-				OnPickAsset = function(entry, asset, browser_window)
-					commit_value(node, asset, key, path, panel)
-					browser_window:Remove()
-					return true
-				end,
-			}
-		)
 	end
 
 	local function create_child_shape(parent_entity, kind)
@@ -1013,17 +938,6 @@ return function(props)
 		end
 
 		set_selected_target(entity, true, entity:GetGUID())
-		sync_selection()
-	end
-
-	local function remove_entity(entity)
-		local parent = entity:GetParent()
-		set_selected_target(
-			parent and parent:IsValid() and parent or nil,
-			true,
-			parent and parent:GetGUID() or nil
-		)
-		entity:Remove()
 		sync_selection()
 	end
 
@@ -1075,8 +989,19 @@ return function(props)
 					Text = "FILE",
 					Items = function()
 						return {
-							MenuItem{Text = "ui gallery", OnClick = open_gallery},
-							MenuItem{Text = "asset browser", OnClick = open_asset_browser},
+							MenuItem{
+								Text = "ui gallery",
+								OnClick = function()
+									local Gallery = import("addons/ui_gallery/lua/gallery_browser.lua")
+									Panel.World:Ensure(Gallery({Key = "GalleryWindow"}))
+								end,
+							},
+							MenuItem{
+								Text = "asset browser",
+								OnClick = function()
+									Panel.World:Ensure(AssetBrowser({Key = "AssetBrowserWindow"}))
+								end,
+							},
 							MenuItem{
 								Text = "exit",
 								OnClick = function()
@@ -1096,7 +1021,6 @@ return function(props)
 								Text = label,
 								OnClick = function()
 									setter(value)
-									update_footer(get_selected_object())
 								end,
 							}
 						end
@@ -1292,7 +1216,14 @@ return function(props)
 								MenuItem{
 									Text = "Remove",
 									OnClick = function()
-										remove_entity(entity)
+										local parent = entity:GetParent()
+										set_selected_target(
+											parent and parent:IsValid() and parent or nil,
+											true,
+											parent and parent:GetGUID() or nil
+										)
+										entity:Remove()
+										sync_selection()
 									end,
 								} or
 								nil,
@@ -1394,20 +1325,6 @@ return function(props)
 						},
 					},
 				},
-			},
-		},
-		Text{
-			Ref = function(self)
-				footer_text = self
-				update_footer(get_selected_object())
-			end,
-			Text = "",
-			Color = "text_disabled",
-			FontSize = "XS",
-			layout = {
-				GrowWidth = 1,
-				Padding = "XS",
-				FitHeight = true,
 			},
 		},
 	}
@@ -1595,10 +1512,6 @@ return function(props)
 
 		flush_pending_editor_sync(false)
 	end
-
-	Gizmo.SetStateChangedCallback(window, function(status)
-		update_footer(get_selected_object())
-	end)
 
 	window:CallOnRemove(
 		function()
