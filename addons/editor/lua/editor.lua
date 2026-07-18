@@ -28,7 +28,6 @@ local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
-local Material = import("goluwa/render3d/material.lua")
 local tree_builder = import("addons/editor/lua/tree_builder.lua")
 local property_builder = import("addons/editor/lua/property_builder.lua")
 local CameraComponent = import("lua/components/camera.lua")
@@ -286,8 +285,6 @@ local function count_valid_children(entity, editor_window)
 	return #children
 end
 
-local open_material_picker
-local open_texture_picker
 return function(props)
 	props = props or {}
 	local state = {
@@ -990,35 +987,6 @@ return function(props)
 		)
 	end
 
-	open_material_picker = function(node, target, info, key, path, panel, commit_value)
-		open_asset_picker(
-			"MaterialAssetPickerWindow",
-			"PICK MATERIAL",
-			"materials",
-			node,
-			target,
-			info,
-			key,
-			path,
-			panel,
-			commit_value
-		)
-	end
-	open_texture_picker = function(node, target, info, key, path, panel, commit_value)
-		open_asset_picker(
-			"TextureAssetPickerWindow",
-			"PICK TEXTURE",
-			"textures",
-			node,
-			target,
-			info,
-			key,
-			path,
-			panel,
-			commit_value
-		)
-	end
-
 	local function create_child_shape(parent_entity, kind)
 		local camera_forward = editor_camera.rotation:GetForward()
 		local spawn_world_position = editor_camera.position + camera_forward * 2
@@ -1271,7 +1239,6 @@ return function(props)
 				Ref = function(self)
 					tree_panel = self
 				end,
-				Padding = "XXS",
 				ScrollX = false,
 				ScrollY = true,
 				Padding = Rect(),
@@ -1397,10 +1364,9 @@ return function(props)
 				},
 			},
 			ScrollablePanel{
-				Padding = "XXS",
 				ScrollX = false,
 				ScrollY = true,
-				Padding = Rect(),
+				Padding = "none",
 				ScrollBarContentShiftMode = "auto_shift",
 				layout = {
 					GrowWidth = 1,
