@@ -36,24 +36,12 @@ local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
-local function has_parent(panel, parent)
-	local current = panel
-
-	while current and current.IsValid and current:IsValid() do
-		if current == parent then return true end
-
-		current = current:GetParent()
-	end
-
-	return false
-end
-
 local function has_text_focus(window)
 	local focused = objects:GetFocusedObject()
 
 	if not focused:IsValid() then return false end
 
-	if window and not has_parent(focused, window) then return false end
+	if window and not window:ContainsParent(focused) then return false end
 
 	return focused.text ~= nil or focused.Name == "TextEdit"
 end
@@ -172,13 +160,13 @@ local function is_editor_pick_excluded_entity(entity, excluded_entity)
 	local player_camera_rig = world and world.GetKeyed and world:GetKeyed("player_camera_rig") or nil
 
 	if player_camera_rig and player_camera_rig.IsValid and player_camera_rig:IsValid() then
-		if entity == player_camera_rig or has_parent(entity, player_camera_rig) then
+		if entity == player_camera_rig or player_camera_rig:ContainsParent(entity) then
 			return true
 		end
 	end
 
 	if excluded_entity and excluded_entity.IsValid and excluded_entity:IsValid() then
-		if entity == excluded_entity or has_parent(entity, excluded_entity) then
+		if entity == excluded_entity or excluded_entity:ContainsParent(entity) then
 			return true
 		end
 	end
@@ -728,7 +716,7 @@ return function(props)
 			return
 		end
 
-		if has_parent(hovered, window) then
+		if window:ContainsParent(hovered) then
 			set_hovered_entity(nil)
 			return
 		end
