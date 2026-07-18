@@ -73,9 +73,10 @@ return function(props)
 		Tooltip = kind == "string" and string_tooltip or nil,
 		TooltipMaxWidth = 360,
 		layout = {
-			FitWidth = true,
+			FitWidth = false,
 			ChildGap = props.gap,
 			AlignmentY = "center",
+			AlignmentX = "stretch",
 		},
 	}{
 		TextEdit{
@@ -105,7 +106,7 @@ return function(props)
 				props.commit_value(node, input:GetText(), props.key, props.path)
 			end,
 			layout = {
-				SelfAlignmentY = multiline and "start" or "center",
+				SelfAlignmentY = "center",
 			},
 		},
 	}

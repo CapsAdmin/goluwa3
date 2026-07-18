@@ -64,6 +64,7 @@ return function(props)
 		layout = {
 			MinSize = Vec2(props.value_width, props.row_height),
 			MaxSize = Vec2(props.value_width, props.row_height),
+			GrowWidth = 1,
 		},
 	}
 

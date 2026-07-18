@@ -383,6 +383,7 @@ return function(props)
 			Direction = "x",
 			FitHeight = true,
 			AlignmentY = "center",
+			GrowWidth = 1,
 		},
 		OnClick = open_menu,
 	}{

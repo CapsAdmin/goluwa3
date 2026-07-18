@@ -33,7 +33,7 @@ return function(props)
 			end,
 			style = props.style or true,
 			transform = {
-				Size = props.Size or Vec2(200, 50),
+				Size = props.Size,
 				Perspective = 400,
 				DrawScaleOffset = Vec2(1, 1),
 				DrawAngleOffset = Ang3(0, 0, 0),

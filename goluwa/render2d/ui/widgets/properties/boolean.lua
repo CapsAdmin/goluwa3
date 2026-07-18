@@ -56,15 +56,13 @@ return function(props)
 	}
 	control = Panel.New{
 		Name = "PropertyBooleanValue",
-		transform = {
-			Size = Vec2(props.value_width, props.row_height),
-		},
+		transform = {},
 		layout = {
 			Direction = "x",
 			AlignmentY = "center",
 			FitWidth = false,
-			MinSize = Vec2(props.value_width, props.row_height),
-			MaxSize = Vec2(props.value_width, props.row_height),
+			FitHeight = true,
+			GrowWidth = 1,
 			Padding = props.padding,
 			ChildGap = props.gap,
 		},

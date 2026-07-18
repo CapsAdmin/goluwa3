@@ -13,6 +13,7 @@ return {
 				GrowWidth = 1,
 				ChildGap = 10,
 				AlignmentX = "stretch",
+				Padding = "M",
 			},
 		}{
 			Collapsible{
@@ -24,6 +25,7 @@ return {
 					Wrap = true,
 					layout = {
 						GrowWidth = 1,
+						Padding = "M",
 					},
 				}
 			),
@@ -37,6 +39,7 @@ return {
 						FitHeight = true,
 						GrowWidth = 1,
 						ChildGap = 5,
+						Padding = "M",
 					},
 				}{
 					Button{
@@ -54,9 +57,16 @@ return {
 					Collapsible{
 						Title = "Sub-Collapsible",
 						Collapsed = true,
-					}(Text{
-						Text = string.random_words(5),
-					}),
+					}(
+						Text{
+							Wrap = true,
+							WrapToParent = true,
+							layout = {
+								Padding = "M",
+							},
+							Text = string.random_words(5),
+						}
+					),
 				}
 			),
 			Collapsible{
@@ -68,6 +78,7 @@ return {
 					Wrap = true,
 					layout = {
 						GrowWidth = 1,
+						Padding = "M",
 					},
 				}
 			),
