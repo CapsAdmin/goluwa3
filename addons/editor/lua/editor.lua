@@ -46,22 +46,6 @@ local function has_text_focus(window)
 		)
 end
 
-local function is_ui_hovering()
-	local hovered = MouseInput.GetHoveredObject()
-	return hovered:IsValid() and hovered ~= Panel.World
-end
-
-local function approach_vec(current, target, delta)
-	local diff = target - current
-	local length = diff:GetLength()
-
-	if length == 0 or delta <= 0 then return current end
-
-	if length <= delta then return target end
-
-	return current + diff / length * delta
-end
-
 local function is_editor_control_rig_entity(entity)
 	if
 		entity:HasComponent("player_input") or
@@ -121,152 +105,6 @@ local function get_first_spawned_entity(editor_window)
 	return nil
 end
 
-local function has_visual_pick_target(entity)
-	local entries = entity.visual:GetRenderEntries()
-	return entries and entries[1] ~= nil or false
-end
-
-local function is_visual_pick_helper_entity(entity)
-	return entity.visual_primitive ~= nil or entity.VisualOwner ~= nil
-end
-
-local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
-	if tree_builder.is_hidden_editor_entity(entity, editor_window) then
-		return false
-	end
-
-	if is_editor_pick_excluded_entity(entity, excluded_entity) then return false end
-
-	if
-		entity.visual and
-		has_visual_pick_target(entity) or
-		is_visual_pick_helper_entity(entity)
-	then
-		return false
-	end
-
-	return entity.transform ~= nil
-end
-
-local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selected_entity)
-	local cam = render3d.GetCamera()
-	local viewport = cam:GetViewport()
-
-	for _, entity in ipairs(Entity.World:GetChildrenList()) do
-		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
-			goto continue
-		end
-
-		local world_pos = entity.transform:GetWorldPosition()
-		local _, visibility = cam:WorldPositionToScreen(world_pos, viewport.w, viewport.h)
-
-		if visibility ~= -1 then goto continue end
-
-		local is_selected = entity == selected_entity
-		debug_draw.DrawSphere{
-			id = "editor_nonvisual_hint_" .. entity:GetGUID(),
-			position = world_pos,
-			radius = is_selected and 0.1 or 0.06,
-			color = is_selected and {0.45, 1.0, 0.45, 0.35} or {0.8, 0.9, 1.0, 0.16},
-			ignore_z = true,
-			time = NONVISUAL_HINT_TIME,
-		}
-
-		::continue::
-	end
-end
-
-local function find_nonvisual_entity_hit(
-	editor_window,
-	mouse_pos,
-	ray_origin,
-	ray_direction,
-	max_distance,
-	excluded_entity
-)
-	local cam = render3d.GetCamera()
-	local best_hit = nil
-	local best_distance = max_distance or math.huge
-	local marker_radius_sq = 144
-
-	for _, entity in ipairs(Entity.World:GetChildrenList()) do
-		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
-			goto continue2
-		end
-
-		local world_pos = entity.transform:GetWorldPosition()
-		local screen_pos, visibility = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
-
-		if visibility ~= -1 or not screen_pos then goto continue2 end
-
-		local dx = screen_pos.x - mouse_pos.x
-		local dy = screen_pos.y - mouse_pos.y
-		local screen_distance_sq = dx * dx + dy * dy
-
-		if screen_distance_sq > marker_radius_sq then goto continue2 end
-
-		local ray_distance = (world_pos - ray_origin):Dot(ray_direction)
-
-		if ray_distance <= 0 or ray_distance > best_distance then goto continue2 end
-
-		if
-			not best_hit or
-			ray_distance < best_hit.distance or
-			(
-				ray_distance == best_hit.distance and
-				screen_distance_sq < best_hit.screen_distance_sq
-			)
-		then
-			best_hit = {
-				entity = entity,
-				distance = ray_distance,
-				position = world_pos:Copy(),
-				screen_distance_sq = screen_distance_sq,
-			}
-			best_distance = ray_distance
-		end
-
-		::continue2::
-	end
-
-	return best_hit
-end
-
-local function find_world_pick_target(editor_window, excluded_entity)
-	local input_window = system.GetWindow()
-	local cam = render3d.GetCamera()
-	local mouse_pos = input_window:GetMousePosition()
-	local screen_width, screen_height = render2d.GetSize()
-	local ray_origin = cam:GetPosition()
-	local ray_direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
-	local visual_hit = raycast.CastClosest(
-		ray_origin,
-		ray_direction,
-		math.huge,
-		function(entity)
-			return entity:IsValid() and
-				tree_builder.get_entity_world_root(entity) == Entity.World and
-				not tree_builder.is_hidden_editor_entity(entity, editor_window)
-				and
-				not is_editor_pick_excluded_entity(entity, excluded_entity)
-		end
-	)
-	local fallback_hit = find_nonvisual_entity_hit(
-		editor_window,
-		mouse_pos,
-		ray_origin,
-		ray_direction,
-		math.huge,
-		excluded_entity
-	)
-
-	if fallback_hit then return fallback_hit.entity end
-
-	if visual_hit then return visual_hit.entity end
-
-	return nil
-end
-
 local function get_entity_by_guid(guid)
 	local entity = objects.GetObjectByGUID(guid)
 	return entity and entity:IsValid() and entity or nil
@@ -305,8 +143,6 @@ return function(props)
 	local window
 	local selected_property_listener_removers = {}
 	local property_change_sync_blocked = 0
-	local refresh_property_editor
-	local refresh_property_key
 	local set_selected_target
 	local reveal_selected_tree_item
 	local sync_tree_items
@@ -367,36 +203,6 @@ return function(props)
 		return NULL
 	end
 
-	local function update_editor_camera_viewport()
-		local camera = render3d.GetCamera()
-		local world_size = Panel.World.transform:GetSize()
-		local viewport_rect = Rect(0, 0, world_size.x, world_size.y)
-
-		if editor_camera.scale_viewport then
-			local window_rect = window.transform:GetRect()
-			local clamped_x = math.clamp(window_rect.x, 0, world_size.x)
-			local clamped_y = math.clamp(window_rect.y, 0, world_size.y)
-			local clamped_w = math.max(0, math.min(window_rect.w, world_size.x - clamped_x))
-			local clamped_h = math.max(0, math.min(window_rect.h, world_size.y - clamped_y))
-
-			if clamped_x <= 0 and clamped_w > 0 then
-				viewport_rect.x = math.clamp(clamped_x + clamped_w, 0, world_size.x)
-				viewport_rect.w = math.max(1, world_size.x - viewport_rect.x)
-			end
-		end
-
-		editor_camera.viewport_rect = viewport_rect
-		camera:SetViewport(viewport_rect)
-	end
-
-	local function mouse_in_editor_viewport(mouse_pos)
-		if not editor_camera.scale_viewport then
-			return not window.transform:GetRect():IsPosInside(mouse_pos)
-		end
-
-		return editor_camera.viewport_rect:IsPosInside(mouse_pos)
-	end
-
 	local function context_menu_blocks_world(mouse_pos)
 		local menu = Panel.World:GetKeyed("EditorMenuBarContextMenu") or
 			Panel.World:GetKeyed("EditorTreeContextMenu")
@@ -404,62 +210,6 @@ return function(props)
 		if not (menu and menu.IsValid and menu:IsValid()) then return false end
 
 		return Rect(mouse_pos.x, mouse_pos.y, 1, 1):Intersects(menu.transform:GetRect())
-	end
-
-	local function update_world_click_selection()
-		local mouse_pos = system.GetWindow():GetMousePosition()
-		local gizmo_status = Gizmo.GetStatus()
-		local inside_world = mouse_in_editor_viewport(mouse_pos) and
-			not window.transform:GetRect():IsPosInside(mouse_pos)
-		local selection_allowed = inside_world and
-			not has_text_focus(window)
-			and
-			not context_menu_blocks_world(mouse_pos)
-			and
-			not is_ui_hovering()
-			and
-			not gizmo_status.active_drag and
-			not gizmo_status.hovered_handle
-		local button_down = input.IsMouseDown("button_1")
-
-		if button_down and not world_click.button_down then
-			world_click.button_down = true
-			world_click.allow_pick = selection_allowed
-			world_click.dragged = false
-			world_click.start_mouse_pos = mouse_pos:Copy()
-			return
-		end
-
-		if button_down and world_click.button_down then
-			if world_click.allow_pick and world_click.start_mouse_pos then
-				local dx = mouse_pos.x - world_click.start_mouse_pos.x
-				local dy = mouse_pos.y - world_click.start_mouse_pos.y
-
-				if dx * dx + dy * dy > click_drag_threshold_sq then
-					world_click.dragged = true
-				end
-			end
-
-			return
-		end
-
-		if not button_down and world_click.button_down then
-			local should_pick = world_click.allow_pick and not world_click.dragged and selection_allowed
-			world_click.button_down = false
-			world_click.allow_pick = false
-			world_click.dragged = false
-			world_click.start_mouse_pos = nil
-
-			if not should_pick then return end
-
-			local excluded_entity = active_camera_component and active_camera_component.Owner or nil
-			local target = find_world_pick_target(window, excluded_entity)
-
-			if target and target:IsValid() then
-				set_selected_target(target, true, target:GetGUID())
-				sync_selection()
-			end
-		end
 	end
 
 	local function set_hovered_entity(entity)
@@ -470,42 +220,6 @@ return function(props)
 	local picker_2d_cursor_override = nil
 	local picker_2d_last_button_down = false
 	local picker_2d_scroll_to_guid = nil
-
-	local function update_picker_2d()
-		if not picker_2d_active then
-			if picker_2d_cursor_override then
-				picker_2d_cursor_override:ClearCursorOverride()
-				picker_2d_cursor_override = nil
-			end
-
-			return
-		end
-
-		if input.IsKeyDown("escape") then
-			picker_2d_active = false
-			set_hovered_entity(nil)
-			return
-		end
-
-		local hovered = MouseInput.GetHoveredObject()
-
-		if not hovered:IsValid() or window:ContainsParent(hovered) then
-			set_hovered_entity(nil)
-			return
-		end
-
-		set_hovered_entity(hovered)
-
-		if input.IsMouseDown("button_1") and not picker_2d_last_button_down then
-			set_selected_target(hovered, true, hovered:GetGUID())
-			sync_tree_items()
-			sync_selection()
-			picker_2d_scroll_to_guid = hovered:GetGUID()
-			picker_2d_active = false
-		end
-
-		picker_2d_last_button_down = input.IsMouseDown("button_1")
-	end
 
 	local function get_selected_entity()
 		if state.selected_entity and state.selected_entity:IsValid() then
@@ -584,20 +298,6 @@ return function(props)
 		end
 	end
 
-	local function should_defer_tree_refresh(branch_entity)
-		local current = branch_entity
-
-		while current and current:IsValid() do
-			if state.expanded_entities[current:GetGUID()] ~= true then return true end
-
-			if tree_builder.is_world_root(current) then break end
-
-			current = current:GetParent()
-		end
-
-		return false
-	end
-
 	local function resolve_selected_target(tree_items)
 		local selected_item = tree_builder.find_tree_item(tree_items, state.selected_entity_guid)
 
@@ -644,133 +344,6 @@ return function(props)
 		return get_entity_by_guid(guid)
 	end
 
-	local function try_incremental_tree_insert(entity, parent)
-		local parent_item = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
-
-		if not parent_item or not state.expanded_entities[parent:GetGUID()] then
-			return false
-		end
-
-		local new_item = tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
-
-		if not new_item then return false end
-
-		tree_builder.insert_tree_item(state.tree_items, parent:GetGUID(), new_item)
-		tree_view:AddNode(new_item, parent:GetGUID())
-		return true
-	end
-
-	local function try_incremental_tree_remove(entity)
-		local guid = entity:GetGUID()
-		local item = tree_builder.find_tree_item(state.tree_items, guid)
-
-		if not item then return false end
-
-		tree_builder.remove_tree_item(state.tree_items, guid)
-		local keys_to_remove = {}
-
-		local function collect_keys(items)
-			for _, i in ipairs(items or {}) do
-				keys_to_remove[i.Key] = true
-				collect_keys(i.Children)
-			end
-		end
-
-		collect_keys(item.Children)
-		keys_to_remove[guid] = true
-
-		for i = #tree_view._row_order, 1, -1 do
-			local row_key = tree_view._row_order[i]
-
-			if keys_to_remove[row_key] then
-				local info = tree_view._row_infos[row_key]
-
-				if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
-
-				tree_view._row_infos[row_key] = nil
-				table.remove(tree_view._row_order, i)
-			end
-		end
-
-		tree_view:refresh_visibility()
-		return true
-	end
-
-	local function try_incremental_tree_expand(entity)
-		local guid = entity:GetGUID()
-		local parent_item = tree_builder.find_tree_item(state.tree_items, guid)
-
-		if not parent_item then return false end
-
-		local valid_children = tree_builder.get_valid_children(entity, window)
-
-		if not valid_children[1] then return false end
-
-		local visited = {[entity] = true}
-
-		for _, child in ipairs(valid_children) do
-			local new_item = tree_builder.build_tree_snapshot(child, state.expanded_entities, visited, window)
-
-			if new_item then
-				tree_builder.insert_tree_item(state.tree_items, guid, new_item)
-				tree_view:AddNode(new_item, guid)
-			end
-		end
-
-		local virtual_children = tree_builder.build_virtual_property_children(entity)
-
-		for _, child_node in ipairs(virtual_children) do
-			tree_builder.insert_tree_item(state.tree_items, guid, child_node)
-			tree_view:AddNode(child_node, guid)
-		end
-
-		visited[entity] = nil
-		return true
-	end
-
-	local function refresh_tree_branch(entity)
-		local replacement = build_tree_branch_item(entity)
-
-		if not replacement then return sync_tree_items() end
-
-		if
-			not tree_builder.replace_tree_item(state.tree_items, entity:GetGUID(), replacement)
-		then
-			return sync_tree_items()
-		end
-
-		run_editor_ui_mutation(
-			function()
-				tree_view:RefreshBranchForKey(entity:GetGUID())
-			end,
-			"tree_refresh_branch"
-		)
-
-		return false
-	end
-
-	refresh_property_editor = function()
-		if not property_editor or not property_editor:IsValid() then return end
-
-		run_editor_ui_mutation(
-			function()
-				property_editor:SetItems(property_builder.build_property_items(get_selected_object(), property_node_hooks))
-				property_editor:ExpandAll()
-			end,
-			"property_editor_set_items"
-		)
-	end
-	refresh_property_key = function(row_prefix, property_name, target)
-		local row_key = row_prefix .. "/" .. property_name
-
-		if property_name == "Name" or property_name == "Key" or property_name == "Material" then
-			property_editor:RefreshValueForKey(row_key)
-			request_editor_sync(true, false, nil)
-			return
-		end
-
-		property_editor:RefreshValueForKey(row_key)
-	end
 	reveal_selected_tree_item = function()
 		if not (tree_view and tree_view:IsValid()) then return end
 
@@ -795,44 +368,69 @@ return function(props)
 		reveal_selected_tree_item()
 		return state.selected_entity_guid ~= previous_guid
 	end
-	flush_pending_tree_branch_refreshes = function()
-		local branch_keys = {}
 
-		for key in pairs(pending_tree_branch_keys) do
-			branch_keys[#branch_keys + 1] = key
+	do
+		local function refresh_tree_branch(entity)
+			local replacement = build_tree_branch_item(entity)
+
+			if not replacement then return sync_tree_items() end
+
+			if
+				not tree_builder.replace_tree_item(state.tree_items, entity:GetGUID(), replacement)
+			then
+				return sync_tree_items()
+			end
+
+			run_editor_ui_mutation(
+				function()
+					tree_view:RefreshBranchForKey(entity:GetGUID())
+				end,
+				"tree_refresh_branch"
+			)
+
+			return false
 		end
 
-		pending_tree_branch_keys = {}
+		flush_pending_tree_branch_refreshes = function()
+			local branch_keys = {}
 
-		if branch_keys[1] == nil then return false end
+			for key in pairs(pending_tree_branch_keys) do
+				branch_keys[#branch_keys + 1] = key
+			end
 
-		local selected_guid = state.selected_entity_guid
+			pending_tree_branch_keys = {}
 
-		for _, key in ipairs(branch_keys) do
-			local entity = get_tree_branch_entity_by_guid(key)
+			if branch_keys[1] == nil then return false end
 
-			if not (entity and entity:IsValid()) then return sync_tree_items() end
+			local selected_guid = state.selected_entity_guid
 
-			local selection_changed = refresh_tree_branch(entity)
+			for _, key in ipairs(branch_keys) do
+				local entity = get_tree_branch_entity_by_guid(key)
 
-			if selection_changed then return true end
-		end
+				if not (entity and entity:IsValid()) then return sync_tree_items() end
 
-		if
-			selected_guid ~= nil and
-			not tree_builder.find_tree_item(state.tree_items, selected_guid)
-			and
-			not tree_builder.can_preserve_hidden_selection(get_selected_object(), window)
-		then
-			local selected_target, selected_key = resolve_selected_target(state.tree_items)
-			set_selected_target(selected_target, false, selected_key)
+				local selection_changed = refresh_tree_branch(entity)
+
+				if selection_changed then return true end
+			end
+
+			if
+				selected_guid ~= nil and
+				not tree_builder.find_tree_item(state.tree_items, selected_guid)
+				and
+				not tree_builder.can_preserve_hidden_selection(get_selected_object(), window)
+			then
+				local selected_target, selected_key = resolve_selected_target(state.tree_items)
+				set_selected_target(selected_target, false, selected_key)
+				reveal_selected_tree_item()
+				return state.selected_entity_guid ~= selected_guid
+			end
+
 			reveal_selected_tree_item()
-			return state.selected_entity_guid ~= selected_guid
+			return false
 		end
-
-		reveal_selected_tree_item()
-		return false
 	end
+
 	request_editor_sync = function(tree_dirty, selection_dirty, branch_entity)
 		if tree_dirty then
 			if branch_entity and branch_entity:IsValid() then
@@ -871,39 +469,63 @@ return function(props)
 			sync_selection()
 		end
 	end
-	sync_selection = function()
-		pending_selection_sync = false
-		local selected_target, selected_key = resolve_selected_target(state.tree_items)
-		set_selected_target(selected_target, false, selected_key)
 
-		do
-			clear_selected_property_listeners()
-			local target = get_selected_object()
+	do
+		local function refresh_property_key(row_prefix, property_name, target)
+			local row_key = row_prefix .. "/" .. property_name
 
-			if property_builder.is_valid_object(target) then
-				if target.component_list then
-					for _, component in ipairs(target.component_list or {}) do
-						if component and component.IsValid and component:IsValid() then
-							local component_name = property_builder.get_component_name(target, component)
-							selected_property_listener_removers[#selected_property_listener_removers + 1] = component:AddPropertyListener(function(_, key)
-								if property_change_sync_blocked > 0 then return end
-
-								refresh_property_key(target:GetGUID() .. "/" .. component_name, key, target)
-							end)
-						end
-					end
-				else
-					selected_property_listener_removers[#selected_property_listener_removers + 1] = target:AddPropertyListener(function(_, key)
-						if property_change_sync_blocked > 0 then return end
-
-						refresh_property_key(target:GetGUID() .. "/properties", key, target)
-					end)
-				end
+			if property_name == "Name" or property_name == "Key" or property_name == "Material" then
+				property_editor:RefreshValueForKey(row_key)
+				request_editor_sync(true, false, nil)
+				return
 			end
+
+			property_editor:RefreshValueForKey(row_key)
 		end
 
-		reveal_selected_tree_item()
-		refresh_property_editor()
+		sync_selection = function()
+			pending_selection_sync = false
+			local selected_target, selected_key = resolve_selected_target(state.tree_items)
+			set_selected_target(selected_target, false, selected_key)
+
+			do
+				clear_selected_property_listeners()
+				local target = get_selected_object()
+
+				if property_builder.is_valid_object(target) then
+					if target.component_list then
+						for _, component in ipairs(target.component_list or {}) do
+							if component and component.IsValid and component:IsValid() then
+								local component_name = property_builder.get_component_name(target, component)
+								selected_property_listener_removers[#selected_property_listener_removers + 1] = component:AddPropertyListener(function(_, key)
+									if property_change_sync_blocked > 0 then return end
+
+									refresh_property_key(target:GetGUID() .. "/" .. component_name, key, target)
+								end)
+							end
+						end
+					else
+						selected_property_listener_removers[#selected_property_listener_removers + 1] = target:AddPropertyListener(function(_, key)
+							if property_change_sync_blocked > 0 then return end
+
+							refresh_property_key(target:GetGUID() .. "/properties", key, target)
+						end)
+					end
+				end
+			end
+
+			reveal_selected_tree_item()
+
+			if property_editor and property_editor:IsValid() then
+				run_editor_ui_mutation(
+					function()
+						property_editor:SetItems(property_builder.build_property_items(get_selected_object(), property_node_hooks))
+						property_editor:ExpandAll()
+					end,
+					"property_editor_set_items"
+				)
+			end
+		end
 	end
 
 	local function create_child_shape(parent_entity, kind)
@@ -1161,6 +783,38 @@ return function(props)
 						local branch_entity = node.Entity or get_tree_branch_entity_by_guid(key)
 
 						if branch_entity and branch_entity:IsValid() then
+							local function try_incremental_tree_expand(entity)
+								local guid = entity:GetGUID()
+								local parent_item = tree_builder.find_tree_item(state.tree_items, guid)
+
+								if not parent_item then return false end
+
+								local valid_children = tree_builder.get_valid_children(entity, window)
+
+								if not valid_children[1] then return false end
+
+								local visited = {[entity] = true}
+
+								for _, child in ipairs(valid_children) do
+									local new_item = tree_builder.build_tree_snapshot(child, state.expanded_entities, visited, window)
+
+									if new_item then
+										tree_builder.insert_tree_item(state.tree_items, guid, new_item)
+										tree_view:AddNode(new_item, guid)
+									end
+								end
+
+								local virtual_children = tree_builder.build_virtual_property_children(entity)
+
+								for _, child_node in ipairs(virtual_children) do
+									tree_builder.insert_tree_item(state.tree_items, guid, child_node)
+									tree_view:AddNode(child_node, guid)
+								end
+
+								visited[entity] = nil
+								return true
+							end
+
 							if not try_incremental_tree_expand(branch_entity) then
 								request_editor_sync(true, false, branch_entity)
 								flush_pending_editor_sync(true)
@@ -1394,123 +1048,409 @@ return function(props)
 	window:AddChild(picker_button)
 	window:AddGlobalEvent("Update")
 
-	function window:OnUpdate(dt)
-		-- Position picker button at bottom-right of tree view
-		if picker_button and picker_button:IsValid() and tree_panel and tree_panel:IsValid() then
-			local _, _, x, y = tree_panel.transform:GetWorldRectFast()
-			local btn_size = picker_button.transform:GetSize()
-			picker_button.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
+	do
+		local function is_ui_hovering()
+			local hovered = MouseInput.GetHoveredObject()
+			return hovered:IsValid() and hovered ~= Panel.World
 		end
 
-		-- Deferred scroll to picked entity
-		if picker_2d_scroll_to_guid then
-			tree_view:EnsureVisible(picker_2d_scroll_to_guid, Rect(0, 12, 0, 12))
-			picker_2d_scroll_to_guid = nil
+		local function mouse_in_editor_viewport(mouse_pos)
+			if not editor_camera.scale_viewport then
+				return not window.transform:GetRect():IsPosInside(mouse_pos)
+			end
+
+			return editor_camera.viewport_rect:IsPosInside(mouse_pos)
 		end
 
-		if editor_camera.enabled then
-			update_editor_camera_viewport()
-			local mouse_pos = system.GetWindow():GetMousePosition()
-			local focus_blocks_movement = has_text_focus(window)
-			local world_blocked = context_menu_blocks_world(mouse_pos)
-			local ui_blocks_movement = is_ui_hovering()
-			local gizmo_status = Gizmo.GetStatus()
-			local can_drag = mouse_in_editor_viewport(mouse_pos) and
-				not focus_blocks_movement and
-				not window.transform:GetRect():IsPosInside(mouse_pos)
-				and
-				not world_blocked and
-				not ui_blocks_movement
-			local wants_drag = can_drag and input.IsMouseDown("button_1")
-
-			if editor_camera.dragging then
-				editor_camera.dragging = wants_drag and not gizmo_status.active_drag
-			else
-				editor_camera.dragging = wants_drag and
-					not gizmo_status.active_drag and
-					not gizmo_status.hovered_handle
-			end
-
-			editor_camera.block_movement = focus_blocks_movement or
-				world_blocked or
-				ui_blocks_movement or
-				not mouse_in_editor_viewport(mouse_pos)
-
-			if editor_camera.dragging then
-				local mouse_delta = system.GetWindow():GetMouseDelta() / 2
-
-				if mouse_delta.x ~= 0 or mouse_delta.y ~= 0 then
-					local scaled_delta = mouse_delta * editor_camera.mouse_sensitivity
-					local new_pitch = math.clamp(editor_camera.pitch + scaled_delta.y, editor_camera.min_pitch, editor_camera.max_pitch)
-					local pitch_delta = new_pitch - editor_camera.pitch
-					local yaw_quat = Quat():Identity()
-					yaw_quat:RotateYaw(-scaled_delta.x)
-					editor_camera.rotation = (yaw_quat * editor_camera.rotation:Copy()):GetNormalized()
-					editor_camera.rotation:RotatePitch(-pitch_delta)
-					editor_camera.pitch = new_pitch
-				end
-			end
-
-			if editor_camera.block_movement then
-				editor_camera.velocity = approach_vec(editor_camera.velocity, Vec3(), editor_camera.acceleration * dt)
-			else
-				local move_local = Vec3()
-
-				if input.IsKeyDown("w") then move_local.z = move_local.z + 1 end
-
-				if input.IsKeyDown("s") then move_local.z = move_local.z - 1 end
-
-				if input.IsKeyDown("a") then move_local.x = move_local.x - 1 end
-
-				if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
-
-				if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
-
-				if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
-
-				local move = Vec3()
-
-				if move_local:GetLength() > 0.0001 then
-					move_local = move_local:GetNormalized()
-					move = editor_camera.rotation:GetForward() * move_local.z + editor_camera.rotation:GetRight() * move_local.x + editor_camera.rotation:GetUp() * move_local.y
-
-					if move:GetLength() > 0.0001 then move = move:GetNormalized() end
-				end
-
-				local speed = editor_camera.speed
-
-				if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
-					speed = speed * editor_camera.slow_multiplier
-				end
-
-				if input.IsKeyDown("left_shift") then
-					speed = speed * editor_camera.sprint_multiplier
-				end
-
-				editor_camera.velocity = approach_vec(editor_camera.velocity, move * speed, editor_camera.acceleration * dt)
-			end
-
-			editor_camera.position = editor_camera.position + editor_camera.velocity * dt
-			local camera = render3d.GetCamera()
-			camera:SetPosition(editor_camera.position)
-			camera:SetRotation(editor_camera.rotation)
+		local function has_visual_pick_target(entity)
+			local entries = entity.visual:GetRenderEntries()
+			return entries and entries[1] ~= nil or false
 		end
 
-		draw_nonvisual_entity_hints(
-			window,
-			active_camera_component and active_camera_component.Owner or nil,
-			get_selected_entity()
+		local function is_visual_pick_helper_entity(entity)
+			return entity.visual_primitive ~= nil or entity.VisualOwner ~= nil
+		end
+
+		local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
+			if tree_builder.is_hidden_editor_entity(entity, editor_window) then
+				return false
+			end
+
+			if is_editor_pick_excluded_entity(entity, excluded_entity) then return false end
+
+			if
+				entity.visual and
+				has_visual_pick_target(entity) or
+				is_visual_pick_helper_entity(entity)
+			then
+				return false
+			end
+
+			return entity.transform ~= nil
+		end
+
+		local function find_nonvisual_entity_hit(
+			editor_window,
+			mouse_pos,
+			ray_origin,
+			ray_direction,
+			max_distance,
+			excluded_entity
 		)
-		update_world_click_selection()
-		update_picker_2d()
-		local material_count = tree_builder.count_material_objects()
+			local cam = render3d.GetCamera()
+			local best_hit = nil
+			local best_distance = max_distance or math.huge
+			local marker_radius_sq = 144
 
-		if material_count ~= tracked_material_count then
-			tracked_material_count = material_count
-			request_editor_sync(true, false, nil)
+			for _, entity in ipairs(Entity.World:GetChildrenList()) do
+				if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
+					goto continue2
+				end
+
+				local world_pos = entity.transform:GetWorldPosition()
+				local screen_pos, visibility = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
+
+				if visibility ~= -1 or not screen_pos then goto continue2 end
+
+				local dx = screen_pos.x - mouse_pos.x
+				local dy = screen_pos.y - mouse_pos.y
+				local screen_distance_sq = dx * dx + dy * dy
+
+				if screen_distance_sq > marker_radius_sq then goto continue2 end
+
+				local ray_distance = (world_pos - ray_origin):Dot(ray_direction)
+
+				if ray_distance <= 0 or ray_distance > best_distance then goto continue2 end
+
+				if
+					not best_hit or
+					ray_distance < best_hit.distance or
+					(
+						ray_distance == best_hit.distance and
+						screen_distance_sq < best_hit.screen_distance_sq
+					)
+				then
+					best_hit = {
+						entity = entity,
+						distance = ray_distance,
+						position = world_pos:Copy(),
+						screen_distance_sq = screen_distance_sq,
+					}
+					best_distance = ray_distance
+				end
+
+				::continue2::
+			end
+
+			return best_hit
 		end
 
-		flush_pending_editor_sync(false)
+		local function find_world_pick_target(editor_window, excluded_entity)
+			local input_window = system.GetWindow()
+			local cam = render3d.GetCamera()
+			local mouse_pos = input_window:GetMousePosition()
+			local screen_width, screen_height = render2d.GetSize()
+			local ray_origin = cam:GetPosition()
+			local ray_direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
+			local visual_hit = raycast.CastClosest(
+				ray_origin,
+				ray_direction,
+				math.huge,
+				function(entity)
+					return entity:IsValid() and
+						tree_builder.get_entity_world_root(entity) == Entity.World and
+						not tree_builder.is_hidden_editor_entity(entity, editor_window)
+						and
+						not is_editor_pick_excluded_entity(entity, excluded_entity)
+				end
+			)
+			local fallback_hit = find_nonvisual_entity_hit(
+				editor_window,
+				mouse_pos,
+				ray_origin,
+				ray_direction,
+				math.huge,
+				excluded_entity
+			)
+
+			if fallback_hit then return fallback_hit.entity end
+
+			if visual_hit then return visual_hit.entity end
+
+			return nil
+		end
+
+		local function update_world_click_selection()
+			local mouse_pos = system.GetWindow():GetMousePosition()
+			local gizmo_status = Gizmo.GetStatus()
+			local inside_world = mouse_in_editor_viewport(mouse_pos) and
+				not window.transform:GetRect():IsPosInside(mouse_pos)
+			local selection_allowed = inside_world and
+				not has_text_focus(window)
+				and
+				not context_menu_blocks_world(mouse_pos)
+				and
+				not is_ui_hovering()
+				and
+				not gizmo_status.active_drag and
+				not gizmo_status.hovered_handle
+			local button_down = input.IsMouseDown("button_1")
+
+			if button_down and not world_click.button_down then
+				world_click.button_down = true
+				world_click.allow_pick = selection_allowed
+				world_click.dragged = false
+				world_click.start_mouse_pos = mouse_pos:Copy()
+				return
+			end
+
+			if button_down and world_click.button_down then
+				if world_click.allow_pick and world_click.start_mouse_pos then
+					local dx = mouse_pos.x - world_click.start_mouse_pos.x
+					local dy = mouse_pos.y - world_click.start_mouse_pos.y
+
+					if dx * dx + dy * dy > click_drag_threshold_sq then
+						world_click.dragged = true
+					end
+				end
+
+				return
+			end
+
+			if not button_down and world_click.button_down then
+				local should_pick = world_click.allow_pick and not world_click.dragged and selection_allowed
+				world_click.button_down = false
+				world_click.allow_pick = false
+				world_click.dragged = false
+				world_click.start_mouse_pos = nil
+
+				if not should_pick then return end
+
+				local excluded_entity = active_camera_component and active_camera_component.Owner or nil
+				local target = find_world_pick_target(window, excluded_entity)
+
+				if target and target:IsValid() then
+					set_selected_target(target, true, target:GetGUID())
+					sync_selection()
+				end
+			end
+		end
+
+		local function approach_vec(current, target, delta)
+			local diff = target - current
+			local length = diff:GetLength()
+
+			if length == 0 or delta <= 0 then return current end
+
+			if length <= delta then return target end
+
+			return current + diff / length * delta
+		end
+
+		local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selected_entity)
+			local cam = render3d.GetCamera()
+			local viewport = cam:GetViewport()
+
+			for _, entity in ipairs(Entity.World:GetChildrenList()) do
+				if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
+					goto continue
+				end
+
+				local world_pos = entity.transform:GetWorldPosition()
+				local _, visibility = cam:WorldPositionToScreen(world_pos, viewport.w, viewport.h)
+
+				if visibility ~= -1 then goto continue end
+
+				local is_selected = entity == selected_entity
+				debug_draw.DrawSphere{
+					id = "editor_nonvisual_hint_" .. entity:GetGUID(),
+					position = world_pos,
+					radius = is_selected and 0.1 or 0.06,
+					color = is_selected and {0.45, 1.0, 0.45, 0.35} or {0.8, 0.9, 1.0, 0.16},
+					ignore_z = true,
+					time = NONVISUAL_HINT_TIME,
+				}
+
+				::continue::
+			end
+		end
+
+		local function update_picker_2d()
+			if not picker_2d_active then
+				if picker_2d_cursor_override then
+					picker_2d_cursor_override:ClearCursorOverride()
+					picker_2d_cursor_override = nil
+				end
+
+				return
+			end
+
+			if input.IsKeyDown("escape") then
+				picker_2d_active = false
+				set_hovered_entity(nil)
+				return
+			end
+
+			local hovered = MouseInput.GetHoveredObject()
+
+			if not hovered:IsValid() or window:ContainsParent(hovered) then
+				set_hovered_entity(nil)
+				return
+			end
+
+			set_hovered_entity(hovered)
+
+			if input.IsMouseDown("button_1") and not picker_2d_last_button_down then
+				set_selected_target(hovered, true, hovered:GetGUID())
+				sync_tree_items()
+				sync_selection()
+				picker_2d_scroll_to_guid = hovered:GetGUID()
+				picker_2d_active = false
+			end
+
+			picker_2d_last_button_down = input.IsMouseDown("button_1")
+		end
+
+		local function update_editor_camera_viewport()
+			local camera = render3d.GetCamera()
+			local world_size = Panel.World.transform:GetSize()
+			local viewport_rect = Rect(0, 0, world_size.x, world_size.y)
+
+			if editor_camera.scale_viewport then
+				local window_rect = window.transform:GetRect()
+				local clamped_x = math.clamp(window_rect.x, 0, world_size.x)
+				local clamped_y = math.clamp(window_rect.y, 0, world_size.y)
+				local clamped_w = math.max(0, math.min(window_rect.w, world_size.x - clamped_x))
+				local clamped_h = math.max(0, math.min(window_rect.h, world_size.y - clamped_y))
+
+				if clamped_x <= 0 and clamped_w > 0 then
+					viewport_rect.x = math.clamp(clamped_x + clamped_w, 0, world_size.x)
+					viewport_rect.w = math.max(1, world_size.x - viewport_rect.x)
+				end
+			end
+
+			editor_camera.viewport_rect = viewport_rect
+			camera:SetViewport(viewport_rect)
+		end
+
+		function window:OnUpdate(dt)
+			-- Position picker button at bottom-right of tree view
+			if picker_button and picker_button:IsValid() and tree_panel and tree_panel:IsValid() then
+				local _, _, x, y = tree_panel.transform:GetWorldRectFast()
+				local btn_size = picker_button.transform:GetSize()
+				picker_button.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
+			end
+
+			-- Deferred scroll to picked entity
+			if picker_2d_scroll_to_guid then
+				tree_view:EnsureVisible(picker_2d_scroll_to_guid, Rect(0, 12, 0, 12))
+				picker_2d_scroll_to_guid = nil
+			end
+
+			if editor_camera.enabled then
+				update_editor_camera_viewport()
+				local mouse_pos = system.GetWindow():GetMousePosition()
+				local focus_blocks_movement = has_text_focus(window)
+				local world_blocked = context_menu_blocks_world(mouse_pos)
+				local ui_blocks_movement = is_ui_hovering()
+				local gizmo_status = Gizmo.GetStatus()
+				local can_drag = mouse_in_editor_viewport(mouse_pos) and
+					not focus_blocks_movement and
+					not window.transform:GetRect():IsPosInside(mouse_pos)
+					and
+					not world_blocked and
+					not ui_blocks_movement
+				local wants_drag = can_drag and input.IsMouseDown("button_1")
+
+				if editor_camera.dragging then
+					editor_camera.dragging = wants_drag and not gizmo_status.active_drag
+				else
+					editor_camera.dragging = wants_drag and
+						not gizmo_status.active_drag and
+						not gizmo_status.hovered_handle
+				end
+
+				editor_camera.block_movement = focus_blocks_movement or
+					world_blocked or
+					ui_blocks_movement or
+					not mouse_in_editor_viewport(mouse_pos)
+
+				if editor_camera.dragging then
+					local mouse_delta = system.GetWindow():GetMouseDelta() / 2
+
+					if mouse_delta.x ~= 0 or mouse_delta.y ~= 0 then
+						local scaled_delta = mouse_delta * editor_camera.mouse_sensitivity
+						local new_pitch = math.clamp(editor_camera.pitch + scaled_delta.y, editor_camera.min_pitch, editor_camera.max_pitch)
+						local pitch_delta = new_pitch - editor_camera.pitch
+						local yaw_quat = Quat():Identity()
+						yaw_quat:RotateYaw(-scaled_delta.x)
+						editor_camera.rotation = (yaw_quat * editor_camera.rotation:Copy()):GetNormalized()
+						editor_camera.rotation:RotatePitch(-pitch_delta)
+						editor_camera.pitch = new_pitch
+					end
+				end
+
+				if editor_camera.block_movement then
+					editor_camera.velocity = approach_vec(editor_camera.velocity, Vec3(), editor_camera.acceleration * dt)
+				else
+					local move_local = Vec3()
+
+					if input.IsKeyDown("w") then move_local.z = move_local.z + 1 end
+
+					if input.IsKeyDown("s") then move_local.z = move_local.z - 1 end
+
+					if input.IsKeyDown("a") then move_local.x = move_local.x - 1 end
+
+					if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
+
+					if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
+
+					if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
+
+					local move = Vec3()
+
+					if move_local:GetLength() > 0.0001 then
+						move_local = move_local:GetNormalized()
+						move = editor_camera.rotation:GetForward() * move_local.z + editor_camera.rotation:GetRight() * move_local.x + editor_camera.rotation:GetUp() * move_local.y
+
+						if move:GetLength() > 0.0001 then move = move:GetNormalized() end
+					end
+
+					local speed = editor_camera.speed
+
+					if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
+						speed = speed * editor_camera.slow_multiplier
+					end
+
+					if input.IsKeyDown("left_shift") then
+						speed = speed * editor_camera.sprint_multiplier
+					end
+
+					editor_camera.velocity = approach_vec(editor_camera.velocity, move * speed, editor_camera.acceleration * dt)
+				end
+
+				editor_camera.position = editor_camera.position + editor_camera.velocity * dt
+				local camera = render3d.GetCamera()
+				camera:SetPosition(editor_camera.position)
+				camera:SetRotation(editor_camera.rotation)
+			end
+
+			draw_nonvisual_entity_hints(
+				window,
+				active_camera_component and active_camera_component.Owner or nil,
+				get_selected_entity()
+			)
+			update_world_click_selection()
+			update_picker_2d()
+			local material_count = tree_builder.count_material_objects()
+
+			if material_count ~= tracked_material_count then
+				tracked_material_count = material_count
+				request_editor_sync(true, false, nil)
+			end
+
+			flush_pending_editor_sync(false)
+		end
 	end
 
 	window:CallOnRemove(
@@ -1528,6 +1468,72 @@ return function(props)
 	)
 
 	do
+		local function try_incremental_tree_insert(entity, parent)
+			local parent_item = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
+
+			if not parent_item or not state.expanded_entities[parent:GetGUID()] then
+				return false
+			end
+
+			local new_item = tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
+
+			if not new_item then return false end
+
+			tree_builder.insert_tree_item(state.tree_items, parent:GetGUID(), new_item)
+			tree_view:AddNode(new_item, parent:GetGUID())
+			return true
+		end
+
+		local function try_incremental_tree_remove(entity)
+			local guid = entity:GetGUID()
+			local item = tree_builder.find_tree_item(state.tree_items, guid)
+
+			if not item then return false end
+
+			tree_builder.remove_tree_item(state.tree_items, guid)
+			local keys_to_remove = {}
+
+			local function collect_keys(items)
+				for _, i in ipairs(items or {}) do
+					keys_to_remove[i.Key] = true
+					collect_keys(i.Children)
+				end
+			end
+
+			collect_keys(item.Children)
+			keys_to_remove[guid] = true
+
+			for i = #tree_view._row_order, 1, -1 do
+				local row_key = tree_view._row_order[i]
+
+				if keys_to_remove[row_key] then
+					local info = tree_view._row_infos[row_key]
+
+					if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
+
+					tree_view._row_infos[row_key] = nil
+					table.remove(tree_view._row_order, i)
+				end
+			end
+
+			tree_view:refresh_visibility()
+			return true
+		end
+
+		local function should_defer_tree_refresh(branch_entity)
+			local current = branch_entity
+
+			while current and current:IsValid() do
+				if state.expanded_entities[current:GetGUID()] ~= true then return true end
+
+				if tree_builder.is_world_root(current) then break end
+
+				current = current:GetParent()
+			end
+
+			return false
+		end
+
 		local function add_world_listeners(world)
 			local remove_hierarchy_listener = world:AddLocalListener("OnEntityHierarchyChanged", function(_, entity, action, parent)
 				if editor_ui_mutation_blocked > 0 then return end
