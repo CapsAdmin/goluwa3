@@ -63,65 +63,6 @@ local function approach_vec(current, target, delta)
 	return current + diff / length * delta
 end
 
-local function update_editor_camera_rotation(camera_state, mouse_delta)
-	if mouse_delta.x == 0 and mouse_delta.y == 0 then return end
-
-	local rotation = camera_state.rotation:Copy()
-	local scaled_delta = mouse_delta * camera_state.mouse_sensitivity
-	local new_pitch = math.clamp(camera_state.pitch + scaled_delta.y, camera_state.min_pitch, camera_state.max_pitch)
-	local pitch_delta = new_pitch - camera_state.pitch
-	local yaw_quat = Quat():Identity()
-	yaw_quat:RotateYaw(-scaled_delta.x)
-	rotation = (yaw_quat * rotation):GetNormalized()
-	rotation:RotatePitch(-pitch_delta)
-	camera_state.rotation = rotation
-	camera_state.pitch = new_pitch
-end
-
-local function update_editor_camera_position(camera_state, dt)
-	if camera_state.block_movement then
-		camera_state.velocity = approach_vec(camera_state.velocity, Vec3(), camera_state.acceleration * dt)
-		camera_state.position = camera_state.position + camera_state.velocity * dt
-		return
-	end
-
-	local move_local = Vec3()
-
-	if input.IsKeyDown("w") then move_local.z = move_local.z + 1 end
-
-	if input.IsKeyDown("s") then move_local.z = move_local.z - 1 end
-
-	if input.IsKeyDown("a") then move_local.x = move_local.x - 1 end
-
-	if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
-
-	if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
-
-	if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
-
-	local move = Vec3()
-
-	if move_local:GetLength() > 0.0001 then
-		move_local = move_local:GetNormalized()
-		move = camera_state.rotation:GetForward() * move_local.z + camera_state.rotation:GetRight() * move_local.x + camera_state.rotation:GetUp() * move_local.y
-
-		if move:GetLength() > 0.0001 then move = move:GetNormalized() end
-	end
-
-	local speed = camera_state.speed
-
-	if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
-		speed = speed * camera_state.slow_multiplier
-	end
-
-	if input.IsKeyDown("left_shift") then
-		speed = speed * camera_state.sprint_multiplier
-	end
-
-	camera_state.velocity = approach_vec(camera_state.velocity, move * speed, camera_state.acceleration * dt)
-	camera_state.position = camera_state.position + camera_state.velocity * dt
-end
-
 local function is_editor_control_rig_entity(entity)
 	if not (entity and entity.IsValid and entity:IsValid()) then return false end
 
@@ -517,50 +458,6 @@ return function(props)
 		if not (menu and menu.IsValid and menu:IsValid()) then return false end
 
 		return Rect(mouse_pos.x, mouse_pos.y, 1, 1):Intersects(menu.transform:GetRect())
-	end
-
-	local function apply_editor_camera()
-		local camera = render3d.GetCamera()
-		camera:SetPosition(editor_camera.position)
-		camera:SetRotation(editor_camera.rotation)
-	end
-
-	local function update_editor_camera(dt)
-		if not editor_camera.enabled then return end
-
-		update_editor_camera_viewport()
-		local mouse_pos = system.GetWindow():GetMousePosition()
-		local focus_blocks_movement = has_text_focus(window)
-		local world_blocked = context_menu_blocks_world(mouse_pos)
-		local ui_blocks_movement = is_ui_hovering()
-		local gizmo_status = Gizmo.GetStatus()
-		local can_drag = mouse_in_editor_viewport(mouse_pos) and
-			not focus_blocks_movement and
-			not window.transform:GetRect():IsPosInside(mouse_pos)
-			and
-			not world_blocked and
-			not ui_blocks_movement
-		local wants_drag = can_drag and input.IsMouseDown("button_1")
-
-		if editor_camera.dragging then
-			editor_camera.dragging = wants_drag and not gizmo_status.active_drag
-		else
-			editor_camera.dragging = wants_drag and
-				not gizmo_status.active_drag and
-				not gizmo_status.hovered_handle
-		end
-
-		editor_camera.block_movement = focus_blocks_movement or
-			world_blocked or
-			ui_blocks_movement or
-			not mouse_in_editor_viewport(mouse_pos)
-
-		if editor_camera.dragging then
-			update_editor_camera_rotation(editor_camera, system.GetWindow():GetMouseDelta() / 2)
-		end
-
-		update_editor_camera_position(editor_camera, dt)
-		apply_editor_camera()
 	end
 
 	local function update_world_click_selection()
@@ -1382,7 +1279,6 @@ return function(props)
 				Text = viewport_label,
 				OnClick = function()
 					editor_camera.scale_viewport = not editor_camera.scale_viewport
-					update_editor_camera_viewport()
 				end,
 			},
 			MenuSpacer(),
@@ -1731,7 +1627,6 @@ return function(props)
 		editor_camera.velocity = Vec3()
 	end
 
-	update_editor_camera_viewport()
 	-- Create 2D picker button, positioned at bottom-right of tree view
 	local picker_button = Panel.New{
 		Name = "Picker2DButton",
@@ -1798,7 +1693,104 @@ return function(props)
 			picker_2d_scroll_to_guid = nil
 		end
 
-		update_editor_camera(dt)
+		if editor_camera.enabled then
+			update_editor_camera_viewport()
+			local mouse_pos = system.GetWindow():GetMousePosition()
+			local focus_blocks_movement = has_text_focus(window)
+			local world_blocked = context_menu_blocks_world(mouse_pos)
+			local ui_blocks_movement = is_ui_hovering()
+			local gizmo_status = Gizmo.GetStatus()
+			local can_drag = mouse_in_editor_viewport(mouse_pos) and
+				not focus_blocks_movement and
+				not window.transform:GetRect():IsPosInside(mouse_pos)
+				and
+				not world_blocked and
+				not ui_blocks_movement
+			local wants_drag = can_drag and input.IsMouseDown("button_1")
+
+			if editor_camera.dragging then
+				editor_camera.dragging = wants_drag and not gizmo_status.active_drag
+			else
+				editor_camera.dragging = wants_drag and
+					not gizmo_status.active_drag and
+					not gizmo_status.hovered_handle
+			end
+
+			editor_camera.block_movement = focus_blocks_movement or
+				world_blocked or
+				ui_blocks_movement or
+				not mouse_in_editor_viewport(mouse_pos)
+
+			if editor_camera.dragging then
+				local editor_camera = editor_camera
+				local mouse_delta = system.GetWindow():GetMouseDelta() / 2
+
+				if mouse_delta.x == 0 and mouse_delta.y == 0 then
+
+				else
+					local rotation = editor_camera.rotation:Copy()
+					local scaled_delta = mouse_delta * editor_camera.mouse_sensitivity
+					local new_pitch = math.clamp(editor_camera.pitch + scaled_delta.y, editor_camera.min_pitch, editor_camera.max_pitch)
+					local pitch_delta = new_pitch - editor_camera.pitch
+					local yaw_quat = Quat():Identity()
+					yaw_quat:RotateYaw(-scaled_delta.x)
+					rotation = (yaw_quat * rotation):GetNormalized()
+					rotation:RotatePitch(-pitch_delta)
+					editor_camera.rotation = rotation
+					editor_camera.pitch = new_pitch
+				end
+			end
+
+			do
+				local editor_camera = editor_camera
+
+				if editor_camera.block_movement then
+					editor_camera.velocity = approach_vec(editor_camera.velocity, Vec3(), editor_camera.acceleration * dt)
+					editor_camera.position = editor_camera.position + editor_camera.velocity * dt
+				else
+					local move_local = Vec3()
+
+					if input.IsKeyDown("w") then move_local.z = move_local.z + 1 end
+
+					if input.IsKeyDown("s") then move_local.z = move_local.z - 1 end
+
+					if input.IsKeyDown("a") then move_local.x = move_local.x - 1 end
+
+					if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
+
+					if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
+
+					if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
+
+					local move = Vec3()
+
+					if move_local:GetLength() > 0.0001 then
+						move_local = move_local:GetNormalized()
+						move = editor_camera.rotation:GetForward() * move_local.z + editor_camera.rotation:GetRight() * move_local.x + editor_camera.rotation:GetUp() * move_local.y
+
+						if move:GetLength() > 0.0001 then move = move:GetNormalized() end
+					end
+
+					local speed = editor_camera.speed
+
+					if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
+						speed = speed * editor_camera.slow_multiplier
+					end
+
+					if input.IsKeyDown("left_shift") then
+						speed = speed * editor_camera.sprint_multiplier
+					end
+
+					editor_camera.velocity = approach_vec(editor_camera.velocity, move * speed, editor_camera.acceleration * dt)
+					editor_camera.position = editor_camera.position + editor_camera.velocity * dt
+				end
+
+				local camera = render3d.GetCamera()
+				camera:SetPosition(editor_camera.position)
+				camera:SetRotation(editor_camera.rotation)
+			end
+		end
+
 		draw_nonvisual_entity_hints(
 			window,
 			active_camera_component and active_camera_component.Owner or nil,
