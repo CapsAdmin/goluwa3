@@ -88,12 +88,6 @@ return function(props)
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
 	local tracked_material_count = tree_builder.count_material_objects()
-	local world_click = {
-		button_down = false,
-		allow_pick = false,
-		dragged = false,
-		start_mouse_pos = nil,
-	}
 	local editor_camera = {
 		enabled = true,
 		scale_viewport = false,
@@ -112,8 +106,6 @@ return function(props)
 		dragging = false,
 		block_movement = false,
 	}
-	local active_camera_component = nil
-	local active_camera_was_active = false
 	local click_drag_threshold_sq = 16
 
 	local function run_editor_ui_mutation(callback, reason)
@@ -897,10 +889,6 @@ return function(props)
 			},
 		},
 	}
-	active_camera_component = CameraComponent.GetActiveCameraComponent()
-	active_camera_was_active = active_camera_component:IsValid()
-
-	if active_camera_was_active then active_camera_component:SetActive(false) end
 
 	do
 		local camera = render3d.GetCamera()
@@ -1147,6 +1135,13 @@ return function(props)
 			return nil
 		end
 
+		local world_click = {
+			button_down = false,
+			allow_pick = false,
+			dragged = false,
+			start_mouse_pos = nil,
+		}
+
 		local function update_world_click_selection()
 			local mouse_pos = system.GetWindow():GetMousePosition()
 			local gizmo_status = Gizmo.GetStatus()
@@ -1193,8 +1188,8 @@ return function(props)
 
 				if not should_pick then return end
 
-				local excluded_entity = active_camera_component and active_camera_component.Owner or nil
-				local target = find_world_pick_target(editor_window, excluded_entity)
+				local camera = CameraComponent.GetActiveCameraComponent()
+				local target = find_world_pick_target(editor_window, camera and camera.Owner)
 
 				if target and target:IsValid() then
 					set_selected_target(target, true, target:GetGUID())
@@ -1419,10 +1414,6 @@ return function(props)
 			Highlight.Clear()
 			Gizmo.Clear(editor_window)
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
-
-			if active_camera_component:IsValid() then
-				active_camera_component:SetActive(active_camera_was_active)
-			end
 		end,
 		"editor_gizmo_cleanup"
 	)
