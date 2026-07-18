@@ -216,8 +216,6 @@ local function get_entity_world_position(entity)
 	return Vec3(x, y, z)
 end
 
-local visit_world_entities
-
 local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
 	if tree_builder.is_hidden_editor_entity(entity, editor_window) then
 		return false
@@ -241,18 +239,18 @@ local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selec
 	local screen_width = viewport and viewport.w or nil
 	local screen_height = viewport and viewport.h or nil
 
-	visit_world_entities(Entity.World, function(entity)
+	for _, entity in ipairs(Entity.World:GetChildrenList()) do
 		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
-			return
+			goto continue
 		end
 
 		local world_pos = get_entity_world_position(entity)
 
-		if not world_pos then return end
+		if not world_pos then goto continue end
 
 		local _, visibility = cam:WorldPositionToScreen(world_pos, screen_width, screen_height)
 
-		if visibility ~= -1 then return end
+		if visibility ~= -1 then goto continue end
 
 		local is_selected = entity == selected_entity
 		debug_draw.DrawSphere{
@@ -263,17 +261,8 @@ local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selec
 			ignore_z = true,
 			time = NONVISUAL_HINT_TIME,
 		}
-	end)
-end
 
-function visit_world_entities(entity, callback)
-	if not (entity and entity.IsValid and entity:IsValid()) then return end
-
-	for _, child in ipairs(entity:GetChildren()) do
-		if child and child:IsValid() and child:GetParent() == entity then
-			callback(child)
-			visit_world_entities(child, callback)
-		end
+		::continue::
 	end
 end
 
@@ -294,29 +283,29 @@ local function find_nonvisual_entity_hit(
 	local marker_radius = 12
 	local marker_radius_sq = marker_radius * marker_radius
 
-	visit_world_entities(Entity.World, function(entity)
+	for _, entity in ipairs(Entity.World:GetChildrenList()) do
 		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
-			return
+			goto continue2
 		end
 
 		local world_pos = get_entity_world_position(entity)
 
-		if not world_pos then return end
+		if not world_pos then goto continue2 end
 
 		local screen_pos, visibility = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
 
-		if visibility ~= -1 or not screen_pos then return end
+		if visibility ~= -1 or not screen_pos then goto continue2 end
 
 		local dx = screen_pos.x - mouse_pos.x
 		local dy = screen_pos.y - mouse_pos.y
 		local screen_distance_sq = dx * dx + dy * dy
 
-		if screen_distance_sq > marker_radius_sq then return end
+		if screen_distance_sq > marker_radius_sq then goto continue2 end
 
 		local to_entity = world_pos - ray_origin
 		local ray_distance = to_entity:Dot(ray_direction)
 
-		if ray_distance <= 0 or ray_distance > best_distance then return end
+		if ray_distance <= 0 or ray_distance > best_distance then goto continue2 end
 
 		if
 			not best_hit or
@@ -334,7 +323,9 @@ local function find_nonvisual_entity_hit(
 			}
 			best_distance = ray_distance
 		end
-	end)
+
+		::continue2::
+	end
 
 	return best_hit
 end
