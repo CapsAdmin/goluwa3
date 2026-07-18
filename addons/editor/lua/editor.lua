@@ -36,10 +36,10 @@ local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
-local function has_text_focus(window)
+local function has_text_focus(editor_window)
 	local focused = objects:GetFocusedObject()
 	return focused:IsValid() and
-		window:ContainsParent(focused) and
+		editor_window:ContainsParent(focused) and
 		(
 			focused.text ~= nil or
 			focused.Name == "TextEdit"
@@ -75,10 +75,10 @@ return function(props)
 		tree_items = {},
 	}
 	local tree_view
-	local tree_panel
+	local tree_scroll_container
 	local property_editor
-	local property_editor_frame
-	local window
+	local property_editor_container
+	local editor_window
 	local selected_property_listener_removers = {}
 	local property_change_sync_blocked = 0
 	local set_selected_target
@@ -221,11 +221,11 @@ return function(props)
 
 		local current_selected = get_selected_object()
 
-		if tree_builder.can_preserve_hidden_selection(current_selected, window) then
+		if tree_builder.can_preserve_hidden_selection(current_selected, editor_window) then
 			return current_selected, state.selected_entity_guid
 		end
 
-		local fallback = get_first_spawned_entity(window)
+		local fallback = get_first_spawned_entity(editor_window)
 
 		if fallback then return fallback, fallback:GetGUID() end
 
@@ -256,7 +256,7 @@ return function(props)
 
 		pending_tree_sync = false
 		local previous_guid = state.selected_entity_guid
-		local tree_items = tree_builder.build_tree_items(state.expanded_entities, window)
+		local tree_items = tree_builder.build_tree_items(state.expanded_entities, editor_window)
 		local selected_target, selected_key = resolve_selected_target(tree_items)
 		set_selected_target(selected_target, false, selected_key)
 		state.tree_items = tree_items
@@ -274,14 +274,14 @@ return function(props)
 			if not (entity and entity.IsValid and entity:IsValid()) then return nil end
 
 			if entity == Entity.World then
-				return tree_builder.build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, window)
+				return tree_builder.build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, editor_window)
 			end
 
 			if entity == Panel.World then
-				return tree_builder.build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, window)
+				return tree_builder.build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, editor_window)
 			end
 
-			return tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
+			return tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, editor_window)
 		end
 
 		local function refresh_tree_branch(entity)
@@ -332,7 +332,7 @@ return function(props)
 				selected_guid ~= nil and
 				not tree_builder.find_tree_item(state.tree_items, selected_guid)
 				and
-				not tree_builder.can_preserve_hidden_selection(get_selected_object(), window)
+				not tree_builder.can_preserve_hidden_selection(get_selected_object(), editor_window)
 			then
 				local selected_target, selected_key = resolve_selected_target(state.tree_items)
 				set_selected_target(selected_target, false, selected_key)
@@ -500,7 +500,7 @@ return function(props)
 		if active and active:IsValid() then active:Remove() end
 	end
 
-	window = Window{
+	editor_window = Window{
 		Key = props.Key or "GameEditorWindow",
 		RequestMouse = props.RequestMouse,
 		Title = "ENTITY EDITOR",
@@ -607,8 +607,8 @@ return function(props)
 												if props.OnThemeChange then
 													props.OnThemeChange(
 														state.selected_entity_guid,
-														window.transform:GetPosition():Copy(),
-														window.transform:GetSize():Copy()
+														editor_window.transform:GetPosition():Copy(),
+														editor_window.transform:GetSize():Copy()
 													)
 												end
 											end,
@@ -638,7 +638,7 @@ return function(props)
 		}{
 			ScrollablePanel{
 				Ref = function(self)
-					tree_panel = self
+					tree_scroll_container = self
 				end,
 				ScrollX = false,
 				ScrollY = true,
@@ -651,7 +651,6 @@ return function(props)
 			}{
 				Tree{
 					Ref = function(self)
-						_G.EDITOR_VIEW = self
 						tree_view = self
 					end,
 					Items = state.tree_items,
@@ -702,14 +701,14 @@ return function(props)
 
 								if not parent_item then return false end
 
-								local valid_children = tree_builder.get_valid_children(entity, window)
+								local valid_children = tree_builder.get_valid_children(entity, editor_window)
 
 								if not valid_children[1] then return false end
 
 								local visited = {[entity] = true}
 
 								for _, child in ipairs(valid_children) do
-									local new_item = tree_builder.build_tree_snapshot(child, state.expanded_entities, visited, window)
+									local new_item = tree_builder.build_tree_snapshot(child, state.expanded_entities, visited, editor_window)
 
 									if new_item then
 										tree_builder.insert_tree_item(state.tree_items, guid, new_item)
@@ -860,7 +859,7 @@ return function(props)
 			}{
 				Panel.New{
 					Ref = function(self)
-						property_editor_frame = self
+						property_editor_container = self
 					end,
 					Name = "PropertyEditorFrame",
 					transform = true,
@@ -968,16 +967,16 @@ return function(props)
 			Floating = true,
 		},
 		OnUpdate = function(self)
-			if tree_panel and tree_panel:IsValid() then
-				local _, _, x, y = tree_panel.transform:GetWorldRectFast()
+			if tree_scroll_container and tree_scroll_container:IsValid() then
+				local _, _, x, y = tree_scroll_container.transform:GetWorldRectFast()
 				local btn_size = self.transform:GetSize()
 				self.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
 			end
 		end,
 	}
 	picker_button:AddGlobalEvent("Update")
-	window:AddChild(picker_button)
-	window:AddGlobalEvent("Update")
+	editor_window:AddChild(picker_button)
+	editor_window:AddGlobalEvent("Update")
 
 	do
 		local function is_ui_hovering()
@@ -987,7 +986,7 @@ return function(props)
 
 		local function mouse_in_editor_viewport(mouse_pos)
 			if not editor_camera.scale_viewport then
-				return not window.transform:GetRect():IsPosInside(mouse_pos)
+				return not editor_window.transform:GetRect():IsPosInside(mouse_pos)
 			end
 
 			return editor_camera.viewport_rect:IsPosInside(mouse_pos)
@@ -1159,9 +1158,9 @@ return function(props)
 			local mouse_pos = system.GetWindow():GetMousePosition()
 			local gizmo_status = Gizmo.GetStatus()
 			local inside_world = mouse_in_editor_viewport(mouse_pos) and
-				not window.transform:GetRect():IsPosInside(mouse_pos)
+				not editor_window.transform:GetRect():IsPosInside(mouse_pos)
 			local selection_allowed = inside_world and
-				not has_text_focus(window)
+				not has_text_focus(editor_window)
 				and
 				not context_menu_blocks_world(mouse_pos)
 				and
@@ -1202,7 +1201,7 @@ return function(props)
 				if not should_pick then return end
 
 				local excluded_entity = active_camera_component and active_camera_component.Owner or nil
-				local target = find_world_pick_target(window, excluded_entity)
+				local target = find_world_pick_target(editor_window, excluded_entity)
 
 				if target and target:IsValid() then
 					set_selected_target(target, true, target:GetGUID())
@@ -1268,7 +1267,7 @@ return function(props)
 
 			local hovered = MouseInput.GetHoveredObject()
 
-			if not hovered:IsValid() or window:ContainsParent(hovered) then
+			if not hovered:IsValid() or editor_window:ContainsParent(hovered) then
 				Highlight.EnableHighlight(nil)
 				return
 			end
@@ -1292,7 +1291,7 @@ return function(props)
 			local viewport_rect = Rect(0, 0, world_size.x, world_size.y)
 
 			if editor_camera.scale_viewport then
-				local window_rect = window.transform:GetRect()
+				local window_rect = editor_window.transform:GetRect()
 				local clamped_x = math.clamp(window_rect.x, 0, world_size.x)
 				local clamped_y = math.clamp(window_rect.y, 0, world_size.y)
 				local clamped_w = math.max(0, math.min(window_rect.w, world_size.x - clamped_x))
@@ -1308,7 +1307,7 @@ return function(props)
 			camera:SetViewport(viewport_rect)
 		end
 
-		function window:OnUpdate(dt)
+		function editor_window:OnUpdate(dt)
 			-- Deferred scroll to picked entity
 			if picker_2d_scroll_to_guid then
 				tree_view:EnsureVisible(picker_2d_scroll_to_guid, Rect(0, 12, 0, 12))
@@ -1318,13 +1317,13 @@ return function(props)
 			if editor_camera.enabled then
 				update_editor_camera_viewport()
 				local mouse_pos = system.GetWindow():GetMousePosition()
-				local focus_blocks_movement = has_text_focus(window)
+				local focus_blocks_movement = has_text_focus(editor_window)
 				local world_blocked = context_menu_blocks_world(mouse_pos)
 				local ui_blocks_movement = is_ui_hovering()
 				local gizmo_status = Gizmo.GetStatus()
 				local can_drag = mouse_in_editor_viewport(mouse_pos) and
 					not focus_blocks_movement and
-					not window.transform:GetRect():IsPosInside(mouse_pos)
+					not editor_window.transform:GetRect():IsPosInside(mouse_pos)
 					and
 					not world_blocked and
 					not ui_blocks_movement
@@ -1404,7 +1403,7 @@ return function(props)
 			end
 
 			draw_nonvisual_entity_hints(
-				window,
+				editor_window,
 				active_camera_component and active_camera_component.Owner or nil,
 				get_selected_entity()
 			)
@@ -1421,11 +1420,11 @@ return function(props)
 		end
 	end
 
-	window:CallOnRemove(
+	editor_window:CallOnRemove(
 		function()
 			clear_selected_property_listeners()
 			Highlight.Clear()
-			Gizmo.Clear(window)
+			Gizmo.Clear(editor_window)
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
 
 			if active_camera_component:IsValid() then
@@ -1443,7 +1442,7 @@ return function(props)
 				return false
 			end
 
-			local new_item = tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
+			local new_item = tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, editor_window)
 
 			if not new_item then return false end
 
@@ -1506,7 +1505,7 @@ return function(props)
 			local remove_hierarchy_listener = world:AddLocalListener("OnEntityHierarchyChanged", function(_, entity, action, parent)
 				if editor_ui_mutation_blocked > 0 then return end
 
-				if tree_builder.should_ignore_editor_tree_change(entity, parent, window) then
+				if tree_builder.should_ignore_editor_tree_change(entity, parent, editor_window) then
 					return
 				end
 
@@ -1550,8 +1549,8 @@ return function(props)
 					request_editor_sync(false, true)
 				end
 			end)
-			window:CallOnRemove(remove_hierarchy_listener, remove_hierarchy_listener)
-			window:CallOnRemove(remove_component_listener, remove_component_listener)
+			editor_window:CallOnRemove(remove_hierarchy_listener, remove_hierarchy_listener)
+			editor_window:CallOnRemove(remove_component_listener, remove_component_listener)
 		end
 
 		add_world_listeners(Entity.World)
@@ -1561,9 +1560,9 @@ return function(props)
 	sync_tree_items()
 	sync_selection()
 
-	function window:GetSelectedEntityGUID()
+	function editor_window:GetSelectedEntityGUID()
 		return state.selected_entity_guid
 	end
 
-	return window
+	return editor_window
 end
