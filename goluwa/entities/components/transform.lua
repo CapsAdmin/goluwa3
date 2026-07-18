@@ -260,4 +260,8 @@ function META:GetWorldMatrixInverse()
 	return self.WorldMatrixInverse
 end
 
+function META:GetWorldPosition()
+	return Vec3(self:GetWorldMatrix():GetTranslation())
+end
+
 return META:Register()

@@ -203,19 +203,6 @@ local function is_visual_pick_helper_entity(entity)
 	return entity and (entity.visual_primitive ~= nil or entity.VisualOwner ~= nil) or false
 end
 
-local function get_entity_world_position(entity)
-	if not (entity and entity.transform and entity.transform.GetWorldMatrix) then
-		return nil
-	end
-
-	local world_matrix = entity.transform:GetWorldMatrix()
-
-	if not world_matrix then return nil end
-
-	local x, y, z = world_matrix:TransformVectorUnpacked(0, 0, 0)
-	return Vec3(x, y, z)
-end
-
 local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
 	if tree_builder.is_hidden_editor_entity(entity, editor_window) then
 		return false
@@ -227,7 +214,7 @@ local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entit
 		return false
 	end
 
-	return get_entity_world_position(entity) ~= nil
+	return entity.transform ~= nil
 end
 
 local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selected_entity)
@@ -244,11 +231,7 @@ local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selec
 			goto continue
 		end
 
-		local world_pos = get_entity_world_position(entity)
-
-		if not world_pos then goto continue end
-
-		local _, visibility = cam:WorldPositionToScreen(world_pos, screen_width, screen_height)
+		local _, visibility = cam:WorldPositionToScreen(entity.transform:GetWorldPosition(), screen_width, screen_height)
 
 		if visibility ~= -1 then goto continue end
 
@@ -288,10 +271,7 @@ local function find_nonvisual_entity_hit(
 			goto continue2
 		end
 
-		local world_pos = get_entity_world_position(entity)
-
-		if not world_pos then goto continue2 end
-
+		local world_pos = entity.transform:GetWorldPosition()
 		local screen_pos, visibility = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
 
 		if visibility ~= -1 or not screen_pos then goto continue2 end
