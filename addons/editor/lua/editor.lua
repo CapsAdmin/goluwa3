@@ -39,12 +39,12 @@ local NONVISUAL_HINT_TIME = 0.12
 
 local function has_text_focus(window)
 	local focused = objects:GetFocusedObject()
-
-	if not focused:IsValid() then return false end
-
-	if not window:ContainsParent(focused) then return false end
-
-	return focused.text ~= nil or focused.Name == "TextEdit"
+	return focused:IsValid() and
+		window:ContainsParent(focused) and
+		(
+			focused.text ~= nil or
+			focused.Name == "TextEdit"
+		)
 end
 
 local function is_ui_hovering()
@@ -64,27 +64,21 @@ local function approach_vec(current, target, delta)
 end
 
 local function is_editor_control_rig_entity(entity)
-	if not (entity and entity.IsValid and entity:IsValid()) then return false end
-
-	if entity.HasComponent then
-		if
-			entity:HasComponent("player_input") or
-			entity:HasComponent("player_movement") or
-			entity:HasComponent("player_physgun")
-		then
-			return true
-		end
+	if
+		entity:HasComponent("player_input") or
+		entity:HasComponent("player_movement") or
+		entity:HasComponent("player_physgun")
+	then
+		return true
 	end
 
-	local key = entity:GetKey()
-	local name = entity:GetName()
-	return key == "player_camera_rig" or name == "player_camera_rig"
+	return entity:GetKey() == "player_camera_rig" or entity:GetName() == "player_camera_rig"
 end
 
 local function has_editor_control_rig_ancestor(entity)
 	local current = entity
 
-	while current and current.IsValid and current:IsValid() do
+	while current and current:IsValid() do
 		if is_editor_control_rig_entity(current) then return true end
 
 		current = current:GetParent()
@@ -94,20 +88,17 @@ local function has_editor_control_rig_ancestor(entity)
 end
 
 local function is_editor_pick_excluded_entity(entity, excluded_entity)
-	if not (entity and entity.IsValid and entity:IsValid()) then return true end
-
 	if has_editor_control_rig_ancestor(entity) then return true end
 
-	local world = Entity.World
-	local player_camera_rig = world and world.GetKeyed and world:GetKeyed("player_camera_rig") or nil
+	local player_camera_rig = Entity.World:GetKeyed("player_camera_rig")
 
-	if player_camera_rig and player_camera_rig.IsValid and player_camera_rig:IsValid() then
+	if player_camera_rig and player_camera_rig:IsValid() then
 		if entity == player_camera_rig or player_camera_rig:ContainsParent(entity) then
 			return true
 		end
 	end
 
-	if excluded_entity and excluded_entity.IsValid and excluded_entity:IsValid() then
+	if excluded_entity and excluded_entity:IsValid() then
 		if entity == excluded_entity or excluded_entity:ContainsParent(entity) then
 			return true
 		end
@@ -120,7 +111,6 @@ local function get_first_spawned_entity(editor_window)
 	for _, world in ipairs{Entity.World, Panel.World} do
 		for _, child in ipairs(world:GetChildren()) do
 			if
-				child and
 				child:IsValid() and
 				not tree_builder.is_hidden_editor_entity(child, editor_window)
 			then
@@ -133,16 +123,12 @@ local function get_first_spawned_entity(editor_window)
 end
 
 local function has_visual_pick_target(entity)
-	local visual = entity and entity.visual or nil
-
-	if not visual then return false end
-
-	local entries = visual:GetRenderEntries()
+	local entries = entity.visual:GetRenderEntries()
 	return entries and entries[1] ~= nil or false
 end
 
 local function is_visual_pick_helper_entity(entity)
-	return entity and (entity.visual_primitive ~= nil or entity.VisualOwner ~= nil) or false
+	return entity.visual_primitive ~= nil or entity.VisualOwner ~= nil
 end
 
 local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
@@ -152,7 +138,11 @@ local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entit
 
 	if is_editor_pick_excluded_entity(entity, excluded_entity) then return false end
 
-	if has_visual_pick_target(entity) or is_visual_pick_helper_entity(entity) then
+	if
+		entity.visual and
+		has_visual_pick_target(entity) or
+		is_visual_pick_helper_entity(entity)
+	then
 		return false
 	end
 
@@ -161,19 +151,15 @@ end
 
 local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selected_entity)
 	local cam = render3d.GetCamera()
-
-	if not cam then return end
-
 	local viewport = cam:GetViewport()
-	local screen_width = viewport and viewport.w or nil
-	local screen_height = viewport and viewport.h or nil
 
 	for _, entity in ipairs(Entity.World:GetChildrenList()) do
 		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
 			goto continue
 		end
 
-		local _, visibility = cam:WorldPositionToScreen(entity.transform:GetWorldPosition(), screen_width, screen_height)
+		local world_pos = entity.transform:GetWorldPosition()
+		local _, visibility = cam:WorldPositionToScreen(world_pos, viewport.w, viewport.h)
 
 		if visibility ~= -1 then goto continue end
 
@@ -200,13 +186,9 @@ local function find_nonvisual_entity_hit(
 	excluded_entity
 )
 	local cam = render3d.GetCamera()
-
-	if not (cam and mouse_pos and ray_origin and ray_direction) then return nil end
-
 	local best_hit = nil
 	local best_distance = max_distance or math.huge
-	local marker_radius = 12
-	local marker_radius_sq = marker_radius * marker_radius
+	local marker_radius_sq = 144
 
 	for _, entity in ipairs(Entity.World:GetChildrenList()) do
 		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
@@ -224,8 +206,7 @@ local function find_nonvisual_entity_hit(
 
 		if screen_distance_sq > marker_radius_sq then goto continue2 end
 
-		local to_entity = world_pos - ray_origin
-		local ray_distance = to_entity:Dot(ray_direction)
+		local ray_distance = (world_pos - ray_origin):Dot(ray_direction)
 
 		if ray_distance <= 0 or ray_distance > best_distance then goto continue2 end
 
@@ -253,26 +234,12 @@ local function find_nonvisual_entity_hit(
 end
 
 local function find_world_pick_target(editor_window, excluded_entity)
-	if not raycast then return nil end
-
 	local input_window = system.GetWindow()
-
-	if not input_window then return nil end
-
 	local cam = render3d.GetCamera()
-
-	if not cam then return nil end
-
 	local mouse_pos = input_window:GetMousePosition()
-
-	if not mouse_pos then return nil end
-
 	local screen_width, screen_height = render2d.GetSize()
 	local ray_origin = cam:GetPosition()
 	local ray_direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
-
-	if not (ray_origin and ray_direction and mouse_pos) then return nil end
-
 	local visual_hit = raycast.CastClosest(
 		ray_origin,
 		ray_direction,
@@ -302,37 +269,21 @@ local function find_world_pick_target(editor_window, excluded_entity)
 end
 
 local function get_entity_by_guid(guid)
-	if not guid or guid == "" then return nil end
-
 	local entity = objects.GetObjectByGUID(guid)
-
-	if entity and entity:IsValid() then return entity end
-
-	return nil
+	return entity and entity:IsValid() and entity or nil
 end
 
 local function get_drop_parent(drop_info, source_entity)
-	if not drop_info then return nil end
+	if drop_info.position == "inside" then return drop_info.target_node.Entity end
 
-	if drop_info.position == "inside" then
-		return drop_info.target_node and drop_info.target_node.Entity or nil
-	end
-
-	if drop_info.parent_node and drop_info.parent_node.Entity then
-		return drop_info.parent_node.Entity
-	end
+	if drop_info.parent_node then return drop_info.parent_node.Entity end
 
 	return tree_builder.get_entity_world_root(source_entity) or Entity.World
 end
 
 local function count_valid_children(entity, editor_window)
-	local count = 0
-
-	for _, child in ipairs(tree_builder.get_valid_children(entity, editor_window)) do
-		if child and child:IsValid() then count = count + 1 end
-	end
-
-	return count
+	local children = tree_builder.get_valid_children(entity, editor_window)
+	return #children
 end
 
 local open_material_picker
@@ -461,21 +412,17 @@ return function(props)
 	end
 
 	local function update_world_click_selection()
-		local input_window = system.GetWindow()
-
-		if not input_window then return end
-
-		local mouse_pos = input_window:GetMousePosition()
+		local mouse_pos = system.GetWindow():GetMousePosition()
 		local gizmo_status = Gizmo.GetStatus()
-		local focus_blocks_selection = has_text_focus(window)
-		local world_blocked = context_menu_blocks_world(mouse_pos)
-		local ui_blocks_selection = is_ui_hovering()
 		local inside_world = mouse_in_editor_viewport(mouse_pos) and
 			not window.transform:GetRect():IsPosInside(mouse_pos)
 		local selection_allowed = inside_world and
-			not focus_blocks_selection and
-			not world_blocked and
-			not ui_blocks_selection and
+			not has_text_focus(window)
+			and
+			not context_menu_blocks_world(mouse_pos)
+			and
+			not is_ui_hovering()
+			and
 			not gizmo_status.active_drag and
 			not gizmo_status.hovered_handle
 		local button_down = input.IsMouseDown("button_1")
@@ -484,7 +431,7 @@ return function(props)
 			world_click.button_down = true
 			world_click.allow_pick = selection_allowed
 			world_click.dragged = false
-			world_click.start_mouse_pos = mouse_pos and mouse_pos:Copy() or nil
+			world_click.start_mouse_pos = mouse_pos:Copy()
 			return
 		end
 
@@ -513,10 +460,10 @@ return function(props)
 			local excluded_entity = active_camera_component and active_camera_component.Owner or nil
 			local target = find_world_pick_target(window, excluded_entity)
 
-			if not (target and target.IsValid and target:IsValid()) then return end
-
-			set_selected_target(target, true, target:GetGUID())
-			sync_selection()
+			if target and target:IsValid() then
+				set_selected_target(target, true, target:GetGUID())
+				sync_selection()
+			end
 		end
 	end
 
@@ -553,20 +500,14 @@ return function(props)
 
 		local hovered = MouseInput.GetHoveredObject()
 
-		if not (hovered and hovered.IsValid and hovered:IsValid()) then
-			set_hovered_entity(nil)
-			return
-		end
-
-		if window:ContainsParent(hovered) then
+		if not hovered:IsValid() or window:ContainsParent(hovered) then
 			set_hovered_entity(nil)
 			return
 		end
 
 		set_hovered_entity(hovered)
-		local button_down = input.IsMouseDown("button_1")
 
-		if button_down and not picker_2d_last_button_down then
+		if input.IsMouseDown("button_1") and not picker_2d_last_button_down then
 			set_selected_target(hovered, true, hovered:GetGUID())
 			sync_tree_items()
 			sync_selection()
@@ -574,7 +515,7 @@ return function(props)
 			picker_2d_active = false
 		end
 
-		picker_2d_last_button_down = button_down
+		picker_2d_last_button_down = input.IsMouseDown("button_1")
 	end
 
 	local function get_selected_entity()
@@ -656,13 +597,9 @@ return function(props)
 			property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
 		end,
 	}
-	update_footer = function(selected, tree_items)
-		if not footer_text or not footer_text:IsValid() then return end
-
+	update_footer = function(selected)
 		local gizmo_status_info = Gizmo.GetStatus()
 		local gizmo_status = string.format("gizmo: %s/%s", gizmo_status_info.mode, gizmo_status_info.space)
-		local root_3d_count = count_valid_children(Entity.World, window)
-		local root_2d_count = count_valid_children(Panel.World, window)
 
 		if gizmo_status_info.active_drag then
 			gizmo_status = string.format(
@@ -672,6 +609,9 @@ return function(props)
 				gizmo_status_info.active_drag.axis_id:upper()
 			)
 		end
+
+		local root_3d_count = count_valid_children(Entity.World, window)
+		local root_2d_count = count_valid_children(Panel.World, window)
 
 		if not selected then
 			footer_text.text:SetText(
@@ -685,14 +625,15 @@ return function(props)
 			return
 		end
 
+		local label = selected.component_list and
+			tree_builder.get_entity_label(selected) or
+			tree_builder.get_object_label(selected)
 		footer_text.text:SetText(
 			string.format(
 				"3D roots: %d  |  2D roots: %d  |  selected: %s  |  %s",
 				root_3d_count,
 				root_2d_count,
-				selected.component_list and
-					tree_builder.get_entity_label(selected) or
-					tree_builder.get_object_label(selected),
+				label,
 				gizmo_status
 			)
 		)
@@ -724,7 +665,7 @@ return function(props)
 	local function should_defer_tree_refresh(branch_entity)
 		local current = branch_entity
 
-		while current and current.IsValid and current:IsValid() do
+		while current and current:IsValid() do
 			if state.expanded_entities[current:GetGUID()] ~= true then return true end
 
 			if tree_builder.is_world_root(current) then break end
@@ -782,45 +723,28 @@ return function(props)
 	end
 
 	local function try_incremental_tree_insert(entity, parent)
-		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
+		local parent_item = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
+
+		if not parent_item or not state.expanded_entities[parent:GetGUID()] then
 			return false
 		end
 
-		if not (parent and parent:IsValid()) then return false end
-
-		-- Parent must be in the tree and expanded
-		local parent_item = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
-
-		if not parent_item then return false end
-
-		if not state.expanded_entities[parent:GetGUID()] then return false end
-
-		-- Build the new tree item
 		local new_item = tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, window)
 
 		if not new_item then return false end
 
-		-- Insert into tree data structure
 		tree_builder.insert_tree_item(state.tree_items, parent:GetGUID(), new_item)
-		-- Add to UI
 		tree_view:AddNode(new_item, parent:GetGUID())
 		return true
 	end
 
 	local function try_incremental_tree_remove(entity)
-		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
-			return false
-		end
-
 		local guid = entity:GetGUID()
-		-- Entity must be in the tree
 		local item = tree_builder.find_tree_item(state.tree_items, guid)
 
 		if not item then return false end
 
-		-- Remove from tree data structure
 		tree_builder.remove_tree_item(state.tree_items, guid)
-		-- Remove from UI: find and remove all rows for this entity and its children
 		local keys_to_remove = {}
 
 		local function collect_keys(items)
@@ -833,7 +757,6 @@ return function(props)
 		collect_keys(item.Children)
 		keys_to_remove[guid] = true
 
-		-- Remove rows in reverse order to maintain indices
 		for i = #tree_view._row_order, 1, -1 do
 			local row_key = tree_view._row_order[i]
 
@@ -852,23 +775,16 @@ return function(props)
 	end
 
 	local function try_incremental_tree_expand(entity)
-		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
-			return false
-		end
-
 		local guid = entity:GetGUID()
-		-- Entity must be in the tree
 		local parent_item = tree_builder.find_tree_item(state.tree_items, guid)
 
 		if not parent_item then return false end
 
-		-- Get valid children
 		local valid_children = tree_builder.get_valid_children(entity, window)
 
 		if not valid_children[1] then return false end
 
-		local visited = {}
-		visited[entity] = true
+		local visited = {[entity] = true}
 
 		for _, child in ipairs(valid_children) do
 			local new_item = tree_builder.build_tree_snapshot(child, state.expanded_entities, visited, window)
@@ -879,7 +795,6 @@ return function(props)
 			end
 		end
 
-		-- Also handle virtual property children
 		local virtual_children = tree_builder.build_virtual_property_children(entity)
 
 		for _, child_node in ipairs(virtual_children) do
@@ -892,10 +807,6 @@ return function(props)
 	end
 
 	local function refresh_tree_branch(entity)
-		if not (tree_view and tree_view:IsValid() and entity and entity:IsValid()) then
-			return sync_tree_items()
-		end
-
 		local replacement = build_tree_branch_item(entity)
 
 		if not replacement then return sync_tree_items() end
@@ -928,25 +839,16 @@ return function(props)
 		)
 	end
 	refresh_property_key = function(row_prefix, property_name, target)
-		if not property_editor or not property_editor:IsValid() then return end
-
-		if not property_builder.is_valid_object(target) then return end
-
 		local row_key = row_prefix .. "/" .. property_name
 
 		if property_name == "Name" or property_name == "Key" or property_name == "Material" then
 			property_editor:RefreshValueForKey(row_key)
 			request_editor_sync(true, false, nil)
-			update_footer(get_selected_object(), state.tree_items)
+			update_footer(get_selected_object())
 			return
 		end
 
-		local refreshed = property_editor:RefreshValueForKey(row_key)
-
-		if refreshed then return end
-
-		-- property not in the editor, ignore silently
-		return
+		property_editor:RefreshValueForKey(row_key)
 	end
 	reveal_selected_tree_item = function()
 		if not (tree_view and tree_view:IsValid()) then return end
@@ -970,7 +872,7 @@ return function(props)
 		end, "tree_set_items")
 
 		reveal_selected_tree_item()
-		update_footer(get_selected_object(), tree_items)
+		update_footer(get_selected_object())
 		return state.selected_entity_guid ~= previous_guid
 	end
 	flush_pending_tree_branch_refreshes = function()
@@ -1005,17 +907,17 @@ return function(props)
 			local selected_target, selected_key = resolve_selected_target(state.tree_items)
 			set_selected_target(selected_target, false, selected_key)
 			reveal_selected_tree_item()
-			update_footer(get_selected_object(), state.tree_items)
+			update_footer(get_selected_object())
 			return state.selected_entity_guid ~= selected_guid
 		end
 
 		reveal_selected_tree_item()
-		update_footer(get_selected_object(), state.tree_items)
+		update_footer(get_selected_object())
 		return false
 	end
 	request_editor_sync = function(tree_dirty, selection_dirty, branch_entity)
 		if tree_dirty then
-			if branch_entity and branch_entity.IsValid and branch_entity:IsValid() then
+			if branch_entity and branch_entity:IsValid() then
 				pending_tree_branch_keys[branch_entity:GetGUID()] = true
 			else
 				pending_tree_sync = true
@@ -1058,7 +960,7 @@ return function(props)
 		refresh_selected_property_listeners()
 		reveal_selected_tree_item()
 		refresh_property_editor()
-		update_footer(get_selected_object(), state.tree_items)
+		update_footer(get_selected_object())
 	end
 
 	local function open_gallery()
@@ -1070,67 +972,56 @@ return function(props)
 		Panel.World:Ensure(AssetBrowser({Key = "AssetBrowserWindow"}))
 	end
 
-	open_material_picker = function(node, target, info, key, path, panel, commit_value)
+	local function open_asset_picker(picker_key, title, category, node, target, info, key, path, panel, commit_value)
 		Panel.World:Ensure(
 			AssetBrowser{
-				Key = "MaterialAssetPickerWindow",
-				Title = "PICK MATERIAL",
-				PickerCategory = "materials",
-				Categories = {"materials"},
-				SelectedKey = "materials",
+				Key = picker_key,
+				Title = title,
+				PickerCategory = category,
+				Categories = {category},
+				SelectedKey = category,
 				ShowGridByDefault = true,
-				OnPickAsset = function(entry, material, browser_window)
-					if not material then return false end
-
-					commit_value(node, material, key, path, panel)
-
-					if browser_window and browser_window.IsValid and browser_window:IsValid() then
-						browser_window:Remove()
-					end
-
+				OnPickAsset = function(entry, asset, browser_window)
+					commit_value(node, asset, key, path, panel)
+					browser_window:Remove()
 					return true
 				end,
 			}
 		)
 	end
+
+	open_material_picker = function(node, target, info, key, path, panel, commit_value)
+		open_asset_picker(
+			"MaterialAssetPickerWindow",
+			"PICK MATERIAL",
+			"materials",
+			node,
+			target,
+			info,
+			key,
+			path,
+			panel,
+			commit_value
+		)
+	end
 	open_texture_picker = function(node, target, info, key, path, panel, commit_value)
-		Panel.World:Ensure(
-			AssetBrowser{
-				Key = "TextureAssetPickerWindow",
-				Title = "PICK TEXTURE",
-				PickerCategory = "textures",
-				Categories = {"textures"},
-				SelectedKey = "textures",
-				ShowGridByDefault = true,
-				OnPickAsset = function(entry, texture, browser_window)
-					if not texture then return false end
-
-					commit_value(node, texture, key, path, panel)
-
-					if browser_window and browser_window.IsValid and browser_window:IsValid() then
-						browser_window:Remove()
-					end
-
-					return true
-				end,
-			}
+		open_asset_picker(
+			"TextureAssetPickerWindow",
+			"PICK TEXTURE",
+			"textures",
+			node,
+			target,
+			info,
+			key,
+			path,
+			panel,
+			commit_value
 		)
 	end
 
 	local function create_child_shape(parent_entity, kind)
-		if not parent_entity or not parent_entity:IsValid() then return end
-
-		if tree_builder.get_entity_world_root(parent_entity) ~= Entity.World then
-			return
-		end
-
-		local camera_forward = editor_camera.rotation and editor_camera.rotation:GetForward() or Vec3(0, 0, 1)
-		local spawn_world_position = editor_camera.position and
-			(
-				editor_camera.position + camera_forward * 2
-			)
-			or
-			Vec3(0, 0, 2)
+		local camera_forward = editor_camera.rotation:GetForward()
+		local spawn_world_position = editor_camera.position + camera_forward * 2
 		local config = {
 			Name = kind == "sphere" and "sphere" or "box",
 			Collision = false,
@@ -1143,56 +1034,38 @@ return function(props)
 					{r = 0.9, g = 0.62, b = 0.24, a = 1},
 			},
 		}
-		local entity
+		local entity = kind == "sphere" and shapes.Sphere(config) or shapes.Box(config)
 
-		if kind == "sphere" then
-			entity = shapes.Sphere(config)
-		else
-			entity = shapes.Box(config)
+		if entity:HasComponent("rigid_body") then
+			entity:RemoveComponent("rigid_body")
 		end
 
-		if type(entity) == "table" and entity.IsValid and entity:IsValid() then
-			if entity:HasComponent("rigid_body") then
-				entity:RemoveComponent("rigid_body")
-			end
+		entity:SetParent(parent_entity)
 
-			entity:SetParent(parent_entity)
-
-			if parent_entity.transform then
-				entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
-			else
-				entity.transform:SetPosition(spawn_world_position)
-			end
-
-			if parent_entity ~= Entity.World then
-				state.expanded_entities[parent_entity:GetGUID()] = true
-			end
-
-			set_selected_target(entity, true, entity:GetGUID())
-			sync_selection()
+		if parent_entity.transform then
+			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
 		end
+
+		if parent_entity ~= Entity.World then
+			state.expanded_entities[parent_entity:GetGUID()] = true
+		end
+
+		set_selected_target(entity, true, entity:GetGUID())
+		sync_selection()
 	end
 
 	local function remove_entity(entity)
-		if not entity or not entity:IsValid() or tree_builder.is_world_root(entity) then
-			return
-		end
-
 		local parent = entity:GetParent()
-
-		if parent and parent:IsValid() then
-			set_selected_target(parent, true, parent:GetGUID())
-		else
-			set_selected_target(nil, false, nil)
-		end
-
+		set_selected_target(
+			parent and parent:IsValid() and parent or nil,
+			true,
+			parent and parent:GetGUID() or nil
+		)
 		entity:Remove()
 		sync_selection()
 	end
 
 	local function open_tree_context_menu(entity)
-		if not entity or not entity:IsValid() then return false end
-
 		local can_create_shapes = tree_builder.get_entity_world_root(entity) == Entity.World
 		local can_remove = not tree_builder.is_world_root(entity)
 
@@ -1292,40 +1165,27 @@ return function(props)
 	end
 
 	local function build_gizmo_menu_items()
-		local items = {}
+		local function add_gizmo_menu_item(label, setter, value, current)
+			if value == current then label = label .. " (active)" end
 
-		local function add_mode_item(label, mode)
-			if Gizmo.GetMode() == mode then label = label .. " (active)" end
-
-			items[#items + 1] = MenuItem{
+			return MenuItem{
 				Text = label,
 				OnClick = function()
-					Gizmo.SetMode(mode)
-					update_footer(get_selected_object(), state.tree_items)
+					setter(value)
+					update_footer(get_selected_object())
 				end,
 			}
 		end
 
-		local function add_space_item(label, space)
-			if Gizmo.GetSpace() == space then label = label .. " (active)" end
-
-			items[#items + 1] = MenuItem{
-				Text = label,
-				OnClick = function()
-					Gizmo.SetSpace(space)
-					update_footer(get_selected_object(), state.tree_items)
-				end,
-			}
-		end
-
-		add_mode_item("Move", "move")
-		add_mode_item("Rotate", "rotate")
-		add_mode_item("Scale", "scale")
-		add_mode_item("Combined", "combined")
-		items[#items + 1] = MenuSpacer()
-		add_space_item("Local Space", "local")
-		add_space_item("World Space", "world")
-		return items
+		return {
+			add_gizmo_menu_item("Move", Gizmo.SetMode, "move", Gizmo.GetMode()),
+			add_gizmo_menu_item("Rotate", Gizmo.SetMode, "rotate", Gizmo.GetMode()),
+			add_gizmo_menu_item("Scale", Gizmo.SetMode, "scale", Gizmo.GetMode()),
+			add_gizmo_menu_item("Combined", Gizmo.SetMode, "combined", Gizmo.GetMode()),
+			MenuSpacer(),
+			add_gizmo_menu_item("Local Space", Gizmo.SetSpace, "local", Gizmo.GetSpace()),
+			add_gizmo_menu_item("World Space", Gizmo.SetSpace, "world", Gizmo.GetSpace()),
+		}
 	end
 
 	set_selected_target(get_selected_object(), true, state.selected_entity_guid)
@@ -1501,19 +1361,12 @@ return function(props)
 						return true
 					end,
 					OnDrop = function(drop_info)
-						local source_entity = drop_info.source_node and drop_info.source_node.Entity or nil
+						local source_entity = drop_info.source_node.Entity
 						local next_parent = get_drop_parent(drop_info, source_entity)
 
-						if
-							not source_entity or
-							not source_entity:IsValid()
-							or
-							tree_builder.is_world_root(source_entity)
-						then
-							return false
-						end
+						if tree_builder.is_world_root(source_entity) then return false end
 
-						if not next_parent or not next_parent:IsValid() then
+						if not next_parent:IsValid() then
 							next_parent = tree_builder.get_entity_world_root(source_entity) or Entity.World
 						end
 
@@ -1601,7 +1454,7 @@ return function(props)
 		Text{
 			Ref = function(self)
 				footer_text = self
-				update_footer(get_selected_object(), state.tree_items)
+				update_footer(get_selected_object())
 			end,
 			Text = "",
 			Color = "text_disabled",
@@ -1722,73 +1575,63 @@ return function(props)
 				not mouse_in_editor_viewport(mouse_pos)
 
 			if editor_camera.dragging then
-				local editor_camera = editor_camera
 				local mouse_delta = system.GetWindow():GetMouseDelta() / 2
 
-				if mouse_delta.x == 0 and mouse_delta.y == 0 then
-
-				else
-					local rotation = editor_camera.rotation:Copy()
+				if mouse_delta.x ~= 0 or mouse_delta.y ~= 0 then
 					local scaled_delta = mouse_delta * editor_camera.mouse_sensitivity
 					local new_pitch = math.clamp(editor_camera.pitch + scaled_delta.y, editor_camera.min_pitch, editor_camera.max_pitch)
 					local pitch_delta = new_pitch - editor_camera.pitch
 					local yaw_quat = Quat():Identity()
 					yaw_quat:RotateYaw(-scaled_delta.x)
-					rotation = (yaw_quat * rotation):GetNormalized()
-					rotation:RotatePitch(-pitch_delta)
-					editor_camera.rotation = rotation
+					editor_camera.rotation = (yaw_quat * editor_camera.rotation:Copy()):GetNormalized()
+					editor_camera.rotation:RotatePitch(-pitch_delta)
 					editor_camera.pitch = new_pitch
 				end
 			end
 
-			do
-				local editor_camera = editor_camera
+			if editor_camera.block_movement then
+				editor_camera.velocity = approach_vec(editor_camera.velocity, Vec3(), editor_camera.acceleration * dt)
+			else
+				local move_local = Vec3()
 
-				if editor_camera.block_movement then
-					editor_camera.velocity = approach_vec(editor_camera.velocity, Vec3(), editor_camera.acceleration * dt)
-					editor_camera.position = editor_camera.position + editor_camera.velocity * dt
-				else
-					local move_local = Vec3()
+				if input.IsKeyDown("w") then move_local.z = move_local.z + 1 end
 
-					if input.IsKeyDown("w") then move_local.z = move_local.z + 1 end
+				if input.IsKeyDown("s") then move_local.z = move_local.z - 1 end
 
-					if input.IsKeyDown("s") then move_local.z = move_local.z - 1 end
+				if input.IsKeyDown("a") then move_local.x = move_local.x - 1 end
 
-					if input.IsKeyDown("a") then move_local.x = move_local.x - 1 end
+				if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
 
-					if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
+				if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
 
-					if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
+				if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
 
-					if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
+				local move = Vec3()
 
-					local move = Vec3()
+				if move_local:GetLength() > 0.0001 then
+					move_local = move_local:GetNormalized()
+					move = editor_camera.rotation:GetForward() * move_local.z + editor_camera.rotation:GetRight() * move_local.x + editor_camera.rotation:GetUp() * move_local.y
 
-					if move_local:GetLength() > 0.0001 then
-						move_local = move_local:GetNormalized()
-						move = editor_camera.rotation:GetForward() * move_local.z + editor_camera.rotation:GetRight() * move_local.x + editor_camera.rotation:GetUp() * move_local.y
-
-						if move:GetLength() > 0.0001 then move = move:GetNormalized() end
-					end
-
-					local speed = editor_camera.speed
-
-					if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
-						speed = speed * editor_camera.slow_multiplier
-					end
-
-					if input.IsKeyDown("left_shift") then
-						speed = speed * editor_camera.sprint_multiplier
-					end
-
-					editor_camera.velocity = approach_vec(editor_camera.velocity, move * speed, editor_camera.acceleration * dt)
-					editor_camera.position = editor_camera.position + editor_camera.velocity * dt
+					if move:GetLength() > 0.0001 then move = move:GetNormalized() end
 				end
 
-				local camera = render3d.GetCamera()
-				camera:SetPosition(editor_camera.position)
-				camera:SetRotation(editor_camera.rotation)
+				local speed = editor_camera.speed
+
+				if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
+					speed = speed * editor_camera.slow_multiplier
+				end
+
+				if input.IsKeyDown("left_shift") then
+					speed = speed * editor_camera.sprint_multiplier
+				end
+
+				editor_camera.velocity = approach_vec(editor_camera.velocity, move * speed, editor_camera.acceleration * dt)
 			end
+
+			editor_camera.position = editor_camera.position + editor_camera.velocity * dt
+			local camera = render3d.GetCamera()
+			camera:SetPosition(editor_camera.position)
+			camera:SetRotation(editor_camera.rotation)
 		end
 
 		draw_nonvisual_entity_hints(
@@ -1809,7 +1652,7 @@ return function(props)
 	end
 
 	Gizmo.SetStateChangedCallback(window, function(status)
-		update_footer(get_selected_object(), state.tree_items)
+		update_footer(get_selected_object())
 	end)
 
 	window:CallOnRemove(
@@ -1835,29 +1678,27 @@ return function(props)
 					return
 				end
 
-				-- If neither the entity nor its parent are in the tree, skip
 				if parent and parent:IsValid() then
 					local parent_in_tree = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
 
-					if not parent_in_tree then
-						local entity_in_tree = tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
-
-						if not entity_in_tree then return end
+					if
+						not parent_in_tree and
+						not tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
+					then
+						return
 					end
 				end
 
-				-- For removals, if entity is not in tree, skip
-				if action == "unparented" then
-					local entity_in_tree = tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
-
-					if not entity_in_tree then return end
+				if
+					action == "unparented" and
+					not tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
+				then
+					return
 				end
 
 				if action == "parented" and parent and parent:IsValid() then
-					-- Try incremental insert for added entities
 					if try_incremental_tree_insert(entity, parent) then return end
 				elseif action == "unparented" then
-					-- Try incremental remove for removed entities
 					if try_incremental_tree_remove(entity) then return end
 				end
 
