@@ -113,7 +113,7 @@ return {
 				Color = Color(0, 0, 0, 0.5),
 				layout = {
 					MinSize = Vec2(100, 100),
-					MaxSize = Vec2(100, 100),
+					MaxSize = Vec2(0, 100),
 				},
 			}(
 				Column{
