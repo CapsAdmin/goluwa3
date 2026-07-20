@@ -248,22 +248,11 @@ return function(props)
 				local target = get_selected_object()
 
 				if property_builder.is_valid_object(target) then
-					if target.component_list then
-						for _, component in ipairs(target.component_list or {}) do
-							if component and component.IsValid and component:IsValid() then
-								local component_name = property_builder.get_component_name(target, component)
-								selected_property_listener_removers[#selected_property_listener_removers + 1] = component:AddPropertyListener(function(_, key)
-									if property_change_sync_blocked > 0 then return end
-
-									refresh_property_key(target:GetGUID() .. "/" .. component_name, key, target)
-								end)
-							end
-						end
-					else
-						selected_property_listener_removers[#selected_property_listener_removers + 1] = target:AddPropertyListener(function(_, key)
+					for _, category in ipairs(property_builder.enumerate_property_categories(target)) do
+						selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
 							if property_change_sync_blocked > 0 then return end
 
-							refresh_property_key(target:GetGUID() .. "/properties", key, target)
+							refresh_property_key(category.key, key, target)
 						end)
 					end
 				end

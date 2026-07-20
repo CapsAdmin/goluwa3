@@ -172,6 +172,35 @@ local function build_property_node(target, category_key, category_name, info, ho
 	return node
 end
 
+local function enumerate_property_categories(target)
+	local categories = {}
+
+	if target.component_list then
+		for _, component in ipairs(target.component_list or {}) do
+			if component and component.IsValid and component:IsValid() then
+				local component_name = get_component_name(target, component)
+				categories[#categories + 1] = {
+					object = component,
+					key = target:GetGUID() .. "/" .. component_name,
+					name = component_name,
+				}
+			end
+		end
+	else
+		categories[#categories + 1] = {
+			object = target,
+			key = target:GetGUID() .. "/properties",
+			name = get_object_label(target),
+		}
+	end
+
+	table.sort(categories, function(a, b)
+		return a.name < b.name
+	end)
+
+	return categories
+end
+
 local function build_storable_property_group(target, group_key, group_text, hooks)
 	local children = {}
 
@@ -192,21 +221,10 @@ local function build_property_items(target, hooks)
 
 	local items = {}
 
-	if target.component_list then
-		for _, component in ipairs(target.component_list or {}) do
-			local component_name = get_component_name(target, component)
-			items[#items + 1] = build_storable_property_group(
-				component,
-				target:GetGUID() .. "/" .. component_name,
-				component_name,
-				hooks
-			)
-		end
-
-		return items
+	for _, category in ipairs(enumerate_property_categories(target)) do
+		items[#items + 1] = build_storable_property_group(category.object, category.key, category.name, hooks)
 	end
 
-	items[#items + 1] = build_storable_property_group(target, target:GetGUID() .. "/properties", get_object_label(target), hooks)
 	return items
 end
 
@@ -214,6 +232,7 @@ return {
 	build_property_node = build_property_node,
 	build_storable_property_group = build_storable_property_group,
 	build_property_items = build_property_items,
+	enumerate_property_categories = enumerate_property_categories,
 	get_component_name = get_component_name,
 	get_object_label = get_object_label,
 	get_material_display_text = get_material_display_text,
