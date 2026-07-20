@@ -93,25 +93,13 @@ return function(props)
 	local editor_window = NULL
 	local selected_property_listener_removers = {}
 	local property_change_sync_blocked = 0
-	local sync_selection
 	local pending_selection_sync = false
-	local pending_sync_deadline = 0
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
 	local editor_camera = import("lua/editor_camera.lua")
 	editor_camera.Initialize()
 	local editor_world_picking = import("lua/editor_world_picking.lua")
 	local click_drag_threshold_sq = 16
-
-	local function run_editor_ui_mutation(callback, reason)
-		editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
-		local ok, result_a, result_b, result_c = pcall(callback)
-		editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
-
-		if not ok then error(result_a, 0) end
-
-		return result_a, result_b, result_c
-	end
 
 	local function context_menu_blocks_world(mouse_pos)
 		local menu = Panel.World:GetKeyed("EditorMenuBarContextMenu") or
@@ -126,15 +114,6 @@ return function(props)
 	local picker_2d_cursor_override = nil
 	local picker_2d_last_button_down = false
 	local picker_2d_scroll_to_guid = nil
-
-	local function clear_selected_property_listeners()
-		for i = 1, #selected_property_listener_removers do
-			selected_property_listener_removers[i]()
-		end
-
-		list.clear(selected_property_listener_removers)
-	end
-
 	local property_node_hooks = {
 		OnPropertyChangeStart = function()
 			property_change_sync_blocked = property_change_sync_blocked + 1
@@ -162,47 +141,11 @@ return function(props)
 		if ensure_visible and entity and guid ~= previous_guid then
 			tree_view:ExpandToEntity(entity)
 		end
+
+		pending_selection_sync = true
 	end
 
-	local function resolve_selected_target()
-		local current_selected = tree_view:GetSelectedEntity()
-
-		if current_selected then
-			local guid = tree_view:IsValid() and
-				tree_view:GetSelectedEntityGUID() or
-				initial_selected_guid
-			return current_selected, guid
-		end
-
-		local fallback = get_first_spawned_entity(editor_window)
-
-		if fallback then return fallback, fallback:GetGUID() end
-
-		return nil, nil
-	end
-
-	local function reveal_selected_tree_item()
-		if not tree_view:IsValid() then return end
-
-		local guid = tree_view:GetSelectedEntityGUID()
-		tree_view:ExpandToKey(guid)
-		tree_view:EnsureVisible(guid, Rect(0, 12, 0, 12))
-	end
-
-	local function request_editor_sync(selection_dirty)
-		if selection_dirty then pending_selection_sync = true end
-
-		pending_sync_deadline = system.GetElapsedTime() + sync_debounce_time
-	end
-
-	local function flush_pending_editor_sync(force)
-		if not pending_selection_sync then return end
-
-		if not force and system.GetElapsedTime() < pending_sync_deadline then return end
-
-		pending_selection_sync = false
-		sync_selection()
-	end
+	local function flush_pending_editor_sync(force) end
 
 	local function close_active_context_menu()
 		local active = Panel.World:GetKeyed("EditorTreeContextMenu")
@@ -238,7 +181,6 @@ return function(props)
 		end
 
 		set_selected_target(entity, true, entity:GetGUID())
-		sync_selection()
 	end
 
 	local size = props.Size or Vec2(400, 540)
@@ -418,7 +360,6 @@ return function(props)
 					OnSelect = function(node, key)
 						local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
 						set_selected_target(target, false, key)
-						sync_selection()
 					end,
 					OnNodeHover = function(node, key, path, row_info, hovered)
 						local entity = node and node.Entity or nil
@@ -476,7 +417,6 @@ return function(props)
 											parent and parent:GetGUID() or nil
 										)
 										entity:Remove()
-										sync_selection()
 									end,
 								} or
 								nil,
@@ -679,7 +619,6 @@ return function(props)
 
 				if target and target:IsValid() then
 					set_selected_target(target, true, target:GetGUID())
-					sync_selection()
 				end
 			end
 		end
@@ -721,12 +660,19 @@ return function(props)
 
 				tree_view:Refresh(true)
 				set_selected_target(hovered, true, hovered:GetGUID())
-				sync_selection()
 				picker_2d_scroll_to_guid = hovered:GetGUID()
 				picker_2d_active = false
 			end
 
 			picker_2d_last_button_down = input.IsMouseDown("button_1")
+		end
+
+		local function clear_selected_property_listeners()
+			for i = 1, #selected_property_listener_removers do
+				selected_property_listener_removers[i]()
+			end
+
+			list.clear(selected_property_listener_removers)
 		end
 
 		function editor_window:OnUpdate(dt)
@@ -781,19 +727,51 @@ return function(props)
 
 			update_world_click_selection()
 			update_picker_2d()
-			flush_pending_editor_sync(false)
-		end
-	end
 
-	editor_window:CallOnRemove(
-		function()
-			clear_selected_property_listeners()
-			Highlight.Clear()
-			Gizmo.Clear(editor_window)
-			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
-		end,
-		"editor_gizmo_cleanup"
-	)
+			if pending_selection_sync then
+				pending_selection_sync = false
+				local selected_target = tree_view:GetSelectedEntity()
+
+				do
+					clear_selected_property_listeners()
+
+					if property_builder.is_valid_object(selected_target) then
+						for _, category in ipairs(property_builder.enumerate_property_categories(selected_target)) do
+							selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
+								if property_change_sync_blocked > 0 then return end
+
+								property_editor:RefreshValueForKey(category.key .. "/" .. key)
+
+								if property_name == "Name" or property_name == "Key" or property_name == "Material" then
+									pending_selection_sync = true
+								end
+							end)
+						end
+					end
+				end
+
+				local guid = tree_view:GetSelectedEntityGUID()
+				tree_view:ExpandToKey(guid)
+				tree_view:EnsureVisible(guid, Rect(0, 12, 0, 12))
+				editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
+				tree_view:BlockMutations()
+				property_editor:SetItems(property_builder.build_property_items(tree_view:GetSelectedEntity(), property_node_hooks))
+				property_editor:ExpandAll()
+				tree_view:UnblockMutations()
+				editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
+			end
+		end
+
+		editor_window:CallOnRemove(
+			function()
+				clear_selected_property_listeners()
+				Highlight.Clear()
+				Gizmo.Clear(editor_window)
+				render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
+			end,
+			"editor_gizmo_cleanup"
+		)
+	end
 
 	do
 		local function add_component_listener(world)
@@ -801,7 +779,7 @@ return function(props)
 				local selected_entity = tree_view:GetSelectedEntity()
 
 				if selected_entity and entity == selected_entity then
-					request_editor_sync(true)
+					pending_selection_sync = true
 				end
 			end)
 			editor_window:CallOnRemove(remove_listener, remove_listener)
@@ -825,57 +803,6 @@ return function(props)
 			editor_camera.SetVelocity(Vec3())
 		end
 
-		do
-			local function refresh_property_key(row_prefix, property_name, target)
-				local row_key = row_prefix .. "/" .. property_name
-
-				if property_name == "Name" or property_name == "Key" or property_name == "Material" then
-					property_editor:RefreshValueForKey(row_key)
-					request_editor_sync(false)
-					return
-				end
-
-				property_editor:RefreshValueForKey(row_key)
-			end
-
-			sync_selection = function()
-				pending_selection_sync = false
-				local selected_target, selected_key = resolve_selected_target()
-				set_selected_target(selected_target, false, selected_key)
-
-				do
-					clear_selected_property_listeners()
-					local target = tree_view:GetSelectedEntity()
-
-					if property_builder.is_valid_object(target) then
-						for _, category in ipairs(property_builder.enumerate_property_categories(target)) do
-							selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
-								if property_change_sync_blocked > 0 then return end
-
-								refresh_property_key(category.key, key, target)
-							end)
-						end
-					end
-				end
-
-				reveal_selected_tree_item()
-
-				if property_editor:IsValid() then
-					tree_view:BlockMutations()
-
-					run_editor_ui_mutation(
-						function()
-							property_editor:SetItems(property_builder.build_property_items(tree_view:GetSelectedEntity(), property_node_hooks))
-							property_editor:ExpandAll()
-						end,
-						"property_editor_set_items"
-					)
-
-					tree_view:UnblockMutations()
-				end
-			end
-		end
-
 		set_selected_target(tree_view:GetSelectedEntity(), true, initial_selected_guid)
 		Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 		Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
@@ -885,8 +812,8 @@ return function(props)
 			set_selected_target(fallback, true, fallback:GetGUID())
 		end
 
-		sync_selection()
 		tree_view:Refresh(true)
+		pending_selection_sync = true
 	end
 
 	return editor_window
