@@ -1,9 +1,32 @@
 local system = import("goluwa/system.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local tree_builder = import("addons/editor/lua/tree_builder.lua")
+
+local transient_ui_keys = {
+	ActiveContextMenu = true,
+	ActiveMenuBarContextMenu = true,
+	EditorMenuBarContextMenu = true,
+	EditorTreeContextMenu = true,
+	UITooltipOverlay = true,
+}
+
+local function is_hidden_editor_entity(entity, editor_window)
+	if not (entity and entity.IsValid and entity:IsValid()) then return false end
+
+	local current = entity
+	while current and current.IsValid and current:IsValid() do
+		if current == editor_window then return true end
+		if current.IsContextMenuContainer then return true end
+		local key = current.GetKey and current:GetKey() or ""
+		if transient_ui_keys[key] then return true end
+		current = current:GetParent()
+	end
+
+	return false
+end
 
 local editor_world_picking = library()
 
@@ -61,7 +84,7 @@ function editor_world_picking.is_pick_excluded_entity(entity, excluded_entity)
 end
 
 function editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
-	if tree_builder.is_hidden_editor_entity(entity, editor_window) then
+	if is_hidden_editor_entity(entity, editor_window) then
 		return false
 	end
 
@@ -148,7 +171,7 @@ function editor_world_picking.find_world_pick_target(editor_window, excluded_ent
 		function(entity)
 			return entity:IsValid() and
 				entity:GetRoot() == Entity.World and
-				not tree_builder.is_hidden_editor_entity(entity, editor_window)
+					not is_hidden_editor_entity(entity, editor_window)
 				and
 				not editor_world_picking.is_pick_excluded_entity(entity, excluded_entity)
 		end

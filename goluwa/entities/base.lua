@@ -294,6 +294,10 @@ function BaseEntity:HasComponent(name)
 	return self.component_map[name] ~= nil
 end
 
+function BaseEntity:GetComponents()
+	return self.component_list
+end
+
 function BaseEntity:GetKeyed(key)
 	local ent = self.keyed_children and self.keyed_children[key]
 

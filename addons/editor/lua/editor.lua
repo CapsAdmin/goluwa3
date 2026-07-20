@@ -24,17 +24,39 @@ local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
+local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
-local tree_builder = import("addons/editor/lua/tree_builder.lua")
 local property_builder = import("addons/editor/lua/property_builder.lua")
 local CameraComponent = import("lua/components/camera.lua")
-local MATERIAL_ROOT_KEY = tree_builder.MATERIAL_ROOT_KEY
-local SHARED_INSTANCE_COLOR = tree_builder.SHARED_INSTANCE_COLOR
+local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
+local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
+
+local transient_ui_keys = {
+	ActiveContextMenu = true,
+	ActiveMenuBarContextMenu = true,
+	EditorMenuBarContextMenu = true,
+	EditorTreeContextMenu = true,
+	UITooltipOverlay = true,
+}
+
+local function is_hidden_editor_entity(entity, editor_window)
+	if not (entity and entity.IsValid and entity:IsValid()) then return false end
+
+	local current = entity
+	while current and current.IsValid and current:IsValid() do
+		if current == editor_window then return true end
+		if current.IsContextMenuContainer then return true end
+		local key = current.GetKey and current:GetKey() or ""
+		if transient_ui_keys[key] then return true end
+		current = current:GetParent()
+	end
+
+	return false
+end
 
 local function has_text_focus(editor_window)
 	local focused = objects:GetFocusedObject()
@@ -51,7 +73,7 @@ local function get_first_spawned_entity(editor_window)
 		for _, child in ipairs(world:GetChildren()) do
 			if
 				child:IsValid() and
-				not tree_builder.is_hidden_editor_entity(child, editor_window)
+					not is_hidden_editor_entity(child, editor_window)
 			then
 				return child
 			end
@@ -67,12 +89,6 @@ return function(props)
 		selected_entity = nil,
 		selected_object = nil,
 		selected_entity_guid = props.SelectedEntityGUID,
-		expanded_entities = {
-			[Entity.World:GetGUID()] = true,
-			[MATERIAL_ROOT_KEY] = true,
-			[Panel.World:GetGUID()] = true,
-		},
-		tree_items = {},
 	}
 	local tree_view = NULL
 	local tree_scroll_container = NULL
@@ -81,14 +97,11 @@ return function(props)
 	local selected_property_listener_removers = {}
 	local property_change_sync_blocked = 0
 	local sync_selection
-	local pending_tree_sync = false
-	local pending_tree_branch_keys = {}
 	local pending_selection_sync = false
 	local pending_sync_deadline = 0
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
-	local tracked_material_count = tree_builder.count_material_objects()
-local editor_camera = import("lua/editor_camera.lua")
+	local editor_camera = import("lua/editor_camera.lua")
 	editor_camera.Initialize()
 	local editor_world_picking = import("lua/editor_world_picking.lua")
 	local click_drag_threshold_sq = 16
@@ -127,12 +140,6 @@ local editor_camera = import("lua/editor_camera.lua")
 	end
 
 	local function get_selected_object()
-		local selected_item = tree_builder.find_tree_item(state.tree_items, state.selected_entity_guid)
-
-		if selected_item then
-			return selected_item.Entity or selected_item.Object or nil
-		end
-
 		local entity = get_selected_entity()
 
 		if entity then return entity end
@@ -174,45 +181,20 @@ local editor_camera = import("lua/editor_camera.lua")
 		Gizmo.EnableGizmo(entity)
 
 		if ensure_visible and entity and state.selected_entity_guid ~= previous_guid then
-			local current = entity and entity:GetParent() or nil
-
-			while current and current:IsValid() and not tree_builder.is_world_root(current) do
-				state.expanded_entities[current:GetGUID()] = true
-				current = current:GetParent()
-			end
+			tree_view:ExpandToEntity(entity)
 		end
 	end
 
-	local function resolve_selected_target(tree_items)
-		local selected_item = tree_builder.find_tree_item(tree_items, state.selected_entity_guid)
-
-		if selected_item then
-			return selected_item.Entity or selected_item.Object, selected_item.Key
-		end
-
+	local function resolve_selected_target()
 		local current_selected = get_selected_object()
 
-		if tree_builder.can_preserve_hidden_selection(current_selected, editor_window) then
-			return current_selected, state.selected_entity_guid
-		end
+		if current_selected then return current_selected, state.selected_entity_guid end
 
 		local fallback = get_first_spawned_entity(editor_window)
 
 		if fallback then return fallback, fallback:GetGUID() end
 
-		local first = tree_items[1]
-		return first and (first.Entity or first.Object) or nil,
-		first and first.Key or nil
-	end
-
-	local function get_tree_branch_entity_by_guid(guid)
-		if guid == Entity.World:GetGUID() then return Entity.World end
-
-		if guid == Panel.World:GetGUID() then return Panel.World end
-
-		if guid == MATERIAL_ROOT_KEY then return nil end
-
-		return objects.GetObjectByGUID(guid)
+		return nil, nil
 	end
 
 	local function reveal_selected_tree_item()
@@ -223,136 +205,19 @@ local editor_camera = import("lua/editor_camera.lua")
 		tree_view:EnsureVisible(state.selected_entity_guid, Rect(0, 12, 0, 12))
 	end
 
-	local function sync_tree_items()
-		if not tree_view:IsValid() then return end
-
-		pending_tree_sync = false
-		local previous_guid = state.selected_entity_guid
-		local tree_items = tree_builder.build_tree_items(state.expanded_entities, editor_window)
-		local selected_target, selected_key = resolve_selected_target(tree_items)
-		set_selected_target(selected_target, false, selected_key)
-		state.tree_items = tree_items
-
-		run_editor_ui_mutation(function()
-			tree_view:SetItems(tree_items)
-		end, "tree_set_items")
-
-		reveal_selected_tree_item()
-		return state.selected_entity_guid ~= previous_guid
-	end
-
-	local function build_tree_branch_item(entity)
-		if not (entity and entity.IsValid and entity:IsValid()) then return nil end
-
-		if entity == Entity.World then
-			return tree_builder.build_world_tree_item(Entity.World, "3D World", state.expanded_entities, {}, editor_window)
-		end
-
-		if entity == Panel.World then
-			return tree_builder.build_world_tree_item(Panel.World, "2D World", state.expanded_entities, {}, editor_window)
-		end
-
-		return tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, editor_window)
-	end
-
-	local function refresh_tree_branch(entity)
-		local replacement = build_tree_branch_item(entity)
-
-		if not replacement then return sync_tree_items() end
-
-		if
-			not tree_builder.replace_tree_item(state.tree_items, entity:GetGUID(), replacement)
-		then
-			return sync_tree_items()
-		end
-
-		run_editor_ui_mutation(
-			function()
-				tree_view:RefreshBranchForKey(entity:GetGUID())
-			end,
-			"tree_refresh_branch"
-		)
-
-		return false
-	end
-
-	local function flush_pending_tree_branch_refreshes()
-		local branch_keys = {}
-
-		for key in pairs(pending_tree_branch_keys) do
-			branch_keys[#branch_keys + 1] = key
-		end
-
-		pending_tree_branch_keys = {}
-
-		if branch_keys[1] == nil then return false end
-
-		local selected_guid = state.selected_entity_guid
-
-		for _, key in ipairs(branch_keys) do
-			local entity = get_tree_branch_entity_by_guid(key)
-
-			if not (entity and entity:IsValid()) then return sync_tree_items() end
-
-			local selection_changed = refresh_tree_branch(entity)
-
-			if selection_changed then return true end
-		end
-
-		if
-			selected_guid ~= nil and
-			not tree_builder.find_tree_item(state.tree_items, selected_guid)
-			and
-			not tree_builder.can_preserve_hidden_selection(get_selected_object(), editor_window)
-		then
-			local selected_target, selected_key = resolve_selected_target(state.tree_items)
-			set_selected_target(selected_target, false, selected_key)
-			reveal_selected_tree_item()
-			return state.selected_entity_guid ~= selected_guid
-		end
-
-		reveal_selected_tree_item()
-		return false
-	end
-
-	local function request_editor_sync(tree_dirty, selection_dirty, branch_entity)
-		if tree_dirty then
-			if branch_entity and branch_entity:IsValid() then
-				pending_tree_branch_keys[branch_entity:GetGUID()] = true
-			else
-				pending_tree_sync = true
-			end
-		end
-
+	local function request_editor_sync(selection_dirty)
 		if selection_dirty then pending_selection_sync = true end
 
 		pending_sync_deadline = system.GetElapsedTime() + sync_debounce_time
 	end
 
 	local function flush_pending_editor_sync(force)
-		if
-			not pending_tree_sync and
-			not next(pending_tree_branch_keys)
-			and
-			not pending_selection_sync
-		then
-			return
-		end
+		if not pending_selection_sync then return end
 
 		if not force and system.GetElapsedTime() < pending_sync_deadline then return end
 
-		if pending_tree_sync then
-			pending_tree_sync = false
-
-			if sync_tree_items() then pending_selection_sync = true end
-		elseif next(pending_tree_branch_keys) then
-			if flush_pending_tree_branch_refreshes() then pending_selection_sync = true end
-		end
-
-		if pending_selection_sync then
-			pending_selection_sync = false
-			sync_selection()
-		end
+		pending_selection_sync = false
+		sync_selection()
 	end
 
 	do
@@ -361,7 +226,7 @@ local editor_camera = import("lua/editor_camera.lua")
 
 			if property_name == "Name" or property_name == "Key" or property_name == "Material" then
 				property_editor:RefreshValueForKey(row_key)
-				request_editor_sync(true, false, nil)
+				request_editor_sync(false)
 				return
 			end
 
@@ -370,7 +235,7 @@ local editor_camera = import("lua/editor_camera.lua")
 
 		sync_selection = function()
 			pending_selection_sync = false
-			local selected_target, selected_key = resolve_selected_target(state.tree_items)
+			local selected_target, selected_key = resolve_selected_target()
 			set_selected_target(selected_target, false, selected_key)
 
 			do
@@ -402,6 +267,7 @@ local editor_camera = import("lua/editor_camera.lua")
 			reveal_selected_tree_item()
 
 			if property_editor:IsValid() then
+				tree_view:BlockMutations()
 				run_editor_ui_mutation(
 					function()
 						property_editor:SetItems(property_builder.build_property_items(get_selected_object(), property_node_hooks))
@@ -409,6 +275,7 @@ local editor_camera = import("lua/editor_camera.lua")
 					end,
 					"property_editor_set_items"
 				)
+				tree_view:UnblockMutations()
 			end
 		end
 	end
@@ -440,10 +307,6 @@ local editor_camera = import("lua/editor_camera.lua")
 			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
 		end
 
-		if parent_entity ~= Entity.World then
-			state.expanded_entities[parent_entity:GetGUID()] = true
-		end
-
 		set_selected_target(entity, true, entity:GetGUID())
 		sync_selection()
 	end
@@ -457,7 +320,6 @@ local editor_camera = import("lua/editor_camera.lua")
 		set_selected_target(fallback, true, fallback:GetGUID())
 	end
 
-	state.tree_items = tree_builder.build_tree_items(state.expanded_entities)
 	local size = props.Size or Vec2(400, 540)
 	local world_size = Panel.World.transform:GetSize()
 
@@ -620,89 +482,29 @@ local editor_camera = import("lua/editor_camera.lua")
 					GrowHeight = 1,
 				},
 			}{
-				Tree{
+				EntityTree{
 					Ref = function(self)
 						tree_view = self
 					end,
-					Items = state.tree_items,
+					RootEntities = {Entity.World, Panel.World},
+					RootLabels = {
+						[Entity.World] = "3D World",
+						[Panel.World] = "2D World",
+					},
 					SelectedKey = state.selected_entity_guid,
 					SharedInstanceColor = SHARED_INSTANCE_COLOR,
-					OnGetTextColor = function(node)
-						return node and node.SharedInstance and SHARED_INSTANCE_COLOR or nil
+					ShowVirtualChildren = true,
+					FilterCallback = function(entity)
+						return not is_hidden_editor_entity(entity, editor_window)
 					end,
 					layout = {
 						GrowWidth = 1,
-						--GrowHeight = 1,
 						FitHeight = true,
 					},
-					OnIsExpanded = function(node, path, key)
-						return state.expanded_entities[key] == true
-					end,
 					OnSelect = function(node, key)
-						local target = node and
-							(
-								node.Entity or
-								node.Object
-							)
-							or
-							objects.GetObjectByGUID(key)
-						set_selected_target(target, true, key)
+						local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
+						set_selected_target(target, false, key)
 						sync_selection()
-					end,
-					OnToggle = function(node, expanded, key)
-						local was_expanded = state.expanded_entities[key] == true
-						state.expanded_entities[key] = expanded == true
-
-						if expanded ~= true or was_expanded then return end
-
-						if not (node and node.HasChildren) then return end
-
-						if key == MATERIAL_ROOT_KEY then
-							request_editor_sync(true, false, nil)
-							flush_pending_editor_sync(true)
-							return
-						end
-
-						local branch_entity = node.Entity or get_tree_branch_entity_by_guid(key)
-
-						if branch_entity and branch_entity:IsValid() then
-							local function try_incremental_tree_expand(entity)
-								local guid = entity:GetGUID()
-								local parent_item = tree_builder.find_tree_item(state.tree_items, guid)
-
-								if not parent_item then return false end
-
-								local valid_children = tree_builder.get_valid_children(entity, editor_window)
-
-								if not valid_children[1] then return false end
-
-								local visited = {[entity] = true}
-
-								for _, child in ipairs(valid_children) do
-									local new_item = tree_builder.build_tree_snapshot(child, state.expanded_entities, visited, editor_window)
-
-									if new_item then
-										tree_builder.insert_tree_item(state.tree_items, guid, new_item)
-										tree_view:AddNode(new_item, guid)
-									end
-								end
-
-								local virtual_children = tree_builder.build_virtual_property_children(entity)
-
-								for _, child_node in ipairs(virtual_children) do
-									tree_builder.insert_tree_item(state.tree_items, guid, child_node)
-									tree_view:AddNode(child_node, guid)
-								end
-
-								visited[entity] = nil
-								return true
-							end
-
-							if not try_incremental_tree_expand(branch_entity) then
-								request_editor_sync(true, false, branch_entity)
-								flush_pending_editor_sync(true)
-							end
-						end
 					end,
 					OnNodeHover = function(node, key, path, row_info, hovered)
 						local entity = node and node.Entity or nil
@@ -715,8 +517,8 @@ local editor_camera = import("lua/editor_camera.lua")
 					end,
 					OnNodeContextMenu = function(node)
 						local entity = node and node.Entity or nil
-						local can_create_shapes = entity:GetRoot() == Entity.World
-						local can_remove = not tree_builder.is_world_root(entity)
+							local can_create_shapes = entity:GetRoot() == Entity.World
+							local can_remove = entity ~= Entity.World and entity ~= Panel.World
 
 						if not can_create_shapes and not can_remove then return false end
 
@@ -768,52 +570,6 @@ local editor_camera = import("lua/editor_camera.lua")
 						)
 						return true
 					end,
-					OnCanDragNode = function(node)
-						return node and node.Entity and not tree_builder.is_world_root(node.Entity)
-					end,
-					OnCanDropInside = function()
-						return true
-					end,
-					OnDrop = function(drop_info)
-						local function get_drop_parent(drop_info, source_entity)
-							if drop_info.position == "inside" then return drop_info.target_node.Entity end
-
-							if drop_info.parent_node then return drop_info.parent_node.Entity end
-
-							return source_entity:GetRoot()
-						end
-
-						local source_entity = drop_info.source_node.Entity
-						local next_parent = get_drop_parent(drop_info, source_entity)
-
-						if tree_builder.is_world_root(source_entity) then return false end
-
-						if not next_parent:IsValid() then
-							next_parent = source_entity:GetRoot()
-						end
-
-						if next_parent == source_entity then return false end
-
-						if source_entity:GetRoot() ~= next_parent:GetRoot() then
-							return false
-						end
-
-						if
-							not tree_builder.is_world_root(next_parent) and
-							next_parent:ContainsParent(source_entity)
-						then
-							return false
-						end
-
-						if source_entity:GetParent() == next_parent then return false end
-
-						if not tree_builder.is_world_root(next_parent) then
-							state.expanded_entities[next_parent:GetGUID()] = true
-						end
-
-						source_entity:SetParent(next_parent)
-						return true
-					end,
 				},
 			},
 			ScrollablePanel{
@@ -838,9 +594,11 @@ local editor_camera = import("lua/editor_camera.lua")
 					},
 					gui_element = {
 						OnDraw = function(self)
-							local selected_item = tree_builder.find_tree_item(state.tree_items, state.selected_entity_guid)
+							if tree_view:IsValid() then
+								local selected_node = tree_view:GetSelectedNode()
 
-							if selected_item and not selected_item.SharedInstance then return end
+								if selected_node and not selected_node.SharedInstance then return end
+							end
 
 							local panel_size = self.Owner.transform:GetSize()
 							render2d.SetTexture(nil)
@@ -940,6 +698,13 @@ local editor_camera = import("lua/editor_camera.lua")
 	editor_window:AddChild(picker_button)
 	editor_window:AddGlobalEvent("Update")
 
+	-- Update filter now that editor_window exists
+	tree_view:SetFilterCallback(function(entity)
+		return not is_hidden_editor_entity(entity, editor_window)
+	end)
+
+	tree_view:Refresh(true)
+
 	do
 		local function is_ui_hovering()
 			local hovered = MouseInput.GetHoveredObject()
@@ -1033,7 +798,9 @@ local editor_camera = import("lua/editor_camera.lua")
 			local viewport = cam:GetViewport()
 
 			for _, entity in ipairs(Entity.World:GetChildrenList()) do
-				if not editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
+				if
+					not editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
+				then
 					goto continue
 				end
 
@@ -1082,8 +849,17 @@ local editor_camera = import("lua/editor_camera.lua")
 			Highlight.EnableHighlight(hovered)
 
 			if input.IsMouseDown("button_1") and not picker_2d_last_button_down then
+				-- Expand parent path before refresh so the entity appears in the tree
+				local expanded_keys = tree_view:GetExpandedKeys()
+				local parent = hovered:GetParent()
+
+				while parent and parent:IsValid() and parent ~= Panel.World and parent ~= Entity.World do
+					expanded_keys[parent:GetGUID()] = true
+					parent = parent:GetParent()
+				end
+
+				tree_view:Refresh(true)
 				set_selected_target(hovered, true, hovered:GetGUID())
-				sync_tree_items()
 				sync_selection()
 				picker_2d_scroll_to_guid = hovered:GetGUID()
 				picker_2d_active = false
@@ -1124,13 +900,6 @@ local editor_camera = import("lua/editor_camera.lua")
 			)
 			update_world_click_selection()
 			update_picker_2d()
-			local material_count = tree_builder.count_material_objects()
-
-			if material_count ~= tracked_material_count then
-				tracked_material_count = material_count
-				request_editor_sync(true, false, nil)
-			end
-
 			flush_pending_editor_sync(false)
 		end
 	end
@@ -1146,126 +915,21 @@ local editor_camera = import("lua/editor_camera.lua")
 	)
 
 	do
-		local function try_incremental_tree_insert(entity, parent)
-			local parent_item = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
-
-			if not parent_item or not state.expanded_entities[parent:GetGUID()] then
-				return false
-			end
-
-			local new_item = tree_builder.build_tree_snapshot(entity, state.expanded_entities, {}, editor_window)
-
-			if not new_item then return false end
-
-			tree_builder.insert_tree_item(state.tree_items, parent:GetGUID(), new_item)
-			tree_view:AddNode(new_item, parent:GetGUID())
-			return true
-		end
-
-		local function try_incremental_tree_remove(entity)
-			local guid = entity:GetGUID()
-			local item = tree_builder.find_tree_item(state.tree_items, guid)
-
-			if not item then return false end
-
-			tree_builder.remove_tree_item(state.tree_items, guid)
-			local keys_to_remove = {}
-
-			local function collect_keys(items)
-				for _, i in ipairs(items or {}) do
-					keys_to_remove[i.Key] = true
-					collect_keys(i.Children)
-				end
-			end
-
-			collect_keys(item.Children)
-			keys_to_remove[guid] = true
-
-			for i = #tree_view._row_order, 1, -1 do
-				local row_key = tree_view._row_order[i]
-
-				if keys_to_remove[row_key] then
-					local info = tree_view._row_infos[row_key]
-
-					if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
-
-					tree_view._row_infos[row_key] = nil
-					table.remove(tree_view._row_order, i)
-				end
-			end
-
-			tree_view:refresh_visibility()
-			return true
-		end
-
-		local function should_defer_tree_refresh(branch_entity)
-			local current = branch_entity
-
-			while current and current:IsValid() do
-				if state.expanded_entities[current:GetGUID()] ~= true then return true end
-
-				if tree_builder.is_world_root(current) then break end
-
-				current = current:GetParent()
-			end
-
-			return false
-		end
-
-		local function add_world_listeners(world)
-			local remove_hierarchy_listener = world:AddLocalListener("OnEntityHierarchyChanged", function(_, entity, action, parent)
-				if editor_ui_mutation_blocked > 0 then return end
-
-				if tree_builder.should_ignore_editor_tree_change(entity, parent, editor_window) then
-					return
-				end
-
-				if parent and parent:IsValid() then
-					local parent_in_tree = tree_builder.find_tree_item(state.tree_items, parent:GetGUID())
-
-					if
-						not parent_in_tree and
-						not tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
-					then
-						return
-					end
-				end
-
-				if
-					action == "unparented" and
-					not tree_builder.find_tree_item(state.tree_items, entity:GetGUID())
-				then
-					return
-				end
-
-				if action == "parented" and parent and parent:IsValid() then
-					if try_incremental_tree_insert(entity, parent) then return end
-				elseif action == "unparented" then
-					if try_incremental_tree_remove(entity) then return end
-				end
-
-				local branch_entity = parent and parent:IsValid() and parent or entity:GetRoot()
-
-				if branch_entity and should_defer_tree_refresh(branch_entity) then return end
-
-				request_editor_sync(true, false, branch_entity)
-			end)
-			local remove_component_listener = world:AddLocalListener("OnEntityComponentChanged", function(_, entity)
+		local function add_component_listener(world)
+			local remove_listener = world:AddLocalListener("OnEntityComponentChanged", function(_, entity)
 				local selected_entity = get_selected_entity()
 
 				if selected_entity and entity == selected_entity then
-					request_editor_sync(false, true)
+					request_editor_sync(true)
 				end
 			end)
-			editor_window:CallOnRemove(remove_hierarchy_listener, remove_hierarchy_listener)
-			editor_window:CallOnRemove(remove_component_listener, remove_component_listener)
+			editor_window:CallOnRemove(remove_listener, remove_listener)
 		end
 
-		add_world_listeners(Entity.World)
-		add_world_listeners(Panel.World)
+		add_component_listener(Entity.World)
+		add_component_listener(Panel.World)
 	end
 
-	sync_tree_items()
 	sync_selection()
 
 	function editor_window:GetSelectedEntityGUID()
