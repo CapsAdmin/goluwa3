@@ -7,6 +7,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local input = import("goluwa/input.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local sun = Entity.New{
+	Name = "sun",
 	transform = {
 		Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
 	},
