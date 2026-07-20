@@ -34,7 +34,6 @@ local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
-
 local transient_ui_keys = {
 	ActiveContextMenu = true,
 	ActiveMenuBarContextMenu = true,
@@ -47,11 +46,16 @@ local function is_hidden_editor_entity(entity, editor_window)
 	if not (entity and entity.IsValid and entity:IsValid()) then return false end
 
 	local current = entity
+
 	while current and current.IsValid and current:IsValid() do
 		if current == editor_window then return true end
+
 		if current.IsContextMenuContainer then return true end
+
 		local key = current.GetKey and current:GetKey() or ""
+
 		if transient_ui_keys[key] then return true end
+
 		current = current:GetParent()
 	end
 
@@ -71,10 +75,7 @@ end
 local function get_first_spawned_entity(editor_window)
 	for _, world in ipairs{Entity.World, Panel.World} do
 		for _, child in ipairs(world:GetChildren()) do
-			if
-				child:IsValid() and
-					not is_hidden_editor_entity(child, editor_window)
-			then
+			if child:IsValid() and not is_hidden_editor_entity(child, editor_window) then
 				return child
 			end
 		end
@@ -85,11 +86,7 @@ end
 
 return function(props)
 	props = props or {}
-	local state = {
-		selected_entity = nil,
-		selected_object = nil,
-		selected_entity_guid = props.SelectedEntityGUID,
-	}
+	local initial_selected_guid = props.SelectedEntityGUID
 	local tree_view = NULL
 	local tree_scroll_container = NULL
 	local property_editor = NULL
@@ -131,12 +128,9 @@ return function(props)
 	local picker_2d_scroll_to_guid = nil
 
 	local function get_selected_entity()
-		if state.selected_entity and state.selected_entity:IsValid() then
-			return state.selected_entity
-		end
+		if tree_view:IsValid() then return tree_view:GetSelectedEntity() end
 
-		state.selected_entity = objects.GetObjectByGUID(state.selected_entity_guid)
-		return state.selected_entity
+		return objects.GetObjectByGUID(initial_selected_guid)
 	end
 
 	local function get_selected_object()
@@ -144,14 +138,12 @@ return function(props)
 
 		if entity then return entity end
 
-		if property_builder.is_valid_object(state.selected_object) then
-			return state.selected_object
-		end
-
-		state.selected_object = objects.GetObjectByGUID(state.selected_entity_guid)
-		return property_builder.is_valid_object(state.selected_object) and
-			state.selected_object or
-			nil
+		local obj = objects.GetObjectByGUID(
+			tree_view:IsValid() and
+				tree_view:GetSelectedEntityGUID() or
+				initial_selected_guid
+		)
+		return property_builder.is_valid_object(obj) and obj or nil
 	end
 
 	local function clear_selected_property_listeners()
@@ -174,13 +166,21 @@ return function(props)
 	local function set_selected_target(target, ensure_visible, selected_key)
 		local entity = target and target.component_list and target or nil
 		local object = property_builder.is_valid_object(target) and target or nil
-		local previous_guid = state.selected_entity_guid
-		state.selected_entity = entity
-		state.selected_object = object and not entity and object or nil
-		state.selected_entity_guid = selected_key or object and object:GetGUID() or nil
+		local previous_guid = tree_view:IsValid() and
+			tree_view:GetSelectedEntityGUID() or
+			initial_selected_guid
+		local guid = selected_key or object and object:GetGUID() or nil
 		Gizmo.EnableGizmo(entity)
 
-		if ensure_visible and entity and state.selected_entity_guid ~= previous_guid then
+		if tree_view:IsValid() then
+			if entity then
+				tree_view:SelectEntity(entity)
+			else
+				tree_view:SetSelectedKey(guid)
+			end
+		end
+
+		if ensure_visible and entity and guid ~= previous_guid then
 			tree_view:ExpandToEntity(entity)
 		end
 	end
@@ -188,7 +188,12 @@ return function(props)
 	local function resolve_selected_target()
 		local current_selected = get_selected_object()
 
-		if current_selected then return current_selected, state.selected_entity_guid end
+		if current_selected then
+			local guid = tree_view:IsValid() and
+				tree_view:GetSelectedEntityGUID() or
+				initial_selected_guid
+			return current_selected, guid
+		end
 
 		local fallback = get_first_spawned_entity(editor_window)
 
@@ -200,9 +205,9 @@ return function(props)
 	local function reveal_selected_tree_item()
 		if not tree_view:IsValid() then return end
 
-		tree_view:ExpandToKey(state.selected_entity_guid)
-		tree_view:SetSelectedKey(state.selected_entity_guid)
-		tree_view:EnsureVisible(state.selected_entity_guid, Rect(0, 12, 0, 12))
+		local guid = tree_view:GetSelectedEntityGUID()
+		tree_view:ExpandToKey(guid)
+		tree_view:EnsureVisible(guid, Rect(0, 12, 0, 12))
 	end
 
 	local function request_editor_sync(selection_dirty)
@@ -268,6 +273,7 @@ return function(props)
 
 			if property_editor:IsValid() then
 				tree_view:BlockMutations()
+
 				run_editor_ui_mutation(
 					function()
 						property_editor:SetItems(property_builder.build_property_items(get_selected_object(), property_node_hooks))
@@ -275,6 +281,7 @@ return function(props)
 					end,
 					"property_editor_set_items"
 				)
+
 				tree_view:UnblockMutations()
 			end
 		end
@@ -311,7 +318,7 @@ return function(props)
 		sync_selection()
 	end
 
-	set_selected_target(get_selected_object(), true, state.selected_entity_guid)
+	set_selected_target(get_selected_object(), true, initial_selected_guid)
 	Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 	Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
 
@@ -345,7 +352,7 @@ return function(props)
 			close_active_context_menu()
 
 			if props.OnClose then
-				props.OnClose(self, state.selected_entity_guid)
+				props.OnClose(self, tree_view:GetSelectedEntityGUID())
 			else
 				self:Remove()
 			end
@@ -439,7 +446,7 @@ return function(props)
 
 												if props.OnThemeChange then
 													props.OnThemeChange(
-														state.selected_entity_guid,
+														tree_view:GetSelectedEntityGUID(),
 														editor_window.transform:GetPosition():Copy(),
 														editor_window.transform:GetSize():Copy()
 													)
@@ -491,7 +498,7 @@ return function(props)
 						[Entity.World] = "3D World",
 						[Panel.World] = "2D World",
 					},
-					SelectedKey = state.selected_entity_guid,
+					SelectedKey = initial_selected_guid,
 					SharedInstanceColor = SHARED_INSTANCE_COLOR,
 					ShowVirtualChildren = true,
 					FilterCallback = function(entity)
@@ -517,8 +524,8 @@ return function(props)
 					end,
 					OnNodeContextMenu = function(node)
 						local entity = node and node.Entity or nil
-							local can_create_shapes = entity:GetRoot() == Entity.World
-							local can_remove = entity ~= Entity.World and entity ~= Panel.World
+						local can_create_shapes = entity:GetRoot() == Entity.World
+						local can_remove = entity ~= Entity.World and entity ~= Panel.World
 
 						if not can_create_shapes and not can_remove then return false end
 
@@ -933,7 +940,7 @@ return function(props)
 	sync_selection()
 
 	function editor_window:GetSelectedEntityGUID()
-		return state.selected_entity_guid
+		return tree_view:GetSelectedEntityGUID()
 	end
 
 	return editor_window

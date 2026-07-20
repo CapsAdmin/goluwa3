@@ -232,6 +232,7 @@ function META:OnCreate(props)
 		local tree = self
 		local remove = world:AddLocalListener("OnEntityHierarchyChanged", function(_, entity, action, parent)
 			if tree._refreshing then return end
+
 			if tree._mutation_blocked > 0 then return end
 
 			log_hierarchy(action, entity:GetName())
@@ -571,7 +572,9 @@ end
 
 function META:try_incremental_insert(entity, parent)
 	-- Skip filtered entities
-	if self._filter_callback and not self._filter_callback(entity) then return true end
+	if self._filter_callback and not self._filter_callback(entity) then
+		return true
+	end
 
 	local parent_key = parent and parent:GetGUID() or nil
 	local parent_item
@@ -588,6 +591,7 @@ function META:try_incremental_insert(entity, parent)
 			if entity:GetRoot() == root then
 				parent_key = root:GetGUID()
 				parent_item = find_item_in_tree(self:GetItems(), parent_key)
+
 				break
 			end
 		end
