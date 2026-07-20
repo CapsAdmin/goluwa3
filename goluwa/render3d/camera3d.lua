@@ -4,6 +4,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Rect = import("goluwa/structs/rect.lua")
+local render = import("goluwa/render/render.lua")
 local META = objects.CreateTemplate("render3d_camera3d")
 local world_to_screen_matrix = Matrix44()
 local world_to_screen_clip = Matrix44()
@@ -95,9 +96,9 @@ do
 		local clip = world_to_screen_matrix:MultiplyVector(position.x, position.y, position.z, 1, world_to_screen_clip)
 		local w = clip.m03
 
-		if math.abs(w) < 1e-6 then return Vec2(0, 0), 1 end
+		if math.abs(w) < 1e-6 then return nil end
 
-		if w < 0 then return Vec2(0, 0), 1 end
+		if w < 0 then return nil end
 
 		local ndc_x = clip.m00 / w
 		local ndc_y = clip.m01 / w
@@ -112,16 +113,13 @@ do
 			ndc_z < 0 or
 			ndc_z > 1
 		then
-			vis = 0
-		else
-			vis = -1
+			return nil
 		end
 
 		return Vec2(
 			viewport_x + (ndc_x * 0.5 + 0.5) * viewport_width,
 			viewport_y + (ndc_y * 0.5 + 0.5) * viewport_height
-		),
-		vis
+		)
 	end
 
 	local function clip_to_world(matrix, x, y, z, out)

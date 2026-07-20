@@ -182,7 +182,7 @@ local function draw_shape_entries()
 end
 
 local function draw_text_entry(entry)
-	local screen_pos = debug_draw.ProjectWorldPosition(entry.position)
+	local screen_pos = render3d.GetCamera():WorldPositionToScreen(entry.position)
 
 	if not screen_pos then return end
 
@@ -202,8 +202,8 @@ local function draw_text_entry(entry)
 end
 
 local function draw_line_entry(entry)
-	local from = debug_draw.ProjectWorldPosition(entry.from)
-	local to = debug_draw.ProjectWorldPosition(entry.to)
+	local from = render3d.GetCamera():WorldPositionToScreen(entry.from)
+	local to = render3d.GetCamera():WorldPositionToScreen(entry.to)
 
 	if not (from and to) then return end
 
@@ -447,18 +447,6 @@ function debug_draw.BuildPolyhedronPolygon(polyhedron_data)
 	poly:Upload()
 	polyhedron_mesh_cache[polyhedron_data] = poly
 	return poly
-end
-
-function debug_draw.ProjectWorldPosition(position)
-	local cam = render3d.GetCamera()
-
-	if not cam then return nil, 1 end
-
-	local screen_pos, visibility = cam:WorldPositionToScreen(position, render2d.GetSize())
-
-	if visibility ~= -1 then return nil, visibility end
-
-	return screen_pos, visibility
 end
 
 function debug_draw.DrawTextBlock(lines, x, y, options)

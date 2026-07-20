@@ -4,7 +4,6 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-
 local transient_ui_keys = {
 	ActiveContextMenu = true,
 	ActiveMenuBarContextMenu = true,
@@ -17,11 +16,16 @@ local function is_hidden_editor_entity(entity, editor_window)
 	if not (entity and entity.IsValid and entity:IsValid()) then return false end
 
 	local current = entity
+
 	while current and current.IsValid and current:IsValid() do
 		if current == editor_window then return true end
+
 		if current.IsContextMenuContainer then return true end
+
 		local key = current.GetKey and current:GetKey() or ""
+
 		if transient_ui_keys[key] then return true end
+
 		current = current:GetParent()
 	end
 
@@ -55,7 +59,9 @@ function editor_world_picking.has_editor_control_rig_ancestor(entity)
 	local current = entity
 
 	while current and current:IsValid() do
-		if editor_world_picking.is_editor_control_rig_entity(current) then return true end
+		if editor_world_picking.is_editor_control_rig_entity(current) then
+			return true
+		end
 
 		current = current:GetParent()
 	end
@@ -64,7 +70,9 @@ function editor_world_picking.has_editor_control_rig_ancestor(entity)
 end
 
 function editor_world_picking.is_pick_excluded_entity(entity, excluded_entity)
-	if editor_world_picking.has_editor_control_rig_ancestor(entity) then return true end
+	if editor_world_picking.has_editor_control_rig_ancestor(entity) then
+		return true
+	end
 
 	local player_camera_rig = Entity.World:GetKeyed("player_camera_rig")
 
@@ -84,11 +92,11 @@ function editor_world_picking.is_pick_excluded_entity(entity, excluded_entity)
 end
 
 function editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
-	if is_hidden_editor_entity(entity, editor_window) then
+	if is_hidden_editor_entity(entity, editor_window) then return false end
+
+	if editor_world_picking.is_pick_excluded_entity(entity, excluded_entity) then
 		return false
 	end
-
-	if editor_world_picking.is_pick_excluded_entity(entity, excluded_entity) then return false end
 
 	if
 		entity.visual and
@@ -115,14 +123,16 @@ function editor_world_picking.find_nonvisual_entity_hit(
 	local marker_radius_sq = 144
 
 	for _, entity in ipairs(Entity.World:GetChildrenList()) do
-		if not editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
+		if
+			not editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
+		then
 			goto continue2
 		end
 
 		local world_pos = entity.transform:GetWorldPosition()
-		local screen_pos, visibility = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
+		local screen_pos = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
 
-		if visibility ~= -1 or not screen_pos then goto continue2 end
+		if not screen_pos then goto continue2 end
 
 		local dx = screen_pos.x - mouse_pos.x
 		local dy = screen_pos.y - mouse_pos.y
@@ -171,7 +181,7 @@ function editor_world_picking.find_world_pick_target(editor_window, excluded_ent
 		function(entity)
 			return entity:IsValid() and
 				entity:GetRoot() == Entity.World and
-					not is_hidden_editor_entity(entity, editor_window)
+				not is_hidden_editor_entity(entity, editor_window)
 				and
 				not editor_world_picking.is_pick_excluded_entity(entity, excluded_entity)
 		end

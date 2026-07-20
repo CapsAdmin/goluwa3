@@ -47,7 +47,6 @@ local state = {
 local get_transform_local_rotation
 local get_transform_world_rotation
 local get_viewport_size
-local project_world_position
 local get_screen_segment_distance
 local get_projected_shape_screen_distance
 local get_circle_basis
@@ -257,9 +256,7 @@ local function is_entity_origin_visible(entity)
 
 	if not cam then return false end
 
-	local width, height = get_viewport_size()
-	local screen_pos, visibility = cam:WorldPositionToScreen(origin, width, height)
-	return visibility == -1 and screen_pos ~= nil
+	return cam:WorldPositionToScreen(origin) ~= nil
 end
 
 local function get_gizmo_scale(center, extent)
@@ -267,15 +264,12 @@ local function get_gizmo_scale(center, extent)
 
 	if not cam then return math.max(extent * 0.75, 1.5) end
 
-	local width, height = get_viewport_size()
-	local center_screen, visibility = cam:WorldPositionToScreen(center, width, height)
+	local center_screen = cam:WorldPositionToScreen(center)
 
-	if visibility ~= -1 or not center_screen then
-		return math.max(extent * 0.75, 1.5)
-	end
+	if not center_screen then return math.max(extent * 0.75, 1.5) end
 
 	local right = cam:GetRotation():GetRight()
-	local right_screen = cam:WorldPositionToScreen(center + right, width, height)
+	local right_screen = cam:WorldPositionToScreen(center + right)
 
 	if not right_screen then return math.max(extent * 0.75, 1.5) end
 
@@ -458,24 +452,8 @@ local function get_shape_world_to_local(shape)
 	return matrix:GetInverse(), matrix
 end
 
-local function get_camera_viewport_rect(cam)
-	local viewport = cam and cam.GetViewport and cam:GetViewport() or nil
-
-	if viewport and viewport.w and viewport.h and viewport.w > 0 and viewport.h > 0 then
-		return viewport
-	end
-
-	local width, height = get_viewport_size()
-	return {
-		x = 0,
-		y = 0,
-		w = width,
-		h = height,
-	}
-end
-
 local function get_viewport_mouse_position(window, cam)
-	local viewport = get_camera_viewport_rect(cam)
+	local viewport = cam:GetViewport()
 	local mouse_pos = window:GetMousePosition()
 
 	if not mouse_pos then return nil, viewport, nil end
@@ -802,10 +780,6 @@ function get_viewport_size()
 	return size.x, size.y
 end
 
-function project_world_position(position)
-	return debug_draw.ProjectWorldPosition(position)
-end
-
 function get_screen_segment_distance(mouse_pos, start_pos, stop_pos)
 	local dx = stop_pos.x - start_pos.x
 	local dy = stop_pos.y - start_pos.y
@@ -853,9 +827,9 @@ get_projected_shape_screen_distance = function(mouse_pos, shape)
 		local v2 = vertices[triangle[3]]
 
 		if v0 and v1 and v2 and v0.pos and v1.pos and v2.pos then
-			local p0 = project_world_position(transform_world_point(matrix, v0.pos))
-			local p1 = project_world_position(transform_world_point(matrix, v1.pos))
-			local p2 = project_world_position(transform_world_point(matrix, v2.pos))
+			local p0 = render3d.GetCamera():WorldPositionToScreen(transform_world_point(matrix, v0.pos))
+			local p1 = render3d.GetCamera():WorldPositionToScreen(transform_world_point(matrix, v1.pos))
+			local p2 = render3d.GetCamera():WorldPositionToScreen(transform_world_point(matrix, v2.pos))
 
 			if p0 and p1 and p2 then
 				if point_in_triangle_2d(mouse_pos, p0, p1, p2) then return 0 end
@@ -962,13 +936,13 @@ local function get_mouse_rotation_plane_vector(ray, center, axis_direction)
 end
 
 local function get_mouse_rotation_ring_vector(center, axis_direction, radius, mouse_pos, center_screen)
-	center_screen = center_screen or project_world_position(center)
+	center_screen = center_screen or render3d.GetCamera():WorldPositionToScreen(center)
 
 	if not center_screen then return nil end
 
 	local u, v = get_circle_basis(axis_direction)
-	local u_screen = project_world_position(center + u * radius)
-	local v_screen = project_world_position(center + v * radius)
+	local u_screen = render3d.GetCamera():WorldPositionToScreen(center + u * radius)
+	local v_screen = render3d.GetCamera():WorldPositionToScreen(center + v * radius)
 
 	if not (u_screen and v_screen) then return nil end
 
@@ -1330,9 +1304,9 @@ local function begin_gizmo_drag(handle)
 	local mouse_pos = window:GetMousePosition():Copy()
 
 	if handle.kind == "move" then
-		local start_screen = handle.start_screen or project_world_position(handle.center)
+		local start_screen = handle.start_screen or render3d.GetCamera():WorldPositionToScreen(handle.center)
 		local stop_screen = handle.stop_screen or
-			project_world_position(handle.center + handle.direction * handle.axis_length)
+			render3d.GetCamera():WorldPositionToScreen(handle.center + handle.direction * handle.axis_length)
 
 		if not (start_screen and stop_screen) then return nil end
 
@@ -1356,9 +1330,9 @@ local function begin_gizmo_drag(handle)
 
 	if handle.kind == "scale" then
 		local start_screen = handle.anchor_screen or
-			project_world_position(handle.drag_anchor_position or handle.anchor_position)
+			render3d.GetCamera():WorldPositionToScreen(handle.drag_anchor_position or handle.anchor_position)
 		local stop_screen = handle.handle_screen or
-			project_world_position(handle.face_position or handle.drag_position or handle.position)
+			render3d.GetCamera():WorldPositionToScreen(handle.face_position or handle.drag_position or handle.position)
 
 		if not (start_screen and stop_screen) then return nil end
 
@@ -1380,7 +1354,7 @@ local function begin_gizmo_drag(handle)
 		}
 	end
 
-	local center_screen = handle.center_screen or project_world_position(handle.center)
+	local center_screen = handle.center_screen or render3d.GetCamera():WorldPositionToScreen(handle.center)
 
 	if not center_screen then return nil end
 
@@ -1447,8 +1421,8 @@ local function update_gizmo_drag()
 
 		if not current_handle or current_handle.axis_world_length < 1e-5 then return end
 
-		local start_screen = project_world_position(current_handle.anchor_position)
-		local stop_screen = project_world_position(current_handle.position)
+		local start_screen = render3d.GetCamera():WorldPositionToScreen(current_handle.anchor_position)
+		local stop_screen = render3d.GetCamera():WorldPositionToScreen(current_handle.position)
 
 		if not (start_screen and stop_screen) then return end
 

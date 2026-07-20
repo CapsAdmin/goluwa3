@@ -607,8 +607,6 @@ return function(props)
 		return not is_hidden_editor_entity(entity, editor_window)
 	end)
 
-	tree_view:Refresh(true)
-
 	do
 		local function is_ui_hovering()
 			local hovered = MouseInput.GetHoveredObject()
@@ -686,47 +684,6 @@ return function(props)
 			end
 		end
 
-		local function approach_vec(current, target, delta)
-			local diff = target - current
-			local length = diff:GetLength()
-
-			if length == 0 or delta <= 0 then return current end
-
-			if length <= delta then return target end
-
-			return current + diff / length * delta
-		end
-
-		local function draw_nonvisual_entity_hints(editor_window, excluded_entity, selected_entity)
-			local cam = render3d.GetCamera()
-			local viewport = cam:GetViewport()
-
-			for _, entity in ipairs(Entity.World:GetChildrenList()) do
-				if
-					not editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
-				then
-					goto continue
-				end
-
-				local world_pos = entity.transform:GetWorldPosition()
-				local _, visibility = cam:WorldPositionToScreen(world_pos, viewport.w, viewport.h)
-
-				if visibility ~= -1 then goto continue end
-
-				local is_selected = entity == selected_entity
-				debug_draw.DrawSphere{
-					id = "editor_nonvisual_hint_" .. entity:GetGUID(),
-					position = world_pos,
-					radius = is_selected and 0.1 or 0.06,
-					color = is_selected and {0.45, 1.0, 0.45, 0.35} or {0.8, 0.9, 1.0, 0.16},
-					ignore_z = true,
-					time = NONVISUAL_HINT_TIME,
-				}
-
-				::continue::
-			end
-		end
-
 		local function update_picker_2d()
 			if not picker_2d_active then
 				if picker_2d_cursor_override then
@@ -795,13 +752,33 @@ return function(props)
 				)
 			end
 
-			draw_nonvisual_entity_hints(
-				editor_window,
-				CameraComponent.GetActiveCameraComponent() and
+			do
+				local excluded_entity = CameraComponent.GetActiveCameraComponent() and
 					CameraComponent.GetActiveCameraComponent().Owner or
-					nil,
-				tree_view:GetSelectedEntity()
-			)
+					nil
+				local selected_entity = tree_view:GetSelectedEntity()
+
+				for _, entity in ipairs(Entity.World:GetChildrenList()) do
+					if
+						editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
+					then
+						local world_pos = entity.transform:GetWorldPosition()
+
+						if render3d.GetCamera():WorldPositionToScreen(world_pos) then
+							local is_selected = entity == selected_entity
+							debug_draw.DrawSphere{
+								id = "editor_nonvisual_hint_" .. entity:GetGUID(),
+								position = world_pos,
+								radius = is_selected and 0.1 or 0.06,
+								color = is_selected and {0.45, 1.0, 0.45, 0.35} or {0.8, 0.9, 1.0, 0.16},
+								ignore_z = true,
+								time = NONVISUAL_HINT_TIME,
+							}
+						end
+					end
+				end
+			end
+
 			update_world_click_selection()
 			update_picker_2d()
 			flush_pending_editor_sync(false)
@@ -909,6 +886,7 @@ return function(props)
 		end
 
 		sync_selection()
+		tree_view:Refresh(true)
 	end
 
 	return editor_window

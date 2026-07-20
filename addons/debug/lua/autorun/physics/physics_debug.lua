@@ -632,7 +632,7 @@ local function draw_hovered_body_info()
 	end
 
 	local anchor = get_body_label_anchor(body)
-	local screen_pos = debug_draw.ProjectWorldPosition(anchor)
+	local screen_pos = render3d.GetCamera():WorldPositionToScreen(anchor)
 
 	if not screen_pos then return end
 
