@@ -123,25 +123,9 @@ return function(props)
 		end,
 	}
 
-	local function set_selected_target(target, ensure_visible, selected_key)
-		local entity = target and target.component_list and target or nil
-		local object = property_builder.is_valid_object(target) and target or nil
-		local previous_guid = tree_view:IsValid() and
-			tree_view:GetSelectedEntityGUID() or
-			initial_selected_guid
-		local guid = selected_key or object and object:GetGUID() or nil
-		Gizmo.EnableGizmo(entity)
-
-		if entity then
-			tree_view:SelectEntity(entity)
-		else
-			tree_view:SetSelectedKey(guid)
-		end
-
-		if ensure_visible and entity and guid ~= previous_guid then
-			tree_view:ExpandToEntity(entity)
-		end
-
+	local function set_selected_target(target)
+		Gizmo.EnableGizmo(target)
+		tree_view:SelectEntity(target)
 		pending_selection_sync = true
 	end
 
@@ -180,7 +164,8 @@ return function(props)
 			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
 		end
 
-		set_selected_target(entity, true, entity:GetGUID())
+		set_selected_target(entity)
+		tree_view:ExpandToEntity(entity)
 	end
 
 	local size = props.Size or Vec2(400, 540)
@@ -359,7 +344,7 @@ return function(props)
 					},
 					OnSelect = function(node, key)
 						local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
-						set_selected_target(target, false, key)
+						set_selected_target(target)
 					end,
 					OnNodeHover = function(node, key, path, row_info, hovered)
 						local entity = node and node.Entity or nil
@@ -411,11 +396,12 @@ return function(props)
 									Text = "Remove",
 									OnClick = function()
 										local parent = entity:GetParent()
-										set_selected_target(
-											parent and parent:IsValid() and parent or nil,
-											true,
-											parent and parent:GetGUID() or nil
-										)
+
+										if parent:IsValid() then
+											set_selected_target(parent)
+											parent:ExpandToEntity(entity)
+										end
+
 										entity:Remove()
 									end,
 								} or
@@ -617,9 +603,7 @@ return function(props)
 				local camera = CameraComponent.GetActiveCameraComponent()
 				local target = editor_world_picking.find_world_pick_target(editor_window, camera and camera.Owner)
 
-				if target and target:IsValid() then
-					set_selected_target(target, true, target:GetGUID())
-				end
+				if target and target:IsValid() then set_selected_target(target) end
 			end
 		end
 
@@ -659,7 +643,7 @@ return function(props)
 				end
 
 				tree_view:Refresh(true)
-				set_selected_target(hovered, true, hovered:GetGUID())
+				set_selected_target(hovered)
 				picker_2d_scroll_to_guid = hovered:GetGUID()
 				picker_2d_active = false
 			end
@@ -732,7 +716,7 @@ return function(props)
 				pending_selection_sync = false
 				local selected_target = tree_view:GetSelectedEntity()
 
-				do
+				if selected_target then
 					clear_selected_property_listeners()
 
 					if property_builder.is_valid_object(selected_target) then
@@ -748,17 +732,15 @@ return function(props)
 							end)
 						end
 					end
-				end
 
-				local guid = tree_view:GetSelectedEntityGUID()
-				tree_view:ExpandToKey(guid)
-				tree_view:EnsureVisible(guid, Rect(0, 12, 0, 12))
-				editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
-				tree_view:BlockMutations()
-				property_editor:SetItems(property_builder.build_property_items(tree_view:GetSelectedEntity(), property_node_hooks))
-				property_editor:ExpandAll()
-				tree_view:UnblockMutations()
-				editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
+					tree_view:ExpandToEntity(selected_target)
+					editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
+					tree_view:BlockMutations()
+					property_editor:SetItems(property_builder.build_property_items(selected_target, property_node_hooks))
+					property_editor:ExpandAll()
+					tree_view:UnblockMutations()
+					editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
+				end
 			end
 		end
 
@@ -803,15 +785,8 @@ return function(props)
 			editor_camera.SetVelocity(Vec3())
 		end
 
-		set_selected_target(tree_view:GetSelectedEntity(), true, initial_selected_guid)
 		Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 		Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
-
-		if not tree_view:GetSelectedEntity() then
-			local fallback = get_first_spawned_entity() or Entity.World
-			set_selected_target(fallback, true, fallback:GetGUID())
-		end
-
 		tree_view:Refresh(true)
 		pending_selection_sync = true
 	end
