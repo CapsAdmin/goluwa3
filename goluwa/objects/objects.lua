@@ -134,6 +134,8 @@ function objects.RebuildMetatables(what)
 			objects.invalidate_meta[type_name] = nil
 			local copy = {}
 			local objects_variables = {}
+			local component_set = {}
+			local cmp = {}
 
 			-- first add all the base functions from the base object
 			for k, v in pairs(objects.base_metatable) do
@@ -167,12 +169,26 @@ function objects.RebuildMetatables(what)
 					-- the base might not be registered yet
 					-- however this will be run again once it actually is
 					if base then
-						for k, v in pairs(base) do
-							copy[k] = v
+						for k, val in pairs(base) do
+							copy[k] = val
 
 							if k == "objects_variables" then
-								for k, v in pairs(v) do
-									objects_variables[k] = v
+								for k, ov in pairs(val) do
+									objects_variables[k] = ov
+								end
+							end
+
+							if k == "ComponentSet" then
+								for _, cname in ipairs(val) do
+									if not list.has_value(component_set, cname) then
+										list.insert(component_set, cname)
+									end
+								end
+							end
+
+							if k == "CMP" then
+								for ck, cv in pairs(val) do
+									if cmp[ck] == nil then cmp[ck] = cv end
 								end
 							end
 						end
@@ -189,6 +205,30 @@ function objects.RebuildMetatables(what)
 						objects_variables[k] = v
 					end
 				end
+
+				if k == "ComponentSet" then
+					for _, cname in ipairs(v) do
+						if not list.has_value(component_set, cname) then
+							list.insert(component_set, cname)
+						end
+					end
+				end
+
+				if k == "CMP" then
+					for ck, cv in pairs(v) do
+						if cmp[ck] == nil then cmp[ck] = cv end
+					end
+				end
+			end
+
+			if next(component_set) then
+				copy.ComponentSet = component_set
+				meta.ComponentSet = component_set
+			end
+
+			if next(cmp) then
+				copy.CMP = cmp
+				meta.CMP = cmp
 			end
 
 			do
@@ -209,7 +249,7 @@ function objects.RebuildMetatables(what)
 				copy.__index = copy
 			end
 
-			copy.BaseClass = objects.registered[base_list[#base_list]]
+			copy.BaseClass = objects.registered[base_list[#base_list]] or objects.base_metatable
 			meta.BaseClass = copy.BaseClass
 			copy.objects_variables = objects_variables
 			objects.prepared_metatables[type_name] = copy
@@ -223,7 +263,7 @@ do
 	function objects.GetRegistered(type_name)
 		if objects.registered[type_name] then
 			if objects.invalidate_meta[type_name] then
-				objects.RebuildMetatables(type_name)
+				objects.RebuildMetatables()
 			end
 
 			return objects.prepared_metatables[type_name]

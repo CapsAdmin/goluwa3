@@ -68,10 +68,10 @@ function META:OnCreate(props)
 	self._row_click_times = {}
 	self._pending_expand_animation_key = nil
 	self._ready = false
-	self.BaseClass.OnCreate(self, props)
+	META.BaseClass.OnCreate(self, props)
+	self._ready = true
 	self:Rebuild()
 	self._pending_expand_animation_key = nil
-	self._ready = true
 	self._drag_enabled = true
 end
 
@@ -1141,5 +1141,4 @@ function META:get_node_panel(node, path, key, selected, has_children, expanded)
 	return self.OnGetNodePanel(node, path, key, selected, has_children, expanded)
 end
 
-META:Register()
-return META.New
+return META:Register()

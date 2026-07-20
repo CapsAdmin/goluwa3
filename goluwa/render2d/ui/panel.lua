@@ -113,6 +113,11 @@ function Panel:CreateTemplate(name)
 	META.Base = import("goluwa/render2d/ui/panel.lua")
 	META.Name = name
 	META.ComponentSet = {}
+	setmetatable(META, {
+		__call = function(_, ...)
+			return META.New(...)
+		end,
+	})
 	META.CMP = setmetatable(
 		{},
 		{
