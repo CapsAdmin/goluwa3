@@ -25,4 +25,5 @@ end
 
 Entity:Register()
 Entity.World = Entity.New()
+Entity.World:SetName("3d world")
 return Entity
