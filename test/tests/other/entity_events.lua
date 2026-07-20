@@ -36,6 +36,24 @@ T.Test("entity world hierarchy change events", function()
 	parent_b:Remove()
 end)
 
+T.Test("entity hierarchy change event fires on Remove", function()
+	local events = {}
+	local remove_listener = Entity.World:AddLocalListener("OnEntityHierarchyChanged", function(_, entity, action, parent)
+		events[#events + 1] = {entity = entity, action = action, parent = parent}
+	end)
+	local child = Entity.New{Name = "entity_event_remove_test"}
+	T(child:GetParent())["=="](Entity.World)
+	T(child.World)["=="](Entity.World)
+	child:Remove()
+	remove_listener()
+	T(#events)[">="](1)
+	T(events[1].entity)["=="](child)
+	T(events[1].action)["=="]("unparented")
+	T(events[1].parent)["=="](Entity.World)
+	-- entity.World is stable during removal, GetRoot() is not
+	T(events[1].entity.World)["=="](Entity.World)
+end)
+
 T.Test("entity component change events and bookkeeping", function()
 	local events = {}
 	local entity = Entity.New({Name = "entity_component_events"})

@@ -171,6 +171,8 @@ do
 			end
 		end
 
+		if self.OnRemove then self:OnRemove(...) end
+
 		if self.local_event_removers then
 			for remover in pairs(self.local_event_removers) do
 				remover()
@@ -178,8 +180,6 @@ do
 
 			self.local_event_removers = nil
 		end
-
-		if self.OnRemove then self:OnRemove(...) end
 
 		remove_from_instances(self)
 
