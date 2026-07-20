@@ -119,6 +119,10 @@ function input.IsControlDown()
 		input.IsKeyDown("control")
 end
 
+function input.HijackKeyInput(cb)
+	input.key_hijack = cb
+end
+
 do
 	input.binds = {}
 
@@ -180,6 +184,13 @@ do
 	end
 
 	function input.Call(key, press)
+		if input.key_hijack then
+			if input.key_hijack(key, press) then
+				input.key_hijack = nil
+				return false
+			end
+		end
+
 		for _, data in pairs(input.binds) do
 			if data.important or input.disable_focus == 0 then
 				if data.trigger == key then

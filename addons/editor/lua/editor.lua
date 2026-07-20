@@ -506,10 +506,16 @@ return function(props)
 				if picker_2d_active then
 					self:SetCursorOverride("crosshair")
 					picker_2d_cursor_override = self
+
+					input.HijackKeyInput(function(key)
+						if key == "escape" then
+							picker_2d_active = false
+							return true
+						end
+					end)
 				else
 					self:ClearCursorOverride()
 					picker_2d_cursor_override = nil
-					Highlight.EnableHighlight(nil)
 				end
 			end,
 		},
@@ -617,15 +623,13 @@ return function(props)
 				return
 			end
 
-			if input.IsKeyDown("escape") then
-				picker_2d_active = false
-				Highlight.EnableHighlight(nil)
-				return
-			end
-
 			local hovered = MouseInput.GetHoveredObject()
 
-			if not hovered:IsValid() or editor_window:ContainsParent(hovered) then
+			if
+				not hovered:IsValid() or
+				editor_window:ContainsParent(hovered) or
+				hovered == picker_button
+			then
 				Highlight.EnableHighlight(nil)
 				return
 			end
