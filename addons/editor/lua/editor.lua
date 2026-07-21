@@ -29,6 +29,8 @@ local theme = import("goluwa/render2d/ui/theme.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
 local property_builder = import("addons/editor/lua/property_builder.lua")
 local CameraComponent = import("lua/components/camera.lua")
+local editor_camera = import("lua/editor_camera.lua")
+local picker = import("lua/picker.lua")
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
@@ -75,14 +77,8 @@ return function(props)
 	local pending_selection_sync = false
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
-	local editor_camera = import("lua/editor_camera.lua")
 	editor_camera.Initialize()
-	local editor_world_picking = import("lua/editor_world_picking.lua")
-	local click_drag_threshold_sq = 16
-	local picker_2d_active = false
-	local picker_2d_cursor_override = nil
-	local picker_2d_last_button_down = false
-	local picker_2d_scroll_to_guid = nil
+	local picker_cancel_fn = nil
 	local property_node_hooks = {
 		OnPropertyChangeStart = function()
 			property_change_sync_blocked = property_change_sync_blocked + 1
@@ -95,6 +91,8 @@ return function(props)
 	local function set_selected_target(target)
 		Gizmo.EnableGizmo(target)
 		tree_view:SelectEntity(target)
+		tree_view:ExpandToEntity(target)
+		tree_view:EnsureEntityVisible(target)
 		pending_selection_sync = true
 	end
 
@@ -128,7 +126,6 @@ return function(props)
 		end
 
 		set_selected_target(entity)
-		tree_view:ExpandToEntity(entity)
 	end
 
 	local size = props.Size or Vec2(400, 540)
@@ -357,10 +354,7 @@ return function(props)
 									OnClick = function()
 										local parent = entity:GetParent()
 
-										if parent:IsValid() then
-											set_selected_target(parent)
-											tree_view:ExpandToEntity(entity)
-										end
+										if parent:IsValid() then set_selected_target(parent) end
 
 										entity:Remove()
 									end,
@@ -428,9 +422,9 @@ return function(props)
 			},
 		},
 	}
-	-- Create 2D picker button, positioned at bottom-right of tree view
+	-- Create picker button, positioned at bottom-right of tree view
 	local picker_button = Panel.New{
-		Name = "Picker2DButton",
+		Name = "PickerButton",
 		transform = {
 			Size = Vec2(28, 28),
 			Position = Vec2(0, 0),
@@ -440,7 +434,7 @@ return function(props)
 				local btn_size = self.Owner.transform:GetSize()
 				render2d.SetTexture(nil)
 
-				if picker_2d_active then
+				if picker.IsActive() then
 					render2d.SetColor(1.0, 0.35, 0.15, 0.9)
 				else
 					render2d.SetColor(0.5, 0.5, 0.55, 0.7)
@@ -461,21 +455,24 @@ return function(props)
 			OnMouseInput = function(self, button, press)
 				if button ~= "button_1" or not press then return end
 
-				picker_2d_active = not picker_2d_active
-
-				if picker_2d_active then
-					self:SetCursorOverride("crosshair")
-					picker_2d_cursor_override = self
-
-					input.HijackKeyInput(function(key)
-						if key == "escape" then
-							picker_2d_active = false
-							return true
-						end
-					end)
+				if picker.IsActive() then
+					-- Cancel picker
+					if picker_cancel_fn then
+						picker_cancel_fn()
+						picker_cancel_fn = nil
+					end
 				else
-					self:ClearCursorOverride()
-					picker_2d_cursor_override = nil
+					-- Start picker
+					self:SetCursorOverride("crosshair")
+					picker_cancel_fn = picker.Start{
+						on_pick = function(target)
+							set_selected_target(target)
+						end,
+						on_cancel = function()
+							self:ClearCursorOverride()
+							picker_cancel_fn = nil
+						end,
+					}
 				end
 			end,
 		},
@@ -494,222 +491,83 @@ return function(props)
 	editor_window:AddChild(picker_button)
 	editor_window:AddGlobalEvent("Update")
 
-	do
-		local function is_ui_hovering()
-			local hovered = MouseInput.GetHoveredObject()
-			return hovered:IsValid() and hovered ~= Panel.World
-		end
-
-		local function mouse_in_editor_viewport(mouse_pos)
-			if not editor_camera.GetScaleViewport() then
-				return not editor_window.transform:GetRect():IsPosInside(mouse_pos)
-			end
-
-			return editor_camera.IsInsideViewport(mouse_pos)
-		end
-
-		local world_click = {
-			button_down = false,
-			allow_pick = false,
-			dragged = false,
-			start_mouse_pos = nil,
-		}
-
-		local function update_world_click_selection()
-			local mouse_pos = system.GetWindow():GetMousePosition()
-			local gizmo_status = Gizmo.GetStatus()
-			local inside_world = mouse_in_editor_viewport(mouse_pos) and
-				not editor_window.transform:GetRect():IsPosInside(mouse_pos)
-			local selection_allowed = inside_world and
-				not has_text_focus(editor_window)
-				and
-				not is_ui_hovering()
-				and
-				not gizmo_status.active_drag and
-				not gizmo_status.hovered_handle
-			local button_down = input.IsMouseDown("button_1")
-
-			if button_down and not world_click.button_down then
-				world_click.button_down = true
-				world_click.allow_pick = selection_allowed
-				world_click.dragged = false
-				world_click.start_mouse_pos = mouse_pos:Copy()
-				return
-			end
-
-			if button_down and world_click.button_down then
-				if world_click.allow_pick and world_click.start_mouse_pos then
-					local dx = mouse_pos.x - world_click.start_mouse_pos.x
-					local dy = mouse_pos.y - world_click.start_mouse_pos.y
-
-					if dx * dx + dy * dy > click_drag_threshold_sq then
-						world_click.dragged = true
-					end
-				end
-
-				return
-			end
-
-			if not button_down and world_click.button_down then
-				local should_pick = world_click.allow_pick and not world_click.dragged and selection_allowed
-				world_click.button_down = false
-				world_click.allow_pick = false
-				world_click.dragged = false
-				world_click.start_mouse_pos = nil
-
-				if not should_pick then return end
-
-				local camera = CameraComponent.GetActiveCameraComponent()
-				local target = editor_world_picking.find_world_pick_target(editor_window, camera and camera.Owner)
-
-				if target and target:IsValid() then set_selected_target(target) end
-			end
-		end
-
-		local function update_picker_2d()
-			if not picker_2d_active then
-				if picker_2d_cursor_override then
-					picker_2d_cursor_override:ClearCursorOverride()
-					picker_2d_cursor_override = nil
-				end
-
-				return
-			end
-
-			local hovered = MouseInput.GetHoveredObject()
-
-			if
-				not hovered:IsValid() or
-				editor_window:ContainsParent(hovered) or
-				hovered == picker_button
-			then
-				Highlight.EnableHighlight(nil)
-				return
-			end
-
-			Highlight.EnableHighlight(hovered)
-
-			if input.IsMouseDown("button_1") and not picker_2d_last_button_down then
-				-- Expand parent path before refresh so the entity appears in the tree
-				local expanded_keys = tree_view:GetExpandedKeys()
-				local parent = hovered:GetParent()
-
-				while parent and parent:IsValid() and parent ~= Panel.World and parent ~= Entity.World do
-					expanded_keys[parent:GetGUID()] = true
-					parent = parent:GetParent()
-				end
-
-				tree_view:Refresh(true)
-				set_selected_target(hovered)
-				picker_2d_scroll_to_guid = hovered:GetGUID()
-				picker_2d_active = false
-			end
-
-			picker_2d_last_button_down = input.IsMouseDown("button_1")
-		end
-
-		local function clear_selected_property_listeners()
-			for i = 1, #selected_property_listener_removers do
-				selected_property_listener_removers[i]()
-			end
-
-			list.clear(selected_property_listener_removers)
-		end
-
-		function editor_window:OnUpdate(dt)
-			-- Deferred scroll to picked entity
-			if picker_2d_scroll_to_guid then
-				tree_view:EnsureVisible(picker_2d_scroll_to_guid, Rect(0, 12, 0, 12))
-				picker_2d_scroll_to_guid = nil
-			end
-
-			if not has_text_focus(editor_window) then
-				local mouse_pos = system.GetWindow():GetMousePosition()
-				editor_camera.Update(
-					dt,
-					{
-						world_size = Panel.World.transform:GetSize(),
-						window_rect = editor_window.transform:GetRect(),
-						block_movement = has_text_focus(editor_window) or
-							is_ui_hovering() or
-							not mouse_in_editor_viewport(mouse_pos),
-						mouse_in_viewport = mouse_in_editor_viewport,
-					}
-				)
-			end
-
-			do
-				local excluded_entity = CameraComponent.GetActiveCameraComponent() and
-					CameraComponent.GetActiveCameraComponent().Owner or
-					nil
-				local selected_entity = tree_view:GetSelectedEntity()
-
-				for _, entity in ipairs(Entity.World:GetChildrenList()) do
-					if
-						editor_world_picking.is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
-					then
-						local world_pos = entity.transform:GetWorldPosition()
-
-						if render3d.GetCamera():WorldPositionToScreen(world_pos) then
-							local is_selected = entity == selected_entity
-							debug_draw.DrawSphere{
-								id = "editor_nonvisual_hint_" .. entity:GetGUID(),
-								position = world_pos,
-								radius = is_selected and 0.1 or 0.06,
-								color = is_selected and {0.45, 1.0, 0.45, 0.35} or {0.8, 0.9, 1.0, 0.16},
-								ignore_z = true,
-								time = NONVISUAL_HINT_TIME,
-							}
-						end
-					end
-				end
-			end
-
-			update_world_click_selection()
-			update_picker_2d()
-
-			if pending_selection_sync then
-				pending_selection_sync = false
-				local selected_target = tree_view:GetSelectedEntity()
-
-				if selected_target then
-					clear_selected_property_listeners()
-
-					if property_builder.is_valid_object(selected_target) then
-						for _, category in ipairs(property_builder.enumerate_property_categories(selected_target)) do
-							selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
-								if property_change_sync_blocked > 0 then return end
-
-								property_editor:RefreshValueForKey(category.key .. "/" .. key)
-
-								if property_name == "Name" or property_name == "Key" or property_name == "Material" then
-									pending_selection_sync = true
-								end
-							end)
-						end
-					end
-
-					tree_view:ExpandToEntity(selected_target)
-					editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
-					tree_view:BlockMutations()
-					property_editor:SetItems(property_builder.build_property_items(selected_target, property_node_hooks))
-					property_editor:ExpandAll()
-					tree_view:UnblockMutations()
-					editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
-				end
-			end
-		end
-
-		editor_window:CallOnRemove(
-			function()
-				clear_selected_property_listeners()
-				Highlight.Clear()
-				Gizmo.Clear(editor_window)
-				render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
-			end,
-			"editor_gizmo_cleanup"
-		)
+	local function is_ui_hovering()
+		local hovered = MouseInput.GetHoveredObject()
+		return hovered:IsValid() and hovered ~= Panel.World
 	end
+
+	local function mouse_in_editor_viewport(mouse_pos)
+		if not editor_camera.GetScaleViewport() then
+			return not editor_window.transform:GetRect():IsPosInside(mouse_pos)
+		end
+
+		return editor_camera.IsInsideViewport(mouse_pos)
+	end
+
+	local function clear_selected_property_listeners()
+		for i = 1, #selected_property_listener_removers do
+			selected_property_listener_removers[i]()
+		end
+
+		list.clear(selected_property_listener_removers)
+	end
+
+	function editor_window:OnUpdate(dt)
+		if not has_text_focus(editor_window) then
+			local mouse_pos = system.GetWindow():GetMousePosition()
+			editor_camera.Update(
+				dt,
+				{
+					world_size = Panel.World.transform:GetSize(),
+					window_rect = editor_window.transform:GetRect(),
+					block_movement = has_text_focus(editor_window) or
+						is_ui_hovering() or
+						not mouse_in_editor_viewport(mouse_pos),
+					mouse_in_viewport = mouse_in_editor_viewport,
+				}
+			)
+		end
+
+		if pending_selection_sync then
+			pending_selection_sync = false
+			local selected_target = tree_view:GetSelectedEntity()
+
+			if selected_target then
+				clear_selected_property_listeners()
+
+				if property_builder.is_valid_object(selected_target) then
+					for _, category in ipairs(property_builder.enumerate_property_categories(selected_target)) do
+						selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
+							if property_change_sync_blocked > 0 then return end
+
+							property_editor:RefreshValueForKey(category.key .. "/" .. key)
+
+							if property_name == "Name" or property_name == "Key" or property_name == "Material" then
+								pending_selection_sync = true
+							end
+						end)
+					end
+				end
+
+				editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
+				tree_view:BlockMutations()
+				property_editor:SetItems(property_builder.build_property_items(selected_target, property_node_hooks))
+				property_editor:ExpandAll()
+				tree_view:UnblockMutations()
+				editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
+			end
+		end
+	end
+
+	editor_window:CallOnRemove(
+		function()
+			clear_selected_property_listeners()
+			Highlight.Clear()
+			Gizmo.Clear(editor_window)
+			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
+		end,
+		"editor_gizmo_cleanup"
+	)
 
 	do
 		local function add_component_listener(world)

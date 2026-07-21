@@ -69,6 +69,11 @@ local function lazy_init()
 	if HOTRELOAD then toggle() end
 end
 
+ToggleEditor = function()
+	lazy_init()
+	toggle()
+end
+
 event.AddListener("KeyInput", "menu_toggle", function(key, press)
 	if not press then return end
 

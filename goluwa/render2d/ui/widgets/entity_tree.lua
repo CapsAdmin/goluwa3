@@ -1,6 +1,7 @@
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local objects = import("goluwa/objects/objects.lua")
 local META = Panel:CreateTemplate("entity_tree")
+local Entity = import("goluwa/entities/entity.lua")
 META.Base = import("goluwa/render2d/ui/widgets/tree.lua")
 META.debug = false
 
@@ -528,7 +529,22 @@ function META:UnblockMutations()
 end
 
 function META:ExpandToEntity(entity)
-	self:ExpandToKey(entity:GetGUID())
+	if not entity or not entity:IsValid() then return self end
+
+	local guid = entity:GetGUID()
+
+	if entity.GetParent then
+		local parent = entity:GetParent()
+
+		while parent and parent:IsValid() and parent ~= Panel.World and parent ~= Entity.World do
+			self._expanded_keys[parent:GetGUID()] = true
+			parent = parent:GetParent()
+		end
+	end
+
+	self._expanded_keys[guid] = true
+	self:Refresh(true)
+	self:SetSelectedKey(guid)
 	return self
 end
 
