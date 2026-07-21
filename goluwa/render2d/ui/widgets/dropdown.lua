@@ -140,14 +140,12 @@ return function(props)
 	end
 
 	local function open_menu(self)
-		local world_panel = Panel.World
-
 		if suppress_next_open then
 			suppress_next_open = false
 			return
 		end
 
-		local active = world_panel:GetKeyed("ActiveContextMenu")
+		local active = Panel.World:GetKeyed("ActiveContextMenu")
 
 		if active and active:IsValid() then
 			if active.SourceDropdown == dropdown then
@@ -189,9 +187,9 @@ return function(props)
 			local search_query = ""
 			local results_panel
 			local results_column
-			local world_size = world_panel and
-				world_panel.transform and
-				world_panel.transform:GetSize() or
+			local world_size = Panel.World and
+				Panel.World.transform and
+				Panel.World.transform:GetSize() or
 				Vec2()
 			local _, dropdown_y = dropdown.transform:GetWorldMatrix():GetTranslation()
 			local available_below = math.max(0, world_size.y - (dropdown_y + dropdown.transform:GetHeight()))
