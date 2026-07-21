@@ -34,13 +34,21 @@ local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
-local function is_hidden_editor_entity(entity, editor_window)
-	local parent = entity:GetRoot(1) or NULL -- one off from Panel.World
-	if parent:IsValid() then
-		if parent == editor_window then return true end
+local function is_hidden(entity, editor_window)
+	if entity == editor_window then return true end
 
-		if parent:GetName() == "ContextMenu" then return true end
-	end
+	if entity.Type == "panel_context_menu" then return true end
+
+	if entity:GetName() == "TooltipOverlay" then return true end
+
+	return false
+end
+
+local function entity_tree_filter_callback(entity, editor_window)
+	if is_hidden(entity, editor_window) then return true end
+
+	local parent = entity:GetRoot(1) or NULL -- one off from Panel.World
+	if parent:IsValid() and is_hidden(parent, editor_window) then return true end
 
 	return false
 end
@@ -53,18 +61,6 @@ local function has_text_focus(editor_window)
 			focused.text ~= nil or
 			focused.Name == "TextEdit"
 		)
-end
-
-local function get_first_spawned_entity(editor_window)
-	for _, world in ipairs{Entity.World, Panel.World} do
-		for _, child in ipairs(world:GetChildren()) do
-			if child:IsValid() and not is_hidden_editor_entity(child, editor_window) then
-				return child
-			end
-		end
-	end
-
-	return nil
 end
 
 return function(props)
@@ -145,6 +141,7 @@ return function(props)
 		Key = props.Key or "GameEditorWindow",
 		RequestMouse = props.RequestMouse,
 		Title = "ENTITY EDITOR",
+		Name = "entity editor",
 		Size = size,
 		Position = position,
 		Padding = Rect(),
@@ -301,7 +298,7 @@ return function(props)
 					SharedInstanceColor = SHARED_INSTANCE_COLOR,
 					ShowVirtualChildren = true,
 					FilterCallback = function(entity)
-						return not is_hidden_editor_entity(entity, editor_window)
+						return entity_tree_filter_callback(entity, editor_window)
 					end,
 					layout = {
 						GrowWidth = 1,
@@ -362,7 +359,7 @@ return function(props)
 
 										if parent:IsValid() then
 											set_selected_target(parent)
-											parent:ExpandToEntity(entity)
+											tree_view:ExpandToEntity(entity)
 										end
 
 										entity:Remove()
@@ -496,11 +493,6 @@ return function(props)
 	picker_button:AddGlobalEvent("Update")
 	editor_window:AddChild(picker_button)
 	editor_window:AddGlobalEvent("Update")
-
-	-- Update filter now that editor_window exists
-	tree_view:SetFilterCallback(function(entity)
-		return not is_hidden_editor_entity(entity, editor_window)
-	end)
 
 	do
 		local function is_ui_hovering()

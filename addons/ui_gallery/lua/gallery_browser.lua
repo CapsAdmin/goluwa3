@@ -170,6 +170,7 @@ local function build_gallery(props)
 	window = Window{
 		Key = props.Key or "GalleryWindow",
 		Title = "UI GALLERY",
+		Name = "UI GALLERY",
 		Size = props.Size or Vec2(800, 600),
 		Padding = "none",
 		Position = props.Position or (world_panel.transform:GetSize() - Vec2(800, 600)) / 2,

@@ -18,7 +18,7 @@ function META:GetGUID()
 	local guid = self.GUID
 
 	if guid == nil or guid == "" then
-		guid = ("%p%p"):format(self, getmetatable(META))
+		guid = ("%p%p"):format(self, getmetatable(self))
 		self:SetGUID(guid)
 		return guid
 	end

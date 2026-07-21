@@ -73,7 +73,7 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 	-- Entity children
 	if expanded then
 		for _, child in ipairs(entity:GetChildren()) do
-			if filter_callback and not filter_callback(child) then goto continue end
+			if filter_callback and filter_callback(child) then goto continue end
 
 			local child_node = build_entity_node(child, expanded_keys, filter_callback, show_virtual, visited)
 
@@ -89,7 +89,7 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 	-- Check for unexpanded children
 	if not expanded then
 		for _, child in ipairs(entity:GetChildren()) do
-			if filter_callback and not filter_callback(child) then goto continue end
+			if filter_callback and filter_callback(child) then goto continue end
 
 			has_children = true
 
@@ -125,7 +125,7 @@ local function build_tree_items(root_entities, root_labels, expanded_keys, filte
 	for i, entity in ipairs(root_entities) do
 		local label = root_labels and root_labels[entity] or get_entity_label(entity)
 
-		if filter_callback and not filter_callback(entity) then
+		if filter_callback and filter_callback(entity) then
 			items[#items + 1] = {
 				Entity = entity,
 				Key = entity:GetGUID(),
@@ -227,6 +227,7 @@ function META:OnCreate(props)
 	META.BaseClass.OnCreate(self, props)
 	-- Listen for hierarchy changes on each root entity's world
 	self._hierarchy_listeners = {}
+	self._hierarchy_queue = {}
 
 	local function add_hierarchy_listener(world)
 		local tree = self
@@ -235,17 +236,7 @@ function META:OnCreate(props)
 
 			if tree._mutation_blocked > 0 then return end
 
-			log_hierarchy(action, entity:GetName())
-
-			-- Try incremental update first
-			if action == "parented" then
-				if tree:try_incremental_insert(entity, parent) then return end
-			elseif action == "unparented" then
-				if tree:try_incremental_remove(entity) then return end
-			end
-
-			-- Fallback to full refresh
-			tree._hierarchy_dirty = true
+			table.insert(tree._hierarchy_queue, {entity = entity, action = action, parent = parent})
 		end)
 
 		if remove then table.insert(self._hierarchy_listeners, remove) end
@@ -254,6 +245,48 @@ function META:OnCreate(props)
 	for _, entity in ipairs(self._root_entities) do
 		add_hierarchy_listener(entity:GetRoot())
 	end
+
+	-- Process queued hierarchy changes at frame end
+	local function process_hierarchy_queue()
+		local tree = self
+		local queue = tree._hierarchy_queue
+
+		if #queue == 0 then return end
+
+		tree._hierarchy_queue = {}
+
+		for _, entry in ipairs(queue) do
+			local entity = entry.entity
+
+			if not entity:IsValid() then goto continue end
+
+			local parent = entity:GetParent()
+
+			if self._filter_callback and self._filter_callback(entity) then
+				goto continue
+			end
+
+			log_hierarchy(entry.action, entity:GetName())
+
+			if entry.action == "parented" then
+				local ok, reason = tree:try_incremental_insert(entity, parent)
+			--if not ok then tree:FullRefresh(reason) end
+			elseif entry.action == "unparented" then
+				local ok, reason = tree:try_incremental_remove(entity)
+			--if not ok then tree:FullRefresh(reason) end
+			else
+				print("unknown action: " .. entry.action)
+			end
+
+			::continue::
+		end
+	end
+
+	local event = import("goluwa/event.lua")
+	table.insert(
+		self._hierarchy_listeners,
+		event.AddListener("FrameEnd", self, process_hierarchy_queue)
+	)
 
 	-- Clean up listeners on removal
 	self:CallOnRemove(
@@ -298,7 +331,7 @@ function META:set_expanded(node, path, key, expanded)
 		local children = {}
 
 		for _, child in ipairs(entity:GetChildren()) do
-			if self._filter_callback and not self._filter_callback(child) then
+			if self._filter_callback and self._filter_callback(child) then
 				goto continue
 			end
 
@@ -570,9 +603,15 @@ function META:GetExpandedKeys()
 	return self._expanded_keys
 end
 
+function META:FullRefresh(reason)
+	if META.debug and reason then print("[entity_tree] FullRefresh: ", reason) end
+
+	self._hierarchy_dirty = true
+end
+
 function META:try_incremental_insert(entity, parent)
 	-- Skip filtered entities
-	if self._filter_callback and not self._filter_callback(entity) then
+	if self._filter_callback and self._filter_callback(entity) then
 		return true
 	end
 
@@ -582,9 +621,11 @@ function META:try_incremental_insert(entity, parent)
 	if parent_key then
 		parent_item = find_item_in_tree(self:GetItems(), parent_key)
 
-		if not parent_item then return false end
+		if not parent_item then return false, "parent_item_not_found" end
 
-		if not self._expanded_keys[parent_key] then return false end
+		if not self._expanded_keys[parent_key] then
+			return false, "parent_not_expanded"
+		end
 	else
 		-- Entity reparented to world root - find the matching root
 		for _, root in ipairs(self._root_entities) do
@@ -596,14 +637,16 @@ function META:try_incremental_insert(entity, parent)
 			end
 		end
 
-		if not parent_item then return false end
+		if not parent_item then return false, "root_parent_item_not_found" end
 
-		if not self._expanded_keys[parent_key] then return false end
+		if not self._expanded_keys[parent_key] then
+			return false, "root_parent_not_expanded"
+		end
 	end
 
 	local new_item = build_entity_node(entity, self._expanded_keys, self._filter_callback, self._show_virtual, {})
 
-	if not new_item then return false end
+	if not new_item then return false, "build_entity_node_failed" end
 
 	parent_item.Children[#parent_item.Children + 1] = new_item
 	self:AddNode(new_item, parent_key)
@@ -614,7 +657,7 @@ function META:try_incremental_remove(entity)
 	local guid = entity:GetGUID()
 	local item = find_item_in_tree(self:GetItems(), guid)
 
-	if not item then return false end
+	if not item then return false, "item_not_found_in_tree" end
 
 	-- Remove from items tree
 	local function remove_from(items, key)

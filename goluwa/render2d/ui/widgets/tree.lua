@@ -246,7 +246,7 @@ function META:RefreshBranchForKey(key)
 end
 
 function META:AddNode(node, parent_key)
-	if not node then return self end
+	if not node then return self, "node is nil" end
 
 	-- Find the parent row to determine insert position
 	local insert_after_index = #self._row_order
@@ -254,7 +254,10 @@ function META:AddNode(node, parent_key)
 	if parent_key then
 		local parent_info = self._row_infos[parent_key]
 
-		if not parent_info then return self:Rebuild() end
+		if not parent_info then return self:Rebuild(), "rebuild" end
+
+		-- Update has_children flag so is_expanded doesn't bail out for newly added parents
+		parent_info.has_children = true
 
 		-- Find the last child of this parent in row_order
 		local found_child = false
@@ -285,7 +288,7 @@ function META:AddNode(node, parent_key)
 		if
 			not self:is_expanded(parent_info.node, parent_info.path, parent_key, parent_info.has_children)
 		then
-			return self
+			return self, "not expanded"
 		end
 	end
 
@@ -297,7 +300,7 @@ function META:AddNode(node, parent_key)
 	local key = self:get_key(node, path)
 
 	-- Check if node already exists
-	if self._row_infos[key] then return self end
+	if self._row_infos[key] then return self, "no row info" end
 
 	-- Build continuations by walking up ancestor chain
 	local continuations = {}
