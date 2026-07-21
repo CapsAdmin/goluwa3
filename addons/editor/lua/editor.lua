@@ -33,29 +33,13 @@ local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
-local transient_ui_keys = {
-	ActiveContextMenu = true,
-	ActiveMenuBarContextMenu = true,
-	EditorMenuBarContextMenu = true,
-	EditorTreeContextMenu = true,
-	UITooltipOverlay = true,
-}
 
 local function is_hidden_editor_entity(entity, editor_window)
-	if not (entity and entity.IsValid and entity:IsValid()) then return false end
+	local parent = entity:GetRoot(1) or NULL -- one off from Panel.World
+	if parent:IsValid() then
+		if parent == editor_window then return true end
 
-	local current = entity
-
-	while current and current.IsValid and current:IsValid() do
-		if current == editor_window then return true end
-
-		if current.IsContextMenuContainer then return true end
-
-		local key = current.GetKey and current:GetKey() or ""
-
-		if transient_ui_keys[key] then return true end
-
-		current = current:GetParent()
+		if parent:GetName() == "ContextMenu" then return true end
 	end
 
 	return false

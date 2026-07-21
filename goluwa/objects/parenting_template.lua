@@ -279,10 +279,14 @@ return function(META)
 		return self.ChildrenMap[obj] ~= nil
 	end
 
-	function META:GetRoot()
+	function META:GetRoot(level)
 		local list = self:GetParentList()
 
-		if list[1] then return list[#list] end
+		if list[1] then
+			if level then return list[#list - level] end
+
+			return list[#list]
+		end
 
 		return self
 	end
