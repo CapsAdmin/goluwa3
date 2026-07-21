@@ -108,6 +108,35 @@ do
 	end
 end
 
+do
+	function Panel.CloseContextMenu()
+		for _, child in ipairs(Panel.World:GetChildren()) do
+			if child.is_context_menu then
+				if child.RequestClose then
+					child:RequestClose()
+				else
+					child:Remove()
+				end
+			end
+		end
+	end
+
+	function Panel.OpenContextMenu(props, ...)
+		Panel.CloseContextMenu()
+
+		if not props.Position then
+			props.Position = system.GetWindow():GetMousePosition():Copy()
+		end
+
+		if not props.Key then props.Key = "ContextMenu" end
+
+		local ContextMenu = import("goluwa/render2d/ui/elements/context_menu.lua")
+		local menu = ContextMenu(props)(...)
+		menu.is_context_menu = true
+		return Panel.World:Ensure(menu)
+	end
+end
+
 function Panel:CreateTemplate(name)
 	local META = objects.CreateTemplate(Panel.Type .. "_" .. name)
 	META.Base = import("goluwa/render2d/ui/panel.lua")

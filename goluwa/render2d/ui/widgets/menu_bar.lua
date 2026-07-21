@@ -4,7 +4,6 @@ local system = import("goluwa/system.lua")
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
-local ContextMenu = import("goluwa/render2d/ui/elements/context_menu.lua")
 
 local function resolve_menu_items(definition)
 	local items = definition.Items or definition.Menu or definition.Submenu
@@ -210,11 +209,10 @@ function META:OpenMenu(index)
 		return
 	end
 
-	self:CloseMenu()
 	self.active_index = index
-	self.context_menu = Panel.World:Ensure(
-		ContextMenu{
-			Key = self:GetMenuKey(),
+	self.context_menu:Remove() -- remove immedeatly
+	self.context_menu = Panel.OpenContextMenu(
+		{
 			Anchor = button,
 			AnchorPlacement = definition.AnchorPlacement or "below_left",
 			SourceMenuBar = self,
@@ -224,7 +222,8 @@ function META:OpenMenu(index)
 				self.active_index = nil
 				self:_sync_button_state()
 			end,
-		}(unpack(menu_items))
+		},
+		unpack(menu_items)
 	)
 	self:_sync_button_state()
 end

@@ -2,7 +2,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
-local ContextMenu = import("goluwa/render2d/ui/elements/context_menu.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local objects = import("goluwa/objects/objects.lua")
@@ -44,9 +43,6 @@ function Value.InstallContextMenu(panel, props)
 		end
 
 		local can_reset = default_encoded ~= nil and default_encoded ~= current_encoded
-		local active = Panel.World:GetKeyed("ActiveContextMenu")
-
-		if active and active:IsValid() then active:Remove() end
 
 		local function apply_encoded_value(encoded)
 			if not (props.Decode and props.Commit) then return end
@@ -58,15 +54,12 @@ function Value.InstallContextMenu(panel, props)
 			props.Commit(decoded, self)
 		end
 
-		Panel.World:Ensure(
-			ContextMenu{
-				Key = "ActiveContextMenu",
-				Position = system.GetWindow():GetMousePosition():Copy(),
-				OnClose = function(ent)
-					ent:Remove()
-				end,
-			}{
-				MenuItem{
+		Panel.OpenContextMenu({
+			OnClose = function(ent)
+				ent:Remove()
+			end,
+		}, {
+			MenuItem{
 					Text = "Copy",
 					IconSource = icon_sources.copy,
 					Disabled = current_encoded == nil,

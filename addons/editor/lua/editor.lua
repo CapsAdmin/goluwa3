@@ -16,7 +16,6 @@ local system = import("goluwa/system.lua")
 local Gizmo = import("lua/gizmo.lua")
 local Highlight = import("lua/highlight.lua")
 local shapes = _G.GRAPHICS_3D and import("lua/shapes.lua") or {}
-local ContextMenu = import("goluwa/render2d/ui/elements/context_menu.lua")
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local MenuSpacer = import("goluwa/render2d/ui/elements/menu_spacer.lua")
@@ -100,16 +99,6 @@ return function(props)
 	editor_camera.Initialize()
 	local editor_world_picking = import("lua/editor_world_picking.lua")
 	local click_drag_threshold_sq = 16
-
-	local function context_menu_blocks_world(mouse_pos)
-		local menu = Panel.World:GetKeyed("EditorMenuBarContextMenu") or
-			Panel.World:GetKeyed("EditorTreeContextMenu")
-
-		if not (menu and menu.IsValid and menu:IsValid()) then return false end
-
-		return Rect(mouse_pos.x, mouse_pos.y, 1, 1):Intersects(menu.transform:GetRect())
-	end
-
 	local picker_2d_active = false
 	local picker_2d_cursor_override = nil
 	local picker_2d_last_button_down = false
@@ -130,12 +119,6 @@ return function(props)
 	end
 
 	local function flush_pending_editor_sync(force) end
-
-	local function close_active_context_menu()
-		local active = Panel.World:GetKeyed("EditorTreeContextMenu")
-
-		if active and active:IsValid() then active:Remove() end
-	end
 
 	local function create_child_shape(parent_entity, kind)
 		local camera_forward = editor_camera.GetForward()
@@ -183,8 +166,6 @@ return function(props)
 		Padding = Rect(),
 		MinSize = Vec2(320, 320),
 		OnClose = function(self)
-			close_active_context_menu()
-
 			if props.OnClose then
 				props.OnClose(self, tree_view:GetSelectedEntityGUID())
 			else
@@ -362,15 +343,13 @@ return function(props)
 
 						if not can_create_shapes and not can_remove then return false end
 
-						close_active_context_menu()
-						Panel.World:Ensure(
-							ContextMenu{
-								Key = "EditorTreeContextMenu",
-								Position = system.GetWindow():GetMousePosition():Copy(),
+						Panel.OpenContextMenu(
+							{
 								OnClose = function(self)
 									self:Remove()
 								end,
-							}{
+							},
+							{
 								can_create_shapes and
 								MenuItem{
 									Text = "Sphere",
@@ -568,8 +547,6 @@ return function(props)
 			local selection_allowed = inside_world and
 				not has_text_focus(editor_window)
 				and
-				not context_menu_blocks_world(mouse_pos)
-				and
 				not is_ui_hovering()
 				and
 				not gizmo_status.active_drag and
@@ -678,7 +655,6 @@ return function(props)
 						world_size = Panel.World.transform:GetSize(),
 						window_rect = editor_window.transform:GetRect(),
 						block_movement = has_text_focus(editor_window) or
-							context_menu_blocks_world(mouse_pos) or
 							is_ui_hovering() or
 							not mouse_in_editor_viewport(mouse_pos),
 						mouse_in_viewport = mouse_in_editor_viewport,

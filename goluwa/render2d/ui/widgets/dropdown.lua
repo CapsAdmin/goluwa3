@@ -10,7 +10,6 @@ local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
-local ContextMenu = import("goluwa/render2d/ui/elements/context_menu.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 return function(props)
@@ -53,11 +52,7 @@ return function(props)
 			suppress_next_open = false
 		end)
 
-		local world_panel = Panel.World
-		local active = world_panel:GetKeyed("ActiveContextMenu")
-
-		if active and active:IsValid() then active:Remove() end
-
+		Panel.CloseContextMenu()
 		props.Value = val
 		selected_text = text
 
@@ -143,23 +138,6 @@ return function(props)
 		if suppress_next_open then
 			suppress_next_open = false
 			return
-		end
-
-		local active = Panel.World:GetKeyed("ActiveContextMenu")
-
-		if active and active:IsValid() then
-			if active.SourceDropdown == dropdown then
-				if active.RequestClose then
-					active:RequestClose()
-				else
-					set_menu_open_fraction(0)
-					active:Remove()
-				end
-
-				return
-			end
-
-			active:Remove()
 		end
 
 		local menu_items = {}
@@ -329,19 +307,21 @@ return function(props)
 			end
 		end
 
-		local context_menu = ContextMenu{
-			Key = "ActiveContextMenu",
-			Anchor = dropdown,
-			AnchorPlacement = "below_left",
-			SourceDropdown = dropdown,
-			OnClosing = function()
-				set_menu_open_fraction(0)
-			end,
-			OnClose = function(ent)
-				set_menu_open_fraction(0, true)
-				ent:Remove()
-			end,
-		}(unpack(menu_items))
+		local context_menu = Panel.OpenContextMenu(
+			{
+				Anchor = dropdown,
+				AnchorPlacement = "below_left",
+				SourceDropdown = dropdown,
+				OnClosing = function()
+					set_menu_open_fraction(0)
+				end,
+				OnClose = function(ent)
+					set_menu_open_fraction(0, true)
+					ent:Remove()
+				end,
+			},
+			unpack(menu_items)
+		)
 		local real_ctx = context_menu:GetChildren()[1]
 
 		event.AddListener("Update", dropdown, function()
@@ -362,7 +342,6 @@ return function(props)
 			end
 		end)
 
-		world_panel:Ensure(context_menu)
 		set_menu_open_fraction(1)
 
 		if use_search then
