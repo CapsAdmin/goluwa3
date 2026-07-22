@@ -19,6 +19,7 @@ local PropertyObject = import("goluwa/render2d/ui/widgets/properties/object.lua"
 local PropertyString = import("goluwa/render2d/ui/widgets/properties/string.lua")
 local PropertyVector = import("goluwa/render2d/ui/widgets/properties/vector.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local objects = import("goluwa/objects/objects.lua")
 
 local function has_entries(list)
 	return list and next(list) ~= nil
@@ -82,43 +83,123 @@ local function get_precision(node, fallback)
 	return fallback
 end
 
-local vector_kinds = {
+local function is_valid_object(obj)
+	local obj_type = type(obj)
+
+	if obj_type ~= "table" and obj_type ~= "userdata" and obj_type ~= "cdata" then
+		return false
+	end
+
+	return obj and obj.IsValid and obj:IsValid() or false
+end
+
+local function get_object_label(obj)
+	if not is_valid_object(obj) then return "object" end
+
+	local name = obj.GetName and obj:GetName() or ""
+	local key = obj.GetKey and obj:GetKey() or ""
+	local base = name ~= "" and name or key ~= "" and key or (obj.Type or "object")
+
+	if name ~= "" and key ~= "" and key ~= name then
+		base = name .. " [" .. key .. "]"
+	end
+
+	return base
+end
+
+local property_types = {
+	boolean = {widget = PropertyBoolean},
+	enum = {widget = PropertyEnum},
+	number = {widget = PropertyNumber, default_precision = 3},
+	integer = {widget = PropertyNumber, default_precision = 0},
 	vec2 = {
+		widget = PropertyVector,
 		components = {"x", "y"},
-		factory = function(values)
-			return Vec2(values[1], values[2])
+		factory = function(v)
+			return Vec2(v[1], v[2])
 		end,
 	},
 	vec3 = {
+		widget = PropertyVector,
 		components = {"x", "y", "z"},
-		factory = function(values)
-			return Vec3(values[1], values[2], values[3])
+		factory = function(v)
+			return Vec3(v[1], v[2], v[3])
 		end,
 	},
 	ang3 = {
+		widget = PropertyVector,
 		components = {"x", "y", "z"},
-		factory = function(values)
-			return Ang3(values[1], values[2], values[3])
+		factory = function(v)
+			return Ang3(v[1], v[2], v[3])
 		end,
 	},
 	rect = {
+		widget = PropertyVector,
 		components = {"x", "y", "w", "h"},
-		factory = function(values)
-			return Rect(values[1], values[2], values[3], values[4])
+		factory = function(v)
+			return Rect(v[1], v[2], v[3], v[4])
 		end,
 	},
 	quat = {
+		widget = PropertyVector,
 		components = {"x", "y", "z", "w"},
-		factory = function(values)
-			return Quat(values[1], values[2], values[3], values[4])
+		factory = function(v)
+			return Quat(v[1], v[2], v[3], v[4])
 		end,
 	},
 	color = {
+		widget = PropertyVector,
 		components = {"r", "g", "b", "a"},
-		factory = function(values)
-			return Color(values[1], values[2], values[3], values[4])
+		factory = function(v)
+			return Color(v[1], v[2], v[3], v[4])
 		end,
 	},
+	string = {widget = PropertyString},
+	action = {widget = "button"},
+	material = {
+		widget = PropertyObject,
+		get_display_text = function(material)
+			if not material then return "None" end
+
+			if material.vmt_path and material.vmt_path ~= "" then
+				return material.vmt_path
+			end
+
+			return get_object_label(material)
+		end,
+		get_preview_texture = function(material)
+			if not material then return nil end
+
+			local texture = material.GetAlbedoTexture and material:GetAlbedoTexture() or nil
+
+			if texture and texture.IsReady and not texture:IsReady() then return nil end
+
+			return texture
+		end,
+	},
+	texture = {
+		widget = PropertyObject,
+		get_display_text = function(texture)
+			if not texture then return "None" end
+
+			local path = texture.config and texture.config.path or nil
+
+			if path and path ~= "" then return path end
+
+			return get_object_label(texture)
+		end,
+		get_preview_texture = function(texture)
+			if not texture then return nil end
+
+			if texture.IsReady and not texture:IsReady() then return nil end
+
+			return texture
+		end,
+	},
+}
+local property_type_aliases = {
+	render3d_material = "material",
+	render_texture = "texture",
 }
 local open_color_picker_window
 open_color_picker_window = function(node, value, key, path, panel, commit_value)
@@ -344,35 +425,34 @@ return function(props)
 			font_size = compact_font_size,
 			number_precision = number_precision,
 			get_precision = get_precision,
-			vector_info = vector_kinds[kind],
+			vector_info = nil,
 			open_color_picker_window = open_color_picker_window,
 			build_number_control = PropertyNumber,
 			sync_selection = sync_selection,
 		}
+		local type_info = property_types[kind]
 
-		if kind == "boolean" or type(node.Value) == "boolean" then
-			return PropertyBoolean(control_props)
+		if not type_info and type(node.Value) == "boolean" then
+			type_info = property_types.boolean
 		end
 
-		if kind == "enum" then return PropertyEnum(control_props) end
+		if type_info then
+			if type_info.components then
+				control_props.vector_info = {components = type_info.components, factory = type_info.factory}
+			end
 
-		if kind == "number" then return PropertyNumber(control_props) end
+			if type_info.widget == "button" then
+				return Button{
+					Text = node.ButtonText or node.ActionText or "Run",
+					FontSize = compact_font_size,
+					Mode = node.Mode or "outline",
+					OnClick = function()
+						trigger_action(node, key, path)
+					end,
+				}
+			end
 
-		if control_props.vector_info then return PropertyVector(control_props) end
-
-		if kind == "action" then
-			return Button{
-				Text = node.ButtonText or node.ActionText or "Run",
-				FontSize = compact_font_size,
-				Mode = node.Mode or "outline",
-				OnClick = function()
-					trigger_action(node, key, path)
-				end,
-			}
-		end
-
-		if kind == "material" or kind == "texture" then
-			return PropertyObject(control_props)
+			return type_info.widget(control_props)
 		end
 
 		return PropertyString(control_props)
@@ -871,176 +951,142 @@ return function(props)
 		return self
 	end
 
-	do -- TODO
-		local objects = import("goluwa/objects/objects.lua")
+	local function get_component_name(entity, component)
+		for name, value in pairs(entity.component_map or {}) do
+			if value == component then return name end
+		end
 
-		local function is_valid_object(obj)
-			local obj_type = type(obj)
+		return component.Type or "component"
+	end
 
-			if obj_type ~= "table" and obj_type ~= "userdata" and obj_type ~= "cdata" then
-				return false
+	local function build_property_node(target, category_key, category_name, info, hooks)
+		local resolved_type = property_type_aliases[info.type] or info.type
+		local node_type = info.enums and "enum" or resolved_type
+		local value = objects.GetProperty(target, info.var_name)
+		local node = {
+			Type = node_type,
+			Key = category_key .. "/" .. info.var_name,
+			Text = info.var_name,
+			Value = value,
+			Default = info.copy and info.copy() or info.default,
+			GetValue = function()
+				return objects.GetProperty(target, info.var_name)
+			end,
+		}
+		local type_info = property_types[node_type]
+
+		if type_info then
+			if type_info.default_precision then
+				node.Precision = type_info.default_precision
 			end
 
-			return obj and obj.IsValid and obj:IsValid() or false
-		end
-
-		local function get_object_label(obj)
-			if not is_valid_object(obj) then return "object" end
-
-			local name = obj.GetName and obj:GetName() or ""
-			local key = obj.GetKey and obj:GetKey() or ""
-			local base = name ~= "" and name or key ~= "" and key or (obj.Type or "object")
-
-			if name ~= "" and key ~= "" and key ~= name then
-				base = name .. " [" .. key .. "]"
+			if type_info.get_display_text then
+				node.GetDisplayText = type_info.get_display_text
 			end
 
-			return base
-		end
-
-		local function get_component_name(entity, component)
-			for name, value in pairs(entity.component_map or {}) do
-				if value == component then return name end
+			if type_info.get_preview_texture then
+				node.GetPreviewTexture = type_info.get_preview_texture
 			end
-
-			return component.Type or "component"
 		end
 
-		local function get_material_display_text(material)
-			if not material then return "None" end
-
-			if material.vmt_path and material.vmt_path ~= "" then
-				return material.vmt_path
-			end
-
-			return get_object_label(material)
-		end
-
-		local function get_material_preview_texture(material)
-			if not material then return nil end
-
-			local texture = material.GetAlbedoTexture and material:GetAlbedoTexture() or nil
-
-			if texture and texture.IsReady and not texture:IsReady() then return nil end
-
-			return texture
-		end
-
-		local function get_texture_display_text(texture)
-			if not texture then return "None" end
-
-			local path = texture.config and texture.config.path or nil
-
-			if path and path ~= "" then return path end
-
-			return get_object_label(texture)
-		end
-
-		local function get_texture_preview_texture(texture)
-			if not texture then return nil end
-
-			if texture.IsReady and not texture:IsReady() then return nil end
-
-			return texture
-		end
-
-		local function build_property_node(target, category_key, category_name, info, hooks)
-			local value = objects.GetProperty(target, info.var_name)
-			local node = {
-				Type = info.enums and "enum" or info.type,
-				Key = category_key .. "/" .. info.var_name,
-				Text = info.var_name,
-				Value = value,
-				Default = info.copy and info.copy() or info.default,
-				GetValue = function()
-					return objects.GetProperty(target, info.var_name)
-				end,
-			}
-
-			if node.Type == "material" or node.Type == "render3d_material" then
-				node.Type = "material"
-				node.GetDisplayText = get_material_display_text
-				node.GetPreviewTexture = get_material_preview_texture
-				node.OnActionButton = function(_, key, path, panel, commit_value)
-					if open_material_picker then
-						open_material_picker(node, target, info, key, path, panel, commit_value)
-					end
-				end
-			elseif node.Type == "texture" or node.Type == "render_texture" then
-				node.Type = "texture"
-				node.GetDisplayText = get_texture_display_text
-				node.GetPreviewTexture = get_texture_preview_texture
-				node.OnActionButton = function(_, key, path, panel, commit_value)
-					if open_texture_picker then
-						open_texture_picker(node, target, info, key, path, panel, commit_value)
-					end
-				end
-			elseif node.Type == "number" or node.Type == "integer" then
-				node.Precision = node.Type == "integer" and 0 or 3
-			elseif node.Type == "enum" then
-				node.Options = {}
-
-				for _, option in ipairs(info.enums or {}) do
-					node.Options[#node.Options + 1] = {
-						Text = tostring(option),
-						Value = option,
-					}
+		if node_type == "material" then
+			node.OnActionButton = function(_, key, path, panel, commit_value)
+				if open_material_picker then
+					open_material_picker(node, target, info, key, path, panel, commit_value)
 				end
 			end
-
-			node.OnChange = function(_, next_value)
-				if node.Type == "integer" then
-					next_value = math.floor((tonumber(next_value) or 0) + 0.5)
+		elseif node_type == "texture" then
+			node.OnActionButton = function(_, key, path, panel, commit_value)
+				if open_texture_picker then
+					open_texture_picker(node, target, info, key, path, panel, commit_value)
 				end
-
-				if hooks and hooks.OnPropertyChangeStart then
-					hooks.OnPropertyChangeStart(target, info, next_value)
-				end
-
-				local ok, err = pcall(function()
-					objects.SetProperty(target, info.var_name, next_value)
-				end)
-
-				if hooks and hooks.OnPropertyChangeEnd then
-					hooks.OnPropertyChangeEnd(target, info, next_value, ok, err)
-				end
-
-				if not ok then
-					print(
-						"editor failed to set property",
-						target,
-						category_name,
-						info.var_name,
-						err
-					)
-				end
-
-				return ok
 			end
-			return node
 		end
 
-		local function enumerate_property_categories(target)
-			if not is_valid_object(target) then return {} end
+		if node_type == "enum" and info.enums then
+			node.Options = {}
 
+			for _, option in ipairs(info.enums) do
+				node.Options[#node.Options + 1] = {
+					Text = tostring(option),
+					Value = option,
+				}
+			end
+		end
+
+		node.OnChange = function(_, next_value)
+			if node_type == "integer" then
+				next_value = math.floor((tonumber(next_value) or 0) + 0.5)
+			end
+
+			if hooks and hooks.OnPropertyChangeStart then
+				hooks.OnPropertyChangeStart(target, info, next_value)
+			end
+
+			local ok, err = pcall(function()
+				objects.SetProperty(target, info.var_name, next_value)
+			end)
+
+			if hooks and hooks.OnPropertyChangeEnd then
+				hooks.OnPropertyChangeEnd(target, info, next_value, ok, err)
+			end
+
+			if not ok then
+				print(
+					"editor failed to set property",
+					target,
+					category_name,
+					info.var_name,
+					err
+				)
+			end
+
+			return ok
+		end
+		return node
+	end
+
+	local property_change_sync_blocked = 0
+	local property_node_hooks = {
+		OnPropertyChangeStart = function()
+			property_change_sync_blocked = property_change_sync_blocked + 1
+		end,
+		OnPropertyChangeEnd = function()
+			property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
+		end,
+	}
+	local listeners = {}
+
+	function editor:SetObject(obj)
+		do
+			for i = 1, #listeners do
+				listeners[i]()
+			end
+
+			list.clear(listeners)
+		end
+
+		local items = {}
+
+		if is_valid_object(obj) then
 			local categories = {}
 
-			if target.component_list then
-				for _, component in ipairs(target.component_list or {}) do
+			if obj.component_list then
+				for _, component in ipairs(obj.component_list or {}) do
 					if component and component.IsValid and component:IsValid() then
-						local component_name = get_component_name(target, component)
+						local component_name = get_component_name(obj, component)
 						categories[#categories + 1] = {
 							object = component,
-							key = target:GetGUID() .. "/" .. component_name,
+							key = obj:GetGUID() .. "/" .. component_name,
 							name = component_name,
 						}
 					end
 				end
 			else
 				categories[#categories + 1] = {
-					object = target,
-					key = target:GetGUID() .. "/properties",
-					name = get_object_label(target),
+					object = obj,
+					key = obj:GetGUID() .. "/properties",
+					name = get_object_label(obj),
 				}
 			end
 
@@ -1048,70 +1094,28 @@ return function(props)
 				return a.name < b.name
 			end)
 
-			return categories
-		end
+			for _, category in ipairs(categories) do
+				local children = {}
 
-		local function build_storable_property_group(target, group_key, group_text, hooks)
-			local children = {}
-
-			for _, info in ipairs(objects.GetStorableVariables(target)) do
-				children[#children + 1] = build_property_node(target, group_key, group_text, info, hooks)
-			end
-
-			return {
-				Key = group_key,
-				Text = group_text,
-				Expanded = true,
-				Children = children,
-			}
-		end
-
-		local function build_property_items(target, hooks)
-			if not is_valid_object(target) then return {} end
-
-			local items = {}
-
-			for _, category in ipairs(enumerate_property_categories(target)) do
-				items[#items + 1] = build_storable_property_group(category.object, category.key, category.name, hooks)
-			end
-
-			return items
-		end
-
-		local property_change_sync_blocked = 0
-		local property_node_hooks = {
-			OnPropertyChangeStart = function()
-				property_change_sync_blocked = property_change_sync_blocked + 1
-			end,
-			OnPropertyChangeEnd = function()
-				property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
-			end,
-		}
-		local selected_property_listener_removers = {}
-
-		function editor:SetObject(obj)
-			do
-				for i = 1, #selected_property_listener_removers do
-					selected_property_listener_removers[i]()
+				for _, info in ipairs(objects.GetStorableVariables(category.object)) do
+					children[#children + 1] = build_property_node(category.object, category.key, category.name, info, property_node_hooks)
 				end
 
-				list.clear(selected_property_listener_removers)
+				items[#items + 1] = {
+					Key = category.key,
+					Text = category.name,
+					Expanded = true,
+					Children = children,
+				}
+				listeners[#listeners + 1] = category.object:AddPropertyListener(function(_, key)
+					if property_change_sync_blocked > 0 then return end
+
+					self:RefreshValueForKey(category.key .. "/" .. key)
+				end)
 			end
-
-			local items = build_property_items(obj, property_node_hooks)
-
-			for _, categories in ipairs(items) do
-				for _, category in ipairs(categories) do
-					selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
-						if property_change_sync_blocked > 0 then return end
-
-						self:RefreshValueForKey(category.key .. "/" .. key)
-					end)
-				end
-			end
-
-			self:SetItems(items)
 		end
+
+		self:SetItems(items)
 	end
 
 	if external_ref then external_ref(editor) end
