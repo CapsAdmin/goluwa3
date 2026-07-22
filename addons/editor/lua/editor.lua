@@ -14,7 +14,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Gizmo = import("lua/gizmo.lua")
-local Highlight = import("lua/highlight.lua")
+local highlight = import("lua/highlight.lua")
 local shapes = _G.GRAPHICS_3D and import("lua/shapes.lua") or {}
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
@@ -307,12 +307,7 @@ return function(props)
 					end,
 					OnNodeHover = function(node, key, path, row_info, hovered)
 						local entity = node and node.Entity or nil
-
-						if hovered then
-							Highlight.EnableHighlight(entity)
-						else
-							Highlight.EnableHighlight(nil)
-						end
+						highlight.SetEntity(hovered and entity or nil)
 					end,
 					OnNodeContextMenu = function(node)
 						local entity = node and node.Entity or nil
@@ -562,7 +557,7 @@ return function(props)
 	editor_window:CallOnRemove(
 		function()
 			clear_selected_property_listeners()
-			Highlight.Clear()
+			highlight.SetEntity()
 			Gizmo.Clear(editor_window)
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
 		end,

@@ -4,6 +4,7 @@ local objects = import("goluwa/objects/objects.lua")
 -- Pre-register to break import cycle: visual -> render3d -> light -> visual
 local Visual = objects.CreateTemplate("visual")
 import.loaded["goluwa/entities/components/visual.lua"] = Visual
+Visual.Is3D = true
 local BVH = import("goluwa/physics/bvh.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Material = import("goluwa/render3d/material.lua")

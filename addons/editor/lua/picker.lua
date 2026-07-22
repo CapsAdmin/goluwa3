@@ -6,7 +6,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
-local Highlight = import("lua/highlight.lua")
+local highlight = import("lua/highlight.lua")
 local event = import("goluwa/event.lua")
 local CameraComponent = import("lua/components/camera.lua")
 local picker = library()
@@ -121,7 +121,7 @@ local function cancel_picker()
 	if not picker.IsActive() then return end
 
 	picker.hovered_entity = NULL
-	Highlight.EnableHighlight(nil)
+	highlight.SetEntity(nil)
 	input.HijackKeyInput(nil)
 
 	for _, remove in ipairs(picker.remove_events) do
@@ -197,11 +197,7 @@ function picker.Update(dt)
 		picker.hovered_entity = hovered
 	end
 
-	if picker.hovered_entity:IsValid() then
-		Highlight.EnableHighlight(picker.hovered_entity)
-	else
-		Highlight.EnableHighlight()
-	end
+	highlight.SetEntity(picker.hovered_entity)
 end
 
 function picker.MouseInput(button, press)

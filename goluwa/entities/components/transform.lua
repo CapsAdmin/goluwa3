@@ -7,6 +7,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local system = import("goluwa/system.lua")
 local physics
 local META = objects.CreateTemplate("transform_3d")
+META.Is3D = true
 
 local function find_ancestor_visual(entity)
 	local current = entity

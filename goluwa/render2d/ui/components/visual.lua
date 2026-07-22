@@ -6,6 +6,7 @@ local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
 local META = objects.CreateTemplate("visual_2d")
+META.Is2D = true
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)

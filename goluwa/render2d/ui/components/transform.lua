@@ -9,6 +9,7 @@ local Color = import("goluwa/structs/color.lua")
 local render = import("goluwa/render/render.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local META = objects.CreateTemplate("transform_2d")
+META.Is2D = true
 META:StartStorable({callback = "InvalidateMatrices"})
 META:GetSet("Position", Vec2(0, 0))
 META:GetSet("Z", 0)

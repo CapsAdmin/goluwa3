@@ -6,42 +6,39 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local debug_draw = import("goluwa/render3d/debug_draw.lua")
 local system = import("goluwa/system.lua")
 local highlight = library()
+highlight.entity = NULL
+
+function highlight.SetEntity(entity)
+	highlight.entity = entity or NULL
+end
+
+function highlight.GetEntity()
+	return highlight.entity
+end
+
 local overlay_matrix = Matrix44()
-local listener_key = "gui_highlight_service"
-local highlighted_entity = nil
+local material = debug_draw.GetMaterial{
+	shape_type = "generic",
+	ignore_z = true,
+	translucent = true,
+	double_sided = true,
+}
 
-local function is_drawable_3d_entity(entity)
-	return entity.visual and entity.visual.GetRenderEntries
-end
+event.AddListener("Draw3DForwardOverlay", "highlight", function()
+	local ent = highlight.entity
 
-local function is_drawable_2d_entity(entity)
-	return entity.transform and entity.transform.Type == "transform_2d"
-end
+	if not ent:IsValid() then return end
 
-local function draw_overlay_polygon(polygon, material, world_matrix)
-	if not polygon then return end
+	if not ent.visual or not ent.visual.Is3D then return end
 
-	render3d.SetWorldMatrix(world_matrix)
-	render3d.SetMaterial(material)
-	render3d.UploadForwardOverlayConstants()
-	polygon:Draw()
-end
-
-local function draw_visual_model_overlay(entity)
 	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
 	local alpha = 0.2 + pulse * 0.35
 	local emissive = 0.12 + pulse * 0.32
-	local material = debug_draw.GetMaterial{
-		shape_type = "generic",
-		color = Color(1, 0.35 + pulse * 0.35, 0.15, alpha),
-		emissive = Color(emissive, emissive * 0.6, emissive * 0.25, 1),
-		ignore_z = true,
-		translucent = true,
-		double_sided = true,
-	}
-	local world_matrix = entity.transform:GetWorldMatrix()
+	local world_matrix = ent.transform:GetWorldMatrix()
+	material:SetColorMultiplier(Color(1, 0.35 + pulse * 0.35, 0.15, alpha))
+	material:SetEmissiveMultiplier(Color(emissive, emissive * 0.6, emissive * 0.25, 1))
 
-	for _, prim in ipairs(entity.visual:GetRenderEntries()) do
+	for _, prim in ipairs(ent.visual:GetRenderEntries()) do
 		if prim.polygon3d then
 			local final_matrix = world_matrix
 
@@ -51,28 +48,34 @@ local function draw_visual_model_overlay(entity)
 				final_matrix = prim.local_matrix:GetMultiplied(world_matrix, overlay_matrix)
 			end
 
-			draw_overlay_polygon(prim.polygon3d, material, final_matrix)
+			render3d.SetWorldMatrix(final_matrix)
+			render3d.SetMaterial(material)
+			render3d.UploadForwardOverlayConstants()
+			prim.polygon3d:Draw()
 		end
 	end
-end
+end)
 
-local function draw_2d_overlay(entity)
-	if not is_drawable_2d_entity(entity) then return end
+event.AddListener("Draw2D", "highlight", function()
+	local ent = highlight.entity
 
-	local transform = entity.transform
-	local size = transform:GetSize()
+	if not ent:IsValid() then return end
+
+	if not ent.transform or not ent.transform.Is2D then return end
+
+	local size = ent.transform:GetSize()
 
 	if size.x <= 0 or size.y <= 0 then return end
 
 	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
 	local fill_alpha = 0.05 + pulse * 0.08
 	local outline_alpha = 0.45 + pulse * 0.35
-	local masked, clip_x1, clip_y1, clip_x2, clip_y2 = transform:BeginScrollViewportMask(0, 0, size.x, size.y)
+	local masked, clip_x1, clip_y1, clip_x2, clip_y2 = ent.transform:BeginScrollViewportMask(0, 0, size.x, size.y)
 
 	if masked == nil then return end
 
 	render2d.PushMatrix()
-	render2d.SetWorldMatrix(transform:GetWorldMatrix())
+	render2d.SetWorldMatrix(ent.transform:GetWorldMatrix())
 	render2d.SetTexture(nil)
 	render2d.SetColor(1, 0.55 + pulse * 0.25, 0.18, fill_alpha)
 	render2d.DrawRect(0, 0, size.x, size.y)
@@ -80,57 +83,7 @@ local function draw_2d_overlay(entity)
 	render2d.SetColor(1, 0.7 + pulse * 0.2, 0.3, outline_alpha)
 	render2d.DrawOutlinedRect(0, 0, size.x, size.y, 2)
 	render2d.PopMatrix()
-	transform:EndScrollViewportMask(masked, clip_x1, clip_y1, clip_x2, clip_y2)
-end
+	ent.transform:EndScrollViewportMask(masked, clip_x1, clip_y1, clip_x2, clip_y2)
+end)
 
-local function draw_3d_overlay()
-	if not highlighted_entity then return end
-
-	if is_drawable_3d_entity(highlighted_entity) then
-		draw_visual_model_overlay(highlighted_entity)
-	elseif highlighted_entity ~= nil and not is_drawable_2d_entity(highlighted_entity) then
-		highlighted_entity = nil
-	end
-end
-
-local function draw_2d_highlight_overlay()
-	if not highlighted_entity then return end
-
-	if is_drawable_2d_entity(highlighted_entity) then
-		draw_2d_overlay(highlighted_entity)
-	elseif highlighted_entity ~= nil and not is_drawable_3d_entity(highlighted_entity) then
-		highlighted_entity = nil
-	end
-end
-
-function highlight.EnableHighlight(entity)
-	if not entity then
-		highlighted_entity = nil
-		return
-	end
-
-	local next_entity = nil
-
-	if is_drawable_3d_entity(entity) or is_drawable_2d_entity(entity) then
-		next_entity = entity
-	end
-
-	highlighted_entity = next_entity
-	return next_entity
-end
-
-function highlight.DisableHighlight()
-	return highlight.EnableHighlight(nil)
-end
-
-function highlight.GetHighlightedEntity()
-	return highlighted_entity
-end
-
-function highlight.Clear()
-	highlighted_entity = nil
-end
-
-event.AddListener("Draw3DForwardOverlay", listener_key, draw_3d_overlay)
-event.AddListener("Draw2D", listener_key, draw_2d_highlight_overlay)
 return highlight
