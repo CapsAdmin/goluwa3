@@ -422,7 +422,7 @@ return function(props)
 				else
 					-- Start picker
 					self:SetCursorOverride("crosshair")
-					picker_cancel_fn = picker.Start{
+					picker_cancel_fn = picker.StartEntityPicker{
 						on_pick = function(target)
 							set_selected_target(target)
 						end,

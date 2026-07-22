@@ -29,7 +29,7 @@ return function(props)
 
 		if node.GetPreviewTexture then return node.GetPreviewTexture(value) end
 
-		return nil
+		return value
 	end
 
 	local function refresh_display(value)

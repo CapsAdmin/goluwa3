@@ -4,6 +4,7 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
+local event = import("goluwa/event.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local system = import("goluwa/system.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
@@ -177,25 +178,7 @@ local property_types = {
 			return texture
 		end,
 	},
-	texture = {
-		widget = PropertyObject,
-		get_display_text = function(texture)
-			if not texture then return "None" end
-
-			local path = texture.config and texture.config.path or nil
-
-			if path and path ~= "" then return path end
-
-			return get_object_label(texture)
-		end,
-		get_preview_texture = function(texture)
-			if not texture then return nil end
-
-			if texture.IsReady and not texture:IsReady() then return nil end
-
-			return texture
-		end,
-	},
+	texture = {widget = PropertyObject},
 }
 local property_type_aliases = {
 	render3d_material = "material",
@@ -973,7 +956,10 @@ return function(props)
 				return objects.GetProperty(target, info.var_name)
 			end,
 		}
-		local type_info = property_types[node_type]
+		local display_type = node_type
+		if info.validate == "integer" then display_type = "integer" end
+
+		local type_info = property_types[display_type]
 
 		if type_info then
 			if type_info.default_precision then
@@ -991,15 +977,15 @@ return function(props)
 
 		if node_type == "material" then
 			node.OnActionButton = function(_, key, path, panel, commit_value)
-				if open_material_picker then
-					open_material_picker(node, target, info, key, path, panel, commit_value)
-				end
+				event.Call("PickObject", node_type, function(obj)
+					commit_value(node, obj, key, path, panel)
+				end)
 			end
 		elseif node_type == "texture" then
 			node.OnActionButton = function(_, key, path, panel, commit_value)
-				if open_texture_picker then
-					open_texture_picker(node, target, info, key, path, panel, commit_value)
-				end
+				event.Call("PickObject", node_type, function(obj)
+					commit_value(node, obj, key, path, panel)
+				end)
 			end
 		end
 
@@ -1015,7 +1001,7 @@ return function(props)
 		end
 
 		node.OnChange = function(_, next_value)
-			if node_type == "integer" then
+			if node_type == "integer" or info.validate == "integer" then
 				next_value = math.floor((tonumber(next_value) or 0) + 0.5)
 			end
 

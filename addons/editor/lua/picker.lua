@@ -1,6 +1,5 @@
 local system = import("goluwa/system.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -9,6 +8,8 @@ local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local highlight = import("lua/highlight.lua")
 local event = import("goluwa/event.lua")
 local CameraComponent = import("lua/components/camera.lua")
+local AssetBrowser = import("lua/asset_browser.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local picker = library()
 
 local function is_visual_pick_helper_entity(entity)
@@ -136,7 +137,7 @@ local function cancel_picker()
 	picker.on_cancel = nil
 end
 
-function picker.Start(opts)
+function picker.StartEntityPicker(opts)
 	if picker.IsActive() then return end
 
 	opts = opts or {}
@@ -211,5 +212,41 @@ function picker.MouseInput(button, press)
 
 	cancel_picker()
 end
+
+function picker.PickMaterial(callback)
+	Panel.World:Ensure(
+		AssetBrowser{
+			Key = "MaterialPicker",
+			PickerCategory = "materials",
+			OnPickAsset = function(_, material, window)
+				window:Remove()
+				callback(material)
+				return true
+			end,
+		}
+	)
+end
+
+function picker.PickTexture(callback)
+	Panel.World:Ensure(
+		AssetBrowser{
+			Key = "TexturePicker",
+			PickerCategory = "textures",
+			OnPickAsset = function(_, texture, window)
+				window:Remove()
+				callback(texture)
+				return true
+			end,
+		}
+	)
+end
+
+event.AddListener("PickObject", "picker", function(what, callback)
+	if what == "material" then
+		picker.PickMaterial(callback)
+	elseif what == "texture" then
+		picker.PickTexture(callback)
+	end
+end)
 
 return picker
