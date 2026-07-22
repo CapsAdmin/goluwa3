@@ -63,6 +63,11 @@ return function(props)
 					self:SetCursor(self.Owner:GetState("disabled") and "arrow" or "hand")
 					self.Owner:SetState("hovered", hovered)
 				end,
+				OnGlobalMouseInput = function(self, button, press)
+					if not press and button == "button_1" then
+						self.Owner:SetState("pressed", false)
+					end
+				end,
 			},
 			animation = true,
 			clickable = true,
