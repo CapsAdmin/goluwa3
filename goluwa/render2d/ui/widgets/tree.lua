@@ -710,7 +710,7 @@ function META:fire_toggle(node, expanded, key, path)
 end
 
 function META:set_expanded(node, path, key, expanded)
-	if self.OnIsExpanded(node, path, key) ~= nil and expanded then
+	if expanded then
 		self._pending_expand_animation_key = key
 	end
 
