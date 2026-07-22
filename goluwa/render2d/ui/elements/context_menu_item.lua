@@ -50,7 +50,7 @@ return function(props)
 	local function close_context_menu()
 		local container = find_context_menu_container(item)
 
-		if container and container:IsValid() then container:Remove() end
+		if container and container:IsValid() then container:RequestClose() end
 	end
 
 	local function close_deeper_submenus()
