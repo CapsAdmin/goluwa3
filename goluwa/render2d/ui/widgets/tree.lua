@@ -38,6 +38,7 @@ META:GetSet("RowFont", "body")
 META:GetSet("LabelPadding", "XS")
 META:GetSet("RowGap", 3)
 META:GetSet("DropIndicatorColor", "primary")
+META:GetSet("RefreshDebounce", 0)
 META:EndStorable()
 
 local function build_path(parent_path, index)
@@ -67,12 +68,33 @@ function META:OnCreate(props)
 	self._drag_state = {active = false, source_key = nil, drop_info = nil}
 	self._row_click_times = {}
 	self._pending_expand_animation_key = nil
+	self._mutation_blocked = 0
+	self._pending_refresh = false
+	self._refresh_deadline = 0
+	self._refresh_debounce = props.RefreshDebounce or 0
+	self._refreshing = false
 	self._ready = false
 	META.BaseClass.OnCreate(self, props)
 	self._ready = true
 	self:Rebuild()
 	self._pending_expand_animation_key = nil
 	self._drag_enabled = true
+
+	-- Add OnUpdate for deferred refresh
+	if self._refresh_debounce > 0 then
+		local tree = self
+
+		function self:OnUpdate()
+			if not tree._pending_refresh then return end
+
+			if system.GetElapsedTime() < tree._refresh_deadline then return end
+
+			tree._pending_refresh = false
+			tree:Rebuild(true)
+		end
+
+		self:AddGlobalEvent("Update")
+	end
 end
 
 function META.OnGetText() end
@@ -89,6 +111,8 @@ function META.OnCanDrop() end
 
 function META.OnIsExpanded() end
 
+function META.OnGetDynamicChildren() end
+
 function META.OnGetTextColor() end
 
 function META.OnSelect() end
@@ -104,6 +128,24 @@ function META.OnNodeContextMenu() end
 -- ---------------------------------------------------------------------------
 -- Public API
 -- ---------------------------------------------------------------------------
+function META:BlockMutations()
+	self._mutation_blocked = self._mutation_blocked + 1
+	return self
+end
+
+function META:UnblockMutations()
+	self._mutation_blocked = math.max(0, self._mutation_blocked - 1)
+	return self
+end
+
+function META:AreMutationsBlocked()
+	return self._mutation_blocked > 0
+end
+
+function META:Refresh(force)
+	return self:Rebuild(force)
+end
+
 function META:SetItems(new_items)
 	self._items = new_items or {}
 	self:Rebuild()
@@ -166,9 +208,17 @@ function META:EnsureVisible(key, padding)
 	return self
 end
 
-function META:Rebuild()
+function META:Rebuild(force)
 	if not self._ready then return self end
 
+	-- Debounce if not forced
+	if not force and self._refresh_debounce > 0 then
+		self._pending_refresh = true
+		self._refresh_deadline = system.GetElapsedTime() + self._refresh_debounce
+		return self
+	end
+
+	self._refreshing = true
 	self:clear_drag_state()
 	self._row_infos = {}
 	self._row_order = {}
@@ -191,6 +241,7 @@ function META:Rebuild()
 	end
 
 	self:refresh_visibility()
+	self._refreshing = false
 	return self
 end
 
@@ -202,12 +253,10 @@ function META:RefreshBranchForKey(key)
 	if not descriptor then return self:Rebuild() end
 
 	local start_index
-	local end_index
 
 	for i, row_key in ipairs(self._row_order) do
 		if row_key == key then
 			start_index = i
-			end_index = i
 
 			break
 		end
@@ -215,26 +264,8 @@ function META:RefreshBranchForKey(key)
 
 	if not start_index then return self:Rebuild() end
 
-	for i = start_index + 1, #self._row_order do
-		local info = self._row_infos[self._row_order[i]]
-
-		if not (info and self:is_key_in_branch(key, info.key)) then break end
-
-		end_index = i
-	end
-
 	self:clear_drag_state()
-
-	for i = end_index, start_index, -1 do
-		local row_key = self._row_order[i]
-		local info = self._row_infos[row_key]
-
-		if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
-
-		self._row_infos[row_key] = nil
-		table.remove(self._row_order, i)
-	end
-
+	self:remove_node_rows(key)
 	self:add_node(descriptor.node, descriptor.meta, descriptor.parent_path, start_index)
 	self:refresh_visibility()
 
@@ -344,6 +375,113 @@ end
 -- ---------------------------------------------------------------------------
 -- Internal helpers
 -- ---------------------------------------------------------------------------
+function META:remove_node_rows(key)
+	-- Find the start index for this key
+	local start_index
+
+	for i, row_key in ipairs(self._row_order) do
+		if row_key == key then
+			start_index = i
+
+			break
+		end
+	end
+
+	if not start_index then return end
+
+	-- Find the end of the branch
+	local end_index = start_index
+
+	for i = start_index + 1, #self._row_order do
+		local info = self._row_infos[self._row_order[i]]
+
+		if not (info and self:is_key_in_branch(key, info.key)) then break end
+
+		end_index = i
+	end
+
+	-- Remove rows backwards to avoid index shifting
+	for i = end_index, start_index, -1 do
+		local row_key = self._row_order[i]
+		local info = self._row_infos[row_key]
+
+		if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
+
+		self._row_infos[row_key] = nil
+		table.remove(self._row_order, i)
+	end
+end
+
+function META:refresh_branch_children(parent_key)
+	-- Find the parent row position
+	local parent_index
+
+	for i, row_key in ipairs(self._row_order) do
+		if row_key == parent_key then
+			parent_index = i
+
+			break
+		end
+	end
+
+	if not parent_index then return end
+
+	-- Remove descendant rows (not the parent itself)
+	self:remove_node_rows_children(parent_key, parent_index)
+	-- Re-add children via the recursive add_node
+	local parent_info = self._row_infos[parent_key]
+
+	if not parent_info then return end
+
+	local children = self:get_children(parent_info.node, parent_info.path)
+	local level = 0
+
+	for _ in parent_info.path:gmatch("/") do
+		level = level + 1
+	end
+
+	local insert_index = parent_index + 1
+
+	for child_index, child in ipairs(children) do
+		local meta = {
+			level = level + 1,
+			index = child_index,
+			is_last = child_index == #children,
+			parent_key = parent_key,
+			continuations = {},
+		}
+		insert_index = self:add_node(child, meta, parent_info.path, insert_index) or insert_index
+	end
+
+	self:refresh_visibility()
+end
+
+function META:remove_node_rows_children(parent_key, parent_index)
+	-- Find the end of the branch (not including parent)
+	local end_index
+
+	for i = parent_index + 1, #self._row_order do
+		local info = self._row_infos[self._row_order[i]]
+
+		if not (info and self:is_key_in_branch(parent_key, info.key)) then break end
+
+		end_index = i
+	end
+
+	-- Remove descendant rows backwards to avoid index shifting
+	if end_index then
+		for i = end_index, parent_index + 1, -1 do
+			local row_key = self._row_order[i]
+			local info = self._row_infos[row_key]
+
+			if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
+
+			self._row_infos[row_key] = nil
+			table.remove(self._row_order, i)
+		end
+	end
+end
+
 function META:update_layout_now(entity)
 	if not entity or not entity:IsValid() or not entity.layout then return end
 
@@ -369,11 +507,28 @@ function META:get_text(node, path)
 end
 
 function META:get_children(node, path)
+	local dynamic = self.OnGetDynamicChildren(node, path)
+
+	if dynamic ~= nil then return dynamic end
+
 	return node.Children or {}
 end
 
 function META:has_children(node, path)
 	if next(self:get_children(node, path)) then return true end
+
+	if node.HasChildren ~= nil then return not not node.HasChildren end
+
+	return false
+end
+
+function META:has_unexpanded_children(node, path)
+	-- Check if there are children that would appear if expanded
+	local dynamic = self.OnGetDynamicChildren(node, path)
+
+	if dynamic ~= nil then return next(dynamic) ~= nil end
+
+	if next(node.Children or {}) then return true end
 
 	if node.HasChildren ~= nil then return not not node.HasChildren end
 
@@ -712,6 +867,17 @@ end
 function META:set_expanded(node, path, key, expanded)
 	if expanded then
 		self._pending_expand_animation_key = key
+		-- Check for dynamic children
+		local dynamic_children = self.OnGetDynamicChildren(node, path)
+
+		if dynamic_children ~= nil then
+			-- Update the node's children in the items tree
+			node.Children = dynamic_children
+			self:fire_toggle(node, expanded, key, path)
+			-- Rebuild this branch with new children
+			self:refresh_branch_children(key)
+			return
+		end
 	end
 
 	self:fire_toggle(node, expanded, key, path)
@@ -796,7 +962,7 @@ function META:add_node(node, meta, parent_path, insert_index)
 	if include ~= nil and not include then return insert_index end
 
 	local children = self:get_children(node, path)
-	local has_children = self:has_children(node, path)
+	local has_children = next(children) ~= nil or self:has_unexpanded_children(node, path)
 	local expanded = self:is_expanded(node, path, key, has_children)
 	local selected = self:is_selected(node, path, key)
 	local custom_panel = self:get_node_panel(node, path, key, selected, has_children, expanded)

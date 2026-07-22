@@ -182,13 +182,7 @@ function META:OnCreate(props)
 	self._filter_callback = props.FilterCallback
 	self._show_virtual = props.ShowVirtualChildren == true
 	self._on_expanded = props.OnExpanded
-	self._refresh_guard = false
-	self._pending_refresh = false
-	self._refresh_deadline = 0
-	self._refresh_debounce = props.RefreshDebounce or 0.05
 	self._hierarchy_dirty = false
-	self._mutation_blocked = 0
-	self._editor_window = nil
 
 	-- Default roots if none provided
 	if #self._root_entities == 0 then
@@ -235,7 +229,7 @@ function META:OnCreate(props)
 		local remove = world:AddLocalListener("OnEntityHierarchyChanged", function(_, entity, action, parent)
 			if tree._refreshing then return end
 
-			if tree._mutation_blocked > 0 then return end
+			if tree:AreMutationsBlocked() then return end
 
 			table.insert(tree._hierarchy_queue, {entity = entity, action = action, parent = parent})
 		end)
@@ -298,29 +292,6 @@ function META:OnCreate(props)
 		end,
 		"entity_tree_cleanup"
 	)
-
-	-- Add OnUpdate for deferred refresh
-	local tree = self
-	local system = import("goluwa/system.lua")
-
-	function self:OnUpdate()
-		if tree._hierarchy_dirty then
-			tree._hierarchy_dirty = false
-			log_refresh("hierarchy_dirty")
-			tree._pending_refresh = true
-			tree._refresh_deadline = system.GetElapsedTime() + tree._refresh_debounce
-		end
-
-		if not tree._pending_refresh then return end
-
-		if system.GetElapsedTime() < tree._refresh_deadline then return end
-
-		tree._pending_refresh = false
-		log_refresh("deferred_flush")
-		tree:Refresh(true)
-	end
-
-	self:AddGlobalEvent("Update")
 end
 
 function META:set_expanded(node, path, key, expanded)
@@ -355,9 +326,9 @@ function META:set_expanded(node, path, key, expanded)
 
 		if parent_item then parent_item.Children = children end
 
-		-- Refresh children rows without touching the parent row
+		-- Use base tree's refresh_branch_children
 		self._pending_expand_animation_key = key
-		self:refresh_children(key)
+		self:refresh_branch_children(key)
 
 		if self._on_expanded then self._on_expanded(key, expanded) end
 
@@ -367,67 +338,6 @@ function META:set_expanded(node, path, key, expanded)
 	META.BaseClass.set_expanded(self, node, path, key, expanded)
 
 	if self._on_expanded then self._on_expanded(key, expanded) end
-end
-
-function META:refresh_children(parent_key)
-	-- Find the parent row position
-	local parent_index
-	for i, row_key in ipairs(self._row_order) do
-		if row_key == parent_key then
-			parent_index = i
-			break
-		end
-	end
-
-	if not parent_index then return end
-
-	-- Find the end of the branch
-	local end_index
-	for i = parent_index + 1, #self._row_order do
-		local info = self._row_infos[self._row_order[i]]
-		if not (info and self:is_key_in_branch(parent_key, info.key)) then
-			break
-		end
-		end_index = i
-	end
-
-	-- Remove descendant rows backwards to avoid index shifting
-	if end_index then
-		for i = end_index, parent_index + 1, -1 do
-		local row_key = self._row_order[i]
-		local info = self._row_infos[row_key]
-
-		if info and info.clip and info.clip:IsValid() then
-			info.clip:Remove()
-		end
-		self._row_infos[row_key] = nil
-		table.remove(self._row_order, i)
-		end
-	end
-
-	-- Re-add children via the recursive add_node
-	local parent_info = self._row_infos[parent_key]
-	if not parent_info then return end
-
-	local children = self:get_children(parent_info.node, parent_info.path)
-	local level = 0
-	for _ in parent_info.path:gmatch("/") do
-		level = level + 1
-	end
-
-	local insert_index = parent_index + 1
-	for child_index, child in ipairs(children) do
-		local meta = {
-			level = level + 1,
-			index = child_index,
-			is_last = child_index == #children,
-			parent_key = parent_key,
-			continuations = {},
-		}
-		insert_index = self:add_node(child, meta, parent_info.path, insert_index) or insert_index
-	end
-
-	self:refresh_visibility()
 end
 
 -- Tree callbacks
@@ -573,16 +483,6 @@ function META:SelectEntity(entity)
 	return self
 end
 
-function META:BlockMutations()
-	self._mutation_blocked = self._mutation_blocked + 1
-	return self
-end
-
-function META:UnblockMutations()
-	self._mutation_blocked = math.max(0, self._mutation_blocked - 1)
-	return self
-end
-
 function META:ExpandToEntity(entity)
 	if not entity or not entity:IsValid() then return self end
 
@@ -591,6 +491,7 @@ function META:ExpandToEntity(entity)
 	-- Check if already visible
 	if self._row_infos[guid] then
 		self:SetSelectedKey(guid)
+		self:EnsureVisible(guid)
 		return self
 	end
 
@@ -606,6 +507,7 @@ function META:ExpandToEntity(entity)
 	self._expanded_keys[guid] = true
 	self:Refresh(true)
 	self:SetSelectedKey(guid)
+	self:EnsureVisible(guid)
 	return self
 end
 
@@ -670,14 +572,10 @@ function META:RefreshBranch(entity)
 end
 
 function META:refresh_visibility()
-	self._mutation_blocked = self._mutation_blocked + 1
+	self:BlockMutations()
 	local result = META.BaseClass.refresh_visibility(self)
-	self._mutation_blocked = math.max(0, self._mutation_blocked - 1)
+	self:UnblockMutations()
 	return result
-end
-
-function META:GetExpandedKeys()
-	return self._expanded_keys
 end
 
 function META:FullRefresh(reason)
@@ -751,49 +649,8 @@ function META:try_incremental_remove(entity)
 	end
 
 	remove_from(self:GetItems(), guid)
-	-- Remove row from UI
-	local row_key = self._row_infos[guid] and guid or nil
-
-	if row_key then
-		local info = self._row_infos[row_key]
-
-		if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
-
-		self._row_infos[row_key] = nil
-
-		for i, k in ipairs(self._row_order) do
-			if k == row_key then
-				table.remove(self._row_order, i)
-
-				break
-			end
-		end
-	end
-
-	-- Also remove children rows
-	local function collect_keys(nodes, keys)
-		for _, n in ipairs(nodes or {}) do
-			keys[n.Key] = true
-			collect_keys(n.Children, keys)
-		end
-	end
-
-	local child_keys = {}
-	collect_keys(item.Children, child_keys)
-
-	for i = #self._row_order, 1, -1 do
-		local k = self._row_order[i]
-
-		if child_keys[k] then
-			local info = self._row_infos[k]
-
-			if info and info.clip and info.clip:IsValid() then info.clip:Remove() end
-
-			self._row_infos[k] = nil
-			table.remove(self._row_order, i)
-		end
-	end
-
+	-- Remove row and children rows using base tree helper
+	self:remove_node_rows(guid)
 	self:refresh_visibility()
 	return true
 end
