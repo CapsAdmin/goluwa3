@@ -27,7 +27,6 @@ local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
-local property_builder = import("addons/editor/lua/property_builder.lua")
 local CameraComponent = import("lua/components/camera.lua")
 local camera = import("lua/camera.lua")
 local picker = import("lua/picker.lua")
@@ -62,20 +61,10 @@ return function(props)
 	local tree_scroll_container = NULL
 	local property_editor = NULL
 	local editor_window = NULL
-	local selected_property_listener_removers = {}
-	local property_change_sync_blocked = 0
 	local pending_selection_sync = false
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
 	local picker_cancel_fn = nil
-	local property_node_hooks = {
-		OnPropertyChangeStart = function()
-			property_change_sync_blocked = property_change_sync_blocked + 1
-		end,
-		OnPropertyChangeEnd = function()
-			property_change_sync_blocked = math.max(0, property_change_sync_blocked - 1)
-		end,
-	}
 
 	local function set_selected_target(target)
 		Gizmo.EnableGizmo(target)
@@ -379,9 +368,7 @@ return function(props)
 						Ref = function(self)
 							property_editor = self
 						end,
-						OnPropertyChangeStart = property_node_hooks.OnPropertyChangeStart,
-						OnPropertyChangeEnd = property_node_hooks.OnPropertyChangeEnd,
-						Items = property_builder.build_property_items(tree_view:GetSelectedEntity(), property_node_hooks),
+						Entity = tree_view:GetSelectedEntity(),
 						layout = {
 							GrowWidth = 1,
 							GrowHeight = 1,
@@ -467,14 +454,6 @@ return function(props)
 		return hovered:IsValid() and hovered ~= Panel.World
 	end
 
-	local function clear_selected_property_listeners()
-		for i = 1, #selected_property_listener_removers do
-			selected_property_listener_removers[i]()
-		end
-
-		list.clear(selected_property_listener_removers)
-	end
-
 	local function has_text_focus()
 		local focused = objects:GetFocusedObject()
 		return focused:IsValid() and
@@ -500,26 +479,9 @@ return function(props)
 			local selected_target = tree_view:GetSelectedEntity()
 
 			if selected_target then
-				clear_selected_property_listeners()
-				local items = property_builder.build_property_items(selected_target, property_node_hooks)
-
-				for _, categories in ipairs(items) do
-					for _, category in ipairs(categories) do
-						selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
-							if property_change_sync_blocked > 0 then return end
-
-							property_editor:RefreshValueForKey(category.key .. "/" .. key)
-
-							if property_name == "Name" or property_name == "Key" or property_name == "Material" then
-								pending_selection_sync = true
-							end
-						end)
-					end
-				end
-
 				editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
 				tree_view:BlockMutations()
-				property_editor:SetItems(items)
+				property_editor:SetObject(selected_target)
 				property_editor:ExpandAll()
 				tree_view:UnblockMutations()
 				editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
@@ -529,7 +491,6 @@ return function(props)
 
 	editor_window:CallOnRemove(
 		function()
-			clear_selected_property_listeners()
 			highlight.SetEntity()
 			Gizmo.Clear(editor_window)
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
