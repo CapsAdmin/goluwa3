@@ -6,53 +6,36 @@ local UIDebug = import("goluwa/render2d/ui/components/ui_debug.lua")
 local layout_lib = library()
 local META = objects.CreateTemplate("layout")
 META.layout_count = 0
-META:StartStorable()
-META:GetSet("MinSize", Vec2(0, 0), {callback = "InvalidateLayout"})
-META:GetSet("MaxSize", Vec2(0, 0), {callback = "InvalidateLayout"})
-META:GetSet("Margin", Rect(0, 0, 0, 0), {callback = "InvalidateLayout"})
-META:GetSet("Padding", Rect(0, 0, 0, 0), {callback = "InvalidateLayout"})
-META:GetSet("ChildGap", 0, {callback = "InvalidateLayout"})
-META:GetSet("Direction", "x", {callback = "InvalidateLayout", enums = {"x", "y"}})
-META:GetSet("GrowWidth", 0, {callback = "InvalidateLayout"})
-META:GetSet("GrowHeight", 0, {callback = "InvalidateLayout"})
-META:GetSet("ShrinkWidth", 0, {callback = "InvalidateLayout"})
-META:GetSet("ShrinkHeight", 0, {callback = "InvalidateLayout"})
-META:GetSet("FitWidth", false, {callback = "InvalidateLayout"})
-META:GetSet("FitHeight", false, {callback = "InvalidateLayout"})
-META:GetSet(
-	"AlignmentX",
-	"stretch",
-	{callback = "InvalidateLayout", enums = {"start", "center", "end", "stretch"}}
-)
-META:GetSet(
-	"AlignmentY",
-	"stretch",
-	{callback = "InvalidateLayout", enums = {"start", "center", "end", "stretch"}}
-)
+META:StartStorable({callback = "InvalidateLayout"})
+META:GetSet("MinSize", Vec2(0, 0))
+META:GetSet("MaxSize", Vec2(0, 0))
+META:GetSet("Margin", Rect(0, 0, 0, 0))
+META:GetSet("Padding", Rect(0, 0, 0, 0))
+META:GetSet("ChildGap", 0)
+META:GetSet("Direction", "x", {enums = {"x", "y"}})
+META:GetSet("GrowWidth", 0)
+META:GetSet("GrowHeight", 0)
+META:GetSet("ShrinkWidth", 0)
+META:GetSet("ShrinkHeight", 0)
+META:GetSet("FitWidth", false)
+META:GetSet("FitHeight", false)
+META:GetSet("AlignmentX", "stretch", {enums = {"start", "center", "end", "stretch"}})
+META:GetSet("AlignmentY", "stretch", {enums = {"start", "center", "end", "stretch"}})
 META:GetSet(
 	"SelfAlignmentX",
 	"auto",
-	{
-		callback = "InvalidateLayout",
-		enums = {"auto", "start", "center", "end", "stretch"},
-	}
+	{enums = {"auto", "start", "center", "end", "stretch"}}
 )
 META:GetSet(
 	"SelfAlignmentY",
 	"auto",
-	{
-		callback = "InvalidateLayout",
-		enums = {"auto", "start", "center", "end", "stretch"},
-	}
+	{enums = {"auto", "start", "center", "end", "stretch"}}
 )
-META:GetSet("Floating", false, {callback = "InvalidateLayout"})
+META:GetSet("Floating", false)
 META:GetSet(
 	"Dock",
 	"none",
-	{
-		callback = "InvalidateLayout",
-		enums = {"none", "top", "bottom", "left", "right", "fill"},
-	}
+	{enums = {"none", "top", "bottom", "left", "right", "fill"}}
 )
 META:EndStorable()
 META:GetSet("Dirty", false)

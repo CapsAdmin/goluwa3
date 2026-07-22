@@ -15,6 +15,8 @@ local template_functions = {
 	"RemoveField",
 	"StartStorable",
 	"EndStorable",
+	"StartOptions",
+	"EndOptions",
 	"Register",
 	"RegisterComponent",
 	"CreateObject",
@@ -262,9 +264,7 @@ end
 do
 	function objects.GetRegistered(type_name)
 		if objects.registered[type_name] then
-			if objects.invalidate_meta[type_name] then
-				objects.RebuildMetatables()
-			end
+			if objects.invalidate_meta[type_name] then objects.RebuildMetatables() end
 
 			return objects.prepared_metatables[type_name]
 		end
@@ -429,15 +429,26 @@ end
 do -- get is set
 	local __store = false
 	local __meta
+	local __options
 
-	function objects.StartStorable(meta)
+	function objects.StartStorable(meta, options)
 		__store = true
 		__meta = meta
+		__options = options
 	end
 
 	function objects.EndStorable()
 		__store = false
 		__meta = nil
+		__options = nil
+	end
+
+	function objects.StartOptions(meta, options)
+		__options = options
+	end
+
+	function objects.EndOptions()
+		__options = nil
 	end
 
 	function objects.GetStorableVariables(meta)
@@ -716,6 +727,9 @@ do -- get is set
 
 	function objects.SetupProperty(info)
 		local meta = info.meta or __meta
+
+		if __options then table.merge(info, __options) end
+
 		local default = info.default
 		local name = info.var_name
 		local set_name = info.set_name
