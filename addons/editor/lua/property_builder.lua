@@ -173,6 +173,8 @@ local function build_property_node(target, category_key, category_name, info, ho
 end
 
 local function enumerate_property_categories(target)
+	if not is_valid_object(target) then return {} end
+
 	local categories = {}
 
 	if target.component_list then
@@ -229,15 +231,6 @@ local function build_property_items(target, hooks)
 end
 
 return {
-	build_property_node = build_property_node,
-	build_storable_property_group = build_storable_property_group,
 	build_property_items = build_property_items,
-	enumerate_property_categories = enumerate_property_categories,
-	get_component_name = get_component_name,
-	get_object_label = get_object_label,
-	get_material_display_text = get_material_display_text,
 	get_material_preview_texture = get_material_preview_texture,
-	get_texture_display_text = get_texture_display_text,
-	get_texture_preview_texture = get_texture_preview_texture,
-	is_valid_object = is_valid_object,
 }

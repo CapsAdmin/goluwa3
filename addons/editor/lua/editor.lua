@@ -501,9 +501,10 @@ return function(props)
 
 			if selected_target then
 				clear_selected_property_listeners()
+				local items = property_builder.build_property_items(selected_target, property_node_hooks)
 
-				if property_builder.is_valid_object(selected_target) then
-					for _, category in ipairs(property_builder.enumerate_property_categories(selected_target)) do
+				for _, categories in ipairs(items) do
+					for _, category in ipairs(categories) do
 						selected_property_listener_removers[#selected_property_listener_removers + 1] = category.object:AddPropertyListener(function(_, key)
 							if property_change_sync_blocked > 0 then return end
 
@@ -518,7 +519,7 @@ return function(props)
 
 				editor_ui_mutation_blocked = editor_ui_mutation_blocked + 1
 				tree_view:BlockMutations()
-				property_editor:SetItems(property_builder.build_property_items(selected_target, property_node_hooks))
+				property_editor:SetItems(items)
 				property_editor:ExpandAll()
 				tree_view:UnblockMutations()
 				editor_ui_mutation_blocked = math.max(0, editor_ui_mutation_blocked - 1)
