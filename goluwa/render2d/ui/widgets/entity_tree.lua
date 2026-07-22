@@ -355,15 +355,9 @@ function META:set_expanded(node, path, key, expanded)
 
 		if parent_item then parent_item.Children = children end
 
-		-- Add children via AddNode so the base tree handles animation
-		self._mutation_blocked = self._mutation_blocked + 1
-
-		for _, child_node in ipairs(children) do
-			self:AddNode(child_node, key)
-		end
-
-		META.BaseClass.set_expanded(self, node, path, key, expanded)
-		self._mutation_blocked = math.max(0, self._mutation_blocked - 1)
+		-- Refresh children rows without touching the parent row
+		self._pending_expand_animation_key = key
+		self:refresh_children(key)
 
 		if self._on_expanded then self._on_expanded(key, expanded) end
 
@@ -373,6 +367,67 @@ function META:set_expanded(node, path, key, expanded)
 	META.BaseClass.set_expanded(self, node, path, key, expanded)
 
 	if self._on_expanded then self._on_expanded(key, expanded) end
+end
+
+function META:refresh_children(parent_key)
+	-- Find the parent row position
+	local parent_index
+	for i, row_key in ipairs(self._row_order) do
+		if row_key == parent_key then
+			parent_index = i
+			break
+		end
+	end
+
+	if not parent_index then return end
+
+	-- Find the end of the branch
+	local end_index
+	for i = parent_index + 1, #self._row_order do
+		local info = self._row_infos[self._row_order[i]]
+		if not (info and self:is_key_in_branch(parent_key, info.key)) then
+			break
+		end
+		end_index = i
+	end
+
+	-- Remove descendant rows backwards to avoid index shifting
+	if end_index then
+		for i = end_index, parent_index + 1, -1 do
+		local row_key = self._row_order[i]
+		local info = self._row_infos[row_key]
+
+		if info and info.clip and info.clip:IsValid() then
+			info.clip:Remove()
+		end
+		self._row_infos[row_key] = nil
+		table.remove(self._row_order, i)
+		end
+	end
+
+	-- Re-add children via the recursive add_node
+	local parent_info = self._row_infos[parent_key]
+	if not parent_info then return end
+
+	local children = self:get_children(parent_info.node, parent_info.path)
+	local level = 0
+	for _ in parent_info.path:gmatch("/") do
+		level = level + 1
+	end
+
+	local insert_index = parent_index + 1
+	for child_index, child in ipairs(children) do
+		local meta = {
+			level = level + 1,
+			index = child_index,
+			is_last = child_index == #children,
+			parent_key = parent_key,
+			continuations = {},
+		}
+		insert_index = self:add_node(child, meta, parent_info.path, insert_index) or insert_index
+	end
+
+	self:refresh_visibility()
 end
 
 -- Tree callbacks
@@ -532,6 +587,12 @@ function META:ExpandToEntity(entity)
 	if not entity or not entity:IsValid() then return self end
 
 	local guid = entity:GetGUID()
+
+	-- Check if already visible
+	if self._row_infos[guid] then
+		self:SetSelectedKey(guid)
+		return self
+	end
 
 	if entity.GetParent then
 		local parent = entity:GetParent()
