@@ -957,6 +957,7 @@ return function(props)
 			end,
 		}
 		local display_type = node_type
+
 		if info.validate == "integer" then display_type = "integer" end
 
 		local type_info = property_types[display_type]
@@ -1094,6 +1095,8 @@ return function(props)
 					Children = children,
 				}
 				listeners[#listeners + 1] = category.object:AddPropertyListener(function(_, key)
+					if not self:Isvalid() then return end
+
 					if property_change_sync_blocked > 0 then return end
 
 					self:RefreshValueForKey(category.key .. "/" .. key)
