@@ -110,7 +110,7 @@ return {
 					Text{
 						Text = label,
 						IgnoreMouseInput = true,
-						AlignX = "center",
+						AlignX = 0.5,
 					},
 				},
 			}

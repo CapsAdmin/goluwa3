@@ -17,9 +17,10 @@ META:GetSet("Text", "", {callback = "OnTextChanged"})
 META:GetSet("Wrap", false, {callback = "OnTextChanged"})
 META:GetSet("WrapToParent", false, {callback = "OnTextChanged"})
 META:GetSet("Elide", false, {callback = "OnTextChanged"})
+META:GetSet("Justify", false, {callback = "OnTextChanged"})
 META:GetSet("ElideString", "...", {callback = "OnTextChanged"})
-META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
-META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
+META:GetSet("AlignX", 0, {callback = "OnTextChanged"})
+META:GetSet("AlignY", 0, {callback = "OnTextChanged"})
 META:GetSet("Hint", "")
 META:GetSet("DisableViewportCulling", false)
 META:GetSet("Color", nil)
@@ -199,7 +200,7 @@ local function build_wrap_layout(self, font, text, width)
 	local lines = {}
 	local ranges = {}
 	local display_lines = {}
-	local justify = self:GetAlignX() == "justify"
+	local justify = self:GetJustify()
 	local measured_width = 0
 
 	if #layout.lines == 0 then
@@ -472,7 +473,7 @@ function META:GetTextSize2()
 	local is_focused_editable = self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner
 	local line_height = font:GetLineHeight()
 
-	if self.wrap_layout_info and self:GetAlignX() == "justify" then
+	if self.wrap_layout_info and self:GetJustify() then
 		tw = math.max(tw, self.wrap_layout_info.width or 0)
 	end
 
@@ -680,17 +681,20 @@ function META:OnDraw()
 
 	-- Use hint text when actual text is empty
 	local use_hint = text == "" and self:GetHint() ~= ""
+
 	if use_hint then
 		text = self:GetHint()
 		foreground = "text_disabled"
+
 		if theme and theme.active then
 			foreground = theme.active:ResolveColor(foreground, background)
 		end
+
 		-- Use hint text dimensions so clipping rect is non-zero
 		tw, th = font:GetTextSize(text)
 	end
 
-	if self.wrap_layout_info and self:GetAlignX() == "justify" then
+	if self.wrap_layout_info and self:GetJustify() then
 		tw = math.max(tw, self.wrap_layout_info.width or 0)
 	end
 
@@ -798,51 +802,17 @@ function META:GetTextOffset()
 
 	local content_size = Vec2(size.x - left - right, size.y - top - bottom)
 	local x, y = left, top
-
-	if type(ax) == "number" then
-		x = left + content_size.x * ax
-	elseif ax == "center" then
-		x = left + content_size.x / 2
-	elseif ax == "right" then
-		x = left + content_size.x
-	end
-
-	if type(ay) == "number" then
-		y = top + content_size.y * ay
-	elseif ay == "center" then
-		y = top + content_size.y / 2
-	elseif ay == "bottom" then
-		y = top + content_size.y
-	elseif ay == "baseline" then
-		y = top
-	end
-
+	x = left + content_size.x * ax
+	y = top + content_size.y * ay
 	local tw, th = font:GetTextSize(text)
 
-	if self.wrap_layout_info and ax == "justify" then
+	if self.wrap_layout_info and self:GetJustify() then
 		tw = math.max(tw, self.wrap_layout_info.width or 0)
 	end
 
 	local lx, ly = x, y
-
-	if type(ax) == "number" then
-		lx = x - tw * ax
-	elseif ax == "center" then
-		lx = x - tw / 2
-	elseif ax == "right" then
-		lx = x - tw
-	end
-
-	if type(ay) == "number" then
-		ly = y - th * ay
-	elseif ay == "center" then
-		ly = y - th / 2
-	elseif ay == "bottom" then
-		ly = y - th
-	elseif ay == "baseline" then
-		ly = y - font:GetAscent()
-	end
-
+	lx = x - tw * ax
+	ly = y - th * ay
 	return lx, ly
 end
 

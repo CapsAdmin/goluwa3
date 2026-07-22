@@ -153,8 +153,8 @@ return {
 					Text{
 						Text = "I am overflowable!",
 						text = {
-							AlignX = "center",
-							AlignY = "center",
+							AlignX = 0.5,
+							AlignY = 0.5,
 						},
 					}
 				)

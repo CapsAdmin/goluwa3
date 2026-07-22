@@ -26,8 +26,8 @@ return function(props)
 			FontSize = props.FontSize,
 			IgnoreMouseInput = true,
 			Color = props.TextColor,
-			AlignX = props.AlignX or "center",
-			AlignY = props.AlignY or "center",
+			AlignX = props.AlignX or 0.5,
+			AlignY = props.AlignY or 0.5,
 			layout = props.TextLayout,
 			InheritColor = props.TextColor == nil,
 		}

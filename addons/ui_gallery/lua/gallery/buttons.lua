@@ -9,7 +9,7 @@ return {
 	Name = "buttons",
 	Create = function()
 		local state = {
-			align_x = "left",
+			align_x = 0,
 			fit_to_text = false,
 			fill_width = true,
 			mode = "filled",
@@ -84,22 +84,22 @@ return {
 				},
 			},
 			Text{
-				Text = "Text Alignment",
+				Text = "Text X Alignment",
 				IgnoreMouseInput = true,
 			},
 			Dropdown{
 				Text = "Left",
 				Value = state.align_x,
 				Options = {
-					{Text = "Left", Value = "left"},
-					{Text = "Center", Value = "center"},
-					{Text = "Right", Value = "right"},
+					{Text = "0", Value = 0},
+					{Text = "0.5", Value = 0.5},
+					{Text = "1", Value = 1},
 				},
 				GetValue = function()
 					return state.align_x
 				end,
 				GetText = function()
-					return state.align_x:gsub("^%l", string.upper)
+					return tostring(state.align_x)
 				end,
 				OnSelect = function(value)
 					state.align_x = value

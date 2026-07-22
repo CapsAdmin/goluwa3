@@ -118,7 +118,7 @@ T.Test("text component justified hit testing respects stretched spaces", functio
 	}
 	pnl.text:SetFont(new_mock_font())
 	pnl.text:SetWrap(true)
-	pnl.text:SetAlignX("justify")
+	pnl.text:SetJustify(true)
 	pnl.text:SetText("a b c d e f g h")
 	pnl.transform:SetSize(Vec2(60, 64))
 	local lx, ly = pnl.text:GetTextOffset()

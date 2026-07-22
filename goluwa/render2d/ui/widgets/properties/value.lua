@@ -54,12 +54,14 @@ function Value.InstallContextMenu(panel, props)
 			props.Commit(decoded, self)
 		end
 
-		Panel.OpenContextMenu({
-			OnClose = function(ent)
-				ent:Remove()
-			end,
-		}, {
-			MenuItem{
+		Panel.OpenContextMenu(
+			{
+				OnClose = function(ent)
+					ent:Remove()
+				end,
+			},
+			{
+				MenuItem{
 					Text = "Copy",
 					IconSource = icon_sources.copy,
 					Disabled = current_encoded == nil,
@@ -279,7 +281,7 @@ local function create_value(props)
 			Wrap = false,
 			Cursor = nil,
 			Color = props.TextColor or "text",
-			AlignY = "center",
+			AlignY = 0.5,
 			layout = {
 				GrowWidth = 1,
 				FitWidth = false,

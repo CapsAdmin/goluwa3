@@ -11,7 +11,7 @@ Justified text stretches the spaces on each interior line so the paragraph reach
 This demo compares the current wrapped text component in ragged mode against the new justified mode. The final line of each paragraph stays ragged, which matches common typography rules.
 ]]
 
-local function paragraph_card(title, align_x)
+local function paragraph_card(title, align_x, justify)
 	return Panel.New{
 		transform = true,
 		rect = {
@@ -48,6 +48,7 @@ local function paragraph_card(title, align_x)
 				Wrap = true,
 				WrapToParent = true,
 				AlignX = align_x,
+				Justify = justify,
 				layout = {
 					GrowWidth = 1,
 				},
@@ -85,8 +86,8 @@ return {
 					AlignmentX = "center",
 				},
 			}{
-				paragraph_card("Ragged wrap", "left"),
-				paragraph_card("Justified wrap", "justify"),
+				paragraph_card("Ragged wrap", 0),
+				paragraph_card("Justified wrap", 0, true),
 			},
 		}
 	end,

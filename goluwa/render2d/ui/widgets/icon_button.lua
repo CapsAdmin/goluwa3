@@ -13,8 +13,8 @@ return function(props)
 			MaxSize = icon_size,
 			Color = props.TextColor,
 			IgnoreMouseInput = true,
-			AlignX = "center",
-			AlignY = "center",
+			AlignX = 0.5,
+			AlignY = 0.5,
 			layout = {
 				GrowWidth = 0,
 				FitWidth = false,
@@ -29,8 +29,8 @@ return function(props)
 			FontSize = props.FontSize or "M",
 			IgnoreMouseInput = true,
 			Color = props.TextColor,
-			AlignX = "center",
-			AlignY = "center",
+			AlignX = 0.5,
+			AlignY = 0.5,
 			layout = {
 				--MinSize = icon_size,
 				--MaxSize = icon_size,

@@ -63,8 +63,8 @@ local function create_menu_button(definition, on_click, on_hover)
 			Text = definition.Text,
 			IgnoreMouseInput = true,
 			InheritColor = true,
-			AlignX = "center",
-			AlignY = "center",
+			AlignX = 0.5,
+			AlignY = 0.5,
 		}
 	)
 

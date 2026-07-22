@@ -360,7 +360,7 @@ return function(props)
 				Text = info.label,
 				FontSize = "XS",
 				Color = "text_disabled",
-				AlignX = "center",
+				AlignX = 0.5,
 			},
 			StepNumberValue{
 				Ref = function(self)

@@ -12,8 +12,8 @@ return function(props)
 				FitWidth = true,
 				FitHeight = true,
 			},
-			AlignX = "center",
-			AlignY = "center",
+			AlignX = 0.5,
+			AlignY = 0.5,
 		},
 	}
 end
