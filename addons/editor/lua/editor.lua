@@ -29,7 +29,7 @@ local theme = import("goluwa/render2d/ui/theme.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
 local property_builder = import("addons/editor/lua/property_builder.lua")
 local CameraComponent = import("lua/components/camera.lua")
-local editor_camera = import("lua/editor_camera.lua")
+local camera = import("lua/camera.lua")
 local picker = import("lua/picker.lua")
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
@@ -55,16 +55,6 @@ local function entity_tree_filter_callback(entity, editor_window)
 	return false
 end
 
-local function has_text_focus(editor_window)
-	local focused = objects:GetFocusedObject()
-	return focused:IsValid() and
-		editor_window:ContainsParent(focused) and
-		(
-			focused.text ~= nil or
-			focused.Name == "TextEdit"
-		)
-end
-
 return function(props)
 	props = props or {}
 	local initial_selected_guid = props.SelectedEntityGUID
@@ -77,7 +67,6 @@ return function(props)
 	local pending_selection_sync = false
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
-	editor_camera.Initialize()
 	local picker_cancel_fn = nil
 	local property_node_hooks = {
 		OnPropertyChangeStart = function()
@@ -99,8 +88,7 @@ return function(props)
 	local function flush_pending_editor_sync(force) end
 
 	local function create_child_shape(parent_entity, kind)
-		local camera_forward = editor_camera.GetForward()
-		local spawn_world_position = editor_camera.GetPosition() + camera_forward * 2
+		local spawn_world_position = camera.GetPosition() + camera.GetRotation():GetForward() * 2
 		local config = {
 			Name = kind == "sphere" and "sphere" or "box",
 			Collision = false,
@@ -209,19 +197,7 @@ return function(props)
 					Text = "OPTIONS",
 					Items = function()
 						local viewport_label = "Scale 3D Viewport"
-
-						if editor_camera.GetScaleViewport() then
-							viewport_label = viewport_label .. " (active)"
-						end
-
 						return {
-							MenuItem{
-								Text = viewport_label,
-								OnClick = function()
-									editor_camera.SetScaleViewport(not editor_camera.GetScaleViewport())
-								end,
-							},
-							MenuSpacer(),
 							MenuItem{
 								Text = "Theme",
 								Items = function()
@@ -491,14 +467,6 @@ return function(props)
 		return hovered:IsValid() and hovered ~= Panel.World
 	end
 
-	local function mouse_in_editor_viewport(mouse_pos)
-		if not editor_camera.GetScaleViewport() then
-			return not editor_window.transform:GetRect():IsPosInside(mouse_pos)
-		end
-
-		return editor_camera.IsInsideViewport(mouse_pos)
-	end
-
 	local function clear_selected_property_listeners()
 		for i = 1, #selected_property_listener_removers do
 			selected_property_listener_removers[i]()
@@ -507,20 +475,24 @@ return function(props)
 		list.clear(selected_property_listener_removers)
 	end
 
-	function editor_window:OnUpdate(dt)
-		if not has_text_focus(editor_window) then
-			local mouse_pos = system.GetWindow():GetMousePosition()
-			editor_camera.Update(
-				dt,
-				{
-					world_size = Panel.World.transform:GetSize(),
-					window_rect = editor_window.transform:GetRect(),
-					block_movement = has_text_focus(editor_window) or
-						is_ui_hovering() or
-						not mouse_in_editor_viewport(mouse_pos),
-					mouse_in_viewport = mouse_in_editor_viewport,
-				}
+	local function has_text_focus()
+		local focused = objects:GetFocusedObject()
+		return focused:IsValid() and
+			editor_window:ContainsParent(focused) and
+			(
+				focused.text ~= nil or
+				focused.Name == "TextEdit"
 			)
+	end
+
+	function editor_window:OnUpdate(dt)
+		do
+			camera.SetBlockMovement(has_text_focus())
+			local gizmo_status = Gizmo.GetStatus()
+			camera.SetBlockDragging(is_ui_hovering() or gizmo_status.active_drag or gizmo_status.hovered_handle)
+			camera.Update(dt)
+			render3d.GetCamera():SetPosition(camera.GetPosition():Copy())
+			render3d.GetCamera():SetRotation(camera.GetRotation():Copy())
 		end
 
 		if pending_selection_sync then
@@ -585,15 +557,8 @@ return function(props)
 	end
 
 	do
-		do
-			local camera = render3d.GetCamera()
-			editor_camera.SetPosition(camera:GetPosition():Copy())
-			editor_camera.SetRotation(camera:GetRotation():Copy())
-			local forward = editor_camera.GetForward()
-			editor_camera.SetPitch(math.asin(math.clamp(forward.y, -1, 1)))
-			editor_camera.SetVelocity(Vec3())
-		end
-
+		camera.SetPosition(render3d.GetCamera():GetPosition():Copy())
+		camera.SetRotation(render3d.GetCamera():GetRotation():Copy())
 		Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 		Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
 		tree_view:Refresh(true)

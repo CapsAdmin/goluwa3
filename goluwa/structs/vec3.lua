@@ -49,6 +49,17 @@ function META:GetReflected(normal)
 	return (2 * proj:GetDot(normal) * normal + proj) * self:GetLength()
 end
 
+function META:Approach(target, delta)
+	local diff = target - self
+	local length = diff:GetLength()
+
+	if length == 0 or delta <= 0 then return self end
+
+	if length <= delta then return target end
+
+	return self + diff / length * delta
+end
+
 if GRAPHICS then META.ToScreen = math3d.WorldPositionToScreen end
 
 META.Dot = META.GetDot
