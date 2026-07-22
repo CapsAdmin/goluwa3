@@ -218,6 +218,9 @@ function META:OpenMenu(index)
 			SourceMenuBar = self,
 			OnClose = function(ent)
 				ent:Remove()
+
+				if not self:IsValid() then return end
+
 				self.context_menu = NULL
 				self.active_index = nil
 				self:_sync_button_state()
