@@ -87,7 +87,7 @@ local location2cursor = {
 }
 
 local function is_resize_handle_hovered(owner, pos)
-	local gui = owner.gui_element
+	local gui = owner.visual
 
 	if gui and gui:IsHovered(pos) then return true end
 
@@ -115,10 +115,12 @@ function META:StartResizing(local_pos, button)
 	self.resize_prev_pos = transform:GetPosition():Copy()
 	self.resize_prev_size = transform:GetSize():Copy()
 	self.resize_button = button
-		self.Owner.mouse_input:SetCursorOverride(location2cursor[loc])
-		if self:GetBringToFrontOnResize() then self.Owner:BringToFront() end
-		self:AddGlobalEvent("Update", {priority = 100})
-		return true
+	self.Owner.mouse_input:SetCursorOverride(location2cursor[loc])
+
+	if self:GetBringToFrontOnResize() then self.Owner:BringToFront() end
+
+	self:AddGlobalEvent("Update", {priority = 100})
+	return true
 end
 
 function META:StopResizing()
@@ -192,7 +194,7 @@ function META:OnUpdate()
 end
 
 function META:OnGlobalMouseInput(button, press, pos)
-	local gui = self.Owner.gui_element
+	local gui = self.Owner.visual
 	local mouse = self.Owner.mouse_input
 
 	if gui and not gui:GetVisible() then return end
@@ -220,7 +222,7 @@ function META:OnGlobalMouseMove(pos)
 		return
 	end
 
-	local gui = self.Owner.gui_element
+	local gui = self.Owner.visual
 	local mouse = self.Owner.mouse_input
 
 	if gui and not gui:GetVisible() then return end

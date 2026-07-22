@@ -51,7 +51,7 @@ return function(props)
 			content:RemoveChildren()
 			return false
 		end,
-		gui_element = true,
+		visual = true,
 		mouse_input = {
 			RequestMouse = props.RequestMouse,
 			BringToFrontOnClick = true,
@@ -69,7 +69,7 @@ return function(props)
 				FitHeight = true,
 				Padding = "XS",
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
 				end,
@@ -124,7 +124,7 @@ return function(props)
 					transform = {
 						Size = Vec2() + theme.active:GetSize("S"),
 					},
-					gui_element = {
+					visual = {
 						OnDraw = function(self)
 							theme.active:DrawIcon(
 								"close",
@@ -157,7 +157,7 @@ return function(props)
 				GrowHeight = 1,
 				Padding = Rect() + theme.active:GetPadding("M"),
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
 				end,

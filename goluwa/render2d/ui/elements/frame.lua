@@ -15,7 +15,7 @@ return function(props)
 			Ref = function(pnl)
 				pnl:SetState("emphasis", props.Emphasis or 0)
 			end,
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
 				end,

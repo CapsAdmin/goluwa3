@@ -224,7 +224,7 @@ T.TestGmod("gmod popup mouse click dispatch", function()
 		transform = {
 			Size = wnd:GetSize(),
 		},
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 	}
 	local clicked = 0
@@ -240,7 +240,7 @@ T.TestGmod("gmod popup mouse click dispatch", function()
 	local screen_x, screen_y = button:LocalToScreen(0, 0)
 	attest.equal(screen_x, 450)
 	attest.equal(screen_y, 300)
-	attest.truthy(button.__obj.gui_element:IsHovered(Vec2(470, 315)))
+	attest.truthy(button.__obj.visual:IsHovered(Vec2(470, 315)))
 
 	function button:DoClick()
 		clicked = clicked + 1

@@ -336,7 +336,7 @@ local function create_value(props)
 			ChildGap = has_bottom and 4 or 0,
 			props.layout,
 		},
-		gui_element = {
+		visual = {
 			Clipping = true,
 			OnDraw = function(self)
 				self.Owner:SetState("editing", state.editing)
@@ -456,7 +456,7 @@ local function create_value(props)
 				end
 
 				if button == "button_1" and press and state.editing then
-					if not self.Owner.gui_element or not self.Owner.gui_element:IsHovered(pos) then
+					if not self.Owner.visual or not self.Owner.visual:IsHovered(pos) then
 						return stop_editing(true)
 					end
 				end

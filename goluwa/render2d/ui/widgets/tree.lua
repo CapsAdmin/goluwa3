@@ -12,7 +12,7 @@ META.CMP.layout = {
 	FitHeight = true,
 	AlignmentX = "stretch",
 }
-META.CMP.gui_element = {}
+META.CMP.visual = {}
 META.CMP.mouse_input = {}
 META.CMP.clickable = {}
 META.CMP.animation = {}
@@ -258,7 +258,6 @@ function META:AddNode(node, parent_key)
 
 		-- Update has_children flag so is_expanded doesn't bail out for newly added parents
 		parent_info.has_children = true
-
 		-- Find the last child of this parent in row_order
 		local found_child = false
 
@@ -483,9 +482,9 @@ function META:find_drop_info(source_info, global_pos)
 			target_info and
 			target_info.clip and
 			target_info.clip:IsValid() and
-			target_info.clip.gui_element and
-			target_info.clip.gui_element:GetVisible() and
-			target_info.clip.gui_element:IsHovered(global_pos)
+			target_info.clip.visual and
+			target_info.clip.visual:GetVisible() and
+			target_info.clip.visual:IsHovered(global_pos)
 		then
 			if target_info.key == source_info.key then return nil end
 
@@ -623,7 +622,7 @@ function META:update_row_display(info)
 	local clip_w = info.clip.transform:GetWidth()
 	local open_fraction = info.open_fraction or 0
 
-	if open_fraction > 0.001 then info.clip.gui_element:SetVisible(true) end
+	if open_fraction > 0.001 then info.clip.visual:SetVisible(true) end
 
 	info.body.transform:SetWidth(clip_w)
 	local body_h = info.body.transform:GetHeight()
@@ -635,7 +634,7 @@ function META:update_row_display(info)
 
 	local target_h = body_h * open_fraction
 	info.clip.transform:SetHeight(target_h)
-	info.clip.gui_element:SetVisible(target_h > 0.001)
+	info.clip.visual:SetVisible(target_h > 0.001)
 	info.body.transform:SetY(-(body_h - target_h))
 end
 
@@ -663,7 +662,7 @@ function META:refresh_visibility()
 	for _, key in ipairs(self._row_order) do
 		local info = self._row_infos[key]
 
-		if not (info and info.clip and info.clip:IsValid() and info.clip.gui_element) then
+		if not (info and info.clip and info.clip:IsValid() and info.clip.visual) then
 			goto continue
 		end
 
@@ -850,7 +849,7 @@ function META:add_node(node, meta, parent_path, insert_index)
 			ChildGap = self.RowGap,
 			Floating = true,
 		},
-		gui_element = true,
+		visual = true,
 		mouse_input = {
 			Cursor = node.Disabled and "arrow" or "pointer",
 			OnHover = function(self, is_hovered)
@@ -919,7 +918,7 @@ function META:add_node(node, meta, parent_path, insert_index)
 			GrowWidth = 1,
 			FitHeight = false,
 		},
-		gui_element = {
+		visual = {
 			Clipping = true,
 			Visible = false,
 			OnPostDraw = function(self)
@@ -995,7 +994,7 @@ do
 			transform = {
 				Size = Vec2(math.max(toggle_size, meta.level * guide_step + toggle_size + 6), toggle_size),
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					local row_has_children = tree:has_children(node, path)
 					local current_expanded = tree:is_expanded(node, path, key, row_has_children)
@@ -1042,7 +1041,7 @@ do
 				GrowWidth = label_grow and 1 or nil,
 				Padding = tree.LabelPadding,
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					self.Owner:SetState("theme_role", "tree_label")
 					self.Owner:SetState("selected", tree:is_selected(node, path, key))
@@ -1090,7 +1089,7 @@ do
 			transform = {
 				Size = Vec2(math.max(toggle_size, meta.level * guide_step + toggle_size + 6), toggle_size),
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					self.Owner:SetState("theme_role", "tree_guides")
 					self.Owner:SetState("tree_meta", meta)
@@ -1132,7 +1131,7 @@ function META:get_node_panel(node, path, key, selected, has_children, expanded)
 			mouse_input = {
 				IgnoreMouseInput = true,
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
 					draw_shared_instance_marker(self, size, shared_instance_color)

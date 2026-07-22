@@ -14,7 +14,7 @@ return function(props)
 			},
 			props.layout,
 		},
-		gui_element = {
+		visual = {
 			DrawAlpha = 1,
 			OnDraw = function(self)
 				theme.active:Draw(self.Owner)

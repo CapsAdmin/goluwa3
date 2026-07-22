@@ -9,7 +9,7 @@ META.CMP.layout = {
 	AlignmentX = "stretch",
 	Direction = "y",
 }
-META.CMP.gui_element = {}
+META.CMP.visual = {}
 META.CMP.mouse_input = {}
 META.CMP.clickable = {}
 META.CMP.animation = {}
@@ -18,14 +18,14 @@ META:StartStorable()
 META:GetSet("ScrollY", true, function(self, val)
 	self.Viewport.layout:SetAlignmentY(val and "start" or "stretch")
 	self.Viewport.layout:SetMaxSize(Vec2(self.ScrollX and 1 or 0, val and 1 or 0))
-	self.TrackY.gui_element:SetVisible(val)
+	self.TrackY.visual:SetVisible(val)
 	self:updateHandle()
 end)
 
 META:GetSet("ScrollX", false, function(self, val)
 	self.Viewport.layout:SetAlignmentX(val and "start" or "stretch")
 	self.Viewport.layout:SetMaxSize(Vec2(val and 1 or 0, self.ScrollY and 1 or 0))
-	self.TrackX.gui_element:SetVisible(val)
+	self.TrackX.visual:SetVisible(val)
 	self:updateHandle()
 end)
 
@@ -82,7 +82,7 @@ function META:OnCreate(props)
 		OnLayoutUpdated = function()
 			self:updateHandle()
 		end,
-		gui_element = {
+		visual = {
 			Clipping = true,
 		},
 		mouse_input = true,
@@ -109,7 +109,7 @@ function META:OnCreate(props)
 
 			if button ~= "mwheel_up" and button ~= "mwheel_down" then return end
 
-			if not self.gui_element or not self.gui_element:IsHovered(pos) then return end
+			if not self.visual or not self.visual:IsHovered(pos) then return end
 
 			return scrollable_panel:handleWheelScroll(self, button)
 		end,
@@ -267,10 +267,10 @@ function META:updateHandle()
 
 	if not content_size or not view_size then
 		self:clampScrollToBounds(Vec2(0, 0), Vec2(0, 0))
-		self.TrackY.gui_element:SetVisible(false)
-		self.TrackX.gui_element:SetVisible(false)
-		self.HandleY.gui_element:SetVisible(false)
-		self.HandleX.gui_element:SetVisible(false)
+		self.TrackY.visual:SetVisible(false)
+		self.TrackX.visual:SetVisible(false)
+		self.HandleY.visual:SetVisible(false)
+		self.HandleX.visual:SetVisible(false)
 		return
 	end
 
@@ -290,9 +290,9 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	local scroll_dim = scroll[axis]
 
 	if not show then
-		if track then track.gui_element:SetVisible(false) end
+		if track then track.visual:SetVisible(false) end
 
-		handle.gui_element:SetVisible(false)
+		handle.visual:SetVisible(false)
 		return
 	end
 
@@ -300,7 +300,7 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	local max_scroll = math.max(0, content_dim - max_scroll_view)
 
 	if track then
-		track.gui_element:SetVisible(true)
+		track.visual:SetVisible(true)
 
 		if is_y then
 			track.transform:SetSize(Vec2(6, available))
@@ -311,7 +311,7 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 		end
 	end
 
-	handle.gui_element:SetVisible(true)
+	handle.visual:SetVisible(true)
 	local ratio = math.min(1, max_scroll_view / math.max(content_dim, 1))
 	local handle_len = math.max(20, available * ratio)
 	local track_len = available
@@ -477,7 +477,7 @@ do
 					Vec2(theme.active:GetSize("M"), 40) or
 					Vec2(40, theme.active:GetSize("M")),
 			},
-			gui_element = {
+			visual = {
 				Visible = false,
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
@@ -506,7 +506,7 @@ do
 					Vec2(theme.active:GetSize("M"), 40) or
 					Vec2(40, theme.active:GetSize("M")),
 			},
-			gui_element = {
+			visual = {
 				Visible = false,
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)

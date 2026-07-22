@@ -10,29 +10,12 @@ local overlay_matrix = Matrix44()
 local listener_key = "gui_highlight_service"
 local highlighted_entity = nil
 
-local function is_valid_entity(entity)
-	return entity and entity.IsValid and entity:IsValid() or false
-end
-
-local function get_drawable_target(entity)
-	if not is_valid_entity(entity) then return nil end
-
-	local target = entity.visual
-
-	if not target then return nil end
-
-	local entries = target:GetRenderEntries()
-	return entries and entries[1] and target or nil
-end
-
-local function is_drawable_model_entity(entity)
-	return get_drawable_target(entity) ~= nil
+local function is_drawable_3d_entity(entity)
+	return entity.visual and entity.visual.GetRenderEntries
 end
 
 local function is_drawable_2d_entity(entity)
-	return is_valid_entity(entity) and
-		entity.transform and
-		entity.transform.Type == "transform_2d"
+	return entity.transform and entity.transform.Type == "transform_2d"
 end
 
 local function draw_overlay_polygon(polygon, material, world_matrix)
@@ -45,14 +28,6 @@ local function draw_overlay_polygon(polygon, material, world_matrix)
 end
 
 local function draw_visual_model_overlay(entity)
-	local target = get_drawable_target(entity)
-
-	if not target then return end
-
-	local world_matrix = target:GetWorldMatrix()
-
-	if not world_matrix then return end
-
 	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
 	local alpha = 0.2 + pulse * 0.35
 	local emissive = 0.12 + pulse * 0.32
@@ -64,9 +39,9 @@ local function draw_visual_model_overlay(entity)
 		translucent = true,
 		double_sided = true,
 	}
-	local entries = target.GetRenderEntries and target:GetRenderEntries() or target.Primitives or {}
+	local world_matrix = entity.transform:GetWorldMatrix()
 
-	for _, prim in ipairs(entries) do
+	for _, prim in ipairs(entity.visual:GetRenderEntries()) do
 		if prim.polygon3d then
 			local final_matrix = world_matrix
 
@@ -109,7 +84,9 @@ local function draw_2d_overlay(entity)
 end
 
 local function draw_3d_overlay()
-	if is_drawable_model_entity(highlighted_entity) then
+	if not highlighted_entity then return end
+
+	if is_drawable_3d_entity(highlighted_entity) then
 		draw_visual_model_overlay(highlighted_entity)
 	elseif highlighted_entity ~= nil and not is_drawable_2d_entity(highlighted_entity) then
 		highlighted_entity = nil
@@ -117,17 +94,24 @@ local function draw_3d_overlay()
 end
 
 local function draw_2d_highlight_overlay()
+	if not highlighted_entity then return end
+
 	if is_drawable_2d_entity(highlighted_entity) then
 		draw_2d_overlay(highlighted_entity)
-	elseif highlighted_entity ~= nil and not is_drawable_model_entity(highlighted_entity) then
+	elseif highlighted_entity ~= nil and not is_drawable_3d_entity(highlighted_entity) then
 		highlighted_entity = nil
 	end
 end
 
 function highlight.EnableHighlight(entity)
+	if not entity then
+		highlighted_entity = nil
+		return
+	end
+
 	local next_entity = nil
 
-	if is_drawable_model_entity(entity) or is_drawable_2d_entity(entity) then
+	if is_drawable_3d_entity(entity) or is_drawable_2d_entity(entity) then
 		next_entity = entity
 	end
 

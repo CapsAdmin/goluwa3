@@ -7,7 +7,7 @@ local event = import("goluwa/event.lua")
 T.Test("panel resize respects topmost hovered panel", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
@@ -15,7 +15,7 @@ T.Test("panel resize respects topmost hovered panel", function()
 		Parent = Panel.World,
 		Name = "back",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -25,7 +25,7 @@ T.Test("panel resize respects topmost hovered panel", function()
 		Parent = Panel.World,
 		Name = "front",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -47,7 +47,7 @@ end)
 T.Test("panel resize works on extended border of topmost panel", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
@@ -55,7 +55,7 @@ T.Test("panel resize works on extended border of topmost panel", function()
 		Parent = Panel.World,
 		Name = "back",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -65,7 +65,7 @@ T.Test("panel resize works on extended border of topmost panel", function()
 		Parent = Panel.World,
 		Name = "front",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -87,7 +87,7 @@ end)
 T.Test("panel resize works on inside edge over child panel", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
@@ -95,7 +95,7 @@ T.Test("panel resize works on inside edge over child panel", function()
 		Parent = Panel.World,
 		Name = "window",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -105,7 +105,7 @@ T.Test("panel resize works on inside edge over child panel", function()
 		Parent = window_panel,
 		Name = "child",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 	}
 	child.transform:SetPosition(Vec2(0, 0))
@@ -125,7 +125,7 @@ end)
 T.Test("panel resize is not blocked by child global false return", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
@@ -133,7 +133,7 @@ T.Test("panel resize is not blocked by child global false return", function()
 		Parent = Panel.World,
 		Name = "window",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -143,7 +143,7 @@ T.Test("panel resize is not blocked by child global false return", function()
 		Parent = window_panel,
 		Name = "child",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 	}
 	child.transform:SetPosition(Vec2(0, 0))
@@ -168,7 +168,7 @@ end)
 T.Test("panel resize cursor stays locked during drag over child move handler", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
@@ -176,7 +176,7 @@ T.Test("panel resize cursor stays locked during drag over child move handler", f
 		Parent = Panel.World,
 		Name = "window",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -186,7 +186,7 @@ T.Test("panel resize cursor stays locked during drag over child move handler", f
 		Parent = window_panel,
 		Name = "child",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 	}
 	child.transform:SetPosition(Vec2(0, 0))
@@ -224,7 +224,7 @@ end)
 T.Test("panel resize cursor updates immediately from child hover cursor", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
@@ -232,7 +232,7 @@ T.Test("panel resize cursor updates immediately from child hover cursor", functi
 		Parent = Panel.World,
 		Name = "window",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		resizable = true,
 	}
@@ -242,7 +242,7 @@ T.Test("panel resize cursor updates immediately from child hover cursor", functi
 		Parent = window_panel,
 		Name = "child",
 		transform = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 	}
 	child.transform:SetPosition(Vec2(0, 0))

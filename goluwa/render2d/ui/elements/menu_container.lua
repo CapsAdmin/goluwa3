@@ -16,7 +16,7 @@ return function(props)
 				Padding = "none",
 				props.layout,
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
 				end,

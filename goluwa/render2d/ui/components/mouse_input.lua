@@ -45,7 +45,7 @@ end
 function META:IsRequestMouseActive()
 	if not self:GetRequestMouse() then return false end
 
-	local gui = self.Owner.gui_element
+	local gui = self.Owner.visual
 
 	if gui and not gui:GetVisible() then return false end
 
@@ -161,10 +161,10 @@ local function query_children_reverse(entity, context, on_enter, on_visit)
 end
 
 local function hovered_entity_query_enter(mouse_pos, owner)
-	if owner.gui_element then
-		if not owner.gui_element:GetVisible() then return WALK_SKIP_SUBTREE end
+	if owner.visual then
+		if not owner.visual:GetVisible() then return WALK_SKIP_SUBTREE end
 
-		if owner.gui_element.DrawAlpha <= 0 then return WALK_SKIP_SUBTREE end
+		if owner.visual.DrawAlpha <= 0 then return WALK_SKIP_SUBTREE end
 	end
 
 	if
@@ -179,7 +179,7 @@ local function hovered_entity_query_enter(mouse_pos, owner)
 end
 
 local function hovered_entity_query_visit(context, owner)
-	if not owner.gui_element or not owner.mouse_input then return end
+	if not owner.visual or not owner.mouse_input then return end
 
 	if owner.gmod_internal_dock then return end
 
@@ -190,7 +190,7 @@ local function hovered_entity_query_visit(context, owner)
 	if hit_test then
 		is_hovered = hit_test(owner, mouse_pos)
 	else
-		is_hovered = owner.gui_element:IsHovered(mouse_pos)
+		is_hovered = owner.visual:IsHovered(mouse_pos)
 	end
 
 	if not owner.mouse_input:GetIgnoreMouseInput() and is_hovered then
@@ -531,7 +531,7 @@ function META:OnFirstCreated()
 end
 
 function META:Initialize()
-	self.Owner:EnsureComponent("gui_element")
+	self.Owner:EnsureComponent("visual")
 
 	self.Owner:AddLocalListener("OnVisibilityChanged", function()
 		self:UpdateMouseRequest()

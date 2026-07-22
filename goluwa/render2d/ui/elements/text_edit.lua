@@ -14,7 +14,7 @@ META.CMP.layout = {
 	Direction = "y",
 	GrowWidth = 1,
 }
-META.CMP.gui_element = {
+META.CMP.visual = {
 	OnDraw = function(self)
 		theme.active:Draw(self.Owner)
 	end,

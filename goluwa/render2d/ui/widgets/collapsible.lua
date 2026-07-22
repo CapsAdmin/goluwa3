@@ -41,7 +41,7 @@ return function(props)
 				transform = {
 					Size = Vec2() + theme.active:ResolveFontSize(props.HeaderFontSize or "M"),
 				},
-				gui_element = {
+				visual = {
 					OnDraw = function(self)
 						theme.active:DrawIcon(
 							"disclosure",

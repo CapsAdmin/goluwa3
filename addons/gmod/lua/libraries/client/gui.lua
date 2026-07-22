@@ -147,7 +147,7 @@ local function set_panel_bring_to_front_on_click(panel, b)
 end
 
 local function set_panel_clipping(panel, b)
-	if panel.gui_element then panel.gui_element:SetClipping(b) end
+	if panel.visual then panel.visual:SetClipping(b) end
 end
 
 local function set_panel_margin(panel, rect)
@@ -169,7 +169,7 @@ local function reset_panel_layout(panel)
 end
 
 local function wrapper_panel_is_visible(panel)
-	if panel.__obj.gui_element then return panel.__obj.gui_element:GetVisible() end
+	if panel.__obj.visual then return panel.__obj.visual:GetVisible() end
 
 	return true
 end
@@ -503,7 +503,7 @@ local function create_panel(class_name, parent, name)
 			Size = Vec2(1, 1),
 		},
 		layout = true,
-		gui_element = true,
+		visual = true,
 		mouse_input = true,
 		clickable = true,
 		animation = true,
@@ -574,7 +574,7 @@ end
 local function get_hovered_panel(panel, mouse_pos)
 	if not panel or not panel:IsValid() then return NULL end
 
-	if panel.gui_element and not panel.gui_element:GetVisible() then return NULL end
+	if panel.visual and not panel.visual:GetVisible() then return NULL end
 
 	if
 		panel.mouse_input and
@@ -594,8 +594,8 @@ local function get_hovered_panel(panel, mouse_pos)
 
 	if
 		not is_internal_dock_panel(panel) and
-		panel.gui_element and
-		panel.gui_element:IsHovered(mouse_pos)
+		panel.visual and
+		panel.visual:IsHovered(mouse_pos)
 	then
 		return panel
 	end
@@ -1411,9 +1411,7 @@ do
 	end
 
 	function META:SetAlpha(a)
-		if self.__obj.gui_element then
-			self.__obj.gui_element.DrawAlpha = (a / 255) ^ 2
-		end
+		if self.__obj.visual then self.__obj.visual.DrawAlpha = (a / 255) ^ 2 end
 
 		self.__obj.gmod_draw_alpha = a
 	end
@@ -1651,13 +1649,13 @@ do
 	end
 
 	function META:SetVisible(b)
-		if not self.__obj.gui_element then return end
+		if not self.__obj.visual then return end
 
-		local was_visible = self.__obj.gui_element:GetVisible()
+		local was_visible = self.__obj.visual:GetVisible()
 
 		if was_visible == b then return end
 
-		self.__obj.gui_element:SetVisible(b)
+		self.__obj.visual:SetVisible(b)
 
 		if b then
 			refresh_gui_world_bounds()

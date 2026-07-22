@@ -14,7 +14,7 @@ function Panel.GetValidComponents()
 		valid_components.animation = import("goluwa/render2d/ui/components/animation.lua")
 		valid_components.clickable = import("goluwa/render2d/ui/components/clickable.lua")
 		valid_components.ui_debug = import("goluwa/render2d/ui/components/ui_debug.lua")
-		valid_components.gui_element = import("goluwa/render2d/ui/components/gui_element.lua")
+		valid_components.visual = import("goluwa/render2d/ui/components/visual.lua")
 		valid_components.key_input = import("goluwa/render2d/ui/components/key_input.lua")
 		valid_components.layout = import("goluwa/render2d/ui/components/layout.lua")
 		valid_components.mouse_input = import("goluwa/render2d/ui/components/mouse_input.lua")
@@ -95,7 +95,7 @@ do
 		ComponentSet = {
 			"transform",
 			"ui_debug",
-			"gui_element",
+			"visual",
 		},
 	}
 	Panel.World:SetName("WorldPanel")

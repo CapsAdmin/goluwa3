@@ -10,7 +10,7 @@ META.CMP.layout = {
 	FitHeight = true,
 	GrowWidth = 1,
 }
-META.CMP.gui_element = {}
+META.CMP.visual = {}
 META.CMP.animation = {}
 META:GetSet("OpenFraction", 1)
 META:GetSet("Collapsed", false)
@@ -41,7 +41,7 @@ function META:OnCreate(props)
 			FitHeight = false,
 			GrowWidth = 1,
 		},
-		gui_element = {
+		visual = {
 			Clipping = true,
 		},
 	}
@@ -57,7 +57,7 @@ function META:OnCreate(props)
 			Floating = true,
 		},
 		transform = true,
-		gui_element = true,
+		visual = true,
 		OnLayoutUpdated = function()
 			self:UpdateHeight()
 		end,
@@ -89,7 +89,7 @@ function META:UpdateHeight()
 	local target_h = h * self:GetOpenFraction()
 	local target_y = -(h - target_h)
 	self.clip_panel.transform:SetHeight(target_h)
-	self.clip_panel.gui_element:SetVisible(self:GetOpenFraction() > 0.001)
+	self.clip_panel.visual:SetVisible(self:GetOpenFraction() > 0.001)
 	self.body_panel.transform:SetY(target_y)
 end
 

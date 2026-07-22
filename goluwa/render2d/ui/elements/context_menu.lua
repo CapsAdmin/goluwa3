@@ -20,7 +20,7 @@ META.CMP.mouse_input = {
 		if button == "button_2" then return self.Owner:RequestClose(button) end
 	end,
 }
-META.CMP.gui_element = {}
+META.CMP.visual = {}
 META.CMP.animation = {}
 
 function META:OnCreate(props)
@@ -179,10 +179,10 @@ function META:updateAnimations()
 	root.animation:Animate{
 		id = "menu_open_close_fade",
 		get = function()
-			return root.gui_element:GetDrawAlpha()
+			return root.visual:GetDrawAlpha()
 		end,
 		set = function(value)
-			root.gui_element:SetDrawAlpha(value)
+			root.visual:SetDrawAlpha(value)
 		end,
 		to = self.contextMenuIsClosing and 0 or 1,
 		time = 1,

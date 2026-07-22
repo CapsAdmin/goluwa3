@@ -83,7 +83,7 @@ META.CMP.layout = {
 	FitHeight = true,
 	GrowWidth = 1,
 }
-META.CMP.gui_element = {}
+META.CMP.visual = {}
 META:GetSet("Items", {})
 META:GetSet("MenuKey", "ActiveMenuBarContextMenu")
 META:GetSet("ChildGap", "XXS")
@@ -154,8 +154,8 @@ function META:OnUpdate()
 		if
 			button and
 			button:IsValid() and
-			button.gui_element and
-			button.gui_element:IsHovered(mouse_pos) and
+			button.visual and
+			button.visual:IsHovered(mouse_pos) and
 			self.active_index ~= index and
 			not self:GetItems()[index].Disabled
 		then

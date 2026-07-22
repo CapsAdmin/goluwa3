@@ -160,7 +160,7 @@ return function(props)
 				MaxSize = props.MaxSize,
 				props.layout,
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					local owner = self.Owner
 					local size = owner.transform:GetSize()

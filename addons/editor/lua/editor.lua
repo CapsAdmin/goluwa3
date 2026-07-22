@@ -386,7 +386,7 @@ return function(props)
 						MinSize = Vec2(size.x - 24, 0),
 						Padding = Rect(2, 2, 2, 2),
 					},
-					gui_element = {
+					visual = {
 						OnDraw = function(self)
 							if tree_view:IsValid() then
 								local selected_node = tree_view:GetSelectedNode()
@@ -429,7 +429,7 @@ return function(props)
 			Size = Vec2(28, 28),
 			Position = Vec2(0, 0),
 		},
-		gui_element = {
+		visual = {
 			OnDraw = function(self)
 				local btn_size = self.Owner.transform:GetSize()
 				render2d.SetTexture(nil)

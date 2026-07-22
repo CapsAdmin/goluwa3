@@ -80,7 +80,7 @@ return function(props)
 				Padding = props.padding,
 				AlignmentY = "center",
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
 				end,
@@ -116,7 +116,7 @@ return function(props)
 				MinSize = Vec2(action_button_size, action_button_size),
 				MaxSize = Vec2(action_button_size, action_button_size),
 			},
-			gui_element = {
+			visual = {
 				OnDraw = draw_action_button,
 			},
 			mouse_input = {

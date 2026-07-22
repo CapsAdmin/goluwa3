@@ -44,7 +44,7 @@ return function(props)
 				AlignmentY = "center",
 				props.layout,
 			},
-			gui_element = {
+			visual = {
 				Clipping = props.Clipping ~= false,
 				OnDraw = function(self)
 					self:SetDrawAlpha(self.Owner:GetState("disabled") and 0.5 or 1)

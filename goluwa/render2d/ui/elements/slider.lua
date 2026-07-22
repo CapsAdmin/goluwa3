@@ -95,7 +95,7 @@ return function(props)
 				theme.active:UpdateAnimations(self.Owner)
 			end,
 		},
-		gui_element = {
+		visual = {
 			OnDraw = function(self)
 				if self.Owner:GetState("dragging") then
 					local mpos = system.GetWindow():GetMousePosition()

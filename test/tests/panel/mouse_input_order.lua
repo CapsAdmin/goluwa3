@@ -8,7 +8,7 @@ local objects = import("goluwa/objects/objects.lua")
 T.Test("mouse input event order (local and global)", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
@@ -19,7 +19,7 @@ T.Test("mouse input event order (local and global)", function()
 			Parent = Panel.World,
 			Name = name,
 			transform = true,
-			gui_element = true,
+			visual = true,
 			mouse_input = true,
 		}
 		pnl.transform:SetPosition(pos or Vec2(0, 0))

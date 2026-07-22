@@ -223,13 +223,13 @@ return function(props)
 				self.surface_color = get_swatch_color()
 				self:SetState("theme_role", "property_preview")
 
-				if self.gui_element then
-					self.gui_element.OnDraw = function(gui)
+				if self.visual then
+					self.visual.OnDraw = function(gui)
 						gui.Owner:SetState("preview_fill", self.surface_color)
 						gui.Owner:SetState("preview_radius", theme.active:GetRadius("md"))
 						theme.active:Draw(gui.Owner)
 					end
-					self.gui_element.OnPostDraw = function(gui) end
+					self.visual.OnPostDraw = function(gui) end
 				end
 			end,
 			Mode = "filled",

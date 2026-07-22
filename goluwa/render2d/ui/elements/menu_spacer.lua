@@ -16,7 +16,7 @@ return function(props)
 			FitWidth = false,
 			FitHeight = false,
 		},
-		gui_element = {
+		visual = {
 			OnDraw = function(self)
 				theme.active:Draw(self.Owner)
 			end,

@@ -61,7 +61,7 @@ local function clear_pending(owner)
 end
 
 local function update_position()
-	if not state.panel:IsValid() or not state.panel.gui_element:GetVisible() then
+	if not state.panel:IsValid() or not state.panel.visual:GetVisible() then
 		return
 	end
 
@@ -121,8 +121,8 @@ local function show_now(owner, source, options)
 	clear_pending()
 	ensure_panel()
 
-	if state.panel:IsValid() and state.panel.gui_element then
-		state.panel.gui_element:SetVisible(true)
+	if state.panel:IsValid() and state.panel.visual then
+		state.panel.visual:SetVisible(true)
 		update_position()
 	end
 end
@@ -145,7 +145,7 @@ function ensure_panel()
 			FitHeight = true,
 			Padding = "XS",
 		},
-		gui_element = {
+		visual = {
 			Visible = false,
 			OnDraw = function(self)
 				theme.active:Draw(self.Owner)
@@ -209,8 +209,8 @@ function ensure_panel()
 			end
 		end
 
-		if not state.panel.gui_element:GetVisible() then
-			state.panel.gui_element:SetVisible(true)
+		if not state.panel.visual:GetVisible() then
+			state.panel.visual:SetVisible(true)
 		end
 
 		update_position()
@@ -246,8 +246,8 @@ function tooltip.Hide(owner)
 	state.options = nil
 	state.last_text = nil
 
-	if state.panel:IsValid() and state.panel.gui_element then
-		state.panel.gui_element:SetVisible(false)
+	if state.panel:IsValid() and state.panel.visual then
+		state.panel.visual:SetVisible(false)
 	end
 
 	if state.text_panel and state.text_panel:IsValid() then

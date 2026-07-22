@@ -7,7 +7,7 @@ local event = import("goluwa/event.lua")
 T.Test2D("step_number_value drag ignores oversized first-frame mouse delta", function()
 	local old_world = Panel.World
 	local test_world = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	test_world:SetName("TestWorld")
 	test_world.transform:SetSize(Vec2(1000, 1000))
@@ -65,7 +65,7 @@ end)
 T.Test2D("step_number_value drag does not warp cursor on no-warp backends", function()
 	local old_world = Panel.World
 	local test_world = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	test_world:SetName("TestWorld")
 	test_world.transform:SetSize(Vec2(1000, 1000))
@@ -129,7 +129,7 @@ end)
 T.Test2D("step_number_value drag continues on relative motion when cursor stays fixed", function()
 	local old_world = Panel.World
 	local test_world = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	test_world:SetName("TestWorld")
 	test_world.transform:SetSize(Vec2(1000, 1000))

@@ -89,7 +89,7 @@ return function(props)
 			mouse_input = {
 				IgnoreMouseInput = true,
 			},
-			gui_element = true,
+			visual = true,
 		}{
 			Text{
 				Text = props.EmptySearchText or "No matches",
@@ -385,7 +385,7 @@ return function(props)
 			transform = {
 				Size = Vec2() + theme.active:ResolveFontSize(props.FontSize),
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					local background = self.Owner.style and self.Owner.style:GetResolvedBackgroundColor()
 					theme.active:DrawIcon(

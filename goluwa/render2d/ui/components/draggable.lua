@@ -103,7 +103,7 @@ end
 function META:OnGlobalMouseInput(button, press, pos)
 	if not self:GetDraggable() then return end
 
-	local gui = self.Owner.gui_element
+	local gui = self.Owner.visual
 	local mouse = self.Owner.mouse_input
 
 	if gui and not gui:GetVisible() then return end

@@ -111,7 +111,7 @@ return function(props)
 				GrowWidth = 0,
 				FitWidth = false,
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					theme.active:DrawIcon(
 						"disclosure",

@@ -7,7 +7,7 @@ local Window = import("goluwa/render2d/ui/widgets/window.lua")
 T.Test2D("request mouse follows panel visibility and removal", function()
 	local old_world = Panel.World
 	local test_world = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	test_world:SetName("TestWorld")
 	test_world.transform:SetSize(Vec2(1000, 1000))
@@ -41,9 +41,9 @@ T.Test2D("request mouse follows panel visibility and removal", function()
 			window:SetMouseTrapped(true)
 			panel:SetParent(test_world)
 			T(window:GetMouseTrapped())["=="](false)
-			panel.gui_element:SetVisible(false)
+			panel.visual:SetVisible(false)
 			T(window:GetMouseTrapped())["=="](true)
-			panel.gui_element:SetVisible(true)
+			panel.visual:SetVisible(true)
 			T(window:GetMouseTrapped())["=="](false)
 			window:PushMouseTrapRequest("temporary", true)
 			T(window:GetMouseTrapped())["=="](true)
@@ -62,7 +62,7 @@ end)
 T.Test2D("window request mouse restores trapped state when removed", function()
 	local old_world = Panel.World
 	local test_world = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	test_world:SetName("TestWorld")
 	test_world.transform:SetSize(Vec2(1000, 1000))

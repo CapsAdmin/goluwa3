@@ -28,7 +28,7 @@ return function(props)
 					cmp.Owner:SetState("hovered", hovered)
 				end,
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(cmp)
 					if not props.IsSelected() then cmp.Owner:SetState("value", false) end
 

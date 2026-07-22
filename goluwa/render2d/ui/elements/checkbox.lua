@@ -16,7 +16,7 @@ function META.CMP.mouse_input:OnHover(hovered)
 	self.Owner:SetState("hovered", hovered)
 end
 
-function META.CMP.gui_element:OnDraw()
+function META.CMP.visual:OnDraw()
 	theme.active:Draw(self.Owner)
 end
 

@@ -61,7 +61,7 @@ local function draw_layout_debug_outline(owner)
 end
 
 local function draw_layout_debug_recursive(owner)
-	local gui = owner.gui_element
+	local gui = owner.visual
 
 	if gui and not gui:GetVisible() then return end
 

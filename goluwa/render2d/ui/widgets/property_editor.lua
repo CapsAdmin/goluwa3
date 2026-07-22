@@ -447,7 +447,7 @@ return function(props)
 				Padding = Rect(label_inset, 0, 0, 0),
 				AlignmentY = "center",
 			},
-			gui_element = {
+			visual = {
 				Clipping = true,
 				OnDraw = function(self)
 					self.Owner:SetState("selected", selected_key == entry.key)
@@ -516,7 +516,7 @@ return function(props)
 				Padding = Rect(0, 0, 0, 0),
 				AlignmentY = entry.node.Multiline and "start" or "center",
 			},
-			gui_element = {
+			visual = {
 				OnDraw = function(self)
 					self.Owner:SetState("selected", false)
 					self.Owner:SetState("alternate", is_alternate)
@@ -547,9 +547,9 @@ return function(props)
 		}
 
 		local function update_draw_alpha(panel)
-			if not panel or not panel:IsValid() or not panel.gui_element then return end
+			if not panel or not panel:IsValid() or not panel.visual then return end
 
-			panel.gui_element.DrawAlpha = state.is_dragging and 1 or state.is_hovered and 0.9 or divider_draw_alpha
+			panel.visual.DrawAlpha = state.is_dragging and 1 or state.is_hovered and 0.9 or divider_draw_alpha
 		end
 
 		local function update_position(panel)
@@ -624,7 +624,7 @@ return function(props)
 					return true
 				end,
 			},
-			gui_element = {
+			visual = {
 				DrawAlpha = divider_draw_alpha,
 				OnDraw = function(self)
 					theme.active:Draw(self.Owner)
@@ -665,7 +665,7 @@ return function(props)
 					AlignmentY = "stretch",
 					ChildGap = 0,
 				},
-				gui_element = true,
+				visual = true,
 			}
 			children[#children + 1] = split_row{
 				Column{
@@ -684,7 +684,7 @@ return function(props)
 						AlignmentX = "stretch",
 						ChildGap = 0,
 					},
-					gui_element = {
+					visual = {
 						Clipping = true,
 					},
 				}(left_children),
@@ -782,7 +782,7 @@ return function(props)
 				FitHeight = true,
 			},
 			transform = true,
-			gui_element = true,
+			visual = true,
 			mouse_input = true,
 			clickable = true,
 			animation = true,

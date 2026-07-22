@@ -149,7 +149,7 @@ local function create_picker_surface(props)
 			MaxSize = props.MaxSize or props.Size,
 			props.layout,
 		},
-		gui_element = {
+		visual = {
 			Clipping = true,
 			OnDraw = function(self)
 				props.OnDraw(self.Owner, state)

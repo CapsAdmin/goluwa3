@@ -185,7 +185,7 @@ return function(props)
 				return false
 			end,
 			transform = true,
-			gui_element = true,
+			visual = true,
 			mouse_input = true,
 			clickable = true,
 			animation = true,
@@ -242,7 +242,7 @@ return function(props)
 				end
 			end,
 		},
-		gui_element = {
+		visual = {
 			OnDraw = function(self)
 				theme.active:Draw(self.Owner)
 			end,

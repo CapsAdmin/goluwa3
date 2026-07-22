@@ -39,7 +39,7 @@ do
 end
 
 function chatbox.IsVisible()
-	return chatbox.window.gui_element:IsVisible()
+	return chatbox.window.visual:IsVisible()
 end
 
 function chatbox.SetInputText(str)
@@ -157,7 +157,7 @@ function chatbox.Show()
 					layout = {
 						MinSize = Vec2(50, 50),
 					},
-					gui_element = true,
+					visual = true,
 					OnDraw = function(self)
 						local w = chatbox.markup_chatbox.width or 0
 						local h = chatbox.markup_chatbox.height or 0
@@ -218,12 +218,12 @@ function chatbox.Show()
 		end)
 	end
 
-	chatbox.window.gui_element:SetVisible(true)
+	chatbox.window.visual:SetVisible(true)
 	chatbox.text_edit:RequestTextFocus()
 end
 
 function chatbox.Hide()
-	chatbox.window.gui_element:SetVisible(false)
+	chatbox.window.visual:SetVisible(false)
 	chatbox.text_edit:SetText("")
 	chatbox.text_edit:RequestTextUnFocus()
 end

@@ -5,7 +5,7 @@ local UIDebug = import("goluwa/render2d/ui/components/ui_debug.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
 local WALK_SKIP_SUBTREE = 3
-local META = objects.CreateTemplate("gui_element")
+local META = objects.CreateTemplate("visual_2d")
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
@@ -118,7 +118,7 @@ local function walk_draw_recursive(owner, context, on_enter, on_exit)
 end
 
 local function draw_recursive_enter(_, owner)
-	local current = owner.gui_element
+	local current = owner.visual
 
 	if not current then return WALK_DESCEND end
 
@@ -170,7 +170,7 @@ end
 
 function META:OnFirstCreated()
 	event.AddListener("Draw2D", "ecs_gui_system", function()
-		self.Owner:GetRoot().gui_element:DrawRecursive()
+		self.Owner:GetRoot().visual:DrawRecursive()
 	end)
 end
 

@@ -9,7 +9,7 @@ META:GetSet("Texture", nil)
 META:EndStorable()
 
 function META:Initialize()
-	self.Owner:EnsureComponent("gui_element")
+	self.Owner:EnsureComponent("visual")
 	self.Owner:EnsureComponent("transform")
 
 	self.Owner:AddLocalListener("OnDraw", function()
@@ -23,7 +23,7 @@ function META:OnDraw()
 	render2d.SetTexture(self.Texture)
 
 	if self.Texture then
-		local borderRadius = self.Owner.gui_element:GetBorderRadius()
+		local borderRadius = self.Owner.visual:GetBorderRadius()
 
 		if borderRadius > 0 then
 			render2d.DrawRoundedRect(0, 0, s.x, s.y, borderRadius)

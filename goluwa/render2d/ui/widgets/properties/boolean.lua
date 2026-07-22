@@ -66,7 +66,7 @@ return function(props)
 			Padding = props.padding,
 			ChildGap = props.gap,
 		},
-		gui_element = true,
+		visual = true,
 		mouse_input = {
 			Cursor = "hand",
 			OnHover = function(self, hovered)

@@ -7,7 +7,7 @@ local Color = import("goluwa/structs/color.lua")
 local function create_test_world()
 	local old_world = Panel.World
 	local world = Panel.New{
-		ComponentSet = {"transform", "gui_element"},
+		ComponentSet = {"transform", "visual"},
 	}
 	world:SetName("TestWorld")
 	world.transform:SetSize(Vec2(512, 512))
@@ -21,16 +21,16 @@ local function cleanup_test_world(old_world, world)
 	Panel.World = old_world
 end
 
-T.Test2D("panel gui_element clipping uses semantic clip api", function(width, height)
+T.Test2D("panel visual clipping uses semantic clip api", function(width, height)
 	local old_world, world = create_test_world()
 	local parent = Panel.New{
 		Parent = world,
 		transform = true,
-		gui_element = true,
+		visual = true,
 	}
 	parent.transform:SetPosition(Vec2(100, 100))
 	parent.transform:SetSize(Vec2(80, 60))
-	parent.gui_element:SetClipping(true)
+	parent.visual:SetClipping(true)
 
 	function parent:OnDraw()
 		render2d.DrawRect(0, 0, self.transform.Size.x, self.transform.Size.y)
@@ -39,7 +39,7 @@ T.Test2D("panel gui_element clipping uses semantic clip api", function(width, he
 	local child = Panel.New{
 		Parent = parent,
 		transform = true,
-		gui_element = true,
+		visual = true,
 	}
 	child.transform:SetPosition(Vec2(-20, 0))
 	child.transform:SetSize(Vec2(120, 60))
@@ -52,7 +52,7 @@ T.Test2D("panel gui_element clipping uses semantic clip api", function(width, he
 
 	render2d.SetColor(0, 0, 0, 1)
 	render2d.DrawRect(0, 0, width, height)
-	world.gui_element:DrawRecursive()
+	world.visual:DrawRecursive()
 	return function()
 		local ok, err = xpcall(
 			function()
@@ -80,7 +80,7 @@ T.Test2D("panel scroll viewport masking uses semantic clip api", function(width,
 	local viewport = Panel.New{
 		Parent = world,
 		transform = true,
-		gui_element = true,
+		visual = true,
 	}
 	viewport.transform:SetPosition(Vec2(200, 200))
 	viewport.transform:SetSize(Vec2(80, 60))
@@ -88,7 +88,7 @@ T.Test2D("panel scroll viewport masking uses semantic clip api", function(width,
 	local child = Panel.New{
 		Parent = viewport,
 		transform = true,
-		gui_element = true,
+		visual = true,
 	}
 	child.transform:SetPosition(Vec2(-20, 0))
 	child.transform:SetSize(Vec2(120, 60))
@@ -129,7 +129,7 @@ T.Test2D("panel nested clipped descendants update after scroll changes", functio
 	local viewport = Panel.New{
 		Parent = world,
 		transform = true,
-		gui_element = {
+		visual = {
 			Clipping = true,
 		},
 	}
@@ -139,14 +139,14 @@ T.Test2D("panel nested clipped descendants update after scroll changes", functio
 	local row = Panel.New{
 		Parent = viewport,
 		transform = true,
-		gui_element = true,
+		visual = true,
 	}
 	row.transform:SetPosition(Vec2(0, 50))
 	row.transform:SetSize(Vec2(90, 50))
 	local inner = Panel.New{
 		Parent = row,
 		transform = true,
-		gui_element = true,
+		visual = true,
 	}
 	inner.transform:SetPosition(Vec2(0, 18))
 	inner.transform:SetSize(Vec2(90, 28))
@@ -160,7 +160,7 @@ T.Test2D("panel nested clipped descendants update after scroll changes", functio
 
 	render2d.SetColor(0, 0, 0, 1)
 	render2d.DrawRect(0, 0, width, height)
-	world.gui_element:DrawRecursive()
+	world.visual:DrawRecursive()
 	return function()
 		local ok, err = xpcall(
 			function()

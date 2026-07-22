@@ -32,11 +32,7 @@ META:GetSet(
 	{enums = {"auto", "start", "center", "end", "stretch"}}
 )
 META:GetSet("Floating", false)
-META:GetSet(
-	"Dock",
-	"none",
-	{enums = {"none", "top", "bottom", "left", "right", "fill"}}
-)
+META:GetSet("Dock", "none", {enums = {"none", "top", "bottom", "left", "right", "fill"}})
 META:EndStorable()
 META:GetSet("Dirty", false)
 META:GetSet("LastSize", Vec2(0, 0))
@@ -132,7 +128,7 @@ local dock_values = {
 }
 
 local function should_layout_child(child)
-	local gui = child.gui_element
+	local gui = child.visual
 	return child:IsValid() and
 		(
 			not gui or

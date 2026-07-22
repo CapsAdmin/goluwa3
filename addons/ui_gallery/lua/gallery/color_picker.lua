@@ -39,7 +39,7 @@ return {
 		local preview
 
 		local function update_preview()
-			if preview and preview:IsValid() and preview.gui_element then
+			if preview and preview:IsValid() and preview.visual then
 				preview.preview_color = state.color
 			end
 
@@ -133,7 +133,7 @@ return {
 							MinSize = Vec2(160, 96),
 							MaxSize = Vec2(160, 96),
 						},
-						gui_element = {
+						visual = {
 							OnDraw = function(self)
 								local size = self.Owner.transform:GetSize()
 								local preview_color = self.Owner.preview_color or state.color
