@@ -120,27 +120,6 @@ local vector_kinds = {
 		end,
 	},
 }
-
-local function normalize_kind(kind)
-	if kind == "Vec2" then return "vec2" end
-
-	if kind == "Vec3" then return "vec3" end
-
-	if kind == "Ang3" then return "ang3" end
-
-	if kind == "Rect" then return "rect" end
-
-	if kind == "Quat" then return "quat" end
-
-	if kind == "Color" then return "color" end
-
-	return kind
-end
-
-local function get_vector_kind_info(kind)
-	return vector_kinds[normalize_kind(kind or "")]
-end
-
 local open_color_picker_window
 open_color_picker_window = function(node, value, key, path, panel, commit_value)
 	local window_size = Vec2(380, 430)
@@ -350,8 +329,6 @@ return function(props)
 		if has_entries(get_node_children(node)) then return nil, nil end
 
 		local kind = node.Type or node.Editor
-		kind = normalize_kind(kind)
-		local vector_info = get_vector_kind_info(kind)
 		local control_props = {
 			node = node,
 			key = key,
@@ -367,7 +344,7 @@ return function(props)
 			font_size = compact_font_size,
 			number_precision = number_precision,
 			get_precision = get_precision,
-			vector_info = vector_info,
+			vector_info = vector_kinds[kind],
 			open_color_picker_window = open_color_picker_window,
 			build_number_control = PropertyNumber,
 			sync_selection = sync_selection,
@@ -381,7 +358,7 @@ return function(props)
 
 		if kind == "number" then return PropertyNumber(control_props) end
 
-		if vector_info then return PropertyVector(control_props) end
+		if control_props.vector_info then return PropertyVector(control_props) end
 
 		if kind == "action" then
 			return Button{

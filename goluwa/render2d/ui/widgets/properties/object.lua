@@ -126,8 +126,6 @@ return function(props)
 			OnClick = function()
 				if node.OnActionButton then
 					node.OnActionButton(node, props.key, props.path, control, props.commit_value)
-				elseif node.OnBrowse then
-					node.OnBrowse(node, props.key, props.path, control, props.commit_value)
 				end
 
 				return true
