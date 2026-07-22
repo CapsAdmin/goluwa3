@@ -20,8 +20,9 @@ local function paragraph_card(title, align_x, justify)
 		},
 		layout = {
 			Direction = "y",
+			GrowWidth = 1,
 			AlignmentX = "stretch",
-			MinSize = Vec2(280, 0),
+			MinSize = Vec2(0, 0),
 			MaxSize = Vec2(280, 0),
 			FitHeight = true,
 		},
@@ -38,7 +39,8 @@ local function paragraph_card(title, align_x, justify)
 		}{
 			Text{
 				Text = title,
-				Color = Color(0.62, 0.82, 1.0, 1),
+				FontSize = "L",
+				--Color = Color(0.62, 0.82, 1.0, 1),
 				layout = {
 					GrowWidth = 1,
 				},
