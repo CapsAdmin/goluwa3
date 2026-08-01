@@ -94,6 +94,9 @@ function META:OnCreate(props)
 					OnKeyInput = function(s, key, press)
 						if props.OnKeyInput then return props.OnKeyInput(s, key, press) end
 					end,
+					OnKeyInputRepeat = function(s, key)
+						if props.OnKeyInputRepeat then return props.OnKeyInputRepeat(s, key) end
+					end,
 					OnCursorMoved = function()
 						self:sync_text_changed()
 					end,
