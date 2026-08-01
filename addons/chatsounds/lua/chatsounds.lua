@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local audio = import("goluwa/audio.lua")
 local system = import("goluwa/system.lua")
+local autocomplete = import("goluwa/autocomplete.lua")
 local chatsounds = library()
 chatsounds.debug = false
 import.loaded["lua/chatsounds.lua"] = chatsounds
@@ -956,7 +957,7 @@ function chatsounds.Say(str, seed, custom_id)
 		)
 	then
 		chatsounds.Panic()
-		audio.Panic()
+		audio.StopAll()
 	end
 
 	if str:find(";") then

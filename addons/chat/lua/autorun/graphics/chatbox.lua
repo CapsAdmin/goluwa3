@@ -12,6 +12,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
+local autocomplete = import("goluwa/autocomplete.lua")
 local chat = import("addons/chat/lua/autorun/chat.lua")
 local chatbox = {}
 chatbox.window = NULL
@@ -19,6 +20,8 @@ chatbox.text_edit = NULL
 chatbox.markup_chatbox = NULL
 chatbox.markup_hud = NULL
 chatbox.life_time = 30
+chatbox.autocomplete_results = {}
+chatbox.autocomplete_scroll = 0
 local panel_width = 400
 local input_height = 50
 
@@ -131,6 +134,25 @@ function chatbox.Show()
 			end)
 		end
 
+		local function autocomplete_query()
+			local list_ids = {}
+
+			for _, v in ipairs(autocomplete.GetLists()) do
+				list.insert(list_ids, v.id)
+			end
+
+			local text = chatbox.text_edit:GetText()
+			chatbox.autocomplete_results = autocomplete.Query("chatbox", text, input.IsShiftDown() and -1 or 1, list_ids)
+			local result = chatbox.autocomplete_results[1]
+
+			if result then
+				local str = tostring(result.val)
+				chatbox.text_edit:SetText(str)
+				chatbox.text_edit.text_panel.text.editor:SetCursor(#str + 1)
+				return true
+			end
+		end
+
 		local window_size = system.GetWindow():GetSize()
 		local panel_x = 50
 		local panel_height = window_size.y - input_height - 100
@@ -185,6 +207,14 @@ function chatbox.Show()
 				MinSize = Vec2(0, input_height),
 				AutoResize = true,
 				OnTextChanged = function(self, text)
+					local list_ids = {}
+
+					for _, v in ipairs(autocomplete.GetLists()) do
+						list.insert(list_ids, v.id)
+					end
+
+					chatbox.autocomplete_scroll = 0
+					chatbox.autocomplete_results = autocomplete.Query("chatbox", text, 0, list_ids)
 					event.Call("ChatTextChanged", text)
 				end,
 				OnKeyInput = function(self, key, press)
@@ -192,6 +222,7 @@ function chatbox.Show()
 
 					if key == "escape" then
 						chatbox.Hide()
+						chatbox.autocomplete_results = {}
 						return true
 					elseif key == "enter" then
 						local text = chatbox.text_edit:GetText()
@@ -199,9 +230,15 @@ function chatbox.Show()
 						if text and text ~= "" and not input.IsShiftDown() then
 							event.Call("ChatBoxInput", tostring(text))
 							chatbox.Hide()
+							chatbox.autocomplete_results = {}
 							return true
 						end
+					elseif key == "tab" then
+						return autocomplete_query()
 					end
+				end,
+				OnKeyInputRepeat = function(self, key)
+					if key == "tab" then return autocomplete_query() end
 				end,
 			},
 		}
@@ -215,6 +252,15 @@ function chatbox.Show()
 			chatbox.markup_hud:Draw()
 			chatbox.markup_hud:SetMaxWidth(render2d.GetSize() * 0.3)
 			render2d.PopMatrix()
+		end)
+
+		event.AddListener("PreDraw2D", "chatbox_autocomplete", function()
+			if #chatbox.autocomplete_results == 0 then return end
+
+			local mat = chatbox.window.transform:GetWorldMatrix()
+			local x, y = mat:GetTranslation()
+			local height = chatbox.window.transform:GetSize().y
+			autocomplete.DrawFound("chatbox", x, y + height + 5, chatbox.autocomplete_results)
 		end)
 	end
 

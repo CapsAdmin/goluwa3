@@ -1,3 +1,5 @@
+local render2d = import("goluwa/render2d/render2d.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local autocomplete = library()
 local env = {}
 
@@ -48,7 +50,7 @@ local function search(list, str, found, found_list, id)
 				found[#found + 1] = {val = list[math.random(#list)], id = id}
 			end
 		else
-			for i = found_list and 1 or math.max(#str + 1, 1), #list do
+			for i = found_list and 1 or math.min(math.max(#str + 1, 1), #list), #list do
 				if type(list[i]) == "table" then
 					if list[i].val:find(pattern) then found[#found + 1] = list[i] end
 				else
@@ -113,10 +115,10 @@ function autocomplete.DrawFound(id, x, y, found, max, offset)
 				if type(str) == "function" then str = str() end
 
 				if str then
-					local _, h = render2d.GetTextSize(str)
-					render2d.SetAlphaMultiplier(0.75)
-					render2d.DrawText(str, 5, (i - offset) * h + height_offset)
-					height_offset = height_offset + h
+					local _, h = fonts.GetDefaultFont():GetTextSize(str)
+					render2d.SetAlphaMultiplier(1)
+					fonts.GetDefaultFont():DrawText(str, 5, (i - offset) * h + height_offset)
+					height_offset = height_offset + (h + 4)
 					width_offset = 5
 				end
 
@@ -126,11 +128,11 @@ function autocomplete.DrawFound(id, x, y, found, max, offset)
 
 		local alpha = (-(i / max) + 1) ^ 5
 		render2d.SetAlphaMultiplier(alpha)
-		local _, h = render2d.GetTextSize(v.val)
-		render2d.DrawText(
-			((env[id].scroll + i - 1) % #found + 1) .. ". " .. v.val,
+		local _, h = fonts.GetDefaultFont():GetTextSize(v.val)
+		fonts.GetDefaultFont():DrawText(
+			((env[id].scroll + i - 1) % #found + 1) .. ". " .. tostring(v.val),
 			5 + width_offset,
-			(i - offset) * h + height_offset
+			(i - offset) * (h + 4) + height_offset
 		)
 	end
 

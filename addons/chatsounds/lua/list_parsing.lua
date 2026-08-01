@@ -193,15 +193,13 @@ function chatsounds.LoadListFromAppID(name)
 		chatsounds.tree = chatsounds.tree or {}
 		table.merge(chatsounds.tree, tree)
 
-		if autocomplete then
-			timer.Delay(
-				0.1,
-				function()
-					chatsounds.GenerateAutocomplete()
-				end,
-				"chatsounds_autocomplete"
-			)
-		end
+		timer.Delay(
+			0.1,
+			function()
+				chatsounds.GenerateAutocomplete()
+			end,
+			"chatsounds_autocomplete"
+		)
 	end)
 end
 
