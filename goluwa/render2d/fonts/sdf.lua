@@ -124,8 +124,8 @@ function META:__copy()
 	return self
 end
 
-local SUPER_SAMPLING_SCALE = 8
-local COMBINE_SCALE = 2
+local SUPER_SAMPLING_SCALE = 4
+local COMBINE_SCALE = 4
 local JFA_DESCRIPTOR_SET_COUNT = 1024
 
 function META:ClearSizeCache()
@@ -372,7 +372,7 @@ function META:GetJFAPipelines()
 						return mix(vx0, vx1, frac.y);
 					}
 
-void main() {
+					void main() {
 						ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
 						ivec2 size = imageSize(out_tex);
 						if (pos.x >= size.x || pos.y >= size.y) return;
@@ -674,7 +674,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	table.insert(temp_fbs, tex_dist_off)
 	-- Keep the encoded distance range aligned with the actual glyph padding while
 	-- still leaving a small minimum margin for blur and outline effects.
-	local max_dist = math.max(4, spread) * SUPER_SAMPLING_SCALE
+	local max_dist = math.max(4, spread * 2) * SUPER_SAMPLING_SCALE
 	p.final.current_jfa_max_dist = max_dist
 	p.combine.current_jfa_max_dist = max_dist
 
@@ -1394,7 +1394,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	extra_space_advance = extra_space_advance or 0
 	render2d.PushUV()
 	render2d.PushSDFMode(true)
-	render2d.PushSDFTexelRange(self:GetEffectiveSpread())
+	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 4) -- 2 * max_dist_factor (spread*2) for full SDF range
 	self:DrawPassImmediate(str, x, y, spacing, self.texture_atlas, extra_space_advance)
 	render2d.PopSDFTexelRange()
 	render2d.PopSDFMode()

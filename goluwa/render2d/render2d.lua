@@ -1111,20 +1111,18 @@ function render2d.Initialize()
 					return texture(TEXTURE(texture_index), sdf_uv).r;
 				}
 
-float tex_sdf_screen_px_range(int texture_index, vec2 sdf_uv, float sdf_texel_range) {
-						vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
-						vec2 screen_tex_size = tex_size / max(shape.rect_size, vec2(0.001));
-						vec2 unit_range = vec2(max(sdf_texel_range, 1.0)) / tex_size;
-						return max(0.5 * dot(unit_range, screen_tex_size), 1.0);
-					}
+				float tex_sdf_screen_px_range(int texture_index, vec2 sdf_uv, float sdf_texel_range) {
+					vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
+					return max(length(tex_size.x) / max(length(shape.rect_size), 0.1) * 0.4, 1.0);
+				}
 
-float sample_tex_sdf_filtered(int texture_index, vec2 sdf_uv) {
-						return sample_tex_sdf_raw(texture_index, sdf_uv);
-					}
+				float sample_tex_sdf_filtered(int texture_index, vec2 sdf_uv) {
+					return sample_tex_sdf_raw(texture_index, sdf_uv);
+				}
 
 				float tex_sdf_distance(int texture_index, float sdf_threshold, float sdf_texel_range, vec2 sdf_uv) {
 					float dist = sample_tex_sdf_filtered(texture_index, sdf_uv);
-					return (sdf_threshold - dist) * tex_sdf_screen_px_range(texture_index, sdf_uv, sdf_texel_range);
+					return (sdf_threshold - dist) * tex_sdf_screen_px_range(texture_index, sdf_uv, sdf_texel_range) ;
 				}
 
 				bool has_rect_sdf_enabled() {
@@ -1212,24 +1210,23 @@ float sample_tex_sdf_filtered(int texture_index, vec2 sdf_uv) {
 					return color;
 				}
 
-					float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
-						if (has_tex_sdf && !has_rect_sdf) {
-							float bias = shape.sdf_bias;
-							float gamma = shape.sdf_gamma;
-							float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y) * 1.75);
-							float alpha = (shape.outline_width > 0.0) ?
-								(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
-								clamp((d + bias) / softness + 0.5, 0.0, 1.0);
-							return pow(max(alpha, 0.0), gamma);
-						}
-
-						float smoothing = max(shape.blur.x, shape.blur.y);
-						smoothing = max(shape.sdf_softness, smoothing);
-						float d_biased = d + shape.sdf_bias;
+				float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
+					if (has_tex_sdf && !has_rect_sdf) {
+						float bias = shape.sdf_bias;
+						float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y) * 1.75);
 						float alpha = (shape.outline_width > 0.0) ?
-							(smoothstep(smoothing, -smoothing, d_biased) - smoothstep(smoothing, -smoothing, d_biased + shape.outline_width)) :
-							smoothstep(smoothing, -smoothing, d_biased);
+							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
 						return pow(max(alpha, 0.0), shape.sdf_gamma);
+					}
+
+					float smoothing = max(shape.blur.x, shape.blur.y);
+					smoothing = max(shape.sdf_softness, smoothing);
+					float d_biased = d + shape.sdf_bias;
+					float alpha = (shape.outline_width > 0.0) ?
+						(smoothstep(smoothing, -smoothing, d_biased) - smoothstep(smoothing, -smoothing, d_biased + shape.outline_width)) :
+						smoothstep(smoothing, -smoothing, d_biased);
+					return pow(max(alpha, 0.0), shape.sdf_gamma);
 				}
 				float compute_blur_alpha(vec2 coords) {
 					vec2 p = (coords - 0.5) * shape.rect_size;
@@ -1459,9 +1456,9 @@ function render2d.ResetState()
 	render2d.SetClampBorderRadius(true)
 	constants.sdf_threshold = 0
 	constants.sdf_texel_range = 1
-	constants.sdf_bias = -0.005
-	constants.sdf_gamma = 0.75
-	constants.sdf_softness = 0.06
+	constants.sdf_bias = -0.05
+	constants.sdf_gamma = 0.9
+	constants.sdf_softness = 0.5
 	constants.gradient_texture_index = -1
 	constants.nine_patch_x_count = 0
 	constants.nine_patch_y_count = 0
