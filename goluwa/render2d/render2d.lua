@@ -47,6 +47,9 @@ local fragment_shape_constant_fields = {
 	{"sdf_threshold", "float"},
 	{"sdf_texel_range", "float"},
 	{"sdf_rect_size", "vec2"},
+	{"sdf_bias", "float"},
+	{"sdf_gamma", "float"},
+	{"sdf_softness", "float"},
 }
 local fragment_patch_constant_fields = {
 	{"nine_patch_x_count", "int"},
@@ -528,6 +531,21 @@ local rect_batch_fragment_passthrough_fields = {
 		end,
 		fragment_values = {
 			{"shape.outline_width", "batch_outline_width", "in_batch_outline_width"},
+		},
+	},
+	{
+		name = "batch_sdf_tuning",
+		type = "vec3",
+		format = "r32g32b32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_sdf_tuning[0] = rect_state_snapshot.sdf_bias
+			vertex.batch_sdf_tuning[1] = rect_state_snapshot.sdf_gamma
+			vertex.batch_sdf_tuning[2] = rect_state_snapshot.sdf_softness
+		end,
+		fragment_values = {
+			{"shape.sdf_bias", "batch_sdf_bias", "in_batch_sdf_tuning.x"},
+			{"shape.sdf_gamma", "batch_sdf_gamma", "in_batch_sdf_tuning.y"},
+			{"shape.sdf_softness", "batch_sdf_softness", "in_batch_sdf_tuning.z"},
 		},
 	},
 }
@@ -1093,25 +1111,16 @@ function render2d.Initialize()
 					return texture(TEXTURE(texture_index), sdf_uv).r;
 				}
 
-				float tex_sdf_screen_px_range(int texture_index, vec2 sdf_uv, float sdf_texel_range) {
-					vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
-					vec2 uv_dx = dFdx(sdf_uv);
-					vec2 uv_dy = dFdy(sdf_uv);
-					vec2 screen_tex_size = vec2(1.0) / max(abs(uv_dx) + abs(uv_dy), vec2(0.0001));
-					vec2 unit_range = vec2(max(sdf_texel_range, 1.0)) / max(tex_size, vec2(1.0));
-					return max(0.5 * dot(unit_range, screen_tex_size)*1.5, 1.0);
-				}
+float tex_sdf_screen_px_range(int texture_index, vec2 sdf_uv, float sdf_texel_range) {
+						vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
+						vec2 screen_tex_size = tex_size / max(shape.rect_size, vec2(0.001));
+						vec2 unit_range = vec2(max(sdf_texel_range, 1.0)) / tex_size;
+						return max(0.5 * dot(unit_range, screen_tex_size), 1.0);
+					}
 
-				float sample_tex_sdf_filtered(int texture_index, vec2 sdf_uv) {
-					vec2 uv_dx = dFdx(sdf_uv);
-					vec2 uv_dy = dFdy(sdf_uv);
-					float center = sample_tex_sdf_raw(texture_index, sdf_uv);
-					float sx0 = sample_tex_sdf_raw(texture_index, sdf_uv - uv_dx * 0.25);
-					float sx1 = sample_tex_sdf_raw(texture_index, sdf_uv + uv_dx * 0.25);
-					float sy0 = sample_tex_sdf_raw(texture_index, sdf_uv - uv_dy * 0.25);
-					float sy1 = sample_tex_sdf_raw(texture_index, sdf_uv + uv_dy * 0.25);
-					return center * 0.7 + (sx0 + sx1 + sy0 + sy1) * 0.075;
-				}
+float sample_tex_sdf_filtered(int texture_index, vec2 sdf_uv) {
+						return sample_tex_sdf_raw(texture_index, sdf_uv);
+					}
 
 				float tex_sdf_distance(int texture_index, float sdf_threshold, float sdf_texel_range, vec2 sdf_uv) {
 					float dist = sample_tex_sdf_filtered(texture_index, sdf_uv);
@@ -1203,22 +1212,24 @@ function render2d.Initialize()
 					return color;
 				}
 
-				float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
-					if (has_tex_sdf && !has_rect_sdf) {
-						float bias = -0.015;
-						float gamma = 1.1;
-						float softness = max(1.0, max(shape.blur.x, shape.blur.y) * 1.75);
-						float alpha = (shape.outline_width > 0.0) ?
-							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
-							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
-						return pow(max(alpha, 0.0), gamma);
-					}
+					float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
+						if (has_tex_sdf && !has_rect_sdf) {
+							float bias = shape.sdf_bias;
+							float gamma = shape.sdf_gamma;
+							float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y) * 1.75);
+							float alpha = (shape.outline_width > 0.0) ?
+								(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
+								clamp((d + bias) / softness + 0.5, 0.0, 1.0);
+							return pow(max(alpha, 0.0), gamma);
+						}
 
-					float smoothing = max(shape.blur.x, shape.blur.y);
-					smoothing = max(0.75, smoothing);
-					return (shape.outline_width > 0.0) ?
-						(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + shape.outline_width)) :
-						smoothstep(smoothing, -smoothing, d);
+						float smoothing = max(shape.blur.x, shape.blur.y);
+						smoothing = max(shape.sdf_softness, smoothing);
+						float d_biased = d + shape.sdf_bias;
+						float alpha = (shape.outline_width > 0.0) ?
+							(smoothstep(smoothing, -smoothing, d_biased) - smoothstep(smoothing, -smoothing, d_biased + shape.outline_width)) :
+							smoothstep(smoothing, -smoothing, d_biased);
+						return pow(max(alpha, 0.0), shape.sdf_gamma);
 				}
 				float compute_blur_alpha(vec2 coords) {
 					vec2 p = (coords - 0.5) * shape.rect_size;
@@ -1448,6 +1459,9 @@ function render2d.ResetState()
 	render2d.SetClampBorderRadius(true)
 	constants.sdf_threshold = 0
 	constants.sdf_texel_range = 1
+	constants.sdf_bias = -0.005
+	constants.sdf_gamma = 0.75
+	constants.sdf_softness = 0.06
 	constants.gradient_texture_index = -1
 	constants.nine_patch_x_count = 0
 	constants.nine_patch_y_count = 0
@@ -1607,6 +1621,36 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFTexelRange", 1)
+
+			function render2d.SetSDFBias(bias)
+				render2d.state.render.fragment.constants.sdf_bias = bias
+			end
+
+			function render2d.GetSDFBias()
+				return render2d.state.render.fragment.constants.sdf_bias
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFBias", 1)
+
+			function render2d.SetSDFGamma(gamma)
+				render2d.state.render.fragment.constants.sdf_gamma = gamma
+			end
+
+			function render2d.GetSDFGamma()
+				return render2d.state.render.fragment.constants.sdf_gamma
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFGamma", 1)
+
+			function render2d.SetSDFSoftness(softness)
+				render2d.state.render.fragment.constants.sdf_softness = softness
+			end
+
+			function render2d.GetSDFSoftness()
+				return render2d.state.render.fragment.constants.sdf_softness
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFSoftness", 1)
 
 			function render2d.SetDisableRectSDF(enabled)
 				local normalized = enabled == true
@@ -2891,6 +2935,8 @@ end)
 
 if HOTRELOAD then
 	render2d.pipeline = nil
+	render2d.rect_batch_pipeline = nil
+	render2d.state.runtime.ids.roots.pipeline = {}
 	render2d.Initialize()
 end
 

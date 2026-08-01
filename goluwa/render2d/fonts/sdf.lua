@@ -124,7 +124,8 @@ function META:__copy()
 	return self
 end
 
-local SUPER_SAMPLING_SCALE = 4
+local SUPER_SAMPLING_SCALE = 8
+local COMBINE_SCALE = 2
 local JFA_DESCRIPTOR_SET_COUNT = 1024
 
 function META:ClearSizeCache()
@@ -371,20 +372,15 @@ function META:GetJFAPipelines()
 						return mix(vx0, vx1, frac.y);
 					}
 
-					void main() {
+void main() {
 						ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
 						ivec2 size = imageSize(out_tex);
 						if (pos.x >= size.x || pos.y >= size.y) return;
 						vec2 uv = (vec2(pos) + vec2(0.5)) / vec2(size);
 						float d_on = sample_bilinear_r(dist_on_tex, uv);
 						float d_off = sample_bilinear_r(dist_off_tex, uv);
-						vec4 mask_sample = texture(mask_tex, uv);
-						float coverage = max(mask_sample.r, mask_sample.a);
 						float dist = d_off - d_on;
-						float aa_offset = coverage - 0.5;
-						float edge_weight = 1.0 - smoothstep(0.0, 2.0, abs(dist));
-						float shaded_dist = mix(dist, -aa_offset, edge_weight);
-						float norm_dist = clamp(shaded_dist / (compute.max_dist * 2.0) + 0.5, 0.0, 1.0);
+						float norm_dist = clamp(dist / (compute.max_dist * 2.0) + 0.5, 0.0, 1.0);
 						imageStore(out_tex, pos, vec4(norm_dist, norm_dist, norm_dist, 1.0));
 					}
 				]],
@@ -834,11 +830,15 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	debug_assert_sdf_texture(tex_dist_on, "dist_on", 0, 20, "distance to ON pixels (after init+JFA)")
 	run_jfa(1, tex_dist_off) -- Distance to OFF pixels
 	debug_assert_sdf_texture(tex_dist_off, "dist_off", 0, 20, "distance to OFF pixels (after init+JFA)")
+	local combine_w = target_w * COMBINE_SCALE
+	local combine_h = target_h * COMBINE_SCALE
+	local tex_combine = get_temp_tex(self, combine_w, combine_h, self:GetAtlasFormat(), "linear")
+	table.insert(temp_fbs, tex_combine)
 	local tex_final = get_temp_tex(self, target_w, target_h, self:GetAtlasFormat(), "linear")
 	table.insert(temp_fbs, tex_final)
 	local final_frame_index = next_descriptor_slot()
-	transition_to_storage(tex_final)
-	p.combine:UpdateDescriptorSet("storage_image", final_frame_index, 0, 0, tex_final:GetView())
+	transition_to_storage(tex_combine)
+	p.combine:UpdateDescriptorSet("storage_image", final_frame_index, 0, 0, tex_combine:GetView())
 	p.combine:UpdateDescriptorSet(
 		"combined_image_sampler",
 		final_frame_index,
@@ -864,8 +864,43 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		get_sampler(mask_tex)
 	)
 	p.combine.current_jfa_max_dist = max_dist
-	p.combine:DispatchForSize(nil, target_w, target_h, 1, final_frame_index)
-	transition_to_sampled(tex_final)
+	p.combine:DispatchForSize(nil, combine_w, combine_h, 1, final_frame_index)
+	-- Blit from high-res combine output down to target size
+	transition_image(
+		tex_combine,
+		"compute",
+		"transfer",
+		"shader_read",
+		"transfer_read",
+		"transfer_src_optimal"
+	)
+	transition_image(
+		tex_final,
+		"compute",
+		"transfer",
+		"shader_write",
+		"transfer_write",
+		"transfer_dst_optimal"
+	)
+	cmd:BlitImage{
+		src_image = tex_combine.image,
+		dst_image = tex_final.image,
+		src_layout = "transfer_src_optimal",
+		dst_layout = "transfer_dst_optimal",
+		src_width = combine_w,
+		src_height = combine_h,
+		dst_width = target_w,
+		dst_height = target_h,
+		filter = "linear",
+	}
+	transition_image(
+		tex_final,
+		"transfer",
+		"fragment",
+		"transfer_write",
+		"shader_read",
+		"shader_read_only_optimal"
+	)
 	-- need to also wait for some reason
 	cmd:End()
 	render.SubmitAndWait(cmd)
@@ -949,7 +984,7 @@ function META:LoadGlyph(code, temp_fbs)
 						glyph.bitmap_left,
 						glyph.bitmap_top
 					)
-)
+				)
 			end
 
 			local saved_batch = render2d.SaveBatchState()
