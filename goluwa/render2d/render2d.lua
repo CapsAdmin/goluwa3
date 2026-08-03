@@ -1107,23 +1107,6 @@ function render2d.Initialize()
 					}
 				}
 
-				float sample_tex_sdf_raw(int texture_index, vec2 sdf_uv) {
-					return texture(TEXTURE(texture_index), sdf_uv).r;
-				}
-
-				float tex_sdf_screen_px_range(int texture_index, vec2 sdf_uv, float sdf_texel_range) {
-					vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
-					return max(length(tex_size.x) / max(length(shape.rect_size), 0.1) * 0.4, 1.0);
-				}
-
-				float sample_tex_sdf_filtered(int texture_index, vec2 sdf_uv) {
-					return sample_tex_sdf_raw(texture_index, sdf_uv);
-				}
-
-				float tex_sdf_distance(int texture_index, float sdf_threshold, float sdf_texel_range, vec2 sdf_uv) {
-					float dist = sample_tex_sdf_filtered(texture_index, sdf_uv);
-					return (sdf_threshold - dist) * tex_sdf_screen_px_range(texture_index, sdf_uv, sdf_texel_range) ;
-				}
 
 				bool has_rect_sdf_enabled() {
 					return shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0;
@@ -1174,6 +1157,13 @@ function render2d.Initialize()
 					return color;
 				}
 
+				float tex_sdf_distance(int texture_index, float sdf_threshold, vec2 sdf_uv) {
+					vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
+					float dist = texture(TEXTURE(texture_index), sdf_uv).r;
+					//float px_range = max(length(tex_size) / max(length(shape.rect_size), 0.1), 1.0);
+					return (sdf_threshold - dist) * length(shape.rect_size) / 10;
+				}
+
 				float compute_fragment_distance(vec2 coords, vec2 uv, bool has_rect_sdf, bool has_tex_sdf) {
 					float d = 1e10;
 
@@ -1185,7 +1175,7 @@ function render2d.Initialize()
 						bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
 						bool invert_tex_sdf = (FLAGS_SAMPLE_UV & 2) != 0;
 						vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
-						float d_tex = tex_sdf_distance(draw.texture_index, shape.sdf_threshold, shape.sdf_texel_range, sdf_uv);
+						float d_tex = tex_sdf_distance(draw.texture_index, shape.sdf_threshold, sdf_uv);
 
 						if (invert_tex_sdf) d_tex = -d_tex;
 
@@ -1244,6 +1234,9 @@ function render2d.Initialize()
 					vec2 uv = resolve_fragment_uv(coords);
 					color = sample_fragment_color(uv, has_tex_sdf);
 					d = compute_fragment_distance(coords, uv, has_rect_sdf, has_tex_sdf);
+
+					//{return vec4(d,d,d,1);}
+
 					vec4 shaded = color;
 
 					if (has_sdf) {
@@ -1457,8 +1450,8 @@ function render2d.ResetState()
 	constants.sdf_threshold = 0
 	constants.sdf_texel_range = 1
 	constants.sdf_bias = -0.05
-	constants.sdf_gamma = 0.9
-	constants.sdf_softness = 0.5
+	constants.sdf_gamma = 1
+	constants.sdf_softness = 0.4
 	constants.gradient_texture_index = -1
 	constants.nine_patch_x_count = 0
 	constants.nine_patch_y_count = 0

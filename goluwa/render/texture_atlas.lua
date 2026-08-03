@@ -147,7 +147,6 @@ function META:Build()
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
-
 	render.PushCommandBuffer(cmd)
 	local transitioned_textures = {}
 
@@ -199,10 +198,8 @@ function META:Build()
 	end
 
 	render.PopCommandBuffer()
-
 	cmd:End()
 	render.SubmitAndWait(cmd)
-
 	self.dirty_textures = {}
 
 	if false then

@@ -161,8 +161,9 @@ META:GetSet("Flags")
 
 function META:GetEffectiveSpread()
 	local spread = math.max(1, self:GetSpread())
-	local size_limited = math.max(2, math.floor(self:GetSize() * 0.4 + 0.5))
-	return math.min(spread, size_limited)
+	local size_minimum = math.max(2, math.ceil(self:GetSize() * 0.25))
+	local size_limited = math.max(2, math.floor(self:GetSize()))
+	return math.min(math.max(spread, size_minimum), size_limited)
 end
 
 function META:GetAtlasFormat()
@@ -217,7 +218,7 @@ function META:GetJFAPipelines()
 						vec2 uv = (vec2(pos) + vec2(0.5)) / vec2(size);
 						vec4 tex = texture(mask_tex, uv);
 						float mask = max(tex.r, tex.a);
-						vec2 seed = (compute.mode == 0) ? (mask > 0.02 ? vec2(pos) : vec2(-1.0)) : (mask < 0.98 ? vec2(pos) : vec2(-1.0));
+						vec2 seed = (compute.mode == 0) ? (mask > 0.0 ? vec2(pos) : vec2(-1.0)) : (mask < 1 ? vec2(pos) : vec2(-1.0));
 						imageStore(out_seed, pos, vec4(seed, 0.0, 0.0));
 					}
 				]],
@@ -349,41 +350,24 @@ function META:GetJFAPipelines()
 				return block
 			end,
 			shader = [[
-					layout(set = 0, binding = 0, rgba8) uniform writeonly image2D out_tex;
-					layout(set = 0, binding = 1) uniform sampler2D dist_on_tex;
-					layout(set = 0, binding = 2) uniform sampler2D dist_off_tex;
-					layout(set = 0, binding = 3) uniform sampler2D mask_tex;
+						layout(set = 0, binding = 0, rgba8) uniform writeonly image2D out_tex;
+						layout(set = 0, binding = 1) uniform sampler2D dist_on_tex;
+						layout(set = 0, binding = 2) uniform sampler2D dist_off_tex;
+						layout(set = 0, binding = 3) uniform sampler2D mask_tex;
 
-					float sample_bilinear_r(sampler2D tex, vec2 uv) {
-						ivec2 size = textureSize(tex, 0);
-						vec2 sample_pos = uv * vec2(size) - vec2(0.5);
-						ivec2 p0 = ivec2(floor(sample_pos));
-						vec2 frac = sample_pos - vec2(p0);
-						ivec2 p1 = p0 + ivec2(1, 1);
-						p0 = clamp(p0, ivec2(0), size - ivec2(1));
-						p1 = clamp(p1, ivec2(0), size - ivec2(1));
-
-						float v00 = texelFetch(tex, ivec2(p0.x, p0.y), 0).r;
-						float v10 = texelFetch(tex, ivec2(p1.x, p0.y), 0).r;
-						float v01 = texelFetch(tex, ivec2(p0.x, p1.y), 0).r;
-						float v11 = texelFetch(tex, ivec2(p1.x, p1.y), 0).r;
-						float vx0 = mix(v00, v10, frac.x);
-						float vx1 = mix(v01, v11, frac.x);
-						return mix(vx0, vx1, frac.y);
-					}
-
-					void main() {
-						ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-						ivec2 size = imageSize(out_tex);
-						if (pos.x >= size.x || pos.y >= size.y) return;
-						vec2 uv = (vec2(pos) + vec2(0.5)) / vec2(size);
-						float d_on = sample_bilinear_r(dist_on_tex, uv);
-						float d_off = sample_bilinear_r(dist_off_tex, uv);
-						float dist = d_off - d_on;
-						float norm_dist = clamp(dist / (compute.max_dist * 2.0) + 0.5, 0.0, 1.0);
-						imageStore(out_tex, pos, vec4(norm_dist, norm_dist, norm_dist, 1.0));
-					}
-				]],
+						void main() {
+							ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+							ivec2 size = imageSize(out_tex);
+							if (pos.x >= size.x || pos.y >= size.y) return;
+							ivec2 dist_size = textureSize(dist_on_tex, 0);
+							ivec2 sample_pos = clamp(pos, ivec2(0), dist_size - ivec2(1));
+							float d_on = texelFetch(dist_on_tex, sample_pos, 0).r;
+							float d_off = texelFetch(dist_off_tex, sample_pos, 0).r;
+							float dist = d_off - d_on;
+							float norm_dist = clamp(dist / (compute.max_dist * 2.0) + 0.5, 0.0, 1.0);
+							imageStore(out_tex, pos, vec4(norm_dist, norm_dist, norm_dist, 1.0));
+						}
+					]],
 		},
 	}
 	shared_jfa_pipelines[atlas_format] = self.jfa_pipelines
@@ -672,9 +656,11 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	table.insert(temp_fbs, tex_b)
 	table.insert(temp_fbs, tex_dist_on)
 	table.insert(temp_fbs, tex_dist_off)
-	-- Keep the encoded distance range aligned with the actual glyph padding while
-	-- still leaving a small minimum margin for blur and outline effects.
-	local max_dist = math.max(4, spread * 2) * SUPER_SAMPLING_SCALE
+	-- max_dist sets the SDF normalization range. Half the glyph in superspace ensures
+	-- the center of the glyph maps to ~1.0 (white). The outer spread region may clip
+	-- to 0.0 early, which is fine since those pixels are outside the glyph anyway.
+	local glyph_superspace = math.max(sw, sh) - spread * 2 * SUPER_SAMPLING_SCALE
+	local max_dist = math.max(4 * SUPER_SAMPLING_SCALE, glyph_superspace * 0.5)
 	p.final.current_jfa_max_dist = max_dist
 	p.combine.current_jfa_max_dist = max_dist
 
