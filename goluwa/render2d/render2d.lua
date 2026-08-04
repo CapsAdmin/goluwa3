@@ -1158,9 +1158,8 @@ function render2d.Initialize()
 				}
 
 				float tex_sdf_distance(int texture_index, float sdf_threshold, vec2 sdf_uv) {
-					vec2 tex_size = vec2(textureSize(TEXTURE(texture_index), 0));
 					float dist = texture(TEXTURE(texture_index), sdf_uv).r;
-					//float px_range = max(length(tex_size) / max(length(shape.rect_size), 0.1), 1.0);
+					//return (sdf_threshold - dist) * shape.sdf_texel_range;
 					return (sdf_threshold - dist) * length(shape.rect_size) / 10;
 				}
 

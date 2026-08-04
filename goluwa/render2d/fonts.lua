@@ -1,10 +1,9 @@
 local fs = import("goluwa/filesystem/fs.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
-local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
-local base_font = import("goluwa/render2d/fonts/base.lua")
-local sdf_font = import("goluwa/render2d/fonts/sdf.lua")
-local raster_font = import("goluwa/render2d/fonts/raster.lua")
+local TTFFont = import("goluwa/render2d/fonts/ttf.lua")
+local SDFFont = import("goluwa/render2d/fonts/sdf.lua")
+local RasterFont = import("goluwa/render2d/fonts/raster.lua")
 local fonts = library()
 -- Font management
 local current_font = nil
@@ -14,8 +13,6 @@ local X, Y = 0, 0
 function fonts.New(props)
 	props = props or {}
 	props.Size = props.Size or 16
-	props.Padding = props.Padding or 1
-	props.Spread = props.Spread or 16
 	local mode = props.Mode
 
 	if mode == nil and props.SDF ~= nil then
@@ -26,20 +23,19 @@ function fonts.New(props)
 
 	if props.Name then
 		local font
-		local fallback_base = ttf_font.New(fonts.GetDefaultSystemFontPath())
+		local fallback_base = TTFFont.New(fonts.GetDefaultSystemFontPath())
 
 		if mode == "raster" then
-			font = raster_font.New(fallback_base)
+			font = RasterFont.New(fallback_base)
 		else
-			font = sdf_font.New(fallback_base, props.Spread)
+			font = SDFFont.New(fallback_base)
 		end
 
-		font:SetPadding(props.Padding)
 		font:SetSize(props.Size)
 		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
 
 		fonts.DownloadGoogleFont{name = props.Name, weight = props.Weight}:Then(function(path)
-			local new_ttf = ttf_font.New(path)
+			local new_ttf = TTFFont.New(path)
 			new_ttf:SetSize(font:GetSize())
 			font:SetFonts({new_ttf})
 		end):Catch(function(err)
@@ -55,19 +51,17 @@ function fonts.New(props)
 		local ext = tostring(props.Path):match("%.([^%.]+)$")
 
 		if ext == "ttf" or ext == "otf" then
-			local base = ttf_font.New(props.Path)
+			local base = TTFFont.New(props.Path)
 
 			if mode == "vector" then
 				base:SetSize(props.Size)
 				return base
 			elseif mode == "raster" then
-				local f = raster_font.New(base)
-				f:SetPadding(props.Padding)
+				local f = RasterFont.New(base)
 				f:SetSize(props.Size)
 				return f
 			else
-				local f = sdf_font.New(base, props.Spread)
-				f:SetPadding(props.Padding)
+				local f = SDFFont.New(base)
 				f:SetSize(props.Size)
 				return f
 			end

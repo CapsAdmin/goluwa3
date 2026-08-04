@@ -4,7 +4,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Texture = import("goluwa/render/texture.lua")
 local META = objects.CreateTemplate("render_texture_atlas")
-META:GetSet("Padding", 1)
+META:GetSet("Padding", 0)
 META:GetSet("MipMapLevels", 1)
 
 function META.New(page_width, page_height, filtering, format)
@@ -202,9 +202,9 @@ function META:Build()
 	render.SubmitAndWait(cmd)
 	self.dirty_textures = {}
 
-	if false then
-		for _, page in ipairs(self.pages) do
-			page.texture:Download():SaveAs("tmp/debug_texture_" .. tostring(page.texture) .. ".png")
+	if true then
+		for i, page in ipairs(self.pages) do
+			page.texture:Download():SaveAs("tmp/texture_atlas_" .. tostring(self) .. "_page_" .. i .. ".png")
 		end
 	end
 end

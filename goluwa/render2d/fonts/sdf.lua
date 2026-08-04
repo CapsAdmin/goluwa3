@@ -92,8 +92,6 @@ end
 local META = objects.CreateTemplate("sdf_font")
 META.IsFont = true
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
-META:GetSet("Spread", 16, {callback = "ClearSizeCache"})
-META:GetSet("Padding", 2, {callback = "OnPaddingChanged"})
 META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
 META:GetSet("Size", 12, {callback = "ClearSizeCache"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
@@ -107,16 +105,6 @@ function META:OnFontsChanged()
 	event.Call("OnFontsChanged", self)
 end
 
-function META:OnPaddingChanged()
-	if self.texture_atlas then
-		self.texture_atlas:SetPadding(self.Padding)
-		self:ClearSizeCache()
-
-		if self.Ready then self:RebuildFromScratch() end
-	end
-end
-
-META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
 META:IsSet("Ready", false)
 META.debug = false
 
@@ -160,10 +148,7 @@ META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
 
 function META:GetEffectiveSpread()
-	local spread = math.max(1, self:GetSpread())
-	local size_minimum = math.max(2, math.ceil(self:GetSize() * 0.25))
-	local size_limited = math.max(2, math.floor(self:GetSize()))
-	return math.min(math.max(spread, size_minimum), size_limited)
+	return math.max(2, math.floor(self.Size))
 end
 
 function META:GetAtlasFormat()
@@ -378,7 +363,6 @@ do
 	local function create_atlas(self)
 		local format = self:GetAtlasFormat()
 		self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-		self.texture_atlas:SetPadding(self:GetPadding())
 
 		for code in pairs(self.chars) do
 			self.chars[code] = nil
@@ -389,13 +373,12 @@ do
 		self:SetReady(true)
 	end
 
-	function META.New(fonts, spread)
+	function META.New(fonts)
 		if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 		local self = META:CreateObject()
 		self.tr = debug.traceback()
 		self:SetFonts(fonts)
-		self:SetSpread(spread or 16)
 		self.chars = {}
 		self.rebuild = false
 
