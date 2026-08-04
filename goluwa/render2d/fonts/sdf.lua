@@ -1,17 +1,15 @@
 --[[HOTRELOAD
 	--os.execute("luajit glw test sdf_fonts")
 ]]
-local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
-local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local pretext = import("goluwa/pretext/init.lua")
+local event = import("goluwa/event.lua")
+local AtlasFont = import("goluwa/render2d/fonts/atlas_font.lua")
 -- Debug mode: enables texture readback assertions after each JFA pass
 local DEBUG = false
 
@@ -27,7 +25,6 @@ local function debug_assert_sdf_texture(tex, name, min_valid, min_valid_count, d
 		render.PushCommandBuffer(cmd)
 	end
 
-	-- Submit any pending command buffer so the texture is written before we read it back
 	local data = tex:Download()
 
 	if not data then
@@ -90,72 +87,46 @@ local function debug_assert_sdf_texture(tex, name, min_valid, min_valid_count, d
 end
 
 local META = objects.CreateTemplate("sdf_font")
-META.IsFont = true
-META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
-META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
-META:GetSet("Size", 12, {callback = "ClearSizeCache"})
-META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
-META:GetSet("Filtering", "linear", {callback = "ClearSizeCache"})
-
-function META:OnFontsChanged()
-	self:ClearSizeCache()
-
-	if self.Ready then self:RebuildFromScratch() end
-
-	event.Call("OnFontsChanged", self)
-end
-
-META:IsSet("Ready", false)
-META.debug = false
+META.Base = AtlasFont
+META:GetSet("LoadSpeed", 10)
+META:GetSet("TabWidthMultiplier", 4)
+META:GetSet("Flags")
 
 function META:__copy()
 	return self
 end
 
-local SUPER_SAMPLING_SCALE = 4
-local COMBINE_SCALE = 4
-local JFA_DESCRIPTOR_SET_COUNT = 1024
+function META.New(fonts)
+	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
-function META:ClearSizeCache()
-	self.text_size_cache = nil
-	self.wrap_string_cache = nil
-	self.draw_pass_cache = nil
-	self.metric_chars = nil
-	self.ascent = nil
-	self.descent = nil
-end
+	local self = META:CreateObject()
+	self.tr = debug.traceback()
+	self:SetFonts(fonts)
+	self.chars = {}
+	self.rebuild = false
 
-function META:OnRemove()
-	if self.texture_atlas then self.texture_atlas:Remove() end
-end
-
-local function get_ascent_descent(self)
-	if not self.ascent then
-		self.Fonts[1]:SetSize(self.Size)
-		self.ascent = self.Fonts[1]:GetAscent()
-		self.descent = self.Fonts[1]:GetDescent()
+	if render.target:IsValid() then
+		self:CreateAtlas()
+	else
+		event.AddListener("RendererReady", self, function()
+			self:CreateAtlas()
+			return event.destroy_tag
+		end)
 	end
 
-	return self.ascent, self.descent
+	return self
 end
-
-local function get_sdf_storage_format(target_format)
-	return "r8g8b8a8_unorm"
-end
-
-META:GetSet("LoadSpeed", 10)
-META:GetSet("TabWidthMultiplier", 4)
-META:GetSet("Flags")
 
 function META:GetEffectiveSpread()
 	return math.max(2, math.floor(self.Size))
 end
 
 function META:GetAtlasFormat()
-	return get_sdf_storage_format(render.target:GetColorFormat())
+	return "r8g8b8a8_unorm"
 end
 
 local shared_jfa_pipelines = {}
+local JFA_DESCRIPTOR_SET_COUNT = 1024
 
 function META:GetJFAPipelines()
 	if self.jfa_pipelines then return self.jfa_pipelines end
@@ -186,9 +157,7 @@ function META:GetJFAPipelines()
 					set_index = 0,
 				},
 			},
-			block = {
-				{"mode", "int"},
-			},
+			block = {{"mode", "int"}},
 			write = function(self, block)
 				block.mode = self.current_jfa_mode
 				return block
@@ -225,9 +194,7 @@ function META:GetJFAPipelines()
 					set_index = 0,
 				},
 			},
-			block = {
-				{"step_size", "int"},
-			},
+			block = {{"step_size", "int"}},
 			write = function(self, block)
 				block.step_size = self.current_jfa_step
 				return block
@@ -278,9 +245,7 @@ function META:GetJFAPipelines()
 					set_index = 0,
 				},
 			},
-			block = {
-				{"max_dist", "float"},
-			},
+			block = {{"max_dist", "float"}},
 			write = function(self, block)
 				block.max_dist = self.current_jfa_max_dist
 				return block
@@ -327,9 +292,7 @@ function META:GetJFAPipelines()
 					set_index = 0,
 				},
 			},
-			block = {
-				{"max_dist", "float"},
-			},
+			block = {{"max_dist", "float"}},
 			write = function(self, block)
 				block.max_dist = self.current_jfa_max_dist
 				return block
@@ -359,192 +322,21 @@ function META:GetJFAPipelines()
 	return self.jfa_pipelines
 end
 
-do
-	local function create_atlas(self)
-		local format = self:GetAtlasFormat()
-		self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-
-		for code in pairs(self.chars) do
-			self.chars[code] = nil
-			self:LoadGlyph(code)
-		end
-
-		self.texture_atlas:Build()
-		self:SetReady(true)
-	end
-
-	function META.New(fonts)
-		if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
-
-		local self = META:CreateObject()
-		self.tr = debug.traceback()
-		self:SetFonts(fonts)
-		self.chars = {}
-		self.rebuild = false
-
-		if render.target:IsValid() then
-			create_atlas(self)
-		else
-			event.AddListener("RendererReady", self, function()
-				create_atlas(self)
-				return event.destroy_tag
-			end)
-		end
-
-		return self
-	end
-end
-
-function META:GetAscent()
-	local a, d = get_ascent_descent(self)
-	return a
-end
-
-function META:GetDescent()
-	local a, d = get_ascent_descent(self)
-	return d
-end
-
-function META:Rebuild()
-	self.draw_pass_cache = nil
-	self.texture_atlas:Build()
-end
-
-function META:RebuildFromScratch()
-	if not self.texture_atlas then return end
-
-	local own_cmd = false
-	local cmd = render.GetCommandBuffer()
-
-	if not cmd then
-		cmd = render.GetCommandPool():AllocateCommandBuffer()
-		cmd:Begin()
-		own_cmd = true
-	end
-
-	render.PushCommandBuffer(cmd)
-	-- Clear all cached glyphs
-	local codes_to_reload = {}
+function META:CreateAtlas()
+	local format = self:GetAtlasFormat()
+	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
 
 	for code in pairs(self.chars) do
-		table.insert(codes_to_reload, code)
 		self.chars[code] = nil
-	end
-
-	-- Reload all glyphs
-	for _, code in ipairs(codes_to_reload) do
 		self:LoadGlyph(code)
 	end
 
-	-- Rebuild the atlas
-	self:Rebuild()
-	render.PopCommandBuffer()
-
-	if own_cmd then
-		cmd:End()
-		render.SubmitAndWait(cmd)
-	end
+	self.texture_atlas:Build()
+	self:SetReady(true)
 end
 
-local fb_pool = {}
-local tex_pool = {}
-
-local function get_temp_fb(self, w, h, format, mip_maps, filter)
-	local key = w .. "_" .. h .. "_" .. format .. (
-			mip_maps and
-			"_t" or
-			"_f"
-		) .. (
-			filter or
-			"linear"
-		)
-	local pool = fb_pool[key]
-
-	if not pool then
-		pool = {}
-		fb_pool[key] = pool
-	end
-
-	local fb = table.remove(pool)
-
-	if not fb then
-		fb = Framebuffer.New{
-			width = w,
-			height = h,
-			name = string.format("render2d sdf font scratch %s %dx%d", tostring(self:GetName() or "unnamed"), w, h),
-			clear_color = {0, 0, 0, 0},
-			format = format,
-			mip_map_levels = mip_maps and "auto" or 1,
-			min_filter = filter or "linear",
-			mag_filter = filter or "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		}
-		fb._pool_key = key
-		fb._temp_kind = "fb"
-	end
-
-	return fb
-end
-
-local function get_temp_tex(self, w, h, format, filter)
-	local key = w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
-	local pool = tex_pool[key]
-
-	if not pool then
-		pool = {}
-		tex_pool[key] = pool
-	end
-
-	local tex = table.remove(pool)
-
-	if not tex then
-		tex = Texture.New{
-			width = w,
-			height = h,
-			format = format,
-			mip_map_levels = 1,
-			image = {
-				usage = {"storage", "sampled", "transfer_src", "transfer_dst"},
-			},
-			sampler = {
-				min_filter = filter or "linear",
-				mag_filter = filter or "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-		tex._pool_key = key
-		tex._temp_kind = "tex"
-	end
-
-	return tex
-end
-
-local function release_temp_resource(resource)
-	local key = resource._pool_key
-
-	if resource._temp_kind == "tex" then
-		local pool = tex_pool[key]
-
-		if not pool then
-			pool = {}
-			tex_pool[key] = pool
-		end
-
-		table.insert(pool, resource)
-		return
-	end
-
-	local pool = fb_pool[key]
-
-	if not pool then
-		pool = {}
-		fb_pool[key] = pool
-	end
-
-	table.insert(pool, resource)
-end
+local SUPER_SAMPLING_SCALE = 4
+local COMBINE_SCALE = 4
 
 local function glyph_has_drawable_outline(glyph)
 	local glyph_data = glyph and glyph.glyph_data
@@ -582,6 +374,10 @@ local function get_metric_char(self, code)
 
 	self.metric_chars[code] = data
 	return data
+end
+
+function META:GetMetricGlyph(code)
+	return get_metric_char(self, code)
 end
 
 local function get_next_pow2_and_steps(n)
@@ -623,13 +419,66 @@ local function estimate_glyph_sdf_descriptor_slots(self, code)
 	return (steps + 4) * 2 + 1
 end
 
+local tex_pool = {}
+
+local function get_temp_tex(self, w, h, format, filter)
+	local key = w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
+	local pool = tex_pool[key]
+
+	if not pool then
+		pool = {}
+		tex_pool[key] = pool
+	end
+
+	local tex = table.remove(pool)
+
+	if not tex then
+		tex = Texture.New{
+			width = w,
+			height = h,
+			format = format,
+			mip_map_levels = 1,
+			image = {
+				usage = {"storage", "sampled", "transfer_src", "transfer_dst"},
+			},
+			sampler = {
+				min_filter = filter or "linear",
+				mag_filter = filter or "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+		tex._pool_key = key
+		tex._temp_kind = "tex"
+	end
+
+	return tex
+end
+
+local function release_temp_resource(self, resource)
+	local key = resource._pool_key
+
+	if resource._temp_kind == "tex" then
+		local pool = tex_pool[key]
+
+		if not pool then
+			pool = {}
+			tex_pool[key] = pool
+		end
+
+		table.insert(pool, resource)
+		return
+	end
+
+	self:ReleaseTempFramebuffer(resource)
+end
+
 function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local p = self:GetJFAPipelines()
 	local max_dim = math.max(sw, sh)
 	local spread = self:GetEffectiveSpread()
 	local cmd = assert(render.GetCommandBuffer(), "GenerateSDF requires an active command buffer")
 	local p2 = get_next_pow2_and_steps(max_dim)
-	-- Verify mask texture before JFA (need at least 20 valid pixels)
 	debug_assert_sdf_texture(mask_tex, "mask_input", 5, 20, "mask texture (must have glyph pixels, not empty)")
 	local tex_a = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
 	local tex_b = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
@@ -639,9 +488,6 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	table.insert(temp_fbs, tex_b)
 	table.insert(temp_fbs, tex_dist_on)
 	table.insert(temp_fbs, tex_dist_off)
-	-- max_dist sets the SDF normalization range. Half the glyph in superspace ensures
-	-- the center of the glyph maps to ~1.0 (white). The outer spread region may clip
-	-- to 0.0 early, which is fine since those pixels are outside the glyph anyway.
 	local glyph_superspace = math.max(sw, sh) - spread * 2 * SUPER_SAMPLING_SCALE
 	local max_dist = math.max(4 * SUPER_SAMPLING_SCALE, glyph_superspace * 0.5)
 	p.final.current_jfa_max_dist = max_dist
@@ -729,7 +575,6 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	end
 
 	local function run_jfa(mode, out_tex)
-		local mode_name = mode == 0 and "on" or "off"
 		p.init.current_jfa_mode = mode
 		local slot = next_descriptor_slot()
 		transition_to_storage(tex_a)
@@ -742,9 +587,8 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		local step = p2 / 2
 
 		while step >= 1 do
-			local step_size = step
 			slot = next_descriptor_slot()
-			p.step.current_jfa_step = step_size
+			p.step.current_jfa_step = step
 			transition_to_storage(next_tex)
 			p.step:UpdateDescriptorSet("storage_image", slot, 0, 0, next_tex:GetView())
 			p.step:UpdateDescriptorSet(
@@ -761,7 +605,6 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 			step = math.floor(step / 2)
 		end
 
-		-- Extra passes at step 1 to fix precision artifacts and "wiggling" spines
 		for i = 1, 2 do
 			slot = next_descriptor_slot()
 			p.step.current_jfa_step = 1
@@ -795,9 +638,9 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		transition_to_sampled(out_tex, "fragment")
 	end
 
-	run_jfa(0, tex_dist_on) -- Distance to ON pixels
+	run_jfa(0, tex_dist_on)
 	debug_assert_sdf_texture(tex_dist_on, "dist_on", 0, 20, "distance to ON pixels (after init+JFA)")
-	run_jfa(1, tex_dist_off) -- Distance to OFF pixels
+	run_jfa(1, tex_dist_off)
 	debug_assert_sdf_texture(tex_dist_off, "dist_off", 0, 20, "distance to OFF pixels (after init+JFA)")
 	local combine_w = target_w * COMBINE_SCALE
 	local combine_h = target_h * COMBINE_SCALE
@@ -834,7 +677,6 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	)
 	p.combine.current_jfa_max_dist = max_dist
 	p.combine:DispatchForSize(nil, combine_w, combine_h, 1, final_frame_index)
-	-- Blit from high-res combine output down to target size
 	transition_image(
 		tex_combine,
 		"compute",
@@ -870,11 +712,9 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		"shader_read",
 		"shader_read_only_optimal"
 	)
-	-- need to also wait for some reason
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	cmd:Begin()
-	-- Check that SDF has meaningful variation (not all same value)
 	debug_assert_sdf_texture(
 		tex_final,
 		"final_sdf",
@@ -886,7 +726,6 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 end
 
 function META:LoadGlyph(code, temp_fbs)
-	-- Convert string to character code if needed
 	if type(code) == "string" then code = utf8.uint32(code) end
 
 	if self.chars[code] ~= nil then return end
@@ -912,10 +751,7 @@ function META:LoadGlyph(code, temp_fbs)
 	end
 
 	if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
-		if not render.available or not render.target then
-			-- Renderer not ready, don't cache yet so we can try again later
-			return
-		end
+		if not render.available or not render.target then return end
 
 		local scale = SUPER_SAMPLING_SCALE
 		local spread = self:GetEffectiveSpread()
@@ -923,7 +759,7 @@ function META:LoadGlyph(code, temp_fbs)
 		local sh = (glyph.h + spread * 2) * scale
 		local used_temp_fbs = {}
 		local format = self:GetAtlasFormat()
-		local fb_ss = get_temp_fb(self, sw, sh, format, true)
+		local fb_ss = self:GetTempFramebuffer(sw, sh, format, true)
 		table.insert(used_temp_fbs, fb_ss)
 		local own_cmd = false
 		local cmd = render.GetCommandBuffer()
@@ -935,19 +771,15 @@ function META:LoadGlyph(code, temp_fbs)
 		end
 
 		do
-			-- Debug: check glyph data
 			if DEBUG then
 				local gd = glyph.glyph_data
-				local poly = gd and gd.poly
-				local verts = gd and gd.points
-				local contours = gd and gd.end_pts_of_contours
 				print(
 					string.format(
 						"SDF debug glyph %d: has_poly=%d points=%d contours=%d glyph.w=%d h=%d bitmap_left=%d bitmap_top=%d",
 						code,
-						poly and 1 or 0,
-						#((verts) or {}),
-						#((contours) or {}),
+						gd and gd.poly and 1 or 0,
+						#((gd and gd.points) or {}),
+						#((gd and gd.end_pts_of_contours) or {}),
 						glyph.w,
 						glyph.h,
 						glyph.bitmap_left,
@@ -964,10 +796,8 @@ function META:LoadGlyph(code, temp_fbs)
 			render2d.PushScreenSize(sw, sh)
 			render2d.PushMatrix()
 			render2d.LoadIdentity()
-			-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
 			render2d.Translate(spread * scale, (glyph.h + spread) * scale)
 			render2d.Scale(scale, -scale)
-			-- Shift glyph to be at (0, 0) in the padded area
 			render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 			glyph_source_font:DrawGlyph(glyph.glyph_data)
 			render2d.FlushBatches("glyph_load")
@@ -980,16 +810,9 @@ function META:LoadGlyph(code, temp_fbs)
 		end
 
 		if glyph_has_drawable_outline(glyph) then
-			glyph.texture = self:GenerateSDF(
-				fb_ss.color_texture,
-				sw,
-				sh,
-				glyph.w + spread * 2,
-				glyph.h + spread * 2,
-				used_temp_fbs
-			)
+			glyph.texture = self:GenerateSDF(fb_ss.color_texture, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
 		else
-			local fb_final = get_temp_fb(self, glyph.w + spread * 2, glyph.h + spread * 2, format, false)
+			local fb_final = self:GetTempFramebuffer(glyph.w + spread * 2, glyph.h + spread * 2, format, false)
 			table.insert(used_temp_fbs, fb_final)
 			render.PushCommandBuffer(cmd)
 			fb_final:Begin(cmd)
@@ -998,27 +821,32 @@ function META:LoadGlyph(code, temp_fbs)
 			glyph.texture = fb_final.color_texture
 		end
 
-		if own_cmd then
-			local atlas_data = {
-				w = glyph.w + spread * 2,
-				h = glyph.h + spread * 2,
-				texture = glyph.texture,
-				flip_y = glyph.flip_y,
-			}
-			self.texture_atlas:Insert(code, atlas_data)
-			glyph.atlas_data = atlas_data
-			self.chars[code] = glyph
+		local atlas_data = {
+			w = glyph.w + spread * 2,
+			h = glyph.h + spread * 2,
+			texture = glyph.texture,
+			flip_y = glyph.flip_y,
+		}
+		self.texture_atlas:Insert(code, atlas_data)
+		glyph.atlas_data = atlas_data
+		self.chars[code] = glyph
+
+		if not temp_fbs then
 			self:Rebuild()
-			cmd:End()
-			render.SubmitAndWait(cmd)
 
 			for _, fb in ipairs(used_temp_fbs) do
-				release_temp_resource(fb)
+				release_temp_resource(self, fb)
 			end
 
 			self.rebuild = false
+
+			if own_cmd then
+				cmd:End()
+				render.SubmitAndWait(cmd)
+			end
+
 			return
-		elseif temp_fbs then
+		else
 			for _, fb in ipairs(used_temp_fbs) do
 				table.insert(temp_fbs, fb)
 			end
@@ -1034,38 +862,6 @@ function META:LoadGlyph(code, temp_fbs)
 	self.texture_atlas:Insert(code, atlas_data)
 	glyph.atlas_data = atlas_data
 	self.chars[code] = glyph
-end
-
-function META:GetChar(char)
-	local data = self.chars[char]
-
-	if data ~= nil then
-		if char == 10 then
-			if data then
-				if data.h <= 1 then data.h = self.Size end
-			else
-				data = {h = self.Size}
-				self.chars[10] = data
-			end
-		end
-
-		return data
-	end
-
-	self.rebuild = true
-	self:LoadGlyph(char)
-	data = self.chars[char]
-
-	if char == 10 then
-		if data then
-			if data.h <= 1 then data.h = self.Size end
-		else
-			data = {h = self.Size}
-			self.chars[10] = data
-		end
-	end
-
-	return data
 end
 
 local function batch_load_glyphs(self, str)
@@ -1085,11 +881,9 @@ local function batch_load_glyphs(self, str)
 		if i > len then return end
 	end
 
-	-- Found first new glyph, start batch loading from here
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
 	local temp_fbs = {}
-	-- Load from current position (first new glyph) onwards
 	render.PushCommandBuffer(cmd)
 
 	while i <= len do
@@ -1117,29 +911,8 @@ local function batch_load_glyphs(self, str)
 	self.rebuild = false
 
 	for _, fb in ipairs(temp_fbs) do
-		release_temp_resource(fb)
+		release_temp_resource(self, fb)
 	end
-end
-
-local function get_draw_pass_cache(self, atlas)
-	local cache = self.draw_pass_cache
-
-	if not cache then
-		cache = setmetatable({}, {__mode = "k"})
-		self.draw_pass_cache = cache
-	end
-
-	local atlas_cache = cache[atlas]
-
-	if atlas_cache then return atlas_cache end
-
-	atlas_cache = {}
-	cache[atlas] = atlas_cache
-	return atlas_cache
-end
-
-local function get_draw_pass_cache_key(str, spacing, extra_space_advance)
-	return tostring(spacing) .. "\0" .. tostring(extra_space_advance or 0) .. "\0" .. str
 end
 
 local function build_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
@@ -1228,8 +1001,18 @@ local function build_draw_pass_layout(self, str, spacing, atlas, extra_space_adv
 	}
 end
 
+local function get_draw_pass_cache_key(str, spacing, extra_space_advance)
+	return tostring(spacing) .. "\0" .. tostring(extra_space_advance or 0) .. "\0" .. str
+end
+
 local function get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
-	local atlas_cache = get_draw_pass_cache(self, atlas)
+	local atlas_cache = self.draw_pass_cache
+
+	if not atlas_cache then
+		atlas_cache = setmetatable({}, {__mode = "k"})
+		self.draw_pass_cache = atlas_cache
+	end
+
 	local key = get_draw_pass_cache_key(str, spacing, extra_space_advance)
 	local cached = atlas_cache[key]
 
@@ -1240,76 +1023,13 @@ local function get_draw_pass_layout(self, str, spacing, atlas, extra_space_advan
 	return cached
 end
 
-function META:GetLineHeight()
-	local a, d = get_ascent_descent(self)
-	return (a + d)
-end
-
-function META:GetTextSizeNotCached(str)
-	if not self:IsReady() then return 0, 0 end
-
-	str = tostring(str)
-	local X, Y = 0, self:GetAscent()
-	local max_x = 0
-	local spacing = self.Spacing
-	local line_height = self:GetLineHeight()
-	local i = 1
-	local len = #str
-	local monospace = self.Monospace
-	local half_size = self.Size / 2
-	local tab_mult = self.TabWidthMultiplier
-	local chars = self.chars
-
-	while i <= len do
-		local char_code = utf8.uint32(str, i)
-
-		if char_code == 10 then -- \n
-			Y = Y + line_height + spacing
-
-			if X > max_x then max_x = X end
-
-			X = 0
-		elseif char_code == 32 then -- space
-			X = X + half_size
-		elseif char_code == 9 then -- \t
-			local data = chars[32] or get_metric_char(self, 32)
-
-			if data then
-				if monospace then
-					X = X + spacing * tab_mult
-				else
-					X = X + (data.x_advance + spacing) * tab_mult
-				end
-			else
-				X = X + self.Size * tab_mult
-			end
-		else
-			local data = chars[char_code] or get_metric_char(self, char_code)
-
-			if data then
-				if monospace then
-					X = X + spacing
-				else
-					X = X + data.x_advance + spacing
-				end
-			end
-		end
-
-		i = i + utf8.byte_length(str, i)
-	end
-
-	if max_x ~= 0 and max_x > X then X = max_x end
-
-	return X * self.Scale.x, Y * self.Scale.y
-end
-
 local render2d_SetTexture = render2d.SetTexture
 local render2d_DrawRectUV2f = render2d.DrawRectUV2f
 local render2d_PushColor = render2d.PushColor
 local render2d_DrawRect = render2d.DrawRect
 local render2d_PopColor = render2d.PopColor
 
-function META:DrawPassImmediate(str, x, y, spacing, atlas, extra_space_advance)
+function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 	local old_texture = render2d.GetTexture()
 	local last_texture = old_texture
 	local debug = self.debug
@@ -1363,101 +1083,11 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	extra_space_advance = extra_space_advance or 0
 	render2d.PushUV()
 	render2d.PushSDFMode(true)
-	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 4) -- 2 * max_dist_factor (spread*2) for full SDF range
-	self:DrawPassImmediate(str, x, y, spacing, self.texture_atlas, extra_space_advance)
+	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 4)
+	self:DrawPass(str, x, y, spacing, self.texture_atlas, extra_space_advance)
 	render2d.PopSDFTexelRange()
 	render2d.PopSDFMode()
 	render2d.PopUV()
-end
-
-do
-	-- Drawing functions
-	function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance)
-		if align_x or align_y then
-			local w, h = self:GetTextSize(str)
-
-			if type(align_x) == "number" then
-				x = x - (w * align_x)
-			elseif align_x == "center" then
-				x = x - (w / 2)
-			elseif align_x == "right" then
-				x = x - w
-			end
-
-			if type(align_y) == "number" then
-				y = y - (h * align_y)
-			elseif align_y == "baseline" then
-				y = y - self:GetAscent()
-			elseif align_y == "center" then
-				y = y - (h / 2)
-			elseif align_y == "bottom" then
-				y = y - h
-			end
-		end
-
-		self:DrawString(str, x, y, spacing, extra_space_advance)
-	end
-
-	function META:GetTextSize(str)
-		if type(str) ~= "string" then str = tostring(str or "|") end
-
-		self.text_size_cache = self.text_size_cache or {}
-		local cached = self.text_size_cache[str]
-
-		if cached then return cached[1], cached[2] end
-
-		local w, h = self:GetTextSizeNotCached(str)
-		self.text_size_cache[str] = {w, h}
-		return w, h
-	end
-
-	function META:MeasureText(str)
-		return self:GetTextSize(str)
-	end
-
-	function META:GetSpaceAdvance()
-		local width = select(1, self:GetTextSize(" "))
-
-		if width == 0 then
-			width = select(1, self:GetTextSize("| |")) - select(1, self:GetTextSize("||"))
-		end
-
-		return width
-	end
-
-	function META:GetTabAdvance(space_width, tab_size, current_width)
-		if self.GetTabWidth then
-			return self:GetTabWidth(space_width, tab_size, current_width)
-		end
-
-		return (space_width or self:GetSpaceAdvance()) * (tab_size or 4)
-	end
-
-	function META:GetGlyphAdvance(char)
-		return select(1, self:GetTextSize(char))
-	end
-
-	function META:WrapString(str, max_width)
-		str = tostring(str or "")
-		max_width = max_width or 0
-		self.wrap_string_cache = self.wrap_string_cache or {}
-		local cache_key = tostring(max_width) .. "\0" .. str
-
-		if self.wrap_string_cache[cache_key] ~= nil then
-			return self.wrap_string_cache[cache_key]
-		end
-
-		local size = self:GetTextSize(str)
-
-		if max_width > size then
-			self.wrap_string_cache[cache_key] = str
-			return str
-		end
-
-		local wrapped = pretext.wrap_font_text(self, str, max_width)
-		self.wrap_string_cache[cache_key] = wrapped
-		return wrapped
-	end
 end
 
 return META:Register()

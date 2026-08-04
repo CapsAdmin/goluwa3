@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local MarkupBuffer = import("goluwa/render2d/markup_buffer.lua")
 local Markup = import("goluwa/render2d/markup.lua")
-local base_font = import("goluwa/render2d/fonts/base.lua")
+local BitmapFont = import("goluwa/render2d/fonts/bitmap.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
@@ -170,7 +170,7 @@ end)
 
 T.Test2D("Markup wraps oversized tokens with pretext", function()
 	local m = Markup.New(nil, true)
-	m:AddFont(base_font.New())
+	m:AddFont(BitmapFont.New())
 	m:AddString("abcdefgh")
 	m:SetMaxWidth(16)
 	m:Invalidate()
@@ -190,7 +190,7 @@ end)
 
 T.Test2D("Markup preserves word wrapping with fixed metrics", function()
 	local m = Markup.New(nil, true)
-	m:AddFont(base_font.New())
+	m:AddFont(BitmapFont.New())
 	m:AddString("hello world again")
 	m:SetMaxWidth(40)
 	m:Invalidate()
@@ -210,7 +210,7 @@ end)
 
 T.Test2D("Markup visual down movement follows wrapped layout", function()
 	local m = Markup.New(nil, true)
-	m:AddFont(base_font.New())
+	m:AddFont(BitmapFont.New())
 	m:AddString("abcdefgh")
 	m:SetEditable(true)
 	m:SetMaxWidth(16)
@@ -227,7 +227,7 @@ T.Test2D("Markup line height does not bleed from tall line to subsequent lines",
 	-- subsequent lines incorrectly inherit the same line_height value.
 	-- Create markup with text that will have different line heights
 	local m = Markup.New(nil, true)
-	m:AddFont(base_font.New())
+	m:AddFont(BitmapFont.New())
 	-- Add text with newlines to create multiple lines
 	m:AddString("A\n")
 	m:AddString("B\n")

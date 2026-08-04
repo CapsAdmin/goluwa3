@@ -8,7 +8,6 @@ local fonts = library()
 -- Font management
 local current_font = nil
 local default_font = nil
-local X, Y = 0, 0
 
 function fonts.New(props)
 	props = props or {}

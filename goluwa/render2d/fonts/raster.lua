@@ -1,94 +1,19 @@
 --[[HOTRELOAD
 	os.execute("luajit glw test raster")
 ]]
-local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
-local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
-local pretext = import("goluwa/pretext/init.lua")
+local event = import("goluwa/event.lua")
+local AtlasFont = import("goluwa/render2d/fonts/atlas_font.lua")
 local META = objects.CreateTemplate("raster_font")
-META.IsFont = true
-META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
-META:GetSet("Padding", 1, {callback = "OnPaddingChanged"})
-META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
-META:GetSet("Size", 12, {callback = "ClearSizeCache"})
-META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
-META:GetSet("Filtering", "linear", {callback = "ClearSizeCache"})
-META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
-META:IsSet("Ready", false)
+META.Base = AtlasFont
 META.debug = false
 
 function META:__copy()
 	return self
-end
-
-function META:ClearSizeCache()
-	self.text_size_cache = nil
-	self.wrap_string_cache = nil
-	self.ascent = nil
-	self.descent = nil
-end
-
-function META:OnFontsChanged()
-	self:ClearSizeCache()
-
-	if self.Ready then self:RebuildFromScratch() end
-
-	event.Call("OnFontsChanged", self)
-end
-
-function META:OnPaddingChanged()
-	if self.texture_atlas then
-		self.texture_atlas:SetPadding(self.Padding)
-		self:ClearSizeCache()
-
-		if self.Ready then self:RebuildFromScratch() end
-	end
-end
-
-function META:OnRemove()
-	if self.texture_atlas then self.texture_atlas:Remove() end
-end
-
-local function get_ascent_descent(self)
-	if not self.ascent then
-		self.Fonts[1]:SetSize(self.Size)
-		self.ascent = self.Fonts[1]:GetAscent()
-		self.descent = self.Fonts[1]:GetDescent()
-	end
-
-	return self.ascent, self.descent
-end
-
-function META:GetAtlasFormat()
-	return render.target:GetColorFormat()
-end
-
-local function get_font_debug_name(self)
-	return string.format(
-		"render2d raster font atlas %s size=%s",
-		tostring(self:GetName() or "unnamed"),
-		tostring(self:GetSize())
-	)
-end
-
-local function create_atlas(self)
-	local format = self:GetAtlasFormat()
-	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-	self.texture_atlas:SetDebugName(get_font_debug_name(self))
-	self.texture_atlas:SetPadding(self:GetPadding())
-
-	for code in pairs(self.chars) do
-		self.chars[code] = nil
-		self:LoadGlyph(code)
-	end
-
-	self.texture_atlas:Build()
-	self:SetReady(true)
 end
 
 function META.New(fonts)
@@ -101,10 +26,10 @@ function META.New(fonts)
 	self.rebuild = false
 
 	if render.target:IsValid() then
-		create_atlas(self)
+		self:CreateAtlas()
 	else
 		event.AddListener("RendererReady", self, function()
-			create_atlas(self)
+			self:CreateAtlas()
 			return event.destroy_tag
 		end)
 	end
@@ -112,121 +37,41 @@ function META.New(fonts)
 	return self
 end
 
-function META:GetAscent()
-	local a = get_ascent_descent(self)
-	return a
+function META:GetAtlasFormat()
+	return render.target:GetColorFormat()
 end
 
-function META:GetDescent()
-	local _, d = get_ascent_descent(self)
-	return d
-end
-
-function META:Rebuild()
-	self.texture_atlas:Build()
-end
-
-function META:RebuildFromScratch()
-	if not self.texture_atlas then return end
-
-	local own_cmd = false
-	local cmd = render.GetCommandBuffer()
-
-	if not cmd then
-		cmd = render.GetCommandPool():AllocateCommandBuffer()
-		cmd:Begin()
-		own_cmd = true
-	end
-
-	render.PushCommandBuffer(cmd)
-	local codes_to_reload = {}
+function META:CreateAtlas()
+	local format = self:GetAtlasFormat()
+	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
+	self.texture_atlas:SetDebugName(
+		string.format(
+			"render2d raster font atlas %s size=%s",
+			tostring(self:GetName() or "unnamed"),
+			tostring(self:GetSize())
+		)
+	)
+	self.texture_atlas:SetPadding(self:GetPadding())
 
 	for code in pairs(self.chars) do
-		table.insert(codes_to_reload, code)
 		self.chars[code] = nil
-	end
-
-	for _, code in ipairs(codes_to_reload) do
 		self:LoadGlyph(code)
 	end
 
-	self:Rebuild()
-	render.PopCommandBuffer()
-
-	if own_cmd then
-		cmd:End()
-		render.SubmitAndWait(cmd)
-	end
+	self.texture_atlas:Build()
+	self:SetReady(true)
 end
 
 local scratch_size = {w = 0, h = 0}
-local fb_pool = {}
-
-local function get_temp_fb(self, w, h, format, mip_maps, filter)
-	local key = w .. "_" .. h .. "_" .. format .. (
-			mip_maps and
-			"_t" or
-			"_f"
-		) .. (
-			filter or
-			"linear"
-		)
-	local pool = fb_pool[key]
-
-	if not pool then
-		pool = {}
-		fb_pool[key] = pool
-	end
-
-	local fb = table.remove(pool)
-
-	if not fb then
-		fb = Framebuffer.New{
-			width = w,
-			height = h,
-			name = string.format(
-				"render2d raster font scratch %s %dx%d",
-				tostring(self:GetName() or "unnamed"),
-				w,
-				h
-			),
-			clear_color = {0, 0, 0, 0},
-			format = format,
-			mip_map_levels = mip_maps and "auto" or 1,
-			min_filter = filter or "linear",
-			mag_filter = filter or "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		}
-		fb._pool_key = key
-	end
-
-	return fb
-end
-
-local function release_temp_fb(fb)
-	local key = fb._pool_key
-	local pool = fb_pool[key]
-
-	if not pool then
-		pool = {}
-		fb_pool[key] = pool
-	end
-
-	table.insert(pool, fb)
-end
 
 local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 	local padding = self:GetPadding()
-	-- Use bitmap_top as the effective height to ensure the full glyph fits
-	-- bitmap_top is the distance from baseline to top of bitmap
 	local effective_h = math.max(glyph.h, glyph.bitmap_top)
 	local width = math.max(1, math.ceil(glyph.w + padding * 2))
 	local height = math.max(1, math.ceil(effective_h + padding * 2))
 	local format = self:GetAtlasFormat()
-	local fb = get_temp_fb(self, width, height, format, true, self.Filtering)
+	local fb = self:GetTempFramebuffer(width, height, format, true, self.Filtering)
 	table.insert(temp_fbs, fb)
-	local own_cmd = false
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
 
@@ -247,7 +92,6 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.SetSwizzleMode(0)
 		render2d.PushMatrix()
 		render2d.LoadIdentity()
-		-- Position baseline so the full glyph (including ascenders) fits in the framebuffer
 		render2d.Translate(padding, effective_h + padding)
 		render2d.Scale(1, -1)
 		render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
@@ -293,7 +137,6 @@ function META:LoadGlyph(code, temp_fbs)
 		return
 	end
 
-	-- Always render raster glyphs to our own texture (ignore any pre-existing texture)
 	if glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
 		if not render.available or not render.target then return end
 
@@ -306,7 +149,7 @@ function META:LoadGlyph(code, temp_fbs)
 
 		if not temp_fbs then
 			for _, fb in ipairs(used_temp_fbs) do
-				release_temp_fb(fb)
+				self:ReleaseTempFramebuffer(fb)
 			end
 		else
 			for _, fb in ipairs(used_temp_fbs) do
@@ -326,38 +169,6 @@ function META:LoadGlyph(code, temp_fbs)
 	end
 
 	self.chars[code] = glyph
-end
-
-function META:GetChar(char)
-	local data = self.chars[char]
-
-	if data ~= nil then
-		if char == 10 then
-			if data then
-				if data.h <= 1 then data.h = self.Size end
-			else
-				data = {h = self.Size}
-				self.chars[10] = data
-			end
-		end
-
-		return data
-	end
-
-	self.rebuild = true
-	self:LoadGlyph(char)
-	data = self.chars[char]
-
-	if char == 10 then
-		if data then
-			if data.h <= 1 then data.h = self.Size end
-		else
-			data = {h = self.Size}
-			self.chars[10] = data
-		end
-	end
-
-	return data
 end
 
 local function batch_load_glyphs(self, str)
@@ -395,72 +206,8 @@ local function batch_load_glyphs(self, str)
 	self.rebuild = false
 
 	for _, fb in ipairs(temp_fbs) do
-		release_temp_fb(fb)
+		self:ReleaseTempFramebuffer(fb)
 	end
-end
-
-function META:GetLineHeight()
-	local a, d = get_ascent_descent(self)
-	return (a + d)
-end
-
-function META:GetTextSizeNotCached(str)
-	if not self:IsReady() then return 0, 0 end
-
-	str = tostring(str)
-	batch_load_glyphs(self, str)
-	local X, Y = 0, self:GetAscent()
-	local max_x = 0
-	local spacing = self.Spacing
-	local line_height = self:GetLineHeight()
-	local i = 1
-	local len = #str
-	local monospace = self.Monospace
-	local half_size = self.Size / 2
-	local tab_mult = 4
-	local chars = self.chars
-
-	while i <= len do
-		local char_code = utf8.uint32(str, i)
-
-		if char_code == 10 then
-			Y = Y + line_height + spacing
-
-			if X > max_x then max_x = X end
-
-			X = 0
-		elseif char_code == 32 then
-			X = X + half_size
-		elseif char_code == 9 then
-			local data = chars[32] or self:GetChar(32)
-
-			if data then
-				if monospace then
-					X = X + spacing * tab_mult
-				else
-					X = X + (data.x_advance + spacing) * tab_mult
-				end
-			else
-				X = X + self.Size * tab_mult
-			end
-		else
-			local data = chars[char_code]
-
-			if data then
-				if monospace then
-					X = X + spacing
-				else
-					X = X + data.x_advance + spacing
-				end
-			end
-		end
-
-		i = i + utf8.byte_length(str, i)
-	end
-
-	if max_x ~= 0 and max_x > X then X = max_x end
-
-	return X * self.Scale.x, Y * self.Scale.y
 end
 
 function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
@@ -510,7 +257,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 					local ry = y + (Y + data.bitmap_top - padding) * self.Scale.y
 					local rw = atlas_data.w * self.Scale.x
 					local rh = atlas_data.h * self.Scale.y
-					local result = render2d.DrawRectUV2f(rx, ry, rw, rh, uv[1], uv[2], uv[3], uv[4])
+					render2d.DrawRectUV2f(rx, ry, rw, rh, uv[1], uv[2], uv[3], uv[4])
 
 					if self.debug then
 						render2d.SetTexture(nil)
@@ -547,60 +294,6 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	render2d.PushUV()
 	self:DrawPass(str, x, y, spacing, self.texture_atlas, extra_space_advance)
 	render2d.PopUV()
-end
-
-function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance)
-	if align_x or align_y then
-		local w, h = self:GetTextSize(str)
-
-		if type(align_x) == "number" then
-			x = x - (w * align_x)
-		elseif align_x == "center" then
-			x = x - (w / 2)
-		elseif align_x == "right" then
-			x = x - w
-		end
-
-		if type(align_y) == "number" then
-			y = y - (h * align_y)
-		elseif align_y == "baseline" then
-			y = y - self:GetAscent()
-		elseif align_y == "center" then
-			y = y - (h / 2)
-		elseif align_y == "bottom" then
-			y = y - h
-		end
-	end
-
-	self:DrawString(str, x, y, spacing, extra_space_advance)
-end
-
-function META:GetTextSize(str)
-	if type(str) ~= "string" then str = tostring(str or "|") end
-
-	return self:GetTextSizeNotCached(str)
-end
-
-function META:WrapString(str, max_width)
-	str = tostring(str or "")
-	max_width = max_width or 0
-	self.wrap_string_cache = self.wrap_string_cache or {}
-	local cache_key = tostring(max_width) .. "\0" .. str
-
-	if self.wrap_string_cache[cache_key] ~= nil then
-		return self.wrap_string_cache[cache_key]
-	end
-
-	local size = self:GetTextSize(str)
-
-	if max_width > size then
-		self.wrap_string_cache[cache_key] = str
-		return str
-	end
-
-	local wrapped = pretext.wrap_font_text(self, str, max_width)
-	self.wrap_string_cache[cache_key] = wrapped
-	return wrapped
 end
 
 return META:Register()

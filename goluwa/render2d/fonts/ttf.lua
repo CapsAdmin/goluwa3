@@ -1,17 +1,14 @@
 local ffi = require("ffi")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local Texture = import("goluwa/render/texture.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
-local Buffer = import("goluwa/structs/buffer.lua")
 local codec = import("goluwa/codec.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local objects = import("goluwa/objects/objects.lua")
-local pretext = import("goluwa/pretext/init.lua")
+local FontBase = import("goluwa/render2d/fonts/base.lua")
 local META = objects.CreateTemplate("font_ttf")
-META.IsFont = true
-META:GetSet("Path", nil)
+META.Base = FontBase
 META:GetSet("Size", 16, {callback = "UpdateScale"})
 META.scale_override = nil
 
@@ -37,7 +34,6 @@ function META:UpdateScale()
 			self.scale = self.Size / self.font.units_per_em
 		end
 
-		-- Use CapHeight for layout if available, otherwise heuristic 70% of EM or typo_ascent
 		self.ascent = (
 				self.font.cap_height or
 				self.font.typo_ascent or
@@ -71,9 +67,7 @@ local function get_contour_points(self, glyph, raw_points)
 
 	local function add_pt(x, y)
 		if #flattened >= 2 then
-			if flattened[#flattened - 1] == x and flattened[#flattened] == y then
-				return
-			end
+			if flattened[#flattened - 1] == x and flattened[#flattened] == y then return end
 		end
 
 		if #flattened >= 6 then
@@ -129,7 +123,6 @@ local function get_contour_points(self, glyph, raw_points)
 				end_x, end_y = (px + npx) / 2, (py + npy) / 2
 			end
 
-			-- Flatten quadratic bezier
 			local steps = 10
 
 			for i = 1, steps do
@@ -148,12 +141,9 @@ local function get_contour_points(self, glyph, raw_points)
 end
 
 function META:DrawGlyph(glyph)
-	-- Handle both raw glyph_data and full glyph object from GetGlyph
 	if not glyph then return end
 
 	if glyph.glyph_data then glyph = glyph.glyph_data end
-
-	local debug_targets = {P = true, R = true, e = true, ["&"] = true, ["#"] = true}
 
 	if glyph.poly then
 		glyph.poly:Draw()
@@ -188,14 +178,12 @@ function META:DrawGlyph(glyph)
 		end
 	end
 
-	-- Remove duplicate contours (can happen from splitting at same intersection point)
 	local unique_contours = {}
 
 	for _, c in ipairs(contours) do
 		local dominated = false
 
 		for _, existing in ipairs(unique_contours) do
-			-- Check if first few points match (indicates duplicate)
 			if
 				#c == #existing and
 				math.abs(c[1] - existing[1]) < 0.01 and
@@ -244,7 +232,6 @@ function META:ResolveGlyphData(glyph_data)
 			local offset = #all_points
 
 			for _, p in ipairs(comp_data.points) do
-				-- Apply 2x2 matrix and translation
 				local x = p.x * m[1] + p.y * m[3] + m[5]
 				local y = p.x * m[2] + p.y * m[4] + m[6]
 				table.insert(all_points, {x = x, y = y, on_curve = p.on_curve})
@@ -354,76 +341,7 @@ function META:GetTextSize(str)
 	return X, Y
 end
 
-function META:MeasureText(str)
-	return self:GetTextSize(str)
-end
-
-function META:GetSpaceAdvance()
-	local width = select(1, self:GetTextSize(" "))
-
-	if width == 0 then
-		width = select(1, self:GetTextSize("| |")) - select(1, self:GetTextSize("||"))
-	end
-
-	return width
-end
-
-function META:GetTabAdvance(space_width, tab_size, current_width)
-	if self.GetTabWidth then
-		return self:GetTabWidth(space_width, tab_size, current_width)
-	end
-
-	return (space_width or self:GetSpaceAdvance()) * (tab_size or 4)
-end
-
-function META:GetGlyphAdvance(char)
-	local codepoint = type(char) == "number" and char or utf8.uint32(char)
-	local glyph = self:GetGlyph(codepoint)
-
-	if glyph and glyph.x_advance then return glyph.x_advance end
-
-	return select(1, self:GetTextSize(char))
-end
-
-function META:WrapString(str, max_width)
-	str = tostring(str or "")
-	max_width = max_width or 0
-	local size = self:GetTextSize(str)
-
-	if max_width > size then return str end
-
-	return pretext.wrap_font_text(self, str, max_width)
-end
-
-function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance)
-	if align_x or align_y then
-		local w, h = self:GetTextSize(str)
-
-		if type(align_x) == "number" then
-			x = x - (w * align_x)
-		elseif align_x == "center" then
-			x = x - (w / 2)
-		elseif align_x == "right" then
-			x = x - w
-		end
-
-		if type(align_y) == "number" then
-			y = y - (h * align_y)
-		elseif align_y == "baseline" then
-			y = y - self:GetAscent()
-		elseif align_y == "center" then
-			y = y - (h / 2)
-		elseif align_y == "bottom" then
-			y = y - h
-		end
-	end
-
-	self:DrawString(str, x, y, spacing, extra_space_advance)
-end
-
 function META:DrawString(str, x, y, spacing, extra_space_advance)
-	-- TTF fonts can be drawn directly but it's slower than using rasterized_font
-	-- For best performance, wrap in rasterized_font for texture atlas rendering
 	spacing = spacing or 0
 	extra_space_advance = extra_space_advance or 0
 	local X, Y = 0, 0
@@ -438,9 +356,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		elseif char == "\t" then
 			X = X + self.Size * 4
 		elseif glyph and glyph.glyph_data then
-			-- Debug: pass character info to DrawGlyph
 			glyph.glyph_data.debug_char = char
-			-- Draw glyph using Polygon2D
 			render2d.PushMatrix()
 			render2d.Translate(x + X, y + Y)
 			self:DrawGlyph(glyph.glyph_data)
