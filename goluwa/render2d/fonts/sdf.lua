@@ -915,35 +915,19 @@ local function batch_load_glyphs(self, str)
 	end
 end
 
-local function build_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
+local str_byte = string.byte
+local utf8_uint32 = utf8.uint32
+local utf8_byte_length = utf8.byte_length
+
+local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
 	local X, Y = 0, 0
 	local i = 1
-	local len = #str
-	local str_byte = string.byte
-	local utf8_uint32 = utf8.uint32
-	local utf8_byte_length = utf8.byte_length
-	local chars = self.chars
 	local spread = self:GetEffectiveSpread()
-	local scale_x = self.Scale.x
-	local scale_y = self.Scale.y
-	local size = self.Size
-	local monospace = self.Monospace
-	local tab_mult = self.TabWidthMultiplier
 	local line_height = self:GetLineHeight()
-	local space_glyph = chars[32] or self:GetChar(32)
-	local tab_advance
+	local space_glyph = self.chars[32] or self:GetChar(32)
 	local entries = {}
-	extra_space_advance = extra_space_advance or 0
 
-	if monospace then
-		tab_advance = spacing * tab_mult
-	elseif space_glyph then
-		tab_advance = (space_glyph.x_advance + spacing) * tab_mult
-	else
-		tab_advance = size * tab_mult
-	end
-
-	while i <= len do
+	while i <= #str do
 		local byte = str_byte(str, i)
 		local char_code
 		local char_size
@@ -960,11 +944,17 @@ local function build_draw_pass_layout(self, str, spacing, atlas, extra_space_adv
 			X = 0
 			Y = Y + line_height + spacing
 		elseif char_code == 32 then
-			X = X + size / 2 + extra_space_advance
+			X = X + self.Size / 2 + extra_space_advance
 		elseif char_code == 9 then
-			X = X + tab_advance
+			if self.Monospace then
+				X = X + spacing * self.TabWidthMultiplier
+			elseif space_glyph then
+				X = X + (space_glyph.x_advance + spacing) * self.TabWidthMultiplier
+			else
+				X = X + self.Size * self.TabWidthMultiplier
+			end
 		else
-			local data = chars[char_code]
+			local data = self.chars[char_code]
 
 			if data then
 				local atlas_data = data.atlas_data
@@ -973,17 +963,17 @@ local function build_draw_pass_layout(self, str, spacing, atlas, extra_space_adv
 					entries[#entries + 1] = {
 						texture = atlas_data.page.texture,
 						uv = atlas_data.page_uv_normalized,
-						x = (X + data.bitmap_left - spread) * scale_x,
-						y = (Y + data.bitmap_top - spread) * scale_y,
-						w = atlas_data.w * scale_x,
-						h = atlas_data.h * scale_y,
-						debug_x = (X - spread) * scale_x,
-						debug_y = (Y - spread) * scale_y,
-						debug_w = (data.x_advance + spread * 2) * scale_x,
+						x = (X + data.bitmap_left - spread) * self.Scale.x,
+						y = (Y + data.bitmap_top - spread) * self.Scale.y,
+						w = atlas_data.w * self.Scale.x,
+						h = atlas_data.h * self.Scale.y,
+						debug_x = (X - spread) * self.Scale.x,
+						debug_y = (Y - spread) * self.Scale.y,
+						debug_w = (data.x_advance + spread * 2) * self.Scale.x,
 					}
 				end
 
-				if monospace then
+				if self.Monospace then
 					X = X + spacing
 				else
 					X = X + data.x_advance + spacing
@@ -996,30 +986,39 @@ local function build_draw_pass_layout(self, str, spacing, atlas, extra_space_adv
 
 	return {
 		entries = entries,
-		margin = spread * scale_x,
-		debug_h = line_height * scale_y,
+		margin = spread * self.Scale.x,
+		debug_h = line_height * self.Scale.y,
 	}
-end
-
-local function get_draw_pass_cache_key(str, spacing, extra_space_advance)
-	return tostring(spacing) .. "\0" .. tostring(extra_space_advance or 0) .. "\0" .. str
 end
 
 local function get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
 	local atlas_cache = self.draw_pass_cache
 
 	if not atlas_cache then
-		atlas_cache = setmetatable({}, {__mode = "k"})
+		atlas_cache = {}
 		self.draw_pass_cache = atlas_cache
 	end
 
-	local key = get_draw_pass_cache_key(str, spacing, extra_space_advance)
-	local cached = atlas_cache[key]
+	local spacing_cache = atlas_cache[spacing]
+
+	if not spacing_cache then
+		spacing_cache = {}
+		atlas_cache[spacing] = spacing_cache
+	end
+
+	local param_cache = spacing_cache[extra_space_advance]
+
+	if not param_cache then
+		param_cache = {}
+		spacing_cache[extra_space_advance] = param_cache
+	end
+
+	local cached = param_cache[str]
 
 	if cached then return cached end
 
-	cached = build_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
-	atlas_cache[key] = cached
+	cached = build_draw_pass_layout(self, str, spacing, extra_space_advance)
+	param_cache[str] = cached
 	return cached
 end
 
@@ -1032,12 +1031,10 @@ local render2d_PopColor = render2d.PopColor
 function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 	local old_texture = render2d.GetTexture()
 	local last_texture = old_texture
-	local debug = self.debug
-	local layout = get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
-	local entries = layout.entries
+	local layout = get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance or 0)
 
-	for i = 1, #entries do
-		local entry = entries[i]
+	for i = 1, #layout.entries do
+		local entry = layout.entries[i]
 		local texture = entry.texture
 
 		if texture ~= last_texture then
@@ -1061,7 +1058,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 			layout.margin
 		)
 
-		if debug then
+		if self.debug then
 			render2d_SetTexture(nil)
 			render2d_PushColor(1, 0, 0, 0.25)
 			render2d_DrawRect(x + entry.debug_x, y + entry.debug_y, entry.debug_w, layout.debug_h)
