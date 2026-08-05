@@ -5,6 +5,7 @@ local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
 local FontBase = import("goluwa/render2d/fonts/base.lua")
+local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local META = objects.CreateTemplate("font_atlas")
 META.Base = FontBase
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
@@ -113,25 +114,21 @@ function META:RebuildFromScratch()
 	end
 end
 
-function META.New(fonts)
-	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
+function META:GetAtlasFormat()
+	return "r8g8b8a8_unorm"
+end
 
-	local self = META:CreateObject()
-	self.tr = debug.traceback()
-	self:SetFonts(fonts)
-	self.chars = {}
-	self.rebuild = false
+function META:CreateAtlas()
+	local format = self:GetAtlasFormat()
+	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
 
-	if render.target:IsValid() then
-		self:CreateAtlas()
-	else
-		event.AddListener("RendererReady", self, function()
-			self:CreateAtlas()
-			return event.destroy_tag
-		end)
+	for code in pairs(self.chars) do
+		self.chars[code] = nil
+		self:LoadGlyph(code)
 	end
 
-	return self
+	self.texture_atlas:Build()
+	self:SetReady(true)
 end
 
 local fb_pool = {}

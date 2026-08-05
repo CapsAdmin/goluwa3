@@ -20,12 +20,11 @@ function META.New(fonts)
 	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 	local self = META:CreateObject()
-	self.tr = debug.traceback()
 	self:SetFonts(fonts)
 	self.chars = {}
 	self.rebuild = false
 
-	if render.target:IsValid() then
+	if render.IsReady() then
 		self:CreateAtlas()
 	else
 		event.AddListener("RendererReady", self, function()
@@ -157,7 +156,7 @@ function META:LoadGlyph(code, temp_fbs)
 			end
 		end
 
-		self.texture_atlas:Insert(
+		self.texture_atlas:Set(
 			code,
 			{
 				w = atlas_w,

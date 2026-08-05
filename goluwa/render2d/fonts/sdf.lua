@@ -6,11 +6,10 @@ local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
-local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local event = import("goluwa/event.lua")
 local AtlasFont = import("goluwa/render2d/fonts/atlas_font.lua")
--- Debug mode: enables texture readback assertions after each JFA pass
+local event = import("goluwa/event.lua")
+-- Debug mode:
 local DEBUG = false
 
 local function debug_assert_sdf_texture(tex, name, min_valid, min_valid_count, desc)
@@ -100,12 +99,11 @@ function META.New(fonts)
 	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 	local self = META:CreateObject()
-	self.tr = debug.traceback()
 	self:SetFonts(fonts)
 	self.chars = {}
 	self.rebuild = false
 
-	if render.target:IsValid() then
+	if render.IsReady() then
 		self:CreateAtlas()
 	else
 		event.AddListener("RendererReady", self, function()
@@ -119,10 +117,6 @@ end
 
 function META:GetEffectiveSpread()
 	return math.max(2, math.floor(self.Size))
-end
-
-function META:GetAtlasFormat()
-	return "r8g8b8a8_unorm"
 end
 
 local shared_jfa_pipelines = {}
@@ -320,19 +314,6 @@ function META:GetJFAPipelines()
 	}
 	shared_jfa_pipelines[atlas_format] = self.jfa_pipelines
 	return self.jfa_pipelines
-end
-
-function META:CreateAtlas()
-	local format = self:GetAtlasFormat()
-	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-
-	for code in pairs(self.chars) do
-		self.chars[code] = nil
-		self:LoadGlyph(code)
-	end
-
-	self.texture_atlas:Build()
-	self:SetReady(true)
 end
 
 local SUPER_SAMPLING_SCALE = 4
@@ -821,14 +802,13 @@ function META:LoadGlyph(code, temp_fbs)
 			glyph.texture = fb_final.color_texture
 		end
 
-		local atlas_data = {
+		glyph.atlas_data = {
 			w = glyph.w + spread * 2,
 			h = glyph.h + spread * 2,
 			texture = glyph.texture,
 			flip_y = glyph.flip_y,
 		}
-		self.texture_atlas:Insert(code, atlas_data)
-		glyph.atlas_data = atlas_data
+		self.texture_atlas:Set(code, glyph.atlas_data)
 		self.chars[code] = glyph
 
 		if not temp_fbs then
@@ -852,16 +832,6 @@ function META:LoadGlyph(code, temp_fbs)
 			end
 		end
 	end
-
-	local atlas_data = {
-		w = glyph.w + self:GetEffectiveSpread() * 2,
-		h = glyph.h + self:GetEffectiveSpread() * 2,
-		texture = glyph.texture,
-		flip_y = glyph.flip_y,
-	}
-	self.texture_atlas:Insert(code, atlas_data)
-	glyph.atlas_data = atlas_data
-	self.chars[code] = glyph
 end
 
 local function batch_load_glyphs(self, str)
@@ -991,7 +961,7 @@ local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
 	}
 end
 
-local function get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance)
+local function get_draw_pass_layout(self, str, spacing, extra_space_advance)
 	local atlas_cache = self.draw_pass_cache
 
 	if not atlas_cache then
@@ -1028,10 +998,10 @@ local render2d_PushColor = render2d.PushColor
 local render2d_DrawRect = render2d.DrawRect
 local render2d_PopColor = render2d.PopColor
 
-function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
+function META:DrawPass(str, x, y, spacing, extra_space_advance)
 	local old_texture = render2d.GetTexture()
 	local last_texture = old_texture
-	local layout = get_draw_pass_layout(self, str, spacing, atlas, extra_space_advance or 0)
+	local layout = get_draw_pass_layout(self, str, spacing, extra_space_advance or 0)
 
 	for i = 1, #layout.entries do
 		local entry = layout.entries[i]
@@ -1080,7 +1050,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	render2d.PushUV()
 	render2d.PushSDFMode(true)
 	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 4)
-	self:DrawPass(str, x, y, spacing, self.texture_atlas, extra_space_advance)
+	self:DrawPass(str, x, y, spacing, extra_space_advance)
 	render2d.PopSDFTexelRange()
 	render2d.PopSDFMode()
 	render2d.PopUV()

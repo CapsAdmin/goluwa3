@@ -11,8 +11,8 @@ T.Test3D("Texture Atlas bin packing and management", function()
 	-- Create some fake textures to insert
 	local tex1 = Texture.New{width = 30, height = 30}
 	local tex2 = Texture.New{width = 60, height = 20}
-	atlas:Insert("id1", {w = 30, h = 30, texture = tex1})
-	atlas:Insert("id2", {w = 60, h = 20, texture = tex2})
+	atlas:Set("id1", {w = 30, h = 30, texture = tex1})
+	atlas:Set("id2", {w = 60, h = 20, texture = tex2})
 	-- Build the atlas
 	atlas:Build()
 	-- Verify UVs
@@ -43,7 +43,7 @@ T.Test3D("Texture Atlas bin packing and management", function()
 	-- Insert a giant texture
 	local giant = Texture.New{width = 1000, height = 1000}
 	local ok, err = pcall(function()
-		atlas:Insert("giant", {w = 1000, h = 1000, texture = giant})
+		atlas:Set("giant", {w = 1000, h = 1000, texture = giant})
 		atlas:Build()
 	end)
 	T(ok)["=="](false)
@@ -53,7 +53,7 @@ T.Test3D("Texture Atlas bin packing and management", function()
 	atlas2:SetPadding(0)
 
 	for i = 1, 10 do
-		atlas2:Insert("item" .. i, {w = 64, h = 64, texture = Texture.New{width = 64, height = 64}})
+		atlas2:Set("item" .. i, {w = 64, h = 64, texture = Texture.New{width = 64, height = 64}})
 	end
 
 	atlas2:Build()

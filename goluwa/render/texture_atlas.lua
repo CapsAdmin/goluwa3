@@ -239,41 +239,50 @@ function META:DebugDraw()
 	end
 end
 
-function META:Insert(id, data)
-	if id then self.textures[id] = data end
-
+function META:Set(id, data)
+	self.textures[id] = data
 	list.insert(self.dirty_textures, data)
 end
 
-function META:Draw(id, x, y, w, h)
-	local data = self.textures[id]
+function META:Get(id)
+	return self.textures[id]
+end
 
-	if data then
-		w = w or data.page_w
-		h = h or data.page_h
-		render2d.SetTexture(data.page.texture)
-		render2d.SetUV(unpack(data.page_uv))
-		render2d.DrawRect(x, y, w, h)
-		render2d.SetUV()
-	end
+function META:Draw(id, x, y, w, h)
+	local data = self:Get(id)
+
+	if not data then return end
+
+	w = w or data.page_w
+	h = h or data.page_h
+	render2d.SetTexture(data.page.texture)
+	render2d.SetUV(unpack(data.page_uv))
+	render2d.DrawRect(x, y, w, h)
+	render2d.SetUV()
 end
 
 function META:GetUV(id)
-	local data = self.textures[id]
+	local data = self:Get(id)
 
-	if data then return unpack(data.page_uv) end
+	if not data then return end
+
+	return unpack(data.page_uv)
 end
 
 function META:GetNormalizedUV(id)
-	local data = self.textures[id]
+	local data = self:Get(id)
 
-	if data then return data.page_uv_normalized, data.w, data.h end
+	if not data then return end
+
+	return data.page_uv_normalized, data.w, data.h
 end
 
 function META:GetPageTexture(id)
-	local data = self.textures[id]
+	local data = self:Get(id)
 
-	if data and data.page then return data.page.texture end
+	if not data then return end
+
+	return data.page.texture
 end
 
 return META:Register()
