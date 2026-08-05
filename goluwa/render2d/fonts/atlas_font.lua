@@ -7,6 +7,89 @@ local event = import("goluwa/event.lua")
 local FontBase = import("goluwa/render2d/fonts/base.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local Texture = import("goluwa/render/texture.lua")
+
+local function create_temp_pool(create_fn, key_fn)
+	local pools = {}
+	return {
+		get = function(self, ...)
+			local key = key_fn(...)
+			local pool = pools[key]
+
+			if not pool then
+				pool = {}
+				pools[key] = pool
+			end
+
+			local obj = table.remove(pool)
+
+			if not obj then
+				obj = create_fn(self, ...)
+				obj._pool_key = key
+			end
+
+			return obj
+		end,
+		release = function(obj)
+			local key = obj._pool_key
+			local pool = pools[key]
+
+			if not pool then
+				pool = {}
+				pools[key] = pool
+			end
+
+			table.insert(pool, obj)
+		end,
+	}
+end
+
+local fb_pool = create_temp_pool(function(self, w, h, format, mip_maps, filter)
+	return Framebuffer.New{
+		width = w,
+		height = h,
+		name = string.format(
+			"render2d atlas font scratch %s %dx%d",
+			tostring(self:GetName() or "unnamed"),
+			w,
+			h
+		),
+		clear_color = {0, 0, 0, 0},
+		format = format,
+		mip_map_levels = mip_maps and "auto" or 1,
+		min_filter = filter or "linear",
+		mag_filter = filter or "linear",
+		wrap_s = "clamp_to_edge",
+		wrap_t = "clamp_to_edge",
+	}
+end, function(w, h, format, mip_maps, filter)
+	return w .. "_" .. h .. "_" .. format .. (
+			mip_maps and
+			"_t" or
+			"_f"
+		) .. (
+			filter or
+			"linear"
+		)
+end)
+local tex_pool = create_temp_pool(function(self, w, h, format, filter)
+	return Texture.New{
+		width = w,
+		height = h,
+		format = format,
+		mip_map_levels = 1,
+		image = {
+			usage = {"storage", "sampled", "transfer_src", "transfer_dst"},
+		},
+		sampler = {
+			min_filter = filter or "linear",
+			mag_filter = filter or "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
+end, function(w, h, format, filter)
+	return w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
+end)
 local META = objects.CreateTemplate("font_atlas")
 META.Base = FontBase
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
@@ -132,62 +215,6 @@ function META:CreateAtlas()
 	self:SetReady(true)
 end
 
-local fb_pool = {}
-
-function META:GetTempFramebuffer(w, h, format, mip_maps, filter)
-	local key = w .. "_" .. h .. "_" .. format .. (
-			mip_maps and
-			"_t" or
-			"_f"
-		) .. (
-			filter or
-			"linear"
-		)
-	local pool = fb_pool[key]
-
-	if not pool then
-		pool = {}
-		fb_pool[key] = pool
-	end
-
-	local fb = table.remove(pool)
-
-	if not fb then
-		fb = Framebuffer.New{
-			width = w,
-			height = h,
-			name = string.format(
-				"render2d atlas font scratch %s %dx%d",
-				tostring(self:GetName() or "unnamed"),
-				w,
-				h
-			),
-			clear_color = {0, 0, 0, 0},
-			format = format,
-			mip_map_levels = mip_maps and "auto" or 1,
-			min_filter = filter or "linear",
-			mag_filter = filter or "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		}
-		fb._pool_key = key
-	end
-
-	return fb
-end
-
-function META:ReleaseTempFramebuffer(fb)
-	local key = fb._pool_key
-	local pool = fb_pool[key]
-
-	if not pool then
-		pool = {}
-		fb_pool[key] = pool
-	end
-
-	table.insert(pool, fb)
-end
-
 function META:GetMetricGlyph(code)
 	if self.chars[code] ~= nil then return self.chars[code] end
 
@@ -305,43 +332,19 @@ function META:GetTextSize(str)
 	return w, h
 end
 
+function META:GetTempFramebuffer(w, h, format, mip_maps, filter)
+	return fb_pool.get(self, w, h, format, mip_maps, filter)
+end
+
+function META:ReleaseTempFramebuffer(fb)
+	fb_pool.release(fb)
+end
+
+function META:GetTempTexture(w, h, format, filter)
+	return tex_pool.get(self, w, h, format, filter)
+end
+
 do
-	local tex_pool = {}
-
-	function META:GetTempTexture(w, h, format, filter)
-		local key = w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
-		local pool = tex_pool[key]
-
-		if not pool then
-			pool = {}
-			tex_pool[key] = pool
-		end
-
-		local tex = table.remove(pool)
-
-		if not tex then
-			tex = Texture.New{
-				width = w,
-				height = h,
-				format = format,
-				mip_map_levels = 1,
-				image = {
-					usage = {"storage", "sampled", "transfer_src", "transfer_dst"},
-				},
-				sampler = {
-					min_filter = filter or "linear",
-					mag_filter = filter or "linear",
-					wrap_s = "clamp_to_edge",
-					wrap_t = "clamp_to_edge",
-				},
-			}
-			tex._pool_key = key
-			tex._temp_kind = "tex"
-		end
-
-		return tex
-	end
-
 	local function glyph_has_drawable_outline(glyph)
 		local glyph_data = glyph and glyph.glyph_data
 
@@ -392,24 +395,6 @@ do
 		return (steps + 4) * 2 + 1
 	end
 
-	local function release_temp_resource(self, resource)
-		local key = resource._pool_key
-
-		if resource._temp_kind == "tex" then
-			local pool = tex_pool[key]
-
-			if not pool then
-				pool = {}
-				tex_pool[key] = pool
-			end
-
-			table.insert(pool, resource)
-			return
-		end
-
-		self:ReleaseTempFramebuffer(resource)
-	end
-
 	function META:LoadGlyph(code, temp_fbs)
 		if type(code) == "string" then code = utf8.uint32(code) end
 
@@ -456,7 +441,7 @@ do
 				self:Rebuild()
 
 				for _, fb in ipairs(used_temp_fbs) do
-					release_temp_resource(self, fb)
+					fb_pool.release(fb)
 				end
 
 				self.rebuild = false
@@ -524,7 +509,7 @@ do
 		self.rebuild = false
 
 		for _, fb in ipairs(temp_fbs) do
-			release_temp_resource(self, fb)
+			fb_pool.release(fb)
 		end
 	end
 end
