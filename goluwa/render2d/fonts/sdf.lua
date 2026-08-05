@@ -319,20 +319,6 @@ end
 local SUPER_SAMPLING_SCALE = 4
 local COMBINE_SCALE = 4
 
-local function glyph_has_drawable_outline(glyph)
-	local glyph_data = glyph and glyph.glyph_data
-
-	if not glyph_data then return false end
-
-	if not glyph_data.points or #glyph_data.points == 0 then return false end
-
-	if not glyph_data.end_pts_of_contours or #glyph_data.end_pts_of_contours == 0 then
-		return false
-	end
-
-	return true
-end
-
 local function get_metric_char(self, code)
 	local data = self.chars[code]
 
@@ -373,85 +359,8 @@ local function get_next_pow2_and_steps(n)
 	return r, steps
 end
 
-local function estimate_glyph_sdf_descriptor_slots(self, code)
-	if self.chars[code] ~= nil then return 0 end
-
-	local glyph
-
-	for i = 1, #self.Fonts do
-		local font = self.Fonts[i]
-		font:SetSize(self.Size)
-		glyph = font:GetGlyph(code)
-
-		if glyph then break end
-	end
-
-	if not glyph or not glyph.glyph_data or glyph.w <= 0 or glyph.h <= 0 then
-		return 0
-	end
-
-	if not glyph_has_drawable_outline(glyph) then return 0 end
-
-	local spread = self:GetEffectiveSpread()
-	local scale = SUPER_SAMPLING_SCALE
-	local sw = (glyph.w + spread * 2) * scale
-	local sh = (glyph.h + spread * 2) * scale
-	local _, steps = get_next_pow2_and_steps(math.max(sw, sh))
-	return (steps + 4) * 2 + 1
-end
-
-local tex_pool = {}
-
 local function get_temp_tex(self, w, h, format, filter)
-	local key = w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
-	local pool = tex_pool[key]
-
-	if not pool then
-		pool = {}
-		tex_pool[key] = pool
-	end
-
-	local tex = table.remove(pool)
-
-	if not tex then
-		tex = Texture.New{
-			width = w,
-			height = h,
-			format = format,
-			mip_map_levels = 1,
-			image = {
-				usage = {"storage", "sampled", "transfer_src", "transfer_dst"},
-			},
-			sampler = {
-				min_filter = filter or "linear",
-				mag_filter = filter or "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-		tex._pool_key = key
-		tex._temp_kind = "tex"
-	end
-
-	return tex
-end
-
-local function release_temp_resource(self, resource)
-	local key = resource._pool_key
-
-	if resource._temp_kind == "tex" then
-		local pool = tex_pool[key]
-
-		if not pool then
-			pool = {}
-			tex_pool[key] = pool
-		end
-
-		table.insert(pool, resource)
-		return
-	end
-
-	self:ReleaseTempFramebuffer(resource)
+	return self:GetTempTexture(w, h, format, filter)
 end
 
 function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
@@ -706,183 +615,92 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	return tex_final
 end
 
-function META:LoadGlyph(code, temp_fbs)
-	if type(code) == "string" then code = utf8.uint32(code) end
-
-	if self.chars[code] ~= nil then return end
-
-	local glyph
-	local glyph_source_font
-
-	for i = 1, #self.Fonts do
-		local font = self.Fonts[i]
-		font:SetSize(self.Size)
-		glyph = font:GetGlyph(code)
-
-		if glyph then
-			glyph_source_font = font
-
-			break
-		end
-	end
-
-	if not glyph then
-		self.chars[code] = false
-		return
-	end
-
-	if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
-		if not render.available or not render.target then return end
-
-		local scale = SUPER_SAMPLING_SCALE
-		local spread = self:GetEffectiveSpread()
-		local sw = (glyph.w + spread * 2) * scale
-		local sh = (glyph.h + spread * 2) * scale
-		local used_temp_fbs = {}
-		local format = self:GetAtlasFormat()
-		local fb_ss = self:GetTempFramebuffer(sw, sh, format, true)
-		table.insert(used_temp_fbs, fb_ss)
-		local own_cmd = false
-		local cmd = render.GetCommandBuffer()
-
-		if not cmd then
-			cmd = render.GetCommandPool():AllocateCommandBuffer()
-			cmd:Begin()
-			own_cmd = true
-		end
-
-		do
-			if DEBUG then
-				local gd = glyph.glyph_data
-				print(
-					string.format(
-						"SDF debug glyph %d: has_poly=%d points=%d contours=%d glyph.w=%d h=%d bitmap_left=%d bitmap_top=%d",
-						code,
-						gd and gd.poly and 1 or 0,
-						#((gd and gd.points) or {}),
-						#((gd and gd.end_pts_of_contours) or {}),
-						glyph.w,
-						glyph.h,
-						glyph.bitmap_left,
-						glyph.bitmap_top
-					)
-				)
-			end
-
-			local saved_batch = render2d.SaveBatchState()
-			render2d.state.runtime.batch.state:ClearPending()
-			fb_ss:Begin(cmd)
-			render2d.PushBlendPreset("alpha")
-			render.PushCommandBuffer(cmd)
-			render2d.PushScreenSize(sw, sh)
-			render2d.PushMatrix()
-			render2d.LoadIdentity()
-			render2d.Translate(spread * scale, (glyph.h + spread) * scale)
-			render2d.Scale(scale, -scale)
-			render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
-			glyph_source_font:DrawGlyph(glyph.glyph_data)
-			render2d.FlushBatches("glyph_load")
-			render2d.PopMatrix()
-			render.PopCommandBuffer()
-			render2d.PopScreenSize()
-			render2d.PopBlendMode()
-			render2d.RestoreBatchState(saved_batch)
-			fb_ss:End()
-		end
-
-		if glyph_has_drawable_outline(glyph) then
-			glyph.texture = self:GenerateSDF(fb_ss.color_texture, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
-		else
-			local fb_final = self:GetTempFramebuffer(glyph.w + spread * 2, glyph.h + spread * 2, format, false)
-			table.insert(used_temp_fbs, fb_final)
-			render.PushCommandBuffer(cmd)
-			fb_final:Begin(cmd)
-			fb_final:End()
-			render.PopCommandBuffer()
-			glyph.texture = fb_final.color_texture
-		end
-
-		glyph.atlas_data = {
-			w = glyph.w + spread * 2,
-			h = glyph.h + spread * 2,
-			texture = glyph.texture,
-			flip_y = glyph.flip_y,
-		}
-		self.texture_atlas:Set(code, glyph.atlas_data)
-		self.chars[code] = glyph
-
-		if not temp_fbs then
-			self:Rebuild()
-
-			for _, fb in ipairs(used_temp_fbs) do
-				release_temp_resource(self, fb)
-			end
-
-			self.rebuild = false
-
-			if own_cmd then
-				cmd:End()
-				render.SubmitAndWait(cmd)
-			end
-
-			return
-		else
-			for _, fb in ipairs(used_temp_fbs) do
-				table.insert(temp_fbs, fb)
-			end
-		end
-	end
+function META:GetAtlasPadding(w, h)
+	local spread = self:GetEffectiveSpread()
+	return (w + spread * 2) * SUPER_SAMPLING_SCALE,
+	(h + spread * 2) * SUPER_SAMPLING_SCALE
 end
 
-local function batch_load_glyphs(self, str)
-	local i = 1
-	local len = #str
-	local chars = self.chars
+local function glyph_has_drawable_outline(glyph)
+	local glyph_data = glyph and glyph.glyph_data
 
-	if not self.rebuild then
-		while i <= len do
-			local char_code = utf8.uint32(str, i)
+	if not glyph_data then return false end
 
-			if chars[char_code] == nil then break end
+	if not glyph_data.points or #glyph_data.points == 0 then return false end
 
-			i = i + utf8.byte_length(str, i)
+	if not glyph_data.end_pts_of_contours or #glyph_data.end_pts_of_contours == 0 then
+		return false
+	end
+
+	return true
+end
+
+function META:RenderGlyph(glyph, glyph_source_font, used_temp_fbs, cmd)
+	local scale = SUPER_SAMPLING_SCALE
+	local spread = self:GetEffectiveSpread()
+	local sw = (glyph.w + spread * 2) * scale
+	local sh = (glyph.h + spread * 2) * scale
+	local format = self:GetAtlasFormat()
+	local fb_ss = self:GetTempFramebuffer(sw, sh, format, true)
+	table.insert(used_temp_fbs, fb_ss)
+
+	do
+		if DEBUG then
+			local gd = glyph.glyph_data
+			print(
+				string.format(
+					"SDF debug glyph %d: has_poly=%d points=%d contours=%d glyph.w=%d h=%d bitmap_left=%d bitmap_top=%d",
+					code,
+					gd and gd.poly and 1 or 0,
+					#((gd and gd.points) or {}),
+					#((gd and gd.end_pts_of_contours) or {}),
+					glyph.w,
+					glyph.h,
+					glyph.bitmap_left,
+					glyph.bitmap_top
+				)
+			)
 		end
 
-		if i > len then return end
+		local saved_batch = render2d.SaveBatchState()
+		render2d.state.runtime.batch.state:ClearPending()
+		fb_ss:Begin(cmd)
+		render2d.PushBlendPreset("alpha")
+		render.PushCommandBuffer(cmd)
+		render2d.PushScreenSize(sw, sh)
+		render2d.PushMatrix()
+		render2d.LoadIdentity()
+		render2d.Translate(spread * scale, (glyph.h + spread) * scale)
+		render2d.Scale(scale, -scale)
+		render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
+		glyph_source_font:DrawGlyph(glyph.glyph_data)
+		render2d.FlushBatches("glyph_load")
+		render2d.PopMatrix()
+		render.PopCommandBuffer()
+		render2d.PopScreenSize()
+		render2d.PopBlendMode()
+		render2d.RestoreBatchState(saved_batch)
+		fb_ss:End()
 	end
 
-	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	cmd:Begin()
-	local temp_fbs = {}
-	render.PushCommandBuffer(cmd)
-
-	while i <= len do
-		local cc = utf8.uint32(str, i)
-		local slots_needed = estimate_glyph_sdf_descriptor_slots(self, cc)
-		local used_slots = self._jfa_descriptor_slot_cmd == cmd and (self._jfa_descriptor_slot or 0) or 0
-
-		if slots_needed > 0 and used_slots + slots_needed > JFA_DESCRIPTOR_SET_COUNT then
-			render.PopCommandBuffer()
-			cmd:End()
-			render.SubmitAndWait(cmd)
-			cmd = render.GetCommandPool():AllocateCommandBuffer()
-			cmd:Begin()
-			render.PushCommandBuffer(cmd)
-		end
-
-		self:LoadGlyph(cc, temp_fbs)
-		i = i + utf8.byte_length(str, i)
+	if glyph_has_drawable_outline(glyph) then
+		glyph.texture = self:GenerateSDF(fb_ss.color_texture, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
+	else
+		local fb_final = self:GetTempFramebuffer(glyph.w + spread * 2, glyph.h + spread * 2, format, false)
+		table.insert(used_temp_fbs, fb_final)
+		render.PushCommandBuffer(cmd)
+		fb_final:Begin(cmd)
+		fb_final:End()
+		render.PopCommandBuffer()
+		glyph.texture = fb_final.color_texture
 	end
 
-	self:Rebuild()
-	render.PopCommandBuffer()
-	cmd:End()
-	render.SubmitAndWait(cmd)
-	self.rebuild = false
-
-	for _, fb in ipairs(temp_fbs) do
-		release_temp_resource(self, fb)
-	end
+	glyph.atlas_data = {
+		w = glyph.w + spread * 2,
+		h = glyph.h + spread * 2,
+		texture = glyph.texture,
+		flip_y = glyph.flip_y,
+	}
 end
 
 local str_byte = string.byte
@@ -1044,7 +862,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	if not self:IsReady() then return end
 
 	str = tostring(str)
-	batch_load_glyphs(self, str)
+	self:LoadGlyphsFromString(str)
 	spacing = spacing or self.Spacing
 	extra_space_advance = extra_space_advance or 0
 	render2d.PushUV()

@@ -6,6 +6,7 @@ local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
 local FontBase = import("goluwa/render2d/fonts/base.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
+local Texture = import("goluwa/render/texture.lua")
 local META = objects.CreateTemplate("font_atlas")
 META.Base = FontBase
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
@@ -302,6 +303,230 @@ function META:GetTextSize(str)
 	local w, h = self:GetTextSizeNotCached(str)
 	self.text_size_cache[str] = {w, h}
 	return w, h
+end
+
+do
+	local tex_pool = {}
+
+	function META:GetTempTexture(w, h, format, filter)
+		local key = w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
+		local pool = tex_pool[key]
+
+		if not pool then
+			pool = {}
+			tex_pool[key] = pool
+		end
+
+		local tex = table.remove(pool)
+
+		if not tex then
+			tex = Texture.New{
+				width = w,
+				height = h,
+				format = format,
+				mip_map_levels = 1,
+				image = {
+					usage = {"storage", "sampled", "transfer_src", "transfer_dst"},
+				},
+				sampler = {
+					min_filter = filter or "linear",
+					mag_filter = filter or "linear",
+					wrap_s = "clamp_to_edge",
+					wrap_t = "clamp_to_edge",
+				},
+			}
+			tex._pool_key = key
+			tex._temp_kind = "tex"
+		end
+
+		return tex
+	end
+
+	local function glyph_has_drawable_outline(glyph)
+		local glyph_data = glyph and glyph.glyph_data
+
+		if not glyph_data then return false end
+
+		if not glyph_data.points or #glyph_data.points == 0 then return false end
+
+		if not glyph_data.end_pts_of_contours or #glyph_data.end_pts_of_contours == 0 then
+			return false
+		end
+
+		return true
+	end
+
+	local function get_next_pow2_and_steps(n)
+		local r = 1
+		local steps = 0
+
+		while r < n do
+			r = r * 2
+			steps = steps + 1
+		end
+
+		return r, steps
+	end
+
+	local function estimate_glyph_sdf_descriptor_slots(self, code)
+		if self.chars[code] ~= nil then return 0 end
+
+		local glyph
+
+		for i = 1, #self.Fonts do
+			local font = self.Fonts[i]
+			font:SetSize(self.Size)
+			glyph = font:GetGlyph(code)
+
+			if glyph then break end
+		end
+
+		if not glyph or not glyph.glyph_data or glyph.w <= 0 or glyph.h <= 0 then
+			return 0
+		end
+
+		if not glyph_has_drawable_outline(glyph) then return 0 end
+
+		local sw, sh = self:GetAtlasPadding(glyph.w, glyph.h)
+		local _, steps = get_next_pow2_and_steps(math.max(sw, sh))
+		return (steps + 4) * 2 + 1
+	end
+
+	local function release_temp_resource(self, resource)
+		local key = resource._pool_key
+
+		if resource._temp_kind == "tex" then
+			local pool = tex_pool[key]
+
+			if not pool then
+				pool = {}
+				tex_pool[key] = pool
+			end
+
+			table.insert(pool, resource)
+			return
+		end
+
+		self:ReleaseTempFramebuffer(resource)
+	end
+
+	function META:LoadGlyph(code, temp_fbs)
+		if type(code) == "string" then code = utf8.uint32(code) end
+
+		if self.chars[code] ~= nil then return end
+
+		local glyph
+		local glyph_source_font
+
+		for i = 1, #self.Fonts do
+			local font = self.Fonts[i]
+			font:SetSize(self.Size)
+			glyph = font:GetGlyph(code)
+
+			if glyph then
+				glyph_source_font = font
+
+				break
+			end
+		end
+
+		if not glyph then
+			self.chars[code] = false
+			return
+		end
+
+		if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
+			if not render.available or not render.target then return end
+
+			local own_cmd = false
+			local cmd = render.GetCommandBuffer()
+
+			if not cmd then
+				cmd = render.GetCommandPool():AllocateCommandBuffer()
+				cmd:Begin()
+				own_cmd = true
+			end
+
+			local used_temp_fbs = {}
+			self:RenderGlyph(glyph, glyph_source_font, used_temp_fbs, cmd)
+			self.texture_atlas:Set(code, glyph.atlas_data)
+			self.chars[code] = glyph
+
+			if not temp_fbs then
+				self:Rebuild()
+
+				for _, fb in ipairs(used_temp_fbs) do
+					release_temp_resource(self, fb)
+				end
+
+				self.rebuild = false
+
+				if own_cmd then
+					cmd:End()
+					render.SubmitAndWait(cmd)
+				end
+
+				return
+			else
+				for _, fb in ipairs(used_temp_fbs) do
+					table.insert(temp_fbs, fb)
+				end
+			end
+		end
+	end
+
+	local JFA_DESCRIPTOR_SET_COUNT = 1024
+
+	function META:LoadGlyphsFromString(str)
+		local i = 1
+		local len = #str
+		local chars = self.chars
+
+		if not self.rebuild then
+			while i <= len do
+				local char_code = utf8.uint32(str, i)
+
+				if chars[char_code] == nil then break end
+
+				i = i + utf8.byte_length(str, i)
+			end
+
+			if i > len then return end
+		end
+
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		local temp_fbs = {}
+		render.PushCommandBuffer(cmd)
+
+		while i <= len do
+			local cc = utf8.uint32(str, i)
+			local slots_needed = estimate_glyph_sdf_descriptor_slots(self, cc)
+			local used_slots = self._jfa_descriptor_slot_cmd == cmd and (self._jfa_descriptor_slot or 0) or 0
+
+			if slots_needed > 0 and used_slots + slots_needed > JFA_DESCRIPTOR_SET_COUNT then
+				render.PopCommandBuffer()
+				cmd:End()
+				render.SubmitAndWait(cmd)
+				cmd = render.GetCommandPool():AllocateCommandBuffer()
+				cmd:Begin()
+				render.PushCommandBuffer(cmd)
+			end
+
+			self:LoadGlyph(cc, temp_fbs)
+			i = i + utf8.byte_length(str, i)
+		end
+
+		self:Rebuild()
+		render.PopCommandBuffer()
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		self.rebuild = false
+
+		for _, fb in ipairs(temp_fbs) do
+			release_temp_resource(self, fb)
+		end
+	end
 end
 
 return META:Register()
