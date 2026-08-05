@@ -95,11 +95,13 @@ function META:__copy()
 	return self
 end
 
-function META.New(fonts)
-	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
+function META.New(ttf_fonts)
+	if type(ttf_fonts) == "table" and ttf_fonts.Type == "font_ttf" then
+		ttf_fonts = {ttf_fonts}
+	end
 
 	local self = META:CreateObject()
-	self:SetFonts(fonts)
+	self:SetTTFFonts(ttf_fonts)
 	self.chars = {}
 	self.rebuild = false
 
@@ -329,8 +331,8 @@ local function get_metric_char(self, code)
 
 	if data ~= nil then return data end
 
-	for i = 1, #self.Fonts do
-		local font = self.Fonts[i]
+	for i = 1, #self.TTFFonts do
+		local font = self.TTFFonts[i]
 		font:SetSize(self.Size)
 		data = font:GetGlyph(code)
 

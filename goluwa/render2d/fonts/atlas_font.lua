@@ -92,7 +92,7 @@ end, function(w, h, format, filter)
 end)
 local META = objects.CreateTemplate("font_atlas")
 META.Base = FontBase
-META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
+META:GetSet("TTFFonts", {}, {callback = "OnFontsChanged"})
 META:GetSet("Padding", 1, {callback = "OnPaddingChanged"})
 META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
 META:GetSet("Size", 12, {callback = "ClearSizeCache"})
@@ -137,9 +137,9 @@ end
 
 local function get_ascent_descent(self)
 	if not self.ascent then
-		self.Fonts[1]:SetSize(self.Size)
-		self.ascent = self.Fonts[1]:GetAscent()
-		self.descent = self.Fonts[1]:GetDescent()
+		self.TTFFonts[1]:SetSize(self.Size)
+		self.ascent = self.TTFFonts[1]:GetAscent()
+		self.descent = self.TTFFonts[1]:GetDescent()
 	end
 
 	return self.ascent, self.descent
@@ -218,8 +218,8 @@ end
 function META:GetMetricGlyph(code)
 	if self.chars[code] ~= nil then return self.chars[code] end
 
-	for i = 1, #self.Fonts do
-		local font = self.Fonts[i]
+	for i = 1, #self.TTFFonts do
+		local font = self.TTFFonts[i]
 		font:SetSize(self.Size)
 		local data = font:GetGlyph(code)
 
@@ -376,8 +376,8 @@ do
 
 		local glyph
 
-		for i = 1, #self.Fonts do
-			local font = self.Fonts[i]
+		for i = 1, #self.TTFFonts do
+			local font = self.TTFFonts[i]
 			font:SetSize(self.Size)
 			glyph = font:GetGlyph(code)
 
@@ -403,8 +403,8 @@ do
 		local glyph
 		local glyph_source_font
 
-		for i = 1, #self.Fonts do
-			local font = self.Fonts[i]
+		for i = 1, #self.TTFFonts do
+			local font = self.TTFFonts[i]
 			font:SetSize(self.Size)
 			glyph = font:GetGlyph(code)
 

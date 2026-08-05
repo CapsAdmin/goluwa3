@@ -20,7 +20,7 @@ function META.New(fonts)
 	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 	local self = META:CreateObject()
-	self:SetFonts(fonts)
+	self:SetTTFFonts(fonts)
 	self.chars = {}
 	self.rebuild = false
 
@@ -119,8 +119,8 @@ function META:LoadGlyph(code, temp_fbs)
 	local glyph
 	local glyph_source_font
 
-	for i = 1, #self.Fonts do
-		local font = self.Fonts[i]
+	for i = 1, #self.TTFFonts do
+		local font = self.TTFFonts[i]
 		font:SetSize(self.Size)
 		glyph = font:GetGlyph(code)
 
