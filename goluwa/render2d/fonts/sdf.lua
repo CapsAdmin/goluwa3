@@ -924,7 +924,7 @@ local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
 	local i = 1
 	local spread = self:GetEffectiveSpread()
 	local line_height = self:GetLineHeight()
-	local space_glyph = self.chars[32] or self:GetChar(32)
+	local space_glyph = self:GetChar(32)
 	local entries = {}
 
 	while i <= #str do
@@ -1042,16 +1042,15 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 			last_texture = texture
 		end
 
-		local uv = entry.uv
 		render2d_DrawRectUV2f(
 			x + entry.x,
 			y + entry.y,
 			entry.w,
 			entry.h,
-			uv[1],
-			uv[2],
-			uv[3],
-			uv[4],
+			entry.uv[1],
+			entry.uv[2],
+			entry.uv[3],
+			entry.uv[4],
 			nil,
 			nil,
 			nil,
