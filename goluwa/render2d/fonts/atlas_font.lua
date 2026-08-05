@@ -92,7 +92,7 @@ end, function(w, h, format, filter)
 end)
 local META = objects.CreateTemplate("font_atlas")
 META.Base = FontBase
-META:GetSet("TTFFonts", {}, {callback = "OnFontsChanged"})
+META:GetSet("TTFFont", nil, {callback = "OnFontsChanged"})
 META:GetSet("Padding", 1, {callback = "OnPaddingChanged"})
 META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
 META:GetSet("Size", 12, {callback = "ClearSizeCache"})
@@ -137,9 +137,9 @@ end
 
 local function get_ascent_descent(self)
 	if not self.ascent then
-		self.TTFFonts[1]:SetSize(self.Size)
-		self.ascent = self.TTFFonts[1]:GetAscent()
-		self.descent = self.TTFFonts[1]:GetDescent()
+		self.TTFFont:SetSize(self.Size)
+		self.ascent = self.TTFFont:GetAscent()
+		self.descent = self.TTFFont:GetDescent()
 	end
 
 	return self.ascent, self.descent
@@ -218,15 +218,10 @@ end
 function META:GetMetricGlyph(code)
 	if self.chars[code] ~= nil then return self.chars[code] end
 
-	for i = 1, #self.TTFFonts do
-		local font = self.TTFFonts[i]
-		font:SetSize(self.Size)
-		local data = font:GetGlyph(code)
+	if not self.TTFFont then return false end
 
-		if data then return data end
-	end
-
-	return false
+	self.TTFFont:SetSize(self.Size)
+	return self.TTFFont:GetGlyph(code) or false
 end
 
 function META:GetChar(char)
@@ -374,15 +369,10 @@ do
 	local function estimate_glyph_sdf_descriptor_slots(self, code)
 		if self.chars[code] ~= nil then return 0 end
 
-		local glyph
+		if not self.TTFFont then return 0 end
 
-		for i = 1, #self.TTFFonts do
-			local font = self.TTFFonts[i]
-			font:SetSize(self.Size)
-			glyph = font:GetGlyph(code)
-
-			if glyph then break end
-		end
+		self.TTFFont:SetSize(self.Size)
+		local glyph = self.TTFFont:GetGlyph(code)
 
 		if not glyph or not glyph.glyph_data or glyph.w <= 0 or glyph.h <= 0 then
 			return 0
@@ -400,20 +390,13 @@ do
 
 		if self.chars[code] ~= nil then return end
 
-		local glyph
-		local glyph_source_font
-
-		for i = 1, #self.TTFFonts do
-			local font = self.TTFFonts[i]
-			font:SetSize(self.Size)
-			glyph = font:GetGlyph(code)
-
-			if glyph then
-				glyph_source_font = font
-
-				break
-			end
+		if not self.TTFFont then
+			self.chars[code] = false
+			return
 		end
+
+		self.TTFFont:SetSize(self.Size)
+		local glyph = self.TTFFont:GetGlyph(code)
 
 		if not glyph then
 			self.chars[code] = false
@@ -433,7 +416,7 @@ do
 			end
 
 			local used_temp_fbs = {}
-			self:RenderGlyph(glyph, glyph_source_font, used_temp_fbs, cmd)
+			self:RenderGlyph(glyph, self.TTFFont, used_temp_fbs, cmd)
 			self.texture_atlas:Set(code, glyph.atlas_data)
 			self.chars[code] = glyph
 

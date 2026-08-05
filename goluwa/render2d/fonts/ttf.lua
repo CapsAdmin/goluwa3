@@ -27,36 +27,42 @@ function META:GetScale()
 end
 
 function META:UpdateScale()
-	if self.font then
-		if self.scale_override then
-			self.scale = self.scale_override.x or self.scale_override
-		else
-			self.scale = self.Size / self.font.units_per_em
-		end
+	local font = self.fonts[1].font
 
-		self.ascent = (
-				self.font.cap_height or
-				self.font.typo_ascent or
-				(
-					self.font.units_per_em * 0.7
-				)
-			) * self.scale
-		self.descent = (self.font.win_descent or self.font.descent or (self.font.units_per_em * 0.2)) * self.scale
+	if self.scale_override then
+		self.scale = self.scale_override.x or self.scale_override
+	else
+		self.scale = self.Size / font.units_per_em
 	end
 
+	self.ascent = (
+			font.cap_height or
+			font.typo_ascent or
+			(
+				font.units_per_em * 0.7
+			)
+		) * self.scale
+	self.descent = (font.win_descent or font.descent or (font.units_per_em * 0.2)) * self.scale
 	self.glyphs = {}
 end
 
-function META.New(path)
-	assert(path)
+function META.New(paths)
+	assert(paths)
 	local self = META:CreateObject()
-	self:SetPath(path)
+	self:SetPaths(paths)
 	return self
 end
 
-function META:SetPath(path)
-	self.Path = path
-	self.font = assert(codec.DecodeFile(path, "ttf"))
+function META:SetPaths(paths)
+	if type(paths) == "string" then paths = {paths} end
+
+	self.Paths = paths
+	self.fonts = {}
+
+	for _, path in ipairs(paths) do
+		table.insert(self.fonts, {path = path, font = assert(codec.DecodeFile(path, "ttf"))})
+	end
+
 	self:UpdateScale()
 	self.glyphs = {}
 	return self
@@ -140,7 +146,7 @@ local function get_contour_points(self, glyph, raw_points)
 	return flattened
 end
 
-function META:DrawGlyph(glyph)
+function META:DrawGlyph(glyph, source_font)
 	if not glyph then return end
 
 	if glyph.glyph_data then glyph = glyph.glyph_data end
@@ -222,7 +228,7 @@ function META:ResolveGlyphData(glyph_data)
 	local all_end_pts = {}
 
 	for _, component in ipairs(glyph_data.components or {}) do
-		local comp_data = self:ResolveGlyphData(self.font:GetGlyphData(self.font, component.glyph_index))
+		local comp_data = self:ResolveGlyphData(self.fonts[1].font:GetGlyphData(self.fonts[1].font, component.glyph_index))
 
 		if comp_data and comp_data.points then
 			local m = component.matrix
@@ -258,20 +264,14 @@ function META:GetLineHeight()
 	return self.Size
 end
 
-function META:GetGlyph(char_code)
-	if type(char_code) == "string" then char_code = utf8.uint32(char_code) end
-
-	if not char_code or char_code < 0 then return nil end
-
-	if self.glyphs[char_code] then return self.glyphs[char_code] end
-
-	local glyph_index = self.font:GetGlyphIndex(char_code)
+local function build_glyph(self, font_obj, char_code)
+	local glyph_index = font_obj:GetGlyphIndex(char_code)
 
 	if not glyph_index or glyph_index == 0 then return nil end
 
-	local metrics = self.font:GetGlyphMetrics(glyph_index)
-	local glyph_data = self:ResolveGlyphData(self.font:GetGlyphData(glyph_index))
-	local g = {
+	local metrics = font_obj:GetGlyphMetrics(glyph_index)
+	local glyph_data = self:ResolveGlyphData(font_obj:GetGlyphData(glyph_index))
+	return {
 		x_advance = metrics.advance_width * self.scale,
 		lsb = metrics.lsb * self.scale,
 		w = 0,
@@ -288,22 +288,39 @@ function META:GetGlyph(char_code)
 		flip_y = false,
 		glyph_data = glyph_data,
 	}
+end
 
-	if glyph_data then
-		g.x_min = glyph_data.x_min * self.scale
-		g.x_max = glyph_data.x_max * self.scale
-		g.y_min = glyph_data.y_min * self.scale
-		g.y_max = glyph_data.y_max * self.scale
-		g.w = math.ceil(g.x_max - g.x_min)
-		g.h = math.ceil(g.y_max - g.y_min)
-		g.bearing_x = g.x_min
-		g.bearing_y = g.y_max
-		g.bitmap_left = g.x_min
-		g.bitmap_top = (self.ascent - g.y_max)
+function META:GetGlyph(char_code)
+	if type(char_code) == "string" then char_code = utf8.uint32(char_code) end
+
+	if not char_code or char_code < 0 then return nil end
+
+	if self.glyphs[char_code] then return self.glyphs[char_code] end
+
+	for _, font_entry in ipairs(self.fonts) do
+		local g = build_glyph(self, font_entry.font, char_code)
+
+		if g then
+			if g.glyph_data then
+				g.x_min = g.glyph_data.x_min * self.scale
+				g.x_max = g.glyph_data.x_max * self.scale
+				g.y_min = g.glyph_data.y_min * self.scale
+				g.y_max = g.glyph_data.y_max * self.scale
+				g.w = math.ceil(g.x_max - g.x_min)
+				g.h = math.ceil(g.y_max - g.y_min)
+				g.bearing_x = g.x_min
+				g.bearing_y = g.y_max
+				g.bitmap_left = g.x_min
+				g.bitmap_top = (self.ascent - g.y_max)
+			end
+
+			self.glyphs[char_code] = g
+			return g
+		end
 	end
 
-	self.glyphs[char_code] = g
-	return g
+	self.glyphs[char_code] = nil
+	return nil
 end
 
 function META:GetTextSize(str)

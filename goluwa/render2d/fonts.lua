@@ -21,22 +21,21 @@ function fonts.New(props)
 	mode = mode or "sdf"
 
 	if props.Name then
+		local ttf_font = TTFFont.New({fonts.GetDefaultSystemFontPath()})
 		local font
-		local fallback_base = TTFFont.New(fonts.GetDefaultSystemFontPath())
 
 		if mode == "raster" then
-			font = RasterFont.New(fallback_base)
+			font = RasterFont.New(ttf_font)
 		else
-			font = SDFFont.New(fallback_base)
+			font = SDFFont.New(ttf_font)
 		end
 
 		font:SetSize(props.Size)
 		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
 
 		fonts.DownloadGoogleFont{name = props.Name, weight = props.Weight}:Then(function(path)
-			local ttf_font = TTFFont.New(path)
+			ttf_font:SetPaths{path, fonts.GetDefaultSystemFontPath()}
 			ttf_font:SetSize(font:GetSize())
-			font:SetTTFFonts({ttf_font})
 		end):Catch(function(err)
 			wlog("Failed to load Google Font " .. props.Name .. ": " .. err)
 		end)

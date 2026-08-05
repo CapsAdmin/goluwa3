@@ -16,11 +16,9 @@ function META:__copy()
 	return self
 end
 
-function META.New(fonts)
-	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
-
+function META.New(ttf_font)
 	local self = META:CreateObject()
-	self:SetTTFFonts(fonts)
+	self:SetTTFFont(ttf_font)
 	self.chars = {}
 	self.rebuild = false
 
@@ -116,20 +114,8 @@ function META:LoadGlyph(code, temp_fbs)
 
 	if self.chars[code] ~= nil then return end
 
-	local glyph
-	local glyph_source_font
-
-	for i = 1, #self.TTFFonts do
-		local font = self.TTFFonts[i]
-		font:SetSize(self.Size)
-		glyph = font:GetGlyph(code)
-
-		if glyph then
-			glyph_source_font = font
-
-			break
-		end
-	end
+	self.TTFFont:SetSize(self.Size)
+	local glyph = self.TTFFont:GetGlyph(code)
 
 	if not glyph then
 		self.chars[code] = false
@@ -140,7 +126,7 @@ function META:LoadGlyph(code, temp_fbs)
 		if not render.available or not render.target then return end
 
 		local used_temp_fbs = {}
-		glyph.texture, glyph.raster_w, glyph.raster_h = render_glyph_to_texture(self, glyph_source_font, glyph, used_temp_fbs)
+		glyph.texture, glyph.raster_w, glyph.raster_h = render_glyph_to_texture(self, self.TTFFont, glyph, used_temp_fbs)
 		local padding = self:GetPadding()
 		local effective_h = math.max(glyph.h, glyph.bitmap_top)
 		local atlas_w = math.max(1, math.ceil(glyph.w + padding * 2))
