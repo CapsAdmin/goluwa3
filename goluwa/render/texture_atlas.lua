@@ -202,7 +202,7 @@ function META:Build()
 	render.SubmitAndWait(cmd)
 	self.dirty_textures = {}
 
-	if true then
+	if false then
 		for i, page in ipairs(self.pages) do
 			page.texture:Download():SaveAs("tmp/texture_atlas_" .. tostring(self) .. "_page_" .. i .. ".png")
 		end
