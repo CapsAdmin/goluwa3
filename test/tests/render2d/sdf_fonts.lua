@@ -4,10 +4,10 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local Color = import("goluwa/structs/color.lua")
 
-local function region_has_alpha_below(tex, min_x, min_y, max_x, max_y, max_alpha)
+local function region_has_alpha_below(downloaded_tex, min_x, min_y, max_x, max_y, max_alpha)
 	for y = min_y, max_y do
 		for x = min_x, max_x do
-			local _, _, _, a = tex:GetPixel(x, y)
+			local _, _, _, a = downloaded_tex:GetPixel(x, y)
 
 			if a / 255 <= max_alpha then return true end
 		end
@@ -16,10 +16,10 @@ local function region_has_alpha_below(tex, min_x, min_y, max_x, max_y, max_alpha
 	return false
 end
 
-local function region_has_alpha_above(tex, min_x, min_y, max_x, max_y, min_alpha)
+local function region_has_alpha_above(downloaded_tex, min_x, min_y, max_x, max_y, min_alpha)
 	for y = min_y, max_y do
 		for x = min_x, max_x do
-			local _, _, _, a = tex:GetPixel(x, y)
+			local _, _, _, a = downloaded_tex:GetPixel(x, y)
 
 			if a / 255 >= min_alpha then return true end
 		end
@@ -40,17 +40,18 @@ T.Test2D("sdf font", function()
 	font:DrawText("Hg", 10, 10)
 	return function()
 		local tex = render.target:GetTexture()
+		local downloaded = tex:Download()
 		T.AssertScreenPixel{
 			pos = {48, 99},
 			color = {1, 1, 1, 1},
 			tolerance = 0.5,
 		}
 		assert(
-			region_has_alpha_above(tex, 12, 12, 120, 220, 0.7),
+			region_has_alpha_above(downloaded, 12, 12, 120, 220, 0.7),
 			"expected opaque SDF glyph pixels"
 		)
 		assert(
-			region_has_alpha_below(tex, 12, 12, 120, 220, 0.2),
+			region_has_alpha_below(downloaded, 12, 12, 120, 220, 0.2),
 			"expected transparent pixels around SDF glyph shape"
 		)
 	end
@@ -69,17 +70,18 @@ T.Test2D("sdf font ignores ambient sample uv mode", function()
 	font:DrawText("Hg", 10, 10)
 	return function()
 		local tex = render.target:GetTexture()
+		local downloaded = tex:Download()
 		T.AssertScreenPixel{
 			pos = {48, 99},
 			color = {1, 1, 1, 1},
 			tolerance = 0.5,
 		}
 		assert(
-			region_has_alpha_above(tex, 12, 12, 120, 220, 0.7),
+			region_has_alpha_above(downloaded, 12, 12, 120, 220, 0.7),
 			"expected opaque SDF glyph pixels with dirty sample uv mode"
 		)
 		assert(
-			region_has_alpha_below(tex, 12, 12, 120, 220, 0.2),
+			region_has_alpha_below(downloaded, 12, 12, 120, 220, 0.2),
 			"expected transparent pixels around SDF glyph shape with dirty sample uv mode"
 		)
 	end
@@ -95,9 +97,9 @@ T.Test2D("sdf font small size remains visible", function()
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hello", 10, 20)
 	return function()
-		local tex = render.target:GetTexture()
+		local downloaded = render.target:GetTexture():Download()
 		assert(
-			region_has_alpha_above(tex, 8, 8, 80, 40, 0.2),
+			region_has_alpha_above(downloaded, 8, 8, 80, 40, 0.2),
 			"expected visible pixels for small SDF text"
 		)
 	end
@@ -113,9 +115,9 @@ T.Test2D("sdf font ignores ambient blend mode", function()
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hg", 10, 10)
 	return function()
-		local tex = render.target:GetTexture()
+		local downloaded = render.target:GetTexture():Download()
 		assert(
-			region_has_alpha_above(tex, 12, 12, 120, 120, 0.4),
+			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
 			"expected visible pixels for SDF text with dirty blend mode"
 		)
 	end
@@ -138,9 +140,9 @@ T.Test2D("sdf font ignores ambient gradient texture", function()
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hg", 10, 10)
 	return function()
-		local tex = render.target:GetTexture()
+		local downloaded = render.target:GetTexture():Download()
 		assert(
-			region_has_alpha_above(tex, 12, 12, 120, 120, 0.4),
+			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
 			"expected visible pixels for SDF text with dirty gradient texture"
 		)
 	end
@@ -158,9 +160,9 @@ T.Test2D("sdf font ignores ambient threshold blur and outline", function()
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hg", 10, 10)
 	return function()
-		local tex = render.target:GetTexture()
+		local downloaded = render.target:GetTexture():Download()
 		assert(
-			region_has_alpha_above(tex, 12, 12, 120, 120, 0.4),
+			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
 			"expected visible pixels for SDF text with dirty threshold blur and outline"
 		)
 	end
@@ -176,9 +178,9 @@ T.Test2D("sdf font ignores ambient disable rect sdf", function()
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hg", 10, 10)
 	return function()
-		local tex = render.target:GetTexture()
+		local downloaded = render.target:GetTexture():Download()
 		assert(
-			region_has_alpha_above(tex, 12, 12, 120, 120, 0.4),
+			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
 			"expected visible pixels for SDF text with ambient disable_rect_sdf enabled"
 		)
 	end
