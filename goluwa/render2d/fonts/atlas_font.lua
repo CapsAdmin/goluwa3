@@ -261,26 +261,21 @@ end
 
 function META:Rebuild()
 	self.draw_pass_cache = nil
-	self.texture_atlas:Build()
+
+	render.ExecuteCommand(function(cmd)
+		self.texture_atlas:Build()
+	end)
 end
 
 function META:RebuildFromScratch()
 	if not self.texture_atlas then return end
 
-	render.ExecuteCommand(function(cmd)
-		local codes_to_reload = {}
+	for code in pairs(self.chars) do
+		self.chars[code] = nil
+		self:LoadGlyph(code)
+	end
 
-		for code in pairs(self.chars) do
-			table.insert(codes_to_reload, code)
-			self.chars[code] = nil
-		end
-
-		for _, code in ipairs(codes_to_reload) do
-			self:LoadGlyph(code)
-		end
-
-		self:Rebuild()
-	end)
+	self:Rebuild()
 end
 
 function META:GetAtlasFormat()
