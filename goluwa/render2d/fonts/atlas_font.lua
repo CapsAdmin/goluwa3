@@ -314,15 +314,7 @@ function META:CreateAtlas()
 	self:SetReady(true)
 end
 
-function META:GetMetricGlyph(code)
-	if self.chars[code] ~= nil then return self.chars[code] end
-
-	if not self.FontPath then return false end
-
-	local g = glyphs.GetGlyph(self.FontPath, code)
-
-	if not g then return false end
-
+local function build_glyph_metrics(self, g, code)
 	-- bitmap glyphs are already rasterized, do not scale metrics
 	local scale = g.texture and 1 or self.Size
 	return {
@@ -345,18 +337,23 @@ function META:GetMetricGlyph(code)
 	}
 end
 
+function META:GetMetricGlyph(code)
+	if self.chars[code] ~= nil then return self.chars[code] end
+
+	if not self.FontPath then return false end
+
+	local g = glyphs.GetGlyph(self.FontPath, code)
+
+	if not g then return false end
+
+	return build_glyph_metrics(self, g, code)
+end
+
 function META:GetChar(char)
 	local data = self.chars[char]
 
 	if data ~= nil then
-		if char == 10 then
-			if data then
-				if data.h <= 1 then data.h = self.Size end
-			else
-				data = {h = self.Size}
-				self.chars[10] = data
-			end
-		end
+		if char == 10 and data and data.h <= 1 then data.h = self.Size end
 
 		return data
 	end
@@ -366,8 +363,8 @@ function META:GetChar(char)
 	data = self.chars[char]
 
 	if char == 10 then
-		if data then
-			if data.h <= 1 then data.h = self.Size end
+		if data and data.h <= 1 then
+			data.h = self.Size
 		else
 			data = {h = self.Size}
 			self.chars[10] = data
@@ -527,25 +524,7 @@ do
 		end
 
 		-- bitmap glyphs are already rasterized, do not scale metrics
-		local scale = g.texture and 1 or self.Size
-		local glyph = {
-			x_advance = g.x_advance * scale,
-			lsb = g.lsb * scale,
-			w = g.w * scale,
-			h = g.h * scale,
-			x_min = g.x_min * scale,
-			x_max = g.x_max * scale,
-			y_min = g.y_min * scale,
-			y_max = g.y_max * scale,
-			bearing_x = g.x_min * scale,
-			bearing_y = g.y_max * scale,
-			bitmap_left = g.x_min * scale,
-			bitmap_top = self:GetAscent() - (g.y_max * scale),
-			glyph_data = g,
-			poly = g.poly,
-			font_path = self.FontPath,
-			char_code = code,
-		}
+		local glyph = build_glyph_metrics(self, g, code)
 		local used_temp_fbs = {}
 		self:RenderGlyph(glyph, used_temp_fbs)
 		self.texture_atlas:Set(code, glyph.atlas_data)
