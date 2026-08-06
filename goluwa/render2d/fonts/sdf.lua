@@ -582,20 +582,6 @@ function META:GetAtlasPadding(w, h)
 	(h + spread * 2) * SUPER_SAMPLING_SCALE
 end
 
-local function glyph_has_drawable_outline(glyph)
-	local glyph_data = glyph and glyph.glyph_data
-
-	if not glyph_data then return false end
-
-	if not glyph_data.points or #glyph_data.points == 0 then return false end
-
-	if not glyph_data.end_pts_of_contours or #glyph_data.end_pts_of_contours == 0 then
-		return false
-	end
-
-	return true
-end
-
 function META:RenderGlyph(glyph, used_temp_fbs)
 	local scale = SUPER_SAMPLING_SCALE
 	local spread = self:GetEffectiveSpread()
@@ -645,21 +631,7 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 
 	-- Capture the texture reference before releasing the framebuffer
 	local mask_tex = fb_ss.color_texture
-
-	if glyph_has_drawable_outline(glyph) then
-		glyph.texture = self:GenerateSDF(mask_tex, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
-	else
-		local fb_final = self:GetTempFramebuffer(glyph.w + spread * 2, glyph.h + spread * 2, format, false)
-		table.insert(used_temp_fbs, fb_final)
-
-		render.ExecuteCommand(function(cmd)
-			fb_final:Begin(cmd)
-			fb_final:End(cmd)
-		end)
-
-		glyph.texture = fb_final.color_texture
-	end
-
+	glyph.texture = self:GenerateSDF(mask_tex, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
 	glyph.atlas_data = {
 		w = glyph.w + spread * 2,
 		h = glyph.h + spread * 2,

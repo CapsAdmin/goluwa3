@@ -464,6 +464,7 @@ function glyphs.GetGlyph(path, char_code)
 		g.h = g.h * inv_upem
 		g.font_path = path
 		g.char_code = char_code
+		g.is_visual = g.poly or g.texture or (g.points and #g.points > 0)
 	end
 
 	state.glyphs_cache[char_code] = g

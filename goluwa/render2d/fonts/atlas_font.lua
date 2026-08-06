@@ -504,17 +504,17 @@ do
 
 		local g = glyphs.GetGlyph(self.FontPath, code)
 
-		if not g then
+		if not g or not g.is_visual then
 			self.chars[code] = false
 			return
 		end
 
 		-- bitmap glyphs are already rasterized, do not scale metrics
 		local glyph = build_glyph_metrics(self, g, code)
+		self.chars[code] = glyph
 		local used_temp_fbs = {}
 		self:RenderGlyph(glyph, used_temp_fbs)
 		self.texture_atlas:Set(code, glyph.atlas_data)
-		self.chars[code] = glyph
 
 		if not temp_fbs then
 			self:Rebuild()
