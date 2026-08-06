@@ -394,20 +394,6 @@ function META:GetTempTexture(w, h, format, filter)
 end
 
 do
-	local function glyph_has_drawable_outline(glyph)
-		local glyph_data = glyph and glyph.glyph_data
-
-		if not glyph_data then return false end
-
-		if not glyph_data.points or #glyph_data.points == 0 then return false end
-
-		if not glyph_data.end_pts_of_contours or #glyph_data.end_pts_of_contours == 0 then
-			return false
-		end
-
-		return true
-	end
-
 	local function get_next_pow2_and_steps(n)
 		local r = 1
 		local steps = 0
@@ -434,9 +420,6 @@ do
 			h = g.h * self.Size,
 			glyph_data = g,
 		}
-
-		if not glyph_has_drawable_outline(glyph) then return 0 end
-
 		local sw, sh = self:GetAtlasPadding(glyph.w, glyph.h)
 		local _, steps = get_next_pow2_and_steps(math.max(sw, sh))
 		return (steps + 4) * 2 + 1
