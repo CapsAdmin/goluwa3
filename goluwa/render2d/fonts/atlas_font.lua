@@ -3,9 +3,9 @@ local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local objects = import("goluwa/objects/objects.lua")
+local pretext = import("goluwa/pretext/init.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
-local FontBase = import("goluwa/render2d/fonts/base.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local Texture = import("goluwa/render/texture.lua")
 local glyphs = import("goluwa/render2d/glyphs.lua")
@@ -93,7 +93,7 @@ end, function(w, h, format, filter)
 	return w .. "_" .. h .. "_" .. format .. "_" .. (filter or "linear")
 end)
 local META = objects.CreateTemplate("font_atlas")
-META.Base = FontBase
+META.IsFont = true
 META:GetSet("FontPath", nil, {callback = "OnFontsChanged"})
 META:GetSet("Padding", 1, {callback = "OnPaddingChanged"})
 META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
@@ -102,7 +102,88 @@ META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
 META:GetSet("Filtering", "linear", {callback = "ClearSizeCache"})
 META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
 META:IsSet("Ready", false)
+META:GetSet("Path", "default")
+META:GetSet("Size", 8)
+META:IsSet("Ready", false)
 META.debug = false
+
+function META:__copy()
+	return self
+end
+
+function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance)
+	if align_x or align_y then
+		local w, h = self:GetTextSize(str)
+
+		if type(align_x) == "number" then
+			x = x - (w * align_x)
+		elseif align_x == "center" then
+			x = x - (w / 2)
+		elseif align_x == "right" then
+			x = x - w
+		end
+
+		if type(align_y) == "number" then
+			y = y - (h * align_y)
+		elseif align_y == "baseline" then
+			y = y - self:GetAscent()
+		elseif align_y == "center" then
+			y = y - (h / 2)
+		elseif align_y == "bottom" then
+			y = y - h
+		end
+	end
+
+	self:DrawString(str, x, y, spacing, extra_space_advance)
+end
+
+function META:GetSpaceAdvance()
+	local width = select(1, self:GetTextSize(" "))
+
+	if width == 0 then
+		width = select(1, self:GetTextSize("| |")) - select(1, self:GetTextSize("||"))
+	end
+
+	return width
+end
+
+function META:GetTabAdvance(space_width, tab_size, current_width)
+	if self.GetTabWidth then
+		return self:GetTabWidth(space_width, tab_size, current_width)
+	end
+
+	return (space_width or self:GetSpaceAdvance()) * (tab_size or 4)
+end
+
+function META:GetGlyphAdvance(char)
+	return select(1, self:GetTextSize(char))
+end
+
+function META:MeasureText(str)
+	return self:GetTextSize(str)
+end
+
+function META:WrapString(str, max_width)
+	str = tostring(str or "")
+	max_width = max_width or 0
+	self.wrap_string_cache = self.wrap_string_cache or {}
+	local cache_key = tostring(max_width) .. "\0" .. str
+
+	if self.wrap_string_cache[cache_key] ~= nil then
+		return self.wrap_string_cache[cache_key]
+	end
+
+	local size = self:GetTextSize(str)
+
+	if max_width > size then
+		self.wrap_string_cache[cache_key] = str
+		return str
+	end
+
+	local wrapped = pretext.wrap_font_text(self, str, max_width)
+	self.wrap_string_cache[cache_key] = wrapped
+	return wrapped
+end
 
 function META:Initialize(font_path)
 	self:SetFontPath(font_path)
