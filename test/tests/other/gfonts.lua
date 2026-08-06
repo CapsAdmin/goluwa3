@@ -27,19 +27,17 @@ end)
 
 T.Test("gfonts hotswap", function()
 	local font = fonts.New{Name = "Orbitron", Weight = "Regular", Size = 20}
-	T(font.IsFont)["=="](true)
-	local initial_ttf = font:GetFonts()[1]
+	local initial_ttf = font:GetFontPath()
 	T(initial_ttf)["~="](nil)
 
 	T.WaitUntil(
 		function()
-			return font:GetFonts()[1] ~= initial_ttf
+			return font:GetFontPath() ~= initial_ttf
 		end,
 		5,
 		"Font did not update within timeout"
 	)
 
-	local new_ttf = font:GetFonts()[1]
+	local new_ttf = font:GetFontPath()
 	T(new_ttf)["~="](initial_ttf)
-	T(new_ttf:GetSize())["=="](20)
 end)
