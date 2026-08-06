@@ -12,25 +12,9 @@ local META = objects.CreateTemplate("raster_font")
 META.Base = AtlasFont
 META.debug = false
 
-function META:__copy()
-	return self
-end
-
 function META.New(font_path)
 	local self = META:CreateObject()
-	self:SetFontPath(font_path)
-	self.chars = {}
-	self.rebuild = false
-
-	if render.IsReady() then
-		self:CreateAtlas()
-	else
-		event.AddListener("RendererReady", self, function()
-			self:CreateAtlas()
-			return event.destroy_tag
-		end)
-	end
-
+	self:Initialize(font_path)
 	return self
 end
 
@@ -133,7 +117,13 @@ local function batch_load_glyphs(self, str)
 	end
 end
 
-function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
+function META:DrawString(str, x, y, spacing, extra_space_advance)
+	if not self:IsReady() then return end
+
+	str = tostring(str)
+	batch_load_glyphs(self, str)
+	spacing = spacing or self.Spacing
+	render2d.PushUV()
 	local X, Y = 0, 0
 	local i = 1
 	local len = #str
@@ -165,7 +155,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 			local data = self.chars[char_code]
 
 			if data then
-				local atlas_data = atlas.textures[char_code]
+				local atlas_data = self.texture_atlas.textures[char_code]
 
 				if atlas_data and atlas_data.page then
 					local texture = atlas_data.page.texture
@@ -209,16 +199,7 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 
 		i = i + utf8.byte_length(str, i)
 	end
-end
 
-function META:DrawString(str, x, y, spacing, extra_space_advance)
-	if not self:IsReady() then return end
-
-	str = tostring(str)
-	batch_load_glyphs(self, str)
-	spacing = spacing or self.Spacing
-	render2d.PushUV()
-	self:DrawPass(str, x, y, spacing, self.texture_atlas, extra_space_advance)
 	render2d.PopUV()
 end
 

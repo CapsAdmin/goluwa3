@@ -11,10 +11,6 @@ function META:__copy()
 	return self
 end
 
-function META.New()
-	return META:CreateObject()
-end
-
 function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance)
 	if align_x or align_y then
 		local w, h = self:GetTextSize(str)

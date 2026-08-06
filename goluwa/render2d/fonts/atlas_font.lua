@@ -104,8 +104,19 @@ META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
 META:IsSet("Ready", false)
 META.debug = false
 
-function META:__copy()
-	return self
+function META:Initialize(font_path)
+	self:SetFontPath(font_path)
+	self.chars = {}
+	self.rebuild = false
+
+	if render.IsReady() then
+		self:CreateAtlas()
+	else
+		event.AddListener("RendererReady", self, function()
+			self:CreateAtlas()
+			return event.destroy_tag
+		end)
+	end
 end
 
 function META:ClearSizeCache()

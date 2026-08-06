@@ -91,25 +91,9 @@ META:GetSet("LoadSpeed", 10)
 META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
 
-function META:__copy()
-	return self
-end
-
 function META.New(font_path)
 	local self = META:CreateObject()
-	self:SetFontPath(font_path)
-	self.chars = {}
-	self.rebuild = false
-
-	if render.IsReady() then
-		self:CreateAtlas()
-	else
-		event.AddListener("RendererReady", self, function()
-			self:CreateAtlas()
-			return event.destroy_tag
-		end)
-	end
-
+	self:Initialize(font_path)
 	return self
 end
 
@@ -810,7 +794,16 @@ local render2d_PushColor = render2d.PushColor
 local render2d_DrawRect = render2d.DrawRect
 local render2d_PopColor = render2d.PopColor
 
-function META:DrawPass(str, x, y, spacing, extra_space_advance)
+function META:DrawString(str, x, y, spacing, extra_space_advance)
+	if not self:IsReady() then return end
+
+	str = tostring(str)
+	self:LoadGlyphsFromString(str)
+	spacing = spacing or self.Spacing
+	extra_space_advance = extra_space_advance or 0
+	render2d.PushUV()
+	render2d.PushSDFMode(true)
+	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 4)
 	local old_texture = render2d.GetTexture()
 	local last_texture = old_texture
 	local layout = get_draw_pass_layout(self, str, spacing, extra_space_advance or 0)
@@ -850,19 +843,7 @@ function META:DrawPass(str, x, y, spacing, extra_space_advance)
 	end
 
 	if last_texture ~= old_texture then render2d_SetTexture(old_texture) end
-end
 
-function META:DrawString(str, x, y, spacing, extra_space_advance)
-	if not self:IsReady() then return end
-
-	str = tostring(str)
-	self:LoadGlyphsFromString(str)
-	spacing = spacing or self.Spacing
-	extra_space_advance = extra_space_advance or 0
-	render2d.PushUV()
-	render2d.PushSDFMode(true)
-	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 4)
-	self:DrawPass(str, x, y, spacing, extra_space_advance)
 	render2d.PopSDFTexelRange()
 	render2d.PopSDFMode()
 	render2d.PopUV()
