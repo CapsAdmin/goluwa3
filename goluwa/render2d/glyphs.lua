@@ -288,7 +288,6 @@ function glyphs.DrawGlyph(path, char_code, x, y, size)
 
 	if not glyph or not glyph.poly then return end
 
-	render2d.state.runtime.pipeline_state.synced_pipeline = nil
 	render2d.PushMatrix(x, y, size, size)
 	glyph.poly:Draw()
 	render2d.PopMatrix()
