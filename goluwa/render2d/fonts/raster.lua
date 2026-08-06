@@ -9,7 +9,6 @@ local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local event = import("goluwa/event.lua")
 local META = objects.CreateTemplate("raster_font")
 META.Base = import("goluwa/render2d/fonts/base.lua")
-META.debug = false
 
 function META.New(font_path)
 	local self = META:CreateObject()
@@ -24,8 +23,8 @@ end
 function META:RenderGlyph(glyph, temp_fbs)
 	local padding = self:GetPadding()
 	local effective_h = self:GetAscent()
-	local width = math.max(1, math.ceil(glyph.w + padding * 2))
-	local height = math.max(1, math.ceil(glyph.h + glyph.bitmap_top + padding * 2))
+	local width = math.ceil(glyph.w + padding * 2)
+	local height = math.ceil(glyph.h + padding * 2)
 	local format = self:GetAtlasFormat()
 	local fb = self:GetTempFramebuffer(width, height, format, true, self.Filtering)
 	table.insert(temp_fbs, fb)
@@ -49,9 +48,8 @@ function META:RenderGlyph(glyph, temp_fbs)
 		render2d.SetSwizzleMode(0)
 		render2d.PushMatrix()
 		render2d.LoadIdentity()
-		render2d.Translate(padding, effective_h + padding)
-		render2d.Scale(1, -1)
-		render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
+		render2d.Translate(padding, padding)
+		render2d.Translate(-glyph.bitmap_left, -glyph.bitmap_top)
 		self:DrawGlyph(glyph.glyph_data)
 		render2d.FlushBatches("glyph_load")
 		render2d.PopMatrix()
@@ -67,11 +65,9 @@ function META:RenderGlyph(glyph, temp_fbs)
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	glyph.texture = fb.color_texture
-	glyph.raster_w = width
-	glyph.raster_h = height
 	glyph.atlas_data = {
-		w = math.max(1, math.ceil(glyph.w + self:GetPadding() * 2)),
-		h = math.max(1, math.ceil(math.max(glyph.h, glyph.bitmap_top) + padding * 2)),
+		w = width,
+		h = height,
 		texture = glyph.texture,
 		flip_y = glyph.flip_y,
 	}
@@ -116,87 +112,37 @@ local function batch_load_glyphs(self, str)
 	end
 end
 
+local function glyph_fn(self, data, X, Y, _)
+	local atlas_data = self.texture_atlas.textures[data.char_code]
+
+	if atlas_data and atlas_data.page then
+		local padding = self:GetPadding()
+		local texture = atlas_data.page.texture
+
+		if texture ~= self.last_texture then
+			render2d.SetTexture(texture)
+			self.last_texture = texture
+		end
+
+		local uv = atlas_data.page_uv_normalized
+		local rx = (X + data.bitmap_left - padding) * self.Scale.x
+		local ry = (Y + data.bitmap_top - padding) * self.Scale.y
+		local rw = atlas_data.w * self.Scale.x
+		local rh = atlas_data.h * self.Scale.y
+		render2d.DrawRectUV2(rx, ry, rw, rh, uv[1], uv[4], uv[3], uv[2])
+	end
+end
+
 function META:DrawString(str, x, y, spacing, extra_space_advance)
 	str = tostring(str)
 	batch_load_glyphs(self, str)
 	spacing = spacing or self.Spacing
-	render2d.PushUV()
-	local X, Y = 0, 0
-	local i = 1
-	local len = #str
-	local padding = self:GetPadding()
 	extra_space_advance = extra_space_advance or 0
-	local last_texture = nil
-
-	while i <= len do
-		local char_code = utf8.uint32(str, i)
-
-		if char_code == 10 then
-			X = 0
-			Y = Y + self:GetLineHeight() + spacing
-		elseif char_code == 32 then
-			X = X + self.Size / 2 + extra_space_advance
-		elseif char_code == 9 then
-			local data = self.chars[32] or self:LoadGlyph(32)
-
-			if data then
-				if self.Monospace then
-					X = X + spacing * 4
-				else
-					X = X + (data.x_advance + spacing) * 4
-				end
-			else
-				X = X + self.Size * 4
-			end
-		else
-			local data = self.chars[char_code]
-
-			if data then
-				local atlas_data = self.texture_atlas.textures[char_code]
-
-				if atlas_data and atlas_data.page then
-					local texture = atlas_data.page.texture
-
-					if texture ~= last_texture then
-						render2d.SetTexture(texture)
-						last_texture = texture
-					end
-
-					local uv = atlas_data.page_uv_normalized
-					local rx = x + (X + data.bitmap_left - padding) * self.Scale.x
-					local ry = y + (Y + data.bitmap_top - padding) * self.Scale.y
-					local rw = atlas_data.w * self.Scale.x
-					local rh = atlas_data.h * self.Scale.y
-					render2d.DrawRectUV2f(rx, ry, rw, rh, uv[1], uv[2], uv[3], uv[4])
-
-					if self.debug then
-						render2d.SetTexture(nil)
-						render2d.PushColor(1, 0, 0, 0.25)
-						render2d.DrawRect(
-							x + (X - padding) * self.Scale.x,
-							y + (Y - padding) * self.Scale.y,
-							(data.x_advance + padding * 2) * self.Scale.x,
-							self:GetLineHeight() * self.Scale.y
-						)
-						render2d.PopColor()
-						render2d.SetTexture(texture)
-					end
-				end
-
-				if self.Monospace then
-					X = X + spacing
-				else
-					X = X + data.x_advance + spacing
-				end
-			else
-				-- Glyph not available, advance by default width
-				X = X + self.Size + spacing
-			end
-		end
-
-		i = i + utf8.byte_length(str, i)
-	end
-
+	render2d.PushUV()
+	self.last_texture = nil
+	render2d.Translate(x, y)
+	self:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
+	render2d.Translate(-x, -y)
 	render2d.PopUV()
 end
 

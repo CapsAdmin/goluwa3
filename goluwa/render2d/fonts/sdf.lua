@@ -540,75 +540,25 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 	}
 end
 
-local str_byte = string.byte
-local utf8_uint32 = utf8.uint32
-local utf8_byte_length = utf8.byte_length
+local function glyph_fn(self, data, X, Y, entries)
+	local spread = self:GetEffectiveSpread()
+	local atlas_data = data.atlas_data
+
+	if atlas_data and atlas_data.page then
+		entries[#entries + 1] = {
+			texture = atlas_data.page.texture,
+			uv = atlas_data.page_uv_normalized,
+			x = (X + data.bitmap_left - spread / 2) * self.Scale.x,
+			y = (Y + data.bitmap_top - spread / 2) * self.Scale.y,
+			w = atlas_data.w * self.Scale.x,
+			h = atlas_data.h * self.Scale.y,
+		}
+	end
+end
 
 local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
-	local X, Y = 0, 0
-	local i = 1
 	local spread = self:GetEffectiveSpread()
-	local line_height = self:GetLineHeight()
-	local space_glyph = self:LoadGlyph(32)
-	local entries = {}
-
-	while i <= #str do
-		local byte = str_byte(str, i)
-		local char_code
-		local char_size
-
-		if byte < 128 then
-			char_code = byte
-			char_size = 1
-		else
-			char_code = utf8_uint32(str, i)
-			char_size = utf8_byte_length(str, i)
-		end
-
-		if char_code == 10 then
-			X = 0
-			Y = Y + line_height + spacing
-		elseif char_code == 32 then
-			X = X + self.Size / 2 + extra_space_advance
-		elseif char_code == 9 then
-			if self.Monospace then
-				X = X + spacing * self.TabWidthMultiplier
-			elseif space_glyph then
-				X = X + (space_glyph.x_advance + spacing) * self.TabWidthMultiplier
-			else
-				X = X + self.Size * self.TabWidthMultiplier
-			end
-		else
-			local data = self.chars[char_code]
-
-			if data then
-				local atlas_data = data.atlas_data
-
-				if atlas_data and atlas_data.page then
-					entries[#entries + 1] = {
-						texture = atlas_data.page.texture,
-						uv = atlas_data.page_uv_normalized,
-						x = (X + data.bitmap_left - spread / 2) * self.Scale.x,
-						y = (Y + data.bitmap_top - spread / 2) * self.Scale.y,
-						w = atlas_data.w * self.Scale.x,
-						h = atlas_data.h * self.Scale.y,
-					}
-				end
-
-				if self.Monospace then
-					X = X + spacing
-				else
-					X = X + data.x_advance + spacing
-				end
-			else
-				-- Glyph not available, advance by default width
-				X = X + self.Size + spacing
-			end
-		end
-
-		i = i + char_size
-	end
-
+	local entries = self:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
 	return {
 		entries = entries,
 		margin = spread * self.Scale.x,

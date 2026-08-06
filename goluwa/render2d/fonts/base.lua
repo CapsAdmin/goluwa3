@@ -9,6 +9,7 @@ local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local Texture = import("goluwa/render/texture.lua")
 local glyphs = import("goluwa/render2d/glyphs.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 
 local function create_temp_pool(create_fn, key_fn)
 	local pools = {}
@@ -95,7 +96,7 @@ end)
 local META = objects.CreateTemplate("font_atlas")
 META.IsFont = true
 META:GetSet("FontPath", nil, {callback = "OnFontsChanged"})
-META:GetSet("Padding", 1, {callback = "OnPaddingChanged"})
+META:GetSet("Padding", 0, {callback = "OnPaddingChanged"})
 META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
 META:GetSet("Size", 12, {callback = "ClearSizeCache"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
@@ -188,7 +189,9 @@ function META:Initialize(font_path)
 	self.rebuild = false
 	local format = self:GetAtlasFormat()
 	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-	self.texture_atlas:SetName(font_path)
+	self.texture_atlas:SetName(
+		self.Type .. " - " .. file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(font_path))
+	)
 
 	for code in pairs(self.chars) do
 		self.chars[code] = nil
@@ -391,6 +394,65 @@ end
 
 function META:GetTempTexture(w, h, format, filter)
 	return tex_pool.get(self, w, h, format, filter)
+end
+
+function META:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
+	local X, Y = 0, 0
+	local i = 1
+	local line_height = self:GetLineHeight()
+	local monospace = self.Monospace
+	local tab_mult = self.TabWidthMultiplier or 4
+	local half_size = self.Size / 2
+	local entries = {}
+
+	while i <= #str do
+		local byte = string.byte(str, i)
+		local char_code
+		local char_size
+
+		if byte < 128 then
+			char_code = byte
+			char_size = 1
+		else
+			char_code = utf8.uint32(str, i)
+			char_size = utf8.byte_length(str, i)
+		end
+
+		if char_code == 10 then
+			X = 0
+			Y = Y + line_height + spacing
+		elseif char_code == 32 then
+			X = X + half_size + extra_space_advance
+		elseif char_code == 9 then
+			local space_data = self.chars[32] or self:GetMetricGlyph(32)
+
+			if monospace then
+				X = X + spacing * tab_mult
+			elseif space_data then
+				X = X + (space_data.x_advance + spacing) * tab_mult
+			else
+				X = X + self.Size * tab_mult
+			end
+		else
+			local data = self.chars[char_code] or self:GetMetricGlyph(char_code)
+
+			if data then
+				glyph_fn(self, data, X, Y, entries)
+
+				if monospace then
+					X = X + spacing
+				else
+					X = X + data.x_advance + spacing
+				end
+			else
+				X = X + self.Size + spacing
+			end
+		end
+
+		i = i + char_size
+	end
+
+	return entries
 end
 
 do
