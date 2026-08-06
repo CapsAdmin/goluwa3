@@ -335,31 +335,6 @@ function META:GetMetricGlyph(code)
 	return build_glyph_metrics(self, g, code)
 end
 
-function META:GetChar(char)
-	local data = self.chars[char]
-
-	if data ~= nil then
-		if char == 10 and data and data.h <= 1 then data.h = self.Size end
-
-		return data
-	end
-
-	self.rebuild = true
-	self:LoadGlyph(char)
-	data = self.chars[char]
-
-	if char == 10 then
-		if data and data.h <= 1 then
-			data.h = self.Size
-		else
-			data = {h = self.Size}
-			self.chars[10] = data
-		end
-	end
-
-	return data
-end
-
 function META:GetTextSizeNotCached(str)
 	if not self:IsReady() then return 0, 0 end
 
@@ -495,7 +470,7 @@ do
 	function META:LoadGlyph(code, temp_fbs)
 		if type(code) == "string" then code = utf8.uint32(code) end
 
-		if self.chars[code] ~= nil then return end
+		if self.chars[code] ~= nil then return self.chars[code] end
 
 		if not self.FontPath then
 			self.chars[code] = false
@@ -525,6 +500,8 @@ do
 
 			self.rebuild = false
 		end
+
+		return glyph
 	end
 
 	local JFA_DESCRIPTOR_SET_COUNT = 1024

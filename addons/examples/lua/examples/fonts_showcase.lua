@@ -28,7 +28,7 @@ event.AddListener("Draw2D", "fonts_showcase", function()
 	y = y + 20
 	label_font:DrawText("Glyph Metrics ('g')", x, y)
 	y = y + 25
-	local g_glyph = sdf_font:GetChar(103) -- 'g'
+	local g_glyph = sdf_font:LoadGlyph(103) -- 'g'
 	if g_glyph then
 		local ascent = sdf_font:GetAscent()
 		local descent = sdf_font:GetDescent()

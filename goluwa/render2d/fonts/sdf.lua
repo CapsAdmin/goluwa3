@@ -649,7 +649,7 @@ local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
 	local i = 1
 	local spread = self:GetEffectiveSpread()
 	local line_height = self:GetLineHeight()
-	local space_glyph = self:GetChar(32)
+	local space_glyph = self:LoadGlyph(32)
 	local entries = {}
 
 	while i <= #str do

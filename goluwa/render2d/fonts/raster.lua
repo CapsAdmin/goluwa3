@@ -140,7 +140,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		elseif char_code == 32 then
 			X = X + self.Size / 2 + extra_space_advance
 		elseif char_code == 9 then
-			local data = self.chars[32] or self:GetChar(32)
+			local data = self.chars[32] or self:LoadGlyph(32)
 
 			if data then
 				if self.Monospace then

@@ -2,7 +2,7 @@ local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Color = import("goluwa/structs/color.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
-local font = fonts.New{Name = "Orbitron", Weight = "Regular", Size = 50, Mode = "raster"}
+local font = fonts.New{Name = "Orbitron", Weight = "Regular", Size = 50, Mode = "sdf"}
 
 event.AddListener("Draw2D", "test_2d", function()
 	local r, g, b, a = Color.FromHex("#08feff"):Unpack()

@@ -31,7 +31,7 @@ event.AddListener("Draw2D", "fonts_metrics_diagram", function()
 	local ox, oy = sw * 0.3, sh * 0.4
 	local char = "g"
 	local char_code = utf8.uint32(char)
-	local data = font:GetChar(char_code)
+	local data = font:LoadGlyph(char_code)
 
 	if not data then return end
 
