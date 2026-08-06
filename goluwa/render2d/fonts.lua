@@ -11,13 +11,7 @@ local default_font = nil
 function fonts.New(props)
 	props = props or {}
 	props.Size = props.Size or 16
-	local mode = props.Mode
-
-	if mode == nil and props.SDF ~= nil then
-		mode = props.SDF and "sdf" or "raster"
-	end
-
-	mode = mode or "sdf"
+	local mode = props.Mode or "sdf"
 
 	if props.Name then
 		local font_path = fonts.GetDefaultSystemFontPath()

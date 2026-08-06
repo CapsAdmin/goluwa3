@@ -144,8 +144,9 @@ end
 
 local function get_ascent_descent(self)
 	if not self.ascent then
-		self.ascent = glyphs.GetAscent(self.FontPath) * self.Size
-		self.descent = glyphs.GetDescent(self.FontPath) * self.Size
+		local scale = self.FontPath == "bitmap" and 1 or self.Size
+		self.ascent = glyphs.GetAscent(self.FontPath) * scale
+		self.descent = glyphs.GetDescent(self.FontPath) * scale
 	end
 
 	return self.ascent, self.descent
@@ -230,19 +231,22 @@ function META:GetMetricGlyph(code)
 
 	if not g then return false end
 
+	-- bitmap glyphs are already rasterized, do not scale metrics
+	local scale = g.texture and 1 or self.Size
+
 	return {
-		x_advance = g.x_advance * self.Size,
-		lsb = g.lsb * self.Size,
-		w = g.w * self.Size,
-		h = g.h * self.Size,
-		x_min = g.x_min * self.Size,
-		x_max = g.x_max * self.Size,
-		y_min = g.y_min * self.Size,
-		y_max = g.y_max * self.Size,
-		bearing_x = g.x_min * self.Size,
-		bearing_y = g.y_max * self.Size,
-		bitmap_left = g.x_min * self.Size,
-		bitmap_top = self:GetAscent() - (g.y_max * self.Size),
+		x_advance = g.x_advance * scale,
+		lsb = g.lsb * scale,
+		w = g.w * scale,
+		h = g.h * scale,
+		x_min = g.x_min * scale,
+		x_max = g.x_max * scale,
+		y_min = g.y_min * scale,
+		y_max = g.y_max * scale,
+		bearing_x = g.x_min * scale,
+		bearing_y = g.y_max * scale,
+		bitmap_left = g.x_min * scale,
+		bitmap_top = self:GetAscent() - (g.y_max * scale),
 		glyph_data = g,
 		poly = g.poly,
 		font_path = self.FontPath,
@@ -431,19 +435,22 @@ do
 			return
 		end
 
+		-- bitmap glyphs are already rasterized, do not scale metrics
+		local scale = g.texture and 1 or self.Size
+
 		local glyph = {
-			x_advance = g.x_advance * self.Size,
-			lsb = g.lsb * self.Size,
-			w = g.w * self.Size,
-			h = g.h * self.Size,
-			x_min = g.x_min * self.Size,
-			x_max = g.x_max * self.Size,
-			y_min = g.y_min * self.Size,
-			y_max = g.y_max * self.Size,
-			bearing_x = g.x_min * self.Size,
-			bearing_y = g.y_max * self.Size,
-			bitmap_left = g.x_min * self.Size,
-			bitmap_top = self:GetAscent() - (g.y_max * self.Size),
+			x_advance = g.x_advance * scale,
+			lsb = g.lsb * scale,
+			w = g.w * scale,
+			h = g.h * scale,
+			x_min = g.x_min * scale,
+			x_max = g.x_max * scale,
+			y_min = g.y_min * scale,
+			y_max = g.y_max * scale,
+			bearing_x = g.x_min * scale,
+			bearing_y = g.y_max * scale,
+			bitmap_left = g.x_min * scale,
+			bitmap_top = self:GetAscent() - (g.y_max * scale),
 			glyph_data = g,
 			poly = g.poly,
 			font_path = self.FontPath,

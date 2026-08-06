@@ -1,16 +1,14 @@
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
-local BitmapFont = import("goluwa/render2d/fonts/bitmap.lua")
 local RasterFont = import("goluwa/render2d/fonts/raster.lua")
 local glyphs = import("goluwa/render2d/glyphs.lua")
 local font_path = fonts.GetDefaultSystemFontPath()
 -- Create fonts of each type
 local sdf_font = fonts.New{Path = font_path, Size = 48}
-local raster_font = RasterFont.New(font_path)
-local bitmap_font = BitmapFont.New()
+local raster_font = RasterFont.New("bitmap")
 local label_font = fonts.New{Path = font_path, Size = 14}
-local test_text = "Hello Fonts!"
+local test_text = "The quick, brown fox. jumps over the lazy dog!?"
 
 event.AddListener("Draw2D", "fonts_showcase", function()
 	render2d.SetTexture(nil)
@@ -22,14 +20,9 @@ event.AddListener("Draw2D", "fonts_showcase", function()
 	label_font:DrawText("SDF Font", x, y)
 	sdf_font:DrawText(test_text, x, y + 25)
 	y = y + 80
-	-- Raster Font
-	render2d.SetColor(1, 1, 1, 1)
-	label_font:DrawText("Raster Font", x, y)
-	raster_font:DrawText(test_text, x, y + 25)
-	y = y + 80
 	-- Bitmap Font
 	label_font:DrawText("Bitmap Font", x, y)
-	bitmap_font:DrawText("Hi!", x, y + 25)
+	raster_font:DrawText(test_text, x, y + 25)
 	y = y + 60
 	-- Glyph Metrics
 	y = y + 20
