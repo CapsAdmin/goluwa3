@@ -547,8 +547,4 @@ function glyphs.DrawGlyph(path, char_code, x, y, size)
 	end
 end
 
-function glyphs.GetContourPoints(raw_points, ascent, inv_upem)
-	return get_contour_points(raw_points, ascent, inv_upem)
-end
-
 return glyphs

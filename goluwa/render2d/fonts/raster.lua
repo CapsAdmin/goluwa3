@@ -7,9 +7,8 @@ local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local event = import("goluwa/event.lua")
-local AtlasFont = import("goluwa/render2d/fonts/atlas_font.lua")
 local META = objects.CreateTemplate("raster_font")
-META.Base = AtlasFont
+META.Base = import("goluwa/render2d/fonts/base.lua")
 META.debug = false
 
 function META.New(font_path)

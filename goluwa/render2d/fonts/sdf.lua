@@ -7,7 +7,6 @@ local Texture = import("goluwa/render/texture.lua")
 local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local AtlasFont = import("goluwa/render2d/fonts/atlas_font.lua")
 local event = import("goluwa/event.lua")
 -- Debug mode:
 local DEBUG = false
@@ -86,7 +85,7 @@ local function debug_assert_sdf_texture(tex, name, min_valid, min_valid_count, d
 end
 
 local META = objects.CreateTemplate("sdf_font")
-META.Base = AtlasFont
+META.Base = import("goluwa/render2d/fonts/base.lua")
 META:GetSet("LoadSpeed", 10)
 META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
