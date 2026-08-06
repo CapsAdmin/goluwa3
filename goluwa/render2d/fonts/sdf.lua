@@ -8,82 +8,6 @@ local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local event = import("goluwa/event.lua")
--- Debug mode:
-local DEBUG = false
-
-local function debug_assert_sdf_texture(tex, name, min_valid, min_valid_count, desc)
-	if not DEBUG or not tex then return end
-
-	local cmd = render.GetCommandBuffer()
-
-	if cmd then
-		cmd:End()
-		render.SubmitAndWait(cmd)
-		cmd:Begin()
-		render.PushCommandBuffer(cmd)
-	end
-
-	local data = tex:Download()
-
-	if not data then
-		error(string.format("SDF debug [%s]: failed to download texture", name), 0)
-	end
-
-	local w, h = tex:GetWidth(), tex:GetHeight()
-	local valid_count = 0
-	local invalid_count = 0
-	local min_val = 1e10
-	local max_val = -1e10
-
-	data:ForEachPixel(function(x, y, r, g, b, a)
-		local is_valid = (r >= min_valid and g >= min_valid) or (a >= min_valid)
-
-		if is_valid then
-			valid_count = valid_count + 1
-		else
-			invalid_count = invalid_count + 1
-		end
-
-		local v = math.min(math.min(r, g), math.min(b, a))
-
-		if v < min_val then min_val = v end
-
-		v = math.max(math.max(r, g), math.max(b, a))
-
-		if v > max_val then max_val = v end
-	end)
-
-	if valid_count < min_valid_count then
-		error(
-			string.format(
-				"SDF debug [%s] FAILED: %s\n  valid=%d invalid=%d range=[%.4f, %.4f]\n  texture=%dx%d format=%s",
-				name,
-				desc,
-				valid_count,
-				invalid_count,
-				min_val / 255,
-				max_val / 255,
-				w,
-				h,
-				tex.format
-			),
-			0
-		)
-	end
-
-	print(
-		string.format(
-			"SDF debug [%s] OK: %s valid=%d invalid=%d range=[%.4f, %.4f]",
-			name,
-			desc,
-			valid_count,
-			invalid_count,
-			min_val / 255,
-			max_val / 255
-		)
-	)
-end
-
 local META = objects.CreateTemplate("sdf_font")
 META.Base = import("goluwa/render2d/fonts/base.lua")
 META:GetSet("LoadSpeed", 10)
@@ -337,7 +261,6 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local spread = self:GetEffectiveSpread()
 	return render.ExecuteCommand(function(cmd)
 		local p2 = get_next_pow2_and_steps(max_dim)
-		debug_assert_sdf_texture(mask_tex, "mask_input", 5, 20, "mask texture (must have glyph pixels, not empty)")
 		local tex_a = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
 		local tex_b = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
 		local tex_dist_on = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
@@ -498,9 +421,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		end
 
 		run_jfa(0, tex_dist_on)
-		debug_assert_sdf_texture(tex_dist_on, "dist_on", 0, 20, "distance to ON pixels (after init+JFA)")
 		run_jfa(1, tex_dist_off)
-		debug_assert_sdf_texture(tex_dist_off, "dist_off", 0, 20, "distance to OFF pixels (after init+JFA)")
 		local combine_w = target_w * COMBINE_SCALE
 		local combine_h = target_h * COMBINE_SCALE
 		local tex_combine = get_temp_tex(self, combine_w, combine_h, self:GetAtlasFormat(), "linear")
@@ -577,38 +498,20 @@ end
 
 function META:GetAtlasPadding(w, h)
 	local spread = self:GetEffectiveSpread()
-	return (w + spread * 2) * SUPER_SAMPLING_SCALE,
-	(h + spread * 2) * SUPER_SAMPLING_SCALE
+	return (w + spread) * SUPER_SAMPLING_SCALE, (h + spread) * SUPER_SAMPLING_SCALE
 end
 
 function META:RenderGlyph(glyph, used_temp_fbs)
 	local scale = SUPER_SAMPLING_SCALE
 	local spread = self:GetEffectiveSpread()
-	local sw = (glyph.w + spread * 2) * scale
-	local sh = (glyph.h + spread * 2) * scale
+	local sw = (glyph.w + spread) * scale
+	local sh = (glyph.h + spread) * scale
 	local format = self:GetAtlasFormat()
 	local fb_ss = self:GetTempFramebuffer(sw, sh, format, true)
 	table.insert(used_temp_fbs, fb_ss)
 
 	-- Render glyph mask to framebuffer
 	render.ExecuteCommand(function(cmd)
-		if DEBUG then
-			local gd = glyph.glyph_data
-			print(
-				string.format(
-					"SDF debug glyph %d: has_poly=%d points=%d contours=%d glyph.w=%d h=%d bitmap_left=%d bitmap_top=%d",
-					code,
-					gd and gd.poly and 1 or 0,
-					#((gd and gd.points) or {}),
-					#((gd and gd.end_pts_of_contours) or {}),
-					glyph.w,
-					glyph.h,
-					glyph.bitmap_left,
-					glyph.bitmap_top
-				)
-			)
-		end
-
 		local saved_batch = render2d.SaveBatchState()
 		render2d.state.runtime.batch.state:ClearPending()
 		fb_ss:Begin(cmd)
@@ -616,8 +519,8 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 		render2d.PushScreenSize(sw, sh)
 		render2d.PushMatrix()
 		render2d.LoadIdentity()
-		render2d.Translate(spread * scale, (glyph.h + spread) * scale)
-		render2d.Scale(scale, -scale)
+		render2d.Translate(spread * scale / 2, spread * scale / 2)
+		render2d.Scale(scale, scale)
 		render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 		self:DrawGlyph(glyph.glyph_data)
 		render2d.FlushBatches("glyph_load")
@@ -629,13 +532,11 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 	end)
 
 	-- Capture the texture reference before releasing the framebuffer
-	local mask_tex = fb_ss.color_texture
-	glyph.texture = self:GenerateSDF(mask_tex, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
+	glyph.texture = self:GenerateSDF(fb_ss.color_texture, sw, sh, glyph.w + spread, glyph.h + spread, used_temp_fbs)
 	glyph.atlas_data = {
-		w = glyph.w + spread * 2,
-		h = glyph.h + spread * 2,
+		w = math.floor(glyph.w + spread),
+		h = math.floor(glyph.h + spread),
 		texture = glyph.texture,
-		flip_y = glyph.flip_y,
 	}
 end
 
@@ -687,13 +588,10 @@ local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
 					entries[#entries + 1] = {
 						texture = atlas_data.page.texture,
 						uv = atlas_data.page_uv_normalized,
-						x = (X + data.bitmap_left - spread) * self.Scale.x,
-						y = (Y + data.bitmap_top - spread) * self.Scale.y,
+						x = (X + data.bitmap_left - spread / 2) * self.Scale.x,
+						y = (Y + data.bitmap_top - spread / 2) * self.Scale.y,
 						w = atlas_data.w * self.Scale.x,
 						h = atlas_data.h * self.Scale.y,
-						debug_x = (X - spread) * self.Scale.x,
-						debug_y = (Y - spread) * self.Scale.y,
-						debug_w = (data.x_advance + spread * 2) * self.Scale.x,
 					}
 				end
 
@@ -714,7 +612,6 @@ local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
 	return {
 		entries = entries,
 		margin = spread * self.Scale.x,
-		debug_h = line_height * self.Scale.y,
 	}
 end
 
@@ -782,23 +679,14 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 			entry.w,
 			entry.h,
 			entry.uv[1],
-			entry.uv[2],
-			entry.uv[3],
 			entry.uv[4],
+			entry.uv[3],
+			entry.uv[2],
 			nil,
 			nil,
 			nil,
 			layout.margin
 		)
-
-		if self.debug then
-			render2d_SetTexture(nil)
-			render2d_PushColor(1, 0, 0, 0.25)
-			render2d_DrawRect(x + entry.debug_x, y + entry.debug_y, entry.debug_w, layout.debug_h)
-			render2d_PopColor()
-			render2d_SetTexture(texture)
-			last_texture = texture
-		end
 	end
 
 	if last_texture ~= old_texture then render2d_SetTexture(old_texture) end

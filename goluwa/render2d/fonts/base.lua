@@ -103,7 +103,6 @@ META:GetSet("Filtering", "linear", {callback = "ClearSizeCache"})
 META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
 META:GetSet("Path", "default")
 META:GetSet("Size", 8)
-META.debug = false
 
 function META:__copy()
 	return self
@@ -189,6 +188,7 @@ function META:Initialize(font_path)
 	self.rebuild = false
 	local format = self:GetAtlasFormat()
 	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
+	self.texture_atlas:SetName(font_path)
 
 	for code in pairs(self.chars) do
 		self.chars[code] = nil

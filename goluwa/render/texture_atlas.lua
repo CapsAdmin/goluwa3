@@ -203,8 +203,12 @@ function META:Build()
 	self.dirty_textures = {}
 
 	if false then
+		local file_path = import("goluwa/filesystem/path.lua")
+
 		for i, page in ipairs(self.pages) do
-			page.texture:Download():SaveAs("tmp/texture_atlas_" .. tostring(self) .. "_page_" .. i .. ".png")
+			page.texture:Download():SaveAs(
+				"tmp/texture_atlas_" .. file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(tostring(self:GetName()))) .. "_page_" .. i .. ".png"
+			)
 		end
 	end
 end

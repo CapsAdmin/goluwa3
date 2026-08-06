@@ -23,9 +23,9 @@ end
 
 function META:RenderGlyph(glyph, temp_fbs)
 	local padding = self:GetPadding()
-	local effective_h = math.max(glyph.h, glyph.bitmap_top)
+	local effective_h = self:GetAscent()
 	local width = math.max(1, math.ceil(glyph.w + padding * 2))
-	local height = math.max(1, math.ceil(effective_h + padding * 2))
+	local height = math.max(1, math.ceil(glyph.h + glyph.bitmap_top + padding * 2))
 	local format = self:GetAtlasFormat()
 	local fb = self:GetTempFramebuffer(width, height, format, true, self.Filtering)
 	table.insert(temp_fbs, fb)

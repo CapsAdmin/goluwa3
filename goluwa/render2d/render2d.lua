@@ -1448,9 +1448,9 @@ function render2d.ResetState()
 	render2d.SetClampBorderRadius(true)
 	constants.sdf_threshold = 0
 	constants.sdf_texel_range = 1
-	constants.sdf_bias = -0.05
+	constants.sdf_bias = 0
 	constants.sdf_gamma = 1
-	constants.sdf_softness = 0.4
+	constants.sdf_softness = 0.25
 	constants.gradient_texture_index = -1
 	constants.nine_patch_x_count = 0
 	constants.nine_patch_y_count = 0
