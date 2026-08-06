@@ -277,7 +277,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 			current_x = x
 			current_y = current_y + 8
 		elseif char >= 0 and char <= 127 then
-			local glyph = self:GetGlyph(string.char(char))
+			local glyph = self:GetGlyph(char)
 			render2d.SetUV2(glyph.u1, glyph.v1, glyph.u2, glyph.v2)
 			render2d.DrawRect(current_x, current_y, glyph.w, glyph.h)
 			current_x = current_x + glyph.w + spacing

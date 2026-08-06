@@ -1,12 +1,14 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
 local FontBase = import("goluwa/render2d/fonts/base.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local Texture = import("goluwa/render/texture.lua")
+local glyphs = import("goluwa/render2d/glyphs.lua")
 
 local function create_temp_pool(create_fn, key_fn)
 	local pools = {}
@@ -92,7 +94,7 @@ end, function(w, h, format, filter)
 end)
 local META = objects.CreateTemplate("font_atlas")
 META.Base = FontBase
-META:GetSet("TTFFont", nil, {callback = "OnFontsChanged"})
+META:GetSet("FontPath", nil, {callback = "OnFontsChanged"})
 META:GetSet("Padding", 1, {callback = "OnPaddingChanged"})
 META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
 META:GetSet("Size", 12, {callback = "ClearSizeCache"})
@@ -122,6 +124,14 @@ function META:OnFontsChanged()
 	event.Call("OnFontsChanged", self)
 end
 
+function META:DrawGlyph(glyph)
+	render2d.SetTexture(nil)
+	glyph.poly:SetColor(1, 1, 1, 1)
+	render2d.PushMatrix(0, 0, self.Size, self.Size)
+	glyph.poly:Draw()
+	render2d.PopMatrix()
+end
+
 function META:OnPaddingChanged()
 	if self.texture_atlas then
 		self.texture_atlas:SetPadding(self.Padding)
@@ -137,9 +147,8 @@ end
 
 local function get_ascent_descent(self)
 	if not self.ascent then
-		self.TTFFont:SetSize(self.Size)
-		self.ascent = self.TTFFont:GetAscent()
-		self.descent = self.TTFFont:GetDescent()
+		self.ascent = glyphs.GetAscent(self.FontPath) * self.Size
+		self.descent = glyphs.GetDescent(self.FontPath) * self.Size
 	end
 
 	return self.ascent, self.descent
@@ -218,10 +227,28 @@ end
 function META:GetMetricGlyph(code)
 	if self.chars[code] ~= nil then return self.chars[code] end
 
-	if not self.TTFFont then return false end
+	if not self.FontPath then return false end
 
-	self.TTFFont:SetSize(self.Size)
-	return self.TTFFont:GetGlyph(code) or false
+	local g = glyphs.GetGlyph(self.FontPath, code)
+
+	if not g then return false end
+
+	return {
+		x_advance = g.x_advance * self.Size,
+		lsb = g.lsb * self.Size,
+		w = g.w * self.Size,
+		h = g.h * self.Size,
+		x_min = g.x_min * self.Size,
+		x_max = g.x_max * self.Size,
+		y_min = g.y_min * self.Size,
+		y_max = g.y_max * self.Size,
+		bearing_x = g.x_min * self.Size,
+		bearing_y = g.y_max * self.Size,
+		bitmap_left = g.x_min * self.Size,
+		bitmap_top = self:GetAscent() - (g.y_max * self.Size),
+		glyph_data = g,
+		poly = g.poly,
+	}
 end
 
 function META:GetChar(char)
@@ -369,14 +396,17 @@ do
 	local function estimate_glyph_sdf_descriptor_slots(self, code)
 		if self.chars[code] ~= nil then return 0 end
 
-		if not self.TTFFont then return 0 end
+		if not self.FontPath then return 0 end
 
-		self.TTFFont:SetSize(self.Size)
-		local glyph = self.TTFFont:GetGlyph(code)
+		local g = glyphs.GetGlyph(self.FontPath, code)
 
-		if not glyph or not glyph.glyph_data or glyph.w <= 0 or glyph.h <= 0 then
-			return 0
-		end
+		if not g or not g.glyph_data or g.w <= 0 or g.h <= 0 then return 0 end
+
+		local glyph = {
+			w = g.w * self.Size,
+			h = g.h * self.Size,
+			glyph_data = g,
+		}
 
 		if not glyph_has_drawable_outline(glyph) then return 0 end
 
@@ -390,33 +420,40 @@ do
 
 		if self.chars[code] ~= nil then return end
 
-		if not self.TTFFont then
+		if not self.FontPath then
 			self.chars[code] = false
 			return
 		end
 
-		self.TTFFont:SetSize(self.Size)
-		local glyph = self.TTFFont:GetGlyph(code)
+		local g = glyphs.GetGlyph(self.FontPath, code)
 
-		if not glyph then
+		if not g then
 			self.chars[code] = false
 			return
 		end
+
+		local glyph = {
+			x_advance = g.x_advance * self.Size,
+			lsb = g.lsb * self.Size,
+			w = g.w * self.Size,
+			h = g.h * self.Size,
+			x_min = g.x_min * self.Size,
+			x_max = g.x_max * self.Size,
+			y_min = g.y_min * self.Size,
+			y_max = g.y_max * self.Size,
+			bearing_x = g.x_min * self.Size,
+			bearing_y = g.y_max * self.Size,
+			bitmap_left = g.x_min * self.Size,
+			bitmap_top = self:GetAscent() - (g.y_max * self.Size),
+			glyph_data = g,
+			poly = g.poly,
+		}
 
 		if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
 			if not render.available or not render.target then return end
 
-			local own_cmd = false
-			local cmd = render.GetCommandBuffer()
-
-			if not cmd then
-				cmd = render.GetCommandPool():AllocateCommandBuffer()
-				cmd:Begin()
-				own_cmd = true
-			end
-
 			local used_temp_fbs = {}
-			self:RenderGlyph(glyph, self.TTFFont, used_temp_fbs, cmd)
+			self:RenderGlyph(glyph, self, used_temp_fbs)
 			self.texture_atlas:Set(code, glyph.atlas_data)
 			self.chars[code] = glyph
 
@@ -428,17 +465,6 @@ do
 				end
 
 				self.rebuild = false
-
-				if own_cmd then
-					cmd:End()
-					render.SubmitAndWait(cmd)
-				end
-
-				return
-			else
-				for _, fb in ipairs(used_temp_fbs) do
-					table.insert(temp_fbs, fb)
-				end
 			end
 		end
 	end

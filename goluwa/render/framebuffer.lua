@@ -143,26 +143,28 @@ function Framebuffer:Begin(cmd, load_op)
 	local imageBarriers = {}
 
 	for _, tex in ipairs(self.color_textures) do
+		local image = tex:GetImage()
 		table.insert(
 			imageBarriers,
 			{
-				image = tex:GetImage(),
+				image = image,
 				srcAccessMask = "none",
 				dstAccessMask = "color_attachment_write",
-				oldLayout = self.initialized and "shader_read_only_optimal" or "undefined",
+				oldLayout = image.layout or "undefined",
 				newLayout = "color_attachment_optimal",
 			}
 		)
 	end
 
 	if self.depth_texture then
+		local depth_image = self.depth_texture:GetImage()
 		table.insert(
 			imageBarriers,
 			{
-				image = self.depth_texture:GetImage(),
+				image = depth_image,
 				srcAccessMask = "none",
 				dstAccessMask = "depth_stencil_attachment_write",
-				oldLayout = self.initialized and "shader_read_only_optimal" or "undefined",
+				oldLayout = depth_image.layout or "undefined",
 				newLayout = "depth_stencil_attachment_optimal",
 			-- aspect is automatically determined from image format by PipelineBarrier
 			}

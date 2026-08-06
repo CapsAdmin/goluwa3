@@ -85,7 +85,7 @@ local function resolve_glyph_data(font_obj, glyph_data)
 	local all_end_pts = {}
 
 	for _, component in ipairs(glyph_data.components or {}) do
-		local comp_data = resolve_glyph_data(font_obj, font_obj:GetGlyphData(font_obj, component.glyph_index))
+		local comp_data = resolve_glyph_data(font_obj, font_obj:GetGlyphData(component.glyph_index))
 
 		if comp_data and comp_data.points then
 			local m = component.matrix
@@ -121,7 +121,16 @@ local function build_glyph(font_obj, ascent, inv_upem, char_code)
 		return {
 			x_advance = metrics.advance_width,
 			lsb = metrics.lsb,
+			w = 0,
+			h = 0,
+			x_min = 0,
+			x_max = 0,
+			y_min = 0,
+			y_max = 0,
 			glyph_data = glyph_data,
+			poly = nil,
+			points = nil,
+			end_pts_of_contours = nil,
 		}
 	end
 
@@ -179,19 +188,39 @@ local function build_glyph(font_obj, ascent, inv_upem, char_code)
 		end
 	end
 
+	local w = 0
+	local h = 0
+	local x_min = 0
+	local x_max = 0
+	local y_min = 0
+	local y_max = 0
+
+	if glyph_data then
+		w = math.ceil(glyph_data.x_max - glyph_data.x_min)
+		h = math.ceil(glyph_data.y_max - glyph_data.y_min)
+		x_min = glyph_data.x_min * inv_upem
+		x_max = glyph_data.x_max * inv_upem
+		y_min = glyph_data.y_min * inv_upem
+		y_max = glyph_data.y_max * inv_upem
+	end
+
 	return {
 		x_advance = metrics.advance_width,
 		lsb = metrics.lsb,
+		w = w,
+		h = h,
+		x_min = x_min,
+		x_max = x_max,
+		y_min = y_min,
+		y_max = y_max,
 		glyph_data = glyph_data,
 		poly = poly,
+		points = glyph_data and glyph_data.points,
+		end_pts_of_contours = glyph_data and glyph_data.end_pts_of_contours,
 	}
 end
 
-function glyphs.GetGlyph(path, char_code)
-	if type(char_code) == "string" then char_code = utf8.uint32(char_code) end
-
-	if not char_code or char_code < 0 then return nil end
-
+function glyphs.GetFontState(path)
 	local state = glyphs.font_cache[path]
 
 	if not state then
@@ -207,6 +236,16 @@ function glyphs.GetGlyph(path, char_code)
 		glyphs.font_cache[path] = state
 	end
 
+	return state
+end
+
+function glyphs.GetGlyph(path, char_code)
+	if type(char_code) == "string" then char_code = utf8.uint32(char_code) end
+
+	if not char_code or char_code < 0 then return nil end
+
+	local state = glyphs.GetFontState(path)
+
 	if state.glyphs_cache[char_code] ~= nil then
 		return state.glyphs_cache[char_code]
 	end
@@ -218,10 +257,28 @@ function glyphs.GetGlyph(path, char_code)
 	if g then
 		g.x_advance = g.x_advance * inv_upem
 		g.lsb = g.lsb * inv_upem
+		g.w = g.w * inv_upem
+		g.h = g.h * inv_upem
 	end
 
 	state.glyphs_cache[char_code] = g
 	return g
+end
+
+function glyphs.GetAscent(path)
+	local state = glyphs.GetFontState(path)
+	return state.ascent / state.units_per_em
+end
+
+function glyphs.GetDescent(path)
+	local state = glyphs.GetFontState(path)
+	return (
+			state.font.win_descent or
+			state.font.descent or
+			(
+				state.units_per_em * 0.2
+			)
+		) / state.units_per_em
 end
 
 function glyphs.DrawGlyph(path, char_code, x, y, size)
@@ -233,6 +290,10 @@ function glyphs.DrawGlyph(path, char_code, x, y, size)
 	render2d.PushMatrix(x, y, size, size)
 	glyph.poly:Draw()
 	render2d.PopMatrix()
+end
+
+function glyphs.GetContourPoints(raw_points, ascent, inv_upem)
+	return get_contour_points(raw_points, ascent, inv_upem)
 end
 
 return glyphs

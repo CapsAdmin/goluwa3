@@ -16,9 +16,9 @@ function META:__copy()
 	return self
 end
 
-function META.New(ttf_font)
+function META.New(font_path)
 	local self = META:CreateObject()
-	self:SetTTFFont(ttf_font)
+	self:SetFontPath(font_path)
 	self.chars = {}
 	self.rebuild = false
 
@@ -73,10 +73,10 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 	cmd:Begin()
 
 	do
-		render2d.ResetState()
 		local old_w, old_h = render2d.GetSize()
 		render.PushCommandBuffer(cmd)
 		fb:Begin(cmd)
+		render2d.ResetState()
 		local old_color = {render2d.GetColor()}
 		local old_blend_mode = render2d.GetBlendMode()
 		render2d.SetColor(1, 1, 1, 1)
@@ -97,7 +97,7 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.PopSwizzleMode()
 		render2d.SetBlendMode(old_blend_mode, true)
 		render2d.SetColor(unpack(old_color))
-		fb:End()
+		fb:End(cmd)
 		render.PopCommandBuffer()
 		scratch_size.w = old_w
 		scratch_size.h = old_h
@@ -114,8 +114,7 @@ function META:LoadGlyph(code, temp_fbs)
 
 	if self.chars[code] ~= nil then return end
 
-	self.TTFFont:SetSize(self.Size)
-	local glyph = self.TTFFont:GetGlyph(code)
+	local glyph = self:GetMetricGlyph(code)
 
 	if not glyph then
 		self.chars[code] = false
@@ -126,7 +125,7 @@ function META:LoadGlyph(code, temp_fbs)
 		if not render.available or not render.target then return end
 
 		local used_temp_fbs = {}
-		glyph.texture, glyph.raster_w, glyph.raster_h = render_glyph_to_texture(self, self.TTFFont, glyph, used_temp_fbs)
+		glyph.texture, glyph.raster_w, glyph.raster_h = render_glyph_to_texture(self, self, glyph, used_temp_fbs)
 		local padding = self:GetPadding()
 		local effective_h = math.max(glyph.h, glyph.bitmap_top)
 		local atlas_w = math.max(1, math.ceil(glyph.w + padding * 2))

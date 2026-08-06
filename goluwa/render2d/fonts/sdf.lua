@@ -95,9 +95,9 @@ function META:__copy()
 	return self
 end
 
-function META.New(ttf_font)
+function META.New(font_path)
 	local self = META:CreateObject()
-	self:SetTTFFont(ttf_font)
+	self:SetFontPath(font_path)
 	self.chars = {}
 	self.rebuild = false
 
@@ -327,17 +327,9 @@ local function get_metric_char(self, code)
 
 	if data ~= nil then return data end
 
-	self.TTFFont:SetSize(self.Size)
-	data = self.TTFFont:GetGlyph(code)
-
-	if data == nil then data = false end
-
+	data = self:GetMetricGlyph(code)
 	self.metric_chars[code] = data
 	return data
-end
-
-function META:GetMetricGlyph(code)
-	return get_metric_char(self, code)
 end
 
 local function get_next_pow2_and_steps(n)
@@ -356,11 +348,13 @@ local function get_temp_tex(self, w, h, format, filter)
 	return self:GetTempTexture(w, h, format, filter)
 end
 
-function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
+function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs, cmd)
 	local p = self:GetJFAPipelines()
 	local max_dim = math.max(sw, sh)
 	local spread = self:GetEffectiveSpread()
-	local cmd = assert(render.GetCommandBuffer(), "GenerateSDF requires an active command buffer")
+	-- Always use our own command buffer to avoid render pass conflicts and descriptor lifetime issues
+	cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
 	local p2 = get_next_pow2_and_steps(max_dim)
 	debug_assert_sdf_texture(mask_tex, "mask_input", 5, 20, "mask texture (must have glyph pixels, not empty)")
 	local tex_a = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
@@ -399,6 +393,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 				},
 			},
 		}
+		image.layout = new_layout
 	end
 
 	local function transition_to_storage(texture)
@@ -463,7 +458,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		transition_to_storage(tex_a)
 		p.init:UpdateDescriptorSet("storage_image", slot, 0, 0, tex_a:GetView())
 		p.init:UpdateDescriptorSet("combined_image_sampler", slot, 1, 0, mask_tex:GetView(), get_sampler(mask_tex))
-		p.init:DispatchForSize(nil, sw, sh, 1, slot)
+		p.init:DispatchForSize(cmd, sw, sh, 1, slot)
 		transition_to_sampled(tex_a)
 		local current_tex = tex_a
 		local next_tex = tex_b
@@ -482,7 +477,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 				current_tex:GetView(),
 				get_sampler(current_tex)
 			)
-			p.step:DispatchForSize(nil, sw, sh, 1, slot)
+			p.step:DispatchForSize(cmd, sw, sh, 1, slot)
 			transition_to_sampled(next_tex)
 			current_tex, next_tex = next_tex, current_tex
 			step = math.floor(step / 2)
@@ -501,7 +496,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 				current_tex:GetView(),
 				get_sampler(current_tex)
 			)
-			p.step:DispatchForSize(nil, sw, sh, 1, slot)
+			p.step:DispatchForSize(cmd, sw, sh, 1, slot)
 			transition_to_sampled(next_tex)
 			current_tex, next_tex = next_tex, current_tex
 		end
@@ -517,7 +512,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 			current_tex:GetView(),
 			get_sampler(current_tex)
 		)
-		p.final:DispatchForSize(nil, sw, sh, 1, slot)
+		p.final:DispatchForSize(cmd, sw, sh, 1, slot)
 		transition_to_sampled(out_tex, "fragment")
 	end
 
@@ -559,7 +554,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		get_sampler(mask_tex)
 	)
 	p.combine.current_jfa_max_dist = max_dist
-	p.combine:DispatchForSize(nil, combine_w, combine_h, 1, final_frame_index)
+	p.combine:DispatchForSize(cmd, combine_w, combine_h, 1, final_frame_index)
 	transition_image(
 		tex_combine,
 		"compute",
@@ -597,14 +592,6 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	)
 	cmd:End()
 	render.SubmitAndWait(cmd)
-	cmd:Begin()
-	debug_assert_sdf_texture(
-		tex_final,
-		"final_sdf",
-		10,
-		20,
-		"final SDF output (must have variation, not uniform)"
-	)
 	return tex_final
 end
 
@@ -628,7 +615,7 @@ local function glyph_has_drawable_outline(glyph)
 	return true
 end
 
-function META:RenderGlyph(glyph, glyph_source_font, used_temp_fbs, cmd)
+function META:RenderGlyph(glyph, glyph_source_font, used_temp_fbs)
 	local scale = SUPER_SAMPLING_SCALE
 	local spread = self:GetEffectiveSpread()
 	local sw = (glyph.w + spread * 2) * scale
@@ -636,6 +623,9 @@ function META:RenderGlyph(glyph, glyph_source_font, used_temp_fbs, cmd)
 	local format = self:GetAtlasFormat()
 	local fb_ss = self:GetTempFramebuffer(sw, sh, format, true)
 	table.insert(used_temp_fbs, fb_ss)
+	-- Render glyph mask to framebuffer
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
 
 	do
 		if DEBUG then
@@ -673,18 +663,26 @@ function META:RenderGlyph(glyph, glyph_source_font, used_temp_fbs, cmd)
 		render2d.PopScreenSize()
 		render2d.PopBlendMode()
 		render2d.RestoreBatchState(saved_batch)
-		fb_ss:End()
+		fb_ss:End(cmd)
 	end
 
+	-- Submit mask rendering before GenerateSDF reads it
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	-- Capture the texture reference before releasing the framebuffer
+	local mask_tex = fb_ss.color_texture
+
 	if glyph_has_drawable_outline(glyph) then
-		glyph.texture = self:GenerateSDF(fb_ss.color_texture, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
+		glyph.texture = self:GenerateSDF(mask_tex, sw, sh, glyph.w + spread * 2, glyph.h + spread * 2, used_temp_fbs)
 	else
 		local fb_final = self:GetTempFramebuffer(glyph.w + spread * 2, glyph.h + spread * 2, format, false)
 		table.insert(used_temp_fbs, fb_final)
-		render.PushCommandBuffer(cmd)
+		cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
 		fb_final:Begin(cmd)
-		fb_final:End()
-		render.PopCommandBuffer()
+		fb_final:End(cmd)
+		cmd:End()
+		render.SubmitAndWait(cmd)
 		glyph.texture = fb_final.color_texture
 	end
 

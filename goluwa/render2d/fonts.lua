@@ -1,7 +1,6 @@
 local fs = import("goluwa/filesystem/fs.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
-local TTFFont = import("goluwa/render2d/fonts/ttf.lua")
 local SDFFont = import("goluwa/render2d/fonts/sdf.lua")
 local RasterFont = import("goluwa/render2d/fonts/raster.lua")
 local fonts = library()
@@ -21,21 +20,20 @@ function fonts.New(props)
 	mode = mode or "sdf"
 
 	if props.Name then
-		local ttf_font = TTFFont.New({fonts.GetDefaultSystemFontPath()})
+		local font_path = fonts.GetDefaultSystemFontPath()
 		local font
 
 		if mode == "raster" then
-			font = RasterFont.New(ttf_font)
+			font = RasterFont.New(font_path)
 		else
-			font = SDFFont.New(ttf_font)
+			font = SDFFont.New(font_path)
 		end
 
 		font:SetSize(props.Size)
 		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
 
 		fonts.DownloadGoogleFont{name = props.Name, weight = props.Weight}:Then(function(path)
-			ttf_font:SetPaths{path, fonts.GetDefaultSystemFontPath()}
-			ttf_font:SetSize(font:GetSize())
+			font:SetFontPath(path)
 		end):Catch(function(err)
 			wlog("Failed to load Google Font " .. props.Name .. ": " .. err)
 		end)
@@ -49,17 +47,12 @@ function fonts.New(props)
 		local ext = tostring(props.Path):match("%.([^%.]+)$")
 
 		if ext == "ttf" or ext == "otf" then
-			local base = TTFFont.New(props.Path)
-
-			if mode == "vector" then
-				base:SetSize(props.Size)
-				return base
-			elseif mode == "raster" then
-				local f = RasterFont.New(base)
+			if mode == "raster" then
+				local f = RasterFont.New(props.Path)
 				f:SetSize(props.Size)
 				return f
 			else
-				local f = SDFFont.New(base)
+				local f = SDFFont.New(props.Path)
 				f:SetSize(props.Size)
 				return f
 			end

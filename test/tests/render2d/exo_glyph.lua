@@ -3,7 +3,7 @@ local fs = import("goluwa/filesystem/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local ttf = import("goluwa/codecs/ttf.lua")
-local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
+local glyphs = import("goluwa/render2d/glyphs.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local cached_path = nil
 
@@ -143,21 +143,11 @@ end
 T.Test("Exo lowercase g keeps both counters hollow", function()
 	local path = get_exo_regular_path()
 	assert(path, "Exo Regular font unavailable")
-	local font = ttf_font.New(path)
-	font:SetSize(96)
-	local glyph = font:GetGlyph("g")
+	local state = glyphs.GetFontState(path)
+	local inv_upem = 1.0 / state.units_per_em
+	local ascent = state.ascent * inv_upem
+	local glyph = glyphs.GetGlyph(path, "g")
 	assert(glyph and glyph.glyph_data, "expected lowercase g glyph data")
-	local get_contour_points
-
-	for i = 1, 20 do
-		local name, value = debug.getupvalue(font.DrawGlyph, i)
-
-		if not name then break end
-
-		if name == "get_contour_points" then get_contour_points = value end
-	end
-
-	assert(get_contour_points, "expected glyph contour helper")
 	local contours = {}
 	local start_idx = 1
 
@@ -172,7 +162,7 @@ T.Test("Exo lowercase g keeps both counters hollow", function()
 		start_idx = end_idx + 1
 
 		if #raw_points >= 2 then
-			local flattened = get_contour_points(font, glyph.glyph_data, raw_points)
+			local flattened = glyphs.GetContourPoints(raw_points, ascent, inv_upem)
 
 			if #flattened >= 6 then
 				for _, contour in ipairs(math2d.SplitSelfIntersectingContour(flattened)) do

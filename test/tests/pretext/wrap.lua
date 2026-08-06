@@ -1,6 +1,5 @@
 local T = import("test/environment.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
-local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
 local pretext = import("goluwa/pretext/init.lua")
 local mock_measurer = {
 	MeasureText = function(_, text)
@@ -85,16 +84,15 @@ T.Test("pretext measure_line_stats matches wrapped geometry", function()
 	T(pretext.measure_natural_width(prepared))["=="](select(1, mock_measurer:MeasureText("hello world again")))
 end)
 
-T.Test("pretext wraps vector ttf fonts", function()
+T.Test("pretext wraps ttf fonts", function()
 	local path = fonts.GetDefaultSystemFontPath()
 
 	if not path then return T.Unavailable("system font path unavailable") end
 
-	local font = ttf_font.New(path)
-	font:SetSize(16)
+	local font = fonts.New{Path = path, Size = 16}
 	local wrapped = font:WrapString("hello world again", select(1, font:GetTextSize("hello world")))
 	local lines = split_lines(wrapped)
-	assert(#lines >= 2, "expected vector font wrapping to produce at least two lines")
+	assert(#lines >= 2, "expected font wrapping to produce at least two lines")
 	assert(
 		lines[1] == "hello" or lines[1] == "hello world",
 		"unexpected first wrapped line: " .. tostring(lines[1])
