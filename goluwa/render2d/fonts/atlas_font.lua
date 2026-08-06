@@ -233,7 +233,6 @@ function META:GetMetricGlyph(code)
 
 	-- bitmap glyphs are already rasterized, do not scale metrics
 	local scale = g.texture and 1 or self.Size
-
 	return {
 		x_advance = g.x_advance * scale,
 		lsb = g.lsb * scale,
@@ -437,7 +436,6 @@ do
 
 		-- bitmap glyphs are already rasterized, do not scale metrics
 		local scale = g.texture and 1 or self.Size
-
 		local glyph = {
 			x_advance = g.x_advance * scale,
 			lsb = g.lsb * scale,
@@ -456,24 +454,19 @@ do
 			font_path = self.FontPath,
 			char_code = code,
 		}
+		local used_temp_fbs = {}
+		self:RenderGlyph(glyph, used_temp_fbs)
+		self.texture_atlas:Set(code, glyph.atlas_data)
+		self.chars[code] = glyph
 
-		if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
-			if not render.available or not render.target then return end
+		if not temp_fbs then
+			self:Rebuild()
 
-			local used_temp_fbs = {}
-			self:RenderGlyph(glyph, self, used_temp_fbs)
-			self.texture_atlas:Set(code, glyph.atlas_data)
-			self.chars[code] = glyph
-
-			if not temp_fbs then
-				self:Rebuild()
-
-				for _, fb in ipairs(used_temp_fbs) do
-					fb_pool.release(fb)
-				end
-
-				self.rebuild = false
+			for _, fb in ipairs(used_temp_fbs) do
+				fb_pool.release(fb)
 			end
+
+			self.rebuild = false
 		end
 	end
 

@@ -615,7 +615,7 @@ local function glyph_has_drawable_outline(glyph)
 	return true
 end
 
-function META:RenderGlyph(glyph, glyph_source_font, used_temp_fbs)
+function META:RenderGlyph(glyph, used_temp_fbs)
 	local scale = SUPER_SAMPLING_SCALE
 	local spread = self:GetEffectiveSpread()
 	local sw = (glyph.w + spread * 2) * scale
@@ -656,7 +656,7 @@ function META:RenderGlyph(glyph, glyph_source_font, used_temp_fbs)
 		render2d.Translate(spread * scale, (glyph.h + spread) * scale)
 		render2d.Scale(scale, -scale)
 		render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
-		glyph_source_font:DrawGlyph(glyph.glyph_data)
+		self:DrawGlyph(glyph.glyph_data)
 		render2d.FlushBatches("glyph_load")
 		render2d.PopMatrix()
 		render.PopCommandBuffer()
@@ -757,6 +757,9 @@ local function build_draw_pass_layout(self, str, spacing, extra_space_advance)
 				else
 					X = X + data.x_advance + spacing
 				end
+			else
+				-- Glyph not available, advance by default width
+				X = X + self.Size + spacing
 			end
 		end
 

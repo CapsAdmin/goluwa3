@@ -38,30 +38,7 @@ function META:GetAtlasFormat()
 	return render.target:GetColorFormat()
 end
 
-function META:CreateAtlas()
-	local format = self:GetAtlasFormat()
-	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-	self.texture_atlas:SetDebugName(
-		string.format(
-			"render2d raster font atlas %s size=%s",
-			tostring(self:GetName() or "unnamed"),
-			tostring(self:GetSize())
-		)
-	)
-	self.texture_atlas:SetPadding(self:GetPadding())
-
-	for code in pairs(self.chars) do
-		self.chars[code] = nil
-		self:LoadGlyph(code)
-	end
-
-	self.texture_atlas:Build()
-	self:SetReady(true)
-end
-
-local scratch_size = {w = 0, h = 0}
-
-local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
+function META:RenderGlyph(glyph, temp_fbs)
 	local padding = self:GetPadding()
 	local effective_h = math.max(glyph.h, glyph.bitmap_top)
 	local width = math.max(1, math.ceil(glyph.w + padding * 2))
@@ -74,6 +51,8 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 
 	do
 		local old_w, old_h = render2d.GetSize()
+		local saved_batch = render2d.SaveBatchState()
+		render2d.state.runtime.batch.state:ClearPending()
 		render.PushCommandBuffer(cmd)
 		fb:Begin(cmd)
 		render2d.ResetState()
@@ -82,9 +61,7 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.SetBlendPreset("alpha")
 		render2d.PushSwizzleMode(render2d.GetSwizzleMode())
-		scratch_size.w = width
-		scratch_size.h = height
-		render2d.SetScreenSize(scratch_size.w, scratch_size.h)
+		render2d.PushScreenSize(width, height)
 		render2d.BindPipeline()
 		render2d.SetSwizzleMode(0)
 		render2d.PushMatrix()
@@ -92,67 +69,29 @@ local function render_glyph_to_texture(self, glyph_source_font, glyph, temp_fbs)
 		render2d.Translate(padding, effective_h + padding)
 		render2d.Scale(1, -1)
 		render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
-		glyph_source_font:DrawGlyph(glyph.glyph_data)
+		self:DrawGlyph(glyph.glyph_data)
+		render2d.FlushBatches("glyph_load")
 		render2d.PopMatrix()
 		render2d.PopSwizzleMode()
 		render2d.SetBlendMode(old_blend_mode, true)
 		render2d.SetColor(unpack(old_color))
+		render2d.RestoreBatchState(saved_batch)
 		fb:End(cmd)
 		render.PopCommandBuffer()
-		scratch_size.w = old_w
-		scratch_size.h = old_h
-		render2d.SetScreenSize(scratch_size.w, scratch_size.h)
+		render2d.PopScreenSize()
 	end
 
 	cmd:End()
 	render.SubmitAndWait(cmd)
-	return fb.color_texture, width, height
-end
-
-function META:LoadGlyph(code, temp_fbs)
-	if type(code) == "string" then code = utf8.uint32(code) end
-
-	if self.chars[code] ~= nil then return end
-
-	local glyph = self:GetMetricGlyph(code)
-
-	if not glyph then
-		self.chars[code] = false
-		return
-	end
-
-	if glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
-		if not render.available or not render.target then return end
-
-		local used_temp_fbs = {}
-		glyph.texture, glyph.raster_w, glyph.raster_h = render_glyph_to_texture(self, self, glyph, used_temp_fbs)
-		local padding = self:GetPadding()
-		local effective_h = math.max(glyph.h, glyph.bitmap_top)
-		local atlas_w = math.max(1, math.ceil(glyph.w + padding * 2))
-		local atlas_h = math.max(1, math.ceil(effective_h + padding * 2))
-
-		if not temp_fbs then
-			for _, fb in ipairs(used_temp_fbs) do
-				self:ReleaseTempFramebuffer(fb)
-			end
-		else
-			for _, fb in ipairs(used_temp_fbs) do
-				table.insert(temp_fbs, fb)
-			end
-		end
-
-		self.texture_atlas:Set(
-			code,
-			{
-				w = atlas_w,
-				h = atlas_h,
-				texture = glyph.texture,
-				flip_y = glyph.flip_y,
-			}
-		)
-	end
-
-	self.chars[code] = glyph
+	glyph.texture = fb.color_texture
+	glyph.raster_w = width
+	glyph.raster_h = height
+	glyph.atlas_data = {
+		w = math.max(1, math.ceil(glyph.w + self:GetPadding() * 2)),
+		h = math.max(1, math.ceil(math.max(glyph.h, glyph.bitmap_top) + padding * 2)),
+		texture = glyph.texture,
+		flip_y = glyph.flip_y,
+	}
 end
 
 local function batch_load_glyphs(self, str)
@@ -262,6 +201,9 @@ function META:DrawPass(str, x, y, spacing, atlas, extra_space_advance)
 				else
 					X = X + data.x_advance + spacing
 				end
+			else
+				-- Glyph not available, advance by default width
+				X = X + self.Size + spacing
 			end
 		end
 
