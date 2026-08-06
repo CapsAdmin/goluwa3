@@ -332,251 +332,248 @@ local function get_temp_tex(self, w, h, format, filter)
 	return self:GetTempTexture(w, h, format, filter)
 end
 
-function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs, cmd)
+function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local p = self:GetJFAPipelines()
 	local max_dim = math.max(sw, sh)
 	local spread = self:GetEffectiveSpread()
-	-- Always use our own command buffer to avoid render pass conflicts and descriptor lifetime issues
-	cmd = render.GetCommandPool():AllocateCommandBuffer()
-	cmd:Begin()
-	local p2 = get_next_pow2_and_steps(max_dim)
-	debug_assert_sdf_texture(mask_tex, "mask_input", 5, 20, "mask texture (must have glyph pixels, not empty)")
-	local tex_a = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
-	local tex_b = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
-	local tex_dist_on = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
-	local tex_dist_off = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
-	table.insert(temp_fbs, tex_a)
-	table.insert(temp_fbs, tex_b)
-	table.insert(temp_fbs, tex_dist_on)
-	table.insert(temp_fbs, tex_dist_off)
-	local glyph_superspace = math.max(sw, sh) - spread * 2 * SUPER_SAMPLING_SCALE
-	local max_dist = math.max(4 * SUPER_SAMPLING_SCALE, glyph_superspace * 0.5)
-	p.final.current_jfa_max_dist = max_dist
-	p.combine.current_jfa_max_dist = max_dist
+	return render.ExecuteCommand(function(cmd)
+		local p2 = get_next_pow2_and_steps(max_dim)
+		debug_assert_sdf_texture(mask_tex, "mask_input", 5, 20, "mask texture (must have glyph pixels, not empty)")
+		local tex_a = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
+		local tex_b = get_temp_tex(self, sw, sh, "r32g32_sfloat", "nearest")
+		local tex_dist_on = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
+		local tex_dist_off = get_temp_tex(self, sw, sh, "r32_sfloat", "nearest")
+		table.insert(temp_fbs, tex_a)
+		table.insert(temp_fbs, tex_b)
+		table.insert(temp_fbs, tex_dist_on)
+		table.insert(temp_fbs, tex_dist_off)
+		local glyph_superspace = math.max(sw, sh) - spread * 2 * SUPER_SAMPLING_SCALE
+		local max_dist = math.max(4 * SUPER_SAMPLING_SCALE, glyph_superspace * 0.5)
+		p.final.current_jfa_max_dist = max_dist
+		p.combine.current_jfa_max_dist = max_dist
 
-	local function get_sampler(texture)
-		return texture.sampler or render.CreateSampler(texture:GetSamplerConfig())
-	end
-
-	local function transition_image(texture, src_stage, dst_stage, src_access, dst_access, new_layout)
-		local image = texture:GetImage()
-		local old_layout = image.layout or "undefined"
-
-		if old_layout == new_layout then return end
-
-		cmd:PipelineBarrier{
-			srcStage = src_stage,
-			dstStage = dst_stage,
-			imageBarriers = {
-				{
-					image = image,
-					srcAccessMask = src_access,
-					dstAccessMask = dst_access,
-					oldLayout = old_layout,
-					newLayout = new_layout,
-				},
-			},
-		}
-		image.layout = new_layout
-	end
-
-	local function transition_to_storage(texture)
-		local old_layout = texture:GetImage().layout or "undefined"
-		local src_stage = "top_of_pipe"
-		local src_access = "none"
-
-		if old_layout == "shader_read_only_optimal" then
-			src_stage = "compute"
-			src_access = "shader_read"
-		elseif old_layout == "general" then
-			src_stage = "compute"
-			src_access = "shader_read"
+		local function get_sampler(texture)
+			return texture.sampler or render.CreateSampler(texture:GetSamplerConfig())
 		end
 
-		transition_image(texture, src_stage, "compute", src_access, "shader_write", "general")
-	end
+		local function transition_image(texture, src_stage, dst_stage, src_access, dst_access, new_layout)
+			local image = texture:GetImage()
+			local old_layout = image.layout or "undefined"
 
-	local function transition_to_sampled(texture, dst_stage)
+			if old_layout == new_layout then return end
+
+			cmd:PipelineBarrier{
+				srcStage = src_stage,
+				dstStage = dst_stage,
+				imageBarriers = {
+					{
+						image = image,
+						srcAccessMask = src_access,
+						dstAccessMask = dst_access,
+						oldLayout = old_layout,
+						newLayout = new_layout,
+					},
+				},
+			}
+			image.layout = new_layout
+		end
+
+		local function transition_to_storage(texture)
+			local old_layout = texture:GetImage().layout or "undefined"
+			local src_stage = "top_of_pipe"
+			local src_access = "none"
+
+			if old_layout == "shader_read_only_optimal" then
+				src_stage = "compute"
+				src_access = "shader_read"
+			elseif old_layout == "general" then
+				src_stage = "compute"
+				src_access = "shader_read"
+			end
+
+			transition_image(texture, src_stage, "compute", src_access, "shader_write", "general")
+		end
+
+		local function transition_to_sampled(texture, dst_stage)
+			transition_image(
+				texture,
+				"compute",
+				dst_stage or "compute",
+				"shader_write",
+				"shader_read",
+				"shader_read_only_optimal"
+			)
+		end
+
+		local descriptor_limit = math.min(
+			p.init.pipeline:GetDescriptorSetCount(),
+			p.step.pipeline:GetDescriptorSetCount(),
+			p.final.pipeline:GetDescriptorSetCount(),
+			p.combine.pipeline:GetDescriptorSetCount()
+		)
+
+		if self._jfa_descriptor_slot_cmd ~= cmd then
+			self._jfa_descriptor_slot_cmd = cmd
+			self._jfa_descriptor_slot = 0
+		end
+
+		local function next_descriptor_slot()
+			self._jfa_descriptor_slot = (self._jfa_descriptor_slot or 0) + 1
+
+			if self._jfa_descriptor_slot > descriptor_limit then
+				error(
+					string.format(
+						"sdf compute descriptor set ring exhausted in one command buffer (%d > %d)",
+						self._jfa_descriptor_slot,
+						descriptor_limit
+					),
+					2
+				)
+			end
+
+			return self._jfa_descriptor_slot
+		end
+
+		local function run_jfa(mode, out_tex)
+			p.init.current_jfa_mode = mode
+			local slot = next_descriptor_slot()
+			transition_to_storage(tex_a)
+			p.init:UpdateDescriptorSet("storage_image", slot, 0, 0, tex_a:GetView())
+			p.init:UpdateDescriptorSet("combined_image_sampler", slot, 1, 0, mask_tex:GetView(), get_sampler(mask_tex))
+			p.init:DispatchForSize(cmd, sw, sh, 1, slot)
+			transition_to_sampled(tex_a)
+			local current_tex = tex_a
+			local next_tex = tex_b
+			local step = p2 / 2
+
+			while step >= 1 do
+				slot = next_descriptor_slot()
+				p.step.current_jfa_step = step
+				transition_to_storage(next_tex)
+				p.step:UpdateDescriptorSet("storage_image", slot, 0, 0, next_tex:GetView())
+				p.step:UpdateDescriptorSet(
+					"combined_image_sampler",
+					slot,
+					1,
+					0,
+					current_tex:GetView(),
+					get_sampler(current_tex)
+				)
+				p.step:DispatchForSize(cmd, sw, sh, 1, slot)
+				transition_to_sampled(next_tex)
+				current_tex, next_tex = next_tex, current_tex
+				step = math.floor(step / 2)
+			end
+
+			for i = 1, 2 do
+				slot = next_descriptor_slot()
+				p.step.current_jfa_step = 1
+				transition_to_storage(next_tex)
+				p.step:UpdateDescriptorSet("storage_image", slot, 0, 0, next_tex:GetView())
+				p.step:UpdateDescriptorSet(
+					"combined_image_sampler",
+					slot,
+					1,
+					0,
+					current_tex:GetView(),
+					get_sampler(current_tex)
+				)
+				p.step:DispatchForSize(cmd, sw, sh, 1, slot)
+				transition_to_sampled(next_tex)
+				current_tex, next_tex = next_tex, current_tex
+			end
+
+			slot = next_descriptor_slot()
+			transition_to_storage(out_tex)
+			p.final:UpdateDescriptorSet("storage_image", slot, 0, 0, out_tex:GetView())
+			p.final:UpdateDescriptorSet(
+				"combined_image_sampler",
+				slot,
+				1,
+				0,
+				current_tex:GetView(),
+				get_sampler(current_tex)
+			)
+			p.final:DispatchForSize(cmd, sw, sh, 1, slot)
+			transition_to_sampled(out_tex, "fragment")
+		end
+
+		run_jfa(0, tex_dist_on)
+		debug_assert_sdf_texture(tex_dist_on, "dist_on", 0, 20, "distance to ON pixels (after init+JFA)")
+		run_jfa(1, tex_dist_off)
+		debug_assert_sdf_texture(tex_dist_off, "dist_off", 0, 20, "distance to OFF pixels (after init+JFA)")
+		local combine_w = target_w * COMBINE_SCALE
+		local combine_h = target_h * COMBINE_SCALE
+		local tex_combine = get_temp_tex(self, combine_w, combine_h, self:GetAtlasFormat(), "linear")
+		table.insert(temp_fbs, tex_combine)
+		local tex_final = get_temp_tex(self, target_w, target_h, self:GetAtlasFormat(), "linear")
+		table.insert(temp_fbs, tex_final)
+		local final_frame_index = next_descriptor_slot()
+		transition_to_storage(tex_combine)
+		p.combine:UpdateDescriptorSet("storage_image", final_frame_index, 0, 0, tex_combine:GetView())
+		p.combine:UpdateDescriptorSet(
+			"combined_image_sampler",
+			final_frame_index,
+			1,
+			0,
+			tex_dist_on:GetView(),
+			get_sampler(tex_dist_on)
+		)
+		p.combine:UpdateDescriptorSet(
+			"combined_image_sampler",
+			final_frame_index,
+			2,
+			0,
+			tex_dist_off:GetView(),
+			get_sampler(tex_dist_off)
+		)
+		p.combine:UpdateDescriptorSet(
+			"combined_image_sampler",
+			final_frame_index,
+			3,
+			0,
+			mask_tex:GetView(),
+			get_sampler(mask_tex)
+		)
+		p.combine.current_jfa_max_dist = max_dist
+		p.combine:DispatchForSize(cmd, combine_w, combine_h, 1, final_frame_index)
 		transition_image(
-			texture,
+			tex_combine,
 			"compute",
-			dst_stage or "compute",
+			"transfer",
+			"shader_read",
+			"transfer_read",
+			"transfer_src_optimal"
+		)
+		transition_image(
+			tex_final,
+			"compute",
+			"transfer",
 			"shader_write",
+			"transfer_write",
+			"transfer_dst_optimal"
+		)
+		cmd:BlitImage{
+			src_image = tex_combine.image,
+			dst_image = tex_final.image,
+			src_layout = "transfer_src_optimal",
+			dst_layout = "transfer_dst_optimal",
+			src_width = combine_w,
+			src_height = combine_h,
+			dst_width = target_w,
+			dst_height = target_h,
+			filter = "linear",
+		}
+		transition_image(
+			tex_final,
+			"transfer",
+			"fragment",
+			"transfer_write",
 			"shader_read",
 			"shader_read_only_optimal"
 		)
-	end
-
-	local descriptor_limit = math.min(
-		p.init.pipeline:GetDescriptorSetCount(),
-		p.step.pipeline:GetDescriptorSetCount(),
-		p.final.pipeline:GetDescriptorSetCount(),
-		p.combine.pipeline:GetDescriptorSetCount()
-	)
-
-	if self._jfa_descriptor_slot_cmd ~= cmd then
-		self._jfa_descriptor_slot_cmd = cmd
-		self._jfa_descriptor_slot = 0
-	end
-
-	local function next_descriptor_slot()
-		self._jfa_descriptor_slot = (self._jfa_descriptor_slot or 0) + 1
-
-		if self._jfa_descriptor_slot > descriptor_limit then
-			error(
-				string.format(
-					"sdf compute descriptor set ring exhausted in one command buffer (%d > %d)",
-					self._jfa_descriptor_slot,
-					descriptor_limit
-				),
-				2
-			)
-		end
-
-		return self._jfa_descriptor_slot
-	end
-
-	local function run_jfa(mode, out_tex)
-		p.init.current_jfa_mode = mode
-		local slot = next_descriptor_slot()
-		transition_to_storage(tex_a)
-		p.init:UpdateDescriptorSet("storage_image", slot, 0, 0, tex_a:GetView())
-		p.init:UpdateDescriptorSet("combined_image_sampler", slot, 1, 0, mask_tex:GetView(), get_sampler(mask_tex))
-		p.init:DispatchForSize(cmd, sw, sh, 1, slot)
-		transition_to_sampled(tex_a)
-		local current_tex = tex_a
-		local next_tex = tex_b
-		local step = p2 / 2
-
-		while step >= 1 do
-			slot = next_descriptor_slot()
-			p.step.current_jfa_step = step
-			transition_to_storage(next_tex)
-			p.step:UpdateDescriptorSet("storage_image", slot, 0, 0, next_tex:GetView())
-			p.step:UpdateDescriptorSet(
-				"combined_image_sampler",
-				slot,
-				1,
-				0,
-				current_tex:GetView(),
-				get_sampler(current_tex)
-			)
-			p.step:DispatchForSize(cmd, sw, sh, 1, slot)
-			transition_to_sampled(next_tex)
-			current_tex, next_tex = next_tex, current_tex
-			step = math.floor(step / 2)
-		end
-
-		for i = 1, 2 do
-			slot = next_descriptor_slot()
-			p.step.current_jfa_step = 1
-			transition_to_storage(next_tex)
-			p.step:UpdateDescriptorSet("storage_image", slot, 0, 0, next_tex:GetView())
-			p.step:UpdateDescriptorSet(
-				"combined_image_sampler",
-				slot,
-				1,
-				0,
-				current_tex:GetView(),
-				get_sampler(current_tex)
-			)
-			p.step:DispatchForSize(cmd, sw, sh, 1, slot)
-			transition_to_sampled(next_tex)
-			current_tex, next_tex = next_tex, current_tex
-		end
-
-		slot = next_descriptor_slot()
-		transition_to_storage(out_tex)
-		p.final:UpdateDescriptorSet("storage_image", slot, 0, 0, out_tex:GetView())
-		p.final:UpdateDescriptorSet(
-			"combined_image_sampler",
-			slot,
-			1,
-			0,
-			current_tex:GetView(),
-			get_sampler(current_tex)
-		)
-		p.final:DispatchForSize(cmd, sw, sh, 1, slot)
-		transition_to_sampled(out_tex, "fragment")
-	end
-
-	run_jfa(0, tex_dist_on)
-	debug_assert_sdf_texture(tex_dist_on, "dist_on", 0, 20, "distance to ON pixels (after init+JFA)")
-	run_jfa(1, tex_dist_off)
-	debug_assert_sdf_texture(tex_dist_off, "dist_off", 0, 20, "distance to OFF pixels (after init+JFA)")
-	local combine_w = target_w * COMBINE_SCALE
-	local combine_h = target_h * COMBINE_SCALE
-	local tex_combine = get_temp_tex(self, combine_w, combine_h, self:GetAtlasFormat(), "linear")
-	table.insert(temp_fbs, tex_combine)
-	local tex_final = get_temp_tex(self, target_w, target_h, self:GetAtlasFormat(), "linear")
-	table.insert(temp_fbs, tex_final)
-	local final_frame_index = next_descriptor_slot()
-	transition_to_storage(tex_combine)
-	p.combine:UpdateDescriptorSet("storage_image", final_frame_index, 0, 0, tex_combine:GetView())
-	p.combine:UpdateDescriptorSet(
-		"combined_image_sampler",
-		final_frame_index,
-		1,
-		0,
-		tex_dist_on:GetView(),
-		get_sampler(tex_dist_on)
-	)
-	p.combine:UpdateDescriptorSet(
-		"combined_image_sampler",
-		final_frame_index,
-		2,
-		0,
-		tex_dist_off:GetView(),
-		get_sampler(tex_dist_off)
-	)
-	p.combine:UpdateDescriptorSet(
-		"combined_image_sampler",
-		final_frame_index,
-		3,
-		0,
-		mask_tex:GetView(),
-		get_sampler(mask_tex)
-	)
-	p.combine.current_jfa_max_dist = max_dist
-	p.combine:DispatchForSize(cmd, combine_w, combine_h, 1, final_frame_index)
-	transition_image(
-		tex_combine,
-		"compute",
-		"transfer",
-		"shader_read",
-		"transfer_read",
-		"transfer_src_optimal"
-	)
-	transition_image(
-		tex_final,
-		"compute",
-		"transfer",
-		"shader_write",
-		"transfer_write",
-		"transfer_dst_optimal"
-	)
-	cmd:BlitImage{
-		src_image = tex_combine.image,
-		dst_image = tex_final.image,
-		src_layout = "transfer_src_optimal",
-		dst_layout = "transfer_dst_optimal",
-		src_width = combine_w,
-		src_height = combine_h,
-		dst_width = target_w,
-		dst_height = target_h,
-		filter = "linear",
-	}
-	transition_image(
-		tex_final,
-		"transfer",
-		"fragment",
-		"transfer_write",
-		"shader_read",
-		"shader_read_only_optimal"
-	)
-	cmd:End()
-	render.SubmitAndWait(cmd)
-	return tex_final
+		return tex_final
+	end)
 end
 
 function META:GetAtlasPadding(w, h)
@@ -607,11 +604,9 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 	local format = self:GetAtlasFormat()
 	local fb_ss = self:GetTempFramebuffer(sw, sh, format, true)
 	table.insert(used_temp_fbs, fb_ss)
-	-- Render glyph mask to framebuffer
-	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	cmd:Begin()
 
-	do
+	-- Render glyph mask to framebuffer
+	render.ExecuteCommand(function(cmd)
 		if DEBUG then
 			local gd = glyph.glyph_data
 			print(
@@ -633,7 +628,6 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 		render2d.state.runtime.batch.state:ClearPending()
 		fb_ss:Begin(cmd)
 		render2d.PushBlendPreset("alpha")
-		render.PushCommandBuffer(cmd)
 		render2d.PushScreenSize(sw, sh)
 		render2d.PushMatrix()
 		render2d.LoadIdentity()
@@ -643,16 +637,12 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 		self:DrawGlyph(glyph.glyph_data)
 		render2d.FlushBatches("glyph_load")
 		render2d.PopMatrix()
-		render.PopCommandBuffer()
 		render2d.PopScreenSize()
 		render2d.PopBlendMode()
 		render2d.RestoreBatchState(saved_batch)
 		fb_ss:End(cmd)
-	end
+	end)
 
-	-- Submit mask rendering before GenerateSDF reads it
-	cmd:End()
-	render.SubmitAndWait(cmd)
 	-- Capture the texture reference before releasing the framebuffer
 	local mask_tex = fb_ss.color_texture
 
@@ -661,12 +651,12 @@ function META:RenderGlyph(glyph, used_temp_fbs)
 	else
 		local fb_final = self:GetTempFramebuffer(glyph.w + spread * 2, glyph.h + spread * 2, format, false)
 		table.insert(used_temp_fbs, fb_final)
-		cmd = render.GetCommandPool():AllocateCommandBuffer()
-		cmd:Begin()
-		fb_final:Begin(cmd)
-		fb_final:End(cmd)
-		cmd:End()
-		render.SubmitAndWait(cmd)
+
+		render.ExecuteCommand(function(cmd)
+			fb_final:Begin(cmd)
+			fb_final:End(cmd)
+		end)
+
 		glyph.texture = fb_final.color_texture
 	end
 

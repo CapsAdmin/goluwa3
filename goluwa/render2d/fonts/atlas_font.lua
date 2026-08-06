@@ -267,34 +267,20 @@ end
 function META:RebuildFromScratch()
 	if not self.texture_atlas then return end
 
-	local own_cmd = false
-	local cmd = render.GetCommandBuffer()
+	render.ExecuteCommand(function(cmd)
+		local codes_to_reload = {}
 
-	if not cmd then
-		cmd = render.GetCommandPool():AllocateCommandBuffer()
-		cmd:Begin()
-		own_cmd = true
-	end
+		for code in pairs(self.chars) do
+			table.insert(codes_to_reload, code)
+			self.chars[code] = nil
+		end
 
-	render.PushCommandBuffer(cmd)
-	local codes_to_reload = {}
+		for _, code in ipairs(codes_to_reload) do
+			self:LoadGlyph(code)
+		end
 
-	for code in pairs(self.chars) do
-		table.insert(codes_to_reload, code)
-		self.chars[code] = nil
-	end
-
-	for _, code in ipairs(codes_to_reload) do
-		self:LoadGlyph(code)
-	end
-
-	self:Rebuild()
-	render.PopCommandBuffer()
-
-	if own_cmd then
-		cmd:End()
-		render.SubmitAndWait(cmd)
-	end
+		self:Rebuild()
+	end)
 end
 
 function META:GetAtlasFormat()

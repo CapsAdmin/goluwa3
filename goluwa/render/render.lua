@@ -269,7 +269,6 @@ function render.Initialize(config)
 
 	function render.Draw(dt)
 		event.Call("PreFrame", dt)
-
 		local began = render.BeginFrame()
 
 		if began then
@@ -339,6 +338,17 @@ function render.KeepCommandBufferResource(resource, cmd)
 	cmd.keepalive_resources = cmd.keepalive_resources or {}
 	table.insert(cmd.keepalive_resources, resource)
 	return resource
+end
+
+function render.ExecuteCommand(command_fn)
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	render.PushCommandBuffer(cmd)
+	local result = command_fn(cmd)
+	render.PopCommandBuffer()
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	return result
 end
 
 function render.EndFrame()
