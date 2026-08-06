@@ -24,7 +24,6 @@ T.Test2D("raster font draws opaque interior pixels", function()
 	}
 	render2d.SetTexture(nil)
 	render2d.SetColor(1, 1, 1, 1)
-	assert(font:IsReady())
 	font:DrawText("Hg", 10, 10)
 	return function()
 		local tex = render.target:GetTexture()

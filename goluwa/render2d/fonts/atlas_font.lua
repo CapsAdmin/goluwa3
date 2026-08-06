@@ -101,10 +101,8 @@ META:GetSet("Size", 12, {callback = "ClearSizeCache"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
 META:GetSet("Filtering", "linear", {callback = "ClearSizeCache"})
 META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
-META:IsSet("Ready", false)
 META:GetSet("Path", "default")
 META:GetSet("Size", 8)
-META:IsSet("Ready", false)
 META.debug = false
 
 function META:__copy()
@@ -189,15 +187,15 @@ function META:Initialize(font_path)
 	self:SetFontPath(font_path)
 	self.chars = {}
 	self.rebuild = false
+	local format = self:GetAtlasFormat()
+	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
 
-	if render.IsReady() then
-		self:CreateAtlas()
-	else
-		event.AddListener("RendererReady", self, function()
-			self:CreateAtlas()
-			return event.destroy_tag
-		end)
+	for code in pairs(self.chars) do
+		self.chars[code] = nil
+		self:LoadGlyph(code)
 	end
+
+	self.texture_atlas:Build()
 end
 
 function META:ClearSizeCache()
@@ -210,9 +208,7 @@ end
 
 function META:OnFontsChanged()
 	self:ClearSizeCache()
-
-	if self.Ready then self:RebuildFromScratch() end
-
+	self:RebuildFromScratch()
 	event.Call("OnFontsChanged", self)
 end
 
@@ -225,8 +221,7 @@ function META:OnPaddingChanged()
 	if self.texture_atlas then
 		self.texture_atlas:SetPadding(self.Padding)
 		self:ClearSizeCache()
-
-		if self.Ready then self:RebuildFromScratch() end
+		self:RebuildFromScratch()
 	end
 end
 
@@ -282,19 +277,6 @@ function META:GetAtlasFormat()
 	return "r8g8b8a8_unorm"
 end
 
-function META:CreateAtlas()
-	local format = self:GetAtlasFormat()
-	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-
-	for code in pairs(self.chars) do
-		self.chars[code] = nil
-		self:LoadGlyph(code)
-	end
-
-	self.texture_atlas:Build()
-	self:SetReady(true)
-end
-
 local function build_glyph_metrics(self, g, code)
 	-- bitmap glyphs are already rasterized, do not scale metrics
 	local scale = g.texture and 1 or self.Size
@@ -331,8 +313,6 @@ function META:GetMetricGlyph(code)
 end
 
 function META:GetTextSizeNotCached(str)
-	if not self:IsReady() then return 0, 0 end
-
 	str = tostring(str)
 	local X, Y = 0, self:GetAscent()
 	local max_x = 0

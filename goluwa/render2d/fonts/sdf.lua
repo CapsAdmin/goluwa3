@@ -757,8 +757,6 @@ local render2d_DrawRect = render2d.DrawRect
 local render2d_PopColor = render2d.PopColor
 
 function META:DrawString(str, x, y, spacing, extra_space_advance)
-	if not self:IsReady() then return end
-
 	str = tostring(str)
 	self:LoadGlyphsFromString(str)
 	spacing = spacing or self.Spacing

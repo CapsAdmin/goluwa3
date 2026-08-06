@@ -1878,8 +1878,6 @@ do -- invalidate
 		for _, chunk in ipairs(self.prepared_chunks) do
 			if chunk.type == "string" or chunk.type == "newline" then
 				if chunk.font then
-					if not chunk.font:IsReady() then return nil, "fonts not ready" end
-
 					if chunk.font ~= last_font then
 						data = {}
 						list.insert(strings, {font = chunk.font, data = data})

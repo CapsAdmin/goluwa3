@@ -118,8 +118,6 @@ local function batch_load_glyphs(self, str)
 end
 
 function META:DrawString(str, x, y, spacing, extra_space_advance)
-	if not self:IsReady() then return end
-
 	str = tostring(str)
 	batch_load_glyphs(self, str)
 	spacing = spacing or self.Spacing
