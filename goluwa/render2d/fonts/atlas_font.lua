@@ -126,10 +126,7 @@ end
 
 function META:DrawGlyph(glyph)
 	render2d.SetTexture(nil)
-	glyph.poly:SetColor(1, 1, 1, 1)
-	render2d.PushMatrix(0, 0, self.Size, self.Size)
-	glyph.poly:Draw()
-	render2d.PopMatrix()
+	glyphs.DrawGlyph(glyph.font_path, glyph.char_code, 0, 0, self.Size)
 end
 
 function META:OnPaddingChanged()
@@ -248,6 +245,8 @@ function META:GetMetricGlyph(code)
 		bitmap_top = self:GetAscent() - (g.y_max * self.Size),
 		glyph_data = g,
 		poly = g.poly,
+		font_path = self.FontPath,
+		char_code = code,
 	}
 end
 
@@ -447,6 +446,8 @@ do
 			bitmap_top = self:GetAscent() - (g.y_max * self.Size),
 			glyph_data = g,
 			poly = g.poly,
+			font_path = self.FontPath,
+			char_code = code,
 		}
 
 		if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then

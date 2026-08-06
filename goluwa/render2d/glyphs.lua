@@ -259,6 +259,8 @@ function glyphs.GetGlyph(path, char_code)
 		g.lsb = g.lsb * inv_upem
 		g.w = g.w * inv_upem
 		g.h = g.h * inv_upem
+		g.font_path = path
+		g.char_code = char_code
 	end
 
 	state.glyphs_cache[char_code] = g
