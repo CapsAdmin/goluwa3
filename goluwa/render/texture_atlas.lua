@@ -173,6 +173,7 @@ function META:Build()
 					elseif data.texture then
 						local other = data.texture
 						page.texture:CopyFrom(other, data.w, data.h, 0, 0, data.page_x, data.page_y)
+						data.texture:Remove()
 						data.uploaded = true
 					end
 				end
