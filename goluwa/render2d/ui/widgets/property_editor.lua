@@ -1095,7 +1095,7 @@ return function(props)
 					Children = children,
 				}
 				listeners[#listeners + 1] = category.object:AddPropertyListener(function(_, key)
-					if not self:Isvalid() then return end
+					if not self:IsValid() then return end
 
 					if property_change_sync_blocked > 0 then return end
 
