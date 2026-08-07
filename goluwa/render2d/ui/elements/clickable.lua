@@ -46,13 +46,15 @@ return function(props)
 			},
 			visual = {
 				Clipping = props.Clipping ~= false,
-				OnDraw = function(self)
-					self:SetDrawAlpha(self.Owner:GetState("disabled") and 0.5 or 1)
-					theme.active:Draw(self.Owner)
-				end,
-				OnPostDraw = function(self)
-					theme.active:DrawPost(self.Owner)
-				end,
+				OnDraw = not props.NoDraw and
+					function(self)
+						self:SetDrawAlpha(self.Owner:GetState("disabled") and 0.5 or 1)
+						theme.active:Draw(self.Owner)
+					end,
+				OnPostDraw = not props.NoDraw and
+					function(self)
+						theme.active:DrawPost(self.Owner)
+					end,
 			},
 			mouse_input = {
 				Cursor = "hand",

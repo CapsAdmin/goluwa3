@@ -117,24 +117,9 @@ return {
 			return frame
 		end
 
-		local grid_rows = {}
-
-		for i = 1, #icon_sources, 4 do
-			local row_children = {}
-
-			for j = i, math.min(i + 3, #icon_sources) do
-				row_children[#row_children + 1] = build_icon_tile(icon_sources[j][1], icon_sources[j][2])
-			end
-
-			grid_rows[#grid_rows + 1] = Row{
-				layout = {
-					FitHeight = true,
-					GrowWidth = 1,
-					AlignmentY = "start",
-					AlignmentX = "stretch",
-					ChildGap = 12,
-				},
-			}(row_children)
+		local icon_tiles = {}
+		for _, source in ipairs(icon_sources) do
+			icon_tiles[#icon_tiles + 1] = build_icon_tile(source[1], source[2])
 		end
 
 		local page = Column{
@@ -187,14 +172,16 @@ return {
 					},
 				},
 			},
-			Column{
+		Row{
 				layout = {
 					GrowWidth = 1,
 					FitHeight = true,
-					AlignmentX = "stretch",
+					WrapChildren = true,
+					AlignmentX = "space_between",
+					AlignmentY = "start",
 					ChildGap = 12,
 				},
-			}(grid_rows),
+			}(icon_tiles),
 			Text{
 				Text = "Custom Source",
 				Font = "body_strong S",

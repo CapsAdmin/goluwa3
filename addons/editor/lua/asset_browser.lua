@@ -23,8 +23,6 @@ local DEFAULT_CATEGORY_ORDER = {
 	{name = "models", label = "models"},
 	{name = "textures", label = "textures"},
 }
-local MODEL_COLUMNS = 3
-local TEXTURE_COLUMNS = 4
 local MATERIAL_TEXTURE_GETTERS = {
 	"GetAlbedoTexture",
 	"GetNormalTexture",
@@ -404,7 +402,7 @@ local function build_model_tile(entry, scheduler)
 	end
 
 	return Frame{
-		Padding = Rect() + 12,
+		Padding = Rect() + 4,
 		layout = {
 			FitWidth = true,
 			FitHeight = true,
@@ -417,7 +415,7 @@ local function build_model_tile(entry, scheduler)
 				GrowWidth = 1,
 				FitHeight = true,
 				AlignmentX = "stretch",
-				ChildGap = 10,
+				ChildGap = 6,
 			},
 		}{
 			Panel.New{
@@ -439,26 +437,11 @@ local function build_model_tile(entry, scheduler)
 				end,
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
-					self:SetState("theme_role", "asset_preview_tile")
-					self:SetState("preview_frame_opts", {})
-					self:SetState(
-						"preview_frame_secondary_opts",
-						load_started and
-							{
-								inset = 18,
-								radius = 12,
-								fill_alpha = 0,
-								outline_alpha = 0,
-								inset_outline_alpha = 0.4,
-							} or
-							nil
-					)
-					theme.active:Draw(self)
 
 					if preview and preview.IsValid and preview:IsValid() then
 						render2d.SetTexture(preview:GetTexture())
 						render2d.SetColor(1, 1, 1, 1)
-						render2d.DrawRect(6, 6, size.x - 12, size.y - 12)
+						render2d.DrawRect(0, 0, size.x, size.y)
 					end
 				end,
 			},
@@ -466,18 +449,7 @@ local function build_model_tile(entry, scheduler)
 				Text = entry.name,
 				Font = "body_strong S",
 				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = entry.path,
-				Wrap = true,
-				WrapToParent = false,
-				Size = Vec2(164, 0),
-				IgnoreMouseInput = true,
-				Color = "text_disabled",
-				layout = {
-					MinSize = Vec2(164, 0),
-					MaxSize = Vec2(164, 0),
-				},
+				AlignmentX = "center",
 			},
 		},
 	}
@@ -488,12 +460,14 @@ local function build_texture_tile(entry, on_pick)
 	local preview_texture = assets.Load(entry.path, {category = category, config = {srgb = true}})
 	local texture = assets.Load(entry.path, {category = category})
 	return Clickable{
-		Padding = Rect() + 12,
-		Mode = "filled",
-		Color = "surface",
-		OnClick = on_pick and function()
-			return on_pick(entry, texture)
-		end or nil,
+		Padding = Rect() + 4,
+		Mode = "none",
+		NoDraw = true,
+		OnClick = function()
+			if on_pick then return on_pick(entry, texture) end
+
+			TextureViewer(texture, entry.path)
+		end,
 		layout = {
 			FitWidth = true,
 			FitHeight = true,
@@ -506,7 +480,7 @@ local function build_texture_tile(entry, on_pick)
 				GrowWidth = 1,
 				FitHeight = true,
 				AlignmentX = "stretch",
-				ChildGap = 10,
+				ChildGap = 6,
 			},
 		}{
 			Panel.New{
@@ -518,25 +492,13 @@ local function build_texture_tile(entry, on_pick)
 					MinSize = Vec2(136, 136),
 					MaxSize = Vec2(136, 136),
 				},
-				mouse_input = {
-					Cursor = "hand",
-				},
-				OnMouseInput = function(self, button, press, local_pos)
-					if press and button == "button_3" then
-						TextureViewer(texture, entry.path)
-					end
-				end,
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
-					self:SetState("theme_role", "asset_preview_tile")
-					self:SetState("preview_frame_opts", {})
-					self:SetState("preview_frame_secondary_opts", nil)
-					theme.active:Draw(self)
 
 					if preview_texture and preview_texture.IsReady and preview_texture:IsReady() then
 						render2d.SetTexture(preview_texture)
 						render2d.SetColor(1, 1, 1, 1)
-						render2d.DrawRect(8, 8, size.x - 16, size.y - 16)
+						render2d.DrawRect(0, 0, size.x, size.y)
 					end
 				end,
 			},
@@ -544,18 +506,7 @@ local function build_texture_tile(entry, on_pick)
 				Text = entry.name,
 				Font = "body_strong S",
 				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = entry.path,
-				Wrap = true,
-				WrapToParent = false,
-				Size = Vec2(136, 0),
-				IgnoreMouseInput = true,
-				Color = "text_disabled",
-				layout = {
-					MinSize = Vec2(136, 0),
-					MaxSize = Vec2(136, 0),
-				},
+				AlignmentX = "center",
 			},
 		},
 	}
@@ -564,9 +515,9 @@ end
 local function build_material_tile(entry, on_pick)
 	local material = load_material_asset(entry.path)
 	return Clickable{
-		Padding = Rect() + 12,
-		Mode = "filled",
-		Color = "surface",
+		Padding = Rect() + 4,
+		Mode = "none",
+		NoDraw = true,
 		OnClick = on_pick and function()
 			return on_pick(entry, material)
 		end or nil,
@@ -578,14 +529,11 @@ local function build_material_tile(entry, on_pick)
 		},
 	}{
 		Column{
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
 			layout = {
 				GrowWidth = 1,
 				FitHeight = true,
 				AlignmentX = "stretch",
-				ChildGap = 10,
+				ChildGap = 6,
 			},
 		}{
 			Panel.New{
@@ -597,21 +545,14 @@ local function build_material_tile(entry, on_pick)
 					MinSize = Vec2(136, 136),
 					MaxSize = Vec2(136, 136),
 				},
-				mouse_input = {
-					IgnoreMouseInput = true,
-				},
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
 					local texture = get_material_preview_texture(material)
-					self:SetState("theme_role", "asset_preview_tile")
-					self:SetState("preview_frame_opts", {})
-					self:SetState("preview_frame_secondary_opts", nil)
-					theme.active:Draw(self)
 
 					if texture then
 						render2d.SetTexture(texture)
 						render2d.SetColor(1, 1, 1, 1)
-						render2d.DrawRect(8, 8, size.x - 16, size.y - 16)
+						render2d.DrawRect(0, 0, size.x, size.y)
 					end
 				end,
 			},
@@ -619,18 +560,7 @@ local function build_material_tile(entry, on_pick)
 				Text = entry.name,
 				Font = "body_strong S",
 				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = entry.path,
-				Wrap = true,
-				WrapToParent = false,
-				Size = Vec2(136, 0),
-				IgnoreMouseInput = true,
-				Color = "text_disabled",
-				layout = {
-					MinSize = Vec2(136, 0),
-					MaxSize = Vec2(136, 0),
-				},
+				AlignmentX = "center",
 			},
 		},
 	}
@@ -646,28 +576,14 @@ local function build_tile(entry, scheduler, on_pick)
 	return build_texture_tile(entry, on_pick)
 end
 
-local function build_grid_rows(entries, columns, scheduler, on_pick)
-	local rows = {}
+local function build_grid_tiles(entries, scheduler, on_pick)
+	local tiles = {}
 
-	for index = 1, #entries, columns do
-		local children = {}
-
-		for child_index = index, math.min(index + columns - 1, #entries) do
-			children[#children + 1] = build_tile(entries[child_index], scheduler, on_pick)
-		end
-
-		rows[#rows + 1] = Row{
-			layout = {
-				GrowWidth = 1,
-				FitHeight = true,
-				AlignmentX = "stretch",
-				AlignmentY = "start",
-				ChildGap = 12,
-			},
-		}(children)
+	for _, entry in ipairs(entries) do
+		tiles[#tiles + 1] = build_tile(entry, scheduler, on_pick)
 	end
 
-	return rows
+	return tiles
 end
 
 return function(props)
@@ -695,6 +611,7 @@ return function(props)
 	local filter_edit
 	local grid_column
 	local header_text
+	local path_bar_text
 	local window
 	local scheduler = {
 		preview_steps_remaining = 0,
@@ -782,16 +699,20 @@ return function(props)
 		grid_column:RemoveChildren()
 		local show_tiles = should_show_grid_tiles()
 		local visible = show_tiles and get_visible_assets() or {}
-		local columns = state.selected_category == "models" and MODEL_COLUMNS or TEXTURE_COLUMNS
 
 		if header_text and header_text:IsValid() then
 			local scope = state.selected_asset_path or state.selected_prefix or state.selected_category
 
 			if show_tiles then
-				header_text.text:SetText(string.format("%s  |  %d assets", scope, #visible))
+				header_text.text:SetText(string.format("%d assets", #visible))
 			else
-				header_text.text:SetText(scope)
+				header_text.text:SetText("")
 			end
+		end
+
+		if path_bar_text and path_bar_text:IsValid() then
+			local path = state.selected_asset_path or state.selected_prefix or state.selected_category
+			path_bar_text.text:SetText(path)
 		end
 
 		if not show_tiles then
@@ -822,10 +743,19 @@ return function(props)
 					return props.OnPickAsset(entry, material, window)
 				end or
 				nil
-
-			for _, row in ipairs(build_grid_rows(visible, columns, scheduler, on_pick)) do
-				grid_column:AddChild(row)
-			end
+			local tiles = build_grid_tiles(visible, scheduler, on_pick)
+			grid_column:AddChild(
+				Row{
+					layout = {
+						GrowWidth = 1,
+						FitHeight = true,
+						WrapChildren = true,
+						AlignmentX = "space_around",
+						AlignmentY = "start",
+						ChildGap = 12,
+					},
+				}(tiles)
+			)
 		end
 
 		update_layout_now(grid_column)
@@ -977,6 +907,17 @@ return function(props)
 					end,
 					Text = "",
 					Font = "body_strong S",
+					layout = {
+						GrowWidth = 1,
+						FitHeight = true,
+					},
+				},
+				Text{
+					Ref = function(self)
+						path_bar_text = self
+					end,
+					Text = "",
+					Color = "text_disabled",
 					layout = {
 						GrowWidth = 1,
 						FitHeight = true,

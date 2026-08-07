@@ -19,8 +19,36 @@ META:GetSet("ShrinkWidth", 0)
 META:GetSet("ShrinkHeight", 0)
 META:GetSet("FitWidth", false)
 META:GetSet("FitHeight", false)
-META:GetSet("AlignmentX", "stretch", {enums = {"start", "center", "end", "stretch"}})
-META:GetSet("AlignmentY", "stretch", {enums = {"start", "center", "end", "stretch"}})
+META:GetSet(
+	"AlignmentX",
+	"stretch",
+	{
+		enums = {
+			"start",
+			"center",
+			"end",
+			"stretch",
+			"space_between",
+			"space_around",
+			"space_evenly",
+		},
+	}
+)
+META:GetSet(
+	"AlignmentY",
+	"stretch",
+	{
+		enums = {
+			"start",
+			"center",
+			"end",
+			"stretch",
+			"space_between",
+			"space_around",
+			"space_evenly",
+		},
+	}
+)
 META:GetSet(
 	"SelfAlignmentX",
 	"auto",
@@ -31,6 +59,7 @@ META:GetSet(
 	"auto",
 	{enums = {"auto", "start", "center", "end", "stretch"}}
 )
+META:GetSet("WrapChildren", false)
 META:GetSet("Floating", false)
 META:GetSet("Dock", "none", {enums = {"none", "top", "bottom", "left", "right", "fill"}})
 META:EndStorable()
@@ -276,6 +305,81 @@ function META:Measure()
 
 	if uses_dock_layout then
 		intrinsic, count = measure_docked_children(children, padding)
+	elseif self:GetWrapChildren() then
+		-- Wrap layout: build lines, measure each line
+		local lines = {}
+		local current_line = {}
+		local current_line_main = 0
+		local current_line_cross_max = 0
+		local available_main = tr_size[axis.main] - padding[axis.main_margin_start] - padding[axis.main_margin_end]
+
+		-- If container has no useful size yet, measure assuming single line to get intrinsic
+		if available_main < 10 then
+			for _, child in ipairs(children) do
+				if should_layout_child(child) then
+					local child_size, child_margin = measure_child_layout(child)
+					local child_main = child_size[axis.main] + child_margin[axis.main_margin_start] + child_margin[axis.main_margin_end]
+					local child_cross = child_size[axis.cross] + child_margin[axis.cross_margin_start] + child_margin[axis.cross_margin_end]
+
+					if count > 0 then main_total = main_total + child_gap end
+
+					main_total = main_total + child_main
+					cross_max = math.max(cross_max, child_cross)
+					count = count + 1
+				end
+			end
+
+			if dir == "x" then
+				intrinsic.x = main_total + padding.x + padding.w
+				intrinsic.y = cross_max + padding.y + padding.h
+			else
+				intrinsic.x = cross_max + padding.x + padding.w
+				intrinsic.y = main_total + padding.y + padding.h
+			end
+		else
+			for _, child in ipairs(children) do
+				if should_layout_child(child) then
+					local child_size, child_margin = measure_child_layout(child)
+					local child_main = child_size[axis.main] + child_margin[axis.main_margin_start] + child_margin[axis.main_margin_end]
+					local child_cross = child_size[axis.cross] + child_margin[axis.cross_margin_start] + child_margin[axis.cross_margin_end]
+					local needs_gap = #current_line > 0 and child_gap
+					local would_fit = current_line_main + (needs_gap or 0) + child_main <= available_main
+
+					if #current_line > 0 and not would_fit then
+						lines[#lines + 1] = {cross = current_line_cross_max}
+						current_line = {}
+						current_line_main = 0
+						current_line_cross_max = 0
+					end
+
+					current_line[#current_line + 1] = child
+					current_line_main = current_line_main + child_main
+					current_line_cross_max = math.max(current_line_cross_max, child_cross)
+					count = count + 1
+				end
+			end
+
+			if #current_line > 0 then
+				lines[#lines + 1] = {cross = current_line_cross_max}
+			end
+
+			-- Sum up line cross-sizes with gaps
+			local total_cross = 0
+
+			for i, line in ipairs(lines) do
+				if i > 1 then total_cross = total_cross + child_gap end
+
+				total_cross = total_cross + line.cross
+			end
+
+			if dir == "x" then
+				intrinsic.x = available_main + padding.x + padding.w
+				intrinsic.y = total_cross + padding.y + padding.h
+			else
+				intrinsic.x = total_cross + padding.x + padding.w
+				intrinsic.y = available_main + padding.y + padding.h
+			end
+		end
 	else
 		for _, child in ipairs(children) do
 			if should_layout_child(child) then
@@ -518,127 +622,292 @@ function META:Arrange()
 		return
 	end
 
-	for _, child in ipairs(children) do
-		if should_layout_child(child) then
-			local l = child.layout
-			local margin = l and l:GetMargin() or Rect(0, 0, 0, 0)
-			local grow = 0
-			local shrink = 0
-			local base_size = 0
-			local min_main = 0
+	if self:GetWrapChildren() then
+		-- Wrap layout: build lines, then position each line
+		local lines = {}
+		local current_line = {}
+		local current_line_main = 0
+		local available_main = actual_size[axis.main] - padding[axis.main_margin_start] - padding[axis.main_margin_end]
 
-			if l then
-				grow = (dir == "x") and l:GetGrowWidth() or l:GetGrowHeight()
-				shrink = (dir == "x") and l:GetShrinkWidth() or l:GetShrinkHeight()
-				local sz = l.intrinsic_size or l:Measure()
-				base_size = sz[axis.main]
-				min_main = l:GetMinSize()[axis.main] or 0
-			else
-				base_size = child.transform:GetSize()[axis.main]
-			end
+		for _, child in ipairs(children) do
+			if should_layout_child(child) then
+				local l = child.layout
+				local margin = l and l:GetMargin() or Rect(0, 0, 0, 0)
+				local base_size = 0
 
-			if shrink <= 0 and grow > 0 then shrink = grow end
+				if l then
+					local sz = l.intrinsic_size or l:Measure()
+					base_size = sz[axis.main]
+				else
+					base_size = child.transform:GetSize()[axis.main]
+				end
 
-			table.insert(
-				layout_children,
-				{
+				local child_main = base_size + margin[axis.main_margin_start] + margin[axis.main_margin_end]
+				local needs_gap = #current_line > 0 and child_gap
+				local would_fit = current_line_main + (needs_gap or 0) + child_main <= available_main
+
+				if #current_line > 0 and not would_fit then
+					lines[#lines + 1] = current_line
+					current_line = {}
+					current_line_main = 0
+				end
+
+				current_line[#current_line + 1] = {
 					entity = child,
-					grow = grow,
-					shrink = shrink,
 					margin = margin,
 					base_size = base_size,
-					min_main = min_main,
+					min_main = l and l:GetMinSize()[axis.main] or 0,
 					cross_size = (l and l.intrinsic_size or child.transform:GetSize())[axis.cross],
 				}
-			)
-			total_grow = total_grow + grow
-			total_shrink = total_shrink + shrink
-			fixed_main_size = fixed_main_size + base_size + margin[axis.main_margin_start] + margin[axis.main_margin_end]
-		end
-	end
-
-	if #layout_children > 1 then
-		fixed_main_size = fixed_main_size + (#layout_children - 1) * child_gap
-	end
-
-	local available_main = actual_size[axis.main] - padding[axis.main_margin_start] - padding[axis.main_margin_end]
-	local main_space_delta = available_main - fixed_main_size
-	local extra_space = math.max(0, main_space_delta)
-	local shrink_space = math.max(0, -main_space_delta)
-	-- Position children
-	local current_main = padding[axis.main_margin_start]
-
-	-- Handle Alignment (JustifyContent)
-	if total_grow == 0 then
-		local alignment = (dir == "x") and self:GetAlignmentX() or self:GetAlignmentY()
-
-		if alignment == "center" then
-			current_main = current_main + extra_space / 2
-		elseif alignment == "end" then
-			current_main = current_main + extra_space
-		end
-	end
-
-	for i, c in ipairs(layout_children) do
-		local grow_size = 0
-		local shrink_size = 0
-
-		if extra_space > 0 and total_grow > 0 and c.grow > 0 then
-			grow_size = extra_space * (c.grow / total_grow)
+				current_line_main = current_line_main + child_main + child_gap
+			end
 		end
 
-		if shrink_space > 0 and total_shrink > 0 and c.shrink > 0 then
-			local requested = shrink_space * (c.shrink / total_shrink)
-			local max_shrink = math.max(0, c.base_size - c.min_main)
-			shrink_size = math.min(requested, max_shrink)
-		end
+		if #current_line > 0 then lines[#lines + 1] = current_line end
 
-		local final_main = c.base_size + grow_size - shrink_size
-		local child_tr = c.entity.transform
-		-- Position on main axis
-		current_main = current_main + c.margin[axis.main_margin_start]
+		-- Position each line
+		local line_cross_pos = padding[axis.cross_margin_start]
 
-		if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.main) then
-			child_tr:SetAxisLength(axis.main, final_main)
-		end
+		for line_idx, line in ipairs(lines) do
+			-- Calculate line metrics
+			local line_main_total = 0
+			local line_cross_max = 0
+			local line_total_grow = 0
+			local line_total_shrink = 0
 
-		child_tr:SetAxisPosition(axis.main, current_main)
-		-- Position on cross axis
-		local cross_alignment = c.entity.layout and
-			get_child_cross_alignment(self, c.entity.layout) or
-			(
-				(
-					dir == "x"
+			for _, c in ipairs(line) do
+				line_main_total = line_main_total + c.base_size + c.margin[axis.main_margin_start] + c.margin[axis.main_margin_end]
+				line_cross_max = math.max(
+					line_cross_max,
+					c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
 				)
-				and
-				self:GetAlignmentY() or
-				self:GetAlignmentX()
-			)
-		local available_cross = actual_size[axis.cross] - padding[axis.cross_margin_start] - padding[axis.cross_margin_end]
-		local child_total_cross = c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
-		local cross_pos = padding[axis.cross_margin_start] + c.margin[axis.cross_margin_start]
-		local final_cross = c.cross_size
+			end
 
-		if cross_alignment == "center" then
-			cross_pos = cross_pos + (available_cross - child_total_cross) / 2
-		elseif cross_alignment == "end" then
-			cross_pos = cross_pos + (available_cross - child_total_cross)
-		elseif cross_alignment == "stretch" then
-			final_cross = math.max(
-				0,
-				available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
-			)
+			if #line > 1 then
+				line_main_total = line_main_total + (#line - 1) * child_gap
+			end
+
+			local line_extra = math.max(0, available_main - line_main_total)
+			local line_shrink = math.max(0, line_main_total - available_main)
+			-- Position children in this line
+			local child_main_pos = padding[axis.main_margin_start]
+			-- Handle line alignment
+			local alignment = (dir == "x") and self:GetAlignmentX() or self:GetAlignmentY()
+			local line_gap = child_gap
+
+			if line_extra > 0 then
+				if alignment == "center" then
+					child_main_pos = child_main_pos + line_extra / 2
+				elseif alignment == "end" then
+					child_main_pos = child_main_pos + line_extra
+				elseif alignment == "space_between" and #line > 1 then
+					line_gap = child_gap + line_extra / (#line - 1)
+				elseif alignment == "space_around" then
+					-- gap/2 + children + (n-1)*gap + gap/2 = available
+					-- so: children_total + n * line_gap = available
+					local children_total = line_main_total - (#line - 1) * child_gap
+					line_gap = math.min(child_gap + line_extra / #line, (available_main - children_total) / #line)
+					child_main_pos = child_main_pos + line_gap / 2
+				elseif alignment == "space_evenly" then
+					-- (n+1) gaps + children = available
+					local children_total = line_main_total - (#line - 1) * child_gap
+					line_gap = math.min(
+						child_gap + line_extra / (#line + 1),
+						(available_main - children_total) / (#line + 1)
+					)
+					child_main_pos = child_main_pos + line_gap
+				end
+			end
+
+			for _, c in ipairs(line) do
+				local final_main = c.base_size
+				local child_tr = c.entity.transform
+				child_main_pos = child_main_pos + c.margin[axis.main_margin_start]
+
+				if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.main) then
+					child_tr:SetAxisLength(axis.main, final_main)
+				end
+
+				child_tr:SetAxisPosition(axis.main, child_main_pos)
+				-- Position on cross axis
+				local cross_alignment = c.entity.layout and
+					get_child_cross_alignment(self, c.entity.layout) or
+					(
+						(
+							dir == "x"
+						)
+						and
+						self:GetAlignmentY() or
+						self:GetAlignmentX()
+					)
+				local child_total_cross = c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
+				local cross_pos = line_cross_pos + c.margin[axis.cross_margin_start]
+				local final_cross = c.cross_size
+
+				if cross_alignment == "center" then
+					cross_pos = cross_pos + (line_cross_max - child_total_cross) / 2
+				elseif cross_alignment == "end" then
+					cross_pos = cross_pos + (line_cross_max - child_total_cross)
+				elseif cross_alignment == "stretch" then
+					final_cross = math.max(
+						0,
+						line_cross_max - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
+					)
+				end
+
+				if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
+					child_tr:SetAxisLength(axis.cross, final_cross)
+				end
+
+				child_tr:SetAxisPosition(axis.cross, cross_pos)
+				child_main_pos = child_main_pos + final_main + c.margin[axis.main_margin_end] + line_gap
+
+				if c.entity.layout then c.entity.layout:UpdateLayout() end
+			end
+
+			line_cross_pos = line_cross_pos + line_cross_max + child_gap
+		end
+	else
+		-- Single line layout (original behavior)
+		for _, child in ipairs(children) do
+			if should_layout_child(child) then
+				local l = child.layout
+				local margin = l and l:GetMargin() or Rect(0, 0, 0, 0)
+				local grow = 0
+				local shrink = 0
+				local base_size = 0
+				local min_main = 0
+
+				if l then
+					grow = (dir == "x") and l:GetGrowWidth() or l:GetGrowHeight()
+					shrink = (dir == "x") and l:GetShrinkWidth() or l:GetShrinkHeight()
+					local sz = l.intrinsic_size or l:Measure()
+					base_size = sz[axis.main]
+					min_main = l:GetMinSize()[axis.main] or 0
+				else
+					base_size = child.transform:GetSize()[axis.main]
+				end
+
+				if shrink <= 0 and grow > 0 then shrink = grow end
+
+				table.insert(
+					layout_children,
+					{
+						entity = child,
+						grow = grow,
+						shrink = shrink,
+						margin = margin,
+						base_size = base_size,
+						min_main = min_main,
+						cross_size = (l and l.intrinsic_size or child.transform:GetSize())[axis.cross],
+					}
+				)
+				total_grow = total_grow + grow
+				total_shrink = total_shrink + shrink
+				fixed_main_size = fixed_main_size + base_size + margin[axis.main_margin_start] + margin[axis.main_margin_end]
+			end
 		end
 
-		if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
-			child_tr:SetAxisLength(axis.cross, final_cross)
+		if #layout_children > 1 then
+			fixed_main_size = fixed_main_size + (#layout_children - 1) * child_gap
 		end
 
-		child_tr:SetAxisPosition(axis.cross, cross_pos)
-		current_main = current_main + final_main + c.margin[axis.main_margin_end] + child_gap
+		local available_main = actual_size[axis.main] - padding[axis.main_margin_start] - padding[axis.main_margin_end]
+		local main_space_delta = available_main - fixed_main_size
+		local extra_space = math.max(0, main_space_delta)
+		local shrink_space = math.max(0, -main_space_delta)
+		-- Position children
+		local current_main = padding[axis.main_margin_start]
+		local effective_gap = child_gap
 
-		-- Recursive align/arrange if child has layout
-		if c.entity.layout then c.entity.layout:UpdateLayout() end
+		-- Handle Alignment (JustifyContent)
+		if total_grow == 0 then
+			local alignment = (dir == "x") and self:GetAlignmentX() or self:GetAlignmentY()
+
+			if alignment == "center" then
+				current_main = current_main + extra_space / 2
+			elseif alignment == "end" then
+				current_main = current_main + extra_space
+			elseif alignment == "space_between" and #layout_children > 1 then
+				effective_gap = child_gap + extra_space / (#layout_children - 1)
+			elseif alignment == "space_around" then
+				local children_total = fixed_main_size - (#layout_children - 1) * child_gap
+				effective_gap = math.min(
+					child_gap + extra_space / #layout_children,
+					(available_main - children_total) / #layout_children
+				)
+				current_main = current_main + effective_gap / 2
+			elseif alignment == "space_evenly" then
+				local children_total = fixed_main_size - (#layout_children - 1) * child_gap
+				effective_gap = math.min(
+					child_gap + extra_space / (#layout_children + 1),
+					(available_main - children_total) / (#layout_children + 1)
+				)
+				current_main = current_main + effective_gap
+			end
+		end
+
+		for i, c in ipairs(layout_children) do
+			local grow_size = 0
+			local shrink_size = 0
+
+			if extra_space > 0 and total_grow > 0 and c.grow > 0 then
+				grow_size = extra_space * (c.grow / total_grow)
+			end
+
+			if shrink_space > 0 and total_shrink > 0 and c.shrink > 0 then
+				local requested = shrink_space * (c.shrink / total_shrink)
+				local max_shrink = math.max(0, c.base_size - c.min_main)
+				shrink_size = math.min(requested, max_shrink)
+			end
+
+			local final_main = c.base_size + grow_size - shrink_size
+			local child_tr = c.entity.transform
+			-- Position on main axis
+			current_main = current_main + c.margin[axis.main_margin_start]
+
+			if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.main) then
+				child_tr:SetAxisLength(axis.main, final_main)
+			end
+
+			child_tr:SetAxisPosition(axis.main, current_main)
+			-- Position on cross axis
+			local cross_alignment = c.entity.layout and
+				get_child_cross_alignment(self, c.entity.layout) or
+				(
+					(
+						dir == "x"
+					)
+					and
+					self:GetAlignmentY() or
+					self:GetAlignmentX()
+				)
+			local available_cross = actual_size[axis.cross] - padding[axis.cross_margin_start] - padding[axis.cross_margin_end]
+			local child_total_cross = c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
+			local cross_pos = padding[axis.cross_margin_start] + c.margin[axis.cross_margin_start]
+			local final_cross = c.cross_size
+
+			if cross_alignment == "center" then
+				cross_pos = cross_pos + (available_cross - child_total_cross) / 2
+			elseif cross_alignment == "end" then
+				cross_pos = cross_pos + (available_cross - child_total_cross)
+			elseif cross_alignment == "stretch" then
+				final_cross = math.max(
+					0,
+					available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
+				)
+			end
+
+			if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
+				child_tr:SetAxisLength(axis.cross, final_cross)
+			end
+
+			child_tr:SetAxisPosition(axis.cross, cross_pos)
+			current_main = current_main + final_main + c.margin[axis.main_margin_end] + effective_gap
+
+			-- Recursive align/arrange if child has layout
+			if c.entity.layout then c.entity.layout:UpdateLayout() end
+		end
 	end
 
 	self.busy = self.busy - 1
