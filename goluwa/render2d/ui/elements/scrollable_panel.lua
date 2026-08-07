@@ -104,15 +104,6 @@ function META:OnCreate(props)
 				return scrollable_panel:handleWheelScroll(self, button)
 			end
 		end,
-		OnGlobalMouseInput = function(self, button, press, pos)
-			if not press then return end
-
-			if button ~= "mwheel_up" and button ~= "mwheel_down" then return end
-
-			if not self.visual or not self.visual:IsHovered(pos) then return end
-
-			return scrollable_panel:handleWheelScroll(self, button)
-		end,
 	}
 	self:AddChild(self.Viewport)
 	self.TrackY = self:AddChild(self:createTrack("y"))
