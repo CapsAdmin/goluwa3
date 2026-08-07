@@ -135,6 +135,8 @@ local function ensure_tree_children(node)
 	node.ChildrenLoaded = true
 	node.Children = {}
 
+	if node.Category == "textures" and (not node.Prefix or node.Prefix:starts_with("textures/internals/")) then assets.RefreshInternalTextures() end
+
 	for _, entry in ipairs(assets.EnumerateFolders(node.Category, {prefix = node.Prefix})) do
 		node.Children[#node.Children + 1] = make_folder_node(node.Category, entry.path, entry.name)
 	end
@@ -473,8 +475,9 @@ local function build_model_tile(entry, scheduler)
 end
 
 local function build_texture_tile(entry, on_pick)
-	local preview_texture = assets.GetTexture(entry.path, {config = {srgb = true}})
-	local texture = assets.GetTexture(entry.path)
+	local category = entry.category or "textures"
+	local preview_texture = assets.Load(entry.path, {category = category, config = {srgb = true}})
+	local texture = assets.Load(entry.path, {category = category})
 	return Clickable{
 		Padding = Rect() + 12,
 		Mode = "filled",
@@ -705,6 +708,8 @@ return function(props)
 		local key = get_asset_scope_key(category_name, prefix, recursive)
 
 		if asset_index_loaded[key] then return key, false end
+
+		if category_name == "textures" and prefix and prefix:starts_with("textures/internals/") then assets.RefreshInternalTextures() end
 
 		asset_index[key] = assets.Enumerate(category_name, {
 			prefix = prefix,

@@ -663,6 +663,29 @@ assets.RegisterCategory("scenes", {
 	load = false,
 })
 
+function assets.RefreshInternalTextures()
+	-- Clear old internal texture registrations
+	for virtual_path in pairs(assets.virtual_assets) do
+		if virtual_path:starts_with("textures/internals/") then
+			assets.virtual_assets[virtual_path] = nil
+		end
+	end
+
+	for _, texture in pairs(Texture.Instances) do
+		if not texture:IsValid() then continue end
+
+		assets.RegisterVirtualAsset(
+			"textures/internals/" .. tostring(texture),
+			{
+				category = "textures",
+				load = function()
+					return texture:IsValid() and texture or nil
+				end,
+			}
+		)
+	end
+end
+
 function assets.Load(path, options)
 	options = options or {}
 	local category, category_name = get_category(options.category, path)
@@ -701,7 +724,7 @@ function assets.Load(path, options)
 		return cached
 	end
 
-	if category.load == false then
+	if category.load == false and not virtual_asset then
 		error(("asset category %q does not support loading yet"):format(category_name), 2)
 	end
 
