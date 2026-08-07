@@ -31,22 +31,55 @@ local sampler_config_keys = {
 	"compare_op",
 	"flags",
 }
-Texture:GetSet("SamplerEnabled", true, {callback = "RefreshSampler"})
-Texture:GetSet("MinFilter", "linear", {callback = "RefreshSampler"})
-Texture:GetSet("MagFilter", "linear", {callback = "RefreshSampler"})
-Texture:GetSet("MipmapMode", "linear", {callback = "RefreshSampler"})
-Texture:GetSet("WrapS", "repeat", {callback = "RefreshSampler"})
-Texture:GetSet("WrapT", "repeat", {callback = "RefreshSampler"})
-Texture:GetSet("WrapR", "repeat", {callback = "RefreshSampler"})
-Texture:GetSet("MaxLod", 1, {callback = "RefreshSampler"})
-Texture:GetSet("MinLod", 0, {callback = "RefreshSampler"})
-Texture:GetSet("MipLodBias", 0, {callback = "RefreshSampler"})
-Texture:GetSet("Anisotropy", DEFAULT_SAMPLER_ANISOTROPY, {callback = "RefreshSampler"})
-Texture:GetSet("BorderColor", "int_opaque_black", {callback = "RefreshSampler"})
-Texture:GetSet("UnnormalizedCoordinates", false, {callback = "RefreshSampler"})
-Texture:GetSet("CompareEnable", false, {callback = "RefreshSampler"})
-Texture:GetSet("CompareOp", "always", {callback = "RefreshSampler"})
-Texture:GetSet("SamplerFlags", nil, {callback = "RefreshSampler"})
+Texture:StartStorable({callback = "RefreshSampler"})
+Texture:GetSet("SamplerEnabled", true)
+Texture:GetSet("MinFilter", "linear", {enums = {"nearest", "linear"}})
+Texture:GetSet("MagFilter", "linear", {enums = {"nearest", "linear"}})
+Texture:GetSet("MipmapMode", "linear", {enums = {"nearest", "linear"}})
+Texture:GetSet(
+	"WrapS",
+	"repeat",
+	{enums = {"repeat", "mirrored_repeat", "clamp_to_edge", "clamp_to_border"}}
+)
+Texture:GetSet(
+	"WrapT",
+	"repeat",
+	{enums = {"repeat", "mirrored_repeat", "clamp_to_edge", "clamp_to_border"}}
+)
+Texture:GetSet(
+	"WrapR",
+	"repeat",
+	{enums = {"repeat", "mirrored_repeat", "clamp_to_edge", "clamp_to_border"}}
+)
+Texture:GetSet("MaxLod", 1)
+Texture:GetSet("MinLod", 0)
+Texture:GetSet("MipLodBias", 0)
+Texture:GetSet("Anisotropy", DEFAULT_SAMPLER_ANISOTROPY)
+Texture:GetSet(
+	"BorderColor",
+	"int_opaque_black",
+	{enums = {"int_opaque_black", "int_opaque_white"}}
+)
+Texture:GetSet("UnnormalizedCoordinates", false)
+Texture:GetSet("CompareEnable", false)
+Texture:GetSet(
+	"CompareOp",
+	"always",
+	{
+		enums = {
+			"never",
+			"less",
+			"equal",
+			"less_or_equal",
+			"greater",
+			"not_equal",
+			"greater_or_equal",
+			"always",
+		},
+	}
+)
+Texture:GetSet("SamplerFlags", nil)
+Texture:EndStorable()
 
 local function copy_sampler_config(self)
 	return {
@@ -764,7 +797,6 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
-
 	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition image to transfer dst (only mip level 0)
 	render.TransitionResourceTo(
@@ -840,7 +872,6 @@ function Texture:UploadCompressed(data, vulkan_info)
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
-
 	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition all mip levels to transfer dst
 	render.TransitionResourceTo(
@@ -888,7 +919,6 @@ function Texture:UploadCompressed(data, vulkan_info)
 			level_count = mip_count,
 		}
 	)
-
 	cmd:End()
 	render.SubmitAndWait(cmd)
 end
@@ -1073,6 +1103,7 @@ function Texture:GenerateMipmaps(initial_layout)
 			render.SubmitAndWait(cmd)
 			command_pool:FreeCommandBuffer(cmd)
 		end
+
 		return
 	end
 
@@ -1741,6 +1772,48 @@ do
 
 	function Texture:ClearImageDataCache()
 		self.image_data_cache = nil
+	end
+
+	function Texture:GetChannelStatistics()
+		local downloaded = self:Download()
+		local r_min, r_max, r_sum = 255, 0, 0
+		local g_min, g_max, g_sum = 255, 0, 0
+		local b_min, b_max, b_sum = 255, 0, 0
+		local a_min, a_max, a_sum = 255, 0, 0
+
+		downloaded:ForEachPixel(function(x, y, r, g, b, a)
+			if r < r_min then r_min = r end
+
+			if r > r_max then r_max = r end
+
+			r_sum = r_sum + r
+
+			if g < g_min then g_min = g end
+
+			if g > g_max then g_max = g end
+
+			g_sum = g_sum + g
+
+			if b < b_min then b_min = b end
+
+			if b > b_max then b_max = b end
+
+			b_sum = b_sum + b
+
+			if a < a_min then a_min = a end
+
+			if a > a_max then a_max = a end
+
+			a_sum = a_sum + a
+		end)
+
+		local pixel_count = self:GetWidth() * self:GetHeight()
+		return {
+			{label = "R", min = r_min, max = r_max, avg = r_sum / pixel_count},
+			{label = "G", min = g_min, max = g_max, avg = g_sum / pixel_count},
+			{label = "B", min = b_min, max = b_max, avg = b_sum / pixel_count},
+			{label = "A", min = a_min, max = a_max, avg = a_sum / pixel_count},
+		}
 	end
 end
 

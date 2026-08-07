@@ -5,6 +5,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local assets = import("goluwa/assets.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
+local TextureViewer = import("addons/editor/lua/texture_viewer.lua")
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
@@ -135,7 +136,15 @@ local function ensure_tree_children(node)
 	node.ChildrenLoaded = true
 	node.Children = {}
 
-	if node.Category == "textures" and (not node.Prefix or node.Prefix:starts_with("textures/internals/")) then assets.RefreshInternalTextures() end
+	if
+		node.Category == "textures" and
+		(
+			not node.Prefix or
+			node.Prefix:starts_with("textures/internals/")
+		)
+	then
+		assets.RefreshInternalTextures()
+	end
 
 	for _, entry in ipairs(assets.EnumerateFolders(node.Category, {prefix = node.Prefix})) do
 		node.Children[#node.Children + 1] = make_folder_node(node.Category, entry.path, entry.name)
@@ -493,9 +502,6 @@ local function build_texture_tile(entry, on_pick)
 		},
 	}{
 		Column{
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
 			layout = {
 				GrowWidth = 1,
 				FitHeight = true,
@@ -513,8 +519,13 @@ local function build_texture_tile(entry, on_pick)
 					MaxSize = Vec2(136, 136),
 				},
 				mouse_input = {
-					IgnoreMouseInput = true,
+					Cursor = "hand",
 				},
+				OnMouseInput = function(self, button, press, local_pos)
+					if press and button == "button_3" then
+						TextureViewer(texture, entry.path)
+					end
+				end,
 				OnDraw = function(self)
 					local size = self.transform.Size + self.transform.DrawSizeOffset
 					self:SetState("theme_role", "asset_preview_tile")
@@ -709,7 +720,13 @@ return function(props)
 
 		if asset_index_loaded[key] then return key, false end
 
-		if category_name == "textures" and prefix and prefix:starts_with("textures/internals/") then assets.RefreshInternalTextures() end
+		if
+			category_name == "textures" and
+			prefix and
+			prefix:starts_with("textures/internals/")
+		then
+			assets.RefreshInternalTextures()
+		end
 
 		asset_index[key] = assets.Enumerate(category_name, {
 			prefix = prefix,
