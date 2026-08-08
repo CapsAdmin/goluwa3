@@ -46,7 +46,7 @@ return function(props)
 			return false
 		end,
 		PreRemoveChildren = function(self)
-			if not content then return end
+			if not content then return false end
 
 			content:RemoveChildren()
 			return false

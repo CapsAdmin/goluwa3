@@ -199,3 +199,74 @@ T.Test("objects BringToFront and SendToBack reorder without reparent", function(
 	T(child_a._child_insert_order < child_b._child_insert_order)["=="](true)
 	T(child_b._child_insert_order < child_c._child_insert_order)["=="](true)
 end)
+
+T.Test("objects PreRemoveChildren protects subtree during bulk removal", function()
+	local META = objects.CreateTemplate("test_preremove_parent")
+	objects.ParentingTemplate(META)
+
+	function META:OnRemove()
+		self:UnParent()
+		self:RemoveChildren()
+	end
+
+	META:Register()
+	local parent = objects.CreateObject(META)
+	local protected_child = objects.CreateObject(META)
+	local grandchild = objects.CreateObject(META)
+
+	function protected_child:PreRemoveChildren()
+		return false
+	end
+
+	parent:AddChild(protected_child)
+	protected_child:AddChild(grandchild)
+	T(#parent:GetChildren())["=="](1)
+	T(#parent:GetChildrenList())["=="](2)
+
+	parent:RemoveChildren()
+	T(#parent:GetChildren())["=="](0)
+	T(protected_child:IsValid())["=="](true)
+	T(grandchild:IsValid())["=="](true)
+	T(protected_child:HasParent())["=="](false)
+	T(grandchild:HasParent())["=="](false)
+	-- The whole subtree is unparented, so grandchild's parent is also cleared
+	T(grandchild:GetParent():IsValid())["=="](false)
+end)
+
+T.Test("objects PreRemoveChildren with nested protected objects", function()
+	local META = objects.CreateTemplate("test_nested_protected")
+	objects.ParentingTemplate(META)
+
+	function META:OnRemove()
+		self:UnParent()
+		self:RemoveChildren()
+	end
+
+	META:Register()
+	local parent = objects.CreateObject(META)
+	local protected_outer = objects.CreateObject(META)
+	local protected_inner = objects.CreateObject(META)
+	local leaf = objects.CreateObject(META)
+
+	function protected_outer:PreRemoveChildren()
+		return false
+	end
+
+	function protected_inner:PreRemoveChildren()
+		return false
+	end
+
+	parent:AddChild(protected_outer)
+	protected_outer:AddChild(protected_inner)
+	protected_inner:AddChild(leaf)
+	T(#parent:GetChildrenList())["=="](3)
+
+	parent:RemoveChildren()
+	T(#parent:GetChildren())["=="](0)
+	T(protected_outer:IsValid())["=="](true)
+	T(protected_inner:IsValid())["=="](true)
+	T(leaf:IsValid())["=="](true)
+	T(protected_outer:HasParent())["=="](false)
+	T(protected_inner:HasParent())["=="](false)
+	T(leaf:HasParent())["=="](false)
+end)

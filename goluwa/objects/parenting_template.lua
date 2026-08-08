@@ -320,6 +320,14 @@ return function(META)
 				if obj.__bulk_remove_mark then
 					stack[#stack] = nil
 					remove_list[#remove_list + 1] = obj
+
+					if obj.PreRemoveChildren and obj:PreRemoveChildren() == false then
+						obj.__protected_remove = true
+
+						for _, obj in ipairs(obj:GetChildrenList()) do
+							obj.__protected_remove = true
+						end
+					end
 				else
 					obj.__bulk_remove_mark = true
 					obj.__skip_remove_children = true
@@ -335,7 +343,16 @@ return function(META)
 		for i = 1, #remove_list do
 			local obj = remove_list[i]
 			obj.__bulk_remove_mark = nil
-			obj:Remove()
+
+			if obj.__protected_remove and obj.Parent:IsValid() then
+				obj.__protected_remove = nil
+				obj.Parent = NULL
+				obj:InvalidateParentList()
+				obj:CallLocalEvent("OnUnParent", self)
+				self:CallLocalEvent("OnChildRemove", obj)
+			else
+				obj:Remove()
+			end
 		end
 
 		self.bulk_removing_children = nil
