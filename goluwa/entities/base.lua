@@ -28,7 +28,7 @@ local function apply_config(instance, config)
 	end
 
 	for i = 1, #config do
-		apply_config(instance, config[i])
+		if not getmetatable(config[i]) then apply_config(instance, config[i]) end
 	end
 end
 
@@ -159,7 +159,11 @@ function BaseEntity:OnCreate(config)
 			end
 
 			for i = 1, #config do
-				apply_root_config(config[i])
+				if getmetatable(config[i]) then
+					self:AddChild(config[i])
+				else
+					apply_root_config(config[i])
+				end
 			end
 		end
 
