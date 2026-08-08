@@ -576,6 +576,29 @@ function module.Attach(audio)
 		return audio.CreateSource(path)
 	end
 
+	function audio.CreateSoundFromCallback(sample_callback, duration, sample_rate, channels)
+		sample_rate = sample_rate or 44100
+		duration = duration or 0.1
+		channels = channels or 2
+		local samples = math.ceil(duration * sample_rate)
+		local data = ffi.new("float[?]", samples * channels)
+
+		for i = 0, samples - 1 do
+			local t = i / sample_rate
+			local value = sample_callback(t)
+			value = math.max(-1, math.min(1, value))
+
+			for c = 0, channels - 1 do
+				data[i * channels + c] = value
+			end
+		end
+
+		local sound = audio.CreateSound()
+		configure_sound_buffer(sound, data, samples, channels, sample_rate)
+		sound.buffer_ref = data
+		return sound
+	end
+
 	function audio.GetCurrentSampleInfo(sound)
 		if not sound then return end
 
