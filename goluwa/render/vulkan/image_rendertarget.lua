@@ -602,6 +602,13 @@ function ImageRenderTarget:RebuildFramebuffers()
 
 	-- Wait for device to be idle
 	self.vulkan_instance.device:WaitIdle()
+	self.surface_capabilities = self.vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
+
+	if self.config.width and self.config.height then
+		self.surface_capabilities.currentExtent.width = self.config.width
+		self.surface_capabilities.currentExtent.height = self.config.height
+	end
+
 	choose_format(self)
 	create_swapchain(self)
 	create_depth_buffer(self)

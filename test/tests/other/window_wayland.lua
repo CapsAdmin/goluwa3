@@ -12,19 +12,11 @@ T.Test("wayland SetSize requests compositor resize", function()
 	local META = {}
 	apply_wayland_backend(META)
 	local geometry_calls = {}
-	local min_size_calls = {}
-	local max_size_calls = {}
 	local commit_count = 0
 	local listener
 	local fake_toplevel = {
 		add_listener = function(_, callbacks)
 			listener = callbacks
-		end,
-		set_min_size = function(_, width, height)
-			min_size_calls[#min_size_calls + 1] = {width, height}
-		end,
-		set_max_size = function(_, width, height)
-			max_size_calls[#max_size_calls + 1] = {width, height}
 		end,
 	}
 	local fake_window = {
@@ -56,23 +48,13 @@ T.Test("wayland SetSize requests compositor resize", function()
 	T(geometry_calls[1][2])["=="](0)
 	T(geometry_calls[1][3])["=="](1280)
 	T(geometry_calls[1][4])["=="](719)
-	T(min_size_calls[1][1])["=="](1280)
-	T(min_size_calls[1][2])["=="](719)
-	T(max_size_calls[1][1])["=="](1280)
-	T(max_size_calls[1][2])["=="](719)
 	T(commit_count)["=="](1)
 	T(fake_window.width)["=="](1280)
 	T(fake_window.height)["=="](719)
-	T(fake_window.pending_size_request.x)["=="](1280)
-	T(fake_window.pending_size_request.y)["=="](719)
+	-- Verify no min/max size constraints are set (they prevent compositor resizing)
+	-- Simulate compositor configure callback with the new size
 	listener.configure(ffi.cast("void*", fake_window._ptr), fake_toplevel, 1280, 719, nil)
 	wayland._active_windows[fake_window._ptr] = nil
-	T(fake_window.pending_size_request)["=="](nil)
-	T(min_size_calls[2][1])["=="](0)
-	T(min_size_calls[2][2])["=="](0)
-	T(max_size_calls[2][1])["=="](0)
-	T(max_size_calls[2][2])["=="](0)
-	T(commit_count)["=="](2)
 	T(fake_window.events[1].type)["=="]("window_resize")
 	T(fake_window.events[1].width)["=="](1280)
 	T(fake_window.events[1].height)["=="](719)

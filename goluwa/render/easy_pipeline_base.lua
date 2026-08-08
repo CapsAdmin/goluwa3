@@ -811,30 +811,24 @@ do
 	function EasyPipeline:OnWindowFramebufferResized()
 		if render.target:IsValid() and render.target.config.offscreen then return end
 
-		timer.Delay(
-			0.01,
-			function()
-				self:RecreateFramebuffers()
-				-- Update descriptor sets if they reference framebuffer textures
-				local textures = {}
-				local fb = self.framebuffers[1]
+		self:RecreateFramebuffers()
+		-- Update descriptor sets if they reference framebuffer textures
+		local textures = {}
+		local fb = self.framebuffers[1]
 
-				if fb then
-					for _, tex in ipairs(fb.color_textures or {}) do
-						table.insert(textures, tex)
-					end
+		if fb then
+			for _, tex in ipairs(fb.color_textures or {}) do
+				table.insert(textures, tex)
+			end
 
-					if fb.depth_texture then table.insert(textures, fb.depth_texture) end
+			if fb.depth_texture then table.insert(textures, fb.depth_texture) end
 
-					if #textures > 0 and self.pipeline.UpdateDescriptorSetArray then
-						for i = 1, #self.pipeline.descriptor_sets do
-							self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
-						end
-					end
+			if #textures > 0 and self.pipeline.UpdateDescriptorSetArray then
+				for i = 1, #self.pipeline.descriptor_sets do
+					self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
 				end
-			end,
-			self
-		)
+			end
+		end
 	end
 end
 

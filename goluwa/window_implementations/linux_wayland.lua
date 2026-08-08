@@ -7,6 +7,7 @@ local relative_pointer = import("goluwa/bindings/wayland/relative_pointer.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
+local timer = import("goluwa/timer.lua")
 ffi.cdef[[
 	struct wl_array {
 		size_t size;
@@ -236,13 +237,6 @@ return function(META)
 		if self.xdg_surface then
 			self.xdg_surface:set_window_geometry(0, 0, width, height)
 		end
-
-		if self.xdg_toplevel then
-			self.xdg_toplevel:set_min_size(width, height)
-			self.xdg_toplevel:set_max_size(width, height)
-		end
-
-		self.pending_size_request = Vec2(width, height)
 
 		if self.surface_proxy then self.surface_proxy:commit() end
 
@@ -599,16 +593,8 @@ return function(META)
 						wnd.width = width
 						wnd.height = height
 
-						if
-							wnd.pending_size_request and
-							wnd.pending_size_request.x == width and
-							wnd.pending_size_request.y == height
-						then
-							xdg_toplevel:set_min_size(0, 0)
-							xdg_toplevel:set_max_size(0, 0)
-							wnd.pending_size_request = nil
-
-							if wnd.surface_proxy then wnd.surface_proxy:commit() end
+						if wnd.xdg_surface then
+							wnd.xdg_surface:set_window_geometry(0, 0, width, height)
 						end
 
 						table.insert(wnd.events, {type = "window_resize", width = width, height = height})
@@ -994,8 +980,18 @@ return function(META)
 					self.cached_size = nil
 					self.cached_fb_size = nil
 					self:OnSizeChanged(size:Copy())
-					self:OnFramebufferResized(size:Copy())
 					self.last_size = size
+
+					if self.resize_timer then self.resize_timer:Remove() end
+
+					self.resize_timer = timer.Delay(
+						0.05,
+						function()
+							self.resize_timer = nil
+							self:OnFramebufferResized(size:Copy())
+						end,
+						self
+					)
 				end
 			elseif event.type == "window_maximize" then
 				self:OnMaximize()
