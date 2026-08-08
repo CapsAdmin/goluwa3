@@ -1,27 +1,10 @@
-local io = require("io")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Texture = import("goluwa/render/texture.lua")
-local vfs = import("goluwa/vfs.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-local resource = import("goluwa/resource.lua")
-local svg_codec = import("goluwa/codecs/svg.lua")
-
-local function read_source_text(path)
-	local data = vfs.Read(path)
-
-	if data then return data end
-
-	local file = io.open(path, "rb")
-
-	if not file then return nil end
-
-	data = file:read("*a")
-	file:close()
-	return data
-end
+local SVG = import("goluwa/render2d/svg.lua")
 
 local function normalize_padding(padding)
 	if type(padding) == "string" then
@@ -44,19 +27,13 @@ return function(props)
 	props = props or {}
 	local state = {
 		source = props.Source or props.Path,
-		poly = nil,
-		decoded = nil,
-		sdf_texture = nil,
-		sdf_spread = nil,
+		svg = nil,
 		fallback_texture = nil,
-		status = "idle",
-		error = nil,
-		request_id = 0,
 	}
 	local panel
 
 	local function notify_loaded()
-		if props.OnLoad then props.OnLoad(panel, state.decoded) end
+		if props.OnLoad then props.OnLoad(panel, state.svg and state.svg.decoded) end
 	end
 
 	local function notify_error(reason)
@@ -66,85 +43,6 @@ return function(props)
 	local function get_fallback_texture()
 		state.fallback_texture = state.fallback_texture or Texture.GetFallback()
 		return state.fallback_texture
-	end
-
-	local function apply_svg_data(data, request_id)
-		local poly, decoded = svg_codec.CreatePolygon2D(data, props.DecodeOptions)
-		local sdf_texture, _, sdf_meta = svg_codec.CreateSDFTexture(decoded, props.DecodeOptions)
-
-		if request_id ~= state.request_id then return end
-
-		state.poly = poly
-		state.decoded = decoded
-		state.sdf_texture = sdf_texture
-		state.sdf_spread = sdf_meta and sdf_meta.spread or nil
-		state.status = "loaded"
-		state.error = nil
-		notify_loaded()
-	end
-
-	local function fail(reason, request_id)
-		if request_id ~= state.request_id then return end
-
-		state.poly = nil
-		state.decoded = nil
-		state.sdf_texture = nil
-		state.sdf_spread = nil
-		state.status = "error"
-		state.error = tostring(reason)
-		get_fallback_texture()
-		wlog("svg panel load failed for %s: %s", tostring(state.source), state.error)
-		notify_error(state.error)
-	end
-
-	local function load_source(source)
-		state.request_id = state.request_id + 1
-		local request_id = state.request_id
-		state.source = source
-
-		if not source or source == "" then
-			state.poly = nil
-			state.decoded = nil
-			state.status = "idle"
-			state.error = nil
-			return
-		end
-
-		state.status = "loading"
-		state.error = nil
-
-		if source:find("<svg", 1, true) then
-			local ok, err = pcall(apply_svg_data, source, request_id)
-
-			if not ok then fail(err, request_id) end
-
-			return
-		end
-
-		local local_data = read_source_text(source)
-
-		if local_data then
-			local ok, err = pcall(apply_svg_data, local_data, request_id)
-
-			if not ok then fail(err, request_id) end
-
-			return
-		end
-
-		resource.Download(source):Then(function(path)
-			local data = read_source_text(path)
-
-			if not data then
-				fail("unable to read SVG source: " .. tostring(path), request_id)
-				return
-			end
-
-			local ok, err = pcall(apply_svg_data, data, request_id)
-
-			if not ok then fail(err, request_id) end
-		end):Catch(function(reason)
-			fail(reason or (tostring(source) .. " not found"), request_id)
-		end)
 	end
 
 	panel = Panel.New{
@@ -173,59 +71,15 @@ return function(props)
 
 					if available_w <= 0 or available_h <= 0 then return end
 
-					if state.sdf_texture and state.decoded and props.UseSDF ~= false then
-						local view_box = state.decoded.view_box or
-							{x = 0, y = 0, w = state.decoded.width, h = state.decoded.height}
-						local bounds_w = math.max(1e-6, view_box.w)
-						local bounds_h = math.max(1e-6, view_box.h)
-						local scale = math.min(available_w / bounds_w, available_h / bounds_h)
+					local svg = state.svg
 
-						if scale <= 0 then return end
-
-						local draw_w = bounds_w * scale
-						local draw_h = bounds_h * scale
-						local offset_x = padding.left + (available_w - draw_w) / 2
-						local offset_y = padding.top + (available_h - draw_h) / 2
+					if svg and svg.status == "loaded" then
 						local color = props.Color and
 							theme.active:GetColor(props.Color) or
 							theme.active:GetColor("text")
-						render2d.PushTexture(state.sdf_texture)
-						render2d.PushSDFMode(true)
-						render2d.PushSDFThreshold(0.5)
-						render2d.PushSDFTexelRange(state.sdf_spread or 8)
-						render2d.PushDisableRectSDF(true)
 						render2d.SetColor(color.r, color.g, color.b, color.a)
-						render2d.DrawRectUV2f(offset_x, offset_y, draw_w, draw_h, 0, 1, 1, 0)
-						render2d.PopDisableRectSDF()
-						render2d.PopSDFTexelRange()
-						render2d.PopSDFThreshold()
-						render2d.PopSDFMode()
-						render2d.PopTexture()
-					elseif state.poly and state.decoded then
-						local view_box = state.decoded.view_box or
-							{x = 0, y = 0, w = state.decoded.width, h = state.decoded.height}
-						local bounds_w = math.max(1e-6, view_box.w)
-						local bounds_h = math.max(1e-6, view_box.h)
-						local scale = math.min(available_w / bounds_w, available_h / bounds_h)
-
-						if scale <= 0 then return end
-
-						local draw_w = bounds_w * scale
-						local draw_h = bounds_h * scale
-						local offset_x = padding.left + (available_w - draw_w) / 2
-						local offset_y = padding.top + (available_h - draw_h) / 2
-						local color = props.Color and
-							theme.active:GetColor(props.Color) or
-							theme.active:GetColor("text")
-						render2d.PushMatrix()
-						render2d.Translatef(offset_x, offset_y)
-						render2d.Scalef(scale, scale)
-						render2d.Translatef(-view_box.x, -view_box.y)
-						render2d.SetTexture(nil)
-						render2d.SetColor(color.r, color.g, color.b, color.a)
-						state.poly:Draw()
-						render2d.PopMatrix()
-					elseif state.status == "error" then
+						svg:Draw(padding.left, padding.top, available_w, available_h, props.UseSDF ~= false)
+					elseif svg and svg.status == "error" then
 						local fallback = get_fallback_texture()
 						local draw_size = math.min(available_w, available_h)
 
@@ -248,7 +102,14 @@ return function(props)
 	panel:SetState("background_color", props.BackgroundColor)
 
 	function panel:SetSource(source)
-		load_source(source)
+		state.svg = SVG.New(source, props.DecodeOptions)
+
+		if state.svg.status == "loaded" then
+			notify_loaded()
+		elseif state.svg.status == "error" then
+			notify_error(state.svg.error)
+		end
+
 		return self
 	end
 
@@ -257,15 +118,17 @@ return function(props)
 	end
 
 	function panel:GetSource()
-		return state.source
+		return state.svg and state.svg.source
 	end
 
 	function panel:GetStatus()
-		return state.status, state.error
+		if not state.svg then return "idle" end
+
+		return state.svg.status, state.svg.error
 	end
 
 	function panel:GetSVGData()
-		return state.decoded
+		return state.svg and state.svg.decoded
 	end
 
 	if state.source then panel:SetSource(state.source) end
