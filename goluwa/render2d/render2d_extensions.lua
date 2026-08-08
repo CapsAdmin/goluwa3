@@ -170,3 +170,159 @@ function render2d.DrawCircle(x, y, radius, width, resolution)
 		)
 	end
 end
+
+do
+	local fonts = import("goluwa/render2d/fonts.lua")
+	local Color = import("goluwa/structs/color.lua")
+	local text = library()
+	local font_cache = {}
+	local default_foreground_color = Color(1, 1, 1, 1)
+	local default_background_color = Color(0, 0, 0, 1)
+	local hsv_cache = {}
+
+	local function get_font(font_name, size, weight)
+		if not font_cache[font_name] then font_cache[font_name] = {} end
+
+		if not font_cache[font_name][size] then font_cache[font_name][size] = {} end
+
+		if not font_cache[font_name][size][weight] then
+			font_cache[font_name][size][weight] = fonts.New{
+				Name = font_name,
+				Size = size,
+				Weight = weight,
+			}
+		end
+
+		return font_cache[font_name][size][weight]
+	end
+
+	local function compute_auto_background(fg)
+		local r, g, b = fg.r, fg.g, fg.b
+
+		if not hsv_cache[r] then hsv_cache[r] = {} end
+
+		if not hsv_cache[r][g] then hsv_cache[r][g] = {} end
+
+		if hsv_cache[r][g][b] then return hsv_cache[r][g][b] end
+
+		local h, s, v = fg:GetHSV()
+		local v2 = v
+		s = s * 0.5
+		v = v * 0.5
+		v = 1.0 - v
+
+		if math.abs(v - v2) < 0.1 then v = v - 0.25 end
+
+		local bg = Color.FromHSV(h, s, math.max(v, 0))
+		hsv_cache[r][g][b] = bg
+		return bg
+	end
+
+	function render2d.GetTextSize(text, font_name, size, weight, _blur_size)
+		font_name = font_name or "Roboto"
+		size = size or 14
+		weight = weight or 0
+		local font = get_font(font_name, size, weight)
+		local w, h = font:GetTextSize(text)
+		return w, h
+	end
+
+	function render2d.DrawText(tbl)
+		local text = tbl.text or ""
+		local x = tbl.x or 0
+		local y = tbl.y or 0
+		local font_name = tbl.font or "Roboto"
+		local size = tbl.size or 14
+		local weight = tbl.weight or 0
+		local blur_size = tbl.blur_size or 1
+		local foreground_color = tbl.foreground_color or default_foreground_color
+		local background_color = tbl.background_color or default_background_color
+		local alpha = (tbl.alpha or 1) * foreground_color.a
+
+		if background_color == true then
+			background_color = compute_auto_background(foreground_color)
+		end
+
+		background_color = background_color or default_background_color
+		local font = get_font(font_name, size, weight)
+		local w, h = font:GetTextSize(text)
+
+		if tbl.x_align then x = x + (w * tbl.x_align) end
+
+		if tbl.y_align then y = y + (h * tbl.y_align) end
+
+		local has_transform = tbl.scale_x or
+			tbl.scale_y or
+			tbl.scale or
+			tbl.angle or
+			tbl.skew_x or
+			tbl.skew_y or
+			tbl.render_x or
+			tbl.render_y
+
+		if has_transform then
+			render2d.PushMatrix()
+			render2d.Translate(x + w / 2, y + h / 2)
+
+			if tbl.scale or tbl.scale_x or tbl.scale_y then
+				local sx = tbl.scale_x or tbl.scale or 1
+				local sy = tbl.scale_y or sx
+				render2d.Scale(sx, sy)
+			end
+
+			if tbl.angle then render2d.Rotate(tbl.angle) end
+
+			if tbl.skew_x or tbl.skew_y then
+				local skew_x = math.tan(math.rad(tbl.skew_x or 0))
+				local skew_y = math.tan(math.rad(tbl.skew_y or 0))
+				render2d.Shear(skew_x, skew_y)
+			end
+
+			if tbl.render_x or tbl.render_y then
+				render2d.Translate(tbl.render_x or 0, tbl.render_y or 0)
+			end
+
+			render2d.Translate(-(x + w / 2), -(y + h / 2))
+		end
+
+		if tbl.shadow_x or tbl.shadow_y then
+			local shadow_color = tbl.shadow_color or Color(0, 0, 0, 1)
+			local sx = tbl.shadow_x or tbl.shadow_y or 2
+			local sy = tbl.shadow_y or tbl.shadow_x or 2
+			render2d.PushColor(shadow_color.r, shadow_color.g, shadow_color.b, shadow_color.a)
+			render2d.PushBlur(2, 2)
+
+			for _ = 1, 3 do
+				font:DrawText(text, x + sx, y + sy)
+			end
+
+			render2d.PopBlur()
+			render2d.PopColor()
+		end
+
+		if blur_size >= 1 then
+			local bg_alpha = background_color.a * (foreground_color.a ^ 2) * 0.67
+			render2d.PushColor(background_color.r, background_color.g, background_color.b, bg_alpha * (tbl.blur_intensity or 1))
+			render2d.PushBlur(blur_size, blur_size)
+			font:DrawText(text, x, y)
+			render2d.PopBlur()
+			render2d.PopColor()
+		end
+
+		render2d.PushColor(foreground_color.r, foreground_color.g, foreground_color.b, alpha)
+
+		if tbl.gradient then render2d.PushSDFGradientTexture(tbl.gradient) end
+
+		font:DrawText(text, x, y)
+
+		if tbl.gradient then render2d.PopSDFGradientTexture() end
+
+		render2d.PopColor()
+
+		if has_transform then render2d.PopMatrix() end
+
+		return w, h
+	end
+
+	return text
+end
