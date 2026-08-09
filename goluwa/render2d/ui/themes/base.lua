@@ -530,7 +530,6 @@ do -- icons
 		render2d.PushSDFMode(true)
 		render2d.PushSDFThreshold(0.5)
 		render2d.PushSDFTexelRange(cached.spread)
-		render2d.PushDisableRectSDF(true)
 		render2d.SetColor(color:Unpack())
 
 		if rotation ~= 0 then
@@ -539,7 +538,6 @@ do -- icons
 			render2d.DrawRectUV2f(x, y, draw_w, draw_h, 0, 1, 1, 0)
 		end
 
-		render2d.PopDisableRectSDF()
 		render2d.PopSDFTexelRange()
 		render2d.PopSDFThreshold()
 		render2d.PopSDFMode()

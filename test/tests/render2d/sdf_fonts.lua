@@ -168,24 +168,6 @@ T.Test2D("sdf font ignores ambient threshold blur and outline", function()
 	end
 end)
 
-T.Test2D("sdf font ignores ambient disable rect sdf", function()
-	local font = fonts.New{
-		Path = fonts.GetDefaultSystemFontPath(),
-		Size = 64,
-		Unique = true,
-	}
-	render2d.SetDisableRectSDF(true)
-	render2d.SetColor(1, 1, 1, 1)
-	font:DrawText("Hg", 10, 10)
-	return function()
-		local downloaded = render.target:GetTexture():Download()
-		assert(
-			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
-			"expected visible pixels for SDF text with ambient disable_rect_sdf enabled"
-		)
-	end
-end)
-
 do
 	local font = fonts.New{
 		Path = fonts.GetDefaultSystemFontPath(),

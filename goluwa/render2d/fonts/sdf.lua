@@ -270,7 +270,7 @@ function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		table.insert(temp_fbs, tex_dist_on)
 		table.insert(temp_fbs, tex_dist_off)
 		local glyph_superspace = math.max(sw, sh) - spread * 2 * SUPER_SAMPLING_SCALE
-		local max_dist = math.max(4 * SUPER_SAMPLING_SCALE, glyph_superspace * 0.5)
+		local max_dist = math.max(spread * SUPER_SAMPLING_SCALE, glyph_superspace * 0.5)
 		p.final.current_jfa_max_dist = max_dist
 		p.combine.current_jfa_max_dist = max_dist
 
@@ -609,7 +609,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	extra_space_advance = extra_space_advance or 0
 	render2d.PushUV()
 	render2d.PushSDFMode(true)
-	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 4)
+	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 2)
 	local old_texture = render2d.GetTexture()
 	local last_texture = old_texture
 	local layout = get_draw_pass_layout(self, str, spacing, extra_space_advance or 0)

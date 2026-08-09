@@ -551,7 +551,7 @@ do
 						buffer[py * width + px] = 0
 					else
 						local distance_in_texels = signed_distance * texels_per_unit
-						local normalized = 0.5 - distance_in_texels / (spread * 2)
+						local normalized = 0.5 + distance_in_texels / (spread * 2)
 						normalized = math.max(0, math.min(1, normalized))
 						buffer[py * width + px] = math.floor(normalized * 255 + 0.5)
 					end

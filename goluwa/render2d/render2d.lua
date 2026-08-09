@@ -62,7 +62,6 @@ local fragment_constant_fields = append_fields(
 	fragment_patch_constant_fields
 )
 local rect_draw_state_tail_fields = {
-	{"disable_rect_sdf", "int"},
 	{"depth_mode_id", "int"},
 	{"depth_write", "int"},
 	{"stencil_mode_id", "int"},
@@ -153,7 +152,6 @@ render2d.state = {
 			scissor = {x = 0, y = 0, w = 0, h = 0},
 		},
 		options = {
-			disable_rect_sdf = false,
 			clamp_border_radius = true,
 			batched_rect_draws_enabled = true,
 			rect_batch_mode = "instanced",
@@ -485,8 +483,8 @@ local rect_batch_fragment_passthrough_fields = {
 		write = function(vertex, entry, state, rect_state_snapshot)
 			vertex.batch_rect_geometry[0] = entry.qw
 			vertex.batch_rect_geometry[1] = entry.qh
-			vertex.batch_rect_geometry[2] = rect_state_snapshot.disable_rect_sdf == 1 and 0 or entry.w
-			vertex.batch_rect_geometry[3] = rect_state_snapshot.disable_rect_sdf == 1 and 0 or entry.h
+			vertex.batch_rect_geometry[2] = entry.w
+			vertex.batch_rect_geometry[3] = entry.h
 		end,
 		fragment_values = {
 			{"shape.rect_size", "batch_rect_size", "in_batch_rect_geometry.xy"},
@@ -1112,7 +1110,7 @@ function render2d.Initialize()
 					return shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0;
 				}
 
-				#define FLAGS_SDF_ENABLED  (FLAGS_SDF != 0)
+				#define FLAGS_SDF_ENABLED (FLAGS_SDF != 0)
 
 				bool has_texture_sdf_enabled() {
 					return draw.texture_index >= 0 && FLAGS_SDF_ENABLED;
@@ -1157,28 +1155,18 @@ function render2d.Initialize()
 					return color;
 				}
 
-				float tex_sdf_distance(int texture_index, float sdf_threshold, vec2 sdf_uv) {
-					float dist = texture(TEXTURE(texture_index), sdf_uv).r;
-					//return (sdf_threshold - dist) * shape.sdf_texel_range;
-					return (sdf_threshold - dist) * length(shape.rect_size) / 10;
-				}
-
-				float compute_fragment_distance(vec2 coords, vec2 uv, bool has_rect_sdf, bool has_tex_sdf) {
+				float compute_sdf_distance(vec2 coords, bool has_rect_sdf, bool has_tex_sdf) {
 					float d = 1e10;
-
-					if (has_rect_sdf) {
-						d = sd_rect(coords, shape.rect_size, shape.sdf_rect_size, shape.border_radius);
-					}
 
 					if (has_tex_sdf) {
 						bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
-						bool invert_tex_sdf = (FLAGS_SAMPLE_UV & 2) != 0;
 						vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
-						float d_tex = tex_sdf_distance(draw.texture_index, shape.sdf_threshold, sdf_uv);
+						float tex_dist = texture(TEXTURE(draw.texture_index), sdf_uv).r;
+						d = (shape.sdf_threshold - tex_dist) * shape.sdf_texel_range;
 
-						if (invert_tex_sdf) d_tex = -d_tex;
-
-						d = has_rect_sdf ? max(d, d_tex) : -d_tex;
+						if ((FLAGS_SAMPLE_UV & 2) != 0) d = -d;
+					} else if (has_rect_sdf) {
+						d = sd_rect(coords, shape.rect_size, shape.sdf_rect_size, shape.border_radius);
 					}
 
 					return d;
@@ -1199,32 +1187,12 @@ function render2d.Initialize()
 					return color;
 				}
 
-				float compute_sdf_alphaOLD(float d, bool has_tex_sdf, bool has_rect_sdf) {
-					if (has_tex_sdf && !has_rect_sdf) {
-						float bias = shape.sdf_bias;
-						float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y) * 1.75);
-				float alpha = (abs(shape.outline_width) > 0.0) ?
-					(sign(shape.outline_width) * (clamp(((d - shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0) - clamp((d + bias) / softness + 0.5, 0.0, 1.0))) :
-					clamp((d + bias) / softness + 0.5, 0.0, 1.0);
-					return pow(max(alpha, 0.0), shape.sdf_gamma);
-				}
-
-				float smoothing = max(shape.blur.x, shape.blur.y);
-				smoothing = max(shape.sdf_softness, smoothing);
-				float d_biased = d + shape.sdf_bias;
-				float alpha = (abs(shape.outline_width) > 0.0) ?
-					(sign(shape.outline_width) * (smoothstep(smoothing, -smoothing, d_biased - shape.outline_width) - smoothstep(smoothing, -smoothing, d_biased))) :
-					smoothstep(smoothing, -smoothing, d_biased);
-					return pow(max(alpha, 0.0), shape.sdf_gamma);
-				}
-
 				float edge(float x, float softness) {
 					return smoothstep(softness, -softness, x);
 				}
 
 				float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
 					float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y));
-					//softness = 10;
 					float d_biased = d + shape.sdf_bias;
 		
 					float alpha = (abs(shape.outline_width) > 0.0) ?
@@ -1249,9 +1217,9 @@ function render2d.Initialize()
 					bool has_sdf = has_rect_sdf || has_tex_sdf;
 					vec2 uv = resolve_fragment_uv(coords);
 					color = sample_fragment_color(uv, has_tex_sdf);
-					d = compute_fragment_distance(coords, uv, has_rect_sdf, has_tex_sdf);
+					d = compute_sdf_distance(coords, has_rect_sdf, has_tex_sdf);
 
-					//{return vec4(d,d,d,1);}
+					//{return vec4(d/10.0, 0, 0, 1);} // DEBUG
 
 					vec4 shaded = color;
 
@@ -1461,13 +1429,12 @@ function render2d.ResetState()
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
 	constants.flags = 0
-	render2d.SetDisableRectSDF(false)
 	render2d.SetClampBorderRadius(true)
 	constants.sdf_threshold = 0
 	constants.sdf_texel_range = 1
 	constants.sdf_bias = 0
 	constants.sdf_gamma = 1
-	constants.sdf_softness = 0.25
+	constants.sdf_softness = 0.5
 	constants.gradient_texture_index = -1
 	constants.nine_patch_x_count = 0
 	constants.nine_patch_y_count = 0
@@ -1657,18 +1624,6 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFSoftness", 1)
-
-			function render2d.SetDisableRectSDF(enabled)
-				local normalized = enabled == true
-				render2d.state.render.options.disable_rect_sdf = normalized
-				render2d.state.render.fragment.constants.disable_rect_sdf = normalized and 1 or 0
-			end
-
-			function render2d.GetDisableRectSDF()
-				return render2d.state.render.options.disable_rect_sdf
-			end
-
-			utility.MakePushPopFunction(render2d, "DisableRectSDF", 1)
 		end
 
 		do
@@ -2681,7 +2636,6 @@ restore_rect_draw_state = function(state)
 	render2d.state.render.pipeline.depth.write = state.rect_state_snapshot.depth_write == 1
 	render2d.state.render.pipeline.stencil.mode = stencil_mode_names[state.rect_state_snapshot.stencil_mode_id]
 	render2d.state.render.pipeline.stencil.ref = state.rect_state_snapshot.stencil_ref
-	render2d.state.render.options.disable_rect_sdf = state.rect_state_snapshot.disable_rect_sdf == 1
 	render2d.state.render.pipeline.scissor.x = state.rect_state_snapshot.scissor[0]
 	render2d.state.render.pipeline.scissor.y = state.rect_state_snapshot.scissor[1]
 	render2d.state.render.pipeline.scissor.w = state.rect_state_snapshot.scissor[2]
