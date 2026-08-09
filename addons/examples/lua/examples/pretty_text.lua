@@ -148,7 +148,35 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		skew_y = 0,
 	}
 	y_offset = y_offset + 50
-	-- Section 7: Animated pulsing glow
+	-- Section 7: Text with outline
+	render2d.DrawText{
+		text = "Outlined Text",
+		x = x_start,
+		y = y_offset,
+		font = FONT,
+		size = 32,
+		weight = 700,
+		foreground_color = Color(1, 1, 1, 1),
+		background_color = Color(0, 0, 0, 1),
+		outline_width = 3,
+		outline_color = Color(0, 0, 0, 1),
+	}
+	y_offset = y_offset + 45
+	render2d.DrawText{
+		text = "Colored Outline",
+		x = x_start,
+		y = y_offset,
+		font = FONT,
+		size = 32,
+		weight = 700,
+		blur_size = 2,
+		foreground_color = Color(1, 0.9, 0.7, 1),
+		background_color = Color(0.1, 0.1, 0.1, 1),
+		outline_width = 4,
+		outline_color = Color(1, 0.2, 0.2, 1),
+	}
+	y_offset = y_offset + 50
+	-- Section 8: Animated pulsing glow
 	local pulse = (math.sin(system.GetElapsedTime() * 3) + 1) * 0.5
 	local pulse_color = Color(0.5 + pulse * 0.5, 0.3 + pulse * 0.3, 1, 1)
 	render2d.DrawText{
@@ -178,7 +206,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		y_align = -0.5,
 	}
 	y_offset = y_offset + 45
-	-- Section 10: Small text with minimal blur
+	-- Section 11: Small text with minimal blur
 	render2d.DrawText{
 		text = "Small text, no blur",
 		x = x_start,

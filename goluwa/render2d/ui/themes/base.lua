@@ -331,7 +331,7 @@ end
 function BaseTheme:DrawRoundOutline(x, y, w, h, radius, color, alpha_multiplier, thickness)
 	render2d.SetTexture(nil)
 	self:SetRenderColor(color, alpha_multiplier)
-	render2d.PushOutlineWidth(thickness or 1)
+	render2d.PushOutlineWidth(-(thickness or 1))
 	render2d.PushBorderRadius(radius or 0)
 	render2d.DrawRect(x, y, w, h)
 	render2d.PopBorderRadius()

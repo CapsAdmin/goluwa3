@@ -1178,7 +1178,7 @@ function render2d.Initialize()
 
 						if (invert_tex_sdf) d_tex = -d_tex;
 
-						d = has_rect_sdf ? max(d, d_tex) : d_tex;
+						d = has_rect_sdf ? max(d, d_tex) : -d_tex;
 					}
 
 					return d;
@@ -1199,24 +1199,41 @@ function render2d.Initialize()
 					return color;
 				}
 
-				float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
+				float compute_sdf_alphaOLD(float d, bool has_tex_sdf, bool has_rect_sdf) {
 					if (has_tex_sdf && !has_rect_sdf) {
 						float bias = shape.sdf_bias;
 						float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y) * 1.75);
-						float alpha = (shape.outline_width > 0.0) ?
-							(clamp((d + bias) / softness + 0.5, 0.0, 1.0) - clamp(((d + shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0)) :
-							clamp((d + bias) / softness + 0.5, 0.0, 1.0);
-						return pow(max(alpha, 0.0), shape.sdf_gamma);
-					}
-
-					float smoothing = max(shape.blur.x, shape.blur.y);
-					smoothing = max(shape.sdf_softness, smoothing);
-					float d_biased = d + shape.sdf_bias;
-					float alpha = (shape.outline_width > 0.0) ?
-						(smoothstep(smoothing, -smoothing, d_biased) - smoothstep(smoothing, -smoothing, d_biased + shape.outline_width)) :
-						smoothstep(smoothing, -smoothing, d_biased);
+				float alpha = (abs(shape.outline_width) > 0.0) ?
+					(sign(shape.outline_width) * (clamp(((d - shape.outline_width) + bias) / softness + 0.5, 0.0, 1.0) - clamp((d + bias) / softness + 0.5, 0.0, 1.0))) :
+					clamp((d + bias) / softness + 0.5, 0.0, 1.0);
 					return pow(max(alpha, 0.0), shape.sdf_gamma);
 				}
+
+				float smoothing = max(shape.blur.x, shape.blur.y);
+				smoothing = max(shape.sdf_softness, smoothing);
+				float d_biased = d + shape.sdf_bias;
+				float alpha = (abs(shape.outline_width) > 0.0) ?
+					(sign(shape.outline_width) * (smoothstep(smoothing, -smoothing, d_biased - shape.outline_width) - smoothstep(smoothing, -smoothing, d_biased))) :
+					smoothstep(smoothing, -smoothing, d_biased);
+					return pow(max(alpha, 0.0), shape.sdf_gamma);
+				}
+
+				float edge(float x, float softness) {
+					return smoothstep(softness, -softness, x);
+				}
+
+				float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
+					float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y));
+					//softness = 10;
+					float d_biased = d + shape.sdf_bias;
+		
+					float alpha = (abs(shape.outline_width) > 0.0) ?
+						(sign(shape.outline_width) * (edge(d_biased - shape.outline_width, softness) - edge(d_biased, softness))) :
+						edge(d_biased, softness);
+
+					return pow(max(alpha, 0.0), shape.sdf_gamma);
+				}
+
 				float compute_blur_alpha(vec2 coords) {
 					vec2 p = (coords - 0.5) * shape.rect_size;
 					vec2 b = max(vec2(0.0), (shape.rect_size - shape.blur * 2.0) * 0.5);
@@ -2690,7 +2707,7 @@ do
 		if not options.computed_margin_dirty then return options.computed_margin end
 
 		local constants = render2d.state.render.fragment.constants
-		local content_m = constants.outline_width
+		local content_m = math.abs(constants.outline_width)
 		local swizzle = bit.band(constants.flags, 0xF)
 
 		if bit.band(constants.flags, bit.lshift(1, 9)) ~= 0 or swizzle == 1 then

@@ -132,7 +132,7 @@ end
 function render2d.DrawOutlinedRect(x, y, w, h, thickness, radius, r, g, b, a)
 	if r then render2d.PushColor(r, g, b, a) end
 
-	render2d.PushOutlineWidth(thickness or 1)
+	render2d.PushOutlineWidth(-(thickness or 1))
 	render2d.PushBorderRadius(radius or 0)
 	render2d.DrawRect(x, y, w, h)
 	render2d.PopBorderRadius()
@@ -246,11 +246,11 @@ do
 		background_color = background_color or default_background_color
 		local font = get_font(font_name, size, weight)
 		local w, h = font:GetTextSize(text)
-
-		if tbl.x_align then x = x + (w * tbl.x_align) end
-
-		if tbl.y_align then y = y + (h * tbl.y_align) end
-
+		local align_x = tbl.align_x
+		local align_y = tbl.align_y
+		local spacing = tbl.spacing
+		local outline_width = tbl.outline_width
+		local outline_color = tbl.outline_color or Color(0, 0, 0, 1)
 		local has_transform = tbl.scale_x or
 			tbl.scale_y or
 			tbl.scale or
@@ -291,11 +291,7 @@ do
 			local sy = tbl.shadow_y or tbl.shadow_x or 2
 			render2d.PushColor(shadow_color.r, shadow_color.g, shadow_color.b, shadow_color.a)
 			render2d.PushBlur(2, 2)
-
-			for _ = 1, 3 do
-				font:DrawText(text, x + sx, y + sy)
-			end
-
+			font:DrawText(text, x + sx, y + sy, spacing, align_x, align_y)
 			render2d.PopBlur()
 			render2d.PopColor()
 		end
@@ -304,8 +300,16 @@ do
 			local bg_alpha = background_color.a * (foreground_color.a ^ 2) * 0.67
 			render2d.PushColor(background_color.r, background_color.g, background_color.b, bg_alpha * (tbl.blur_intensity or 1))
 			render2d.PushBlur(blur_size, blur_size)
-			font:DrawText(text, x, y)
+			font:DrawText(text, x, y, spacing, align_x, align_y)
 			render2d.PopBlur()
+			render2d.PopColor()
+		end
+
+		if outline_width then
+			render2d.PushColor(outline_color.r, outline_color.g, outline_color.b, outline_color.a)
+			render2d.PushOutlineWidth(-outline_width)
+			font:DrawText(text, x, y, spacing, align_x, align_y)
+			render2d.PopOutlineWidth()
 			render2d.PopColor()
 		end
 
@@ -313,7 +317,7 @@ do
 
 		if tbl.gradient then render2d.PushSDFGradientTexture(tbl.gradient) end
 
-		font:DrawText(text, x, y)
+		font:DrawText(text, x, y, spacing, align_x, align_y)
 
 		if tbl.gradient then render2d.PopSDFGradientTexture() end
 
