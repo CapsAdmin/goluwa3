@@ -22,8 +22,8 @@ function render2d.CreateGradient(config)
 		sampler = {
 			min_filter = "linear",
 			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
+			wrap_s = config.repeat_texture and "repeat" or "clamp_to_edge",
+			wrap_t = config.repeat_texture and "repeat" or "clamp_to_edge",
 		},
 	}
 	local glsl

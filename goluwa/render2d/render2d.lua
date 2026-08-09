@@ -38,6 +38,9 @@ local fragment_draw_constant_fields = {
 	{"uv_offset", "vec2"},
 	{"uv_scale", "vec2"},
 	{"flags", "int"},
+	{"color_uv_offset", "vec2"},
+	{"color_uv_scale", "vec2"},
+	{"color_uv_rotation", "float"},
 }
 local fragment_shape_constant_fields = {
 	{"blur", "vec2"},
@@ -137,8 +140,9 @@ render2d.state = {
 			constants = RectDrawState(),
 			constants_size = ffi.sizeof(RectDrawState),
 			rect_size = {w = 0, h = 0, lw = 0, lh = 0},
-			uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
+		uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
 			uv2 = {u1 = nil, v1 = nil, u2 = nil, v2 = nil},
+			color_uv = {offset_x = 0, offset_y = 0, scale_x = 1, scale_y = 1, rotation = 0},
 			alpha_multiplier = 1,
 		},
 		textures = {
@@ -530,7 +534,33 @@ local rect_batch_fragment_passthrough_fields = {
 		},
 	},
 	{
-		name = "batch_outline_width",
+		name = "batch_color_uv_transform",
+			type = "vec4",
+			format = "r32g32b32a32_sfloat",
+			write = function(vertex, entry, state, rect_state_snapshot)
+				vertex.batch_color_uv_transform[0] = rect_state_snapshot.color_uv_offset[0]
+				vertex.batch_color_uv_transform[1] = rect_state_snapshot.color_uv_offset[1]
+				vertex.batch_color_uv_transform[2] = rect_state_snapshot.color_uv_scale[0]
+				vertex.batch_color_uv_transform[3] = rect_state_snapshot.color_uv_scale[1]
+			end,
+			fragment_values = {
+				{"draw.color_uv_offset", "batch_color_uv_transform", "in_batch_color_uv_transform.xy"},
+				{"draw.color_uv_scale", "batch_color_uv_scale", "in_batch_color_uv_transform.zw"},
+			},
+		},
+		{
+			name = "batch_color_uv_rotation",
+			type = "float",
+			format = "r32_sfloat",
+			write = function(vertex, entry, state, rect_state_snapshot)
+				vertex.batch_color_uv_rotation = rect_state_snapshot.color_uv_rotation
+			end,
+			fragment_values = {
+				{"draw.color_uv_rotation", "batch_color_uv_rotation", "in_batch_color_uv_rotation"},
+			},
+		},
+		{
+			name = "batch_outline_width",
 		type = "float",
 		format = "r32_sfloat",
 		write = function(vertex, entry, state, rect_state_snapshot)
@@ -1155,7 +1185,16 @@ function render2d.Initialize()
 					vec4 color = in_color * draw.global_color;
 
 					if (draw.texture_index >= 0) {
-						vec4 tex = texture(TEXTURE(draw.texture_index), uv * draw.uv_scale + draw.uv_offset);
+						vec2 color_uv = uv;
+						if (draw.color_uv_rotation != 0.0) {
+							vec2 centered = color_uv - 0.5;
+							float c = cos(draw.color_uv_rotation);
+							float s = sin(draw.color_uv_rotation);
+							mat2 rot = mat2(c, -s, s, c);
+							color_uv = rot * centered + 0.5;
+						}
+						color_uv = color_uv * draw.color_uv_scale + draw.color_uv_offset;
+						vec4 tex = texture(TEXTURE(draw.texture_index), color_uv);
 						color *= apply_swizzle(tex);
 					}
 
@@ -1416,6 +1455,7 @@ function render2d.ResetState()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
+	render2d.SetColorUVTransform()
 	render2d.SetSwizzleMode(0)
 	render2d.SetBlur(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
@@ -1540,20 +1580,20 @@ do
 			utility.MakePushPopFunction(render2d, "SwizzleMode", 1)
 		end
 
-		do
-			function render2d.SetSampleUVMode(mode)
-				render2d.SetSAMPLE_UV(mode or 0)
+			do
+				function render2d.SetSampleUVMode(mode)
+					render2d.SetSAMPLE_UV(mode or 0)
+				end
+
+				function render2d.GetSampleUVMode()
+					return render2d.GetSAMPLE_UV()
+				end
+
+				utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
 			end
 
-			function render2d.GetSampleUVMode()
-				return render2d.GetSAMPLE_UV()
-			end
-
-			utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
-		end
-
-		do
-			function render2d.SetSDFTexture(tex)
+			do
+				function render2d.SetSDFTexture(tex)
 				render2d.state.render.textures.sdf_texture = tex
 				local pipeline = render2d.GetActivePipeline()
 
@@ -2411,6 +2451,54 @@ do -- uv
 	end
 
 	utility.MakePushPopFunction(render2d, "UV2", 4)
+
+	do
+		function render2d.SetColorUVTransform(ox, oy, sx, sy, angle)
+			local color_uv = render2d.state.render.fragment.color_uv
+			local constants = render2d.state.render.fragment.constants
+			color_uv.offset_x = ox or 0
+			color_uv.offset_y = oy or 0
+			color_uv.scale_x = sx or 1
+			color_uv.scale_y = sy or sx or 1
+			color_uv.rotation = angle or 0
+			constants.color_uv_offset[0] = color_uv.offset_x
+			constants.color_uv_offset[1] = color_uv.offset_y
+			constants.color_uv_scale[0] = color_uv.scale_x
+			constants.color_uv_scale[1] = color_uv.scale_y
+			constants.color_uv_rotation = color_uv.rotation
+		end
+
+		function render2d.GetColorUVTransform()
+			local color_uv = render2d.state.render.fragment.color_uv
+			return color_uv.offset_x, color_uv.offset_y, color_uv.scale_x, color_uv.scale_y, color_uv.rotation
+		end
+
+		utility.MakePushPopFunction(render2d, "ColorUVTransform", 5)
+
+		function render2d.SetColorUV(x, y, w, h, sx, sy)
+			sx = sx or 1
+			sy = sy or 1
+			local color_uv = render2d.state.render.fragment.color_uv
+			local constants = render2d.state.render.fragment.constants
+			color_uv.offset_x = x / sx
+			color_uv.offset_y = y / sy
+			color_uv.scale_x = w / sx
+			color_uv.scale_y = h / sy
+			color_uv.rotation = 0
+			constants.color_uv_offset[0] = color_uv.offset_x
+			constants.color_uv_offset[1] = color_uv.offset_y
+			constants.color_uv_scale[0] = color_uv.scale_x
+			constants.color_uv_scale[1] = color_uv.scale_y
+			constants.color_uv_rotation = 0
+		end
+
+		function render2d.GetColorUV()
+			local color_uv = render2d.state.render.fragment.color_uv
+			return color_uv.offset_x, color_uv.offset_y, color_uv.scale_x, color_uv.scale_y
+		end
+
+		utility.MakePushPopFunction(render2d, "ColorUV", 4)
+	end
 end
 
 do -- camera
