@@ -34,10 +34,10 @@ local vertex_push_constant_fields = {
 local fragment_draw_constant_fields = {
 	{"global_color", "vec4"},
 	{"texture_index", "int"},
+	{"sdf_texture_index", "int"},
 	{"uv_offset", "vec2"},
 	{"uv_scale", "vec2"},
 	{"flags", "int"},
-	{"gradient_texture_index", "int"},
 }
 local fragment_shape_constant_fields = {
 	{"blur", "vec2"},
@@ -143,7 +143,7 @@ render2d.state = {
 		},
 		textures = {
 			texture = nil,
-			gradient_texture = nil,
+			sdf_texture = nil,
 		},
 		pipeline = {
 			blend = nil,
@@ -493,16 +493,13 @@ local rect_batch_fragment_passthrough_fields = {
 	},
 	{
 		name = "batch_material_state",
-		type = "vec4",
-		format = "r32g32b32a32_sfloat",
+		type = "vec3",
+		format = "r32g32b32_sfloat",
 		write = function(vertex, entry, state, rect_state_snapshot)
 			vertex.batch_material_state[0] = rect_state_snapshot.sdf_threshold
 			vertex.batch_material_state[1] = rect_state_snapshot.sdf_texel_range
 			vertex.batch_material_state[2] = state.texture and
 				render2d.rect_batch_pipeline:GetTextureIndex(state.texture) or
-				-1
-			vertex.batch_material_state[3] = state.gradient_texture and
-				render2d.rect_batch_pipeline:GetTextureIndex(state.gradient_texture) or
 				-1
 		end,
 		fragment_values = {
@@ -513,10 +510,22 @@ local rect_batch_fragment_passthrough_fields = {
 				{"int", "batch_texture_index"},
 				"int(round(in_batch_material_state.z))",
 			},
+		},
+	},
+	{
+		name = "batch_sdf_texture_index",
+		type = "float",
+		format = "r32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_sdf_texture_index = state.sdf_texture and
+				render2d.rect_batch_pipeline:GetTextureIndex(state.sdf_texture) or
+				-1
+		end,
+		fragment_values = {
 			{
-				"draw.gradient_texture_index",
-				{"int", "batch_gradient_texture_index"},
-				"int(round(in_batch_material_state.w))",
+				"draw.sdf_texture_index",
+				{"int", "batch_sdf_texture_index"},
+				"int(round(in_batch_sdf_texture_index))",
 			},
 		},
 	},
@@ -955,8 +964,8 @@ function render2d.Initialize()
 						block.texture_index = render2d.state.render.textures.texture and
 							self:GetTextureIndex(render2d.state.render.textures.texture) or
 							-1
-						block.gradient_texture_index = render2d.state.render.textures.gradient_texture and
-							self:GetTextureIndex(render2d.state.render.textures.gradient_texture) or
+						block.sdf_texture_index = render2d.state.render.textures.sdf_texture and
+							self:GetTextureIndex(render2d.state.render.textures.sdf_texture) or
 							-1
 						return block
 					end,
@@ -1110,10 +1119,8 @@ function render2d.Initialize()
 					return shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0;
 				}
 
-				#define FLAGS_SDF_ENABLED (FLAGS_SDF != 0)
-
 				bool has_texture_sdf_enabled() {
-					return draw.texture_index >= 0 && FLAGS_SDF_ENABLED;
+					return draw.sdf_texture_index >= 0;
 				}
 
 				vec4 apply_swizzle(vec4 tex) {
@@ -1144,10 +1151,10 @@ function render2d.Initialize()
 					return uv;
 				}
 
-				vec4 sample_fragment_color(vec2 uv, bool is_sdf_tex) {
+				vec4 sample_fragment_color(vec2 uv) {
 					vec4 color = in_color * draw.global_color;
 
-					if (draw.texture_index >= 0 && !is_sdf_tex) {
+					if (draw.texture_index >= 0) {
 						vec4 tex = texture(TEXTURE(draw.texture_index), uv * draw.uv_scale + draw.uv_offset);
 						color *= apply_swizzle(tex);
 					}
@@ -1158,11 +1165,11 @@ function render2d.Initialize()
 				float compute_sdf_distance(vec2 coords, bool has_rect_sdf, bool has_tex_sdf) {
 					float d = 1e10;
 
-					if (has_tex_sdf) {
-						bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
-						vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
-						float tex_dist = texture(TEXTURE(draw.texture_index), sdf_uv).r;
-						d = (shape.sdf_threshold - tex_dist) * shape.sdf_texel_range;
+				if (has_tex_sdf) {
+					bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
+					vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
+					float tex_dist = texture(TEXTURE(draw.sdf_texture_index), sdf_uv).r;
+					d = (shape.sdf_threshold - tex_dist) * shape.sdf_texel_range;
 
 						if ((FLAGS_SAMPLE_UV & 2) != 0) d = -d;
 					} else if (has_rect_sdf) {
@@ -1170,21 +1177,6 @@ function render2d.Initialize()
 					}
 
 					return d;
-				}
-
-				vec4 apply_fragment_gradient(vec2 coords, vec4 color) {
-					if (draw.gradient_texture_index >= 0) {
-						float gy = coords.y;
-
-						if (shape.sdf_rect_size.y > 0.0) {
-							gy = (coords.y - 0.5) * (shape.rect_size.y / shape.sdf_rect_size.y) + 0.5;
-						}
-
-						gy = clamp(gy, 0.0, 1.0);
-						color *= texture(TEXTURE(draw.gradient_texture_index), vec2(gy, 0.5));
-					}
-
-					return color;
 				}
 
 				float edge(float x, float softness) {
@@ -1216,17 +1208,16 @@ function render2d.Initialize()
 					bool has_tex_sdf = has_texture_sdf_enabled();
 					bool has_sdf = has_rect_sdf || has_tex_sdf;
 					vec2 uv = resolve_fragment_uv(coords);
-					color = sample_fragment_color(uv, has_tex_sdf);
+				color = sample_fragment_color(uv);
 					d = compute_sdf_distance(coords, has_rect_sdf, has_tex_sdf);
 
 					//{return vec4(d/10.0, 0, 0, 1);} // DEBUG
 
-					vec4 shaded = color;
+				vec4 shaded = color;
 
-					if (has_sdf) {
-						shaded = apply_fragment_gradient(coords, color);
-						shaded.a *= compute_sdf_alpha(d, has_tex_sdf, has_rect_sdf);
-					}
+				if (has_sdf) {
+					shaded.a *= compute_sdf_alpha(d, has_tex_sdf, has_rect_sdf);
+				}
 
 					if ((shape.blur.x > 0.0 || shape.blur.y > 0.0) && shape.sdf_rect_size.x <= 0.0) {
 						shaded.a *= compute_blur_alpha(coords);
@@ -1421,6 +1412,7 @@ function render2d.ResetState()
 	render2d.SetRectBatchMode("instanced")
 	reset_rect_batch_instance_frame_state()
 	render2d.SetTexture()
+	render2d.SetSDFTexture()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
@@ -1435,7 +1427,7 @@ function render2d.ResetState()
 	constants.sdf_bias = 0
 	constants.sdf_gamma = 1
 	constants.sdf_softness = 0.5
-	constants.gradient_texture_index = -1
+	constants.sdf_texture_index = -1
 	constants.nine_patch_x_count = 0
 	constants.nine_patch_y_count = 0
 
@@ -1481,7 +1473,6 @@ do
 				{name = "SWIZZLE", mask = 0xF, shift = 0},
 				{name = "SAMPLE_UV", mask = 0xF, shift = 4},
 				{name = "CLAMP_BORDER_RADIUS", mask = 0x1, shift = 8},
-				{name = "SDF", mask = 0x1, shift = 9},
 			}
 
 			-- Build getter/setter for each flag from the FLAGS table
@@ -1562,16 +1553,22 @@ do
 		end
 
 		do
-			function render2d.SetSDFMode(mode)
-				render2d.SetSDF(mode and 1 or 0)
+			function render2d.SetSDFTexture(tex)
+				render2d.state.render.textures.sdf_texture = tex
+				local pipeline = render2d.GetActivePipeline()
+
+				if pipeline and tex then
+					pipeline:GetTextureIndex(tex, 1, render.GetSamplerFilterConfig())
+				end
+
 				render2d.state.render.options.computed_margin_dirty = true
 			end
 
-			function render2d.GetSDFMode()
-				return render2d.GetSDF() == 1
+			function render2d.GetSDFTexture()
+				return render2d.state.render.textures.sdf_texture
 			end
 
-			utility.MakePushPopFunction(render2d, "SDFMode", 1)
+			utility.MakePushPopFunction(render2d, "SDFTexture", 1)
 		end
 
 		do
@@ -1654,18 +1651,6 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "Blur", 2)
-		end
-
-		do
-			function render2d.SetSDFGradientTexture(tex)
-				render2d.state.render.textures.gradient_texture = tex
-			end
-
-			function render2d.GetSDFGradientTexture()
-				return render2d.state.render.textures.gradient_texture
-			end
-
-			utility.MakePushPopFunction(render2d, "SDFGradientTexture", 1)
 		end
 	end
 
@@ -2133,13 +2118,12 @@ do
 			local saved_state = capture_rect_draw_state()
 			render2d.SetWorldMatrix(entry.world_matrix)
 			render2d.SetTexture()
-			render2d.SetSDFGradientTexture()
 			render2d.SetColor(1, 1, 1, 1)
 			render2d.SetAlphaMultiplier(1)
 			render2d.SetUV()
 			render2d.SetSampleUVMode(0)
 			render2d.SetSwizzleMode(0)
-			render2d.SetSDFMode(false)
+			render2d.SetSDFTexture()
 			render2d.SetSDFThreshold(0.5)
 			render2d.SetSDFTexelRange(1)
 			render2d.SetBlur(0)
@@ -2600,7 +2584,7 @@ capture_rect_draw_state = function(world_matrix, u1, v1, u2, v2)
 		rect_state_snapshot = rect_state_snapshot,
 		world_matrix = resolved_world_matrix,
 		texture = render2d.state.render.textures.texture,
-		gradient_texture = render2d.state.render.textures.gradient_texture,
+		sdf_texture = render2d.state.render.textures.sdf_texture,
 		blend_mode = blend_mode,
 		pipeline_state_id = render2d.state.runtime.ids.current.rect_batch_pipeline,
 		alpha_multiplier = render2d.state.render.fragment.alpha_multiplier,
@@ -2614,7 +2598,7 @@ restore_rect_draw_state = function(state)
 	)
 	render2d.state.render.fragment.alpha_multiplier = state.alpha_multiplier
 	render2d.state.render.textures.texture = state.texture
-	render2d.state.render.textures.gradient_texture = state.gradient_texture
+	render2d.state.render.textures.sdf_texture = state.sdf_texture
 	-- Register textures with the pipeline BEFORE bind_mesh_immediate/sync_pipeline_state
 	-- is called, so the descriptor set is updated with the correct textures.
 	-- If we wait until UploadConstants (which calls GetTextureIndex), the descriptor set
@@ -2626,8 +2610,8 @@ restore_rect_draw_state = function(state)
 			pipeline:GetTextureIndex(state.texture, 1, render.GetSamplerFilterConfig())
 		end
 
-		if state.gradient_texture then
-			pipeline:GetTextureIndex(state.gradient_texture, 1, render.GetSamplerFilterConfig())
+		if state.sdf_texture then
+			pipeline:GetTextureIndex(state.sdf_texture, 1, render.GetSamplerFilterConfig())
 		end
 	end
 
@@ -2664,7 +2648,7 @@ do
 		local content_m = math.abs(constants.outline_width)
 		local swizzle = bit.band(constants.flags, 0xF)
 
-		if bit.band(constants.flags, bit.lshift(1, 9)) ~= 0 or swizzle == 1 then
+		if render2d.state.render.textures.sdf_texture ~= nil or swizzle == 1 then
 			content_m = content_m + math.max(constants.blur[0], constants.blur[1])
 		end
 

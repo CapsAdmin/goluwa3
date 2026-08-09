@@ -285,14 +285,14 @@ local function definitions()
 		},
 		{
 			label = "Gradient Fill",
-			description = "DrawRect with a gradient texture bound via SetSDFGradientTexture.",
+			description = "DrawRect with a gradient texture bound via SetTexture.",
 			draw = function(size)
-				render2d.PushSDFGradientTexture(gradient_tex)
+				render2d.PushTexture(gradient_tex)
 				render2d.SetColor(1, 1, 1, 1)
 				render2d.PushBorderRadius(16)
 				render2d.DrawRect(-50, -36, 100, 72)
 				render2d.PopBorderRadius()
-				render2d.PopSDFGradientTexture()
+				render2d.PopTexture()
 			end,
 		},
 		{

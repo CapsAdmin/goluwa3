@@ -29,22 +29,20 @@ event.AddListener("Draw2D", "render2d_gradient_demo", function()
 	local x, y = 100, 100
 	local w, h = 400, 100
 	-- 1. Rainbow Linear Gradient Rect
-	render2d.PushSDFGradientTexture(rainbow)
+	render2d.PushTexture(rainbow)
 	render2d.PushBorderRadius(10)
 	render2d.DrawRect(x, y, w, h)
 	-- 2. Rainbow TEXT
 	y = y + 150
-	render2d.PushSDFMode(true)
 	font:DrawText("RAINBOW SDF TEXT", x, y)
-	render2d.PopSDFMode()
-	render2d.PopSDFGradientTexture()
+	render2d.PopTexture()
 	-- 3. Radial Glow Rect
 	x = 100
 	y = y + 150
-	render2d.PushSDFGradientTexture(radial)
+	render2d.PushTexture(radial)
 	render2d.PushColor(0.2, 0.6, 1.0, 1.0) -- Tint the gradient
 	render2d.DrawRect(x, y, 200, 200)
 	render2d.PopColor()
-	render2d.PopSDFGradientTexture()
+	render2d.PopTexture()
 	render2d.PopBorderRadius()
 end)

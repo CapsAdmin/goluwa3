@@ -523,13 +523,13 @@ local function draw_rect_with_state(state)
 	render2d.SetDepthMode(state.depth_mode, state.depth_write)
 	render2d.SetStencilMode(state.stencil_mode, state.stencil_ref)
 	render2d.PushTexture(texture)
-	render2d.PushSDFGradientTexture(gradient)
+	render2d.PushTexture(gradient)
 	render2d.PushColor(state.color.r, state.color.g, state.color.b, state.color.a)
 	render2d.PushAlphaMultiplier(state.alpha_multiplier)
 	render2d.PushSampleUVMode(state.sample_uv_mode)
 
 	if state.sdf_mode then
-		render2d.PushSDFMode(true)
+		render2d.PushSDFTexture(texture)
 	else
 		render2d.PushSwizzleMode(state.swizzle_mode)
 	end
@@ -576,7 +576,7 @@ local function draw_rect_with_state(state)
 	render2d.PopSDFThreshold()
 
 	if state.sdf_mode then
-		render2d.PopSDFMode()
+		render2d.PopSDFTexture()
 	else
 		render2d.PopSwizzleMode()
 	end
@@ -584,7 +584,7 @@ local function draw_rect_with_state(state)
 	render2d.PopSampleUVMode()
 	render2d.PopAlphaMultiplier()
 	render2d.PopColor()
-	render2d.PopSDFGradientTexture()
+	render2d.PopTexture()
 	render2d.PopTexture()
 	render2d.SetStencilMode(old_stencil_mode, old_stencil_ref)
 	render2d.SetDepthMode(old_depth_mode, old_depth_write)
@@ -618,9 +618,9 @@ local function draw_stencil_visualization(state)
 	if mode == "write" then
 		render2d.SetStencilMode("test", ref)
 		render2d.SetColor(1, 1, 1, 0.24)
-		render2d.PushSDFGradientTexture(cool_gradient)
+		render2d.PushTexture(cool_gradient)
 		render2d.DrawRect(state.x + 8, state.y + 8, state.w - 16, state.h - 16)
-		render2d.PopSDFGradientTexture()
+		render2d.PopTexture()
 	elseif mode == "mask_write" then
 		render2d.SetStencilMode("test", ref + 1)
 		render2d.SetColor(1.0, 0.58, 0.24, 0.42)
@@ -832,7 +832,7 @@ local function build_items(state, refresh_preview, refresh_editor)
 					Text = "Gradient Texture",
 					Type = "boolean",
 					Value = state.gradient_enabled,
-					Description = "Toggles render2d.SetSDFGradientTexture for the draw.",
+					Description = "Toggles render2d.SetTexture for the draw.",
 					OnChange = on_field("gradient_enabled"),
 				},
 				{
@@ -1036,10 +1036,10 @@ local function build_items(state, refresh_preview, refresh_editor)
 				},
 				{
 					Key = "shape/sdf_mode",
-					Text = "SDF Mode",
+					Text = "SDF Texture",
 					Type = "boolean",
 					Value = state.sdf_mode,
-					Description = "Maps to render2d.SetSDFMode and drives texture-SDF sampling when a texture is present.",
+					Description = "Maps to render2d.SetSDFTexture, using the current texture as the SDF source.",
 					OnChange = on_field("sdf_mode"),
 				},
 				{

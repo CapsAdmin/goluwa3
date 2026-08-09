@@ -124,15 +124,16 @@ function SVG:Draw(x, y, width, height, useSDF)
 		local draw_h = bounds_h * scale
 		local offset_x = x + (width - draw_w) / 2
 		local offset_y = y + (height - draw_h) / 2
-		render2d.PushTexture(self.sdf_texture)
-		render2d.PushSDFMode(true)
+		render2d.PushSDFTexture(self.sdf_texture)
 		render2d.PushSDFThreshold(0.5)
 		render2d.PushSDFTexelRange(self.sdf_spread or 8)
+		render2d.PushTexture()
+		render2d.SetTexture(nil)
 		render2d.DrawRectUV2f(offset_x, offset_y, draw_w, draw_h, 0, 1, 1, 0)
+		render2d.PopTexture()
 		render2d.PopSDFTexelRange()
 		render2d.PopSDFThreshold()
-		render2d.PopSDFMode()
-		render2d.PopTexture()
+		render2d.PopSDFTexture()
 	else
 		render2d.PushMatrix()
 		render2d.Translatef(x, y)

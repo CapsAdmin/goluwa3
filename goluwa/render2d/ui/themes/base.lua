@@ -526,10 +526,11 @@ do -- icons
 		local rotation = math.rad(opts.rotation_degrees or 0)
 		local cx = x + draw_w * 0.5
 		local cy = y + draw_h * 0.5
-		render2d.PushTexture(cached.texture)
-		render2d.PushSDFMode(true)
+		render2d.PushSDFTexture(cached.texture)
 		render2d.PushSDFThreshold(0.5)
 		render2d.PushSDFTexelRange(cached.spread)
+		render2d.PushTexture()
+		render2d.SetTexture(nil)
 		render2d.SetColor(color:Unpack())
 
 		if rotation ~= 0 then
@@ -538,10 +539,10 @@ do -- icons
 			render2d.DrawRectUV2f(x, y, draw_w, draw_h, 0, 1, 1, 0)
 		end
 
+		render2d.PopTexture()
 		render2d.PopSDFTexelRange()
 		render2d.PopSDFThreshold()
-		render2d.PopSDFMode()
-		render2d.PopTexture()
+		render2d.PopSDFTexture()
 	end
 
 	function BaseTheme:DrawChevronIcon(size, opts)

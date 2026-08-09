@@ -608,10 +608,10 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	spacing = spacing or self.Spacing
 	extra_space_advance = extra_space_advance or 0
 	render2d.PushUV()
-	render2d.PushSDFMode(true)
+	render2d.PushSDFTexture()
 	render2d.PushSDFTexelRange(self:GetEffectiveSpread() * 2)
-	local old_texture = render2d.GetTexture()
-	local last_texture = old_texture
+	local old_texture = render2d.GetSDFTexture()
+	local last_texture = nil
 	local layout = get_draw_pass_layout(self, str, spacing, extra_space_advance or 0)
 
 	for i = 1, #layout.entries do
@@ -619,7 +619,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		local texture = entry.texture
 
 		if texture ~= last_texture then
-			render2d_SetTexture(texture)
+			render2d.SetSDFTexture(texture)
 			last_texture = texture
 		end
 
@@ -639,10 +639,8 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		)
 	end
 
-	if last_texture ~= old_texture then render2d_SetTexture(old_texture) end
-
 	render2d.PopSDFTexelRange()
-	render2d.PopSDFMode()
+	render2d.PopSDFTexture()
 	render2d.PopUV()
 end
 

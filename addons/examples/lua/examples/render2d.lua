@@ -39,9 +39,9 @@ local function DrawRoundedRectGradientShadow(x, y, w, h)
 	render2d.DrawRect(x + 5, y + 5, w, h)
 	render2d.PopColor()
 	-- Then the Rect with Gradient
-	render2d.PushSDFGradientTexture(blue_gradient) -- Blue bottom
+	render2d.PushTexture(blue_gradient) -- Blue bottom
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopSDFGradientTexture()
+	render2d.PopTexture()
 	render2d.PopBorderRadius()
 	render2d.PopColor()
 end
@@ -60,10 +60,10 @@ end
 local function DrawGlassyPanel(x, y, w, h)
 	-- 3. Glassy Panel (Thin Outline + Gradient)
 	render2d.PushColor(1, 1, 1, 0.2)
-	render2d.PushSDFGradientTexture(glassy_gradient)
+	render2d.PushTexture(glassy_gradient)
 	render2d.PushBorderRadius(15)
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopSDFGradientTexture()
+	render2d.PopTexture()
 	render2d.PushOutlineWidth(1.5)
 	render2d.DrawRect(x, y, w, h)
 	render2d.PopOutlineWidth()
@@ -90,15 +90,13 @@ end
 local function DrawTextOutlineShadow(x, y)
 	-- 5. Text with Outline and Shadow
 	render2d.PushColor(1, 1, 1, 1) -- Yellow text
-	render2d.PushSDFMode(true) -- Enable SDF mode for text
 	render2d.PushOutlineWidth(1)
 	font:DrawText("SDF", x, y)
 	-- You can even do gradients on text now!
-	render2d.PushSDFGradientTexture(red_gradient) -- Red gradient
+	render2d.PushTexture(red_gradient) -- Red gradient
 	font:DrawText("Red Gradient", x, y + 100)
-	render2d.PopSDFGradientTexture()
+	render2d.PopTexture()
 	render2d.PopOutlineWidth()
-	render2d.PopSDFMode()
 	render2d.PopColor()
 end
 

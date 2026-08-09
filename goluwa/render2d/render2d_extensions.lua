@@ -314,13 +314,7 @@ do
 		end
 
 		render2d.PushColor(foreground_color.r, foreground_color.g, foreground_color.b, alpha)
-
-		if tbl.gradient then render2d.PushSDFGradientTexture(tbl.gradient) end
-
 		font:DrawText(text, x, y, spacing, align_x, align_y)
-
-		if tbl.gradient then render2d.PopSDFGradientTexture() end
-
 		render2d.PopColor()
 
 		if has_transform then render2d.PopMatrix() end
