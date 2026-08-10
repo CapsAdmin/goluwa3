@@ -1601,12 +1601,21 @@ do
 		end
 
 		local png = import("goluwa/codecs/png.lua")
-		local png_file = png.Encode(self.width, self.height, "rgba")
-		local pixel_table = {}
 		local w, h = self.width, self.height
+		local png_file = png.Encode(w, h, "rgba")
+		local pixel_table = {}
 		local format = self.format
 
-		if format == "r8_unorm" then
+		if
+			format == "r8g8b8a8_unorm" or
+			format == "r8g8b8a8_srgb" or
+			format == "b8g8r8a8_unorm" or
+			format == "b8g8r8a8_srgb"
+		then
+			for i = 0, self.size - 1 do
+				pixel_table[i + 1] = self.pixels[i]
+			end
+		elseif format == "r8_unorm" then
 			for i = 0, w * h - 1 do
 				local r = self.pixels[i]
 				table.insert(pixel_table, r)
@@ -1655,10 +1664,7 @@ do
 				end
 			end
 		else
-			-- Fallback to assuming RGBA if unknown
-			for i = 0, self.size - 1 do
-				pixel_table[i + 1] = self.pixels[i]
-			end
+			error(string.format("TextureDownloaded:SaveAs: unsupported format '%s'", tostring(format)))
 		end
 
 		png_file:write(pixel_table)
@@ -1745,7 +1751,7 @@ do
 		-- Submit and wait
 		render.SubmitAndWait(copy_cmd)
 		-- Map staging buffer and copy pixel data
-		local pixel_data = staging_buffer:Map()
+		local pixel_data = assert(staging_buffer:Map(), "Cannot download: failed to map staging buffer")
 		local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
 		ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
 		staging_buffer:Unmap()
