@@ -140,7 +140,7 @@ render2d.state = {
 			constants = RectDrawState(),
 			constants_size = ffi.sizeof(RectDrawState),
 			rect_size = {w = 0, h = 0, lw = 0, lh = 0},
-		uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
+			uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
 			uv2 = {u1 = nil, v1 = nil, u2 = nil, v2 = nil},
 			color_uv = {offset_x = 0, offset_y = 0, scale_x = 1, scale_y = 1, rotation = 0},
 			alpha_multiplier = 1,
@@ -535,32 +535,40 @@ local rect_batch_fragment_passthrough_fields = {
 	},
 	{
 		name = "batch_color_uv_transform",
-			type = "vec4",
-			format = "r32g32b32a32_sfloat",
-			write = function(vertex, entry, state, rect_state_snapshot)
-				vertex.batch_color_uv_transform[0] = rect_state_snapshot.color_uv_offset[0]
-				vertex.batch_color_uv_transform[1] = rect_state_snapshot.color_uv_offset[1]
-				vertex.batch_color_uv_transform[2] = rect_state_snapshot.color_uv_scale[0]
-				vertex.batch_color_uv_transform[3] = rect_state_snapshot.color_uv_scale[1]
-			end,
-			fragment_values = {
-				{"draw.color_uv_offset", "batch_color_uv_transform", "in_batch_color_uv_transform.xy"},
-				{"draw.color_uv_scale", "batch_color_uv_scale", "in_batch_color_uv_transform.zw"},
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_color_uv_transform[0] = rect_state_snapshot.color_uv_offset[0]
+			vertex.batch_color_uv_transform[1] = rect_state_snapshot.color_uv_offset[1]
+			vertex.batch_color_uv_transform[2] = rect_state_snapshot.color_uv_scale[0]
+			vertex.batch_color_uv_transform[3] = rect_state_snapshot.color_uv_scale[1]
+		end,
+		fragment_values = {
+			{
+				"draw.color_uv_offset",
+				"batch_color_uv_transform",
+				"in_batch_color_uv_transform.xy",
+			},
+			{"draw.color_uv_scale", "batch_color_uv_scale", "in_batch_color_uv_transform.zw"},
+		},
+	},
+	{
+		name = "batch_color_uv_rotation",
+		type = "float",
+		format = "r32_sfloat",
+		write = function(vertex, entry, state, rect_state_snapshot)
+			vertex.batch_color_uv_rotation = rect_state_snapshot.color_uv_rotation
+		end,
+		fragment_values = {
+			{
+				"draw.color_uv_rotation",
+				"batch_color_uv_rotation",
+				"in_batch_color_uv_rotation",
 			},
 		},
-		{
-			name = "batch_color_uv_rotation",
-			type = "float",
-			format = "r32_sfloat",
-			write = function(vertex, entry, state, rect_state_snapshot)
-				vertex.batch_color_uv_rotation = rect_state_snapshot.color_uv_rotation
-			end,
-			fragment_values = {
-				{"draw.color_uv_rotation", "batch_color_uv_rotation", "in_batch_color_uv_rotation"},
-			},
-		},
-		{
-			name = "batch_outline_width",
+	},
+	{
+		name = "batch_outline_width",
 		type = "float",
 		format = "r32_sfloat",
 		write = function(vertex, entry, state, rect_state_snapshot)
@@ -1201,34 +1209,88 @@ function render2d.Initialize()
 					return color;
 				}
 
-				float compute_sdf_distance(vec2 coords, bool has_rect_sdf, bool has_tex_sdf) {
+				float compute_sdf_distance(vec2 coords, bool has_rect_sdf, bool has_tex_sdf, out vec3 out_msdf, out vec2 out_sdf_uv, out bool out_is_msdf) {
 					float d = 1e10;
+					out_msdf = vec3(0.0);
+					out_sdf_uv = vec2(0.0);
+					out_is_msdf = false;
 
 				if (has_tex_sdf) {
 					bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
-					vec2 sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
-					float tex_dist = texture(TEXTURE(draw.sdf_texture_index), sdf_uv).r;
-					d = (shape.sdf_threshold - tex_dist) * shape.sdf_texel_range;
+					out_sdf_uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
+					out_msdf = texture(TEXTURE(draw.sdf_texture_index), out_sdf_uv).rgb;
 
-						if ((FLAGS_SAMPLE_UV & 2) != 0) d = -d;
+					out_is_msdf = FLAGS_MSDF != 0;
+
+				if ((FLAGS_SAMPLE_UV & 2) != 0) {
+						out_msdf = vec3(1.0 - out_msdf.r, 1.0 - out_msdf.g, 1.0 - out_msdf.b);
+					}
 					} else if (has_rect_sdf) {
 						d = sd_rect(coords, shape.rect_size, shape.sdf_rect_size, shape.border_radius);
 					}
 
 					return d;
 				}
+/*
+				float sdf_to_alpha(float x, float softness, float outline_shift) {
+					// Regular SDF: positive x = outside, so negate
+					//float fw = fwidth(x);
+					//return clamp((-x - outline_shift * fw) / (fw + softness), 0.0, 1.0);
+					return smoothstep(softness-outline_shift, -softness, x);
+				}
 
+				float compute_sdf_alpha(float d) {
+					float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y));
+					float d_biased = d + shape.sdf_bias;
+
+					float alpha = (abs(shape.outline_width) > 0.001) ?
+						(sign(shape.outline_width) * (sdf_to_alpha(d_biased, softness, -shape.outline_width) - sdf_to_alpha(d_biased, softness, 0.0))) :
+						sdf_to_alpha(d_biased, softness, 0.0);
+
+					return pow(max(alpha, 0.0), shape.sdf_gamma);
+				}
+*/
 				float edge(float x, float softness) {
 					return smoothstep(softness, -softness, x);
 				}
 
-				float compute_sdf_alpha(float d, bool has_tex_sdf, bool has_rect_sdf) {
+				float compute_sdf_alpha(float d) {
 					float softness = max(shape.sdf_softness, max(shape.blur.x, shape.blur.y));
 					float d_biased = d + shape.sdf_bias;
-		
+
 					float alpha = (abs(shape.outline_width) > 0.0) ?
 						(sign(shape.outline_width) * (edge(d_biased - shape.outline_width, softness) - edge(d_biased, softness))) :
 						edge(d_biased, softness);
+
+					return pow(max(alpha, 0.0), shape.sdf_gamma);
+				}
+				float msdf_to_alpha(float x, float softness, float outline_shift) {
+					float fw = fwidth(x);
+					return clamp((x + outline_shift * fw) / (fw + softness), 0.0, 1.0);
+				}
+
+				float median_of_three(float r, float g, float b) {
+					return max(min(r, g), min(max(r, g), b));
+				}
+
+				float compute_msdf_alpha(vec3 msdf, vec2 sdf_uv) {
+					// Convert from [0,1] texture values to signed distance (positive = inside)
+					float spread = shape.sdf_texel_range;
+					float r = (msdf.r - 0.5) * spread * 2.0;
+					float g = (msdf.g - 0.5) * spread * 2.0;
+					float b = (msdf.b - 0.5) * spread * 2.0;
+
+					// Use median of three for robustness (handles 45-degree edges)
+					float d = median_of_three(r, g, b);
+
+					// Apply bias
+					d += shape.sdf_bias;
+
+					// Outline support: outer edge minus inner edge = outline ring
+					float softness = shape.sdf_softness * 2;
+					float alpha = (abs(shape.outline_width) > 0.001) ?
+						(sign(shape.outline_width) * (msdf_to_alpha(d, softness, shape.outline_width) - msdf_to_alpha(d, softness, 0.0))) :
+						msdf_to_alpha(d, softness, 0.0);
 
 					return pow(max(alpha, 0.0), shape.sdf_gamma);
 				}
@@ -1248,14 +1310,29 @@ function render2d.Initialize()
 					bool has_sdf = has_rect_sdf || has_tex_sdf;
 					vec2 uv = resolve_fragment_uv(coords);
 				color = sample_fragment_color(uv);
-					d = compute_sdf_distance(coords, has_rect_sdf, has_tex_sdf);
+
+					vec3 msdf_sample;
+					vec2 sdf_uv;
+					bool is_msdf;
+					d = compute_sdf_distance(coords, has_rect_sdf, has_tex_sdf, msdf_sample, sdf_uv, is_msdf);
 
 					//{return vec4(d/10.0, 0, 0, 1);} // DEBUG
 
 				vec4 shaded = color;
 
 				if (has_sdf) {
-					shaded.a *= compute_sdf_alpha(d, has_tex_sdf, has_rect_sdf);
+					if (is_msdf) {
+						shaded.a *= compute_msdf_alpha(msdf_sample, sdf_uv);
+					} else {
+						// For non-texture SDF (rect SDF), d is already computed
+						if (!has_tex_sdf) {
+							shaded.a *= compute_sdf_alpha(d);
+						} else {
+							float tex_dist = msdf_sample.r;
+							d = (shape.sdf_threshold - tex_dist) * shape.sdf_texel_range;
+							shaded.a *= compute_sdf_alpha(d);
+						}
+					}
 				}
 
 					if ((shape.blur.x > 0.0 || shape.blur.y > 0.0) && shape.sdf_rect_size.x <= 0.0) {
@@ -1513,6 +1590,7 @@ do
 				{name = "SWIZZLE", mask = 0xF, shift = 0},
 				{name = "SAMPLE_UV", mask = 0xF, shift = 4},
 				{name = "CLAMP_BORDER_RADIUS", mask = 0x1, shift = 8},
+				{name = "MSDF", mask = 0x1, shift = 9},
 			}
 
 			-- Build getter/setter for each flag from the FLAGS table
@@ -1580,20 +1658,20 @@ do
 			utility.MakePushPopFunction(render2d, "SwizzleMode", 1)
 		end
 
-			do
-				function render2d.SetSampleUVMode(mode)
-					render2d.SetSAMPLE_UV(mode or 0)
-				end
-
-				function render2d.GetSampleUVMode()
-					return render2d.GetSAMPLE_UV()
-				end
-
-				utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
+		do
+			function render2d.SetSampleUVMode(mode)
+				render2d.SetSAMPLE_UV(mode or 0)
 			end
 
-			do
-				function render2d.SetSDFTexture(tex)
+			function render2d.GetSampleUVMode()
+				return render2d.GetSAMPLE_UV()
+			end
+
+			utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
+		end
+
+		do
+			function render2d.SetSDFTexture(tex)
 				render2d.state.render.textures.sdf_texture = tex
 				local pipeline = render2d.GetActivePipeline()
 
@@ -2470,7 +2548,11 @@ do -- uv
 
 		function render2d.GetColorUVTransform()
 			local color_uv = render2d.state.render.fragment.color_uv
-			return color_uv.offset_x, color_uv.offset_y, color_uv.scale_x, color_uv.scale_y, color_uv.rotation
+			return color_uv.offset_x,
+			color_uv.offset_y,
+			color_uv.scale_x,
+			color_uv.scale_y,
+			color_uv.rotation
 		end
 
 		utility.MakePushPopFunction(render2d, "ColorUVTransform", 5)

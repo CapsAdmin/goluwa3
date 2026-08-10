@@ -521,9 +521,73 @@ do
 		return -distance
 	end
 
+	local function get_msdf_for_point(contours, x, y)
+		local min_distance_sq = math.huge
+		local closest_x, closest_y = x, y
+
+		for _, contour in ipairs(contours) do
+			local count = #contour / 2
+
+			if count >= 2 then
+				for i = 1, count do
+					local j = i == count and 1 or (i + 1)
+					local x1 = contour[(i - 1) * 2 + 1]
+					local y1 = contour[(i - 1) * 2 + 2]
+					local x2 = contour[(j - 1) * 2 + 1]
+					local y2 = contour[(j - 1) * 2 + 2]
+
+					local dx = x2 - x1
+					local dy = y2 - y1
+					local len_sq = dx * dx + dy * dy
+
+					local cx, cy
+					if len_sq <= 1e-12 then
+						cx, cy = x1, y1
+					else
+						local t = ((x - x1) * dx + (y - y1) * dy) / len_sq
+						t = math.max(0, math.min(1, t))
+						cx = x1 + dx * t
+						cy = y1 + dy * t
+					end
+
+					local ox = x - cx
+					local oy = y - cy
+					local dist_sq = ox * ox + oy * oy
+
+					if dist_sq < min_distance_sq then
+						min_distance_sq = dist_sq
+						closest_x = cx
+						closest_y = cy
+					end
+				end
+			end
+		end
+
+		if min_distance_sq == math.huge then return -math.huge, 0, 0 end
+
+		local distance = math.sqrt(min_distance_sq)
+		local inside = is_point_in_contours_even_odd(contours, x, y)
+
+		-- Normal points from closest point on contour toward the sample point
+		local nx, ny
+		if distance < 1e-10 then
+			nx, ny = 1, 0
+		else
+			nx = (x - closest_x) / distance
+			ny = (y - closest_y) / distance
+		end
+
+		if inside then
+			return distance, nx, ny
+		else
+			return -distance, -nx, -ny
+		end
+	end
+
 	function svg.CreateSDFTexture(data, options)
 		options = options or {}
 		local decoded = type(data) == "table" and data or svg.Decode(data, options)
+		local is_msdf = options.msdf == true
 		local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
 		local bounds_w = math.max(view_box.w or 0, 1e-6)
 		local bounds_h = math.max(view_box.h or 0, 1e-6)
@@ -533,10 +597,15 @@ do
 		local width = math.max(1, math.floor(bounds_w * scale + 0.5))
 		local height = math.max(1, math.floor(bounds_h * scale + 0.5))
 		local texels_per_unit = math.min(width / bounds_w, height / bounds_h)
-		local buffer = ffi.new("uint8_t[?]", width * height)
+		local buffer_size = is_msdf and (width * height * 4) or (width * height)
+		local buffer = ffi.new("uint8_t[?]", buffer_size)
+		local normalize_distance = function(d_in_texels)
+			local n = 0.5 + d_in_texels / (spread * 2)
+			return math.floor(math.max(0, math.min(1, n)) * 255 + 0.5)
+		end
 
 		if #decoded.contours == 0 then
-			for i = 0, width * height - 1 do
+			for i = 0, buffer_size - 1 do
 				buffer[i] = 0
 			end
 		else
@@ -545,15 +614,31 @@ do
 
 				for px = 0, width - 1 do
 					local sample_x = view_box.x + ((px + 0.5) / width) * bounds_w
-					local signed_distance = get_signed_distance_to_contours(decoded.contours, sample_x, sample_y)
 
-					if signed_distance == -math.huge then
-						buffer[py * width + px] = 0
+					if is_msdf then
+						local d, nx, ny = get_msdf_for_point(decoded.contours, sample_x, sample_y)
+						if d == -math.huge then
+							local idx = (py * width + px) * 4
+							buffer[idx] = 0
+							buffer[idx + 1] = 0
+							buffer[idx + 2] = 0
+							buffer[idx + 3] = 255
+						else
+							local d_tex = d * texels_per_unit
+							local idx = (py * width + px) * 4
+							buffer[idx] = normalize_distance(d_tex + nx)
+							buffer[idx + 1] = normalize_distance(d_tex + ny)
+							buffer[idx + 2] = normalize_distance(d_tex)
+							buffer[idx + 3] = 255
+						end
 					else
-						local distance_in_texels = signed_distance * texels_per_unit
-						local normalized = 0.5 + distance_in_texels / (spread * 2)
-						normalized = math.max(0, math.min(1, normalized))
-						buffer[py * width + px] = math.floor(normalized * 255 + 0.5)
+						local signed_distance = get_signed_distance_to_contours(decoded.contours, sample_x, sample_y)
+						if signed_distance == -math.huge then
+							buffer[py * width + px] = 0
+						else
+							local distance_in_texels = signed_distance * texels_per_unit
+							buffer[py * width + px] = normalize_distance(distance_in_texels)
+						end
 					end
 				end
 			end
@@ -562,7 +647,7 @@ do
 		local texture = Texture.New{
 			width = width,
 			height = height,
-			format = "r8_unorm",
+			format = is_msdf and "r8g8b8a8_unorm" or "r8_unorm",
 			buffer = buffer,
 			sampler = {
 				min_filter = "linear",
@@ -576,6 +661,7 @@ do
 			spread = spread,
 			width = width,
 			height = height,
+			is_msdf = is_msdf,
 		}
 	end
 end
