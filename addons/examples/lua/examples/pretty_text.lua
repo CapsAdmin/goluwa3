@@ -96,6 +96,8 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 	}
 	y_offset = y_offset + 50
 	-- Section 4: Gradient text
+	render2d.SetColorUVTransform(math.sin(os.clock() * 2) * 2, 0, 5, 1, math.pi / 2)
+	render2d.PushTexture(gradient_tex)
 	render2d.DrawText{
 		text = "Gradient Text",
 		x = x_start,
@@ -106,8 +108,8 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		blur_size = 10,
 		foreground_color = Color(1, 1, 1, 1),
 		background_color = Color(0, 0, 0, 1),
-		gradient = gradient_tex,
 	}
+	render2d.PopTexture()
 	y_offset = y_offset + 50
 	-- Section 4: Gradient text
 	render2d.DrawText{
@@ -226,7 +228,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		x = x_start,
 		y = y_offset,
 		font = FONT,
-		size = 14,
+		size = 9,
 		blur_size = 0,
 		foreground_color = Color(0.7, 0.7, 0.7, 1),
 	}
@@ -236,7 +238,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		x = x_start,
 		y = y_offset,
 		font = FONT,
-		size = 14,
+		size = 9,
 		blur_size = 1,
 		foreground_color = Color(0.7, 0.7, 0.7, 1),
 		background_color = Color(0.2, 0.2, 0.4, 0.5),
