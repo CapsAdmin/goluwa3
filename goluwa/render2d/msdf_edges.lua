@@ -2,29 +2,6 @@ local M = library()
 local CHANNEL_R, CHANNEL_G, CHANNEL_B = 1, 2, 4
 local CHANNEL_CYCLE = {CHANNEL_R + CHANNEL_G, CHANNEL_G + CHANNEL_B, CHANNEL_B + CHANNEL_R} -- yellow, cyan, magenta
 local CORNER_ANGLE_THRESHOLD = math.rad(3) -- msdfgen default-ish
-local function get_raw_contours(glyph_data)
-	-- glyph_data = glyph.glyph_data.glyph_data (the innermost one with points/end_pts_of_contours)
-	local points = glyph_data.points
-	local ends = glyph_data.end_pts_of_contours
-	local contours = {}
-	local start_idx = 1
-
-	for _, end_idx_0 in ipairs(ends) do
-		local end_idx = end_idx_0 + 1
-		local contour = {}
-
-		for i = start_idx, end_idx do
-			local p = points[i]
-			contour[#contour + 1] = {x = p.x, y = p.y, on_curve = p.on_curve}
-		end
-
-		contours[#contours + 1] = contour
-		start_idx = end_idx + 1
-	end
-
-	return contours
-end
-
 local function lerp(a, b, t)
 	return {x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t}
 end
@@ -177,39 +154,29 @@ local function color_polyline(poly)
 	return edges
 end
 
-function M.ExtractEdges(glyph, opts)
-	local raw_gd = glyph.glyph_data.glyph_data
-	local contours = get_raw_contours(raw_gd)
-	local scale = opts.scale
-	local super_scale = opts.super_scale
-	local pad = opts.pad
-	local bitmap_left = glyph.bitmap_left
-	local bitmap_top = glyph.bitmap_top
-
-	local function to_texel_space(p)
-		-- 1) raw font units -> pixel space (matches bitmap_left/top/w/h)
-		local px = p.x * scale
-		local py = p.y * scale
-		-- 2) same transform DrawGlyph's render2d stack applies before rasterizing mask_fb:
-		--    Translate(pad) * Scale(super_scale) * Translate(-bitmap_left, -bitmap_top)
-		local tx = (px - bitmap_left) * super_scale + pad
-		local ty = -(py - opts.bearing_y) * super_scale + pad
-		-- NOTE: verify sign/orientation of ty against your mask texture (see caveat above);
-		-- flip with `ty = -(py - bitmap_top) * super_scale + pad` if it comes out upside down.
-		return tx, ty
-	end
-
+function M.ExtractEdges(glyph, curve_steps)
 	local out = {}
+	local start_idx = 1
 
-	for _, raw_contour in ipairs(contours) do
-		local poly = flatten_contour(raw_contour, opts.curve_steps or 8)
+	for _, end_idx_0 in ipairs(glyph.glyph_data.glyph_data.end_pts_of_contours) do
+		local end_idx = end_idx_0 + 1
+		local contour = {}
+
+		for i = start_idx, end_idx do
+			local p = glyph.glyph_data.glyph_data.points[i]
+			contour[#contour + 1] = {x = p.x, y = p.y, on_curve = p.on_curve}
+		end
+
+		local poly = flatten_contour(contour, curve_steps or 8)
 		local colored = color_polyline(poly)
 
 		for _, e in ipairs(colored) do
-			local x0, y0 = to_texel_space(e.p0)
-			local x1, y1 = to_texel_space(e.p1)
-			out[#out + 1] = {x0, y0, x1, y1, e.channel}
+			local x0, y0 = e.p0
+			local x1, y1 = e.p1
+			out[#out + 1] = e
 		end
+
+		start_idx = end_idx + 1
 	end
 
 	return out

@@ -146,63 +146,59 @@ function META:Build()
 	if not dirty then return end
 
 	self.dirty_textures = {}
-	local cmd_pool = render.GetCommandPool()
-	local cmd = cmd_pool:AllocateCommandBuffer()
-	cmd:Begin()
-	render.PushCommandBuffer(cmd)
-	local transitioned_textures = {}
 
-	for _, page in ipairs(self.pages) do
-		if page.dirty then
-			-- Transition page texture to transfer_dst
-			render.TransitionResourceTo(
-				page.texture,
-				"transfer_dst_optimal",
-				{
-					cmd = cmd,
-					srcStage = "all_commands",
-					dstStage = "transfer",
-				}
-			)
+	render.ExecuteCommand(function(cmd)
+		local transitioned_textures = {}
 
-			for _, data in pairs(page.textures) do
-				if not data.uploaded then
-					if data.buffer then
-
-					-- For now, buffer uploads still use staging and its own cmd submission
-					-- unless we want to integrate it here. Let's stick to CopyFrom for performance.
-					-- Wait, buffer is probably slower.
-					elseif data.texture then
-						local other = data.texture
-						page.texture:CopyFrom(other, data.w, data.h, 0, 0, data.page_x, data.page_y)
-						data.texture:Remove()
-						data.uploaded = true
-					end
-				end
-			end
-
-			-- Transition page texture back to shader_read
-			if page.texture:GetMipMapLevels() > 1 then
-				page.texture:GenerateMipmaps("transfer_dst_optimal")
-			else
-				render.TransitionResourceFrom(
+		for _, page in ipairs(self.pages) do
+			if page.dirty then
+				-- Transition page texture to transfer_dst
+				render.TransitionResourceTo(
 					page.texture,
-					"shader_read_only_optimal",
+					"transfer_dst_optimal",
 					{
 						cmd = cmd,
-						srcStage = "transfer",
-						dstStage = "all_commands",
+						srcStage = "all_commands",
+						dstStage = "transfer",
 					}
 				)
+
+				for _, data in pairs(page.textures) do
+					if not data.uploaded then
+						if data.buffer then
+
+						-- For now, buffer uploads still use staging and its own cmd submission
+						-- unless we want to integrate it here. Let's stick to CopyFrom for performance.
+						-- Wait, buffer is probably slower.
+						elseif data.texture then
+							local other = data.texture
+							page.texture:CopyFrom(other, data.w, data.h, 0, 0, data.page_x, data.page_y)
+							data.texture:Remove()
+							data.uploaded = true
+						end
+					end
+				end
+
+				-- Transition page texture back to shader_read
+				if page.texture:GetMipMapLevels() > 1 then
+					page.texture:GenerateMipmaps("transfer_dst_optimal")
+				else
+					render.TransitionResourceFrom(
+						page.texture,
+						"shader_read_only_optimal",
+						{
+							cmd = cmd,
+							srcStage = "transfer",
+							dstStage = "all_commands",
+						}
+					)
+				end
+
+				page.dirty = false
 			end
-
-			page.dirty = false
 		end
-	end
+	end)
 
-	render.PopCommandBuffer()
-	cmd:End()
-	render.SubmitAndWait(cmd)
 	self.dirty_textures = {}
 
 	if false then

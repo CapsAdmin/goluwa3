@@ -354,8 +354,8 @@ do
 	end
 
 	function META:RenderGlyph(glyph)
-		local debug_collect = {}
-		local tex, texel_range = render.ExecuteCommand(function(cmd)
+		render.ExecuteCommand(function(cmd)
+			local debug_collect = {}
 			local spread = self:GetEffectiveSpread()
 			local output_w = math.ceil(glyph.w + spread)
 			local output_h = math.ceil(glyph.h + spread)
@@ -448,29 +448,20 @@ do
 			pipe_combine:BindSampledImage(cmd, slot, 3, mask_fb.color_texture)
 
 			if self.MSDF then
-				local edges = msdf_edges.ExtractEdges(
-					glyph,
-					{
-						scale = self.Size / glyph.units_per_em,
-						super_scale = SUPER_SAMPLING_SCALE,
-						pad = spread * SUPER_SAMPLING_SCALE / 2,
-						curve_steps = 8,
-						bearing_y = glyph.bearing_y,
-						y_max = glyph.y_max,
-					}
-				)
+				local edges = msdf_edges.ExtractEdges(glyph, 8)
 				local num_edges = #edges
 				pipe_combine.current_num_edges = num_edges
-				-- Build edge buffer: 5 floats per edge (x0, y0, x1, y1, channel)
 				local edge_data = ffi.new("float[?]", num_edges * 5)
+				local scale1 = self.Size / glyph.units_per_em
+				local scale2 = spread * SUPER_SAMPLING_SCALE / 2
 
 				for i, edge in ipairs(edges) do
 					local idx = (i - 1) * 5
-					edge_data[idx] = edge[1]
-					edge_data[idx + 1] = edge[2]
-					edge_data[idx + 2] = edge[3]
-					edge_data[idx + 3] = edge[4]
-					edge_data[idx + 4] = edge[5]
+					edge_data[idx + 0] = ((edge.p0.x * scale1) - glyph.bitmap_left) * SUPER_SAMPLING_SCALE + scale2
+					edge_data[idx + 1] = -((edge.p0.y * scale1) - glyph.bearing_y) * SUPER_SAMPLING_SCALE + scale2
+					edge_data[idx + 2] = ((edge.p1.x * scale1) - glyph.bitmap_left) * SUPER_SAMPLING_SCALE + scale2
+					edge_data[idx + 3] = -((edge.p1.y * scale1) - glyph.bearing_y) * SUPER_SAMPLING_SCALE + scale2
+					edge_data[idx + 4] = edge.channel
 				end
 
 				local edge_buffer = Buffer.New{
@@ -509,20 +500,17 @@ do
 				debug_collect.final = tex_final
 				debug_collect.combine = tex_combine
 				debug_collect.mask = mask_fb.color_texture
+				self:OnTextureGenerated(glyph, debug_collect)
 			end
 
-			return tex_final, spread
+			glyph.texture = tex_final
+			glyph.atlas_data = {
+				w = tex_final:GetSize().x,
+				h = tex_final:GetSize().y,
+				texture = tex_final,
+				texel_range = spread,
+			}
 		end)
-
-		if debug_collect then self:OnTextureGenerated(glyph, debug_collect) end
-
-		glyph.texture = tex
-		glyph.atlas_data = {
-			w = tex:GetSize().x,
-			h = tex:GetSize().y,
-			texture = tex,
-			texel_range = texel_range,
-		}
 	end
 end
 

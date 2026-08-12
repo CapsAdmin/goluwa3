@@ -264,10 +264,7 @@ end
 
 function META:Rebuild()
 	self.draw_pass_cache = nil
-
-	render.ExecuteCommand(function(cmd)
-		self.texture_atlas:Build()
-	end)
+	self.texture_atlas:Build()
 end
 
 function META:RebuildFromScratch()
