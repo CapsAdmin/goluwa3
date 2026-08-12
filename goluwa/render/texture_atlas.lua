@@ -77,6 +77,8 @@ function META:FindFreePage(w, h)
 				sampler = {
 					min_filter = self.filtering,
 					mag_filter = self.filtering,
+					wrap_s = "clamp_to_edge",
+					wrap_t = "clamp_to_edge",
 				},
 			}:SetDebugName(self.debug_name and (self.debug_name .. " page " .. tostring(page_index)) or nil),
 			textures = {},

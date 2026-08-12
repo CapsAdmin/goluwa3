@@ -209,7 +209,6 @@ end
 
 local function draw_sdf_state(x, y, phase)
 	render2d.PushColor(1, 1, 1, 1)
-	render2d.PushSDFTexelRange(18)
 	render2d.PushSDFThreshold(0.55 + math.sin(phase * 1.3) * 0.08)
 	render2d.PushBorderRadius(28)
 	render2d.PushBlur(4)
@@ -221,7 +220,6 @@ local function draw_sdf_state(x, y, phase)
 	render2d.PopBlur()
 	render2d.PopBorderRadius()
 	render2d.PopSDFThreshold()
-	render2d.PopSDFTexelRange()
 	render2d.PopColor()
 end
 

@@ -11,7 +11,7 @@ local default_font = nil
 function fonts.New(props)
 	props = props or {}
 	props.Size = props.Size or 16
-	local mode = props.Mode or "sdf"
+	local mode = props.Mode or "msdf"
 
 	if props.Name then
 		local font_path = fonts.GetDefaultSystemFontPath()
@@ -20,11 +20,10 @@ function fonts.New(props)
 		if mode == "raster" then
 			font = RasterFont.New(font_path)
 		else
-			font = SDFFont.New(font_path)
+			font = SDFFont.New(font_path, mode == "msdf")
 		end
 
 		font:SetSize(props.Size)
-		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
 
 		fonts.DownloadGoogleFont{name = props.Name, weight = props.Weight}:Then(function(path)
 			font:SetFontPath(path)
@@ -41,15 +40,16 @@ function fonts.New(props)
 		local ext = tostring(props.Path):match("%.([^%.]+)$")
 
 		if ext == "ttf" or ext == "otf" then
+			local font
+
 			if mode == "raster" then
-				local f = RasterFont.New(props.Path)
-				f:SetSize(props.Size)
-				return f
+				font = RasterFont.New(props.Path)
 			else
-				local f = SDFFont.New(props.Path)
-				f:SetSize(props.Size)
-				return f
+				font = SDFFont.New(props.Path, mode == "msdf")
 			end
+
+			font:SetSize(props.Size)
+			return font
 		end
 	end
 

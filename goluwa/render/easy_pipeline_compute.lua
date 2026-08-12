@@ -85,6 +85,18 @@ do
 		render.PopCommandBuffer()
 	end
 
+	function EasyPipelineCompute:BindStorageImage(cmd, slot, binding, texture, set_index)
+		cmd = cmd or render.GetCommandBuffer()
+		render.TransitionResourceToComputeStorage(texture, {cmd = cmd})
+		self:UpdateDescriptorSet("storage_image", slot, binding, set_index or 0, texture:GetView())
+	end
+
+	function EasyPipelineCompute:BindSampledImage(cmd, slot, binding, texture, set_index)
+		cmd = cmd or render.GetCommandBuffer()
+		local view, sampler = get_compute_sampled_descriptor(texture)
+		self:UpdateDescriptorSet("combined_image_sampler", slot, binding, set_index or 0, view, sampler)
+	end
+
 	-- Compute constructor
 	function EasyPipelineCompute.Compute(config)
 		local write = config.write

@@ -494,7 +494,7 @@ do -- icons
 		icon_svg_cache[name] = {
 			texture = texture,
 			decoded = decoded,
-			spread = meta and meta.spread or 8,
+			texel_range = meta.spread,
 		}
 		return icon_svg_cache[name]
 	end
@@ -527,8 +527,7 @@ do -- icons
 		local cx = x + draw_w * 0.5
 		local cy = y + draw_h * 0.5
 		render2d.PushSDFTexture(cached.texture)
-		render2d.PushSDFThreshold(0.5)
-		render2d.PushSDFTexelRange(cached.spread)
+		render2d.PushSDFTexelRange(cached.texel_range)
 		render2d.PushTexture()
 		render2d.SetTexture(nil)
 		render2d.SetColor(color:Unpack())
@@ -541,7 +540,6 @@ do -- icons
 
 		render2d.PopTexture()
 		render2d.PopSDFTexelRange()
-		render2d.PopSDFThreshold()
 		render2d.PopSDFTexture()
 	end
 

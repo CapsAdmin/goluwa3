@@ -92,12 +92,12 @@ local function batch_load_glyphs(self, str)
 
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
-	local temp_fbs = {}
+	self:StartCollectTempResources()
 	render.PushCommandBuffer(cmd)
 
 	while i <= len do
 		local cc = utf8.uint32(str, i)
-		self:LoadGlyph(cc, temp_fbs)
+		self:LoadGlyph(cc)
 		i = i + utf8.byte_length(str, i)
 	end
 
@@ -106,10 +106,7 @@ local function batch_load_glyphs(self, str)
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	self.rebuild = false
-
-	for _, fb in ipairs(temp_fbs) do
-		self:ReleaseTempFramebuffer(fb)
-	end
+	self:ReleaseTempResources()
 end
 
 local function glyph_fn(self, data, X, Y, _)

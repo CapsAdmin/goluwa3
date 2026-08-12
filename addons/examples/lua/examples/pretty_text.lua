@@ -103,7 +103,21 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		font = FONT,
 		size = 34,
 		weight = 700,
-		blur_size = 2,
+		blur_size = 10,
+		foreground_color = Color(1, 1, 1, 1),
+		background_color = Color(0, 0, 0, 1),
+		gradient = gradient_tex,
+	}
+	y_offset = y_offset + 50
+	-- Section 4: Gradient text
+	render2d.DrawText{
+		text = "O",
+		x = x_start,
+		y = y_offset,
+		font = FONT,
+		size = 34,
+		weight = 700,
+		blur_size = 20,
 		foreground_color = Color(1, 1, 1, 1),
 		background_color = Color(0, 0, 0, 1),
 		gradient = gradient_tex,
@@ -172,7 +186,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		blur_size = 2,
 		foreground_color = Color(1, 0.9, 0.7, 1),
 		background_color = Color(0.1, 0.1, 0.1, 1),
-		outline_width = 4,
+		outline_width = 5,
 		outline_color = Color(1, 0.2, 0.2, 1),
 	}
 	y_offset = y_offset + 50

@@ -103,7 +103,6 @@ META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
 META:GetSet("Filtering", "linear", {callback = "ClearSizeCache"})
 META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
 META:GetSet("Path", "default")
-META:GetSet("Size", 8)
 
 function META:__copy()
 	return self
@@ -189,8 +188,12 @@ function META:Initialize(font_path)
 	self.rebuild = false
 	local format = self:GetAtlasFormat()
 	self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
+	local type = self.Type
+
+	if type == "sdf_font" then if self:IsMSDF() then type = "msdf_font" end end
+
 	self.texture_atlas:SetName(
-		self.Type .. " - " .. file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(font_path))
+		type .. " - " .. file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(font_path))
 	)
 
 	for code in pairs(self.chars) do
@@ -217,6 +220,8 @@ end
 
 function META:DrawGlyph(glyph)
 	render2d.SetTexture(nil)
+	render2d.SetSDFTexture(nil)
+	render2d.SetColor(1, 1, 1, 1)
 	glyphs.DrawGlyph(glyph.font_path, glyph.char_code, 0, 0, self.Size)
 end
 
@@ -300,6 +305,7 @@ local function build_glyph_metrics(self, g, code)
 		poly = g.poly,
 		font_path = self.FontPath,
 		char_code = code,
+		units_per_em = g.units_per_em,
 	}
 end
 
@@ -384,16 +390,43 @@ function META:GetTextSize(str)
 	return w, h
 end
 
-function META:GetTempFramebuffer(w, h, format, mip_maps, filter)
-	return fb_pool.get(self, w, h, format, mip_maps, filter)
+function META:StartCollectTempResources()
+	self.temp_textures = {}
+	self.temp_framebuffers = {}
 end
 
-function META:ReleaseTempFramebuffer(fb)
-	fb_pool.release(fb)
+function META:IsCollectingTempResources()
+	return self.temp_textures ~= nil
+end
+
+function META:ReleaseTempResources()
+	for i, v in ipairs(self.temp_textures) do
+
+	--tex_pool.release(v)
+	end
+
+	for i, v in ipairs(self.temp_framebuffers) do
+		fb_pool.release(v)
+	end
+
+	self.temp_textures = nil
+	self.temp_framebuffers = nil
+end
+
+function META:GetTempFramebuffer(w, h, format, mip_maps, filter)
+	local fb = fb_pool.get(self, w, h, format, mip_maps, filter)
+
+	if self.temp_framebuffers then table.insert(self.temp_framebuffers, fb) end
+
+	return fb
 end
 
 function META:GetTempTexture(w, h, format, filter)
-	return tex_pool.get(self, w, h, format, filter)
+	local tex = assert(tex_pool.get(self, w, h, format, filter))
+
+	if self.temp_textures then table.insert(self.temp_textures, tex) end
+
+	return tex
 end
 
 function META:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
@@ -455,127 +488,78 @@ function META:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
 	return entries
 end
 
-do
-	local function get_next_pow2_and_steps(n)
-		local r = 1
-		local steps = 0
+function META:LoadGlyph(code)
+	if type(code) == "string" then code = utf8.uint32(code) end
 
-		while r < n do
-			r = r * 2
-			steps = steps + 1
-		end
+	if self.chars[code] ~= nil then return self.chars[code] end
 
-		return r, steps
+	if not self.FontPath then
+		self.chars[code] = false
+		return
 	end
 
-	local function estimate_glyph_sdf_descriptor_slots(self, code)
-		if self.chars[code] ~= nil then return 0 end
+	local g = glyphs.GetGlyph(self.FontPath, code)
 
-		if not self.FontPath then return 0 end
-
-		local g = glyphs.GetGlyph(self.FontPath, code)
-
-		if not g or not g.glyph_data or g.w <= 0 or g.h <= 0 then return 0 end
-
-		local glyph = {
-			w = g.w * self.Size,
-			h = g.h * self.Size,
-			glyph_data = g,
-		}
-		local sw, sh = self:GetAtlasPadding(glyph.w, glyph.h)
-		local _, steps = get_next_pow2_and_steps(math.max(sw, sh))
-		return (steps + 4) * 2 + 1
+	if not g or not g.is_visual then
+		self.chars[code] = false
+		return
 	end
 
-	function META:LoadGlyph(code, temp_fbs)
-		if type(code) == "string" then code = utf8.uint32(code) end
+	-- bitmap glyphs are already rasterized, do not scale metrics
+	local glyph = build_glyph_metrics(self, g, code)
+	self.chars[code] = glyph
+	local batched = self:IsCollectingTempResources()
 
-		if self.chars[code] ~= nil then return self.chars[code] end
+	if not batched then self:StartCollectTempResources() end
 
-		if not self.FontPath then
-			self.chars[code] = false
-			return
-		end
+	self:RenderGlyph(glyph)
+	self.texture_atlas:Set(code, glyph.atlas_data)
 
-		local g = glyphs.GetGlyph(self.FontPath, code)
-
-		if not g or not g.is_visual then
-			self.chars[code] = false
-			return
-		end
-
-		-- bitmap glyphs are already rasterized, do not scale metrics
-		local glyph = build_glyph_metrics(self, g, code)
-		self.chars[code] = glyph
-		local used_temp_fbs = {}
-		self:RenderGlyph(glyph, used_temp_fbs)
-		self.texture_atlas:Set(code, glyph.atlas_data)
-
-		if not temp_fbs then
-			self:Rebuild()
-
-			for _, fb in ipairs(used_temp_fbs) do
-				fb_pool.release(fb)
-			end
-
-			self.rebuild = false
-		end
-
-		return glyph
+	if not batched then
+		self:Rebuild()
+		self:ReleaseTempResources()
+		self.rebuild = false
 	end
 
-	local JFA_DESCRIPTOR_SET_COUNT = 1024
+	return glyph
+end
 
-	function META:LoadGlyphsFromString(str)
-		local i = 1
-		local len = #str
-		local chars = self.chars
+local JFA_DESCRIPTOR_SET_COUNT = 1024
 
-		if not self.rebuild then
-			while i <= len do
-				local char_code = utf8.uint32(str, i)
+function META:LoadGlyphsFromString(str)
+	local i = 1
+	local len = #str
+	local chars = self.chars
 
-				if chars[char_code] == nil then break end
-
-				i = i + utf8.byte_length(str, i)
-			end
-
-			if i > len then return end
-		end
-
-		local cmd = render.GetCommandPool():AllocateCommandBuffer()
-		cmd:Begin()
-		local temp_fbs = {}
-		render.PushCommandBuffer(cmd)
-
+	if not self.rebuild then
 		while i <= len do
-			local cc = utf8.uint32(str, i)
-			local slots_needed = estimate_glyph_sdf_descriptor_slots(self, cc)
-			local used_slots = self._jfa_descriptor_slot_cmd == cmd and (self._jfa_descriptor_slot or 0) or 0
+			local char_code = utf8.uint32(str, i)
 
-			if slots_needed > 0 and used_slots + slots_needed > JFA_DESCRIPTOR_SET_COUNT then
-				render.PopCommandBuffer()
-				cmd:End()
-				render.SubmitAndWait(cmd)
-				cmd = render.GetCommandPool():AllocateCommandBuffer()
-				cmd:Begin()
-				render.PushCommandBuffer(cmd)
-			end
+			if chars[char_code] == nil then break end
 
-			self:LoadGlyph(cc, temp_fbs)
 			i = i + utf8.byte_length(str, i)
 		end
 
-		self:Rebuild()
-		render.PopCommandBuffer()
-		cmd:End()
-		render.SubmitAndWait(cmd)
-		self.rebuild = false
-
-		for _, fb in ipairs(temp_fbs) do
-			fb_pool.release(fb)
-		end
+		if i > len then return end
 	end
+
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	self:StartCollectTempResources()
+	render.PushCommandBuffer(cmd)
+
+	while i <= len do
+		local cc = utf8.uint32(str, i)
+		self:LoadGlyph(cc)
+		i = i + utf8.byte_length(str, i)
+	end
+
+	self:Rebuild()
+	render.PopCommandBuffer()
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	self.rebuild = false
+	self:ReleaseTempResources()
 end
 
 return META:Register()

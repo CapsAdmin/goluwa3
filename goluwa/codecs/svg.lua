@@ -535,12 +535,11 @@ do
 					local y1 = contour[(i - 1) * 2 + 2]
 					local x2 = contour[(j - 1) * 2 + 1]
 					local y2 = contour[(j - 1) * 2 + 2]
-
 					local dx = x2 - x1
 					local dy = y2 - y1
 					local len_sq = dx * dx + dy * dy
-
 					local cx, cy
+
 					if len_sq <= 1e-12 then
 						cx, cy = x1, y1
 					else
@@ -567,9 +566,9 @@ do
 
 		local distance = math.sqrt(min_distance_sq)
 		local inside = is_point_in_contours_even_odd(contours, x, y)
-
 		-- Normal points from closest point on contour toward the sample point
 		local nx, ny
+
 		if distance < 1e-10 then
 			nx, ny = 1, 0
 		else
@@ -587,7 +586,7 @@ do
 	function svg.CreateSDFTexture(data, options)
 		options = options or {}
 		local decoded = type(data) == "table" and data or svg.Decode(data, options)
-		local is_msdf = options.msdf == true
+		local is_msdf = true --options.msdf == true
 		local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
 		local bounds_w = math.max(view_box.w or 0, 1e-6)
 		local bounds_h = math.max(view_box.h or 0, 1e-6)
@@ -617,6 +616,7 @@ do
 
 					if is_msdf then
 						local d, nx, ny = get_msdf_for_point(decoded.contours, sample_x, sample_y)
+
 						if d == -math.huge then
 							local idx = (py * width + px) * 4
 							buffer[idx] = 0
@@ -633,6 +633,7 @@ do
 						end
 					else
 						local signed_distance = get_signed_distance_to_contours(decoded.contours, sample_x, sample_y)
+
 						if signed_distance == -math.huge then
 							buffer[py * width + px] = 0
 						else

@@ -190,6 +190,7 @@ do
 				Name = font_name,
 				Size = size,
 				Weight = weight,
+				Mode = "msdf",
 			}
 		end
 
@@ -241,6 +242,8 @@ do
 
 		if background_color == true then
 			background_color = compute_auto_background(foreground_color)
+
+			if not tbl.blur_size then blur_size = 4 end
 		end
 
 		background_color = background_color or default_background_color
@@ -290,24 +293,24 @@ do
 			local sx = tbl.shadow_x or tbl.shadow_y or 2
 			local sy = tbl.shadow_y or tbl.shadow_x or 2
 			render2d.PushColor(shadow_color.r, shadow_color.g, shadow_color.b, shadow_color.a)
-			render2d.PushBlur(2, 2)
+			render2d.PushSDFSoftness(2)
 			font:DrawText(text, x + sx, y + sy, spacing, align_x, align_y)
-			render2d.PopBlur()
+			render2d.PopSDFSoftness()
 			render2d.PopColor()
 		end
 
-		if blur_size >= 1 then
+		if blur_size > 0 then
 			local bg_alpha = background_color.a * (foreground_color.a ^ 2) * 0.67
 			render2d.PushColor(background_color.r, background_color.g, background_color.b, bg_alpha * (tbl.blur_intensity or 1))
-			render2d.PushBlur(blur_size, blur_size)
+			render2d.PushSDFSoftness(blur_size)
 			font:DrawText(text, x, y, spacing, align_x, align_y)
-			render2d.PopBlur()
+			render2d.PopSDFSoftness()
 			render2d.PopColor()
 		end
 
 		if outline_width then
 			render2d.PushColor(outline_color.r, outline_color.g, outline_color.b, outline_color.a)
-			render2d.PushOutlineWidth(-outline_width)
+			render2d.PushOutlineWidth(outline_width)
 			font:DrawText(text, x, y, spacing, align_x, align_y)
 			render2d.PopOutlineWidth()
 			render2d.PopColor()

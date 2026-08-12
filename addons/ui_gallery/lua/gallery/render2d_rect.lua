@@ -535,7 +535,6 @@ local function draw_rect_with_state(state)
 	end
 
 	render2d.PushSDFThreshold(state.sdf_threshold)
-	render2d.PushSDFTexelRange(state.sdf_texel_range)
 	render2d.PushBlur(state.blur_x, state.blur_y)
 	render2d.PushBorderRadius(state.border_radius.x, state.border_radius.y, state.border_radius.w, state.border_radius.h)
 	render2d.PushOutlineWidth(state.outline_width)
@@ -572,7 +571,6 @@ local function draw_rect_with_state(state)
 	render2d.PopOutlineWidth()
 	render2d.PopBorderRadius()
 	render2d.PopBlur()
-	render2d.PopSDFTexelRange()
 	render2d.PopSDFThreshold()
 
 	if state.sdf_mode then

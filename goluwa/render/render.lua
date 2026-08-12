@@ -344,11 +344,11 @@ function render.ExecuteCommand(command_fn)
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
 	render.PushCommandBuffer(cmd)
-	local result = command_fn(cmd)
+	local results = {command_fn(cmd)}
 	render.PopCommandBuffer()
 	cmd:End()
 	render.SubmitAndWait(cmd)
-	return result
+	return unpack(results)
 end
 
 function render.EndFrame()

@@ -465,6 +465,7 @@ function glyphs.GetGlyph(path, char_code)
 		g.font_path = path
 		g.char_code = char_code
 		g.is_visual = g.poly or g.texture or (g.points and #g.points > 0)
+		g.units_per_em = state.units_per_em
 	end
 
 	state.glyphs_cache[char_code] = g
@@ -500,6 +501,7 @@ local function build_bitmap_glyph(state, path, char_code)
 		v2 = v2,
 		font_path = path,
 		char_code = char_code,
+		units_per_em = state.units_per_em,
 	}
 	state.glyphs_cache[char_code] = g
 	return g
@@ -539,11 +541,11 @@ function glyphs.DrawGlyph(path, char_code, x, y, size)
 		glyph.poly:Draw()
 		render2d.PopMatrix()
 	elseif glyph.texture then
-		render2d.SetTexture(glyph.texture)
+		render2d.PushTexture(glyph.texture)
 		render2d.PushMatrix(x, y, 1, 1)
 		render2d.DrawRectUV2f(0, 0, glyph.w, glyph.h, glyph.u1, glyph.v1, glyph.u2, glyph.v2)
 		render2d.PopMatrix()
-		render2d.SetTexture(nil)
+		render2d.PopTexture()
 	end
 end
 

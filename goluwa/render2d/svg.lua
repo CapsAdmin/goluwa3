@@ -41,7 +41,6 @@ function SVG:Load(source)
 		self.poly = nil
 		self.decoded = nil
 		self.sdf_texture = nil
-		self.sdf_spread = nil
 		self.status = "idle"
 		self.error = nil
 		return
@@ -91,7 +90,7 @@ function SVG:ApplyData(data, request_id)
 	self.poly = poly
 	self.decoded = decoded
 	self.sdf_texture = sdf_texture
-	self.sdf_spread = sdf_meta and sdf_meta.spread or nil
+	self.texel_range = sdf_meta.spread
 	self.sdf_is_msdf = sdf_meta and sdf_meta.is_msdf == true
 	self.status = "loaded"
 	self.error = nil
@@ -126,17 +125,15 @@ function SVG:Draw(x, y, width, height, useSDF)
 		local offset_x = x + (width - draw_w) / 2
 		local offset_y = y + (height - draw_h) / 2
 		render2d.PushSDFTexture(self.sdf_texture)
-		render2d.PushSDFThreshold(0.5)
-		render2d.PushSDFTexelRange(self.sdf_spread or 8)
-		render2d.SetMSDF(self.sdf_is_msdf and 1 or 0)
+		render2d.PushSDFTexelRange(self.texel_range)
+		render2d.PushMSDFEnabled(self.sdf_is_msdf)
 		render2d.PushTexture()
 		render2d.SetTexture(nil)
 		render2d.DrawRectUV2f(offset_x, offset_y, draw_w, draw_h, 0, 1, 1, 0)
 		render2d.PopTexture()
-		render2d.SetMSDF(0)
-		render2d.PopSDFTexelRange()
-		render2d.PopSDFThreshold()
+		render2d.PopMSDFEnabled()
 		render2d.PopSDFTexture()
+		render2d.PopSDFTexelRange()
 	else
 		render2d.PushMatrix()
 		render2d.Translatef(x, y)
