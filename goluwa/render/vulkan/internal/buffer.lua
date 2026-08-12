@@ -85,6 +85,10 @@ function Buffer.New(config)
 	return self
 end
 
+function Buffer:GetSize()
+	return self.size
+end
+
 function Buffer:OnRemove()
 	if
 		self.mapped_data and

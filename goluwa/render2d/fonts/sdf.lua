@@ -39,20 +39,8 @@ do
 			init = EasyPipeline.Compute{
 				DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
 				LocalSize = {x = 8, y = 8, z = 1},
-				descriptor_sets = {
-					{
-						type = "storage_image",
-						binding_index = 0,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 1,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-				},
+				storage_images = {{binding = 0}},
+				sampled_images = {{binding = 1}},
 				block = {{"mode", "int"}},
 				write = function(self, block)
 					block.mode = self.current_jfa_mode
@@ -76,20 +64,8 @@ do
 			step = EasyPipeline.Compute{
 				DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
 				LocalSize = {x = 8, y = 8, z = 1},
-				descriptor_sets = {
-					{
-						type = "storage_image",
-						binding_index = 0,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 1,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-				},
+				storage_images = {{binding = 0}},
+				sampled_images = {{binding = 1}},
 				block = {{"step_size", "int"}},
 				write = function(self, block)
 					block.step_size = self.current_jfa_step
@@ -127,20 +103,8 @@ do
 			final = EasyPipeline.Compute{
 				DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
 				LocalSize = {x = 8, y = 8, z = 1},
-				descriptor_sets = {
-					{
-						type = "storage_image",
-						binding_index = 0,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 1,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-				},
+				storage_images = {{binding = 0}},
+				sampled_images = {{binding = 1}},
 				block = {{"max_dist", "float"}},
 				write = function(self, block)
 					block.max_dist = self.current_jfa_max_dist
@@ -162,32 +126,8 @@ do
 			combine_sdf = EasyPipeline.Compute{
 				DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
 				LocalSize = {x = 8, y = 8, z = 1},
-				descriptor_sets = {
-					{
-						type = "storage_image",
-						binding_index = 0,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 1,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 2,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 3,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-				},
+				storage_images = {{binding = 0}},
+				sampled_images = {{binding = 1}, {binding = 2}, {binding = 3}},
 				block = {{"max_dist", "float"}},
 				write = function(self, block)
 					block.max_dist = self.current_jfa_max_dist
@@ -216,38 +156,9 @@ do
 			combine_msdf = EasyPipeline.Compute{
 				DescriptorSetCount = JFA_DESCRIPTOR_SET_COUNT,
 				LocalSize = {x = 8, y = 8, z = 1},
-				descriptor_sets = {
-					{
-						type = "storage_image",
-						binding_index = 0,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 1,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 2,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "combined_image_sampler",
-						binding_index = 3,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-					{
-						type = "storage_buffer",
-						binding_index = 4,
-						stageFlags = "compute",
-						set_index = 0,
-					},
-				},
+				storage_images = {{binding = 0}},
+				sampled_images = {{binding = 1}, {binding = 2}, {binding = 3}},
+				storage_buffers = {{binding = 4}},
 				block = {{"max_dist", "float"}, {"num_edges", "int"}},
 				write = function(self, block)
 					block.max_dist = self.current_jfa_max_dist
@@ -306,12 +217,12 @@ do
 							if (mod(channel / 4.0, 2.0) > 0.5) { min_b = min(min_b, d); }
 						}
 
-					// Apply sign and normalize
-					float r_ch = clamp(d_sign * min_r / compute.max_dist + 0.5, 0.0, 1.0);
-					float g_ch = clamp(d_sign * min_g / compute.max_dist + 0.5, 0.0, 1.0);
-					float b_ch = clamp(d_sign * min_b / compute.max_dist + 0.5, 0.0, 1.0);
+						// Apply sign and normalize
+						float r_ch = clamp(d_sign * min_r / compute.max_dist + 0.5, 0.0, 1.0);
+						float g_ch = clamp(d_sign * min_g / compute.max_dist + 0.5, 0.0, 1.0);
+						float b_ch = clamp(d_sign * min_b / compute.max_dist + 0.5, 0.0, 1.0);
 
-					imageStore(out_tex, pos, vec4(r_ch, g_ch, b_ch, 1.0));
+						imageStore(out_tex, pos, vec4(r_ch, g_ch, b_ch, 1.0));
 					}
 				]],
 			},
@@ -329,28 +240,6 @@ do
 		end
 
 		return r, steps
-	end
-
-	local function next_descriptor_slot(self, cmd)
-		if not self._jfa_descriptor_slot or self._jfa_descriptor_slot_cmd ~= cmd then
-			self._jfa_descriptor_slot_cmd = cmd
-			self._jfa_descriptor_slot = 0
-		end
-
-		self._jfa_descriptor_slot = self._jfa_descriptor_slot + 1
-
-		if self._jfa_descriptor_slot > JFA_DESCRIPTOR_SET_COUNT then
-			error(
-				string.format(
-					"sdf compute descriptor set ring exhausted in one command buffer (%d > %d)",
-					self._jfa_descriptor_slot,
-					JFA_DESCRIPTOR_SET_COUNT
-				),
-				2
-			)
-		end
-
-		return self._jfa_descriptor_slot
 	end
 
 	function META:RenderGlyph(glyph)
@@ -391,10 +280,8 @@ do
 
 			for mode = 0, 1 do
 				p.init.current_jfa_mode = mode
-				local slot = next_descriptor_slot(self, cmd)
-				p.init:BindStorageImage(cmd, slot, 0, tex_a)
-				p.init:BindSampledImage(cmd, slot, 1, mask_fb.color_texture)
-				p.init:DispatchForSize(cmd, super_w, super_h, 1, slot)
+				p.init:Bind(cmd, {storage = {tex_a}, sampled = {mask_fb.color_texture}})
+				p.init:DispatchForSize(cmd, super_w, super_h, 1)
 				render.TransitionResourceToShaderRead(tex_a, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 				local current_tex = tex_a
 				local next_tex = tex_b
@@ -402,31 +289,25 @@ do
 				local step = p2 / 2
 
 				while step >= 1 do
-					local slot = next_descriptor_slot(self, cmd)
 					p.step.current_jfa_step = step
-					p.step:BindStorageImage(cmd, slot, 0, next_tex)
-					p.step:BindSampledImage(cmd, slot, 1, current_tex)
-					p.step:DispatchForSize(cmd, super_w, super_h, 1, slot)
+					p.step:Bind(cmd, {storage = {next_tex}, sampled = {current_tex}})
+					p.step:DispatchForSize(cmd, super_w, super_h, 1)
 					render.TransitionResourceToShaderRead(next_tex, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 					current_tex, next_tex = next_tex, current_tex
 					step = math.floor(step / 2)
 				end
 
 				for i = 1, 2 do
-					local slot = next_descriptor_slot(self, cmd)
 					p.step.current_jfa_step = 1
-					p.step:BindStorageImage(cmd, slot, 0, next_tex)
-					p.step:BindSampledImage(cmd, slot, 1, current_tex)
-					p.step:DispatchForSize(cmd, super_w, super_h, 1, slot)
+					p.step:Bind(cmd, {storage = {next_tex}, sampled = {current_tex}})
+					p.step:DispatchForSize(cmd, super_w, super_h, 1)
 					render.TransitionResourceToShaderRead(next_tex, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 					current_tex, next_tex = next_tex, current_tex
 				end
 
 				local out_tex = mode == 0 and tex_dist_on or tex_dist_off
-				local slot = next_descriptor_slot(self, cmd)
-				p.final:BindStorageImage(cmd, slot, 0, out_tex)
-				p.final:BindSampledImage(cmd, slot, 1, current_tex)
-				p.final:DispatchForSize(cmd, super_w, super_h, 1, slot)
+				p.final:Bind(cmd, {storage = {out_tex}, sampled = {current_tex}})
+				p.final:DispatchForSize(cmd, super_w, super_h, 1)
 
 				if debug_collect then
 					debug_collect[mode == 0 and "dist_on" or "dist_off"] = out_tex
@@ -438,14 +319,16 @@ do
 			end
 
 			local tex_final = self:GetTempTexture(output_w, output_h, self:GetAtlasFormat(), "linear")
-			local slot = next_descriptor_slot(self, cmd)
 			local pipe_combine = self.MSDF and p.combine_msdf or p.combine_sdf
 			pipe_combine.current_jfa_max_dist = jfa_max_dist
 			local tex_combine = self:GetTempTexture(super_w, super_h, self:GetAtlasFormat(), "linear")
-			pipe_combine:BindStorageImage(cmd, slot, 0, tex_combine)
-			pipe_combine:BindSampledImage(cmd, slot, 1, tex_dist_on)
-			pipe_combine:BindSampledImage(cmd, slot, 2, tex_dist_off)
-			pipe_combine:BindSampledImage(cmd, slot, 3, mask_fb.color_texture)
+			pipe_combine:Bind(
+				cmd,
+				{
+					storage = {tex_combine},
+					sampled = {tex_dist_on, tex_dist_off, mask_fb.color_texture},
+				}
+			)
 
 			if self.MSDF then
 				local edges = msdf_edges.ExtractEdges(glyph, 8)
@@ -470,17 +353,17 @@ do
 					usage = {"storage_buffer"},
 				}
 				edge_buffer:CopyData(edge_data, num_edges * 5 * 4)
-				pipe_combine:UpdateDescriptorSet(
-					"storage_buffer",
-					slot,
-					4,
-					0,
-					edge_buffer,
-					num_edges * 5 * 4
+				pipe_combine:Bind(
+					cmd,
+					{
+						storage = {tex_combine},
+						sampled = {tex_dist_on, tex_dist_off, mask_fb.color_texture},
+						buffers = {edge_buffer},
+					}
 				)
 			end
 
-			pipe_combine:DispatchForSize(cmd, super_w, super_h, 1, slot)
+			pipe_combine:DispatchForSize(cmd, super_w, super_h, 1)
 			render.TransitionResourceToTransferSrc(tex_combine, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 			render.TransitionResourceToTransferDst(tex_final, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 			cmd:BlitImage{

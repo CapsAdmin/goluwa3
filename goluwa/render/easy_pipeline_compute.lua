@@ -47,12 +47,13 @@ do
 			self:on_draw(cmd)
 		else
 			self:UploadConstants()
+			local descriptor_slot = frame_index or self._descriptor_slot
 			self.pipeline:Dispatch(
 				cmd,
 				group_count_x or 1,
 				group_count_y or 1,
 				group_count_z or 1,
-				frame_index,
+				descriptor_slot,
 				dynamic_offsets or self.dynamic_offsets
 			)
 		end
@@ -72,12 +73,14 @@ do
 			self:on_draw(cmd)
 		else
 			self:UploadConstants()
+			-- Use auto-tracked descriptor slot if no explicit frame_index
+			local descriptor_slot = frame_index or self._descriptor_slot
 			self.pipeline:DispatchForSize(
 				cmd,
 				width,
 				height,
 				depth,
-				frame_index,
+				descriptor_slot,
 				dynamic_offsets or self.dynamic_offsets
 			)
 		end
@@ -95,6 +98,65 @@ do
 		cmd = cmd or render.GetCommandBuffer()
 		local view, sampler = get_compute_sampled_descriptor(texture)
 		self:UpdateDescriptorSet("combined_image_sampler", slot, binding, set_index or 0, view, sampler)
+	end
+
+	function EasyPipelineCompute:GetNextDescriptorSlot(cmd)
+		cmd = cmd or render.GetCommandBuffer()
+
+		if not self._descriptor_slot or self._descriptor_slot_cmd ~= cmd then
+			self._descriptor_slot_cmd = cmd
+			self._descriptor_slot = 0
+		end
+
+		self._descriptor_slot = self._descriptor_slot + 1
+		return self._descriptor_slot
+	end
+
+	function EasyPipelineCompute:Bind(cmd, resources)
+		cmd = cmd or render.GetCommandBuffer()
+		local slot = self:GetNextDescriptorSlot(cmd)
+
+		if resources.storage then
+			for i, tex in ipairs(resources.storage) do
+				render.TransitionResourceToComputeStorage(tex, {cmd = cmd})
+				self:UpdateDescriptorSet(
+					"storage_image",
+					slot,
+					self._storage_bindings[i],
+					0,
+					tex:GetView()
+				)
+			end
+		end
+
+		if resources.sampled then
+			for i, tex in ipairs(resources.sampled) do
+				local view, sampler = get_compute_sampled_descriptor(tex)
+				self:UpdateDescriptorSet(
+					"combined_image_sampler",
+					slot,
+					self._sampled_bindings[i],
+					0,
+					view,
+					sampler
+				)
+			end
+		end
+
+		if resources.buffers then
+			for i, buf in ipairs(resources.buffers) do
+				self:UpdateDescriptorSet(
+					"storage_buffer",
+					slot,
+					self._buffer_bindings[i],
+					0,
+					buf,
+					buf:GetSize()
+				)
+			end
+		end
+
+		return slot
 	end
 
 	-- Compute constructor
@@ -150,6 +212,26 @@ do
 		self.uniform_buffers = uniform_buffers
 		self.push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
 		self._push_constant_stages = {"compute"}
+		-- Collect binding indices from declarative resource specs
+		local storage_bindings = {}
+		local sampled_bindings = {}
+		local buffer_bindings = {}
+
+		for _, info in ipairs(config.storage_images or {}) do
+			storage_bindings[#storage_bindings + 1] = info.binding_index or info.binding
+		end
+
+		for _, info in ipairs(config.sampled_images or {}) do
+			sampled_bindings[#sampled_bindings + 1] = info.binding_index or info.binding
+		end
+
+		for _, info in ipairs(config.storage_buffers or {}) do
+			buffer_bindings[#buffer_bindings + 1] = info.binding_index or info.binding
+		end
+
+		self._storage_bindings = storage_bindings
+		self._sampled_bindings = sampled_bindings
+		self._buffer_bindings = buffer_bindings
 		local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 		local bindless_texture_capacity = bindless_descriptor_capacities.textures
 		local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
@@ -162,6 +244,35 @@ do
 
 		local descriptor_sets = glsl_meta.build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
 
+		-- Auto-generate descriptor sets from declarative resource specs
+		for _, info in ipairs(config.storage_images or {}) do
+			descriptor_sets[#descriptor_sets + 1] = {
+				type = "storage_image",
+				binding_index = info.binding_index or info.binding,
+				stageFlags = "compute",
+				set_index = info.set_index or 0,
+			}
+		end
+
+		for _, info in ipairs(config.sampled_images or {}) do
+			descriptor_sets[#descriptor_sets + 1] = {
+				type = "combined_image_sampler",
+				binding_index = info.binding_index or info.binding,
+				stageFlags = "compute",
+				set_index = info.set_index or 0,
+			}
+		end
+
+		for _, info in ipairs(config.storage_buffers or {}) do
+			descriptor_sets[#descriptor_sets + 1] = {
+				type = "storage_buffer",
+				binding_index = info.binding_index or info.binding,
+				stageFlags = "compute",
+				set_index = info.set_index or 0,
+			}
+		end
+
+		-- Legacy: also accept raw descriptor_sets
 		for _, ds in ipairs(config.descriptor_sets or {}) do
 			descriptor_sets[#descriptor_sets + 1] = ds
 		end
