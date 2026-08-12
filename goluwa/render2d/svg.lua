@@ -26,6 +26,7 @@ function SVG.New(source, options)
 		options = options or {},
 		request_id = 0,
 	}
+	self.options.mode = self.options.mode or "msdf"
 
 	if source then self:Load(source) end
 
@@ -91,7 +92,10 @@ function SVG:ApplyData(data, request_id)
 	self.decoded = decoded
 	self.sdf_texture = sdf_texture
 	self.texel_range = sdf_meta.spread
-	self.sdf_is_msdf = sdf_meta and sdf_meta.is_msdf == true
+
+	--self.sdf_is_msdf = sdf_meta and sdf_meta.is_msdf == true
+	if sdf_meta.is_msdf then self.options.mode = "msdf" end
+
 	self.status = "loaded"
 	self.error = nil
 end
@@ -102,7 +106,6 @@ function SVG:Fail(reason, request_id)
 	self.poly = nil
 	self.decoded = nil
 	self.sdf_texture = nil
-	self.sdf_spread = nil
 	self.status = "error"
 	self.error = tostring(reason)
 	wlog("svg load failed for %s: %s", tostring(self.source), self.error)
@@ -118,7 +121,8 @@ function SVG:Draw(x, y, width, height, useSDF)
 
 	if width <= 0 or height <= 0 then return end
 
-	if useSDF ~= false and self.sdf_texture then
+	if self.options.mode == "msdf" or self.options.mode == "sdf" then
+		assert(self.sdf_texture)
 		local scale = math.min(width / bounds_w, height / bounds_h)
 		local draw_w = bounds_w * scale
 		local draw_h = bounds_h * scale
@@ -126,7 +130,7 @@ function SVG:Draw(x, y, width, height, useSDF)
 		local offset_y = y + (height - draw_h) / 2
 		render2d.PushSDFTexture(self.sdf_texture)
 		render2d.PushSDFTexelRange(self.texel_range)
-		render2d.PushMSDFEnabled(self.sdf_is_msdf)
+		render2d.PushMSDFEnabled(self.options.mode == "msdf")
 		render2d.PushTexture()
 		render2d.SetTexture(nil)
 		render2d.DrawRectUV2f(offset_x, offset_y, draw_w, draw_h, 0, 1, 1, 0)
@@ -134,7 +138,7 @@ function SVG:Draw(x, y, width, height, useSDF)
 		render2d.PopMSDFEnabled()
 		render2d.PopSDFTexture()
 		render2d.PopSDFTexelRange()
-	else
+	elseif self.options.mode == "poly" then
 		render2d.PushMatrix()
 		render2d.Translatef(x, y)
 		local scale = math.min(width / bounds_w, height / bounds_h)
@@ -142,6 +146,8 @@ function SVG:Draw(x, y, width, height, useSDF)
 		render2d.Translatef(-view_box.x, -view_box.y)
 		self.poly:Draw()
 		render2d.PopMatrix()
+	else
+		error("invalid mode " .. self.options.mode)
 	end
 end
 

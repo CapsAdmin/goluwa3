@@ -490,7 +490,7 @@ do -- icons
 
 		if not source then return nil end
 
-		local texture, decoded, meta = svg_codec.CreateSDFTexture(source, {sdf_size = 96, sdf_spread = 8})
+		local texture, decoded, meta = svg_codec.CreateSDFTexture(source, {sdf_size = 96, sdf_spread = 8, mode = "msdf"})
 		icon_svg_cache[name] = {
 			texture = texture,
 			decoded = decoded,

@@ -2,7 +2,11 @@ local ffi = require("ffi")
 local xml = import("goluwa/codecs/xml.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
+local Framebuffer = import("goluwa/render/framebuffer.lua")
+local msdf = import("goluwa/render2d/msdf.lua")
 local svg = library()
 svg.file_extensions = {"svg"}
 
@@ -119,7 +123,7 @@ local function flatten_arc(
 	local cxp = factor * ((rx * y1p) / ry)
 	local cyp = factor * (-(ry * x1p) / rx)
 	local cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) / 2
-	local cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) / 2
+	local cy = sin_phi * cxp + cos_phi * cyp + (x1 + x2) / 2
 	local ux = (x1p - cxp) / rx
 	local uy = (y1p - cyp) / ry
 	local vx = (-x1p - cxp) / rx
@@ -464,206 +468,139 @@ function svg.CreatePolygon2D(data, options)
 end
 
 do
-	local function distance_sq_to_segment(px, py, x1, y1, x2, y2)
-		local dx = x2 - x1
-		local dy = y2 - y1
-		local len_sq = dx * dx + dy * dy
+	-- Convert a flat contour {x1, y1, x2, y2, ...} to polyline points {{x, y}, ...}
+	local function contour_to_polyline(contour)
+		local poly = {}
 
-		if len_sq <= 1e-12 then
-			local ox = px - x1
-			local oy = py - y1
-			return ox * ox + oy * oy
+		for i = 1, #contour, 2 do
+			poly[#poly + 1] = {x = contour[i], y = contour[i + 1]}
 		end
 
-		local t = ((px - x1) * dx + (py - y1) * dy) / len_sq
-		t = math.max(0, math.min(1, t))
-		local cx = x1 + dx * t
-		local cy = y1 + dy * t
-		local ox = px - cx
-		local oy = py - cy
-		return ox * ox + oy * oy
+		return poly
 	end
 
-	local function is_point_in_contours_even_odd(contours, x, y)
-		local inside = false
+	-- Extract and color edges from SVG contours, transformed to texture coordinates
+	local function extract_svg_edges(contours, view_box, width, height, spread, supersampling)
+		local bounds_w = view_box.w or 1
+		local bounds_h = view_box.h or 1
+		local scale = supersampling * math.min(width, height) / math.max(bounds_w, bounds_h)
+		local offset_x = spread * supersampling / 2
+		local offset_y = spread * supersampling / 2
+		local all_edges = {}
 
 		for _, contour in ipairs(contours) do
-			if math2d.IsPointInPolygon(x, y, contour) then inside = not inside end
-		end
+			local poly = contour_to_polyline(contour)
 
-		return inside
-	end
+			-- Transform to texture coordinates
+			for _, pt in ipairs(poly) do
+				pt.x = (pt.x - view_box.x) / bounds_w * width * supersampling + offset_x
+				pt.y = (pt.y - view_box.y) / bounds_h * height * supersampling + offset_y
+			end
 
-	local function get_signed_distance_to_contours(contours, x, y)
-		local min_distance_sq = math.huge
+			local edges = msdf.ColorPolyline(poly)
 
-		for _, contour in ipairs(contours) do
-			local count = #contour / 2
-
-			if count >= 2 then
-				for i = 1, count do
-					local j = i == count and 1 or (i + 1)
-					local x1 = contour[(i - 1) * 2 + 1]
-					local y1 = contour[(i - 1) * 2 + 2]
-					local x2 = contour[(j - 1) * 2 + 1]
-					local y2 = contour[(j - 1) * 2 + 2]
-					min_distance_sq = math.min(min_distance_sq, distance_sq_to_segment(x, y, x1, y1, x2, y2))
-				end
+			for _, e in ipairs(edges) do
+				all_edges[#all_edges + 1] = e
 			end
 		end
 
-		if min_distance_sq == math.huge then return -math.huge end
-
-		local distance = math.sqrt(min_distance_sq)
-
-		if is_point_in_contours_even_odd(contours, x, y) then return distance end
-
-		return -distance
-	end
-
-	local function get_msdf_for_point(contours, x, y)
-		local min_distance_sq = math.huge
-		local closest_x, closest_y = x, y
-
-		for _, contour in ipairs(contours) do
-			local count = #contour / 2
-
-			if count >= 2 then
-				for i = 1, count do
-					local j = i == count and 1 or (i + 1)
-					local x1 = contour[(i - 1) * 2 + 1]
-					local y1 = contour[(i - 1) * 2 + 2]
-					local x2 = contour[(j - 1) * 2 + 1]
-					local y2 = contour[(j - 1) * 2 + 2]
-					local dx = x2 - x1
-					local dy = y2 - y1
-					local len_sq = dx * dx + dy * dy
-					local cx, cy
-
-					if len_sq <= 1e-12 then
-						cx, cy = x1, y1
-					else
-						local t = ((x - x1) * dx + (y - y1) * dy) / len_sq
-						t = math.max(0, math.min(1, t))
-						cx = x1 + dx * t
-						cy = y1 + dy * t
-					end
-
-					local ox = x - cx
-					local oy = y - cy
-					local dist_sq = ox * ox + oy * oy
-
-					if dist_sq < min_distance_sq then
-						min_distance_sq = dist_sq
-						closest_x = cx
-						closest_y = cy
-					end
-				end
-			end
-		end
-
-		if min_distance_sq == math.huge then return -math.huge, 0, 0 end
-
-		local distance = math.sqrt(min_distance_sq)
-		local inside = is_point_in_contours_even_odd(contours, x, y)
-		-- Normal points from closest point on contour toward the sample point
-		local nx, ny
-
-		if distance < 1e-10 then
-			nx, ny = 1, 0
-		else
-			nx = (x - closest_x) / distance
-			ny = (y - closest_y) / distance
-		end
-
-		if inside then
-			return distance, nx, ny
-		else
-			return -distance, -nx, -ny
-		end
+		return all_edges
 	end
 
 	function svg.CreateSDFTexture(data, options)
 		options = options or {}
 		local decoded = type(data) == "table" and data or svg.Decode(data, options)
-		local is_msdf = true --options.msdf == true
 		local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
 		local bounds_w = math.max(view_box.w or 0, 1e-6)
 		local bounds_h = math.max(view_box.h or 0, 1e-6)
 		local longest_side = math.max(1, math.floor((options.sdf_size or options.SDFSize or 96) + 0.5))
 		local spread = math.max(1, math.floor((options.sdf_spread or options.SDFSpread or 8) + 0.5))
-		local scale = longest_side / math.max(bounds_w, bounds_h)
-		local width = math.max(1, math.floor(bounds_w * scale + 0.5))
-		local height = math.max(1, math.floor(bounds_h * scale + 0.5))
-		local texels_per_unit = math.min(width / bounds_w, height / bounds_h)
-		local buffer_size = is_msdf and (width * height * 4) or (width * height)
-		local buffer = ffi.new("uint8_t[?]", buffer_size)
-		local normalize_distance = function(d_in_texels)
-			local n = 0.5 + d_in_texels / (spread * 2)
-			return math.floor(math.max(0, math.min(1, n)) * 255 + 0.5)
-		end
+		local supersampling = options.supersampling or 4
+		local width = math.max(1, math.floor(bounds_w / math.max(bounds_w, bounds_h) * longest_side + 0.5))
+		local height = math.max(1, math.floor(bounds_h / math.max(bounds_w, bounds_h) * longest_side + 0.5))
+		local super_w = width * supersampling
+		local super_h = height * supersampling
 
 		if #decoded.contours == 0 then
-			for i = 0, buffer_size - 1 do
+			-- Return empty texture
+			local buffer = ffi.new("uint8_t[?]", width * height * 4)
+
+			for i = 0, #buffer - 1 do
 				buffer[i] = 0
 			end
-		else
-			for py = 0, height - 1 do
-				local sample_y = view_box.y + ((py + 0.5) / height) * bounds_h
 
-				for px = 0, width - 1 do
-					local sample_x = view_box.x + ((px + 0.5) / width) * bounds_w
-
-					if is_msdf then
-						local d, nx, ny = get_msdf_for_point(decoded.contours, sample_x, sample_y)
-
-						if d == -math.huge then
-							local idx = (py * width + px) * 4
-							buffer[idx] = 0
-							buffer[idx + 1] = 0
-							buffer[idx + 2] = 0
-							buffer[idx + 3] = 255
-						else
-							local d_tex = d * texels_per_unit
-							local idx = (py * width + px) * 4
-							buffer[idx] = normalize_distance(d_tex + nx)
-							buffer[idx + 1] = normalize_distance(d_tex + ny)
-							buffer[idx + 2] = normalize_distance(d_tex)
-							buffer[idx + 3] = 255
-						end
-					else
-						local signed_distance = get_signed_distance_to_contours(decoded.contours, sample_x, sample_y)
-
-						if signed_distance == -math.huge then
-							buffer[py * width + px] = 0
-						else
-							local distance_in_texels = signed_distance * texels_per_unit
-							buffer[py * width + px] = normalize_distance(distance_in_texels)
-						end
-					end
-				end
-			end
+			local texture = Texture.New{
+				width = width,
+				height = height,
+				format = "r8g8b8a8_unorm",
+				buffer = buffer,
+				sampler = {min_filter = "linear", mag_filter = "linear"},
+			}
+			return texture,
+			decoded,
+			{spread = spread, width = width, height = height, mode = options.mode}
 		end
 
-		local texture = Texture.New{
-			width = width,
-			height = height,
-			format = is_msdf and "r8g8b8a8_unorm" or "r8_unorm",
-			buffer = buffer,
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				mipmap_mode = "linear",
-			},
+		-- Create mask by rendering polygon to framebuffer
+		local mask_fb = Framebuffer.New{
+			width = super_w,
+			height = super_h,
+			name = "svg",
+			clear_color = {0, 0, 0, 0},
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = "auto",
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
 		}
-		return texture,
+		local edges = options.mode == "msdf" and
+			extract_svg_edges(decoded.contours, view_box, width, height, spread, supersampling) or
+			nil
+		local mask_texture = render.ExecuteCommand(function(cmd)
+			mask_fb:Begin(cmd)
+			local saved_batch = render2d.SaveBatchState()
+			render2d.state.runtime.batch.state:ClearPending()
+			render2d.PushBlendPreset("alpha")
+			render2d.PushScreenSize(super_w, super_h)
+			render2d.PushMatrix()
+			render2d.LoadIdentity()
+			-- Draw the polygon filled with white
+			local poly = Polygon2D.FromTriangleCoordinates(decoded.triangles)
+			poly:SetColor(1, 1, 1, 1)
+			-- Scale polygon to fill the framebuffer
+			local scale_x = super_w / (view_box.w or 1)
+			local scale_y = super_h / (view_box.h or 1)
+			local offset_x = spread * supersampling / 2 - view_box.x * scale_x
+			local offset_y = spread * supersampling / 2 - view_box.y * scale_y
+			render2d.Translate(offset_x, offset_y)
+			render2d.Scale(scale_x, scale_y) -- flip Y for SVG coordinate system
+			poly:Draw()
+			render2d.FlushBatches("svg_mask")
+			render2d.PopMatrix()
+			render2d.PopScreenSize()
+			render2d.PopBlendMode()
+			render2d.RestoreBatchState(saved_batch)
+			mask_fb:End(cmd)
+			return mask_fb.color_texture
+		end)
+		local tex_final = render.ExecuteCommand(function(cmd)
+			return msdf.Build(
+				mask_texture,
+				{
+					width = width,
+					height = height,
+					spread = spread * supersampling,
+					format = "r8g8b8a8_unorm",
+					filter = "linear",
+					mode = options.mode,
+					edges = edges,
+				}
+			)
+		end)
+		return tex_final,
 		decoded,
-		{
-			spread = spread,
-			width = width,
-			height = height,
-			is_msdf = is_msdf,
-		}
+		{spread = spread, width = width, height = height, mode = options.mode}
 	end
 end
 

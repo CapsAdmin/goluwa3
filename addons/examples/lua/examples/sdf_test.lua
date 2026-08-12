@@ -22,8 +22,9 @@ local star_svg = [[
   <path d="M 50 5 L 61 35 L 95 35 L 68 57 L 79 90 L 50 70 L 21 90 L 32 57 L 5 35 L 39 35 Z" fill="black"/>
 </svg>
 ]]
-local svg_sdf = SVG.New(star_svg, {sdf_size = 64, sdf_spread = 8})
-local svg_msdf = SVG.New(star_svg, {sdf_size = 64, sdf_spread = 8, msdf = true})
+local svg_sdf = SVG.New(star_svg, {sdf_size = 64, sdf_spread = 8, mode = "sdf"})
+local svg_msdf = SVG.New(star_svg, {sdf_size = 64, sdf_spread = 8, mode = "msdf"})
+local svg_poly = SVG.New(star_svg, {sdf_size = 64, sdf_spread = 8, mode = "poly"})
 -- Create a color texture to modulate with
 local gradient_tex = Texture.New{
 	width = 64,
@@ -165,6 +166,7 @@ event.AddListener("Draw2D", "msdf_test", function()
 	draw_row(y, "svg star", function(ry)
 		svg_sdf:Draw(col_sdf, ry, size, size)
 		svg_msdf:Draw(col_msdf, ry, size, size)
+		svg_poly:Draw(col_msdf + 80, ry, size, size)
 	end)
 
 	-- Font comparison rows (SDF on top, MSDF below)

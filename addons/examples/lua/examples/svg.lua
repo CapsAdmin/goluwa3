@@ -13,11 +13,11 @@ local bolt_svg = [[<svg viewBox="0 0 24 24"><path d="M11 21l-7-9h6.5L6 2l11 9h-6
 local circle_svg = [[<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>]]
 -- Create SVG objects
 local svg_list = {
-	SVG.New(heart_svg),
-	SVG.New(star_svg),
-	SVG.New(diamond_svg),
-	SVG.New(bolt_svg),
-	SVG.New(circle_svg),
+	SVG.New(heart_svg, {mode = "msdf"}),
+	SVG.New(star_svg, {mode = "msdf"}),
+	SVG.New(diamond_svg, {mode = "msdf"}),
+	SVG.New(bolt_svg, {mode = "msdf"}),
+	SVG.New(circle_svg, {mode = "msdf"}),
 }
 local colors = {
 	Color(1, 0.3, 0.4, 1),
@@ -57,31 +57,6 @@ event.AddListener("Draw2D", "svg_example_draw", function()
 		local bob = math.sin(t * 2 + i * 1.2) * 10
 		local scale = 1 + math.sin(t * 3 + i * 0.8) * 0.1
 		render2d.SetColor(colors[i].r, colors[i].g, colors[i].b, colors[i].a)
-		svg:Draw(x, base_y + bob, svg_size * scale, svg_size * scale, true)
+		svg:Draw(x, base_y + bob, svg_size * scale, svg_size * scale)
 	end
-
-	-- Draw SDF vs non-SDF comparison
-	local compare_y = base_y + svg_size / 2 + 60
-	render2d.DrawText{
-		text = "SDF (left) vs Polygon (right)",
-		x = W / 2,
-		y = compare_y - 40,
-		size = 16,
-		foreground_color = Color(0.7, 0.7, 0.7, 1),
-	}
-
-	if svg_list[1] and svg_list[1].status == "loaded" then
-		local small = 40
-		svg_list[1]:Draw(W / 2 - small - 10, compare_y, small, small, true)
-		svg_list[1]:Draw(W / 2 + 10, compare_y, small, small, false)
-	end
-
-	-- Status text
-	render2d.DrawText{
-		text = "5 SVGs loaded via render2d/svg.lua",
-		x = W / 2,
-		y = H - 30,
-		size = 14,
-		foreground_color = Color(0.5, 0.5, 0.5, 1),
-	}
 end)
