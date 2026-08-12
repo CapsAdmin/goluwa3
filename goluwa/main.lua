@@ -171,7 +171,7 @@ commands.Add("lua", function(code, ...)
 	assert(loadstring(code))(...)
 end)
 
-commands.Add("game=string[3d]", function(mode)
+commands.Add("game=string[3d]", function(mode, ...)
 	_G.CLIENT = true
 	_G.GRAPHICS = true
 
@@ -184,7 +184,15 @@ commands.Add("game=string[3d]", function(mode)
 	end
 
 	_G.AUDIO = true
+
+	if ... == "run" then run_once() end
+
 	init_game()
+
+	if ... == "run" then
+		local path = assert(select(2, ...))
+		assert(loadfile(normalize_path(path)))(...)
+	end
 end)
 
 commands.Add("cli", function()
