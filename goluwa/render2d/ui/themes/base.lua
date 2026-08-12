@@ -100,9 +100,9 @@ function BaseTheme:CreatePalette()
 	local surface_alt = Color.FromHex("#f5f5f7")
 	local semantic_palette = ColorPalette.New()
 	semantic_palette:SetShades{
-		Color.FromHex("#f5f5f7"), -- parchment
+		surface_alt,
 		Color.FromHex("#272729"), -- near-black tile
-		Color.FromHex("#1d1d1f"), -- ink
+		text,
 	}
 	semantic_palette:SetColors{
 		red = Color.FromHex("#dc2626"),
