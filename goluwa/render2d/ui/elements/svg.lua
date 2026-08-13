@@ -73,7 +73,7 @@ return function(props)
 
 					local svg = state.svg
 
-					if svg and svg.status == "loaded" then
+					if svg and svg:GetStatus() == "loaded" then
 						local color = props.Color and
 							theme.active:GetColor(props.Color) or
 							theme.active:GetColor("text")
@@ -81,7 +81,7 @@ return function(props)
 						render2d.PushMatrixf(padding.left, padding.top, available_w, available_h)
 						svg:Draw()
 						render2d.PopMatrix()
-					elseif svg and svg.status == "error" then
+					elseif svg and svg:GetStatus() == "error" then
 						local fallback = get_fallback_texture()
 						local draw_size = math.min(available_w, available_h)
 
@@ -104,12 +104,12 @@ return function(props)
 	panel:SetState("background_color", props.BackgroundColor)
 
 	function panel:SetSource(source)
-		state.svg = SVG.New(source)
+		state.svg = SVG.New(source, {TextureSize = 64})
 
-		if state.svg.status == "loaded" then
+		if state.svg:GetStatus() == "loaded" then
 			notify_loaded()
-		elseif state.svg.status == "error" then
-			notify_error(state.svg.error)
+		elseif state.svg:GetStatus() == "error" then
+			notify_error(state.svg:GetError())
 		end
 
 		return self
@@ -119,18 +119,10 @@ return function(props)
 		return self:SetSource(path)
 	end
 
-	function panel:GetSource()
-		return state.svg and state.svg.source
-	end
-
 	function panel:GetStatus()
 		if not state.svg then return "idle" end
 
-		return state.svg.status, state.svg.error
-	end
-
-	function panel:GetSVGData()
-		return state.svg and state.svg.decoded
+		return state.svg:GetStatus(), state.svg:GetError()
 	end
 
 	if state.source then panel:SetSource(state.source) end

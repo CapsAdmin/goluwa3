@@ -138,7 +138,8 @@ local function read_source_text(path)
 	return data
 end
 
-SVG:GetSet("Status")
+SVG:GetSet("Status", "idle")
+SVG:GetSet("Error", nil)
 SVG:StartStorable()
 SVG:GetSet("Mode", "msdf")
 SVG:GetSet("TextureSize", 256)
@@ -146,9 +147,7 @@ SVG:GetSet("SDFSpread", 0.9)
 SVG:EndStorable()
 
 function SVG.New(source, options)
-	local self = SVG:CreateObject{
-		Status = "idle",
-	}
+	local self = SVG:CreateObject()
 
 	if options then
 		if options.Mode then self:SetMode(options.Mode) end
@@ -164,43 +163,24 @@ function SVG.New(source, options)
 end
 
 function SVG:Load(source)
-	self.source = source
+	assert(source)
 
-	if not source or source == "" then
-		self.poly = nil
-		self.decoded = nil
-		self.sdf_texture = nil
-		self.status = "idle"
-		self.error = nil
-		return
-	end
-
-	self.status = "loading"
-	self.error = nil
-
-	if source:find("<svg", 1, true) then
+	if source:starts_with("<svg") then
 		self:ApplyData(source)
 		return
 	end
 
-	local local_data = read_source_text(source)
-
-	if local_data then
-		self:ApplyData(local_data)
-		return
-	end
-
 	resource.Download(source):Then(function(path)
-		local data = read_source_text(path)
+		local data, err = vfs.Read(path)
 
 		if not data then
-			self:Fail("unable to read SVG source: " .. tostring(path))
+			self:Fail(err)
 			return
 		end
 
 		self:ApplyData(data)
 	end):Catch(function(reason)
-		self:Fail(reason or (tostring(source) .. " not found"))
+		self:Fail(reason)
 	end)
 end
 
@@ -232,20 +212,20 @@ function SVG:ApplyData(data)
 		)
 	end
 
-	self.status = "loaded"
-	self.error = nil
+	self.Status = "loaded"
+	self.Error = nil
 end
 
 function SVG:Fail(reason)
 	self.poly = nil
 	self.sdf_texture = nil
-	self.status = "error"
-	self.error = tostring(reason)
-	wlog("svg load failed for %s: %s", tostring(self.source), self.error)
+	self.Status = "error"
+	self.Error = tostring(reason)
+	wlog("svg load failed for %s: %s", tostring(self.source), self.Error)
 end
 
 function SVG:Draw()
-	if self.status ~= "loaded" then return end
+	if self.Status ~= "loaded" then return end
 
 	if self.Mode == "msdf" or self.Mode == "sdf" then
 		assert(self.sdf_texture)

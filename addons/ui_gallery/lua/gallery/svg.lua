@@ -118,6 +118,7 @@ return {
 		end
 
 		local icon_tiles = {}
+
 		for _, source in ipairs(icon_sources) do
 			icon_tiles[#icon_tiles + 1] = build_icon_tile(source[1], source[2])
 		end
@@ -172,7 +173,7 @@ return {
 					},
 				},
 			},
-		Row{
+			Row{
 				layout = {
 					GrowWidth = 1,
 					FitHeight = true,

@@ -468,29 +468,21 @@ do -- icons
 	end
 
 	local icon_svg_cache = {}
-
-	local function get_icon_svg_source(name)
-		if name == "chevron" then
-			return [[<svg viewBox="0 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]]
-		elseif name == "plus" then
-			return [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]]
-		elseif name == "minus" then
-			return [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]]
-		elseif name == "close" then
-			return [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]]
-		end
-	end
+	local icons = {
+		chevron = [[<svg viewBox="0 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]],
+		plus = [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]],
+		minus = [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]],
+		close = [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]],
+	}
 
 	local function get_cached_icon_svg(name)
 		local cached = icon_svg_cache[name]
 
 		if cached then return cached end
 
-		local source = get_icon_svg_source(name)
+		if not icons[name] then return nil end
 
-		if not source then return nil end
-
-		icon_svg_cache[name] = SVG.New(source, {TextureSize = 96, SDFSpread = 8, Mode = "msdf"})
+		icon_svg_cache[name] = SVG.New(icons[name], {TextureSize = 16, Mode = "msdf"})
 		return icon_svg_cache[name]
 	end
 
@@ -507,23 +499,12 @@ do -- icons
 
 		if not svg or svg:GetStatus() ~= "loaded" then return end
 
-		local view_box = svg.decoded.view_box or
-			{x = 0, y = 0, w = svg.decoded.width, h = svg.decoded.height}
-		local bounds_w = math.max(1e-6, view_box.w)
-		local bounds_h = math.max(1e-6, view_box.h)
 		local target_size = self:ResolveIconDrawSize(size, opts.size, opts.inset)
-		local scale = math.min(target_size / bounds_w, target_size / bounds_h)
-		local draw_w = bounds_w * scale
-		local draw_h = bounds_h * scale
-		local x = (size.x - draw_w) * 0.5
-		local y = (size.y - draw_h) * 0.5
 		local color = opts.color or self:GetColor("text")
-		local rotation = math.rad(opts.rotation_degrees or 0)
-		local cx = x + draw_w * 0.5
-		local cy = y + draw_h * 0.5
-		render2d.SetColor(color:Unpack())
-		render2d.PushMatrixf(cx, cy, draw_w, draw_h, rotation)
+		render2d.PushMatrixf(0, 0, target_size, target_size, math.rad(opts.rotation_degrees or 0))
+		render2d.PushColor(color:Unpack())
 		svg:Draw()
+		render2d.PopColor()
 		render2d.PopMatrix()
 	end
 
