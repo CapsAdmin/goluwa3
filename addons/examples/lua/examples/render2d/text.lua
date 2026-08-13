@@ -160,12 +160,12 @@ event.AddListener("Draw2D", "text_sdf_demo", function()
 	font_medium:DrawText("Dynamic SDF Rendering (New):", 50, y_pos)
 	y_pos = y_pos + 60
 	-- 1. DROP SHADOW DEMO
-	render2d.PushBlur(1)
+	render2d.PushSDFSoftness(1)
 	render2d.PushSDFThreshold(0.5)
 	render2d.SetColor(1, 1, 1, 1)
 	font_sdf:DrawText("SDF Text", 50, y_pos)
 	render2d.PopSDFThreshold()
-	render2d.PopBlur()
+	render2d.PopSDFSoftness()
 	y_pos = y_pos + 80
 	-- 2. GRADIENT + GLOW DEMO
 	local r = 0.5 + 0.5 * math.sin(time * 2)
@@ -173,15 +173,15 @@ event.AddListener("Draw2D", "text_sdf_demo", function()
 	local b = 0.5 + 0.5 * math.sin(time * 2 + 4)
 	render2d.PushColor(r, g, b)
 	render2d.PushTexture(dynamic_gradient)
-	render2d.PushBlur(5 + math.sin(time * 3) * 3) -- Softness animation
+	render2d.PushSDFSoftness(5 + math.sin(time * 3) * 3) -- Softness animation
 	render2d.SetColor(1, 1, 1, 1)
 	font_sdf:DrawText("SDF Gradient & Glow", 50, y_pos)
-	render2d.PopBlur()
+	render2d.PopSDFSoftness()
 	render2d.PopTexture()
 	render2d.PopColor()
 	y_pos = y_pos + 80
 	-- 3. THICKNESS (THRESHOLD) ANIMATION
-	render2d.PushBlur(1)
+	render2d.PushSDFSoftness(1)
 	render2d.PushTexture(gold_gradient)
 	local thickness = 0.5 + math.sin(time * 4) * 0.15
 	render2d.PushSDFThreshold(thickness)
@@ -189,5 +189,5 @@ event.AddListener("Draw2D", "text_sdf_demo", function()
 	font_sdf:DrawText("Variable Thickness Pulsing", 50, y_pos)
 	render2d.PopSDFThreshold()
 	render2d.PopTexture()
-	render2d.PopBlur()
+	render2d.PopSDFSoftness()
 end)
