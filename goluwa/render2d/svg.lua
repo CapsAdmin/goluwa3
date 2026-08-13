@@ -26,20 +26,23 @@ end
 
 -- Extract and color edges from SVG contours, transformed to texture coordinates
 local function extract_svg_edges(contours, view_box, width, height, spread, supersampling)
-	local bounds_w = view_box.w or 1
-	local bounds_h = view_box.h or 1
-	local scale = supersampling * math.min(width, height) / math.max(bounds_w, bounds_h)
-	local offset_x = spread * supersampling / 2
-	local offset_y = spread * supersampling / 2
+	local bounds_w = view_box.w
+	local bounds_h = view_box.h
+	local super_w = width * supersampling
+	local super_h = height * supersampling
+	local scale_x = super_w / bounds_w
+	local scale_y = super_h / bounds_h
+	local offset_x = -view_box.x * scale_x
+	local offset_y = -view_box.y * scale_y
 	local all_edges = {}
 
 	for _, contour in ipairs(contours) do
 		local poly = contour_to_polyline(contour)
 
-		-- Transform to texture coordinates
+		-- Transform to texture coordinates (match mask rendering)
 		for _, pt in ipairs(poly) do
-			pt.x = (pt.x - view_box.x) / bounds_w * width * supersampling + offset_x
-			pt.y = (pt.y - view_box.y) / bounds_h * height * supersampling + offset_y
+			pt.x = pt.x * scale_x + offset_x
+			pt.y = pt.y * scale_y + offset_y
 		end
 
 		local edges = msdf.ColorPolyline(poly)
@@ -53,9 +56,9 @@ local function extract_svg_edges(contours, view_box, width, height, spread, supe
 end
 
 local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, supersampling)
-	local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
-	local bounds_w = math.max(view_box.w or 0, 1e-6)
-	local bounds_h = math.max(view_box.h or 0, 1e-6)
+	local view_box = assert(decoded.view_box)
+	local bounds_w = math.max(view_box.w)
+	local bounds_h = math.max(view_box.h)
 	local longest_side = math.max(1, math.floor((texture_size) + 0.5))
 	local spread = math.max(1, math.floor((spread) + 0.5))
 	local width = math.max(1, math.floor(bounds_w / math.max(bounds_w, bounds_h) * longest_side + 0.5))
@@ -72,8 +75,8 @@ local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, super
 		mip_map_levels = "auto",
 		min_filter = "linear",
 		mag_filter = "linear",
-		wrap_s = "clamp_to_edge",
-		wrap_t = "clamp_to_edge",
+		wrap_s = "clamp_to_border",
+		wrap_t = "clamp_to_border",
 	}
 	local edges = mode == "msdf" and
 		extract_svg_edges(decoded.contours, view_box, width, height, spread, supersampling) or
@@ -89,12 +92,12 @@ local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, super
 		-- Draw the polygon filled with white
 		poly:SetColor(1, 1, 1, 1)
 		-- Scale polygon to fill the framebuffer
-		local scale_x = super_w / (view_box.w or 1)
-		local scale_y = super_h / (view_box.h or 1)
-		local offset_x = spread * supersampling / 2 - view_box.x * scale_x
-		local offset_y = spread * supersampling / 2 - view_box.y * scale_y
-		render2d.Translate(offset_x, offset_y)
-		render2d.Scale(scale_x, scale_y) -- flip Y for SVG coordinate system
+		local scale_x = super_w / view_box.w
+		local scale_y = super_h / view_box.h
+		local offset_x = -view_box.x * scale_x
+		local offset_y = -view_box.y * scale_y
+		render2d.Translatef(offset_x, offset_y)
+		render2d.Scalef(scale_x, scale_y)
 		poly:Draw()
 		render2d.FlushBatches("svg_mask")
 		render2d.PopMatrix()
@@ -118,7 +121,7 @@ local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, super
 			}
 		)
 	end)
-	return tex_final
+	return tex_final, mask_texture
 end
 
 local function read_source_text(path)
@@ -138,8 +141,8 @@ end
 SVG:GetSet("Status")
 SVG:StartStorable()
 SVG:GetSet("Mode", "msdf")
-SVG:GetSet("TextureSize", 64)
-SVG:GetSet("SDFSpread", 8)
+SVG:GetSet("TextureSize", 256)
+SVG:GetSet("SDFSpread", 0.9)
 SVG:EndStorable()
 
 function SVG.New(source, options)
@@ -219,7 +222,14 @@ function SVG:ApplyData(data)
 	self.poly = Polygon2D.FromTriangleCoordinates(math2d.TriangulateContoursEvenOdd(decoded.contours))
 
 	if self.Mode ~= "poly" then
-		self.sdf_texture = CreateSDFTexture(decoded, self.poly, self.Mode, self.TextureSize, self.SDFSpread, 4)
+		self.sdf_texture, self.mask_texture = CreateSDFTexture(
+			decoded,
+			self.poly,
+			self.Mode,
+			self.TextureSize,
+			self.SDFSpread * self.TextureSize / 4,
+			4
+		)
 	end
 
 	self.status = "loaded"
@@ -240,7 +250,7 @@ function SVG:Draw()
 	if self.Mode == "msdf" or self.Mode == "sdf" then
 		assert(self.sdf_texture)
 		render2d.PushSDFTexture(self.sdf_texture)
-		render2d.PushSDFTexelRange(self.SDFSpread)
+		render2d.PushSDFTexelRange(self.SDFSpread * self.TextureSize / 4)
 
 		if self.Mode == "msdf" then render2d.PushMSDFEnabled(true) end
 

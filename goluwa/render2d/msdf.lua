@@ -235,34 +235,24 @@ function M.Build(maskTexture, opts)
 		local mask_size = maskTexture:GetSize()
 		local super_w = mask_size.x
 		local super_h = mask_size.y
-		local tex_a = Texture.New{
+		local texture_config = {
 			width = super_w,
 			height = super_h,
-			format = "r32g32_sfloat",
-			sampler = {min_filter = "nearest", mag_filter = "nearest"},
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "clamp_to_border",
+				wrap_t = "clamp_to_border",
+			},
 			image = {usage = {"storage", "sampled"}},
 		}
-		local tex_b = Texture.New{
-			width = super_w,
-			height = super_h,
-			format = "r32g32_sfloat",
-			sampler = {min_filter = "nearest", mag_filter = "nearest"},
-			image = {usage = {"storage", "sampled"}},
-		}
-		local tex_dist_on = Texture.New{
-			width = super_w,
-			height = super_h,
-			format = "r32_sfloat",
-			sampler = {min_filter = "nearest", mag_filter = "nearest"},
-			image = {usage = {"storage", "sampled"}},
-		}
-		local tex_dist_off = Texture.New{
-			width = super_w,
-			height = super_h,
-			format = "r32_sfloat",
-			sampler = {min_filter = "nearest", mag_filter = "nearest"},
-			image = {usage = {"storage", "sampled"}},
-		}
+		texture_config.format = "r32g32_sfloat"
+		local tex_a = Texture.New(texture_config)
+		local tex_b = Texture.New(texture_config)
+		local texture_config = table.copy(texture_config)
+		texture_config.format = "r32_sfloat"
+		local tex_dist_on = Texture.New(texture_config)
+		local tex_dist_off = Texture.New(texture_config)
 		local jfa_max_dist = spread
 		p.final.current_jfa_max_dist = jfa_max_dist
 
@@ -303,7 +293,12 @@ function M.Build(maskTexture, opts)
 			width = width,
 			height = height,
 			format = format,
-			sampler = {min_filter = filter, mag_filter = filter},
+			sampler = {
+				min_filter = filter,
+				mag_filter = filter,
+				wrap_s = "clamp_to_border",
+				wrap_t = "clamp_to_border",
+			},
 			image = {usage = {"transfer_dst", "transfer_src", "sampled"}},
 		}
 		local pipe_combine = msdf_mode and p.combine_msdf or p.combine_sdf
@@ -312,7 +307,12 @@ function M.Build(maskTexture, opts)
 			width = super_w,
 			height = super_h,
 			format = format,
-			sampler = {min_filter = filter, mag_filter = filter},
+			sampler = {
+				min_filter = filter,
+				mag_filter = filter,
+				wrap_s = "clamp_to_border",
+				wrap_t = "clamp_to_border",
+			},
 			image = {usage = {"storage", "transfer_src", "sampled"}},
 		}
 

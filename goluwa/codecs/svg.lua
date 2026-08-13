@@ -116,7 +116,7 @@ local function flatten_arc(
 	local cxp = factor * ((rx * y1p) / ry)
 	local cyp = factor * (-(ry * x1p) / rx)
 	local cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) / 2
-	local cy = sin_phi * cxp + cos_phi * cyp + (x1 + x2) / 2
+	local cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) / 2
 	local ux = (x1p - cxp) / rx
 	local uy = (y1p - cyp) / ry
 	local vx = (-x1p - cxp) / rx

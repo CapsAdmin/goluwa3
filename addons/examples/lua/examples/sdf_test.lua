@@ -22,8 +22,8 @@ local star_svg = [[
   <path d="M 50 5 L 61 35 L 95 35 L 68 57 L 79 90 L 50 70 L 21 90 L 32 57 L 5 35 L 39 35 Z" fill="black"/>
 </svg>
 ]]
-local svg_sdf = SVG.New(star_svg, {TextureSize = 64, SDFSpread = 8, Mode = "sdf"})
-local svg_msdf = SVG.New(star_svg, {TextureSize = 64, SDFSpread = 8, Mode = "msdf"})
+local svg_sdf = SVG.New(star_svg, {Mode = "sdf", TextureSize = 64})
+local svg_msdf = SVG.New(star_svg, {Mode = "msdf", TextureSize = 64})
 local svg_poly = SVG.New(star_svg, {Mode = "poly"})
 -- Create a color texture to modulate with
 local gradient_tex = Texture.New{
