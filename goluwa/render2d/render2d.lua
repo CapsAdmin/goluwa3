@@ -2720,9 +2720,9 @@ do -- camera
 
 		if x and y then render2d.Translate(x, y) end
 
-		if w and h then render2d.Scale(w, h) end
+		if w then render2d.Scale(w, h) end
 
-		if a then render2d.Rotate(a) end
+		if a and h then render2d.Rotate(a) end
 	end
 
 	function render2d.PushMatrixf(x, y, w, h, a, dont_multiply)
@@ -2730,9 +2730,9 @@ do -- camera
 
 		if x and y then render2d.Translatef(x, y) end
 
-		if w and h then render2d.Scalef(w, h) end
+		if w then render2d.Scalef(w, h) end
 
-		if a then render2d.Rotatef(a) end
+		if a and h then render2d.Rotatef(a) end
 	end
 
 	render2d.PopMatrix = render2d.PopWorldMatrix
