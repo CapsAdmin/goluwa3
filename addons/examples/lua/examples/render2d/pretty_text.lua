@@ -3,11 +3,6 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-
-event.AddListener("FrameClose", "pretty_text_example_stop", function()
-	running = false
-end)
-
 -- Create a gradient texture for gradient text demo
 local gradient_tex = render2d.CreateGradient{
 	width = 256,

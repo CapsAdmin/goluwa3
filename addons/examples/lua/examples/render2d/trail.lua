@@ -6,12 +6,6 @@ local event = import("goluwa/event.lua")
 local TrailRenderer = import("goluwa/render2d/trail_renderer.lua")
 local assets = import("goluwa/assets.lua")
 local glow_tex = assets.GetTexture("textures/render/glow_point.lua")
-local running = true
-
-event.AddListener("FrameClose", "trail_example_stop", function()
-	running = false
-end)
-
 -- Create several trails with different configurations
 local trails = {}
 -- Rainbow spiral trail
@@ -67,9 +61,7 @@ local orbiter = {
 local last_mouse_x = 0
 local last_mouse_y = 0
 
-local function update(dt)
-	if not running then return end
-
+event.AddListener("Update", "trail_example_update", function(dt)
 	local W, H = render2d.GetSize()
 	orbiter.center_x = W * 0.5
 	orbiter.center_y = H * 0.5
@@ -100,11 +92,9 @@ local function update(dt)
 	end
 
 	mouse_trail:Update(dt)
-end
+end)
 
-local function draw()
-	if not running then return end
-
+event.AddListener("Draw2D", "trail_example_draw", function()
 	local W, H = render2d.GetSize()
 	-- Clear with dark background
 	render2d.PushBlendPreset("none")
@@ -123,8 +113,6 @@ local function draw()
 	render2d.PushBlendPreset("additive")
 	render2d.SetColor(1, 1, 1, 0.5)
 	render2d.DrawRect(orbiter.center_x - 3, orbiter.center_y - 3, 6, 6)
-end
+end)
 
-event.AddListener("Update", "trail_example_update", update)
-event.AddListener("Draw2D", "trail_example_draw", draw)
 print("Trail renderer showcase loaded")
