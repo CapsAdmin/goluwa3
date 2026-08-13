@@ -44,7 +44,6 @@ local fragment_draw_constant_fields = {
 	{"color_uv_rotation", "float"},
 }
 local fragment_shape_constant_fields = {
-	{"blur", "vec2"},
 	{"border_radius", "vec4"},
 	{"outline_width", "float"},
 	{"rect_size", "vec2"},
@@ -460,13 +459,12 @@ local rect_batch_fragment_passthrough_fields = {
 		type = "vec4",
 		format = "r32g32b32a32_sfloat",
 		write = function(vertex, entry, state, rect_state_snapshot)
-			vertex.batch_shape_state[0] = rect_state_snapshot.blur[0]
-			vertex.batch_shape_state[1] = rect_state_snapshot.blur[1]
+			vertex.batch_shape_state[0] = 0
+			vertex.batch_shape_state[1] = 0
 			vertex.batch_shape_state[2] = rect_state_snapshot.flags
 			vertex.batch_shape_state[3] = 0
 		end,
 		fragment_values = {
-			{"shape.blur", "batch_blur", "in_batch_shape_state.xy"},
 			{"draw.flags", {"int", "batch_flags"}, "int(round(in_batch_shape_state.z))"},
 		},
 	},
@@ -1031,7 +1029,7 @@ function render2d.Initialize()
 					source = {
 						get = get_render2d_fragment_constants_source,
 						ctype = RectDrawState,
-						field = "blur",
+						field = "border_radius",
 					},
 					block = fragment_shape_constant_fields,
 					write = function(self, block)
@@ -1215,15 +1213,6 @@ function render2d.Initialize()
 
 					return uv;
 				}
-			
-				float compute_blur_alpha(vec2 coords) {
-					vec2 p = (coords - 0.5) * shape.rect_size;
-					vec2 b = max(vec2(0.0), (shape.rect_size - shape.blur * 2.0) * 0.5);
-					vec2 q = abs(p) - b;
-					float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-					float max_blur = max(shape.blur.x, shape.blur.y);
-					return smoothstep(max_blur, 0.0, dist);
-				}
 
 				float edge(float x) {
 					float softness = shape.sdf_softness;
@@ -1324,13 +1313,10 @@ function render2d.Initialize()
 						d = pow(max(d, 0.0), shape.sdf_gamma);
 						
 						out_color.rgb = vec3(d);
-						out_color.a = 1;
-					}
-					if ((shape.blur.x > 0.0 || shape.blur.y > 0.0) && shape.sdf_rect_size.x <= 0.0) {
-						//out_color.a *= compute_blur_alpha(in_uv);
-					}
+					out_color.a = 1;
+				}
 
-					if (out_color.a <= 0.0) discard;
+				if (out_color.a <= 0.0) discard;
 				}
 			]],
 		},
@@ -1516,7 +1502,6 @@ function render2d.ResetState()
 	render2d.SetUV()
 	render2d.SetColorUVTransform()
 	render2d.SetSwizzleMode(0)
-	render2d.SetBlur(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
 	render2d.SetUV2()
@@ -1761,28 +1746,12 @@ do
 				return render2d.state.render.options.msdf
 			end
 
-			utility.MakePushPopFunction(render2d, "MSDFEnabled", 1)
-		end
-
-		do
-			function render2d.SetBlur(x, y)
-				local constants = render2d.state.render.fragment.constants
-				constants.blur[0] = x or 0
-				constants.blur[1] = y or x or 0
-				render2d.state.render.options.computed_margin_dirty = true
-			end
-
-			function render2d.GetBlur()
-				local constants = render2d.state.render.fragment.constants
-				return constants.blur[0], constants.blur[1]
-			end
-
-			utility.MakePushPopFunction(render2d, "Blur", 2)
+		utility.MakePushPopFunction(render2d, "MSDFEnabled", 1)
 		end
 	end
 
-	do
-		function render2d.SetBorderRadius(tl, tr, br, bl)
+		do
+			function render2d.SetBorderRadius(tl, tr, br, bl)
 			if type(tl) == "table" then
 				tr = tl[2]
 				br = tl[3]
@@ -2251,7 +2220,6 @@ do
 			render2d.SetSampleUVMode(0)
 			render2d.SetSwizzleMode(0)
 			render2d.SetSDFTexture()
-			render2d.SetBlur(0)
 			render2d.SetBorderRadius(0, 0, 0, 0)
 			render2d.SetOutlineWidth(0)
 			render2d.ClearNinePatch()
@@ -2851,16 +2819,14 @@ do
 		local swizzle = bit.band(constants.flags, 0xF)
 
 		if render2d.state.render.textures.sdf_texture ~= nil or swizzle == 1 then
-			content_m = content_m + math.max(constants.blur[0], constants.blur[1], constants.sdf_softness)
+			content_m = content_m + constants.sdf_softness
 		end
 
 		if
-			constants.blur[0] > 0 or
-			constants.blur[1] > 0 or
 			constants.sdf_softness > 0 or
 			content_m > 0
 		then
-			content_m = math.max(content_m, constants.blur[0], constants.blur[1], constants.sdf_softness)
+			content_m = math.max(content_m, constants.sdf_softness)
 		end
 
 		local m = content_m

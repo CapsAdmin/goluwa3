@@ -370,11 +370,11 @@ function JRPGTheme:DrawClassicFrame(x, y, w, h)
 	pop_decorative_texture_state()
 	pop_unclamped_border_radius()
 	render2d.PushOutlineWidth(-5)
-	render2d.PushBlur(10)
+	render2d.PushSDFSoftness(10)
 	render2d.SetColor(0, 0, 0, 0.5)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopBlur()
+	render2d.PopSDFSoftness()
 	render2d.PopOutlineWidth()
 	x = x - 3
 	y = y - 3
@@ -430,12 +430,12 @@ function JRPGTheme:DrawSimpleLine(x1, y1, x2, y2, thickness)
 end
 
 function JRPGTheme:DrawMagicCircle(x, y, size)
-	render2d.PushBlur(size * 0.05)
+	render2d.PushSDFSoftness(size * 0.05)
 	self:DrawCircle(x, y, size, 4)
 	self:DrawCircle(x, y, size * 1.5)
 	self:DrawCircle(x, y, size * 1.7)
 	self:DrawCircle(x, y, size * 3)
-	render2d.PopBlur()
+	render2d.PopSDFSoftness()
 
 	for i = 1, 8 do
 		local angle = (i / 8) * math.pi * 2

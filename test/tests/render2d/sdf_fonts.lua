@@ -149,14 +149,14 @@ T.Test2D("sdf font ignores ambient gradient texture", function()
 	end
 end)
 
-T.Test2D("sdf font ignores ambient threshold blur and outline", function()
+T.Test2D("sdf font ignores ambient threshold, softness and outline", function()
 	local font = fonts.New{
 		Path = fonts.GetDefaultSystemFontPath(),
 		Size = 64,
 		Unique = true,
 	}
 	render2d.SetSDFThreshold(4)
-	render2d.SetBlur(18)
+	render2d.SetSDFSoftness(18)
 	render2d.SetOutlineWidth(6)
 	render2d.SetColor(1, 1, 1, 1)
 	font:DrawText("Hg", 10, 10)
@@ -164,7 +164,7 @@ T.Test2D("sdf font ignores ambient threshold blur and outline", function()
 		local downloaded = render.target:GetTexture():Download()
 		assert(
 			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
-			"expected visible pixels for SDF text with dirty threshold blur and outline"
+			"expected visible pixels for SDF text with dirty threshold, softness and outline"
 		)
 	end
 end)
