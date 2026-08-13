@@ -206,7 +206,7 @@ function Polygon2D:Draw(count)
 
 	if self.WorldMatrixMultiply then
 		-- Vertices are already transformed, use identity matrix
-		render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+		render2d.PushWorldMatrix(true)
 		render2d.LoadIdentity()
 	end
 

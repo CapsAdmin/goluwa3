@@ -637,7 +637,7 @@ end)
 T.Test2D("Graphics render2d PushMatrix dont_multiply", function()
 	render2d.PushMatrix()
 	render2d.Translate(100, 100)
-	render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+	render2d.PushWorldMatrix(true)
 	-- This matrix should be independent
 	render2d.PopMatrix()
 	render2d.PopMatrix()

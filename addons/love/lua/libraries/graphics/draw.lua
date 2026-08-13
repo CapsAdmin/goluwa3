@@ -174,7 +174,7 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 		elseif line.Type(drawable) == "Mesh" then
 			render2d.PushColor(1, 1, 1, 1)
 			render2d.PushTexture(ENV.textures[drawable.img])
-			render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+			render2d.PushWorldMatrix()
 			render2d.Translatef(x, y)
 			render2d.Rotate(r)
 

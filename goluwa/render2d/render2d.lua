@@ -2691,7 +2691,7 @@ do -- camera
 		local ceil = math.ceil
 
 		function render2d.Translate(x, y, z)
-			camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Translate(ceil(x), ceil(y), z or 0)
+			camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Translate(ceil(x), ceil(y or x), z or 0)
 		end
 
 		function render2d.Scale(w, h, z)
@@ -2700,7 +2700,7 @@ do -- camera
 	end
 
 	function render2d.Translatef(x, y, z)
-		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Translate(x, y, z or 0)
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Translate(x, y or x, z or 0)
 	end
 
 	function render2d.Rotate(a)
@@ -2720,9 +2720,13 @@ do -- camera
 
 		if x and y then render2d.Translate(x, y) end
 
-		if w then render2d.Scale(w, h) end
+		if a and h then
+			render2d.Translate(w / 2, h / 2)
+			render2d.Rotate(a)
+			render2d.Translate(-w / 2, -h / 2)
+		end
 
-		if a and h then render2d.Rotate(a) end
+		if w then render2d.Scale(w, h) end
 	end
 
 	function render2d.PushMatrixf(x, y, w, h, a, dont_multiply)
@@ -2730,9 +2734,13 @@ do -- camera
 
 		if x and y then render2d.Translatef(x, y) end
 
-		if w then render2d.Scalef(w, h) end
+		if a and h then
+			render2d.Translatef(w / 2, h / 2)
+			render2d.Rotate(a)
+			render2d.Translatef(-w / 2, -h / 2)
+		end
 
-		if a and h then render2d.Rotate(a) end
+		if w then render2d.Scalef(w, h) end
 	end
 
 	render2d.PopMatrix = render2d.PopWorldMatrix
