@@ -42,6 +42,8 @@ local fragment_draw_constant_fields = {
 	{"color_uv_offset", "vec2"},
 	{"color_uv_scale", "vec2"},
 	{"color_uv_rotation", "float"},
+	{"light_color", "vec3"},
+	{"ambient_color", "vec3"},
 }
 local fragment_shape_constant_fields = {
 	{"border_radius", "vec4"},
@@ -53,6 +55,10 @@ local fragment_shape_constant_fields = {
 	{"sdf_bias", "float"},
 	{"sdf_gamma", "float"},
 	{"sdf_softness", "float"},
+	{"bevel_width", "float"},
+	{"bevel_height", "float"},
+	{"light_angle", "float"},
+	{"light_shininess", "float"},
 }
 local fragment_patch_constant_fields = {
 	{"nine_patch_x_count", "int"},
@@ -1253,24 +1259,19 @@ function render2d.Initialize()
 					return d;
 				}
 					
-				float get_sdf(vec2 coords) {
-					float a = 1;
-
+				float get_sdf_distance(vec2 coords) {
 					if (draw.sdf_texture_index != -1) {
 						float range = shape.sdf_texel_range;
 						float d = read_raw_sdf(coords);
 						d *= range;
-						d -= shape.sdf_threshold * range; 
+						d -= shape.sdf_threshold * range;
 						d += shape.sdf_bias * range;
-						a = compute_sdf_alpha(d);
+						return d;
 					} else if (shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
 						float d = sd_rect(coords);
-						d = shape.sdf_threshold - d;
-						a = compute_sdf_alpha(d);
+						return shape.sdf_threshold - d;
 					}
-
-
-					return a;
+					return 1.0;
 				}
 
 				vec4 apply_swizzle(vec4 tex) {
@@ -1293,30 +1294,45 @@ function render2d.Initialize()
 					return color;
 				}
 				
-				void main() 
+				void main()
 				{
 					vec2 color_uv = get_uv_color(in_uv);
 					out_color = sample_fragment_color(color_uv);
 					
 					vec2 sdf_uv = get_uv_sdf(in_uv);
-					out_color.a *= get_sdf(sdf_uv);
+					out_color.a *= compute_sdf_alpha(get_sdf_distance(sdf_uv));
 
-					if (false && draw.sdf_texture_index != -1) {
-						float range = shape.sdf_texel_range;
-						float softness = 5;
+					if (FLAGS_LIGHTING != 0) {
+						float d = get_sdf_distance(sdf_uv);
 
-						float d = read_raw_sdf(sdf_uv);
-						d *= range;
-						d -= shape.sdf_threshold * range; 
-						d += shape.sdf_bias * range;
-						d = smoothstep(-softness, softness, d);
-						d = pow(max(d, 0.0), shape.sdf_gamma);
-						
-						out_color.rgb = vec3(d);
-					out_color.a = 1;
-				}
+						float t = clamp(d / max(shape.bevel_width , 1e-5), 0.0, 1.0);
+						float tilt_t  =  mix(smoothstep(1, 0.0, t), t, shape.bevel_height);
 
-				if (out_color.a <= 0.0) discard;
+						float eps = 0.0005*2;
+						float dx = get_sdf_distance(sdf_uv + vec2(eps, 0.0)) - get_sdf_distance(sdf_uv - vec2(eps, 0.0));
+						float dy = get_sdf_distance(sdf_uv + vec2(0.0, eps)) - get_sdf_distance(sdf_uv - vec2(0.0, eps));
+						vec3 normal = normalize(vec3(normalize(vec2(dx, dy)) * tilt_t, 1.0));
+
+						vec3 lit_color = draw.ambient_color;
+
+						vec3 light_dir = normalize(vec3(
+							-cos(shape.light_angle),
+							-sin(shape.light_angle),
+							1.0
+						));
+
+						float diff = max(dot(normal, light_dir), 0.0);
+						lit_color *= draw.light_color * diff;
+
+						vec3 view_dir = vec3(0.0, 0.0, 1.0);
+						vec3 reflect_dir = reflect(-light_dir, normal);
+						float spec = pow(max(dot(view_dir, reflect_dir), 0.0), shape.light_shininess);
+						lit_color += draw.light_color * spec;
+
+						out_color.rgb *= lit_color;
+					}
+
+					if (out_color.a <= 0.0) discard;
 				}
 			]],
 		},
@@ -1540,6 +1556,14 @@ function render2d.ResetState()
 	render2d.SetBlendPreset("alpha")
 	render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
 	render2d.SetStencilMode("none")
+	--bevel
+	render2d.SetBevelWidth(0.0)
+	render2d.SetBevelHeight(0)
+	render2d.SetLightAngle(0.785)
+	render2d.SetLightShininess(32.0)
+	render2d.SetLightColor(1.0, 1.0, 1.0)
+	render2d.SetAmbientColor(0.3, 0.3, 0.3)
+	render2d.SetLIGHTING(0)
 end
 
 do
@@ -1572,6 +1596,7 @@ do
 				{name = "SAMPLE_UV", mask = 0xF, shift = 4},
 				{name = "CLAMP_BORDER_RADIUS", mask = 0x1, shift = 8},
 				{name = "MSDF", mask = 0x1, shift = 9},
+				{name = "LIGHTING", mask = 0x1, shift = 10},
 			}
 
 			-- Build getter/setter for each flag from the FLAGS table
@@ -1652,6 +1677,18 @@ do
 		end
 
 		do
+			function render2d.SetLighting(enabled)
+				render2d.SetLIGHTING(enabled == true and 1 or 0)
+			end
+
+			function render2d.GetLighting()
+				return render2d.GetLIGHTING() == 1
+			end
+
+			utility.MakePushPopFunction(render2d, "Lighting", 1)
+		end
+
+		do
 			function render2d.SetSDFTexture(tex)
 				render2d.state.render.textures.sdf_texture = tex
 
@@ -1723,6 +1760,80 @@ do
 		end
 
 		do
+			function render2d.SetBevelWidth(width)
+				render2d.state.render.fragment.constants.bevel_width = width
+			end
+
+			function render2d.GetBevelWidth()
+				return render2d.state.render.fragment.constants.bevel_width
+			end
+
+			utility.MakePushPopFunction(render2d, "BevelWidth", 1)
+
+			function render2d.SetBevelHeight(sharpness)
+				render2d.state.render.fragment.constants.bevel_height = sharpness
+			end
+
+			function render2d.GetBevelHeight()
+				return render2d.state.render.fragment.constants.bevel_height
+			end
+
+			utility.MakePushPopFunction(render2d, "BevelHeight", 1)
+		end
+
+		do
+			function render2d.SetLightAngle(angle)
+				render2d.state.render.fragment.constants.light_angle = angle
+			end
+
+			function render2d.GetLightAngle()
+				return render2d.state.render.fragment.constants.light_angle
+			end
+
+			utility.MakePushPopFunction(render2d, "LightAngle", 1)
+
+			function render2d.SetLightShininess(shininess)
+				render2d.state.render.fragment.constants.light_shininess = shininess
+			end
+
+			function render2d.GetLightShininess()
+				return render2d.state.render.fragment.constants.light_shininess
+			end
+
+			utility.MakePushPopFunction(render2d, "LightShininess", 1)
+		end
+
+		do
+			function render2d.SetLightColor(r, g, b)
+				render2d.state.render.fragment.constants.light_color[0] = r
+				render2d.state.render.fragment.constants.light_color[1] = g
+				render2d.state.render.fragment.constants.light_color[2] = b
+			end
+
+			function render2d.GetLightColor()
+				local c = render2d.state.render.fragment.constants.light_color
+				return c[0], c[1], c[2]
+			end
+
+			utility.MakePushPopFunction(render2d, "LightColor", 3)
+		end
+
+		do
+			function render2d.SetAmbientColor(r, g, b)
+				render2d.state.render.fragment.constants.ambient_color[0] = r
+				render2d.state.render.fragment.constants.ambient_color[1] = g
+				render2d.state.render.fragment.constants.ambient_color[2] = b
+			end
+
+			function render2d.GetAmbientColor()
+				local c = render2d.state.render.fragment.constants.ambient_color
+				return c[0], c[1], c[2]
+			end
+
+			utility.MakePushPopFunction(render2d, "AmbientColor", 3)
+		end
+
+		do
 			function render2d.SetClampBorderRadius(enabled)
 				local normalized = enabled == true
 				render2d.state.render.options.clamp_border_radius = normalized
@@ -1746,12 +1857,12 @@ do
 				return render2d.state.render.options.msdf
 			end
 
-		utility.MakePushPopFunction(render2d, "MSDFEnabled", 1)
+			utility.MakePushPopFunction(render2d, "MSDFEnabled", 1)
 		end
 	end
 
-		do
-			function render2d.SetBorderRadius(tl, tr, br, bl)
+	do
+		function render2d.SetBorderRadius(tl, tr, br, bl)
 			if type(tl) == "table" then
 				tr = tl[2]
 				br = tl[3]
@@ -2822,10 +2933,7 @@ do
 			content_m = content_m + constants.sdf_softness
 		end
 
-		if
-			constants.sdf_softness > 0 or
-			content_m > 0
-		then
+		if constants.sdf_softness > 0 or content_m > 0 then
 			content_m = math.max(content_m, constants.sdf_softness)
 		end
 

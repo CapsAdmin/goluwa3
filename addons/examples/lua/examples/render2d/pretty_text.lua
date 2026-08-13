@@ -96,7 +96,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 	}
 	y_offset = y_offset + 50
 	-- Section 4: Gradient text
-	render2d.SetColorUVTransform(math.sin(os.clock() * 2) * 2, 0, 5, 1, math.pi / 2)
+	render2d.PushColorUVTransform(math.sin(os.clock() * 2) * 2, 0, 5, 1, math.pi / 2)
 	render2d.PushTexture(gradient_tex)
 	render2d.DrawText{
 		text = "Gradient Text",
@@ -110,6 +110,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		background_color = Color(0, 0, 0, 1),
 	}
 	render2d.PopTexture()
+	render2d.PopColorUVTransform()
 	y_offset = y_offset + 50
 	-- Section 4: Gradient text
 	render2d.DrawText{
@@ -221,7 +222,37 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		x_align = -0.5,
 		y_align = -0.5,
 	}
-	y_offset = y_offset + 45
+	-- Section 10: Bevel + lighting text (light follows mouse)
+	local light_text_x = x_start
+	local light_text_y = y_offset
+	local text_w, text_h = render2d.GetTextSize("Bevel + Lighting", FONT, 64, 700)
+	local text_center_x = light_text_x + text_w / 2
+	local text_center_y = light_text_y + text_h / 2
+	local mx, my = system.GetWindow():GetMousePosition():Unpack()
+	local light_angle = math.atan2(my - text_center_y, mx - text_center_x)
+	render2d.SetLighting(true)
+	render2d.SetBevelWidth(5)
+	render2d.SetBevelHeight(0)
+	render2d.SetLightAngle(light_angle)
+	render2d.SetLightShininess(10)
+	render2d.SetLightColor(1, 1, 1)
+	render2d.SetAmbientColor(0.5, 0.5, 0.5)
+	render2d.PushColorUVTransform(-2, 0, 5, 1, 0.2)
+	render2d.PushTexture(gradient_tex)
+	render2d.DrawText{
+		text = "Bevel + Lighting",
+		x = light_text_x,
+		y = light_text_y,
+		font = FONT,
+		size = 64,
+		weight = 700,
+		foreground_color = Color(0.9, 0.85, 0.8, 1),
+		background_color = Color(0.15, 0.15, 0.2, 1),
+	}
+	render2d.PopTexture()
+	render2d.PopColorUVTransform()
+	render2d.SetLighting(false)
+	y_offset = y_offset + 64
 	-- Section 11: Small text with minimal blur
 	render2d.DrawText{
 		text = "Small text, no blur",
