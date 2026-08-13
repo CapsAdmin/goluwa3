@@ -113,7 +113,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 	y_offset = y_offset + 50
 	-- Section 4: Gradient text
 	render2d.DrawText{
-		text = "O",
+		text = "999",
 		x = x_start,
 		y = y_offset,
 		font = FONT,
@@ -147,7 +147,7 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		blur_size = 2,
 		foreground_color = Color(1, 0.6, 0.3, 1),
 		background_color = Color(0.3, 0.15, 0.1, 1),
-		angle = 0.1,
+		angle = -0.25,
 	}
 	y_offset = y_offset + 55
 	-- Section 6: Skewed text
@@ -239,9 +239,20 @@ event.AddListener("Draw2D", "pretty_text_example_draw", function()
 		y = y_offset,
 		font = FONT,
 		size = 9,
-		blur_size = 1,
+		blur_size = 4,
 		foreground_color = Color(0.7, 0.7, 0.7, 1),
-		background_color = Color(0.2, 0.2, 0.4, 0.5),
+		background_color = Color(0.2, 0.2, 0.4, 1),
+	}
+	y_offset = y_offset + 30
+	render2d.DrawText{
+		text = "Small text with outline",
+		x = x_start,
+		y = y_offset,
+		font = FONT,
+		size = 12,
+		outline_width = 1,
+		foreground_color = Color(0.7, 0.7, 0.7, 1),
+		background_color = Color(0.2, 0.2, 0.4, 1),
 	}
 	-- Draw a separator line at top
 	render2d.PushBlendPreset("alpha")

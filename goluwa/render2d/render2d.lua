@@ -1236,7 +1236,7 @@ function render2d.Initialize()
 					float outline = shape.outline_width;
 
 					if (outline != 0) 
-						alpha = sign(outline) * abs(edge(d + outline) - edge(d));
+						alpha = abs(alpha - edge(d + outline));
 
 					return pow(max(alpha, 0.0), shape.sdf_gamma);
 				}
