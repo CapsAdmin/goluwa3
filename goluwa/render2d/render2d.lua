@@ -2732,7 +2732,7 @@ do -- camera
 
 		if w then render2d.Scalef(w, h) end
 
-		if a and h then render2d.Rotatef(a) end
+		if a and h then render2d.Rotate(a) end
 	end
 
 	render2d.PopMatrix = render2d.PopWorldMatrix
