@@ -183,7 +183,7 @@ function hotreload.Start()
 			end
 
 			last_reloaded[path] = system.GetElapsedTime() + 0.2
-			on_reload(path)
+			hotreload.Reload(path)
 			last_reloaded[path] = system.GetElapsedTime() + 0.2
 		end,
 		true,
