@@ -5,7 +5,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local objects = import("goluwa/objects/objects.lua")
-local svg_codec = import("goluwa/codecs/svg.lua")
+local SVG = import("goluwa/render2d/svg.lua")
 local BaseTheme = objects.CreateTemplate("ui_theme_base")
 BaseTheme.Name = "base"
 BaseTheme:GetSet("ThemeContext", nil)
@@ -481,7 +481,7 @@ do -- icons
 		end
 	end
 
-	local function get_cached_icon_texture(name)
+	local function get_cached_icon_svg(name)
 		local cached = icon_svg_cache[name]
 
 		if cached then return cached end
@@ -490,12 +490,7 @@ do -- icons
 
 		if not source then return nil end
 
-		local texture, decoded, meta = svg_codec.CreateSDFTexture(source, {sdf_size = 96, sdf_spread = 8, mode = "msdf"})
-		icon_svg_cache[name] = {
-			texture = texture,
-			decoded = decoded,
-			texel_range = meta.spread,
-		}
+		icon_svg_cache[name] = SVG.New(source, {TextureSize = 96, SDFSpread = 8, Mode = "msdf"})
 		return icon_svg_cache[name]
 	end
 
@@ -508,12 +503,12 @@ do -- icons
 
 	function BaseTheme:DrawSVGIcon(name, size, opts)
 		opts = opts or {}
-		local cached = get_cached_icon_texture(name)
+		local svg = get_cached_icon_svg(name)
 
-		if not cached then return end
+		if not svg or svg:GetStatus() ~= "loaded" then return end
 
-		local view_box = cached.decoded.view_box or
-			{x = 0, y = 0, w = cached.decoded.width, h = cached.decoded.height}
+		local view_box = svg.decoded.view_box or
+			{x = 0, y = 0, w = svg.decoded.width, h = svg.decoded.height}
 		local bounds_w = math.max(1e-6, view_box.w)
 		local bounds_h = math.max(1e-6, view_box.h)
 		local target_size = self:ResolveIconDrawSize(size, opts.size, opts.inset)
@@ -526,21 +521,10 @@ do -- icons
 		local rotation = math.rad(opts.rotation_degrees or 0)
 		local cx = x + draw_w * 0.5
 		local cy = y + draw_h * 0.5
-		render2d.PushSDFTexture(cached.texture)
-		render2d.PushSDFTexelRange(cached.texel_range)
-		render2d.PushTexture()
-		render2d.SetTexture(nil)
 		render2d.SetColor(color:Unpack())
-
-		if rotation ~= 0 then
-			render2d.DrawRectUV2f(cx, cy, draw_w, draw_h, 0, 1, 1, 0, rotation, draw_w * 0.5, draw_h * 0.5)
-		else
-			render2d.DrawRectUV2f(x, y, draw_w, draw_h, 0, 1, 1, 0)
-		end
-
-		render2d.PopTexture()
-		render2d.PopSDFTexelRange()
-		render2d.PopSDFTexture()
+		render2d.PushMatrixf(cx, cy, draw_w, draw_h, rotation)
+		svg:Draw()
+		render2d.PopMatrix()
 	end
 
 	function BaseTheme:DrawChevronIcon(size, opts)

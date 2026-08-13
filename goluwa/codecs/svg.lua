@@ -1,12 +1,5 @@
-local ffi = require("ffi")
 local xml = import("goluwa/codecs/xml.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
-local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
-local render = import("goluwa/render/render.lua")
-local Texture = import("goluwa/render/texture.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
-local msdf = import("goluwa/render2d/msdf.lua")
 local svg = library()
 svg.file_extensions = {"svg"}
 
@@ -427,8 +420,8 @@ local function collect_paths(node, out)
 	end
 end
 
-function svg.Decode(data, options)
-	options = options or {}
+function svg.Decode(data, curve_steps)
+	curve_steps = curve_steps or 12
 	local document = xml.Decode(data)
 	local root = assert(find_root(document.children), "SVG root node not found")
 	local view_box = parse_view_box(root.attrs.viewBox)
@@ -437,7 +430,6 @@ function svg.Decode(data, options)
 	local path_nodes = {}
 	collect_paths(root, path_nodes)
 	local contours = {}
-	local curve_steps = options.curve_steps or 12
 
 	for _, node in ipairs(path_nodes) do
 		local fill = node.attrs.fill
@@ -451,157 +443,12 @@ function svg.Decode(data, options)
 		end
 	end
 
-	local triangles = math2d.TriangulateContoursEvenOdd(contours)
 	return {
 		width = width,
 		height = height,
 		view_box = view_box or {x = 0, y = 0, w = width, h = height},
 		contours = contours,
-		triangles = triangles,
 	}
-end
-
-function svg.CreatePolygon2D(data, options)
-	local decoded = type(data) == "table" and data or svg.Decode(data, options)
-	local poly = Polygon2D.FromTriangleCoordinates(decoded.triangles)
-	return poly, decoded
-end
-
-do
-	-- Convert a flat contour {x1, y1, x2, y2, ...} to polyline points {{x, y}, ...}
-	local function contour_to_polyline(contour)
-		local poly = {}
-
-		for i = 1, #contour, 2 do
-			poly[#poly + 1] = {x = contour[i], y = contour[i + 1]}
-		end
-
-		return poly
-	end
-
-	-- Extract and color edges from SVG contours, transformed to texture coordinates
-	local function extract_svg_edges(contours, view_box, width, height, spread, supersampling)
-		local bounds_w = view_box.w or 1
-		local bounds_h = view_box.h or 1
-		local scale = supersampling * math.min(width, height) / math.max(bounds_w, bounds_h)
-		local offset_x = spread * supersampling / 2
-		local offset_y = spread * supersampling / 2
-		local all_edges = {}
-
-		for _, contour in ipairs(contours) do
-			local poly = contour_to_polyline(contour)
-
-			-- Transform to texture coordinates
-			for _, pt in ipairs(poly) do
-				pt.x = (pt.x - view_box.x) / bounds_w * width * supersampling + offset_x
-				pt.y = (pt.y - view_box.y) / bounds_h * height * supersampling + offset_y
-			end
-
-			local edges = msdf.ColorPolyline(poly)
-
-			for _, e in ipairs(edges) do
-				all_edges[#all_edges + 1] = e
-			end
-		end
-
-		return all_edges
-	end
-
-	function svg.CreateSDFTexture(data, options)
-		options = options or {}
-		local decoded = type(data) == "table" and data or svg.Decode(data, options)
-		local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
-		local bounds_w = math.max(view_box.w or 0, 1e-6)
-		local bounds_h = math.max(view_box.h or 0, 1e-6)
-		local longest_side = math.max(1, math.floor((options.sdf_size or options.SDFSize or 96) + 0.5))
-		local spread = math.max(1, math.floor((options.sdf_spread or options.SDFSpread or 8) + 0.5))
-		local supersampling = options.supersampling or 4
-		local width = math.max(1, math.floor(bounds_w / math.max(bounds_w, bounds_h) * longest_side + 0.5))
-		local height = math.max(1, math.floor(bounds_h / math.max(bounds_w, bounds_h) * longest_side + 0.5))
-		local super_w = width * supersampling
-		local super_h = height * supersampling
-
-		if #decoded.contours == 0 then
-			-- Return empty texture
-			local buffer = ffi.new("uint8_t[?]", width * height * 4)
-
-			for i = 0, #buffer - 1 do
-				buffer[i] = 0
-			end
-
-			local texture = Texture.New{
-				width = width,
-				height = height,
-				format = "r8g8b8a8_unorm",
-				buffer = buffer,
-				sampler = {min_filter = "linear", mag_filter = "linear"},
-			}
-			return texture,
-			decoded,
-			{spread = spread, width = width, height = height, mode = options.mode}
-		end
-
-		-- Create mask by rendering polygon to framebuffer
-		local mask_fb = Framebuffer.New{
-			width = super_w,
-			height = super_h,
-			name = "svg",
-			clear_color = {0, 0, 0, 0},
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		}
-		local edges = options.mode == "msdf" and
-			extract_svg_edges(decoded.contours, view_box, width, height, spread, supersampling) or
-			nil
-		local mask_texture = render.ExecuteCommand(function(cmd)
-			mask_fb:Begin(cmd)
-			local saved_batch = render2d.SaveBatchState()
-			render2d.state.runtime.batch.state:ClearPending()
-			render2d.PushBlendPreset("alpha")
-			render2d.PushScreenSize(super_w, super_h)
-			render2d.PushMatrix()
-			render2d.LoadIdentity()
-			-- Draw the polygon filled with white
-			local poly = Polygon2D.FromTriangleCoordinates(decoded.triangles)
-			poly:SetColor(1, 1, 1, 1)
-			-- Scale polygon to fill the framebuffer
-			local scale_x = super_w / (view_box.w or 1)
-			local scale_y = super_h / (view_box.h or 1)
-			local offset_x = spread * supersampling / 2 - view_box.x * scale_x
-			local offset_y = spread * supersampling / 2 - view_box.y * scale_y
-			render2d.Translate(offset_x, offset_y)
-			render2d.Scale(scale_x, scale_y) -- flip Y for SVG coordinate system
-			poly:Draw()
-			render2d.FlushBatches("svg_mask")
-			render2d.PopMatrix()
-			render2d.PopScreenSize()
-			render2d.PopBlendMode()
-			render2d.RestoreBatchState(saved_batch)
-			mask_fb:End(cmd)
-			return mask_fb.color_texture
-		end)
-		local tex_final = render.ExecuteCommand(function(cmd)
-			return msdf.Build(
-				mask_texture,
-				{
-					width = width,
-					height = height,
-					spread = spread * supersampling,
-					format = "r8g8b8a8_unorm",
-					filter = "linear",
-					mode = options.mode,
-					edges = edges,
-				}
-			)
-		end)
-		return tex_final,
-		decoded,
-		{spread = spread, width = width, height = height, mode = options.mode}
-	end
 end
 
 return svg

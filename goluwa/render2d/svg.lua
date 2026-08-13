@@ -1,10 +1,125 @@
 local io = require("io")
+local ffi = require("ffi")
 local render2d = import("goluwa/render2d/render2d.lua")
+local render = import("goluwa/render/render.lua")
 local resource = import("goluwa/resource.lua")
 local vfs = import("goluwa/vfs.lua")
 local svg_codec = import("goluwa/codecs/svg.lua")
+local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
+local Texture = import("goluwa/render/texture.lua")
+local Framebuffer = import("goluwa/render/framebuffer.lua")
+local msdf = import("goluwa/render2d/msdf.lua")
+local math2d = import("goluwa/render2d/math2d.lua")
 local objects = import("goluwa/objects/objects.lua")
 local SVG = objects.CreateTemplate("svg")
+
+-- Convert a flat contour {x1, y1, x2, y2, ...} to polyline points {{x, y}, ...}
+local function contour_to_polyline(contour)
+	local poly = {}
+
+	for i = 1, #contour, 2 do
+		poly[#poly + 1] = {x = contour[i], y = contour[i + 1]}
+	end
+
+	return poly
+end
+
+-- Extract and color edges from SVG contours, transformed to texture coordinates
+local function extract_svg_edges(contours, view_box, width, height, spread, supersampling)
+	local bounds_w = view_box.w or 1
+	local bounds_h = view_box.h or 1
+	local scale = supersampling * math.min(width, height) / math.max(bounds_w, bounds_h)
+	local offset_x = spread * supersampling / 2
+	local offset_y = spread * supersampling / 2
+	local all_edges = {}
+
+	for _, contour in ipairs(contours) do
+		local poly = contour_to_polyline(contour)
+
+		-- Transform to texture coordinates
+		for _, pt in ipairs(poly) do
+			pt.x = (pt.x - view_box.x) / bounds_w * width * supersampling + offset_x
+			pt.y = (pt.y - view_box.y) / bounds_h * height * supersampling + offset_y
+		end
+
+		local edges = msdf.ColorPolyline(poly)
+
+		for _, e in ipairs(edges) do
+			all_edges[#all_edges + 1] = e
+		end
+	end
+
+	return all_edges
+end
+
+local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, supersampling)
+	local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
+	local bounds_w = math.max(view_box.w or 0, 1e-6)
+	local bounds_h = math.max(view_box.h or 0, 1e-6)
+	local longest_side = math.max(1, math.floor((texture_size) + 0.5))
+	local spread = math.max(1, math.floor((spread) + 0.5))
+	local width = math.max(1, math.floor(bounds_w / math.max(bounds_w, bounds_h) * longest_side + 0.5))
+	local height = math.max(1, math.floor(bounds_h / math.max(bounds_w, bounds_h) * longest_side + 0.5))
+	local super_w = width * supersampling
+	local super_h = height * supersampling
+	-- Create mask by rendering polygon to framebuffer
+	local mask_fb = Framebuffer.New{
+		width = super_w,
+		height = super_h,
+		name = "svg",
+		clear_color = {0, 0, 0, 0},
+		format = "r8g8b8a8_unorm",
+		mip_map_levels = "auto",
+		min_filter = "linear",
+		mag_filter = "linear",
+		wrap_s = "clamp_to_edge",
+		wrap_t = "clamp_to_edge",
+	}
+	local edges = mode == "msdf" and
+		extract_svg_edges(decoded.contours, view_box, width, height, spread, supersampling) or
+		nil
+	local mask_texture = render.ExecuteCommand(function(cmd)
+		mask_fb:Begin(cmd)
+		local saved_batch = render2d.SaveBatchState()
+		render2d.state.runtime.batch.state:ClearPending()
+		render2d.PushBlendPreset("alpha")
+		render2d.PushScreenSize(super_w, super_h)
+		render2d.PushMatrix()
+		render2d.LoadIdentity()
+		-- Draw the polygon filled with white
+		poly:SetColor(1, 1, 1, 1)
+		-- Scale polygon to fill the framebuffer
+		local scale_x = super_w / (view_box.w or 1)
+		local scale_y = super_h / (view_box.h or 1)
+		local offset_x = spread * supersampling / 2 - view_box.x * scale_x
+		local offset_y = spread * supersampling / 2 - view_box.y * scale_y
+		render2d.Translate(offset_x, offset_y)
+		render2d.Scale(scale_x, scale_y) -- flip Y for SVG coordinate system
+		poly:Draw()
+		render2d.FlushBatches("svg_mask")
+		render2d.PopMatrix()
+		render2d.PopScreenSize()
+		render2d.PopBlendMode()
+		render2d.RestoreBatchState(saved_batch)
+		mask_fb:End(cmd)
+		return mask_fb.color_texture
+	end)
+	local tex_final = render.ExecuteCommand(function(cmd)
+		return msdf.Build(
+			mask_texture,
+			{
+				width = width,
+				height = height,
+				spread = spread * supersampling,
+				format = "r8g8b8a8_unorm",
+				filter = "linear",
+				mode = mode,
+				edges = edges,
+			}
+		)
+	end)
+	return tex_final
+end
 
 local function read_source_text(path)
 	local data = vfs.Read(path)
@@ -20,13 +135,25 @@ local function read_source_text(path)
 	return data
 end
 
+SVG:GetSet("Status")
+SVG:StartStorable()
+SVG:GetSet("Mode", "msdf")
+SVG:GetSet("TextureSize", 64)
+SVG:GetSet("SDFSpread", 8)
+SVG:EndStorable()
+
 function SVG.New(source, options)
 	local self = SVG:CreateObject{
-		status = "idle",
-		options = options or {},
-		request_id = 0,
+		Status = "idle",
 	}
-	self.options.mode = self.options.mode or "msdf"
+
+	if options then
+		if options.Mode then self:SetMode(options.Mode) end
+
+		if options.TextureSize then self:SetTextureSize(options.TextureSize) end
+
+		if options.SDFSpread then self:SetSDFSpread(options.SDFSpread) end
+	end
 
 	if source then self:Load(source) end
 
@@ -34,8 +161,6 @@ function SVG.New(source, options)
 end
 
 function SVG:Load(source)
-	self.request_id = self.request_id + 1
-	local request_id = self.request_id
 	self.source = source
 
 	if not source or source == "" then
@@ -51,14 +176,14 @@ function SVG:Load(source)
 	self.error = nil
 
 	if source:find("<svg", 1, true) then
-		self:ApplyData(source, request_id)
+		self:ApplyData(source)
 		return
 	end
 
 	local local_data = read_source_text(source)
 
 	if local_data then
-		self:ApplyData(local_data, request_id)
+		self:ApplyData(local_data)
 		return
 	end
 
@@ -66,88 +191,67 @@ function SVG:Load(source)
 		local data = read_source_text(path)
 
 		if not data then
-			self:Fail("unable to read SVG source: " .. tostring(path), request_id)
+			self:Fail("unable to read SVG source: " .. tostring(path))
 			return
 		end
 
-		self:ApplyData(data, request_id)
+		self:ApplyData(data)
 	end):Catch(function(reason)
-		self:Fail(reason or (tostring(source) .. " not found"), request_id)
+		self:Fail(reason or (tostring(source) .. " not found"))
 	end)
 end
 
-function SVG:ApplyData(data, request_id)
-	local ok, poly, decoded = pcall(svg_codec.CreatePolygon2D, data, self.options)
+function SVG:ApplyData(data)
+	local ok, decoded
+
+	if type(data) == "table" then
+		ok, decoded = true, data
+	else
+		ok, decoded = pcall(svg_codec.Decode, data)
+	end
 
 	if not ok then
-		self:Fail(poly, request_id)
+		self:Fail(decoded)
 		return
 	end
 
-	local sdf_texture, _, sdf_meta = svg_codec.CreateSDFTexture(decoded, self.options)
-
-	if request_id ~= self.request_id then return end
-
-	self.poly = poly
 	self.decoded = decoded
-	self.sdf_texture = sdf_texture
-	self.texel_range = sdf_meta.spread
+	self.poly = Polygon2D.FromTriangleCoordinates(math2d.TriangulateContoursEvenOdd(decoded.contours))
 
-	--self.sdf_is_msdf = sdf_meta and sdf_meta.is_msdf == true
-	if sdf_meta.is_msdf then self.options.mode = "msdf" end
+	if self.Mode ~= "poly" then
+		self.sdf_texture = CreateSDFTexture(decoded, self.poly, self.Mode, self.TextureSize, self.SDFSpread, 4)
+	end
 
 	self.status = "loaded"
 	self.error = nil
 end
 
-function SVG:Fail(reason, request_id)
-	if request_id ~= self.request_id then return end
-
+function SVG:Fail(reason)
 	self.poly = nil
-	self.decoded = nil
 	self.sdf_texture = nil
 	self.status = "error"
 	self.error = tostring(reason)
 	wlog("svg load failed for %s: %s", tostring(self.source), self.error)
 end
 
-function SVG:Draw(x, y, width, height, useSDF)
+function SVG:Draw()
 	if self.status ~= "loaded" then return end
 
-	local decoded = self.decoded
-	local view_box = decoded.view_box or {x = 0, y = 0, w = decoded.width, h = decoded.height}
-	local bounds_w = math.max(1e-6, view_box.w)
-	local bounds_h = math.max(1e-6, view_box.h)
-
-	if width <= 0 or height <= 0 then return end
-
-	if self.options.mode == "msdf" or self.options.mode == "sdf" then
+	if self.Mode == "msdf" or self.Mode == "sdf" then
 		assert(self.sdf_texture)
-		local scale = math.min(width / bounds_w, height / bounds_h)
-		local draw_w = bounds_w * scale
-		local draw_h = bounds_h * scale
-		local offset_x = x + (width - draw_w) / 2
-		local offset_y = y + (height - draw_h) / 2
 		render2d.PushSDFTexture(self.sdf_texture)
-		render2d.PushSDFTexelRange(self.texel_range)
-		render2d.PushMSDFEnabled(self.options.mode == "msdf")
-		render2d.PushTexture()
-		render2d.SetTexture(nil)
-		render2d.DrawRectUV2f(offset_x, offset_y, draw_w, draw_h, 0, 1, 1, 0)
-		render2d.PopTexture()
-		render2d.PopMSDFEnabled()
-		render2d.PopSDFTexture()
+		render2d.PushSDFTexelRange(self.SDFSpread)
+
+		if self.Mode == "msdf" then render2d.PushMSDFEnabled(true) end
+
+		render2d.DrawRectUV2f(0, 0, 1, 1, 0, 1, 1, 0)
+
+		if self.Mode == "msdf" then render2d.PopMSDFEnabled() end
+
 		render2d.PopSDFTexelRange()
-	elseif self.options.mode == "poly" then
-		render2d.PushMatrix()
-		render2d.Translatef(x, y)
-		local scale = math.min(width / bounds_w, height / bounds_h)
-		render2d.Scalef(scale, scale)
-		render2d.Translatef(-view_box.x, -view_box.y)
+		render2d.PopSDFTexture()
+	elseif self.Mode == "poly" then
 		self.poly:Draw()
-		render2d.PopMatrix()
-	else
-		error("invalid mode " .. self.options.mode)
 	end
 end
 

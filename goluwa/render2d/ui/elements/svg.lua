@@ -78,7 +78,9 @@ return function(props)
 							theme.active:GetColor(props.Color) or
 							theme.active:GetColor("text")
 						render2d.SetColor(color.r, color.g, color.b, color.a)
-						svg:Draw(padding.left, padding.top, available_w, available_h, props.UseSDF ~= false)
+						render2d.PushMatrixf(padding.left, padding.top, available_w, available_h)
+						svg:Draw()
+						render2d.PopMatrix()
 					elseif svg and svg.status == "error" then
 						local fallback = get_fallback_texture()
 						local draw_size = math.min(available_w, available_h)
@@ -102,7 +104,7 @@ return function(props)
 	panel:SetState("background_color", props.BackgroundColor)
 
 	function panel:SetSource(source)
-		state.svg = SVG.New(source, props.DecodeOptions)
+		state.svg = SVG.New(source)
 
 		if state.svg.status == "loaded" then
 			notify_loaded()
