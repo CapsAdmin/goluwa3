@@ -2638,6 +2638,10 @@ do -- camera
 		utility.MakePushPopFunction(render2d, "ScreenSize", 2)
 	end
 
+	function render2d.LoadIdentity()
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Identity()
+	end
+
 	function render2d.GetMatrix()
 		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:GetMultiplied(camera_state.projection_view, camera_state.projection_view_world)
 		return camera_state.projection_view_world
@@ -2645,6 +2649,38 @@ do -- camera
 
 	function render2d.GetProjectionViewMatrix()
 		return camera_state.projection_view
+	end
+
+	function render2d.PushWorldMatrix(dont_multiply)
+		camera_state.world_matrix_stack_pos = camera_state.world_matrix_stack_pos + 1
+		local mat = camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]
+
+		if not mat then
+			mat = Matrix44()
+			camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos] = mat
+		end
+
+		if dont_multiply then
+			mat:Identity()
+		else
+			Matrix44.CopyTo(camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos - 1], mat)
+		end
+	end
+
+	function render2d.PopWorldMatrix()
+		if camera_state.world_matrix_stack_pos > 1 then
+			camera_state.world_matrix_stack_pos = camera_state.world_matrix_stack_pos - 1
+		else
+			error("Matrix stack underflow")
+		end
+	end
+
+	function render2d.SetWorldMatrix(mat)
+		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos] = mat:Copy()
+	end
+
+	function render2d.GetWorldMatrix()
+		return camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]
 	end
 
 	function render2d.GetSize()
@@ -2679,24 +2715,8 @@ do -- camera
 		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Shear(x, y, 0)
 	end
 
-	function render2d.LoadIdentity()
-		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]:Identity()
-	end
-
 	function render2d.PushMatrix(x, y, w, h, a, dont_multiply)
-		camera_state.world_matrix_stack_pos = camera_state.world_matrix_stack_pos + 1
-		local mat = camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]
-
-		if not mat then
-			mat = Matrix44()
-			camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos] = mat
-		end
-
-		if dont_multiply then
-			mat:Identity()
-		else
-			Matrix44.CopyTo(camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos - 1], mat)
-		end
+		render2d.PushWorldMatrix(dont_multiply)
 
 		if x and y then render2d.Translate(x, y) end
 
@@ -2705,21 +2725,18 @@ do -- camera
 		if a then render2d.Rotate(a) end
 	end
 
-	function render2d.PopMatrix()
-		if camera_state.world_matrix_stack_pos > 1 then
-			camera_state.world_matrix_stack_pos = camera_state.world_matrix_stack_pos - 1
-		else
-			error("Matrix stack underflow")
-		end
+	function render2d.PushMatrixf(x, y, w, h, a, dont_multiply)
+		render2d.PushWorldMatrix(dont_multiply)
+
+		if x and y then render2d.Translatef(x, y) end
+
+		if w and h then render2d.Scalef(w, h) end
+
+		if a then render2d.Rotatef(a) end
 	end
 
-	function render2d.SetWorldMatrix(mat)
-		camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos] = mat:Copy()
-	end
-
-	function render2d.GetWorldMatrix()
-		return camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos]
-	end
+	render2d.PopMatrix = render2d.PopWorldMatrix
+	render2d.PopMatrixf = render2d.PopWorldMatrix
 end
 
 local function can_batch_rect_draw()
