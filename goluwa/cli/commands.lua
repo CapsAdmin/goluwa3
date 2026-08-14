@@ -694,6 +694,11 @@ do -- commands
 	end
 
 	local function run_command(command, alias, arg_line, args, rest_separator)
+		if #args == 1 and args[1] == "--help" then
+			commands.RunArguments({"help", alias})
+			return
+		end
+
 		local named_args
 
 		if command.flags then
@@ -1038,7 +1043,9 @@ do -- commands
 
 	commands.Add("help|--help|usage=string|nil", function(cmd)
 		if not cmd then
-			for k, v in table.sorted_pairs(commands.GetCommands()) do
+			for k, v in table.sorted_pairs(commands.GetCommands(), function(a, b)
+				return a.key > b.key
+			end) do
 				logn(assert(commands.GetHelpText(k)))
 			end
 		else

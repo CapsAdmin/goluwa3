@@ -2,9 +2,9 @@
 
 - do not run the game with "luajit glw" unless asked to. Prefix with "timeout 10 luajit glw" if you must
 
-- run a inline lua with "luajit glw lua 'print("hello")'" with the full game for one frame
+- run a inline lua with "luajit glw --2d --once lua 'print("hello")'" with the full game for one frame
 
-- run a single lua script with "luajit glw run path/to/file.lua" with the full game for one frame
+- run a single lua script with "luajit glw --2d --once run path/to/file.lua" with the full game for one frame
 
 - run a single test with "luajit glw test --filter=render2d --subfilter='Graphics render2d blend modes visual'"
 

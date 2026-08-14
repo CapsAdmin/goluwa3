@@ -333,6 +333,17 @@ elseif jit.os == "Linux" then
 end
 
 function Window.New(width, height, title, flags)
+	if not width and not height then
+		width = 1920
+		height = 1080
+		local desktop_size = system.GetDesktopSize()
+
+		if desktop_size then
+			width = math.max(1, math.floor(desktop_size.x / 2))
+			height = math.max(1, math.floor(desktop_size.y / 2))
+		end
+	end
+
 	local self = Window:CreateObject()
 
 	if title ~= nil then self.Title = title end

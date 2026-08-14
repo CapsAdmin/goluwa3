@@ -23,7 +23,93 @@ import.loadfile = vfs.LoadFile
 vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
 import("goluwa/test.lua") -- add test command
-local function init_game()
+commands.Add{
+	command = "global_flags",
+	flags = {
+		["2d"] = {type = "boolean", description = "Run in 2D mode (no 3D or physics)"},
+		["3d"] = {
+			type = "boolean",
+			description = "Run in 3D mode (enable 3D and physics)",
+		},
+		headless = {type = "boolean", description = "Disable graphics entirely"},
+		cli = {type = "boolean", description = "Run in CLI mode (no graphics, limited FPS)"},
+		server = {type = "boolean", description = "Run as a dedicated server"},
+		once = {type = "boolean", description = "Shut down after the first frame"},
+		renderdoc = {type = "boolean", description = "Attach RenderDoc for debugging"},
+		no_audio = {type = "boolean", description = "Disable audio"},
+	},
+	callback = function(...)
+		local flags = select(select("#", ...), ...) -- flags is always last
+		_G.GRAPHICS = not flags.headless and not flags.cli and not flags.server
+		_G.AUDIO = not flags.no_audio
+		_G.CLIENT = not flags.server
+		_G.SERVER = flags.server
+		_G.GRAPHICS_3D = flags["3d"]
+		_G.PHYSICS = flags["3d"]
+
+		if flags.renderdoc then
+			if os.getenv("GOLUWA_RENDERDOC_ATTACHED") ~= "1" then
+				fs.create_directory_recursive(vfs.GetStorageDirectory("storage") .. "logs/")
+				process.setenv("GOLUWA_RENDERDOC_ATTACHED", "1")
+				process.setenv("GOLUWA_DISABLE_DYNAMIC_LOGIC_OP", "1")
+				local child = assert(
+					process.spawn{
+						command = "renderdoccmd",
+						args = {
+							"capture",
+							"-d",
+							vfs.GetStorageDirectory("working_directory"),
+							"-c",
+							vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc",
+							"-w",
+							"luajit",
+							"glw",
+							"--3d",
+							"--renderdoc",
+						},
+					}
+				)
+				os.realexit(assert(child:wait()))
+			end
+
+			_G.RENDER_DISABLE_DYNAMIC_LOGIC_OP = true
+			local renderdoc = import("goluwa/bindings/renderdoc.lua")
+			renderdoc.init()
+			renderdoc.SetCaptureFilePathTemplate(vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc")
+			logf("[renderdoc] initialized\n")
+		end
+
+		if flags.cli or flags.server then
+			local native_threads = import("goluwa/bindings/threads.lua")
+
+			event.AddListener("Update", "cli_limit_fps", function()
+				native_threads.sleep(1000 / 30)
+			end)
+		end
+
+		if flags.once then
+			if system.GetFrameNumber() == 0 then
+				event.AddListener("FrameEnd", function()
+					system.ShutDown(0)
+				end)
+			end
+		end
+	end,
+}
+
+commands.Add("lua=string", function(code, ...)
+	assert(loadstring(code))(...)
+end)
+
+commands.Add("run=string", function(path, ...)
+	local wdir = vfs.GetStorageDirectory("working_directory")
+
+	if path:starts_with(wdir) then path = path:sub(#wdir + 1, #path) end
+
+	assert(loadfile(path))(...)
+end)
+
+local function run_game()
 	import("goluwa/cli/pvars.lua").Initialize()
 	import("goluwa/cli/repl.lua").Initialize()
 	import("goluwa/filesystem/watcher.lua").Start()
@@ -41,15 +127,6 @@ local function init_game()
 			_G.GRAPHICS = false
 		else
 			if not system.GetWindows()[1] then
-				local window_width = 1920
-				local window_height = 1080
-				local desktop_size = system.GetDesktopSize()
-
-				if desktop_size then
-					window_width = math.max(1, math.floor(desktop_size.x / 2))
-					window_height = math.max(1, math.floor(desktop_size.y / 2))
-				end
-
 				system.OpenWindow(window_width, window_height)
 			end
 
@@ -129,148 +206,42 @@ local function init_game()
 	end
 end
 
-local function normalize_path(path)
-	local wdir = vfs.GetStorageDirectory("working_directory")
-
-	if path:starts_with(wdir) then path = path:sub(#wdir + 1, #path) end
-
-	return path
-end
-
-local function run_once()
-	if system.GetFrameNumber() == 0 then
-		event.AddListener("FrameEnd", function()
-			system.ShutDown(0)
-		end)
-	end
-end
-
-commands.Add("run", function(path, ...)
-	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
-
-	_G.AUDIO = true
-	run_once()
-	init_game()
-	assert(loadfile(normalize_path(path)))(...)
-end)
-
-commands.Add("run_forever", function(path, ...)
-	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
-
-	_G.AUDIO = true
-	init_game()
-	assert(loadfile(normalize_path(path)))(...)
-end)
-
-commands.Add("lua", function(code, ...)
-	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
-
-	_G.AUDIO = true
-	run_once()
-	init_game()
-	assert(loadstring(code))(...)
-end)
-
-commands.Add("game=string[3d]", function(mode, ...)
-	_G.CLIENT = true
-	_G.GRAPHICS = true
-
-	if mode == "3d" then
-		_G.GRAPHICS_3D = true
-		_G.PHYSICS = true
-	elseif mode == "2d" then
-		_G.GRAPHICS_3D = false
-		_G.PHYSICS = false
-	end
-
-	_G.AUDIO = true
-
-	if ... == "run" then run_once() end
-
-	init_game()
-
-	if ... == "run" then
-		local path = assert(select(2, ...))
-		assert(loadfile(normalize_path(path)))(...)
-	end
-end)
-
-commands.Add("cli", function()
-	_G.CLIENT = true
-	_G.GRAPHICS = false
-	_G.AUDIO = true
-	_G.GRAPHICS_3D = false
-	_G.PHYSICS = false
-	local native_threads = import("goluwa/bindings/threads.lua")
-
-	event.AddListener("Update", "cli_limit_fps", function()
-		native_threads.sleep(1000 / 30)
-	end)
-
-	init_game()
-end)
-
-commands.Add("server", function()
-	_G.CLIENT = false
-	_G.SERVER = true
-	_G.GRAPHICS = false
-	_G.AUDIO = true
-	_G.GRAPHICS_3D = false
-	_G.PHYSICS = false
-	local native_threads = import("goluwa/bindings/threads.lua")
-
-	event.AddListener("Update", "cli_limit_fps", function()
-		native_threads.sleep(1000 / 30)
-	end)
-
-	init_game()
-end)
-
-commands.Add("renderdoc", function()
-	if os.getenv("GOLUWA_RENDERDOC_ATTACHED") ~= "1" then
-		fs.create_directory_recursive(vfs.GetStorageDirectory("storage") .. "logs/")
-		process.setenv("GOLUWA_RENDERDOC_ATTACHED", "1")
-		process.setenv("GOLUWA_DISABLE_DYNAMIC_LOGIC_OP", "1")
-		local child = assert(
-			process.spawn{
-				command = "renderdoccmd",
-				args = {
-					"capture",
-					"-d",
-					vfs.GetStorageDirectory("working_directory"),
-					"-c",
-					vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc",
-					"-w",
-					"luajit",
-					"glw",
-					"renderdoc",
-				},
-			}
-		)
-		os.realexit(assert(child:wait()))
-	end
-
-	if _G.GRAPHICS ~= false then _G.GRAPHICS = true end
-
-	_G.AUDIO = true
-	_G.RENDER_DISABLE_DYNAMIC_LOGIC_OP = true
-	local renderdoc = import("goluwa/bindings/renderdoc.lua")
-	renderdoc.init()
-	renderdoc.SetCaptureFilePathTemplate(vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc")
-	init_game()
-	logf("[renderdoc] initialized\n")
-end)
-
 return function(...)
 	local args = {...}
 	return crash_trace.Run(function()
-		if not args[1] then
-			args[1] = "game"
-		elseif args[1]:ends_with(".lua") then
-			args = {"run", args[1], unpack(args, 2)}
+		do
+			if args[1] and commands.IsAdded(args[1]) then
+				commands.RunArguments(args)
+			else
+				local remaining_args
+				local captured_flags = {}
+
+				for i, arg in ipairs(args) do
+					if arg:starts_with("--") then
+						table.insert(captured_flags, arg)
+					else
+						remaining_args = {}
+
+						for i = i, #args do
+							table.insert(remaining_args, args[i])
+						end
+
+						break
+					end
+				end
+
+				if captured_flags[1] then
+					commands.RunArguments({"global_flags", unpack(captured_flags)})
+				else
+					commands.RunArguments({"global_flags", "--3d"})
+				end
+
+				run_game()
+
+				if remaining_args then commands.RunArguments(remaining_args) end
+			end
 		end
 
-		commands.RunArguments(args)
 		local last_time = system.GetTime()
 		local i = 0
 		event.Call("Initialize")
