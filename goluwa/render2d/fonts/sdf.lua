@@ -226,7 +226,7 @@ do
 	end
 end
 
-local DEBUG = true
+local DEBUG = false
 
 function META:OnTextureGenerated(glyph, textures)
 	if not DEBUG then return end
