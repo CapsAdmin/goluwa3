@@ -890,63 +890,10 @@ do -- commands
 		return true
 	end
 
-	do
-		commands.run_lua_environment = {}
-
-		function commands.SetLuaEnvironmentVariable(key, var)
-			commands.run_lua_environment[key] = var
-		end
-
-		local function safe_import(path)
-			if import.loaded[path] ~= nil then return import.loaded[path] end
-
-			local ok, res = pcall(import, path)
-
-			if ok then return res end
-
-			return nil
-		end
-
-		function commands.RunLuaString(line, env_name)
-			commands.SetLuaEnvironmentVariable("ffi", desire("ffi"))
-			commands.SetLuaEnvironmentVariable("goluwa", _G.get_libraries().libs)
-
-			if WINDOW then
-				commands.SetLuaEnvironmentVariable("copy", window.SetClipboard)
-			end
-
-			local lua = "local __env = ...;"
-
-			for k in pairs(commands.run_lua_environment) do
-				lua = lua .. ("local %s = __env.%s;"):format(k, k)
-			end
-
-			lua = lua .. line
-			local ok, err = loadstring(lua, env_name or line)
-
-			if err then err = err:match("^.-:%d+:%s+(.+)") end
-
-			return assert(ok, err)(commands.run_lua_environment)
-		end
-
-		function commands.ExecuteLuaString(line, log_error, env_name)
-			local ret = {pcall(commands.RunLuaString, line, env_name)}
-			local ok = list.remove(ret, 1)
-
-			if not ok then
-				if log_error then logn(ret[1]:match(".+:%d+:%s+(.+)")) end
-
-				return false, ret[1]
-			end
-
-			return true, unpack(ret)
-		end
-	end
-
-	function commands.RunString(line, skip_lua, skip_split)
+	function commands.RunString(line, skip_split)
 		if not skip_split and line:find("\n") then
 			for line in (line .. "\n"):gmatch("(.-)\n") do
-				commands.RunString(line, skip_lua, skip_split)
+				commands.RunString(line, skip_split)
 			end
 
 			return
@@ -974,16 +921,6 @@ do -- commands
 
 		local ok, msg = commands.ExecuteCommandString(line)
 
-		if not ok and not msg:find("could not find command") then
-			io.stderr:write(msg, "\n")
-			io.stderr:flush()
-			return
-		end
-
-		if not ok and not skip_lua then
-			ok, msg = commands.ExecuteLuaString(line)
-		end
-
 		if not ok then
 			msg = msg:match("^.-:%d+:%s+(.+)") or msg
 			io.stderr:write(msg, "\n")
@@ -991,7 +928,7 @@ do -- commands
 		end
 	end
 
-	function commands.RunArguments(args, skip_lua)
+	function commands.RunArguments(args)
 		if not args or not args[1] then return end
 
 		local line = join_args(args, " ")
@@ -1023,16 +960,6 @@ do -- commands
 		end
 
 		local ok, msg = commands.ExecuteCommandArguments(alias, command_args)
-
-		if not ok and not msg:find("could not find command") then
-			io.stderr:write(msg, "\n")
-			io.stderr:flush()
-			return
-		end
-
-		if not ok and not skip_lua then
-			ok, msg = commands.ExecuteLuaString(line)
-		end
 
 		if not ok then
 			msg = msg:match("^.-:%d+:%s+(.+)") or msg

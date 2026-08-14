@@ -6,6 +6,7 @@ local terminal = import("goluwa/bindings/terminal.lua")
 local system = import("goluwa/system.lua")
 local output = import("goluwa/cli/output.lua")
 local commands = import("goluwa/cli/commands.lua")
+local lrun = import("goluwa/lrun.lua")
 local codec = import("goluwa/codec.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local utf8 = import("goluwa/string/utf8.lua")
@@ -369,7 +370,14 @@ function repl.InputLua(str)
 		str = "HOTRELOAD = true; dofile('" .. script .. "'); HOTRELOAD = nil"
 	end
 
-	commands.RunString(str, false, true)
+	local alias = str:match("^%s*(%S+)")
+
+	if alias and commands.IsAdded(alias) then
+		commands.RunString(str, true)
+	else
+		lrun.Execute(str, {log_error = true})
+	end
+
 	-- Flush stdout to capture any pending print() output
 	output.Flush()
 	repl.is_executing = false

@@ -4,7 +4,9 @@
 
 - run a inline lua with "luajit glw --2d --once lua 'print("hello")'" with the full game for one frame
 
-- run a single lua script with "luajit glw --2d --once run path/to/file.lua" with the full game for one frame
+- run a single lua script with "luajit glw --2d --once lua 'path/to/file.lua'" with the full game for one frame
+
+- take a screenshot with "luajit glw --2d --screenshot --once lua 'path/to/some/render/script.lua'"
 
 - run a single test with "luajit glw test --filter=render2d --subfilter='Graphics render2d blend modes visual'"
 

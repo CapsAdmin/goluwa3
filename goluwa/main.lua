@@ -19,6 +19,7 @@ local fs = import("goluwa/filesystem/fs.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local commands = import("goluwa/cli/commands.lua")
+local lrun = import("goluwa/lrun.lua")
 import.loadfile = vfs.LoadFile
 vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
@@ -117,15 +118,7 @@ commands.Add{
 }
 
 commands.Add("lua=string", function(code, ...)
-	assert(loadstring(code))(...)
-end)
-
-commands.Add("run=string", function(path, ...)
-	local wdir = vfs.GetStorageDirectory("working_directory")
-
-	if path:starts_with(wdir) then path = path:sub(#wdir + 1, #path) end
-
-	assert(loadfile(path))(...)
+	lrun.Execute(code, {log_error = true, arguments = {...}})
 end)
 
 local function run_game()

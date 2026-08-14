@@ -1,4 +1,5 @@
 local clients = import("goluwa/network/clients.lua")
+local lrun = import("goluwa/lrun.lua")
 local nvars = import("goluwa/network/nvars.lua")
 local objects = import("goluwa/objects/objects.lua")
 local crypto = import("goluwa/crypto.lua")
@@ -336,7 +337,7 @@ end
 do -- send lua
 	if CLIENT then
 		message.AddListener("sendlua", function(code, env)
-			commands.ExecuteLuaString(code, true, "sendlua")
+			lrun.Execute(code, {log_error = true, name = "sendlua"})
 		end)
 	end
 
