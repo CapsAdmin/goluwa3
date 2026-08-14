@@ -1624,7 +1624,8 @@ do
 		self:Resolve()
 		local no_path = not path
 		local w, h = self.width, self.height
-		local pixel_table = {}
+		local bytesPerPixel = without_alpha and 3 or 4
+		local pixel_buffer = ffi.new("uint8_t[?]", w * h * bytesPerPixel)
 		local format = self.format
 
 		if not path then
@@ -1635,46 +1636,44 @@ do
 		if format == "r8g8b8a8_unorm" or format == "r8g8b8a8_srgb" then
 			if without_alpha then
 				for i = 0, w * h - 1 do
-					pixel_table[i * 3 + 1] = self.pixels[i * 4 + 0]
-					pixel_table[i * 3 + 2] = self.pixels[i * 4 + 1]
-					pixel_table[i * 3 + 3] = self.pixels[i * 4 + 2]
+					pixel_buffer[i * 3 + 0] = self.pixels[i * 4 + 0]
+					pixel_buffer[i * 3 + 1] = self.pixels[i * 4 + 1]
+					pixel_buffer[i * 3 + 2] = self.pixels[i * 4 + 2]
 				end
 			else
 				for i = 0, self.size - 1 do
-					pixel_table[i + 1] = self.pixels[i]
+					pixel_buffer[i] = self.pixels[i]
 				end
 			end
 		elseif format == "b8g8r8a8_unorm" or format == "b8g8r8a8_srgb" then
-			local stride = without_alpha and 3 or 4
-
 			for i = 0, w * h - 1 do
-				pixel_table[(i * stride + 0) + 1] = self.pixels[i * 4 + 2]
-				pixel_table[(i * stride + 1) + 1] = self.pixels[i * 4 + 1]
-				pixel_table[(i * stride + 2) + 1] = self.pixels[i * 4 + 0]
+				pixel_buffer[i * bytesPerPixel + 0] = self.pixels[i * 4 + 2]
+				pixel_buffer[i * bytesPerPixel + 1] = self.pixels[i * 4 + 1]
+				pixel_buffer[i * bytesPerPixel + 2] = self.pixels[i * 4 + 0]
 
 				if not without_alpha then
-					pixel_table[(i * stride + 3) + 1] = self.pixels[i * 4 + 3]
+					pixel_buffer[i * bytesPerPixel + 3] = self.pixels[i * 4 + 3]
 				end
 			end
 		elseif format == "r8_unorm" then
 			for i = 0, w * h - 1 do
 				local r = self.pixels[i]
-				table.insert(pixel_table, r)
-				table.insert(pixel_table, r)
-				table.insert(pixel_table, r)
+				pixel_buffer[i * bytesPerPixel + 0] = r
+				pixel_buffer[i * bytesPerPixel + 1] = r
+				pixel_buffer[i * bytesPerPixel + 2] = r
 
-				if not without_alpha then table.insert(pixel_table, 255) end
+				if not without_alpha then pixel_buffer[i * bytesPerPixel + 3] = 255 end
 			end
 		elseif format == "r32_sfloat" then
 			local fpixels = ffi.cast("float*", self.pixels)
 
 			for i = 0, w * h - 1 do
 				local val = math.clamp(math.floor(fpixels[i] * 255), 0, 255)
-				table.insert(pixel_table, val)
-				table.insert(pixel_table, val)
-				table.insert(pixel_table, val)
+				pixel_buffer[i * bytesPerPixel + 0] = val
+				pixel_buffer[i * bytesPerPixel + 1] = val
+				pixel_buffer[i * bytesPerPixel + 2] = val
 
-				if not without_alpha then table.insert(pixel_table, 255) end
+				if not without_alpha then pixel_buffer[i * bytesPerPixel + 3] = 255 end
 			end
 		elseif format == "r32g32_sfloat" then
 			local fpixels = ffi.cast("float*", self.pixels)
@@ -1682,11 +1681,11 @@ do
 			for i = 0, w * h - 1 do
 				local r = math.clamp(math.floor(fpixels[i * 2 + 0] * 255), 0, 255)
 				local g = math.clamp(math.floor(fpixels[i * 2 + 1] * 255), 0, 255)
-				table.insert(pixel_table, r)
-				table.insert(pixel_table, g)
-				table.insert(pixel_table, 0)
+				pixel_buffer[i * bytesPerPixel + 0] = r
+				pixel_buffer[i * bytesPerPixel + 1] = g
+				pixel_buffer[i * bytesPerPixel + 2] = 0
 
-				if not without_alpha then table.insert(pixel_table, 255) end
+				if not without_alpha then pixel_buffer[i * bytesPerPixel + 3] = 255 end
 			end
 		elseif format == "r32g32b32a32_sfloat" or format == "r16g16b16a16_sfloat" then
 			local fpixels = ffi.cast(format == "r32g32b32a32_sfloat" and "float*" or "uint16_t*", self.pixels)
@@ -1695,7 +1694,7 @@ do
 			for i = 0, w * h - 1 do
 				for c = 0, without_alpha and 2 or 3 do
 					local val = math.clamp(math.floor(fpixels[i * 4 + c] / divisor * 255), 0, 255)
-					table.insert(pixel_table, val)
+					pixel_buffer[i * bytesPerPixel + c] = val
 				end
 			end
 		elseif format == "r16g16b16a16_unorm" then
@@ -1704,7 +1703,7 @@ do
 			for i = 0, w * h - 1 do
 				for c = 0, without_alpha and 2 or 3 do
 					local val = math.clamp(math.floor(upixels[i * 4 + c] / 65535 * 255), 0, 255)
-					table.insert(pixel_table, val)
+					pixel_buffer[i * bytesPerPixel + c] = val
 				end
 			end
 		else
@@ -1712,7 +1711,7 @@ do
 		end
 
 		local png_file = png.Encode(w, h, without_alpha and "rgb" or "rgba")
-		png_file:write(pixel_table)
+		png_file:write(pixel_buffer)
 		assert(fs.create_directory_recursive(file_path.GetFolderFromPath(path)))
 		assert(fs.write_file(path, png_file:getData()))
 		return path

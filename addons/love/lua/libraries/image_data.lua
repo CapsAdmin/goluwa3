@@ -417,13 +417,7 @@ do -- image data
 		assert(path:ends_with(".png"), "ImageData:encode currently only supports PNG")
 		local png = import("goluwa/codecs/png.lua")
 		local png_file = png.Encode(self.width, self.height, "rgba")
-		local pixel_table = {}
-
-		for i = 0, self.size - 1 do
-			pixel_table[i + 1] = self.buffer[i]
-		end
-
-		png_file:write(pixel_table)
+		png_file:write(self.buffer)
 		local file = assert(vfs.Open(path, "write"))
 		file:Write(png_file:getData())
 		file:Close()
