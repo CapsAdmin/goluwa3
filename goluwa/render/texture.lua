@@ -1616,22 +1616,12 @@ do
 	local system = import("goluwa/system.lua")
 	local png = import("goluwa/codecs/png.lua")
 
-	function TextureDownloaded:Save(path, without_alpha)
-		if path and not path:ends_with(".png") then
-			error("Can only save as PNG format", 2)
-		end
-
+	function TextureDownloaded:ToPNG(without_alpha)
 		self:Resolve()
-		local no_path = not path
 		local w, h = self.width, self.height
-		local bytesPerPixel = without_alpha and 3 or 4
-		local pixel_buffer = ffi.new("uint8_t[?]", w * h * bytesPerPixel)
+		local bpp = without_alpha and 3 or 4
+		local pixel_buffer = ffi.new("uint8_t[?]", w * h * bpp)
 		local format = self.format
-
-		if not path then
-			local prefix = vfs.GetStorageDirectory("storage") .. "logs/screenshots/" .. tostring(system.GetTimeNS()):strip_suffix("ULL")
-			path = prefix .. "_" .. format .. "_" .. w .. "x" .. h .. ".png"
-		end
 
 		if format == "r8g8b8a8_unorm" or format == "r8g8b8a8_srgb" then
 			if without_alpha then
@@ -1647,33 +1637,33 @@ do
 			end
 		elseif format == "b8g8r8a8_unorm" or format == "b8g8r8a8_srgb" then
 			for i = 0, w * h - 1 do
-				pixel_buffer[i * bytesPerPixel + 0] = self.pixels[i * 4 + 2]
-				pixel_buffer[i * bytesPerPixel + 1] = self.pixels[i * 4 + 1]
-				pixel_buffer[i * bytesPerPixel + 2] = self.pixels[i * 4 + 0]
+				pixel_buffer[i * bpp + 0] = self.pixels[i * 4 + 2]
+				pixel_buffer[i * bpp + 1] = self.pixels[i * 4 + 1]
+				pixel_buffer[i * bpp + 2] = self.pixels[i * 4 + 0]
 
 				if not without_alpha then
-					pixel_buffer[i * bytesPerPixel + 3] = self.pixels[i * 4 + 3]
+					pixel_buffer[i * bpp + 3] = self.pixels[i * 4 + 3]
 				end
 			end
 		elseif format == "r8_unorm" then
 			for i = 0, w * h - 1 do
 				local r = self.pixels[i]
-				pixel_buffer[i * bytesPerPixel + 0] = r
-				pixel_buffer[i * bytesPerPixel + 1] = r
-				pixel_buffer[i * bytesPerPixel + 2] = r
+				pixel_buffer[i * bpp + 0] = r
+				pixel_buffer[i * bpp + 1] = r
+				pixel_buffer[i * bpp + 2] = r
 
-				if not without_alpha then pixel_buffer[i * bytesPerPixel + 3] = 255 end
+				if not without_alpha then pixel_buffer[i * bpp + 3] = 255 end
 			end
 		elseif format == "r32_sfloat" then
 			local fpixels = ffi.cast("float*", self.pixels)
 
 			for i = 0, w * h - 1 do
 				local val = math.clamp(math.floor(fpixels[i] * 255), 0, 255)
-				pixel_buffer[i * bytesPerPixel + 0] = val
-				pixel_buffer[i * bytesPerPixel + 1] = val
-				pixel_buffer[i * bytesPerPixel + 2] = val
+				pixel_buffer[i * bpp + 0] = val
+				pixel_buffer[i * bpp + 1] = val
+				pixel_buffer[i * bpp + 2] = val
 
-				if not without_alpha then pixel_buffer[i * bytesPerPixel + 3] = 255 end
+				if not without_alpha then pixel_buffer[i * bpp + 3] = 255 end
 			end
 		elseif format == "r32g32_sfloat" then
 			local fpixels = ffi.cast("float*", self.pixels)
@@ -1681,11 +1671,11 @@ do
 			for i = 0, w * h - 1 do
 				local r = math.clamp(math.floor(fpixels[i * 2 + 0] * 255), 0, 255)
 				local g = math.clamp(math.floor(fpixels[i * 2 + 1] * 255), 0, 255)
-				pixel_buffer[i * bytesPerPixel + 0] = r
-				pixel_buffer[i * bytesPerPixel + 1] = g
-				pixel_buffer[i * bytesPerPixel + 2] = 0
+				pixel_buffer[i * bpp + 0] = r
+				pixel_buffer[i * bpp + 1] = g
+				pixel_buffer[i * bpp + 2] = 0
 
-				if not without_alpha then pixel_buffer[i * bytesPerPixel + 3] = 255 end
+				if not without_alpha then pixel_buffer[i * bpp + 3] = 255 end
 			end
 		elseif format == "r32g32b32a32_sfloat" or format == "r16g16b16a16_sfloat" then
 			local fpixels = ffi.cast(format == "r32g32b32a32_sfloat" and "float*" or "uint16_t*", self.pixels)
@@ -1694,7 +1684,7 @@ do
 			for i = 0, w * h - 1 do
 				for c = 0, without_alpha and 2 or 3 do
 					local val = math.clamp(math.floor(fpixels[i * 4 + c] / divisor * 255), 0, 255)
-					pixel_buffer[i * bytesPerPixel + c] = val
+					pixel_buffer[i * bpp + c] = val
 				end
 			end
 		elseif format == "r16g16b16a16_unorm" then
@@ -1703,17 +1693,31 @@ do
 			for i = 0, w * h - 1 do
 				for c = 0, without_alpha and 2 or 3 do
 					local val = math.clamp(math.floor(upixels[i * 4 + c] / 65535 * 255), 0, 255)
-					pixel_buffer[i * bytesPerPixel + c] = val
+					pixel_buffer[i * bpp + c] = val
 				end
 			end
 		else
-			error(string.format("TextureDownloaded:Save: unsupported format '%s'", tostring(format)))
+			error(string.format("TextureDownloaded:ToPNG: unsupported format '%s'", tostring(format)))
 		end
 
 		local png_file = png.Encode(w, h, without_alpha and "rgb" or "rgba")
 		png_file:write(pixel_buffer)
+		return png_file:getData()
+	end
+
+	function TextureDownloaded:Save(path, without_alpha)
+		if path and not path:ends_with(".png") then
+			error("Can only save as PNG format", 2)
+		end
+
+		if not path then
+			local prefix = vfs.GetStorageDirectory("storage") .. "logs/screenshots/" .. tostring(system.GetTimeNS()):strip_suffix("ULL")
+			path = prefix .. "_" .. format .. "_" .. w .. "x" .. h .. ".png"
+		end
+
+		local data = self:ToPNG(without_alpha)
 		assert(fs.create_directory_recursive(file_path.GetFolderFromPath(path)))
-		assert(fs.write_file(path, png_file:getData()))
+		assert(fs.write_file(path, data))
 		return path
 	end
 
