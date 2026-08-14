@@ -1711,8 +1711,9 @@ do
 		end
 
 		if not path then
+			local w, h = self.width, self.height
 			local prefix = vfs.GetStorageDirectory("storage") .. "logs/screenshots/" .. tostring(system.GetTimeNS()):strip_suffix("ULL")
-			path = prefix .. "_" .. format .. "_" .. w .. "x" .. h .. ".png"
+			path = prefix .. "_" .. self.format .. "_" .. w .. "x" .. h .. ".png"
 		end
 
 		local data = self:ToPNG(without_alpha)

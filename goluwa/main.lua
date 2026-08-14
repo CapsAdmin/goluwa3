@@ -101,16 +101,10 @@ commands.Add{
 		end
 
 		if flags.screenshot then
-			local screenshot_data = nil
+			local render = import("goluwa/render/render.lua")
 
-			event.AddListener("PostRenderPass", function()
-				local render = import("goluwa/render/render.lua")
-				screenshot_data = render.target:GetTexture():Download()
-			end)
-
-			event.AddListener("FrameEnd", function()
-				assert(screenshot_data)
-				local path = screenshot_data:Save(nil, true) -- no alpha
+			render.Screenshot(function(screenshot_data)
+				local path = screenshot_data:Save(nil, true)
 				logn("screenshot saved to ", path)
 			end)
 		end
