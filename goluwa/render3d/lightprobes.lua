@@ -849,7 +849,7 @@ function lightprobes.ExportProbeDepth(index)
 
 	for face_index = 0, 5 do
 		local path = string.format("%sprobe_%02d_depth_%s.png", dir, index, face_names[face_index + 1])
-		probe.depth_cubemap:Download{base_array_layer = face_index}:SaveAs(path)
+		probe.depth_cubemap:Download{base_array_layer = face_index}:Save(path)
 		logf("[lightprobes] saved %s\n", path)
 	end
 

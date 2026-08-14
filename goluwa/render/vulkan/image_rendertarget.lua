@@ -233,6 +233,7 @@ local function create_swapchain(self)
 
 	for i, img in ipairs(self.swapchain:GetImages()) do
 		textures[i] = Texture.New{
+			format = self.surface_format.format,
 			image = img,
 			view = {format = self.surface_format.format},
 			sampler = false,

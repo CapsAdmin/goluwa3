@@ -28,7 +28,7 @@ function Swapchain.New(config)
 				imageColorSpace = config.surface_format.color_space,
 				imageExtent = config.surface_capabilities.currentExtent,
 				imageArrayLayers = 1,
-				imageUsage = config.image_usage or {"color_attachment", "transfer_dst"},
+				imageUsage = config.image_usage or {"color_attachment", "transfer_dst", "transfer_src"},
 				imageSharingMode = "exclusive",
 				preTransform = config.pre_transform or config.surface_capabilities.currentTransform,
 				compositeAlpha = config.composite_alpha or "opaque_khr",
@@ -48,6 +48,8 @@ function Swapchain.New(config)
 		ptr = ptr,
 		device = config.device,
 		format = config.surface_format.format,
+		width = config.surface_capabilities.currentExtent.width,
+		height = config.surface_capabilities.currentExtent.height,
 		-- pointer references to prevent GC
 		old_swapchain = config.old_swapchain,
 		surface = config.surface,
@@ -76,7 +78,10 @@ function Swapchain:GetImages()
 			ptr = ptr,
 			device = self.device,
 			format = self.format,
+			width = self.width,
+			height = self.height,
 			dont_destroy = true,
+			is_swapchain = true,
 		}
 	end
 

@@ -234,7 +234,7 @@ function META:OnTextureGenerated(glyph, textures)
 	local str = string.char(glyph.char_code)
 
 	for name, tex in pairs(textures) do
-		tex:Download():SaveAs("tmp/sdf_glyphs/" .. str .. "_" .. name .. ".png")
+		tex:Save("tmp/sdf_glyphs/" .. str .. "_" .. name .. ".png")
 	end
 end
 

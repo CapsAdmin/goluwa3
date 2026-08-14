@@ -32,6 +32,10 @@ commands.Add{
 			description = "Run in 3D mode (enable 3D and physics)",
 		},
 		headless = {type = "boolean", description = "Disable graphics entirely"},
+		screenshot = {
+			type = "boolean",
+			description = "Takes one screenshot at the end of the first frame",
+		},
 		cli = {type = "boolean", description = "Run in CLI mode (no graphics, limited FPS)"},
 		server = {type = "boolean", description = "Run as a dedicated server"},
 		once = {type = "boolean", description = "Shut down after the first frame"},
@@ -93,6 +97,21 @@ commands.Add{
 					system.ShutDown(0)
 				end)
 			end
+		end
+
+		if flags.screenshot then
+			local screenshot_data = nil
+
+			event.AddListener("PostRenderPass", function()
+				local render = import("goluwa/render/render.lua")
+				screenshot_data = render.target:GetTexture():Download()
+			end)
+
+			event.AddListener("FrameEnd", function()
+				assert(screenshot_data)
+				local path = screenshot_data:Save(nil, true) -- no alpha
+				logn("screenshot saved to ", path)
+			end)
 		end
 	end,
 }

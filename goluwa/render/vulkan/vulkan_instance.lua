@@ -47,6 +47,10 @@ function VulkanInstance.New(surface_handle, display_handle)
 		table.insert(extensions, "VK_KHR_portability_enumeration")
 	end
 
+	if not is_headless then
+		table.insert(extensions, "VK_KHR_get_surface_capabilities2")
+	end
+
 	do
 		local available_instance_extensions = vulkan.GetAvailableExtensions()
 		local filtered_extensions = {}
@@ -131,11 +135,12 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local device_name = ffi.string(props.deviceName)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	local available_extensions = self.physical_device:GetAvailableDeviceExtensions()
-	local requested_device_extensions = {
+    local requested_device_extensions = {
 		"VK_EXT_conditional_rendering",
 		"VK_EXT_scalar_block_layout",
 		"VK_EXT_extended_dynamic_state",
 		"VK_EXT_extended_dynamic_state3",
+		"VK_KHR_shared_presentable_image", -- swapchain screenshots
 	}
 
 	if not is_headless then

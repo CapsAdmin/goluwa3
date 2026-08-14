@@ -15,7 +15,7 @@ T.Test2D("sdf font draws opaque interior pixels", function()
 	font:DrawText("Hg", 10, 10)
 	return function()
 		local tex = render.target:GetTexture()
-		tex:Download():SaveAs("tmp/raster_sdf.png")
+		tex:Download():Save("tmp/raster_sdf.png")
 		T.AssertScreenPixel{
 			pos = {26, 47},
 			color = {1, 1, 1, 1},

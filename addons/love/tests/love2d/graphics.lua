@@ -1973,7 +1973,6 @@ T.Pending("love graphics mesh placement", function()
 	love.graphics.setColor(1, 1, 1, 1)
 	love.graphics.draw(mesh, 256, 32)
 	return function()
-		T.Screenshot()
 		T.AssertScreenPixel{pos = {272, 48}, color = {1, 1, 0, 1}, tolerance = 0.1}
 		T.AssertScreenPixel{pos = {304, 48}, color = {1, 0, 0, 1}, tolerance = 0.1}
 		T.AssertScreenPixel{pos = {272, 80}, color = {0, 1, 0, 1}, tolerance = 0.1}

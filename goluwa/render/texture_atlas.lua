@@ -203,7 +203,7 @@ function META:Build()
 
 	if false then
 		for i, page in ipairs(self.pages) do
-			page.texture:Download():SaveAs("tmp/texture_atlas_" .. self:GetName() .. "_page_" .. i .. ".png")
+			page.texture:Save("tmp/texture_atlas_" .. self:GetName() .. "_page_" .. i .. ".png")
 		end
 	end
 end

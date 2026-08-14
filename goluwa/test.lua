@@ -1022,15 +1022,14 @@ function test.RunUntil2(condition, timeout)
 	return false -- timeout
 end
 
-function test.Screenshot(name)
-	name = name or "tmp/test.png"
+function test.Screenshot(path)
 	local render = import("goluwa/render/render.lua")
-	render.target:GetTexture():SaveAs(name)
+	render.target:GetTexture():Save(path)
 end
 
-function test.ScreenshotAlbedo(name)
+function test.ScreenshotAlbedo(path)
 	local render3d = import("goluwa/render3d/render3d.lua")
-	render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):SaveAs(name)
+	render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):Save(path)
 end
 
 function test.AssertScreenPixel(tbl)

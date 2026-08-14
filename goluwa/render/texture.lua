@@ -1516,6 +1516,21 @@ do
 		return self.width
 	end
 
+	function TextureDownloaded:Resolve()
+		if not self.deferred then return self end
+
+		-- Wait for GPU to finish
+		render.GetDevice():WaitIdle()
+		-- Map staging buffer and copy pixel data
+		local pixel_data = assert(self.staging_buffer:Map(), "Cannot download: failed to map staging buffer")
+		self.pixels = ffi.new("uint8_t[?]", self.size)
+		ffi.copy(self.pixels, pixel_data, self.size)
+		self.staging_buffer:Unmap()
+		self.deferred = false
+		self.staging_buffer = nil
+		return self
+	end
+
 	function TextureDownloaded:GetHeight()
 		return self.height
 	end
@@ -1595,25 +1610,51 @@ do
 		return r, g, b, a
 	end
 
-	function TextureDownloaded:SaveAs(path)
-		if not path:ends_with(".png") then
+	local fs = import("goluwa/filesystem/fs.lua")
+	local vfs = import("goluwa/vfs.lua")
+	local file_path = import("goluwa/filesystem/path.lua")
+	local system = import("goluwa/system.lua")
+	local png = import("goluwa/codecs/png.lua")
+
+	function TextureDownloaded:Save(path, without_alpha)
+		if path and not path:ends_with(".png") then
 			error("Can only save as PNG format", 2)
 		end
 
-		local png = import("goluwa/codecs/png.lua")
+		self:Resolve()
+		local no_path = not path
 		local w, h = self.width, self.height
-		local png_file = png.Encode(w, h, "rgba")
 		local pixel_table = {}
 		local format = self.format
 
-		if
-			format == "r8g8b8a8_unorm" or
-			format == "r8g8b8a8_srgb" or
-			format == "b8g8r8a8_unorm" or
-			format == "b8g8r8a8_srgb"
-		then
-			for i = 0, self.size - 1 do
-				pixel_table[i + 1] = self.pixels[i]
+		if not path then
+			local prefix = vfs.GetStorageDirectory("storage") .. "logs/screenshots/" .. tostring(system.GetTimeNS()):strip_suffix("ULL")
+			path = prefix .. "_" .. format .. "_" .. w .. "x" .. h .. ".png"
+		end
+
+		if format == "r8g8b8a8_unorm" or format == "r8g8b8a8_srgb" then
+			if without_alpha then
+				for i = 0, w * h - 1 do
+					pixel_table[i * 3 + 1] = self.pixels[i * 4 + 0]
+					pixel_table[i * 3 + 2] = self.pixels[i * 4 + 1]
+					pixel_table[i * 3 + 3] = self.pixels[i * 4 + 2]
+				end
+			else
+				for i = 0, self.size - 1 do
+					pixel_table[i + 1] = self.pixels[i]
+				end
+			end
+		elseif format == "b8g8r8a8_unorm" or format == "b8g8r8a8_srgb" then
+			local stride = without_alpha and 3 or 4
+
+			for i = 0, w * h - 1 do
+				pixel_table[(i * stride + 0) + 1] = self.pixels[i * 4 + 2]
+				pixel_table[(i * stride + 1) + 1] = self.pixels[i * 4 + 1]
+				pixel_table[(i * stride + 2) + 1] = self.pixels[i * 4 + 0]
+
+				if not without_alpha then
+					pixel_table[(i * stride + 3) + 1] = self.pixels[i * 4 + 3]
+				end
 			end
 		elseif format == "r8_unorm" then
 			for i = 0, w * h - 1 do
@@ -1621,7 +1662,8 @@ do
 				table.insert(pixel_table, r)
 				table.insert(pixel_table, r)
 				table.insert(pixel_table, r)
-				table.insert(pixel_table, 255)
+
+				if not without_alpha then table.insert(pixel_table, 255) end
 			end
 		elseif format == "r32_sfloat" then
 			local fpixels = ffi.cast("float*", self.pixels)
@@ -1631,7 +1673,8 @@ do
 				table.insert(pixel_table, val)
 				table.insert(pixel_table, val)
 				table.insert(pixel_table, val)
-				table.insert(pixel_table, 255)
+
+				if not without_alpha then table.insert(pixel_table, 255) end
 			end
 		elseif format == "r32g32_sfloat" then
 			local fpixels = ffi.cast("float*", self.pixels)
@@ -1642,14 +1685,15 @@ do
 				table.insert(pixel_table, r)
 				table.insert(pixel_table, g)
 				table.insert(pixel_table, 0)
-				table.insert(pixel_table, 255)
+
+				if not without_alpha then table.insert(pixel_table, 255) end
 			end
 		elseif format == "r32g32b32a32_sfloat" or format == "r16g16b16a16_sfloat" then
 			local fpixels = ffi.cast(format == "r32g32b32a32_sfloat" and "float*" or "uint16_t*", self.pixels)
 			local divisor = format == "r32g32b32a32_sfloat" and 1 or 65535
 
 			for i = 0, w * h - 1 do
-				for c = 0, 3 do
+				for c = 0, without_alpha and 2 or 3 do
 					local val = math.clamp(math.floor(fpixels[i * 4 + c] / divisor * 255), 0, 255)
 					table.insert(pixel_table, val)
 				end
@@ -1658,19 +1702,20 @@ do
 			local upixels = ffi.cast("uint16_t*", self.pixels)
 
 			for i = 0, w * h - 1 do
-				for c = 0, 3 do
+				for c = 0, without_alpha and 2 or 3 do
 					local val = math.clamp(math.floor(upixels[i * 4 + c] / 65535 * 255), 0, 255)
 					table.insert(pixel_table, val)
 				end
 			end
 		else
-			error(string.format("TextureDownloaded:SaveAs: unsupported format '%s'", tostring(format)))
+			error(string.format("TextureDownloaded:Save: unsupported format '%s'", tostring(format)))
 		end
 
+		local png_file = png.Encode(w, h, without_alpha and "rgb" or "rgba")
 		png_file:write(pixel_table)
-		local file = assert(io.open(path, "wb"))
-		file:write(png_file:getData())
-		file:close()
+		assert(fs.create_directory_recursive(file_path.GetFolderFromPath(path)))
+		assert(fs.write_file(path, png_file:getData()))
+		return path
 	end
 
 	TextureDownloaded:Register()
@@ -1679,8 +1724,8 @@ do
 		local png = import("goluwa/codecs/png.lua")
 		local fs = import("goluwa/filesystem/fs.lua")
 
-		function Texture:SaveAs(path)
-			return self:Download():SaveAs(path)
+		function Texture:Save(path, without_alpha)
+			return self:Download():Save(path, without_alpha)
 		end
 	end
 
@@ -1708,9 +1753,15 @@ do
 			properties = {"host_visible", "host_coherent"},
 			name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "download staging"),
 		}
-		-- Create command buffer for copy
-		local copy_cmd = render.GetCommandPool():AllocateCommandBuffer()
-		copy_cmd:Begin()
+		-- For swapchain images, use the current render command buffer to avoid sync issues
+		local use_current_cmd = image.is_swapchain and render.GetCommandBuffer() ~= nil
+		local copy_cmd = use_current_cmd and
+			render.GetCommandBuffer() or
+			render.GetCommandPool():AllocateCommandBuffer()
+		local owns_cmd = not use_current_cmd
+
+		if owns_cmd then copy_cmd:Begin() end
+
 		-- Transition to transfer_src for copy
 		local old_layout = render.TransitionResourceTo(
 			self,
@@ -1747,23 +1798,36 @@ do
 			)
 		end
 
-		copy_cmd:End()
-		-- Submit and wait
-		render.SubmitAndWait(copy_cmd)
-		-- Map staging buffer and copy pixel data
-		local pixel_data = assert(staging_buffer:Map(), "Cannot download: failed to map staging buffer")
-		local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
-		ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
-		staging_buffer:Unmap()
-		return TextureDownloaded:CreateObject{
-			pixels = pixels,
-			width = width,
-			height = height,
-			format = format,
-			base_array_layer = base_array_layer,
-			bytes_per_pixel = bytes_per_pixel,
-			size = width * height * bytes_per_pixel,
-		}
+		if owns_cmd then
+			copy_cmd:End()
+			render.SubmitAndWait(copy_cmd)
+			-- Map staging buffer and copy pixel data
+			local pixel_data = assert(staging_buffer:Map(), "Cannot download: failed to map staging buffer")
+			local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
+			ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
+			staging_buffer:Unmap()
+			return TextureDownloaded:CreateObject{
+				pixels = pixels,
+				width = width,
+				height = height,
+				format = format,
+				base_array_layer = base_array_layer,
+				bytes_per_pixel = bytes_per_pixel,
+				size = width * height * bytes_per_pixel,
+			}
+		else
+			-- Swapchain: return deferred download that resolves after frame ends
+			return TextureDownloaded:CreateObject{
+				staging_buffer = staging_buffer,
+				width = width,
+				height = height,
+				format = format,
+				base_array_layer = base_array_layer,
+				bytes_per_pixel = bytes_per_pixel,
+				size = width * height * bytes_per_pixel,
+				deferred = true,
+			}
+		end
 	end
 
 	function Texture:GetPixel(x, y)
