@@ -3,6 +3,7 @@ local http = import("goluwa/sockets/http.lua")
 local HTTPClient = objects.CreateTemplate("socket_http11_client")
 HTTPClient.Base = import("goluwa/sockets/tcp_client.lua")
 HTTPClient.Stage = "none"
+HTTPClient:GetSet("AutoClose", true)
 
 do
 	http.MixinHTTP(HTTPClient)
@@ -58,7 +59,7 @@ do
 				return false
 			end
 		elseif what == "body" then
-			self:Close()
+			if self.AutoClose then self:Close() end
 		end
 	end
 end
