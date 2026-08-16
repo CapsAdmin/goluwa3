@@ -177,7 +177,7 @@ do
 		local y = tbl.y or 0
 		w = w or tbl.w
 		h = h or tbl.h
-		render2d.PushMatrix()
+		render2d.PushWorldMatrix()
 		render2d.Translatef(x + w / 2, y + h / 2)
 
 		if tbl.scale or tbl.scale_x or tbl.scale_y then
@@ -201,7 +201,7 @@ do
 		render2d.Translatef(-(x + w / 2), -(y + h / 2))
 	end
 
-	render2d.PopTransform = render2d.PopMatrix
+	render2d.PopTransform = render2d.PopWorldMatrix
 end
 
 local fonts = import("goluwa/render2d/fonts.lua")
