@@ -1304,6 +1304,9 @@ function render2d.Initialize()
 
 					if (FLAGS_LIGHTING != 0) {
 						float d = get_sdf_distance(sdf_uv);
+						if (shape.outline_width > 0)
+							d = -d;
+					
 
 						float t = clamp(d / max(shape.bevel_width , 1e-5), 0.0, 1.0);
 						float tilt_t  =  mix(smoothstep(1, 0.0, t), t, shape.bevel_height);
