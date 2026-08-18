@@ -112,7 +112,7 @@ commands.Add{
 }
 
 commands.Add("lua=string", function(code, ...)
-	lrun.Execute(code, {log_error = true, arguments = {...}})
+	return lrun.Execute(code, {log_error = false, arguments = {...}})
 end)
 
 local function run_game()
@@ -217,7 +217,7 @@ return function(...)
 	return crash_trace.Run(function()
 		do
 			if args[1] and commands.IsAdded(args[1]) then
-				commands.RunArguments(args)
+				if not commands.RunArguments(args) then system.ShutDown(1) end
 			else
 				local remaining_args
 				local captured_flags = {}
@@ -244,7 +244,11 @@ return function(...)
 
 				run_game()
 
-				if remaining_args then commands.RunArguments(remaining_args) end
+				if remaining_args then
+					if not commands.RunArguments(remaining_args) then
+						system.ShutDown(1)
+					end
+				end
 			end
 		end
 
@@ -266,6 +270,6 @@ return function(...)
 		end
 
 		event.Call("ShutDown")
-		os.realexit(os.exitcode or 1)
+		os.realexit(os.exitcode)
 	end)
 end

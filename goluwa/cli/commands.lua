@@ -929,8 +929,6 @@ do -- commands
 	end
 
 	function commands.RunArguments(args)
-		if not args or not args[1] then return end
-
 		local line = join_args(args, " ")
 		local pvars = import("goluwa/cli/pvars.lua")
 
@@ -940,7 +938,7 @@ do -- commands
 			if key and val and pvars.Get(key) ~= nil then
 				pvars.SetString(key, val)
 				logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
-				return
+				return true
 			end
 
 			local key = line:match("^([%w_]+)$")
@@ -948,7 +946,7 @@ do -- commands
 			if key and pvars.Get(key) ~= nil then
 				logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
 				logn(pvars.GetObject(key):GetHelp())
-				return
+				return true
 			end
 		end
 
@@ -966,6 +964,8 @@ do -- commands
 			io.stderr:write(msg, "\n")
 			io.stderr:flush()
 		end
+
+		return ok, msg
 	end
 
 	commands.Add("help|--help|usage=string|nil", function(cmd)

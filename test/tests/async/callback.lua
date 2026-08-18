@@ -233,11 +233,11 @@ T.Test("callback.Get pumps updates in glw lua subprocess", function()
 		process.spawn{
 			command = "luajit",
 			args = {
-				"-e",
-				"_G.GRAPHICS=false",
 				"glw",
+				"--once",
+				"--cli",
 				"lua",
-				[[local callback = import("goluwa/callback.lua"); print(callback.Resolve("ok"):Get())]],
+				[[local callback = import("goluwa/callback.lua"); print(callback.Resolve("ok!"):Get())]],
 			},
 			cwd = fs.get_current_directory(),
 			stdout = "pipe",
@@ -246,7 +246,7 @@ T.Test("callback.Get pumps updates in glw lua subprocess", function()
 	)
 	local exit_code, stdout, stderr = wait_for_process(proc, 5)
 	T(exit_code)["=="](0)
-	T(stdout)["contains"]("ok")
+	T(stdout)["contains"]("ok!")
 	T(stderr)["=="]("")
 end)
 
