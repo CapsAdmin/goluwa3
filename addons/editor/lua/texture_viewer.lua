@@ -27,7 +27,7 @@ return function(texture, texture_path)
 	local hover_pixel = nil
 	local hover_pixel_text
 	local channel_visible = {R = true, G = true, B = true, A = true}
-	local active_swizzle = 0
+	local active_swizzle = "none"
 
 	local function update_swizzle()
 		local count = 0
@@ -41,17 +41,17 @@ return function(texture, texture_path)
 		if channel_visible.A then count = count + 1 end
 
 		if count == 4 then
-			active_swizzle = 0
+			active_swizzle = "none"
 		elseif count == 1 then
-			if channel_visible.R then active_swizzle = 1 end
+			if channel_visible.R then active_swizzle = "rrr" end
 
-			if channel_visible.G then active_swizzle = 2 end
+			if channel_visible.G then active_swizzle = "ggg" end
 
-			if channel_visible.B then active_swizzle = 3 end
+			if channel_visible.B then active_swizzle = "bbb" end
 
-			if channel_visible.A then active_swizzle = 4 end
+			if channel_visible.A then active_swizzle = "aaa" end
 		else
-			active_swizzle = 0
+			active_swizzle = "none"
 		end
 	end
 
@@ -449,7 +449,7 @@ return function(texture, texture_path)
 						OnClick = function()
 							reset_view()
 							channel_visible = {R = true, G = true, B = true, A = true}
-							active_swizzle = 0
+							active_swizzle = "none"
 						end,
 					},
 				},

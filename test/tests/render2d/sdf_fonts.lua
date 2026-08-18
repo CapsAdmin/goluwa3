@@ -64,7 +64,7 @@ T.Test2D("sdf font ignores ambient sample uv mode", function()
 		Size = 256,
 		Unique = true,
 	}
-	render2d.SetSampleUVMode(3)
+	render2d.SetSampleUVMode("direct")
 	render2d.SetTexture(nil)
 	render2d.DrawRect(500, 500, 5, 5)
 	render2d.SetColor(1, 1, 1, 1)

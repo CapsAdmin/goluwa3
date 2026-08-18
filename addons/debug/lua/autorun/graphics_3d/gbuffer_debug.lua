@@ -50,7 +50,7 @@ local function draw_debug_tile(x, y, size, texture, label, swizzle_mode)
 	render2d.PushUV()
 	render2d.SetUV2(0, 1, 1, 0)
 	render2d.SetTexture(texture)
-	render2d.PushSwizzleMode(swizzle_mode or 0)
+	render2d.PushSwizzleMode(swizzle_mode or "none")
 	render2d.DrawRect(x, y, size, size)
 	render2d.PopSwizzleMode()
 	render2d.PopUV()
@@ -87,11 +87,11 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	if not render3d.pipelines.gbuffer then return end
 
 	local swizzle_to_mode = {
-		r = 1,
-		g = 2,
-		b = 3,
-		a = 4,
-		rgb = 5,
+		r = "rrr",
+		g = "ggg",
+		b = "bbb",
+		a = "aaa",
+		rgb = "rgb",
 	}
 
 	if not show_gbuffer then return end
@@ -117,7 +117,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 			size,
 			tex,
 			view.pipeline.name .. " " .. view.name,
-			swizzle_to_mode[view.swizzle] or 0
+			swizzle_to_mode[view.swizzle] or "none"
 		)
 		x = x + size
 
@@ -129,7 +129,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 
 	-- Draw depth texture
 	if render3d.pipelines.gbuffer:GetFramebuffer().depth_texture then
-		draw_debug_tile(x, y, size, render3d.pipelines.gbuffer:GetFramebuffer().depth_texture, "Depth", 0)
+		draw_debug_tile(x, y, size, render3d.pipelines.gbuffer:GetFramebuffer().depth_texture, "Depth", "none")
 	end
 end)
 

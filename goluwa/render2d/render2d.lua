@@ -162,7 +162,6 @@ render2d.state = {
 			scissor = {x = 0, y = 0, w = 0, h = 0},
 		},
 		options = {
-			clamp_border_radius = true,
 			batched_rect_draws_enabled = true,
 			rect_batch_mode = "instanced",
 			computed_margin = 0,
@@ -1206,8 +1205,9 @@ function render2d.Initialize()
 				vec2 get_uv_sdf(vec2 coords) {
 					vec2 uv = coords;
 					if (draw.sdf_texture_index != -1) {
-						bool use_direct_sample_uv = (FLAGS_SAMPLE_UV & 1) != 0;
-						uv = use_direct_sample_uv ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
+						// transformed: sample uv goes through the draw uv transform (uv_scale/uv_offset)
+						// direct: vertex sample uv is used as-is, ignoring the uv transform
+						uv = FLAGS_SAMPLE_UV_DIRECT ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
 					}
 
 					float bounds_left = min(draw.sdf_uv_bounds.x, draw.sdf_uv_bounds.z);
@@ -1275,11 +1275,11 @@ function render2d.Initialize()
 				}
 
 				vec4 apply_swizzle(vec4 tex) {
-					if (FLAGS_SWIZZLE == 1) return vec4(tex.rrr, 1.0);
-					if (FLAGS_SWIZZLE == 2) return vec4(tex.ggg, 1.0);
-					if (FLAGS_SWIZZLE == 3) return vec4(tex.bbb, 1.0);
-					if (FLAGS_SWIZZLE == 4) return vec4(tex.aaa, 1.0);
-					if (FLAGS_SWIZZLE == 5) return vec4(tex.rgb, 1.0);
+					if (FLAGS_SWIZZLE_RRR) return vec4(tex.rrr, 1.0);
+					if (FLAGS_SWIZZLE_GGG) return vec4(tex.ggg, 1.0);
+					if (FLAGS_SWIZZLE_BBB) return vec4(tex.bbb, 1.0);
+					if (FLAGS_SWIZZLE_AAA) return vec4(tex.aaa, 1.0);
+					if (FLAGS_SWIZZLE_RGB) return vec4(tex.rgb, 1.0);
 					return tex;
 				}
 
@@ -1520,7 +1520,7 @@ function render2d.ResetState()
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
 	render2d.SetColorUVTransform()
-	render2d.SetSwizzleMode(0)
+	render2d.SetSwizzleMode("none")
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
 	render2d.SetUV2()
@@ -1566,7 +1566,7 @@ function render2d.ResetState()
 	render2d.SetLightShininess(32.0)
 	render2d.SetLightColor(1.0, 1.0, 1.0)
 	render2d.SetAmbientColor(0.3, 0.3, 0.3)
-	render2d.SetLIGHTING(0)
+	render2d.SetLighting(false)
 end
 
 do
@@ -1593,57 +1593,60 @@ do
 
 	do
 		do -- Flag definitions: single source of truth for all flag fields
-			-- Each entry: { name, mask, shift }
-			local FLAGS = {
-				{name = "SWIZZLE", mask = 0xF, shift = 0},
-				{name = "SAMPLE_UV", mask = 0xF, shift = 4},
-				{name = "CLAMP_BORDER_RADIUS", mask = 0x1, shift = 8},
-				{name = "MSDF", mask = 0x1, shift = 9},
-				{name = "LIGHTING", mask = 0x1, shift = 10},
+			local flag_builder = utility.MakeFlags{
+				{
+					name = "SWIZZLE",
+					enums = {
+						"none",
+						"rrr",
+						"ggg",
+						"bbb",
+						"aaa",
+						"rgb",
+					},
+				},
+				{
+					name = "SAMPLE_UV",
+					enums = {
+						"transformed",
+						"direct",
+					},
+				},
+				{name = "CLAMP_BORDER_RADIUS"},
+				{name = "MSDF"},
+				{name = "LIGHTING"},
 			}
 
-			-- Build getter/setter for each flag from the FLAGS table
-			for _, flag_def in ipairs(FLAGS) do
-				local name = flag_def.name
-				local mask = flag_def.mask
-				local shift = flag_def.shift
-
-				local function make_setter(f)
-					return function(value)
-						local constants = render2d.state.render.fragment.constants
-						local shifted_mask = bit.lshift(f.mask, f.shift)
-						local other = bit.band(constants.flags, bit.bnot(shifted_mask))
-						constants.flags = bit.bor(other, bit.lshift(bit.band(value, f.mask), f.shift))
-					end
-				end
-
-				local function make_getter(f)
-					return function()
-						return bit.rshift(
-							bit.band(render2d.state.render.fragment.constants.flags, bit.lshift(f.mask, f.shift)),
-							f.shift
-						)
-					end
-				end
-
-				render2d["Set" .. name] = make_setter(flag_def)
-				render2d["Get" .. name] = make_getter(flag_def)
+			function render2d.SetFlagBits(key, val)
+				render2d.state.render.fragment.constants.flags = flag_builder:set(render2d.state.render.fragment.constants.flags, key, val)
 			end
 
-			-- Generate GLSL #define block for shaders
+			function render2d.GetFlagBits(key)
+				return flag_builder:get(render2d.state.render.fragment.constants.flags, key)
+			end
+
 			function render2d.BuildShaderFlags(var_name)
 				local lines = {}
 
-				for _, flag_def in ipairs(FLAGS) do
-					local mask = flag_def.mask
-					local shift = flag_def.shift
-					local define_name = "FLAGS_" .. flag_def.name
-					local shifted_mask = bit.lshift(mask, shift)
-
-					if shift == 0 then
-						lines[#lines + 1] = "#define " .. define_name .. " (" .. var_name .. " & " .. mask .. ")"
+				for _, def in ipairs(flag_builder.fields) do
+					if def.shift == 0 then
+						lines[#lines + 1] = "#define FLAGS_" .. def.name .. " (" .. var_name .. " & " .. def.mask .. ")"
 					else
-						lines[#lines + 1] = "#define " .. define_name .. " ((" .. var_name .. " & " .. shifted_mask .. ") >> " .. shift .. ")"
+						lines[#lines + 1] = "#define FLAGS_" .. def.name .. " ((" .. var_name .. " & " .. def.shifted_mask .. ") >> " .. def.shift .. ")"
+					end
+
+					if def.map then
+						local keys = {}
+
+						for key in pairs(def.map) do
+							keys[#keys + 1] = key
+						end
+
+						table.sort(keys)
+
+						for _, key in ipairs(keys) do
+							lines[#lines + 1] = "#define FLAGS_" .. def.name .. "_" .. key:upper() .. " (FLAGS_" .. def.name .. " == " .. def.map[key] .. ")"
+						end
 					end
 				end
 
@@ -1655,13 +1658,13 @@ do
 			-- Convenience wrappers for the public API
 			function render2d.SetSwizzleMode(mode)
 				if mode then
-					render2d.SetSWIZZLE(mode)
+					render2d.SetFlagBits("SWIZZLE", mode)
 					render2d.state.render.options.computed_margin_dirty = true
 				end
 			end
 
 			function render2d.GetSwizzleMode()
-				return render2d.GetSWIZZLE()
+				return render2d.GetFlagBits("SWIZZLE")
 			end
 
 			utility.MakePushPopFunction(render2d, "SwizzleMode", 1)
@@ -1669,11 +1672,11 @@ do
 
 		do
 			function render2d.SetSampleUVMode(mode)
-				render2d.SetSAMPLE_UV(mode or 0)
+				render2d.SetFlagBits("SAMPLE_UV", mode or "transformed")
 			end
 
 			function render2d.GetSampleUVMode()
-				return render2d.GetSAMPLE_UV()
+				return render2d.GetFlagBits("SAMPLE_UV")
 			end
 
 			utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
@@ -1681,11 +1684,11 @@ do
 
 		do
 			function render2d.SetLighting(enabled)
-				render2d.SetLIGHTING(enabled == true and 1 or 0)
+				render2d.SetFlagBits("LIGHTING", enabled)
 			end
 
 			function render2d.GetLighting()
-				return render2d.GetLIGHTING() == 1
+				return render2d.GetFlagBits("LIGHTING")
 			end
 
 			utility.MakePushPopFunction(render2d, "Lighting", 1)
@@ -1838,29 +1841,26 @@ do
 
 		do
 			function render2d.SetClampBorderRadius(enabled)
-				local normalized = enabled == true
-				render2d.state.render.options.clamp_border_radius = normalized
-				render2d.SetCLAMP_BORDER_RADIUS(normalized and 1 or 0)
+				render2d.SetFlagBits("CLAMP_BORDER_RADIUS", enabled)
 			end
 
 			function render2d.GetClampBorderRadius()
-				return render2d.state.render.options.clamp_border_radius
+				return render2d.GetFlagBits("CLAMP_BORDER_RADIUS")
 			end
 
 			utility.MakePushPopFunction(render2d, "ClampBorderRadius", 1)
 		end
 
 		do
-			function render2d.SetMSDFEnabled(enabled)
-				render2d.state.render.options.msdf = enabled
-				render2d.SetMSDF(enabled and 1 or 0)
+			function render2d.SetMSDF(enabled)
+				render2d.SetFlagBits("MSDF", enabled)
 			end
 
-			function render2d.GetMSDFEnabled()
-				return render2d.state.render.options.msdf
+			function render2d.GetMSDF()
+				return render2d.GetFlagBits("MSDF")
 			end
 
-			utility.MakePushPopFunction(render2d, "MSDFEnabled", 1)
+			utility.MakePushPopFunction(render2d, "MSDF", 1)
 		end
 	end
 
@@ -2331,8 +2331,8 @@ do
 			render2d.SetColor(1, 1, 1, 1)
 			render2d.SetAlphaMultiplier(1)
 			render2d.SetUV()
-			render2d.SetSampleUVMode(0)
-			render2d.SetSwizzleMode(0)
+			render2d.SetSampleUVMode("transformed")
+			render2d.SetSwizzleMode("none")
 			render2d.SetSDFTexture()
 			render2d.SetBorderRadius(0, 0, 0, 0)
 			render2d.SetOutlineWidth(0)
@@ -2585,11 +2585,11 @@ do -- uv
 
 	do
 		function render2d.SetSampleUVMode(mode)
-			render2d.SetSAMPLE_UV(mode or 0)
+			render2d.SetFlagBits("SAMPLE_UV", mode or "transformed")
 		end
 
 		function render2d.GetSampleUVMode()
-			return render2d.GetSAMPLE_UV()
+			return render2d.GetFlagBits("SAMPLE_UV")
 		end
 
 		utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
@@ -2930,9 +2930,11 @@ do
 
 		local constants = render2d.state.render.fragment.constants
 		local content_m = math.abs(constants.outline_width)
-		local swizzle = bit.band(constants.flags, 0xF)
 
-		if render2d.state.render.textures.sdf_texture ~= nil or swizzle == 1 then
+		if
+			render2d.state.render.textures.sdf_texture ~= nil or
+			render2d.GetFlagBits("SWIZZLE") == "rrr"
+		then
 			content_m = content_m + constants.sdf_softness
 		end
 
@@ -3133,7 +3135,7 @@ end
 
 render2d.SetColor(1, 1, 1, 1)
 render2d.SetAlphaMultiplier(1)
-render2d.SetSwizzleMode(0)
+render2d.SetSwizzleMode("none")
 render2d.state.render.pipeline.blend = get_blend_preset_state("alpha")
 render2d.state.runtime.pipeline_state.dirty = true
 

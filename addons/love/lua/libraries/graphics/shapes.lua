@@ -190,7 +190,7 @@ function love.graphics.rectangle(mode, x, y, w, h, rx, ry, points)
 
 	if mode == "fill" then
 		render2d.PushSwizzleMode(render2d.GetSwizzleMode())
-		render2d.SetSwizzleMode(0)
+		render2d.SetSwizzleMode("none")
 		render2d.SetTexture()
 		render2d.DrawRect(x, y, w, h)
 		render2d.PopSwizzleMode()

@@ -232,11 +232,11 @@ function SVG:Draw()
 		render2d.PushSDFTexture(self.sdf_texture)
 		render2d.PushSDFTexelRange(self.SDFSpread * self.TextureSize / 4)
 
-		if self.Mode == "msdf" then render2d.PushMSDFEnabled(true) end
+		if self.Mode == "msdf" then render2d.PushMSDF(true) end
 
 		render2d.DrawRectUV2f(0, 0, 1, 1, 0, 1, 1, 0)
 
-		if self.Mode == "msdf" then render2d.PopMSDFEnabled() end
+		if self.Mode == "msdf" then render2d.PopMSDF() end
 
 		render2d.PopSDFTexelRange()
 		render2d.PopSDFTexture()

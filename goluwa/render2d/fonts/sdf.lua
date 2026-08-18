@@ -316,7 +316,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	--render2d.PushTexture()
 	render2d.PushSDFTexelRange(0)
 
-	if self.MSDF then render2d.PushMSDFEnabled(true) end
+	if self.MSDF then render2d.PushMSDF(true) end
 
 	local last_texture = nil
 	local last_texel_range = nil
@@ -354,7 +354,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		)
 	end
 
-	if self.MSDF then render2d.PopMSDFEnabled() end
+	if self.MSDF then render2d.PopMSDF() end
 
 	--render2d.PopTexture()
 	render2d.PopSDFTexelRange()

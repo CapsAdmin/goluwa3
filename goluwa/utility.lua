@@ -1,4 +1,5 @@
 local utility = library()
+local bit = require("bit")
 local file_path = import("goluwa/filesystem/path.lua")
 
 function utility.GetLikelyLibraryDependencies(path)
@@ -450,6 +451,107 @@ function utility.MakePushPopFunction(lib, name, count)
 	end
 
 	assert(loadstring(lua))(name, lib, stack, func_get, func_set)
+end
+
+function utility.MakeFlags(defs)
+	assert(type(defs) == "table", "MakeFlags: defs must be a list of field definitions")
+	local fields = {}
+	local by_name = {}
+	local shift = 0
+
+	for _, def in ipairs(defs) do
+		assert(type(def.name) == "string", "MakeFlags: def.name must be a string")
+		assert(not by_name[def.name], "MakeFlags: duplicate flag name '" .. def.name .. "'")
+		local bits = 1
+
+		if def.enums then
+			local max_id = 0
+			local map = {}
+			local map_reverse = {}
+
+			for id, name in pairs(def.enums) do
+				local id = id - 1
+				map[name] = id
+				map_reverse[id] = name
+
+				if id > max_id then max_id = id end
+			end
+
+			assert(
+				max_id <= 0x7fffffff,
+				("MakeFlags: map ids for '%s' are too large for a 32-bit int"):format(def.name)
+			)
+			def.map = map
+			def.map_reverse = map_reverse
+
+			while bits < 31 and (1 << bits) <= max_id do
+				bits = bits + 1
+			end
+		end
+
+		def.bits = bits
+		def.shift = shift
+		def.mask = (1 << def.bits) - 1
+		def.shifted_mask = bit.lshift(def.mask, shift)
+		shift = shift + def.bits
+		by_name[def.name] = def
+		fields[#fields + 1] = def
+	end
+
+	assert(shift <= 32, ("MakeFlags: flags need %d bits, max is 32"):format(shift))
+	local manager = {}
+	manager.fields = fields
+
+	local function def_for(name)
+		local def = by_name[name]
+
+		if not def then
+			error(("MakeFlags: unknown flag '%s'"):format(tostring(name)), 3)
+		end
+
+		return def
+	end
+
+	function manager:get(flags, name)
+		local def = def_for(name)
+		local val = bit.rshift(bit.band(flags, def.shifted_mask), def.shift)
+
+		if def.map_reverse then return def.map_reverse[val] end
+
+		return val == 1
+	end
+
+	function manager:set(flags, name, value)
+		local def = def_for(name)
+
+		if def.map then
+			local id = def.map[value]
+
+			if not id then
+				local names = {}
+
+				for n in pairs(def.map) do
+					names[#names + 1] = n
+				end
+
+				table.sort(names)
+				error(
+					(
+						"Invalid %s: '%s' is not one of {%s}"
+					):format(def.label or def.name, value, table.concat(names, ", ")),
+					3
+				)
+			end
+
+			value = id
+		else
+			value = value and 1 or 0
+		end
+
+		return bit.bor(bit.band(flags, bit.bnot(def.shifted_mask)), bit.lshift(value, def.shift))
+	end
+
+	return manager
 end
 
 do

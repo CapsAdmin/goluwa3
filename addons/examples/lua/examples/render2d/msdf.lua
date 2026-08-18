@@ -93,7 +93,7 @@ sdf_tex:Shade([[
 local function draw_circle(x, y, w, h, tex, use_msdf, outline, softness)
 	render2d.PushSDFTexelRange(20)
 	render2d.PushSDFTexture(tex)
-	render2d.PushMSDFEnabled(use_msdf)
+	render2d.PushMSDF(use_msdf)
 
 	if softness then render2d.PushSDFSoftness(softness) end
 
@@ -107,7 +107,7 @@ local function draw_circle(x, y, w, h, tex, use_msdf, outline, softness)
 
 	if softness then render2d.PopSDFSoftness() end
 
-	render2d.PopMSDFEnabled()
+	render2d.PopMSDF()
 	render2d.PopSDFTexture()
 	render2d.PopSDFTexelRange()
 end
