@@ -1130,6 +1130,56 @@ function render2d.Initialize()
 					}
 				}
 
+				float sd_circle(vec2 p, float r) {
+					return length(p) - r;
+				}
+
+				float sd_ellipse( in vec2 p, in vec2 r )
+				{
+					p = abs(p);
+					p = max(p,(p-r).yx);
+					float m = dot(r,r);
+					float d = p.y-p.x;
+					return p.x - (r.y*sqrt(m-d*d)-r.x*d)*r.x/m;
+				}
+
+				float sd_box( in vec2 p, in vec2 b )
+				{
+					vec2 d = abs(p)-b;
+					return length(max(d,0.0)) + min(max(d.x,d.y),0.0);
+				}
+
+				float sd_rounded_box(vec2 p, vec2 b, vec4 r) {
+					r.xy = (p.x > 0.0) ? r.xy : r.zw;
+					r.x = (p.y > 0.0) ? r.x : r.y;
+					vec2 q = abs(p) - b + r.x;
+					return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - r.x;
+				}
+
+				float sd_chamfered_box(vec2 p, vec2 b, vec4 r) {
+					vec2 ap = abs(p);
+					vec2 q = ap - b;
+					float sx = step(0.0, p.x);
+					float sy = step(0.0, p.y);
+					float rad = mix(mix(r.z, r.x, sx), mix(r.w, r.y, sx), sy);
+					float e = q.x + q.y + rad;
+					float h = clamp(0.5 * (q.y - q.x + rad), 0.0, rad);
+					float seg = length(vec2(q.x + h, q.y + rad - h)) * sign(e);
+					vec2 m = max(q, vec2(0.0));
+					float outd = length(m);
+					float ind = min(max(q.x, q.y), 0.0);
+					return max(ind + outd, min(max(e, 0.0), seg));
+				}
+
+				float sd_line( in vec2 p, vec2 a, vec2 b )
+				{
+					vec2 pa = p-a, ba = b-a;
+					float s = (ba.x*ba.y>0.0)?1.0:-1.0;
+					float h = clamp( (pa.y+s*pa.x)/(ba.y+s*ba.x), 0.0, 1.0 );
+					vec2 q = abs(pa-h*ba);
+					return max(q.x,q.y);
+				}
+
 				float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
 				{
 					if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
@@ -1267,6 +1317,26 @@ function render2d.Initialize()
 						d -= shape.sdf_threshold * range;
 						d += shape.sdf_bias * range;
 						return d;
+					//} else if (FLAGS_SHAPE != 0 && shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
+					} else if (true) {
+						vec2 p = (coords - 0.5) * shape.rect_size;
+						vec2 b = shape.sdf_rect_size * 0.5;
+						float d;
+						if (FLAGS_SHAPE_RECT) {
+							d = sd_box(p, b);
+						} else if (FLAGS_SHAPE_CIRCLE) {
+							d = sd_circle(p, b.x);
+						} else if (FLAGS_SHAPE_ROUNDED) {
+							d = sd_rounded_box(p, b, shape.border_radius.zywx);
+						} else if (FLAGS_SHAPE_CHAMFERED) {
+							d = sd_chamfered_box(p, b, shape.border_radius.yzxw);
+						} else if (FLAGS_SHAPE_ELLIPSE) {
+							d = sd_ellipse(p, b);
+						}
+						//else if (FLAGS_SHAPE_LINE) {
+							//d = sd_line(p, b);
+						//}
+						return shape.sdf_threshold - d;
 					} else if (shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
 						float d = sd_rect(coords);
 						return shape.sdf_threshold - d;
@@ -1300,13 +1370,20 @@ function render2d.Initialize()
 					out_color = sample_fragment_color(color_uv);
 					
 					vec2 sdf_uv = get_uv_sdf(in_uv);
-					out_color.a *= compute_sdf_alpha(get_sdf_distance(sdf_uv));
+					float d = get_sdf_distance(sdf_uv);
+					out_color.a *= compute_sdf_alpha(d);
 
+					if (false) {
+						vec3 col = (d>0.0) ? vec3(0.9,0.6,0.3) : vec3(0.65,0.85,1.0);
+						col *= 1.0 - exp2(-20.0*abs(d));
+						col *= 0.8 + 0.2*cos(120.0*abs(d));
+						col = mix( col, vec3(1.0), 1.0-smoothstep(0.0,0.01,abs(d)) );
+						out_color.rgb = col;
+					}
+						
 					if (FLAGS_LIGHTING != 0) {
-						float d = get_sdf_distance(sdf_uv);
 						if (shape.outline_width > 0)
 							d = -d;
-					
 
 						float t = clamp(d / max(shape.bevel_width , 1e-5), 0.0, 1.0);
 						float tilt_t  =  mix(smoothstep(1, 0.0, t), t, shape.bevel_height);
@@ -1615,6 +1692,18 @@ do
 				{name = "CLAMP_BORDER_RADIUS"},
 				{name = "MSDF"},
 				{name = "LIGHTING"},
+				{
+					name = "SHAPE",
+					label = "shape mode",
+					enums = {
+						"rect",
+						"circle",
+						"rounded",
+						"chamfered",
+						"ellipse",
+					--"line",
+					},
+				},
 			}
 
 			function render2d.SetFlagBits(key, val)
@@ -1692,6 +1781,18 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "Lighting", 1)
+		end
+
+		do
+			function render2d.SetShapeMode(mode)
+				render2d.SetFlagBits("SHAPE", mode)
+			end
+
+			function render2d.GetShapeMode()
+				return render2d.GetFlagBits("SHAPE")
+			end
+
+			utility.MakePushPopFunction(render2d, "ShapeMode", 1)
 		end
 
 		do
