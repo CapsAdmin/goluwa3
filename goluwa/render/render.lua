@@ -1269,4 +1269,10 @@ function render.Screenshot(cb)
 	end)
 end
 
+function render.Capture()
+	if not render.target then return nil end
+
+	return render.target:Capture()
+end
+
 return render

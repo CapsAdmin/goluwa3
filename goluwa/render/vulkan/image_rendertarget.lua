@@ -6,6 +6,7 @@ local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local CommandBuffer = import("goluwa/render/vulkan/internal/command_buffer.lua")
 local Semaphore = import("goluwa/render/vulkan/internal/semaphore.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
+local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local SwapChain = import("goluwa/render/vulkan/internal/swap_chain.lua")
 local RenderPass = import("goluwa/render/vulkan/internal/render_pass.lua")
 local Framebuffer = import("goluwa/render/vulkan/internal/framebuffer.lua")
@@ -426,8 +427,73 @@ function ImageRenderTarget:WaitForPreviousFrame()
 	end
 end
 
+local function transition_render_attachments(self, cmd)
+	render.TransitionResourceTo(
+		self:GetImage(),
+		"color_attachment_optimal",
+		{
+			cmd = cmd,
+			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+			srcAccess = "none",
+			dstStage = "color_attachment_output",
+			dstAccess = "color_attachment_write",
+		}
+	)
+
+	if self.depth_texture then
+		render.TransitionResourceTo(
+			self.depth_texture,
+			"depth_stencil_attachment_optimal",
+			{
+				cmd = cmd,
+				srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+				srcAccess = "none",
+				dstStage = "early_fragment_tests",
+				dstAccess = "depth_stencil_attachment_write",
+			}
+		)
+	end
+
+	if self.msaa_image then
+		render.TransitionResourceTo(
+			self.msaa_image,
+			"color_attachment_optimal",
+			{
+				cmd = cmd,
+				srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+				srcAccess = "none",
+				dstStage = "color_attachment_output",
+				dstAccess = "color_attachment_write",
+			}
+		)
+	end
+end
+
+local function build_render_config(self, load_op)
+	local extent = self:GetExtent()
+	local render_config = {
+		color_image_view = self:GetImageView(),
+		w = extent.width,
+		h = extent.height,
+		clear_color = self.config.offscreen and {0.0, 0.0, 0.0, 1.0} or {0.2, 0.2, 0.2, 1.0},
+	}
+	render_config.depth_image_view = self:GetDepthImageView()
+	render_config.stencil_image_view = self:GetDepthImageView()
+	render_config.clear_depth = 1.0
+	render_config.clear_stencil = 0
+
+	if load_op then render_config.load_op = load_op end
+
+	if not self.config.offscreen and self.samples ~= "1" then
+		render_config.msaa_image_view = self:GetMSAAImageView()
+	end
+
+	return render_config
+end
+
 function ImageRenderTarget:BeginFrame()
 	local frame_index = (self.current_frame % #self.textures) + 1
+	self.captured_this_frame = false
 
 	if self.in_flight_fences and self.in_flight_fences[frame_index] then
 		local fence = self.in_flight_fences[frame_index]
@@ -462,71 +528,12 @@ function ImageRenderTarget:BeginFrame()
 	local cmd = self:GetCommandBuffer()
 	cmd:Reset()
 	cmd:Begin()
-	-- Transition color image
-	render.TransitionResourceTo(
-		self:GetImage(),
-		"color_attachment_optimal",
-		{
-			cmd = cmd,
-			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-			srcAccess = "none",
-			dstStage = "color_attachment_output",
-			dstAccess = "color_attachment_write",
-		}
-	)
-
-	-- Transition depth image
-	if self.depth_texture then
-		render.TransitionResourceTo(
-			self.depth_texture,
-			"depth_stencil_attachment_optimal",
-			{
-				cmd = cmd,
-				srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-				srcAccess = "none",
-				dstStage = "early_fragment_tests",
-				dstAccess = "depth_stencil_attachment_write",
-			}
-		)
-	end
-
-	-- Transition MSAA image
-	if self.msaa_image then
-		render.TransitionResourceTo(
-			self.msaa_image,
-			"color_attachment_optimal",
-			{
-				cmd = cmd,
-				srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-				srcAccess = "none",
-				dstStage = "color_attachment_output",
-				dstAccess = "color_attachment_write",
-			}
-		)
-	end
-
+	transition_render_attachments(self, cmd)
 	local extent = self:GetExtent()
 	render.PushCommandBuffer(cmd)
 	event.Call("PreRenderPass")
 	render.PopCommandBuffer()
-	local render_config = {
-		color_image_view = self:GetImageView(),
-		w = extent.width,
-		h = extent.height,
-		clear_color = self.config.offscreen and {0.0, 0.0, 0.0, 1.0} or {0.2, 0.2, 0.2, 1.0},
-	}
-	-- Add depth buffer for both offscreen and windowed modes
-	render_config.depth_image_view = self:GetDepthImageView()
-	render_config.stencil_image_view = self:GetDepthImageView()
-	render_config.clear_depth = 1.0
-	render_config.clear_stencil = 0
-
-	-- Add MSAA for windowed mode only
-	if not self.config.offscreen and self.samples ~= "1" then
-		render_config.msaa_image_view = self:GetMSAAImageView()
-	end
-
-	cmd:BeginRendering(render_config)
+	cmd:BeginRendering(build_render_config(self))
 	-- Set viewport and scissor
 	cmd:SetViewport(0, 0, extent.width, extent.height, 0, 1)
 	cmd:SetScissor(0, 0, extent.width, extent.height)
@@ -572,12 +579,12 @@ function ImageRenderTarget:EndFrame()
 
 		queue:RetireFence(fence)
 	else
-		-- Windowed: submit with semaphores
-		-- Use current_frame for image_available (wait) semaphore and fence
-		-- Use texture_index for render_finished (signal) semaphore
+		local acquire_semaphore = self.captured_this_frame and
+			nil or
+			self.image_available_semaphores[self.current_frame]
 		self.vulkan_instance.queue:Submit(
 			command_buffer,
-			self.image_available_semaphores[self.current_frame],
+			acquire_semaphore,
 			self.render_finished_semaphores[self.texture_index],
 			self.in_flight_fences[self.current_frame]
 		)
@@ -593,6 +600,81 @@ function ImageRenderTarget:EndFrame()
 			self:RebuildFramebuffers()
 		end
 	end
+end
+
+function ImageRenderTarget:Capture()
+	local cmd = self:GetCommandBuffer()
+
+	if not cmd or not cmd.is_recording or not cmd.is_rendering then return nil end
+
+	if flags.render_noop then return nil end
+
+	local device = self.vulkan_instance.device
+	local queue = self.vulkan_instance.queue
+	local image = self:GetImage()
+	local extent = self:GetExtent()
+	local width = extent.width
+	local height = extent.height
+	local format = image.format
+	local bytes_per_pixel = Texture.FormatBytesPerPixel(format)
+	local byte_size = width * height * bytes_per_pixel
+	render.FlushCallbacks("capture")
+	cmd:EndRendering()
+	local staging = Buffer.New{
+		device = device,
+		size = byte_size,
+		usage = "transfer_dst",
+		properties = {"host_visible", "host_coherent"},
+		name = "capture staging",
+	}
+	render.TransitionResourceToTransferSrc(image, {cmd = cmd})
+	cmd:CopyImageToBuffer{
+		image = image,
+		image_layout = "transfer_src_optimal",
+		buffer = staging,
+		aspect_mask = "color",
+		mip_level = 0,
+		base_array_layer = 0,
+		layer_count = 1,
+		width = width,
+		height = height,
+		depth = 1,
+	}
+	render.TransitionResourceToColorAttachment(image, {cmd = cmd, load_op = "load"})
+	cmd:End()
+	local fence = Fence.New(device)
+	fence:Reset()
+	local acquire_semaphore = self.image_available_semaphores and
+		self.image_available_semaphores[self.current_frame]
+	queue:SubmitFenced(cmd, acquire_semaphore, fence)
+	fence:Wait(true)
+	queue:RetireFence(fence)
+	local mapped = assert(staging:Map(), "capture: failed to map staging buffer")
+	local pixels = ffi.new("uint8_t[?]", byte_size)
+	ffi.copy(pixels, mapped, byte_size)
+	staging:Unmap()
+	cmd:Reset()
+	cmd:Begin()
+	image.layout = nil
+
+	if self.depth_texture then self.depth_texture:GetImage().layout = nil end
+
+	if self.msaa_image then self.msaa_image:GetImage().layout = nil end
+
+	transition_render_attachments(self, cmd)
+	cmd:BeginRendering(build_render_config(self, "load"))
+	cmd:SetViewport(0, 0, width, height, 0, 1)
+	cmd:SetScissor(0, 0, width, height, 0, 1)
+	self.captured_this_frame = true
+	return Texture.TextureDownloaded:CreateObject{
+		pixels = pixels,
+		width = width,
+		height = height,
+		format = format,
+		base_array_layer = 0,
+		bytes_per_pixel = bytes_per_pixel,
+		size = byte_size,
+	}
 end
 
 function ImageRenderTarget:RebuildFramebuffers()

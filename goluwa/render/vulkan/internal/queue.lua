@@ -59,10 +59,13 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 		return
 	end
 
-	local waitStages = ffi.new("uint32_t[1]", vulkan.vk.e.VkPipelineStageFlagBits("color_attachment_output"))
+	local waitSemaphoreCount = imageAvailableSemaphore and 1 or 0
+	local waitStages = imageAvailableSemaphore and
+		ffi.new("uint32_t[1]", vulkan.vk.e.VkPipelineStageFlagBits("color_attachment_output")) or
+		nil
 	local submitInfo = vulkan.vk.s.SubmitInfo{
-		waitSemaphoreCount = 1,
-		pWaitSemaphores = imageAvailableSemaphore.ptr,
+		waitSemaphoreCount = waitSemaphoreCount,
+		pWaitSemaphores = imageAvailableSemaphore and imageAvailableSemaphore.ptr or nil,
 		pWaitDstStageMask = waitStages,
 		commandBufferCount = 1,
 		pCommandBuffers = commandBuffer.ptr,
@@ -99,6 +102,37 @@ function Queue:SubmitNoWait(commandBuffer, fence)
 			fence.ptr[0]
 		),
 		"failed to submit queue"
+	)
+	return submission
+end
+
+function Queue:SubmitFenced(commandBuffer, waitSemaphore, fence)
+	if flags.render_noop then
+		self:RetireFence(self:TrackSubmission(commandBuffer, fence, {}).fence)
+		return
+	end
+
+	local submission = self:TrackSubmission(commandBuffer, fence, {})
+	local waitSemaphoreCount = waitSemaphore and 1 or 0
+	local waitStages = waitSemaphore and
+		ffi.new("uint32_t[1]", vulkan.vk.e.VkPipelineStageFlagBits("color_attachment_output")) or
+		nil
+	vulkan.assert(
+		vulkan.lib.vkQueueSubmit(
+			self.ptr[0],
+			1,
+			vulkan.vk.s.SubmitInfo{
+				waitSemaphoreCount = waitSemaphoreCount,
+				pWaitSemaphores = waitSemaphore and waitSemaphore.ptr or nil,
+				pWaitDstStageMask = waitStages,
+				commandBufferCount = 1,
+				pCommandBuffers = commandBuffer.ptr,
+				signalSemaphoreCount = 0,
+				pSignalSemaphores = nil,
+			},
+			fence.ptr[0]
+		),
+		"failed to submit queue (fenced)"
 	)
 	return submission
 end

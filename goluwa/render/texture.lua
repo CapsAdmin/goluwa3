@@ -1547,9 +1547,11 @@ do
 		if x < 0 or x >= width or y < 0 or y >= height then return 0, 0, 0, 0 end
 
 		local offset = (y * width + x) * bytes_per_pixel
-		local r = self.pixels[offset + 0]
+		local format = self.format
+		local is_bgra = format == "b8g8r8a8_unorm" or format == "b8g8r8a8_srgb"
+		local r = self.pixels[offset + (is_bgra and 2 or 0)]
 		local g = self.pixels[offset + 1]
-		local b = self.pixels[offset + 2]
+		local b = self.pixels[offset + (is_bgra and 0 or 2)]
 		local a = self.pixels[offset + 3]
 		return r, g, b, a
 	end
@@ -1558,13 +1560,17 @@ do
 		local width = self.width
 		local height = self.height
 		local bytes_per_pixel = self.bytes_per_pixel
+		local format = self.format
+		local is_bgra = format == "b8g8r8a8_unorm" or format == "b8g8r8a8_srgb"
+		local r_offset = is_bgra and 2 or 0
+		local b_offset = is_bgra and 0 or 2
 
 		for y = 0, height - 1 do
 			for x = 0, width - 1 do
 				local offset = (y * width + x) * bytes_per_pixel
-				local r = self.pixels[offset + 0]
+				local r = self.pixels[offset + r_offset]
 				local g = self.pixels[offset + 1]
-				local b = self.pixels[offset + 2]
+				local b = self.pixels[offset + b_offset]
 				local a = bytes_per_pixel == 4 and self.pixels[offset + 3] or 255
 				func(x, y, r, g, b, a)
 			end
@@ -1603,9 +1609,11 @@ do
 		x = math.clamp(math.floor(x), 0, width - 1)
 		y = math.clamp(math.floor(y), 0, height - 1)
 		local offset = (y * width + x) * bytes_per_pixel
-		local r = self.pixels[offset + 0]
+		local format = self.format
+		local is_bgra = format == "b8g8r8a8_unorm" or format == "b8g8r8a8_srgb"
+		local r = self.pixels[offset + (is_bgra and 2 or 0)]
 		local g = self.pixels[offset + 1]
-		local b = self.pixels[offset + 2]
+		local b = self.pixels[offset + (is_bgra and 0 or 2)]
 		local a = bytes_per_pixel == 4 and self.pixels[offset + 3] or 255
 		return r, g, b, a
 	end
@@ -1723,6 +1731,8 @@ do
 	end
 
 	TextureDownloaded:Register()
+	Texture.TextureDownloaded = TextureDownloaded
+	Texture.FormatBytesPerPixel = get_bytes_per_pixel
 
 	do
 		local png = import("goluwa/codecs/png.lua")
