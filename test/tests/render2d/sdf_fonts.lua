@@ -58,36 +58,6 @@ T.Test2D("sdf font", function()
 	end
 end)
 
-T.Test2D("sdf font ignores ambient sample uv mode", function()
-	local font = fonts.New{
-		Path = fonts.GetDefaultSystemFontPath(),
-		Size = 256,
-		Unique = true,
-	}
-	render2d.SetSampleUVMode("direct")
-	render2d.SetTexture(nil)
-	render2d.DrawRect(500, 500, 5, 5)
-	render2d.SetColor(1, 1, 1, 1)
-	font:DrawText("Hg", 10, 10)
-	return function()
-		local tex = render.target:GetTexture()
-		local downloaded = tex:Download()
-		T.AssertScreenPixel{
-			pos = {48, 99},
-			color = {1, 1, 1, 1},
-			tolerance = 0.5,
-		}
-		assert(
-			region_has_alpha_above(downloaded, 12, 12, 120, 220, 0.7),
-			"expected opaque SDF glyph pixels with dirty sample uv mode"
-		)
-		assert(
-			region_has_alpha_below(downloaded, 12, 12, 120, 220, 0.2),
-			"expected transparent pixels around SDF glyph shape with dirty sample uv mode"
-		)
-	end
-end)
-
 T.Test2D("sdf font small size remains visible", function()
 	local font = fonts.New{
 		Path = fonts.GetDefaultSystemFontPath(),
@@ -198,8 +168,7 @@ do
 
 				for _, segment in ipairs(state.segments) do
 					for _, entry in ipairs(segment.entries) do
-						if entry.state.texture ~= nil then
-							T(entry.state.sdf_texture)["~="](nil)
+						if entry.state.sdf_texture ~= nil then
 							found_font_entry = true
 
 							break

@@ -55,7 +55,7 @@ T.Test("svg decode flattens quadratic and cubic curves", function()
 			<path fill="currentColor" d="M0 10 Q5 0 10 10 C12 14 16 14 20 10 L20 20 L0 20 Z"/>
 		</svg>
 	]],
-		{curve_steps = 8}
+		8
 	)
 	T(#decoded.contours)["=="](1)
 	T(#decoded.contours[1])[">"](20)
@@ -83,7 +83,7 @@ T.Test("svg decode flattens arc commands", function()
 			<path fill="currentColor" d="M12 2 A10 10 0 1 1 11.999 2 L12 12 Z"/>
 		</svg>
 	]],
-		{curve_steps = 8}
+		8
 	)
 	T(#decoded.contours)["=="](1)
 	T(#decoded.contours[1])[">"](20)

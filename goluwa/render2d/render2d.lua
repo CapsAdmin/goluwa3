@@ -1318,7 +1318,7 @@ function render2d.Initialize()
 						d += shape.sdf_bias * range;
 						return d;
 					//} else if (FLAGS_SHAPE != 0 && shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
-					} else if (true) {
+					} else if (FLAGS_SHAPE != 0) {
 						vec2 p = (coords - 0.5) * shape.rect_size;
 						vec2 b = shape.sdf_rect_size * 0.5;
 						float d;
@@ -1696,6 +1696,7 @@ do
 					name = "SHAPE",
 					label = "shape mode",
 					enums = {
+						"none",
 						"rect",
 						"circle",
 						"rounded",
