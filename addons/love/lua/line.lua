@@ -299,12 +299,6 @@ function line.SyncWindowGlobals(love, width, height)
 	globals.WINDOW_HEIGHT = height
 end
 
-function line.SyncAllWindowGlobals(width, height)
-	for _, love in ipairs(line.love_envs) do
-		line.SyncWindowGlobals(love, width, height)
-	end
-end
-
 local function get_game_identity(folder)
 	local identity = folder:gsub("[/\\]+$", ""):match("([^/\\]+)$") or "lovegame"
 	identity = identity:gsub("^([%.]+)", "")

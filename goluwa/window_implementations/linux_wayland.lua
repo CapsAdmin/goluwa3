@@ -233,16 +233,6 @@ return function(META)
 		math.max(1, math.floor(tonumber(size.y) or 0))
 	end
 
-	local function request_window_size(self, width, height)
-		if self.xdg_surface then
-			self.xdg_surface:set_window_geometry(0, 0, width, height)
-		end
-
-		if self.surface_proxy then self.surface_proxy:commit() end
-
-		if self.display then wayland.wl_client.wl_display_flush(self.display) end
-	end
-
 	local function apply_initial_window_geometry(self, width, height)
 		if self.xdg_surface then
 			self.xdg_surface:set_window_geometry(0, 0, width, height)
@@ -981,13 +971,11 @@ return function(META)
 					self.cached_fb_size = nil
 					self:OnSizeChanged(size:Copy())
 					self.last_size = size
+					timer.RemoveTimer(self)
 
-					if self.resize_timer then self.resize_timer:Remove() end
-
-					self.resize_timer = timer.Delay(
+					timer.Delay(
 						0.05,
 						function()
-							self.resize_timer = nil
 							self:OnFramebufferResized(size:Copy())
 						end,
 						self
@@ -1171,7 +1159,19 @@ return function(META)
 		local width, height = normalize_requested_size(size)
 		self.width = width
 		self.height = height
-		request_window_size(self, width, height)
+
+		if self.xdg_surface then
+			self.xdg_surface:set_window_geometry(0, 0, width, height)
+		end
+
+		if self.surface_proxy then self.surface_proxy:commit() end
+
+		if self.display then wayland.wl_client.wl_display_flush(self.display) end
+
+		-- update right away, fixes screenshots after explicitly setting the size
+		-- manually resizing the window are still deferred
+		self.last_size = Vec2(width, height)
+		self:OnFramebufferResized(self.last_size:Copy())
 	end
 
 	function META:GetFramebufferSize()
