@@ -8,9 +8,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 local function run_roll_probe(platform_name, spawn_platform)
 	local platform_ent = spawn_platform()
@@ -33,7 +30,7 @@ local function run_roll_probe(platform_name, spawn_platform)
 		}
 	)
 	sphere:SetVelocity(Vec3(8, -6, 0))
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local velocity = sphere:GetVelocity()
 	local angular = sphere:GetAngularVelocity()
 	local ratio = math.abs(velocity.x) / math.max(math.abs(angular.z) * 0.5, 0.00001)

@@ -85,7 +85,7 @@ T.Test("inheritance - derived panel OnCreate chain works", function()
 	child:Remove()
 end)
 
-T.Test("inheritance - tree widget with items produces rows", function()
+T.Test2D("inheritance - tree widget with items produces rows", function()
 	-- Reproduce the gallery tree demo scenario: create a derived tree with items and callbacks
 	local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 	local DerivedTree = Panel:CreateTemplate("test_derived_tree2")

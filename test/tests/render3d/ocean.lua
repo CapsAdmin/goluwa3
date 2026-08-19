@@ -1,27 +1,16 @@
+local T = import("test/environment.lua")
+T.SkipFile("disabled: long running and failing tests (85600db1)")
 do
 	return
 end
 
 local T = import("test/environment.lua")
-local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
-
-local function get_screen_pixel(x, y)
-	local r, g, b, a = render.target:GetTexture():GetPixel(x, y)
-	return {r / 255, g / 255, b / 255, a / 255}
-end
-
-local function color_distance(a, b)
-	local dr = a[1] - b[1]
-	local dg = a[2] - b[2]
-	local db = a[3] - b[3]
-	return math.sqrt(dr * dr + dg * dg + db * db)
-end
 
 T.Test("Render3D ocean level resolves override then atmosphere default", function()
 	local previous_atmosphere_level = atmosphere.GetOceanLevel()
@@ -64,22 +53,19 @@ T.Test3D("Render3D ocean level override changes visible waterline", function(dra
 		render3d.SetOceanEnabled(true)
 		render3d.SetOceanLevel(nil)
 		draw()
-		local fallback_pixel = get_screen_pixel(256, 430)
+		local fallback_r, fallback_g, fallback_b = T.GetScreenPixel(256, 430)
 		render3d.SetOceanLevel(40)
 		draw()
-		local override_pixel = get_screen_pixel(256, 430)
-		assert(
-			color_distance(fallback_pixel, override_pixel) > 0.08,
-			string.format(
-				"expected ocean override to change the visible pixel, got fallback=(%.3f, %.3f, %.3f) override=(%.3f, %.3f, %.3f)",
-				fallback_pixel[1],
-				fallback_pixel[2],
-				fallback_pixel[3],
-				override_pixel[1],
-				override_pixel[2],
-				override_pixel[3]
-			)
-		)
+		T.AssertScreenPixel{
+			pos = {256, 430},
+			color = function(r, g, b, a)
+				local dr = r - fallback_r
+				local dg = g - fallback_g
+				local db = b - fallback_b
+				return math.sqrt(dr * dr + dg * dg + db * db) > 0.08
+			end,
+			msg = "expected ocean override to change the visible pixel",
+		}
 	end)
 	sun:Remove()
 	atmosphere.SetOceanLevel(previous_atmosphere_level)

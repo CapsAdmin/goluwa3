@@ -9,9 +9,6 @@ local box_shape = BoxShape.New
 local create_flat_ground = test_helpers.CreateFlatGround
 local add_triangle = test_helpers.AddTriangle
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 T.TestPhysics("Rigid bodies support persistent multi-point contact manifolds", function()
 	local left_support = Entity.New({Name = "rigid_manifold_left"})
@@ -48,7 +45,7 @@ T.TestPhysics("Rigid bodies support persistent multi-point contact manifolds", f
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local position = plank_ent.transform:GetPosition()
 	local angles = plank_ent.transform:GetRotation():GetAngles()
 	plank_ent:Remove()
@@ -95,7 +92,7 @@ T.TestPhysics("Rigid body depenetration stays bounded in stacked boxes", functio
 		boxes[i] = {ent = ent, body = body}
 	end
 
-	simulate_physics(600)
+	test_helpers.Simulate(600)
 	local previous_y = 1.4
 
 	for i, box in ipairs(boxes) do
@@ -156,10 +153,10 @@ T.TestPhysics("Rigid bodies keep warm-started persistent contact manifolds stabl
 			Restitution = 0,
 		}
 	)
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local settled_position = top_ent.transform:GetPosition():Copy()
 	local settled_angles = top_ent.transform:GetRotation():GetAngles()
-	simulate_physics(720)
+	test_helpers.Simulate(720)
 	local final_position = top_ent.transform:GetPosition()
 	local final_angles = top_ent.transform:GetRotation():GetAngles()
 	local drift = (final_position - settled_position):GetLength()
@@ -209,7 +206,7 @@ T.TestPhysics("Rigid rotated boxes generate stable multi-point contact patches",
 			Restitution = 0,
 		}
 	)
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local position = top_ent.transform:GetPosition()
 	local angles = top_ent.transform:GetRotation():GetAngles()
 	top_ent:Remove()
@@ -255,10 +252,10 @@ T.TestPhysics("Rigid bodies generate stable multi-point contacts against static 
 			Restitution = 0,
 		}
 	)
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local settled_position = plank_ent.transform:GetPosition():Copy()
 	local settled_angles = plank_ent.transform:GetRotation():GetAngles()
-	simulate_physics(720)
+	test_helpers.Simulate(720)
 	local final_position = plank_ent.transform:GetPosition()
 	local final_angles = plank_ent.transform:GetRotation():GetAngles()
 	local drift = (final_position - settled_position):GetLength()
@@ -311,10 +308,10 @@ T.TestPhysics("Rigid bodies rest stably on static triangle seam patches over tim
 			Restitution = 0,
 		}
 	)
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local settled_position = box_ent.transform:GetPosition():Copy()
 	local settled_angles = box_ent.transform:GetRotation():GetAngles()
-	simulate_physics(720)
+	test_helpers.Simulate(720)
 	local final_position = box_ent.transform:GetPosition()
 	local final_angles = box_ent.transform:GetRotation():GetAngles()
 	local drift = (final_position - settled_position):GetLength()
@@ -367,7 +364,7 @@ T.TestPhysics("Rigid bodies slide along static triangle wall seams without stick
 		}
 	)
 	box:SetVelocity(Vec3(8, 0, 3))
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local position = box_ent.transform:GetPosition()
 	local angles = box_ent.transform:GetRotation():GetAngles()
 	local velocity = box:GetVelocity()
@@ -421,7 +418,7 @@ T.TestPhysics("Rigid bodies keep frictional sliding stable on static triangle wa
 		}
 	)
 	box:SetVelocity(Vec3(8, 0, 3))
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local position = box_ent.transform:GetPosition()
 	local velocity = box:GetVelocity()
 	local angular_speed = box:GetAngularVelocity():GetLength()

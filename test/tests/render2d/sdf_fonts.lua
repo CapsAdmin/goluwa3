@@ -3,31 +3,6 @@ local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local Texture = import("goluwa/render/texture.lua")
-local Color = import("goluwa/structs/color.lua")
-
-local function region_has_alpha_below(downloaded_tex, min_x, min_y, max_x, max_y, max_alpha)
-	for y = min_y, max_y do
-		for x = min_x, max_x do
-			local _, _, _, a = downloaded_tex:GetPixel(x, y)
-
-			if a / 255 <= max_alpha then return true end
-		end
-	end
-
-	return false
-end
-
-local function region_has_alpha_above(downloaded_tex, min_x, min_y, max_x, max_y, min_alpha)
-	for y = min_y, max_y do
-		for x = min_x, max_x do
-			local _, _, _, a = downloaded_tex:GetPixel(x, y)
-
-			if a / 255 >= min_alpha then return true end
-		end
-	end
-
-	return false
-end
 
 T.Test2D("sdf font", function()
 	local font = fonts.New{
@@ -47,14 +22,24 @@ T.Test2D("sdf font", function()
 			color = {1, 1, 1, 1},
 			tolerance = 0.5,
 		}
-		assert(
-			region_has_alpha_above(downloaded, 12, 12, 120, 220, 0.7),
-			"expected opaque SDF glyph pixels"
-		)
-		assert(
-			region_has_alpha_below(downloaded, 12, 12, 120, 220, 0.2),
-			"expected transparent pixels around SDF glyph shape"
-		)
+		T.AssertTextureRegion{
+			tex = downloaded,
+			rect = {12, 12, 120, 220},
+			mode = "any",
+			color = function(_, _, _, a)
+				return a >= 0.7
+			end,
+			msg = "expected opaque SDF glyph pixels",
+		}
+		T.AssertTextureRegion{
+			tex = downloaded,
+			rect = {12, 12, 120, 220},
+			mode = "any",
+			color = function(_, _, _, a)
+				return a <= 0.2
+			end,
+			msg = "expected transparent pixels around SDF glyph shape",
+		}
 	end
 end)
 
@@ -69,10 +54,15 @@ T.Test2D("sdf font small size remains visible", function()
 	font:DrawText("Hello", 10, 20)
 	return function()
 		local downloaded = render.target:GetTexture():Download()
-		assert(
-			region_has_alpha_above(downloaded, 8, 8, 80, 40, 0.2),
-			"expected visible pixels for small SDF text"
-		)
+		T.AssertTextureRegion{
+			tex = downloaded,
+			rect = {8, 8, 80, 40},
+			mode = "any",
+			color = function(_, _, _, a)
+				return a >= 0.2
+			end,
+			msg = "expected visible pixels for small SDF text",
+		}
 	end
 end)
 
@@ -87,10 +77,15 @@ T.Test2D("sdf font ignores ambient blend mode", function()
 	font:DrawText("Hg", 10, 10)
 	return function()
 		local downloaded = render.target:GetTexture():Download()
-		assert(
-			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
-			"expected visible pixels for SDF text with dirty blend mode"
-		)
+		T.AssertTextureRegion{
+			tex = downloaded,
+			rect = {12, 12, 120, 120},
+			mode = "any",
+			color = function(_, _, _, a)
+				return a >= 0.4
+			end,
+			msg = "expected visible pixels for SDF text with dirty blend mode",
+		}
 	end
 end)
 
@@ -112,10 +107,15 @@ T.Test2D("sdf font ignores ambient gradient texture", function()
 	font:DrawText("Hg", 10, 10)
 	return function()
 		local downloaded = render.target:GetTexture():Download()
-		assert(
-			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
-			"expected visible pixels for SDF text with transparent ambient texture"
-		)
+		T.AssertTextureRegion{
+			tex = downloaded,
+			rect = {12, 12, 120, 120},
+			mode = "any",
+			color = function(_, _, _, a)
+				return a >= 0.4
+			end,
+			msg = "expected visible pixels for SDF text with transparent ambient texture",
+		}
 	end
 end)
 
@@ -132,10 +132,15 @@ T.Test2D("sdf font ignores ambient threshold, softness and outline", function()
 	font:DrawText("Hg", 10, 10)
 	return function()
 		local downloaded = render.target:GetTexture():Download()
-		assert(
-			region_has_alpha_above(downloaded, 12, 12, 120, 120, 0.4),
-			"expected visible pixels for SDF text with dirty threshold, softness and outline"
-		)
+		T.AssertTextureRegion{
+			tex = downloaded,
+			rect = {12, 12, 120, 120},
+			mode = "any",
+			color = function(_, _, _, a)
+				return a >= 0.4
+			end,
+			msg = "expected visible pixels for SDF text with dirty threshold, softness and outline",
+		}
 	end
 end)
 

@@ -4,6 +4,13 @@ local commands = import("goluwa/cli/commands.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local repl = import("goluwa/cli/repl.lua")
 
+local function send_key(key, modifiers)
+	repl.HandleEvent{
+		key = key,
+		modifiers = modifiers or {ctrl = false, shift = false, alt = false},
+	}
+end
+
 test.Test("repl input", function()
 	local function reset()
 		repl.input_buffer = ""
@@ -12,13 +19,6 @@ test.Test("repl input", function()
 		commands.history = {}
 		commands.history_map = {}
 		repl.history_index = 1
-	end
-
-	local function send_key(key, modifiers)
-		repl.HandleEvent{
-			key = key,
-			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
-		}
 	end
 
 	-- 1. Basic typing
@@ -191,13 +191,6 @@ test.Test("repl multiline navigation", function()
 		repl.input_scroll_offset = 0
 	end
 
-	local function send_key(key, modifiers)
-		repl.HandleEvent{
-			key = key,
-			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
-		}
-	end
-
 	-- 1. Up/down navigation between lines
 	reset()
 	repl.input_buffer = "hello\nworld"
@@ -261,13 +254,6 @@ test.Test("repl wrapped visual navigation", function()
 		repl.history_index = 1
 	end
 
-	local function send_key(key, modifiers)
-		repl.HandleEvent{
-			key = key,
-			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
-		}
-	end
-
 	local old_term = repl.term
 	repl.term = {
 		GetSize = function()
@@ -299,13 +285,6 @@ test.Test("repl advanced editing", function()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
 		repl.selection_start = nil
-	end
-
-	local function send_key(key, modifiers)
-		repl.HandleEvent{
-			key = key,
-			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
-		}
 	end
 
 	-- 1. Ctrl+A to select all

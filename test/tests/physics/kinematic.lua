@@ -1,4 +1,5 @@
 local T = import("test/environment.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local physics = import("goluwa/physics.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -11,13 +12,6 @@ local sphere_shape = SphereShape.New
 local capsule_shape = CapsuleShape.New
 local box_shape = BoxShape.New
 
-local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 local function create_flat_ground(name, extent)
 	extent = extent or 8
@@ -56,7 +50,7 @@ T.TestPhysics("Kinematic controller implies kinematic motion type", function()
 		Shape = sphere_shape(0.5),
 	})
 	local controller = ent:AddComponent("kinematic_controller")
-	simulate_physics(1)
+	test_helpers.Simulate(1)
 	T(body:GetMotionType())["=="]("kinematic")
 	T(controller:IsControllingKinematicBody())["=="](true)
 	ent:Remove()
@@ -75,13 +69,13 @@ T.TestPhysics("Kinematic controller moves body along flat ground", function()
 		Acceleration = 80,
 		AirAcceleration = 80,
 	})
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local settled = ent.transform:GetPosition():Copy()
 	T(body:GetGrounded())["=="](true)
 	T(settled.y)[">="](0.49)
 	T(settled.y)["<="](0.56)
 	controller:SetDesiredVelocity(Vec3(6, 0, 0))
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local moved = ent.transform:GetPosition()
 	T(moved.x)[">"](2.5)
 	T(math.abs(moved.z))["<"](0.5)
@@ -104,13 +98,13 @@ T.TestPhysics("Kinematic controller supports capsule bodies on flat ground", fun
 		Acceleration = 80,
 		AirAcceleration = 80,
 	})
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local settled = ent.transform:GetPosition():Copy()
 	T(body:GetGrounded())["=="](true)
 	T(settled.y)[">="](0.88)
 	T(settled.y)["<="](0.96)
 	controller:SetDesiredVelocity(Vec3(6, 0, 0))
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local moved = ent.transform:GetPosition()
 	T(moved.x)[">"](2.5)
 	T(math.abs(moved.z))["<"](0.5)
@@ -133,11 +127,11 @@ T.TestPhysics("Kinematic capsule ground speed matches desired velocity", functio
 		Acceleration = 200,
 		AirAcceleration = 200,
 	})
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local settled = ent.transform:GetPosition():Copy()
 	T(body:GetGrounded())["=="](true)
 	controller:SetDesiredVelocity(Vec3(1, 0, 0))
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local moved = ent.transform:GetPosition()
 	local distance = moved.x - settled.x
 	T(distance)[">="](0.9)
@@ -169,7 +163,7 @@ T.TestPhysics("Kinematic controller capsule can stand on static box", function()
 		Acceleration = 80,
 		AirAcceleration = 80,
 	})
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local settled = ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(settled.y)[">="](2.38)
@@ -297,7 +291,7 @@ T.TestPhysics("Kinematic capsule is carried by moving rigid body platform", func
 		Acceleration = 80,
 		AirAcceleration = 80,
 	})
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local platform_pos = platform_ent.transform:GetPosition()
 	local position = ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
@@ -329,10 +323,10 @@ T.TestPhysics("Kinematic capsule follows walkable slopes", function()
 		Acceleration = 80,
 		AirAcceleration = 80,
 	})
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local settled = ent.transform:GetPosition():Copy()
 	controller:SetDesiredVelocity(Vec3(4, 0, 0))
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local position = ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.x)[">"](settled.x + 0.5)
@@ -364,10 +358,10 @@ T.TestPhysics("Kinematic capsule does not get launched downhill while idle on sl
 		Acceleration = 80,
 		AirAcceleration = 80,
 	})
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local settled = ent.transform:GetPosition():Copy()
 	T(body:GetGrounded())["=="](true)
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local idle = ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(math.abs(idle.x - settled.x))["<"](0.35)
@@ -396,9 +390,9 @@ T.TestPhysics("Kinematic capsule walks down low ledges", function()
 			GroundSnapDistance = 0.4,
 		}
 	)
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	controller:SetDesiredVelocity(Vec3(3.5, 0, 0))
-	simulate_physics(140)
+	test_helpers.Simulate(140)
 	local position = ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.x)[">"](2.2)
@@ -428,9 +422,9 @@ T.TestPhysics("Kinematic capsule can walk off tall ledges and fall", function()
 			GroundSnapDistance = 0.4,
 		}
 	)
-	simulate_physics(220)
+	test_helpers.Simulate(220)
 	controller:SetDesiredVelocity(Vec3(3.5, 0, 0))
-	simulate_physics(220)
+	test_helpers.Simulate(220)
 	local position = ent.transform:GetPosition()
 	T(position.x)[">"](2.4)
 	T(position.y)["<"](1.2)
@@ -457,14 +451,14 @@ T.TestPhysics("Kinematic capsule can jump from flat ground", function()
 			GroundSnapDistance = 0.4,
 		}
 	)
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local settled = ent.transform:GetPosition():Copy()
 	local jump_velocity = body:GetVelocity():Copy()
 	jump_velocity.y = 8
 	body:SetVelocity(jump_velocity)
 	controller:SetVelocity(jump_velocity)
 	body:SetGrounded(false)
-	simulate_physics(15)
+	test_helpers.Simulate(15)
 	local jumped = ent.transform:GetPosition()
 	T(jumped.y)[">"](settled.y + 0.3)
 	T(body:GetGrounded())["=="](false)

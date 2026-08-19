@@ -42,6 +42,7 @@ local FAILURES_ONLY = false
 local completed_test_count = 0
 local has_failed_tests = false
 local collecting_test_definitions = nil
+local skipped_files = {}
 
 local function flush_output_stream(handle)
 	if handle and handle.flush then pcall(handle.flush, handle) end
@@ -160,6 +161,16 @@ function test.GetCurrentFileTimeoutDeadline()
 	return current_file_timeout_deadline
 end
 
+-- Mark the currently running file as skipped. Call this before returning
+-- from the test file so the skip (and its reason) shows up in the summary.
+function test.SkipFile(reason)
+	skipped_files[current_test_name] = reason or "skipped"
+end
+
+function test.GetSkippedFileReason()
+	return skipped_files[current_test_name]
+end
+
 function test.ResetCurrentFileTimeout()
 	current_file_timeout_deadline = system.GetTime() + TEST_TIMEOUT
 	return current_file_timeout_deadline
@@ -175,6 +186,12 @@ local function matches_subfilter(name)
 		SUBFILTER == "" or
 		SUBFILTER == "all" or
 		name:find(SUBFILTER, nil, true)
+end
+
+function test.Skip(name, reason)
+	return test.Test(name, function()
+		return test.Unavailable(reason or "skipped")
+	end)
 end
 
 local function enqueue_test_definition(kind, name, cb, start, stop)
@@ -686,6 +703,7 @@ do
 		test_file_count = 0
 		test_results = {}
 		test_order = {}
+		skipped_files = {}
 		completed_test_count = 0
 		has_failed_tests = false
 
@@ -813,6 +831,13 @@ do
 		local actual_total = os.clock() - luajit_startup_time
 
 		if PROFILING then profiler.Stop() end
+
+		if LOGGING and not no_summary then
+			for name, reason in pairs(skipped_files) do
+				io_write(colors.dim(string.format("%s skipped: %s\n", name, reason)))
+				io.flush()
+			end
+		end
 
 		if test_file_count > 0 then
 			-- Display results for each test file that has completed, in order
@@ -1032,76 +1057,189 @@ function test.ScreenshotAlbedo(path)
 	render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):Save(path)
 end
 
-function test.AssertScreenPixel(tbl)
+local function get_screen_texture()
 	local render = import("goluwa/render/render.lua")
-	return test.TexturePixel(
-		render.target:GetTexture(),
-		tbl.pos[1],
-		tbl.pos[2],
-		tbl.color[1],
-		tbl.color[2],
-		tbl.color[3],
-		tbl.color[4],
-		tbl.tolerance
-	)
+	return render.target:GetTexture()
 end
 
-function test.ScreenAlbedoPixel(x, y, r, g, b, a, tolerance)
+local function get_albedo_texture()
 	local render3d = import("goluwa/render3d/render3d.lua")
-	return test.TexturePixel(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1), x, y, r, g, b, a, tolerance)
+	return render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1)
 end
 
-function test.TexturePixel(tex, x, y, r, g, b, a, tolerance)
+-- Read a normalized screen pixel
+function test.GetScreenPixel(x, y)
+	local r, g, b, a = get_screen_texture():GetPixel(x, y)
+	return r / 255, g / 255, b / 255, a / 255
+end
+
+-- Read a normalized gbuffer albedo pixel
+function test.GetAlbedoPixel(x, y)
+	local r, g, b, a = get_albedo_texture():GetPixel(x, y)
+	return r / 255, g / 255, b / 255, a / 255
+end
+
+-- color is either {r, g, b, a} or a predicate function(r, g, b, a) -> bool
+local function check_pixel(color, x, y, r, g, b, a, tolerance, msg)
 	tolerance = tolerance or 0.01
+	local got = string.format("(%.3f,%.3f,%.3f,%.3f)", r, g, b, a)
+	local label = msg and (" (" .. msg .. ")") or ""
 
-	if type(r) == "function" then
-		local r_, g_, b_, a_ = tex:GetPixel(x, y)
-		local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
-
-		if not r(r_norm, g_norm, b_norm, a_norm) then
-			error(
-				string.format(
-					"Pixel (%d,%d) mismatch - Got: (%.3f,%.3f,%.3f,%.3f)",
-					x,
-					y,
-					r_norm,
-					g_norm,
-					b_norm,
-					a_norm
-				)
-			)
+	if type(color) == "function" then
+		if not color(r, g, b, a) then
+			error(string.format("pixel (%d,%d)%s failed, got %s", x, y, label, got), 3)
 		end
 
 		return
 	end
 
-	local r_, g_, b_, a_ = tex:GetPixel(x, y)
-	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
-
 	if
-		math.abs(r_norm - r) > tolerance or
-		math.abs(g_norm - g) > tolerance or
-		math.abs(b_norm - b) > tolerance or
-		math.abs(a_norm - a) > tolerance
+		math.abs(r - color[1]) > tolerance or
+		math.abs(g - color[2]) > tolerance or
+		math.abs(b - color[3]) > tolerance or
+		math.abs(a - color[4]) > tolerance
 	then
 		error(
 			string.format(
-				"Pixel (%d,%d) mismatch - Expected: (%.3f,%.3f,%.3f,%.3f), Got: (%.3f,%.3f,%.3f,%.3f) (±%.3f)",
+				"pixel (%d,%d)%s mismatch, expected (%.3f,%.3f,%.3f,%.3f) (±%.3f), got %s",
 				x,
 				y,
-				r,
-				g,
-				b,
-				a,
-				r_norm,
-				g_norm,
-				b_norm,
-				a_norm,
-				tolerance
+				label,
+				color[1],
+				color[2],
+				color[3],
+				color[4],
+				tolerance,
+				got
+			),
+			3
+		)
+	end
+end
+
+-- r is either {r, g, b, a} or a predicate function(r, g, b, a) -> bool
+function test.TexturePixel(tex, x, y, r, g, b, a, tolerance, msg)
+	if type(r) == "number" then
+		r = {r, g, b, a}
+	end
+
+	local r_, g_, b_, a_ = tex:GetPixel(x, y)
+	check_pixel(r, x, y, r_ / 255, g_ / 255, b_ / 255, a_ / 255, tolerance, msg)
+end
+
+-- Allow predicates to be passed as either a plain function or wrapped in a
+-- single entry table (the old {fn} convention)
+local function normalize_color(color)
+	if type(color) == "table" and type(color[1]) == "function" then
+		return color[1]
+	end
+
+	return color
+end
+
+-- {pos = {x, y}, color = {r, g, b, a} | function, tolerance = n, msg = "string"}
+function test.AssertScreenPixel(tbl)
+	test.TexturePixel(
+		get_screen_texture(),
+		tbl.pos[1],
+		tbl.pos[2],
+		normalize_color(tbl.color),
+		nil,
+		nil,
+		nil,
+		tbl.tolerance,
+		tbl.msg
+	)
+end
+
+function test.AssertAlbedoPixel(tbl)
+	test.TexturePixel(
+		get_albedo_texture(),
+		tbl.pos[1],
+		tbl.pos[2],
+		normalize_color(tbl.color),
+		nil,
+		nil,
+		nil,
+		tbl.tolerance,
+		tbl.msg
+	)
+end
+
+function test.AssertTexturePixel(tbl)
+	test.TexturePixel(
+		tbl.tex,
+		tbl.pos[1],
+		tbl.pos[2],
+		normalize_color(tbl.color),
+		nil,
+		nil,
+		nil,
+		tbl.tolerance,
+		tbl.msg
+	)
+end
+
+function test.ScreenAlbedoPixel(x, y, r, g, b, a, tolerance, msg)
+	test.TexturePixel(get_albedo_texture(), x, y, r, g, b, a, tolerance, msg)
+end
+
+-- Scan a rectangular region of a texture.
+-- {tex = texture, rect = {min_x, min_y, max_x, max_y}, mode = "any" | "all",
+--  color = function(r, g, b, a) -> bool, msg = "string"}
+-- "any" passes if at least one pixel satisfies the predicate, "all" if every pixel does.
+function test.AssertTextureRegion(tbl)
+	local tex = tbl.tex
+	local mode = tbl.mode or "any"
+	local rect = tbl.rect
+	local hit
+	local failure
+
+	for y = rect[2], rect[4] do
+		for x = rect[1], rect[3] do
+			local r, g, b, a = tex:GetPixel(x, y)
+			local ok = tbl.color(r / 255, g / 255, b / 255, a / 255)
+
+			if ok then
+				hit = true
+			elseif mode == "all" and not failure then
+				failure = {x, y, r / 255, g / 255, b / 255, a / 255}
+			end
+		end
+
+		if (mode ~= "all" and hit) or (mode == "all" and failure) then break end
+	end
+
+	local label = tbl.msg and (" (" .. tbl.msg .. ")") or ""
+
+	if mode == "all" then
+		if not failure then return end
+
+		error(
+			string.format(
+				"region (%d,%d)-(%d,%d)%s not fully satisfied, failing pixel (%d,%d)=(%.3f,%.3f,%.3f,%.3f)",
+				rect[1],
+				rect[2],
+				rect[3],
+				rect[4],
+				label,
+				failure[1],
+				failure[2],
+				failure[3],
+				failure[4],
+				failure[5],
+				failure[6]
 			),
 			2
 		)
 	end
+
+	if hit then return end
+
+	error(
+		string.format("region (%d,%d)-(%d,%d)%s has no pixel satisfying the check", rect[1], rect[2], rect[3], rect[4], label),
+		2
+	)
 end
 
 local attest = import("goluwa/attest.lua")
@@ -1212,6 +1350,12 @@ commands.Add({
 				has_tests = t.RunSingleTestSet({name = input.name, path = input.path})
 
 				if not has_tests then
+					local skip_reason = t.GetSkippedFileReason()
+
+					if skip_reason then
+						io.write(string.format("%s skipped: %s\n", input.name, skip_reason))
+					end
+
 					t.EndTests(true)
 					return
 				end

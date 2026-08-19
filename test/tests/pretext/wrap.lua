@@ -84,7 +84,7 @@ T.Test("pretext measure_line_stats matches wrapped geometry", function()
 	T(pretext.measure_natural_width(prepared))["=="](select(1, mock_measurer:MeasureText("hello world again")))
 end)
 
-T.Test("pretext wraps ttf fonts", function()
+T.Test2D("pretext wraps ttf fonts", function()
 	local path = fonts.GetDefaultSystemFontPath()
 
 	if not path then return T.Unavailable("system font path unavailable") end

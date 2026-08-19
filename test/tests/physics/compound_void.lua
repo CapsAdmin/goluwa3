@@ -1,4 +1,5 @@
 local T = import("test/environment.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -10,13 +11,6 @@ local box_shape = BoxShape.New
 local sphere_shape = SphereShape.New
 local compound_shape = CompoundShape.New
 
-local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 local function spawn_void_ramp(name, position, roll_degrees, beam_length)
 	beam_length = beam_length or 6
@@ -80,7 +74,7 @@ T.TestPhysics("Compound void ramps do not trap spheres between platforms", funct
 		{spawn_sphere("compound_void_sphere_3", Vec3(0.9, 7.8, -0.3), 0.5)},
 		{spawn_sphere("compound_void_sphere_4", Vec3(1.9, 8.6, 0.15), 0.42)},
 	}
-	simulate_physics(720)
+	test_helpers.Simulate(720)
 
 	for _, pair in ipairs(spheres) do
 		local ent = pair[1]

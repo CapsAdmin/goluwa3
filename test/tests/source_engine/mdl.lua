@@ -47,34 +47,50 @@ T.Pending("mdl rendering", function(draw)
 	tasks.WaitAll(15)
 	draw()
 
-	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
-		return r > 0 and g > 0 and b > 0
-	end)
+	T.AssertAlbedoPixel{
+		pos = {256, 256},
+		color = function(r, g, b, a)
+			return r > 0 and g > 0 and b > 0
+		end,
+		msg = "mdl center should be non-black",
+	}
 
 	-- check the pixel between left arm and leg and make sure it hits the skybox as to not be corrupt
-	T.ScreenAlbedoPixel(170, 300, function(r, g, b, a)
-		T(r)["<"](0.01)
-		T(g)["<"](0.01)
-		T(b)["<"](0.01)
-		return true
-	end)
+	T.AssertAlbedoPixel{
+		pos = {170, 300},
+		color = function(r, g, b, a)
+			T(r)["<"](0.01)
+			T(g)["<"](0.01)
+			T(b)["<"](0.01)
+			return true
+		end,
+		msg = "gap between arm and leg should hit the skybox, not be corrupt",
+	}
 
 	ent.visual:SetModelPath("models/player/alyx.mdl")
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	tasks.WaitAll(15)
 	draw()
 
-	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
-		return r > 0 and g > 0 and b > 0
-	end)
+	T.AssertAlbedoPixel{
+		pos = {256, 256},
+		color = function(r, g, b, a)
+			return r > 0 and g > 0 and b > 0
+		end,
+		msg = "mdl center should be non-black",
+	}
 
 	-- check the pixel between left arm and leg and make sure it hits the skybox
-	T.ScreenAlbedoPixel(170, 300, function(r, g, b, a)
-		T(r)["<"](0.01)
-		T(g)["<"](0.01)
-		T(b)["<"](0.01)
-		return true
-	end)
+	T.AssertAlbedoPixel{
+		pos = {170, 300},
+		color = function(r, g, b, a)
+			T(r)["<"](0.01)
+			T(g)["<"](0.01)
+			T(b)["<"](0.01)
+			return true
+		end,
+		msg = "gap between arm and leg should hit the skybox, not be corrupt",
+	}
 
 	ent:Remove()
 	sun:Remove()

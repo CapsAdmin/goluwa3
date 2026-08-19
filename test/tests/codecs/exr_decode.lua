@@ -1,6 +1,5 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
-local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -26,15 +25,14 @@ T.Pending("Decode EXR Texture", function()
 	return function()
 		T.AssertScreenPixel{
 			pos = {50, 50},
-			color = {
-				function(r, g, b, a)
-					T(r)["~="](0) -- "Red channel should not be zero"
-					T(g)["~="](0) -- "Green channel should not be zero"
-					T(b)["~="](0) -- "Blue channel should not be zero"
-					T(a)["=="](1) -- "Alpha channel should be 1.0"
-					return true
-				end,
-			},
+			color = function(r, g, b, a)
+				T(r)["~="](0) -- "Red channel should not be zero"
+				T(g)["~="](0) -- "Green channel should not be zero"
+				T(b)["~="](0) -- "Blue channel should not be zero"
+				T(a)["=="](1) -- "Alpha channel should be 1.0"
+				return true
+			end,
+			msg = "decoded EXR pixel should be non-black and opaque",
 		}
 	end
 end)

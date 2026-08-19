@@ -1,3 +1,5 @@
+local T = import("test/environment.lua")
+T.SkipFile("disabled: long running and failing tests (85600db1)")
 do
 	return
 end
@@ -14,9 +16,6 @@ local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local CCD_FIXED_STEPS = {1 / 60}
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 local function with_ccd(config)
 	config.CCD = true
@@ -132,7 +131,7 @@ T.TestPhysics("Capsule rigid body lands on ground mesh", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(300)
+	test_helpers.Simulate(300)
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.y)[">="](0.95)
@@ -158,7 +157,7 @@ T.TestPhysics("Capsule rigid body settles and sleeps on ground mesh after spinni
 		}
 	)
 	body:SetAngularVelocity(Vec3(0.6, 3.2, 0.8))
-	simulate_physics(420)
+	test_helpers.Simulate(420)
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(body:GetAwake())["=="](false)
@@ -186,7 +185,7 @@ T.TestPhysics("Capsule rigid body settles in a concave heightmap pit", function(
 	)
 
 	with_fixed_step(1 / 60, function()
-		simulate_physics(720, 1 / 60)
+		test_helpers.Simulate(720, 1 / 60)
 	end)
 
 	local position = body_ent.transform:GetPosition()
@@ -217,7 +216,7 @@ T.TestPhysics("Tilted capsule on terrain can rotate out of its initial lean", fu
 	)
 
 	with_fixed_step(1 / 60, function()
-		simulate_physics(240, 1 / 60)
+		test_helpers.Simulate(240, 1 / 60)
 	end)
 
 	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
@@ -244,7 +243,7 @@ T.TestPhysics("Rolling capsule on terrain does not keep spinning in place", func
 	body:SetAngularVelocity(Vec3(0, 0, 5.5))
 
 	with_fixed_step(1 / 60, function()
-		simulate_physics(420, 1 / 60)
+		test_helpers.Simulate(420, 1 / 60)
 	end)
 
 	T(body:GetGrounded())["=="](true)
@@ -300,7 +299,7 @@ T.TestPhysics("Rolling capsule on shallow terrain retains angular motion while t
 	body:SetAngularVelocity(Vec3(0, 0, -5.6))
 
 	with_fixed_step(1 / 60, function()
-		simulate_physics(120, 1 / 60)
+		test_helpers.Simulate(120, 1 / 60)
 	end)
 
 	local velocity = body:GetVelocity()
@@ -355,7 +354,7 @@ T.TestPhysics("Capsule rigid body can rest on static box", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local position = capsule_ent.transform:GetPosition()
 	T(capsule:GetGrounded())["=="](true)
 	T(position.y)[">="](2.05)
@@ -391,7 +390,7 @@ T.TestPhysics("Capsule rigid body rolls off rotated static box instead of restin
 			Friction = 0.4,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local position = capsule_ent.transform:GetPosition()
 	T(math.abs(position.x))[">"](0.45)
 	T(position.y)["<"](5.0)
@@ -426,7 +425,7 @@ T.TestPhysics("Fast capsule tunnels through thin static box with auto CCD disabl
 		}
 	)
 	capsule:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = capsule_ent.transform:GetPosition()
 	blocker_ent:Remove()
 	capsule_ent:Remove()
@@ -458,7 +457,7 @@ T.TestPhysics("Fast capsule does not tunnel through thin static box when CCD is 
 		}
 	)
 	capsule:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = capsule_ent.transform:GetPosition()
 	blocker_ent:Remove()
 	capsule_ent:Remove()
@@ -493,7 +492,7 @@ T.TestPhysics("Fast capsule does not tunnel through static sphere", function()
 		}
 	)
 	capsule:SetVelocity(Vec3(320, 0, 0))
-	simulate_physics(1, 1 / 20)
+	test_helpers.Simulate(1, 1 / 20)
 	local position = capsule_ent.transform:GetPosition()
 	blocker_ent:Remove()
 	capsule_ent:Remove()
@@ -528,7 +527,7 @@ T.TestPhysics("Fast sphere does not tunnel through static capsule", function()
 		}
 	)
 	sphere:SetVelocity(Vec3(320, 0, 0))
-	simulate_physics(1, 1 / 20)
+	test_helpers.Simulate(1, 1 / 20)
 	local position = sphere_ent.transform:GetPosition()
 	blocker_ent:Remove()
 	sphere_ent:Remove()
@@ -562,7 +561,7 @@ T.TestPhysics("Fast capsule does not tunnel through static capsule", function()
 		}
 	)
 	capsule:SetVelocity(Vec3(320, 0, 0))
-	simulate_physics(1, 1 / 20)
+	test_helpers.Simulate(1, 1 / 20)
 	local position = capsule_ent.transform:GetPosition()
 	blocker_ent:Remove()
 	capsule_ent:Remove()
@@ -598,7 +597,7 @@ T.TestPhysics("Fast capsule CCD remains stable at smaller fixed steps against th
 				}
 			)
 			capsule:SetVelocity(Vec3(0, -320, 0))
-			simulate_physics(1, 1 / 10)
+			test_helpers.Simulate(1, 1 / 10)
 			local position = capsule_ent.transform:GetPosition()
 			blocker_ent:Remove()
 			capsule_ent:Remove()
@@ -634,7 +633,7 @@ T.TestPhysics("Fast capsule CCD remains stable at smaller fixed steps against st
 				}
 			)
 			capsule:SetVelocity(Vec3(320, 0, 0))
-			simulate_physics(1, 1 / 20)
+			test_helpers.Simulate(1, 1 / 20)
 			local position = capsule_ent.transform:GetPosition()
 			blocker_ent:Remove()
 			capsule_ent:Remove()

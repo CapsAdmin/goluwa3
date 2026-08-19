@@ -120,16 +120,7 @@ T.Test3D("Graphics render multiple outputs", function()
 	}
 	render.EndFrame()
 	-- Verify colors
-	local r, g, b, a = tex1:GetPixel(width / 2, height / 2)
-	T(r / 255)["~"](1.0)
-	T(g / 255)["~"](0.0)
-	T(b / 255)["~"](0.0)
-	r, g, b, a = tex2:GetPixel(width / 2, height / 2)
-	T(r / 255)["~"](0.0)
-	T(g / 255)["~"](1.0)
-	T(b / 255)["~"](0.0)
-	r, g, b, a = tex3:GetPixel(width / 2, height / 2)
-	T(r / 255)["~"](0.0)
-	T(g / 255)["~"](0.0)
-	T(b / 255)["~"](1.0)
+	T.AssertTexturePixel{tex = tex1, pos = {width / 2, height / 2}, color = {1, 0, 0, 1}}
+	T.AssertTexturePixel{tex = tex2, pos = {width / 2, height / 2}, color = {0, 1, 0, 1}}
+	T.AssertTexturePixel{tex = tex3, pos = {width / 2, height / 2}, color = {0, 0, 1, 1}}
 end)

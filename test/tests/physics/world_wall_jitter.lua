@@ -1,4 +1,5 @@
 local T = import("test/environment.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -9,13 +10,6 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
-local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 local function create_brush_body(name, mins, maxs)
 	local ent = Entity.New({Name = name})
@@ -79,13 +73,13 @@ T.TestPhysics("Dynamic sphere slides along brush world wall without sticking", f
 		}
 	)
 	sphere:SetVelocity(Vec3(8, 0, 3))
-	simulate_physics(90)
+	test_helpers.Simulate(90)
 	local start_contact_z = sphere_ent.transform:GetPosition().z
 	local min_x = math.huge
 	local max_x = -math.huge
 
 	for _ = 1, 90 do
-		simulate_physics(1)
+		test_helpers.Simulate(1)
 		local pos = sphere_ent.transform:GetPosition()
 		min_x = math.min(min_x, pos.x)
 		max_x = math.max(max_x, pos.x)
@@ -123,7 +117,7 @@ T.TestPhysics("Dynamic sphere dropped above brush top edge does not sink deeply"
 	local min_edge_distance = math.huge
 
 	for _ = 1, 180 do
-		simulate_physics(1)
+		test_helpers.Simulate(1)
 		local position = sphere_ent.transform:GetPosition()
 
 		if math.abs(position.z) < 0.2 and position.x > 2.6 and position.y < 1.8 then
@@ -163,7 +157,7 @@ T.TestPhysics("Dynamic sphere hitting brush ceiling corner does not sink deeply"
 	local min_corner_distance = math.huge
 
 	for _ = 1, 120 do
-		simulate_physics(1)
+		test_helpers.Simulate(1)
 		local position = sphere_ent.transform:GetPosition()
 
 		if math.abs(position.z) < 0.2 and position.x < 2.7 and position.y > 1.2 then
@@ -203,7 +197,7 @@ T.TestPhysics("Physgun-style sphere push against brush platform edge does not st
 
 	for _ = 1, 120 do
 		sphere:SetVelocity(Vec3(-6, 6, 0))
-		simulate_physics(1)
+		test_helpers.Simulate(1)
 		local position = sphere_ent.transform:GetPosition()
 		local dx = math.max(position.x - 2, 0)
 		local dy = math.max(2 - position.y, 0)
@@ -241,7 +235,7 @@ T.TestPhysics("Dynamic box pushed into brush ceiling corner escapes without gett
 
 	for _ = 1, 120 do
 		box:SetVelocity(Vec3(-6, 6, 0))
-		simulate_physics(1)
+		test_helpers.Simulate(1)
 
 		for _, local_point in ipairs(box:GetCollisionLocalPoints()) do
 			local world_point = box:GeometryLocalToWorld(local_point)
@@ -280,10 +274,10 @@ T.TestPhysics("Dynamic box rests stably on brush world support patch", function(
 			Restitution = 0,
 		}
 	)
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local settled_position = box_ent.transform:GetPosition():Copy()
 	local settled_angles = box_ent.transform:GetRotation():GetAngles()
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local final_position = box_ent.transform:GetPosition()
 	local final_angles = box_ent.transform:GetRotation():GetAngles()
 	local drift = (final_position - settled_position):GetLength()
@@ -323,7 +317,7 @@ T.TestPhysics("Dynamic box slides along brush wall without sticking or twisting 
 		}
 	)
 	box:SetVelocity(Vec3(8, 0, 3))
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local position = box_ent.transform:GetPosition()
 	local angles = box_ent.transform:GetRotation():GetAngles()
 	local velocity = box:GetVelocity()

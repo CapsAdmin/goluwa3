@@ -1,3 +1,5 @@
+local T = import("test/environment.lua")
+T.SkipFile("disabled: long running and failing tests (85600db1)")
 do
 	return
 end
@@ -19,13 +21,6 @@ local box_shape = BoxShape.New
 local convex_shape = ConvexShape.New
 local CCD_FIXED_STEPS = {1 / 60}
 
-local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 local function with_ccd(config)
 	config.CCD = true
@@ -49,18 +44,6 @@ local function with_fixed_step(fixed_dt, callback)
 	end
 end
 
-local function create_flat_ground(name, extent)
-	extent = extent or 8
-	local ground = Entity.New({Name = name})
-	ground:AddComponent("transform")
-	local poly = Polygon3D.New()
-	poly:AddVertex{pos = Vec3(-extent, 0, -extent), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
-	poly:AddVertex{pos = Vec3(0, 0, extent), uv = Vec2(0.5, 1), normal = Vec3(0, 1, 0)}
-	poly:AddVertex{pos = Vec3(extent, 0, -extent), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
-	poly:BuildBoundingBox()
-	test_helpers.AttachWorldGeometryBody(ground, poly)
-	return ground
-end
 
 local function add_triangle(poly, a, b, c)
 	poly:AddVertex{pos = a, uv = Vec2(0, 0)}
@@ -206,7 +189,7 @@ T.TestPhysics("Convex hull approximation removes interior triangle vertices", fu
 end)
 
 T.TestPhysics("Convex rigid body can rest on triangle world geometry", function()
-	local ground = create_flat_ground("convex_ground_world", 10)
+	local ground = test_helpers.CreateFlatGround("convex_ground_world", 10)
 	local hull = convex_hull.BuildFromTriangles(create_pyramid_source_mesh())
 	local body_ent = Entity.New({Name = "convex_ground_body"})
 	body_ent:AddComponent("transform")
@@ -220,7 +203,7 @@ T.TestPhysics("Convex rigid body can rest on triangle world geometry", function(
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(300)
+	test_helpers.Simulate(300)
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.y)[">="](0.3)
@@ -258,7 +241,7 @@ T.TestPhysics("Rigid sphere collides with static convex hull", function()
 		}
 	)
 	sphere:SetVelocity(Vec3(12, 0, 0))
-	simulate_physics(90)
+	test_helpers.Simulate(90)
 	local position = sphere_ent.transform:GetPosition()
 	local velocity = sphere:GetVelocity()
 	T(position.x)["<="](-1.15)
@@ -293,7 +276,7 @@ T.TestPhysics("Capsule rigid body collides with static convex hull", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local position = capsule_ent.transform:GetPosition()
 	T(capsule:GetGrounded())["=="](true)
 	T(position.y)[">="](2.0)
@@ -327,7 +310,7 @@ T.TestPhysics("Convex rigid body collides with static box", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(320)
+	test_helpers.Simulate(320)
 	local position = convex_ent.transform:GetPosition()
 	T(convex:GetGrounded())["=="](true)
 	T(position.y)[">="](1.9)

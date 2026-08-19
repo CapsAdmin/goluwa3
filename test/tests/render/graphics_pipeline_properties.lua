@@ -1,40 +1,9 @@
 local ffi = require("ffi")
 local T = import("test/environment.lua")
 local render = import("goluwa/render/render.lua")
+local render_helpers = import("test/tests/render/helpers.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 
-local function create_pipeline(extra)
-	local config = {
-		shader_stages = {
-			{
-				type = "vertex",
-				code = [[
-					#version 450
-					void main() {
-						vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-						gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-					}
-				]],
-			},
-			{
-				type = "fragment",
-				code = [[
-					#version 450
-					layout(location = 0) out vec4 out_color;
-					void main() {
-						out_color = vec4(1.0, 1.0, 1.0, 1.0);
-					}
-				]],
-			},
-		},
-	}
-
-	for key, value in pairs(extra or {}) do
-		config[key] = value
-	end
-
-	return render.CreateGraphicsPipeline(config)
-end
 
 local function expect_error(callback)
 	local ok = pcall(callback)
@@ -42,26 +11,9 @@ local function expect_error(callback)
 	if ok then error("expected failure") end
 end
 
-local function create_easy_pipeline(extra)
-	local config = {
-		fragment = {
-			shader = [[
-				void main() {
-					out_color = vec4(1.0, 1.0, 1.0, 1.0);
-				}
-			]],
-		},
-	}
-
-	for key, value in pairs(extra or {}) do
-		config[key] = value
-	end
-
-	return EasyPipeline.New(config)
-end
 
 T.Test3D("GraphicsPipeline property validation and reset", function()
-	local pipeline = create_pipeline()
+	local pipeline = render_helpers.CreatePipeline()
 	pipeline:SetTopology("line_strip")
 	pipeline:SetPolygonMode("line")
 	pipeline:SetFrontStencilReference(4)
@@ -104,7 +56,7 @@ end)
 
 T.Test3D("GraphicsPipeline constructor PascalCase properties", function()
 	local supports_sample_shading = render.GetDevice().physical_device:GetFeatures().sampleRateShading ~= 0
-	local pipeline = create_pipeline{
+	local pipeline = render_helpers.CreatePipeline{
 		Topology = "line_list",
 		ViewportWidth = 123,
 		ViewportHeight = 45,
@@ -139,7 +91,7 @@ T.Test3D("GraphicsPipeline constructor PascalCase properties", function()
 
 	if not supports_sample_shading then
 		expect_error(function()
-			create_pipeline{
+			render_helpers.CreatePipeline{
 				SampleShading = true,
 			}
 		end)
@@ -150,7 +102,7 @@ T.Test3D("GraphicsPipeline constructor PascalCase config aliases", function()
 	local color_format = render.target:GetColorFormat()
 	local depth_format = render.target:GetDepthFormat()
 	local samples = render.target:GetSamples()
-	local pipeline = create_pipeline{
+	local pipeline = render_helpers.CreatePipeline{
 		ColorFormat = color_format,
 		DepthFormat = depth_format,
 		RasterizationSamples = samples,
@@ -164,7 +116,7 @@ T.Test3D("GraphicsPipeline constructor PascalCase config aliases", function()
 end)
 
 T.Test3D("GraphicsPipeline dirty tracking uses property dynamic state metadata", function()
-	local pipeline = create_pipeline()
+	local pipeline = render_helpers.CreatePipeline()
 	pipeline.dynamic_states = {
 		polygon_mode_ext = true,
 		stencil_reference = true,
@@ -197,7 +149,7 @@ end)
 
 T.Test3D("EasyPipeline rejects nested public property config", function()
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			input_assembly = {
 				topology = "triangle_list",
 			},
@@ -205,7 +157,7 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			rasterizer = {
 				cull_mode = "none",
 			},
@@ -213,7 +165,7 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			depth_stencil = {
 				front = {
 					fail_op = "replace",
@@ -223,7 +175,7 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			color_blend = {
 				attachments = {
 					{blend = true},
@@ -233,7 +185,7 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			multisampling = {
 				rasterization_samples = "4",
 			},
@@ -241,7 +193,7 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			multisampling = {
 				sample_shading = true,
 			},
@@ -249,7 +201,7 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			multisampling = {
 				min_sample_shading = 0.5,
 			},
@@ -257,7 +209,7 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			viewport = {
 				w = 32,
 			},
@@ -265,14 +217,14 @@ T.Test3D("EasyPipeline rejects nested public property config", function()
 	end)
 
 	expect_error(function()
-		create_easy_pipeline{
+		render_helpers.CreateEasyPipeline{
 			scissor = {
 				w = 32,
 			},
 		}
 	end)
 
-	local pipeline = create_easy_pipeline{
+	local pipeline = render_helpers.CreateEasyPipeline{
 		ColorFormat = {render.target:GetColorFormat(), render.target:GetColorFormat()},
 		color_blend = {
 			attachments = {

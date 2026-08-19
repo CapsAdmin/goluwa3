@@ -1,3 +1,5 @@
+local T = import("test/environment.lua")
+T.SkipFile("disabled: long running and failing tests (85600db1)")
 do
 	return
 end
@@ -10,9 +12,6 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 local function spawn_box_platform(name, position, size, config)
 	config = config or {}
@@ -183,9 +182,9 @@ T.TestPhysics("Tilted tall box settles onto a face on a static box platform", fu
 		}
 	)
 	local top_ent, top = spawn_tilted_box("rigid_box_edge_static_top", Vec3(0, 6, 0))
-	simulate_physics(720)
+	test_helpers.Simulate(720)
 	local settled_position, settled_verticals = assert_settled_on_face(top_ent, top, 1, 0.5, 0.3, 0.7)
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local final_position = top_ent.transform:GetPosition()
 	local final_verticals = get_axis_verticals(top_ent.transform:GetRotation())
 	local drift = (final_position - settled_position):GetLength()
@@ -217,7 +216,7 @@ T.TestPhysics("Tilted tall box settles onto a face on a dynamic box platform", f
 			SleepAngularThreshold = 0.03,
 		}
 	)
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local platform_position = platform_ent.transform:GetPosition():Copy()
 	T(platform:GetGrounded())["=="](true)
 	T(platform_position.y)[">="](0.45)
@@ -225,10 +224,10 @@ T.TestPhysics("Tilted tall box settles onto a face on a dynamic box platform", f
 	T(platform:GetVelocity():GetLength())["<"](0.08)
 	T(platform:GetAngularVelocity():GetLength())["<"](0.08)
 	local top_ent, top = spawn_tilted_box("rigid_box_edge_dynamic_top", platform_position + Vec3(0, 5.5, 0))
-	simulate_physics(960)
+	test_helpers.Simulate(960)
 	local settled_platform_position = platform_ent.transform:GetPosition():Copy()
 	local settled_position, settled_verticals = assert_settled_on_face(top_ent, top, settled_platform_position.y, 0.5, 0.3, 0.7)
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local final_position = top_ent.transform:GetPosition()
 	local final_verticals = get_axis_verticals(top_ent.transform:GetRotation())
 	local top_drift = (final_position - settled_position):GetLength()
@@ -261,9 +260,9 @@ T.TestPhysics("Compact rotated box settles flat instead of balancing on an edge"
 		Deg3(45, 0, 45),
 		{Mass = 1.8, AngularDamping = 0.1}
 	)
-	simulate_physics(960)
+	test_helpers.Simulate(960)
 	local settled_position, settled_verticals = assert_settled_on_face(top_ent, top, 1, 0.5, 0.45, 0.72, 0.985, 0.18)
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local final_position = top_ent.transform:GetPosition()
 	local final_verticals = get_axis_verticals(top_ent.transform:GetRotation())
 	top_ent:Remove()
@@ -293,9 +292,9 @@ T.TestPhysics("Elongated box settles flat instead of leaving one long edge loade
 		Deg3(18, 0, 45),
 		{Mass = 2.2, AngularDamping = 0.1}
 	)
-	simulate_physics(1200)
+	test_helpers.Simulate(1200)
 	local settled_position, settled_verticals = assert_settled_on_face(top_ent, top, 1, 0.5, 0.3, 0.58, 0.992, 0.12)
-	simulate_physics(600)
+	test_helpers.Simulate(600)
 	local final_position = top_ent.transform:GetPosition()
 	local final_verticals = get_axis_verticals(top_ent.transform:GetRotation())
 	top_ent:Remove()
@@ -338,9 +337,9 @@ T.TestPhysics("Thin tilted box tips down instead of hanging on a narrow support 
 	)
 	local support_radius = top:GetPhysicsShape():GetSupportRadiusAlongNormal(top, Vec3(0, 1, 0))
 	top_ent.transform:SetPosition(Vec3(0, 1.5 + support_radius, 0))
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local mid_angles = top_ent.transform:GetRotation():GetAngles()
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local final_angles = top_ent.transform:GetRotation():GetAngles()
 	local grounded = top:GetGrounded()
 	top_ent:Remove()
@@ -384,19 +383,19 @@ T.TestPhysics("Twenty meter beam resting on one end settles quickly from forty f
 	)
 	local support_radius = beam:GetPhysicsShape():GetSupportRadiusAlongNormal(beam, Vec3(0, 1, 0))
 	beam_ent.transform:SetPosition(Vec3(0, 1 + support_radius, 0))
-	simulate_physics(30)
+	test_helpers.Simulate(30)
 	local early_rotation = beam_ent.transform:GetRotation()
 	local early_tilt = math.abs(early_rotation:GetRight().y)
 	local early_angvel = beam:GetAngularVelocity():GetLength()
-	simulate_physics(30)
+	test_helpers.Simulate(30)
 	local half_second_rotation = beam_ent.transform:GetRotation()
 	local half_second_tilt = math.abs(half_second_rotation:GetRight().y)
 	local half_second_angvel = beam:GetAngularVelocity():GetLength()
-	simulate_physics(60)
+	test_helpers.Simulate(60)
 	local one_and_half_second_rotation = beam_ent.transform:GetRotation()
 	local one_and_half_second_tilt = math.abs(one_and_half_second_rotation:GetRight().y)
 	local one_and_half_second_angvel = beam:GetAngularVelocity():GetLength()
-	simulate_physics(30)
+	test_helpers.Simulate(30)
 	local two_second_rotation = beam_ent.transform:GetRotation()
 	local two_second_tilt = math.abs(two_second_rotation:GetRight().y)
 	local two_second_angvel = beam:GetAngularVelocity():GetLength()
@@ -440,7 +439,7 @@ T.TestPhysics("Long box overhanging a static platform tips instead of hovering f
 			Restitution = 0,
 		}
 	)
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local position = top_ent.transform:GetPosition()
 	local angles = top_ent.transform:GetRotation():GetAngles()
 	local angular_speed = top:GetAngularVelocity():GetLength()
@@ -470,9 +469,9 @@ T.TestPhysics("Thin rotated clutter box settles flat on a static platform", func
 		Deg3(-6, -18, 9),
 		{Mass = 1.1, AngularDamping = 0.09, Friction = 0.55}
 	)
-	simulate_physics(1200)
+	test_helpers.Simulate(1200)
 	local settled_position, settled_verticals = assert_settled_on_face(top_ent, top, 1, 0.5, 0.18, 0.34, 0.985, 0.18)
-	simulate_physics(600)
+	test_helpers.Simulate(600)
 	local final_position = top_ent.transform:GetPosition()
 	local final_verticals = get_axis_verticals(top_ent.transform:GetRotation())
 	local linear_speed = top:GetVelocity():GetLength()
@@ -536,7 +535,7 @@ T.TestPhysics("Rotated clutter boxes settle and sleep on a static platform", fun
 		spawned[#spawned + 1] = {ent = ent, body = body}
 	end
 
-	simulate_physics(1800)
+	test_helpers.Simulate(1800)
 
 	for _, item in ipairs(spawned) do
 		local position = item.ent.transform:GetPosition()
@@ -546,7 +545,7 @@ T.TestPhysics("Rotated clutter boxes settle and sleep on a static platform", fun
 		T(item.body:GetAngularVelocity():GetLength())["<"](0.12)
 	end
 
-	simulate_physics(600)
+	test_helpers.Simulate(600)
 
 	for _, item in ipairs(spawned) do
 		T(item.body:GetAwake())["=="](false)
@@ -646,7 +645,7 @@ T.TestPhysics("Mixed clutter lets the loose boxes settle cleanly", function()
 		capsules[#capsules + 1] = {ent = ent, body = body}
 	end
 
-	simulate_physics(2400)
+	test_helpers.Simulate(2400)
 	local mixed_metrics = {}
 
 	for _, item in ipairs(boxes) do
@@ -658,7 +657,7 @@ T.TestPhysics("Mixed clutter lets the loose boxes settle cleanly", function()
 		}
 	end
 
-	simulate_physics(720)
+	test_helpers.Simulate(720)
 
 	for i, item in ipairs(boxes) do
 		mixed_metrics[i].awake = item.body:GetAwake()
@@ -736,7 +735,7 @@ T.TestPhysics("Evenly spaced playground boxes settle onto stable upright faces",
 		spawned[#spawned + 1] = {ent = ent, body = body, def = def}
 	end
 
-	simulate_physics(1800)
+	test_helpers.Simulate(1800)
 	local even_metrics = {}
 
 	for _, item in ipairs(spawned) do
@@ -764,7 +763,7 @@ T.TestPhysics("Evenly spaced playground boxes settle onto stable upright faces",
 		}
 	end
 
-	simulate_physics(900)
+	test_helpers.Simulate(900)
 
 	for i, item in ipairs(spawned) do
 		even_metrics[i].awake = item.body:GetAwake()

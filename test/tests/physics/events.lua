@@ -12,13 +12,6 @@ local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local convex_shape = ConvexShape.New
 
-local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 T.TestPhysics("Rigid bodies support collision layers and collision events", function()
 	local function spawn_pair(prefix, config_a, config_b)
@@ -60,7 +53,7 @@ T.TestPhysics("Rigid bodies support collision layers and collision events", func
 
 	body_a:SetVelocity(Vec3(6, 0, 0))
 	body_b:SetVelocity(Vec3(-6, 0, 0))
-	simulate_physics(90)
+	test_helpers.Simulate(90)
 	T(enter_count)["=="](0)
 	T(no_hit_a.transform:GetPosition().x)[">"](1.5)
 	T(no_hit_b.transform:GetPosition().x)["<"](-1.5)
@@ -114,11 +107,11 @@ T.TestPhysics("Rigid bodies support collision layers and collision events", func
 		T(other)["=="](hit_b)
 	end)
 
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	T(enter_hits)[">"](0)
 	T(stay_hits)[">"](0)
 	hit_body_a:SetCollisionMask(0)
-	simulate_physics(2)
+	test_helpers.Simulate(2)
 	T(exit_hits)[">"](0)
 	T(hit_body_a:GetGrounded())["=="](true)
 	hit_a:Remove()
@@ -161,10 +154,10 @@ T.TestPhysics("Rigid bodies emit enter, stay, and exit collision events for stat
 		T(math.abs(info.normal.y))[">"](0.9)
 	end)
 
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	T(enter_hits)[">"](0)
 	sphere:SetCollisionEnabled(false)
-	simulate_physics(2)
+	test_helpers.Simulate(2)
 	sphere_ent:Remove()
 	ground:Remove()
 end)

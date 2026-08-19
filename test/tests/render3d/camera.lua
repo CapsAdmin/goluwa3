@@ -1,7 +1,6 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
 local event = import("goluwa/event.lua")
-local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -54,7 +53,12 @@ local function test_color(pos_name, color_name, tolerance)
 	local color = colors[color_name]
 	assert(pos, "invalid position: " .. tostring(pos_name))
 	assert(color, "invalid color: " .. tostring(color_name))
-	T.ScreenAlbedoPixel(pos.x, pos.y, color.r, color.g, color.b, 1, tolerance or 0.48)
+	T.AssertAlbedoPixel{
+		pos = {pos.x, pos.y},
+		color = {color.r, color.g, color.b, 1},
+		tolerance = tolerance or 0.48,
+		msg = color_name .. " at " .. pos_name,
+	}
 end
 
 local function test_color_all(color)

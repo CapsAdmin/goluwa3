@@ -9,9 +9,6 @@ local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local create_flat_ground = test_helpers.CreateFlatGround
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 T.TestPhysics("Rigid sphere can rest on rigid box", function()
 	local ground = create_flat_ground("rigid_box_ground")
@@ -33,7 +30,7 @@ T.TestPhysics("Rigid sphere can rest on rigid box", function()
 		Shape = sphere_shape(0.5),
 		Radius = 0.5,
 	})
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local position = sphere_ent.transform:GetPosition()
 	T(sphere:GetGrounded())["=="](true)
 	T(position.y)[">="](1.95)
@@ -63,7 +60,7 @@ T.TestPhysics("Rigid sphere does not perch unrealistically on box edge", functio
 		Shape = sphere_shape(0.5),
 		Radius = 0.5,
 	})
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local position = sphere_ent.transform:GetPosition()
 	T(math.abs(position.x))[">"](1.2)
 	T(position.y)["<"](1.8)
@@ -97,7 +94,7 @@ T.TestPhysics("Rigid box can rest on static box", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local position = top_ent.transform:GetPosition()
 	T(top:GetGrounded())["=="](true)
 	T(position.y)[">="](1.95)
@@ -133,9 +130,9 @@ T.TestPhysics("Rigid resting contact stays stable over time", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local settled = sphere_ent.transform:GetPosition():Copy()
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local final_position = sphere_ent.transform:GetPosition()
 	local drift = (final_position - settled):GetLength()
 	T(sphere:GetGrounded())["=="](true)
@@ -173,7 +170,7 @@ T.TestPhysics("Rigid sphere rolls off rotated box instead of resting on its AABB
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local position = sphere_ent.transform:GetPosition()
 	T(math.abs(position.x))[">"](0.5)
 	T(position.y)["<"](5.0)

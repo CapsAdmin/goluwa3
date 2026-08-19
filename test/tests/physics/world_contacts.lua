@@ -1,17 +1,11 @@
 local T = import("test/environment.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 
-local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 local function create_world_brush_body(mins, maxs)
 	local ent = Entity.New({Name = "world_contacts_brush_body"})
@@ -58,7 +52,7 @@ T.Test("Dynamic bodies resolve against world geometry rigid bodies without world
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(6, 1 / 120)
+	test_helpers.Simulate(6, 1 / 120)
 	local position = body:GetPosition()
 	body_ent:Remove()
 	world_ent:Remove()

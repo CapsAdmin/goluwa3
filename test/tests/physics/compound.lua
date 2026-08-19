@@ -11,13 +11,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local compound_shape = CompoundShape.New
 
-local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 local function add_triangle(poly, a, b, c)
 	poly:AddVertex{pos = a, uv = Vec2(0, 0)}
@@ -59,18 +52,6 @@ local function add_box_triangles(poly, center, size)
 	end
 end
 
-local function create_flat_ground(name, extent)
-	extent = extent or 8
-	local ground = Entity.New({Name = name})
-	ground:AddComponent("transform")
-	local poly = Polygon3D.New()
-	poly:AddVertex{pos = Vec3(-extent, 0, -extent), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
-	poly:AddVertex{pos = Vec3(0, 0, extent), uv = Vec2(0.5, 1), normal = Vec3(0, 1, 0)}
-	poly:AddVertex{pos = Vec3(extent, 0, -extent), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
-	poly:BuildBoundingBox()
-	test_helpers.AttachWorldGeometryBody(ground, poly)
-	return ground
-end
 
 local function create_split_box_mesh()
 	local poly = Polygon3D.New()
@@ -99,7 +80,7 @@ T.TestPhysics("Compound mesh builder splits disconnected triangle islands", func
 end)
 
 T.TestPhysics("Static compound collider preserves concave gap from generated child hulls", function()
-	local ground = create_flat_ground("compound_gap_ground", 12)
+	local ground = test_helpers.CreateFlatGround("compound_gap_ground", 12)
 	local compound_desc = convex_hull.BuildCompoundShapeFromTriangles(create_split_box_mesh())
 	local support_ent = Entity.New({Name = "compound_gap_support"})
 	support_ent:AddComponent("transform")
@@ -123,7 +104,7 @@ T.TestPhysics("Static compound collider preserves concave gap from generated chi
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(300)
+	test_helpers.Simulate(300)
 	local position = sphere_ent.transform:GetPosition()
 	T(sphere:GetGrounded())["=="](true)
 	T(math.abs(position.x))["<"](0.2)

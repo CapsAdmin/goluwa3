@@ -1,5 +1,6 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local physics = import("goluwa/physics.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -42,7 +43,7 @@ local function create_default_owner(position, rotation)
 	}
 end
 
-function module.SimulatePhysics(physics, steps, dt)
+function module.Simulate(steps, dt)
 	dt = dt or (1 / 120)
 
 	for _ = 1, steps do
@@ -415,7 +416,6 @@ end
 
 function module.CreateTestRigidBody(data)
 	data = data or {}
-	local physics = import("goluwa/physics.lua")
 	local RigidBody = import("goluwa/physics/rigid_body.lua")
 	local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 	local radius = data.Radius or 0.1

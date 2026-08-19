@@ -1,4 +1,5 @@
 local T = import("test/environment.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local physics = import("goluwa/physics.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
@@ -27,13 +28,6 @@ local GRID_SPACING_Z = 4.8
 local TYPE_SEQUENCE = {"sphere", "box", "capsule", "convex"}
 local FIXED_DT = 1 / 60
 
-local function simulate_physics(steps, dt)
-	dt = dt or FIXED_DT
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
 
 local function with_fixed_step(fixed_dt, callback)
 	local previous_fixed_dt = physics.FixedTimeStep
@@ -284,14 +278,14 @@ local function run_cache_scenario(cache_enabled, local_space_enabled, config)
 				bodies[#bodies + 1] = spawn_body(i, entities)
 			end
 
-			simulate_physics(warmup_steps)
+			test_helpers.Simulate(warmup_steps, FIXED_DT)
 
 			for i, body in ipairs(bodies) do
 				local lateral = Vec3(0.28 + (i % 4) * 0.05, 0, (((i + 1) % 3) - 1) * 0.12)
 				body:SetVelocity(body:GetVelocity() + lateral)
 			end
 
-			simulate_physics(measure_steps)
+			test_helpers.Simulate(measure_steps, FIXED_DT)
 			return true
 		end,
 		debug.traceback

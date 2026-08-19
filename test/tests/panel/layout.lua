@@ -179,7 +179,7 @@ T.Test("layout - collapse repro", function()
 	parent:Remove()
 end)
 
-T.Test("layout - text content intrinsic size", function()
+T.Test2D("layout - text content intrinsic size", function()
 	local parent = Panel.New{
 		Name = "Parent",
 		transform = true,
@@ -377,7 +377,7 @@ T.Test("layout - text wrapping", function()
 	container:Remove()
 end)
 
-T.Test("layout - wrapped text in nested fit layouts does not inflate on first measure", function()
+T.Test2D("layout - wrapped text in nested fit layouts does not inflate on first measure", function()
 	-- Regression: when a Text(Wrap) sits inside nested FitHeight layouts whose
 	-- transforms have not been laid out yet, the measurement must not use the
 	-- default 1px transform width as the wrap width. Doing so wraps every
@@ -466,7 +466,9 @@ T.Test("layout - wrapped text in nested fit layouts does not inflate on first me
 		DrawText = function() end,
 		WrapString = function(self, text, width)
 			local words = tostring(text or ""):split(" ", true)
+
 			if #words <= 1 then return text end
+
 			local lines = {}
 			local current = ""
 
@@ -482,22 +484,20 @@ T.Test("layout - wrapped text in nested fit layouts does not inflate on first me
 			end
 
 			if #current > 0 then lines[#lines + 1] = current end
+
 			return table.concat(lines, "\n")
 		end,
 	}
-
 	local tile1, _, desc1, desc_comp1 = make_tile()
 	desc1:AddComponent("layout")
 	desc_comp1.GetFont = function()
 		return font
 	end
-
 	local tile2, _, desc2, desc_comp2 = make_tile()
 	desc2:AddComponent("layout")
 	desc_comp2.GetFont = function()
 		return font
 	end
-
 	local row = Panel.New{
 		Name = "Row",
 		transform = true,
@@ -511,7 +511,6 @@ T.Test("layout - wrapped text in nested fit layouts does not inflate on first me
 	}
 	tile1:SetParent(row)
 	tile2:SetParent(row)
-
 	local inner_col = Panel.New{
 		Name = "InnerCol",
 		transform = true,
@@ -523,7 +522,6 @@ T.Test("layout - wrapped text in nested fit layouts does not inflate on first me
 		},
 	}
 	row:SetParent(inner_col)
-
 	local outer_col = Panel.New{
 		Name = "OuterCol",
 		transform = true,
@@ -537,7 +535,6 @@ T.Test("layout - wrapped text in nested fit layouts does not inflate on first me
 		},
 	}
 	inner_col:SetParent(outer_col)
-
 	-- Measure WITHOUT setting any transform sizes first.
 	-- Before the fix the wrapped description would wrap at ~1px and produce
 	-- an intrinsic height in the thousands. After the fix it should stay

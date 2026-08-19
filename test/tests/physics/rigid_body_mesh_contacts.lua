@@ -22,9 +22,6 @@ local function create_quad_mesh(size)
 	return poly
 end
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 T.TestPhysics("Rigid bodies rest on static mesh rigid bodies", function()
 	local ground_ent = Entity.New({Name = "rigid_mesh_ground"})
@@ -54,10 +51,10 @@ T.TestPhysics("Rigid bodies rest on static mesh rigid bodies", function()
 			Restitution = 0,
 		}
 	)
-	simulate_physics(360)
+	test_helpers.Simulate(360)
 	local settled_position = box_ent.transform:GetPosition():Copy()
 	local settled_angles = box_ent.transform:GetRotation():GetAngles()
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local final_position = box_ent.transform:GetPosition()
 	local final_angles = box_ent.transform:GetRotation():GetAngles()
 	local drift = (final_position - settled_position):GetLength()
@@ -103,7 +100,7 @@ T.TestPhysics("Static mesh rigid bodies collide with falling spheres", function(
 			Restitution = 0,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local position = sphere_ent.transform:GetPosition()
 	sphere_ent:Remove()
 	ground_ent:Remove()

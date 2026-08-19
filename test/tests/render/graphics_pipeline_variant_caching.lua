@@ -1,43 +1,11 @@
 local T = import("test/environment.lua")
-local render = import("goluwa/render/render.lua")
+local render_helpers = import("test/tests/render/helpers.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
 local objects = import("goluwa/objects/objects.lua")
 
-local function create_pipeline(extra)
-	local config = {
-		shader_stages = {
-			{
-				type = "vertex",
-				code = [[
-					#version 450
-					void main() {
-						vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-						gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-					}
-				]],
-			},
-			{
-				type = "fragment",
-				code = [[
-					#version 450
-					layout(location = 0) out vec4 out_color;
-					void main() {
-						out_color = vec4(1.0, 1.0, 1.0, 1.0);
-					}
-				]],
-			},
-		},
-	}
-
-	for key, value in pairs(extra or {}) do
-		config[key] = value
-	end
-
-	return render.CreateGraphicsPipeline(config)
-end
 
 T.Test3D("GraphicsPipeline creates and caches variants based on static state", function()
-	local pipeline = create_pipeline()
+	local pipeline = render_helpers.CreatePipeline()
 	-- Base variant should be created
 	T(pipeline.pipeline_variants[pipeline.base_variant_id])["~="](nil)
 	T(pipeline.current_variant_id)["=="](pipeline.base_variant_id)
@@ -65,7 +33,7 @@ T.Test3D("GraphicsPipeline creates and caches variants based on static state", f
 end)
 
 T.Test3D("GraphicsPipeline caches variants with same static state but different dynamic state", function()
-	local pipeline = create_pipeline()
+	local pipeline = render_helpers.CreatePipeline()
 	-- Set a static state to create a variant
 	pipeline:SetRasterizationSamples("4")
 	pipeline:RebuildPipeline(pipeline.overridden_state)
@@ -88,7 +56,7 @@ T.Test3D("GraphicsPipeline caches variants with same static state but different 
 end)
 
 T.Test3D("GraphicsPipeline variant ID is unique for different static state combinations", function()
-	local pipeline = create_pipeline()
+	local pipeline = render_helpers.CreatePipeline()
 	-- Create variant with rasterization_samples=4
 	pipeline:SetRasterizationSamples("4")
 	pipeline:RebuildPipeline(pipeline.overridden_state)
@@ -103,7 +71,7 @@ T.Test3D("GraphicsPipeline variant ID is unique for different static state combi
 end)
 
 T.Test3D("GraphicsPipeline input assembly static state creates unique variants", function()
-	local pipeline = create_pipeline()
+	local pipeline = render_helpers.CreatePipeline()
 	-- Base variant
 	local base_id = pipeline.current_variant_id
 	-- Change topology (static state)
@@ -129,7 +97,7 @@ T.Test3D("GraphicsPipeline input assembly static state creates unique variants",
 end)
 
 T.Test3D("GraphicsPipeline hash interner produces stable IDs", function()
-	local pipeline = create_pipeline()
+	local pipeline = render_helpers.CreatePipeline()
 	-- Set same static state multiple times
 	pipeline:SetRasterizationSamples("4")
 	pipeline:RebuildPipeline(pipeline.overridden_state)

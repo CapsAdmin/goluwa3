@@ -8,9 +8,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 T.TestPhysics("Rigid body collision response supports friction and restitution", function()
 	local platform_ent = Entity.New({Name = "rigid_material_platform"})
@@ -42,7 +39,7 @@ T.TestPhysics("Rigid body collision response supports friction and restitution",
 		}
 	)
 	sphere:SetVelocity(Vec3(8, -18, 0))
-	simulate_physics(24)
+	test_helpers.Simulate(24)
 	local velocity = sphere:GetVelocity()
 	local angular = sphere:GetAngularVelocity()
 	T(velocity.y)[">"](6)
@@ -82,12 +79,12 @@ T.TestPhysics("Rigid bodies can sleep and wake on contact", function()
 			SleepAngularThreshold = 0.025,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local settled_x = sphere_ent.transform:GetPosition().x
 	T(sphere:GetAwake())["=="](false)
 	T(sphere:GetVelocity():GetLength())["<"](0.01)
 	sphere:SetVelocity(Vec3(4, 0, 0))
-	simulate_physics(1, 1 / 60)
+	test_helpers.Simulate(1, 1 / 60)
 	local moved_x = sphere_ent.transform:GetPosition().x
 	T(sphere:GetAwake())["=="](true)
 	T(moved_x)[">"](settled_x + 0.01)
@@ -231,7 +228,7 @@ T.TestPhysics("Sleeping bodies wake when their sleeping dynamic support drops", 
 	top:Sleep()
 	support:Sleep()
 	support:SetVelocity(Vec3(0, -2, 0))
-	simulate_physics(1, 1 / 60)
+	test_helpers.Simulate(1, 1 / 60)
 	T(support:GetAwake())["=="](true)
 	T(top:GetAwake())["=="](true)
 	top_ent:Remove()
@@ -331,7 +328,7 @@ T.TestPhysics("Rigid body collisions apply angular impulse from off-center impac
 		}
 	)
 	sphere:SetVelocity(Vec3(40, 0, 0))
-	simulate_physics(18, 1 / 120)
+	test_helpers.Simulate(18, 1 / 120)
 	local angular = box:GetAngularVelocity()
 	local linear = box:GetVelocity()
 	local sphere_position = sphere_ent.transform:GetPosition()
@@ -378,7 +375,7 @@ T.TestPhysics("Sphere dropped above the scene box edge does not snag on the plat
 			Restitution = 0.25,
 		}
 	)
-	simulate_physics(480)
+	test_helpers.Simulate(480)
 	local position = sphere_ent.transform:GetPosition()
 	sphere_ent:Remove()
 	platform_ent:Remove()

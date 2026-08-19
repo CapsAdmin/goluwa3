@@ -27,9 +27,6 @@ local function attach_visual_primitive(entity, poly, material)
 	return entity.visual
 end
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 local function with_ccd(config)
 	config.CCD = true
@@ -103,7 +100,7 @@ T.TestPhysics("Fast rigid sphere tunnels through thin static box with auto CCD d
 		}
 	)
 	sphere:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = sphere_ent.transform:GetPosition()
 	blocker_ent:Remove()
 	sphere_ent:Remove()
@@ -160,7 +157,7 @@ T.TestPhysics("Fast rigid sphere does not tunnel through thin static box with au
 		}
 	)
 	sphere:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = sphere_ent.transform:GetPosition()
 	T(position.y)[">="](1.55)
 	T(math.abs(position.x))["<"](0.1)
@@ -194,7 +191,7 @@ T.TestPhysics("Fast rigid sphere does not tunnel through thin static box when CC
 		}
 	)
 	sphere:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = sphere_ent.transform:GetPosition()
 	T(position.y)[">="](1.55)
 	T(math.abs(position.x))["<"](0.1)
@@ -228,7 +225,7 @@ T.TestPhysics("Fast rigid boxes do not tunnel through thin static world geometry
 		}
 	)
 	box:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = box_ent.transform:GetPosition()
 	blocker_ent:Remove()
 	box_ent:Remove()
@@ -253,7 +250,7 @@ T.TestPhysics("Fast rigid box does not tunnel through triangle world floor", fun
 		}
 	)
 	box:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = box_ent.transform:GetPosition()
 	T(position.y)[">="](0.45)
 	T(box:GetGrounded() or box:GetVelocity().y > -10)["=="](true)
@@ -276,7 +273,7 @@ T.TestPhysics("Fast rigid capsule does not tunnel through triangle world floor",
 		}
 	)
 	capsule:SetVelocity(Vec3(0, -320, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = capsule_ent.transform:GetPosition()
 	T(position.y)[">="](1.0)
 	T(capsule:GetGrounded() or capsule:GetVelocity().y > -10)["=="](true)
@@ -317,7 +314,7 @@ T.TestPhysics("Fast rigid bodies do not tunnel through other moving rigid bodies
 	)
 	left:SetVelocity(Vec3(140, 0, 0))
 	right:SetVelocity(Vec3(-140, 0, 0))
-	simulate_physics(1, 1 / 30)
+	test_helpers.Simulate(1, 1 / 30)
 	local left_pos = left_ent.transform:GetPosition()
 	local right_pos = right_ent.transform:GetPosition()
 	local separation = (right_pos - left_pos):GetLength()
@@ -361,7 +358,7 @@ T.TestPhysics("Fast rotating rigid box does not miss a thin static box", functio
 	end)
 
 	rod:SetAngularVelocity(Vec3(0, 0, -16))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local angles = rod_ent.transform:GetRotation():GetAngles()
 	rod_ent:Remove()
 	blocker_ent:Remove()

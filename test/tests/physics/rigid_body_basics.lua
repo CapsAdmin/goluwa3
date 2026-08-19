@@ -10,9 +10,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local create_flat_ground = test_helpers.CreateFlatGround
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 T.TestPhysics("Rigid body smoke test lands on ground mesh", function()
 	local ground = create_flat_ground("rigid_body_ground", 4)
@@ -28,7 +25,7 @@ T.TestPhysics("Rigid body smoke test lands on ground mesh", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.y)[">="](0.45)
@@ -52,7 +49,7 @@ T.TestPhysics("Rigid body ground damping does not slow falling", function()
 			AngularDamping = 2,
 		}
 	)
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.y)[">="](0.45)
@@ -81,7 +78,7 @@ T.TestPhysics("Rigid sphere can move along uneven ground", function()
 			AngularDamping = 0,
 		}
 	)
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.x)[">"](0.5)
@@ -105,7 +102,7 @@ T.TestPhysics("Fast rigid sphere does not tunnel through triangle world floor", 
 		}
 	)
 	body:SetVelocity(Vec3(0, -60, 0))
-	simulate_physics(12)
+	test_helpers.Simulate(12)
 	local position = body_ent.transform:GetPosition()
 	T(position.y)[">="](0.4)
 	T(body:GetGrounded() or body:GetVelocity().y > -5)["=="](true)
@@ -129,7 +126,7 @@ T.TestPhysics("Rigid spheres separate without exploding", function()
 		Shape = sphere_shape(0.5),
 		Radius = 0.5,
 	})
-	simulate_physics(180)
+	test_helpers.Simulate(180)
 	local pos_a = sphere_a.transform:GetPosition()
 	local pos_b = sphere_b.transform:GetPosition()
 	local separation = (pos_b - pos_a):GetLength()

@@ -1,3 +1,5 @@
+local T = import("test/environment.lua")
+T.SkipFile("disabled: long running and failing tests (85600db1)")
 do
 	return
 end

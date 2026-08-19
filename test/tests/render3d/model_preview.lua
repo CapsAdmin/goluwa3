@@ -85,16 +85,15 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 		function()
 			local tex = preview:RenderEntity(entity)
 
-			T.TexturePixel(
-				tex,
-				128,
-				128,
-				function(r, g, b, a)
+			T.AssertTexturePixel{
+				tex = tex,
+				pos = {128, 128},
+				color = function(r, g, b, a)
 					return r > 0.1 and g > 0.01 and a > 0.9
-				end
-			)
+				end,
+			}
 
-			T.TexturePixel(tex, 4, 4, 0, 0, 0, 0, 0.05)
+			T.AssertTexturePixel{tex = tex, pos = {4, 4}, color = {0, 0, 0, 0}, tolerance = 0.05}
 			T(render3d.GetCamera() == camera)["=="](true)
 			T(camera:GetPosition() == old_position)["=="](true)
 			T(camera:GetRotation() == old_rotation)["=="](true)
@@ -117,14 +116,13 @@ T.Test3D("Model preview samples albedo textures", function()
 		function()
 			local tex = preview:RenderEntity(entity)
 
-			T.TexturePixel(
-				tex,
-				128,
-				128,
-				function(r, g, b, a)
+			T.AssertTexturePixel{
+				tex = tex,
+				pos = {128, 128},
+				color = function(r, g, b, a)
 					return r > 0.35 and g < 0.2 and b < 0.2 and a > 0.9
-				end
-			)
+				end,
+			}
 		end,
 		debug.traceback
 	)

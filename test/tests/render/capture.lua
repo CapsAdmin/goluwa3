@@ -17,15 +17,25 @@ T.Test2D("render.Capture reads framebuffer mid-frame", function(w, h)
 	render2d.DrawRect(w / 2, 0, w / 2, h)
 
 	local mid_y = math.floor(h / 2)
-	local lr, lg, lb = cap:GetPixel(math.floor(w / 4), mid_y)
-	local rr, rg, rb = cap:GetPixel(math.floor(w * 3 / 4), mid_y)
 
 	-- Left half was drawn red before the capture
-	assert(lr > 150 and lg < 100 and lb < 100,
-		string.format("mid-left should be red, got R%d G%d B%d", lr, lg, lb))
+	T.AssertTexturePixel{
+		tex = cap,
+		pos = {math.floor(w / 4), mid_y},
+		color = function(r, g, b, a)
+			return r > 0.6 and g < 0.4 and b < 0.4
+		end,
+		msg = "mid-left should be red",
+	}
 	-- Right half was still the clear color at capture time (blue is drawn after)
-	assert(rb < 200,
-		string.format("mid-right should not be blue (drawn after capture), got R%d G%d B%d", rr, rg, rb))
+	T.AssertTexturePixel{
+		tex = cap,
+		pos = {math.floor(w * 3 / 4), mid_y},
+		color = function(r, g, b, a)
+			return b < 0.8
+		end,
+		msg = "mid-right should not be blue (drawn after capture)",
+	}
 end)
 
 T.Test("render.Capture returns nil outside a render pass", function()

@@ -8,9 +8,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 T.TestPhysics("Rigid body materials support richer friction and restitution combination behavior", function()
 	do
@@ -43,7 +40,7 @@ T.TestPhysics("Rigid body materials support richer friction and restitution comb
 			}
 		)
 		sphere:SetVelocity(Vec3(0, -18, 0))
-		simulate_physics(18)
+		test_helpers.Simulate(18)
 		local bounce_velocity = sphere:GetVelocity()
 		T(bounce_velocity.y)[">"](4)
 		T(bounce_velocity.y)["<"](12)
@@ -81,7 +78,7 @@ T.TestPhysics("Rigid body materials support richer friction and restitution comb
 			}
 		)
 		sphere:SetVelocity(Vec3(10, -8, 0))
-		simulate_physics(60)
+		test_helpers.Simulate(60)
 		local velocity = sphere:GetVelocity()
 		local angular = sphere:GetAngularVelocity()
 		local rolling_ratio = math.abs(velocity.x) / math.max(math.abs(angular.z) * 0.5, 0.00001)
@@ -129,10 +126,10 @@ T.TestPhysics("Rigid body materials support rolling friction", function()
 			RollingFrictionCombineMode = "max",
 		}
 	)
-	simulate_physics(120)
+	test_helpers.Simulate(120)
 	T(sphere:GetGrounded())["=="](true)
 	sphere:SetVelocity(Vec3(10, 0, 0))
-	simulate_physics(240)
+	test_helpers.Simulate(240)
 	local velocity = sphere:GetVelocity()
 	local angular = sphere:GetAngularVelocity()
 	T(math.abs(velocity.x))["<"](1.0)
@@ -204,9 +201,9 @@ T.TestPhysics("Rigid body static friction reduces shallow-slope drift", function
 				StaticFrictionCombineMode = "max",
 			}
 		)
-		simulate_physics(180)
+		test_helpers.Simulate(180)
 		local settled = box_ent.transform:GetPosition():Copy()
-		simulate_physics(240)
+		test_helpers.Simulate(240)
 		local final_position = box_ent.transform:GetPosition():Copy()
 		local drift = (final_position - settled):GetLength()
 		local grounded = box:GetGrounded()

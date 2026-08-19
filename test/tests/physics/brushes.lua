@@ -7,9 +7,6 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 
-local function simulate_physics(steps, dt)
-	return test_helpers.SimulatePhysics(physics, steps, dt)
-end
 
 local function create_brush_primitive(mins, maxs)
 	return {
@@ -125,7 +122,7 @@ T.TestPhysics("Dynamic capsule with CCD stays inside brush room", function()
 	local room = create_brush_room("brush_room_dynamic")
 	local ent, body = create_capsule("brush_room_dynamic_capsule", Vec3(0, 1.1, 0))
 	body:SetVelocity(Vec3(40, 0, 0))
-	simulate_physics(1, 1 / 10)
+	test_helpers.Simulate(1, 1 / 10)
 	local position = body:GetPosition()
 	local velocity = body:GetVelocity()
 	ent:Remove()
@@ -140,7 +137,7 @@ T.TestPhysics("Dynamic capsule does not escape brush room over multiple pushes",
 	local room = create_brush_room("brush_room_multi")
 	local ent, body = create_capsule("brush_room_multi_capsule", Vec3(0, 1.1, 0))
 	body:SetVelocity(Vec3(20, 0, 0))
-	simulate_physics(10, 1 / 60)
+	test_helpers.Simulate(10, 1 / 60)
 	local position = body:GetPosition()
 	ent:Remove()
 	room:Remove()
