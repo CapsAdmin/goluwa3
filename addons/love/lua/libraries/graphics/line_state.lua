@@ -3,7 +3,7 @@ local love = ...
 
 if type(love) == "string" then love = nil end
 
-love = love or _G.love
+love = love or import("lua/love.lua")
 local ENV = shared.Get(love).ENV
 ENV.graphics_line_width = 1
 ENV.graphics_line_style = "rough"

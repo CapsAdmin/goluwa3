@@ -2,7 +2,7 @@ local love = ...
 
 if type(love) == "string" then love = nil end
 
-love = love or _G.love
+love = love or import("lua/love.lua")
 
 function love.graphics.reset()
 	love.graphics.setColor(255, 255, 255, 255)

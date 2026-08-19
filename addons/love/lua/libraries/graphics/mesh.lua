@@ -8,7 +8,7 @@ local love = ...
 
 if type(love) == "string" then love = nil end
 
-love = love or _G.love
+love = love or import("lua/love.lua")
 local ctx = shared.Get(love)
 local Mesh = line.TypeTemplate("Mesh", love)
 local attribute_translation = {
@@ -215,9 +215,9 @@ function Mesh:setVertex(index, vertex, ...)
 		local y = vertex[2] or 0
 		local u = vertex[3] or 0
 		local v = vertex[4] or 0
-
 		-- Use existing color conversion for proper normalized/byte handling
 		local r, g, b, a
+
 		if #vertex >= 8 then
 			r, g, b, a = vertex[5], vertex[6], vertex[7], vertex[8]
 		else
@@ -227,7 +227,6 @@ function Mesh:setVertex(index, vertex, ...)
 		local color_vals = {r, g, b, a}
 		ctx.mesh_vertex_color_to_engine(color_vals)
 		r, g, b, a = color_vals[1], color_vals[2], color_vals[3], color_vals[4]
-
 		self.vertex_buffer:SetVertex(index, "pos", x, y, 0)
 		self.vertex_buffer:SetVertex(index, "uv", u, v)
 		self.vertex_buffer:SetVertex(index, "sample_uv", u, v)

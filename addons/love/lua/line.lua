@@ -623,6 +623,8 @@ function line.RunGame(folder, ...)
 	)
 	line.current_game = love
 	love._line_env.love_game_update_draw_hack = false
+	-- swap the default env for easier hot reloading
+	import.loaded["lua/love.lua"] = love
 	return love
 end
 

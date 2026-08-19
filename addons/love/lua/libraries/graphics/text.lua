@@ -8,7 +8,7 @@ local love = ...
 
 if type(love) == "string" then love = nil end
 
-love = love or _G.love
+love = love or import("lua/love.lua")
 local ctx = shared.Get(love)
 local ENV = ctx.ENV
 local Font = line.TypeTemplate("Font", love)
