@@ -114,7 +114,15 @@ function timer.RemoveTimer(id)
 	for k, v in ipairs(timer.timers) do
 		if v.key == id then
 			list.remove(timer.timers, k)
-			--profiler.RemoveSection(v.id)
+			return true
+		end
+	end
+end
+
+function timer.FireTimer(id)
+	for k, v in ipairs(timer.timers) do
+		if v.key == id then
+			v.callback()
 			return true
 		end
 	end
