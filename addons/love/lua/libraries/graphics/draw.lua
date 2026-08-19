@@ -5,55 +5,9 @@ local love = ...
 
 if type(love) == "string" then love = nil end
 
-love = love or _G.love
+love = love or import("lua/love.lua")
 local ctx = shared.Get(love)
 local ENV = ctx.ENV
-
-local function drawable_uses_linear_filter(drawable)
-	local min = drawable and drawable.filter_min or ENV.graphics_filter_min
-	local mag = drawable and drawable.filter_mag or min or ENV.graphics_filter_mag
-	return min == "linear" or mag == "linear"
-end
-
-local function get_quad_uv_rect(drawable, quad)
-	local dpi_scale = drawable and drawable.dpi_scale or 1
-	local sample_x = quad.x * dpi_scale
-	local sample_y = quad.y * dpi_scale
-	local sample_w = quad.w * dpi_scale
-	local sample_h = quad.h * dpi_scale
-	local inset_x = math.min(0.5, sample_w / 2)
-	local inset_y = math.min(0.5, sample_h / 2)
-	sample_x = sample_x + inset_x
-	sample_y = sample_y + inset_y
-	sample_w = math.max(sample_w - (inset_x * 2), 0)
-	sample_h = math.max(sample_h - (inset_y * 2), 0)
-	return sample_x, sample_y, sample_w, sample_h
-end
-
-local function get_quad_draw_rect(drawable, quad, x, y, sx, sy, ox, oy, r, kx, ky)
-	local draw_x = x
-	local draw_y = y
-	local draw_w = quad.w * sx
-	local draw_h = quad.h * sy
-
-	if
-		drawable_uses_linear_filter(drawable) and
-		r == 0 and
-		kx == 0 and
-		ky == 0 and
-		ox == 0 and
-		oy == 0 and
-		sx >= 0 and
-		sy >= 0
-	then
-		draw_x = draw_x - 0.5
-		draw_y = draw_y - 0.5
-		draw_w = draw_w + 1
-		draw_h = draw_h + 1
-	end
-
-	return draw_x, draw_y, draw_w, draw_h
-end
 
 function love.graphics.rectangle(mode, x, y, w, h)
 	if mode == "fill" then
@@ -92,17 +46,14 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	r = r or 0
 	kx = kx or 0
 	ky = ky or 0
-	local uv_x, uv_y, uv_w, uv_h = get_quad_uv_rect(drawable, quad)
-	local draw_x, draw_y, draw_w, draw_h = get_quad_draw_rect(drawable, quad, x, y, sx, sy, ox, oy, r, kx, ky)
-	local dpi_scale = drawable and drawable.dpi_scale or 1
+	local dpi_scale = drawable.dpi_scale or 1
 	render2d.PushColor(ctx.get_draw_fg_color())
-	render2d.PushSwizzleMode("none")
 	render2d.PushTexture(ENV.textures[drawable])
-	render2d.SetUV(uv_x, -uv_y, uv_w, -uv_h, quad.sw * dpi_scale, quad.sh * dpi_scale)
-	render2d.DrawRectf(draw_x, draw_y, draw_w, draw_h, r, ox * sx, oy * sy)
-	render2d.SetUV()
+	render2d.PushColorUV(quad.x, quad.y, quad.w, quad.h, quad.sw * dpi_scale, quad.sh * dpi_scale)
+	render2d.SetColorUV(0, 0, 1, 1)
+	render2d.DrawRectf(x, y, quad.w * sx, quad.h * sy, r, ox * sx, oy * sy)
+	render2d.PopColorUV()
 	render2d.PopTexture()
-	render2d.PopSwizzleMode()
 	render2d.PopColor()
 end
 
@@ -149,9 +100,9 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			render2d.SetSwizzleMode("none")
 			render2d.PushTexture(tex)
 			local uv_w, uv_h = tex:GetSize():Unpack()
-			render2d.SetUV(0, 0, uv_w, -uv_h, uv_w, uv_h)
+			render2d.PushColorUV(0, 0, uv_w, -uv_h, uv_w, uv_h)
 			render2d.DrawRectf(x, y, tex_w * sx, tex_h * sy, r, ox * sx, oy * sy)
-			render2d.SetUV()
+			render2d.PopColorUV()
 			render2d.PopTexture()
 			render2d.PopSwizzleMode()
 			render2d.PopColor()

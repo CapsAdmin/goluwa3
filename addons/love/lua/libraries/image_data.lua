@@ -213,6 +213,10 @@ local function convert_to_rgba8(source)
 end
 
 local function flip_image_data_vertical(image_data)
+	do
+		return image_data
+	end
+
 	local row_size = image_data.width * 4
 	local flipped = create_pixel_buffer(image_data.size)
 	local src = ffi.cast("uint8_t*", image_data.buffer)

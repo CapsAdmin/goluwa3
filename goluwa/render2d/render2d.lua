@@ -1761,15 +1761,15 @@ do
 		end
 
 		do
-			function render2d.SetSampleUVMode(mode)
+			function render2d.SetSDFSampleUVMode(mode)
 				render2d.SetFlagBits("SAMPLE_UV", mode or "transformed")
 			end
 
-			function render2d.GetSampleUVMode()
+			function render2d.GetSDFSampleUVMode()
 				return render2d.GetFlagBits("SAMPLE_UV")
 			end
 
-			utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
+			utility.MakePushPopFunction(render2d, "SDFSampleUVMode", 1)
 		end
 
 		do
@@ -2433,7 +2433,7 @@ do
 			render2d.SetColor(1, 1, 1, 1)
 			render2d.SetAlphaMultiplier(1)
 			render2d.SetUV()
-			render2d.SetSampleUVMode("transformed")
+			render2d.SetSDFSampleUVMode("transformed")
 			render2d.SetSwizzleMode("none")
 			render2d.SetSDFTexture()
 			render2d.SetBorderRadius(0, 0, 0, 0)
@@ -2686,15 +2686,15 @@ do -- uv
 	end
 
 	do
-		function render2d.SetSampleUVMode(mode)
+		function render2d.SetSDFSampleUVMode(mode)
 			render2d.SetFlagBits("SAMPLE_UV", mode or "transformed")
 		end
 
-		function render2d.GetSampleUVMode()
+		function render2d.GetSDFSampleUVMode()
 			return render2d.GetFlagBits("SAMPLE_UV")
 		end
 
-		utility.MakePushPopFunction(render2d, "SampleUVMode", 1)
+		utility.MakePushPopFunction(render2d, "SDFSampleUVMode", 1)
 	end
 
 	function render2d.SetUV2(u1, v1, u2, v2)
@@ -2702,12 +2702,10 @@ do -- uv
 		v1 = v1 or 0
 		u2 = u2 or 1
 		v2 = v2 or 1
-		-- Calculate offset and scale from UV coordinates
-		local constants = render2d.state.render.fragment.constants
-		constants.uv_offset[0] = u1
-		constants.uv_offset[1] = v1
-		constants.uv_scale[0] = u2 - u1
-		constants.uv_scale[1] = v2 - v1
+		render2d.state.render.fragment.constants.uv_offset[0] = u1
+		render2d.state.render.fragment.constants.uv_offset[1] = v1
+		render2d.state.render.fragment.constants.uv_scale[0] = u2 - u1
+		render2d.state.render.fragment.constants.uv_scale[1] = v2 - v1
 		render2d.state.render.fragment.uv2.u1 = u1
 		render2d.state.render.fragment.uv2.v1 = v1
 		render2d.state.render.fragment.uv2.u2 = u2
@@ -2770,7 +2768,7 @@ do -- uv
 			return color_uv.offset_x, color_uv.offset_y, color_uv.scale_x, color_uv.scale_y
 		end
 
-		utility.MakePushPopFunction(render2d, "ColorUV", 4)
+		utility.MakePushPopFunction(render2d, "ColorUV", 6)
 	end
 end
 

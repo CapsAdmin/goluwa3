@@ -220,18 +220,18 @@ end
 local function push_decorative_texture_state(texture)
 	render2d.PushTexture(texture)
 	render2d.PushUV()
-	render2d.PushSampleUVMode("transformed")
+	render2d.PushSDFSampleUVMode("transformed")
 	render2d.PushSwizzleMode("none")
 	render2d.PushSDFTexture()
 	render2d.SetUV()
-	render2d.SetSampleUVMode("transformed")
+	render2d.SetSDFSampleUVMode("transformed")
 	render2d.SetSwizzleMode("none")
 end
 
 local function pop_decorative_texture_state()
 	render2d.PopSDFTexture()
 	render2d.PopSwizzleMode()
-	render2d.PopSampleUVMode()
+	render2d.PopSDFSampleUVMode()
 	render2d.PopUV()
 	render2d.PopTexture()
 end
