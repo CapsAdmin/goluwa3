@@ -862,6 +862,8 @@ end
 function stats.DrawOverlay(cmd)
 	if not cmd then return end
 
+	if not last_second.frames then return end
+
 	local pipeline = get_overlay_pipeline()
 	local size = render.GetRenderImageSize()
 	local viewport_w = size.x

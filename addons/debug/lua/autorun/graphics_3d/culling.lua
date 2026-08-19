@@ -190,3 +190,9 @@ event.AddListener(
 	end,
 	{priority = -100}
 )
+
+event.AddListener("KeyInput", "culling_debug", function(key, press)
+	if not press then return end
+
+	if key == "f" then render3d.freeze_culling = not render3d.freeze_culling end
+end)
