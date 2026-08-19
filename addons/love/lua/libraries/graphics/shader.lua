@@ -456,7 +456,7 @@ local function write_love_shader_fragment_uniforms(self, data)
 	data.texture_index = texture and self:GetTextureIndex(texture) or -1
 	local compare_mode = render2d.GetDepthMode()
 	data.discard_zero_alpha = compare_mode ~= "none" and 1 or 0
-	local x, y, w, h = render2d.GetUVTransform()
+	local x, y, w, h = render2d.GetColorUVTransformed()
 	data.uv_offset[0] = x or 0
 	data.uv_offset[1] = y or 0
 	data.uv_scale[0] = w or 1

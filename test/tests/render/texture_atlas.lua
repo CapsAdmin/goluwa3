@@ -16,11 +16,11 @@ T.Test3D("Texture Atlas bin packing and management", function()
 	-- Build the atlas
 	atlas:Build()
 	-- Verify UVs
-	local uv1, w1, h1 = atlas:GetNormalizedUV("id1")
+	local uv1, w1, h1 = atlas:GetUV("id1")
 	T(w1)["=="](30)
 	T(h1)["=="](30)
 	T(#uv1)["=="](4)
-	local uv2, w2, h2 = atlas:GetNormalizedUV("id2")
+	local uv2, w2, h2 = atlas:GetUV("id2")
 	T(w2)["=="](60)
 	T(h2)["=="](20)
 	-- Check that they don't overlap in the atlas

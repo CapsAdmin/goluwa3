@@ -389,8 +389,8 @@ T.Test2D("Graphics render2d alpha multiplier rendering", function()
 end)
 
 T.Test2D("Graphics render2d SetUV and GetUV", function(width, height)
-	render2d.SetUV(10, 20, 100, 200, width, height)
-	local x, y, w, h, sx, sy = render2d.GetUV()
+	render2d.SetSDFScaledUVFlippedY(10, 20, 100, 200, width, height)
+	local x, y, w, h, sx, sy = render2d.GetSDFScaledUVFlippedY()
 	T(x)["=="](10)
 	T(y)["=="](20)
 	T(w)["=="](100)
@@ -398,48 +398,21 @@ T.Test2D("Graphics render2d SetUV and GetUV", function(width, height)
 	T(sx)["=="](width)
 	T(sy)["=="](height)
 	-- Reset
-	render2d.SetUV()
-	x, y, w, h, sx, sy = render2d.GetUV()
+	render2d.SetSDFScaledUVFlippedY()
+	x, y, w, h, sx, sy = render2d.GetSDFScaledUVFlippedY()
 	T(x)["=="](nil)
 end)
 
 T.Test2D("Graphics render2d PushUV and PopUV", function()
-	render2d.SetUV(10, 20, 30, 40, 100, 100)
-	render2d.PushUV(50, 60, 70, 80, 200, 200)
-	local x, y, w, h, sx, sy = render2d.GetUV()
+	render2d.SetSDFScaledUVFlippedY(10, 20, 30, 40, 100, 100)
+	render2d.PushSDFScaledUVFlippedY(50, 60, 70, 80, 200, 200)
+	local x, y, w, h, sx, sy = render2d.GetSDFScaledUVFlippedY()
 	T(x)["=="](50)
 	T(y)["=="](60)
-	render2d.PopUV()
-	x, y, w, h, sx, sy = render2d.GetUV()
+	render2d.PopSDFScaledUVFlippedY()
+	x, y, w, h, sx, sy = render2d.GetSDFScaledUVFlippedY()
 	T(x)["=="](10)
 	T(y)["=="](20)
-end)
-
-T.Test2D("Graphics render2d SetUV2", function()
-	-- SetUV2 doesn't have a corresponding getter, but we can test it doesn't error
-	render2d.SetUV2(0, 0, 1, 1)
-	render2d.SetUV2(0.25, 0.25, 0.75, 0.75)
-end)
-
-T.Test2D("Graphics render2d instanced DrawRectUV2 preserves live UV transform", function()
-	render2d.SetUV2(0.1, 0.2, 0.3, 0.4)
-	local off_x_before, off_y_before, scale_x_before, scale_y_before = render2d.GetUVTransform()
-	render2d.SetRectBatchMode("instanced")
-	render2d.DrawRectUV2(16, 16, 32, 32, 0.25, 0.25, 0.75, 0.75)
-	render2d.SetRectBatchMode("replay")
-	local off_x_after, off_y_after, scale_x_after, scale_y_after = render2d.GetUVTransform()
-	T(off_x_after)["=="](off_x_before)
-	T(off_y_after)["=="](off_y_before)
-	T(scale_x_after)["=="](scale_x_before)
-	T(scale_y_after)["=="](scale_y_before)
-	render2d.SetUV()
-	return function()
-		T.AssertScreenPixel{
-			pos = {20, 20},
-			color = {1, 1, 1, 1},
-			tolerance = 0.2,
-		}
-	end
 end)
 
 T.Test2D("Graphics render2d SetBlendPreset and GetBlendMode", function()

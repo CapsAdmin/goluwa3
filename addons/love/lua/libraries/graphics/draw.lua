@@ -49,8 +49,20 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	local dpi_scale = drawable.dpi_scale or 1
 	render2d.PushColor(ctx.get_draw_fg_color())
 	render2d.PushTexture(ENV.textures[drawable])
-	render2d.PushColorUV(quad.x, quad.y, quad.w, quad.h, quad.sw * dpi_scale, quad.sh * dpi_scale)
-	render2d.SetColorUV(0, 0, 1, 1)
+
+	do
+		local x, y = quad.x, quad.y
+		local w, h = quad.w, quad.h
+		w = w + x
+		h = h + y
+		local uvsx = quad.sw * dpi_scale
+		local uvsy = quad.sh * dpi_scale
+		local u1, v1, u2, v2 = x / uvsx, y / uvsy, w / uvsx, h / uvsy
+		v1 = -v1 + 1
+		v2 = -v2 + 1
+		render2d.PushColorUV(u1, v2, u2, v1, 0)
+	end
+
 	render2d.DrawRectf(x, y, quad.w * sx, quad.h * sy, r, ox * sx, oy * sy)
 	render2d.PopColorUV()
 	render2d.PopTexture()
@@ -100,7 +112,7 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			render2d.SetSwizzleMode("none")
 			render2d.PushTexture(tex)
 			local uv_w, uv_h = tex:GetSize():Unpack()
-			render2d.PushColorUV(0, 0, uv_w, -uv_h, uv_w, uv_h)
+			render2d.PushColorUV(0, 0, uv_w, -uv_h, 0, uv_w, uv_h)
 			render2d.DrawRectf(x, y, tex_w * sx, tex_h * sy, r, ox * sx, oy * sy)
 			render2d.PopColorUV()
 			render2d.PopTexture()

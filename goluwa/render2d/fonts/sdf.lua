@@ -250,7 +250,7 @@ local function glyph_fn(self, data, X, Y, entries)
 	if atlas_data and atlas_data.page then
 		entries[#entries + 1] = {
 			texture = atlas_data.page.texture,
-			uv = atlas_data.page_uv_normalized,
+			uv = atlas_data.page_uv,
 			x = (X + data.bitmap_left - spread / 2) * self.Scale.x,
 			y = (Y + data.bitmap_top - spread / 2) * self.Scale.y,
 			w = atlas_data.w * self.Scale.x,
@@ -301,19 +301,18 @@ local function get_draw_pass_layout(self, str, spacing, extra_space_advance)
 end
 
 local render2d_SetTexture = render2d.SetTexture
-local render2d_DrawRectUV2f = render2d.DrawRectUV2f
+local render2d_DrawRectf = render2d.DrawRectf
 local render2d_PushColor = render2d.PushColor
 local render2d_DrawRect = render2d.DrawRect
 local render2d_PopColor = render2d.PopColor
+local render2d_SetSDFUV = render2d.SetSDFUV
 
 function META:DrawString(str, x, y, spacing, extra_space_advance)
 	str = tostring(str)
 	self:LoadGlyphsFromString(str)
 	spacing = spacing or self.Spacing
 	extra_space_advance = extra_space_advance or 0
-	render2d.PushUV()
 	render2d.PushSDFTexture()
-	--render2d.PushTexture()
 	render2d.PushSDFTexelRange(0)
 
 	if self.MSDF then render2d.PushMSDF(true) end
@@ -327,6 +326,9 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		render2d.SetSDFTexelRange(layout.entries[1].texel_range)
 	end
 
+	render2d.PushMargin(layout.margin)
+	render2d.PushSDFUV()
+
 	for _, entry in ipairs(layout.entries) do
 		if entry.texture ~= last_texture then
 			render2d.SetSDFTexture(entry.texture)
@@ -338,28 +340,17 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 			last_texel_range = entry.texel_range
 		end
 
-		render2d_DrawRectUV2f(
-			x + entry.x,
-			y + entry.y,
-			entry.w,
-			entry.h,
-			entry.uv[1],
-			entry.uv[4],
-			entry.uv[3],
-			entry.uv[2],
-			nil,
-			nil,
-			nil,
-			layout.margin
-		)
+		render2d_SetSDFUV(entry.uv[1], entry.uv[4], entry.uv[3], entry.uv[2])
+		render2d_DrawRectf(x + entry.x, y + entry.y, entry.w, entry.h)
 	end
+
+	render2d.PopSDFUV()
+	render2d.PopMargin()
 
 	if self.MSDF then render2d.PopMSDF() end
 
-	--render2d.PopTexture()
 	render2d.PopSDFTexelRange()
 	render2d.PopSDFTexture()
-	render2d.PopUV()
 end
 
 return META:Register()

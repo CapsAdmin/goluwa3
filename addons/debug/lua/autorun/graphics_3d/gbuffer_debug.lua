@@ -42,18 +42,16 @@ end
 local function draw_debug_tile(x, y, size, texture, label, swizzle_mode)
 	if not texture then return false end
 
-	render2d.PushUV()
-	render2d.SetUV2(0, 0, size / 32, size / 32)
+	render2d.PushColorUV(0, 0, size / 32, size / 32)
 	render2d.SetTexture(get_checkerboard_texture())
 	render2d.DrawRect(x, y, size, size)
-	render2d.PopUV()
-	render2d.PushUV()
-	render2d.SetUV2(0, 1, 1, 0)
+	render2d.PopColorUV()
+	render2d.PushColorUV(0, 1, 1, 0)
 	render2d.SetTexture(texture)
 	render2d.PushSwizzleMode(swizzle_mode or "none")
 	render2d.DrawRect(x, y, size, size)
 	render2d.PopSwizzleMode()
-	render2d.PopUV()
+	render2d.PopColorUV()
 	render2d.SetTexture(nil)
 	render2d.SetColor(0, 0, 0, 0.5)
 	render2d.DrawRect(x, y, 150, 20)
@@ -129,7 +127,14 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 
 	-- Draw depth texture
 	if render3d.pipelines.gbuffer:GetFramebuffer().depth_texture then
-		draw_debug_tile(x, y, size, render3d.pipelines.gbuffer:GetFramebuffer().depth_texture, "Depth", "none")
+		draw_debug_tile(
+			x,
+			y,
+			size,
+			render3d.pipelines.gbuffer:GetFramebuffer().depth_texture,
+			"Depth",
+			"none"
+		)
 	end
 end)
 

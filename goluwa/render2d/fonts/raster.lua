@@ -121,12 +121,14 @@ local function glyph_fn(self, data, X, Y, _)
 			self.last_texture = texture
 		end
 
-		local uv = atlas_data.page_uv_normalized
+		local uv = atlas_data.page_uv
 		local rx = (X + data.bitmap_left - padding) * self.Scale.x
 		local ry = (Y + data.bitmap_top - padding) * self.Scale.y
 		local rw = atlas_data.w * self.Scale.x
 		local rh = atlas_data.h * self.Scale.y
-		render2d.DrawRectUV2(rx, ry, rw, rh, uv[1], uv[4], uv[3], uv[2])
+		render2d.PushColorUV(uv[1], uv[4], uv[3], uv[2])
+		render2d.DrawRect(rx, ry, rw, rh)
+		render2d.PopColorUV()
 	end
 end
 
@@ -135,12 +137,12 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 	batch_load_glyphs(self, str)
 	spacing = spacing or self.Spacing
 	extra_space_advance = extra_space_advance or 0
-	render2d.PushUV()
+	render2d.PushSDFUV()
 	self.last_texture = nil
 	render2d.Translate(x, y)
 	self:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
 	render2d.Translate(-x, -y)
-	render2d.PopUV()
+	render2d.PopSDFUV()
 end
 
 return META:Register()

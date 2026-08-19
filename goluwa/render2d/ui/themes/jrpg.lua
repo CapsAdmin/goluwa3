@@ -217,25 +217,6 @@ local function pop_unclamped_border_radius()
 	render2d.PopClampBorderRadius()
 end
 
-local function push_decorative_texture_state(texture)
-	render2d.PushTexture(texture)
-	render2d.PushUV()
-	render2d.PushSDFSampleUVMode("transformed")
-	render2d.PushSwizzleMode("none")
-	render2d.PushSDFTexture()
-	render2d.SetUV()
-	render2d.SetSDFSampleUVMode("transformed")
-	render2d.SetSwizzleMode("none")
-end
-
-local function pop_decorative_texture_state()
-	render2d.PopSDFTexture()
-	render2d.PopSwizzleMode()
-	render2d.PopSDFSampleUVMode()
-	render2d.PopUV()
-	render2d.PopTexture()
-end
-
 function JRPGTheme:DrawPill(x, y, w, h)
 	x = x - 15
 	w = w + 30
@@ -257,12 +238,13 @@ end
 function JRPGTheme:DrawBadge(x, y, w, h)
 	x = x - 15
 	w = w + 30
-	push_decorative_texture_state(self.Textures.Gradient)
-	render2d.SetUV2(-0.1, 0, 0.75, 1)
+	render2d.PushTexture(self.Textures.Gradient)
 	push_unclamped_border_radius(h)
+	render2d.PushColorUV(-0.1, 0, 0.75, 1)
 	render2d.DrawRect(x, y, w, h)
+	render2d.PopColorUV()
 	pop_unclamped_border_radius()
-	pop_decorative_texture_state()
+	render2d.PopTexture()
 	render2d.PushColor(1, 1, 1, 1)
 	self:DrawDiamond2(x + 8, y + h / 2, 8)
 	render2d.PopColor()
@@ -350,7 +332,7 @@ function JRPGTheme:DrawGlowLine(x1, y1, x2, y2, thickness)
 	thickness = thickness or 1
 	local angle = math.atan2(y2 - y1, x2 - x1)
 	local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
-	push_decorative_texture_state(self.GlowLineTexture)
+	render2d.PushTexture(self.GlowLineTexture)
 	render2d.PushMatrix()
 	render2d.Translatef(x1, y1)
 	render2d.Rotate(angle)
@@ -359,15 +341,15 @@ function JRPGTheme:DrawGlowLine(x1, y1, x2, y2, thickness)
 	render2d.DrawRectf(0, -thickness / 10, length, self.GlowLineTexture:GetHeight())
 	render2d.PopBlendMode()
 	render2d.PopMatrix()
-	pop_decorative_texture_state()
+	render2d.PopTexture()
 end
 
 function JRPGTheme:DrawClassicFrame(x, y, w, h)
 	push_unclamped_border_radius(h * 0.2)
 	render2d.SetColor(1, 1, 1, 1)
-	push_decorative_texture_state(self.GradientClassicTexture)
+	render2d.PushTexture(self.GradientClassicTexture)
 	render2d.DrawRect(x, y, w, h)
-	pop_decorative_texture_state()
+	render2d.PopTexture()
 	pop_unclamped_border_radius()
 	render2d.PushOutlineWidth(-5)
 	render2d.PushSDFSoftness(10)
@@ -382,9 +364,9 @@ function JRPGTheme:DrawClassicFrame(x, y, w, h)
 	h = h + 6
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetNinePatchTable(self.MetalFrameTexture.nine_patch)
-	push_decorative_texture_state(self.MetalFrameTexture)
+	render2d.PushTexture(self.MetalFrameTexture)
 	render2d.DrawRect(x, y, w, h)
-	pop_decorative_texture_state()
+	render2d.PopTexture()
 	render2d.ClearNinePatch()
 	render2d.SetTexture(nil)
 end
@@ -400,9 +382,9 @@ function JRPGTheme:DrawWhiteFrame(x, y, w, h)
 	h = h - 2
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetNinePatchTable(self.MetalFrameWhiteTexture.nine_patch)
-	push_decorative_texture_state(self.MetalFrameWhiteTexture)
+	render2d.PushTexture(self.MetalFrameWhiteTexture)
 	render2d.DrawRect(x, y, w, h)
-	pop_decorative_texture_state()
+	render2d.PopTexture()
 	render2d.ClearNinePatch()
 	render2d.SetTexture(nil)
 	render2d.PushOutlineWidth(-1)
@@ -458,11 +440,11 @@ function JRPGTheme:DrawMagicCircle(x, y, size)
 end
 
 function JRPGTheme:DrawGlow(x, y, size)
-	push_decorative_texture_state(self.Textures.GlowPoint)
+	render2d.PushTexture(self.Textures.GlowPoint)
 	render2d.PushAlphaMultiplier(0.5)
 	render2d.DrawRectf(x - size, y - size, size * 2, size * 2)
 	render2d.PopAlphaMultiplier()
-	pop_decorative_texture_state()
+	render2d.PopTexture()
 end
 
 function JRPGTheme:DrawProgressBarPrimitive(x, y, w, h, progress, color)
@@ -527,9 +509,9 @@ end
 
 function JRPGTheme:DrawModernFrame(x, y, w, h)
 	render2d.SetColor(1, 1, 1, 1)
-	push_decorative_texture_state(self.ModernFrameGradient)
+	render2d.PushTexture(self.ModernFrameGradient)
 	render2d.DrawRect(x, y, w, h)
-	pop_decorative_texture_state()
+	render2d.PopTexture()
 end
 
 function JRPGTheme:DrawModernFramePost(x, y, w, h, intensity)
@@ -746,8 +728,7 @@ function JRPGTheme:DrawButton(size, state)
 	local button_color = self:GetColor(state.button_color or "primary")
 
 	if state.mode == "filled" then
-		push_decorative_texture_state(self.Textures.Gradient)
-		render2d.SetUV2(0, 0, 0.4, 1)
+		render2d.PushTexture(self.Textures.Gradient)
 		push_unclamped_border_radius(size.y / 6)
 		render2d.SetColor(
 			button_color.r,
@@ -755,9 +736,11 @@ function JRPGTheme:DrawButton(size, state)
 			button_color.b,
 			(state.disabled and 0.2) or (0.5 + anim.glow_alpha * 0.35)
 		)
+		render2d.PushColorUV(0, 0, 0.4, 1)
 		render2d.DrawRect(0, 0, size.x, size.y)
+		render2d.PopColorUV()
 		pop_unclamped_border_radius()
-		pop_decorative_texture_state()
+		render2d.PopTexture()
 	end
 end
 
@@ -833,13 +816,12 @@ function JRPGTheme:DrawSlider(size, state)
 		render2d.SetColor(c.r, c.g, c.b, c.a)
 		render2d.DrawRect(track_x, knob_height / 2, track_width, size.y - knob_height)
 		local fill_height = normalized * (size.y - knob_height)
-		render2d.PushUV()
-		render2d.SetUV2(0, 0, 0.5, 1)
 		render2d.SetTexture(self.Textures.Gradient)
 		c = self:GetColor("primary")
 		render2d.SetColor(c.r, c.g, c.b, 0.9)
+		render2d.PushColorUV(0, 0, 0.5, 1)
 		render2d.DrawRect(track_x, knob_height / 2, track_width, fill_height)
-		render2d.PopUV()
+		render2d.PopColorUV()
 
 		if anim.glow_alpha > 0 then
 			render2d.SetBlendPreset("additive")
@@ -861,13 +843,12 @@ function JRPGTheme:DrawSlider(size, state)
 		render2d.SetColor(c.r, c.g, c.b, c.a)
 		render2d.DrawRect(knob_width / 2, track_y, size.x - knob_width, track_height)
 		local fill_width = normalized * (size.x - knob_width)
-		render2d.PushUV()
-		render2d.SetUV2(0, 0, 0.5, 1)
 		render2d.SetTexture(self.Textures.Gradient)
 		c = self:GetColor("primary")
 		render2d.SetColor(c.r, c.g, c.b, 0.9)
+		render2d.PushColorUV(0, 0, 0.5, 1)
 		render2d.DrawRect(knob_width / 2, track_y, fill_width, track_height)
-		render2d.PopUV()
+		render2d.PopColorUV()
 
 		if anim.glow_alpha > 0 then
 			render2d.SetBlendPreset("additive")
@@ -902,18 +883,17 @@ function JRPGTheme:DrawSlider(size, state)
 	local scale_offset_x = (scaled_width - knob_width) / 2
 	local scale_offset_y = (scaled_height - knob_height) / 2
 	render2d.DrawRect(knob_x - scale_offset_x, knob_y - scale_offset_y, scaled_width, scaled_height)
-	render2d.PushUV()
-	render2d.SetUV2(0, 0, 1, 0.5)
 	render2d.SetTexture(self.Textures.Gradient)
 	c = self:GetColor("lighter")
 	render2d.SetColor(c.r, c.g, c.b, c.a)
+	render2d.PushColorUV(0, 0, 1, 0.5)
 	render2d.DrawRect(
 		knob_x - scale_offset_x,
 		knob_y - scale_offset_y,
 		scaled_width,
 		scaled_height * 0.5
 	)
-	render2d.PopUV()
+	render2d.PopColorUV()
 
 	if anim.glow_alpha > 0 then
 		render2d.SetBlendPreset("additive")
@@ -959,8 +939,6 @@ function JRPGTheme:DrawCheckbox(size, state)
 
 	if anim.check_anim > 0.01 then
 		local s = anim.check_anim
-		render2d.PushUV()
-		render2d.SetUV2(0, 0, 0.5, 1)
 		render2d.SetTexture(nil)
 		c = self:GetColor("primary")
 		render2d.SetBlendPreset("additive")
@@ -969,8 +947,9 @@ function JRPGTheme:DrawCheckbox(size, state)
 		local mark_size = (check_size - padding * 2) * s
 		local mark_x = box_x + check_size / 2 - mark_size / 2
 		local mark_y = box_y + check_size / 2 - mark_size / 2
+		render2d.PushColorUV(0, 0, 0.5, 1)
 		render2d.DrawRect(mark_x, mark_y, mark_size, mark_size)
-		render2d.PopUV()
+		render2d.PopColorUV()
 		render2d.SetBlendPreset("alpha")
 	end
 end

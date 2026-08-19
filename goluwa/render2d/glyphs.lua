@@ -543,7 +543,9 @@ function glyphs.DrawGlyph(path, char_code, x, y, size)
 	elseif glyph.texture then
 		render2d.PushTexture(glyph.texture)
 		render2d.PushMatrix(x, y, 1, 1)
-		render2d.DrawRectUV2f(0, 0, glyph.w, glyph.h, glyph.u1, glyph.v1, glyph.u2, glyph.v2)
+		render2d.PushColorUV(glyph.u1, glyph.v1, glyph.u2, glyph.v2)
+		render2d.DrawRectf(0, 0, glyph.w, glyph.h)
+		render2d.PopColorUV()
 		render2d.PopMatrix()
 		render2d.PopTexture()
 	end

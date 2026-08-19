@@ -39,17 +39,15 @@ function surface.SetAlphaMultiplier(a)
 end
 
 function surface.DrawTexturedRectRotated(x, y, w, h, r)
-	render2d.PushUV()
-	render2d.SetUV2(0, 1, 1, 0)
+	render2d.PushColorUV(0, 1, 1, 0)
 	render2d.DrawRectf(x, y, w, h, math.rad(r), w / 2, h / 2)
-	render2d.PopUV()
+	render2d.PopColorUV()
 end
 
 function surface.DrawTexturedRect(x, y, w, h)
-	render2d.PushUV()
-	render2d.SetUV2(0, 1, 1, 0)
+	render2d.PushColorUV(0, 1, 1, 0)
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopUV()
+	render2d.PopColorUV()
 end
 
 function surface.DrawRect(x, y, w, h)
@@ -70,10 +68,9 @@ function surface.DrawOutlinedRect(x, y, w, h)
 end
 
 function surface.DrawTexturedRectUV(x, y, w, h, u1, v1, u2, v2)
-	render2d.PushUV()
-	render2d.SetUV2(u1, 1 - v2, u2, 1 - v1)
+	render2d.PushColorUV(u1, 1 - v2, u2, 1 - v1)
 	render2d.DrawRect(x, y, w, h)
-	render2d.PopUV()
+	render2d.PopColorUV()
 end
 
 function surface.DrawLine(...)

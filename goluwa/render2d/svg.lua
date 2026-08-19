@@ -234,7 +234,9 @@ function SVG:Draw()
 
 		if self.Mode == "msdf" then render2d.PushMSDF(true) end
 
-		render2d.DrawRectUV2f(0, 0, 1, 1, 0, 1, 1, 0)
+		render2d.PushSDFUV(0, 1, 1, 0)
+		render2d.DrawRectf(0, 0, 1, 1)
+		render2d.PopSDFUV()
 
 		if self.Mode == "msdf" then render2d.PopMSDF() end
 

@@ -897,8 +897,6 @@ do
 
 					update_panel_text_offset(obj)
 					render2d.SetTexture()
-					render2d.SetUV()
-					--render2d.SetAlphaTestReference(0)
 					render2d.SetBlendPreset("alpha")
 
 					if obj.expensive_shadow_dir then

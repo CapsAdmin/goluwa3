@@ -28,6 +28,10 @@ function Image:getData()
 	return love.image._newImageDataFromTexture(tex)
 end
 
+function Image:getGoluwaTexture()
+	return ENV.textures[self]
+end
+
 ADD_FILTER(Image)
 
 function Image:setWrap(wrap_s, wrap_t)

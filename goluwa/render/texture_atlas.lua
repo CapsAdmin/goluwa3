@@ -109,24 +109,15 @@ function META:Build()
 		data.page_w = data.w
 		data.page_h = data.h
 		data.page = page
-		-- UV coordinates should include the padding area
 		data.page_uv = {
-			x,
-			y,
-			data.w + self.Padding,
-			data.h + self.Padding,
-			page.texture:GetWidth(),
-			page.texture:GetHeight(),
-		}
-		data.page_uv_normalized = {
-			x / data.page_uv[5],
-			y / data.page_uv[6],
+			x / page.texture:GetWidth(),
+			y / page.texture:GetHeight(),
 			(
 				x + data.w
-			) / data.page_uv[5],
+			) / page.texture:GetWidth(),
 			(
 				y + data.h
-			) / data.page_uv[6],
+			) / page.texture:GetHeight(),
 		}
 		page.textures[data] = data
 		page.dirty = true
@@ -247,33 +238,12 @@ function META:Get(id)
 	return self.textures[id]
 end
 
-function META:Draw(id, x, y, w, h)
-	local data = self:Get(id)
-
-	if not data then return end
-
-	w = w or data.page_w
-	h = h or data.page_h
-	render2d.SetTexture(data.page.texture)
-	render2d.SetUV(unpack(data.page_uv))
-	render2d.DrawRect(x, y, w, h)
-	render2d.SetUV()
-end
-
 function META:GetUV(id)
 	local data = self:Get(id)
 
 	if not data then return end
 
-	return unpack(data.page_uv)
-end
-
-function META:GetNormalizedUV(id)
-	local data = self:Get(id)
-
-	if not data then return end
-
-	return data.page_uv_normalized, data.w, data.h
+	return data.page_uv, data.w, data.h
 end
 
 function META:GetPageTexture(id)

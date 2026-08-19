@@ -35,8 +35,8 @@ local fragment_draw_constant_fields = {
 	{"global_color", "vec4"},
 	{"texture_index", "int"},
 	{"sdf_texture_index", "int"},
-	{"uv_offset", "vec2"},
-	{"uv_scale", "vec2"},
+	{"sdf_uv_offset", "vec2"},
+	{"sdf_uv_scale", "vec2"},
 	{"sdf_uv_bounds", "vec4"},
 	{"flags", "int"},
 	{"color_uv_offset", "vec2"},
@@ -146,9 +146,8 @@ render2d.state = {
 			constants = RectDrawState(),
 			constants_size = ffi.sizeof(RectDrawState),
 			rect_size = {w = 0, h = 0, lw = 0, lh = 0},
-			uv = {x = nil, y = nil, w = nil, h = nil, sx = nil, sy = nil},
-			uv2 = {u1 = nil, v1 = nil, u2 = nil, v2 = nil},
-			color_uv = {offset_x = 0, offset_y = 0, scale_x = 1, scale_y = 1, rotation = 0},
+			color_uv = {x = 0, y = 0, w = 1, h = 1, r = 0},
+			sdf_uv = {x = 0, y = 0, w = 1, h = 1},
 			alpha_multiplier = 1,
 		},
 		textures = {
@@ -406,17 +405,17 @@ end
 
 local function get_rect_batch_instance_uv_transform(entry)
 	local rect_state_snapshot = entry.state.rect_state_snapshot
-	local off_x = rect_state_snapshot.uv_offset[0]
-	local off_y = rect_state_snapshot.uv_offset[1]
-	local scale_x = rect_state_snapshot.uv_scale[0]
-	local scale_y = rect_state_snapshot.uv_scale[1]
+	local off_x = rect_state_snapshot.sdf_uv_offset[0]
+	local off_y = rect_state_snapshot.sdf_uv_offset[1]
+	local scale_x = rect_state_snapshot.sdf_uv_scale[0]
+	local scale_y = rect_state_snapshot.sdf_uv_scale[1]
 	local margin = entry.margin or 0
 
 	if margin > 0 and entry.w > 0 and entry.h > 0 then
 		scale_x = scale_x * (entry.qw / entry.w)
 		scale_y = scale_y * (entry.qh / entry.h)
-		off_x = off_x - (margin / entry.w) * rect_state_snapshot.uv_scale[0]
-		off_y = off_y - (margin / entry.h) * rect_state_snapshot.uv_scale[1]
+		off_x = off_x - (margin / entry.w) * rect_state_snapshot.sdf_uv_scale[0]
+		off_y = off_y - (margin / entry.h) * rect_state_snapshot.sdf_uv_scale[1]
 	end
 
 	return off_x, off_y, scale_x, scale_y
@@ -455,8 +454,8 @@ local rect_batch_fragment_passthrough_fields = {
 			vertex.batch_uv_transform[3] = uv_scale_y
 		end,
 		fragment_values = {
-			{"draw.uv_offset", "batch_uv_offset", "in_batch_uv_transform.xy"},
-			{"draw.uv_scale", "batch_uv_scale", "in_batch_uv_transform.zw"},
+			{"draw.sdf_uv_offset", "batch_uv_offset", "in_batch_uv_transform.xy"},
+			{"draw.sdf_uv_scale", "batch_uv_scale", "in_batch_uv_transform.zw"},
 		},
 	},
 	{
@@ -1257,7 +1256,7 @@ function render2d.Initialize()
 					if (draw.sdf_texture_index != -1) {
 						// transformed: sample uv goes through the draw uv transform (uv_scale/uv_offset)
 						// direct: vertex sample uv is used as-is, ignoring the uv transform
-						uv = FLAGS_SAMPLE_UV_DIRECT ? in_sample_uv : (in_sample_uv * draw.uv_scale + draw.uv_offset);
+						uv = FLAGS_SDF_SAMPLE_UV_MODE_DIRECT ? in_sample_uv : (in_sample_uv * draw.sdf_uv_scale + draw.sdf_uv_offset);
 					}
 
 					float bounds_left = min(draw.sdf_uv_bounds.x, draw.sdf_uv_bounds.z);
@@ -1595,12 +1594,11 @@ function render2d.ResetState()
 	render2d.SetSDFTexture()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
-	render2d.SetUV()
-	render2d.SetColorUVTransform()
+	render2d.SetSDFUV()
+	render2d.SetColorUV()
 	render2d.SetSwizzleMode("none")
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
-	render2d.SetUV2()
 	constants.flags = 0
 	render2d.SetClampBorderRadius(true)
 
@@ -1683,7 +1681,7 @@ do
 					},
 				},
 				{
-					name = "SAMPLE_UV",
+					name = "SDF_SAMPLE_UV_MODE",
 					enums = {
 						"transformed",
 						"direct",
@@ -1762,11 +1760,11 @@ do
 
 		do
 			function render2d.SetSDFSampleUVMode(mode)
-				render2d.SetFlagBits("SAMPLE_UV", mode or "transformed")
+				render2d.SetFlagBits("SDF_SAMPLE_UV_MODE", mode or "transformed")
 			end
 
 			function render2d.GetSDFSampleUVMode()
-				return render2d.GetFlagBits("SAMPLE_UV")
+				return render2d.GetFlagBits("SDF_SAMPLE_UV_MODE")
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFSampleUVMode", 1)
@@ -2310,8 +2308,7 @@ do
 			render2d.stencil_level = 0
 			render2d.SetStencilMode("write", val or 0)
 			local sw, sh = render2d.GetSize()
-			render2d.PushMatrix()
-			render2d.SetWorldMatrix(Matrix44())
+			render2d.PushWorldMatrix(true)
 			render2d.DrawRect(0, 0, sw, sh)
 			render2d.PopMatrix()
 			render2d.SetRectBatchMode(old_rect_batch_mode)
@@ -2432,10 +2429,10 @@ do
 			render2d.SetTexture()
 			render2d.SetColor(1, 1, 1, 1)
 			render2d.SetAlphaMultiplier(1)
-			render2d.SetUV()
+			render2d.SetColorUV()
 			render2d.SetSDFSampleUVMode("transformed")
 			render2d.SetSwizzleMode("none")
-			render2d.SetSDFTexture()
+			render2d.SetTexture()
 			render2d.SetBorderRadius(0, 0, 0, 0)
 			render2d.SetOutlineWidth(0)
 			render2d.ClearNinePatch()
@@ -2641,134 +2638,85 @@ end
 
 do -- uv
 	do
-		function render2d.SetUV(x, y, w, h, sx, sy)
-			local constants = render2d.state.render.fragment.constants
-
-			if not x then
-				-- Reset to default (no transformation)
-				constants.uv_offset[0] = 0
-				constants.uv_offset[1] = 0
-				constants.uv_scale[0] = 1
-				constants.uv_scale[1] = 1
-			else
-				sx = sx or 1
-				sy = sy or 1
-				local y_transformed = -y - h
-				-- Set UV offset and scale
-				constants.uv_offset[0] = x / sx
-				constants.uv_offset[1] = y_transformed / sy
-				constants.uv_scale[0] = w / sx
-				constants.uv_scale[1] = h / sy
-			end
-
-			render2d.state.render.fragment.uv.x = x
-			render2d.state.render.fragment.uv.y = y
-			render2d.state.render.fragment.uv.w = w
-			render2d.state.render.fragment.uv.h = h
-			render2d.state.render.fragment.uv.sx = sx
-			render2d.state.render.fragment.uv.sy = sy
-		end
-
-		function render2d.GetUV()
-			local uv = render2d.state.render.fragment.uv
-			return uv.x, uv.y, uv.w, uv.h, uv.sx, uv.sy
-		end
-
-		utility.MakePushPopFunction(render2d, "UV", 6)
-	end
-
-	function render2d.GetUVTransform()
-		local constants = render2d.state.render.fragment.constants
-		return constants.uv_offset[0],
-		constants.uv_offset[1],
-		constants.uv_scale[0],
-		constants.uv_scale[1]
-	end
-
-	do
 		function render2d.SetSDFSampleUVMode(mode)
-			render2d.SetFlagBits("SAMPLE_UV", mode or "transformed")
+			render2d.SetFlagBits("SDF_SAMPLE_UV_MODE", mode or "transformed")
 		end
 
 		function render2d.GetSDFSampleUVMode()
-			return render2d.GetFlagBits("SAMPLE_UV")
+			return render2d.GetFlagBits("SDF_SAMPLE_UV_MODE")
 		end
 
 		utility.MakePushPopFunction(render2d, "SDFSampleUVMode", 1)
 	end
 
-	function render2d.SetUV2(u1, v1, u2, v2)
-		u1 = u1 or 0
-		v1 = v1 or 0
-		u2 = u2 or 1
-		v2 = v2 or 1
-		render2d.state.render.fragment.constants.uv_offset[0] = u1
-		render2d.state.render.fragment.constants.uv_offset[1] = v1
-		render2d.state.render.fragment.constants.uv_scale[0] = u2 - u1
-		render2d.state.render.fragment.constants.uv_scale[1] = v2 - v1
-		render2d.state.render.fragment.uv2.u1 = u1
-		render2d.state.render.fragment.uv2.v1 = v1
-		render2d.state.render.fragment.uv2.u2 = u2
-		render2d.state.render.fragment.uv2.v2 = v2
-	end
+	do
+		function render2d.SetSDFUV(x, y, w, h)
+			x = x or 0
+			y = y or 0
+			w = w or 1
+			h = h or 1
+			render2d.state.render.fragment.constants.sdf_uv_offset[0] = x
+			render2d.state.render.fragment.constants.sdf_uv_offset[1] = y
+			render2d.state.render.fragment.constants.sdf_uv_scale[0] = w - x
+			render2d.state.render.fragment.constants.sdf_uv_scale[1] = h - y
+			render2d.state.render.fragment.sdf_uv.x = x
+			render2d.state.render.fragment.sdf_uv.y = y
+			render2d.state.render.fragment.sdf_uv.w = w
+			render2d.state.render.fragment.sdf_uv.h = h
+		end
 
-	function render2d.GetUV2()
-		local uv2 = render2d.state.render.fragment.uv2
-		return uv2.u1, uv2.v1, uv2.u2, uv2.v2
-	end
+		function render2d.GetSDFUV()
+			local s = render2d.state.render.fragment.sdf_uv
+			return s.x, s.y, s.w, s.h
+		end
 
-	utility.MakePushPopFunction(render2d, "UV2", 4)
+		function render2d.GetSDFUVTransformed()
+			local s = render2d.state.render.fragment.constants
+			return s.sdf_uv_offset[0],
+			s.sdf_uv_offset[1],
+			s.sdf_uv_scale[0],
+			s.sdf_uv_scale[1]
+		end
+
+		utility.MakePushPopFunction(render2d, "SDFUV", 4)
+	end
 
 	do
-		function render2d.SetColorUVTransform(ox, oy, sx, sy, angle)
-			local color_uv = render2d.state.render.fragment.color_uv
-			local constants = render2d.state.render.fragment.constants
-			color_uv.offset_x = ox or 0
-			color_uv.offset_y = oy or 0
-			color_uv.scale_x = sx or 1
-			color_uv.scale_y = sy or sx or 1
-			color_uv.rotation = angle or 0
-			constants.color_uv_offset[0] = color_uv.offset_x
-			constants.color_uv_offset[1] = color_uv.offset_y
-			constants.color_uv_scale[0] = color_uv.scale_x
-			constants.color_uv_scale[1] = color_uv.scale_y
-			constants.color_uv_rotation = color_uv.rotation
-		end
-
-		function render2d.GetColorUVTransform()
-			local color_uv = render2d.state.render.fragment.color_uv
-			return color_uv.offset_x,
-			color_uv.offset_y,
-			color_uv.scale_x,
-			color_uv.scale_y,
-			color_uv.rotation
-		end
-
-		utility.MakePushPopFunction(render2d, "ColorUVTransform", 5)
-
-		function render2d.SetColorUV(x, y, w, h, sx, sy)
+		function render2d.SetColorUV(x, y, w, h, rot)
+			x = x or 0
+			y = y or 0
+			w = w or 1
+			h = h or 1
+			rot = rot or 0
 			sx = sx or 1
 			sy = sy or 1
-			local color_uv = render2d.state.render.fragment.color_uv
-			local constants = render2d.state.render.fragment.constants
-			color_uv.offset_x = x / sx
-			color_uv.offset_y = y / sy
-			color_uv.scale_x = w / sx
-			color_uv.scale_y = h / sy
-			color_uv.rotation = 0
-			constants.color_uv_offset[0] = color_uv.offset_x
-			constants.color_uv_offset[1] = color_uv.offset_y
-			constants.color_uv_scale[0] = color_uv.scale_x
-			constants.color_uv_scale[1] = color_uv.scale_y
-			constants.color_uv_rotation = 0
+			render2d.state.render.fragment.constants.color_uv_offset[0] = x
+			render2d.state.render.fragment.constants.color_uv_offset[1] = y
+			render2d.state.render.fragment.constants.color_uv_scale[0] = w - x
+			render2d.state.render.fragment.constants.color_uv_scale[1] = h - y
+			render2d.state.render.fragment.constants.color_uv_rotation = rot
+			render2d.state.render.fragment.color_uv.x = x
+			render2d.state.render.fragment.color_uv.y = y
+			render2d.state.render.fragment.color_uv.w = w
+			render2d.state.render.fragment.color_uv.h = h
+			render2d.state.render.fragment.color_uv.r = rot
 		end
 
 		function render2d.GetColorUV()
-			local color_uv = render2d.state.render.fragment.color_uv
-			return color_uv.offset_x, color_uv.offset_y, color_uv.scale_x, color_uv.scale_y
+			local s = render2d.state.render.fragment.color_uv
+			return s.x, s.y, s.w, s.h, s.r
 		end
 
-		utility.MakePushPopFunction(render2d, "ColorUV", 6)
+		function render2d.GetColorUVTransformed()
+			local s = render2d.state.render.fragment.constants
+			return s.color_uv_offset[0],
+			s.color_uv_offset[1],
+			s.color_uv_scale[0],
+			s.color_uv_scale[1],
+			s.color_uv_rotation
+		end
+
+		utility.MakePushPopFunction(render2d, "ColorUV", 5)
 	end
 end
 
@@ -2938,7 +2886,7 @@ local function can_batch_rect_draw()
 		not render2d.shader_override
 end
 
-capture_rect_draw_state = function(world_matrix, u1, v1, u2, v2)
+capture_rect_draw_state = function(world_matrix)
 	local batch_runtime = render2d.state.runtime.batch
 	local slot = batch_runtime.next_rect_draw_state_snapshot_slot
 	batch_runtime.next_rect_draw_state_snapshot_slot = slot + 1
@@ -2954,13 +2902,6 @@ capture_rect_draw_state = function(world_matrix, u1, v1, u2, v2)
 	if not blend_mode then
 		blend_mode = get_blend_preset_state(DEFAULT_BLEND_MODE)
 		render2d.state.render.pipeline.blend = blend_mode
-	end
-
-	if u1 ~= nil then
-		rect_state_snapshot.uv_offset[0] = u1
-		rect_state_snapshot.uv_offset[1] = v1
-		rect_state_snapshot.uv_scale[0] = u2 - u1
-		rect_state_snapshot.uv_scale[1] = v2 - v1
 	end
 
 	Matrix44.CopyTo(render2d.GetWorldMatrix(), resolved_world_matrix)
@@ -3019,60 +2960,59 @@ restore_rect_draw_state = function(state)
 end
 
 do
-	local function invalidate_margin_cache()
-		render2d.state.render.options.computed_margin_dirty = true
-	end
-
-	local function get_margin()
-		local options = render2d.state.render.options
-
-		if not options.computed_margin_dirty then return options.computed_margin end
-
-		local constants = render2d.state.render.fragment.constants
-		local content_m = math.abs(constants.outline_width)
-
-		if
-			render2d.state.render.textures.sdf_texture ~= nil or
-			render2d.GetFlagBits("SWIZZLE") == "rrr"
-		then
-			content_m = content_m + constants.sdf_softness
+	do
+		function render2d.SetMargin(new_m)
+			render2d.state.render.options.margin_override = new_m
+			render2d.state.render.options.computed_margin_dirty = true
 		end
 
-		if constants.sdf_softness > 0 or content_m > 0 then
-			content_m = math.max(content_m, constants.sdf_softness)
+		function render2d.GetMargin()
+			if render2d.state.render.options.margin_override then
+				return render2d.state.render.options.margin_override
+			end
+
+			local options = render2d.state.render.options
+
+			if not options.computed_margin_dirty then return options.computed_margin end
+
+			local constants = render2d.state.render.fragment.constants
+			local content_m = math.abs(constants.outline_width)
+
+			if
+				render2d.state.render.textures.sdf_texture ~= nil or
+				render2d.GetFlagBits("SWIZZLE") == "rrr"
+			then
+				content_m = content_m + constants.sdf_softness
+			end
+
+			if constants.sdf_softness > 0 or content_m > 0 then
+				content_m = math.max(content_m, constants.sdf_softness)
+			end
+
+			local m = content_m
+
+			if m > 0 then m = m + 1 end
+
+			options.computed_margin = math.ceil(m)
+			options.computed_margin_dirty = false
+			return options.computed_margin
 		end
 
-		local m = content_m
-
-		if m > 0 then m = m + 1 end
-
-		options.computed_margin = math.ceil(m)
-		options.computed_margin_dirty = false
-		return options.computed_margin
+		utility.MakePushPopFunction(render2d, "Margin", 1)
 	end
 
-	function render2d.GetMargin()
-		return render2d.state.render.options.margin_override or get_margin()
-	end
-
-	function render2d.SetMargin(new_m)
-		render2d.state.render.options.margin_override = new_m
-		invalidate_margin_cache()
-	end
-
-	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m, u1, v1, u2, v2)
+	local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		local margin = render2d.GetMargin(w, h)
 		local batch_mode = render2d.GetRectBatchMode()
 
 		if max_m then margin = math.min(margin, max_m) end
 
-		-- Set SDF UV bounds to original UV region before margin expansion
 		local constants = render2d.state.render.fragment.constants
-		constants.sdf_uv_bounds[0] = u1 or constants.uv_offset[0]
-		constants.sdf_uv_bounds[1] = v1 or constants.uv_offset[1]
-		constants.sdf_uv_bounds[2] = u2 or (constants.uv_offset[0] + constants.uv_scale[0])
-		constants.sdf_uv_bounds[3] = v2 or (constants.uv_offset[1] + constants.uv_scale[1])
-		local state = capture_rect_draw_state(acquire_rect_batch_world_matrix(), u1, v1, u2, v2)
+		constants.sdf_uv_bounds[0] = constants.sdf_uv_offset[0]
+		constants.sdf_uv_bounds[1] = constants.sdf_uv_offset[1]
+		constants.sdf_uv_bounds[2] = (constants.sdf_uv_offset[0] + constants.sdf_uv_scale[0])
+		constants.sdf_uv_bounds[3] = (constants.sdf_uv_offset[1] + constants.sdf_uv_scale[1])
+		local state = capture_rect_draw_state(acquire_rect_batch_world_matrix())
 		local draw_matrix, qw, qh = build_rect_draw_matrix(
 			state.world_matrix,
 			x,
@@ -3111,9 +3051,9 @@ do
 		if not bind_mesh_immediate(render2d.rect_mesh) then return false end
 
 		local constants = render2d.state.render.fragment.constants
-		local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
-		local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
-		render2d.PushMatrix()
+		local old_off_x, old_off_y = constants.sdf_uv_offset[0], constants.sdf_uv_offset[1]
+		local old_scale_x, old_scale_y = constants.sdf_uv_scale[0], constants.sdf_uv_scale[1]
+		render2d.PushWorldMatrix()
 
 		if x and y then
 			if use_float then
@@ -3144,82 +3084,38 @@ do
 		end
 
 		if resolved_margin > 0 and w > 0 and h > 0 then
-			constants.uv_scale[0] = old_scale_x * (qw / w)
-			constants.uv_scale[1] = old_scale_y * (qh / h)
-			constants.uv_offset[0] = old_off_x - (resolved_margin / w) * old_scale_x
-			constants.uv_offset[1] = old_off_y - (resolved_margin / h) * old_scale_y
+			constants.sdf_uv_scale[0] = old_scale_x * (qw / w)
+			constants.sdf_uv_scale[1] = old_scale_y * (qh / h)
+			constants.sdf_uv_offset[0] = old_off_x - (resolved_margin / w) * old_scale_x
+			constants.sdf_uv_offset[1] = old_off_y - (resolved_margin / h) * old_scale_y
 		end
 
 		constants.sdf_uv_bounds[0] = old_off_x
 		constants.sdf_uv_bounds[1] = old_off_y
 		constants.sdf_uv_bounds[2] = old_off_x + old_scale_x
 		constants.sdf_uv_bounds[3] = old_off_y + old_scale_y
-		local cmd = render.GetCommandBuffer()
 		render2d.UploadConstants(qw, qh, w, h)
-		render2d.rect_mesh:DrawIndexed(cmd, 6)
-		constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
-		constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
+		render2d.rect_mesh:DrawIndexed(render.GetCommandBuffer(), 6)
+		constants.sdf_uv_offset[0], constants.sdf_uv_offset[1] = old_off_x, old_off_y
+		constants.sdf_uv_scale[0], constants.sdf_uv_scale[1] = old_scale_x, old_scale_y
 		render2d.PopMatrix()
 		return true
 	end
 
+	local function draw_rect(float, x, y, w, h, a, ox, oy, max_m)
+		if can_batch_rect_draw() then
+			return queue_rect_draw(float, x, y, w, h, a, ox, oy, max_m)
+		end
+
+		return draw_rect_immediate(x, y, w, h, a, ox, oy, nil, float)
+	end
+
 	function render2d.DrawRect(x, y, w, h, a, ox, oy, max_m)
-		if can_batch_rect_draw() then
-			return queue_rect_draw(false, x, y, w, h, a, ox, oy, max_m)
-		end
-
-		return draw_rect_immediate(x, y, w, h, a, ox, oy, nil, false)
-	end
-
-	local function draw_rect_with_uv2(use_float, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
-		local constants = render2d.state.render.fragment.constants
-		local result
-
-		if can_batch_rect_draw() then
-			result = queue_rect_draw(
-				use_float,
-				x,
-				y,
-				w,
-				h,
-				a,
-				ox,
-				oy,
-				max_m,
-				u1,
-				v1,
-				u2,
-				v2
-			)
-		else
-			local old_off_x, old_off_y = constants.uv_offset[0], constants.uv_offset[1]
-			local old_scale_x, old_scale_y = constants.uv_scale[0], constants.uv_scale[1]
-			constants.uv_offset[0] = u1
-			constants.uv_offset[1] = v1
-			constants.uv_scale[0] = u2 - u1
-			constants.uv_scale[1] = v2 - v1
-			result = draw_rect_immediate(x, y, w, h, a, ox, oy, nil, use_float)
-			constants.uv_offset[0], constants.uv_offset[1] = old_off_x, old_off_y
-			constants.uv_scale[0], constants.uv_scale[1] = old_scale_x, old_scale_y
-		end
-
-		return result
-	end
-
-	function render2d.DrawRectUV2(x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
-		return draw_rect_with_uv2(false, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
+		return draw_rect(false, x, y, w, h, a, ox, oy, max_m)
 	end
 
 	function render2d.DrawRectf(x, y, w, h, a, ox, oy, max_m)
-		if can_batch_rect_draw() then
-			return queue_rect_draw(true, x, y, w, h, a, ox, oy, max_m)
-		end
-
-		return draw_rect_immediate(x, y, w, h, a, ox, oy, nil, true)
-	end
-
-	function render2d.DrawRectUV2f(x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
-		return draw_rect_with_uv2(true, x, y, w, h, u1, v1, u2, v2, a, ox, oy, max_m)
+		return draw_rect(true, x, y, w, h, a, ox, oy, max_m)
 	end
 end
 
