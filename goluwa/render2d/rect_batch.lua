@@ -41,7 +41,6 @@ end
 function META:FinishFlush(flushed_draws, summary)
 	if not self.is_flushing then return false end
 
-	summary = summary or {}
 	local flush_reason = self.current_flush_reason or "manual"
 	local resolved_flushed_draws = flushed_draws or 0
 	self.is_flushing = false
@@ -49,17 +48,21 @@ function META:FinishFlush(flushed_draws, summary)
 	self.flush_count = self.flush_count + 1
 	self.pending_draws = 0
 	self.segments = {}
-	self.last_flush = {
-		reason = flush_reason,
-		flushed_draws = resolved_flushed_draws,
-		gpu_rect_draw_calls = summary.gpu_rect_draw_calls or 0,
-		instanced_draws = summary.instanced_draws or 0,
-		instanced_segments = summary.instanced_segments or 0,
-		replay_draws = summary.replay_draws or 0,
-		max_segment_size = summary.max_segment_size or 0,
-		queued_draws = summary.queued_draws or resolved_flushed_draws,
-		queued_segments = summary.queued_segments or 0,
-	}
+
+	if summary then
+		self.last_flush = {
+			reason = flush_reason,
+			flushed_draws = resolved_flushed_draws,
+			gpu_rect_draw_calls = summary.gpu_rect_draw_calls or 0,
+			instanced_draws = summary.instanced_draws or 0,
+			instanced_segments = summary.instanced_segments or 0,
+			replay_draws = summary.replay_draws or 0,
+			max_segment_size = summary.max_segment_size or 0,
+			queued_draws = summary.queued_draws or resolved_flushed_draws,
+			queued_segments = summary.queued_segments or 0,
+		}
+	end
+
 	return true
 end
 

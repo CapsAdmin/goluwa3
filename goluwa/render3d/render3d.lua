@@ -552,6 +552,94 @@ function render3d.Initialize(config)
 
 	gpu_culling.Initialize()
 	render3d.initializing = false
+
+	do
+		local function get_last_instancing_counters()
+			return render3d.GetInstancingCounters()
+		end
+
+		local function get_last_rejected_instancing_summary()
+			return render3d.GetInstancingRejectionSummary(get_last_instancing_counters())
+		end
+
+		render_stats.RegisterGroup{
+			id = "render3d_instancing",
+			label = "RENDER3D INSTANCING",
+		}
+		render_stats.RegisterField{
+			id = "r3d_instanced_draws",
+			label = "R3D INST DRAWS",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_instancing_counters().instanced_draws
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_instanced_fallbacks",
+			label = "R3D INST FALLBACKS",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_instancing_counters().singleton_fallback_draws
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_instanced_rejected",
+			label = "R3D INST REJECTED",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_rejected_instancing_summary().total
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_inst_reject_args",
+			label = "R3D INST RJ ARGS",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_rejected_instancing_summary().missing_args
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_inst_reject_pipeline",
+			label = "R3D INST RJ PIPE",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_rejected_instancing_summary().missing_pipeline
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_inst_reject_wire",
+			label = "R3D INST RJ WIRE",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_rejected_instancing_summary().wireframe
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_inst_reject_tess",
+			label = "R3D INST RJ TESS",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_rejected_instancing_summary().tessellated
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_inst_reject_anim",
+			label = "R3D INST RJ ANIM",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_rejected_instancing_summary().vertex_animation
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r3d_inst_reject_mesh",
+			label = "R3D INST RJ MESH",
+			group = "render3d_instancing",
+			getter = function()
+				return get_last_rejected_instancing_summary().missing_mesh
+			end,
+		}
+	end
+
 	event.Call("Render3DInitialized")
 	render3d.ready = true
 end
@@ -891,89 +979,6 @@ function render3d.GetInstancingRejectionSummary(counters)
 		tessellated = rejected.tessellated,
 		vertex_animation = rejected.vertex_animation,
 		missing_mesh = rejected.missing_mesh,
-	}
-end
-
-do
-	local function get_last_instancing_counters()
-		return render3d.GetInstancingCounters()
-	end
-
-	local function get_last_rejected_instancing_summary()
-		return render3d.GetInstancingRejectionSummary(get_last_instancing_counters())
-	end
-
-	render_stats.RegisterField{
-		id = "r3d_instanced_draws",
-		label = "R3D INST DRAWS",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_instancing_counters().instanced_draws
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_instanced_fallbacks",
-		label = "R3D INST FALLBACKS",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_instancing_counters().singleton_fallback_draws
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_instanced_rejected",
-		label = "R3D INST REJECTED",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_rejected_instancing_summary().total
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_inst_reject_args",
-		label = "R3D INST RJ ARGS",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_rejected_instancing_summary().missing_args
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_inst_reject_pipeline",
-		label = "R3D INST RJ PIPE",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_rejected_instancing_summary().missing_pipeline
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_inst_reject_wire",
-		label = "R3D INST RJ WIRE",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_rejected_instancing_summary().wireframe
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_inst_reject_tess",
-		label = "R3D INST RJ TESS",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_rejected_instancing_summary().tessellated
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_inst_reject_anim",
-		label = "R3D INST RJ ANIM",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_rejected_instancing_summary().vertex_animation
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_inst_reject_mesh",
-		label = "R3D INST RJ MESH",
-		group = "render3d_instancing",
-		getter = function()
-			return get_last_rejected_instancing_summary().missing_mesh
-		end,
 	}
 end
 

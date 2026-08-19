@@ -6,6 +6,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local render = import("goluwa/render/render.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local event = import("goluwa/event.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Mesh = import("goluwa/render/mesh.lua")
@@ -639,6 +640,66 @@ local function get_render2d_fragment_constants_source()
 	return constants
 end
 
+local batch_counter_fields = {
+	"flushes",
+	"queued_draws",
+	"queued_segments",
+	"gpu_draw_calls",
+	"instanced_draws",
+	"instanced_segments",
+	"replay_draws",
+	"max_segment_size",
+}
+
+local function new_batch_counters()
+	local counters = {}
+
+	for _, key in ipairs(batch_counter_fields) do
+		counters[key] = 0
+	end
+
+	return counters
+end
+
+local function reset_batch_counters(target)
+	target = target or new_batch_counters()
+
+	for _, key in ipairs(batch_counter_fields) do
+		target[key] = 0
+	end
+
+	return target
+end
+
+local function copy_batch_counters(dst, src)
+	reset_batch_counters(dst)
+
+	for _, key in ipairs(batch_counter_fields) do
+		dst[key] = src[key]
+	end
+
+	return dst
+end
+
+function render2d.ResetBatchCounters()
+	render2d.batch_counters = reset_batch_counters(render2d.batch_counters)
+	render2d.last_batch_counters = reset_batch_counters(render2d.last_batch_counters)
+	return render2d.last_batch_counters
+end
+
+function render2d.GetBatchCounters()
+	render2d.last_batch_counters = render2d.last_batch_counters or new_batch_counters()
+	return render2d.last_batch_counters
+end
+
+function render2d.GetLiveBatchCounters()
+	render2d.batch_counters = render2d.batch_counters or new_batch_counters()
+	return render2d.batch_counters
+end
+
+render2d.batch_counters = new_batch_counters()
+render2d.last_batch_counters = new_batch_counters()
+
 function render2d.FlushBatches(reason)
 	local batch_state = batch_runtime.state
 
@@ -759,8 +820,7 @@ function render2d.FlushBatches(reason)
 	render2d.RestoreRectDrawState(saved_state)
 	render2d.shader_override = saved_shader_override
 	options.batched_rect_draws_enabled = saved_batched_rect_draws_enabled
-	batch_state:FinishFlush(
-		flushed_draws,
+	local flush_summary = render.stats and
 		{
 			queued_draws = flushed_draws,
 			queued_segments = #batch_state.segments,
@@ -770,7 +830,21 @@ function render2d.FlushBatches(reason)
 			replay_draws = replay_draws,
 			max_segment_size = max_segment_size,
 		}
-	)
+	batch_state:FinishFlush(flushed_draws, flush_summary)
+
+	if render.stats then
+		local batch_counters = render2d.GetLiveBatchCounters()
+		batch_counters.flushes = batch_counters.flushes + 1
+		batch_counters.queued_draws = batch_counters.queued_draws + flush_summary.queued_draws
+		batch_counters.queued_segments = batch_counters.queued_segments + flush_summary.queued_segments
+		batch_counters.gpu_draw_calls = batch_counters.gpu_draw_calls + flush_summary.gpu_rect_draw_calls
+		batch_counters.instanced_draws = batch_counters.instanced_draws + flush_summary.instanced_draws
+		batch_counters.instanced_segments = batch_counters.instanced_segments + flush_summary.instanced_segments
+		batch_counters.replay_draws = batch_counters.replay_draws + flush_summary.replay_draws
+		batch_counters.max_segment_size = math.max(batch_counters.max_segment_size, flush_summary.max_segment_size)
+		render2d.last_batch_counters = copy_batch_counters(render2d.last_batch_counters, batch_counters)
+	end
+
 	reset_rect_batch_matrix_pool_state()
 	return flushed_draws > 0
 end
@@ -1352,6 +1426,89 @@ function render2d.Initialize()
 		},
 		{0, 1, 2, 2, 1, 3}
 	)
+
+	do
+		local function get_last_batch_counters()
+			return render2d.GetBatchCounters()
+		end
+
+		render_stats.RegisterGroup{
+			id = "render2d_batch",
+			label = "RENDER2D BATCH",
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_queued",
+			label = "R2D Q DRAWS",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().queued_draws
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_segs",
+			label = "R2D Q SEGS",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().queued_segments
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_gpu",
+			label = "R2D GPU CALLS",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().gpu_draw_calls
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_inst",
+			label = "R2D INST DRAWS",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().instanced_draws
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_inst_segs",
+			label = "R2D INST SEGS",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().instanced_segments
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_replay",
+			label = "R2D REPLAY",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().replay_draws
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_maxseg",
+			label = "R2D MAX SEG",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().max_segment_size
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_flushes",
+			label = "R2D FLUSHES",
+			group = "render2d_batch",
+			getter = function()
+				return get_last_batch_counters().flushes
+			end,
+		}
+		render_stats.RegisterField{
+			id = "r2d_batch_pending",
+			label = "R2D PENDING",
+			group = "render2d_batch",
+			getter = function()
+				return render2d.GetBatchState().pending_draws
+			end,
+		}
+	end
 end
 
 function render2d.ResetState()
@@ -2627,7 +2784,10 @@ pipeline_config.blend = get_blend_preset_state("alpha")
 runtime_pipeline.dirty = true
 
 render.RegisterFlushCallback("render2d", function(reason)
-	if reason == "begin_frame" then reset_rect_batch_instance_frame_state() end
+	if reason == "begin_frame" then
+		reset_rect_batch_instance_frame_state()
+		render2d.batch_counters = reset_batch_counters(render2d.batch_counters)
+	end
 
 	-- Don't flush on pop_command_buffer when there's no active command buffer.
 	-- This happens during canvas switching: the old canvas is popped before

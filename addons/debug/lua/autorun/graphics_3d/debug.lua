@@ -486,10 +486,7 @@ function events.KeyInput.render3d_debug(key, press)
 		return
 	end
 
-	if key == "f4" then
-		render.stats = not render.stats
-		print("Render3D stats: " .. (render3d.stats and "ON" or "OFF"))
-	end
+	if key == "f4" then render.stats = not render.stats end
 
 	-- Toggle freeze frustum
 	if key == "f" then render3d.freeze_culling = not render3d.freeze_culling end

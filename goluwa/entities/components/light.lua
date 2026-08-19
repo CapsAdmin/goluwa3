@@ -602,7 +602,11 @@ function Light:RenderShadows()
 	return main_complete and inset_complete, main_rendered or inset_rendered
 end
 
-do
+function Light:OnFirstCreated()
+	render_stats.RegisterGroup{
+		id = "render3d_shadows",
+		label = "RENDER3D SHADOWS",
+	}
 	render_stats.RegisterField{
 		id = "r3d_shadow_lights",
 		label = "R3D SHADOW LIGHTS",

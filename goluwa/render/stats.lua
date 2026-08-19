@@ -561,40 +561,40 @@ end
 
 local function build_overlay_fragment_shader()
 	return [[
-					#version 450
+		#version 450
 
-					layout(location = 0) in vec2 out_uv;
-					layout(location = 0) out vec4 out_color;
+		layout(location = 0) in vec2 out_uv;
+		layout(location = 0) out vec4 out_color;
 
-					layout(push_constant) uniform Constants {
-						vec4 rect;
-						vec4 viewport;
-						vec4 color;
-						ivec4 data;
-					} pc;
+		layout(push_constant) uniform Constants {
+			vec4 rect;
+			vec4 viewport;
+			vec4 color;
+			ivec4 data;
+		} pc;
 
-					]] .. build_fragment_shader_character_table() .. [[
+		]] .. build_fragment_shader_character_table() .. [[
 
-					float chard(int digit, vec2 id) {
-						if (digit < 0 || digit >= CHARACTERS.length()) return 0.0;
-						if (id.x < 0.0 || id.y < 0.0 || id.x > 4.0 || id.y > 5.0) return 0.0;
-						return float(1 & (CHARACTERS[digit] >> (4 - int(id.x) + int(id.y) * 5)));
-					}
+		float chard(int digit, vec2 id) {
+			if (digit < 0 || digit >= CHARACTERS.length()) return 0.0;
+			if (id.x < 0.0 || id.y < 0.0 || id.x > 4.0 || id.y > 5.0) return 0.0;
+			return float(1 & (CHARACTERS[digit] >> (4 - int(id.x) + int(id.y) * 5)));
+		}
 
-					void main() {
-						if (pc.data.y == 0) {
-							out_color = pc.color;
-							return;
-						}
+		void main() {
+			if (pc.data.y == 0) {
+				out_color = pc.color;
+				return;
+			}
 
-						vec2 id = floor(out_uv * vec2(5.0, 6.0));
-						float alpha = chard(pc.data.x, id);
+			vec2 id = floor(out_uv * vec2(5.0, 6.0));
+			float alpha = chard(pc.data.x, id);
 
-						if (alpha <= 0.0) discard;
+			if (alpha <= 0.0) discard;
 
-						out_color = vec4(pc.color.rgb, pc.color.a * alpha);
-					}
-				]]
+			out_color = vec4(pc.color.rgb, pc.color.a * alpha);
+		}
+	]]
 end
 
 local function get_overlay_pipeline()
@@ -905,7 +905,7 @@ function stats.DrawOverlay(cmd)
 	for line_index = 1, line_count do
 		local line = overlay_lines[line_index]
 		local pen_x = x + OVERLAY_PADDING
-		local pen_y = y + OVERLAY_PADDING + (line_index - 1) * LINE_HEIGHT
+		local pen_y = y + OVERLAY_PADDING + ((-(line_index - 1) + line_count)) * LINE_HEIGHT
 
 		for i = 1, #line do
 			local byte = line:byte(i)
@@ -1162,14 +1162,6 @@ end
 stats.RegisterGroup{
 	id = "render",
 	label = "RENDER",
-}
-stats.RegisterGroup{
-	id = "render3d_shadows",
-	label = "RENDER3D SHADOWS",
-}
-stats.RegisterGroup{
-	id = "render3d_instancing",
-	label = "RENDER3D INSTANCING",
 }
 stats.RegisterField{
 	id = "fps",
