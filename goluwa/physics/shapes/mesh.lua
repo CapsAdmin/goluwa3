@@ -5,6 +5,7 @@ local brush_hull = import("goluwa/physics/brush_hull.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local META = objects.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
@@ -26,13 +27,7 @@ local MESH_LOCAL_AABB_TRANSFORM_PROXY = {
 	rotation = nil,
 }
 
-local function get_source_primitives(source)
-	if not source then return nil end
-
-	if source.GetPhysicsPrimitives then return source:GetPhysicsPrimitives() end
-
-	return source.Primitives
-end
+local get_source_primitives = model_transform_utils.GetModelPrimitives
 
 function MESH_LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
 	return self.collider:WorldToLocal(point, self.position, self.rotation)

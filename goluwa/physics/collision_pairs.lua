@@ -2,10 +2,6 @@ local objects = import("goluwa/objects/objects.lua")
 local CollisionPairs = objects.CreateTemplate("physics_collision_pairs")
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 
-local function new_weak_key_table()
-	return setmetatable({}, {__mode = "k"})
-end
-
 local function get_nested_entry(store, key_a, key_b)
 	local row = store[key_a]
 
@@ -18,7 +14,7 @@ local function set_nested_entry(store, key_a, key_b, entry)
 	local row = store[key_a]
 
 	if not row then
-		row = new_weak_key_table()
+		row = table.weak("k")
 		store[key_a] = row
 	end
 
@@ -33,12 +29,12 @@ end
 function CollisionPairs:Initialize(config)
 	config = config or {}
 	self.physics = config.physics or self.physics
-	self.PreviousCollisionPairs = config.PreviousCollisionPairs or new_weak_key_table()
-	self.CurrentCollisionPairs = config.CurrentCollisionPairs or new_weak_key_table()
+	self.PreviousCollisionPairs = config.PreviousCollisionPairs or table.weak("k")
+	self.CurrentCollisionPairs = config.CurrentCollisionPairs or table.weak("k")
 	self.PreviousCollisionEntries = config.PreviousCollisionEntries or {}
 	self.CurrentCollisionEntries = config.CurrentCollisionEntries or {}
-	self.PreviousWorldCollisionPairs = config.PreviousWorldCollisionPairs or new_weak_key_table()
-	self.CurrentWorldCollisionPairs = config.CurrentWorldCollisionPairs or new_weak_key_table()
+	self.PreviousWorldCollisionPairs = config.PreviousWorldCollisionPairs or table.weak("k")
+	self.CurrentWorldCollisionPairs = config.CurrentWorldCollisionPairs or table.weak("k")
 	self.PreviousWorldCollisionEntries = config.PreviousWorldCollisionEntries or {}
 	self.CurrentWorldCollisionEntries = config.CurrentWorldCollisionEntries or {}
 	return self
@@ -49,20 +45,20 @@ function CollisionPairs:GetPhysics()
 end
 
 function CollisionPairs:ResetState()
-	self.PreviousCollisionPairs = new_weak_key_table()
-	self.CurrentCollisionPairs = new_weak_key_table()
+	self.PreviousCollisionPairs = table.weak("k")
+	self.CurrentCollisionPairs = table.weak("k")
 	self.PreviousCollisionEntries = {}
 	self.CurrentCollisionEntries = {}
-	self.PreviousWorldCollisionPairs = new_weak_key_table()
-	self.CurrentWorldCollisionPairs = new_weak_key_table()
+	self.PreviousWorldCollisionPairs = table.weak("k")
+	self.CurrentWorldCollisionPairs = table.weak("k")
 	self.PreviousWorldCollisionEntries = {}
 	self.CurrentWorldCollisionEntries = {}
 end
 
 function CollisionPairs:BeginCollisionFrame()
-	self.CurrentCollisionPairs = new_weak_key_table()
+	self.CurrentCollisionPairs = table.weak("k")
 	self.CurrentCollisionEntries = {}
-	self.CurrentWorldCollisionPairs = new_weak_key_table()
+	self.CurrentWorldCollisionPairs = table.weak("k")
 	self.CurrentWorldCollisionEntries = {}
 end
 
@@ -260,11 +256,11 @@ function CollisionPairs:DispatchCollisionEvents()
 
 	self.PreviousCollisionPairs = current
 	self.PreviousCollisionEntries = self.CurrentCollisionEntries
-	self.CurrentCollisionPairs = new_weak_key_table()
+	self.CurrentCollisionPairs = table.weak("k")
 	self.CurrentCollisionEntries = {}
 	self.PreviousWorldCollisionPairs = current_world
 	self.PreviousWorldCollisionEntries = self.CurrentWorldCollisionEntries
-	self.CurrentWorldCollisionPairs = new_weak_key_table()
+	self.CurrentWorldCollisionPairs = table.weak("k")
 	self.CurrentWorldCollisionEntries = {}
 end
 

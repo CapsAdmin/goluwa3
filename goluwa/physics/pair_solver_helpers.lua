@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Quat = import("goluwa/structs/quat.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local toi = import("goluwa/physics/toi.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local pair_solver_helpers = {}
@@ -309,25 +309,6 @@ function pair_solver_helpers.GetBodySweepMotion(body)
 	}
 end
 
-function pair_solver_helpers.InterpolatePosition(previous, current, t)
-	return previous + (current - previous) * t
-end
-
-function pair_solver_helpers.InterpolateRotation(previous, current, t)
-	local target = current
-
-	if previous:Dot(current) < 0 then
-		target = Quat(-current.x, -current.y, -current.z, -current.w)
-	end
-
-	return Quat(
-		previous.x + (target.x - previous.x) * t,
-		previous.y + (target.y - previous.y) * t,
-		previous.z + (target.z - previous.z) * t,
-		previous.w + (target.w - previous.w) * t
-	):GetNormalized()
-end
-
 function pair_solver_helpers.GetBodyMotionScale(body)
 	local linear = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
 	local dot = math.min(1, math.max(-1, math.abs(body:GetPreviousRotation():Dot(body:GetRotation()))))
@@ -350,42 +331,19 @@ function pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, distance_
 end
 
 function pair_solver_helpers.FindSampledTemporalHit(evaluate, sample_steps, refine_steps)
-	local start_result = evaluate(0)
+	local hit_t, result = toi.FindSampledHit(
+		evaluate,
+		nil,
+		1,
+		sample_steps,
+		refine_steps or TEMPORAL_TOI_REFINE_STEPS
+	)
 
-	if start_result then return nil end
+	-- a hit at t = 0 means the pair is already penetrating; no TOI to report
+	if not result or hit_t == 0 then return nil end
 
-	refine_steps = refine_steps or TEMPORAL_TOI_REFINE_STEPS
-	local previous_t = 0
-
-	for i = 1, sample_steps do
-		local sample_t = i / sample_steps
-		local result = evaluate(sample_t)
-
-		if result then
-			local low = previous_t
-			local high = sample_t
-			local best = result
-
-			for _ = 1, refine_steps do
-				local mid = (low + high) * 0.5
-				local mid_result = evaluate(mid)
-
-				if mid_result then
-					best = mid_result
-					high = mid
-				else
-					low = mid
-				end
-			end
-
-			best.t = high
-			return best
-		end
-
-		previous_t = sample_t
-	end
-
-	return nil
+	result.t = hit_t
+	return result
 end
 
 function pair_solver_helpers.GetCCDSampleSteps(path_length, distance_scale)

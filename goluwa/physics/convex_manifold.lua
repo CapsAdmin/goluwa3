@@ -1,4 +1,5 @@
 local physics_constants = import("goluwa/physics/constants.lua")
+local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_manifold = {}
 
@@ -192,56 +193,8 @@ function convex_manifold.BuildAndMergeSupportPairContacts(contacts, vertices_a, 
 	return convex_manifold.MergeContacts(contacts, support_contacts, options and options.max_contacts)
 end
 
-local function clamp01(value)
-	return math.max(0, math.min(1, value))
-end
-
 function convex_manifold.ClosestPointsOnSegments(start_a, end_a, start_b, end_b)
-	local direction_a = end_a - start_a
-	local direction_b = end_b - start_b
-	local delta = start_a - start_b
-	local a = direction_a:Dot(direction_a)
-	local e = direction_b:Dot(direction_b)
-	local f = direction_b:Dot(delta)
-	local s
-	local t
-
-	if a <= physics_constants.EPSILON and e <= physics_constants.EPSILON then
-		return start_a, start_b
-	end
-
-	if a <= physics_constants.EPSILON then
-		t = clamp01(f / e)
-		return start_a, start_b + direction_b * t
-	else
-		local c = direction_a:Dot(delta)
-
-		if e <= physics_constants.EPSILON then
-			s = clamp01(-c / a)
-			return start_a + direction_a * s, start_b
-		else
-			local b = direction_a:Dot(direction_b)
-			local denominator = a * e - b * b
-
-			if math.abs(denominator) > physics_constants.EPSILON then
-				s = clamp01((b * f - c * e) / denominator)
-			else
-				s = 0
-			end
-
-			t = (b * s + f) / e
-
-			if t < 0 then
-				s = clamp01(-c / a)
-				return start_a + direction_a * s, start_b
-			elseif t > 1 then
-				s = clamp01((b - c) / a)
-				return start_a + direction_a * s, end_b
-			end
-		end
-	end
-
-	return start_a + direction_a * s, start_b + direction_b * t
+	return segment_geometry.ClosestPointsBetweenSegments(start_a, end_a, start_b, end_b, physics_constants.EPSILON)
 end
 
 return convex_manifold

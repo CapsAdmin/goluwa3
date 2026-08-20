@@ -12,15 +12,11 @@ local mesh_contact_common = {}
 local EPSILON = physics_constants.EPSILON
 local SPHERE_TRIANGLE_CONTACT_HANDLERS = {}
 local CAPSULE_TRIANGLE_CONTACT_HANDLERS = {}
-local NARROW_PHASE_PAIR_CACHE = setmetatable({}, {__mode = "k"})
+local NARROW_PHASE_PAIR_CACHE = table.weak("k")
 local NARROW_PHASE_CACHE_ENABLED = true
 local LOCAL_SPACE_NARROW_PHASE_ENABLED = true
 local MAX_NARROW_CACHE_TRIANGLES = 4
 local MAX_NARROW_CACHE_NEIGHBORS = 6
-
-local function new_weak_key_table()
-	return setmetatable({}, {__mode = "k"})
-end
 
 function mesh_contact_common.GetMeshShape(body)
 	local shape = body:GetPhysicsShape()
@@ -31,7 +27,7 @@ function mesh_contact_common.SetNarrowPhaseCacheEnabled(enabled)
 	NARROW_PHASE_CACHE_ENABLED = enabled ~= false
 
 	if not NARROW_PHASE_CACHE_ENABLED then
-		NARROW_PHASE_PAIR_CACHE = setmetatable({}, {__mode = "k"})
+		NARROW_PHASE_PAIR_CACHE = table.weak("k")
 	end
 
 	return NARROW_PHASE_CACHE_ENABLED
@@ -42,7 +38,7 @@ function mesh_contact_common.GetNarrowPhaseCacheEnabled()
 end
 
 function mesh_contact_common.ClearNarrowPhaseCache()
-	NARROW_PHASE_PAIR_CACHE = setmetatable({}, {__mode = "k"})
+	NARROW_PHASE_PAIR_CACHE = table.weak("k")
 end
 
 function mesh_contact_common.SetLocalSpaceNarrowPhaseEnabled(enabled)
@@ -99,7 +95,7 @@ local function get_narrow_phase_pair_cache(mesh_body, other_body)
 	local row = NARROW_PHASE_PAIR_CACHE[mesh_body]
 
 	if not row then
-		row = new_weak_key_table()
+		row = table.weak("k")
 		NARROW_PHASE_PAIR_CACHE[mesh_body] = row
 	end
 

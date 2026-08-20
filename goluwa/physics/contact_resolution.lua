@@ -105,7 +105,7 @@ local function get_or_create_manifold_row(manifolds, body)
 
 	if row then return row end
 
-	row = setmetatable({}, {__mode = "k"})
+	row = table.weak("k")
 	manifolds[body] = row
 	return row
 end

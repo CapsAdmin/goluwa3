@@ -730,6 +730,8 @@ function META:SweepColliderAgainstBody(
 		CAPSULE_CAPSULE_SWEEP_CONTEXT.max_fraction = max_fraction
 		CAPSULE_CAPSULE_SWEEP_CONTEXT.combined_radius = combined_radius
 		local hit_t, hit_data = sweep_helpers.FindFirstSampledHit(
+			evaluate_capsule_capsule_sample,
+			CAPSULE_CAPSULE_SWEEP_CONTEXT,
 			max_fraction,
 			math.max(
 				8,
@@ -737,9 +739,7 @@ function META:SweepColliderAgainstBody(
 					32,
 					math.ceil((movement:GetLength() * max_fraction) / math.max(combined_radius, 0.2)) * 2
 				)
-			),
-			evaluate_capsule_capsule_sample,
-			CAPSULE_CAPSULE_SWEEP_CONTEXT
+			)
 		)
 		CAPSULE_CAPSULE_SWEEP_CONTEXT.start_a = nil
 		CAPSULE_CAPSULE_SWEEP_CONTEXT.start_b = nil

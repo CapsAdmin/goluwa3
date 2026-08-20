@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
+local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local Visual = _G.GRAPHICS_3D and import("goluwa/entities/components/visual.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
@@ -18,13 +19,7 @@ local model_acceleration = {
 	model_count = 0,
 }
 
-local function get_spatial_primitives(model)
-	if not model then return nil end
-
-	if model.GetPhysicsPrimitives then return model:GetPhysicsPrimitives() end
-
-	return model.Primitives
-end
+local get_spatial_primitives = model_transform_utils.GetModelPrimitives
 
 local function get_spatial_local_aabb(model)
 	if not model then return nil end
@@ -224,36 +219,7 @@ local function ensure_model_acceleration()
 	return model_acceleration
 end
 
-local function ray_triangle_intersection(ray, v0, v1, v2)
-	local epsilon = 0.0000001
-	local edge1 = v1 - v0
-	local edge2 = v2 - v0
-	local h = ray.direction:GetCross(edge2)
-	local a = edge1:Dot(h)
-
-	if a > -epsilon and a < epsilon then return false end
-
-	local f = 1.0 / a
-	local s = ray.origin - v0
-	local u = f * s:Dot(h)
-
-	if u < 0.0 then return false end
-
-	if u > 1.0 then return false end
-
-	local q = s:GetCross(edge1)
-	local v = f * ray.direction:Dot(q)
-
-	if v < 0.0 then return false end
-
-	if u + v > 1.0 then return false end
-
-	local t = f * edge2:Dot(q)
-
-	if t > epsilon and t <= ray.max_distance then return true, t, u, v end
-
-	return false
-end
+local ray_triangle_intersection = triangle_geometry.RayIntersection
 
 local function get_index_buffer(poly3d, vertices, indices)
 	if indices then return indices, math.floor(#indices / 3) end

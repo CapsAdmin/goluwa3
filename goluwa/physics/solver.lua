@@ -174,7 +174,7 @@ function Solver.New(config)
 	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or self.MAX_TANGENT_WARM_SPEED or 0.25
 	self.STATIC_FRICTION_SPEED = config.STATIC_FRICTION_SPEED or self.STATIC_FRICTION_SPEED or 0.08
 	self.STATIC_FRICTION_EXIT_SPEED = config.STATIC_FRICTION_EXIT_SPEED or self.STATIC_FRICTION_EXIT_SPEED or 0.12
-	self.PersistentManifolds = setmetatable({}, {__mode = "k"})
+	self.PersistentManifolds = table.weak("k")
 	self.PairHandlers = {}
 	self.MissingPairWarnings = {}
 	self.StepStamp = config.StepStamp or 0

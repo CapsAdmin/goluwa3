@@ -170,6 +170,29 @@ function META:GetMax()
 	return Vec3(self.max_x, self.max_y, self.max_z)
 end
 
+function META.FromSegment(start_pos, end_pos, radius)
+	radius = math.max(radius or 0, 0)
+	return CTOR(
+			math.min(start_pos.x, end_pos.x) - radius,
+			math.min(start_pos.y, end_pos.y) - radius,
+			math.min(start_pos.z, end_pos.z) - radius,
+			math.max(start_pos.x, end_pos.x) + radius,
+			math.max(start_pos.y, end_pos.y) + radius,
+			math.max(start_pos.z, end_pos.z) + radius
+	)
+end
+
+-- Sets out to the union of a and b (overwrites out, unlike Expand)
+function META.Union(out, a, b)
+	out.min_x = math.min(a.min_x, b.min_x)
+	out.min_y = math.min(a.min_y, b.min_y)
+	out.min_z = math.min(a.min_z, b.min_z)
+	out.max_x = math.max(a.max_x, b.max_x)
+	out.max_y = math.max(a.max_y, b.max_y)
+	out.max_z = math.max(a.max_z, b.max_z)
+	return out
+end
+
 function META.Expand(a, b)
 	if b.min_x < a.min_x then a.min_x = b.min_x end
 

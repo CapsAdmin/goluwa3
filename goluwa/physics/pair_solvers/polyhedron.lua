@@ -15,7 +15,7 @@ local POLYHEDRON_SUPPORT_CONTACT_SCRATCH = {}
 local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
 	face_contacts = {},
 }
-local POLYHEDRON_PAIR_AXIS_CACHE = setmetatable({}, {__mode = "k"})
+local POLYHEDRON_PAIR_AXIS_CACHE = table.weak("k")
 local find_distance_swept_polyhedron_pair_hit
 local solve_distance_swept_polyhedron_pair_collision
 polyhedron.GetPolyhedronWorldVertices = polyhedron_cache.GetPolyhedronWorldVertices
@@ -26,7 +26,7 @@ local function get_pair_axis_cache_row(body)
 
 	if row then return row end
 
-	row = setmetatable({}, {__mode = "k"})
+	row = table.weak("k")
 	POLYHEDRON_PAIR_AXIS_CACHE[body] = row
 	return row
 end
@@ -392,10 +392,10 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	}
 	local hit = pair_solver_helpers.FindSampledTemporalHit(
 		function(t)
-			local position_a = pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, t)
-			local rotation_a = pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, t)
-			local position_b = pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, t)
-			local rotation_b = pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, t)
+			local position_a = previous_position_a:GetLerped(t, current_position_a)
+			local rotation_a = previous_rotation_a:Interpolate(current_rotation_a, t)
+			local position_b = previous_position_b:GetLerped(t, current_position_b)
+			local rotation_b = previous_rotation_b:Interpolate(current_rotation_b, t)
 
 			if
 				intersects_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
@@ -413,11 +413,11 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	local hit_t = hit.t or 1
 	local result = evaluate_polyhedron_pair_at_transforms(
 		poly_a,
-		pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, hit_t),
-		pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, hit_t),
+		previous_position_a:GetLerped(hit_t, current_position_a),
+		previous_rotation_a:Interpolate(current_rotation_a, hit_t),
 		poly_b,
-		pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, hit_t),
-		pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, hit_t),
+		previous_position_b:GetLerped(hit_t, current_position_b),
+		previous_rotation_b:Interpolate(current_rotation_b, hit_t),
 		scratch
 	)
 

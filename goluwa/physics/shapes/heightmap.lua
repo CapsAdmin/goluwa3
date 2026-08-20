@@ -4,6 +4,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local META = objects.CreateTemplate("physics_shape_heightmap")
 META.Base = BaseShape
 local HEIGHTMAP_BOUNDS_CORNERS = {
@@ -47,32 +48,7 @@ local function get_raw_height(tex, x, y, pow)
 	return (((r + g + b + a) / 4) / 255) ^ pow
 end
 
-local function ray_triangle_intersection(ray, v0, v1, v2)
-	local epsilon = 0.0000001
-	local edge1 = v1 - v0
-	local edge2 = v2 - v0
-	local h = ray.direction:GetCross(edge2)
-	local a = edge1:Dot(h)
-
-	if a > -epsilon and a < epsilon then return false end
-
-	local f = 1.0 / a
-	local s = ray.origin - v0
-	local u = f * s:Dot(h)
-
-	if u < 0.0 or u > 1.0 then return false end
-
-	local q = s:GetCross(edge1)
-	local v = f * ray.direction:Dot(q)
-
-	if v < 0.0 or u + v > 1.0 then return false end
-
-	local t = f * edge2:Dot(q)
-
-	if t > epsilon and t <= ray.max_distance then return true, t end
-
-	return false
-end
+local ray_triangle_intersection = triangle_geometry.RayIntersection
 
 local function build_ray(origin, direction, max_distance)
 	local ray = {

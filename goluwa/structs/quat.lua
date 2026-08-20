@@ -121,6 +121,24 @@ end
 
 structs.AddGetFunc(META, "Lerp", "Lerped")
 
+-- Shortest-arc interpolation between two quats (double-cover aware),
+-- returns a new normalized quat
+function META:Interpolate(other, t)
+	local target = other
+
+	if self:Dot(target) < 0 then
+		target = CTOR(-other.x, -other.y, -other.z, -other.w)
+	end
+
+	return CTOR(
+			self.x + (target.x - self.x) * t,
+			self.y + (target.y - self.y) * t,
+			self.z + (target.z - self.z) * t,
+			self.w + (target.w - self.w) * t
+		):
+		GetNormalized()
+end
+
 function META:Dot(vec)
 	return self.w * vec.w + self.x * vec.x + self.y * vec.y + self.z * vec.z
 end

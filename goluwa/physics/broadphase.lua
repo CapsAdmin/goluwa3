@@ -6,10 +6,6 @@ local DEFAULT_CELL_SIZE = 2
 local MIN_CELL_SIZE = 0.5
 local DEFAULT_MAX_CELLS_PER_ENTRY = 64
 
-local function new_weak_key_table()
-	return setmetatable({}, {__mode = "k"})
-end
-
 local function is_candidate_body(physics, body)
 	return body and body.CollisionEnabled
 end
@@ -29,12 +25,7 @@ local function build_entry_bounds(body, out)
 
 	if not out then out = AABB(0, 0, 0, 0, 0, 0) end
 
-	out.min_x = math.min(bounds.min_x, previous_bounds.min_x)
-	out.min_y = math.min(bounds.min_y, previous_bounds.min_y)
-	out.min_z = math.min(bounds.min_z, previous_bounds.min_z)
-	out.max_x = math.max(bounds.max_x, previous_bounds.max_x)
-	out.max_y = math.max(bounds.max_y, previous_bounds.max_y)
-	out.max_z = math.max(bounds.max_z, previous_bounds.max_z)
+	AABB.Union(out, previous_bounds, bounds)
 	return out
 end
 
@@ -100,42 +91,10 @@ local function get_cell_span_count(min_x, min_y, min_z, max_x, max_y, max_z)
 	return (max_x - min_x + 1) * (max_y - min_y + 1) * (max_z - min_z + 1)
 end
 
-local function get_entry_extent(bounds)
-	return math.max(
-		bounds.max_x - bounds.min_x,
-		bounds.max_y - bounds.min_y,
-		bounds.max_z - bounds.min_z
-	)
-end
-
-local function estimate_cell_size(entries)
-	local extent_sum = 0
-	local counted = 0
-
-	for i = 1, #entries do
-		local extent = get_entry_extent(entries[i].bounds)
-
-		if extent > 0 then
-			extent_sum = extent_sum + extent
-			counted = counted + 1
-		end
-	end
-
-	if counted == 0 then return DEFAULT_CELL_SIZE end
-
-	return math.max(MIN_CELL_SIZE, extent_sum / counted)
-end
-
 local function get_pair_key(entry_a, entry_b)
 	if entry_a.id < entry_b.id then return entry_a.id .. ":" .. entry_b.id end
 
 	return entry_b.id .. ":" .. entry_a.id
-end
-
-local function clear_array(list)
-	for i = #list, 1, -1 do
-		list[i] = nil
-	end
 end
 
 local function remove_entry_from_overflow(self, entry)
@@ -242,7 +201,7 @@ local function remove_entry_from_cells(self, entry)
 		remove_entry_from_cell(self, entry, entry.cell_keys[i])
 	end
 
-	clear_array(entry.cell_keys)
+	list.clear(entry.cell_keys)
 end
 
 local function remove_entry_from_spatial_index(self, entry)
@@ -343,7 +302,7 @@ function broadphase.New(config)
 			MaxCellsPerEntry = math.max(config.max_cells_per_entry or DEFAULT_MAX_CELLS_PER_ENTRY, 1),
 			Entries = {},
 			OverflowEntries = {},
-			BodyEntries = new_weak_key_table(),
+			BodyEntries = table.weak("k"),
 			Cells = {},
 			Pairs = {},
 			StepStamp = 0,
@@ -357,7 +316,7 @@ end
 function Broadphase:ResetState()
 	self.Entries = {}
 	self.OverflowEntries = {}
-	self.BodyEntries = new_weak_key_table()
+	self.BodyEntries = table.weak("k")
 	self.Cells = {}
 	self.Pairs = {}
 	self.StepStamp = 0
@@ -569,97 +528,6 @@ end
 function Broadphase:BuildCandidatePairs(bodies, out, physics_override)
 	self:TrackBodies(bodies, physics_override)
 	return self:GetCandidatePairs(out)
-end
-
-local function append_pair(pairs, pair_lookup, entry_a, entry_b)
-	if entry_a == entry_b then return end
-
-	if not entry_a.bounds:IsBoxIntersecting(entry_b.bounds) then return end
-
-	local key = get_pair_key(entry_a, entry_b)
-
-	if pair_lookup[key] then return end
-
-	pair_lookup[key] = true
-
-	if entry_b.id < entry_a.id then entry_a, entry_b = entry_b, entry_a end
-
-	pairs[#pairs + 1] = {
-		entry_a = entry_a,
-		entry_b = entry_b,
-	}
-end
-
-function broadphase.BuildEntries(physics, bodies)
-	local entries = {}
-
-	for _, body in ipairs(bodies or {}) do
-		if is_candidate_body(physics, body) then
-			entries[#entries + 1] = {
-				id = #entries + 1,
-				body = body,
-				bounds = build_entry_bounds(body),
-				center = body:GetPosition(),
-			}
-		end
-	end
-
-	return entries
-end
-
-function broadphase.BuildCandidatePairsFromEntries(entries, options)
-	local pairs = {}
-	local pair_lookup = {}
-	local cells = {}
-	local overflow_entries = {}
-	options = options or {}
-	local cell_size = math.max(options.cell_size or estimate_cell_size(entries), MIN_CELL_SIZE)
-	local max_cells_per_entry = math.max(options.max_cells_per_entry or DEFAULT_MAX_CELLS_PER_ENTRY, 1)
-
-	for i = 1, #entries do
-		local entry = entries[i]
-		local min_x, min_y, min_z, max_x, max_y, max_z = get_cell_range(entry.bounds, cell_size)
-		local cell_count = get_cell_span_count(min_x, min_y, min_z, max_x, max_y, max_z)
-
-		if cell_count > max_cells_per_entry then
-			overflow_entries[#overflow_entries + 1] = entry
-		else
-			for cell_x = min_x, max_x do
-				for cell_y = min_y, max_y do
-					for cell_z = min_z, max_z do
-						local key = get_cell_key(cell_x, cell_y, cell_z)
-						local occupants = cells[key]
-
-						if not occupants then
-							occupants = {}
-							cells[key] = occupants
-						end
-
-						for occupant_index = 1, #occupants do
-							append_pair(pairs, pair_lookup, entry, occupants[occupant_index])
-						end
-
-						occupants[#occupants + 1] = entry
-					end
-				end
-			end
-		end
-	end
-
-	for i = 1, #overflow_entries do
-		local entry = overflow_entries[i]
-
-		for j = 1, #entries do
-			append_pair(pairs, pair_lookup, entry, entries[j])
-		end
-	end
-
-	return pairs
-end
-
-function broadphase.BuildCandidatePairs(physics, bodies, options)
-	local entries = broadphase.BuildEntries(physics, bodies)
-	return broadphase.BuildCandidatePairsFromEntries(entries, options)
 end
 
 return broadphase

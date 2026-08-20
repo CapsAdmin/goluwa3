@@ -813,20 +813,13 @@ do
 	function RigidBody:GetInterpolatedPosition(alpha)
 		if not self:ShouldInterpolateTransform() then return self.Position end
 
-		alpha = math.min(math.max(alpha or 0, 0), 1)
-		return self.PreviousPosition + (self.Position - self.PreviousPosition) * alpha
+		return self.PreviousPosition:GetLerped(math.clamp(alpha or 0, 0, 1), self.Position)
 	end
 
 	function RigidBody:GetInterpolatedRotation(alpha)
 		if not self:ShouldInterpolateTransform() then return self.Rotation end
 
-		alpha = math.min(math.max(alpha or 0, 0), 1)
-		local previous = self.PreviousRotation
-		local current = self.Rotation
-
-		if previous:Dot(current) < 0 then current = current * -1 end
-
-		return previous:GetLerped(alpha, current):GetNormalized()
+		return self.PreviousRotation:Interpolate(self.Rotation, math.clamp(alpha or 0, 0, 1))
 	end
 
 	function RigidBody:LocalToWorld(local_pos, position, rotation, out)

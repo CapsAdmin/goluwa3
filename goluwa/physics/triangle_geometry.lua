@@ -1,6 +1,37 @@
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local triangle_geometry = {}
 
+-- Moeller-Trumbore ray/triangle intersection; the ray needs origin,
+-- direction and max_distance fields. Returns hit, t, u, v (barycentrics).
+function triangle_geometry.RayIntersection(ray, v0, v1, v2)
+	local epsilon = 0.0000001
+	local edge1 = v1 - v0
+	local edge2 = v2 - v0
+	local h = ray.direction:GetCross(edge2)
+	local a = edge1:Dot(h)
+
+	if a > -epsilon and a < epsilon then return false end
+
+	local f = 1.0 / a
+	local s = ray.origin - v0
+	local u = f * s:Dot(h)
+
+	if u < 0.0 or u > 1.0 then return false end
+
+	local q = s:GetCross(edge1)
+	local v = f * ray.direction:Dot(q)
+
+	if v < 0.0 or u + v > 1.0 then return false end
+
+	local t = f * edge2:Dot(q)
+
+	if t > epsilon and t <= ray.max_distance then
+		return true, t, u, v
+	end
+
+	return false
+end
+
 function triangle_geometry.GetTriangleNormal(a, b, c)
 	return (b - a):GetCross(c - a):GetNormalized()
 end

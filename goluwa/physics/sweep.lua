@@ -4,6 +4,7 @@ local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
+local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local polyhedron_geometry = import("goluwa/physics/polyhedron/geometry.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron/triangle_contacts.lua")
@@ -27,9 +28,7 @@ local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 64
 local POLYHEDRON_SWEEP_REFINE_STEPS = 10
 local get_polyhedron_sweep_proxy
 local get_epsilon
-local get_sweep_alpha
-local get_target_pose
-local ensure_normal_faces_motion
+local ensure_normal_faces_motion = sweep_helpers.EnsureNormalFacesMotion
 local sweep_polyhedron_against_triangle
 local get_capsule_segment_world
 local sweep_capsule_against_triangle
@@ -37,13 +36,7 @@ local sweep_sphere_against_triangle
 local get_polyhedron_contact_for_point_at_pose
 local evaluate_polyhedron_pair_contact
 
-local function get_model_primitives(model)
-	if not model then return nil end
-
-	if model.GetPhysicsPrimitives then return model:GetPhysicsPrimitives() end
-
-	return model.Primitives
-end
+local get_model_primitives = model_transform_utils.GetModelPrimitives
 
 local function build_triangle_hit(model, entity, primitive, primitive_index, triangle_index)
 	return {
@@ -354,66 +347,6 @@ local function normalize_query_options(options)
 	return options
 end
 
-local function clamp01(value)
-	return math.max(0, math.min(1, value or 0))
-end
-
-function get_sweep_alpha(t, max_fraction)
-	if not max_fraction or math.abs(max_fraction) <= EPSILON then return 0 end
-
-	return clamp01(t / max_fraction)
-end
-
-local function interpolate_rotation(previous_rotation, current_rotation, t, max_fraction)
-	previous_rotation = previous_rotation or current_rotation
-	current_rotation = current_rotation or previous_rotation
-
-	if not previous_rotation then return current_rotation end
-
-	local alpha = get_sweep_alpha(t, max_fraction)
-	local target_rotation = current_rotation
-
-	if previous_rotation:Dot(target_rotation) < 0 then
-		target_rotation = target_rotation * -1
-	end
-
-	return previous_rotation:GetLerped(alpha, target_rotation):GetNormalized()
-end
-
-local function interpolate_position(previous_position, movement, t)
-	return previous_position + movement * t
-end
-
-local function build_target_motion_state(target)
-	local previous_position = target.GetPreviousPosition and
-		target:GetPreviousPosition() or
-		target:GetPosition()
-	local previous_rotation = target.GetPreviousRotation and
-		target:GetPreviousRotation() or
-		target:GetRotation()
-	local current_position = target.GetPosition and target:GetPosition() or previous_position
-	local current_rotation = target.GetRotation and target:GetRotation() or previous_rotation
-	local movement = current_position and
-		previous_position and
-		(
-			current_position - previous_position
-		)
-		or
-		Vec3()
-	return {
-		previous_position = previous_position,
-		previous_rotation = previous_rotation,
-		current_position = current_position,
-		current_rotation = current_rotation,
-		movement = movement,
-	}
-end
-
-function get_target_pose(state, t, max_fraction)
-	return interpolate_position(state.previous_position, state.movement, t),
-	interpolate_rotation(state.previous_rotation, state.current_rotation, t, max_fraction)
-end
-
 local function passes_entity_filter(entity, ignore_entity, filter_fn, options)
 	if not entity or entity == ignore_entity then return false end
 
@@ -441,17 +374,7 @@ local function passes_entity_filter(entity, ignore_entity, filter_fn, options)
 	return true
 end
 
-local function build_swept_aabb(start_position, end_position, radius)
-	radius = math.max(radius or 0, 0)
-	return AABB(
-		math.min(start_position.x, end_position.x) - radius,
-		math.min(start_position.y, end_position.y) - radius,
-		math.min(start_position.z, end_position.z) - radius,
-		math.max(start_position.x, end_position.x) + radius,
-		math.max(start_position.y, end_position.y) + radius,
-		math.max(start_position.z, end_position.z) + radius
-	)
-end
+local build_swept_aabb = AABB.FromSegment
 
 local ZERO_MOVEMENT = Vec3(0, 0, 0)
 local swept_aabb_scratch = AABB(0, 0, 0, 0, 0, 0)
@@ -479,7 +402,7 @@ local function get_segment_fraction(start_position, movement, point)
 
 	if movement_length_sq <= EPSILON * EPSILON then return 0 end
 
-	return clamp01((point - start_position):Dot(movement) / movement_length_sq)
+	return math.clamp((point - start_position):Dot(movement) / movement_length_sq, 0, 1)
 end
 
 local function transform_direction(matrix, direction)
@@ -493,96 +416,17 @@ local function transform_direction(matrix, direction)
 	):GetNormalized()
 end
 
-function ensure_normal_faces_motion(normal, movement)
-	if not normal then return nil end
-
-	if movement and normal:Dot(movement) > 0 then return normal * -1 end
-
-	return normal
-end
-
 local function merge_aabb(a, b)
 	if not a then return b end
 
 	if not b then return a end
 
-	return AABB(
-		math.min(a.min_x, b.min_x),
-		math.min(a.min_y, b.min_y),
-		math.min(a.min_z, b.min_z),
-		math.max(a.max_x, b.max_x),
-		math.max(a.max_y, b.max_y),
-		math.max(a.max_z, b.max_z)
-	)
+	return AABB.Union(AABB(0, 0, 0, 0, 0, 0), a, b)
 end
 
-local function get_average_contact_positions(contacts)
-	if not (contacts and contacts[1]) then return nil, nil end
+local get_average_contact_positions = sweep_helpers.GetAverageContactPositions
 
-	local point = Vec3(0, 0, 0)
-	local position = Vec3(0, 0, 0)
-	local count = 0
-
-	for _, pair in ipairs(contacts) do
-		if pair.point_a and pair.point_b then
-			point = point + pair.point_a
-			position = position + pair.point_b
-			count = count + 1
-		end
-	end
-
-	if count == 0 then return nil, nil end
-
-	return point / count, position / count
-end
-
-local function get_support_point(vertices, direction)
-	if not (vertices and vertices[1] and direction) then return nil end
-
-	local best_point = vertices[1]
-	local best_dot = best_point:Dot(direction)
-
-	for i = 2, #vertices do
-		local point = vertices[i]
-		local dot = point:Dot(direction)
-
-		if dot > best_dot then
-			best_dot = dot
-			best_point = point
-		end
-	end
-
-	return best_point
-end
-
-local function get_polyhedron_extent(polyhedron)
-	if not (polyhedron and polyhedron.vertices and polyhedron.vertices[1]) then
-		return 1
-	end
-
-	local min_x, min_y, min_z = math.huge, math.huge, math.huge
-	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
-
-	for _, point in ipairs(polyhedron.vertices) do
-		min_x = math.min(min_x, point.x)
-		min_y = math.min(min_y, point.y)
-		min_z = math.min(min_z, point.z)
-		max_x = math.max(max_x, point.x)
-		max_y = math.max(max_y, point.y)
-		max_z = math.max(max_z, point.z)
-	end
-
-	return Vec3(max_x - min_x, max_y - min_y, max_z - min_z):GetLength()
-end
-
-local function get_polyhedron_sweep_sample_steps(polyhedron, movement_length, max_fraction)
-	local extent = math.max(get_polyhedron_extent(polyhedron), 0.25)
-	local scaled_length = math.max(0, movement_length * math.max(0, max_fraction or 1))
-	return math.max(
-		POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS,
-		math.min(POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS, math.ceil(scaled_length / (extent * 0.35)))
-	)
-end
+local get_support_point = sweep_helpers.GetSupportPoint
 
 local function evaluate_polyhedron_triangle_contact(collider, polyhedron, position, rotation, v0, v1, v2)
 	return polyhedron_triangle_contacts.FindContact(
@@ -713,7 +557,13 @@ function sweep_polyhedron_against_triangle(
 		return build_polyhedron_triangle_sweep_hit(collider, polyhedron, start_position, rotation, v0, v1, v2, start_result, 0)
 	end
 
-	local steps = get_polyhedron_sweep_sample_steps(polyhedron, movement:GetLength(), max_fraction)
+	local steps = sweep_helpers.GetPolyhedronSweepSampleSteps(
+		polyhedron,
+		movement:GetLength(),
+		max_fraction,
+		POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS,
+		POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS
+	)
 	local previous_t = 0
 	local previous_position = start_position
 
@@ -2263,7 +2113,7 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 	if not (body.GetColliders and body:GetColliders()) then return nil end
 
 	local movement_length = movement:GetLength()
-	local target_state = build_target_motion_state(body)
+	local target_state = sweep_helpers.BuildTargetMotionState(body)
 	local relative_movement = movement - target_state.movement
 	local end_position = origin + relative_movement * best_fraction
 	local world_aabb = build_swept_aabb(origin, end_position, radius)
@@ -2365,7 +2215,7 @@ local function test_rigid_body_collider_sweep(
 	end
 
 	local movement_length = movement:GetLength()
-	local target_state = build_target_motion_state(body)
+	local target_state = sweep_helpers.BuildTargetMotionState(body)
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement * best_fraction)
 	local body_bounds = get_rigid_body_candidate_aabb(body)
 

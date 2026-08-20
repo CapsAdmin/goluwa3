@@ -45,48 +45,6 @@ local mock_physics = {
 	end,
 }
 
-T.Test("Broadphase pair building from entries matches direct pair building", function()
-	local body_a = create_mock_body(
-		"a",
-		{min_x = -0.5, min_y = -0.5, min_z = -0.5, max_x = 0.5, max_y = 0.5, max_z = 0.5},
-		{min_x = -0.5, min_y = -0.5, min_z = -0.5, max_x = 0.5, max_y = 0.5, max_z = 0.5}
-	)
-	local body_b = create_mock_body(
-		"b",
-		{
-			min_x = 0.25,
-			min_y = -0.5,
-			min_z = -0.5,
-			max_x = 1.25,
-			max_y = 0.5,
-			max_z = 0.5,
-		},
-		{
-			min_x = 0.25,
-			min_y = -0.5,
-			min_z = -0.5,
-			max_x = 1.25,
-			max_y = 0.5,
-			max_z = 0.5,
-		}
-	)
-	local bodies = {body_a, body_b}
-	local entries = broadphase.BuildEntries(mock_physics, bodies)
-	local pairs_from_entries = broadphase.BuildCandidatePairsFromEntries(entries)
-	local pairs_direct = broadphase.BuildCandidatePairs(mock_physics, bodies)
-	T(#entries)["=="](2)
-	T(#pairs_from_entries)["=="](1)
-	T(#pairs_direct)["=="](1)
-	T(
-		pairs_from_entries[1].entry_a.body == pairs_direct[1].entry_a.body or
-			pairs_from_entries[1].entry_a.body == pairs_direct[1].entry_b.body
-	)["=="](true)
-	T(
-		pairs_from_entries[1].entry_b.body == pairs_direct[1].entry_a.body or
-			pairs_from_entries[1].entry_b.body == pairs_direct[1].entry_b.body
-	)["=="](true)
-end)
-
 T.Test("Broadphase keeps swept pairs when bodies overlap only through previous bounds", function()
 	local body_a = create_mock_body(
 		"swept_a",
@@ -98,7 +56,7 @@ T.Test("Broadphase keeps swept pairs when bodies overlap only through previous b
 		{min_x = -0.4, min_y = -0.5, min_z = -0.5, max_x = 0.4, max_y = 0.5, max_z = 0.5},
 		{min_x = -0.4, min_y = -0.5, min_z = -0.5, max_x = 0.4, max_y = 0.5, max_z = 0.5}
 	)
-	local pairs = broadphase.BuildCandidatePairs(mock_physics, {body_a, body_b})
+	local pairs = broadphase.New{physics = mock_physics}:BuildCandidatePairs({body_a, body_b})
 	T(#pairs)["=="](1)
 	T(pairs[1].entry_a.body == body_a or pairs[1].entry_b.body == body_a)["=="](true)
 	T(pairs[1].entry_a.body == body_b or pairs[1].entry_b.body == body_b)["=="](true)
@@ -120,7 +78,7 @@ T.Test("Broadphase handles very large entries without dropping nearby pairs", fu
 		{min_x = 30, min_y = 30, min_z = 30, max_x = 31, max_y = 31, max_z = 31},
 		{min_x = 30, min_y = 30, min_z = 30, max_x = 31, max_y = 31, max_z = 31}
 	)
-	local pairs = broadphase.BuildCandidatePairs(mock_physics, {giant, nearby, far})
+	local pairs = broadphase.New{physics = mock_physics}:BuildCandidatePairs({giant, nearby, far})
 	T(#pairs)["=="](1)
 	T(pairs[1].entry_a.body == giant or pairs[1].entry_b.body == giant)["=="](true)
 	T(pairs[1].entry_a.body == nearby or pairs[1].entry_b.body == nearby)["=="](true)
@@ -137,7 +95,7 @@ T.Test("Broadphase overflow entries still report nearby overlaps", function()
 		{min_x = 9.5, min_y = -0.5, min_z = -0.5, max_x = 10.5, max_y = 0.5, max_z = 0.5},
 		{min_x = 9.5, min_y = -0.5, min_z = -0.5, max_x = 10.5, max_y = 0.5, max_z = 0.5}
 	)
-	local pairs = broadphase.BuildCandidatePairs(mock_physics, {giant, nearby}, {cell_size = 1, max_cells_per_entry = 8})
+	local pairs = broadphase.New{physics = mock_physics, cell_size = 1, max_cells_per_entry = 8}:BuildCandidatePairs({giant, nearby})
 	T(#pairs)["=="](1)
 	T(pairs[1].entry_a.body == giant or pairs[1].entry_b.body == giant)["=="](true)
 	T(pairs[1].entry_a.body == nearby or pairs[1].entry_b.body == nearby)["=="](true)

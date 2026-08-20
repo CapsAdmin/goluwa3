@@ -5,6 +5,7 @@ local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
+local toi = import("goluwa/physics/toi.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local helpers = {}
 local EPSILON = physics_constants.EPSILON
@@ -29,14 +30,10 @@ local MOVING_TARGET_POINT_SAMPLE_CONTEXT = {
 	relative_movement = nil,
 }
 
-local function clamp01(value)
-	return math.max(0, math.min(1, value or 0))
-end
-
 function helpers.GetSweepAlpha(t, max_fraction)
 	if not max_fraction or math.abs(max_fraction) <= EPSILON then return 0 end
 
-	return clamp01(t / max_fraction)
+	return math.clamp(t / max_fraction, 0, 1)
 end
 
 local function interpolate_rotation(previous_rotation, current_rotation, t, max_fraction)
@@ -45,14 +42,7 @@ local function interpolate_rotation(previous_rotation, current_rotation, t, max_
 
 	if not previous_rotation then return current_rotation end
 
-	local alpha = helpers.GetSweepAlpha(t, max_fraction)
-	local target_rotation = current_rotation
-
-	if previous_rotation:Dot(target_rotation) < 0 then
-		target_rotation = target_rotation * -1
-	end
-
-	return previous_rotation:GetLerped(alpha, target_rotation):GetNormalized()
+	return previous_rotation:Interpolate(current_rotation, helpers.GetSweepAlpha(t, max_fraction))
 end
 
 local function interpolate_position(previous_position, movement, t)
@@ -72,7 +62,32 @@ function helpers.EnsureNormalFacesMotion(normal, movement)
 	return normal
 end
 
-local function get_support_point(vertices, direction)
+function helpers.BuildTargetMotionState(target)
+	local previous_position = target.GetPreviousPosition and
+		target:GetPreviousPosition() or
+		target:GetPosition()
+	local previous_rotation = target.GetPreviousRotation and
+		target:GetPreviousRotation() or
+		target:GetRotation()
+	local current_position = target.GetPosition and target:GetPosition() or previous_position
+	local current_rotation = target.GetRotation and target:GetRotation() or previous_rotation
+	local movement = current_position and
+		previous_position and
+		(
+			current_position - previous_position
+		)
+		or
+		Vec3()
+	return {
+		previous_position = previous_position,
+		previous_rotation = previous_rotation,
+		current_position = current_position,
+		current_rotation = current_rotation,
+		movement = movement,
+	}
+end
+
+function helpers.GetSupportPoint(vertices, direction)
 	if not (vertices and vertices[1] and direction) then return nil end
 
 	local best_point = vertices[1]
@@ -91,7 +106,7 @@ local function get_support_point(vertices, direction)
 	return best_point
 end
 
-local function get_average_contact_positions(contacts)
+function helpers.GetAverageContactPositions(contacts)
 	if not (contacts and contacts[1]) then return nil, nil end
 
 	local point = Vec3(0, 0, 0)
@@ -114,15 +129,15 @@ end
 function helpers.GetPolyhedronPairContactPositions(result, scratch)
 	if not result then return nil, nil end
 
-	local point, position = get_average_contact_positions(result.contacts)
+	local point, position = helpers.GetAverageContactPositions(result.contacts)
 
 	if point and position then return point, position end
 
 	local normal = result.normal
 	local vertices_a = scratch and scratch.vertices_a or nil
 	local vertices_b = scratch and scratch.vertices_b or nil
-	point = point or get_support_point(vertices_a, normal * -1)
-	position = position or get_support_point(vertices_b, normal)
+	point = point or helpers.GetSupportPoint(vertices_a, normal * -1)
+	position = position or helpers.GetSupportPoint(vertices_b, normal)
 	return point, position
 end
 
@@ -146,13 +161,18 @@ local function get_polyhedron_extent(polyhedron)
 	return Vec3(max_x - min_x, max_y - min_y, max_z - min_z):GetLength()
 end
 
-local function get_polyhedron_sweep_sample_steps(polyhedron, movement_length, max_fraction)
+function helpers.GetPolyhedronSweepSampleSteps(
+	polyhedron,
+	movement_length,
+	max_fraction,
+	min_steps,
+	max_steps
+)
+	min_steps = min_steps or POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS
+	max_steps = max_steps or POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS
 	local extent = math.max(get_polyhedron_extent(polyhedron), 0.25)
 	local scaled_length = math.max(0, movement_length * math.max(0, max_fraction or 1))
-	return math.max(
-		POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS,
-		math.min(POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS, math.ceil(scaled_length / (extent * 0.35)))
-	)
+	return math.max(min_steps, math.min(max_steps, math.ceil(scaled_length / (extent * 0.35))))
 end
 
 local function body_state_has_significant_rotation(state)
@@ -238,51 +258,10 @@ function helpers.GetPointSweepSampleSteps(movement_length, radius, max_fraction)
 	return math.max(8, math.min(40, math.ceil(travel / math.max(radius, 0.125)) * 2))
 end
 
-local function find_first_sampled_hit(max_fraction, steps, evaluate_hit, context)
-	local start_hit = context ~= nil and evaluate_hit(context, 0) or evaluate_hit(0)
-
-	if start_hit then return 0, start_hit end
-
-	local low = 0
-	local high = nil
-	local best = nil
-	steps = math.max(1, steps or 1)
-
-	for i = 1, steps do
-		local t = max_fraction * (i / steps)
-		local hit = context ~= nil and evaluate_hit(context, t) or evaluate_hit(t)
-
-		if hit then
-			high = t
-			best = hit
-
-			break
-		end
-
-		low = t
-	end
-
-	if not best then return nil end
-
-	for _ = 1, 12 do
-		local mid = (low + high) * 0.5
-		local mid_hit = context ~= nil and evaluate_hit(context, mid) or evaluate_hit(mid)
-
-		if mid_hit then
-			best = mid_hit
-			high = mid
-		else
-			low = mid
-		end
-	end
-
-	return high, best
-end
-
-helpers.FindFirstSampledHit = find_first_sampled_hit
+helpers.FindFirstSampledHit = toi.FindSampledHit
 
 local function sweep_point_against_rotating_target(start_world, movement, max_fraction, steps, evaluate_contact, context)
-	local t, hit = find_first_sampled_hit(max_fraction, math.max(6, steps or 12), evaluate_contact, context)
+	local t, hit = toi.FindSampledHit(evaluate_contact, context, max_fraction, math.max(6, steps or 12))
 
 	if not hit then return nil end
 
@@ -384,18 +363,23 @@ function helpers.SweepPolyhedronAgainstTargetPolyhedron(
 	)
 
 	if body_state_has_significant_rotation(target_state) then
-		sampled_hit_t, sampled_hit_result = find_first_sampled_hit(max_fraction, get_polyhedron_sweep_sample_steps(query_polyhedron, movement:GetLength(), max_fraction), function(t)
-			local target_position_t, target_rotation_t = helpers.GetTargetPose(target_state, t, max_fraction)
-			return evaluate_polyhedron_pair_contact(
-				query_polyhedron,
-				start_position + movement * t,
-				rotation,
-				target_polyhedron,
-				target_position_t,
-				target_rotation_t,
-				scratch
+		sampled_hit_t, sampled_hit_result = toi.FindSampledHit(
+				function(t)
+					local target_position_t, target_rotation_t = helpers.GetTargetPose(target_state, t, max_fraction)
+					return evaluate_polyhedron_pair_contact(
+						query_polyhedron,
+						start_position + movement * t,
+						rotation,
+						target_polyhedron,
+						target_position_t,
+						target_rotation_t,
+						scratch
+					)
+				end,
+				nil,
+				max_fraction,
+				helpers.GetPolyhedronSweepSampleSteps(query_polyhedron, movement:GetLength(), max_fraction)
 			)
-		end)
 	end
 
 	local distance_hit_t = hit_result and ((hit_result.t or 0) * math.max(0, max_fraction or 1)) or nil
@@ -626,7 +610,7 @@ function helpers.GetPolyhedronContactForPointAtPose(collider, polyhedron, point,
 
 	return {
 		normal = best_normal,
-		position = get_support_point(vertices, best_normal),
+		position = helpers.GetSupportPoint(vertices, best_normal),
 		point = point - best_normal * radius,
 	}
 end

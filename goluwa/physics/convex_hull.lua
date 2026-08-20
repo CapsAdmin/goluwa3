@@ -1,13 +1,8 @@
+local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_hull = library()
 
-local function get_source_primitives(source)
-	if not source then return nil end
-
-	if source.GetPhysicsPrimitives then return source:GetPhysicsPrimitives() end
-
-	return source.Primitives
-end
+local get_source_primitives = model_transform_utils.GetModelPrimitives
 
 local function copy_vec3(vec)
 	return Vec3(vec.x, vec.y, vec.z)

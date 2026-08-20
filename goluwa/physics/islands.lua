@@ -1,16 +1,16 @@
 local islands = {}
 -- persistent per-body link lists, reused across builds (weak: bodies die)
-local pair_link_lists = setmetatable({}, {__mode = "k"})
-local constraint_link_lists = setmetatable({}, {__mode = "k"})
+local pair_link_lists = table.weak("k")
+local constraint_link_lists = table.weak("k")
 local EMPTY_LINKS = {}
 -- stamp based dedup: seen[x] == stamp means x was visited for this island/build
-local body_seen = setmetatable({}, {__mode = "k"})
-local pair_seen = setmetatable({}, {__mode = "k"})
-local constraint_seen = setmetatable({}, {__mode = "k"})
-local constraint_body_seen = setmetatable({}, {__mode = "k"})
-local awake_seen = setmetatable({}, {__mode = "k"})
-local moved_anchor_seen = setmetatable({}, {__mode = "k"})
-local visited_dynamic = setmetatable({}, {__mode = "k"})
+local body_seen = table.weak("k")
+local pair_seen = table.weak("k")
+local constraint_seen = table.weak("k")
+local constraint_body_seen = table.weak("k")
+local awake_seen = table.weak("k")
+local moved_anchor_seen = table.weak("k")
+local visited_dynamic = table.weak("k")
 local island_stamp = 0
 local build_stamp = 0
 local prepare_stamp = 0
