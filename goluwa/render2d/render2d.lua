@@ -12,7 +12,6 @@ local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Mesh = import("goluwa/render/mesh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local RectBatch = import("goluwa/render2d/rect_batch.lua")
 local Hash = import("goluwa/hash.lua")
 local render2d = library()
 
@@ -200,7 +199,11 @@ render2d.state = {
 	},
 	runtime = {
 		batch = {
-			state = RectBatch.New(),
+			state = {
+				pending_draws = 0,
+				is_flushing = false,
+				segments = {},
+			},
 			mode_ids = {
 				immediate = 1,
 				replay = 2,
@@ -486,16 +489,22 @@ function render2d.GetBatchState()
 end
 
 function render2d.HasPendingBatches()
-	return batch_runtime.state:HasPending()
+	return batch_runtime.state.pending_draws > 0
 end
 
 function render2d.MarkBatchesPending(count)
-	return batch_runtime.state:MarkPending(count)
+	batch_runtime.state.pending_draws = batch_runtime.state.pending_draws + (count or 1)
+	return batch_runtime.state.pending_draws
 end
 
 function render2d.ClearPendingBatches()
-	batch_runtime.state:ClearPending()
+	render2d.ClearPending()
 	reset_rect_batch_matrix_pool_state()
+end
+
+function render2d.ClearPending()
+	batch_runtime.state.pending_draws = 0
+	table.clear(batch_runtime.state.segments)
 end
 
 function render2d.SaveBatchState()
@@ -695,23 +704,24 @@ render2d.batch_counters = new_batch_counters()
 render2d.last_batch_counters = new_batch_counters()
 
 function render2d.FlushBatches(reason)
-	local batch_state = batch_runtime.state
+	do
+		if batch_runtime.state.is_flushing then return false end
 
-	if not batch_state:BeginFlush(reason) then return false end
+		if batch_runtime.state.pending_draws == 0 then return false end
+
+		batch_runtime.state.is_flushing = true
+	end
 
 	local saved_state = render2d.CaptureRectDrawState()
 	local saved_batched_rect_draws_enabled = options.batched_rect_draws_enabled
 	local saved_shader_override = render2d.shader_override
-	local flushed_draws = 0
-	local gpu_rect_draw_calls = 0
-	local instanced_draws = 0
-	local instanced_segments = 0
-	local replay_draws = 0
-	local max_segment_size = 0
+	local batch_counters = (render.stats or render2d.enable_batch_recording) and render2d.GetLiveBatchCounters()
 	options.batched_rect_draws_enabled = false
 
-	for _, segment in ipairs(batch_state.segments) do
-		max_segment_size = math.max(max_segment_size, #segment.entries)
+	for _, segment in ipairs(batch_runtime.state.segments) do
+		if batch_counters then
+			batch_counters.max_segment_size = math.max(batch_counters.max_segment_size, #segment.entries)
+		end
 
 		if
 			segment.kind == "rect" and
@@ -784,12 +794,15 @@ function render2d.FlushBatches(reason)
 			render2d.rect_mesh:BindInstanced(render.GetCommandBuffer(), {instance_buffer}, 0)
 			render2d.UploadConstants(first.qw, first.qh, first.w, first.h)
 			render2d.rect_mesh:DrawIndexed(render.GetCommandBuffer(), 6, #segment.entries, 0, 0, 0)
-			gpu_rect_draw_calls = gpu_rect_draw_calls + 1
-			instanced_draws = instanced_draws + #segment.entries
-			instanced_segments = instanced_segments + 1
 			render2d.shader_override = saved_shader_override
 			mesh_state.last_bound = nil
-			flushed_draws = flushed_draws + #segment.entries
+
+			if batch_counters then
+				batch_counters.gpu_draw_calls = batch_counters.gpu_draw_calls + 1
+				batch_counters.queued_draws = batch_counters.queued_draws + #segment.entries
+				batch_counters.instanced_segments = batch_counters.instanced_segments + 1
+				batch_counters.instanced_draws = batch_counters.instanced_draws + #segment.entries
+			end
 		else
 			for _, entry in ipairs(segment.entries) do
 				render2d.RestoreRectDrawState(entry.state)
@@ -804,9 +817,12 @@ function render2d.FlushBatches(reason)
 					entry.margin,
 					entry.use_float
 				)
-				gpu_rect_draw_calls = gpu_rect_draw_calls + 1
-				replay_draws = replay_draws + 1
-				flushed_draws = flushed_draws + 1
+
+				if batch_counters then
+					batch_counters.replay_draws = batch_counters.replay_draws + 1
+					batch_counters.gpu_draw_calls = batch_counters.gpu_draw_calls + 1
+					batch_counters.queued_draws = batch_counters.queued_draws + 1
+				end
 			end
 		end
 	end
@@ -814,33 +830,18 @@ function render2d.FlushBatches(reason)
 	render2d.RestoreRectDrawState(saved_state)
 	render2d.shader_override = saved_shader_override
 	options.batched_rect_draws_enabled = saved_batched_rect_draws_enabled
-	local flush_summary = render.stats and
-		{
-			queued_draws = flushed_draws,
-			queued_segments = #batch_state.segments,
-			gpu_rect_draw_calls = gpu_rect_draw_calls,
-			instanced_draws = instanced_draws,
-			instanced_segments = instanced_segments,
-			replay_draws = replay_draws,
-			max_segment_size = max_segment_size,
-		}
-	batch_state:FinishFlush(flushed_draws, flush_summary)
 
-	if render.stats then
-		local batch_counters = render2d.GetLiveBatchCounters()
+	if batch_counters then
 		batch_counters.flushes = batch_counters.flushes + 1
-		batch_counters.queued_draws = batch_counters.queued_draws + flush_summary.queued_draws
-		batch_counters.queued_segments = batch_counters.queued_segments + flush_summary.queued_segments
-		batch_counters.gpu_draw_calls = batch_counters.gpu_draw_calls + flush_summary.gpu_rect_draw_calls
-		batch_counters.instanced_draws = batch_counters.instanced_draws + flush_summary.instanced_draws
-		batch_counters.instanced_segments = batch_counters.instanced_segments + flush_summary.instanced_segments
-		batch_counters.replay_draws = batch_counters.replay_draws + flush_summary.replay_draws
-		batch_counters.max_segment_size = math.max(batch_counters.max_segment_size, flush_summary.max_segment_size)
+		batch_counters.queued_segments = batch_counters.queued_segments + #batch_runtime.state.segments
 		render2d.last_batch_counters = copy_batch_counters(render2d.last_batch_counters, batch_counters)
 	end
 
+	batch_runtime.state.is_flushing = false
+	batch_runtime.state.pending_draws = 0
+	table.clear(batch_runtime.state.segments)
 	reset_rect_batch_matrix_pool_state()
-	return flushed_draws > 0
+	return true
 end
 
 function render2d.Initialize()
@@ -2682,7 +2683,22 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		}
 	end
 
-	batch_runtime.state:Append("rect", batch_runtime.rect_key, entry)
+	local kind, key_hash, payload = "rect", batch_runtime.rect_key, entry
+	local segment = batch_runtime.state.segments[#batch_runtime.state.segments]
+	assert(key_hash ~= nil, "rect batch key hash is required")
+	local is_new_segment = not segment or segment.kind ~= kind or segment.key_hash ~= key_hash
+
+	if is_new_segment then
+		segment = {
+			kind = kind,
+			key_hash = key_hash,
+			entries = {},
+		}
+		batch_runtime.state.segments[#batch_runtime.state.segments + 1] = segment
+	end
+
+	segment.entries[#segment.entries + 1] = payload
+	batch_runtime.state.pending_draws = batch_runtime.state.pending_draws + 1
 	return true
 end
 

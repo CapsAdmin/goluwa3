@@ -3,6 +3,7 @@ local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local Texture = import("goluwa/render/texture.lua")
+render2d.enable_batch_recording = true
 
 T.Test2D("sdf font", function()
 	local font = fonts.New{
@@ -187,12 +188,12 @@ do
 			end
 		end,
 		function(width, height, frame)
-			if frame ~= 3 then return end
+			if frame ~= 2 then return end
 
-			local last_flush = render2d.GetBatchState().last_flush
-			T((last_flush.instanced_draws or 0))[">"](0)
-			T((last_flush.gpu_rect_draw_calls or 0))[">"](0)
-			T((last_flush.queued_draws or 0))[">"](0)
+			local counters = render2d.GetBatchCounters()
+			T(counters.instanced_draws)[">"](0)
+			T(counters.gpu_draw_calls)[">"](0)
+			T(counters.queued_draws)[">"](0)
 		end
 	)
 end

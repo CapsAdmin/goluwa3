@@ -34,7 +34,7 @@ function META:RenderGlyph(glyph, temp_fbs)
 	do
 		local old_w, old_h = render2d.GetSize()
 		local saved_batch = render2d.SaveBatchState()
-		render2d.state.runtime.batch.state:ClearPending()
+		render2d.ClearPending()
 		render.PushCommandBuffer(cmd)
 		fb:Begin(cmd)
 		render2d.ResetState()

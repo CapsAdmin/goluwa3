@@ -84,7 +84,7 @@ local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, super
 	local mask_texture = render.ExecuteCommand(function(cmd)
 		mask_fb:Begin(cmd)
 		local saved_batch = render2d.SaveBatchState()
-		render2d.state.runtime.batch.state:ClearPending()
+		render2d.ClearPending()
 		render2d.PushBlendPreset("alpha")
 		render2d.PushScreenSize(super_w, super_h)
 		render2d.PushMatrix()

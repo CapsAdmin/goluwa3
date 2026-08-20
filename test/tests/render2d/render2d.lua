@@ -6,6 +6,7 @@ local fs = import("goluwa/filesystem/fs.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
+render2d.enable_batch_recording = true
 
 T.Test2D("Graphics render2d SetColor and GetColor", function()
 	-- Test RGB
@@ -85,15 +86,14 @@ T.Test2D("Graphics render2d instanced varying rect state batches together", func
 	T(#state.segments[1].entries)["=="](2)
 	render2d.FlushBatches("manual")
 	render2d.SetRectBatchMode("replay")
-	local last_flush = state.last_flush
-	T(last_flush.reason)["=="]("manual")
-	T(last_flush.queued_draws)["=="](2)
-	T(last_flush.queued_segments)["=="](1)
-	T(last_flush.flushed_draws)["=="](2)
-	T(last_flush.gpu_rect_draw_calls)["=="](1)
-	T(last_flush.instanced_draws)["=="](2)
-	T(last_flush.instanced_segments)["=="](1)
-	T(last_flush.replay_draws)["=="](0)
+	local counters = render2d.GetBatchCounters()
+	T(counters.flushes)["=="](1)
+	T(counters.queued_draws)["=="](2)
+	T(counters.queued_segments)["=="](1)
+	T(counters.gpu_draw_calls)["=="](1)
+	T(counters.instanced_draws)["=="](2)
+	T(counters.instanced_segments)["=="](1)
+	T(counters.replay_draws)["=="](0)
 	return function()
 		T.AssertScreenPixel{
 			pos = {40, 40},
@@ -108,73 +108,79 @@ T.Test2D("Graphics render2d instanced varying rect state batches together", func
 	end
 end)
 
-local flush_count_before_last_frame_batch
+T.Test2DFrames(
+	"Graphics render2d batch state tracks last flush batching",
+	2,
+	function(width, height, frame)
+		if frame == 1 then
+			local state = render2d.GetBatchState()
+			render2d.SetRectBatchMode("instanced")
+			render2d.SetColor(0.2, 0.4, 0.8, 1)
+			render2d.DrawRect(32, 32, 96, 64)
+			render2d.DrawRect(160, 32, 96, 64)
+			T(state.pending_draws)["=="](2)
+			T(#state.segments)["=="](1)
+			render2d.SetRectBatchMode("replay")
+			return
+		end
 
-T.Test2DFrames("Graphics render2d batch state tracks last flush batching", 2, function(width, height, frame)
-	if frame == 1 then
 		local state = render2d.GetBatchState()
-		flush_count_before_last_frame_batch = state.flush_count
-		render2d.SetRectBatchMode("instanced")
-		render2d.SetColor(0.2, 0.4, 0.8, 1)
-		render2d.DrawRect(32, 32, 96, 64)
-		render2d.DrawRect(160, 32, 96, 64)
-		T(state.pending_draws)["=="](2)
-		T(#state.segments)["=="](1)
-		render2d.SetRectBatchMode("replay")
-		return
+		T(state.pending_draws)["=="](0)
+		T(#state.segments)["=="](0)
+	end,
+	function(width, height, frame)
+		if frame ~= 1 then return end
+
+		local counters = render2d.GetBatchCounters()
+		T(counters.flushes)["=="](1)
+		T(counters.queued_draws)["=="](2)
+		T(counters.queued_segments)["=="](1)
+		T(counters.gpu_draw_calls)["=="](1)
+		T(counters.instanced_draws)["=="](2)
+		T(counters.instanced_segments)["=="](1)
+		T(counters.replay_draws)["=="](0)
+		T(counters.max_segment_size)["=="](2)
 	end
+)
 
-	local state = render2d.GetBatchState()
-	local last_flush = state.last_flush
-	T(last_flush.reason)["=="]("end_frame")
-	T(last_flush.queued_draws)["=="](2)
-	T(last_flush.queued_segments)["=="](1)
-	T(last_flush.flushed_draws)["=="](2)
-	T(last_flush.gpu_rect_draw_calls)["=="](1)
-	T(last_flush.instanced_draws)["=="](2)
-	T(last_flush.instanced_segments)["=="](1)
-	T(last_flush.replay_draws)["=="](0)
-	T(last_flush.max_segment_size)["=="](2)
-	T(state.pending_draws)["=="](0)
-	T(#state.segments)["=="](0)
-	T(state.flush_count)["=="](flush_count_before_last_frame_batch + 1)
-end)
+T.Test2DFrames(
+	"Graphics render2d scissor changes queue without forcing flushes",
+	2,
+	function(width, height, frame)
+		if frame == 1 then
+			local state = render2d.GetBatchState()
+			render2d.SetRectBatchMode("instanced")
+			render2d.SetColor(0, 0, 0, 1)
+			render2d.DrawRect(0, 0, width, height)
+			render2d.PushScissor(0, 0, 96, height)
+			render2d.SetColor(1, 0, 0, 1)
+			render2d.DrawRect(0, 0, width, height)
+			render2d.PopScissor()
+			render2d.PushScissor(96, 0, width - 96, height)
+			render2d.SetColor(0, 0, 1, 1)
+			render2d.DrawRect(0, 0, width, height)
+			render2d.PopScissor()
+			T(render2d.GetBatchCounters().flushes)["=="](0)
+			T(state.pending_draws)["=="](3)
+			T(#state.segments)["=="](3)
+			render2d.SetRectBatchMode("replay")
+			return
+		end
 
-local flush_count_before_scissor_batch
-
-T.Test2DFrames("Graphics render2d scissor changes queue without forcing flushes", 2, function(width, height, frame)
-	if frame == 1 then
 		local state = render2d.GetBatchState()
-		flush_count_before_scissor_batch = state.flush_count
-		render2d.SetRectBatchMode("instanced")
-		render2d.SetColor(0, 0, 0, 1)
-		render2d.DrawRect(0, 0, width, height)
-		render2d.PushScissor(0, 0, 96, height)
-		render2d.SetColor(1, 0, 0, 1)
-		render2d.DrawRect(0, 0, width, height)
-		render2d.PopScissor()
-		render2d.PushScissor(96, 0, width - 96, height)
-		render2d.SetColor(0, 0, 1, 1)
-		render2d.DrawRect(0, 0, width, height)
-		render2d.PopScissor()
-		T(state.flush_count)["=="](flush_count_before_scissor_batch)
-		T(state.pending_draws)["=="](3)
-		T(#state.segments)["=="](3)
-		render2d.SetRectBatchMode("replay")
-		return
-	end
+		T(state.pending_draws)["=="](0)
+		T(#state.segments)["=="](0)
+	end,
+	function(width, height, frame)
+		if frame ~= 1 then return end
 
-	local state = render2d.GetBatchState()
-	local last_flush = state.last_flush
-	T(last_flush.reason)["=="]("end_frame")
-	T(last_flush.queued_draws)["=="](3)
-	T(last_flush.queued_segments)["=="](3)
-	T(last_flush.flushed_draws)["=="](3)
-	T(last_flush.gpu_rect_draw_calls)["=="](3)
-	T(last_flush.instanced_draws)["=="](3)
-	T(last_flush.instanced_segments)["=="](3)
-	T(state.flush_count)["=="](flush_count_before_scissor_batch + 1)
-	return function()
+		local counters = render2d.GetBatchCounters()
+		T(counters.flushes)["=="](1)
+		T(counters.queued_draws)["=="](3)
+		T(counters.queued_segments)["=="](3)
+		T(counters.gpu_draw_calls)["=="](3)
+		T(counters.instanced_draws)["=="](3)
+		T(counters.instanced_segments)["=="](3)
 		T.AssertScreenPixel{
 			pos = {32, 32},
 			color = {1, 0, 0, 1},
@@ -196,7 +202,7 @@ T.Test2DFrames("Graphics render2d scissor changes queue without forcing flushes"
 			tolerance = 0.1,
 		}
 	end
-end)
+)
 
 T.Test2D("Graphics render2d instanced rect flushes before immediate draw", function(width, height)
 	render2d.SetRectBatchMode("instanced")
@@ -209,8 +215,9 @@ T.Test2D("Graphics render2d instanced rect flushes before immediate draw", funct
 	render2d.SetColor(1, 0, 0, 1)
 	render2d.DrawTriangle(64, 64, 16, 16)
 	T(state.pending_draws)["=="](0)
-	T(state.last_flush.reason)["=="]("bind_mesh")
-	T(state.last_flush.instanced_draws)["=="](1)
+	local counters = render2d.GetBatchCounters()
+	T(counters.instanced_draws)["=="](1)
+	T(counters.gpu_draw_calls)["=="](1)
 	return function()
 		T.AssertScreenPixel{
 			pos = {16, 16},

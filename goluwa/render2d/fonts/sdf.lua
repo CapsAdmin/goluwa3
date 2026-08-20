@@ -157,7 +157,7 @@ do
 		local super_h = output_h * SUPER_SAMPLING_SCALE
 		local mask_texture = render.ExecuteCommand(function(cmd)
 			local saved_batch = render2d.SaveBatchState()
-			render2d.state.runtime.batch.state:ClearPending()
+			render2d.ClearPending()
 			local mask_fb = Framebuffer.New{
 				width = super_w,
 				height = super_h,
