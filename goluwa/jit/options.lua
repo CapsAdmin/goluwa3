@@ -149,7 +149,10 @@ function jit_options.SetOptimized()
 			-- trace size limits
 			maxrecord = 7000, -- default: 4000 | Max number of recorded IR instructions
 			maxirconst = 10000, -- default: 500 | Max number of IR constants of a trace
-			maxsnap = 500, -- default: 500 | Max number of snapshots for a trace
+			maxsnap = 1500, -- default: 500 | Max number of snapshots for a trace.
+			-- 500 aborts the render2d per-rect queue path (queue_rect_draw +
+			-- CaptureRectDrawState + inlined Matrix44 ops) with "too many
+			-- snapshots", leaving it in the interpreter. Cost: ~128KB buffer per trace.
 			-- side trace limits
 			minstitch = 0, -- default: 0 | Min number of IR instructions for a stitched trace. depends on maxrecord
 			maxside = 100, -- default: 100 | Max number of side traces of a root trace
@@ -159,8 +162,8 @@ function jit_options.SetOptimized()
 			tryside = 4, -- default: 4 | number of attempts to compile a side trace
 			-- unroll heuristics
 			instunroll = 4, -- default: 4 | max unroll attempts for loops with instable types.
-			loopunroll = 15, -- default: 15 | max unroll for loop ops in side traces.
-			callunroll = 3, -- default: 3 | max depth for recursive calls.
+			loopunroll = 15 * 114, -- default: 15 | max unroll for loop ops in side traces.
+			callunroll = 3 * 4, -- default: 3 | max depth for recursive calls.
 			recunroll = 2, -- default: 2 | min unroll for true recursion.
 		},
 		{
