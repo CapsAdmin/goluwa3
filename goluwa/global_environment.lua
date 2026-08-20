@@ -158,6 +158,8 @@ do
 			config.trace_recorder = opts.trace_recorder
 		end
 
+		if opts.profile_mode then config.profile_mode = opts.profile_mode end
+
 		if opts.path then config.path = opts.path end
 
 		logn("PROF: started '", id, "'")

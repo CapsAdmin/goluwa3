@@ -36,6 +36,7 @@ function profiler.Start(id, config)
 			sampling_rate = config.sampling_rate or 1,
 			flush_interval = config.flush_interval or 1,
 			trace_recorder = config.trace_recorder,
+			profile_mode = config.profile_mode,
 		}
 
 		if config.shutdown_after_frames then
