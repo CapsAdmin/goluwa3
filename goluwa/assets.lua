@@ -1,7 +1,6 @@
 local assets = library()
 local file_path = import("goluwa/filesystem/path.lua")
 local vfs = import("goluwa/vfs.lua")
-local Texture = import("goluwa/render/texture.lua")
 assets.categories = assets.categories or {}
 assets.cache = assets.cache or {}
 assets.virtual_assets = assets.virtual_assets or {}
@@ -532,57 +531,61 @@ local function notify_texture_ready(texture, options)
 	if options and options.on_ready then options.on_ready(texture) end
 end
 
-assets.RegisterCategory(
-	"textures",
-	{
-		roots = {"textures/render/", "textures/", "materials/"},
-		extensions = {".lua", ".png", ".jpg", ".jpeg", ".dds", ".gif", ".vtf"},
-		load = function(path, options)
-			local ext = get_extension(path)
+if _G.GRAPHCIS_3D then
+	local Texture = import("goluwa/render/texture.lua")
+	assets.RegisterCategory(
+		"textures",
+		{
+			roots = {"textures/render/", "textures/", "materials/"},
+			extensions = {".lua", ".png", ".jpg", ".jpeg", ".dds", ".gif", ".vtf"},
+			load = function(path, options)
+				local ext = get_extension(path)
 
-			if ext == ".lua" then
-				local texture, err = load_lua_asset(path)
+				if ext == ".lua" then
+					local texture, err = load_lua_asset(path)
 
-				if not texture then return nil, err end
+					if not texture then return nil, err end
 
-				if type(texture) == "function" then
-					local ok, result = xpcall(
-						function()
-							return texture(get_request_config(options))
-						end,
-						debug.traceback
-					)
+					if type(texture) == "function" then
+						local ok, result = xpcall(
+							function()
+								return texture(get_request_config(options))
+							end,
+							debug.traceback
+						)
 
-					if not ok then return nil, result end
+						if not ok then return nil, result end
 
-					texture = result
+						texture = result
+					end
+
+					if not is_texture_asset(texture) then
+						return nil,
+						(
+							"texture asset %q must return a ready-to-use texture object or a factory function"
+						):format(path)
+					end
+
+					notify_texture_ready(texture, options)
+					return texture
 				end
 
-				if not is_texture_asset(texture) then
-					return nil,
-					(
-						"texture asset %q must return a ready-to-use texture object or a factory function"
-					):format(path)
+				local texture_config = {}
+
+				for key, value in pairs(get_request_config(options) or {}) do
+					texture_config[key] = value
 				end
 
-				notify_texture_ready(texture, options)
-				return texture
-			end
+				texture_config.path = path
+				texture_config.on_ready = function(texture)
+					notify_texture_ready(texture, options)
+				end
+				return Texture.New(texture_config)
+			end,
+		}
+	)
+end
 
-			local texture_config = {}
-
-			for key, value in pairs(get_request_config(options) or {}) do
-				texture_config[key] = value
-			end
-
-			texture_config.path = path
-			texture_config.on_ready = function(texture)
-				notify_texture_ready(texture, options)
-			end
-			return Texture.New(texture_config)
-		end,
-	}
-)
 assets.RegisterCategory(
 	"models",
 	{
@@ -670,6 +673,8 @@ function assets.RefreshInternalTextures()
 			assets.virtual_assets[virtual_path] = nil
 		end
 	end
+
+	if not GRAPHCIS_3D then return end
 
 	for _, texture in pairs(Texture.Instances) do
 		if not texture:IsValid() then continue end

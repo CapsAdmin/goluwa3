@@ -1,6 +1,4 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local MaterialClass = import("goluwa/render3d/material.lua")
-local TextureClass = import("goluwa/render/texture.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local assets = import("goluwa/assets.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -66,6 +64,10 @@ local function scalar_to_shader(value)
 end
 
 local function resolve_texture(source, shared)
+	if not _G.GRAPHICS_3D then return end
+
+	local TextureClass = import("goluwa/render/texture.lua")
+
 	if source == nil then return nil end
 
 	if is_color(source) then
@@ -134,6 +136,10 @@ function shapes.Texture(source, shared)
 end
 
 function shapes.Material(config)
+	if not _G.GRAPHICS_3D then return end
+
+	local MaterialClass = import("goluwa/render3d/material.lua")
+
 	if not config then return MaterialClass.New() end
 
 	if is_material(config) then return config end
@@ -201,14 +207,17 @@ local function add_model(ent, polygon, material)
 		material = shapes.Material(material)
 	end
 
-	ent:AddComponent("visual")
-	polygon:Upload()
-	local primitive_entity = Entity.New{Name = (ent.Name or "shape") .. "_primitive", Parent = ent}
-	primitive_entity:AddComponent("transform")
-	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
-	visual_primitive:SetPolygon3D(polygon)
-	visual_primitive:SetMaterial(material)
-	ent.visual:BuildAABB()
+	if GRAPHICS_3D then
+		ent:AddComponent("visual")
+		polygon:Upload()
+		local primitive_entity = Entity.New{Name = (ent.Name or "shape") .. "_primitive", Parent = ent}
+		primitive_entity:AddComponent("transform")
+		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+		visual_primitive:SetPolygon3D(polygon)
+		visual_primitive:SetMaterial(material)
+		ent.visual:BuildAABB()
+	end
+
 	return material
 end
 
@@ -229,7 +238,8 @@ local function add_model_asset(ent, path, material, asset_options)
 	local entry = assets.GetModel(path)
 	assert(entry and entry.value, ("failed to load model asset %q"):format(path))
 	local shared_material = shapes.Material(material)
-	ent:AddComponent("visual")
+
+	if GRAPHICS_3D then ent:AddComponent("visual") end
 
 	for index, primitive in ipairs(create_model_asset_primitives(entry.value, asset_options)) do
 		local polygon = primitive.mesh or primitive.polygon3d or primitive
@@ -239,12 +249,28 @@ local function add_model_asset(ent, path, material, asset_options)
 			Parent = ent,
 		}
 		primitive_entity:AddComponent("transform")
-		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
-		visual_primitive:SetPolygon3D(polygon)
-		visual_primitive:SetMaterial(shapes.Material(primitive_material))
+
+		if primitive.position then
+			primitive_entity.transform:SetPosition(primitive.position)
+		end
+
+		if primitive.rotation then
+			primitive_entity.transform:SetRotation(primitive.rotation)
+		end
+
+		if primitive.scale then
+			primitive_entity.transform:SetScale(primitive.scale)
+		end
+
+		if GRAPHICS_3D then
+			local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+			visual_primitive:SetPolygon3D(polygon)
+			visual_primitive:SetMaterial(shapes.Material(primitive_material))
+		end
 	end
 
-	ent.visual:BuildAABB()
+	if GRAPHICS_3D then ent.visual:BuildAABB() end
+
 	return shared_material
 end
 
