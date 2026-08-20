@@ -45,7 +45,7 @@ function profiler.Start(id, config)
 			event.AddListener("Update", "profiler_auto_stop", function()
 				if system.GetFrameNumber() >= stop_at then
 					event.RemoveListener("Update", "profiler_auto_stop")
-					profiler.Stop()
+					profiler.Stop({filter = config.filter})
 					system.ShutDown(0)
 				end
 			end)
@@ -66,7 +66,7 @@ function profiler.Start(id, config)
 	end
 end
 
-function profiler.Stop()
+function profiler.Stop(opts)
 	if not jit_profiler then return end
 
 	local path = jit_profiler.path
@@ -74,7 +74,7 @@ function profiler.Stop()
 	jit_profiler = nil
 	event.RemoveListener("Update", "profiler_auto_stop")
 
-	if summary_on_stop then return JitProfiler.Summary(path) end
+	if summary_on_stop then return JitProfiler.Summary(path, opts) end
 end
 
 local simple_times = {}
