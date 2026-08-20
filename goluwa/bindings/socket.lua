@@ -539,7 +539,7 @@ do
 		" NAME(int af, int type, int protocol)"
 	)
 	socket.freeaddrinfo = load_c_function(SocketLib, "freeaddrinfo", "void NAME(", addrinfo_out, " *ai)")
-	socket.inet_ntoa = load_c_function(SocketLib, "inet_ntoa", "char* NAME(", in_addr, ")")
+	socket.inet_ntoa = load_c_function(SocketLib, "inet_ntoa", "char* NAME(const ", in_addr, "*)")
 	socket.ntohs = load_c_function(SocketLib, "ntohs", "uint16_t NAME(uint16_t netshort)")
 	socket.shutdown = load_socket_function("shutdown", ZERO_SUCCESS, "int NAME(", SOCKET, ", int how)")
 	socket.setsockopt = load_socket_function(
