@@ -1280,6 +1280,8 @@ end
 local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
 	if not body then return true end
 
+	if not body:IsValid() then return true end
+
 	if not body.CollisionEnabled then return true end
 
 	local owner = body.Owner
@@ -1606,15 +1608,20 @@ end
 
 local EMPTY_OPTIONS = {}
 local query_entry_cache = {}
-local untracked_cache = {stamp = nil, instance_count = nil, bodies = {}}
+local untracked_cache = {stamp = nil, instance_count = nil, body_entries = nil, bodies = {}}
 
 -- the set of bodies the broadphase has never tracked only changes when a
--- physics substep re-tracks bodies or the instance list changes, so cache it
+-- physics substep re-tracks bodies, the body entries table is replaced (e.g.
+-- a physics ResetState), or the instance list changes, so cache it
 local function get_untracked_bodies(broadphase)
 	local cache = untracked_cache
 	local instances = RigidBody.Instances
 
-	if cache.stamp == broadphase.StepStamp and cache.instance_count == #instances then
+	if
+		cache.stamp == broadphase.StepStamp and
+		cache.instance_count == #instances and
+		cache.body_entries == broadphase.BodyEntries
+	then
 		return cache.bodies
 	end
 
@@ -1634,6 +1641,7 @@ local function get_untracked_bodies(broadphase)
 
 	cache.stamp = broadphase.StepStamp
 	cache.instance_count = #instances
+	cache.body_entries = broadphase.BodyEntries
 	return bodies
 end
 

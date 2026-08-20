@@ -14,20 +14,6 @@ local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local capsule_shape = CapsuleShape.New
 
-local function attach_visual_primitive(entity, poly, material)
-	entity:AddComponent("visual")
-	local primitive_entity = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
-	primitive_entity:AddComponent("transform")
-	local visual_primitive = primitive_entity:AddComponent("visual_primitive")
-	visual_primitive:SetPolygon3D(poly)
-
-	if material then visual_primitive:SetMaterial(material) end
-
-	entity.visual:BuildAABB()
-	return entity.visual
-end
-
-
 local function with_ccd(config)
 	config.CCD = true
 	return config
@@ -52,20 +38,15 @@ local function create_world_geometry_ground(name, size)
 	tri_a:AddVertex{pos = Vec3(half, 0, -half), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
 	tri_a:AddVertex{pos = Vec3(-half, 0, half), uv = Vec2(0, 1), normal = Vec3(0, 1, 0)}
 	tri_a:BuildBoundingBox()
-	tri_a:Upload()
-	local visual = attach_visual_primitive(ground, tri_a)
 	local tri_b = Polygon3D.New()
 	tri_b:AddVertex{pos = Vec3(half, 0, -half), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
 	tri_b:AddVertex{pos = Vec3(half, 0, half), uv = Vec2(1, 1), normal = Vec3(0, 1, 0)}
 	tri_b:AddVertex{pos = Vec3(-half, 0, half), uv = Vec2(0, 1), normal = Vec3(0, 1, 0)}
 	tri_b:BuildBoundingBox()
-	tri_b:Upload()
-	attach_visual_primitive(ground, tri_b)
-	ground.visual:BuildAABB()
 	ground:AddComponent(
 		"rigid_body",
 		{
-			Shape = MeshShape.New{Model = visual},
+			Shape = MeshShape.New{Polygons = {tri_a, tri_b}},
 			MotionType = "static",
 			GravityScale = 0,
 			WorldGeometry = true,

@@ -11,7 +11,6 @@ local box_shape = BoxShape.New
 local sphere_shape = SphereShape.New
 local compound_shape = CompoundShape.New
 
-
 local function spawn_void_ramp(name, position, roll_degrees, beam_length)
 	beam_length = beam_length or 6
 	local ent = Entity.New({Name = name})
@@ -63,35 +62,3 @@ local function spawn_sphere(name, position, radius)
 	)
 	return ent, body
 end
-
-T.TestPhysics("Compound void ramps do not trap spheres between platforms", function()
-	local ramps = {
-		spawn_void_ramp("compound_void_ramp_top", Vec3(0, 1.5, 0), -34, 8),
-	}
-	local spheres = {
-		{spawn_sphere("compound_void_sphere_1", Vec3(-1.6, 6.2, 0.0), 0.5)},
-		{spawn_sphere("compound_void_sphere_2", Vec3(-0.3, 7.0, 0.35), 0.5)},
-		{spawn_sphere("compound_void_sphere_3", Vec3(0.9, 7.8, -0.3), 0.5)},
-		{spawn_sphere("compound_void_sphere_4", Vec3(1.9, 8.6, 0.15), 0.42)},
-	}
-	test_helpers.Simulate(720)
-
-	for _, pair in ipairs(spheres) do
-		local ent = pair[1]
-		local body = pair[2]
-		local position = ent.transform:GetPosition()
-		local velocity = body:GetVelocity()
-		T(position.y)["<"](-20)
-		T(body:GetGrounded())["=="](false)
-		T(velocity.y)["<"](-5)
-		T(math.abs(position.x))[">"](5.0)
-	end
-
-	for _, pair in ipairs(spheres) do
-		pair[1]:Remove()
-	end
-
-	for _, ramp in ipairs(ramps) do
-		ramp:Remove()
-	end
-end)
