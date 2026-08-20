@@ -1123,4 +1123,10 @@ function raycast.CastClosestFromSource(source, origin, direction, max_distance, 
 	return find_closest_hit_in_source(source, ray, filter_fn, a, b, c, d, e, f)
 end
 
+function raycast.CastFromSource(source, origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
+	max_distance = max_distance or math.huge
+	local ray = create_ray(origin, direction, max_distance)
+	return collect_hits_in_source(source, ray, filter_fn, a, b, c, d, e, f)
+end
+
 return raycast
