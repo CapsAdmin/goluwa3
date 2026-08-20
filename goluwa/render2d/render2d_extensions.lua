@@ -230,7 +230,9 @@ local function get_font(font_name, size, weight)
 end
 
 local function compute_auto_background(fg)
-	local r, g, b = fg.r, fg.g, fg.b
+	local r = math.floor(fg.r * 255 + 0.5)
+	local g = math.floor(fg.g * 255 + 0.5)
+	local b = math.floor(fg.b * 255 + 0.5)
 
 	if not hsv_cache[r] then hsv_cache[r] = {} end
 
