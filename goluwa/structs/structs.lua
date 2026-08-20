@@ -5,6 +5,13 @@ local typeof = ffi.typeof
 local tostring = tostring
 local UNION_SWIZZLE = false
 structs.NumberType = "float"
+local callstack = import("goluwa/debug/callstack.lua")
+-- augment loadstring
+local old_loadstring = loadstring
+
+local function loadstring(code, name)
+	return old_loadstring(code, "@" .. callstack.get_line(2) .. " - " .. name)
+end
 
 function structs.Template(class_name)
 	local META = {}
@@ -142,6 +149,7 @@ end
 
 function structs.AddOperator(META, operator, ...)
 	if not META.NumberType then META.NumberType = structs.NumberType end
+
 	if operator == "tostring" then
 		local lua = [==[
 		local META, structs = ...
@@ -305,7 +313,7 @@ function structs.AddOperator(META, operator, ...)
 			a:Set(b:Unpack())
 			return a
 		end
-		META.__copy = META.Copy
+		META.__copy = META.Copy 
 		]==]
 		lua = parse_args(META, lua, " ")
 		lua = lua:gsub("CTOR", "META.CType")
@@ -358,23 +366,20 @@ function structs.AddOperator(META, operator, ...)
 		local META, structs, istype = ...
 		local type = type
 		META[structs.OperatorTranslate["OPERATOR"]] = function(a, b)
-			local result
 			if type(b) == "number" then
-				result = CTOR(
+				return CTOR(
 					a.KEY OPERATOR b
 				)
 			elseif type(a) == "number" then
-				result = CTOR(
+				return CTOR(
 					a OPERATOR b.KEY
 				)
 			elseif a and istype(a, b) then
-				result = CTOR(
+				return CTOR(
 					a.KEY OPERATOR b.KEY
 				)
-			else
-				error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
 			end
-			return result
+			error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
 		end
 		]==]
 		lua = parse_args(META, lua, ", ", true)

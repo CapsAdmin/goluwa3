@@ -411,14 +411,17 @@ function utility.CreateCallbackThing(cache)
 	return self
 end
 
-function utility.MakePushPopFunction(lib, name, count)
-	assert(type(count) == "number")
-	local func_set = lib["Set" .. name]
-	local func_get = lib["Get" .. name]
-	lib.push_pop_context_values = lib.push_pop_context_values or {}
-	lib.push_pop_context_values[name] = {}
-	local stack = lib.push_pop_context_values[name]
-	local TEMPLATE = [==[
+do
+	local callstack = import("goluwa/debug/callstack.lua")
+
+	function utility.MakePushPopFunction(lib, name, count)
+		assert(type(count) == "number")
+		local func_set = lib["Set" .. name]
+		local func_get = lib["Get" .. name]
+		lib.push_pop_context_values = lib.push_pop_context_values or {}
+		lib.push_pop_context_values[name] = {}
+		local stack = lib.push_pop_context_values[name]
+		local TEMPLATE = [==[
 	local i = 1
 	local name, lib, stack, func_get, func_set = ...
 	lib["Push" .. name] = function(ARGS)
@@ -435,22 +438,28 @@ function utility.MakePushPopFunction(lib, name, count)
 		func_set(STACK)
 	end
 	]==]
-	local lua = TEMPLATE
+		local lua = TEMPLATE
 
-	do
-		local args_line = {}
-		local stack_line = {}
+		do
+			local args_line = {}
+			local stack_line = {}
 
-		for i = 1, count do
-			args_line[i] = "_" .. i
-			stack_line[i] = "stack[i][" .. i .. "]"
+			for i = 1, count do
+				args_line[i] = "_" .. i
+				stack_line[i] = "stack[i][" .. i .. "]"
+			end
+
+			lua = lua:replace("ARGS", table.concat(args_line, ", "))
+			lua = lua:replace("STACK", table.concat(stack_line, ", "))
 		end
 
-		lua = lua:replace("ARGS", table.concat(args_line, ", "))
-		lua = lua:replace("STACK", table.concat(stack_line, ", "))
+		assert(
+			loadstring(
+				lua,
+				callstack.get_line(1) .. " - utility.MakePushPopFunction(lib, " .. name .. ", " .. count .. ")"
+			)
+		)(name, lib, stack, func_get, func_set)
 	end
-
-	assert(loadstring(lua))(name, lib, stack, func_get, func_set)
 end
 
 function utility.MakeFlags(defs)

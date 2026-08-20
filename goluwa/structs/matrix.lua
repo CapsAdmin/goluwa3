@@ -1,6 +1,13 @@
 local structs = import("goluwa/structs/structs.lua")
 local ffi = require("ffi")
 local orientation = import("goluwa/render3d/orientation.lua")
+local callstack = import("goluwa/debug/callstack.lua")
+-- augment loadstring
+local old_loadstring = loadstring
+
+local function loadstring(code, name)
+	return old_loadstring(code, "@" .. callstack.get_line(2) .. " - " .. name)
+end
 
 -- ORIENTATION / TRANSFORMATION
 -- matrix is row-major or column-major????

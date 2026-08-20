@@ -133,6 +133,8 @@ local function append_trace_pc_line(
 end
 
 local function is_source_location(loc--[[#: nil | string]])--[[#: boolean]]
+	if loc and loc:find("[string]", nil, true) then return false end
+
 	return loc ~= nil and loc:find("^.+:%d+$") ~= nil
 end
 
@@ -624,6 +626,7 @@ do
 			jprofile.start((self.profile_mode == "line" and "l" or "f") .. "i" .. self.sampling_rate, function(thread, sample_count, vmstate)
 				self:EmitEvent{
 					type = "sample",
+					-- note, this does not respect the name of a loadstring function,but can be worked around if you prepend @ to its name
 					stack = dumpstack(thread, "pl\n", depth),
 					sample_count = sample_count,
 					vm_state = vmstate,
@@ -1144,13 +1147,13 @@ local function sorted_top(counts--[[#: Map<|any, number|>]], n--[[#: number]])--
 	local items = {}
 
 	for k, v in pairs(counts) do
-		items[#items + 1] = {key = k, value = v}
+		items[#items + 1] = {key = tostring(k), value = v}
 	end
 
 	table.sort(items, function(a, b)
 		if a.value ~= b.value then return a.value > b.value end
 
-		return tostring(a.key) < tostring(b.key)
+		return a.key < b.key
 	end)
 
 	if #items > n then for i = #items, n + 1, -1 do
@@ -1168,7 +1171,7 @@ local function print_top(
 )
 	for _, item in ipairs(sorted_top(counts, n)) do
 		w(
-			string_format("  %6.1f%% %12d  %s\n", item.value / total * 100, item.value, tostring(item.key))
+			string_format("  %6.1f%% %12d  %s\n", item.value / total * 100, item.value, item.key)
 		)
 	end
 end
