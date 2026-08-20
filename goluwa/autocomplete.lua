@@ -1,5 +1,3 @@
-local render2d = import("goluwa/render2d/render2d.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
 local autocomplete = library()
 local env = {}
 
@@ -92,52 +90,57 @@ end
 
 autocomplete.translate_list_id = {}
 
-function autocomplete.DrawFound(id, x, y, found, max, offset)
-	if not env[id] then env[id] = {found_autocomplete = {}, scroll = 0} end
+if _G.GRAPHICS then
+	local render2d = import("goluwa/render2d/render2d.lua")
+	local fonts = import("goluwa/render2d/fonts.lua")
 
-	offset = offset or 1
-	max = max or 100
-	local height_offset = 0
-	local width_offset = 0
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.PushMatrix(x, y)
-	local done = {}
+	function autocomplete.DrawFound(id, x, y, found, max, offset)
+		if not env[id] then env[id] = {found_autocomplete = {}, scroll = 0} end
 
-	for i = offset, max do
-		local v = found[i]
+		offset = offset or 1
+		max = max or 100
+		local height_offset = 0
+		local width_offset = 0
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.PushMatrix(x, y)
+		local done = {}
 
-		if not v then break end
+		for i = offset, max do
+			local v = found[i]
 
-		if v.id then
-			if not done[v.id] then
-				local str = autocomplete.translate_list_id[v.id]
+			if not v then break end
 
-				if type(str) == "function" then str = str() end
+			if v.id then
+				if not done[v.id] then
+					local str = autocomplete.translate_list_id[v.id]
 
-				if str then
-					local _, h = fonts.GetDefaultFont():GetTextSize(str)
-					render2d.SetAlphaMultiplier(1)
-					fonts.GetDefaultFont():DrawText(str, 5, (i - offset) * h + height_offset)
-					height_offset = height_offset + (h + 4)
-					width_offset = 5
+					if type(str) == "function" then str = str() end
+
+					if str then
+						local _, h = fonts.GetDefaultFont():GetTextSize(str)
+						render2d.SetAlphaMultiplier(1)
+						fonts.GetDefaultFont():DrawText(str, 5, (i - offset) * h + height_offset)
+						height_offset = height_offset + (h + 4)
+						width_offset = 5
+					end
+
+					done[v.id] = true
 				end
-
-				done[v.id] = true
 			end
+
+			local alpha = (-(i / max) + 1) ^ 5
+			render2d.SetAlphaMultiplier(alpha)
+			local _, h = fonts.GetDefaultFont():GetTextSize(v.val)
+			fonts.GetDefaultFont():DrawText(
+				((env[id].scroll + i - 1) % #found + 1) .. ". " .. tostring(v.val),
+				5 + width_offset,
+				(i - offset) * (h + 4) + height_offset
+			)
 		end
 
-		local alpha = (-(i / max) + 1) ^ 5
-		render2d.SetAlphaMultiplier(alpha)
-		local _, h = fonts.GetDefaultFont():GetTextSize(v.val)
-		fonts.GetDefaultFont():DrawText(
-			((env[id].scroll + i - 1) % #found + 1) .. ". " .. tostring(v.val),
-			5 + width_offset,
-			(i - offset) * (h + 4) + height_offset
-		)
+		render2d.SetAlphaMultiplier(1)
+		render2d.PopMatrix()
 	end
-
-	render2d.SetAlphaMultiplier(1)
-	render2d.PopMatrix()
 end
 
 function autocomplete.ScrollFound(found, offset)

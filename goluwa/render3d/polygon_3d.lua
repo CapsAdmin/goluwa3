@@ -2,7 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Mesh = import("goluwa/render/mesh.lua")
+local Mesh = _G.GRAPHICS and import("goluwa/render/mesh.lua")
 local ffi = require("ffi")
 local tasks = import("goluwa/tasks.lua")
 local Polygon3D = objects.CreateTemplate("render3d_polygon_3d")
@@ -194,7 +194,9 @@ function Polygon3D:Upload(indices)
 
 	if vertex_count > 65535 then index_type = "uint32_t" end
 
-	self.mesh = Mesh.New(vertex_attributes, vertices, indices, index_type)
+	if Mesh then
+		self.mesh = Mesh.New(vertex_attributes, vertices, indices, index_type)
+	end
 end
 
 function Polygon3D:Draw()

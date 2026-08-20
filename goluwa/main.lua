@@ -32,6 +32,7 @@ commands.Add{
 			type = "boolean",
 			description = "Run in 3D mode (enable 3D and physics)",
 		},
+		["physics"] = {type = "boolean", description = "Enable physics"},
 		headless = {type = "boolean", description = "Disable graphics entirely"},
 		screenshot = {
 			type = "boolean",
@@ -50,7 +51,7 @@ commands.Add{
 		_G.CLIENT = not flags.server
 		_G.SERVER = flags.server
 		_G.GRAPHICS_3D = flags["3d"]
-		_G.PHYSICS = flags["3d"]
+		_G.PHYSICS = flags["3d"] or flags["physics"]
 
 		if flags.renderdoc then
 			if os.getenv("GOLUWA_RENDERDOC_ATTACHED") ~= "1" then

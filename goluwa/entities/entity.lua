@@ -10,9 +10,12 @@ end
 function Entity.GetValidComponents()
 	if not valid_components.transform then
 		valid_components.transform = import("goluwa/entities/components/transform.lua")
-		valid_components.light = import("goluwa/entities/components/light.lua")
-		valid_components.visual = import("goluwa/entities/components/visual.lua")
-		valid_components.visual_primitive = import("goluwa/entities/components/visual_primitive.lua")
+
+		if _G.GRAPHICS_3D then
+			valid_components.light = import("goluwa/entities/components/light.lua")
+			valid_components.visual = import("goluwa/entities/components/visual.lua")
+			valid_components.visual_primitive = import("goluwa/entities/components/visual_primitive.lua")
+		end
 	end
 
 	return valid_components

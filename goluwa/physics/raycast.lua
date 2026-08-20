@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
-local Visual = import("goluwa/entities/components/visual.lua")
+local Visual = _G.GRAPHICS_3D and import("goluwa/entities/components/visual.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
 local BVH_BUILD_TRIANGLE_THRESHOLD = 8
@@ -35,10 +35,14 @@ local function get_spatial_local_aabb(model)
 end
 
 local function get_spatial_component_count()
-	return #(Visual.Instances or {})
+	if not Visual or not Visual.Instances then return 0 end
+
+	return #Visual.Instances
 end
 
 local function for_each_spatial_component(callback)
+	if not Visual or not Visual.Instances then return end
+
 	for _, visual in ipairs(Visual.Instances or {}) do
 		callback(visual)
 	end

@@ -1,3 +1,5 @@
+if not _G.GRAPHICS_3D then return end
+
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 local debug_draw = import("goluwa/render3d/debug_draw.lua")
