@@ -1,7 +1,6 @@
 local AABB = import("goluwa/structs/aabb.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
-local physics_singleton = import("goluwa/physics.lua")
 local sweep_candidates = {}
 local get_model_primitives = model_transform_utils.GetModelPrimitives
 
@@ -444,10 +443,10 @@ local function append_rigid_body_candidate(
 	end
 end
 
-local function collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, out)
+local function collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, out)
 	out = out or {}
 	local effective_options = options or EMPTY_OPTIONS
-	local broadphase = physics_singleton.broadphase
+	local broadphase = physics.broadphase
 
 	if broadphase then
 		local entries = broadphase:QueryAABB(world_aabb, query_entry_cache)
@@ -521,5 +520,4 @@ sweep_candidates.ShouldQueryBodyAsWorld = should_query_body_as_world
 sweep_candidates.GetRigidBodyCandidateAABB = get_rigid_body_candidate_aabb
 sweep_candidates.GetColliderCandidateAABB = get_collider_candidate_aabb
 sweep_candidates.CollectRigidBodyCandidates = collect_rigid_body_candidates
-
 return sweep_candidates

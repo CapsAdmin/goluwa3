@@ -1,5 +1,4 @@
 local singleton = {}
-import.loaded["goluwa/physics.lua"] = singleton
 local objects = import("goluwa/objects/objects.lua")
 local Broadphase = import("goluwa/physics/broadphase.lua")
 local CollisionPairs = import("goluwa/physics/collision_pairs.lua")
@@ -41,8 +40,14 @@ function Physics.New(config)
 		self.RayCast = trace.RayCast
 		self.GetHitNormal = trace.GetHitNormal
 		self.GetHitSurfaceContact = trace.GetHitSurfaceContact
-		self.SweepCollider = sweep.SweepCollider
-		self.Sweep = sweep.Sweep
+		-- query entry points receive the engine as an explicit argument so the
+		-- sweep modules never have to reach back up to the engine module
+		self.SweepCollider = function(...)
+			return sweep.SweepCollider(self, ...)
+		end
+		self.Sweep = function(...)
+			return sweep.Sweep(self, ...)
+		end
 		self.GetConstraints = constraint.GetConstraints
 		self.RemoveAllConstraints = constraint.RemoveAllConstraints
 		self.ResetState = function()
@@ -112,14 +117,12 @@ local PAIR_SOLVERS = {
 	{"convex", "capsule", capsule_pair_solver.SolveConvexCapsulePair},
 	{"box", "box", solve_box_pair},
 }
-
 local SUPPORTED_MESH_DYNAMIC_SHAPES = {
 	"sphere",
 	"capsule",
 	"box",
 	"convex",
 }
-
 local MESH_CONTACT_SOLVERS = {
 	sphere = mesh_contact_common.SolveMeshSphereCollision,
 	capsule = mesh_contact_common.SolveMeshCapsuleCollision,
@@ -147,13 +150,9 @@ function Physics:RegisterPairHandlers(solver)
 		local solver_fn = entry[3]
 
 		if entry[4] then
-			solver:RegisterPairHandler(
-				shape_a,
-				shape_b,
-				function(body_a, body_b, entry_a, entry_b, dt)
-					return solver_fn(body_b, body_a, entry_b, entry_a, dt)
-				end
-			)
+			solver:RegisterPairHandler(shape_a, shape_b, function(body_a, body_b, entry_a, entry_b, dt)
+				return solver_fn(body_b, body_a, entry_b, entry_a, dt)
+			end)
 		else
 			solver:RegisterPairHandler(shape_a, shape_b, solver_fn)
 		end
