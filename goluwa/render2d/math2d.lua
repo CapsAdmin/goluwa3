@@ -165,6 +165,10 @@ function math2d.SplitSelfIntersectingContour(points)
 	return {points}
 end
 
+local function sort_contour_info(a, b)
+	return math.abs(a.area) > math.abs(b.area)
+end
+
 function math2d.TriangulateContoursEvenOdd(contours)
 	local contour_info = {}
 
@@ -192,10 +196,7 @@ function math2d.TriangulateContoursEvenOdd(contours)
 		end
 	end
 
-	table.sort(contour_info, function(a, b)
-		return math.abs(a.area) > math.abs(b.area)
-	end)
-
+	table.sort(contour_info, sort_contour_info)
 	local shells = {}
 
 	for i, info in ipairs(contour_info) do
@@ -313,15 +314,45 @@ function math2d.TriangulateContoursEvenOdd(contours)
 end
 
 do
-	local function point_in_triangle(p, a, b, c)
-		local function cross(p1, p2, p3)
-			return (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x)
+	local function is_ear(vertices_x, vertices_y, indices, u, v, w)
+		local ax, ay = vertices_x[indices[u]], vertices_y[indices[u]]
+		local bx, by = vertices_x[indices[v]], vertices_y[indices[v]]
+		local cx, cy = vertices_x[indices[w]], vertices_y[indices[w]]
+		local a2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+		if a2 <= 1e-12 then return false end
+
+		for i = 1, #indices do
+			if i ~= u and i ~= v and i ~= w then
+				local px, py = vertices_x[indices[i]], vertices_y[indices[i]]
+
+				if
+					(
+						math.abs(px - ax) > 1e-12 or
+						math.abs(py - ay) > 1e-12
+					)
+					and
+					(
+						math.abs(px - bx) > 1e-12 or
+						math.abs(py - by) > 1e-12
+					)
+					and
+					(
+						math.abs(px - cx) > 1e-12 or
+						math.abs(py - cy) > 1e-12
+					)
+				then
+					-- point_in_triangle check inlined
+					local cp1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+					local cp2 = (cx - bx) * (py - by) - (cy - by) * (px - bx)
+					local cp3 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx)
+
+					if cp1 >= -1e-12 and cp2 >= -1e-12 and cp3 >= -1e-12 then return false end
+				end
+			end
 		end
 
-		local d1 = cross(a, b, p)
-		local d2 = cross(b, c, p)
-		local d3 = cross(c, a, p)
-		return d1 >= -1e-12 and d2 >= -1e-12 and d3 >= -1e-12
+		return true
 	end
 
 	function math2d.TriangulateCoordinates(points)
@@ -388,47 +419,6 @@ do
 			indices[i] = i
 		end
 
-		local function is_ear(u, v, w)
-			local ax, ay = vertices_x[indices[u]], vertices_y[indices[u]]
-			local bx, by = vertices_x[indices[v]], vertices_y[indices[v]]
-			local cx, cy = vertices_x[indices[w]], vertices_y[indices[w]]
-			local a2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
-
-			if a2 <= 1e-12 then return false end
-
-			for i = 1, #indices do
-				if i ~= u and i ~= v and i ~= w then
-					local px, py = vertices_x[indices[i]], vertices_y[indices[i]]
-
-					if
-						(
-							math.abs(px - ax) > 1e-12 or
-							math.abs(py - ay) > 1e-12
-						)
-						and
-						(
-							math.abs(px - bx) > 1e-12 or
-							math.abs(py - by) > 1e-12
-						)
-						and
-						(
-							math.abs(px - cx) > 1e-12 or
-							math.abs(py - cy) > 1e-12
-						)
-					then
-						-- point_in_triangle check inlined
-						local cp1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
-						local cp2 = (cx - bx) * (py - by) - (cy - by) * (px - bx)
-						local cp3 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx)
-
-						if cp1 >= -1e-12 and cp2 >= -1e-12 and cp3 >= -1e-12 then return false end
-					end
-				end
-			end
-
-			return true
-		end
-
 		local num_indices = num_vertices
 		local current = 1
 		local skipped = 0
@@ -437,7 +427,7 @@ do
 			local pi = (current - 2) % num_indices + 1
 			local ni = current % num_indices + 1
 
-			if is_ear(pi, current, ni) then
+			if is_ear(vertices_x, vertices_y, indices, pi, current, ni) then
 				local ax, ay = vertices_x[indices[pi]], vertices_y[indices[pi]]
 				local bx, by = vertices_x[indices[current]], vertices_y[indices[current]]
 				local cx, cy = vertices_x[indices[ni]], vertices_y[indices[ni]]
