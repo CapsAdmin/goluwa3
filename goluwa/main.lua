@@ -27,6 +27,7 @@ import("goluwa/test.lua") -- add test command
 commands.Add{
 	command = "global_flags",
 	flags = {
+		["fps"] = {type = "number", description = "Limit the fps"},
 		["2d"] = {type = "boolean", description = "Run in 2D mode (no 3D or physics)"},
 		["3d"] = {
 			type = "boolean",
@@ -85,11 +86,12 @@ commands.Add{
 			logf("[renderdoc] initialized\n")
 		end
 
-		if flags.cli or flags.server then
+		if flags.cli or flags.server or flags.fps then
 			local native_threads = import("goluwa/bindings/threads.lua")
+			local fps = flags.fps or 30
 
 			event.AddListener("Update", "cli_limit_fps", function()
-				native_threads.sleep(1000 / 30)
+				native_threads.sleep(1000 / fps)
 			end)
 		end
 
@@ -141,7 +143,15 @@ local function run_game()
 			import("goluwa/render2d/render2d.lua").Initialize()
 
 			if _G.GRAPHICS_3D then
-				import("goluwa/render3d/render3d.lua").Initialize()
+				import("goluwa/render3d/render3d.lua").Initialize{
+					passes = {
+						import("goluwa/render3d/passes/gbuffer.lua"),
+						import("goluwa/render3d/passes/lighting_simple.lua"),
+						import("goluwa/render3d/passes/forward_overlay.lua"),
+						import("goluwa/render3d/passes/bloom.lua"),
+						import("goluwa/render3d/passes/blit.lua"),
+					},
+				}
 				import("goluwa/render3d/model_loader.lua")
 			end
 
