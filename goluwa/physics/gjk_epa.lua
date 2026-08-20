@@ -124,13 +124,13 @@ local function solve_triangle(simplex, a, b, c)
 	local ab = b.point - a.point
 	local ac = c.point - a.point
 	local abc = ab:GetCross(ac)
-	local ab_perpendicular = abc:GetCross(ab)
+	local ab_perpendicular = ab:GetCross(abc)
 
 	if same_direction(ab_perpendicular, ao) then
 		return solve_line(simplex, a, b)
 	end
 
-	local ac_perpendicular = ac:GetCross(abc)
+	local ac_perpendicular = abc:GetCross(ac)
 
 	if same_direction(ac_perpendicular, ao) then
 		return solve_line(simplex, a, c)
