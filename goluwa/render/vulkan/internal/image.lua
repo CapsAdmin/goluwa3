@@ -47,7 +47,7 @@ function Image.New(config)
 				flags = config.flags,
 				imageType = config.image_type or "2d",
 				format = config.format,
-				extent = {
+				extent = vulkan.vk.VkExtent3D{
 					width = config.width,
 					height = config.height,
 					depth = config.depth or 1,
