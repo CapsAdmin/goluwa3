@@ -213,27 +213,22 @@ function math2d.TriangulateContoursEvenOdd(contours)
 		if nesting % 2 == 0 then
 			table.insert(shells, {points = info.points, area = info.area, holes = {}, nesting = nesting})
 		else
-			local best_parent = nil
-
 			for j = #shells, 1, -1 do
 				if
 					shells[j].nesting == nesting - 1 and
 					math2d.IsPointInPolygon(info.test_pt[1], info.test_pt[2], shells[j].points)
 				then
-					best_parent = shells[j]
+					local best_parent = shells[j]
+					local hole_points = info.points
+
+					if (info.area > 0) == (best_parent.area > 0) then
+						hole_points = math2d.ReversePolygon(hole_points)
+					end
+
+					table.insert(best_parent.holes, hole_points)
 
 					break
 				end
-			end
-
-			if best_parent then
-				local hole_points = info.points
-
-				if (info.area > 0) == (best_parent.area > 0) then
-					hole_points = math2d.ReversePolygon(hole_points)
-				end
-
-				table.insert(best_parent.holes, hole_points)
 			end
 		end
 	end
