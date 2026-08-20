@@ -1,10 +1,4 @@
 local T = import("test/environment.lua")
-T.SkipFile("disabled: long running and failing tests (85600db1)")
-do
-	return
-end
-
-local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
