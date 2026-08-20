@@ -931,23 +931,20 @@ do -- commands
 	function commands.RunArguments(args)
 		local line = join_args(args, " ")
 		local pvars = import("goluwa/cli/pvars.lua")
+		local key, val = line:match("^([%w_]+)%s+(.+)")
 
-		if pvars then
-			local key, val = line:match("^([%w_]+)%s+(.+)")
+		if key and val and pvars.Get(key) ~= nil then
+			pvars.SetString(key, val)
+			logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
+			return true
+		end
 
-			if key and val and pvars.Get(key) ~= nil then
-				pvars.SetString(key, val)
-				logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
-				return true
-			end
+		local key = line:match("^([%w_]+)$")
 
-			local key = line:match("^([%w_]+)$")
-
-			if key and pvars.Get(key) ~= nil then
-				logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
-				logn(pvars.GetObject(key):GetHelp())
-				return true
-			end
+		if key and pvars.Get(key) ~= nil then
+			logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
+			logn(pvars.GetObject(key):GetHelp())
+			return true
 		end
 
 		local alias = args[1]
