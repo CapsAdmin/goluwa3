@@ -384,6 +384,10 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 	local pairs = bodies_or_pairs
 
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
+		-- empty list has nothing to solve; rebuilding the broadphase with an
+		-- empty body list would also wipe its tracked entries
+		if not (pairs and pairs[1]) then return end
+
 		local physics = self:GetPhysics()
 		pairs = physics.broadphase:BuildCandidatePairs(bodies_or_pairs)
 	end

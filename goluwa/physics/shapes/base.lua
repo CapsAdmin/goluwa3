@@ -89,13 +89,26 @@ function META:GetSupportLocalPoints(body)
 	return self:BuildSupportLocalPoints(body)
 end
 
-function META:GetBroadphaseAABB(body, position, rotation)
+local BROADPHASE_AABB_POINT = Vec3(0, 0, 0)
+
+function META:GetBroadphaseAABB(body, position, rotation, out)
 	position = position or body:GetPosition()
 	rotation = rotation or body:GetRotation()
 	local points = self:GetCollisionLocalPoints(body)
 
 	if not (points and points[1]) then
 		local half = self:GetHalfExtents(body)
+
+		if out then
+			out.min_x = position.x - half.x
+			out.min_y = position.y - half.y
+			out.min_z = position.z - half.z
+			out.max_x = position.x + half.x
+			out.max_y = position.y + half.y
+			out.max_z = position.z + half.z
+			return out
+		end
+
 		return AABB(
 			position.x - half.x,
 			position.y - half.y,
@@ -106,10 +119,21 @@ function META:GetBroadphaseAABB(body, position, rotation)
 		)
 	end
 
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+	local bounds = out
+
+	if bounds then
+		bounds.min_x = math.huge
+		bounds.min_y = math.huge
+		bounds.min_z = math.huge
+		bounds.max_x = -math.huge
+		bounds.max_y = -math.huge
+		bounds.max_z = -math.huge
+	else
+		bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+	end
 
 	for i = 1, #points do
-		local world_point = self:GeometryLocalToWorld(body, points[i], position, rotation)
+		local world_point = self:GeometryLocalToWorld(body, points[i], position, rotation, BROADPHASE_AABB_POINT)
 
 		if world_point.x < bounds.min_x then bounds.min_x = world_point.x end
 

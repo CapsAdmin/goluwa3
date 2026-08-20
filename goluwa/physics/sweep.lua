@@ -19,6 +19,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
+local physics_singleton = import("goluwa/physics.lua")
 local sweep = {}
 local EPSILON = physics_constants.EPSILON
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
@@ -290,20 +291,45 @@ do
 	end
 end
 
+-- the world-geometry body scan is cached per physics substep: it only matters
+-- which render meshes get queried, and the body set is stable within a step
+local world_geometry_step = nil
+local world_geometry_count = nil
+local world_geometry_present = false
+
 local function has_world_geometry_bodies()
 	local instances = RigidBodyComponent.Instances
+	local step = physics_singleton.StepIndex
+	local count = #instances
 
-	for i = 1, #instances do
-		local body = instances[i]
+	if step ~= world_geometry_step or count ~= world_geometry_count then
+		world_geometry_step = step
+		world_geometry_count = count
+		world_geometry_present = false
 
-		if body.WorldGeometry == true then return true end
+		for i = 1, #instances do
+			local body = instances[i]
+
+			if body.WorldGeometry == true then
+				world_geometry_present = true
+
+				break
+			end
+		end
 	end
 
-	return false
+	return world_geometry_present
 end
 
+local empty_options = {}
+local empty_no_mesh_options = {UseRenderMeshes = false}
+
 local function normalize_query_options(options)
-	options = options or {}
+	if options == nil then
+		if has_world_geometry_bodies() then return empty_no_mesh_options end
+
+		return empty_options
+	end
 
 	if options.IncludeRigidBodies ~= nil and options.IgnoreRigidBodies == nil then
 		options.IgnoreRigidBodies = not options.IncludeRigidBodies
@@ -425,6 +451,27 @@ local function build_swept_aabb(start_position, end_position, radius)
 		math.max(start_position.y, end_position.y) + radius,
 		math.max(start_position.z, end_position.z) + radius
 	)
+end
+
+local ZERO_MOVEMENT = Vec3(0, 0, 0)
+local swept_aabb_scratch = AABB(0, 0, 0, 0, 0, 0)
+local model_candidates_scratch = {}
+local body_candidates_scratch = {}
+
+-- allocation-free swept aabb for the sweep hot path: reuses the scratch box
+-- and avoids building an end-position Vec3
+local function fill_swept_aabb(origin, movement, radius)
+	local aabb = swept_aabb_scratch
+	local end_x = origin.x + movement.x
+	local end_y = origin.y + movement.y
+	local end_z = origin.z + movement.z
+	aabb.min_x = math.min(origin.x, end_x) - radius
+	aabb.min_y = math.min(origin.y, end_y) - radius
+	aabb.min_z = math.min(origin.z, end_z) - radius
+	aabb.max_x = math.max(origin.x, end_x) + radius
+	aabb.max_y = math.max(origin.y, end_y) + radius
+	aabb.max_z = math.max(origin.z, end_z) + radius
+	return aabb
 end
 
 local function get_segment_fraction(start_position, movement, point)
@@ -1557,10 +1604,119 @@ local function get_collider_candidate_aabb(collider)
 	return get_cached_candidate_aabb(cache, bounds, previous_bounds)
 end
 
+local EMPTY_OPTIONS = {}
+local query_entry_cache = {}
+local untracked_cache = {stamp = nil, instance_count = nil, bodies = {}}
+
+-- the set of bodies the broadphase has never tracked only changes when a
+-- physics substep re-tracks bodies or the instance list changes, so cache it
+local function get_untracked_bodies(broadphase)
+	local cache = untracked_cache
+	local instances = RigidBody.Instances
+
+	if cache.stamp == broadphase.StepStamp and cache.instance_count == #instances then
+		return cache.bodies
+	end
+
+	local bodies = cache.bodies
+
+	for i = #bodies, 1, -1 do
+		bodies[i] = nil
+	end
+
+	local body_entries = broadphase.BodyEntries
+
+	for i = 1, #instances do
+		local body = instances[i]
+
+		if not body_entries[body] then bodies[#bodies + 1] = body end
+	end
+
+	cache.stamp = broadphase.StepStamp
+	cache.instance_count = #instances
+	return bodies
+end
+
+local function append_rigid_body_candidate(
+	entry,
+	world_aabb,
+	ignore_entity,
+	filter_fn,
+	options,
+	effective_options,
+	out
+)
+	local body = entry.body
+	local include_body = (
+			effective_options.IgnoreRigidBodies == false
+		)
+		or
+		should_query_body_as_world(body, effective_options)
+
+	if
+		include_body and
+		not should_skip_rigid_body(body, ignore_entity, filter_fn, options)
+	then
+		local bounds = entry.bounds
+
+		if entry.center ~= body:GetPosition() then
+			-- body moved since the broadphase last tracked it (e.g. transform
+			-- changes between physics steps), fall back to the pose-cached bounds
+			bounds = get_rigid_body_candidate_aabb(body) or bounds
+		end
+
+		if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
+			out[#out + 1] = body
+		end
+	end
+end
+
 local function collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, out)
 	out = out or {}
+	local effective_options = options or EMPTY_OPTIONS
+	local broadphase = physics_singleton.broadphase
+
+	if broadphase then
+		local entries = broadphase:QueryAABB(world_aabb, query_entry_cache)
+
+		for i = 1, #entries do
+			append_rigid_body_candidate(entries[i], world_aabb, ignore_entity, filter_fn, options, effective_options, out)
+		end
+
+		local overflow_entries = broadphase.OverflowEntries
+
+		for i = 1, #overflow_entries do
+			append_rigid_body_candidate(overflow_entries[i], world_aabb, ignore_entity, filter_fn, options, effective_options, out)
+		end
+
+		-- bodies the broadphase has never tracked (queries run before/between
+		-- physics steps) still go through the pose-cached bounds
+		local untracked = get_untracked_bodies(broadphase)
+
+		for i = 1, #untracked do
+			local body = untracked[i]
+			local include_body = (
+					effective_options.IgnoreRigidBodies == false
+				)
+				or
+				should_query_body_as_world(body, effective_options)
+
+			if
+				include_body and
+				not should_skip_rigid_body(body, ignore_entity, filter_fn, options)
+			then
+				local bounds = get_rigid_body_candidate_aabb(body)
+
+				if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
+					out[#out + 1] = body
+				end
+			end
+		end
+
+		return out
+	end
+
 	local instances = RigidBody.Instances
-	local effective_options = options or {}
 
 	for i = 1, #instances do
 		local body = instances[i]
@@ -2615,14 +2771,25 @@ end
 local function sweep_world(origin, movement, radius, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
 	radius = math.max(radius or 0, 0)
-	movement = movement or Vec3(0, 0, 0)
+
+	if not movement then movement = ZERO_MOVEMENT end
+
 	local movement_length = movement:GetLength()
 
 	if movement_length <= EPSILON then return nil end
 
-	local world_aabb = build_swept_aabb(origin, origin + movement, radius)
-	local model_candidates = {}
-	local body_candidates = {}
+	local world_aabb = fill_swept_aabb(origin, movement, radius)
+	local model_candidates = model_candidates_scratch
+	local body_candidates = body_candidates_scratch
+
+	for i = #model_candidates, 1, -1 do
+		model_candidates[i] = nil
+	end
+
+	for i = #body_candidates, 1, -1 do
+		body_candidates[i] = nil
+	end
+
 	local best_hit = nil
 	local best_fraction = 1
 

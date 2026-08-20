@@ -863,9 +863,39 @@ do
 		return out
 	end
 
-	function RigidBody:GetBroadphaseAABB(position, rotation)
+	local rigid_body_aabb_position = Vec3(0, 0, 0)
+
+	function RigidBody:GetBroadphaseAABB(position, rotation, out)
 		position = position or self.Position
 		rotation = rotation or self.Rotation
+		local colliders = self:GetColliders()
+
+		if #colliders == 1 then
+			local collider = colliders[1]
+			local local_position = collider:GetLocalPosition()
+			local local_rotation = collider:GetLocalRotation()
+
+			-- collider at the body origin with identity local rotation:
+			-- the shape aabb is the body aabb, no intermediate allocations
+			if
+				local_position.x == 0 and
+				local_position.y == 0 and
+				local_position.z == 0 and
+				local_rotation.x == 0 and
+				local_rotation.y == 0 and
+				local_rotation.z == 0
+			then
+				return collider:GetBroadphaseAABB(position, rotation, out)
+			end
+
+			local collider_position = rotation:VecMul(local_position, rigid_body_aabb_position)
+			collider_position.x = collider_position.x + position.x
+			collider_position.y = collider_position.y + position.y
+			collider_position.z = collider_position.z + position.z
+			local collider_rotation = (rotation * local_rotation):GetNormalized()
+			return collider:GetBroadphaseAABB(collider_position, collider_rotation, out)
+		end
+
 		local min_x = math.huge
 		local min_y = math.huge
 		local min_z = math.huge
@@ -873,7 +903,6 @@ do
 		local max_y = -math.huge
 		local max_z = -math.huge
 		local has_bounds = false
-		local colliders = self:GetColliders()
 
 		for i = 1, #colliders do
 			local collider = colliders[i]
@@ -898,6 +927,17 @@ do
 
 		if not has_bounds then
 			local half = Vec3(0.5, 0.5, 0.5)
+
+			if out then
+				out.min_x = position.x - half.x
+				out.min_y = position.y - half.y
+				out.min_z = position.z - half.z
+				out.max_x = position.x + half.x
+				out.max_y = position.y + half.y
+				out.max_z = position.z + half.z
+				return out
+			end
+
 			return AABB(
 				position.x - half.x,
 				position.y - half.y,
@@ -906,6 +946,16 @@ do
 				position.y + half.y,
 				position.z + half.z
 			)
+		end
+
+		if out then
+			out.min_x = min_x
+			out.min_y = min_y
+			out.min_z = min_z
+			out.max_x = max_x
+			out.max_y = max_y
+			out.max_z = max_z
+			return out
 		end
 
 		return AABB(min_x, min_y, min_z, max_x, max_y, max_z)

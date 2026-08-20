@@ -32,6 +32,7 @@ end
 function world_step.Step(physics, dt)
 	if not dt or dt <= 0 then return end
 
+	physics.StepIndex = (physics.StepIndex or 0) + 1
 	physics.UpdateRigidBodies(dt)
 end
 

@@ -106,9 +106,20 @@ function META:GeometryLocalToWorld(body, local_pos, position, _, out)
 	return out
 end
 
-function META:GetBroadphaseAABB(body, position)
+function META:GetBroadphaseAABB(body, position, rotation, out)
 	position = position or body:GetPosition()
 	local radius = self:GetRadius()
+
+	if out then
+		out.min_x = position.x - radius
+		out.min_y = position.y - radius
+		out.min_z = position.z - radius
+		out.max_x = position.x + radius
+		out.max_y = position.y + radius
+		out.max_z = position.z + radius
+		return out
+	end
+
 	return AABB(
 		position.x - radius,
 		position.y - radius,

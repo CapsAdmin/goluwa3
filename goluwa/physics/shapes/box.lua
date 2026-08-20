@@ -1,5 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
@@ -118,6 +119,53 @@ end
 
 function META:GetHalfExtents()
 	return self:GetExtents()
+end
+
+-- the world AABB of a box is exactly the AABB of its 8 corners, which has a
+-- closed form in the rotation: the extent along a world axis is the sum of
+-- the absolute rotation-column components times the half extents
+function META:GetBroadphaseAABB(body, position, rotation, out)
+	position = position or body:GetPosition()
+	rotation = rotation or body:GetRotation()
+	local size = self:GetSize()
+	local hx = size.x * 0.5
+	local hy = size.y * 0.5
+	local hz = size.z * 0.5
+	local qx = rotation.x
+	local qy = rotation.y
+	local qz = rotation.z
+	local qw = rotation.w
+	local xx = qx * qx
+	local yy = qy * qy
+	local zz = qz * qz
+	local xy = qx * qy
+	local xz = qx * qz
+	local yz = qy * qz
+	local xw = qx * qw
+	local yw = qy * qw
+	local zw = qz * qw
+	local ex = math.abs(1 - 2 * (yy + zz)) * hx + math.abs(2 * (xy - zw)) * hy + math.abs(2 * (xz + yw)) * hz
+	local ey = math.abs(2 * (xy + zw)) * hx + math.abs(1 - 2 * (xx + zz)) * hy + math.abs(2 * (yz - xw)) * hz
+	local ez = math.abs(2 * (xz - yw)) * hx + math.abs(2 * (yz + xw)) * hy + math.abs(1 - 2 * (xx + yy)) * hz
+
+	if out then
+		out.min_x = position.x - ex
+		out.min_y = position.y - ey
+		out.min_z = position.z - ez
+		out.max_x = position.x + ex
+		out.max_y = position.y + ey
+		out.max_z = position.z + ez
+		return out
+	end
+
+	return AABB(
+		position.x - ex,
+		position.y - ey,
+		position.z - ez,
+		position.x + ex,
+		position.y + ey,
+		position.z + ez
+	)
 end
 
 function META:GetAutomaticMass(body)

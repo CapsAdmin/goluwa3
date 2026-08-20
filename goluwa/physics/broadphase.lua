@@ -1,3 +1,4 @@
+local AABB = import("goluwa/structs/aabb.lua")
 local broadphase = {}
 local Broadphase = {}
 Broadphase.__index = Broadphase
@@ -9,24 +10,48 @@ local function new_weak_key_table()
 	return setmetatable({}, {__mode = "k"})
 end
 
-local function merge_swept_bounds(bounds, previous_bounds)
-	bounds.min_x = math.min(bounds.min_x, previous_bounds.min_x)
-	bounds.min_y = math.min(bounds.min_y, previous_bounds.min_y)
-	bounds.min_z = math.min(bounds.min_z, previous_bounds.min_z)
-	bounds.max_x = math.max(bounds.max_x, previous_bounds.max_x)
-	bounds.max_y = math.max(bounds.max_y, previous_bounds.max_y)
-	bounds.max_z = math.max(bounds.max_z, previous_bounds.max_z)
-	return bounds
-end
-
 local function is_candidate_body(physics, body)
 	return body and body.CollisionEnabled
 end
 
-local function build_entry_bounds(body)
-	local bounds = body:GetBroadphaseAABB()
-	local previous_bounds = body:GetBroadphaseAABB(body:GetPreviousPosition(), body:GetPreviousRotation())
-	return merge_swept_bounds(bounds, previous_bounds)
+local entry_aabb_scratch_current = AABB(0, 0, 0, 0, 0, 0)
+local entry_aabb_scratch_previous = AABB(0, 0, 0, 0, 0, 0)
+
+-- writes the swept broadphase bounds into out (allocating a new AABB when out
+-- is nil); the per-pose shape aabbs are written into module scratch boxes
+local function build_entry_bounds(body, out)
+	local bounds = body:GetBroadphaseAABB(nil, nil, entry_aabb_scratch_current)
+	local previous_bounds = body:GetBroadphaseAABB(
+		body:GetPreviousPosition(),
+		body:GetPreviousRotation(),
+		entry_aabb_scratch_previous
+	)
+
+	if not out then out = AABB(0, 0, 0, 0, 0, 0) end
+
+	out.min_x = math.min(bounds.min_x, previous_bounds.min_x)
+	out.min_y = math.min(bounds.min_y, previous_bounds.min_y)
+	out.min_z = math.min(bounds.min_z, previous_bounds.min_z)
+	out.max_x = math.max(bounds.max_x, previous_bounds.max_x)
+	out.max_y = math.max(bounds.max_y, previous_bounds.max_y)
+	out.max_z = math.max(bounds.max_z, previous_bounds.max_z)
+	return out
+end
+
+local function store_entry_pose(entry, body)
+	entry.pose_position = body:GetPosition()
+	entry.pose_rotation = body:GetRotation()
+	entry.pose_prev_position = body:GetPreviousPosition()
+	entry.pose_prev_rotation = body:GetPreviousRotation()
+end
+
+local function is_entry_pose_current(entry, body)
+	return entry.pose_position == body:GetPosition() and
+		entry.pose_rotation == body:GetRotation()
+		and
+		entry.pose_prev_position == body:GetPreviousPosition()
+		and
+		entry.pose_prev_rotation == body:GetPreviousRotation()
 end
 
 local function get_cell_index(value, cell_size)
@@ -43,7 +68,31 @@ local function get_cell_range(bounds, cell_size)
 	return min_x, min_y, min_z, max_x, max_y, max_z
 end
 
+-- packed integer cell keys: exact in a double (max ~5.5e11 < 2^53) for
+-- indices within +/- CELL_KEY_RANGE, no string allocation. Out-of-range
+-- indices fall back to string keys rather than risk a collision.
+local CELL_KEY_RANGE = 4095
+local CELL_KEY_STRIDE = 8192
+local CELL_KEY_STRIDE2 = CELL_KEY_STRIDE * CELL_KEY_STRIDE
+
 local function get_cell_key(x, y, z)
+	if
+		x >= -CELL_KEY_RANGE and
+		x < CELL_KEY_RANGE and
+		y >= -CELL_KEY_RANGE and
+		y < CELL_KEY_RANGE and
+		z >= -CELL_KEY_RANGE and
+		z < CELL_KEY_RANGE
+	then
+		return (
+				x + CELL_KEY_RANGE
+			) * CELL_KEY_STRIDE2 + (
+				y + CELL_KEY_RANGE
+			) * CELL_KEY_STRIDE + (
+				z + CELL_KEY_RANGE
+			)
+	end
+
 	return x .. ":" .. y .. ":" .. z
 end
 
@@ -256,12 +305,12 @@ local function is_same_spatial_assignment(self, entry, bounds)
 		entry.cell_max_z == max_z
 end
 
-local function create_entry(self, body, bounds)
+local function create_entry(self, body)
 	self.NextEntryId = self.NextEntryId + 1
 	local entry = {
 		id = self.NextEntryId,
 		body = body,
-		bounds = bounds,
+		bounds = AABB(0, 0, 0, 0, 0, 0),
 		center = body:GetPosition(),
 		cell_keys = {},
 		index = #self.Entries + 1,
@@ -269,7 +318,8 @@ local function create_entry(self, body, bounds)
 	}
 	self.Entries[entry.index] = entry
 	self.BodyEntries[body] = entry
-	assign_entry_cells(self, entry, bounds)
+	build_entry_bounds(body, entry.bounds)
+	assign_entry_cells(self, entry, entry.bounds)
 	return entry
 end
 
@@ -297,6 +347,7 @@ function broadphase.New(config)
 			Cells = {},
 			Pairs = {},
 			StepStamp = 0,
+			QueryStamp = 0,
 			NextEntryId = 0,
 		},
 		Broadphase
@@ -310,8 +361,99 @@ function Broadphase:ResetState()
 	self.Cells = {}
 	self.Pairs = {}
 	self.StepStamp = 0
+	self.QueryStamp = 0
 	self.NextEntryId = 0
 	return self
+end
+
+-- split out of QueryAABB so the JIT can compile it (the combined loop body
+-- aborts with register coalescing too complex and runs interpreted)
+local function query_cell_entries(cell, stamp, out, count)
+	for i = 1, #cell.entries do
+		local entry = cell.entries[i]
+
+		if entry.query_stamp ~= stamp then
+			entry.query_stamp = stamp
+			count = count + 1
+			out[count] = entry
+		end
+	end
+
+	return count
+end
+
+-- packed cell keys are contiguous along z: walk each (x, y) row as a single
+-- key range instead of a nested z loop with per-cell key packing
+local function query_packed_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
+	local z_span = max_z - min_z
+
+	for cell_x = min_x, max_x do
+		for cell_y = min_y, max_y do
+			local key = get_cell_key(cell_x, cell_y, min_z)
+			local key_end = key + z_span
+
+			while key <= key_end do
+				local cell = cells[key]
+
+				if cell then count = query_cell_entries(cell, stamp, out, count) end
+
+				key = key + 1
+			end
+		end
+	end
+
+	return count
+end
+
+local function query_cell_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
+	for cell_x = min_x, max_x do
+		for cell_y = min_y, max_y do
+			for cell_z = min_z, max_z do
+				local cell = cells[get_cell_key(cell_x, cell_y, cell_z)]
+
+				if cell then count = query_cell_entries(cell, stamp, out, count) end
+			end
+		end
+	end
+
+	return count
+end
+
+-- spatial query: returns entries whose cells overlap the given aabb, without
+-- per-query allocations (dedup via a stamp on the entries)
+function Broadphase:QueryAABB(aabb, out)
+	out = out or {}
+	local cells = self.Cells
+	self.QueryStamp = self.QueryStamp + 1
+	local stamp = self.QueryStamp
+	local min_x, min_y, min_z, max_x, max_y, max_z = get_cell_range(aabb, self.CellSize)
+	local count = 0
+
+	if
+		min_x >= -CELL_KEY_RANGE and
+		min_x < CELL_KEY_RANGE and
+		min_y >= -CELL_KEY_RANGE and
+		min_y < CELL_KEY_RANGE and
+		min_z >= -CELL_KEY_RANGE and
+		min_z < CELL_KEY_RANGE and
+		max_x >= -CELL_KEY_RANGE and
+		max_x < CELL_KEY_RANGE and
+		max_y >= -CELL_KEY_RANGE and
+		max_y < CELL_KEY_RANGE and
+		max_z >= -CELL_KEY_RANGE and
+		max_z < CELL_KEY_RANGE
+	then
+		-- the whole range uses packed keys: rows are contiguous in key space
+		count = query_packed_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
+	else
+		count = query_cell_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
+	end
+
+	for i = count + 1, #out do
+		out[i] = nil
+	end
+
+	return out
 end
 
 function Broadphase:GetEntries(out)
@@ -339,19 +481,25 @@ function Broadphase:TrackBodies(bodies, physics_override)
 		local entry = self.BodyEntries[body]
 
 		if is_candidate_body(physics, body) then
-			local bounds = build_entry_bounds(body)
-
-			if entry then
-				entry.body = body
-				entry.bounds = bounds
-				entry.center = body:GetPosition()
+			-- unchanged pose (static/sleeping bodies): keep the cached bounds
+			-- and skip the per-vertex AABB rebuild
+			if entry and is_entry_pose_current(entry, body) then
 				entry.last_seen_step = self.StepStamp
-
-				if not is_same_spatial_assignment(self, entry, bounds) then
-					assign_entry_cells(self, entry, bounds)
-				end
 			else
-				create_entry(self, body, bounds)
+				if entry then
+					-- mutate the entry's own AABB in place; no per-substep allocation
+					build_entry_bounds(body, entry.bounds)
+					entry.center = body:GetPosition()
+					store_entry_pose(entry, body)
+					entry.last_seen_step = self.StepStamp
+
+					if not is_same_spatial_assignment(self, entry, entry.bounds) then
+						assign_entry_cells(self, entry, entry.bounds)
+					end
+				else
+					local new_entry = create_entry(self, body)
+					store_entry_pose(new_entry, body)
+				end
 			end
 		elseif entry then
 			destroy_entry(self, entry)

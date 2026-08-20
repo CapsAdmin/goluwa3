@@ -552,7 +552,7 @@ function META:BuildSupportLocalPoints(body)
 	return BaseShape.BuildSupportLocalPoints(self, body)
 end
 
-function META:GetBroadphaseAABB(body, position, rotation)
+function META:GetBroadphaseAABB(body, position, rotation, out)
 	position = position or body:GetPosition()
 	rotation = rotation or body:GetRotation()
 	local bounds = self:GetLocalBounds(body)
@@ -595,6 +595,16 @@ function META:GetBroadphaseAABB(body, position, rotation)
 		if y > world_max_y then world_max_y = y end
 
 		if z > world_max_z then world_max_z = z end
+	end
+
+	if out then
+		out.min_x = world_min_x
+		out.min_y = world_min_y
+		out.min_z = world_min_z
+		out.max_x = world_max_x
+		out.max_y = world_max_y
+		out.max_z = world_max_z
+		return out
 	end
 
 	return AABB(world_min_x, world_min_y, world_min_z, world_max_x, world_max_y, world_max_z)

@@ -1,5 +1,20 @@
 local physics_constants = import("goluwa/physics/constants.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local support_contacts = {}
+-- reusable cast vectors for the per-frame support sweep path
+local cast_origin_offset = Vec3(0, 0, 0)
+local cast_delta = Vec3(0, 0, 0)
+local sweep_origin = Vec3(0, 0, 0)
+
+local function fill_cast_vectors(cast_up, cast_distance)
+	local up = physics_constants.UP
+	cast_origin_offset.x = up.x * cast_up
+	cast_origin_offset.y = up.y * cast_up
+	cast_origin_offset.z = up.z * cast_up
+	cast_delta.x = up.x * -cast_distance
+	cast_delta.y = up.y * -cast_distance
+	cast_delta.z = up.z * -cast_distance
+end
 
 local function apply_support_grounding_metadata(body, hit, normal)
 	if not (body and hit and normal and normal.y >= body:GetMinGroundNormalY()) then
@@ -59,12 +74,14 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 	local support_points = body:GetSupportLocalPoints()
 	local owner = body:GetOwner()
 	local filter_function = body:GetFilterFunction()
-	local cast_origin_offset = physics_constants.UP * cast_up
-	local cast_delta = physics_constants.UP * -cast_distance
+	fill_cast_vectors(cast_up, cast_distance)
 
 	for i = 1, #support_points do
 		local point = body:GeometryLocalToWorld(support_points[i])
-		local hit = physics.Sweep(point + cast_origin_offset, cast_delta, 0, owner, filter_function)
+		sweep_origin.x = point.x + cast_origin_offset.x
+		sweep_origin.y = point.y + cast_origin_offset.y
+		sweep_origin.z = point.z + cast_origin_offset.z
+		local hit = physics.Sweep(sweep_origin, cast_delta, 0, owner, filter_function)
 
 		if hit then
 			support_contacts.AccumulatePointSweepSupport(body, point, hit)
@@ -143,13 +160,11 @@ function support_contacts.SweepSphere(body, dt, radius)
 	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local center = body:GetPosition()
-	return physics.Sweep(
-		center + physics_constants.UP * cast_up,
-		physics_constants.UP * -(cast_distance + radius),
-		radius,
-		body:GetOwner(),
-		body:GetFilterFunction()
-	)
+	fill_cast_vectors(cast_up, cast_distance + radius)
+	sweep_origin.x = center.x + cast_origin_offset.x
+	sweep_origin.y = center.y + cast_origin_offset.y
+	sweep_origin.z = center.z + cast_origin_offset.z
+	return physics.Sweep(sweep_origin, cast_delta, radius, body:GetOwner(), body:GetFilterFunction())
 end
 
 function support_contacts.SolveShapeSupportContacts(body, shape, dt)

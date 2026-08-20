@@ -383,8 +383,8 @@ function META:WorldToLocal(world_pos, position, rotation, out)
 	return out
 end
 
-function META:GetBroadphaseAABB(position, rotation)
-	return self.Shape:GetBroadphaseAABB(self, position, rotation)
+function META:GetBroadphaseAABB(position, rotation, out)
+	return self.Shape:GetBroadphaseAABB(self, position, rotation, out)
 end
 
 function META:BuildCollisionLocalPoints()
