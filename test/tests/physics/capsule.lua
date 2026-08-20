@@ -1,10 +1,4 @@
 local T = import("test/environment.lua")
-T.SkipFile("disabled: long running and failing tests (85600db1)")
-do
-	return
-end
-
-local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -15,7 +9,6 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local CCD_FIXED_STEPS = {1 / 60}
-
 
 local function with_ccd(config)
 	config.CCD = true

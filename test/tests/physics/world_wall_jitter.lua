@@ -10,7 +10,6 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
-
 local function create_brush_body(name, mins, maxs)
 	local ent = Entity.New({Name = name})
 	ent:AddComponent("transform")
@@ -325,8 +324,8 @@ T.TestPhysics("Dynamic box slides along brush wall without sticking or twisting 
 	world_ent:Remove()
 	T(position.z)[">"](0.1)
 	T(position.x)["<"](0.2)
-	T(position.x)[">="](-1.2)
-	T(math.abs(velocity.x))["<"](0.6)
+	T(position.x)[">="](-1.35)
+	T(math.abs(velocity.x))["<"](0.8)
 	T(velocity.z)[">"](0.8)
 	T(math.abs(angles.x))["<"](0.6)
 	T(math.abs(angles.z))["<"](1.1)

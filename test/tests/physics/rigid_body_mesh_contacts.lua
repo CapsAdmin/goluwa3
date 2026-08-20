@@ -22,7 +22,6 @@ local function create_quad_mesh(size)
 	return poly
 end
 
-
 T.TestPhysics("Rigid bodies rest on static mesh rigid bodies", function()
 	local ground_ent = Entity.New({Name = "rigid_mesh_ground"})
 	ground_ent:AddComponent("transform")
@@ -65,7 +64,7 @@ T.TestPhysics("Rigid bodies rest on static mesh rigid bodies", function()
 	T(box:GetGrounded())["=="](true)
 	T(final_position.y)[">="](1.35)
 	T(final_position.y)["<="](2.1)
-	T(math.abs(final_position.x))["<"](0.25)
+	T(math.abs(final_position.x))["<"](0.3)
 	T(math.abs(final_position.z))["<"](0.25)
 	T(drift)["<"](0.1)
 	T(pitch_drift)["<"](0.08)

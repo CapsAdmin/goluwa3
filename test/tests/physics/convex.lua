@@ -1,10 +1,4 @@
 local T = import("test/environment.lua")
-T.SkipFile("disabled: long running and failing tests (85600db1)")
-do
-	return
-end
-
-local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -20,7 +14,6 @@ local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local convex_shape = ConvexShape.New
 local CCD_FIXED_STEPS = {1 / 60}
-
 
 local function with_ccd(config)
 	config.CCD = true
@@ -43,7 +36,6 @@ local function with_fixed_step(fixed_dt, callback)
 		error(string.format("[fixed_dt=%.6f] %s", fixed_dt, tostring(err)), 0)
 	end
 end
-
 
 local function add_triangle(poly, a, b, c)
 	poly:AddVertex{pos = a, uv = Vec2(0, 0)}
