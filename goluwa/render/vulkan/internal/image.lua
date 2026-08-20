@@ -162,8 +162,6 @@ function Image:TransitionLayout(old_layout, new_layout)
 	-- Get the vulkan_instance instance to access queue and command pool
 	-- This is a bit hacky but necessary for one-off transitions
 	local render = import("goluwa/render/render.lua")
-	local device = render.GetDevice()
-	local queue = render.GetQueue()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
 	-- Determine access masks and stages based on layouts
@@ -197,13 +195,7 @@ function Image:TransitionLayout(old_layout, new_layout)
 		},
 	}
 	cmd:End()
-	-- Submit and wait for completion
-	local fence = Fence.New(device)
-	local submission_queue = queue
-	fence:Reset()
-	submission_queue:SubmitNoWait(cmd, fence)
-	fence:Wait(true)
-	submission_queue:RetireFence(fence)
+	render.SubmitAndWait(cmd)
 end
 
 return Image:Register()
