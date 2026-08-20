@@ -51,6 +51,40 @@ function module.Simulate(steps, dt)
 	end
 end
 
+local function body_is_settled(body)
+	if not body:HasSolverMass() then return true end
+
+	if not body.CanSleep then
+		return body:GetVelocity():GetLength() < 1e-4 and
+			body:GetAngularVelocity():GetLength() < 1e-4
+	end
+
+	return not body:GetAwake()
+end
+
+function module.SimulateSettled(bodies, max_steps, dt)
+	if bodies.HasSolverMass then bodies = {bodies} end
+
+	dt = dt or (1 / 120)
+
+	for step = 1, max_steps do
+		physics.Update(dt)
+		local all_settled = true
+
+		for i = 1, #bodies do
+			if not body_is_settled(bodies[i]) then
+				all_settled = false
+
+				break
+			end
+		end
+
+		if all_settled then return step end
+	end
+
+	return max_steps
+end
+
 function module.AttachWorldGeometryBody(entity, source)
 	source = source or {Model = entity.visual}
 	local body = entity:AddComponent(

@@ -178,7 +178,7 @@ T.TestPhysics("Capsule rigid body settles in a concave heightmap pit", function(
 	)
 
 	with_fixed_step(1 / 60, function()
-		test_helpers.Simulate(720, 1 / 60)
+		test_helpers.SimulateSettled(body, 720, 1 / 60)
 	end)
 
 	local position = body_ent.transform:GetPosition()
@@ -209,7 +209,7 @@ T.TestPhysics("Tilted capsule on terrain can rotate out of its initial lean", fu
 	)
 
 	with_fixed_step(1 / 60, function()
-		test_helpers.Simulate(240, 1 / 60)
+		test_helpers.SimulateSettled(body, 240, 1 / 60)
 	end)
 
 	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
@@ -236,7 +236,7 @@ T.TestPhysics("Rolling capsule on terrain does not keep spinning in place", func
 	body:SetAngularVelocity(Vec3(0, 0, 5.5))
 
 	with_fixed_step(1 / 60, function()
-		test_helpers.Simulate(420, 1 / 60)
+		test_helpers.SimulateSettled(body, 420, 1 / 60)
 	end)
 
 	T(body:GetGrounded())["=="](true)
