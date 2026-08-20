@@ -255,54 +255,6 @@ function table.equal(o1, o2, ignore_mt)
 end
 
 do
-	local identity_map = setmetatable({}, {__mode = "k"})
-	local next_identity = 0
-
-	function table.hash(tbl)
-		if type(tbl) ~= "table" then
-			error("table.hash: expected table, got " .. type(tbl), 2)
-		end
-
-		local identity = identity_map[tbl]
-
-		if identity ~= nil then return identity end
-
-		next_identity = next_identity + 1
-		identity_map[tbl] = next_identity
-		return next_identity
-	end
-end
-
-do
-	local nil_sentinel = {}
-
-	function table.intern_key(root, ...)
-		if type(root) ~= "table" then
-			error("table.intern_key: expected table root, got " .. type(root), 2)
-		end
-
-		local node = root
-
-		for i = 1, select("#", ...) do
-			local value = select(i, ...)
-
-			if value == nil then value = nil_sentinel end
-
-			local next_node = node[value]
-
-			if not next_node then
-				next_node = {}
-				node[value] = next_node
-			end
-
-			node = next_node
-		end
-
-		return node
-	end
-end
-
-do
 	local select = _G.select
 
 	function table.pack(...)

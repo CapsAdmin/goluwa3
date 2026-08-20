@@ -104,7 +104,7 @@ end
 local function hash_key_value(value)
 	local value_type = type(value)
 
-	if value_type == "table" then return "table:" .. table.hash(value) end
+	if value_type == "table" then return ("table-%p"):format(value) end
 
 	if value == nil then return "nil" end
 

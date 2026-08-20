@@ -13,6 +13,7 @@ local Mesh = import("goluwa/render/mesh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local RectBatch = import("goluwa/render2d/rect_batch.lua")
+local Hash = import("goluwa/hash.lua")
 local render2d = library()
 
 local function concat_constant_fields(...)
@@ -211,16 +212,6 @@ render2d.state = {
 			next_rect_draw_state_snapshot_slot = 1,
 			rect_state_version = 0,
 		},
-		ids = {
-			roots = {
-				blend = {},
-				pipeline = {},
-				rect_batch_key = {},
-			},
-			current = {
-				rect_batch_pipeline = nil,
-			},
-		},
 		pipeline_state = {
 			dirty = true,
 			synced_pipeline = nil,
@@ -259,7 +250,8 @@ local textures = render2d.state.render.textures
 local pipeline_config = render2d.state.render.pipeline
 local options = render2d.state.render.options
 local batch_runtime = render2d.state.runtime.batch
-local ids = render2d.state.runtime.ids
+local blend_key_interner = Hash.New()
+local rect_key_interner = Hash.New()
 local runtime_pipeline = render2d.state.runtime.pipeline_state
 local frame_state = render2d.state.runtime.frame
 local mesh_state = render2d.state.runtime.mesh
@@ -557,8 +549,7 @@ local function canonicalize_blend_mode_state(state)
 		alpha_blend_op = state.alpha_blend_op or "add",
 		color_write_mask = list.copy(state.color_write_mask or DEFAULT_COLOR_WRITE_MASK),
 	}
-	result.batch_key = table.intern_key(
-		ids.roots.blend,
+	result.batch_key = blend_key_interner:intern{
 		result.blend,
 		result.src_color_blend_factor,
 		result.dst_color_blend_factor,
@@ -566,11 +557,8 @@ local function canonicalize_blend_mode_state(state)
 		result.src_alpha_blend_factor,
 		result.dst_alpha_blend_factor,
 		result.alpha_blend_op,
-		result.color_write_mask[1],
-		result.color_write_mask[2],
-		result.color_write_mask[3],
-		result.color_write_mask[4]
-	)
+		result.color_write_mask,
+	}
 	return result
 end
 
@@ -1383,8 +1371,6 @@ function render2d.Initialize()
 		}
 		render2d.rect_batch_pipeline = EasyPipeline.New(batch_config)
 	end
-
-	render2d.state.runtime.ids.current.rect_batch_pipeline = table.intern_key(ids.roots.pipeline, render2d.rect_batch_pipeline)
 
 	do
 		-- Instance attribute layout of the batch pipeline, used to allocate instance buffers
@@ -2518,7 +2504,6 @@ function render2d.CaptureRectDrawState(world_matrix)
 		texture = textures.texture,
 		sdf_texture = textures.sdf_texture,
 		blend_mode = blend_mode,
-		pipeline_state_id = ids.current.rect_batch_pipeline,
 		alpha_multiplier = fragment_state.alpha_multiplier,
 	}
 end
@@ -2668,10 +2653,9 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	-- the key depends only on draw state and not on rects
 	if batch_runtime.rect_key_version ~= batch_runtime.rect_state_version then
 		batch_runtime.rect_key_version = batch_runtime.rect_state_version
-		batch_runtime.rect_key = table.intern_key(
-			ids.roots.rect_batch_key,
-			batch_runtime.mode_ids[batch_mode] or 0,
-			state.pipeline_state_id,
+		batch_runtime.rect_key = rect_key_interner:intern{
+			batch_runtime.mode_ids[batch_mode] or
+			0,
 			state.blend_mode.batch_key,
 			snapshot.nine_patch_x_count,
 			snapshot.nine_patch_y_count,
@@ -2694,8 +2678,8 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 			snapshot.scissor[0],
 			snapshot.scissor[1],
 			snapshot.scissor[2],
-			snapshot.scissor[3]
-		)
+			snapshot.scissor[3],
+		}
 	end
 
 	batch_runtime.state:Append("rect", batch_runtime.rect_key, entry)
@@ -2839,7 +2823,6 @@ end)
 if HOTRELOAD then
 	render2d.pipeline = nil
 	render2d.rect_batch_pipeline = nil
-	ids.roots.pipeline = {}
 	render2d.Initialize()
 end
 
