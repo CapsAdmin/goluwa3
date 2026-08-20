@@ -1240,7 +1240,7 @@ function buffer_template.AddStructureFunctions(META)
 		end
 	end
 
-	local cache = table.weak()
+	local cache = table.weak("kv")
 	local map = {
 		["short"] = "16",
 		["long"] = "32",

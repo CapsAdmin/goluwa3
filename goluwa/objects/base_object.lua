@@ -23,7 +23,7 @@ function META:GetGUID()
 		return guid
 	end
 
-	objects.created_objects_guid = objects.created_objects_guid or table.weak()
+	objects.created_objects_guid = objects.created_objects_guid or table.weak("kv")
 
 	if objects.created_objects_guid[guid] ~= self then self:SetGUID(guid) end
 
@@ -263,7 +263,7 @@ do -- serializing
 	end
 
 	function META:SetGUID(guid)
-		objects.created_objects_guid = objects.created_objects_guid or table.weak()
+		objects.created_objects_guid = objects.created_objects_guid or table.weak("kv")
 
 		if objects.created_objects_guid[self.GUID] then
 			objects.created_objects_guid[self.GUID] = nil
@@ -294,7 +294,7 @@ do -- serializing
 	end
 
 	function objects.GetObjectByGUID(guid)
-		objects.created_objects_guid = objects.created_objects_guid or table.weak()
+		objects.created_objects_guid = objects.created_objects_guid or table.weak("kv")
 		return objects.created_objects_guid[guid] or NULL
 	end
 end
@@ -378,7 +378,7 @@ do -- events
 		if self.added_events[event_type] then return end
 
 		if not events[event_type] then
-			events[event_type] = table.weak()
+			events[event_type] = table.weak("kv")
 			event_configs[event_type] = config or {}
 			local real_event_name = config and config.event_name or event_type
 			local func_name = config and config.func_name or ("On" .. event_type)

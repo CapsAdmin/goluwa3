@@ -201,17 +201,8 @@ function table.shallow_copy(tbl)
 	return new
 end
 
-function table.weak(k, v)
-	if k and v then
-		mode = "kv"
-	elseif k then
-		mode = "k"
-	elseif v then
-		mode = "v"
-	else
-		mode = "kv"
-	end
-
+function table.weak(mode)
+	assert(mode == "kv" or mode == "k" or mode == "v", "mode must be kv, k or v")
 	return setmetatable({}, {__mode = mode})
 end
 

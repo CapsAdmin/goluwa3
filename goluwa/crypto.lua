@@ -264,7 +264,7 @@ do
 	local lshift = bit.lshift
 	local rshift = bit.rshift
 	local band = bit.band
-	local cache = table.weak()
+	local cache = table.weak("kv")
 
 	function crypto.CRC32(val)
 		if cache[val] then return cache[val] end

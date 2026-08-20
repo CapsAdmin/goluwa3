@@ -6,7 +6,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Texture = import("goluwa/render/texture.lua")
 
 do
-	gine.created_materials = table.weak()
+	gine.created_materials = table.weak("kv")
 	local texture_extensions = {".png"}
 
 	local function material_source_exists(path)

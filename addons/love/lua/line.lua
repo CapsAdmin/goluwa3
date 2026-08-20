@@ -6,7 +6,7 @@ local file_path = import("goluwa/filesystem/path.lua")
 local R = vfs.GetAbsolutePath
 local line = library()
 line.speed = 1
-line.love_envs = line.love_envs or table.weak()
+line.love_envs = line.love_envs or table.weak("kv")
 pvars.Setup("line_enable_audio", true)
 
 do
@@ -18,7 +18,7 @@ do
 		return self.__line_type or self.name
 	end
 
-	local created = table.weak()
+	local created = table.weak("kv")
 	local registered = {}
 	local created_by_love = setmetatable({}, {__mode = "k"})
 	local registered_by_love = setmetatable({}, {__mode = "k"})
@@ -34,7 +34,7 @@ do
 	local function get_created_table(love)
 		if not love then return created end
 
-		created_by_love[love] = created_by_love[love] or table.weak()
+		created_by_love[love] = created_by_love[love] or table.weak("kv")
 		return created_by_love[love]
 	end
 

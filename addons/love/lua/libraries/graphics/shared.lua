@@ -5,7 +5,7 @@ local cache = setmetatable({}, {__mode = "k"})
 local function create(love)
 	assert(type(love) == "table" and love._line_env, "graphics shared requires a love env")
 	local ENV = love._line_env
-	ENV.textures = ENV.textures or table.weak(true)
+	ENV.textures = ENV.textures or table.weak("k")
 	ENV.graphics_filter_min = ENV.graphics_filter_min or "linear"
 	ENV.graphics_filter_mag = ENV.graphics_filter_mag or "linear"
 	ENV.graphics_filter_anisotropy = ENV.graphics_filter_anisotropy or 1

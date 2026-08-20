@@ -85,7 +85,7 @@ do
 			end
 		end
 
-		meta.Instances = meta.Instances or table.weak()
+		meta.Instances = meta.Instances or table.weak("kv")
 		objects.registered[meta.Type] = meta
 		objects.invalidate_meta[meta.Type] = true
 
@@ -310,7 +310,7 @@ do
 	local setmetatable = setmetatable
 	local type = type
 	local ipairs = ipairs
-	objects.created_objects = objects.created_objects or table.weak()
+	objects.created_objects = objects.created_objects or table.weak("kv")
 	objects.created_objects_list = objects.created_objects_list or {}
 
 	function objects.CreateObject(meta, override, ...)
@@ -326,7 +326,7 @@ do
 			end
 		end
 
-		if not meta.Instances then meta.Instances = table.weak() end
+		if not meta.Instances then meta.Instances = table.weak("kv") end
 
 		self:SetSuppressEvents(true)
 

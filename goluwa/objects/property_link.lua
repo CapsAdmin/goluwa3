@@ -90,7 +90,7 @@ function objects.AddPropertyLink(...)
 		end
 	end)
 
-	list.insert(objects.linked_objects, {store = table.weak(), args = args})
+	list.insert(objects.linked_objects, {store = table.weak("kv"), args = args})
 end
 
 function objects.RemovePropertyLink(obj_a, obj_b, field_a, field_b, key_a, key_b)
