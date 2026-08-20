@@ -12,6 +12,19 @@
 
 - if you need to write a probe script, write it in ./tmp/ 
 
+# profiling (JIT profiler)
+
+- the global `PROF` starts the JIT profiler. 
+- by default it runs for 300 frames, stops and prints a text summary, then shutsdown
+
+```
+luajit glw --2d lua "PROF('editor') something_expensive_and_blocking() PROF.stop() system.ShutDown(0)" -- profile a one action
+luajit glw --2d lua "PROF('render', {frames = 1000}) import('tmp/benchmark_test.lua')" -- profille the update loop for 1000 frames
+```
+
+- the capture is saved to `storage/logs/jit_profile_<id>.glwp` (binary). 
+- you can read glwp files with `PROF.summary("path.glwp", {top_n = 20})`.
+
 # general coding rules
 
 - Only use :IsValid when nesseceary, never use it if you are not sure. I'd rather have errors than silent failures.

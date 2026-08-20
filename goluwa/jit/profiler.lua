@@ -1,8 +1,10 @@
 --ANALYZE
+local buffer = require("string.buffer")
 local jutil = require("jit.util")
 local vmdef = require("jit.vmdef")
 local jprofile = require("jit.profile")
 local jit = _G.jit
+local jit_params = _G.JIT_PARAMS or {}
 local table_concat = _G.table.concat
 local table_insert = _G.table.insert
 local table_remove = _G.table.remove
@@ -169,7 +171,42 @@ local function json_string(s--[[#: string]])
 	return "\"" .. s .. "\""
 end
 
--- --- Profiler ---
+local BIN_MAGIC = "GLWP"
+local BIN_VERSION = 1
+local BIN_DICT = {
+	"format",
+	"version",
+	"time_start",
+	"profile_mode",
+	"sampling_rate",
+	"depth",
+	"maxmcode",
+	"sizemcode",
+	"flush_interval",
+	"strings",
+	"events",
+	"type",
+	"time",
+	"frames",
+	"sample_count",
+	"vm_state",
+	"section_path",
+	"name",
+	"id",
+	"generation",
+	"parent_id",
+	"exit_id",
+	"func_info",
+	"linktype",
+	"link_id",
+	"record_count",
+	"ir_count",
+	"exit_count",
+	"mcode_addr",
+	"mcode_size",
+	"abort_code",
+	"abort_reason",
+}
 local HTML_TEMPLATE--[[#: string]] -- forward declaration, assigned at bottom of file
 local Profiler = {}
 Profiler.__index = Profiler
@@ -198,6 +235,7 @@ Profiler.__index = Profiler
 		time = number | nil,
 		id = number,
 		func_info = string,
+		stack = List<|{loc = string}|> | nil,
 		linktype = string | nil,
 		link_id = number | nil,
 		record_count = number | nil,
@@ -213,6 +251,7 @@ Profiler.__index = Profiler
 		abort_reason = string,
 		record_count = number | nil,
 		func_info = string,
+		stack = List<|{loc = string}|> | nil,
 	} | {
 		type = "trace_flush",
 		time = number | nil,
@@ -257,6 +296,8 @@ type Profiler.@SelfArgument = {
 	should_warn_abort = function=()>(number | false, number | nil),
 	last_flushed_idx = number,
 	file = File | nil,
+	format = "html" | "bin",
+	encoder = any | nil,
 	trace_event_fn = jit_attach_trace | nil,
 	trace_event_safe_fn = jit_attach_trace | nil,
 	record_event_fn = jit_attach_record | nil,
@@ -265,7 +306,6 @@ type Profiler.@SelfArgument = {
 }]]
 --[[#local type TProfile = Profiler.@SelfArgument]]
 
--- --- Event accumulation ---
 function Profiler:EmitEvent(event--[[#: TEvent]])
 	event.time = self.get_time()
 	local idx = self.event_count + 1
@@ -278,11 +318,9 @@ function Profiler:EmitEvent(event--[[#: TEvent]])
 	end
 end
 
--- --- Section tracking ---
 function Profiler:StartSection(name--[[#: string]])
 	if not self.running then return end
 
-	-- Event section tracking
 	table_insert(self.section_stack, name)
 	self.section_path = table_concat(self.section_stack, " > ")
 	self:EmitEvent{type = "section_start", name = name, section_path = self.section_path}
@@ -380,6 +418,7 @@ do
 			id = id,
 			generation = self.trace_generation,
 			func_info = loc,
+			stack = trace.pc_lines,
 			linktype = ti and ti.linktype or nil,
 			link_id = ti and ti.link or nil,
 			record_count = trace.record_count,
@@ -418,6 +457,7 @@ do
 			abort_reason = format_error(code, reason),
 			record_count = trace.record_count,
 			func_info = loc,
+			stack = trace.pc_lines,
 		}
 
 		if code == 27 then
@@ -462,6 +502,7 @@ do
 			path = string | nil,
 			file_url = string | nil,
 			profile_mode = "line" | "function" | "none" | nil,
+			format = "html" | "bin" | nil,
 			trace_recorder = boolean | nil,
 			maxmcode = number | nil,
 			sizemcode = number | nil,
@@ -472,12 +513,13 @@ do
 		} | nil]]
 	)
 		config = config or {}
-		config.maxmcode = _G.JIT_PARAMS.maxmcode
-		config.sizemcode = _G.JIT_PARAMS.sizemcode
+		config.maxmcode = jit_params.maxmcode
+		config.sizemcode = jit_params.sizemcode
 		local self = setmetatable({}, Profiler)--[[# as TProfile]]
 		-- Config
 		self.id = config.id or "jit_profiler"
 		self.path = config.path or "./profiler_output.html"
+		self.format = config.format or (self.path:sub(-5) == ".glwp" and "bin" or "html")
 		self.file_url = config.file_url or "vscode://file/${path}:${line}:1"
 		self.profile_mode = config.profile_mode or "line"
 		self.maxmcode = config.maxmcode or DEFAULT_MAXMCODE_KB
@@ -508,10 +550,25 @@ do
 		self.aborted = {}
 		self.should_warn_mcode = create_warn_log(2)
 		self.should_warn_abort = create_warn_log(8)
-		-- HTML streaming
+		-- Output file
 		self.last_flushed_idx = 0
 
-		do
+		if self.format == "bin" then
+			self.file = assert(io.open(self.path, "w"))
+			self.encoder = buffer.new(65536, {dict = BIN_DICT})
+			self.encoder:encode{
+				format = BIN_MAGIC,
+				version = BIN_VERSION,
+				name = self.id,
+				time_start = self.time_start,
+				profile_mode = self.profile_mode,
+				sampling_rate = self.sampling_rate,
+				depth = self.depth,
+				maxmcode = self.maxmcode,
+				sizemcode = self.sizemcode,
+				flush_interval = self.flush_interval,
+			}
+		else
 			local html = HTML_TEMPLATE
 			html = html:gsub("%%FILE_URL_JSON%%", function()
 				return json_string(self.file_url)
@@ -610,22 +667,27 @@ do
 		return vmdef.ffnames[num] or ("[builtin#" .. n .. "]")
 	end
 
+	local function clean_sample_stack(stack_str--[[#: string | nil]])--[[#: string | nil]]
+		if not stack_str or type(stack_str) ~= "string" then return nil end
+
+		stack_str = stack_str:gsub("%[builtin#(%d+)%]", builtin_replace)
+		stack_str = stack_str:gsub("@0x%x+\n?", "")
+		stack_str = stack_str:gsub("%(command line%)[^\n]*\n?", "")
+		stack_str = stack_str:gsub("%s+$", "")
+
+		if stack_str == "" then return nil end
+
+		return stack_str
+	end
+
 	local function encode_event(self--[[#: TProfile]], ev--[[#: TEvent]])--[[#: string]]
 		local ti = intern(self, ev.type)
 
 		if ev.type == "sample" then
-			local stack_str = ev.stack
-
-			if stack_str and type(stack_str) == "string" then
-				stack_str = stack_str:gsub("%[builtin#(%d+)%]", builtin_replace)
-				stack_str = stack_str:gsub("@0x%x+\n?", "")
-				stack_str = stack_str:gsub("%(command line%)[^\n]*\n?", "")
-				stack_str = stack_str:gsub("%s+$", "")
-			end
-
+			local stack_str = clean_sample_stack(ev.stack)
 			local frames = {}
 
-			if stack_str and stack_str ~= "" then
+			if stack_str then
 				for line in stack_str:gmatch("[^\n]+") do
 					frames[#frames + 1] = intern(self, line)
 				end
@@ -693,49 +755,166 @@ do
 		end
 	end
 
+	local function encode_event_bin(self--[[#: TProfile]], ev--[[#: TEvent]])--[[#: table]]
+		if ev.type == "sample" then
+			local stack_str = clean_sample_stack(ev.stack)
+			local frames = {}
+
+			if stack_str then
+				for line in stack_str:gmatch("[^\n]+") do
+					frames[#frames + 1] = intern(self, line)
+				end
+			end
+
+			return {
+				type = "sample",
+				time = ev.time,
+				frames = frames,
+				sample_count = ev.sample_count or 0,
+				vm_state = intern(self, ev.vm_state),
+				section_path = intern(self, ev.section_path),
+			}
+		elseif ev.type == "section_start" or ev.type == "section_end" then
+			return {
+				type = ev.type,
+				time = ev.time,
+				name = intern(self, ev.name),
+				section_path = intern(self, ev.section_path),
+			}
+		elseif ev.type == "trace_start" then
+			local t = {
+				type = "trace_start",
+				time = ev.time,
+				id = ev.id or 0,
+				generation = ev.generation or 0,
+				depth = ev.depth or 0,
+				func_info = intern(self, ev.func_info),
+			}
+
+			if ev.parent_id ~= nil then t.parent_id = ev.parent_id end
+
+			if ev.exit_id ~= nil then t.exit_id = ev.exit_id end
+
+			return t
+		elseif ev.type == "trace_stop" then
+			local t = {
+				type = "trace_stop",
+				time = ev.time,
+				id = ev.id or 0,
+				generation = ev.generation or 0,
+				func_info = intern(self, ev.func_info),
+				record_count = ev.record_count or 0,
+			}
+
+			if ev.linktype ~= nil then t.linktype = intern(self, ev.linktype) end
+
+			if ev.link_id ~= nil then t.link_id = ev.link_id end
+
+			if ev.ir_count ~= nil then t.ir_count = ev.ir_count end
+
+			if ev.exit_count ~= nil then t.exit_count = ev.exit_count end
+
+			if ev.mcode_addr ~= nil then t.mcode_addr = ev.mcode_addr end
+
+			if ev.mcode_size ~= nil then t.mcode_size = ev.mcode_size end
+
+			if ev.stack ~= nil then
+				local frames = {}
+				local lines = ev.stack
+
+				for i = 1, #lines do
+					frames[#frames + 1] = intern(self, lines[i].loc)
+				end
+
+				t.frames = frames
+			end
+
+			return t
+		elseif ev.type == "trace_abort" then
+			local t = {
+				type = "trace_abort",
+				time = ev.time,
+				id = ev.id or 0,
+				generation = ev.generation or 0,
+				record_count = ev.record_count or 0,
+				func_info = intern(self, ev.func_info),
+			}
+
+			if ev.abort_code ~= nil then t.abort_code = ev.abort_code end
+
+			if ev.abort_reason ~= nil then t.abort_reason = intern(self, ev.abort_reason) end
+
+			if ev.stack ~= nil then
+				local frames = {}
+				local lines = ev.stack
+
+				for i = 1, #lines do
+					frames[#frames + 1] = intern(self, lines[i].loc)
+				end
+
+				t.frames = frames
+			end
+
+			return t
+		else
+			return {type = ev.type, time = ev.time}
+		end
+	end
+
 	function Profiler:Save()
 		if not self.file then return end
 
 		local count = self.event_count
 
-		if count > self.last_flushed_idx then
-			local start_idx, end_idx = self.last_flushed_idx + 1, count
+		if count <= self.last_flushed_idx and self.format ~= "bin" then return end
 
-			if start_idx > end_idx then
+		local f = self.file
 
-			else
-				local f = self.file
-				local event_parts = {}
+		if self.format == "bin" then
+			if count > self.last_flushed_idx then
+				local events = {}
 
-				for i = start_idx, end_idx do
-					event_parts[#event_parts + 1] = encode_event(self, assert(self.events[i], "nil event"))
+				for i = self.last_flushed_idx + 1, count do
+					events[#events + 1] = encode_event_bin(self, assert(self.events[i], "nil event"))
 				end
 
-				local string_parts = {}
-
-				for _, str in ipairs(get_new_strings(self)) do
-					string_parts[#string_parts + 1] = json_string(str)
-				end
-
-				local strings_js, events_js = "[" .. table_concat(string_parts, ",") .. "]",
-				"[" .. table_concat(event_parts, ",") .. "]"
-				f:write("<script>_C(")
-				f:write(strings_js)
-				f:write(",")
-				f:write(events_js)
-				f:write(");</script>\n")
-				f:flush()
-				self.last_flushed_idx = count
+				self.encoder:encode{strings = get_new_strings(self), events = events}
 			end
+
+			f:write(self.encoder:tostring())
+			self.encoder:reset()
+		else
+			local event_parts = {}
+
+			for i = self.last_flushed_idx + 1, count do
+				event_parts[#event_parts + 1] = encode_event(self, assert(self.events[i], "nil event"))
+			end
+
+			local string_parts = {}
+
+			for _, str in ipairs(get_new_strings(self)) do
+				string_parts[#string_parts + 1] = json_string(str)
+			end
+
+			local strings_js, events_js = "[" .. table_concat(string_parts, ",") .. "]",
+			"[" .. table_concat(event_parts, ",") .. "]"
+			f:write("<script>_C(")
+			f:write(strings_js)
+			f:write(",")
+			f:write(events_js)
+			f:write(");</script>\n")
 		end
+
+		f:flush()
+		self.last_flushed_idx = count
 	end
 end
 
-function Profiler:GetSectionTimes()--[[#: Map<|string, {total = number}|>]]
+local function compute_section_times(events--[[#: List<|TEvent|>]])--[[#: Map<|string, {total = number}|>]]
 	local times = {}
 	local start_times--[[#: Map<|string, number|>]] = {}
 
-	for _, event in ipairs(self.events) do
+	for _, event in ipairs(events) do
 		if event.type == "section_start" then
 			start_times[event.name] = event.time
 		elseif event.type == "section_end" then
@@ -750,6 +929,10 @@ function Profiler:GetSectionTimes()--[[#: Map<|string, {total = number}|>]]
 	end
 
 	return times
+end
+
+function Profiler:GetSectionTimes()--[[#: Map<|string, {total = number}|>]]
+	return compute_section_times(self.events)
 end
 
 function Profiler:Stop()
@@ -789,7 +972,585 @@ function Profiler:GetElapsed()
 	return self.get_time() - self.time_start
 end
 
--- --- HTML Template ---
+local function bin_string(strings--[[#: List<|string|>]], idx--[[#: number]])--[[#: string | nil]]
+	return idx >= 0 and strings[idx + 1] or nil
+end
+
+local function frames_to_stack(frames--[[#: List<|number|> | nil]], strings--[[#: List<|string|>]])--[[#: string | nil]]
+	if not frames or #frames == 0 then return nil end
+
+	local parts = {}
+
+	for j = 1, #frames do
+		parts[j] = bin_string(strings, frames[j])
+	end
+
+	return table.concat(parts, "\n")
+end
+
+local function decode_bin_events(raw_events--[[#: List<|table|>]], strings--[[#: List<|string|>]])--[[#: List<|TEvent|>]]
+	local events = {}
+
+	for i, re in ipairs(raw_events) do
+		local ev
+		local t = re.type
+
+		if t == "sample" then
+			local frames = re.frames
+			local stack
+
+			if frames and #frames > 0 then
+				local parts = {}
+
+				for j = 1, #frames do
+					parts[j] = bin_string(strings, frames[j])
+				end
+
+				stack = table_concat(parts, "\n")
+			end
+
+			ev = {
+				type = "sample",
+				time = re.time,
+				stack = stack,
+				sample_count = re.sample_count,
+				vm_state = bin_string(strings, re.vm_state),
+				section_path = bin_string(strings, re.section_path),
+			}
+		elseif t == "section_start" or t == "section_end" then
+			ev = {
+				type = t,
+				time = re.time,
+				name = bin_string(strings, re.name),
+				section_path = bin_string(strings, re.section_path),
+			}
+		elseif t == "trace_start" then
+			ev = {
+				type = "trace_start",
+				time = re.time,
+				id = re.id,
+				generation = re.generation,
+				parent_id = re.parent_id,
+				exit_id = re.exit_id,
+				depth = re.depth,
+				func_info = bin_string(strings, re.func_info),
+			}
+		elseif t == "trace_stop" then
+			ev = {
+				type = "trace_stop",
+				time = re.time,
+				id = re.id,
+				generation = re.generation,
+				func_info = bin_string(strings, re.func_info),
+				linktype = bin_string(strings, re.linktype),
+				link_id = re.link_id,
+				record_count = re.record_count,
+				ir_count = re.ir_count,
+				exit_count = re.exit_count,
+				mcode_addr = re.mcode_addr,
+				mcode_size = re.mcode_size,
+			}
+			ev.stack = frames_to_stack(re.frames, strings)
+		elseif t == "trace_abort" then
+			ev = {
+				type = "trace_abort",
+				time = re.time,
+				id = re.id,
+				generation = re.generation,
+				abort_code = re.abort_code,
+				abort_reason = bin_string(strings, re.abort_reason),
+				record_count = re.record_count,
+				func_info = bin_string(strings, re.func_info),
+			}
+			ev.stack = frames_to_stack(re.frames, strings)
+		else
+			ev = {type = t, time = re.time}
+		end
+
+		events[i] = ev
+	end
+
+	return events
+end
+
+function Profiler.Load(path--[[#: string]])--[[#: {header = table, events = List<|TEvent|>}]]
+	local f = assert(io.open(path, "rb"), "cannot open " .. path)
+	local data = f:read("a")
+	f:close()
+	local decoder = buffer.new({dict = BIN_DICT})
+	decoder:set(data)
+	local ok, header = pcall(decoder.decode, decoder)
+	assert(
+		ok and type(header) == "table" and header.format == BIN_MAGIC,
+		"not a GLWP profile file: " .. path
+	)
+	assert(
+		header.version == BIN_VERSION,
+		"unsupported GLWP version: " .. tostring(header.version) .. " in " .. path
+	)
+	local strings = {}
+	local raw_events = {}
+
+	while #decoder > 0 do
+		local ok_chunk, chunk = pcall(decoder.decode, decoder)
+
+		if not ok_chunk or type(chunk) ~= "table" then break end
+
+		for i = 1, #chunk.strings do
+			strings[#strings + 1] = chunk.strings[i]
+		end
+
+		for i = 1, #chunk.events do
+			raw_events[#raw_events + 1] = chunk.events[i]
+		end
+	end
+
+	return {header = header, events = decode_bin_events(raw_events, strings)}
+end
+
+local VM_STATE_ORDER = {"N", "I", "C", "G", "J"}
+local VM_STATE_LABELS = {N = "native", I = "interpreter", C = "c", G = "gc", J = "jit"}
+local DEFAULT_IGNORED_ABORT_REASONS = {"inner loop in root trace", "leaving loop in root trace"}
+
+local function print_vm_states(w--[[#: AnyFunction]], counts--[[#: Map<|string, number|>]], total--[[#: number]])
+	local extra = {}
+
+	for _, state in ipairs(VM_STATE_ORDER) do
+		local c = counts[state]
+
+		if c then
+			w(
+				string_format("  %6.1f%% %12d  %s %s\n", c / total * 100, c, state, VM_STATE_LABELS[state])
+			)
+		end
+	end
+
+	for state, c in pairs(counts) do
+		if not VM_STATE_LABELS[state] then
+			extra[#extra + 1] = {state = state, c = c}
+		end
+	end
+
+	table.sort(extra, function(a, b)
+		return a.c > b.c
+	end)
+
+	for _, item in ipairs(extra) do
+		w(string_format("  %6.1f%% %12d  %s\n", item.c / total * 100, item.c, item.state))
+	end
+end
+
+local function sorted_top(counts--[[#: Map<|any, number|>]], n--[[#: number]])--[[#: List<|{key = any, value = number}|>]]
+	local items = {}
+
+	for k, v in pairs(counts) do
+		items[#items + 1] = {key = k, value = v}
+	end
+
+	table.sort(items, function(a, b)
+		if a.value ~= b.value then return a.value > b.value end
+
+		return tostring(a.key) < tostring(b.key)
+	end)
+
+	if #items > n then for i = #items, n + 1, -1 do
+		items[i] = nil
+	end end
+
+	return items
+end
+
+local function print_top(
+	w--[[#: AnyFunction]],
+	counts--[[#: Map<|any, number|>]],
+	total--[[#: number]],
+	n--[[#: number]]
+)
+	for _, item in ipairs(sorted_top(counts, n)) do
+		w(
+			string_format("  %6.1f%% %12d  %s\n", item.value / total * 100, item.value, tostring(item.key))
+		)
+	end
+end
+
+function Profiler.Summary(
+	path--[[#: string]],
+	options--[[#: {
+		top_n = number | nil,
+		filter = string | List<|string|> | AnyFunction | nil,
+		abort_reasons = List<|string|> | nil,
+	} | nil]]
+)--[[#: {header = AnyTable, events = List<|TEvent|>}]]
+	options = options or {}
+	local top_n = options.top_n or 10
+	local loc_filter, filter_desc
+
+	do
+		local f = options.filter
+
+		if f then
+			if type(f) == "function" then
+				loc_filter = f
+				filter_desc = "function"
+			elseif type(f) == "string" then
+				filter_desc = f
+				loc_filter = function(loc)
+					return loc:find(f, 1, true) ~= nil
+				end
+			else
+				filter_desc = table.concat(f, ",")
+				loc_filter = function(loc)
+					for _, sub in ipairs(f) do
+						if loc:find(sub, 1, true) then return true end
+					end
+
+					return false
+				end
+			end
+		end
+	end
+
+	local ignored_abort_reasons = {}
+
+	do
+		local reasons = options.abort_reasons or DEFAULT_IGNORED_ABORT_REASONS
+
+		for _, r in ipairs(reasons) do
+			ignored_abort_reasons[r] = true
+		end
+	end
+
+	local data = Profiler.Load(path)
+	local header, events = data.header, data.events
+	local w = io.write
+	local count = #events
+
+	if count == 0 then
+		w("no events in ", path, "\n")
+		return data
+	end
+
+	local t0, t1 = events[1].time, events[1].time
+
+	for i = 2, count do
+		local t = events[i].time
+
+		if t < t0 then t0 = t end
+
+		if t > t1 then t1 = t end
+	end
+
+	local samples = 0
+	local state_counts--[[#: Map<|string, number|>]] = {}
+	local section_samples--[[#: Map<|string, number|>]] = {}
+	local section_states--[[#: Map<|string, Map<|string, number|>|>]] = {}
+	local self_frames--[[#: Map<|string, number|>]] = {}
+	local all_frames--[[#: Map<|string, number|>]] = {}
+	local trace_stops, trace_aborts, trace_flushes = 0, 0, 0
+	local excluded_traces = 0
+	local excluded_samples = 0
+	local abort_reasons--[[#: Map<|string, Map<|string, number|>|>]] = {}
+	local mcode_by_gen--[[#: Map<|number, number|>]] = {}
+
+	for _, ev in ipairs(events) do
+		local t = ev.type
+
+		if t == "sample" then
+			local stack = ev.stack
+			local keep = true
+
+			if loc_filter then
+				keep = false
+
+				if stack then
+					for line in stack:gmatch("[^\n]+") do
+						if loc_filter(line) then
+							keep = true
+
+							break
+						end
+					end
+				end
+			end
+
+			if not keep then
+				excluded_samples = excluded_samples + 1
+			else
+				samples = samples + 1
+				local state = ev.vm_state or "?"
+				state_counts[state] = (state_counts[state] or 0) + 1
+				local sec = ev.section_path or ""
+				section_samples[sec] = (section_samples[sec] or 0) + 1
+				local ss = section_states[sec]
+
+				if not ss then
+					ss = {}
+					section_states[sec] = ss
+				end
+
+				ss[state] = (ss[state] or 0) + 1
+
+				if stack then
+					local lines = {}
+
+					for line in stack:gmatch("[^\n]+") do
+						lines[#lines + 1] = line
+					end
+
+					local is_self = true
+					local seen = {}
+
+					for i = 1, #lines do
+						local line = lines[i]
+
+						if is_self then
+							self_frames[line] = (self_frames[line] or 0) + 1
+							is_self = false
+						end
+
+						-- non-source lines (xpcall, C frames, ...) are not actionable
+						-- on their own, so attribute them to the nearest outer source
+						-- location to keep their callers distinguishable
+						local key = line
+
+						if not is_source_location(line) then
+							for j = i + 1, #lines do
+								if is_source_location(lines[j]) then
+									key = line .. " (via " .. lines[j] .. ")"
+
+									break
+								end
+							end
+						end
+
+						-- count each key at most once per sample
+						if not seen[key] then
+							seen[key] = true
+							all_frames[key] = (all_frames[key] or 0) + 1
+						end
+					end
+				end
+			end
+		elseif t == "trace_stop" or t == "trace_abort" then
+			local keep = true
+
+			if loc_filter then
+				keep = false
+				local stack = ev.stack
+
+				if stack then
+					for line in stack:gmatch("[^\n]+") do
+						if loc_filter(line) then
+							keep = true
+
+							break
+						end
+					end
+				else
+					-- old files carry no trace path, fall back to the stop/abort location
+					keep = loc_filter(ev.func_info)
+				end
+			end
+
+			if not keep then
+				excluded_traces = excluded_traces + 1
+			elseif t == "trace_stop" then
+				trace_stops = trace_stops + 1
+				local gen = ev.generation or 0
+				mcode_by_gen[gen] = (mcode_by_gen[gen] or 0) + (ev.mcode_size or 0)
+			else
+				trace_aborts = trace_aborts + 1
+				local reason = ev.abort_reason or "?"
+
+				if not ignored_abort_reasons[reason] then
+					local locs = abort_reasons[reason]
+
+					if not locs then
+						locs = {}
+						abort_reasons[reason] = locs
+					end
+
+					local loc = ev.func_info or "?"
+					locs[loc] = (locs[loc] or 0) + 1
+				end
+			end
+		elseif t == "trace_flush" then
+			trace_flushes = trace_flushes + 1
+		end
+	end
+
+	w("GLWP profile: ", path, header.name and ("  [" .. header.name .. "]") or "", "\n")
+	w(
+		string_format(
+			"  mode: %s  rate: %d  depth: %d  maxmcode: %dKB  sizemcode: %dKB\n",
+			tostring(header.profile_mode),
+			header.sampling_rate or 0,
+			header.depth or 0,
+			header.maxmcode or 0,
+			header.sizemcode or 0
+		)
+	)
+	w(string_format("  duration: %.3fs  samples: %d\n", t1 - t0, samples))
+	w(
+		string_format(
+			"  traces: %d stopped  %d aborted  %d gc flushes\n",
+			trace_stops,
+			trace_aborts,
+			trace_flushes
+		)
+	)
+
+	if filter_desc then
+		w(
+			string_format(
+				"  filter: %q  (%d traces, %d samples excluded)\n",
+				filter_desc,
+				excluded_traces,
+				excluded_samples
+			)
+		)
+	end
+
+	if samples > 0 then
+		w("\nvm states:\n")
+		print_vm_states(w, state_counts, samples)
+	end
+
+	local section_start_paths = {}
+	local section_times = {}
+
+	for _, ev in ipairs(events) do
+		if ev.type == "section_start" then
+			section_start_paths[ev.section_path] = ev.time
+		elseif ev.type == "section_end" then
+			-- end events carry the parent path, reconstruct the full one
+			local path = ev.section_path ~= "" and (ev.section_path .. " > " .. ev.name) or ev.name
+			local st = section_start_paths[path]
+
+			if st then
+				section_times[path] = (section_times[path] or 0) + (ev.time - st)
+				section_start_paths[path] = nil
+			end
+		end
+	end
+
+	local section_names = {}
+
+	for name in pairs(section_samples) do
+		-- skip the implicit "no section" bucket unless it carries a section time
+		if name ~= "" or section_times[name] then
+			section_names[#section_names + 1] = name
+		end
+	end
+
+	for name in pairs(section_times) do
+		if not section_samples[name] then
+			section_names[#section_names + 1] = name
+		end
+	end
+
+	if #section_names > 0 then
+		table.sort(section_names)
+		w("\nsections:\n")
+
+		for _, name in ipairs(section_names) do
+			local st = section_times[name]
+			local ss = section_states[name] or {}
+			w("  ", name == "" and "(none)" or name, ": ")
+
+			if st then w(string_format("%.3fs ", st)) end
+
+			w("samples: ", tostring(section_samples[name] or 0), "  ")
+			local parts = {}
+
+			for _, state in ipairs(VM_STATE_ORDER) do
+				local c = ss[state]
+
+				if c then parts[#parts + 1] = state .. "=" .. c end
+			end
+
+			w(table_concat(parts, " "), "\n")
+		end
+	end
+
+	if samples > 0 and (next(self_frames) or next(all_frames)) then
+		w("\ntop self (innermost frame):\n")
+		print_top(w, self_frames, samples, top_n)
+		w("\ntop inclusive (samples with the frame anywhere on stack):\n")
+		print_top(w, all_frames, samples, top_n)
+	end
+
+	if next(abort_reasons) then
+		w("\ntop abort reasons:\n")
+
+		do
+			local reasons = {}
+
+			for reason, locs in pairs(abort_reasons) do
+				local total = 0
+
+				for _, c in pairs(locs) do
+					total = total + c
+				end
+
+				reasons[#reasons + 1] = {reason = reason, total = total, locs = locs}
+			end
+
+			table.sort(reasons, function(a, b)
+				if a.total ~= b.total then return a.total > b.total end
+
+				return a.reason < b.reason
+			end)
+
+			for i = #reasons, top_n + 1, -1 do
+				reasons[i] = nil
+			end
+
+			for _, r in ipairs(reasons) do
+				w("  ", r.reason, "\n")
+				local items = {}
+
+				for loc, c in pairs(r.locs) do
+					items[#items + 1] = {loc = loc, c = c}
+				end
+
+				table.sort(items, function(a, b)
+					if a.c ~= b.c then return a.c > b.c end
+
+					return a.loc < b.loc
+				end)
+
+				for i = #items, top_n + 1, -1 do
+					items[i] = nil
+				end
+
+				for _, item in ipairs(items) do
+					w("      ", item.loc, "\n")
+				end
+			end
+		end
+	end
+
+	local gens = {}
+
+	for gen in pairs(mcode_by_gen) do
+		gens[#gens + 1] = gen
+	end
+
+	if #gens > 0 then
+		table.sort(gens)
+		local parts = {}
+
+		for _, gen in ipairs(gens) do
+			parts[#parts + 1] = string_format("gen%d=%.1fKB", gen, mcode_by_gen[gen] / 1024)
+		end
+
+		w("\nmcode per generation: ", table_concat(parts, "  "), "\n")
+	end
+
+	return data
+end
+
 HTML_TEMPLATE = [==[
 <!DOCTYPE html>
 <html lang="en">
@@ -923,9 +1684,6 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 .filter-separator { width: 100%; height: 1px; background: var(--border); margin: 4px 0; }
 #flamegraph-container { overflow: hidden; max-height: 0; flex-shrink: 0; contain: strict; }
 #flamegraph-container.open { max-height: none; display: block; overflow-x: hidden; overflow-y: auto; flex: 1; contain: layout style; }
-#flamegraph-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 8px 16px 0; }
-#fg-copy-status { color: var(--text-dim); font-size: 11px; min-height: 1em; }
-#btn-copy-fg-summary { padding: 2px 10px; }
 #flamegraph-canvas { width: 100%; min-height: 400px; }
 #mcode-container { overflow: auto; max-height: 0; flex-shrink: 0; contain: strict; }
 #mcode-container.open { max-height: none; display: block; overflow: auto; contain: layout style; }
@@ -989,10 +1747,6 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
   <button id="btn-toggle-fg">flamegraph</button>
 </div>
 <div id="flamegraph-container" class="open">
-  <div id="flamegraph-toolbar">
-    <span id="fg-copy-status"></span>
-    <button id="btn-copy-fg-summary" class="panel-btn">copy summary</button>
-  </div>
   <div id="fg-section-filter"></div>
   <canvas id="flamegraph-canvas"></canvas>
 </div>
@@ -1838,21 +2592,6 @@ document.getElementById('btn-toggle-fg').addEventListener('click', () => {
   if (isOpen) drawFlamegraph(viewStart, viewEnd);
 });
 
-let fgCopyStatusTimer = null;
-function setFlamegraphCopyStatus(message, isError) {
-  const el = document.getElementById('fg-copy-status');
-  if (!el) return;
-  el.textContent = message || '';
-  el.style.color = isError ? COLORS.abort : COLORS.textDim;
-  if (fgCopyStatusTimer) clearTimeout(fgCopyStatusTimer);
-  if (!message) return;
-  fgCopyStatusTimer = setTimeout(() => {
-    if (el.textContent === message) {
-      el.textContent = '';
-      el.style.color = COLORS.textDim;
-    }
-  }, 2400);
-}
 
 // Sync: highlight traces row when timeline hover changes
 function syncTraceListHighlight(span) {
@@ -3608,154 +4347,6 @@ const FG_ROW_HEIGHT = 20;
 const FG_FONT_SIZE = 11;
 const FG_MIN_WIDTH_PX = 2;
 
-function formatFlamegraphDuration(seconds) {
-  if (seconds < 0.001) return (seconds * 1e6).toFixed(0) + 'µs';
-  if (seconds < 1) return (seconds * 1000).toFixed(2) + 'ms';
-  return seconds.toFixed(3) + 's';
-}
-
-function formatFlamegraphOffset(seconds) {
-  return seconds.toFixed(6) + 's';
-}
-
-function escapeMarkdownText(text) {
-  return String(text || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/\|/g, '\\|')
-    .replace(/`/g, '\\`')
-    .replace(/\n+/g, ' ');
-}
-
-function aggregateFlamegraphFrames(node, totals) {
-  const children = Object.values(node.children || {});
-  for (const child of children) {
-    let entry = totals.get(child.name);
-    if (!entry) {
-      entry = {name: child.name, count: 0, self: 0, occurrences: 0};
-      totals.set(child.name, entry);
-    }
-    entry.count += child.count || 0;
-    entry.self += child._self || 0;
-    entry.occurrences++;
-    aggregateFlamegraphFrames(child, totals);
-  }
-}
-
-function appendFlamegraphTreeLines(lines, node, totalSamples, depth, maxDepth, maxChildren) {
-  const indent = '  '.repeat(depth);
-  const pct = totalSamples > 0 ? ((node.count / totalSamples) * 100).toFixed(1) : '0.0';
-  const selfPct = totalSamples > 0 ? ((node._self / totalSamples) * 100).toFixed(1) : '0.0';
-  let line = `${indent}- ${node.name} — ${node.count} samples (${pct}%)`;
-  if (node._self > 0) line += `, self ${node._self} (${selfPct}%)`;
-  lines.push(line);
-  if (depth >= maxDepth) return;
-
-  const children = Object.values(node.children || {}).sort((a, b) => b.count - a.count);
-  const visibleChildren = children.slice(0, maxChildren);
-  for (const child of visibleChildren) {
-    appendFlamegraphTreeLines(lines, child, totalSamples, depth + 1, maxDepth, maxChildren);
-  }
-  const hiddenCount = children.length - visibleChildren.length;
-  if (hiddenCount > 0) {
-    lines.push(`${'  '.repeat(depth + 1)}- … ${hiddenCount} more child${hiddenCount === 1 ? '' : 'ren'}`);
-  }
-}
-
-function getFlamegraphFilterSummary() {
-  const activeStates = hoverState
-    ? [(VM_STATE_LABELS[hoverState] || hoverState) + ' (hover preview)']
-    : Array.from(enabledStates)
-      .sort()
-      .map(state => VM_STATE_LABELS[state] || state);
-
-  const activeSections = hoverSection
-    ? [(hoverSection === SECTION_OTHER ? 'other' : hoverSection) + ' (hover preview)']
-    : Array.from(enabledSections)
-      .sort()
-      .map(section => section === SECTION_OTHER ? 'other' : section);
-
-  return {
-    states: activeStates.length > 0 ? activeStates : ['none'],
-    sections: activeSections.length > 0 ? activeSections : ['none'],
-  };
-}
-
-function buildFlamegraphSummaryMarkdown(tStart, tEnd) {
-  const {root, totalSamples} = buildFlamegraph(tStart, tEnd);
-  const filters = getFlamegraphFilterSummary();
-  const duration = Math.max(0, tEnd - tStart);
-  const lines = [
-    '# Flamegraph Summary',
-    '',
-    `- Window: ${formatFlamegraphOffset(tStart)} → ${formatFlamegraphOffset(tEnd)} (${formatFlamegraphDuration(duration)})`,
-    `- Samples: ${totalSamples}`,
-    `- VM states: ${filters.states.join(', ')}`,
-    `- Sections: ${filters.sections.join(', ')}`,
-  ];
-
-  if (hoverState || hoverSection) {
-    lines.push(`- Hover preview: ${[
-      hoverState ? `state=${VM_STATE_LABELS[hoverState] || hoverState}` : null,
-      hoverSection ? `section=${hoverSection === SECTION_OTHER ? 'other' : hoverSection}` : null,
-    ].filter(Boolean).join(', ')}`);
-  }
-
-  if (totalSamples === 0) {
-    lines.push('', 'No samples matched the current range and filter selection.');
-    return lines.join('\n');
-  }
-
-  const totals = new Map();
-  aggregateFlamegraphFrames(root, totals);
-  const hottestFrames = Array.from(totals.values())
-    .sort((a, b) => (b.count - a.count) || (b.self - a.self) || a.name.localeCompare(b.name))
-    .slice(0, 12);
-  const hottestSelfFrames = Array.from(totals.values())
-    .filter(entry => entry.self > 0)
-    .sort((a, b) => (b.self - a.self) || (b.count - a.count) || a.name.localeCompare(b.name))
-    .slice(0, 12);
-
-  lines.push('', '## Hottest Frames', '', '| Frame | Inclusive | Inclusive % | Self | Self % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
-  for (const entry of hottestFrames) {
-    const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
-    const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
-    lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.count} | ${inclusivePct} | ${entry.self} | ${selfPct} | ${entry.occurrences} |`);
-  }
-
-  if (hottestSelfFrames.length > 0) {
-    lines.push('', '## Hottest Self Time', '', '| Frame | Self | Self % | Inclusive | Inclusive % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
-    for (const entry of hottestSelfFrames) {
-      const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
-      const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
-      lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.self} | ${selfPct} | ${entry.count} | ${inclusivePct} | ${entry.occurrences} |`);
-    }
-  }
-
-  lines.push('', '## Hottest Call Tree', '');
-  appendFlamegraphTreeLines(lines, root, totalSamples, 0, 5, 5);
-  return lines.join('\n');
-}
-
-async function copyTextToClipboard(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.setAttribute('readonly', '');
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
-  ta.style.left = '-9999px';
-  document.body.appendChild(ta);
-  ta.select();
-  ta.setSelectionRange(0, ta.value.length);
-  const ok = document.execCommand('copy');
-  document.body.removeChild(ta);
-  if (!ok) throw new Error('copy failed');
-}
-
 function drawFlamegraph(tStart, tEnd) {
   const container = document.getElementById('flamegraph-container');
   if (!container || !container.classList.contains('open')) return;
@@ -3895,16 +4486,6 @@ fgCanvas.addEventListener('click', (ev) => {
 });
 
 fgCanvas.addEventListener('mouseleave', () => { hideTooltip(); });
-
-document.getElementById('btn-copy-fg-summary').addEventListener('click', async () => {
-  try {
-    const summary = buildFlamegraphSummaryMarkdown(fgLastRange[0], fgLastRange[1]);
-    await copyTextToClipboard(summary);
-    setFlamegraphCopyStatus('copied markdown summary', false);
-  } catch (err) {
-    setFlamegraphCopyStatus('copy failed', true);
-  }
-});
 
 // --- Init ---
 timelineContainerH = computeDefaultTimelineH();

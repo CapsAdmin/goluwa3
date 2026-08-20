@@ -136,6 +136,51 @@ do
 end
 
 do
+	local profiler = import("goluwa/profiler.lua")
+	local JitProfiler = import("goluwa/jit/profiler.lua")
+	local PROF = {}
+
+	function PROF.start(id, opts)
+		opts = opts or {}
+		local config = {
+			format = "bin",
+			summary = true,
+			skip_frames = opts.skip_frames or 0,
+			sampling_rate = opts.sampling_rate or 1,
+			flush_interval = opts.flush_interval or 0.5,
+		}
+
+		if opts.shutdown ~= false then
+			config.shutdown_after_frames = opts.frames or 300
+		end
+
+		if opts.trace_recorder ~= nil then
+			config.trace_recorder = opts.trace_recorder
+		end
+
+		if opts.path then config.path = opts.path end
+
+		logn("PROF: started '", id, "'")
+		profiler.Start(id, config)
+	end
+
+	function PROF.stop()
+		return profiler.Stop()
+	end
+
+	PROF.summary = function(path, opts)
+		return JitProfiler.Summary(path, opts)
+	end
+	-- allow PROF("id", opts) as shorthand for PROF.start
+	setmetatable(PROF, {
+		__call = function(_, id, opts)
+			PROF.start(id, opts)
+		end,
+	})
+	_G.PROF = PROF
+end
+
+do
 	local event = import("goluwa/event.lua")
 	local events = {}
 	setmetatable(
