@@ -209,6 +209,7 @@ render2d.state = {
 			next_world_matrix_slot = 1,
 			next_draw_matrix_slot = 1,
 			next_rect_draw_state_snapshot_slot = 1,
+			rect_state_version = 0,
 		},
 		ids = {
 			roots = {
@@ -273,6 +274,10 @@ local function reset_rect_batch_matrix_pool_state()
 	batch_runtime.next_world_matrix_slot = 1
 	batch_runtime.next_draw_matrix_slot = 1
 	batch_runtime.next_rect_draw_state_snapshot_slot = 1
+end
+
+local function next_batch_rect_version()
+	batch_runtime.rect_state_version = batch_runtime.rect_state_version + 1
 end
 
 function render2d.SetRectBatchMode(mode)
@@ -517,6 +522,7 @@ end
 
 function render2d.MarkPipelineStateDirty()
 	runtime_pipeline.dirty = true
+	next_batch_rect_version()
 end
 
 local function canonicalize_blend_mode_state(state)
@@ -1765,6 +1771,8 @@ do
 			constants.nine_patch_x_stretch[i] = 0
 			constants.nine_patch_y_stretch[i] = 0
 		end
+
+		next_batch_rect_version()
 	end
 
 	function render2d.SetNinePatchTable(tbl)
@@ -1803,6 +1811,7 @@ do
 		constants.nine_patch_y_stretch[index * 2] = x2
 		constants.nine_patch_y_stretch[index * 2 + 1] = y2
 		constants.nine_patch_y_count = math.max(constants.nine_patch_y_count, index + 1)
+		next_batch_rect_version()
 	end
 
 	function render2d.GetNinePatch()
@@ -2059,6 +2068,7 @@ function render2d.SetScissor(x, y, w, h)
 	local constants_scissor = constants.scissor
 	constants_scissor[0], constants_scissor[1], constants_scissor[2], constants_scissor[3] = x, y, w, h
 	apply_scissor_to_command_buffer(x, y, w, h)
+	next_batch_rect_version()
 end
 
 do
@@ -2654,35 +2664,41 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	entry.draw_matrix = projected
 	entry.state = state
 	local snapshot = state.rect_state_snapshot
-	local key = table.intern_key(
-		ids.roots.rect_batch_key,
-		batch_runtime.mode_ids[batch_mode] or 0,
-		state.pipeline_state_id,
-		state.blend_mode.batch_key,
-		snapshot.nine_patch_x_count,
-		snapshot.nine_patch_y_count,
-		snapshot.nine_patch_x_stretch[0],
-		snapshot.nine_patch_x_stretch[1],
-		snapshot.nine_patch_x_stretch[2],
-		snapshot.nine_patch_x_stretch[3],
-		snapshot.nine_patch_x_stretch[4],
-		snapshot.nine_patch_x_stretch[5],
-		snapshot.nine_patch_y_stretch[0],
-		snapshot.nine_patch_y_stretch[1],
-		snapshot.nine_patch_y_stretch[2],
-		snapshot.nine_patch_y_stretch[3],
-		snapshot.nine_patch_y_stretch[4],
-		snapshot.nine_patch_y_stretch[5],
-		snapshot.depth_mode_id,
-		snapshot.depth_write,
-		snapshot.stencil_mode_id,
-		snapshot.stencil_ref,
-		snapshot.scissor[0],
-		snapshot.scissor[1],
-		snapshot.scissor[2],
-		snapshot.scissor[3]
-	)
-	batch_runtime.state:Append("rect", key, entry)
+
+	-- the key depends only on draw state and not on rects
+	if batch_runtime.rect_key_version ~= batch_runtime.rect_state_version then
+		batch_runtime.rect_key_version = batch_runtime.rect_state_version
+		batch_runtime.rect_key = table.intern_key(
+			ids.roots.rect_batch_key,
+			batch_runtime.mode_ids[batch_mode] or 0,
+			state.pipeline_state_id,
+			state.blend_mode.batch_key,
+			snapshot.nine_patch_x_count,
+			snapshot.nine_patch_y_count,
+			snapshot.nine_patch_x_stretch[0],
+			snapshot.nine_patch_x_stretch[1],
+			snapshot.nine_patch_x_stretch[2],
+			snapshot.nine_patch_x_stretch[3],
+			snapshot.nine_patch_x_stretch[4],
+			snapshot.nine_patch_x_stretch[5],
+			snapshot.nine_patch_y_stretch[0],
+			snapshot.nine_patch_y_stretch[1],
+			snapshot.nine_patch_y_stretch[2],
+			snapshot.nine_patch_y_stretch[3],
+			snapshot.nine_patch_y_stretch[4],
+			snapshot.nine_patch_y_stretch[5],
+			snapshot.depth_mode_id,
+			snapshot.depth_write,
+			snapshot.stencil_mode_id,
+			snapshot.stencil_ref,
+			snapshot.scissor[0],
+			snapshot.scissor[1],
+			snapshot.scissor[2],
+			snapshot.scissor[3]
+		)
+	end
+
+	batch_runtime.state:Append("rect", batch_runtime.rect_key, entry)
 	return true
 end
 
