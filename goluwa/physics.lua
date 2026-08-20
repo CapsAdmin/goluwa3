@@ -28,6 +28,7 @@ function Physics.New(config)
 	self.Up = config.Up or physics_constants.UP
 	self.DefaultCollisionMargin = config.DefaultCollisionMargin or physics_constants.DEFAULT_COLLISION_MARGIN
 	self.MaxFrameTime = config.MaxFrameTime or 0.1
+	self.MaxStepsPerFrame = config.MaxStepsPerFrame or 8
 	self.FrameAccumulator = config.FrameAccumulator or 0
 	self.InterpolationAlpha = config.InterpolationAlpha or 0
 	RigidBody.Physics = self

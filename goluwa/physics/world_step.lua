@@ -65,16 +65,18 @@ function world_step.UpdateFixed(physics, dt)
 	if max_frame_time > 0 then dt = math.min(dt, max_frame_time) end
 
 	local fixed_dt = get_fixed_step(physics)
+	local max_steps = math.max(1, physics.MaxStepsPerFrame or 8)
 	local accumulator = (physics.FrameAccumulator or 0) + dt
 	local steps = 0
 
-	while accumulator >= fixed_dt do
+	while steps < max_steps and accumulator >= fixed_dt do
 		physics.Step(fixed_dt)
 		accumulator = accumulator - fixed_dt
 		steps = steps + 1
 	end
 
-	if accumulator >= fixed_dt then accumulator = accumulator % fixed_dt end
+	-- dropped the rest of the backlog to avoid spiralling into further steps
+	if steps == max_steps then accumulator = 0 end
 
 	physics.FrameAccumulator = accumulator
 	physics.InterpolationAlpha = accumulator / fixed_dt
