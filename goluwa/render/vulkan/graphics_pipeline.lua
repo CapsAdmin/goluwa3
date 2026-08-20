@@ -1032,7 +1032,13 @@ local function get_signature_id(self, signature)
 		end
 	end
 
-	return self.signature_interner:intern(formats, signature.depth_format or false, signature.samples or "1")
+	return self.signature_interner:intern{
+		formats,
+		signature.depth_format or
+		false,
+		signature.samples or
+		"1",
+	}
 end
 
 local function has_static_state_change(self, info)
@@ -1065,7 +1071,7 @@ do
 		end
 
 		assert_known_keys("input_assembly", input_assembly, state_keys.input_assembly)
-		return self.input_assembly_state_interner:internWith(input_assembly, "topology", "primitive_restart")
+		return self.input_assembly_state_interner:internWith(input_assembly, {"topology", "primitive_restart"})
 	end
 
 	local function get_tessellation_state_id(self, tessellation)
@@ -1074,7 +1080,7 @@ do
 		end
 
 		assert_known_keys("tessellation", tessellation, state_keys.tessellation)
-		return self.tessellation_state_interner:internWith(tessellation, "patch_control_points")
+		return self.tessellation_state_interner:internWith(tessellation, {"patch_control_points"})
 	end
 
 	local function get_multisampling_state_id(self, multisampling)
@@ -1083,7 +1089,10 @@ do
 		end
 
 		assert_known_keys("multisampling", multisampling, state_keys.multisampling)
-		return self.multisampling_state_interner:internWith(multisampling, "rasterization_samples", "sample_shading", "min_sample_shading")
+		return self.multisampling_state_interner:internWith(
+			multisampling,
+			{"rasterization_samples", "sample_shading", "min_sample_shading"}
+		)
 	end
 
 	local function get_rasterizer_state_id(self, rasterizer)
@@ -1094,16 +1103,18 @@ do
 		assert_known_keys("rasterizer", rasterizer, state_keys.rasterizer)
 		return self.rasterizer_state_interner:internWith(
 			rasterizer,
-			"polygon_mode",
-			"cull_mode",
-			"front_face",
-			"depth_bias",
-			"depth_bias_constant_factor",
-			"depth_bias_clamp",
-			"depth_bias_slope_factor",
-			"line_width",
-			"depth_clamp",
-			"discard"
+			{
+				"polygon_mode",
+				"cull_mode",
+				"front_face",
+				"depth_bias",
+				"depth_bias_constant_factor",
+				"depth_bias_clamp",
+				"depth_bias_slope_factor",
+				"line_width",
+				"depth_clamp",
+				"discard",
+			}
 		)
 	end
 
@@ -1143,7 +1154,7 @@ do
 			end
 		end
 
-		return self.depth_stencil_state_interner:intern(unpack(args))
+		return self.depth_stencil_state_interner:intern(args)
 	end
 
 	local function get_viewport_state_id(self, viewport)
@@ -1152,7 +1163,7 @@ do
 		end
 
 		assert_known_keys("viewport", viewport, state_keys.viewport)
-		return self.viewport_state_interner:internWith(viewport, "x", "y", "w", "h", "min_depth", "max_depth")
+		return self.viewport_state_interner:internWith(viewport, {"x", "y", "w", "h", "min_depth", "max_depth"})
 	end
 
 	local function get_scissor_state_id(self, scissor)
@@ -1161,7 +1172,7 @@ do
 		end
 
 		assert_known_keys("scissor", scissor, state_keys.scissor)
-		return self.scissor_state_interner:internWith(scissor, "x", "y", "w", "h")
+		return self.scissor_state_interner:internWith(scissor, {"x", "y", "w", "h"})
 	end
 
 	local function get_color_blend_state_id(self, color_blend)
@@ -1208,7 +1219,7 @@ do
 			end
 		end
 
-		return self.color_blend_state_interner:intern(unpack(args))
+		return self.color_blend_state_interner:intern(args)
 	end
 
 	function GraphicsPipeline:GetVariantId(overrides, signature)
@@ -1251,7 +1262,7 @@ do
 		local viewport_state_id = get_viewport_state_id(self, static_overrides.viewport)
 		local scissor_state_id = get_scissor_state_id(self, static_overrides.scissor)
 		local color_blend_state_id = get_color_blend_state_id(self, static_overrides.color_blend)
-		return self.pipeline_variant_interner:intern(
+		return self.pipeline_variant_interner:intern{
 			signature_id,
 			input_assembly_state_id,
 			tessellation_state_id,
@@ -1260,8 +1271,8 @@ do
 			depth_stencil_state_id,
 			viewport_state_id,
 			scissor_state_id,
-			color_blend_state_id
-		)
+			color_blend_state_id,
+		}
 	end
 end
 

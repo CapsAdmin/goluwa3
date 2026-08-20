@@ -3,7 +3,7 @@
 -- Usage:
 --   local hash = import("goluwa/hash.lua")
 --   local interner = hash.New()
---   local id = interner:intern("foo", 42, true)  -- stable integer >= 1
+--   local id = interner:intern({"foo", 42, true})  -- stable integer >= 1
 --
 -- Common types (nil, number, string, boolean) are hashed directly.
 -- Tables are hashed by their structure:
@@ -13,42 +13,42 @@
 --
 -- Custom serialization via __hash_serialize metamethod:
 --   local mt = { __hash_serialize = function(self) return { self.x, self.y } end }
---   interner:intern(setmetatable({ x = 1, y = 2 }, mt))  -- same as interner:intern(1, 2)
+--   interner:intern({ setmetatable({ x = 1, y = 2 }, mt) })  -- same as interner:intern({ 1, 2 })
 --
 -- Helper for keyed tables:
---   local id = interner:internWith(config, "key1", "key2", "key3")
+--   local id = interner:internWith(config, { "key1", "key2", "key3" })
 --
 -- Optional L1 object cache (caller responsibility):
 --   local cache = setmetatable({}, {__mode = "k"})
 --   if cache[obj] then return cache[obj] end
---   cache[obj] = interner:intern(...)
+--   cache[obj] = interner:intern({ obj })
 local Hash = {}
 Hash.__index = Hash
 
 --- Create a new interner with its own trie root and counter.
 function Hash.New()
-	return setmetatable(
-		{
-			_root = {},
-			_nextId = 1,
-			_nilKey = {},
-			_leafKey = {},
-		},
-		Hash
-	)
+	return setmetatable({
+		_root = {},
+		_nextId = 1,
+		_nilKey = {},
+		_leafKey = {},
+	}, Hash)
 end
 
---- Hash a sequence of values and return a stable integer ID.
+--- Hash a list of values and return a stable integer ID.
 --
+-- `list` is an array of values (nil = empty sequence).
 -- Values can be: nil, number, string, boolean, or a table.
 -- Tables are hashed structurally. Use __hash_serialize metamethod
 -- to customize serialization for custom types.
-function Hash:intern(...)
+-- Pass `count` explicitly when the list has holes and `#list` is unreliable.
+function Hash:intern(list, count)
 	local node = self._root
-	local count = select("#", ...)
+
+	if count == nil then count = list and #list or 0 end
 
 	for i = 1, count do
-		node = self:_descend(node, select(i, ...))
+		node = self:_descend(node, list[i])
 	end
 
 	return self:_finalize(node)
@@ -191,17 +191,16 @@ end
 
 --- Hash values extracted from a table by the given keys.
 --
--- Usage: interner:internWith(config, "key1", "key2", "key3")
-function Hash:internWith(tbl, ...)
-	local values = {}
-	local count = select("#", ...)
+-- `keys` is an array of field names; values are hashed in that order.
+-- Usage: interner:internWith(config, { "key1", "key2", "key3" })
+function Hash:internWith(tbl, keys)
+	local node = self._root
 
-	for i = 1, count do
-		local key = select(i, ...)
-		values[i] = tbl and tbl[key] or nil
+	for i = 1, #keys do
+		node = self:_descend(node, tbl and tbl[keys[i]] or nil)
 	end
 
-	return self:intern(unpack(values, 1, count))
+	return self:_finalize(node)
 end
 
 --- Hash a table by its keys in sorted order, then their values.
@@ -212,7 +211,7 @@ end
 --
 -- Usage: interner:internDict(config)
 function Hash:internDict(tbl)
-	if type(tbl) ~= "table" then return self:intern(tbl) end
+	if type(tbl) ~= "table" then return self:intern({tbl}) end
 
 	if #tbl > 0 then return self:intern(tbl) end -- treat as array
 	local keys = {}

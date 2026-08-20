@@ -45,27 +45,28 @@ local sampler_config_key_cache = setmetatable({}, {__mode = "k"})
 local sampler_config_interner = Hash.New()
 local NIL_SAMPLER_CONFIG_CACHE_KEY = {}
 local FALSE_SAMPLER_CONFIG_CACHE_KEY = {}
+local SAMPLER_CONFIG_KEYS = {
+	"min_filter",
+	"mag_filter",
+	"mipmap_mode",
+	"wrap_s",
+	"wrap_t",
+	"wrap_r",
+	"max_lod",
+	"min_lod",
+	"mip_lod_bias",
+	"anisotropy",
+	"border_color",
+	"unnormalized_coordinates",
+	"compare_enable",
+	"compare_op",
+	"flags",
+}
 
 local function intern_sampler_config_key(config)
 	if type(config) ~= "table" then return sampler_config_interner:intern() end
 
-	return sampler_config_interner:intern(
-		config.min_filter,
-		config.mag_filter,
-		config.mipmap_mode,
-		config.wrap_s,
-		config.wrap_t,
-		config.wrap_r,
-		config.max_lod,
-		config.min_lod,
-		config.mip_lod_bias,
-		config.anisotropy,
-		config.border_color,
-		config.unnormalized_coordinates,
-		config.compare_enable,
-		config.compare_op,
-		config.flags
-	)
+	return sampler_config_interner:internWith(config, SAMPLER_CONFIG_KEYS)
 end
 
 function pipeline_common.get_sampler_config_hash(config)
