@@ -142,14 +142,9 @@ local get_support_point = sweep_helpers.GetSupportPoint
 local function build_collider_swept_aabb(collider, start_position, rotation, movement)
 	local shape = collider:GetPhysicsShape()
 	local end_position = start_position + movement
-	local start_aabb = shape.GetBroadphaseAABB and
-		shape:GetBroadphaseAABB(collider, start_position, rotation) or
-		nil
-	local end_aabb = shape.GetBroadphaseAABB and
-		shape:GetBroadphaseAABB(collider, end_position, rotation) or
-		nil
-	return merge_aabb(start_aabb, end_aabb) or
-		build_swept_aabb(start_position, end_position, 0)
+	local start_aabb = shape:GetBroadphaseAABB(collider, start_position, rotation)
+	local end_aabb = shape:GetBroadphaseAABB(collider, end_position, rotation)
+	return merge_aabb(start_aabb, end_aabb)
 end
 
 local function build_rigid_body_hit(base_hit, movement, movement_length, body, collider)
@@ -173,29 +168,15 @@ local function build_rigid_body_hit(base_hit, movement, movement_length, body, c
 end
 
 local function get_mesh_collider_shape(collider)
-	local shape = collider and collider.GetPhysicsShape and collider:GetPhysicsShape() or nil
+	local shape = collider and collider:GetPhysicsShape() or nil
 
-	if not (shape and shape.GetTypeName and shape:GetTypeName() == "mesh") then
-		return nil
-	end
+	if not (shape and shape:GetTypeName() == "mesh") then return nil end
 
 	return shape
 end
 
 local function test_mesh_body_point_sweep(origin, movement, radius, body, collider, max_fraction)
-	if
-		not ((
-			body and
-			(
-				body.IsStatic and
-				body:IsStatic() or
-				body.IsKinematic and
-				body:IsKinematic()
-			)
-		))
-	then
-		return nil
-	end
+	if not (body and (body:IsStatic() or body:IsKinematic())) then return nil end
 
 	local best_hit = nil
 	local target_position = collider:GetPosition()
@@ -258,19 +239,7 @@ local function test_mesh_body_collider_sweep(
 	target_collider,
 	max_fraction
 )
-	if
-		not ((
-			body and
-			(
-				body.IsStatic and
-				body:IsStatic() or
-				body.IsKinematic and
-				body:IsKinematic()
-			)
-		))
-	then
-		return nil
-	end
+	if not (body and (body:IsStatic() or body:IsKinematic())) then return nil end
 
 	local best_hit = nil
 	local target_position = target_collider:GetPosition()
@@ -662,7 +631,7 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 		return nil
 	end
 
-	if not (body.GetColliders and body:GetColliders()) then return nil end
+	if not body:GetColliders() then return nil end
 
 	local movement_length = movement:GetLength()
 	local target_state = sweep_helpers.BuildTargetMotionState(body)
@@ -1243,13 +1212,7 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 	local shape = collider:GetPhysicsShape()
 	local shape_type = collider:GetShapeType()
 
-	if
-		shape_type == "capsule" and
-		shape and
-		shape.GetBottomSphereCenterLocal and
-		shape.GetTopSphereCenterLocal and
-		shape.GetRadius
-	then
+	if shape_type == "capsule" then
 		local movement_length = movement:GetLength()
 
 		if movement_length <= EPSILON then return nil end

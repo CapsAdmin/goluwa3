@@ -89,12 +89,7 @@ local function append_shape_entry(entries, entry, parent_position, parent_rotati
 	local combined_position = parent_position + parent_rotation:VecMul(local_position)
 	local combined_rotation = (parent_rotation * local_rotation):GetNormalized()
 
-	if
-		shape and
-		shape.GetTypeName and
-		shape:GetTypeName() == "compound" and
-		shape.GetChildren
-	then
+	if shape:GetTypeName() == "compound" then
 		for _, child in ipairs(shape:GetChildren()) do
 			append_shape_entry(entries, child, combined_position, combined_rotation)
 		end
@@ -229,11 +224,7 @@ end
 function META:InvalidateGeometry()
 	self.CollisionLocalPoints = nil
 	self.SupportLocalPoints = nil
-
-	if self.Shape and self.Shape.OnBodyGeometryChanged then
-		self.Shape:OnBodyGeometryChanged(self)
-	end
-
+	self.Shape:OnBodyGeometryChanged(self)
 	return self
 end
 
@@ -262,14 +253,11 @@ function META:GetPhysicsShape()
 end
 
 function META:GetShapeType()
-	return self.Shape and self.Shape.GetTypeName and self.Shape:GetTypeName() or "unknown"
+	return self.Shape:GetTypeName()
 end
 
 function META:GetResolvedConvexHull()
-	return self.Shape and
-		self.Shape.GetResolvedHull and
-		self.Shape:GetResolvedHull(self) or
-		nil
+	return self.Shape:GetResolvedHull(self)
 end
 
 for _, name in ipairs{
@@ -416,8 +404,7 @@ function META:GetHalfExtents()
 end
 
 function META:ApplyCorrection(compliance, correction, pos, other_body, other_pos, dt)
-	local other = other_body and other_body.GetBody and other_body:GetBody() or other_body
-	return self.Body:ApplyCorrection(compliance, correction, pos, other, other_pos, dt)
+	return self.Body:ApplyCorrection(compliance, correction, pos, other_body, other_pos, dt)
 end
 
 return META:Register()

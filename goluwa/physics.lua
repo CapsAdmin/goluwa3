@@ -176,7 +176,7 @@ function Physics:_ResetState()
 	local collision_pairs = self.collision_pairs or self:CreateCollisionPairs()
 	local broadphase = self.broadphase or self:CreateBroadphase()
 	local solver = self.solver or self:CreateSolver()
-	local constraints = self.GetConstraints and self.GetConstraints() or nil
+	local constraints = self.GetConstraints()
 	self.collision_pairs = collision_pairs
 	self.broadphase = broadphase
 	self.solver = solver

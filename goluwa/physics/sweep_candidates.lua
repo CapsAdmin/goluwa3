@@ -20,7 +20,6 @@ local function passes_entity_filter(entity, ignore_entity, filter_fn, options)
 		)
 		and
 		entity.rigid_body and
-		entity.rigid_body.IsKinematic and
 		entity.rigid_body:IsKinematic()
 	then
 		return false
@@ -58,7 +57,6 @@ local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
 			options.IgnoreKinematicBodies ~= false
 		)
 		and
-		body.IsKinematic and
 		body:IsKinematic()
 	then
 		return true
@@ -221,12 +219,10 @@ local function store_candidate_pose(
 end
 
 local function get_rigid_body_candidate_aabb(body)
-	if not body.GetBroadphaseAABB then return nil end
-
-	local current_position = body.GetPosition and body:GetPosition() or nil
-	local current_rotation = body.GetRotation and body:GetRotation() or nil
-	local previous_position = body.GetPreviousPosition and body:GetPreviousPosition() or nil
-	local previous_rotation = body.GetPreviousRotation and body:GetPreviousRotation() or nil
+	local current_position = body:GetPosition()
+	local current_rotation = body:GetRotation()
+	local previous_position = body:GetPreviousPosition()
+	local previous_rotation = body:GetPreviousRotation()
 	local has_previous = current_position and
 		current_rotation and
 		previous_position and
@@ -296,12 +292,10 @@ local function get_rigid_body_candidate_aabb(body)
 end
 
 local function get_collider_candidate_aabb(collider)
-	if not collider.GetBroadphaseAABB then return nil end
-
-	local current_position = collider.GetPosition and collider:GetPosition() or nil
-	local current_rotation = collider.GetRotation and collider:GetRotation() or nil
-	local previous_position = collider.GetPreviousPosition and collider:GetPreviousPosition() or nil
-	local previous_rotation = collider.GetPreviousRotation and collider:GetPreviousRotation() or nil
+	local current_position = collider:GetPosition()
+	local current_rotation = collider:GetRotation()
+	local previous_position = collider:GetPreviousPosition()
+	local previous_rotation = collider:GetPreviousRotation()
 	local has_previous = current_position and
 		current_rotation and
 		previous_position and

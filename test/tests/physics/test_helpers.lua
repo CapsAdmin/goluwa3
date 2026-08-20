@@ -121,6 +121,7 @@ function module.CreateStubBody(data)
 		ReadyToSleep = data.ReadyToSleep == true,
 		Grounded = data.Grounded == true,
 		GroundNormal = copy_position(data.GroundNormal or Vec3(0, 1, 0)),
+		ShapeType = data.ShapeType or "box",
 		polyhedron = data.polyhedron,
 	}
 
@@ -180,6 +181,30 @@ function module.CreateStubBody(data)
 
 	function body:GetOwner()
 		return self.Owner
+	end
+
+	function body:GetShapeType()
+		return self.ShapeType
+	end
+
+	function body:IsStatic()
+		return self.MotionType == "static"
+	end
+
+	function body:GetSphereRadius()
+		return self.SphereRadius
+	end
+
+	function body:GetHalfExtents()
+		return self.HalfExtents
+	end
+
+	function body:GetCollisionMargin()
+		return self.CollisionMargin
+	end
+
+	function body:HasSolverMass()
+		return self.MotionType == "dynamic" and (self.InverseMass or 0) > 0
 	end
 
 	function body:GetCCD()

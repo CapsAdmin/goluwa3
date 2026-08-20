@@ -197,14 +197,7 @@ end
 
 function META:GetSupportFootprintMetrics(body, ground_normal)
 	ground_normal = ground_normal or body.GroundNormal or Vec3(0, 1, 0)
-	local support = body.GetGroundSupportProjectionMetrics and
-		body:GetGroundSupportProjectionMetrics() or
-		{
-			count = 0,
-			span_u = 0,
-			span_v = 0,
-			overhang_length = math.huge,
-		}
+	local support = body:GetGroundSupportProjectionMetrics()
 	local tangent = support.tangent
 	local bitangent = support.bitangent
 
@@ -469,7 +462,7 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 		distance = distance_limit * t_enter,
 		position = position,
 		normal = normal,
-		rigid_body = body.GetBody and body:GetBody() or body,
+		rigid_body = body,
 	}
 end
 

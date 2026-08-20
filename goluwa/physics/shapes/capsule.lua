@@ -58,10 +58,7 @@ local function collect_capsule_support_contact(context, collider, point, fallbac
 	end
 
 	local ground_body = fallback_hit.rigid_body
-	local ground_shape = ground_body and
-		ground_body.GetPhysicsShape and
-		ground_body:GetPhysicsShape() or
-		nil
+	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 
 	if not (ground_body and ground_shape and ground_shape.Heightmap ~= nil) then
 		return
@@ -186,14 +183,7 @@ end
 
 function META:GetSupportFootprintMetrics(body, ground_normal)
 	ground_normal = ground_normal or body.GroundNormal or Vec3(0, 1, 0)
-	local support = body.GetGroundSupportProjectionMetrics and
-		body:GetGroundSupportProjectionMetrics() or
-		{
-			count = 0,
-			span_u = 0,
-			span_v = 0,
-			overhang_length = math.huge,
-		}
+	local support = body:GetGroundSupportProjectionMetrics()
 	local tangent = support.tangent
 	local bitangent = support.bitangent
 
@@ -307,10 +297,7 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 	local ground_body = hit and hit.rigid_body or nil
-	local ground_shape = ground_body and
-		ground_body.GetPhysicsShape and
-		ground_body:GetPhysicsShape() or
-		nil
+	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 
 	if ground_shape and ground_shape.Heightmap ~= nil then
 		CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point = nil
@@ -346,13 +333,10 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	if not dt or dt <= 0 then return end
 
 	local physics = body:GetPhysics()
-	local ground_body = body.GetGroundBody and body:GetGroundBody() or nil
-	local ground_shape = ground_body and
-		ground_body.GetPhysicsShape and
-		ground_body:GetPhysicsShape() or
-		nil
+	local ground_body = body.GroundBody
+	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 	local pair_friction = 0
-	local ground_friction = ground_body and ground_body.GetFriction and ground_body:GetFriction() or 0
+	local ground_friction = ground_body and (ground_body:GetFriction() or 0) or 0
 
 	if ground_body and physics and physics.solver and physics.solver.GetPairFriction then
 		pair_friction = physics.solver:GetPairFriction(body, ground_body) or 0
@@ -385,10 +369,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		local terrain_like_ground = ground_body and
 			(
 				ground_body.WorldGeometry == true or
-				(
-					ground_body.GetShapeType and
-					ground_body:GetShapeType() == "mesh"
-				)
+				ground_body:GetShapeType() == "mesh"
 			)
 		local slenderness = self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON)
 
@@ -513,7 +494,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 				topple_axis = topple_axis:GetNormalized()
 				local lever_arm = math.max((support_metrics.minor_footprint_span or 0) * 0.5, self:GetRadius() * 0.5, EPSILON)
 				local instability = math.min(1, overhang_length / lever_arm)
-				local gravity_strength = physics.Gravity and physics.Gravity:GetLength() or 28
+				local gravity_strength = physics.Gravity:GetLength() or 28
 				local desired_topple = math.min(
 					gravity_strength * body:GetGravityScale() * dt * instability * (
 							0.45 + support_coverage * 0.75
@@ -588,11 +569,8 @@ function META:OnGroundedVelocityUpdate(body, dt)
 end
 
 function META:ShouldForceGroundedSleep(body)
-	local ground_body = body.GetGroundBody and body:GetGroundBody() or nil
-	local ground_shape = ground_body and
-		ground_body.GetPhysicsShape and
-		ground_body:GetPhysicsShape() or
-		nil
+	local ground_body = body.GroundBody
+	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 
 	if not (ground_shape and ground_shape.Heightmap ~= nil) then
 		local ground_normal = get_ground_normal(body)
@@ -622,21 +600,14 @@ end
 function META:ShouldUseGroundedVelocityConstraints(body, stable)
 	if stable then return true end
 
-	if not (body and body.GetGrounded and body:GetGrounded()) then return false end
+	if not body:GetGrounded() then return false end
 
-	local ground_body = body.GetGroundBody and body:GetGroundBody() or nil
-	local ground_shape = ground_body and
-		ground_body.GetPhysicsShape and
-		ground_body:GetPhysicsShape() or
-		nil
+	local ground_body = body.GroundBody
+	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 
 	if not ground_body then return false end
 
-	local is_world_geometry = ground_body.WorldGeometry == true or
-		(
-			ground_body.GetShapeType and
-			ground_body:GetShapeType() == "mesh"
-		)
+	local is_world_geometry = ground_body.WorldGeometry == true or ground_body:GetShapeType() == "mesh"
 
 	if not is_world_geometry then return false end
 

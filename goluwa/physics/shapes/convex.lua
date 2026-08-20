@@ -76,7 +76,7 @@ function META:GetResolvedHull(body)
 	if self.ResolvedHull then return self.ResolvedHull end
 
 	local hull = self:GetConvexHull()
-	local owner = body and body.GetOwner and body:GetOwner() or body and body.Owner
+	local owner = body and body:GetOwner() or nil
 
 	if not hull and owner and owner.visual then
 		hull = convex_hull.BuildHullFromModel(owner.visual)

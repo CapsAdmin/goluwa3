@@ -11,10 +11,7 @@ end
 function model_transform_utils.GetModelTransforms(model)
 	if model.WorldSpaceVertices then return nil, nil end
 
-	local transform = model.Owner and model.Owner.transform or nil
-
-	if not transform then return nil, nil end
-
+	local transform = model.Owner.transform
 	return transform:GetWorldMatrixInverse(), transform:GetWorldMatrix()
 end
 

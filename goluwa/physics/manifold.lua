@@ -47,11 +47,8 @@ end
 local function supports_persistent_tangent(body_a, body_b, manifold_data)
 	if #(manifold_data.contacts or {}) ~= 1 then return false end
 
-	local shape_a = body_a.GetShapeType and body_a:GetShapeType() or nil
-	local shape_b = body_b.GetShapeType and body_b:GetShapeType() or nil
-
-	if not (shape_a or shape_b) then return true end
-
+	local shape_a = body_a:GetShapeType()
+	local shape_b = body_b:GetShapeType()
 	return shape_a == "sphere" or
 		shape_a == "capsule" or
 		shape_b == "sphere" or
@@ -171,9 +168,7 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 	local dynamic_friction = solver:GetPairFriction(body_a, body_b)
 	local static_friction = math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
-	local passes = solver.GetManifoldSolverPasses and
-		solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data) or
-		math.max(1, solver.MANIFOLD_SOLVER_PASSES or 1)
+	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
 
 	for pass = 1, passes do
 		for _, contact in ipairs(manifold_data.contacts or {}) do

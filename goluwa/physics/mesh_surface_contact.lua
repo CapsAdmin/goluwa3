@@ -16,7 +16,7 @@ end
 
 local function get_entity_world_matrix(entity)
 	local transform = entity and entity.transform or nil
-	return transform and transform.GetWorldMatrix and transform:GetWorldMatrix() or nil
+	return transform and transform:GetWorldMatrix() or nil
 end
 
 local function get_polygon_feature_cache(poly)

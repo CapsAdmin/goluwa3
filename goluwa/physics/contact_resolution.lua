@@ -14,7 +14,7 @@ function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 		body_a:SetGroundNormal(-normal)
 		body_a:SetGroundRollingFriction(rolling_friction)
 		body_a:SetGroundBody(body_b)
-		body_a:SetGroundEntity(body_b.GetOwner and body_b:GetOwner() or nil)
+		body_a:SetGroundEntity(body_b:GetOwner())
 	end
 
 	if normal.y >= body_b:GetMinGroundNormalY() then
@@ -22,24 +22,16 @@ function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 		body_b:SetGroundNormal(normal)
 		body_b:SetGroundRollingFriction(rolling_friction)
 		body_b:SetGroundBody(body_a)
-		body_b:SetGroundEntity(body_a.GetOwner and body_a:GetOwner() or nil)
+		body_b:SetGroundEntity(body_a:GetOwner())
 	end
 end
 
 local function accumulate_pair_ground_support(body_a, body_b, normal, point_a, point_b)
-	if
-		body_a:GetGrounded() and
-		body_a.GroundNormal and
-		-normal.y >= body_a:GetMinGroundNormalY()
-	then
+	if body_a:GetGrounded() and -normal.y >= body_a:GetMinGroundNormalY() then
 		body_a:AccumulateGroundSupportContact(body_a.GroundNormal, point_a)
 	end
 
-	if
-		body_b:GetGrounded() and
-		body_b.GroundNormal and
-		normal.y >= body_b:GetMinGroundNormalY()
-	then
+	if body_b:GetGrounded() and normal.y >= body_b:GetMinGroundNormalY() then
 		body_b:AccumulateGroundSupportContact(body_b.GroundNormal, point_b)
 	end
 end
@@ -74,7 +66,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 					self_body:SetGroundNormal(physics_constants.UP)
 					self_body:SetGroundRollingFriction(rolling_friction)
 					self_body:SetGroundBody(other_body)
-					self_body:SetGroundEntity(other_body.GetOwner and other_body:GetOwner() or nil)
+					self_body:SetGroundEntity(other_body:GetOwner())
 					return
 				end
 
@@ -86,7 +78,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 						self_body:SetGroundNormal(candidate)
 						self_body:SetGroundRollingFriction(rolling_friction)
 						self_body:SetGroundBody(other_body)
-						self_body:SetGroundEntity(other_body.GetOwner and other_body:GetOwner() or nil)
+						self_body:SetGroundEntity(other_body:GetOwner())
 						return
 					end
 				end

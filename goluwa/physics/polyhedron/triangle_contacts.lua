@@ -136,7 +136,7 @@ local function build_triangle_edge_candidate(context)
 end
 
 local function should_try_sat_fallback(collider, v0, v1, v2, options)
-	local center = collider.GetPosition and collider:GetPosition() or nil
+	local center = collider:GetPosition()
 
 	if not center then return true end
 

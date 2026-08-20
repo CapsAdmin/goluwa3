@@ -20,7 +20,7 @@ local MAX_NARROW_CACHE_NEIGHBORS = 6
 
 function mesh_contact_common.GetMeshShape(body)
 	local shape = body:GetPhysicsShape()
-	return shape and shape.GetTypeName and shape:GetTypeName() == "mesh" and shape or nil
+	return shape and shape:GetTypeName() == "mesh" and shape or nil
 end
 
 function mesh_contact_common.SetNarrowPhaseCacheEnabled(enabled)
@@ -601,15 +601,7 @@ end
 function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
 	return pair_solver_helpers.GetSafeCollisionNormal(
 		delta,
-		(
-				other_body.GetVelocity and
-				other_body:GetVelocity() or
-				Vec3()
-			) - (
-				mesh_body.GetVelocity and
-				mesh_body:GetVelocity() or
-				Vec3()
-			),
+		other_body:GetVelocity() - mesh_body:GetVelocity(),
 		fallback_delta,
 		fallback_normal or pair_solver_helpers.GetCachedPairNormal(mesh_body, other_body)
 	)
@@ -641,7 +633,6 @@ function mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
 	if
 		mesh_shape and
 		mesh_shape.Heightmap ~= nil and
-		other_body.GetShapeType and
 		other_body:GetShapeType() == "capsule" and
 		best.normal and
 		best.normal.y >= math.max(other_body:GetMinGroundNormalY() or 0, 0.45)

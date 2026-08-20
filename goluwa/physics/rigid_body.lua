@@ -630,18 +630,13 @@ do
 		if self:GetGrounded() then
 			linear_threshold = linear_threshold * 1.2
 			angular_threshold = angular_threshold * 1.4
-			local shape = self.GetPhysicsShape and self:GetPhysicsShape() or nil
-			local ground_body = self.GetGroundBody and self:GetGroundBody() or nil
-			local ground_ready_to_sleep = ground_body and
-				ground_body.IsReadyToSleep and
-				ground_body:IsReadyToSleep() or
-				false
+			local shape = self:GetPhysicsShape()
+			local ground_body = self.GroundBody
+			local ground_ready_to_sleep = ground_body and ground_body:IsReadyToSleep() or false
 			local allow_grounded_sleep_assist = not (
 				ground_body and
 				ground_body ~= self and
-				ground_body.HasSolverMass and
 				ground_body:HasSolverMass() and
-				ground_body.GetAwake and
 				ground_body:GetAwake() and
 				not ground_ready_to_sleep
 			)
@@ -762,16 +757,10 @@ do
 	function RigidBody:ShouldCollide(body)
 		if self == body then return false end
 
-		local group_a = self.GetCollisionGroup and
-			self:GetCollisionGroup() or
-			self.CollisionGroup or
-			1
-		local group_b = body.GetCollisionGroup and
-			body:GetCollisionGroup() or
-			body.CollisionGroup or
-			1
-		local mask_a = self.GetCollisionMask and self:GetCollisionMask() or self.CollisionMask
-		local mask_b = body.GetCollisionMask and body:GetCollisionMask() or body.CollisionMask
+		local group_a = self.CollisionGroup or 1
+		local group_b = body.CollisionGroup or 1
+		local mask_a = self.CollisionMask
+		local mask_b = body.CollisionMask
 		mask_a = mask_a == nil and -1 or mask_a
 		mask_b = mask_b == nil and -1 or mask_b
 		return bit.band(mask_a, group_b) ~= 0 and bit.band(mask_b, group_a) ~= 0
@@ -784,8 +773,8 @@ do
 		local rotation = self.Owner.transform:GetRotation():Copy()
 
 		if self:IsKinematic() then
-			self.PreviousPosition = self.Position and self.Position:Copy() or position:Copy()
-			self.PreviousRotation = self.Rotation and self.Rotation:Copy() or rotation:Copy()
+			self.PreviousPosition = self.Position:Copy()
+			self.PreviousRotation = self.Rotation:Copy()
 		else
 			self.PreviousPosition = position:Copy()
 			self.PreviousRotation = rotation:Copy()
@@ -1004,7 +993,7 @@ do
 
 		if self.Grounded then
 			local use_grounded_velocity_constraints = self:IsGroundSupportStable()
-			local shape = self.GetPhysicsShape and self:GetPhysicsShape() or nil
+			local shape = self:GetPhysicsShape()
 
 			if shape and shape.ShouldUseGroundedVelocityConstraints then
 				use_grounded_velocity_constraints = shape:ShouldUseGroundedVelocityConstraints(self, use_grounded_velocity_constraints) == true

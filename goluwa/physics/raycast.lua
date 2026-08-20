@@ -18,7 +18,6 @@ local model_acceleration = {
 	frame = -1,
 	model_count = 0,
 }
-
 local get_spatial_primitives = model_transform_utils.GetModelPrimitives
 
 local function get_spatial_local_aabb(model)
@@ -97,7 +96,7 @@ local function is_dynamic_model(model)
 	if owner and owner.rigid_body then return true end
 
 	local transform = owner and owner.transform
-	return transform and transform.IsFrameDynamic and transform:IsFrameDynamic() or false
+	return transform and transform:IsFrameDynamic() or false
 end
 
 local function add_model_acceleration_item(items, model, bounds)
@@ -203,7 +202,7 @@ local function build_static_model_source(models)
 end
 
 local function ensure_model_acceleration()
-	local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+	local frame = system.GetFrameNumber()
 	local model_count = get_spatial_component_count()
 
 	if

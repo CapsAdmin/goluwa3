@@ -49,27 +49,18 @@ end
 local function is_body_transform_moving(body)
 	if not body then return false end
 
-	local previous_position = body.GetPreviousPosition and body:GetPreviousPosition() or body.PreviousPosition
-	local current_position = body.GetPosition and body:GetPosition() or body.Position
+	local previous_position = body:GetPreviousPosition()
+	local current_position = body:GetPosition()
 
-	if
-		previous_position and
-		current_position and
-		(
-			current_position - previous_position
-		):GetLength() > 0.0001
-	then
+	if (current_position - previous_position):GetLength() > 0.0001 then
 		return true
 	end
 
-	local previous_rotation = body.GetPreviousRotation and body:GetPreviousRotation() or body.PreviousRotation
-	local current_rotation = body.GetRotation and body:GetRotation() or body.Rotation
+	local previous_rotation = body:GetPreviousRotation()
+	local current_rotation = body:GetRotation()
+	local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
 
-	if previous_rotation and current_rotation then
-		local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
-
-		if 1 - dot > 0.0001 then return true end
-	end
+	if 1 - dot > 0.0001 then return true end
 
 	return false
 end
@@ -315,8 +306,8 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 		for body_index = 1, #dynamic_bodies do
 			local body = dynamic_bodies[body_index]
 
-			if not body:GetAwake() and body.GetGrounded and body:GetGrounded() then
-				local ground_body = body.GetGroundBody and body:GetGroundBody() or body.GroundBody
+			if not body:GetAwake() and body:GetGrounded() then
+				local ground_body = body.GroundBody
 
 				if
 					ground_body and
@@ -325,7 +316,6 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 						is_body_transform_moving(ground_body) or
 						(
 							is_dynamic_body(ground_body) and
-							ground_body.GetAwake and
 							ground_body:GetAwake()
 						)
 					)

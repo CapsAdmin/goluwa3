@@ -38,7 +38,7 @@ local function apply_support_grounding_metadata(body, hit, normal)
 	body:SetGroundNormal(normal)
 	body:SetGroundRollingFriction(rolling_friction)
 	body:SetGroundBody(ground_body)
-	body:SetGroundEntity(ground_body and ground_body.GetOwner and ground_body:GetOwner() or nil)
+	body:SetGroundEntity(ground_body and ground_body:GetOwner() or nil)
 end
 
 function support_contacts.GetCastDistances(body, dt)

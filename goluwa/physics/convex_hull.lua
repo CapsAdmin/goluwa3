@@ -1,7 +1,6 @@
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_hull = library()
-
 local get_source_primitives = model_transform_utils.GetModelPrimitives
 
 local function copy_vec3(vec)
@@ -17,20 +16,12 @@ local function vec3_key(vec, epsilon)
 	return quantize(vec.x, epsilon) .. ":" .. quantize(vec.y, epsilon) .. ":" .. quantize(vec.z, epsilon)
 end
 
+-- vertices reach here through Polygon3D:AddVertex, which is only ever called
+-- with either a {pos = Vec3, ...} vertex record or a bare Vec3
 local function get_vertex_position(vertex)
-	if not vertex then return nil end
-
 	if vertex.pos then vertex = vertex.pos end
 
-	if vertex.x and vertex.y and vertex.z then
-		return Vec3(vertex.x, vertex.y, vertex.z)
-	end
-
-	if vertex[1] and vertex[2] and vertex[3] then
-		return Vec3(vertex[1], vertex[2], vertex[3])
-	end
-
-	return nil
+	return Vec3(vertex.x, vertex.y, vertex.z)
 end
 
 local function append_source_points(points, source)
@@ -48,18 +39,14 @@ local function append_source_points(points, source)
 
 	if source.Vertices then
 		for _, vertex in ipairs(source.Vertices) do
-			local pos = get_vertex_position(vertex)
-
-			if pos then points[#points + 1] = pos end
+			points[#points + 1] = get_vertex_position(vertex)
 		end
 
 		return
 	end
 
 	for _, vertex in ipairs(source) do
-		local pos = get_vertex_position(vertex)
-
-		if pos then points[#points + 1] = pos end
+		points[#points + 1] = get_vertex_position(vertex)
 	end
 end
 
@@ -281,22 +268,22 @@ local function append_source_triangles(triangles, source)
 		end
 
 		for i = 1, #vertices, 3 do
-			local a = get_vertex_position(vertices[i])
-			local b = get_vertex_position(vertices[i + 1])
-			local c = get_vertex_position(vertices[i + 2])
-
-			if a and b and c then triangles[#triangles + 1] = {a, b, c} end
+			triangles[#triangles + 1] = {
+				get_vertex_position(vertices[i]),
+				get_vertex_position(vertices[i + 1]),
+				get_vertex_position(vertices[i + 2]),
+			}
 		end
 
 		return
 	end
 
 	for i = 1, #source, 3 do
-		local a = get_vertex_position(source[i])
-		local b = get_vertex_position(source[i + 1])
-		local c = get_vertex_position(source[i + 2])
-
-		if a and b and c then triangles[#triangles + 1] = {a, b, c} end
+		triangles[#triangles + 1] = {
+			get_vertex_position(source[i]),
+			get_vertex_position(source[i + 1]),
+			get_vertex_position(source[i + 2]),
+		}
 	end
 end
 

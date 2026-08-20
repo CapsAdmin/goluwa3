@@ -63,21 +63,11 @@ function helpers.EnsureNormalFacesMotion(normal, movement)
 end
 
 function helpers.BuildTargetMotionState(target)
-	local previous_position = target.GetPreviousPosition and
-		target:GetPreviousPosition() or
-		target:GetPosition()
-	local previous_rotation = target.GetPreviousRotation and
-		target:GetPreviousRotation() or
-		target:GetRotation()
-	local current_position = target.GetPosition and target:GetPosition() or previous_position
-	local current_rotation = target.GetRotation and target:GetRotation() or previous_rotation
-	local movement = current_position and
-		previous_position and
-		(
-			current_position - previous_position
-		)
-		or
-		Vec3()
+	local previous_position = target:GetPreviousPosition()
+	local previous_rotation = target:GetPreviousRotation()
+	local current_position = target:GetPosition()
+	local current_rotation = target:GetRotation()
+	local movement = current_position - previous_position
 	return {
 		previous_position = previous_position,
 		previous_rotation = previous_rotation,
@@ -161,13 +151,7 @@ local function get_polyhedron_extent(polyhedron)
 	return Vec3(max_x - min_x, max_y - min_y, max_z - min_z):GetLength()
 end
 
-function helpers.GetPolyhedronSweepSampleSteps(
-	polyhedron,
-	movement_length,
-	max_fraction,
-	min_steps,
-	max_steps
-)
+function helpers.GetPolyhedronSweepSampleSteps(polyhedron, movement_length, max_fraction, min_steps, max_steps)
 	min_steps = min_steps or POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS
 	max_steps = max_steps or POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS
 	local extent = math.max(get_polyhedron_extent(polyhedron), 0.25)
@@ -364,22 +348,22 @@ function helpers.SweepPolyhedronAgainstTargetPolyhedron(
 
 	if body_state_has_significant_rotation(target_state) then
 		sampled_hit_t, sampled_hit_result = toi.FindSampledHit(
-				function(t)
-					local target_position_t, target_rotation_t = helpers.GetTargetPose(target_state, t, max_fraction)
-					return evaluate_polyhedron_pair_contact(
-						query_polyhedron,
-						start_position + movement * t,
-						rotation,
-						target_polyhedron,
-						target_position_t,
-						target_rotation_t,
-						scratch
-					)
-				end,
-				nil,
-				max_fraction,
-				helpers.GetPolyhedronSweepSampleSteps(query_polyhedron, movement:GetLength(), max_fraction)
-			)
+			function(t)
+				local target_position_t, target_rotation_t = helpers.GetTargetPose(target_state, t, max_fraction)
+				return evaluate_polyhedron_pair_contact(
+					query_polyhedron,
+					start_position + movement * t,
+					rotation,
+					target_polyhedron,
+					target_position_t,
+					target_rotation_t,
+					scratch
+				)
+			end,
+			nil,
+			max_fraction,
+			helpers.GetPolyhedronSweepSampleSteps(query_polyhedron, movement:GetLength(), max_fraction)
+		)
 	end
 
 	local distance_hit_t = hit_result and ((hit_result.t or 0) * math.max(0, max_fraction or 1)) or nil

@@ -15,16 +15,10 @@ local function for_each_spatial_component(callback)
 end
 
 function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_body)
-	local margin = body and body.GetCollisionMargin and body:GetCollisionMargin() or 0
-	local probe_distance = body and body.GetCollisionProbeDistance and body:GetCollisionProbeDistance() or 0
-	local extra_margin = extra_body and
-		extra_body.GetCollisionMargin and
-		extra_body:GetCollisionMargin() or
-		0
-	local extra_probe_distance = extra_body and
-		extra_body.GetCollisionProbeDistance and
-		extra_body:GetCollisionProbeDistance() or
-		0
+	local margin = body and (body:GetCollisionMargin() or 0) or 0
+	local probe_distance = body and (body:GetCollisionProbeDistance() or 0) or 0
+	local extra_margin = extra_body and (extra_body:GetCollisionMargin() or 0) or 0
+	local extra_probe_distance = extra_body and (extra_body:GetCollisionProbeDistance() or 0) or 0
 	local pad = math.max(
 		margin + probe_distance + extra_margin + extra_probe_distance,
 		physics_constants.DEFAULT_COLLISION_MARGIN,
@@ -41,53 +35,7 @@ function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_bo
 end
 
 function static_model_query.BuildBodyWorldContactAABB(body)
-	if body.GetBroadphaseAABB then return body:GetBroadphaseAABB() end
-
-	local points = {}
-
-	for _, point in ipairs(body.GetCollisionLocalPoints and body:GetCollisionLocalPoints() or {}) do
-		points[#points + 1] = body:GeometryLocalToWorld(point)
-	end
-
-	for _, point in ipairs(body.GetSupportLocalPoints and body:GetSupportLocalPoints() or {}) do
-		points[#points + 1] = body:GeometryLocalToWorld(point)
-	end
-
-	if not points[1] then
-		local position = body.GetPosition and body:GetPosition() or Vec3()
-		local margin = body.GetCollisionMargin and
-			math.max(body:GetCollisionMargin() or 0.01, 0.01) or
-			0.01
-		return {
-			min_x = position.x - margin,
-			min_y = position.y - margin,
-			min_z = position.z - margin,
-			max_x = position.x + margin,
-			max_y = position.y + margin,
-			max_z = position.z + margin,
-		}
-	end
-
-	local bounds = {
-		min_x = math.huge,
-		min_y = math.huge,
-		min_z = math.huge,
-		max_x = -math.huge,
-		max_y = -math.huge,
-		max_z = -math.huge,
-	}
-
-	for i = 1, #points do
-		local point = points[i]
-		bounds.min_x = math.min(bounds.min_x, point.x)
-		bounds.min_y = math.min(bounds.min_y, point.y)
-		bounds.min_z = math.min(bounds.min_z, point.z)
-		bounds.max_x = math.max(bounds.max_x, point.x)
-		bounds.max_y = math.max(bounds.max_y, point.y)
-		bounds.max_z = math.max(bounds.max_z, point.z)
-	end
-
-	return bounds
+	return body:GetBroadphaseAABB()
 end
 
 function static_model_query.BuildExpandedBodyWorldContactAABB(body)

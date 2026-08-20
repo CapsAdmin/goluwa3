@@ -407,7 +407,7 @@ end
 function META:GetMeshSource(body)
 	if self.Source ~= nil then return self.Source end
 
-	local owner = body and body.GetOwner and body:GetOwner() or body and body.Owner
+	local owner = body and body:GetOwner() or nil
 	return owner and owner.visual or nil
 end
 

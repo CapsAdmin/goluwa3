@@ -46,12 +46,7 @@ local function filter(entity, ignore_entity, filter_fn, ignore_kinematic, ignore
 
 	if entity.PhysicsNoCollision or entity.NoPhysicsCollision then return false end
 
-	if
-		ignore_kinematic and
-		entity.rigid_body and
-		entity.rigid_body.IsKinematic and
-		entity.rigid_body:IsKinematic()
-	then
+	if ignore_kinematic and entity.rigid_body and entity.rigid_body:IsKinematic() then
 		return false
 	end
 
@@ -160,7 +155,6 @@ function trace.RayCast(origin, direction, max_distance, ignore_entity, filter_fn
 			if
 				not query_as_world and
 				options.IgnoreKinematicBodies ~= false and
-				body.IsKinematic and
 				body:IsKinematic()
 			then
 				goto continue
@@ -168,7 +162,7 @@ function trace.RayCast(origin, direction, max_distance, ignore_entity, filter_fn
 
 			if filter_fn and not filter_fn(body.Owner) then goto continue end
 
-			for _, collider in ipairs(body.GetColliders and body:GetColliders() or {}) do
+			for _, collider in ipairs(body:GetColliders() or {}) do
 				local hit = collider:GetPhysicsShape():TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
 
 				if hit and (not best_hit or hit.distance < best_hit.distance) then

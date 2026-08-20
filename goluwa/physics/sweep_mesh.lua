@@ -333,7 +333,7 @@ function sweep_polyhedron_against_triangle(
 	if triangle_normal then
 		local sweep_fraction = math.max(0, max_fraction or 1)
 		local hit_distance = math.max(
-			(collider.GetCollisionMargin and collider:GetCollisionMargin() or 0),
+			(collider:GetCollisionMargin() or 0),
 			(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
 			0.0005
 		)
@@ -344,7 +344,7 @@ function sweep_polyhedron_against_triangle(
 			v2,
 			triangle_normal,
 			math.max(
-				(collider.GetCollisionMargin and collider:GetCollisionMargin() or 0) * 0.5,
+				(collider:GetCollisionMargin() or 0) * 0.5,
 				(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
 				0.0005
 			)
@@ -611,7 +611,6 @@ local function sweep_polyhedron_against_planes(
 		normal = normal_world,
 	}
 end
-
 
 local function get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
 	local physics = collider:GetPhysics()
@@ -970,5 +969,4 @@ sweep_mesh.TransformDirection = transform_direction
 sweep_mesh.SweepSphereAgainstTriangle = sweep_sphere_against_triangle
 sweep_mesh.SweepCapsuleAgainstTriangle = sweep_capsule_against_triangle
 sweep_mesh.SweepPolyhedronAgainstTriangle = sweep_polyhedron_against_triangle
-
 return sweep_mesh

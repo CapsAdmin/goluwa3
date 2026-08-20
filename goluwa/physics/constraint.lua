@@ -204,9 +204,7 @@ function DistanceConstraint:Solve(dt)
 	local correction = normal * -delta_lambda
 
 	if self.Body0 then
-		if self.Body0.HasSolverMass and self.Body0:HasSolverMass() then
-			self.Body0:Wake()
-		end
+		if self.Body0:HasSolverMass() then self.Body0:Wake() end
 
 		local previous_position = self.Body0.Position:Copy()
 		local previous_rotation = self.Body0.Rotation:Copy()
@@ -220,9 +218,7 @@ function DistanceConstraint:Solve(dt)
 	end
 
 	if self.Body1 then
-		if self.Body1.HasSolverMass and self.Body1:HasSolverMass() then
-			self.Body1:Wake()
-		end
+		if self.Body1:HasSolverMass() then self.Body1:Wake() end
 
 		local previous_position = self.Body1.Position:Copy()
 		local previous_rotation = self.Body1.Rotation:Copy()

@@ -52,7 +52,7 @@ local function combine_material_value(value_a, value_b, mode, legacy_mode)
 end
 
 local function get_collider_sweep_hit(dynamic_body, collider, physics)
-	if not (physics.SweepCollider and collider and dynamic_body) then return nil end
+	if not (collider and dynamic_body) then return nil end
 
 	local previous_position = collider:GetPreviousPosition()
 	local current_position = collider:GetPosition()
@@ -204,11 +204,9 @@ function Solver:GetPairFriction(body_a, body_b)
 end
 
 function Solver:GetBodyStaticFriction(body)
-	local static_friction = body.GetStaticFriction and body:GetStaticFriction() or nil
+	local static_friction = body:GetStaticFriction()
 
-	if static_friction == nil then
-		static_friction = body.GetFriction and body:GetFriction() or body.Friction or 0
-	end
+	if static_friction == nil then static_friction = body:GetFriction() end
 
 	return math.max(static_friction or 0, 0)
 end
@@ -217,18 +215,8 @@ function Solver:GetPairStaticFriction(body_a, body_b)
 	local friction_a = self:GetBodyStaticFriction(body_a)
 	local friction_b = self:GetBodyStaticFriction(body_b)
 	local mode = resolve_pair_combine_mode(
-		body_a.GetStaticFrictionCombineMode and
-			body_a:GetStaticFrictionCombineMode() or
-			body_a.GetFrictionCombineMode and
-			body_a:GetFrictionCombineMode()
-			or
-			nil,
-		body_b.GetStaticFrictionCombineMode and
-			body_b:GetStaticFrictionCombineMode() or
-			body_b.GetFrictionCombineMode and
-			body_b:GetFrictionCombineMode()
-			or
-			nil
+		body_a:GetStaticFrictionCombineMode() or body_a:GetFrictionCombineMode(),
+		body_b:GetStaticFrictionCombineMode() or body_b:GetFrictionCombineMode()
 	)
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
@@ -283,8 +271,8 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
 
 	if self:GetPairRestitution(body_a, body_b) > 0.05 then return base_passes end
 
-	local velocity_a = body_a.GetVelocity and body_a:GetVelocity() or Vec3()
-	local velocity_b = body_b.GetVelocity and body_b:GetVelocity() or Vec3()
+	local velocity_a = body_a:GetVelocity()
+	local velocity_b = body_b:GetVelocity()
 	local relative_velocity = velocity_b - velocity_a
 
 	if
@@ -301,8 +289,8 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
 		return base_passes
 	end
 
-	local angular_speed_a = body_a.GetAngularVelocity and body_a:GetAngularVelocity():GetLength() or 0
-	local angular_speed_b = body_b.GetAngularVelocity and body_b:GetAngularVelocity():GetLength() or 0
+	local angular_speed_a = body_a:GetAngularVelocity():GetLength()
+	local angular_speed_b = body_b:GetAngularVelocity():GetLength()
 
 	if
 		math.max(angular_speed_a, angular_speed_b) > math.max(0, self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 0)
@@ -321,12 +309,10 @@ function Solver:BeginStep()
 		self.StepStamp,
 		self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS
 	)
-	local constraints = physics.GetConstraints and physics.GetConstraints() or {}
+	local constraints = physics:GetConstraints()
 
 	for i = 1, #constraints do
-		local constraint = constraints[i]
-
-		if constraint and constraint.BeginStep then constraint:BeginStep() end
+		constraints[i]:BeginStep()
 	end
 end
 
@@ -369,7 +355,7 @@ end
 
 function Solver:SolveDistanceConstraints(dt, constraints_override)
 	local physics = self:GetPhysics()
-	local constraints = constraints_override or physics.GetConstraints and physics.GetConstraints() or {}
+	local constraints = constraints_override or physics:GetConstraints()
 
 	for i = #constraints, 1, -1 do
 		local constraint = constraints[i]

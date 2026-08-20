@@ -15,14 +15,7 @@ function motion.IntegrateRotation(rotation, angular_velocity, dt)
 end
 
 function motion.ShiftBodyPosition(body, delta)
-	if
-		body.HasSolverMass and
-		body:HasSolverMass() and
-		delta:GetLength() > 0.01 and
-		body.Wake
-	then
-		body:Wake()
-	end
+	if body:HasSolverMass() and delta:GetLength() > 0.01 then body:Wake() end
 
 	body.Position = body.Position + delta
 	body.PreviousPosition = body.PreviousPosition + delta
@@ -33,20 +26,15 @@ function motion.SetBodyVelocityFromCurrentPosition(body, velocity, dt)
 end
 
 function motion.SetBodyAngularVelocityFromCurrentRotation(body, angular_velocity, dt)
-	if body.IsSolverImmovable and body:IsSolverImmovable() then return end
+	if body:IsSolverImmovable() then return end
 
 	body.AngularVelocity = angular_velocity:Copy()
 end
 
 function motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_velocity, dt)
-	if body.IsSolverImmovable and body:IsSolverImmovable() then return end
+	if body:IsSolverImmovable() then return end
 
-	if
-		body.HasSolverMass and
-		body:HasSolverMass() and
-		body.GetAwake and
-		not body:GetAwake()
-	then
+	if body:HasSolverMass() and not body:GetAwake() then
 		local linear_threshold = math.max(body.SleepLinearThreshold or 0, 0)
 		local angular_threshold = math.max(body.SleepAngularThreshold or 0, 0)
 
@@ -72,7 +60,7 @@ function motion.GetAngularVelocityFromRotationDelta(previous_rotation, rotation,
 end
 
 function motion.ApplyBodyMotionDelta(body, previous_position, previous_rotation, dt)
-	if body.IsSolverImmovable and body:IsSolverImmovable() then return end
+	if body:IsSolverImmovable() then return end
 
 	if not dt or dt <= 0 then dt = 1 / 60 end
 
@@ -87,9 +75,7 @@ function motion.GetPointVelocity(body, linear_velocity, angular_velocity, point)
 end
 
 function motion.ApplyImpulseToMotion(body, linear_velocity, angular_velocity, impulse, point)
-	if body.IsSolverImmovable and body:IsSolverImmovable() then
-		return linear_velocity, angular_velocity
-	end
+	if body:IsSolverImmovable() then return linear_velocity, angular_velocity end
 
 	linear_velocity = linear_velocity + impulse * body.InverseMass
 

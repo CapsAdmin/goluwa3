@@ -29,139 +29,82 @@ local function normalize_candidate(vec)
 end
 
 function pair_solver_helpers.IsSolverImmovable(body)
-	return body.IsSolverImmovable and body:IsSolverImmovable() or false
+	return body:IsSolverImmovable()
 end
 
 function pair_solver_helpers.HasSolverMass(body)
-	return body.HasSolverMass and body:HasSolverMass() or false
-end
-
-local function get_ccd_owner(body)
-	if body and body.GetBody then return body:GetBody() end
-
-	return body
-end
-
-local function get_body_auto_ccd(body)
-	if body.GetAutoCCD then return body:GetAutoCCD() == true end
-
-	return body.AutoCCD == true
+	return body:HasSolverMass()
 end
 
 local function get_body_ccd_motion_scales(body)
 	local min_scale = nil
 	local max_scale = nil
+	local radius = body:GetSphereRadius()
 
-	if body.GetSphereRadius then
-		local radius = body:GetSphereRadius()
+	if radius and radius > EPSILON then
+		min_scale = radius
+		max_scale = radius
+	end
 
-		if radius and radius > EPSILON then
-			min_scale = radius
-			max_scale = radius
+	local half_extents = body:GetHalfExtents()
+
+	if half_extents then
+		local hx = math.abs(half_extents.x or 0)
+		local hy = math.abs(half_extents.y or 0)
+		local hz = math.abs(half_extents.z or 0)
+		local local_min = math.min(hx, hy, hz)
+		local local_max = math.max(hx, hy, hz)
+
+		if local_min > EPSILON then
+			min_scale = min_scale and math.min(min_scale, local_min) or local_min
+		end
+
+		if local_max > EPSILON then
+			max_scale = max_scale and math.max(max_scale, local_max) or local_max
 		end
 	end
 
-	if body.GetHalfExtents then
-		local half_extents = body:GetHalfExtents()
-
-		if half_extents then
-			local hx = math.abs(half_extents.x or 0)
-			local hy = math.abs(half_extents.y or 0)
-			local hz = math.abs(half_extents.z or 0)
-			local local_min = math.min(hx, hy, hz)
-			local local_max = math.max(hx, hy, hz)
-
-			if local_min > EPSILON then
-				min_scale = min_scale and math.min(min_scale, local_min) or local_min
-			end
-
-			if local_max > EPSILON then
-				max_scale = max_scale and math.max(max_scale, local_max) or local_max
-			end
-		end
-	end
-
-	local margin = body.GetCollisionMargin and body:GetCollisionMargin() or 0
-	local fallback_scale = math.max((margin or 0) * 2, 0.05)
+	local margin = body:GetCollisionMargin() or 0
+	local fallback_scale = math.max(margin * 2, 0.05)
 	return min_scale or max_scale or fallback_scale,
 	max_scale or min_scale or fallback_scale
 end
 
 local function should_use_auto_ccd(body)
-	if not (body and get_body_auto_ccd(body)) then return false end
+	if body:GetAutoCCD() ~= true then return false end
 
-	if body.IsStatic and body:IsStatic() then return false end
+	if body:IsStatic() then return false end
 
-	local current_position = body.GetPosition and body:GetPosition() or nil
-	local previous_position = body.GetPreviousPosition and body:GetPreviousPosition() or nil
-
-	if not (current_position and previous_position) then return false end
-
-	local linear_motion = (current_position - previous_position):GetLength()
+	local linear_motion = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
 	local min_scale, max_scale = get_body_ccd_motion_scales(body)
 	local angular_motion = 0
-
-	if body.GetRotation and body.GetPreviousRotation then
-		local current_rotation = body:GetRotation()
-		local previous_rotation = body:GetPreviousRotation()
-
-		if current_rotation and previous_rotation and previous_rotation.Dot then
-			local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
-			local angle = math.acos(dot) * 2
-			angular_motion = angle * max_scale
-		end
-	end
-
+	local current_rotation = body:GetRotation()
+	local previous_rotation = body:GetPreviousRotation()
+	local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
+	local angle = math.acos(dot) * 2
+	angular_motion = angle * max_scale
 	local motion = math.max(linear_motion, angular_motion)
-	local threshold_ratio = body.GetAutoCCDThreshold and
-		body:GetAutoCCDThreshold() or
-		body.AutoCCDThreshold or
-		0.5
+	local threshold_ratio = body:GetAutoCCDThreshold() or 0.5
 	local threshold = math.max(
-		min_scale * math.max(threshold_ratio or 0.5, 0),
-		(body.GetCollisionMargin and body:GetCollisionMargin() or 0) * 2,
+		min_scale * math.max(threshold_ratio, 0),
+		(body:GetCollisionMargin() or 0) * 2,
 		0.05
 	)
 	return motion > threshold
 end
 
 function pair_solver_helpers.ShouldUseCCD(body)
-	body = get_ccd_owner(body)
-
-	if not body then return false end
-
-	if body.GetCCD and body:GetCCD() == true then return true end
-
-	if body.CCD == true then return true end
+	if body:GetCCD() == true then return true end
 
 	return should_use_auto_ccd(body)
 end
 
 function pair_solver_helpers.ShouldUsePairCCD(body_a, body_b)
-	body_a = get_ccd_owner(body_a)
-	body_b = get_ccd_owner(body_b)
-
-	if
-		body_a and
-		not (
-			body_a.IsStatic and
-			body_a:IsStatic()
-		)
-		and
-		pair_solver_helpers.ShouldUseCCD(body_a)
-	then
+	if not body_a:IsStatic() and pair_solver_helpers.ShouldUseCCD(body_a) then
 		return true
 	end
 
-	if
-		body_b and
-		not (
-			body_b.IsStatic and
-			body_b:IsStatic()
-		)
-		and
-		pair_solver_helpers.ShouldUseCCD(body_b)
-	then
+	if not body_b:IsStatic() and pair_solver_helpers.ShouldUseCCD(body_b) then
 		return true
 	end
 
@@ -331,13 +274,7 @@ function pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, distance_
 end
 
 function pair_solver_helpers.FindSampledTemporalHit(evaluate, sample_steps, refine_steps)
-	local hit_t, result = toi.FindSampledHit(
-		evaluate,
-		nil,
-		1,
-		sample_steps,
-		refine_steps or TEMPORAL_TOI_REFINE_STEPS
-	)
+	local hit_t, result = toi.FindSampledHit(evaluate, nil, 1, sample_steps, refine_steps or TEMPORAL_TOI_REFINE_STEPS)
 
 	-- a hit at t = 0 means the pair is already penetrating; no TOI to report
 	if not result or hit_t == 0 then return nil end
@@ -686,6 +623,7 @@ function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron
 		32,
 		pair_solver_helpers.GetCCDSampleSteps(movement_world:GetLength(), math.max(proxy_radius, 0.0625)) * 2
 	)
+
 	local function is_intersecting(t)
 		local result = evaluate_intersection(t)
 		return result and result.intersect or nil
