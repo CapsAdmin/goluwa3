@@ -49,7 +49,7 @@ function lrun.Run(code_or_path, config)
 end
 
 function lrun.Execute(code_or_path, config)
-	local ret = {pcall(lrun.Run, code_or_path, config)}
+	local ret = {xpcall(lrun.Run, debug.traceback, code_or_path, config)}
 	local ok = list.remove(ret, 1)
 
 	if not ok then
