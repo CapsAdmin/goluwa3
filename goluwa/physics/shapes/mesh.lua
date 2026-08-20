@@ -21,17 +21,7 @@ local MESH_BOUNDS_CORNERS = {
 	Vec3(),
 	Vec3(),
 }
-local MESH_LOCAL_AABB_TRANSFORM_PROXY = {
-	collider = nil,
-	position = nil,
-	rotation = nil,
-}
-
 local get_source_primitives = model_transform_utils.GetModelPrimitives
-
-function MESH_LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
-	return self.collider:WorldToLocal(point, self.position, self.rotation)
-end
 
 local function create_synthetic_primitive(polygon)
 	return {polygon3d = polygon}
@@ -603,25 +593,6 @@ function META:GetBroadphaseAABB(body, position, rotation, out)
 	end
 
 	return AABB(world_min_x, world_min_y, world_min_z, world_max_x, world_max_y, world_max_z)
-end
-
-function META:GetTriangleWorldVertices(collider, position, rotation, v0, v1, v2)
-	return collider:LocalToWorld(v0, position, rotation),
-	collider:LocalToWorld(v1, position, rotation),
-	collider:LocalToWorld(v2, position, rotation)
-end
-
-function META:BuildSweptLocalAABB(collider, position, rotation, world_aabb)
-	if not (collider and world_aabb) then return nil end
-
-	MESH_LOCAL_AABB_TRANSFORM_PROXY.collider = collider
-	MESH_LOCAL_AABB_TRANSFORM_PROXY.position = position
-	MESH_LOCAL_AABB_TRANSFORM_PROXY.rotation = rotation
-	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, MESH_LOCAL_AABB_TRANSFORM_PROXY)
-	MESH_LOCAL_AABB_TRANSFORM_PROXY.collider = nil
-	MESH_LOCAL_AABB_TRANSFORM_PROXY.position = nil
-	MESH_LOCAL_AABB_TRANSFORM_PROXY.rotation = nil
-	return local_aabb
 end
 
 function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)

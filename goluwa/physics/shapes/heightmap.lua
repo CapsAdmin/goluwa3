@@ -17,11 +17,6 @@ local HEIGHTMAP_BOUNDS_CORNERS = {
 	Vec3(),
 	Vec3(),
 }
-local HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY = {
-	collider = nil,
-	position = nil,
-	rotation = nil,
-}
 local SHARED_HEIGHTMAP_ENTRY = {
 	polygon = nil,
 	primitive = nil,
@@ -38,10 +33,6 @@ local TRACE_AGAINST_BODY_CONTEXT = {
 	best_hit = nil,
 	best_distance = math.huge,
 }
-
-function HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
-	return self.collider:WorldToLocal(point, self.position, self.rotation)
-end
 
 local function get_raw_height(tex, x, y, pow)
 	local r, g, b, a = tex:GetRawPixelColor(x, y)
@@ -386,25 +377,6 @@ function META:GetBroadphaseAABB(body, position, rotation, out)
 	end
 
 	return AABB(world_min_x, world_min_y, world_min_z, world_max_x, world_max_y, world_max_z)
-end
-
-function META:GetTriangleWorldVertices(collider, position, rotation, v0, v1, v2)
-	return collider:LocalToWorld(v0, position, rotation),
-	collider:LocalToWorld(v1, position, rotation),
-	collider:LocalToWorld(v2, position, rotation)
-end
-
-function META:BuildSweptLocalAABB(collider, position, rotation, world_aabb)
-	if not (collider and world_aabb) then return nil end
-
-	HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY.collider = collider
-	HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY.position = position
-	HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY.rotation = rotation
-	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY)
-	HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY.collider = nil
-	HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY.position = nil
-	HEIGHTMAP_LOCAL_AABB_TRANSFORM_PROXY.rotation = nil
-	return local_aabb
 end
 
 function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)

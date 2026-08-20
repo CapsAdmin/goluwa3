@@ -5,6 +5,34 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local META = objects.CreateTemplate("physics_shape_base")
+local LOCAL_AABB_TRANSFORM_PROXY = {
+	collider = nil,
+	position = nil,
+	rotation = nil,
+}
+
+function LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
+	return self.collider:WorldToLocal(point, self.position, self.rotation)
+end
+
+function META:BuildSweptLocalAABB(collider, position, rotation, world_aabb)
+	if not (collider and world_aabb) then return nil end
+
+	LOCAL_AABB_TRANSFORM_PROXY.collider = collider
+	LOCAL_AABB_TRANSFORM_PROXY.position = position
+	LOCAL_AABB_TRANSFORM_PROXY.rotation = rotation
+	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, LOCAL_AABB_TRANSFORM_PROXY)
+	LOCAL_AABB_TRANSFORM_PROXY.collider = nil
+	LOCAL_AABB_TRANSFORM_PROXY.position = nil
+	LOCAL_AABB_TRANSFORM_PROXY.rotation = nil
+	return local_aabb
+end
+
+function META:GetTriangleWorldVertices(collider, position, rotation, v0, v1, v2)
+	return collider:LocalToWorld(v0, position, rotation),
+	collider:LocalToWorld(v1, position, rotation),
+	collider:LocalToWorld(v2, position, rotation)
+end
 
 function META.New(data)
 	return META:CreateObject(data or {})

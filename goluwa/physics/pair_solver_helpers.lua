@@ -686,29 +686,19 @@ function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron
 		32,
 		pair_solver_helpers.GetCCDSampleSteps(movement_world:GetLength(), math.max(proxy_radius, 0.0625)) * 2
 	)
+	local function is_intersecting(t)
+		local result = evaluate_intersection(t)
+		return result and result.intersect or nil
+	end
+
 	local hit_t = nil
 	local previous_t = 0
 
 	for i = 1, sample_steps do
 		local sample_t = i / sample_steps
-		local result = evaluate_intersection(sample_t)
 
-		if result and result.intersect then
-			local low = previous_t
-			local high = sample_t
-
-			for _ = 1, 12 do
-				local mid = (low + high) * 0.5
-				local mid_result = evaluate_intersection(mid)
-
-				if mid_result and mid_result.intersect then
-					high = mid
-				else
-					low = mid
-				end
-			end
-
-			hit_t = high
+		if is_intersecting(sample_t) then
+			hit_t = toi.RefineHit(is_intersecting, nil, previous_t, sample_t, 12)
 
 			break
 		end
