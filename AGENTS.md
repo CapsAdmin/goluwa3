@@ -54,9 +54,24 @@ If you see code that does the below, consider refactoring if relevant to the tas
 
 - Do not worry about whitespace as the formatter will take care of it.
 
-- Never use camelCase. use snake_case for locals and private fields, PascalCase for methods and globals 
+- Never use camelCase. use snake_case for locals and private fields, PascalCase for methods and globals.
 
-- Favor fixing underlying issues rather than patching symptoms
+- Favor fixing underlying issues rather than patching symptoms.
+
+- Don't add unnesseceary comments that just repeat what the code obviously does.
+```lua
+-- ShutDown function
+local function ShutDown(code)
+    -- call os.exit
+    os.exit(code)
+end
+```
+do this instead
+```lua
+local function ShutDown(code)
+    os.exit(code)
+end
+```
 
 - Do not write backwards-compatible code unless asked to. This repository is the only consumer of the APIs you write, so if you change an API, update every consumer in this repository, don't preserve the old signature or add shims.
 
@@ -88,6 +103,16 @@ do
 end
 
 function mylib.SomethingElse() end
+```
+- Avoid creating local variables that are just used in one place.
+```lua
+local this_is_a_variable = x + y
+compute(this_is_a_variable)
+
+```
+do this instead
+```lua
+compute(x + y)
 ```
 
 - Prefer using `import` at the top of the script. In case of circular dependency, see how import.loaded is used
