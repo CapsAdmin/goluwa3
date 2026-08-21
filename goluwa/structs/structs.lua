@@ -51,35 +51,37 @@ function structs.Register(META)
 		end
 
 		cdecl = cdecl .. "}\n"
-		local lookup = {}
 
-		-- Build lookup table for swizzle aliases
-		for arg_i = 2, #META.Args do
-			local alt_args = META.Args[arg_i]
+		if true then
+			local lookup = {}
 
-			for i, alt_key in ipairs(alt_args) do
-				lookup[alt_key] = META.Args[1][i]
+			-- Build lookup table for swizzle aliases
+			for arg_i = 2, #META.Args do
+				local alt_args = META.Args[arg_i]
+
+				for i, alt_key in ipairs(alt_args) do
+					lookup[alt_key] = META.Args[1][i]
+				end
 			end
-		end
 
-		function META:__index(key)
-			-- Check if it's a swizzle alias
-			local primary_key = lookup[key]
+			function META:__index(key)
+				-- Check if it's a swizzle alias
+				local primary_key = lookup[key]
 
-			if primary_key then return self[primary_key] end
+				if primary_key then return self[primary_key] end
 
-			-- Otherwise, look up in the metatable itself
-			return META[key]
-		end
+				-- Otherwise, look up in the metatable itself
+				return META[key]
+			end
 
-		function META:__newindex(key, value)
-			-- Check if it's a swizzle alias
-			local primary_key = lookup[key]
+			function META:__newindex(key, value)
+				local primary_key = lookup[key]
 
-			if primary_key then
-				rawset(self, primary_key, value)
-			else
-				rawset(self, key, value)
+				if primary_key then
+					self[primary_key] = value
+				else
+					self[key] = value
+				end
 			end
 		end
 	end
@@ -147,393 +149,569 @@ local function parse_args(META, lua, sep, protect)
 	return str
 end
 
-function structs.AddOperator(META, operator, ...)
-	if not META.NumberType then META.NumberType = structs.NumberType end
+-- Compiles a template into the metatable. opts = { sep, protect, subs = { NAME = value } }
+-- Trailing ... are forwarded as call args to the compiled chunk.
+local function compile(META, label, template, opts, ...)
+	local lua = parse_args(META, template, opts and opts.sep or ", ", opts and opts.protect or nil)
 
-	if operator == "tostring" then
-		local lua = [==[
-		local META, structs = ...
-		local string_format = string.format
-		META["__tostring"] = function(a)
-				return
-				string_format(
-					"CLASSNAME(LINE)",
-					a.KEY
-				)
-			end
-		]==]
-		local str = ""
-
-		for i in pairs(META.Args[1]) do
-			str = str .. "%%f"
-
-			if i ~= #META.Args[1] then str = str .. ", " end
+	if opts and opts.subs then
+		for name, value in pairs(opts.subs) do
+			lua = lua:replace(name, value)
 		end
+	end
 
-		lua = lua:gsub("CLASSNAME", META.ClassName)
-		lua = lua:gsub("LINE", str)
-		lua = parse_args(META, lua, ", ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-	elseif operator == "unpack" then
-		local lua = [==[
-		local META, structs = ...
-		META["Unpack"] = function(a,...)
+	return assert(loadstring(lua, META.ClassName .. " " .. label))(...)
+end
+
+local operators = {}
+operators.tostring = function(META, operator)
+	local format = ""
+
+	for i in pairs(META.Args[1]) do
+		format = format .. "%f"
+
+		if i ~= #META.Args[1] then format = format .. ", " end
+	end
+
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
+			local string_format = string.format
+			META["__tostring"] = function(a)
+					return
+					string_format(
+						"CLASSNAME(LINE)",
+						a.KEY
+					)
+				end
+		]==],
+		{
+			sep = ", ",
+			subs = {
+				CLASSNAME = META.ClassName,
+				LINE = format,
+			},
+		},
+		META,
+		structs
+	)
+end
+operators.unpack = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
+			META["Unpack"] = function(a,...)
+					return
+					a.KEY
+					,...
+				end
+		]==],
+		{
+			sep = ", ",
+		},
+		META,
+		structs
+	)
+end
+operators["=="] = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs, istype = ...
+			local type = type
+			META["__eq"] = function(a, b)
 				return
-				a.KEY
-				,...
-			end
-		]==]
-		lua = parse_args(META, lua, ", ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-	elseif operator == "==" then
-		local lua = [==[
-		local META, structs, istype = ...
-		local type = type
-		META["__eq"] = function(a, b)
-				return
-				type(a) == "]==] .. (
-				ffi and
-				"cdata" or
-				"table"
-			) .. [==[" and
+				type(a) == TYPE and
 				istype(a, b) and
 				a.KEY == b.KEY
 			end
-		]==]
-		lua = parse_args(META, lua, " and ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs, istype)
-		local lua = [==[
-		local META, structs = ...
-		META["IsEqual"] = function(self, ARG)
-			return
-				self.KEY == KEY
+		]==],
+		{
+			sep = " and ",
+			subs = {
+				TYPE = ffi and "\"cdata\"" or "\"table\"",
+			},
+		},
+		META,
+		structs,
+		istype
+	)
+	compile(
+		META,
+		"operator IsEqual",
+		[==[
+			local META, structs = ...
+			META["IsEqual"] = function(self, ARG)
+				return
+					self.KEY == KEY
+				end
+		]==],
+		{
+			sep = " and ",
+		},
+		META,
+		structs
+	)
+end
+operators.compare = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs, istype = ...
+			local type = type
+			META["__lt"] = function(a, b)
+				if type(b) == "number" then
+					return
+						a.KEY < b
+				elseif type(a) == "number" then
+					return
+						a < b.KEY
+				elseif istype(a, b) then
+					return
+						a.KEY < b.KEY
+				end
+				return false
 			end
-		]==]
-		lua = parse_args(META, lua, " and ")
-		assert(loadstring(lua, META.ClassName .. " operator IsEqual"))(META, structs)
-	elseif operator == "compare" then
-		local lua = [==[
-		local META, structs, istype = ...
-		local type = type
-		META["__lt"] = function(a, b)
-			if type(b) == "number" then
-				return 
-					a.KEY < b
-			elseif type(a) == "number" then
-				return 
-					a < b.KEY
-			elseif istype(a, b) then
-				return 
-					a.KEY < b.KEY
+			META["__le"] = function(a, b)
+				if type(b) == "number" then
+					return
+						a.KEY <= b
+				elseif type(a) == "number" then
+					return
+						a <= b.KEY
+				elseif istype(a, b) then
+					return
+						a.KEY <= b.KEY
+				end
+				return false
 			end
-			return false
-		end
-		META["__le"] = function(a, b)
-			if type(b) == "number" then
-				return 
-					a.KEY <= b
-			elseif type(a) == "number" then
-				return 
-					a <= b.KEY
-			elseif istype(a, b) then
-				return 
-					a.KEY <= b.KEY
+		]==],
+		{
+			sep = " and ",
+		},
+		META,
+		structs,
+		istype
+	)
+	compile(
+		META,
+		"operator compare methods",
+		[==[
+			local META, structs = ...
+			META["IsLess"] = function(self, ARG)
+				return
+					self.KEY < KEY
 			end
-			return false
-		end
-		]==]
-		lua = parse_args(META, lua, " and ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs, istype)
-		local lua = [==[
-		local META, structs = ...
-		META["IsLess"] = function(self, ARG)
-			return
-				self.KEY < KEY
-		end
-		META["IsLessOrEqual"] = function(self, ARG)
-			return
-				self.KEY <= KEY
-		end
-		META["IsGreater"] = function(self, ARG)
-			return
-				self.KEY > KEY
-		end
-		META["IsGreaterOrEqual"] = function(self, ARG)
-			return
-				self.KEY >= KEY
-		end
-		]==]
-		lua = parse_args(META, lua, " and ")
-		assert(loadstring(lua, META.ClassName .. " operator compare methods"))(META, structs)
-	elseif operator == "unm" then
-		local lua = [==[
-		local META, structs = ...
-		META["__unm"] = function(a)
+			META["IsLessOrEqual"] = function(self, ARG)
+				return
+					self.KEY <= KEY
+			end
+			META["IsGreater"] = function(self, ARG)
+				return
+					self.KEY > KEY
+			end
+			META["IsGreaterOrEqual"] = function(self, ARG)
+				return
+					self.KEY >= KEY
+			end
+		]==],
+		{
+			sep = " and ",
+		},
+		META,
+		structs
+	)
+end
+operators.unm = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
+			META["__unm"] = function(a)
 				local result = CTOR(
 					-a.KEY
 				)
 				return result
 			end
-		]==]
-		lua = parse_args(META, lua, ", ", true)
-		lua = lua:gsub("PROTECT", "a.")
-		lua = lua:gsub("CTOR", "META.CType")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-	elseif operator == "zero" then
-		local lua = [==[
-		local META, structs = ...
-		META["Zero"] = function(a)
+		]==],
+		{
+			sep = ", ",
+			protect = true,
+			subs = {
+				PROTECT = "a.",
+				CTOR = "META.CType",
+			},
+		},
+		META,
+		structs
+	)
+end
+operators.zero = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
+			META["Zero"] = function(a)
 				a.KEY = 0
 				return a
 			end
-		]==]
-		lua = parse_args(META, lua, "")
-		lua = lua:gsub("CTOR", "structs." .. META.ClassName)
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-	elseif operator == "set" then
-		local lua = [==[
-		local META, structs = ...
-		META["Set"] = function(a, ARG)
+		]==],
+		{
+			sep = "",
+		},
+		META,
+		structs
+	)
+end
+operators.set = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
+			META["Set"] = function(a, ARG)
 				a.KEY = KEY
 				return a
 			end
-		]==]
-		lua = parse_args(META, lua, "")
-		lua = lua:gsub("CTOR", "META.CType")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-	elseif operator == "copy" then
-		local lua = [==[
-		local META, structs = ...
-		META["Copy"] = function(a)
-			local c = CTOR()
-			c.KEY = a.KEY
-			return c
-		end
-		META["CopyTo"] = function(a, b)
-			a:Set(b:Unpack())
-			return a
-		end
-		META.__copy = META.Copy 
-		]==]
-		lua = parse_args(META, lua, " ")
-		lua = lua:gsub("CTOR", "META.CType")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-	elseif operator == "math" then
-		local args = {...}
-		local func_name = args[1]
-		local accessor_name = args[2]
-		local accessor_name_get = args[3]
-		local self_arg = args[4]
-		local lua = [==[
+		]==],
+		{
+			sep = "",
+		},
+		META,
+		structs
+	)
+end
+operators.copy = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
+			META["Copy"] = function(a)
+				local c = CTOR()
+				c.KEY = a.KEY
+				return c
+			end
+			META["CopyTo"] = function(a, b)
+				a:Set(b:Unpack())
+				return a
+			end
+			META.__copy = META.Copy
+		]==],
+		{
+			sep = " ",
+			subs = {
+				CTOR = "META.CType",
+			},
+		},
+		META,
+		structs
+	)
+end
+operators.math = function(META, operator, func_name, accessor_name, accessor_name_get, self_arg)
+	local lua = [==[
 		local META, structs, func = ...
 		META["ACCESSOR_NAME"] = function(a, ]==] .. (
-				self_arg and
-				"b, c" or
-				"..."
-			) .. [==[)
+			self_arg and
+			"b, c" or
+			"..."
+		) .. [==[)
 			a.KEY = func(a.KEY, ]==] .. (
-				self_arg and
-				"b.KEY, c.KEY" or
-				"..."
-			) .. [==[)
+			self_arg and
+			"b.KEY, c.KEY" or
+			"..."
+		) .. [==[)
 
 			return a
 		end
-		]==]
-		lua = parse_args(META, lua, "")
-		lua = lua:gsub("CTOR", "META.CType")
-		lua = lua:gsub("ACCESSOR_NAME", accessor_name)
-		assert(loadstring(lua, META.ClassName .. " operator math." .. func_name))(META, structs, math[func_name])
-		structs.AddGetFunc(META, accessor_name, accessor_name_get)
-	elseif operator == "random" then
-		local lua = [==[
-		local META, structs, randomf = ...
-		META["Random"] = function(a, ...)
+	]==]
+	compile(
+		META,
+		"operator math." .. func_name,
+		lua,
+		{
+			sep = "",
+			subs = {
+				CTOR = "META.CType",
+				ACCESSOR_NAME = accessor_name,
+			},
+		},
+		META,
+		structs,
+		math[func_name]
+	)
+	structs.AddGetFunc(META, accessor_name, accessor_name_get)
+end
+operators.random = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs, randomf = ...
+			META["Random"] = function(a, ...)
 				a.KEY = randomf(...)
 
 				return a
 			end
-		]==]
-		lua = parse_args(META, lua, "")
-		lua = lua:gsub("CTOR", "META.CType")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs, math.randomf)
-		structs.AddGetFunc(META, "Random")
-	--_G[META.ClassName .. "Rand"] = function(min, max)
-	--	return structs[META.ClassName]():GetRandom(min or -1, max or 1)
-	--end
-	elseif structs.OperatorTranslate[operator] then
-		local lua = [==[
-		local META, structs, istype = ...
-		local type = type
-		META[structs.OperatorTranslate["OPERATOR"]] = function(a, b)
-			if type(b) == "number" then
-				return CTOR(
-					a.KEY OPERATOR b
-				)
-			elseif type(a) == "number" then
-				return CTOR(
-					a OPERATOR b.KEY
-				)
-			elseif a and istype(a, b) then
-				return CTOR(
-					a.KEY OPERATOR b.KEY
-				)
+		]==],
+		{
+			sep = "",
+		},
+		META,
+		structs,
+		math.randomf
+	)
+	structs.AddGetFunc(META, "Random")
+--_G[META.ClassName .. "Rand"] = function(min, max)
+--	return structs[META.ClassName]():GetRandom(min or -1, max or 1)
+--end
+end
+operators.translate = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs, istype = ...
+			local type = type
+			META[structs.OperatorTranslate["OPERATOR"]] = function(a, b)
+				if type(b) == "number" then
+					return CTOR(
+						a.KEY OPERATOR b
+					)
+				elseif type(a) == "number" then
+					return CTOR(
+						a OPERATOR b.KEY
+					)
+				elseif istype(a, b) then
+					return CTOR(
+						a.KEY OPERATOR b.KEY
+					)
+				end
+				error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
 			end
-			error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
-		end
-		]==]
-		lua = parse_args(META, lua, ", ", true)
-		lua = lua:gsub("CTOR", "META.CType")
-		lua = lua:gsub("OPERATOR", operator == "%" and "%%" or operator)
-		lua = lua:gsub("PROTECT", "a.")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs, istype)
-	elseif operator == "iszero" then
-		local lua = [==[
-		local META, structs = ...
-		META["IsZero"] = function(a)
+		]==],
+		{
+			sep = ", ",
+			protect = true,
+			subs = {
+				CTOR = "META.CType",
+				OPERATOR = operator,
+				PROTECT = "a.",
+			},
+		},
+		META,
+		structs,
+		istype
+	)
+end
+operators.iszero = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
+			META["IsZero"] = function(a)
 				return
 				a.KEY == 0
 			end
-		]==]
-		lua = parse_args(META, lua, " and ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-	elseif operator == "isvalid" then
-		local lua = [==[
-		local META, structs, isvalid = ...
-		META["IsValid"] = function(a)
+		]==],
+		{
+			sep = " and ",
+		},
+		META,
+		structs
+	)
+end
+operators.isvalid = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs, isvalid = ...
+			META["IsValid"] = function(a)
 				return
 				isvalid(a.KEY)
 			end
-		]==]
-		lua = parse_args(META, lua, " and ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs, math.isvalid)
-	elseif operator == "generic_vector" then
-		local lua = [==[
-		local META, structs = ...
+		]==],
+		{
+			sep = " and ",
+		},
+		META,
+		structs,
+		math.isvalid
+	)
+end
+operators.generic_vector = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[==[
+			local META, structs = ...
 
-		function META:SetLength(num)
-			if num == 0 then
-				self.KEY = 0
+			function META:SetLength(num)
+				if num == 0 then
+					self.KEY = 0
 
-				return
-			end
+					return
+				end
 
-			local scale = math.sqrt(self:GetLengthSquared()) * num
-
-			self.KEY = self.KEY / scale
-
-			return self
-		end
-
-		function META:SetMaxLength(num)
-			local length = self:GetLengthSquared()
-
-			if length * length > num then
-				local scale = math.sqrt(length) * num
+				local scale = math.sqrt(self:GetLengthSquared()) * num
 
 				self.KEY = self.KEY / scale
-			end
 
-			return self
-		end
-
-		function META:Normalize(scale)
-			scale = scale or 1
-
-			local length = self:GetLengthSquared()
-
-			if length == 0 then
-				self.KEY = 0
-				self.KEY = 0
 				return self
 			end
 
-			local inverted_length = scale / math.sqrt(length)
+			function META:SetMaxLength(num)
+				local length = self:GetLengthSquared()
 
-			self.KEY = self.KEY * inverted_length
+				if length * length > num then
+					local scale = math.sqrt(length) * num
 
-			return self
-		end
-		structs.AddGetFunc(META, "Normalize", "Normalized")
-		]==]
-		lua = parse_args(META, lua, "")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-		local lua = [[
-		local META, structs = ...
+					self.KEY = self.KEY / scale
+				end
 
-		function META:GetLengthSquared()
-			return
-			self.KEY * self.KEY
-		end
-
-		function META.GetDot(a, b)
-			return
-			a.KEY * b.KEY
-		end
-		]]
-		lua = parse_args(META, lua, " + ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-		local lua = [[
-		local META, structs = ...
-
-		function META:GetVolume()
-			return
-			self.KEY
-		end
-		]]
-		lua = parse_args(META, lua, " * ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-
-		function META:GetLength()
-			return math.sqrt(self:GetLengthSquared())
-		end
-
-		function META.Distance(a, b)
-			return (a - b):GetLength()
-		end
-
-		META.__len = META.GetLength
-
-		function META.__lt(a, b)
-			if istype(META.CType, a) and type(b) == "number" then
-				return a:GetLength() < b
-			elseif istype(META.CType, b) and type(a) == "number" then
-				return b:GetLength() < a
+				return self
 			end
-		end
 
-		function META.__le(a, b)
-			if istype(META.CType, a) and type(b) == "number" then
-				return a:GetLength() <= b
-			elseif istype(META.CType, b) and type(a) == "number" then
-				return b:GetLength() <= a
+			function META:Normalize(scale)
+				scale = scale or 1
+
+				local length = self:GetLengthSquared()
+
+				if length == 0 then
+					self.KEY = 0
+					self.KEY = 0
+					return self
+				end
+
+				local inverted_length = scale / math.sqrt(length)
+
+				self.KEY = self.KEY * inverted_length
+
+				return self
 			end
-		end
-	elseif operator == "lerp" then
-		local lua = [[
-		local META, structs = ...
+			structs.AddGetFunc(META, "Normalize", "Normalized")
+		]==],
+		{
+			sep = "",
+		},
+		META,
+		structs
+	)
+	compile(
+		META,
+		"operator " .. operator,
+		[[
+			local META, structs = ...
 
-		function META.Lerp(a, mult, b)
-			a.KEY = (b.KEY - a.KEY) * mult + a.KEY
+			function META:GetLengthSquared()
+				return
+				self.KEY * self.KEY
+			end
 
-			return a
-		end
-		]]
-		lua = parse_args(META, lua, "")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
-		structs.AddGetFunc(META, "Lerp", "Lerped")
-	elseif operator == "cast" then
-		local lua = [[
-		local META = ...
-		local ffi = require("ffi")
+			function META.GetDot(a, b)
+				return
+				a.KEY * b.KEY
+			end
+		]],
+		{
+			sep = " + ",
+		},
+		META,
+		structs
+	)
+	compile(
+		META,
+		"operator " .. operator,
+		[[
+			local META, structs = ...
 
-		function META:Cast(a)
-			return ffi.cast(a, self)
+			function META:GetVolume()
+				return
+				self.KEY
+			end
+		]],
+		{
+			sep = " * ",
+		},
+		META,
+		structs
+	)
+
+	function META:GetLength()
+		return math.sqrt(self:GetLengthSquared())
+	end
+
+	function META.Distance(a, b)
+		return (a - b):GetLength()
+	end
+
+	META.__len = META.GetLength
+
+	function META.__lt(a, b)
+		if istype(META.CType, a) and type(b) == "number" then
+			return a:GetLength() < b
+		elseif istype(META.CType, b) and type(a) == "number" then
+			return b:GetLength() < a
 		end
-		]]
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META)
-	elseif operator == "float" then
-		local lua = [=[
+	end
+
+	function META.__le(a, b)
+		if istype(META.CType, a) and type(b) == "number" then
+			return a:GetLength() <= b
+		elseif istype(META.CType, b) and type(a) == "number" then
+			return b:GetLength() <= a
+		end
+	end
+end
+operators.lerp = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[[
+			local META, structs = ...
+
+			function META.Lerp(a, mult, b)
+				a.KEY = (b.KEY - a.KEY) * mult + a.KEY
+
+				return a
+			end
+		]],
+		{
+			sep = "",
+		},
+		META,
+		structs
+	)
+	structs.AddGetFunc(META, "Lerp", "Lerped")
+end
+operators.cast = function(META, operator)
+	compile(
+		META,
+		"operator " .. operator,
+		[[
+			local META = ...
+			local ffi = require("ffi")
+
+			function META:Cast(a)
+				return ffi.cast(a, self)
+			end
+		]],
+		nil,
+		META
+	)
+end
+operators.float = function(META, operator)
+	local lua = [=[
 		local META = ...
 		local ffi = require("ffi")
 
@@ -584,13 +762,27 @@ function structs.AddOperator(META, operator, ...)
 				return self
 			end
 		end
+	]=]
+	compile(META, "operator " .. operator, lua, {
+		sep = ", ",
+	}, META)
+end
 
-		]=]
-		lua = parse_args(META, lua, ", ")
-		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META)
-	else
-		logn("unhandled operator " .. operator)
+function structs.AddOperator(META, operator, ...)
+	if not META.NumberType then META.NumberType = structs.NumberType end
+
+	local handler = operators[operator]
+
+	if not handler and structs.OperatorTranslate[operator] then
+		handler = operators.translate
 	end
+
+	if not handler then
+		logn("unhandled operator " .. operator)
+		return
+	end
+
+	handler(META, operator, ...)
 end
 
 function structs.AddAllOperators(META)
