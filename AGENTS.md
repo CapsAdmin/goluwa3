@@ -1,31 +1,31 @@
-# how to run
+# How to run
 
-- do not run the game with "luajit glw" unless asked to. Prefix with "timeout 10 luajit glw" if you must
+- Do not run the engine with "luajit glw" only unless asked to. Prefix with "timeout 10 luajit glw" if you must
 
-- run a inline lua with "luajit glw --2d --once lua 'print("hello")'" with the full game for one frame
+- Run a single lua script with "luajit glw --2d --one-frame lua './tmp/path/to/file.lua'" 
 
-- run a single lua script with "luajit glw --2d --once lua 'path/to/file.lua'" with the full game for one frame
+- If you need to write a temporary script, write it in ./tmp/ 
 
-- take a screenshot with "luajit glw --2d --screenshot --once lua 'path/to/some/render/script.lua'"
+- Take a screenshot with "luajit glw --2d --screenshot --one-frame lua './tmp/path/to/some/render/script.lua'"
 
-- run a single test with "luajit glw test --filter=render2d --subfilter='Graphics render2d blend modes visual'"
+- Run a single test with "luajit glw test --filter=render2d --subfilter='Graphics render2d blend modes visual'"
 
-- if you need to write a probe script, write it in ./tmp/ 
+- Run inline lua with "luajit glw --2d --one-frame lua 'print("hello")'" . For scripts that span multiple lines, prefer writing in tmp, run, adjust/edit, run again, etc.
 
-# profiling (JIT profiler)
+# Profiling
 
-- the global `PROF` starts the JIT profiler. 
-- by default it runs for 300 frames, stops and prints a text summary, then shutsdown
+- The global `PROF` starts the JIT profiler. 
+
+- The profiler uses luajit's statistical profiler internally, and also uses jit.attach to observe trace recording
+
+- By default it runs for 300 frames, stops and prints a text summary, then calls system.ShutDown(0)
 
 ```
-luajit glw --2d lua "PROF('editor') something_expensive_and_blocking() PROF.stop() system.ShutDown(0)" -- profile a one action
-luajit glw --2d lua "PROF('render', {frames = 1000}) import('tmp/benchmark_test.lua')" -- profille the update loop for 1000 frames
+luajit glw --2d lua "PROF('render', {frames = 1000}) import('tmp/benchmark_test.lua')" -- profille the update loop for 1000 frames, then implicitly shutdown
+luajit glw --2d lua "PROF('editor') something_expensive_and_blocking() PROF.stop() system.ShutDown(0)" -- profile a one-off action and shutdown manually
 ```
-
-- the capture is saved to `storage/logs/jit_profile_<id>.glwp` (binary). 
-- you can read glwp files with `PROF.summary("path.glwp", {top_n = 20})`.
-
-# general coding rules
+- The profile capture is saved to `storage/logs/jit_profile_<id>.glwp` which can be read in detail, ie `PROF.summary("path.glwp", {top_n = 20})`
+# General coding rules
 
 - Only use :IsValid when nesseceary, never use it if you are not sure. I'd rather have errors than silent failures.
 

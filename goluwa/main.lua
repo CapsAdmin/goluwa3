@@ -45,7 +45,7 @@ commands.Add{
 		},
 		cli = {type = "boolean", description = "Run in CLI mode (no graphics, limited FPS)"},
 		server = {type = "boolean", description = "Run as a dedicated server"},
-		once = {type = "boolean", description = "Shut down after the first frame"},
+		["one-frame"] = {type = "boolean", description = "Shut down after the first frame"},
 		renderdoc = {type = "boolean", description = "Attach RenderDoc for debugging"},
 		no_audio = {type = "boolean", description = "Disable audio"},
 	},
@@ -103,7 +103,7 @@ commands.Add{
 			end)
 		end
 
-		if flags.once then
+		if flags["one-frame"] then
 			if system.GetFrameNumber() == 0 then
 				event.AddListener("FrameEnd", function()
 					system.ShutDown(0)

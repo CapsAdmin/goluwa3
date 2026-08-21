@@ -234,7 +234,7 @@ T.Test("callback.Get pumps updates in glw lua subprocess", function()
 			command = "luajit",
 			args = {
 				"glw",
-				"--once",
+				"--one-frame",
 				"--cli",
 				"lua",
 				[[local callback = import("goluwa/callback.lua"); print(callback.Resolve("ok!"):Get())]],
