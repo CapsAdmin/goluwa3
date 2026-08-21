@@ -541,7 +541,6 @@ threads.signal_pool_done = signal_pool_done
 local worker_bootstrap = [=[
     local run = assert(load(...))
 	local ffi = require("ffi")
-	jit.off()
 	local callback_result = ffi.os == "Windows" and 0 or nil
 	local _init_kernel32
 	local _INFINITE

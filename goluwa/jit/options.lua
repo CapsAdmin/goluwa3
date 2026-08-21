@@ -7,15 +7,6 @@ local tostring = _G.tostring
 local pairs = _G.pairs
 local jit = _G.jit--[[# as jit | nil]]
 local jit_options = {}
-
-if not jit or rawget(_G, "_WORKER_THREAD") then
-	function jit_options.Set() end
-
-	function jit_options.SetOptimized() end
-
-	return jit_options
-end
-
 local GC64 = #tostring({}) == 19
 -- https://github.com/LuaJIT/LuaJIT/blob/v2.1/src/lj_jit.h#L116-L137
 local default_options = {

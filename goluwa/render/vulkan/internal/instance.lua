@@ -18,7 +18,6 @@ do
 	local meta = {}
 	meta.__index = meta
 	local callback_source = [=[
-		jit.off()
 		local ffi = require("ffi")
 
 		if rawget(_G, "import") == nil or rawget(_G, "require") == nil then
