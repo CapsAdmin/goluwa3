@@ -24,6 +24,21 @@ local function build_fallback_tangent(normal)
 	return project_tangent(axis - normal * axis:Dot(normal), normal)
 end
 
+local function get_separation_tolerance(solver)
+	return math.max(solver.PENETRATION_SLOP or 0, 0.005) * 4
+end
+
+-- Separated (lifted) manifold points can only keep holding persistent impulse while the
+-- pair is still moving fast. Once the pair slows down the lift is released, otherwise a
+-- body locks into its tilted pose instead of settling flat onto the reference face.
+local function pair_breaks_lifted_support(solver, body_a, body_b)
+	local velocity_a = body_a.Velocity
+	local velocity_b = body_b.Velocity
+	local speed_a = velocity_a and velocity_a:GetLength() or 0
+	local speed_b = velocity_b and velocity_b:GetLength() or 0
+	return math.max(speed_a, speed_b) <= (solver.LIFT_BREAK_SPEED or 0.5)
+end
+
 local function build_tangent_basis(normal, preferred_tangent)
 	local tangent = project_tangent(preferred_tangent, normal) or build_fallback_tangent(normal)
 
@@ -91,6 +106,7 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 				or
 				0,
 			tangent_impulse_2 = matched_contact and matched_contact.tangent_impulse_2 or 0,
+			separation = contact.separation or 0,
 			static_friction_active = matched_contact and matched_contact.static_friction_active == true or false,
 			tangent = matched_contact and
 				matched_contact.tangent and
@@ -110,8 +126,14 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver
+	local separation_tolerance = get_separation_tolerance(solver)
+	local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do
+		if lifts_broken and (contact.separation or 0) > separation_tolerance then
+			goto continue
+		end
+
 		local point_a = body_a:LocalToWorld(contact.local_point_a)
 		local point_b = body_b:LocalToWorld(contact.local_point_b)
 		local normal_impulse = math.max(contact.normal_impulse or 0, 0) * solver.WARM_START_SCALE
@@ -154,6 +176,8 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 				end
 			end
 		end
+
+		::continue::
 	end
 
 	if did_apply then impulse_motion.CommitPairMotion(state_a, state_b, dt) end
@@ -169,9 +193,21 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 	local static_friction = math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
+	local separation_tolerance = get_separation_tolerance(solver)
+	local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
 
 	for pass = 1, passes do
 		for _, contact in ipairs(manifold_data.contacts or {}) do
+			if lifts_broken and (contact.separation or 0) > separation_tolerance then
+				contact.normal_impulse = 0
+				contact.tangent_impulse = 0
+				contact.tangent_impulse_1 = 0
+				contact.tangent_impulse_2 = 0
+				contact.static_friction_active = false
+
+				goto continue
+			end
+
 			local point_a = body_a:LocalToWorld(contact.local_point_a)
 			local point_b = body_b:LocalToWorld(contact.local_point_b)
 			local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
@@ -273,6 +309,8 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 					end
 				end
 			end
+
+			::continue::
 		end
 	end
 

@@ -112,6 +112,18 @@ local function set_pair_manifold(manifolds, body_a, body_b, manifold)
 	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
 end
 
+local function get_contact_separation_tolerance(solver)
+	return math.max(solver.PENETRATION_SLOP or 0, 0.005) * 4
+end
+
+local function pair_breaks_lifted_support(solver, body_a, body_b)
+	local velocity_a = body_a.Velocity
+	local velocity_b = body_b.Velocity
+	local speed_a = velocity_a and velocity_a:GetLength() or 0
+	local speed_b = velocity_b and velocity_b:GetLength() or 0
+	return math.max(speed_a, speed_b) <= (solver.LIFT_BREAK_SPEED or 0.5)
+end
+
 local function get_positional_correction_length(solver, overlap, dt)
 	local slop = math.max(solver.PENETRATION_SLOP or 0, 0)
 	local factor = math.max(solver.POSITIONAL_CORRECTION_FACTOR or 0, 0)
@@ -217,10 +229,24 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		local correction_length = get_positional_correction_length(solver, overlap, dt)
 
 		if correction_length > EPSILON then
-			local correction = normal * (-(correction_length / #contacts))
+			local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
+			local separation_tolerance = lifts_broken and get_contact_separation_tolerance(solver) or math.huge
+			local active_count = 0
 
 			for _, contact in ipairs(contacts) do
-				body_a:ApplyCorrection(0, correction, contact.point_a, body_b, contact.point_b, dt)
+				if (contact.separation or 0) <= separation_tolerance then
+					active_count = active_count + 1
+				end
+			end
+
+			if active_count == 0 then active_count = #contacts end
+
+			local correction = normal * (-(correction_length / active_count))
+
+			for _, contact in ipairs(contacts) do
+				if (contact.separation or 0) <= separation_tolerance then
+					body_a:ApplyCorrection(0, correction, contact.point_a, body_b, contact.point_b, dt)
+				end
 			end
 		end
 

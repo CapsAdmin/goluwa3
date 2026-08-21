@@ -440,7 +440,14 @@ function convex_face_clipping.BuildFaceContactPairs(reference_points, reference_
 	for _, entry in ipairs(entries or {}) do
 		local point_a = options.swap and entry.point_incident or entry.point_reference
 		local point_b = options.swap and entry.point_reference or entry.point_incident
-		count = convex_manifold.AddContactPointReused(out, count, point_a, point_b, options.merge_distance)
+		count = convex_manifold.AddContactPointReused(
+			out,
+			count,
+			point_a,
+			point_b,
+			options.merge_distance,
+			entry.separation
+		)
 	end
 
 	return list.clear_from_index(out, count + 1)

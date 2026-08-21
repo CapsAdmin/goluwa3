@@ -64,8 +64,8 @@ local function get_other_axis_indices(axis_index)
 	return 1, 2
 end
 
-local function add_box_contact_point(contacts, point_a, point_b)
-	return convex_manifold.AddContactPoint(contacts, point_a, point_b, 0.12)
+local function add_box_contact_point(contacts, point_a, point_b, separation)
+	return convex_manifold.AddContactPoint(contacts, point_a, point_b, 0.12, separation)
 end
 
 local function fill_cached_box_faces(polyhedron, world_vertices, out)
@@ -374,9 +374,9 @@ local function build_face_contacts(body_a, body_b, candidate)
 		local entry = ranked_contacts[i]
 
 		if reference_is_a then
-			add_box_contact_point(contacts, entry.point_reference, entry.point_incident)
+			add_box_contact_point(contacts, entry.point_reference, entry.point_incident, entry.separation)
 		else
-			add_box_contact_point(contacts, entry.point_incident, entry.point_reference)
+			add_box_contact_point(contacts, entry.point_incident, entry.point_reference, entry.separation)
 		end
 	end
 
@@ -493,15 +493,18 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 		if reduced_count > 1 and (target_u == nil) ~= (target_v == nil) then
 			local average_a = Vec3(0, 0, 0)
 			local average_b = Vec3(0, 0, 0)
+			local average_separation = 0
 
 			for _, contact in ipairs(reduced) do
 				average_a = average_a + contact.point_a
 				average_b = average_b + contact.point_b
+				average_separation = average_separation + (contact.separation or 0)
 			end
 
 			local averaged = BOX_SUPPORT_REDUCTION_SCRATCH.averaged
-			return convex_manifold.BuildSingleContact(averaged, average_a / reduced_count, average_b / reduced_count),
-			true
+			local reduced_contacts = convex_manifold.BuildSingleContact(averaged, average_a / reduced_count, average_b / reduced_count)
+			reduced_contacts[1].separation = average_separation / reduced_count
+			return reduced_contacts, true
 		end
 
 		return reduced, true

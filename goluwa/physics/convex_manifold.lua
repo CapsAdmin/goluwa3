@@ -100,7 +100,7 @@ function convex_manifold.BuildSingleContact(contacts, point_a, point_b)
 	return convex_manifold.TrimContacts(contacts, 1)
 end
 
-function convex_manifold.AddContactPointReused(contacts, count, point_a, point_b, merge_distance)
+function convex_manifold.AddContactPointReused(contacts, count, point_a, point_b, merge_distance, separation)
 	local midpoint = (point_a + point_b) * 0.5
 	merge_distance = merge_distance or 0.1
 
@@ -114,12 +114,15 @@ function convex_manifold.AddContactPointReused(contacts, count, point_a, point_b
 	end
 
 	count = count + 1
-	convex_manifold.FillContactPair(contacts, count, point_a, point_b)
+	local contact = convex_manifold.FillContactPair(contacts, count, point_a, point_b)
+
+	if separation ~= nil then contact.separation = separation end
+
 	return count
 end
 
-function convex_manifold.AddContactPoint(contacts, point_a, point_b, merge_distance)
-	convex_manifold.AddContactPointReused(contacts, #contacts, point_a, point_b, merge_distance)
+function convex_manifold.AddContactPoint(contacts, point_a, point_b, merge_distance, separation)
+	convex_manifold.AddContactPointReused(contacts, #contacts, point_a, point_b, merge_distance, separation)
 end
 
 function convex_manifold.MergeContacts(contacts, additional_contacts, max_contacts)
