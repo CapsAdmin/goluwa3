@@ -5,13 +5,7 @@ local typeof = ffi.typeof
 local tostring = tostring
 local UNION_SWIZZLE = false
 structs.NumberType = "float"
-local callstack = import("goluwa/debug/callstack.lua")
--- augment loadstring
-local old_loadstring = loadstring
-
-local function loadstring(code, name)
-	return old_loadstring(code, "@" .. callstack.get_line(2) .. " - " .. name)
-end
+local codegen = import("goluwa/codegen.lua")
 
 function structs.Template(class_name)
 	local META = {}
@@ -106,61 +100,30 @@ structs.OperatorTranslate = {
 	["%"] = "__mod",
 }
 
-local function parse_args(META, lua, sep, protect)
-	sep = sep or ", "
-	local str = ""
-	local count = #META.Args[1]
+-- env for field expansion: {{KEY}} repeats its line per field, {{ARG}} joins field names
+local function fields_env(META, sep, protect)
+	local list = {}
 
-	for _, line in ipairs(lua:split("\n")) do
-		local has_key = line:find("KEY", nil, true)
-		local has_arg = line:find("ARG", nil, true)
+	for i, v in ipairs(META.Args[1]) do
+		list[i] = type(v) == "table" and v[1] or v
+	end
 
-		if has_key or has_arg then
-			local str = ""
+	local key = codegen.each(list, sep)
 
-			for i, trans in pairs(META.Args[1]) do
-				local arg = trans
-
-				if type(trans) == "table" then arg = trans[1] end
-
-				if protect and META.ProtectedFields and META.ProtectedFields[arg] then
-					str = str .. "PROTECT " .. arg
-				elseif has_arg then
-					str = str .. arg
-
-					if i ~= count then str = str .. ", " end
-				else
-					str = str .. line:replace("KEY", arg)
-				end
-
-				if i ~= count and not has_arg then str = str .. sep end
-
-				if has_key then str = str .. "\n" end
+	if protect then
+		key = codegen.each(list, sep, function(name, line)
+			if META.ProtectedFields and META.ProtectedFields[name] then
+				return "a." .. name
 			end
 
-			if has_arg then str = line:replace("ARG", str) end
-
-			line = str
-		end
-
-		str = str .. line .. "\n"
+			return line
+		end)
 	end
 
-	return str
-end
-
--- Compiles a template into the metatable. opts = { sep, protect, subs = { NAME = value } }
--- Trailing ... are forwarded as call args to the compiled chunk.
-local function compile(META, label, template, opts, ...)
-	local lua = parse_args(META, template, opts and opts.sep or ", ", opts and opts.protect or nil)
-
-	if opts and opts.subs then
-		for name, value in pairs(opts.subs) do
-			lua = lua:replace(name, value)
-		end
-	end
-
-	return assert(loadstring(lua, META.ClassName .. " " .. label))(...)
+	return {
+		KEY = key,
+		ARG = codegen.join(list, ", "),
+	}
 end
 
 local operators = {}
@@ -173,231 +136,199 @@ operators.tostring = function(META, operator)
 		if i ~= #META.Args[1] then format = format .. ", " end
 	end
 
-	compile(
-		META,
-		"operator " .. operator,
+	local env = fields_env(META, ", ", false)
+	env.CLASSNAME = META.ClassName
+	env.LINE = format
+	codegen.run(
 		[==[
 			local META, structs = ...
 			local string_format = string.format
 			META["__tostring"] = function(a)
 					return
-					string_format(
-						"CLASSNAME(LINE)",
-						a.KEY
-					)
-				end
+				string_format(
+					"{{CLASSNAME}}({{LINE}})",
+					a.{{KEY}}
+				)
+			end
 		]==],
-		{
-			sep = ", ",
-			subs = {
-				CLASSNAME = META.ClassName,
-				LINE = format,
-			},
-		},
+		"operator " .. operator,
+		env,
 		META,
 		structs
 	)
 end
 operators.unpack = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs = ...
 			META["Unpack"] = function(a,...)
 					return
-					a.KEY
+					a.{{KEY}}
 					,...
 				end
 		]==],
-		{
-			sep = ", ",
-		},
+		"operator " .. operator,
+		fields_env(META, ", ", false),
 		META,
 		structs
 	)
 end
 operators["=="] = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	local env = fields_env(META, " and ", false)
+	env.TYPE = ffi and "\"cdata\"" or "\"table\""
+	codegen.run(
 		[==[
 			local META, structs, istype = ...
 			local type = type
 			META["__eq"] = function(a, b)
-				return
-				type(a) == TYPE and
+					return
+				type(a) == {{TYPE}} and
 				istype(a, b) and
-				a.KEY == b.KEY
+				a.{{KEY}} == b.{{KEY}}
 			end
 		]==],
-		{
-			sep = " and ",
-			subs = {
-				TYPE = ffi and "\"cdata\"" or "\"table\"",
-			},
-		},
+		"operator " .. operator,
+		env,
 		META,
 		structs,
 		istype
 	)
-	compile(
-		META,
-		"operator IsEqual",
+	codegen.run(
 		[==[
-			local META, structs = ...
-			META["IsEqual"] = function(self, ARG)
-				return
-					self.KEY == KEY
-				end
+		local META, structs = ...
+		META["IsEqual"] = function(self, {{ARG}})
+			return
+				self.{{KEY}} == {{KEY}}
+			end
 		]==],
-		{
-			sep = " and ",
-		},
+		"operator IsEqual",
+		fields_env(META, " and ", false),
 		META,
 		structs
 	)
 end
 operators.compare = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs, istype = ...
 			local type = type
 			META["__lt"] = function(a, b)
 				if type(b) == "number" then
 					return
-						a.KEY < b
+						a.{{KEY}} < b
 				elseif type(a) == "number" then
 					return
-						a < b.KEY
+						a < b.{{KEY}}
 				elseif istype(a, b) then
 					return
-						a.KEY < b.KEY
+						a.{{KEY}} < b.{{KEY}}
 				end
 				return false
 			end
 			META["__le"] = function(a, b)
 				if type(b) == "number" then
 					return
-						a.KEY <= b
+						a.{{KEY}} <= b
 				elseif type(a) == "number" then
 					return
-						a <= b.KEY
+						a <= b.{{KEY}}
 				elseif istype(a, b) then
 					return
-						a.KEY <= b.KEY
+						a.{{KEY}} <= b.{{KEY}}
 				end
 				return false
 			end
 		]==],
-		{
-			sep = " and ",
-		},
+		"operator " .. operator,
+		fields_env(META, " and ", false),
 		META,
 		structs,
 		istype
 	)
-	compile(
-		META,
-		"operator compare methods",
+	codegen.run(
 		[==[
 			local META, structs = ...
-			META["IsLess"] = function(self, ARG)
+			META["IsLess"] = function(self, {{ARG}})
 				return
-					self.KEY < KEY
+					self.{{KEY}} < {{KEY}}
 			end
-			META["IsLessOrEqual"] = function(self, ARG)
+			META["IsLessOrEqual"] = function(self, {{ARG}})
 				return
-					self.KEY <= KEY
+					self.{{KEY}} <= {{KEY}}
 			end
-			META["IsGreater"] = function(self, ARG)
+			META["IsGreater"] = function(self, {{ARG}})
 				return
-					self.KEY > KEY
+					self.{{KEY}} > {{KEY}}
 			end
-			META["IsGreaterOrEqual"] = function(self, ARG)
+			META["IsGreaterOrEqual"] = function(self, {{ARG}})
 				return
-					self.KEY >= KEY
+					self.{{KEY}} >= {{KEY}}
 			end
 		]==],
-		{
-			sep = " and ",
-		},
+		"operator compare methods",
+		fields_env(META, " and ", false),
 		META,
 		structs
 	)
 end
 operators.unm = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	local env = fields_env(META, ", ", true)
+	env.CTOR = "META.CType"
+	codegen.run(
 		[==[
 			local META, structs = ...
 			META["__unm"] = function(a)
-				local result = CTOR(
-					-a.KEY
+				local result = {{CTOR}}(
+					-a.{{KEY}}
 				)
 				return result
 			end
 		]==],
-		{
-			sep = ", ",
-			protect = true,
-			subs = {
-				PROTECT = "a.",
-				CTOR = "META.CType",
-			},
-		},
+		"operator " .. operator,
+		env,
 		META,
 		structs
 	)
 end
 operators.zero = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs = ...
 			META["Zero"] = function(a)
-				a.KEY = 0
+				a.{{KEY}} = 0
 				return a
 			end
 		]==],
-		{
-			sep = "",
-		},
+		"operator " .. operator,
+		fields_env(META, "", false),
 		META,
 		structs
 	)
 end
 operators.set = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs = ...
-			META["Set"] = function(a, ARG)
-				a.KEY = KEY
+			META["Set"] = function(a, {{ARG}})
+				a.{{KEY}} = {{KEY}}
 				return a
 			end
 		]==],
-		{
-			sep = "",
-		},
+		"operator " .. operator,
+		fields_env(META, "", false),
 		META,
 		structs
 	)
 end
 operators.copy = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	local env = fields_env(META, " ", false)
+	env.CTOR = "META.CType"
+	codegen.run(
 		[==[
 			local META, structs = ...
 			META["Copy"] = function(a)
-				local c = CTOR()
-				c.KEY = a.KEY
+				local c = {{CTOR}}()
+				c.{{KEY}} = a.{{KEY}}
 				return c
 			end
 			META["CopyTo"] = function(a, b)
@@ -406,12 +337,8 @@ operators.copy = function(META, operator)
 			end
 			META.__copy = META.Copy
 		]==],
-		{
-			sep = " ",
-			subs = {
-				CTOR = "META.CType",
-			},
-		},
+		"operator " .. operator,
+		env,
 		META,
 		structs
 	)
@@ -419,153 +346,120 @@ end
 operators.math = function(META, operator, func_name, accessor_name, accessor_name_get, self_arg)
 	local lua = [==[
 		local META, structs, func = ...
-		META["ACCESSOR_NAME"] = function(a, ]==] .. (
+		META["{{ACCESSOR_NAME}}"] = function(a, ]==] .. (
 			self_arg and
 			"b, c" or
 			"..."
 		) .. [==[)
-			a.KEY = func(a.KEY, ]==] .. (
+			a.{{KEY}} = func(a.{{KEY}}, ]==] .. (
 			self_arg and
 			"b.KEY, c.KEY" or
 			"..."
 		) .. [==[)
-
 			return a
 		end
 	]==]
-	compile(
-		META,
-		"operator math." .. func_name,
-		lua,
-		{
-			sep = "",
-			subs = {
-				CTOR = "META.CType",
-				ACCESSOR_NAME = accessor_name,
-			},
-		},
-		META,
-		structs,
-		math[func_name]
-	)
+	local env = fields_env(META, "", false)
+	env.ACCESSOR_NAME = accessor_name
+	codegen.run(lua, "operator math." .. func_name, env, META, structs, math[func_name])
 	structs.AddGetFunc(META, accessor_name, accessor_name_get)
 end
 operators.random = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs, randomf = ...
 			META["Random"] = function(a, ...)
-				a.KEY = randomf(...)
+					a.{{KEY}} = randomf(...)
 
-				return a
-			end
+					return a
+				end
 		]==],
-		{
-			sep = "",
-		},
+		"operator " .. operator,
+		fields_env(META, "", false),
 		META,
 		structs,
 		math.randomf
 	)
 	structs.AddGetFunc(META, "Random")
---_G[META.ClassName .. "Rand"] = function(min, max)
---	return structs[META.ClassName]():GetRandom(min or -1, max or 1)
---end
 end
 operators.translate = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	local env = fields_env(META, ", ", true)
+	env.CTOR = "META.CType"
+	env.OPERATOR = operator
+	codegen.run(
 		[==[
 			local META, structs, istype = ...
 			local type = type
-			META[structs.OperatorTranslate["OPERATOR"]] = function(a, b)
+			META[structs.OperatorTranslate["{{OPERATOR}}"]] = function(a, b)
 				if type(b) == "number" then
-					return CTOR(
-						a.KEY OPERATOR b
+					return {{CTOR}}(
+						a.{{KEY}} {{OPERATOR}} b
 					)
 				elseif type(a) == "number" then
-					return CTOR(
-						a OPERATOR b.KEY
+					return {{CTOR}}(
+						a {{OPERATOR}} b.{{KEY}}
 					)
 				elseif istype(a, b) then
-					return CTOR(
-						a.KEY OPERATOR b.KEY
+					return {{CTOR}}(
+						a.{{KEY}} {{OPERATOR}} b.{{KEY}}
 					)
 				end
-				error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
+				error(("%s {{OPERATOR}} %s"):format(tostring(a), tostring(b)), 2)
 			end
 		]==],
-		{
-			sep = ", ",
-			protect = true,
-			subs = {
-				CTOR = "META.CType",
-				OPERATOR = operator,
-				PROTECT = "a.",
-			},
-		},
+		"operator " .. operator,
+		env,
 		META,
 		structs,
 		istype
 	)
 end
 operators.iszero = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs = ...
 			META["IsZero"] = function(a)
 				return
-				a.KEY == 0
+				a.{{KEY}} == 0
 			end
 		]==],
-		{
-			sep = " and ",
-		},
+		"operator " .. operator,
+		fields_env(META, " and ", false),
 		META,
 		structs
 	)
 end
 operators.isvalid = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs, isvalid = ...
 			META["IsValid"] = function(a)
 				return
-				isvalid(a.KEY)
+				isvalid(a.{{KEY}})
 			end
 		]==],
-		{
-			sep = " and ",
-		},
+		"operator " .. operator,
+		fields_env(META, " and ", false),
 		META,
 		structs,
 		math.isvalid
 	)
 end
 operators.generic_vector = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[==[
 			local META, structs = ...
 
 			function META:SetLength(num)
 				if num == 0 then
-					self.KEY = 0
+					self.{{KEY}} = 0
 
 					return
 				end
 
 				local scale = math.sqrt(self:GetLengthSquared()) * num
 
-				self.KEY = self.KEY / scale
+				self.{{KEY}} = self.{{KEY}} / scale
 
 				return self
 			end
@@ -576,7 +470,7 @@ operators.generic_vector = function(META, operator)
 				if length * length > num then
 					local scale = math.sqrt(length) * num
 
-					self.KEY = self.KEY / scale
+					self.{{KEY}} = self.{{KEY}} / scale
 				end
 
 				return self
@@ -588,61 +482,54 @@ operators.generic_vector = function(META, operator)
 				local length = self:GetLengthSquared()
 
 				if length == 0 then
-					self.KEY = 0
-					self.KEY = 0
+					self.{{KEY}} = 0
+					self.{{KEY}} = 0
 					return self
 				end
 
 				local inverted_length = scale / math.sqrt(length)
 
-				self.KEY = self.KEY * inverted_length
+				self.{{KEY}} = self.{{KEY}} * inverted_length
 
 				return self
 			end
 			structs.AddGetFunc(META, "Normalize", "Normalized")
 		]==],
-		{
-			sep = "",
-		},
+		"operator " .. operator,
+		fields_env(META, "", false),
 		META,
 		structs
 	)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[[
 			local META, structs = ...
 
 			function META:GetLengthSquared()
 				return
-				self.KEY * self.KEY
+				self.{{KEY}} * self.{{KEY}}
 			end
 
 			function META.GetDot(a, b)
 				return
-				a.KEY * b.KEY
+				a.{{KEY}} * b.{{KEY}}
 			end
 		]],
-		{
-			sep = " + ",
-		},
+		"operator " .. operator,
+		fields_env(META, " + ", false),
 		META,
 		structs
 	)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[[
 			local META, structs = ...
 
 			function META:GetVolume()
 				return
-				self.KEY
+				self.{{KEY}}
 			end
 		]],
-		{
-			sep = " * ",
-		},
+		"operator " .. operator,
+		fields_env(META, " * ", false),
 		META,
 		structs
 	)
@@ -674,30 +561,25 @@ operators.generic_vector = function(META, operator)
 	end
 end
 operators.lerp = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[[
 			local META, structs = ...
 
 			function META.Lerp(a, mult, b)
-				a.KEY = (b.KEY - a.KEY) * mult + a.KEY
+				a.{{KEY}} = (b.{{KEY}} - a.{{KEY}}) * mult + a.{{KEY}}
 
 				return a
 			end
 		]],
-		{
-			sep = "",
-		},
+		"operator " .. operator,
+		fields_env(META, "", false),
 		META,
 		structs
 	)
 	structs.AddGetFunc(META, "Lerp", "Lerped")
 end
 operators.cast = function(META, operator)
-	compile(
-		META,
-		"operator " .. operator,
+	codegen.run(
 		[[
 			local META = ...
 			local ffi = require("ffi")
@@ -706,6 +588,7 @@ operators.cast = function(META, operator)
 				return ffi.cast(a, self)
 			end
 		]],
+		"operator " .. operator,
 		nil,
 		META
 	)
@@ -722,13 +605,13 @@ operators.float = function(META, operator)
 
 		function META.GetFloatCopy(a)
 			return float_array(
-				a.KEY
+				a.{{KEY}}
 			)
 		end
 
 		function META.GetDoubleCopy(a)
 			return double_array(
-				a.KEY
+				a.{{KEY}}
 			)
 		end
 
@@ -762,10 +645,9 @@ operators.float = function(META, operator)
 				return self
 			end
 		end
+
 	]=]
-	compile(META, "operator " .. operator, lua, {
-		sep = ", ",
-	}, META)
+	codegen.run(lua, "operator " .. operator, fields_env(META, ", ", false), META)
 end
 
 function structs.AddOperator(META, operator, ...)
