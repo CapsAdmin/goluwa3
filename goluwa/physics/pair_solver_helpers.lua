@@ -228,9 +228,7 @@ function pair_solver_helpers.FindEarliestBodyPointSweepHit(
 	for _, local_point in ipairs(local_points) do
 		local start_world = body:GeometryLocalToWorld(local_point, previous_position, previous_rotation)
 		local end_world = body:GeometryLocalToWorld(local_point, current_position, current_rotation)
-		local hit = evaluate_context ~= nil and
-			evaluate_hit(evaluate_context, start_world, end_world, local_point) or
-			evaluate_hit(start_world, end_world, local_point)
+		local hit = evaluate_hit(evaluate_context, start_world, end_world, local_point)
 
 		if hit and (not best_hit or hit.t < best_hit.t) then best_hit = hit end
 	end
