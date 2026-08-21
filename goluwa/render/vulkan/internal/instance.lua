@@ -22,6 +22,7 @@ do
 		local ffi = require("ffi")
 
 		if rawget(_G, "import") == nil or rawget(_G, "require") == nil then
+			_G._WORKER_THREAD = true
 			require("goluwa.global_environment")
 		end
 

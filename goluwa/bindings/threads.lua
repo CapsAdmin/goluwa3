@@ -560,8 +560,6 @@ local worker_bootstrap = [=[
 
 	local function get_threads()
 		if rawget(_G, "import") == nil or rawget(_G, "require") == nil then
-			_G._WORKER_THREAD = true
-
 			-- On Windows, serialize Lua state initialization to avoid
 			-- concurrent FFI/JIT internal state corruption in LuaJIT.
 			if ffi.os == "Windows" then
@@ -587,6 +585,8 @@ local worker_bootstrap = [=[
 	end
 
 	local function main(udata)
+		_G._WORKER_THREAD = true
+
 		local threads = get_threads()
         local data = ffi.cast(threads.thread_data_ptr_t, udata)
 
@@ -859,12 +859,12 @@ do
 		[[
 		struct {
 			volatile int should_exit;
-			const char* worker_func;  // Serialized worker function
-			size_t worker_func_len;  // Length of serialized worker function
+			const char* worker_source;  // Worker source code string
+			size_t worker_source_len;  // Length of worker source
 			const char* work_data;  // Serialized work data
 			size_t work_data_len;  // Length of work data
-			char* result_data;  // Serialized result data
-			size_t result_data_len;  // Length of result data
+			char* result_data;  // Serialized result payload
+			size_t result_data_len;  // Length of result payload
 			int thread_id;
 			int padding;  // Alignment
 		]] .. pool_signal_fields .. [[
@@ -876,22 +876,29 @@ do
 	local thread_control_array_t = ffi.typeof("$[?]", thread_control_t)
 
 	-- Create a new thread pool
-	function threads.new_pool(worker_func, num_threads)
+	-- worker_source is a source code string, same contract as threads.new:
+	-- the chunk is called with the work item and must return the result.
+	-- The result payload is wrapped as {ok, result} or {ok, err} so worker
+	-- errors surface in pool:wait instead of killing the persistent worker.
+	function threads.new_pool(worker_source, num_threads)
 		local self = setmetatable({}, pool_meta)
 		self.num_threads = num_threads or 8
-		self.worker_func = worker_func
+		assert(
+			type(worker_source) == "string",
+			"threads.new_pool requires a worker source string"
+		)
+		self.worker_source = worker_source
 		self.thread_objects = {}
 		self.busy = {}
 		-- Allocate shared control structures (one per thread)
 		self.control = thread_control_array_t(num_threads)
-		local worker_func_str = string.dump(worker_func)
 
 		-- Initialize control structures
 		for i = 0, num_threads - 1 do
 			local ctrl = self.control[i]
 			ctrl.should_exit = 0
-			ctrl.worker_func = worker_func_str
-			ctrl.worker_func_len = #worker_func_str
+			ctrl.worker_source = worker_source
+			ctrl.worker_source_len = #worker_source
 			ctrl.work_data = nil
 			ctrl.work_data_len = 0
 			ctrl.result_data = nil
@@ -917,16 +924,24 @@ do
 			local threads = import("goluwa/bindings/threads.lua")
 			local control = ffi.cast(threads.thread_control_ptr_t, shared_ptr)
 			local thread_id = control.thread_id
-			local worker_func = assert(load(ffi.string(control.worker_func, control.worker_func_len)))
+			local worker_func = assert(load(ffi.string(control.worker_source, control.worker_source_len)))
 
 			while true do
 				threads.wait_pool_work(control)
 
 				if control.should_exit == 1 then break end
 
-				local work = threads.pointer_decode(control.work_data, control.work_data_len)
-				local result = worker_func(work)
-				local result_ptr, result_len = threads.pointer_encode_owned(result)
+				local ok, work_or_payload = pcall(function()
+					local work = threads.pointer_decode(control.work_data, control.work_data_len)
+					local result = worker_func(work)
+					return {ok = true, result = result}
+				end)
+
+				if not ok then
+					work_or_payload = {ok = false, err = work_or_payload}
+				end
+
+				local result_ptr, result_len = threads.pointer_encode_owned(work_or_payload)
 				control.result_data = result_ptr
 				control.result_data_len = result_len
 				threads.signal_pool_done(control)
@@ -969,16 +984,20 @@ do
 		signal_pool_work(self.control[idx])
 	end
 
-	-- Wait for a specific thread to complete
+	-- Wait for a specific thread to complete. Returns the result, or
+	-- nil, err if the worker source errored on this work item.
 	function pool_meta:wait(thread_id)
 		local idx = thread_id - 1
 		wait_pool_done(self.control[idx])
 		self.busy[thread_id] = false
-		local result = threads.pointer_decode(self.control[idx].result_data, self.control[idx].result_data_len)
+		local payload = threads.pointer_decode(self.control[idx].result_data, self.control[idx].result_data_len)
 		threads.pointer_free(self.control[idx].result_data)
 		self.control[idx].result_data = nil
 		self.control[idx].result_data_len = 0
-		return result
+
+		if payload.ok then return payload.result end
+
+		return nil, payload.err
 	end
 
 	-- Submit work to all threads
@@ -993,15 +1012,23 @@ do
 		end
 	end
 
-	-- Wait for all threads to complete
+	-- Wait for all threads to complete. Returns results and an errs table
+	-- (nil when every worker succeeded).
 	function pool_meta:wait_all()
 		local results = {}
+		local errs
 
 		for i = 1, self.num_threads do
-			results[i] = self:wait(i)
+			local result, err = self:wait(i)
+			results[i] = result
+
+			if err then
+				errs = errs or {}
+				errs[i] = err
+			end
 		end
 
-		return results
+		return results, errs
 	end
 
 	-- Shutdown the thread pool

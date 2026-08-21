@@ -2,14 +2,34 @@
 local callstack = {}
 local debug = _G.debug
 
-do
+-- jit.profile.dumpstack is much faster than the debug library, but it writes
+-- into a process-wide scratch buffer, so it must never be called concurrently from
+-- multiple VMs. Worker threads run their own VM and must use the per-thread debug library. 
+-- The main VM keeps the fast dumpstack path, since no worker ever calls dumpstack
+if rawget(_G, "_WORKER_THREAD") then
+	local getinfo = debug.getinfo
+	local traceback = debug.traceback
+
+	function callstack.traceback(msg--[[#: string | nil]], level--[[#: 1 .. inf | nil]])
+		level = level or 1
+		msg = msg or "stack traceback:\n"
+		return traceback(msg, level + 1)
+	end
+
+	function callstack.get_line(level--[[#: 1 .. inf]])
+		local info = getinfo(level + 1, "Sl")
+
+		if not info then return nil end
+
+		return info.short_src .. ":" .. tostring(info.currentline or info.linedefined)
+	end
+else
 	local prof = require("jit.profile")
 
 	function callstack.traceback(msg--[[#: string | nil]], level--[[#: 1 .. inf | nil]])
 		level = level or 1
 		msg = msg or "stack traceback:\n"
 		local str = prof.dumpstack("pl\n", 50)
-		local count = 0
 		local pos = 1
 
 		for _ = 1, level + 1 do
@@ -24,8 +44,7 @@ do
 			pos = stop + 1
 		end
 
-		local out = msg .. str:sub(pos)
-		return out
+		return msg .. str:sub(pos)
 	end
 
 	function callstack.get_line(level--[[#: 1 .. inf]])
