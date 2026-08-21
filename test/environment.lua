@@ -5,6 +5,16 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 import.loadfile = vfs.LoadFile
 vfs.Mount("os:" .. vfs.GetStorageDirectory("working_directory"))
 vfs.MountStorageDirectories()
+
+do -- have all branches execute
+	_G.AUDIO = true
+	_G.SERVER = true
+	_G.CLIENT = true
+	_G.RENDER_2D = true
+	_G.RENDER_3D = true
+	_G.PHYSICS = true
+end
+
 local vk = import("goluwa/bindings/vk.lua")
 local has_rendering = false
 
@@ -201,19 +211,19 @@ T.Test3D = function(name, cb)
 		test_render.Draw3D(cb)
 	end)
 end
-
 T.TestPhysics = function(name, cb)
 	return T.Test(name, function()
 		local physics = import("goluwa/physics.lua")
 		local Entity = import("goluwa/entities/entity.lua")
 		cb()
+
 		-- Clean up entities created during test
 		for _, ent in ipairs(Entity.World:GetChildrenList()) do
 			if ent:IsValid() then ent:Remove() end
 		end
+
 		-- Reset physics state (broadphase, solver, collision pairs)
 		if physics.ResetState then physics:ResetState() end
 	end)
 end
-
 return T
