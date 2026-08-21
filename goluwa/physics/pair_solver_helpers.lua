@@ -236,18 +236,21 @@ function pair_solver_helpers.FindEarliestBodyPointSweepHit(
 	return best_hit
 end
 
+-- returns a per-body persistent table so sweep solves do not allocate per call
 function pair_solver_helpers.GetBodySweepMotion(body)
-	local previous_position = body:GetPreviousPosition()
-	local previous_rotation = body:GetPreviousRotation()
-	local current_position = body:GetPosition()
-	local current_rotation = body:GetRotation()
-	return {
-		previous_position = previous_position,
-		previous_rotation = previous_rotation,
-		current_position = current_position,
-		current_rotation = current_rotation,
-		movement = current_position - previous_position,
-	}
+	local out = body._SweepMotion
+
+	if not out then
+		out = {}
+		body._SweepMotion = out
+	end
+
+	out.previous_position = body:GetPreviousPosition()
+	out.previous_rotation = body:GetPreviousRotation()
+	out.current_position = body:GetPosition()
+	out.current_rotation = body:GetRotation()
+	out.movement = out.current_position - out.previous_position
+	return out
 end
 
 function pair_solver_helpers.GetBodyMotionScale(body)
@@ -271,8 +274,14 @@ function pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, distance_
 	return math.max(min_steps, math.min(max_steps, math.ceil(motion_scale / distance_scale) * 2))
 end
 
-function pair_solver_helpers.FindSampledTemporalHit(evaluate, sample_steps, refine_steps)
-	local hit_t, result = toi.FindSampledHit(evaluate, nil, 1, sample_steps, refine_steps or TEMPORAL_TOI_REFINE_STEPS)
+function pair_solver_helpers.FindSampledTemporalHit(evaluate, sample_steps, refine_steps, evaluate_context)
+	local hit_t, result = toi.FindSampledHit(
+		evaluate,
+		evaluate_context,
+		1,
+		sample_steps,
+		refine_steps or TEMPORAL_TOI_REFINE_STEPS
+	)
 
 	-- a hit at t = 0 means the pair is already penetrating; no TOI to report
 	if not result or hit_t == 0 then return nil end
@@ -289,13 +298,19 @@ function pair_solver_helpers.GetCCDSampleSteps(path_length, distance_scale)
 	)
 end
 
+local function call_evaluate(evaluate, evaluate_context, t)
+	if evaluate_context ~= nil then return evaluate(evaluate_context, t) end
+
+	return evaluate(t)
+end
+
 function pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, low, high, evaluate_context)
 	local best_t = high
-	local best_result = evaluate_context ~= nil and evaluate(evaluate_context, high) or evaluate(high)
+	local best_result = call_evaluate(evaluate, evaluate_context, high)
 
 	for _ = 1, CCD_REFINE_STEPS do
 		local mid = (low + high) * 0.5
-		local result = evaluate_context ~= nil and evaluate(evaluate_context, mid) or evaluate(mid)
+		local result = call_evaluate(evaluate, evaluate_context, mid)
 
 		if result.distance <= hit_distance then
 			best_t = mid
@@ -311,7 +326,7 @@ function pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, low,
 end
 
 function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, relative_velocity, path_length, evaluate_context)
-	local start_result = evaluate_context ~= nil and evaluate(evaluate_context, 0) or evaluate(0)
+	local start_result = call_evaluate(evaluate, evaluate_context, 0)
 
 	if start_result.distance <= hit_distance then return nil end
 
@@ -335,18 +350,14 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 
 		if next_t <= t + EPSILON then break end
 
-		local next_result = evaluate_context ~= nil and
-			evaluate(evaluate_context, next_t) or
-			evaluate(next_t)
+		local next_result = call_evaluate(evaluate, evaluate_context, next_t)
 
 		if next_result.distance <= hit_distance then
 			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, next_t, evaluate_context)
 		end
 
 		local midpoint_t = (t + next_t) * 0.5
-		local midpoint_result = evaluate_context ~= nil and
-			evaluate(evaluate_context, midpoint_t) or
-			evaluate(midpoint_t)
+		local midpoint_result = call_evaluate(evaluate, evaluate_context, midpoint_t)
 
 		if midpoint_result.distance <= hit_distance then
 			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, midpoint_t, evaluate_context)
@@ -362,9 +373,7 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 
 	for i = 1, sample_steps do
 		local sample_t = i / sample_steps
-		local result = evaluate_context ~= nil and
-			evaluate(evaluate_context, sample_t) or
-			evaluate(sample_t)
+		local result = call_evaluate(evaluate, evaluate_context, sample_t)
 
 		if result.distance <= hit_distance then
 			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t, evaluate_context)
@@ -382,9 +391,7 @@ function pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_dista
 
 	for i = 1, sample_steps do
 		local sample_t = i / sample_steps
-		local result = evaluate_context ~= nil and
-			evaluate(evaluate_context, sample_t) or
-			evaluate(sample_t)
+		local result = call_evaluate(evaluate, evaluate_context, sample_t)
 
 		if result.distance <= hit_distance then
 			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t, evaluate_context)
@@ -566,6 +573,41 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 	}
 end
 
+local function point_sweep_set_proxy_vertices(scratch, t)
+	local point = scratch.start_world + scratch.movement_world * t
+	local proxy_radius = scratch.proxy_radius
+	scratch.point_vertices[1] = point + Vec3(proxy_radius, proxy_radius, proxy_radius)
+	scratch.point_vertices[2] = point + Vec3(-proxy_radius, -proxy_radius, proxy_radius)
+	scratch.point_vertices[3] = point + Vec3(-proxy_radius, proxy_radius, -proxy_radius)
+	scratch.point_vertices[4] = point + Vec3(proxy_radius, -proxy_radius, -proxy_radius)
+end
+
+local function point_sweep_is_intersecting(scratch, t)
+	point_sweep_set_proxy_vertices(scratch, t)
+	local point = scratch.start_world + scratch.movement_world * t
+	local result = gjk_epa.Intersect(
+		scratch.point_vertices,
+		scratch.world_vertices,
+		scratch.last_normal or (scratch.position - point),
+		scratch.intersect_simplex
+	)
+
+	if result and result.intersect then return true end
+
+	local distance = gjk_epa.Distance(
+		scratch.point_vertices,
+		scratch.world_vertices,
+		scratch.last_normal or (scratch.position - point),
+		scratch.distance_simplex
+	)
+
+	if distance and (distance.intersect or (distance.distance or math.huge) <= EPSILON) then
+		return true
+	end
+
+	return nil
+end
+
 function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron, start_world, end_world, extra_radius, position, rotation)
 	local movement_world = end_world - start_world
 
@@ -574,67 +616,28 @@ function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron
 	position = position or static_body:GetPosition()
 	rotation = rotation or static_body:GetRotation()
 	extra_radius = math.max(extra_radius or 0, 0)
-	local proxy_radius = math.max(extra_radius, 0.0005)
-	local world_vertices = polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, static_body._PhysicsPointSweepPolyVertices)
-	static_body._PhysicsPointSweepPolyVertices = world_vertices
 	local scratch = static_body._PhysicsPointSweepGJK or {
 		point_vertices = {},
 	}
 	static_body._PhysicsPointSweepGJK = scratch
-
-	local function set_proxy_vertices(point)
-		scratch.point_vertices[1] = point + Vec3(proxy_radius, proxy_radius, proxy_radius)
-		scratch.point_vertices[2] = point + Vec3(-proxy_radius, -proxy_radius, proxy_radius)
-		scratch.point_vertices[3] = point + Vec3(-proxy_radius, proxy_radius, -proxy_radius)
-		scratch.point_vertices[4] = point + Vec3(proxy_radius, -proxy_radius, -proxy_radius)
-	end
-
-	local function evaluate_intersection(t)
-		local point = start_world + movement_world * t
-		set_proxy_vertices(point)
-		local result = gjk_epa.Intersect(
-			scratch.point_vertices,
-			world_vertices,
-			{
-				initial_direction = scratch.last_normal or (position - point),
-			}
-		)
-
-		if result and result.intersect then return result end
-
-		local distance = gjk_epa.Distance(
-			scratch.point_vertices,
-			world_vertices,
-			{
-				initial_direction = scratch.last_normal or (position - point),
-			}
-		)
-
-		if distance and (distance.intersect or (distance.distance or math.huge) <= EPSILON) then
-			return {intersect = true}
-		end
-
-		return result
-	end
-
+	scratch.proxy_radius = math.max(extra_radius, 0.0005)
+	scratch.start_world = start_world
+	scratch.movement_world = movement_world
+	scratch.position = position
+	scratch.world_vertices = polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, static_body._PhysicsPointSweepPolyVertices)
+	static_body._PhysicsPointSweepPolyVertices = scratch.world_vertices
 	local sample_steps = math.max(
 		32,
-		pair_solver_helpers.GetCCDSampleSteps(movement_world:GetLength(), math.max(proxy_radius, 0.0625)) * 2
+		pair_solver_helpers.GetCCDSampleSteps(movement_world:GetLength(), math.max(scratch.proxy_radius, 0.0625)) * 2
 	)
-
-	local function is_intersecting(t)
-		local result = evaluate_intersection(t)
-		return result and result.intersect or nil
-	end
-
 	local hit_t = nil
 	local previous_t = 0
 
 	for i = 1, sample_steps do
 		local sample_t = i / sample_steps
 
-		if is_intersecting(sample_t) then
-			hit_t = toi.RefineHit(is_intersecting, nil, previous_t, sample_t, 12)
+		if point_sweep_is_intersecting(scratch, sample_t) then
+			hit_t = toi.RefineHit(point_sweep_is_intersecting, scratch, previous_t, sample_t, 12)
 
 			break
 		end
@@ -644,13 +647,12 @@ function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron
 
 	if not hit_t then return nil end
 
-	set_proxy_vertices(start_world + movement_world * hit_t)
+	point_sweep_set_proxy_vertices(scratch, hit_t)
 	local hit = gjk_epa.Penetration(
 		scratch.point_vertices,
-		world_vertices,
-		{
-			initial_direction = scratch.last_normal or (position - (start_world + movement_world * hit_t)),
-		}
+		scratch.world_vertices,
+		scratch.last_normal or (position - (start_world + movement_world * hit_t)),
+		scratch.penetr_simplex
 	)
 
 	if not (hit and hit.intersect) then return nil end

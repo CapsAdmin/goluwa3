@@ -70,23 +70,30 @@ end
 
 local function fill_cached_box_faces(polyhedron, world_vertices, out)
 	out = out or {}
+	local faces = polyhedron.faces
 
-	for face_index, face in ipairs(polyhedron.faces or {}) do
-		local cached_face = out[face_index] or {points = {}}
-		local points = cached_face.points
+	for face_index = 1, #faces do
+		local face = faces[face_index]
+		local cached_face = out[face_index]
 
-		for i, vertex_index in ipairs(face.indices or {}) do
-			points[i] = world_vertices[vertex_index]
+		if not cached_face then
+			cached_face = {points = {}}
+			out[face_index] = cached_face
 		end
 
-		for i = #(face.indices or {}) + 1, #points do
+		local points = cached_face.points
+		local indices = face.indices
+
+		for i = 1, #indices do
+			points[i] = world_vertices[indices[i]]
+		end
+
+		for i = #indices + 1, #points do
 			points[i] = nil
 		end
-
-		out[face_index] = cached_face
 	end
 
-	for i = #(polyhedron.faces or {}) + 1, #out do
+	for i = #faces + 1, #out do
 		out[i] = nil
 	end
 

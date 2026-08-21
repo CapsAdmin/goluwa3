@@ -176,10 +176,8 @@ local function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, 
 	local penetration = gjk_epa.Penetration(
 		vertices_a,
 		vertices_b,
-		{
-			initial_direction = scratch.last_normal or (position_b - position_a),
-			simplex = scratch.simplex,
-		}
+		scratch.last_normal or (position_b - position_a),
+		scratch.simplex
 	)
 	scratch.simplex = penetration and penetration.gjk and penetration.gjk.simplex or scratch.simplex
 
@@ -221,10 +219,8 @@ local function evaluate_polyhedron_pair_distance(poly_a, position_a, rotation_a,
 	local result = gjk_epa.Distance(
 		vertices_a,
 		vertices_b,
-		{
-			initial_direction = scratch.last_normal or (position_b - position_a),
-			simplex = scratch.distance_simplex,
-		}
+		scratch.last_normal or (position_b - position_a),
+		scratch.distance_simplex
 	)
 	scratch.distance_simplex = result and result.simplex or scratch.distance_simplex
 

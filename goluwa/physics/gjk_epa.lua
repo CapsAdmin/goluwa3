@@ -29,11 +29,10 @@ end
 
 local function get_vertices_centroid(vertices)
 	local center = Vec3(0, 0, 0)
-	local count = 0
+	local count = #vertices
 
-	for i = 1, #(vertices or {}) do
+	for i = 1, count do
 		center = center + vertices[i]
-		count = count + 1
 	end
 
 	if count == 0 then return Vec3(0, 0, 0) end
@@ -78,7 +77,7 @@ local function get_farthest_vertex(vertices, direction)
 	local best_index = nil
 	local best_projection = -math.huge
 
-	for i = 1, #(vertices or {}) do
+	for i = 1, #vertices do
 		local point = vertices[i]
 		local projection = point:Dot(direction)
 
@@ -93,19 +92,84 @@ local function get_farthest_vertex(vertices, direction)
 	return vertices[best_index], best_index, best_projection
 end
 
-local function get_support(vertices_a, vertices_b, direction)
+-- GJK simplexes hold at most 4 supports, so support tables are pooled in
+-- fixed slots owned by the simplex instead of being allocated per
+-- iteration. A slot is free when no entry of its simplex references it;
+-- the pool holds 5 slots so a free slot always exists.
+local function get_simplex_slots(simplex)
+	local slots = simplex._slots
+
+	if slots then return slots end
+
+	slots = {}
+
+	for i = 1, 5 do
+		slots[i] = {
+			point = nil,
+			point_a = nil,
+			point_b = nil,
+			index_a = nil,
+			index_b = nil,
+		}
+	end
+
+	simplex._slots = slots
+	return slots
+end
+
+local function get_support_slot(simplex)
+	local slots = get_simplex_slots(simplex)
+
+	for i = 1, 5 do
+		local slot = slots[i]
+		local taken = false
+
+		for j = 1, #simplex do
+			if simplex[j] == slot then
+				taken = true
+
+				break
+			end
+		end
+
+		if not taken then return slot end
+	end
+
+	return {
+		point = nil,
+		point_a = nil,
+		point_b = nil,
+		index_a = nil,
+		index_b = nil,
+	}
+end
+
+local function get_support(vertices_a, vertices_b, direction, simplex)
 	local point_a, index_a = get_farthest_vertex(vertices_a, direction)
 	local point_b, index_b = get_farthest_vertex(vertices_b, direction * -1)
 
 	if not (point_a and point_b) then return nil end
 
-	return {
-		point = point_a - point_b,
-		point_a = point_a,
-		point_b = point_b,
-		index_a = index_a,
-		index_b = index_b,
-	}
+	local support
+
+	if simplex then
+		support = get_support_slot(simplex)
+	else
+		support = {
+			point = nil,
+			point_a = nil,
+			point_b = nil,
+			index_a = nil,
+			index_b = nil,
+		}
+	end
+
+	support.point = point_a - point_b
+	support.point_a = point_a
+	support.point_b = point_b
+	support.index_a = index_a
+	support.index_b = index_b
+	return support
 end
 
 local function solve_line(simplex, a, b)
@@ -332,30 +396,47 @@ local function combine_simplex_witness(simplex, weights)
 end
 
 local function rebuild_simplex_from_weights(simplex, weights)
-	local compact = {}
+	local write_index = 0
 
 	for i = 1, #weights do
-		if (weights[i] or 0) > EPSILON then compact[#compact + 1] = simplex[i] end
+		if (weights[i] or 0) > EPSILON then
+			write_index = write_index + 1
+			simplex[write_index] = simplex[i]
+		end
 	end
 
-	if not compact[1] then compact[1] = simplex[1] end
+	if write_index == 0 then write_index = 1 end
 
-	for i = 1, #compact do
-		simplex[i] = compact[i]
-	end
-
-	clear_array(simplex, #compact + 1)
+	clear_array(simplex, write_index + 1)
 	return simplex
+end
+
+-- weight buffers are shared: distance queries run sequentially and weights
+-- are only consumed within a single get_distance_simplex_closest call
+local DISTANCE_WEIGHTS = {}
+
+local function set_weights(w1, w2, w3)
+	DISTANCE_WEIGHTS[1] = w1
+	DISTANCE_WEIGHTS[2] = w2
+	DISTANCE_WEIGHTS[3] = w3
+	return DISTANCE_WEIGHTS
+end
+
+local function set_two_weights(w1, w2)
+	DISTANCE_WEIGHTS[1] = w1
+	DISTANCE_WEIGHTS[2] = w2
+	DISTANCE_WEIGHTS[3] = nil
+	return DISTANCE_WEIGHTS
 end
 
 local function get_segment_closest_to_origin(a, b)
 	local ab = b - a
 	local denominator = ab:Dot(ab)
 
-	if denominator <= EPSILON then return a, {1, 0} end
+	if denominator <= EPSILON then return a, set_two_weights(1, 0) end
 
 	local t = math.clamp(-a:Dot(ab) / denominator, 0, 1)
-	return a + ab * t, {1 - t, t}
+	return a + ab * t, set_two_weights(1 - t, t)
 end
 
 local function get_triangle_closest_to_origin(a, b, c)
@@ -365,49 +446,49 @@ local function get_triangle_closest_to_origin(a, b, c)
 	local d1 = ab:Dot(ap)
 	local d2 = ac:Dot(ap)
 
-	if d1 <= 0 and d2 <= 0 then return a, {1, 0, 0} end
+	if d1 <= 0 and d2 <= 0 then return a, set_weights(1, 0, 0) end
 
 	local bp = b * -1
 	local d3 = ab:Dot(bp)
 	local d4 = ac:Dot(bp)
 
-	if d3 >= 0 and d4 <= d3 then return b, {0, 1, 0} end
+	if d3 >= 0 and d4 <= d3 then return b, set_weights(0, 1, 0) end
 
 	local vc = d1 * d4 - d3 * d2
 
 	if vc <= 0 and d1 >= 0 and d3 <= 0 then
 		local v = d1 / (d1 - d3)
-		return a + ab * v, {1 - v, v, 0}
+		return a + ab * v, set_weights(1 - v, v, 0)
 	end
 
 	local cp = c * -1
 	local d5 = ab:Dot(cp)
 	local d6 = ac:Dot(cp)
 
-	if d6 >= 0 and d5 <= d6 then return c, {0, 0, 1} end
+	if d6 >= 0 and d5 <= d6 then return c, set_weights(0, 0, 1) end
 
 	local vb = d5 * d2 - d1 * d6
 
 	if vb <= 0 and d2 >= 0 and d6 <= 0 then
 		local w = d2 / (d2 - d6)
-		return a + ac * w, {1 - w, 0, w}
+		return a + ac * w, set_weights(1 - w, 0, w)
 	end
 
 	local va = d3 * d6 - d5 * d4
 
 	if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0 then
 		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-		return b + (c - b) * w, {0, 1 - w, w}
+		return b + (c - b) * w, set_weights(0, 1 - w, w)
 	end
 
 	local denominator = 1 / (va + vb + vc)
 	local v = vb * denominator
 	local w = vc * denominator
-	return a + ab * v + ac * w, {1 - v - w, v, w}
+	return a + ab * v + ac * w, set_weights(1 - v - w, v, w)
 end
 
 local function get_distance_simplex_closest(simplex)
-	if #simplex == 1 then return simplex[1].point, {1} end
+	if #simplex == 1 then return simplex[1].point, set_weights(1) end
 
 	if #simplex == 2 then
 		return get_segment_closest_to_origin(simplex[1].point, simplex[2].point)
@@ -419,7 +500,7 @@ end
 local function try_add_support(simplex, vertices_a, vertices_b, direction)
 	if direction:GetLength() <= EPSILON then return false end
 
-	local support = get_support(vertices_a, vertices_b, direction)
+	local support = get_support(vertices_a, vertices_b, direction, simplex)
 
 	if not support or simplex_contains_support(simplex, support) then
 		return false
@@ -481,24 +562,25 @@ local function expand_simplex_to_tetrahedron(simplex, vertices_a, vertices_b)
 	return false
 end
 
-function gjk_epa.Intersect(vertices_a, vertices_b, options)
-	options = options or {}
+local DEFAULT_SIMPLEX = {}
 
+function gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 	if not (vertices_a and vertices_a[1] and vertices_b and vertices_b[1]) then
 		return nil
 	end
 
-	local simplex = options.simplex or {}
+	simplex = simplex or DEFAULT_SIMPLEX
 	clear_array(simplex)
-	local initial_direction = options.initial_direction or
-		(
-			get_vertices_centroid(vertices_b) - get_vertices_centroid(vertices_a)
-		)
+
+	if not initial_direction then
+		initial_direction = get_vertices_centroid(vertices_b) - get_vertices_centroid(vertices_a)
+	end
+
 	local direction = initial_direction
 
 	if direction:GetLength() <= EPSILON then direction = Vec3(1, 0, 0) end
 
-	local support = get_support(vertices_a, vertices_b, direction)
+	local support = get_support(vertices_a, vertices_b, direction, simplex)
 
 	if not support then return nil end
 
@@ -509,8 +591,8 @@ function gjk_epa.Intersect(vertices_a, vertices_b, options)
 		direction = initial_direction:GetLength() > EPSILON and initial_direction or Vec3(0, 1, 0)
 	end
 
-	for iteration = 1, options.gjk_max_iterations or GJK_MAX_ITERATIONS do
-		support = get_support(vertices_a, vertices_b, direction)
+	for iteration = 1, GJK_MAX_ITERATIONS do
+		support = get_support(vertices_a, vertices_b, direction, simplex)
 
 		if not support then return nil end
 
@@ -548,25 +630,17 @@ function gjk_epa.Intersect(vertices_a, vertices_b, options)
 	return {
 		intersect = false,
 		simplex = simplex,
-		iterations = options.gjk_max_iterations or GJK_MAX_ITERATIONS,
+		iterations = GJK_MAX_ITERATIONS,
 	}
 end
 
-function gjk_epa.Penetration(vertices_a, vertices_b, options)
-	options = options or {}
-	local gjk_result = gjk_epa.Intersect(vertices_a, vertices_b, options)
+function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
+	local gjk_result = gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 
 	if not gjk_result then return nil end
 
 	if not (gjk_result.intersect and gjk_result.simplex) then
-		local distance_result = gjk_epa.Distance(
-			vertices_a,
-			vertices_b,
-			{
-				initial_direction = options.initial_direction,
-				gjk_max_iterations = options.gjk_max_iterations,
-			}
-		)
+		local distance_result = gjk_epa.Distance(vertices_a, vertices_b, initial_direction, gjk_result.simplex)
 
 		if
 			not distance_result or
@@ -626,20 +700,8 @@ function gjk_epa.Penetration(vertices_a, vertices_b, options)
 		}
 	end
 
-	for iteration = 1, options.epa_max_iterations or EPA_MAX_ITERATIONS do
-		if
-			#faces > (
-				options.epa_max_faces or
-				EPA_MAX_FACES
-			)
-			or
-			#vertices > (
-				options.epa_max_vertices or
-				EPA_MAX_VERTICES
-			)
-		then
-			break
-		end
+	for iteration = 1, EPA_MAX_ITERATIONS do
+		if #faces > EPA_MAX_FACES or #vertices > EPA_MAX_VERTICES then break end
 
 		local face = get_closest_face(faces)
 
@@ -651,12 +713,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, options)
 
 		local support_distance = support.point:Dot(face.normal)
 
-		if
-			support_distance - face.distance <= (
-				options.epa_convergence_epsilon or
-				EPA_CONVERGENCE_EPSILON
-			)
-		then
+		if support_distance - face.distance <= EPA_CONVERGENCE_EPSILON then
 			local point_a, point_b = get_face_witness(vertices, face)
 			return {
 				intersect = true,
@@ -677,12 +734,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, options)
 			local candidate = faces[i]
 			local candidate_vertex = vertices[candidate.a]
 
-			if
-				candidate.normal:Dot(support.point - candidate_vertex.point) > (
-					options.epa_face_epsilon or
-					EPA_FACE_EPSILON
-				)
-			then
+			if candidate.normal:Dot(support.point - candidate_vertex.point) > EPA_FACE_EPSILON then
 				visible_faces[i] = true
 				add_edge(border_edges, border_edge_rows, candidate.a, candidate.b)
 				add_edge(border_edges, border_edge_rows, candidate.b, candidate.c)
@@ -726,32 +778,31 @@ function gjk_epa.Penetration(vertices_a, vertices_b, options)
 	}
 end
 
-function gjk_epa.Distance(vertices_a, vertices_b, options)
-	options = options or {}
-
+function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 	if not (vertices_a and vertices_a[1] and vertices_b and vertices_b[1]) then
 		return nil
 	end
 
-	local simplex = options.simplex or {}
+	simplex = simplex or DEFAULT_SIMPLEX
 	clear_array(simplex)
-	local initial_direction = options.initial_direction or
-		(
-			get_vertices_centroid(vertices_b) - get_vertices_centroid(vertices_a)
-		)
+
+	if not initial_direction then
+		initial_direction = get_vertices_centroid(vertices_b) - get_vertices_centroid(vertices_a)
+	end
+
 	local direction = initial_direction
 
 	if direction:GetLength() <= EPSILON then direction = Vec3(1, 0, 0) end
 
-	local support = get_support(vertices_a, vertices_b, direction)
+	local support = get_support(vertices_a, vertices_b, direction, simplex)
 
 	if not support then return nil end
 
 	simplex[1] = support
 	local closest = support.point
-	local weights = {1}
+	local weights = set_weights(1)
 
-	for iteration = 1, options.gjk_max_iterations or GJK_MAX_ITERATIONS do
+	for iteration = 1, GJK_MAX_ITERATIONS do
 		local distance = closest:GetLength()
 
 		if distance <= EPSILON then
@@ -769,20 +820,13 @@ function gjk_epa.Distance(vertices_a, vertices_b, options)
 		end
 
 		direction = (closest * -1) / distance
-		support = get_support(vertices_a, vertices_b, direction)
+		support = get_support(vertices_a, vertices_b, direction, simplex)
 
 		if not support or simplex_contains_support(simplex, support) then break end
 
 		local support_distance = support.point:Dot(direction)
 
-		if
-			support_distance - distance <= (
-				options.distance_epsilon or
-				EPA_CONVERGENCE_EPSILON
-			)
-		then
-			break
-		end
+		if support_distance - distance <= EPA_CONVERGENCE_EPSILON then break end
 
 		table.insert(simplex, 1, support)
 
@@ -791,7 +835,7 @@ function gjk_epa.Distance(vertices_a, vertices_b, options)
 			simplex = updated_simplex or simplex
 
 			if contains_origin then
-				local point_a, point_b = combine_simplex_witness(simplex, {1, 0, 0, 0})
+				local point_a, point_b = combine_simplex_witness(simplex, set_weights(1, 0, 0))
 				return {
 					intersect = true,
 					distance = 0,

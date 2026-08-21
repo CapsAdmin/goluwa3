@@ -129,22 +129,23 @@ local function fill_swept_aabb(origin, movement, radius)
 	return aabb
 end
 
-local function merge_aabb(a, b)
-	if not a then return b end
-
-	if not b then return a end
-
-	return AABB.Union(AABB(0, 0, 0, 0, 0, 0), a, b)
-end
-
+-- alternating result scratch so one level of nested sweep calls does not
+-- clobber the in-use swept aabb
+local SWEEP_AABB_START = AABB(0, 0, 0, 0, 0, 0)
+local SWEEP_AABB_END = AABB(0, 0, 0, 0, 0, 0)
+local SWEEP_AABB_RESULT_A = AABB(0, 0, 0, 0, 0, 0)
+local SWEEP_AABB_RESULT_B = AABB(0, 0, 0, 0, 0, 0)
+local sweep_aabb_toggle = false
 local get_support_point = sweep_helpers.GetSupportPoint
 
 local function build_collider_swept_aabb(collider, start_position, rotation, movement)
 	local shape = collider:GetPhysicsShape()
 	local end_position = start_position + movement
-	local start_aabb = shape:GetBroadphaseAABB(collider, start_position, rotation)
-	local end_aabb = shape:GetBroadphaseAABB(collider, end_position, rotation)
-	return merge_aabb(start_aabb, end_aabb)
+	local result = sweep_aabb_toggle and SWEEP_AABB_RESULT_B or SWEEP_AABB_RESULT_A
+	sweep_aabb_toggle = not sweep_aabb_toggle
+	local start_aabb = shape:GetBroadphaseAABB(collider, start_position, rotation, SWEEP_AABB_START)
+	local end_aabb = shape:GetBroadphaseAABB(collider, end_position, rotation, SWEEP_AABB_END)
+	return AABB.Union(result, start_aabb, end_aabb)
 end
 
 local function build_rigid_body_hit(base_hit, movement, movement_length, body, collider)

@@ -6,10 +6,11 @@ end
 
 local function fill_polyhedron_world_vertices(polyhedron_data, position, rotation, out)
 	out = out or {}
+	local vertices = polyhedron_data.vertices
 	local count = 0
 
-	for i, point in ipairs(polyhedron_data.vertices or {}) do
-		out[i] = local_to_world_at(position, rotation, point)
+	for i = 1, #vertices do
+		out[i] = local_to_world_at(position, rotation, vertices[i])
 		count = i
 	end
 
@@ -22,15 +23,23 @@ end
 
 local function fill_polyhedron_world_faces(polyhedron_data, world_vertices, rotation, out)
 	out = out or {}
+	local faces = polyhedron_data.faces
 	local face_count = 0
 
-	for face_index, face in ipairs(polyhedron_data.faces or {}) do
-		local cached_face = out[face_index] or {points = {}}
+	for face_index = 1, #faces do
+		local face = faces[face_index]
+		local cached_face = out[face_index]
+
+		if not cached_face then
+			cached_face = {points = {}}
+			out[face_index] = cached_face
+		end
+
 		local points = cached_face.points
 		local count = 0
 
-		for i, vertex_index in ipairs(face.indices or {}) do
-			points[i] = world_vertices[vertex_index]
+		for i = 1, #face.indices do
+			points[i] = world_vertices[face.indices[i]]
 			count = i
 		end
 
@@ -105,8 +114,10 @@ end
 function polyhedron_cache.FindIncidentFaceIndex(polyhedron_data, rotation, reference_normal)
 	local best_index = nil
 	local best_dot = math.huge
+	local faces = polyhedron_data.faces
 
-	for face_index, face in ipairs(polyhedron_data.faces or {}) do
+	for face_index = 1, #faces do
+		local face = faces[face_index]
 		local world_normal = rotation:VecMul(face.normal):GetNormalized()
 		local dot = world_normal:Dot(reference_normal)
 

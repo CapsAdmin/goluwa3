@@ -3,6 +3,7 @@ local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local polyhedron_face_contacts = import("goluwa/physics/polyhedron/face_contacts.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
@@ -16,8 +17,18 @@ local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
 	face_contacts = {},
 }
 local POLYHEDRON_PAIR_AXIS_CACHE = table.weak("k")
+local TEMPORAL_TOI_CONTEXT = {}
+local TEMPORAL_TOI_HIT = {t = 0}
+local POLYHEDRON_DISTANCE_SWEEP_CONTEXT = {}
+local POINT_SWEEP_POLYHEDRON_CONTEXT = {}
+local POLYHEDRON_PAIR_PREVIOUS_AABB_A = AABB(0, 0, 0, 0, 0, 0)
+local POLYHEDRON_PAIR_PREVIOUS_AABB_B = AABB(0, 0, 0, 0, 0, 0)
+local POLYHEDRON_PAIR_PENETRATION_SIMPLEX = {}
 local find_distance_swept_polyhedron_pair_hit
 local solve_distance_swept_polyhedron_pair_collision
+local temporal_toi_intersects
+local polyhedron_distance_sweep_evaluate
+local point_sweep_against_polyhedron
 polyhedron.GetPolyhedronWorldVertices = polyhedron_cache.GetPolyhedronWorldVertices
 polyhedron.GetPolyhedronWorldFace = polyhedron_cache.GetPolyhedronWorldFace
 
@@ -183,6 +194,13 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, dynamic
 	if movement:GetLength() <= EPSILON then return false end
 
 	local distance_hit = find_distance_swept_polyhedron_pair_hit(static_body, dynamic_body, static_polyhedron, dynamic_polyhedron)
+	local point_context = POINT_SWEEP_POLYHEDRON_CONTEXT
+	point_context.target_body = static_body
+	point_context.target_polyhedron = static_polyhedron
+	point_context.extra_radius = nil
+	point_context.target_position = nil
+	point_context.target_rotation = nil
+	point_context.negate_normal = false
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		dynamic_body,
 		previous_position,
@@ -190,9 +208,9 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, dynamic
 		current_position,
 		sweep.current_rotation,
 		dynamic_body:GetCollisionLocalPoints(),
-		function(start_world, end_world)
-			return pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, static_polyhedron, start_world, end_world)
-		end
+		point_sweep_against_polyhedron,
+		nil,
+		point_context
 	)
 
 	if distance_hit and (not earliest_hit or distance_hit.t <= earliest_hit.t) then
@@ -226,10 +244,8 @@ local function evaluate_polyhedron_pair_distance_at_transforms(poly_a, position_
 	local distance = gjk_epa.Distance(
 		vertices_a,
 		vertices_b,
-		{
-			initial_direction = scratch.last_normal or (position_b - position_a),
-			simplex = scratch.distance_simplex,
-		}
+		scratch.last_normal or (position_b - position_a),
+		scratch.distance_simplex
 	)
 	scratch.distance_simplex = distance and distance.simplex or scratch.distance_simplex
 
@@ -253,31 +269,35 @@ find_distance_swept_polyhedron_pair_hit = function(body_a, body_b, poly_a, poly_
 
 	if relative_movement:GetLength() <= EPSILON then return false end
 
-	local scratch = {
-		vertices_a = {},
-		vertices_b = {},
-		last_normal = get_cached_pair_axis(body_a, body_b),
-	}
+	local scratch = poly_a._PolyhedronDistanceSweepScratch or
+		{
+			vertices_a = {},
+			vertices_b = {},
+		}
+	poly_a._PolyhedronDistanceSweepScratch = scratch
+	scratch.last_normal = get_cached_pair_axis(body_a, body_b)
+	local context = POLYHEDRON_DISTANCE_SWEEP_CONTEXT
+	context.poly_a = poly_a
+	context.poly_b = poly_b
+	context.previous_position_a = previous_position_a
+	context.movement_a = sweep_a.movement
+	context.rotation_a = sweep_a.previous_rotation
+	context.previous_position_b = previous_position_b
+	context.movement_b = sweep_b.movement
+	context.rotation_b = sweep_b.previous_rotation
+	context.scratch = scratch
 	local hit_distance = math.max(
 		body_a.GetCollisionMargin and body_a:GetCollisionMargin() or 0,
 		body_b.GetCollisionMargin and body_b:GetCollisionMargin() or 0,
 		physics_constants.DEFAULT_COLLISION_MARGIN or 0
 	)
 	local hit = pair_solver_helpers.FindDistanceSweepHit(
-		function(t)
-			return evaluate_polyhedron_pair_distance_at_transforms(
-				poly_a,
-				previous_position_a + sweep_a.movement * t,
-				sweep_a.previous_rotation,
-				poly_b,
-				previous_position_b + sweep_b.movement * t,
-				sweep_b.previous_rotation,
-				scratch
-			)
-		end,
+		polyhedron_distance_sweep_evaluate,
 		hit_distance,
 		relative_movement,
-		relative_movement:GetLength()
+		relative_movement:GetLength(),
+		nil,
+		context
 	)
 
 	if not hit or hit.distance > hit_distance + EPSILON then return nil end
@@ -322,14 +342,7 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
 	local initial_direction = scratch.last_normal or (position_b - position_a)
-	local penetration = gjk_epa.Penetration(
-		vertices_a,
-		vertices_b,
-		{
-			initial_direction = initial_direction,
-			simplex = scratch.simplex,
-		}
-	)
+	local penetration = gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, scratch.simplex)
 	scratch.simplex = penetration and penetration.gjk and penetration.gjk.simplex or scratch.simplex
 
 	if
@@ -367,13 +380,63 @@ local function intersects_polyhedron_pair_at_transforms(poly_a, position_a, rota
 	local result = gjk_epa.Intersect(
 		vertices_a,
 		vertices_b,
-		{
-			initial_direction = scratch.last_normal or (position_b - position_a),
-			simplex = scratch.simplex,
-		}
+		scratch.last_normal or (position_b - position_a),
+		scratch.simplex
 	)
 	scratch.simplex = result and result.simplex or scratch.simplex
 	return result and result.intersect or false
+end
+
+temporal_toi_intersects = function(context, t)
+	local position_a = context.previous_position_a:GetLerped(t, context.current_position_a)
+	local rotation_a = context.previous_rotation_a:Interpolate(context.current_rotation_a, t)
+	local position_b = context.previous_position_b:GetLerped(t, context.current_position_b)
+	local rotation_b = context.previous_rotation_b:Interpolate(context.current_rotation_b, t)
+
+	if
+		intersects_polyhedron_pair_at_transforms(
+			context.poly_a,
+			position_a,
+			rotation_a,
+			context.poly_b,
+			position_b,
+			rotation_b,
+			context.scratch
+		)
+	then
+		TEMPORAL_TOI_HIT.t = t
+		return TEMPORAL_TOI_HIT
+	end
+
+	return nil
+end
+polyhedron_distance_sweep_evaluate = function(context, t)
+	return evaluate_polyhedron_pair_distance_at_transforms(
+		context.poly_a,
+		context.previous_position_a + context.movement_a * t,
+		context.rotation_a,
+		context.poly_b,
+		context.previous_position_b + context.movement_b * t,
+		context.rotation_b,
+		context.scratch
+	)
+end
+point_sweep_against_polyhedron = function(context, start_world, end_world, local_point)
+	local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
+		context.target_body,
+		context.target_polyhedron,
+		start_world,
+		end_world,
+		context.extra_radius,
+		context.target_position,
+		context.target_rotation
+	)
+
+	if not hit then return nil end
+
+	if context.negate_normal then hit.normal = hit.normal * -1 end
+
+	return hit
 end
 
 local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_b)
@@ -386,27 +449,24 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	local current_position_b = body_b:GetPosition()
 	local current_rotation_b = body_b:GetRotation()
 	local sample_steps = pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, 0.125, 14, 64)
-	local scratch = {
+	local scratch = poly_a._PolyhedronTemporalScratch or {
 		vertices_a = {},
 		vertices_b = {},
 	}
-	local hit = pair_solver_helpers.FindSampledTemporalHit(
-		function(t)
-			local position_a = previous_position_a:GetLerped(t, current_position_a)
-			local rotation_a = previous_rotation_a:Interpolate(current_rotation_a, t)
-			local position_b = previous_position_b:GetLerped(t, current_position_b)
-			local rotation_b = previous_rotation_b:Interpolate(current_rotation_b, t)
-
-			if
-				intersects_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
-			then
-				return {t = t}
-			end
-
-			return nil
-		end,
-		sample_steps
-	)
+	poly_a._PolyhedronTemporalScratch = scratch
+	local context = TEMPORAL_TOI_CONTEXT
+	context.poly_a = poly_a
+	context.poly_b = poly_b
+	context.previous_position_a = previous_position_a
+	context.current_position_a = current_position_a
+	context.previous_rotation_a = previous_rotation_a
+	context.current_rotation_a = current_rotation_a
+	context.previous_position_b = previous_position_b
+	context.current_position_b = current_position_b
+	context.previous_rotation_b = previous_rotation_b
+	context.current_rotation_b = current_rotation_b
+	context.scratch = scratch
+	local hit = pair_solver_helpers.FindSampledTemporalHit(temporal_toi_intersects, sample_steps, nil, context)
 
 	if not hit then return nil end
 
@@ -488,6 +548,13 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 
 	if distance_hit then return true end
 
+	local point_context = POINT_SWEEP_POLYHEDRON_CONTEXT
+	point_context.target_body = body_b
+	point_context.target_polyhedron = poly_b
+	point_context.extra_radius = 0
+	point_context.target_position = sweep_b.previous_position
+	point_context.target_rotation = sweep_b.previous_rotation
+	point_context.negate_normal = true
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		body_a,
 		sweep_a.previous_position,
@@ -495,25 +562,15 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 		sweep_a.previous_position + relative_movement,
 		sweep_a.previous_rotation,
 		body_a:GetCollisionLocalPoints(),
-		function(start_world, end_world)
-			local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
-				body_b,
-				poly_b,
-				start_world,
-				end_world,
-				0,
-				sweep_b.previous_position,
-				sweep_b.previous_rotation
-			)
-
-			if not hit then return nil end
-
-			return {
-				t = hit.t,
-				normal = hit.normal * -1,
-			}
-		end
+		point_sweep_against_polyhedron,
+		nil,
+		point_context
 	)
+	point_context.target_body = body_a
+	point_context.target_polyhedron = poly_a
+	point_context.target_position = sweep_a.previous_position
+	point_context.target_rotation = sweep_a.previous_rotation
+	point_context.negate_normal = false
 	earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		body_b,
 		sweep_b.previous_position,
@@ -521,25 +578,9 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 		sweep_b.previous_position - relative_movement,
 		sweep_b.previous_rotation,
 		body_b:GetCollisionLocalPoints(),
-		function(start_world, end_world)
-			local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
-				body_a,
-				poly_a,
-				start_world,
-				end_world,
-				0,
-				sweep_a.previous_position,
-				sweep_a.previous_rotation
-			)
-
-			if not hit then return nil end
-
-			return {
-				t = hit.t,
-				normal = hit.normal,
-			}
-		end,
-		earliest_hit
+		point_sweep_against_polyhedron,
+		earliest_hit,
+		point_context
 	)
 
 	if not earliest_hit then return false end
@@ -585,8 +626,16 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 	end
 
 	if pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then
-		local previous_bounds_a = body_a:GetBroadphaseAABB(body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
-		local previous_bounds_b = body_b:GetBroadphaseAABB(body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
+		local previous_bounds_a = body_a:GetBroadphaseAABB(
+			body_a:GetPreviousPosition(),
+			body_a:GetPreviousRotation(),
+			POLYHEDRON_PAIR_PREVIOUS_AABB_A
+		)
+		local previous_bounds_b = body_b:GetBroadphaseAABB(
+			body_b:GetPreviousPosition(),
+			body_b:GetPreviousRotation(),
+			POLYHEDRON_PAIR_PREVIOUS_AABB_B
+		)
 
 		if not previous_bounds_a:IsBoxIntersecting(previous_bounds_b) then
 			local swept = try_swept_polyhedron_pair_fallback(body_a, body_b, poly_a, poly_b, dt)
@@ -599,9 +648,12 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 	local vertices_a = polyhedron.GetPolyhedronWorldVertices(body_a, poly_a)
 	local vertices_b = polyhedron.GetPolyhedronWorldVertices(body_b, poly_b)
 	local initial_direction = get_cached_pair_axis(body_a, body_b) or center_delta
-	local penetration = gjk_epa.Penetration(vertices_a, vertices_b, {
-		initial_direction = initial_direction,
-	})
+	local penetration = gjk_epa.Penetration(
+		vertices_a,
+		vertices_b,
+		initial_direction,
+		POLYHEDRON_PAIR_PENETRATION_SIMPLEX
+	)
 
 	if
 		not (

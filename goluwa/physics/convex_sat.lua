@@ -73,35 +73,56 @@ function convex_sat.TryUpdateAxis(
 	return true
 end
 
+-- Trackers store candidate values (not references) so callers can pass
+-- reusable scratch candidate tables without aliasing the recorded best axis.
+local function copy_candidate(target, source)
+	target.overlap = source.overlap
+	target.normal = source.normal
+	target.kind = source.kind
+	target.reference_body = source.reference_body
+	target.edge_axis_a = source.edge_axis_a
+	target.edge_axis_b = source.edge_axis_b
+end
+
 function convex_sat.CreateBestAxisTracker()
 	return {
 		any = {
 			overlap = math.huge,
 			normal = nil,
 			kind = nil,
+			reference_body = nil,
+			edge_axis_a = nil,
+			edge_axis_b = nil,
 		},
-		face = nil,
+		face = {
+			overlap = math.huge,
+			normal = nil,
+			kind = nil,
+			reference_body = nil,
+			edge_axis_a = nil,
+			edge_axis_b = nil,
+		},
 	}
 end
 
 function convex_sat.UpdateBestAxis(best, candidate)
-	if candidate.overlap < best.any.overlap then best.any = candidate end
+	local any = best.any
 
-	if
-		candidate.kind == "face" and
-		(
-			not best.face or
-			candidate.overlap < best.face.overlap
-		)
-	then
-		best.face = candidate
+	if candidate.overlap < any.overlap then copy_candidate(any, candidate) end
+
+	local face = best.face
+
+	if candidate.kind == "face" and candidate.overlap < face.overlap then
+		copy_candidate(face, candidate)
 	end
 end
 
 function convex_sat.ChoosePreferredAxis(best, relative_tolerance, absolute_tolerance)
 	local chosen = best.any
 
-	if not chosen or chosen.kind ~= "edge" or not best.face then return chosen end
+	if not chosen or chosen.kind ~= "edge" or best.face.kind == nil then
+		return chosen
+	end
 
 	relative_tolerance = relative_tolerance or 1
 	absolute_tolerance = absolute_tolerance or 0

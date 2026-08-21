@@ -360,10 +360,8 @@ function sweep_polyhedron_against_triangle(
 				local result = gjk_epa.Distance(
 					poly_vertices,
 					prism_vertices,
-					{
-						initial_direction = scratch.last_normal or (position - triangle_center),
-						simplex = scratch.simplex,
-					}
+					scratch.last_normal or (position - triangle_center),
+					scratch.simplex
 				)
 				scratch.simplex = result and result.simplex or scratch.simplex
 

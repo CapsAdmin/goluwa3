@@ -244,7 +244,7 @@ local function get_rigid_body_candidate_aabb(body)
 		return cache.bounds
 	end
 
-	local bounds = body:GetBroadphaseAABB(current_position, current_rotation)
+	local bounds = body:GetBroadphaseAABB(current_position, current_rotation, CANDIDATE_AABB_CURRENT)
 
 	if not bounds or not has_previous then
 		cache = cache or {}
@@ -274,7 +274,7 @@ local function get_rigid_body_candidate_aabb(body)
 		return get_cached_candidate_aabb(cache, bounds)
 	end
 
-	local previous_bounds = body:GetBroadphaseAABB(previous_position, previous_rotation)
+	local previous_bounds = body:GetBroadphaseAABB(previous_position, previous_rotation, CANDIDATE_AABB_PREVIOUS)
 	cache = cache or {}
 	body.sweep_candidate_aabb_cache = cache
 	store_candidate_pose(
@@ -317,7 +317,7 @@ local function get_collider_candidate_aabb(collider)
 		return cache.bounds
 	end
 
-	local bounds = collider:GetBroadphaseAABB(current_position, current_rotation)
+	local bounds = collider:GetBroadphaseAABB(current_position, current_rotation, CANDIDATE_AABB_CURRENT)
 
 	if not bounds or not has_previous then
 		cache = cache or {}
@@ -347,7 +347,7 @@ local function get_collider_candidate_aabb(collider)
 		return get_cached_candidate_aabb(cache, bounds)
 	end
 
-	local previous_bounds = collider:GetBroadphaseAABB(previous_position, previous_rotation)
+	local previous_bounds = collider:GetBroadphaseAABB(previous_position, previous_rotation, CANDIDATE_AABB_PREVIOUS)
 	cache = cache or {}
 	collider.sweep_candidate_aabb_cache = cache
 	store_candidate_pose(
@@ -367,6 +367,8 @@ end
 local EMPTY_OPTIONS = {}
 local query_entry_cache = {}
 local untracked_cache = {stamp = nil, instance_count = nil, body_entries = nil, bodies = {}}
+local CANDIDATE_AABB_CURRENT = AABB(0, 0, 0, 0, 0, 0)
+local CANDIDATE_AABB_PREVIOUS = AABB(0, 0, 0, 0, 0, 0)
 
 -- the set of bodies the broadphase has never tracked only changes when a
 -- physics substep re-tracks bodies, the body entries table is replaced (e.g.

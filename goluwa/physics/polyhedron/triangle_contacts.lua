@@ -344,9 +344,7 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 			math.abs(triangle_normal.y) >= support_axis_y and (margin_overlap * 0.5) or 0
 		)
 	)
-	local penetration = gjk_epa.Penetration(poly_vertices, query_vertices, {
-		initial_direction = center_delta,
-	})
+	local penetration = gjk_epa.Penetration(poly_vertices, query_vertices, center_delta)
 
 	if
 		not (
