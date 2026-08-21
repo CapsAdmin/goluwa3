@@ -227,61 +227,60 @@ local function run_game()
 	end
 end
 
-return function(...)
-	local args = {...}
-	return crash_trace.Run(function()
-		if args[1] and commands.IsAdded(args[1]) then
-			if not commands.RunArguments(args) then system.ShutDown(1) end
-		else
-			local remaining_args
-			local captured_flags = {}
+crash_trace.Run(function()
+	local args = system.GetStartupArguments()
 
-			for i, arg in ipairs(args) do
-				if arg:starts_with("--") then
-					table.insert(captured_flags, arg)
-				else
-					remaining_args = {}
+	if args[1] and commands.IsAdded(args[1]) then
+		if not commands.RunArguments(args) then system.ShutDown(1) end
+	else
+		local remaining_args
+		local captured_flags = {}
 
-					for i = i, #args do
-						table.insert(remaining_args, args[i])
-					end
-
-					break
-				end
-			end
-
-			if captured_flags[1] then
-				commands.RunArguments({"global_flags", unpack(captured_flags)})
+		for i, arg in ipairs(args) do
+			if arg:starts_with("--") then
+				table.insert(captured_flags, arg)
 			else
-				commands.RunArguments({"global_flags", "--3d"})
-			end
+				remaining_args = {}
 
-			run_game()
+				for i = i, #args do
+					table.insert(remaining_args, args[i])
+				end
 
-			if remaining_args then
-				if not commands.RunArguments(remaining_args) then system.ShutDown(1) end
+				break
 			end
 		end
 
-		system.KeepAlive("game")
-		local last_time = system.GetTime()
-		local i = 0
-		event.Call("Initialize")
-
-		while system.IsRunning() and not os.exitcode do
-			local time = system.GetTime()
-			local dt = time - (last_time or 0)
-			system.SetFrameTime(dt)
-			system.SetFrameNumber(i)
-			system.SetElapsedTime(system.GetElapsedTime() + dt)
-			event.Call("Update", dt)
-			system.SetInternalFrameTime(system.GetTime() - time)
-			i = i + 1
-			last_time = time
-			event.Call("FrameEnd")
+		if captured_flags[1] then
+			commands.RunArguments({"global_flags", unpack(captured_flags)})
+		else
+			commands.RunArguments({"global_flags", "--3d"})
 		end
 
-		event.Call("ShutDown")
-		os.realexit(os.exitcode)
-	end)
-end
+		run_game()
+
+		if remaining_args then
+			if not commands.RunArguments(remaining_args) then system.ShutDown(1) end
+		end
+	end
+
+	system.KeepAlive("game")
+	local last_time = system.GetTime()
+	local i = 0
+	event.Call("Initialize")
+
+	while system.IsRunning() and not os.exitcode do
+		local time = system.GetTime()
+		local dt = time - (last_time or 0)
+		system.SetFrameTime(dt)
+		system.SetFrameNumber(i)
+		system.SetElapsedTime(system.GetElapsedTime() + dt)
+		event.Call("Update", dt)
+		system.SetInternalFrameTime(system.GetTime() - time)
+		i = i + 1
+		last_time = time
+		event.Call("FrameEnd")
+	end
+
+	event.Call("ShutDown")
+	os.realexit(os.exitcode)
+end)

@@ -125,13 +125,25 @@ end
 
 do -- arg is made from luajit.exe
 	local arg = _G.arg or {}
-	_G.arg = nil
-	arg[0] = nil
-	arg[-1] = nil
-	list.remove(arg, 1)
+	local executable_path = arg[-1]
+	local script_path = arg[0]
+
+	function system.GetExecutablePath()
+		return executable_path
+	end
+
+	function system.GetScriptPath()
+		return script_path
+	end
+
+	local arguments = {}
+
+	for i = 1, #arg do
+		arguments[i] = arg[i]
+	end
 
 	function system.GetStartupArguments()
-		return arg
+		return arguments
 	end
 end
 
