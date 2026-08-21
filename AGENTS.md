@@ -26,6 +26,15 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - When running the engine without the `--one-frame` flag, it will run forever. In which case you must use the timeout command or call `system.ShutDown()` manually at some point
 
+# Debugging
+
+When debugging and thinking about why somnething happens, feel free to do print logging and changing code around temporarily to verify.
+
+- print a table and its contents: `table.print(tbl)`
+- print something once per session: `print_once(...)`
+- print a traceback to see where something is called from: `debug.trace()`
+- print something and force exit: `print(something) os.realexit(0)`
+
 # Profiling
 
 The profiler uses luajit's statistical profiler and jit.attach to observe trace recording.
