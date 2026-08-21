@@ -140,11 +140,12 @@ function VulkanInstance.New(surface_handle, display_handle)
 		"VK_EXT_scalar_block_layout",
 		"VK_EXT_extended_dynamic_state",
 		"VK_EXT_extended_dynamic_state3",
-		"VK_KHR_shared_presentable_image", -- swapchain screenshots
 	}
 
 	if not is_headless then
 		table.insert(requested_device_extensions, "VK_KHR_swapchain")
+		-- Requires VK_KHR_swapchain and VK_KHR_get_surface_capabilities2
+		table.insert(requested_device_extensions, "VK_KHR_shared_presentable_image") -- swapchain screenshots
 	end
 
 	local device_extensions = {}
