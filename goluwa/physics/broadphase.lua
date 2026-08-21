@@ -91,10 +91,23 @@ local function get_cell_span_count(min_x, min_y, min_z, max_x, max_y, max_z)
 	return (max_x - min_x + 1) * (max_y - min_y + 1) * (max_z - min_z + 1)
 end
 
-local function get_pair_key(entry_a, entry_b)
-	if entry_a.id < entry_b.id then return entry_a.id .. ":" .. entry_b.id end
+-- packed numeric pair keys: exact in a double while both ids stay under
+-- 2^21 (ids are per-broadphase and small); falls back to string keys beyond
+local PAIR_KEY_ID_LIMIT = 2097152
 
-	return entry_b.id .. ":" .. entry_a.id
+local function get_pair_key(entry_a, entry_b)
+	local id_a = entry_a.id
+	local id_b = entry_b.id
+
+	if id_a >= PAIR_KEY_ID_LIMIT or id_b >= PAIR_KEY_ID_LIMIT then
+		if id_a < id_b then return id_a .. ":" .. id_b end
+
+		return id_b .. ":" .. id_a
+	end
+
+	if id_a < id_b then return id_a * PAIR_KEY_ID_LIMIT + id_b end
+
+	return id_b * PAIR_KEY_ID_LIMIT + id_a
 end
 
 local function remove_entry_from_overflow(self, entry)
@@ -478,13 +491,25 @@ function Broadphase:GetCandidatePairs(out)
 	out = out or {}
 	local count = 0
 	local overflow_entries = self.OverflowEntries
-	local pair_lookup = {}
+	-- recycled lookup of packed pair keys so the per-substep call allocates
+	-- neither the lookup table nor the string keys
+	local pair_lookup = self.PairKeyLookup
+
+	if not pair_lookup then
+		pair_lookup = {}
+		self.PairKeyLookup = pair_lookup
+		self.PairKeyScratch = {}
+	end
+
+	local used_keys = self.PairKeyScratch
 
 	for _, pair in pairs(self.Pairs) do
 		if pair.entry_a.bounds:IsBoxIntersecting(pair.entry_b.bounds) then
+			local key = get_pair_key(pair.entry_a, pair.entry_b)
 			count = count + 1
 			out[count] = pair
-			pair_lookup[get_pair_key(pair.entry_a, pair.entry_b)] = true
+			pair_lookup[key] = true
+			used_keys[#used_keys + 1] = key
 		end
 	end
 
@@ -499,23 +524,20 @@ function Broadphase:GetCandidatePairs(out)
 
 				if not pair_lookup[key] and entry.bounds:IsBoxIntersecting(other.bounds) then
 					count = count + 1
-
-					if other.id < entry.id then
-						out[count] = {
-							entry_a = other,
-							entry_b = entry,
-						}
-					else
-						out[count] = {
-							entry_a = entry,
-							entry_b = other,
-						}
-					end
-
+					out[count] = {
+						entry_a = other.id < entry.id and other or entry,
+						entry_b = other.id < entry.id and entry or other,
+					}
 					pair_lookup[key] = true
+					used_keys[#used_keys + 1] = key
 				end
 			end
 		end
+	end
+
+	for i = #used_keys, 1, -1 do
+		pair_lookup[used_keys[i]] = nil
+		used_keys[i] = nil
 	end
 
 	for i = count + 1, #out do

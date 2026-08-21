@@ -1160,15 +1160,8 @@ local function sweep_world(physics, origin, movement, radius, ignore_entity, fil
 	local world_aabb = fill_swept_aabb(origin, movement, radius)
 	local model_candidates = model_candidates_scratch
 	local body_candidates = body_candidates_scratch
-
-	for i = #model_candidates, 1, -1 do
-		model_candidates[i] = nil
-	end
-
-	for i = #body_candidates, 1, -1 do
-		body_candidates[i] = nil
-	end
-
+	table.clear(model_candidates)
+	table.clear(body_candidates)
 	local best_hit = nil
 	local best_fraction = 1
 
@@ -1179,8 +1172,7 @@ local function sweep_world(physics, origin, movement, radius, ignore_entity, fil
 	collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
 
 	for i = 1, #model_candidates do
-		local item = model_candidates[i]
-		local model = item and item.model or nil
+		local model = model_candidates[i]
 
 		if model then
 			local hit = test_model_sweep(origin, movement, radius, model, ignore_entity, filter_fn, options, best_fraction)
@@ -1218,8 +1210,10 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 		if movement_length <= EPSILON then return nil end
 
 		local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement)
-		local model_candidates = {}
-		local body_candidates = {}
+		local model_candidates = model_candidates_scratch
+		local body_candidates = body_candidates_scratch
+		table.clear(model_candidates)
+		table.clear(body_candidates)
 		local best_hit = nil
 		local best_fraction = 1
 
@@ -1230,7 +1224,7 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 		collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
 
 		for i = 1, #model_candidates do
-			local model = model_candidates[i] and model_candidates[i].model or nil
+			local model = model_candidates[i]
 
 			if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
 				local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
@@ -1310,8 +1304,10 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 	if movement_length <= EPSILON then return nil end
 
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement)
-	local model_candidates = {}
-	local body_candidates = {}
+	local model_candidates = model_candidates_scratch
+	local body_candidates = body_candidates_scratch
+	table.clear(model_candidates)
+	table.clear(body_candidates)
 	local best_hit = nil
 	local best_fraction = 1
 
@@ -1322,7 +1318,7 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 	collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
 
 	for i = 1, #model_candidates do
-		local model = model_candidates[i] and model_candidates[i].model or nil
+		local model = model_candidates[i]
 
 		if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
 			local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB

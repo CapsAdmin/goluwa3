@@ -42,30 +42,23 @@ function static_model_query.BuildExpandedBodyWorldContactAABB(body)
 	return static_model_query.BuildExpandedWorldContactAABB(static_model_query.BuildBodyWorldContactAABB(body), body)
 end
 
-local function append_model_candidate(out, model, world_aabb, include_unbounded)
-	local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
-
-	if bounds then
-		if AABB.IsBoxIntersecting(world_aabb, bounds) then
-			out[#out + 1] = {model = model}
-		end
-
-		return out
-	end
-
-	if include_unbounded and model then out[#out + 1] = {model = model} end
-
-	return out
-end
-
 function static_model_query.CollectWorldModelCandidates(world_aabb, out, include_unbounded)
 	out = out or {}
 
-	if not world_aabb then return out end
+	if not world_aabb or not VisualComponent then return out end
 
-	for_each_spatial_component(function(model)
-		append_model_candidate(out, model, world_aabb, include_unbounded)
-	end)
+	-- inlined spatial component scan: no per-call closure, no per-model callback
+	for _, model in ipairs(VisualComponent.Instances) do
+		local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
+
+		if bounds then
+			if AABB.IsBoxIntersecting(world_aabb, bounds) then
+				out[#out + 1] = model
+			end
+		elseif include_unbounded and model then
+			out[#out + 1] = model
+		end
+	end
 
 	return out
 end
