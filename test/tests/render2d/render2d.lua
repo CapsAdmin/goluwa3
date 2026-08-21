@@ -149,6 +149,7 @@ T.Test2DFrames(
 	function(width, height, frame)
 		if frame == 1 then
 			local state = render2d.GetBatchState()
+			local flushes = render2d.GetBatchCounters().flushes
 			render2d.SetRectBatchMode("instanced")
 			render2d.SetColor(0, 0, 0, 1)
 			render2d.DrawRect(0, 0, width, height)
@@ -160,7 +161,7 @@ T.Test2DFrames(
 			render2d.SetColor(0, 0, 1, 1)
 			render2d.DrawRect(0, 0, width, height)
 			render2d.PopScissor()
-			T(render2d.GetBatchCounters().flushes)["=="](0)
+			T(render2d.GetBatchCounters().flushes)["=="](flushes)
 			T(state.pending_draws)["=="](3)
 			T(#state.segments)["=="](3)
 			render2d.SetRectBatchMode("replay")
