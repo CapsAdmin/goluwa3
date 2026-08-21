@@ -12,7 +12,7 @@ local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local SVG = import("goluwa/render2d/ui/elements/svg.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
-local shapes = _G.GRAPHICS_3D and import("lua/shapes.lua") or {}
+local shapes = RENDER_3D and import("lua/shapes.lua") or {}
 local ICON_SOURCES = {
 	folder = "https://api.iconify.design/ic/baseline-folder.svg",
 	file = "https://api.iconify.design/ic/round-insert-drive-file.svg",
@@ -67,13 +67,12 @@ return {
 		end
 
 		local function create_test_entity()
-			if not _G.GRAPHICS_3D then return end
+			if not RENDER_3D then return end
 
 			-- Create a material so the entity has a virtual child reference
 			local Material = import("goluwa/render3d/material.lua")
 			local test_material = Material.New()
 			test_material:SetName("TestMaterial")
-
 			local config = {
 				Name = "Test Box",
 				Collision = false,

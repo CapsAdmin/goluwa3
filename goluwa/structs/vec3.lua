@@ -69,7 +69,7 @@ end
 
 structs.AddGetFunc(META, "Lerp", "Lerped")
 
-if GRAPHICS then META.ToScreen = math3d.WorldPositionToScreen end
+if RENDER_2D then META.ToScreen = math3d.WorldPositionToScreen end
 
 META.Dot = META.GetDot
 return structs.Register(META)

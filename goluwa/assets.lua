@@ -531,7 +531,7 @@ local function notify_texture_ready(texture, options)
 	if options and options.on_ready then options.on_ready(texture) end
 end
 
-if _G.GRAPHICS_3D then
+if RENDER_3D then
 	local Texture = import("goluwa/render/texture.lua")
 	assets.RegisterCategory(
 		"textures",
@@ -674,7 +674,7 @@ function assets.RefreshInternalTextures()
 		end
 	end
 
-	if not GRAPHICS_3D then return end
+	if not RENDER_3D then return end
 
 	for _, texture in pairs(Texture.Instances) do
 		if not texture:IsValid() then continue end

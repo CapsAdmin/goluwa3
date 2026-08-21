@@ -1155,12 +1155,12 @@ function steam.LoadMap(path)
 
 				-- split the world up into sub models by texture
 				if not meshes[texname] then
-					local mesh = GRAPHICS and Polygon3D.New() or {}
+					local mesh = RENDER_2D and Polygon3D.New() or {}
 					local material_path = "materials/" .. texname .. ".vmt"
-					local material = GRAPHICS and Material.FromVMT(material_path)
+					local material = RENDER_2D and Material.FromVMT(material_path)
 					meshes[texname] = {mesh = mesh, material = material}
 
-					if GRAPHICS then
+					if RENDER_2D then
 						mesh:SetName(path .. ": " .. texname)
 						mesh.material = material
 					end
@@ -1243,7 +1243,7 @@ function steam.LoadMap(path)
 		end
 	end
 
-	if GRAPHICS then
+	if RENDER_2D then
 		for i, data in ipairs(models) do
 			local mesh = data.mesh
 			-- BSP uses CW winding due to coordinate transform, so build normals accordingly
@@ -1289,7 +1289,7 @@ function steam.LoadMap(path)
 	local render_meshes = {}
 
 	for _, v in ipairs(models) do
-		if GRAPHICS and v.mesh and v.mesh.Vertices then
+		if RENDER_2D and v.mesh and v.mesh.Vertices then
 			list.insert(render_meshes, v)
 		elseif SERVER and type(v.mesh) == "table" and v.mesh[1] and v.mesh[1].pos then
 			list.insert(render_meshes, v)
@@ -1359,7 +1359,7 @@ function steam.SpawnMapEntities(path, parent)
 		local handled = {}
 
 		for i, info in pairs(data.entities) do
-			if GRAPHICS then
+			if RENDER_2D then
 				if info.skyname then
 					--steam.LoadSkyTexture(info.skyname)
 					handled[info.classname] = (handled[info.classname] or 0) + 1

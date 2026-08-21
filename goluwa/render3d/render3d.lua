@@ -640,6 +640,7 @@ function render3d.Initialize(config)
 		}
 	end
 
+	import("goluwa/render3d/model_loader.lua")
 	event.Call("Render3DInitialized")
 	render3d.ready = true
 end

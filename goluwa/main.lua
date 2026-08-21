@@ -51,17 +51,19 @@ commands.Add{
 	},
 	callback = function(...)
 		local flags = select(select("#", ...), ...) -- flags is always last
-		_G.GRAPHICS = not flags.headless and not flags.cli and not flags.server
 		_G.AUDIO = not flags.no_audio
-		_G.CLIENT = not flags.server
 		_G.SERVER = flags.server
-		_G.GRAPHICS_3D = flags["3d"] or flags["3d-simple"]
-		_G.GRAPHICS_3D_SIMPLE = flags["3d-simple"]
-		_G.PHYSICS = _G.GRAPHICS_3D or flags["physics"]
-		_G.USERNAME = os.getenv("USER") or "anon"
+		_G.CLIENT = not SERVER
 		_G.RENDER_NOOP = false
+		_G.RENDER_2D = not flags.headless and not flags.cli and not flags.server
+		_G.RENDER_3D_SIMPLE = flags["3d-simple"]
+		_G.RENDER_3D = flags["3d"] or RENDER_3D_SIMPLE
+		_G.PHYSICS = RENDER_3D or flags["physics"]
+		_G.USERNAME = os.getenv("USER") or "anon"
 
 		if flags.renderdoc then
+			_G.RENDERDOC = true
+
 			if os.getenv("GOLUWA_RENDERDOC_ATTACHED") ~= "1" then
 				fs.create_directory_recursive(vfs.GetStorageDirectory("storage") .. "logs/")
 				process.setenv("GOLUWA_RENDERDOC_ATTACHED", "1")
@@ -86,7 +88,6 @@ commands.Add{
 				os.realexit(assert(child:wait()))
 			end
 
-			_G.RENDER_DISABLE_DYNAMIC_LOGIC_OP = true
 			local renderdoc = import("goluwa/bindings/renderdoc.lua")
 			renderdoc.init()
 			renderdoc.SetCaptureFilePathTemplate(vfs.GetStorageDirectory("root") .. "storage/logs/renderdoc")
@@ -135,12 +136,14 @@ local function run_game()
 		fs.remove_file(".running_pid")
 	end)
 
-	if _G.GRAPHICS then
+	if RENDER_2D then
 		local render = import("goluwa/render/render.lua")
 
 		if not render.available then
 			logf("[game] Graphics not available - running in headless mode\n")
-			_G.GRAPHICS = false
+			_G.RENDER_2D = false
+			_G.RENDER_3D_SIMPLE = false
+			_G.RENDER_3D = false
 		else
 			if not system.GetWindows()[1] then
 				system.OpenWindow(window_width, window_height)
@@ -148,51 +151,42 @@ local function run_game()
 
 			render.Initialize({samples = "1"})
 			import("goluwa/render2d/render2d.lua").Initialize()
-
-			if _G.GRAPHICS_3D then
-				if _G.GRAPHICS_3D_SIMPLE then
-					import("goluwa/render3d/render3d.lua").Initialize{
-						passes = {
-							import("goluwa/render3d/passes/gbuffer.lua"),
-							import("goluwa/render3d/passes/lighting_simple.lua"),
-							import("goluwa/render3d/passes/forward_overlay.lua"),
-							import("goluwa/render3d/passes/bloom.lua"),
-							import("goluwa/render3d/passes/blit.lua"),
-						},
-					}
-				else
-					import("goluwa/render3d/render3d.lua").Initialize()
-				end
-
-				import("goluwa/render3d/model_loader.lua")
-			end
-
-			if _G.PHYSICS then import("goluwa/physics.lua") end
 		end
 	end
 
-	if _G.AUDIO then
-		local audio = import("goluwa/audio.lua")
-		audio.Initialize()
+	if RENDER_3D then
+		import("goluwa/render3d/render3d.lua").Initialize(
+			RENDER_3D_SIMPLE and
+				{
+					passes = {
+						import("goluwa/render3d/passes/gbuffer.lua"),
+						import("goluwa/render3d/passes/lighting_simple.lua"),
+						import("goluwa/render3d/passes/forward_overlay.lua"),
+						import("goluwa/render3d/passes/bloom.lua"),
+						import("goluwa/render3d/passes/blit.lua"),
+					},
+				} or
+				nil
+		)
 	end
+
+	if PHYSICS then import("goluwa/physics.lua") end
+
+	if AUDIO then import("goluwa/audio.lua").Initialize() end
 
 	vfs.AutorunAddons()
 
-	if _G.GRAPHICS then
-		vfs.AutorunAddons("graphics/")
+	if RENDER_2D then vfs.AutorunAddons("render_2d/") end
 
-		if _G.GRAPHICS_3D then vfs.AutorunAddons("graphics_3d/") end
-	end
+	if RENDER_3D then vfs.AutorunAddons("render_3d/") end
 
-	if _G.PHYSICS then vfs.AutorunAddons("physics/") end
+	if PHYSICS then vfs.AutorunAddons("physics/") end
 
-	if _G.AUDIO then vfs.AutorunAddons("audio/") end
+	if AUDIO then vfs.AutorunAddons("audio/") end
 
-	if _G.CLIENT then vfs.AutorunAddons("client/") end
+	if CLIENT then vfs.AutorunAddons("client/") end
 
-	if _G.SERVER then vfs.AutorunAddons("server/") end
-
-	system.KeepAlive("game")
+	if SERVER then vfs.AutorunAddons("server/") end
 
 	do
 		local resource = import("goluwa/resource.lua")
@@ -202,7 +196,7 @@ local function run_game()
 		vfs.InitAddons()
 	end
 
-	if _G.GRAPHICS then
+	if RENDER_2D then
 		local assets = import("goluwa/assets.lua")
 
 		local function register_virtual_texture(path, module_path)
@@ -228,8 +222,7 @@ local function run_game()
 	end
 
 	if SERVER or CLIENT then
-		local network = import("goluwa/network/network.lua")
-		network.Initialize()
+		import("goluwa/network/network.lua").Initialize()
 
 		if SERVER then commands.RunString("host") end
 	end
@@ -238,43 +231,40 @@ end
 return function(...)
 	local args = {...}
 	return crash_trace.Run(function()
-		do
-			if args[1] and commands.IsAdded(args[1]) then
-				if not commands.RunArguments(args) then system.ShutDown(1) end
-			else
-				local remaining_args
-				local captured_flags = {}
+		if args[1] and commands.IsAdded(args[1]) then
+			if not commands.RunArguments(args) then system.ShutDown(1) end
+		else
+			local remaining_args
+			local captured_flags = {}
 
-				for i, arg in ipairs(args) do
-					if arg:starts_with("--") then
-						table.insert(captured_flags, arg)
-					else
-						remaining_args = {}
-
-						for i = i, #args do
-							table.insert(remaining_args, args[i])
-						end
-
-						break
-					end
-				end
-
-				if captured_flags[1] then
-					commands.RunArguments({"global_flags", unpack(captured_flags)})
+			for i, arg in ipairs(args) do
+				if arg:starts_with("--") then
+					table.insert(captured_flags, arg)
 				else
-					commands.RunArguments({"global_flags", "--3d"})
-				end
+					remaining_args = {}
 
-				run_game()
-
-				if remaining_args then
-					if not commands.RunArguments(remaining_args) then
-						system.ShutDown(1)
+					for i = i, #args do
+						table.insert(remaining_args, args[i])
 					end
+
+					break
 				end
+			end
+
+			if captured_flags[1] then
+				commands.RunArguments({"global_flags", unpack(captured_flags)})
+			else
+				commands.RunArguments({"global_flags", "--3d"})
+			end
+
+			run_game()
+
+			if remaining_args then
+				if not commands.RunArguments(remaining_args) then system.ShutDown(1) end
 			end
 		end
 
+		system.KeepAlive("game")
 		local last_time = system.GetTime()
 		local i = 0
 		event.Call("Initialize")

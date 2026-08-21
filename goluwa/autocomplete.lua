@@ -90,7 +90,7 @@ end
 
 autocomplete.translate_list_id = {}
 
-if _G.GRAPHICS then
+if RENDER_2D then
 	local render2d = import("goluwa/render2d/render2d.lua")
 	local fonts = import("goluwa/render2d/fonts.lua")
 
