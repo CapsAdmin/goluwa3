@@ -24,10 +24,6 @@ if not _G._OLD_G then
 	_G._OLD_G = _OLD_G
 end
 
-_G.e = {
-	USERNAME = "anon",
-}
-
 do
 	_G.import = require("goluwa.import")
 	_G.require = require("goluwa.require")

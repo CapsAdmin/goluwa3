@@ -1,7 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local TCPClient = import("goluwa/sockets/tcp_client.lua")
 local IRCClient = objects.CreateTemplate("irc_client")
-IRCClient:GetSet("Nick", e.USERNAME:gsub("^(.)", string.upper) .. "Bot")
+IRCClient:GetSet("Nick", USERNAME:gsub("^(.)", string.upper) .. "Bot")
 IRCClient:GetSet("Users", {})
 -- https://github.com/msva/lua-irc/blob/master/src/irc/constants.lua
 local replies = {

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local flags = import("goluwa/flags.lua")
+local RENDER_NOOP = _G.RENDER_NOOP or false
 local Queue = objects.CreateTemplate("vulkan_queue")
 local VkQueueBox = ffi.typeof("$[1]", vulkan.vk.VkQueue)
 
@@ -49,7 +49,7 @@ function Queue:HasPendingSubmission(fence)
 end
 
 function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
-	if flags.render_noop then
+	if RENDER_NOOP then
 		local submission = self:TrackSubmission(
 			commandBuffer,
 			inFlightFence,
@@ -80,7 +80,7 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 end
 
 function Queue:SubmitNoWait(commandBuffer, fence)
-	if flags.render_noop then
+	if RENDER_NOOP then
 		self:RetireFence(self:TrackSubmission(commandBuffer, fence, {}).fence)
 		return
 	end
@@ -107,7 +107,7 @@ function Queue:SubmitNoWait(commandBuffer, fence)
 end
 
 function Queue:SubmitFenced(commandBuffer, waitSemaphore, fence)
-	if flags.render_noop then
+	if RENDER_NOOP then
 		self:RetireFence(self:TrackSubmission(commandBuffer, fence, {}).fence)
 		return
 	end

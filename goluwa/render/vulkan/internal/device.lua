@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local flags = import("goluwa/flags.lua")
+local RENDER_NOOP = _G.RENDER_NOOP or false
 local Device = objects.CreateTemplate("vulkan_device")
 Device.GetQueue = import("goluwa/render/vulkan/internal/queue.lua").New
 local ConstCharArray = ffi.typeof("$[?]", ffi.typeof("const char*"))
@@ -542,7 +542,7 @@ function Device:MarkSubmissionCompleted(serial)
 end
 
 function Device:OnRemove()
-	if not flags.render_noop then vulkan.lib.vkDeviceWaitIdle(self.ptr[0]) end
+	if not RENDER_NOOP then vulkan.lib.vkDeviceWaitIdle(self.ptr[0]) end
 
 	self.completed_submission_serial = math.huge
 	self:FlushDeferredReleases(true)
@@ -568,7 +568,7 @@ function Device:GetExtension(name)
 end
 
 function Device:WaitIdle()
-	if flags.render_noop then return end
+	if RENDER_NOOP then return end
 
 	vulkan.lib.vkDeviceWaitIdle(self.ptr[0])
 end

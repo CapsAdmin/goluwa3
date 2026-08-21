@@ -20,7 +20,7 @@ META.socket = NULL
 META:GetSet("UniqueID", "???")
 nvars.IsSet(META, "Bot", false)
 nvars.GetSet(META, "Group", "player")
-nvars.GetSet(META, "Nick", e.USERNAME, "cl_nick")
+nvars.GetSet(META, "Nick", USERNAME, "cl_nick")
 nvars.GetSet(
 	META,
 	"AvatarPath",

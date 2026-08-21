@@ -58,6 +58,8 @@ commands.Add{
 		_G.GRAPHICS_3D = flags["3d"] or flags["3d-simple"]
 		_G.GRAPHICS_3D_SIMPLE = flags["3d-simple"]
 		_G.PHYSICS = _G.GRAPHICS_3D or flags["physics"]
+		_G.USERNAME = os.getenv("USER") or "anon"
+		_G.RENDER_NOOP = false
 
 		if flags.renderdoc then
 			if os.getenv("GOLUWA_RENDERDOC_ATTACHED") ~= "1" then

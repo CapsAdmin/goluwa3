@@ -299,7 +299,7 @@ do
 		end
 
 		function network.GetHostname()
-			return nvars.Get("hostname", e.USERNAME .. "'s server")
+			return nvars.Get("hostname", USERNAME .. "'s server")
 		end
 
 		function network.GetAvailableServers()

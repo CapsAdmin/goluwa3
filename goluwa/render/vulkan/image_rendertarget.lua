@@ -12,7 +12,7 @@ local RenderPass = import("goluwa/render/vulkan/internal/render_pass.lua")
 local Framebuffer = import("goluwa/render/vulkan/internal/framebuffer.lua")
 local Texture = import("goluwa/render/texture.lua")
 local event = import("goluwa/event.lua")
-local flags = import("goluwa/flags.lua")
+local RENDER_NOOP = _G.RENDER_NOOP or false
 local render = import("goluwa/render/render.lua")
 local ImageRenderTarget = objects.CreateTemplate("render_image_rendertarget")
 local default_config = {
@@ -419,7 +419,7 @@ function ImageRenderTarget:WaitForPreviousFrame()
 	if self.in_flight_fences and self.in_flight_fences[next_frame] then
 		local fence = self.in_flight_fences[next_frame]
 
-		if not flags.render_noop or self.vulkan_instance.queue:HasPendingSubmission(fence) then
+		if not RENDER_NOOP or self.vulkan_instance.queue:HasPendingSubmission(fence) then
 			fence:Wait(true) -- skip_reset = true
 		end
 
@@ -498,8 +498,8 @@ function ImageRenderTarget:BeginFrame()
 	if self.in_flight_fences and self.in_flight_fences[frame_index] then
 		local fence = self.in_flight_fences[frame_index]
 
-		if not flags.render_noop or self.vulkan_instance.queue:HasPendingSubmission(fence) then
-			fence:Wait(flags.render_noop)
+		if not RENDER_NOOP or self.vulkan_instance.queue:HasPendingSubmission(fence) then
+			fence:Wait(RENDER_NOOP)
 		end
 
 		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[frame_index])
@@ -507,7 +507,7 @@ function ImageRenderTarget:BeginFrame()
 
 	local texture_index
 
-	if flags.render_noop then
+	if RENDER_NOOP then
 		self.texture_index = frame_index
 		texture_index = self.texture_index - 1
 	elseif self.swapchain then
@@ -563,7 +563,7 @@ function ImageRenderTarget:EndFrame()
 	)
 	command_buffer:End()
 
-	if flags.render_noop and not self.config.offscreen then return end
+	if RENDER_NOOP and not self.config.offscreen then return end
 
 	-- Submit command buffer
 	if self.config.offscreen then
@@ -571,11 +571,11 @@ function ImageRenderTarget:EndFrame()
 		local fence = Fence.New(self.vulkan_instance.device)
 		local queue = self.vulkan_instance.queue
 
-		if not flags.render_noop then fence:Reset() end
+		if not RENDER_NOOP then fence:Reset() end
 
 		queue:SubmitNoWait(command_buffer, fence)
 
-		if not flags.render_noop then fence:Wait(true) end
+		if not RENDER_NOOP then fence:Wait(true) end
 
 		queue:RetireFence(fence)
 	else
@@ -607,7 +607,7 @@ function ImageRenderTarget:Capture()
 
 	if not cmd or not cmd.is_recording or not cmd.is_rendering then return nil end
 
-	if flags.render_noop then return nil end
+	if RENDER_NOOP then return nil end
 
 	local device = self.vulkan_instance.device
 	local queue = self.vulkan_instance.queue

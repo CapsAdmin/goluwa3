@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = {}
 import.loaded["goluwa/render/render.lua"] = render
-local flags = import("goluwa/flags.lua")
+local RENDER_NOOP = _G.RENDER_NOOP or false
 render.flush_callbacks = render.flush_callbacks or {}
 render.flush_callback_order = render.flush_callback_order or {}
 render.is_flushing_callbacks = false
@@ -1146,11 +1146,11 @@ function render.SubmitAndWait(cmd)
 	local fence = render.GetSyncFence()
 	local queue = render.GetQueue()
 
-	if not flags.render_noop then fence:Reset() end
+	if not RENDER_NOOP then fence:Reset() end
 
 	queue:SubmitNoWait(cmd, fence)
 
-	if flags.render_noop then return end
+	if RENDER_NOOP then return end
 
 	fence:Wait(true)
 	queue:RetireFence(fence)
@@ -1159,7 +1159,7 @@ end
 function render.Submit(cmd, fence)
 	fence = fence or render.GetSyncFence()
 
-	if not flags.render_noop then fence:Reset() end
+	if not RENDER_NOOP then fence:Reset() end
 
 	return render.GetQueue():SubmitNoWait(cmd, fence)
 end
