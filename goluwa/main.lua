@@ -59,7 +59,6 @@ commands.Add{
 		_G.RENDER_3D_SIMPLE = flags["3d-simple"]
 		_G.RENDER_3D = flags["3d"] or RENDER_3D_SIMPLE
 		_G.PHYSICS = RENDER_3D or flags["physics"]
-		_G.USERNAME = os.getenv("USER") or "anon"
 
 		if flags.renderdoc then
 			_G.RENDERDOC = true

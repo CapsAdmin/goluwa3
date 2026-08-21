@@ -24,6 +24,8 @@ if not _G._OLD_G then
 	_G._OLD_G = _OLD_G
 end
 
+_G.USERNAME = os.getenv("USER") or "anon"
+
 do
 	_G.import = require("goluwa.import")
 	_G.require = require("goluwa.require")
@@ -136,7 +138,7 @@ do
 	local JitProfiler = import("goluwa/jit/profiler.lua")
 	local PROF = {}
 
-	function PROF.start(id, opts)
+	function PROF.Start(id, opts)
 		opts = opts or {}
 		local config = {
 			format = "bin",
@@ -162,19 +164,14 @@ do
 		profiler.Start(id, config)
 	end
 
-	function PROF.stop()
+	function PROF.Stop()
 		return profiler.Stop()
 	end
 
-	PROF.summary = function(path, opts)
+	function PROF.Summary(path, opts)
 		return JitProfiler.Summary(path, opts)
 	end
-	-- allow PROF("id", opts) as shorthand for PROF.start
-	setmetatable(PROF, {
-		__call = function(_, id, opts)
-			PROF.start(id, opts)
-		end,
-	})
+
 	_G.PROF = PROF
 end
 

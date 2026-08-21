@@ -37,7 +37,7 @@ local VERBOSE = false
 local NESTING = false
 local IS_TERMINAL = true -- or system.IsTTY()
 local NO_SUMMARY = false
-local SUBFILTER = nil
+local NAME_PATTERN = nil
 local FAILURES_ONLY = false
 local completed_test_count = 0
 local has_failed_tests = false
@@ -113,17 +113,17 @@ local function traceback(msg, co_lines)
 	return msg .. sep .. table.concat(lines, sep)
 end
 
-function test.RunTestsWithFilter(filter, config)
+function test.RunTestsWithPathPattern(path_pattern, config)
 	test.BeginTests(
 		config.logging,
 		config.profiling,
 		config.profiling_mode,
 		config.verbose,
 		config.no_summary,
-		config.subfilter,
+		config.name_pattern,
 		config.failures_only
 	)
-	local tests = test.FindTests(filter)
+	local tests = test.FindTests(path_pattern)
 	test.SetTestPaths(tests)
 
 	for _, test_item in ipairs(tests) do
@@ -131,20 +131,27 @@ function test.RunTestsWithFilter(filter, config)
 	end
 
 	if config.logging and not config.no_summary then
-		local filter_parts = {}
+		local pattern_parts = {}
 
-		if filter then table.insert(filter_parts, "path filter '" .. filter .. "'") end
-
-		if config.subfilter then
-			table.insert(filter_parts, "test filter '" .. config.subfilter .. "'")
+		if path_pattern then
+			table.insert(pattern_parts, "path pattern '" .. path_pattern .. "'")
 		end
 
-		local filter_str = #filter_parts > 0 and (" with " .. table.concat(filter_parts, " and ")) or ""
+		if config.name_pattern then
+			table.insert(pattern_parts, "name pattern '" .. config.name_pattern .. "'")
+		end
+
+		local pattern_str = #pattern_parts > 0 and
+			(
+				" with " .. table.concat(pattern_parts, " and ")
+			)
+			or
+			""
 
 		if #tests == 0 then
-			logn("no tests found" .. filter_str)
+			logn("no tests found with pattern " .. path_pattern)
 		else
-			logn("running ", #tests, #tests == 1 and " test" or " tests", filter_str)
+			logn("running ", #tests, #tests == 1 and " test" or " tests", pattern_str)
 		end
 	end
 end
@@ -181,11 +188,11 @@ local active_test_tasks = {}
 -- Create a marker object for unavailable tests
 local unavailable_marker = {}
 
-local function matches_subfilter(name)
-	return not SUBFILTER or
-		SUBFILTER == "" or
-		SUBFILTER == "all" or
-		name:find(SUBFILTER, nil, true)
+local function matches_name_pattern(name)
+	return not NAME_PATTERN or
+		NAME_PATTERN == "" or
+		NAME_PATTERN == "all" or
+		name:find(NAME_PATTERN, nil, true)
 end
 
 function test.Skip(name, reason)
@@ -207,7 +214,7 @@ local function enqueue_test_definition(kind, name, cb, start, stop)
 end
 
 function test.Test(name, cb, start, stop)
-	if not matches_subfilter(name) then return nil end
+	if not matches_name_pattern(name) then return nil end
 
 	-- Check if we're inside another test task (nested test)
 	local current_task = tasks.GetActiveTask()
@@ -505,7 +512,7 @@ function test._CreatePendingTask(name, options)
 end
 
 function test.Pending(name)
-	if not matches_subfilter(name) then return nil end
+	if not matches_name_pattern(name) then return nil end
 
 	if collecting_test_definitions then
 		return enqueue_test_definition("pending", name)
@@ -569,7 +576,7 @@ do
 	end
 end
 
-function test.FindTests(filter)
+function test.FindTests(path_pattern)
 	local current_directory = fs.get_current_directory()
 	local roots = {
 		{
@@ -607,10 +614,10 @@ function test.FindTests(filter)
 				local name = root.keep_relative_name and relative_path or path:gsub(root.full, "")
 
 				if
-					not filter or
-					filter == "all" or
-					relative_path:find(filter, nil, true) or
-					name:find(filter, nil, true)
+					not path_pattern or
+					path_pattern == "all" or
+					relative_path:find(path_pattern, nil, true) or
+					name:find(path_pattern, nil, true)
 				then
 					table.insert(expanded, {
 						path = relative_path,
@@ -685,12 +692,20 @@ do
 	local test_file_count = 0
 	local test_results = {} -- Store results for each test file
 	local test_order = {} -- Track the order tests were loaded
-	function test.BeginTests(logging, profiling, profiling_mode, verbose, no_summary, subfilter, failures_only)
+	function test.BeginTests(
+		logging,
+		profiling,
+		profiling_mode,
+		verbose,
+		no_summary,
+		name_pattern,
+		failures_only
+	)
 		LOGGING = logging or false
 		VERBOSE = verbose or false
 		PROFILING = profiling or false
 		NO_SUMMARY = no_summary or false
-		SUBFILTER = subfilter
+		NAME_PATTERN = name_pattern
 		FAILURES_ONLY = failures_only or false
 		total_test_count = 0
 		tests_by_file = {}
@@ -1119,9 +1134,7 @@ end
 
 -- r is either {r, g, b, a} or a predicate function(r, g, b, a) -> bool
 function test.TexturePixel(tex, x, y, r, g, b, a, tolerance, msg)
-	if type(r) == "number" then
-		r = {r, g, b, a}
-	end
+	if type(r) == "number" then r = {r, g, b, a} end
 
 	local r_, g_, b_, a_ = tex:GetPixel(x, y)
 	check_pixel(r, x, y, r_ / 255, g_ / 255, b_ / 255, a_ / 255, tolerance, msg)
@@ -1237,7 +1250,14 @@ function test.AssertTextureRegion(tbl)
 	if hit then return end
 
 	error(
-		string.format("region (%d,%d)-(%d,%d)%s has no pixel satisfying the check", rect[1], rect[2], rect[3], rect[4], label),
+		string.format(
+			"region (%d,%d)-(%d,%d)%s has no pixel satisfying the check",
+			rect[1],
+			rect[2],
+			rect[3],
+			rect[4],
+			label
+		),
 		2
 	)
 end
@@ -1258,13 +1278,13 @@ commands.Add({
 	aliases = "test",
 	argtypes = "string|nil",
 	flags = {
-		filter = {
+		["path-pattern"] = {
 			type = "string",
-			description = "Only run tests whose path contains this filter",
+			description = "Only run tests whose path name contains this pattern",
 		},
-		subfilter = {
+		["name-pattern"] = {
 			type = "string",
-			description = "Only run tests whose description contains this filter",
+			description = "Only run tests whose test name contains this pattern",
 		},
 		verbose = {
 			type = "boolean",
@@ -1287,7 +1307,7 @@ commands.Add({
 			description = "Only print failed tests and the final summary",
 		},
 	},
-}, function(filter, flags)
+}, function(path_pattern, flags)
 	local logging = true
 	local verbose = flags.verbose == true
 	local profiling = false
@@ -1296,17 +1316,27 @@ commands.Add({
 	local parallel = flags["no-parallel"] ~= true
 	local summary = flags["no-summary"] ~= true
 	local failures_only = flags["failures-only"] == true
-	local subfilter = flags.subfilter
+	local name_pattern = flags["name-pattern"]
 
-	if subfilter == "" or subfilter == "all" then subfilter = nil end
+	if name_pattern == "" or name_pattern == "all" then name_pattern = nil end
 
-	filter = flags.filter or filter
+	path_pattern = flags["path-pattern"] or path_pattern
 
 	if separate then
-		local tests = test.FindTests(filter)
+		local tests = test.FindTests(path_pattern)
 
 		if not tests[1] then
-			error("no tests found" .. (filter and (" with filter '" .. filter .. "'") or ""), 0)
+			error(
+				"no tests found" .. (
+						path_pattern and
+						(
+							" with path-pattern '" .. path_pattern .. "'"
+						)
+						or
+						""
+					),
+				0
+			)
 		end
 
 		-- Thread worker passed as source string to avoid upvalue-serialization bugs.
@@ -1345,7 +1375,7 @@ commands.Add({
 
 			local ok, run_err = pcall(function()
 				local t = import("goluwa/test.lua")
-				t.BeginTests(true, false, nil, input.verbose, true, input.subfilter, input.failures_only)
+				t.BeginTests(true, false, nil, input.verbose, true, input.name_pattern, input.failures_only)
 				t.SetTestPaths({{name = input.name, path = input.path}})
 				has_tests = t.RunSingleTestSet({name = input.name, path = input.path})
 
@@ -1462,7 +1492,7 @@ commands.Add({
 						name = test_item.name,
 						verbose = verbose,
 						failures_only = failures_only,
-						subfilter = subfilter,
+						name_pattern = name_pattern,
 					}
 					return t
 				end)
@@ -1557,14 +1587,14 @@ commands.Add({
 		return
 	end
 
-	test.RunTestsWithFilter(
-		filter,
+	test.RunTestsWithPathPattern(
+		path_pattern,
 		{
 			logging = logging,
 			verbose = verbose,
 			profiling = profiling,
 			profiling_mode = profiling_mode,
-			subfilter = subfilter,
+			name_pattern = name_pattern,
 			failures_only = failures_only,
 			no_summary = not summary,
 		}
