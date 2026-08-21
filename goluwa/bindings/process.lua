@@ -662,37 +662,45 @@ else
 		end
 	end
 
-	function meta:wait()
-		-- Return cached exit code if already waited
-		if self.exit_code then return self.exit_code end
+	do
+		local function status_to_exit_code(status)
+			local signal = bit.band(status, 0x7f)
 
-		local status = ffi.new("int[1]")
-		local ret = ffi.C.waitpid(self.pid, status, 0)
+			if signal == 0 then return bit.rshift(bit.band(status, 0xFF00), 8) end
 
-		if ret < 0 then return nil, lasterror() end
+			return 128 + signal
+		end
 
-		-- Extract exit code from status
-		-- WIFEXITED(status) and WEXITSTATUS(status)
-		local exit_code = bit.rshift(bit.band(status[0], 0xFF00), 8)
-		self.exit_code = exit_code
-		return exit_code
-	end
+		function meta:wait()
+			-- Return cached exit code if already waited
+			if self.exit_code then return self.exit_code end
 
-	function meta:try_wait()
-		-- Return cached exit code if already waited
-		if self.exit_code then return true, self.exit_code end
+			local status = ffi.new("int[1]")
+			local ret = ffi.C.waitpid(self.pid, status, 0)
 
-		local status = ffi.new("int[1]")
-		local ret = ffi.C.waitpid(self.pid, status, WNOHANG)
+			if ret < 0 then return nil, lasterror() end
 
-		if ret < 0 then
-			return nil, lasterror()
-		elseif ret == 0 then
-			return false
-		else
-			local exit_code = bit.rshift(bit.band(status[0], 0xFF00), 8)
+			local exit_code = status_to_exit_code(status[0])
 			self.exit_code = exit_code
-			return true, exit_code
+			return exit_code
+		end
+
+		function meta:try_wait()
+			-- Return cached exit code if already waited
+			if self.exit_code then return true, self.exit_code end
+
+			local status = ffi.new("int[1]")
+			local ret = ffi.C.waitpid(self.pid, status, WNOHANG)
+
+			if ret < 0 then
+				return nil, lasterror()
+			elseif ret == 0 then
+				return false
+			else
+				local exit_code = status_to_exit_code(status[0])
+				self.exit_code = exit_code
+				return true, exit_code
+			end
 		end
 	end
 
