@@ -52,7 +52,7 @@ function profiler.Start(id, config)
 		end
 	end
 
-	if config.skip_frames then
+	if config.skip_frames and config.skip_frames ~= 0 then
 		local start_at = system.GetFrameNumber() + config.skip_frames
 
 		event.AddListener("Update", "profiler_auto_start", function()
