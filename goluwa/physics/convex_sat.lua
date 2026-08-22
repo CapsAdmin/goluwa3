@@ -1,5 +1,7 @@
 local physics_constants = import("goluwa/physics/constants.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_sat = {}
+local RESOLVED_AXIS = Vec3()
 
 function convex_sat.AddUniqueAxis(axes, axis, duplicate_dot_threshold)
 	local axis_length = axis:GetLength()
@@ -35,8 +37,16 @@ function convex_sat.GetProjectedOverlap(vertices_a, vertices_b, axis)
 	return math.min(max_a, max_b) - math.max(min_a, min_b)
 end
 
-function convex_sat.OrientAxisNormal(axis, distance)
-	return axis * (distance >= 0 and 1 or -1)
+function convex_sat.SetOrientedNormal(out, axis, distance)
+	if not out then
+		out = Vec3()
+	end
+
+	out:CopyFrom(axis)
+
+	if distance < 0 then out:Scale(-1) end
+
+	return out
 end
 
 function convex_sat.TryUpdateAxis(
@@ -57,7 +67,7 @@ function convex_sat.TryUpdateAxis(
 
 		if axis_length <= (epsilon or physics_constants.EPSILON) then return false end
 
-		resolved_axis = axis / axis_length
+		resolved_axis = RESOLVED_AXIS:CopyFrom(axis):Scale(1 / axis_length)
 	end
 
 	local overlap = convex_sat.GetProjectedOverlap(vertices_a, vertices_b, resolved_axis) + (
@@ -68,7 +78,7 @@ function convex_sat.TryUpdateAxis(
 	if overlap <= 0 then return false end
 
 	candidate.overlap = overlap
-	candidate.normal = convex_sat.OrientAxisNormal(resolved_axis, center_delta:Dot(resolved_axis))
+	candidate.normal = convex_sat.SetOrientedNormal(candidate.normal, resolved_axis, center_delta:Dot(resolved_axis))
 	convex_sat.UpdateBestAxis(best, candidate)
 	return true
 end
@@ -77,7 +87,13 @@ end
 -- reusable scratch candidate tables without aliasing the recorded best axis.
 local function copy_candidate(target, source)
 	target.overlap = source.overlap
-	target.normal = source.normal
+
+	if target.normal then
+		target.normal:CopyFrom(source.normal)
+	else
+		target.normal = source.normal:Copy()
+	end
+
 	target.kind = source.kind
 	target.reference_body = source.reference_body
 	target.edge_axis_a = source.edge_axis_a

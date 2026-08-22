@@ -2386,7 +2386,7 @@ do -- camera
 		if dont_multiply then
 			mat:Identity()
 		else
-			Matrix44.CopyTo(camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos - 1], mat)
+			Matrix44.CopyFrom(camera_state.world_matrix_stack[camera_state.world_matrix_stack_pos - 1], mat)
 		end
 	end
 
@@ -2498,7 +2498,7 @@ function render2d.CaptureRectDrawState(world_matrix)
 		pipeline_config.blend = blend_mode
 	end
 
-	Matrix44.CopyTo(render2d.GetWorldMatrix(), resolved_world_matrix)
+	Matrix44.CopyFrom(render2d.GetWorldMatrix(), resolved_world_matrix)
 	return {
 		rect_state_snapshot = rect_state_snapshot,
 		world_matrix = resolved_world_matrix,
@@ -2538,7 +2538,7 @@ function render2d.RestoreRectDrawState(state)
 	scissor.x, scissor.y, scissor.w, scissor.h = snapshot.scissor[0], snapshot.scissor[1], snapshot.scissor[2], snapshot.scissor[3]
 	render2d.MarkPipelineStateDirty()
 	apply_scissor_to_command_buffer(snapshot.scissor[0], snapshot.scissor[1], snapshot.scissor[2], snapshot.scissor[3])
-	Matrix44.CopyTo(state.world_matrix, render2d.GetWorldMatrix())
+	Matrix44.CopyFrom(state.world_matrix, render2d.GetWorldMatrix())
 end
 
 do
@@ -2591,7 +2591,7 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	local projected = next_pooled_item(render2d.rect_batch_draw_matrices, "next_draw_matrix_slot", Matrix44)
 	local qw = w + margin * 2
 	local qh = h + margin * 2
-	Matrix44.CopyTo(state.world_matrix, projected)
+	Matrix44.CopyFrom(state.world_matrix, projected)
 
 	if x and y then
 		if use_float then

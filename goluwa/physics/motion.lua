@@ -1,24 +1,29 @@
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local motion = {}
+local ROTATION_INTEGRATION_DELTA = Quat()
+local POSITION_DELTA = Vec3()
 
 function motion.IntegrateRotation(rotation, angular_velocity, dt)
-	if angular_velocity:GetLength() == 0 then return rotation:Copy() end
+	if angular_velocity:GetLengthSquared() == 0 then return rotation end
 
-	local delta = Quat(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0) * rotation
-	return Quat(
-		rotation.x + 0.5 * dt * delta.x,
-		rotation.y + 0.5 * dt * delta.y,
-		rotation.z + 0.5 * dt * delta.z,
-		rotation.w + 0.5 * dt * delta.w
-	):GetNormalized()
+	local delta = ROTATION_INTEGRATION_DELTA
+	delta.x, delta.y, delta.z, delta.w = angular_velocity.x, angular_velocity.y, angular_velocity.z, 0
+	Quat.SetMul(delta, delta, rotation)
+	local half_dt = 0.5 * dt
+	rotation.x = rotation.x + half_dt * delta.x
+	rotation.y = rotation.y + half_dt * delta.y
+	rotation.z = rotation.z + half_dt * delta.z
+	rotation.w = rotation.w + half_dt * delta.w
+	rotation:Normalize()
+	return rotation
 end
 
 function motion.ShiftBodyPosition(body, delta)
 	if body:HasSolverMass() and delta:GetLength() > 0.01 then body:Wake() end
 
-	body.Position = body.Position + delta
-	body.PreviousPosition = body.PreviousPosition + delta
+	body.Position:Add(delta)
+	body.PreviousPosition:Add(delta)
 end
 
 function motion.SetBodyVelocityFromCurrentPosition(body, velocity, dt)
@@ -50,11 +55,16 @@ function motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_vel
 	motion.SetBodyAngularVelocityFromCurrentRotation(body, angular_velocity, dt)
 end
 
-function motion.GetAngularVelocityFromRotationDelta(previous_rotation, rotation, dt)
-	local delta = (rotation * previous_rotation:GetConjugated()):GetNormalized()
-	local angular_velocity = Vec3(delta.x * 2 / dt, delta.y * 2 / dt, delta.z * 2 / dt)
+local ROTATION_DELTA = Quat()
+local ROTATION_DELTA_CONJUGATE = Quat()
 
-	if delta.w < 0 then angular_velocity = angular_velocity * -1 end
+function motion.GetAngularVelocityFromRotationDelta(previous_rotation, rotation, dt)
+	Quat.SetConjugated(ROTATION_DELTA_CONJUGATE, previous_rotation)
+	Quat.SetMul(ROTATION_DELTA, rotation, ROTATION_DELTA_CONJUGATE)
+	ROTATION_DELTA:Normalize()
+	local angular_velocity = Vec3(ROTATION_DELTA.x * 2 / dt, ROTATION_DELTA.y * 2 / dt, ROTATION_DELTA.z * 2 / dt)
+
+	if ROTATION_DELTA.w < 0 then angular_velocity:Scale(-1) end
 
 	return angular_velocity
 end
@@ -64,8 +74,10 @@ function motion.ApplyBodyMotionDelta(body, previous_position, previous_rotation,
 
 	if not dt or dt <= 0 then dt = 1 / 60 end
 
-	body.Velocity = body.Velocity + (body.Position - previous_position) / dt
-	body.AngularVelocity = body.AngularVelocity + motion.GetAngularVelocityFromRotationDelta(previous_rotation, body.Rotation, dt)
+	Vec3.SetSub(POSITION_DELTA, body.Position, previous_position)
+	POSITION_DELTA:Scale(1 / dt)
+	body.Velocity:Add(POSITION_DELTA)
+	body.AngularVelocity:Add(motion.GetAngularVelocityFromRotationDelta(previous_rotation, body.Rotation, dt))
 end
 
 function motion.GetPointVelocity(body, linear_velocity, angular_velocity, point)

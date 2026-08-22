@@ -3,7 +3,6 @@ local ffi = require("ffi")
 local istype = ffi.istype
 local typeof = ffi.typeof
 local tostring = tostring
-local UNION_SWIZZLE = false
 structs.NumberType = "float"
 local codegen = import("goluwa/codegen.lua")
 
@@ -21,62 +20,38 @@ function structs.Register(META)
 	local arg_lines = {}
 	META.ByteSize = ffi.sizeof(META.NumberType) * #META.Args[1]
 	i = i + 1
-	local cdecl
+	local cdecl = "struct {\n"
 
-	if UNION_SWIZZLE then
-		cdecl = "union {\n"
+	for i, v in pairs(META.Args[1]) do
+		cdecl = cdecl .. "\t" .. META.NumberType .. " " .. v .. ";\n"
+	end
 
-		for arg_i, arg in pairs(META.Args) do
-			cdecl = cdecl .. "\tstruct {\n"
+	cdecl = cdecl .. "}\n"
+	local lookup = {}
 
-			for i, v in pairs(arg) do
-				cdecl = cdecl .. "\t" .. META.NumberType .. " " .. v .. ";\n"
-			end
+	for arg_i = 2, #META.Args do
+		local alt_args = META.Args[arg_i]
 
-			cdecl = cdecl .. "\t};\n"
+		for i, alt_key in ipairs(alt_args) do
+			lookup[alt_key] = META.Args[1][i]
 		end
+	end
 
-		cdecl = cdecl .. "}\n"
-	else
-		cdecl = "struct {\n"
+	function META:__index(key)
+		local primary_key = lookup[key]
 
-		for i, v in pairs(META.Args[1]) do
-			cdecl = cdecl .. "\t" .. META.NumberType .. " " .. v .. ";\n"
-		end
+		if primary_key then return self[primary_key] end
 
-		cdecl = cdecl .. "}\n"
+		return META[key]
+	end
 
-		if true then
-			local lookup = {}
+	function META:__newindex(key, value)
+		local primary_key = lookup[key]
 
-			-- Build lookup table for swizzle aliases
-			for arg_i = 2, #META.Args do
-				local alt_args = META.Args[arg_i]
-
-				for i, alt_key in ipairs(alt_args) do
-					lookup[alt_key] = META.Args[1][i]
-				end
-			end
-
-			function META:__index(key)
-				-- Check if it's a swizzle alias
-				local primary_key = lookup[key]
-
-				if primary_key then return self[primary_key] end
-
-				-- Otherwise, look up in the metatable itself
-				return META[key]
-			end
-
-			function META:__newindex(key, value)
-				local primary_key = lookup[key]
-
-				if primary_key then
-					self[primary_key] = value
-				else
-					self[key] = value
-				end
-			end
+		if primary_key then
+			self[primary_key] = value
+		else
+			self[key] = value
 		end
 	end
 
@@ -331,7 +306,7 @@ operators.copy = function(META, operator)
 				c.{{KEY}} = a.{{KEY}}
 				return c
 			end
-			META["CopyTo"] = function(a, b)
+			META["CopyFrom"] = function(a, b)
 				a:Set(b:Unpack())
 				return a
 			end
@@ -519,6 +494,44 @@ operators.generic_vector = function(META, operator)
 		META,
 		structs
 	)
+
+	do
+		local env = fields_env(META, "", false)
+		local list = {}
+
+		for i, v in ipairs(META.Args[1]) do
+			list[i] = type(v) == "table" and v[1] or v
+		end
+
+		env.LEN2 = codegen.each(list, " + ", function(name)
+			return "vec." .. name .. " * vec." .. name
+		end)
+		codegen.run(
+			[==[
+				local META, structs = ...
+
+				function META.SetNormalized(out, vec, scale)
+					local length = math.sqrt(
+						{{LEN2}}
+					)
+
+					if length == 0 then
+						out:Zero()
+						return out
+					end
+
+					local inv = (scale or 1) / length
+					out.{{KEY}} = vec.{{KEY}} * inv
+					return out
+				end
+		]==],
+			"operator " .. operator .. " Normalized",
+			env,
+			META,
+			structs
+		)
+	end
+
 	codegen.run(
 		[[
 			local META, structs = ...
@@ -559,6 +572,58 @@ operators.generic_vector = function(META, operator)
 			return b:GetLength() <= a
 		end
 	end
+end
+operators.inplace = function(META, operator)
+	local env = fields_env(META, "", false)
+	codegen.run(
+		[==[
+			local META, structs = ...
+
+			function META:Add(b)
+				self.{{KEY}} = self.{{KEY}} + b.{{KEY}}
+				return self
+			end
+
+			function META:Sub(b)
+				self.{{KEY}} = self.{{KEY}} - b.{{KEY}}
+				return self
+			end
+
+			function META:AddScaled(b, s)
+				self.{{KEY}} = self.{{KEY}} + b.{{KEY}} * s
+				return self
+			end
+
+			function META:Scale(s)
+				self.{{KEY}} = self.{{KEY}} * s
+				return self
+			end
+
+			function META.SetAdd(out, a, b)
+				out.{{KEY}} = a.{{KEY}} + b.{{KEY}}
+				return out
+			end
+
+			function META.SetSub(out, a, b)
+				out.{{KEY}} = a.{{KEY}} - b.{{KEY}}
+				return out
+			end
+
+			function META.SetMul(out, a, b)
+				out.{{KEY}} = a.{{KEY}} * b.{{KEY}}
+				return out
+			end
+
+			function META.SetScaled(out, v, s)
+				out.{{KEY}} = v.{{KEY}} * s
+				return out
+			end
+	]==],
+		"operator " .. operator,
+		env,
+		META,
+		structs
+	)
 end
 operators.lerp = function(META, operator)
 	codegen.run(
@@ -678,6 +743,7 @@ function structs.AddAllOperators(META)
 	structs.AddOperator(META, "==")
 	structs.AddOperator(META, "compare")
 	structs.AddOperator(META, "copy")
+	structs.AddOperator(META, "inplace")
 	structs.AddOperator(META, "iszero")
 	structs.AddOperator(META, "isvalid")
 	structs.AddOperator(META, "unpack")

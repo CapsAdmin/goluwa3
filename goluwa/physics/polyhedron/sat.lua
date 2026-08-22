@@ -1,6 +1,12 @@
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_geometry = import("goluwa/physics/polyhedron/geometry.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local polyhedron_sat = {}
+local FACE_AXIS = Vec3()
+local EDGE_AXIS_A = Vec3()
+local EDGE_AXIS_B = Vec3()
+local EDGE_NORMAL = Vec3()
 
 local function default_face_candidate(face_index)
 	return {face_index = face_index}
@@ -29,7 +35,7 @@ end
 function polyhedron_sat.TryUpdateAxisCandidate(best, vertices_a, vertices_b, axis, center_delta, candidate, options)
 	options = options or {}
 
-	if options.normalize then axis = axis:GetNormalized() end
+	if options.normalize then axis:Normalize() end
 
 	local margin_overlap = options.margin_overlap
 
@@ -128,7 +134,7 @@ function polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(best, vertices_a, 
 	local get_margin_overlap_context = options.get_margin_overlap_context
 
 	for face_index, face in ipairs(poly_data.faces or {}) do
-		local axis = rotation:VecMul(face.normal)
+		local axis = Quat.SetVecMul(FACE_AXIS, rotation, face.normal)
 		local candidate = build_polyhedron_candidate(build_candidate, build_candidate_context, face_index, axis)
 		local margin_overlap = get_polyhedron_margin_overlap(get_margin_overlap, get_margin_overlap_context, axis, face_index)
 
@@ -213,14 +219,14 @@ function polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(
 		local edge_axis = polyhedron_geometry.GetEdgeDirection(polyhedron, edge)
 
 		if edge_axis then
-			edge_axis = rotation:VecMul(edge_axis)
+			local world_edge_axis = Quat.SetVecMul(EDGE_AXIS_A, rotation, edge_axis)
 
 			for triangle_edge_index, triangle_edge in ipairs(triangle_edges or {}) do
-				local axis = edge_axis:GetCross(triangle_edge)
+				local axis = Vec3.SetCross(EDGE_AXIS_B, world_edge_axis, triangle_edge)
 				local axis_length = axis:GetLength()
 
 				if axis_length > epsilon then
-					local normal = axis / axis_length
+					local normal = EDGE_NORMAL:CopyFrom(axis):Scale(1 / axis_length)
 					local candidate = build_polyhedron_candidate(
 						build_candidate,
 						build_candidate_context,

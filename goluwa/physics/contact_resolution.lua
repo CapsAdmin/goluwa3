@@ -3,7 +3,15 @@ local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local motion = import("goluwa/physics/motion.lua")
 local contact_resolution = {}
+local Vec3 = import("goluwa/structs/vec3.lua")
 local EPSILON = physics_constants.EPSILON
+local TANGENT_VELOCITY = Vec3()
+local TANGENT = Vec3()
+local CORRECTION = Vec3()
+local CORRECTION_SHIFT = Vec3()
+local GROUND_OFFSET_A = Vec3()
+local GROUND_OFFSET_B = Vec3()
+local GROUND_CANDIDATE = Vec3()
 
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 	local physics = body_a:GetPhysics()
@@ -51,14 +59,14 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 		local other_point = contact[other_key]
 
 		if self_point and other_point then
-			local self_offset = self_point - self_body:GetPosition()
-			local other_offset = other_point - other_body:GetPosition()
+			local self_offset = Vec3.SetSub(GROUND_OFFSET_A, self_point, self_body:GetPosition())
+			local other_offset = Vec3.SetSub(GROUND_OFFSET_B, other_point, other_body:GetPosition())
 
 			if self_offset.y <= -self_threshold and other_offset.y >= other_threshold then
-				local candidate = self_point - other_point
+				local candidate = Vec3.SetSub(GROUND_CANDIDATE, self_point, other_point)
 
 				if candidate:GetLength() <= EPSILON then
-					candidate = self_body:GetPosition() - other_body:GetPosition()
+					Vec3.SetSub(GROUND_CANDIDATE, self_body:GetPosition(), other_body:GetPosition())
 				end
 
 				if other_body:GetPosition().y <= self_body:GetPosition().y then
@@ -71,7 +79,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 				end
 
 				if candidate:GetLength() > EPSILON then
-					candidate = candidate:GetNormalized()
+					candidate:Normalize()
 
 					if candidate.y >= self_body:GetMinGroundNormalY() then
 						self_body:SetGrounded(true)
@@ -174,11 +182,12 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
 	impulse_motion.ApplyPairImpulse(state_a, state_b, normal, normal_impulse, point_a, point_b)
 	relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
-	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
+	local normal_dot = relative_velocity:Dot(normal)
+	local tangent_velocity = TANGENT_VELOCITY:CopyFrom(relative_velocity):AddScaled(normal, -normal_dot)
 	local tangent_speed = tangent_velocity:GetLength()
 
 	if tangent_speed > EPSILON and not options.skip_friction then
-		local tangent = tangent_velocity / tangent_speed
+		local tangent = TANGENT:CopyFrom(tangent_velocity):Scale(1 / tangent_speed)
 		local friction = physics.solver:GetPairFriction(body_a, body_b)
 		local friction_scale = options.friction_scale
 
@@ -242,7 +251,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 
 			if active_count == 0 then active_count = #contacts end
 
-			local correction = normal * (-(correction_length / active_count))
+			local correction = CORRECTION:CopyFrom(normal):Scale(-(correction_length / active_count))
 
 			for _, contact in ipairs(contacts) do
 				if (contact.separation or 0) <= separation_tolerance then
@@ -265,14 +274,14 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 	end
 
 	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
-	local correction = normal * overlap
+	local correction = CORRECTION:CopyFrom(normal):Scale(overlap)
 
 	if inverse_mass_a > 0 then
-		motion.ShiftBodyPosition(body_a, correction * -(inverse_mass_a / inverse_mass_sum))
+		motion.ShiftBodyPosition(body_a, CORRECTION_SHIFT:CopyFrom(correction):Scale(-(inverse_mass_a / inverse_mass_sum)))
 	end
 
 	if inverse_mass_b > 0 then
-		motion.ShiftBodyPosition(body_b, correction * (inverse_mass_b / inverse_mass_sum))
+		motion.ShiftBodyPosition(body_b, CORRECTION_SHIFT:CopyFrom(correction):Scale(inverse_mass_b / inverse_mass_sum))
 	end
 
 	if not options.skip_grounding then

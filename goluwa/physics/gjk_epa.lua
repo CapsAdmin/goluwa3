@@ -8,6 +8,27 @@ local EPA_MAX_VERTICES = 64
 local EPA_MAX_FACES = 96
 local EPA_FACE_EPSILON = 0.00001
 local EPA_CONVERGENCE_EPSILON = 0.0005
+-- shared temporaries: GJK/EPA runs sequentially and every temporary is fully
+-- consumed before the code path that reuses it
+local TEMP_A = Vec3()
+local TEMP_B = Vec3()
+local TEMP_C = Vec3()
+local TEMP_D = Vec3()
+local TEMP_E = Vec3()
+local TEMP_F = Vec3()
+local TEMP_NEG = Vec3()
+local TEMP_DIFF = Vec3()
+local AXIS_X = Vec3(1, 0, 0)
+local AXIS_Y = Vec3(0, 1, 0)
+local AXIS_Z = Vec3(0, 0, 1)
+local SUPPORT_DIRECTIONS = {
+	Vec3(1, 0, 0),
+	Vec3(0, 1, 0),
+	Vec3(0, 0, 1),
+	Vec3(-1, 0, 0),
+	Vec3(0, -1, 0),
+	Vec3(0, 0, -1),
+}
 
 local function clear_array(array, start_index)
 	for i = start_index or 1, #array do
@@ -27,46 +48,48 @@ local function set_simplex(simplex, ...)
 	return clear_array(simplex, count + 1)
 end
 
-local function get_vertices_centroid(vertices)
-	local center = Vec3(0, 0, 0)
+local function get_vertices_centroid(vertices, out)
+	out = out or Vec3(0, 0, 0)
+	out:Zero()
 	local count = #vertices
 
 	for i = 1, count do
-		center = center + vertices[i]
+		out:Add(vertices[i])
 	end
 
-	if count == 0 then return Vec3(0, 0, 0) end
+	if count == 0 then return out end
 
-	return center / count
+	out:Scale(1 / count)
+	return out
 end
 
 local function get_any_perpendicular(direction)
 	local axis = math.abs(direction.x) < 0.577 and
-		Vec3(1, 0, 0) or
+		AXIS_X or
 		math.abs(direction.y) < 0.577 and
-		Vec3(0, 1, 0)
-		or
-		Vec3(0, 0, 1)
-	local perpendicular = direction:GetCross(axis)
+		AXIS_Y or
+		AXIS_Z
+	-- TEMP_D is dedicated here: direction may alias TEMP_A/B/C at the call sites
+	Vec3.SetCross(TEMP_D, direction, axis)
 
-	if perpendicular:GetLength() <= EPSILON then
-		axis = axis.x == 0 and Vec3(1, 0, 0) or Vec3(0, 1, 0)
-		perpendicular = direction:GetCross(axis)
+	if TEMP_D:GetLength() <= EPSILON then
+		axis = axis.x == 0 and AXIS_X or AXIS_Y
+		Vec3.SetCross(TEMP_D, direction, axis)
 	end
 
-	if perpendicular:GetLength() <= EPSILON then return Vec3(1, 0, 0) end
+	if TEMP_D:GetLength() <= EPSILON then return AXIS_X end
 
-	return perpendicular:GetNormalized()
+	TEMP_D:Normalize()
+	return TEMP_D
 end
 
 local function get_perpendicular_towards(edge, toward)
-	local perpendicular = edge:GetCross(toward):GetCross(edge)
+	Vec3.SetCross(TEMP_B, edge, toward)
+	Vec3.SetCross(TEMP_C, TEMP_B, edge)
 
-	if perpendicular:GetLength() <= EPSILON then
-		perpendicular = get_any_perpendicular(edge)
-	end
+	if TEMP_C:GetLength() <= EPSILON then return get_any_perpendicular(edge) end
 
-	return perpendicular
+	return TEMP_C
 end
 
 local function same_direction(direction, toward)
@@ -92,6 +115,16 @@ local function get_farthest_vertex(vertices, direction)
 	return vertices[best_index], best_index, best_projection
 end
 
+local function make_support_slot()
+	return {
+		point = Vec3(),
+		point_a = nil,
+		point_b = nil,
+		index_a = nil,
+		index_b = nil,
+	}
+end
+
 -- GJK simplexes hold at most 4 supports, so support tables are pooled in
 -- fixed slots owned by the simplex instead of being allocated per
 -- iteration. A slot is free when no entry of its simplex references it;
@@ -104,13 +137,7 @@ local function get_simplex_slots(simplex)
 	slots = {}
 
 	for i = 1, 5 do
-		slots[i] = {
-			point = nil,
-			point_a = nil,
-			point_b = nil,
-			index_a = nil,
-			index_b = nil,
-		}
+		slots[i] = make_support_slot()
 	end
 
 	simplex._slots = slots
@@ -135,13 +162,7 @@ local function get_support_slot(simplex)
 		if not taken then return slot end
 	end
 
-	return {
-		point = nil,
-		point_a = nil,
-		point_b = nil,
-		index_a = nil,
-		index_b = nil,
-	}
+	return make_support_slot()
 end
 
 local function get_support(vertices_a, vertices_b, direction, simplex)
@@ -155,16 +176,10 @@ local function get_support(vertices_a, vertices_b, direction, simplex)
 	if simplex then
 		support = get_support_slot(simplex)
 	else
-		support = {
-			point = nil,
-			point_a = nil,
-			point_b = nil,
-			index_a = nil,
-			index_b = nil,
-		}
+		support = make_support_slot()
 	end
 
-	support.point = point_a - point_b
+	Vec3.SetSub(support.point, point_a, point_b)
 	support.point_a = point_a
 	support.point_b = point_b
 	support.index_a = index_a
@@ -173,8 +188,8 @@ local function get_support(vertices_a, vertices_b, direction, simplex)
 end
 
 local function solve_line(simplex, a, b)
-	local ao = a.point * -1
-	local ab = b.point - a.point
+	local ao = TEMP_NEG:CopyFrom(a.point):Scale(-1)
+	local ab = Vec3.SetSub(TEMP_A, b.point, a.point)
 
 	if same_direction(ab, ao) then
 		return false, set_simplex(simplex, a, b), get_perpendicular_towards(ab, ao)
@@ -184,17 +199,17 @@ local function solve_line(simplex, a, b)
 end
 
 local function solve_triangle(simplex, a, b, c)
-	local ao = a.point * -1
-	local ab = b.point - a.point
-	local ac = c.point - a.point
-	local abc = ab:GetCross(ac)
-	local ab_perpendicular = ab:GetCross(abc)
+	local ao = TEMP_NEG:CopyFrom(a.point):Scale(-1)
+	local ab = Vec3.SetSub(TEMP_A, b.point, a.point)
+	local ac = Vec3.SetSub(TEMP_B, c.point, a.point)
+	local abc = Vec3.SetCross(TEMP_C, ab, ac)
+	local ab_perpendicular = Vec3.SetCross(TEMP_D, ab, abc)
 
 	if same_direction(ab_perpendicular, ao) then
 		return solve_line(simplex, a, b)
 	end
 
-	local ac_perpendicular = abc:GetCross(ac)
+	local ac_perpendicular = Vec3.SetCross(TEMP_E, abc, ac)
 
 	if same_direction(ac_perpendicular, ao) then
 		return solve_line(simplex, a, c)
@@ -204,13 +219,16 @@ local function solve_triangle(simplex, a, b, c)
 		return false, set_simplex(simplex, a, b, c), abc
 	end
 
-	return false, set_simplex(simplex, a, c, b), abc * -1
+	TEMP_NEG:CopyFrom(abc):Scale(-1)
+	return false, set_simplex(simplex, a, c, b), TEMP_NEG
 end
 
 local function handle_simplex(simplex)
 	local count = #simplex
 
-	if count == 1 then return false, simplex[1].point * -1 end
+	if count == 1 then
+		return false, TEMP_NEG:CopyFrom(simplex[1].point):Scale(-1)
+	end
 
 	if count == 2 then return solve_line(simplex, simplex[1], simplex[2]) end
 
@@ -222,19 +240,19 @@ local function handle_simplex(simplex)
 	local b = simplex[2]
 	local c = simplex[3]
 	local d = simplex[4]
-	local ao = a.point * -1
-	local ab = b.point - a.point
-	local ac = c.point - a.point
-	local ad = d.point - a.point
-	local abc = ab:GetCross(ac)
-	local acd = ac:GetCross(ad)
-	local adb = ad:GetCross(ab)
+	local ao = TEMP_NEG:CopyFrom(a.point):Scale(-1)
+	local ab = Vec3.SetSub(TEMP_A, b.point, a.point)
+	local ac = Vec3.SetSub(TEMP_B, c.point, a.point)
+	local ad = Vec3.SetSub(TEMP_C, d.point, a.point)
+	local abc = Vec3.SetCross(TEMP_D, ab, ac)
+	local acd = Vec3.SetCross(TEMP_E, ac, ad)
+	local adb = Vec3.SetCross(TEMP_F, ad, ab)
 
-	if abc:Dot(ad) > 0 then abc = abc * -1 end
+	if abc:Dot(ad) > 0 then abc:Scale(-1) end
 
-	if acd:Dot(ab) > 0 then acd = acd * -1 end
+	if acd:Dot(ab) > 0 then acd:Scale(-1) end
 
-	if adb:Dot(ac) > 0 then adb = adb * -1 end
+	if adb:Dot(ac) > 0 then adb:Scale(-1) end
 
 	if same_direction(abc, ao) then return solve_triangle(simplex, a, b, c) end
 
@@ -249,25 +267,28 @@ local function build_epa_face(vertices, ia, ib, ic)
 	local a = vertices[ia]
 	local b = vertices[ib]
 	local c = vertices[ic]
-	local normal = (b.point - a.point):GetCross(c.point - a.point)
+	Vec3.SetSub(TEMP_A, b.point, a.point)
+	Vec3.SetSub(TEMP_B, c.point, a.point)
+	local normal = Vec3.SetCross(TEMP_C, TEMP_A, TEMP_B)
 	local length = normal:GetLength()
 
 	if length <= EPA_FACE_EPSILON then return nil end
 
-	normal = normal / length
+	normal:Scale(1 / length)
 	local distance = normal:Dot(a.point)
 
 	if distance < 0 then
-		normal = normal * -1
+		normal:Scale(-1)
 		distance = -distance
 		ib, ic = ic, ib
 	end
 
+	-- face tables outlive this call, so the normal is owned by the face
 	return {
 		a = ia,
 		b = ib,
 		c = ic,
-		normal = normal,
+		normal = normal:Copy(),
 		distance = distance,
 	}
 end
@@ -343,9 +364,9 @@ local function get_closest_face(faces)
 end
 
 local function get_triangle_barycentric(point, a, b, c)
-	local v0 = b - a
-	local v1 = c - a
-	local v2 = point - a
+	local v0 = Vec3.SetSub(TEMP_A, b, a)
+	local v1 = Vec3.SetSub(TEMP_B, c, a)
+	local v2 = Vec3.SetSub(TEMP_C, point, a)
 	local d00 = v0:Dot(v0)
 	local d01 = v0:Dot(v1)
 	local d11 = v1:Dot(v1)
@@ -364,16 +385,25 @@ local function get_face_witness(vertices, face)
 	local a = vertices[face.a]
 	local b = vertices[face.b]
 	local c = vertices[face.c]
-	local closest_point = face.normal * face.distance
+	local closest_point = TEMP_D:CopyFrom(face.normal):Scale(face.distance)
 	local wa, wb, wc = get_triangle_barycentric(closest_point, a.point, b.point, c.point)
-	local point_a = a.point_a * wa + b.point_a * wb + c.point_a * wc
-	local point_b = a.point_b * wa + b.point_b * wb + c.point_b * wc
+	-- witnesses are stored in the result, so they are owned vecs
+	local point_a = Vec3()
+	local point_b = Vec3()
+	point_a:AddScaled(a.point_a, wa)
+	point_a:AddScaled(b.point_a, wb)
+	point_a:AddScaled(c.point_a, wc)
+	point_b:AddScaled(a.point_b, wa)
+	point_b:AddScaled(b.point_b, wb)
+	point_b:AddScaled(c.point_b, wc)
 	return point_a, point_b
 end
 
 local function simplex_contains_support(simplex, support)
 	for i = 1, #simplex do
-		if (simplex[i].point - support.point):GetLength() <= EPSILON then return true end
+		if Vec3.SetSub(TEMP_DIFF, simplex[i].point, support.point):GetLength() <= EPSILON then
+			return true
+		end
 	end
 
 	return false
@@ -387,8 +417,8 @@ local function combine_simplex_witness(simplex, weights)
 		local weight = weights[i]
 
 		if weight and weight > 0 then
-			point_a = point_a + simplex[i].point_a * weight
-			point_b = point_b + simplex[i].point_b * weight
+			point_a:AddScaled(simplex[i].point_a, weight)
+			point_b:AddScaled(simplex[i].point_b, weight)
 		end
 	end
 
@@ -430,25 +460,25 @@ local function set_two_weights(w1, w2)
 end
 
 local function get_segment_closest_to_origin(a, b)
-	local ab = b - a
+	local ab = Vec3.SetSub(TEMP_A, b, a)
 	local denominator = ab:Dot(ab)
 
 	if denominator <= EPSILON then return a, set_two_weights(1, 0) end
 
 	local t = math.clamp(-a:Dot(ab) / denominator, 0, 1)
-	return a + ab * t, set_two_weights(1 - t, t)
+	return TEMP_B:CopyFrom(a):AddScaled(ab, t), set_two_weights(1 - t, t)
 end
 
 local function get_triangle_closest_to_origin(a, b, c)
-	local ab = b - a
-	local ac = c - a
-	local ap = a * -1
+	local ab = Vec3.SetSub(TEMP_A, b, a)
+	local ac = Vec3.SetSub(TEMP_C, c, a)
+	local ap = TEMP_NEG:CopyFrom(a):Scale(-1)
 	local d1 = ab:Dot(ap)
 	local d2 = ac:Dot(ap)
 
 	if d1 <= 0 and d2 <= 0 then return a, set_weights(1, 0, 0) end
 
-	local bp = b * -1
+	local bp = TEMP_NEG:CopyFrom(b):Scale(-1)
 	local d3 = ab:Dot(bp)
 	local d4 = ac:Dot(bp)
 
@@ -458,10 +488,10 @@ local function get_triangle_closest_to_origin(a, b, c)
 
 	if vc <= 0 and d1 >= 0 and d3 <= 0 then
 		local v = d1 / (d1 - d3)
-		return a + ab * v, set_weights(1 - v, v, 0)
+		return TEMP_B:CopyFrom(a):AddScaled(ab, v), set_weights(1 - v, v, 0)
 	end
 
-	local cp = c * -1
+	local cp = TEMP_NEG:CopyFrom(c):Scale(-1)
 	local d5 = ab:Dot(cp)
 	local d6 = ac:Dot(cp)
 
@@ -471,20 +501,22 @@ local function get_triangle_closest_to_origin(a, b, c)
 
 	if vb <= 0 and d2 >= 0 and d6 <= 0 then
 		local w = d2 / (d2 - d6)
-		return a + ac * w, set_weights(1 - w, 0, w)
+		return TEMP_B:CopyFrom(a):AddScaled(ac, w), set_weights(1 - w, 0, w)
 	end
 
 	local va = d3 * d6 - d5 * d4
 
 	if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0 then
 		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-		return b + (c - b) * w, set_weights(0, 1 - w, w)
+		local bc = Vec3.SetSub(TEMP_C, c, b)
+		return TEMP_B:CopyFrom(b):AddScaled(bc, w), set_weights(0, 1 - w, w)
 	end
 
 	local denominator = 1 / (va + vb + vc)
 	local v = vb * denominator
 	local w = vc * denominator
-	return a + ab * v + ac * w, set_weights(1 - v - w, v, w)
+	return TEMP_B:CopyFrom(a):AddScaled(ab, v):AddScaled(ac, w),
+	set_weights(1 - v - w, v, w)
 end
 
 local function get_distance_simplex_closest(simplex)
@@ -514,23 +546,23 @@ local function expand_simplex_to_tetrahedron(simplex, vertices_a, vertices_b)
 	if #simplex >= 4 then return true end
 
 	if #simplex == 3 then
-		local normal = (simplex[2].point - simplex[1].point):GetCross(simplex[3].point - simplex[1].point)
+		local ab = Vec3.SetSub(TEMP_A, simplex[2].point, simplex[1].point)
+		local ac = Vec3.SetSub(TEMP_B, simplex[3].point, simplex[1].point)
+		local normal = Vec3.SetCross(TEMP_C, ab, ac)
 
-		if normal:GetLength() <= EPSILON then
-			normal = get_any_perpendicular(simplex[2].point - simplex[1].point)
-		end
+		if normal:GetLength() <= EPSILON then normal = get_any_perpendicular(ab) end
 
 		return try_add_support(simplex, vertices_a, vertices_b, normal) or
-			try_add_support(simplex, vertices_a, vertices_b, normal * -1)
+			try_add_support(simplex, vertices_a, vertices_b, Vec3.SetScaled(TEMP_NEG, normal, -1))
 	end
 
 	if #simplex == 2 then
-		local edge = simplex[2].point - simplex[1].point
+		local edge = Vec3.SetSub(TEMP_A, simplex[2].point, simplex[1].point)
 		local perpendicular = get_any_perpendicular(edge)
 
 		if
 			try_add_support(simplex, vertices_a, vertices_b, perpendicular) or
-			try_add_support(simplex, vertices_a, vertices_b, perpendicular * -1)
+			try_add_support(simplex, vertices_a, vertices_b, Vec3.SetScaled(TEMP_NEG, perpendicular, -1))
 		then
 			return expand_simplex_to_tetrahedron(simplex, vertices_a, vertices_b)
 		end
@@ -539,17 +571,8 @@ local function expand_simplex_to_tetrahedron(simplex, vertices_a, vertices_b)
 	end
 
 	if #simplex == 1 then
-		local directions = {
-			Vec3(1, 0, 0),
-			Vec3(0, 1, 0),
-			Vec3(0, 0, 1),
-			Vec3(-1, 0, 0),
-			Vec3(0, -1, 0),
-			Vec3(0, 0, -1),
-		}
-
-		for i = 1, #directions do
-			if try_add_support(simplex, vertices_a, vertices_b, directions[i]) then
+		for i = 1, #SUPPORT_DIRECTIONS do
+			if try_add_support(simplex, vertices_a, vertices_b, SUPPORT_DIRECTIONS[i]) then
 				break
 			end
 		end
@@ -573,22 +596,24 @@ function gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 	clear_array(simplex)
 
 	if not initial_direction then
-		initial_direction = get_vertices_centroid(vertices_b) - get_vertices_centroid(vertices_a)
+		local centroid_a = get_vertices_centroid(vertices_a, TEMP_A)
+		local centroid_b = get_vertices_centroid(vertices_b, TEMP_B)
+		initial_direction = Vec3.SetSub(TEMP_C, centroid_b, centroid_a)
 	end
 
 	local direction = initial_direction
 
-	if direction:GetLength() <= EPSILON then direction = Vec3(1, 0, 0) end
+	if direction:GetLength() <= EPSILON then direction = AXIS_X end
 
 	local support = get_support(vertices_a, vertices_b, direction, simplex)
 
 	if not support then return nil end
 
 	simplex[1] = support
-	direction = support.point * -1
+	direction = TEMP_NEG:CopyFrom(support.point):Scale(-1)
 
 	if direction:GetLength() <= EPSILON then
-		direction = initial_direction:GetLength() > EPSILON and initial_direction or Vec3(0, 1, 0)
+		direction = initial_direction:GetLength() > EPSILON and initial_direction or AXIS_Y
 	end
 
 	for iteration = 1, GJK_MAX_ITERATIONS do
@@ -733,8 +758,9 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 		for i = #faces, 1, -1 do
 			local candidate = faces[i]
 			local candidate_vertex = vertices[candidate.a]
+			Vec3.SetSub(TEMP_DIFF, support.point, candidate_vertex.point)
 
-			if candidate.normal:Dot(support.point - candidate_vertex.point) > EPA_FACE_EPSILON then
+			if candidate.normal:Dot(TEMP_DIFF) > EPA_FACE_EPSILON then
 				visible_faces[i] = true
 				add_edge(border_edges, border_edge_rows, candidate.a, candidate.b)
 				add_edge(border_edges, border_edge_rows, candidate.b, candidate.c)
@@ -787,12 +813,14 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 	clear_array(simplex)
 
 	if not initial_direction then
-		initial_direction = get_vertices_centroid(vertices_b) - get_vertices_centroid(vertices_a)
+		local centroid_a = get_vertices_centroid(vertices_a, TEMP_A)
+		local centroid_b = get_vertices_centroid(vertices_b, TEMP_B)
+		initial_direction = Vec3.SetSub(TEMP_C, centroid_b, centroid_a)
 	end
 
 	local direction = initial_direction
 
-	if direction:GetLength() <= EPSILON then direction = Vec3(1, 0, 0) end
+	if direction:GetLength() <= EPSILON then direction = AXIS_X end
 
 	local support = get_support(vertices_a, vertices_b, direction, simplex)
 
@@ -819,7 +847,7 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 			}
 		end
 
-		direction = (closest * -1) / distance
+		direction = TEMP_NEG:CopyFrom(closest):Scale(-1 / distance)
 		support = get_support(vertices_a, vertices_b, direction, simplex)
 
 		if not support or simplex_contains_support(simplex, support) then break end

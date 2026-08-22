@@ -33,18 +33,30 @@ function META.__mul(a, b)
 		return CTOR(a.x * b, a.y * b, a.z * b, a.w * b)
 	end
 
+	return META.SetMul(CTOR(), a, b)
+end
+
+function META.Mul(a, b)
+	return META.SetMul(a, a, b)
+end
+
+function META.SetMul(out, a, b)
 	local w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
 	local x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y
 	local y = a.w * b.y + a.y * b.w + a.z * b.x - a.x * b.z
 	local z = a.w * b.z + a.z * b.w + a.x * b.y - a.y * b.x
-	return CTOR(x, y, z, w)
+	out.x, out.y, out.z, out.w = x, y, z, w
+	return out
 end
 
-function META.VecMul(a, b, out)
+function META.VecMul(a, b)
+	return META.SetVecMul(Vec3(), a, b)
+end
+
+function META.SetVecMul(out, a, b)
 	local tx = 2 * (a.y * b.z - a.z * b.y)
 	local ty = 2 * (a.z * b.x - a.x * b.z)
 	local tz = 2 * (a.x * b.y - a.y * b.x)
-	out = out or Vec3()
 	out.x = b.x + a.w * tx + (a.y * tz - a.z * ty)
 	out.y = b.y + a.w * ty + (a.z * tx - a.x * tz)
 	out.z = b.z + a.w * tz + (a.x * ty - a.y * tx)
@@ -109,6 +121,11 @@ function META:Conjugate()
 	return self
 end
 
+function META.SetConjugated(out, a)
+	out.x, out.y, out.z, out.w = -a.x, -a.y, -a.z, a.w
+	return out
+end
+
 structs.AddGetFunc(META, "Conjugate", "Conjugated")
 
 function META.Lerp(a, mult, b)
@@ -131,12 +148,11 @@ function META:Interpolate(other, t)
 	end
 
 	return CTOR(
-			self.x + (target.x - self.x) * t,
-			self.y + (target.y - self.y) * t,
-			self.z + (target.z - self.z) * t,
-			self.w + (target.w - self.w) * t
-		):
-		GetNormalized()
+		self.x + (target.x - self.x) * t,
+		self.y + (target.y - self.y) * t,
+		self.z + (target.z - self.z) * t,
+		self.w + (target.w - self.w) * t
+	):GetNormalized()
 end
 
 function META:Dot(vec)

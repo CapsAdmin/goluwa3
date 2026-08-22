@@ -25,6 +25,14 @@ function META.Cross(a, b)
 	return a
 end
 
+function META.SetCross(out, a, b)
+	local x, y, z = a.x, a.y, a.z
+	out.x = y * b.z - z * b.y
+	out.y = z * b.x - x * b.z
+	out.z = x * b.y - y * b.x
+	return out
+end
+
 structs.AddGetFunc(META, "Cross")
 local Ang3
 

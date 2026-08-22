@@ -232,6 +232,7 @@ local FACE_B_CANDIDATE = {kind = "face", reference_body = "b"}
 local EDGE_CANDIDATE = {kind = "edge"}
 local BOX_SAT_BEST = convex_sat.CreateBestAxisTracker()
 local SKIP_FRICTION_OPTIONS = {skip_friction = true}
+local OB_AXIS_NORMAL = Vec3()
 
 local function project_box_radius(extents, axes, normal)
 	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
@@ -242,7 +243,7 @@ local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, 
 
 	if axis_length <= EPSILON then return true end
 
-	local normal = axis / axis_length
+	local normal = OB_AXIS_NORMAL:CopyFrom(axis):Scale(1 / axis_length)
 	local distance = delta:Dot(normal)
 	local abs_distance = math.abs(distance)
 	local radius_a = project_box_radius(extents_a, axes_a, normal)
@@ -253,7 +254,7 @@ local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, 
 
 	-- candidate doubles as the resolved result; UpdateBestAxis copies values
 	candidate.overlap = overlap
-	candidate.normal = convex_sat.OrientAxisNormal(normal, distance)
+	candidate.normal = convex_sat.SetOrientedNormal(candidate.normal, normal, distance)
 	convex_sat.UpdateBestAxis(best, candidate)
 	return true
 end

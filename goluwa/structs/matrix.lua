@@ -142,7 +142,7 @@ local MATRIX_TEMPLATE = [==[
 		{{M_FIELDS}}
 	end
 
-	function META.CopyTo(a, b)
+	function META.CopyFrom(a, b)
 		{{COPYTO_LINES}}
 		return a
 	end

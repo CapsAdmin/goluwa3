@@ -102,24 +102,31 @@ do
 		return tensor:GetInverse(Matrix33())
 	end
 
+	local ROTATION_INTEGRATION_DELTA = Quat()
+	local TEMPORARY_TORQUE = Vec3()
+
 	local function clamp_vec_length(vec, max_length)
 		local length = vec:GetLength()
 
 		if not max_length or max_length <= 0 or length <= max_length then return vec end
 
-		return vec / length * max_length
+		vec:Scale(max_length / length)
+		return vec
 	end
 
 	local function integrate_rotation(rotation, angular_velocity, dt)
-		if angular_velocity:GetLength() == 0 then return rotation:Copy() end
+		if angular_velocity:GetLengthSquared() == 0 then return rotation end
 
-		local delta = Quat(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0) * rotation
-		return Quat(
-			rotation.x + 0.5 * dt * delta.x,
-			rotation.y + 0.5 * dt * delta.y,
-			rotation.z + 0.5 * dt * delta.z,
-			rotation.w + 0.5 * dt * delta.w
-		):GetNormalized()
+		local delta = ROTATION_INTEGRATION_DELTA
+		delta.x, delta.y, delta.z, delta.w = angular_velocity.x, angular_velocity.y, angular_velocity.z, 0
+		Quat.SetMul(delta, delta, rotation)
+		local half_dt = 0.5 * dt
+		rotation.x = rotation.x + half_dt * delta.x
+		rotation.y = rotation.y + half_dt * delta.y
+		rotation.z = rotation.z + half_dt * delta.z
+		rotation.w = rotation.w + half_dt * delta.w
+		rotation:Normalize()
+		return rotation
 	end
 
 	local function build_ground_support_basis(normal)
@@ -554,9 +561,9 @@ do
 		local rotation = self.Rotation
 		local conjugate = angular_velocity_delta_conjugate
 		conjugate.x, conjugate.y, conjugate.z, conjugate.w = -rotation.x, -rotation.y, -rotation.z, rotation.w
-		Quat.VecMul(conjugate, world_impulse, angular_velocity_delta_impulse)
+		Quat.SetVecMul(angular_velocity_delta_impulse, conjugate, world_impulse)
 		self.InverseInertiaTensor:VecMul(angular_velocity_delta_impulse, angular_velocity_delta_impulse)
-		return Quat.VecMul(rotation, angular_velocity_delta_impulse, angular_velocity_delta_local)
+		return Quat.SetVecMul(angular_velocity_delta_local, rotation, angular_velocity_delta_impulse)
 	end
 
 	function RigidBody:ApplyAngularImpulse(world_impulse)
@@ -821,7 +828,7 @@ do
 	function RigidBody:LocalToWorld(local_pos, position, rotation, out)
 		position = position or self.Position
 		rotation = rotation or self.Rotation
-		out = rotation:VecMul(local_pos, out)
+		out = Quat.SetVecMul(out or Vec3(), rotation, local_pos)
 		out.x = out.x + position.x
 		out.y = out.y + position.y
 		out.z = out.z + position.z
@@ -959,25 +966,28 @@ do
 
 		if not self:HasSolverMass() or not self.Awake then return end
 
-		local velocity = self.Velocity + gravity * (
-				self.GravityScale * dt
-			) + self.AccumulatedForce * (
-				self.InverseMass * dt
-			)
-		local angular_velocity = self.AngularVelocity + self:GetAngularVelocityDelta(self.AccumulatedTorque * dt)
-		self.Velocity = clamp_vec_length(velocity, self.MaxLinearSpeed)
-		self.AngularVelocity = clamp_vec_length(angular_velocity, self.MaxAngularSpeed)
-		self.Position = self.Position + self.Velocity * dt
+		self.Velocity:AddScaled(gravity, self.GravityScale * dt)
+		self.Velocity:AddScaled(self.AccumulatedForce, self.InverseMass * dt)
+		TEMPORARY_TORQUE:CopyFrom(self.AccumulatedTorque):Scale(dt)
+		self.AngularVelocity:Add(self:GetAngularVelocityDelta(TEMPORARY_TORQUE))
+		self.Velocity = clamp_vec_length(self.Velocity, self.MaxLinearSpeed)
+		self.AngularVelocity = clamp_vec_length(self.AngularVelocity, self.MaxAngularSpeed)
+		self.Position:AddScaled(self.Velocity, dt)
 		self.Rotation = integrate_rotation(self.Rotation, self.AngularVelocity, dt)
 	end
 
+	local UPDATE_DELTA = Quat()
+	local UPDATE_CONJUGATE = Quat()
+
 	function RigidBody:UpdateVelocities(dt)
 		if self:IsKinematic() then
-			self.Velocity = (self.Position - self.PreviousPosition) / dt
-			local delta = (self.Rotation * self.PreviousRotation:GetConjugated()):GetNormalized()
-			self.AngularVelocity = Vec3(delta.x * 2 / dt, delta.y * 2 / dt, delta.z * 2 / dt)
+			self.Velocity:CopyFrom(self.Position):Sub(self.PreviousPosition):Scale(1 / dt)
+			Quat.SetConjugated(UPDATE_CONJUGATE, self.PreviousRotation)
+			Quat.SetMul(UPDATE_DELTA, self.Rotation, UPDATE_CONJUGATE)
+			UPDATE_DELTA:Normalize()
+			self.AngularVelocity:Set(UPDATE_DELTA.x * 2 / dt, UPDATE_DELTA.y * 2 / dt, UPDATE_DELTA.z * 2 / dt)
 
-			if delta.w < 0 then self.AngularVelocity = self.AngularVelocity * -1 end
+			if UPDATE_DELTA.w < 0 then self.AngularVelocity:Scale(-1) end
 
 			self.PreviousPosition = self.Position:Copy()
 			self.PreviousRotation = self.Rotation:Copy()
@@ -1009,7 +1019,7 @@ do
 			local normal_speed = self.Velocity:Dot(self.GroundNormal)
 
 			if use_grounded_velocity_constraints and normal_speed < 0 then
-				self.Velocity = self.Velocity - self.GroundNormal * normal_speed
+				self.Velocity:AddScaled(self.GroundNormal, -normal_speed)
 			end
 
 			if use_grounded_velocity_constraints then
@@ -1028,14 +1038,22 @@ do
 		local angular_damping_value = grounded_damping and self.AngularDamping or self.AirAngularDamping
 		local linear_damping = math.max(1 - linear_damping_value * dt, 0)
 		local angular_damping = math.max(1 - angular_damping_value * dt, 0)
-		self.Velocity = clamp_vec_length(self.Velocity * linear_damping, self.MaxLinearSpeed)
-		self.AngularVelocity = clamp_vec_length(self.AngularVelocity * angular_damping, self.MaxAngularSpeed)
+		self.Velocity:Scale(linear_damping)
+		self.AngularVelocity:Scale(angular_damping)
+		self.Velocity = clamp_vec_length(self.Velocity, self.MaxLinearSpeed)
+		self.AngularVelocity = clamp_vec_length(self.AngularVelocity, self.MaxAngularSpeed)
 	end
 
 	local inv_mass_tangent = Vec3()
 	local inv_mass_local = Vec3()
 	local inv_mass_delta = Vec3()
 	local inv_mass_conjugate = Quat()
+	local CORRECTION_ANGULAR = Vec3()
+	local CORRECTION_ANGULAR_2 = Vec3()
+	local CORRECTION_IMPULSE = Vec3()
+	local CORRECTION_POS_DELTA = Vec3()
+	local CORRECTION_CONJUGATE = Quat()
+	local CORRECTION_DELTA = Quat()
 
 	function RigidBody:GetInverseMassAlong(normal, pos)
 		if not self:HasSolverMass() then return 0 end
@@ -1053,7 +1071,7 @@ do
 		local r = self.Rotation
 		local conjugate = inv_mass_conjugate
 		conjugate.x, conjugate.y, conjugate.z, conjugate.w = -r.x, -r.y, -r.z, r.w
-		Quat.VecMul(conjugate, tangent, inv_mass_local)
+		Quat.SetVecMul(inv_mass_local, conjugate, tangent)
 		self.InverseInertiaTensor:VecMul(inv_mass_local, inv_mass_delta)
 		local angular = inv_mass_local.x * inv_mass_delta.x + inv_mass_local.y * inv_mass_delta.y + inv_mass_local.z * inv_mass_delta.z
 
@@ -1065,21 +1083,24 @@ do
 	function RigidBody:_ApplyCorrection(correction, pos)
 		if not self:HasSolverMass() then return end
 
-		self.Position = self.Position + correction * self.InverseMass
+		self.Position:AddScaled(correction, self.InverseMass)
 
 		if not pos then return end
 
-		local angular = (pos - self.Position):GetCross(correction)
-		angular = self.Rotation:GetConjugated():VecMul(angular)
-		angular = self.InverseInertiaTensor:VecMul(angular)
-		angular = self.Rotation:VecMul(angular)
-		local delta = Quat(angular.x, angular.y, angular.z, 0) * self.Rotation
-		self.Rotation = Quat(
-			self.Rotation.x + 0.5 * delta.x,
-			self.Rotation.y + 0.5 * delta.y,
-			self.Rotation.z + 0.5 * delta.z,
-			self.Rotation.w + 0.5 * delta.w
-		):GetNormalized()
+		Vec3.SetSub(CORRECTION_ANGULAR, pos, self.Position)
+		Vec3.SetCross(CORRECTION_ANGULAR, CORRECTION_ANGULAR, correction)
+		Quat.SetConjugated(CORRECTION_CONJUGATE, self.Rotation)
+		Quat.SetVecMul(CORRECTION_ANGULAR_2, CORRECTION_CONJUGATE, CORRECTION_ANGULAR)
+		self.InverseInertiaTensor:VecMul(CORRECTION_ANGULAR_2, CORRECTION_ANGULAR_2)
+		Quat.SetVecMul(CORRECTION_ANGULAR_2, self.Rotation, CORRECTION_ANGULAR_2)
+		local delta = CORRECTION_DELTA
+		delta.x, delta.y, delta.z, delta.w = CORRECTION_ANGULAR_2.x, CORRECTION_ANGULAR_2.y, CORRECTION_ANGULAR_2.z, 0
+		Quat.SetMul(delta, delta, self.Rotation)
+		self.Rotation.x = self.Rotation.x + 0.5 * delta.x
+		self.Rotation.y = self.Rotation.y + 0.5 * delta.y
+		self.Rotation.z = self.Rotation.z + 0.5 * delta.z
+		self.Rotation.w = self.Rotation.w + 0.5 * delta.w
+		self.Rotation:Normalize()
 	end
 
 	function RigidBody:ApplyCorrection(compliance, correction, pos, other_body, other_pos, dt)

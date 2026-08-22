@@ -1,8 +1,7 @@
 local polyhedron_cache = {}
-
-local function local_to_world_at(position, rotation, local_point)
-	return position + rotation:VecMul(local_point)
-end
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local TEMP_WORLD_NORMAL = Vec3()
 
 local function fill_polyhedron_world_vertices(polyhedron_data, position, rotation, out)
 	out = out or {}
@@ -10,7 +9,15 @@ local function fill_polyhedron_world_vertices(polyhedron_data, position, rotatio
 	local count = 0
 
 	for i = 1, #vertices do
-		out[i] = local_to_world_at(position, rotation, vertices[i])
+		local world_point = out[i]
+
+		if not world_point then
+			world_point = Vec3()
+			out[i] = world_point
+		end
+
+		Quat.SetVecMul(world_point, rotation, vertices[i])
+		world_point:Add(position)
 		count = i
 	end
 
@@ -47,7 +54,15 @@ local function fill_polyhedron_world_faces(polyhedron_data, world_vertices, rota
 			points[i] = nil
 		end
 
-		cached_face.normal = rotation:VecMul(face.normal):GetNormalized()
+		local normal = cached_face.normal
+
+		if not normal then
+			normal = Vec3()
+			cached_face.normal = normal
+		end
+
+		Quat.SetVecMul(normal, rotation, face.normal)
+		normal:Normalize()
 		cached_face.face_index = face_index
 		out[face_index] = cached_face
 		face_count = face_index
@@ -115,10 +130,12 @@ function polyhedron_cache.FindIncidentFaceIndex(polyhedron_data, rotation, refer
 	local best_index = nil
 	local best_dot = math.huge
 	local faces = polyhedron_data.faces
+	local world_normal = TEMP_WORLD_NORMAL
 
 	for face_index = 1, #faces do
 		local face = faces[face_index]
-		local world_normal = rotation:VecMul(face.normal):GetNormalized()
+		Quat.SetVecMul(world_normal, rotation, face.normal)
+		world_normal:Normalize()
 		local dot = world_normal:Dot(reference_normal)
 
 		if dot < best_dot then

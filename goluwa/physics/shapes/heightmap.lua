@@ -3,6 +3,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local META = objects.CreateTemplate("physics_shape_heightmap")
@@ -348,7 +349,7 @@ function META:GetBroadphaseAABB(body, position, rotation, out)
 	local rotated_corner = HEIGHTMAP_ROTATED_CORNER
 
 	for i = 1, 8 do
-		rotation:VecMul(corners[i], rotated_corner)
+		Quat.SetVecMul(rotated_corner, rotation, corners[i])
 		local x = position.x + rotated_corner.x
 		local y = position.y + rotated_corner.y
 		local z = position.z + rotated_corner.z
