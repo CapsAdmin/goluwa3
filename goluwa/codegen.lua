@@ -124,7 +124,7 @@ function codegen.compile(source, label)
 	local chunk = chunks[source]
 
 	if not chunk then
-		local name = "@" .. (callstack.get_line(2) or "codegen") .. " - " .. (label or "codegen")
+		local name = "@" .. (callstack.get_line(3) or "codegen") .. " - " .. (label or "codegen")
 		chunk = assert(loadstring(source, name))
 		chunks[source] = chunk
 	end
