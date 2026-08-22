@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local toi = import("goluwa/physics/toi.lua")
@@ -17,6 +18,7 @@ local CCD_REFINE_STEPS = 14
 local TEMPORAL_TOI_MIN_SAMPLE_STEPS = 10
 local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
 local TEMPORAL_TOI_REFINE_STEPS = 12
+local MOTION_SCALE_AABB = AABB(0, 0, 0, 0, 0, 0)
 
 local function normalize_candidate(vec)
 	if not vec then return nil, 0 end
@@ -257,7 +259,7 @@ function pair_solver_helpers.GetBodyMotionScale(body)
 	local linear = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
 	local dot = math.min(1, math.max(-1, math.abs(body:GetPreviousRotation():Dot(body:GetRotation()))))
 	local angular = math.acos(dot) * 2
-	local bounds = body:GetBroadphaseAABB()
+	local bounds = body:GetBroadphaseAABB(nil, nil, MOTION_SCALE_AABB)
 	local extent = Vec3(
 			bounds.max_x - bounds.min_x,
 			bounds.max_y - bounds.min_y,

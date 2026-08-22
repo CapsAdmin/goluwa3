@@ -145,17 +145,18 @@ local function get_positional_correction_length(solver, overlap, dt)
 	return correction_length
 end
 
+local EMPTY_OPTIONS = {}
+
 function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 	local physics = body_a:GetPhysics()
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
-	options = options or {}
+	options = options or EMPTY_OPTIONS
 
 	if inverse_mass_sum <= 0 then return end
 
-	local state_a = impulse_motion.CaptureBodyMotion(body_a)
-	local state_b = impulse_motion.CaptureBodyMotion(body_b)
+	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
 	local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 	local normal_speed = relative_velocity:Dot(normal)
 
@@ -171,7 +172,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	if normal_inverse_mass <= EPSILON then return end
 
 	local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
-	impulse_motion.ApplyPairImpulse(state_a, state_b, normal * normal_impulse, point_a, point_b)
+	impulse_motion.ApplyPairImpulse(state_a, state_b, normal, normal_impulse, point_a, point_b)
 	relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 	local tangent_speed = tangent_velocity:GetLength()
@@ -198,7 +199,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 		local tangent_impulse = -relative_velocity:Dot(tangent) / tangent_inverse_mass
 		local max_friction_impulse = normal_impulse * friction
 		tangent_impulse = math.max(-max_friction_impulse, math.min(max_friction_impulse, tangent_impulse))
-		impulse_motion.ApplyPairImpulse(state_a, state_b, tangent * tangent_impulse, point_a, point_b)
+		impulse_motion.ApplyPairImpulse(state_a, state_b, tangent, tangent_impulse, point_a, point_b)
 	end
 
 	impulse_motion.CommitPairMotion(state_a, state_b, dt)
@@ -209,7 +210,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
-	options = options or {}
+	options = options or EMPTY_OPTIONS
 
 	if inverse_mass_sum <= 0 or overlap <= 0 then return false end
 

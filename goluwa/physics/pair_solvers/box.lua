@@ -227,6 +227,12 @@ local function build_support_pair_contacts(body_a, body_b, normal)
 	)
 end
 
+local FACE_A_CANDIDATE = {kind = "face", reference_body = "a"}
+local FACE_B_CANDIDATE = {kind = "face", reference_body = "b"}
+local EDGE_CANDIDATE = {kind = "edge"}
+local BOX_SAT_BEST = convex_sat.CreateBestAxisTracker()
+local SKIP_FRICTION_OPTIONS = {skip_friction = true}
+
 local function project_box_radius(extents, axes, normal)
 	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
 end
@@ -245,15 +251,10 @@ local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, 
 
 	if overlap <= 0 then return false end
 
-	local resolved_candidate = {
-		overlap = overlap,
-		normal = convex_sat.OrientAxisNormal(normal, distance),
-		kind = candidate.kind,
-		reference_body = candidate.reference_body,
-		edge_axis_a = candidate.edge_axis_a,
-		edge_axis_b = candidate.edge_axis_b,
-	}
-	convex_sat.UpdateBestAxis(best, resolved_candidate)
+	-- candidate doubles as the resolved result; UpdateBestAxis copies values
+	candidate.overlap = overlap
+	candidate.normal = convex_sat.OrientAxisNormal(normal, distance)
+	convex_sat.UpdateBestAxis(best, candidate)
 	return true
 end
 
@@ -556,13 +557,13 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 end
 
 function box.SolveBoxPairCollision(body_a, body_b, dt)
-	if
-		(
-			body_a:BodyHasSignificantRotation() or
-			body_b:BodyHasSignificantRotation()
-		) and
-		pair_solver_helpers.ShouldUsePairCCD(body_a, body_b)
-	then
+	local _has_rotation
+
+	if (body_a:BodyHasSignificantRotation() or body_b:BodyHasSignificantRotation()) then
+		_has_rotation = true
+	end
+
+	if _has_rotation and pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then
 		local temporal = polyhedron_solver.SolveTemporalPolyhedronPairCollision(
 			body_a,
 			body_b,
@@ -581,20 +582,12 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 	local extents_b = body_b:GetPhysicsShape():GetExtents()
 	local axes_a = body_a:GetPhysicsShape():GetAxes(body_a)
 	local axes_b = body_b:GetPhysicsShape():GetAxes(body_b)
-	local best = convex_sat.CreateBestAxisTracker()
+	local best = BOX_SAT_BEST
+	convex_sat.ResetBestAxisTracker(best)
 
 	for i = 1, 3 do
 		if
-			not test_obb_axis(
-				axes_a[i],
-				delta,
-				extents_a,
-				axes_a,
-				extents_b,
-				axes_b,
-				best,
-				{kind = "face", reference_body = "a"}
-			)
+			not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, FACE_A_CANDIDATE)
 		then
 			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
@@ -606,16 +599,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 		end
 
 		if
-			not test_obb_axis(
-				axes_b[i],
-				delta,
-				extents_a,
-				axes_a,
-				extents_b,
-				axes_b,
-				best,
-				{kind = "face", reference_body = "b"}
-			)
+			not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best, FACE_B_CANDIDATE)
 		then
 			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
@@ -629,6 +613,9 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 
 	for i = 1, 3 do
 		for j = 1, 3 do
+			EDGE_CANDIDATE.edge_axis_a = i
+			EDGE_CANDIDATE.edge_axis_b = j
+
 			if
 				not test_obb_axis(
 					axes_a[i]:GetCross(axes_b[j]),
@@ -638,7 +625,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 					extents_b,
 					axes_b,
 					best,
-					{kind = "edge", edge_axis_a = i, edge_axis_b = j}
+					EDGE_CANDIDATE
 				)
 			then
 				local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
@@ -686,7 +673,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 			if edge_contacts and edge_contacts[1] then
 				best = raw_best
 				contacts = edge_contacts
-				resolve_options = {skip_friction = true}
+				resolve_options = SKIP_FRICTION_OPTIONS
 			end
 		end
 	else
@@ -697,9 +684,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 			is_support_contact_near_static_face_edge(body_a, body_b, best.normal, contacts) and
 			math.abs(best.normal.y) < 0.35
 		then
-			resolve_options = {
-				skip_friction = true,
-			}
+			resolve_options = SKIP_FRICTION_OPTIONS
 		end
 	end
 

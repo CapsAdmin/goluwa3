@@ -105,6 +105,21 @@ function convex_sat.CreateBestAxisTracker()
 	}
 end
 
+function convex_sat.ResetBestAxisTracker(best)
+	best.any.overlap = math.huge
+	best.any.normal = nil
+	best.any.kind = nil
+	best.any.reference_body = nil
+	best.any.edge_axis_a = nil
+	best.any.edge_axis_b = nil
+	best.face.overlap = math.huge
+	best.face.normal = nil
+	best.face.kind = nil
+	best.face.reference_body = nil
+	best.face.edge_axis_a = nil
+	best.face.edge_axis_b = nil
+end
+
 function convex_sat.UpdateBestAxis(best, candidate)
 	local any = best.any
 

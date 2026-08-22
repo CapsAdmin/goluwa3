@@ -546,10 +546,17 @@ do
 		self.AccumulatedTorque = Vec3()
 	end
 
+	local angular_velocity_delta_impulse = Vec3()
+	local angular_velocity_delta_local = Vec3()
+	local angular_velocity_delta_conjugate = Quat()
+
 	function RigidBody:GetAngularVelocityDelta(world_impulse)
-		local local_impulse = self.Rotation:GetConjugated():VecMul(world_impulse)
-		local local_delta = self.InverseInertiaTensor:VecMul(local_impulse)
-		return self.Rotation:VecMul(local_delta)
+		local rotation = self.Rotation
+		local conjugate = angular_velocity_delta_conjugate
+		conjugate.x, conjugate.y, conjugate.z, conjugate.w = -rotation.x, -rotation.y, -rotation.z, rotation.w
+		Quat.VecMul(conjugate, world_impulse, angular_velocity_delta_impulse)
+		self.InverseInertiaTensor:VecMul(angular_velocity_delta_impulse, angular_velocity_delta_impulse)
+		return Quat.VecMul(rotation, angular_velocity_delta_impulse, angular_velocity_delta_local)
 	end
 
 	function RigidBody:ApplyAngularImpulse(world_impulse)
@@ -1025,16 +1032,30 @@ do
 		self.AngularVelocity = clamp_vec_length(self.AngularVelocity * angular_damping, self.MaxAngularSpeed)
 	end
 
+	local inv_mass_tangent = Vec3()
+	local inv_mass_local = Vec3()
+	local inv_mass_delta = Vec3()
+	local inv_mass_conjugate = Quat()
+
 	function RigidBody:GetInverseMassAlong(normal, pos)
 		if not self:HasSolverMass() then return 0 end
 
-		local tangent = normal:Copy()
+		local tangent = inv_mass_tangent
 
-		if pos then tangent = (pos - self.Position):GetCross(normal) end
+		if pos then
+			local p = self.Position
+			tangent.x, tangent.y, tangent.z = pos.x - p.x, pos.y - p.y, pos.z - p.z
+			Vec3.Cross(tangent, normal)
+		else
+			tangent.x, tangent.y, tangent.z = normal.x, normal.y, normal.z
+		end
 
-		tangent = self.Rotation:GetConjugated():VecMul(tangent)
-		local angular_delta = self.InverseInertiaTensor:VecMul(tangent)
-		local angular = tangent:Dot(angular_delta)
+		local r = self.Rotation
+		local conjugate = inv_mass_conjugate
+		conjugate.x, conjugate.y, conjugate.z, conjugate.w = -r.x, -r.y, -r.z, r.w
+		Quat.VecMul(conjugate, tangent, inv_mass_local)
+		self.InverseInertiaTensor:VecMul(inv_mass_local, inv_mass_delta)
+		local angular = inv_mass_local.x * inv_mass_delta.x + inv_mass_local.y * inv_mass_delta.y + inv_mass_local.z * inv_mass_delta.z
 
 		if pos then angular = angular + self.InverseMass end
 

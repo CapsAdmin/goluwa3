@@ -500,8 +500,29 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	return result
 end
 
+local temporal_swept_aabb_a = AABB()
+local temporal_swept_aabb_b = AABB()
+local temporal_aabb_temp = AABB()
+
 function polyhedron.SolveTemporalPolyhedronPairCollision(body_a, body_b, poly_a, poly_b, dt)
 	if not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then return false end
+
+	-- swept AABB prefilter: the union of a body's previous and current bounds
+	-- contains its motion this frame, so disjoint swept bounds can't produce a TOI
+	local swept_a = body_a:GetBroadphaseAABB(body_a:GetPreviousPosition(), body_a:GetPreviousRotation(), temporal_swept_aabb_a)
+	local swept_b = body_b:GetBroadphaseAABB(body_b:GetPreviousPosition(), body_b:GetPreviousRotation(), temporal_swept_aabb_b)
+	AABB.Union(
+		temporal_aabb_temp,
+		swept_a,
+		body_a:GetBroadphaseAABB(nil, nil, temporal_aabb_temp)
+	)
+	AABB.Union(
+		temporal_swept_aabb_b,
+		swept_b,
+		body_b:GetBroadphaseAABB(nil, nil, temporal_swept_aabb_b)
+	)
+
+	if not swept_a:IsBoxIntersecting(temporal_swept_aabb_b) then return false end
 
 	local result = find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_b)
 
