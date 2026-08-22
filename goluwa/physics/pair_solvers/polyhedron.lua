@@ -5,6 +5,7 @@ local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local polyhedron_face_contacts = import("goluwa/physics/polyhedron/face_contacts.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local polyhedron = {}
@@ -377,32 +378,77 @@ local function intersects_polyhedron_pair_at_transforms(poly_a, position_a, rota
 	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
-	local result = gjk_epa.Intersect(
-		vertices_a,
-		vertices_b,
-		scratch.last_normal or (position_b - position_a),
-		scratch.simplex
-	)
+	local initial_direction = scratch.last_normal
+
+	if not initial_direction then
+		initial_direction = scratch.direction
+		initial_direction.x = position_b.x - position_a.x
+		initial_direction.y = position_b.y - position_a.y
+		initial_direction.z = position_b.z - position_a.z
+	end
+
+	local result = gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, scratch.simplex)
 	scratch.simplex = result and result.simplex or scratch.simplex
 	return result and result.intersect or false
 end
 
+local function nlerp_into(out, q0, q1, t)
+	local sx, sy, sz, sw = q1.x, q1.y, q1.z, q1.w
+
+	if q0:Dot(q1) < 0 then sx, sy, sz, sw = -sx, -sy, -sz, -sw end
+
+	local x = q0.x + (sx - q0.x) * t
+	local y = q0.y + (sy - q0.y) * t
+	local z = q0.z + (sz - q0.z) * t
+	local w = q0.w + (sw - q0.w) * t
+	local len = math.sqrt(x * x + y * y + z * z + w * w)
+	out.x = x / len
+	out.y = y / len
+	out.z = z / len
+	out.w = w / len
+	return out
+end
+
+local function polyhedron_sphere_radius(poly)
+	local r = 0
+
+	for i = 1, #poly.vertices do
+		local v = poly.vertices[i]
+		local d = v.x * v.x + v.y * v.y + v.z * v.z
+
+		if d > r then r = d end
+	end
+
+	return math.sqrt(r)
+end
+
 temporal_toi_intersects = function(context, t)
-	local position_a = context.previous_position_a:GetLerped(t, context.current_position_a)
-	local rotation_a = context.previous_rotation_a:Interpolate(context.current_rotation_a, t)
-	local position_b = context.previous_position_b:GetLerped(t, context.current_position_b)
-	local rotation_b = context.previous_rotation_b:Interpolate(context.current_rotation_b, t)
+	local scratch = context.scratch
+	local prev_a = context.previous_position_a
+	local cur_a = context.current_position_a
+	local pos_a = scratch.pos_a
+	pos_a.x = prev_a.x + (cur_a.x - prev_a.x) * t
+	pos_a.y = prev_a.y + (cur_a.y - prev_a.y) * t
+	pos_a.z = prev_a.z + (cur_a.z - prev_a.z) * t
+	local prev_b = context.previous_position_b
+	local cur_b = context.current_position_b
+	local pos_b = scratch.pos_b
+	pos_b.x = prev_b.x + (cur_b.x - prev_b.x) * t
+	pos_b.y = prev_b.y + (cur_b.y - prev_b.y) * t
+	pos_b.z = prev_b.z + (cur_b.z - prev_b.z) * t
+	-- sphere bounds are rotation invariant, so disjoint bounds can't overlap at t
+	local dx = pos_b.x - pos_a.x
+	local dy = pos_b.y - pos_a.y
+	local dz = pos_b.z - pos_a.z
+	local sep = context.radius_a + context.radius_b
+
+	if dx * dx + dy * dy + dz * dz > sep * sep then return nil end
+
+	nlerp_into(scratch.rot_a, context.previous_rotation_a, context.current_rotation_a, t)
+	nlerp_into(scratch.rot_b, context.previous_rotation_b, context.current_rotation_b, t)
 
 	if
-		intersects_polyhedron_pair_at_transforms(
-			context.poly_a,
-			position_a,
-			rotation_a,
-			context.poly_b,
-			position_b,
-			rotation_b,
-			context.scratch
-		)
+		intersects_polyhedron_pair_at_transforms(context.poly_a, pos_a, scratch.rot_a, context.poly_b, pos_b, scratch.rot_b, scratch)
 	then
 		TEMPORAL_TOI_HIT.t = t
 		return TEMPORAL_TOI_HIT
@@ -448,13 +494,55 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	local previous_rotation_b = body_b:GetPreviousRotation()
 	local current_position_b = body_b:GetPosition()
 	local current_rotation_b = body_b:GetRotation()
-	local sample_steps = pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, 0.125, 14, 64)
-	local scratch = poly_a._PolyhedronTemporalScratch or {
-		vertices_a = {},
-		vertices_b = {},
-	}
+	local scratch = poly_a._PolyhedronTemporalScratch or
+		{
+			vertices_a = {},
+			vertices_b = {},
+			pos_a = Vec3(0, 0, 0),
+			pos_b = Vec3(0, 0, 0),
+			rot_a = Quat(0, 0, 0, 1),
+			rot_b = Quat(0, 0, 0, 1),
+			direction = Vec3(0, 0, 0),
+		}
 	poly_a._PolyhedronTemporalScratch = scratch
+	local radius_a = poly_a._SphereRadius or polyhedron_sphere_radius(poly_a)
+	poly_a._SphereRadius = radius_a
+	local radius_b = poly_b._SphereRadius or polyhedron_sphere_radius(poly_b)
+	poly_b._SphereRadius = radius_b
+
+	-- swept sphere pretest: relative motion is linear so min separation along the
+	-- sweep is a convex quadratic in t; disjoint sphere bounds mean no TOI exists
+	do
+		local px = previous_position_b.x - previous_position_a.x
+		local py = previous_position_b.y - previous_position_a.y
+		local pz = previous_position_b.z - previous_position_a.z
+		local vx = (current_position_b.x - current_position_a.x) - px
+		local vy = (current_position_b.y - current_position_a.y) - py
+		local vz = (current_position_b.z - current_position_a.z) - pz
+		local sep = radius_a + radius_b
+		local a = vx * vx + vy * vy + vz * vz
+		local miss = false
+
+		if a <= 1e-12 then
+			miss = px * px + py * py + pz * pz > sep * sep
+		else
+			local tt = -(px * vx + py * vy + pz * vz) / a
+
+			if tt < 0 then tt = 0 elseif tt > 1 then tt = 1 end
+
+			local rx = px + vx * tt
+			local ry = py + vy * tt
+			local rz = pz + vz * tt
+			miss = rx * rx + ry * ry + rz * rz > sep * sep
+		end
+
+		if miss then return nil end
+	end
+
+	local sample_steps = pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, 0.125, 14, 64)
 	local context = TEMPORAL_TOI_CONTEXT
+	context.radius_a = radius_a
+	context.radius_b = radius_b
 	context.poly_a = poly_a
 	context.poly_b = poly_b
 	context.previous_position_a = previous_position_a

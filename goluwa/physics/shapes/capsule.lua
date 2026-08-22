@@ -52,7 +52,7 @@ local function get_ground_support_tolerance(body, radius)
 	)
 end
 
-local function collect_capsule_support_contact(context, collider, point, fallback_hit, fallback_dt)
+local function collect_capsule_support_contact(context, collider, point, fallback_hit, fallback_dt, local_point)
 	if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then
 		return
 	end
@@ -83,6 +83,7 @@ local function collect_capsule_support_contact(context, collider, point, fallbac
 		context.best_point = {
 			body = collider,
 			point = point,
+			local_point = local_point,
 			hit = fallback_hit,
 			dt = fallback_dt,
 			depth = depth,
@@ -293,6 +294,11 @@ function META:BuildSupportLocalPoints()
 end
 
 function META:SolveSupportContacts(body, dt, support_contacts)
+	if not support_contacts.BeginSupportDetection(body) then
+		support_contacts.ResolveCachedSupportContacts(body, dt)
+		return
+	end
+
 	local hit = support_contacts.SweepCollider(body, dt)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
@@ -311,6 +317,7 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 				best_point.hit.normal,
 				best_point.hit.position,
 				best_point.point,
+				best_point.local_point,
 				best_point.hit,
 				best_point.dt
 			)

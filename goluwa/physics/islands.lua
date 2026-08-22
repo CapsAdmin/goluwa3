@@ -1,3 +1,4 @@
+local stats = import("goluwa/physics/stats.lua")
 local islands = {}
 -- persistent per-body link lists, reused across builds (weak: bodies die)
 local pair_link_lists = table.weak("k")
@@ -321,6 +322,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 					)
 				then
 					if wake_dynamic_body(stamp, body, awake_dynamic_bodies, newly_awoken_bodies) then
+						stats:Count("wake_ground")
 						active_dynamic_count = active_dynamic_count + 1
 						woke_any = true
 					end
@@ -340,6 +342,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 				moved_anchor_seen[body_b] == stamp
 			then
 				if wake_dynamic_body(stamp, body_a, awake_dynamic_bodies, newly_awoken_bodies) then
+					stats:Count("wake_anchor")
 					active_dynamic_count = active_dynamic_count + 1
 					woke_any = true
 				end
@@ -352,6 +355,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 				moved_anchor_seen[body_a] == stamp
 			then
 				if wake_dynamic_body(stamp, body_b, awake_dynamic_bodies, newly_awoken_bodies) then
+					stats:Count("wake_anchor")
 					active_dynamic_count = active_dynamic_count + 1
 					woke_any = true
 				end
@@ -363,6 +367,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 				local body = island.constraint_dynamic_bodies[body_index]
 
 				if wake_dynamic_body(stamp, body, awake_dynamic_bodies, newly_awoken_bodies) then
+					stats:Count("wake_constraint")
 					active_dynamic_count = active_dynamic_count + 1
 					woke_any = true
 				end

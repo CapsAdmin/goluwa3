@@ -10,7 +10,7 @@ local CONVEX_SUPPORT_CONTACT_CONTEXT = {
 	best = nil,
 }
 
-local function collect_convex_support_contact(context, target_body, point, hit, contact_dt)
+local function collect_convex_support_contact(context, target_body, point, hit, contact_dt, local_point)
 	if not (hit and hit.normal and hit.position and point) then return end
 
 	local margin = target_body:GetCollisionMargin() or 0
@@ -32,6 +32,7 @@ local function collect_convex_support_contact(context, target_body, point, hit, 
 		context.best = {
 			body = target_body,
 			point = point,
+			local_point = local_point,
 			hit = hit,
 			dt = contact_dt,
 			depth = depth,
@@ -166,6 +167,11 @@ function META:BuildSupportLocalPoints(body)
 end
 
 function META:SolveSupportContacts(body, dt, support_contacts)
+	if not support_contacts.BeginSupportDetection(body) then
+		support_contacts.ResolveCachedSupportContacts(body, dt)
+		return
+	end
+
 	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil
 	support_contacts.ForEachPointSweepContact(body, dt, collect_convex_support_contact, CONVEX_SUPPORT_CONTACT_CONTEXT)
 	local best = CONVEX_SUPPORT_CONTACT_CONTEXT.best
@@ -178,6 +184,7 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 		best.hit.normal,
 		best.hit.position,
 		best.point,
+		best.local_point,
 		best.hit,
 		best.dt
 	)

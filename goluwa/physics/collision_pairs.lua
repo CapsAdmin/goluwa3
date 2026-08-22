@@ -1,4 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
+local stats = import("goluwa/physics/stats.lua")
 local CollisionPairs = objects.CreateTemplate("physics_collision_pairs")
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 
@@ -131,6 +132,7 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
 end
 
 local function emit_collision_event(what, self_owner, self_body, other_entity, other_body, normal, overlap, hit)
+	stats:Count(what)
 	local owner = self_owner or (self_body and self_body.Owner)
 
 	if not (owner and owner.CallLocalEvent) then return end

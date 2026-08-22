@@ -1,4 +1,5 @@
 local AABB = import("goluwa/structs/aabb.lua")
+local stats = import("goluwa/physics/stats.lua")
 local broadphase = {}
 local Broadphase = {}
 Broadphase.__index = Broadphase
@@ -298,6 +299,7 @@ end
 local function destroy_entry(self, entry)
 	remove_entry_from_spatial_index(self, entry)
 	self.BodyEntries[entry.body] = nil
+	stats:Count("broadphase_entries_removed")
 	local index = entry.index
 	local last = self.Entries[#self.Entries]
 	self.Entries[index] = last
@@ -464,13 +466,16 @@ function Broadphase:TrackBodies(bodies, physics_override)
 					entry.center = body:GetPosition()
 					store_entry_pose(entry, body)
 					entry.last_seen_step = self.StepStamp
+					stats:Count("broadphase_bounds_updates")
 
 					if not is_same_spatial_assignment(self, entry, entry.bounds) then
 						assign_entry_cells(self, entry, entry.bounds)
+						stats:Count("broadphase_invalidations")
 					end
 				else
 					local new_entry = create_entry(self, body)
 					store_entry_pose(new_entry, body)
+					stats:Count("broadphase_entries_added")
 				end
 			end
 		elseif entry then
@@ -549,6 +554,7 @@ end
 
 function Broadphase:BuildCandidatePairs(bodies, out, physics_override)
 	self:TrackBodies(bodies, physics_override)
+	stats:Gauge("broadphase_overflow", #self.OverflowEntries)
 	return self:GetCandidatePairs(out)
 end
 

@@ -139,6 +139,11 @@ function META:BuildSupportLocalPoints()
 end
 
 function META:SolveSupportContacts(body, dt, support_contacts)
+	if not support_contacts.BeginSupportDetection(body) then
+		support_contacts.ResolveCachedSupportContacts(body, dt)
+		return
+	end
+
 	local radius = self:GetRadius()
 	local hit = support_contacts.SweepSphere(body, dt, radius)
 	local normal = hit and hit.normal or nil

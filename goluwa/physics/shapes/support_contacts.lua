@@ -41,6 +41,23 @@ local function apply_support_grounding_metadata(body, hit, normal)
 	body:SetGroundEntity(ground_body and ground_body:GetOwner() or nil)
 end
 
+local function record_support_contact(body, hit, contact)
+	local hit_body = hit and hit.rigid_body
+
+	-- a moving ground body invalidates the cached hit pose, so drop the cache
+	-- and fall back to re-detecting on every solver iteration
+	if hit_body and hit_body:HasSolverMass() then
+		body._WorldSupportContacts = nil
+		return
+	end
+
+	local cache = body._WorldSupportContacts
+
+	if not cache then return end
+
+	cache.contacts[#cache.contacts + 1] = contact
+end
+
 function support_contacts.GetCastDistances(body, dt)
 	local velocity = body:GetVelocity()
 	local downward = math.max(0, -velocity.y * dt)
@@ -77,7 +94,8 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 	fill_cast_vectors(cast_up, cast_distance)
 
 	for i = 1, #support_points do
-		local point = body:GeometryLocalToWorld(support_points[i])
+		local local_point = support_points[i]
+		local point = body:GeometryLocalToWorld(local_point)
 		sweep_origin.x = point.x + cast_origin_offset.x
 		sweep_origin.y = point.y + cast_origin_offset.y
 		sweep_origin.z = point.z + cast_origin_offset.z
@@ -87,9 +105,9 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 			support_contacts.AccumulatePointSweepSupport(body, point, hit)
 
 			if solve_contact_context ~= nil then
-				solve_contact(solve_contact_context, body, point, hit, dt)
+				solve_contact(solve_contact_context, body, point, hit, dt, local_point)
 			else
-				solve_contact(body, point, hit, dt)
+				solve_contact(body, point, hit, dt, local_point)
 			end
 		end
 	end
@@ -99,25 +117,38 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 	if not (normal and contact_position) then return false end
 
 	local physics = body:GetPhysics()
+	local margin = body:GetCollisionMargin() or 0
 	local center = body:GetPosition()
-	local target_center = contact_position + normal * (support_radius + body:GetCollisionMargin())
+	local target_center = contact_position + normal * (support_radius + margin)
 	local correction = target_center - center
 	local depth = correction:Dot(normal)
+	local support_tolerance = (body:GetCollisionProbeDistance() or 0) + margin
 
-	if depth <= 0 then return false end
+	if depth > 0 then
+		body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
 
-	body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
+		if normal.y >= body:GetMinGroundNormalY() then
+			apply_support_grounding_metadata(body, hit, normal)
+			body:AccumulateGroundSupportContact(normal, contact_position)
+		end
 
-	if normal.y >= body:GetMinGroundNormalY() then
-		apply_support_grounding_metadata(body, hit, normal)
-		body:AccumulateGroundSupportContact(normal, contact_position)
+		physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+		return true
 	end
 
-	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+	if depth < -support_tolerance then return false end
+
+	-- within probe tolerance above the surface: no correction or grounding, but
+	-- the contact still anchors the body if it gets pushed back down mid-substep
+	record_support_contact(
+		body,
+		hit,
+		{normal = normal, position = contact_position, radius = support_radius}
+	)
 	return true
 end
 
-function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_position, support_point, hit, dt)
+function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_position, support_point, local_point, hit, dt)
 	if not (normal and contact_position and support_point) then return false end
 
 	local physics = body:GetPhysics()
@@ -139,6 +170,11 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 	end
 
 	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+	record_support_contact(
+		body,
+		hit,
+		{normal = normal, position = contact_position, local_point = local_point}
+	)
 	return true
 end
 
@@ -171,6 +207,90 @@ function support_contacts.SolveShapeSupportContacts(body, shape, dt)
 	if not (shape and dt and shape.SolveSupportContacts) then return end
 
 	return shape:SolveSupportContacts(body, dt, support_contacts)
+end
+
+-- World support contact detection (sweeps) is expensive, so each shape caches
+-- its resolved contacts on the body for the rest of the substep. The cache is
+-- keyed on the body pose it was validated at: any correction applied in a
+-- detection or resolve pass moves the body, which invalidates the cache and
+-- forces a fresh re-sweep on the next solver iteration. This keeps the
+-- iterative surface-fit (re-probing after every correction) while skipping
+-- the re-sweeps that would have found the body already seated.
+function support_contacts.GetSubstepId(body)
+	local physics = body:GetPhysics()
+	local solver = physics and physics.solver
+
+	if not solver then return 0 end
+
+	return solver.StepStamp or 0
+end
+
+local function get_support_pose(body)
+	local pose_body = body.Body or body
+	return pose_body.Position, pose_body.Rotation
+end
+
+function support_contacts.BeginSupportDetection(body)
+	local substep = support_contacts.GetSubstepId(body)
+	local cache = body._WorldSupportContacts
+	local position, rotation = get_support_pose(body)
+
+	if
+		cache and
+		cache.substep == substep and
+		cache.px == position.x and
+		cache.py == position.y and
+		cache.pz == position.z and
+		cache.rx == rotation.x and
+		cache.ry == rotation.y and
+		cache.rz == rotation.z and
+		cache.rw == rotation.w
+	then
+		return false
+	end
+
+	body._WorldSupportContacts = {
+		substep = substep,
+		contacts = {},
+		px = position.x,
+		py = position.y,
+		pz = position.z,
+		rx = rotation.x,
+		ry = rotation.y,
+		rz = rotation.z,
+		rw = rotation.w,
+	}
+	return true
+end
+
+function support_contacts.ResolveCachedSupportContacts(body, dt)
+	local cache = body._WorldSupportContacts
+
+	if not cache then return end
+
+	local contacts = cache.contacts
+	local margin = body:GetCollisionMargin() or 0
+
+	for i = 1, #contacts do
+		local contact = contacts[i]
+		local normal = contact.normal
+
+		if contact.local_point then
+			local support_point = body:GeometryLocalToWorld(contact.local_point)
+			local depth = (contact.position + normal * margin - support_point):Dot(normal)
+
+			if depth > 0 then
+				body:ApplyCorrection(0, normal * depth, support_point, nil, nil, dt)
+			end
+		else
+			local center = body:GetPosition()
+			local depth = (contact.position + normal * (contact.radius + margin) - center):Dot(normal)
+
+			if depth > 0 then
+				body:ApplyCorrection(0, normal * depth, center - normal * contact.radius, nil, nil, dt)
+			end
+		end
+	end
 end
 
 return support_contacts

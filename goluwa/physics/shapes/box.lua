@@ -63,7 +63,7 @@ local function get_ground_support_tolerance(body)
 	)
 end
 
-local function collect_box_support_contact(context, collider, point, fallback_hit, fallback_dt)
+local function collect_box_support_contact(context, collider, point, fallback_hit, fallback_dt, local_point)
 	if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then
 		return
 	end
@@ -91,6 +91,7 @@ local function collect_box_support_contact(context, collider, point, fallback_hi
 		context.best_point = {
 			body = collider,
 			point = point,
+			local_point = local_point,
 			hit = fallback_hit,
 			dt = fallback_dt,
 			depth = depth,
@@ -178,13 +179,58 @@ function META:BuildInertia(mass)
 	return self:BuildBoxInertia(mass, size.x, size.y, size.z)
 end
 
+-- the local basis columns rotated into world space, closed form in the
+-- quaternion; cached on the body per rotation so pair handlers never rederive
+-- or reallocate them
 function META:GetAxes(body)
 	local rotation = body:GetRotation()
-	return {
-		rotation:VecMul(Vec3(1, 0, 0)):GetNormalized(),
-		rotation:VecMul(Vec3(0, 1, 0)):GetNormalized(),
-		rotation:VecMul(Vec3(0, 0, 1)):GetNormalized(),
+	local cache = body._PhysicsBoxAxesCache
+
+	if
+		cache and
+		cache.rx == rotation.x and
+		cache.ry == rotation.y and
+		cache.rz == rotation.z and
+		cache.rw == rotation.w
+	then
+		return cache.axes
+	end
+
+	local qx = rotation.x
+	local qy = rotation.y
+	local qz = rotation.z
+	local qw = rotation.w
+	local xx = qx * qx
+	local yy = qy * qy
+	local zz = qz * qz
+	local xy = qx * qy
+	local xz = qx * qz
+	local yz = qy * qz
+	local xw = qx * qw
+	local yw = qy * qw
+	local zw = qz * qw
+	local axes = cache and cache.axes or {}
+	axes[1] = axes[1] or Vec3()
+	axes[2] = axes[2] or Vec3()
+	axes[3] = axes[3] or Vec3()
+	axes[1].x = 1 - 2 * (yy + zz)
+	axes[1].y = 2 * (xy + zw)
+	axes[1].z = 2 * (xz - yw)
+	axes[2].x = 2 * (xy - zw)
+	axes[2].y = 1 - 2 * (xx + zz)
+	axes[2].z = 2 * (yz + xw)
+	axes[3].x = 2 * (xz + yw)
+	axes[3].y = 2 * (yz - xw)
+	axes[3].z = 1 - 2 * (xx + yy)
+	cache = {
+		rx = qx,
+		ry = qy,
+		rz = qz,
+		rw = qw,
+		axes = axes,
 	}
+	body._PhysicsBoxAxesCache = cache
+	return axes
 end
 
 function META:GetLocalVertices()
@@ -251,6 +297,11 @@ function META:ShouldUseBroadSupportContact(body, ground_normal)
 end
 
 function META:SolveSupportContacts(body, dt, support_contacts)
+	if not support_contacts.BeginSupportDetection(body) then
+		support_contacts.ResolveCachedSupportContacts(body, dt)
+		return
+	end
+
 	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
 	support_contacts.ForEachPointSweepContact(body, dt, collect_box_support_contact, BOX_SUPPORT_CONTACT_CONTEXT)
 	local best_point = BOX_SUPPORT_CONTACT_CONTEXT.best_point
@@ -265,6 +316,7 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 			best_point.hit.normal,
 			best_point.hit.position,
 			best_point.point,
+			best_point.local_point,
 			best_point.hit,
 			best_point.dt
 		)

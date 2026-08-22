@@ -21,6 +21,9 @@ function lrun.Run(code_or_path, config)
 		code_or_path = assert(fs.read_file(code_or_path))
 	end
 
+	lrun.SetEnvironmentVariable("system", import("goluwa/system.lua"))
+	lrun.SetEnvironmentVariable("event", import("goluwa/event.lua"))
+	lrun.SetEnvironmentVariable("commands", import("goluwa/cli/commands.lua"))
 	lrun.SetEnvironmentVariable("ffi", require("ffi"))
 	lrun.SetEnvironmentVariable("goluwa", _G.get_libraries().libs)
 

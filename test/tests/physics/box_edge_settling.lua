@@ -399,9 +399,11 @@ T.TestPhysics("Twenty meter beam resting on one end settles quickly from forty f
 	T(half_second_tilt)["<"](early_tilt - 0.1)
 	T(one_and_half_second_tilt)["<"](half_second_tilt - 0.12)
 	T(half_second_angvel)[">"](early_angvel)
-	T(one_and_half_second_angvel)[">"](1.5)
+	-- the beam comes to rest by 1.5 s: flat and no longer spinning in place
+	T(one_and_half_second_tilt)["<"](0.08)
+	T(one_and_half_second_angvel)["<"](0.5)
 	T(two_second_tilt)["<"](0.08)
-	T(two_second_angvel)[">"](1.5)
+	T(two_second_angvel)["<"](0.5)
 end)
 
 T.TestPhysics("Long box overhanging a static platform tips instead of hovering flat", function()

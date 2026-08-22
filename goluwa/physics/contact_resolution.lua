@@ -2,6 +2,7 @@ local physics_constants = import("goluwa/physics/constants.lua")
 local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local motion = import("goluwa/physics/motion.lua")
+local stats = import("goluwa/physics/stats.lua")
 local contact_resolution = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
 local EPSILON = physics_constants.EPSILON
@@ -227,7 +228,16 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		local solver = physics.solver
 		local manifold = get_pair_manifold(solver.PersistentManifolds, body_a, body_b) or {}
 		manifold.last_seen_step = solver.StepStamp
-		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
+
+		-- the pair handler runs once per solver iteration but the manifold only
+		-- needs rebuilding once per substep; the contacts are identical between
+		-- iterations of the same substep
+		if manifold.last_rebuild_step ~= solver.StepStamp then
+			manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
+			manifold.last_rebuild_step = solver.StepStamp
+			stats:Count("contact_points", #contacts)
+		end
+
 		set_pair_manifold(solver.PersistentManifolds, body_a, body_b, manifold)
 
 		if manifold.last_warm_step ~= solver.StepStamp then
@@ -277,11 +287,17 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 	local correction = CORRECTION:CopyFrom(normal):Scale(overlap)
 
 	if inverse_mass_a > 0 then
-		motion.ShiftBodyPosition(body_a, CORRECTION_SHIFT:CopyFrom(correction):Scale(-(inverse_mass_a / inverse_mass_sum)))
+		motion.ShiftBodyPosition(
+			body_a,
+			CORRECTION_SHIFT:CopyFrom(correction):Scale(-(inverse_mass_a / inverse_mass_sum))
+		)
 	end
 
 	if inverse_mass_b > 0 then
-		motion.ShiftBodyPosition(body_b, CORRECTION_SHIFT:CopyFrom(correction):Scale(inverse_mass_b / inverse_mass_sum))
+		motion.ShiftBodyPosition(
+			body_b,
+			CORRECTION_SHIFT:CopyFrom(correction):Scale(inverse_mass_b / inverse_mass_sum)
+		)
 	end
 
 	if not options.skip_grounding then

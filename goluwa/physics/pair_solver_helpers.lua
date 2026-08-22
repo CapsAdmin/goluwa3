@@ -5,6 +5,7 @@ local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local toi = import("goluwa/physics/toi.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
+local stats = import("goluwa/physics/stats.lua")
 local pair_solver_helpers = {}
 local EPSILON = physics_constants.EPSILON
 local axis_data = {
@@ -17,7 +18,9 @@ local CCD_MAX_SAMPLE_STEPS = 96
 local CCD_REFINE_STEPS = 14
 local TEMPORAL_TOI_MIN_SAMPLE_STEPS = 10
 local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
-local TEMPORAL_TOI_REFINE_STEPS = 12
+-- 7 bisection steps shrink the hit interval to ~1/128 of a sample step, far
+-- below the substep timescale CCD needs to be accurate to
+local TEMPORAL_TOI_REFINE_STEPS = 7
 local MOTION_SCALE_AABB = AABB(0, 0, 0, 0, 0, 0)
 
 local function normalize_candidate(vec)
@@ -133,8 +136,12 @@ function pair_solver_helpers.TryInvokePairHandler(solver, body_a, body_b, entry_
 	local shape_b = body_b:GetShapeType()
 	local handler = solver:GetPairHandler(shape_a, shape_b)
 
-	if handler then return handler(body_a, body_b, entry_a, entry_b, dt), true end
+	if handler then
+		stats:Count(handler.name)
+		return handler.callback(body_a, body_b, entry_a, entry_b, dt), true
+	end
 
+	stats:Count("pairs_missing")
 	solver:WarnMissingPairHandler(shape_a, shape_b)
 	return false, false
 end

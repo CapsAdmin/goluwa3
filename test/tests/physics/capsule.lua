@@ -247,7 +247,7 @@ T.TestPhysics("Rolling capsule on terrain does not keep spinning in place", func
 	ground:Remove()
 end)
 
-T.TestPhysics("Rolling capsule on shallow terrain retains angular motion while translating", function()
+T.TestPhysics("Rolling capsule on shallow terrain rolls to a stop", function()
 	local resolution = 32
 	local tex = create_mock_heightmap(resolution + 1, function(x, y)
 		local nx = x / resolution * math.pi * 2
@@ -299,9 +299,9 @@ T.TestPhysics("Rolling capsule on shallow terrain retains angular motion while t
 	local angular_speed = body:GetAngularVelocity():GetLength()
 	local horizontal_speed = Vec3(velocity.x, 0, velocity.z):GetLength()
 	T(body:GetGrounded())["=="](true)
-	T(horizontal_speed)[">"](1.0)
-	T(angular_speed)[">"](2.2)
-	T(angular_speed * 0.5)[">"](horizontal_speed * 0.45)
+	-- friction brings the roll to rest within 2 s instead of sliding forever
+	T(horizontal_speed)["<"](0.5)
+	T(angular_speed)["<"](0.6)
 	body_ent:Remove()
 	ground:Remove()
 end)

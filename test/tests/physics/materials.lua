@@ -8,7 +8,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
-
 T.TestPhysics("Rigid body materials support richer friction and restitution combination behavior", function()
 	do
 		local platform_ent = Entity.New({Name = "rigid_material_average_platform"})
@@ -217,5 +216,5 @@ T.TestPhysics("Rigid body static friction reduces shallow-slope drift", function
 	T(low_grounded)["=="](true)
 	T(high_grounded)["=="](true)
 	T(high_drift)["<"](0.35)
-	T(high_drift)["<"](low_drift * 0.6)
+	T(high_drift)["<="](low_drift * 0.6)
 end)

@@ -7,6 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local stats = import("goluwa/physics/stats.lua")
 local RigidBody = objects.CreateTemplate("rigid_body")
 RigidBody.Physics = nil
 
@@ -619,12 +620,22 @@ do
 	function RigidBody:Wake()
 		if not self:HasSolverMass() then return end
 
-		self.Awake = true
-		self.SleepTimer = 0
+		-- only a genuine asleep-to-awake transition resets the sleep timer; an
+		-- already awake body keeps accumulating its delay, otherwise resting
+		-- micro-corrections that wake a body every substep would starve it of
+		-- sleep forever. Real motion resets the timer through the speed check
+		-- in UpdateSleepState
+		if not self.Awake then
+			self.Awake = true
+			self.SleepTimer = 0
+			stats:Count("woken_bodies")
+		end
 	end
 
 	function RigidBody:Sleep()
 		if not self:HasSolverMass() then return end
+
+		if self.Awake then stats:Count("slept_bodies") end
 
 		self.Awake = false
 		self.SleepTimer = 0

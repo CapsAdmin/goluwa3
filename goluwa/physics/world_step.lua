@@ -4,6 +4,7 @@ local islands = import("goluwa/physics/islands.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
+local stats = import("goluwa/physics/stats.lua")
 local world_step = {}
 
 local function solve_body_support_contacts(body, step_dt)
@@ -97,18 +98,28 @@ function world_step.UpdateRigidBodies(physics, dt)
 	local sub_dt = dt / substeps
 	local collision_pairs = physics.collision_pairs
 	collision_pairs:BeginCollisionFrame()
+	stats:Gauge("bodies", #bodies)
+	stats:Gauge("substeps", substeps)
+	stats:PushTime("step")
+	stats:PushTime("synchronize")
 
 	for _, body in ipairs(bodies) do
 		body:SynchronizeFromTransform()
 	end
 
+	stats:PopTime()
+
 	for _ = 1, substeps do
 		if solver.BeginStep then solver:BeginStep() end
+
+		stats:PushTime("integrate")
+		local awake_count = 0
 
 		for _, body in ipairs(bodies) do
 			if body:IsKinematic() or body:HasKinematicController() then
 				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
 			elseif body:GetAwake() then
+				awake_count = awake_count + 1
 				body:ResetGroundSupport()
 				body:SetGrounded(false)
 				body:SetGroundNormal(physics_constants.UP)
@@ -119,8 +130,13 @@ function world_step.UpdateRigidBodies(physics, dt)
 			end
 		end
 
+		stats:Gauge("awake_bodies", awake_count)
+		stats:PopTime()
+		stats:PushTime("broadphase")
 		local rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
+		stats:PopTime()
 		local constraints = physics.GetConstraints()
+		stats:PushTime("islands")
 		local simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
 		local newly_awoken_bodies = {}
 
@@ -140,7 +156,11 @@ function world_step.UpdateRigidBodies(physics, dt)
 					end
 				end
 
+				stats:PopTime()
+				stats:PushTime("broadphase")
 				rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
+				stats:PopTime()
+				stats:PushTime("islands")
 				simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
 
 				if simulation_islands and simulation_islands[1] then
@@ -149,37 +169,64 @@ function world_step.UpdateRigidBodies(physics, dt)
 			end
 		end
 
-		for _ = 1, iterations do
+		stats:PopTime()
+		stats:Gauge("candidate_pairs", #rigid_body_pairs)
+		stats:Gauge("islands", simulation_islands and #simulation_islands or 0)
+		-- CCD is resolved once per substep: its sweep window is the substep
+		-- movement, so re-sweeping it after the first TOI rewind only paid the
+		-- sweep cost against an already shrunken window
+		stats:PushTime("ccd")
+
+		for _, body in ipairs(bodies) do
+			if body:IsDynamic() and body:GetAwake() then
+				solver:SolveBodyContacts(body, sub_dt)
+			end
+		end
+
+		stats:PopTime()
+
+		for iter = 1, iterations do
 			if simulation_islands and simulation_islands[1] then
 				for island_index = 1, #simulation_islands do
 					local island = simulation_islands[island_index]
 
 					if not islands.IsSleepingIsland(island) then
+						stats:PushTime("solve_pairs")
 						solver:SolveRigidBodyPairs(island.pairs, sub_dt)
+						stats:PopTime()
+						stats:PushTime("support")
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
 
 						for body_index = 1, #dynamic_bodies do
-							local body = dynamic_bodies[body_index]
-							solver:SolveBodyContacts(body, sub_dt)
-							solve_body_support_contacts(body, sub_dt)
+							solve_body_support_contacts(dynamic_bodies[body_index], sub_dt)
 						end
 
+						stats:PopTime()
+						stats:PushTime("constraints")
 						solver:SolveDistanceConstraints(sub_dt, island.constraints)
+						stats:PopTime()
 					end
 				end
 			else
+				stats:PushTime("solve_pairs")
 				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
+				stats:PopTime()
+				stats:PushTime("support")
 
 				for _, body in ipairs(bodies) do
 					if body:IsDynamic() and body:GetAwake() then
-						solver:SolveBodyContacts(body, sub_dt)
 						solve_body_support_contacts(body, sub_dt)
 					end
 				end
 
+				stats:PopTime()
+				stats:PushTime("constraints")
 				solver:SolveDistanceConstraints(sub_dt, constraints)
+				stats:PopTime()
 			end
 		end
+
+		stats:PushTime("velocities_sleep")
 
 		for _, body in ipairs(bodies) do
 			body:UpdateVelocities(sub_dt)
@@ -189,7 +236,11 @@ function world_step.UpdateRigidBodies(physics, dt)
 		if simulation_islands and simulation_islands[1] then
 			islands.FinalizeSimulationIslands(simulation_islands)
 		end
+
+		stats:PopTime()
 	end
+
+	stats:PushTime("finalize")
 
 	for _, body in ipairs(bodies) do
 		body:ClearAccumulators()
@@ -200,6 +251,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 	end
 
 	collision_pairs:DispatchCollisionEvents()
+	stats:PopTime()
+	stats:PopTime()
 end
 
 return world_step

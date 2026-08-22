@@ -5,6 +5,7 @@ local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local islands = import("goluwa/physics/islands.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
+local stats = import("goluwa/physics/stats.lua")
 local Solver = objects.CreateTemplate("physics_solver")
 import.loaded["goluwa/physics/solver.lua"] = Solver
 local COMBINE_MODE_PRIORITY = {
@@ -320,7 +321,7 @@ end
 function Solver:RegisterPairHandler(shape_a, shape_b, handler)
 	if not self.PairHandlers[shape_a] then self.PairHandlers[shape_a] = {} end
 
-	self.PairHandlers[shape_a][shape_b] = handler
+	self.PairHandlers[shape_a][shape_b] = {callback = handler, name = "pairs_" .. shape_a .. "-" .. shape_b}
 end
 
 function Solver:GetPairHandler(shape_a, shape_b)
@@ -379,6 +380,8 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 		pairs = physics.broadphase:BuildCandidatePairs(bodies_or_pairs)
 	end
 
+	stats:Count("solver_pairs", #pairs)
+
 	for i = 1, #pairs do
 		local pair = pairs[i]
 		local entry_a = pair.entry_a
@@ -398,6 +401,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 				local handled, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
 
 				if not found then
+					stats:Count("pairs_fallback")
 					fallback_solve_aabb_pair_collision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
 				end
 			else
