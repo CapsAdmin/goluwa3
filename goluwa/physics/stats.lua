@@ -22,6 +22,12 @@ local section_names = {
 -- excluded from the accounted-for sum
 local subsection_names = {
 	"temporal_toi",
+	"box_sat",
+	"box_face_contacts",
+	"box_edge_contacts",
+	"support_point_sweeps",
+	"support_sweep_col",
+	"support_resolve",
 }
 local BUCKET_EDGES_MS = {1, 4, 8, 16, 32}
 local BUCKET_LABELS = {"<1ms", "1-4ms", "4-8ms", "8-16ms", "16-32ms", ">32ms"}

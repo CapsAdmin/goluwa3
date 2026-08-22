@@ -100,15 +100,27 @@ function convex_manifold.BuildSingleContact(contacts, point_a, point_b)
 	return convex_manifold.TrimContacts(contacts, 1)
 end
 
+local MERGE_MIDPOINT_A = Vec3(0, 0, 0)
+local MERGE_MIDPOINT_B = Vec3(0, 0, 0)
+
 function convex_manifold.AddContactPointReused(contacts, count, point_a, point_b, merge_distance, separation)
-	local midpoint = (point_a + point_b) * 0.5
+	local midpoint = MERGE_MIDPOINT_A
+	midpoint.x = (point_a.x + point_b.x) * 0.5
+	midpoint.y = (point_a.y + point_b.y) * 0.5
+	midpoint.z = (point_a.z + point_b.z) * 0.5
 	merge_distance = merge_distance or 0.1
 
 	for i = 1, count do
 		local existing = contacts[i]
-		local existing_midpoint = (existing.point_a + existing.point_b) * 0.5
+		local existing_midpoint = MERGE_MIDPOINT_B
+		existing_midpoint.x = (existing.point_a.x + existing.point_b.x) * 0.5
+		existing_midpoint.y = (existing.point_a.y + existing.point_b.y) * 0.5
+		existing_midpoint.z = (existing.point_a.z + existing.point_b.z) * 0.5
+		local dx = existing_midpoint.x - midpoint.x
+		local dy = existing_midpoint.y - midpoint.y
+		local dz = existing_midpoint.z - midpoint.z
 
-		if (existing_midpoint - midpoint):GetLength() <= merge_distance then
+		if dx * dx + dy * dy + dz * dz <= merge_distance * merge_distance then
 			return count
 		end
 	end

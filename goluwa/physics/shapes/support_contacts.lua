@@ -1,5 +1,6 @@
 local physics_constants = import("goluwa/physics/constants.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local stats = import("goluwa/physics/stats.lua")
 local support_contacts = {}
 -- reusable cast vectors for the per-frame support sweep path
 local cast_origin_offset = Vec3(0, 0, 0)
@@ -93,6 +94,7 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 	local filter_function = body:GetFilterFunction()
 	fill_cast_vectors(cast_up, cast_distance)
 
+	if stats:IsEnabled() then stats:PushTime("support_point_sweeps") end
 	for i = 1, #support_points do
 		local local_point = support_points[i]
 		local point = body:GeometryLocalToWorld(local_point)
@@ -100,6 +102,7 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 		sweep_origin.y = point.y + cast_origin_offset.y
 		sweep_origin.z = point.z + cast_origin_offset.z
 		local hit = physics.Sweep(sweep_origin, cast_delta, 0, owner, filter_function)
+		stats:Count("support_sweeps")
 
 		if hit then
 			support_contacts.AccumulatePointSweepSupport(body, point, hit)
@@ -111,6 +114,7 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 			end
 		end
 	end
+	if stats:IsEnabled() then stats:PopTime() end
 end
 
 function support_contacts.ApplyWorldSupportContact(body, normal, contact_position, support_radius, hit, dt)
@@ -182,7 +186,7 @@ function support_contacts.SweepCollider(body, dt)
 	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local center = body:GetPosition()
-	return physics.SweepCollider(
+	local hit = physics.SweepCollider(
 		body,
 		center + physics_constants.UP * cast_up,
 		physics_constants.UP * -cast_distance,
@@ -190,6 +194,8 @@ function support_contacts.SweepCollider(body, dt)
 		body:GetFilterFunction(),
 		{Rotation = body:GetRotation()}
 	)
+	stats:Count("support_sweeps")
+	return hit
 end
 
 function support_contacts.SweepSphere(body, dt, radius)
@@ -200,7 +206,9 @@ function support_contacts.SweepSphere(body, dt, radius)
 	sweep_origin.x = center.x + cast_origin_offset.x
 	sweep_origin.y = center.y + cast_origin_offset.y
 	sweep_origin.z = center.z + cast_origin_offset.z
-	return physics.Sweep(sweep_origin, cast_delta, radius, body:GetOwner(), body:GetFilterFunction())
+	local hit = physics.Sweep(sweep_origin, cast_delta, radius, body:GetOwner(), body:GetFilterFunction())
+	stats:Count("support_sweeps")
+	return hit
 end
 
 function support_contacts.SolveShapeSupportContacts(body, shape, dt)
@@ -268,6 +276,7 @@ function support_contacts.ResolveCachedSupportContacts(body, dt)
 
 	if not cache then return end
 
+	if stats:IsEnabled() then stats:PushTime("support_resolve") end
 	local contacts = cache.contacts
 	local margin = body:GetCollisionMargin() or 0
 
@@ -291,6 +300,7 @@ function support_contacts.ResolveCachedSupportContacts(body, dt)
 			end
 		end
 	end
+	if stats:IsEnabled() then stats:PopTime() end
 end
 
 return support_contacts

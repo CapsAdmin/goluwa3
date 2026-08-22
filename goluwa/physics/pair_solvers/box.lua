@@ -6,6 +6,7 @@ local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
+local stats = import("goluwa/physics/stats.lua")
 local box = {}
 local EPSILON = physics_constants.EPSILON
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
@@ -26,6 +27,17 @@ local BOX_SUPPORT_REDUCTION_SCRATCH = {
 		{},
 	},
 }
+local SAT_DELTA = Vec3(0, 0, 0)
+local SAT_CROSS = Vec3(0, 0, 0)
+local BOX_FACE_SLOT_A = {}
+local BOX_FACE_SLOT_B = {}
+local BOX_FACE_SLOTS = {BOX_FACE_SLOT_A, BOX_FACE_SLOT_B}
+local box_face_slot_index = 1
+local FACE_REF_LOCAL = Vec3(0, 0, 0)
+local SUPPORT_LOCAL_POINT = Vec3(0, 0, 0)
+local FACE_POINT_REFERENCE = {}
+local FACE_POINT_INCIDENT = {}
+local REDUCED_LOCAL_POINTS = {}
 local SWEPT_BOX_BOX_POINT_CALLBACK_CONTEXT = {
 	static_body = nil,
 }
@@ -191,17 +203,22 @@ local function get_box_face(body, desired_normal)
 		end
 	end
 
-	return {
-		axis_index = axis_index,
-		sign = sign,
-		normal = axis * sign,
-		plane = sign * get_component(extents, axis_index),
-		tangent_u_index = tangent_u_index,
-		tangent_v_index = tangent_v_index,
-		tangent_u_extent = get_component(extents, tangent_u_index),
-		tangent_v_extent = get_component(extents, tangent_v_index),
-		points = world_points,
-	}
+	local face = BOX_FACE_SLOTS[box_face_slot_index]
+	box_face_slot_index = box_face_slot_index % 2 + 1
+	local normal = face.normal or Vec3(0, 0, 0)
+	face.normal = normal
+	normal.x = axis.x * sign
+	normal.y = axis.y * sign
+	normal.z = axis.z * sign
+	face.axis_index = axis_index
+	face.sign = sign
+	face.plane = sign * get_component(extents, axis_index)
+	face.tangent_u_index = tangent_u_index
+	face.tangent_v_index = tangent_v_index
+	face.tangent_u_extent = get_component(extents, tangent_u_index)
+	face.tangent_v_extent = get_component(extents, tangent_v_index)
+	face.points = world_points
+	return face
 end
 
 local function get_body_world_vertices(body)
@@ -238,6 +255,13 @@ local function project_box_radius(extents, axes, normal)
 	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
 end
 
+local function cross_into(out, a, b)
+	out.x = a.y * b.z - a.z * b.y
+	out.y = a.z * b.x - a.x * b.z
+	out.z = a.x * b.y - a.y * b.x
+	return out
+end
+
 local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, best, candidate)
 	local axis_length = axis:GetLength()
 
@@ -270,7 +294,7 @@ local function is_outside_static_support_face(body_a, body_b, normal)
 
 	local support_normal = static_body == body_a and normal or -normal
 	local support_face = get_box_face(static_body, support_normal)
-	local local_center = static_body:WorldToLocal(dynamic_body:GetPosition())
+	local local_center = static_body:WorldToLocal(dynamic_body:GetPosition(), nil, nil, SUPPORT_LOCAL_POINT)
 	local margin = 0.01
 	local center_u = get_component(local_center, support_face.tangent_u_index)
 	local center_v = get_component(local_center, support_face.tangent_v_index)
@@ -293,7 +317,7 @@ local function is_support_contact_near_static_face_edge(body_a, body_b, normal, 
 		local support_point = static_body == body_a and pair.point_a or pair.point_b
 
 		if support_point then
-			local local_point = static_body:WorldToLocal(support_point)
+			local local_point = static_body:WorldToLocal(support_point, nil, nil, SUPPORT_LOCAL_POINT)
 			sum_u = sum_u + get_component(local_point, support_face.tangent_u_index)
 			sum_v = sum_v + get_component(local_point, support_face.tangent_v_index)
 			count = count + 1
@@ -350,6 +374,8 @@ local function build_face_contacts(body_a, body_b, candidate)
 	local ranked_contacts = BOX_FACE_CONTACT_SCRATCH.ranked_contacts or {}
 	BOX_FACE_CONTACT_SCRATCH.ranked_contacts = ranked_contacts
 	local ranked_count = 0
+	local position = reference_body.Position
+	local rotation = reference_body.Rotation
 
 	for _, local_point in ipairs(clipped) do
 		local separation = reference_face.sign * (
@@ -357,13 +383,28 @@ local function build_face_contacts(body_a, body_b, candidate)
 			)
 
 		if separation <= FACE_CONTACT_SEPARATION_TOLERANCE then
-			local reference_point = set_component(local_point, reference_face.axis_index, reference_face.plane)
 			ranked_count = ranked_count + 1
 			local entry = ranked_contacts[ranked_count] or {}
+			local reference_point = FACE_POINT_REFERENCE[ranked_count] or Vec3(0, 0, 0)
+			FACE_POINT_REFERENCE[ranked_count] = reference_point
+			local incident_point = FACE_POINT_INCIDENT[ranked_count] or Vec3(0, 0, 0)
+			FACE_POINT_INCIDENT[ranked_count] = incident_point
+			FACE_REF_LOCAL.x = local_point.x
+			FACE_REF_LOCAL.y = local_point.y
+			FACE_REF_LOCAL.z = local_point.z
+
+			if reference_face.axis_index == 1 then
+				FACE_REF_LOCAL.x = reference_face.plane
+			elseif reference_face.axis_index == 2 then
+				FACE_REF_LOCAL.y = reference_face.plane
+			else
+				FACE_REF_LOCAL.z = reference_face.plane
+			end
+
 			entry.separation = separation
 			entry.local_point = local_point
-			entry.point_reference = reference_body:LocalToWorld(reference_point)
-			entry.point_incident = reference_body:LocalToWorld(local_point)
+			entry.point_reference = reference_body:LocalToWorld(FACE_REF_LOCAL, position, rotation, reference_point)
+			entry.point_incident = reference_body:LocalToWorld(local_point, position, rotation, incident_point)
 			ranked_contacts[ranked_count] = entry
 		end
 	end
@@ -400,6 +441,8 @@ local function build_edge_contacts(body_a, body_b, candidate)
 	return convex_manifold.BuildSingleContact(BOX_CONTACT_OUTPUT_SCRATCH.edge_contacts, point_a, point_b)
 end
 
+local AVERAGE_SUM = Vec3(0, 0, 0)
+
 local function average_localized_support_points(points, out)
 	out = out or Vec3(0, 0, 0)
 
@@ -410,16 +453,21 @@ local function average_localized_support_points(points, out)
 		return out
 	end
 
-	local sum = Vec3(0, 0, 0)
+	local sum = AVERAGE_SUM
+	sum.x = 0
+	sum.y = 0
+	sum.z = 0
 
 	for _, point in ipairs(points) do
-		sum = sum + point
+		sum.x = sum.x + point.x
+		sum.y = sum.y + point.y
+		sum.z = sum.z + point.z
 	end
 
-	sum = sum / #points
-	out.x = sum.x
-	out.y = sum.y
-	out.z = sum.z
+	local inv_count = 1 / #points
+	out.x = sum.x * inv_count
+	out.y = sum.y * inv_count
+	out.z = sum.z * inv_count
 	return out
 end
 
@@ -430,7 +478,9 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 
 	local support_is_a = static_body == body_a
 	local support_face = get_box_face(static_body, support_is_a and normal or -normal)
-	local dynamic_center_local = static_body:WorldToLocal(dynamic_body:GetPosition())
+	local dynamic_center_local = static_body:WorldToLocal(dynamic_body:GetPosition(), nil, nil, SUPPORT_LOCAL_POINT)
+	local position = static_body.Position
+	local rotation = static_body.Rotation
 	local tolerance = 0.02
 	local min_u = math.huge
 	local max_u = -math.huge
@@ -441,7 +491,9 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 
 	for index, contact in ipairs(contacts) do
 		local support_point = support_is_a and contact.point_a or contact.point_b
-		local local_point = static_body:WorldToLocal(support_point)
+		local local_point = REDUCED_LOCAL_POINTS[index] or Vec3(0, 0, 0)
+		REDUCED_LOCAL_POINTS[index] = local_point
+		static_body:WorldToLocal(support_point, position, rotation, local_point)
 		localized_count = index
 		local entry = localized[index] or {}
 		entry.contact = contact
@@ -578,66 +630,76 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 
 	local center_a = body_a:GetPosition()
 	local center_b = body_b:GetPosition()
-	local delta = center_b - center_a
+	SAT_DELTA.x = center_b.x - center_a.x
+	SAT_DELTA.y = center_b.y - center_a.y
+	SAT_DELTA.z = center_b.z - center_a.z
+	local delta = SAT_DELTA
 	local extents_a = body_a:GetPhysicsShape():GetExtents()
 	local extents_b = body_b:GetPhysicsShape():GetExtents()
 	local axes_a = body_a:GetPhysicsShape():GetAxes(body_a)
 	local axes_b = body_b:GetPhysicsShape():GetAxes(body_b)
 	local best = BOX_SAT_BEST
 	convex_sat.ResetBestAxisTracker(best)
+	stats:PushTime("box_sat")
+	local separated = false
+	local swept
 
 	for i = 1, 3 do
 		if
 			not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, FACE_A_CANDIDATE)
-		then
-			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
-
-			if static_body then
-				return solve_swept_box_box_collision(dynamic_body, static_body, dt)
-			end
-
-			return
-		end
-
-		if
+		or
 			not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best, FACE_B_CANDIDATE)
 		then
+			separated = true
 			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
 			if static_body then
-				return solve_swept_box_box_collision(dynamic_body, static_body, dt)
+				swept = solve_swept_box_box_collision(dynamic_body, static_body, dt)
 			end
 
-			return
+			break
 		end
 	end
 
-	for i = 1, 3 do
-		for j = 1, 3 do
-			EDGE_CANDIDATE.edge_axis_a = i
-			EDGE_CANDIDATE.edge_axis_b = j
+	if not separated then
+		for i = 1, 3 do
+			for j = 1, 3 do
+				EDGE_CANDIDATE.edge_axis_a = i
+				EDGE_CANDIDATE.edge_axis_b = j
 
-			if
-				not test_obb_axis(
-					axes_a[i]:GetCross(axes_b[j]),
-					delta,
-					extents_a,
-					axes_a,
-					extents_b,
-					axes_b,
-					best,
-					EDGE_CANDIDATE
-				)
-			then
-				local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+				if
+					not test_obb_axis(
+						cross_into(SAT_CROSS, axes_a[i], axes_b[j]),
+						delta,
+						extents_a,
+						axes_a,
+						extents_b,
+						axes_b,
+						best,
+						EDGE_CANDIDATE
+					)
+				then
+					separated = true
+					local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
-				if static_body then
-					return solve_swept_box_box_collision(dynamic_body, static_body, dt)
+					if static_body then
+						swept = solve_swept_box_box_collision(dynamic_body, static_body, dt)
+					end
+
+					break
 				end
-
-				return
 			end
+
+			if separated then break end
 		end
+	end
+
+	stats:PopTime()
+
+	if separated then
+		if swept ~= nil then return swept end
+
+		return
 	end
 
 	local raw_best = best.any
@@ -659,6 +721,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 	local resolve_options
 
 	if best.kind == "face" then
+		stats:PushTime("box_face_contacts")
 		contacts = build_face_contacts(body_a, body_b, best)
 		local reduced_for_support
 		contacts, reduced_for_support = reduce_contacts_for_support_polygon(body_a, body_b, best.normal, contacts)
@@ -677,8 +740,11 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 				resolve_options = SKIP_FRICTION_OPTIONS
 			end
 		end
+		stats:PopTime()
 	else
+		stats:PushTime("box_edge_contacts")
 		contacts = build_edge_contacts(body_a, body_b, best)
+		stats:PopTime()
 
 		if
 			is_outside_static_support_face(body_a, body_b, best.normal) and

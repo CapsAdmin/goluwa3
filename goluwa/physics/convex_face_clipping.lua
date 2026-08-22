@@ -40,6 +40,20 @@ local function get_edge_side(a, b, point)
 	return (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
 end
 
+local CLIP_DELTA = Vec3(0, 0, 0)
+
+-- intersection points are freshly allocated: out-array slots may be shared
+-- with the input polygon through pass-through references, so writing into
+-- an existing slot would corrupt points the input loop still reads
+local function emit_clip_point(out, count, previous, t)
+	out[count] = Vec3(
+		previous.x + CLIP_DELTA.x * t,
+		previous.y + CLIP_DELTA.y * t,
+		previous.z + CLIP_DELTA.z * t
+	)
+	return count
+end
+
 local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign, out)
 	out = out or {}
 
@@ -55,13 +69,14 @@ local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign, out)
 		local inside = distance >= -physics_constants.EPSILON
 
 		if inside ~= previous_inside then
-			local delta = point - previous
+			CLIP_DELTA.x = point.x - previous.x
+			CLIP_DELTA.y = point.y - previous.y
+			CLIP_DELTA.z = point.z - previous.z
 			local denominator = previous_distance - distance
 
 			if math.abs(denominator) > physics_constants.EPSILON then
 				local t = previous_distance / denominator
-				count = count + 1
-				out[count] = previous + delta * t
+				count = emit_clip_point(out, count + 1, previous, t)
 			end
 		end
 
@@ -93,13 +108,14 @@ local function clip_polygon_component(points, axis_index, limit, keep_less_equal
 		local inside = keep_less_equal and distance <= 0 or distance >= 0
 
 		if inside ~= previous_inside then
-			local delta = point - previous
+			CLIP_DELTA.x = point.x - previous.x
+			CLIP_DELTA.y = point.y - previous.y
+			CLIP_DELTA.z = point.z - previous.z
 			local denominator = previous_distance - distance
 
 			if math.abs(denominator) > physics_constants.EPSILON then
 				local t = previous_distance / denominator
-				count = count + 1
-				out[count] = previous + delta * t
+				count = emit_clip_point(out, count + 1, previous, t)
 			end
 		end
 
@@ -123,9 +139,11 @@ function convex_face_clipping.ClipFacePolygonToReference(reference_body, referen
 	scratch.polygon_a = polygon_a
 	scratch.polygon_b = polygon_b
 	local count = 0
+	local position = reference_body.Position
+	local rotation = reference_body.Rotation
 
 	for i, point in ipairs(incident_points or {}) do
-		polygon_a[i] = reference_body:WorldToLocal(point)
+		polygon_a[i] = reference_body:WorldToLocal(point, position, rotation, polygon_a[i] or Vec3(0, 0, 0))
 		count = i
 	end
 
@@ -173,11 +191,8 @@ function convex_face_clipping.ClipFacePolygonToReference(reference_body, referen
 			-reference_face.tangent_v_extent,
 			math.min(reference_face.tangent_v_extent, get_component(point, reference_face.tangent_v_index))
 		)
-		polygon[i] = set_component(
-			set_component(point, reference_face.tangent_u_index, clamped_u),
-			reference_face.tangent_v_index,
-			clamped_v
-		)
+		if reference_face.tangent_u_index == 1 then point.x = clamped_u elseif reference_face.tangent_u_index == 2 then point.y = clamped_u else point.z = clamped_u end
+		if reference_face.tangent_v_index == 1 then point.x = clamped_v elseif reference_face.tangent_v_index == 2 then point.y = clamped_v else point.z = clamped_v end
 	end
 
 	return polygon
