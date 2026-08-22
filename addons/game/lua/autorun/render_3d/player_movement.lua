@@ -1,4 +1,3 @@
-import("goluwa/physics.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Entity = import("goluwa/entities/entity.lua")

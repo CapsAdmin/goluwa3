@@ -1,11 +1,9 @@
 local T = import("test/environment.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
-local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
-
 
 local function create_world_brush_body(mins, maxs)
 	local ent = Entity.New({Name = "world_contacts_brush_body"})
@@ -38,7 +36,7 @@ local function create_world_brush_body(mins, maxs)
 	return ent
 end
 
-T.Test("Dynamic bodies resolve against world geometry rigid bodies without world bridge", function()
+T.TestPhysics("Dynamic bodies resolve against world geometry rigid bodies without world bridge", function()
 	local world_ent = create_world_brush_body(Vec3(-1, -1, -1), Vec3(1, 0, 1))
 	local body_ent = Entity.New({Name = "world_contacts_dynamic_body"})
 	body_ent:AddComponent("transform")
@@ -59,6 +57,7 @@ T.Test("Dynamic bodies resolve against world geometry rigid bodies without world
 	T(position.y)[">="](0.09)
 end)
 
-T.Test("Solver swept body contact path ignores invalid bodies", function()
-	T(physics.solver:SolveBodyContacts(nil, 1 / 60))["=="](false)
+T.TestPhysics("Solver swept body contact path ignores invalid bodies", function()
+	local physics = import("goluwa/physics.lua")
+	T(physics.instance.solver:SolveBodyContacts(nil, 1 / 60))["=="](false)
 end)

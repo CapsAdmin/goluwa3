@@ -171,7 +171,7 @@ function META:GetRenderPositionRotation()
 	if self.InterpolatedFrame ~= frame then
 		local body = self.Owner.rigid_body
 		physics = physics or import("goluwa/physics.lua")
-		local alpha = physics.GetInterpolationAlpha and physics.GetInterpolationAlpha() or 0
+		local alpha = physics.GetInterpolationAlpha()
 		self.InterpolatedPosition = body:GetInterpolatedPosition(alpha)
 		self.InterpolatedRotation = body:GetInterpolatedRotation(alpha)
 		self.InterpolatedFrame = frame

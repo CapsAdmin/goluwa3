@@ -495,7 +495,7 @@ function module.CreateTestRigidBody(data)
 		Velocity = velocity,
 		AngularVelocity = angular_velocity,
 		Grounded = data.Grounded == true,
-		GroundNormal = copy_position(data.GroundNormal or physics.Up or Vec3(0, 1, 0)),
+		GroundNormal = copy_position(data.GroundNormal or physics.GetUp()),
 	}
 	body:Initialize()
 	body.Owner = data.Owner or create_default_owner(position, rotation)

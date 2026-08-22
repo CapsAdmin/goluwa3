@@ -169,7 +169,7 @@ local function run_game()
 		)
 	end
 
-	if PHYSICS then import("goluwa/physics.lua") end
+	if PHYSICS then import("goluwa/physics.lua").Initialize() end
 
 	if AUDIO then import("goluwa/audio.lua").Initialize() end
 

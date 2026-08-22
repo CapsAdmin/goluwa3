@@ -91,11 +91,6 @@ local function get_body_render_position_rotation(body)
 	return position, rotation
 end
 
-local function get_world_up()
-	local up = physics.Up
-	return up and up.Copy and up:Copy() or Vec3(0, 1, 0)
-end
-
 local function get_body_label_height(body)
 	local shape = body.GetPhysicsShape and body:GetPhysicsShape() or body.Shape
 	local shape_type = body.GetShapeType and body:GetShapeType() or nil
@@ -120,7 +115,7 @@ end
 
 local function get_body_label_anchor(body)
 	local position = get_body_render_position_rotation(body)
-	return position + get_world_up() * get_body_label_height(body)
+	return position + physics.GetUp() * get_body_label_height(body)
 end
 
 local function get_body_overlay_state(body, awake)
@@ -164,7 +159,7 @@ local function get_awake_color(snapshot)
 end
 
 local function get_pair_manifold(body_a, body_b)
-	local solver = physics.solver
+	local solver = physics.instance.solver
 
 	if not (solver and solver.PersistentManifolds) then return nil end
 
@@ -194,7 +189,7 @@ end
 
 local function collect_body_contacts(body)
 	local contacts = {}
-	local collision_pairs = physics.collision_pairs
+	local collision_pairs = physics.instance.collision_pairs
 
 	if not collision_pairs then return contacts end
 
@@ -477,7 +472,7 @@ local function draw_trace_hit(body, hit)
 	if not (hit and hit.position) then return end
 
 	local hit_id = "physics_debug_trace_hit_" .. get_body_debug_id(body)
-	local normal = hit.normal or hit.face_normal or get_world_up()
+	local normal = hit.normal or hit.face_normal or physics.GetUp()
 	local end_pos = hit.position + normal * overlay_config.hit_normal_length
 	debug_draw.DrawSphere{
 		id = hit_id .. "_point",
@@ -524,7 +519,7 @@ local function draw_contact_markers(body, contacts)
 				contact_index,
 				marker_index
 			)
-			local normal = marker.normal or get_world_up()
+			local normal = marker.normal or physics.GetUp()
 			local end_pos = marker.position + normal * overlay_config.contact_normal_length
 			debug_draw.DrawSphere{
 				id = marker_id .. "_point",

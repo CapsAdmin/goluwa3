@@ -1,5 +1,4 @@
 local T = import("test/environment.lua")
-local physics = import("goluwa/physics.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -11,7 +10,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local convex_shape = ConvexShape.New
-
 
 T.TestPhysics("Rigid bodies support collision layers and collision events", function()
 	local function spawn_pair(prefix, config_a, config_b)

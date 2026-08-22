@@ -1,5 +1,4 @@
 local T = import("test/environment.lua")
-local physics = import("goluwa/physics.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -10,7 +9,6 @@ local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local compound_shape = CompoundShape.New
-
 
 local function add_triangle(poly, a, b, c)
 	poly:AddVertex{pos = a, uv = Vec2(0, 0)}
@@ -51,7 +49,6 @@ local function add_box_triangles(poly, center, size)
 		add_triangle(poly, v[face[1]], v[face[2]], v[face[3]])
 	end
 end
-
 
 local function create_split_box_mesh()
 	local poly = Polygon3D.New()

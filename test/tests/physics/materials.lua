@@ -154,9 +154,9 @@ T.Test("Rigid body materials expose separate static friction combination behavio
 		Friction = 0.3,
 		FrictionCombineMode = "multiply",
 	}
-	local dynamic_friction = physics.solver:GetPairFriction(body_a, body_b)
-	local static_friction = physics.solver:GetPairStaticFriction(body_a, body_b)
-	local fallback_static = physics.solver:GetPairStaticFriction(body_a, body_c)
+	local dynamic_friction = physics.instance.solver:GetPairFriction(body_a, body_b)
+	local static_friction = physics.instance.solver:GetPairStaticFriction(body_a, body_b)
+	local fallback_static = physics.instance.solver:GetPairStaticFriction(body_a, body_c)
 	T(dynamic_friction)["=="](0.6)
 	T(static_friction)["=="](1.1)
 	T(fallback_static)["=="](0.24)

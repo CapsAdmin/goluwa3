@@ -214,6 +214,7 @@ end
 T.TestPhysics = function(name, cb)
 	return T.Test(name, function()
 		local physics = import("goluwa/physics.lua")
+		if not physics.instance then physics.Initialize() end
 		local Entity = import("goluwa/entities/entity.lua")
 		cb()
 
@@ -223,7 +224,7 @@ T.TestPhysics = function(name, cb)
 		end
 
 		-- Reset physics state (broadphase, solver, collision pairs)
-		if physics.ResetState then physics:ResetState() end
+		physics.ResetState()
 	end)
 end
 return T

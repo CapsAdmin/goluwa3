@@ -28,18 +28,17 @@ local GRID_SPACING_Z = 4.8
 local TYPE_SEQUENCE = {"sphere", "box", "capsule", "convex"}
 local FIXED_DT = 1 / 60
 
-
 local function with_fixed_step(fixed_dt, callback)
-	local previous_fixed_dt = physics.FixedTimeStep
-	local previous_accumulator = physics.FrameAccumulator
-	local previous_alpha = physics.InterpolationAlpha
-	physics.FixedTimeStep = fixed_dt
-	physics.FrameAccumulator = 0
-	physics.InterpolationAlpha = 0
+	local previous_fixed_dt = physics.instance.FixedTimeStep
+	local previous_accumulator = physics.instance.FrameAccumulator
+	local previous_alpha = physics.instance.InterpolationAlpha
+	physics.instance.FixedTimeStep = fixed_dt
+	physics.instance.FrameAccumulator = 0
+	physics.instance.InterpolationAlpha = 0
 	local ok, err = xpcall(callback, debug.traceback)
-	physics.FixedTimeStep = previous_fixed_dt
-	physics.FrameAccumulator = previous_accumulator or 0
-	physics.InterpolationAlpha = previous_alpha or 0
+	physics.instance.FixedTimeStep = previous_fixed_dt
+	physics.instance.FrameAccumulator = previous_accumulator or 0
+	physics.instance.InterpolationAlpha = previous_alpha or 0
 
 	if not ok then
 		error(string.format("[fixed_dt=%.6f] %s", fixed_dt, tostring(err)), 0)

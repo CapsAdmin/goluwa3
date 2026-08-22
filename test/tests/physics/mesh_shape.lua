@@ -21,7 +21,7 @@ local function create_quad_polygon()
 	return poly
 end
 
-T.Test("Mesh shape builds shared triangle acceleration from polygon data", function()
+T.TestPhysics("Mesh shape builds shared triangle acceleration from polygon data", function()
 	local poly = create_quad_polygon()
 	local shape = MeshShape.New(poly)
 	local body = test_helpers.CreateTestRigidBody({Shape = shape})
@@ -96,7 +96,7 @@ T.Test("Mesh shape can resolve polygon primitives from owner models", function()
 	T(shape:GetHalfExtents(body:GetColliders()[1]).z)["=="](1)
 end)
 
-T.Test("Mesh rigid bodies can be traced and preserve mesh hit metadata", function()
+T.TestPhysics("Mesh rigid bodies can be traced and preserve mesh hit metadata", function()
 	local poly = create_quad_polygon()
 	local primitive = {
 		polygon3d = poly,
@@ -201,7 +201,7 @@ T.Test("Mesh shapes can resolve brush primitives from models", function()
 	T(shape:GetLocalBounds(body:GetColliders()[1]).max_z)["=="](1)
 end)
 
-T.Test("World geometry rigid bodies are traced by default world queries", function()
+T.TestPhysics("World geometry rigid bodies are traced by default world queries", function()
 	local poly = create_quad_polygon()
 	local primitive = {polygon3d = poly}
 	local owner = {

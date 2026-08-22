@@ -1,5 +1,4 @@
 local T = import("test/environment.lua")
-local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
@@ -7,7 +6,6 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
-
 
 local function run_roll_probe(platform_name, spawn_platform)
 	local platform_ent = spawn_platform()

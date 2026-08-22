@@ -2,6 +2,8 @@ local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
+if not physics.instance then physics.Initialize() end
+
 local function build_triangle_hit(a, b, c, hit_position, hit_normal)
 	return {
 		primitive = {

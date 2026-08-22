@@ -15,7 +15,7 @@ local function create_mock_heightmap(fn)
 	}
 end
 
-T.Test("Heightmap shape enumerates triangles and computes bounds", function()
+T.TestPhysics("Heightmap shape enumerates triangles and computes bounds", function()
 	local tex = create_mock_heightmap(function(x, y)
 		if x == 0 and y == 0 then return 255, 255, 255, 255 end
 
@@ -51,7 +51,7 @@ T.Test("Heightmap shape enumerates triangles and computes bounds", function()
 	T(bounds.max_y)[">="](5)
 end)
 
-T.Test("Rigid bodies accept heightmap shape definitions", function()
+T.TestPhysics("Rigid bodies accept heightmap shape definitions", function()
 	local tex = create_mock_heightmap(function()
 		return 255, 255, 255, 255
 	end)
@@ -73,7 +73,7 @@ T.Test("Rigid bodies accept heightmap shape definitions", function()
 	T(bounds.max_y)["=="](2)
 end)
 
-T.Test("Heightmap shapes can be traced like static meshes", function()
+T.TestPhysics("Heightmap shapes can be traced like static meshes", function()
 	local tex = create_mock_heightmap(function()
 		return 255, 255, 255, 255
 	end)

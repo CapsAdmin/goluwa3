@@ -1,7 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
-local physics = import("goluwa/physics.lua")
 local DistanceConstraint = import("goluwa/physics/constraint.lua")
 local shapes = import("lua/shapes.lua")
 local ORIGIN = Vec3(34, -1.5, -8)
