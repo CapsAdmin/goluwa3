@@ -1,8 +1,33 @@
+local event = import("goluwa/event.lua")
 local Physics = import("goluwa/physics/physics.lua")
 local physics = library()
 
 function physics.Initialize(config)
 	physics.instance = Physics.New(config)
+
+	do -- TODO
+		local world_step = import("goluwa/physics/world_step.lua")
+		physics.instance.Step = function(dt)
+			return world_step.Step(physics.instance, dt)
+		end
+		physics.instance.Update = function(dt)
+			return world_step.Update(physics.instance, dt)
+		end
+		physics.instance.UpdateFixed = function(dt)
+			return world_step.UpdateFixed(physics.instance, dt)
+		end
+		physics.instance.UpdateRigidBodies = function(dt)
+			return world_step.UpdateRigidBodies(physics.instance, dt)
+		end
+
+		function physics.instance:OnUpdate(dt)
+			physics.instance.UpdateFixed(dt)
+		end
+
+		event.AddListener("Update", "physics", function(dt)
+			physics.instance:Update(dt)
+		end)
+	end
 end
 
 function physics.Step(dt)

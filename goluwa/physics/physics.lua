@@ -55,19 +55,6 @@ function Physics.New(config)
 		self.GetInterpolationAlpha = function()
 			self:_GetInterpolationAlpha()
 		end
-		self.Step = function(dt)
-			return world_step.Step(self, dt)
-		end
-		self.Update = function(dt)
-			return world_step.Update(self, dt)
-		end
-		self.UpdateFixed = function(dt)
-			return world_step.UpdateFixed(self, dt)
-		end
-		self.UpdateRigidBodies = function(dt)
-			return world_step.UpdateRigidBodies(self, dt)
-		end
-		self:AddGlobalEvent("Update")
 	end
 
 	self.solver = self:CreateSolver()
@@ -161,10 +148,6 @@ function Physics:RegisterPairHandlers(solver)
 		solver:RegisterPairHandler("mesh", dynamic_shape, solve_registered_mesh_pair)
 		solver:RegisterPairHandler(dynamic_shape, "mesh", solve_registered_mesh_pair)
 	end
-end
-
-function Physics:OnUpdate(dt)
-	self.UpdateFixed(dt)
 end
 
 function Physics:_GetInterpolationAlpha()
