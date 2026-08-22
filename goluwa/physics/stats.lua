@@ -18,6 +18,11 @@ local section_names = {
 	"velocities_sleep",
 	"finalize",
 }
+-- nested sections measured inside a top-level section; printed indented and
+-- excluded from the accounted-for sum
+local subsection_names = {
+	"temporal_toi",
+}
 local BUCKET_EDGES_MS = {1, 4, 8, 16, 32}
 local BUCKET_LABELS = {"<1ms", "1-4ms", "4-8ms", "8-16ms", "16-32ms", ">32ms"}
 local state = nil
@@ -194,6 +199,11 @@ function stats:Summary()
 	for i = 1, #section_names do
 		local name = section_names[i]
 		out[#out + 1] = format_line(name, state.sections[name], total)
+	end
+
+	for i = 1, #subsection_names do
+		local name = subsection_names[i]
+		out[#out + 1] = "  " .. format_line(name, state.sections[name] or 0, total)
 	end
 
 	local gauge_names = {}

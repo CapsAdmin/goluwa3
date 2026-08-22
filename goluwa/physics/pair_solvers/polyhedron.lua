@@ -1,6 +1,7 @@
 local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local stats = import("goluwa/physics/stats.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -554,9 +555,14 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	context.previous_rotation_b = previous_rotation_b
 	context.current_rotation_b = current_rotation_b
 	context.scratch = scratch
+	stats:PushTime("temporal_toi")
 	local hit = pair_solver_helpers.FindSampledTemporalHit(temporal_toi_intersects, sample_steps, nil, context)
+	stats:PopTime()
+	stats:Count("toi_calls")
 
 	if not hit then return nil end
+
+	stats:Count("toi_hits")
 
 	local hit_t = hit.t or 1
 	local result = evaluate_polyhedron_pair_at_transforms(
