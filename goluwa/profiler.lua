@@ -5,6 +5,8 @@ local event = import("goluwa/event.lua")
 local profiler = library()
 local jit_profiler
 local summary_on_stop
+local frame_times
+local frame_start_number
 
 function profiler.Start(id, config)
 	config = config or {}
@@ -25,8 +27,10 @@ function profiler.Start(id, config)
 	end
 
 	summary_on_stop = config.summary == true or (config.summary == nil and batch and format == "bin")
+	frame_times = {}
 
 	local function begin()
+		frame_start_number = system.GetFrameNumber()
 		jit_profiler = JitProfiler.New{
 			id = id,
 			path = path,
@@ -38,6 +42,19 @@ function profiler.Start(id, config)
 			trace_recorder = config.trace_recorder,
 			profile_mode = config.profile_mode,
 		}
+		local expected_frame = frame_start_number + 1
+		local last_time = system.GetTime()
+
+		event.AddListener("Update", "profiler_frame_times", function()
+			local frame = system.GetFrameNumber()
+
+			if frame == expected_frame then
+				local time = system.GetTime()
+				frame_times[#frame_times + 1] = time - last_time
+				last_time = time
+				expected_frame = frame + 1
+			end
+		end)
 
 		if config.shutdown_after_frames then
 			local stop_at = system.GetFrameNumber() + config.shutdown_after_frames
@@ -66,6 +83,47 @@ function profiler.Start(id, config)
 	end
 end
 
+local function print_frame_stats(w)
+	local count = #frame_times
+
+	if count == 0 then return end
+
+	local sorted = {}
+
+	for i = 1, count do
+		sorted[i] = frame_times[i]
+	end
+
+	table.sort(sorted)
+	local sum = 0
+
+	for i = 1, count do
+		sum = sum + sorted[i]
+	end
+
+	local median = (
+			count % 2 == 0
+		)
+		and
+		(
+			sorted[count / 2] + sorted[count / 2 + 1]
+		) * 0.5 or
+		sorted[(
+			count + 1
+		) / 2]
+	w(
+		string.format(
+			"  frames: %d in %.3fs  avg: %.3fms  min: %.3fms  median: %.3fms  max: %.3fms\n",
+			count,
+			sum,
+			(sum / count) * 1000,
+			sorted[1] * 1000,
+			median * 1000,
+			sorted[count] * 1000
+		)
+	)
+end
+
 function profiler.Stop(opts)
 	if not jit_profiler then return end
 
@@ -73,8 +131,12 @@ function profiler.Stop(opts)
 	jit_profiler:Stop()
 	jit_profiler = nil
 	event.RemoveListener("Update", "profiler_auto_stop")
+	event.RemoveListener("Update", "profiler_frame_times")
 
-	if summary_on_stop then return JitProfiler.Summary(path, opts) end
+	if summary_on_stop then
+		JitProfiler.Summary(path, opts)
+		print_frame_stats(io.write)
+	end
 end
 
 local simple_times = {}
