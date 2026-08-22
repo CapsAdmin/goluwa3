@@ -25,7 +25,7 @@ function physics.Initialize(config)
 		end
 
 		event.AddListener("Update", "physics", function(dt)
-			physics.instance:Update(dt)
+			physics.instance.Update(dt)
 		end)
 	end
 end

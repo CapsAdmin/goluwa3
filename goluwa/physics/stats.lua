@@ -28,6 +28,11 @@ local subsection_names = {
 	"support_point_sweeps",
 	"support_sweep_col",
 	"support_resolve",
+	"support_broad_check",
+	"face_get_faces",
+	"face_clip",
+	"face_rank",
+	"face_select",
 }
 local BUCKET_EDGES_MS = {1, 4, 8, 16, 32}
 local BUCKET_LABELS = {"<1ms", "1-4ms", "4-8ms", "8-16ms", "16-32ms", ">32ms"}

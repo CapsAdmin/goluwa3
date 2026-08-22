@@ -9,6 +9,10 @@ local CROSS_IMPULSE = Vec3()
 
 local function capture_body_motion(state, body)
 	state.body = body
+	-- position and immovability are invariant during the impulse pass, so
+	-- capturing them here avoids re-fetching them per contact
+	state.position = body:GetPosition()
+	state.immovable = body:IsSolverImmovable()
 	local linear = body:GetVelocity()
 	local angular = body:GetAngularVelocity()
 	local state_linear = state.linear_velocity
@@ -32,7 +36,7 @@ local function point_velocity_into(out, state, point)
 		return out
 	end
 
-	local position = state.body:GetPosition()
+	local position = state.position
 	local rx = point.x - position.x
 	local ry = point.y - position.y
 	local rz = point.z - position.z
@@ -54,7 +58,7 @@ end
 local function apply_impulse_in_place(state, impulse, magnitude, point, sign)
 	local body = state.body
 
-	if body:IsSolverImmovable() then return end
+	if state.immovable then return end
 
 	local linear = state.linear_velocity
 	local scale = sign * magnitude * body.InverseMass
@@ -65,7 +69,7 @@ local function apply_impulse_in_place(state, impulse, magnitude, point, sign)
 	if not point then return end
 
 	local angular = state.angular_velocity
-	local position = body:GetPosition()
+	local position = state.position
 	local cross = CROSS_IMPULSE
 	cross.x, cross.y, cross.z = point.x - position.x, point.y - position.y, point.z - position.z
 	Vec3.Cross(cross, impulse)

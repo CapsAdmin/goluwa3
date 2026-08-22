@@ -8,6 +8,8 @@ META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
 local CONVEX_SUPPORT_CONTACT_CONTEXT = {
 	best = nil,
+	sweep_point = Vec3(0, 0, 0),
+	best_point_world = Vec3(0, 0, 0),
 }
 
 local function collect_convex_support_contact(context, target_body, point, hit, contact_dt, local_point)
@@ -29,9 +31,13 @@ local function collect_convex_support_contact(context, target_body, point, hit, 
 			hit.normal.y > best.hit.normal.y
 		)
 	then
+		local best_world = context.best_point_world
+		best_world.x = point.x
+		best_world.y = point.y
+		best_world.z = point.z
 		context.best = {
 			body = target_body,
-			point = point,
+			point = best_world,
 			local_point = local_point,
 			hit = hit,
 			dt = contact_dt,
@@ -166,14 +172,20 @@ function META:BuildSupportLocalPoints(body)
 	return BaseShape.BuildSupportLocalPoints(self, body)
 end
 
-function META:SolveSupportContacts(body, dt, support_contacts)
-	if not support_contacts.BeginSupportDetection(body) then
+function META:SolveSupportContacts(body, dt, support_contacts, substep_id)
+	if not support_contacts.BeginSupportDetection(body, substep_id) then
 		support_contacts.ResolveCachedSupportContacts(body, dt)
 		return
 	end
 
 	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil
-	support_contacts.ForEachPointSweepContact(body, dt, collect_convex_support_contact, CONVEX_SUPPORT_CONTACT_CONTEXT)
+	support_contacts.ForEachPointSweepContact(
+		body,
+		dt,
+		collect_convex_support_contact,
+		CONVEX_SUPPORT_CONTACT_CONTEXT,
+		CONVEX_SUPPORT_CONTACT_CONTEXT.sweep_point
+	)
 	local best = CONVEX_SUPPORT_CONTACT_CONTEXT.best
 	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil
 

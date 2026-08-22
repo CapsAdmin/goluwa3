@@ -253,7 +253,7 @@ function Solver:ShouldUseStaticFriction(contact, tangent_speed, tangent_impulse_
 		false
 end
 
-function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
+function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
 	local base_passes = math.max(1, self.MANIFOLD_SOLVER_PASSES or 1)
 	local resting_passes = math.max(base_passes, self.RESTING_MANIFOLD_SOLVER_PASSES or base_passes)
 
@@ -271,22 +271,29 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
 		return base_passes
 	end
 
-	if self:GetPairRestitution(body_a, body_b) > 0.05 then return base_passes end
-
-	local velocity_a = body_a:GetVelocity()
-	local velocity_b = body_b:GetVelocity()
-	local relative_velocity = velocity_b - velocity_a
-
-	if
-		relative_velocity:GetLength() > math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0)
-	then
+	if (restitution or self:GetPairRestitution(body_a, body_b)) > 0.05 then
 		return base_passes
 	end
 
-	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
+	local velocity_a = body_a:GetVelocity()
+	local velocity_b = body_b:GetVelocity()
+	local dx = velocity_b.x - velocity_a.x
+	local dy = velocity_b.y - velocity_a.y
+	local dz = velocity_b.z - velocity_a.z
+	local max_relative_speed = math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0)
+
+	if dx * dx + dy * dy + dz * dz > max_relative_speed * max_relative_speed then
+		return base_passes
+	end
+
+	local normal_dot = dx * normal.x + dy * normal.y + dz * normal.z
+	local tangent_x = dx - normal.x * normal_dot
+	local tangent_y = dy - normal.y * normal_dot
+	local tangent_z = dz - normal.z * normal_dot
+	local max_tangent_speed = math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0)
 
 	if
-		tangent_velocity:GetLength() > math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0)
+		tangent_x * tangent_x + tangent_y * tangent_y + tangent_z * tangent_z > max_tangent_speed * max_tangent_speed
 	then
 		return base_passes
 	end

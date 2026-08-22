@@ -1,3 +1,4 @@
+local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
@@ -29,8 +30,8 @@ local BOX_SUPPORT_REDUCTION_SCRATCH = {
 }
 local SAT_DELTA = Vec3(0, 0, 0)
 local SAT_CROSS = Vec3(0, 0, 0)
-local BOX_FACE_SLOT_A = {}
-local BOX_FACE_SLOT_B = {}
+local BOX_FACE_SLOT_A = {points = {Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0)}}
+local BOX_FACE_SLOT_B = {points = {Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0)}}
 local BOX_FACE_SLOTS = {BOX_FACE_SLOT_A, BOX_FACE_SLOT_B}
 local box_face_slot_index = 1
 local FACE_REF_LOCAL = Vec3(0, 0, 0)
@@ -80,81 +81,68 @@ local function add_box_contact_point(contacts, point_a, point_b, separation)
 	return convex_manifold.AddContactPoint(contacts, point_a, point_b, 0.12, separation)
 end
 
-local function fill_cached_box_faces(polyhedron, world_vertices, out)
-	out = out or {}
-	local faces = polyhedron.faces
+-- face corners reuse the same SetVecMul world transform as the old cached
+-- polyhedron path (bit-identical values) but only for the four corners of the
+-- requested face, into the slot's persistent points, without the 8-vertex
+-- polyhedron rebuild or allocations
+local FACE_LOCAL_POINT = Vec3(0, 0, 0)
+-- local corner coefficients per face, in the same per-face ordering as the
+-- polyhedron's BOX_FACE_INDICES so clipping sees identical point sequences
+local FACE_CORNERS = {
+	{
+		{1, -1, -1},
+		{1, 1, -1},
+		{1, 1, 1},
+		{1, -1, 1},
+	},
+	{
+		{-1, -1, -1},
+		{-1, -1, 1},
+		{-1, 1, 1},
+		{-1, 1, -1},
+	},
+	{
+		{-1, 1, -1},
+		{-1, 1, 1},
+		{1, 1, 1},
+		{1, 1, -1},
+	},
+	{
+		{-1, -1, -1},
+		{1, -1, -1},
+		{1, -1, 1},
+		{-1, -1, 1},
+	},
+	{
+		{-1, -1, 1},
+		{1, -1, 1},
+		{1, 1, 1},
+		{-1, 1, 1},
+	},
+	{
+		{-1, -1, -1},
+		{-1, 1, -1},
+		{1, 1, -1},
+		{1, -1, -1},
+	},
+}
 
-	for face_index = 1, #faces do
-		local face = faces[face_index]
-		local cached_face = out[face_index]
-
-		if not cached_face then
-			cached_face = {points = {}}
-			out[face_index] = cached_face
-		end
-
-		local points = cached_face.points
-		local indices = face.indices
-
-		for i = 1, #indices do
-			points[i] = world_vertices[indices[i]]
-		end
-
-		for i = #indices + 1, #points do
-			points[i] = nil
-		end
-	end
-
-	for i = #faces + 1, #out do
-		out[i] = nil
-	end
-
-	return out
-end
-
-local function get_cached_box_faces(body)
-	local shape = body:GetPhysicsShape()
-	local polyhedron = shape.GetPolyhedron and shape:GetPolyhedron()
-
-	if not polyhedron then return nil end
-
-	local position = body:GetPosition()
-	local rotation = body:GetRotation()
-	local cache = body._PhysicsBoxFaceCache or {}
-	body._PhysicsBoxFaceCache = cache
-
-	if
-		cache.polyhedron == polyhedron and
-		cache.px == position.x and
-		cache.py == position.y and
-		cache.pz == position.z and
-		cache.rx == rotation.x and
-		cache.ry == rotation.y and
-		cache.rz == rotation.z and
-		cache.rw == rotation.w
-	then
-		return cache.faces
-	end
-
-	cache.polyhedron = polyhedron
-	cache.px = position.x
-	cache.py = position.y
-	cache.pz = position.z
-	cache.rx = rotation.x
-	cache.ry = rotation.y
-	cache.rz = rotation.z
-	cache.rw = rotation.w
-	cache.faces = fill_cached_box_faces(
-		polyhedron,
-		polyhedron_solver.GetPolyhedronWorldVertices(body, polyhedron),
-		cache.faces
-	)
-	return cache.faces
+local function set_face_corner(out, rotation, position, lx, ly, lz)
+	FACE_LOCAL_POINT.x = lx
+	FACE_LOCAL_POINT.y = ly
+	FACE_LOCAL_POINT.z = lz
+	Quat.SetVecMul(out, rotation, FACE_LOCAL_POINT)
+	out.x = out.x + position.x
+	out.y = out.y + position.y
+	out.z = out.z + position.z
 end
 
 local function get_box_face(body, desired_normal)
 	local shape = body:GetPhysicsShape()
-	local extents = shape:GetExtents()
+	local size = shape.Size
+	local ex = size.x * 0.5
+	local ey = size.y * 0.5
+	local ez = size.z * 0.5
 	local axes = shape:GetAxes(body)
 	local axis_index = 1
 	local best_alignment = -math.huge
@@ -173,36 +161,6 @@ local function get_box_face(body, desired_normal)
 	local sign = axis:Dot(desired_normal) >= 0 and 1 or -1
 	local tangent_u_index, tangent_v_index = get_other_axis_indices(axis_index)
 	local face_index = (axis_index - 1) * 2 + (sign > 0 and 1 or 2)
-	local cached_faces = get_cached_box_faces(body)
-	local world_points = cached_faces and cached_faces[face_index] and cached_faces[face_index].points
-
-	if not world_points then
-		local ex, ey, ez = extents.x, extents.y, extents.z
-
-		if axis_index == 1 then
-			world_points = {
-				body:LocalToWorld(Vec3(sign * ex, -ey, -ez)),
-				body:LocalToWorld(Vec3(sign * ex, ey, -ez)),
-				body:LocalToWorld(Vec3(sign * ex, ey, ez)),
-				body:LocalToWorld(Vec3(sign * ex, -ey, ez)),
-			}
-		elseif axis_index == 2 then
-			world_points = {
-				body:LocalToWorld(Vec3(-ex, sign * ey, -ez)),
-				body:LocalToWorld(Vec3(ex, sign * ey, -ez)),
-				body:LocalToWorld(Vec3(ex, sign * ey, ez)),
-				body:LocalToWorld(Vec3(-ex, sign * ey, ez)),
-			}
-		else
-			world_points = {
-				body:LocalToWorld(Vec3(-ex, -ey, sign * ez)),
-				body:LocalToWorld(Vec3(ex, -ey, sign * ez)),
-				body:LocalToWorld(Vec3(ex, ey, sign * ez)),
-				body:LocalToWorld(Vec3(-ex, ey, sign * ez)),
-			}
-		end
-	end
-
 	local face = BOX_FACE_SLOTS[box_face_slot_index]
 	box_face_slot_index = box_face_slot_index % 2 + 1
 	local normal = face.normal or Vec3(0, 0, 0)
@@ -212,12 +170,22 @@ local function get_box_face(body, desired_normal)
 	normal.z = axis.z * sign
 	face.axis_index = axis_index
 	face.sign = sign
-	face.plane = sign * get_component(extents, axis_index)
+	face.plane = sign * (axis_index == 1 and ex or axis_index == 2 and ey or ez)
 	face.tangent_u_index = tangent_u_index
 	face.tangent_v_index = tangent_v_index
-	face.tangent_u_extent = get_component(extents, tangent_u_index)
-	face.tangent_v_extent = get_component(extents, tangent_v_index)
-	face.points = world_points
+	face.tangent_u_extent = tangent_u_index == 1 and ex or tangent_u_index == 2 and ey or ez
+	face.tangent_v_extent = tangent_v_index == 1 and ex or tangent_v_index == 2 and ey or ez
+	local rotation = body.Rotation
+	local position = body.Position
+	local points = face.points
+	local p1, p2, p3, p4 = points[1], points[2], points[3], points[4]
+	local corners = FACE_CORNERS[face_index]
+	local c1, c2, c3, c4 = corners[1], corners[2], corners[3], corners[4]
+	set_face_corner(p1, rotation, position, c1[1] * ex, c1[2] * ey, c1[3] * ez)
+	set_face_corner(p2, rotation, position, c2[1] * ex, c2[2] * ey, c2[3] * ez)
+	set_face_corner(p3, rotation, position, c3[1] * ex, c3[2] * ey, c3[3] * ez)
+	set_face_corner(p4, rotation, position, c4[1] * ex, c4[2] * ey, c4[3] * ez)
+	face.points = points
 	return face
 end
 
@@ -363,19 +331,32 @@ local function build_face_contacts(body_a, body_b, candidate)
 	local reference_body = reference_is_a and body_a or body_b
 	local incident_body = reference_is_a and body_b or body_a
 	local reference_normal = reference_is_a and candidate.normal or -candidate.normal
+
+	if stats:IsEnabled() then stats:PushTime("face_get_faces") end
+
 	local reference_face = get_box_face(reference_body, reference_normal)
 	local incident_face = get_box_face(incident_body, -reference_normal)
+
+	if stats:IsEnabled() then stats:PopTime() end
+
+	if stats:IsEnabled() then stats:PushTime("face_clip") end
+
 	local clipped = convex_face_clipping.ClipFacePolygonToReference(
 		reference_body,
 		reference_face,
 		incident_face.points,
 		BOX_FACE_CONTACT_SCRATCH
 	)
+
+	if stats:IsEnabled() then stats:PopTime() end
+
 	local ranked_contacts = BOX_FACE_CONTACT_SCRATCH.ranked_contacts or {}
 	BOX_FACE_CONTACT_SCRATCH.ranked_contacts = ranked_contacts
 	local ranked_count = 0
 	local position = reference_body.Position
 	local rotation = reference_body.Rotation
+
+	if stats:IsEnabled() then stats:PushTime("face_rank") end
 
 	for _, local_point in ipairs(clipped) do
 		local separation = reference_face.sign * (
@@ -413,7 +394,14 @@ local function build_face_contacts(body_a, body_b, candidate)
 		ranked_contacts[i] = nil
 	end
 
+	if stats:IsEnabled() then stats:PopTime() end
+
+	if stats:IsEnabled() then stats:PushTime("face_select") end
+
 	ranked_contacts = convex_face_clipping.SelectFaceContactEntries(ranked_contacts, reference_face, 4, BOX_FACE_CONTACT_SCRATCH)
+
+	if stats:IsEnabled() then stats:PopTime() end
+
 	local contacts = BOX_CONTACT_OUTPUT_SCRATCH.face_contacts
 
 	for i = 1, #contacts do
@@ -646,8 +634,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 
 	for i = 1, 3 do
 		if
-			not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, FACE_A_CANDIDATE)
-		or
+			not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, FACE_A_CANDIDATE) or
 			not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best, FACE_B_CANDIDATE)
 		then
 			separated = true
@@ -740,6 +727,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 				resolve_options = SKIP_FRICTION_OPTIONS
 			end
 		end
+
 		stats:PopTime()
 	else
 		stats:PushTime("box_edge_contacts")

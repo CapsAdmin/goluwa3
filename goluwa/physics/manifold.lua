@@ -235,16 +235,18 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver
-	local restitution = solver:GetPairRestitution(body_a, body_b)
-	local dynamic_friction = solver:GetPairFriction(body_a, body_b)
-	local static_friction = math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
+	local restitution = manifold_data.restitution or solver:GetPairRestitution(body_a, body_b)
+	local dynamic_friction = manifold_data.friction or solver:GetPairFriction(body_a, body_b)
+	local static_friction = manifold_data.static_friction or
+		math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
-	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
+	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
 	local separation_tolerance = get_separation_tolerance(solver)
 	local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
+	local contacts = manifold_data.contacts or {}
 
 	for pass = 1, passes do
-		for _, contact in ipairs(manifold_data.contacts or {}) do
+		for _, contact in ipairs(contacts) do
 			if lifts_broken and (contact.separation or 0) > separation_tolerance then
 				contact.normal_impulse = 0
 				contact.tangent_impulse = 0

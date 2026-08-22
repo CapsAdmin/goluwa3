@@ -25,6 +25,8 @@ local CAPSULE_CAPSULE_SWEEP_CONTEXT = {
 }
 local CAPSULE_SUPPORT_CONTACT_CONTEXT = {
 	best_point = nil,
+	sweep_point = Vec3(0, 0, 0),
+	best_point_world = Vec3(0, 0, 0),
 }
 local get_ground_normal
 local get_capsule_axis_world
@@ -80,9 +82,13 @@ local function collect_capsule_support_contact(context, collider, point, fallbac
 			fallback_hit.normal.y > best_point.hit.normal.y
 		)
 	then
+		local best_world = context.best_point_world
+		best_world.x = point.x
+		best_world.y = point.y
+		best_world.z = point.z
 		context.best_point = {
 			body = collider,
-			point = point,
+			point = best_world,
 			local_point = local_point,
 			hit = fallback_hit,
 			dt = fallback_dt,
@@ -293,8 +299,8 @@ function META:BuildSupportLocalPoints()
 	return sample_points.BuildCapsuleSupportPoints(self:GetRadius(), self:GetCylinderHalfHeight())
 end
 
-function META:SolveSupportContacts(body, dt, support_contacts)
-	if not support_contacts.BeginSupportDetection(body) then
+function META:SolveSupportContacts(body, dt, support_contacts, substep_id)
+	if not support_contacts.BeginSupportDetection(body, substep_id) then
 		support_contacts.ResolveCachedSupportContacts(body, dt)
 		return
 	end
@@ -307,7 +313,13 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 
 	if ground_shape and ground_shape.Heightmap ~= nil then
 		CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point = nil
-		support_contacts.ForEachPointSweepContact(body, dt, collect_capsule_support_contact, CAPSULE_SUPPORT_CONTACT_CONTEXT)
+		support_contacts.ForEachPointSweepContact(
+			body,
+			dt,
+			collect_capsule_support_contact,
+			CAPSULE_SUPPORT_CONTACT_CONTEXT,
+			CAPSULE_SUPPORT_CONTACT_CONTEXT.sweep_point
+		)
 		local best_point = CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point
 		CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point = nil
 

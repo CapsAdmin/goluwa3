@@ -58,9 +58,10 @@ local function get_time_function()
 			int clock_gettime(int clock_id, void *tp);
 		]])
 		local ts = ffi.new("struct { long int tv_sec; long int tv_nsec; }[1]")
+		local ts_ptr = ffi.cast("void*", ts)
 		local func = ffi.C.clock_gettime
 		return function()
-			func(1, ts)
+			func(1, ts_ptr)
 			return tonumber(ts[0].tv_sec) + tonumber(ts[0].tv_nsec) * 0.000000001
 		end
 	end

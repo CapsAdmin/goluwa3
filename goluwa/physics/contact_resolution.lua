@@ -14,9 +14,10 @@ local GROUND_OFFSET_A = Vec3()
 local GROUND_OFFSET_B = Vec3()
 local GROUND_CANDIDATE = Vec3()
 
-function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
-	local physics = body_a:GetPhysics()
-	local rolling_friction = physics.solver:GetPairRollingFriction(body_a, body_b)
+function contact_resolution.MarkPairGrounding(body_a, body_b, normal, rolling_friction)
+	if rolling_friction == nil then
+		rolling_friction = body_a:GetPhysics().solver:GetPairRollingFriction(body_a, body_b)
+	end
 
 	if -normal.y >= body_a:GetMinGroundNormalY() then
 		body_a:SetGrounded(true)
@@ -123,6 +124,20 @@ end
 
 local function get_contact_separation_tolerance(solver)
 	return math.max(solver.PENETRATION_SLOP or 0, 0.005) * 4
+end
+
+-- material properties and solver pass counts are constant for a pair within a
+-- substep, but were previously re-derived on every solver iteration from a
+-- dozen object property lookups
+local function refresh_pair_materials(solver, body_a, body_b, manifold)
+	if manifold.material_step == solver.StepStamp then return end
+
+	local friction = solver:GetPairFriction(body_a, body_b)
+	manifold.restitution = solver:GetPairRestitution(body_a, body_b)
+	manifold.friction = friction
+	manifold.static_friction = math.max(friction, solver:GetPairStaticFriction(body_a, body_b))
+	manifold.rolling_friction = solver:GetPairRollingFriction(body_a, body_b)
+	manifold.material_step = solver.StepStamp
 end
 
 local function pair_breaks_lifted_support(solver, body_a, body_b)
@@ -245,6 +260,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 			manifold.last_warm_step = solver.StepStamp
 		end
 
+		refresh_pair_materials(solver, body_a, body_b, manifold)
 		manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
 		local correction_length = get_positional_correction_length(solver, overlap, dt)
 
@@ -271,7 +287,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		end
 
 		if not options.skip_grounding then
-			contact_resolution.MarkPairGrounding(body_a, body_b, normal)
+			contact_resolution.MarkPairGrounding(body_a, body_b, normal, manifold.rolling_friction)
 			mark_pair_grounding_from_contacts(body_a, body_b, contacts)
 
 			for _, contact in ipairs(contacts) do

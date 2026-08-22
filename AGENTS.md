@@ -47,6 +47,16 @@ The profiler uses luajit's statistical profiler and jit.attach to observe trace 
 
 - The profile capture is saved to `storage/logs/jit_profile_someid.glwp` which can be read in detail, ie `PROF.Summary("storage/logs/jit_profile_someid.glwp", {top_n = 20})`
 
+# Optimizations
+
+- Trace abort reasons like `blacklisted` are caused by other trace abort reasons, it means that it was attempted too many times
+
+- LuaJIT's trace compiler is non deterministic, sometimes you may get unlucky or lucky. Beware of this.
+
+- `error thrown or hook called during recording` may happen because of the profiler itself. jit.attach and jprofile.start. There is no debug.sethook in this engine.
+
+
+
 # Coding rules
 
 "Hot code" is anything called every frame in the update/render loop, or any function invoked in a tight loop.

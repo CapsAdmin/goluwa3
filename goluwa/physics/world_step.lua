@@ -7,22 +7,46 @@ local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
 local world_step = {}
 
-local function solve_body_support_contacts(body, step_dt)
-	if not (body:IsDynamic() and body:GetAwake() and body.CollisionEnabled) then
-		return
+-- support eligibility (dynamic, collision enabled, gravity scale) and the
+-- owner/shape pairs are substep-invariant, so resolve them once per substep
+-- instead of once per body per solver iteration
+local function refresh_support_entries(bodies)
+	for _, body in ipairs(bodies) do
+		local entries = nil
+
+		if body:IsDynamic() and body.CollisionEnabled and body:GetGravityScale() ~= 0 then
+			local colliders = body:GetColliders()
+
+			if #colliders == 1 then
+				local shape = body:GetPhysicsShape()
+
+				if shape then entries = {{body, shape}} end
+			else
+				for _, collider in ipairs(colliders) do
+					local shape = collider:GetPhysicsShape()
+
+					if shape then
+						entries = entries or {}
+						entries[#entries + 1] = {collider, shape}
+					end
+				end
+			end
+		end
+
+		body._SupportEntries = entries
 	end
+end
 
-	if body:GetGravityScale() == 0 then return end
+local function solve_body_support_contacts(body, step_dt, substep_id)
+	if not body:GetAwake() then return end
 
-	local colliders = body:GetColliders()
+	local entries = body._SupportEntries
 
-	if #colliders == 1 then
-		support_contacts.SolveShapeSupportContacts(body, body:GetPhysicsShape(), step_dt)
-		return
-	end
+	if not entries then return end
 
-	for _, collider in ipairs(colliders) do
-		support_contacts.SolveShapeSupportContacts(collider, collider:GetPhysicsShape(), step_dt)
+	for i = 1, #entries do
+		local entry = entries[i]
+		support_contacts.SolveShapeSupportContacts(entry[1], entry[2], step_dt, substep_id)
 	end
 end
 
@@ -184,6 +208,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 		end
 
 		stats:PopTime()
+		refresh_support_entries(bodies)
+		local substep_id = solver.StepStamp or 0
 
 		for iter = 1, iterations do
 			if simulation_islands and simulation_islands[1] then
@@ -198,7 +224,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
 
 						for body_index = 1, #dynamic_bodies do
-							solve_body_support_contacts(dynamic_bodies[body_index], sub_dt)
+							solve_body_support_contacts(dynamic_bodies[body_index], sub_dt, substep_id)
 						end
 
 						stats:PopTime()
@@ -215,7 +241,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 				for _, body in ipairs(bodies) do
 					if body:IsDynamic() and body:GetAwake() then
-						solve_body_support_contacts(body, sub_dt)
+						solve_body_support_contacts(body, sub_dt, substep_id)
 					end
 				end
 
