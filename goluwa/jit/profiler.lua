@@ -1176,6 +1176,74 @@ local function print_top(
 	end
 end
 
+local INCLUSIVE_BUCKETS = {
+	{label = "99-100%", min = 99.0},
+	{label = "95-99%", min = 95.0},
+	{label = "75-94%", min = 75.0},
+	{label = "50-74%", min = 50.0},
+	{label = "25-49%", min = 25.0},
+	{label = "10-24%", min = 10.0},
+	{label = "<10%", min = 0.0},
+}
+
+local function print_top_inclusive_buckets(
+	w--[[#: AnyFunction]],
+	counts--[[#: Map<|any, number|>]],
+	total--[[#: number]],
+	n--[[#: number]]
+)
+	local buckets = {}
+
+	for i = 1, #INCLUSIVE_BUCKETS do
+		buckets[i] = {}
+	end
+
+	for key, value in pairs(counts) do
+		-- synthesized "(via ...)" rows duplicate their inner source row
+		if is_source_location(key) then
+			local pct = value / total * 100
+
+			for i = 1, #INCLUSIVE_BUCKETS do
+				if pct >= INCLUSIVE_BUCKETS[i].min then
+					buckets[i][#buckets[i] + 1] = {key = tostring(key), value = value}
+
+					break
+				end
+			end
+		end
+	end
+
+	for i = 1, #buckets do
+		local items = buckets[i]
+
+		table.sort(items, function(a, b)
+			if a.value ~= b.value then return a.value > b.value end
+
+			return a.key < b.key
+		end)
+
+		w(string_format("  %s (%d):\n", INCLUSIVE_BUCKETS[i].label, #items))
+
+		-- only the count matters for the low buckets
+		if i <= 5 then
+			for j = 1, math.min(n, #items) do
+				w(
+					string_format(
+						"   %5.1f%% %12d  %s\n",
+						items[j].value / total * 100,
+						items[j].value,
+						items[j].key
+					)
+				)
+			end
+
+			if #items > n then w(string_format("    (%d more)\n", #items - n)) end
+		else
+			if #items > 0 then w("    (hidden)\n") end
+		end
+	end
+end
+
 function Profiler.Summary(
 	path--[[#: string]],
 	options--[[#: {
@@ -1252,7 +1320,10 @@ function Profiler.Summary(
 	local trace_stops, trace_aborts, trace_flushes = 0, 0, 0
 	local excluded_traces = 0
 	local excluded_samples = 0
-	local abort_reasons--[[#: Map<|string, Map<|string, number|>|>]] = {}
+	local abort_files--[[#: Map<|string, Map<|string, Map<|string, number|>|>|>]] = {}
+	local trace_spans = {}
+	local pending_starts = {}
+	local superseded_aborts = 0
 	local mcode_by_gen--[[#: Map<|number, number|>]] = {}
 
 	for _, ev in ipairs(events) do
@@ -1334,6 +1405,8 @@ function Profiler.Summary(
 					end
 				end
 			end
+		elseif t == "trace_start" then
+			pending_starts[(ev.generation or 0) .. ":" .. ev.id] = ev
 		elseif t == "trace_stop" or t == "trace_abort" then
 			local keep = true
 
@@ -1357,28 +1430,89 @@ function Profiler.Summary(
 
 			if not keep then
 				excluded_traces = excluded_traces + 1
-			elseif t == "trace_stop" then
-				trace_stops = trace_stops + 1
-				local gen = ev.generation or 0
-				mcode_by_gen[gen] = (mcode_by_gen[gen] or 0) + (ev.mcode_size or 0)
 			else
-				trace_aborts = trace_aborts + 1
-				local reason = ev.abort_reason or "?"
+				local key = (ev.generation or 0) .. ":" .. ev.id
+				local start = pending_starts[key]
+				pending_starts[key] = nil
+				local span
 
-				if not ignored_abort_reasons[reason] then
-					local locs = abort_reasons[reason]
+				-- same supersession key as the html timeline view: an abort only
+				-- counts as resolved if this exact recording slot later succeeds
+				if start then
+					local loc = ev.func_info or start.func_info
+					span = {
+						key = (
+								ev.generation or
+								0
+							) .. "|" .. loc .. "|" .. tostring(start.parent_id or "") .. "|" .. tostring(start.exit_id or ""),
+					}
+				end
 
-					if not locs then
-						locs = {}
-						abort_reasons[reason] = locs
+				if t == "trace_stop" then
+					trace_stops = trace_stops + 1
+					local gen = ev.generation or 0
+					mcode_by_gen[gen] = (mcode_by_gen[gen] or 0) + (ev.mcode_size or 0)
+
+					if span then
+						span.stop = true
+						trace_spans[#trace_spans + 1] = span
 					end
+				else
+					trace_aborts = trace_aborts + 1
 
-					local loc = ev.func_info or "?"
-					locs[loc] = (locs[loc] or 0) + 1
+					if not ignored_abort_reasons[ev.abort_reason or "?"] then
+						if span then span.ev = ev else span = {ev = ev} end
+
+						trace_spans[#trace_spans + 1] = span
+					end
 				end
 			end
 		elseif t == "trace_flush" then
 			trace_flushes = trace_flushes + 1
+			pending_starts = {}
+		end
+	end
+
+	-- aborts whose recording slot later compiled successfully are superseded
+	do
+		local seen_successful = {}
+
+		for i = #trace_spans, 1, -1 do
+			local span = trace_spans[i]
+
+			if span.stop then
+				seen_successful[span.key] = true
+			elseif span.key and seen_successful[span.key] then
+				span.superseded = true
+			end
+		end
+
+		for i = 1, #trace_spans do
+			local span = trace_spans[i]
+
+			if not span.stop and not span.superseded then
+				local ev = span.ev
+				local reason = ev.abort_reason or "?"
+				local loc = ev.func_info or "?"
+				local file = loc:match("^([^:]*):%d+") or loc
+				local by_reason = abort_files[file]
+
+				if not by_reason then
+					by_reason = {}
+					abort_files[file] = by_reason
+				end
+
+				local locs = by_reason[reason]
+
+				if not locs then
+					locs = {}
+					by_reason[reason] = locs
+				end
+
+				locs[loc] = (locs[loc] or 0) + 1
+			elseif not span.stop and span.superseded then
+				superseded_aborts = superseded_aborts + 1
+			end
 		end
 	end
 
@@ -1480,57 +1614,81 @@ function Profiler.Summary(
 		w("\ntop self (innermost frame):\n")
 		print_top(w, self_frames, samples, top_n)
 		w("\ntop inclusive (samples with the frame anywhere on stack):\n")
-		print_top(w, all_frames, samples, top_n)
+		print_top_inclusive_buckets(w, all_frames, samples, top_n)
 	end
 
-	if next(abort_reasons) then
-		w("\ntop abort reasons:\n")
+	if next(abort_files) then
+		w("\ntop aborts by source:\n")
+
+		if superseded_aborts > 0 then
+			w(string_format("  (%d superseded aborts hidden)\n", superseded_aborts))
+		end
 
 		do
-			local reasons = {}
+			local files = {}
 
-			for reason, locs in pairs(abort_reasons) do
+			for file, by_reason in pairs(abort_files) do
 				local total = 0
 
-				for _, c in pairs(locs) do
-					total = total + c
+				for _, locs in pairs(by_reason) do
+					for _, c in pairs(locs) do
+						total = total + c
+					end
 				end
 
-				reasons[#reasons + 1] = {reason = reason, total = total, locs = locs}
+				files[#files + 1] = {file = file, total = total, by_reason = by_reason}
 			end
 
-			table.sort(reasons, function(a, b)
+			table.sort(files, function(a, b)
 				if a.total ~= b.total then return a.total > b.total end
 
-				return a.reason < b.reason
+				return a.file < b.file
 			end)
 
-			for i = #reasons, top_n + 1, -1 do
-				reasons[i] = nil
-			end
+			local rest = #files - math.min(top_n, #files)
 
-			for _, r in ipairs(reasons) do
-				w("  ", r.reason, "\n")
-				local items = {}
+			for i = 1, math.min(top_n, #files) do
+				local f = files[i]
+				w("  ", f.file, "\n")
+				local reasons = {}
 
-				for loc, c in pairs(r.locs) do
-					items[#items + 1] = {loc = loc, c = c}
+				for reason, locs in pairs(f.by_reason) do
+					local rtotal = 0
+
+					for _, c in pairs(locs) do
+						rtotal = rtotal + c
+					end
+
+					reasons[#reasons + 1] = {reason = reason, total = rtotal, locs = locs}
 				end
 
-				table.sort(items, function(a, b)
-					if a.c ~= b.c then return a.c > b.c end
+				table.sort(reasons, function(a, b)
+					if a.total ~= b.total then return a.total > b.total end
 
-					return a.loc < b.loc
+					return a.reason < b.reason
 				end)
 
-				for i = #items, top_n + 1, -1 do
-					items[i] = nil
-				end
+				for _, r in ipairs(reasons) do
+					w("    ", r.reason, "\n")
+					local items = {}
 
-				for _, item in ipairs(items) do
-					w("      ", item.loc, "\n")
+					for loc, c in pairs(r.locs) do
+						items[#items + 1] = {loc = loc, c = c}
+					end
+
+					table.sort(items, function(a, b)
+						if a.c ~= b.c then return a.c > b.c end
+
+						return a.loc < b.loc
+					end)
+
+					for _, item in ipairs(items) do
+						w(string_format("      %d  %s\n", item.c, item.loc))
+					end
 				end
 			end
+
+			if rest > 0 then w(string_format("  (%d more files)\n", rest)) end
 		end
 	end
 
