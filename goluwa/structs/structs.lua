@@ -38,18 +38,14 @@ function structs.Register(META)
 	end
 
 	function META:__index(key)
-		local primary_key = lookup[key]
-
-		if primary_key then return self[primary_key] end
+		if lookup[key] then return self[lookup[key]] end
 
 		return META[key]
 	end
 
 	function META:__newindex(key, value)
-		local primary_key = lookup[key]
-
-		if primary_key then
-			self[primary_key] = value
+		if lookup[key] then
+			self[lookup[key]] = value
 		else
 			self[key] = value
 		end
@@ -306,8 +302,12 @@ operators.copy = function(META, operator)
 				c.{{KEY}} = a.{{KEY}}
 				return c
 			end
+
+			local ffi = require("ffi")
+			local ffi_copy = ffi.copy
+			local len = ffi.sizeof(META.NumberType) * #META.Args[1]
 			META["CopyFrom"] = function(a, b)
-				a:Set(b:Unpack())
+				ffi_copy(a, b, len)
 				return a
 			end
 			META.__copy = META.Copy
