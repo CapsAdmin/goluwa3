@@ -47,18 +47,22 @@ commands.Add{
 		server = {type = "boolean", description = "Run as a dedicated server"},
 		["one-frame"] = {type = "boolean", description = "Shut down after the first frame"},
 		renderdoc = {type = "boolean", description = "Attach RenderDoc for debugging"},
-		no_audio = {type = "boolean", description = "Disable audio"},
+		["no-audio"] = {type = "boolean", description = "Disable audio"},
+		["no-physics"] = {type = "boolean", description = "Disable physics"},
 	},
 	callback = function(...)
 		local flags = select(select("#", ...), ...) -- flags is always last
-		_G.AUDIO = not flags.no_audio
+		_G.AUDIO = not flags["no-audio"]
 		_G.SERVER = flags.server
 		_G.CLIENT = not SERVER
 		_G.RENDER_NOOP = false
 		_G.RENDER_2D = not flags.headless and not flags.cli and not flags.server
 		_G.RENDER_3D_SIMPLE = flags["3d-simple"]
 		_G.RENDER_3D = flags["3d"] or RENDER_3D_SIMPLE
-		_G.PHYSICS = RENDER_3D or flags["physics"]
+
+		if not flags["no-physics"] then
+			_G.PHYSICS = RENDER_3D or flags["physics"]
+		end
 
 		if flags.renderdoc then
 			_G.RENDERDOC = true
