@@ -10,6 +10,12 @@ local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
 local physics = import("goluwa/physics.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
+local assets = import("goluwa/assets.lua")
+
+local function example_material(name)
+	return assets.Load("materials/examples/" .. name .. ".lua")
+end
+
 local DistanceConstraint = import("goluwa/physics/constraint.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
@@ -134,19 +140,19 @@ local function key_pressed(key)
 	return down and not was
 end
 
-local floor_material = shapes.Material{Color = Color(0.24, 0.22, 0.20, 1), Roughness = 0.9, Metallic = 0}
-local wall_material = shapes.Material{Color = Color(0.15, 0.15, 0.18, 1), Roughness = 0.95, Metallic = 0}
-local ground_material = shapes.Material{Color = Color(0.2, 0.18, 0.16, 1), Roughness = 0.92, Metallic = 0}
-local steel_material = shapes.Material{Color = Color(0.72, 0.77, 0.84, 1), Roughness = 0.22, Metallic = 1}
-local rope_material = shapes.Material{Color = Color(0.7, 0.56, 0.3, 1), Roughness = 0.95, Metallic = 0}
+local floor_material = example_material("concrete")
+local wall_material = example_material("rock")
+local ground_material = example_material("gravel")
+local steel_material = example_material("galvanized_steel")
+local rope_material = example_material("leather")
 local payload_material = shapes.Material{Color = Color(0.94, 0.44, 0.2, 1), Roughness = 0.38, Metallic = 0}
 local accent_material = shapes.Material{Color = Color(0.2, 0.72, 1.0, 1), Roughness = 0.18, Metallic = 0.1}
 local ice_material = shapes.Material{Color = Color(0.72, 0.9, 0.96, 1), Roughness = 0.06, Metallic = 0.1}
-local rubber_material = shapes.Material{Color = Color(0.25, 0.25, 0.28, 1), Roughness = 0.95, Metallic = 0}
+local rubber_material = example_material("black_rubber")
 local glass_material = shapes.Material{Color = Color(0.7, 0.82, 0.88, 1), Roughness = 0.12, Metallic = 0.3}
 local gem_material = shapes.Material{Color = Color(0.65, 0.45, 0.95, 1), Roughness = 0.15, Metallic = 0.4}
 local phase_material = shapes.Material{Color = Color(0.9, 0.4, 0.85, 1), Roughness = 0.3, Metallic = 0}
-local wood_material = shapes.Material{Color = Color(0.49, 0.31, 0.16, 1), Roughness = 0.88, Metallic = 0}
+local wood_material = example_material("wood_oak")
 -- Enclosed arena: floor, four walls and a ceiling so nothing leaves the world
 spawn_static_box(ORIGIN + Vec3(0, -0.75, 0), Vec3(48, 1.5, 32), floor_material)
 spawn_static_box(ORIGIN + Vec3(-22, 5.75, 0), Vec3(2, 13, 28), wall_material)
@@ -602,6 +608,38 @@ do -- gravity scale: zero gravity + damping drifts inside a cage
 	hover_body:SetVelocity(Vec3(2.2, 1.1, -2.4))
 end
 
+do -- friction x restitution chart: cols = friction 0..1, rows = restitution 0..1
+	local ice = Color(0.72, 0.9, 0.96, 1)
+	local rubber = Color(0.36, 0.16, 0.55, 1)
+	local bouncy = Color(0.78, 0.93, 0.12, 1)
+
+	for i = 1, 5 do
+		local friction = (i - 1) * 0.25
+		local base = ice:GetLerped(friction, rubber)
+
+		for j = 1, 5 do
+			local restitution = (j - 1) * 0.25
+			spawn_dynamic_box(
+				GROUND + Vec3(18 + (i - 3) * 0.95, 0.4, 10 + (j - 3) * 0.95),
+				Vec3(0.7, 0.7, 0.7),
+				shapes.Material{
+					Color = base:GetLerped(restitution, bouncy),
+					Roughness = math.lerp(friction, 0.06, 0.85) * math.lerp(restitution, 1, 0.45),
+					Metallic = 0,
+				},
+				make_rotation(),
+				{
+					Name = "physics_playground_grid_" .. friction .. "_" .. restitution,
+					Mass = 1,
+					AutomaticMass = false,
+					Friction = friction,
+					Restitution = restitution,
+				}
+			)
+		end
+	end
+end
+
 local ramp_last_spawn = 0
 local bullet_last_fire = 0
 local phase_last_spawn = 0
@@ -828,6 +866,15 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 			"ball ignores group 2 boxes",
 		},
 		Color(0.9, 0.4, 0.85, 1)
+	)
+	label(
+		"grid",
+		GROUND + Vec3(18, 3.4, 10),
+		"Friction x Restitution",
+		{
+			"cols: friction 0..1   rows: restitution 0..1",
+		},
+		Color(0.6, 0.75, 1, 1)
 	)
 	label(
 		"hover",

@@ -115,6 +115,17 @@ local shared = [[
 						dot(pf - vec3(1, 1, 1), hash33(pi + vec3(1, 1, 1))), w.x), w.z), w.y);
 		}
 
+		float fbm(vec3 p) {
+			float f = 0.0;
+			float a = 0.5;
+			for (int i = 0; i < 4; i++) {
+				f += a * perlin_noise(p);
+				p = p * 2.02 + 11.31;
+				a *= 0.5;
+			}
+			return f;
+		}
+
 		vec3 getTriplanar(vec3 position, vec3 normal) {
 			return vec3(perlin_noise(position * 0.2));
 		}
@@ -380,9 +391,310 @@ local showcase_materials = {
 			Normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
 		},
 	},
+	{
+		path = "materials/examples/black_rubber.lua",
+		name = "Black Rubber",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float s = perlin_noise(p * 24.0) * 0.5 + 0.5;
+					return vec4(vec3(0.05) + 0.02 * s, 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float s = perlin_noise(p * 10.0) * 0.5 + 0.5;
+					return vec4(0.86 + 0.08 * s);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.35) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/gym_rubber.lua",
+		name = "Gym Rubber (Blue)",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float s = perlin_noise(p * 20.0) * 0.5 + 0.5;
+					return vec4(mix(vec3(0.02, 0.05, 0.11), vec3(0.06, 0.11, 0.20), s), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float s = perlin_noise(p * 10.0) * 0.5 + 0.5;
+					return vec4(0.82 + 0.08 * s);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.3) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/grass.lua",
+		name = "Grass",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float f = fbm(p * 3.0) * 0.5 + 0.5;
+					float tuft = perlin_noise(p * 18.0) * 0.5 + 0.5;
+					vec3 base = mix(vec3(0.06, 0.18, 0.04), vec3(0.28, 0.42, 0.10), f);
+					return vec4(base * (0.85 + 0.3 * tuft), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float s = perlin_noise(p * 8.0) * 0.5 + 0.5;
+					return vec4(0.72 + 0.12 * s);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.9) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/wood_oak.lua",
+		name = "Wood (Oak)",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float r = length(p - vec3(0.0, -3.5, 0.0));
+					float rings = sin((r * 1.2 + fbm(p * 1.5) * 1.5) * 3.0) * 0.5 + 0.5;
+					rings = smoothstep(0.25, 0.75, rings);
+					vec3 light = vec3(0.72, 0.55, 0.35);
+					vec3 dark = vec3(0.42, 0.29, 0.17);
+					return vec4(mix(light, dark, rings), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float r = length(p - vec3(0.0, -3.5, 0.0));
+					float rings = sin((r * 1.2 + fbm(p * 1.5) * 1.5) * 3.0) * 0.5 + 0.5;
+					return vec4(0.48 + 0.15 * smoothstep(0.25, 0.75, rings));
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.5) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/galvanized_steel.lua",
+		name = "Galvanized Steel",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float m = fbm(p * 6.0) * 0.5 + 0.5;
+					return vec4(mix(vec3(0.55, 0.58, 0.60), vec3(0.75, 0.78, 0.80), m), 1.0);
+				]],
+			Metallic = "return vec4(1.0);",
+			Roughness = [[
+					float m = fbm(p * 6.0) * 0.5 + 0.5;
+					return vec4(0.22 + 0.3 * m);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.25) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/plastic_bin.lua",
+		name = "Plastic (Matte Gray)",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float mottle = perlin_noise(p * 6.0) * 0.5 + 0.5;
+					float speck = step(0.93, perlin_noise(p * 45.0) * 0.5 + 0.5);
+					vec3 base = mix(vec3(0.55, 0.58, 0.60), vec3(0.68, 0.70, 0.72), mottle);
+					return vec4(base + 0.15 * speck, 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float m = perlin_noise(p * 6.0) * 0.5 + 0.5;
+					return vec4(0.34 + 0.06 * m);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.3) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/rock.lua",
+		name = "Rock",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float f = fbm(p * 2.0) * 0.5 + 0.5;
+					return vec4(mix(vec3(0.30, 0.28, 0.26), vec3(0.45, 0.41, 0.35), f), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float f = fbm(p * 2.0) * 0.5 + 0.5;
+					return vec4(0.8 + 0.15 * f);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/gravel.lua",
+		name = "Gravel",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float n1 = perlin_noise(p * 12.0) * 0.5 + 0.5;
+					float n2 = perlin_noise(p * 28.0 + vec3(7.0)) * 0.5 + 0.5;
+					float n = 0.6 * n1 + 0.4 * n2;
+					vec3 base = mix(vec3(0.18, 0.17, 0.16), vec3(0.50, 0.48, 0.45), n);
+					return vec4(base, 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float n = 0.6 * (perlin_noise(p * 12.0) * 0.5 + 0.5) + 0.4 * (perlin_noise(p * 28.0 + vec3(7.0)) * 0.5 + 0.5);
+					return vec4(0.8 + 0.12 * n);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.8) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/rusted_iron.lua",
+		name = "Rusted Iron",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float rust = smoothstep(0.0, 0.45, fbm(p * 2.5));
+					float blotch = perlin_noise(p * 12.0) * 0.5 + 0.5;
+					vec3 steel = vec3(0.55, 0.56, 0.57);
+					vec3 rustc = vec3(0.42, 0.20, 0.08) * (0.7 + 0.6 * blotch);
+					return vec4(mix(steel, rustc, rust), 1.0);
+				]],
+			Metallic = [[
+					return vec4(1.0 - smoothstep(0.0, 0.45, fbm(p * 2.5)));
+				]],
+			Roughness = [[
+					float rust = smoothstep(0.0, 0.45, fbm(p * 2.5));
+					float blotch = perlin_noise(p * 12.0) * 0.5 + 0.5;
+					return vec4(mix(0.3, 0.9, rust) + 0.05 * blotch);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.4) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/concrete.lua",
+		name = "Concrete",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float mottle = fbm(p * 3.0) * 0.5 + 0.5;
+					float crack = 1.0 - smoothstep(0.0, 0.05, abs(fbm(p * 1.2)));
+					vec3 base = mix(vec3(0.48, 0.48, 0.46), vec3(0.62, 0.62, 0.60), mottle);
+					return vec4(mix(base, vec3(0.25), crack * 0.8), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float m = fbm(p * 3.0) * 0.5 + 0.5;
+					return vec4(0.82 + 0.1 * m);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.5) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/soil.lua",
+		name = "Soil",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float f = fbm(p * 3.0) * 0.5 + 0.5;
+					return vec4(mix(vec3(0.16, 0.11, 0.06), vec3(0.32, 0.22, 0.13), f), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float f = fbm(p * 3.0) * 0.5 + 0.5;
+					return vec4(0.92 + 0.06 * f);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.9) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/sand.lua",
+		name = "Sand",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float f = fbm(p * 6.0) * 0.5 + 0.5;
+					float fine = perlin_noise(p * 40.0) * 0.5 + 0.5;
+					return vec4(vec3(0.83, 0.74, 0.54) * (0.9 + 0.15 * f + 0.1 * fine), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float f = fbm(p * 6.0) * 0.5 + 0.5;
+					return vec4(0.88 + 0.08 * f);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.4) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/asphalt.lua",
+		name = "Asphalt",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float f = fbm(p * 8.0) * 0.5 + 0.5;
+					float speck = step(0.8, perlin_noise(p * 35.0) * 0.5 + 0.5) * 0.5;
+					return vec4(vec3(0.055 + 0.02 * f) + vec3(0.02) * speck, 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float f = fbm(p * 8.0) * 0.5 + 0.5;
+					return vec4(0.7 + 0.15 * f);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.5) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/carbon_fiber.lua",
+		name = "Carbon Fiber",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					vec2 g = p.xy * 14.0;
+					float weave = sin(g.x) * sin(g.y);
+					float id = mod(floor(g.x) + floor(g.y), 2.0);
+					float shade = mix(0.85, 1.15, weave) * mix(0.9, 1.0, id);
+					return vec4(vec3(0.045) * shade, 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float weave = sin(p.x * 14.0) * sin(p.y * 14.0);
+					return vec4(0.28 + 0.08 * (0.5 - 0.5 * weave));
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.5) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/leather.lua",
+		name = "Leather",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float f = fbm(p * 4.0) * 0.5 + 0.5;
+					return vec4(mix(vec3(0.30, 0.18, 0.09), vec3(0.47, 0.30, 0.15), f), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float f = fbm(p * 4.0) * 0.5 + 0.5;
+					return vec4(0.45 + 0.25 * f);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		path = "materials/examples/mossy_rock.lua",
+		name = "Mossy Rock",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float m = smoothstep(-0.15, 0.35, fbm(p * 2.5));
+					vec3 rock = mix(vec3(0.30, 0.28, 0.26), vec3(0.45, 0.41, 0.35), fbm(p * 3.0) * 0.5 + 0.5);
+					vec3 moss = vec3(0.13, 0.34, 0.08) * (0.8 + 0.4 * (perlin_noise(p * 12.0) * 0.5 + 0.5));
+					return vec4(mix(rock, moss, m), 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float m = smoothstep(-0.15, 0.35, fbm(p * 2.5));
+					return vec4(mix(0.85, 0.95, m));
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.9) * 0.5 + 0.5, 1.0);",
+		},
+	},
 }
 
 for _, entry in ipairs(showcase_materials) do
 	local texture_paths = register_material_textures(entry.path, entry.config, shared)
 	register_material_asset(entry.path, entry.name, entry.config, texture_paths)
 end
+
+return showcase_materials
