@@ -132,7 +132,7 @@ local rope_material = shapes.Material{Color = Color(0.70, 0.56, 0.30, 1), Roughn
 local payload_material = shapes.Material{Color = Color(0.94, 0.44, 0.20, 1), Roughness = 0.38, Metallic = 0}
 local accent_material = shapes.Material{Color = Color(0.20, 0.72, 1.00, 1), Roughness = 0.18, Metallic = 0.1}
 local wood_material = shapes.Material{Color = Color(0.49, 0.31, 0.16, 1), Roughness = 0.88, Metallic = 0}
-spawn_static_box(ORIGIN + Vec3(0, -1.0, 0), Vec3(30, 1.5, 16), ground_material)
+spawn_static_box(ORIGIN + Vec3(0, -1.0, 0), Vec3(500, 1.5, 500), ground_material)
 spawn_static_box(ORIGIN + Vec3(-10, 1.4, 0), Vec3(4, 3, 6), ground_material)
 spawn_static_box(ORIGIN + Vec3(10, 1.4, 0), Vec3(4, 3, 6), ground_material)
 spawn_static_box(ORIGIN + Vec3(0, 7.0, -5), Vec3(12, 0.75, 2.5), ground_material)

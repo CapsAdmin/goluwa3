@@ -2,7 +2,7 @@ if not RENDER_3D then return end
 
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
-local debug_draw = import("goluwa/render3d/debug_draw.lua")
+local debug_draw = import("goluwa/debug_draw.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")

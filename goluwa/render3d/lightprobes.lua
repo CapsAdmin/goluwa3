@@ -382,8 +382,7 @@ function lightprobes.BuildProbeGrid(min_pos, max_pos, spacing, update_mode, radi
 end
 
 local function get_debug_draw_module()
-	return import.loaded["goluwa/render3d/debug_draw.lua"] or
-		import("goluwa/render3d/debug_draw.lua")
+	return import.loaded["goluwa/debug_draw.lua"] or import("goluwa/debug_draw.lua")
 end
 
 local function get_scene_probe(index)
@@ -501,7 +500,7 @@ local function build_probe_debug_lines(index, probe)
 end
 
 function lightprobes.ClearDebugOverlay()
-	local debug_draw = import.loaded["goluwa/render3d/debug_draw.lua"]
+	local debug_draw = import.loaded["goluwa/debug_draw.lua"]
 
 	if not debug_draw then return end
 
@@ -526,7 +525,7 @@ function lightprobes.SetDebugLabelsEnabled(enabled)
 	lightprobes.debug.labels_enabled = enabled ~= false
 
 	if not lightprobes.debug.labels_enabled then
-		local debug_draw = import.loaded["goluwa/render3d/debug_draw.lua"]
+		local debug_draw = import.loaded["goluwa/debug_draw.lua"]
 
 		if debug_draw then
 			debug_draw.Remove(get_probe_overlay_id("text", 0))
@@ -546,7 +545,7 @@ function lightprobes.SetDebugShowEnvironment(enabled)
 	lightprobes.debug.show_environment = enabled == true
 
 	if not lightprobes.debug.show_environment then
-		local debug_draw = import.loaded["goluwa/render3d/debug_draw.lua"]
+		local debug_draw = import.loaded["goluwa/debug_draw.lua"]
 
 		if debug_draw then
 			debug_draw.Remove(get_probe_overlay_id("sphere", 0))

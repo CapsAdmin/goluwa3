@@ -1,5 +1,5 @@
 local event = import("goluwa/event.lua")
-local debug_draw = import("goluwa/render3d/debug_draw.lua")
+local debug_draw = import("goluwa/debug_draw.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local aabb_enabled = false
 

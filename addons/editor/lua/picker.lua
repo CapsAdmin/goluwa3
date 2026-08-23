@@ -165,7 +165,7 @@ function picker.IsActive()
 	return picker.remove_events and picker.remove_events[1]
 end
 
-local debug_draw = import("goluwa/render3d/debug_draw.lua")
+local debug_draw = import("goluwa/debug_draw.lua")
 
 function picker.Update(dt)
 	do -- draw non-visual entity indicators

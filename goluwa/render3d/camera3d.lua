@@ -76,7 +76,7 @@ do
 		self:InvalidateViewMatrix()
 	end
 
-	function META:WorldPositionToScreen(position, screen_width, screen_height)
+	function META:WorldPositionToScreen(position, screen_width, screen_height, skip_bounds_check)
 		screen_width = screen_width or render.GetWidth()
 		screen_height = screen_height or render.GetHeight()
 		local viewport = self.GetViewport and self:GetViewport() or nil
@@ -96,9 +96,11 @@ do
 		local clip = world_to_screen_matrix:MultiplyVector(position.x, position.y, position.z, 1, world_to_screen_clip)
 		local w = clip.m03
 
-		if math.abs(w) < 1e-6 then return nil end
+		if not skip_bounds_check then
+			if math.abs(w) < 1e-6 then return nil end
 
-		if w < 0 then return nil end
+			if w < 0 then return nil end
+		end
 
 		local ndc_x = clip.m00 / w
 		local ndc_y = clip.m01 / w
@@ -106,12 +108,15 @@ do
 		local vis
 
 		if
-			ndc_x < -1 or
-			ndc_x > 1 or
-			ndc_y < -1 or
-			ndc_y > 1 or
-			ndc_z < 0 or
-			ndc_z > 1
+			not skip_bounds_check and
+			(
+				ndc_x < -1 or
+				ndc_x > 1 or
+				ndc_y < -1 or
+				ndc_y > 1 or
+				ndc_z < 0 or
+				ndc_z > 1
+			)
 		then
 			return nil
 		end

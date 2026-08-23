@@ -1,6 +1,5 @@
 local debug_draw = library()
-import.loaded["goluwa/render3d/debug_draw.lua"] = debug_draw
-_G.debug_draw = debug_draw
+import.loaded["goluwa/debug_draw.lua"] = debug_draw
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -16,6 +15,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local identity_rotation = Quat(0, 0, 0, 1)
 local zero_vec = Vec3(0, 0, 0)
+local up_axis = Vec3(0, 1, 0)
 local overlay_font
 local unit_box_poly
 local unit_sphere_poly
@@ -109,7 +109,9 @@ end
 local function get_drawable(entry)
 	if entry.kind == "sphere" then return debug_draw.GetUnitSpherePolygon() end
 
-	if entry.kind == "box" then return debug_draw.GetUnitBoxPolygon() end
+	if entry.kind == "box" or entry.kind == "line" then
+		return debug_draw.GetUnitBoxPolygon()
+	end
 
 	if entry.kind == "mesh" then return entry.drawable end
 
@@ -135,6 +137,17 @@ local function draw_drawable(cmd, drawable)
 	end
 end
 
+local function rotation_align_y_to(direction)
+	local dot = direction:GetDot(up_axis)
+
+	if dot > 0.999999 then return identity_rotation end
+
+	if dot < -0.999999 then return QuatFromAxis(math.pi, Vec3(1, 0, 0)) end
+
+	local axis = up_axis:GetCross(direction):GetNormalized()
+	return QuatFromAxis(math.acos(dot), axis)
+end
+
 local function get_entry_matrix(entry)
 	if entry.matrix then return entry.matrix end
 
@@ -144,12 +157,28 @@ local function get_entry_matrix(entry)
 		return debug_draw.MakeMatrix(entry.position or zero_vec, entry.rotation or identity_rotation, scale)
 	end
 
+	if entry.kind == "line" then
+		local direction = entry.to - entry.from
+		local length = direction:GetLength()
+		local center = entry.from + direction * 0.5
+		local thickness = entry.line_width or 1
+
+		if length < 0.0001 then
+			return debug_draw.MakeMatrix(center, identity_rotation, Vec3(thickness, 0.0001, thickness))
+		end
+
+		local rotation = rotation_align_y_to(direction / length)
+		return debug_draw.MakeMatrix(center, rotation, Vec3(thickness, length, thickness))
+	end
+
 	local scale = entry.size or entry.scale or Vec3(1, 1, 1)
 	return debug_draw.MakeMatrix(entry.position or zero_vec, entry.rotation or identity_rotation, scale)
 end
 
 local function draw_shape_entry(entry, cmd)
-	if entry.kind == "text" or entry.kind == "line" then return false end
+	if entry.kind == "text" then return false end
+
+	if entry.kind == "line" and not entry.beam then return false end
 
 	local drawable = get_drawable(entry)
 
@@ -201,18 +230,16 @@ local function draw_text_entry(entry)
 	)
 end
 
-local function draw_line_entry(entry)
-	local from = render3d.GetCamera():WorldPositionToScreen(entry.from)
-	local to = render3d.GetCamera():WorldPositionToScreen(entry.to)
+local function draw_2d_line_entry(entry)
+	local from = render3d.GetCamera():WorldPositionToScreen(entry.from, nil, nil, true)
+	local to = render3d.GetCamera():WorldPositionToScreen(entry.to, nil, nil, true)
 
 	if not (from and to) then return end
 
-	render2d.SetTexture(nil)
-	local r, g, b, a = unpack_color(entry.color, Color(1, 0.5, 0.2, 1))
-	render2d.SetColor(r, g, b)
-	render2d.PushAlphaMultiplier(a)
-	render2d.DrawLine(from.x, from.y, to.x, to.y, entry.line_width or 1, entry.smooth ~= false)
-	render2d.PopAlphaMultiplier()
+	local dx, dy = to.x - from.x, to.y - from.y
+	local length = math.sqrt((dx * dx) + (dy * dy))
+	local width = entry.line_width or 1
+	render2d.DrawRectf(from.x, from.y, length, width, math.atan2(dy, dx), 0, width / 2)
 end
 
 local function draw_2d_entries()
@@ -221,8 +248,13 @@ local function draw_2d_entries()
 	for _, entry in pairs(entries) do
 		if entry.kind == "text" then
 			draw_text_entry(entry)
-		elseif entry.kind == "line" then
-			draw_line_entry(entry)
+		elseif entry.kind == "line" and not entry.beam then
+			local r, g, b, a = unpack_color(entry.color, Color(1, 0.5, 0.2, 1))
+			render2d.SetTexture(nil)
+			render2d.SetColor(r, g, b)
+			render2d.PushAlphaMultiplier(a)
+			draw_2d_line_entry(entry)
+			render2d.PopAlphaMultiplier()
 		end
 	end
 end
@@ -516,7 +548,11 @@ function debug_draw.DrawLine(options)
 	entry.to = clone_vec3(options.to or options.stop)
 	entry.color = clone_color(options.color, Color(1.0, 0.75, 0.28, 0.95))
 	entry.line_width = options.line_width or options.width or 1
-	entry.smooth = options.smooth
+	entry.beam = options.beam == true
+	entry.ignore_z = options.ignore_z
+	entry.translucent = options.translucent
+	entry.double_sided = options.double_sided
+	entry.emissive = options.emissive
 	return entry.id
 end
 
