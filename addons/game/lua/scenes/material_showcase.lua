@@ -21,13 +21,7 @@ local function sphere(material)
 		Position = sphere_position,
 		Radius = sphere_radius,
 		Material = material,
-		RigidBody = {
-			Shape = SphereShape.New(sphere_radius),
-			LinearDamping = 0.08,
-			AngularDamping = 0.35,
-			Friction = 0.2,
-			Restitution = 0.25,
-		},
+		RigidBody = false,
 	}
 end
 
