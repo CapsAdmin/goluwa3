@@ -18,7 +18,8 @@ gpu_culling.frame_buffers = gpu_culling.frame_buffers or nil
 gpu_culling.scene_acceleration_dirty = gpu_culling.scene_acceleration_dirty ~= false
 gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation or 0
 gpu_culling.published_scene_acceleration_generation = gpu_culling.published_scene_acceleration_generation or 0
-gpu_culling.frame_buffers_generation = gpu_culling.frame_buffers_generation or -1
+gpu_culling.frame_buffers_structure_key = gpu_culling.frame_buffers_structure_key or nil
+gpu_culling.dataset_buffers_structure_key = gpu_culling.dataset_buffers_structure_key or nil
 gpu_culling.main_view_async_submission_serial = gpu_culling.main_view_async_submission_serial or 0
 local float16 = ffi.typeof("float[16]")
 local VALID_OCCLUSION_MODES = {
@@ -1457,11 +1458,25 @@ local function build_scene_dataset(acceleration)
 		shadow_instance_world_change_version = 0,
 		total_visual_count = acceleration.visual_count or 0,
 	}
+	local prev_dataset = gpu_culling.scene_dataset
+	local prev_static_visuals = prev_dataset and prev_dataset.static_visuals
 
 	for i, item in ipairs(acceleration.items or {}) do
 		local component = item.component
 		local entry_offset = #dataset.main_entries
-		local serialized = serialize_component(component, false)
+		local prev_serialized = prev_static_visuals and prev_static_visuals[i]
+		local aabb = item.world_aabb
+		local reuse = prev_serialized and
+			prev_serialized.component == component and
+			aabb and
+			prev_serialized.world_aabb and
+			prev_serialized.world_aabb.min_x == aabb.min_x and
+			prev_serialized.world_aabb.min_y == aabb.min_y and
+			prev_serialized.world_aabb.min_z == aabb.min_z and
+			prev_serialized.world_aabb.max_x == aabb.max_x and
+			prev_serialized.world_aabb.max_y == aabb.max_y and
+			prev_serialized.world_aabb.max_z == aabb.max_z
+		local serialized = reuse and prev_serialized or serialize_component(component, false)
 		dataset.static_visuals[i] = serialized
 		dataset.main_visuals[#dataset.main_visuals + 1] = serialized
 
@@ -1501,10 +1516,24 @@ local function build_scene_dataset(acceleration)
 		dataset.dynamic_entry_count = dataset.dynamic_entry_count + serialized.render_entry_count
 	end
 
+	local prev_shadow_static_visuals = prev_dataset and prev_dataset.shadow_static_visuals
+
 	for i, item in ipairs(acceleration.shadow_items or {}) do
 		local component = item.component
 		local entry_offset = #dataset.shadow_entries
-		local serialized = serialize_component(component, false)
+		local prev_serialized = prev_shadow_static_visuals and prev_shadow_static_visuals[i]
+		local aabb = item.world_aabb
+		local reuse = prev_serialized and
+			prev_serialized.component == component and
+			aabb and
+			prev_serialized.world_aabb and
+			prev_serialized.world_aabb.min_x == aabb.min_x and
+			prev_serialized.world_aabb.min_y == aabb.min_y and
+			prev_serialized.world_aabb.min_z == aabb.min_z and
+			prev_serialized.world_aabb.max_x == aabb.max_x and
+			prev_serialized.world_aabb.max_y == aabb.max_y and
+			prev_serialized.world_aabb.max_z == aabb.max_z
+		local serialized = reuse and prev_serialized or serialize_component(component, false)
 		dataset.shadow_static_visuals[i] = serialized
 
 		for _, entry in ipairs(serialized.entries) do
@@ -1748,6 +1777,12 @@ local function build_scene_dataset(acceleration)
 		end
 	end
 
+	dataset.structure_key = {
+		entry_count = (dataset.static_entry_count or 0) + (dataset.dynamic_entry_count or 0),
+		batch_count = #(dataset.main_instanced_batches or {}),
+		instance_count = dataset.main_static_instance_count or 0,
+		shadow_instance_count = dataset.shadow_instance_count or 0,
+	}
 	return dataset
 end
 
@@ -2078,6 +2113,15 @@ local function remove_buffer(buffer)
 	if buffer and buffer.Remove then buffer:Remove() end
 end
 
+local function structure_key_matches(a, b)
+	if not a or not b then return false end
+
+	return a.entry_count == b.entry_count and
+		a.batch_count == b.batch_count and
+		a.instance_count == b.instance_count and
+		a.shadow_instance_count == b.shadow_instance_count
+end
+
 local function clear_dataset_buffers()
 	local dataset_buffers = gpu_culling.dataset_buffers
 
@@ -2095,6 +2139,7 @@ local function clear_dataset_buffers()
 
 	gpu_culling.dataset_buffers = nil
 	gpu_culling.dataset_buffers_generation = -1
+	gpu_culling.dataset_buffers_structure_key = nil
 end
 
 local function clear_frame_buffers()
@@ -2125,7 +2170,7 @@ local function clear_frame_buffers()
 	end
 
 	gpu_culling.frame_buffers = nil
-	gpu_culling.frame_buffers_generation = -1
+	gpu_culling.frame_buffers_structure_key = nil
 	gpu_culling.main_view_async_slot_index = nil
 end
 
@@ -2371,6 +2416,47 @@ local function update_cull_result(
 	return result
 end
 
+local function update_dataset_buffers_in_place(dataset, buffers)
+	local upload = build_dataset_upload(dataset)
+	buffers.layout = upload.layout
+
+	if upload.main.visual_byte_size > 0 then
+		buffers.main_visual_buffer:CopyData(upload.main.visual_records, upload.main.visual_byte_size)
+	end
+
+	if upload.main.entry_byte_size > 0 then
+		buffers.main_entry_buffer:CopyData(upload.main.entry_records, upload.main.entry_byte_size)
+	end
+
+	if upload.main_static_instance_worlds.byte_size > 0 then
+		buffers.main_static_instance_world_buffer:CopyData(upload.main_static_instance_worlds.world_matrices, upload.main_static_instance_worlds.byte_size)
+	end
+
+	if upload.main_instanced_batches.byte_size > 0 then
+		buffers.main_instanced_batch_buffer:CopyData(upload.main_instanced_batches.batch_records, upload.main_instanced_batches.byte_size)
+	end
+
+	if upload.shadow.visual_byte_size > 0 then
+		buffers.shadow_visual_buffer:CopyData(upload.shadow.visual_records, upload.shadow.visual_byte_size)
+	end
+
+	if upload.shadow.entry_byte_size > 0 then
+		buffers.shadow_entry_buffer:CopyData(upload.shadow.entry_records, upload.shadow.entry_byte_size)
+	end
+
+	if upload.shadow_instanced_batches.byte_size > 0 then
+		buffers.shadow_instanced_batch_buffer:CopyData(upload.shadow_instanced_batches.batch_records, upload.shadow_instanced_batches.byte_size)
+	end
+
+	if upload.static_bvh.node_byte_size > 0 then
+		buffers.static_bvh_node_buffer:CopyData(upload.static_bvh.node_records, upload.static_bvh.node_byte_size)
+	end
+
+	if upload.shadow_bvh.node_byte_size > 0 then
+		buffers.shadow_bvh_node_buffer:CopyData(upload.shadow_bvh.node_records, upload.shadow_bvh.node_byte_size)
+	end
+end
+
 local function ensure_dataset_buffers(dataset)
 	if not dataset then
 		clear_dataset_buffers()
@@ -2378,15 +2464,17 @@ local function ensure_dataset_buffers(dataset)
 	end
 
 	if
-		gpu_culling.dataset_buffers_generation == dataset.generation and
+		structure_key_matches(gpu_culling.dataset_buffers_structure_key, dataset.structure_key) and
 		gpu_culling.dataset_buffers
 	then
+		update_dataset_buffers_in_place(dataset, gpu_culling.dataset_buffers)
 		return gpu_culling.dataset_buffers
 	end
 
 	clear_dataset_buffers()
 	gpu_culling.dataset_buffers = build_dataset_buffers(dataset)
 	gpu_culling.dataset_buffers_generation = gpu_culling.dataset_buffers and dataset.generation or -1
+	gpu_culling.dataset_buffers_structure_key = gpu_culling.dataset_buffers and dataset.structure_key or nil
 	return gpu_culling.dataset_buffers
 end
 
@@ -2678,7 +2766,7 @@ local function ensure_frame_buffers(dataset)
 	end
 
 	if
-		gpu_culling.frame_buffers_generation == dataset.generation and
+		structure_key_matches(gpu_culling.frame_buffers_structure_key, dataset.structure_key) and
 		gpu_culling.frame_buffers
 	then
 		return gpu_culling.frame_buffers
@@ -2686,7 +2774,7 @@ local function ensure_frame_buffers(dataset)
 
 	clear_frame_buffers()
 	gpu_culling.frame_buffers = build_frame_buffers(dataset)
-	gpu_culling.frame_buffers_generation = gpu_culling.frame_buffers and dataset.generation or -1
+	gpu_culling.frame_buffers_structure_key = gpu_culling.frame_buffers and dataset.structure_key or nil
 	return gpu_culling.frame_buffers
 end
 
@@ -2695,8 +2783,6 @@ function gpu_culling.InvalidateSceneAcceleration()
 	gpu_culling.scene_acceleration_dirty = true
 	gpu_culling.scene_acceleration = nil
 	gpu_culling.scene_dataset = nil
-	clear_dataset_buffers()
-	clear_frame_buffers()
 end
 
 function gpu_culling.PublishSceneAcceleration(acceleration)
@@ -2723,10 +2809,6 @@ end
 
 function gpu_culling.GetDatasetBuffers()
 	return gpu_culling.dataset_buffers
-end
-
-function gpu_culling.GetFrameBuffersGeneration()
-	return gpu_culling.frame_buffers_generation
 end
 
 function gpu_culling.GetDatasetBuffersGeneration()

@@ -672,11 +672,23 @@ local function can_use_shadow_aabb_cull(component, render_entries)
 end
 
 local function rebuild_scene_acceleration()
+	local prev = visual.scene_acceleration
+	local prev_items = prev and prev.items
+	local prev_item_lookup = {}
+
+	if prev_items then
+		for _, item in ipairs(prev_items) do
+			prev_item_lookup[item.component] = item
+		end
+	end
+
 	local items = {}
 	local dynamic_components = {}
 	local shadow_items = {}
 	local dynamic_shadow_components = {}
 	local non_aabb_shadow_components = {}
+	local static_dirty = false
+	local shadow_static_dirty = false
 
 	for _, component in ipairs(Visual.Instances or {}) do
 		local render_entries = component:GetRenderEntries()
@@ -696,10 +708,23 @@ local function rebuild_scene_acceleration()
 					end
 				end
 			else
+				local prev_item = prev_item_lookup[component]
+				local aabb_changed = not prev_item or
+					prev_item.min_x ~= world_aabb.min_x or
+					prev_item.min_y ~= world_aabb.min_y or
+					prev_item.min_z ~= world_aabb.min_z or
+					prev_item.max_x ~= world_aabb.max_x or
+					prev_item.max_y ~= world_aabb.max_y or
+					prev_item.max_z ~= world_aabb.max_z
+
+				if aabb_changed then static_dirty = true end
+
 				add_scene_acceleration_item(items, component, world_aabb)
 
 				if component.CastShadows then
 					if shadow_aabb_cull then
+						if aabb_changed then shadow_static_dirty = true end
+
 						add_scene_acceleration_item(shadow_items, component, world_aabb)
 					else
 						non_aabb_shadow_components[#non_aabb_shadow_components + 1] = component
@@ -715,23 +740,34 @@ local function rebuild_scene_acceleration()
 	visual.scene_acceleration.shadow_items = shadow_items
 	visual.scene_acceleration.dynamic_shadow_components = dynamic_shadow_components
 	visual.scene_acceleration.non_aabb_shadow_components = non_aabb_shadow_components
-	visual.scene_acceleration.tree = #items > 0 and
-		BVH.Build(
-			items,
-			get_scene_acceleration_item_bounds,
-			get_scene_acceleration_item_centroid,
-			8
-		) or
-		nil
-	visual.scene_acceleration.shadow_tree = #shadow_items > 0 and
-		BVH.Build(
-			shadow_items,
-			get_scene_acceleration_item_bounds,
-			get_scene_acceleration_item_centroid,
-			8
-		) or
-		nil
+	local static_count_same = (prev and prev.static_item_count or -1) == #items
+	local shadow_static_count_same = (prev and prev.shadow_static_item_count or -1) == #shadow_items
+
+	if static_dirty or not static_count_same then
+		visual.scene_acceleration.tree = #items > 0 and
+			BVH.Build(
+				items,
+				get_scene_acceleration_item_bounds,
+				get_scene_acceleration_item_centroid,
+				8
+			) or
+			nil
+	end
+
+	if shadow_static_dirty or not shadow_static_count_same then
+		visual.scene_acceleration.shadow_tree = #shadow_items > 0 and
+			BVH.Build(
+				shadow_items,
+				get_scene_acceleration_item_bounds,
+				get_scene_acceleration_item_centroid,
+				8
+			) or
+			nil
+	end
+
 	visual.scene_acceleration.visual_count = #(Visual.Instances or {})
+	visual.scene_acceleration.static_item_count = #items
+	visual.scene_acceleration.shadow_static_item_count = #shadow_items
 	visual.scene_acceleration.dirty = false
 	visual.scene_acceleration.visible_frame = nil
 	visual.scene_acceleration.visible_cull_result = nil
@@ -741,7 +777,7 @@ local function rebuild_scene_acceleration()
 	visual.scene_acceleration.visible_render_entries = nil
 	visual.scene_acceleration.visible_render_entries_frame = nil
 
-	if visual.scene_acceleration.tree then
+	if (static_dirty or not static_count_same) and visual.scene_acceleration.tree then
 		visual.scene_acceleration.tree.components = visual.scene_acceleration.tree.items
 		visual.scene_acceleration.tree.items = nil
 		annotate_tree_max_cull_distance(visual.scene_acceleration.tree.root, visual.scene_acceleration.tree.components)
@@ -750,7 +786,14 @@ local function rebuild_scene_acceleration()
 		}
 	end
 
-	if visual.scene_acceleration.shadow_tree then
+	if
+		(
+			shadow_static_dirty or
+			not shadow_static_count_same
+		)
+		and
+		visual.scene_acceleration.shadow_tree
+	then
 		visual.scene_acceleration.shadow_tree.components = visual.scene_acceleration.shadow_tree.items
 		visual.scene_acceleration.shadow_tree.items = nil
 		annotate_tree_max_cull_distance(visual.scene_acceleration.shadow_tree.root, visual.scene_acceleration.shadow_tree.components)
