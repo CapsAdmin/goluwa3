@@ -111,7 +111,11 @@ function META:CanHoldBody(body)
 end
 
 function META:CanGrabBody(body)
-	return body and body.IsValid and body:IsValid() and body.WorldGeometry ~= true
+	return body and
+		body.IsValid and
+		body:IsValid() and
+		body.WorldGeometry ~= true and
+		not body:IsStatic()
 end
 
 function META:FreezeHeldBody()
@@ -169,10 +173,6 @@ function META:TryAcquireBody(look)
 	local grab_point = hit and (hit.point or hit.position) or nil
 
 	if not self:CanGrabBody(body) or not grab_point then return false end
-
-	if body.SetMotionType and not (body.IsDynamic and body:IsDynamic()) then
-		body:SetMotionType("dynamic")
-	end
 
 	self.held_body = body
 	self.held_local_point = body:WorldToLocal(grab_point)
