@@ -1167,7 +1167,7 @@ end
 
 do
 	visual.noculling = false
-	visual.freeze_culling = false
+	visual.freeze_frustum_planes = false
 	visual.occlusion_culling_enabled = true
 	visual.shadow_debug_filter = nil
 	visual.shadow_debug_log = true
@@ -1537,7 +1537,9 @@ do
 	end
 
 	local function get_frustum_planes()
-		if visual.freeze_culling and cached_frustum_frame >= 0 then
+		if visual.freeze_frustum_planes and cached_frustum_frame >= 0 then
+			--time = dt or 0.05,
+			print(cached_frustum_planes)
 			return cached_frustum_planes
 		end
 

@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local Color = import("goluwa/structs/color.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -140,9 +141,9 @@ event.AddListener("Draw2D", "culling_debug_panel", function()
 	}
 	y = y + line_height
 
-	if visual.freeze_culling then
+	if visual.freeze_frustum_planes then
 		render2d.DrawText{
-			text = "Culling frozen",
+			text = "Frustum planes frozen",
 			x = x,
 			y = y,
 			foreground_color = colors.warning,
@@ -197,7 +198,7 @@ event.AddListener(
 
 		local _, state_by_component = collect_culling_state()
 
-		for index, component in ipairs(Visual.Instances or {}) do
+		for index, component in ipairs(Visual.Instances) do
 			if component.Visible then
 				local aabb = component:GetWorldAABB()
 
@@ -209,7 +210,6 @@ event.AddListener(
 						aabb = aabb,
 						color = color,
 						width = state == "culled" and 2 or 1,
-						time = dt or 0.05,
 					}
 				end
 			end
@@ -221,5 +221,8 @@ event.AddListener(
 event.AddListener("KeyInput", "culling_debug", function(key, press)
 	if not press then return end
 
-	if key == "f" then render3d.freeze_culling = not render3d.freeze_culling end
+	if key == "f" then
+		visual.freeze_frustum_planes = not visual.freeze_frustum_planes
+		print("frustum planes frozen = ", visual.freeze_frustum_planes)
+	end
 end)
