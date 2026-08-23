@@ -676,6 +676,8 @@ function assets.RefreshInternalTextures()
 
 	if not RENDER_3D then return end
 
+	local Texture = import("goluwa/render/texture.lua")
+
 	for _, texture in pairs(Texture.Instances) do
 		if not texture:IsValid() then continue end
 
