@@ -2594,7 +2594,14 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	Matrix44.CopyFrom(state.world_matrix, projected)
 
 	if x and y then
-		if use_float then
+		if a then
+			-- margin is applied in local space below so it follows the rotation
+			if use_float then
+				projected:Translate(x, y, 0)
+			else
+				projected:Translate(math.ceil(x), math.ceil(y), 0)
+			end
+		elseif use_float then
 			projected:Translate(x - margin, y - margin, 0)
 		else
 			projected:Translate(math.ceil(x - margin), math.ceil(y - margin), 0)
@@ -2613,9 +2620,15 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 
 		projected:GetMultiplied(render2d.GetProjectionViewMatrix(), projected)
 	else
-		if a then projected:Rotate(a, 0, 0, 1) end
+		if a then
+			projected:Rotate(a, 0, 0, 1)
 
-		if ox then
+			if use_float then
+				projected:Translate(-(ox or 0) - margin, -(oy or 0) - margin, 0)
+			else
+				projected:Translate(math.ceil(-(ox or 0) - margin), math.ceil(-(oy or 0) - margin), 0)
+			end
+		elseif ox then
 			if use_float then
 				projected:Translate(-ox, -oy, 0)
 			else
@@ -2712,16 +2725,29 @@ draw_rect_immediate = function(x, y, w, h, a, ox, oy, margin, use_float)
 	render2d.PushWorldMatrix()
 
 	if x and y then
-		if use_float then
+		if a then
+			-- margin is applied in local space below so it follows the rotation
+			if use_float then
+				render2d.Translatef(x, y)
+			else
+				render2d.Translate(x, y)
+			end
+		elseif use_float then
 			render2d.Translatef(x - resolved_margin, y - resolved_margin)
 		else
 			render2d.Translate(x - resolved_margin, y - resolved_margin)
 		end
 	end
 
-	if a then render2d.Rotate(a) end
+	if a then
+		render2d.Rotate(a)
 
-	if ox then
+		if use_float then
+			render2d.Translatef(-(ox or 0) - resolved_margin, -(oy or 0) - resolved_margin)
+		else
+			render2d.Translate(math.ceil(-(ox or 0) - resolved_margin), math.ceil(-(oy or 0) - resolved_margin))
+		end
+	elseif ox then
 		if use_float then
 			render2d.Translatef(-ox, -oy)
 		else

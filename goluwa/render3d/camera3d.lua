@@ -8,6 +8,8 @@ local render = import("goluwa/render/render.lua")
 local META = objects.CreateTemplate("render3d_camera3d")
 local world_to_screen_matrix = Matrix44()
 local world_to_screen_clip = Matrix44()
+local line_view_a = Matrix44()
+local line_view_b = Matrix44()
 local screen_to_world_inverse = Matrix44()
 local screen_to_world_near = Matrix44()
 local screen_to_world_far = Matrix44()
@@ -124,6 +126,64 @@ do
 		return Vec2(
 			viewport_x + (ndc_x * 0.5 + 0.5) * viewport_width,
 			viewport_y + (ndc_y * 0.5 + 0.5) * viewport_height
+		)
+	end
+
+	function META:WorldLineToScreen(from, to, screen_width, screen_height)
+		screen_width = screen_width or render.GetWidth()
+		screen_height = screen_height or render.GetHeight()
+		local view = self:BuildViewMatrix()
+		view:MultiplyVector(from.x, from.y, from.z, 1, line_view_a)
+		view:MultiplyVector(to.x, to.y, to.z, 1, line_view_b)
+
+		if not self.OrthoMode then
+			local near_z = -self.NearZ
+			local za = line_view_a.m02
+			local zb = line_view_b.m02
+
+			if za > near_z and zb > near_z then return nil end
+
+			if za > near_z then
+				local t = (za - near_z) / (za - zb)
+				line_view_a.m00 = line_view_a.m00 + (line_view_b.m00 - line_view_a.m00) * t
+				line_view_a.m01 = line_view_a.m01 + (line_view_b.m01 - line_view_a.m01) * t
+				line_view_a.m02 = near_z
+			elseif zb > near_z then
+				local t = (zb - near_z) / (zb - za)
+				line_view_b.m00 = line_view_b.m00 + (line_view_a.m00 - line_view_b.m00) * t
+				line_view_b.m01 = line_view_b.m01 + (line_view_a.m01 - line_view_b.m01) * t
+				line_view_b.m02 = near_z
+			end
+		end
+
+		local projection = self:BuildProjectionMatrix()
+		projection:MultiplyVector(line_view_a.m00, line_view_a.m01, line_view_a.m02, 1, line_view_a)
+		projection:MultiplyVector(line_view_b.m00, line_view_b.m01, line_view_b.m02, 1, line_view_b)
+		local w_a = line_view_a.m03
+		local w_b = line_view_b.m03
+
+		if math.abs(w_a) < 1e-6 or math.abs(w_b) < 1e-6 then return nil end
+
+		local viewport = self.GetViewport and self:GetViewport() or nil
+		local viewport_x = 0
+		local viewport_y = 0
+		local viewport_width = screen_width
+		local viewport_height = screen_height
+
+		if viewport then
+			viewport_x = viewport.x or 0
+			viewport_y = viewport.y or 0
+			viewport_width = viewport.w or screen_width
+			viewport_height = viewport.h or screen_height
+		end
+
+		return Vec2(
+			viewport_x + (line_view_a.m00 / w_a * 0.5 + 0.5) * viewport_width,
+			viewport_y + (line_view_a.m01 / w_a * 0.5 + 0.5) * viewport_height
+		),
+		Vec2(
+			viewport_x + (line_view_b.m00 / w_b * 0.5 + 0.5) * viewport_width,
+			viewport_y + (line_view_b.m01 / w_b * 0.5 + 0.5) * viewport_height
 		)
 	end
 

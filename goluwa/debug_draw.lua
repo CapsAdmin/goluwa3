@@ -231,10 +231,9 @@ local function draw_text_entry(entry)
 end
 
 local function draw_2d_line_entry(entry)
-	local from = render3d.GetCamera():WorldPositionToScreen(entry.from, nil, nil, true)
-	local to = render3d.GetCamera():WorldPositionToScreen(entry.to, nil, nil, true)
+	local from, to = render3d.GetCamera():WorldLineToScreen(entry.from, entry.to)
 
-	if not (from and to) then return end
+	if not from then return end
 
 	local dx, dy = to.x - from.x, to.y - from.y
 	local length = math.sqrt((dx * dx) + (dy * dy))
