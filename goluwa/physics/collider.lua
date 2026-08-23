@@ -403,6 +403,11 @@ function META:GetHalfExtents()
 	return self.Shape:GetHalfExtents(self)
 end
 
+function META:GetSphereRadius()
+	local shape = self.Shape
+	return shape and shape.GetRadius and shape:GetRadius() or 0
+end
+
 function META:ApplyCorrection(compliance, correction, pos, other_body, other_pos, dt)
 	return self.Body:ApplyCorrection(compliance, correction, pos, other_body, other_pos, dt)
 end

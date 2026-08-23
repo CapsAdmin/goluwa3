@@ -20,7 +20,11 @@ local CAPSULE_MODEL_PATH = "models/capsule.lua"
 local function get(config, name)
 	if not config then return nil end
 
-	return config[name] or config[name:lower()]
+	local value = config[name]
+
+	if value == nil then value = config[name:lower()] end
+
+	return value
 end
 
 local function copy_table(tbl)
