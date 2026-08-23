@@ -1,3 +1,5 @@
+if RENDER_3D_SIMPLE then return end
+
 local Quat = import("goluwa/structs/quat.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local event = import("goluwa/event.lua")
