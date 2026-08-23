@@ -1,10 +1,23 @@
+local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron_triangle_aggregator = {}
 
-function polyhedron_triangle_aggregator.OrientResultNormal(body, result, v0, v1, v2)
+function polyhedron_triangle_aggregator.OrientResultNormal(mesh_body, body, result, v0, v1, v2)
 	if not (body and result and result.normal) then return nil end
 
 	local normal = result.normal
+	local face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2)
+	local shape = mesh_body and mesh_body.GetPhysicsShape and mesh_body:GetPhysicsShape()
+
+	if
+		face_normal and
+		shape and
+		shape.IsOutwardWound and
+		shape:IsOutwardWound(mesh_body)
+	then
+		return normal:Dot(face_normal) >= 0 and normal or face_normal
+	end
+
 	local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
 
 	if (body:GetPosition() - triangle_center):Dot(normal) < 0 then
@@ -37,7 +50,7 @@ function polyhedron_triangle_aggregator.MergeContact(contacts, point_a, point_b,
 	return true
 end
 
-function polyhedron_triangle_aggregator.AccumulateMeshContacts(state, body, result, v0, v1, v2, options)
+function polyhedron_triangle_aggregator.AccumulateMeshContacts(state, mesh_body, body, result, v0, v1, v2, options)
 	if not (state and body and result and result.contacts and result.contacts[1]) then
 		return state
 	end
@@ -45,7 +58,7 @@ function polyhedron_triangle_aggregator.AccumulateMeshContacts(state, body, resu
 	options = options or {}
 	local merge_distance = options.merge_distance or 0.08
 	local max_contacts = options.max_contacts or 4
-	local normal = polyhedron_triangle_aggregator.OrientResultNormal(body, result, v0, v1, v2)
+	local normal = polyhedron_triangle_aggregator.OrientResultNormal(mesh_body, body, result, v0, v1, v2)
 
 	if not normal then return state end
 

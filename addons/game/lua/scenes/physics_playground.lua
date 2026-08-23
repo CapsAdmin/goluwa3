@@ -359,11 +359,14 @@ local function add_facet(poly, a, b, c)
 	local normal = (b - a):GetCross(c - a):GetNormalized()
 	local center = (a + b + c) * 0.333333
 
-	if normal:Dot(center) < 0 then normal = normal * -1 end
+	if normal:Dot(center) < 0 then
+		b, c = c, b
+		normal = normal * -1
+	end
 
-	poly:AddVertex{pos = a, uv = Vec2(0, 0), normal = normal}
-	poly:AddVertex{pos = b, uv = Vec2(1, 0), normal = normal}
 	poly:AddVertex{pos = c, uv = Vec2(0.5, 1), normal = normal}
+	poly:AddVertex{pos = b, uv = Vec2(1, 0), normal = normal}
+	poly:AddVertex{pos = a, uv = Vec2(0, 0), normal = normal}
 	return poly
 end
 

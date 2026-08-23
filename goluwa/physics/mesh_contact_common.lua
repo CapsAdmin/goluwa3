@@ -599,12 +599,29 @@ function mesh_contact_common.CacheTriangle(mesh_body, other_body, polygon, trian
 end
 
 function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
-	return pair_solver_helpers.GetSafeCollisionNormal(
-		delta,
-		other_body:GetVelocity() - mesh_body:GetVelocity(),
-		fallback_delta,
-		fallback_normal or pair_solver_helpers.GetCachedPairNormal(mesh_body, other_body)
+	local normal = select(
+		1,
+		pair_solver_helpers.GetSafeCollisionNormal(
+			delta,
+			other_body:GetVelocity() - mesh_body:GetVelocity(),
+			fallback_delta,
+			fallback_normal or pair_solver_helpers.GetCachedPairNormal(mesh_body, other_body)
+		)
 	)
+	local shape = mesh_body and mesh_body.GetPhysicsShape and mesh_body:GetPhysicsShape()
+
+	if
+		normal and
+		fallback_normal and
+		shape and
+		shape.IsOutwardWound and
+		shape:IsOutwardWound(mesh_body) and
+		normal:Dot(fallback_normal) < 0
+	then
+		normal = fallback_normal
+	end
+
+	return normal
 end
 
 function mesh_contact_common.UpdateBestContact(best, triangle_index, normal, overlap, point_a, point_b, polygon)

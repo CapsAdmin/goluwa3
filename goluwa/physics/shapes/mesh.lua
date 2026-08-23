@@ -392,8 +392,48 @@ function META:GetTypeName()
 	return "mesh"
 end
 
+local function compute_polygon_signed_volume(polygon)
+	local triangles = triangle_mesh.GetPolygonTriangles(polygon)
+
+	if not triangles then return 0 end
+
+	local volume = 0
+
+	for _, triangle in ipairs(triangles) do
+		local v0, v1, v2 = triangle.v0, triangle.v1, triangle.v2
+		volume = volume + v0.x * (
+				v1.y * v2.z - v1.z * v2.y
+			) - v0.y * (
+				v1.x * v2.z - v1.z * v2.x
+			) + v0.z * (
+				v1.x * v2.y - v1.y * v2.x
+			)
+	end
+
+	return volume / 6
+end
+
+function META:IsOutwardWound(body)
+	if self.ResolvedOutwardWound ~= nil then return self.ResolvedOutwardWound end
+
+	local entries = self:GetMeshPolygonEntries(body)
+	local result = #entries > 0
+
+	for _, entry in ipairs(entries) do
+		if compute_polygon_signed_volume(entry.polygon) <= 0 then
+			result = false
+
+			break
+		end
+	end
+
+	self.ResolvedOutwardWound = result
+	return result
+end
+
 function META:OnBodyGeometryChanged(body)
 	BaseShape.OnBodyGeometryChanged(self, body)
+	self.ResolvedOutwardWound = nil
 	self.ResolvedPolygonEntries = nil
 	self.ResolvedPolygonAcceleration = nil
 	self.ResolvedPolygonAccelerationSource = nil

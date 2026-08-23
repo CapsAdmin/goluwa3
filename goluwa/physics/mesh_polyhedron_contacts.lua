@@ -254,6 +254,7 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 			epsilon = EPSILON,
 			triangle_slop = context.combined_margin,
 			manifold_merge_distance = CONTACT_MERGE_DISTANCE,
+			outward_winding = context.outward_winding,
 		}
 	)
 
@@ -265,6 +266,7 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 
 		polyhedron_triangle_aggregator.AccumulateMeshContacts(
 			state,
+			mesh_body,
 			poly_body,
 			result,
 			query_v0,
@@ -318,6 +320,10 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	local use_local_space = false
 	local combined_margin = (mesh_body:GetCollisionMargin() or 0) + (poly_body:GetCollisionMargin() or 0)
 	local samples = mesh_polyhedron_contacts.BuildContactSamples(poly_body, mesh_body, use_local_space)
+	local outward_winding = mesh_shape and
+		mesh_shape.IsOutwardWound and
+		mesh_shape:IsOutwardWound(mesh_body) or
+		false
 	SOLVE_MESH_POLYHEDRON_CONTEXT.mesh_body = mesh_body
 	SOLVE_MESH_POLYHEDRON_CONTEXT.poly_body = poly_body
 	SOLVE_MESH_POLYHEDRON_CONTEXT.polyhedron = polyhedron
@@ -325,6 +331,7 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	SOLVE_MESH_POLYHEDRON_CONTEXT.samples = samples
 	SOLVE_MESH_POLYHEDRON_CONTEXT.use_local_space = use_local_space
 	SOLVE_MESH_POLYHEDRON_CONTEXT.combined_margin = combined_margin
+	SOLVE_MESH_POLYHEDRON_CONTEXT.outward_winding = outward_winding
 	mesh_contact_common.ForEachOverlappingMeshTriangle(
 		mesh_body,
 		mesh_shape,
@@ -339,6 +346,7 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	SOLVE_MESH_POLYHEDRON_CONTEXT.samples = nil
 	SOLVE_MESH_POLYHEDRON_CONTEXT.use_local_space = nil
 	SOLVE_MESH_POLYHEDRON_CONTEXT.combined_margin = 0
+	SOLVE_MESH_POLYHEDRON_CONTEXT.outward_winding = false
 	return resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 end
 

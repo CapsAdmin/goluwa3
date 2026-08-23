@@ -65,12 +65,14 @@ local function fill_triangle_prism_vertices(out, v0, v1, v2, normal, half_thickn
 	return out
 end
 
-local function orient_triangle_normal(triangle_normal, center_delta)
-	if not triangle_normal then return nil end
+local function orient_triangle_normal(normal, face_normal, center_delta, outward_winding)
+	if not normal then return nil end
 
-	return center_delta:Dot(triangle_normal) >= 0 and
-		triangle_normal or
-		triangle_normal * -1
+	if face_normal and outward_winding then
+		return normal:Dot(face_normal) >= 0 and normal or face_normal
+	end
+
+	return center_delta:Dot(normal) >= 0 and normal or normal * -1
 end
 
 local function find_best_face_index_for_normal(polyhedron, rotation, normal)
@@ -358,7 +360,7 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 		return nil
 	end
 
-	local normal = orient_triangle_normal(penetration.normal, center_delta)
+	local normal = orient_triangle_normal(penetration.normal, triangle_normal, center_delta, options.outward_winding)
 
 	if not normal then return nil end
 
@@ -368,6 +370,7 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 		triangle_normal = triangle_normal,
 		triangle_center = triangle_center,
 		center_delta = center_delta,
+		outward_winding = options.outward_winding,
 	}
 end
 
@@ -416,7 +419,12 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	chosen = build_face_candidate(
 		collider,
 		polyhedron,
-		orient_triangle_normal(penetration.triangle_normal, center_delta),
+		orient_triangle_normal(
+			penetration.triangle_normal,
+			penetration.triangle_normal,
+			center_delta,
+			penetration.outward_winding
+		),
 		normal
 	)
 	contacts = contacts or
