@@ -324,8 +324,10 @@ function render2d.DrawShape(tbl)
 end
 
 do
+	local default_font_name = fonts.GetDefaultSystemFontPath()
+
 	function render2d.GetTextSize(text, font_name, size, weight, _softness)
-		font_name = font_name or "Roboto"
+		font_name = font_name or default_font_name
 		size = size or 14
 		weight = weight or 0
 		local font = get_font(font_name, size, weight)
@@ -337,7 +339,7 @@ do
 		local text = tbl.text or ""
 		local x = tbl.x or 0
 		local y = tbl.y or 0
-		local font_name = tbl.font or "Roboto"
+		local font_name = tbl.font or default_font_name
 		local size = tbl.size or 14
 		local weight = tbl.weight or 0
 		local softness = tbl.softness or 1

@@ -1,17 +1,12 @@
-do
-	return
-end
-
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Material = import("goluwa/render3d/material.lua")
-local Entity = import("goluwa/entity.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local system = import("goluwa/system.lua")
-
-if HOTRELOAD then ecs.Clear3DWorld() end
+local Visual = import("goluwa/entities/components/visual.lua")
 
 local function spawn_sphere(pos, scale, color, use_occlusion)
 	local ent = Entity.New({Name = "sphere"})
@@ -36,7 +31,7 @@ local function spawn_sphere(pos, scale, color, use_occlusion)
 end
 
 -- Set occlusion culling to 1 to see its effect
-model_module.SetOcclusionCulling(true)
+Visual.Library.SetOcclusionCulling(true)
 -- Create a large wall to block things (Occluder)
 -- We don't enable occlusion culling on it so it's always drawn first in the query pass
 spawn_sphere(Vec3(0, 0, -5), Vec3(10, 10, 0.1), Color(0.2, 0.2, 0.2, 1), false)
@@ -61,15 +56,9 @@ print("Culling demo loaded. Use 'goluwa_occlusion_culling 1' to enable.")
 local command = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
-local stats_font = nil
 
 event.AddListener("Draw2D", "culling_demo_hud", function()
-	if not stats_font then stats_font = fonts.GetDefaultFont() end
-
-	if not stats_font then return end
-
-	local stats = model_module.GetOcclusionStats()
+	local stats = Visual.Library.GetOcclusionStats()
 	local str = string.format(
 		"Models: %d\nFrustum Culled: %d\nOcclusion Queries: %d\nConditionally Submitted: %d",
 		stats.total,
@@ -77,12 +66,11 @@ event.AddListener("Draw2D", "culling_demo_hud", function()
 		stats.with_occlusion,
 		stats.submitted_with_conditional
 	)
-	render2d.SetColor(1, 1, 1, 1)
-	stats_font:DrawText(str, 10, 10)
+	render2d.DrawText{text = str, x = 10, y = 10}
 end)
 
 command.Add("culling_stats", function()
-	local stats = model_module.GetOcclusionStats()
+	local stats = Visual.Library.GetOcclusionStats()
 	print(
 		string.format(
 			"Models: %d | Frustum Culled: %d | Occlusion Queries: %d | Conditionally Submitted: %d",

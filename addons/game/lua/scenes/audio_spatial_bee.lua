@@ -3,7 +3,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local audio = import("goluwa/audio.lua")
 local event = import("goluwa/event.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
@@ -130,7 +129,6 @@ state.center = center
 state.start_time = system.GetElapsedTime()
 state.last_listener_pos = nil
 state.last_bee_target_pos = nil
-state.font = state.font or fonts.GetDefaultFont()
 
 event.AddListener("Update", UPDATE_ID, function(dt)
 	local cam = render3d.GetCamera()
@@ -216,11 +214,8 @@ event.AddListener("Update", UPDATE_ID, function(dt)
 end)
 
 event.AddListener("Draw2D", DRAW2D_ID, function()
-	local font = state.font or fonts.GetDefaultFont()
+	if not state.source then return end
 
-	if not font or not state.source then return end
-
-	state.font = font
 	local sample_info = state.source:GetCurrentSampleInfo()
 	local spatial = audio._ComputeSpatialMixData(state.source)
 	local debug_state = audio.GetDebugState()
@@ -298,17 +293,21 @@ event.AddListener("Draw2D", DRAW2D_ID, function()
 	render2d.DrawRect(panel_x + 12, panel_y + 196, meter_w * right_fill, meter_h)
 	render2d.SetColor(0.88, 0.43, 0.31, 1)
 	render2d.DrawRect(panel_x + 12, panel_y + 216, meter_w * mixer_fill, meter_h)
-	render2d.SetColor(1, 1, 1, 1)
-	font:DrawText(hud, panel_x + 12, panel_y + 10)
+	render2d.DrawText{text = hud, x = panel_x + 12, y = panel_y + 10, softness = 0}
 
 	if debug_state.thread_error then
-		font:DrawText(debug_state.thread_error, panel_x + 12, panel_y + panel_h + 8)
+		render2d.DrawText{
+			text = debug_state.thread_error,
+			x = panel_x + 12,
+			y = panel_y + panel_h + 8,
+			softness = 0,
+		}
 	end
 
-	font:DrawText("src", panel_x + panel_w - 24, panel_y + 153)
-	font:DrawText("L", panel_x + panel_w - 18, panel_y + 173)
-	font:DrawText("R", panel_x + panel_w - 18, panel_y + 193)
-	font:DrawText("mix", panel_x + panel_w - 26, panel_y + 213)
+	render2d.DrawText{text = "src", x = panel_x + panel_w - 24, y = panel_y + 153, softness = 0}
+	render2d.DrawText{text = "L", x = panel_x + panel_w - 18, y = panel_y + 173, softness = 0}
+	render2d.DrawText{text = "R", x = panel_x + panel_w - 18, y = panel_y + 193, softness = 0}
+	render2d.DrawText{text = "mix", x = panel_x + panel_w - 26, y = panel_y + 213, softness = 0}
 end)
 
 logn("loaded scene: audio_spatial_bee")

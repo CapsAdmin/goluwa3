@@ -5,7 +5,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
-local fonts = import("goluwa/render2d/fonts.lua")
 local show_gbuffer = false
 local checkerboard_texture
 
@@ -47,16 +46,13 @@ local function draw_debug_tile(x, y, size, texture, label, swizzle_mode)
 	render2d.DrawRect(x, y, size, size)
 	render2d.PopColorUV()
 	render2d.PushColorUV(0, 1, 1, 0)
-	render2d.SetTexture(texture)
 	render2d.PushSwizzleMode(swizzle_mode or "none")
+	render2d.PushTexture(texture)
 	render2d.DrawRect(x, y, size, size)
+	render2d.PopTexture()
 	render2d.PopSwizzleMode()
 	render2d.PopColorUV()
-	render2d.SetTexture(nil)
-	render2d.SetColor(0, 0, 0, 0.5)
-	render2d.DrawRect(x, y, 150, 20)
-	render2d.SetColor(1, 1, 1, 1)
-	fonts.GetFont():DrawText(label, x + 5, y + 5)
+	render2d.DrawText{text = label, x = x + 5, y = y + 5}
 	return true
 end
 

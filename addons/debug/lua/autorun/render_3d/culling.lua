@@ -1,7 +1,7 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
+local Color = import("goluwa/structs/color.lua")
 local debug_draw = import("goluwa/render3d/debug_draw.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local visual_module = import("goluwa/entities/components/visual.lua")
@@ -10,13 +10,13 @@ local visual = visual_module.Library
 local show_culling_panel = false
 local show_culling_boxes = false
 local colors = {
-	visible = {0.25, 0.95, 0.35, 0.9},
-	conditional = {1.0, 0.82, 0.22, 0.95},
-	culled = {1.0, 0.28, 0.24, 0.95},
-	text = {0.92, 0.95, 1.0, 1.0},
-	muted = {0.62, 0.69, 0.78, 1.0},
-	accent = {0.50, 0.82, 1.0, 1.0},
-	warning = {1.0, 0.9, 0.35, 1.0},
+	visible = Color(0.25, 0.95, 0.35, 0.9),
+	conditional = Color(1.0, 0.82, 0.22, 0.95),
+	culled = Color(1.0, 0.28, 0.24, 0.95),
+	text = Color(0.92, 0.95, 1.0, 1.0),
+	muted = Color(0.62, 0.69, 0.78, 1.0),
+	accent = Color(0.50, 0.82, 1.0, 1.0),
+	warning = Color(1.0, 0.9, 0.35, 1.0),
 }
 
 local function set_panel_enabled(enabled)
@@ -103,8 +103,6 @@ end)
 event.AddListener("Draw2D", "culling_debug_panel", function()
 	if not show_culling_panel then return end
 
-	fonts.SetFont(fonts.GetDefaultFont())
-	local font = fonts.GetFont()
 	local x = 12
 	local y = 52
 	local line_height = 18
@@ -115,51 +113,80 @@ event.AddListener("Draw2D", "culling_debug_panel", function()
 	render2d.SetTexture(nil)
 	render2d.SetColor(0.05, 0.07, 0.10, 0.93)
 	render2d.DrawRoundedRect(x - 8, y - 10, panel_width, panel_height, 10)
-	render2d.SetColor(colors.text[1], colors.text[2], colors.text[3], colors.text[4])
-	font:DrawText("Culling Debug", x, y)
+	render2d.DrawText{
+		text = "Culling Debug",
+		x = x,
+		y = y,
+		foreground_color = colors.text,
+		softness = 0,
+	}
 	y = y + line_height
-	render2d.SetColor(colors.accent[1], colors.accent[2], colors.accent[3], colors.accent[4])
-	font:DrawText(string.format("Frustum: %s", visual.noculling and "disabled" or "enabled"), x, y)
+	render2d.DrawText{
+		text = string.format("Frustum: %s", visual.noculling and "disabled" or "enabled"),
+		x = x,
+		y = y,
+		foreground_color = colors.accent,
+	}
 	y = y + line_height
-	render2d.SetColor(colors.accent[1], colors.accent[2], colors.accent[3], colors.accent[4])
-	font:DrawText(
-		string.format(
+	render2d.DrawText{
+		text = string.format(
 			"Occlusion: %s (%s)",
 			visual.IsOcclusionCullingEnabled() and "enabled" or "disabled",
 			get_occlusion_mode_label()
 		),
-		x,
-		y
-	)
+		x = x,
+		y = y,
+		foreground_color = colors.accent,
+	}
 	y = y + line_height
 
 	if visual.freeze_culling then
-		render2d.SetColor(colors.warning[1], colors.warning[2], colors.warning[3], colors.warning[4])
-		font:DrawText("Culling frozen", x, y)
+		render2d.DrawText{
+			text = "Culling frozen",
+			x = x,
+			y = y,
+			foreground_color = colors.warning,
+		}
 		y = y + line_height
 	end
 
-	render2d.SetColor(colors.text[1], colors.text[2], colors.text[3], colors.text[4])
-	font:DrawText(string.format("Submitted visuals: %d / %d", counts.submitted, counts.total), x, y)
+	render2d.DrawText{
+		text = string.format("Submitted visuals: %d / %d", counts.submitted, counts.total),
+		x = x,
+		y = y,
+		foreground_color = colors.text,
+	}
 	y = y + line_height
-	render2d.SetColor(colors.culled[1], colors.culled[2], colors.culled[3], colors.culled[4])
-	font:DrawText(string.format("Culled visuals: %d", counts.culled), x, y)
+	render2d.DrawText{
+		text = string.format("Culled visuals: %d", counts.culled),
+		x = x,
+		y = y,
+		foreground_color = colors.culled,
+	}
 	y = y + line_height
-	render2d.SetColor(colors.conditional[1], colors.conditional[2], colors.conditional[3], colors.conditional[4])
-	font:DrawText(string.format("Occlusion-managed visuals: %d", counts.conditional), x, y)
+	render2d.DrawText{
+		text = string.format("Occlusion-managed visuals: %d", counts.conditional),
+		x = x,
+		y = y,
+		foreground_color = colors.conditional,
+	}
 	y = y + line_height
-	render2d.SetColor(colors.muted[1], colors.muted[2], colors.muted[3], colors.muted[4])
-	font:DrawText(
-		string.format(
+	render2d.DrawText{
+		text = string.format(
 			"Submitted with conditional rendering: %d",
 			occlusion_stats.submitted_with_conditional or 0
 		),
-		x,
-		y
-	)
+		x = x,
+		y = y,
+		foreground_color = colors.muted,
+	}
 	y = y + line_height
-	render2d.SetColor(colors.muted[1], colors.muted[2], colors.muted[3], colors.muted[4])
-	font:DrawText("Commands: culling_debug_panel, culling_debug_boxes, culling_debug_all", x, y)
+	render2d.DrawText{
+		text = "Commands: culling_debug_panel, culling_debug_boxes, culling_debug_all",
+		x = x,
+		y = y,
+		foreground_color = colors.muted,
+	}
 end)
 
 event.AddListener(

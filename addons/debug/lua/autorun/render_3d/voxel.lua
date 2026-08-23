@@ -4,11 +4,11 @@ local input = import("goluwa/input.lua")
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
 local show_voxel_debug = false
 local selected_clipmap_index = 0
 local voxel_debug_pipelines = {}
@@ -425,55 +425,69 @@ local function draw_stats_block(voxelizer, x, y)
 	render2d.SetTexture(nil)
 	render2d.SetColor(0, 0, 0, 0.55)
 	render2d.DrawRoundedRect(x, y, 356, block_height, 6)
-	render2d.SetColor(1, 1, 1, 1)
-	fonts.SetFont(fonts.GetDefaultFont())
-	fonts.GetFont():DrawText(string.format("Voxel clipmaps: %d", debug_state.clipmap_count or 0), x + 8, y + 8)
-	fonts.GetFont():DrawText(
-		string.format(
+	local white = Color(1, 1, 1, 1)
+	render2d.DrawText{
+		text = string.format("Voxel clipmaps: %d", debug_state.clipmap_count or 0),
+		x = x + 8,
+		y = y + 8,
+		foreground_color = white,
+	}
+	render2d.DrawText{
+		text = string.format(
 			"Updated: %d  Full: %d  Incremental: %d",
 			stats.updated_clipmaps or 0,
 			stats.full_rebuilds or 0,
 			stats.incremental_rebuilds or 0
 		),
-		x + 8,
-		y + 28
-	)
-	fonts.GetFont():DrawText(
-		string.format(
+		x = x + 8,
+		y = y + 28,
+		foreground_color = white,
+	}
+	render2d.DrawText{
+		text = string.format(
 			"Build: %d clipmaps  %d axes  %d slices",
 			stats.voxel_build_clipmaps or 0,
 			stats.voxel_build_axes or 0,
 			stats.voxel_build_slices or 0
 		),
-		x + 8,
-		y + 48
-	)
-	fonts.GetFont():DrawText(
-		string.format(
+		x = x + 8,
+		y = y + 48,
+		foreground_color = white,
+	}
+	render2d.DrawText{
+		text = string.format(
 			"Geometry: %d visuals  %d entries",
 			stats.voxel_visuals or 0,
 			stats.voxel_entries or 0
 		),
-		x + 8,
-		y + 68
-	)
-	fonts.GetFont():DrawText(
-		string.format(
+		x = x + 8,
+		y = y + 68,
+		foreground_color = white,
+	}
+	render2d.DrawText{
+		text = string.format(
 			"Scroll copy: %d inline  %d fallback  %d submits  %d waits",
 			stats.voxel_scroll_inline_clipmaps or 0,
 			stats.voxel_scroll_submit_clipmaps or 0,
 			stats.voxel_scroll_submissions or 0,
 			stats.voxel_scroll_submit_waits or 0
 		),
-		x + 8,
-		y + 88
-	)
-	fonts.GetFont():DrawText("Clipmap focus: " .. get_display_clipmap_label(voxelizer), x + 8, y + 108)
-	fonts.GetFont():DrawText(
-		"View: " .. get_debug_volume_kind_label() .. " perspective voxel raymarch",
-		x + 8,
-		y + 128
-	)
+		x = x + 8,
+		y = y + 88,
+		foreground_color = white,
+	}
+	render2d.DrawText{
+		text = "Clipmap focus: " .. get_display_clipmap_label(voxelizer),
+		x = x + 8,
+		y = y + 108,
+		foreground_color = white,
+	}
+	render2d.DrawText{
+		text = "View: " .. get_debug_volume_kind_label() .. " perspective voxel raymarch",
+		x = x + 8,
+		y = y + 128,
+		foreground_color = white,
+	}
 
 	if clipmap_info then
 		local status = clipmap_info.build_scroll_ready and
@@ -486,35 +500,38 @@ local function draw_stats_block(voxelizer, x, y)
 		local lag = clipmap_info.active_to_latest_voxels or Vec3(0, 0, 0)
 		local build_lag = clipmap_info.build_to_latest_voxels or Vec3(0, 0, 0)
 		local sampled_lag = clipmap_info.sampled_to_latest_voxels or Vec3(0, 0, 0)
-		fonts.GetFont():DrawText(status, x + 8, y + 144)
-		fonts.GetFont():DrawText(
-			string.format("Active lag voxels: (%.0f, %.0f, %.0f)", lag.x or 0, lag.y or 0, lag.z or 0),
-			x + 8,
-			y + 162
-		)
-		fonts.GetFont():DrawText(
-			string.format(
+		render2d.DrawText{text = status, x = x + 8, y = y + 144, foreground_color = white, softness = 0}
+		render2d.DrawText{
+			text = string.format("Active lag voxels: (%.0f, %.0f, %.0f)", lag.x or 0, lag.y or 0, lag.z or 0),
+			x = x + 8,
+			y = y + 162,
+			foreground_color = white,
+		}
+		render2d.DrawText{
+			text = string.format(
 				"Build lag voxels:  (%.0f, %.0f, %.0f)",
 				build_lag.x or 0,
 				build_lag.y or 0,
 				build_lag.z or 0
 			),
-			x + 8,
-			y + 180
-		)
-		fonts.GetFont():DrawText(
-			string.format(
+			x = x + 8,
+			y = y + 180,
+			foreground_color = white,
+		}
+		render2d.DrawText{
+			text = string.format(
 				"Sampled: %s lag=(%.0f, %.0f, %.0f)",
 				tostring(clipmap_info.sampled_source or "active"),
 				sampled_lag.x or 0,
 				sampled_lag.y or 0,
 				sampled_lag.z or 0
 			),
-			x + 8,
-			y + 198
-		)
-		fonts.GetFont():DrawText(
-			string.format(
+			x = x + 8,
+			y = y + 198,
+			foreground_color = white,
+		}
+		render2d.DrawText{
+			text = string.format(
 				"Dirty slabs: x=%d y=%d z=%d  Pending: x=%d y=%d z=%d",
 				clipmap_info.dirty_slabs and clipmap_info.dirty_slabs.x or 0,
 				clipmap_info.dirty_slabs and clipmap_info.dirty_slabs.y or 0,
@@ -523,26 +540,29 @@ local function draw_stats_block(voxelizer, x, y)
 				clipmap_info.pending_counts and clipmap_info.pending_counts.y or 0,
 				clipmap_info.pending_counts and clipmap_info.pending_counts.z or 0
 			),
-			x + 8,
-			y + 216
-		)
-		fonts.GetFont():DrawText(
-			string.format(
+			x = x + 8,
+			y = y + 216,
+			foreground_color = white,
+		}
+		render2d.DrawText{
+			text = string.format(
 				"Budget: %d  Flags: scroll_ready=%s pending_scroll=%s",
 				clipmap_info.build_slice_budget or 0,
 				tostring(clipmap_info.build_scroll_ready),
 				tostring(clipmap_info.pending_scroll)
 			),
-			x + 8,
-			y + 234
-		)
+			x = x + 8,
+			y = y + 234,
+			foreground_color = white,
+		}
 	end
 
-	fonts.GetFont():DrawText(
-		"F3: toggle  Shift+F3: all/clipmap  Ctrl+F3: scene/normals",
-		x + 8,
-		y + (clipmap_info and 250 or 142)
-	)
+	render2d.DrawText{
+		text = "F3: toggle  Shift+F3: all/clipmap  Ctrl+F3: scene/normals",
+		x = x + 8,
+		y = y + (clipmap_info and 250 or 142),
+		foreground_color = white,
+	}
 end
 
 local function ensure_voxel_debug_pipeline(clipmap_index)
@@ -922,9 +942,12 @@ event.AddListener("Draw2D", "debug_voxel_targets", function(cmd, dt)
 		render2d.SetTexture(nil)
 		render2d.SetColor(0, 0, 0, 0.55)
 		render2d.DrawRoundedRect(10, 10, 320, 58, 6)
-		render2d.SetColor(1, 1, 1, 1)
-		fonts.SetFont(fonts.GetDefaultFont())
-		fonts.GetFont():DrawText("Voxel debug: no voxel targets allocated yet", 18, 20)
+		render2d.DrawText{
+			text = "Voxel debug: no voxel targets allocated yet",
+			x = 18,
+			y = 20,
+			softness = 0,
+		}
 		draw_stats_block(voxelizer, 10, 78)
 		return
 	end
@@ -932,24 +955,27 @@ event.AddListener("Draw2D", "debug_voxel_targets", function(cmd, dt)
 	render2d.SetTexture(nil)
 	render2d.SetColor(0, 0, 0, 0.55)
 	render2d.DrawRoundedRect(10, 10, 332, 74, 6)
-	render2d.SetColor(1, 1, 1, 1)
-	fonts.SetFont(fonts.GetDefaultFont())
-	fonts.GetFont():DrawText(
-		"Voxel debug " .. get_debug_volume_kind_label() .. " clipmap " .. get_display_clipmap_label(voxelizer),
-		18,
-		18
-	)
-	fonts.GetFont():DrawText(
-		string.format(
+	render2d.DrawText{
+		text = "Voxel debug " .. get_debug_volume_kind_label() .. " clipmap " .. get_display_clipmap_label(voxelizer),
+		x = 18,
+		y = 18,
+	}
+	render2d.DrawText{
+		text = string.format(
 			"Resolution %d  Voxel %.3f  Span %.3f",
 			clipmap.resolution or 0,
 			clipmap.voxel_size or 0,
 			clipmap.world_span or 0
 		),
-		18,
-		38
-	)
-	fonts.GetFont():DrawText("Rendering current clipmap as perspective voxel overlay", 18, 58)
+		x = 18,
+		y = 38,
+	}
+	render2d.DrawText{
+		text = "Rendering current clipmap as perspective voxel overlay",
+		x = 18,
+		y = 58,
+		softness = 0,
+	}
 	draw_stats_block(voxelizer, 10, 94)
 
 	if voxel_dump_watch_enabled then

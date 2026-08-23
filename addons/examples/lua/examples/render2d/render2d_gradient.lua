@@ -1,9 +1,6 @@
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Color = import("goluwa/structs/color.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
-local fontPath = fonts.GetDefaultSystemFontPath()
-local font = fonts.New{Path = fontPath, Size = 64}
 local rainbow = render2d.CreateGradient{
 	mode = "linear",
 	angle = 90, -- Horizontal
@@ -36,17 +33,17 @@ event.AddListener("Draw2D", "render2d_gradient_demo", function()
 	render2d.DrawRect(x, y, w, h)
 	-- 2. Rainbow TEXT - default
 	y = y + 150
-	font:DrawText("FOO", x, y)
+	render2d.DrawText{text = "FOO", x = x, y = y, size = 64}
 	-- 2b. Tiled texture (2x2)
 	y = y + 80
 	render2d.SetColorUV(math.sin(os.clock() * 2) * 2, 0, 5, 1, math.pi / 2)
-	font:DrawText("BAR", x, y)
+	render2d.DrawText{text = "BAR", x = x, y = y, size = 64}
 	-- 2c. Rotated texture
 	y = y + 80
 	render2d.SetTexture(radial)
 	render2d.SetColor(0.5, 1, 0.5, 1)
 	render2d.SetColorUV(-0.5, 0, 2, 1, math.pi)
-	font:DrawText("BAZ", x, y)
+	render2d.DrawText{text = "BAZ", x = x, y = y, size = 64}
 	render2d.PopTexture()
 	-- 3. Radial Glow Rect
 	x = 100

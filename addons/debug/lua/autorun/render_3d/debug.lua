@@ -3,7 +3,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local steam = import("goluwa/steam/steam.lua")
 local Visual = import("goluwa/entities/components/visual.lua").Library
-local fonts = import("goluwa/render2d/fonts.lua")
+local Color = import("goluwa/structs/color.lua")
 local renderdoc = import("goluwa/bindings/renderdoc.lua")
 -- Debug: Draw shadow map as picture-in-picture
 local show_shadow_map = false
@@ -60,11 +60,25 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 			render2d.DrawOutlinedRect(x - 1, y - 1, size + 2, size + 2, 2, 0)
 			-- Draw label with cascade info (use same color as 3D visualization)
 			render2d.SetTexture(nil)
-			render2d.SetColor(color[1], color[2], color[3], 1)
-			fonts.GetFont():DrawText("Cascade " .. i .. " (z<" .. split_dist .. ")", x, y + size + 5)
-			render2d.SetColor(0.85, 0.88, 0.92, 1)
-			fonts.GetFont():DrawText("raw depth  " .. resolution, x, y + size + 23)
-			fonts.GetFont():DrawText("draw calls  " .. draw_calls, x, y + size + 41)
+			render2d.DrawText{
+				text = "Cascade " .. i .. " (z<" .. split_dist .. ")",
+				x = x,
+				y = y + size + 5,
+				foreground_color = Color(color[1], color[2], color[3], 1),
+			}
+			local muted_color = Color(0.85, 0.88, 0.92, 1)
+			render2d.DrawText{
+				text = "raw depth  " .. resolution,
+				x = x,
+				y = y + size + 23,
+				foreground_color = muted_color,
+			}
+			render2d.DrawText{
+				text = "draw calls  " .. draw_calls,
+				x = x,
+				y = y + size + 41,
+				foreground_color = muted_color,
+			}
 		end
 	end
 end)
@@ -133,17 +147,29 @@ local function draw_texture_preview(texture, title, subtitle, x, y, size)
 		render2d.SetTexture(nil)
 		render2d.SetColor(0.16, 0.16, 0.18, 1)
 		render2d.DrawRect(x, y, size, size)
-		render2d.SetColor(0.85, 0.4, 0.4, 1)
-		fonts.GetFont():DrawText("missing", x + 8, y + size * 0.5 - 8)
+		render2d.DrawText{
+			text = "missing",
+			x = x + 8,
+			y = y + size * 0.5 - 8,
+			foreground_color = Color(0.85, 0.4, 0.4, 1),
+		}
 	end
 
 	render2d.SetTexture(nil)
-	render2d.SetColor(0.85, 0.88, 0.92, 1)
-	fonts.GetFont():DrawText(title, x, y + size + 4)
+	render2d.DrawText{
+		text = title,
+		x = x,
+		y = y + size + 4,
+		foreground_color = Color(0.85, 0.88, 0.92, 1),
+	}
 
 	if subtitle and subtitle ~= "" then
-		render2d.SetColor(0.58, 0.64, 0.70, 1)
-		fonts.GetFont():DrawText(subtitle, x, y + size + 20)
+		render2d.DrawText{
+			text = subtitle,
+			x = x,
+			y = y + size + 20,
+			foreground_color = Color(0.58, 0.64, 0.70, 1),
+		}
 	end
 end
 
@@ -151,14 +177,17 @@ event.AddListener("Draw2D", "debug_cry_terrain_textures", function(cmd, dt)
 	if not show_cry_terrain_textures then return end
 
 	local render_data, cache_key, cache_count = get_active_cry_terrain_render_data()
-	fonts.SetFont(fonts.GetDefaultFont())
 
 	if not render_data or not render_data.material then
 		render2d.SetTexture(nil)
 		render2d.SetColor(0.06, 0.07, 0.09, 0.94)
 		render2d.DrawRoundedRect(10, 320, 360, 56, 8)
-		render2d.SetColor(0.85, 0.88, 0.92, 1)
-		fonts.GetFont():DrawText("Cry terrain textures: no active terrain tile cache", 18, 336)
+		render2d.DrawText{
+			text = "Cry terrain textures: no active terrain tile cache",
+			x = 18,
+			y = 336,
+			foreground_color = Color(0.85, 0.88, 0.92, 1),
+		}
 		return
 	end
 
@@ -227,14 +256,18 @@ event.AddListener("Draw2D", "debug_cry_terrain_textures", function(cmd, dt)
 	render2d.SetTexture(nil)
 	render2d.SetColor(0.06, 0.07, 0.09, 0.90)
 	render2d.DrawRoundedRect(start_x - 10, start_y - 28, size * 3 + spacing * 2 + 20, size * 3 + 132, 10)
-	render2d.SetColor(0.95, 0.97, 1.0, 1)
-	fonts.GetFont():DrawText("Cry Terrain Texture Debug", start_x, start_y - 18)
-	render2d.SetColor(0.58, 0.64, 0.70, 1)
-	fonts.GetFont():DrawText(
-		string.format("cache %s (%d live)", tostring(cache_key), cache_count or 0),
-		start_x,
-		start_y
-	)
+	render2d.DrawText{
+		text = "Cry Terrain Texture Debug",
+		x = start_x,
+		y = start_y - 18,
+		foreground_color = Color(0.95, 0.97, 1.0, 1),
+	}
+	render2d.DrawText{
+		text = string.format("cache %s (%d live)", tostring(cache_key), cache_count or 0),
+		x = start_x,
+		y = start_y,
+		foreground_color = Color(0.58, 0.64, 0.70, 1),
+	}
 
 	for i, entry in ipairs(titles) do
 		local column = (i - 1) % 3
@@ -267,6 +300,5 @@ event.AddListener("Draw2D", "debug_ssr_buffer", function(cmd, dt)
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.DrawRect(x, y, size, size)
 	render2d.SetTexture(nil)
-	render2d.SetColor(1, 1, 1, 1)
-	fonts.GetFont():DrawText("SSR Buffer (Half-Res)", x, y + size + 5)
+	render2d.DrawText{text = "SSR Buffer (Half-Res)", x = x, y = y + size + 5}
 end)

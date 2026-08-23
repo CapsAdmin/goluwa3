@@ -3,12 +3,10 @@ local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local tostring_object = import("goluwa/tostring_object.lua").tostring_object
-local fonts = import("goluwa/render2d/fonts.lua")
 local cached_material = nil
 local cached_lines = {}
 
 local function draw(cmd, dt)
-	fonts.SetFont(fonts.GetDefaultFont())
 	local cam = render3d.GetCamera()
 	local origin = cam:GetPosition()
 	local direction = cam:GetRotation():GetForward()
@@ -61,8 +59,7 @@ local function draw(cmd, dt)
 				render2d.SetColor(0, 0, 0, 0.7)
 				render2d.DrawRect(x + indent_offset - padding, y - padding, 400, line_height + padding)
 				-- Draw text
-				render2d.SetColor(1, 1, 1, 1)
-				fonts.GetFont():DrawText(line.text, x + indent_offset, y)
+				render2d.DrawText{text = line.text, x = x + indent_offset, y = y}
 				y = y + line_height
 
 				-- Draw texture preview if this is a texture
