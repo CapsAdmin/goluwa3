@@ -823,6 +823,52 @@ T.Test3D("Graphics render3d shadows honor main-view occlusion", function(draw)
 	T(found_occluded_entry)["=="](false)
 end)
 
+T.Test3D("Graphics render3d occlusion culls far visuals behind occluders", function(draw)
+	configure_camera()
+	Visual.Library.SetOcclusionCulling(true)
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local occluder = Entity.New({Name = "far_occlusion_occluder"})
+	occluder:AddComponent("transform")
+	occluder.transform:SetPosition(Vec3(0, 0, -40))
+	local occluder_visual = attach_visual(occluder, polygon3d, material)
+	occluder.transform:SetScale(Vec3(6, 6, 2))
+	local occluded = Entity.New({Name = "far_occlusion_occluded"})
+	occluded:AddComponent("transform")
+	occluded.transform:SetPosition(Vec3(0, 0, -44))
+	local occluded_visual = attach_visual(occluded, polygon3d, material)
+	occluded.transform:SetScale(Vec3(3, 3, 3))
+	occluded_visual:SetUseOcclusionCulling(true)
+	Visual.Library.InvalidateSceneAcceleration()
+	draw()
+	draw()
+	-- The main-view HiZ is rebuilt once per frame stamp, but the test harness does not
+	-- advance the frame stamp, so the first (empty-depth) build is never refreshed.
+	-- Force a fresh build from the current depth so occlusion has real data.
+	do
+		local render_mod = import("goluwa/render/render.lua")
+		local gcu = import("goluwa/render3d/gpu_culling.lua")
+		local hiz_cmd = render_mod.CreateCommandBuffer()
+		hiz_cmd:Begin()
+		gcu.PrepareMainViewHiZ(2, hiz_cmd)
+		hiz_cmd:End()
+		render_mod.SubmitAndWait(hiz_cmd)
+	end
+	local render_entries = Visual.Library.GetVisibleRenderEntries()
+	local found_occluder = false
+	local found_occluded = false
+	for _, payload in ipairs(render_entries) do
+		if payload.component == occluder_visual then found_occluder = true end
+		if payload.component == occluded_visual then found_occluded = true end
+	end
+	print("DEBUGPROBE: occluder=", tostring(found_occluder), "occluded=", tostring(found_occluded))
+	occluder:Remove()
+	occluded:Remove()
+	Visual.Library.SetOcclusionCulling(false)
+	T(found_occluder)["=="](true)
+	T(found_occluded)["=="](false)
+end)
+
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")

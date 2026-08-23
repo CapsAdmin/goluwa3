@@ -520,11 +520,15 @@ function gpu_culling.Initialize()
 				vec2 max_uv = vec2(0.0);
 				float nearest_depth = 1.0;
 				bool any_valid = false;
+				bool crosses_near_plane = false;
 
 				for (int i = 0; i < 8; ++i) {
 					vec4 clip = project_world_position(corners[i]);
 
-					if (clip.w <= 0.0) continue;
+					if (clip.w <= 0.0) {
+						crosses_near_plane = true;
+						continue;
+					}
 
 					vec3 ndc = clip.xyz / clip.w;
 					vec2 uv = ndc.xy * 0.5 + 0.5;
@@ -534,7 +538,7 @@ function gpu_culling.Initialize()
 					any_valid = true;
 				}
 
-				if (!any_valid) return false;
+				if (!any_valid || crosses_near_plane) return false;
 				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
 
 				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
@@ -900,11 +904,15 @@ function gpu_culling.Initialize()
 				vec2 max_uv = vec2(0.0);
 				float nearest_depth = 1.0;
 				bool any_valid = false;
+				bool crosses_near_plane = false;
 
 				for (int i = 0; i < 8; ++i) {
 					vec4 clip = project_world_position(corners[i]);
 
-					if (clip.w <= 0.0) continue;
+					if (clip.w <= 0.0) {
+						crosses_near_plane = true;
+						continue;
+					}
 
 					vec3 ndc = clip.xyz / clip.w;
 					vec2 uv = ndc.xy * 0.5 + 0.5;
@@ -914,7 +922,7 @@ function gpu_culling.Initialize()
 					any_valid = true;
 				}
 
-				if (!any_valid) return false;
+				if (!any_valid || crosses_near_plane) return false;
 				if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
 
 				min_uv = clamp(min_uv, vec2(0.0), vec2(1.0));
@@ -1001,11 +1009,19 @@ local function ensure_main_view_hiz_state(width, height)
 
 	if state and state.texture then state.texture:Remove() end
 
+	local mip_count = 1
+	local largest_dimension = math.max(width, height)
+
+	while largest_dimension > 1 do
+		largest_dimension = math.floor(largest_dimension * 0.5)
+		mip_count = mip_count + 1
+	end
+
 	local texture = Texture.New{
 		width = width,
 		height = height,
 		format = "r32_sfloat",
-		mip_map_levels = (width > 1 or height > 1) and 2 or 1,
+		mip_map_levels = mip_count,
 		image = {
 			usage = {"sampled", "storage"},
 			properties = "device_local",
@@ -1020,7 +1036,6 @@ local function ensure_main_view_hiz_state(width, height)
 	}
 	texture:SetDebugName("gpu culling main view hiz")
 	local image = texture:GetImage()
-	local mip_count = texture:GetMipMapLevels()
 	local single_mip_views = {}
 
 	for mip_level = 0, mip_count - 1 do
@@ -1043,7 +1058,7 @@ local function ensure_main_view_hiz_state(width, height)
 		texture = texture,
 		full_view = texture:GetView(),
 		sampler = texture.sampler or render.CreateSampler(texture:GetSamplerConfig()),
-		max_mip = math.max(0, mip_count - 1),
+		max_mip = math.max(0, texture:GetMipMapLevels() - 1),
 		single_mip_views = single_mip_views,
 	}
 	gpu_culling.main_view_hiz_state = state
@@ -3030,7 +3045,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 	pass.current_occlusion_enabled = occlusion_enabled
 	pass.current_occlusion_depth_texture = occlusion_enabled and occlusion_depth_texture or nil
 	pass.current_occlusion_max_mip = occlusion_enabled and occlusion_max_mip or 0
-	pass.current_occlusion_depth_bias = 0.0015
+	pass.current_occlusion_depth_bias = 0.0
 
 	if
 		output.last_main_view_occlusion_view ~= occlusion_depth_view or
