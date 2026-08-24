@@ -118,10 +118,7 @@ local function wake_dynamic_body(stamp, body, awake_dynamic_bodies, newly_awoken
 	return true
 end
 
-function islands.BuildSimulationIslands(bodies, body_pairs, constraints)
-	bodies = bodies or {}
-	body_pairs = body_pairs or {}
-	constraints = constraints or {}
+function islands.BuildSimulationIslands(bodies, body_pairs, constraints, solver)
 	-- the previous build's tables are no longer referenced
 	pool = last_build_tables or pool
 	pool_count = #pool
@@ -140,10 +137,11 @@ function islands.BuildSimulationIslands(bodies, body_pairs, constraints)
 
 	for i = 1, #body_pairs do
 		local pair = body_pairs[i]
-		local body_a = pair.entry_a.body
-		local body_b = pair.entry_b.body
-		register_link(pair_link_lists, body_a, pair)
-		register_link(pair_link_lists, body_b, pair)
+
+		if not solver or solver:IslandPairFilter(pair) then
+			register_link(pair_link_lists, pair.entry_a.body, pair)
+			register_link(pair_link_lists, pair.entry_b.body, pair)
+		end
 	end
 
 	for i = 1, #constraints do

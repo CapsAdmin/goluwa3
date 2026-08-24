@@ -37,6 +37,7 @@ local subsection_names = {
 local BUCKET_EDGES_MS = {1, 4, 8, 16, 32}
 local BUCKET_LABELS = {"<1ms", "1-4ms", "4-8ms", "8-16ms", "16-32ms", ">32ms"}
 local state = nil
+local all_section_names
 
 function stats:Enable()
 	state = {
@@ -51,9 +52,15 @@ function stats:Enable()
 		gauges = {},
 		buckets = {},
 	}
+	all_section_names = {}
 
 	for i = 1, #section_names do
 		state.sections[section_names[i]] = 0
+		all_section_names[#all_section_names + 1] = section_names[i]
+	end
+
+	for i = 1, #subsection_names do
+		all_section_names[#all_section_names + 1] = subsection_names[i]
 	end
 end
 
@@ -74,8 +81,8 @@ function stats:Reset()
 	state.max_step_time = 0
 	state.stack_depth = 0
 
-	for i = 1, #section_names do
-		state.sections[section_names[i]] = 0
+	for i = 1, #all_section_names do
+		state.sections[all_section_names[i]] = 0
 	end
 
 	state.counts = {}

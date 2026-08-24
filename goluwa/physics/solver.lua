@@ -171,6 +171,7 @@ function Solver.New(config)
 	self.POSITIONAL_CORRECTION_FACTOR = config.POSITIONAL_CORRECTION_FACTOR or self.POSITIONAL_CORRECTION_FACTOR or 0.9
 	self.MAX_POSITIONAL_CORRECTION = config.MAX_POSITIONAL_CORRECTION or self.MAX_POSITIONAL_CORRECTION or 0.5
 	self.MAX_DEPENETRATION_SPEED = config.MAX_DEPENETRATION_SPEED or self.MAX_DEPENETRATION_SPEED or 24
+	self.REBUILD_POSE_THRESHOLD = config.REBUILD_POSE_THRESHOLD or self.REBUILD_POSE_THRESHOLD or 0.01
 	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or 0.9
 	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or self.TANGENT_WARM_START_SCALE or 0.1
 	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or self.MAX_TANGENT_WARM_SPEED or 0.25
@@ -375,7 +376,23 @@ end
 
 Solver.SolveConstraints = Solver.SolveDistanceConstraints
 
-function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
+local function pair_pose_invalidated(body, cached_pose, squared_threshold)
+	if not cached_pose then return false end
+
+	local position = body:GetPosition()
+	local dx = position.x - cached_pose.px
+	local dy = position.y - cached_pose.py
+	local dz = position.z - cached_pose.pz
+
+	if dx * dx + dy * dy + dz * dz > squared_threshold then return true end
+
+	local rotation = body:GetRotation()
+	local dot = rotation.x * cached_pose.rx + rotation.y * cached_pose.ry + rotation.z * cached_pose.rz + rotation.w * cached_pose.rw
+	local abs_dot = dot >= 0 and dot or -dot
+	return abs_dot < 0.995
+end
+
+function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass)
 	local pairs = bodies_or_pairs
 
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
@@ -388,6 +405,10 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 	end
 
 	stats:Count("solver_pairs", #pairs)
+	local cached_iteration = (pass or 1) > 1
+	local persistent_manifolds = self.PersistentManifolds
+	local rebuild_pose_threshold = self.REBUILD_POSE_THRESHOLD or 0.01
+	local squared_rebuild_pose_threshold = rebuild_pose_threshold * rebuild_pose_threshold
 
 	for i = 1, #pairs do
 		local pair = pairs[i]
@@ -396,26 +417,70 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 		local body_a = entry_a.body
 		local body_b = entry_b.body
 		local physics = self:GetPhysics()
+		local handled = false
 
 		if body_a:ShouldCollide(body_b) then
-			local colliders_a = body_a:GetColliders()
-			local colliders_b = body_b:GetColliders()
+			if cached_iteration then
+				local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
 
-			if
-				pair_solver_helpers.IsSimpleBody(colliders_a) and
-				pair_solver_helpers.IsSimpleBody(colliders_b)
-			then
-				local handled, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
+				if
+					manifold and
+					manifold.last_rebuild_step == self.StepStamp and
+					(
+						manifold.overlap or
+						0
+					) > 0
+				then
+					local geometry_stale = pair_pose_invalidated(body_a, manifold.rebuild_pose_a, squared_rebuild_pose_threshold) or
+						pair_pose_invalidated(body_b, manifold.rebuild_pose_b, squared_rebuild_pose_threshold)
 
-				if not found then
-					stats:Count("pairs_fallback")
-					fallback_solve_aabb_pair_collision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
+					if geometry_stale then
+						-- force the full dispatch to rebuild the manifold from the
+						-- current pose
+						manifold.last_rebuild_step = -1
+					else
+						stats:Count("solver_pairs_cached")
+						contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt)
+						handled = true
+					end
 				end
-			else
-				pair_solver_helpers.DispatchColliderPairs(self, colliders_a, colliders_b, entry_a, entry_b, dt)
+			end
+
+			if not handled then
+				local colliders_a = body_a:GetColliders()
+				local colliders_b = body_b:GetColliders()
+
+				if
+					pair_solver_helpers.IsSimpleBody(colliders_a) and
+					pair_solver_helpers.IsSimpleBody(colliders_b)
+				then
+					local _, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
+
+					if not found then
+						stats:Count("pairs_fallback")
+						fallback_solve_aabb_pair_collision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
+					end
+				else
+					pair_solver_helpers.DispatchColliderPairs(self, colliders_a, colliders_b, entry_a, entry_b, dt)
+				end
 			end
 		end
 	end
+end
+
+function Solver:IslandPairFilter(pair)
+	local body_a = pair.entry_a.body
+	local body_b = pair.entry_b.body
+
+	if body_a:GetAwake() or body_b:GetAwake() then return true end
+
+	-- compound bodies key their manifolds by collider, so a body-level
+	-- lookup cannot prove the pair is untouched; keep those links
+	if #body_a:GetColliders() > 1 or #body_b:GetColliders() > 1 then
+		return true
+	end
+
+	return contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b) ~= nil
 end
 
 function Solver:SolveBodyContacts(body, dt)

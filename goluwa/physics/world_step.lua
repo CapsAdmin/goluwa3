@@ -1,15 +1,13 @@
 local event = import("goluwa/event.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local islands = import("goluwa/physics/islands.lua")
+local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
 local world_step = {}
 
--- support eligibility (dynamic, collision enabled, gravity scale) and the
--- owner/shape pairs are substep-invariant, so resolve them once per substep
--- instead of once per body per solver iteration
 local function refresh_support_entries(bodies)
 	for _, body in ipairs(bodies) do
 		local entries = nil
@@ -161,7 +159,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PopTime()
 		local constraints = physics.GetConstraints()
 		stats:PushTime("islands")
-		local simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
+		local simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
 		local newly_awoken_bodies = {}
 
 		if simulation_islands and simulation_islands[1] then
@@ -185,7 +183,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 				rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
 				stats:PopTime()
 				stats:PushTime("islands")
-				simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
+				simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
 
 				if simulation_islands and simulation_islands[1] then
 					islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
@@ -218,7 +216,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 					if not islands.IsSleepingIsland(island) then
 						stats:PushTime("solve_pairs")
-						solver:SolveRigidBodyPairs(island.pairs, sub_dt)
+						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iter)
 						stats:PopTime()
 						stats:PushTime("support")
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
@@ -235,7 +233,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 				end
 			else
 				stats:PushTime("solve_pairs")
-				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
+				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iter)
 				stats:PopTime()
 				stats:PushTime("support")
 
