@@ -542,7 +542,7 @@ do -- get is set
 		return value
 	end
 
-	function objects.ValidatePropertyValue(info, value, level)
+	function objects.ParsePropertyValue(info, value, level)
 		if value == nil then return nil end
 
 		if is_list_property(info) then
@@ -626,7 +626,7 @@ do -- get is set
 				info.list_enums or
 				info.list_length
 			then
-				value = objects.ValidatePropertyValue(info, value, 2)
+				value = objects.ParsePropertyValue(info, value, 2)
 			end
 
 			if info.type ~= "nil" and value ~= nil then
@@ -767,7 +767,7 @@ do -- get is set
 				if var == nil then
 					var = default
 				else
-					var = objects.ValidatePropertyValue(info, var, 2)
+					var = objects.ParsePropertyValue(info, var, 2)
 				end
 			else
 				var = cast(var, default)

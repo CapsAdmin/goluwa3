@@ -1661,7 +1661,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		local top_level = config[info.var_name]
 
 		if top_level ~= nil then
-			local top_level = objects.ValidatePropertyValue(info, top_level, 3)
+			local top_level = objects.ParsePropertyValue(info, top_level, 3)
 			config[info.var_name] = nil
 			local section = config[info.state_section]
 
@@ -2151,7 +2151,7 @@ do
 			if value == nil then
 				value = get_default_state_value(info)
 			else
-				value = objects.ValidatePropertyValue(info, value, 2)
+				value = objects.ParsePropertyValue(info, value, 2)
 
 				if info.compare == "list" then value = list.copy(value) end
 			end
