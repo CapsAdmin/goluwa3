@@ -174,13 +174,9 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver
-	local separation_tolerance = get_separation_tolerance(solver)
-	local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do
-		if lifts_broken and (contact.separation or 0) > separation_tolerance then
-			goto continue
-		end
+		if (contact.separation or 0) > 0 then goto continue end
 
 		local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, SOLVER_POINT_A)
 		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, SOLVER_POINT_B)
@@ -241,13 +237,24 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 		math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
-	local separation_tolerance = get_separation_tolerance(solver)
-	local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
+	local lifted_support_cap = 0.01
 	local contacts = manifold_data.contacts or {}
 
 	for pass = 1, passes do
 		for _, contact in ipairs(contacts) do
-			if lifts_broken and (contact.separation or 0) > separation_tolerance then
+			local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, SOLVER_POINT_A)
+			local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, SOLVER_POINT_B)
+			local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
+			local normal_speed = relative_velocity:Dot(normal)
+			local separation = contact.separation or 0
+
+			if
+				separation > 0 and
+				(
+					normal_speed * dt > -separation or
+					separation > lifted_support_cap
+				)
+			then
 				contact.normal_impulse = 0
 				contact.tangent_impulse = 0
 				contact.tangent_impulse_1 = 0
@@ -257,10 +264,6 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 				goto continue
 			end
 
-			local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, SOLVER_POINT_A)
-			local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, SOLVER_POINT_B)
-			local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
-			local normal_speed = relative_velocity:Dot(normal)
 			local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 
 			if inverse_mass > EPSILON then

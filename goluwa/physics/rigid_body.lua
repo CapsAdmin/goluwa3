@@ -666,6 +666,7 @@ do
 				not ground_ready_to_sleep
 			)
 			force_grounded_sleep = allow_grounded_sleep_assist and
+				self:IsGroundSupportStable() and
 				shape and
 				shape.ShouldForceGroundedSleep and
 				shape:ShouldForceGroundedSleep(self) and

@@ -124,10 +124,6 @@ local function set_pair_manifold(manifolds, body_a, body_b, manifold)
 	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
 end
 
-local function get_contact_separation_tolerance(solver)
-	return math.max(solver.PENETRATION_SLOP or 0, 0.005) * 4
-end
-
 -- material properties and solver pass counts are constant for a pair within a
 -- substep, but were previously re-derived on every solver iteration from a
 -- dozen object property lookups
@@ -229,7 +225,7 @@ function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fr
 	if correction_length > EPSILON then
 		manifold.overlap = math.max(0, (manifold.overlap or 0) - correction_length)
 		local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
-		local separation_tolerance = lifts_broken and get_contact_separation_tolerance(solver) or math.huge
+		local separation_tolerance = lifts_broken and 0 or math.huge
 		local active_count = 0
 
 		for i = 1, #contacts do
@@ -254,9 +250,12 @@ function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fr
 	if not (options and options.skip_grounding) then
 		contact_resolution.MarkPairGrounding(body_a, body_b, normal, manifold.rolling_friction)
 		mark_pair_grounding_from_contacts(body_a, body_b, contacts)
+		local support_tolerance = math.max(solver.PENETRATION_SLOP or 0, 0.005)
 
 		for _, contact in ipairs(contacts) do
-			accumulate_pair_ground_support(body_a, body_b, normal, contact.point_a, contact.point_b)
+			if (contact.separation or 0) <= support_tolerance then
+				accumulate_pair_ground_support(body_a, body_b, normal, contact.point_a, contact.point_b)
+			end
 		end
 	end
 
