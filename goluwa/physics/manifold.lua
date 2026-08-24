@@ -21,7 +21,11 @@ local function project_tangent_into(out, tangent, normal)
 end
 
 local function get_cached_tangent_into(out, contact, normal)
-	return project_tangent_into(out, contact.tangent, normal)
+	local tangent = contact.tangent
+
+	if not tangent then return false end
+
+	return project_tangent_into(out, tangent, normal)
 end
 
 local function build_fallback_tangent_into(out, normal)
@@ -152,6 +156,7 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 				0,
 			tangent_impulse_2 = matched_contact and matched_contact.tangent_impulse_2 or 0,
 			separation = contact.separation or 0,
+			v_pre = matched_contact and matched_contact.v_pre or nil,
 			static_friction_active = matched_contact and matched_contact.static_friction_active == true or false,
 			tangent = matched_contact and
 				matched_contact.tangent and
@@ -167,6 +172,18 @@ end
 local SOLVER_POINT_A = Vec3()
 local SOLVER_POINT_B = Vec3()
 local SOLVER_TANGENT_VELOCITY = Vec3()
+local BIAS_POINT_A = Vec3()
+local BIAS_POINT_B = Vec3()
+
+function manifold.CaptureRestitutionBias(body_a, body_b, normal, manifold_data)
+	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
+
+	for _, contact in ipairs(manifold_data.contacts or {}) do
+		local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, BIAS_POINT_A)
+		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, BIAS_POINT_B)
+		contact.v_pre = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b):Dot(normal)
+	end
+end
 
 function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
@@ -239,6 +256,13 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
 	local lifted_support_cap = 0.01
 	local contacts = manifold_data.contacts or {}
+	local restitution_bias_threshold
+
+	if restitution > EPSILON and dt and dt > 0 then
+		local gravity = physics.Gravity
+		local gravity_speed = math.sqrt(gravity.x * gravity.x + gravity.y * gravity.y + gravity.z * gravity.z) * dt
+		restitution_bias_threshold = math.max(0.33, gravity_speed * 2)
+	end
 
 	for pass = 1, passes do
 		for _, contact in ipairs(contacts) do
@@ -267,8 +291,18 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 			local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 
 			if inverse_mass > EPSILON then
-				local applied_restitution = pass == 1 and normal_speed < -0.33 and restitution or 0
-				local normal_impulse = -(1 + applied_restitution) * normal_speed / inverse_mass
+				local v_pre = contact.v_pre
+				local effective_speed = normal_speed
+
+				if
+					restitution_bias_threshold and
+					v_pre and
+					v_pre < -restitution_bias_threshold
+				then
+					effective_speed = normal_speed + restitution * v_pre
+				end
+
+				local normal_impulse = -effective_speed / inverse_mass
 				local new_impulse = math.max((contact.normal_impulse or 0) + normal_impulse, 0)
 				local impulse_delta = new_impulse - (contact.normal_impulse or 0)
 				contact.normal_impulse = new_impulse

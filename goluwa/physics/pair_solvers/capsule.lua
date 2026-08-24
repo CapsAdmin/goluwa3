@@ -4,6 +4,7 @@ local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local capsule = {}
@@ -21,6 +22,16 @@ local CAPSULE_POLYHEDRON_CONTACT_SCRATCH = {
 	current = {},
 	previous = {},
 }
+local CAPSULE_BOX_CONTACT_SCRATCH = {
+	entries = {},
+	contacts = {},
+}
+local CAPSULE_POLYHEDRON_CONTACT_LIST_SCRATCH = {
+	entries = {},
+	contacts = {},
+}
+local CAPSULE_CONTACT_NORMAL_DOT = 0.9
+local CAPSULE_CONTACT_MERGE_DISTANCE = 0.05
 local CAPSULE_BOX_SWEEP_CALLBACK_CONTEXT = {
 	box_body = nil,
 }
@@ -90,25 +101,6 @@ end
 
 local function get_oriented_normal(delta, fallback_direction)
 	return pair_solver_helpers.GetSafeCollisionNormal(delta, fallback_direction)
-end
-
-local function get_support_point(vertices, direction)
-	if not (vertices and vertices[1] and direction) then return nil end
-
-	local best_point = vertices[1]
-	local best_dot = best_point:Dot(direction)
-
-	for i = 2, #vertices do
-		local point = vertices[i]
-		local dot = point:Dot(direction)
-
-		if dot > best_dot then
-			best_dot = dot
-			best_point = point
-		end
-	end
-
-	return best_point
 end
 
 local function should_prefer_swept_recovery(travel_distance, feature_radius)
@@ -543,7 +535,14 @@ local function get_capsule_box_best_contact(box_body, samples, previous_samples,
 			movement_local = box_body:WorldToLocal(sample) - box_body:WorldToLocal(previous_sample)
 		end
 
-		local contact = pair_solver_helpers.GetBoxContactForPoint(box_body, sample, radius, movement_local)
+		local contact = pair_solver_helpers.GetBoxContactForPoint(
+			box_body,
+			sample,
+			radius,
+			movement_local,
+			samples[1],
+			samples[#samples]
+		)
 
 		if contact and (not best_contact or contact.overlap > best_contact.overlap) then
 			best_contact = contact
@@ -553,7 +552,68 @@ local function get_capsule_box_best_contact(box_body, samples, previous_samples,
 	return best_contact
 end
 
-local function get_capsule_polyhedron_contact(polyhedron_body, polyhedron, point, radius, position, rotation, movement_world)
+local function collect_capsule_box_contacts(box_body, samples, previous_samples, radius)
+	local entries = CAPSULE_BOX_CONTACT_SCRATCH.entries
+
+	for i = #entries, 1, -1 do
+		entries[i] = nil
+	end
+
+	local best_contact = nil
+
+	for i, sample in ipairs(samples) do
+		local previous_sample = previous_samples and previous_samples[i] or sample
+		local movement_local = box_body:WorldToLocal(sample) - box_body:WorldToLocal(previous_sample)
+		local contact = pair_solver_helpers.GetBoxContactForPoint(
+			box_body,
+			sample,
+			radius,
+			movement_local,
+			samples[1],
+			samples[#samples]
+		)
+
+		if contact then
+			if not best_contact or contact.overlap > best_contact.overlap then
+				best_contact = contact
+			end
+
+			entries[#entries + 1] = contact
+		end
+	end
+
+	if not best_contact then return nil end
+
+	local contacts = CAPSULE_BOX_CONTACT_SCRATCH.contacts
+
+	for i = #contacts, 1, -1 do
+		contacts[i] = nil
+	end
+
+	local normal = best_contact.normal
+
+	for i = 1, #entries do
+		local contact = entries[i]
+
+		if contact.normal:Dot(normal) >= CAPSULE_CONTACT_NORMAL_DOT then
+			convex_manifold.AddContactPoint(contacts, contact.point_a, contact.point_b, CAPSULE_CONTACT_MERGE_DISTANCE)
+		end
+	end
+
+	return best_contact, contacts
+end
+
+local function get_capsule_polyhedron_contact(
+	polyhedron_body,
+	polyhedron,
+	point,
+	radius,
+	position,
+	rotation,
+	movement_world,
+	segment_a,
+	segment_b
+)
 	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then
 		return nil
 	end
@@ -594,11 +654,51 @@ local function get_capsule_polyhedron_contact(polyhedron_body, polyhedron, point
 
 	if overlap <= 0 then return nil end
 
+	local point_a = point - best_normal * best_distance
+	local point_b = point - best_normal * radius
+
+	if segment_a and segment_b then
+		local axis = segment_b - segment_a
+		local axis_len_sq = axis.x * axis.x + axis.y * axis.y + axis.z * axis.z
+
+		if axis_len_sq > EPSILON * EPSILON then
+			local px = point_a.x - segment_a.x
+			local py = point_a.y - segment_a.y
+			local pz = point_a.z - segment_a.z
+			local t = (px * axis.x + py * axis.y + pz * axis.z) / axis_len_sq
+			local bx, by, bz, nx, ny, nz
+
+			if t < 0 then
+				bx, by, bz = segment_a.x, segment_a.y, segment_a.z
+				nx, ny, nz = px, py, pz
+			elseif t > 1 then
+				bx, by, bz = segment_b.x, segment_b.y, segment_b.z
+				nx = point_a.x - segment_b.x
+				ny = point_a.y - segment_b.y
+				nz = point_a.z - segment_b.z
+			else
+				bx = segment_a.x + axis.x * t
+				by = segment_a.y + axis.y * t
+				bz = segment_a.z + axis.z * t
+				nx = px - axis.x * t
+				ny = py - axis.y * t
+				nz = pz - axis.z * t
+			end
+
+			local n_len = math.sqrt(nx * nx + ny * ny + nz * nz)
+
+			if n_len > EPSILON then
+				local inv = radius / n_len
+				point_b = Vec3(bx + nx * inv, by + ny * inv, bz + nz * inv)
+			end
+		end
+	end
+
 	return {
 		normal = best_normal,
 		overlap = overlap,
-		point_a = get_support_point(vertices, best_normal),
-		point_b = point - best_normal * radius,
+		point_a = point_a,
+		point_b = point_b,
 	}
 end
 
@@ -623,7 +723,9 @@ local function get_capsule_polyhedron_best_contact(
 			radius,
 			position,
 			rotation,
-			movement_world
+			movement_world,
+			samples[1],
+			samples[#samples]
 		)
 
 		if contact and (not best_contact or contact.overlap > best_contact.overlap) then
@@ -632,6 +734,68 @@ local function get_capsule_polyhedron_best_contact(
 	end
 
 	return best_contact
+end
+
+local function collect_capsule_polyhedron_contacts(
+	polyhedron_body,
+	polyhedron,
+	samples,
+	previous_samples,
+	radius,
+	position,
+	rotation
+)
+	local entries = CAPSULE_POLYHEDRON_CONTACT_LIST_SCRATCH.entries
+
+	for i = #entries, 1, -1 do
+		entries[i] = nil
+	end
+
+	local best_contact = nil
+
+	for i, sample in ipairs(samples) do
+		local previous_sample = previous_samples and previous_samples[i] or sample
+		local movement_world = previous_sample and (sample - previous_sample) or nil
+		local contact = get_capsule_polyhedron_contact(
+			polyhedron_body,
+			polyhedron,
+			sample,
+			radius,
+			position,
+			rotation,
+			movement_world,
+			samples[1],
+			samples[#samples]
+		)
+
+		if contact then
+			if not best_contact or contact.overlap > best_contact.overlap then
+				best_contact = contact
+			end
+
+			entries[#entries + 1] = contact
+		end
+	end
+
+	if not best_contact then return nil end
+
+	local contacts = CAPSULE_POLYHEDRON_CONTACT_LIST_SCRATCH.contacts
+
+	for i = #contacts, 1, -1 do
+		contacts[i] = nil
+	end
+
+	local normal = best_contact.normal
+
+	for i = 1, #entries do
+		local contact = entries[i]
+
+		if contact.normal:Dot(normal) >= CAPSULE_CONTACT_NORMAL_DOT then
+			convex_manifold.AddContactPoint(contacts, contact.point_a, contact.point_b, CAPSULE_CONTACT_MERGE_DISTANCE)
+		end
+	end
+
+	return best_contact, contacts
 end
 
 local function solve_swept_capsule_polyhedron_collision(dynamic_body, static_body, static_polyhedron, dt)
@@ -705,7 +869,7 @@ local function solve_capsule_box_collision(capsule_body, box_body, dt)
 	)
 	local movement = capsule_body:GetPosition() - capsule_body:GetPreviousPosition()
 	local previous_contact = nil
-	local best_contact = get_capsule_box_best_contact(box_body, points, previous_points, radius)
+	local best_contact, contacts = collect_capsule_box_contacts(box_body, points, previous_points, radius)
 
 	if should_prefer_swept_recovery(movement:GetLength(), radius) then
 		previous_contact = get_capsule_box_best_contact(box_body, previous_points, nil, radius)
@@ -727,8 +891,9 @@ local function solve_capsule_box_collision(capsule_body, box_body, dt)
 		best_contact.normal,
 		best_contact.overlap,
 		dt,
-		best_contact.point_a,
-		best_contact.point_b
+		nil,
+		nil,
+		contacts
 	)
 end
 
@@ -751,7 +916,7 @@ local function solve_capsule_polyhedron_collision(capsule_body, polyhedron_body,
 		CAPSULE_POLYHEDRON_CONTACT_SCRATCH.previous
 	)
 	local movement = capsule_body:GetPosition() - capsule_body:GetPreviousPosition()
-	local best_contact = get_capsule_polyhedron_best_contact(
+	local best_contact, contacts = collect_capsule_polyhedron_contacts(
 		polyhedron_body,
 		polyhedron,
 		points,
@@ -773,14 +938,14 @@ local function solve_capsule_polyhedron_collision(capsule_body, polyhedron_body,
 		)
 
 		if not previous_contact then
-			local swept = solve_swept_capsule_polyhedron_collision(capsule_body, polyhedron_body, dt)
+			local swept = solve_swept_capsule_polyhedron_collision(capsule_body, polyhedron_body, polyhedron, dt)
 
 			if swept then return swept end
 		end
 	end
 
 	if not best_contact then
-		return solve_swept_capsule_polyhedron_collision(capsule_body, polyhedron_body, dt)
+		return solve_swept_capsule_polyhedron_collision(capsule_body, polyhedron_body, polyhedron, dt)
 	end
 
 	return contact_resolution.ResolvePairPenetration(
@@ -789,8 +954,9 @@ local function solve_capsule_polyhedron_collision(capsule_body, polyhedron_body,
 		best_contact.normal,
 		best_contact.overlap,
 		dt,
-		best_contact.point_a,
-		best_contact.point_b
+		nil,
+		nil,
+		contacts
 	)
 end
 

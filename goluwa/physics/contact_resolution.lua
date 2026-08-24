@@ -196,6 +196,7 @@ function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fr
 	local contacts = fresh_contacts or manifold.contacts or {}
 
 	if manifold.last_warm_step ~= solver.StepStamp then
+		manifolds.CaptureRestitutionBias(body_a, body_b, normal, manifold)
 		manifolds.WarmStart(body_a, body_b, normal, manifold, dt)
 		manifold.last_warm_step = solver.StepStamp
 	end

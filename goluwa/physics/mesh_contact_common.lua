@@ -739,9 +739,11 @@ end
 function mesh_contact_common.SolveMeshCapsuleCollision(mesh_body, capsule_body, mesh_shape, dt)
 	local shape = capsule_geometry.GetCapsuleShape(capsule_body)
 	local use_local_space = LOCAL_SPACE_NARROW_PHASE_ENABLED
-	local start_world, end_world, radius = use_local_space and capsule_geometry.GetSegmentWorld(capsule_body) or nil,
-	nil,
-	nil
+	local start_world, end_world, radius
+
+	if use_local_space then
+		start_world, end_world, radius = capsule_geometry.GetSegmentWorld(capsule_body)
+	end
 
 	if not shape then return false end
 
