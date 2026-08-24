@@ -88,7 +88,7 @@ function META:FlushDeferredCallbacks()
 		self.deferred_callbacks = nil
 
 		for i = 1, #deferred do
-			deferred[i]()
+			deferred[i][1](deferred[i][2], deferred[i][3], deferred[i][4], deferred[i][5])
 		end
 	end
 end

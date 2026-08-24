@@ -570,28 +570,10 @@ do -- get is set
 		return validate_scalar(info, value, level)
 	end
 
-	function objects.ComparePropertyValues(info, a, b)
+	function objects.IsPropertyValueEqual(info, a, b)
 		if info and info.compare == "list" then return list_equals(a, b) end
 
 		return a == b
-	end
-
-	local function notify_property_listeners(self, info, old_value, new_value)
-		local listeners = self.property_change_listeners
-
-		if not listeners then return end
-
-		if listeners.any then
-			for _, callback in pairs(listeners.any) do
-				callback(self, info.var_name, new_value, old_value, info)
-			end
-		end
-
-		if listeners.by_name and listeners.by_name[info.var_name] then
-			for _, callback in pairs(listeners.by_name[info.var_name]) do
-				callback(self, info.var_name, new_value, old_value, info)
-			end
-		end
 	end
 
 	local function get_type(val)
@@ -602,6 +584,14 @@ do -- get is set
 		end
 
 		return t
+	end
+
+	local function has_validation(info)
+		return info.validate or
+			info.enums or
+			info.list_type or
+			info.list_enums or
+			info.list_length
 	end
 
 	function objects.CommitProperty(obj, key, value)
@@ -619,13 +609,7 @@ do -- get is set
 		local info = objects.GetPropertyInfo(getmetatable(obj), key)
 
 		if info then
-			if
-				info.validate or
-				info.enums or
-				info.list_type or
-				info.list_enums or
-				info.list_length
-			then
+			if has_validation(info) then
 				value = objects.ParsePropertyValue(info, value, 2)
 			end
 
@@ -722,8 +706,40 @@ do -- get is set
 		end
 	end
 
-	local function has_copy(obj)
-		assert(type(obj.__copy) == "function")
+	local function build_lookup(values)
+		local lookup = {}
+
+		for _, v in ipairs(values) do
+			lookup[v] = true
+		end
+
+		return lookup
+	end
+
+	local function notify_property_listeners(self, info, old_value, new_value)
+		if info.callback then
+			if type(info.callback) == "string" then
+				self[info.callback](self, info.var_name, old_value, new_value)
+			elseif info.callback then
+				info.callback(self, new_value, old_value, info.var_name)
+			end
+		end
+
+		local listeners = self.property_change_listeners
+
+		if listeners then
+			if listeners.any then
+				for _, callback in pairs(listeners.any) do
+					callback(self, info.var_name, new_value, old_value, info)
+				end
+			end
+
+			if listeners.by_name and listeners.by_name[info.var_name] then
+				for _, callback in pairs(listeners.by_name[info.var_name]) do
+					callback(self, info.var_name, new_value, old_value, info)
+				end
+			end
+		end
 	end
 
 	function objects.SetupProperty(info)
@@ -731,142 +747,81 @@ do -- get is set
 
 		if __options then table.merge(info, __options) end
 
-		local default = info.default
-		local name = info.var_name
-		local set_name = info.set_name
-		local get_name = info.get_name
-		local callback = info.callback
-		local defer_callback = info.defer_callback
-		local has_validation = info.validate or
-			info.enums or
-			info.list_type or
-			info.list_enums or
-			info.list_length
-		local cast
-		local init_callback = info.init_callback
-		local first_time = true
-
-		if type(default) == "number" then
-			cast = function(var, default)
-				return tonumber(var) or default
-			end
-		elseif type(default) == "string" then
-			cast = function(var)
-				return tostring(var)
-			end
-		else
-			cast = function(var, default)
-				if var == nil then return default end
-
-				return var
-			end
-		end
-
 		local function commit(self, var)
-			if has_validation then
-				if var == nil then
-					var = default
-				else
-					var = objects.ParsePropertyValue(info, var, 2)
-				end
-			else
-				var = cast(var, default)
+			if var == nil then
+				var = info.default
+			elseif has_validation(info) then
+				var = objects.ParsePropertyValue(info, var, 2)
+			elseif type(info.default) == "number" then
+				var = tonumber(var) or info.default
+			elseif type(info.default) == "string" then
+				var = tostring(var)
 			end
 
-			local listeners = self.property_change_listeners
-			local run_once = first_time and init_callback
+			local old_value = self[info.var_name]
+			self[info.var_name] = var
 
-			if (callback or listeners) and objects.ComparePropertyValues(info, self[name], var) then
-				if not run_once then return end
-			end
+			if info.callback or self.property_change_listeners then
+				if self.SuppressEvents then return end
 
-			local old_value = self[name]
-			self[name] = var
-
-			if callback and (var ~= old_value or run_once) then
-				if defer_callback and self.SuppressEvents then
-					self.deferred_callbacks = self.deferred_callbacks or {}
-
-					list.insert(self.deferred_callbacks, function()
-						if type(callback) == "string" then
-							self[callback](self, name, old_value, var)
-						else
-							callback(self, var, old_value, name)
-						end
-					end)
-				else
-					if type(callback) == "string" then
-						self[callback](self, name, old_value, var)
+				if not objects.IsPropertyValueEqual(info, old_value, var) then
+					if info.defer_property_events then
+						self.deferred_callbacks = self.deferred_callbacks or {}
+						list.insert(self.deferred_callbacks, {notify_property_listeners, self, info, old_value, var})
+						info.defer_property_events = false
 					else
-						callback(self, var, old_value, name)
+						notify_property_listeners(self, info, old_value, var)
 					end
 				end
 			end
-
-			if listeners then notify_property_listeners(self, info, old_value, var) end
-
-			if run_once then first_time = false end
 		end
 
 		info.commit = commit
+		local set_name = info.set_name
+		local get_name = info.get_name
 		meta[set_name] = meta[set_name] or commit
 		meta[get_name] = meta[get_name] or
 			function(self)
-				if self[name] ~= nil then return self[name] end
+				if self[info.var_name] ~= nil then return self[info.var_name] end
 
-				return default
+				return info.default
 			end
-		meta[name] = default
-		info.type = info.type or get_type(default)
+		meta[info.var_name] = info.default
+		info.type = info.type or get_type(info.default)
 
-		if info.enums then
-			info.enum_lookup = {}
+		if info.enums then info.enum_lookup = build_lookup(info.enums) end
 
-			for _, v in ipairs(info.enums) do
-				info.enum_lookup[v] = true
-			end
-		end
-
-		if info.list_enums then
-			info.list_enum_lookup = {}
-
-			for _, v in ipairs(info.list_enums) do
-				info.list_enum_lookup[v] = true
-			end
-		end
+		if info.list_enums then info.list_enum_lookup = build_lookup(info.list_enums) end
 
 		if __store then
 			meta.storable_variables = meta.storable_variables or {}
 			list.insert(meta.storable_variables, info)
 		end
 
-		do
-			if pcall(has_copy, info.default) then
+		if type(info.default) == "table" then
+			if type(info.default.__copy) == "function" then
 				info.copy = function()
 					return info.default:__copy()
 				end
-			elseif type(info.default) == "table" then
-				if not next(info.default) then
-					info.copy = function()
-						return {}
-					end
-				elseif getmetatable(info.default) then
-					wlog(
-						"Default value for %s has a metatable, but does not have a __copy method. This may cause issues if multiple instances of the object are created.",
-						info.var_name,
-						2
-					)
-				else
-					info.copy = function()
-						return table.copy(info.default)
-					end
+			elseif not next(info.default) then
+				info.copy = function()
+					return {}
+				end
+			elseif getmetatable(info.default) then
+				wlog(
+					"Default value for %s has a metatable, but does not have a __copy method. This may cause issues if multiple instances of the object are created.",
+					name,
+					2
+				)
+			else
+				info.copy = function()
+					return table.copy(info.default)
 				end
 			end
-
-			meta.objects_variables = meta.objects_variables or {}
-			meta.objects_variables[info.var_name] = info
 		end
 
+		meta.objects_variables = meta.objects_variables or {}
+		meta.objects_variables[info.var_name] = info
 		return info
 	end
 

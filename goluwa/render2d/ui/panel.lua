@@ -177,8 +177,7 @@ function Panel:CreateTemplate(name)
 				k,
 				d,
 				{
-					init_callback = true,
-					defer_callback = true,
+					defer_property_events = true,
 					callback = c,
 				},
 				...

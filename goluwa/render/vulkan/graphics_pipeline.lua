@@ -2158,7 +2158,7 @@ do
 
 			local current = get_property_effective_value(self, info)
 
-			if objects.ComparePropertyValues(info, current, value) then return end
+			if objects.IsPropertyValueEqual(info, current, value) then return end
 
 			local section_name = info.state_section
 			local key = info.state_key
