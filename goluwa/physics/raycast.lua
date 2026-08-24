@@ -34,14 +34,6 @@ local function get_spatial_component_count()
 	return #Visual.Instances
 end
 
-local function for_each_spatial_component(callback)
-	if not Visual or not Visual.Instances then return end
-
-	for _, visual in ipairs(Visual.Instances or {}) do
-		callback(visual)
-	end
-end
-
 local function create_ray(origin, direction, max_distance)
 	local tbl = {}
 	tbl.origin = origin
@@ -124,11 +116,13 @@ local function get_bvh_item_centroid(item)
 	return item.centroid_x, item.centroid_y, item.centroid_z
 end
 
-local function rebuild_model_acceleration()
+local function collect_spatial_model_items()
 	local items = {}
 	local dynamic_models = {}
 
-	for_each_spatial_component(function(model)
+	if not Visual or not Visual.Instances then return items, dynamic_models end
+
+	for _, model in ipairs(Visual.Instances) do
 		if has_model_geometry(model) then
 			if is_dynamic_model(model) then
 				dynamic_models[#dynamic_models + 1] = model
@@ -136,8 +130,13 @@ local function rebuild_model_acceleration()
 				add_model_acceleration_item(items, model, model.GetWorldAABB and model:GetWorldAABB() or model.AABB)
 			end
 		end
-	end)
+	end
 
+	return items, dynamic_models
+end
+
+local function rebuild_model_acceleration()
+	local items, dynamic_models = collect_spatial_model_items()
 	model_acceleration.items = items
 	model_acceleration.dynamic_models = dynamic_models
 	model_acceleration.tree = #items > 0 and
