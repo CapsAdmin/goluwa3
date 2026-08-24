@@ -449,6 +449,12 @@ function META:ShouldForceGroundedSleep(body)
 		)
 end
 
+local axis_data = {
+	{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
+	{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
+	{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
+}
+
 function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
 	local distance_limit = max_distance or math.huge
 	local movement_world = direction and direction:GetNormalized() * distance_limit or Vec3(0, 0, 0)
@@ -459,22 +465,17 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 	local end_local = body:WorldToLocal(origin + movement_world)
 	local movement_local = end_local - start_local
 	local expansion = math.max(trace_radius or 0, 0)
-	local extents = self:GetExtents() + Vec3(expansion, expansion, expansion)
+	local extents = self:GetExtents()
 	local t_enter = 0
 	local t_exit = 1
 	local hit_normal_local = nil
-	local axis_data = {
-		{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
-		{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
-		{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
-	}
 
 	for _, axis in ipairs(axis_data) do
 		local name = axis[1]
 		local s = start_local[name]
 		local d = movement_local[name]
-		local min_value = -extents[name]
-		local max_value = extents[name]
+		local min_value = -extents[name] + expansion
+		local max_value = extents[name] + expansion
 
 		if math.abs(d) <= 0.00001 then
 			if s < min_value or s > max_value then return nil end
