@@ -1,6 +1,6 @@
 -- Physics engine feature showcase: a walled arena, one labeled zone per
 -- feature. Keys: R kick pendulums, B kick bounce ball, K wake sleeper,
--- S re-fire CCD bullets.
+-- S re-fire CCD bullets, C topple capsule.
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -91,6 +91,34 @@ local function spawn_dynamic_box(position, size, material, rotation, options)
 		Position = position,
 		Rotation = rotation or make_rotation(),
 		Size = size,
+		Material = material,
+		RigidBody = {
+			Mass = options.Mass,
+			AutomaticMass = options.AutomaticMass,
+			LinearDamping = options.LinearDamping or 0.05,
+			AngularDamping = options.AngularDamping or 0.12,
+			AirLinearDamping = options.AirLinearDamping or 0.02,
+			AirAngularDamping = options.AirAngularDamping or 0.05,
+			Friction = options.Friction or 0.7,
+			Restitution = options.Restitution or 0,
+			GravityScale = options.GravityScale,
+			CanSleep = options.CanSleep,
+			CollisionGroup = options.CollisionGroup,
+			CollisionMask = options.CollisionMask,
+			MaxLinearSpeed = options.MaxLinearSpeed or 1000,
+			MaxAngularSpeed = options.MaxAngularSpeed or 1000,
+		},
+	}
+end
+
+local function spawn_dynamic_capsule(position, radius, height, material, rotation, options)
+	options = options or {}
+	return shapes.Capsule{
+		Name = options.Name or "physics_playground_dynamic_capsule",
+		Position = position,
+		Rotation = rotation or make_rotation(),
+		Radius = radius,
+		Height = height,
 		Material = material,
 		RigidBody = {
 			Mass = options.Mass,
@@ -580,6 +608,66 @@ do -- collision groups and masks: the ball ignores group 2, falls through the ro
 	)
 end
 
+local capsule_stand
+local capsule_log
+local capsule_drop
+local capsule_stand_spawn = GROUND + Vec3(6, 1.2, 9.2)
+local capsule_log_spawn = GROUND + Vec3(3.4, 2.75, 7.3)
+local capsule_drop_spawn = GROUND + Vec3(8.5, 4.5, 9.2)
+
+do -- capsules: a standing one topples (C), a log rolls down a ramp, a stubby one bounces
+	spawn_static_box(
+		GROUND + Vec3(3.4, 1.5, 9.4),
+		Vec3(2.2, 0.3, 6.5),
+		ground_material,
+		make_rotation(14, 0, 0)
+	)
+	_, capsule_stand = spawn_dynamic_capsule(
+		capsule_stand_spawn,
+		0.4,
+		1.6,
+		wood_material,
+		make_rotation(),
+		{
+			Name = "physics_playground_capsule_stand",
+			Mass = 1.2,
+			AutomaticMass = false,
+			Friction = 0.8,
+			Restitution = 0.05,
+			AngularDamping = 0.05,
+		}
+	)
+	_, capsule_log = spawn_dynamic_capsule(
+		capsule_log_spawn,
+		0.35,
+		1.3,
+		steel_material,
+		make_rotation(0, 0, 90),
+		{
+			Name = "physics_playground_capsule_log",
+			Mass = 1.0,
+			AutomaticMass = false,
+			Friction = 0.35,
+			Restitution = 0.1,
+			AngularDamping = 0.02,
+		}
+	)
+	_, capsule_drop = spawn_dynamic_capsule(
+		capsule_drop_spawn,
+		0.45,
+		0.95,
+		payload_material,
+		make_rotation(),
+		{
+			Name = "physics_playground_capsule_drop",
+			Mass = 0.9,
+			AutomaticMass = false,
+			Friction = 0.5,
+			Restitution = 0.55,
+		}
+	)
+end
+
 local hover_body
 
 do -- gravity scale: zero gravity + damping drifts inside a cage
@@ -643,6 +731,7 @@ end
 local ramp_last_spawn = 0
 local bullet_last_fire = 0
 local phase_last_spawn = 0
+local capsule_last_spawn = 0
 local rocket_home = GROUND + Vec3(0, 3.5, 6)
 
 event.AddListener("Update", "physics_playground_update", function(dt)
@@ -661,6 +750,8 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 		sleep_body_b:Wake()
 		sleep_body_b:ApplyImpulse(Vec3(1.5, 6, 0))
 	end
+
+	if key_pressed("c") then capsule_stand:ApplyImpulse(Vec3(4, 0, 0.5)) end
 
 	if key_pressed("s") then
 		bullet_a_body:SetPosition(bullet_a_spawn)
@@ -711,6 +802,17 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 		phase_body:SetVelocity(Vec3(0, 0, 0))
 	end
 
+	if t - capsule_last_spawn > 6 then
+		capsule_last_spawn = t
+		capsule_stand:SetPosition(capsule_stand_spawn)
+		capsule_stand:SetRotation(make_rotation())
+		capsule_stand:SetVelocity(Vec3(0, 0, 0))
+		capsule_log:SetPosition(capsule_log_spawn)
+		capsule_log:SetVelocity(Vec3(0, 0, 0))
+		capsule_drop:SetPosition(capsule_drop_spawn)
+		capsule_drop:SetVelocity(Vec3(0, 0, 0))
+	end
+
 	-- sweeping raycast probe: closest hit below a circling point
 	local scan_angle = t * 0.7
 	local scan_origin = GROUND + Vec3(math.cos(scan_angle) * 8, 11, math.sin(scan_angle) * 8)
@@ -757,7 +859,7 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 		GROUND + Vec3(0, 10.2, 0),
 		"PHYSICS PLAYGROUND",
 		{
-			"R kick pendulums   B kick ball   K wake sleeper   S re-fire bullets",
+			"R kick pendulums   B kick ball   K wake sleeper   S re-fire bullets   C topple capsule",
 		},
 		Color(1, 1, 1, 1)
 	)
@@ -875,6 +977,15 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 			"cols: friction 0..1   rows: restitution 0..1",
 		},
 		Color(0.6, 0.75, 1, 1)
+	)
+	label(
+		"capsule",
+		GROUND + Vec3(5, 5, 9.2),
+		"Capsule",
+		{
+			"stand topples (C)   log rolls   stubby bounces",
+		},
+		Color(0.9, 0.7, 0.4, 1)
 	)
 	label(
 		"hover",
