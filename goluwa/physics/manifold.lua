@@ -119,28 +119,55 @@ end
 function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 	local previous_contacts = manifold_data.contacts or {}
 	local rebuilt = {}
+	local claimed = {}
 
 	for _, contact in ipairs(contacts) do
 		local local_point_a = body_a:WorldToLocal(contact.point_a)
 		local local_point_b = body_b:WorldToLocal(contact.point_b)
-		local matched_contact
-		local best_distance = 0.25
+		local matched_index
 
-		for _, previous in ipairs(previous_contacts) do
-			local dx = previous.local_point_a.x - local_point_a.x
-			local dy = previous.local_point_a.y - local_point_a.y
-			local dz = previous.local_point_a.z - local_point_a.z
-			local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-			dx = previous.local_point_b.x - local_point_b.x
-			dy = previous.local_point_b.y - local_point_b.y
-			dz = previous.local_point_b.z - local_point_b.z
-			distance = distance + math.sqrt(dx * dx + dy * dy + dz * dz)
+		-- contacts carrying a feature key match by exact feature pair first
+		-- (box3d b3MakeFeatureId); proximity is only the fallback
+		local feature_key = contact.feature_key
 
-			if distance < best_distance then
-				best_distance = distance
-				matched_contact = previous
+		if feature_key then
+			for previous_index, previous in ipairs(previous_contacts) do
+				if not claimed[previous_index] and previous.feature_key == feature_key then
+					matched_index = previous_index
+					break
+				end
 			end
 		end
+
+		if not matched_index then
+			local best_distance = 0.25
+
+			for previous_index, previous in ipairs(previous_contacts) do
+				if claimed[previous_index] then
+					goto continue
+				end
+
+				local dx = previous.local_point_a.x - local_point_a.x
+				local dy = previous.local_point_a.y - local_point_a.y
+				local dz = previous.local_point_a.z - local_point_a.z
+				local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+				dx = previous.local_point_b.x - local_point_b.x
+				dy = previous.local_point_b.y - local_point_b.y
+				dz = previous.local_point_b.z - local_point_b.z
+				distance = distance + math.sqrt(dx * dx + dy * dy + dz * dz)
+
+				if distance < best_distance then
+					best_distance = distance
+					matched_index = previous_index
+				end
+
+				::continue::
+			end
+		end
+
+		local matched_contact = matched_index and previous_contacts[matched_index] or nil
+
+		if matched_index then claimed[matched_index] = true end
 
 		rebuilt[#rebuilt + 1] = {
 			local_point_a = local_point_a,
@@ -162,6 +189,7 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 				matched_contact.tangent and
 				matched_contact.tangent:Copy() or
 				nil,
+			feature_key = contact.feature_key,
 		}
 	end
 

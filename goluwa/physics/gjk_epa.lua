@@ -854,7 +854,10 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 
 		local support_distance = support.point:Dot(direction)
 
-		if support_distance - distance <= EPA_CONVERGENCE_EPSILON then break end
+		-- the closest point on the simplex is the true minimum distance only when
+		-- the farthest support in the search direction does not extend past the
+		-- hyperplane through the origin perpendicular to it: support.dot(u) <= -|c|
+		if support_distance + distance <= EPA_CONVERGENCE_EPSILON then break end
 
 		table.insert(simplex, 1, support)
 

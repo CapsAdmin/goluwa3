@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
@@ -289,6 +290,40 @@ function META:BuildInertia(mass)
 		) * 0.25
 	local izz = ixx
 	return mass, Matrix33():SetDiagonal(ixx, iyy, izz)
+end
+
+local CAPSULE_AABB_BOTTOM = Vec3(0, 0, 0)
+local CAPSULE_AABB_TOP = Vec3(0, 0, 0)
+
+function META:GetBroadphaseAABB(body, position, rotation, out)
+	-- the capsule is the Minkowski sum of its axis segment and a sphere, so
+	-- its exact range along any axis is the segment's range plus the radius;
+	-- a sampled AABB under-covers a tilted capsule and makes the broadphase
+	-- drop resting pairs every other frame
+	local half_height = self:GetCylinderHalfHeight()
+	local radius = self:GetRadius()
+	CAPSULE_AABB_BOTTOM.y = -half_height
+	CAPSULE_AABB_TOP.y = half_height
+	local bottom = self:GeometryLocalToWorld(body, CAPSULE_AABB_BOTTOM, position, rotation)
+	local top = self:GeometryLocalToWorld(body, CAPSULE_AABB_TOP, position, rotation)
+	local min_x = math.min(bottom.x, top.x) - radius
+	local min_y = math.min(bottom.y, top.y) - radius
+	local min_z = math.min(bottom.z, top.z) - radius
+	local max_x = math.max(bottom.x, top.x) + radius
+	local max_y = math.max(bottom.y, top.y) + radius
+	local max_z = math.max(bottom.z, top.z) + radius
+
+	if out then
+		out.min_x = min_x
+		out.min_y = min_y
+		out.min_z = min_z
+		out.max_x = max_x
+		out.max_y = max_y
+		out.max_z = max_z
+		return out
+	end
+
+	return AABB(min_x, min_y, min_z, max_x, max_y, max_z)
 end
 
 function META:BuildCollisionLocalPoints()

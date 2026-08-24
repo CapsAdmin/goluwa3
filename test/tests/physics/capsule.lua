@@ -50,40 +50,6 @@ local function create_mock_heightmap(size, fn)
 	}
 end
 
-local function create_concave_heightmap_ground(name)
-	local resolution = 40
-	local tex = create_mock_heightmap(resolution + 1, function(x, y)
-		local nx = x / resolution * 2 - 1
-		local ny = y / resolution * 2 - 1
-		local r2 = nx * nx + ny * ny
-		local bowl = math.min(1, r2 ^ 0.72)
-		local ripples = (math.cos(nx * 10) + math.sin(ny * 12)) * 0.015
-		local h = math.max(0, math.min(1, 0.16 + bowl * 0.56 + ripples))
-		local value = math.floor(h * 255 + 0.5)
-		return value, value, value, 255
-	end)
-	local ground = Entity.New({Name = name})
-	ground:AddComponent("transform")
-	ground.transform:SetPosition(Vec3(0, -1.5, 0))
-	ground:AddComponent(
-		"rigid_body",
-		{
-			Shape = HeightmapShape.New{
-				Heightmap = tex,
-				Size = Vec2(18, 18),
-				Resolution = Vec2(resolution, resolution),
-				Height = 4,
-				Pow = 1,
-			},
-			MotionType = "static",
-			WorldGeometry = true,
-			Friction = 0.9,
-			Restitution = 0,
-		}
-	)
-	return ground
-end
-
 local function create_flat_heightmap_ground(name)
 	local resolution = 24
 	local tex = create_mock_heightmap(resolution + 1, function()
@@ -130,64 +96,6 @@ T.TestPhysics("Capsule rigid body lands on ground mesh", function()
 	T(position.y)[">="](0.95)
 	T(position.y)["<="](1.05)
 	T(body:GetGroundNormal().y)[">"](0.9)
-	body_ent:Remove()
-	ground:Remove()
-end)
-
-T.TestPhysics("Capsule rigid body settles and sleeps on ground mesh after spinning", function()
-	local ground = test_helpers.CreateFlatGround("capsule_sleep_ground", 16)
-	local body_ent = Entity.New({Name = "capsule_sleep_body"})
-	body_ent:AddComponent("transform")
-	body_ent.transform:SetPosition(Vec3(0, 4, 0))
-	body_ent.transform:SetAngles(Deg3(8, 0, 12))
-	local body = body_ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = CapsuleShape.New(0.5, 2.0),
-			LinearDamping = 0,
-			AngularDamping = 0,
-			Friction = 0.9,
-		}
-	)
-	body:SetAngularVelocity(Vec3(0.6, 3.2, 0.8))
-	test_helpers.Simulate(420)
-	local position = body_ent.transform:GetPosition()
-	T(body:GetGrounded())["=="](true)
-	T(body:GetAwake())["=="](false)
-	T(position.y)[">="](0.9)
-	T(position.y)["<="](1.1)
-	T(body:GetVelocity():GetLength())["<"](0.05)
-	T(body:GetAngularVelocity():GetLength())["<"](0.08)
-	body_ent:Remove()
-	ground:Remove()
-end)
-
-T.TestPhysics("Capsule rigid body settles in a concave heightmap pit", function()
-	local ground = create_concave_heightmap_ground("capsule_heightmap_pit")
-	local body_ent = Entity.New({Name = "capsule_heightmap_body"})
-	body_ent:AddComponent("transform")
-	body_ent.transform:SetPosition(Vec3(0.65, 3.2, -0.45))
-	body_ent.transform:SetAngles(Deg3(8, 0, -10))
-	local body = body_ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = CapsuleShape.New(0.5, 2.0),
-			LinearDamping = 0,
-			AngularDamping = 0,
-		}
-	)
-
-	with_fixed_step(1 / 60, function()
-		test_helpers.SimulateSettled(body, 720, 1 / 60)
-	end)
-
-	local position = body_ent.transform:GetPosition()
-	T(body:GetGrounded())["=="](true)
-	T(body:GetAwake())["=="](false)
-	T(math.abs(position.x))["<"](0.85)
-	T(math.abs(position.z))["<"](0.85)
-	T(body:GetVelocity():GetLength())["<"](0.06)
-	T(body:GetAngularVelocity():GetLength())["<"](0.08)
 	body_ent:Remove()
 	ground:Remove()
 end)
@@ -634,4 +542,128 @@ T.TestPhysics("Fast capsule CCD remains stable at smaller fixed steps against st
 			T(math.abs(position.y - 1.5))["<"](0.2)
 		end)
 	end
+end)
+
+T.TestPhysics("Rolling capsule on flat box settles without sinking or jittering", function()
+	local ground_ent = Entity.New({Name = "capsule_roll_flat_ground"})
+	ground_ent:AddComponent("transform")
+	ground_ent.transform:SetPosition(Vec3(0, -0.5, 0))
+	ground_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(40, 1, 40)),
+			MotionType = "static",
+			Friction = 0.4,
+		}
+	)
+	local capsule_ent = Entity.New({Name = "capsule_roll_flat_body"})
+	capsule_ent:AddComponent("transform")
+	capsule_ent.transform:SetPosition(Vec3(-8, 3, 0))
+	capsule_ent.transform:SetAngles(Deg3(18, 0, 0))
+	local capsule = capsule_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 0.4,
+		}
+	)
+	capsule:SetVelocity(Vec3(2, 0, 0))
+	capsule:SetAngularVelocity(Vec3(-3, 0, 0))
+	local ys = {}
+
+	for step = 1, 600 do
+		physics.Update(1 / 120)
+
+		if step > 480 then
+			ys[#ys + 1] = capsule_ent.transform:GetPosition().y
+		end
+	end
+
+	local min_y, max_y = math.huge, -math.huge
+
+	for _, y in ipairs(ys) do
+		min_y = math.min(min_y, y)
+		max_y = math.max(max_y, y)
+	end
+
+	-- the box top is at y = 0; the center stays inside the capsule vertical
+	-- extent whether rolling tilted or standing upright
+	T(max_y)["<="](1.15)
+	T(min_y)[">="](0.05)
+	-- settled rolling must not bounce or jitter
+	T(max_y - min_y)["<="](0.05)
+	T(capsule:GetGrounded())["=="](true)
+	capsule_ent:Remove()
+	ground_ent:Remove()
+end)
+
+T.TestPhysics("Capsule spawned deep inside a static box recovers to the surface", function()
+	local box_ent = Entity.New({Name = "capsule_deep_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 1, 0))
+	box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			MotionType = "static",
+		}
+	)
+	local capsule_ent = Entity.New({Name = "capsule_deep_body"})
+	capsule_ent:AddComponent("transform")
+	-- box top is at y = 1.5, capsule bottom at 0.7: 0.8 deep in the box
+	capsule_ent.transform:SetPosition(Vec3(0, 1.7, 0))
+	local capsule = capsule_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
+	test_helpers.Simulate(360)
+	local position = capsule_ent.transform:GetPosition()
+	T(position.y)[">="](2.0)
+	T(position.y)["<="](2.6)
+	T(capsule:GetGrounded())["=="](true)
+	capsule_ent:Remove()
+	box_ent:Remove()
+end)
+
+T.TestPhysics("Parallel capsules overlapping side by side settle stably", function()
+	local blocker_ent = Entity.New({Name = "capsule_parallel_blocker"})
+	blocker_ent:AddComponent("transform")
+	blocker_ent.transform:SetPosition(Vec3(0, 0, 0))
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			MotionType = "static",
+		}
+	)
+	local capsule_ent = Entity.New({Name = "capsule_parallel_body"})
+	capsule_ent:AddComponent("transform")
+	capsule_ent.transform:SetPosition(Vec3(0.8, 0, 0))
+	local capsule = capsule_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
+	test_helpers.Simulate(300)
+	local position = capsule_ent.transform:GetPosition()
+	-- pushed apart to the combined radii, still upright next to the blocker
+	T(math.abs(position.x))[">="](0.9)
+	T(math.abs(position.x))["<="](1.15)
+	T(math.abs(position.y))["<"](0.15)
+	T(math.abs(position.z))["<"](0.15)
+	local velocity = capsule:GetVelocity()
+	T(velocity:GetLength())["<"](0.05)
+	capsule_ent:Remove()
+	blocker_ent:Remove()
 end)

@@ -485,7 +485,7 @@ function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_wor
 	}
 end
 
-function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, movement_local, segment_a, segment_b)
+function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, movement_local)
 	local local_point = box_body:WorldToLocal(point)
 	local extents = box_body:GetPhysicsShape():GetExtents()
 	local closest_local = Vec3(
@@ -574,50 +574,11 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 
 	if overlap <= 0 then return nil end
 
-	local point_b = point - normal * radius
-
-	if segment_a and segment_b then
-		local axis = segment_b - segment_a
-		local axis_len_sq = axis.x * axis.x + axis.y * axis.y + axis.z * axis.z
-
-		if axis_len_sq > EPSILON * EPSILON then
-			local px = closest_world.x - segment_a.x
-			local py = closest_world.y - segment_a.y
-			local pz = closest_world.z - segment_a.z
-			local t = (px * axis.x + py * axis.y + pz * axis.z) / axis_len_sq
-			local bx, by, bz, nx, ny, nz
-
-			if t < 0 then
-				bx, by, bz = segment_a.x, segment_a.y, segment_a.z
-				nx, ny, nz = px, py, pz
-			elseif t > 1 then
-				bx, by, bz = segment_b.x, segment_b.y, segment_b.z
-				nx = closest_world.x - segment_b.x
-				ny = closest_world.y - segment_b.y
-				nz = closest_world.z - segment_b.z
-			else
-				bx = segment_a.x + axis.x * t
-				by = segment_a.y + axis.y * t
-				bz = segment_a.z + axis.z * t
-				nx = px - axis.x * t
-				ny = py - axis.y * t
-				nz = pz - axis.z * t
-			end
-
-			local n_len = math.sqrt(nx * nx + ny * ny + nz * nz)
-
-			if n_len > EPSILON then
-				local inv = radius / n_len
-				point_b = Vec3(bx + nx * inv, by + ny * inv, bz + nz * inv)
-			end
-		end
-	end
-
 	return {
 		normal = normal,
 		overlap = overlap,
 		point_a = closest_world,
-		point_b = point_b,
+		point_b = point - normal * radius,
 	}
 end
 
