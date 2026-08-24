@@ -68,6 +68,10 @@ function bvh.AABBIntersects(a, b)
 	return true
 end
 
+local function compare_sort_entry(a, b)
+	return a.value < b.value
+end
+
 local function build_node(items, first, last, get_bounds, get_centroid, leaf_item_count)
 	local bounds = bvh.CreateEmptyBounds()
 	local centroid_bounds = bvh.CreateEmptyBounds()
@@ -109,22 +113,25 @@ local function build_node(items, first, last, get_bounds, get_centroid, leaf_ite
 	local slice = {}
 
 	for i = first, last do
-		slice[#slice + 1] = items[i]
+		local item = items[i]
+		local cx, cy, cz = get_centroid(item)
+		local value
+
+		if axis == "x" then
+			value = cx
+		elseif axis == "y" then
+			value = cy
+		else
+			value = cz
+		end
+
+		slice[#slice + 1] = {item = item, value = value}
 	end
 
-	table.sort(slice, function(a, b)
-		local ax, ay, az = get_centroid(a)
-		local bx, by, bz = get_centroid(b)
-
-		if axis == "x" then return ax < bx end
-
-		if axis == "y" then return ay < by end
-
-		return az < bz
-	end)
+	table.sort(slice, compare_sort_entry)
 
 	for i = 1, #slice do
-		items[first + i - 1] = slice[i]
+		items[first + i - 1] = slice[i].item
 	end
 
 	local mid = math.floor((first + last) / 2)
