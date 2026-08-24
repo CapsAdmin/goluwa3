@@ -82,6 +82,17 @@ function META:AddPropertyListenerFor(name, callback, id)
 	end
 end
 
+function META:FlushDeferredCallbacks()
+	while self.deferred_callbacks do
+		local deferred = self.deferred_callbacks
+		self.deferred_callbacks = nil
+
+		for i = 1, #deferred do
+			deferred[i]()
+		end
+	end
+end
+
 function META:__tostring()
 	local additional_info = self:__tostring2()
 

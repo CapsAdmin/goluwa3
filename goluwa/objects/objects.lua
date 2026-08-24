@@ -334,6 +334,7 @@ do
 
 		if self.OnPostCreate then self:OnPostCreate(...) end
 
+		self:FlushDeferredCallbacks()
 		self:SetSuppressEvents(false)
 
 		if self.OnFirstCreated and not meta.Instances[1] then
@@ -783,7 +784,7 @@ do -- get is set
 			self[name] = var
 
 			if callback and (var ~= old_value or run_once) then
-				if defer_callback then
+				if defer_callback and self.SuppressEvents then
 					self.deferred_callbacks = self.deferred_callbacks or {}
 
 					list.insert(self.deferred_callbacks, function()
