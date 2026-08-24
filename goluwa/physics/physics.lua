@@ -9,6 +9,7 @@ local Solver = import("goluwa/physics/solver.lua")
 local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
 local mesh_polyhedron_contacts = import("goluwa/physics/mesh_polyhedron_contacts.lua")
 local world_step = import("goluwa/physics/world_step.lua")
+local islands = import("goluwa/physics/islands.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
@@ -166,6 +167,7 @@ function Physics:_ResetState()
 	collision_pairs:ResetState()
 	broadphase:ResetState()
 	solver:ResetState()
+	islands.ResetState()
 
 	if constraints then
 		for i = #constraints, 1, -1 do

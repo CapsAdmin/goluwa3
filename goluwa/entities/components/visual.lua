@@ -829,6 +829,22 @@ local function ensure_scene_acceleration()
 	return acceleration
 end
 
+local function expand_point(matrix, target, x, y, z)
+	local transformed_x, transformed_y, transformed_z = matrix:TransformVectorUnpacked(x, y, z)
+
+	if transformed_x < target.min_x then target.min_x = transformed_x end
+
+	if transformed_y < target.min_y then target.min_y = transformed_y end
+
+	if transformed_z < target.min_z then target.min_z = transformed_z end
+
+	if transformed_x > target.max_x then target.max_x = transformed_x end
+
+	if transformed_y > target.max_y then target.max_y = transformed_y end
+
+	if transformed_z > target.max_z then target.max_z = transformed_z end
+end
+
 local function expand_aabb_with_transformed(source, matrix, target)
 	if not source then return end
 
@@ -865,30 +881,14 @@ local function expand_aabb_with_transformed(source, matrix, target)
 		return
 	end
 
-	local function expand_point(x, y, z)
-		local transformed_x, transformed_y, transformed_z = matrix:TransformVectorUnpacked(x, y, z)
-
-		if transformed_x < target.min_x then target.min_x = transformed_x end
-
-		if transformed_y < target.min_y then target.min_y = transformed_y end
-
-		if transformed_z < target.min_z then target.min_z = transformed_z end
-
-		if transformed_x > target.max_x then target.max_x = transformed_x end
-
-		if transformed_y > target.max_y then target.max_y = transformed_y end
-
-		if transformed_z > target.max_z then target.max_z = transformed_z end
-	end
-
-	expand_point(source.min_x, source.min_y, source.min_z)
-	expand_point(source.min_x, source.min_y, source.max_z)
-	expand_point(source.min_x, source.max_y, source.min_z)
-	expand_point(source.min_x, source.max_y, source.max_z)
-	expand_point(source.max_x, source.min_y, source.min_z)
-	expand_point(source.max_x, source.min_y, source.max_z)
-	expand_point(source.max_x, source.max_y, source.min_z)
-	expand_point(source.max_x, source.max_y, source.max_z)
+	expand_point(matrix, target, source.min_x, source.min_y, source.min_z)
+	expand_point(matrix, target, source.min_x, source.min_y, source.max_z)
+	expand_point(matrix, target, source.min_x, source.max_y, source.min_z)
+	expand_point(matrix, target, source.min_x, source.max_y, source.max_z)
+	expand_point(matrix, target, source.max_x, source.min_y, source.min_z)
+	expand_point(matrix, target, source.max_x, source.min_y, source.max_z)
+	expand_point(matrix, target, source.max_x, source.max_y, source.min_z)
+	expand_point(matrix, target, source.max_x, source.max_y, source.max_z)
 end
 
 local function build_transformed_aabb(source, matrix)

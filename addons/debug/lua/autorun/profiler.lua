@@ -5,7 +5,7 @@ local started = false
 
 local function toggle()
 	if not started then
-		profiler.Start("game", {trace_recorder = false})
+		profiler.Start("game", {trace_recorder = true})
 		started = true
 		logn("profiler started")
 	else

@@ -177,6 +177,10 @@ function module.CreateStubBody(data)
 		return data.AutomaticMass == true
 	end
 
+	function body:IsValid()
+		return not self.__removed
+	end
+
 	function body:IsDynamic()
 		return self.MotionType == "dynamic"
 	end

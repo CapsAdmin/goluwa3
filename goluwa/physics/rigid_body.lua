@@ -6,6 +6,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
+local islands = import("goluwa/physics/islands.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local stats = import("goluwa/physics/stats.lua")
 local RigidBody = objects.CreateTemplate("rigid_body")
@@ -176,6 +177,8 @@ do
 
 	function RigidBody:OnMotionTypeChanged()
 		self:RefreshMassProperties()
+		-- membership (dynamic vs anchor) changed: re-sync with the island system
+		islands.RemoveBody(self)
 	end
 
 	function RigidBody:GetOwner()
@@ -349,7 +352,9 @@ do
 		if self.Owner.transform then self:SynchronizeFromTransform() end
 	end
 
-	function RigidBody:OnRemove() end
+	function RigidBody:OnRemove()
+		islands.RemoveBody(self)
+	end
 
 	function RigidBody:OnGeometryChanged()
 		self:RebuildColliders()
