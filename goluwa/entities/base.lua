@@ -52,8 +52,7 @@ local function set_keyed(self)
 	self.Parent.keyed_children = self.Parent.keyed_children or {}
 	local existing = self.Parent.keyed_children[self:GetKey()]
 
-	if existing and existing:IsValid() then
-		print("removing ", existing, self:GetKey(), "!!")
+	if existing ~= self and existing and existing:IsValid() then
 		existing:Remove()
 	end
 
@@ -170,8 +169,6 @@ function BaseEntity:OnCreate(config)
 		apply_root_config(config)
 	end
 
-	if self:GetKey() ~= "" and self.Parent:IsValid() then set_keyed(self) end
-
 	for _, component in ipairs(self.component_list) do
 		if component.Initialize then component:Initialize() end
 
@@ -206,6 +203,8 @@ function BaseEntity:OnPostCreate(config)
 	if ref_func then ref_func(self) end
 
 	self:SetParent(parent)
+
+	if parent and parent:IsValid() and self:GetKey() ~= "" then set_keyed(self) end
 end
 
 function BaseEntity:EnsureComponent(name, tbl)
@@ -339,8 +338,8 @@ function BaseEntity:Ensure(ent)
 		return existing
 	end
 
-	set_keyed(ent)
 	ent:SetParent(self)
+	set_keyed(ent)
 	return ent
 end
 
