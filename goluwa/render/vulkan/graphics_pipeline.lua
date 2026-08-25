@@ -1401,90 +1401,80 @@ local graphics_pipeline_switch_count = 0
 local graphics_pipeline_switch_frame = -1
 local warned_graphics_pipeline_switch_frame = -1
 
-local function build_bind_state_cache(self)
-	local config = self:GetConfig()
-	local cache = {
-		zero_dynamic_offsets = build_zero_offsets(self.dynamic_descriptor_count or 0),
-	}
+local function build_cache_region(self, cache, region)
+	if region == "color_blend" then
+		if self.dynamic_states.color_blend_enable_ext then
+			local attachment_count = get_color_attachment_count(self)
 
-	if self.dynamic_states.color_blend_enable_ext then
-		local attachment_count = get_color_attachment_count(self)
+			if attachment_count > 0 then
+				local enables = cache.color_blend_enable
 
-		if attachment_count > 0 then
-			local enables = {}
-
-			for i = 1, attachment_count do
-				enables[i] = resolve_color_blend_state(self, i, "blend") or false
-			end
-
-			cache.color_blend_enable = enables
-		end
-	end
-
-	if self.dynamic_states.color_blend_equation_ext then
-		local attachment_count = get_color_attachment_count(self)
-
-		if attachment_count > 0 then
-			local equations = {}
-
-			for i = 1, attachment_count do
-				equations[i] = {
-					src_color_blend_factor = resolve_color_blend_state(self, i, "src_color_blend_factor") or "src_alpha",
-					dst_color_blend_factor = resolve_color_blend_state(self, i, "dst_color_blend_factor") or
-						"one_minus_src_alpha",
-					color_blend_op = resolve_color_blend_state(self, i, "color_blend_op") or "add",
-					src_alpha_blend_factor = resolve_color_blend_state(self, i, "src_alpha_blend_factor") or "one",
-					dst_alpha_blend_factor = resolve_color_blend_state(self, i, "dst_alpha_blend_factor") or
-						"one_minus_src_alpha",
-					alpha_blend_op = resolve_color_blend_state(self, i, "alpha_blend_op") or "add",
-				}
-			end
-
-			cache.color_blend_equations = equations
-		end
-	end
-
-	if self.dynamic_states.color_write_mask_ext then
-		local attachment_count = get_color_attachment_count(self)
-
-		if attachment_count > 0 then
-			local masks = {}
-
-			for i = 1, attachment_count do
-				masks[i] = normalize_color_write_mask(resolve_color_blend_state(self, i, "color_write_mask") or {"r", "g", "b", "a"})
-			end
-
-			cache.color_write_mask = masks
-		end
-	end
-
-	-- Derive cache values from dynamic_states using cache_rules
-	for ds_name, rules in pairs(cache_rules) do
-		if self.dynamic_states[ds_name] then
-			for _, rule in ipairs(rules) do
-				local val
-
-				if rule.subkey then
-					val = get_state(self, rule.section, rule.key, rule.subkey)
-				else
-					val = get_state(self, rule.section, rule.key)
+				if enables == nil then
+					enables = {}
+					cache.color_blend_enable = enables
 				end
 
-				-- Apply normalization if needed
-				if rule.normalize and val ~= nil and val ~= false and val ~= 0 then
-					val = true
+				for i = 1, attachment_count do
+					enables[i] = resolve_color_blend_state(self, i, "blend") or false
 				end
-
-				-- Apply default if nil
-				if val == nil then val = rule.default end
-
-				cache[rule.field] = val
 			end
 		end
+
+		if self.dynamic_states.color_blend_equation_ext then
+			local attachment_count = get_color_attachment_count(self)
+
+			if attachment_count > 0 then
+				local equations = cache.color_blend_equations
+
+				if equations == nil then
+					equations = {}
+					cache.color_blend_equations = equations
+				end
+
+				for i = 1, attachment_count do
+					local eq = equations[i]
+
+					if eq == nil then
+						eq = {}
+						equations[i] = eq
+					end
+
+					eq.src_color_blend_factor = resolve_color_blend_state(self, i, "src_color_blend_factor") or "src_alpha"
+					eq.dst_color_blend_factor = resolve_color_blend_state(self, i, "dst_color_blend_factor") or
+						"one_minus_src_alpha"
+					eq.color_blend_op = resolve_color_blend_state(self, i, "color_blend_op") or "add"
+					eq.src_alpha_blend_factor = resolve_color_blend_state(self, i, "src_alpha_blend_factor") or "one"
+					eq.dst_alpha_blend_factor = resolve_color_blend_state(self, i, "dst_alpha_blend_factor") or
+						"one_minus_src_alpha"
+					eq.alpha_blend_op = resolve_color_blend_state(self, i, "alpha_blend_op") or "add"
+				end
+			end
+		end
+
+		if self.dynamic_states.color_write_mask_ext then
+			local attachment_count = get_color_attachment_count(self)
+
+			if attachment_count > 0 then
+				local masks = cache.color_write_mask
+
+				if masks == nil then
+					masks = {}
+					cache.color_write_mask = masks
+				end
+
+				for i = 1, attachment_count do
+					masks[i] = normalize_color_write_mask(resolve_color_blend_state(self, i, "color_write_mask") or {"r", "g", "b", "a"})
+				end
+			end
+		end
+
+		return
 	end
 
-	-- Special handling for viewport/scissor (need config fallbacks)
-	if self.dynamic_states.viewport then
+	if region == "viewport" then
+		if not self.dynamic_states.viewport then return end
+
+		local config = self:GetConfig()
 		cache.viewport_x = get_state(self, "viewport", "x") or config.viewport and config.viewport.x or 0
 		cache.viewport_y = get_state(self, "viewport", "y") or config.viewport and config.viewport.y or 0
 		cache.viewport_width = get_state(self, "viewport", "w") or
@@ -1507,9 +1497,13 @@ local function build_bind_state_cache(self)
 			config.viewport and
 			config.viewport.max_depth or
 			1
+		return
 	end
 
-	if self.dynamic_states.scissor then
+	if region == "scissor" then
+		if not self.dynamic_states.scissor then return end
+
+		local config = self:GetConfig()
 		cache.scissor_x = get_state(self, "scissor", "x") or config.scissor and config.scissor.x or 0
 		cache.scissor_y = get_state(self, "scissor", "y") or config.scissor and config.scissor.y or 0
 		cache.scissor_width = get_state(self, "scissor", "w") or
@@ -1524,9 +1518,50 @@ local function build_bind_state_cache(self)
 			config.scissor and
 			config.scissor.h or
 			0
+		return
 	end
 
+	-- Generic dynamic-state region driven by cache_rules
+	local rules = cache_rules[region]
+
+	if rules and self.dynamic_states[region] then
+		for _, rule in ipairs(rules) do
+			local val
+
+			if rule.subkey then
+				val = get_state(self, rule.section, rule.key, rule.subkey)
+			else
+				val = get_state(self, rule.section, rule.key)
+			end
+
+			-- Apply normalization if needed
+			if rule.normalize and val ~= nil and val ~= false and val ~= 0 then
+				val = true
+			end
+
+			-- Apply default if nil
+			if val == nil then val = rule.default end
+
+			cache[rule.field] = val
+		end
+	end
+end
+
+local function build_bind_state_cache(self)
+	local cache = {}
 	self.bind_state_cache = cache
+	self.bind_state_dirty_regions = nil
+	cache.zero_dynamic_offsets = build_zero_offsets(self.dynamic_descriptor_count or 0)
+	build_cache_region(self, cache, "color_blend")
+
+	for ds_name, _ in pairs(cache_rules) do
+		if ds_name ~= "viewport" and ds_name ~= "scissor" then
+			build_cache_region(self, cache, ds_name)
+		end
+	end
+
+	build_cache_region(self, cache, "viewport")
+	build_cache_region(self, cache, "scissor")
 end
 
 local function get_pipeline_signature(self, cmd)
@@ -1911,7 +1946,6 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.current_signature_id = self.base_signature_id
 	self.current_variant_id = self.base_variant_id
 	self.static_variant_dirty = false
-	self.bind_state_dirty = false
 	build_bind_state_cache(self)
 	common.bind_texture_registry(self)
 	common.bind_sampler_config_methods(self)
@@ -2004,9 +2038,14 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 
 	if self.static_variant_dirty or self.current_signature_id ~= signature_id then
 		self:RebuildPipeline(self.overridden_state, signature)
-	elseif self.bind_state_dirty then
-		build_bind_state_cache(self)
-		self.bind_state_dirty = false
+	elseif self.bind_state_dirty_regions then
+		local dirty_regions = self.bind_state_dirty_regions
+
+		for region, _ in pairs(dirty_regions) do
+			build_cache_region(self, self.bind_state_cache, region)
+		end
+
+		self.bind_state_dirty_regions = nil
 	end
 
 	local cache = self.bind_state_cache
@@ -2173,7 +2212,28 @@ do
 
 			set_path_value(section_overrides, info.state_value_path, stored_value)
 			self.overridden_state[section_name] = section_overrides
-			self.bind_state_dirty = true
+			local region
+
+			if section_name == "color_blend" then
+				region = "color_blend"
+			elseif section_name == "viewport" then
+				region = "viewport"
+			elseif section_name == "scissor" then
+				region = "scissor"
+			else
+				region = info.dynamic_state_name
+			end
+
+			if region then
+				local dirty_regions = self.bind_state_dirty_regions
+
+				if dirty_regions == nil then
+					dirty_regions = {}
+					self.bind_state_dirty_regions = dirty_regions
+				end
+
+				dirty_regions[region] = true
+			end
 
 			if changed_static then self.static_variant_dirty = true end
 		end
@@ -2247,10 +2307,7 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	if self.current_variant_id == variant_id and self.pipeline then
 		self.current_signature_id = signature_id
 
-		if self.bind_state_dirty then
-			build_bind_state_cache(self)
-			self.bind_state_dirty = false
-		end
+		if self.bind_state_dirty_regions then build_bind_state_cache(self) end
 
 		self.static_variant_dirty = false
 		return
@@ -2266,7 +2323,6 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 		self.active_config = cached.config
 		build_bind_state_cache(self)
 		self.static_variant_dirty = false
-		self.bind_state_dirty = false
 		return
 	end
 
@@ -2325,7 +2381,6 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	self.active_config = modified_config
 	build_bind_state_cache(self)
 	self.static_variant_dirty = false
-	self.bind_state_dirty = false
 end
 
 -- Reset to base pipeline
@@ -2337,7 +2392,6 @@ function GraphicsPipeline:ResetToBase()
 	self.overridden_state = {}
 	self.static_variant_dirty = false
 	build_bind_state_cache(self)
-	self.bind_state_dirty = false
 end
 
 -- Get information about cached variants (for debugging)

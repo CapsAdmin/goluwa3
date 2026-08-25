@@ -13,10 +13,11 @@ T.Test3D("GraphicsPipeline creates and caches variants based on static state", f
 	pipeline:SetPolygonMode("line")
 	T(pipeline.current_variant_id)["=="](pipeline.base_variant_id)
 	T(pipeline.pipeline_variants[pipeline.base_variant_id])["~="](nil)
+	pipeline:ResetToBase()
 	-- Changing a static state should mark the pipeline as dirty
 	pipeline:SetRasterizationSamples("4")
 	T(pipeline.static_variant_dirty)["=="](true)
-	T(pipeline.bind_state_dirty)["=="](true)
+	T(pipeline.bind_state_dirty_regions ~= nil)["=="](false)
 	-- Trigger variant rebuild by calling RebuildPipeline directly
 	pipeline:RebuildPipeline(pipeline.overridden_state)
 	T(pipeline.current_variant_id)["~="](pipeline.base_variant_id)
