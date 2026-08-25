@@ -189,47 +189,58 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	return pair_solver_helpers.ResolveSweptHit(box_body, sphere_body, start_world, movement_world, earliest_hit, dt, true)
 end
 
+local function resolve_top_face_hit(sphere_body, box_body, dt, local_center, extents)
+	local top_world = box_body:LocalToWorld(
+		Vec3(math.clamp(local_center.x, -extents.x, extents.x), extents.y, math.clamp(local_center.z, -extents.z, extents.z))
+	)
+	local top_delta = sphere_body:GetPosition() - top_world
+	local top_distance = top_delta:GetLength()
+	local top_overlap = sphere_body:GetSphereRadius() - top_distance
+
+	if top_overlap <= -EPSILON then return false end
+
+	local top_normal
+
+	if top_distance > EPSILON then
+		top_normal = top_delta / top_distance
+	else
+		top_normal = box_body:GetUp():GetNormalized()
+	end
+
+	contact_resolution.ResolvePairPenetration(
+		box_body,
+		sphere_body,
+		top_normal,
+		math.max(top_overlap, EPSILON),
+		dt,
+		top_world,
+		sphere_body:GetPosition() - top_normal * sphere_body:GetSphereRadius()
+	)
+	return true
+end
+
 function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
-	local center = sphere_body:GetPosition()
-	local local_center = box_body:WorldToLocal(center)
+	local local_center = box_body:WorldToLocal(sphere_body:GetPosition())
 	local previous_local_center = box_body:WorldToLocal(sphere_body:GetPreviousPosition())
-	local movement_local = local_center - previous_local_center
 	local extents = box_body:GetPhysicsShape():GetExtents()
-	local sphere_radius = sphere_body:GetSphereRadius()
 
-	if previous_local_center.y > extents.y + EPSILON and movement_local.y < -EPSILON then
-		local top_local = Vec3(
-			math.clamp(local_center.x, -extents.x, extents.x),
-			extents.y,
-			math.clamp(local_center.z, -extents.z, extents.z)
-		)
-		local top_world = box_body:LocalToWorld(top_local)
-		local top_delta = center - top_world
-		local top_distance = top_delta:GetLength()
-		local top_overlap = sphere_radius - top_distance
-
-		if top_overlap > -EPSILON then
-			local top_normal
-
-			if top_distance > EPSILON then
-				top_normal = top_delta / top_distance
-			else
-				top_normal = box_body:GetUp():GetNormalized()
-			end
-
-			return contact_resolution.ResolvePairPenetration(
-				box_body,
-				sphere_body,
-				top_normal,
-				math.max(top_overlap, EPSILON),
-				dt,
-				top_world,
-				center - top_normal * sphere_radius
-			)
+	if
+		previous_local_center.y > extents.y + EPSILON and
+		(
+			local_center.y - previous_local_center.y
+		) < -EPSILON
+	then
+		if resolve_top_face_hit(sphere_body, box_body, dt, local_center, extents) then
+			return true
 		end
 	end
 
-	local contact = pair_solver_helpers.GetBoxContactForPoint(box_body, center, sphere_radius, movement_local)
+	local contact = pair_solver_helpers.GetBoxContactForPoint(
+		box_body,
+		sphere_body:GetPosition(),
+		sphere_body:GetSphereRadius(),
+		local_center - previous_local_center
+	)
 
 	if not contact then
 		return solve_swept_sphere_box_collision(sphere_body, box_body, dt)

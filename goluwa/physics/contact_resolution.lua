@@ -190,18 +190,15 @@ local ITERATE_WORLD_POINT_B = {
 
 function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fresh_contacts)
 	local physics = body_a:GetPhysics()
-	local solver = physics.solver
-	local options = manifold.resolve_options
-	local normal = manifold.normal
-	local contacts = fresh_contacts or manifold.contacts or {}
+	local contacts = assert(fresh_contacts or manifold.contacts)
 
-	if manifold.last_warm_step ~= solver.StepStamp then
-		manifolds.CaptureRestitutionBias(body_a, body_b, normal, manifold)
-		manifolds.WarmStart(body_a, body_b, normal, manifold, dt)
-		manifold.last_warm_step = solver.StepStamp
+	if manifold.last_warm_step ~= physics.solver.StepStamp then
+		manifolds.CaptureRestitutionBias(body_a, body_b, manifold.normal, manifold)
+		manifolds.WarmStart(body_a, body_b, manifold.normal, manifold, dt)
+		manifold.last_warm_step = physics.solver.StepStamp
 	end
 
-	refresh_pair_materials(solver, body_a, body_b, manifold)
+	refresh_pair_materials(physics.solver, body_a, body_b, manifold)
 
 	-- world points are re-derived from the local contact points in cached
 	-- iterations because corrections move the bodies between passes; the first
@@ -220,12 +217,12 @@ function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fr
 		end
 	end
 
-	manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
-	local correction_length = get_positional_correction_length(solver, manifold.overlap or 0, dt)
+	manifolds.SolveImpulses(body_a, body_b, manifold.normal, manifold, dt)
+	local correction_length = get_positional_correction_length(physics.solver, manifold.overlap or 0, dt)
 
 	if correction_length > EPSILON then
 		manifold.overlap = math.max(0, (manifold.overlap or 0) - correction_length)
-		local lifts_broken = pair_breaks_lifted_support(solver, body_a, body_b)
+		local lifts_broken = pair_breaks_lifted_support(physics.solver, body_a, body_b)
 		local separation_tolerance = lifts_broken and 0 or math.huge
 		local active_count = 0
 
@@ -237,7 +234,7 @@ function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fr
 
 		if active_count == 0 then active_count = #contacts end
 
-		local correction = CORRECTION:CopyFrom(normal):Scale(-(correction_length / active_count))
+		local correction = CORRECTION:CopyFrom(manifold.normal):Scale(-(correction_length / active_count))
 
 		for i = 1, #contacts do
 			local contact = contacts[i]
@@ -248,21 +245,21 @@ function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fr
 		end
 	end
 
-	if not (options and options.skip_grounding) then
-		contact_resolution.MarkPairGrounding(body_a, body_b, normal, manifold.rolling_friction)
+	if not (manifold.resolve_options and manifold.resolve_options.skip_grounding) then
+		contact_resolution.MarkPairGrounding(body_a, body_b, manifold.normal, manifold.rolling_friction)
 		mark_pair_grounding_from_contacts(body_a, body_b, contacts)
-		local support_tolerance = math.max(solver.PENETRATION_SLOP or 0, 0.005)
+		local support_tolerance = math.max(physics.solver.PENETRATION_SLOP or 0, 0.005)
 
 		for _, contact in ipairs(contacts) do
 			if (contact.separation or 0) <= support_tolerance then
-				accumulate_pair_ground_support(body_a, body_b, normal, contact.point_a, contact.point_b)
+				accumulate_pair_ground_support(body_a, body_b, manifold.normal, contact.point_a, contact.point_b)
 			end
 		end
 	end
 
-	if manifold.last_record_step ~= solver.StepStamp then
-		physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, manifold.overlap)
-		manifold.last_record_step = solver.StepStamp
+	if manifold.last_record_step ~= physics.solver.StepStamp then
+		physics.collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, manifold.overlap)
+		manifold.last_record_step = physics.solver.StepStamp
 	end
 
 	return true
