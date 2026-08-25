@@ -296,120 +296,109 @@ local function refresh_texture_descriptor_array(self, array, binding_index, set_
 	mark_all_descriptor_frames_dirty(self)
 end
 
+-- Groups the state of one bindless texture binding (2d or cubemap) so the
+-- shared index logic can serve both without branching. Built once per
+-- pipeline; the counter and capacity are read from self by key because they
+-- are assigned after the registry is initialized.
+local function make_texture_slot(
+	registry,
+	array,
+	free_list,
+	next_index_key,
+	limit_key,
+	binding_index,
+	full_message
+)
+	return {
+		registry = registry,
+		array = array,
+		free_list = free_list,
+		next_index_key = next_index_key,
+		limit_key = limit_key,
+		binding_index = binding_index,
+		full_message = full_message,
+	}
+end
+
 local function release_texture_index(self, tex, set_index)
 	set_index = set_index or 0
 
 	if not tex or type(tex) ~= "table" then return end
 
-	local is_cube = tex.IsCubemap and tex:IsCubemap()
-	local registry = is_cube and self.cubemap_registry or self.texture_registry
-	local array = is_cube and self.cubemap_array or self.texture_array
-	local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
-	local binding_index = is_cube and 1 or 0
-	local variant_indices = registry[tex]
+	local slot = tex.IsCubemap and tex:IsCubemap() and self.cubemap_slot or self.texture_slot
+	local variant_indices = slot.registry[tex]
 
 	if variant_indices then
-		registry[tex] = nil
+		slot.registry[tex] = nil
 
 		for _, index in pairs(variant_indices) do
-			table.insert(free_list, index)
-			array[index + 1] = build_texture_descriptor_entry(self)
+			table.insert(slot.free_list, index)
+			slot.array[index + 1] = build_texture_descriptor_entry(self)
 		end
 
-		refresh_texture_descriptor_array(self, array, binding_index, set_index)
+		refresh_texture_descriptor_array(self, slot.array, slot.binding_index, set_index)
 	end
+end
+
+local function acquire_texture_index(self, slot, tex, sampler_config_override)
+	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
+	local variant_key = next_entry.sampler_hash or nil_sampler_hash_key
+	local variant_indices = slot.registry[tex]
+	local index = variant_indices and variant_indices[variant_key]
+
+	if index then
+		local entry = slot.array[index + 1]
+
+		if
+			next_entry.view and
+			next_entry.sampler and
+			(
+				entry == nil or
+				entry.view ~= next_entry.view or
+				entry.sampler_hash ~= next_entry.sampler_hash
+			)
+		then
+			slot.array[index + 1] = next_entry
+			mark_all_descriptor_frames_dirty(self)
+		end
+
+		return index
+	end
+
+	local free_list = slot.free_list
+
+	if #free_list > 0 then
+		index = table.remove(free_list)
+	else
+		local next_index = self[slot.next_index_key]
+		local limit = self[slot.limit_key]
+
+		if next_index >= limit then error(slot.full_message .. limit) end
+
+		index = next_index
+		self[slot.next_index_key] = next_index + 1
+	end
+
+	variant_indices = variant_indices or {}
+	variant_indices[variant_key] = index
+	slot.registry[tex] = variant_indices
+	slot.array[index + 1] = next_entry
+	mark_all_descriptor_frames_dirty(self)
+	return index
 end
 
 local function get_texture_index(self, tex, set_index, sampler_config_override)
 	if not tex then return -1 end
 
 	set_index = set_index or 0
-	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
-	local index = self.texture_registry[tex] and
-		self.texture_registry[tex][next_entry.sampler_hash or
-		nil_sampler_hash_key]
-
-	if index then
-		local entry = self.texture_array[index + 1]
-
-		if
-			next_entry.view and
-			next_entry.sampler and
-			(
-				entry == nil or
-				entry.view ~= next_entry.view or
-				entry.sampler_hash ~= next_entry.sampler_hash
-			)
-		then
-			self.texture_array[index + 1] = next_entry
-			mark_all_descriptor_frames_dirty(self)
-		end
-
-		return index
-	end
-
-	if #self.texture_free_list > 0 then
-		index = table.remove(self.texture_free_list)
-	else
-		if self.next_texture_index >= self.max_textures then
-			error("Texture registry full for binding 0! Max descriptors: " .. self.max_textures)
-		end
-
-		index = self.next_texture_index
-		self.next_texture_index = index + 1
-	end
-
-	self.texture_registry[tex] = self.texture_registry[tex] or {}
-	self.texture_registry[tex][next_entry.sampler_hash or nil_sampler_hash_key] = index
-	self.texture_array[index + 1] = next_entry
-	mark_all_descriptor_frames_dirty(self)
-	return index
+	return acquire_texture_index(self, self.texture_slot, tex, sampler_config_override)
 end
 
 local function get_cubemap_texture_index(self, tex, set_index, sampler_config_override)
 	if not tex then return -1 end
 
 	set_index = set_index or 0
-	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
-	local index = self.cubemap_registry[tex] and
-		self.cubemap_registry[tex][next_entry.sampler_hash or
-		nil_sampler_hash_key]
-
-	if index then
-		local entry = self.cubemap_array[index + 1]
-
-		if
-			next_entry.view and
-			next_entry.sampler and
-			(
-				entry == nil or
-				entry.view ~= next_entry.view or
-				entry.sampler_hash ~= next_entry.sampler_hash
-			)
-		then
-			self.cubemap_array[index + 1] = next_entry
-			mark_all_descriptor_frames_dirty(self)
-		end
-
-		return index
-	end
-
-	if #self.cubemap_free_list > 0 then
-		index = table.remove(self.cubemap_free_list)
-	else
-		if self.next_cubemap_index >= self.max_cubemaps then
-			error("Cubemap registry full for binding 1! Max descriptors: " .. self.max_cubemaps)
-		end
-
-		index = self.next_cubemap_index
-		self.next_cubemap_index = index + 1
-	end
-
-	self.cubemap_registry[tex] = self.cubemap_registry[tex] or {}
-	self.cubemap_registry[tex][next_entry.sampler_hash or nil_sampler_hash_key] = index
-	self.cubemap_array[index + 1] = next_entry
-	mark_all_descriptor_frames_dirty(self)
-	return index
+	return acquire_texture_index(self, self.cubemap_slot, tex, sampler_config_override)
 end
 
 function pipeline_common.bind_texture_registry(META)
@@ -423,6 +412,24 @@ function pipeline_common.bind_texture_registry(META)
 		self.next_cubemap_index = 0
 		self.cubemap_free_list = {}
 		self.bindless_descriptor_sets_dirty = {}
+		self.texture_slot = make_texture_slot(
+			self.texture_registry,
+			self.texture_array,
+			self.texture_free_list,
+			"next_texture_index",
+			"max_textures",
+			0,
+			"Texture registry full for binding 0! Max descriptors: "
+		)
+		self.cubemap_slot = make_texture_slot(
+			self.cubemap_registry,
+			self.cubemap_array,
+			self.cubemap_free_list,
+			"next_cubemap_index",
+			"max_cubemaps",
+			1,
+			"Cubemap registry full for binding 1! Max descriptors: "
+		)
 	end
 
 	META.BuildTextureDescriptorEntry = build_texture_descriptor_entry
