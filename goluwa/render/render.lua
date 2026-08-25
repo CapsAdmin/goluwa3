@@ -566,13 +566,31 @@ do
 		end
 	end
 
+	local sampler_filter_config_cache = {}
+	local NIL_FILTER_KEY = {}
+
 	function render.BuildSamplerFilterConfig(min_filter_override, mag_filter_override)
 		if min_filter_override == nil and mag_filter_override == nil then return nil end
+
+		local min_key = min_filter_override or NIL_FILTER_KEY
+		local mag_key = mag_filter_override or NIL_FILTER_KEY
+		local by_min = sampler_filter_config_cache[min_key]
+
+		if not by_min then
+			by_min = {}
+			sampler_filter_config_cache[min_key] = by_min
+		end
+
+		local cached = by_min[mag_key]
+
+		if cached then return cached end
 
 		local config = {}
 		apply_sampler_filter_override(config, "min_filter", min_filter_override)
 		apply_sampler_filter_override(config, "mag_filter", mag_filter_override)
-		return next(config) and config or nil
+		local result = next(config) and config or nil
+		by_min[mag_key] = result
+		return result
 	end
 
 	local function normalize_sampler_filter(filter, level)

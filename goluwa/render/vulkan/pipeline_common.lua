@@ -228,8 +228,6 @@ end
 -- ============================================================
 -- SECTION 5: Texture Registry (Factory)
 -- ============================================================
-local nil_sampler_hash_key = {}
-
 local function build_texture_descriptor_entry(self, tex, sampler_config_override)
 	local view
 
@@ -326,14 +324,16 @@ local function release_texture_index(self, tex, set_index)
 	if not tex or type(tex) ~= "table" then return end
 
 	local slot = tex.IsCubemap and tex:IsCubemap() and self.cubemap_slot or self.texture_slot
-	local variant_indices = slot.registry[tex]
+	local by_tex = slot.registry[tex]
 
-	if variant_indices then
+	if by_tex then
 		slot.registry[tex] = nil
 
-		for _, index in pairs(variant_indices) do
-			table.insert(slot.free_list, index)
-			slot.array[index + 1] = build_texture_descriptor_entry(self)
+		for _, per_override in pairs(by_tex) do
+			for _, index in pairs(per_override) do
+				table.insert(slot.free_list, index)
+				slot.array[index + 1] = build_texture_descriptor_entry(self)
+			end
 		end
 
 		refresh_texture_descriptor_array(self, slot.array, slot.binding_index, set_index)
@@ -341,10 +341,20 @@ local function release_texture_index(self, tex, set_index)
 end
 
 local function acquire_texture_index(self, slot, tex, sampler_config_override)
+	local cfg_key = get_sampler_binding_cache_key(tex:GetSamplerConfig())
+	local override_key = get_sampler_binding_cache_key(sampler_config_override)
+	local by_tex = slot.registry[tex]
+	local per_override = by_tex and by_tex[cfg_key]
+	local index = per_override and per_override[override_key]
+	local view = tex:GetView()
+
+	if index and view then
+		local entry = slot.array[index + 1]
+
+		if entry and entry.view == view then return index end
+	end
+
 	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
-	local variant_key = next_entry.sampler_hash or nil_sampler_hash_key
-	local variant_indices = slot.registry[tex]
-	local index = variant_indices and variant_indices[variant_key]
 
 	if index then
 		local entry = slot.array[index + 1]
@@ -354,8 +364,7 @@ local function acquire_texture_index(self, slot, tex, sampler_config_override)
 			next_entry.sampler and
 			(
 				entry == nil or
-				entry.view ~= next_entry.view or
-				entry.sampler_hash ~= next_entry.sampler_hash
+				entry.view ~= next_entry.view
 			)
 		then
 			slot.array[index + 1] = next_entry
@@ -379,9 +388,14 @@ local function acquire_texture_index(self, slot, tex, sampler_config_override)
 		self[slot.next_index_key] = next_index + 1
 	end
 
-	variant_indices = variant_indices or {}
-	variant_indices[variant_key] = index
-	slot.registry[tex] = variant_indices
+	if not per_override then
+		per_override = {}
+		by_tex = by_tex or {}
+		by_tex[cfg_key] = per_override
+		slot.registry[tex] = by_tex
+	end
+
+	per_override[override_key] = index
 	slot.array[index + 1] = next_entry
 	mark_all_descriptor_frames_dirty(self)
 	return index
