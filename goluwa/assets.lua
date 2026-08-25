@@ -531,7 +531,7 @@ local function notify_texture_ready(texture, options)
 	if options and options.on_ready then options.on_ready(texture) end
 end
 
-if RENDER_3D then
+if RENDER_2D then
 	local Texture = import("goluwa/render/texture.lua")
 	assets.RegisterCategory(
 		"textures",
