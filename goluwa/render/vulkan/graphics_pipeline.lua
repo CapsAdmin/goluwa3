@@ -1683,6 +1683,10 @@ local function build_dynamic_state_list(device)
 	return dynamic_states
 end
 
+common.bind_texture_registry(GraphicsPipeline)
+common.bind_sampler_config_methods(GraphicsPipeline)
+common.bind_descriptor_set_methods(GraphicsPipeline)
+
 function GraphicsPipeline.New(vulkan_instance, config)
 	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		local top_level = config[info.var_name]
@@ -1939,9 +1943,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.current_variant_id = self.base_variant_id
 	self.static_variant_dirty = false
 	build_bind_state_cache(self)
-	common.bind_texture_registry(self)
-	common.bind_sampler_config_methods(self)
-	common.bind_descriptor_set_methods(self)
+	self:InitializeTextureRegistry()
 	self.PushConstants = common.push_constants
 	self.max_textures = common.get_bindless_binding_capacity(self, 0) or 0
 	self.max_cubemaps = common.get_bindless_binding_capacity(self, 1) or 0
@@ -2173,6 +2175,7 @@ do
 
 			if value == nil then
 				if info.compare == "list" then return list.copy(info.default) end
+
 				return info.default
 			end
 

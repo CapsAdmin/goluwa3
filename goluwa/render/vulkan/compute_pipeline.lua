@@ -152,6 +152,10 @@ local function build_descriptor_layouts(config)
 	}
 end
 
+common.bind_texture_registry(ComputePipeline)
+common.bind_sampler_config_methods(ComputePipeline)
+common.bind_descriptor_set_methods(ComputePipeline)
+
 function ComputePipeline.New(vulkan_instance, raw_config)
 	local config = normalize_compat_config(raw_config)
 	config.vulkan_instance = vulkan_instance
@@ -235,9 +239,7 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 	self.push_constant_ranges = descriptor_info.push_constant_ranges
 	self.uniform_buffers = descriptor_info.uniform_buffers
 	self.local_size = local_size
-	common.bind_texture_registry(self)
-	common.bind_sampler_config_methods(self)
-	common.bind_descriptor_set_methods(self)
+	self:InitializeTextureRegistry()
 	self.PushConstants = common.push_constants
 
 	for frame_index = 1, descriptor_set_count do

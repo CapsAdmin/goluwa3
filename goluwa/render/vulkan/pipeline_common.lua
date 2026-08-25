@@ -382,30 +382,34 @@ local function get_texture_index(self, tex, set_index, sampler_config_override)
 	return index
 end
 
-function pipeline_common.bind_texture_registry(self)
-	self.texture_registry = setmetatable({}, {__mode = "k"})
-	self.texture_array = {}
-	self.next_texture_index = 0
-	self.texture_free_list = {}
-	self.cubemap_registry = setmetatable({}, {__mode = "k"})
-	self.cubemap_array = {}
-	self.next_cubemap_index = 0
-	self.cubemap_free_list = {}
-	self.bindless_descriptor_sets_dirty = {}
-	self.BuildTextureDescriptorEntry = build_texture_descriptor_entry
-	self.GetTextureIndex = get_texture_index
-	self.ReleaseTextureIndex = release_texture_index
-	self.RefreshTextureDescriptorArray = refresh_texture_descriptor_array
+function pipeline_common.bind_texture_registry(META)
+	function META:InitializeTextureRegistry()
+		self.texture_registry = setmetatable({}, {__mode = "k"})
+		self.texture_array = {}
+		self.next_texture_index = 0
+		self.texture_free_list = {}
+		self.cubemap_registry = setmetatable({}, {__mode = "k"})
+		self.cubemap_array = {}
+		self.next_cubemap_index = 0
+		self.cubemap_free_list = {}
+		self.bindless_descriptor_sets_dirty = {}
+	end
+
+	META.BuildTextureDescriptorEntry = build_texture_descriptor_entry
+	META.GetTextureIndex = get_texture_index
+	META.ReleaseTextureIndex = release_texture_index
+	META.RefreshTextureDescriptorArray = refresh_texture_descriptor_array
 end
 
 -- ============================================================
 -- SECTION 6: Sampler Config Management (Methods)
 -- ============================================================
-function pipeline_common.bind_sampler_config_methods(self)
-	self.GetSamplerConfig = function(self)
+function pipeline_common.bind_sampler_config_methods(META)
+	function META:GetSamplerConfig()
 		return pipeline_common.copy_sampler_config(self.sampler_config)
 	end
-	self.SetSamplerConfig = function(self, config)
+
+	function META:SetSamplerConfig(config)
 		local normalized = pipeline_common.normalize_pipeline_sampler_config(config)
 
 		if
@@ -420,7 +424,8 @@ function pipeline_common.bind_sampler_config_methods(self)
 		self:RefreshTextureDescriptorArray(self.cubemap_array, 1, set_index)
 		return self:GetSamplerConfig()
 	end
-	self.SetSamplerConfigValue = function(self, key, value)
+
+	function META:SetSamplerConfigValue(key, value)
 		local config = self:GetSamplerConfig() or {}
 
 		if value == nil then config[key] = nil else config[key] = value end
@@ -429,7 +434,8 @@ function pipeline_common.bind_sampler_config_methods(self)
 
 		return self:SetSamplerConfig(config)
 	end
-	self.GetFallbackSamplerConfig = function()
+
+	function META:GetFallbackSamplerConfig()
 		return pipeline_common.get_fallback_sampler_config()
 	end
 end
@@ -528,14 +534,16 @@ function pipeline_common.update_descriptor_set_array(self, frame_index, binding_
 	)
 end
 
-function pipeline_common.bind_descriptor_set_methods(self)
-	self.UpdateDescriptorSet = function(self, ...)
+function pipeline_common.bind_descriptor_set_methods(META)
+	function META:UpdateDescriptorSet(...)
 		return pipeline_common.update_descriptor_set(self, ...)
 	end
-	self.UpdateDescriptorSetArray = function(self, ...)
+
+	function META:UpdateDescriptorSetArray(...)
 		return pipeline_common.update_descriptor_set_array(self, ...)
 	end
-	self.GetFallbackView = function()
+
+	function META:GetFallbackView()
 		local Texture = import("goluwa/render/texture.lua")
 		local fallback = Texture.GetFallback()
 
@@ -543,7 +551,8 @@ function pipeline_common.bind_descriptor_set_methods(self)
 
 		return fallback and fallback.view
 	end
-	self.GetFallbackSampler = function()
+
+	function META:GetFallbackSampler()
 		local Texture = import("goluwa/render/texture.lua")
 		local fallback = Texture.GetFallback()
 
