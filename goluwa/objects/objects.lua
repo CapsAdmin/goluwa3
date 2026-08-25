@@ -542,7 +542,17 @@ do -- get is set
 		return value
 	end
 
+	local function has_validation(info)
+		return info.validate or
+			info.enums or
+			info.list_type or
+			info.list_enums or
+			info.list_length
+	end
+
 	function objects.ParsePropertyValue(info, value, level)
+		if not has_validation(info) then return value end
+
 		if value == nil then return nil end
 
 		if is_list_property(info) then
@@ -586,14 +596,6 @@ do -- get is set
 		return t
 	end
 
-	local function has_validation(info)
-		return info.validate or
-			info.enums or
-			info.list_type or
-			info.list_enums or
-			info.list_length
-	end
-
 	function objects.CommitProperty(obj, key, value)
 		local info = objects.GetPropertyInfo(getmetatable(obj), key)
 
@@ -609,9 +611,7 @@ do -- get is set
 		local info = objects.GetPropertyInfo(getmetatable(obj), key)
 
 		if info then
-			if has_validation(info) then
-				value = objects.ParsePropertyValue(info, value, 2)
-			end
+			value = objects.ParsePropertyValue(info, value, 2)
 
 			if info.type ~= "nil" and value ~= nil then
 				local actual_type = get_type(value)

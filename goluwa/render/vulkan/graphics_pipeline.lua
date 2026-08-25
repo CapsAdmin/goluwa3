@@ -1324,12 +1324,6 @@ local function get_state(self, section, key, subkey)
 	return nil
 end
 
-local function get_default_state_value(info)
-	if info.compare == "list" then return list.copy(info.default) end
-
-	return info.default
-end
-
 local function get_effective_stencil_face(self, face)
 	local out = {}
 	local defaults = state_defaults.depth_stencil[face] or {}
@@ -2175,29 +2169,30 @@ function GraphicsPipeline:GetVertexAttributes()
 end
 
 do
-	local function get_property_effective_value(self, info)
+	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
+		GraphicsPipeline[info.get_name] = function(self)
 		local value = get_state(self, info.state_section, info.state_key, info.state_subkey)
-
-		if value == nil then return get_default_state_value(info) end
 
 		if info.compare == "list" then return list.copy(value) end
 
 		return value
 	end
-
-	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		GraphicsPipeline[info.set_name] = function(self, value)
 			if value == nil then
-				value = get_default_state_value(info)
+				if info.compare == "list" then
+					value = list.copy(info.default)
+				else
+					value = info.default
+				end
 			else
 				value = objects.ParsePropertyValue(info, value, 2)
 
 				if info.compare == "list" then value = list.copy(value) end
 			end
 
-			local current = get_property_effective_value(self, info)
-
-			if objects.IsPropertyValueEqual(info, current, value) then return end
+			if objects.IsPropertyValueEqual(info, self[info.get_name](self), value) then
+				return
+			end
 
 			local section_name = info.state_section
 			local key = info.state_key
@@ -2236,9 +2231,6 @@ do
 			end
 
 			if changed_static then self.static_variant_dirty = true end
-		end
-		GraphicsPipeline[info.get_name] = function(self)
-			return get_property_effective_value(self, info)
 		end
 	end
 end
