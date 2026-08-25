@@ -30,6 +30,7 @@ end
 local has_dynamic_state_extended3 = function(device)
 	return device.has_extended_dynamic_state3
 end
+local normalize_color_write_mask = vulkan.normalize_color_write_mask
 
 do
 	GraphicsPipeline:StartStorable()
@@ -722,25 +723,44 @@ do
 		)
 	end
 
-	GraphicsPipeline:GetSet(
-		"ColorWriteMask",
-		{"r", "g", "b", "a"},
-		{
-			path = "color_blend.color_write_mask",
-			list_type = "string",
-			list_enums = {"r", "g", "b", "a", "R", "G", "B", "A"},
-			compare = "list",
-			dynamic_state = "color_write_mask_ext",
-			setter = function(cmd, cache, val)
-				cmd:SetColorWriteMaskExt(val)
-			end,
-			has_dynamic_state = function(device)
-				if not device.has_extended_dynamic_state3 then return false end
+	do
+		local enums = {}
+		GraphicsPipeline:GetSet(
+			"ColorWriteMask",
+			"rgba",
+			{
+				path = "color_blend.color_write_mask",
+				validate = "string",
+				enums = {
+					"",
+					"r",
+					"g",
+					"b",
+					"a",
+					"rg",
+					"rb",
+					"ra",
+					"gb",
+					"ga",
+					"ba",
+					"rgb",
+					"rba",
+					"gba",
+					"rgba",
+				},
+				dynamic_state = "color_write_mask_ext",
+				setter = function(cmd, cache, val)
+					cmd:SetColorWriteMask(0, val)
+				end,
+				has_dynamic_state = function(device)
+					if not device.has_extended_dynamic_state3 then return false end
 
-				return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorWriteMask
-			end,
-		}
-	)
+					return device.physical_device:GetExtendedDynamicStateFeatures().extendedDynamicState3ColorWriteMask
+				end,
+			}
+		)
+	end
+
 	GraphicsPipeline:GetSet(
 		"LogicOpEnabled",
 		false,
@@ -996,28 +1016,6 @@ local function assert_known_keys(section_name, tbl, known)
 			)
 		end
 	end
-end
-
-local function normalize_color_write_mask(mask)
-	if type(mask) ~= "table" then return mask end
-
-	local bits = 0
-
-	for i = 1, #mask do
-		local channel = tostring(mask[i]):lower()
-
-		if channel == "r" then
-			bits = bit.bor(bits, 1)
-		elseif channel == "g" then
-			bits = bit.bor(bits, 2)
-		elseif channel == "b" then
-			bits = bit.bor(bits, 4)
-		elseif channel == "a" then
-			bits = bit.bor(bits, 8)
-		end
-	end
-
-	return bits
 end
 
 local function get_signature_id(self, signature)
@@ -1457,7 +1455,7 @@ local function build_cache_region(self, cache, region)
 				end
 
 				for i = 1, attachment_count do
-					masks[i] = normalize_color_write_mask(resolve_color_blend_state(self, i, "color_write_mask") or {"r", "g", "b", "a"})
+					masks[i] = normalize_color_write_mask(resolve_color_blend_state(self, i, "color_write_mask") or "rgba")
 				end
 			end
 		end
@@ -2171,12 +2169,12 @@ end
 do
 	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		GraphicsPipeline[info.get_name] = function(self)
-		local value = get_state(self, info.state_section, info.state_key, info.state_subkey)
+			local value = get_state(self, info.state_section, info.state_key, info.state_subkey)
 
-		if info.compare == "list" then return list.copy(value) end
+			if info.compare == "list" then return list.copy(value) end
 
-		return value
-	end
+			return value
+		end
 		GraphicsPipeline[info.set_name] = function(self, value)
 			if value == nil then
 				if info.compare == "list" then

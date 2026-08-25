@@ -54,12 +54,12 @@ T.Test3D("Graphics render multiple outputs", function()
 		},
 		CullMode = "none",
 		Blend = false,
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 		color_blend = {
 			attachments = {
 				{},
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+				{blend = false, color_write_mask = "rgba"},
+				{blend = false, color_write_mask = "rgba"},
 			},
 		},
 	}

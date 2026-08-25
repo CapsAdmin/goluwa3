@@ -552,7 +552,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		LogicOp = "copy",
 		BlendConstants = {0.0, 0.0, 0.0, 0.0},
 		Blend = false,
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 		DepthTest = true,
 		DepthWrite = true,
 		DepthCompareOp = "less_or_equal",

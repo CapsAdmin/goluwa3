@@ -149,7 +149,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 	for i, color_blend_attachment in ipairs(config.color_blend.attachments) do
 		colorBlendAttachments[i] = vulkan.vk.s.PipelineColorBlendAttachmentState{
-			colorWriteMask = color_blend_attachment.color_write_mask or {"r", "g", "b", "a"},
+			colorWriteMask = vulkan.normalize_color_write_mask(color_blend_attachment.color_write_mask or "rgba"),
 			blendEnable = color_blend_attachment.blend or 0,
 			srcColorBlendFactor = color_blend_attachment.src_color_blend_factor and
 				color_blend_attachment.src_color_blend_factor or

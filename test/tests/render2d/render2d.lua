@@ -408,10 +408,7 @@ T.Test2D("Graphics render2d SetBlendPreset and GetBlendMode", function()
 		T(blend_mode.src_alpha_blend_factor)["=="](preset.src_alpha_blend_factor)
 		T(blend_mode.dst_alpha_blend_factor)["=="](preset.dst_alpha_blend_factor)
 		T(blend_mode.alpha_blend_op)["=="](preset.alpha_blend_op)
-
-		for i, value in ipairs(preset.color_write_mask) do
-			T(blend_mode.color_write_mask[i])["=="](value)
-		end
+		T(blend_mode.color_write_mask)["=="](preset.color_write_mask)
 	end
 
 	render2d.SetBlendPreset("alpha")

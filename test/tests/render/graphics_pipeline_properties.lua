@@ -4,13 +4,11 @@ local render = import("goluwa/render/render.lua")
 local render_helpers = import("test/tests/render/helpers.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 
-
 local function expect_error(callback)
 	local ok = pcall(callback)
 
 	if ok then error("expected failure") end
 end
-
 
 T.Test3D("GraphicsPipeline property validation and reset", function()
 	local pipeline = render_helpers.CreatePipeline()
@@ -38,7 +36,7 @@ T.Test3D("GraphicsPipeline property validation and reset", function()
 	end)
 
 	expect_error(function()
-		pipeline:SetColorWriteMask({"r", "invalid"})
+		pipeline:SetColorWriteMask("rq")
 	end)
 
 	expect_error(function()

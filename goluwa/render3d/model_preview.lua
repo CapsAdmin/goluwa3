@@ -173,7 +173,7 @@ local function create_preview_pipeline()
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "zero",
 		AlphaBlendOp = "add",
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 		on_draw = function(self)
 			active_preview:DrawActiveEntity(self)
 		end,

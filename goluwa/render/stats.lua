@@ -608,7 +608,7 @@ local function get_overlay_pipeline()
 
 	overlay_pipeline = render.CreateGraphicsPipeline{
 		Blend = true,
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 		CullMode = "none",
 		DepthClamp = false,
 		DepthTest = false,

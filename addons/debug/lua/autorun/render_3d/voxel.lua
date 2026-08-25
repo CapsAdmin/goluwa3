@@ -865,7 +865,7 @@ local function ensure_voxel_debug_pipeline(clipmap_index)
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "zero",
 		AlphaBlendOp = "add",
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 	}
 	voxel_debug_pipelines[target_signature] = pipeline
 	return pipeline

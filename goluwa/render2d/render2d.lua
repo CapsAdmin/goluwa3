@@ -84,7 +84,7 @@ local RectDrawState = EasyPipeline.BuildFFIType(
 )
 local constants_size = ffi.sizeof(RectDrawState)
 local DEFAULT_BLEND_MODE = "alpha"
-local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
+local DEFAULT_COLOR_WRITE_MASK = "rgba"
 local DEFAULT_DEPTH_MODE = "none"
 local depth_mode_ids, depth_mode_names, depth_mode_to_compare_op = {}, {}, {}
 
@@ -156,7 +156,7 @@ local function stencil_mode(stencil_test, pass_op, compare_op, color_write_mask)
 			depth_fail_op = "keep",
 			compare_op = compare_op,
 		},
-		color_write_mask = color_write_mask or {},
+		color_write_mask = color_write_mask or "",
 	}
 end
 
@@ -556,7 +556,7 @@ local function canonicalize_blend_mode_state(state)
 		src_alpha_blend_factor = state.src_alpha_blend_factor or "one",
 		dst_alpha_blend_factor = state.dst_alpha_blend_factor or "zero",
 		alpha_blend_op = state.alpha_blend_op or "add",
-		color_write_mask = list.copy(state.color_write_mask or DEFAULT_COLOR_WRITE_MASK),
+		color_write_mask = state.color_write_mask or DEFAULT_COLOR_WRITE_MASK,
 	}
 	result.batch_key = blend_key_interner:intern{
 		result.blend,
@@ -1311,7 +1311,7 @@ function render2d.Initialize()
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "zero",
 		AlphaBlendOp = "add",
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 		DepthTest = false,
 		DepthWrite = true,
 		StencilTest = false,

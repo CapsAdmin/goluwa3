@@ -1020,7 +1020,7 @@ do
 			SrcAlphaBlendFactor = config.SrcAlphaBlendFactor or "one",
 			DstAlphaBlendFactor = config.DstAlphaBlendFactor or "zero",
 			AlphaBlendOp = config.AlphaBlendOp or "add",
-			ColorWriteMask = config.ColorWriteMask or {"r", "g", "b", "a"},
+			ColorWriteMask = config.ColorWriteMask or "rgba",
 			LogicOpEnabled = config.LogicOpEnabled or false,
 			LogicOp = config.LogicOp or "copy",
 			BlendConstants = config.BlendConstants or {0.0, 0.0, 0.0, 0.0},

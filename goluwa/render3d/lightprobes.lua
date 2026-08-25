@@ -1009,7 +1009,7 @@ function lightprobes.CreatePipelines()
 		},
 		RasterizationSamples = "1",
 		Blend = false,
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 		vertex = {
 			push_constants = {
 				{

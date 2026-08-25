@@ -1413,7 +1413,7 @@ function Texture:Shade(glsl, extra_config)
 			SrcAlphaBlendFactor = "one",
 			DstAlphaBlendFactor = "zero",
 			AlphaBlendOp = "add",
-			ColorWriteMask = {"r", "g", "b", "a"},
+			ColorWriteMask = "rgba",
 			DepthTest = false,
 			DepthWrite = false,
 			DepthCompareOp = "less",

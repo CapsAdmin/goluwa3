@@ -16,6 +16,7 @@ local VkBufferMemoryBarrierArray = ffi.typeof("$[?]", vulkan.vk.VkBufferMemoryBa
 local VkCommandBufferBox = ffi.typeof("$[1]", vulkan.vk.VkCommandBuffer)
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local UInt32Array1 = ffi.typeof("uint32_t[1]")
+local normalize_color_write_mask = vulkan.normalize_color_write_mask
 
 local function normalize_bool(value)
 	return value ~= nil and value ~= false and value ~= 0
@@ -722,34 +723,6 @@ function CommandBuffer:SetCullMode(cull_mode)
 	end
 end
 
-local function normalize_color_write_mask(mask)
-	if type(mask) ~= "table" then return mask or 0 end
-
-	local bits = 0
-
-	for i = 1, #mask do
-		local channel = mask[i]
-
-		if type(channel) == "string" then
-			channel = channel:lower()
-
-			if channel == "r" then
-				bits = bit.bor(bits, 1)
-			elseif channel == "g" then
-				bits = bit.bor(bits, 2)
-			elseif channel == "b" then
-				bits = bit.bor(bits, 4)
-			elseif channel == "a" then
-				bits = bit.bor(bits, 8)
-			end
-		elseif type(channel) == "number" then
-			bits = bit.bor(bits, channel)
-		end
-	end
-
-	return bits
-end
-
 function CommandBuffer:SetFrontFace(front_face)
 	if not should_apply_dynamic_state(self, "front_face", front_face or "clockwise") then
 		return
@@ -1109,16 +1082,7 @@ function CommandBuffer:SetColorWriteMask(first_attachment, color_write_mask)
 	local mask_array
 	local count
 
-	if
-		type(color_write_mask) == "table" and
-		(
-			type(color_write_mask[1]) == "table" or
-			(
-				type(color_write_mask[1]) == "number" and
-				#color_write_mask > 1
-			)
-		)
-	then
+	if type(color_write_mask) == "table" then
 		count = #color_write_mask
 		mask_array = UInt32Array(count)
 

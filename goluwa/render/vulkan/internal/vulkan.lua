@@ -129,6 +129,30 @@ do
 	end
 end
 
+vulkan.COLOR_WRITE_MASK_BITS = {
+	[""] = 0,
+	["r"] = 1,
+	["g"] = 2,
+	["b"] = 4,
+	["a"] = 8,
+	["rg"] = 3,
+	["rb"] = 5,
+	["ra"] = 9,
+	["gb"] = 6,
+	["ga"] = 10,
+	["ba"] = 12,
+	["rgb"] = 7,
+	["rba"] = 13,
+	["gba"] = 14,
+	["rgba"] = 15,
+}
+
+function vulkan.normalize_color_write_mask(mask)
+	if type(mask) == "number" then return mask end
+
+	return vulkan.COLOR_WRITE_MASK_BITS[mask] or 0
+end
+
 --dprint("Vulkan bindings loaded. Vulkan version: " .. vulkan.GetVersion())
 --dprint("Available Instance Layers: " .. table.concat(vulkan.GetAvailableLayers(), ", "))
 --dprint("Available Instance Extensions: " .. table.concat(vulkan.GetAvailableExtensions(), ", "))

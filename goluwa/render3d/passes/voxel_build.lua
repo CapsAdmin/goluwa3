@@ -371,7 +371,6 @@ end
 local function scroll_clipmap_targets(_, voxelizer, clipmap_index, pending_scroll)
 	local compute_cmd = render.GetCommandPool():AllocateCommandBuffer()
 	compute_cmd:Begin()
-
 	local frame_slot_base = ((render.GetCurrentFrame() or 1) - 1) * 9
 
 	for axis_index, axis_name in ipairs({"x", "y", "z"}) do
@@ -957,6 +956,6 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "max",
-		ColorWriteMask = {"r", "g", "b", "a"},
+		ColorWriteMask = "rgba",
 	},
 }
