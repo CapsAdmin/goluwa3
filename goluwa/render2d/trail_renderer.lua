@@ -48,21 +48,40 @@ function TrailRenderer:Update(dt)
 	end
 end
 
+function TrailRenderer:EnsureCapacity()
+	local capacity = 6 * math.max(self.MaxPoints - 1, 1)
+
+	if self.poly and self.capacity >= capacity then return self.poly end
+
+	self.poly = Polygon2D.New(capacity)
+	self.poly:SetWorldMatrixMultiply(true)
+	self.capacity = capacity
+
+	if not self.normals or #self.normals < self.MaxPoints then
+		self.normals = {}
+
+		for j = 1, self.MaxPoints do
+			self.normals[j] = {0, 0}
+		end
+	end
+
+	return self.poly
+end
+
 function TrailRenderer:Draw()
 	if #self.points < 2 then return end
 
 	render2d.PushBlendPreset(self.Additive and "additive" or "alpha")
 	render2d.SetTexture(self.Texture)
 	local num_segments = #self.points - 1
-	local poly = Polygon2D.New(6 * num_segments)
-	poly:SetWorldMatrixMultiply(true)
-	local vtx = poly.vertex_buffer:GetVertices()
+	local poly = self:EnsureCapacity()
 	local denom = num_segments > 1 and (num_segments - 1) or 1
 	local uv_denom = self.UVStretch * math.max(num_segments, 1)
 	-- Precompute perpendiculars at each point using centered differences
-	local normals = {}
+	local normals = self.normals
 
 	for j = 1, #self.points do
+		local normal = normals[j]
 		local px, py
 
 		if j == 1 then
@@ -90,9 +109,11 @@ function TrailRenderer:Draw()
 		local plen = math.sqrt(px * px + py * py)
 
 		if plen > 0.001 then
-			normals[j] = {px / plen, py / plen}
+			normal[1] = px / plen
+			normal[2] = py / plen
 		else
-			normals[j] = {1, 0}
+			normal[1] = 1
+			normal[2] = 0
 		end
 	end
 
@@ -110,87 +131,26 @@ function TrailRenderer:Draw()
 		local cg = math.lerp(1 - t, self.StartColor.g, self.EndColor.g)
 		local cb = math.lerp(1 - t, self.StartColor.b, self.EndColor.b)
 		local ca = math.lerp(1 - t, self.StartColor.a, self.EndColor.a)
-		local uv = i / uv_denom
 		local cr1 = math.lerp(1 - t_next, self.StartColor.r, self.EndColor.r)
 		local cg1 = math.lerp(1 - t_next, self.StartColor.g, self.EndColor.g)
 		local cb1 = math.lerp(1 - t_next, self.StartColor.b, self.EndColor.b)
 		local ca1 = math.lerp(1 - t_next, self.StartColor.a, self.EndColor.a)
+		local uv = i / uv_denom
 		local uv1 = (i + 1) / uv_denom
 		-- v0: top at p0
-		vtx[base].pos[0] = p0.x + n0[1] * size0
-		vtx[base].pos[1] = p0.y + n0[2] * size0
-		vtx[base].pos[2] = 0
-		vtx[base].color[0] = cr
-		vtx[base].color[1] = cg
-		vtx[base].color[2] = cb
-		vtx[base].color[3] = ca
-		vtx[base].uv[0] = uv
-		vtx[base].uv[1] = 0
-		vtx[base].sample_uv[0] = uv
-		vtx[base].sample_uv[1] = 0
+		poly:SetVertex(base + 0, p0.x + n0[1] * size0, p0.y + n0[2] * size0, uv, 0, cr, cg, cb, ca)
 		-- v1: bottom at p0
-		vtx[base + 1].pos[0] = p0.x - n0[1] * size0
-		vtx[base + 1].pos[1] = p0.y - n0[2] * size0
-		vtx[base + 1].pos[2] = 0
-		vtx[base + 1].color[0] = cr
-		vtx[base + 1].color[1] = cg
-		vtx[base + 1].color[2] = cb
-		vtx[base + 1].color[3] = ca
-		vtx[base + 1].uv[0] = uv
-		vtx[base + 1].uv[1] = 1
-		vtx[base + 1].sample_uv[0] = uv
-		vtx[base + 1].sample_uv[1] = 1
+		poly:SetVertex(base + 1, p0.x - n0[1] * size0, p0.y - n0[2] * size0, uv, 1, cr, cg, cb, ca)
 		-- v2: top at p1
-		vtx[base + 2].pos[0] = p1.x + n1[1] * size1
-		vtx[base + 2].pos[1] = p1.y + n1[2] * size1
-		vtx[base + 2].pos[2] = 0
-		vtx[base + 2].color[0] = cr1
-		vtx[base + 2].color[1] = cg1
-		vtx[base + 2].color[2] = cb1
-		vtx[base + 2].color[3] = ca1
-		vtx[base + 2].uv[0] = uv1
-		vtx[base + 2].uv[1] = 0
-		vtx[base + 2].sample_uv[0] = uv1
-		vtx[base + 2].sample_uv[1] = 0
+		poly:SetVertex(base + 2, p1.x + n1[1] * size1, p1.y + n1[2] * size1, uv1, 0, cr1, cg1, cb1, ca1)
 		-- v3: bottom at p1
-		vtx[base + 3].pos[0] = p1.x - n1[1] * size1
-		vtx[base + 3].pos[1] = p1.y - n1[2] * size1
-		vtx[base + 3].pos[2] = 0
-		vtx[base + 3].color[0] = cr1
-		vtx[base + 3].color[1] = cg1
-		vtx[base + 3].color[2] = cb1
-		vtx[base + 3].color[3] = ca1
-		vtx[base + 3].uv[0] = uv1
-		vtx[base + 3].uv[1] = 1
-		vtx[base + 3].sample_uv[0] = uv1
-		vtx[base + 3].sample_uv[1] = 1
+		poly:SetVertex(base + 3, p1.x - n1[1] * size1, p1.y - n1[2] * size1, uv1, 1, cr1, cg1, cb1, ca1)
 		-- v4: duplicate of v2
-		vtx[base + 4].pos[0] = p1.x + n1[1] * size1
-		vtx[base + 4].pos[1] = p1.y + n1[2] * size1
-		vtx[base + 4].pos[2] = 0
-		vtx[base + 4].color[0] = cr1
-		vtx[base + 4].color[1] = cg1
-		vtx[base + 4].color[2] = cb1
-		vtx[base + 4].color[3] = ca1
-		vtx[base + 4].uv[0] = uv1
-		vtx[base + 4].uv[1] = 0
-		vtx[base + 4].sample_uv[0] = uv1
-		vtx[base + 4].sample_uv[1] = 0
+		poly:SetVertex(base + 4, p1.x + n1[1] * size1, p1.y + n1[2] * size1, uv1, 0, cr1, cg1, cb1, ca1)
 		-- v5: duplicate of v1
-		vtx[base + 5].pos[0] = p0.x - n0[1] * size0
-		vtx[base + 5].pos[1] = p0.y - n0[2] * size0
-		vtx[base + 5].pos[2] = 0
-		vtx[base + 5].color[0] = cr
-		vtx[base + 5].color[1] = cg
-		vtx[base + 5].color[2] = cb
-		vtx[base + 5].color[3] = ca
-		vtx[base + 5].uv[0] = uv
-		vtx[base + 5].uv[1] = 1
-		vtx[base + 5].sample_uv[0] = uv
-		vtx[base + 5].sample_uv[1] = 1
+		poly:SetVertex(base + 5, p0.x - n0[1] * size0, p0.y - n0[2] * size0, uv, 1, cr, cg, cb, ca)
 	end
 
-	poly.vertex_buffer:Upload()
 	poly:Draw(num_segments * 6)
 	render2d.PopBlendMode()
 end
