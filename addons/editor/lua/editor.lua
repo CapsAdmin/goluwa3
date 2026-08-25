@@ -26,7 +26,6 @@ local Text = import("goluwa/render2d/ui/elements/text.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-local AssetBrowser = import("lua/asset_browser.lua")
 local CameraComponent = import("lua/components/camera.lua")
 local camera = import("lua/camera.lua")
 local picker = import("lua/picker.lua")
@@ -145,6 +144,7 @@ return function(props)
 							MenuItem{
 								Text = "asset browser",
 								OnClick = function()
+									local AssetBrowser = import("lua/asset_browser.lua")
 									Panel.World:Ensure(AssetBrowser({Key = "AssetBrowserWindow"}))
 								end,
 							},
