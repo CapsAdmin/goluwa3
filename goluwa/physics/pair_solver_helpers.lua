@@ -485,27 +485,8 @@ function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_wor
 	}
 end
 
-function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, movement_local)
-	local local_point = box_body:WorldToLocal(point)
-	local extents = box_body:GetPhysicsShape():GetExtents()
-	local closest_local = Vec3(
-		math.clamp(local_point.x, -extents.x, extents.x),
-		math.clamp(local_point.y, -extents.y, extents.y),
-		math.clamp(local_point.z, -extents.z, extents.z)
-	)
-	local closest_world = box_body:LocalToWorld(closest_local)
-	local delta = point - closest_world
-	local distance = delta:GetLength()
-	local overlap = radius - distance
-	local normal
-
-	if distance > EPSILON then
-		normal = delta / distance
-	elseif
-		math.abs(local_point.x) <= extents.x and
-		math.abs(local_point.y) <= extents.y and
-		math.abs(local_point.z) <= extents.z
-	then
+do
+	local function get_best_candidate(local_point, movement_local, extents)
 		local candidates = {
 			{
 				name = "x",
@@ -557,6 +538,8 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 			end
 		end
 
+		local closest_local
+
 		if best.name == "x" then
 			closest_local = Vec3(best.axis.x * extents.x, local_point.y, local_point.z)
 		elseif best.name == "y" then
@@ -565,21 +548,54 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 			closest_local = Vec3(local_point.x, local_point.y, best.axis.z * extents.z)
 		end
 
-		closest_world = box_body:LocalToWorld(closest_local)
-		normal = box_body:GetRotation():VecMul(best.axis):GetNormalized()
-		overlap = radius + best.overlap
-	else
-		return nil
+		return closest_local, best.axis, best.overlap
 	end
 
-	if overlap <= 0 then return nil end
+	function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, movement_local)
+		local local_point = box_body:WorldToLocal(point)
+		local extents = box_body:GetPhysicsShape():GetExtents()
+		local closest_local = Vec3(
+			math.clamp(local_point.x, -extents.x, extents.x),
+			math.clamp(local_point.y, -extents.y, extents.y),
+			math.clamp(local_point.z, -extents.z, extents.z)
+		)
+		local closest_world = box_body:LocalToWorld(closest_local)
+		local delta = point - closest_world
+		local distance = delta:GetLength()
 
-	return {
-		normal = normal,
-		overlap = overlap,
-		point_a = closest_world,
-		point_b = point - normal * radius,
-	}
+		if distance > EPSILON then
+			local normal = delta / distance
+			local overlap = radius - distance
+
+			if overlap <= 0 then return nil end
+
+			return {
+				normal = normal,
+				overlap = overlap,
+				point_a = closest_world,
+				point_b = point - normal * radius,
+			}
+		elseif
+			math.abs(local_point.x) <= extents.x and
+			math.abs(local_point.y) <= extents.y and
+			math.abs(local_point.z) <= extents.z
+		then
+			local closest_local, best_axis, best_overlap = get_best_candidate(local_point, movement_local, extents)
+			local overlap = radius + best_overlap
+
+			if overlap <= 0 then return nil end
+
+			local normal = box_body:GetRotation():VecMul(best_axis):GetNormalized()
+			return {
+				normal = normal,
+				overlap = overlap,
+				point_a = box_body:LocalToWorld(closest_local),
+				point_b = point - normal * radius,
+			}
+		end
+
+		return nil
+	end
 end
 
 local function point_sweep_set_proxy_vertices(scratch, t)

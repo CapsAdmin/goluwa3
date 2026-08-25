@@ -2576,15 +2576,13 @@ end
 
 local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	local margin = render2d.GetMargin(w, h)
-	local batch_mode = render2d.GetRectBatchMode()
 
 	if max_m then margin = math.min(margin, max_m) end
 
-	local sdf_uv_bounds = constants.sdf_uv_bounds
-	sdf_uv_bounds[0] = constants.sdf_uv_offset[0]
-	sdf_uv_bounds[1] = constants.sdf_uv_offset[1]
-	sdf_uv_bounds[2] = constants.sdf_uv_offset[0] + constants.sdf_uv_scale[0]
-	sdf_uv_bounds[3] = constants.sdf_uv_offset[1] + constants.sdf_uv_scale[1]
+	constants.sdf_uv_bounds[0] = constants.sdf_uv_offset[0]
+	constants.sdf_uv_bounds[1] = constants.sdf_uv_offset[1]
+	constants.sdf_uv_bounds[2] = constants.sdf_uv_offset[0] + constants.sdf_uv_scale[0]
+	constants.sdf_uv_bounds[3] = constants.sdf_uv_offset[1] + constants.sdf_uv_scale[1]
 	local state = render2d.CaptureRectDrawState(
 		next_pooled_item(render2d.rect_batch_world_matrices, "next_world_matrix_slot", Matrix44)
 	)
@@ -2647,6 +2645,7 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		projected:GetMultiplied(render2d.GetProjectionViewMatrix(), projected)
 	end
 
+	local batch_mode = render2d.GetRectBatchMode()
 	local entry = next_pooled_item(render2d.rect_batch_entries, "next_entry_slot", new_table)
 	entry.batch_mode = batch_mode
 	entry.use_float = use_float
@@ -2662,7 +2661,6 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	entry.margin = margin
 	entry.draw_matrix = projected
 	entry.state = state
-	local snapshot = state.rect_state_snapshot
 
 	-- the key depends only on draw state and not on rects
 	if batch_runtime.rect_key_version ~= batch_runtime.rect_state_version then
@@ -2671,46 +2669,48 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 			batch_runtime.mode_ids[batch_mode] or
 			0,
 			state.blend_mode.batch_key,
-			snapshot.nine_patch_x_count,
-			snapshot.nine_patch_y_count,
-			snapshot.nine_patch_x_stretch[0],
-			snapshot.nine_patch_x_stretch[1],
-			snapshot.nine_patch_x_stretch[2],
-			snapshot.nine_patch_x_stretch[3],
-			snapshot.nine_patch_x_stretch[4],
-			snapshot.nine_patch_x_stretch[5],
-			snapshot.nine_patch_y_stretch[0],
-			snapshot.nine_patch_y_stretch[1],
-			snapshot.nine_patch_y_stretch[2],
-			snapshot.nine_patch_y_stretch[3],
-			snapshot.nine_patch_y_stretch[4],
-			snapshot.nine_patch_y_stretch[5],
-			snapshot.depth_mode_id,
-			snapshot.depth_write,
-			snapshot.stencil_mode_id,
-			snapshot.stencil_ref,
-			snapshot.scissor[0],
-			snapshot.scissor[1],
-			snapshot.scissor[2],
-			snapshot.scissor[3],
+			state.rect_state_snapshot.nine_patch_x_count,
+			state.rect_state_snapshot.nine_patch_y_count,
+			state.rect_state_snapshot.nine_patch_x_stretch[0],
+			state.rect_state_snapshot.nine_patch_x_stretch[1],
+			state.rect_state_snapshot.nine_patch_x_stretch[2],
+			state.rect_state_snapshot.nine_patch_x_stretch[3],
+			state.rect_state_snapshot.nine_patch_x_stretch[4],
+			state.rect_state_snapshot.nine_patch_x_stretch[5],
+			state.rect_state_snapshot.nine_patch_y_stretch[0],
+			state.rect_state_snapshot.nine_patch_y_stretch[1],
+			state.rect_state_snapshot.nine_patch_y_stretch[2],
+			state.rect_state_snapshot.nine_patch_y_stretch[3],
+			state.rect_state_snapshot.nine_patch_y_stretch[4],
+			state.rect_state_snapshot.nine_patch_y_stretch[5],
+			state.rect_state_snapshot.depth_mode_id,
+			state.rect_state_snapshot.depth_write,
+			state.rect_state_snapshot.stencil_mode_id,
+			state.rect_state_snapshot.stencil_ref,
+			state.rect_state_snapshot.scissor[0],
+			state.rect_state_snapshot.scissor[1],
+			state.rect_state_snapshot.scissor[2],
+			state.rect_state_snapshot.scissor[3],
 		}
 	end
 
-	local kind, key_hash, payload = "rect", batch_runtime.rect_key, entry
 	local segment = batch_runtime.state.segments[#batch_runtime.state.segments]
-	assert(key_hash ~= nil, "rect batch key hash is required")
-	local is_new_segment = not segment or segment.kind ~= kind or segment.key_hash ~= key_hash
+	assert(batch_runtime.rect_key ~= nil, "rect batch key hash is required")
 
-	if is_new_segment then
+	if
+		not segment or
+		segment.kind ~= "rect" or
+		segment.key_hash ~= batch_runtime.rect_key
+	then
 		segment = {
-			kind = kind,
-			key_hash = key_hash,
+			kind = "rect",
+			key_hash = batch_runtime.rect_key,
 			entries = {},
 		}
 		batch_runtime.state.segments[#batch_runtime.state.segments + 1] = segment
 	end
 
-	segment.entries[#segment.entries + 1] = payload
+	segment.entries[#segment.entries + 1] = entry
 	batch_runtime.state.pending_draws = batch_runtime.state.pending_draws + 1
 	return true
 end
@@ -2772,11 +2772,10 @@ draw_rect_immediate = function(x, y, w, h, a, ox, oy, margin, use_float)
 		constants.sdf_uv_offset[1] = old_off_y - (resolved_margin / h) * old_scale_y
 	end
 
-	local sdf_uv_bounds = constants.sdf_uv_bounds
-	sdf_uv_bounds[0] = old_off_x
-	sdf_uv_bounds[1] = old_off_y
-	sdf_uv_bounds[2] = old_off_x + old_scale_x
-	sdf_uv_bounds[3] = old_off_y + old_scale_y
+	constants.sdf_uv_bounds[0] = old_off_x
+	constants.sdf_uv_bounds[1] = old_off_y
+	constants.sdf_uv_bounds[2] = old_off_x + old_scale_x
+	constants.sdf_uv_bounds[3] = old_off_y + old_scale_y
 	render2d.UploadConstants(qw, qh, w, h)
 	render2d.rect_mesh:DrawIndexed(render.GetCommandBuffer(), 6)
 	constants.sdf_uv_offset[0], constants.sdf_uv_offset[1] = old_off_x, old_off_y

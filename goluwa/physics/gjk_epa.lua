@@ -192,7 +192,7 @@ local function solve_line(simplex, a, b)
 	local ab = Vec3.SetSub(TEMP_A, b.point, a.point)
 
 	if same_direction(ab, ao) then
-		return false, set_simplex(simplex, a, b), get_perpendicular_towards(ab, ao)
+		return false, set_simplex(simplex, b, a), get_perpendicular_towards(ab, ao)
 	end
 
 	return false, set_simplex(simplex, a), ao
@@ -216,11 +216,11 @@ local function solve_triangle(simplex, a, b, c)
 	end
 
 	if same_direction(abc, ao) then
-		return false, set_simplex(simplex, a, b, c), abc
+		return false, set_simplex(simplex, c, b, a), abc
 	end
 
 	TEMP_NEG:CopyFrom(abc):Scale(-1)
-	return false, set_simplex(simplex, a, c, b), TEMP_NEG
+	return false, set_simplex(simplex, b, c, a), TEMP_NEG
 end
 
 local function handle_simplex(simplex)
@@ -230,16 +230,16 @@ local function handle_simplex(simplex)
 		return false, TEMP_NEG:CopyFrom(simplex[1].point):Scale(-1)
 	end
 
-	if count == 2 then return solve_line(simplex, simplex[1], simplex[2]) end
+	if count == 2 then return solve_line(simplex, simplex[2], simplex[1]) end
 
 	if count == 3 then
-		return solve_triangle(simplex, simplex[1], simplex[2], simplex[3])
+		return solve_triangle(simplex, simplex[3], simplex[2], simplex[1])
 	end
 
-	local a = simplex[1]
-	local b = simplex[2]
-	local c = simplex[3]
-	local d = simplex[4]
+	local a = simplex[4]
+	local b = simplex[3]
+	local c = simplex[2]
+	local d = simplex[1]
 	local ao = TEMP_NEG:CopyFrom(a.point):Scale(-1)
 	local ab = Vec3.SetSub(TEMP_A, b.point, a.point)
 	local ac = Vec3.SetSub(TEMP_B, c.point, a.point)
@@ -629,7 +629,7 @@ function gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 			}
 		end
 
-		table.insert(simplex, 1, support)
+		simplex[#simplex + 1] = support
 		local contains_origin, updated_simplex, updated_direction = handle_simplex(simplex)
 		simplex = updated_simplex or simplex
 
@@ -859,7 +859,7 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 		-- hyperplane through the origin perpendicular to it: support.dot(u) <= -|c|
 		if support_distance + distance <= EPA_CONVERGENCE_EPSILON then break end
 
-		table.insert(simplex, 1, support)
+		simplex[#simplex + 1] = support
 
 		if #simplex >= 4 then
 			local contains_origin, updated_simplex = handle_simplex(simplex)
