@@ -43,7 +43,7 @@ return {
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
 
 					for i = 0, MAX_PROBES - 1 do
 						block.probe_color_textures[i] = -1
@@ -69,11 +69,11 @@ return {
 
 							if probe then
 								if probe.cubemap then
-									block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
+									block.probe_color_textures[i] = self:GetCubeMapTextureIndex(probe.cubemap)
 								end
 
 								if probe.depth_cubemap then
-									block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
+									block.probe_depth_textures[i] = self:GetCubeMapTextureIndex(probe.depth_cubemap)
 								end
 
 								block.probe_positions[i][0] = probe.position.x

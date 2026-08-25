@@ -73,7 +73,7 @@ return {
 					local light_count = math.min(#lights, MAX_LIGHTS)
 					block.light_count = light_count
 					render3d.WriteGBufferBlock(self, block)
-					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)
@@ -131,11 +131,11 @@ return {
 
 							if probe then
 								if probe.cubemap then
-									block.probe_color_textures[i] = self:GetTextureIndex(probe.cubemap)
+									block.probe_color_textures[i] = self:GetCubeMapTextureIndex(probe.cubemap)
 								end
 
 								if probe.depth_cubemap then
-									block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_cubemap)
+									block.probe_depth_textures[i] = self:GetCubeMapTextureIndex(probe.depth_cubemap)
 								end
 
 								block.probe_positions[i][0] = probe.position.x

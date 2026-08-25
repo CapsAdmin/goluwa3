@@ -1229,7 +1229,7 @@ function lightprobes.CreatePipelines()
 					write = function(self, block)
 						local probe = lightprobes.current_prefilter_probe
 						block.roughness = lightprobes.current_roughness or 0
-						block.input_texture_index = self:GetTextureIndex(probe.source_cubemap)
+						block.input_texture_index = self:GetCubeMapTextureIndex(probe.source_cubemap)
 						block.resolution = probe.size
 						return block
 					end,

@@ -321,23 +321,16 @@ local function release_texture_index(self, tex, set_index)
 end
 
 local function get_texture_index(self, tex, set_index, sampler_config_override)
+	if not tex then return -1 end
+
 	set_index = set_index or 0
-
-	if not tex or type(tex) ~= "table" then return -1 end
-
-	local is_cube = tex.IsCubemap and tex:IsCubemap()
-	local registry = is_cube and self.cubemap_registry or self.texture_registry
-	local array = is_cube and self.cubemap_array or self.texture_array
-	local index_key = is_cube and "next_cubemap_index" or "next_texture_index"
-	local limit_key = is_cube and "max_cubemaps" or "max_textures"
-	local binding_index = is_cube and 1 or 0
 	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
-	local variant_key = next_entry.sampler_hash or nil_sampler_hash_key
-	local variant_indices = registry[tex]
-	local index = variant_indices and variant_indices[variant_key]
+	local index = self.texture_registry[tex] and
+		self.texture_registry[tex][next_entry.sampler_hash or
+		nil_sampler_hash_key]
 
 	if index then
-		local entry = array[index + 1]
+		local entry = self.texture_array[index + 1]
 
 		if
 			next_entry.view and
@@ -348,36 +341,73 @@ local function get_texture_index(self, tex, set_index, sampler_config_override)
 				entry.sampler_hash ~= next_entry.sampler_hash
 			)
 		then
-			array[index + 1] = next_entry
+			self.texture_array[index + 1] = next_entry
 			mark_all_descriptor_frames_dirty(self)
 		end
 
 		return index
 	end
 
-	local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
-
-	if #free_list > 0 then
-		index = table.remove(free_list)
+	if #self.texture_free_list > 0 then
+		index = table.remove(self.texture_free_list)
 	else
-		if self[index_key] >= self[limit_key] then
-			error(
-				(
-						is_cube and
-						"Cubemap" or
-						"Texture"
-					) .. " registry full for binding " .. binding_index .. "! Max descriptors: " .. self[limit_key]
-			)
+		if self.next_texture_index >= self.max_textures then
+			error("Texture registry full for binding 0! Max descriptors: " .. self.max_textures)
 		end
 
-		index = self[index_key]
-		self[index_key] = index + 1
+		index = self.next_texture_index
+		self.next_texture_index = index + 1
 	end
 
-	variant_indices = variant_indices or {}
-	variant_indices[variant_key] = index
-	registry[tex] = variant_indices
-	array[index + 1] = next_entry
+	self.texture_registry[tex] = self.texture_registry[tex] or {}
+	self.texture_registry[tex][next_entry.sampler_hash or nil_sampler_hash_key] = index
+	self.texture_array[index + 1] = next_entry
+	mark_all_descriptor_frames_dirty(self)
+	return index
+end
+
+local function get_cubemap_texture_index(self, tex, set_index, sampler_config_override)
+	if not tex then return -1 end
+
+	set_index = set_index or 0
+	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
+	local index = self.cubemap_registry[tex] and
+		self.cubemap_registry[tex][next_entry.sampler_hash or
+		nil_sampler_hash_key]
+
+	if index then
+		local entry = self.cubemap_array[index + 1]
+
+		if
+			next_entry.view and
+			next_entry.sampler and
+			(
+				entry == nil or
+				entry.view ~= next_entry.view or
+				entry.sampler_hash ~= next_entry.sampler_hash
+			)
+		then
+			self.cubemap_array[index + 1] = next_entry
+			mark_all_descriptor_frames_dirty(self)
+		end
+
+		return index
+	end
+
+	if #self.cubemap_free_list > 0 then
+		index = table.remove(self.cubemap_free_list)
+	else
+		if self.next_cubemap_index >= self.max_cubemaps then
+			error("Cubemap registry full for binding 1! Max descriptors: " .. self.max_cubemaps)
+		end
+
+		index = self.next_cubemap_index
+		self.next_cubemap_index = index + 1
+	end
+
+	self.cubemap_registry[tex] = self.cubemap_registry[tex] or {}
+	self.cubemap_registry[tex][next_entry.sampler_hash or nil_sampler_hash_key] = index
+	self.cubemap_array[index + 1] = next_entry
 	mark_all_descriptor_frames_dirty(self)
 	return index
 end
@@ -397,6 +427,7 @@ function pipeline_common.bind_texture_registry(META)
 
 	META.BuildTextureDescriptorEntry = build_texture_descriptor_entry
 	META.GetTextureIndex = get_texture_index
+	META.GetCubeMapTextureIndex = get_cubemap_texture_index
 	META.ReleaseTextureIndex = release_texture_index
 	META.RefreshTextureDescriptorArray = refresh_texture_descriptor_array
 end

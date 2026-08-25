@@ -270,7 +270,7 @@ return {
 						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
 						block.normal_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
 						block.mra_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
-						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+						block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
 
 						if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
 							block.ssr_tex = -1

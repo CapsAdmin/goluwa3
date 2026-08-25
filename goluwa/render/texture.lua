@@ -1425,7 +1425,11 @@ function Texture:Shade(glsl, extra_config)
 
 	if extra_config.textures then
 		for _, tex in ipairs(extra_config.textures) do
-			pipeline:GetTextureIndex(tex)
+			if tex and tex.IsCubemap and tex:IsCubemap() then
+				pipeline:GetCubeMapTextureIndex(tex)
+			else
+				pipeline:GetTextureIndex(tex)
+			end
 		end
 	end
 

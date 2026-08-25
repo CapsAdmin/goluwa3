@@ -105,7 +105,7 @@ return {
 					write_lights_block(block.lights, lights)
 					write_shadow_block(self, block.shadows, lights)
 					render3d.WriteGBufferBlock(self, block)
-					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)

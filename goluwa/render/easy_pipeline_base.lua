@@ -656,6 +656,10 @@ do
 		return self.pipeline:GetTextureIndex(texture, 1, self:GetTextureSamplerConfig(texture))
 	end
 
+	function EasyPipeline:GetCubeMapTextureIndex(texture)
+		return self.pipeline:GetCubeMapTextureIndex(texture, 1, self:GetTextureSamplerConfig(texture))
+	end
+
 	function EasyPipeline:SetSamplerConfig(config)
 		self.sampler_config = config
 		return config

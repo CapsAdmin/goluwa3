@@ -60,7 +60,7 @@ local passes = {
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.lighting_direct_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1))
-					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
 					block.ssgi_max_steps = 64
 					block.ssgi_step_size = 0.1
