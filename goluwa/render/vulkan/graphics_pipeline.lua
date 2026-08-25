@@ -2171,6 +2171,11 @@ do
 		GraphicsPipeline[info.get_name] = function(self)
 			local value = get_state(self, info.state_section, info.state_key, info.state_subkey)
 
+			if value == nil then
+				if info.compare == "list" then return list.copy(info.default) end
+				return info.default
+			end
+
 			if info.compare == "list" then return list.copy(value) end
 
 			return value
