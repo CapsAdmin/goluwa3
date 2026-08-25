@@ -115,56 +115,58 @@ function event.SkipCallback(cb)
 end
 
 function event.Call(event_type, a_, b_, c_, d_, e_)
-	if event.active[event_type] then
-		local a, b, c, d, e
-		local ok
-
-		for index = 1, #event.active[event_type] do
-			local data = event.active[event_type][index]
-
-			if data then
-				if event.skip_callback and event.skip_callback == data.callback then
-					event.skip_callback = nil
-				else
-					if data.self_arg then
-						if data.self_arg:IsValid() then
-							if data.self_arg_with_callback then
-								ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, a_, b_, c_, d_, e_)
-							else
-								ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, data.self_arg, a_, b_, c_, d_, e_)
-							end
-						else
-							event.RemoveListener(event_type, data.id)
-							llog("[%q][%q] removed because self is invalid", event_type, data.unique)
-						end
-					else
-						ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, a_, b_, c_, d_, e_)
-					end
-
-					if not ok then
-						event.RemoveListener(event_type, data.id)
-						llog(
-							"[%q][%q] removed because callback threw an error: %s",
-							event_type,
-							data.unique,
-							a
-						)
-					end
-
-					if a == event.destroy_tag or data.remove_after_one_call then
-						event.RemoveListener(event_type, data.id)
-					end
-
-					if a ~= nil and a ~= event.destroy_tag then return a, b, c, d, e end
-				end
-			end
-		end
-	end
-
 	if event.fix_indices[event_type] then
 		list.fix_indices(event.active[event_type])
 		event.fix_indices[event_type] = nil
 		sort_events(event_type)
+	end
+
+	if not event.active[event_type] then return end
+
+	local a, b, c, d, e
+	local ok
+
+	for index = 1, #event.active[event_type] do
+		local data = event.active[event_type][index]
+
+		if not data then continue end
+
+		if event.skip_callback and event.skip_callback == data.callback then
+			event.skip_callback = nil
+
+			continue
+		end
+
+		if data.self_arg then
+			if data.self_arg:IsValid() then
+				if data.self_arg_with_callback then
+					ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, a_, b_, c_, d_, e_)
+				else
+					ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, data.self_arg, a_, b_, c_, d_, e_)
+				end
+			else
+				event.RemoveListener(event_type, data.id)
+				llog("[%q][%q] removed because self is invalid", event_type, data.unique)
+			end
+		else
+			ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, a_, b_, c_, d_, e_)
+		end
+
+		if not ok then
+			event.RemoveListener(event_type, data.id)
+			llog(
+				"[%q][%q] removed because callback threw an error: %s",
+				event_type,
+				data.unique,
+				a
+			)
+		end
+
+		if a == event.destroy_tag or data.remove_after_one_call then
+			event.RemoveListener(event_type, data.id)
+		end
+
+		if a ~= nil and a ~= event.destroy_tag then return a, b, c, d, e end
 	end
 end
 
