@@ -2027,22 +2027,22 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		last_bound_graphics_pipeline = nil
 	end
 
-	local signature = get_pipeline_signature(self, cmd)
-	local signature_id = get_signature_id(self, signature)
+	do
+		local signature = get_pipeline_signature(self, cmd)
+		local signature_id = get_signature_id(self, signature)
 
-	if self.static_variant_dirty or self.current_signature_id ~= signature_id then
-		self:RebuildPipeline(self.overridden_state, signature)
-	elseif self.bind_state_dirty_regions then
-		local dirty_regions = self.bind_state_dirty_regions
+		if self.static_variant_dirty or self.current_signature_id ~= signature_id then
+			self:RebuildPipeline(self.overridden_state, signature)
+		elseif self.bind_state_dirty_regions then
+			local dirty_regions = self.bind_state_dirty_regions
 
-		for region, _ in pairs(dirty_regions) do
-			build_cache_region(self, self.bind_state_cache, region)
+			for region, _ in pairs(dirty_regions) do
+				build_cache_region(self, self.bind_state_cache, region)
+			end
+
+			self.bind_state_dirty_regions = nil
 		end
-
-		self.bind_state_dirty_regions = nil
 	end
-
-	local cache = self.bind_state_cache
 
 	if last_bound_graphics_pipeline ~= self.pipeline then
 		last_bound_graphics_pipeline = self.pipeline
@@ -2070,66 +2070,81 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	cmd:BindPipeline(self.pipeline, "graphics")
 
 	-- Always apply dynamic states if they are enabled in this pipeline
-	if self.dynamic_states.color_blend_enable_ext then
-		if cache.color_blend_enable then
-			cmd:SetColorBlendEnable(0, cache.color_blend_enable)
-		end
+	if
+		self.dynamic_states.color_blend_enable_ext and
+		self.bind_state_cache.color_blend_enable
+	then
+		cmd:SetColorBlendEnable(0, self.bind_state_cache.color_blend_enable)
 	end
 
-	if self.dynamic_states.color_write_mask_ext then
-		if cache.color_write_mask then
-			cmd:SetColorWriteMask(0, cache.color_write_mask)
-		end
+	if
+		self.dynamic_states.color_write_mask_ext and
+		self.bind_state_cache.color_write_mask
+	then
+		cmd:SetColorWriteMask(0, self.bind_state_cache.color_write_mask)
 	end
 
 	if self.dynamic_states.logic_op_enable_ext then
-		cmd:SetLogicOpEnable(cache.logic_op_enable)
+		cmd:SetLogicOpEnable(self.bind_state_cache.logic_op_enable)
 	end
 
-	if self.dynamic_states.logic_op_ext then cmd:SetLogicOp(cache.logic_op) end
+	if self.dynamic_states.logic_op_ext then
+		cmd:SetLogicOp(self.bind_state_cache.logic_op)
+	end
 
-	if self.dynamic_states.color_blend_equation_ext then
-		if cache.color_blend_equations then
-			for i, equation in ipairs(cache.color_blend_equations) do
-				cmd:SetColorBlendEquation(i - 1, equation)
-			end
+	if
+		self.dynamic_states.color_blend_equation_ext and
+		self.bind_state_cache.color_blend_equations
+	then
+		for i, equation in ipairs(self.bind_state_cache.color_blend_equations) do
+			cmd:SetColorBlendEquation(i - 1, equation)
 		end
 	end
 
 	if self.dynamic_states.polygon_mode_ext then
-		cmd:SetPolygonMode(cache.polygon_mode)
+		cmd:SetPolygonMode(self.bind_state_cache.polygon_mode)
 	end
 
-	if self.dynamic_states.cull_mode then cmd:SetCullMode(cache.cull_mode) end
+	if self.dynamic_states.cull_mode then
+		cmd:SetCullMode(self.bind_state_cache.cull_mode)
+	end
 
-	if self.dynamic_states.front_face then cmd:SetFrontFace(cache.front_face) end
+	if self.dynamic_states.front_face then
+		cmd:SetFrontFace(self.bind_state_cache.front_face)
+	end
 
 	if self.dynamic_states.depth_clamp_enable_ext then
-		cmd:SetDepthClampEnable(cache.depth_clamp_enable)
+		cmd:SetDepthClampEnable(self.bind_state_cache.depth_clamp_enable)
 	end
 
 	-- Derive Vulkan API calls from vulkan_bindings
 	for ds_name, bindings in pairs(vulkan_bindings) do
 		if self.dynamic_states[ds_name] then
 			for _, binding in ipairs(bindings) do
-				local val = cache[binding.field]
+				local val = self.bind_state_cache[binding.field]
 
 				-- Special handling for viewport/scissor (need size check)
 				if
 					ds_name == "viewport" and
 					(
-						cache.viewport_width <= 0 or
-						cache.viewport_height <= 0
+						self.bind_state_cache.viewport_width <= 0 or
+						self.bind_state_cache.viewport_height <= 0
 					)
 				then
 					break
 				end
 
-				if ds_name == "scissor" and (cache.scissor_width <= 0 or cache.scissor_height <= 0) then
+				if
+					ds_name == "scissor" and
+					(
+						self.bind_state_cache.scissor_width <= 0 or
+						self.bind_state_cache.scissor_height <= 0
+					)
+				then
 					break
 				end
 
-				if binding.setter then binding.setter(cmd, cache, val) end
+				if binding.setter then binding.setter(cmd, self.bind_state_cache, val) end
 			end
 		end
 	end
@@ -2137,13 +2152,14 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	-- Bind descriptor sets
 	if self.descriptor_sets then
 		do
-			local dirty = self.bindless_descriptor_sets_dirty
-
-			if dirty and dirty[frame_index] then
+			if
+				self.bindless_descriptor_sets_dirty and
+				self.bindless_descriptor_sets_dirty[frame_index]
+			then
 				local set_index = common.get_bindless_texture_set_index(self)
 				self:UpdateDescriptorSetArray(frame_index, 0, set_index, self.texture_array)
 				self:UpdateDescriptorSetArray(frame_index, 1, set_index, self.cubemap_array)
-				dirty[frame_index] = nil
+				self.bindless_descriptor_sets_dirty[frame_index] = nil
 			end
 		end
 
@@ -2152,7 +2168,7 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		if sets then
 			local offsets = dynamic_offsets
 
-			if not offsets then offsets = cache.zero_dynamic_offsets or 0 end
+			if not offsets then offsets = self.bind_state_cache.zero_dynamic_offsets or 0 end
 
 			cmd:BindDescriptorSets("graphics", self.pipeline_layout, sets, offsets or 0)
 		end
