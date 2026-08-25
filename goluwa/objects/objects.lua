@@ -798,12 +798,21 @@ do -- get is set
 			list.insert(meta.storable_variables, info)
 		end
 
-		if type(info.default) == "table" then
-			if type(info.default.__copy) == "function" then
-				info.copy = function()
-					return info.default:__copy()
-				end
-			elseif not next(info.default) then
+		local default_type = type(info.default)
+
+		if
+			(
+				default_type == "table" or
+				default_type == "cdata"
+			)
+			and
+			type(info.default.__copy) == "function"
+		then
+			info.copy = function()
+				return info.default:__copy()
+			end
+		elseif type(info.default) == "table" then
+			if not next(info.default) then
 				info.copy = function()
 					return {}
 				end
