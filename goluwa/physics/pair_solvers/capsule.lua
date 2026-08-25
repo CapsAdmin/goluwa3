@@ -719,6 +719,12 @@ solve_swept_capsule_polyhedron_collision = function(dynamic_body, static_body, s
 
 	if not hit then return false end
 
+	local relative_movement = dynamic_sweep.movement - static_sweep.movement
+
+	if hit.t <= EPSILON and relative_movement:Dot(hit.normal) >= -EPSILON then
+		return false
+	end
+
 	return pair_solver_helpers.ResolveRelativeSweptPairHit(
 		static_body,
 		dynamic_body,
