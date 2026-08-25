@@ -624,14 +624,22 @@ local function sync_pipeline_state(force)
 	pipeline:SetStencilTest(stencil_mode_def.stencil_test)
 
 	-- Front and back faces are always configured identically
-	for _, face in ipairs({"Front", "Back"}) do
-		pipeline["Set" .. face .. "StencilFailOp"](pipeline, stencil_mode_def.front.fail_op)
-		pipeline["Set" .. face .. "StencilPassOp"](pipeline, stencil_mode_def.front.pass_op)
-		pipeline["Set" .. face .. "StencilDepthFailOp"](pipeline, stencil_mode_def.front.depth_fail_op)
-		pipeline["Set" .. face .. "StencilCompareOp"](pipeline, stencil_mode_def.front.compare_op)
-		pipeline["Set" .. face .. "StencilReference"](pipeline, stencil_ref)
-		pipeline["Set" .. face .. "StencilCompareMask"](pipeline, 0xFF)
-		pipeline["Set" .. face .. "StencilWriteMask"](pipeline, 0xFF)
+	do
+		pipeline:SetFrontStencilFailOp(stencil_mode_def.front.fail_op)
+		pipeline:SetFrontStencilPassOp(stencil_mode_def.front.pass_op)
+		pipeline:SetFrontStencilDepthFailOp(stencil_mode_def.front.depth_fail_op)
+		pipeline:SetFrontStencilCompareOp(stencil_mode_def.front.compare_op)
+		pipeline:SetFrontStencilReference(stencil_ref)
+		pipeline:SetFrontStencilCompareMask(0xFF)
+		pipeline:SetFrontStencilWriteMask(0xFF)
+		--
+		pipeline:SetBackStencilFailOp(stencil_mode_def.front.fail_op)
+		pipeline:SetBackStencilPassOp(stencil_mode_def.front.pass_op)
+		pipeline:SetBackStencilDepthFailOp(stencil_mode_def.front.depth_fail_op)
+		pipeline:SetBackStencilCompareOp(stencil_mode_def.front.compare_op)
+		pipeline:SetBackStencilReference(stencil_ref)
+		pipeline:SetBackStencilCompareMask(0xFF)
+		pipeline:SetBackStencilWriteMask(0xFF)
 	end
 
 	pipeline:Bind(cmd, render.GetCurrentFrame())
