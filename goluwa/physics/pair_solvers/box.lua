@@ -143,7 +143,7 @@ local function get_box_face(body, desired_normal)
 	local ex = size.x * 0.5
 	local ey = size.y * 0.5
 	local ez = size.z * 0.5
-	local axes = shape:GetAxes(body)
+	local axes = {body:GetRight(), body:GetUp(), body:GetBack()}
 	local axis_index = 1
 	local best_alignment = -math.huge
 
@@ -303,7 +303,7 @@ end
 
 local function get_support_edge(body, edge_axis_index, support_direction)
 	local extents = body:GetPhysicsShape():GetExtents()
-	local axes = body:GetPhysicsShape():GetAxes(body)
+	local axes = {body:GetRight(), body:GetUp(), body:GetBack()}
 	local local_start = Vec3(0, 0, 0)
 	local local_end = Vec3(0, 0, 0)
 
@@ -624,8 +624,8 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 	local delta = SAT_DELTA
 	local extents_a = body_a:GetPhysicsShape():GetExtents()
 	local extents_b = body_b:GetPhysicsShape():GetExtents()
-	local axes_a = body_a:GetPhysicsShape():GetAxes(body_a)
-	local axes_b = body_b:GetPhysicsShape():GetAxes(body_b)
+	local axes_a = {body_a:GetRight(), body_a:GetUp(), body_a:GetBack()}
+	local axes_b = {body_b:GetRight(), body_b:GetUp(), body_b:GetBack()}
 	local best = BOX_SAT_BEST
 	convex_sat.ResetBestAxisTracker(best)
 	stats:PushTime("box_sat")

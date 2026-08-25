@@ -185,7 +185,7 @@ end
 
 function META:GetSupportRadiusAlongNormal(body, normal)
 	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
-	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
+	local axis = body:GetUp():GetNormalized()
 	return self:GetRadius() + self:GetCylinderHalfHeight() * math.abs(axis:Dot(normal))
 end
 
@@ -251,7 +251,7 @@ get_ground_normal = function(body)
 	return normal:GetNormalized()
 end
 get_capsule_axis_world = function(body)
-	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0))
+	local axis = body:GetUp()
 
 	if axis:GetLength() <= EPSILON then return Vec3(0, 1, 0) end
 

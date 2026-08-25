@@ -524,6 +524,22 @@ do
 		return self.PreviousRotation
 	end
 
+	function RigidBody:GetUp()
+		return self:GetRotation():GetUp()
+	end
+
+	function RigidBody:GetRight()
+		return self:GetRotation():GetRight()
+	end
+
+	function RigidBody:GetForward()
+		return self:GetRotation():GetForward()
+	end
+
+	function RigidBody:GetBack()
+		return self:GetRotation():GetBack()
+	end
+
 	function RigidBody:GetGroundNormal()
 		return self.GroundNormal
 	end

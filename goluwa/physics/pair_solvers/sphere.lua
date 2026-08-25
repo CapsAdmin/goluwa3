@@ -214,7 +214,7 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 			if top_distance > EPSILON then
 				top_normal = top_delta / top_distance
 			else
-				top_normal = box_body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
+				top_normal = box_body:GetUp():GetNormalized()
 			end
 
 			return contact_resolution.ResolvePairPenetration(
