@@ -3,7 +3,6 @@ local jrpg = import("goluwa/render2d/ui/themes/jrpg.lua")
 local theme = library()
 local DEFAULT_PRESET_NAME = base.Name
 theme.themes = {base, jrpg}
-theme.implementations = {}
 theme.active = nil
 
 local function find_theme_class(name)
@@ -17,33 +16,24 @@ local function find_theme_class(name)
 end
 
 function theme.LoadTheme(name)
+	if theme.active and theme.active.Name == name then return end
+
 	local theme_class = find_theme_class(name)
-	local object = theme.implementations[theme_class.Name]
-
-	if not object then
-		object = theme_class:CreateObject()
-		object:Initialize(theme)
-		theme.implementations[theme_class.Name] = object
-	end
-
+	local object = theme_class:CreateObject()
+	object:Initialize()
 	theme.active = object
-	theme.font_sizes = object:GetFontSizes()
-	theme.font_styles = object:GetFontStyles()
 	return object
 end
 
-do
-	function theme.GetAvailable()
-		local out = {}
+function theme.GetAvailable()
+	local out = {}
 
-		for i, theme_class in ipairs(theme.themes) do
-			out[i] = theme_class.Name
-		end
-
-		return out
+	for i, theme_class in ipairs(theme.themes) do
+		out[i] = theme_class.Name
 	end
 
-	theme.LoadTheme(DEFAULT_PRESET_NAME)
+	return out
 end
 
+theme.LoadTheme(DEFAULT_PRESET_NAME)
 return theme

@@ -8,7 +8,6 @@ local objects = import("goluwa/objects/objects.lua")
 local SVG = import("goluwa/render2d/svg.lua")
 local BaseTheme = objects.CreateTemplate("ui_theme_base")
 BaseTheme.Name = "base"
-BaseTheme:GetSet("ThemeContext", nil)
 BaseTheme:GetSet("Palette", nil)
 BaseTheme:GetSet(
 	"Sizes",
@@ -164,10 +163,9 @@ function BaseTheme:CreatePalette()
 	return semantic_palette
 end
 
-function BaseTheme:Initialize(theme_context)
+function BaseTheme:Initialize()
 	self:AddGlobalEvent("OnEntitySetProperty", {func_name = "OnEntitySetProperty"})
 	self:AddGlobalEvent("OnEntityStateChanged", {func_name = "OnEntityStateChanged"})
-	self:SetThemeContext(theme_context)
 
 	if self:GetDefaultFontPath() == "" then
 		self:SetDefaultFontPath(fonts.GetDefaultSystemFontPath())
@@ -235,7 +233,7 @@ function BaseTheme:GetColor(name, opts)
 		return palette:Get(token, background_token)
 	end
 
-	return palette and palette:Get("primary")
+	return palette:Get("primary")
 end
 
 function BaseTheme:ResolveColor(value, fallback)
@@ -1518,7 +1516,7 @@ function BaseTheme:OnEntitySetProperty(obj, key, val)
 
 			if not style or style == "" then style = "body" end
 
-			if self.ThemeContext.font_sizes[style] and not self.ThemeContext.font_styles[style] then
+			if self:GetFontSizes()[style] and not self:GetFontStyles()[style] then
 				size = style
 				style = "body"
 			end
