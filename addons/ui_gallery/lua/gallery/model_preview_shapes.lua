@@ -280,25 +280,37 @@ end
 return {
 	Name = "3d model preview",
 	Create = function()
-		local definitions = build_definitions()
 		local rows = {}
 
-		for i = 1, #definitions, 3 do
-			local children = {}
+		if RENDER_3D then
+			local definitions = build_definitions()
 
-			for j = i, math.min(i + 2, #definitions) do
-				children[#children + 1] = build_tile(definitions[j])
+			for i = 1, #definitions, 3 do
+				local children = {}
+
+				for j = i, math.min(i + 2, #definitions) do
+					children[#children + 1] = build_tile(definitions[j])
+				end
+
+				rows[#rows + 1] = Row{
+					layout = {
+						GrowWidth = 1,
+						FitHeight = true,
+						AlignmentX = "stretch",
+						AlignmentY = "start",
+						ChildGap = 12,
+					},
+				}(children)
 			end
-
-			rows[#rows + 1] = Row{
+		else
+			rows[1] = Text{
+				Text = "RENDER_3D = false",
+				Wrap = true,
+				IgnoreMouseInput = true,
 				layout = {
 					GrowWidth = 1,
-					FitHeight = true,
-					AlignmentX = "stretch",
-					AlignmentY = "start",
-					ChildGap = 12,
 				},
-			}(children)
+			}
 		end
 
 		return Column{
