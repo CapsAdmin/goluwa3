@@ -119,7 +119,7 @@ return {
 					block.primary_sun_color[3] = 0
 					block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
 					block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-						atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(lights))
+						atmosphere.GetSkyViewTexture(render3d.GetRenderCamera():GetPosition(), get_primary_sun_direction(lights))
 					)
 					block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 

@@ -167,7 +167,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	local directional_light_index = -1
 	local point_shadow_count = 0
 	local point_shadow_candidates = {}
-	local camera = render3d.GetCamera()
+	local camera = render3d.GetRenderCamera()
 	local camera_position = camera and camera:GetPosition()
 
 	for i = 0, scene_lights.MAX_CASCADES - 1 do

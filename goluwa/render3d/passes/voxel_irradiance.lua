@@ -305,7 +305,7 @@ return {
 					block.primary_sun_color[3] = 0
 					block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
 					block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-						atmosphere.GetSkyViewTexture(render3d.GetCamera():GetPosition(), get_primary_sun_direction(lights))
+						atmosphere.GetSkyViewTexture(render3d.GetRenderCamera():GetPosition(), get_primary_sun_direction(lights))
 					)
 					block.voxel_gi_clipmap_count = 0
 					block.voxel_gi_strength = 0.2

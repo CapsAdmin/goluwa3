@@ -1,10 +1,10 @@
 local event = import("goluwa/event.lua")
 local Quat = import("goluwa/structs/quat.lua")
 
--- Overrides the 3d camera for the duration of a screenshot. Player controllers
--- re-assert the camera on every Update (before the frame is rendered), so the
--- override is re-applied on PreFrame, which fires inside render.Draw after
--- them. Returns a function that removes the override and restores the camera.
+-- Renders the 3d pipeline from a copy of the camera with the given state
+-- applied. Player controllers keep driving the game camera (render3d.GetCamera)
+-- on every Update, but the pipeline reads the render camera, so no per-frame
+-- re-application is needed. Returns a function that restores normal rendering.
 local function setup_camera_override(camera)
 	local render3d = import("goluwa/render3d/render3d.lua")
 
@@ -12,36 +12,26 @@ local function setup_camera_override(camera)
 		error("Screenshot: camera option requires 3d rendering", 2)
 	end
 
-	local cam = render3d.GetCamera()
-	local saved = {
-		position = cam:GetPosition():Copy(),
-		rotation = cam:GetRotation():Copy(),
-		fov = cam:GetFOV(),
-	}
-	local rotation = camera.rotation
+	local override = render3d.GetCamera():Copy()
 
-	if rotation then
+	if camera.position then override:SetPosition(camera.position) end
+
+	if camera.rotation then
+		local rotation = camera.rotation
 		local meta = getmetatable(rotation)
 
 		if meta and meta.ClassName == "Ang3" then
 			rotation = Quat():SetAngles(rotation)
 		end
+
+		override:SetRotation(rotation)
 	end
 
-	local function apply()
-		if camera.position then cam:SetPosition(camera.position) end
+	if camera.fov then override:SetFOV(camera.fov) end
 
-		if rotation then cam:SetRotation(rotation) end
-
-		if camera.fov then cam:SetFOV(camera.fov) end
-	end
-
-	local remove = event.AddListener("PreFrame", "screenshot_camera_override", apply)
+	render3d.SetRenderCamera(override)
 	return function()
-		remove()
-		cam:SetPosition(saved.position)
-		cam:SetRotation(saved.rotation)
-		cam:SetFOV(saved.fov)
+		render3d.ClearRenderCamera()
 	end
 end
 
@@ -59,9 +49,9 @@ end
 --                       -- a frame (e.g. a Draw or Draw2D listener). Cannot be
 --                       -- combined with camera.
 --   camera = {         -- 3d only: capture from this camera instead of the
---       position = Vec3,      -- current one. The original camera is restored
---       rotation = Quat|Ang3, -- after the capture. Cannot be combined with
---       fov = radians,        -- midframe.
+--       position = Vec3,      -- game camera. Player controllers keep updating
+--       rotation = Quat|Ang3, -- the game camera, which is used again after the
+--       fov = radians,        -- capture. Cannot be combined with midframe.
 --   }
 --
 -- Without midframe, the capture happens at the end of the next frame (or the

@@ -345,7 +345,7 @@ local function get_visible_depth_fit_range(self, max_distance)
 
 	if not depth_texture then return nil end
 
-	local cam = render3d.GetCamera()
+	local cam = render3d.GetRenderCamera()
 
 	if not cam then return nil end
 
@@ -426,7 +426,7 @@ function M.UpdateLocalDirectional(
 
 	do
 		render3d = render3d or import("goluwa/render3d/render3d.lua")
-		cam = render3d.GetCamera()
+		cam = render3d.GetRenderCamera()
 
 		if not cam then return false end
 

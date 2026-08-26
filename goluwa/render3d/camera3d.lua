@@ -15,6 +15,7 @@ local screen_to_world_near = Matrix44()
 local screen_to_world_far = Matrix44()
 
 do
+	META:StartStorable()
 	META:GetSet("OrthoMode", false, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("OrthoHalfHeight", 100 * math.rad(90), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FOV", math.rad(90), {callback = "InvalidateProjectionMatrix"})
@@ -22,6 +23,7 @@ do
 	META:GetSet("FarZ", 32000, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("Viewport", Rect(0, 0, 1000, 1000), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("Jitter", Vec2(0, 0), {callback = "InvalidateProjectionMatrix"})
+	META:EndStorable()
 
 	function META:InvalidateProjectionMatrix()
 		self.ProjectionMatrix = nil
@@ -52,8 +54,10 @@ do
 end
 
 do
+	META:StartStorable()
 	META:GetSet("Position", Vec3(0, 0, 0), {callback = "InvalidateViewMatrix"})
 	META:GetSet("Rotation", Quat(0, 0, 0, 1), {callback = "InvalidateViewMatrix"})
+	META:EndStorable()
 
 	function META:InvalidateViewMatrix()
 		self.ViewMatrix = nil
@@ -229,6 +233,20 @@ end
 
 function META.New()
 	return META:CreateObject()
+end
+
+function META:Copy()
+	local cam = META.New()
+	cam:SetOrthoMode(self:GetOrthoMode())
+	cam:SetOrthoHalfHeight(self:GetOrthoHalfHeight())
+	cam:SetFOV(self:GetFOV())
+	cam:SetNearZ(self:GetNearZ())
+	cam:SetFarZ(self:GetFarZ())
+	cam:SetViewport(self:GetViewport():Copy())
+	cam:SetJitter(self:GetJitter():Copy())
+	cam:SetPosition(self:GetPosition():Copy())
+	cam:SetRotation(self:GetRotation():Copy())
+	return cam
 end
 
 META:Register()

@@ -17,7 +17,7 @@ local function write_wave_precompute(self, block, wave_world_half)
 	render3d.WriteCommonBlock(self, block)
 	block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 	local snap = wave_world_half * 2 / WAVE_TEX_SIZE
-	local cam = render3d.camera:GetPosition()
+	local cam = render3d.GetRenderCamera():GetPosition()
 	block.wave_origin[0] = math.floor(cam.x / snap) * snap
 	block.wave_origin[1] = math.floor(cam.z / snap) * snap
 	return block
@@ -294,7 +294,7 @@ return {
 
 						local far_snap = WAVE_TEX_WORLD_HALF * 2 / WAVE_TEX_SIZE
 						local near_snap = WAVE_NEAR_WORLD_HALF * 2 / WAVE_TEX_SIZE
-						local cam = render3d.camera:GetPosition()
+						local cam = render3d.GetRenderCamera():GetPosition()
 						block.wave_origin[0] = math.floor(cam.x / far_snap) * far_snap
 						block.wave_origin[1] = math.floor(cam.z / far_snap) * far_snap
 
@@ -833,13 +833,13 @@ return {
 						if prev_view then
 							prev_view:CopyToFloatPointer(block.prev_view)
 						else
-							render3d.camera:BuildViewMatrix():CopyToFloatPointer(block.prev_view)
+							render3d.GetRenderCamera():BuildViewMatrix():CopyToFloatPointer(block.prev_view)
 						end
 
 						if prev_projection then
 							prev_projection:CopyToFloatPointer(block.prev_projection)
 						else
-							render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
+							render3d.GetRenderCamera():BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
 						end
 
 						return block

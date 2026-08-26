@@ -1014,7 +1014,7 @@ end
 
 local function get_camera_shadow_corners(max_distance)
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local cam = render3d.GetCamera()
+	local cam = render3d.GetRenderCamera()
 
 	if not cam then return nil end
 
@@ -1364,7 +1364,7 @@ end
 -- Blends between logarithmic and linear split based on lambda parameter
 function ShadowMap:CalculateCascadeSplits()
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local cam = render3d.GetCamera()
+	local cam = render3d.GetRenderCamera()
 	local view_near = cam:GetNearZ()
 	local view_far = math.min(cam:GetFarZ(), self.max_shadow_distance)
 	local lambda = self.cascade_split_lambda
@@ -1420,7 +1420,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 	if self.mode == "point" then return end
 
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local cam = render3d.GetCamera()
+	local cam = render3d.GetRenderCamera()
 	self:CalculateCascadeSplits()
 
 	if TEMP_IDENTITY_CASCADE_OVERRIDE then

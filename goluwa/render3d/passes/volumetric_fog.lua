@@ -298,8 +298,8 @@ local r = {
 						write_ocean_distance_texture(self, block, "ocean_distance_tex")
 						block.time = system.GetElapsedTime()
 						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-						block.near_z = render3d.camera:GetNearZ()
-						block.far_z = render3d.camera:GetFarZ()
+						block.near_z = render3d.GetRenderCamera():GetNearZ()
+						block.far_z = render3d.GetRenderCamera():GetFarZ()
 						block.froxel_resolution[0] = volumetric_froxels.width
 						block.froxel_resolution[1] = volumetric_froxels.height
 						block.current_slice = volumetric_froxels.current_slice or 0
@@ -1126,8 +1126,8 @@ local r = {
 						get_scene_source_texture(self, block, "source_tex")
 						get_raw_scene_source_texture(self, block, "raw_source_tex")
 						write_ocean_distance_texture(self, block, "ocean_distance_tex")
-						block.near_z = render3d.camera:GetNearZ()
-						block.far_z = render3d.camera:GetFarZ()
+						block.near_z = render3d.GetRenderCamera():GetNearZ()
+						block.far_z = render3d.GetRenderCamera():GetFarZ()
 						block.slice_count = FROXEL_SLICE_COUNT
 						block.volume_enabled = volumetric_froxels.texture and 1 or 0
 						return block

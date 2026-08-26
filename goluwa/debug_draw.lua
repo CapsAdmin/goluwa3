@@ -211,7 +211,7 @@ local function draw_shape_entries()
 end
 
 local function draw_text_entry(entry)
-	local screen_pos = render3d.GetCamera():WorldPositionToScreen(entry.position)
+	local screen_pos = render3d.GetRenderCamera():WorldPositionToScreen(entry.position)
 
 	if not screen_pos then return end
 
@@ -231,7 +231,7 @@ local function draw_text_entry(entry)
 end
 
 local function draw_2d_line_entry(entry)
-	local from, to = render3d.GetCamera():WorldLineToScreen(entry.from, entry.to)
+	local from, to = render3d.GetRenderCamera():WorldLineToScreen(entry.from, entry.to)
 
 	if not from then return end
 

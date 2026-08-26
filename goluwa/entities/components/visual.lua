@@ -1544,7 +1544,7 @@ do
 		end
 
 		local current_frame = system.GetFrameNumber()
-		local camera = render3d.GetCamera()
+		local camera = render3d.GetRenderCamera()
 		local view = camera:BuildViewMatrix()
 		local proj = camera:BuildProjectionMatrix()
 
@@ -1571,7 +1571,7 @@ do
 			return cached_cull_camera_position
 		end
 
-		local camera = render3d.GetCamera()
+		local camera = render3d.GetRenderCamera()
 		cached_cull_camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
 		cached_cull_camera_frame = current_frame
 		return cached_cull_camera_position
@@ -2024,7 +2024,7 @@ do
 
 		if not gpu_culling.IsEnabled() or visual.noculling then return nil, nil end
 
-		local camera = render3d.GetCamera()
+		local camera = render3d.GetRenderCamera()
 		local dataset = gpu_culling.GetSceneDataset()
 
 		if not dataset then return nil, nil end

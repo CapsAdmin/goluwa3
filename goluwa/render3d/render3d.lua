@@ -246,8 +246,9 @@ render3d.camera_block = {
 }
 
 function render3d.WriteCameraBlock(self, block)
-	local view = render3d.camera:BuildViewMatrix()
-	local projection = render3d.camera:BuildProjectionMatrix()
+	local camera = render3d.GetRenderCamera()
+	local view = camera:BuildViewMatrix()
+	local projection = camera:BuildProjectionMatrix()
 	view:GetInverse():CopyToFloatPointer(block.inv_view)
 	projection:GetInverse():CopyToFloatPointer(block.inv_projection)
 	view:CopyToFloatPointer(block.view)
@@ -255,7 +256,7 @@ function render3d.WriteCameraBlock(self, block)
 	local size = render.GetRenderImageSize()
 	block.render_size[0] = size and size.x or 1
 	block.render_size[1] = size and size.y or 1
-	render3d.camera:GetPosition():CopyToFloatPointer(block.camera_position)
+	camera:GetPosition():CopyToFloatPointer(block.camera_position)
 	return block
 end
 
@@ -521,7 +522,7 @@ function render3d.Initialize(config)
 		if not render3d.pipelines.gbuffer then return end
 
 		local sampler_config = render.GetSamplerFilterConfig()
-		render3d.GetSceneVoxelizer().Update(render3d.camera:GetPosition())
+		render3d.GetSceneVoxelizer().Update(render3d.GetRenderCamera():GetPosition())
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
 			if pipeline.use_global_sampler_config then
@@ -694,8 +695,9 @@ function render3d.Draw(dt)
 		if pipeline.post_draw then pipeline:post_draw(cmd, dt) end
 	end
 
-	render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
-	render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
+	local render_camera = render3d.GetRenderCamera()
+	render3d.prev_view_matrix = render_camera:BuildViewMatrix():Copy()
+	render3d.prev_projection_matrix = render_camera:BuildProjectionMatrix():Copy()
 end
 
 function render3d.GetSceneVoxelizer()
@@ -1296,6 +1298,22 @@ do
 		return render3d.camera
 	end
 
+	render3d.render_camera_override = false
+
+	function render3d.GetRenderCamera()
+		return render3d.render_camera_override or render3d.camera
+	end
+
+	function render3d.SetRenderCamera(camera)
+		render3d.render_camera_override = camera
+		return camera
+	end
+
+	function render3d.ClearRenderCamera()
+		render3d.render_camera_override = false
+		return render3d.camera
+	end
+
 	function render3d.SetWorldMatrix(world)
 		render3d.world_matrix = world
 	end
@@ -1310,15 +1328,17 @@ do
 	function render3d.GetProjectionViewMatrix()
 		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
 		-- Row-major: v * V * P
-		render3d.camera:BuildViewMatrix():GetMultiplied(render3d.camera:BuildProjectionMatrix(), pv_cached)
+		local camera = render3d.GetRenderCamera()
+		camera:BuildViewMatrix():GetMultiplied(camera:BuildProjectionMatrix(), pv_cached)
 		return pv_cached
 	end
 
 	function render3d.GetProjectionViewWorldMatrix()
 		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
 		-- Row-major: v * W * V * P
-		render3d.world_matrix:GetMultiplied(render3d.camera:BuildViewMatrix(), pvm_cached)
-		pvm_cached:GetMultiplied(render3d.camera:BuildProjectionMatrix(), pvm_cached)
+		local camera = render3d.GetRenderCamera()
+		render3d.world_matrix:GetMultiplied(camera:BuildViewMatrix(), pvm_cached)
+		pvm_cached:GetMultiplied(camera:BuildProjectionMatrix(), pvm_cached)
 		return pvm_cached
 	end
 end

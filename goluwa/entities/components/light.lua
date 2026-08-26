@@ -260,7 +260,7 @@ local function build_shadow_cascade_update_mask(self, shadow_map)
 		return mask
 	end
 
-	local camera = render3d.GetCamera()
+	local camera = render3d.GetRenderCamera()
 	local camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
 	local camera_moved = position_changed(
 		camera_position,
@@ -341,7 +341,7 @@ local function render_shadow_map_batch(light, shadow_map, next_index_key)
 		shadow_map:MarkCascadeRendered(
 			cascade_idx,
 			get_shadow_volume_change_version(shadow_map, cascade_idx),
-			render3d.GetCamera() and render3d.GetCamera():GetPosition() or nil
+			render3d.GetRenderCamera() and render3d.GetRenderCamera():GetPosition() or nil
 		)
 	end
 
