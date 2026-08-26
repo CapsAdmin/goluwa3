@@ -504,6 +504,93 @@ function JRPGTheme:DrawPost(pnl)
 	return self.BaseClass.DrawPost(self, pnl)
 end
 
+function JRPGTheme:DrawSelectionFill(size, color, alpha)
+	local resolved = self:ResolveColor(color, color or "primary")
+
+	if resolved.a < 0.5 then
+		return self:DrawPanelFill(size, resolved, alpha, 0)
+	end
+
+	render2d.PushSDFSoftness(0.1)
+	local accent = self:GetColor("primary")
+	render2d.SetTexture(nil)
+	set_color(accent, 0.10)
+	render2d.DrawRect(0, 0, size.x, size.y)
+	render2d.PushTexture(self.SliderFillFadeH)
+	set_color(accent, 0.14)
+	render2d.DrawRect(0, 0, size.x, size.y)
+	render2d.PopTexture()
+	set_color(accent, 0.9)
+	render2d.DrawRect(0, 0, 2, size.y)
+	render2d.PopSDFSoftness()
+end
+
+function JRPGTheme:DrawTreeGuideLines(size, meta, opts)
+	opts = opts or {}
+	local toggle_size = opts.toggle_size or 0
+	local guide_step = opts.guide_step or 0
+	local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
+	local center_y = math.floor(size.y / 2)
+	local line_start_x = opts.line_start_x or center_x
+	local accent = self:GetColor("primary")
+	render2d.SetTexture(nil)
+	set_color(accent, 0.28)
+	local T = 1
+	render2d.PushSDFSoftness(0)
+
+	for level = 1, #(meta.continuations or {}) do
+		if meta.continuations[level] then
+			local x = (level - 1) * guide_step + math.floor(toggle_size / 2)
+			render2d.DrawRectf(x, 0, T, size.y)
+		end
+	end
+
+	if meta.level > 0 then render2d.DrawRectf(center_x, 0, T, center_y + T) end
+
+	if not meta.is_last then
+		render2d.DrawRectf(center_x, center_y, T, size.y - center_y)
+	end
+
+	render2d.DrawRectf(line_start_x, center_y, math.max(T, size.x - line_start_x), T)
+	render2d.PopSDFSoftness()
+	return center_x, center_y
+end
+
+function JRPGTheme:DrawTreeToggle(size, meta, opts)
+	opts = opts or {}
+	local box_size = opts.box_size or 0
+	local toggle_size = opts.toggle_size or box_size
+	local center_x, center_y = self:DrawTreeGuideLines(
+		size,
+		meta,
+		{
+			line_color = opts.line_color,
+			alpha = opts.alpha,
+			toggle_size = toggle_size,
+			guide_step = opts.guide_step or 0,
+			line_start_x = opts.line_start_x,
+		}
+	)
+	local accent = self:GetColor("primary")
+	local border = self:GetColor("border")
+	local dx = center_x + 0.5
+	local dy = center_y + 0.5
+	local r = box_size * 0.85
+
+	if opts.expanded then
+		render2d.PushBlendPreset("additive")
+		set_color(accent, 0.3)
+		self:DrawDiamond(dx, dy, r + 3)
+		render2d.PopBlendMode()
+	end
+
+	render2d.SetTexture(nil)
+	set_color(opts.expanded and accent or border, 1)
+	render2d.PushOutlineWidth(-1)
+	self:DrawDiamond(dx, dy, r)
+	render2d.PopOutlineWidth()
+end
+
 function JRPGTheme:DrawHeader(size, emphasis)
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.PushTexture(self.ModernFrameGradient)
