@@ -115,9 +115,7 @@ commands.Add{
 		end
 
 		if flags.screenshot then
-			local render = import("goluwa/render/render.lua")
-
-			render.Screenshot(function(screenshot_data)
+			Screenshot(function(screenshot_data)
 				local path = screenshot_data:Save(nil, true)
 				logn("screenshot saved to ", path)
 			end)

@@ -18,6 +18,17 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - Take a screenshot: `luajit glw --2d --screenshot --one-frame lua "./tmp/path/to/some/render/script.lua"`
 
+- The `Screenshot(cb, opt)` global captures the screen. `cb(texture)` receives a `TextureDownloaded` with ready pixels (`:Save(path, without_alpha)`, `:ToPNG(without_alpha)`, `:GetPixel(x, y)`). `opt.update_events = n` runs n Update events first — use this for UI so layout resolves before the capture. `opt.midframe = true` captures immediately mid-frame via `render.Capture()` — call it from inside a Draw/Draw2D listener. `opt.camera = {position, rotation, fov}` (3d only) captures from a specific camera — it beats per-frame camera controllers (e.g. the player camera component) and restores the original camera after the capture. Example:
+  ```lua
+  Screenshot(function(texture)
+      print(texture:Save(nil, true)) -- auto path under storage/logs/screenshots/
+  end, {update_events = 3})
+
+  Screenshot(function(texture)
+      texture:Save("tmp/from_here.png")
+  end, {camera = {position = Vec3(0, 5, 0), rotation = QuatDeg3(45, 0, 0)}})
+  ```
+
 - Run a single test file with name pattern: `luajit glw test render2d/render2d.lua --name-pattern="Graphics render2d blend modes visual"`
 
 - Run all test files in a directory: `luajit glw test render2d/`

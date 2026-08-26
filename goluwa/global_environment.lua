@@ -118,6 +118,7 @@ import("goluwa/string/string_format.lua")
 import("goluwa/string/random.lua")
 import("goluwa/math/math.lua")
 import("goluwa/globals.lua")
+import("goluwa/screenshot.lua")
 
 do
 	local logging = import("goluwa/cli/logging.lua")

@@ -82,10 +82,9 @@ local tools = {
 		},
 		callback = function(args)
 			local base64 = import("goluwa/codecs/base64.lua")
-			local render = import("goluwa/render/render.lua")
 			local cb = callback.Create()
 
-			render.Screenshot(function(downloaded_texture)
+			Screenshot(function(downloaded_texture)
 				local png_data = downloaded_texture:ToPNG(true)
 				fs.write_file("last_screenshot.png", png_data)
 				local encoded = base64.Encode(png_data)

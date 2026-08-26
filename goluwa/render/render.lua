@@ -1278,17 +1278,6 @@ function render.CreateOffscreenRenderTarget(config)
 	return ImageRenderTarget.New(vulkan_instance, config)
 end
 
-function render.Screenshot(cb)
-	event.AddListener("PostRenderPass", function()
-		local downloaded_texture = render.target:GetTexture():Download()
-
-		event.AddListener("FrameEnd", nil, function()
-			cb(downloaded_texture)
-			return event.destroy_tag
-		end)
-	end)
-end
-
 function render.Capture()
 	if not render.target then return nil end
 
