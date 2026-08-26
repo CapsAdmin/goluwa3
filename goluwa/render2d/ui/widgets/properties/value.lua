@@ -1,5 +1,4 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
@@ -121,8 +120,8 @@ local function create_value(props)
 		return text
 	end
 	local edit_click_count = props.EditClickCount or 1
-	local drag_threshold = props.DragThreshold or 4
-	local size = props.Size or Vec2(220, 34)
+	local drag_threshold = theme.active:ResolveSize(props.DragThreshold or "XXS")
+	local size = props.Size or Vec2(220, theme.active:GetInputHeight("M"))
 	local min_size = props.MinSize or Vec2(80, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
 	local right_elements = props.RightElements or {}
@@ -131,8 +130,6 @@ local function create_value(props)
 	local has_bottom = #bottom_elements > 0
 	local text_panel
 	local panel
-	local idle_color = Color(0, 0, 0, 0.001)
-	local surface_color = idle_color
 	local state = {
 		hovered = false,
 		editing = false,
@@ -187,15 +184,6 @@ local function create_value(props)
 		if text_panel.mouse_input then
 			text_panel.mouse_input:SetIgnoreMouseInput(not state.editing)
 			text_panel.mouse_input:SetCursor(state.editing and "text_input" or nil)
-		end
-
-		if state.editing then
-			surface_color = theme.active:GetColor(props.EditPanelColor or "surface_alt")
-		elseif state.hovered then
-			surface_color = theme.active:GetColor(props.HoverPanelColor or "surface_alt"):Copy()
-			surface_color.a = surface_color.a * 0.45
-		else
-			surface_color = idle_color
 		end
 	end
 
@@ -333,7 +321,7 @@ local function create_value(props)
 			MinSize = min_size,
 			MaxSize = max_size,
 			Padding = props.Padding or "XS",
-			ChildGap = has_bottom and 4 or 0,
+			ChildGap = has_bottom and theme.active:GetSize("XXS") or 0,
 			props.layout,
 		},
 		visual = {
@@ -341,8 +329,8 @@ local function create_value(props)
 			OnDraw = function(self)
 				self.Owner:SetState("editing", state.editing)
 				self.Owner:SetState("hovered", state.hovered)
-				self.Owner:SetState("surface_visible", surface_color.a > 0)
-				self.Owner:SetState("surface_color", surface_color)
+				self.Owner:SetState("edit_fill", props.EditPanelColor)
+				self.Owner:SetState("hover_fill", props.HoverPanelColor)
 				theme.active:Draw(self.Owner)
 			end,
 			OnPostDraw = function(self)

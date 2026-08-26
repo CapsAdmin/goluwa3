@@ -22,7 +22,7 @@ return function(props)
 	local selected_text = props.Text or "Select..."
 	local search_enabled = props.Searchable == true or props.EnableSearch == true
 	local search_threshold = props.SearchThreshold or 300
-	local search_input_height = props.SearchInputHeight or 34
+	local search_input_height = props.SearchInputHeight or theme.active:GetInputHeight(props.FontSize or "M")
 	local search_gap = props.SearchGap or theme.active:GetPadding("M")
 	local scroll_threshold = props.ScrollThreshold or search_threshold
 	local search_body_height = math.max(80, search_threshold - search_input_height - search_gap)

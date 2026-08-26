@@ -198,8 +198,10 @@ return function(props)
 	end
 
 	local sv_size = props.SVSize or Vec2(220, 220)
-	local slider_size = props.SliderSize or Vec2(24, sv_size.y)
-	local input_size = props.InputSize or Vec2(84, 34)
+	local slider_size = props.SliderSize or Vec2(theme.active:GetSize("L"), sv_size.y)
+	local input_size = props.InputSize or Vec2(84, theme.active:GetInputHeight("M"))
+	local row_gap = theme.active:GetSize("XS")
+	local small_gap = theme.active:GetSize("XXS")
 	local current_color = copy_color(props.Value or Color(1, 0, 0, 1))
 	local hue = 0
 	local saturation = 0
@@ -353,7 +355,7 @@ return function(props)
 		channel_children[#channel_children + 1] = Column{
 			layout = {
 				FitHeight = true,
-				ChildGap = 4,
+				ChildGap = small_gap,
 			},
 		}{
 			Text{
@@ -392,14 +394,14 @@ return function(props)
 			Direction = "y",
 			GrowWidth = 1,
 			FitHeight = true,
-			ChildGap = 10,
+			ChildGap = row_gap,
 			AlignmentX = "stretch",
 			props.layout,
 		},
 	}{
 		Row{
 			layout = {
-				ChildGap = 10,
+				ChildGap = row_gap,
 				FitHeight = true,
 				AlignmentY = "start",
 			},
@@ -407,7 +409,7 @@ return function(props)
 			Column{
 				layout = {
 					FitHeight = true,
-					ChildGap = 4,
+					ChildGap = small_gap,
 				},
 			}{
 				Text{
@@ -433,7 +435,7 @@ return function(props)
 			Column{
 				layout = {
 					FitHeight = true,
-					ChildGap = 4,
+					ChildGap = small_gap,
 				},
 			}{
 				Text{
@@ -458,7 +460,7 @@ return function(props)
 			Column{
 				layout = {
 					FitHeight = true,
-					ChildGap = 4,
+					ChildGap = small_gap,
 				},
 			}{
 				Text{
@@ -483,7 +485,7 @@ return function(props)
 		},
 		Row{
 			layout = {
-				ChildGap = 8,
+				ChildGap = row_gap,
 				FitHeight = true,
 				AlignmentY = "start",
 			},
@@ -491,7 +493,7 @@ return function(props)
 		Column{
 			layout = {
 				FitHeight = true,
-				ChildGap = 4,
+				ChildGap = small_gap,
 			},
 		}{
 			Text{
@@ -510,9 +512,9 @@ return function(props)
 				end,
 				FontName = "body_strong",
 				FontSize = "S",
-				Size = Vec2(sv_size.x + slider_size.x * 2 + 20, 34),
-				MinSize = Vec2(sv_size.x + slider_size.x * 2 + 20, 34),
-				MaxSize = Vec2(sv_size.x + slider_size.x * 2 + 20, 34),
+				Size = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S")),
+				MinSize = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S")),
+				MaxSize = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S")),
 				layout = {
 					FitWidth = false,
 				},

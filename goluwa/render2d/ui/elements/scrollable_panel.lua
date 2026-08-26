@@ -53,7 +53,7 @@ META:GetSet(
 		enums = {"always_shift", "auto_shift", "no_shift"},
 	}
 )
-META:GetSet("ScrollbarReserve", 10)
+META:GetSet("ScrollbarReserve", nil)
 META:GetSet("CaptureWheelAtExtents", true)
 
 META:GetSet("Padding", Rect(), function(self, val)
@@ -72,6 +72,12 @@ function META:OnCreate(props)
 	end
 
 	self.BaseClass.OnCreate(self, props)
+	self.ScrollbarReserve = theme.active:ResolveSize(
+		props.ScrollbarReserve or
+			(
+				theme.active:GetScrollbarWidth() + theme.active:GetScrollbarMargin()
+			)
+	)
 	local scrollable_panel = self
 	self.Viewport = Panel.New{
 		IsInternal = true,
@@ -289,22 +295,24 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 
 	local max_scroll_view = math.max(1, available)
 	local max_scroll = math.max(0, content_dim - max_scroll_view)
+	local sb_width = theme.active:GetScrollbarWidth()
+	local sb_offset = sb_width + theme.active:GetScrollbarMargin()
 
 	if track then
 		track.visual:SetVisible(true)
 
 		if is_y then
-			track.transform:SetSize(Vec2(6, available))
-			track.transform:SetPosition(Vec2(self.transform:GetSize().x - 8, base_padding.y))
+			track.transform:SetSize(Vec2(sb_width, available))
+			track.transform:SetPosition(Vec2(self.transform:GetSize().x - sb_offset, base_padding.y))
 		else
-			track.transform:SetSize(Vec2(available, 6))
-			track.transform:SetPosition(Vec2(base_padding.x, self.transform:GetSize().y - 8))
+			track.transform:SetSize(Vec2(available, sb_width))
+			track.transform:SetPosition(Vec2(base_padding.x, self.transform:GetSize().y - sb_offset))
 		end
 	end
 
 	handle.visual:SetVisible(true)
 	local ratio = math.min(1, max_scroll_view / math.max(content_dim, 1))
-	local handle_len = math.max(20, available * ratio)
+	local handle_len = math.max(theme.active:GetSize("L"), available * ratio)
 	local track_len = available
 	local scroll_track_range = track_len - handle_len
 	local handle_pos = 0
@@ -314,11 +322,11 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	end
 
 	if is_y then
-		handle.transform:SetSize(Vec2(6, handle_len))
-		handle.transform:SetPosition(Vec2(self.transform:GetSize().x - 8, handle_pos + base_padding.y))
+		handle.transform:SetSize(Vec2(sb_width, handle_len))
+		handle.transform:SetPosition(Vec2(self.transform:GetSize().x - sb_offset, handle_pos + base_padding.y))
 	else
-		handle.transform:SetSize(Vec2(handle_len, 6))
-		handle.transform:SetPosition(Vec2(handle_pos + base_padding.x, self.transform:GetSize().y - 8))
+		handle.transform:SetSize(Vec2(handle_len, sb_width))
+		handle.transform:SetPosition(Vec2(handle_pos + base_padding.x, self.transform:GetSize().y - sb_offset))
 	end
 end
 
@@ -465,8 +473,8 @@ do
 			end,
 			transform = {
 				Size = axis == "y" and
-					Vec2(theme.active:GetSize("M"), 40) or
-					Vec2(40, theme.active:GetSize("M")),
+					Vec2(theme.active:GetScrollbarWidth(), 40) or
+					Vec2(40, theme.active:GetScrollbarWidth()),
 			},
 			visual = {
 				Visible = false,
@@ -494,8 +502,8 @@ do
 			end,
 			transform = {
 				Size = is_y and
-					Vec2(theme.active:GetSize("M"), 40) or
-					Vec2(40, theme.active:GetSize("M")),
+					Vec2(theme.active:GetScrollbarWidth(), 40) or
+					Vec2(40, theme.active:GetScrollbarWidth()),
 			},
 			visual = {
 				Visible = false,

@@ -69,18 +69,19 @@ local function update_position()
 	local offset = get_offset(state.options)
 	local world_size = Panel.World.transform:GetSize()
 	local size = state.panel.transform:GetSize()
+	local margin = theme.active:GetSize("XXS")
 	local x = mouse_pos.x + offset.x
 	local y = mouse_pos.y + offset.y
 
-	if x + size.x > world_size.x - 4 then
-		x = math.max(4, world_size.x - size.x - 4)
+	if x + size.x > world_size.x - margin then
+		x = math.max(margin, world_size.x - size.x - margin)
 	end
 
-	if y + size.y > world_size.y - 4 then
-		y = mouse_pos.y - size.y - math.max(8, offset.y * 0.5)
+	if y + size.y > world_size.y - margin then
+		y = mouse_pos.y - size.y - math.max(margin * 2, offset.y * 0.5)
 	end
 
-	if y < 4 then y = 4 end
+	if y < margin then y = margin end
 
 	state.panel.transform:SetPosition(Vec2(x, y))
 	state.panel:BringToFront()

@@ -18,12 +18,11 @@ BaseTheme:GetSet(
 		XXS = 4,
 		XS = 8,
 		S = 12,
-		M = 17,
+		M = 16,
 		L = 24,
-		LG = 24,
 		XL = 32,
 		XXL = 48,
-		default = 14,
+		default = 12,
 	}
 )
 BaseTheme:GetSet("Radii", {
@@ -113,51 +112,34 @@ function BaseTheme:CreatePalette()
 	}
 	local base_map = semantic_palette:GetBaseMap()
 	semantic_palette:SetMap{
-		-- Semantic UI tokens
-		dashed_underline = Color(0.2, 0.2, 0.2, 0.18),
-		property_selection = Color.FromHex("#dbeafe"),
-		text_selection = Color.FromHex("#93c5fd"):SetAlpha(0.5),
-		underline = primary,
-		url_color = primary,
-		actual_black = Color(0, 0, 0, 1),
+		-- Accent / interactive
 		primary = primary,
 		primary_focus = Color.FromHex("#0071e3"),
-		primary_on_dark = Color.FromHex("#2997ff"),
-		-- Background / surface
-		secondary = Color.FromHex("#fafafc"),
 		button_color = primary,
+		button_normal = primary,
+		clickable_disabled = text_muted,
+		property_selection = Color.FromHex("#dbeafe"),
+		text_selection = Color.FromHex("#93c5fd"):SetAlpha(0.5),
+		-- Semantic
 		positive = base_map.green,
 		neutral = base_map.yellow,
 		negative = base_map.red,
 		-- Text
-		heading = text,
-		default = text,
 		text = text,
 		text_on_accent = Color.FromHex("#f0f0f0"),
 		text_on_dark = Color.FromHex("#ffffff"),
-		text_on_dark_muted = Color.FromHex("#cccccc"),
 		text_disabled = text_muted,
-		foreground = text,
-		text_background = surface,
-		main_background = surface_alt,
+		-- Surfaces
 		surface = surface,
 		surface_alt = surface_alt,
-		surface_pearl = Color.FromHex("#fafafc"),
 		surface_tile_1 = Color.FromHex("#272729"),
-		surface_tile_2 = Color.FromHex("#2a2a2c"),
-		surface_tile_3 = Color.FromHex("#252527"),
-		surface_black = Color.FromHex("#000000"),
+		actual_black = Color(0, 0, 0, 1),
 		-- Scrollbars
 		scrollbar_track = Color(0, 0, 0, 0.08),
 		scrollbar = Color(0.165, 0.165, 0.165, 0.35),
 		-- Borders
 		border = Color.FromHex("#e0e0e0"),
-		-- Interactive
 		invisible = Color(0, 0, 0, 0),
-		clickable_disabled = text_muted,
-		button_normal = primary,
-		-- Icon / chip surfaces
-		surface_chip_translucent = Color.FromHex("#d2d2d7"),
 	}
 	semantic_palette.AdjustmentOptions = {target_contrast = 4.5}
 	return semantic_palette
@@ -258,6 +240,24 @@ function BaseTheme:GetPadding(name)
 	return self:GetSize(name)
 end
 
+function BaseTheme:ResolveSize(value)
+	if type(value) == "string" then return self:GetSize(value) end
+
+	return value
+end
+
+function BaseTheme:GetInputHeight(font_size_name)
+	return self:ResolveFontSize(font_size_name or "M") + self:GetPadding("S") * 2
+end
+
+function BaseTheme:GetScrollbarWidth()
+	return self:GetSize("XXS")
+end
+
+function BaseTheme:GetScrollbarMargin()
+	return self:GetSize("XXS")
+end
+
 function BaseTheme:GetRadius(name)
 	local radii = self:GetRadii()
 	return radii[name or "M"]
@@ -329,7 +329,7 @@ end
 function BaseTheme:DrawRoundOutline(x, y, w, h, radius, color, alpha_multiplier, thickness)
 	render2d.SetTexture(nil)
 	self:SetRenderColor(color, alpha_multiplier)
-	render2d.PushOutlineWidth(-(thickness or 1))
+	render2d.PushOutlineWidth(-(thickness or self:GetSize("line")))
 	render2d.PushBorderRadius(radius or 0)
 	render2d.DrawRect(x, y, w, h)
 	render2d.PopBorderRadius()
@@ -364,7 +364,7 @@ function BaseTheme:DrawBox(size, opts)
 			radius,
 			outline_color,
 			opts.outline_alpha,
-			opts.thickness or 1
+			opts.thickness or self:GetSize("line")
 		)
 	end
 end
@@ -379,7 +379,7 @@ function BaseTheme:DrawInsetBox(x, y, w, h, opts)
 		opts.radius or 0,
 		type(opts.outline) == "string" and self:GetColor(opts.outline) or opts.outline,
 		opts.outline_alpha,
-		opts.thickness or 1
+		opts.thickness or self:GetSize("line")
 	)
 end
 
@@ -411,7 +411,7 @@ function BaseTheme:DrawValueField(size, opts)
 				outline = opts.outline_color or "border",
 				outline_alpha = opts.outline_alpha or 1,
 				radius = radius,
-				thickness = opts.thickness or 1,
+				thickness = opts.thickness or self:GetSize("line"),
 			}
 		)
 	end
@@ -425,7 +425,7 @@ function BaseTheme:DrawPropertyRow(size, opts)
 	end
 
 	if opts.hovered then
-		return self:DrawSelectionFill(size, opts.hover_color or self:GetColor("primary"):Copy():SetAlpha(0.06))
+		return self:DrawSelectionFill(size, opts.hover_color or self:GetHoverTint(nil, 0.08))
 	end
 
 	return self:DrawSelectionFill(size, opts.alternate and "surface_alt" or "surface")
@@ -441,7 +441,7 @@ function BaseTheme:DrawPropertyPreview(size, opts)
 			outline = opts.outline or "border",
 			outline_alpha = opts.outline_alpha or 1,
 			radius = opts.radius or 0,
-			thickness = opts.thickness or 1,
+			thickness = opts.thickness or self:GetSize("line"),
 		}
 	)
 end
@@ -452,6 +452,10 @@ end
 
 function BaseTheme:GetAccentTint(alpha)
 	return self:GetColor("primary"):Copy():SetAlpha(alpha)
+end
+
+function BaseTheme:GetHoverTint(color, alpha)
+	return self:ResolveColor(color, "primary"):Copy():SetAlpha(alpha or 0.08)
 end
 
 do -- icons
@@ -485,7 +489,7 @@ do -- icons
 	end
 
 	function BaseTheme:ResolveIconDrawSize(size, requested_size, inset)
-		inset = inset or 2
+		inset = inset or self:GetSize("XXXS")
 		local available = math.max(1, math.min(size.x, size.y) - inset * 2)
 		local base = requested_size or self:GetSize("M")
 		return math.max(1, math.min(base, available))
@@ -513,7 +517,7 @@ do -- icons
 			size,
 			{
 				size = opts.size or self:GetSize("M"),
-				inset = opts.inset or 1,
+				inset = opts.inset or self:GetSize("line"),
 				color = opts.color,
 				rotation_degrees = opts.rotation_degrees,
 			}
@@ -539,7 +543,7 @@ do -- icons
 			size,
 			{
 				size = opts.size or self:GetSize("M"),
-				inset = opts.inset or 1,
+				inset = opts.inset or self:GetSize("line"),
 				thickness = opts.thickness,
 				color = opts.color,
 				rotation_degrees = 90,
@@ -554,7 +558,7 @@ do -- icons
 			size,
 			{
 				size = opts.size or self:GetSize("M"),
-				inset = opts.inset or 1,
+				inset = opts.inset or self:GetSize("line"),
 				color = opts.color,
 			}
 		)
@@ -841,7 +845,7 @@ do
 				radius,
 				self:GetColor(context.outline_token),
 				context.outline_alpha,
-				1
+				self:GetSize("line")
 			)
 		end
 
@@ -870,7 +874,7 @@ do
 				radius,
 				self:GetColor(context.outline_token),
 				context.outline_alpha,
-				1
+				self:GetSize("line")
 			)
 		end
 
@@ -904,13 +908,13 @@ do
 			radius,
 			self:GetColor(context.post_outline_token),
 			anim.glow_alpha * context.post_outline_alpha,
-			1
+			self:GetSize("line")
 		)
 	end
 
 	function BaseTheme:DrawMenuButton(size, state, opts)
 		opts = opts or {}
-		local radius = opts.radius or self:GetRadius(XS)
+		local radius = opts.radius or self:GetRadius("XS")
 		local context = self:ResolveButtonStyleContext(state)
 		local fill = context.menu_fill or self:GetColor("invisible")
 		self:DrawBox(size, {fill = fill, radius = radius})
@@ -939,7 +943,7 @@ function BaseTheme:DrawPanelOutline(size, color, alpha, radius, thickness)
 			outline = color or "border",
 			outline_alpha = alpha or 1,
 			radius = radius or 0,
-			thickness = thickness or 1,
+			thickness = thickness or self:GetSize("line"),
 		}
 	)
 end
@@ -954,7 +958,7 @@ function BaseTheme:DrawPanelFillOutline(size, fill_color, outline_color, opts)
 			outline = outline_color or "border",
 			outline_alpha = opts.outline_alpha,
 			radius = opts.radius or 0,
-			thickness = opts.thickness or 1,
+			thickness = opts.thickness or self:GetSize("line"),
 		}
 	)
 end
@@ -965,6 +969,7 @@ end
 
 function BaseTheme:DrawTreeGuideLines(size, meta, opts)
 	opts = opts or {}
+	local line = self:GetSize("line")
 	local toggle_size = opts.toggle_size or 0
 	local guide_step = opts.guide_step or 0
 	local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
@@ -976,17 +981,17 @@ function BaseTheme:DrawTreeGuideLines(size, meta, opts)
 	for level = 1, #(meta.continuations or {}) do
 		if meta.continuations[level] then
 			local x = (level - 1) * guide_step + math.floor(toggle_size / 2)
-			render2d.DrawRect(x, 0, 1, size.y)
+			render2d.DrawRect(x, 0, line, size.y)
 		end
 	end
 
-	if meta.level > 0 then render2d.DrawRect(center_x, 0, 1, center_y + 1) end
+	if meta.level > 0 then render2d.DrawRect(center_x, 0, line, center_y + 1) end
 
 	if not meta.is_last then
-		render2d.DrawRect(center_x, center_y, 1, size.y - center_y)
+		render2d.DrawRect(center_x, center_y, line, size.y - center_y)
 	end
 
-	render2d.DrawRect(line_start_x, center_y, math.max(1, size.x - line_start_x), 1)
+	render2d.DrawRect(line_start_x, center_y, math.max(1, size.x - line_start_x), line)
 	return center_x, center_y
 end
 
@@ -1017,7 +1022,7 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 			outline = opts.box_outline or "border",
 			outline_alpha = 1,
 			radius = 0,
-			thickness = 1,
+			thickness = self:GetSize("line"),
 		}
 	)
 	self:DrawRoundRect(box_x, box_y, box_size, box_size, 0, self:GetColor(opts.box_fill or "surface"))
@@ -1028,7 +1033,7 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 		Vec2(box_size, box_size),
 		{
 			size = opts.icon_size or self:GetSize("M"),
-			inset = opts.icon_inset or 1,
+			inset = opts.icon_inset or self:GetSize("line"),
 			color = self:GetColor(opts.glyph_color or "text"):Copy():SetAlpha(opts.glyph_alpha or 1),
 		}
 	)
@@ -1036,21 +1041,30 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 	return center_x, center_y
 end
 
+function BaseTheme:DrawSharedInstanceMarker(size, color)
+	self:SetRenderColor(self:ResolveColor(color, "primary"), 1)
+	render2d.SetTexture(nil)
+	local line = self:GetSize("line")
+	local inset = self:GetSize("XXXS")
+	render2d.DrawRect(inset, math.floor(size.y * 0.5) - line, math.max(1, size.x - inset * 2), line * 2)
+	render2d.DrawRect(math.floor(size.x * 0.5) - line, inset, line * 2, math.max(1, size.y - inset * 2))
+end
+
 function BaseTheme:DrawDropIndicator(size, opts)
 	opts = opts or {}
 	local color = self:GetColor(opts.color or "primary")
-	local thickness = opts.thickness or 2
+	local thickness = opts.thickness or self:GetSize("XXXS")
 	local w = math.max(1, size.x)
 	local h = math.max(1, size.y)
 	self:SetRenderColor(color, opts.alpha)
 	render2d.SetTexture(nil)
 
 	if opts.source then
-		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, 1)
+		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, self:GetSize("line"))
 	end
 
 	if opts.position == "inside" then
-		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, 2)
+		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, self:GetSize("XXXS"))
 	elseif opts.position == "before" then
 		render2d.DrawRect(0, 0, w, thickness)
 	elseif opts.position == "after" then
@@ -1070,7 +1084,7 @@ function BaseTheme:DrawPreviewTileFrame(size, opts)
 			fill_alpha = opts.fill_alpha,
 			outline = Color(1, 1, 1, outline_alpha),
 			radius = radius,
-			thickness = opts.thickness or 1,
+			thickness = opts.thickness or self:GetSize("line"),
 		}
 	)
 
@@ -1084,7 +1098,7 @@ function BaseTheme:DrawPreviewTileFrame(size, opts)
 				radius = math.max(0, radius - inset),
 				outline = Color(1, 1, 1, opts.inset_outline_alpha or 0.4),
 				outline_alpha = 1,
-				thickness = opts.thickness or 1,
+				thickness = opts.thickness or self:GetSize("line"),
 			}
 		)
 	end
@@ -1123,8 +1137,9 @@ function BaseTheme:DrawSlider(size, state)
 	if state.mode == "2d" then
 		local normalized_x = (value.x - min_value.x) / (max_value.x - min_value.x)
 		local normalized_y = (value.y - min_value.y) / (max_value.y - min_value.y)
-		self:DrawRoundRect(0, 0, size.x, size.y, 6, self:GetColor("surface"))
-		self:DrawRoundOutline(0, 0, size.x, size.y, 6, border, 1, 1)
+		local radius = self:GetRadius("L")
+		self:DrawRoundRect(0, 0, size.x, size.y, radius, self:GetColor("surface"))
+		self:DrawRoundOutline(0, 0, size.x, size.y, radius, border, 1, self:GetSize("line"))
 		knob_x = normalized_x * (size.x - knob_w)
 		knob_y = normalized_y * (size.y - knob_h)
 	elseif state.mode == "vertical" then
@@ -1181,7 +1196,7 @@ function BaseTheme:DrawSlider(size, state)
 		math.floor(scaled_h / 2),
 		border,
 		1,
-		1
+		self:GetSize("line")
 	)
 
 	if state.hovered then
@@ -1193,7 +1208,7 @@ function BaseTheme:DrawSlider(size, state)
 			math.floor(scaled_h / 2),
 			accent,
 			anim.glow_alpha * 0.45,
-			1
+			self:GetSize("line")
 		)
 	end
 end
@@ -1211,9 +1226,18 @@ function BaseTheme:DrawCheckable(size, state, opts)
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
-	local radius = opts.radius or self:GetRadius(XS)
+	local radius = opts.radius or self:GetRadius("XS")
 	self:DrawRoundRect(x, y, box_size, box_size, radius, self:GetColor("surface"))
-	self:DrawRoundOutline(x, y, box_size, box_size, radius, self:GetColor("border"), 1, 1)
+	self:DrawRoundOutline(
+		x,
+		y,
+		box_size,
+		box_size,
+		radius,
+		self:GetColor("border"),
+		1,
+		self:GetSize("line")
+	)
 
 	if anim.check_anim > 0.01 then
 		opts.inner_draw(self, x, y, box_size, radius, anim.check_anim)
@@ -1222,13 +1246,13 @@ end
 
 do
 	local function draw_checkbox_inner(theme, x, y, box_size, radius, anim_val)
-		local inset = 3 + (1 - anim_val) * 3
+		local inset = theme:GetSize("XXS") + (1 - anim_val) * theme:GetSize("XXXS")
 		theme:DrawRoundRect(
 			x + inset,
 			y + inset,
 			box_size - inset * 2,
 			box_size - inset * 2,
-			2,
+			theme:GetRadius("XS"),
 			theme:GetColor("primary"),
 			anim_val
 		)
@@ -1239,7 +1263,7 @@ do
 			size,
 			state,
 			{
-				radius = self:GetRadius(XS),
+				radius = self:GetRadius("XS"),
 				inner_draw = draw_checkbox_inner,
 			}
 		)
@@ -1276,16 +1300,17 @@ function BaseTheme:DrawFramePost(size)
 			outline = "border",
 			outline_alpha = 1,
 			radius = self:GetRadius("M"),
-			thickness = 1,
+			thickness = self:GetSize("line"),
 		}
 	)
 end
 
 function BaseTheme:DrawHeader(size)
 	self:DrawBox(size, {fill = "surface_alt", fill_alpha = 1, radius = self:GetRadius("none")})
+	local line = self:GetSize("line")
 	self:SetRenderColor(self:GetColor("border"), 1)
 	render2d.SetTexture(nil)
-	render2d.DrawRect(0, math.max(0, size.y - 1), size.x, 1)
+	render2d.DrawRect(0, math.max(0, size.y - line), size.x, line)
 end
 
 function BaseTheme:DrawProgressBar(size, state, color)
@@ -1299,7 +1324,7 @@ function BaseTheme:DrawProgressBar(size, state, color)
 			outline = "border",
 			outline_alpha = 1,
 			radius = radius,
-			thickness = 1,
+			thickness = self:GetSize("line"),
 		}
 	)
 	self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
@@ -1319,10 +1344,10 @@ function BaseTheme:DrawMenuContainer(size)
 		{
 			fill = "surface",
 			fill_alpha = 1,
-			radius = self:GetRadius(XS),
+			radius = self:GetRadius("XS"),
 			outline = "border",
 			outline_alpha = 1,
-			thickness = 1,
+			thickness = self:GetSize("line"),
 		}
 	)
 end
@@ -1333,12 +1358,13 @@ function BaseTheme:DrawLine(color_token, alpha, size, orientation)
 
 	self:SetRenderColor(self:GetColor(color_token), alpha)
 	render2d.SetTexture(nil)
+	local line = self:GetSize("line")
 	local horiz = orientation == "auto" and size.x > size.y or orientation == "horizontal"
 
 	if horiz then
-		render2d.DrawRect(0, math.floor(size.y / 2), size.x, 1)
+		render2d.DrawRect(0, math.floor(size.y / 2), size.x, line)
 	else
-		render2d.DrawRect(math.floor(size.x / 2), 0, 1, size.y)
+		render2d.DrawRect(math.floor(size.x / 2), 0, line, size.y)
 	end
 end
 
@@ -1350,7 +1376,6 @@ function BaseTheme:Draw(pnl)
 			"editing" or
 			(
 				pnl:GetState("hovered") and
-				pnl:GetState("surface_visible") and
 				"hovered" or
 				nil
 			)
@@ -1358,7 +1383,8 @@ function BaseTheme:Draw(pnl)
 			pnl.transform:GetTotalSize(),
 			{
 				state = state_name,
-				fill = state_name and pnl:GetState("surface_color") or nil,
+				hover_fill = pnl:GetState("hover_fill"),
+				edit_fill = pnl:GetState("edit_fill"),
 				radius = self:GetRadius("L"),
 			}
 		)
@@ -1371,7 +1397,7 @@ function BaseTheme:Draw(pnl)
 				outline = pnl:GetState("preview_outline"),
 				outline_alpha = pnl:GetState("preview_outline_alpha"),
 				radius = pnl:GetState("preview_radius") or 0,
-				thickness = pnl:GetState("preview_thickness") or 1,
+				thickness = pnl:GetState("preview_thickness") or self:GetSize("line"),
 			}
 		)
 	elseif role == "tree_toggle" then
@@ -1384,7 +1410,7 @@ function BaseTheme:Draw(pnl)
 		if pnl:GetState("selected") then
 			return self:DrawSelectionFill(size, pnl:GetState("selected_color") or "primary")
 		elseif pnl:GetState("hovered") then
-			return self:DrawSelectionFill(size, pnl:GetState("hover_color"))
+			return self:DrawSelectionFill(size, pnl:GetState("hover_color") or self:GetHoverTint())
 		end
 
 		return
@@ -1492,7 +1518,9 @@ local ROLE_EMPHASIS = {
 
 function BaseTheme:GetEmphasis(pnl)
 	local override = pnl:GetState("emphasis")
+
 	if override ~= nil then return override end
+
 	return ROLE_EMPHASIS[pnl.Name] or 0
 end
 

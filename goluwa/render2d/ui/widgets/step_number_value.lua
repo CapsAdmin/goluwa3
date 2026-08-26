@@ -3,6 +3,7 @@ local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Value = import("goluwa/render2d/ui/widgets/properties/value.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local input = import("goluwa/input.lua")
 local input_lib = input
 
@@ -48,13 +49,14 @@ return function(props)
 		props.Ref = nil
 	end
 
-	local size = props.Size or Vec2(92, 34)
+	local size = props.Size or Vec2(92, theme.active:GetInputHeight("M"))
 	local min_size = props.MinSize or Vec2(92, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
-	local button_gap = props.ButtonGap or 1
-	local button_width = props.ButtonWidth or math.max(16, math.floor(size.y * 0.42))
-	local button_height = math.max(8, math.floor((size.y - button_gap) / 2))
-	local field_width = math.max(24, size.x - button_width - 4)
+	local button_gap = props.ButtonGap or theme.active:GetSize("line")
+	local button_width = props.ButtonWidth or
+		math.max(theme.active:GetSize("M"), math.floor(size.y * 0.42))
+	local button_height = math.max(theme.active:GetSize("XS"), math.floor((size.y - button_gap) / 2))
+	local field_width = math.max(theme.active:GetSize("L"), size.x - button_width - theme.active:GetSize("XXS"))
 	local min = props.Min ~= nil and props.Min or -math.huge
 	local max = props.Max ~= nil and props.Max or math.huge
 	local precision = props.Precision
@@ -103,7 +105,7 @@ return function(props)
 			FitWidth = false,
 			MinSize = min_size,
 			MaxSize = max_size,
-			ChildGap = 4,
+			ChildGap = theme.active:GetSize("XXS"),
 			AlignmentY = "center",
 			props.layout,
 		},

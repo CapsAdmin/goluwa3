@@ -1,5 +1,4 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local timer = import("goluwa/timer.lua")
@@ -11,9 +10,9 @@ return function(props)
 		props.Ref = nil
 	end
 
-	local divider_width = props.DividerWidth or 6
+	local divider_width = props.DividerWidth or theme.active:GetSize("XS")
 	local initial_size = props.InitialSize or props.InitialWidth or props.InitialHeight or 220
-	local min_split_size = props.MinSplitSize or 50
+	local min_split_size = props.MinSplitSize or theme.active:GetSize("XXL")
 	local is_vertical = props.Vertical or false
 	props.InitialWidth = nil
 	props.InitialHeight = nil

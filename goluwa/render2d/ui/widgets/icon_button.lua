@@ -1,8 +1,9 @@
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local SVG = import("goluwa/render2d/ui/elements/svg.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 return function(props)
-	local icon_size = props.IconSize or 20
+	local icon_size = props.IconSize or theme.active:GetSize("M")
 	local children = {}
 
 	if props.SVG then

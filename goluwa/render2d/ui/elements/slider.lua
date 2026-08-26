@@ -13,7 +13,7 @@ return function(props)
 	local function SetValueFromPosition(ent, local_pos)
 		local state = ent:GetState()
 		local size = ent.transform:GetSize()
-		local knob_size = theme.active:GetSize("S")
+		local knob_size = theme.active:GetSize("M")
 
 		if state.mode == "2d" then
 			local usable_width = size.x - knob_size

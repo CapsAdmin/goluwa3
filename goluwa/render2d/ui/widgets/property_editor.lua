@@ -230,7 +230,7 @@ return function(props)
 	local compact_padding = props.Padding or props.RowPadding or "XS"
 	local compact_gap = props.Gap or "none"
 	local shared_key_width = props.KeyWidth or 180
-	local divider_width = props.DividerWidth or 6
+	local divider_width = props.DividerWidth or theme.active:GetSize("XS")
 	local divider_draw_alpha = props.DividerDrawAlpha or 1
 	local property_change_start = props.OnPropertyChangeStart
 	local property_change_end = props.OnPropertyChangeEnd

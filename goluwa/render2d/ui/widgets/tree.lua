@@ -1,6 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
@@ -20,13 +19,13 @@ META:StartStorable()
 META:GetSet("IndentSize", nil)
 META:GetSet("ToggleSize", 16)
 META:GetSet("GuideStep", nil)
-META:GetSet("BoxSize", 10)
+META:GetSet("BoxSize", 12)
 META:GetSet("CustomPanelPosition", "before_label")
 META:GetSet("LabelGrow", nil)
 META:GetSet("ToggleOnRowClick", false)
 META:GetSet("DoubleClickTime", 0.3)
 META:GetSet("AnimationTime", 0.18)
-META:GetSet("DragThreshold", 6)
+META:GetSet("DragThreshold", 4)
 META:GetSet("SharedInstanceColor", nil)
 META:GetSet("LineColor", "border")
 META:GetSet("BoxFillColor", "surface")
@@ -36,7 +35,7 @@ META:GetSet("SelectedColor", "primary")
 META:GetSet("HoverColor", "primary")
 META:GetSet("RowFont", "body")
 META:GetSet("LabelPadding", "XS")
-META:GetSet("RowGap", 3)
+META:GetSet("RowGap", 4)
 META:GetSet("DropIndicatorColor", "primary")
 META:GetSet("RefreshDebounce", 0)
 META:EndStorable()
@@ -47,18 +46,17 @@ local function build_path(parent_path, index)
 	return tostring(index)
 end
 
-local function draw_shared_instance_marker(self, size, color)
-	render2d.SetTexture(nil)
-	render2d.SetColor(color:Unpack())
-	render2d.DrawRect(2, math.floor(size.y * 0.5) - 1, math.max(1, size.x - 4), 2)
-	render2d.DrawRect(math.floor(size.x * 0.5) - 1, 2, 2, math.max(1, size.y - 4))
-end
-
 function META:OnCreate(props)
 	if props.layout then
 		props.layout = table.merge(META.CMP.layout, props.layout)
 	end
 
+	props.ToggleSize = theme.active:ResolveSize(props.ToggleSize or "M")
+	props.BoxSize = theme.active:ResolveSize(props.BoxSize or "S")
+	props.RowGap = theme.active:ResolveSize(props.RowGap or "XXS")
+	props.DragThreshold = theme.active:ResolveSize(props.DragThreshold or "XXS")
+	props.IndentSize = theme.active:ResolveSize(props.IndentSize)
+	props.GuideStep = theme.active:ResolveSize(props.GuideStep)
 	-- State (before BaseClass.OnCreate which may fire events that call back into us)
 	self._items = props.Items or {}
 	self._selected_key = props.SelectedKey
@@ -1158,7 +1156,10 @@ do
 				row_info.toggle = self
 			end,
 			transform = {
-				Size = Vec2(math.max(toggle_size, meta.level * guide_step + toggle_size + 6), toggle_size),
+				Size = Vec2(
+					math.max(toggle_size, meta.level * guide_step + toggle_size + theme.active:GetSize("XXS")),
+					toggle_size
+				),
 			},
 			visual = {
 				OnDraw = function(self)
@@ -1213,7 +1214,7 @@ do
 					self.Owner:SetState("selected", tree:is_selected(node, path, key))
 					self.Owner:SetState("selected_color", tree.SelectedColor)
 					self.Owner:SetState("hovered", row_info.hovered)
-					self.Owner:SetState("hover_color", theme.active:GetColor(tree.HoverColor):Copy():SetAlpha(0.08))
+					self.Owner:SetState("hover_color", theme.active:GetHoverTint(tree.HoverColor))
 					theme.active:Draw(self.Owner)
 				end,
 			},
@@ -1253,7 +1254,10 @@ do
 			IsInternal = true,
 			Name = "TreeTogglePlaceholder",
 			transform = {
-				Size = Vec2(math.max(toggle_size, meta.level * guide_step + toggle_size + 6), toggle_size),
+				Size = Vec2(
+					math.max(toggle_size, meta.level * guide_step + toggle_size + theme.active:GetSize("XXS")),
+					toggle_size
+				),
 			},
 			visual = {
 				OnDraw = function(self)
@@ -1287,7 +1291,7 @@ function META:get_node_panel(node, path, key, selected, has_children, expanded)
 			IsInternal = true,
 			Name = "TreeSharedInstanceMarker",
 			transform = {
-				Size = Vec2(12, 12),
+				Size = Vec2() + theme.active:GetSize("S"),
 			},
 			layout = {
 				SelfAlignmentY = "center",
@@ -1300,7 +1304,7 @@ function META:get_node_panel(node, path, key, selected, has_children, expanded)
 			visual = {
 				OnDraw = function(self)
 					local size = self.Owner.transform:GetSize()
-					draw_shared_instance_marker(self, size, shared_instance_color)
+					theme.active:DrawSharedInstanceMarker(size, shared_instance_color)
 				end,
 			},
 		}

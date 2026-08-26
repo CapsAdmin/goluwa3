@@ -120,7 +120,7 @@ return function(props)
 	local draw_background = nil
 
 	if show_slider then
-		local slider_height = 2
+		local slider_height = theme.active:GetSize("XXXS")
 		draw_background = function(panel, current_value)
 			local total_size = panel.transform:GetTotalSize()
 			local y = total_size.y - slider_height

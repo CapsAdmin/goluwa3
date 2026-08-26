@@ -32,7 +32,7 @@ function META:OnCreate(props)
 	local editable = props.Editable ~= false
 	local scroll_x = props.ScrollX ~= nil and props.ScrollX or not wrap
 	local scroll_y = props.ScrollY == true
-	local size = props.Size or Vec2(400, 34)
+	local size = props.Size or Vec2(400, theme.active:GetInputHeight("M"))
 	local min_size = props.MinSize or Vec2(100, size.y)
 	local max_size = props.MaxSize or Vec2(0, size.y)
 	self.auto_scroll_to_caret = nil_fallback(props.AutoScrollToCaret, true)
@@ -71,7 +71,7 @@ function META:OnCreate(props)
 				ScrollBarAutoHide = props.ScrollBarAutoHide,
 				ScrollBarColor = props.ScrollBarColor or "scrollbar",
 				ScrollBarTrackColor = props.ScrollBarTrackColor or "scrollbar_track",
-				Padding = props.Padding or Rect() + 12,
+				Padding = props.Padding or Rect() + theme.active:GetPadding("S"),
 				layout = {
 					GrowWidth = 1,
 					GrowHeight = 1,
@@ -196,7 +196,7 @@ function META:scroll_caret_into_view()
 	local caret_x = lx + cw
 	local caret_y_top = ly + (line - 1) * vertical_step
 	local caret_y_bottom = (ly + (line + 1) * vertical_step)
-	self.scroll_panel:ScrollRectIntoView(caret_x, caret_y_top, caret_x, caret_y_bottom, 4)
+	self.scroll_panel:ScrollRectIntoView(caret_x, caret_y_top, caret_x, caret_y_bottom, theme.active:GetSize("XXS"))
 end
 
 function META:RequestTextFocus()

@@ -73,9 +73,9 @@ return function(props)
 	if props.IconSource then
 		children[#children + 1] = SVG{
 			Source = props.IconSource,
-			Size = Vec2(16, 16),
-			MinSize = Vec2(16, 16),
-			MaxSize = Vec2(16, 16),
+			Size = Vec2() + theme.active:GetSize("M"),
+			MinSize = Vec2() + theme.active:GetSize("M"),
+			MaxSize = Vec2() + theme.active:GetSize("M"),
 			Color = props.Disabled and "text_disabled" or "text",
 			IgnoreMouseInput = true,
 			layout = {
@@ -105,7 +105,7 @@ return function(props)
 		children[#children + 1] = Panel.New{
 			IsInternal = true,
 			transform = {
-				Size = Vec2(16, 16),
+				Size = Vec2() + theme.active:GetSize("M"),
 			},
 			layout = {
 				GrowWidth = 0,
@@ -117,7 +117,7 @@ return function(props)
 						"disclosure",
 						self.Owner.transform:GetSize(),
 						{
-							thickness = 2,
+							thickness = theme.active:GetSize("XXXS"),
 							color = theme.active:GetColor(props.Disabled and "text_disabled" or "text"),
 						}
 					)

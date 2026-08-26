@@ -32,12 +32,6 @@ local function values_equal(a, b, components)
 	return true
 end
 
-local function resolve_size(value)
-	if type(value) == "string" then return theme.active:GetSize(value) end
-
-	return value
-end
-
 local function format_number(value, precision)
 	local numeric = tonumber(value)
 
@@ -58,7 +52,7 @@ return function(props)
 	local components = props.vector_info.components
 	local component_count = #components
 	local show_swatch = props.kind == "color"
-	local component_gap = resolve_size(props.gap) or 8
+	local component_gap = theme.active:ResolveSize(props.gap) or theme.active:GetSize("XS")
 	local size = Vec2(props.value_width, props.row_height)
 	local field_height = props.row_height
 	local swatch_size = node.SwatchSize or field_height
@@ -226,7 +220,7 @@ return function(props)
 				if self.visual then
 					self.visual.OnDraw = function(gui)
 						gui.Owner:SetState("preview_fill", self.surface_color)
-						gui.Owner:SetState("preview_radius", theme.active:GetRadius("md"))
+						gui.Owner:SetState("preview_radius", theme.active:GetRadius("M"))
 						theme.active:Draw(gui.Owner)
 					end
 					self.visual.OnPostDraw = function(gui) end

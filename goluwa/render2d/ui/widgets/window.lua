@@ -130,8 +130,6 @@ return function(props)
 								"close",
 								self.Owner.transform:GetSize(),
 								{
-									size = 10,
-									thickness = 2,
 									color = theme.active:GetColor("text"),
 								}
 							)

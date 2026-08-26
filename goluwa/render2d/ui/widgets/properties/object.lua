@@ -16,7 +16,8 @@ return function(props)
 	local label
 	local control
 	local action_button_size = node.ActionButtonSize or props.row_height
-	local action_padding = node.ActionPreviewPadding or 4
+	local action_padding = node.ActionPreviewPadding or theme.active:GetSize("XXS")
+	local gap = theme.active:ResolveSize(props.gap) or 0
 
 	local function get_display_text(value)
 		if node.GetDisplayText then return node.GetDisplayText(value) end
@@ -70,13 +71,13 @@ return function(props)
 		Panel.New{
 			Name = "PropertyObjectValue",
 			transform = {
-				Size = Vec2(props.value_width - action_button_size - 4, props.row_height),
+				Size = Vec2(props.value_width - action_button_size - gap, props.row_height),
 			},
 			layout = {
 				FitWidth = false,
 				GrowWidth = 1,
-				MinSize = Vec2(props.value_width - action_button_size - 4, props.row_height),
-				MaxSize = Vec2(props.value_width - action_button_size - 4, props.row_height),
+				MinSize = Vec2(props.value_width - action_button_size - gap, props.row_height),
+				MaxSize = Vec2(props.value_width - action_button_size - gap, props.row_height),
 				Padding = props.padding,
 				AlignmentY = "center",
 			},
