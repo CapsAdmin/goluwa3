@@ -13,12 +13,20 @@ function render2d.CreateGradient(config)
 		stop.pos = stop.pos or i - 1
 	end
 
+	local dither_amount = config.dither
+
+	if dither_amount == nil then dither_amount = 0.5 end
+
+	local dithered = dither_amount ~= false
 	local tex = Texture.New{
 		width = width,
 		height = height,
 		name = string.format("render2d %s gradient %dx%d", mode, width, height),
-		format = "r8g8b8a8_unorm",
-		mip_map_levels = 1,
+		-- Stops are authored display values; the render2d pipeline linearizes
+		-- the color*texture product and the sRGB framebuffer re-encodes it,
+		-- so stored values round-trip to the screen exactly.
+		srgb = config.srgb,
+		mip_map_levels = config.mip_map_levels or 1,
 		sampler = {
 			min_filter = "linear",
 			mag_filter = "linear",
@@ -35,10 +43,12 @@ function render2d.CreateGradient(config)
 		glsl = [[
 				vec2 dir = vec2(]] .. s .. [[, ]] .. -c .. [[);
 				float t = dot(uv - 0.5, dir) + 0.5;
+				t = clamp(t, 0.0, 1.0);
 			]]
 	elseif mode == "radial" then
 		glsl = [[
 				float t = distance(uv, vec2(0.5)) * 2.0;
+				t = clamp(t, 0.0, 1.0);
 			]]
 	end
 
@@ -48,16 +58,18 @@ function render2d.CreateGradient(config)
 		return a.pos < b.pos
 	end)
 
-	local ramp = ""
+	local ramp = "vec4 res = vec4(0.0);\n"
 
 	if #stops == 0 then
-		ramp = "return vec4(1.0);"
+		ramp = ramp .. "res = vec4(1.0);\n"
 	elseif #stops == 1 then
 		local c = stops[1].color
-		ramp = "return vec4(" .. c.r .. "," .. c.g .. "," .. c.b .. "," .. c.a .. ");"
+		ramp = ramp .. "res = vec4(" .. c.r .. "," .. c.g .. "," .. c.b .. "," .. c.a .. ");\n"
+	elseif #stops == 2 then
+		local s1, s2 = stops[1], stops[2]
+		local mix_code = "res = mix(vec4(" .. s1.color.r .. "," .. s1.color.g .. "," .. s1.color.b .. "," .. s1.color.a .. "), vec4(" .. s2.color.r .. "," .. s2.color.g .. "," .. s2.color.b .. "," .. s2.color.a .. "), clamp((t - " .. s1.pos .. ") / (" .. s2.pos .. " - " .. s1.pos .. "), 0.0, 1.0));\n"
+		ramp = ramp .. mix_code
 	else
-		ramp = "vec4 res = vec4(0.0);\n"
-
 		for i = 1, #stops - 1 do
 			local s1 = stops[i]
 			local s2 = stops[i + 1]
@@ -70,7 +82,41 @@ function render2d.CreateGradient(config)
 			ramp = ramp .. "  res = mix(vec4(" .. s1.color.r .. "," .. s1.color.g .. "," .. s1.color.b .. "," .. s1.color.a .. "), vec4(" .. s2.color.r .. "," .. s2.color.g .. "," .. s2.color.b .. "," .. s2.color.a .. "), fac);\n"
 			ramp = ramp .. "}\n"
 		end
+	end
 
+	-- Only ramping gradients need dithering: the framebuffer is 8-bit, so a
+	-- display range spanning fewer than 256 levels bands at hard edges. Baking
+	-- per-texel noise (in stored sRGB space, which is the output space) turns
+	-- band edges into invisible fine noise. Flat gradients stay exact.
+	local flat = true
+
+	if #stops > 1 then
+		local first = stops[1].color
+
+		for i = 2, #stops do
+			local c = stops[i].color
+
+			if c.r ~= first.r or c.g ~= first.g or c.b ~= first.b or c.a ~= first.a then
+				flat = false
+
+				break
+			end
+		end
+	end
+
+	if dithered and not flat then
+		ramp = ramp .. string.format(
+				[[
+				{
+					float dth = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+					res.rgb += (dth - 0.5) * (%.9f / 255.0);
+					res.rgb = clamp(res.rgb, vec3(0.0), vec3(1.0));
+				}
+				return res;
+			]],
+				dither_amount
+			)
+	else
 		ramp = ramp .. "return res;"
 	end
 

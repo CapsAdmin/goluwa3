@@ -3,7 +3,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local Texture = import("goluwa/render/texture.lua")
 local system = import("goluwa/system.lua")
 local objects = import("goluwa/objects/objects.lua")
 local BaseTheme = import("./base.lua")
@@ -19,17 +18,10 @@ local amber = Color.FromHex("#e8c15a")
 local vermillion = Color.FromHex("#e04a33")
 local warm_white = Color.FromHex("#eef4ff")
 local border_steel = Color.FromHex("#2e5876")
-
-local function to_linear_channel(c)
-	if c <= 0.04045 then return c / 12.92 end
-
-	return ((c + 0.055) / 1.055) ^ 2.4
-end
-
 local WHITE = Color(1, 1, 1)
 
 local function set_color(c, a)
-	render2d.SetColor(to_linear_channel(c.r), to_linear_channel(c.g), to_linear_channel(c.b), a)
+	render2d.SetColor(c.r, c.g, c.b, a)
 end
 
 function JRPGTheme:CreatePalette()
@@ -166,59 +158,36 @@ function JRPGTheme:Initialize(theme_context)
 	)
 
 	do
-		local function make_gradient(top_hex, bottom_hex, diagonal)
-			local top = Color.FromHex(top_hex)
-			local bottom = Color.FromHex(bottom_hex)
-			local lin = function(c)
-				return to_linear_channel(c)
-			end
-			top.r, top.g, top.b = lin(top.r), lin(top.g), lin(top.b)
-			bottom.r, bottom.g, bottom.b = lin(bottom.r), lin(bottom.g), lin(bottom.b)
-			local tex = Texture.New{
-				width = 16,
-				height = 16,
-				format = "r8g8b8a8_unorm",
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-					wrap_s = "clamp_to_edge",
-					wrap_t = "clamp_to_edge",
-				},
-			}
-			local diagonal_term = diagonal and " + uv.x * 0.25" or ""
-			tex:Shade(
-				[[
-				return vec4(mix(vec3(]] .. bottom.r .. ", " .. bottom.g .. ", " .. bottom.b .. "), vec3(" .. top.r .. ", " .. top.g .. ", " .. top.b .. "), uv.y" .. diagonal_term .. [[), 1.0);
-			]]
-			)
-			return tex
-		end
-
-		self.ModernFrameGradient = make_gradient("#182a4e", "#0a1122", true)
-		self.GradientClassicTexture = make_gradient("#1a1440", "#05030f", false)
-
-		local function make_fade(vertical)
-			local tex = Texture.New{
-				width = vertical and 1 or 16,
-				height = vertical and 16 or 1,
-				format = "r8g8b8a8_unorm",
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-					wrap_s = "clamp_to_edge",
-					wrap_t = "clamp_to_edge",
-				},
-			}
-			tex:Shade(
-				vertical and
-					"return vec4(1.0, 1.0, 1.0, uv.y);" or
-					"return vec4(1.0, 1.0, 1.0, 1.0 - uv.x);"
-			)
-			return tex
-		end
-
-		self.SliderFillFadeH = make_fade(false)
-		self.SliderFillFadeV = make_fade(true)
+		self.ModernFrameGradient = render2d.CreateGradient{
+			mode = "linear",
+			angle = 166,
+			width = 512,
+			height = 256,
+			stops = {
+				{pos = 0.0, color = Color.FromHex("#0a1122")},
+				{pos = 1.0, color = Color.FromHex("#182a4e")},
+			},
+		}
+		self.SliderFillFadeH = render2d.CreateGradient{
+			mode = "linear",
+			angle = 90,
+			width = 256,
+			height = 1,
+			stops = {
+				{pos = 0.0, color = Color(1, 1, 1, 1)},
+				{pos = 1.0, color = Color(1, 1, 1, 0)},
+			},
+		}
+		self.SliderFillFadeV = render2d.CreateGradient{
+			mode = "linear",
+			angle = 0,
+			width = 1,
+			height = 256,
+			stops = {
+				{pos = 0.0, color = Color(1, 1, 1, 1)},
+				{pos = 1.0, color = Color(1, 1, 1, 0)},
+			},
+		}
 	end
 
 	self.MetalFrameTexture = assets.GetTexture(

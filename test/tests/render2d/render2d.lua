@@ -386,12 +386,13 @@ T.Test2D("Graphics render2d alpha multiplier rendering", function()
 	render2d.SetAlphaMultiplier(1)
 	T(render2d.GetAlphaMultiplier())["=="](1.0)
 	return function()
-		-- With alpha blending, white at 0.5 alpha over black background = gray
-		-- Result: RGB = 1 * 0.5 + 0 * 0.5 = 0.5 (127/255)
+		-- Blending happens in linear space: linear white (1.0) at 0.5 alpha
+		-- over black = 0.5 linear, which the sRGB framebuffer encodes to
+		-- 1.055 * 0.5^(1/2.4) - 0.055 ~= 0.736 (188/255)
 		T.AssertScreenPixel{
 			pos = {20, 20},
-			color = {0.5, 0.5, 0.5, 0.5},
-			tolerance = 0.1,
+			color = {0.736, 0.736, 0.736, 0.5},
+			tolerance = 0.02,
 		}
 	end
 end)

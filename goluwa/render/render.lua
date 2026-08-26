@@ -244,7 +244,9 @@ function render.Initialize(config)
 			offscreen = true,
 			width = width,
 			height = height,
-			format = "r8g8b8a8_unorm",
+			-- sRGB like the windowed swapchain, so linear pipeline output is
+			-- encoded identically in both modes.
+			format = "r8g8b8a8_srgb",
 			usage = {"color_attachment", "transfer_src"},
 			samples = "1",
 			final_layout = "transfer_src_optimal",

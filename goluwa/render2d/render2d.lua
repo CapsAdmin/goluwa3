@@ -1240,13 +1240,26 @@ function render2d.Initialize()
 					return tex;
 				}
 
+				vec3 srgb_to_linear(vec3 c) {
+					vec3 low = c / 12.92;
+					vec3 high = pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
+					return mix(low, high, step(vec3(0.0031308), c));
+				}
+
 				vec4 sample_fragment_color(vec2 uv) {
+					// Vertex/global colors and texture values are both authored in
+					// sRGB display space. Linearizing the final product (and letting
+					// the sRGB framebuffer re-encode at write time) keeps the final
+					// image equal to the plain authored product while blending
+					// against the framebuffer still happens in linear space.
 					vec4 color = in_color * draw.global_color;
 
 					if (draw.texture_index >= 0) {
 						vec4 tex = texture(TEXTURE(draw.texture_index), uv);
 						color *= apply_swizzle(tex);
 					}
+
+					color.rgb = srgb_to_linear(color.rgb);
 
 					return color;
 				}
@@ -1280,7 +1293,8 @@ function render2d.Initialize()
 						float dy = get_sdf_distance(sdf_uv + vec2(0.0, eps)) - get_sdf_distance(sdf_uv - vec2(0.0, eps));
 						vec3 normal = normalize(vec3(normalize(vec2(dx, dy)) * tilt_t, 1.0));
 
-						vec3 lit_color = draw.ambient_color;
+						vec3 light_color = srgb_to_linear(draw.light_color);
+						vec3 lit_color = srgb_to_linear(draw.ambient_color);
 
 						vec3 light_dir = normalize(vec3(
 							-cos(shape.light_angle),
@@ -1289,12 +1303,12 @@ function render2d.Initialize()
 						));
 
 						float diff = max(dot(normal, light_dir), 0.0);
-						lit_color *= draw.light_color * diff;
+						lit_color *= light_color * diff;
 
 						vec3 view_dir = vec3(0.0, 0.0, 1.0);
 						vec3 reflect_dir = reflect(-light_dir, normal);
 						float spec = pow(max(dot(view_dir, reflect_dir), 0.0), shape.light_shininess);
-						lit_color += draw.light_color * spec;
+						lit_color += light_color * spec;
 
 						out_color.rgb *= lit_color;
 					}

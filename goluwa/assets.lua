@@ -764,9 +764,26 @@ function assets.Load(path, options)
 	return result
 end
 
+local srgb_image_extensions = {
+	png = true,
+	jpg = true,
+	jpeg = true,
+}
+
 function assets.GetTexture(path, options)
 	options = options or {}
 	options.category = "textures"
+	local config = options.config or {}
+
+	-- Image files are authored in sRGB, so store them in sRGB formats to
+	-- keep authored values intact through the linear pipeline. Data textures
+	-- (.lua texture scripts, LUTs) and explicit srgb = false stay linear.
+	if config.srgb == nil then
+		local ext = path:lower():match("%.(%w+)$")
+		config.srgb = srgb_image_extensions[ext] or false
+	end
+
+	options.config = config
 	return assets.Load(path, options)
 end
 
