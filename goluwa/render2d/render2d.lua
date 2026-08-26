@@ -959,10 +959,11 @@ function render2d.Initialize()
 					vec2 p = (coords - 0.5) * quad_size;
 					vec2 b = logical_size * 0.5;
 
+					// radius = (tl, tr, br, bl); p.y > 0 is the top of the screen
 					float rad;
-					if (p.x < 0.0 && p.y < 0.0) rad = radius.x;
-					else if (p.x > 0.0 && p.y < 0.0) rad = radius.y;
-					else if (p.x > 0.0 && p.y > 0.0) rad = radius.z;
+					if (p.x < 0.0 && p.y > 0.0) rad = radius.x;
+					else if (p.x > 0.0 && p.y > 0.0) rad = radius.y;
+					else if (p.x > 0.0 && p.y < 0.0) rad = radius.z;
 					else rad = radius.w;
 
 					vec2 sharp_q = abs(p) - b;
@@ -1214,7 +1215,7 @@ function render2d.Initialize()
 						} else if (FLAGS_SHAPE_CIRCLE) {
 							d = sd_circle(p, b.x);
 						} else if (FLAGS_SHAPE_ROUNDED) {
-							d = sd_rounded_box(p, b, shape.border_radius.zywx);
+							d = sd_rounded_box(p, b, shape.border_radius.yzxw);
 						} else if (FLAGS_SHAPE_CHAMFERED) {
 							d = sd_chamfered_box(p, b, shape.border_radius.yzxw);
 						} else if (FLAGS_SHAPE_ELLIPSE) {
@@ -1723,7 +1724,13 @@ do
 	end)
 
 	define_flag_property("Lighting", "LIGHTING", bool_value_filter)
-	define_flag_property("ShapeMode", "SHAPE", bool_value_filter)
+
+	define_flag_property("ShapeMode", "SHAPE", function(value)
+		if type(value) == "string" then return value end
+
+		error("SetShapeMode expects a shape mode name, got " .. type(value), 2)
+	end)
+
 	define_flag_property("ClampBorderRadius", "CLAMP_BORDER_RADIUS", bool_value_filter)
 	define_flag_property("MSDF", "MSDF", bool_value_filter)
 	define_scalar_property("SDFSoftness", "sdf_softness", mark_margin_dirty)

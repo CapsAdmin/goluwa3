@@ -1,8 +1,8 @@
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Color = import("goluwa/structs/color.lua")
--- Showcase for render2d.SetShapeMode: the procedural SDF shape paths
--- (circle / rounded / chamfered) alongside the original sd_rect path.
+-- Showcase for the procedural SDF shape paths (circle / rounded / chamfered)
+-- alongside the original sd_rect path, via DrawShape's shape field.
 local modes = {
 	{name = "rect", color = Color(1, 1, 1, 1)},
 	{name = "circle", color = Color(1, 0.72, 0.18, 1)},
@@ -15,8 +15,8 @@ local col_x = {410, 710, 1010, 1310, 1610}
 
 local function draw_shape(mode, x, y, w, h, opts)
 	opts = opts or {}
-	render2d.SetShapeMode(mode.name)
 	render2d.DrawShape{
+		shape = mode.name,
 		color = mode.color,
 		border_radius = opts.border_radius,
 		outline_width = opts.outline_width,
@@ -26,7 +26,6 @@ local function draw_shape(mode, x, y, w, h, opts)
 		w = w,
 		h = h,
 	}
-	render2d.SetShapeMode("rect")
 	render2d.DrawText{
 		x = x + w / 2,
 		y = y + h + 12,
@@ -73,7 +72,7 @@ event.AddListener("Draw2D", "sdf_shape_modes", function()
 		x = w / 2,
 		y = 44,
 		align_x = 0.5,
-		text = "render2d SDF shape modes  (render2d.SetShapeMode)",
+		text = "render2d SDF shape modes  (DrawShape shape field)",
 		foreground_color = Color(1, 1, 1, 1),
 		size = 34,
 	}

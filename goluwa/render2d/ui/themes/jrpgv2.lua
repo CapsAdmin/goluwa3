@@ -24,6 +24,22 @@ local function set_color(c, a)
 	render2d.SetColor(c.r, c.g, c.b, a)
 end
 
+local function draw_knob(theme, anim, accent, cx, cy)
+	if anim.glow_alpha > 0.01 then
+		render2d.PushBlendPreset("additive")
+		set_color(accent, anim.glow_alpha * 0.5)
+		theme:DrawDiamond(cx, cy, 12 * anim.knob_scale)
+		render2d.PopBlendMode()
+	end
+
+	local goldc = theme:GetColor("gold")
+	render2d.SetTexture(nil)
+	set_color(goldc, 1)
+	theme:DrawDiamond(cx, cy, 7 * anim.knob_scale)
+	render2d.SetColor(1, 1, 1, 0.9)
+	theme:DrawDiamond(cx, cy, 2.5 * anim.knob_scale)
+end
+
 function JRPGTheme:CreatePalette()
 	return self:ConfigurePalette(self.BaseClass.CreatePalette(self))
 end
@@ -211,18 +227,27 @@ function JRPGTheme:Initialize(theme_context)
 end
 
 function JRPGTheme:DrawDiamond(x, y, size)
-	render2d.PushMatrix()
-	render2d.Translatef(x, y)
-	render2d.Rotate(math.rad(45))
-	render2d.DrawRectf(-size / 2, -size / 2, size, size)
-	render2d.PopMatrix()
+	render2d.DrawShape{
+		x = x - size / 2,
+		y = y - size / 2,
+		w = size,
+		h = size,
+		angle = math.rad(45),
+	}
 end
 
 function JRPGTheme:DrawDiamond2(x, y, size)
 	self:DrawDiamond(x, y, size / 3)
-	render2d.PushOutlineWidth(-1)
-	self:DrawDiamond(x, y, size)
-	render2d.PopOutlineWidth()
+	render2d.DrawShape{
+		x = x - size / 2,
+		y = y - size / 2,
+		w = size,
+		h = size,
+		angle = math.rad(45),
+		layers = {
+			{outline_width = -1},
+		},
+	}
 end
 
 -- Decorative emphasis levels: 0 none, 1 subtle (inline fields), 2 standard
@@ -250,8 +275,20 @@ function JRPGTheme:DrawFrameCorner(cx, cy, dx, dy, emphasis)
 	local glow = self:GetColor("primary")
 	render2d.SetTexture(nil)
 	set_color(goldc, 1)
-	render2d.DrawRect(math.min(cx, cx + dx * len), dy > 0 and cy or cy - thick, len, thick)
-	render2d.DrawRect(dx > 0 and cx or cx - thick, math.min(cy, cy + dy * len), thick, len)
+	render2d.DrawShape{
+		x = math.min(cx, cx + dx * len),
+		y = dy > 0 and cy or cy - thick,
+		w = len,
+		h = thick,
+		int = true,
+	}
+	render2d.DrawShape{
+		x = dx > 0 and cx or cx - thick,
+		y = math.min(cy, cy + dy * len),
+		w = thick,
+		h = len,
+		int = true,
+	}
 	render2d.PushBlendPreset("additive")
 	set_color(glow, 1)
 	self:DrawDiamond2(cx, cy, lv.gem)
@@ -268,34 +305,40 @@ function JRPGTheme:DrawGem(x, y, size, color)
 end
 
 function JRPGTheme:DrawPill(x, y, w, h)
-	render2d.PushBorderRadius(h)
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.PushTexture(self.ModernFrameGradient)
-	render2d.DrawRect(x, y, w, h)
-	render2d.PopTexture()
 	local goldc = self:GetColor("gold")
-	set_color(goldc, 0.7)
-	render2d.PushOutlineWidth(-1)
-	render2d.DrawRect(x, y, w, h)
-	render2d.PopOutlineWidth()
-	render2d.PopBorderRadius()
-	render2d.PushBlendPreset("additive")
 	local accent = self:GetColor("primary")
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = w,
+		h = h,
+		border_radius = h,
+		int = true,
+		layers = {
+			{color = Color(1, 1, 1, 1), texture = self.ModernFrameGradient},
+			{color = goldc, alpha = 0.7, texture = false, outline_width = -1},
+		},
+	}
+	render2d.PushBlendPreset("additive")
 	self:DrawGem(x + 4, y + h / 2, 6, accent)
 	self:DrawGem(x + w - 4, y + h / 2, 6, accent)
 	render2d.PopBlendMode()
 end
 
 function JRPGTheme:DrawBadge(x, y, w, h)
-	render2d.PushBorderRadius(h)
-	render2d.PushTexture(self.Textures.Gradient)
-	render2d.PushColorUV(-0.1, 0, 0.75, 1)
 	local goldc = self:GetColor("gold")
-	set_color(goldc, 0.85)
-	render2d.DrawRect(x, y, w, h)
-	render2d.PopColorUV()
-	render2d.PopTexture()
-	render2d.PopBorderRadius()
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = w,
+		h = h,
+		color = goldc,
+		alpha = 0.85,
+		texture = self.Textures.Gradient,
+		color_uv = {x = -0.1, y = 0, w = 0.75, h = 1},
+		border_radius = h,
+		int = true,
+	}
 	render2d.PushBlendPreset("additive")
 	self:DrawGem(x + 8, y + h / 2, 7, goldc)
 	render2d.PopBlendMode()
@@ -303,18 +346,21 @@ end
 
 function JRPGTheme:DrawArrow(x, y, size)
 	local f = size / 2
-	render2d.PushBorderRadius(f * 3, f * 2, f * 2, f * 3)
 	render2d.PushMatrix()
 	render2d.Translatef(x - size / 3, y - size / 3)
 	render2d.Scalef(1.6, 0.75)
-	render2d.DrawRectf(0, 0, size, size)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size,
+		h = size,
+		border_radius = f,
+	}
 	render2d.PopMatrix()
-	render2d.PopBorderRadius()
 	self:DrawDiamond(x, y + 0.5, size / 2)
 end
 
 function JRPGTheme:DrawGlowLine(x1, y1, x2, y2, thickness)
-	render2d.PushTexture(self.GlowLineTexture)
 	local dx = x2 - x1
 	local dy = y2 - y1
 	local length = math.sqrt(dx * dx + dy * dy)
@@ -322,22 +368,39 @@ function JRPGTheme:DrawGlowLine(x1, y1, x2, y2, thickness)
 	render2d.PushMatrix()
 	render2d.Translatef(x1, y1)
 	render2d.Rotate(angle)
-	render2d.DrawRectf(0, -thickness / 2, length, thickness)
+	render2d.DrawShape{
+		x = 0,
+		y = -thickness / 2,
+		w = length,
+		h = thickness,
+		texture = self.GlowLineTexture,
+	}
 	render2d.PopMatrix()
-	render2d.PopTexture()
 end
 
 function JRPGTheme:DrawGlow(x, y, size)
-	local tex = self.Textures.GlowPoint
-	render2d.PushTexture(tex)
-	render2d.DrawRectf(x - size / 2, y - size / 2, size, size)
-	render2d.PopTexture()
+	render2d.DrawShape{
+		x = x - size / 2,
+		y = y - size / 2,
+		w = size,
+		h = size,
+		texture = self.Textures.GlowPoint,
+	}
 end
 
-function JRPGTheme:DrawCircle(x, y, size, width)
-	render2d.PushOutlineWidth(-(width or 1))
-	render2d.DrawFilledCircle(x, y, size)
-	render2d.PopOutlineWidth()
+function JRPGTheme:DrawCircle(x, y, size, width, softness)
+	render2d.DrawShape{
+		x = x - size,
+		y = y - size,
+		w = size * 2,
+		h = size * 2,
+		border_radius = size,
+		sdf_softness = softness,
+		int = true,
+		layers = {
+			{outline_width = -(width or 1)},
+		},
+	}
 end
 
 function JRPGTheme:DrawMagicCircle(x, y, size, opts)
@@ -347,12 +410,11 @@ function JRPGTheme:DrawMagicCircle(x, y, size, opts)
 	render2d.SetTexture(nil)
 	render2d.PushBlendPreset("additive")
 	set_color(cyan, 0.9)
-	render2d.PushSDFSoftness(size * 0.04)
-	self:DrawCircle(x, y, size, 3)
-	self:DrawCircle(x, y, size * 1.5)
-	self:DrawCircle(x, y, size * 1.7)
-	self:DrawCircle(x, y, size * 3)
-	render2d.PopSDFSoftness()
+	local softness = size * 0.04
+	self:DrawCircle(x, y, size, 3, softness)
+	self:DrawCircle(x, y, size * 1.5, 1, softness)
+	self:DrawCircle(x, y, size * 1.7, 1, softness)
+	self:DrawCircle(x, y, size * 3, 1, softness)
 	local d = math.max(4, size * 0.15)
 
 	for i = 1, 8 do
@@ -379,53 +441,93 @@ function JRPGTheme:DrawMagicCircle(x, y, size, opts)
 end
 
 function JRPGTheme:DrawFrame(size, emphasis)
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.PushTexture(self.ModernFrameGradient)
-	render2d.DrawRect(0, 0, size.x, size.y)
-	render2d.PopTexture()
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = Color(1, 1, 1, 1),
+		texture = self.ModernFrameGradient,
+		int = true,
+	}
 end
 
 function JRPGTheme:DrawFramePost(size, emphasis)
 	local lv = frame_level(emphasis)
 	local border = self:GetColor("border")
-	render2d.SetTexture(nil)
-	set_color(border, 0.9)
-	render2d.DrawRect(0.5, 0.5, size.x - 1, 1)
-	render2d.DrawRect(0.5, size.y - 1.5, size.x - 1, 1)
-	render2d.DrawRect(0.5, 0.5, 1, size.y - 1)
-	render2d.DrawRect(size.x - 1.5, 0.5, 1, size.y - 1)
+	local s = -0.05
+	local uv = {x = -s, y = 0, w = 1 + s, h = 1}
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		texture = false,
+		int = true,
+		layers = {
+			{color = border, alpha = 0.9, x = 0.5, y = 0.5, w = size.x - 1, h = 1},
+			{color = border, alpha = 0.9, x = 0.5, y = size.y - 1.5, w = size.x - 1, h = 1},
+			{color = border, alpha = 0.9, x = 0.5, y = 0.5, w = 1, h = size.y - 1},
+			{color = border, alpha = 0.9, x = size.x - 1.5, y = 0.5, w = 1, h = size.y - 1},
+		},
+	}
 	self:DrawFrameCorner(0, 0, 1, 1, emphasis)
 	self:DrawFrameCorner(size.x, 0, -1, 1, emphasis)
 	self:DrawFrameCorner(0, size.y, 1, -1, emphasis)
 	self:DrawFrameCorner(size.x, size.y, -1, -1, emphasis)
 
 	if lv.glow > 0 then
-		render2d.PushBlendPreset("additive")
 		local glow = self:GetColor("primary")
-		set_color(glow, lv.glow)
-		render2d.SetTexture(self.GlowLineTexture)
-		local s = -0.05
-		render2d.PushColorUV(-s, 0, 1 - -s, 1)
-		render2d.DrawRect(0, -1, size.x, 1)
-		render2d.DrawRect(0, size.y, size.x, 1)
-		render2d.PopColorUV()
-		render2d.SetTexture(self.GlowLineTexture)
-		set_color(glow, lv.glow * 0.6)
-		render2d.PushMatrixf()
+		render2d.PushBlendPreset("additive")
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = size.x,
+			h = size.y,
+			texture = self.GlowLineTexture,
+			int = true,
+			layers = {
+				{color = glow, alpha = lv.glow, x = 0, y = -1, w = size.x, h = 1, color_uv = uv},
+				{
+					color = glow,
+					alpha = lv.glow,
+					x = 0,
+					y = size.y,
+					w = size.x,
+					h = 1,
+					color_uv = uv,
+				},
+			},
+		}
+		render2d.PushMatrix()
 		render2d.Translatef(1, size.y / 2)
 		render2d.Rotate(math.rad(90))
-		local s = -0.05
-		render2d.PushColorUV(-s, 0, 1 - -s, 1)
-		render2d.DrawRect(-size.y / 2, -1, size.y, 1)
+		render2d.DrawShape{
+			x = -size.y / 2,
+			y = -1,
+			w = size.y,
+			h = 1,
+			color = glow,
+			alpha = lv.glow * 0.6,
+			texture = self.GlowLineTexture,
+			color_uv = uv,
+		}
 		render2d.PopMatrix()
-		render2d.PushMatrixf()
+		render2d.PushMatrix()
 		render2d.Translatef(size.x - 1, size.y / 2)
 		render2d.Rotate(math.rad(90))
-		render2d.DrawRect(-size.y / 2, -1, size.y, 1)
-		render2d.PopColorUV()
+		render2d.DrawShape{
+			x = -size.y / 2,
+			y = -1,
+			w = size.y,
+			h = 1,
+			color = glow,
+			alpha = lv.glow * 0.6,
+			texture = self.GlowLineTexture,
+			color_uv = uv,
+		}
 		render2d.PopMatrix()
 		render2d.PopBlendMode()
-		render2d.SetTexture(nil)
 	end
 end
 
@@ -434,34 +536,63 @@ end
 function JRPGTheme:DrawWindowContentPost(size, emphasis)
 	local lv = frame_level(emphasis)
 	local border = self:GetColor("border")
-	render2d.SetTexture(nil)
-	set_color(border, 0.9)
-	render2d.DrawRect(0.5, size.y - 1.5, size.x - 1, 1)
-	render2d.DrawRect(0.5, 0.5, 1, size.y - 1)
-	render2d.DrawRect(size.x - 1.5, 0.5, 1, size.y - 1)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		texture = false,
+		int = true,
+		layers = {
+			{color = border, alpha = 0.9, x = 0.5, y = size.y - 1.5, w = size.x - 1, h = 1},
+			{color = border, alpha = 0.9, x = 0.5, y = 0.5, w = 1, h = size.y - 1},
+			{color = border, alpha = 0.9, x = size.x - 1.5, y = 0.5, w = 1, h = size.y - 1},
+		},
+	}
 	self:DrawFrameCorner(0, size.y, 1, -1, emphasis)
 	self:DrawFrameCorner(size.x, size.y, -1, -1, emphasis)
 
 	if lv.glow > 0 then
-		render2d.PushBlendPreset("additive")
 		local glow = self:GetColor("primary")
-		set_color(glow, lv.glow)
-		render2d.SetTexture(self.Textures.GlowLinear)
-		render2d.DrawRect(0, size.y, size.x, 3)
-		render2d.SetTexture(self.GlowLineTexture)
-		set_color(glow, lv.glow * 0.6)
-		render2d.PushMatrixf()
+		render2d.PushBlendPreset("additive")
+		render2d.DrawShape{
+			x = 0,
+			y = size.y,
+			w = size.x,
+			h = 3,
+			color = glow,
+			alpha = lv.glow,
+			texture = self.Textures.GlowLinear,
+			int = true,
+		}
+		-- The original int-path DrawRect ceils the rotated local y (-9.5 -> -9).
+		render2d.PushMatrix()
 		render2d.Translatef(1, size.y / 2)
 		render2d.Rotate(math.rad(90))
-		render2d.DrawRect(-size.y / 2, -9.5, size.y, 19)
+		render2d.DrawShape{
+			x = -size.y / 2,
+			y = -9,
+			w = size.y,
+			h = 19,
+			color = glow,
+			alpha = lv.glow * 0.6,
+			texture = self.GlowLineTexture,
+		}
 		render2d.PopMatrix()
-		render2d.PushMatrixf()
+		render2d.PushMatrix()
 		render2d.Translatef(size.x - 1, size.y / 2)
 		render2d.Rotate(math.rad(90))
-		render2d.DrawRect(-size.y / 2, -9.5, size.y, 19)
+		render2d.DrawShape{
+			x = -size.y / 2,
+			y = -9,
+			w = size.y,
+			h = 19,
+			color = glow,
+			alpha = lv.glow * 0.6,
+			texture = self.GlowLineTexture,
+		}
 		render2d.PopMatrix()
 		render2d.PopBlendMode()
-		render2d.SetTexture(nil)
 	end
 end
 
@@ -480,18 +611,20 @@ function JRPGTheme:DrawSelectionFill(size, color, alpha)
 		return self:DrawPanelFill(size, resolved, alpha, 0)
 	end
 
-	render2d.PushSDFSoftness(0.1)
 	local accent = self:GetColor("primary")
-	render2d.SetTexture(nil)
-	set_color(accent, 0.10)
-	render2d.DrawRect(0, 0, size.x, size.y)
-	render2d.PushTexture(self.SliderFillFadeH)
-	set_color(accent, 0.14)
-	render2d.DrawRect(0, 0, size.x, size.y)
-	render2d.PopTexture()
-	set_color(accent, 0.9)
-	render2d.DrawRect(0, 0, 2, size.y)
-	render2d.PopSDFSoftness()
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		sdf_softness = 0.1,
+		int = true,
+		layers = {
+			{color = accent, alpha = 0.10, texture = false},
+			{color = accent, alpha = 0.14, texture = self.SliderFillFadeH},
+			{color = accent, alpha = 0.9, w = 2, texture = false},
+		},
+	}
 end
 
 function JRPGTheme:DrawTreeGuideLines(size, meta, opts)
@@ -502,26 +635,60 @@ function JRPGTheme:DrawTreeGuideLines(size, meta, opts)
 	local center_y = math.floor(size.y / 2)
 	local line_start_x = opts.line_start_x or center_x
 	local accent = self:GetColor("primary")
-	render2d.SetTexture(nil)
-	set_color(accent, 0.28)
 	local T = 1
-	render2d.PushSDFSoftness(0)
 
 	for level = 1, #(meta.continuations or {}) do
 		if meta.continuations[level] then
 			local x = (level - 1) * guide_step + math.floor(toggle_size / 2)
-			render2d.DrawRectf(x, 0, T, size.y)
+			render2d.DrawShape{
+				x = x,
+				y = 0,
+				w = T,
+				h = size.y,
+				color = accent,
+				alpha = 0.28,
+				texture = false,
+				sdf_softness = 0,
+			}
 		end
 	end
 
-	if meta.level > 0 then render2d.DrawRectf(center_x, 0, T, center_y + T) end
-
-	if not meta.is_last then
-		render2d.DrawRectf(center_x, center_y, T, size.y - center_y)
+	if meta.level > 0 then
+		render2d.DrawShape{
+			x = center_x,
+			y = 0,
+			w = T,
+			h = center_y + T,
+			color = accent,
+			alpha = 0.28,
+			texture = false,
+			sdf_softness = 0,
+		}
 	end
 
-	render2d.DrawRectf(line_start_x, center_y, math.max(T, size.x - line_start_x), T)
-	render2d.PopSDFSoftness()
+	if not meta.is_last then
+		render2d.DrawShape{
+			x = center_x,
+			y = center_y,
+			w = T,
+			h = size.y - center_y,
+			color = accent,
+			alpha = 0.28,
+			texture = false,
+			sdf_softness = 0,
+		}
+	end
+
+	render2d.DrawShape{
+		x = line_start_x,
+		y = center_y,
+		w = math.max(T, size.x - line_start_x),
+		h = T,
+		color = accent,
+		alpha = 0.28,
+		texture = false,
+		sdf_softness = 0,
+	}
 	return center_x, center_y
 end
 
@@ -553,27 +720,46 @@ function JRPGTheme:DrawTreeToggle(size, meta, opts)
 		render2d.PopBlendMode()
 	end
 
-	render2d.SetTexture(nil)
-	set_color(opts.expanded and accent or border, 1)
-	render2d.PushOutlineWidth(-1)
-	self:DrawDiamond(dx, dy, r)
-	render2d.PopOutlineWidth()
+	render2d.DrawShape{
+		x = dx - r / 2,
+		y = dy - r / 2,
+		w = r,
+		h = r,
+		angle = math.rad(45),
+		color = opts.expanded and accent or border,
+		texture = false,
+		layers = {
+			{outline_width = -1},
+		},
+	}
 end
 
 function JRPGTheme:DrawHeader(size, emphasis)
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.PushTexture(self.ModernFrameGradient)
-	render2d.DrawRect(0, 0, size.x, size.y)
-	render2d.PopTexture()
 	local border = self:GetColor("border")
 	local goldc = self:GetColor("gold")
-	render2d.SetTexture(nil)
-	set_color(border, 0.9)
-	render2d.DrawRect(0.5, 0.5, size.x - 1, 1)
-	render2d.DrawRect(0.5, 0.5, 1, size.y - 1)
-	render2d.DrawRect(size.x - 1.5, 0.5, 1, size.y - 1)
-	set_color(goldc, 0.8)
-	render2d.DrawRect(0, size.y - 1, size.x, 1)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = Color(1, 1, 1, 1),
+		texture = self.ModernFrameGradient,
+		int = true,
+	}
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		texture = false,
+		int = true,
+		layers = {
+			{color = border, alpha = 0.9, x = 0.5, y = 0.5, w = size.x - 1, h = 1},
+			{color = border, alpha = 0.9, x = 0.5, y = 0.5, w = 1, h = size.y - 1},
+			{color = border, alpha = 0.9, x = size.x - 1.5, y = 0.5, w = 1, h = size.y - 1},
+			{color = goldc, alpha = 0.8, x = 0, y = size.y - 1, w = size.x, h = 1},
+		},
+	}
 	self:DrawFrameCorner(0, 0, 1, 1, emphasis or 3)
 	self:DrawFrameCorner(size.x, 0, -1, 1, emphasis or 3)
 end
@@ -593,42 +779,65 @@ function JRPGTheme:DrawButton(size, state)
 	if state.mode == "text" then
 		if not state.disabled and (state.hovered or state.pressed or state.active) then
 			local fill_alpha = (state.pressed or state.active) and 0.95 or 0.8
-			render2d.SetTexture(nil)
-			render2d.PushBorderRadius(radius)
-			set_color(accent, fill_alpha)
-			render2d.DrawRect(0, 0, size.x, size.y)
-			render2d.PopBorderRadius()
+			render2d.DrawShape{
+				x = 0,
+				y = 0,
+				w = size.x,
+				h = size.y,
+				color = accent,
+				alpha = fill_alpha,
+				texture = false,
+				border_radius = radius,
+				int = true,
+			}
 		end
 
 		return
 	end
 
-	render2d.SetTexture(nil)
-	local base_c = self:GetColor("surface_variant")
-	set_color(base_c, alpha_scale)
-	render2d.PushBorderRadius(radius)
-	render2d.DrawRect(0, 0, size.x, size.y)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = self:GetColor("surface_variant"),
+		alpha = alpha_scale,
+		texture = false,
+		border_radius = radius,
+		int = true,
+	}
 
 	if state.mode ~= "outline" then
-		render2d.PushTexture(self.Textures.Gradient)
-		set_color(accent, (state.disabled and 0.08) or (0.25 + anim.glow_alpha * 0.2))
-		render2d.PushColorUV(0, 0, 0.5, 1)
-		render2d.DrawRect(0, 0, size.x, size.y)
-		render2d.PopColorUV()
-		render2d.PopTexture()
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = size.x,
+			h = size.y,
+			color = accent,
+			alpha = (state.disabled and 0.08) or (0.25 + anim.glow_alpha * 0.2),
+			texture = self.Textures.Gradient,
+			color_uv = {x = 0, y = 0, w = 0.5, h = 1},
+			border_radius = radius,
+			int = true,
+		}
 	end
 
 	local bo = (state.disabled and 0.3) or (0.2 + anim.glow_alpha * 0.4)
-	render2d.SetTexture(nil)
-	set_color(accent, bo)
-	render2d.PushOutlineWidth(0.4)
-	render2d.SetBorderRadius(0)
-	render2d.PushSDFSoftness(1)
 	local r = 1
-	render2d.DrawRect(r, r, math.ceil(size.x - r * 2), math.ceil(size.y - r * 2))
-	render2d.PopSDFSoftness()
-	render2d.PopOutlineWidth()
-	render2d.PopBorderRadius()
+	render2d.DrawShape{
+		x = r,
+		y = r,
+		w = math.ceil(size.x - r * 2),
+		h = math.ceil(size.y - r * 2),
+		color = accent,
+		alpha = bo,
+		texture = false,
+		sdf_softness = 1,
+		int = true,
+		layers = {
+			{outline_width = 0.4},
+		},
+	}
 
 	if not state.disabled then
 		render2d.PushBlendPreset("additive")
@@ -669,22 +878,6 @@ function JRPGTheme:DrawSlider(size, state)
 	local track_bg = self:GetColor("surface_variant")
 	local mode = state.mode or "horizontal"
 
-	local function draw_knob(cx, cy)
-		if anim.glow_alpha > 0.01 then
-			render2d.PushBlendPreset("additive")
-			set_color(accent, anim.glow_alpha * 0.5)
-			self:DrawDiamond(cx, cy, 12 * anim.knob_scale)
-			render2d.PopBlendMode()
-		end
-
-		local goldc = self:GetColor("gold")
-		render2d.SetTexture(nil)
-		set_color(goldc, 1)
-		self:DrawDiamond(cx, cy, 7 * anim.knob_scale)
-		render2d.SetColor(1, 1, 1, 0.9)
-		self:DrawDiamond(cx, cy, 2.5 * anim.knob_scale)
-	end
-
 	if mode == "horizontal" then
 		local track_h = self:GetSize("XXS")
 		local track_y = (size.y - track_h) / 2
@@ -696,22 +889,41 @@ function JRPGTheme:DrawSlider(size, state)
 
 		normalized = math.clamp(normalized, 0, 1)
 		local fill_w = normalized * (size.x - knob)
-		render2d.SetTexture(nil)
-		set_color(track_bg, 1)
-		render2d.DrawRect(knob / 2, track_y, size.x - knob, track_h)
+		render2d.DrawShape{
+			x = knob / 2,
+			y = track_y,
+			w = size.x - knob,
+			h = track_h,
+			color = track_bg,
+			texture = false,
+			int = true,
+		}
 
 		if fill_w > 0.5 then
-			render2d.PushTexture(self.SliderFillFadeH)
-			set_color(accent, 0.85)
-			render2d.DrawRect(knob / 2, track_y, fill_w, track_h)
-			render2d.PushBlendPreset("additive")
-			set_color(accent, 0.15 + anim.glow_alpha * 0.2)
-			render2d.DrawRect(knob / 2, track_y - 2, fill_w, track_h + 4)
-			render2d.PopBlendMode()
-			render2d.PopTexture()
+			render2d.DrawShape{
+				x = knob / 2,
+				y = track_y,
+				w = fill_w,
+				h = track_h,
+				color = accent,
+				alpha = 0.85,
+				int = true,
+				texture = self.SliderFillFadeH,
+			}
+			render2d.DrawShape{
+				x = knob / 2,
+				y = track_y - 2,
+				w = fill_w,
+				h = track_h + 4,
+				color = accent,
+				int = true,
+				alpha = 0.15 + anim.glow_alpha * 0.2,
+				texture = self.SliderFillFadeH,
+				blend = "additive",
+			}
 		end
 
-		draw_knob(knob / 2 + fill_w, size.y / 2)
+		draw_knob(self, anim, accent, knob / 2 + fill_w, size.y / 2)
 	elseif mode == "vertical" then
 		local track_w = self:GetSize("XXS")
 		local track_x = (size.x - track_w) / 2
@@ -723,35 +935,59 @@ function JRPGTheme:DrawSlider(size, state)
 
 		normalized = math.clamp(normalized, 0, 1)
 		local fill_h = normalized * (size.y - knob)
-		render2d.SetTexture(nil)
-		set_color(track_bg, 1)
-		render2d.DrawRect(track_x, knob / 2, track_w, size.y - knob)
+		render2d.DrawShape{
+			x = track_x,
+			y = knob / 2,
+			w = track_w,
+			h = size.y - knob,
+			color = track_bg,
+			texture = false,
+			int = true,
+		}
 
 		if fill_h > 0.5 then
-			render2d.PushTexture(self.SliderFillFadeV)
-			set_color(accent, 0.85)
-			render2d.DrawRect(track_x, knob / 2, track_w, fill_h)
-			render2d.PushBlendPreset("additive")
-			set_color(accent, 0.15 + anim.glow_alpha * 0.2)
-			render2d.DrawRect(track_x - 2, knob / 2, track_w + 4, fill_h)
-			render2d.PopBlendMode()
-			render2d.PopTexture()
+			render2d.DrawShape{
+				x = track_x,
+				y = knob / 2,
+				w = track_w,
+				h = fill_h,
+				color = accent,
+				alpha = 0.85,
+				int = true,
+				texture = self.SliderFillFadeV,
+			}
+			render2d.DrawShape{
+				x = track_x - 2,
+				y = knob / 2,
+				w = track_w + 4,
+				h = fill_h,
+				color = accent,
+				int = true,
+				alpha = 0.15 + anim.glow_alpha * 0.2,
+				texture = self.SliderFillFadeV,
+				blend = "additive",
+			}
 		end
 
-		draw_knob(size.x / 2, knob / 2 + fill_h)
+		draw_knob(self, anim, accent, size.x / 2, knob / 2 + fill_h)
 	elseif mode == "2d" then
-		local track_bg_c = self:GetColor("surface_variant")
-		render2d.SetTexture(nil)
-		set_color(track_bg_c, 1)
-		render2d.DrawRect(0, 0, size.x, size.y)
 		local px = (state.value.x or 0) * size.x
 		local py = (state.value.y or 0) * size.y
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = size.x,
+			h = size.y,
+			color = track_bg,
+			texture = false,
+			int = true,
+		}
 		render2d.PushBlendPreset("additive")
 		set_color(accent, 0.4)
 		self:DrawGlowLine(knob / 2, py, px, py, 1)
 		self:DrawGlowLine(px, size.y - knob / 2, px, py, 1)
 		render2d.PopBlendMode()
-		draw_knob(px, py)
+		draw_knob(self, anim, accent, px, py)
 	end
 end
 
@@ -762,18 +998,35 @@ function JRPGTheme:DrawCheckbox(size, state)
 	local cy = size.y / 2
 	local border = self:GetColor("border")
 	render2d.SetTexture(nil)
-	set_color(border, 1)
-	render2d.PushOutlineWidth(-1.5)
-	self:DrawDiamond(cx, cy, cs)
-	render2d.PopOutlineWidth()
+	render2d.DrawShape{
+		x = cx - cs / 2,
+		y = cy - cs / 2,
+		w = cs,
+		h = cs,
+		angle = math.rad(45),
+		color = border,
+		texture = false,
+		layers = {
+			{outline_width = -1.5},
+		},
+	}
 
 	if anim.glow_alpha > 0.01 then
-		render2d.PushBlendPreset("additive")
 		local accent = self:GetColor("primary")
-		set_color(accent, anim.glow_alpha * 0.8)
-		render2d.PushOutlineWidth(-1)
-		self:DrawDiamond(cx, cy, cs + 3)
-		render2d.PopOutlineWidth()
+		render2d.PushBlendPreset("additive")
+		render2d.DrawShape{
+			x = cx - (cs + 3) / 2,
+			y = cy - (cs + 3) / 2,
+			w = cs + 3,
+			h = cs + 3,
+			angle = math.rad(45),
+			color = accent,
+			alpha = anim.glow_alpha * 0.8,
+			texture = false,
+			layers = {
+				{outline_width = -1},
+			},
+		}
 		render2d.PopBlendMode()
 	end
 
@@ -797,18 +1050,35 @@ function JRPGTheme:DrawButtonRadio(size, state)
 	local cy = size.y / 2
 	local border = self:GetColor("border")
 	render2d.SetTexture(nil)
-	set_color(border, 1)
-	render2d.PushOutlineWidth(-1.5)
-	self:DrawDiamond(cx, cy, rs)
-	render2d.PopOutlineWidth()
+	render2d.DrawShape{
+		x = cx - rs / 2,
+		y = cy - rs / 2,
+		w = rs,
+		h = rs,
+		angle = math.rad(45),
+		color = border,
+		texture = false,
+		layers = {
+			{outline_width = -1.5},
+		},
+	}
 
 	if anim.glow_alpha > 0.01 then
-		render2d.PushBlendPreset("additive")
 		local accent = self:GetColor("primary")
-		set_color(accent, anim.glow_alpha * 0.8)
-		render2d.PushOutlineWidth(-1)
-		self:DrawDiamond(cx, cy, rs + 3)
-		render2d.PopOutlineWidth()
+		render2d.PushBlendPreset("additive")
+		render2d.DrawShape{
+			x = cx - (rs + 3) / 2,
+			y = cy - (rs + 3) / 2,
+			w = rs + 3,
+			h = rs + 3,
+			angle = math.rad(45),
+			color = accent,
+			alpha = anim.glow_alpha * 0.8,
+			texture = false,
+			layers = {
+				{outline_width = -1},
+			},
+		}
 		render2d.PopBlendMode()
 	end
 
@@ -830,14 +1100,28 @@ function JRPGTheme:DrawProgressBar(size, state, color)
 	local c = color == nil and self:GetColor("primary") or self:ResolveSurfaceColor(color)
 	render2d.SetTexture(nil)
 	local track = self:GetColor("surface_variant")
-	set_color(track, 1)
-	render2d.DrawRect(0, 0, size.x, size.y)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = track,
+		texture = false,
+		int = true,
+	}
 	local segments = 10
 	local seg_w = size.x / segments
+	render2d.SetColor(1, 1, 1, 0.08)
 
 	for i = 1, segments do
-		render2d.SetColor(1, 1, 1, 0.08)
-		render2d.DrawRect(i * seg_w - 0.5, 1, 1, size.y - 2)
+		render2d.DrawShape{
+			x = i * seg_w - 0.5,
+			y = 1,
+			w = 1,
+			h = size.y - 2,
+			texture = false,
+			int = true,
+		}
 	end
 
 	local accent = self:GetColor("primary")
@@ -847,22 +1131,39 @@ function JRPGTheme:DrawProgressBar(size, state, color)
 	self:DrawGlowLine(0, size.y, size.x, size.y, 1)
 	render2d.PopBlendMode()
 	local fill_w = size.x * value
-	render2d.PushTexture(self.Textures.Gradient)
-	render2d.PushColorUV(0, 0, 0.5, 1)
-	set_color(c, 0.95)
-	render2d.DrawRect(0, 1, fill_w, size.y - 2)
-	render2d.PopColorUV()
-	render2d.PopTexture()
+	render2d.DrawShape{
+		x = 0,
+		y = 1,
+		w = fill_w,
+		h = size.y - 2,
+		color = c,
+		alpha = 0.95,
+		texture = self.Textures.Gradient,
+		color_uv = {x = 0, y = 0, w = 0.5, h = 1},
+		int = true,
+	}
 	render2d.SetColor(1, 1, 1, 0.5)
-	render2d.DrawRect(0, 1, fill_w, 1)
+	render2d.DrawShape{
+		x = 0,
+		y = 1,
+		w = fill_w,
+		h = 1,
+		texture = false,
+		int = true,
+	}
 	local cx = fill_w
 	local cy = size.y / 2
 	local s = math.min(size.y / 2, 6)
 	render2d.PushBlendPreset("additive")
-	render2d.PushTexture(self.GlowLineTexture)
-	set_color(c, 0.9)
-	render2d.DrawRectf(cx - 4, cy - s * 2, 8, s * 4)
-	render2d.PopTexture()
+	render2d.DrawShape{
+		x = cx - 4,
+		y = cy - s * 2,
+		w = 8,
+		h = s * 4,
+		color = c,
+		alpha = 0.9,
+		texture = self.GlowLineTexture,
+	}
 	set_color(c, 1)
 	self:DrawDiamond(cx, cy, s)
 	render2d.SetColor(1, 1, 1, 0.8)
@@ -906,7 +1207,13 @@ function JRPGTheme:DrawMenuSpacer(size)
 		local mid_y = h / 2
 		render2d.SetTexture(nil)
 		set_color(border, 0.8)
-		render2d.DrawRect(8, mid_y - 0.5, w - 16, 1)
+		render2d.DrawShape{
+			x = 8,
+			y = mid_y - 0.5,
+			w = w - 16,
+			h = 1,
+			int = true,
+		}
 		self:DrawDiamond(4, mid_y, 4)
 		self:DrawDiamond(w - 4, mid_y, 4)
 		render2d.PushBlendPreset("additive")
@@ -918,7 +1225,13 @@ function JRPGTheme:DrawMenuSpacer(size)
 		local mid_x = w / 2
 		render2d.SetTexture(nil)
 		set_color(border, 0.8)
-		render2d.DrawRect(mid_x - 0.5, 8, 1, h - 16)
+		render2d.DrawShape{
+			x = mid_x - 0.5,
+			y = 8,
+			w = 1,
+			h = h - 16,
+			int = true,
+		}
 		self:DrawDiamond(mid_x, 4, 4)
 		self:DrawDiamond(mid_x, h - 4, 4)
 		render2d.PushBlendPreset("additive")
@@ -935,11 +1248,16 @@ function JRPGTheme:DrawLine(x1, y1, x2, y2, thickness)
 	local dy = y2 - y1
 	local length = math.sqrt(dx * dx + dy * dy)
 	local angle = math.atan2(dy, dx)
-	render2d.SetTexture(nil)
 	render2d.PushMatrix()
 	render2d.Translatef(x1, y1)
 	render2d.Rotate(angle)
-	render2d.DrawRectf(0, -thickness / 2, length, thickness)
+	render2d.DrawShape{
+		x = 0,
+		y = -thickness / 2,
+		w = length,
+		h = thickness,
+		texture = false,
+	}
 	render2d.PopMatrix()
 end
 
@@ -961,10 +1279,16 @@ function JRPGTheme:DrawMuseum()
 		local ty = 60
 		render2d.SetTexture(nil)
 		render2d.PushBlendPreset("additive")
-		render2d.PushTexture(self.Textures.GlowLinear)
-		render2d.SetColor(cyan.r, cyan.g, cyan.b, 0.5)
-		render2d.DrawRect(tx - 20, ty - 14, 540, 28)
-		render2d.PopTexture()
+		render2d.DrawShape{
+			x = tx - 20,
+			y = ty - 14,
+			w = 540,
+			h = 28,
+			color = cyan,
+			alpha = 0.5,
+			texture = self.Textures.GlowLinear,
+			int = true,
+		}
 		render2d.SetColor(white.r, white.g, white.b, 1)
 		self:DrawDiamond(tx + 250, ty, 10)
 		render2d.PopBlendMode()

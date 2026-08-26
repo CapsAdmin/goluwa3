@@ -33,7 +33,7 @@ event.AddListener("Draw2D", "test", function()
 		shadow_y = 8,
 		shadow_softness = 2,
 		outline_width = 20,
-		softness = 50,
+		sdf_softness = 50,
 		outline_color = Color(1, 0, 0, 1),
 		skew_x = 0,
 		x = 50,

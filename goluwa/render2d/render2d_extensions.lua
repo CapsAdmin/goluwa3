@@ -229,7 +229,7 @@ do
 		if tbl.scale or tbl.scale_x or tbl.scale_y then
 			local sx = tbl.scale_x or tbl.scale or 1
 			local sy = tbl.scale_y or sx
-			render2d.Scale(sx, sy)
+			render2d.Scalef(sx, sy)
 		end
 
 		if tbl.angle then render2d.Rotate(tbl.angle) end
@@ -256,6 +256,9 @@ local text = library()
 local font_cache = {}
 local default_foreground_color = Color(1, 1, 1, 1)
 local default_background_color = Color(0, 0, 0, 1)
+-- Mirrors the engine default in render2d.lua; DrawShape never inherits the
+-- ambient softness, so this is the fallback when a pass omits sdf_softness
+local default_sdf_softness = 0.6
 local hsv_cache = {}
 
 local function get_font(font_name, size, weight)
@@ -299,11 +302,165 @@ local function compute_auto_background(fg)
 	return bg
 end
 
+-- Draws one pass of DrawShape. `p` is the pass table; any field it leaves
+-- unset falls back to the base table `geo` (in solo mode p == geo).
+local function draw_shape_pass(geo, p)
+	local x = p.x or geo.x or 0
+	local y = p.y or geo.y or 0
+	local w = p.w or geo.w
+	local h = p.h or geo.h
+	local blend = p.blend
+
+	if blend == nil then blend = geo.blend end
+
+	if blend then render2d.PushBlendPreset(blend) end
+
+	local texture = p.texture
+
+	if texture == nil then texture = geo.texture end
+
+	if texture ~= nil then
+		render2d.PushTexture(texture == false and nil or texture)
+	end
+
+	local radius = p.border_radius
+
+	if radius == nil then radius = geo.border_radius end
+
+	local clamp = p.clamp_border_radius
+
+	if clamp == nil then clamp = geo.clamp_border_radius end
+
+	if radius then
+		if clamp == false then render2d.PushClampBorderRadius(false) end
+
+		render2d.PushBorderRadius(radius)
+	end
+
+	-- A layer's outline_width turns the layer itself into a ring pass. The
+	-- base table's outline_width is only the fill + ring shorthand, applied
+	-- by DrawShape after the main pass.
+	local outline_width = p ~= geo and p.outline_width or nil
+
+	if outline_width and outline_width ~= 0 then
+		render2d.PushOutlineWidth(outline_width)
+	end
+
+	local softness = p.sdf_softness
+
+	if softness == nil then softness = geo.sdf_softness or default_sdf_softness end
+
+	render2d.PushSDFSoftness(softness)
+	local color_uv = p.color_uv
+
+	if color_uv == nil then color_uv = geo.color_uv end
+
+	if color_uv then
+		render2d.PushColorUV(color_uv.x, color_uv.y, color_uv.w, color_uv.h, color_uv.r)
+	end
+
+	local color = p.color
+
+	if color == nil then color = geo.color end
+
+	local alpha = p.alpha
+
+	if alpha == nil then alpha = geo.alpha end
+
+	if color then
+		render2d.SetColor(color.r, color.g, color.b, (alpha or 1) * color.a)
+	elseif alpha and alpha ~= 1 then
+		local r, g, b, a = render2d.GetColor()
+		render2d.SetColor(r, g, b, a * alpha)
+	end
+
+	if p.int or geo.int then
+		render2d.DrawRect(x, y, w, h)
+	else
+		render2d.DrawRectf(x, y, w, h)
+	end
+
+	if color_uv then render2d.PopColorUV() end
+
+	render2d.PopSDFSoftness()
+
+	if outline_width and outline_width ~= 0 then render2d.PopOutlineWidth() end
+
+	if radius then
+		render2d.PopBorderRadius()
+
+		if clamp == false then render2d.PopClampBorderRadius() end
+	end
+
+	if texture ~= nil then render2d.PopTexture() end
+
+	if blend then render2d.PopBlendMode() end
+end
+
+-- Draws SDF rect passes from a single table, in the spirit of DrawText: one
+-- table in, fully self-contained, all state pushed and popped internally.
+--
+-- Without `layers`, the table itself is the single pass. With `layers`, the
+-- table supplies geometry and defaults, and each `layers[i]` entry is one
+-- pass drawn in order; a layer inherits every field it leaves unset, so it
+-- only spells out what differs from the base (the base itself is not drawn
+-- in that mode). Example (fill + outline + hover glow):
+--
+--	render2d.DrawShape{
+--		x = 0, y = 0, w = 200, h = 40, border_radius = 6,
+--		layers = {
+--			{color = fill},
+--			{color = border, outline_width = -1},
+--			{color = accent, blend = "additive", alpha = glow},
+--		},
+--	}
+--
+-- Geometry: x, y, w, h (x/y default to 0, layers may override all four).
+-- Per-pass fields:
+--   color          Color; when omitted the pass is drawn with the current
+--                  ambient color (render2d.GetColor())
+--   alpha          multiplier on the pass color's alpha (the ambient
+--                  color's alpha when color is omitted)
+--   texture        Texture object, or false for an untextured pass
+--   border_radius  number, or {tl, tr, br, bl}
+--   clamp_border_radius  false allows border_radius to exceed half the
+--                        smaller dimension (pill / stadium shapes)
+--   outline_width  signed ring width; negative extends outside the edge,
+--                  positive insets. A layer with outline_width draws the ring
+--                  only, no fill
+--   sdf_softness   SDF edge softness (default 0.6; the ambient softness is
+--                  never inherited)
+--   blend          blend preset name: "alpha", "additive", "multiply",
+--                  "premultiplied", "screen", "subtract", "none"; when
+--                  omitted the current ambient blend is used
+--   color_uv       {x, y, w, h, r} texture uv window + rotation (default
+--                  the full uv; the ambient color uv is never inherited)
+--   int            true draws the pass with the integer pixel-snapped rect
+--                  path (DrawRect) instead of the subpixel float path
+--                  (DrawRectf)
+-- Base-table-only fields:
+--   outline_width + outline_color   draw an extra ring pass after the main
+--                                   pass (default color: the pass color)
+--   outline_alpha, outline_softness
+--   shadow, shadow_x, shadow_y, shadow_color, shadow_softness, blur_intensity
+--                                   soft offset pass below the main pass;
+--                                   enabled by any of shadow/shadow_x/
+--                                   shadow_y (offsets default to 2),
+--                                   shadow_color = true picks an auto
+--                                   background color
+--   shape          "none" (default, the standard sd_rect path), "rect",
+--                  "circle", "ellipse", "chamfered", "rounded" (the ambient
+--                  shape mode is never inherited)
+--   scale / scale_x / scale_y, angle (radians), skew_x / skew_y (degrees),
+--   render_x / render_y  whole-shape transform around the rect center
 function render2d.DrawShape(tbl)
-	local color = tbl.color or default_foreground_color
-	local has_transform = tbl.scale_x or
+	local x = tbl.x or 0
+	local y = tbl.y or 0
+	local w = tbl.w
+	local h = tbl.h
+	local has_transform = tbl.scale or
+		tbl.scale_x or
 		tbl.scale_y or
-		tbl.scale or
 		tbl.angle or
 		tbl.skew_x or
 		tbl.skew_y or
@@ -312,59 +469,114 @@ function render2d.DrawShape(tbl)
 
 	if has_transform then render2d.PushTransform(tbl, w, h) end
 
-	if tbl.border_radius then render2d.PushBorderRadius(tbl.border_radius) end
+	local shape = tbl.shape or "none"
+	render2d.PushShapeMode(shape)
+	-- The full uv is the base for every pass of this call; a pass opts out
+	-- with its own color_uv. This keeps a leaked ambient color uv from
+	-- affecting any pass, including the shadow and outline passes.
+	render2d.PushColorUV()
 
 	if tbl.shadow or tbl.shadow_x or tbl.shadow_y then
 		local shadow_color = tbl.shadow_color
 
 		if shadow_color == true then
-			shadow_color = compute_auto_background(color)
+			shadow_color = compute_auto_background(tbl.color or default_foreground_color)
+		elseif shadow_color == nil then
+			shadow_color = default_background_color
 		end
 
-		if not shadow_color then shadow_color = default_background_color end
+		local sx = tbl.shadow_x
+		local sy = tbl.shadow_y
 
-		local sx = tbl.shadow_x or tbl.shadow_y or tbl.shadow or 2
-		local sy = tbl.shadow_y or tbl.shadow_x or tbl.shadow or 2
-		local bg_alpha = shadow_color.a * (shadow_color.a ^ 2) * 0.67
-		render2d.PushColor(shadow_color.r, shadow_color.g, shadow_color.b, bg_alpha * (tbl.blur_intensity or 1))
-		render2d.PushSDFSoftness(tbl.shadow_softness or 0)
-		render2d.DrawRectf(tbl.x + sx, tbl.y + sy, tbl.w, tbl.h)
+		if type(sx) ~= "number" then sx = 2 end
+
+		if type(sy) ~= "number" then sy = 2 end
+
+		local shadow_alpha = shadow_color.a * (
+				shadow_color.a * shadow_color.a
+			) * 0.67 * (
+				tbl.blur_intensity or
+				1
+			)
+		render2d.PushSDFSoftness(tbl.shadow_softness or default_sdf_softness)
+
+		if tbl.border_radius then
+			if tbl.clamp_border_radius == false then
+				render2d.PushClampBorderRadius(false)
+			end
+
+			render2d.PushBorderRadius(tbl.border_radius)
+		end
+
+		if tbl.texture then render2d.PushTexture(tbl.texture) end
+
+		render2d.SetColor(shadow_color.r, shadow_color.g, shadow_color.b, shadow_alpha)
+
+		if tbl.int then
+			render2d.DrawRect(x + sx, y + sy, w, h)
+		else
+			render2d.DrawRectf(x + sx, y + sy, w, h)
+		end
+
+		if tbl.texture then render2d.PopTexture() end
+
+		if tbl.border_radius then
+			render2d.PopBorderRadius()
+
+			if tbl.clamp_border_radius == false then render2d.PopClampBorderRadius() end
+		end
+
 		render2d.PopSDFSoftness()
-		render2d.PopColor()
 	end
 
-	do
+	if tbl.layers then
+		for _, layer in ipairs(tbl.layers) do
+			draw_shape_pass(tbl, layer)
+		end
+	else
+		draw_shape_pass(tbl, tbl)
 		local outline_width = tbl.outline_width
-		local outline_color = tbl.outline_color or Color(0, 0, 0, 1)
 
-		if outline_width and outline_width > 0 then
-			render2d.PushColor(outline_color.r, outline_color.g, outline_color.b, outline_color.a)
+		if outline_width and outline_width ~= 0 then
+			local outline_color = tbl.outline_color or tbl.color or default_foreground_color
+			render2d.PushSDFSoftness(tbl.outline_softness or default_sdf_softness)
+
+			if tbl.border_radius then
+				if tbl.clamp_border_radius == false then
+					render2d.PushClampBorderRadius(false)
+				end
+
+				render2d.PushBorderRadius(tbl.border_radius)
+			end
+
 			render2d.PushOutlineWidth(outline_width)
-			-- TODO: hack
-			render2d.DrawRectf(tbl.x + 1, tbl.y + 1, tbl.w - 2, tbl.h - 2)
+			render2d.SetColor(
+				outline_color.r,
+				outline_color.g,
+				outline_color.b,
+				(tbl.outline_alpha or 1) * outline_color.a
+			)
+
+			if tbl.int then
+				render2d.DrawRect(x, y, w, h)
+			else
+				render2d.DrawRectf(x, y, w, h)
+			end
+
 			render2d.PopOutlineWidth()
-			render2d.PopColor()
+
+			if tbl.border_radius then
+				render2d.PopBorderRadius()
+
+				if tbl.clamp_border_radius == false then render2d.PopClampBorderRadius() end
+			end
+
+			render2d.PopSDFSoftness()
 		end
 	end
 
-	render2d.SetColor(color:Unpack())
-	render2d.DrawRectf(tbl.x, tbl.y, tbl.w, tbl.h)
-
-	do
-		local outline_width = tbl.outline_width
-		local outline_color = tbl.outline_color or Color(0, 0, 0, 1)
-
-		if outline_width and outline_width < 0 then
-			render2d.PushColor(outline_color.r, outline_color.g, outline_color.b, outline_color.a)
-			render2d.PushOutlineWidth(outline_width)
-			-- TODO: hack
-			render2d.DrawRectf(tbl.x - 1, tbl.y - 1, tbl.w + 2, tbl.h + 2)
-			render2d.PopOutlineWidth()
-			render2d.PopColor()
-		end
-	end
-
-	if tbl.border_radius then render2d.PopBorderRadius() end
+	render2d.PopColorUV()
+	render2d.PopShapeMode()
 
 	if has_transform then render2d.PopTransform() end
 end
