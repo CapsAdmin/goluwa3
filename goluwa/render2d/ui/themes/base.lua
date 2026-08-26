@@ -1410,11 +1410,11 @@ function BaseTheme:Draw(pnl)
 		local state = pnl:GetState()
 		return self:DrawProgressBar(pnl.transform:GetSize(), state, state.color)
 	elseif pnl.Name == "frame" then
-		return self:DrawFrame(pnl.transform:GetTotalSize(), pnl:GetState("emphasis") or 1)
+		return self:DrawFrame(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
 	elseif pnl.Name == "WindowHeader" then
-		return self:DrawHeader(pnl.transform:GetSize())
+		return self:DrawHeader(pnl.transform:GetSize(), self:GetEmphasis(pnl))
 	elseif pnl.Name == "WindowContent" or pnl.Name == "TooltipOverlay" then
-		return self:DrawFrame(pnl.transform:GetTotalSize(), pnl:GetState("emphasis") or 0)
+		return self:DrawFrame(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
 	elseif pnl.Name == "text_edit" then
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("panel_color"), self:GetRadius("M"))
 	elseif pnl.Name == "MenuContainer" then
@@ -1475,10 +1475,25 @@ function BaseTheme:DrawPost(pnl)
 		pnl.Name == "WindowContent" or
 		pnl.Name == "TooltipOverlay"
 	then
-		return self:DrawFramePost(pnl.transform:GetTotalSize(), pnl:GetState("emphasis") or 1)
+		return self:DrawFramePost(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
 	elseif pnl.Name == "text_edit" and pnl:GetState("editable") then
-		return self:DrawFramePost(pnl.transform:GetTotalSize())
+		return self:DrawFramePost(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
 	end
+end
+
+-- Decorative emphasis levels, assigned by role. Frame manages its own
+-- "emphasis" state (defaults to 0, set via the Emphasis prop).
+local ROLE_EMPHASIS = {
+	WindowHeader = 3,
+	WindowContent = 3,
+	TooltipOverlay = 2,
+	text_edit = 1,
+}
+
+function BaseTheme:GetEmphasis(pnl)
+	local override = pnl:GetState("emphasis")
+	if override ~= nil then return override end
+	return ROLE_EMPHASIS[pnl.Name] or 0
 end
 
 function BaseTheme:OnEntityStateChanged(pnl, key, val)
