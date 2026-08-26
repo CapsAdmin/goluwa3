@@ -562,12 +562,15 @@ function JRPGTheme:DrawButton(size, state)
 		render2d.PopTexture()
 	end
 
-	local bo = (state.disabled and 0.3) or (0.6 + anim.glow_alpha * 0.4)
+	local bo = (state.disabled and 0.3) or (0.2 + anim.glow_alpha * 0.4)
 	render2d.SetTexture(nil)
 	set_color(accent, bo)
-	render2d.PushOutlineWidth(0.5)
+	render2d.PushOutlineWidth(0.4)
 	render2d.SetBorderRadius(0)
-	render2d.DrawRect(0, 0, size.x, size.y)
+	render2d.PushSDFSoftness(1)
+	local r = 1
+	render2d.DrawRect(r, r, math.ceil(size.x - r * 2), math.ceil(size.y - r * 2))
+	render2d.PopSDFSoftness()
 	render2d.PopOutlineWidth()
 	render2d.PopBorderRadius()
 

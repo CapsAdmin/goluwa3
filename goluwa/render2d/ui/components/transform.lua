@@ -32,6 +32,20 @@ function META:InvalidateMatrices()
 	self.TotalSize = nil
 end
 
+do
+	local set_size = META.SetSize
+
+	function META:SetSize(size)
+		return set_size(self, size:GetRounded())
+	end
+
+	local set_position = META.SetPosition
+
+	function META:SetPosition(pos)
+		return set_position(self, pos:GetRounded())
+	end
+end
+
 function META:GetTotalSize()
 	if not self.TotalSize then
 		self.TotalSize = self.Size + self.DrawSizeOffset

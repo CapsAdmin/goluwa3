@@ -2027,17 +2027,15 @@ apply_scissor_to_command_buffer = function(x, y, w, h)
 
 	if not cmd then return end
 
-	local cmd_x, cmd_y, cmd_w, cmd_h = x, y, w, h
-
-	if cmd_w == 0 or cmd_h == 0 then
+	if w == 0 or h == 0 then
 		local screen_w, screen_h = render2d.GetSize()
-		cmd_x = math.max(screen_w or 0, 0)
-		cmd_y = math.max(screen_h or 0, 0)
-		cmd_w = 1
-		cmd_h = 1
+		c = math.max(screen_w or 0, 0)
+		u = math.max(screen_h or 0, 0)
+		w = 1
+		h = 1
 	end
 
-	cmd:SetScissor(cmd_x, cmd_y, cmd_w, cmd_h)
+	cmd:SetScissor(x, y, w, h)
 end
 
 function render2d.SetScissor(x, y, w, h)
@@ -2096,8 +2094,8 @@ do
 		return axis_aligned,
 		math.floor(min_x),
 		math.floor(min_y),
-		math.ceil(max_x - min_x),
-		math.ceil(max_y - min_y)
+		math.ceil(max_x) - math.floor(min_x),
+		math.ceil(max_y) - math.floor(min_y)
 	end
 
 	local function draw_clip_mask(entry)
@@ -2114,10 +2112,10 @@ do
 		render2d.ClearNinePatch()
 
 		if entry.kind == "stencil_rect" then
-			render2d.DrawRect(entry.x, entry.y, entry.w, entry.h)
+			render2d.DrawRectf(entry.x, entry.y, entry.w, entry.h)
 		elseif entry.kind == "stencil_rounded_rect" then
 			render2d.PushBorderRadius(entry.tl, entry.tr, entry.br, entry.bl)
-			render2d.DrawRect(entry.x, entry.y, entry.w, entry.h)
+			render2d.DrawRectf(entry.x, entry.y, entry.w, entry.h)
 			render2d.PopBorderRadius()
 		elseif entry.kind == "stencil_shape" then
 			entry.draw_callback()
