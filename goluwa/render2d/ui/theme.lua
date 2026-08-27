@@ -1,9 +1,9 @@
 local base = import("goluwa/render2d/ui/themes/base.lua")
 local jrpg = import("goluwa/render2d/ui/themes/jrpg.lua")
-local jrpgv2 = import("goluwa/render2d/ui/themes/jrpgv2.lua")
+local playful = import("goluwa/render2d/ui/themes/playful.lua")
 local theme = library()
 local DEFAULT_PRESET_NAME = base.Name
-theme.themes = {base, jrpg, jrpgv2}
+theme.themes = {base, jrpg, playful}
 theme.active = nil
 
 local function find_theme_class(name)
