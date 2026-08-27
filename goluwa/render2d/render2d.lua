@@ -1158,6 +1158,21 @@ function render2d.Initialize()
 					return uv;
 				}
 
+				float get_sdf_screen_scale() {
+					if (shape.rect_size.x <= 0.0 || shape.rect_size.y <= 0.0) return 1.0;
+					vec2 fw = fwidth(in_uv) * shape.rect_size;
+					return max(1.0 / max(fw.x, 1e-6), 1.0 / max(fw.y, 1e-6));
+				}
+
+				float get_sdf_texels_per_screen_pixel() {
+					vec2 tex_size = vec2(textureSize(TEXTURE(draw.sdf_texture_index), 0));
+					vec2 rate = fwidth(in_sample_uv) * tex_size;
+					if (!FLAGS_SDF_SAMPLE_UV_MODE_DIRECT) {
+						rate *= abs(draw.sdf_uv_scale);
+					}
+					return max(rate.x, rate.y);
+				}
+
 				float edge(float x) {
 					float softness = shape.sdf_softness;
 					return smoothstep(-softness, softness, x);
@@ -1166,7 +1181,7 @@ function render2d.Initialize()
 				float compute_sdf_alpha(float d) {
 					float alpha = edge(d);
 
-					float outline = shape.outline_width;
+					float outline = shape.outline_width * get_sdf_screen_scale();
 
 					if (outline != 0) 
 						alpha = abs(alpha - edge(d + outline));
@@ -1204,6 +1219,7 @@ function render2d.Initialize()
 						d *= range;
 						d -= shape.sdf_threshold * range;
 						d += shape.sdf_bias * range;
+						d /= max(get_sdf_texels_per_screen_pixel(), 1e-6);
 						return d;
 					//} else if (FLAGS_SHAPE != 0 && shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
 					} else if (FLAGS_SHAPE != 0) {
@@ -1224,10 +1240,10 @@ function render2d.Initialize()
 						//else if (FLAGS_SHAPE_LINE) {
 							//d = sd_line(p, b);
 						//}
-						return shape.sdf_threshold - d;
+						return (-d) * get_sdf_screen_scale();
 					} else if (shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
 						float d = sd_rect(coords);
-						return shape.sdf_threshold - d;
+						return (-d) * get_sdf_screen_scale();
 					}
 					return 1.0;
 				}
@@ -1286,7 +1302,7 @@ function render2d.Initialize()
 						if (shape.outline_width > 0)
 							d = -d;
 
-						float t = clamp(d / max(shape.bevel_width , 1e-5), 0.0, 1.0);
+						float t = clamp(d / max(shape.bevel_width * get_sdf_screen_scale(), 1e-5), 0.0, 1.0);
 						float tilt_t  =  mix(smoothstep(1, 0.0, t), t, shape.bevel_height);
 
 						float eps = 0.0005*2;
@@ -1548,7 +1564,7 @@ function render2d.ResetState()
 	constants.sdf_threshold = 0.48
 	constants.sdf_bias = 0.0
 	constants.sdf_gamma = 1.05
-	constants.sdf_softness = 0.6
+	constants.sdf_softness = 0.5
 	constants.sdf_texture_index = -1
 	local sdf_uv_bounds = constants.sdf_uv_bounds
 	sdf_uv_bounds[0], sdf_uv_bounds[1], sdf_uv_bounds[2], sdf_uv_bounds[3] = 0, 0, 1, 1

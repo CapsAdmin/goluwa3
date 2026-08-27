@@ -258,7 +258,7 @@ local default_foreground_color = Color(1, 1, 1, 1)
 local default_background_color = Color(0, 0, 0, 1)
 -- Mirrors the engine default in render2d.lua; DrawShape never inherits the
 -- ambient softness, so this is the fallback when a pass omits sdf_softness
-local default_sdf_softness = 0.6
+local default_sdf_softness = 0.5
 local hsv_cache = {}
 
 local function get_font(font_name, size, weight)
@@ -302,8 +302,6 @@ local function compute_auto_background(fg)
 	return bg
 end
 
--- Draws one pass of DrawShape. `p` is the pass table; any field it leaves
--- unset falls back to the base table `geo` (in solo mode p == geo).
 local function draw_shape_pass(geo, p)
 	local x = p.x or geo.x or 0
 	local y = p.y or geo.y or 0
@@ -397,62 +395,6 @@ local function draw_shape_pass(geo, p)
 	if blend then render2d.PopBlendMode() end
 end
 
--- Draws SDF rect passes from a single table, in the spirit of DrawText: one
--- table in, fully self-contained, all state pushed and popped internally.
---
--- Without `layers`, the table itself is the single pass. With `layers`, the
--- table supplies geometry and defaults, and each `layers[i]` entry is one
--- pass drawn in order; a layer inherits every field it leaves unset, so it
--- only spells out what differs from the base (the base itself is not drawn
--- in that mode). Example (fill + outline + hover glow):
---
---	render2d.DrawShape{
---		x = 0, y = 0, w = 200, h = 40, border_radius = 6,
---		layers = {
---			{color = fill},
---			{color = border, outline_width = -1},
---			{color = accent, blend = "additive", alpha = glow},
---		},
---	}
---
--- Geometry: x, y, w, h (x/y default to 0, layers may override all four).
--- Per-pass fields:
---   color          Color; when omitted the pass is drawn with the current
---                  ambient color (render2d.GetColor())
---   alpha          multiplier on the pass color's alpha (the ambient
---                  color's alpha when color is omitted)
---   texture        Texture object, or false for an untextured pass
---   border_radius  number, or {tl, tr, br, bl}
---   clamp_border_radius  false allows border_radius to exceed half the
---                        smaller dimension (pill / stadium shapes)
---   outline_width  signed ring width; negative extends outside the edge,
---                  positive insets. A layer with outline_width draws the ring
---                  only, no fill
---   sdf_softness   SDF edge softness (default 0.6; the ambient softness is
---                  never inherited)
---   blend          blend preset name: "alpha", "additive", "multiply",
---                  "premultiplied", "screen", "subtract", "none"; when
---                  omitted the current ambient blend is used
---   color_uv       {x, y, w, h, r} texture uv window + rotation (default
---                  the full uv; the ambient color uv is never inherited)
---   int            true draws the pass with the integer pixel-snapped rect
---                  path (DrawRect) instead of the subpixel float path
---                  (DrawRectf)
--- Base-table-only fields:
---   outline_width + outline_color   draw an extra ring pass after the main
---                                   pass (default color: the pass color)
---   outline_alpha, outline_softness
---   shadow, shadow_x, shadow_y, shadow_color, shadow_softness, blur_intensity
---                                   soft offset pass below the main pass;
---                                   enabled by any of shadow/shadow_x/
---                                   shadow_y (offsets default to 2),
---                                   shadow_color = true picks an auto
---                                   background color
---   shape          "none" (default, the standard sd_rect path), "rect",
---                  "circle", "ellipse", "chamfered", "rounded" (the ambient
---                  shape mode is never inherited)
---   scale / scale_x / scale_y, angle (radians), skew_x / skew_y (degrees),
---   render_x / render_y  whole-shape transform around the rect center
 function render2d.DrawShape(tbl)
 	local x = tbl.x or 0
 	local y = tbl.y or 0
