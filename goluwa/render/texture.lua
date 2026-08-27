@@ -1734,18 +1734,13 @@ do
 		return path
 	end
 
+	function TextureDownloaded:SaveWithoutAlpha(path)
+		return self:Save(path, true)
+	end
+
 	TextureDownloaded:Register()
 	Texture.TextureDownloaded = TextureDownloaded
 	Texture.FormatBytesPerPixel = get_bytes_per_pixel
-
-	do
-		local png = import("goluwa/codecs/png.lua")
-		local fs = import("goluwa/filesystem/fs.lua")
-
-		function Texture:Save(path, without_alpha)
-			return self:Download():Save(path, without_alpha)
-		end
-	end
 
 	function Texture:Download(config)
 		config = config or {}
@@ -1846,6 +1841,14 @@ do
 				deferred = true,
 			}
 		end
+	end
+
+	function Texture:Save(path, without_alpha)
+		return self:Download():Save(path, without_alpha)
+	end
+
+	function Texture:SaveWithoutAlpha(path)
+		return self:Save(path, true)
 	end
 
 	function Texture:GetPixel(x, y)

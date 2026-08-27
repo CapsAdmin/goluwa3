@@ -116,7 +116,7 @@ commands.Add{
 
 		if flags.screenshot then
 			Screenshot(function(screenshot_data)
-				local path = screenshot_data:Save(nil, true)
+				local path = screenshot_data:SaveWithoutAlpha()
 				logn("screenshot saved to ", path)
 			end)
 		end
