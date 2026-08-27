@@ -599,6 +599,8 @@ end
 function JRPGTheme:DrawPost(pnl)
 	if pnl.Name == "WindowContent" then
 		return self:DrawWindowContentPost(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
+	elseif pnl.Name == "clickable" then
+		return self:DrawButtonPost(pnl.transform:GetTotalSize(), pnl:GetState())
 	end
 
 	return self.BaseClass.DrawPost(self, pnl)
@@ -850,9 +852,7 @@ function JRPGTheme:DrawButton(size, state)
 end
 
 function JRPGTheme:DrawButtonPost(size, state)
-	if state.mode == "menu" then
-		return self.BaseClass.DrawButtonPost(self, size, state)
-	end
+	if state.mode == "menu" then return end
 
 	local anim = state.anim or {glow_alpha = 0}
 

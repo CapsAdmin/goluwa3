@@ -27,10 +27,10 @@ BaseTheme:GetSet(
 )
 BaseTheme:GetSet("Radii", {
 	none = 0,
-	XS = 2,
-	S = 3,
-	M = 4,
-	L = 6,
+	XS = 3,
+	S = 4,
+	M = 6,
+	L = 8,
 	full = 9999,
 })
 BaseTheme:GetSet(
@@ -47,7 +47,7 @@ BaseTheme:GetSet(
 )
 BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
-BaseTheme:GetSet("PrimaryColor", Color.FromHex("#0066cc"))
+BaseTheme:GetSet("PrimaryColor", Color.FromHex("#2563eb"))
 BaseTheme:GetSet("DefaultFontPath", "")
 
 do
@@ -93,7 +93,6 @@ end
 function BaseTheme:CreatePalette()
 	local primary = self:GetPrimaryColor()
 	local text = Color.FromHex("#1d1d1f")
-	local text_muted = Color.FromHex("#7a7a7a")
 	local surface = Color.FromHex("#ffffff")
 	local surface_alt = Color.FromHex("#f5f5f7")
 	local semantic_palette = ColorPalette.New()
@@ -114,10 +113,10 @@ function BaseTheme:CreatePalette()
 	semantic_palette:SetMap{
 		-- Accent / interactive
 		primary = primary,
-		primary_focus = Color.FromHex("#0071e3"),
+		primary_focus = Color.FromHex("#1d4ed8"),
 		button_color = primary,
-		button_normal = primary,
-		clickable_disabled = text_muted,
+		button_normal = Color.FromHex("#2159d6"),
+		clickable_disabled = Color.FromHex("#d2d2d7"),
 		property_selection = Color.FromHex("#dbeafe"),
 		text_selection = Color.FromHex("#93c5fd"):SetAlpha(0.5),
 		-- Semantic
@@ -126,19 +125,21 @@ function BaseTheme:CreatePalette()
 		negative = base_map.red,
 		-- Text
 		text = text,
-		text_on_accent = Color.FromHex("#f0f0f0"),
+		text_on_accent = Color.FromHex("#ffffff"),
 		text_on_dark = Color.FromHex("#ffffff"),
-		text_disabled = text_muted,
+		text_disabled = Color.FromHex("#a0a0a5"),
 		-- Surfaces
 		surface = surface,
 		surface_alt = surface_alt,
 		surface_tile_1 = Color.FromHex("#272729"),
 		actual_black = Color(0, 0, 0, 1),
+		track = Color.FromHex("#e8e8ed"),
 		-- Scrollbars
 		scrollbar_track = Color(0, 0, 0, 0.08),
 		scrollbar = Color(0.165, 0.165, 0.165, 0.35),
 		-- Borders
-		border = Color.FromHex("#e0e0e0"),
+		border = Color.FromHex("#dcdce1"),
+		border_strong = Color.FromHex("#b8b8bf"),
 		invisible = Color(0, 0, 0, 0),
 	}
 	semantic_palette.AdjustmentOptions = {target_contrast = 4.5}
@@ -309,64 +310,87 @@ function BaseTheme:GetFont(name, size_name)
 	return font_cache[cache_key], size_val
 end
 
-function BaseTheme:SetRenderColor(color, alpha_multiplier)
-	alpha_multiplier = alpha_multiplier or 1
-	render2d.SetColor(color.r, color.g, color.b, color.a * alpha_multiplier)
-end
-
+-- All theme drawing goes through render2d.DrawShape: one self-contained
+-- table per shape, with state pushed and popped internally.
 function BaseTheme:DrawRoundRect(x, y, w, h, radius, color, alpha_multiplier)
-	render2d.SetTexture(nil)
-	self:SetRenderColor(color, alpha_multiplier)
-	render2d.PushBorderRadius(radius or 0)
-	render2d.DrawRect(x, y, w, h)
-	render2d.PopBorderRadius()
-end
-
-function BaseTheme:DrawRoundRectToken(x, y, w, h, radius, token, alpha)
-	self:DrawRoundRect(x, y, w, h, radius, self:GetColor(token), alpha)
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = w,
+		h = h,
+		border_radius = radius or 0,
+		color = color,
+		alpha = alpha_multiplier,
+		texture = false,
+	}
 end
 
 function BaseTheme:DrawRoundOutline(x, y, w, h, radius, color, alpha_multiplier, thickness)
-	render2d.SetTexture(nil)
-	self:SetRenderColor(color, alpha_multiplier)
-	render2d.PushOutlineWidth(-(thickness or self:GetSize("line")))
-	render2d.PushBorderRadius(radius or 0)
-	render2d.DrawRect(x, y, w, h)
-	render2d.PopBorderRadius()
-	render2d.PopOutlineWidth()
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = w,
+		h = h,
+		border_radius = radius or 0,
+		texture = false,
+		layers = {
+			{
+				color = color,
+				alpha = alpha_multiplier,
+				outline_width = -(thickness or self:GetSize("line")),
+			},
+		},
+	}
+end
+
+-- Rounded box with an optional fill and outline ring, drawn as a single
+-- DrawShape call (fill + ring shorthand when both are present).
+function BaseTheme:DrawBoxShape(x, y, w, h, opts)
+	opts = opts or {}
+	local fill = opts.fill
+	local outline = opts.outline
+	local has_fill = fill ~= nil and (opts.fill_alpha == nil or opts.fill_alpha > 0)
+	local has_outline = outline ~= nil and (opts.outline_alpha == nil or opts.outline_alpha > 0)
+
+	if not has_fill and not has_outline then return end
+
+	local shape = {
+		x = x,
+		y = y,
+		w = w,
+		h = h,
+		border_radius = opts.radius or 0,
+		texture = false,
+	}
+
+	if has_fill then
+		shape.color = self:ResolveSurfaceFill(fill, fill)
+		shape.alpha = opts.fill_alpha
+	end
+
+	if has_outline then
+		local outline_color = type(outline) == "string" and self:GetColor(outline, fill) or outline
+
+		if has_fill then
+			shape.outline_width = -(opts.thickness or self:GetSize("line"))
+			shape.outline_color = outline_color
+			shape.outline_alpha = opts.outline_alpha
+		else
+			shape.layers = {
+				{
+					color = outline_color,
+					alpha = opts.outline_alpha,
+					outline_width = -(opts.thickness or self:GetSize("line")),
+				},
+			}
+		end
+	end
+
+	render2d.DrawShape(shape)
 end
 
 function BaseTheme:DrawBox(size, opts)
-	opts = opts or {}
-	local radius = opts.radius or 0
-	local fill = opts.fill
-	local outline = opts.outline
-
-	if fill ~= nil and (opts.fill_alpha == nil or opts.fill_alpha > 0) then
-		self:DrawRoundRect(
-			0,
-			0,
-			size.x,
-			size.y,
-			radius,
-			self:ResolveSurfaceFill(fill, fill),
-			opts.fill_alpha
-		)
-	end
-
-	if outline ~= nil and (opts.outline_alpha == nil or opts.outline_alpha > 0) then
-		local outline_color = type(outline) == "string" and self:GetColor(outline, fill) or outline
-		self:DrawRoundOutline(
-			0,
-			0,
-			size.x,
-			size.y,
-			radius,
-			outline_color,
-			opts.outline_alpha,
-			opts.thickness or self:GetSize("line")
-		)
-	end
+	self:DrawBoxShape(0, 0, size.x, size.y, opts)
 end
 
 function BaseTheme:DrawInsetBox(x, y, w, h, opts)
@@ -400,15 +424,19 @@ function BaseTheme:DrawValueField(size, opts)
 		fill = opts.hover_fill or self:GetColor("surface_alt"):Copy():SetAlpha(0.45)
 	end
 
-	if fill ~= nil then
-		self:DrawBox(size, {fill = fill, fill_alpha = fill_alpha, radius = radius})
-	end
+	local outline
 
 	if opts.outline ~= false and opts.state == "editing" then
+		outline = opts.outline_color or "border"
+	end
+
+	if fill ~= nil or outline ~= nil then
 		self:DrawBox(
 			size,
 			{
-				outline = opts.outline_color or "border",
+				fill = fill,
+				fill_alpha = fill_alpha,
+				outline = outline,
 				outline_alpha = opts.outline_alpha or 1,
 				radius = radius,
 				thickness = opts.thickness or self:GetSize("line"),
@@ -425,7 +453,7 @@ function BaseTheme:DrawPropertyRow(size, opts)
 	end
 
 	if opts.hovered then
-		return self:DrawSelectionFill(size, opts.hover_color or self:GetHoverTint(nil, 0.08))
+		return self:DrawSelectionFill(size, opts.hover_color or self:GetHoverTint(nil, 0.06))
 	end
 
 	return self:DrawSelectionFill(size, opts.alternate and "surface_alt" or "surface")
@@ -440,7 +468,7 @@ function BaseTheme:DrawPropertyPreview(size, opts)
 			fill_alpha = opts.fill_alpha,
 			outline = opts.outline or "border",
 			outline_alpha = opts.outline_alpha or 1,
-			radius = opts.radius or 0,
+			radius = opts.radius or self:GetRadius("XS"),
 			thickness = opts.thickness or self:GetSize("line"),
 		}
 	)
@@ -474,6 +502,7 @@ do -- icons
 		chevron = [[<svg viewBox="0 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]],
 		plus = [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]],
 		minus = [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]],
+		check = [[<svg viewBox="0 0 16 16"><path d="M13.7 4.3L12.3 2.9L6.5 8.7L3.7 5.9L2.3 7.3L6.5 11.5z"/></svg>]],
 		close = [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]],
 	}
 
@@ -495,6 +524,7 @@ do -- icons
 		return math.max(1, math.min(base, available))
 	end
 
+	-- origin_x / origin_y align the icon inside `size` (0..1, default top-left)
 	function BaseTheme:DrawSVGIcon(name, size, opts)
 		opts = opts or {}
 		local svg = get_cached_icon_svg(name)
@@ -503,7 +533,15 @@ do -- icons
 
 		local target_size = self:ResolveIconDrawSize(size, opts.size, opts.inset)
 		local color = opts.color or self:GetColor("text")
-		render2d.PushMatrixf(0, 0, target_size, target_size, math.rad(opts.rotation_degrees or 0))
+		local origin_x = (size.x - target_size) * (opts.origin_x or 0)
+		local origin_y = (size.y - target_size) * (opts.origin_y or 0)
+		render2d.PushMatrixf(
+			origin_x,
+			origin_y,
+			target_size,
+			target_size,
+			math.rad(opts.rotation_degrees or 0)
+		)
 		render2d.PushColor(color:Unpack())
 		svg:Draw()
 		render2d.PopColor()
@@ -716,115 +754,109 @@ do
 	end
 
 	do
+		-- Resolves the colors for a clickable's current state. Fill colors are
+		-- full-alpha; the *_alpha fields carry the translucency so callers can
+		-- animate it with the hover glow.
 		function BaseTheme:ResolveButtonStyleContext(state)
-			local accent_token = state.button_color ~= nil and state.button_color or "button_color"
-			local accent_fill_token = state.button_color ~= nil and state.button_color or "primary"
+			local accent = self:GetColor(state.button_color or "primary")
 			local background_token
 			local foreground_token
+			local fill
+			local fill_hover
+			local fill_hover_alpha
+			local fill_pressed
+			local fill_pressed_alpha
+			local ring
+			local ring_hover
+			local ring_alpha
 			local menu_fill = self:GetColor("invisible")
-			local menu_outline_token
-			local menu_outline_alpha
-			local outline_token = "border"
-			local outline_alpha = 1
-			local overlay_token
-			local overlay_alpha
-			local post_outline_token
-			local post_outline_alpha
-
-			if state.mode == "text" then
-				if state.hovered then background_token = accent_fill_token end
-			elseif state.mode ~= "menu" then
-				if state.disabled then
-					background_token = "clickable_disabled"
-				elseif state.mode == "outline" then
-					background_token = "surface"
-				elseif state.button_color ~= nil then
-					background_token = state.button_color
-				elseif state.pressed or state.active then
-					background_token = "primary_focus"
-				elseif state.hovered then
-					background_token = "button_normal"
-				else
-					background_token = "button_color"
-				end
-			end
+			local menu_fill_alpha = 0
+			local menu_fill_animated = false
 
 			if state.disabled then
 				foreground_token = "text_disabled"
-			elseif state.mode == "text" or state.mode == "outline" then
-				if state.button_color ~= nil then
-					if state.hovered or state.pressed or state.active then
-						foreground_token = "text_on_accent"
-					else
-						foreground_token = state.button_color
-					end
-				else
-					foreground_token = state.hovered and "text_on_accent" or "text"
-				end
-			elseif state.mode == "filled" then
-				foreground_token = "text_on_accent"
-			else
-				foreground_token = "text"
-			end
 
-			if state.mode == "menu" then
-				if state.disabled then
-					menu_fill = self:GetColor("invisible")
-				elseif state.pressed then
-					menu_fill = self:GetColor("primary"):Copy():SetAlpha(0.15)
+				if state.mode == "outline" then
+					background_token = "surface"
+					fill = self:GetColor("surface")
+					ring = self:GetColor("border")
+					ring_alpha = 0.5
+				else
+					background_token = "clickable_disabled"
+					fill = self:GetColor("clickable_disabled")
+				end
+			elseif state.mode == "text" then
+				if state.button_color ~= nil then
+					background_token = state.button_color
+					foreground_token = state.button_color
+				else
+					foreground_token = (state.hovered or state.pressed or state.active) and "primary" or "text"
+				end
+
+				fill_hover = accent
+				fill_hover_alpha = 0.08
+				fill_pressed = accent
+				fill_pressed_alpha = 0.14
+			elseif state.mode == "outline" then
+				background_token = "surface"
+				foreground_token = state.button_color ~= nil and
+					state.button_color or
+					(
+						state.hovered or
+						state.pressed or
+						state.active
+					)
+					and
+					"primary" or
+					"text"
+				fill = self:GetColor("surface")
+				fill_hover = accent
+				fill_hover_alpha = 0.06
+				fill_pressed = accent
+				fill_pressed_alpha = 0.12
+				ring = self:GetColor("border_strong")
+				ring_hover = accent
+				ring_alpha = 1
+			elseif state.mode == "menu" then
+				foreground_token = "text"
+
+				if state.pressed then
+					menu_fill = accent
+					menu_fill_alpha = 0.15
 				elseif state.selected then
 					menu_fill = self:GetColor(state.selected_color or "property_selection")
+					menu_fill_alpha = 1
 				elseif state.active or state.hovered then
-					menu_fill = self:GetColor("primary"):Copy():SetAlpha(0.1)
+					menu_fill = accent
+					menu_fill_alpha = 0.08
+					menu_fill_animated = true
 				end
-
-				if (state.active or state.selected) and not state.disabled then
-					menu_outline_token = "border"
-					menu_outline_alpha = 0.7
-				end
-			end
-
-			if state.mode == "outline" then
-				outline_token = "border"
-				outline_alpha = state.disabled and 0.5 or 1
-
-				if state.disabled then
-					overlay_token = "clickable_disabled"
-					overlay_alpha = 0.12
-				elseif state.pressed or state.hovered or state.active then
-					overlay_token = accent_token
-					overlay_alpha = 0.12
-				end
-			elseif state.active and not state.disabled and state.mode ~= "menu" then
-				outline_token = "border"
-				outline_alpha = state.mode == "text" and 0.5 or 0.6
-			end
-
-			if
-				not state.disabled and
-				state.hovered and
-				state.mode ~= "outline" and
-				state.mode ~= "text" and
-				state.mode ~= "menu"
-			then
-				post_outline_token = accent_fill_token
-				post_outline_alpha = 0.45
+			else
+				background_token = state.button_color or "button_color"
+				foreground_token = "text_on_accent"
+				fill = accent
+				fill_hover = accent:Darken(0.8)
+				fill_hover_alpha = 1
+				fill_pressed = accent:Darken(1.6)
+				fill_pressed_alpha = 1
+				ring = accent:Darken(2.2)
+				ring_alpha = 1
 			end
 
 			return {
-				accent_token = accent_token,
-				accent_fill_token = accent_fill_token,
 				background_token = background_token,
 				foreground_token = foreground_token,
+				fill = fill,
+				fill_hover = fill_hover,
+				fill_hover_alpha = fill_hover_alpha,
+				fill_pressed = fill_pressed,
+				fill_pressed_alpha = fill_pressed_alpha,
+				ring = ring,
+				ring_hover = ring_hover,
+				ring_alpha = ring_alpha,
 				menu_fill = menu_fill,
-				menu_outline_token = menu_outline_token,
-				menu_outline_alpha = menu_outline_alpha,
-				outline_token = outline_token,
-				outline_alpha = outline_alpha,
-				overlay_token = overlay_token,
-				overlay_alpha = overlay_alpha,
-				post_outline_token = post_outline_token,
-				post_outline_alpha = post_outline_alpha,
+				menu_fill_alpha = menu_fill_alpha,
+				menu_fill_animated = menu_fill_animated,
 			}
 		end
 
@@ -833,48 +865,80 @@ do
 				glow_alpha = 0,
 				press_scale = 0,
 			}
-			local radius = self:GetRadius("M")
 			local context = self:ResolveButtonStyleContext(state)
-			local fill = self:GetColor(context.background_token)
-			self:DrawRoundRect(0, 0, size.x, size.y, radius, fill)
-			self:DrawRoundOutline(
-				0,
-				0,
-				size.x,
-				size.y,
-				radius,
-				self:GetColor(context.outline_token),
-				context.outline_alpha,
-				self:GetSize("line")
+			local fill = context.fill
+
+			if fill == nil then return end
+
+			if (state.pressed or state.active) and context.fill_pressed then
+				fill = context.fill_pressed
+			elseif state.hovered and not state.disabled and context.fill_hover then
+				fill = fill:Copy():GetLerped(anim.glow_alpha, context.fill_hover)
+			end
+
+			self:DrawBox(
+				size,
+				{
+					fill = fill,
+					outline = context.ring,
+					outline_alpha = context.ring_alpha,
+					radius = self:GetRadius("M"),
+				}
 			)
 		end
 
 		function BaseTheme:DrawTextButton(size, state)
-			local radius = self:GetRadius("M")
+			local anim = state.anim or {glow_alpha = 0}
 			local context = self:ResolveButtonStyleContext(state)
-			local fill = context.background_token and self:GetColor(context.background_token) or nil
+			local fill = context.fill_hover
 
-			if fill then self:DrawRoundRect(0, 0, size.x, size.y, radius, fill) end
+			if fill == nil then return end
+
+			local fill_alpha = context.fill_hover_alpha
+
+			if state.pressed then
+				fill = context.fill_pressed
+				fill_alpha = context.fill_pressed_alpha
+			elseif state.hovered then
+				fill_alpha = fill_alpha * anim.glow_alpha
+			end
+
+			self:DrawBox(
+				size,
+				{
+					fill = fill,
+					fill_alpha = fill_alpha,
+					radius = self:GetRadius("M"),
+				}
+			)
 		end
 
 		function BaseTheme:DrawOutlineButton(size, state)
-			local radius = self:GetRadius("M")
+			local anim = state.anim or {glow_alpha = 0}
 			local context = self:ResolveButtonStyleContext(state)
-			local outline_color = context.overlay_token and self:GetColor(context.overlay_token) or nil
+			local ring = context.ring
+			local ring_alpha = context.ring_alpha or 1
+			local fill_alpha = 0
 
-			if outline_color then
-				self:DrawRoundRect(0, 0, size.x, size.y, radius, outline_color, context.overlay_alpha)
+			if state.pressed then
+				fill_alpha = context.fill_pressed_alpha
+			elseif state.hovered or state.active then
+				fill_alpha = context.fill_hover_alpha * (state.hovered and anim.glow_alpha or 1)
 			end
 
-			self:DrawRoundOutline(
-				0,
-				0,
-				size.x,
-				size.y,
-				radius,
-				self:GetColor(context.outline_token),
-				context.outline_alpha,
-				self:GetSize("line")
+			if ring and context.ring_hover and (state.hovered or state.active) then
+				ring = ring:Copy():GetLerped(state.hovered and anim.glow_alpha or 1, context.ring_hover)
+			end
+
+			self:DrawBox(
+				size,
+				{
+					fill = context.fill,
+					fill_alpha = fill_alpha,
+					outline = ring,
+					outline_alpha = ring_alpha,
+					radius = self:GetRadius("M"),
+				}
 			)
 		end
 
@@ -891,43 +955,19 @@ do
 		end
 	end
 
-	function BaseTheme:DrawButtonPost(size, state)
-		local anim = state.anim or {glow_alpha = 0}
-		local context = self:ResolveButtonStyleContext(state)
-
-		if not context.post_outline_token or not context.post_outline_alpha then
-			return
-		end
-
-		local radius = self:GetRadius("M")
-		self:DrawRoundOutline(
-			0,
-			0,
-			size.x,
-			size.y,
-			radius,
-			self:GetColor(context.post_outline_token),
-			anim.glow_alpha * context.post_outline_alpha,
-			self:GetSize("line")
-		)
-	end
-
 	function BaseTheme:DrawMenuButton(size, state, opts)
 		opts = opts or {}
 		local radius = opts.radius or self:GetRadius("XS")
+		local anim = state.anim or {glow_alpha = 0}
 		local context = self:ResolveButtonStyleContext(state)
-		local fill = context.menu_fill or self:GetColor("invisible")
-		self:DrawBox(size, {fill = fill, radius = radius})
+		local fill_alpha = context.menu_fill_alpha
 
-		if context.menu_outline_token then
-			self:DrawBox(
-				size,
-				{
-					outline = context.menu_outline_token,
-					radius = radius,
-					outline_alpha = context.menu_outline_alpha,
-				}
-			)
+		if context.menu_fill_animated then
+			fill_alpha = fill_alpha * anim.glow_alpha
+		end
+
+		if fill_alpha > 0 then
+			self:DrawBox(size, {fill = context.menu_fill, fill_alpha = fill_alpha, radius = radius})
 		end
 	end
 end
@@ -975,23 +1015,43 @@ function BaseTheme:DrawTreeGuideLines(size, meta, opts)
 	local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
 	local center_y = math.floor(size.y / 2)
 	local line_start_x = opts.line_start_x or center_x
-	self:SetRenderColor(self:GetColor(opts.line_color or "border"), opts.alpha)
-	render2d.SetTexture(nil)
+	local layers = {}
 
 	for level = 1, #(meta.continuations or {}) do
 		if meta.continuations[level] then
 			local x = (level - 1) * guide_step + math.floor(toggle_size / 2)
-			render2d.DrawRect(x, 0, line, size.y)
+			table.insert(layers, {x = x, y = 0, w = line, h = size.y})
 		end
 	end
 
-	if meta.level > 0 then render2d.DrawRect(center_x, 0, line, center_y + 1) end
-
-	if not meta.is_last then
-		render2d.DrawRect(center_x, center_y, line, size.y - center_y)
+	if meta.level > 0 then
+		table.insert(layers, {x = center_x, y = 0, w = line, h = center_y + 1})
 	end
 
-	render2d.DrawRect(line_start_x, center_y, math.max(1, size.x - line_start_x), line)
+	if not meta.is_last then
+		table.insert(layers, {x = center_x, y = center_y, w = line, h = size.y - center_y})
+	end
+
+	table.insert(
+		layers,
+		{
+			x = line_start_x,
+			y = center_y,
+			w = math.max(1, size.x - line_start_x),
+			h = line,
+		}
+	)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = self:GetColor(opts.line_color or "border"),
+		alpha = opts.alpha,
+		texture = false,
+		int = true,
+		layers = layers,
+	}
 	return center_x, center_y
 end
 
@@ -1013,19 +1073,19 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 	local half_box = math.floor(box_size / 2)
 	local box_x = center_x - half_box
 	local box_y = center_y - half_box
-	self:DrawInsetBox(
+	self:DrawBoxShape(
 		box_x,
 		box_y,
 		box_size,
 		box_size,
 		{
-			outline = opts.box_outline or "border",
-			outline_alpha = 1,
-			radius = 0,
+			fill = opts.box_fill or "surface",
+			outline = opts.box_outline or "border_strong",
+			outline_alpha = opts.box_outline_alpha or 1,
+			radius = opts.radius or self:GetRadius("XS"),
 			thickness = self:GetSize("line"),
 		}
 	)
-	self:DrawRoundRect(box_x, box_y, box_size, box_size, 0, self:GetColor(opts.box_fill or "surface"))
 	render2d.PushMatrix()
 	render2d.Translatef(box_x, box_y)
 	self:DrawSVGIcon(
@@ -1042,12 +1102,31 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 end
 
 function BaseTheme:DrawSharedInstanceMarker(size, color)
-	self:SetRenderColor(self:ResolveColor(color, "primary"), 1)
-	render2d.SetTexture(nil)
 	local line = self:GetSize("line")
 	local inset = self:GetSize("XXXS")
-	render2d.DrawRect(inset, math.floor(size.y * 0.5) - line, math.max(1, size.x - inset * 2), line * 2)
-	render2d.DrawRect(math.floor(size.x * 0.5) - line, inset, line * 2, math.max(1, size.y - inset * 2))
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = self:ResolveColor(color, "primary"),
+		texture = false,
+		int = true,
+		layers = {
+			{
+				x = inset,
+				y = math.floor(size.y * 0.5) - line,
+				w = math.max(1, size.x - inset * 2),
+				h = line * 2,
+			},
+			{
+				x = math.floor(size.x * 0.5) - line,
+				y = inset,
+				w = line * 2,
+				h = math.max(1, size.y - inset * 2),
+			},
+		},
+	}
 end
 
 function BaseTheme:DrawDropIndicator(size, opts)
@@ -1056,19 +1135,35 @@ function BaseTheme:DrawDropIndicator(size, opts)
 	local thickness = opts.thickness or self:GetSize("XXXS")
 	local w = math.max(1, size.x)
 	local h = math.max(1, size.y)
-	self:SetRenderColor(color, opts.alpha)
-	render2d.SetTexture(nil)
 
 	if opts.source then
 		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, self:GetSize("line"))
 	end
 
 	if opts.position == "inside" then
-		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, self:GetSize("XXXS"))
+		self:DrawRoundOutline(0, 0, w, h, 0, color, opts.alpha, thickness)
 	elseif opts.position == "before" then
-		render2d.DrawRect(0, 0, w, thickness)
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = w,
+			h = thickness,
+			color = color,
+			alpha = opts.alpha,
+			texture = false,
+			int = true,
+		}
 	elseif opts.position == "after" then
-		render2d.DrawRect(0, math.max(0, h - thickness), w, thickness)
+		render2d.DrawShape{
+			x = 0,
+			y = math.max(0, h - thickness),
+			w = w,
+			h = thickness,
+			color = color,
+			alpha = opts.alpha,
+			texture = false,
+			int = true,
+		}
 	end
 end
 
@@ -1109,13 +1204,26 @@ function BaseTheme:DrawSurface(size, color, radius)
 end
 
 function BaseTheme:DrawTrack(x, y, w, h, fill_extent, radius, track_color, accent_color)
-	self:DrawRoundRect(x, y, w, h, radius, track_color)
+	local fill_w, fill_h
 
 	if h <= w then
-		self:DrawRoundRect(x, y, fill_extent, h, radius, accent_color)
+		fill_w, fill_h = fill_extent, h
 	else
-		self:DrawRoundRect(x, y, w, fill_extent, radius, accent_color)
+		fill_w, fill_h = w, fill_extent
 	end
+
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = w,
+		h = h,
+		border_radius = radius,
+		texture = false,
+		layers = {
+			{color = track_color},
+			{w = fill_w, h = fill_h, color = accent_color},
+		},
+	}
 end
 
 function BaseTheme:DrawSlider(size, state)
@@ -1125,9 +1233,8 @@ function BaseTheme:DrawSlider(size, state)
 	}
 	local knob_w = self:GetSize("M")
 	local knob_h = self:GetSize("M")
-	local track = self:GetColor("surface_alt")
+	local track = self:GetColor("track")
 	local accent = self:GetColor("primary")
-	local border = self:GetColor("border")
 	local value = state.value
 	local min_value = state.min
 	local max_value = state.max
@@ -1137,14 +1244,22 @@ function BaseTheme:DrawSlider(size, state)
 	if state.mode == "2d" then
 		local normalized_x = (value.x - min_value.x) / (max_value.x - min_value.x)
 		local normalized_y = (value.y - min_value.y) / (max_value.y - min_value.y)
-		local radius = self:GetRadius("L")
-		self:DrawRoundRect(0, 0, size.x, size.y, radius, self:GetColor("surface"))
-		self:DrawRoundOutline(0, 0, size.x, size.y, radius, border, 1, self:GetSize("line"))
+		self:DrawBoxShape(
+			0,
+			0,
+			size.x,
+			size.y,
+			{
+				fill = "surface",
+				outline = "border",
+				radius = self:GetRadius("L"),
+			}
+		)
 		knob_x = normalized_x * (size.x - knob_w)
 		knob_y = normalized_y * (size.y - knob_h)
 	elseif state.mode == "vertical" then
 		local normalized = (value - min_value) / (max_value - min_value)
-		local track_w = self:GetSize("XXS")
+		local track_w = self:GetSize("XS")
 		local track_x = (size.x - track_w) / 2
 		self:DrawTrack(
 			track_x,
@@ -1160,7 +1275,7 @@ function BaseTheme:DrawSlider(size, state)
 		knob_y = normalized * (size.y - knob_h)
 	else
 		local normalized = (value - min_value) / (max_value - min_value)
-		local track_h = self:GetSize("XXS")
+		local track_h = self:GetSize("XS")
 		local track_y = (size.y - track_h) / 2
 		self:DrawTrack(
 			knob_w / 2,
@@ -1180,41 +1295,28 @@ function BaseTheme:DrawSlider(size, state)
 	local scaled_h = knob_h * anim.knob_scale
 	local offset_x = (scaled_w - knob_w) / 2
 	local offset_y = (scaled_h - knob_h) / 2
-	self:DrawRoundRect(
-		knob_x - offset_x,
-		knob_y - offset_y,
-		scaled_w,
-		scaled_h,
-		math.floor(scaled_h / 2),
-		self:GetColor("surface")
-	)
-	self:DrawRoundOutline(
-		knob_x - offset_x,
-		knob_y - offset_y,
-		scaled_w,
-		scaled_h,
-		math.floor(scaled_h / 2),
-		border,
-		1,
-		self:GetSize("line")
-	)
-
-	if state.hovered then
-		self:DrawRoundOutline(
-			knob_x - offset_x,
-			knob_y - offset_y,
-			scaled_w,
-			scaled_h,
-			math.floor(scaled_h / 2),
-			accent,
-			anim.glow_alpha * 0.45,
-			self:GetSize("line")
-		)
-	end
+	local knob_border = self:GetColor("border_strong"):Copy():GetLerped(anim.glow_alpha, accent)
+	render2d.DrawShape{
+		x = knob_x - offset_x,
+		y = knob_y - offset_y,
+		w = scaled_w,
+		h = scaled_h,
+		border_radius = math.floor(scaled_h / 2),
+		texture = false,
+		shadow = true,
+		shadow_x = 0,
+		shadow_y = 1,
+		shadow_color = Color(0, 0, 0, 0.3),
+		shadow_softness = 1.5,
+		layers = {
+			{color = self:GetColor("surface")},
+			{color = knob_border, outline_width = -self:GetSize("line")},
+		},
+	}
 end
 
--- Shared checkable control drawing: outer shape + outline + inner fill when checked
--- inner_draw: function(theme, draw_x, draw_y, draw_size, draw_radius, alpha) -> draws the inner checked shape
+-- Shared checkable control drawing: outer shape + border + inner mark when
+-- checked. inner_draw: function(theme, draw_x, draw_y, draw_size, draw_radius, alpha)
 function BaseTheme:DrawCheckable(size, state, opts)
 	local anim = state.anim or
 		{
@@ -1226,36 +1328,47 @@ function BaseTheme:DrawCheckable(size, state, opts)
 	local box_size = self:GetSize("M")
 	local x = 0
 	local y = (size.y - box_size) / 2
-	local radius = opts.radius or self:GetRadius("XS")
-	self:DrawRoundRect(x, y, box_size, box_size, radius, self:GetColor("surface"))
-	self:DrawRoundOutline(
-		x,
-		y,
-		box_size,
-		box_size,
-		radius,
-		self:GetColor("border"),
-		1,
-		self:GetSize("line")
-	)
+	local radius = opts.radius or self:GetRadius("S")
+	local check = anim.check_anim
+	local border = self:GetColor("border_strong"):Copy():GetLerped(anim.glow_alpha, self:GetColor("primary"))
+	local layers = {
+		{color = self:GetColor("surface")},
+	}
 
-	if anim.check_anim > 0.01 then
-		opts.inner_draw(self, x, y, box_size, radius, anim.check_anim)
+	if check > 0.01 then
+		table.insert(layers, {color = self:GetColor("primary"), alpha = check})
 	end
+
+	table.insert(layers, {color = border, outline_width = -self:GetSize("line")})
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = box_size,
+		h = box_size,
+		border_radius = radius,
+		texture = false,
+		layers = layers,
+	}
+
+	if check > 0.01 then opts.inner_draw(self, x, y, box_size, radius, check) end
 end
 
 do
 	local function draw_checkbox_inner(theme, x, y, box_size, radius, anim_val)
-		local inset = theme:GetSize("XXS") + (1 - anim_val) * theme:GetSize("XXXS")
-		theme:DrawRoundRect(
-			x + inset,
-			y + inset,
-			box_size - inset * 2,
-			box_size - inset * 2,
-			theme:GetRadius("XS"),
-			theme:GetColor("primary"),
-			anim_val
+		local icon_size = box_size * (0.55 + 0.3 * anim_val)
+		render2d.PushMatrix()
+		render2d.Translatef(x, y)
+		theme:DrawSVGIcon(
+			"check",
+			Vec2(box_size, box_size),
+			{
+				size = icon_size,
+				origin_x = 0.5,
+				origin_y = 0.5,
+				color = Color(1, 1, 1, math.min(1, anim_val)),
+			}
 		)
+		render2d.PopMatrix()
 	end
 
 	function BaseTheme:DrawCheckbox(size, state)
@@ -1270,7 +1383,7 @@ do
 	end
 
 	local function draw_button_radio_inner(theme, x, y, box_size, radius, anim_val)
-		local dot = box_size * 0.42 * anim_val
+		local dot = box_size * 0.5 * anim_val
 		local dot_x = x + box_size / 2 - dot / 2
 		local dot_y = y + box_size / 2 - dot / 2
 		theme:DrawRoundRect(dot_x, dot_y, dot, dot, math.floor(dot / 2), theme:GetColor("primary"))
@@ -1306,28 +1419,28 @@ function BaseTheme:DrawFramePost(size)
 end
 
 function BaseTheme:DrawHeader(size)
-	self:DrawBox(size, {fill = "surface_alt", fill_alpha = 1, radius = self:GetRadius("none")})
-	local line = self:GetSize("line")
-	self:SetRenderColor(self:GetColor("border"), 1)
-	render2d.SetTexture(nil)
-	render2d.DrawRect(0, math.max(0, size.y - line), size.x, line)
+	local radius = self:GetRadius("M")
+	self:DrawBox(
+		size,
+		{
+			fill = "surface_alt",
+			fill_alpha = 1,
+			outline = "border",
+			outline_alpha = 1,
+			radius = {radius, radius, 0, 0},
+		}
+	)
 end
 
 function BaseTheme:DrawProgressBar(size, state, color)
 	local value = math.clamp(state.value or 0, 0, 1)
 	color = self:ResolveSurfaceFill(color, "primary")
 	local radius = math.min(math.floor(size.y / 2), self:GetRadius("full"))
-	self:DrawBox(
-		size,
-		{
-			fill = "surface_alt",
-			outline = "border",
-			outline_alpha = 1,
-			radius = radius,
-			thickness = self:GetSize("line"),
-		}
-	)
-	self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
+	self:DrawBox(size, {fill = "track", radius = radius})
+
+	if value > 0 then
+		self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)
+	end
 end
 
 function BaseTheme:DrawDivider(size)
@@ -1344,7 +1457,7 @@ function BaseTheme:DrawMenuContainer(size)
 		{
 			fill = "surface",
 			fill_alpha = 1,
-			radius = self:GetRadius("XS"),
+			radius = self:GetRadius("S"),
 			outline = "border",
 			outline_alpha = 1,
 			thickness = self:GetSize("line"),
@@ -1356,16 +1469,26 @@ end
 function BaseTheme:DrawLine(color_token, alpha, size, orientation)
 	if color_token == nil or color_token == 0 then color_token = "border" end
 
-	self:SetRenderColor(self:GetColor(color_token), alpha)
-	render2d.SetTexture(nil)
 	local line = self:GetSize("line")
 	local horiz = orientation == "auto" and size.x > size.y or orientation == "horizontal"
+	local x, y, w, h
 
 	if horiz then
-		render2d.DrawRect(0, math.floor(size.y / 2), size.x, line)
+		x, y, w, h = 0, math.floor(size.y / 2), size.x, line
 	else
-		render2d.DrawRect(math.floor(size.x / 2), 0, line, size.y)
+		x, y, w, h = math.floor(size.x / 2), 0, line, size.y
 	end
+
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = w,
+		h = h,
+		color = self:GetColor(color_token),
+		alpha = alpha,
+		texture = false,
+		int = true,
+	}
 end
 
 function BaseTheme:Draw(pnl)
@@ -1494,9 +1617,7 @@ function BaseTheme:DrawPost(pnl)
 		return self:DrawDropIndicator(pnl.transform:GetSize(), pnl:GetState("drop_indicator_opts") or {})
 	end
 
-	if pnl.Name == "clickable" then
-		return self:DrawButtonPost(pnl.transform:GetTotalSize(), pnl:GetState())
-	elseif
+	if
 		pnl.Name == "frame" or
 		pnl.Name == "WindowContent" or
 		pnl.Name == "TooltipOverlay"
