@@ -16,26 +16,32 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - Run a single lua script: `luajit glw --2d --one-frame lua "./tmp/path/to/file.lua"`
 
-- Take a screenshot: `luajit glw --2d --screenshot --one-frame lua "./tmp/path/to/some/render/script.lua"`
-
-- The `Screenshot(cb, opt)` global captures the screen. `cb(texture)` receives a `TextureDownloaded` with ready pixels (`:Save(path, without_alpha)`, `:ToPNG(without_alpha)`, `:GetPixel(x, y)`). `opt.update_events = n` runs n Update events first — use this for UI so layout resolves before the capture. `opt.midframe = true` captures immediately mid-frame via `render.Capture()` — call it from inside a Draw/Draw2D listener. `opt.camera = {position, rotation, fov}` (3d only) captures from a specific camera — it beats per-frame camera controllers (e.g. the player camera component); the game camera keeps being updated and is used again after the capture. It works by rendering from a camera copy via `render3d.SetRenderCamera` (the pipeline reads `render3d.GetRenderCamera()`, controllers keep driving `render3d.GetCamera()`). Example:
-  ```lua
-  Screenshot(function(texture)
-      print(texture:Save(nil, true)) -- auto path under storage/logs/screenshots/
-  end, {update_events = 3})
-
-  Screenshot(function(texture)
-      texture:Save("tmp/from_here.png")
-  end, {camera = {position = Vec3(0, 5, 0), rotation = QuatDeg3(45, 0, 0)}})
-  ```
-
 - Run a single test file with name pattern: `luajit glw test render2d/render2d.lua --name-pattern="Graphics render2d blend modes visual"`
 
 - Run all test files in a directory: `luajit glw test render2d/`
 
 - Run inline lua: `luajit glw --2d --one-frame lua "print('hello')"`. For scripts that span multiple lines, prefer the cycle of writing the script in ./tmp/, run, edit, run again, etc
 
-- When running the engine without the `--one-frame` flag, it will run forever. In which case you must use the timeout command or call `system.ShutDown()` manually at some point
+- When running the engine without the `--one-frame` or `--screenshot` flag, it will run forever. In which case you must use the timeout command or call `system.ShutDown()` manually at some point
+
+## Screenshots
+
+- Take a screenshot: `luajit glw --2d --screenshot lua "./tmp/path/to/some/render/script.lua"`. this runs for one frame like `--one-frame`. If you need more advanced screenshots, use the Screenshot global.
+- The `Screenshot(cb, opt)` global captures the screen. `cb(texture)` receives a `TextureDownloaded` with ready pixels (`:SaveWithoutAlpha(path)`, `:GetPixel(x, y)`). 
+- `opt.update_events = n` runs n Update events first. Use this for UI so layout resolves before the capture. 
+- `opt.midframe = true` captures immediately mid-frame. Call it from inside a Draw/Draw2D listener, and maybe use `TextureDownloaded:Save(path)` which saves the screenshot with alpha.
+- `opt.camera = {position, rotation, fov}` (3d only) captures from a specific camera `render3d.GetCamera()`. 
+
+Examples:
+  ```lua
+  Screenshot(function(texture)
+      print(texture:SaveWithoutAlpha()) -- auto path under storage/logs/screenshots/
+  end, {update_events = 3})
+
+  Screenshot(function(texture)
+      texture:SaveWithoutAlpha("tmp/from_here.png")
+  end, {camera = {position = Vec3(0, 5, 0), rotation = QuatDeg3(45, 0, 0)}})
+  ```
 
 # Debugging
 

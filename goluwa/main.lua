@@ -106,7 +106,7 @@ commands.Add{
 			end)
 		end
 
-		if flags["one-frame"] then
+		if flags["one-frame"] or flags.screenshot then
 			if system.GetFrameNumber() == 0 then
 				event.AddListener("FrameEnd", function()
 					system.ShutDown(0)
