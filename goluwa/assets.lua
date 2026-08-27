@@ -674,7 +674,7 @@ function assets.RefreshInternalTextures()
 		end
 	end
 
-	if not RENDER_3D then return end
+	if not RENDER_2D then return end
 
 	local Texture = import("goluwa/render/texture.lua")
 
