@@ -1,6 +1,3 @@
---[[HOTRELOAD
-	--os.execute("luajit glw test sdf_fonts")
-]]
 local render2d = import("goluwa/render2d/render2d.lua")
 local msdf = import("goluwa/render2d/msdf.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
@@ -300,13 +297,6 @@ local function get_draw_pass_layout(self, str, spacing, extra_space_advance)
 	return cached
 end
 
-local render2d_SetTexture = render2d.SetTexture
-local render2d_DrawRectf = render2d.DrawRectf
-local render2d_PushColor = render2d.PushColor
-local render2d_DrawRect = render2d.DrawRect
-local render2d_PopColor = render2d.PopColor
-local render2d_SetSDFUV = render2d.SetSDFUV
-
 function META:DrawString(str, x, y, spacing, extra_space_advance)
 	str = tostring(str)
 	self:LoadGlyphsFromString(str)
@@ -340,8 +330,8 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 			last_texel_range = entry.texel_range
 		end
 
-		render2d_SetSDFUV(entry.uv[1], entry.uv[4], entry.uv[3], entry.uv[2])
-		render2d_DrawRectf(x + entry.x, y + entry.y, entry.w, entry.h)
+		render2d.SetSDFUV(entry.uv[1], entry.uv[4], entry.uv[3], entry.uv[2])
+		render2d.DrawRectf(x + entry.x, y + entry.y, entry.w, entry.h)
 	end
 
 	render2d.PopSDFUV()

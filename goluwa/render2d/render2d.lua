@@ -855,7 +855,6 @@ end
 function render2d.Initialize()
 	if render2d.pipeline then return end
 
-	import("goluwa/render2d/render2d_extensions.lua")
 	local config = {
 		name = "render2d",
 		dont_create_framebuffers = true,
@@ -1541,6 +1540,9 @@ function render2d.Initialize()
 			end,
 		}
 	end
+
+	runtime_pipeline.dirty = true
+	import("goluwa/render2d/render2d_extensions.lua")
 end
 
 function render2d.ResetState()
@@ -1561,9 +1563,9 @@ function render2d.ResetState()
 	constants.flags = 0
 	render2d.SetClampBorderRadius(true)
 	constants.sdf_texel_range = 1
-	constants.sdf_threshold = 0.48
-	constants.sdf_bias = 0.0
-	constants.sdf_gamma = 1.05
+	constants.sdf_threshold = 0.5
+	constants.sdf_bias = 0
+	constants.sdf_gamma = 1
 	constants.sdf_softness = 0.5
 	constants.sdf_texture_index = -1
 	local sdf_uv_bounds = constants.sdf_uv_bounds
@@ -2861,12 +2863,6 @@ function render2d.GetActivePipeline()
 	return render2d.shader_override or render2d.pipeline
 end
 
-render2d.SetColor(1, 1, 1, 1)
-render2d.SetAlphaMultiplier(1)
-render2d.SetSwizzleMode("none")
-pipeline_config.blend = get_blend_preset_state("alpha")
-runtime_pipeline.dirty = true
-
 render.RegisterFlushCallback("render2d", function(reason)
 	if reason == "begin_frame" then
 		reset_rect_batch_instance_frame_state()
@@ -2890,12 +2886,12 @@ render.RegisterFlushCallback("render2d", function(reason)
 	return render2d.FlushBatches(reason)
 end)
 
-event.AddListener("PostDraw", "draw_2d", function(dt)
+event.AddListener("PostDraw", "render2d", function(dt)
 	if not render2d.pipeline then return end -- not 2d initialized
 	render2d.BindPipeline()
 	event.Call("PreDraw2D", dt)
 	event.Call("Draw2D", dt)
-	render2d.FlushBatches("draw_2d")
+	render2d.FlushBatches("PostDraw")
 end)
 
 event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
@@ -2905,8 +2901,8 @@ event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
 end)
 
 if HOTRELOAD then
+	HOTRELOAD = nil
 	render2d.pipeline = nil
-	render2d.rect_batch_pipeline = nil
 	render2d.Initialize()
 end
 
