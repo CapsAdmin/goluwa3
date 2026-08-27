@@ -1564,9 +1564,11 @@ function render2d.ResetState()
 	render2d.SetClampBorderRadius(true)
 	constants.sdf_texel_range = 1
 	constants.sdf_threshold = 0.5
-	constants.sdf_bias = 0
+	--
+	constants.sdf_bias = 0.005
 	constants.sdf_gamma = 1
 	constants.sdf_softness = 0.5
+	--
 	constants.sdf_texture_index = -1
 	local sdf_uv_bounds = constants.sdf_uv_bounds
 	sdf_uv_bounds[0], sdf_uv_bounds[1], sdf_uv_bounds[2], sdf_uv_bounds[3] = 0, 0, 1, 1

@@ -1,16 +1,13 @@
 local render2d = import("goluwa/render2d/render2d.lua")
 local msdf = import("goluwa/render2d/msdf.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
+local Texture = import("goluwa/render/texture.lua")
 local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
-local utf8 = import("goluwa/string/utf8.lua")
-local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local event = import("goluwa/event.lua")
 local META = objects.CreateTemplate("sdf_font")
 META.Base = import("goluwa/render2d/fonts/base.lua")
 META:GetSet("TabWidthMultiplier", 4)
-META:IsSet("MSDF", false)
-local SUPER_SAMPLING_SCALE = 4
+META:IsSet("MSDF", true)
+local SUPER_SCALE = 4
 
 function META.New(font_path, msdf_flag)
 	local self = META:CreateObject()
@@ -20,7 +17,7 @@ function META.New(font_path, msdf_flag)
 end
 
 function META:GetEffectiveSpread()
-	return math.max(2, math.ceil(self.Size / SUPER_SAMPLING_SCALE)) * SUPER_SAMPLING_SCALE
+	return math.max(2, math.ceil(self.Size / 4) * 4)
 end
 
 local function lerp(a, b, t)
@@ -104,12 +101,12 @@ local function flatten_contour(raw_contour, curve_steps)
 	return poly
 end
 
-local function extract_glyph_edges(self, glyph, curve_steps)
+local function extract_glyph_edges(self, glyph, curve_steps, scale)
 	local out = {}
 	local start_idx = 1
 	local scale1 = self.Size / glyph.units_per_em
 	local spread = self:GetEffectiveSpread()
-	local scale2 = spread * SUPER_SAMPLING_SCALE / 2
+	local scale2 = spread * scale / 2
 
 	for _, end_idx_0 in ipairs(glyph.glyph_data.glyph_data.end_pts_of_contours) do
 		local end_idx = end_idx_0 + 1
@@ -124,15 +121,15 @@ local function extract_glyph_edges(self, glyph, curve_steps)
 		local colored = msdf.ColorPolyline(poly)
 
 		for _, e in ipairs(colored) do
-			-- Transform edge coordinates to supersampled texture space
+			-- Transform edge coordinates to (super) texture space
 			out[#out + 1] = {
 				p0 = {
-					x = ((e.p0.x * scale1) - glyph.bitmap_left) * SUPER_SAMPLING_SCALE + scale2,
-					y = -((e.p0.y * scale1) - glyph.bearing_y) * SUPER_SAMPLING_SCALE + scale2,
+					x = ((e.p0.x * scale1) - glyph.bitmap_left) * scale + scale2,
+					y = -((e.p0.y * scale1) - glyph.bearing_y) * scale + scale2,
 				},
 				p1 = {
-					x = ((e.p1.x * scale1) - glyph.bitmap_left) * SUPER_SAMPLING_SCALE + scale2,
-					y = -((e.p1.y * scale1) - glyph.bearing_y) * SUPER_SAMPLING_SCALE + scale2,
+					x = ((e.p1.x * scale1) - glyph.bitmap_left) * scale + scale2,
+					y = -((e.p1.y * scale1) - glyph.bearing_y) * scale + scale2,
 				},
 				channel = e.channel,
 			}
@@ -144,71 +141,84 @@ local function extract_glyph_edges(self, glyph, curve_steps)
 	return out
 end
 
+local function downscale(src, w, h)
+	if downscale == 1 then return src end
+
+	local dst = Texture.New{
+		width = w,
+		height = h,
+		format = src.format,
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_border",
+			wrap_t = "clamp_to_border",
+		},
+		image = {usage = {"transfer_dst", "transfer_src", "sampled"}},
+	}
+	return render.ExecuteCommand(function(cmd)
+		render.TransitionResourceTo(
+			src,
+			"transfer_src_optimal",
+			{
+				cmd = cmd,
+				srcStage = "all_commands",
+				dstStage = "transfer",
+			}
+		)
+		render.TransitionResourceTo(
+			dst,
+			"transfer_dst_optimal",
+			{
+				cmd = cmd,
+				srcStage = "all_commands",
+				dstStage = "transfer",
+			}
+		)
+		cmd:BlitImage{
+			src_image = src:GetImage(),
+			dst_image = dst:GetImage(),
+			src_width = src:GetSize().x,
+			src_height = src:GetSize().y,
+			dst_width = w,
+			dst_height = h,
+			filter = "linear",
+		}
+		render.TransitionResourceFrom(
+			dst,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "transfer",
+				dstStage = "all_commands",
+			}
+		)
+		return dst
+	end)
+end
+
 do
 	function META:RenderGlyph(glyph)
 		local debug_collect = {}
 		local spread = self:GetEffectiveSpread()
 		local output_w = math.ceil(glyph.w + spread)
 		local output_h = math.ceil(glyph.h + spread)
-		local super_w = output_w * SUPER_SAMPLING_SCALE
-		local super_h = output_h * SUPER_SAMPLING_SCALE
-		local mask_texture = render.ExecuteCommand(function(cmd)
-			local saved_batch = render2d.SaveBatchState()
-			render2d.ClearPending()
-			local mask_fb = Framebuffer.New{
-				width = super_w,
-				height = super_h,
-				name = string.format(
-					"render2d atlas font scratch %s %dx%d",
-					tostring(self:GetName() or "unnamed"),
-					super_w,
-					super_h
-				),
-				clear_color = {0, 0, 0, 0},
-				format = self:GetAtlasFormat(),
-				mip_map_levels = "auto",
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			}
-			mask_fb:Begin(cmd)
-			render2d.PushBlendPreset("alpha")
-			render2d.PushScreenSize(super_w, super_h)
-			render2d.PushMatrix()
-			render2d.LoadIdentity()
-			render2d.Translate(spread * SUPER_SAMPLING_SCALE / 2, spread * SUPER_SAMPLING_SCALE / 2)
-			render2d.Scale(SUPER_SAMPLING_SCALE, SUPER_SAMPLING_SCALE)
-			render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
-			render2d.SetSDFTexelRange(1)
-			self:DrawGlyph(glyph.glyph_data)
-			render2d.FlushBatches("glyph_load")
-			render2d.PopMatrix()
-			render2d.PopScreenSize()
-			render2d.PopBlendMode()
-			render2d.RestoreBatchState(saved_batch)
-			mask_fb:End(cmd)
-			return mask_fb.color_texture
-		end)
 
 		render.ExecuteCommand(function(cmd)
-			local edges = self.MSDF and extract_glyph_edges(self, glyph, 8) or nil
-			local tex_final = msdf.Build(
-				mask_texture,
-				{
-					width = output_w,
-					height = output_h,
-					spread = spread * SUPER_SAMPLING_SCALE,
-					format = self:GetAtlasFormat(),
-					filter = "linear",
-					msdf = self.MSDF,
-					edges = edges,
-				}
-			)
+			local edges = extract_glyph_edges(self, glyph, 8, SUPER_SCALE)
+			local tex_super = msdf.Build{
+				width = output_w * SUPER_SCALE,
+				height = output_h * SUPER_SCALE,
+				spread = spread * SUPER_SCALE,
+				format = self:GetAtlasFormat(),
+				filter = "linear",
+				mode = self.MSDF and "msdf" or nil,
+				edges = edges,
+			}
+			local tex_final = downscale(tex_super, output_w, output_h)
 
 			if debug_collect then
 				debug_collect.final = tex_final
-				debug_collect.mask = mask_texture
 				self:OnTextureGenerated(glyph, debug_collect)
 			end
 
@@ -233,11 +243,6 @@ function META:OnTextureGenerated(glyph, textures)
 	for name, tex in pairs(textures) do
 		tex:Save("tmp/sdf_glyphs/" .. str .. "_" .. name .. ".png")
 	end
-end
-
-function META:GetAtlasPadding(w, h)
-	local spread = self:GetEffectiveSpread()
-	return (w + spread) * SUPER_SAMPLING_SCALE, (h + spread) * SUPER_SAMPLING_SCALE
 end
 
 local function glyph_fn(self, data, X, Y, entries)

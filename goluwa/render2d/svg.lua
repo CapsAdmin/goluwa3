@@ -1,13 +1,9 @@
 local io = require("io")
-local ffi = require("ffi")
 local render2d = import("goluwa/render2d/render2d.lua")
-local render = import("goluwa/render/render.lua")
 local resource = import("goluwa/resource.lua")
 local vfs = import("goluwa/vfs.lua")
 local svg_codec = import("goluwa/codecs/svg.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
-local Texture = import("goluwa/render/texture.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
 local msdf = import("goluwa/render2d/msdf.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local objects = import("goluwa/objects/objects.lua")
@@ -24,14 +20,10 @@ local function contour_to_polyline(contour)
 	return poly
 end
 
--- Extract and color edges from SVG contours, transformed to texture coordinates
-local function extract_svg_edges(contours, view_box, width, height, spread, supersampling)
-	local bounds_w = view_box.w
-	local bounds_h = view_box.h
-	local super_w = width * supersampling
-	local super_h = height * supersampling
-	local scale_x = super_w / bounds_w
-	local scale_y = super_h / bounds_h
+-- Extract and color edges from SVG contours, transformed to final texture coordinates
+local function extract_svg_edges(contours, view_box, width, height)
+	local scale_x = width / view_box.w
+	local scale_y = height / view_box.h
 	local offset_x = -view_box.x * scale_x
 	local offset_y = -view_box.y * scale_y
 	local all_edges = {}
@@ -55,7 +47,7 @@ local function extract_svg_edges(contours, view_box, width, height, spread, supe
 	return all_edges
 end
 
-local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, supersampling)
+local function CreateSDFTexture(decoded, mode, texture_size, spread)
 	local view_box = assert(decoded.view_box)
 	local bounds_w = math.max(view_box.w)
 	local bounds_h = math.max(view_box.h)
@@ -63,65 +55,16 @@ local function CreateSDFTexture(decoded, poly, mode, texture_size, spread, super
 	local spread = math.max(1, math.floor((spread) + 0.5))
 	local width = math.max(1, math.floor(bounds_w / math.max(bounds_w, bounds_h) * longest_side + 0.5))
 	local height = math.max(1, math.floor(bounds_h / math.max(bounds_w, bounds_h) * longest_side + 0.5))
-	local super_w = width * supersampling
-	local super_h = height * supersampling
-	-- Create mask by rendering polygon to framebuffer
-	local mask_fb = Framebuffer.New{
-		width = super_w,
-		height = super_h,
-		name = "svg",
-		clear_color = {0, 0, 0, 0},
+	local edges = extract_svg_edges(decoded.contours, view_box, width, height)
+	return msdf.Build{
+		width = width,
+		height = height,
+		spread = spread,
 		format = "r8g8b8a8_unorm",
-		mip_map_levels = "auto",
-		min_filter = "linear",
-		mag_filter = "linear",
-		wrap_s = "clamp_to_border",
-		wrap_t = "clamp_to_border",
+		filter = "linear",
+		mode = mode,
+		edges = edges,
 	}
-	local edges = mode == "msdf" and
-		extract_svg_edges(decoded.contours, view_box, width, height, spread, supersampling) or
-		nil
-	local mask_texture = render.ExecuteCommand(function(cmd)
-		mask_fb:Begin(cmd)
-		local saved_batch = render2d.SaveBatchState()
-		render2d.ClearPending()
-		render2d.PushBlendPreset("alpha")
-		render2d.PushScreenSize(super_w, super_h)
-		render2d.PushMatrix()
-		render2d.LoadIdentity()
-		-- Draw the polygon filled with white
-		poly:SetColor(1, 1, 1, 1)
-		-- Scale polygon to fill the framebuffer
-		local scale_x = super_w / view_box.w
-		local scale_y = super_h / view_box.h
-		local offset_x = -view_box.x * scale_x
-		local offset_y = -view_box.y * scale_y
-		render2d.Translatef(offset_x, offset_y)
-		render2d.Scalef(scale_x, scale_y)
-		poly:Draw()
-		render2d.FlushBatches("svg_mask")
-		render2d.PopMatrix()
-		render2d.PopScreenSize()
-		render2d.PopBlendMode()
-		render2d.RestoreBatchState(saved_batch)
-		mask_fb:End(cmd)
-		return mask_fb.color_texture
-	end)
-	local tex_final = render.ExecuteCommand(function(cmd)
-		return msdf.Build(
-			mask_texture,
-			{
-				width = width,
-				height = height,
-				spread = spread * supersampling,
-				format = "r8g8b8a8_unorm",
-				filter = "linear",
-				mode = mode,
-				edges = edges,
-			}
-		)
-	end)
-	return tex_final, mask_texture
 end
 
 local function read_source_text(path)
@@ -202,13 +145,11 @@ function SVG:ApplyData(data)
 	self.poly = Polygon2D.FromTriangleCoordinates(math2d.TriangulateContoursEvenOdd(decoded.contours))
 
 	if self.Mode ~= "poly" then
-		self.sdf_texture, self.mask_texture = CreateSDFTexture(
+		self.sdf_texture = CreateSDFTexture(
 			decoded,
-			self.poly,
 			self.Mode,
 			self.TextureSize,
-			self.SDFSpread * self.TextureSize / 4,
-			4
+			self.SDFSpread * self.TextureSize / 4
 		)
 	end
 

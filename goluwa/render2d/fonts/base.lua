@@ -521,8 +521,6 @@ function META:LoadGlyph(code)
 	return glyph
 end
 
-local JFA_DESCRIPTOR_SET_COUNT = 1024
-
 function META:LoadGlyphsFromString(str)
 	local i = 1
 	local len = #str
