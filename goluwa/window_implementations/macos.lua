@@ -107,12 +107,13 @@ return function(META)
 		if self.startup_capture_retry_frames and self.startup_capture_retry_frames > 0 then
 			local trapped = self:GetDesiredMouseTrapped()
 
-			if trapped and not self.cocoa_window:IsMouseCaptured() then
-				self.cocoa_window:OpenWindow()
+			if trapped and not self.cocoa_window:IsMouseCaptured() and self.focused then
 				self.cocoa_window:CaptureMouse()
 			end
 
-			if self.focused or self.cocoa_window:IsMouseCaptured() or not trapped then
+			if self.focused and (self.cocoa_window:IsMouseCaptured() or not trapped) then
+				self.startup_capture_retry_frames = 0
+			elseif self.focused or not trapped then
 				self.startup_capture_retry_frames = 0
 			else
 				self.startup_capture_retry_frames = self.startup_capture_retry_frames - 1
@@ -234,8 +235,7 @@ return function(META)
 	function META:SetSize(size)
 		self.cached_size = nil
 		self.cached_fb_size = nil
-		-- Note: cocoa doesn't expose SetSize
-		error("nyi: SetSize not implemented in cocoa bindings", 2)
+		self.cocoa_window:SetFrame(self.cocoa_window:GetPosition(), size)
 	end
 
 	function META:GetFramebufferSize()

@@ -136,9 +136,13 @@ local cocoa_objc = objc.bind{
 		NSWindow = {
 			instance = {
 				contentView = "@@:",
+				convertPointFromScreen = {selector = "convertPointFromScreen:", types = "{CGPoint=dd}@:{CGPoint=dd}"},
 				convertPointToScreen = {selector = "convertPointToScreen:", types = "{CGPoint=dd}@:{CGPoint=dd}"},
 				deminiaturize = {selector = "deminiaturize:", types = "v@:@"},
 				frame = "{CGRect={CGPoint=dd}{CGSize=dd}}@:",
+				setFrame = {selector = "setFrame:display:", types = "v@:{CGRect={CGPoint=dd}{CGSize=dd}}B"},
+				setFrameOrigin = {selector = "setFrameOrigin:", types = "v@:{CGPoint=dd}"},
+				setFrameSize = {selector = "setFrameSize:", types = "v@:{CGSize=dd}"},
 				initWithContentRect_styleMask_backing_defer = {
 					selector = "initWithContentRect:styleMask:backing:defer:",
 					types = "@@:{CGRect={CGPoint=dd}{CGSize=dd}}QqB",
@@ -882,10 +886,18 @@ function meta:GetMousePosition()
 end
 
 function meta:SetMousePosition(pos)
-	local local_pos = ffi.new("CGPoint")
-	local_pos.x = math.floor(tonumber(pos.x) or 0)
-	local_pos.y = math.floor(flip_window_y(self.window, pos.y))
-	CG.CGWarpMouseCursorPosition(NSWindow.convertPointToScreen(self.window, local_pos))
+	local window_point = ffi.new("CGPoint")
+	window_point.x = math.floor(tonumber(pos.x) or 0)
+	window_point.y = math.floor(flip_window_y(self.window, pos.y))
+	CG.CGWarpMouseCursorPosition(NSWindow.convertPointToScreen(self.window, window_point))
+end
+
+function meta:SetFrame(position, size)
+	local new_frame = CGRectMake(position.x, position.y, size.x, size.y)
+	NSWindow.setFrame(self.window, new_frame, true)
+	local content_view = NSWindow.contentView(self.window)
+	local bounds = NSView.bounds(content_view)
+	CAMetalLayer.setDrawableSize(self.metal_layer, bounds.size)
 end
 
 function meta:IsFocused()
@@ -969,6 +981,7 @@ function meta:Destroy()
 	drop_queues[self.content_view_ptr] = nil
 	NSWindow.setDelegate(self.window, nil_id)
 	NSView.unregisterDraggedTypes(self.content_view)
+	if self.metal_layer then CAMetalLayer.setDrawableSize(self.metal_layer, {width = 0, height = 0}) end
 end
 
 function meta:GetWindowSize()
