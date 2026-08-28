@@ -1595,13 +1595,13 @@ function BaseTheme:Draw(pnl)
 		)
 	elseif pnl.Name == "svg" and pnl:GetState("background_color") ~= nil then
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("background_color"), 0)
-	elseif type(pnl.Name) == "string" and pnl.Name:find("^scrollbar_track_") then
+	elseif type(pnl.Name) == "string" and pnl.Name:starts_with("scrollbar_track_") then
 		return self:DrawSurface(
 			pnl.transform:GetTotalSize(),
 			pnl:GetState("color") or "scrollbar_track",
 			self:GetRadius("M")
 		)
-	elseif type(pnl.Name) == "string" and pnl.Name:find("^scrollbar_handle_") then
+	elseif type(pnl.Name) == "string" and pnl.Name:starts_with("scrollbar_handle_") then
 		return self:DrawSurface(
 			pnl.transform:GetTotalSize(),
 			pnl:GetState("color") or "scrollbar",

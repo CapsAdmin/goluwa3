@@ -455,6 +455,8 @@ function META:OnFirstCreated()
 		return result
 	end
 
+	local last_pos = Vec2()
+
 	function mouse_input.Update()
 		if not Panel.World then return end
 
@@ -497,13 +499,15 @@ function META:OnFirstCreated()
 		end
 
 		if not global_handled_move then
-			do
+			if pos ~= last_pos then
 				local res, cmp = call_global_event(Panel.World, "OnGlobalMouseMove", pos)
 
 				if res then
 					cursor = cmp:GetCursor()
 					global_handled_move = true
 				end
+
+				last_pos = pos
 			end
 		end
 
