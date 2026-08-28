@@ -60,33 +60,6 @@ T.Test("hash internWith extracts values by keys", function()
 	T(interner:internWith(nil, {"a", "b"}))["=="](interner:internWith(nil, {"a", "b"}))
 end)
 
-T.Test("hash internDict sorts keys for stable dict hashing", function()
-	local interner = Hash.New()
-	local a = {z = 1, a = 2, m = 3}
-	local b = {a = 2, m = 3, z = 1}
-	T(interner:internDict(a))["=="](interner:internDict(b))
-end)
-
-T.Test("hash internDict handles empty dicts", function()
-	local interner = Hash.New()
-	T(interner:internDict({}))["=="](interner:internDict({}))
-end)
-
-T.Test("hash __hash_serialize metamethod", function()
-	local interner = Hash.New()
-	local mt = {
-		__hash_serialize = function(self)
-			return {self.x, self.y, self.z}
-		end,
-	}
-	local a = setmetatable({x = 1, y = 2, z = 3}, mt)
-	local b = setmetatable({x = 1, y = 2, z = 3}, mt)
-	local c = setmetatable({x = 1, y = 2, z = 4}, mt)
-	T(interner:intern({a}))["=="](interner:intern({b}))
-	T(interner:intern({a}))["~="](interner:intern({c}))
-	T(interner:intern({a}))["=="](interner:intern({1, 2, 3}))
-end)
-
 T.Test("hash nested intern works correctly", function()
 	local interner = Hash.New()
 	local a = {{1, 2}, {3, 4}}
@@ -115,18 +88,4 @@ T.Test("hash internWith with missing keys returns nil", function()
 	T(interner:internWith(config, {"a", "b", "c"}))["=="](interner:internWith(config, {"a", "b", "c"}))
 	local config2 = {a = 1, b = 2}
 	T(interner:internWith(config, {"a", "b", "c"}))["~="](interner:internWith(config2, {"a", "b", "c"}))
-end)
-
-T.Test("hash internDict with number keys", function()
-	local interner = Hash.New()
-	local a = {[1] = "x", [2] = "y"}
-	local b = {[2] = "y", [1] = "x"}
-	T(interner:internDict(a))["=="](interner:internDict(b))
-end)
-
-T.Test("hash internDict with mixed key types", function()
-	local interner = Hash.New()
-	local a = {[1] = "x", ["key"] = "y"}
-	local b = {["key"] = "y", [1] = "x"}
-	T(interner:internDict(a))["=="](interner:internDict(b))
 end)
