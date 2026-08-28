@@ -735,31 +735,32 @@ ffi.cdef[[
 ]]
 local CG = ffi.load("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
 local cursor_selector_map = {
-	arrow = {"arrowCursor"},
-	hand = {"pointingHandCursor", "openHandCursor"},
-	text_input = {"IBeamCursor"},
-	crosshair = {"crosshairCursor"},
-	vertical_resize = {"resizeUpDownCursor"},
-	horizontal_resize = {"resizeLeftRightCursor"},
-	all_resize = {"openHandCursor", "closedHandCursor", "arrowCursor"},
-	top_right_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
-	bottom_left_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
-	top_left_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
-	bottom_right_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
+	arrow = "arrowCursor", -- },
+	hand = "pointingHandCursor", -- , "openHandCursor"},
+	text_input = "IBeamCursor", -- },
+	crosshair = "crosshairCursor", -- },
+	vertical_resize = "resizeUpDownCursor", -- },
+	horizontal_resize = "resizeLeftRightCursor", -- },
+	all_resize = "openHandCursor", -- , "closedHandCursor", "arrowCursor"},
+	top_right_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
+	bottom_left_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
+	top_left_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
+	bottom_right_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
 }
+local cursor_cache = {}
 
 local function get_ns_cursor(mode)
-	local selectors = cursor_selector_map[mode] or cursor_selector_map.arrow
+	local cursor = cursor_selector_map[mode]
 
-	for _, selector in ipairs(selectors) do
-		local ok, cursor = pcall(function()
-			return NSCursor[selector]()
-		end)
-
-		if ok and cursor ~= nil then return cursor end
+	if not cursor_selector_map[mode] then
+		wlog("missing cursor:", mode)
+		cursor = cursor_selector_map.arrow
 	end
 
-	return NSCursor[cursor_selector_map.arrow[1]]()
+	if cursor_cache[cursor] then return cursor_cache[cursor] end
+
+	cursor_cache[cursor] = NSCursor[cursor]()
+	return cursor_cache[cursor]
 end
 
 local meta = {}
@@ -981,7 +982,10 @@ function meta:Destroy()
 	drop_queues[self.content_view_ptr] = nil
 	NSWindow.setDelegate(self.window, nil_id)
 	NSView.unregisterDraggedTypes(self.content_view)
-	if self.metal_layer then CAMetalLayer.setDrawableSize(self.metal_layer, {width = 0, height = 0}) end
+
+	if self.metal_layer then
+		CAMetalLayer.setDrawableSize(self.metal_layer, {width = 0, height = 0})
+	end
 end
 
 function meta:GetWindowSize()
