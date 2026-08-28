@@ -28,10 +28,11 @@ function message.Initialize()
 end
 
 if CLIENT then
-	function message.Send(id, ...)
+	function message.Send(id, a, b, c, d, e, f, g)
+		assert(g == nil)
 		local buffer = packet.CreateBuffer()
 		buffer:WriteString(id)
-		buffer:WriteTable({...}, typex)
+		buffer:WriteTable({a, b, c, d, e, f}, typex)
 		packet.Send(packet_id, buffer, "reliable")
 	end
 
