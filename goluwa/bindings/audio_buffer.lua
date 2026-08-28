@@ -102,6 +102,7 @@ local audio = {}
 
 if jit.os == "OSX" then
 	local AudioToolbox = ffi.load("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
+	local CoreFoundation = ffi.load("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
 	ffi.cdef[[
 		typedef struct OpaqueAudioQueue *AudioQueueRef;
 		typedef struct AudioQueueBuffer {
@@ -132,17 +133,13 @@ if jit.os == "OSX" then
 		int32_t AudioQueueStop(AudioQueueRef inAQ, bool inImmediate);
 		int32_t AudioQueueDispose(AudioQueueRef inAQ, bool inImmediate);
 
-		// GCD semaphore -- available in libSystem (always loaded)
-		typedef void *dispatch_semaphore_t;
-		dispatch_semaphore_t dispatch_semaphore_create(long value);
-		long                 dispatch_semaphore_wait(dispatch_semaphore_t dsema, uint64_t timeout);
-		long                 dispatch_semaphore_signal(dispatch_semaphore_t dsema);
-		void                 dispatch_release(void *object);
+		void *CFRunLoopGetCurrent(void);
+		int32_t CFRunLoopRunInMode(void *mode, double seconds, bool returnAfterSourceHandled);
+		extern void *kCFRunLoopDefaultMode;
 	]]
 	local kAudioFormatLinearPCM = 0x6C70636D
 	local kAudioFormatFlagIsFloat = 1
 	local kAudioFormatFlagIsPacked = 8
-	local DISPATCH_TIME_FOREVER = ffi.cast("uint64_t", 0xFFFFFFFFFFFFFFFFULL)
 
 	function audio.start(config)
 		config = config or {}
@@ -163,20 +160,25 @@ if jit.os == "OSX" then
 				mBitsPerChannel = 32,
 			}
 		)
-		-- Semaphore starts at 0; callback posts when it returns a buffer
-		local sem = ffi.C.dispatch_semaphore_create(0)
-		audio._sem = sem
 		audio._ready_buf = ffi.new("AudioQueueBuffer*[1]")
+		audio._run_loop_mode = CoreFoundation.kCFRunLoopDefaultMode
 
 		local function buffer_callback(user_data, queue, buffer)
-			-- store the returned buffer and wake update()
 			audio._ready_buf[0] = buffer
-			ffi.C.dispatch_semaphore_signal(sem)
 		end
 
 		audio._callback_ref = ffi.cast("AudioQueueOutputCallback", buffer_callback)
 		local queue = ffi.new("AudioQueueRef[1]")
-		local st = AudioToolbox.AudioQueueNewOutput(format, audio._callback_ref, nil, nil, nil, 0, queue)
+		local run_loop = CoreFoundation.CFRunLoopGetCurrent()
+		local st = AudioToolbox.AudioQueueNewOutput(
+			format,
+			audio._callback_ref,
+			nil,
+			run_loop,
+			audio._run_loop_mode,
+			0,
+			queue
+		)
 
 		if st ~= 0 then error("AudioQueueNewOutput: " .. st) end
 
@@ -199,14 +201,16 @@ if jit.os == "OSX" then
 		return config
 	end
 
-	-- Blocks until AudioQueue returns a buffer (i.e. the hardware consumed the last one),
-	-- fills it, and re-enqueues it.  Self-pacing, just like snd_pcm_writei on Linux.
 	function audio.update()
 		local config = audio._config
 		local nsamples = config.buffer_size * config.channels
-		-- wait for the callback to signal that a buffer is available
-		ffi.C.dispatch_semaphore_wait(audio._sem, DISPATCH_TIME_FOREVER)
+
+		while audio._ready_buf[0] == nil do
+			CoreFoundation.CFRunLoopRunInMode(audio._run_loop_mode, 1, true)
+		end
+
 		local buf = audio._ready_buf[0]
+		audio._ready_buf[0] = nil
 		audio.callback(ffi.cast("float*", buf.mAudioData), nsamples, config)
 		buf.mAudioDataByteSize = buf.mAudioDataBytesCapacity
 		AudioToolbox.AudioQueueEnqueueBuffer(audio._queue[0], buf, 0, nil)
@@ -215,13 +219,12 @@ if jit.os == "OSX" then
 	function audio.stop()
 		AudioToolbox.AudioQueueStop(audio._queue[0], true)
 		AudioToolbox.AudioQueueDispose(audio._queue[0], true)
-		ffi.C.dispatch_release(audio._sem)
 		audio._callback_ref:free()
 		audio._queue = nil
 		audio._callback_ref = nil
-		audio._sem = nil
 		audio._ready_buf = nil
 		audio._config = nil
+		audio._run_loop_mode = nil
 	end
 elseif ffi.os == "Windows" then
 	pcall(
