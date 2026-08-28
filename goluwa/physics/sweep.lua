@@ -33,6 +33,7 @@ local get_polyhedron_sweep_proxy = sweep_mesh.GetPolyhedronSweepProxy
 local transform_direction = sweep_mesh.TransformDirection
 local sweep_polyhedron_against_triangle = sweep_mesh.SweepPolyhedronAgainstTriangle
 local sweep_capsule_against_triangle = sweep_mesh.SweepCapsuleAgainstTriangle
+local build_capsule_sweep_invariants = sweep_mesh.BuildCapsuleSweepInvariants
 local sweep_sphere_against_triangle = sweep_mesh.SweepSphereAgainstTriangle
 local get_polyhedron_contact_for_point_at_pose
 local evaluate_polyhedron_pair_contact
@@ -135,6 +136,7 @@ local SWEEP_AABB_START = AABB(0, 0, 0, 0, 0, 0)
 local SWEEP_AABB_END = AABB(0, 0, 0, 0, 0, 0)
 local SWEEP_AABB_RESULT_A = AABB(0, 0, 0, 0, 0, 0)
 local SWEEP_AABB_RESULT_B = AABB(0, 0, 0, 0, 0, 0)
+local SWEEP_LOCAL_AABB = AABB(0, 0, 0, 0, 0, 0)
 local sweep_aabb_toggle = false
 local get_support_point = sweep_helpers.GetSupportPoint
 
@@ -187,14 +189,16 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	if not shape then return nil end
 
 	local world_aabb = build_swept_aabb(origin, origin + movement * max_fraction, radius)
-	local local_aabb = shape:BuildSweptLocalAABB(collider, world_aabb)
+	local local_aabb = shape:BuildSweptLocalAABB(collider, target_position, target_rotation, world_aabb, SWEEP_LOCAL_AABB)
 	MESH_BODY_POINT_SWEEP_CONTEXT.origin = origin
 	MESH_BODY_POINT_SWEEP_CONTEXT.movement = movement
 	MESH_BODY_POINT_SWEEP_CONTEXT.radius = radius
 	MESH_BODY_POINT_SWEEP_CONTEXT.max_fraction = max_fraction
 	MESH_BODY_POINT_SWEEP_CONTEXT.collider = collider
+	MESH_BODY_POINT_SWEEP_CONTEXT.target_collider = collider
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_position = target_position
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_rotation = target_rotation
+	MESH_BODY_POINT_SWEEP_CONTEXT.wv_cache = {}
 	MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 
@@ -204,8 +208,10 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 		MESH_BODY_POINT_SWEEP_CONTEXT.radius = 0
 		MESH_BODY_POINT_SWEEP_CONTEXT.max_fraction = 0
 		MESH_BODY_POINT_SWEEP_CONTEXT.collider = nil
+		MESH_BODY_POINT_SWEEP_CONTEXT.target_collider = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.target_position = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.target_rotation = nil
+		MESH_BODY_POINT_SWEEP_CONTEXT.wv_cache = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 		return nil
@@ -223,8 +229,10 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	MESH_BODY_POINT_SWEEP_CONTEXT.radius = 0
 	MESH_BODY_POINT_SWEEP_CONTEXT.max_fraction = 0
 	MESH_BODY_POINT_SWEEP_CONTEXT.collider = nil
+	MESH_BODY_POINT_SWEEP_CONTEXT.target_collider = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_position = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_rotation = nil
+	MESH_BODY_POINT_SWEEP_CONTEXT.wv_cache = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 	return best_hit
@@ -251,7 +259,7 @@ local function test_mesh_body_collider_sweep(
 	if not shape then return nil end
 
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement * max_fraction)
-	local local_aabb = shape:BuildSweptLocalAABB(target_collider, world_aabb)
+	local local_aabb = shape:BuildSweptLocalAABB(target_collider, target_position, target_rotation, world_aabb, SWEEP_LOCAL_AABB)
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.collider = collider
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.polyhedron = polyhedron
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.start_position = start_position
@@ -262,8 +270,18 @@ local function test_mesh_body_collider_sweep(
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_collider = target_collider
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_position = target_position
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_rotation = target_rotation
+	MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_cache = {}
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
+	MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants = query_shape_type == "capsule" and
+		build_capsule_sweep_invariants(
+			collider,
+			start_position,
+			rotation,
+			movement,
+			MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants
+		) or
+		nil
 
 	if not local_aabb then
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.collider = nil
@@ -276,8 +294,10 @@ local function test_mesh_body_collider_sweep(
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_collider = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_position = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_rotation = nil
+		MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_cache = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
+		MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants = nil
 		return nil
 	end
 
@@ -298,8 +318,10 @@ local function test_mesh_body_collider_sweep(
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_collider = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_position = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_rotation = nil
+	MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_cache = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
+	MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants = nil
 	return best_hit
 end
 
@@ -908,16 +930,7 @@ local function test_polyhedron_primitive_sweep(
 end
 
 local function collect_capsule_triangle_sweep_hit(v0, v1, v2, triangle_index, context)
-	local hit = sweep_capsule_against_triangle(
-		context.collider,
-		context.start_position,
-		context.rotation,
-		context.movement,
-		v0,
-		v1,
-		v2,
-		context.max_fraction
-	)
+	local hit = sweep_capsule_against_triangle(context.capsule_invariants, v0, v1, v2, context.max_fraction)
 
 	if not hit then return end
 
@@ -981,6 +994,13 @@ local function test_capsule_primitive_sweep(
 	triangle_context.primitive_index = primitive_index
 	triangle_context.rotation = rotation
 	triangle_context.start_position = start_position
+	triangle_context.capsule_invariants = build_capsule_sweep_invariants(
+		collider,
+		start_position,
+		rotation,
+		movement,
+		triangle_context.capsule_invariants
+	)
 	for_each_overlapping_world_triangle(
 		poly,
 		primitive_local_aabb,

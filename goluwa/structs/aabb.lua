@@ -12,6 +12,7 @@ local LOCAL_AABB_CORNERS = {
 	Vec3(),
 	Vec3(),
 }
+local LOCAL_AABB_TRANSFORM_POINT = Vec3()
 META.Args = {{"min_x", "min_y", "min_z", "max_x", "max_y", "max_z"}}
 structs.AddAllOperators(META)
 
@@ -93,7 +94,7 @@ function META:IsBoxIntersecting(box)
 	return true
 end
 
-function META.BuildLocalAABBFromWorldAABBInternal(world_aabb, world_to_local, arg)
+function META.BuildLocalAABBFromWorldAABBInternal(world_aabb, world_to_local, arg, position, rotation, out)
 	local corners = LOCAL_AABB_CORNERS
 	corners[1].x, corners[1].y, corners[1].z = world_aabb.min_x, world_aabb.min_y, world_aabb.min_z
 	corners[2].x, corners[2].y, corners[2].z = world_aabb.min_x, world_aabb.min_y, world_aabb.max_z
@@ -109,9 +110,13 @@ function META.BuildLocalAABBFromWorldAABBInternal(world_aabb, world_to_local, ar
 	local local_max_x = -math.huge
 	local local_max_y = -math.huge
 	local local_max_z = -math.huge
+	local transform_point = LOCAL_AABB_TRANSFORM_POINT
 
 	for i = 1, 8 do
-		local point = world_to_local(arg, corners[i])
+		-- position/rotation/out pass through to the transform function: matrices
+		-- ignore them, collider WorldToLocal uses them instead of re-fetching the
+		-- body transform and allocating a Vec3 per corner
+		local point = world_to_local(arg, corners[i], position, rotation, transform_point)
 		local x = point.x
 		local y = point.y
 		local z = point.z
@@ -127,6 +132,16 @@ function META.BuildLocalAABBFromWorldAABBInternal(world_aabb, world_to_local, ar
 		if y > local_max_y then local_max_y = y end
 
 		if z > local_max_z then local_max_z = z end
+	end
+
+	if out then
+		out.min_x = local_min_x
+		out.min_y = local_min_y
+		out.min_z = local_min_z
+		out.max_x = local_max_x
+		out.max_y = local_max_y
+		out.max_z = local_max_z
+		return out
 	end
 
 	return CTOR(local_min_x, local_min_y, local_min_z, local_max_x, local_max_y, local_max_z)

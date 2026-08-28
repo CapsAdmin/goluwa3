@@ -8,6 +8,7 @@ local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
+local triangle_scalar = import("goluwa/physics/triangle_scalar.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -52,8 +53,10 @@ local MESH_BODY_POINT_SWEEP_CONTEXT = {
 	radius = 0,
 	max_fraction = 0,
 	collider = nil,
+	target_collider = nil,
 	target_position = nil,
 	target_rotation = nil,
+	wv_cache = nil,
 	entry = nil,
 	best_hit = nil,
 }
@@ -68,6 +71,7 @@ local MESH_BODY_COLLIDER_SWEEP_CONTEXT = {
 	target_collider = nil,
 	target_position = nil,
 	target_rotation = nil,
+	wv_cache = nil,
 	entry = nil,
 	best_hit = nil,
 }
@@ -96,9 +100,25 @@ local function fill_triangle_prism_vertices(out, v0, v1, v2, normal, half_thickn
 	return out
 end
 
+-- triangle vertices are shared between neighbouring triangles (a heightmap
+-- cell reuses its corner points 4+ times), so world-space transforms are
+-- cached per sweep and keyed by the local vertex's pointer.
+local function get_cached_world_vertex(context, v)
+	local cache = context.wv_cache
+	local wv = cache[v]
+
+	if not wv then
+		wv = context.target_collider:LocalToWorld(v, context.target_position, context.target_rotation)
+		cache[v] = wv
+	end
+
+	return wv
+end
+
 local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, context)
-	local shape = context.collider:GetPhysicsShape()
-	local wv0, wv1, wv2 = shape:GetTriangleWorldVertices(context.collider, context.target_position, context.target_rotation, v0, v1, v2)
+	local wv0 = get_cached_world_vertex(context, v0)
+	local wv1 = get_cached_world_vertex(context, v1)
+	local wv2 = get_cached_world_vertex(context, v2)
 	local hit = sweep_sphere_against_triangle(
 		context.origin,
 		context.movement,
@@ -125,28 +145,13 @@ local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, con
 end
 
 local function collect_mesh_body_collider_sweep_hit(v0, v1, v2, triangle_index, context)
-	local shape = context.target_collider:GetPhysicsShape()
-	local wv0, wv1, wv2 = shape:GetTriangleWorldVertices(
-		context.target_collider,
-		context.target_position,
-		context.target_rotation,
-		v0,
-		v1,
-		v2
-	)
+	local wv0 = get_cached_world_vertex(context, v0)
+	local wv1 = get_cached_world_vertex(context, v1)
+	local wv2 = get_cached_world_vertex(context, v2)
 	local hit = nil
 
 	if context.query_shape_type == "capsule" then
-		hit = sweep_capsule_against_triangle(
-			context.collider,
-			context.start_position,
-			context.rotation,
-			context.movement,
-			wv0,
-			wv1,
-			wv2,
-			context.max_fraction
-		)
+		hit = sweep_capsule_against_triangle(context.capsule_invariants, wv0, wv1, wv2, context.max_fraction)
 	elseif context.polyhedron and context.polyhedron.vertices and context.polyhedron.faces then
 		hit = sweep_polyhedron_against_triangle(
 			context.collider,
@@ -610,101 +615,507 @@ local function sweep_polyhedron_against_planes(
 	}
 end
 
-local function get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
-	local physics = collider:GetPhysics()
-	local segment_a, segment_b = get_capsule_segment_world(collider, position, rotation)
+-- invariants are built once per sweep and shared by every triangle test:
+-- the capsule's start segment, radius and movement-derived constants.
+local function build_capsule_sweep_invariants(collider, start_position, rotation, movement, out)
+	out = out or {}
+	local segment_a, segment_b, radius = capsule_geometry.GetSegmentWorld(collider, start_position, rotation)
+	local segment_length = (segment_b - segment_a):GetLength()
+	out.segment_a = segment_a
+	out.segment_b = segment_b
+	out.radius = radius
+	out.start_position = start_position
+	out.movement = movement
+	out.movement_length = movement:GetLength()
+	out.distance_scale = math.max(radius * 0.5 + segment_length * 0.25, 0.2)
+	out.fallback_normal = out.movement_length > EPSILON and
+		(
+			movement * -1
+		):GetNormalized() or
+		physics_constants.UP
+	return out
+end
+
+local function get_capsule_sweep_sample_steps(invariants, max_fraction)
+	local scaled_length = math.max(0, invariants.movement_length * math.max(max_fraction or 1, 0))
+	return math.max(4, math.min(64, math.ceil(scaled_length / invariants.distance_scale) * 2))
+end
+
+-- takes the unnormalized face normal: "signed distance > radius" becomes
+-- "d > 0 and d^2 > (radius * len)^2", exact for same-sign sides and free of
+-- the normalization sqrt
+local function is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq)
+	local segment_a = invariants.segment_a
+	local segment_b = invariants.segment_b
+	local movement = invariants.movement
+	local d_a = (segment_a.x - v0.x) * nx + (segment_a.y - v0.y) * ny + (segment_a.z - v0.z) * nz
+	local d_b = (segment_b.x - v0.x) * nx + (segment_b.y - v0.y) * ny + (segment_b.z - v0.z) * nz
+	local movement_dot = movement.x * nx + movement.y * ny + movement.z * nz
+	local threshold = (invariants.radius * invariants.radius) * normal_len_sq
+	return (
+			d_a > 0 and
+			d_a * d_a > threshold and
+			d_b > 0 and
+			d_b * d_b > threshold and
+			movement_dot >= 0
+		)
+		or
+		(
+			d_a < 0 and
+			d_a * d_a > threshold and
+			d_b < 0 and
+			d_b * d_b > threshold and
+			movement_dot <= 0
+		)
+end
+
+local function narrow_reach_interval(t_lo, t_hi, c0, e, v, smin, smax)
+	if v == 0 then
+		if c0 - e >= smax or c0 + e <= smin then return nil end
+
+		return t_lo, t_hi
+	end
+
+	if v > 0 then
+		t_hi = math.min(t_hi, (smax - c0 + e) / v)
+		t_lo = math.max(t_lo, (smin - c0 - e) / v)
+	else
+		t_lo = math.max(t_lo, (smax - c0 + e) / v)
+		t_hi = math.min(t_hi, (smin - c0 - e) / v)
+	end
+
+	if t_lo >= t_hi then return nil end
+
+	return t_lo, t_hi
+end
+
+local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
+	local radius = invariants.radius
+	local segment_a = invariants.segment_a
+	local segment_b = invariants.segment_b
+	local movement = invariants.movement
+	local extx = math.abs(segment_b.x - segment_a.x) * 0.5 + radius
+	local exty = math.abs(segment_b.y - segment_a.y) * 0.5 + radius
+	local extz = math.abs(segment_b.z - segment_a.z) * 0.5 + radius
+	local t_lo, t_hi = narrow_reach_interval(
+		0,
+		max_fraction,
+		(segment_a.x + segment_b.x) * 0.5,
+		extx,
+		movement.x,
+		math.min(v0.x, v1.x, v2.x),
+		math.max(v0.x, v1.x, v2.x)
+	)
+
+	if not t_lo then return false end
+
+	t_lo, t_hi = narrow_reach_interval(
+		t_lo,
+		t_hi,
+		(segment_a.y + segment_b.y) * 0.5,
+		exty,
+		movement.y,
+		math.min(v0.y, v1.y, v2.y),
+		math.max(v0.y, v1.y, v2.y)
+	)
+
+	if not t_lo then return false end
+
+	t_lo, t_hi = narrow_reach_interval(
+		t_lo,
+		t_hi,
+		(segment_a.z + segment_b.z) * 0.5,
+		extz,
+		movement.z,
+		math.min(v0.z, v1.z, v2.z),
+		math.max(v0.z, v1.z, v2.z)
+	)
+	return t_lo ~= nil
+end
+
+local SWEEP_STATS = {
+	candidate_triangles = 0,
+	plane_rejected = 0,
+	reach_rejected = 0,
+	distance_calls = 0,
+	scalar_fallbacks = 0,
+	start_hits = 0,
+	hits = 0,
+	newton_steps = 0,
+	bisect_steps = 0,
+	low_newton_available = 0,
+	high_newton_available = 0,
+}
+
+-- Vec3-based separation; fallback for triangles the scalar kernel can't
+-- handle, and source of the exact contact for the final hit build.
+local function get_capsule_triangle_separation_sq(invariants, t, v0, v1, v2, face_normal)
+	local delta = invariants.movement * t
 	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(
-		segment_a,
-		segment_b,
-		position,
+		invariants.segment_a + delta,
+		invariants.segment_b + delta,
+		invariants.start_position + delta,
 		v0,
 		v1,
 		v2,
 		{
 			epsilon = EPSILON,
-			fallback_normal = movement and
-				movement:GetLength() > EPSILON and
-				(
-					movement * -1
-				):GetNormalized() or
-				physics_constants.UP,
-			zero_distance_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON), movement),
+			face_normal = face_normal,
+			fallback_normal = invariants.fallback_normal,
 		}
 	)
 
 	if not result then return nil end
 
-	return result.segment_point, result.position, result.distance, result.normal
+	local distance = result.distance
+
+	if distance <= EPSILON and face_normal then
+		result.normal = ensure_normal_faces_motion(face_normal, invariants.movement)
+	end
+
+	return result.segment_point, result.position, distance * distance, result.normal
 end
 
-local function get_capsule_sweep_sample_steps(collider, movement_length, max_fraction)
-	local segment_a, segment_b, radius = get_capsule_segment_world(collider, collider:GetPosition(), collider:GetRotation())
-	local segment_length = segment_a and segment_b and (segment_b - segment_a):GetLength() or 0
-	local distance_scale = math.max(radius * 0.5 + segment_length * 0.25, 0.2)
-	local scaled_length = math.max(0, movement_length * math.max(max_fraction or 1, 0))
-	return math.max(4, math.min(64, math.ceil(scaled_length / distance_scale) * 2))
+-- squared-distance sweep predicate on the allocation-free scalar kernel:
+-- no Vec3 construction, no sqrt, no normalization on this path.
+local function eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
+	local movement = invariants.movement
+	local dx = movement.x * t
+	local dy = movement.y * t
+	local dz = movement.z * t
+	local segment_a = invariants.segment_a
+	local segment_b = invariants.segment_b
+	local distance_sq, sx, sy, sz, qx, qy, qz = triangle_scalar.SegmentToTriangleSq(
+		segment_a.x + dx,
+		segment_a.y + dy,
+		segment_a.z + dz,
+		segment_b.x + dx,
+		segment_b.y + dy,
+		segment_b.z + dz,
+		v0.x,
+		v0.y,
+		v0.z,
+		v1.x,
+		v1.y,
+		v1.z,
+		v2.x,
+		v2.y,
+		v2.z,
+		face_normal,
+		EPSILON
+	)
+
+	if distance_sq then return distance_sq, sx, sy, sz, qx, qy, qz end
+
+	SWEEP_STATS.scalar_fallbacks = SWEEP_STATS.scalar_fallbacks + 1
+	local segment_point, triangle_point, full_distance_sq = get_capsule_triangle_separation_sq(invariants, t, v0, v1, v2, face_normal)
+
+	if not full_distance_sq then return nil end
+
+	return full_distance_sq,
+	segment_point.x,
+	segment_point.y,
+	segment_point.z,
+	triangle_point.x,
+	triangle_point.y,
+	triangle_point.z
 end
 
-local function build_capsule_triangle_sweep_hit(collider, position, rotation, v0, v1, v2, movement, t)
-	local segment_point, triangle_point, _, normal = get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
-	local shape = collider:GetPhysicsShape()
-	local radius = shape and shape.GetRadius and shape:GetRadius() or 0
+-- full Vec3 re-query of the closest pair; only used for degenerate
+-- triangles, where the scalar kernel falls back to the Vec3 pipeline anyway
+local function build_capsule_triangle_sweep_hit_vec3(invariants, v0, v1, v2, face_normal, t)
+	local delta = invariants.movement * t
+	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(
+		invariants.segment_a + delta,
+		invariants.segment_b + delta,
+		invariants.start_position + delta,
+		v0,
+		v1,
+		v2,
+		{
+			epsilon = EPSILON,
+			face_normal = face_normal,
+			fallback_normal = invariants.fallback_normal,
+		}
+	)
+
+	if not result then return nil end
+
+	local distance = result.distance
+
+	if distance <= EPSILON and face_normal then
+		result.normal = ensure_normal_faces_motion(face_normal, invariants.movement)
+	end
+
+	local segment_point = result.segment_point
+	local triangle_point = result.position
+	local normal = result.normal
 
 	if not (segment_point and triangle_point and normal) then return nil end
 
 	return {
 		t = t,
-		point = segment_point - normal * radius,
+		point = segment_point - normal * invariants.radius,
 		position = triangle_point,
 		normal = normal,
 	}
 end
 
-function sweep_capsule_against_triangle(collider, start_position, rotation, movement, v0, v1, v2, max_fraction)
+-- direct hit construction from the scalar closest pair: no re-query of the
+-- triangle. normal semantics match GetCapsuleTriangleSeparation: the pair
+-- direction when separated, the face normal oriented against the motion
+-- when penetrating
+local function build_capsule_triangle_sweep_hit(invariants, face_normal, t, sp_x, sp_y, sp_z, tp_x, tp_y, tp_z, distance_sq)
 	local epsilon = EPSILON
-	local shape = collider:GetPhysicsShape()
-	local radius = shape and shape.GetRadius and shape:GetRadius() or 0
-	local _, _, start_distance = get_capsule_triangle_separation(start_position, rotation, collider, v0, v1, v2, movement)
+	local radius = invariants.radius
+	local normal
 
-	if start_distance and start_distance <= radius + epsilon then
-		return build_capsule_triangle_sweep_hit(collider, start_position, rotation, v0, v1, v2, movement, 0)
+	if distance_sq > epsilon * epsilon then
+		local distance = math.sqrt(distance_sq)
+		normal = Vec3((sp_x - tp_x) / distance, (sp_y - tp_y) / distance, (sp_z - tp_z) / distance)
+	else
+		local nx, ny, nz = face_normal.x, face_normal.y, face_normal.z
+		local movement = invariants.movement
+
+		if nx * movement.x + ny * movement.y + nz * movement.z > 0 then
+			normal = face_normal * -1
+		else
+			normal = face_normal
+		end
 	end
 
-	local steps = get_capsule_sweep_sample_steps(collider, movement:GetLength(), max_fraction)
+	return {
+		t = t,
+		point = Vec3(sp_x - normal.x * radius, sp_y - normal.y * radius, sp_z - normal.z * radius),
+		position = Vec3(tp_x, tp_y, tp_z),
+		normal = normal,
+	}
+end
+
+function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
+	local epsilon = EPSILON
+	local radius = invariants.radius
+	local movement = invariants.movement
+	local nx, ny, nz, normal_len_sq = triangle_scalar.TriangleNormalRaw(v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z)
+	local is_degenerate = normal_len_sq <= epsilon * epsilon
+	SWEEP_STATS.candidate_triangles = SWEEP_STATS.candidate_triangles + 1
+
+	if
+		not is_degenerate and
+		is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq)
+	then
+		SWEEP_STATS.plane_rejected = SWEEP_STATS.plane_rejected + 1
+		return nil
+	end
+
+	if not is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2) then
+		SWEEP_STATS.reach_rejected = SWEEP_STATS.reach_rejected + 1
+		return nil
+	end
+
+	-- the unit normal is only needed by triangles that survived both
+	-- rejections; those ran on the unnormalized cross product
+	local face_normal = nil
+
+	if not is_degenerate then
+		face_normal = Vec3(nx, ny, nz) * (1 / math.sqrt(normal_len_sq))
+	end
+
+	local hit_radius_sq = (radius + epsilon) * (radius + epsilon)
+	SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
+	local low_distance_sq, low_sx, low_sy, low_sz, low_qx, low_qy, low_qz = eval_capsule_triangle_distance_sq(invariants, 0, v0, v1, v2, face_normal)
+
+	if low_distance_sq and low_distance_sq <= hit_radius_sq then
+		SWEEP_STATS.start_hits = SWEEP_STATS.start_hits + 1
+		SWEEP_STATS.hits = SWEEP_STATS.hits + 1
+
+		if not face_normal then
+			return build_capsule_triangle_sweep_hit_vec3(invariants, v0, v1, v2, nil, 0)
+		end
+
+		return build_capsule_triangle_sweep_hit(
+			invariants,
+			face_normal,
+			0,
+			low_sx,
+			low_sy,
+			low_sz,
+			low_qx,
+			low_qy,
+			low_qz,
+			low_distance_sq
+		)
+	end
+
+	local steps = get_capsule_sweep_sample_steps(invariants, max_fraction)
 	local low = 0
 	local hit_t = nil
+	local segment_x
+	local segment_y
+	local segment_z
+	local triangle_x
+	local triangle_y
+	local triangle_z
+	local distance_sq
 
 	for i = 1, steps do
 		local t = max_fraction * (i / steps)
-		local position = start_position + movement * t
-		local _, _, distance = get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
+		SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
+		distance_sq, segment_x, segment_y, segment_z, triangle_x, triangle_y, triangle_z = eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
 
-		if distance and distance <= radius + epsilon then
+		if distance_sq and distance_sq <= hit_radius_sq then
 			hit_t = t
 
 			break
 		end
 
 		low = t
+		low_distance_sq = distance_sq
+		low_sx = segment_x
+		low_sy = segment_y
+		low_sz = segment_z
+		low_qx = triangle_x
+		low_qy = triangle_y
+		low_qz = triangle_z
 	end
 
 	if not hit_t then return nil end
 
+	SWEEP_STATS.hits = SWEEP_STATS.hits + 1
+	-- refine the first penetration time in (low, high]. the squared distance
+	-- along the sweep is a smooth near-quadratic function of t, so Newton
+	-- with the velocity-projection derivative converges in a few steps. the
+	-- step is only taken from a bracket end where the capsule is still
+	-- approaching the triangle (closing < 0); anything that would leave the
+	-- bracket (kinks, tangential approach, flat regions) falls back to
+	-- bisection, so progress is guaranteed.
 	local high = hit_t
+	local high_sx = segment_x
+	local high_sy = segment_y
+	local high_sz = segment_z
+	local high_qx = triangle_x
+	local high_qy = triangle_y
+	local high_qz = triangle_z
+	local high_distance_sq = distance_sq
+	local consecutive_bisects = 0
+	-- 1/4096 of the sample bracket matches the precision of the old 12-step
+	-- bisection; 12 iterations is the worst case if every step bisects
+	local tol_width = (high - low) * 2.4e-4
 
 	for _ = 1, 12 do
-		local mid = (low + high) * 0.5
-		local position = start_position + movement * mid
-		local _, _, distance = get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
+		if high - low <= tol_width then break end
 
-		if distance and distance <= radius + epsilon then
-			high = mid
+		local next_t = nil
+
+		if consecutive_bisects < 3 then
+			local closing = (
+					low_sx - low_qx
+				) * movement.x + (
+					low_sy - low_qy
+				) * movement.y + (
+					low_sz - low_qz
+				) * movement.z
+
+			if closing < -1e-9 then
+				SWEEP_STATS.low_newton_available = SWEEP_STATS.low_newton_available + 1
+				next_t = low - (low_distance_sq - hit_radius_sq) / (2 * closing)
+			end
+
+			if not next_t or next_t <= low or next_t >= high then
+				closing = (
+						high_sx - high_qx
+					) * movement.x + (
+						high_sy - high_qy
+					) * movement.y + (
+						high_sz - high_qz
+					) * movement.z
+
+				if closing < -1e-9 then
+					SWEEP_STATS.high_newton_available = SWEEP_STATS.high_newton_available + 1
+					next_t = high - (high_distance_sq - hit_radius_sq) / (2 * closing)
+				end
+			end
+		end
+
+		if not next_t or next_t <= low or next_t >= high then
+			next_t = (low + high) * 0.5
+			consecutive_bisects = consecutive_bisects + 1
+			SWEEP_STATS.bisect_steps = SWEEP_STATS.bisect_steps + 1
 		else
-			low = mid
+			consecutive_bisects = 0
+			SWEEP_STATS.newton_steps = SWEEP_STATS.newton_steps + 1
+		end
+
+		SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
+		distance_sq, segment_x, segment_y, segment_z, triangle_x, triangle_y, triangle_z = eval_capsule_triangle_distance_sq(invariants, next_t, v0, v1, v2, face_normal)
+
+		if distance_sq <= hit_radius_sq then
+			high = next_t
+			high_sx = segment_x
+			high_sy = segment_y
+			high_sz = segment_z
+			high_qx = triangle_x
+			high_qy = triangle_y
+			high_qz = triangle_z
+			high_distance_sq = distance_sq
+		else
+			low = next_t
+			low_sx = segment_x
+			low_sy = segment_y
+			low_sz = segment_z
+			low_qx = triangle_x
+			low_qy = triangle_y
+			low_qz = triangle_z
+			low_distance_sq = distance_sq
 		end
 	end
 
-	return build_capsule_triangle_sweep_hit(collider, start_position + movement * high, rotation, v0, v1, v2, movement, high)
+	-- final polish: one Newton step from the current best estimate, accepted
+	-- only if it stays inside the radius
+	local closing = (
+			high_sx - high_qx
+		) * movement.x + (
+			high_sy - high_qy
+		) * movement.y + (
+			high_sz - high_qz
+		) * movement.z
+
+	if closing < -1e-9 then
+		local polish_t = high - (high_distance_sq - hit_radius_sq) / (2 * closing)
+
+		if polish_t > low and polish_t < high then
+			SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
+			local polish_distance_sq = eval_capsule_triangle_distance_sq(invariants, polish_t, v0, v1, v2, face_normal)
+
+			if polish_distance_sq and polish_distance_sq <= hit_radius_sq then
+				high = polish_t
+			end
+		end
+	end
+
+	if not face_normal then
+		return build_capsule_triangle_sweep_hit_vec3(invariants, v0, v1, v2, nil, high)
+	end
+
+	-- one final scalar evaluation at the accepted t so the contact pair
+	-- matches the t the polish may have moved
+	SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
+	local hit_distance_sq, sp_x, sp_y, sp_z, tp_x, tp_y, tp_z = eval_capsule_triangle_distance_sq(invariants, high, v0, v1, v2, face_normal)
+
+	if not hit_distance_sq then return nil end
+
+	return build_capsule_triangle_sweep_hit(
+		invariants,
+		face_normal,
+		high,
+		sp_x,
+		sp_y,
+		sp_z,
+		tp_x,
+		tp_y,
+		tp_z,
+		hit_distance_sq
+	)
 end
 
 local function sweep_capsule_against_planes(
@@ -966,5 +1377,7 @@ sweep_mesh.GetPolyhedronSweepProxy = get_polyhedron_sweep_proxy
 sweep_mesh.TransformDirection = transform_direction
 sweep_mesh.SweepSphereAgainstTriangle = sweep_sphere_against_triangle
 sweep_mesh.SweepCapsuleAgainstTriangle = sweep_capsule_against_triangle
+sweep_mesh.BuildCapsuleSweepInvariants = build_capsule_sweep_invariants
+sweep_mesh.SweepStats = SWEEP_STATS
 sweep_mesh.SweepPolyhedronAgainstTriangle = sweep_polyhedron_against_triangle
 return sweep_mesh

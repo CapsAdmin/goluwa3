@@ -25,9 +25,7 @@ function triangle_geometry.RayIntersection(ray, v0, v1, v2)
 
 	local t = f * edge2:Dot(q)
 
-	if t > epsilon and t <= ray.max_distance then
-		return true, t, u, v
-	end
+	if t > epsilon and t <= ray.max_distance then return true, t, u, v end
 
 	return false
 end
@@ -126,7 +124,7 @@ end
 function triangle_geometry.ClosestPointsOnSegmentTriangle(start_point, end_point, v0, v1, v2, options)
 	options = options or {}
 	local epsilon = options.epsilon or 0.00001
-	local triangle_normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
+	local triangle_normal = options.face_normal or triangle_geometry.GetTriangleNormal(v0, v1, v2)
 
 	if triangle_normal:GetLength() > epsilon then
 		local segment_delta = end_point - start_point

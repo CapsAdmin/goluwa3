@@ -321,8 +321,43 @@ for _, name in ipairs{
 	objects.Delegate(META, "Body", name)
 end
 
+local function get_cached_world_transform(collider)
+	local body = collider.Body
+	local body_position = body.Position
+	local body_rotation = body.Rotation
+	local cache = collider.TransformCache
+
+	if
+		cache and
+		cache.BodyX == body_position.x and
+		cache.BodyY == body_position.y and
+		cache.BodyZ == body_position.z and
+		cache.BodyRX == body_rotation.x and
+		cache.BodyRY == body_rotation.y and
+		cache.BodyRZ == body_rotation.z and
+		cache.BodyRW == body_rotation.w
+	then
+		return cache.Position, cache.Rotation
+	end
+
+	local position = body_position + body_rotation:VecMul(collider.LocalPosition)
+	local rotation = (body_rotation * collider.LocalRotation):GetNormalized()
+	collider.TransformCache = {
+		BodyX = body_position.x,
+		BodyY = body_position.y,
+		BodyZ = body_position.z,
+		BodyRX = body_rotation.x,
+		BodyRY = body_rotation.y,
+		BodyRZ = body_rotation.z,
+		BodyRW = body_rotation.w,
+		Position = position,
+		Rotation = rotation,
+	}
+	return position, rotation
+end
+
 function META:GetPosition()
-	return self.Body:GetPosition() + self.Body:GetRotation():VecMul(self.LocalPosition)
+	return get_cached_world_transform(self)
 end
 
 function META:GetPreviousPosition()
@@ -330,7 +365,8 @@ function META:GetPreviousPosition()
 end
 
 function META:GetRotation()
-	return (self.Body:GetRotation() * self.LocalRotation):GetNormalized()
+	local _, rotation = get_cached_world_transform(self)
+	return rotation
 end
 
 function META:GetPreviousRotation()

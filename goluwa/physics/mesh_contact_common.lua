@@ -521,7 +521,13 @@ end
 
 function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback, context)
 	local bounds = static_model_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body)
-	local local_bounds = AABB.BuildLocalAABBFromWorldAABBInternal(bounds, mesh_body.WorldToLocal, mesh_body)
+	local local_bounds = AABB.BuildLocalAABBFromWorldAABBInternal(
+		bounds,
+		mesh_body.WorldToLocal,
+		mesh_body,
+		mesh_body:GetPosition(),
+		mesh_body:GetRotation()
+	)
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.mesh_body = mesh_body
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.callback = callback
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.user_context = context

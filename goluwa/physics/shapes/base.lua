@@ -6,10 +6,10 @@ local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local META = objects.CreateTemplate("physics_shape_base")
 
-function META:BuildSweptLocalAABB(collider, world_aabb)
+function META:BuildSweptLocalAABB(collider, position, rotation, world_aabb, out)
 	if not (collider and world_aabb) then return nil end
 
-	return AABB.BuildLocalAABBFromWorldAABBInternal(world_aabb, collider.WorldToLocal, collider)
+	return AABB.BuildLocalAABBFromWorldAABBInternal(world_aabb, collider.WorldToLocal, collider, position, rotation, out)
 end
 
 function META:GetTriangleWorldVertices(collider, position, rotation, v0, v1, v2)

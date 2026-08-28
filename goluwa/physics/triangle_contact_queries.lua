@@ -107,6 +107,7 @@ function triangle_contact_queries.GetSegmentTriangleSeparation(start_point, end_
 		{
 			epsilon = epsilon,
 			fallback_normal = options.fallback_normal or physics_constants.UP,
+			face_normal = options.face_normal,
 		}
 	)
 
