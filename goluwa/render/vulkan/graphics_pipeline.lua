@@ -1045,24 +1045,6 @@ local function has_static_state_change(self, info)
 end
 
 do
-	local function has_static_override_change(self, section, key, value)
-		local info = get_state_property_info(section, key)
-
-		if info then return has_static_state_change(self, info) end
-
-		local entry = get_state_property_entry(section, key)
-
-		if type(value) ~= "table" or type(entry) ~= "table" then return true end
-
-		for subkey in pairs(value) do
-			info = entry[subkey]
-
-			if info == nil or has_static_state_change(self, info) then return true end
-		end
-
-		return false
-	end
-
 	local function get_input_assembly_state_id(self, input_assembly)
 		if type(input_assembly) ~= "table" then
 			return self.input_assembly_state_interner:intern()
@@ -1220,6 +1202,24 @@ do
 		return self.color_blend_state_interner:intern(args)
 	end
 
+	local function has_static_override_change(self, section, key, value)
+		local info = get_state_property_info(section, key)
+
+		if info then return has_static_state_change(self, info) end
+
+		local entry = get_state_property_entry(section, key)
+
+		if type(value) ~= "table" or type(entry) ~= "table" then return true end
+
+		for subkey in pairs(value) do
+			info = entry[subkey]
+
+			if info == nil or has_static_state_change(self, info) then return true end
+		end
+
+		return false
+	end
+
 	function GraphicsPipeline:GetVariantId(overrides, signature)
 		signature = signature or self.base_pipeline_signature
 		local signature_id = get_signature_id(self, signature)
@@ -1252,24 +1252,16 @@ do
 			if has_static then static_overrides[section] = static_changes end
 		end
 
-		local input_assembly_state_id = get_input_assembly_state_id(self, static_overrides.input_assembly)
-		local tessellation_state_id = get_tessellation_state_id(self, static_overrides.tessellation)
-		local multisampling_state_id = get_multisampling_state_id(self, static_overrides.multisampling)
-		local rasterizer_state_id = get_rasterizer_state_id(self, static_overrides.rasterizer)
-		local depth_stencil_state_id = get_depth_stencil_state_id(self, static_overrides.depth_stencil)
-		local viewport_state_id = get_viewport_state_id(self, static_overrides.viewport)
-		local scissor_state_id = get_scissor_state_id(self, static_overrides.scissor)
-		local color_blend_state_id = get_color_blend_state_id(self, static_overrides.color_blend)
 		return self.pipeline_variant_interner:intern{
 			signature_id,
-			input_assembly_state_id,
-			tessellation_state_id,
-			multisampling_state_id,
-			rasterizer_state_id,
-			depth_stencil_state_id,
-			viewport_state_id,
-			scissor_state_id,
-			color_blend_state_id,
+			get_input_assembly_state_id(self, static_overrides.input_assembly),
+			get_tessellation_state_id(self, static_overrides.tessellation),
+			get_multisampling_state_id(self, static_overrides.multisampling),
+			get_rasterizer_state_id(self, static_overrides.rasterizer),
+			get_depth_stencil_state_id(self, static_overrides.depth_stencil),
+			get_viewport_state_id(self, static_overrides.viewport),
+			get_scissor_state_id(self, static_overrides.scissor),
+			get_color_blend_state_id(self, static_overrides.color_blend),
 		}
 	end
 end
