@@ -20,6 +20,8 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - Run all test files in a directory: `luajit glw test render2d/`
 
+- Running the whole test suite is expensive and may cause vram errors due to the constrained environment. Prefer not to run the whole test suite.
+
 - Run inline lua: `luajit glw --2d --one-frame lua "print('hello')"`. For scripts that span multiple lines, prefer the cycle of writing the script in ./tmp/, run, edit, run again, etc
 
 - When running the engine without the `--one-frame` or `--screenshot` flag, it will run forever. In which case you must use the timeout command or call `system.ShutDown()` manually at some point
@@ -72,7 +74,7 @@ The profiler uses luajit's statistical profiler and jit.attach to observe trace 
 
 - `error thrown or hook called during recording` may happen because of the profiler itself. jit.attach and jprofile.start. There is no debug.sethook in this engine.
 
-
+- Sometimes caching is prefered, but sometimes it is not. The luajit does very well with pure numeric arithmetic, so caching may sometimes interfere with that. Sometimes you may think a function needs caching, but the underlying issue might be a trace abort causing the function not to compile properly, this case might benefit from caching, but if the underlying problem was solved, the function might even be faster than the cached variant.
 
 # Coding rules
 
