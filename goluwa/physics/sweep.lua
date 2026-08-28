@@ -187,7 +187,7 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	if not shape then return nil end
 
 	local world_aabb = build_swept_aabb(origin, origin + movement * max_fraction, radius)
-	local local_aabb = shape:BuildSweptLocalAABB(collider, target_position, target_rotation, world_aabb)
+	local local_aabb = shape:BuildSweptLocalAABB(collider, world_aabb)
 	MESH_BODY_POINT_SWEEP_CONTEXT.origin = origin
 	MESH_BODY_POINT_SWEEP_CONTEXT.movement = movement
 	MESH_BODY_POINT_SWEEP_CONTEXT.radius = radius
@@ -251,7 +251,7 @@ local function test_mesh_body_collider_sweep(
 	if not shape then return nil end
 
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement * max_fraction)
-	local local_aabb = shape:BuildSweptLocalAABB(target_collider, target_position, target_rotation, world_aabb)
+	local local_aabb = shape:BuildSweptLocalAABB(target_collider, world_aabb)
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.collider = collider
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.polyhedron = polyhedron
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.start_position = start_position

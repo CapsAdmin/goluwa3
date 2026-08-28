@@ -93,9 +93,7 @@ function META:IsBoxIntersecting(box)
 	return true
 end
 
-function META.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
-	if not world_to_local then return world_aabb end
-
+function META.BuildLocalAABBFromWorldAABBInternal(world_aabb, world_to_local, arg)
 	local corners = LOCAL_AABB_CORNERS
 	corners[1].x, corners[1].y, corners[1].z = world_aabb.min_x, world_aabb.min_y, world_aabb.min_z
 	corners[2].x, corners[2].y, corners[2].z = world_aabb.min_x, world_aabb.min_y, world_aabb.max_z
@@ -113,7 +111,7 @@ function META.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 	local local_max_z = -math.huge
 
 	for i = 1, 8 do
-		local point = world_to_local:TransformVector(corners[i])
+		local point = world_to_local(arg, corners[i])
 		local x = point.x
 		local y = point.y
 		local z = point.z
@@ -132,6 +130,12 @@ function META.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 	end
 
 	return CTOR(local_min_x, local_min_y, local_min_z, local_max_x, local_max_y, local_max_z)
+end
+
+function META.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
+	if not world_to_local then return world_aabb end
+
+	return META.BuildLocalAABBFromWorldAABBInternal(world_aabb, world_to_local.TransformVector, world_to_local)
 end
 
 function META:ExtendMax(pos)
@@ -173,12 +177,12 @@ end
 function META.FromSegment(start_pos, end_pos, radius)
 	radius = math.max(radius or 0, 0)
 	return CTOR(
-			math.min(start_pos.x, end_pos.x) - radius,
-			math.min(start_pos.y, end_pos.y) - radius,
-			math.min(start_pos.z, end_pos.z) - radius,
-			math.max(start_pos.x, end_pos.x) + radius,
-			math.max(start_pos.y, end_pos.y) + radius,
-			math.max(start_pos.z, end_pos.z) + radius
+		math.min(start_pos.x, end_pos.x) - radius,
+		math.min(start_pos.y, end_pos.y) - radius,
+		math.min(start_pos.z, end_pos.z) - radius,
+		math.max(start_pos.x, end_pos.x) + radius,
+		math.max(start_pos.y, end_pos.y) + radius,
+		math.max(start_pos.z, end_pos.z) + radius
 	)
 end
 

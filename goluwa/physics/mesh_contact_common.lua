@@ -73,9 +73,6 @@ function mesh_contact_common.GetStaticMeshDynamicPair(body_a, body_b)
 	return nil, nil, nil
 end
 
-local LOCAL_AABB_TRANSFORM_PROXY = {
-	body = nil,
-}
 local OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT = {
 	mesh_body = nil,
 	callback = nil,
@@ -470,10 +467,6 @@ CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetDelta = get_mesh_capsule_delta
 CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetFallbackDelta = get_mesh_capsule_fallback_delta
 CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetContactPoints = get_mesh_capsule_contact_points
 
-function LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
-	return self.body:WorldToLocal(point)
-end
-
 local function invoke_overlapping_mesh_triangle(v0, v1, v2, triangle_index, context)
 	local mesh_body = context.mesh_body
 	local user_context = context.user_context
@@ -528,9 +521,7 @@ end
 
 function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback, context)
 	local bounds = static_model_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body)
-	LOCAL_AABB_TRANSFORM_PROXY.body = mesh_body
-	local local_bounds = AABB.BuildLocalAABBFromWorldAABB(bounds, LOCAL_AABB_TRANSFORM_PROXY)
-	LOCAL_AABB_TRANSFORM_PROXY.body = nil
+	local local_bounds = AABB.BuildLocalAABBFromWorldAABBInternal(bounds, mesh_body.WorldToLocal, mesh_body)
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.mesh_body = mesh_body
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.callback = callback
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.user_context = context
