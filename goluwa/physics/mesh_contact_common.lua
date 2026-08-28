@@ -182,6 +182,25 @@ local function append_cached_triangle_candidate(candidates, seen, polygon, trian
 	return true
 end
 
+local function append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, vertex_index, added)
+	local faces = feature_cache.faces_by_vertex_index[vertex_index]
+
+	if not faces then return added end
+
+	for _, face_index in ipairs(faces) do
+		if
+			face_index ~= triangle_index and
+			append_cached_triangle_candidate(candidates, seen, polygon, face_index)
+		then
+			added = added + 1
+
+			if added >= MAX_NARROW_CACHE_NEIGHBORS then return added end
+		end
+	end
+
+	return added
+end
+
 local function append_neighbor_triangle_candidates(candidates, seen, polygon, triangle_index)
 	if not (polygon and triangle_index ~= nil) then return 0 end
 
@@ -190,32 +209,15 @@ local function append_neighbor_triangle_candidates(candidates, seen, polygon, tr
 
 	if not (feature_cache and i0 and i1 and i2) then return 0 end
 
-	local added = 0
+	local added = append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, i0, 0)
 
-	local function append_from_vertex(vertex_index)
-		local faces = feature_cache.faces_by_vertex_index[vertex_index]
-
-		if not faces then return end
-
-		for _, face_index in ipairs(faces) do
-			if
-				face_index ~= triangle_index and
-				append_cached_triangle_candidate(candidates, seen, polygon, face_index)
-			then
-				added = added + 1
-
-				if added >= MAX_NARROW_CACHE_NEIGHBORS then return true end
-			end
-		end
-
-		return false
+	if added < MAX_NARROW_CACHE_NEIGHBORS then
+		added = append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, i1, added)
 	end
 
-	if append_from_vertex(i0) then return added end
-
-	if append_from_vertex(i1) then return added end
-
-	if append_from_vertex(i2) then return added end
+	if added < MAX_NARROW_CACHE_NEIGHBORS then
+		added = append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, i2, added)
+	end
 
 	return added
 end
