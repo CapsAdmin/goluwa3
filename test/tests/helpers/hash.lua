@@ -51,13 +51,13 @@ T.Test("hash intern handles empty tables with nil sentinel", function()
 	T(interner:intern({{}}))["=="](interner:intern({nil}, 1)) -- empty table = nil
 end)
 
-T.Test("hash internWith extracts values by keys", function()
+T.Test("hash intern_with_keys extracts values by keys", function()
 	local interner = Hash.New()
 	local config = {a = 1, b = 2, c = 3}
-	T(interner:internWith(config, {"a", "b"}))["=="](interner:internWith(config, {"a", "b"}))
+	T(interner:intern_with_keys(config, {"a", "b"}))["=="](interner:intern_with_keys(config, {"a", "b"}))
 	local config2 = {a = 1, b = 4, c = 3}
-	T(interner:internWith(config, {"a", "b"}))["~="](interner:internWith(config2, {"a", "b"}))
-	T(interner:internWith(nil, {"a", "b"}))["=="](interner:internWith(nil, {"a", "b"}))
+	T(interner:intern_with_keys(config, {"a", "b"}))["~="](interner:intern_with_keys(config2, {"a", "b"}))
+	T(interner:intern_with_keys(nil, {"a", "b"}))["=="](interner:intern_with_keys(nil, {"a", "b"}))
 end)
 
 T.Test("hash nested intern works correctly", function()
@@ -82,10 +82,10 @@ T.Test("hash multiple values with mixed types", function()
 	T(interner:intern({"str", 42, true, nil}, 4))["=="](interner:intern({"str", 42, true, nil}, 4))
 end)
 
-T.Test("hash internWith with missing keys returns nil", function()
+T.Test("hash intern_with_keys with missing keys returns nil", function()
 	local interner = Hash.New()
 	local config = {a = 1}
-	T(interner:internWith(config, {"a", "b", "c"}))["=="](interner:internWith(config, {"a", "b", "c"}))
+	T(interner:intern_with_keys(config, {"a", "b", "c"}))["=="](interner:intern_with_keys(config, {"a", "b", "c"}))
 	local config2 = {a = 1, b = 2}
-	T(interner:internWith(config, {"a", "b", "c"}))["~="](interner:internWith(config2, {"a", "b", "c"}))
+	T(interner:intern_with_keys(config, {"a", "b", "c"}))["~="](interner:intern_with_keys(config2, {"a", "b", "c"}))
 end)

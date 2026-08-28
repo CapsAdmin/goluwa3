@@ -66,7 +66,7 @@ local SAMPLER_CONFIG_KEYS = {
 local function intern_sampler_config_key(config)
 	if type(config) ~= "table" then return sampler_config_interner:intern() end
 
-	return sampler_config_interner:internWith(config, SAMPLER_CONFIG_KEYS)
+	return sampler_config_interner:intern_with_keys(config, SAMPLER_CONFIG_KEYS)
 end
 
 function pipeline_common.get_sampler_config_hash(config)

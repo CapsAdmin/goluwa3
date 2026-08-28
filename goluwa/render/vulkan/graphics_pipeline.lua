@@ -1051,7 +1051,7 @@ do
 		end
 
 		assert_known_keys("input_assembly", input_assembly, state_keys.input_assembly)
-		return self.input_assembly_state_interner:internWith(input_assembly, {"topology", "primitive_restart"})
+		return self.input_assembly_state_interner:intern_with_keys(input_assembly, {"topology", "primitive_restart"})
 	end
 
 	local function get_tessellation_state_id(self, tessellation)
@@ -1060,7 +1060,7 @@ do
 		end
 
 		assert_known_keys("tessellation", tessellation, state_keys.tessellation)
-		return self.tessellation_state_interner:internWith(tessellation, {"patch_control_points"})
+		return self.tessellation_state_interner:intern_with_keys(tessellation, {"patch_control_points"})
 	end
 
 	local function get_multisampling_state_id(self, multisampling)
@@ -1069,7 +1069,7 @@ do
 		end
 
 		assert_known_keys("multisampling", multisampling, state_keys.multisampling)
-		return self.multisampling_state_interner:internWith(
+		return self.multisampling_state_interner:intern_with_keys(
 			multisampling,
 			{"rasterization_samples", "sample_shading", "min_sample_shading"}
 		)
@@ -1081,7 +1081,7 @@ do
 		end
 
 		assert_known_keys("rasterizer", rasterizer, state_keys.rasterizer)
-		return self.rasterizer_state_interner:internWith(
+		return self.rasterizer_state_interner:intern_with_keys(
 			rasterizer,
 			{
 				"polygon_mode",
@@ -1143,7 +1143,7 @@ do
 		end
 
 		assert_known_keys("viewport", viewport, state_keys.viewport)
-		return self.viewport_state_interner:internWith(viewport, {"x", "y", "w", "h", "min_depth", "max_depth"})
+		return self.viewport_state_interner:intern_with_keys(viewport, {"x", "y", "w", "h", "min_depth", "max_depth"})
 	end
 
 	local function get_scissor_state_id(self, scissor)
@@ -1152,7 +1152,7 @@ do
 		end
 
 		assert_known_keys("scissor", scissor, state_keys.scissor)
-		return self.scissor_state_interner:internWith(scissor, {"x", "y", "w", "h"})
+		return self.scissor_state_interner:intern_with_keys(scissor, {"x", "y", "w", "h"})
 	end
 
 	local function get_color_blend_state_id(self, color_blend)
