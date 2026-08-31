@@ -213,6 +213,7 @@ render2d.state = {
 			next_world_matrix_slot = 1,
 			next_draw_matrix_slot = 1,
 			next_rect_draw_state_snapshot_slot = 1,
+			next_rect_draw_state_slot = 1,
 			rect_state_version = 0,
 		},
 		pipeline_state = {
@@ -246,6 +247,7 @@ render2d.rect_batch_world_matrices = {}
 render2d.rect_batch_draw_matrices = {}
 render2d.rect_batch_entries = {}
 render2d.rect_batch_state_snapshots = {}
+render2d.rect_batch_draw_states = {}
 render2d.rect_batch_instance_buffers = {}
 local blend_key_interner = Hash.New()
 local rect_key_interner = Hash.New()
@@ -259,6 +261,7 @@ local function reset_rect_batch_matrix_pool_state()
 	render2d.state.runtime.batch.next_world_matrix_slot = 1
 	render2d.state.runtime.batch.next_draw_matrix_slot = 1
 	render2d.state.runtime.batch.next_rect_draw_state_snapshot_slot = 1
+	render2d.state.runtime.batch.next_rect_draw_state_slot = 1
 end
 
 local function next_batch_rect_version()
@@ -548,16 +551,19 @@ local function canonicalize_blend_mode_state(state)
 		alpha_blend_op = state.alpha_blend_op or "add",
 		color_write_mask = state.color_write_mask or DEFAULT_COLOR_WRITE_MASK,
 	}
-	result.batch_key = blend_key_interner:intern{
-		result.blend,
-		result.src_color_blend_factor,
-		result.dst_color_blend_factor,
-		result.color_blend_op,
-		result.src_alpha_blend_factor,
-		result.dst_alpha_blend_factor,
-		result.alpha_blend_op,
-		result.color_write_mask,
-	}
+	result.batch_key = blend_key_interner:intern_scalars(
+		{
+			result.blend,
+			result.src_color_blend_factor,
+			result.dst_color_blend_factor,
+			result.color_blend_op,
+			result.src_alpha_blend_factor,
+			result.dst_alpha_blend_factor,
+			result.alpha_blend_op,
+			result.color_write_mask,
+		},
+		8
+	)
 	return result
 end
 
@@ -2537,14 +2543,14 @@ function render2d.CaptureRectDrawState(world_matrix)
 	end
 
 	Matrix44.CopyFrom(render2d.GetWorldMatrix(), resolved_world_matrix)
-	return {
-		rect_state_snapshot = rect_state_snapshot,
-		world_matrix = resolved_world_matrix,
-		texture = render2d.state.render.textures.texture,
-		sdf_texture = render2d.state.render.textures.sdf_texture,
-		blend_mode = blend_mode,
-		alpha_multiplier = render2d.state.render.fragment.alpha_multiplier,
-	}
+	local state = next_pooled_item(render2d.rect_batch_draw_states, "next_rect_draw_state_slot", new_table)
+	state.rect_state_snapshot = rect_state_snapshot
+	state.world_matrix = resolved_world_matrix
+	state.texture = render2d.state.render.textures.texture
+	state.sdf_texture = render2d.state.render.textures.sdf_texture
+	state.blend_mode = blend_mode
+	state.alpha_multiplier = render2d.state.render.fragment.alpha_multiplier
+	return state
 end
 
 function render2d.RestoreRectDrawState(state)
@@ -2708,33 +2714,36 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		render2d.state.runtime.batch.rect_key_version ~= render2d.state.runtime.batch.rect_state_version
 	then
 		render2d.state.runtime.batch.rect_key_version = render2d.state.runtime.batch.rect_state_version
-		render2d.state.runtime.batch.rect_key = rect_key_interner:intern{
-			render2d.state.runtime.batch.mode_ids[batch_mode] or
-			0,
-			state.blend_mode.batch_key,
-			state.rect_state_snapshot.nine_patch_x_count,
-			state.rect_state_snapshot.nine_patch_y_count,
-			state.rect_state_snapshot.nine_patch_x_stretch[0],
-			state.rect_state_snapshot.nine_patch_x_stretch[1],
-			state.rect_state_snapshot.nine_patch_x_stretch[2],
-			state.rect_state_snapshot.nine_patch_x_stretch[3],
-			state.rect_state_snapshot.nine_patch_x_stretch[4],
-			state.rect_state_snapshot.nine_patch_x_stretch[5],
-			state.rect_state_snapshot.nine_patch_y_stretch[0],
-			state.rect_state_snapshot.nine_patch_y_stretch[1],
-			state.rect_state_snapshot.nine_patch_y_stretch[2],
-			state.rect_state_snapshot.nine_patch_y_stretch[3],
-			state.rect_state_snapshot.nine_patch_y_stretch[4],
-			state.rect_state_snapshot.nine_patch_y_stretch[5],
-			state.rect_state_snapshot.depth_mode_id,
-			state.rect_state_snapshot.depth_write,
-			state.rect_state_snapshot.stencil_mode_id,
-			state.rect_state_snapshot.stencil_ref,
-			state.rect_state_snapshot.scissor[0],
-			state.rect_state_snapshot.scissor[1],
-			state.rect_state_snapshot.scissor[2],
-			state.rect_state_snapshot.scissor[3],
-		}
+		render2d.state.runtime.batch.rect_key = rect_key_interner:intern_scalars(
+			{
+				render2d.state.runtime.batch.mode_ids[batch_mode] or
+				0,
+				state.blend_mode.batch_key,
+				state.rect_state_snapshot.nine_patch_x_count,
+				state.rect_state_snapshot.nine_patch_y_count,
+				state.rect_state_snapshot.nine_patch_x_stretch[0],
+				state.rect_state_snapshot.nine_patch_x_stretch[1],
+				state.rect_state_snapshot.nine_patch_x_stretch[2],
+				state.rect_state_snapshot.nine_patch_x_stretch[3],
+				state.rect_state_snapshot.nine_patch_x_stretch[4],
+				state.rect_state_snapshot.nine_patch_x_stretch[5],
+				state.rect_state_snapshot.nine_patch_y_stretch[0],
+				state.rect_state_snapshot.nine_patch_y_stretch[1],
+				state.rect_state_snapshot.nine_patch_y_stretch[2],
+				state.rect_state_snapshot.nine_patch_y_stretch[3],
+				state.rect_state_snapshot.nine_patch_y_stretch[4],
+				state.rect_state_snapshot.nine_patch_y_stretch[5],
+				state.rect_state_snapshot.depth_mode_id,
+				state.rect_state_snapshot.depth_write,
+				state.rect_state_snapshot.stencil_mode_id,
+				state.rect_state_snapshot.stencil_ref,
+				state.rect_state_snapshot.scissor[0],
+				state.rect_state_snapshot.scissor[1],
+				state.rect_state_snapshot.scissor[2],
+				state.rect_state_snapshot.scissor[3],
+			},
+			24
+		)
 	end
 
 	local segment = render2d.state.runtime.batch.state.segments[#render2d.state.runtime.batch.state.segments]

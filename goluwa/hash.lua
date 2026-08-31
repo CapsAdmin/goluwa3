@@ -68,6 +68,24 @@ function Hash:intern(list, count)
 	return finalize(self, node)
 end
 
+function Hash:intern_scalars(list, count)
+	local node = self.root
+
+	for i = 1, count do
+		local value = list[i]
+		local child = node[value]
+
+		if not child then
+			child = {}
+			node[value] = child
+		end
+
+		node = child
+	end
+
+	return finalize(self, node)
+end
+
 function Hash:intern_with_keys(tbl, keys)
 	local node = self.root
 
