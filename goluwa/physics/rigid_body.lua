@@ -452,7 +452,7 @@ function RigidBody:GetBody()
 end
 
 function RigidBody:GetPhysics()
-	return rawget(self, "Physics")
+	return RigidBody.Physics
 end
 
 function RigidBody:GetKinematicController()
