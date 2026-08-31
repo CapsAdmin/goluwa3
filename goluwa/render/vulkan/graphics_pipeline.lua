@@ -1548,6 +1548,105 @@ local function build_bind_state_cache(self)
 	build_cache_region(self, cache, "scissor")
 end
 
+local function add_bind_state_func(self, fn)
+	self.bind_state_funcs[#self.bind_state_funcs + 1] = fn
+end
+
+local function build_bind_state_funcs(self)
+	self.bind_state_funcs = {}
+
+	if self.dynamic_states.color_blend_enable_ext then
+		add_bind_state_func(self, function(cmd)
+			local val = self.bind_state_cache.color_blend_enable
+
+			if val then cmd:SetColorBlendEnable(0, val) end
+		end)
+	end
+
+	if self.dynamic_states.color_write_mask_ext then
+		add_bind_state_func(self, function(cmd)
+			local val = self.bind_state_cache.color_write_mask
+
+			if val then cmd:SetColorWriteMask(0, val) end
+		end)
+	end
+
+	if self.dynamic_states.logic_op_enable_ext then
+		add_bind_state_func(self, function(cmd)
+			cmd:SetLogicOpEnable(self.bind_state_cache.logic_op_enable)
+		end)
+	end
+
+	if self.dynamic_states.logic_op_ext then
+		add_bind_state_func(self, function(cmd)
+			cmd:SetLogicOp(self.bind_state_cache.logic_op)
+		end)
+	end
+
+	if self.dynamic_states.color_blend_equation_ext then
+		add_bind_state_func(self, function(cmd)
+			local equations = self.bind_state_cache.color_blend_equations
+
+			if equations then
+				for i, equation in ipairs(equations) do
+					cmd:SetColorBlendEquation(i - 1, equation)
+				end
+			end
+		end)
+	end
+
+	if self.dynamic_states.polygon_mode_ext then
+		add_bind_state_func(self, function(cmd)
+			cmd:SetPolygonMode(self.bind_state_cache.polygon_mode)
+		end)
+	end
+
+	if self.dynamic_states.cull_mode then
+		add_bind_state_func(self, function(cmd)
+			cmd:SetCullMode(self.bind_state_cache.cull_mode)
+		end)
+	end
+
+	if self.dynamic_states.front_face then
+		add_bind_state_func(self, function(cmd)
+			cmd:SetFrontFace(self.bind_state_cache.front_face)
+		end)
+	end
+
+	if self.dynamic_states.depth_clamp_enable_ext then
+		add_bind_state_func(self, function(cmd)
+			cmd:SetDepthClampEnable(self.bind_state_cache.depth_clamp_enable)
+		end)
+	end
+
+	for ds_name, bindings in pairs(vulkan_bindings) do
+		if self.dynamic_states[ds_name] then
+			if ds_name == "viewport" or ds_name == "scissor" then
+				local width_field = ds_name .. "_width"
+				local height_field = ds_name .. "_height"
+
+				add_bind_state_func(self, function(cmd)
+					local cache = self.bind_state_cache
+
+					if cache[width_field] <= 0 or cache[height_field] <= 0 then return end
+
+					for _, binding in ipairs(bindings) do
+						if binding.setter then binding.setter(cmd, cache, cache[binding.field]) end
+					end
+				end)
+			else
+				for _, binding in ipairs(bindings) do
+					if binding.setter then
+						add_bind_state_func(self, function(cmd)
+							binding.setter(cmd, self.bind_state_cache, self.bind_state_cache[binding.field])
+						end)
+					end
+				end
+			end
+		end
+	end
+end
+
 local function get_pipeline_signature(self, cmd)
 	local rendering_state = cmd and cmd.rendering_state or nil
 	local base = self.base_pipeline_signature or
@@ -1934,6 +2033,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.current_variant_id = self.base_variant_id
 	self.static_variant_dirty = false
 	build_bind_state_cache(self)
+	build_bind_state_funcs(self)
 	self:InitializeTextureRegistry()
 	self.PushConstants = common.push_constants
 	self.max_textures = common.get_bindless_binding_capacity(self, 0) or 0
@@ -2063,84 +2163,8 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 
 	cmd:BindPipeline(self.pipeline, "graphics")
 
-	-- Always apply dynamic states if they are enabled in this pipeline
-	if
-		self.dynamic_states.color_blend_enable_ext and
-		self.bind_state_cache.color_blend_enable
-	then
-		cmd:SetColorBlendEnable(0, self.bind_state_cache.color_blend_enable)
-	end
-
-	if
-		self.dynamic_states.color_write_mask_ext and
-		self.bind_state_cache.color_write_mask
-	then
-		cmd:SetColorWriteMask(0, self.bind_state_cache.color_write_mask)
-	end
-
-	if self.dynamic_states.logic_op_enable_ext then
-		cmd:SetLogicOpEnable(self.bind_state_cache.logic_op_enable)
-	end
-
-	if self.dynamic_states.logic_op_ext then
-		cmd:SetLogicOp(self.bind_state_cache.logic_op)
-	end
-
-	if
-		self.dynamic_states.color_blend_equation_ext and
-		self.bind_state_cache.color_blend_equations
-	then
-		for i, equation in ipairs(self.bind_state_cache.color_blend_equations) do
-			cmd:SetColorBlendEquation(i - 1, equation)
-		end
-	end
-
-	if self.dynamic_states.polygon_mode_ext then
-		cmd:SetPolygonMode(self.bind_state_cache.polygon_mode)
-	end
-
-	if self.dynamic_states.cull_mode then
-		cmd:SetCullMode(self.bind_state_cache.cull_mode)
-	end
-
-	if self.dynamic_states.front_face then
-		cmd:SetFrontFace(self.bind_state_cache.front_face)
-	end
-
-	if self.dynamic_states.depth_clamp_enable_ext then
-		cmd:SetDepthClampEnable(self.bind_state_cache.depth_clamp_enable)
-	end
-
-	-- Derive Vulkan API calls from vulkan_bindings
-	for ds_name, bindings in pairs(vulkan_bindings) do
-		if self.dynamic_states[ds_name] then
-			for _, binding in ipairs(bindings) do
-				local val = self.bind_state_cache[binding.field]
-
-				-- Special handling for viewport/scissor (need size check)
-				if
-					ds_name == "viewport" and
-					(
-						self.bind_state_cache.viewport_width <= 0 or
-						self.bind_state_cache.viewport_height <= 0
-					)
-				then
-					break
-				end
-
-				if
-					ds_name == "scissor" and
-					(
-						self.bind_state_cache.scissor_width <= 0 or
-						self.bind_state_cache.scissor_height <= 0
-					)
-				then
-					break
-				end
-
-				if binding.setter then binding.setter(cmd, self.bind_state_cache, val) end
-			end
-		end
+	for _, fn in ipairs(self.bind_state_funcs) do
+		fn(cmd)
 	end
 
 	-- Bind descriptor sets
