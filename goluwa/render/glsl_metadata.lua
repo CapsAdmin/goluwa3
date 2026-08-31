@@ -1,5 +1,4 @@
 local ffi = require("ffi")
-
 local FIELD_TYPE_BYTE_SIZE = {
 	float = 4,
 	int = 4,
@@ -14,7 +13,6 @@ local FIELD_TYPE_BYTE_SIZE = {
 	mat4 = 64,
 	uint64_t = 8,
 }
-
 local GLSL_TO_FFI = {
 	mat4 = "float",
 	vec4 = "float",
@@ -29,7 +27,6 @@ local GLSL_TO_FFI = {
 	ivec2 = "int",
 	uint64_t = "uint64_t",
 }
-
 local GLSL_TO_ARRAY_SIZE = {
 	mat4 = 16,
 	vec4 = 4,
@@ -40,7 +37,6 @@ local GLSL_TO_ARRAY_SIZE = {
 	ivec2 = 2,
 	uint64_t = 1,
 }
-
 local GLSL_TO_LUA_TYPE = {
 	mat4 = ffi.typeof("float[16]"),
 	vec4 = ffi.typeof("float[4]"),
@@ -458,19 +454,12 @@ local function normalize_block_source(block, size, alignment, kind)
 	if source._normalized then return source end
 
 	if type(source) ~= "table" then
-		error(
-			string.format("%s '%s' source must be a table", kind, tostring(block.name)),
-			3
-		)
+		error(string.format("%s '%s' source must be a table", kind, tostring(block.name)), 3)
 	end
 
 	if type(source.get) ~= "function" then
 		error(
-			string.format(
-				"%s '%s' source.get must be a function",
-				kind,
-				tostring(block.name)
-			),
+			string.format("%s '%s' source.get must be a function", kind, tostring(block.name)),
 			3
 		)
 	end
@@ -479,11 +468,7 @@ local function normalize_block_source(block, size, alignment, kind)
 
 	if not source_ctype then
 		error(
-			string.format(
-				"%s '%s' source must provide ctype or struct",
-				kind,
-				tostring(block.name)
-			),
+			string.format("%s '%s' source must provide ctype or struct", kind, tostring(block.name)),
 			3
 		)
 	end
@@ -522,14 +507,7 @@ local function normalize_block_source(block, size, alignment, kind)
 	end
 
 	if offset < 0 then
-		error(
-			string.format(
-				"%s '%s' source offset must be >= 0",
-				kind,
-				tostring(block.name)
-			),
-			3
-		)
+		error(string.format("%s '%s' source offset must be >= 0", kind, tostring(block.name)), 3)
 	end
 
 	local source_size = ffi.sizeof(source_ctype)
@@ -594,7 +572,13 @@ local function sanitize_color_blend_attachments(attachments)
 	return result
 end
 
-local function build_shader_header(bindless_texture_capacity, bindless_cubemap_capacity, extra_extensions)
+local function build_shader_header(
+	bindless_texture_capacity,
+	bindless_cubemap_capacity,
+	extra_extensions,
+	bindless_view_capacity,
+	bindless_sampler_capacity
+)
 	local header = [=[#version 450
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_scalar_block_layout : require
@@ -604,9 +588,17 @@ local function build_shader_header(bindless_texture_capacity, bindless_cubemap_c
 
 	layout(set = 1, binding = 0) uniform sampler2D textures[%d];
 	layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
+	layout(set = 1, binding = 2) uniform texture2D texture_views[%d];
+	layout(set = 1, binding = 3) uniform sampler texture_samplers[%d];
 	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
-	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]]=]
-	header = header:format(bindless_texture_capacity, bindless_cubemap_capacity)
+	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
+	#define TEXTURE_S(idx, sidx) sampler2D(texture_views[nonuniformEXT(idx)], texture_samplers[nonuniformEXT(sidx)])]=]
+	header = header:format(
+		bindless_texture_capacity,
+		bindless_cubemap_capacity,
+		bindless_view_capacity or 256,
+		bindless_sampler_capacity or 32
+	)
 
 	if extra_extensions then
 		for _, ext in ipairs(extra_extensions) do
@@ -617,7 +609,12 @@ local function build_shader_header(bindless_texture_capacity, bindless_cubemap_c
 	return header .. "\n"
 end
 
-local function build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
+local function build_base_descriptor_sets(
+	bindless_texture_capacity,
+	bindless_cubemap_capacity,
+	bindless_view_capacity,
+	bindless_sampler_capacity
+)
 	return {
 		{
 			type = "combined_image_sampler",
@@ -629,6 +626,18 @@ local function build_base_descriptor_sets(bindless_texture_capacity, bindless_cu
 			type = "combined_image_sampler",
 			binding_index = 1,
 			count = bindless_cubemap_capacity,
+			set_index = 1,
+		},
+		{
+			type = "sampled_image",
+			binding_index = 2,
+			count = bindless_view_capacity or 256,
+			set_index = 1,
+		},
+		{
+			type = "sampler",
+			binding_index = 3,
+			count = bindless_sampler_capacity or 32,
 			set_index = 1,
 		},
 	}
@@ -842,21 +851,27 @@ local function get_color_formats(config)
 				end
 
 				table.insert(formats, actual_format)
-				table.insert(debug_views, {
-					name = format[2][1],
-					attachment_index = i,
-					swizzle = format[2][2],
-				})
+				table.insert(
+					debug_views,
+					{
+						name = format[2][1],
+						attachment_index = i,
+						swizzle = format[2][2],
+					}
+				)
 			else
 				-- Resolve function to get actual format
 				if type(format) == "function" then format = format() end
 
 				table.insert(formats, format)
-				table.insert(debug_views, {
-					name = format[2][1],
-					attachment_index = i,
-					swizzle = format[2][2],
-				})
+				table.insert(
+					debug_views,
+					{
+						name = format[2][1],
+						attachment_index = i,
+						swizzle = format[2][2],
+					}
+				)
 			end
 		end
 	end

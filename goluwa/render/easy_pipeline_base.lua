@@ -640,39 +640,23 @@ do
 		return self.vertex_attributes
 	end
 
-	function EasyPipeline:SetTextureSamplerConfigResolver(resolver)
-		self.texture_sampler_config_resolver = resolver
-	end
-
-	function EasyPipeline:GetTextureSamplerConfig(texture)
-		if self.texture_sampler_config_resolver then
-			return self.texture_sampler_config_resolver(texture)
-		end
-
-		return nil
-	end
-
 	function EasyPipeline:GetTextureIndex(texture)
-		return self.pipeline:GetTextureIndex(texture, 1, self:GetTextureSamplerConfig(texture))
+		return self.pipeline:GetTextureIndex(texture, 1)
 	end
 
 	function EasyPipeline:GetCubeMapTextureIndex(texture)
-		return self.pipeline:GetCubeMapTextureIndex(texture, 1, self:GetTextureSamplerConfig(texture))
+		return self.pipeline:GetCubeMapTextureIndex(texture, 1)
 	end
 
-	function EasyPipeline:SetSamplerConfig(config)
-		self.sampler_config = config
-		return config
+	-- Decoupled view/sampler bindless registry: GetViewIndex registers only the
+	-- image view (no sampler); GetSamplerIndex resolves a sampler config to an
+	-- independent index. Combine them in GLSL via TEXTURE_S(view_idx, sampler_idx).
+	function EasyPipeline:GetViewIndex(texture)
+		return self.pipeline:GetViewIndex(texture)
 	end
 
-	function EasyPipeline:GetSamplerConfig()
-		return self.sampler_config
-	end
-
-	function EasyPipeline:SetSamplerConfigValue(key, value)
-		self.sampler_config = self.sampler_config or {}
-		self.sampler_config[key] = value
-		return value
+	function EasyPipeline:GetSamplerIndex(config)
+		return self.pipeline:GetSamplerIndex(config)
 	end
 
 	function EasyPipeline:GetPushConstantBlockOffset(name)

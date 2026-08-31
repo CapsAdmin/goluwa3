@@ -896,7 +896,6 @@ local function draw_voxel_debug_clipmap(voxelizer, clipmap_index)
 		get_debug_clipmap_exclusion_bounds(voxelizer, clipmap_index) or
 		nil
 	local pipeline = ensure_voxel_debug_pipeline(clipmap_index)
-	pipeline:SetSamplerConfig(render.GetSamplerFilterConfig())
 	pipeline:Draw(render.GetCommandBuffer())
 end
 

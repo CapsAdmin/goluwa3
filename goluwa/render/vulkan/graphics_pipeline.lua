@@ -1676,7 +1676,6 @@ local function build_dynamic_state_list(device)
 end
 
 common.bind_texture_registry(GraphicsPipeline)
-common.bind_sampler_config_methods(GraphicsPipeline)
 common.bind_descriptor_set_methods(GraphicsPipeline)
 
 function GraphicsPipeline.New(vulkan_instance, config)
@@ -1939,6 +1938,8 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.PushConstants = common.push_constants
 	self.max_textures = common.get_bindless_binding_capacity(self, 0) or 0
 	self.max_cubemaps = common.get_bindless_binding_capacity(self, 1) or 0
+	self.max_texture_views = common.get_bindless_binding_capacity(self, 2) or 0
+	self.max_texture_samplers = common.get_bindless_binding_capacity(self, 3) or 0
 	local event = import("goluwa/event.lua")
 
 	event.AddListener("TextureRemoved", self, function(removed_tex)
@@ -1948,6 +1949,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 		local set_index = #self.descriptor_set_layouts > 1 and 1 or 0
 		self:ReleaseTextureIndex(removed_tex, set_index)
+		self:ReleaseViewIndex(removed_tex)
 	end)
 
 	-- Initialize all descriptor sets with the same initial bindings
@@ -2151,6 +2153,8 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 				local set_index = common.get_bindless_texture_set_index(self)
 				self:UpdateDescriptorSetArray(frame_index, 0, set_index, self.texture_array)
 				self:UpdateDescriptorSetArray(frame_index, 1, set_index, self.cubemap_array)
+				self:UpdateSampledImageDescriptorSetArray(frame_index, 2, set_index, self.view_array)
+				self:UpdateSamplerDescriptorSetArray(frame_index, 3, set_index, self.sampler_array)
 				self.bindless_descriptor_sets_dirty[frame_index] = nil
 			end
 		end

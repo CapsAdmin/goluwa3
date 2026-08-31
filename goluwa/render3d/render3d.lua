@@ -38,7 +38,6 @@ local function decorate_pipeline_instance(pipeline, config)
 	pipeline.name = config.name
 	pipeline.post_draw = config.post_draw
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
-	pipeline.use_global_sampler_config = config.UseGlobalSamplerConfig ~= false
 	return pipeline
 end
 
@@ -485,19 +484,12 @@ end
 function render3d.RunPipelineBundle(bundle, cmd, context)
 	if not bundle or not bundle.pipelines_i then return end
 
-	local sampler_config = render.GetSamplerFilterConfig()
 	local active_context = context or {}
 	active_context.pipelines = bundle.pipelines
 	active_context.pipelines_i = bundle.pipelines_i
 
 	render3d.WithRenderContext(active_context, function()
 		for _, pipeline in ipairs(bundle.pipelines_i) do
-			if pipeline.use_global_sampler_config then
-				pipeline:SetSamplerConfig(sampler_config)
-			else
-				pipeline:SetSamplerConfig(nil)
-			end
-
 			if pipeline.draw_in_prerender and render3d.IsPipelineEnabled(pipeline.name) then
 				pipeline:Draw(cmd)
 			end
@@ -521,16 +513,9 @@ function render3d.Initialize(config)
 	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
 
-		local sampler_config = render.GetSamplerFilterConfig()
 		render3d.GetSceneVoxelizer().Update(render3d.GetRenderCamera():GetPosition())
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
-			if pipeline.use_global_sampler_config then
-				pipeline:SetSamplerConfig(sampler_config)
-			else
-				pipeline:SetSamplerConfig(nil)
-			end
-
 			if pipeline.name ~= "blit" and pipeline.draw_in_prerender then
 				pipeline:Draw()
 
@@ -678,16 +663,6 @@ function render3d.Draw(dt)
 	if not render3d.pipelines.blit then return end
 
 	local cmd = render.GetCommandBuffer()
-	local sampler_config = render.GetSamplerFilterConfig()
-
-	for _, pipeline in ipairs(render3d.pipelines_i) do
-		if pipeline.use_global_sampler_config then
-			pipeline:SetSamplerConfig(sampler_config)
-		else
-			pipeline:SetSamplerConfig(nil)
-		end
-	end
-
 	-- render to the screen
 	render3d.pipelines.blit:Draw(cmd)
 

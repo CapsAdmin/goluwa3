@@ -369,7 +369,6 @@ function META:RenderTarget(target)
 	local previous_material = render3d.GetMaterial()
 	local pushed_camera = false
 	active_preview = self
-	pipeline:SetSamplerConfig(render.GetSamplerFilterConfig())
 	local ok, err = xpcall(
 		function()
 			render3d.PushCamera(self.camera)

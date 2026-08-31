@@ -235,14 +235,27 @@ do
 		local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 		local bindless_texture_capacity = bindless_descriptor_capacities.textures
 		local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
-		local shader_header = glsl_meta.build_shader_header(bindless_texture_capacity, bindless_cubemap_capacity)
+		local bindless_view_capacity = bindless_descriptor_capacities.views
+		local bindless_sampler_capacity = bindless_descriptor_capacities.samplers
+		local shader_header = glsl_meta.build_shader_header(
+			bindless_texture_capacity,
+			bindless_cubemap_capacity,
+			nil,
+			bindless_view_capacity,
+			bindless_sampler_capacity
+		)
 		local push_constant_glsl = ""
 
 		if #block > 0 then
 			push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. glsl_meta.build_glsl_fields(block.block) .. "} compute;\n\n"
 		end
 
-		local descriptor_sets = glsl_meta.build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
+		local descriptor_sets = glsl_meta.build_base_descriptor_sets(
+			bindless_texture_capacity,
+			bindless_cubemap_capacity,
+			bindless_view_capacity,
+			bindless_sampler_capacity
+		)
 
 		-- Auto-generate descriptor sets from declarative resource specs
 		for _, info in ipairs(config.storage_images or {}) do

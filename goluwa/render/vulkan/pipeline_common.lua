@@ -138,7 +138,7 @@ local function resolve_sampler_config(config)
 	return render.CreateSampler(config)
 end
 
-function pipeline_common.get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
+function pipeline_common.get_cached_sampler_binding(self, texture_sampler_config)
 	local cache = self.resolved_sampler_bindings
 
 	if not cache then
@@ -147,28 +147,27 @@ function pipeline_common.get_cached_sampler_binding(self, texture_sampler_config
 	end
 
 	local by_texture = get_sampler_binding_cache_level(cache, get_sampler_binding_cache_key(texture_sampler_config))
-	local by_pipeline = get_sampler_binding_cache_level(by_texture, get_sampler_binding_cache_key(self.sampler_config))
-	local override_key = get_sampler_binding_cache_key(sampler_config_override)
-	return by_pipeline[override_key], by_pipeline, override_key
+	local pipeline_key = get_sampler_binding_cache_key(self.sampler_config)
+	return by_texture[pipeline_key], by_texture, pipeline_key
 end
 
-function pipeline_common.resolve_sampler_binding(self, tex, sampler_config_override)
+function pipeline_common.resolve_sampler_binding(self, tex)
 	local texture_sampler_config = nil
 
 	if tex then
 		texture_sampler_config = tex.GetSamplerConfig and tex:GetSamplerConfig() or nil
 	end
 
-	local cached_entry, cache_bucket, cache_key = pipeline_common.get_cached_sampler_binding(self, texture_sampler_config, sampler_config_override)
+	local cached_entry, cache_bucket, cache_key = pipeline_common.get_cached_sampler_binding(self, texture_sampler_config)
 
 	if cached_entry then
 		return cached_entry.config, cached_entry.hash, cached_entry.sampler
 	end
 
-	local effective_config = pipeline_common.merge_sampler_configs(texture_sampler_config, self.sampler_config, sampler_config_override)
+	local effective_config = pipeline_common.merge_sampler_configs(texture_sampler_config, self.sampler_config)
 
 	if effective_config == false or effective_config == nil then
-		effective_config = self:GetFallbackSamplerConfig()
+		effective_config = pipeline_common.get_fallback_sampler_config(self)
 		return effective_config,
 		pipeline_common.get_sampler_config_hash(effective_config),
 		resolve_sampler_config(effective_config)
@@ -206,7 +205,7 @@ function pipeline_common.get_fallback_sampler_config(self)
 end
 
 function pipeline_common.get_fallback_sampler(self)
-	return resolve_sampler_config(self:GetFallbackSamplerConfig())
+	return resolve_sampler_config(pipeline_common.get_fallback_sampler_config(self))
 end
 
 -- ============================================================
@@ -228,20 +227,19 @@ end
 -- ============================================================
 -- SECTION 5: Texture Registry (Factory)
 -- ============================================================
-local function build_texture_descriptor_entry(self, tex, sampler_config_override)
+local function build_texture_descriptor_entry(self, tex)
 	local view
 
 	if tex then view = tex.GetView and tex:GetView() or tex.view end
 
 	if not view then view = self:GetFallbackView() end
 
-	local sampler_config, sampler_hash, sampler = pipeline_common.resolve_sampler_binding(self, tex, sampler_config_override)
+	local sampler_config, sampler_hash, sampler = pipeline_common.resolve_sampler_binding(self, tex)
 	return {
 		texture = tex,
 		view = view,
 		sampler = sampler,
 		sampler_config = sampler_config,
-		sampler_config_override = pipeline_common.copy_sampler_config(sampler_config_override),
 		sampler_hash = sampler_hash,
 	}
 end
@@ -268,84 +266,24 @@ local function mark_all_descriptor_frames_dirty(self)
 	end
 end
 
-local function refresh_texture_descriptor_array(self, array, binding_index, set_index)
-	local changed = false
-
-	for i = 1, #array do
-		local entry = array[i]
-		local next_entry = build_texture_descriptor_entry(
-			self,
-			entry and entry.texture or nil,
-			entry and entry.sampler_config_override or nil
-		)
-
-		if
-			entry == nil or
-			entry.view ~= next_entry.view or
-			entry.sampler_hash ~= next_entry.sampler_hash
-		then
-			array[i] = next_entry
-			changed = true
-		end
-	end
-
-	if not changed then return end
-
-	mark_all_descriptor_frames_dirty(self)
-end
-
--- Groups the state of one bindless texture binding (2d or cubemap) so the
--- shared index logic can serve both without branching. Built once per
--- pipeline; the counter and capacity are read from self by key because they
--- are assigned after the registry is initialized.
-local function make_texture_slot(
-	registry,
-	array,
-	free_list,
-	next_index_key,
-	limit_key,
-	binding_index,
-	full_message
-)
-	return {
-		registry = registry,
-		array = array,
-		free_list = free_list,
-		next_index_key = next_index_key,
-		limit_key = limit_key,
-		binding_index = binding_index,
-		full_message = full_message,
-	}
-end
-
 local function release_texture_index(self, tex, set_index)
 	set_index = set_index or 0
 
 	if not tex or type(tex) ~= "table" then return end
 
 	local slot = tex.IsCubemap and tex:IsCubemap() and self.cubemap_slot or self.texture_slot
-	local by_tex = slot.registry[tex]
+	local index = slot.registry[tex]
 
-	if by_tex then
+	if index then
 		slot.registry[tex] = nil
-
-		for _, per_override in pairs(by_tex) do
-			for _, index in pairs(per_override) do
-				table.insert(slot.free_list, index)
-				slot.array[index + 1] = build_texture_descriptor_entry(self)
-			end
-		end
-
-		refresh_texture_descriptor_array(self, slot.array, slot.binding_index, set_index)
+		table.insert(slot.free_list, index)
+		slot.array[index + 1] = build_texture_descriptor_entry(self)
+		mark_all_descriptor_frames_dirty(self)
 	end
 end
 
-local function acquire_texture_index(self, slot, tex, sampler_config_override)
-	local cfg_key = get_sampler_binding_cache_key(tex:GetSamplerConfig())
-	local override_key = get_sampler_binding_cache_key(sampler_config_override)
-	local by_tex = slot.registry[tex]
-	local per_override = by_tex and by_tex[cfg_key]
-	local index = per_override and per_override[override_key]
+local function acquire_texture_index(self, slot, tex)
+	local index = slot.registry[tex]
 	local view = tex:GetView()
 
 	if index and view then
@@ -354,7 +292,7 @@ local function acquire_texture_index(self, slot, tex, sampler_config_override)
 		if entry and entry.view == view then return index end
 	end
 
-	local next_entry = build_texture_descriptor_entry(self, tex, sampler_config_override)
+	local next_entry = build_texture_descriptor_entry(self, tex)
 
 	if index then
 		local entry = slot.array[index + 1]
@@ -388,31 +326,142 @@ local function acquire_texture_index(self, slot, tex, sampler_config_override)
 		self[slot.next_index_key] = next_index + 1
 	end
 
-	if not per_override then
-		per_override = {}
-		by_tex = by_tex or {}
-		by_tex[cfg_key] = per_override
-		slot.registry[tex] = by_tex
-	end
-
-	per_override[override_key] = index
+	slot.registry[tex] = index
 	slot.array[index + 1] = next_entry
 	mark_all_descriptor_frames_dirty(self)
 	return index
 end
 
-local function get_texture_index(self, tex, set_index, sampler_config_override)
+local function get_texture_index(self, tex, set_index)
 	if not tex then return -1 end
 
 	set_index = set_index or 0
-	return acquire_texture_index(self, self.texture_slot, tex, sampler_config_override)
+	return acquire_texture_index(self, self.texture_slot, tex)
 end
 
-local function get_cubemap_texture_index(self, tex, set_index, sampler_config_override)
+local function get_cubemap_texture_index(self, tex, set_index)
 	if not tex then return -1 end
 
 	set_index = set_index or 0
-	return acquire_texture_index(self, self.cubemap_slot, tex, sampler_config_override)
+	return acquire_texture_index(self, self.cubemap_slot, tex)
+end
+
+-- ============================================================
+-- SECTION 5b: Decoupled View Registry (view-only bindless array, no sampler)
+-- ============================================================
+local function build_view_descriptor_entry(self, tex)
+	local view
+
+	if tex then view = tex.GetView and tex:GetView() or tex.view end
+
+	if not view then view = self:GetFallbackView() end
+
+	return {texture = tex, view = view}
+end
+
+local function release_view_index(self, tex)
+	if not tex or type(tex) ~= "table" then return end
+
+	local slot = self.view_slot
+	local index = slot.registry[tex]
+
+	if index then
+		slot.registry[tex] = nil
+		table.insert(slot.free_list, index)
+		slot.array[index + 1] = build_view_descriptor_entry(self)
+		mark_all_descriptor_frames_dirty(self)
+	end
+end
+
+local function acquire_view_index(self, tex)
+	local slot = self.view_slot
+	local index = slot.registry[tex]
+	local view = tex.GetView and tex:GetView() or tex.view
+
+	if index and view then
+		local entry = slot.array[index + 1]
+
+		if entry and entry.view == view then return index end
+	end
+
+	local next_entry = build_view_descriptor_entry(self, tex)
+
+	if index then
+		local entry = slot.array[index + 1]
+
+		if next_entry.view and (entry == nil or entry.view ~= next_entry.view) then
+			slot.array[index + 1] = next_entry
+			mark_all_descriptor_frames_dirty(self)
+		end
+
+		return index
+	end
+
+	local free_list = slot.free_list
+	local new_index
+
+	if #free_list > 0 then
+		new_index = table.remove(free_list)
+	else
+		local limit = self.max_texture_views
+
+		if slot.next_index >= limit then
+			error("View registry full! Max descriptors: " .. limit)
+		end
+
+		new_index = slot.next_index
+		slot.next_index = new_index + 1
+	end
+
+	slot.registry[tex] = new_index
+	slot.array[new_index + 1] = next_entry
+	mark_all_descriptor_frames_dirty(self)
+	return new_index
+end
+
+local function get_view_index(self, tex)
+	if not tex then return -1 end
+
+	return acquire_view_index(self, tex)
+end
+
+-- ============================================================
+-- SECTION 5c: Decoupled Sampler Registry (sampler-only bindless array)
+-- ============================================================
+local function get_sampler_slot_cache_key(config)
+	local hash = pipeline_common.get_sampler_config_hash(config)
+
+	if hash == nil then return NIL_SAMPLER_CONFIG_CACHE_KEY end
+
+	if hash == false then return FALSE_SAMPLER_CONFIG_CACHE_KEY end
+
+	return hash
+end
+
+local function acquire_sampler_index(self, config)
+	local slot = self.sampler_slot
+	local cache_key = get_sampler_slot_cache_key(config)
+	local index = slot.registry[cache_key]
+
+	if index then return index end
+
+	local sampler = resolve_sampler_config(config)
+	local limit = self.max_texture_samplers
+
+	if slot.next_index >= limit then
+		error("Sampler registry full! Max descriptors: " .. limit)
+	end
+
+	local new_index = slot.next_index
+	slot.next_index = new_index + 1
+	slot.registry[cache_key] = new_index
+	slot.array[new_index + 1] = {sampler = sampler}
+	mark_all_descriptor_frames_dirty(self)
+	return new_index
+end
+
+local function get_sampler_index(self, config)
+	return acquire_sampler_index(self, config)
 end
 
 function pipeline_common.bind_texture_registry(META)
@@ -426,70 +475,47 @@ function pipeline_common.bind_texture_registry(META)
 		self.next_cubemap_index = 0
 		self.cubemap_free_list = {}
 		self.bindless_descriptor_sets_dirty = {}
-		self.texture_slot = make_texture_slot(
-			self.texture_registry,
-			self.texture_array,
-			self.texture_free_list,
-			"next_texture_index",
-			"max_textures",
-			0,
-			"Texture registry full for binding 0! Max descriptors: "
-		)
-		self.cubemap_slot = make_texture_slot(
-			self.cubemap_registry,
-			self.cubemap_array,
-			self.cubemap_free_list,
-			"next_cubemap_index",
-			"max_cubemaps",
-			1,
-			"Cubemap registry full for binding 1! Max descriptors: "
-		)
+		self.texture_slot = {
+			registry = self.texture_registry,
+			array = self.texture_array,
+			free_list = self.texture_free_list,
+			next_index_key = "next_texture_index",
+			limit_key = "max_textures",
+			binding_index = 0,
+			full_message = "Texture registry full for binding 0! Max descriptors: ",
+		}
+		self.cubemap_slot = {
+			registry = self.cubemap_registry,
+			array = self.cubemap_array,
+			free_list = self.cubemap_free_list,
+			next_index_key = "next_cubemap_index",
+			limit_key = "max_cubemaps",
+			binding_index = 1,
+			full_message = "Cubemap registry full for binding 1! Max descriptors: ",
+		}
+		self.view_registry = table.weak("k")
+		self.view_array = {}
+		self.view_slot = {
+			registry = self.view_registry,
+			array = self.view_array,
+			free_list = {},
+			next_index = 0,
+		}
+		self.sampler_array = {}
+		self.sampler_slot = {
+			registry = {},
+			array = self.sampler_array,
+			next_index = 0,
+		}
 	end
 
 	META.BuildTextureDescriptorEntry = build_texture_descriptor_entry
 	META.GetTextureIndex = get_texture_index
 	META.GetCubeMapTextureIndex = get_cubemap_texture_index
 	META.ReleaseTextureIndex = release_texture_index
-	META.RefreshTextureDescriptorArray = refresh_texture_descriptor_array
-end
-
--- ============================================================
--- SECTION 6: Sampler Config Management (Methods)
--- ============================================================
-function pipeline_common.bind_sampler_config_methods(META)
-	function META:GetSamplerConfig()
-		return pipeline_common.copy_sampler_config(self.sampler_config)
-	end
-
-	function META:SetSamplerConfig(config)
-		local normalized = pipeline_common.normalize_pipeline_sampler_config(config)
-
-		if
-			pipeline_common.get_sampler_config_hash(self.sampler_config) == pipeline_common.get_sampler_config_hash(normalized)
-		then
-			return self:GetSamplerConfig()
-		end
-
-		self.sampler_config = normalized
-		local set_index = pipeline_common.get_bindless_texture_set_index(self)
-		self:RefreshTextureDescriptorArray(self.texture_array, 0, set_index)
-		self:RefreshTextureDescriptorArray(self.cubemap_array, 1, set_index)
-		return self:GetSamplerConfig()
-	end
-
-	function META:SetSamplerConfigValue(key, value)
-		local config = self:GetSamplerConfig() or {}
-
-		if value == nil then config[key] = nil else config[key] = value end
-
-		if next(config) == nil then config = nil end
-
-		return self:SetSamplerConfig(config)
-	end
-
-	function META:GetFallbackSamplerConfig()
-		return pipeline_common.get_fallback_sampler_config()
-	end
+	META.GetViewIndex = get_view_index
+	META.ReleaseViewIndex = release_view_index
+	META.GetSamplerIndex = get_sampler_index
 end
 
 -- ============================================================
@@ -586,6 +612,61 @@ function pipeline_common.update_descriptor_set_array(self, frame_index, binding_
 	)
 end
 
+local function get_descriptor_array_binding_count(self, set_index, binding_index, count)
+	local binding_count = pipeline_common.get_descriptor_binding_count(self, set_index, binding_index)
+
+	if binding_count and count > binding_count then
+		error(
+			string.format(
+				"Pipeline: descriptor array update exceeds binding capacity for set %d binding %d: %d > %d",
+				set_index,
+				binding_index,
+				count,
+				binding_count
+			),
+			3
+		)
+	end
+end
+
+function pipeline_common.update_sampled_image_descriptor_set_array(self, frame_index, binding_index, set_index, view_array, override_count)
+	if _G.type(set_index) ~= "number" then
+		return pipeline_common.update_sampled_image_descriptor_set_array(self, frame_index, binding_index, 0, set_index)
+	end
+
+	local count = override_count or #view_array
+	get_descriptor_array_binding_count(self, set_index, binding_index, count)
+
+	if render.stats then render_stats.AddDescriptorWrites(count) end
+
+	self.vulkan_instance.device:UpdateSampledImageDescriptorSetArray(
+		self.descriptor_sets[frame_index][set_index + 1],
+		binding_index,
+		view_array,
+		self:GetFallbackView(),
+		override_count
+	)
+end
+
+function pipeline_common.update_sampler_descriptor_set_array(self, frame_index, binding_index, set_index, sampler_array, override_count)
+	if _G.type(set_index) ~= "number" then
+		return pipeline_common.update_sampler_descriptor_set_array(self, frame_index, binding_index, 0, set_index)
+	end
+
+	local count = override_count or #sampler_array
+	get_descriptor_array_binding_count(self, set_index, binding_index, count)
+
+	if render.stats then render_stats.AddDescriptorWrites(count) end
+
+	self.vulkan_instance.device:UpdateSamplerDescriptorSetArray(
+		self.descriptor_sets[frame_index][set_index + 1],
+		binding_index,
+		sampler_array,
+		self:GetFallbackSampler(),
+		override_count
+	)
+end
+
 function pipeline_common.bind_descriptor_set_methods(META)
 	function META:UpdateDescriptorSet(...)
 		return pipeline_common.update_descriptor_set(self, ...)
@@ -593,6 +674,14 @@ function pipeline_common.bind_descriptor_set_methods(META)
 
 	function META:UpdateDescriptorSetArray(...)
 		return pipeline_common.update_descriptor_set_array(self, ...)
+	end
+
+	function META:UpdateSampledImageDescriptorSetArray(...)
+		return pipeline_common.update_sampled_image_descriptor_set_array(self, ...)
+	end
+
+	function META:UpdateSamplerDescriptorSetArray(...)
+		return pipeline_common.update_sampler_descriptor_set_array(self, ...)
 	end
 
 	function META:GetFallbackView()

@@ -58,16 +58,24 @@ end
 render.default_bindless_descriptor_capacities = {
 	textures = 4096,
 	cubemaps = 256,
+	-- Separate view-only texture array + sampler array, decoupled from the
+	-- combined `textures`/`cubemaps` arrays above (see TEXTURE_S / GetViewIndex / GetSamplerIndex).
+	views = 256,
+	samplers = 32,
 }
 render.bindless_descriptor_capacities = {
 	textures = render.default_bindless_descriptor_capacities.textures,
 	cubemaps = render.default_bindless_descriptor_capacities.cubemaps,
+	views = render.default_bindless_descriptor_capacities.views,
+	samplers = render.default_bindless_descriptor_capacities.samplers,
 }
 
 function render.GetBindlessDescriptorCapacities()
 	return {
 		textures = render.bindless_descriptor_capacities.textures,
 		cubemaps = render.bindless_descriptor_capacities.cubemaps,
+		views = render.bindless_descriptor_capacities.views,
+		samplers = render.bindless_descriptor_capacities.samplers,
 	}
 end
 
@@ -547,147 +555,6 @@ do
 		render.cached_samplers[hash] = sampler
 		sampler_cache_by_config[config] = sampler
 		return sampler
-	end
-
-	local function apply_sampler_filter_override(config, filter_name, filter)
-		if filter == nil then return end
-
-		if filter == "nearest" then
-			config[filter_name] = "nearest"
-			config.anisotropy = 1
-		elseif filter == "linear" then
-			config[filter_name] = "linear"
-		elseif filter == "anisotropic" then
-			config[filter_name] = "linear"
-			config.anisotropy = math.max(config.anisotropy or 1, 16)
-		else
-			error(
-				"render.BuildSamplerFilterConfig: unsupported filter override " .. tostring(filter),
-				2
-			)
-		end
-	end
-
-	local sampler_filter_config_cache = {}
-	local NIL_FILTER_KEY = {}
-
-	function render.BuildSamplerFilterConfig(min_filter_override, mag_filter_override)
-		if min_filter_override == nil and mag_filter_override == nil then return nil end
-
-		local min_key = min_filter_override or NIL_FILTER_KEY
-		local mag_key = mag_filter_override or NIL_FILTER_KEY
-		local by_min = sampler_filter_config_cache[min_key]
-
-		if not by_min then
-			by_min = {}
-			sampler_filter_config_cache[min_key] = by_min
-		end
-
-		local cached = by_min[mag_key]
-
-		if cached then return cached end
-
-		local config = {}
-		apply_sampler_filter_override(config, "min_filter", min_filter_override)
-		apply_sampler_filter_override(config, "mag_filter", mag_filter_override)
-		local result = next(config) and config or nil
-		by_min[mag_key] = result
-		return result
-	end
-
-	local function normalize_sampler_filter(filter, level)
-		if filter == nil then return nil end
-
-		if filter == "nearest" or filter == "linear" or filter == "anisotropic" then
-			return filter
-		end
-
-		error("render sampler filter must be nearest, linear, or anisotropic", level or 2)
-	end
-
-	local function get_sampler_filter_stack(state, key)
-		state = state or render.sampler_filter_state
-
-		if type(state) ~= "table" then
-			error("render sampler filter state expected", 3)
-		end
-
-		local stack = state[key]
-
-		if stack then return stack end
-
-		stack = {}
-		state[key] = stack
-		return stack
-	end
-
-	function render.CreateSamplerFilterState()
-		return {
-			min_filter_stack = {},
-			mag_filter_stack = {},
-		}
-	end
-
-	render.sampler_filter_state = render.sampler_filter_state or render.CreateSamplerFilterState()
-
-	function render.PushSamplerFilterMin(state, filter)
-		table.insert(
-			get_sampler_filter_stack(state, "min_filter_stack"),
-			normalize_sampler_filter(filter, 3)
-		)
-	end
-
-	function render.PushSamplerFilterMag(state, filter)
-		table.insert(
-			get_sampler_filter_stack(state, "mag_filter_stack"),
-			normalize_sampler_filter(filter, 3)
-		)
-	end
-
-	function render.PopSamplerFilterMin(state)
-		table.remove(get_sampler_filter_stack(state, "min_filter_stack"))
-	end
-
-	function render.PopSamplerFilterMag(state)
-		table.remove(get_sampler_filter_stack(state, "mag_filter_stack"))
-	end
-
-	function render.GetActiveSamplerFilterMin(state)
-		local stack = get_sampler_filter_stack(state, "min_filter_stack")
-		return stack[#stack]
-	end
-
-	function render.GetActiveSamplerFilterMag(state)
-		local stack = get_sampler_filter_stack(state, "mag_filter_stack")
-		return stack[#stack]
-	end
-
-	function render.GetSamplerFilterConfig(state)
-		return render.BuildSamplerFilterConfig(render.GetActiveSamplerFilterMin(state), render.GetActiveSamplerFilterMag(state))
-	end
-
-	function render.PushFilterMin(filter)
-		return render.PushSamplerFilterMin(nil, filter)
-	end
-
-	function render.PushFilterMag(filter)
-		return render.PushSamplerFilterMag(nil, filter)
-	end
-
-	function render.PopFilterMin()
-		return render.PopSamplerFilterMin(nil)
-	end
-
-	function render.PopFilterMag()
-		return render.PopSamplerFilterMag(nil)
-	end
-
-	function render.GetActiveFilterMin()
-		return render.GetActiveSamplerFilterMin(nil)
-	end
-
-	function render.GetActiveFilterMag()
-		return render.GetActiveSamplerFilterMag(nil)
 	end
 end
 

@@ -679,7 +679,11 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		info[0].range = range or buffer.size
 		descriptor_info = info
 		pBufferInfo = info
-	elseif type == "storage_image" or type == "combined_image_sampler" then
+	elseif
+		type == "storage_image" or
+		type == "sampled_image" or
+		type == "combined_image_sampler"
+	then
 		local info = VkDescriptorImageInfoArray(1)
 
 		if type == "storage_image" then
@@ -688,6 +692,17 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			info[0].sampler = nil
 			info[0].imageView = view_handle
 			info[0].imageLayout = vulkan.vk.e.VkImageLayout("general")
+		elseif type == "sampled_image" then
+			local imageView, fallback_view, image_layout = ...
+			local view_handle = (imageView and imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
+
+			if view_handle == nil and not self.nullDescriptorEnabled and fallback_view then
+				view_handle = fallback_view.ptr and fallback_view.ptr[0]
+			end
+
+			info[0].sampler = nil
+			info[0].imageView = view_handle
+			info[0].imageLayout = vulkan.vk.e.VkImageLayout(image_layout or "shader_read_only_optimal")
 		else -- combined_image_sampler
 			local imageView, sampler, fallback_view, fallback_sampler, image_layout = ...
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
@@ -716,6 +731,20 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			info[0].imageLayout = vulkan.vk.e.VkImageLayout(image_layout or "shader_read_only_optimal")
 		end
 
+		descriptor_info = info
+		pImageInfo = info
+	elseif type == "sampler" then
+		local info = VkDescriptorImageInfoArray(1)
+		local sampler, fallback_sampler = ...
+		local sampler_handle = (sampler and sampler:IsValid() and sampler.ptr) and sampler.ptr[0] or nil
+
+		if sampler_handle == nil and not self.nullDescriptorEnabled and fallback_sampler then
+			sampler_handle = fallback_sampler.ptr and fallback_sampler.ptr[0]
+		end
+
+		info[0].sampler = sampler_handle
+		info[0].imageView = nil
+		info[0].imageLayout = vulkan.vk.e.VkImageLayout("undefined")
 		descriptor_info = info
 		pImageInfo = info
 	else
@@ -792,6 +821,91 @@ function Device:UpdateDescriptorSetArray(
 	descriptorWrites[0].dstBinding = binding_index
 	descriptorWrites[0].dstArrayElement = 0
 	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("combined_image_sampler")
+	descriptorWrites[0].descriptorCount = count
+	descriptorWrites[0].pImageInfo = imageInfoArray
+	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
+end
+
+function Device:UpdateSampledImageDescriptorSetArray(descriptorSet, binding_index, view_array, fallback_view, override_count)
+	-- view_array is an array of {view} tables (view-only, sampled_image)
+	local count = override_count or #view_array
+
+	if count == 0 then return end
+
+	-- Note: Luajit VLAs (via ffi.new("Type[?]", count)) are NOT zero-initialized
+	local imageInfoArray = VkDescriptorImageInfoArray(count)
+	local fallback_view_handle = fallback_view and fallback_view.ptr and fallback_view.ptr[0]
+
+	for i = 1, count do
+		local entry = view_array[i]
+		local view_handle = nil
+
+		if type(entry) == "table" and entry.view and type(entry.view.ptr) == "cdata" then
+			-- Ensure we are not using a view that has been destroyed in Vulkan
+			if entry.view:IsValid() and entry.view.ptr[0] ~= nil then
+				local view_ptr = entry.view.ptr
+
+				if view_ptr ~= nil and view_ptr[0] ~= nil then
+					view_handle = view_ptr[0]
+				end
+			end
+		end
+
+		if view_handle == nil and not self.nullDescriptorEnabled then
+			view_handle = fallback_view_handle
+		end
+
+		imageInfoArray[i - 1].sampler = nil
+		imageInfoArray[i - 1].imageView = view_handle
+		imageInfoArray[i - 1].imageLayout = vulkan.vk.e.VkImageLayout("shader_read_only_optimal")
+	end
+
+	local descriptorWrites = VkWriteDescriptorSetArray(1)
+	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
+	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
+	descriptorWrites[0].dstBinding = binding_index
+	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("sampled_image")
+	descriptorWrites[0].descriptorCount = count
+	descriptorWrites[0].pImageInfo = imageInfoArray
+	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
+end
+
+function Device:UpdateSamplerDescriptorSetArray(descriptorSet, binding_index, sampler_array, fallback_sampler, override_count)
+	-- sampler_array is an array of {sampler} tables (sampler-only)
+	local count = override_count or #sampler_array
+
+	if count == 0 then return end
+
+	-- Note: Luajit VLAs (via ffi.new("Type[?]", count)) are NOT zero-initialized
+	local imageInfoArray = VkDescriptorImageInfoArray(count)
+	local fallback_sampler_handle = fallback_sampler and fallback_sampler.ptr and fallback_sampler.ptr[0]
+
+	for i = 1, count do
+		local entry = sampler_array[i]
+		local sampler_handle = nil
+
+		if type(entry) == "table" and entry.sampler and type(entry.sampler.ptr) == "cdata" then
+			if entry.sampler:IsValid() and entry.sampler.ptr[0] ~= nil then
+				sampler_handle = entry.sampler.ptr[0]
+			end
+		end
+
+		if sampler_handle == nil and not self.nullDescriptorEnabled then
+			sampler_handle = fallback_sampler_handle
+		end
+
+		imageInfoArray[i - 1].sampler = sampler_handle
+		imageInfoArray[i - 1].imageView = nil
+		imageInfoArray[i - 1].imageLayout = vulkan.vk.e.VkImageLayout("undefined")
+	end
+
+	local descriptorWrites = VkWriteDescriptorSetArray(1)
+	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
+	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
+	descriptorWrites[0].dstBinding = binding_index
+	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("sampler")
 	descriptorWrites[0].descriptorCount = count
 	descriptorWrites[0].pImageInfo = imageInfoArray
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)

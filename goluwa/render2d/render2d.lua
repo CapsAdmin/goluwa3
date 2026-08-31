@@ -1415,11 +1415,6 @@ function render2d.Initialize()
 		end
 	end
 
-	local sampler_config_resolver = function()
-		return render.GetSamplerFilterConfig()
-	end
-	render2d.pipeline:SetTextureSamplerConfigResolver(sampler_config_resolver)
-	render2d.rect_batch_pipeline:SetTextureSamplerConfigResolver(sampler_config_resolver)
 	render2d.ResetState()
 	render2d.rect_mesh = render2d.CreateMesh(
 		{
@@ -1868,9 +1863,7 @@ do
 		-- This ensures the descriptor set includes the texture when it's bound.
 		local pipeline = render2d.GetActivePipeline()
 
-		if pipeline and tex then
-			pipeline:GetTextureIndex(tex, 1, render.GetSamplerFilterConfig())
-		end
+		if pipeline and tex then pipeline:GetTextureIndex(tex) end
 	end
 
 	function render2d.GetTexture()
@@ -1882,9 +1875,7 @@ do
 	function render2d.SetSDFTexture(tex)
 		render2d.state.render.textures.sdf_texture = tex
 
-		if tex then
-			render2d.GetActivePipeline():GetTextureIndex(tex, 1, render.GetSamplerFilterConfig())
-		end
+		if tex then render2d.GetActivePipeline():GetTextureIndex(tex) end
 
 		render2d.state.render.options.computed_margin_dirty = true
 	end
@@ -2566,13 +2557,9 @@ function render2d.RestoreRectDrawState(state)
 	local pipeline = render2d.GetActivePipeline()
 
 	if pipeline then
-		if state.texture then
-			pipeline:GetTextureIndex(state.texture, 1, render.GetSamplerFilterConfig())
-		end
+		if state.texture then pipeline:GetTextureIndex(state.texture) end
 
-		if state.sdf_texture then
-			pipeline:GetTextureIndex(state.sdf_texture, 1, render.GetSamplerFilterConfig())
-		end
+		if state.sdf_texture then pipeline:GetTextureIndex(state.sdf_texture) end
 	end
 
 	local snapshot = state.rect_state_snapshot

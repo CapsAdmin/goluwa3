@@ -780,6 +780,8 @@ do
 		local bindless_descriptor_capacities = render.GetBindlessDescriptorCapacities()
 		local bindless_texture_capacity = bindless_descriptor_capacities.textures
 		local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
+		local bindless_view_capacity = bindless_descriptor_capacities.views
+		local bindless_sampler_capacity = bindless_descriptor_capacities.samplers
 		local tess_control_outputs = (config.tessellation_control and config.tessellation_control.outputs) or shader_outputs
 		local tess_eval_outputs = (
 				config.tessellation_evaluation and
@@ -793,7 +795,9 @@ do
 		local shader_header = glsl_meta.build_shader_header(
 			bindless_texture_capacity,
 			bindless_cubemap_capacity,
-			mesh_ext and {"#extension GL_EXT_mesh_shader : require"} or nil
+			mesh_ext and {"#extension GL_EXT_mesh_shader : require"} or nil,
+			bindless_view_capacity,
+			bindless_sampler_capacity
 		)
 		local vertex_input = ""
 		local vertex_output = ""
@@ -834,7 +838,12 @@ do
 		end
 
 		-- Build descriptor sets
-		local descriptor_sets = glsl_meta.build_base_descriptor_sets(bindless_texture_capacity, bindless_cubemap_capacity)
+		local descriptor_sets = glsl_meta.build_base_descriptor_sets(
+			bindless_texture_capacity,
+			bindless_cubemap_capacity,
+			bindless_view_capacity,
+			bindless_sampler_capacity
+		)
 		-- Add uniform buffers from and descriptors from all stages
 		local uniform_buffer_order_desc = {}
 
