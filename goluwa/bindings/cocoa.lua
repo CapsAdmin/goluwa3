@@ -192,6 +192,7 @@ local WindowDelegate = nil
 local DropView = nil
 local close_flags = {} -- Store close state per window
 local drop_queues = {}
+local retained_callbacks = {}
 
 local function pointer_key(obj)
 	return tonumber(ffi.cast("intptr_t", obj))
@@ -263,20 +264,21 @@ local function setup_window_delegate()
 
 	-- Create delegate class
 	WindowDelegate = objc.newClass("LuaWindowDelegate", "NSObject")
-
 	-- Add windowShouldClose: method
-	objc.addMethod(
-		WindowDelegate,
-		"windowShouldClose:",
-		"c@:@",
-		function(self, sel, sender)
-			-- Mark this window as should close
-			local window_ptr = pointer_key(sender)
-			close_flags[window_ptr] = true
-			return 1 -- YES, allow close
-		end
+	table.insert(
+		retained_callbacks,
+		objc.addMethod(
+			WindowDelegate,
+			"windowShouldClose:",
+			"c@:@",
+			function(self, sel, sender)
+				-- Mark this window as should close
+				local window_ptr = pointer_key(sender)
+				close_flags[window_ptr] = true
+				return 1 -- YES, allow close
+			end
+		)
 	)
-
 	return WindowDelegate
 end
 
@@ -284,58 +286,65 @@ local function setup_drop_view()
 	if DropView then return DropView end
 
 	DropView = objc.newClass("LuaDropView", "NSView")
+	table.insert(
+		retained_callbacks,
+		objc.addMethod(
+			DropView,
+			"draggingEntered:",
+			"Q@:@",
+			function(self, sel, sender)
+				local paths = extract_dropped_paths(sender)
 
-	objc.addMethod(
-		DropView,
-		"draggingEntered:",
-		"Q@:@",
-		function(self, sel, sender)
-			local paths = extract_dropped_paths(sender)
+				if paths and #paths > 0 then return 1 end
 
-			if paths and #paths > 0 then return 1 end
-
-			return 0
-		end
+				return 0
+			end
+		)
 	)
+	table.insert(
+		retained_callbacks,
+		objc.addMethod(
+			DropView,
+			"draggingUpdated:",
+			"Q@:@",
+			function(self, sel, sender)
+				local paths = extract_dropped_paths(sender)
 
-	objc.addMethod(
-		DropView,
-		"draggingUpdated:",
-		"Q@:@",
-		function(self, sel, sender)
-			local paths = extract_dropped_paths(sender)
+				if paths and #paths > 0 then return 1 end
 
-			if paths and #paths > 0 then return 1 end
-
-			return 0
-		end
+				return 0
+			end
+		)
 	)
-
-	objc.addMethod(
-		DropView,
-		"prepareForDragOperation:",
-		"B@:@",
-		function(self, sel, sender)
-			return 1
-		end
+	table.insert(
+		retained_callbacks,
+		objc.addMethod(
+			DropView,
+			"prepareForDragOperation:",
+			"B@:@",
+			function(self, sel, sender)
+				return 1
+			end
+		)
 	)
+	table.insert(
+		retained_callbacks,
+		objc.addMethod(
+			DropView,
+			"performDragOperation:",
+			"B@:@",
+			function(self, sel, sender)
+				local paths = extract_dropped_paths(sender)
 
-	objc.addMethod(
-		DropView,
-		"performDragOperation:",
-		"B@:@",
-		function(self, sel, sender)
-			local paths = extract_dropped_paths(sender)
+				if not paths or #paths == 0 then return 0 end
 
-			if not paths or #paths == 0 then return 0 end
-
-			local key = pointer_key(self)
-			drop_queues[key] = drop_queues[key] or {}
-			table.insert(drop_queues[key], paths)
-			return 1
-		end
+				local key = pointer_key(self)
+				drop_queues[key] = drop_queues[key] or {}
+				table.insert(drop_queues[key], paths)
+				return 1
+			end
+		)
 	)
-
 	return DropView
 end
 
