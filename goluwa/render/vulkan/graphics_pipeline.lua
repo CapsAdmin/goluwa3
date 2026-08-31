@@ -1385,79 +1385,80 @@ local graphics_pipeline_switch_count = 0
 local graphics_pipeline_switch_frame = -1
 local warned_graphics_pipeline_switch_frame = -1
 
-local function build_cache_region(self, cache, region)
-	if region == "color_blend" then
-		if self.dynamic_states.color_blend_enable_ext then
-			local attachment_count = get_color_attachment_count(self)
+-- self.dynamic_states never changes after New, so which of these three
+-- color_blend sub-blocks apply can be decided once instead of re-checking
+-- self.dynamic_states.X on every cache rebuild.
+local function build_color_blend_cache_func(self)
+	local do_enable = self.dynamic_states.color_blend_enable_ext
+	local do_equation = self.dynamic_states.color_blend_equation_ext
+	local do_write_mask = self.dynamic_states.color_write_mask_ext
 
-			if attachment_count > 0 then
-				local enables = cache.color_blend_enable
+	if not do_enable and not do_equation and not do_write_mask then return nil end
 
-				if enables == nil then
-					enables = {}
-					cache.color_blend_enable = enables
-				end
+	return function(cache)
+		local attachment_count = get_color_attachment_count(self)
 
-				for i = 1, attachment_count do
-					enables[i] = resolve_color_blend_state(self, i, "blend") or false
-				end
+		if attachment_count == 0 then return end
+
+		if do_enable then
+			local enables = cache.color_blend_enable
+
+			if enables == nil then
+				enables = {}
+				cache.color_blend_enable = enables
+			end
+
+			for i = 1, attachment_count do
+				enables[i] = resolve_color_blend_state(self, i, "blend") or false
 			end
 		end
 
-		if self.dynamic_states.color_blend_equation_ext then
-			local attachment_count = get_color_attachment_count(self)
+		if do_equation then
+			local equations = cache.color_blend_equations
 
-			if attachment_count > 0 then
-				local equations = cache.color_blend_equations
+			if equations == nil then
+				equations = {}
+				cache.color_blend_equations = equations
+			end
 
-				if equations == nil then
-					equations = {}
-					cache.color_blend_equations = equations
+			for i = 1, attachment_count do
+				local eq = equations[i]
+
+				if eq == nil then
+					eq = {}
+					equations[i] = eq
 				end
 
-				for i = 1, attachment_count do
-					local eq = equations[i]
-
-					if eq == nil then
-						eq = {}
-						equations[i] = eq
-					end
-
-					eq.src_color_blend_factor = resolve_color_blend_state(self, i, "src_color_blend_factor") or "src_alpha"
-					eq.dst_color_blend_factor = resolve_color_blend_state(self, i, "dst_color_blend_factor") or
-						"one_minus_src_alpha"
-					eq.color_blend_op = resolve_color_blend_state(self, i, "color_blend_op") or "add"
-					eq.src_alpha_blend_factor = resolve_color_blend_state(self, i, "src_alpha_blend_factor") or "one"
-					eq.dst_alpha_blend_factor = resolve_color_blend_state(self, i, "dst_alpha_blend_factor") or
-						"one_minus_src_alpha"
-					eq.alpha_blend_op = resolve_color_blend_state(self, i, "alpha_blend_op") or "add"
-				end
+				eq.src_color_blend_factor = resolve_color_blend_state(self, i, "src_color_blend_factor") or "src_alpha"
+				eq.dst_color_blend_factor = resolve_color_blend_state(self, i, "dst_color_blend_factor") or
+					"one_minus_src_alpha"
+				eq.color_blend_op = resolve_color_blend_state(self, i, "color_blend_op") or "add"
+				eq.src_alpha_blend_factor = resolve_color_blend_state(self, i, "src_alpha_blend_factor") or "one"
+				eq.dst_alpha_blend_factor = resolve_color_blend_state(self, i, "dst_alpha_blend_factor") or
+					"one_minus_src_alpha"
+				eq.alpha_blend_op = resolve_color_blend_state(self, i, "alpha_blend_op") or "add"
 			end
 		end
 
-		if self.dynamic_states.color_write_mask_ext then
-			local attachment_count = get_color_attachment_count(self)
+		if do_write_mask then
+			local masks = cache.color_write_mask
 
-			if attachment_count > 0 then
-				local masks = cache.color_write_mask
+			if masks == nil then
+				masks = {}
+				cache.color_write_mask = masks
+			end
 
-				if masks == nil then
-					masks = {}
-					cache.color_write_mask = masks
-				end
-
-				for i = 1, attachment_count do
-					masks[i] = normalize_color_write_mask(resolve_color_blend_state(self, i, "color_write_mask") or "rgba")
-				end
+			for i = 1, attachment_count do
+				masks[i] = normalize_color_write_mask(resolve_color_blend_state(self, i, "color_write_mask") or "rgba")
 			end
 		end
-
-		return
 	end
+end
 
-	if region == "viewport" then
-		if not self.dynamic_states.viewport then return end
+local function build_viewport_cache_func(self)
+	if not self.dynamic_states.viewport then return nil end
 
+	return function(cache)
 		local config = self:GetConfig()
 		cache.viewport_x = get_state(self, "viewport", "x") or config.viewport and config.viewport.x or 0
 		cache.viewport_y = get_state(self, "viewport", "y") or config.viewport and config.viewport.y or 0
@@ -1481,12 +1482,13 @@ local function build_cache_region(self, cache, region)
 			config.viewport and
 			config.viewport.max_depth or
 			1
-		return
 	end
+end
 
-	if region == "scissor" then
-		if not self.dynamic_states.scissor then return end
+local function build_scissor_cache_func(self)
+	if not self.dynamic_states.scissor then return nil end
 
+	return function(cache)
 		local config = self:GetConfig()
 		cache.scissor_x = get_state(self, "scissor", "x") or config.scissor and config.scissor.x or 0
 		cache.scissor_y = get_state(self, "scissor", "y") or config.scissor and config.scissor.y or 0
@@ -1502,13 +1504,19 @@ local function build_cache_region(self, cache, region)
 			config.scissor and
 			config.scissor.h or
 			0
-		return
 	end
+end
 
-	-- Generic dynamic-state region driven by cache_rules
+-- Generic dynamic-state region driven by cache_rules. Which region names
+-- exist and whether self.dynamic_states enables them is fixed per pipeline,
+-- so the rules list and the dynamic_states check are resolved once here
+-- instead of on every cache rebuild.
+local function build_generic_cache_region_func(self, region)
 	local rules = cache_rules[region]
 
-	if rules and self.dynamic_states[region] then
+	if not rules or not self.dynamic_states[region] then return nil end
+
+	return function(cache)
 		for _, rule in ipairs(rules) do
 			local val
 
@@ -1531,21 +1539,33 @@ local function build_cache_region(self, cache, region)
 	end
 end
 
+-- Maps region name -> function(cache), built once in New. Used both for a
+-- full cache rebuild (build_bind_state_cache) and for refreshing a single
+-- dirty region (see Bind's bind_state_dirty_regions handling).
+local function build_cache_region_funcs(self)
+	local funcs = {}
+	funcs.color_blend = build_color_blend_cache_func(self)
+	funcs.viewport = build_viewport_cache_func(self)
+	funcs.scissor = build_scissor_cache_func(self)
+
+	for region in pairs(cache_rules) do
+		if region ~= "viewport" and region ~= "scissor" then
+			funcs[region] = build_generic_cache_region_func(self, region)
+		end
+	end
+
+	self.cache_region_funcs = funcs
+end
+
 local function build_bind_state_cache(self)
 	local cache = {}
 	self.bind_state_cache = cache
 	self.bind_state_dirty_regions = nil
 	cache.zero_dynamic_offsets = build_zero_offsets(self.dynamic_descriptor_count or 0)
-	build_cache_region(self, cache, "color_blend")
 
-	for ds_name, _ in pairs(cache_rules) do
-		if ds_name ~= "viewport" and ds_name ~= "scissor" then
-			build_cache_region(self, cache, ds_name)
-		end
+	for _, fn in pairs(self.cache_region_funcs) do
+		fn(cache)
 	end
-
-	build_cache_region(self, cache, "viewport")
-	build_cache_region(self, cache, "scissor")
 end
 
 local function add_bind_state_func(self, fn)
@@ -2032,6 +2052,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.current_signature_id = self.base_signature_id
 	self.current_variant_id = self.base_variant_id
 	self.static_variant_dirty = false
+	build_cache_region_funcs(self)
 	build_bind_state_cache(self)
 	build_bind_state_funcs(self)
 	self:InitializeTextureRegistry()
@@ -2129,9 +2150,12 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 			self:RebuildPipeline(self.overridden_state, signature)
 		elseif self.bind_state_dirty_regions then
 			local dirty_regions = self.bind_state_dirty_regions
+			local cache = self.bind_state_cache
 
 			for region, _ in pairs(dirty_regions) do
-				build_cache_region(self, self.bind_state_cache, region)
+				local fn = self.cache_region_funcs[region]
+
+				if fn then fn(cache) end
 			end
 
 			self.bind_state_dirty_regions = nil

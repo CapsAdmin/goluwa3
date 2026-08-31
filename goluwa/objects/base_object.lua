@@ -335,10 +335,8 @@ end
 function META:CallLocalEvent(what, a, b, c, d, e, f, g)
 	if self.SuppressEvents then return end
 
-	local ret = nil
-
 	if self[what] then
-		ret = self[what](self, a, b, c, d, e, f, g)
+		local ret = self[what](self, a, b, c, d, e, f, g)
 
 		if ret ~= nil then return ret end
 	end
@@ -346,7 +344,7 @@ function META:CallLocalEvent(what, a, b, c, d, e, f, g)
 	if self.component_list then
 		for _, component in ipairs(self.component_list) do
 			if component[what] then
-				ret = component[what](component, a, b, c, d, e, f, g)
+				local ret = component[what](component, a, b, c, d, e, f, g)
 
 				if ret ~= nil then return ret end
 			end
