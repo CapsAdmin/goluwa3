@@ -20,7 +20,7 @@ return function(META)
 	}
 
 	function META.GetDesktopSize()
-		return cocoa.get_desktop_size()
+		return Vec2(cocoa.get_desktop_size())
 	end
 
 	function META:UpdateMouseTrapState()
@@ -128,7 +128,7 @@ return function(META)
 			if focused then self:OnGainedFocus() else self:OnLostFocus() end
 		end
 
-		local pos = self.cocoa_window:GetPosition()
+		local pos = Vec2(self.cocoa_window:GetPosition())
 
 		if not self.cached_pos or self.cached_pos.x ~= pos.x or self.cached_pos.y ~= pos.y then
 			self.cached_pos = pos
@@ -151,12 +151,9 @@ return function(META)
 			if maximized then self:OnMaximize() end
 		end
 
-		local mouse_pos = self.cocoa_window:GetMousePosition()
+		local x, y = self.cocoa_window:GetMousePosition()
 		local size = self:GetSize()
-		local mouse_inside = mouse_pos.x >= 0 and
-			mouse_pos.y >= 0 and
-			mouse_pos.x <= size.x and
-			mouse_pos.y <= size.y
+		local mouse_inside = x >= 0 and y >= 0 and x <= size.x and y <= size.y
 
 		if mouse_inside ~= self.mouse_inside then
 			self.mouse_inside = mouse_inside
@@ -217,7 +214,7 @@ return function(META)
 
 	function META:GetPosition()
 		if not self.cached_pos then
-			self.cached_pos = self.cocoa_window:GetPosition()
+			self.cached_pos = Vec2(self.cocoa_window:GetPosition())
 		end
 
 		return self.cached_pos
@@ -225,8 +222,7 @@ return function(META)
 
 	function META:GetSize()
 		if not self.cached_size then
-			local w, h = self.cocoa_window:GetSize()
-			self.cached_size = Vec2(w, h)
+			self.cached_size = Vec2(self.cocoa_window:GetSize())
 		end
 
 		return self.cached_size
@@ -235,15 +231,15 @@ return function(META)
 	function META:SetSize(size)
 		self.cached_size = nil
 		self.cached_fb_size = nil
-		self.cocoa_window:SetFrame(self.cocoa_window:GetPosition(), size)
+		local x, y = self.cocoa_window:GetPosition()
+		self.cocoa_window:SetFrame(x, y, size.x, size.y)
 	end
 
 	function META:GetFramebufferSize()
 		if not self.cached_fb_size then
 			-- On macOS, framebuffer size is same as window size for Metal
 			-- unless dealing with Retina displays
-			local w, h = self.cocoa_window:GetSize()
-			self.cached_fb_size = Vec2(w, h)
+			self.cached_fb_size = Vec2(self.cocoa_window:GetSize())
 		end
 
 		return self.cached_fb_size

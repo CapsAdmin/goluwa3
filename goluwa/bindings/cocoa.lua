@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local objc = import("goluwa/bindings/objc.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local cocoa = {}
 -- Load required frameworks
 objc.loadFramework("Cocoa")
@@ -352,19 +351,10 @@ local function CGRectMake(x, y, width, height)
 	return ffi.new("CGRect", {{x, y}, {width, height}})
 end
 
-local function get_content_height(window)
-	if window == nil or window == objc.ptr(nil) then return 0 end
-
-	local content_view = NSWindow.contentView(window)
-
-	if content_view == nil or content_view == objc.ptr(nil) then return 0 end
-
-	local bounds = NSView.bounds(content_view)
-	return tonumber(bounds.size.height) or 0
-end
-
 local function flip_window_y(window, y)
-	return get_content_height(window) - (tonumber(y) or 0)
+	local content_view = NSWindow.contentView(window)
+	local bounds = NSView.bounds(content_view)
+	return bounds.size.height - y
 end
 
 -- Initialize Cocoa application and create window
@@ -669,12 +659,12 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.OtherMouseDragged
 	then
 		local location = NSEvent.locationInWindow(nsevent)
-		local delta_x = tonumber(NSEvent.deltaX(nsevent))
-		local delta_y = -(tonumber(NSEvent.deltaY(nsevent)) or 0)
+		local delta_x = NSEvent.deltaX(nsevent)
+		local delta_y = -NSEvent.deltaY(nsevent)
 		local y = flip_window_y(window, location.y)
 		return {
 			type = "mouse_move",
-			x = tonumber(location.x),
+			x = location.x,
 			y = y,
 			delta_x = delta_x,
 			delta_y = delta_y,
@@ -684,11 +674,11 @@ local function convert_nsevent(nsevent, window)
 	elseif event_type == NSEventType.ScrollWheel then
 		local location = NSEvent.locationInWindow(nsevent)
 		local y = flip_window_y(window, location.y)
-		local delta_x = tonumber(NSEvent.scrollingDeltaX(nsevent))
-		local delta_y = tonumber(NSEvent.scrollingDeltaY(nsevent))
+		local delta_x = NSEvent.scrollingDeltaX(nsevent)
+		local delta_y = NSEvent.scrollingDeltaY(nsevent)
 		return {
 			type = "mouse_scroll",
-			x = tonumber(location.x),
+			x = location.x,
 			y = y,
 			delta_x = delta_x,
 			delta_y = delta_y,
@@ -790,16 +780,8 @@ end
 
 function cocoa.get_desktop_size()
 	local screen = NSScreen.mainScreen()
-
-	if screen == nil or screen == objc.ptr(nil) then return nil end
-
 	local frame = NSScreen.frame(screen)
-	local width = tonumber(frame.size.width) or 0
-	local height = tonumber(frame.size.height) or 0
-
-	if width <= 0 or height <= 0 then return nil end
-
-	return Vec2(width, height)
+	return frame.size.width, frame.size.height
 end
 
 function meta:Initialize()
@@ -850,11 +832,11 @@ function meta:Restore()
 end
 
 function meta:HideCursor()
-	if not self.cursor_hidden then
-		NSCursor.setHiddenUntilMouseMoves(false)
-		NSCursor.hide()
-		self.cursor_hidden = true
-	end
+	if self.cursor_hidden then return end
+
+	NSCursor.setHiddenUntilMouseMoves(false)
+	NSCursor.hide()
+	self.cursor_hidden = true
 end
 
 function meta:ShowCursor()
@@ -887,23 +869,23 @@ end
 
 function meta:GetPosition()
 	local frame = NSWindow.frame(self.window)
-	return Vec2(tonumber(frame.origin.x), tonumber(frame.origin.y))
+	return frame.origin.x, frame.origin.y
 end
 
 function meta:GetMousePosition()
 	local pos = NSWindow.mouseLocationOutsideOfEventStream(self.window)
-	return Vec2(tonumber(pos.x), flip_window_y(self.window, pos.y))
+	return pos.x, flip_window_y(self.window, pos.y)
 end
 
-function meta:SetMousePosition(pos)
+function meta:SetMousePosition(x, y)
 	local window_point = ffi.new("CGPoint")
-	window_point.x = math.floor(tonumber(pos.x) or 0)
-	window_point.y = math.floor(flip_window_y(self.window, pos.y))
+	window_point.x = math.floor(tonumber(x) or 0)
+	window_point.y = math.floor(flip_window_y(self.window, y))
 	CG.CGWarpMouseCursorPosition(NSWindow.convertPointToScreen(self.window, window_point))
 end
 
-function meta:SetFrame(position, size)
-	local new_frame = CGRectMake(position.x, position.y, size.x, size.y)
+function meta:SetFrame(x, y, w, h)
+	local new_frame = CGRectMake(x, y, w, h)
 	NSWindow.setFrame(self.window, new_frame, true)
 	local content_view = NSWindow.contentView(self.window)
 	local bounds = NSView.bounds(content_view)
@@ -911,28 +893,24 @@ function meta:SetFrame(position, size)
 end
 
 function meta:IsFocused()
-	local focused = NSWindow.isKeyWindow(self.window)
-	return focused ~= nil and focused ~= 0
+	return NSWindow.isKeyWindow(self.window) ~= 0
 end
 
 function meta:IsMinimized()
-	local minimized = NSWindow.isMiniaturized(self.window)
-	return minimized ~= nil and minimized ~= 0
+	return NSWindow.isMiniaturized(self.window) ~= 0
 end
 
 function meta:IsMaximized()
-	local maximized = NSWindow.isZoomed(self.window)
-	return maximized ~= nil and maximized ~= 0
+	return NSWindow.isZoomed(self.window) ~= 0
 end
 
 function meta:IsVisible()
-	local isVisible = NSWindow.isVisible(self.window)
-	return isVisible ~= nil and isVisible ~= 0
+	return NSWindow.isVisible(self.window) ~= 0
 end
 
 function meta:GetSize()
 	local window_frame = NSWindow.frame(self.window)
-	return tonumber(window_frame.size.width), tonumber(window_frame.size.height)
+	return window_frame.size.width, window_frame.size.height
 end
 
 function meta:ReadEvents()
@@ -1031,8 +1009,8 @@ function meta:ReleaseMouse()
 		self:SetCursor(self.cursor_mode)
 
 		if self.cursor_mode ~= "hidden" then
-			local pos = self:GetMousePosition()
-			self:SetMousePosition(pos)
+			local x, y = self:GetMousePosition()
+			self:SetMousePosition(x, y)
 		end
 	end
 end
