@@ -11,6 +11,51 @@ ffi.cdef[[
 local terminal = {}
 local meta = {}
 meta.__index = meta
+local ESC = 27
+local TAB = 9
+local CR = 13
+local LF = 10
+local BACKSPACE = 8
+local DEL = 127
+local SPACE = 32
+local TILDE = 0x7E -- "~", also the last printable ASCII byte
+local SEMICOLON = 0x3B
+local LBRACKET = 0x5B
+local LESS_THAN = 0x3C
+local UPPER_O = 0x4F -- SS3 introducer ("\27O")
+local UPPER_M = 0x4D -- SGR mouse press
+local LOWER_M = 0x6D -- SGR mouse release
+local UPPER_R = 0x52 -- cursor position report terminator
+local DIGIT_ONE = 0x31
+
+local function is_digit(b)
+	return b ~= nil and b >= 48 and b <= 57 -- "0"-"9"
+end
+
+local function is_upper(b)
+	return b ~= nil and b >= 65 and b <= 90 -- "A"-"Z"
+end
+
+local function has_prefix(s, ...)
+	for i = 1, select("#", ...) do
+		if s:byte(i) ~= select(i, ...) then return false end
+	end
+
+	return true
+end
+
+local function scan_digits(s, i)
+	local len = #s
+	local start = i
+
+	while i <= len and is_digit(s:byte(i)) do
+		i = i + 1
+	end
+
+	if i == start then return nil end
+
+	return tonumber(s:sub(start, i - 1)), i
+end
 
 function meta:SetTitle(str)
 	self:Write(string.format("\27[s\27[0;0f%s\27[u", str))
@@ -581,18 +626,35 @@ function meta:EnableBracketedPaste(b)
 end
 
 do
+	local function parse_cursor_report(str)
+		if not has_prefix(str, ESC, LBRACKET) then return nil end -- "\27["
+		local a, i = scan_digits(str, 3)
+
+		if not a or str:byte(i) ~= SEMICOLON then return nil end -- ";"
+		local b, j = scan_digits(str, i + 1)
+
+		if not b or j ~= #str or str:byte(j) ~= UPPER_R then return nil end -- "R"
+		return a, b
+	end
+
+	terminal._ParseCursorReport = parse_cursor_report
+
 	local function read_coordinates(self)
+		local buf = ""
+
 		while true do
 			local str = self:Read()
 
 			if str then
-				local a, b = str:match("^\27%[(%d+);(%d+)R$")
+				buf = buf .. str
+				local a, b = parse_cursor_report(buf)
 
-				if a then return tonumber(a), tonumber(b) end
+				if a then return a, b end
 			end
 		end
 	end
 
+	terminal._ReadCoordinates = read_coordinates
 	local _x, _y = 0, 0
 
 	function meta:GetCaretPosition()
@@ -1500,6 +1562,7 @@ else
 		local self = setmetatable(
 			{
 				input = input,
+				input_fd_no = fd_no,
 				output = output,
 				old_attributes = old_attributes,
 				event_queue = {},
@@ -1535,8 +1598,7 @@ else
 		local size = ffi.typeof("$[1]", ffi.typeof("$", winsize))()
 
 		function meta:GetSize()
-			local fd_no = ffi.C.fileno(self.input)
-			local num = ffi.C.ioctl(fd_no, TIOCGWINSZ, size)
+			local num = ffi.C.ioctl(self.input_fd_no, TIOCGWINSZ, size)
 
 			if num ~= 0 then error(lasterror(), 2) end
 
@@ -1546,14 +1608,18 @@ else
 
 	do
 		local buf = ffi.new("char[1]")
+		local EINTR = 4
 
 		function meta:Read()
-			local fd_no = ffi.C.fileno(self.input)
-			local num = ffi.C.read(fd_no, buf, 1)
+			while true do
+				local num = ffi.C.read(self.input_fd_no, buf, 1)
 
-			if num == 0 then return nil end
+				if num == 1 then return ffi.string(buf, 1) end
 
-			return ffi.string(buf, 1)
+				if num == 0 then return nil end
+
+				if ffi.errno() ~= EINTR then return nil end
+			end
 		end
 	end
 
@@ -1666,13 +1732,27 @@ else
 
 	-- Parse SGR (1006) mouse format: \x1b[<button;x;y[Mm]
 	local function parse_sgr_mouse(seq)
-		local button_code, x, y, action_char = seq:match("^\27%[<(%d+);(%d+);(%d+)([Mm])$")
+		if not has_prefix(seq, ESC, LBRACKET, LESS_THAN) then return nil end -- "\27[<"
+		local button_code, i = scan_digits(seq, 4)
 
-		if not button_code then return nil end
+		if not button_code or seq:byte(i) ~= SEMICOLON then return nil end -- ";"
+		local x, j = scan_digits(seq, i + 1)
 
-		button_code = tonumber(button_code)
-		x = tonumber(x)
-		y = tonumber(y)
+		if not x or seq:byte(j) ~= SEMICOLON then return nil end -- ";"
+		local y, k = scan_digits(seq, j + 1)
+
+		if not y or k ~= #seq then return nil end
+
+		local action_char
+
+		if seq:byte(k) == UPPER_M then
+			action_char = "M"
+		elseif seq:byte(k) == LOWER_M then
+			action_char = "m"
+		else
+			return nil
+		end
+
 		-- Check for motion bit (0x20 = 32)
 		local has_motion = bit.band(button_code, 0x20) ~= 0
 		-- Parse button
@@ -1726,16 +1806,63 @@ else
 		}
 	end
 
+	-- sequence terminated by M/m": \x1b[<[digits;]+[Mm]
+	local function is_sgr_mouse_terminator(s)
+		if not has_prefix(s, ESC, LBRACKET, LESS_THAN) then return false end -- "\27[<"
+		local len = #s
+
+		if len < 5 then return false end -- need at least one digit/";" plus M/m
+		local last = s:byte(len)
+
+		if last ~= UPPER_M and last ~= LOWER_M then return false end -- "M"/"m"
+		for i = 4, len - 1 do
+			local b = s:byte(i)
+
+			if not (is_digit(b) or b == SEMICOLON) then return false end
+		end
+
+		return true
+	end
+
+	-- \x1b[1;MODkey or \x1b[MODkey
+	local function parse_csi_modifier_key(s)
+		if not has_prefix(s, ESC, LBRACKET) then return nil end -- "\27["
+		local i = 3
+
+		if s:byte(3) == DIGIT_ONE and s:byte(4) == SEMICOLON then i = 5 end -- skip literal "1;"
+		local mod_code, j = scan_digits(s, i)
+
+		if not mod_code or j ~= #s then return nil end
+
+		local key_byte = s:byte(j)
+
+		if not is_upper(key_byte) then return nil end
+
+		return mod_code, s:sub(j, j)
+	end
+
+	-- \x1b[KEY;MOD~
+	local function parse_csi_tilde_modifier(s)
+		if not has_prefix(s, ESC, LBRACKET) then return nil end -- "\27["
+		local key_code, i = scan_digits(s, 3)
+
+		if not key_code or s:byte(i) ~= SEMICOLON then return nil end -- ";"
+		local mod_code, j = scan_digits(s, i + 1)
+
+		if not mod_code or j ~= #s or s:byte(j) ~= TILDE then return nil end -- "~"
+		return key_code, mod_code
+	end
+
 	local function decode_queued_char(raw_char)
 		local byte = raw_char:byte()
 
-		if byte == 13 or byte == 10 then
+		if byte == CR or byte == LF then
 			return {
 				key = "enter",
 				modifiers = {ctrl = false, shift = false, alt = false},
 				raw_input = raw_char,
 			}
-		elseif byte >= 32 and byte <= 126 then
+		elseif byte >= SPACE and byte <= TILDE then
 			return {
 				key = raw_char,
 				modifiers = {ctrl = false, shift = false, alt = false},
@@ -1767,9 +1894,11 @@ else
 				end
 
 				chunk = chunk .. next_char
-				local text, rest = chunk:match("^(.-)\27%[201~(.*)$")
+				local marker_start, marker_end = chunk:find("\27[201~", 1, true)
 
-				if text then
+				if marker_start then
+					local text = chunk:sub(1, marker_start - 1)
+					local rest = chunk:sub(marker_end + 1)
 					self.bracketed_paste_active = false
 					self.bracketed_paste_buffer = nil
 
@@ -1818,7 +1947,7 @@ else
 				end
 
 				-- Check for SGR mouse sequence: \x1b[<...M or \x1b[<...m
-				if escape_buffer:match("^\27%[<[%d;]+[Mm]$") then
+				if is_sgr_mouse_terminator(escape_buffer) then
 					if self.mouse_enabled then
 						local mouse_event = parse_sgr_mouse(escape_buffer)
 
@@ -1829,14 +1958,10 @@ else
 				end
 
 				-- Check for CSI sequence with modifiers: \x1b[1;MODkey or \x1b[MODkey
-				local mod_code, key_char = escape_buffer:match("^\27%[1;(%d+)([A-Z])$")
-
-				if not mod_code then
-					mod_code, key_char = escape_buffer:match("^\27%[(%d+)([A-Z])$")
-				end
+				local mod_code, key_char = parse_csi_modifier_key(escape_buffer)
 
 				if mod_code and key_char and csi_keys[key_char] then
-					local modifiers = decode_modifier(tonumber(mod_code))
+					local modifiers = decode_modifier(mod_code)
 					return {
 						key = csi_keys[key_char],
 						modifiers = modifiers,
@@ -1845,22 +1970,22 @@ else
 				end
 
 				-- Check for tilde-terminated sequence with modifiers: \x1b[KEY;MOD~
-				local key_code, mod_code_tilde = escape_buffer:match("^\27%[(%d+);(%d+)~$")
+				local key_code, mod_code_tilde = parse_csi_tilde_modifier(escape_buffer)
 
 				if key_code and mod_code_tilde then
 					local key_map = {
-						["3"] = "delete",
-						["2"] = "insert",
-						["5"] = "pageup",
-						["6"] = "pagedown",
-						["1"] = "home",
-						["4"] = "end",
+						[3] = "delete",
+						[2] = "insert",
+						[5] = "pageup",
+						[6] = "pagedown",
+						[1] = "home",
+						[4] = "end",
 					}
 
 					if key_map[key_code] then
 						return {
 							key = key_map[key_code],
-							modifiers = decode_modifier(tonumber(mod_code_tilde)),
+							modifiers = decode_modifier(mod_code_tilde),
 							raw_input = raw_input,
 						}
 					end
@@ -1878,7 +2003,11 @@ else
 				end
 
 				-- Check for SS3 sequences (ESC O X)
-				if escape_buffer:match("^\27O[A-Z]$") then
+				if
+					#escape_buffer == 3 and
+					has_prefix(escape_buffer, ESC, UPPER_O) and -- "\27O"
+					is_upper(escape_buffer:byte(3))
+				then
 					local char = escape_buffer:sub(3, 3)
 					local ss3_keys = {
 						A = "up",
@@ -1906,10 +2035,31 @@ else
 				end
 
 				-- Check if it's a tilde-terminated sequence
-				if escape_buffer:match("~$") then break end
-
+				if escape_buffer:byte(-1) == TILDE then break end -- "~"
 				-- Check if it's a letter-terminated CSI sequence
-				if escape_buffer:match("^\27%[[%d;]*[A-Z]$") then break end
+				do
+					local len = #escape_buffer
+
+					if
+						len >= 3 and
+						has_prefix(escape_buffer, ESC, LBRACKET) and -- "\27["
+						is_upper(escape_buffer:byte(len))
+					then
+						local body_ok = true
+
+						for i = 3, len - 1 do
+							local b = escape_buffer:byte(i)
+
+							if not (is_digit(b) or b == SEMICOLON) then
+								body_ok = false
+
+								break
+							end
+						end
+
+						if body_ok then break end
+					end
+				end
 			end
 
 			-- Alt + key combinations (ESC followed by regular character)
@@ -1917,19 +2067,21 @@ else
 				#escape_buffer == 2 and
 				(
 					(
-						escape_buffer:byte(2) >= 32 and
-						escape_buffer:byte(2) <= 126
+						escape_buffer:byte(2) >= SPACE and
+						escape_buffer:byte(2) <= TILDE
 					)
 					or
-					escape_buffer:byte(2) == 10 or
-					escape_buffer:byte(2) == 13
+					escape_buffer:byte(2) == LF or
+					escape_buffer:byte(2) == CR or
+					escape_buffer:byte(2) == DEL or
+					escape_buffer:byte(2) == BACKSPACE
 				)
 			then
 				local key_byte = escape_buffer:byte(2)
 				local key = escape_buffer:sub(2, 2)
 
 				-- Special case: Alt+Enter (\e\n or \e\r)
-				if key_byte == 10 or key_byte == 13 then
+				if key_byte == LF or key_byte == CR then
 					return {
 						key = "enter",
 						modifiers = {ctrl = false, shift = false, alt = true},
@@ -1947,7 +2099,7 @@ else
 				end
 
 				-- Special case: Alt+Backspace/Alt+DEL
-				if key:byte() == 127 or key:byte() == 8 then
+				if key:byte() == DEL or key:byte() == BACKSPACE then
 					return {
 						key = "backspace",
 						modifiers = {ctrl = false, shift = false, alt = true},
@@ -1975,19 +2127,19 @@ else
 		local byte = char:byte()
 
 		-- Special characters
-		if byte == 127 or byte == 8 then -- DEL or backspace
+		if byte == DEL or byte == BACKSPACE then
 			return {
 				key = "backspace",
 				modifiers = {ctrl = false, shift = false, alt = false},
 				raw_input = raw_input,
 			}
-		elseif byte == 9 then -- Tab
+		elseif byte == TAB then
 			return {
 				key = "tab",
 				modifiers = {ctrl = false, shift = false, alt = false},
 				raw_input = raw_input,
 			}
-		elseif byte == 13 or byte == 10 then -- Enter
+		elseif byte == CR or byte == LF then
 			return {
 				key = "enter",
 				modifiers = {ctrl = false, shift = false, alt = false},
@@ -1996,7 +2148,7 @@ else
 		end
 
 		-- Regular printable characters
-		if byte >= 32 and byte <= 126 then
+		if byte >= SPACE and byte <= TILDE then
 			return {
 				key = char,
 				modifiers = {ctrl = false, shift = false, alt = false},
@@ -2042,6 +2194,40 @@ else
 		end
 
 		return nil
+	end
+
+	function terminal._DecodeBytes(bytes, opts)
+		opts = opts or {}
+		local pos = 0
+		local fake_self = setmetatable(
+			{
+				event_queue = {},
+				mouse_enabled = opts.mouse_enabled ~= false,
+				bracketed_paste_enabled = opts.bracketed_paste_enabled ~= false,
+				bracketed_paste_active = false,
+			},
+			meta
+		)
+
+		function fake_self:Read()
+			pos = pos + 1
+
+			if pos > #bytes then return nil end
+
+			return bytes:sub(pos, pos)
+		end
+
+		local events = {}
+
+		while true do
+			local event = fake_self:ReadEvent()
+
+			if not event then break end
+
+			table.insert(events, event)
+		end
+
+		return events
 	end
 end
 
