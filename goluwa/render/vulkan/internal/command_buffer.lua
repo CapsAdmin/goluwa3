@@ -1375,12 +1375,6 @@ local function translate_stage(stage)
 	return stage_map[stage] or stage
 end
 
-local vkCmdPipelineBarrier
-
-if jit.os ~= "OSX" then
-	vkCmdPipelineBarrier = vulkan.lib.vkCmdPipelineBarrier
-end
-
 function CommandBuffer:PipelineBarrier(config)
 	local srcStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.srcStage or "compute"))
 	local dstStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.dstStage or "fragment"))
@@ -1467,14 +1461,7 @@ function CommandBuffer:PipelineBarrier(config)
 		end
 	end
 
-	if not vkCmdPipelineBarrier then
-		vkCmdPipelineBarrier = function(...)
-			return vulkan.lib.vkCmdPipelineBarrier(...)
-		end
-		jit.off(vkCmdPipelineBarrier)
-	end
-
-	vkCmdPipelineBarrier(
+	vulkan.lib.vkCmdPipelineBarrier(
 		self.ptr[0],
 		srcStage,
 		dstStage,
