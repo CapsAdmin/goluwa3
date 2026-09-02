@@ -1544,12 +1544,17 @@ else
 		end
 	end
 
-	function meta:Read()
-		local char = self.input:read(1)
+	do
+		local buf = ffi.new("char[1]")
 
-		if char == "" then return nil end
+		function meta:Read()
+			local fd_no = ffi.C.fileno(self.input)
+			local num = ffi.C.read(fd_no, buf, 1)
 
-		return char
+			if num == 0 then return nil end
+
+			return ffi.string(buf, 1)
+		end
 	end
 
 	function meta:Close()
