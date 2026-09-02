@@ -1019,19 +1019,9 @@ local function assert_known_keys(section_name, tbl, known)
 end
 
 local function get_signature_id(self, signature)
-	local color_format = signature.color_format or {}
-	local formats = {}
-
-	for i = 1, #color_format do
-		if type(color_format[i]) == "table" then
-			formats[i] = color_format[i][1]
-		else
-			formats[i] = color_format[i] or false
-		end
-	end
-
 	return self.signature_interner:intern{
-		formats,
+		signature.color_format or
+		{},
 		signature.depth_format or
 		false,
 		signature.samples or

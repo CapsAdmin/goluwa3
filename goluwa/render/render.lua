@@ -989,6 +989,17 @@ function render.CreateGraphicsPipeline(config)
 		config.ColorFormat = {render.target:GetColorFormat()}
 	elseif config.ColorFormat == false then
 		config.ColorFormat = nil
+	elseif type(config.ColorFormat) == "table" then
+		local flattened
+
+		for i, entry in ipairs(config.ColorFormat) do
+			if type(entry) == "table" then
+				flattened = flattened or table.copy(config.ColorFormat)
+				flattened[i] = entry[1] or false
+			end
+		end
+
+		config.ColorFormat = flattened or config.ColorFormat
 	end
 
 	if config.DepthFormat == nil and config.DepthFormat ~= false then

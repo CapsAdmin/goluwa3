@@ -760,30 +760,27 @@ function render2d.FlushBatches(reason)
 			render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = slot + 1
 
 			for i, entry in ipairs(segment.entries) do
-				local vertex = vertices[i - 1]
-				local state = entry.state
-				local rect_state_snapshot = state.rect_state_snapshot
-				local off_x = rect_state_snapshot.sdf_uv_offset[0]
-				local off_y = rect_state_snapshot.sdf_uv_offset[1]
-				local scale_x = rect_state_snapshot.sdf_uv_scale[0]
-				local scale_y = rect_state_snapshot.sdf_uv_scale[1]
+				local off_x = entry.state.rect_state_snapshot.sdf_uv_offset[0]
+				local off_y = entry.state.rect_state_snapshot.sdf_uv_offset[1]
+				local scale_x = entry.state.rect_state_snapshot.sdf_uv_scale[0]
+				local scale_y = entry.state.rect_state_snapshot.sdf_uv_scale[1]
 				local margin = entry.margin or 0
 
 				if margin > 0 and entry.w > 0 and entry.h > 0 then
 					scale_x = scale_x * (entry.qw / entry.w)
 					scale_y = scale_y * (entry.qh / entry.h)
-					off_x = off_x - (margin / entry.w) * rect_state_snapshot.sdf_uv_scale[0]
-					off_y = off_y - (margin / entry.h) * rect_state_snapshot.sdf_uv_scale[1]
+					off_x = off_x - (margin / entry.w) * entry.state.rect_state_snapshot.sdf_uv_scale[0]
+					off_y = off_y - (margin / entry.h) * entry.state.rect_state_snapshot.sdf_uv_scale[1]
 				end
 
-				ffi.copy(vertex.pvw, entry.draw_matrix, rect_batch_matrix_copy_size)
+				ffi.copy(vertices[i - 1].pvw, entry.draw_matrix, rect_batch_matrix_copy_size)
 
 				for _, field in ipairs(rect_batch_fragment_passthrough_fields) do
 					field.write(
-						vertex,
+						vertices[i - 1],
 						entry,
-						state,
-						rect_state_snapshot,
+						entry.state,
+						entry.state.rect_state_snapshot,
 						off_x,
 						off_y,
 						scale_x,
