@@ -133,6 +133,12 @@ local cocoa_objc = objc.bind{
 			},
 		},
 		NSWindow = {
+			class = {
+				frameRectForContentRect_styleMask = {
+					selector = "frameRectForContentRect:styleMask:",
+					types = "{CGRect={CGPoint=dd}{CGSize=dd}}#:{CGRect={CGPoint=dd}{CGSize=dd}}Q",
+				},
+			},
 			instance = {
 				contentView = "@@:",
 				convertPointFromScreen = {selector = "convertPointFromScreen:", types = "{CGPoint=dd}@:{CGPoint=dd}"},
@@ -357,6 +363,9 @@ local function flip_window_y(window, y)
 	return bounds.size.height - y
 end
 
+-- Titled | Closable | Miniaturizable | Resizable
+local WINDOW_STYLE_MASK = bit.bor(1, 2, 4, 8)
+
 -- Initialize Cocoa application and create window
 local function init_cocoa(width, height)
 	local pool = NSObject.init(NSObject.alloc(classes.NSAutoreleasePool))
@@ -364,8 +373,7 @@ local function init_cocoa(width, height)
 	NSApplication.setActivationPolicy(app, 0)
 	NSApplication.activateIgnoringOtherApps(app, true)
 	local frame = CGRectMake(100, 100, width, height)
-	local styleMask = bit.bor(1, 2, 4, 8)
-	local window = NSWindow.initWithContentRect_styleMask_backing_defer(NSObject.alloc(classes.NSWindow), frame, styleMask, 2, false)
+	local window = NSWindow.initWithContentRect_styleMask_backing_defer(NSObject.alloc(classes.NSWindow), frame, WINDOW_STYLE_MASK, 2, false)
 	NSWindow.setAcceptsMouseMovedEvents(window, true)
 	setup_drop_view()
 	NSWindow.makeKeyAndOrderFront(window, nil_id)
@@ -885,7 +893,8 @@ function meta:SetMousePosition(x, y)
 end
 
 function meta:SetFrame(x, y, w, h)
-	local new_frame = CGRectMake(x, y, w, h)
+	local content_rect = CGRectMake(x, y, w, h)
+	local new_frame = NSWindow.frameRectForContentRect_styleMask(content_rect, WINDOW_STYLE_MASK)
 	NSWindow.setFrame(self.window, new_frame, true)
 	local content_view = NSWindow.contentView(self.window)
 	local bounds = NSView.bounds(content_view)
@@ -909,8 +918,9 @@ function meta:IsVisible()
 end
 
 function meta:GetSize()
-	local window_frame = NSWindow.frame(self.window)
-	return window_frame.size.width, window_frame.size.height
+	local content_view = NSWindow.contentView(self.window)
+	local bounds = NSView.bounds(content_view)
+	return tonumber(bounds.size.width), tonumber(bounds.size.height)
 end
 
 function meta:ReadEvents()
