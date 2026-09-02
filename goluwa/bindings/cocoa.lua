@@ -538,6 +538,15 @@ local keycodes = {
 -- Track previous modifier state for FlagsChanged events
 local last_modifier_flags = 0
 
+local function location_in_content_area(window, nsevent)
+	local location = NSEvent.locationInWindow(nsevent)
+
+	if location.y == nil then return 0, 0 end
+
+	local y = flip_window_y(window, location.y)
+	return location.x, y
+end
+
 -- Helper to convert NSEvent to our event structure
 local function convert_nsevent(nsevent, window)
 	if nsevent == nil or nsevent == objc.ptr(nil) then return nil end
@@ -624,18 +633,16 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.RightMouseDown or
 		event_type == NSEventType.OtherMouseDown
 	then
-		local location = NSEvent.locationInWindow(nsevent)
-		local y = flip_window_y(window, location.y)
-		local button = event_type == NSEventType.LeftMouseDown and
-			"left" or
-			event_type == NSEventType.RightMouseDown and
-			"right" or
-			"middle"
+		local x, y = location_in_content_area(window, nsevent)
 		return {
 			type = "mouse_button",
 			action = "pressed",
-			button = button,
-			x = tonumber(location.x),
+			button = event_type == NSEventType.LeftMouseDown and
+				"left" or
+				event_type == NSEventType.RightMouseDown and
+				"right" or
+				"middle",
+			x = x,
 			y = y,
 			modifiers = modifiers,
 		}
@@ -644,52 +651,43 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.RightMouseUp or
 		event_type == NSEventType.OtherMouseUp
 	then
-		local location = NSEvent.locationInWindow(nsevent)
-		local y = flip_window_y(window, location.y)
-		local button = event_type == NSEventType.LeftMouseUp and
-			"left" or
-			event_type == NSEventType.RightMouseUp and
-			"right" or
-			"middle"
+		local x, y = location_in_content_area(window, nsevent)
 		return {
 			type = "mouse_button",
 			action = "released",
-			button = button,
-			x = tonumber(location.x),
+			button = event_type == NSEventType.LeftMouseUp and
+				"left" or
+				event_type == NSEventType.RightMouseUp and
+				"right" or
+				"middle",
+			x = x,
 			y = y,
 			modifiers = modifiers,
 		}
-	-- Mouse movement
 	elseif
 		event_type == NSEventType.MouseMoved or
 		event_type == NSEventType.LeftMouseDragged or
 		event_type == NSEventType.RightMouseDragged or
 		event_type == NSEventType.OtherMouseDragged
 	then
-		local location = NSEvent.locationInWindow(nsevent)
-		local delta_x = NSEvent.deltaX(nsevent)
-		local delta_y = -NSEvent.deltaY(nsevent)
-		local y = flip_window_y(window, location.y)
+		local x, y = location_in_content_area(window, nsevent)
 		return {
 			type = "mouse_move",
-			x = location.x,
+			x = x,
 			y = y,
-			delta_x = delta_x,
-			delta_y = delta_y,
+			delta_x = NSEvent.deltaX(nsevent),
+			delta_y = -NSEvent.deltaY(nsevent),
 			modifiers = modifiers,
 		}
 	-- Scroll wheel
 	elseif event_type == NSEventType.ScrollWheel then
-		local location = NSEvent.locationInWindow(nsevent)
-		local y = flip_window_y(window, location.y)
-		local delta_x = NSEvent.scrollingDeltaX(nsevent)
-		local delta_y = NSEvent.scrollingDeltaY(nsevent)
+		local x, y = location_in_content_area(window, nsevent)
 		return {
 			type = "mouse_scroll",
-			x = location.x,
+			x = x,
 			y = y,
-			delta_x = delta_x,
-			delta_y = delta_y,
+			delta_x = NSEvent.scrollingDeltaX(nsevent),
+			delta_y = NSEvent.scrollingDeltaY(nsevent),
 			modifiers = modifiers,
 		}
 	end
