@@ -162,8 +162,6 @@ else
 	function crash_trace.Install()
 		if installed then return end
 
-		if jit.os == "OSX" then return end
-
 		for _, what in ipairs(crash_signals) do
 			local signum = signals[what]
 			installed_handlers[what] = ffi.cast("sighandler_t", function(received)
