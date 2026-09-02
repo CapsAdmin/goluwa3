@@ -295,10 +295,12 @@ do
 		colors[key] = {r, g, b}
 	end
 
+	local function lex_string(str)
+		return Lexer.New(Code.New(str, "repl")):GetTokens()
+	end
+
 	function repl.ColorizeAndWrite(term, str)
-		local ok, tokens = pcall(function()
-			return Lexer.New(Code.New(str, "repl")):GetTokens()
-		end)
+		local ok, tokens = pcall(lex_string, str)
 
 		if not ok then
 			-- Lexer failed, just write plain text
