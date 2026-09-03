@@ -114,13 +114,13 @@ render.command_buffer_stack = render.command_buffer_stack or {}
 render.target = render.target or NULL
 render.initializing = false
 
-local function query_bindless_sampled_image_limit()
+local function query_bindless_descriptor_limits()
 	if
 		not vulkan_instance or
 		vulkan_instance == NULL or
 		not vulkan_instance.physical_device
 	then
-		return nil
+		return nil, nil
 	end
 
 	local properties = vulkan_instance.physical_device:GetProperties()
@@ -133,53 +133,69 @@ local function query_bindless_sampled_image_limit()
 	properties2[0].pNext = descriptor_indexing_properties
 	vulkan.lib.vkGetPhysicalDeviceProperties2(vulkan_instance.physical_device.ptr[0], properties2)
 	local descriptor_limits = descriptor_indexing_properties[0]
-	local descriptor_set_limit = tonumber(descriptor_limits.maxDescriptorSetUpdateAfterBindSampledImages)
-	local per_stage_limit = tonumber(descriptor_limits.maxPerStageDescriptorUpdateAfterBindSampledImages)
 
-	if descriptor_set_limit == 0 then
-		descriptor_set_limit = tonumber(limits.maxDescriptorSetSampledImages)
+	local function resolve(update_after_bind_set, update_after_bind_stage, fallback_set, fallback_stage)
+		local set_limit = tonumber(update_after_bind_set)
+		local stage_limit = tonumber(update_after_bind_stage)
+
+		if set_limit == 0 then set_limit = tonumber(fallback_set) end
+
+		if stage_limit == 0 then stage_limit = tonumber(fallback_stage) end
+
+		return math.min(set_limit, stage_limit)
 	end
 
-	if per_stage_limit == 0 then
-		per_stage_limit = tonumber(limits.maxPerStageDescriptorSampledImages)
-	end
-
-	return math.min(descriptor_set_limit, per_stage_limit)
+	local sampled_image_limit = resolve(
+		descriptor_limits.maxDescriptorSetUpdateAfterBindSampledImages,
+		descriptor_limits.maxPerStageDescriptorUpdateAfterBindSampledImages,
+		limits.maxDescriptorSetSampledImages,
+		limits.maxPerStageDescriptorSampledImages
+	)
+	local sampler_limit = resolve(
+		descriptor_limits.maxDescriptorSetUpdateAfterBindSamplers,
+		descriptor_limits.maxPerStageDescriptorUpdateAfterBindSamplers,
+		limits.maxDescriptorSetSamplers,
+		limits.maxPerStageDescriptorSamplers
+	)
+	return sampled_image_limit, sampler_limit
 end
+
+local RESERVED_DESCRIPTOR_MARGIN = 64
 
 local function refresh_bindless_descriptor_capacities()
 	local defaults = render.default_bindless_descriptor_capacities
-	local sampled_image_limit = query_bindless_sampled_image_limit()
+	local sampled_image_limit, sampler_limit = query_bindless_descriptor_limits()
+	local textures, cubemaps, views, samplers = defaults.textures, defaults.cubemaps, defaults.views, defaults.samplers
 
-	if not sampled_image_limit or sampled_image_limit <= 0 then
-		render.bindless_descriptor_capacities = {
-			textures = defaults.textures,
-			cubemaps = defaults.cubemaps,
-		}
-		return
+	if sampled_image_limit and sampled_image_limit > 0 then
+		sampled_image_limit = math.max(1, sampled_image_limit - RESERVED_DESCRIPTOR_MARGIN)
+		local image_budget = textures + cubemaps + views
+
+		if image_budget > sampled_image_limit then
+			local scale = sampled_image_limit / image_budget
+			textures = math.max(1, math.floor(textures * scale))
+			cubemaps = math.max(0, math.floor(cubemaps * scale))
+			views = math.max(0, sampled_image_limit - textures - cubemaps)
+		end
 	end
 
-	local default_total = defaults.textures + defaults.cubemaps
+	if sampler_limit and sampler_limit > 0 then
+		sampler_limit = math.max(1, sampler_limit - RESERVED_DESCRIPTOR_MARGIN)
+		local sampler_budget = textures + cubemaps + samplers
 
-	if sampled_image_limit >= default_total then
-		render.bindless_descriptor_capacities = {
-			textures = defaults.textures,
-			cubemaps = defaults.cubemaps,
-		}
-		return
-	end
-
-	local textures = math.max(1, math.floor(sampled_image_limit * (defaults.textures / default_total)))
-	local cubemaps = math.max(0, sampled_image_limit - textures)
-
-	if cubemaps == 0 and defaults.cubemaps > 0 and sampled_image_limit > 1 then
-		cubemaps = 1
-		textures = sampled_image_limit - cubemaps
+		if sampler_budget > sampler_limit then
+			local scale = sampler_limit / sampler_budget
+			textures = math.max(1, math.floor(textures * scale))
+			cubemaps = math.max(0, math.floor(cubemaps * scale))
+			samplers = math.max(0, sampler_limit - textures - cubemaps)
+		end
 	end
 
 	render.bindless_descriptor_capacities = {
 		textures = math.min(textures, defaults.textures),
 		cubemaps = math.min(cubemaps, defaults.cubemaps),
+		views = math.min(views, defaults.views),
+		samplers = math.min(samplers, defaults.samplers),
 	}
 end
 
@@ -216,6 +232,8 @@ function render.Shutdown()
 	render.bindless_descriptor_capacities = {
 		textures = render.default_bindless_descriptor_capacities.textures,
 		cubemaps = render.default_bindless_descriptor_capacities.cubemaps,
+		views = render.default_bindless_descriptor_capacities.views,
+		samplers = render.default_bindless_descriptor_capacities.samplers,
 	}
 	sync_fence = NULL
 	render.shutting_down = false

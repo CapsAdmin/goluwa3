@@ -218,6 +218,7 @@ local function get_shadow_texture_descriptor_sets(self, bindless_texture_capacit
 			type = "combined_image_sampler",
 			binding_index = 0,
 			count = bindless_texture_capacity,
+			set_index = 1,
 		},
 		{
 			type = "uniform_buffer_dynamic",
@@ -233,6 +234,7 @@ local function get_shadow_geometry_descriptor_sets(self, bindless_texture_capaci
 			type = "combined_image_sampler",
 			binding_index = 0,
 			count = bindless_texture_capacity,
+			set_index = 1,
 		},
 		{
 			type = "uniform_buffer_dynamic",
@@ -254,6 +256,7 @@ local function get_shadow_tess_control_descriptor_sets(self, bindless_texture_ca
 			type = "combined_image_sampler",
 			binding_index = 0,
 			count = bindless_texture_capacity,
+			set_index = 1,
 		},
 		{
 			type = "uniform_buffer_dynamic",
@@ -275,7 +278,7 @@ local function build_shadow_fragment_shader(bindless_texture_capacity, linear_de
 					#extension GL_EXT_nonuniform_qualifier : require
 					#extension GL_EXT_scalar_block_layout : require
 
-					layout(binding = 0) uniform sampler2D textures[%d];
+					layout(set = 1, binding = 0) uniform sampler2D textures[%d];
 
 					%s
 					%s
@@ -420,7 +423,7 @@ local function build_shadow_vertex_stage(self, bindless_texture_capacity)
 					#extension GL_EXT_nonuniform_qualifier : require
 					#extension GL_EXT_scalar_block_layout : require
 
-					layout(binding = 0) uniform sampler2D textures[];
+					layout(set = 1, binding = 0) uniform sampler2D textures[];
 
 					layout(location = 0) in vec3 in_position;
 					layout(location = 1) in vec3 in_normal;
@@ -459,7 +462,7 @@ local function build_shadow_instanced_vertex_stage(self, bindless_texture_capaci
 					#extension GL_EXT_nonuniform_qualifier : require
 					#extension GL_EXT_scalar_block_layout : require
 
-					layout(binding = 0) uniform sampler2D textures[];
+					layout(set = 1, binding = 0) uniform sampler2D textures[];
 
 					layout(location = 0) in vec3 in_position;
 					layout(location = 1) in vec3 in_normal;
@@ -586,7 +589,7 @@ local function build_shadow_tess_evaluation_stage(self, bindless_texture_capacit
 					#extension GL_EXT_nonuniform_qualifier : require
 					#extension GL_EXT_scalar_block_layout : require
 
-					layout(binding = 0) uniform sampler2D textures[];
+					layout(set = 1, binding = 0) uniform sampler2D textures[];
 
 					layout(location = 0) in vec3 in_position[];
 					layout(location = 1) in vec3 in_normal[];
