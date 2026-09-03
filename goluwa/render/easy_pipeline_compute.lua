@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
@@ -540,6 +541,10 @@ do
 			)
 		end
 
+		local timing_name = self.name
+
+		if timing_name then gpu_timing.BeginScope(cmd, timing_name) end
+
 		render.PushCommandBuffer(cmd)
 		local current_frame_index = render.GetCurrentFrame() or frame_index or 1
 
@@ -662,6 +667,8 @@ do
 		end
 
 		render.PopCommandBuffer()
+
+		if timing_name then gpu_timing.EndScope(cmd, timing_name) end
 	end
 
 	EasyPipelineCompute:Register()

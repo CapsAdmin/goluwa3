@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local upload_probe = import("goluwa/render/upload_probe.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
@@ -130,6 +131,10 @@ do
 		vertex_count = vertex_count or 3
 		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
 		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
+		local timing_name = self.name
+
+		if timing_name then gpu_timing.BeginScope(cmd, timing_name) end
+
 		render.PushCommandBuffer(cmd)
 
 		if self.on_pre_draw then self.on_pre_draw(self, cmd, resolved_frame_index) end
@@ -158,6 +163,8 @@ do
 		if fb then fb:End(cmd) end
 
 		render.PopCommandBuffer()
+
+		if timing_name then gpu_timing.EndScope(cmd, timing_name) end
 	end
 
 	function EasyPipelineGraphics:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)

@@ -14,6 +14,7 @@ local Texture = import("goluwa/render/texture.lua")
 local event = import("goluwa/event.lua")
 local RENDER_NOOP = _G.RENDER_NOOP or false
 local render = import("goluwa/render/render.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local ImageRenderTarget = objects.CreateTemplate("render_image_rendertarget")
 local default_config = {
 	-- Mode selection
@@ -528,6 +529,7 @@ function ImageRenderTarget:BeginFrame()
 	local cmd = self:GetCommandBuffer()
 	cmd:Reset()
 	cmd:Begin()
+	gpu_timing.BeginFrame(cmd)
 	transition_render_attachments(self, cmd)
 	local extent = self:GetExtent()
 	render.PushCommandBuffer(cmd)
@@ -561,6 +563,7 @@ function ImageRenderTarget:EndFrame()
 			dstAccess = dst_access,
 		}
 	)
+	gpu_timing.EndScope(command_buffer, "gpu_frame")
 	command_buffer:End()
 
 	if RENDER_NOOP and not self.config.offscreen then return end

@@ -1021,6 +1021,14 @@ function render.GetDevice()
 	return vulkan_instance.device
 end
 
+function render.GetPhysicalDevice()
+	return vulkan_instance.physical_device
+end
+
+function render.GetGraphicsQueueFamilyIndex()
+	return vulkan_instance.graphics_queue_family
+end
+
 function render.GetRenderDocDevicePointer()
 	if not vulkan_instance or vulkan_instance == NULL or not vulkan_instance.instance then
 		return nil

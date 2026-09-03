@@ -34,6 +34,15 @@ function QueryPool:Reset(cmd, first_query, query_count)
 	vulkan.lib.vkCmdResetQueryPool(cmd.ptr[0], self.ptr[0], first_query or 0, query_count or self.query_count)
 end
 
+function QueryPool:WriteTimestamp(cmd, query_index, stage)
+	vulkan.lib.vkCmdWriteTimestamp(
+		cmd.ptr[0],
+		vulkan.vk.e.VkPipelineStageFlagBits(stage or "bottom_of_pipe"),
+		self.ptr[0],
+		query_index
+	)
+end
+
 function QueryPool:GetResults(first_query, query_count, data_size, flags)
 	local results = ffi.new("uint64_t[?]", query_count or 1)
 	local result = vulkan.lib.vkGetQueryPoolResults(
