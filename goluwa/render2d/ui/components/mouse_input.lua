@@ -460,7 +460,8 @@ function META:OnFirstCreated()
 	function mouse_input.Update()
 		if not Panel.World then return end
 
-		local pos = system.GetWindow():GetMousePosition()
+		local window = system.GetWindow()
+		local pos = window:GetMousePosition()
 		local hovered = get_hovered_entity(Panel.World, pos) or NULL
 
 		if hovered ~= mouse_input.last_hovered then
@@ -499,7 +500,7 @@ function META:OnFirstCreated()
 		end
 
 		if not global_handled_move then
-			if pos ~= last_pos then
+			if pos ~= last_pos or window:GetMouseTrapped() then
 				local res, cmp = call_global_event(Panel.World, "OnGlobalMouseMove", pos)
 
 				if res then
@@ -524,8 +525,6 @@ function META:OnFirstCreated()
 				if hovered.GreyedOut then cursor = "no" end
 			end
 		end
-
-		local window = system.GetWindow()
 
 		if window:GetCursor() ~= cursor then window:SetCursor(cursor) end
 	end
