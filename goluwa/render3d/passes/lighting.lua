@@ -135,8 +135,8 @@ return {
 						block.probe_irradiance_tex = -1
 					end
 
-					if render3d.pipelines.ambient_occlusion then
-						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion:GetFramebuffer(1):GetAttachment(1))
+					if render3d.pipelines.ambient_occlusion_blur then
+						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
 					else
 						block.ambient_occlusion_tex = -1
 					end

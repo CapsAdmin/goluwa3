@@ -26,12 +26,13 @@ return {
 			{"r32_sfloat", {"color", "r"}},
 		},
 		framebuffer_count = 1,
+		scale = 0.5,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
 				binding_index = 0,
 				attachment = 1,
-				dst_stage = "fragment",
+				dst_stage = "compute",
 			},
 		},
 		uniform_buffers = {
@@ -104,8 +105,8 @@ return {
 				// radius_uv = (world_radius * focal_length / -p.z) * 0.5
 				float screen_radius = (world_radius * lighting_data.projection[0][0]) / (-p.z * 2.0);
 
-				const int Nd = 4; // Slices
-				const int Ns = 12; // Steps per side
+				const int Nd = 3; // Slices
+				const int Ns = 6; // Steps per side
 				const uint Nb = 32;
 				float thickness = 0.025; 
 				float bias = 0.2;
@@ -217,8 +218,120 @@ return {
 
 				vec3 N = get_normal();
 				vec3 world_pos = get_world_pos(depth);
-                float ao = get_ambient_occlusion(in_uv, world_pos, N); 
+                float ao = get_ambient_occlusion(in_uv, world_pos, N);
                 set_color(ao);
+			}
+		]],
+	},
+	{
+		name = "ambient_occlusion_blur",
+		ComputePass = true,
+		ColorFormat = {
+			{"r32_sfloat", {"color", "r"}},
+		},
+		framebuffer_count = 1,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = 0,
+				attachment = 1,
+				-- consumed by the lighting pass, which is a compute pass
+				dst_stage = "compute",
+			},
+		},
+		uniform_buffers = {
+			{
+				name = "ao_blur_data",
+				binding_index = 3,
+				block = {
+					render3d.camera_block,
+					render3d.gbuffer_block,
+					{"ao_tex", "int"},
+				},
+				write = function(self, block)
+					render3d.WriteCameraBlock(self, block)
+					render3d.WriteGBufferBlock(self, block)
+
+					if
+						not render3d.pipelines.ambient_occlusion or
+						not render3d.pipelines.ambient_occlusion.framebuffers
+					then
+						block.ao_tex = -1
+					else
+						block.ao_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion:GetFramebuffer(1):GetAttachment(1))
+					end
+
+					return block
+				end,
+			},
+		},
+		custom_declarations = [[
+			layout(set = 0, binding = 0, r32f) uniform writeonly image2D out_color;
+			]],
+		shader = [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ao_blur_data") .. [[
+
+			vec2 get_compute_uv() {
+				return get_screen_uv(get_screen_pos(), imageSize(out_color));
+			}
+
+			void set_color(float value) {
+				imageStore(out_color, get_screen_pos(), vec4(value, 0, 0, 1));
+			}
+
+			float get_depth(vec2 uv) {
+				return texture(TEXTURE(ao_blur_data.depth_tex), uv).r;
+			}
+
+			// depth is non-linear, so edge weighting compares view-space depth instead
+			float get_view_depth(vec2 uv, float depth) {
+				vec3 world_pos = get_world_pos(uv, depth);
+				return -(ao_blur_data.view * vec4(world_pos, 1.0)).z;
+			}
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				vec2 uv = get_compute_uv();
+				float center_depth = get_depth(uv);
+
+				if (center_depth == 1.0 || ao_blur_data.ao_tex == -1) {
+					set_color(1.0);
+					return;
+				}
+
+				float center_view_depth = get_view_depth(uv, center_depth);
+				float depth_sigma = max(0.15 * center_view_depth, 0.01);
+				ivec2 ao_size = textureSize(TEXTURE(ao_blur_data.ao_tex), 0);
+				vec2 ao_texel = 1.0 / vec2(ao_size);
+
+				float total = 0.0;
+				float weight_sum = 0.0;
+
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						vec2 offset = vec2(x, y);
+						vec2 sample_uv = clamp(uv + offset * ao_texel, vec2(0.0), vec2(1.0));
+						float sample_depth = get_depth(sample_uv);
+
+						if (sample_depth == 1.0) continue;
+
+						float sample_view_depth = get_view_depth(sample_uv, sample_depth);
+						float depth_diff = sample_view_depth - center_view_depth;
+						float depth_weight = exp(-(depth_diff * depth_diff) / (2.0 * depth_sigma * depth_sigma));
+						float spatial_weight = exp(-dot(offset, offset) / (2.0 * 1.2 * 1.2));
+						float weight = depth_weight * spatial_weight;
+						float sample_ao = texture(TEXTURE(ao_blur_data.ao_tex), sample_uv).r;
+						total += sample_ao * weight;
+						weight_sum += weight;
+					}
+				}
+
+				set_color(weight_sum > 0.0001 ? (total / weight_sum) : 1.0);
 			}
 		]],
 	},
