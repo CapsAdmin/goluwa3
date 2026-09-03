@@ -514,9 +514,19 @@ function render3d.Initialize(config)
 		if not render3d.pipelines.gbuffer then return end
 
 		render3d.GetSceneVoxelizer().Update(render3d.GetRenderCamera():GetPosition())
+		local ocean_waves_needed = render3d.IsOceanEnabled()
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
-			if pipeline.name ~= "blit" and pipeline.draw_in_prerender then
+			local is_ocean_wave_pass = pipeline.name == "ocean_waves" or pipeline.name == "ocean_waves_near"
+
+			if
+				pipeline.name ~= "blit" and
+				pipeline.draw_in_prerender and
+				not (
+					is_ocean_wave_pass and
+					not ocean_waves_needed
+				)
+			then
 				pipeline:Draw()
 
 				if pipeline.name == "gbuffer" then
