@@ -5,20 +5,27 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local TILE_WIDTH = COMPUTE_LOCAL_SIZE.x + 2
-local TILE_HEIGHT = COMPUTE_LOCAL_SIZE.y + 2
 local MAX_PROBES = 64
 return {
 	{
 		name = "ssr",
 		ComputePass = true,
-		ColorFormat = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"ssr", "rgba"}},
+			{"r32_sfloat", {"ssr_depth", "r"}},
+		},
 		framebuffer_count = 2,
+		scale = 0.5,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
 				binding_index = 0,
 				attachment = 1,
+				dst_stage = {"compute", "fragment"},
+			},
+			{
+				binding_index = 1,
+				attachment = 2,
 				dst_stage = {"compute", "fragment"},
 			},
 		},
@@ -32,6 +39,9 @@ return {
 					render3d.last_frame_block,
 					{"blue_noise_tex", "int"},
 					{"env_tex", "int"},
+					{"history_tex", "int"},
+					{"history_depth_tex", "int"},
+					{"frame_index", "int"},
 					{"probe_color_textures", "int", 64},
 					{"probe_depth_textures", "int", 64},
 					{"probe_positions", "vec4", 64},
@@ -44,6 +54,24 @@ return {
 					render3d.WriteLastFrameBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
+					local frame = system.GetFrameNumber()
+					block.frame_index = frame
+
+					-- history is the framebuffer written last frame. recreated framebuffers hold garbage
+					-- until they have been written once, so skip history for one frame after that
+					if self.ssr_history_framebuffers ~= self.framebuffers then
+						self.ssr_history_framebuffers = self.framebuffers
+						self.ssr_history_reset_frame = frame
+					end
+
+					if render3d.ShouldUseLastFrameHistory() and frame > self.ssr_history_reset_frame then
+						local history_fb = self:GetFramebuffer((frame + 1) % 2 + 1)
+						block.history_tex = self:GetTextureIndex(history_fb:GetAttachment(1))
+						block.history_depth_tex = self:GetTextureIndex(history_fb:GetAttachment(2))
+					else
+						block.history_tex = -1
+						block.history_depth_tex = -1
+					end
 
 					for i = 0, MAX_PROBES - 1 do
 						block.probe_color_textures[i] = -1
@@ -105,48 +133,57 @@ return {
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_ssr;
+			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_ssr_depth;
 		]],
 		shader = [[
 		]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
-			#define SSR_MAX_STEPS 64
-			#define SSR_BINARY_STEPS 8
-			#define SSR_ROUGHNESS_CUTOFF 1
-			#define SSR_SPATIAL_DEPTH_WEIGHT 48.0
+			#define SSR_MAX_STEPS 48
+			#define SSR_BINARY_STEPS 6
+			#define SSR_STRIDE 2.0
+			#define SSR_MAX_DISTANCE 80.0
+			#define SSR_ROUGHNESS_CUTOFF 0.75
+			#define SSR_MIRROR_THRESHOLD 0.06
+			#define SSR_MAX_HIT_LUMINANCE 8.0
 			#define SSR_SPATIAL_NORMAL_POWER 32.0
-			#define SSR_ROUGH_REFLECTION_THRESHOLD 0.08
-			#define SSR_ROUGH_MULTI_SAMPLES 3
-			#define SSR_TILE_WIDTH ]] .. tostring(TILE_WIDTH) .. "\n" .. [[
-			#define SSR_TILE_HEIGHT ]] .. tostring(TILE_HEIGHT) .. "\n" .. [[
+			#define SSR_TILE_WIDTH ]] .. tostring(COMPUTE_LOCAL_SIZE.x) .. "\n" .. [[
+			#define SSR_TILE_HEIGHT ]] .. tostring(COMPUTE_LOCAL_SIZE.y) .. "\n" .. [[
 
 			shared vec4 ssr_tile[SSR_TILE_HEIGHT][SSR_TILE_WIDTH];
+			shared float ssr_tile_depth[SSR_TILE_HEIGHT][SSR_TILE_WIDTH];
+			shared vec3 ssr_tile_normal[SSR_TILE_HEIGHT][SSR_TILE_WIDTH];
+
+			ivec2 ssr_size;
+			ivec2 gbuffer_size;
+			vec2 gbuffer_ratio;
+			vec4 inv_projection_row_z;
+			vec4 inv_projection_row_w;
 
 			float luminance(vec3 color) {
 				return dot(color, vec3(0.2126, 0.7152, 0.0722));
 			}
 
-			vec2 get_clamped_screen_uv(ivec2 pos, ivec2 size) {
-				ivec2 clamped = clamp(pos, ivec2(0), size - ivec2(1));
-				return get_screen_uv(clamped, size);
+			float linearize_depth(vec2 uv, float depth) {
+				vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
+				return dot(inv_projection_row_z, clip) / dot(inv_projection_row_w, clip);
 			}
 
-			float get_depth(vec2 uv) {
-				return texture(TEXTURE(ssr_data.depth_tex), uv).r;
+			vec3 get_view_pos(vec2 uv, float depth) {
+				vec4 view_pos = ssr_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+				return view_pos.xyz / view_pos.w;
 			}
 
-			vec3 get_normal(vec2 uv) {
-				return texture(TEXTURE(ssr_data.normal_tex), uv).xyz;
-			}
-
-			float get_roughness(vec2 uv) {
-				return texture(TEXTURE(ssr_data.mra_tex), uv).g;
+			float fetch_depth(vec2 uv) {
+				return texelFetch(TEXTURE(ssr_data.depth_tex), clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1), 0).r;
 			}
 
 			vec2 blue_noise(ivec2 pixel) {
 				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
-				return texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
+				vec2 xi = texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
+				// R2 sequence offset per frame keeps the pattern blue in space but different in time
+				return fract(xi + float(ssr_data.frame_index % 64) * vec2(0.7548776662, 0.5698402910));
 			}
 
 			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
@@ -154,31 +191,6 @@ return {
 				float d = -n.x * n.y * a;
 				t = vec3(1.0 - n.x * n.x * a, d, -n.x);
 				b = vec3(d, 1.0 - n.y * n.y * a, -n.y);
-			}
-
-			vec3 clamp_reflection_fireflies(vec2 uv, vec3 hit_color, float mip_level, float roughness) {
-				if (roughness <= 0.02) {
-					return hit_color;
-				}
-
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(ssr_data.last_frame_tex), 0));
-				vec2 radius = texel * (1.0 + roughness * 6.0);
-				vec3 neighborhood = textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(radius.x, 0.0), vec2(0.001), vec2(0.999)), mip_level).rgb;
-				neighborhood += textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(-radius.x, 0.0), vec2(0.001), vec2(0.999)), mip_level).rgb;
-				neighborhood += textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(0.0, radius.y), vec2(0.001), vec2(0.999)), mip_level).rgb;
-				neighborhood += textureLod(TEXTURE(ssr_data.last_frame_tex), clamp(uv + vec2(0.0, -radius.y), vec2(0.001), vec2(0.999)), mip_level).rgb;
-				neighborhood *= 0.25;
-
-				float neighborhood_luma = luminance(neighborhood);
-				float hit_luma = luminance(hit_color);
-				float clamp_scale = saturate((roughness - 0.02) * 3.0);
-				float allowed_luma = max(neighborhood_luma * mix(6.0, 2.0, clamp_scale), neighborhood_luma + 0.02);
-
-				if (hit_luma <= allowed_luma || hit_luma <= 1e-5) {
-					return hit_color;
-				}
-
-				return hit_color * (allowed_luma / hit_luma);
 			}
 
 			vec2 get_last_frame_uv(vec3 hit_view_pos) {
@@ -191,12 +203,6 @@ return {
 
 				prev_clip /= prev_clip.w;
 				return prev_clip.xy * 0.5 + 0.5;
-			}
-
-			vec2 get_ssr_rough_sample_xi(vec2 xi, int index) {
-				if (index == 0) return xi;
-				if (index == 1) return fract(xi + vec2(0.5, 0.33333334));
-				return fract(xi + vec2(0.25, 0.6666667));
 			}
 
 			vec3 correct_probe_depth_lookup_dir(vec3 dir) {
@@ -352,282 +358,259 @@ return {
 				return global_env;
 			}
 
-			vec4 trace_ssr_direction(vec4 pos_vs, vec3 R_vs, float roughness, float jitter_seed) {
-				if (dot(R_vs, R_vs) <= 1e-5) return vec4(0.0);
+			// marches in screen space: uv and z/w are linear in t along the projected segment, so each step
+			// is one depth fetch and no matrix multiplies
+			vec4 trace_ssr_direction(vec3 pos_vs, vec3 R_vs, float roughness, float jitter) {
+				float ray_len = SSR_MAX_DISTANCE;
 
-				float jitter = mix(0.9, 1.1, jitter_seed);
-				float step_size = 0.08 * jitter;
-				vec3 current_pos = pos_vs.xyz + R_vs * step_size;
-				int steps = int(mix(float(SSR_MAX_STEPS), float(SSR_MAX_STEPS / 2), roughness));
+				if (pos_vs.z + R_vs.z * ray_len > -0.05) {
+					ray_len = (-0.05 - pos_vs.z) / R_vs.z;
+				}
+
+				if (ray_len <= 1e-4) return vec4(0.0);
+
+				vec3 end_vs = pos_vs + R_vs * ray_len;
+				vec4 h0 = ssr_data.projection * vec4(pos_vs, 1.0);
+				vec4 h1 = ssr_data.projection * vec4(end_vs, 1.0);
+				float k0 = 1.0 / h0.w;
+				float k1 = 1.0 / h1.w;
+				vec2 p0 = h0.xy * k0 * 0.5 + 0.5;
+				vec2 p1 = h1.xy * k1 * 0.5 + 0.5;
+				float q0 = pos_vs.z * k0;
+				float q1 = end_vs.z * k1;
+				vec2 delta_px = (p1 - p0) * vec2(ssr_size);
+				float pixel_len = max(abs(delta_px.x), abs(delta_px.y));
+				int steps = clamp(int(pixel_len / SSR_STRIDE), 1, SSR_MAX_STEPS);
+				float dt = 1.0 / float(steps);
+				float t_prev = 0.0;
+				float z_prev = pos_vs.z;
+				float t = dt * jitter;
 
 				for (int i = 0; i < steps; i++) {
-					current_pos += R_vs * step_size;
-					vec4 proj = ssr_data.projection * vec4(current_pos, 1.0);
-					proj.xyz /= proj.w;
-					vec2 uv = proj.xy * 0.5 + 0.5;
+					t = min(t + dt, 1.0);
+					vec2 uv = mix(p0, p1, t);
 
 					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
 
-					float sampled_depth = texture(TEXTURE(ssr_data.depth_tex), uv).r;
-					vec4 sampled_clip = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
-					vec4 sampled_view = ssr_data.inv_projection * sampled_clip;
-					sampled_view /= sampled_view.w;
+					float z_ray = mix(q0, q1, t) / mix(k0, k1, t);
+					float depth = fetch_depth(uv);
 
-					if (current_pos.z < sampled_view.z) {
-						float depth_diff = abs(current_pos.z - sampled_view.z);
-						float thickness = 0.5 + step_size * 2.0;
-						thickness *= 1.0 + length(current_pos) * 0.005;
+					if (depth < 1.0) {
+						float z_surf = linearize_depth(uv, depth);
 
-						if (depth_diff < thickness) {
-							vec3 start = current_pos - R_vs * step_size;
-							vec3 end = current_pos;
+						if (z_ray < z_surf) {
+							float thickness = max(0.15, -z_surf * 0.03) + abs(z_ray - z_prev);
+							float depth_diff = z_surf - z_ray;
 
-							for (int j = 0; j < SSR_BINARY_STEPS; j++) {
-								vec3 mid = mix(start, end, 0.5);
-								vec4 mid_proj = ssr_data.projection * vec4(mid, 1.0);
-								mid_proj.xyz /= mid_proj.w;
-								vec2 mid_uv = mid_proj.xy * 0.5 + 0.5;
-								float mid_depth = texture(TEXTURE(ssr_data.depth_tex), mid_uv).r;
-								vec4 mid_clip = vec4(mid_uv * 2.0 - 1.0, mid_depth, 1.0);
-								vec4 mid_view = ssr_data.inv_projection * mid_clip;
-								mid_view /= mid_view.w;
+							if (depth_diff < thickness) {
+								float t_lo = t_prev;
+								float t_hi = t;
+								float refined_diff = depth_diff;
 
-								if (mid.z < mid_view.z) {
-									end = mid;
-									uv = mid_uv;
-								} else {
-									start = mid;
+								for (int j = 0; j < SSR_BINARY_STEPS; j++) {
+									float t_mid = (t_lo + t_hi) * 0.5;
+									vec2 uv_mid = mix(p0, p1, t_mid);
+									float z_mid = mix(q0, q1, t_mid) / mix(k0, k1, t_mid);
+									float depth_mid = fetch_depth(uv_mid);
+									// a sky sample counts as in front, so the search backs toward the last real surface
+									float z_surf_mid = depth_mid < 1.0 ? linearize_depth(uv_mid, depth_mid) : -1e30;
+
+									if (z_mid < z_surf_mid) {
+										t_hi = t_mid;
+										uv = uv_mid;
+										depth = depth_mid;
+										refined_diff = z_surf_mid - z_mid;
+									} else {
+										t_lo = t_mid;
+									}
 								}
+
+								vec3 hit_normal_vs = mat3(ssr_data.view) * texture(TEXTURE(ssr_data.normal_tex), uv).xyz;
+
+								if (dot(hit_normal_vs, R_vs) > 0.0) {
+									t_prev = t;
+									z_prev = z_ray;
+									continue;
+								}
+
+								vec3 hit_vs = get_view_pos(uv, depth);
+								vec2 last_frame_uv = get_last_frame_uv(hit_vs);
+
+								if (last_frame_uv.x <= 0.0 || last_frame_uv.x >= 1.0 || last_frame_uv.y <= 0.0 || last_frame_uv.y >= 1.0) {
+									return vec4(0.0);
+								}
+
+								float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
+								edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
+								float dist_fade = 1.0 - smoothstep(SSR_MAX_DISTANCE * 0.7, SSR_MAX_DISTANCE, length(hit_vs - pos_vs));
+								// after refinement the ray sits just behind the surface it hit. a gap that is still large
+								// means it went behind something thin rather than hitting it
+								float thick_conf = 1.0 - saturate(refined_diff / max(0.15, -z_surf * 0.03));
+								vec3 hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb;
+
+								if (roughness > SSR_MIRROR_THRESHOLD) {
+									float hit_luma = luminance(hit_color);
+
+									if (hit_luma > SSR_MAX_HIT_LUMINANCE) {
+										hit_color *= SSR_MAX_HIT_LUMINANCE / hit_luma;
+									}
+								}
+
+								return vec4(hit_color, edge_fade * dist_fade * thick_conf);
 							}
-
-							vec3 hit_normal_ws = texture(TEXTURE(ssr_data.normal_tex), uv).xyz;
-							vec3 hit_normal_vs = normalize(mat3(ssr_data.view) * hit_normal_ws);
-
-							if (dot(hit_normal_vs, -R_vs) < 0.0) {
-								step_size *= 1.5;
-								continue;
-							}
-
-							vec2 last_frame_uv = get_last_frame_uv(end);
-
-							if (last_frame_uv.x <= 0.0 || last_frame_uv.x >= 1.0 || last_frame_uv.y <= 0.0 || last_frame_uv.y >= 1.0) {
-								return vec4(0.0);
-							}
-
-							float dist = length(current_pos - pos_vs.xyz);
-							float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
-							edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
-							float dist_fade = 1.0 - saturate(dist / 100.0);
-							float thick_conf = 1.0 - saturate(depth_diff / thickness);
-							float confidence = edge_fade * dist_fade * thick_conf;
-
-							vec3 hit_color;
-							float mip_level = 0.0;
-
-							if (roughness > 0.1) {
-								vec2 tex_size = vec2(textureSize(TEXTURE(ssr_data.last_frame_tex), 0));
-								float cone = roughness * dist * 0.05;
-								float mip = log2(max(1.0, cone * max(tex_size.x, tex_size.y)));
-								mip_level = min(mip + 0.75, 5.0);
-								hit_color = textureLod(TEXTURE(ssr_data.last_frame_tex), last_frame_uv, mip_level).rgb;
-							} else {
-								hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb;
-							}
-
-							hit_color = clamp_reflection_fireflies(last_frame_uv, hit_color, mip_level, roughness);
-
-							return vec4(hit_color, confidence);
 						}
 					}
 
-					step_size *= 1.05;
+					t_prev = t;
+					z_prev = z_ray;
 				}
 
 				return vec4(0.0);
 			}
 
-			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
+			vec4 cast_ssr_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 V, float roughness, vec2 xi) {
 				vec3 fallback_reflection = get_probe_environment_reflection(N, roughness, V, world_pos);
 				if (ssr_data.last_frame_tex == -1) return vec4(fallback_reflection, 0.0);
 				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(fallback_reflection, 0.0);
 
 				vec3 N_vs = normalize(mat3(ssr_data.view) * N);
-				vec3 V_vs = normalize(mat3(ssr_data.view) * V);
-				vec4 pos_vs = ssr_data.view * vec4(world_pos, 1.0);
-
-				vec3 T;
-				vec3 B;
-				buildOrthonormalBasis(N_vs, T, B);
-
+				vec3 V_vs = normalize(-pos_vs);
 				vec3 mirror_R_vs = reflect(-V_vs, N_vs);
 
 				if (dot(N_vs, mirror_R_vs) < 0.0) return vec4(fallback_reflection, 0.0);
 
-				if (roughness <= SSR_ROUGH_REFLECTION_THRESHOLD) {
-					vec4 hit = trace_ssr_direction(pos_vs, mirror_R_vs, roughness, xi.x);
-					if (hit.a <= 1e-5) return vec4(fallback_reflection, 0.0);
-					return hit;
-				}
+				vec3 R_vs = mirror_R_vs;
 
-				vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
-				float alpha = max(0.001, roughness * roughness);
-				float rough_mix = saturate((roughness - SSR_ROUGH_REFLECTION_THRESHOLD) * 2.0);
-				vec3 color_accum = vec3(0.0);
-				float color_weight = 0.0;
-				float confidence_accum = 0.0;
-
-				for (int sample_index = 0; sample_index < SSR_ROUGH_MULTI_SAMPLES; sample_index++) {
-					vec2 sample_xi = get_ssr_rough_sample_xi(xi, sample_index);
-					vec3 H_local = ImportanceSampleGGXVNDF(V_local, alpha, sample_xi);
+				if (roughness > SSR_MIRROR_THRESHOLD) {
+					vec3 T;
+					vec3 B;
+					buildOrthonormalBasis(N_vs, T, B);
+					vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
+					vec3 H_local = ImportanceSampleGGXVNDF(V_local, max(0.001, roughness * roughness), xi);
 					vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
-					vec3 sample_R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
+					float rough_mix = smoothstep(SSR_MIRROR_THRESHOLD, SSR_MIRROR_THRESHOLD * 3.0, roughness);
+					R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
 
-					if (dot(N_vs, sample_R_vs) < 0.0) {
-						continue;
-					}
-
-					vec4 sample_hit = trace_ssr_direction(pos_vs, sample_R_vs, roughness, sample_xi.x);
-					float sample_weight = max(sample_hit.a, 0.0) + 0.0001;
-					color_accum += sample_hit.rgb * sample_weight;
-					color_weight += sample_weight;
-					confidence_accum += sample_hit.a;
+					if (dot(N_vs, R_vs) < 0.001) R_vs = mirror_R_vs;
 				}
 
-				if (color_weight <= 0.0001) {
-					return vec4(fallback_reflection, 0.0);
-				}
-
-				float confidence = confidence_accum / float(SSR_ROUGH_MULTI_SAMPLES);
-				vec3 hit_color = color_accum / color_weight;
-				if (confidence <= 1e-5) return vec4(fallback_reflection, 0.0);
-				return vec4(hit_color, confidence);
-			}
-
-			vec4 compute_current_ssr(ivec2 sample_pos, ivec2 size) {
-				vec2 uv = get_clamped_screen_uv(sample_pos, size);
-				float depth = get_depth(uv);
-
-				if (depth == 1.0) {
-					return vec4(0.0);
-				}
-
-				vec3 N = get_normal(uv);
-				float roughness = get_roughness(uv);
-				vec3 world_pos = get_world_pos(uv, depth);
-				vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
-				ivec2 clamped_pos = clamp(sample_pos, ivec2(0), size - ivec2(1));
-				vec2 xi = blue_noise(clamped_pos);
-				return cast_ssr_ray(world_pos, N, V, roughness, xi);
-			}
-
-			void write_tile_sample(ivec2 tile_pos, ivec2 sample_pos, ivec2 size) {
-				ssr_tile[tile_pos.y][tile_pos.x] = compute_current_ssr(sample_pos, size);
-			}
-
-			vec4 resolve_current_ssr(ivec2 pos, ivec2 size, ivec2 local_pos, vec4 current) {
-				vec2 uv = get_screen_uv(pos, size);
-				float depth = get_depth(uv);
-
-				if (depth == 1.0) {
-					return current;
-				}
-
-				vec3 center_normal = get_normal(uv);
-				float center_roughness = get_roughness(uv);
-				vec4 accum = vec4(0.0);
-				float total_weight = 0.0;
-
-				for (int y = -1; y <= 1; y++) {
-					for (int x = -1; x <= 1; x++) {
-						ivec2 sample_pos = clamp(pos + ivec2(x, y), ivec2(0), size - ivec2(1));
-						vec2 sample_uv = get_screen_uv(sample_pos, size);
-						float sample_depth = get_depth(sample_uv);
-
-						if (sample_depth == 1.0) {
-							continue;
-						}
-
-						vec4 sample_value = ssr_tile[local_pos.y + 1 + y][local_pos.x + 1 + x];
-
-						if (sample_value.a <= 0.0001) {
-							continue;
-						}
-
-						vec3 sample_normal = get_normal(sample_uv);
-						float sample_roughness = get_roughness(sample_uv);
-						float depth_weight = exp(-abs(sample_depth - depth) * SSR_SPATIAL_DEPTH_WEIGHT);
-						float normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), SSR_SPATIAL_NORMAL_POWER);
-						float roughness_weight = 1.0 - saturate(abs(sample_roughness - center_roughness) * 6.0);
-						float kernel_weight = (x == 0 && y == 0) ? 4.0 : ((x == 0 || y == 0) ? 2.0 : 1.0);
-						float weight = kernel_weight * depth_weight * normal_weight * roughness_weight * sample_value.a;
-
-						if (weight <= 0.0001) {
-							continue;
-						}
-
-						accum += vec4(sample_value.rgb * weight, sample_value.a * weight);
-						total_weight += weight;
-					}
-				}
-
-				if (total_weight <= 0.0001) {
-					return current;
-				}
-
-				vec4 filtered = accum / total_weight;
-				float confidence = max(current.a, filtered.a);
-				return vec4(filtered.rgb, confidence);
+				vec4 hit = trace_ssr_direction(pos_vs, R_vs, roughness, xi.y);
+				return vec4(mix(fallback_reflection, hit.rgb, hit.a), hit.a);
 			}
 
 			void main() {
 				ivec2 pos = get_screen_pos();
-				ivec2 size = imageSize(out_ssr);
-
-				if (!is_screen_pos_in_bounds(pos, size)) return;
-
+				ssr_size = imageSize(out_ssr);
+				gbuffer_size = textureSize(TEXTURE(ssr_data.depth_tex), 0);
+				gbuffer_ratio = vec2(gbuffer_size) / vec2(ssr_size);
+				mat4 inv_projection = ssr_data.inv_projection;
+				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
+				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
 				ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
-				ivec2 tile_pos = local_pos + ivec2(1);
+				// every invocation has to reach the barrier, so out of bounds threads only skip the work
+				bool in_bounds = is_screen_pos_in_bounds(pos, ssr_size);
+				ivec2 gbuffer_pos = min(ivec2((vec2(pos) + 0.5) * gbuffer_ratio), gbuffer_size - 1);
+				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
+				float depth = in_bounds ? texelFetch(TEXTURE(ssr_data.depth_tex), gbuffer_pos, 0).r : 1.0;
+				vec4 current = vec4(0.0);
+				vec3 N = vec3(0.0, 1.0, 0.0);
+				vec3 world_pos = vec3(0.0);
+				float roughness = 1.0;
+				float view_depth = 0.0;
 
-				write_tile_sample(tile_pos, pos, size);
-
-				if (local_pos.x == 0) {
-					write_tile_sample(ivec2(0, tile_pos.y), pos + ivec2(-1, 0), size);
+				if (depth < 1.0) {
+					N = texelFetch(TEXTURE(ssr_data.normal_tex), gbuffer_pos, 0).xyz;
+					roughness = texelFetch(TEXTURE(ssr_data.mra_tex), gbuffer_pos, 0).g;
+					world_pos = get_world_pos(uv, depth);
+					vec3 pos_vs = (ssr_data.view * vec4(world_pos, 1.0)).xyz;
+					view_depth = -pos_vs.z;
+					vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
+					current = cast_ssr_ray(world_pos, pos_vs, N, V, roughness, blue_noise(pos));
 				}
 
-				if (local_pos.x == ]] .. tostring(COMPUTE_LOCAL_SIZE.x - 1) .. [[) {
-					write_tile_sample(ivec2(SSR_TILE_WIDTH - 1, tile_pos.y), pos + ivec2(1, 0), size);
-				}
-
-				if (local_pos.y == 0) {
-					write_tile_sample(ivec2(tile_pos.x, 0), pos + ivec2(0, -1), size);
-				}
-
-				if (local_pos.y == ]] .. tostring(COMPUTE_LOCAL_SIZE.y - 1) .. [[) {
-					write_tile_sample(ivec2(tile_pos.x, SSR_TILE_HEIGHT - 1), pos + ivec2(0, 1), size);
-				}
-
-				if (local_pos.x == 0 && local_pos.y == 0) {
-					write_tile_sample(ivec2(0, 0), pos + ivec2(-1, -1), size);
-				}
-
-				if (local_pos.x == ]] .. tostring(COMPUTE_LOCAL_SIZE.x - 1) .. [[ && local_pos.y == 0) {
-					write_tile_sample(ivec2(SSR_TILE_WIDTH - 1, 0), pos + ivec2(1, -1), size);
-				}
-
-				if (local_pos.x == 0 && local_pos.y == ]] .. tostring(COMPUTE_LOCAL_SIZE.y - 1) .. [[) {
-					write_tile_sample(ivec2(0, SSR_TILE_HEIGHT - 1), pos + ivec2(-1, 1), size);
-				}
-
-				if (local_pos.x == ]] .. tostring(COMPUTE_LOCAL_SIZE.x - 1) .. [[ && local_pos.y == ]] .. tostring(COMPUTE_LOCAL_SIZE.y - 1) .. [[) {
-					write_tile_sample(ivec2(SSR_TILE_WIDTH - 1, SSR_TILE_HEIGHT - 1), pos + ivec2(1, 1), size);
-				}
-
+				ssr_tile[local_pos.y][local_pos.x] = current;
+				ssr_tile_depth[local_pos.y][local_pos.x] = view_depth;
+				ssr_tile_normal[local_pos.y][local_pos.x] = N;
 				memoryBarrierShared();
 				barrier();
 
-				vec4 current = ssr_tile[tile_pos.y][tile_pos.x];
-				vec4 resolved = resolve_current_ssr(pos, size, local_pos, current);
-				imageStore(out_ssr, pos, resolved);
+				if (!in_bounds) return;
+
+				if (depth >= 1.0) {
+					imageStore(out_ssr, pos, vec4(0.0));
+					imageStore(out_ssr_depth, pos, vec4(0.0));
+					return;
+				}
+
+				vec4 accum = vec4(0.0);
+				vec3 moment1 = vec3(0.0);
+				vec3 moment2 = vec3(0.0);
+				float total_weight = 0.0;
+
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						ivec2 tile_pos = local_pos + ivec2(x, y);
+
+						if (tile_pos.x < 0 || tile_pos.y < 0 || tile_pos.x >= SSR_TILE_WIDTH || tile_pos.y >= SSR_TILE_HEIGHT) continue;
+
+						float sample_depth = ssr_tile_depth[tile_pos.y][tile_pos.x];
+
+						if (sample_depth <= 0.0) continue;
+
+						float depth_weight = exp(-abs(sample_depth - view_depth) / max(view_depth * 0.05, 0.05));
+						float normal_weight = pow(max(dot(N, ssr_tile_normal[tile_pos.y][tile_pos.x]), 0.0), SSR_SPATIAL_NORMAL_POWER);
+						float weight = depth_weight * normal_weight;
+
+						if (weight <= 0.0001) continue;
+
+						vec4 sample_value = ssr_tile[tile_pos.y][tile_pos.x];
+						accum += sample_value * weight;
+						moment1 += sample_value.rgb * weight;
+						moment2 += sample_value.rgb * sample_value.rgb * weight;
+						total_weight += weight;
+					}
+				}
+
+				vec4 filtered = current;
+				vec3 mean = current.rgb;
+				vec3 deviation = vec3(0.0);
+
+				if (total_weight > 0.0001) {
+					mean = moment1 / total_weight;
+					deviation = sqrt(max(moment2 / total_weight - mean * mean, vec3(0.0)));
+					// mirror rays are not stochastic, only blur the rough ones
+					filtered = mix(current, accum / total_weight, smoothstep(0.02, 0.15, roughness));
+				}
+
+				vec4 result = filtered;
+
+				if (ssr_data.history_tex != -1) {
+					vec4 prev_view_pos = ssr_data.prev_view * vec4(world_pos, 1.0);
+					vec4 prev_clip = ssr_data.prev_projection * prev_view_pos;
+
+					if (prev_clip.w > 1e-5) {
+						vec2 prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
+
+						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0) {
+							float prev_depth = -prev_view_pos.z;
+							float history_depth = texture(TEXTURE(ssr_data.history_depth_tex), prev_uv).r;
+
+							if (abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02) {
+								vec4 history = texture(TEXTURE(ssr_data.history_tex), prev_uv);
+
+								if (!any(isnan(history))) {
+									vec3 clamp_extent = deviation * 1.5 + mean * 0.05 + 0.001;
+									history.rgb = clamp(history.rgb, mean - clamp_extent, mean + clamp_extent);
+									float history_weight = mix(0.8, 0.94, smoothstep(0.0, 0.3, roughness));
+									result = mix(filtered, history, history_weight);
+								}
+							}
+						}
+					}
+				}
+
+				imageStore(out_ssr, pos, result);
+				imageStore(out_ssr_depth, pos, vec4(view_depth));
 			}
 		]],
 	},

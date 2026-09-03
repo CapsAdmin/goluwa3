@@ -170,54 +170,48 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				if (]] .. uniform_name .. [[.ssr_tex == -1) return vec4(0.0);
 				if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return vec4(0.0);
 
-				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(]] .. uniform_name .. [[.ssr_tex), 0));
-				vec4 center = texture(TEXTURE(]] .. uniform_name .. [[.ssr_tex), uv);
+				ivec2 ssr_size = textureSize(TEXTURE(]] .. uniform_name .. [[.ssr_tex), 0);
+				ivec2 gbuffer_size = textureSize(TEXTURE(]] .. uniform_name .. [[.depth_tex), 0);
+				vec2 ratio = vec2(gbuffer_size) / vec2(ssr_size);
+				ivec2 pixel = clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1);
+				float center_depth = texelFetch(TEXTURE(]] .. uniform_name .. [[.depth_tex), pixel, 0).r;
 
-				if (center.a <= 1e-5) {
-					return vec4(center.rgb, 0.0);
-				}
+				if (center_depth >= 1.0) return vec4(0.0);
 
-				float center_depth = texture(TEXTURE(]] .. uniform_name .. [[.depth_tex), uv).r;
 				float center_view_depth = reconstruct_ssr_view_depth(uv, center_depth);
-				vec3 center_normal = texture(TEXTURE(]] .. uniform_name .. [[.normal_tex), uv).xyz;
-				float center_roughness = texture(TEXTURE(]] .. uniform_name .. [[.mra_tex), uv).g;
-				vec3 color_accum = center.rgb * max(center.a, 0.0) * 4.0;
-				float color_weight = max(center.a, 0.0) * 4.0;
-				float confidence_accum = max(center.a, 0.0) * 4.0;
-				float confidence_weight = 4.0;
+				vec3 center_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), pixel, 0).xyz;
+				float center_roughness = texelFetch(TEXTURE(]] .. uniform_name .. [[.mra_tex), pixel, 0).g;
+				vec2 ssr_coord = uv * vec2(ssr_size) - 0.5;
+				ivec2 ssr_base = ivec2(floor(ssr_coord));
+				vec2 ssr_frac = ssr_coord - vec2(ssr_base);
+				vec4 accum = vec4(0.0);
+				float total_weight = 0.0;
 
 				for (int i = 0; i < 4; i++) {
-					vec2 offset = vec2(0.0);
+					ivec2 offset = ivec2(i & 1, i >> 1);
+					ivec2 ssr_pos = clamp(ssr_base + offset, ivec2(0), ssr_size - 1);
+					ivec2 tap_pixel = min(ivec2((vec2(ssr_pos) + 0.5) * ratio), gbuffer_size - 1);
+					float tap_depth = texelFetch(TEXTURE(]] .. uniform_name .. [[.depth_tex), tap_pixel, 0).r;
 
-					if (i == 0) offset = vec2(texel_size.x, 0.0);
-					else if (i == 1) offset = vec2(-texel_size.x, 0.0);
-					else if (i == 2) offset = vec2(0.0, texel_size.y);
-					else offset = vec2(0.0, -texel_size.y);
+					if (tap_depth >= 1.0) continue;
 
-					vec2 tap_uv = clamp(uv + offset, vec2(0.001), vec2(0.999));
-					vec4 tap = texture(TEXTURE(]] .. uniform_name .. [[.ssr_tex), tap_uv);
-					float tap_depth = texture(TEXTURE(]] .. uniform_name .. [[.depth_tex), tap_uv).r;
+					vec2 tap_uv = (vec2(tap_pixel) + 0.5) / vec2(gbuffer_size);
 					float tap_view_depth = reconstruct_ssr_view_depth(tap_uv, tap_depth);
-					vec3 tap_normal = texture(TEXTURE(]] .. uniform_name .. [[.normal_tex), tap_uv).xyz;
-					float tap_roughness = texture(TEXTURE(]] .. uniform_name .. [[.mra_tex), tap_uv).g;
-					float depth_scale = max(abs(center_view_depth) * 0.02, 0.05);
-					float depth_weight = exp(-abs(tap_view_depth - center_view_depth) / depth_scale);
-					float normal_weight = pow(max(dot(center_normal, tap_normal), 0.0), 32.0);
+					vec3 tap_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), tap_pixel, 0).xyz;
+					float tap_roughness = texelFetch(TEXTURE(]] .. uniform_name .. [[.mra_tex), tap_pixel, 0).g;
+					float bilinear_weight = (offset.x == 0 ? 1.0 - ssr_frac.x : ssr_frac.x) * (offset.y == 0 ? 1.0 - ssr_frac.y : ssr_frac.y);
+					float depth_weight = exp(-abs(tap_view_depth - center_view_depth) / max(abs(center_view_depth) * 0.03, 0.05));
+					float normal_weight = pow(max(dot(center_normal, tap_normal), 0.0), 16.0);
 					float roughness_weight = 1.0 - clamp(abs(tap_roughness - center_roughness) * 8.0, 0.0, 1.0);
-					float geometry_weight = depth_weight * normal_weight * roughness_weight;
-					float tap_weight = geometry_weight * max(tap.a, 0.0);
-					color_accum += tap.rgb * tap_weight;
-					color_weight += tap_weight;
-					confidence_accum += max(tap.a, 0.0) * geometry_weight;
-					confidence_weight += geometry_weight;
+					float weight = bilinear_weight * (depth_weight * normal_weight * roughness_weight + 1e-4);
+					accum += texelFetch(TEXTURE(]] .. uniform_name .. [[.ssr_tex), ssr_pos, 0) * weight;
+					total_weight += weight;
 				}
 
-				if (color_weight <= 1e-5 || confidence_weight <= 1e-5) return vec4(center.rgb, 0.0);
+				if (total_weight <= 1e-6) return texture(TEXTURE(]] .. uniform_name .. [[.ssr_tex), uv);
 
-				vec3 filtered_rgb = color_accum / color_weight;
-				float filtered_confidence = clamp(confidence_accum / confidence_weight, 0.0, 1.0);
-				filtered_confidence = smoothstep(0.35, 0.9, filtered_confidence);
-				return vec4(filtered_rgb, filtered_confidence);
+				vec4 filtered = accum / total_weight;
+				return vec4(filtered.rgb, clamp(filtered.a, 0.0, 1.0));
 			}
 
 			vec3 combine_reflections(vec3 env_reflection, vec4 ssr_reflection, float ssr_weight) {
