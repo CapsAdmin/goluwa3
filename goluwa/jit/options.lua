@@ -153,8 +153,8 @@ function jit_options.SetOptimized()
 			tryside = 4, -- default: 4 | number of attempts to compile a side trace
 			-- unroll heuristics
 			instunroll = 4, -- default: 4 | max unroll attempts for loops with instable types.
-			loopunroll = 15 * 114, -- default: 15 | max unroll for loop ops in side traces.
-			callunroll = 3 * 4, -- default: 3 | max depth for recursive calls.
+			loopunroll = 15, -- default: 15 | max unroll for loop ops in side traces.
+			callunroll = 3, -- default: 3 | max depth for recursive calls.
 			recunroll = 2, -- default: 2 | min unroll for true recursion.
 		},
 		{
