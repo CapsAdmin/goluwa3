@@ -142,14 +142,14 @@ event.AddListener("Update", UPDATE_ID, function(dt)
 		end
 
 		state.last_listener_pos = cam_pos:Copy()
-		audio.SetListenerPosition(cam_pos.x, cam_pos.y, cam_pos.z)
-		audio.SetListenerVelocity(listener_velocity.x, listener_velocity.y, listener_velocity.z)
+		audio.SetListenerPosition(cam_pos)
+		audio.SetListenerVelocity(listener_velocity)
 
 		if cam.GetRotation then
 			local rotation = cam:GetRotation()
 			local forward = rotation:GetForward()
 			local up = rotation:GetUp()
-			audio.SetListenerOrientation(forward.x, forward.y, forward.z, up.x, up.y, up.z)
+			audio.SetListenerOrientation(forward, up)
 		end
 	end
 
@@ -219,7 +219,7 @@ event.AddListener("Draw2D", DRAW2D_ID, function()
 	local sample_info = state.source:GetCurrentSampleInfo()
 	local spatial = audio._ComputeSpatialMixData(state.source)
 	local debug_state = audio.GetDebugState()
-	local listener_x, listener_y, listener_z = audio.GetListenerPosition()
+	local listener_pos = audio.GetListenerPosition()
 	local source_pos = state.source:GetPosition()
 	local sample_left, sample_right = state.source:GetCurrentSampleStereoVolume()
 	local sample_value = state.source:GetCurrentSampleValue()
@@ -267,9 +267,9 @@ event.AddListener("Draw2D", DRAW2D_ID, function()
 		debug_state.worker_stage or 0,
 		debug_state.mix_callbacks or 0,
 		mixer_peak,
-		listener_x,
-		listener_y,
-		listener_z,
+		listener_pos.x,
+		listener_pos.y,
+		listener_pos.z,
 		source_pos.x,
 		source_pos.y,
 		source_pos.z,

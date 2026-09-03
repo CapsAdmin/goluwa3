@@ -6,7 +6,6 @@ local system = import("goluwa/system.lua")
 local module = {}
 
 function module.Attach(audio)
-
 	local mixer_worker_source = [[
 		local ffi = require("ffi")
 		local input = ...
@@ -16,27 +15,25 @@ function module.Attach(audio)
 		state.debug_worker_stage = 1
 		local audio_buffer = import("goluwa/bindings/audio_buffer.lua")
 		state.debug_worker_stage = 2
-		ffi.cdef(audio.mixer_state_cdef)
-		state.debug_worker_stage = 3
 		audio_buffer.start{
 			sample_rate = 44100,
 			buffer_size = 512,
 			channels = 2,
 		}
-		state.debug_worker_stage = 4
+		state.debug_worker_stage = 3
 
 		function audio_buffer.callback(out_buffer, num_samples)
 			mix_mod.MixOutputBuffer(state, out_buffer, num_samples)
 		end
 
 		while not state.shutdown do
-			state.debug_worker_stage = 5
+			state.debug_worker_stage = 4
 			audio_buffer.update()
 		end
 
-		state.debug_worker_stage = 6
+		state.debug_worker_stage = 5
 		audio_buffer.stop()
-		state.debug_worker_stage = 7
+		state.debug_worker_stage = 6
 	]]
 
 	function audio.GetDebugState()

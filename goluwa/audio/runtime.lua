@@ -1,4 +1,5 @@
 local event = import("goluwa/event.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local module = {}
 
 function module.Attach(audio)
@@ -33,40 +34,32 @@ function module.Attach(audio)
 		return audio.distance_model
 	end
 
-	function audio.SetListenerPosition(x, y, z)
-		audio.listener_position[1] = tonumber(x) or 0
-		audio.listener_position[2] = tonumber(y) or 0
-		audio.listener_position[3] = tonumber(z) or 0
+	function audio.SetListenerPosition(position)
+		audio.listener_position = position
 		audio.sync_listener_state()
 	end
 
 	function audio.GetListenerPosition()
-		return unpack(audio.listener_position)
+		return audio.listener_position
 	end
 
-	function audio.SetListenerVelocity(x, y, z)
-		audio.listener_velocity[1] = tonumber(x) or 0
-		audio.listener_velocity[2] = tonumber(y) or 0
-		audio.listener_velocity[3] = tonumber(z) or 0
+	function audio.SetListenerVelocity(velocity)
+		audio.listener_velocity = velocity
 		audio.sync_listener_state()
 	end
 
 	function audio.GetListenerVelocity()
-		return unpack(audio.listener_velocity)
+		return audio.listener_velocity
 	end
 
-	function audio.SetListenerOrientation(x, y, z, x2, y2, z2)
-		audio.listener_orientation[1] = tonumber(x) or 0
-		audio.listener_orientation[2] = tonumber(y) or 0
-		audio.listener_orientation[3] = tonumber(z) or -1
-		audio.listener_orientation[4] = tonumber(x2) or 0
-		audio.listener_orientation[5] = tonumber(y2) or 1
-		audio.listener_orientation[6] = tonumber(z2) or 0
+	function audio.SetListenerOrientation(forward, up)
+		audio.listener_forward = forward
+		audio.listener_up = up
 		audio.sync_listener_state()
 	end
 
 	function audio.GetListenerOrientation()
-		return unpack(audio.listener_orientation)
+		return audio.listener_forward, audio.listener_up
 	end
 
 	function audio.SetDopplerFactor(factor)

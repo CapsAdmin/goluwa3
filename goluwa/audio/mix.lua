@@ -1,7 +1,15 @@
 local ffi = require("ffi")
 local spatial = import("goluwa/audio/spatial.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
 local mix = {}
+local distance_model_ids = {
+	none = 0,
+	inverse = 1,
+	inverse_clamped = 2,
+	linear = 3,
+	linear_clamped = 4,
+	exponent = 5,
+	exponent_clamped = 6,
+}
 
 function mix.MixOutputBuffer(state, out_buffer, num_samples)
 	local peak_left = 0
@@ -12,6 +20,12 @@ function mix.MixOutputBuffer(state, out_buffer, num_samples)
 	end
 
 	local master_volume = state.master_volume
+	-- listener state is the same for every slot, so read it once per callback
+	-- instead of once per active sound.
+	local listener_position = state.listener_position
+	local listener_velocity = state.listener_velocity
+	local listener_forward = state.listener_forward
+	local listener_up = state.listener_up
 
 	for i = 0, 31 do
 		local s = state.slots[i]
@@ -19,31 +33,13 @@ function mix.MixOutputBuffer(state, out_buffer, num_samples)
 		if s.active and not s.paused then
 			local samples = ffi.cast("float*", s.buffer)
 			local pos = s.playback_pos
-			local listener_position = Vec3(state.listener_position_x, state.listener_position_y, state.listener_position_z)
-			local listener_velocity = Vec3(state.listener_velocity_x, state.listener_velocity_y, state.listener_velocity_z)
-			local listener_orientation = {
-				state.listener_forward_x,
-				state.listener_forward_y,
-				state.listener_forward_z,
-				state.listener_up_x,
-				state.listener_up_y,
-				state.listener_up_z,
-			}
-			local source_position = Vec3(s.position_x, s.position_y, s.position_z)
-			local source_velocity = Vec3(s.velocity_x, s.velocity_y, s.velocity_z)
-			local source_direction = Vec3(s.direction_x, s.direction_y, s.direction_z)
-			local distance_model_ids = {
-				none = 0,
-				inverse = 1,
-				inverse_clamped = 2,
-				linear = 3,
-				linear_clamped = 4,
-				exponent = 5,
-				exponent_clamped = 6,
-			}
+			local source_position = s.position
+			local source_velocity = s.velocity
+			local source_direction = s.direction
 			local spatial_mix = spatial.compute_spatial_mix_data(
 				listener_position,
-				listener_orientation,
+				listener_forward,
+				listener_up,
 				state.distance_model,
 				source_position,
 				s.reference_distance,

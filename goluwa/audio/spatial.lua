@@ -74,12 +74,10 @@ function spatial.compute_cone_attenuation(
 
 	if inner_cone_angle >= 360 and outer_cone_angle >= 360 then return 1 end
 
-	local direction = Vec3.FromValue(source_direction)
+	if source_direction:IsZero() then return 1 end
 
-	if direction:IsZero() then return 1 end
-
-	direction = direction:GetNormalized()
-	local to_listener = Vec3.FromValue(listener_position) - Vec3.FromValue(source_position)
+	local direction = source_direction:GetNormalized()
+	local to_listener = listener_position - source_position
 
 	if to_listener:IsZero() then return 1 end
 
@@ -112,15 +110,13 @@ function spatial.compute_doppler_pitch(
 
 	if doppler_factor == 0 then return 1 end
 
-	local direction = Vec3.FromValue(listener_position) - Vec3.FromValue(source_position)
+	local direction = listener_position - source_position
 
 	if direction:IsZero() then return 1 end
 
 	direction = direction:GetNormalized()
-	local listener_velocity_vec = Vec3.FromValue(listener_velocity)
-	local source_velocity_vec = Vec3.FromValue(source_velocity)
-	local listener_radial = direction:GetDot(listener_velocity_vec)
-	local source_radial = direction:GetDot(source_velocity_vec)
+	local listener_radial = direction:GetDot(listener_velocity)
+	local source_radial = direction:GetDot(source_velocity)
 	local velocity_limit = speed_of_sound / doppler_factor
 	listener_radial = math.clamp(listener_radial, -velocity_limit, velocity_limit)
 	source_radial = math.clamp(source_radial, -velocity_limit, velocity_limit)
@@ -136,7 +132,8 @@ end
 
 function spatial.compute_spatial_mix_data(
 	listener_position,
-	listener_orientation,
+	listener_forward,
+	listener_up,
 	distance_model_id,
 	source_position,
 	reference_distance,
@@ -144,9 +141,7 @@ function spatial.compute_spatial_mix_data(
 	rolloff_factor,
 	distance_mode_ids
 )
-	local listener_vec = Vec3.FromValue(listener_position)
-	local source_vec = Vec3.FromValue(source_position)
-	local rel = source_vec - listener_vec
+	local rel = source_position - listener_position
 	local distance = rel:GetLength()
 	local attenuation = spatial.compute_distance_attenuation(
 		distance_model_id,
@@ -156,8 +151,8 @@ function spatial.compute_spatial_mix_data(
 		rolloff_factor,
 		distance_mode_ids
 	)
-	local forward = Vec3(listener_orientation[1], listener_orientation[2], listener_orientation[3])
-	local up = Vec3(listener_orientation[4], listener_orientation[5], listener_orientation[6])
+	local forward = listener_forward
+	local up = listener_up
 
 	if not forward:IsZero() then forward = forward:GetNormalized() end
 
@@ -190,18 +185,10 @@ end
 
 function spatial.Attach(audio)
 	function audio.sync_listener_state()
-		audio.state.listener_position_x = audio.listener_position[1]
-		audio.state.listener_position_y = audio.listener_position[2]
-		audio.state.listener_position_z = audio.listener_position[3]
-		audio.state.listener_velocity_x = audio.listener_velocity[1]
-		audio.state.listener_velocity_y = audio.listener_velocity[2]
-		audio.state.listener_velocity_z = audio.listener_velocity[3]
-		audio.state.listener_forward_x = audio.listener_orientation[1]
-		audio.state.listener_forward_y = audio.listener_orientation[2]
-		audio.state.listener_forward_z = audio.listener_orientation[3]
-		audio.state.listener_up_x = audio.listener_orientation[4]
-		audio.state.listener_up_y = audio.listener_orientation[5]
-		audio.state.listener_up_z = audio.listener_orientation[6]
+		audio.state.listener_position = audio.listener_position
+		audio.state.listener_velocity = audio.listener_velocity
+		audio.state.listener_forward = audio.listener_forward
+		audio.state.listener_up = audio.listener_up
 		audio.state.doppler_factor = audio.doppler_factor
 		audio.state.speed_of_sound = audio.speed_of_sound
 		audio.state.distance_model = audio.DISTANCE_MODE_IDS[audio.distance_model] or audio.DISTANCE_MODE_IDS.inverse
@@ -211,7 +198,8 @@ function spatial.Attach(audio)
 	audio._ComputeSpatialMixData = function(sound)
 		local data = spatial.compute_spatial_mix_data(
 			audio.listener_position,
-			audio.listener_orientation,
+			audio.listener_forward,
+			audio.listener_up,
 			audio.DISTANCE_MODE_IDS[audio.distance_model] or audio.DISTANCE_MODE_IDS.inverse,
 			sound:GetPosition(),
 			sound:GetReferenceDistance(),

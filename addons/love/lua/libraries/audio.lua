@@ -30,15 +30,16 @@ end
 love.audio.getSourceCount = love.audio.getNumSources
 
 function love.audio.getOrientation()
-	return audio.GetListenerOrientation()
+	local forward, up = audio.GetListenerOrientation()
+	return forward.x, forward.y, forward.z, up.x, up.y, up.z
 end
 
 function love.audio.getPosition()
-	return audio.GetListenerPosition()
+	return audio.GetListenerPosition():Unpack()
 end
 
 function love.audio.getVelocity()
-	return audio.GetListenerVelocity()
+	return audio.GetListenerVelocity():Unpack()
 end
 
 function love.audio.getVolume()
@@ -78,15 +79,15 @@ function love.audio.getDistanceModel()
 end
 
 function love.audio.setOrientation(x, y, z, x2, y2, z2)
-	audio.SetListenerOrientation(x, y, z, x2, y2, z2)
+	audio.SetListenerOrientation(Vec3(x, y, z), Vec3(x2, y2, z2))
 end
 
 function love.audio.setPosition(x, y, z)
-	audio.SetListenerPosition(x, y, z)
+	audio.SetListenerPosition(Vec3(x, y, z))
 end
 
 function love.audio.setVelocity(x, y, z)
-	audio.SetListenerVelocity(x, y, z)
+	audio.SetListenerVelocity(Vec3(x, y, z))
 end
 
 function love.audio.setVolume(vol)

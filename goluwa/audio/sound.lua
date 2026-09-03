@@ -70,18 +70,9 @@ function module.Attach(audio)
 	end
 
 	local function apply_sound_spatial_state(sound, state)
-		local position = sound:GetPosition()
-		local velocity = sound:GetVelocity()
-		local direction = sound:GetDirection()
-		state.position_x = position.x
-		state.position_y = position.y
-		state.position_z = position.z
-		state.velocity_x = velocity.x
-		state.velocity_y = velocity.y
-		state.velocity_z = velocity.z
-		state.direction_x = direction.x
-		state.direction_y = direction.y
-		state.direction_z = direction.z
+		state.position = sound:GetPosition()
+		state.velocity = sound:GetVelocity()
+		state.direction = sound:GetDirection()
 		state.inner_cone_angle = sound:GetInnerConeAngle()
 		state.outer_cone_angle = sound:GetOuterConeAngle()
 		state.outer_cone_gain = sound:GetOuterConeGain()

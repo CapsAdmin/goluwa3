@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local structs = import("goluwa/structs/structs.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local META = structs.Template("Vec3")
@@ -13,6 +14,8 @@ function META.FromValue(value, y, z)
 	if value == nil then return META.CType() end
 
 	if type(value) == "number" then return META.CType(value, 0, 0) end
+
+	if ffi.istype(META.CType, value) then return value end
 
 	return META.CType(value.x or value[1] or 0, value.y or value[2] or 0, value.z or value[3] or 0)
 end
