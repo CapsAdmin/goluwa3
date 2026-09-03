@@ -27,8 +27,21 @@ local function get_vfs()
 end
 
 do -- loaders
-	local file_path = _G.require("goluwa.filesystem/path")
-	local normalize_path = file_path.Normalize
+	local file_path
+	local importing = false
+	local normalize_path = function(path)
+		if importing then return path end
+
+		if file_path then return file_path.Normalize(path) end
+
+		if _G.import and string.replace then
+			importing = true
+			file_path = import("goluwa/filesystem/path.lua")
+			importing = false
+		end
+
+		return path
+	end
 
 	local function get_base_path(path)
 		local base_path = path:match("(.*/)")

@@ -1,13 +1,16 @@
 local file_path = library and library() or {}
 
+function file_path.FixPathSlashes(path)
+	return (path:replace("\\", "/"):gsub("/+", "/"))
+end
+
 function file_path.Normalize(path)
 	local is_absolute = path:sub(1, 1) == "/"
 	local parts = {}
 	local count = 0
-	path = path:gsub("\\", "/")
-	path = path:gsub("/+", "/")
+	path = file_path.FixPathSlashes(path)
 
-	for part in path:gmatch("[^/]+") do
+	for _, part in ipairs(path:split("/")) do
 		if part ~= "." and part ~= "" then
 			if part == ".." then
 				if count > 0 and parts[count] ~= ".." then
@@ -111,30 +114,28 @@ function file_path.IsPathAbsolutePath(path)
 	return path:sub(1, 1) == "/"
 end
 
-local character_translation = {
-	["\\"] = "⟍",
-	[":"] = "⠅",
-	["*"] = "✱",
-	["?"] = "❔",
-	["<"] = "ᐸ",
-	[">"] = "𝈷",
-	["|"] = "ᥣ",
-	["~"] = "𝀈",
-	["#"] = "⧣",
-	["\""] = "‟",
-	["^"] = "ᣔ",
-}
+do
+	local character_translation = {
+		["\\"] = "⟍",
+		[":"] = "⠅",
+		["*"] = "✱",
+		["?"] = "❔",
+		["<"] = "ᐸ",
+		[">"] = "𝈷",
+		["|"] = "ᥣ",
+		["~"] = "𝀈",
+		["#"] = "⧣",
+		["\""] = "‟",
+		["^"] = "ᣔ",
+	}
 
-function file_path.ReplaceIllegalPathSymbols(path, forward_slash)
-	local out = path:gsub(".", character_translation)
+	function file_path.ReplaceIllegalPathSymbols(path, forward_slash)
+		local out = path:gsub(".", character_translation)
 
-	if forward_slash then out = out:gsub("/", "⟋") end
+		if forward_slash then out = out:gsub("/", "⟋") end
 
-	return out
-end
-
-function file_path.FixPathSlashes(path)
-	return (path:gsub("\\", "/"):gsub("(/+)", "/"))
+		return out
+	end
 end
 
 return file_path
