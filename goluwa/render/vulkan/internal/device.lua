@@ -9,6 +9,7 @@ local VkDescriptorBufferInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorBuf
 local VkDescriptorImageInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorImageInfo)
 local VkWriteDescriptorSetArray = ffi.typeof("$[?]", vulkan.vk.VkWriteDescriptorSet)
 local VkPhysicalDeviceMaintenance4FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceMaintenance4Features)
+local VkPhysicalDeviceSynchronization2FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceSynchronization2Features)
 local VkPhysicalDeviceVulkan11FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan11Features)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT)
 local VkPhysicalDeviceMeshShaderFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)
@@ -81,6 +82,15 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		}
 	)
 	pNextChain = maintenance4Features
+	-- Synchronization2 features (core since Vulkan 1.3, required for vkCmdPipelineBarrier2)
+	local synchronization2Features = VkPhysicalDeviceSynchronization2FeaturesBox(
+		vulkan.vk.s.PhysicalDeviceSynchronization2Features{
+			sType = "physical_device_synchronization_2_features",
+			pNext = pNextChain,
+			synchronization2 = 1,
+		}
+	)
+	pNextChain = synchronization2Features
 	-- Query available Vulkan 1.1 features
 	local availableVulkan11Features = physical_device:GetVulkan11Features()
 	local vulkan11Features = VkPhysicalDeviceVulkan11FeaturesBox(

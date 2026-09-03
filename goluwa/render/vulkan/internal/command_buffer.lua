@@ -11,8 +11,8 @@ local VkDeviceSizeArray = ffi.typeof("$[?]", vulkan.vk.VkDeviceSize)
 local VkClearAttachmentArray = ffi.typeof("$[?]", vulkan.vk.VkClearAttachment)
 local VkClearRectArray = ffi.typeof("$[?]", vulkan.vk.VkClearRect)
 local VkRenderingAttachmentInfoArray = ffi.typeof("$[?]", vulkan.vk.VkRenderingAttachmentInfo)
-local VkImageMemoryBarrierArray = ffi.typeof("$[?]", vulkan.vk.VkImageMemoryBarrier)
-local VkBufferMemoryBarrierArray = ffi.typeof("$[?]", vulkan.vk.VkBufferMemoryBarrier)
+local VkImageMemoryBarrier2Array = ffi.typeof("$[?]", vulkan.vk.VkImageMemoryBarrier2)
+local VkBufferMemoryBarrier2Array = ffi.typeof("$[?]", vulkan.vk.VkBufferMemoryBarrier2)
 local VkCommandBufferBox = ffi.typeof("$[1]", vulkan.vk.VkCommandBuffer)
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local UInt32Array1 = ffi.typeof("uint32_t[1]")
@@ -1385,7 +1385,7 @@ function CommandBuffer:PipelineBarrier(config)
 
 	if config.imageBarriers then
 		imageBarrierCount = #config.imageBarriers
-		imageBarriers = VkImageMemoryBarrierArray(imageBarrierCount)
+		imageBarriers = VkImageMemoryBarrier2Array(imageBarrierCount)
 
 		for i, barrier in ipairs(config.imageBarriers) do
 			local aspect = barrier.aspect
@@ -1418,7 +1418,9 @@ function CommandBuffer:PipelineBarrier(config)
 
 			barrier.image.layout = new_layout
 			local imb = imageBarriers[i - 1]
-			imb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+			imb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2
+			imb.srcStageMask = srcStage
+			imb.dstStageMask = dstStage
 			imb.srcAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.srcAccessMask or "none")
 			imb.dstAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.dstAccessMask or "none")
 			imb.oldLayout = vulkan.vk.e.VkImageLayout(old_layout)
@@ -1446,32 +1448,34 @@ function CommandBuffer:PipelineBarrier(config)
 
 	if config.bufferBarriers then
 		bufferBarrierCount = #config.bufferBarriers
-		bufferBarriers = VkBufferMemoryBarrierArray(bufferBarrierCount)
+		bufferBarriers = VkBufferMemoryBarrier2Array(bufferBarrierCount)
 
 		for i, barrier in ipairs(config.bufferBarriers) do
-			bufferBarriers[i - 1] = vulkan.vk.s.BufferMemoryBarrier{
-				srcAccessMask = barrier.srcAccessMask or "host_write",
-				dstAccessMask = barrier.dstAccessMask or "vertex_attribute_read",
-				srcQueueFamilyIndex = 0xFFFFFFFF,
-				dstQueueFamilyIndex = 0xFFFFFFFF,
-				buffer = barrier.buffer.ptr[0],
-				offset = barrier.offset or 0,
-				size = barrier.size or 0xFFFFFFFFFFFFFFFF,
-			}
+			local bmb = bufferBarriers[i - 1]
+			bmb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2
+			bmb.srcStageMask = srcStage
+			bmb.dstStageMask = dstStage
+			bmb.srcAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.srcAccessMask or "host_write")
+			bmb.dstAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.dstAccessMask or "vertex_attribute_read")
+			bmb.srcQueueFamilyIndex = 0xFFFFFFFF
+			bmb.dstQueueFamilyIndex = 0xFFFFFFFF
+			bmb.buffer = barrier.buffer.ptr[0]
+			bmb.offset = barrier.offset or 0
+			bmb.size = barrier.size or 0xFFFFFFFFFFFFFFFF
 		end
 	end
 
-	vulkan.lib.vkCmdPipelineBarrier(
+	vulkan.lib.vkCmdPipelineBarrier2(
 		self.ptr[0],
-		srcStage,
-		dstStage,
-		0,
-		0,
-		nil,
-		bufferBarrierCount,
-		bufferBarrierCount > 0 and bufferBarriers or nil,
-		imageBarrierCount,
-		imageBarrierCount > 0 and imageBarriers or nil
+		vulkan.vk.s.DependencyInfo{
+			dependencyFlags = 0,
+			memoryBarrierCount = 0,
+			pMemoryBarriers = nil,
+			bufferMemoryBarrierCount = bufferBarrierCount,
+			pBufferMemoryBarriers = bufferBarrierCount > 0 and bufferBarriers or nil,
+			imageMemoryBarrierCount = imageBarrierCount,
+			pImageMemoryBarriers = imageBarrierCount > 0 and imageBarriers or nil,
+		}
 	)
 end
 
