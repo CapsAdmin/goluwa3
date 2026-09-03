@@ -209,12 +209,18 @@ if jit.os == "OSX" then
 		return config
 	end
 
+	local function pump_run_loop()
+		CoreFoundation.CFRunLoopRunInMode(audio._run_loop_mode, 1, true)
+	end
+
+	jit.off(pump_run_loop)
+
 	function audio.update()
 		local config = audio._config
 		local nsamples = config.buffer_size * config.channels
 
 		while audio._ready_head > audio._ready_tail do
-			CoreFoundation.CFRunLoopRunInMode(audio._run_loop_mode, 1, true)
+			pump_run_loop()
 		end
 
 		local head = audio._ready_head

@@ -1768,10 +1768,13 @@ do
 				return nil, "Failed to start FSEventStream"
 			end
 
+			local function pump_run_loop()
+				lib.CFRunLoopRunInMode(lib.kCFRunLoopDefaultMode, 0, true)
+			end
+
+			jit.off(pump_run_loop)
 			local remove_event = event.AddListener("Update", {}, function()
-				if lib.CFRunLoopRunInMode then
-					lib.CFRunLoopRunInMode(lib.kCFRunLoopDefaultMode, 0, true)
-				end
+				pump_run_loop()
 
 				if #results > 0 then
 					for i, res in ipairs(results) do
