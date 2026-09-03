@@ -22,6 +22,12 @@ end
 local VulkanInstance = objects.CreateTemplate("render_vulkan_instance")
 
 function VulkanInstance.New(surface_handle, display_handle)
+	if jit.os == "OSX" and os.getenv("USE_MOLTENVK") then
+		local icd_path = "/Users/caps/VulkanSDK/1.4.328.1/macOS/share/vulkan/icd.d/MoltenVK_icd.json"
+		process.setenv("VK_ICD_FILENAMES", icd_path)
+		process.setenv("VK_DRIVER_FILES", icd_path)
+	end
+
 	local self = VulkanInstance:CreateObject({})
 	local is_headless = not surface_handle and not display_handle
 	-- Setup extensions based on headless or windowed mode
@@ -135,7 +141,7 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local device_name = ffi.string(props.deviceName)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	local available_extensions = self.physical_device:GetAvailableDeviceExtensions()
-    local requested_device_extensions = {
+	local requested_device_extensions = {
 		"VK_EXT_conditional_rendering",
 		"VK_EXT_scalar_block_layout",
 		"VK_EXT_extended_dynamic_state",
