@@ -191,6 +191,10 @@ return function(META)
 		self.cocoa_window:Restore()
 	end
 
+	function META:ToggleFullscreen()
+		self.cocoa_window:ToggleFullScreen()
+	end
+
 	function META:CaptureMouse()
 		self.cocoa_window:CaptureMouse()
 	end

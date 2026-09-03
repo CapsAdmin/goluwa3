@@ -161,8 +161,10 @@ local cocoa_objc = objc.bind{
 				mouseLocationOutsideOfEventStream = "{CGPoint=dd}@:",
 				setAcceptsMouseMovedEvents = {selector = "setAcceptsMouseMovedEvents:", types = "v@:B"},
 				setContentView = {selector = "setContentView:", types = "v@:@"},
+				setCollectionBehavior = {selector = "setCollectionBehavior:", types = "v@:Q"},
 				setDelegate = {selector = "setDelegate:", types = "v@:@"},
 				setTitle = {selector = "setTitle:", types = "v@:@"},
+				toggleFullScreen = {selector = "toggleFullScreen:", types = "v@:@"},
 				zoom = {selector = "zoom:", types = "v@:@"},
 			},
 		},
@@ -171,6 +173,7 @@ local cocoa_objc = objc.bind{
 				layer = "@#:",
 			},
 			instance = {
+				setDisplaySyncEnabled = {selector = "setDisplaySyncEnabled:", types = "v@:B"},
 				setDrawableSize = {selector = "setDrawableSize:", types = "v@:{CGSize=dd}"},
 			},
 		},
@@ -387,6 +390,7 @@ local function init_cocoa(width, height)
 	NSWindow.setContentView(window, dropView)
 	contentView = NSWindow.contentView(window)
 	local metal_layer = CAMetalLayer.layer()
+	CAMetalLayer.setDisplaySyncEnabled(metal_layer, false)
 	bounds = NSView.bounds(contentView)
 	CAMetalLayer.setDrawableSize(metal_layer, bounds.size)
 	NSView.setWantsLayer(contentView, true)
@@ -821,6 +825,13 @@ function meta:Maximize()
 	if is_zoomed == nil or is_zoomed == 0 then
 		NSWindow.zoom(self.window, nil_id)
 	end
+end
+
+local NSWindowCollectionBehaviorFullScreenPrimary = 128
+
+function meta:ToggleFullScreen()
+	NSWindow.setCollectionBehavior(self.window, NSWindowCollectionBehaviorFullScreenPrimary)
+	NSWindow.toggleFullScreen(self.window, nil_id)
 end
 
 function meta:Restore()
