@@ -52,12 +52,11 @@ local overlay_constants_type = ffi.typeof([[
 	}
 ]])
 local overlay_constants = overlay_constants_type()
-local OVERLAY_PADDING = 12
-local CHAR_WIDTH = 10
-local CHAR_HEIGHT = 12
-local CHAR_ADVANCE = 12
-local LINE_HEIGHT = 14
-local SHADOW_OFFSET = 1
+local OVERLAY_PADDING = 8
+local CHAR_WIDTH = 5
+local CHAR_HEIGHT = 6
+local CHAR_ADVANCE = 6
+local LINE_HEIGHT = 8
 local GRAPH_HEIGHT = 72
 local GRAPH_BAR_WIDTH = 3
 local GRAPH_BAR_GAP = 1
@@ -918,20 +917,6 @@ function stats.DrawOverlay(cmd)
 				local glyph_index = get_glyph_index(byte)
 
 				if glyph_index then
-					draw_overlay_glyph(
-						cmd,
-						pipeline,
-						frame_index,
-						viewport_w,
-						viewport_h,
-						glyph_index,
-						pen_x + SHADOW_OFFSET,
-						pen_y + SHADOW_OFFSET,
-						0,
-						0,
-						0,
-						0.9
-					)
 					draw_overlay_glyph(
 						cmd,
 						pipeline,
