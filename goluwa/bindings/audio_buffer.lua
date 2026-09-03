@@ -160,11 +160,16 @@ if jit.os == "OSX" then
 				mBitsPerChannel = 32,
 			}
 		)
-		audio._ready_buf = ffi.new("AudioQueueBuffer*[1]")
+		local NUM_BUFFERS = config.num_buffers or 3
+		audio._ready_queue = {}
+		audio._ready_head = 1
+		audio._ready_tail = 0
 		audio._run_loop_mode = CoreFoundation.kCFRunLoopDefaultMode
 
 		local function buffer_callback(user_data, queue, buffer)
-			audio._ready_buf[0] = buffer
+			local tail = audio._ready_tail + 1
+			audio._ready_tail = tail
+			audio._ready_queue[tail] = buffer
 		end
 
 		audio._callback_ref = ffi.cast("AudioQueueOutputCallback", buffer_callback)
@@ -184,16 +189,19 @@ if jit.os == "OSX" then
 
 		audio._queue = queue
 		audio._config = config
-		-- Allocate one buffer, pre-fill it, and enqueue it to prime the queue
-		local buf = ffi.new("AudioQueueBuffer*[1]")
-		st = AudioToolbox.AudioQueueAllocateBuffer(queue[0], config.buffer_size * BPF, buf)
-
-		if st ~= 0 then error("AudioQueueAllocateBuffer: " .. st) end
-
 		local nsamples = config.buffer_size * config.channels
-		audio.callback(ffi.cast("float*", buf[0].mAudioData), nsamples, config)
-		buf[0].mAudioDataByteSize = buf[0].mAudioDataBytesCapacity
-		AudioToolbox.AudioQueueEnqueueBuffer(queue[0], buf[0], 0, nil)
+
+		for i = 1, NUM_BUFFERS do
+			local buf = ffi.new("AudioQueueBuffer*[1]")
+			st = AudioToolbox.AudioQueueAllocateBuffer(queue[0], config.buffer_size * BPF, buf)
+
+			if st ~= 0 then error("AudioQueueAllocateBuffer: " .. st) end
+
+			audio.callback(ffi.cast("float*", buf[0].mAudioData), nsamples, config)
+			buf[0].mAudioDataByteSize = buf[0].mAudioDataBytesCapacity
+			AudioToolbox.AudioQueueEnqueueBuffer(queue[0], buf[0], 0, nil)
+		end
+
 		st = AudioToolbox.AudioQueueStart(queue[0], nil)
 
 		if st ~= 0 then error("AudioQueueStart: " .. st) end
@@ -205,12 +213,14 @@ if jit.os == "OSX" then
 		local config = audio._config
 		local nsamples = config.buffer_size * config.channels
 
-		while audio._ready_buf[0] == nil do
+		while audio._ready_head > audio._ready_tail do
 			CoreFoundation.CFRunLoopRunInMode(audio._run_loop_mode, 1, true)
 		end
 
-		local buf = audio._ready_buf[0]
-		audio._ready_buf[0] = nil
+		local head = audio._ready_head
+		local buf = audio._ready_queue[head]
+		audio._ready_queue[head] = nil
+		audio._ready_head = head + 1
 		audio.callback(ffi.cast("float*", buf.mAudioData), nsamples, config)
 		buf.mAudioDataByteSize = buf.mAudioDataBytesCapacity
 		AudioToolbox.AudioQueueEnqueueBuffer(audio._queue[0], buf, 0, nil)
@@ -222,7 +232,9 @@ if jit.os == "OSX" then
 		audio._callback_ref:free()
 		audio._queue = nil
 		audio._callback_ref = nil
-		audio._ready_buf = nil
+		audio._ready_queue = nil
+		audio._ready_head = nil
+		audio._ready_tail = nil
 		audio._config = nil
 		audio._run_loop_mode = nil
 	end
