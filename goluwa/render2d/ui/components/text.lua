@@ -40,6 +40,23 @@ local function count_expandable_spaces(text)
 	return count
 end
 
+local function flush_chunk(chunks, positions, chunk_buffer, chunk_start, stop_col)
+	if #chunk_buffer == 0 or not chunk_start then return chunk_start end
+
+	chunks[#chunks + 1] = {
+		text = table.concat(chunk_buffer),
+		x = positions[chunk_start] or 0,
+		start_col = chunk_start,
+		stop_col = stop_col,
+	}
+
+	for i = #chunk_buffer, 1, -1 do
+		chunk_buffer[i] = nil
+	end
+
+	return nil
+end
+
 local function build_display_line(font, line_text, natural_width, target_width, justify)
 	local chars = utf8.to_list(line_text)
 	local positions = {0}
@@ -57,30 +74,13 @@ local function build_display_line(font, line_text, natural_width, target_width, 
 		justified = extra_per_space > 0
 	end
 
-	local function flush_chunk(stop_col)
-		if #chunk_buffer == 0 or not chunk_start then return end
-
-		chunks[#chunks + 1] = {
-			text = table.concat(chunk_buffer),
-			x = positions[chunk_start] or 0,
-			start_col = chunk_start,
-			stop_col = stop_col,
-		}
-
-		for i = #chunk_buffer, 1, -1 do
-			chunk_buffer[i] = nil
-		end
-
-		chunk_start = nil
-	end
-
 	for i, char in ipairs(chars) do
 		if char ~= " " then
 			if not chunk_start then chunk_start = i end
 
 			chunk_buffer[#chunk_buffer + 1] = char
 		else
-			flush_chunk(i)
+			chunk_start = flush_chunk(chunks, positions, chunk_buffer, chunk_start, i)
 			extra_seen = extra_seen + 1
 		end
 
@@ -88,7 +88,7 @@ local function build_display_line(font, line_text, natural_width, target_width, 
 		positions[i + 1] = font:GetTextSize(table.concat(prefix)) + extra_per_space * extra_seen
 	end
 
-	flush_chunk(#chars + 1)
+	flush_chunk(chunks, positions, chunk_buffer, chunk_start, #chars + 1)
 	return {
 		text = line_text,
 		positions = positions,

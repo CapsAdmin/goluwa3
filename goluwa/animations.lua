@@ -197,7 +197,7 @@ function animations.Animate(config)
 	local get = assert(config.get, "must have a .get field")
 	local callback = config.callback
 	local interpolation = config.interpolation or "linear"
-	local original_val = get(group)
+	local original_val = get(group, id)
 
 	if
 		(

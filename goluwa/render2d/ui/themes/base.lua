@@ -603,6 +603,22 @@ do -- icons
 	end
 end
 
+local function get_anim_value(pnl, id)
+	return pnl:GetState().anim[id]
+end
+
+local function set_anim_value(value, pnl, id)
+	pnl:GetState().anim[id] = value
+end
+
+local function get_draw_scale_offset(pnl)
+	return pnl.transform:GetDrawScaleOffset()
+end
+
+local function set_draw_scale_offset(value, pnl)
+	pnl.transform:SetDrawScaleOffset(value)
+end
+
 function BaseTheme:AnimateHover(pnl, anim, state, time)
 	if state.hovered ~= anim.last_hovered then
 		if not pnl.animation then
@@ -613,12 +629,8 @@ function BaseTheme:AnimateHover(pnl, anim, state, time)
 
 		pnl.animation:Animate{
 			id = "glow_alpha",
-			get = function()
-				return anim.glow_alpha
-			end,
-			set = function(value)
-				anim.glow_alpha = value
-			end,
+			get = get_anim_value,
+			set = set_anim_value,
 			to = state.hovered and 1 or 0,
 			interpolation = "inOutSine",
 			time = time,
@@ -646,12 +658,8 @@ function BaseTheme:UpdateSliderAnimations(pnl)
 
 		pnl.animation:Animate{
 			id = "knob_scale",
-			get = function()
-				return anim.knob_scale
-			end,
-			set = function(value)
-				anim.knob_scale = value
-			end,
+			get = get_anim_value,
+			set = set_anim_value,
 			to = state.hovered and 1.2 or 1,
 			interpolation = {type = "spring", bounce = 0.5, duration = 80},
 		}
@@ -679,12 +687,8 @@ function BaseTheme:UpdateCheckboxAnimations(pnl)
 
 		pnl.animation:Animate{
 			id = "check_anim",
-			get = function()
-				return anim.check_anim
-			end,
-			set = function(value)
-				anim.check_anim = value
-			end,
+			get = get_anim_value,
+			set = set_anim_value,
 			to = state.value and 1 or 0,
 			interpolation = {
 				type = "spring",
@@ -727,24 +731,16 @@ do
 
 			pnl.animation:Animate{
 				id = "press_scale",
-				get = function()
-					return anim.press_scale
-				end,
-				set = function(value)
-					anim.press_scale = value
-				end,
+				get = get_anim_value,
+				set = set_anim_value,
 				to = pressed and 1 or 0,
 				interpolation = "inOutSine",
 				time = 0.08,
 			}
 			pnl.animation:Animate{
 				id = "DrawScaleOffset",
-				get = function()
-					return pnl.transform:GetDrawScaleOffset()
-				end,
-				set = function(value)
-					pnl.transform:SetDrawScaleOffset(value)
-				end,
+				get = get_draw_scale_offset,
+				set = set_draw_scale_offset,
 				to = pressed and (Vec2() + 0.99) or (Vec2(1, 1)),
 				interpolation = "inOutSine",
 				time = 0.08,

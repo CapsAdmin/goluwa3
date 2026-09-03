@@ -350,7 +350,7 @@ do
 	end
 end
 
-function line_break.walk_line_ranges(prepared, max_width, on_line)
+function line_break.walk_line_ranges(prepared, max_width, on_line, state)
 	local cursor = {segment_index = 1, grapheme_index = 1}
 	local count = 0
 
@@ -361,7 +361,7 @@ function line_break.walk_line_ranges(prepared, max_width, on_line)
 
 		count = count + 1
 
-		if on_line then on_line(line) end
+		if on_line then on_line(line, state) end
 
 		if
 			line["end"].segment_index == cursor.segment_index and
@@ -378,26 +378,30 @@ function line_break.walk_line_ranges(prepared, max_width, on_line)
 	return count
 end
 
+local function accumulate_max_line_width(line, state)
+	state.max_line_width = math.max(state.max_line_width, line.width or 0)
+end
+
 function line_break.measure_line_stats(prepared, max_width)
-	local max_line_width = 0
-	local line_count = line_break.walk_line_ranges(prepared, max_width, function(line)
-		max_line_width = math.max(max_line_width, line.width or 0)
-	end)
+	local state = {max_line_width = 0}
+	local line_count = line_break.walk_line_ranges(prepared, max_width, accumulate_max_line_width, state)
 	return {
 		line_count = line_count,
-		max_line_width = max_line_width,
+		max_line_width = state.max_line_width,
 	}
 end
 
+local function accumulate_materialized_line(line, state)
+	state.lines[#state.lines + 1] = line_break.materialize_line_range(state.prepared, line)
+end
+
 function line_break.layout_with_lines(prepared, max_width, line_height)
-	local lines = {}
-	local count = line_break.walk_line_ranges(prepared, max_width, function(line)
-		lines[#lines + 1] = line_break.materialize_line_range(prepared, line)
-	end)
+	local state = {lines = {}, prepared = prepared}
+	local count = line_break.walk_line_ranges(prepared, max_width, accumulate_materialized_line, state)
 	return {
 		line_count = count,
 		height = count * (line_height or prepared.line_height or 0),
-		lines = lines,
+		lines = state.lines,
 	}
 end
 
