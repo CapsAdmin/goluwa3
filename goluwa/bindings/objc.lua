@@ -425,6 +425,7 @@ local function addMethod(class, selector, types, func)
 
 	table.insert(signature, ")")
 	local signature = table.concat(signature) ---@diagnostic disable-line: redefined-local
+	jit.off(func)
 	local imp = cast("IMP", cast(signature, func))
 	assert(C.class_addMethod(class, selector, imp, types) == 1)
 	return imp
