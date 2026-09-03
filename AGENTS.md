@@ -154,6 +154,10 @@ compute(x + y)
 
 - When declaring ffi types, prefer using ffi.typeof to create anonymous localized types rather than ffi.cdef, as ffi.cdef creates global type definitions. 
 
+# macos
+
+On macos, the kosmickrisp vulkan driver is used as opposed to moltenvk
+
 # Love2D and Garrysmod wrapper
 
 These wrappers make it possible to run lua scripts made for those engines, in this engine. They exist in `addons/love/*` and `addons/gmod/*`
