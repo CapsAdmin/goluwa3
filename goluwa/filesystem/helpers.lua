@@ -121,8 +121,9 @@ end
 
 local fs = import("goluwa/filesystem/fs.lua")
 
-function vfs.Delete(path, ...)
-	local abs_path = vfs.GetAbsolutePath(path, ...)
+function vfs.Delete(path, a, b, c, d, e, f)
+	assert(f == nil)
+	local abs_path = vfs.GetAbsolutePath(path, a, b, c, d, e)
 
 	if abs_path then
 		local ok, err = os.remove(abs_path)
@@ -244,13 +245,15 @@ function vfs.LinkFile(from, to)
 end
 
 local function add_helper(name, func, mode, cb)
-	vfs[name] = function(path, ...)
-		if cb then cb(path, ...) end
+	vfs[name] = function(path, a, b, c, d, e, f)
+		assert(f == nil)
+
+		if cb then cb(path, a, b, c, d, e) end
 
 		local file, err = vfs.Open(path, mode)
 
 		if file then
-			local args = {...}
+			local args = {a, b, c, d, e}
 
 			do
 				local ret
@@ -264,7 +267,7 @@ local function add_helper(name, func, mode, cb)
 				end
 
 				if not ret and event then
-					ret = {event.Call("VFSPre" .. name, path, ...)}
+					ret = {event.Call("VFSPre" .. name, path, a, b, c, d, e)}
 				end
 
 				if ret and ret[1] ~= nil then

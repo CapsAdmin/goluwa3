@@ -313,7 +313,8 @@ do
 	objects.created_objects = objects.created_objects or table.weak("kv")
 	objects.created_objects_list = objects.created_objects_list or {}
 
-	function objects.CreateObject(meta, override, ...)
+	function objects.CreateObject(meta, override, a, b, c, d, e, f)
+		assert(f == nil)
 		meta = assert(objects.GetRegistered(meta.Type))
 
 		if not meta.__gc then meta.__gc = remove_callback end
@@ -330,9 +331,9 @@ do
 
 		self:SetSuppressEvents(true)
 
-		if self.OnCreate then self:OnCreate(...) end
+		if self.OnCreate then self:OnCreate(a, b, c, d, e) end
 
-		if self.OnPostCreate then self:OnPostCreate(...) end
+		if self.OnPostCreate then self:OnPostCreate(a, b, c, d, e) end
 
 		self:FlushDeferredCallbacks()
 		self:SetSuppressEvents(false)
