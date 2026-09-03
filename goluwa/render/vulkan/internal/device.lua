@@ -141,6 +141,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		dynamicStateFeatures.extendedDynamicState3ColorWriteMask
 	local has_logic_op_enable_dynamic_state = has_extended_dynamic_state3 and
 		dynamicStateFeatures.extendedDynamicState3LogicOpEnable
+	local has_color_blend_enable_dynamic_state = has_extended_dynamic_state3 and
+		dynamicStateFeatures.extendedDynamicState3ColorBlendEnable
+	local has_color_blend_equation_dynamic_state = has_extended_dynamic_state3 and
+		dynamicStateFeatures.extendedDynamicState3ColorBlendEquation
 
 	if RENDERDOC then
 		has_logic_op_dynamic_state = false
@@ -199,8 +203,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 				extendedDynamicState3AlphaToCoverageEnable = 0,
 				extendedDynamicState3AlphaToOneEnable = 0,
 				extendedDynamicState3LogicOpEnable = has_logic_op_enable_dynamic_state and 1 or 0,
-				extendedDynamicState3ColorBlendEnable = dynamicStateFeatures.extendedDynamicState3ColorBlendEnable and 1 or 0,
-				extendedDynamicState3ColorBlendEquation = dynamicStateFeatures.extendedDynamicState3ColorBlendEquation and 1 or 0,
+				extendedDynamicState3ColorBlendEnable = has_color_blend_enable_dynamic_state and 1 or 0,
+				extendedDynamicState3ColorBlendEquation = has_color_blend_equation_dynamic_state and 1 or 0,
 				extendedDynamicState3ColorWriteMask = has_color_write_mask_dynamic_state and 1 or 0,
 				extendedDynamicState3RasterizationStream = 0,
 				extendedDynamicState3ConservativeRasterizationMode = 0,
@@ -423,6 +427,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		has_logic_op_dynamic_state = has_logic_op_dynamic_state,
 		has_color_write_mask_dynamic_state = has_color_write_mask_dynamic_state,
 		has_logic_op_enable_dynamic_state = has_logic_op_enable_dynamic_state,
+		has_color_blend_enable_dynamic_state = has_color_blend_enable_dynamic_state,
+		has_color_blend_equation_dynamic_state = has_color_blend_equation_dynamic_state,
 		nullDescriptorEnabled = has_null_descriptor,
 		last_submission_serial = 0,
 		completed_submission_serial = 0,
@@ -456,8 +462,13 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 	-- Load extension functions if dynamic blend features are supported
 	if has_extended_dynamic_state3 then
-		vulkan.ext.vkCmdSetColorBlendEnableEXT = device:TryGetExtension("vkCmdSetColorBlendEnableEXT")
-		vulkan.ext.vkCmdSetColorBlendEquationEXT = device:TryGetExtension("vkCmdSetColorBlendEquationEXT")
+		if has_color_blend_enable_dynamic_state then
+			vulkan.ext.vkCmdSetColorBlendEnableEXT = device:TryGetExtension("vkCmdSetColorBlendEnableEXT")
+		end
+
+		if has_color_blend_equation_dynamic_state then
+			vulkan.ext.vkCmdSetColorBlendEquationEXT = device:TryGetExtension("vkCmdSetColorBlendEquationEXT")
+		end
 
 		if has_depth_clamp_dynamic_state then
 			vulkan.ext.vkCmdSetDepthClampEnableEXT = device:TryGetExtension("vkCmdSetDepthClampEnableEXT")
