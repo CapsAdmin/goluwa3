@@ -123,18 +123,17 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 				float texel_world_size,
 				out vec3 proj_coords
 			) {
-				float medium_bias = max(texel_world_size * 1.5, 0.0005);
-				vec3 offset_pos = world_pos + light_dir * medium_bias;
+				vec3 offset_pos = world_pos + light_dir * (texel_world_size * 2.0);
 				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
 				proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
 				return !(
 					proj_coords.z > 1.0 ||
 					proj_coords.z < 0.0 ||
-					proj_coords.x < 0.0 ||
-					proj_coords.x > 1.0 ||
-					proj_coords.y < 0.0 ||
-					proj_coords.y > 1.0
+					proj_coords.x < 0.002 ||
+					proj_coords.x > 0.998 ||
+					proj_coords.y < 0.002 ||
+					proj_coords.y > 0.998
 				);
 			}
 
@@ -168,11 +167,12 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 				return visibility / 12.0;
 			}
 
+			// returns -1.0 when the cascade does not cover the point
 			float sampleMediumShadowCascade(int cascade_idx, vec3 world_pos, vec3 light_dir) {
-				if (cascade_idx < 0 || cascade_idx >= MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return 1.0;
+				if (cascade_idx < 0 || cascade_idx >= MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return -1.0;
 
 				int shadow_map_idx = MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[cascade_idx];
-				if (shadow_map_idx < 0) return 1.0;
+				if (shadow_map_idx < 0) return -1.0;
 
 				vec3 proj_coords;
 
@@ -183,7 +183,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
 					proj_coords
 				)) {
-					return 1.0;
+					return -1.0;
 				}
 
 				return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
@@ -217,13 +217,21 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 					return 1.0;
 				}
 
+				int cascade_count = MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count;
 				int cascade_idx = getCascadeIndex(world_pos);
 				if (cascade_idx < 0) return 1.0;
 
 				float dist = -(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.view * vec4(world_pos, 1.0)).z;
-				float shadow = sampleMediumShadowCascade(cascade_idx, world_pos, light_dir);
+				float shadow = -1.0;
 
-				if (cascade_idx < MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count - 1) {
+				for (; cascade_idx < cascade_count; cascade_idx++) {
+					shadow = sampleMediumShadowCascade(cascade_idx, world_pos, light_dir);
+					if (shadow >= 0.0) break;
+				}
+
+				if (shadow < 0.0) return 1.0;
+
+				if (cascade_idx < cascade_count - 1) {
 					float previous_split = cascade_idx > 0 ? MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx - 1] : 0.0;
 					float current_split = MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx];
 					float cascade_span = max(current_split - previous_split, 0.0001);
@@ -232,8 +240,11 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 
 					if (dist > blend_start) {
 						float next_shadow = sampleMediumShadowCascade(cascade_idx + 1, world_pos, light_dir);
-						float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
-						shadow = mix(shadow, next_shadow, blend);
+
+						if (next_shadow >= 0.0) {
+							float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
+							shadow = mix(shadow, next_shadow, blend);
+						}
 					}
 				}
 
@@ -333,24 +344,31 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				float texel_world_size,
 				out vec3 proj_coords
 			) {
+				// world space biases scaled by the cascade texel size: a normal offset
+				// that grows with the grazing angle plus an offset toward the light that
+				// covers the depth slope across the pcf kernel.
 				vec3 offset_pos = world_pos;
+				float light_offset = texel_world_size;
 
 				if (dot(normal, normal) > 1e-6) {
-					float normal_bias = max(texel_world_size * 1.5, 0.0005);
-					float bias_val = normal_bias * max(1.0 - dot(DIRECTIONAL_SHADOW_NORMAL, light_dir), 0.15);
-					offset_pos += DIRECTIONAL_SHADOW_NORMAL * bias_val;
+					float cos_theta = clamp(dot(DIRECTIONAL_SHADOW_NORMAL, light_dir), 0.0, 1.0);
+					float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+					float tan_theta = min(sin_theta / max(cos_theta, 0.05), 4.0);
+					offset_pos += DIRECTIONAL_SHADOW_NORMAL * (texel_world_size * sin_theta);
+					light_offset += texel_world_size * 1.5 * tan_theta;
 				}
 
+				offset_pos += light_dir * light_offset;
 				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
 				proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
 				return !(
 					proj_coords.z > 1.0 ||
 					proj_coords.z < 0.0 ||
-					proj_coords.x < 0.0 ||
-					proj_coords.x > 1.0 ||
-					proj_coords.y < 0.0 ||
-					proj_coords.y > 1.0
+					proj_coords.x < 0.002 ||
+					proj_coords.x > 0.998 ||
+					proj_coords.y < 0.002 ||
+					proj_coords.y > 0.998
 				);
 			}
 
@@ -429,11 +447,12 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				return sampleShadowProjection(shadow_map_idx, proj_coords, filter_radius_texels);
 			}
 
+			// returns -1.0 when the cascade does not cover the point
 			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir, float receiver_dist) {
-				if (cascade_idx < 0 || cascade_idx >= DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return 1.0;
+				if (cascade_idx < 0 || cascade_idx >= DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return -1.0;
 
 				int shadow_map_idx = DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[cascade_idx];
-				if (shadow_map_idx < 0) return 1.0;
+				if (shadow_map_idx < 0) return -1.0;
 				float previous_split = cascade_idx > 0 ? DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx - 1] : 0.0;
 				float current_split = DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx];
 				float receiver_distance_alpha = clamp(
@@ -452,7 +471,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
 					proj_coords
 				)) {
-					return 1.0;
+					return -1.0;
 				}
 
 				#if DIRECTIONAL_SHADOW_USE_LEGACY_PCF
@@ -515,13 +534,23 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 			}
 
 			float DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 normal, vec3 light_dir) {
+				int cascade_count = DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count;
 				int cascade_idx = getCascadeIndex(world_pos);
 				if (cascade_idx < 0) return 1.0;
 
 				float dist = -(DIRECTIONAL_SHADOW_BLOCK.view * vec4(world_pos, 1.0)).z;
-				float shadow = sampleShadowCascade(cascade_idx, world_pos, normal, light_dir, dist);
+				// the split picks the cascade, but a zoomed or stale cascade may not
+				// cover the point, in which case the next one is used
+				float shadow = -1.0;
 
-				if (cascade_idx < DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count - 1) {
+				for (; cascade_idx < cascade_count; cascade_idx++) {
+					shadow = sampleShadowCascade(cascade_idx, world_pos, normal, light_dir, dist);
+					if (shadow >= 0.0) break;
+				}
+
+				if (shadow < 0.0) return 1.0;
+
+				if (cascade_idx < cascade_count - 1) {
 					float previous_split = cascade_idx > 0 ? DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx - 1] : 0.0;
 					float current_split = DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_splits[cascade_idx];
 					float cascade_span = max(current_split - previous_split, 0.0001);
@@ -530,8 +559,11 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 
 					if (dist > blend_start) {
 						float next_shadow = sampleShadowCascade(cascade_idx + 1, world_pos, normal, light_dir, dist);
-						float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
-						shadow = mix(shadow, next_shadow, blend);
+
+						if (next_shadow >= 0.0) {
+							float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
+							shadow = mix(shadow, next_shadow, blend);
+						}
 					}
 				}
 

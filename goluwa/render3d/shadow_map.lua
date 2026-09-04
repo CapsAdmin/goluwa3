@@ -1249,7 +1249,7 @@ function ShadowMap.New(config)
 				height = cascade_size.h,
 				format = cascade_format,
 				image = {
-					usage = {"depth_stencil_attachment", "sampled"},
+					usage = {"depth_stencil_attachment", "sampled", "transfer_src"},
 					properties = "device_local",
 				},
 				view = {
@@ -1526,17 +1526,28 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		max_x = radius
 		min_y = -radius
 		max_y = radius
+		-- light view looks down -z, so +z is toward the sun. Casters sit at higher
+		-- z than the receivers in this slice, anything below the slice cannot
+		-- shadow it. The projection keeps a tight depth range for precision and
+		-- relies on depth clamping to pancake casters beyond the near plane, the
+		-- cull volume reaches much further toward the sun so those casters are
+		-- still drawn.
 		local receiver_depth_span = max_z - min_z
-		local caster_depth_padding = math.max(receiver_depth_span * 4.0, split_far - previous_split, 100.0)
-		local caster_min_z = min_z - caster_depth_padding
-		local caster_max_z = max_z + caster_depth_padding
+		local texel_world_size = self.cascade[cascade_idx].texel_world_size
+		local far_margin = receiver_depth_span * 0.05 + texel_world_size * 4
+		local near_margin = math.max(receiver_depth_span * 0.5, self.max_shadow_distance * 0.5)
+		local cull_near_margin = math.max(receiver_depth_span * 4.0, self.max_shadow_distance * 2)
+		local caster_min_z = min_z - far_margin
+		local caster_max_z = max_z + near_margin
 		local projection = Matrix44()
-		projection:Ortho(min_x, max_x, min_y, max_y, caster_min_z, caster_max_z, true)
+		projection:Ortho(min_x, max_x, min_y, max_y, -caster_max_z, -caster_min_z, true)
+		local cull_projection = Matrix44()
+		cull_projection:Ortho(min_x, max_x, min_y, max_y, -(max_z + cull_near_margin), -caster_min_z, true)
 		self.cascade[cascade_idx].position = shadow_center
 		self.cascade[cascade_idx].view_matrix = view
-		self.cascade[cascade_idx].cull_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, caster_max_z)
+		self.cascade[cascade_idx].cull_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, max_z + cull_near_margin)
 		self.cascade[cascade_idx].light_space_matrix = view * projection
-		update_cascade_frustum_planes(self.cascade[cascade_idx])
+		extract_frustum_planes(view * cull_projection, self.cascade[cascade_idx].frustum_planes)
 		previous_split = split_far
 
 		::continue::
