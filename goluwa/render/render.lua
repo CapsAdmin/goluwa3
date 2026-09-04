@@ -369,13 +369,15 @@ function render.KeepCommandBufferResource(resource, cmd)
 end
 
 function render.ExecuteCommand(command_fn)
-	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	local cmd_pool = render.GetCommandPool()
+	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	render.PushCommandBuffer(cmd)
 	local results = {command_fn(cmd)}
 	render.PopCommandBuffer()
 	cmd:End()
 	render.SubmitAndWait(cmd)
+	cmd:Remove()
 	return unpack(results)
 end
 

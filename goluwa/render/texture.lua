@@ -741,6 +741,7 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 	if own_cmd then
 		cmd:End()
 		render.SubmitAndWait(cmd)
+		cmd:Remove()
 	end
 end
 
@@ -850,6 +851,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 
 	cmd:End()
 	render.SubmitAndWait(cmd)
+	cmd:Remove()
 end
 
 function Texture:UploadCompressed(data, vulkan_info)
@@ -921,6 +923,7 @@ function Texture:UploadCompressed(data, vulkan_info)
 	)
 	cmd:End()
 	render.SubmitAndWait(cmd)
+	cmd:Remove()
 end
 
 function Texture:GetImage()
@@ -1101,7 +1104,7 @@ function Texture:GenerateMipmaps(initial_layout)
 		if own_cmd then
 			cmd:End()
 			render.SubmitAndWait(cmd)
-			command_pool:FreeCommandBuffer(cmd)
+			cmd:Remove()
 		end
 
 		return
@@ -1206,7 +1209,7 @@ function Texture:GenerateMipmaps(initial_layout)
 	if own_cmd then
 		cmd:End()
 		render.SubmitAndWait(cmd)
-		command_pool:FreeCommandBuffer(cmd)
+		cmd:Remove()
 	end
 end
 
@@ -1509,6 +1512,7 @@ function Texture:Shade(glsl, extra_config)
 	-- Submit and wait
 	self.refs = {cmd, views, command_pool, pipeline}
 	render.SubmitAndWait(cmd)
+	cmd:Remove()
 	self.refs = nil
 end
 
@@ -1814,6 +1818,7 @@ do
 		if owns_cmd then
 			copy_cmd:End()
 			render.SubmitAndWait(copy_cmd)
+			copy_cmd:Remove()
 			-- Map staging buffer and copy pixel data
 			local pixel_data = assert(staging_buffer:Map(), "Cannot download: failed to map staging buffer")
 			local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
