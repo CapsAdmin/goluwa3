@@ -122,6 +122,52 @@ function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count,
 	return self
 end
 
+-- Content-addressed mesh cache for load-time decoders (gltf/mdl/cgf/bsp) that may build many
+-- nominally-distinct meshes which turn out to be byte-identical (e.g. the same prop submesh, or
+-- the same scattered foliage clump, baked as separate entries instead of a shared reference).
+-- Weak-valued so a cached mesh is kept alive by nothing but its real owners (Polygon3D objects) -
+-- once the last of those drops it, the Mesh is collected and freed exactly like any other mesh
+-- in this engine (via the __gc -> :Remove() path in objects.lua), and the cache entry disappears
+-- with it. Not wired into Mesh.New itself: callers on a hot per-frame path (debug_draw, gizmo)
+-- must keep calling Mesh.New directly so they never pay hashing cost for content that will not
+-- repeat.
+local mesh_content_cache = table.weak("v")
+
+local function mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count)
+	if type(vertices) ~= "cdata" then return nil end
+
+	local parts = {
+		tostring(vertex_attributes),
+		tostring(index_type),
+		ffi.string(vertices, ffi.sizeof(vertices)),
+	}
+
+	if indices ~= nil then
+		if type(indices) ~= "cdata" or not index_count then return nil end
+
+		local index_byte_size = ffi.sizeof(index_type == "uint32_t" and "uint32_t" or "uint16_t") * index_count
+		parts[#parts + 1] = ffi.string(indices, index_byte_size)
+	end
+
+	return table.concat(parts, "\1")
+end
+
+function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index_count, name)
+	local key = mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count)
+
+	if key then
+		local cached = mesh_content_cache[key]
+
+		if cached then return cached end
+	end
+
+	local self = Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name)
+
+	if key then mesh_content_cache[key] = self end
+
+	return self
+end
+
 function Mesh:Bind(cmd, binding_position)
 	if not is_command_buffer(cmd) then
 		binding_position = cmd

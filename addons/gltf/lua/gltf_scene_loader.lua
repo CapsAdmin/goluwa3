@@ -374,7 +374,7 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 
 		local poly = Polygon3D.New()
 		poly:SetAABB(aabb)
-		poly.mesh = render3d.CreateMesh(vertices, index_data, index_type, index_count)
+		poly.mesh = render3d.CreateMesh(vertices, index_data, index_type, index_count, true)
 		local material
 
 		if primitive.material then
@@ -392,6 +392,64 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 	end
 
 	return primitives
+end
+
+-- Spawn one child entity per instance of an EXT_mesh_gpu_instancing node, each with its own
+-- transform but sharing the same (cached) polygon3d/material objects as every other instance -
+-- render3d's automatic instanced-draw batching (keyed on mesh GPU buffer + material) then merges
+-- them back into a single draw call, the same way repeated bsp/mdl prop placements do
+local function spawn_gpu_instanced_primitives(node_entity, node, primitives, mesh_name)
+	local instancing = node.gpu_instancing
+	local count = (
+			instancing.translation and
+			instancing.translation.count
+		)
+		or
+		(
+			instancing.rotation and
+			instancing.rotation.count
+		)
+		or
+		(
+			instancing.scale and
+			instancing.scale.count
+		)
+		or
+		0
+
+	for i = 0, count - 1 do
+		local instance_entity = Entity.New{Name = mesh_name .. "_instance_" .. i, Parent = node_entity}
+		local transform = instance_entity:AddComponent("transform")
+
+		if instancing.translation then
+			local d = instancing.translation.data
+			transform:SetPosition(Vec3(d[i * 3 + 0], d[i * 3 + 1], d[i * 3 + 2]))
+		end
+
+		if instancing.rotation then
+			local d = instancing.rotation.data
+			transform:SetRotation(Quat(d[i * 4 + 0], d[i * 4 + 1], d[i * 4 + 2], d[i * 4 + 3]))
+		end
+
+		if instancing.scale then
+			local d = instancing.scale.data
+			transform:SetScale(Vec3(d[i * 3 + 0], d[i * 3 + 1], d[i * 3 + 2]))
+		end
+
+		local visual = instance_entity:AddComponent("visual")
+
+		for prim_index, primitive in ipairs(primitives) do
+			visual:CreatePrimitiveEntity(
+				primitive.polygon3d,
+				primitive.material,
+				mesh_name .. "_instance_" .. i .. "_" .. prim_index
+			)
+		end
+
+		-- Scatter/foliage instancing can run into the thousands; yield periodically so this
+		-- doesn't stall frame presentation for the whole node
+		if i % 256 == 255 then tasks.Wait() end
+	end
 end
 
 -- Create one entity per glTF node (with its local transform) and wire up parenting
@@ -441,6 +499,17 @@ local function collect_reachable_nodes(gltf_data, root_node_indices)
 	return reachable
 end
 
+-- Decoded glTF data plus built GPU primitives, cached per path (like model_loader.model_cache)
+-- so placing the same file at many transforms - the gltf equivalent of a bsp map spawning the
+-- same .mdl prop many times - only decodes/builds meshes, materials and textures once. Every
+-- Load() call still gets its own fresh entity hierarchy; only the expensive GPU-facing objects
+-- (polygon3d, material) are shared. mesh_primitives itself only catches nodes that reference the
+-- same glTF mesh index; content that's merely byte-identical across different mesh indices (e.g.
+-- trees.gltf: 2712 mesh entries, 8 unique shapes) is instead deduplicated by render3d.CreateMesh's
+-- own content-addressed Mesh cache (see render3d.CreateMesh(..., true) below) - deliberately not
+-- duplicated here too, so there is one mesh-dedup mechanism in the engine, not two.
+gltf_scene_loader.build_cache = gltf_scene_loader.build_cache or {}
+
 -- Load a glTF file and translate it into an engine entity hierarchy under a new root entity.
 -- options.only_node_name restricts mesh/material building to the subtree of the (first) node
 -- with that name - the full node hierarchy above it (with its transforms, e.g. any axis-
@@ -450,9 +519,24 @@ end
 -- Returns root_entity, gltf_data (the raw decoded glTF, useful for stats/debugging)
 function gltf_scene_loader.Load(path, options)
 	options = options or {}
-	local gltf_data, err = gltf.Load(path)
+	local cached = gltf_scene_loader.build_cache[path]
+	local gltf_data, materials, mesh_primitives
 
-	if not gltf_data then return nil, err end
+	if cached then
+		gltf_data, materials, mesh_primitives = cached.gltf_data, cached.materials, cached.mesh_primitives
+	else
+		local err
+		gltf_data, err = gltf.Load(path)
+
+		if not gltf_data then return nil, err end
+
+		materials, mesh_primitives = {}, {}
+		gltf_scene_loader.build_cache[path] = {
+			gltf_data = gltf_data,
+			materials = materials,
+			mesh_primitives = mesh_primitives,
+		}
+	end
 
 	local scene = gltf_data.scenes[gltf_data.scene + 1]
 	local root_node_indices = scene and scene.nodes or {}
@@ -477,8 +561,6 @@ function gltf_scene_loader.Load(path, options)
 	end
 
 	local node_to_entity = create_node_entities(gltf_data)
-	local materials = {}
-	local mesh_primitives = {}
 
 	for node_index, node in ipairs(gltf_data.nodes) do
 		if node.mesh ~= nil and reachable[node_index - 1] then
@@ -493,14 +575,19 @@ function gltf_scene_loader.Load(path, options)
 			end
 
 			local entity = node_to_entity[node_index]
-			local visual = entity:AddComponent("visual")
 
-			for prim_index, primitive in ipairs(primitives) do
-				visual:CreatePrimitiveEntity(
-					primitive.polygon3d,
-					primitive.material,
-					(mesh.name or "mesh") .. "_" .. prim_index
-				)
+			if node.gpu_instancing then
+				spawn_gpu_instanced_primitives(entity, node, primitives, mesh.name or "mesh")
+			else
+				local visual = entity:AddComponent("visual")
+
+				for prim_index, primitive in ipairs(primitives) do
+					visual:CreatePrimitiveEntity(
+						primitive.polygon3d,
+						primitive.material,
+						(mesh.name or "mesh") .. "_" .. prim_index
+					)
+				end
 			end
 		end
 	end

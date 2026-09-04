@@ -1250,7 +1250,7 @@ function steam.LoadMap(path)
 
 		for _, data in ipairs(models) do
 			data.mesh:BuildTangents()
-			data.mesh:Upload()
+			data.mesh:Upload(nil, true)
 			tasks.ReportProgress("creating meshes", #models)
 			tasks.Wait()
 		end

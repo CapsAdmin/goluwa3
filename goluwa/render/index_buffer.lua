@@ -19,6 +19,8 @@ local function indices_to_array(indices, index_type)
 	return index_data, byte_size
 end
 
+IndexBuffer.IndicesToArray = indices_to_array
+
 function IndexBuffer.New(indices, index_type, name)
 	local self = IndexBuffer:CreateObject()
 	self.index_type = index_type or "uint16_t"

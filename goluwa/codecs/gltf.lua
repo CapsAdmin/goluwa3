@@ -47,7 +47,7 @@ local function load_buffer(base_dir, buffer_info)
 		if buffer_info.uri:match("^data:") then
 			local base64_data = buffer_info.uri:match("^data:[^;]+;base64,(.+)$")
 
-			if base64_data then return base64.decode(base64_data) end
+			if base64_data then return base64.Decode(base64_data) end
 		else
 			local path = base_dir .. buffer_info.uri
 			local data = fs.read_file(path)
@@ -165,6 +165,7 @@ function gltf.Load(path)
 	local SUPPORTED_EXTENSIONS = {
 		MSFT_texture_dds = true,
 		KHR_materials_pbrSpecularGlossiness = true,
+		EXT_mesh_gpu_instancing = true,
 	}
 
 	if gltf_data.extensionsRequired then
@@ -278,6 +279,21 @@ function gltf.Load(path)
 				scale = node_info.scale or {1, 1, 1},
 				matrix = node_info.matrix,
 			}
+			-- EXT_mesh_gpu_instancing: one node + mesh represents many instances via
+			-- per-instance TRANSLATION/ROTATION/SCALE accessor arrays, instead of one
+			-- node per instance (what exporters use for large scatter/foliage counts)
+			local instancing_ext = node_info.extensions and node_info.extensions.EXT_mesh_gpu_instancing
+
+			if instancing_ext and instancing_ext.attributes then
+				local attributes = instancing_ext.attributes
+				result.nodes[i].gpu_instancing = {
+					translation = attributes.TRANSLATION and
+						read_accessor_raw(gltf_data, attributes.TRANSLATION, buffers),
+					rotation = attributes.ROTATION and
+						read_accessor_raw(gltf_data, attributes.ROTATION, buffers),
+					scale = attributes.SCALE and read_accessor_raw(gltf_data, attributes.SCALE, buffers),
+				}
+			end
 		end
 	end
 

@@ -612,7 +612,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			mesh:SetBranchHelperPivots(entry.branch_helper_pivots)
 			mesh:SetName(path)
 			mesh:BuildBoundingBox()
-			mesh:Upload(entry.indices)
+			mesh:Upload(entry.indices, true)
 			mesh_callback(mesh, material)
 		end
 

@@ -10,6 +10,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local render = import("goluwa/render/render.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -1205,6 +1206,57 @@ do
 	function visual.GetMainGPUCullingStats()
 		return get_main_gpu_culling_stats_store()
 	end
+
+	-- The GPU-driven static instance batcher (gpu_culling.lua) is what actually merges repeated
+	-- static geometry (e.g. a gltf scene's duplicated meshes) into instanced draw calls - it's a
+	-- separate system from render3d's "RENDER3D INSTANCING" HUD group, which only covers the
+	-- per-frame CPU fallback path used for dynamic (moving) entities and reads 0 for static
+	-- content regardless of how well that content batches. Expose its counters here so batching
+	-- (or the lack of it) is visible on the same HUD instead of only via dump_main_gpu_culling_stats.
+	render_stats.RegisterGroup{
+		id = "render3d_static_batching",
+		label = "RENDER3D STATIC BATCHING",
+	}
+	render_stats.RegisterField{
+		id = "r3d_static_draws",
+		label = "R3D STATIC DRAWS",
+		group = "render3d_static_batching",
+		getter = function()
+			return get_main_gpu_culling_stats_store().gpu_packed_draw_calls or 0
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_static_entries",
+		label = "R3D STATIC ENTRIES",
+		group = "render3d_static_batching",
+		getter = function()
+			return get_main_gpu_culling_stats_store().gpu_packed_entry_count or 0
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_static_batches_active",
+		label = "R3D STATIC BATCHES ACTIVE",
+		group = "render3d_static_batching",
+		getter = function()
+			return get_main_gpu_culling_stats_store().gpu_active_batch_count or 0
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_static_batches_total",
+		label = "R3D STATIC BATCHES TOTAL",
+		group = "render3d_static_batching",
+		getter = function()
+			return get_main_gpu_culling_stats_store().gpu_total_batch_count or 0
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_static_fallback",
+		label = "R3D STATIC FALLBACK",
+		group = "render3d_static_batching",
+		getter = function()
+			return get_main_gpu_culling_stats_store().fallback_submitted_entry_count or 0
+		end,
+	}
 
 	commands.Add("dump_main_gpu_culling_stats", function()
 		local stats = visual.GetMainGPUCullingStats()
