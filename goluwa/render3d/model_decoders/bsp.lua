@@ -18,6 +18,7 @@ local event = import("goluwa/event.lua")
 local transform = import("goluwa/entities/components/transform.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local brush_hull = import("goluwa/physics/brush_hull.lua")
+local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local bit = require("bit")
@@ -370,51 +371,19 @@ local function build_displacement_heightmap_shape(header, info, lerp_corners)
 
 	local forward = right:GetCross(up):GetNormalized()
 	local center = (top_left + top_right + bottom_left + bottom_right) / 4
-	local heights = {}
-	local min_height = math.huge
-	local max_height = -math.huge
-
-	for y = 1, dims do
-		for x = 1, dims do
-			local source_pos = select(1, lerp_corners(dims, corners, start_corner, info, x, y))
-			local world_pos = source_pos_to_engine(source_pos)
-			local u = (x - 1) / resolution
-			local v = (y - 1) / resolution
-			local plane_pos = center + right * ((u - 0.5) * width) + forward * ((v - 0.5) * depth)
-			local height = (world_pos - plane_pos):Dot(up)
-			heights[(y - 1) * dims + x] = height
-			min_height = math.min(min_height, height)
-			max_height = math.max(max_height, height)
-		end
-	end
-
-	local height_range = max_height - min_height
-	local mid_height = (min_height + max_height) * 0.5
-	local pixels = {}
-
-	for i = 1, #heights do
-		local normalized = 0.5
-
-		if height_range > 0.0001 then
-			normalized = (heights[i] - min_height) / height_range
-		end
-
-		pixels[i] = normalized * 255
-	end
-
-	local heightmap = {
-		width = resolution,
-		height = resolution,
-		GetSize = function(self)
-			return Vec2(self.width, self.height)
-		end,
-		GetRawPixelColor = function(self, x, y)
-			x = math.clamp(math.floor(x), 0, resolution)
-			y = math.clamp(math.floor(y), 0, resolution)
-			local value = pixels[y * dims + x + 1] or 127.5
-			return value, value, value, value
-		end,
-	}
+	local samples = HeightmapShape.SamplesFromFunction(dims, dims, function(x, z)
+		local world_pos = source_pos_to_engine(select(1, lerp_corners(dims, corners, start_corner, info, x + 1, z + 1)))
+		local plane_pos = center + right * (
+				(
+					x / resolution - 0.5
+				) * width
+			) + forward * (
+				(
+					z / resolution - 0.5
+				) * depth
+			)
+		return (world_pos - plane_pos):Dot(up)
+	end)
 	local rotation_matrix = Matrix33()
 	rotation_matrix.m00 = right.x
 	rotation_matrix.m01 = right.y
@@ -426,12 +395,13 @@ local function build_displacement_heightmap_shape(header, info, lerp_corners)
 	rotation_matrix.m21 = forward.y
 	rotation_matrix.m22 = forward.z
 	return {
-		Heightmap = heightmap,
-		Size = Vec2(width, depth),
-		Resolution = Vec2(resolution, resolution),
-		Height = height_range > 0.0001 and height_range or 1,
-		Pow = 1,
-		Position = center + up * mid_height,
+		Heightmap = {
+			Samples = samples,
+			SamplesX = dims,
+			SamplesZ = dims,
+			Size = Vec2(width, depth),
+		},
+		Position = center,
 		Rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
 	}
 end

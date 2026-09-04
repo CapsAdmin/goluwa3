@@ -78,41 +78,72 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 				return get_texture_blend_uv(in_uv);
 			}
 
-			float sample_terrain_hash(vec2 p) {
-				return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-			}
-
-			float sample_terrain_noise(vec2 p) {
-				vec2 cell = floor(p);
-				vec2 frac = fract(p);
-				frac = frac * frac * (3.0 - 2.0 * frac);
-				return mix(
-					mix(sample_terrain_hash(cell), sample_terrain_hash(cell + vec2(1.0, 0.0)), frac.x),
-					mix(sample_terrain_hash(cell + vec2(0.0, 1.0)), sample_terrain_hash(cell + vec2(1.0, 1.0)), frac.x),
-					frac.y
-				);
-			}
-
-			vec3 sample_terrain_checker(vec2 world_pos, float checker_scale, vec3 color_a, vec3 color_b) {
-				float safe_scale = max(checker_scale, 0.0001);
-				vec2 sample_pos = world_pos / safe_scale;
-				float macro = sample_terrain_noise(sample_pos);
-				float micro = sample_terrain_noise(sample_pos * 2.7 + vec2(19.1, -7.3));
-				float blend = clamp(macro * 0.72 + micro * 0.28, 0.0, 1.0);
-				return mix(color_a, color_b, blend);
-			}
-
-			vec3 sample_terrain_layer_detail(int tex, vec2 world_pos, float checker_scale, float detail_strength, vec3 color_a, vec3 color_b) {
-				vec3 base = sample_terrain_checker(world_pos, checker_scale, color_a, color_b);
-
-				if (tex == -1) {
-					return base;
+			vec3 get_terrain_world_normal(vec2 uv) {
+				if (]] .. model_var .. [[.NormalTexture == -1) {
+					return vec3(0.0, 1.0, 0.0);
 				}
 
-				float safe_scale = max(checker_scale, 0.0001);
-				vec2 sample_pos = world_pos / safe_scale;
-				vec3 detail = texture(TEXTURE(tex), sample_pos).rgb;
-				return base * mix(vec3(1.0), detail, clamp(detail_strength, 0.0, 2.0));
+				vec2 n = texture(TEXTURE(]] .. model_var .. [[.NormalTexture), uv).xy * 2.0 - 1.0;
+				return normalize(vec3(n.x, sqrt(max(1.0 - dot(n, n), 0.0)), n.y));
+			}
+
+			vec3 get_terrain_triplanar_weights(vec3 normal) {
+				vec3 w = pow(abs(normal), vec3(4.0));
+				return w / max(w.x + w.y + w.z, 0.0001);
+			}
+
+			vec4 sample_terrain_layer_triplanar(int tex, vec3 world_pos, float scale, vec3 blend) {
+				float safe_scale = max(scale, 0.0001);
+				vec4 result = vec4(0.0);
+
+				if (blend.y > 0.001) {
+					result += texture(TEXTURE(tex), world_pos.xz / safe_scale) * blend.y;
+				}
+
+				if (blend.x > 0.001) {
+					result += texture(TEXTURE(tex), world_pos.zy / safe_scale) * blend.x;
+				}
+
+				if (blend.z > 0.001) {
+					result += texture(TEXTURE(tex), world_pos.xy / safe_scale) * blend.z;
+				}
+
+				return result;
+			}
+
+			// tangent space normal maps projected along each axis and combined
+			// with the surface normal using the whiteout blend, returns a world
+			// space normal (unnormalized) with ambient occlusion in w
+			vec4 sample_terrain_layer_normal_triplanar(int tex, vec3 world_pos, float scale, vec3 blend, vec3 N) {
+				float safe_scale = max(scale, 0.0001);
+				vec3 n = vec3(0.0);
+				float ao = 0.0;
+
+				if (blend.y > 0.001) {
+					vec4 t = texture(TEXTURE(tex), world_pos.xz / safe_scale);
+					vec3 tn = t.xyz * 2.0 - 1.0;
+					tn = vec3(tn.xy + N.xz, abs(tn.z) * N.y);
+					n += tn.xzy * blend.y;
+					ao += t.a * blend.y;
+				}
+
+				if (blend.x > 0.001) {
+					vec4 t = texture(TEXTURE(tex), world_pos.zy / safe_scale);
+					vec3 tn = t.xyz * 2.0 - 1.0;
+					tn = vec3(tn.xy + N.zy, abs(tn.z) * N.x);
+					n += tn.zyx * blend.x;
+					ao += t.a * blend.x;
+				}
+
+				if (blend.z > 0.001) {
+					vec4 t = texture(TEXTURE(tex), world_pos.xy / safe_scale);
+					vec3 tn = t.xyz * 2.0 - 1.0;
+					tn = vec3(tn.xy + N.xy, abs(tn.z) * N.z);
+					n += tn.xyz * blend.z;
+					ao += t.a * blend.z;
+				}
+
+				return vec4(n, ao);
 			}
 
 			vec4 get_terrain_material_weights_uv(vec2 uv) {
@@ -131,18 +162,80 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 				return weights / weight_sum;
 			}
 
+			struct TerrainLayerSample {
+				vec3 albedo;
+				float roughness;
+				vec3 normal;
+				float ao;
+				float normal_weight;
+			};
+
+			TerrainLayerSample terrain_layer_cache;
+			bool terrain_layer_cache_valid = false;
+
+			void accumulate_terrain_layer(inout TerrainLayerSample s, int albedo_tex, int normal_tex, vec3 world_pos, vec3 blend, vec3 N, float weight, float scale) {
+				if (weight <= 0.001) {
+					return;
+				}
+
+				if (albedo_tex != -1) {
+					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, world_pos, scale, blend);
+					s.albedo += albedo.rgb * weight;
+					s.roughness += albedo.a * weight;
+				} else {
+					s.albedo += vec3(weight);
+					s.roughness += weight;
+				}
+
+				if (normal_tex != -1) {
+					vec4 n = sample_terrain_layer_normal_triplanar(normal_tex, world_pos, scale, blend, N);
+					s.normal += n.xyz * weight;
+					s.ao += n.w * weight;
+					s.normal_weight += weight;
+				}
+			}
+
+			TerrainLayerSample get_terrain_layer_sample(vec2 uv, vec3 world_pos) {
+				if (terrain_layer_cache_valid) {
+					return terrain_layer_cache;
+				}
+
+				TerrainLayerSample s;
+				s.albedo = vec3(0.0);
+				s.roughness = 0.0;
+				s.normal = vec3(0.0);
+				s.ao = 0.0;
+				s.normal_weight = 0.0;
+				vec4 weights = get_terrain_material_weights_uv(uv);
+				vec3 N = get_terrain_world_normal(uv);
+				vec3 blend = get_terrain_triplanar_weights(N);
+				vec4 scales = ]] .. terrain_var .. [[.TerrainLayerScales;
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer1Texture, ]] .. terrain_var .. [[.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer2Texture, ]] .. terrain_var .. [[.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer3Texture, ]] .. terrain_var .. [[.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer4Texture, ]] .. terrain_var .. [[.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w);
+
+				if (s.normal_weight > 0.001) {
+					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
+					s.ao = mix(1.0, s.ao / s.normal_weight, s.normal_weight);
+				} else {
+					s.normal = N;
+					s.ao = 1.0;
+				}
+
+				terrain_layer_cache = s;
+				terrain_layer_cache_valid = true;
+				return s;
+			}
+
 			vec3 get_terrain_albedo_uv(vec2 uv, vec3 world_pos) {
 				vec4 weights = get_terrain_material_weights_uv(uv);
 
 				if (dot(weights, vec4(1.0)) <= 0.0001) {
 					return ]] .. color_var .. [[.ColorMultiplier.rgb;
 				}
-				vec2 terrain_pos = world_pos.xz;
-				vec3 layer1 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer1Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.x, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.x, ]] .. terrain_var .. [[.TerrainLayer1ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer1ColorB.rgb);
-				vec3 layer2 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer2Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.y, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.y, ]] .. terrain_var .. [[.TerrainLayer2ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer2ColorB.rgb);
-				vec3 layer3 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer3Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.z, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.z, ]] .. terrain_var .. [[.TerrainLayer3ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer3ColorB.rgb);
-				vec3 layer4 = sample_terrain_layer_detail(]] .. terrain_var .. [[.TerrainLayer4Texture, terrain_pos, ]] .. terrain_var .. [[.TerrainCheckerScales.w, ]] .. terrain_var .. [[.TerrainLayerDetailStrength.w, ]] .. terrain_var .. [[.TerrainLayer4ColorA.rgb, ]] .. terrain_var .. [[.TerrainLayer4ColorB.rgb);
-				vec3 color = layer1 * weights.r + layer2 * weights.g + layer3 * weights.b + layer4 * weights.a;
+
+				vec3 color = get_terrain_layer_sample(uv, world_pos).albedo;
 
 				if (]] .. model_var .. [[.AlbedoTexture != -1) {
 					vec3 detail = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
@@ -392,9 +485,13 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 					}
 
 					vec3 get_normal(vec2 uv, mat3 tbn) {
-						vec4 vertex_color = get_vertex_color();
+						vec3 N = get_combined_normal(uv, tbn);
 
-						return get_combined_normal(uv, tbn);
+						if (terrain_model.TerrainMaterialTexture != -1) {
+							return get_terrain_layer_sample(uv, in_position).normal;
+						}
+
+						return N;
 					}
 
 					float get_metallic(vec2 uv) {
@@ -430,7 +527,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						} else if (aux_model.MetallicRoughnessTexture != -1) {
 							val = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).g;
 						} else if (terrain_model.TerrainMaterialTexture != -1) {
-							val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness);
+							val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness) * get_terrain_layer_sample(uv, in_position).roughness;
 						} else {
 							val = factor_model.RoughnessMultiplier;
 							val = clamp(val, 0.05, 0.95);
@@ -531,7 +628,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 					float get_ao(vec2 uv) {
 						if (aux_model.AmbientOcclusionTexture == -1) {
 							if (terrain_model.TerrainMaterialTexture != -1) {
-								return dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerAmbientOcclusion) * aux_model.AmbientOcclusionMultiplier;
+								return dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerAmbientOcclusion) * get_terrain_layer_sample(uv, in_position).ao * aux_model.AmbientOcclusionMultiplier;
 							}
 
 							return 1.0 * aux_model.AmbientOcclusionMultiplier;

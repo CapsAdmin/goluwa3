@@ -37,37 +37,26 @@ local function with_fixed_step(fixed_dt, callback)
 	end
 end
 
-local function create_mock_heightmap(size, fn)
-	return {
-		GetSize = function()
-			return Vec2(size, size)
-		end,
-		GetRawPixelColor = function(_, x, y)
-			local ix = math.max(0, math.min(size - 1, math.floor(x)))
-			local iy = math.max(0, math.min(size - 1, math.floor(y)))
-			return fn(ix, iy)
-		end,
+local function create_heightmap_shape(resolution, size, fn)
+	return HeightmapShape.New{
+		Samples = HeightmapShape.SamplesFromFunction(resolution + 1, resolution + 1, fn),
+		SamplesX = resolution + 1,
+		SamplesZ = resolution + 1,
+		Size = Vec2(size, size),
 	}
 end
 
 local function create_flat_heightmap_ground(name)
 	local resolution = 24
-	local tex = create_mock_heightmap(resolution + 1, function()
-		return 128, 128, 128, 255
-	end)
 	local ground = Entity.New({Name = name})
 	ground:AddComponent("transform")
 	ground.transform:SetPosition(Vec3(0, 0, 0))
 	ground:AddComponent(
 		"rigid_body",
 		{
-			Shape = HeightmapShape.New{
-				Heightmap = tex,
-				Size = Vec2(18, 18),
-				Resolution = Vec2(resolution, resolution),
-				Height = 4,
-				Pow = 1,
-			},
+			Shape = create_heightmap_shape(resolution, 18, function()
+				return 0.5
+			end),
 			MotionType = "static",
 			WorldGeometry = true,
 			Friction = 0.9,
@@ -157,26 +146,17 @@ end)
 
 T.TestPhysics("Rolling capsule on shallow terrain rolls to a stop", function()
 	local resolution = 32
-	local tex = create_mock_heightmap(resolution + 1, function(x, y)
-		local nx = x / resolution * math.pi * 2
-		local ny = y / resolution * math.pi * 2
-		local h = 0.5 + math.sin(nx * 1.25) * 0.03 + math.cos(ny * 0.8) * 0.01
-		local value = math.floor(math.max(0, math.min(1, h)) * 255 + 0.5)
-		return value, value, value, 255
-	end)
 	local ground = Entity.New({Name = "capsule_debug_roll_ground"})
 	ground:AddComponent("transform")
 	ground.transform:SetPosition(Vec3(0, 0, 0))
 	ground:AddComponent(
 		"rigid_body",
 		{
-			Shape = HeightmapShape.New{
-				Heightmap = tex,
-				Size = Vec2(24, 24),
-				Resolution = Vec2(resolution, resolution),
-				Height = 2,
-				Pow = 1,
-			},
+			Shape = create_heightmap_shape(resolution, 24, function(x, z)
+				local nx = x / resolution * math.pi * 2
+				local nz = z / resolution * math.pi * 2
+				return 0.25 + (math.sin(nx * 1.25) * 0.03 + math.cos(nz * 0.8) * 0.01) * 1.5
+			end),
 			MotionType = "static",
 			WorldGeometry = true,
 			Friction = 0.9,
@@ -576,9 +556,7 @@ T.TestPhysics("Rolling capsule on flat box settles without sinking or jittering"
 	for step = 1, 600 do
 		physics.Update(1 / 120)
 
-		if step > 480 then
-			ys[#ys + 1] = capsule_ent.transform:GetPosition().y
-		end
+		if step > 480 then ys[#ys + 1] = capsule_ent.transform:GetPosition().y end
 	end
 
 	local min_y, max_y = math.huge, -math.huge

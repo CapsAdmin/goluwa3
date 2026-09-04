@@ -47,13 +47,7 @@ local function get_shape_from_definition(data)
 	end
 
 	if not shape and data.Heightmap then
-		shape = HeightmapShape.New{
-			Heightmap = data.Heightmap,
-			Size = data.Size,
-			Resolution = data.Resolution,
-			Height = data.Height,
-			Pow = data.Pow,
-		}
+		shape = HeightmapShape.New(data.Heightmap)
 	end
 
 	if

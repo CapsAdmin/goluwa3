@@ -254,7 +254,7 @@ function render.Initialize(config)
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
 		local size = wnd:GetSize()
 		render.target = vulkan_instance:CreateWindowRenderTarget{
-			present_mode = "fifo_khr", --"fifo_khr",
+			present_mode = "immediate_khr", --"fifo_khr",
 			image_count = nil, -- Use default (minImageCount + 1)
 			--surface_format_index = 1,
 			composite_alpha = "opaque_khr",

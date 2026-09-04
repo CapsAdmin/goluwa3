@@ -4,28 +4,16 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 
-local function create_mock_heightmap(fn)
-	return {
-		GetSize = function()
-			return Vec2(2, 2)
-		end,
-		GetRawPixelColor = function(_, x, y)
-			return fn(math.floor(x), math.floor(y))
-		end,
-	}
-end
-
 T.TestPhysics("Heightmap shape enumerates triangles and computes bounds", function()
-	local tex = create_mock_heightmap(function(x, y)
-		if x == 0 and y == 0 then return 255, 255, 255, 255 end
-
-		return 0, 0, 0, 255
-	end)
 	local shape = HeightmapShape.New{
-		Heightmap = tex,
+		Samples = HeightmapShape.SamplesFromFunction(3, 3, function(x, z)
+			if x == 0 and z == 0 then return 10 end
+
+			return 0
+		end),
+		SamplesX = 3,
+		SamplesZ = 3,
 		Size = Vec2(10, 10),
-		Resolution = Vec2(2, 2),
-		Height = 10,
 	}
 	local body = test_helpers.CreateTestRigidBody({Shape = shape})
 	local collider = body:GetColliders()[1]
@@ -41,26 +29,71 @@ T.TestPhysics("Heightmap shape enumerates triangles and computes bounds", functi
 		{}
 	)
 
+	T(shape.IsHeightmap)["=="](true)
 	T(body:GetShapeType())["=="]("mesh")
-	T(triangle_count)["=="](16)
+	T(triangle_count)["=="](8)
 	T(bounds.min_x)["=="](-5)
 	T(bounds.max_x)["=="](5)
 	T(bounds.min_z)["=="](-5)
 	T(bounds.max_z)["=="](5)
-	T(bounds.min_y)["=="](-2.5)
-	T(bounds.max_y)[">="](5)
+	T(bounds.min_y)["=="](0)
+	T(bounds.max_y)["=="](10)
+end)
+
+T.TestPhysics("Heightmap shape only visits cells overlapping the query bounds", function()
+	local shape = HeightmapShape.New{
+		Samples = HeightmapShape.SamplesFromFunction(9, 9, function(x, z)
+			return x * 0.5
+		end),
+		SamplesX = 9,
+		SamplesZ = 9,
+		Size = Vec2(16, 16),
+	}
+	local body = test_helpers.CreateTestRigidBody({Shape = shape})
+	local collider = body:GetColliders()[1]
+	local AABB = import("goluwa/structs/aabb.lua")
+	local triangle_count = 0
+
+	shape:ForEachOverlappingTriangle(
+		collider,
+		AABB(-1, -10, -1, 1, 10, 1),
+		function()
+			triangle_count = triangle_count + 1
+		end,
+		{}
+	)
+
+	T(triangle_count)["=="](8)
+end)
+
+T.TestPhysics("Heightmap shape interpolates heights on its triangles", function()
+	local shape = HeightmapShape.New{
+		Samples = HeightmapShape.SamplesFromFunction(2, 2, function(x, z)
+			return x * 4 + z * 2
+		end),
+		SamplesX = 2,
+		SamplesZ = 2,
+		Size = Vec2(2, 2),
+	}
+	T(math.abs(shape:GetHeightAtLocal(-1, -1)))["<"](0.0001)
+	T(math.abs(shape:GetHeightAtLocal(1, -1) - 4))["<"](0.0001)
+	T(math.abs(shape:GetHeightAtLocal(-1, 1) - 2))["<"](0.0001)
+	T(math.abs(shape:GetHeightAtLocal(1, 1) - 6))["<"](0.0001)
+	T(math.abs(shape:GetHeightAtLocal(0, 0) - 3))["<"](0.0001)
+	T(math.abs(shape:GetHeightAtLocal(0.5, -0.5) - 3.5))["<"](0.0001)
 end)
 
 T.TestPhysics("Rigid bodies accept heightmap shape definitions", function()
-	local tex = create_mock_heightmap(function()
-		return 255, 255, 255, 255
-	end)
 	local body = test_helpers.CreateTestRigidBody{
 		Shape = {
-			Heightmap = tex,
-			Size = Vec2(8, 8),
-			Resolution = Vec2(1, 1),
-			Height = 4,
+			Heightmap = {
+				Samples = HeightmapShape.SamplesFromFunction(2, 2, function()
+					return 2
+				end),
+				SamplesX = 2,
+				SamplesZ = 2,
+				Size = Vec2(8, 8),
+			},
 		},
 	}
 	local shape = body:GetPhysicsShape()
@@ -74,14 +107,13 @@ T.TestPhysics("Rigid bodies accept heightmap shape definitions", function()
 end)
 
 T.TestPhysics("Heightmap shapes can be traced like static meshes", function()
-	local tex = create_mock_heightmap(function()
-		return 255, 255, 255, 255
-	end)
 	local shape = HeightmapShape.New{
-		Heightmap = tex,
+		Samples = HeightmapShape.SamplesFromFunction(2, 2, function()
+			return 2
+		end),
+		SamplesX = 2,
+		SamplesZ = 2,
 		Size = Vec2(8, 8),
-		Resolution = Vec2(1, 1),
-		Height = 4,
 	}
 	local body = test_helpers.CreateTestRigidBody({Shape = shape})
 	local collider = body:GetColliders()[1]
@@ -92,4 +124,23 @@ T.TestPhysics("Heightmap shapes can be traced like static meshes", function()
 	T(math.abs(hit.position.z))["<"](0.0001)
 	T(hit.normal.y)[">"](0.999)
 	T(hit.triangle_index ~= nil)["=="](true)
+end)
+
+T.TestPhysics("Heightmap traces hit sloped cells at the interpolated height", function()
+	local shape = HeightmapShape.New{
+		Samples = HeightmapShape.SamplesFromFunction(5, 5, function(x, z)
+			return math.sin(x * 0.7) * 2 + z * 0.5
+		end),
+		SamplesX = 5,
+		SamplesZ = 5,
+		Size = Vec2(8, 8),
+	}
+	local body = test_helpers.CreateTestRigidBody({Shape = shape})
+	local collider = body:GetColliders()[1]
+
+	for _, probe in ipairs{{-3.2, 1.7}, {0.4, -2.9}, {2.6, 3.1}, {-1.1, -1.1}} do
+		local hit = shape:TraceAgainstBody(collider, Vec3(probe[1], 50, probe[2]), Vec3(0, -1, 0), 100)
+		T(hit ~= nil)["=="](true)
+		T(math.abs(hit.position.y - shape:GetHeightAtLocal(probe[1], probe[2])))["<"](0.001)
+	end
 end)

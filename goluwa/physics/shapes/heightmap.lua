@@ -1,13 +1,15 @@
 local objects = import("goluwa/objects/objects.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local ffi = require("ffi")
 local META = objects.CreateTemplate("physics_shape_heightmap")
 META.Base = BaseShape
+META.IsHeightmap = true
+local FloatArray = ffi.typeof("float[?]")
 local HEIGHTMAP_BOUNDS_CORNERS = {
 	Vec3(),
 	Vec3(),
@@ -34,57 +36,7 @@ local TRACE_AGAINST_BODY_CONTEXT = {
 	best_hit = nil,
 	best_distance = math.huge,
 }
-
-local function get_raw_height(tex, x, y, pow)
-	local r, g, b, a = tex:GetRawPixelColor(x, y)
-	return (((r + g + b + a) / 4) / 255) ^ pow
-end
-
 local ray_triangle_intersection = triangle_geometry.RayIntersection
-
-local function build_ray(origin, direction, max_distance)
-	local ray = {
-		origin = origin,
-		direction = direction:GetNormalized(),
-		max_distance = max_distance or math.huge,
-	}
-	return ray
-end
-
-local function get_cache_sample(cache, x, y)
-	return cache.samples[(y * cache.sample_stride) + x + 1]
-end
-
-local function get_sample_from_array(samples, sample_stride, x, y)
-	return samples[(y * sample_stride) + x + 1]
-end
-
-local function get_cache_point(cache, x, y)
-	return cache.points[(y * cache.sample_stride) + x + 1]
-end
-
-local function get_cell_index(cache, x, y)
-	return (y * cache.resolution_x) + x + 1
-end
-
-local function get_cell_triangle_base(cache, x, y)
-	return ((x * cache.resolution_y) + y) * 4
-end
-
-local function build_cache_key(self, tex, size, resolution_x, resolution_y, height, pow)
-	return table.concat(
-		{
-			tostring(tex),
-			string.format("%.6f", size.x),
-			string.format("%.6f", size.y),
-			tostring(resolution_x),
-			tostring(resolution_y),
-			string.format("%.6f", height),
-			string.format("%.6f", pow),
-		},
-		":"
-	)
-end
 
 local function clamp_cell_index(value, max_value)
 	if value < 0 then return 0 end
@@ -157,14 +109,24 @@ local function collect_trace_triangle_hit(v0, v1, v2, triangle_index, context)
 	end
 end
 
+function META.SamplesFromFunction(samples_x, samples_z, callback)
+	local samples = FloatArray(samples_x * samples_z)
+
+	for z = 0, samples_z - 1 do
+		for x = 0, samples_x - 1 do
+			samples[z * samples_x + x] = callback(x, z)
+		end
+	end
+
+	return samples
+end
+
 function META.New(data)
 	local shape = META:CreateObject()
-	data = data or {}
-	shape.Heightmap = data.Heightmap
+	shape.Samples = data.Samples
+	shape.SamplesX = data.SamplesX
+	shape.SamplesZ = data.SamplesZ
 	shape.Size = data.Size
-	shape.Resolution = data.Resolution
-	shape.Height = data.Height
-	shape.Pow = data.Pow
 	return shape
 end
 
@@ -175,105 +137,77 @@ end
 function META:OnBodyGeometryChanged(body)
 	BaseShape.OnBodyGeometryChanged(self, body)
 	self.HeightmapCache = nil
-	self.HeightmapCacheKey = nil
 	self.LocalBounds = nil
 	self.CollisionLocalPoints = nil
 	self.SupportLocalPoints = nil
 end
 
-function META:BuildHeightmapCache(body)
-	local tex = self.Heightmap
-	local size = self.Size or Vec2(1024, 1024)
-	local resolution = self.Resolution or Vec2(64, 64)
-	local resolution_x = math.max(1, math.floor((resolution.x or 0) + 0.5))
-	local resolution_y = math.max(1, math.floor((resolution.y or 0) + 0.5))
-	local height = self.Height
+function META:BuildHeightmapCache()
+	if self.HeightmapCache then return self.HeightmapCache end
 
-	if height == nil then height = 64 end
-
-	local pow = self.Pow
-
-	if pow == nil then pow = 1 end
-
-	local cache_key = build_cache_key(self, tex, size, resolution_x, resolution_y, height, pow)
-
-	if self.HeightmapCache and self.HeightmapCacheKey == cache_key then
-		return self.HeightmapCache
-	end
-
-	local texture_size = tex:GetSize()
-	local step = Vec2(size.x / resolution_x, size.y / resolution_y)
-	local half_step = step / 2
-	local offset = -Vec3(size.x, height, size.y) / 2
-	local sample_stride = resolution_x + 1
-	local samples = {}
+	local samples = self.Samples
+	local samples_x = self.SamplesX
+	local samples_z = self.SamplesZ
+	local size = self.Size
+	local cells_x = samples_x - 1
+	local cells_z = samples_z - 1
+	local step_x = size.x / cells_x
+	local step_z = size.y / cells_z
+	local offset_x = -size.x * 0.5
+	local offset_z = -size.y * 0.5
 	local points = {}
 	local min_y = math.huge
 	local max_y = -math.huge
 
-	for y = 0, resolution_y do
-		local sample_y = (y / resolution_y) * texture_size.y
-		local local_z = offset.z + y * step.y
+	for z = 0, cells_z do
+		local local_z = offset_z + z * step_z
 
-		for x = 0, resolution_x do
-			local sample_x = (x / resolution_x) * texture_size.x
-			local local_height = get_raw_height(tex, sample_x, sample_y, pow) * height + offset.y
-			local index = (y * sample_stride) + x + 1
-			samples[index] = local_height
-			points[index] = Vec3(offset.x + x * step.x, local_height, local_z)
-			min_y = math.min(min_y, local_height)
-			max_y = math.max(max_y, local_height)
+		for x = 0, cells_x do
+			local height = samples[z * samples_x + x]
+			points[z * samples_x + x + 1] = Vec3(offset_x + x * step_x, height, local_z)
+
+			if height < min_y then min_y = height end
+
+			if height > max_y then max_y = height end
 		end
 	end
 
-	local cell_centers = {}
-	local cell_min_heights = {}
-	local cell_max_heights = {}
+	local cell_min_heights = FloatArray(cells_x * cells_z)
+	local cell_max_heights = FloatArray(cells_x * cells_z)
 
-	for y = 0, resolution_y - 1 do
-		local z0 = offset.z + y * step.y
-		local zc = z0 + half_step.y
-
-		for x = 0, resolution_x - 1 do
-			local top_left = get_sample_from_array(samples, sample_stride, x, y)
-			local top_right = get_sample_from_array(samples, sample_stride, x + 1, y)
-			local bottom_left = get_sample_from_array(samples, sample_stride, x, y + 1)
-			local bottom_right = get_sample_from_array(samples, sample_stride, x + 1, y + 1)
-			local center_height = (top_left + top_right + bottom_left + bottom_right) * 0.25
-			local cell_index = (y * resolution_x) + x + 1
-			cell_centers[cell_index] = Vec3(offset.x + x * step.x + half_step.x, center_height, zc)
-			cell_min_heights[cell_index] = math.min(top_left, top_right, bottom_left, bottom_right, center_height)
-			cell_max_heights[cell_index] = math.max(top_left, top_right, bottom_left, bottom_right, center_height)
+	for z = 0, cells_z - 1 do
+		for x = 0, cells_x - 1 do
+			local h00 = samples[z * samples_x + x]
+			local h10 = samples[z * samples_x + x + 1]
+			local h01 = samples[(z + 1) * samples_x + x]
+			local h11 = samples[(z + 1) * samples_x + x + 1]
+			cell_min_heights[z * cells_x + x] = math.min(h00, h10, h01, h11)
+			cell_max_heights[z * cells_x + x] = math.max(h00, h10, h01, h11)
 		end
 	end
 
 	local cache = {
-		tex = tex,
-		size = size,
-		resolution = Vec2(resolution_x, resolution_y),
-		resolution_x = resolution_x,
-		resolution_y = resolution_y,
-		height = height,
-		pow = pow,
-		step = step,
-		half_step = half_step,
-		offset = offset,
-		samples = samples,
+		samples_x = samples_x,
+		samples_z = samples_z,
+		cells_x = cells_x,
+		cells_z = cells_z,
+		step_x = step_x,
+		step_z = step_z,
+		offset_x = offset_x,
+		offset_z = offset_z,
 		points = points,
-		sample_stride = sample_stride,
-		cell_centers = cell_centers,
 		cell_min_heights = cell_min_heights,
 		cell_max_heights = cell_max_heights,
-		bounds = AABB(-size.x / 2, min_y, -size.y / 2, size.x / 2, max_y, size.y / 2),
+		bounds = AABB(offset_x, min_y, offset_z, -offset_x, max_y, -offset_z),
 	}
-	local mid_x = math.floor(resolution_x * 0.5)
-	local mid_y = math.floor(resolution_y * 0.5)
+	local mid_x = math.floor(cells_x * 0.5)
+	local mid_z = math.floor(cells_z * 0.5)
 	local collision_points = {
-		get_cache_point(cache, 0, 0),
-		get_cache_point(cache, resolution_x, 0),
-		get_cache_point(cache, 0, resolution_y),
-		get_cache_point(cache, resolution_x, resolution_y),
-		get_cache_point(cache, mid_x, mid_y),
+		points[1],
+		points[cells_x + 1],
+		points[cells_z * samples_x + 1],
+		points[cells_z * samples_x + cells_x + 1],
+		points[mid_z * samples_x + mid_x + 1],
 	}
 	local support_points = {}
 
@@ -288,20 +222,18 @@ function META:BuildHeightmapCache(body)
 	cache.collision_points = collision_points
 	cache.support_points = support_points[1] and support_points or collision_points
 	self.HeightmapCache = cache
-	self.HeightmapCacheKey = cache_key
 	return cache
 end
 
-function META:GetLocalBounds(body)
+function META:GetLocalBounds()
 	if self.LocalBounds then return self.LocalBounds end
 
-	local cache = self:BuildHeightmapCache(body)
-	self.LocalBounds = cache.bounds
+	self.LocalBounds = self:BuildHeightmapCache().bounds
 	return self.LocalBounds
 end
 
-function META:GetHalfExtents(body)
-	local bounds = self:GetLocalBounds(body)
+function META:GetHalfExtents()
+	local bounds = self:GetLocalBounds()
 	return Vec3(
 		(bounds.max_x - bounds.min_x) * 0.5,
 		(bounds.max_y - bounds.min_y) * 0.5,
@@ -313,18 +245,38 @@ function META:GetMassProperties()
 	return 0, Matrix33():SetZero()
 end
 
-function META:BuildCollisionLocalPoints(body)
-	return self:BuildHeightmapCache(body).collision_points
+function META:BuildCollisionLocalPoints()
+	return self:BuildHeightmapCache().collision_points
 end
 
-function META:BuildSupportLocalPoints(body)
-	return self:BuildHeightmapCache(body).support_points
+function META:BuildSupportLocalPoints()
+	return self:BuildHeightmapCache().support_points
+end
+
+function META:GetHeightAtLocal(x, z)
+	local cache = self:BuildHeightmapCache()
+	local fx = (x - cache.offset_x) / cache.step_x
+	local fz = (z - cache.offset_z) / cache.step_z
+	local cell_x = clamp_cell_index(math.floor(fx), cache.cells_x - 1)
+	local cell_z = clamp_cell_index(math.floor(fz), cache.cells_z - 1)
+	local tx = math.clamp(fx - cell_x, 0, 1)
+	local tz = math.clamp(fz - cell_z, 0, 1)
+	local samples = self.Samples
+	local samples_x = cache.samples_x
+	local h00 = samples[cell_z * samples_x + cell_x]
+	local h10 = samples[cell_z * samples_x + cell_x + 1]
+	local h01 = samples[(cell_z + 1) * samples_x + cell_x]
+	local h11 = samples[(cell_z + 1) * samples_x + cell_x + 1]
+
+	if tz >= tx then return h00 + (h11 - h01) * tx + (h01 - h00) * tz end
+
+	return h00 + (h10 - h00) * tx + (h11 - h10) * tz
 end
 
 function META:GetBroadphaseAABB(body, position, rotation, out)
 	position = position or body:GetPosition()
 	rotation = rotation or body:GetRotation()
-	local bounds = self:GetLocalBounds(body)
+	local bounds = self:GetLocalBounds()
 	local min_x = bounds.min_x
 	local min_y = bounds.min_y
 	local min_z = bounds.min_z
@@ -381,86 +333,64 @@ function META:GetBroadphaseAABB(body, position, rotation, out)
 end
 
 function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
-	local cache = self:BuildHeightmapCache(body)
+	local cache = self:BuildHeightmapCache()
 
 	if not callback then return end
 
+	local cells_x = cache.cells_x
+	local cells_z = cache.cells_z
+	local samples_x = cache.samples_x
 	local min_cell_x = 0
-	local max_cell_x = cache.resolution_x - 1
-	local min_cell_y = 0
-	local max_cell_y = cache.resolution_y - 1
+	local max_cell_x = cells_x - 1
+	local min_cell_z = 0
+	local max_cell_z = cells_z - 1
 
 	if local_bounds then
+		local bounds = cache.bounds
+
 		if
-			local_bounds.max_x < cache.bounds.min_x or
-			local_bounds.min_x > cache.bounds.max_x or
-			local_bounds.max_z < cache.bounds.min_z or
-			local_bounds.min_z > cache.bounds.max_z or
-			local_bounds.max_y < cache.bounds.min_y or
-			local_bounds.min_y > cache.bounds.max_y
+			local_bounds.max_x < bounds.min_x or
+			local_bounds.min_x > bounds.max_x or
+			local_bounds.max_z < bounds.min_z or
+			local_bounds.min_z > bounds.max_z or
+			local_bounds.max_y < bounds.min_y or
+			local_bounds.min_y > bounds.max_y
 		then
 			return
 		end
 
-		min_cell_x = clamp_cell_index(
-			math.floor((local_bounds.min_x - cache.offset.x) / cache.step.x),
-			cache.resolution_x - 1
-		)
-		max_cell_x = clamp_cell_index(
-			math.floor((local_bounds.max_x - cache.offset.x) / cache.step.x),
-			cache.resolution_x - 1
-		)
-		min_cell_y = clamp_cell_index(
-			math.floor((local_bounds.min_z - cache.offset.z) / cache.step.y),
-			cache.resolution_y - 1
-		)
-		max_cell_y = clamp_cell_index(
-			math.floor((local_bounds.max_z - cache.offset.z) / cache.step.y),
-			cache.resolution_y - 1
-		)
+		min_cell_x = clamp_cell_index(math.floor((local_bounds.min_x - cache.offset_x) / cache.step_x), cells_x - 1)
+		max_cell_x = clamp_cell_index(math.floor((local_bounds.max_x - cache.offset_x) / cache.step_x), cells_x - 1)
+		min_cell_z = clamp_cell_index(math.floor((local_bounds.min_z - cache.offset_z) / cache.step_z), cells_z - 1)
+		max_cell_z = clamp_cell_index(math.floor((local_bounds.max_z - cache.offset_z) / cache.step_z), cells_z - 1)
 	end
 
 	local previous_entry = context and context.entry or nil
 
 	if context then context.entry = SHARED_HEIGHTMAP_ENTRY end
 
-	for x = min_cell_x, max_cell_x do
-		local x0 = cache.offset.x + x * cache.step.x
-		local x1 = x0 + cache.step.x
+	local points = cache.points
+	local cell_min_heights = cache.cell_min_heights
+	local cell_max_heights = cache.cell_max_heights
 
-		for y = min_cell_y, max_cell_y do
-			local z0 = cache.offset.z + y * cache.step.y
-			local z1 = z0 + cache.step.y
-			local cell_index = get_cell_index(cache, x, y)
+	for z = min_cell_z, max_cell_z do
+		for x = min_cell_x, max_cell_x do
+			local cell_index = z * cells_x + x
 
-			if local_bounds then
-				local cell_min_y = cache.cell_min_heights[cell_index]
-				local cell_max_y = cache.cell_max_heights[cell_index]
-
-				if
-					x1 < local_bounds.min_x or
-					x0 > local_bounds.max_x or
-					z1 < local_bounds.min_z or
-					z0 > local_bounds.max_z or
-					cell_max_y < local_bounds.min_y or
-					cell_min_y > local_bounds.max_y
-				then
-					goto continue
-				end
+			if
+				not local_bounds or
+				(
+					cell_max_heights[cell_index] >= local_bounds.min_y and
+					cell_min_heights[cell_index] <= local_bounds.max_y
+				)
+			then
+				local p00 = points[z * samples_x + x + 1]
+				local p10 = points[z * samples_x + x + 2]
+				local p01 = points[(z + 1) * samples_x + x + 1]
+				local p11 = points[(z + 1) * samples_x + x + 2]
+				callback(p00, p11, p01, cell_index * 2 + 1, context)
+				callback(p00, p10, p11, cell_index * 2 + 2, context)
 			end
-
-			local triangle_base = get_cell_triangle_base(cache, x, y)
-			local top_left = get_cache_point(cache, x, y)
-			local top_right = get_cache_point(cache, x + 1, y)
-			local bottom_left = get_cache_point(cache, x, y + 1)
-			local bottom_right = get_cache_point(cache, x + 1, y + 1)
-			local center = cache.cell_centers[cell_index]
-			callback(bottom_left, center, bottom_right, triangle_base + 1, context)
-			callback(bottom_left, top_left, center, triangle_base + 2, context)
-			callback(top_left, top_right, center, triangle_base + 3, context)
-			callback(center, top_right, bottom_right, triangle_base + 4, context)
-
-			::continue::
 		end
 	end
 
@@ -468,14 +398,13 @@ function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
 end
 
 function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
-	local ray_direction = direction and direction:GetNormalized() or Vec3(0, 0, 0)
+	local ray_direction = direction:GetNormalized()
 
 	if ray_direction:GetLength() <= 0.00001 then return nil end
 
 	local distance_limit = max_distance or math.huge
 	local local_origin = collider:WorldToLocal(origin)
 	local local_direction = collider:GetRotation():GetConjugated():VecMul(ray_direction):GetNormalized()
-	local local_ray = build_ray(local_origin, local_direction, distance_limit)
 	local local_end = local_origin + local_direction * distance_limit
 	local radius = math.max(trace_radius or 0, 0)
 	local local_bounds = AABB(
@@ -486,7 +415,11 @@ function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_
 		math.max(local_origin.y, local_end.y) + radius,
 		math.max(local_origin.z, local_end.z) + radius
 	)
-	TRACE_AGAINST_BODY_CONTEXT.local_ray = local_ray
+	TRACE_AGAINST_BODY_CONTEXT.local_ray = {
+		origin = local_origin,
+		direction = local_direction,
+		max_distance = distance_limit,
+	}
 	TRACE_AGAINST_BODY_CONTEXT.origin = origin
 	TRACE_AGAINST_BODY_CONTEXT.ray_direction = ray_direction
 	TRACE_AGAINST_BODY_CONTEXT.trace_radius = trace_radius

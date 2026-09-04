@@ -648,7 +648,7 @@ function mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
 
 	if
 		mesh_shape and
-		mesh_shape.Heightmap ~= nil and
+		mesh_shape.IsHeightmap and
 		other_body:GetShapeType() == "capsule" and
 		best.normal and
 		best.normal.y >= math.max(other_body:GetMinGroundNormalY() or 0, 0.45)

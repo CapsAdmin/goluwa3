@@ -96,42 +96,25 @@ local function get_active_cry_terrain_render_data()
 
 	if not renderer then return nil end
 
-	local keys = {}
-
-	for _, tile in pairs(renderer.ActiveTiles or {}) do
-		local cache_key = tile.render_cache_key
-
-		if cache_key and renderer.TileRenderCache and renderer.TileRenderCache[cache_key] then
-			keys[cache_key] = true
-		end
-	end
-
-	if
-		renderer.FarState and
-		renderer.FarState.render_cache_key and
-		renderer.TileRenderCache[renderer.FarState.render_cache_key]
-	then
-		keys[renderer.FarState.render_cache_key] = true
-	end
-
 	local sorted = {}
 
-	for cache_key in pairs(keys) do
-		list.insert(sorted, cache_key)
-	end
-
-	if not sorted[1] then
-		for cache_key in pairs(renderer.TileRenderCache or {}) do
-			list.insert(sorted, cache_key)
-		end
+	for key, tile in pairs(renderer.Tiles or {}) do
+		if tile.material then list.insert(sorted, key) end
 	end
 
 	table.sort(sorted)
 
 	if not sorted[1] then return nil end
 
-	local cache_key = sorted[1]
-	return renderer.TileRenderCache[cache_key], cache_key, #sorted, renderer
+	local material = renderer.Tiles[sorted[1]].material
+	return {
+		material = material,
+		albedo_texture = material:GetAlbedoTexture(),
+		normal_texture = material:GetNormalTexture(),
+	},
+	sorted[1],
+	#sorted,
+	renderer
 end
 
 local function draw_texture_preview(texture, title, subtitle, x, y, size)

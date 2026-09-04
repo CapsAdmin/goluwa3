@@ -61,6 +61,79 @@ local VertexType = ffi.typeof([[
 		float vertex_color[4];
 	}[?]
 ]])
+Polygon3D.VertexType = VertexType
+local VERTEX_ATTRIBUTES = {
+	{
+		binding = 0,
+		location = 0,
+		format = "r32g32b32_sfloat",
+		offset = 0,
+	},
+	{
+		binding = 0,
+		location = 1,
+		format = "r32g32b32_sfloat",
+		offset = ffi.sizeof("float") * 3,
+	},
+	{
+		binding = 0,
+		location = 2,
+		format = "r32g32_sfloat",
+		offset = ffi.sizeof("float") * 6,
+	},
+	{
+		binding = 0,
+		location = 3,
+		format = "r32g32b32a32_sfloat",
+		offset = ffi.sizeof("float") * 8,
+	},
+	{
+		binding = 0,
+		location = 4,
+		format = "r32_sfloat",
+		offset = ffi.sizeof("float") * 12,
+	},
+	{
+		binding = 0,
+		location = 5,
+		format = "r32g32b32a32_sfloat",
+		offset = ffi.sizeof("float") * 13,
+	},
+}
+
+function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count)
+	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+	for i = 0, vertex_count - 1 do
+		local position = vertices[i].position
+		local x, y, z = position[0], position[1], position[2]
+
+		if x < aabb.min_x then aabb.min_x = x end
+
+		if y < aabb.min_y then aabb.min_y = y end
+
+		if z < aabb.min_z then aabb.min_z = z end
+
+		if x > aabb.max_x then aabb.max_x = x end
+
+		if y > aabb.max_y then aabb.max_y = y end
+
+		if z > aabb.max_z then aabb.max_z = z end
+	end
+
+	self:SetAABB(aabb)
+	self.indices = nil
+
+	if Mesh then
+		self.mesh = Mesh.New(
+			VERTEX_ATTRIBUTES,
+			vertices,
+			indices,
+			vertex_count > 65535 and "uint32_t" or "uint16_t",
+			index_count
+		)
+	end
+end
 
 function Polygon3D:Upload(indices)
 	self.indices = indices

@@ -63,7 +63,7 @@ local function collect_capsule_support_contact(context, collider, point, fallbac
 	local ground_body = fallback_hit.rigid_body
 	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 
-	if not (ground_body and ground_shape and ground_shape.Heightmap ~= nil) then
+	if not (ground_body and ground_shape and ground_shape.IsHeightmap) then
 		return
 	end
 
@@ -346,7 +346,7 @@ function META:SolveSupportContacts(body, dt, support_contacts, substep_id)
 	local ground_body = hit and hit.rigid_body or nil
 	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 
-	if ground_shape and ground_shape.Heightmap ~= nil then
+	if ground_shape and ground_shape.IsHeightmap then
 		CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point = nil
 		support_contacts.ForEachPointSweepContact(
 			body,
@@ -406,7 +406,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	if friction <= 0 then return end
 
 	local ground_normal = get_ground_normal(body)
-	local is_heightmap_ground = ground_shape and ground_shape.Heightmap ~= nil
+	local is_heightmap_ground = ground_shape and ground_shape.IsHeightmap
 	local axis = get_capsule_axis_world(body)
 	local upright_alignment = math.abs(axis:Dot(ground_normal))
 	local support_metrics = self:GetSupportFootprintMetrics(body, ground_normal)
@@ -626,7 +626,7 @@ function META:ShouldForceGroundedSleep(body)
 	local ground_body = body.GroundBody
 	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
 
-	if not (ground_shape and ground_shape.Heightmap ~= nil) then
+	if not (ground_shape and ground_shape.IsHeightmap) then
 		local ground_normal = get_ground_normal(body)
 
 		if ground_normal.y < math.max(body:GetMinGroundNormalY() or 0, 0.8) then
@@ -671,7 +671,7 @@ function META:ShouldUseGroundedVelocityConstraints(body, stable)
 		return false
 	end
 
-	if not (ground_shape and ground_shape.Heightmap ~= nil) then
+	if not (ground_shape and ground_shape.IsHeightmap) then
 		local axis = get_capsule_axis_world(body)
 		local upright_alignment = math.abs(axis:Dot(ground_normal))
 		local normal_speed = math.abs(body:GetVelocity():Dot(ground_normal))

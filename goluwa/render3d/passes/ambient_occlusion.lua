@@ -66,6 +66,7 @@ return {
 
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
             ]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
+            ]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_uv"}) .. [[
 
 			vec2 get_compute_uv() {
 				return get_screen_uv(get_screen_pos(), imageSize(out_color));
@@ -82,6 +83,38 @@ return {
 
 			vec3 get_normal() {
 				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
+			}
+
+			// the gbuffer normal includes normal maps, which would print the
+			// texture detail into the occlusion. rebuild the surface normal from
+			// depth instead, picking the closer neighbour on each axis so edges
+			// do not bleed, and use the gbuffer normal only to orient it.
+			vec3 get_geometric_normal(vec2 uv, vec3 world_pos, float depth, vec3 shading_normal) {
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0));
+				float depth_left = texture(TEXTURE(lighting_data.depth_tex), uv - vec2(texel.x, 0.0)).r;
+				float depth_right = texture(TEXTURE(lighting_data.depth_tex), uv + vec2(texel.x, 0.0)).r;
+				float depth_down = texture(TEXTURE(lighting_data.depth_tex), uv - vec2(0.0, texel.y)).r;
+				float depth_up = texture(TEXTURE(lighting_data.depth_tex), uv + vec2(0.0, texel.y)).r;
+				vec3 dx = abs(depth_left - depth) < abs(depth_right - depth) ?
+					world_pos - get_world_pos_uv(uv - vec2(texel.x, 0.0), depth_left) :
+					get_world_pos_uv(uv + vec2(texel.x, 0.0), depth_right) - world_pos;
+				vec3 dy = abs(depth_down - depth) < abs(depth_up - depth) ?
+					world_pos - get_world_pos_uv(uv - vec2(0.0, texel.y), depth_down) :
+					get_world_pos_uv(uv + vec2(0.0, texel.y), depth_up) - world_pos;
+				vec3 n = cross(dx, dy);
+				float len = length(n);
+
+				if (len < 1e-12) {
+					return shading_normal;
+				}
+
+				n /= len;
+
+				if (dot(n, shading_normal) < 0.0) {
+					n = -n;
+				}
+
+				return n;
 			}
 
             float get_alpha() {
@@ -216,8 +249,8 @@ return {
 					return;
 				}
 
-				vec3 N = get_normal();
 				vec3 world_pos = get_world_pos(depth);
+				vec3 N = get_geometric_normal(in_uv, world_pos, depth, get_normal());
                 float ao = get_ambient_occlusion(in_uv, world_pos, N);
                 set_color(ao);
 			}
