@@ -335,7 +335,7 @@ return {
 							float normalized_weight = pow(weight, mix(4.0, 1.5, roughness));
 							float hit_confidence;
 							vec3 reflected = parallax_depth(R, probe_to_point, sphere_radius, depth_tex, hit_confidence);
-							float probe_max_mip = color_tex == -1 ? 0.0 : float(textureQueryLevels(CUBEMAP(color_tex)) - 1);
+							float probe_max_mip = get_environment_max_mip(color_tex);
 							float probe_mip = roughness * probe_max_mip;
 							vec3 probe_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(R), probe_mip).rgb;
 							vec3 corrected_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(reflected), probe_mip).rgb;

@@ -47,6 +47,7 @@ return {
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					render3d.gbuffer_block,
 					{"env_tex", "int"},
+					{"env_irradiance_tex", "int"},
 					{"brdf_lut_tex", "int"},
 					{"blue_noise_tex", "int"},
 					render3d.last_frame_block,
@@ -54,9 +55,7 @@ return {
 					{"primary_sun_intensity", "float"},
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
-					{"stars_texture_index", "int"},
-					{"atmosphere_sky_view_texture_index", "int"},
-					{"atmosphere_transmittance_texture_index", "int"},
+					atmosphere.GetBlockLayout(),
 					{"voxel_irradiance_tex", "int"},
 					{"ssr_tex", "int"},
 					{"ssgi_filter_2_tex", "int"},
@@ -64,6 +63,7 @@ return {
 					{"ssgi_filter_1_tex", "int"},
 					{"ssgi_debug_mode", "int"},
 					{"probe_color_textures", "int", 64},
+					{"probe_irradiance_textures", "int", 64},
 					{"probe_depth_textures", "int", 64},
 					{"probe_positions", "vec4", 64},
 				},
@@ -74,6 +74,7 @@ return {
 					block.light_count = light_count
 					render3d.WriteGBufferBlock(self, block)
 					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)
@@ -85,11 +86,12 @@ return {
 					block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
 					block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
 					block.primary_sun_color[3] = 0
-					block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
-					block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-						atmosphere.GetSkyViewTexture(render3d.GetRenderCamera():GetPosition(), get_primary_sun_direction(lights))
+					atmosphere.WriteBlock(
+						self,
+						block,
+						render3d.GetRenderCamera():GetPosition(),
+						get_primary_sun_direction(lights)
 					)
-					block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 
 					if render3d.pipelines.voxel_irradiance then
 						block.voxel_irradiance_tex = self:GetTextureIndex(render3d.pipelines.voxel_irradiance:GetFramebuffer(1):GetAttachment(1))
@@ -112,6 +114,7 @@ return {
 
 					for i = 0, MAX_PROBES - 1 do
 						block.probe_color_textures[i] = -1
+						block.probe_irradiance_textures[i] = -1
 						block.probe_depth_textures[i] = -1
 						block.probe_positions[i][0] = 0
 						block.probe_positions[i][1] = 0
@@ -132,6 +135,7 @@ return {
 							if probe then
 								if probe.cubemap then
 									block.probe_color_textures[i] = self:GetCubeMapTextureIndex(probe.cubemap)
+									block.probe_irradiance_textures[i] = self:GetCubeMapTextureIndex(probe.irradiance_cubemap)
 								end
 
 								if probe.depth_cubemap then
@@ -216,9 +220,7 @@ return {
 				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 			}
 
-			#define ATMOSPHERE_SUN_INTENSITY lighting_data.primary_sun_intensity
-
-			]] .. atmosphere.GetGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLDefines("lighting_data", "lighting_data.primary_sun_intensity") .. atmosphere.GetGLSLCode() .. [[
 
 
 			#define SSR 1
@@ -352,7 +354,7 @@ return {
 			}
 
 			vec3 get_environment_irradiance(vec3 normal, vec3 world_pos) {
-				vec3 global_env = sample_environment_irradiance(lighting_data.env_tex, normal);
+				vec3 global_env = sample_environment_irradiance(lighting_data.env_irradiance_tex, normal);
 
 				vec3 probes_env = vec3(0.0);
 				float total_weight = 0.0;
@@ -360,7 +362,7 @@ return {
 				float max_weight = 0.0;
 
 				for (int i = 0; i < 64; i++) {
-					int color_tex = lighting_data.probe_color_textures[i];
+					int color_tex = lighting_data.probe_irradiance_textures[i];
 					int depth_tex = lighting_data.probe_depth_textures[i];
 					if (color_tex == -1 || depth_tex == -1) continue;
 
@@ -435,14 +437,7 @@ return {
 					vec3 sun_dir = get_primary_sun_direction();
 					vec3 sky_color_output = vec3(0.0);
 
-					]] .. atmosphere.GetGLSLMainCode(
-				"sky_dir",
-				"sun_dir",
-				"lighting_data.camera_position.xyz",
-				"lighting_data.stars_texture_index",
-				"lighting_data.atmosphere_sky_view_texture_index",
-				"lighting_data.atmosphere_transmittance_texture_index"
-			) .. [[
+					]] .. atmosphere.GetGLSLMainCode("sky_dir", "sun_dir", "lighting_data.camera_position.xyz") .. [[
 
 					return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
 				}

@@ -244,8 +244,9 @@ return {
 						{"normal_tex", "int"},
 						{"mra_tex", "int"},
 						{"env_tex", "int"},
+						{"env_irradiance_tex", "int"},
 						{"ssr_tex", "int"},
-						{"atmosphere_transmittance_texture_index", "int"},
+						atmosphere.GetBlockLayout(),
 						{"sun_direction", "vec3"},
 						{"primary_sun_intensity", "float"},
 						{"primary_sun_color", "vec3"},
@@ -271,6 +272,7 @@ return {
 						block.normal_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
 						block.mra_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
 						block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
+						block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 
 						if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
 							block.ssr_tex = -1
@@ -279,7 +281,12 @@ return {
 							block.ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr:GetFramebuffer(current_idx):GetAttachment(1))
 						end
 
-						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+						atmosphere.WriteBlock(
+							self,
+							block,
+							render3d.GetRenderCamera():GetPosition(),
+							get_primary_sun_direction()
+						)
 						get_primary_sun_direction():CopyToFloatPointer(block.sun_direction)
 						block.primary_sun_intensity = get_primary_sun_intensity()
 						get_primary_sun_color():CopyToFloatPointer(block.primary_sun_color)
@@ -510,9 +517,7 @@ return {
 				return (1.0 - gg) / (pow(1.0 + gg - 2.0 * g * mu, 1.5) * 4.0 * SEA_PI);
 			}
 
-			#define ATMOSPHERE_SUN_INTENSITY ocean_data.primary_sun_intensity
-
-			]] .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_intensity") .. ibl.GetBRDFGLSLCode() .. [[
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
@@ -540,7 +545,7 @@ return {
 			}
 
 			vec3 get_environment_irradiance(vec3 normal) {
-				return sample_environment_irradiance(ocean_data.env_tex, normal);
+				return sample_environment_irradiance(ocean_data.env_irradiance_tex, normal);
 			}
 
 			vec3 apply_water_volume(vec3 source_color, vec3 ambient_light, float thickness) {
@@ -773,8 +778,7 @@ return {
 					color,
 					ocean_world_pos,
 					sun_direction,
-					ocean_data.camera_position.xyz,
-					ocean_data.atmosphere_transmittance_texture_index
+					ocean_data.camera_position.xyz
 				);
 
 

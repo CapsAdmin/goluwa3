@@ -1391,8 +1391,9 @@ do
 	end
 end
 
-function render3d.SetEnvironmentTexture(texture)
+function render3d.SetEnvironmentTexture(texture, irradiance_texture)
 	render3d.environment_texture = texture
+	render3d.environment_irradiance_texture = irradiance_texture
 end
 
 function render3d.GetEnvironmentTexture()
@@ -1403,6 +1404,16 @@ function render3d.GetEnvironmentTexture()
 	end
 
 	return render3d.environment_texture
+end
+
+function render3d.GetEnvironmentIrradianceTexture()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.environment_irradiance_texture ~= nil then
+		return context.environment_irradiance_texture
+	end
+
+	return render3d.environment_irradiance_texture
 end
 
 function render3d.SetOceanEnabled(enabled)

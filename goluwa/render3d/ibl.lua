@@ -115,19 +115,40 @@ function ibl.GetBRDFGLSLCode()
 		]]
 end
 
+-- prefiltered cubemap mips with faces smaller than this are not used for roughness lookups
+ibl.ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE = 16
+
+function ibl.GetPrefilterMipCount(size)
+	return math.max(
+			math.floor(math.log(size / ibl.ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE) / math.log(2) + 0.5),
+			0
+		) + 1
+end
+
 function ibl.GetEnvironmentGLSLCode()
 	return [[
+			const int ENVIRONMENT_ROUGHEST_MIP_SKIP = ]] .. (
+			math.floor(math.log(ibl.ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE) / math.log(2) + 0.5)
+		) .. [[;
+
+			// Mip that holds perceptual roughness 1. The chain stops at faces of
+			// ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE texels because coarser levels
+			// cannot represent the wide GGX lobe without visible face seams.
 			float get_environment_max_mip(int env_tex) {
 				if (env_tex == -1) return 0.0;
-				return float(textureQueryLevels(CUBEMAP(env_tex)) - 1);
+				return max(float(textureQueryLevels(CUBEMAP(env_tex)) - 1 - ENVIRONMENT_ROUGHEST_MIP_SKIP), 0.0);
 			}
 
 			vec3 correct_environment_lookup_dir(vec3 dir) {
 				return normalize(vec3(-dir.x, dir.y, dir.z));
 			}
 
+			// Frostbite's fit of the direction the GGX lobe is centered on:
+			// rough surfaces reflect closer to the normal than the mirror direction.
 			vec3 get_specular_dominant_direction(vec3 reflection_dir, vec3 normal, float perceptual_roughness) {
-				return normalize(mix(reflection_dir, normal, perceptual_roughness * perceptual_roughness));
+				float alpha = perceptual_roughness * perceptual_roughness;
+				float lerp_factor = (1.0 - alpha) * (sqrt(1.0 - alpha) + alpha);
+				return normalize(mix(normal, reflection_dir, lerp_factor));
 			}
 
 			vec3 sample_environment_specular(int env_tex, vec3 reflection_dir, vec3 normal, float perceptual_roughness) {
@@ -138,11 +159,11 @@ function ibl.GetEnvironmentGLSLCode()
 				return textureLod(CUBEMAP(env_tex), sample_dir, perceptual_roughness * max_mip).rgb * horizon * horizon;
 			}
 
-			vec3 sample_environment_irradiance(int env_tex, vec3 normal) {
-				if (env_tex == -1) return vec3(0.0);
-				float max_mip = get_environment_max_mip(env_tex);
-				vec3 sample_dir = correct_environment_lookup_dir(normalize(mix(vec3(0.0, 1.0, 0.0), normal, 0.35)));
-				return textureLod(CUBEMAP(env_tex), sample_dir, max_mip * 0.8).rgb;
+			// irradiance_tex is a cosine convolved cubemap already divided by
+			// pi, so the result times albedo is the diffuse outgoing radiance.
+			vec3 sample_environment_irradiance(int irradiance_tex, vec3 normal) {
+				if (irradiance_tex == -1) return vec3(0.0);
+				return texture(CUBEMAP(irradiance_tex), correct_environment_lookup_dir(normal)).rgb;
 			}
 		]]
 end

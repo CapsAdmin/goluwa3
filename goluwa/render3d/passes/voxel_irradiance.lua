@@ -272,13 +272,11 @@ return {
 					{"primary_sun_intensity", "float"},
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
-					{"stars_texture_index", "int"},
-					{"atmosphere_sky_view_texture_index", "int"},
+					atmosphere.GetBlockLayout(),
 					{"voxel_gi_clipmap_count", "int"},
 					{"voxel_gi_strength", "float"},
 					{"voxel_gi_clipmap_origins", "vec4", 3},
 					{"voxel_gi_clipmap_data", "vec4", 3},
-					{"atmosphere_transmittance_texture_index", "int"},
 					{"ssr_tex", "int"},
 					{"ssgi_filter_2_tex", "int"},
 					{"ssgi_raw_tex", "int"},
@@ -303,9 +301,11 @@ return {
 					block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
 					block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
 					block.primary_sun_color[3] = 0
-					block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
-					block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-						atmosphere.GetSkyViewTexture(render3d.GetRenderCamera():GetPosition(), get_primary_sun_direction(lights))
+					atmosphere.WriteBlock(
+						self,
+						block,
+						render3d.GetRenderCamera():GetPosition(),
+						get_primary_sun_direction(lights)
 					)
 					block.voxel_gi_clipmap_count = 0
 					block.voxel_gi_strength = 0.2
@@ -356,8 +356,6 @@ return {
 							end
 						end
 					end
-
-					block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 
 					if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
 						block.ssr_tex = -1
@@ -433,9 +431,7 @@ return {
 			}
 
 
-			#define ATMOSPHERE_SUN_INTENSITY lighting_data.primary_sun_intensity
-
-			]] .. atmosphere.GetGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLDefines("lighting_data", "lighting_data.primary_sun_intensity") .. atmosphere.GetGLSLCode() .. [[
 
 
 			#define SSR 1

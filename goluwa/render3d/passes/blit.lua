@@ -103,7 +103,7 @@ local compute_shader = [[
 
 			avg_log_luma /= float(samples);
 			float avg_luma = exp2(avg_log_luma);
-			float target_luma = 0.5;
+			float target_luma = 0.2;
 			exposure = target_luma / max(avg_luma, 0.001);
 			exposure = clamp(exposure, 0.1, 4.0);
 		}

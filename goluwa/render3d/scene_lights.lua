@@ -59,6 +59,14 @@ function scene_lights.GetLightGLSLCode()
 				return normalize(light.direction.xyz);
 			}
 
+			// Inverse square falloff that reaches exactly zero at the light's
+			// range instead of cutting off with a visible edge.
+			float get_light_distance_attenuation(float dist, float range) {
+				float ratio = dist / range;
+				float window = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
+				return window * window / max(dist * dist, 0.0025);
+			}
+
 			bool get_light_vector_and_attenuation(lights_t light, vec3 world_pos, out vec3 L, out float attenuation) {
 				int type = get_light_type(light);
 				vec3 light_dir = get_light_direction(light);
@@ -79,7 +87,7 @@ function scene_lights.GetLightGLSLCode()
 					}
 
 					L = light_to_pos / dist;
-					attenuation = 1.0 / max(dist * dist, 0.0025);
+					attenuation = get_light_distance_attenuation(dist, range);
 					return true;
 				}
 
@@ -97,7 +105,7 @@ function scene_lights.GetLightGLSLCode()
 					float inner_cone = clamp(light.params.y, -1.0, 1.0);
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
 					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, cone_dir));
-					attenuation = cone_attenuation / max(dist * dist, 0.0025);
+					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range);
 					L = type == 2 ? normalize(-light_dir) : normalize(light.position.xyz - world_pos);
 					return true;
 				}

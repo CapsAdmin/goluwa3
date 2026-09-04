@@ -263,8 +263,17 @@ local function build_scene_light_block_fields()
 		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 		{"light_count", "int"},
 		{"shadows", scene_lights.BuildShadowsBlockLayout()},
-		{"atmosphere_transmittance_texture_index", "int"},
+		atmosphere.GetBlockLayout(),
 	}
+end
+
+local function write_atmosphere_block(self, block)
+	atmosphere.WriteBlock(
+		self,
+		block,
+		render3d.GetRenderCamera():GetPosition(),
+		directional_shadows.GetPrimarySunDirection(render3d.GetLights())
+	)
 end
 
 local r = {
@@ -307,7 +316,7 @@ local r = {
 						scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
 						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
 						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
-						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+						write_atmosphere_block(self, block)
 						return block
 					end,
 				},
@@ -354,9 +363,7 @@ local r = {
 				return sun_index < 0 ? 1.0 : froxel_data.lights[sun_index].color.a;
 			}
 
-			#define ATMOSPHERE_SUN_INTENSITY get_current_primary_sun_intensity()
-
-			]] .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
 			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. [[
 
 			float get_slice_view_depth(float slice_index) {
@@ -673,7 +680,7 @@ local r = {
 						scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
 						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
 						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
-						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
+						write_atmosphere_block(self, block)
 						return block
 					end,
 				},
@@ -712,9 +719,7 @@ local r = {
 				return sun_index < 0 ? 1.0 : fog_data.lights[sun_index].color.a;
 			}
 
-			#define ATMOSPHERE_SUN_INTENSITY get_current_primary_sun_intensity()
-
-			]] .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
 			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility", {normal_expr = "normalize(normal)"}) .. [[
 
 

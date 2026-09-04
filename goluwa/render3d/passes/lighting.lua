@@ -88,9 +88,7 @@ return {
 					{"primary_sun_intensity", "float"},
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
-					{"stars_texture_index", "int"},
-					{"atmosphere_sky_view_texture_index", "int"},
-					{"atmosphere_transmittance_texture_index", "int"},
+					atmosphere.GetBlockLayout(),
 					{"probe_irradiance_tex", "int"},
 					{"voxel_irradiance_tex", "int"},
 					{"ssr_tex", "int"},
@@ -117,11 +115,12 @@ return {
 					block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
 					block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
 					block.primary_sun_color[3] = 0
-					block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
-					block.atmosphere_sky_view_texture_index = self:GetTextureIndex(
-						atmosphere.GetSkyViewTexture(render3d.GetRenderCamera():GetPosition(), get_primary_sun_direction(lights))
+					atmosphere.WriteBlock(
+						self,
+						block,
+						render3d.GetRenderCamera():GetPosition(),
+						get_primary_sun_direction(lights)
 					)
-					block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 
 					if render3d.pipelines.voxel_irradiance then
 						block.voxel_irradiance_tex = self:GetTextureIndex(render3d.pipelines.voxel_irradiance:GetFramebuffer(1):GetAttachment(1))
@@ -225,10 +224,11 @@ return {
 				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 			}
 
-			#define ATMOSPHERE_SUN_INTENSITY lighting_data.primary_sun_intensity
+			]] .. atmosphere.GetGLSLDefines("lighting_data", "lighting_data.primary_sun_intensity") .. atmosphere.GetGLSLCode() .. [[
 
-			]] .. atmosphere.GetGLSLCode() .. [[
-
+			// tangent of the sun's angular radius, used to give the sun a
+			// finite size in the specular lobe
+			const float SUN_ANGULAR_RADIUS_TAN = 0.0047;
 
 			#define SSR 1
 			#define PARALLAX_CORRECTION 1
@@ -418,14 +418,7 @@ return {
 				vec3 sun_dir = get_primary_sun_direction();
 				vec3 sky_color_output = vec3(0.0);
 
-				]] .. atmosphere.GetGLSLMainCode(
-				"sky_dir",
-				"sun_dir",
-				"lighting_data.camera_position.xyz",
-				"lighting_data.stars_texture_index",
-				"lighting_data.atmosphere_sky_view_texture_index",
-				"lighting_data.atmosphere_transmittance_texture_index"
-			) .. [[
+				]] .. atmosphere.GetGLSLMainCode("sky_dir", "sun_dir", "lighting_data.camera_position.xyz") .. [[
 
 				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
 			}
@@ -476,7 +469,20 @@ return {
                     float NoH = saturate(dot(N, H));
                     float LoH = saturate(dot(L, H));
 
-					float D = D_GGXAlpha(roughness_alpha, NoH);
+					// The sun is a disc, not a point: widen the lobe by its
+					// angular radius and renormalize (Karis 2013) so smooth
+					// surfaces show a highlight of the right size instead of
+					// a needle sharp peak.
+					float lobe_alpha = roughness_alpha;
+					float lobe_energy = 1.0;
+
+					if (type == 0) {
+						lobe_alpha = saturate(roughness_alpha + SUN_ANGULAR_RADIUS_TAN * 0.5);
+						lobe_energy = roughness_alpha / lobe_alpha;
+						lobe_energy *= lobe_energy;
+					}
+
+					float D = D_GGXAlpha(lobe_alpha, NoH) * lobe_energy;
 					float V_func = V_SmithGGXCorrelated(roughness_alpha, NdotV, NoL);
                     vec3 F = F_Schlick(F0, LoH);
 
@@ -540,7 +546,7 @@ return {
 				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos);
 				float ambient_front_amount = blocking_detail;
 				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
-				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N);
+				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * get_ao();
 
 				vec3 irradiance = mix(get_probe_irradiance(), get_ssgi_irradiance(perceptual_roughness), get_ssgi_confidence(perceptual_roughness));
 
@@ -630,11 +636,10 @@ return {
 					world_pos,
 					sunDir,
 					lighting_data.camera_position.xyz,
-					lighting_data.atmosphere_transmittance_texture_index,
 					atmosphere_sun_visibility
 				);
 
-				set_color(vec4(color, alpha));
+				set_color(vec4(min(color, vec3(65504.0)), alpha));
 			}
 		]],
 	},

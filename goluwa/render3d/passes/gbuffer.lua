@@ -530,16 +530,16 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 							val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness) * get_terrain_layer_sample(uv, in_position).roughness;
 						} else {
 							val = factor_model.RoughnessMultiplier;
-							val = clamp(val, 0.05, 0.95);
-							return val;
+							return clamp(val * val, 0.002, 1.0);
 						}
 
 						val *= factor_model.RoughnessMultiplier;
 
 						if (InvertRoughnessTexture) val = -val + 1.0;
 
+						// perceptual roughness in, GGX alpha out
 						val *= val;
-						val = clamp(val, 0.05, 0.95);
+						val = clamp(val, 0.002, 1.0);
 						return val;
 					}
 

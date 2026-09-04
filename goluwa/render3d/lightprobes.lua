@@ -48,6 +48,8 @@ lightprobes.UPDATE_MANUAL = "manual" -- Update only when requested
 -- Configuration
 lightprobes.ENVIRONMENT_SIZE = 512 -- Larger size for environment probe
 lightprobes.SCENE_SIZE = 128 -- Smaller size for scene probes
+lightprobes.IRRADIANCE_SIZE = 32 -- Diffuse irradiance cubemap face size
+lightprobes.IRRADIANCE_SOURCE_SIZE = 16 -- Source mip face size the irradiance convolution integrates over
 lightprobes.SCENE_RADIUS = lightprobes.SCENE_RADIUS or 48
 lightprobes.SCENE_MIN_SPACING = lightprobes.SCENE_MIN_SPACING or 24
 lightprobes.GRID_SPACING = lightprobes.GRID_SPACING or 192
@@ -138,6 +140,21 @@ local function initialize_probe_layouts(cmd, probe)
 			level_count = 1,
 		}
 	)
+	render.TransitionResourceTo(
+		probe.irradiance_cubemap,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = 6,
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	)
 end
 
 local function initialize_probe_layouts_now(probe)
@@ -174,6 +191,16 @@ local function remove_probe_resources(probe)
 		for _, view in pairs(probe.depth_face_views) do
 			if view and view.Remove then view:Remove() end
 		end
+	end
+
+	if probe.irradiance_face_views then
+		for _, view in pairs(probe.irradiance_face_views) do
+			if view and view.Remove then view:Remove() end
+		end
+	end
+
+	if probe.irradiance_cubemap and probe.irradiance_cubemap.Remove then
+		probe.irradiance_cubemap:Remove()
 	end
 
 	if probe.mip_face_views then
@@ -230,6 +257,23 @@ local function CreateProbeTextures(size)
 			layer_count = 6,
 		},
 	}
+	-- Cosine convolved irradiance (divided by pi) of the source cubemap, used
+	-- for diffuse image based lighting
+	probe.irradiance_cubemap = Texture.New{
+		width = lightprobes.IRRADIANCE_SIZE,
+		height = lightprobes.IRRADIANCE_SIZE,
+		format = "b10g11r11_ufloat_pack32",
+		mip_map_levels = 1,
+		image = {
+			array_layers = 6,
+			flags = {"cube_compatible"},
+			usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+		},
+		view = {
+			view_type = "cube",
+			layer_count = 6,
+		},
+	}
 	-- Create depth cubemap (linear depth for parallax correction) - only for scene probes
 	probe.depth_cubemap = Texture.New{
 		width = size,
@@ -264,6 +308,18 @@ local function CreateProbeTextures(size)
 
 	for j = 0, 5 do
 		probe.depth_face_views[j] = probe.depth_cubemap:GetImage():CreateView{
+			view_type = "2d",
+			base_array_layer = j,
+			layer_count = 1,
+			base_mip_level = 0,
+			level_count = 1,
+		}
+	end
+
+	probe.irradiance_face_views = {}
+
+	for j = 0, 5 do
+		probe.irradiance_face_views[j] = probe.irradiance_cubemap:GetImage():CreateView{
 			view_type = "2d",
 			base_array_layer = j,
 			layer_count = 1,
@@ -940,7 +996,7 @@ function lightprobes.Initialize()
 		lightprobes.camera:SetNearZ(0.1)
 		lightprobes.camera:SetFarZ(1000)
 		lightprobes.environment_probe.needs_update = true
-		render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap)
+		render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap, lightprobes.environment_probe.irradiance_cubemap)
 	end
 
 	lightprobes.InitializeCubemapLayouts()
@@ -983,6 +1039,7 @@ function lightprobes.CreatePipelines()
 	for _, key in ipairs{
 		"sky_pipeline",
 		"prefilter_pipeline",
+		"irradiance_pipeline",
 		"capture_copy_pipeline",
 		"capture_depth_pipeline",
 	} do
@@ -1043,35 +1100,26 @@ function lightprobes.CreatePipelines()
 				{
 					name = "fragment",
 					block = {
-						{"stars_texture_index", "int"},
-						{"atmosphere_transmittance_texture_index", "int"},
-						{"atmosphere_sky_view_texture_index", "int"},
 						{"sun_direction", "vec4"},
 						{"camera_position", "vec4"},
+						{"sun_intensity", "float"},
+						unpack(atmosphere.GetBlockLayout()),
 					},
 					write = function(self, block)
-						block.stars_texture_index = self:GetTextureIndex(atmosphere.GetStarsTexture())
-						block.atmosphere_transmittance_texture_index = self:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-						block.atmosphere_sky_view_texture_index = self:GetTextureIndex(atmosphere.GetSkyViewTexture(lightprobes.camera:GetPosition(), get_primary_sun_direction()))
 						local sun = get_primary_sun(render3d.GetLights())
-
-						if sun then
-							sun.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block.sun_direction)
-						else
-							block.sun_direction[0] = 0
-							block.sun_direction[1] = 1
-							block.sun_direction[2] = 0
-							block.sun_direction[3] = 0
-						end
-
+						local sun_direction = get_primary_sun_direction()
+						sun_direction:CopyToFloatPointer(block.sun_direction)
+						block.sun_direction[3] = 0
+						block.sun_intensity = sun and sun.Intensity or atmosphere.GetSunIntensity()
 						lightprobes.camera:GetPosition():CopyToFloatPointer(block.camera_position)
+						atmosphere.WriteBlock(self, block, lightprobes.camera:GetPosition(), sun_direction)
 						return block
 					end,
 				},
 			},
 			custom_declarations = [[
                 layout(location = 0) in vec3 in_direction;
-                ]] .. atmosphere.GetGLSLCode() .. [[
+                ]] .. atmosphere.GetGLSLDefines("fragment", "fragment.sun_intensity") .. atmosphere.GetGLSLCode() .. [[
             ]],
 			shader = [[
                 void main() {
@@ -1080,9 +1128,7 @@ function lightprobes.CreatePipelines()
 					"in_direction",
 					"fragment.sun_direction.xyz",
 					"fragment.camera_position.xyz",
-					"fragment.stars_texture_index",
-					"fragment.atmosphere_sky_view_texture_index",
-					"fragment.atmosphere_transmittance_texture_index"
+					{include_sun_disc = false}
 				) .. [[
 					vec3 probe_ray_dir = normalize(in_direction);
 					vec3 probe_sun_dir = length(fragment.sun_direction.xyz) > 0.0001
@@ -1291,6 +1337,101 @@ function lightprobes.CreatePipelines()
                     
                     prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));
                     set_color(vec4(prefilteredColor, 1.0));
+                }
+            ]],
+		},
+	}
+	-- Diffuse irradiance: integrates every texel of a small mip of the
+	-- source cubemap against the cosine lobe of the output direction. The
+	-- result is divided by pi so that multiplying by albedo gives the
+	-- outgoing diffuse radiance.
+	lightprobes.irradiance_pipeline = EasyPipeline.New{
+		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
+		RasterizationSamples = "1",
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+		vertex = {
+			push_constants = {
+				{
+					name = "vertex",
+					block = {
+						{"inv_projection_view", "mat4"},
+					},
+					write = write_sky_vertex_constants,
+				},
+			},
+			custom_declarations = [[
+                layout(location = 0) out vec3 out_direction;
+            ]],
+			shader = [[
+                vec2 positions[3] = vec2[](
+                    vec2(-1.0, -1.0),
+                    vec2( 3.0, -1.0),
+                    vec2(-1.0,  3.0)
+                );
+
+                void main() {
+                    vec2 pos = positions[gl_VertexIndex];
+                    gl_Position = vec4(pos, 1.0, 1.0);
+					vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+					out_direction = world_pos.xyz / world_pos.w;
+                }
+            ]],
+		},
+		fragment = {
+			push_constants = {
+				{
+					name = "fragment",
+					block = {
+						{"input_texture_index", "int"},
+						{"source_lod", "float"},
+					},
+					write = function(self, block)
+						local probe = lightprobes.current_prefilter_probe
+						block.input_texture_index = self:GetCubeMapTextureIndex(probe.source_cubemap)
+						block.source_lod = math.max(math.log(probe.size / lightprobes.IRRADIANCE_SOURCE_SIZE) / math.log(2), 0)
+						return block
+					end,
+				},
+			},
+			custom_declarations = [[
+                layout(location = 0) in vec3 in_direction;
+				const int IRRADIANCE_SOURCE_SIZE = ]] .. lightprobes.IRRADIANCE_SOURCE_SIZE .. [[;
+            ]],
+			shader = [[
+				vec3 get_cube_texel_direction(int face, vec2 uv) {
+					if (face == 0) return vec3(1.0, uv.y, uv.x);
+					if (face == 1) return vec3(-1.0, uv.y, uv.x);
+					if (face == 2) return vec3(uv.x, 1.0, uv.y);
+					if (face == 3) return vec3(uv.x, -1.0, uv.y);
+					if (face == 4) return vec3(uv.x, uv.y, 1.0);
+					return vec3(uv.x, uv.y, -1.0);
+				}
+
+                void main() {
+                    vec3 N = normalize(in_direction);
+					vec3 irradiance = vec3(0.0);
+					float texel_size = 2.0 / float(IRRADIANCE_SOURCE_SIZE);
+
+					for (int face = 0; face < 6; face++) {
+						for (int y = 0; y < IRRADIANCE_SOURCE_SIZE; y++) {
+							for (int x = 0; x < IRRADIANCE_SOURCE_SIZE; x++) {
+								vec2 uv = (vec2(float(x), float(y)) + 0.5) * texel_size - 1.0;
+								vec3 texel_dir = get_cube_texel_direction(face, uv);
+								float length_sq = dot(texel_dir, texel_dir);
+								float NoL = dot(N, texel_dir) * inversesqrt(length_sq);
+
+								if (NoL <= 0.0) continue;
+
+								float solid_angle = texel_size * texel_size / (length_sq * sqrt(length_sq));
+								vec3 radiance = min(textureLod(CUBEMAP(fragment.input_texture_index), texel_dir, fragment.source_lod).rgb, vec3(65504.0));
+								irradiance += radiance * (NoL * solid_angle);
+							}
+						}
+					}
+
+                    set_color(vec4(irradiance / 3.14159265359, 1.0));
                 }
             ]],
 		},
@@ -1615,10 +1756,13 @@ function lightprobes.PrefilterProbe(cmd, probe)
 	lightprobes.current_prefilter_probe = probe
 	-- Generate mipmaps for source cubemap
 	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
+	local roughest_mip = math.max(math.min(ibl.GetPrefilterMipCount(SIZE), num_mips) - 1, 1)
 
-	-- For each mip level, render prefiltered version
+	-- Roughness 0..1 maps onto the mips down to the roughest usable face
+	-- size; the remaining tiny mips repeat roughness 1 so trilinear lookups
+	-- never reach unfiltered data.
 	for m = 0, num_mips - 1 do
-		local perceptual_roughness = m / math.max(num_mips - 1, 1)
+		local perceptual_roughness = math.min(m / roughest_mip, 1)
 		lightprobes.current_roughness = perceptual_roughness
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
 
@@ -1675,6 +1819,60 @@ function lightprobes.PrefilterProbe(cmd, probe)
 				}
 			)
 		end
+	end
+
+	local irradiance_size = lightprobes.IRRADIANCE_SIZE
+
+	for face = 0, 5 do
+		lightprobes.camera:SetAngles(face_angles[face + 1])
+		local proj = lightprobes.camera:BuildProjectionMatrix()
+		local view = lightprobes.camera:BuildViewMatrix():Copy()
+		view.m30, view.m31, view.m32 = 0, 0, 0
+		local proj_view = view * proj
+		proj_view:GetInverse(lightprobes.inv_projection_view)
+		render.TransitionResourceTo(
+			probe.irradiance_cubemap,
+			"color_attachment_optimal",
+			{
+				cmd = cmd,
+				srcStage = "fragment_shader",
+				srcAccess = "shader_read",
+				dstStage = "color_attachment_output",
+				dstAccess = "color_attachment_write",
+				base_array_layer = face,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+		cmd:BeginRendering{
+			color_image_view = probe.irradiance_face_views[face],
+			w = irradiance_size,
+			h = irradiance_size,
+			clear_color = {0, 0, 0, 1},
+		}
+		cmd:SetViewport(0, 0, irradiance_size, irradiance_size)
+		cmd:SetScissor(0, 0, irradiance_size, irradiance_size)
+		cmd:SetCullMode("none")
+		lightprobes.irradiance_pipeline:UploadConstants()
+		lightprobes.irradiance_pipeline:Bind(cmd)
+		cmd:Draw(3, 1, 0, 0)
+		cmd:EndRendering()
+		render.TransitionResourceFrom(
+			probe.irradiance_cubemap,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "color_attachment_output",
+				srcAccess = "color_attachment_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+				base_array_layer = face,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
 	end
 
 	render.PopCommandBuffer()

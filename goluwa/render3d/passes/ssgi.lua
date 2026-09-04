@@ -46,6 +46,7 @@ local passes = {
 					render3d.gbuffer_block,
 					render3d.last_frame_block,
 					{"env_tex", "int"},
+					{"env_irradiance_tex", "int"},
 					{"brdf_lut_tex", "int"},
 					{"ssgi_max_steps", "int"},
 					{"ssgi_step_size", "float"},
@@ -61,6 +62,7 @@ local passes = {
 					render3d.WriteLastFrameBlock(self, block)
 					block.lighting_direct_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1))
 					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 					block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
 					block.ssgi_max_steps = 64
 					block.ssgi_step_size = 0.1
@@ -406,7 +408,7 @@ local passes = {
 
 							// Accumulate lighting
 							vec3 hit_color = get_lighting_direct_color(best_uv) + get_albedo(best_uv) * 0.5; // Add some albedo-based color to help with dark materials
-							vec3 irradiance = sample_environment_irradiance(ssgi_data.env_tex, hit_normal_ws);
+							vec3 irradiance = sample_environment_irradiance(ssgi_data.env_irradiance_tex, hit_normal_ws);
 							acc += sh * hit_color * irradiance * 3.0 * dist_atten_combined * trns;
 						}
 					}
@@ -454,7 +456,7 @@ local passes = {
 
 			vec3 get_ssgi_fallback(vec2 uv, vec3 N) {
 				// Fallback to environment irradiance when no ray hit
-				vec3 irradiance = sample_environment_irradiance(ssgi_data.env_tex, N);
+				vec3 irradiance = sample_environment_irradiance(ssgi_data.env_irradiance_tex, N);
 				vec3 color = get_lighting_direct_color(uv);
 				return color * irradiance * (1.0 / 3.14159265);
 			}
