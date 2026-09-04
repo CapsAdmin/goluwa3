@@ -123,57 +123,67 @@ local function get_axis_index(axis_name)
 	return 2
 end
 
+local function get_axis_target_textures(target)
+	return {target.texture, target.normal_texture}
+end
+
 local function transition_axis_target(cmd, target, new_layout, src_stage, dst_stage, src_access, dst_access)
-	render.TransitionResourceTo(
-		target.texture,
-		new_layout,
-		{
-			cmd = cmd,
-			srcStage = src_stage,
-			srcAccess = src_access,
-			dstStage = dst_stage,
-			dstAccess = dst_access,
-			base_array_layer = 0,
-			layer_count = target.texture:GetHeight(),
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	)
+	for _, texture in ipairs(get_axis_target_textures(target)) do
+		render.TransitionResourceTo(
+			texture,
+			new_layout,
+			{
+				cmd = cmd,
+				srcStage = src_stage,
+				srcAccess = src_access,
+				dstStage = dst_stage,
+				dstAccess = dst_access,
+				base_array_layer = 0,
+				layer_count = texture:GetHeight(),
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+	end
 end
 
 local function transition_axis_target_for_compute(cmd, target, write)
-	render.TransitionResourceToComputeStorage(
-		target.texture,
-		{
-			cmd = cmd,
-			dstAccess = write and "shader_write" or "shader_read",
-			base_array_layer = 0,
-			layer_count = target.texture:GetHeight(),
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	)
+	for _, texture in ipairs(get_axis_target_textures(target)) do
+		render.TransitionResourceToComputeStorage(
+			texture,
+			{
+				cmd = cmd,
+				dstAccess = write and "shader_write" or "shader_read",
+				base_array_layer = 0,
+				layer_count = texture:GetHeight(),
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+	end
 end
 
 local function transition_axis_target_from_compute(cmd, target)
-	render.TransitionResourceFrom(
-		target.texture,
-		"shader_read_only_optimal",
-		{
-			cmd = cmd,
-			srcStage = "compute",
-			srcAccess = "shader_write",
-			dstStage = "fragment_shader",
-			dstAccess = "shader_read",
-			base_array_layer = 0,
-			layer_count = target.texture:GetHeight(),
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	)
+	for _, texture in ipairs(get_axis_target_textures(target)) do
+		render.TransitionResourceFrom(
+			texture,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "compute",
+				srcAccess = "shader_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+				base_array_layer = 0,
+				layer_count = texture:GetHeight(),
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+	end
 end
 
-local shared_scroll_compute_pipeline = nil
+local shared_scroll_compute_pipelines = nil
 local voxel_scroll_submit_fence = nil
 
 local function get_voxel_scroll_submit_fence()
@@ -203,11 +213,16 @@ local function submit_voxel_scroll_command_buffer(voxelizer, cmd)
 	end
 end
 
-local function get_scroll_compute_pipeline()
-	if shared_scroll_compute_pipeline then return shared_scroll_compute_pipeline end
+local function get_scroll_compute_pipeline(image_format)
+	image_format = image_format or "rgba8"
+	shared_scroll_compute_pipelines = shared_scroll_compute_pipelines or {}
 
-	shared_scroll_compute_pipeline = EasyPipeline.Compute{
-		DescriptorSetCount = 32,
+	if shared_scroll_compute_pipelines[image_format] then
+		return shared_scroll_compute_pipelines[image_format]
+	end
+
+	local pipeline = EasyPipeline.Compute{
+		DescriptorSetCount = 64,
 		LocalSize = {x = 4, y = 4, z = 4},
 		descriptor_sets = {
 			{
@@ -248,8 +263,8 @@ local function get_scroll_compute_pipeline()
 			return block
 		end,
 		shader = [[
-			layout(set = 0, binding = 0, rgba16f) uniform readonly image2DArray src_volume;
-			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2DArray dst_volume;
+			layout(set = 0, binding = 0, ]] .. image_format .. [[) uniform readonly image2DArray src_volume;
+			layout(set = 0, binding = 1, ]] .. image_format .. [[) uniform writeonly image2DArray dst_volume;
 
 			bool is_inside_copy(ivec3 dst_pos) {
 				return
@@ -282,8 +297,12 @@ local function get_scroll_compute_pipeline()
 			}
 		]],
 	}
-	return shared_scroll_compute_pipeline
+	shared_scroll_compute_pipelines[image_format] = pipeline
+	return pipeline
 end
+
+-- image formats of get_axis_target_textures(target) in order: color, normal
+local AXIS_TARGET_IMAGE_FORMATS = {"rgba8", "rgba16f"}
 
 local function clear_axis_target(cmd, target)
 	transition_axis_target(
@@ -295,12 +314,16 @@ local function clear_axis_target(cmd, target)
 		"shader_read",
 		"transfer_write"
 	)
-	cmd:ClearColorImage{
-		image = target.texture:GetImage(),
-		color = {0, 0, 0, 0},
-		base_array_layer = 0,
-		layer_count = target.texture:GetHeight(),
-	}
+
+	for _, texture in ipairs(get_axis_target_textures(target)) do
+		cmd:ClearColorImage{
+			image = texture:GetImage(),
+			color = {0, 0, 0, 0},
+			base_array_layer = 0,
+			layer_count = texture:GetHeight(),
+		}
+	end
+
 	transition_axis_target(
 		cmd,
 		target,
@@ -350,20 +373,27 @@ local function build_axis_scroll_copy_config(axis_name, resolution, delta)
 end
 
 local function scroll_axis_target(cmd, source_target, target, copy_config, descriptor_slot)
-	local pipeline = shared_scroll_compute_pipeline or get_scroll_compute_pipeline()
 	transition_axis_target_for_compute(cmd, source_target, false)
 	transition_axis_target_for_compute(cmd, target, true)
-	pipeline.current_scroll_copy = copy_config
-	pipeline:UpdateDescriptorSet("storage_image", descriptor_slot, 0, 0, source_target.texture:GetView())
-	pipeline:UpdateDescriptorSet("storage_image", descriptor_slot, 1, 0, target.texture:GetView())
-	pipeline:DispatchForSize(
-		cmd,
-		target.texture:GetWidth(),
-		target.texture:GetHeight(),
-		target.texture:GetHeight(),
-		descriptor_slot
-	)
-	pipeline.current_scroll_copy = nil
+	local source_textures = get_axis_target_textures(source_target)
+	local target_textures = get_axis_target_textures(target)
+
+	for i = 1, #target_textures do
+		local pipeline = get_scroll_compute_pipeline(AXIS_TARGET_IMAGE_FORMATS[i])
+		pipeline.current_scroll_copy = copy_config
+		local slot = descriptor_slot + i - 1
+		pipeline:UpdateDescriptorSet("storage_image", slot, 0, 0, source_textures[i]:GetView())
+		pipeline:UpdateDescriptorSet("storage_image", slot, 1, 0, target_textures[i]:GetView())
+		pipeline:DispatchForSize(
+			cmd,
+			target_textures[i]:GetWidth(),
+			target_textures[i]:GetHeight(),
+			target_textures[i]:GetHeight(),
+			slot
+		)
+		pipeline.current_scroll_copy = nil
+	end
+
 	transition_axis_target_from_compute(cmd, source_target)
 	transition_axis_target_from_compute(cmd, target)
 end
@@ -371,13 +401,13 @@ end
 local function scroll_clipmap_targets(_, voxelizer, clipmap_index, pending_scroll)
 	local compute_cmd = render.GetCommandPool():AllocateCommandBuffer()
 	compute_cmd:Begin()
-	local frame_slot_base = ((render.GetCurrentFrame() or 1) - 1) * 9
+	local frame_slot_base = ((render.GetCurrentFrame() or 1) - 1) * 18
 
 	for axis_index, axis_name in ipairs({"x", "y", "z"}) do
 		local source_target = voxelizer.GetClipmapAxisTarget(clipmap_index, axis_name)
 		local target = voxelizer.GetClipmapScrollTarget(clipmap_index, axis_name)
 		local copy_config = build_axis_scroll_copy_config(axis_name, target.texture:GetHeight(), pending_scroll.delta)
-		local descriptor_slot = frame_slot_base + (clipmap_index - 1) * 3 + axis_index
+		local descriptor_slot = frame_slot_base + (clipmap_index - 1) * 6 + (axis_index - 1) * 2 + 1
 		scroll_axis_target(compute_cmd, source_target, target, copy_config, descriptor_slot)
 	end
 
@@ -411,13 +441,17 @@ local function update_slice_transform(clipmap, axis_name, slice, build_origin)
 	current_build_state.view_matrix:Translate(-view_center.x, -view_center.y, -view_center.z)
 	current_build_state.view_matrix:Multiply(AXIS_ROTATIONS[axis_name]:GetConjugated():GetMatrix())
 	current_build_state.projection_matrix = Matrix44()
+	-- the slab extends slightly past the voxel so faces that lie exactly on a
+	-- voxel boundary (floors at integer heights, walls on the grid) are
+	-- captured by the slices on both sides instead of being clipped by neither
+	local half_depth = math.max(clipmap.voxel_size * 0.55, 0.001)
 	current_build_state.projection_matrix:Ortho(
 		-clipmap.world_span * 0.5,
 		clipmap.world_span * 0.5,
 		-clipmap.world_span * 0.5,
 		clipmap.world_span * 0.5,
-		-math.max(clipmap.voxel_size * 0.5, 0.001),
-		math.max(clipmap.voxel_size * 0.5, 0.001),
+		-half_depth,
+		half_depth,
 		true
 	)
 end
@@ -435,7 +469,10 @@ local function push_voxel_vertex_constants(self, cmd, world_matrix)
 		self._voxel_vertex_push_offset = self:GetPushConstantBlockOffset("vertex")
 	end
 
-	current_build_state.projection_view_world:CopyToFloatPointer(constants.projection_view_world)
+	-- recompute for this entry's world matrix: the block writer only runs
+	-- when the material changes, so entries sharing a material would
+	-- otherwise be drawn with the previous entry's transform
+	get_voxel_projection_view_world_matrix():CopyToFloatPointer(constants.projection_view_world)
 	world_matrix:CopyToFloatPointer(constants.world)
 	self:PushConstants(cmd, {"vertex"}, self._voxel_vertex_push_offset, constants)
 end
@@ -687,22 +724,29 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 		state.axis_transitioned[axis_name] = true
 	end
 
+	local load_op = (
+			not build_target_cleared and
+			(
+				current_clipmap.full_rebuild or
+				current_clipmap.clear_dirty_slices or
+				full_slice_repair
+			)
+		)
+		and
+		"clear" or
+		"load"
 	cmd:BeginRendering{
 		color_attachments = {
 			{
 				color_image_view = target.layer_views[slice],
 				clear_color = {0, 0, 0, 0},
-				load_op = (
-						not build_target_cleared and
-						(
-							current_clipmap.full_rebuild or
-							current_clipmap.clear_dirty_slices or
-							full_slice_repair
-						)
-					)
-					and
-					"clear" or
-					"load",
+				load_op = load_op,
+				store_op = "store",
+			},
+			{
+				color_image_view = target.normal_layer_views[slice],
+				clear_color = {0, 0, 0, 0},
+				load_op = load_op,
 				store_op = "store",
 			},
 		},
@@ -780,7 +824,14 @@ local function draw_voxel_build(self, cmd)
 			end
 
 			local build_origin = clipmap.build_origin or clipmap.origin
-			local scene_version = Visual.GetSceneAccelerationVersion and Visual.GetSceneAccelerationVersion() or 0
+			-- the version lives on the visual library, not the component class;
+			-- without it the cached draw list only refreshed when the build
+			-- origin moved and scenes loaded after startup were never voxelized
+			local visual_library = Visual.Library
+			local scene_version = visual_library and
+				visual_library.GetSceneAccelerationVersion and
+				visual_library.GetSceneAccelerationVersion() or
+				0
 			local cache = clipmap.voxel_draw_cache
 			local cache_valid = cache and
 				cache.scene_version == scene_version and
@@ -872,7 +923,10 @@ end
 return {
 	{
 		name = "voxel_build",
-		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {
+			{"r8g8b8a8_unorm", {"color", "rgba"}},
+			{"r8g8b8a8_unorm", {"normal", "rgba"}},
+		},
 		dont_create_framebuffers = true,
 		on_draw = draw_voxel_build,
 		vertex = {
@@ -881,11 +935,12 @@ return {
 					binding = 0,
 					stride = model_pipeline.GetVertexStride(),
 					input_rate = "vertex",
-					attributes = model_pipeline.GetVertexAttributesSubset({"position", "uv"}),
+					attributes = model_pipeline.GetVertexAttributesSubset({"position", "uv", "normal"}),
 				},
 			},
 			outputs = {
 				{"uv", "vec2"},
+				{"normal", "vec3"},
 			},
 			push_constants = {
 				{
@@ -899,6 +954,7 @@ return {
 					vec3 local_position = in_position;
 					gl_Position = vertex.projection_view_world * vec4(local_position, 1.0);
 					out_uv = in_uv;
+					out_normal = normalize(mat3(vertex.world) * in_normal);
 				}
 			]],
 		},
@@ -942,11 +998,33 @@ return {
 				vec3 albedo = clamp(surface_color.rgb, vec3(0.0), vec3(1.0));
 				vec3 emissive = clamp(get_surface_emissive(albedo), vec3(0.0), vec3(1.0));
 				vec3 voxel_color = clamp(albedo + emissive, vec3(0.0), vec3(1.0));
-				set_color(vec4(voxel_color, 1.0));
+				// alpha >= 0.5 marks an occupied voxel, the range above 0.5
+				// encodes the emissive luminance (0..4) so voxel gi can re-emit it
+				float emissive_luma = dot(emissive, vec3(0.2126, 0.7152, 0.0722));
+				set_color(vec4(voxel_color, 0.5 + 0.5 * clamp(emissive_luma / 4.0, 0.0, 1.0)));
+				// the normal target is signed and additive: opposite faces that
+				// land in the same voxel (thin slabs) cancel to a zero normal,
+				// which voxel gi treats as two sided instead of a backface
+				vec3 n = normalize(in_normal);
+				set_normal(vec4(n, 1.0));
 			}
 			]],
 		},
 		CullMode = "none",
+		color_blend = {
+			attachments = {
+				{},
+				{
+					blend = true,
+					src_color_blend_factor = "one",
+					dst_color_blend_factor = "one",
+					color_blend_op = "add",
+					src_alpha_blend_factor = "one",
+					dst_alpha_blend_factor = "one",
+					alpha_blend_op = "add",
+				},
+			},
+		},
 		DepthTest = false,
 		DepthWrite = false,
 		Blend = true,

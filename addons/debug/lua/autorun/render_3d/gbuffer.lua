@@ -101,7 +101,6 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	add_pass(views, "ssgi_filter_1")
 	add_pass(views, "ssgi_filter_2")
 	add_pass(views, "ssgi")
-	add_pass(views, "probe_irradiance")
 
 	for i, view in ipairs(views) do
 		local tex = view.pipeline:GetFramebuffer():GetAttachment(view.attachment_index)

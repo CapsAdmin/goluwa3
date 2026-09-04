@@ -10,6 +10,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
+local voxel_gi = import("goluwa/render3d/voxel_gi.lua")
 local get_primary_sun = directional_shadows.GetPrimarySun
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
 local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
@@ -89,8 +90,8 @@ return {
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
 					atmosphere.GetBlockLayout(),
-					{"probe_irradiance_tex", "int"},
-					{"voxel_irradiance_tex", "int"},
+					{"env_irradiance_tex", "int"},
+					voxel_gi.GetBlockLayout(),
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"ssgi_tex", "int"},
@@ -121,18 +122,8 @@ return {
 						render3d.GetRenderCamera():GetPosition(),
 						get_primary_sun_direction(lights)
 					)
-
-					if render3d.pipelines.voxel_irradiance then
-						block.voxel_irradiance_tex = self:GetTextureIndex(render3d.pipelines.voxel_irradiance:GetFramebuffer(1):GetAttachment(1))
-					else
-						block.voxel_irradiance_tex = -1
-					end
-
-					if render3d.pipelines.probe_irradiance then
-						block.probe_irradiance_tex = self:GetTextureIndex(render3d.pipelines.probe_irradiance:GetFramebuffer(1):GetAttachment(1))
-					else
-						block.probe_irradiance_tex = -1
-					end
+					block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+					voxel_gi.WriteBlock(self, block)
 
 					if render3d.pipelines.ambient_occlusion_blur then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -247,6 +238,8 @@ return {
 			]] .. ibl.GetBRDFGLSLCode() .. [[
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
+
+			]] .. voxel_gi.GetGLSLCode("lighting_data") .. [[
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 			]] .. scene_lights.GetLightGLSLCode() .. [[
@@ -390,11 +383,12 @@ return {
 				return textureLod(TEXTURE(lighting_data.ssgi_tex), in_uv, lod).a;
 			}
 
-			vec3 get_probe_irradiance() {
-				if (lighting_data.probe_irradiance_tex == -1) {
-					return vec3(1.0);
-				}
-				return texture(TEXTURE(lighting_data.probe_irradiance_tex), in_uv).rgb;
+			// diffuse irradiance / pi: the voxel probe grids when they are
+			// active, otherwise the sky irradiance cubemap
+			vec3 get_gi_irradiance(vec3 N, vec3 V, vec3 world_pos) {
+				vec3 sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
+				if (lighting_data.gi_enabled == 0) return sky;
+				return sample_voxel_gi_irradiance(world_pos, N, V, sky);
 			}
 
 			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
@@ -548,7 +542,7 @@ return {
 				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * get_ao();
 
-				vec3 irradiance = mix(get_probe_irradiance(), get_ssgi_irradiance(perceptual_roughness), get_ssgi_confidence(perceptual_roughness));
+				vec3 irradiance = mix(get_gi_irradiance(N, V, world_pos), get_ssgi_irradiance(perceptual_roughness), get_ssgi_confidence(perceptual_roughness));
 
 				vec3 back_irradiance = irradiance;
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
@@ -638,6 +632,10 @@ return {
 					lighting_data.camera_position.xyz,
 					atmosphere_sun_visibility
 				);
+
+				if (lighting_data.gi_debug != 0) {
+					color = get_gi_irradiance(N, V, world_pos);
+				}
 
 				set_color(vec4(min(color, vec3(65504.0)), alpha));
 			}

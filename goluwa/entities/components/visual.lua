@@ -2683,25 +2683,6 @@ function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibil
 	end
 end
 
-function Visual:DrawProbeGeometry(lightprobes)
-	if not self.Visible then return end
-
-	if not self:IsWithinCullDistance() then return end
-
-	for _, entry in ipairs(self:GetRenderEntries()) do
-		local transform = entry.transform
-		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
-
-		if world_matrix then
-			render3d.SetWorldMatrix(world_matrix)
-			render3d.SetCurrentPolygon3D(entry.polygon3d)
-			render3d.SetMaterial(self:GetResolvedMaterial(entry))
-			lightprobes.UploadConstants()
-			entry.polygon3d:Draw()
-		end
-	end
-end
-
 function Visual:DrawVoxelGeometry(scene_voxelizer, clipmap_index, submit_entry)
 	if not self.Visible then return 0 end
 
@@ -2975,18 +2956,11 @@ function Visual:OnFirstCreated()
 			end
 		end
 	end)
-
-	event.AddListener("DrawProbeGeometry", "visual_probe_draw", function(cmd, lightprobes)
-		for _, visual in ipairs(Visual.Instances) do
-			visual:DrawProbeGeometry(lightprobes)
-		end
-	end)
 end
 
 function Visual:OnLastRemoved()
 	event.RemoveListener("DrawAllShadows", "visual_shadow_draw")
 	event.RemoveListener("PrimeAllShadowMaterials", "visual_shadow_prime")
-	event.RemoveListener("DrawProbeGeometry", "visual_probe_draw")
 end
 
 return Visual:Register()

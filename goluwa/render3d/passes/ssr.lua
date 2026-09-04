@@ -87,10 +87,10 @@ return {
 
 					if
 						lightprobes.IsEnabled() and
-						lightprobes.AreSceneProbesEnabled() and
+						lightprobes.AreReflectionProbesEnabled() and
 						render3d.ShouldUseProbeReflections()
 					then
-						local probes = lightprobes.GetProbes()
+						local probes = lightprobes.GetProbesNear(render3d.GetRenderCamera():GetPosition(), MAX_PROBES)
 
 						for i = 0, MAX_PROBES - 1 do
 							local probe = probes[i + 1]

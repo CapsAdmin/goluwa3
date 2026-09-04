@@ -37,9 +37,18 @@ local function destroy_volume_target(target)
 		target.sample_view:Remove()
 	end
 
+	if target.normal_sample_view and target.normal_sample_view.Remove then
+		target.normal_sample_view:Remove()
+	end
+
 	destroy_layer_views(target.layer_views)
+	destroy_layer_views(target.normal_layer_views)
 
 	if target.texture and target.texture.Remove then target.texture:Remove() end
+
+	if target.normal_texture and target.normal_texture.Remove then
+		target.normal_texture:Remove()
+	end
 end
 
 local function destroy_clipmap_resources(clipmap)
@@ -56,12 +65,14 @@ local function destroy_clipmap_resources(clipmap)
 	clipmap.resources = nil
 end
 
-local function create_volume_target(grid, clipmap, axis_name, group_config)
-	local resolution = clipmap.resolution
+-- Each axis target holds two layered textures: color (rgb = albedo plus
+-- emissive, a >= 0.5 marks an occupied voxel and encodes the emissive
+-- luminance) and normal (rgb = world normal * 0.5 + 0.5).
+local function create_layered_texture(resolution, name, format)
 	local texture = Texture.New{
 		width = resolution,
 		height = resolution,
-		format = "r16g16b16a16_sfloat",
+		format = format or "r8g8b8a8_unorm",
 		mip_map_levels = 1,
 		image = {
 			array_layers = resolution,
@@ -79,6 +90,35 @@ local function create_volume_target(grid, clipmap, axis_name, group_config)
 			wrap_r = "clamp_to_edge",
 		},
 	}
+	texture:SetDebugName(name)
+	local sample_view = texture:GetImage():CreateView{
+		view_type = "2d_array",
+		base_array_layer = 0,
+		layer_count = resolution,
+		base_mip_level = 0,
+		level_count = 1,
+	}
+	local layer_views = {}
+
+	for slice = 0, resolution - 1 do
+		layer_views[slice] = texture:GetImage():CreateView{
+			view_type = "2d",
+			base_array_layer = slice,
+			layer_count = 1,
+			base_mip_level = 0,
+			level_count = 1,
+		}
+
+		if layer_views[slice].SetDebugName then
+			layer_views[slice]:SetDebugName(name .. " slice " .. tostring(slice))
+		end
+	end
+
+	return texture, sample_view, layer_views
+end
+
+local function create_volume_target(grid, clipmap, axis_name, group_config)
+	local resolution = clipmap.resolution
 	local target_name = table.concat(
 		{
 			"render3d",
@@ -95,36 +135,21 @@ local function create_volume_target(grid, clipmap, axis_name, group_config)
 		target_name = target_name .. " " .. tostring(group_config.label_suffix)
 	end
 
-	texture:SetDebugName(target_name)
-	local target = {
+	local texture, sample_view, layer_views = create_layered_texture(resolution, target_name)
+	-- signed so opposite faces that share a voxel sum to a zero normal; sfloat
+	-- rather than snorm because attachment blending on snorm formats is only
+	-- optionally supported (and unsupported on MoltenVK)
+	local normal_texture, normal_sample_view, normal_layer_views = create_layered_texture(resolution, target_name .. " normal", "r16g16b16a16_sfloat")
+	return {
 		axis = axis_name,
 		texture = texture,
-		sample_view = texture:GetImage():CreateView{
-			view_type = "2d_array",
-			base_array_layer = 0,
-			layer_count = resolution,
-			base_mip_level = 0,
-			level_count = 1,
-		},
-		layer_views = {},
+		sample_view = sample_view,
+		layer_views = layer_views,
+		normal_texture = normal_texture,
+		normal_sample_view = normal_sample_view,
+		normal_layer_views = normal_layer_views,
 		sampler = render.CreateSampler(texture:GetSamplerConfig()),
 	}
-
-	for slice = 0, resolution - 1 do
-		target.layer_views[slice] = texture:GetImage():CreateView{
-			view_type = "2d",
-			base_array_layer = slice,
-			layer_count = 1,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-
-		if target.layer_views[slice].SetDebugName then
-			target.layer_views[slice]:SetDebugName(target_name .. " slice " .. tostring(slice))
-		end
-	end
-
-	return target
 end
 
 function voxel_grid.New(config)

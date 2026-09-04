@@ -147,14 +147,29 @@ function gpu_timing.BeginFrame(cmd)
 
 	pool:Reset(cmd, 0, MAX_SCOPES * 2)
 	pool.gpu_timing_recorded = true
+	pool.gpu_timing_used = {}
+	pool.gpu_timing_skipped = {}
 	gpu_timing.BeginScope(cmd, "gpu_frame")
 end
 
+-- A scope name can be entered more than once per recording (a pass that
+-- also runs inside a reflection probe capture, for example). Only the first
+-- occurrence is timed, since each query may be written once per reset.
 function gpu_timing.BeginScope(cmd, name)
 	if not render.available or not timestamps_are_supported() then return end
 
 	local slot = get_slot(name)
-	get_pool(cmd):WriteTimestamp(cmd, slot * 2, "top_of_pipe")
+	local pool = get_pool(cmd)
+	pool.gpu_timing_used = pool.gpu_timing_used or {}
+	pool.gpu_timing_skipped = pool.gpu_timing_skipped or {}
+
+	if pool.gpu_timing_used[slot] then
+		pool.gpu_timing_skipped[slot] = (pool.gpu_timing_skipped[slot] or 0) + 1
+		return
+	end
+
+	pool.gpu_timing_used[slot] = true
+	pool:WriteTimestamp(cmd, slot * 2, "top_of_pipe")
 end
 
 function gpu_timing.EndScope(cmd, name)
@@ -164,7 +179,15 @@ function gpu_timing.EndScope(cmd, name)
 
 	if not slot then return end
 
-	get_pool(cmd):WriteTimestamp(cmd, slot * 2 + 1, "bottom_of_pipe")
+	local pool = get_pool(cmd)
+	local skipped = pool.gpu_timing_skipped and pool.gpu_timing_skipped[slot] or 0
+
+	if skipped > 0 then
+		pool.gpu_timing_skipped[slot] = skipped - 1
+		return
+	end
+
+	pool:WriteTimestamp(cmd, slot * 2 + 1, "bottom_of_pipe")
 end
 
 function gpu_timing.GetMilliseconds(name)

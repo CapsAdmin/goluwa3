@@ -4,11 +4,9 @@ local commands = import("goluwa/cli/commands.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local assets = import("goluwa/assets.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local Texture = import("goluwa/render/texture.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
 local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -18,6 +16,19 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local lightprobes = library()
 
+-- Cubemap probes for specular reflections.
+--
+-- The environment probe renders the sky only and provides the global
+-- specular environment plus the sky irradiance cubemap that diffuse lighting
+-- falls back to outside the voxel gi volumes (see voxel_gi.lua, which owns
+-- diffuse global illumination).
+--
+-- Reflection probes capture the scene into a prefiltered cubemap plus a
+-- radial depth cubemap for parallax correction. They are placed manually
+-- (CreateReflectionProbe, or the SpawnProbe event that map loaders emit for
+-- their cubemap entities) and are meant for glossy surfaces that screen
+-- space reflections cannot cover. Captures are spread over frames, nearest
+-- dirty probes first.
 local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()
 
@@ -39,30 +50,32 @@ local function get_primary_sun_direction()
 end
 
 -- Probe types
-lightprobes.TYPE_ENVIRONMENT = "environment" -- Sky-only, dynamic, updated based on sun
-lightprobes.TYPE_SCENE = "scene" -- Renders geometry, typically static
+lightprobes.TYPE_ENVIRONMENT = "environment" -- Sky only, re-rendered when the sun moves
+lightprobes.TYPE_REFLECTION = "reflection" -- Renders geometry
 -- Update modes
-lightprobes.UPDATE_DYNAMIC = "dynamic" -- Update every frame (or on sun change for environment)
-lightprobes.UPDATE_STATIC = "static" -- Update once on creation
-lightprobes.UPDATE_MANUAL = "manual" -- Update only when requested
+lightprobes.UPDATE_DYNAMIC = "dynamic" -- Re-captured continuously
+lightprobes.UPDATE_STATIC = "static" -- Captured once, and again when the sun moves
+lightprobes.UPDATE_MANUAL = "manual" -- Captured only when marked dirty
 -- Configuration
-lightprobes.ENVIRONMENT_SIZE = 512 -- Larger size for environment probe
-lightprobes.SCENE_SIZE = 128 -- Smaller size for scene probes
-lightprobes.IRRADIANCE_SIZE = 32 -- Diffuse irradiance cubemap face size
+lightprobes.ENVIRONMENT_SIZE = 512
+lightprobes.REFLECTION_SIZE = 128
+lightprobes.IRRADIANCE_SIZE = 32 -- Sky irradiance cubemap face size
 lightprobes.IRRADIANCE_SOURCE_SIZE = 16 -- Source mip face size the irradiance convolution integrates over
-lightprobes.SCENE_RADIUS = lightprobes.SCENE_RADIUS or 48
-lightprobes.SCENE_MIN_SPACING = lightprobes.SCENE_MIN_SPACING or 24
-lightprobes.GRID_SPACING = lightprobes.GRID_SPACING or 192
-lightprobes.UPDATE_FACES_PER_FRAME = 1 -- How many faces to update each frame
+lightprobes.REFLECTION_RADIUS = lightprobes.REFLECTION_RADIUS or 24
+lightprobes.REFLECTION_MIN_SPACING = lightprobes.REFLECTION_MIN_SPACING or 4
+lightprobes.FACES_PER_FRAME = lightprobes.FACES_PER_FRAME or 2
+lightprobes.DYNAMIC_INTERVAL = lightprobes.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
+lightprobes.SUN_CHANGE_DEGREES = lightprobes.SUN_CHANGE_DEGREES or 1
+lightprobes.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
 lightprobes.enabled = lightprobes.enabled ~= false
-lightprobes.scene_probes_enabled = false
+lightprobes.reflection_probes_enabled = lightprobes.reflection_probes_enabled ~= false
 lightprobes.capture_pipeline_flags = lightprobes.capture_pipeline_flags or {
-	ssr = true,
+	ssr = false,
 	ocean = true,
 }
 -- State
 lightprobes.probes = lightprobes.probes or {}
-lightprobes.current_scene_probe_index = lightprobes.current_scene_probe_index or 1 -- Current scene probe being updated (1-based, skips environment)
+lightprobes.current_probe = lightprobes.current_probe or nil -- reflection probe currently being captured
 lightprobes.current_face = lightprobes.current_face or 0
 lightprobes.inv_projection_view = lightprobes.inv_projection_view or Matrix44()
 lightprobes.debug = lightprobes.debug or {}
@@ -92,69 +105,33 @@ local function write_sky_vertex_constants(self, block)
 	return block
 end
 
+local function transition_cube_to_shader_read(cmd, texture)
+	if not texture then return end
+
+	render.TransitionResourceTo(
+		texture,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = 6,
+			base_mip_level = 0,
+			level_count = texture.mip_map_levels,
+		}
+	)
+end
+
 local function initialize_probe_layouts(cmd, probe)
 	if not probe then return end
 
-	render.TransitionResourceTo(
-		probe.source_cubemap,
-		"shader_read_only_optimal",
-		{
-			cmd = cmd,
-			srcStage = "top_of_pipe",
-			srcAccess = "none",
-			dstStage = "fragment_shader",
-			dstAccess = "shader_read",
-			base_array_layer = 0,
-			layer_count = 6,
-			base_mip_level = 0,
-			level_count = probe.source_cubemap.mip_map_levels,
-		}
-	)
-	render.TransitionResourceTo(
-		probe.cubemap,
-		"shader_read_only_optimal",
-		{
-			cmd = cmd,
-			srcStage = "top_of_pipe",
-			srcAccess = "none",
-			dstStage = "fragment_shader",
-			dstAccess = "shader_read",
-			base_array_layer = 0,
-			layer_count = 6,
-			base_mip_level = 0,
-			level_count = probe.cubemap.mip_map_levels,
-		}
-	)
-	render.TransitionResourceTo(
-		probe.depth_cubemap,
-		"shader_read_only_optimal",
-		{
-			cmd = cmd,
-			srcStage = "top_of_pipe",
-			srcAccess = "none",
-			dstStage = "fragment_shader",
-			dstAccess = "shader_read",
-			base_array_layer = 0,
-			layer_count = 6,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	)
-	render.TransitionResourceTo(
-		probe.irradiance_cubemap,
-		"shader_read_only_optimal",
-		{
-			cmd = cmd,
-			srcStage = "top_of_pipe",
-			srcAccess = "none",
-			dstStage = "fragment_shader",
-			dstAccess = "shader_read",
-			base_array_layer = 0,
-			layer_count = 6,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	)
+	transition_cube_to_shader_read(cmd, probe.source_cubemap)
+	transition_cube_to_shader_read(cmd, probe.cubemap)
+	transition_cube_to_shader_read(cmd, probe.depth_cubemap)
+	transition_cube_to_shader_read(cmd, probe.irradiance_cubemap)
 end
 
 local function initialize_probe_layouts_now(probe)
@@ -178,180 +155,98 @@ local function initialize_probe_layouts_now(probe)
 	end
 end
 
-local function remove_probe_resources(probe)
-	if not probe then return end
+local function remove_views(views)
+	if not views then return end
 
-	if probe.source_face_views then
-		for _, view in pairs(probe.source_face_views) do
-			if view and view.Remove then view:Remove() end
-		end
-	end
-
-	if probe.depth_face_views then
-		for _, view in pairs(probe.depth_face_views) do
-			if view and view.Remove then view:Remove() end
-		end
-	end
-
-	if probe.irradiance_face_views then
-		for _, view in pairs(probe.irradiance_face_views) do
-			if view and view.Remove then view:Remove() end
-		end
-	end
-
-	if probe.irradiance_cubemap and probe.irradiance_cubemap.Remove then
-		probe.irradiance_cubemap:Remove()
-	end
-
-	if probe.mip_face_views then
-		for _, views in pairs(probe.mip_face_views) do
-			for _, view in pairs(views) do
-				if view and view.Remove then view:Remove() end
-			end
-		end
-	end
-
-	if probe.cubemap and probe.cubemap.Remove then probe.cubemap:Remove() end
-
-	if probe.source_cubemap and probe.source_cubemap.Remove then
-		probe.source_cubemap:Remove()
-	end
-
-	if probe.depth_cubemap and probe.depth_cubemap.Remove then
-		probe.depth_cubemap:Remove()
+	for _, view in pairs(views) do
+		if view and view.Remove then view:Remove() end
 	end
 end
 
--- Create a probe with given configuration
-local function CreateProbeTextures(size)
+local function remove_probe_resources(probe)
+	if not probe then return end
+
+	remove_views(probe.source_face_views)
+	remove_views(probe.depth_face_views)
+	remove_views(probe.irradiance_face_views)
+
+	if probe.mip_face_views then
+		for _, views in pairs(probe.mip_face_views) do
+			remove_views(views)
+		end
+	end
+
+	for _, key in ipairs{"irradiance_cubemap", "cubemap", "source_cubemap", "depth_cubemap"} do
+		if probe[key] and probe[key].Remove then probe[key]:Remove() end
+
+		probe[key] = nil
+	end
+
+	probe.debug_face_textures = nil
+end
+
+local function create_cubemap(size, format, mip_map_levels)
+	return Texture.New{
+		width = size,
+		height = size,
+		format = format,
+		mip_map_levels = mip_map_levels,
+		image = {
+			array_layers = 6,
+			flags = {"cube_compatible"},
+			usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+		},
+		view = {
+			view_type = "cube",
+			layer_count = 6,
+		},
+	}
+end
+
+local function create_face_views(texture, mip_level)
+	local views = {}
+
+	for j = 0, 5 do
+		views[j] = texture:GetImage():CreateView{
+			view_type = "2d",
+			base_array_layer = j,
+			layer_count = 1,
+			base_mip_level = mip_level or 0,
+			level_count = 1,
+		}
+	end
+
+	return views
+end
+
+-- with_irradiance adds the cosine convolved irradiance cubemap, only the
+-- environment probe needs it
+local function CreateProbeTextures(size, with_irradiance)
 	local probe = {}
-	-- Create the output cubemap (prefiltered, used for rendering)
-	probe.cubemap = Texture.New{
-		width = size,
-		height = size,
-		format = "b10g11r11_ufloat_pack32",
-		mip_map_levels = "auto",
-		image = {
-			array_layers = 6,
-			flags = {"cube_compatible"},
-			usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-		},
-		view = {
-			view_type = "cube",
-			layer_count = 6,
-		},
-	}
-	-- Create source cubemap (raw scene render, before prefiltering)
-	probe.source_cubemap = Texture.New{
-		width = size,
-		height = size,
-		format = "b10g11r11_ufloat_pack32",
-		mip_map_levels = "auto",
-		image = {
-			array_layers = 6,
-			flags = {"cube_compatible"},
-			usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-		},
-		view = {
-			view_type = "cube",
-			layer_count = 6,
-		},
-	}
-	-- Cosine convolved irradiance (divided by pi) of the source cubemap, used
-	-- for diffuse image based lighting
-	probe.irradiance_cubemap = Texture.New{
-		width = lightprobes.IRRADIANCE_SIZE,
-		height = lightprobes.IRRADIANCE_SIZE,
-		format = "b10g11r11_ufloat_pack32",
-		mip_map_levels = 1,
-		image = {
-			array_layers = 6,
-			flags = {"cube_compatible"},
-			usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-		},
-		view = {
-			view_type = "cube",
-			layer_count = 6,
-		},
-	}
-	-- Create depth cubemap (linear depth for parallax correction) - only for scene probes
-	probe.depth_cubemap = Texture.New{
-		width = size,
-		height = size,
-		format = "r32_sfloat",
-		mip_map_levels = 1,
-		image = {
-			array_layers = 6,
-			flags = {"cube_compatible"},
-			usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-		},
-		view = {
-			view_type = "cube",
-			layer_count = 6,
-		},
-	}
-	-- Create per-face views for source cubemap
-	probe.source_face_views = {}
-
-	for j = 0, 5 do
-		probe.source_face_views[j] = probe.source_cubemap:GetImage():CreateView{
-			view_type = "2d",
-			base_array_layer = j,
-			layer_count = 1,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	end
-
-	-- Create per-face views for depth cubemap
-	probe.depth_face_views = {}
-
-	for j = 0, 5 do
-		probe.depth_face_views[j] = probe.depth_cubemap:GetImage():CreateView{
-			view_type = "2d",
-			base_array_layer = j,
-			layer_count = 1,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	end
-
-	probe.irradiance_face_views = {}
-
-	for j = 0, 5 do
-		probe.irradiance_face_views[j] = probe.irradiance_cubemap:GetImage():CreateView{
-			view_type = "2d",
-			base_array_layer = j,
-			layer_count = 1,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	end
-
-	-- Create per-mip per-face views for output cubemap
-	local num_mips = probe.cubemap.mip_map_levels
+	-- prefiltered output used for rendering
+	probe.cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
+	-- raw capture before prefiltering
+	probe.source_cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
+	-- radial depth for parallax correction
+	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1)
+	probe.source_face_views = create_face_views(probe.source_cubemap)
+	probe.depth_face_views = create_face_views(probe.depth_cubemap)
 	probe.mip_face_views = {}
 
-	for m = 0, num_mips - 1 do
-		probe.mip_face_views[m] = {}
+	for m = 0, probe.cubemap.mip_map_levels - 1 do
+		probe.mip_face_views[m] = create_face_views(probe.cubemap, m)
+	end
 
-		for j = 0, 5 do
-			probe.mip_face_views[m][j] = probe.cubemap:GetImage():CreateView{
-				view_type = "2d",
-				base_array_layer = j,
-				layer_count = 1,
-				base_mip_level = m,
-				level_count = 1,
-			}
-		end
+	if with_irradiance then
+		probe.irradiance_cubemap = create_cubemap(lightprobes.IRRADIANCE_SIZE, "b10g11r11_ufloat_pack32", 1)
+		probe.irradiance_face_views = create_face_views(probe.irradiance_cubemap)
 	end
 
 	return probe
 end
 
--- Create the environment probe (index 0)
 function lightprobes.CreateEnvironmentProbe(position)
-	local probe = CreateProbeTextures(lightprobes.ENVIRONMENT_SIZE)
+	local probe = CreateProbeTextures(lightprobes.ENVIRONMENT_SIZE, true)
 	probe.type = lightprobes.TYPE_ENVIRONMENT
 	probe.update_mode = lightprobes.UPDATE_DYNAMIC
 	probe.position = position or Vec3(0, 0, 0)
@@ -362,14 +257,13 @@ function lightprobes.CreateEnvironmentProbe(position)
 	return probe
 end
 
--- Create a scene probe
-function lightprobes.CreateSceneProbe(position, update_mode, radius)
-	local probe = CreateProbeTextures(lightprobes.SCENE_SIZE)
-	probe.type = lightprobes.TYPE_SCENE
-	probe.update_mode = update_mode or lightprobes.UPDATE_DYNAMIC
-	probe.position = position
-	probe.radius = radius or lightprobes.SCENE_RADIUS
-	probe.size = lightprobes.SCENE_SIZE
+function lightprobes.CreateReflectionProbe(position, radius, update_mode)
+	local probe = CreateProbeTextures(lightprobes.REFLECTION_SIZE, false)
+	probe.type = lightprobes.TYPE_REFLECTION
+	probe.update_mode = update_mode or lightprobes.UPDATE_STATIC
+	probe.position = position:Copy()
+	probe.radius = radius or lightprobes.REFLECTION_RADIUS
+	probe.size = lightprobes.REFLECTION_SIZE
 	probe.needs_update = true
 	probe.last_rendered = 0
 	table.insert(lightprobes.probes, probe)
@@ -377,7 +271,36 @@ function lightprobes.CreateSceneProbe(position, update_mode, radius)
 	return probe
 end
 
-function lightprobes.FindNearestSceneProbe(position, max_distance)
+function lightprobes.RemoveReflectionProbe(probe)
+	for i, other in ipairs(lightprobes.probes) do
+		if other == probe then
+			table.remove(lightprobes.probes, i)
+
+			if lightprobes.current_probe == probe then
+				lightprobes.current_probe = nil
+				lightprobes.current_face = 0
+			end
+
+			remove_probe_resources(probe)
+			return true
+		end
+	end
+
+	return false
+end
+
+function lightprobes.ClearReflectionProbes()
+	for _, probe in ipairs(lightprobes.probes) do
+		remove_probe_resources(probe)
+	end
+
+	lightprobes.probes = {}
+	lightprobes.current_probe = nil
+	lightprobes.current_face = 0
+	lightprobes.ClearDebugOverlay()
+end
+
+function lightprobes.FindNearestReflectionProbe(position, max_distance)
 	local nearest_probe
 	local nearest_distance = math.huge
 
@@ -397,9 +320,11 @@ function lightprobes.FindNearestSceneProbe(position, max_distance)
 	return nearest_probe, nearest_distance
 end
 
-function lightprobes.EnsureSceneProbe(position, update_mode, radius, min_spacing)
-	min_spacing = min_spacing or lightprobes.SCENE_MIN_SPACING
-	local probe, distance = lightprobes.FindNearestSceneProbe(position, min_spacing)
+-- Creates a probe unless one already exists within min_spacing, in which
+-- case that probe is returned (and grown to the requested radius).
+function lightprobes.EnsureReflectionProbe(position, radius, update_mode, min_spacing)
+	min_spacing = min_spacing or lightprobes.REFLECTION_MIN_SPACING
+	local probe, distance = lightprobes.FindNearestReflectionProbe(position, min_spacing)
 
 	if probe then
 		if radius and radius > (probe.radius or 0) then probe.radius = radius end
@@ -412,36 +337,45 @@ function lightprobes.EnsureSceneProbe(position, update_mode, radius, min_spacing
 		return probe, false, distance
 	end
 
-	return lightprobes.CreateSceneProbe(position, update_mode, radius),
+	return lightprobes.CreateReflectionProbe(position, radius, update_mode),
 	true,
 	distance
 end
 
-function lightprobes.BuildProbeGrid(min_pos, max_pos, spacing, update_mode, radius, y_step)
-	spacing = spacing or lightprobes.GRID_SPACING
-	update_mode = update_mode or lightprobes.UPDATE_STATIC
-	radius = radius or math.max(spacing * 0.75, lightprobes.SCENE_RADIUS)
-	y_step = y_step or math.max(max_pos.y - min_pos.y, 1)
-	local created = {}
+-- The probes nearest to a position, at most limit of them, for uploading to
+-- shaders with a fixed probe array.
+function lightprobes.GetProbesNear(position, limit)
+	limit = limit or lightprobes.MAX_UPLOADED_PROBES
+	local probes = lightprobes.probes
 
-	for y = min_pos.y, max_pos.y, y_step do
-		for z = min_pos.z, max_pos.z, spacing do
-			for x = min_pos.x, max_pos.x, spacing do
-				local probe, did_create = lightprobes.EnsureSceneProbe(Vec3(x, y, z), update_mode, radius, spacing * 0.35)
+	if #probes <= limit then return probes end
 
-				if did_create then list.insert(created, probe) end
-			end
-		end
+	local sorted = {}
+
+	for i, probe in ipairs(probes) do
+		sorted[i] = probe
 	end
 
-	return created
+	table.sort(sorted, function(a, b)
+		return (
+				a.position - position
+			):GetLengthSquared() < (
+				b.position - position
+			):GetLengthSquared()
+	end)
+
+	for i = #sorted, limit + 1, -1 do
+		sorted[i] = nil
+	end
+
+	return sorted
 end
 
 local function get_debug_draw_module()
 	return import.loaded["goluwa/debug_draw.lua"] or import("goluwa/debug_draw.lua")
 end
 
-local function get_scene_probe(index)
+local function get_reflection_probe(index)
 	index = math.floor(index or 0)
 
 	if index < 1 then return nil end
@@ -502,15 +436,7 @@ local function get_probe_debug_color(index, probe)
 		return Color(0.35, 0.65, 1.0, 0.16)
 	end
 
-	local is_current = index == lightprobes.current_scene_probe_index
-
-	if
-		is_current and
-		(
-			probe.needs_update or
-			probe.update_mode == lightprobes.UPDATE_DYNAMIC
-		)
-	then
+	if probe == lightprobes.current_probe then
 		return Color(1.0, 0.55, 0.2, 0.22)
 	end
 
@@ -541,11 +467,8 @@ local function build_probe_debug_lines(index, probe)
 		tostring(probe.needs_update == true)
 	)
 
-	if
-		index == lightprobes.current_scene_probe_index and
-		probe.type == lightprobes.TYPE_SCENE
-	then
-		lines[3] = string.format("updating face %d", lightprobes.current_face)
+	if probe == lightprobes.current_probe then
+		lines[3] = string.format("capturing face %d", lightprobes.current_face)
 	elseif age then
 		lines[3] = string.format("last %.2fs ago", age)
 	else
@@ -614,7 +537,7 @@ function lightprobes.DrawDebugOverlay()
 	if not lightprobes.debug.draw_enabled then return end
 
 	local debug_draw = get_debug_draw_module()
-	local scene_probe_count = #lightprobes.probes
+	local probe_count = #lightprobes.probes
 	local previous_count = lightprobes.debug.last_overlay_probe_count or 0
 
 	if
@@ -654,7 +577,7 @@ function lightprobes.DrawDebugOverlay()
 			debug_draw.DrawSphere{
 				id = get_probe_overlay_id("sphere", i),
 				position = probe.position,
-				radius = probe.radius or lightprobes.SCENE_RADIUS,
+				radius = probe.radius or lightprobes.REFLECTION_RADIUS,
 				color = get_probe_debug_color(i, probe),
 				ignore_z = true,
 				double_sided = true,
@@ -680,14 +603,14 @@ function lightprobes.DrawDebugOverlay()
 		end
 	end
 
-	if previous_count > scene_probe_count then
-		for i = scene_probe_count + 1, previous_count do
+	if previous_count > probe_count then
+		for i = probe_count + 1, previous_count do
 			debug_draw.Remove(get_probe_overlay_id("sphere", i))
 			debug_draw.Remove(get_probe_overlay_id("text", i))
 		end
 	end
 
-	lightprobes.debug.last_overlay_probe_count = scene_probe_count
+	lightprobes.debug.last_overlay_probe_count = probe_count
 end
 
 function lightprobes.SetDebugGridEnabled(enabled)
@@ -738,7 +661,7 @@ function lightprobes.DrawDebugGrid()
 	local focus_index = lightprobes.debug.focus_index or 0
 
 	if focus_index > 0 then
-		local probe = get_scene_probe(focus_index)
+		local probe = get_reflection_probe(focus_index)
 
 		if probe then probes_to_draw[1] = {index = focus_index, probe = probe} end
 	else
@@ -751,7 +674,7 @@ function lightprobes.DrawDebugGrid()
 
 	if #probes_to_draw == 0 then
 		debug_draw.DrawTextBlock(
-			{"lightprobes grid", "no visible scene probes"},
+			{"lightprobes grid", "no reflection probes"},
 			margin,
 			margin,
 			{background_alpha = 0.6}
@@ -846,19 +769,14 @@ local function get_depth_face_stats(texture, face_index)
 end
 
 function lightprobes.DumpProbeFaces(index)
-	local probe = get_scene_probe(index)
+	local probe = get_reflection_probe(index)
 
 	if not probe then
 		logf(
-			"[lightprobes] no scene probe at index %s (have %d)\n",
+			"[lightprobes] no reflection probe at index %s (have %d)\n",
 			tostring(index),
 			#lightprobes.probes
 		)
-		return nil
-	end
-
-	if not probe.depth_cubemap then
-		logf("[lightprobes] probe %d has no depth cubemap\n", index)
 		return nil
 	end
 
@@ -887,11 +805,11 @@ function lightprobes.DumpProbeFaces(index)
 end
 
 function lightprobes.ExportProbeDepth(index)
-	local probe = get_scene_probe(index)
+	local probe = get_reflection_probe(index)
 
 	if not probe then
 		logf(
-			"[lightprobes] no scene probe at index %s (have %d)\n",
+			"[lightprobes] no reflection probe at index %s (have %d)\n",
 			tostring(index),
 			#lightprobes.probes
 		)
@@ -914,10 +832,10 @@ end
 function lightprobes.Dump(limit)
 	limit = math.max(math.floor(limit or #lightprobes.probes), 0)
 	logf(
-		"[lightprobes] enabled=%s scene_probes=%d current_scene_probe_index=%d current_face=%d\n",
+		"[lightprobes] enabled=%s reflection_probes=%s count=%d current_face=%d\n",
 		tostring(lightprobes.enabled == true),
+		tostring(lightprobes.reflection_probes_enabled == true),
 		#lightprobes.probes,
-		lightprobes.current_scene_probe_index or 0,
 		lightprobes.current_face or 0
 	)
 
@@ -951,7 +869,7 @@ function lightprobes.Dump(limit)
 			tostring(probe.needs_update == true),
 			tostring(probe.update_mode),
 			age_text,
-			tostring(i == lightprobes.current_scene_probe_index)
+			tostring(probe == lightprobes.current_probe)
 		)
 	end
 
@@ -960,7 +878,7 @@ function lightprobes.Dump(limit)
 	end
 end
 
-function lightprobes.MarkAllSceneProbesDirty(update_mode)
+function lightprobes.MarkAllReflectionProbesDirty(update_mode)
 	local marked = 0
 
 	for _, probe in ipairs(lightprobes.probes) do
@@ -984,26 +902,29 @@ function lightprobes.Initialize()
 		lightprobes.environment_probe = nil
 	end
 
-	do
-		if not lightprobes.environment_probe then
-			lightprobes.CreateEnvironmentProbe(Vec3(0, 0, 0))
-		end
-
-		if not lightprobes.camera then lightprobes.camera = Camera3D.New() end
-
-		lightprobes.camera:SetFOV(math.rad(90))
-		lightprobes.camera:SetViewport(Rect(0, 0, lightprobes.ENVIRONMENT_SIZE, lightprobes.ENVIRONMENT_SIZE))
-		lightprobes.camera:SetNearZ(0.1)
-		lightprobes.camera:SetFarZ(1000)
-		lightprobes.environment_probe.needs_update = true
-		render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap, lightprobes.environment_probe.irradiance_cubemap)
+	if not lightprobes.environment_probe then
+		lightprobes.CreateEnvironmentProbe(Vec3(0, 0, 0))
 	end
 
+	if not lightprobes.camera then lightprobes.camera = Camera3D.New() end
+
+	lightprobes.camera:SetFOV(math.rad(90))
+	lightprobes.camera:SetViewport(Rect(0, 0, lightprobes.ENVIRONMENT_SIZE, lightprobes.ENVIRONMENT_SIZE))
+	lightprobes.camera:SetNearZ(0.1)
+	lightprobes.camera:SetFarZ(1000)
+	lightprobes.environment_probe.needs_update = true
+	render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap, lightprobes.environment_probe.irradiance_cubemap)
+	lightprobes.MarkAllReflectionProbesDirty()
 	lightprobes.InitializeCubemapLayouts()
 end
 
-event.AddListener("SpawnProbe", "lightprobes", function(position, update_mode, radius, min_spacing)
-	lightprobes.EnsureSceneProbe(position, update_mode or lightprobes.UPDATE_STATIC, radius, min_spacing)
+event.AddListener("Render3DInitialized", "lightprobes", function()
+	lightprobes.Initialize()
+end)
+
+-- Map loaders emit this for their cubemap entities
+event.AddListener("SpawnProbe", "lightprobes", function(position, radius, update_mode, min_spacing)
+	lightprobes.EnsureReflectionProbe(position, radius, update_mode or lightprobes.UPDATE_STATIC, min_spacing)
 end)
 
 event.AddListener("Update", "lightprobes_debug_overlay", function()
@@ -1014,13 +935,12 @@ event.AddListener("Draw2D", "lightprobes_debug_grid", function()
 	lightprobes.DrawDebugGrid()
 end)
 
--- Initialize all cubemap faces to shader_read_only_optimal layout
 function lightprobes.InitializeCubemapLayouts()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
 	initialize_probe_layouts(cmd, lightprobes.environment_probe)
 
-	for index, probe in pairs(lightprobes.probes) do
+	for _, probe in ipairs(lightprobes.probes) do
 		initialize_probe_layouts(cmd, probe)
 	end
 
@@ -1029,12 +949,37 @@ function lightprobes.InitializeCubemapLayouts()
 	cmd:Remove()
 end
 
+local fullscreen_direction_vertex = {
+	push_constants = {
+		{
+			name = "vertex",
+			block = {
+				{"inv_projection_view", "mat4"},
+			},
+			write = write_sky_vertex_constants,
+		},
+	},
+	custom_declarations = [[
+		layout(location = 0) out vec3 out_direction;
+	]],
+	shader = [[
+		vec2 positions[3] = vec2[](
+			vec2(-1.0, -1.0),
+			vec2( 3.0, -1.0),
+			vec2(-1.0,  3.0)
+		);
+
+		void main() {
+			vec2 pos = positions[gl_VertexIndex];
+			gl_Position = vec4(pos, 1.0, 1.0);
+			vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+			out_direction = world_pos.xyz / world_pos.w;
+		}
+	]],
+}
+
 function lightprobes.CreatePipelines()
 	local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-	local ibl = import.loaded["goluwa/render3d/ibl.lua"] or import("goluwa/render3d/ibl.lua")
-	local orientation = import("goluwa/render3d/orientation.lua")
-	local Material = import("goluwa/render3d/material.lua")
-	local Light = import("goluwa/entities/components/light.lua")
 
 	for _, key in ipairs{
 		"sky_pipeline",
@@ -1058,7 +1003,7 @@ function lightprobes.CreatePipelines()
 		lightprobes.capture_bundles = nil
 	end
 
-	-- Sky-only pipeline (for environment probe and scene probe backgrounds)
+	-- Sky only, for the environment probe
 	lightprobes.sky_pipeline = EasyPipeline.New{
 		ColorFormat = {
 			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
@@ -1067,34 +1012,7 @@ function lightprobes.CreatePipelines()
 		RasterizationSamples = "1",
 		Blend = false,
 		ColorWriteMask = "rgba",
-		vertex = {
-			push_constants = {
-				{
-					name = "vertex",
-					block = {
-						{"inv_projection_view", "mat4"},
-					},
-					write = write_sky_vertex_constants,
-				},
-			},
-			custom_declarations = [[
-                layout(location = 0) out vec3 out_direction;
-            ]],
-			shader = [[
-                vec2 positions[3] = vec2[](
-                    vec2(-1.0, -1.0),
-                    vec2( 3.0, -1.0),
-                    vec2(-1.0,  3.0)
-                );
-
-                void main() {
-                    vec2 pos = positions[gl_VertexIndex];
-                    gl_Position = vec4(pos, 1.0, 1.0);
-					vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
-					out_direction = world_pos.xyz / world_pos.w;
-                }
-            ]],
-		},
+		vertex = fullscreen_direction_vertex,
 		fragment = {
 			push_constants = {
 				{
@@ -1118,11 +1036,11 @@ function lightprobes.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-                layout(location = 0) in vec3 in_direction;
-                ]] .. atmosphere.GetGLSLDefines("fragment", "fragment.sun_intensity") .. atmosphere.GetGLSLCode() .. [[
-            ]],
+				layout(location = 0) in vec3 in_direction;
+				]] .. atmosphere.GetGLSLDefines("fragment", "fragment.sun_intensity") .. atmosphere.GetGLSLCode() .. [[
+			]],
 			shader = [[
-                void main() {
+				void main() {
 					vec3 sky_color_output;
 					]] .. atmosphere.GetGLSLMainCode(
 					"in_direction",
@@ -1142,17 +1060,17 @@ function lightprobes.CreatePipelines()
 						-1.0,
 						get_fog_sun_horizon_visibility(probe_sun_dir)
 					);
-				    sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
-				    set_color(vec4(sky_color_output, 1.0));
-                    // Sky is at infinite distance
-                    set_linear_depth(1000.0);
-                }
-            ]],
+					sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
+					set_color(vec4(sky_color_output, 1.0));
+					set_linear_depth(1000.0);
+				}
+			]],
 		},
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
 	}
+	-- Copies the capture bundle's lit output into a cubemap face
 	lightprobes.capture_copy_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		dont_create_framebuffers = true,
@@ -1184,6 +1102,7 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
+	-- Converts the capture's depth buffer into radial distance from the probe
 	lightprobes.capture_depth_pipeline = EasyPipeline.New{
 		ColorFormat = {{"r32_sfloat", {"linear_depth", "r"}}},
 		dont_create_framebuffers = true,
@@ -1228,41 +1147,14 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
-	-- Prefilter pipeline for IBL
+	-- GGX prefilter of the source cubemap into the roughness mip chain
 	lightprobes.prefilter_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		RasterizationSamples = "1",
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
-		vertex = {
-			push_constants = {
-				{
-					name = "vertex",
-					block = {
-						{"inv_projection_view", "mat4"},
-					},
-					write = write_sky_vertex_constants,
-				},
-			},
-			custom_declarations = [[
-                layout(location = 0) out vec3 out_direction;
-            ]],
-			shader = [[
-                vec2 positions[3] = vec2[](
-                    vec2(-1.0, -1.0),
-                    vec2( 3.0, -1.0),
-                    vec2(-1.0,  3.0)
-                );
-
-                void main() {
-                    vec2 pos = positions[gl_VertexIndex];
-                    gl_Position = vec4(pos, 1.0, 1.0);
-					vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
-					out_direction = world_pos.xyz / world_pos.w;
-                }
-            ]],
-		},
+		vertex = fullscreen_direction_vertex,
 		fragment = {
 			push_constants = {
 				{
@@ -1282,63 +1174,63 @@ function lightprobes.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-                layout(location = 0) in vec3 in_direction;
-            ]] .. ibl.GetBRDFGLSLCode() .. [[
-            ]],
+				layout(location = 0) in vec3 in_direction;
+			]] .. ibl.GetBRDFGLSLCode() .. [[
+			]],
 			shader = [[
-                void main() {
-                    vec3 N = normalize(in_direction);
-                    vec3 R = N;
-                    vec3 V = R;
+				void main() {
+					vec3 N = normalize(in_direction);
+					vec3 R = N;
+					vec3 V = R;
 
-                    const uint SAMPLE_COUNT = 512u;
-                    float totalWeight = 0.0;
-                    vec3 prefilteredColor = vec3(0.0);
-                    float roughness = clamp(fragment.roughness, 0.0, 1.0);
+					const uint SAMPLE_COUNT = 512u;
+					float totalWeight = 0.0;
+					vec3 prefilteredColor = vec3(0.0);
+					float roughness = clamp(fragment.roughness, 0.0, 1.0);
 
-                    if (roughness < 0.001) {
+					if (roughness < 0.001) {
 						prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
-                        set_color(vec4(prefilteredColor, 1.0));
-                        return;
-                    }
+						set_color(vec4(prefilteredColor, 1.0));
+						return;
+					}
 
-                    for(uint i = 0u; i < SAMPLE_COUNT; ++i) {
-                        vec2 Xi = Hammersley(i, SAMPLE_COUNT);
-                        vec3 H  = ImportanceSampleGGX(Xi, N, roughness);
-                        vec3 L  = normalize(2.0 * dot(V, H) * H - V);
+					for(uint i = 0u; i < SAMPLE_COUNT; ++i) {
+						vec2 Xi = Hammersley(i, SAMPLE_COUNT);
+						vec3 H  = ImportanceSampleGGX(Xi, N, roughness);
+						vec3 L  = normalize(2.0 * dot(V, H) * H - V);
 
-                        float NoL = max(dot(N, L), 0.0);
-                        if(NoL > 0.0) {
-                            float NoH = max(dot(N, H), 0.0);
-                            float VoH = max(dot(V, H), 0.0001);
+						float NoL = max(dot(N, L), 0.0);
+						if(NoL > 0.0) {
+							float NoH = max(dot(N, H), 0.0);
+							float VoH = max(dot(V, H), 0.0001);
 							float D = D_GGXPerceptual(roughness, NoH);
-                            float pdf = max((D * NoH / (4.0 * VoH)), 0.0001);
+							float pdf = max((D * NoH / (4.0 * VoH)), 0.0001);
 
-                            float resolution = fragment.resolution;
-                            float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf);
-                            float saTexel  = 4.0 * BRDF_PI / (6.0 * resolution * resolution);
+							float resolution = fragment.resolution;
+							float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf);
+							float saTexel  = 4.0 * BRDF_PI / (6.0 * resolution * resolution);
 
-                            float mipBias = max(saSample / saTexel, 1.0);
-                            float lod = clamp(0.5 * log2(mipBias), 0.0, 8.0);
+							float mipBias = max(saSample / saTexel, 1.0);
+							float lod = clamp(0.5 * log2(mipBias), 0.0, 8.0);
 
 							vec3 sampledColor = textureLod(CUBEMAP(fragment.input_texture_index), L, lod).rgb;
-                            sampledColor = min(sampledColor, vec3(65504.0));
-                            
-                            prefilteredColor += sampledColor * NoL;
-                            totalWeight      += NoL;
-                        }
-                    }
-                    
-                    if (totalWeight > 0.0001) {
-                        prefilteredColor /= totalWeight;
-                    } else {
+							sampledColor = min(sampledColor, vec3(65504.0));
+
+							prefilteredColor += sampledColor * NoL;
+							totalWeight      += NoL;
+						}
+					}
+
+					if (totalWeight > 0.0001) {
+						prefilteredColor /= totalWeight;
+					} else {
 						prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
-                    }
-                    
-                    prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));
-                    set_color(vec4(prefilteredColor, 1.0));
-                }
-            ]],
+					}
+
+					prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));
+					set_color(vec4(prefilteredColor, 1.0));
+				}
+			]],
 		},
 	}
 	-- Diffuse irradiance: integrates every texel of a small mip of the
@@ -1351,34 +1243,7 @@ function lightprobes.CreatePipelines()
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
-		vertex = {
-			push_constants = {
-				{
-					name = "vertex",
-					block = {
-						{"inv_projection_view", "mat4"},
-					},
-					write = write_sky_vertex_constants,
-				},
-			},
-			custom_declarations = [[
-                layout(location = 0) out vec3 out_direction;
-            ]],
-			shader = [[
-                vec2 positions[3] = vec2[](
-                    vec2(-1.0, -1.0),
-                    vec2( 3.0, -1.0),
-                    vec2(-1.0,  3.0)
-                );
-
-                void main() {
-                    vec2 pos = positions[gl_VertexIndex];
-                    gl_Position = vec4(pos, 1.0, 1.0);
-					vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
-					out_direction = world_pos.xyz / world_pos.w;
-                }
-            ]],
-		},
+		vertex = fullscreen_direction_vertex,
 		fragment = {
 			push_constants = {
 				{
@@ -1396,9 +1261,9 @@ function lightprobes.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-                layout(location = 0) in vec3 in_direction;
+				layout(location = 0) in vec3 in_direction;
 				const int IRRADIANCE_SOURCE_SIZE = ]] .. lightprobes.IRRADIANCE_SOURCE_SIZE .. [[;
-            ]],
+			]],
 			shader = [[
 				vec3 get_cube_texel_direction(int face, vec2 uv) {
 					if (face == 0) return vec3(1.0, uv.y, uv.x);
@@ -1409,8 +1274,8 @@ function lightprobes.CreatePipelines()
 					return vec3(uv.x, uv.y, -1.0);
 				}
 
-                void main() {
-                    vec3 N = normalize(in_direction);
+				void main() {
+					vec3 N = normalize(in_direction);
 					vec3 irradiance = vec3(0.0);
 					float texel_size = 2.0 / float(IRRADIANCE_SOURCE_SIZE);
 
@@ -1431,14 +1296,13 @@ function lightprobes.CreatePipelines()
 						}
 					}
 
-                    set_color(vec4(irradiance / 3.14159265359, 1.0));
-                }
-            ]],
+					set_color(vec4(irradiance / 3.14159265359, 1.0));
+				}
+			]],
 		},
 	}
 end
 
--- Projection-view-world matrix for probe rendering
 local pvm_cached = Matrix44()
 
 function lightprobes.GetProjectionViewWorldMatrix()
@@ -1493,7 +1357,7 @@ local function get_probe_capture_context()
 		allow_probe_reflections = false,
 		allow_last_frame_history = false,
 		pipeline_flags = {
-			ssr = lightprobes.capture_pipeline_flags.ssr ~= false,
+			ssr = lightprobes.capture_pipeline_flags.ssr == true,
 			ocean = lightprobes.capture_pipeline_flags.ocean ~= false,
 		},
 	}
@@ -1524,7 +1388,7 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
--- Check if sun direction has changed significantly
+-- True when the sun moved more than SUN_CHANGE_DEGREES since the last check
 function lightprobes.HasSunDirectionChanged()
 	local sun = get_primary_sun(render3d.GetLights())
 
@@ -1537,9 +1401,9 @@ function lightprobes.HasSunDirectionChanged()
 		return true
 	end
 
-	local diff = (current_sun_dir - lightprobes.last_sun_direction):GetLength()
+	local cos_angle = current_sun_dir:GetDot(lightprobes.last_sun_direction)
 
-	if diff > 0.001 then
+	if cos_angle < math.cos(math.rad(lightprobes.SUN_CHANGE_DEGREES)) then
 		lightprobes.last_sun_direction = current_sun_dir:Copy()
 		return true
 	end
@@ -1547,7 +1411,53 @@ function lightprobes.HasSunDirectionChanged()
 	return false
 end
 
--- Render faces for a specific probe
+local function transition_face(cmd, texture, face_idx, to_attachment)
+	if to_attachment then
+		render.TransitionResourceTo(
+			texture,
+			"color_attachment_optimal",
+			{
+				cmd = cmd,
+				srcStage = "fragment_shader",
+				srcAccess = "shader_read",
+				dstStage = "color_attachment_output",
+				dstAccess = "color_attachment_write",
+				base_array_layer = face_idx,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+	else
+		render.TransitionResourceFrom(
+			texture,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "color_attachment_output",
+				srcAccess = "color_attachment_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+				base_array_layer = face_idx,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+	end
+end
+
+local function draw_fullscreen(cmd, pipeline, size)
+	cmd:SetViewport(0, 0, size, size)
+	cmd:SetScissor(0, 0, size, size)
+	cmd:SetCullMode("none")
+	pipeline:UploadConstants()
+	pipeline:Bind(cmd)
+	cmd:Draw(3, 1, 0, 0)
+end
+
+-- Renders num_faces faces of a probe starting at lightprobes.current_face.
+-- render_geometry captures the scene, otherwise only the sky is drawn.
 function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 	if not lightprobes.enabled then return end
 
@@ -1561,9 +1471,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 
 	for _ = 1, num_faces do
 		local face_idx = lightprobes.current_face
-		-- Set camera rotation for this face
 		lightprobes.camera:SetAngles(face_angles[face_idx + 1])
-		-- Calculate inverse projection-view for sky rendering
 		local proj = lightprobes.camera:BuildProjectionMatrix()
 		local view = lightprobes.camera:BuildViewMatrix():Copy()
 		view.m30, view.m31, view.m32 = 0, 0, 0
@@ -1578,36 +1486,8 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 			render3d.PopCamera()
 			lightprobes.current_capture_source_texture = get_probe_capture_source_texture(bundle)
 			lightprobes.current_capture_depth_texture = get_probe_capture_depth_texture(bundle)
-			render.TransitionResourceTo(
-				probe.source_cubemap,
-				"color_attachment_optimal",
-				{
-					cmd = cmd,
-					srcStage = "fragment_shader",
-					srcAccess = "shader_read",
-					dstStage = "color_attachment_output",
-					dstAccess = "color_attachment_write",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				}
-			)
-			render.TransitionResourceTo(
-				probe.depth_cubemap,
-				"color_attachment_optimal",
-				{
-					cmd = cmd,
-					srcStage = "fragment_shader",
-					srcAccess = "shader_read",
-					dstStage = "color_attachment_output",
-					dstAccess = "color_attachment_write",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				}
-			)
+			transition_face(cmd, probe.source_cubemap, face_idx, true)
+			transition_face(cmd, probe.depth_cubemap, face_idx, true)
 			cmd:BeginRendering{
 				color_attachments = {
 					{
@@ -1620,12 +1500,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			cmd:SetViewport(0, 0, SIZE, SIZE)
-			cmd:SetScissor(0, 0, SIZE, SIZE)
-			cmd:SetCullMode("none")
-			lightprobes.capture_copy_pipeline:UploadConstants()
-			lightprobes.capture_copy_pipeline:Bind(cmd)
-			cmd:Draw(3, 1, 0, 0)
+			draw_fullscreen(cmd, lightprobes.capture_copy_pipeline, SIZE)
 			cmd:EndRendering()
 			cmd:BeginRendering{
 				color_attachments = {
@@ -1639,47 +1514,11 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			cmd:SetViewport(0, 0, SIZE, SIZE)
-			cmd:SetScissor(0, 0, SIZE, SIZE)
-			cmd:SetCullMode("none")
-			lightprobes.capture_depth_pipeline:UploadConstants()
-			lightprobes.capture_depth_pipeline:Bind(cmd)
-			cmd:Draw(3, 1, 0, 0)
+			draw_fullscreen(cmd, lightprobes.capture_depth_pipeline, SIZE)
 			cmd:EndRendering()
 		else
-			-- Transition source face to color attachment
-			render.TransitionResourceTo(
-				probe.source_cubemap,
-				"color_attachment_optimal",
-				{
-					cmd = cmd,
-					srcStage = "fragment_shader",
-					srcAccess = "shader_read",
-					dstStage = "color_attachment_output",
-					dstAccess = "color_attachment_write",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				}
-			)
-			-- Transition depth face to color attachment
-			render.TransitionResourceTo(
-				probe.depth_cubemap,
-				"color_attachment_optimal",
-				{
-					cmd = cmd,
-					srcStage = "fragment_shader",
-					srcAccess = "shader_read",
-					dstStage = "color_attachment_output",
-					dstAccess = "color_attachment_write",
-					base_array_layer = face_idx,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				}
-			)
-			-- First render sky background
+			transition_face(cmd, probe.source_cubemap, face_idx, true)
+			transition_face(cmd, probe.depth_cubemap, face_idx, true)
 			cmd:BeginRendering{
 				color_attachments = {
 					{
@@ -1698,131 +1537,19 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			cmd:SetViewport(0, 0, SIZE, SIZE)
-			cmd:SetScissor(0, 0, SIZE, SIZE)
-			cmd:SetCullMode("none")
-			lightprobes.sky_pipeline:UploadConstants()
-			lightprobes.sky_pipeline:Bind(cmd)
-			cmd:Draw(3, 1, 0, 0)
+			draw_fullscreen(cmd, lightprobes.sky_pipeline, SIZE)
 			cmd:EndRendering()
 		end
 
-		-- Transition source face to shader read
-		render.TransitionResourceFrom(
-			probe.source_cubemap,
-			"shader_read_only_optimal",
-			{
-				cmd = cmd,
-				srcStage = "color_attachment_output",
-				srcAccess = "color_attachment_write",
-				dstStage = "fragment_shader",
-				dstAccess = "shader_read",
-				base_array_layer = face_idx,
-				layer_count = 1,
-				base_mip_level = 0,
-				level_count = 1,
-			}
-		)
-		-- Transition depth face to shader read
-		render.TransitionResourceFrom(
-			probe.depth_cubemap,
-			"shader_read_only_optimal",
-			{
-				cmd = cmd,
-				srcStage = "color_attachment_output",
-				srcAccess = "color_attachment_write",
-				dstStage = "fragment_shader",
-				dstAccess = "shader_read",
-				base_array_layer = face_idx,
-				layer_count = 1,
-				base_mip_level = 0,
-				level_count = 1,
-			}
-		)
+		transition_face(cmd, probe.source_cubemap, face_idx, false)
+		transition_face(cmd, probe.depth_cubemap, face_idx, false)
 		lightprobes.current_face = (lightprobes.current_face + 1) % 6
 	end
 
 	render.PopCommandBuffer()
 end
 
--- Prefilter the source cubemap into the output cubemap with roughness mips
-function lightprobes.PrefilterProbe(cmd, probe)
-	if not lightprobes.prefilter_pipeline then return end
-
-	render.PushCommandBuffer(cmd)
-	local SIZE = probe.size
-	local num_mips = probe.cubemap.mip_map_levels
-	-- Set current probe for prefiltering
-	lightprobes.current_prefilter_probe = probe
-	-- Generate mipmaps for source cubemap
-	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
-	local roughest_mip = math.max(math.min(ibl.GetPrefilterMipCount(SIZE), num_mips) - 1, 1)
-
-	-- Roughness 0..1 maps onto the mips down to the roughest usable face
-	-- size; the remaining tiny mips repeat roughness 1 so trilinear lookups
-	-- never reach unfiltered data.
-	for m = 0, num_mips - 1 do
-		local perceptual_roughness = math.min(m / roughest_mip, 1)
-		lightprobes.current_roughness = perceptual_roughness
-		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
-
-		for face = 0, 5 do
-			lightprobes.camera:SetAngles(face_angles[face + 1])
-			local proj = lightprobes.camera:BuildProjectionMatrix()
-			local view = lightprobes.camera:BuildViewMatrix():Copy()
-			view.m30, view.m31, view.m32 = 0, 0, 0
-			local proj_view = view * proj
-			proj_view:GetInverse(lightprobes.inv_projection_view)
-			-- Transition output face/mip to color attachment
-			render.TransitionResourceTo(
-				probe.cubemap,
-				"color_attachment_optimal",
-				{
-					cmd = cmd,
-					srcStage = "fragment_shader",
-					srcAccess = "shader_read",
-					dstStage = "color_attachment_output",
-					dstAccess = "color_attachment_write",
-					base_array_layer = face,
-					layer_count = 1,
-					base_mip_level = m,
-					level_count = 1,
-				}
-			)
-			cmd:BeginRendering{
-				color_image_view = probe.mip_face_views[m][face],
-				w = mip_size,
-				h = mip_size,
-				clear_color = {0, 0, 0, 1},
-			}
-			cmd:SetViewport(0, 0, mip_size, mip_size)
-			cmd:SetScissor(0, 0, mip_size, mip_size)
-			cmd:SetCullMode("none")
-			lightprobes.prefilter_pipeline:UploadConstants()
-			lightprobes.prefilter_pipeline:Bind(cmd)
-			cmd:Draw(3, 1, 0, 0)
-			cmd:EndRendering()
-			-- Transition to shader read
-			render.TransitionResourceFrom(
-				probe.cubemap,
-				"shader_read_only_optimal",
-				{
-					cmd = cmd,
-					srcStage = "color_attachment_output",
-					srcAccess = "color_attachment_write",
-					dstStage = "fragment_shader",
-					dstAccess = "shader_read",
-					base_array_layer = face,
-					layer_count = 1,
-					base_mip_level = m,
-					level_count = 1,
-				}
-			)
-		end
-	end
-
-	local irradiance_size = lightprobes.IRRADIANCE_SIZE
-
+local function render_cube_faces(cmd, pipeline, texture, face_views, size, mip_level)
 	for face = 0, 5 do
 		lightprobes.camera:SetAngles(face_angles[face + 1])
 		local proj = lightprobes.camera:BuildProjectionMatrix()
@@ -1831,7 +1558,7 @@ function lightprobes.PrefilterProbe(cmd, probe)
 		local proj_view = view * proj
 		proj_view:GetInverse(lightprobes.inv_projection_view)
 		render.TransitionResourceTo(
-			probe.irradiance_cubemap,
+			texture,
 			"color_attachment_optimal",
 			{
 				cmd = cmd,
@@ -1841,25 +1568,20 @@ function lightprobes.PrefilterProbe(cmd, probe)
 				dstAccess = "color_attachment_write",
 				base_array_layer = face,
 				layer_count = 1,
-				base_mip_level = 0,
+				base_mip_level = mip_level,
 				level_count = 1,
 			}
 		)
 		cmd:BeginRendering{
-			color_image_view = probe.irradiance_face_views[face],
-			w = irradiance_size,
-			h = irradiance_size,
+			color_image_view = face_views[face],
+			w = size,
+			h = size,
 			clear_color = {0, 0, 0, 1},
 		}
-		cmd:SetViewport(0, 0, irradiance_size, irradiance_size)
-		cmd:SetScissor(0, 0, irradiance_size, irradiance_size)
-		cmd:SetCullMode("none")
-		lightprobes.irradiance_pipeline:UploadConstants()
-		lightprobes.irradiance_pipeline:Bind(cmd)
-		cmd:Draw(3, 1, 0, 0)
+		draw_fullscreen(cmd, pipeline, size)
 		cmd:EndRendering()
 		render.TransitionResourceFrom(
-			probe.irradiance_cubemap,
+			texture,
 			"shader_read_only_optimal",
 			{
 				cmd = cmd,
@@ -1869,16 +1591,55 @@ function lightprobes.PrefilterProbe(cmd, probe)
 				dstAccess = "shader_read",
 				base_array_layer = face,
 				layer_count = 1,
-				base_mip_level = 0,
+				base_mip_level = mip_level,
 				level_count = 1,
 			}
+		)
+	end
+end
+
+-- Prefilters the source cubemap into the output mip chain, and builds the
+-- irradiance cubemap for probes that have one.
+function lightprobes.PrefilterProbe(cmd, probe)
+	if not lightprobes.prefilter_pipeline then return end
+
+	render.PushCommandBuffer(cmd)
+	local SIZE = probe.size
+	local num_mips = probe.cubemap.mip_map_levels
+	lightprobes.current_prefilter_probe = probe
+	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
+	local roughest_mip = math.max(math.min(ibl.GetPrefilterMipCount(SIZE), num_mips) - 1, 1)
+
+	-- Roughness 0..1 maps onto the mips down to the roughest usable face
+	-- size; the remaining tiny mips repeat roughness 1 so trilinear lookups
+	-- never reach unfiltered data.
+	for m = 0, num_mips - 1 do
+		lightprobes.current_roughness = math.min(m / roughest_mip, 1)
+		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
+		render_cube_faces(
+			cmd,
+			lightprobes.prefilter_pipeline,
+			probe.cubemap,
+			probe.mip_face_views[m],
+			mip_size,
+			m
+		)
+	end
+
+	if probe.irradiance_cubemap then
+		render_cube_faces(
+			cmd,
+			lightprobes.irradiance_pipeline,
+			probe.irradiance_cubemap,
+			probe.irradiance_face_views,
+			lightprobes.IRRADIANCE_SIZE,
+			0
 		)
 	end
 
 	render.PopCommandBuffer()
 end
 
--- Update the environment probe (called every frame if sun changed)
 function lightprobes.UpdateEnvironmentProbe(cmd, sun_changed)
 	if not lightprobes.environment_probe then return end
 
@@ -1889,15 +1650,13 @@ function lightprobes.UpdateEnvironmentProbe(cmd, sun_changed)
 
 	local own_cmd
 	cmd, own_cmd = acquire_probe_command_buffer(cmd)
-	-- Save current face and render all 6 faces for environment
 	local saved_face = lightprobes.current_face
 	lightprobes.current_face = 0
-	-- Environment probe only renders sky (no geometry)
 	lightprobes.RenderProbeFaces(cmd, env_probe, 6, false)
-	-- Prefilter the environment probe
 	lightprobes.PrefilterProbe(cmd, env_probe)
 	lightprobes.current_face = saved_face
 	env_probe.needs_update = false
+	env_probe.last_rendered = system.GetTime()
 	submit_probe_command_buffer(cmd, own_cmd)
 end
 
@@ -1913,18 +1672,18 @@ function lightprobes.IsEnabled()
 	return lightprobes.enabled
 end
 
-function lightprobes.SetSceneProbesEnabled(enabled)
+function lightprobes.SetReflectionProbesEnabled(enabled)
 	local value = enabled ~= false
 
-	if lightprobes.scene_probes_enabled == value then return end
+	if lightprobes.reflection_probes_enabled == value then return end
 
-	lightprobes.scene_probes_enabled = value
+	lightprobes.reflection_probes_enabled = value
 
-	if value then lightprobes.MarkAllSceneProbesDirty() end
+	if value then lightprobes.MarkAllReflectionProbesDirty() end
 end
 
-function lightprobes.AreSceneProbesEnabled()
-	return lightprobes.scene_probes_enabled
+function lightprobes.AreReflectionProbesEnabled()
+	return lightprobes.reflection_probes_enabled
 end
 
 -- Compatibility with old skybox API
@@ -1936,9 +1695,56 @@ function lightprobes.GetStarsTexture()
 	return atmosphere.GetStarsTexture()
 end
 
-event.AddListener("Render3DInitialized", "lightprobes", function()
-	lightprobes.Initialize()
-end)
+local function is_probe_in_list(probe)
+	for _, other in ipairs(lightprobes.probes) do
+		if other == probe then return true end
+	end
+
+	return false
+end
+
+-- Picks the probe to capture next: a capture in progress is finished first,
+-- then the nearest dirty probe, then the stalest dynamic probe that is due.
+local function select_probe_to_capture(now, camera_position)
+	local current = lightprobes.current_probe
+
+	if current and lightprobes.current_face > 0 and is_probe_in_list(current) then
+		return current
+	end
+
+	local best
+	local best_score = -math.huge
+
+	for _, probe in ipairs(lightprobes.probes) do
+		local score
+
+		if probe.needs_update then
+			score = 1e9 - (probe.position - camera_position):GetLength()
+		elseif
+			probe.update_mode == lightprobes.UPDATE_DYNAMIC and
+			now - (
+				probe.last_rendered or
+				0
+			) >= lightprobes.DYNAMIC_INTERVAL
+		then
+			score = (
+					now - (
+						probe.last_rendered or
+						0
+					)
+				) * 100 - (
+					probe.position - camera_position
+				):GetLength()
+		end
+
+		if score and score > best_score then
+			best_score = score
+			best = probe
+		end
+	end
+
+	return best
+end
 
 event.AddListener("PreRenderPass", "lightprobes_update", function()
 	if not lightprobes.enabled then return end
@@ -1948,44 +1754,29 @@ event.AddListener("PreRenderPass", "lightprobes_update", function()
 	local cmd, own_cmd = acquire_probe_command_buffer()
 	local sun_changed = lightprobes.HasSunDirectionChanged()
 
-	if sun_changed then lightprobes.MarkAllSceneProbesDirty() end
+	if sun_changed then lightprobes.MarkAllReflectionProbesDirty() end
 
 	lightprobes.UpdateEnvironmentProbe(cmd, sun_changed)
 
-	if lightprobes.scene_probes_enabled then
-		local scene_probe_index = lightprobes.current_scene_probe_index
-		local scene_probe = lightprobes.probes[scene_probe_index]
+	if lightprobes.reflection_probes_enabled and #lightprobes.probes > 0 then
+		local now = system.GetTime()
+		local probe = select_probe_to_capture(now, render3d.GetRenderCamera():GetPosition())
 
-		if scene_probe and scene_probe.type == lightprobes.TYPE_SCENE then
-			-- Only update if the probe needs it (static probes only update once)
-			if
-				scene_probe.needs_update or
-				scene_probe.update_mode == lightprobes.UPDATE_DYNAMIC
-			then
-				local t = system.GetTime()
+		if probe then
+			if probe ~= lightprobes.current_probe then
+				lightprobes.current_probe = probe
+				lightprobes.current_face = 0
+			end
 
-				if (t - scene_probe.last_rendered) > 1 / 10 then
-					lightprobes.RenderProbeFaces(cmd, scene_probe, lightprobes.UPDATE_FACES_PER_FRAME, true)
+			local faces = math.max(math.floor(lightprobes.FACES_PER_FRAME), 1)
+			faces = math.min(faces, 6 - lightprobes.current_face)
+			lightprobes.RenderProbeFaces(cmd, probe, faces, true)
 
-					-- When we complete a full cycle (back to face 0), prefilter and move to next probe
-					if lightprobes.current_face == 0 then
-						lightprobes.PrefilterProbe(cmd, scene_probe)
-						scene_probe.needs_update = false
-
-						-- Move to next scene probe
-						repeat
-							scene_probe_index = scene_probe_index + 1
-
-							if scene_probe_index > #lightprobes.probes then
-								scene_probe_index = 1
-							end						
-						until lightprobes.probes[scene_probe_index] or scene_probe_index == lightprobes.current_scene_probe_index
-
-						lightprobes.current_scene_probe_index = scene_probe_index
-					end
-
-					scene_probe.last_rendered = t
-				end
+			if lightprobes.current_face == 0 then
+				lightprobes.PrefilterProbe(cmd, probe)
+				probe.needs_update = false
+				probe.last_rendered = now
+				lightprobes.current_probe = nil
 			end
 		end
 	end
@@ -1997,9 +1788,30 @@ commands.Add("lightprobes_dump=number|nil", function(limit)
 	lightprobes.Dump(limit)
 end)
 
-commands.Add("lightprobes_scene_probes=boolean[true]", function(enabled)
-	lightprobes.SetSceneProbesEnabled(enabled)
-	logf("[lightprobes] scene probes %s\n", enabled and "enabled" or "disabled")
+commands.Add("lightprobes_reflection_probes=boolean[true]", function(enabled)
+	lightprobes.SetReflectionProbesEnabled(enabled)
+	logf("[lightprobes] reflection probes %s\n", enabled and "enabled" or "disabled")
+end)
+
+commands.Add("lightprobes_spawn=number|nil,string|nil", function(radius, update_mode)
+	if update_mode == "" then update_mode = nil end
+
+	local position = render3d.GetRenderCamera():GetPosition()
+	local probe, created = lightprobes.EnsureReflectionProbe(position, radius, update_mode or lightprobes.UPDATE_STATIC)
+	lightprobes.SetReflectionProbesEnabled(true)
+	logf(
+		"[lightprobes] %s reflection probe at (%.1f %.1f %.1f) radius %.1f\n",
+		created and "spawned" or "reused",
+		probe.position.x,
+		probe.position.y,
+		probe.position.z,
+		probe.radius
+	)
+end)
+
+commands.Add("lightprobes_clear", function()
+	lightprobes.ClearReflectionProbes()
+	logf("[lightprobes] removed all reflection probes\n")
 end)
 
 commands.Add("lightprobes_debug_draw=boolean[true]", function(enabled)
@@ -2015,9 +1827,9 @@ end)
 commands.Add("lightprobes_debug_focus=number[0]", function(index)
 	index = math.max(math.floor(index or 0), 0)
 
-	if index > 0 and not get_scene_probe(index) then
+	if index > 0 and not get_reflection_probe(index) then
 		logf(
-			"[lightprobes] no scene probe at index %d (have %d)\n",
+			"[lightprobes] no reflection probe at index %d (have %d)\n",
 			index,
 			#lightprobes.probes
 		)
@@ -2068,9 +1880,9 @@ commands.Add("lightprobes_rebuild=string|nil", function(update_mode)
 		)
 	end
 
-	local marked = lightprobes.MarkAllSceneProbesDirty(update_mode)
+	local marked = lightprobes.MarkAllReflectionProbesDirty(update_mode)
 	logf(
-		"[lightprobes] marked %d scene probes dirty%s\n",
+		"[lightprobes] marked %d reflection probes dirty%s\n",
 		marked,
 		update_mode and (" mode=" .. update_mode) or ""
 	)
