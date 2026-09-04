@@ -267,6 +267,12 @@ local function build_shadow_cascade_update_mask(self, shadow_map)
 		farthest_cascade.last_camera_position,
 		config.farthest_cascade_camera_position_threshold or 0
 	)
+	-- the cascade is fitted to the view frustum slice, so turning the camera
+	-- moves the slice out of the map just like walking does
+	local camera_forward = camera and camera:GetRotation():GetForward() or nil
+	local camera_turned = not camera_forward or
+		not farthest_cascade.last_camera_forward or
+		camera_forward:Dot(farthest_cascade.last_camera_forward) < math.cos(math.rad(config.farthest_cascade_camera_rotation_threshold or 5))
 	local shadow_volume_change_version = get_shadow_volume_change_version(shadow_map, farthest_cascade_idx)
 	local world_changed = shadow_volume_change_version == nil or
 		shadow_volume_change_version > (
@@ -274,7 +280,7 @@ local function build_shadow_cascade_update_mask(self, shadow_map)
 			0
 		)
 
-	if not camera_moved and not world_changed then
+	if not camera_moved and not camera_turned and not world_changed then
 		mask[farthest_cascade_idx] = false
 	end
 
@@ -338,10 +344,12 @@ local function render_shadow_map_batch(light, shadow_map, next_index_key)
 		event.Call("DrawAllShadows", shadow_map, cascade_idx)
 		render.PopCommandBuffer()
 		shadow_map:End(cascade_idx, i == passes_to_render)
+		local camera = render3d.GetRenderCamera()
 		shadow_map:MarkCascadeRendered(
 			cascade_idx,
 			get_shadow_volume_change_version(shadow_map, cascade_idx),
-			render3d.GetRenderCamera() and render3d.GetRenderCamera():GetPosition() or nil
+			camera and camera:GetPosition() or nil,
+			camera and camera:GetRotation():GetForward() or nil
 		)
 	end
 

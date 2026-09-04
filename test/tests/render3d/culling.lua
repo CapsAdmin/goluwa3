@@ -771,7 +771,7 @@ T.Test3D("Graphics render3d shadow visible list reuses stable cascades", functio
 	entity:Remove()
 end)
 
-T.Test3D("Graphics render3d shadows honor main-view occlusion", function(draw)
+T.Test3D("Graphics render3d shadows ignore main-view occlusion", function(draw)
 	configure_camera()
 	Visual.Library.SetOcclusionCulling(true)
 	local polygon3d = build_cube_polygon()
@@ -819,8 +819,8 @@ T.Test3D("Graphics render3d shadows honor main-view occlusion", function(draw)
 	occluded:Remove()
 	Visual.Library.SetOcclusionCulling(false)
 	T(visible[occluder.visual])["=="](true)
-	T(visible[occluded.visual])["=="](nil)
-	T(found_occluded_entry)["=="](false)
+	T(visible[occluded.visual])["=="](true)
+	T(found_occluded_entry)["=="](true)
 end)
 
 T.Test3D("Graphics render3d occlusion culls far visuals behind occluders", function(draw)
@@ -842,6 +842,7 @@ T.Test3D("Graphics render3d occlusion culls far visuals behind occluders", funct
 	Visual.Library.InvalidateSceneAcceleration()
 	draw()
 	draw()
+
 	-- The main-view HiZ is rebuilt once per frame stamp, but the test harness does not
 	-- advance the frame stamp, so the first (empty-depth) build is never refreshed.
 	-- Force a fresh build from the current depth so occlusion has real data.
@@ -854,14 +855,23 @@ T.Test3D("Graphics render3d occlusion culls far visuals behind occluders", funct
 		hiz_cmd:End()
 		render_mod.SubmitAndWait(hiz_cmd)
 	end
+
 	local render_entries = Visual.Library.GetVisibleRenderEntries()
 	local found_occluder = false
 	local found_occluded = false
+
 	for _, payload in ipairs(render_entries) do
 		if payload.component == occluder_visual then found_occluder = true end
+
 		if payload.component == occluded_visual then found_occluded = true end
 	end
-	print("DEBUGPROBE: occluder=", tostring(found_occluder), "occluded=", tostring(found_occluded))
+
+	print(
+		"DEBUGPROBE: occluder=",
+		tostring(found_occluder),
+		"occluded=",
+		tostring(found_occluded)
+	)
 	occluder:Remove()
 	occluded:Remove()
 	Visual.Library.SetOcclusionCulling(false)

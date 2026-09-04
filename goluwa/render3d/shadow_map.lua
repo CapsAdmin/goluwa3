@@ -628,11 +628,12 @@ local function build_shadow_fragment_stage(self, bindless_texture_capacity, line
 	}
 end
 
-local function get_shadow_state_upload_cache(self, frame_index)
+local function get_shadow_state_upload_cache(self)
 	local cache = self.shadow_state_upload_cache
+	local frame = system.GetFrameNumber()
 
-	if not cache or cache.frame_index ~= frame_index then
-		cache = {frame_index = frame_index, pipelines = {}}
+	if not cache or cache.frame ~= frame then
+		cache = {frame = frame, pipelines = {}}
 		self.shadow_state_upload_cache = cache
 	end
 
@@ -640,7 +641,7 @@ local function get_shadow_state_upload_cache(self, frame_index)
 end
 
 local function get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
-	local pipelines = get_shadow_state_upload_cache(self, frame_index)
+	local pipelines = get_shadow_state_upload_cache(self)
 	local pipeline_cache = pipelines[pipeline]
 
 	if not pipeline_cache then
@@ -1546,6 +1547,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		self.cascade[cascade_idx].position = shadow_center
 		self.cascade[cascade_idx].view_matrix = view
 		self.cascade[cascade_idx].cull_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, max_z + cull_near_margin)
+		self.cascade[cascade_idx].projection_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, caster_max_z)
 		self.cascade[cascade_idx].light_space_matrix = view * projection
 		extract_frustum_planes(view * cull_projection, self.cascade[cascade_idx].frustum_planes)
 		previous_split = split_far
@@ -1608,13 +1610,14 @@ function ShadowMap:ShouldDisableVertexAnimation(cascade_index)
 	return self.disable_vertex_animation_cascades[cascade_index] == true
 end
 
-function ShadowMap:MarkCascadeRendered(cascade_index, shadow_volume_change_version, camera_position)
+function ShadowMap:MarkCascadeRendered(cascade_index, shadow_volume_change_version, camera_position, camera_forward)
 	local cascade = self.cascade[cascade_index]
 
 	if not cascade then return end
 
 	cascade.last_shadow_volume_change_version = shadow_volume_change_version or cascade.last_shadow_volume_change_version or 0
 	cascade.last_camera_position = camera_position and camera_position:Copy() or nil
+	cascade.last_camera_forward = camera_forward and camera_forward:Copy() or nil
 	cascade.last_rendered_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 end
 
@@ -2007,6 +2010,15 @@ local function bind_instanced_shadow_constants(self, material, cascade_index)
 	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
 	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
 	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
+	-- the pipeline is built for the largest cascade, binding it resets the
+	-- viewport to that size so it has to follow the cascade's own texture
+	local depth_texture = self.mode == "point" and
+		self.point_depth_buffer or
+		self.cascade[cascade_index].depth_texture
+	local w = depth_texture:GetWidth()
+	local h = depth_texture:GetHeight()
+	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
+	self.cmd:SetScissor(0, 0, w, h)
 	self.cmd:SetFrontFace(orientation.FRONT_FACE)
 	self.cmd:SetCullMode("none")
 	return pipeline

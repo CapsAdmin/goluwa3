@@ -291,18 +291,7 @@ local function get_cached_shadow_volume_change_version(cache, query_aabb)
 end
 
 local function get_shadow_visibility_cache_version()
-	local version = visual.shadow_visible_list_version or 0
-
-	if
-		visual.IsOcclusionCullingEnabled() and
-		gpu_culling.IsEnabled() and
-		gpu_culling.GetOcclusionMode and
-		gpu_culling.GetOcclusionMode() == "hiz"
-	then
-		version = version + (system.GetFrameNumber and system.GetFrameNumber() or 0)
-	end
-
-	return version
+	return visual.shadow_visible_list_version or 0
 end
 
 local function update_shadow_visible_list_cache(

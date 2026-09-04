@@ -3234,7 +3234,10 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 
 	if not (output and descriptor_slot) then return nil end
 
-	local occlusion_enabled = gpu_culling.GetOcclusionMode() == "hiz"
+	-- casters hidden from the camera still throw shadows onto visible surfaces,
+	-- so the main view hi-z never applies to shadow casters. The depth view is
+	-- still bound because the descriptor needs a valid image.
+	local occlusion_enabled = false
 	local occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = get_main_view_occlusion_source()
 	local camera = render3d.GetRenderCamera()
 	local view_projection_matrix = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
