@@ -6,6 +6,7 @@ local Buffer = import("goluwa/structs/buffer.lua")
 local deflate = import("goluwa/codecs/deflate.lua")
 local math_ceil = math.ceil
 local math_floor = math.floor
+local math_abs = math.abs
 local table_concat = table.concat
 local png = library()
 png.file_extensions = {"png"}
@@ -31,19 +32,19 @@ local function getDataIDAT(buffer, length, oldData)
 end
 
 local function getDataPLTE(buffer, length)
-	local data = {}
-	data["numColors"] = math.floor(length / 3)
-	data["colors"] = {}
+	local numColors = math.floor(length / 3)
+	-- flat byte array instead of an array of {R,G,B} tables - indexed pngs are
+	-- decoded one pixel at a time, so this avoids a table lookup plus 3 hash
+	-- field lookups per pixel in favor of 3 array reads
+	local colors = ffi.new("uint8_t[?]", numColors * 3)
 
-	for i = 1, data["numColors"] do
-		data.colors[i] = {
-			R = buffer:ReadByte(),
-			G = buffer:ReadByte(),
-			B = buffer:ReadByte(),
-		}
+	for i = 0, numColors - 1 do
+		colors[i * 3 + 0] = buffer:ReadByte()
+		colors[i * 3 + 1] = buffer:ReadByte()
+		colors[i * 3 + 2] = buffer:ReadByte()
 	end
 
-	return data
+	return {numColors = numColors, colors = colors}
 end
 
 local function getDataTRNS(buffer, length, ihdr)
@@ -108,21 +109,6 @@ local function extractChunkData(buffer)
 	end
 
 	return chunkData
-end
-
-local function paethPredict(a, b, c)
-	local p = a + b - c
-	local varA = math.abs(p - a)
-	local varB = math.abs(p - b)
-	local varC = math.abs(p - c)
-
-	if varA <= varB and varA <= varC then
-		return a
-	elseif varB <= varC then
-		return b
-	else
-		return c
-	end
 end
 
 local FILTER_NONE = 0
@@ -206,6 +192,7 @@ local function getPixels(buffer, data)
 	local transparency_b = transparency and transparency.b
 	local has_rgb_transparency = transparency_r ~= nil
 	local palette = data.PLTE and data.PLTE.colors
+	local palette_count = data.PLTE and data.PLTE.numColors or 0
 	local palette_alpha = transparency and transparency.palette_alpha
 
 	for y = 1, height do
@@ -236,7 +223,12 @@ local function getPixels(buffer, data)
 				local left = i >= bytesPerInputPixel and currRow[i - bytesPerInputPixel] or 0
 				local up = prevRow[i]
 				local upLeft = i >= bytesPerInputPixel and prevRow[i - bytesPerInputPixel] or 0
-				currRow[i] = bit_band(src[src_pos + i] + paethPredict(left, up, upLeft), 0xFF)
+				local p = left + up - upLeft
+				local varA = math_abs(p - left)
+				local varB = math_abs(p - up)
+				local varC = math_abs(p - upLeft)
+				local predicted = (varA <= varB and varA <= varC) and left or (varB <= varC and up or upLeft)
+				currRow[i] = bit_band(src[src_pos + i] + predicted, 0xFF)
 			end
 		else
 			error("Unsupported filter type: " .. tostring(filterType))
@@ -315,14 +307,14 @@ local function getPixels(buffer, data)
 				end
 			elseif packedSamples and colorType == COLOR_TYPE_INDEXED then
 				for x = 0, width - 1 do
-					local index = get_packed_sample(currRow, x, bitDepth) + 1
-					local color = palette and palette[index]
+					local index = get_packed_sample(currRow, x, bitDepth)
 
-					if color then
-						out[outIdx + 0] = color.R
-						out[outIdx + 1] = color.G
-						out[outIdx + 2] = color.B
-						out[outIdx + 3] = palette_alpha and palette_alpha[index] or 255
+					if palette and index < palette_count then
+						local p = index * 3
+						out[outIdx + 0] = palette[p]
+						out[outIdx + 1] = palette[p + 1]
+						out[outIdx + 2] = palette[p + 2]
+						out[outIdx + 3] = palette_alpha and palette_alpha[index + 1] or 255
 					else
 						out[outIdx + 0] = 255
 						out[outIdx + 1] = 0
@@ -390,14 +382,14 @@ local function getPixels(buffer, data)
 				local inIdx = 0
 
 				for _ = 1, width do
-					local index = currRow[inIdx] + 1
-					local color = palette and palette[index]
+					local index = currRow[inIdx]
 
-					if color then
-						out[outIdx + 0] = color.R
-						out[outIdx + 1] = color.G
-						out[outIdx + 2] = color.B
-						out[outIdx + 3] = palette_alpha and palette_alpha[index] or 255
+					if palette and index < palette_count then
+						local p = index * 3
+						out[outIdx + 0] = palette[p]
+						out[outIdx + 1] = palette[p + 1]
+						out[outIdx + 2] = palette[p + 2]
+						out[outIdx + 3] = palette_alpha and palette_alpha[index + 1] or 255
 					else
 						out[outIdx + 0] = 255
 						out[outIdx + 1] = 0

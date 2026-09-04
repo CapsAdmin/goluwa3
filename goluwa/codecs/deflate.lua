@@ -38,13 +38,16 @@ local function runtime_error(s, level)
 	error(s, level + 1)
 end
 
+-- The output buffer only ever grows and preserves its prior contents on
+-- realloc (Buffer:SetPosition/WriteByte both memcpy old data into any new
+-- allocation), so it doubles as its own up-to-32768-byte sliding window -
+-- LZ77 back-references can read straight out of it instead of maintaining
+-- a separate window copy of every byte written.
 local function make_outstate(outbuf)
 	local outstate = {}
 	outstate.outbuf = outbuf
 	outstate.outptr = outbuf.Buffer
 	outstate.outpos = 0
-	outstate.window = ffi.new("uint8_t[32768]")
-	outstate.window_pos = 0
 	return outstate
 end
 
@@ -59,45 +62,42 @@ end
 
 local function output(outstate, byte)
 	local outpos = outstate.outpos
-	ensure_out_capacity(outstate, outpos + 1)
+
+	if outpos >= outstate.outbuf.ByteSize then ensure_out_capacity(outstate, outpos + 1) end
+
 	outstate.outptr[outpos] = byte
 	outstate.outpos = outpos + 1
-	local window_pos = outstate.window_pos
-	outstate.window[window_pos] = byte
-	window_pos = window_pos + 1
-
-	if window_pos == 32768 then window_pos = 0 end
-
-	outstate.window_pos = window_pos
 end
 
+-- Below this length, ffi.copy's call/marshalling overhead outweighs what it
+-- saves over a plain scalar loop - most LZ77 matches in image data are short
+local COPY_FFI_THRESHOLD = 32
+
 local function copy_from_window(outstate, dist, len)
-	local available = outstate.outpos < 32768 and outstate.outpos or 32768
-
-	if dist > available then runtime_error("invalid distance: " .. dist) end
-
 	local outpos = outstate.outpos
-	ensure_out_capacity(outstate, outpos + len)
+
+	if dist > outpos then runtime_error("invalid distance: " .. dist) end
+
+	local end_pos = outpos + len
+
+	if end_pos > outstate.outbuf.ByteSize then ensure_out_capacity(outstate, end_pos) end
+
 	local outptr = outstate.outptr
-	local window = outstate.window
-	local window_pos = outstate.window_pos
+	local src_pos = outpos - dist
 
-	for _ = 1, len do
-		local src_pos = window_pos - dist
-
-		if src_pos < 0 then src_pos = src_pos + 32768 end
-
-		local byte = window[src_pos]
-		outptr[outpos] = byte
-		window[window_pos] = byte
-		outpos = outpos + 1
-		window_pos = window_pos + 1
-
-		if window_pos == 32768 then window_pos = 0 end
+	if dist >= len and len >= COPY_FFI_THRESHOLD then
+		-- non-overlapping and long enough to be worth the ffi call
+		ffi.copy(outptr + outpos, outptr + src_pos, len)
+	else
+		-- either overlapping (e.g. run-length style repeats, where later
+		-- bytes depend on earlier ones just written) or too short for
+		-- ffi.copy to pay for itself
+		for i = 0, len - 1 do
+			outptr[outpos + i] = outptr[src_pos + i]
+		end
 	end
 
-	outstate.outpos = outpos
-	outstate.window_pos = window_pos
+	outstate.outpos = end_pos
 end
 
 local function noeof(val, context)
@@ -272,7 +272,12 @@ local function msb(bits, nbits)
 	return res
 end
 
-local function huffman_table_read(look, minbits, buf)
+-- Bit-by-bit walk of the canonical code table (one buffered bit consumed per
+-- iteration until a prefix match is found). Only reached for codes longer
+-- than FASTBITS, or right at the end of the input where fewer than FASTBITS
+-- bits remain buffered - both rare, so this doesn't need to be fast, just
+-- correct; huffman_table_read below handles the common case in O(1).
+local function huffman_table_read_slow(look, minbits, buf)
 	local code = 1 -- leading 1 marker
 	local nbits = 0
 
@@ -293,6 +298,39 @@ local function huffman_table_read(look, minbits, buf)
 		if val then --debug('FOUND', val)
 		return val end
 	end
+end
+
+-- Codes up to FASTBITS long decode in O(1): t.fast is indexed directly by
+-- the next FASTBITS buffered bits (low bits of bitbuf, which arrive
+-- least-significant-bit-first - i.e. in the same order the slow path above
+-- consumes them one at a time) and packs the decoded symbol and its bit
+-- length into a single uint16_t (val * 32 + nbits, nbits always <= FASTBITS
+-- < 32). A zero entry means "no code this short starts with these bits",
+-- deferring to the slow path, which also covers longer codes and premature
+-- end-of-input.
+local FASTBITS = 9
+local FAST_SIZE = 512
+local FAST_MASK = FAST_SIZE - 1
+
+local function huffman_table_read(t, buf)
+	fill_bits(buf, FASTBITS)
+	-- bitcount is always well under 32 here (this only runs during block
+	-- decoding, never mid-header-field where fill_bits can transiently hold
+	-- more than 32 bits), so plain integer bit ops are safe and avoid the
+	-- float divide/modulo read_bits/fill_bits use for the general case
+	local packed = t.fast[band(buf.bitbuf, FAST_MASK)]
+
+	if packed ~= 0 then
+		local nbits = band(packed, 31)
+
+		if nbits <= buf.bitcount then
+			buf.bitbuf = rshift(buf.bitbuf, nbits)
+			buf.bitcount = buf.bitcount - nbits
+			return rshift(packed, 5)
+		end
+	end
+
+	return huffman_table_read_slow(t.look, t.minbits, buf)
 end
 
 local function HuffmanTable(init, ncodes)
@@ -366,6 +404,28 @@ local function HuffmanTable(init, ncodes)
 
 	t.look = look
 	t.minbits = minbits
+	local fast = ffi.new("uint16_t[?]", FAST_SIZE)
+
+	for i, s in ipairs(t) do
+		if s.nbits <= FASTBITS then
+			-- s.code carries a leading-1 marker (see the canonical code loop
+			-- above); strip it, then reverse into bit-buffer order (the slow
+			-- path consumes/accumulates MSB-first one bit at a time, but
+			-- fill_bits packs incoming bytes LSB-first)
+			local packed = s.val * 32 + s.nbits
+			local index = msb(s.code - pow2[s.nbits], s.nbits)
+			local step = pow2[s.nbits]
+
+			-- a code shorter than FASTBITS matches every combination of the
+			-- remaining high "don't care" bits
+			while index < FAST_SIZE do
+				fast[index] = packed
+				index = index + step
+			end
+		end
+	end
+
+	t.fast = fast
 	return t
 end
 
@@ -466,7 +526,7 @@ local function decode_huffman_codes(buf, codelentable, ncodes)
 	local val = 0
 
 	while val < ncodes do
-		local codelen = huffman_table_read(codelentable.look, codelentable.minbits, buf)
+		local codelen = huffman_table_read(codelentable, buf)
 		--FIX:check nil?
 		local nrepeat
 
@@ -559,7 +619,7 @@ do
 end
 
 local function parse_compressed_item(buf, outstate, littable, disttable)
-	local val = huffman_table_read(littable.look, littable.minbits, buf)
+	local val = huffman_table_read(littable, buf)
 
 	--debug("parse_compressed_item: val=", val, val < 256 and string_char(val) or "")
 	if val < 256 then -- literal
@@ -572,7 +632,7 @@ local function parse_compressed_item(buf, outstate, littable, disttable)
 		--debug("Reading", nextrabits, "extra bits for length")
 		local extrabits = noeof(read_bits(buf, nextrabits))
 		local len = len_base + extrabits
-		local dist_val = huffman_table_read(disttable.look, disttable.minbits, buf)
+		local dist_val = huffman_table_read(disttable, buf)
 		local dist_base = tdecode_dist_base[dist_val]
 		local dist_nextrabits = tdecode_dist_nextrabits[dist_val]
 		local dist_extrabits = noeof(read_bits(buf, dist_nextrabits))
