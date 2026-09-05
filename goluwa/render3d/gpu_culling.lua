@@ -2524,7 +2524,11 @@ local function ensure_dataset_buffers(dataset)
 		structure_key_matches(gpu_culling.dataset_buffers_structure_key, dataset.structure_key) and
 		gpu_culling.dataset_buffers
 	then
-		update_dataset_buffers_in_place(dataset, gpu_culling.dataset_buffers)
+		if gpu_culling.dataset_buffers_generation ~= dataset.generation then
+			update_dataset_buffers_in_place(dataset, gpu_culling.dataset_buffers)
+			gpu_culling.dataset_buffers_generation = dataset.generation
+		end
+
 		return gpu_culling.dataset_buffers
 	end
 

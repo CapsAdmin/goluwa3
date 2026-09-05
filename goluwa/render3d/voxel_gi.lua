@@ -1715,19 +1715,6 @@ local function half_to_float(h)
 	return sign == 1 and -value or value
 end
 
-local function oct_encode(x, y, z)
-	local l = math.abs(x) + math.abs(y) + math.abs(z)
-	x, y, z = x / l, y / l, z / l
-	local px, py = x, y
-
-	if z < 0 then
-		px = (1 - math.abs(y)) * (x >= 0 and 1 or -1)
-		py = (1 - math.abs(x)) * (y >= 0 and 1 or -1)
-	end
-
-	return px * 0.5 + 0.5, py * 0.5 + 0.5
-end
-
 -- Reads back a cascade's atlases and returns a function that decodes one
 -- probe: offset, enabled, mean radiance and the visibility mean toward a
 -- direction. Slow, for debugging only.
@@ -1745,6 +1732,19 @@ function voxel_gi.ReadProbes(cascade_index)
 	local tile = voxel_gi.IRRADIANCE_OCT_SIZE
 	local vis_tile = voxel_gi.VISIBILITY_OCT_SIZE
 	local counts = {voxel_gi.PROBE_COUNT_X, voxel_gi.PROBE_COUNT_Y, voxel_gi.PROBE_COUNT_Z}
+
+	local function oct_encode(x, y, z)
+		local l = math.abs(x) + math.abs(y) + math.abs(z)
+		x, y, z = x / l, y / l, z / l
+		local px, py = x, y
+
+		if z < 0 then
+			px = (1 - math.abs(y)) * (x >= 0 and 1 or -1)
+			py = (1 - math.abs(x)) * (y >= 0 and 1 or -1)
+		end
+
+		return px * 0.5 + 0.5, py * 0.5 + 0.5
+	end
 
 	return function(gx, gy, gz)
 		local sx, sy, sz = gx % counts[1], gy % counts[2], gz % counts[3]
