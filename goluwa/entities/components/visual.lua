@@ -760,9 +760,11 @@ local function rebuild_scene_acceleration()
 	visual.scene_acceleration.shadow_static_item_count = #shadow_items
 	visual.scene_acceleration.dirty = false
 	visual.scene_acceleration.visible_frame = nil
+	visual.scene_acceleration.visible_camera = nil
 	visual.scene_acceleration.visible_cull_result = nil
 	visual.scene_acceleration.visible_gpu_cull_result = nil
 	visual.scene_acceleration.visible_gpu_cull_result_frame = nil
+	visual.scene_acceleration.visible_gpu_cull_result_camera = nil
 	visual.scene_acceleration.visible_components = nil
 	visual.scene_acceleration.visible_render_entries = nil
 	visual.scene_acceleration.visible_render_entries_frame = nil
@@ -1682,10 +1684,14 @@ do
 		return is_aabb_visible_frustum(world_aabb, frustum_planes)
 	end
 
-	local function is_component_visible_in_current_cpu_list(component, frame)
+	local function is_component_visible_in_current_cpu_list(component, frame, camera)
 		local acceleration = ensure_scene_acceleration()
 
-		if acceleration.visible_frame ~= frame or not acceleration.visible_components then
+		if
+			acceleration.visible_frame ~= frame or
+			acceleration.visible_camera ~= camera or
+			not acceleration.visible_components
+		then
 			return nil
 		end
 
@@ -1696,14 +1702,19 @@ do
 		return false
 	end
 
-	local function is_component_visible_in_main_gpu_lookup(component, frame)
+	local function is_component_visible_in_main_gpu_lookup(component, frame, camera)
 		local acceleration = ensure_scene_acceleration()
 		local cull_result = nil
 
-		if acceleration.visible_frame == frame and acceleration.visible_cull_result then
+		if
+			acceleration.visible_frame == frame and
+			acceleration.visible_camera == camera and
+			acceleration.visible_cull_result
+		then
 			cull_result = acceleration.visible_cull_result
 		elseif
 			acceleration.visible_gpu_cull_result_frame == frame and
+			acceleration.visible_gpu_cull_result_camera == camera and
 			acceleration.visible_gpu_cull_result
 		then
 			cull_result = acceleration.visible_gpu_cull_result
@@ -1721,11 +1732,12 @@ do
 
 	local function is_component_frustum_culled(component)
 		local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
-		local gpu_visible = is_component_visible_in_main_gpu_lookup(component, frame)
+		local camera = render3d.GetRenderCamera()
+		local gpu_visible = is_component_visible_in_main_gpu_lookup(component, frame, camera)
 
 		if gpu_visible ~= nil then return not gpu_visible end
 
-		local cpu_visible = is_component_visible_in_current_cpu_list(component, frame)
+		local cpu_visible = is_component_visible_in_current_cpu_list(component, frame, camera)
 
 		if cpu_visible ~= nil then return not cpu_visible end
 
@@ -2051,9 +2063,23 @@ do
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local read_visible_entry_indices = include_visible_entry_indices ~= false
 		local cached_result = acceleration.visible_gpu_cull_result
+		-- render3d.GetRenderCamera() can be a different camera within the same
+		-- real frame (e.g. a reflection probe capture pushes its own camera),
+		-- so the cache must be keyed on the camera too, not just the frame
+		-- number, or a probe's cull result gets handed back to the main view.
+		local camera = render3d.GetRenderCamera()
+
+		-- gpu_culling.RunMainViewFrustumCulling dispatches into per-real-frame
+		-- GPU buffers shared by every caller that frame, regardless of which
+		-- camera asked - it is only safe for the actual top-level main
+		-- camera. Anything rendered from a pushed camera (reflection probe
+		-- captures, etc.) falls back to the CPU frustum cull instead of
+		-- racing the main view for those buffers.
+		if render3d.camera_stack and #render3d.camera_stack > 1 then return nil, nil end
 
 		if
 			acceleration.visible_gpu_cull_result_frame == current_frame and
+			acceleration.visible_gpu_cull_result_camera == camera and
 			cached_result and
 			(
 				not read_visible_entry_indices or
@@ -2065,7 +2091,6 @@ do
 
 		if not gpu_culling.IsEnabled() or visual.noculling then return nil, nil end
 
-		local camera = render3d.GetRenderCamera()
 		local dataset = gpu_culling.GetSceneDataset()
 
 		if not dataset then return nil, nil end
@@ -2080,6 +2105,7 @@ do
 		if cull_result then
 			acceleration.visible_gpu_cull_result = cull_result
 			acceleration.visible_gpu_cull_result_frame = current_frame
+			acceleration.visible_gpu_cull_result_camera = camera
 		end
 
 		return dataset, cull_result
@@ -2088,8 +2114,9 @@ do
 	function visual.GetVisibleVisuals()
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local acceleration = ensure_scene_acceleration()
+		local camera = render3d.GetRenderCamera()
 
-		if acceleration.visible_frame == current_frame then
+		if acceleration.visible_frame == current_frame and acceleration.visible_camera == camera then
 			if
 				acceleration.visible_cull_result and
 				acceleration.visible_cull_result.visible_entry_indices_ready
@@ -2117,6 +2144,7 @@ do
 			if cull_result then
 				local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
 				acceleration.visible_frame = current_frame
+				acceleration.visible_camera = camera
 				acceleration.visible_cull_result = cull_result
 				acceleration.visible_components = nil
 				acceleration.visible_render_entries = nil
@@ -2135,6 +2163,7 @@ do
 		end
 
 		acceleration.visible_frame = current_frame
+		acceleration.visible_camera = camera
 		acceleration.visible_cull_result = nil
 		acceleration.visible_components = out
 		acceleration.visible_render_entries = nil
@@ -2185,6 +2214,14 @@ do
 
 					out[index] = payload
 				end
+			end
+		elseif acceleration.visible_components then
+			-- No GPU cull result this call (GPU culling off, or a nested
+			-- camera context like a reflection probe capture that
+			-- deliberately skips the shared main-view GPU path) - GetVisibleVisuals
+			-- already computed a plain CPU-culled component list instead.
+			for _, component in ipairs(acceleration.visible_components) do
+				append_component_render_entries(out, component, payloads)
 			end
 		end
 

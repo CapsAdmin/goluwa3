@@ -24,11 +24,17 @@ local lightprobes = library()
 -- diffuse global illumination).
 --
 -- Reflection probes capture the scene into a prefiltered cubemap plus a
--- radial depth cubemap for parallax correction. They are placed manually
--- (CreateReflectionProbe, or the SpawnProbe event that map loaders emit for
--- their cubemap entities) and are meant for glossy surfaces that screen
--- space reflections cannot cover. Captures are spread over frames, nearest
--- dirty probes first.
+-- radial depth cubemap for parallax correction, and are meant for glossy
+-- surfaces that screen space reflections cannot cover. Captures are spread
+-- over frames, nearest dirty probes first.
+--
+-- Placement is a horizontal grid recentered on the camera every
+-- AUTO_PLACEMENT_INTERVAL seconds (UpdateAutoPlacement) - it doesn't query
+-- scene geometry, so probes just blanket the area on a fixed spacing and
+-- some will end up embedded in walls or floating in open air. Probes can
+-- also be placed explicitly (CreateReflectionProbe, or the SpawnProbe event
+-- that map loaders emit for their cubemap entities); those aren't touched
+-- by the auto-placement grid's cleanup.
 local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()
 
@@ -73,8 +79,17 @@ lightprobes.capture_pipeline_flags = lightprobes.capture_pipeline_flags or {
 	ssr = false,
 	ocean = true,
 }
+-- Automatic placement: a horizontal grid of probes recentered on the camera,
+-- with no scene geometry queries. Coverage over correctness - some probes
+-- will end up embedded in geometry or floating in open air.
+lightprobes.auto_placement_enabled = lightprobes.auto_placement_enabled ~= false
+lightprobes.AUTO_PLACEMENT_SPACING = lightprobes.AUTO_PLACEMENT_SPACING or 48
+lightprobes.AUTO_PLACEMENT_RADIUS_CELLS = lightprobes.AUTO_PLACEMENT_RADIUS_CELLS or 2
+lightprobes.AUTO_PLACEMENT_INTERVAL = lightprobes.AUTO_PLACEMENT_INTERVAL or 1
 -- State
 lightprobes.probes = lightprobes.probes or {}
+lightprobes.auto_grid = lightprobes.auto_grid or {} -- grid key -> auto-placed probe
+lightprobes.auto_last_update = lightprobes.auto_last_update or 0
 lightprobes.current_probe = lightprobes.current_probe or nil -- reflection probe currently being captured
 lightprobes.current_face = lightprobes.current_face or 0
 lightprobes.inv_projection_view = lightprobes.inv_projection_view or Matrix44()
@@ -271,6 +286,14 @@ function lightprobes.CreateReflectionProbe(position, radius, update_mode)
 	return probe
 end
 
+local function remove_from_auto_grid(probe)
+	if not probe.auto_grid_key then return end
+
+	if lightprobes.auto_grid[probe.auto_grid_key] == probe then
+		lightprobes.auto_grid[probe.auto_grid_key] = nil
+	end
+end
+
 function lightprobes.RemoveReflectionProbe(probe)
 	for i, other in ipairs(lightprobes.probes) do
 		if other == probe then
@@ -281,6 +304,7 @@ function lightprobes.RemoveReflectionProbe(probe)
 				lightprobes.current_face = 0
 			end
 
+			remove_from_auto_grid(probe)
 			remove_probe_resources(probe)
 			return true
 		end
@@ -295,6 +319,7 @@ function lightprobes.ClearReflectionProbes()
 	end
 
 	lightprobes.probes = {}
+	lightprobes.auto_grid = {}
 	lightprobes.current_probe = nil
 	lightprobes.current_face = 0
 	lightprobes.ClearDebugOverlay()
@@ -342,6 +367,67 @@ function lightprobes.EnsureReflectionProbe(position, radius, update_mode, min_sp
 	distance
 end
 
+local function auto_grid_key(cx, cy, cz)
+	return cx .. "," .. cy .. "," .. cz
+end
+
+-- Recenters a horizontal grid of auto-placed reflection probes on the
+-- camera. This has no idea where geometry is - it just blankets the area
+-- around the camera with probes on a fixed spacing so that glossy surfaces
+-- have *something* nearby to sample, and lets the normal capture/dirty
+-- pipeline sort out what actually ends up visible in each one.
+function lightprobes.UpdateAutoPlacement(camera_position)
+	if not lightprobes.auto_placement_enabled then return end
+
+	local now = system.GetTime()
+
+	if now - lightprobes.auto_last_update < lightprobes.AUTO_PLACEMENT_INTERVAL then return end
+
+	lightprobes.auto_last_update = now
+	local spacing = lightprobes.AUTO_PLACEMENT_SPACING
+	local radius_cells = lightprobes.AUTO_PLACEMENT_RADIUS_CELLS
+	local cx = math.floor(camera_position.x / spacing + 0.5)
+	local cy = math.floor(camera_position.y / spacing + 0.5)
+	local cz = math.floor(camera_position.z / spacing + 0.5)
+	local wanted = {}
+
+	for x = -radius_cells, radius_cells do
+		for z = -radius_cells, radius_cells do
+			local gx, gz = cx + x, cz + z
+			local key = auto_grid_key(gx, cy, gz)
+			wanted[key] = true
+
+			if not lightprobes.auto_grid[key] then
+				local position = Vec3(gx * spacing, cy * spacing, gz * spacing)
+				local probe = lightprobes.CreateReflectionProbe(position, spacing * 0.75, lightprobes.UPDATE_STATIC)
+				probe.auto = true
+				probe.auto_grid_key = key
+				lightprobes.auto_grid[key] = probe
+			end
+		end
+	end
+
+	for key, probe in pairs(lightprobes.auto_grid) do
+		if not wanted[key] then
+			lightprobes.RemoveReflectionProbe(probe)
+			lightprobes.auto_grid[key] = nil
+		end
+	end
+end
+
+function lightprobes.SetAutoPlacementEnabled(enabled)
+	lightprobes.auto_placement_enabled = enabled ~= false
+
+	if not lightprobes.auto_placement_enabled then
+		for key, probe in pairs(lightprobes.auto_grid) do
+			lightprobes.RemoveReflectionProbe(probe)
+			lightprobes.auto_grid[key] = nil
+		end
+	else
+		lightprobes.auto_last_update = 0
+	end
+end
+
 local nearest_probe_sort_position
 
 local function nearest_probe_comparator(a, b)
@@ -372,6 +458,64 @@ function lightprobes.GetProbesNear(position, limit)
 	end
 
 	return sorted
+end
+
+-- Uniform block for shaders that sample reflection probes directly (ssr.lua,
+-- lighting.lua). Shared here so every consumer uploads probes the same way
+-- instead of duplicating the write loop per pass.
+function lightprobes.GetProbeBlockLayout()
+	return {
+		{"probe_color_textures", "int", lightprobes.MAX_UPLOADED_PROBES},
+		{"probe_depth_textures", "int", lightprobes.MAX_UPLOADED_PROBES},
+		{"probe_positions", "vec4", lightprobes.MAX_UPLOADED_PROBES},
+	}
+end
+
+function lightprobes.WriteProbeBlock(self, block, camera_position)
+	local max_probes = lightprobes.MAX_UPLOADED_PROBES
+
+	for i = 0, max_probes - 1 do
+		block.probe_color_textures[i] = -1
+		block.probe_depth_textures[i] = -1
+		block.probe_positions[i][0] = 0
+		block.probe_positions[i][1] = 0
+		block.probe_positions[i][2] = 0
+		block.probe_positions[i][3] = 0
+	end
+
+	if
+		not (
+			lightprobes.IsEnabled() and
+			lightprobes.AreReflectionProbesEnabled() and
+			render3d.ShouldUseProbeReflections()
+		)
+	then
+		return block
+	end
+
+	camera_position = camera_position or render3d.GetRenderCamera():GetPosition()
+	local probes = lightprobes.GetProbesNear(camera_position, max_probes)
+
+	for i = 0, max_probes - 1 do
+		local probe = probes[i + 1]
+
+		if probe then
+			if probe.cubemap then
+				block.probe_color_textures[i] = self:GetCubeMapTextureIndex(probe.cubemap)
+			end
+
+			if probe.depth_cubemap then
+				block.probe_depth_textures[i] = self:GetCubeMapTextureIndex(probe.depth_cubemap)
+			end
+
+			block.probe_positions[i][0] = probe.position.x
+			block.probe_positions[i][1] = probe.position.y
+			block.probe_positions[i][2] = probe.position.z
+			block.probe_positions[i][3] = probe.radius or lightprobes.REFLECTION_RADIUS
+		end
+	end
+
+	return block
 end
 
 local function get_debug_draw_module()
@@ -932,6 +1076,16 @@ end)
 
 event.AddListener("Update", "lightprobes_debug_overlay", function()
 	lightprobes.DrawDebugOverlay()
+end)
+
+event.AddListener("Update", "lightprobes_auto_placement", function()
+	if not lightprobes.enabled or not lightprobes.reflection_probes_enabled then return end
+
+	local camera = render3d.GetRenderCamera()
+
+	if not camera then return end
+
+	lightprobes.UpdateAutoPlacement(camera:GetPosition())
 end)
 
 event.AddListener("Draw2D", "lightprobes_debug_grid", function()
@@ -1794,6 +1948,11 @@ end)
 commands.Add("lightprobes_reflection_probes=boolean[true]", function(enabled)
 	lightprobes.SetReflectionProbesEnabled(enabled)
 	logf("[lightprobes] reflection probes %s\n", enabled and "enabled" or "disabled")
+end)
+
+commands.Add("lightprobes_auto_placement=boolean[true]", function(enabled)
+	lightprobes.SetAutoPlacementEnabled(enabled)
+	logf("[lightprobes] auto placement %s\n", enabled and "enabled" or "disabled")
 end)
 
 commands.Add("lightprobes_spawn=number|nil,string|nil", function(radius, update_mode)

@@ -69,7 +69,7 @@ local green = mat(Color(0.08, 0.6, 0.1, 1), 0.9)
 local blue = mat(Color(0.1, 0.25, 0.8, 1), 0.7)
 local yellow = mat(Color(0.9, 0.75, 0.15, 1), 0.7)
 -- ground
-box("ground", Vec3(0, -1, 0), Vec3(120, 2, 120), grey)
+box("ground", Vec3(0, -1, 0), Vec3(120, 2, 120), mat(Color(0.9, 0.9, 0.9, 1), 0.05, 1))
 
 -- cornell room, open towards +z, roof with a gap so the sun gets in
 do

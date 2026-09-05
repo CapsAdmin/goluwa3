@@ -11,6 +11,7 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local voxel_gi = import("goluwa/render3d/voxel_gi.lua")
+local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local get_primary_sun = directional_shadows.GetPrimarySun
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
 local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
@@ -92,6 +93,7 @@ return {
 					atmosphere.GetBlockLayout(),
 					{"env_irradiance_tex", "int"},
 					voxel_gi.GetBlockLayout(),
+					lightprobes.GetProbeBlockLayout(),
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 				},
@@ -123,6 +125,7 @@ return {
 					)
 					block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 					voxel_gi.WriteBlock(self, block)
+					lightprobes.WriteProbeBlock(self, block)
 
 					if render3d.pipelines.ambient_occlusion_blur then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -231,6 +234,8 @@ return {
 			]] .. ibl.GetBRDFGLSLCode() .. [[
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
+
+			]] .. ibl.GetProbeReflectionGLSLCode("lighting_data") .. [[
 
 			]] .. voxel_gi.GetGLSLCode("lighting_data") .. [[
 
@@ -348,15 +353,17 @@ return {
 			// a local reflection (it's already correctly occluded, just
 			// diffuse rather than directional), cross-faded against the raw
 			// sky cubemap by sky_visibility (1 = genuinely open to the sky, 0
-			// = fully covered by the probe grid). Without this, a surface
-			// with no SSR data reflects the exterior sky straight through
-			// walls and ceilings at grazing angles (a rim light on every
-			// indoor edge, sun up or down) whether SSR is on or off, since
-			// SSR's own miss case falls back to that same raw sky.
+			// = fully covered by the voxel gi grid), then reflection probes
+			// are blended over that wherever one covers world_pos. This whole
+			// chain also has to stand on its own when SSR is disabled, since
+			// reflection-probe sampling otherwise only exists inside the SSR
+			// pass and would vanish along with it.
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback) {
 				vec3 raw_R = reflect(-V, normal);
+				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
-				vec3 env_reflection = mix(gi_reflection_fallback, sky_reflection, sky_visibility);
+				vec3 global_reflection = mix(gi_reflection_fallback, sky_reflection, sky_visibility);
+				vec3 env_reflection = blend_probe_reflections(global_reflection, R, roughness, world_pos);
 
 				if (lighting_data.ssr_tex == -1) return env_reflection;
 
