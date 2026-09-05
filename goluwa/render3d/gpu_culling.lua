@@ -7,10 +7,14 @@ local tasks = import("goluwa/tasks.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local vk = import("goluwa/bindings/vk.lua")
+local system = import("goluwa/system.lua")
 local render3d = nil
 local gpu_culling = library()
 gpu_culling.enabled = gpu_culling.enabled ~= false
-gpu_culling.async_main_view_enabled = gpu_culling.async_main_view_enabled == true
+gpu_culling.async_main_view_enabled = gpu_culling.async_main_view_enabled ~= false
+-- the async result is consumed one frame after it was culled, so the frustum is widened
+-- slightly to hide pop-in from camera rotation. below 1 means wider.
+gpu_culling.async_frustum_scale = gpu_culling.async_frustum_scale or 0.96
 gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "hiz"
 gpu_culling.scene_acceleration = gpu_culling.scene_acceleration or nil
 gpu_culling.scene_dataset = gpu_culling.scene_dataset or nil
@@ -20,7 +24,7 @@ gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_gener
 gpu_culling.published_scene_acceleration_generation = gpu_culling.published_scene_acceleration_generation or 0
 gpu_culling.frame_buffers_structure_key = gpu_culling.frame_buffers_structure_key or nil
 gpu_culling.dataset_buffers_structure_key = gpu_culling.dataset_buffers_structure_key or nil
-gpu_culling.main_view_async_submission_serial = gpu_culling.main_view_async_submission_serial or 0
+gpu_culling.main_view_submission_serial = gpu_culling.main_view_submission_serial or 0
 local float16 = ffi.typeof("float[16]")
 local VALID_OCCLUSION_MODES = {
 	disabled = true,
@@ -96,14 +100,25 @@ local GPUCullNodeRecord = ffi.typeof([[struct {
 	uint32_t reserved;
 }]])
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
+-- Async culling needs more slots than the swapchain has frames: at any moment one slot
+-- is being culled into, one is published (its indirect commands are being drawn from),
+-- and the frames that drew from earlier slots may still be in flight.
+local ASYNC_SLOT_HEADROOM = 3
+
+local function get_cull_slot_count()
+	local frame_count = math.max(render.GetSwapchainImageCount() or 1, 1)
+	return frame_count, frame_count + ASYNC_SLOT_HEADROOM
+end
 local ZERO_UINT32 = ffi.new("uint32_t[1]", 0)
 
 function gpu_culling.Initialize()
 	render3d = import("goluwa/render3d/render3d.lua")
 
+	local hiz_descriptor_set_count = (math.max(render.GetSwapchainImageCount() or 1, 1) + 1) * 16
+
 	do -- main view hiz build pass
 		gpu_culling.main_view_hiz_build_pass = EasyPipeline.Compute{
-			DescriptorSetCount = 64,
+			DescriptorSetCount = hiz_descriptor_set_count,
 			name = "gpu_culling_main_view_hiz_copy",
 			LocalSize = {x = 8, y = 8, z = 1},
 			descriptor_sets = {
@@ -140,7 +155,7 @@ function gpu_culling.Initialize()
 
 	do -- main view hiz reduce pass
 		gpu_culling.main_view_hiz_reduce_pass = EasyPipeline.Compute{
-			DescriptorSetCount = 64,
+			DescriptorSetCount = hiz_descriptor_set_count,
 			name = "gpu_culling_main_view_hiz_reduce",
 			LocalSize = {x = 8, y = 8, z = 1},
 			descriptor_sets = {
@@ -185,8 +200,9 @@ function gpu_culling.Initialize()
 	end
 
 	do -- view cull pass
+		local sync_slot_count, async_slot_count = get_cull_slot_count()
 		gpu_culling.main_view_cull_pass = EasyPipeline.Compute{
-			DescriptorSetCount = math.max((render.GetSwapchainImageCount() or 1) + 1, 1),
+			DescriptorSetCount = sync_slot_count + async_slot_count,
 			name = "gpu_culling_main_view_linear",
 			LocalSize = {x = 64, y = 1, z = 1},
 			descriptor_sets = {
@@ -277,6 +293,12 @@ function gpu_culling.Initialize()
 				{
 					type = "combined_image_sampler",
 					binding_index = 14,
+					stageFlags = "compute",
+					set_index = 0,
+				},
+				{
+					type = "storage_buffer",
+					binding_index = 15,
 					stageFlags = "compute",
 					set_index = 0,
 				},
@@ -433,6 +455,12 @@ function gpu_culling.Initialize()
 
 			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
 
+			// indexed by entry index so the cpu can ask "is this component visible"
+			// without searching the append-ordered visible list
+			layout(std430, set = 0, binding = 15) writeonly buffer EntryVisibilityBuffer {
+				uint entry_visible[];
+			};
+
 			const uint VISUAL_FLAG_VISIBLE = 1u;
 			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
 			const uint INVALID_INDEX = 0xFFFFFFFFu;
@@ -579,6 +607,7 @@ function gpu_culling.Initialize()
 					uint write_index = atomicAdd(visible_count[0], 1u);
 					uint entry_index = visual_record.entry_offset + entry_offset;
 					visible_indices[write_index] = entry_index;
+					entry_visible[entry_index] = 1u;
 					commands[write_index].indexCount = entry_record.index_count;
 					commands[write_index].instanceCount = 1u;
 					commands[write_index].firstIndex = 0u;
@@ -992,23 +1021,9 @@ function gpu_culling.Initialize()
 	end
 end
 
-local function ensure_main_view_hiz_state(width, height)
-	width = math.max(1, math.floor(tonumber(width) or 1))
-	height = math.max(1, math.floor(tonumber(height) or 1))
-	local state = gpu_culling.main_view_hiz_state
+local HIZ_BUFFER_COUNT = 2
 
-	if
-		state and
-		state.width == width and
-		state.height == height and
-		state.texture and
-		state.texture:IsValid()
-	then
-		return state
-	end
-
-	if state and state.texture then state.texture:Remove() end
-
+local function create_main_view_hiz_buffer(width, height, index)
 	local mip_count = 1
 	local largest_dimension = math.max(width, height)
 
@@ -1034,7 +1049,7 @@ local function ensure_main_view_hiz_state(width, height)
 			wrap_t = "clamp_to_edge",
 		},
 	}
-	texture:SetDebugName("gpu culling main view hiz")
+	texture:SetDebugName("gpu culling main view hiz " .. index)
 	local image = texture:GetImage()
 	local single_mip_views = {}
 
@@ -1045,98 +1060,24 @@ local function ensure_main_view_hiz_state(width, height)
 			level_count = 1,
 			aspect = "color",
 		}
-
-		if single_mip_views[mip_level + 1].SetDebugName then
-			single_mip_views[mip_level + 1]:SetDebugName("gpu culling main view hiz mip " .. mip_level)
-		end
+		single_mip_views[mip_level + 1]:SetDebugName("gpu culling main view hiz " .. index .. " mip " .. mip_level)
 	end
 
 	image:TransitionLayout(image.layout or "undefined", "general")
-	state = {
-		width = width,
-		height = height,
+	local buffer = {
+		index = index,
 		texture = texture,
-		full_view = texture:GetView(),
+		image = image,
+		view = texture:GetView(),
 		sampler = texture.sampler or render.CreateSampler(texture:GetSamplerConfig()),
-		max_mip = math.max(0, texture:GetMipMapLevels() - 1),
+		max_mip = mip_count - 1,
 		single_mip_views = single_mip_views,
+		built = false,
+		mip_barriers = {},
 	}
-	gpu_culling.main_view_hiz_state = state
-	return state
-end
 
-local function get_main_view_occlusion_source()
-	local depth_texture = render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture()
-	local state = ensure_main_view_hiz_state(depth_texture:GetWidth(), depth_texture:GetHeight())
-	return depth_texture, state.full_view, state.sampler, state.max_mip, state
-end
-
-local function build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
-	if not (cmd and depth_texture and state and state.texture) then return end
-
-	local descriptor_base = descriptor_slot * 16
-	local image = state.texture:GetImage()
-	local depth_view = depth_texture:GetView()
-	local depth_sampler = depth_texture.sampler or render.CreateSampler(depth_texture:GetSamplerConfig())
-	render.TransitionResourceToComputeStorage(
-		state.texture,
-		{
-			cmd = cmd,
-			srcStage = "top_of_pipe",
-			srcAccess = "none",
-			dstStage = "compute",
-			dstAccess = "shader_write",
-			base_mip_level = 0,
-			level_count = state.max_mip + 1,
-			layer_count = 1,
-		}
-	)
-	local copy_pass = gpu_culling.main_view_hiz_build_pass
-	copy_pass:UpdateDescriptorSet("combined_image_sampler", descriptor_base, 0, 0, depth_view, depth_sampler)
-	copy_pass:UpdateDescriptorSet("storage_image", descriptor_base, 1, 0, state.single_mip_views[1])
-	copy_pass:DispatchForSize(cmd, state.width, state.height, 1, descriptor_base)
-	cmd:PipelineBarrier{
-		srcStage = "compute",
-		dstStage = "compute",
-		imageBarriers = {
-			{
-				image = image,
-				srcAccessMask = "shader_write",
-				dstAccessMask = "shader_read",
-				oldLayout = "general",
-				newLayout = "general",
-				base_mip_level = 0,
-				level_count = 1,
-				layer_count = 1,
-			},
-		},
-	}
-	local reduce_pass = gpu_culling.main_view_hiz_reduce_pass
-
-	for mip_level = 1, state.max_mip do
-		local reduce_descriptor_slot = descriptor_base + mip_level
-		reduce_pass:UpdateDescriptorSet(
-			"storage_image",
-			reduce_descriptor_slot,
-			0,
-			0,
-			state.single_mip_views[mip_level]
-		)
-		reduce_pass:UpdateDescriptorSet(
-			"storage_image",
-			reduce_descriptor_slot,
-			1,
-			0,
-			state.single_mip_views[mip_level + 1]
-		)
-		reduce_pass:DispatchForSize(
-			cmd,
-			math.max(1, math.floor((state.width + (2 ^ mip_level) - 1) / (2 ^ mip_level))),
-			math.max(1, math.floor((state.height + (2 ^ mip_level) - 1) / (2 ^ mip_level))),
-			1,
-			reduce_descriptor_slot
-		)
-		cmd:PipelineBarrier{
+	for mip_level = 0, mip_count - 1 do
+		buffer.mip_barriers[mip_level + 1] = {
 			srcStage = "compute",
 			dstStage = "compute",
 			imageBarriers = {
@@ -1153,52 +1094,123 @@ local function build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
 			},
 		}
 	end
+
+	return buffer
 end
 
-local function get_main_view_hiz_frame_stamp(frame_index)
-	return frame_index or render.GetCurrentFrame() or 1
-end
+local function ensure_main_view_hiz_state(width, height)
+	local state = gpu_culling.main_view_hiz_state
 
-local function get_main_view_hiz_descriptor_slot(frame_index)
-	local slot = frame_index or render.GetCurrentFrame() or 1
-
-	if slot < 1 then slot = 1 end
-
-	return slot
-end
-
-local function ensure_main_view_hiz_built(cmd, descriptor_slot, frame_index, depth_texture, state)
-	if not (cmd and depth_texture and state and state.texture) then return false end
-
-	local frame_stamp = get_main_view_hiz_frame_stamp(frame_index)
-
-	if
-		state.last_built_frame_stamp == frame_stamp and
-		state.last_built_depth_texture == depth_texture
-	then
-		return false
+	if state and state.width == width and state.height == height then
+		return state
 	end
 
-	build_main_view_hiz(cmd, descriptor_slot, depth_texture, state)
-	state.last_built_frame_stamp = frame_stamp
-	state.last_built_depth_texture = depth_texture
-	return true
+	if state then
+		for _, buffer in ipairs(state.buffers) do
+			buffer.texture:Remove()
+		end
+	end
+
+	state = {
+		width = width,
+		height = height,
+		buffers = {},
+		-- the async cull samples the pyramid built during the previous frame, so the
+		-- frame that rebuilds it must not write the one an in-flight cull is reading
+		write_index = 1,
+		latest = nil,
+	}
+
+	for index = 1, HIZ_BUFFER_COUNT do
+		state.buffers[index] = create_main_view_hiz_buffer(width, height, index)
+	end
+
+	gpu_culling.main_view_hiz_state = state
+	return state
 end
 
-function gpu_culling.PrepareMainViewHiZ(frame_index, cmd)
-	local depth_texture, depth_view, depth_sampler, max_mip, state = get_main_view_occlusion_source()
+local function get_main_view_hiz_state()
+	local depth_texture = render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture()
+	return ensure_main_view_hiz_state(depth_texture:GetWidth(), depth_texture:GetHeight()),
+	depth_texture
+end
 
-	if gpu_culling.GetOcclusionMode() == "hiz" and depth_texture and state then
-		ensure_main_view_hiz_built(
-			cmd or render.GetCommandBuffer(),
-			get_main_view_hiz_descriptor_slot(frame_index),
-			frame_index,
-			depth_texture,
-			state
+-- Records a rebuild of the hi-z pyramid from the gbuffer depth into cmd. render3d calls
+-- this once per frame, right after the gbuffer pass, so the depth is complete. The
+-- pyramid it produces is what the *next* frame's culling samples.
+function gpu_culling.PrepareMainViewHiZ(cmd)
+	if gpu_culling.GetOcclusionMode() ~= "hiz" then return end
+
+	local state, depth_texture = get_main_view_hiz_state()
+	local buffer = state.buffers[state.write_index]
+	-- an async cull submitted a frame ago may still be sampling this pyramid, and it
+	-- was submitted separately from cmd, so nothing but the fence orders them
+	gpu_culling.WaitForCullsSamplingHiZ(buffer)
+	local descriptor_base = math.max(render.GetCurrentFrame() or 1, 1) * 16
+	local copy_pass = gpu_culling.main_view_hiz_build_pass
+	copy_pass:UpdateDescriptorSet(
+		"combined_image_sampler",
+		descriptor_base,
+		0,
+		0,
+		depth_texture:GetView(),
+		depth_texture.sampler or render.CreateSampler(depth_texture:GetSamplerConfig())
+	)
+	copy_pass:UpdateDescriptorSet("storage_image", descriptor_base, 1, 0, buffer.single_mip_views[1])
+	copy_pass:DispatchForSize(cmd, state.width, state.height, 1, descriptor_base)
+	cmd:PipelineBarrier(buffer.mip_barriers[1])
+	local reduce_pass = gpu_culling.main_view_hiz_reduce_pass
+
+	for mip_level = 1, buffer.max_mip do
+		local reduce_descriptor_slot = descriptor_base + mip_level
+		reduce_pass:UpdateDescriptorSet(
+			"storage_image",
+			reduce_descriptor_slot,
+			0,
+			0,
+			buffer.single_mip_views[mip_level]
 		)
+		reduce_pass:UpdateDescriptorSet(
+			"storage_image",
+			reduce_descriptor_slot,
+			1,
+			0,
+			buffer.single_mip_views[mip_level + 1]
+		)
+		reduce_pass:DispatchForSize(
+			cmd,
+			math.max(1, math.floor((state.width + (2 ^ mip_level) - 1) / (2 ^ mip_level))),
+			math.max(1, math.floor((state.height + (2 ^ mip_level) - 1) / (2 ^ mip_level))),
+			1,
+			reduce_descriptor_slot
+		)
+		cmd:PipelineBarrier(buffer.mip_barriers[mip_level + 1])
 	end
 
-	return depth_texture, depth_view, depth_sampler, max_mip, state
+	buffer.built = true
+	state.latest = buffer
+	state.write_index = (state.write_index % HIZ_BUFFER_COUNT) + 1
+end
+
+-- The descriptor always needs a live image, so an unbuilt pyramid is still bound; the
+-- shader only samples it when occlusion is enabled, which requires a built one.
+local function bind_main_view_hiz(pass, descriptor_slot, output, state, hiz_buffer)
+	hiz_buffer = hiz_buffer or state.buffers[1]
+
+	if output.last_hiz_view == hiz_buffer.view then return end
+
+	pass:UpdateDescriptorSet(
+		"combined_image_sampler",
+		descriptor_slot,
+		14,
+		0,
+		hiz_buffer.view,
+		hiz_buffer.sampler,
+		nil,
+		nil,
+		"general"
+	)
+	output.last_hiz_view = hiz_buffer.view
 end
 
 function gpu_culling.IsEnabled()
@@ -1801,24 +1813,29 @@ local function build_scene_dataset(acceleration)
 	return dataset
 end
 
-local function extract_frustum_planes(proj_view_matrix, out_planes)
+-- side_scale below 1 shrinks the projection's lateral rows, which is exactly a wider
+-- field of view. Async culling runs a frame ahead of the draws that use it, so the
+-- frustum is widened slightly to keep objects rotating into view from popping in late.
+local function extract_frustum_planes(proj_view_matrix, out_planes, side_scale)
 	local m = proj_view_matrix
-	out_planes[0] = m.m03 + m.m00
-	out_planes[1] = m.m13 + m.m10
-	out_planes[2] = m.m23 + m.m20
-	out_planes[3] = m.m33 + m.m30
-	out_planes[4] = m.m03 - m.m00
-	out_planes[5] = m.m13 - m.m10
-	out_planes[6] = m.m23 - m.m20
-	out_planes[7] = m.m33 - m.m30
-	out_planes[8] = m.m03 + m.m01
-	out_planes[9] = m.m13 + m.m11
-	out_planes[10] = m.m23 + m.m21
-	out_planes[11] = m.m33 + m.m31
-	out_planes[12] = m.m03 - m.m01
-	out_planes[13] = m.m13 - m.m11
-	out_planes[14] = m.m23 - m.m21
-	out_planes[15] = m.m33 - m.m31
+	local x0, x1, x2, x3 = m.m00 * side_scale, m.m10 * side_scale, m.m20 * side_scale, m.m30 * side_scale
+	local y0, y1, y2, y3 = m.m01 * side_scale, m.m11 * side_scale, m.m21 * side_scale, m.m31 * side_scale
+	out_planes[0] = m.m03 + x0
+	out_planes[1] = m.m13 + x1
+	out_planes[2] = m.m23 + x2
+	out_planes[3] = m.m33 + x3
+	out_planes[4] = m.m03 - x0
+	out_planes[5] = m.m13 - x1
+	out_planes[6] = m.m23 - x2
+	out_planes[7] = m.m33 - x3
+	out_planes[8] = m.m03 + y0
+	out_planes[9] = m.m13 + y1
+	out_planes[10] = m.m23 + y2
+	out_planes[11] = m.m33 + y3
+	out_planes[12] = m.m03 - y0
+	out_planes[13] = m.m13 - y1
+	out_planes[14] = m.m23 - y2
+	out_planes[15] = m.m33 - y3
 	out_planes[16] = m.m02
 	out_planes[17] = m.m12
 	out_planes[18] = m.m22
@@ -2157,9 +2174,40 @@ local function clear_dataset_buffers()
 	gpu_culling.dataset_buffers_structure_key = nil
 end
 
+-- A slot's buffers are read by the gpu long after its cull finished: the draws that
+-- consume them are recorded into the frame command buffer and submitted at end of
+-- frame. Destroying or rewriting one while that is outstanding is what produced the
+-- flickering, so every teardown drains first.
+local function wait_for_pending_culls()
+	local queue = render.GetQueue()
+
+	for _, output in ipairs(gpu_culling.frame_buffers or {}) do
+		if output.cull_pending_serial then
+			output.cull_fence:Wait(true)
+			queue:RetireFence(output.cull_fence)
+			output.cull_pending_serial = nil
+		end
+	end
+end
+
+function gpu_culling.WaitForCullsSamplingHiZ(hiz_buffer)
+	local queue = render.GetQueue()
+
+	for _, output in ipairs(gpu_culling.frame_buffers or {}) do
+		if output.cull_pending_serial and output.sampled_hiz_buffer == hiz_buffer then
+			output.cull_fence:Wait(true)
+			queue:RetireFence(output.cull_fence)
+			output.cull_pending_serial = nil
+		end
+	end
+end
+
 local function clear_frame_buffers()
+	wait_for_pending_culls()
+
 	for _, frame_buffers in ipairs(gpu_culling.frame_buffers or {}) do
 		remove_buffer(frame_buffers.visible_index_buffer)
+		remove_buffer(frame_buffers.entry_visibility_buffer)
 		remove_buffer(frame_buffers.fallback_visible_index_buffer)
 		remove_buffer(frame_buffers.fallback_visible_count_buffer)
 		remove_buffer(frame_buffers.main_instance_world_buffer)
@@ -2170,23 +2218,17 @@ local function clear_frame_buffers()
 		remove_buffer(frame_buffers.visible_batch_indirect_command_buffer)
 		remove_buffer(frame_buffers.active_batch_index_buffer)
 		remove_buffer(frame_buffers.active_batch_count_buffer)
+		frame_buffers.visible_instance_vertex_buffer:Remove()
 
-		if frame_buffers.visible_instance_vertex_buffer then
-			frame_buffers.visible_instance_vertex_buffer:Remove()
-		end
+		if frame_buffers.cull_cmd then frame_buffers.cull_cmd:Remove() end
 
-		if frame_buffers.main_view_cull_cmd then
-			frame_buffers.main_view_cull_cmd:Remove()
-		end
-
-		if frame_buffers.main_view_cull_fence then
-			frame_buffers.main_view_cull_fence:Remove()
-		end
+		if frame_buffers.cull_fence then frame_buffers.cull_fence:Remove() end
 	end
 
 	gpu_culling.frame_buffers = nil
 	gpu_culling.frame_buffers_structure_key = nil
-	gpu_culling.main_view_async_slot_index = nil
+	gpu_culling.async_slot_indices = nil
+	gpu_culling.published_async_slot = nil
 end
 
 local function create_buffer(label, byte_size, usage, data)
@@ -2496,26 +2538,34 @@ end
 local function build_frame_buffers(dataset)
 	if not dataset then return nil end
 
-	local device = render.GetDevice and render.GetDevice() or nil
+	local device = render.GetDevice()
 
-	if not (device and device.IsValid and device:IsValid()) then return nil end
+	if not device:IsValid() then return nil end
 
-	local frame_count = math.max(render.GetSwapchainImageCount and render.GetSwapchainImageCount() or 1, 1)
-	local total_slot_count = frame_count + 1
+	local frame_count, async_slot_count = get_cull_slot_count()
+	local total_slot_count = frame_count + async_slot_count
 	local visible_entry_capacity = math.max((dataset.static_entry_count or 0) + (dataset.dynamic_entry_count or 0), 1)
 	local instanced_batch_count = math.max(#(dataset.main_instanced_batches or {}), 1)
 	local static_instance_capacity = math.max(dataset.main_static_instance_count or 0, 1)
 	local shadow_instance_capacity = math.max(dataset.shadow_instance_count or 0, 1)
 	local frame_buffers = {}
+	local async_slot_indices = {}
 
 	for frame_index = 1, total_slot_count do
 		frame_buffers[frame_index] = {
 			frame_index = frame_index,
 			visible_entry_capacity = visible_entry_capacity,
+			entry_visibility_capacity = visible_entry_capacity,
+			instanced_batch_count = instanced_batch_count,
 			visible_index_buffer = create_buffer(
 				"gpu_culling_visible_indices_" .. frame_index,
 				visible_entry_capacity * UINT32_SIZE,
 				{"storage_buffer"}
+			),
+			entry_visibility_buffer = create_buffer(
+				"gpu_culling_entry_visibility_" .. frame_index,
+				visible_entry_capacity * UINT32_SIZE,
+				{"storage_buffer", "transfer_dst"}
 			),
 			fallback_visible_index_buffer = create_buffer(
 				"gpu_culling_fallback_visible_indices_" .. frame_index,
@@ -2525,7 +2575,7 @@ local function build_frame_buffers(dataset)
 			fallback_visible_count_buffer = create_buffer(
 				"gpu_culling_fallback_visible_count_" .. frame_index,
 				UINT32_SIZE,
-				{"storage_buffer"}
+				{"storage_buffer", "transfer_dst"}
 			),
 			main_instance_world_buffer = create_buffer(
 				"gpu_culling_main_instance_worlds_" .. frame_index,
@@ -2549,22 +2599,17 @@ local function build_frame_buffers(dataset)
 			indirect_count_buffer = create_buffer(
 				"gpu_culling_indirect_count_" .. frame_index,
 				UINT32_SIZE,
-				{"storage_buffer", "indirect_buffer"}
+				{"storage_buffer", "indirect_buffer", "transfer_dst"}
 			),
-			visible_instanced_batch_count_zero_data = ffi.new("uint32_t[?]", instanced_batch_count),
 			visible_instanced_batch_count_buffer = create_buffer(
 				"gpu_culling_visible_instanced_batch_counts_" .. frame_index,
 				instanced_batch_count * UINT32_SIZE,
-				{"storage_buffer"}
-			),
-			visible_batch_indirect_zero_data = ffi.new(
-				"uint8_t[?]",
-				math.max(instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE, 1)
+				{"storage_buffer", "transfer_dst"}
 			),
 			visible_batch_indirect_command_buffer = create_buffer(
 				"gpu_culling_visible_batch_indirect_commands_" .. frame_index,
 				instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
-				{"storage_buffer", "indirect_buffer"}
+				{"storage_buffer", "indirect_buffer", "transfer_dst"}
 			),
 			active_batch_index_buffer = create_buffer(
 				"gpu_culling_active_batch_indices_" .. frame_index,
@@ -2574,7 +2619,7 @@ local function build_frame_buffers(dataset)
 			active_batch_count_buffer = create_buffer(
 				"gpu_culling_active_batch_count_" .. frame_index,
 				UINT32_SIZE,
-				{"storage_buffer"}
+				{"storage_buffer", "transfer_dst"}
 			),
 			visible_instance_vertex_buffer = VertexBuffer.New(
 				static_instance_capacity,
@@ -2587,80 +2632,133 @@ local function build_frame_buffers(dataset)
 				},
 				"gpu_culling_visible_instances_" .. frame_index
 			),
-			main_view_cull_cmd = render.CreateCommandBuffer(),
-			main_view_cull_fence = Fence.New(device),
-			main_view_cull_pending_serial = nil,
-			main_view_cull_completed_serial = nil,
-			main_view_cull_cached_result = nil,
-			main_view_cull_result = nil,
+			cull_cmd = render.CreateCommandBuffer(),
+			cull_fence = Fence.New(device),
+			cull_pending_serial = nil,
+			cull_completed_serial = nil,
+			cull_result = nil,
+			-- the submission serial that must complete before the slot may be rewritten,
+			-- captured from the frame that last drew using this slot's buffers
+			release_serial = 0,
+			published_frame = nil,
+			sampled_hiz_buffer = nil,
 			shadow_view_cull_result = nil,
 		}
 	end
 
-	gpu_culling.main_view_async_slot_index = total_slot_count
+	for index = 1, async_slot_count do
+		async_slot_indices[index] = frame_count + index
+	end
+
+	gpu_culling.async_slot_indices = async_slot_indices
+	gpu_culling.published_async_slot = nil
 	return frame_buffers
 end
 
-local function update_main_view_async_slot_completion(output, queue)
-	if not (output and output.main_view_cull_pending_serial) then return end
-
-	if not output.main_view_cull_fence:IsSignaled() then return end
-
-	if queue:HasPendingSubmission(output.main_view_cull_fence) then
-		queue:RetireFence(output.main_view_cull_fence)
-	end
-
-	local fallback_visible_count_ptr = ffi.cast("uint32_t*", output.fallback_visible_count_buffer:Map())
-	local fallback_visible_count = tonumber(fallback_visible_count_ptr[0])
-	local fallback_visible_index_ptr = ffi.cast("uint32_t*", output.fallback_visible_index_buffer:Map())
-	output.main_view_cull_cached_result = update_cull_result(
-		output.main_view_cull_cached_result or {},
+local function collect_cull_result(output)
+	local visible_count = tonumber(ffi.cast("uint32_t*", output.indirect_count_buffer:Map())[0])
+	local result = update_cull_result(
+		output.cull_result or {},
 		output.frame_index,
-		nil,
-		nil,
-		fallback_visible_count,
-		fallback_visible_index_ptr,
-		nil,
-		false
+		visible_count,
+		ffi.cast("uint32_t*", output.visible_index_buffer:Map()),
+		tonumber(ffi.cast("uint32_t*", output.fallback_visible_count_buffer:Map())[0]),
+		ffi.cast("uint32_t*", output.fallback_visible_index_buffer:Map()),
+		visible_count,
+		true
 	)
-	output.main_view_cull_completed_serial = output.main_view_cull_pending_serial
-	output.main_view_cull_pending_serial = nil
+	result.entry_visibility_ptr = ffi.cast("uint32_t*", output.entry_visibility_buffer:Map())
+	result.entry_visibility_count = output.entry_visibility_capacity
+	return result
 end
 
-local function get_latest_main_view_async_result(frame_buffers)
-	local queue = render.GetQueue()
-	local latest_serial = -1
-	local latest_result = nil
+local function update_async_slot_completion(output, queue)
+	if not output.cull_pending_serial then return end
 
-	for _, output in ipairs(frame_buffers or {}) do
-		update_main_view_async_slot_completion(output, queue)
+	if not output.cull_fence:IsSignaled() then return end
+
+	if queue:HasPendingSubmission(output.cull_fence) then
+		queue:RetireFence(output.cull_fence)
+	end
+
+	output.cull_result = collect_cull_result(output)
+	output.cull_completed_serial = output.cull_pending_serial
+	output.cull_pending_serial = nil
+end
+
+-- The freshest slot whose cull has landed. Publishing pins it: nothing may dispatch into
+-- it again until the frames that drew from it have retired.
+local function publish_latest_async_result(frame_buffers)
+	local queue = render.GetQueue()
+	local latest = gpu_culling.published_async_slot
+
+	for _, slot_index in ipairs(gpu_culling.async_slot_indices) do
+		local output = frame_buffers[slot_index]
+		update_async_slot_completion(output, queue)
 
 		if
-			output.main_view_cull_completed_serial and
-			output.main_view_cull_completed_serial > latest_serial and
-			output.main_view_cull_cached_result
+			output.cull_completed_serial and
+			output.cull_result and
+			(
+				not latest or
+				output.cull_completed_serial > latest.cull_completed_serial
+			)
 		then
-			latest_serial = output.main_view_cull_completed_serial
-			latest_result = output.main_view_cull_cached_result
+			latest = output
 		end
 	end
 
-	return latest_result
+	if not latest then return nil end
+
+	gpu_culling.published_async_slot = latest
+	latest.published_frame = system.GetFrameNumber()
+	return latest.cull_result
 end
 
-local function should_use_async_main_view_culling(read_visible_entry_indices)
-	if read_visible_entry_indices then return false end
+-- A slot is reusable once its own cull has landed and every frame that drew from it has
+-- completed on the gpu. The release serial is stamped a frame after publishing, by which
+-- point the frame that consumed the slot has been submitted and has a serial to wait on.
+local function acquire_async_slot(frame_buffers)
+	local device = render.GetDevice()
+	local completed_serial = device:GetCompletedSubmissionSerial()
+	local published = gpu_culling.published_async_slot
 
-	if not gpu_culling.IsAsyncMainViewEnabled() then return false end
+	for _, slot_index in ipairs(gpu_culling.async_slot_indices) do
+		local output = frame_buffers[slot_index]
 
-	if
-		test_helper.GetCurrentRunningTestName and
-		test_helper.GetCurrentRunningTestName() ~= ""
-	then
-		return false
+		if
+			not output.cull_pending_serial and
+			output ~= published and
+			completed_serial >= output.release_serial
+		then
+			return output
+		end
 	end
 
-	local active_task = tasks.GetActiveTask and tasks.GetActiveTask() or nil
+	return nil
+end
+
+-- Called once per frame before dispatching. The slot published last frame was drawn from
+-- by that frame's command buffer, which has been submitted by now, so its serial bounds
+-- when the slot becomes writable again.
+local function stamp_published_slot_release(frame_buffers)
+	local published = gpu_culling.published_async_slot
+
+	if not published then return end
+
+	local current_frame = system.GetFrameNumber()
+
+	if published.published_frame == current_frame then return end
+
+	published.release_serial = render.GetDevice().last_submission_serial or 0
+end
+
+local function should_use_async_main_view_culling()
+	if not gpu_culling.IsAsyncMainViewEnabled() then return false end
+
+	if test_helper.GetCurrentRunningTestName() ~= "" then return false end
+
+	local active_task = tasks.GetActiveTask()
 
 	if active_task and active_task.is_test_task then return false end
 
@@ -2850,82 +2948,32 @@ function gpu_culling.GetUploadTypes()
 	}
 end
 
-function gpu_culling.RunMainViewFrustumCulling(
+local function record_cull_dispatch(
+	output,
+	slot,
+	dataset,
+	dataset_buffers,
+	visual_count,
 	view_projection_matrix,
 	camera_position,
-	frame_index,
-	include_visible_entry_indices
+	frustum_planes,
+	read_visible_entry_indices
 )
-	local dataset = gpu_culling.scene_dataset
-	local dataset_buffers = gpu_culling.dataset_buffers
-	local frame_buffers = gpu_culling.frame_buffers
-	local read_visible_entry_indices = include_visible_entry_indices ~= false
-	local use_async_main_view = should_use_async_main_view_culling(read_visible_entry_indices)
-	local read_visible_results = read_visible_entry_indices
-	local read_indirect_results = read_visible_entry_indices
-
-	if not (dataset and dataset_buffers and frame_buffers) then return nil end
-
-	local visual_count = dataset_buffers.layout and dataset_buffers.layout.main_visual_count or 0
-
-	if visual_count <= 0 then
-		gpu_culling.empty_main_view_cull_result = update_cull_result(
-			gpu_culling.empty_main_view_cull_result or {},
-			resolve_frame_slot(frame_index),
-			0,
-			nil,
-			0,
-			nil,
-			0,
-			read_visible_entry_indices
-		)
-		return gpu_culling.empty_main_view_cull_result
-	end
-
-	local slot = use_async_main_view and
-		gpu_culling.main_view_async_slot_index or
-		resolve_frame_slot(frame_index)
-	local output = frame_buffers[slot]
-	local occlusion_enabled = gpu_culling.GetOcclusionMode() == "hiz"
-	local occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = get_main_view_occlusion_source()
-	local viewport_height = 0
-
-	if occlusion_depth_texture and occlusion_depth_texture.GetSize then
-		local size = occlusion_depth_texture:GetSize()
-		viewport_height = size and size.y or 0
-	end
-
-	if use_async_main_view and output.main_view_cull_pending_serial then
-		update_main_view_async_slot_completion(output, render.GetQueue())
-	end
-
-	if use_async_main_view and output.main_view_cull_pending_serial then
-		return get_latest_main_view_async_result(frame_buffers)
-	end
-
-	local frustum_planes = gpu_culling.main_view_cull_frustum_planes
-	extract_frustum_planes(view_projection_matrix, frustum_planes)
-	upload_main_instance_worlds(output, dataset)
-	output.indirect_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
-	output.fallback_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
-	output.active_batch_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)
-	output.visible_batch_indirect_command_buffer:CopyData(
-		output.visible_batch_indirect_zero_data,
-		output.visible_batch_indirect_command_buffer.size,
-		0
-	)
-	output.visible_instanced_batch_count_buffer:CopyData(
-		output.visible_instanced_batch_count_zero_data,
-		output.visible_instanced_batch_count_buffer.size,
-		0
-	)
 	local pass = gpu_culling.main_view_cull_pass
+	local hiz_state = get_main_view_hiz_state()
+	local hiz_buffer = hiz_state.latest
+	local occlusion_enabled = gpu_culling.GetOcclusionMode() == "hiz" and hiz_buffer ~= nil
+	upload_main_instance_worlds(output, dataset)
 	pass.current_visual_count = visual_count
 	pass.current_camera_position = camera_position
 	pass.current_frustum_planes = frustum_planes
 	pass.current_view_projection = view_projection_matrix
-	pass.current_viewport_height = viewport_height
+	pass.current_viewport_height = hiz_state.height
 	pass.current_min_screen_diameter_px = 1.0
+	pass.current_occlusion_enabled = occlusion_enabled
+	pass.current_occlusion_depth_texture = occlusion_enabled and hiz_buffer or nil
+	pass.current_occlusion_max_mip = occlusion_enabled and hiz_buffer.max_mip or 0
+	pass.current_occlusion_depth_bias = 0.0
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
 		slot,
@@ -3038,157 +3086,236 @@ function gpu_culling.RunMainViewFrustumCulling(
 		output.visible_batch_indirect_command_buffer,
 		output.visible_batch_indirect_command_buffer.size
 	)
-	local cmd = output.main_view_cull_cmd
+	pass:UpdateDescriptorSet(
+		"storage_buffer",
+		slot,
+		15,
+		0,
+		output.entry_visibility_buffer,
+		output.entry_visibility_buffer.size
+	)
+	bind_main_view_hiz(pass, slot, output, hiz_state, hiz_buffer)
+	local cmd = output.cull_cmd
 	cmd:Reset()
 	cmd:Begin()
-	occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = gpu_culling.PrepareMainViewHiZ(frame_index, cmd)
-	pass.current_occlusion_enabled = occlusion_enabled
-	pass.current_occlusion_depth_texture = occlusion_enabled and occlusion_depth_texture or nil
-	pass.current_occlusion_max_mip = occlusion_enabled and occlusion_max_mip or 0
-	pass.current_occlusion_depth_bias = 0.0
-
-	if
-		output.last_main_view_occlusion_view ~= occlusion_depth_view or
-		output.last_main_view_occlusion_sampler ~= occlusion_depth_sampler
-	then
-		pass:UpdateDescriptorSet(
-			"combined_image_sampler",
-			slot,
-			14,
-			0,
-			occlusion_depth_view,
-			occlusion_depth_sampler,
-			nil,
-			nil,
-			"general"
-		)
-		output.last_main_view_occlusion_view = occlusion_depth_view
-		output.last_main_view_occlusion_sampler = occlusion_depth_sampler
-	end
-
-	pass:DispatchForSize(cmd, visual_count, 1, 1, slot)
-	local buffer_barriers = {
-		{
-			buffer = output.visible_instanced_batch_count_buffer,
-			size = output.visible_instanced_batch_count_buffer.size,
-			srcAccessMask = "shader_write",
-			dstAccessMask = "host_read",
-		},
-		{
-			buffer = output.active_batch_index_buffer,
-			size = output.active_batch_index_buffer.size,
-			srcAccessMask = "shader_write",
-			dstAccessMask = "host_read",
-		},
-		{
-			buffer = output.active_batch_count_buffer,
-			size = output.active_batch_count_buffer.size,
-			srcAccessMask = "shader_write",
-			dstAccessMask = "host_read",
-		},
-		{
-			buffer = output.visible_batch_indirect_command_buffer,
-			size = output.visible_batch_indirect_command_buffer.size,
-			srcAccessMask = "shader_write",
-			dstAccessMask = "indirect_command_read",
-		},
-		{
-			buffer = output.visible_instance_vertex_buffer.buffer,
-			size = output.visible_instance_vertex_buffer.byte_size,
-			srcAccessMask = "shader_write",
-			dstAccessMask = "vertex_attribute_read",
-		},
-		{
-			buffer = output.fallback_visible_index_buffer,
-			size = output.fallback_visible_index_buffer.size,
-			srcAccessMask = "shader_write",
-			dstAccessMask = "host_read",
-		},
-		{
-			buffer = output.fallback_visible_count_buffer,
-			size = output.fallback_visible_count_buffer.size,
-			srcAccessMask = "shader_write",
-			dstAccessMask = "host_read",
+	-- zero the accumulators on the gpu rather than through a host write, so the clear is
+	-- ordered against this slot's previous dispatch instead of racing it
+	cmd:FillBuffer(output.indirect_count_buffer, 0, output.indirect_count_buffer.size, 0)
+	cmd:FillBuffer(output.fallback_visible_count_buffer, 0, output.fallback_visible_count_buffer.size, 0)
+	cmd:FillBuffer(output.active_batch_count_buffer, 0, output.active_batch_count_buffer.size, 0)
+	cmd:FillBuffer(output.entry_visibility_buffer, 0, output.entry_visibility_buffer.size, 0)
+	cmd:FillBuffer(
+		output.visible_batch_indirect_command_buffer,
+		0,
+		output.visible_batch_indirect_command_buffer.size,
+		0
+	)
+	cmd:FillBuffer(
+		output.visible_instanced_batch_count_buffer,
+		0,
+		output.visible_instanced_batch_count_buffer.size,
+		0
+	)
+	cmd:PipelineBarrier{
+		srcStage = "transfer",
+		dstStage = "compute",
+		bufferBarriers = {
+			{
+				buffer = output.indirect_count_buffer,
+				size = output.indirect_count_buffer.size,
+				srcAccessMask = "transfer_write",
+				dstAccessMask = {"shader_read", "shader_write"},
+			},
+			{
+				buffer = output.fallback_visible_count_buffer,
+				size = output.fallback_visible_count_buffer.size,
+				srcAccessMask = "transfer_write",
+				dstAccessMask = {"shader_read", "shader_write"},
+			},
+			{
+				buffer = output.active_batch_count_buffer,
+				size = output.active_batch_count_buffer.size,
+				srcAccessMask = "transfer_write",
+				dstAccessMask = {"shader_read", "shader_write"},
+			},
+			{
+				buffer = output.entry_visibility_buffer,
+				size = output.entry_visibility_buffer.size,
+				srcAccessMask = "transfer_write",
+				dstAccessMask = "shader_write",
+			},
+			{
+				buffer = output.visible_batch_indirect_command_buffer,
+				size = output.visible_batch_indirect_command_buffer.size,
+				srcAccessMask = "transfer_write",
+				dstAccessMask = {"shader_read", "shader_write"},
+			},
+			{
+				buffer = output.visible_instanced_batch_count_buffer,
+				size = output.visible_instanced_batch_count_buffer.size,
+				srcAccessMask = "transfer_write",
+				dstAccessMask = {"shader_read", "shader_write"},
+			},
 		},
 	}
-
-	if read_visible_entry_indices then
-		table.insert(
-			buffer_barriers,
-			1,
+	pass:DispatchForSize(cmd, visual_count, 1, 1, slot)
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = {"host", "vertex_input", "draw_indirect"},
+		bufferBarriers = {
 			{
 				buffer = output.visible_index_buffer,
 				size = output.visible_index_buffer.size,
 				srcAccessMask = "shader_write",
 				dstAccessMask = "host_read",
-			}
-		)
-	end
-
-	if read_indirect_results then
-		table.insert(
-			buffer_barriers,
-			1,
+			},
+			{
+				buffer = output.entry_visibility_buffer,
+				size = output.entry_visibility_buffer.size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "host_read",
+			},
 			{
 				buffer = output.indirect_command_buffer,
 				size = output.indirect_command_buffer.size,
 				srcAccessMask = "shader_write",
-				dstAccessMask = "host_read",
-			}
-		)
-		table.insert(
-			buffer_barriers,
-			1,
+				dstAccessMask = {"host_read", "indirect_command_read"},
+			},
 			{
 				buffer = output.indirect_count_buffer,
 				size = output.indirect_count_buffer.size,
 				srcAccessMask = "shader_write",
+				dstAccessMask = {"host_read", "indirect_command_read"},
+			},
+			{
+				buffer = output.visible_instanced_batch_count_buffer,
+				size = output.visible_instanced_batch_count_buffer.size,
+				srcAccessMask = "shader_write",
 				dstAccessMask = "host_read",
-			}
-		)
-	end
-
-	cmd:PipelineBarrier{
-		srcStage = "compute",
-		dstStage = {"host", "vertex_input", "draw_indirect"},
-		bufferBarriers = buffer_barriers,
+			},
+			{
+				buffer = output.active_batch_index_buffer,
+				size = output.active_batch_index_buffer.size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "host_read",
+			},
+			{
+				buffer = output.active_batch_count_buffer,
+				size = output.active_batch_count_buffer.size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "host_read",
+			},
+			{
+				buffer = output.visible_batch_indirect_command_buffer,
+				size = output.visible_batch_indirect_command_buffer.size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "indirect_command_read",
+			},
+			{
+				buffer = output.visible_instance_vertex_buffer.buffer,
+				size = output.visible_instance_vertex_buffer.byte_size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "vertex_attribute_read",
+			},
+			{
+				buffer = output.fallback_visible_index_buffer,
+				size = output.fallback_visible_index_buffer.size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "host_read",
+			},
+			{
+				buffer = output.fallback_visible_count_buffer,
+				size = output.fallback_visible_count_buffer.size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "host_read",
+			},
+		},
 	}
 	cmd:End()
+	output.sampled_hiz_buffer = hiz_buffer
+	return cmd
+end
 
-	if use_async_main_view then
-		gpu_culling.main_view_async_submission_serial = gpu_culling.main_view_async_submission_serial + 1
-		render.Submit(cmd, output.main_view_cull_fence)
-		output.main_view_cull_pending_serial = gpu_culling.main_view_async_submission_serial
-		return get_latest_main_view_async_result(frame_buffers)
+function gpu_culling.RunMainViewFrustumCulling(
+	view_projection_matrix,
+	camera_position,
+	frame_index,
+	include_visible_entry_indices
+)
+	local dataset = gpu_culling.scene_dataset
+	local dataset_buffers = gpu_culling.dataset_buffers
+	local frame_buffers = gpu_culling.frame_buffers
+
+	if not (dataset and dataset_buffers and frame_buffers) then return nil end
+
+	local read_visible_entry_indices = include_visible_entry_indices ~= false
+	local use_async = should_use_async_main_view_culling()
+	local visual_count = dataset_buffers.layout and dataset_buffers.layout.main_visual_count or 0
+
+	if visual_count <= 0 then
+		gpu_culling.empty_main_view_cull_result = update_cull_result(
+			gpu_culling.empty_main_view_cull_result or {},
+			resolve_frame_slot(frame_index),
+			0,
+			nil,
+			0,
+			nil,
+			0,
+			true
+		)
+		return gpu_culling.empty_main_view_cull_result
 	end
 
-	render.SubmitAndWait(cmd)
-	local visible_count = nil
-	local fallback_visible_count_ptr = ffi.cast("uint32_t*", output.fallback_visible_count_buffer:Map())
-	local fallback_visible_count = tonumber(fallback_visible_count_ptr[0])
-	local fallback_visible_index_ptr = ffi.cast("uint32_t*", output.fallback_visible_index_buffer:Map())
-	local visible_index_ptr = nil
-
-	if read_indirect_results then
-		local visible_count_ptr = ffi.cast("uint32_t*", output.indirect_count_buffer:Map())
-		visible_count = tonumber(visible_count_ptr[0])
-	end
-
-	if read_visible_entry_indices then
-		visible_index_ptr = ffi.cast("uint32_t*", output.visible_index_buffer:Map())
-	end
-
-	output.main_view_cull_result = update_cull_result(
-		output.main_view_cull_result or {},
-		slot,
-		visible_count,
-		visible_index_ptr,
-		fallback_visible_count,
-		fallback_visible_index_ptr,
-		visible_count,
-		read_visible_entry_indices
+	local frustum_planes = gpu_culling.main_view_cull_frustum_planes
+	extract_frustum_planes(
+		view_projection_matrix,
+		frustum_planes,
+		use_async and gpu_culling.async_frustum_scale or 1
 	)
-	return output.main_view_cull_result
+
+	if not use_async then
+		local slot = resolve_frame_slot(frame_index)
+		local output = frame_buffers[slot]
+		local cmd = record_cull_dispatch(
+			output,
+			slot,
+			dataset,
+			dataset_buffers,
+			visual_count,
+			view_projection_matrix,
+			camera_position,
+			frustum_planes,
+			read_visible_entry_indices
+		)
+		render.SubmitAndWait(cmd)
+		output.cull_result = collect_cull_result(output)
+		return output.cull_result
+	end
+
+	stamp_published_slot_release(frame_buffers)
+	local output = acquire_async_slot(frame_buffers)
+
+	-- Every slot is either still culling or still being drawn from. Skipping the dispatch
+	-- reuses last frame's visibility for one more frame, which is invisible, and lets the
+	-- backlog drain instead of overwriting buffers the gpu is reading.
+	if output then
+		local cmd = record_cull_dispatch(
+			output,
+			output.frame_index,
+			dataset,
+			dataset_buffers,
+			visual_count,
+			view_projection_matrix,
+			camera_position,
+			frustum_planes,
+			read_visible_entry_indices
+		)
+		gpu_culling.main_view_submission_serial = gpu_culling.main_view_submission_serial + 1
+		render.Submit(cmd, output.cull_fence)
+		output.cull_pending_serial = gpu_culling.main_view_submission_serial
+	end
+
+	return publish_latest_async_result(frame_buffers)
 end
 
 function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_index, include_visible_entry_indices)
@@ -3235,10 +3362,9 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 	if not (output and descriptor_slot) then return nil end
 
 	-- casters hidden from the camera still throw shadows onto visible surfaces,
-	-- so the main view hi-z never applies to shadow casters. The depth view is
-	-- still bound because the descriptor needs a valid image.
-	local occlusion_enabled = false
-	local occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = get_main_view_occlusion_source()
+	-- so the main view hi-z never applies to shadow casters. A pyramid is still bound
+	-- because the descriptor needs a valid image.
+	local hiz_state = get_main_view_hiz_state()
 	local camera = render3d.GetRenderCamera()
 	local view_projection_matrix = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
 	upload_shadow_instance_worlds(output, dataset)
@@ -3367,22 +3493,11 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 	local cmd = gpu_culling.shadow_view_aabb_cull_cmd
 	cmd:Reset()
 	cmd:Begin()
-	occlusion_depth_texture, occlusion_depth_view, occlusion_depth_sampler, occlusion_max_mip, occlusion_hiz_state = gpu_culling.PrepareMainViewHiZ(frame_index, cmd)
-	pass.current_occlusion_enabled = occlusion_enabled
-	pass.current_occlusion_depth_texture = occlusion_enabled and occlusion_depth_texture or nil
-	pass.current_occlusion_max_mip = occlusion_enabled and occlusion_max_mip or 0
+	pass.current_occlusion_enabled = false
+	pass.current_occlusion_depth_texture = nil
+	pass.current_occlusion_max_mip = 0
 	pass.current_occlusion_depth_bias = 0.0015
-	pass:UpdateDescriptorSet(
-		"combined_image_sampler",
-		descriptor_slot,
-		14,
-		0,
-		occlusion_depth_view,
-		occlusion_depth_sampler,
-		nil,
-		nil,
-		"general"
-	)
+	bind_main_view_hiz(pass, descriptor_slot, shadow_output, hiz_state, nil)
 	pass:DispatchForSize(cmd, visual_count, 1, 1, descriptor_slot)
 	local buffer_barriers = {
 		{
@@ -3519,32 +3634,27 @@ function gpu_culling.GetShadowActiveBatchSpan(cull_result)
 	return active_batch_indices, tonumber(active_batch_count_ptr[0] or 0)
 end
 
-function gpu_culling.IsAnyVisibleEntryInRange(cull_result, first_entry_index, entry_count, prefer_visible_entry_indices)
+-- The shader appends visible entries with an atomic counter, so the visible list is in
+-- arbitrary order and cannot be searched. The per-entry visibility buffer is indexed
+-- directly instead, which is both exact and cheaper.
+function gpu_culling.IsAnyVisibleEntryInRange(cull_result, first_entry_index, entry_count)
 	if not cull_result then return nil end
 
 	if not first_entry_index or not entry_count or entry_count <= 0 then
 		return false
 	end
 
-	local entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, prefer_visible_entry_indices)
+	local entry_visibility_ptr = cull_result.entry_visibility_ptr
 
-	if not entry_index_ptr or visible_entry_count <= 0 then return false end
+	if not entry_visibility_ptr then return false end
 
-	local last_entry_index = first_entry_index + entry_count - 1
-	local low = 0
-	local high = visible_entry_count - 1
+	local last_entry_index = math.min(
+		first_entry_index + entry_count,
+		cull_result.entry_visibility_count or 0
+	) - 1
 
-	while low <= high do
-		local mid = math.floor((low + high) * 0.5)
-		local entry_index = tonumber(entry_index_ptr[mid])
-
-		if entry_index < first_entry_index then
-			low = mid + 1
-		elseif entry_index > last_entry_index then
-			high = mid - 1
-		else
-			return true
-		end
+	for entry_index = first_entry_index, last_entry_index do
+		if entry_visibility_ptr[entry_index] ~= 0 then return true end
 	end
 
 	return false

@@ -851,7 +851,7 @@ T.Test3D("Graphics render3d occlusion culls far visuals behind occluders", funct
 		local gcu = import("goluwa/render3d/gpu_culling.lua")
 		local hiz_cmd = render_mod.CreateCommandBuffer()
 		hiz_cmd:Begin()
-		gcu.PrepareMainViewHiZ(2, hiz_cmd)
+		gcu.PrepareMainViewHiZ(hiz_cmd)
 		hiz_cmd:End()
 		render_mod.SubmitAndWait(hiz_cmd)
 	end

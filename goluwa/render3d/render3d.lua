@@ -529,7 +529,7 @@ function render3d.Initialize(config)
 				pipeline:Draw()
 
 				if pipeline.name == "gbuffer" then
-					gpu_culling.PrepareMainViewHiZ(render.GetCurrentFrame(), render.GetCommandBuffer())
+					gpu_culling.PrepareMainViewHiZ(render.GetCommandBuffer())
 				end
 			end
 		end

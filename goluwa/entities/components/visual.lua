@@ -1716,7 +1716,7 @@ do
 		if entry_count <= 0 then return nil end
 
 		local entry_offset = component.main_gpu_entry_offset or 0
-		return gpu_culling.IsAnyVisibleEntryInRange(cull_result, entry_offset, entry_count, true)
+		return gpu_culling.IsAnyVisibleEntryInRange(cull_result, entry_offset, entry_count)
 	end
 
 	local function is_component_frustum_culled(component)

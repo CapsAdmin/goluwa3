@@ -337,6 +337,10 @@ function CommandBuffer:UpdateBuffer(buffer, offset, size, data)
 	vulkan.lib.vkCmdUpdateBuffer(self.ptr[0], buffer.ptr[0], offset, size, data)
 end
 
+function CommandBuffer:FillBuffer(buffer, offset, size, value)
+	vulkan.lib.vkCmdFillBuffer(self.ptr[0], buffer.ptr[0], offset, size, value)
+end
+
 function CommandBuffer:End()
 	vulkan.assert(vulkan.lib.vkEndCommandBuffer(self.ptr[0]), "failed to end command buffer")
 	self.is_recording = false
