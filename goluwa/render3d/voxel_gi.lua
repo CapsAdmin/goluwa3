@@ -50,6 +50,29 @@ voxel_gi.occlusion_enabled = voxel_gi.occlusion_enabled ~= false
 voxel_gi.OCCLUSION_MAX_STEPS = 24
 -- Chebyshev visibility weighting of probes from their mean distance atlas
 voxel_gi.visibility_enabled = voxel_gi.visibility_enabled ~= false
+-- Sampling cost knobs. Every shaded pixel walks its cascades, and for each
+-- cascade fetches 8 probes, so these multiply out fast. Defaults are the
+-- "high" preset; see voxel_gi.SetSampleQuality.
+--
+-- how many cascades one pixel may blend before it stops walking outwards.
+-- The finest cascade covering a point already fully replaces the coarser
+-- ones once its fade reaches 1, so this only bites near cascade borders.
+voxel_gi.MAX_SAMPLE_CASCADES = voxel_gi.MAX_SAMPLE_CASCADES or voxel_gi.CASCADE_COUNT
+-- only the N finest cascades march voxel occupancy towards their probes.
+-- Coarse cascades cover distant geometry where a leaked probe is a few
+-- pixels of bounce light, not a visible light leak.
+voxel_gi.OCCLUSION_MAX_CASCADE = voxel_gi.OCCLUSION_MAX_CASCADE or voxel_gi.CASCADE_COUNT
+-- occlusion march step in voxels. 0.5 never steps over a wall, 1.0 halves
+-- the fetch count and can miss geometry thinner than a voxel.
+voxel_gi.OCCLUSION_STEP_VOXELS = voxel_gi.OCCLUSION_STEP_VOXELS or 0.5
+-- bilinear (4 texel) or nearest (1 texel) filtering of the octahedral probe
+-- maps. Nearest is a quarter of the fetches and shows the probe's 8x8
+-- octahedron as soft banding on smoothly curving surfaces.
+voxel_gi.BILINEAR_IRRADIANCE = voxel_gi.BILINEAR_IRRADIANCE ~= false
+voxel_gi.BILINEAR_VISIBILITY = voxel_gi.BILINEAR_VISIBILITY ~= false
+-- probes whose trilinear/backface weight falls below this contribute less
+-- than a rounding error, so they skip their irradiance and occlusion fetches
+voxel_gi.MIN_PROBE_WEIGHT = voxel_gi.MIN_PROBE_WEIGHT or 0.001
 voxel_gi.cascades = voxel_gi.cascades or {}
 voxel_gi.resolved = voxel_gi.resolved or {}
 voxel_gi.frame = voxel_gi.frame or 0
@@ -487,6 +510,7 @@ function voxel_gi.GetGLSLCode(block_name, options)
 
 		const int VOXEL_GI_IRRADIANCE_SIZE = ]] .. voxel_gi.IRRADIANCE_OCT_SIZE .. [[;
 		const int VOXEL_GI_VISIBILITY_SIZE = ]] .. voxel_gi.VISIBILITY_OCT_SIZE .. [[;
+]] .. "#define VOXEL_GI_BILINEAR_IRRADIANCE " .. (voxel_gi.BILINEAR_IRRADIANCE and 1 or 0) .. "\n" .. "#define VOXEL_GI_BILINEAR_VISIBILITY " .. (voxel_gi.BILINEAR_VISIBILITY and 1 or 0) .. "\n" .. [[
 
 		vec2 voxel_gi_oct_encode(vec3 n) {
 			n /= (abs(n.x) + abs(n.y) + abs(n.z));
@@ -506,8 +530,18 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			return normalize(n);
 		}
 
+		// baked in rather than read from the uniform block: the storage
+		// coordinate below takes two integer modulos per probe, and GPUs have
+		// no integer divide. Against a literal the compiler turns each one
+		// into a multiply-shift instead.
+		const ivec3 VOXEL_GI_PROBE_COUNTS = ivec3(
+			]] .. voxel_gi.PROBE_COUNT_X .. [[,
+			]] .. voxel_gi.PROBE_COUNT_Y .. [[,
+			]] .. voxel_gi.PROBE_COUNT_Z .. [[
+		);
+
 		ivec3 voxel_gi_probe_counts() {
-			return ivec3(VOXEL_GI_BLOCK.gi_probe_counts.xyz + 0.5);
+			return VOXEL_GI_PROBE_COUNTS;
 		}
 
 		ivec3 voxel_gi_grid_origin(int c) {
@@ -550,6 +584,7 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			ivec2 tile = voxel_gi_tile_origin(s, VOXEL_GI_IRRADIANCE_SIZE);
 			vec2 uv = voxel_gi_oct_encode(dir) * float(VOXEL_GI_IRRADIANCE_SIZE) - 0.5;
 			ivec2 base = ivec2(floor(uv));
+#if VOXEL_GI_BILINEAR_IRRADIANCE
 			vec2 f = uv - vec2(base);
 			vec4 result = vec4(0.0);
 
@@ -561,12 +596,17 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			}
 
 			return result;
+#else
+			ivec2 texel = voxel_gi_wrap_oct_texel(ivec2(round(uv)), VOXEL_GI_IRRADIANCE_SIZE);
+			return voxel_gi_fetch_irradiance(c, tile + texel);
+#endif
 		}
 
 		vec2 voxel_gi_sample_visibility(int c, ivec3 s, vec3 dir) {
 			ivec2 tile = voxel_gi_tile_origin(s, VOXEL_GI_VISIBILITY_SIZE);
 			vec2 uv = voxel_gi_oct_encode(dir) * float(VOXEL_GI_VISIBILITY_SIZE) - 0.5;
 			ivec2 base = ivec2(floor(uv));
+#if VOXEL_GI_BILINEAR_VISIBILITY
 			vec2 f = uv - vec2(base);
 			vec2 result = vec2(0.0);
 
@@ -578,9 +618,17 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			}
 
 			return result;
+#else
+			ivec2 texel = voxel_gi_wrap_oct_texel(ivec2(round(uv)), VOXEL_GI_VISIBILITY_SIZE);
+			return voxel_gi_fetch_visibility(c, tile + texel);
+#endif
 		}
 
 		const int VOXEL_GI_OCCLUSION_MAX_STEPS = ]] .. voxel_gi.OCCLUSION_MAX_STEPS .. [[;
+		const float VOXEL_GI_OCCLUSION_STEP_VOXELS = ]] .. ("%.4f"):format(voxel_gi.OCCLUSION_STEP_VOXELS) .. [[;
+		const int VOXEL_GI_OCCLUSION_MAX_CASCADE = ]] .. voxel_gi.OCCLUSION_MAX_CASCADE .. [[;
+		const int VOXEL_GI_MAX_SAMPLE_CASCADES = ]] .. voxel_gi.MAX_SAMPLE_CASCADES .. [[;
+		const float VOXEL_GI_MIN_PROBE_WEIGHT = ]] .. ("%.6f"):format(voxel_gi.MIN_PROBE_WEIGHT) .. [[;
 
 		bool voxel_gi_clip_contains(int k, vec3 p) {
 			vec4 params = VOXEL_GI_BLOCK.gi_clip_params[k];
@@ -607,30 +655,53 @@ function voxel_gi.GetGLSLCode(block_name, options)
 		// that contains both ends. The march starts one voxel off the surface
 		// because thin walls occupy the cells on both sides of their faces.
 		float voxel_gi_probe_occlusion(vec3 pos, vec3 N, vec3 probe_pos) {
-			if (VOXEL_GI_HAS_OCCLUSION == 0 || VOXEL_GI_BLOCK.gi_occlusion == 0) return 1.0;
+#if VOXEL_GI_HAS_OCCLUSION
+			if (VOXEL_GI_BLOCK.gi_occlusion == 0) return 1.0;
 
 			for (int k = 0; k < ]] .. MAX_CLIPMAPS .. [[; k++) {
 				if (!voxel_gi_clip_contains(k, pos) || !voxel_gi_clip_contains(k, probe_pos)) continue;
-				float voxel = VOXEL_GI_BLOCK.gi_clip_origin[k].w;
+
+				// the clipmap layout is loop invariant, so read it once instead
+				// of re-deriving it from the uniform block on every step
+				vec4 origin = VOXEL_GI_BLOCK.gi_clip_origin[k];
+				vec4 params = VOXEL_GI_BLOCK.gi_clip_params[k];
+				int tex = VOXEL_GI_BLOCK.gi_occupancy_tex[k];
+				if (tex < 0) return 1.0;
+				int res = int(params.x + 0.5);
+				int tiles_x = int(params.y + 0.5);
+				float voxel = origin.w;
+				float inv_voxel = 1.0 / voxel;
+				vec3 grid_base = vec3(res) * 0.5 - origin.xyz * inv_voxel;
+
 				vec3 start = pos + N * voxel;
-				// wedged into a corner, nothing to judge from
-				if (voxel_gi_occupancy_at(k, start) > 0.5) return 1.0;
 				vec3 seg = probe_pos - start;
 				float len = length(seg);
 				// stop half a voxel short of the probe, its own cell is free by construction
 				float march = len - voxel * 0.5;
 				if (march <= 0.0) return 1.0;
-				int steps = min(int(ceil(march / (voxel * 0.5))), VOXEL_GI_OCCLUSION_MAX_STEPS);
+				int steps = min(
+					int(ceil(march / (voxel * VOXEL_GI_OCCLUSION_STEP_VOXELS))),
+					VOXEL_GI_OCCLUSION_MAX_STEPS
+				);
 				vec3 step = seg / len * (march / float(steps));
 				vec3 p = start;
 
-				for (int i = 0; i < steps; i++) {
+				// i == -1 is the start cell: wedged into a corner, nothing to judge from
+				for (int i = -1; i < steps; i++) {
+					ivec3 v = ivec3(floor(p * inv_voxel + grid_base));
+
+					if (all(greaterThanEqual(v, ivec3(0))) && all(lessThan(v, ivec3(res)))) {
+						ivec2 texel = ivec2((v.z % tiles_x) * res + v.x, (v.z / tiles_x) * res + v.y);
+
+						if (texelFetch(TEXTURE(tex), texel, 0).r > 0.5) return i < 0 ? 1.0 : 0.0;
+					}
+
 					p += step;
-					if (voxel_gi_occupancy_at(k, p) > 0.5) return 0.0;
 				}
 
 				return 1.0;
 			}
+#endif
 
 			return 1.0;
 		}
@@ -653,7 +724,7 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			return spacing * 0.5;
 		}
 
-		vec3 voxel_gi_sample_cascade(int c, vec3 pos, vec3 bias_pos, vec3 N, out float total_weight) {
+		vec3 voxel_gi_sample_cascade(int c, vec3 pos, vec3 bias_pos, vec3 N, bool march_occlusion, out float total_weight) {
 			float spacing = voxel_gi_spacing(c);
 			// distances are measured through voxels, allow half a voxel of
 			// error before a probe counts as blocked
@@ -686,24 +757,36 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				vec3 to_probe = normalize(probe_pos - pos);
 				float wrap = (dot(to_probe, N) + 1.0) * 0.5;
 				w *= wrap * wrap + 0.2;
+				// a probe this far out on the trilinear falloff cannot move the
+				// result, so skip its visibility, irradiance and occlusion fetches
+				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 				vec3 probe_to_point = bias_pos - probe_pos;
 				float dist = length(probe_to_point);
 				vec3 dir = probe_to_point / max(dist, 1e-5);
-				vec2 vis = voxel_gi_sample_visibility(c, s, dir);
-				float mean = vis.x;
+				// four texel fetches, so skip them outright when the
+				// Chebyshev weighting is switched off
+				if (VOXEL_GI_BLOCK.gi_probe_counts.w > 0.5) {
+					vec2 vis = voxel_gi_sample_visibility(c, s, dir);
+					float mean = vis.x;
 
-				if (VOXEL_GI_BLOCK.gi_probe_counts.w > 0.5 && dist > mean + vis_slack) {
-					float variance = abs(vis.y - mean * mean) + 1e-4;
-					float d = dist - mean - vis_slack;
-					float cheb = variance / (variance + d * d);
-					// squared with a higher floor: a gentle dimming instead of a hard flip
-					w *= max(cheb * cheb, 0.1);
+					if (dist > mean + vis_slack) {
+						float variance = abs(vis.y - mean * mean) + 1e-4;
+						float d = dist - mean - vis_slack;
+						float cheb = variance / (variance + d * d);
+						// squared with a higher floor: a gentle dimming instead of a hard flip
+						w *= max(cheb * cheb, 0.1);
+					}
 				}
+
+				// the Chebyshev term can also drive the weight under the floor
+				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 
 				vec4 irr = voxel_gi_sample_irradiance(c, s, N);
 				open_sum += irr.rgb * w;
 				open_weight += w;
-				w *= voxel_gi_probe_occlusion(pos, N, probe_pos);
+
+				if (march_occlusion) w *= voxel_gi_probe_occlusion(pos, N, probe_pos);
+
 				sum += irr.rgb * w;
 				total_weight += w;
 			}
@@ -722,20 +805,37 @@ function voxel_gi.GetGLSLCode(block_name, options)
 		// Multiply by albedo for the diffuse outgoing radiance. fallback is
 		// used outside every cascade, typically the sky irradiance.
 		vec3 sample_voxel_gi_irradiance(vec3 pos, vec3 N, vec3 V, vec3 fallback) {
-			vec3 result = fallback;
+			// Walked finest to coarsest, front to back. Coarse to fine with a
+			// mix() per cascade is the same result, but it pays for every
+			// cascade even where the finest one already covers the point
+			// (fade == 1) and overwrites all of them. Accumulating the
+			// leftover transmittance instead lets the common case stop after
+			// one cascade.
+			vec3 sum = vec3(0.0);
+			float transmittance = 1.0;
+			int cascade_count = min(VOXEL_GI_BLOCK.gi_cascade_count, VOXEL_GI_MAX_SAMPLE_CASCADES);
 
-			for (int c = VOXEL_GI_BLOCK.gi_cascade_count - 1; c >= 0; c--) {
+			for (int c = 0; c < cascade_count; c++) {
 				float spacing = voxel_gi_spacing(c);
 				vec3 bias_pos = pos + (N * 0.6 + V * 0.4) * spacing * 0.25;
 				float fade = voxel_gi_cascade_fade(c, bias_pos);
 				if (fade <= 0.0) continue;
 				float weight;
-				vec3 irr = voxel_gi_sample_cascade(c, pos, bias_pos, N, weight);
+				vec3 irr = voxel_gi_sample_cascade(
+					c,
+					pos,
+					bias_pos,
+					N,
+					c < VOXEL_GI_OCCLUSION_MAX_CASCADE,
+					weight
+				);
 				if (weight <= 1e-6) continue;
-				result = mix(result, irr, fade);
+				sum += irr * fade * transmittance;
+				transmittance *= 1.0 - fade;
+				if (transmittance <= 1e-3) return sum;
 			}
 
-			return result;
+			return sum + fallback * transmittance;
 		}
 	]]
 end
@@ -2023,6 +2123,65 @@ commands.Add("voxel_gi_visibility=boolean[true]", function(enabled)
 		"[voxel_gi] probe visibility weighting %s\n",
 		voxel_gi.visibility_enabled and "enabled" or "disabled"
 	)
+end)
+
+-- Presets over the sampling knobs above. The shader bakes them in as
+-- constants, so switching quality needs the render3d pipelines rebuilt;
+-- Initialize() does that.
+voxel_gi.SAMPLE_QUALITY_PRESETS = {
+	high = {
+		MAX_SAMPLE_CASCADES = 4,
+		OCCLUSION_MAX_CASCADE = 4,
+		OCCLUSION_MAX_STEPS = 24,
+		OCCLUSION_STEP_VOXELS = 0.5,
+		BILINEAR_IRRADIANCE = true,
+		BILINEAR_VISIBILITY = true,
+	},
+	medium = {
+		MAX_SAMPLE_CASCADES = 3,
+		OCCLUSION_MAX_CASCADE = 2,
+		OCCLUSION_MAX_STEPS = 12,
+		OCCLUSION_STEP_VOXELS = 0.75,
+		BILINEAR_IRRADIANCE = true,
+		BILINEAR_VISIBILITY = true,
+	},
+	low = {
+		MAX_SAMPLE_CASCADES = 2,
+		OCCLUSION_MAX_CASCADE = 1,
+		OCCLUSION_MAX_STEPS = 6,
+		OCCLUSION_STEP_VOXELS = 1.0,
+		BILINEAR_IRRADIANCE = true,
+		BILINEAR_VISIBILITY = false,
+	},
+	lowest = {
+		MAX_SAMPLE_CASCADES = 2,
+		OCCLUSION_MAX_CASCADE = 0,
+		OCCLUSION_MAX_STEPS = 0,
+		OCCLUSION_STEP_VOXELS = 1.0,
+		BILINEAR_IRRADIANCE = false,
+		BILINEAR_VISIBILITY = false,
+	},
+}
+
+function voxel_gi.SetSampleQuality(name)
+	local preset = voxel_gi.SAMPLE_QUALITY_PRESETS[name]
+
+	if not preset then
+		error("unknown voxel gi sample quality: " .. tostring(name), 2)
+	end
+
+	for key, value in pairs(preset) do
+		voxel_gi[key] = value
+	end
+
+	voxel_gi.sample_quality = name
+	return preset
+end
+
+commands.Add("voxel_gi_quality=string[medium]", function(name)
+	voxel_gi.SetSampleQuality(name)
+	logf("[voxel_gi] sample quality %s, rebuilding pipelines\n", name)
+	render3d.Initialize()
 end)
 
 commands.Add("voxel_gi_debug=number[1]", function(mode)
