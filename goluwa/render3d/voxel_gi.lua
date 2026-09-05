@@ -741,8 +741,11 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			}
 
 			vec3 sum = vec3(0.0);
-			// fallback when every probe is judged occluded
-			vec3 open_sum = vec3(0.0);
+			// weight-only fallback for when every probe is judged occluded:
+			// reports the point as validly covered (so the caller trusts
+			// this cascade and doesn't fall through to the flat sky ambient)
+			// but keeps the contribution dark instead of leaking the probes'
+			// un-occluded light through the wall that blocked them
 			float open_weight = 0.0;
 
 			for (int i = 0; i < 8; i++) {
@@ -782,7 +785,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 
 				vec4 irr = voxel_gi_sample_irradiance(c, s, N);
-				open_sum += irr.rgb * w;
 				open_weight += w;
 
 				if (march_occlusion) w *= voxel_gi_probe_occlusion(pos, N, probe_pos);
@@ -791,9 +793,10 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				total_weight += w;
 			}
 
-			if (total_weight <= 1e-6) {
+			if (total_weight <= 1e-6 && open_weight > 1e-6) {
+				// structurally covered by valid probes, just fully blocked
+				// from this point: report darkness, not their open light
 				total_weight = open_weight;
-				sum = open_sum;
 			}
 
 			if (total_weight <= 1e-6) return vec3(0.0);
@@ -829,8 +832,11 @@ function voxel_gi.GetGLSLCode(block_name, options)
 					c < VOXEL_GI_OCCLUSION_MAX_CASCADE,
 					weight
 				);
-				if (weight <= 1e-6) continue;
-				sum += irr * fade * transmittance;
+				// weight <= 1e-6 means this cascade has no usable probe data
+				// here (all disabled/out of range), not that it saw no light:
+				// still claim its share of the coverage as dark, rather than
+				// leaving it for the flat sky fallback below to fill in
+				if (weight > 1e-6) sum += irr * fade * transmittance;
 				transmittance *= 1.0 - fade;
 				if (transmittance <= 1e-3) return sum;
 			}
@@ -1460,12 +1466,22 @@ local function build_resolve_pipeline()
 
 				float normal_length = length(normal);
 				normal = normal_length > 1e-3 ? normal / normal_length : vec3(0.0);
-				// alpha: 0 empty, 1 + emissive luminance when occupied
-				float emissive_luma = occupancy >= 0.5 ? (occupancy - 0.5) * 8.0 : 0.0;
-				imageStore(out_volume, v, vec4(color, occupancy >= 0.5 ? 1.0 + emissive_luma : 0.0));
-				imageStore(out_normal, v, vec4(normal * 0.5 + 0.5, occupancy >= 0.5 ? 1.0 : 0.0));
+				// alpha: 0 empty, 1 + emissive luminance when occupied. occupancy
+				// is read back from an 8-bit unorm axis target where the build
+				// pass wrote exactly 0.5 for ordinary (non-emissive) geometry;
+				// that value doesn't round-trip exactly through 8 bits, so a
+				// bare ">= 0.5" / "(occupancy - 0.5)" comparison flags nearly
+				// every ordinary voxel as having a hair of emissive luminance,
+				// which voxel gi then re-emits everywhere, tinted by each
+				// voxel's own albedo, regardless of any real light source.
+				// A deadzone a few quantization steps wide absorbs that noise.
+				const float OCCUPANCY_EPS = 4.0 / 255.0;
+				bool occupied = occupancy >= 0.5 - OCCUPANCY_EPS;
+				float emissive_luma = occupied && occupancy > 0.5 + OCCUPANCY_EPS ? (occupancy - 0.5) * 8.0 : 0.0;
+				imageStore(out_volume, v, vec4(color, occupied ? 1.0 + emissive_luma : 0.0));
+				imageStore(out_normal, v, vec4(normal * 0.5 + 0.5, occupied ? 1.0 : 0.0));
 				ivec2 occupancy_texel = ivec2((v.z % compute.tiles_x) * res + v.x, (v.z / compute.tiles_x) * res + v.y);
-				imageStore(out_occupancy, occupancy_texel, vec4(occupancy >= 0.5 ? 1.0 : 0.0));
+				imageStore(out_occupancy, occupancy_texel, vec4(occupied ? 1.0 : 0.0));
 			}
 		]],
 	}
