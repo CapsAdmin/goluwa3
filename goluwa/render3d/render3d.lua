@@ -429,7 +429,6 @@ function render3d.CreatePipelineBundle(options)
 		{
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/ambient_occlusion.lua"),
-			--import("goluwa/render3d/passes/ssgi.lua"),
 			import("goluwa/render3d/passes/voxel_build.lua"),
 			import("goluwa/render3d/passes/voxel_gi.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),

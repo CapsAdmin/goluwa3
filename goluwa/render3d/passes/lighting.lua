@@ -94,7 +94,6 @@ return {
 					voxel_gi.GetBlockLayout(),
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
-					{"ssgi_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -137,12 +136,6 @@ return {
 						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
 					else
 						block.ssr_tex = -1
-					end
-
-					if render3d.pipelines.ssgi then
-						block.ssgi_tex = self:GetTextureIndex(render3d.pipelines.ssgi_filter_2:GetFramebuffer(1):GetAttachment(1))
-					else
-						block.ssgi_tex = -1
 					end
 
 					return block
@@ -371,29 +364,6 @@ return {
 				return combine_reflections(env_reflection, ssr, get_ssr_blend_weight(roughness));
 			}
 
-			vec3 get_ssgi_irradiance(float roughness) {
-				if (lighting_data.ssgi_tex == -1) {
-					return vec3(1.0);
-				}
-				// Sample from SSGI mip chain based on roughness
-				// Rougher surfaces get more blurred (lower mip levels)
-				float max_mip = 5.0;
-				float lod = roughness * roughness * max_mip;
-				lod = clamp(lod, 0.0, max_mip);
-				return textureLod(TEXTURE(lighting_data.ssgi_tex), in_uv, lod).rgb;
-			}
-
-			float get_ssgi_confidence(float roughness) {
-				if (lighting_data.ssgi_tex == -1) {
-					return 0.0;
-				}
-				// Use same LOD as get_ssgi_irradiance for consistency
-				float max_mip = 5.0;
-				float lod = roughness * roughness * max_mip;
-				lod = clamp(lod, 0.0, max_mip);
-				return textureLod(TEXTURE(lighting_data.ssgi_tex), in_uv, lod).a;
-			}
-
 			// diffuse irradiance / pi: the voxel probe grids when they are
 			// active, otherwise the sky irradiance cubemap. sky_visibility is
 			// how much of that fallback survived (1 = fully open sky, 0 =
@@ -563,7 +533,7 @@ return {
 				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * get_ao();
 
-				vec3 irradiance = mix(gi_irradiance, get_ssgi_irradiance(perceptual_roughness), get_ssgi_confidence(perceptual_roughness));
+				vec3 irradiance = gi_irradiance;
 
 				vec3 back_irradiance = irradiance;
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
