@@ -253,6 +253,39 @@ local function ensure_cascade_resources()
 	voxel_gi.metadata_buffer:Unmap()
 end
 
+local function create_volume(resolution, format, name)
+	local texture = Texture.New{
+		width = resolution,
+		height = resolution,
+		format = format,
+		mip_map_levels = 1,
+		image = {
+			array_layers = resolution,
+			usage = {"sampled", "storage", "transfer_dst", "transfer_src"},
+		},
+		view = {
+			view_type = "2d_array",
+			layer_count = resolution,
+		},
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+			wrap_r = "clamp_to_edge",
+		},
+	}
+	texture:SetDebugName(name)
+	local view = texture:GetImage():CreateView{
+		view_type = "2d_array",
+		base_array_layer = 0,
+		layer_count = resolution,
+		base_mip_level = 0,
+		level_count = 1,
+	}
+	return texture, view
+end
+
 local function ensure_resolved_volume(clipmap_index, resolution)
 	local resolved = voxel_gi.resolved[clipmap_index]
 
@@ -270,41 +303,8 @@ local function ensure_resolved_volume(clipmap_index, resolution)
 		remove_texture(resolved.occupancy)
 	end
 
-	local function create_volume(format, name)
-		local texture = Texture.New{
-			width = resolution,
-			height = resolution,
-			format = format,
-			mip_map_levels = 1,
-			image = {
-				array_layers = resolution,
-				usage = {"sampled", "storage", "transfer_dst", "transfer_src"},
-			},
-			view = {
-				view_type = "2d_array",
-				layer_count = resolution,
-			},
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-				wrap_r = "clamp_to_edge",
-			},
-		}
-		texture:SetDebugName(name)
-		local view = texture:GetImage():CreateView{
-			view_type = "2d_array",
-			base_array_layer = 0,
-			layer_count = resolution,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-		return texture, view
-	end
-
-	local texture, sample_view = create_volume("r16g16b16a16_sfloat", "voxel gi resolved volume " .. clipmap_index)
-	local normal_texture, normal_sample_view = create_volume("r8g8b8a8_unorm", "voxel gi resolved normals " .. clipmap_index)
+	local texture, sample_view = create_volume(resolution, "r16g16b16a16_sfloat", "voxel gi resolved volume " .. clipmap_index)
+	local normal_texture, normal_sample_view = create_volume(resolution, "r8g8b8a8_unorm", "voxel gi resolved normals " .. clipmap_index)
 	-- occupancy flattened into a plain 2d texture (layer z at tile z) so
 	-- graphics passes can reach it through the bindless texture array
 	local tiles_x = math.ceil(math.sqrt(resolution))
@@ -425,6 +425,20 @@ function voxel_gi.WriteBlock(self, block)
 	return block
 end
 
+local function select_image(fn, ret, image, swizzle)
+	local lines = {ret .. " " .. fn .. "(int c, ivec2 texel) {"}
+
+	for i = 0, MAX_CASCADES - 2 do
+		lines[#lines + 1] = "\tif (c == " .. i .. ") return imageLoad(" .. image .. "_" .. i .. ", texel)" .. swizzle .. ";"
+	end
+
+	lines[#lines + 1] = "\treturn imageLoad(" .. image .. "_" .. (
+			MAX_CASCADES - 1
+		) .. ", texel)" .. swizzle .. ";"
+	lines[#lines + 1] = "}"
+	return table.concat(lines, "\n")
+end
+
 -- GLSL for sampling the probe grids. options.storage = true reads the
 -- atlases through the storage images bound by the update pass instead of
 -- the bindless texture indices in the block.
@@ -433,20 +447,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 	local fetch
 
 	if options.storage then
-		local function select_image(fn, ret, image, swizzle)
-			local lines = {ret .. " " .. fn .. "(int c, ivec2 texel) {"}
-
-			for i = 0, MAX_CASCADES - 2 do
-				lines[#lines + 1] = "\tif (c == " .. i .. ") return imageLoad(" .. image .. "_" .. i .. ", texel)" .. swizzle .. ";"
-			end
-
-			lines[#lines + 1] = "\treturn imageLoad(" .. image .. "_" .. (
-					MAX_CASCADES - 1
-				) .. ", texel)" .. swizzle .. ";"
-			lines[#lines + 1] = "}"
-			return table.concat(lines, "\n")
-		end
-
 		fetch = select_image("voxel_gi_fetch_irradiance", "vec4", "gi_irradiance_image", "") .. "\n" .. select_image("voxel_gi_fetch_visibility", "vec2", "gi_visibility_image", ".xy") .. "\n" .. select_image("voxel_gi_fetch_info", "vec4", "gi_info_image", "") .. [[
 
 			// the update pass has no bindless access, the occlusion march is skipped there
@@ -1715,6 +1715,19 @@ local function half_to_float(h)
 	return sign == 1 and -value or value
 end
 
+local function oct_encode(x, y, z)
+	local l = math.abs(x) + math.abs(y) + math.abs(z)
+	x, y, z = x / l, y / l, z / l
+	local px, py = x, y
+
+	if z < 0 then
+		px = (1 - math.abs(y)) * (x >= 0 and 1 or -1)
+		py = (1 - math.abs(x)) * (y >= 0 and 1 or -1)
+	end
+
+	return px * 0.5 + 0.5, py * 0.5 + 0.5
+end
+
 -- Reads back a cascade's atlases and returns a function that decodes one
 -- probe: offset, enabled, mean radiance and the visibility mean toward a
 -- direction. Slow, for debugging only.
@@ -1732,19 +1745,6 @@ function voxel_gi.ReadProbes(cascade_index)
 	local tile = voxel_gi.IRRADIANCE_OCT_SIZE
 	local vis_tile = voxel_gi.VISIBILITY_OCT_SIZE
 	local counts = {voxel_gi.PROBE_COUNT_X, voxel_gi.PROBE_COUNT_Y, voxel_gi.PROBE_COUNT_Z}
-
-	local function oct_encode(x, y, z)
-		local l = math.abs(x) + math.abs(y) + math.abs(z)
-		x, y, z = x / l, y / l, z / l
-		local px, py = x, y
-
-		if z < 0 then
-			px = (1 - math.abs(y)) * (x >= 0 and 1 or -1)
-			py = (1 - math.abs(x)) * (y >= 0 and 1 or -1)
-		end
-
-		return px * 0.5 + 0.5, py * 0.5 + 0.5
-	end
 
 	return function(gx, gy, gz)
 		local sx, sy, sz = gx % counts[1], gy % counts[2], gz % counts[3]

@@ -342,6 +342,13 @@ function lightprobes.EnsureReflectionProbe(position, radius, update_mode, min_sp
 	distance
 end
 
+local nearest_probe_sort_position
+
+local function nearest_probe_comparator(a, b)
+	return (a.position - nearest_probe_sort_position):GetLengthSquared() <
+		(b.position - nearest_probe_sort_position):GetLengthSquared()
+end
+
 -- The probes nearest to a position, at most limit of them, for uploading to
 -- shaders with a fixed probe array.
 function lightprobes.GetProbesNear(position, limit)
@@ -356,13 +363,9 @@ function lightprobes.GetProbesNear(position, limit)
 		sorted[i] = probe
 	end
 
-	table.sort(sorted, function(a, b)
-		return (
-				a.position - position
-			):GetLengthSquared() < (
-				b.position - position
-			):GetLengthSquared()
-	end)
+	nearest_probe_sort_position = position
+	table.sort(sorted, nearest_probe_comparator)
+	nearest_probe_sort_position = nil
 
 	for i = #sorted, limit + 1, -1 do
 		sorted[i] = nil
