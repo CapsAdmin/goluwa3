@@ -350,14 +350,25 @@ return {
 				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
 			}
 
-			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				if (lighting_data.ssr_tex == -1) {
-					vec3 raw_R = reflect(-V, normal);
-					return sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
-				}
+			// Fallback chain when there's no confident screen-space hit: the
+			// same voxel gi irradiance used for diffuse ambient stands in for
+			// a local reflection (it's already correctly occluded, just
+			// diffuse rather than directional), cross-faded against the raw
+			// sky cubemap by sky_visibility (1 = genuinely open to the sky, 0
+			// = fully covered by the probe grid). Without this, a surface
+			// with no SSR data reflects the exterior sky straight through
+			// walls and ceilings at grazing angles (a rim light on every
+			// indoor edge, sun up or down) whether SSR is on or off, since
+			// SSR's own miss case falls back to that same raw sky.
+			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback) {
+				vec3 raw_R = reflect(-V, normal);
+				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
+				vec3 env_reflection = mix(gi_reflection_fallback, sky_reflection, sky_visibility);
+
+				if (lighting_data.ssr_tex == -1) return env_reflection;
 
 				vec4 ssr = get_filtered_ssr_reflection(in_uv);
-				return ssr.rgb;
+				return combine_reflections(env_reflection, ssr, get_ssr_blend_weight(roughness));
 			}
 
 			vec3 get_ssgi_irradiance(float roughness) {
@@ -384,11 +395,19 @@ return {
 			}
 
 			// diffuse irradiance / pi: the voxel probe grids when they are
-			// active, otherwise the sky irradiance cubemap
-			vec3 get_gi_irradiance(vec3 N, vec3 V, vec3 world_pos) {
+			// active, otherwise the sky irradiance cubemap. sky_visibility is
+			// how much of that fallback survived (1 = fully open sky, 0 =
+			// fully covered by the probe grid); with gi disabled there is no
+			// occlusion signal to give, so it defaults to fully open.
+			vec3 get_gi_irradiance(vec3 N, vec3 V, vec3 world_pos, out float sky_visibility) {
 				vec3 sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
-				if (lighting_data.gi_enabled == 0) return sky;
-				return sample_voxel_gi_irradiance(world_pos, N, V, sky);
+
+				if (lighting_data.gi_enabled == 0) {
+					sky_visibility = 1.0;
+					return sky;
+				}
+
+				return sample_voxel_gi_irradiance(world_pos, N, V, sky, sky_visibility);
 			}
 
 			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
@@ -537,12 +556,14 @@ return {
 				float blocking_detail = get_transmission_blocking_detail(transmission_blocking);
 				float transmission_amount = 1.0 - blocking_detail;
 				float perceptual_roughness = sqrt(clamp(roughness_alpha, 0.0, 1.0));
-				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos);
+				float sky_visibility;
+				vec3 gi_irradiance = get_gi_irradiance(N, V, world_pos, sky_visibility);
+				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, gi_irradiance);
 				float ambient_front_amount = blocking_detail;
 				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * get_ao();
 
-				vec3 irradiance = mix(get_gi_irradiance(N, V, world_pos), get_ssgi_irradiance(perceptual_roughness), get_ssgi_confidence(perceptual_roughness));
+				vec3 irradiance = mix(gi_irradiance, get_ssgi_irradiance(perceptual_roughness), get_ssgi_confidence(perceptual_roughness));
 
 				vec3 back_irradiance = irradiance;
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
@@ -634,7 +655,8 @@ return {
 				);
 
 				if (lighting_data.gi_debug != 0) {
-					color = get_gi_irradiance(N, V, world_pos);
+					float debug_sky_visibility;
+					color = get_gi_irradiance(N, V, world_pos, debug_sky_visibility);
 				}
 
 				set_color(vec4(min(color, vec3(65504.0)), alpha));

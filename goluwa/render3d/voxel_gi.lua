@@ -807,7 +807,13 @@ function voxel_gi.GetGLSLCode(block_name, options)
 		// Cosine convolved radiance (irradiance / pi) at a surface point.
 		// Multiply by albedo for the diffuse outgoing radiance. fallback is
 		// used outside every cascade, typically the sky irradiance.
-		vec3 sample_voxel_gi_irradiance(vec3 pos, vec3 N, vec3 V, vec3 fallback) {
+		// sky_visibility is the leftover transmittance the caller ended up
+		// blending the fallback in with: 1 means this point is exposed to
+		// the fallback's sky, 0 means the probe grid fully covered it. It
+		// lets callers attenuate other sky-derived terms (e.g. a specular
+		// reflection fallback) by the same occlusion this function already
+		// worked out, instead of treating them as visible to the sky always.
+		vec3 sample_voxel_gi_irradiance(vec3 pos, vec3 N, vec3 V, vec3 fallback, out float sky_visibility) {
 			// Walked finest to coarsest, front to back. Coarse to fine with a
 			// mix() per cascade is the same result, but it pays for every
 			// cascade even where the finest one already covers the point
@@ -838,9 +844,13 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				// leaving it for the flat sky fallback below to fill in
 				if (weight > 1e-6) sum += irr * fade * transmittance;
 				transmittance *= 1.0 - fade;
-				if (transmittance <= 1e-3) return sum;
+				if (transmittance <= 1e-3) {
+					sky_visibility = transmittance;
+					return sum;
+				}
 			}
 
+			sky_visibility = transmittance;
 			return sum + fallback * transmittance;
 		}
 	]]
@@ -1224,7 +1234,8 @@ local function build_update_pipeline()
 				vec3 albedo = clamp(voxel.rgb, vec3(0.0), vec3(1.0));
 				vec3 direct = gi_data.sun_radiance.rgb * (NoL * shadow / 3.14159265359);
 				vec3 sky = sample_environment_irradiance(gi_data.env_irradiance_tex, N);
-				vec3 bounce = sample_voxel_gi_irradiance(surface_pos, N, N, sky);
+				float unused_sky_visibility;
+				vec3 bounce = sample_voxel_gi_irradiance(surface_pos, N, N, sky, unused_sky_visibility);
 				float emissive_luma = max(voxel.a - 1.0, 0.0) * 4.0;
 				vec3 emissive = voxel.rgb * (emissive_luma / max(luminance(voxel.rgb), 1e-3));
 				return albedo * (direct + bounce) + emissive;
