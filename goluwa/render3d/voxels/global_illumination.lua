@@ -36,7 +36,15 @@ voxel_gi.CASCADE_SPACINGS = {1, 2, 4, 8}
 -- further into the view than behind it
 voxel_gi.FORWARD_BIAS = 0.3
 voxel_gi.RAYS_PER_PROBE = 64 -- must match the workgroup size below
-voxel_gi.PROBES_PER_FRAME = 1024 -- per cascade
+voxel_gi.PROBES_PER_FRAME = 1024 -- per cascade, before the divisor below
+-- The probe update pass costs roughly linearly in the probes it dispatches. A
+-- coarse cascade covers 2, 4 or 8 times the world per probe and carries
+-- correspondingly low frequency light, so it refreshes at a fraction of the
+-- finest cascade's rate. Its probes then take proportionally more frames to
+-- settle, which is the right way round: lowering their hysteresis to keep the
+-- frame count constant makes every update land harder and brings back the
+-- probe flicker HYSTERESIS is there to suppress.
+voxel_gi.CASCADE_UPDATE_DIVISORS = {1, 2, 4, 4}
 voxel_gi.MAX_TRACE_STEPS = 128
 voxel_gi.IRRADIANCE_OCT_SIZE = 8
 voxel_gi.VISIBILITY_OCT_SIZE = 16
@@ -59,7 +67,7 @@ voxel_gi.OCCLUSION_MAX_STEPS = 24
 voxel_gi.visibility_enabled = voxel_gi.visibility_enabled ~= false
 -- Sampling cost knobs. Every shaded pixel walks its cascades, and for each
 -- cascade fetches 8 probes, so these multiply out fast. Defaults are the
--- "high" preset; see voxel_gi.SetSampleQuality.
+-- "high" preset apart from SCREEN_SCALE; see voxel_gi.SetSampleQuality.
 --
 -- how many cascades one pixel may blend before it stops walking outwards.
 -- The finest cascade covering a point already fully replaces the coarser
@@ -72,6 +80,11 @@ voxel_gi.OCCLUSION_MAX_CASCADE = voxel_gi.OCCLUSION_MAX_CASCADE or voxel_gi.CASC
 -- occlusion march step in voxels. 0.5 never steps over a wall, 1.0 halves
 -- the fetch count and can miss geometry thinner than a voxel.
 voxel_gi.OCCLUSION_STEP_VOXELS = voxel_gi.OCCLUSION_STEP_VOXELS or 0.5
+-- resolution the screen space gi pass runs at, relative to the frame. Diffuse
+-- irradiance is low frequency, so half resolution plus the depth aware
+-- upsample costs a fraction of the frame and only differs where geometry is
+-- thinner than two pixels. 1 resolves it per pixel.
+voxel_gi.SCREEN_SCALE = voxel_gi.SCREEN_SCALE or 0.5
 -- bilinear (4 texel) or nearest (1 texel) filtering of the octahedral probe
 -- maps. Nearest is a quarter of the fetches and shows the probe's 8x8
 -- octahedron as soft banding on smoothly curving surfaces.
@@ -98,6 +111,18 @@ local BINDING_METADATA = BINDING_INFO_0 + MAX_CASCADES
 
 function voxel_gi.GetProbesPerCascade()
 	return PROBES_PER_CASCADE
+end
+
+local function get_cascade_probes_per_frame(index)
+	return math.min(
+		math.max(
+			math.floor(
+				voxel_gi.PROBES_PER_FRAME / math.max(voxel_gi.CASCADE_UPDATE_DIVISORS[index] or 1, 1)
+			),
+			1
+		),
+		PROBES_PER_CASCADE
+	)
 end
 
 local function transition_array_to_shader_read(cmd, texture, layer_count, src_stage, src_access, dst_stage)
@@ -766,18 +791,22 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				ivec3 offset = ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
 				ivec3 g = origin + base + offset;
 				ivec3 s = voxel_gi_storage_coord(g);
+				vec3 tri = mix(1.0 - alpha, alpha, vec3(offset));
+				float w = tri.x * tri.y * tri.z;
+				// a corner this far out on the trilinear falloff cannot move
+				// the result, so drop it before it costs a fetch
+				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 				vec4 info = voxel_gi_probe_info(c, s);
 				if (info.w <= 0.0) continue;
 				vec3 probe_pos = vec3(g) * spacing + info.xyz;
-				vec3 tri = mix(1.0 - alpha, alpha, vec3(offset));
 				// info.w fades a probe out as more of its rays start inside
 				// geometry, rather than dropping it in one step
-				float w = tri.x * tri.y * tri.z * info.w;
+				w *= info.w;
 				vec3 to_probe = normalize(probe_pos - pos);
 				float wrap = (dot(to_probe, N) + 1.0) * 0.5;
 				w *= wrap * wrap + 0.2;
-				// a probe this far out on the trilinear falloff cannot move the
-				// result, so skip its visibility, irradiance and occlusion fetches
+				// the validity and wrap terms can also drive the weight under
+				// the floor, skipping its visibility and irradiance fetches
 				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 				vec3 probe_to_point = bias_pos - probe_pos;
 				float dist = length(probe_to_point);
@@ -1315,34 +1344,6 @@ local function build_update_pipeline()
 				s_vis_dist[ray] = dist < 0.0 ? min(-dist * 0.2, max_dist) : min(dist, max_dist);
 				barrier();
 
-				int backface_count = 0;
-
-				for (int r = 0; r < RAYS_PER_PROBE; r++) {
-					if (s_ray[r].a < 0.0) backface_count++;
-				}
-
-				// How far this probe is trusted, from the fraction of its
-				// rays that started inside geometry. That fraction is a 64 ray
-				// estimate under a fresh random rotation every update, so
-				// thresholding it flips probes near a wall on and off between
-				// updates and pops their whole trilinear contribution in and
-				// out. A ramp, filtered over updates, fades them instead.
-				ivec2 info_coord = voxel_gi_tile_origin(s, 1);
-				float validity = clamp(
-					(BACKFACE_DISABLE - float(backface_count) / float(RAYS_PER_PROBE)) /
-					(BACKFACE_DISABLE - BACKFACE_ENABLE),
-					0.0,
-					1.0
-				);
-
-				if (history_valid) {
-					validity = mix(validity, voxel_gi_fetch_info(c, info_coord).w, BACKFACE_HYSTERESIS);
-				}
-
-				// relocation is a lookup in the voxel volume, not an estimate,
-				// so a probe with nowhere free to sit from is cut immediately
-				if (!enabled) validity = 0.0;
-
 				// irradiance: one octahedral texel per thread
 				ivec2 tile = voxel_gi_tile_origin(s, VOXEL_GI_IRRADIANCE_SIZE);
 				ivec2 texel = ivec2(ray % VOXEL_GI_IRRADIANCE_SIZE, ray / VOXEL_GI_IRRADIANCE_SIZE);
@@ -1404,8 +1405,40 @@ local function build_update_pipeline()
 					voxel_gi_store_visibility(c, vcoord, vec4(vis, 0.0, 0.0));
 				}
 
+				// only the store thread needs the probe wide numbers below, so
+				// they stay out of the other 63 threads' way
 				if (ray == 0) {
 					gi_probe_meta[meta_index] = ivec4(g, 1);
+					int backface_count = 0;
+
+					for (int r = 0; r < RAYS_PER_PROBE; r++) {
+						if (s_ray[r].a < 0.0) backface_count++;
+					}
+
+					// How far this probe is trusted, from the fraction of its
+					// rays that started inside geometry. That fraction is a 64
+					// ray estimate under a fresh random rotation every update,
+					// so thresholding it flips probes near a wall on and off
+					// between updates and pops their whole trilinear
+					// contribution in and out. A ramp, filtered over updates,
+					// fades them instead.
+					ivec2 info_coord = voxel_gi_tile_origin(s, 1);
+					float validity = clamp(
+						(BACKFACE_DISABLE - float(backface_count) / float(RAYS_PER_PROBE)) /
+						(BACKFACE_DISABLE - BACKFACE_ENABLE),
+						0.0,
+						1.0
+					);
+
+					if (history_valid) {
+						validity = mix(validity, voxel_gi_fetch_info(c, info_coord).w, BACKFACE_HYSTERESIS);
+					}
+
+					// relocation is a lookup in the voxel volume, not an
+					// estimate, so a probe with nowhere free to sit from is
+					// cut immediately
+					if (!enabled) validity = 0.0;
+
 					// w is the filtered validity, which sampling folds into
 					// the probe's weight and the next update reads back
 					voxel_gi_store_info(c, info_coord, vec4(relocation.xyz, validity));
@@ -1746,7 +1779,6 @@ function voxel_gi.Draw(cmd)
 	voxel_gi.ray_rotation = random_rotation_matrix()
 	voxel_gi.frame = voxel_gi.frame + 1
 	local pipeline = voxel_gi.update_pipeline
-	local probes_per_frame = math.min(voxel_gi.PROBES_PER_FRAME, PROBES_PER_CASCADE)
 
 	for _, cascade in ipairs(voxel_gi.cascades) do
 		render.TransitionResourceToComputeStorage(cascade.irradiance, {cmd = cmd, dstAccess = "shader_write"})
@@ -1799,6 +1831,7 @@ function voxel_gi.Draw(cmd)
 			voxel_gi.metadata_buffer:GetSize()
 		)
 		voxel_gi.current_cascade = i
+		local probes_per_frame = get_cascade_probes_per_frame(i)
 		pipeline:Dispatch(cmd, probes_per_frame, 1, 1, slot)
 		cascade.probe_base = (cascade.probe_base + probes_per_frame) % PROBES_PER_CASCADE
 	end
@@ -1868,6 +1901,7 @@ end)
 -- Initialize() does that.
 voxel_gi.SAMPLE_QUALITY_PRESETS = {
 	high = {
+		SCREEN_SCALE = 1,
 		MAX_SAMPLE_CASCADES = 4,
 		OCCLUSION_MAX_CASCADE = 4,
 		OCCLUSION_MAX_STEPS = 24,
@@ -1876,6 +1910,7 @@ voxel_gi.SAMPLE_QUALITY_PRESETS = {
 		BILINEAR_VISIBILITY = true,
 	},
 	medium = {
+		SCREEN_SCALE = 0.5,
 		MAX_SAMPLE_CASCADES = 3,
 		OCCLUSION_MAX_CASCADE = 2,
 		OCCLUSION_MAX_STEPS = 12,
@@ -1884,6 +1919,7 @@ voxel_gi.SAMPLE_QUALITY_PRESETS = {
 		BILINEAR_VISIBILITY = true,
 	},
 	low = {
+		SCREEN_SCALE = 0.5,
 		MAX_SAMPLE_CASCADES = 2,
 		OCCLUSION_MAX_CASCADE = 1,
 		OCCLUSION_MAX_STEPS = 6,
@@ -1892,6 +1928,7 @@ voxel_gi.SAMPLE_QUALITY_PRESETS = {
 		BILINEAR_VISIBILITY = false,
 	},
 	lowest = {
+		SCREEN_SCALE = 0.5,
 		MAX_SAMPLE_CASCADES = 2,
 		OCCLUSION_MAX_CASCADE = 0,
 		OCCLUSION_MAX_STEPS = 0,

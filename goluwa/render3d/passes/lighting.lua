@@ -96,6 +96,7 @@ return {
 					lightprobes.GetProbeBlockLayout(),
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
+					{"gi_screen_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -131,6 +132,12 @@ return {
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
 					else
 						block.ambient_occlusion_tex = -1
+					end
+
+					if render3d.pipelines.voxel_gi_upsample then
+						block.gi_screen_tex = self:GetTextureIndex(render3d.pipelines.voxel_gi_upsample:GetFramebuffer(1):GetAttachment(1))
+					else
+						block.gi_screen_tex = -1
 					end
 
 					if render3d.pipelines.ssr then
@@ -236,8 +243,6 @@ return {
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
 			]] .. ibl.GetProbeReflectionGLSLCode("lighting_data") .. [[
-
-			]] .. voxel_gi.GetGLSLCode("lighting_data") .. [[
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 			]] .. scene_lights.GetLightGLSLCode() .. [[
@@ -371,20 +376,20 @@ return {
 				return combine_reflections(env_reflection, ssr, get_ssr_blend_weight(roughness));
 			}
 
-			// diffuse irradiance / pi: the voxel probe grids when they are
-			// active, otherwise the sky irradiance cubemap. sky_visibility is
-			// how much of that fallback survived (1 = fully open sky, 0 =
-			// fully covered by the probe grid); with gi disabled there is no
-			// occlusion signal to give, so it defaults to fully open.
-			vec3 get_gi_irradiance(vec3 N, vec3 V, vec3 world_pos, out float sky_visibility) {
-				vec3 sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
-
-				if (lighting_data.gi_enabled == 0) {
+			// Diffuse irradiance / pi, resolved by the voxel_gi_irradiance
+			// pass: rgb is the probe grid's irradiance (or the sky irradiance
+			// cubemap where the grid does not reach), alpha is how much of
+			// that sky fallback survived (1 = fully open sky, 0 = fully
+			// covered by the probe grid), which the reflection path reuses.
+			vec3 get_gi_irradiance(vec3 N, out float sky_visibility) {
+				if (lighting_data.gi_screen_tex < 0) {
 					sky_visibility = 1.0;
-					return sky;
+					return sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
 				}
 
-				return sample_voxel_gi_irradiance(world_pos, N, V, sky, sky_visibility);
+				vec4 gi = texture(TEXTURE(lighting_data.gi_screen_tex), in_uv);
+				sky_visibility = gi.a;
+				return gi.rgb;
 			}
 
 			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
@@ -534,7 +539,7 @@ return {
 				float transmission_amount = 1.0 - blocking_detail;
 				float perceptual_roughness = sqrt(clamp(roughness_alpha, 0.0, 1.0));
 				float sky_visibility;
-				vec3 gi_irradiance = get_gi_irradiance(N, V, world_pos, sky_visibility);
+				vec3 gi_irradiance = get_gi_irradiance(N, sky_visibility);
 				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, gi_irradiance);
 				float ambient_front_amount = blocking_detail;
 				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
@@ -633,7 +638,7 @@ return {
 
 				if (lighting_data.gi_debug != 0) {
 					float debug_sky_visibility;
-					color = get_gi_irradiance(N, V, world_pos, debug_sky_visibility);
+					color = get_gi_irradiance(N, debug_sky_visibility);
 				}
 
 				set_color(vec4(min(color, vec3(65504.0)), alpha));

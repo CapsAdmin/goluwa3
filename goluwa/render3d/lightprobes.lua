@@ -1497,10 +1497,15 @@ local function get_probe_capture_bundle(size)
 	bundle = render3d.CreatePipelineBundle{
 		framebuffer_size = {x = size, y = size},
 		filter = function(name)
+			-- the two voxel gi screen passes come along because lighting reads
+			-- its diffuse gi out of their target now; the probe update pass
+			-- itself stays out, a capture must not refresh the probe grids
 			return name:find("^gbuffer") ~= nil or
 				name == "ssr" or
 				name == "lighting" or
-				name == "ocean"
+				name == "ocean" or
+				name == "voxel_gi_irradiance" or
+				name == "voxel_gi_upsample"
 		end,
 	}
 	lightprobes.capture_bundles[size] = bundle
