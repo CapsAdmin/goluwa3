@@ -11,10 +11,25 @@
 	    floor between coloured walls, covered by a manual reflection probe. The
 	    chrome sphere at the far end mostly reflects things off screen, so it
 	    shows the probe rather than ssr.
+	  * Multi-bounce bleed box (x 34): magenta/orange/cyan walls in a tight
+	    room lit only through a roof gap, so the interior sphere and floor
+	    should pick up several bounces of mixed colour rather than one tint.
+	  * Thin-wall partition (x 52): a lit chamber and a fully sealed dark
+	    chamber share a 0.15 m wall, with an emissive strip right against the
+	    lit side. The dark chamber should stay essentially black; any glow
+	    there is GI leaking through geometry thinner than a voxel.
+	  * Pillar hall (x 72): an emissive back wall, alternating pillars, and a
+	    22 m enclosed hall to a doorway at the front. Exercises the occlusion
+	    march (light should dim as it has to bend around pillars) and probe
+	    cascade transitions along the length.
+	  * Two-storey shaft (x 92): a sealed ground floor lit only by whatever
+	    bounces down a stairwell hole from an upper floor with a narrow roof
+	    light well. Tests probe cascades stacked in y.
 
 	Useful console commands: voxel_gi_debug (show gi irradiance only),
-	voxel_gi_probes (probe overlay), lightprobes_reflection_probes,
-	lightprobes_dump, voxel_gi_invalidate.
+	voxel_gi_probes (probe overlay), voxel_gi_occlusion (toggle the occlusion
+	march), voxel_gi_visibility (toggle the Chebyshev visibility test),
+	lightprobes_reflection_probes, lightprobes_dump, voxel_gi_invalidate.
 
 	Run: USE_MOLTENVK=1 luajit glw --3d lua addons/examples/lua/examples/render3d/gi_reflections.lua
 ]]
@@ -22,8 +37,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local lightprobes = import("goluwa/render3d/lightprobes.lua")
-local voxel_gi = import("goluwa/render3d/voxel_gi.lua")
 local shapes = import("lua/shapes.lua")
 
 local function mat(color, roughness, metallic)
@@ -68,8 +81,11 @@ local red = mat(Color(0.75, 0.08, 0.05, 1), 0.9)
 local green = mat(Color(0.08, 0.6, 0.1, 1), 0.9)
 local blue = mat(Color(0.1, 0.25, 0.8, 1), 0.7)
 local yellow = mat(Color(0.9, 0.75, 0.15, 1), 0.7)
--- ground
-box("ground", Vec3(0, -1, 0), Vec3(120, 2, 120), mat(Color(0.9, 0.9, 0.9, 1), 0.05, 1))
+local magenta = mat(Color(0.7, 0.1, 0.6, 1), 0.9)
+local orange = mat(Color(0.9, 0.4, 0.05, 1), 0.9)
+local cyan = mat(Color(0.05, 0.6, 0.65, 1), 0.9)
+-- ground, wide enough to run under every room including the new ones out at x 92
+box("ground", Vec3(20, -1, 0), Vec3(170, 2, 120), mat(Color(0.9, 0.9, 0.9, 1), 0.05, 1))
 
 -- cornell room, open towards +z, roof with a gap so the sun gets in
 do
@@ -134,8 +150,115 @@ do
 	lightprobes.CreateReflectionProbe(Vec3(cx, 3, 0), 20, lightprobes.UPDATE_STATIC)
 end
 
-lightprobes.SetReflectionProbesEnabled(true)
-voxel_gi.SetEnabled(true)
+-- multi-bounce colour bleed box: three saturated walls in a tight room, open
+-- at the front and lit only through a roof gap, so the interior sphere and
+-- floor should show several bounces of mixed colour rather than one tint
+do
+	local cx, w, h, d, t = 34, 8, 6, 8, 0.5
+	box("bleed_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
+	box("bleed_back", Vec3(cx, h / 2, -d / 2), Vec3(w, h, t), magenta)
+	box("bleed_left", Vec3(cx - w / 2, h / 2, 0), Vec3(t, h, d), orange)
+	box("bleed_right", Vec3(cx + w / 2, h / 2, 0), Vec3(t, h, d), cyan)
+	box("bleed_roof_back", Vec3(cx, h, -d / 4 - 1), Vec3(w, t, d / 2 - 2), white)
+	box("bleed_roof_front", Vec3(cx, h, d / 4 + 1), Vec3(w, t, d / 2 - 2), white)
+	sphere("bleed_sphere", Vec3(cx, 1.5, 0), 1.5, white)
+end
+
+-- thin partition: a lit chamber shares a 0.15 m wall with a fully sealed dark
+-- chamber, with an emissive strip right against the partition on the lit
+-- side. The dark chamber has no light source of its own, so any glow in it
+-- is GI leaking through geometry thinner than a voxel rather than around it.
+do
+	local cx, w, h, d, t, pt = 52, 10, 5, 8, 0.5, 0.15
+	local half = (w - pt) / 2
+	local lit_cx = cx - pt / 2 - half / 2
+	local dark_cx = cx + pt / 2 + half / 2
+	box("partition_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), grey)
+	box("partition_wall", Vec3(cx, h / 2, 0), Vec3(pt, h, d), grey)
+
+	box("partition_lit_back", Vec3(lit_cx, h / 2, -d / 2), Vec3(half, h, t), white)
+	box("partition_lit_left", Vec3(lit_cx - half / 2, h / 2, 0), Vec3(t, h, d), white)
+	box("partition_lit_front", Vec3(lit_cx, h / 2, d / 2), Vec3(half, h, t), white)
+	box("partition_lit_roof_back", Vec3(lit_cx, h, -d / 4 - 1), Vec3(half, t, d / 2 - 2), white)
+	box("partition_lit_roof_front", Vec3(lit_cx, h, d / 4 + 1), Vec3(half, t, d / 2 - 2), white)
+	box(
+		"partition_lamp",
+		Vec3(lit_cx + half / 2 - 0.15, h / 2, 0),
+		Vec3(0.1, h - 1, d - 2),
+		emissive_mat(Color(1, 0.9, 0.7, 1), 6)
+	)
+
+	box("partition_dark_back", Vec3(dark_cx, h / 2, -d / 2), Vec3(half, h, t), grey)
+	box("partition_dark_right", Vec3(dark_cx + half / 2, h / 2, 0), Vec3(t, h, d), grey)
+	box("partition_dark_front", Vec3(dark_cx, h / 2, d / 2), Vec3(half, h, t), grey)
+	box("partition_dark_roof", Vec3(dark_cx, h, 0), Vec3(half, t, d), grey)
+end
+
+-- pillar hall: an emissive panel at one end, alternating pillars along a long
+-- enclosed hall, and a doorway at the far end. Light has to bend around the
+-- pillars to reach the doorway, exercising the occlusion march, and the 22 m
+-- length crosses several probe cascades.
+do
+	local cx, w, h, d, t = 72, 8, 5, 22, 0.5
+	box("hall_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
+	box("hall_roof", Vec3(cx, h, 0), Vec3(w, t, d), white)
+	box("hall_left", Vec3(cx - w / 2, h / 2, 0), Vec3(t, h, d), white)
+	box("hall_right", Vec3(cx + w / 2, h / 2, 0), Vec3(t, h, d), white)
+	box(
+		"hall_lamp_wall",
+		Vec3(cx, h / 2, -d / 2),
+		Vec3(w, h, t),
+		emissive_mat(Color(1, 0.35, 0.15, 1), 10)
+	)
+	-- low doorway in the front wall
+	box("hall_front_top", Vec3(cx, h - 0.75, d / 2), Vec3(w, 1.5, t), white)
+	box("hall_front_left", Vec3(cx - 3, 1.25, d / 2), Vec3(2, 2.5, t), white)
+	box("hall_front_right", Vec3(cx + 3, 1.25, d / 2), Vec3(2, 2.5, t), white)
+
+	for i, z in ipairs({-7, -2.5, 2, 6.5}) do
+		box("hall_pillar_" .. i, Vec3(cx + (i % 2 == 0 and 2 or -2), 1.5, z), Vec3(1, 3, 1), grey)
+	end
+end
+
+-- two-storey shaft: a sealed ground floor lit only by whatever bounces down
+-- a stairwell hole from an upper floor with a narrow roof light well. Tests
+-- probe cascades stacked in y and bounce travelling down a shaft.
+do
+	local cx, w, d, t, hole, well = 92, 8, 8, 0.5, 2.5, 1.5
+	local floor1_h, floor2_h = 4, 4
+	local h2 = floor1_h + floor2_h
+
+	box("tower_floor1", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), grey)
+	box("tower_wall1_back", Vec3(cx, floor1_h / 2, -d / 2), Vec3(w, floor1_h, t), grey)
+	box("tower_wall1_front", Vec3(cx, floor1_h / 2, d / 2), Vec3(w, floor1_h, t), grey)
+	box("tower_wall1_left", Vec3(cx - w / 2, floor1_h / 2, 0), Vec3(t, floor1_h, d), grey)
+	box("tower_wall1_right", Vec3(cx + w / 2, floor1_h / 2, 0), Vec3(t, floor1_h, d), grey)
+
+	-- mid slab, doubling as floor1's roof and floor2's floor, with a square
+	-- stairwell hole built from a frame of four boxes
+	local seg = (d - hole) / 2
+	local off = d / 2 - seg / 2
+	box("tower_slab_back", Vec3(cx, floor1_h, -off), Vec3(w, t, seg), grey)
+	box("tower_slab_front", Vec3(cx, floor1_h, off), Vec3(w, t, seg), grey)
+	box("tower_slab_left", Vec3(cx - off, floor1_h, 0), Vec3(seg, t, hole), grey)
+	box("tower_slab_right", Vec3(cx + off, floor1_h, 0), Vec3(seg, t, hole), grey)
+
+	box("tower_wall2_back", Vec3(cx, floor1_h + floor2_h / 2, -d / 2), Vec3(w, floor2_h, t), grey)
+	box("tower_wall2_front", Vec3(cx, floor1_h + floor2_h / 2, d / 2), Vec3(w, floor2_h, t), grey)
+	box("tower_wall2_left", Vec3(cx - w / 2, floor1_h + floor2_h / 2, 0), Vec3(t, floor2_h, d), grey)
+	box("tower_wall2_right", Vec3(cx + w / 2, floor1_h + floor2_h / 2, 0), Vec3(t, floor2_h, d), grey)
+
+	-- roof, same frame technique but with a narrower light well
+	local seg2 = (d - well) / 2
+	local off2 = d / 2 - seg2 / 2
+	box("tower_roof_back", Vec3(cx, h2, -off2), Vec3(w, t, seg2), grey)
+	box("tower_roof_front", Vec3(cx, h2, off2), Vec3(w, t, seg2), grey)
+	box("tower_roof_left", Vec3(cx - off2, h2, 0), Vec3(seg2, t, well), grey)
+	box("tower_roof_right", Vec3(cx + off2, h2, 0), Vec3(seg2, t, well), grey)
+
+	sphere("tower_sphere1", Vec3(cx, 1.2, 0), 1, white)
+	sphere("tower_sphere2", Vec3(cx, floor1_h + 1.2, 0), 1, white)
+end
 
 -- start in front of the scene looking at all three areas
 do
