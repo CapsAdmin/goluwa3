@@ -51,7 +51,7 @@ return {
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					local frame = system.GetFrameNumber()
 					block.frame_index = frame
 

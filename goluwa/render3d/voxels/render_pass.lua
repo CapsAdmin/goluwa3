@@ -156,7 +156,7 @@ return {
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
-					block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 					voxel_gi.WriteBlock(self, block)
 					return block
 				end,

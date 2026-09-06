@@ -271,8 +271,8 @@ return {
 						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
 						block.normal_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
 						block.mra_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
-						block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
-						block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+						block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 
 						if not render3d.pipelines.ssr or not render3d.pipelines.ssr.framebuffers then
 							block.ssr_tex = -1
@@ -325,8 +325,8 @@ return {
 
 			vec3 get_environment_color(vec3 dir, float lod) {
 				if (ocean_data.env_tex == -1) return vec3(0.0);
-				float max_mip = float(textureQueryLevels(CUBEMAP(ocean_data.env_tex)) - 1);
-				return textureLod(CUBEMAP(ocean_data.env_tex), dir, clamp(lod, 0.0, max_mip)).rgb;
+				float max_mip = float(textureQueryLevels(TEXTURE(ocean_data.env_tex)) - 1);
+				return textureLod(TEXTURE(ocean_data.env_tex), dir_to_equirect_uv(dir), clamp(lod, 0.0, max_mip)).rgb;
 			}
 
 			const float SEA_PI = 3.14159265359;

@@ -131,12 +131,23 @@ function ibl.GetEnvironmentGLSLCode()
 			math.floor(math.log(ibl.ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE) / math.log(2) + 0.5)
 		) .. [[;
 
-			// Mip that holds perceptual roughness 1. The chain stops at faces of
-			// ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE texels because coarser levels
-			// cannot represent the wide GGX lobe without visible face seams.
+			// Converts a probe-space direction into the UV of the equirectangular
+			// (lat-long) texture it was baked into. Exact inverse of
+			// equirect_uv_to_dir in envprobe.lua, so a direction written there
+			// reads back identically here.
+			vec2 dir_to_equirect_uv(vec3 dir) {
+				float phi = atan(dir.z, dir.x);
+				float theta = asin(clamp(dir.y, -1.0, 1.0));
+				return vec2(phi * 0.15915494309 + 0.5, theta * 0.31830988618 + 0.5);
+			}
+
+			// Mip that holds perceptual roughness 1. The chain stops at mips whose
+			// equivalent cube face would be ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE
+			// texels because coarser levels cannot represent the wide GGX lobe
+			// without visible seams.
 			float get_environment_max_mip(int env_tex) {
 				if (env_tex == -1) return 0.0;
-				return max(float(textureQueryLevels(CUBEMAP(env_tex)) - 1 - ENVIRONMENT_ROUGHEST_MIP_SKIP), 0.0);
+				return max(float(textureQueryLevels(TEXTURE(env_tex)) - 1 - ENVIRONMENT_ROUGHEST_MIP_SKIP), 0.0);
 			}
 
 			vec3 correct_environment_lookup_dir(vec3 dir) {
@@ -156,14 +167,15 @@ function ibl.GetEnvironmentGLSLCode()
 				float max_mip = get_environment_max_mip(env_tex);
 				vec3 sample_dir = correct_environment_lookup_dir(get_specular_dominant_direction(reflection_dir, normal, perceptual_roughness));
 				float horizon = saturate(1.0 + dot(reflection_dir, normal));
-				return textureLod(CUBEMAP(env_tex), sample_dir, perceptual_roughness * max_mip).rgb * horizon * horizon;
+				return textureLod(TEXTURE(env_tex), dir_to_equirect_uv(sample_dir), perceptual_roughness * max_mip).rgb * horizon * horizon;
 			}
 
-			// irradiance_tex is a cosine convolved cubemap already divided by
-			// pi, so the result times albedo is the diffuse outgoing radiance.
+			// irradiance_tex is a cosine convolved equirect texture already
+			// divided by pi, so the result times albedo is the diffuse outgoing
+			// radiance.
 			vec3 sample_environment_irradiance(int irradiance_tex, vec3 normal) {
 				if (irradiance_tex == -1) return vec3(0.0);
-				return texture(CUBEMAP(irradiance_tex), correct_environment_lookup_dir(normal)).rgb;
+				return texture(TEXTURE(irradiance_tex), dir_to_equirect_uv(correct_environment_lookup_dir(normal))).rgb;
 			}
 		]]
 end
@@ -254,7 +266,7 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 			}
 
 			vec3 correct_probe_color_lookup_dir(vec3 dir) {
-				return normalize(dir);
+				return normalize(vec3(-dir.x, dir.y, dir.z));
 			}
 
 			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex, out float hit_confidence) {
@@ -288,7 +300,7 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 					vec3 ray_pos = ray_origin + R * t;
 					vec3 ray_dir = normalize(ray_pos);
 					float ray_dist = length(ray_pos);
-					float stored_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(ray_dir)).r;
+					float stored_depth = texture(TEXTURE(depth_tex), dir_to_equirect_uv(correct_probe_depth_lookup_dir(ray_dir))).r;
 					float depth_gap = max(stored_depth - ray_dist, 0.0);
 
 					if (depth_gap < closest_depth_gap) {
@@ -306,7 +318,7 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 							vec3 mid_pos = ray_origin + R * mid_t;
 							vec3 mid_dir = normalize(mid_pos);
 							float mid_dist = length(mid_pos);
-							float mid_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(mid_dir)).r;
+							float mid_depth = texture(TEXTURE(depth_tex), dir_to_equirect_uv(correct_probe_depth_lookup_dir(mid_dir))).r;
 
 							if (mid_dist >= mid_depth) {
 								end_t = mid_t;
@@ -362,7 +374,7 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 
 					if (dist_to_point < sphere_radius) {
 						vec3 dir_to_point = normalize(probe_to_point);
-						float stored_depth = texture(CUBEMAP(depth_tex), correct_probe_depth_lookup_dir(dir_to_point)).r;
+						float stored_depth = texture(TEXTURE(depth_tex), dir_to_equirect_uv(correct_probe_depth_lookup_dir(dir_to_point))).r;
 						float bias = 0.3;
 						float fade_band = 0.75;
 						float penetration = dist_to_point - (stored_depth + bias);
@@ -381,8 +393,8 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 							vec3 reflected = parallax_depth(R, probe_to_point, sphere_radius, depth_tex, hit_confidence);
 							float probe_max_mip = get_environment_max_mip(color_tex);
 							float probe_mip = roughness * probe_max_mip;
-							vec3 probe_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(R), probe_mip).rgb;
-							vec3 corrected_sample = textureLod(CUBEMAP(color_tex), correct_probe_color_lookup_dir(reflected), probe_mip).rgb;
+							vec3 probe_sample = textureLod(TEXTURE(color_tex), dir_to_equirect_uv(correct_probe_color_lookup_dir(R)), probe_mip).rgb;
+							vec3 corrected_sample = textureLod(TEXTURE(color_tex), dir_to_equirect_uv(correct_probe_color_lookup_dir(reflected)), probe_mip).rgb;
 							float correction_confidence = smoothstep(0.15, 0.85, hit_confidence);
 							vec3 sample_color = mix(probe_sample, corrected_sample, correction_confidence);
 							probes_env += sample_color * normalized_weight;

@@ -79,6 +79,22 @@ local function write_sky_vertex_constants(self, block)
 	return block
 end
 
+-- Converts an equirectangular fullscreen UV (0..1) into a world/probe-space
+-- direction. Exact inverse of dir_to_equirect_uv in ibl.lua so a direction
+-- written here reads back identically there.
+local equirect_direction_glsl = [[
+	vec3 equirect_uv_to_dir(vec2 uv) {
+		float phi = (uv.x - 0.5) * 6.28318530718;
+		float theta = (uv.y - 0.5) * 3.14159265359;
+		float ct = cos(theta);
+		return normalize(vec3(ct * cos(phi), sin(theta), ct * sin(phi)));
+	}
+]]
+
+local function equirect_dims(face_size)
+	return face_size * 4, face_size * 2
+end
+
 local function transition_cube_to_shader_read(cmd, texture)
 	if not texture then return end
 
@@ -99,13 +115,34 @@ local function transition_cube_to_shader_read(cmd, texture)
 	)
 end
 
+local function transition_2d_to_shader_read(cmd, texture)
+	if not texture then return end
+
+	render.TransitionResourceTo(
+		texture,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "top_of_pipe",
+			srcAccess = "none",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = 1,
+			base_mip_level = 0,
+			level_count = texture.mip_map_levels,
+		}
+	)
+end
+
 local function initialize_probe_layouts(cmd, probe)
 	if not probe then return end
 
 	transition_cube_to_shader_read(cmd, probe.source_cubemap)
-	transition_cube_to_shader_read(cmd, probe.cubemap)
 	transition_cube_to_shader_read(cmd, probe.depth_cubemap)
-	transition_cube_to_shader_read(cmd, probe.irradiance_cubemap)
+	transition_2d_to_shader_read(cmd, probe.color_equirect)
+	transition_2d_to_shader_read(cmd, probe.irradiance_equirect)
+	transition_2d_to_shader_read(cmd, probe.depth_equirect)
 end
 
 local function initialize_probe_layouts_now(probe)
@@ -142,15 +179,17 @@ local function remove_probe_resources(probe)
 
 	remove_views(probe.source_face_views)
 	remove_views(probe.depth_face_views)
-	remove_views(probe.irradiance_face_views)
+	remove_views(probe.color_equirect_mip_views)
 
-	if probe.mip_face_views then
-		for _, views in pairs(probe.mip_face_views) do
-			remove_views(views)
-		end
+	if probe.irradiance_equirect_view and probe.irradiance_equirect_view.Remove then
+		probe.irradiance_equirect_view:Remove()
 	end
 
-	for _, key in ipairs{"irradiance_cubemap", "cubemap", "source_cubemap", "depth_cubemap"} do
+	if probe.depth_equirect_view and probe.depth_equirect_view.Remove then
+		probe.depth_equirect_view:Remove()
+	end
+
+	for _, key in ipairs{"color_equirect", "irradiance_equirect", "depth_equirect", "source_cubemap", "depth_cubemap"} do
 		if probe[key] and probe[key].Remove then probe[key]:Remove() end
 
 		probe[key] = nil
@@ -191,22 +230,55 @@ local function create_face_views(texture, mip_level)
 	return views
 end
 
+local function create_equirect(width, height, format, mip_map_levels)
+	return Texture.New{
+		width = width,
+		height = height,
+		format = format,
+		mip_map_levels = mip_map_levels,
+	}
+end
+
+local function create_2d_view(texture, mip_level)
+	return texture:GetImage():CreateView{
+		view_type = "2d",
+		base_mip_level = mip_level or 0,
+		level_count = 1,
+	}
+end
+
+local function create_mip_views_2d(texture, mip_count)
+	local views = {}
+
+	for m = 0, mip_count - 1 do
+		views[m] = create_2d_view(texture, m)
+	end
+
+	return views
+end
+
 local function CreateProbeTextures(size, with_irradiance)
 	local probe = {}
-	probe.cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
 	probe.source_cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
 	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1)
 	probe.source_face_views = create_face_views(probe.source_cubemap)
 	probe.depth_face_views = create_face_views(probe.depth_cubemap)
-	probe.mip_face_views = {}
 
-	for m = 0, probe.cubemap.mip_map_levels - 1 do
-		probe.mip_face_views[m] = create_face_views(probe.cubemap, m)
-	end
+	-- Texture.New recomputes any mip_map_levels > 1 from the texture's own
+	-- width/height (see texture.lua), ignoring whatever count is requested,
+	-- so build the mip views off the count it actually settled on.
+	local color_w, color_h = equirect_dims(size)
+	probe.color_equirect = create_equirect(color_w, color_h, "b10g11r11_ufloat_pack32", "auto")
+	probe.color_equirect_mip_views = create_mip_views_2d(probe.color_equirect, probe.color_equirect.mip_map_levels)
 
 	if with_irradiance then
-		probe.irradiance_cubemap = create_cubemap(envprobe.IRRADIANCE_SIZE, "b10g11r11_ufloat_pack32", 1)
-		probe.irradiance_face_views = create_face_views(probe.irradiance_cubemap)
+		local irradiance_w, irradiance_h = equirect_dims(envprobe.IRRADIANCE_SIZE)
+		probe.irradiance_equirect = create_equirect(irradiance_w, irradiance_h, "b10g11r11_ufloat_pack32", 1)
+		probe.irradiance_equirect_view = create_2d_view(probe.irradiance_equirect)
+	else
+		local depth_w, depth_h = equirect_dims(size)
+		probe.depth_equirect = create_equirect(depth_w, depth_h, "r32_sfloat", 1)
+		probe.depth_equirect_view = create_2d_view(probe.depth_equirect)
 	end
 
 	return probe
@@ -439,12 +511,12 @@ function envprobe.WriteProbeBlock(self, block, camera_position)
 		local probe = probes[i + 1]
 
 		if probe then
-			if probe.cubemap then
-				block.probe_color_textures[i] = self:GetCubeMapTextureIndex(probe.cubemap)
+			if probe.color_equirect then
+				block.probe_color_textures[i] = self:GetTextureIndex(probe.color_equirect)
 			end
 
-			if probe.depth_cubemap then
-				block.probe_depth_textures[i] = self:GetCubeMapTextureIndex(probe.depth_cubemap)
+			if probe.depth_equirect then
+				block.probe_depth_textures[i] = self:GetTextureIndex(probe.depth_equirect)
 			end
 
 			block.probe_positions[i][0] = probe.position.x
@@ -492,7 +564,7 @@ function envprobe.Initialize()
 	envprobe.camera:SetNearZ(0.1)
 	envprobe.camera:SetFarZ(1000)
 	envprobe.environment_probe.needs_update = true
-	render3d.SetEnvironmentTexture(envprobe.environment_probe.cubemap, envprobe.environment_probe.irradiance_cubemap)
+	render3d.SetEnvironmentTexture(envprobe.environment_probe.color_equirect, envprobe.environment_probe.irradiance_equirect)
 	envprobe.MarkAllReflectionProbesDirty()
 	envprobe.InitializeCubemapLayouts()
 end
@@ -567,6 +639,7 @@ function envprobe.CreatePipelines()
 		"irradiance_pipeline",
 		"capture_copy_pipeline",
 		"capture_depth_pipeline",
+		"equirect_depth_pipeline",
 	} do
 		local pipeline = envprobe[key]
 
@@ -724,13 +797,49 @@ function envprobe.CreatePipelines()
 			]],
 		},
 	}
+	envprobe.equirect_depth_pipeline = EasyPipeline.New{
+		ColorFormat = {{"r32_sfloat", {"linear_depth", "r"}}},
+		dont_create_framebuffers = true,
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+		fragment = {
+			push_constants = {
+				{
+					name = "probe_equirect_depth",
+					block = {
+						{"source_tex", "int"},
+					},
+					write = function(self, block)
+						local probe = envprobe.current_prefilter_probe
+						block.source_tex = self:GetCubeMapTextureIndex(probe.depth_cubemap)
+						return block
+					end,
+				},
+			},
+			custom_declarations = [[
+			]] .. equirect_direction_glsl .. [[
+			]],
+			shader = [[
+				void main() {
+					if (probe_equirect_depth.source_tex == -1) {
+						set_linear_depth(1000.0);
+						return;
+					}
+
+					vec3 dir = equirect_uv_to_dir(in_uv);
+					float depth = texture(CUBEMAP(probe_equirect_depth.source_tex), dir).r;
+					set_linear_depth(depth);
+				}
+			]],
+		},
+	}
 	envprobe.prefilter_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		RasterizationSamples = "1",
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
-		vertex = fullscreen_direction_vertex,
 		fragment = {
 			push_constants = {
 				{
@@ -750,12 +859,11 @@ function envprobe.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-				layout(location = 0) in vec3 in_direction;
-			]] .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. equirect_direction_glsl .. ibl.GetBRDFGLSLCode() .. [[
 			]],
 			shader = [[
 				void main() {
-					vec3 N = normalize(in_direction);
+					vec3 N = equirect_uv_to_dir(in_uv);
 					vec3 R = N;
 					vec3 V = R;
 
@@ -815,7 +923,6 @@ function envprobe.CreatePipelines()
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
-		vertex = fullscreen_direction_vertex,
 		fragment = {
 			push_constants = {
 				{
@@ -833,7 +940,7 @@ function envprobe.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-				layout(location = 0) in vec3 in_direction;
+			]] .. equirect_direction_glsl .. [[
 				const int IRRADIANCE_SOURCE_SIZE = ]] .. envprobe.IRRADIANCE_SOURCE_SIZE .. [[;
 			]],
 			shader = [[
@@ -847,7 +954,7 @@ function envprobe.CreatePipelines()
 				}
 
 				void main() {
-					vec3 N = normalize(in_direction);
+					vec3 N = equirect_uv_to_dir(in_uv);
 					vec3 irradiance = vec3(0.0);
 					float texel_size = 2.0 / float(IRRADIANCE_SOURCE_SIZE);
 
@@ -1020,9 +1127,10 @@ local function transition_face(cmd, texture, face_idx, to_attachment)
 	end
 end
 
-local function draw_fullscreen(cmd, pipeline, size)
-	cmd:SetViewport(0, 0, size, size)
-	cmd:SetScissor(0, 0, size, size)
+local function draw_fullscreen(cmd, pipeline, w, h)
+	h = h or w
+	cmd:SetViewport(0, 0, w, h)
+	cmd:SetScissor(0, 0, w, h)
 	cmd:SetCullMode("none")
 	pipeline:UploadConstants()
 	pipeline:Bind(cmd)
@@ -1120,53 +1228,46 @@ function envprobe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 	render.PopCommandBuffer()
 end
 
-local function render_cube_faces(cmd, pipeline, texture, face_views, size, mip_level)
-	for face = 0, 5 do
-		envprobe.camera:SetAngles(face_angles[face + 1])
-		local proj = envprobe.camera:BuildProjectionMatrix()
-		local view = envprobe.camera:BuildViewMatrix():Copy()
-		view.m30, view.m31, view.m32 = 0, 0, 0
-		local proj_view = view * proj
-		proj_view:GetInverse(envprobe.inv_projection_view)
-		render.TransitionResourceTo(
-			texture,
-			"color_attachment_optimal",
-			{
-				cmd = cmd,
-				srcStage = "fragment_shader",
-				srcAccess = "shader_read",
-				dstStage = "color_attachment_output",
-				dstAccess = "color_attachment_write",
-				base_array_layer = face,
-				layer_count = 1,
-				base_mip_level = mip_level,
-				level_count = 1,
-			}
-		)
-		cmd:BeginRendering{
-			color_image_view = face_views[face],
-			w = size,
-			h = size,
-			clear_color = {0, 0, 0, 1},
+local function render_equirect(cmd, pipeline, texture, view, w, h, mip_level)
+	mip_level = mip_level or 0
+	render.TransitionResourceTo(
+		texture,
+		"color_attachment_optimal",
+		{
+			cmd = cmd,
+			srcStage = "fragment_shader",
+			srcAccess = "shader_read",
+			dstStage = "color_attachment_output",
+			dstAccess = "color_attachment_write",
+			base_array_layer = 0,
+			layer_count = 1,
+			base_mip_level = mip_level,
+			level_count = 1,
 		}
-		draw_fullscreen(cmd, pipeline, size)
-		cmd:EndRendering()
-		render.TransitionResourceFrom(
-			texture,
-			"shader_read_only_optimal",
-			{
-				cmd = cmd,
-				srcStage = "color_attachment_output",
-				srcAccess = "color_attachment_write",
-				dstStage = "fragment_shader",
-				dstAccess = "shader_read",
-				base_array_layer = face,
-				layer_count = 1,
-				base_mip_level = mip_level,
-				level_count = 1,
-			}
-		)
-	end
+	)
+	cmd:BeginRendering{
+		color_image_view = view,
+		w = w,
+		h = h,
+		clear_color = {0, 0, 0, 1},
+	}
+	draw_fullscreen(cmd, pipeline, w, h)
+	cmd:EndRendering()
+	render.TransitionResourceFrom(
+		texture,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "color_attachment_output",
+			srcAccess = "color_attachment_write",
+			dstStage = "fragment_shader",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = 1,
+			base_mip_level = mip_level,
+			level_count = 1,
+		}
+	)
 end
 
 function envprobe.PrefilterProbe(cmd, probe)
@@ -1174,7 +1275,7 @@ function envprobe.PrefilterProbe(cmd, probe)
 
 	render.PushCommandBuffer(cmd)
 	local SIZE = probe.size
-	local num_mips = probe.cubemap.mip_map_levels
+	local num_mips = probe.color_equirect.mip_map_levels
 	envprobe.current_prefilter_probe = probe
 	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
 	local roughest_mip = math.max(math.min(ibl.GetPrefilterMipCount(SIZE), num_mips) - 1, 1)
@@ -1182,25 +1283,26 @@ function envprobe.PrefilterProbe(cmd, probe)
 	for m = 0, num_mips - 1 do
 		envprobe.current_roughness = math.min(m / roughest_mip, 1)
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
-		render_cube_faces(
+		local w, h = equirect_dims(mip_size)
+		render_equirect(
 			cmd,
 			envprobe.prefilter_pipeline,
-			probe.cubemap,
-			probe.mip_face_views[m],
-			mip_size,
+			probe.color_equirect,
+			probe.color_equirect_mip_views[m],
+			w,
+			h,
 			m
 		)
 	end
 
-	if probe.irradiance_cubemap then
-		render_cube_faces(
-			cmd,
-			envprobe.irradiance_pipeline,
-			probe.irradiance_cubemap,
-			probe.irradiance_face_views,
-			envprobe.IRRADIANCE_SIZE,
-			0
-		)
+	if probe.irradiance_equirect then
+		local w, h = equirect_dims(envprobe.IRRADIANCE_SIZE)
+		render_equirect(cmd, envprobe.irradiance_pipeline, probe.irradiance_equirect, probe.irradiance_equirect_view, w, h)
+	end
+
+	if probe.depth_equirect then
+		local w, h = equirect_dims(SIZE)
+		render_equirect(cmd, envprobe.equirect_depth_pipeline, probe.depth_equirect, probe.depth_equirect_view, w, h)
 	end
 
 	render.PopCommandBuffer()

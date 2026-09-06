@@ -919,8 +919,8 @@ local function build_update_pipeline()
 					block.sun_radiance[2] = sun_color.z * sun_intensity
 					block.sun_radiance[3] = 0
 					voxel_gi.ray_rotation:CopyToFloatPointer(block.ray_rotation)
-					block.env_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentTexture())
-					block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 					block.hysteresis = voxel_gi.HYSTERESIS
 					block.max_steps = voxel_gi.MAX_TRACE_STEPS
 					block.clipmap_count = voxel_gi.clipmap_count or 0
@@ -1198,7 +1198,7 @@ local function build_update_pipeline()
 							dist = hit_dist;
 						}
 					} else {
-						radiance = textureLod(CUBEMAP(gi_data.env_tex), correct_environment_lookup_dir(dir), 1.0).rgb;
+						radiance = textureLod(TEXTURE(gi_data.env_tex), dir_to_equirect_uv(correct_environment_lookup_dir(dir)), 1.0).rgb;
 						dist = 1e6;
 					}
 				}
