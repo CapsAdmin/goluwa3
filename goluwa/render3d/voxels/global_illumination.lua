@@ -11,101 +11,39 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local voxel_gi = library()
--- Diffuse global illumination from the scene voxel clipmaps.
---
--- A camera centered grid of light probes (one grid per cascade, each cascade
--- with a larger spacing) stores cosine convolved radiance in a small
--- octahedral map plus a distance/distance² map for visibility tests. Every
--- frame a slice of the probes is refreshed by tracing rays through the voxel
--- clipmaps built by the voxel_rasterize pass. Ray hits are shaded with the sun
--- (through the cascade shadow maps), emissive voxels and the previous
--- frame's probe irradiance, which gives multiple bounces for free. Rays that
--- leave the voxel volumes return the sky from the environment probe.
---
--- The grids use toroidal addressing so moving the camera never copies any
--- data: a probe that scrolls in simply overwrites the storage slot of the
--- probe that scrolled out, and a small metadata buffer records which world
--- grid coordinate each slot currently holds.
 voxel_gi.CASCADE_COUNT = 4
 voxel_gi.PROBE_COUNT_X = 24
 voxel_gi.PROBE_COUNT_Y = 12
 voxel_gi.PROBE_COUNT_Z = 24
 voxel_gi.CASCADE_SPACINGS = {1, 2, 4, 8}
--- the grids are shifted ahead of the camera along its horizontal view
--- direction by this fraction of their half extent, so detail reaches
--- further into the view than behind it
 voxel_gi.FORWARD_BIAS = 0.3
-voxel_gi.RAYS_PER_PROBE = 64 -- must match the workgroup size below
-voxel_gi.PROBES_PER_FRAME = 1024 -- per cascade, before the divisor below
--- The probe update pass costs roughly linearly in the probes it dispatches. A
--- coarse cascade covers 2, 4 or 8 times the world per probe and carries
--- correspondingly low frequency light, so it refreshes at a fraction of the
--- finest cascade's rate. Its probes then take proportionally more frames to
--- settle, which is the right way round: lowering their hysteresis to keep the
--- frame count constant makes every update land harder and brings back the
--- probe flicker HYSTERESIS is there to suppress.
+voxel_gi.RAYS_PER_PROBE = 64 
+voxel_gi.PROBES_PER_FRAME = 1024
 voxel_gi.CASCADE_UPDATE_DIVISORS = {1, 2, 4, 4}
 voxel_gi.MAX_TRACE_STEPS = 128
 voxel_gi.IRRADIANCE_OCT_SIZE = 8
 voxel_gi.VISIBILITY_OCT_SIZE = 16
--- Steady state hysteresis. A probe only blends this hard once it has enough
--- updates behind it to be an average of that many samples: until then it
--- blends at age/(age+1), which makes its first updates an exact running mean
--- instead of an exponential crawl towards one. A fresh probe therefore shows
--- the right amount of light on its first update rather than a fraction of it,
--- and still ends up as stable as a constant HYSTERESIS once it has settled.
 voxel_gi.HYSTERESIS = 0.9
 voxel_gi.MAX_PROBE_AGE = 64
--- A probe whose rays mostly start inside geometry is faded out, but the
--- fraction is estimated from one randomly rotated 64 ray set, so the raw
--- number jitters by several percent between updates. Instead of a threshold,
--- which pops the probe's whole trilinear contribution in and out, the probe
--- keeps a validity that ramps from 1 at BACKFACE_ENABLE to 0 at
--- BACKFACE_DISABLE and is filtered over updates with BACKFACE_HYSTERESIS.
 voxel_gi.BACKFACE_HYSTERESIS = 0.85
 voxel_gi.BACKFACE_DISABLE = 0.25
 voxel_gi.BACKFACE_ENABLE = 0.1
 voxel_gi.enabled = voxel_gi.enabled ~= false
--- march the voxel occupancy between each shaded point and its 8 probes,
--- dropping probes behind walls before interpolation
 voxel_gi.occlusion_enabled = voxel_gi.occlusion_enabled ~= false
 voxel_gi.OCCLUSION_MAX_STEPS = 24
--- Chebyshev visibility weighting of probes from their mean distance atlas
 voxel_gi.visibility_enabled = voxel_gi.visibility_enabled ~= false
--- Sampling cost knobs. Every shaded pixel walks its cascades, and for each
--- cascade fetches 8 probes, so these multiply out fast. Defaults are the
--- "high" preset apart from SCREEN_SCALE; see voxel_gi.SetSampleQuality.
---
--- how many cascades one pixel may blend before it stops walking outwards.
--- The finest cascade covering a point already fully replaces the coarser
--- ones once its fade reaches 1, so this only bites near cascade borders.
 voxel_gi.MAX_SAMPLE_CASCADES = voxel_gi.MAX_SAMPLE_CASCADES or voxel_gi.CASCADE_COUNT
--- only the N finest cascades march voxel occupancy towards their probes.
--- Coarse cascades cover distant geometry where a leaked probe is a few
--- pixels of bounce light, not a visible light leak.
 voxel_gi.OCCLUSION_MAX_CASCADE = voxel_gi.OCCLUSION_MAX_CASCADE or voxel_gi.CASCADE_COUNT
--- occlusion march step in voxels. 0.5 never steps over a wall, 1.0 halves
--- the fetch count and can miss geometry thinner than a voxel.
 voxel_gi.OCCLUSION_STEP_VOXELS = voxel_gi.OCCLUSION_STEP_VOXELS or 0.5
--- resolution the screen space gi pass runs at, relative to the frame. Diffuse
--- irradiance is low frequency, so half resolution plus the depth aware
--- upsample costs a fraction of the frame and only differs where geometry is
--- thinner than two pixels. 1 resolves it per pixel.
 voxel_gi.SCREEN_SCALE = voxel_gi.SCREEN_SCALE or 0.5
--- bilinear (4 texel) or nearest (1 texel) filtering of the octahedral probe
--- maps. Nearest is a quarter of the fetches and shows the probe's 8x8
--- octahedron as soft banding on smoothly curving surfaces.
 voxel_gi.BILINEAR_IRRADIANCE = voxel_gi.BILINEAR_IRRADIANCE ~= false
 voxel_gi.BILINEAR_VISIBILITY = voxel_gi.BILINEAR_VISIBILITY ~= false
--- probes whose trilinear/backface weight falls below this contribute less
--- than a rounding error, so they skip their irradiance and occlusion fetches
 voxel_gi.MIN_PROBE_WEIGHT = voxel_gi.MIN_PROBE_WEIGHT or 0.001
 voxel_gi.cascades = voxel_gi.cascades or {}
 voxel_gi.resolved = voxel_gi.resolved or {}
 voxel_gi.frame = voxel_gi.frame or 0
 local PROBES_PER_CASCADE = voxel_gi.PROBE_COUNT_X * voxel_gi.PROBE_COUNT_Y * voxel_gi.PROBE_COUNT_Z
 local MAX_CLIPMAPS = 3
--- upper bound baked into the uniform block and the update pass bindings
 local MAX_CASCADES = 4
 assert(voxel_gi.CASCADE_COUNT <= MAX_CASCADES, "voxel_gi.CASCADE_COUNT exceeds MAX_CASCADES")
 local BINDING_UNIFORM = 0
@@ -393,8 +331,6 @@ local function ensure_resolved_volume(clipmap_index, resolution)
 	voxel_gi.resolved[clipmap_index] = resolved
 	return resolved
 end
-
--- Uniform block fields shared by every shader that samples the probe grids.
 function voxel_gi.GetBlockLayout()
 	return {
 		{"gi_enabled", "int"},
@@ -406,9 +342,7 @@ function voxel_gi.GetBlockLayout()
 		{"gi_visibility_tex", "int", MAX_CASCADES},
 		{"gi_info_tex", "int", MAX_CASCADES},
 		{"gi_occlusion", "int"},
-		-- per clipmap: xyz center, w voxel size
 		{"gi_clip_origin", "vec4", MAX_CLIPMAPS},
-		-- per clipmap: resolution, occupancy tiles per row, half world span, valid
 		{"gi_clip_params", "vec4", MAX_CLIPMAPS},
 		{"gi_occupancy_tex", "int", MAX_CLIPMAPS},
 	}
@@ -501,12 +435,6 @@ local function select_image(fn, ret, image, swizzle)
 	return table.concat(lines, "\n")
 end
 
--- GLSL for sampling the probe grids. options.storage = true reads the
--- atlases through the storage images bound by the update pass instead of
--- the bindless texture indices in the block. That path is the second bounce
--- fed back into the probes, which is low frequency by the time it reaches a
--- shaded pixel, so it always samples the octahedral maps with nearest
--- filtering: four times fewer fetches per probe on the most expensive pass.
 function voxel_gi.GetGLSLCode(block_name, options)
 	options = options or {}
 	local fetch
@@ -576,10 +504,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			return normalize(n);
 		}
 
-		// baked in rather than read from the uniform block: the storage
-		// coordinate below takes two integer modulos per probe, and GPUs have
-		// no integer divide. Against a literal the compiler turns each one
-		// into a multiply-shift instead.
 		const ivec3 VOXEL_GI_PROBE_COUNTS = ivec3(
 			]] .. voxel_gi.PROBE_COUNT_X .. [[,
 			]] .. voxel_gi.PROBE_COUNT_Y .. [[,
@@ -696,10 +620,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			return voxel_gi_fetch_occupancy(k, texel);
 		}
 
-		// 1 when no occupied voxel lies between the surface point and the
-		// probe, 0 when the probe is behind geometry. Uses the finest clipmap
-		// that contains both ends. The march starts one voxel off the surface
-		// because thin walls occupy the cells on both sides of their faces.
 		float voxel_gi_probe_occlusion(vec3 pos, vec3 N, vec3 probe_pos) {
 #if VOXEL_GI_HAS_OCCLUSION
 			if (VOXEL_GI_BLOCK.gi_occlusion == 0) return 1.0;
@@ -707,8 +627,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			for (int k = 0; k < ]] .. MAX_CLIPMAPS .. [[; k++) {
 				if (!voxel_gi_clip_contains(k, pos) || !voxel_gi_clip_contains(k, probe_pos)) continue;
 
-				// the clipmap layout is loop invariant, so read it once instead
-				// of re-deriving it from the uniform block on every step
 				vec4 origin = VOXEL_GI_BLOCK.gi_clip_origin[k];
 				vec4 params = VOXEL_GI_BLOCK.gi_clip_params[k];
 				int tex = VOXEL_GI_BLOCK.gi_occupancy_tex[k];
@@ -722,7 +640,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				vec3 start = pos + N * voxel;
 				vec3 seg = probe_pos - start;
 				float len = length(seg);
-				// stop half a voxel short of the probe, its own cell is free by construction
 				float march = len - voxel * 0.5;
 				if (march <= 0.0) return 1.0;
 				int steps = min(
@@ -732,7 +649,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				vec3 step = seg / len * (march / float(steps));
 				vec3 p = start;
 
-				// i == -1 is the start cell: wedged into a corner, nothing to judge from
 				for (int i = -1; i < steps; i++) {
 					ivec3 v = ivec3(floor(p * inv_voxel + grid_base));
 
@@ -752,7 +668,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			return 1.0;
 		}
 
-		// 0 outside the cascade, 1 when at least one probe away from its edge
 		float voxel_gi_cascade_fade(int c, vec3 pos) {
 			vec3 grid_pos = pos / voxel_gi_spacing(c) - vec3(voxel_gi_grid_origin(c));
 			vec3 counts = vec3(voxel_gi_probe_counts());
@@ -761,8 +676,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			return clamp(e - 0.5, 0.0, 1.0);
 		}
 
-		// voxel size of the finest clipmap holding pos, falls back to a
-		// fraction of the probe spacing when no clipmap data is bound
 		float voxel_gi_voxel_size_at(vec3 pos, float spacing) {
 			for (int k = 0; k < ]] .. MAX_CLIPMAPS .. [[; k++) {
 				if (voxel_gi_clip_contains(k, pos)) return VOXEL_GI_BLOCK.gi_clip_origin[k].w;
@@ -772,8 +685,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 
 		vec3 voxel_gi_sample_cascade(int c, vec3 pos, vec3 bias_pos, vec3 N, bool march_occlusion, out float total_weight) {
 			float spacing = voxel_gi_spacing(c);
-			// distances are measured through voxels, allow half a voxel of
-			// error before a probe counts as blocked
 			float vis_slack = 0.5 * voxel_gi_voxel_size_at(pos, spacing);
 			ivec3 origin = voxel_gi_grid_origin(c);
 			ivec3 counts = voxel_gi_probe_counts();
@@ -787,11 +698,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			}
 
 			vec3 sum = vec3(0.0);
-			// weight-only fallback for when every probe is judged occluded:
-			// reports the point as validly covered (so the caller trusts
-			// this cascade and doesn't fall through to the flat sky ambient)
-			// but keeps the contribution dark instead of leaking the probes'
-			// un-occluded light through the wall that blocked them
 			float open_weight = 0.0;
 
 			for (int i = 0; i < 8; i++) {
@@ -800,26 +706,18 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				ivec3 s = voxel_gi_storage_coord(g);
 				vec3 tri = mix(1.0 - alpha, alpha, vec3(offset));
 				float w = tri.x * tri.y * tri.z;
-				// a corner this far out on the trilinear falloff cannot move
-				// the result, so drop it before it costs a fetch
 				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 				vec4 info = voxel_gi_probe_info(c, s);
 				if (info.w <= 0.0) continue;
 				vec3 probe_pos = vec3(g) * spacing + info.xyz;
-				// info.w fades a probe out as more of its rays start inside
-				// geometry, rather than dropping it in one step
 				w *= info.w;
 				vec3 to_probe = normalize(probe_pos - pos);
 				float wrap = (dot(to_probe, N) + 1.0) * 0.5;
 				w *= wrap * wrap + 0.2;
-				// the validity and wrap terms can also drive the weight under
-				// the floor, skipping its visibility and irradiance fetches
 				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 				vec3 probe_to_point = bias_pos - probe_pos;
 				float dist = length(probe_to_point);
 				vec3 dir = probe_to_point / max(dist, 1e-5);
-				// four texel fetches, so skip them outright when the
-				// Chebyshev weighting is switched off
 				if (VOXEL_GI_BLOCK.gi_probe_counts.w > 0.5) {
 					vec2 vis = voxel_gi_sample_visibility(c, s, dir);
 					float mean = vis.x;
@@ -828,12 +726,10 @@ function voxel_gi.GetGLSLCode(block_name, options)
 						float variance = abs(vis.y - mean * mean) + 1e-4;
 						float d = dist - mean - vis_slack;
 						float cheb = variance / (variance + d * d);
-						// squared with a higher floor: a gentle dimming instead of a hard flip
 						w *= max(cheb * cheb, 0.1);
 					}
 				}
 
-				// the Chebyshev term can also drive the weight under the floor
 				if (w < VOXEL_GI_MIN_PROBE_WEIGHT) continue;
 
 				vec4 irr = voxel_gi_sample_irradiance(c, s, N);
@@ -846,8 +742,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			}
 
 			if (total_weight <= 1e-6 && open_weight > 1e-6) {
-				// structurally covered by valid probes, just fully blocked
-				// from this point: report darkness, not their open light
 				total_weight = open_weight;
 			}
 
@@ -856,22 +750,7 @@ function voxel_gi.GetGLSLCode(block_name, options)
 			return sum / total_weight;
 		}
 
-		// Cosine convolved radiance (irradiance / pi) at a surface point.
-		// Multiply by albedo for the diffuse outgoing radiance. fallback is
-		// used outside every cascade, typically the sky irradiance.
-		// sky_visibility is the leftover transmittance the caller ended up
-		// blending the fallback in with: 1 means this point is exposed to
-		// the fallback's sky, 0 means the probe grid fully covered it. It
-		// lets callers attenuate other sky-derived terms (e.g. a specular
-		// reflection fallback) by the same occlusion this function already
-		// worked out, instead of treating them as visible to the sky always.
 		vec3 sample_voxel_gi_irradiance(vec3 pos, vec3 N, vec3 V, vec3 fallback, out float sky_visibility) {
-			// Walked finest to coarsest, front to back. Coarse to fine with a
-			// mix() per cascade is the same result, but it pays for every
-			// cascade even where the finest one already covers the point
-			// (fade == 1) and overwrites all of them. Accumulating the
-			// leftover transmittance instead lets the common case stop after
-			// one cascade.
 			vec3 sum = vec3(0.0);
 			float transmittance = 1.0;
 			int cascade_count = min(VOXEL_GI_BLOCK.gi_cascade_count, VOXEL_GI_MAX_SAMPLE_CASCADES);
@@ -890,10 +769,6 @@ function voxel_gi.GetGLSLCode(block_name, options)
 					c < VOXEL_GI_OCCLUSION_MAX_CASCADE,
 					weight
 				);
-				// weight <= 1e-6 means this cascade has no usable probe data
-				// here (all disabled/out of range), not that it saw no light:
-				// still claim its share of the coverage as dark, rather than
-				// leaving it for the flat sky fallback below to fill in
 				if (weight > 1e-6) sum += irr * fade * transmittance;
 				transmittance *= 1.0 - fade;
 				if (transmittance <= 1e-3) {
@@ -1097,8 +972,6 @@ local function build_update_pipeline()
 
 			shared vec4 s_ray[RAYS_PER_PROBE];
 			shared vec3 s_dir[RAYS_PER_PROBE];
-			// the distance every visibility texel wants, clamped once instead
-			// of per texel: the gather below reads it 64 times per texel
 			shared float s_vis_dist[RAYS_PER_PROBE];
 			shared vec4 s_relocate[RAYS_PER_PROBE];
 			shared vec4 s_relocation;
@@ -1151,10 +1024,6 @@ local function build_update_pipeline()
 				return voxel_solid(c, v);
 			}
 
-			// Probes that fall inside geometry move to the closest free voxel
-			// center within reach. Every thread tests a share of a 5x5x5
-			// voxel stencil and the result is reduced through shared memory.
-			// Returns xyz = offset, w = 1 when a free spot was found.
 			vec4 relocate_probe(vec3 probe_pos, float spacing) {
 				int ray = int(gl_LocalInvocationID.x);
 				int c = find_clipmap(probe_pos, 0);
@@ -1200,9 +1069,6 @@ local function build_update_pipeline()
 				return s_relocation;
 			}
 
-			// Walks voxel cells along the ray, switching to coarser clipmaps
-			// when leaving the current one. Returns false when the ray leaves
-			// every clipmap without hitting anything.
 			bool trace_voxels(vec3 origin, vec3 dir, int min_clip, out vec3 hit_pos, out vec3 hit_normal, out vec4 hit_voxel, out float hit_dist, out bool backface) {
 				int c = find_clipmap(origin, min_clip);
 				backface = false;
@@ -1235,20 +1101,13 @@ local function build_update_pipeline()
 					if (voxel.a >= 0.5) {
 						hit_pos = pos;
 						hit_voxel = voxel;
-						// the surface lies somewhere inside the cell, report the
-						// distance to its middle so the stored mean is unbiased
 						vec3 hit_cell_min = min_corner + vec3(v) * vs;
 						vec3 hit_boundary = hit_cell_min + mix(vec3(0.0), vec3(vs), greaterThanEqual(dir, vec3(0.0)));
 						vec3 hit_tt = max((hit_boundary - pos) * inv_dir, vec3(0.0));
 						hit_dist = t + 0.5 * min(hit_tt.x, min(hit_tt.y, hit_tt.z));
-						// the voxel stores the surface normal, the face normal
-						// from the walk is the fallback when it is missing
 						vec3 stored = fetch_voxel_normal(c, v);
 						bool has_stored = dot(stored, stored) > 0.5;
 						float facing = has_stored ? dot(stored, dir) : -1.0;
-						// a clear backface means the ray started inside the
-						// object; grazing disagreements come from voxels that
-						// hold several surface orientations and are kept
 						backface = facing > 0.3;
 						hit_normal = has_stored && facing <= 0.0 ? stored : normal;
 						return true;
@@ -1316,15 +1175,12 @@ local function build_update_pipeline()
 				float hysteresis = min(gi_data.hysteresis, float(age) / float(age + 1));
 				int ray = int(gl_LocalInvocationID.x);
 
-				// probes inside geometry trace from a nearby free voxel
 				vec4 relocation = relocate_probe(probe_pos, spacing);
 				vec3 ray_origin = probe_pos + relocation.xyz;
 				bool enabled = relocation.w > 0.0;
 
 				vec3 dir = normalize((gi_data.ray_rotation * vec4(fibonacci_direction(ray, RAYS_PER_PROBE), 0.0)).xyz);
 				vec3 radiance = vec3(0.0);
-				// negative distance marks a backface hit: the ray started
-				// inside geometry, so it contributes no radiance
 				float dist = spacing * 4.0;
 
 				if (enabled) {
@@ -1354,8 +1210,6 @@ local function build_update_pipeline()
 				s_vis_dist[ray] = dist < 0.0 ? min(-dist * 0.2, max_dist) : min(dist, max_dist);
 				barrier();
 
-				// irradiance: the octahedral texels spread over the threads,
-				// which is one each while the ray count matches the tile
 				ivec2 tile = voxel_gi_tile_origin(s, VOXEL_GI_IRRADIANCE_SIZE);
 				int irr_texel_count = VOXEL_GI_IRRADIANCE_SIZE * VOXEL_GI_IRRADIANCE_SIZE;
 
@@ -1384,7 +1238,6 @@ local function build_update_pipeline()
 					voxel_gi_store_irradiance(c, coord, vec4(result, enabled ? 1.0 : 0.0));
 				}
 
-				// visibility: mean distance and mean squared distance
 				ivec2 vis_tile = voxel_gi_tile_origin(s, VOXEL_GI_VISIBILITY_SIZE);
 				int vis_texel_count = VOXEL_GI_VISIBILITY_SIZE * VOXEL_GI_VISIBILITY_SIZE;
 
@@ -1396,8 +1249,6 @@ local function build_update_pipeline()
 					float wsum = 0.0;
 
 					for (int r = 0; r < RAYS_PER_PROBE; r++) {
-						// w^50 by squaring: pow() here runs 64 times per
-						// visibility texel and 256 texels share the probe
 						float w = max(dot(vdir, s_dir[r]), 0.0);
 						float w2 = w * w;
 						float w4 = w2 * w2;
@@ -1420,8 +1271,6 @@ local function build_update_pipeline()
 					voxel_gi_store_visibility(c, vcoord, vec4(vis, 0.0, 0.0));
 				}
 
-				// only the store thread needs the probe wide numbers below, so
-				// they stay out of the other 63 threads' way
 				if (ray == 0) {
 					gi_probe_meta[meta_index] = ivec4(g, min(age + 1, MAX_PROBE_AGE));
 					int backface_count = 0;
@@ -1430,13 +1279,6 @@ local function build_update_pipeline()
 						if (s_ray[r].a < 0.0) backface_count++;
 					}
 
-					// How far this probe is trusted, from the fraction of its
-					// rays that started inside geometry. That fraction is a 64
-					// ray estimate under a fresh random rotation every update,
-					// so thresholding it flips probes near a wall on and off
-					// between updates and pops their whole trilinear
-					// contribution in and out. A ramp, filtered over updates,
-					// fades them instead.
 					ivec2 info_coord = voxel_gi_tile_origin(s, 1);
 					float validity = clamp(
 						(BACKFACE_DISABLE - float(backface_count) / float(RAYS_PER_PROBE)) /
@@ -1449,13 +1291,8 @@ local function build_update_pipeline()
 						validity = mix(validity, voxel_gi_fetch_info(c, info_coord).w, min(BACKFACE_HYSTERESIS, float(age) / float(age + 1)));
 					}
 
-					// relocation is a lookup in the voxel volume, not an
-					// estimate, so a probe with nowhere free to sit from is
-					// cut immediately
 					if (!enabled) validity = 0.0;
 
-					// w is the filtered validity, which sampling folds into
-					// the probe's weight and the next update reads back
 					voxel_gi_store_info(c, info_coord, vec4(relocation.xyz, validity));
 				}
 			}
@@ -1562,7 +1399,6 @@ local function build_resolve_pipeline()
 				vec3 normal = vec3(0.0);
 				float contributors = 0.0;
 
-				// axis normals are signed sums of the faces in the voxel
 				if (sx.a >= 0.5) { color += sx.rgb; normal += texelFetch(normal_x, cx, 0).xyz; contributors += 1.0; }
 				if (sy.a >= 0.5) { color += sy.rgb; normal += texelFetch(normal_y, cy, 0).xyz; contributors += 1.0; }
 				if (sz.a >= 0.5) { color += sz.rgb; normal += texelFetch(normal_z, cz, 0).xyz; contributors += 1.0; }
@@ -1571,15 +1407,6 @@ local function build_resolve_pipeline()
 
 				float normal_length = length(normal);
 				normal = normal_length > 1e-3 ? normal / normal_length : vec3(0.0);
-				// alpha: 0 empty, 1 + emissive luminance when occupied. occupancy
-				// is read back from an 8-bit unorm axis target where the build
-				// pass wrote exactly 0.5 for ordinary (non-emissive) geometry;
-				// that value doesn't round-trip exactly through 8 bits, so a
-				// bare ">= 0.5" / "(occupancy - 0.5)" comparison flags nearly
-				// every ordinary voxel as having a hair of emissive luminance,
-				// which voxel gi then re-emits everywhere, tinted by each
-				// voxel's own albedo, regardless of any real light source.
-				// A deadzone a few quantization steps wide absorbs that noise.
 				const float OCCUPANCY_EPS = 4.0 / 255.0;
 				bool occupied = occupancy >= 0.5 - OCCUPANCY_EPS;
 				float emissive_luma = occupied && occupancy > 0.5 + OCCUPANCY_EPS ? (occupancy - 0.5) * 8.0 : 0.0;
@@ -1735,7 +1562,6 @@ local function resolve_clipmaps(cmd, voxelizer)
 end
 
 local function update_cascade_origins(camera_position, camera_forward)
-	-- horizontal view direction, the grid is only pushed sideways
 	local fx, fz = camera_forward.x, camera_forward.z
 	local len = math.sqrt(fx * fx + fz * fz)
 
@@ -1745,7 +1571,6 @@ local function update_cascade_origins(camera_position, camera_forward)
 
 	for i, cascade in ipairs(voxel_gi.cascades) do
 		local spacing = cascade.spacing
-		-- snapped to whole probes so a small camera turn does not shift the grid
 		local shift_x = math.floor(fx * bias * voxel_gi.PROBE_COUNT_X * 0.5 + 0.5)
 		local shift_z = math.floor(fz * bias * voxel_gi.PROBE_COUNT_Z * 0.5 + 0.5)
 		cascade.grid_origin.x = math.floor(camera_position.x / spacing + 0.5) - math.floor(voxel_gi.PROBE_COUNT_X / 2) + shift_x
@@ -1754,10 +1579,6 @@ local function update_cascade_origins(camera_position, camera_forward)
 	end
 end
 
--- Shoemake's uniform random quaternion. Uniform euler angles are not a
--- uniform rotation, they pile up around the poles, so the ray set the probes
--- average over is biased towards those directions no matter how long they
--- accumulate.
 local function random_rotation_matrix()
 	local u1, u2, u3 = math.random(), math.random(), math.random()
 	local r1 = math.sqrt(1 - u1)
@@ -1911,9 +1732,6 @@ commands.Add("voxel_gi_visibility=boolean[true]", function(enabled)
 	)
 end)
 
--- Presets over the sampling knobs above. The shader bakes them in as
--- constants, so switching quality needs the render3d pipelines rebuilt;
--- Initialize() does that.
 voxel_gi.SAMPLE_QUALITY_PRESETS = {
 	high = {
 		SCREEN_SCALE = 1,

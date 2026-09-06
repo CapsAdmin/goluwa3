@@ -14,12 +14,6 @@ scene_voxelizer.DEFAULT_MOVING_MAX_ACTIVE_CLIPMAPS_PER_FRAME = 0
 scene_voxelizer.DEFAULT_SETTLED_MAX_ACTIVE_CLIPMAPS_PER_FRAME = 0
 scene_voxelizer.DEFAULT_PREFER_EXPOSED_DIRTY_SLICES = true
 
--- Clipmap grid: owns the GPU side of a set of clipmaps, each with a double
--- buffered ("active" and "build") set of per-axis volume textures. Has no
--- knowledge of scenes, dirtiness, or cameras, only clipmap layout and the
--- textures backing it. scene_voxelizer is the only thing that instantiates
--- one of these (as scene_voxelizer.scene_grid), so it lives here rather than
--- as its own reusable module.
 local grid = {}
 
 local function copy_vec3(vec)
@@ -82,9 +76,6 @@ local function destroy_clipmap_resources(clipmap)
 	clipmap.resources = nil
 end
 
--- Each axis target holds two layered textures: color (rgb = albedo plus
--- emissive, a >= 0.5 marks an occupied voxel and encodes the emissive
--- luminance) and normal (rgb = world normal * 0.5 + 0.5).
 local function create_layered_texture(resolution, name, format)
 	local texture = Texture.New{
 		width = resolution,
@@ -153,9 +144,6 @@ local function create_volume_target(owner_grid, clipmap, axis_name, group_config
 	end
 
 	local texture, sample_view, layer_views = create_layered_texture(resolution, target_name)
-	-- signed so opposite faces that share a voxel sum to a zero normal; sfloat
-	-- rather than snorm because attachment blending on snorm formats is only
-	-- optionally supported (and unsupported on MoltenVK)
 	local normal_texture, normal_sample_view, normal_layer_views = create_layered_texture(resolution, target_name .. " normal", "r16g16b16a16_sfloat")
 	return {
 		axis = axis_name,
@@ -1605,7 +1593,6 @@ function scene_voxelizer.MarkClipmapBuilt(index, axis_count, slice_count)
 	end
 
 	scene_voxelizer.SwapClipmapBuildResults(index)
-	--set_scene_origin(scene_voxelizer, clipmap, clipmap.build_origin)
 	scene_voxelizer.MarkClipmapClean(index)
 end
 

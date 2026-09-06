@@ -300,7 +300,6 @@ local function get_scroll_compute_pipeline(image_format)
 	return pipeline
 end
 
--- image formats of get_axis_target_textures(target) in order: color, normal
 local AXIS_TARGET_IMAGE_FORMATS = {"rgba8", "rgba16f"}
 
 local function clear_axis_target(cmd, target)
@@ -440,9 +439,6 @@ local function update_slice_transform(clipmap, axis_name, slice, build_origin)
 	current_rasterize_state.view_matrix:Translate(-view_center.x, -view_center.y, -view_center.z)
 	current_rasterize_state.view_matrix:Multiply(AXIS_ROTATIONS[axis_name]:GetConjugated():GetMatrix())
 	current_rasterize_state.projection_matrix = Matrix44()
-	-- the slab extends slightly past the voxel so faces that lie exactly on a
-	-- voxel boundary (floors at integer heights, walls on the grid) are
-	-- captured by the slices on both sides instead of being clipped by neither
 	local half_depth = math.max(clipmap.voxel_size * 0.55, 0.001)
 	current_rasterize_state.projection_matrix:Ortho(
 		-clipmap.world_span * 0.5,
@@ -468,9 +464,6 @@ local function push_voxel_vertex_constants(self, cmd, world_matrix)
 		self._voxel_vertex_push_offset = self:GetPushConstantBlockOffset("vertex")
 	end
 
-	-- recompute for this entry's world matrix: the block writer only runs
-	-- when the material changes, so entries sharing a material would
-	-- otherwise be drawn with the previous entry's transform
 	get_voxel_projection_view_world_matrix():CopyToFloatPointer(constants.projection_view_world)
 	world_matrix:CopyToFloatPointer(constants.world)
 	self:PushConstants(cmd, {"vertex"}, self._voxel_vertex_push_offset, constants)
@@ -838,9 +831,6 @@ function rasterize.Draw(self, cmd)
 			end
 
 			local build_origin = clipmap.build_origin or clipmap.origin
-			-- the version lives on the visual library, not the component class;
-			-- without it the cached draw list only refreshed when the build
-			-- origin moved and scenes loaded after startup were never voxelized
 			local visual_library = Visual.Library
 			local scene_version = visual_library and
 				visual_library.GetSceneAccelerationVersion and

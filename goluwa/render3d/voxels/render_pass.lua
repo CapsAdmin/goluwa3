@@ -78,13 +78,8 @@ return {
 				vec3 albedo = clamp(surface_color.rgb, vec3(0.0), vec3(1.0));
 				vec3 emissive = clamp(get_surface_emissive(albedo), vec3(0.0), vec3(1.0));
 				vec3 voxel_color = clamp(albedo + emissive, vec3(0.0), vec3(1.0));
-				// alpha >= 0.5 marks an occupied voxel, the range above 0.5
-				// encodes the emissive luminance (0..4) so voxel gi can re-emit it
 				float emissive_luma = dot(emissive, vec3(0.2126, 0.7152, 0.0722));
 				set_color(vec4(voxel_color, 0.5 + 0.5 * clamp(emissive_luma / 4.0, 0.0, 1.0)));
-				// the normal target is signed and additive: opposite faces that
-				// land in the same voxel (thin slabs) cancel to a zero normal,
-				// which voxel gi treats as two sided instead of a backface
 				vec3 n = normalize(in_normal);
 				set_normal(vec4(n, 1.0));
 			}
@@ -117,9 +112,6 @@ return {
 		ColorWriteMask = "rgba",
 	},
 	{
-		-- refreshes the voxel gi probe grids. the pass owns no screen sized
-		-- output, the 1x1 framebuffer only exists to satisfy the compute pass
-		-- plumbing
 		name = "voxel_gi",
 		ComputePass = true,
 		ColorFormat = {{"r8_unorm", {"dummy", "r"}}},
@@ -134,22 +126,12 @@ return {
 		end,
 	},
 	{
-		-- Screen space diffuse gi, one probe grid lookup per pixel, written
-		-- out as rgb irradiance plus the leftover sky visibility in alpha.
-		--
-		-- This is its own pass rather than a call inside the lighting shader
-		-- because the probe sampling code costs the lighting shader far more
-		-- in occupancy than it costs to run: with every probe rejected on its
-		-- first weight test the lighting pass was still ~13 ms slower on an
-		-- M2 Air than with the code absent entirely.
 		name = "voxel_gi_irradiance",
 		ComputePass = true,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 		},
 		framebuffer_count = 1,
-		-- resolved when the framebuffers are built, so voxel_gi_quality can
-		-- move the gi pass between half and full resolution
 		scale = function()
 			return voxel_gi.SCREEN_SCALE
 		end,
@@ -198,10 +180,6 @@ return {
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
-				// this runs at half resolution, so the gbuffer is read with
-				// the exact texel under this pixel rather than a filtered
-				// sample: a blend across a silhouette reconstructs a world
-				// position that lies on neither surface and lights it wrong
 				ivec2 gbuffer_size = textureSize(TEXTURE(gi_data.depth_tex), 0);
 				ivec2 gbuffer_pos = min(
 					ivec2((vec2(pos) + 0.5) * vec2(gbuffer_size) / vec2(size)),
@@ -212,7 +190,6 @@ return {
 				vec3 N = texelFetch(TEXTURE(gi_data.normal_tex), gbuffer_pos, 0).xyz;
 				vec3 sky = sample_environment_irradiance(gi_data.env_irradiance_tex, N);
 
-				// nothing was drawn here, the lighting pass takes the sky path
 				if (depth == 1.0 || gi_data.gi_enabled == 0) {
 					imageStore(out_color, pos, vec4(sky, 1.0));
 					return;
@@ -227,9 +204,6 @@ return {
 		]],
 	},
 	{
-		-- Resolves the half resolution irradiance to full resolution with a
-		-- depth aware 2x2 tap. A plain bilinear upsample pulls irradiance
-		-- across silhouettes and leaves a bright rim around every object.
 		name = "voxel_gi_upsample",
 		ComputePass = true,
 		ColorFormat = {
@@ -311,8 +285,6 @@ return {
 				for (int i = 0; i < 4; i++) {
 					ivec2 offset = ivec2(i & 1, i >> 1);
 					ivec2 texel = clamp(base + offset, ivec2(0), half_size - 1);
-					// the gbuffer texel that half resolution sample was taken
-					// from, so its depth is the one it actually shaded
 					ivec2 gbuffer_pos = min(
 						ivec2((vec2(texel) + 0.5) * vec2(size) / vec2(half_size)),
 						size - 1
@@ -330,8 +302,6 @@ return {
 					weight_sum += weight;
 				}
 
-				// every tap sat on a different surface: take the nearest one
-				// rather than a blend of things this pixel cannot see
 				if (weight_sum < 1e-4) {
 					ivec2 texel = clamp(
 						ivec2(uv * vec2(half_size)),

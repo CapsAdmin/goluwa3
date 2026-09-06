@@ -16,25 +16,6 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local lightprobes = library()
 
--- Cubemap probes for specular reflections.
---
--- The environment probe renders the sky only and provides the global
--- specular environment plus the sky irradiance cubemap that diffuse lighting
--- falls back to outside the voxel gi volumes (see global_illumination.lua, which owns
--- diffuse global illumination).
---
--- Reflection probes capture the scene into a prefiltered cubemap plus a
--- radial depth cubemap for parallax correction, and are meant for glossy
--- surfaces that screen space reflections cannot cover. Captures are spread
--- over frames, nearest dirty probes first.
---
--- Placement is a horizontal grid recentered on the camera every
--- AUTO_PLACEMENT_INTERVAL seconds (UpdateAutoPlacement) - it doesn't query
--- scene geometry, so probes just blanket the area on a fixed spacing and
--- some will end up embedded in walls or floating in open air. Probes can
--- also be placed explicitly (CreateReflectionProbe, or the SpawnProbe event
--- that map loaders emit for their cubemap entities); those aren't touched
--- by the auto-placement grid's cleanup.
 local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()
 
@@ -55,14 +36,11 @@ local function get_primary_sun_direction()
 	return sun_dir
 end
 
--- Probe types
 lightprobes.TYPE_ENVIRONMENT = "environment" -- Sky only, re-rendered when the sun moves
 lightprobes.TYPE_REFLECTION = "reflection" -- Renders geometry
--- Update modes
 lightprobes.UPDATE_DYNAMIC = "dynamic" -- Re-captured continuously
 lightprobes.UPDATE_STATIC = "static" -- Captured once, and again when the sun moves
 lightprobes.UPDATE_MANUAL = "manual" -- Captured only when marked dirty
--- Configuration
 lightprobes.ENVIRONMENT_SIZE = 512
 lightprobes.REFLECTION_SIZE = 128
 lightprobes.IRRADIANCE_SIZE = 32 -- Sky irradiance cubemap face size
@@ -79,14 +57,10 @@ lightprobes.capture_pipeline_flags = lightprobes.capture_pipeline_flags or {
 	ssr = false,
 	ocean = true,
 }
--- Automatic placement: a horizontal grid of probes recentered on the camera,
--- with no scene geometry queries. Coverage over correctness - some probes
--- will end up embedded in geometry or floating in open air.
 lightprobes.auto_placement_enabled = lightprobes.auto_placement_enabled ~= false
 lightprobes.AUTO_PLACEMENT_SPACING = lightprobes.AUTO_PLACEMENT_SPACING or 48
 lightprobes.AUTO_PLACEMENT_RADIUS_CELLS = lightprobes.AUTO_PLACEMENT_RADIUS_CELLS or 2
 lightprobes.AUTO_PLACEMENT_INTERVAL = lightprobes.AUTO_PLACEMENT_INTERVAL or 1
--- State
 lightprobes.probes = lightprobes.probes or {}
 lightprobes.auto_grid = lightprobes.auto_grid or {} -- grid key -> auto-placed probe
 lightprobes.auto_last_update = lightprobes.auto_last_update or 0
@@ -234,15 +208,10 @@ local function create_face_views(texture, mip_level)
 	return views
 end
 
--- with_irradiance adds the cosine convolved irradiance cubemap, only the
--- environment probe needs it
 local function CreateProbeTextures(size, with_irradiance)
 	local probe = {}
-	-- prefiltered output used for rendering
 	probe.cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
-	-- raw capture before prefiltering
 	probe.source_cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
-	-- radial depth for parallax correction
 	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1)
 	probe.source_face_views = create_face_views(probe.source_cubemap)
 	probe.depth_face_views = create_face_views(probe.depth_cubemap)
@@ -345,8 +314,6 @@ function lightprobes.FindNearestReflectionProbe(position, max_distance)
 	return nearest_probe, nearest_distance
 end
 
--- Creates a probe unless one already exists within min_spacing, in which
--- case that probe is returned (and grown to the requested radius).
 function lightprobes.EnsureReflectionProbe(position, radius, update_mode, min_spacing)
 	min_spacing = min_spacing or lightprobes.REFLECTION_MIN_SPACING
 	local probe, distance = lightprobes.FindNearestReflectionProbe(position, min_spacing)
@@ -371,11 +338,6 @@ local function auto_grid_key(cx, cy, cz)
 	return cx .. "," .. cy .. "," .. cz
 end
 
--- Recenters a horizontal grid of auto-placed reflection probes on the
--- camera. This has no idea where geometry is - it just blankets the area
--- around the camera with probes on a fixed spacing so that glossy surfaces
--- have *something* nearby to sample, and lets the normal capture/dirty
--- pipeline sort out what actually ends up visible in each one.
 function lightprobes.UpdateAutoPlacement(camera_position)
 	if not lightprobes.auto_placement_enabled then return end
 
@@ -435,8 +397,6 @@ local function nearest_probe_comparator(a, b)
 		(b.position - nearest_probe_sort_position):GetLengthSquared()
 end
 
--- The probes nearest to a position, at most limit of them, for uploading to
--- shaders with a fixed probe array.
 function lightprobes.GetProbesNear(position, limit)
 	limit = limit or lightprobes.MAX_UPLOADED_PROBES
 	local probes = lightprobes.probes
@@ -460,9 +420,6 @@ function lightprobes.GetProbesNear(position, limit)
 	return sorted
 end
 
--- Uniform block for shaders that sample reflection probes directly (ssr.lua,
--- lighting.lua). Shared here so every consumer uploads probes the same way
--- instead of duplicating the write loop per pass.
 function lightprobes.GetProbeBlockLayout()
 	return {
 		{"probe_color_textures", "int", lightprobes.MAX_UPLOADED_PROBES},
@@ -1069,7 +1026,6 @@ event.AddListener("Render3DInitialized", "lightprobes", function()
 	lightprobes.Initialize()
 end)
 
--- Map loaders emit this for their cubemap entities
 event.AddListener("SpawnProbe", "lightprobes", function(position, radius, update_mode, min_spacing)
 	lightprobes.EnsureReflectionProbe(position, radius, update_mode or lightprobes.UPDATE_STATIC, min_spacing)
 end)
@@ -1160,7 +1116,6 @@ function lightprobes.CreatePipelines()
 		lightprobes.capture_bundles = nil
 	end
 
-	-- Sky only, for the environment probe
 	lightprobes.sky_pipeline = EasyPipeline.New{
 		ColorFormat = {
 			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
@@ -1227,7 +1182,6 @@ function lightprobes.CreatePipelines()
 		DepthTest = false,
 		DepthWrite = false,
 	}
-	-- Copies the capture bundle's lit output into a cubemap face
 	lightprobes.capture_copy_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		dont_create_framebuffers = true,
@@ -1259,7 +1213,6 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
-	-- Converts the capture's depth buffer into radial distance from the probe
 	lightprobes.capture_depth_pipeline = EasyPipeline.New{
 		ColorFormat = {{"r32_sfloat", {"linear_depth", "r"}}},
 		dont_create_framebuffers = true,
@@ -1304,7 +1257,6 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
-	-- GGX prefilter of the source cubemap into the roughness mip chain
 	lightprobes.prefilter_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		RasterizationSamples = "1",
@@ -1390,10 +1342,6 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
-	-- Diffuse irradiance: integrates every texel of a small mip of the
-	-- source cubemap against the cosine lobe of the output direction. The
-	-- result is divided by pi so that multiplying by albedo gives the
-	-- outgoing diffuse radiance.
 	lightprobes.irradiance_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		RasterizationSamples = "1",
@@ -1497,9 +1445,6 @@ local function get_probe_capture_bundle(size)
 	bundle = render3d.CreatePipelineBundle{
 		framebuffer_size = {x = size, y = size},
 		filter = function(name)
-			-- the two voxel gi screen passes come along because lighting reads
-			-- its diffuse gi out of their target now; the probe update pass
-			-- itself stays out, a capture must not refresh the probe grids
 			return name:find("^gbuffer") ~= nil or
 				name == "ssr" or
 				name == "lighting" or
@@ -1550,7 +1495,6 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
--- True when the sun moved more than SUN_CHANGE_DEGREES since the last check
 function lightprobes.HasSunDirectionChanged()
 	local sun = get_primary_sun(render3d.GetLights())
 
@@ -1618,8 +1562,6 @@ local function draw_fullscreen(cmd, pipeline, size)
 	cmd:Draw(3, 1, 0, 0)
 end
 
--- Renders num_faces faces of a probe starting at lightprobes.current_face.
--- render_geometry captures the scene, otherwise only the sky is drawn.
 function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 	if not lightprobes.enabled then return end
 
@@ -1760,8 +1702,6 @@ local function render_cube_faces(cmd, pipeline, texture, face_views, size, mip_l
 	end
 end
 
--- Prefilters the source cubemap into the output mip chain, and builds the
--- irradiance cubemap for probes that have one.
 function lightprobes.PrefilterProbe(cmd, probe)
 	if not lightprobes.prefilter_pipeline then return end
 
@@ -1772,9 +1712,6 @@ function lightprobes.PrefilterProbe(cmd, probe)
 	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
 	local roughest_mip = math.max(math.min(ibl.GetPrefilterMipCount(SIZE), num_mips) - 1, 1)
 
-	-- Roughness 0..1 maps onto the mips down to the roughest usable face
-	-- size; the remaining tiny mips repeat roughness 1 so trilinear lookups
-	-- never reach unfiltered data.
 	for m = 0, num_mips - 1 do
 		lightprobes.current_roughness = math.min(m / roughest_mip, 1)
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
@@ -1848,7 +1785,6 @@ function lightprobes.AreReflectionProbesEnabled()
 	return lightprobes.reflection_probes_enabled
 end
 
--- Compatibility with old skybox API
 function lightprobes.SetStarsTexture(texture)
 	atmosphere.SetStarsTexture(texture)
 end
@@ -1864,9 +1800,6 @@ local function is_probe_in_list(probe)
 
 	return false
 end
-
--- Picks the probe to capture next: a capture in progress is finished first,
--- then the nearest dirty probe, then the stalest dynamic probe that is due.
 local function select_probe_to_capture(now, camera_position)
 	local current = lightprobes.current_probe
 
@@ -2055,10 +1988,6 @@ commands.Add("lightprobes_rebuild=string|nil", function(update_mode)
 	)
 end)
 
--- Initialize immediately only when render3d is already stable. During
--- render3d hotreload the module is imported before the new Initialize()
--- call finishes, and the persistent render3d table still holds the old
--- pipeline table, which would otherwise double-create these pipelines.
 if
 	not render3d.initializing and
 	render3d and

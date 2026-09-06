@@ -144,7 +144,6 @@ return {
 			vec2 blue_noise(ivec2 pixel) {
 				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
 				vec2 xi = texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
-				// R2 sequence offset per frame keeps the pattern blue in space but different in time
 				return fract(xi + float(ssr_data.frame_index % 64) * vec2(0.7548776662, 0.5698402910));
 			}
 
@@ -174,8 +173,6 @@ return {
 				return blend_probe_reflections(global_env, R, roughness, world_pos);
 			}
 
-			// marches in screen space: uv and z/w are linear in t along the projected segment, so each step
-			// is one depth fetch and no matrix multiplies
 			vec4 trace_ssr_direction(vec3 pos_vs, vec3 R_vs, float roughness, float jitter) {
 				float ray_len = SSR_MAX_DISTANCE;
 
@@ -228,7 +225,6 @@ return {
 									vec2 uv_mid = mix(p0, p1, t_mid);
 									float z_mid = mix(q0, q1, t_mid) / mix(k0, k1, t_mid);
 									float depth_mid = fetch_depth(uv_mid);
-									// a sky sample counts as in front, so the search backs toward the last real surface
 									float z_surf_mid = depth_mid < 1.0 ? linearize_depth(uv_mid, depth_mid) : -1e30;
 
 									if (z_mid < z_surf_mid) {
@@ -259,8 +255,6 @@ return {
 								float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
 								edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
 								float dist_fade = 1.0 - smoothstep(SSR_MAX_DISTANCE * 0.7, SSR_MAX_DISTANCE, length(hit_vs - pos_vs));
-								// after refinement the ray sits just behind the surface it hit. a gap that is still large
-								// means it went behind something thin rather than hitting it
 								float thick_conf = 1.0 - saturate(refined_diff / max(0.15, -z_surf * 0.03));
 								vec3 hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb;
 
@@ -323,7 +317,6 @@ return {
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
 				ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
-				// every invocation has to reach the barrier, so out of bounds threads only skip the work
 				bool in_bounds = is_screen_pos_in_bounds(pos, ssr_size);
 				ivec2 gbuffer_pos = min(ivec2((vec2(pos) + 0.5) * gbuffer_ratio), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
@@ -394,7 +387,6 @@ return {
 				if (total_weight > 0.0001) {
 					mean = moment1 / total_weight;
 					deviation = sqrt(max(moment2 / total_weight - mean * mean, vec3(0.0)));
-					// mirror rays are not stochastic, only blur the rough ones
 					filtered = mix(current, accum / total_weight, smoothstep(0.02, 0.15, roughness));
 				}
 

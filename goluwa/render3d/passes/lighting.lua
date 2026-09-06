@@ -220,8 +220,6 @@ return {
 
 			]] .. atmosphere.GetGLSLDefines("lighting_data", "lighting_data.primary_sun_intensity") .. atmosphere.GetGLSLCode() .. [[
 
-			// tangent of the sun's angular radius, used to give the sun a
-			// finite size in the specular lobe
 			const float SUN_ANGULAR_RADIUS_TAN = 0.0047;
 
 			#define SSR 1
@@ -247,12 +245,11 @@ return {
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 			]] .. scene_lights.GetLightGLSLCode() .. [[
 
-			// Cascade debug colors
 			const vec3 CASCADE_COLORS[4] = vec3[4](
-				vec3(1.0, 0.2, 0.2),  // Red - cascade 1
-				vec3(0.2, 1.0, 0.2),  // Green - cascade 2
-				vec3(0.2, 0.2, 1.0),  // Blue - cascade 3
-				vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
+				vec3(1.0, 0.2, 0.2),
+				vec3(0.2, 1.0, 0.2),
+				vec3(0.2, 0.2, 1.0),
+				vec3(1.0, 1.0, 0.2) 
 			);
 
 			float random(vec2 co)
@@ -353,16 +350,6 @@ return {
 				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
 			}
 
-			// Fallback chain when there's no confident screen-space hit: the
-			// same voxel gi irradiance used for diffuse ambient stands in for
-			// a local reflection (it's already correctly occluded, just
-			// diffuse rather than directional), cross-faded against the raw
-			// sky cubemap by sky_visibility (1 = genuinely open to the sky, 0
-			// = fully covered by the voxel gi grid), then reflection probes
-			// are blended over that wherever one covers world_pos. This whole
-			// chain also has to stand on its own when SSR is disabled, since
-			// reflection-probe sampling otherwise only exists inside the SSR
-			// pass and would vanish along with it.
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback) {
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
@@ -376,11 +363,6 @@ return {
 				return combine_reflections(env_reflection, ssr, get_ssr_blend_weight(roughness));
 			}
 
-			// Diffuse irradiance / pi, resolved by the voxel_gi_irradiance
-			// pass: rgb is the probe grid's irradiance (or the sky irradiance
-			// cubemap where the grid does not reach), alpha is how much of
-			// that sky fallback survived (1 = fully open sky, 0 = fully
-			// covered by the probe grid), which the reflection path reuses.
 			vec3 get_gi_irradiance(vec3 N, out float sky_visibility) {
 				if (lighting_data.gi_screen_tex < 0) {
 					sky_visibility = 1.0;
@@ -464,10 +446,6 @@ return {
                     float NoH = saturate(dot(N, H));
                     float LoH = saturate(dot(L, H));
 
-					// The sun is a disc, not a point: widen the lobe by its
-					// angular radius and renormalize (Karis 2013) so smooth
-					// surfaces show a highlight of the right size instead of
-					// a needle sharp peak.
 					float lobe_alpha = roughness_alpha;
 					float lobe_energy = 1.0;
 

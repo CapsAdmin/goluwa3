@@ -111,9 +111,6 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 				return result;
 			}
 
-			// tangent space normal maps projected along each axis and combined
-			// with the surface normal using the whiteout blend, returns a world
-			// space normal (unnormalized) with ambient occlusion in w
 			vec4 sample_terrain_layer_normal_triplanar(int tex, vec3 world_pos, float scale, vec3 blend, vec3 N) {
 				float safe_scale = max(scale, 0.0001);
 				vec3 n = vec3(0.0);

@@ -85,10 +85,6 @@ return {
 				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
 			}
 
-			// the gbuffer normal includes normal maps, which would print the
-			// texture detail into the occlusion. rebuild the surface normal from
-			// depth instead, picking the closer neighbour on each axis so edges
-			// do not bleed, and use the gbuffer normal only to orient it.
 			vec3 get_geometric_normal(vec2 uv, vec3 world_pos, float depth, vec3 shading_normal) {
 				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0));
 				float depth_left = texture(TEXTURE(lighting_data.depth_tex), uv - vec2(texel.x, 0.0)).r;
@@ -135,11 +131,10 @@ return {
 				float random_rotation = noise.y * 6.28318;
 
 				float world_radius = 2.0;
-				// radius_uv = (world_radius * focal_length / -p.z) * 0.5
 				float screen_radius = (world_radius * lighting_data.projection[0][0]) / (-p.z * 2.0);
 
-				const int Nd = 3; // Slices
-				const int Ns = 6; // Steps per side
+				const int Nd = 3; 
+				const int Ns = 6; 
 				const uint Nb = 32;
 				float thickness = 0.025; 
 				float bias = 0.2;
@@ -166,7 +161,6 @@ return {
 
 					uint bi = 0u;
 					for (int j = 0; j < Ns; j++) {
-						// Exponential stepping for better local detail
 						float o = (float(j) + random_offset) / float(Ns);
 						float step_dist = o * o * screen_radius;
 						
@@ -189,11 +183,9 @@ return {
 							float proj_T = dot(v_f, T_v);
 							float proj_V = dot(v_f, V);
 							
-							// Skip samples that are too close to the surface or behind it to avoid self-occlusion
 							if (proj_V < bias) continue;
 
 							float theta_f = atan(proj_T, proj_V);
-							// Thickness model: assume sample has a fixed thickness along the view vector
 							float theta_b = atan(proj_T, proj_V - thickness);
 							
 							float diff_f = theta_f - theta_n;
@@ -317,7 +309,6 @@ return {
 				return texture(TEXTURE(ao_blur_data.depth_tex), uv).r;
 			}
 
-			// depth is non-linear, so edge weighting compares view-space depth instead
 			float get_view_depth(vec2 uv, float depth) {
 				vec3 world_pos = get_world_pos(uv, depth);
 				return -(ao_blur_data.view * vec4(world_pos, 1.0)).z;
