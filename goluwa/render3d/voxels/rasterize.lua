@@ -7,13 +7,13 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local voxel_build = library()
+local rasterize = library()
 local AXIS_ROTATIONS = {
 	x = Quat():SetAngles(Deg3(0, -90 + 180, 0)),
 	y = Quat():SetAngles(Deg3(90, 0 + 180, 0)),
 	z = Quat():SetAngles(Deg3(0, 0 + 180, 0)),
 }
-local current_build_state = {
+local current_rasterize_state = {
 	clipmap_index = 0,
 	axis_index = 0,
 	current_slice = 0,
@@ -416,14 +416,14 @@ end
 
 local function get_voxel_projection_view_world_matrix()
 	local world_matrix = render3d.GetWorldMatrix()
-	world_matrix:GetMultiplied(current_build_state.view_matrix, current_build_state.projection_view_world)
-	current_build_state.projection_view_world:GetMultiplied(current_build_state.projection_matrix, current_build_state.projection_view_world)
-	return current_build_state.projection_view_world
+	world_matrix:GetMultiplied(current_rasterize_state.view_matrix, current_rasterize_state.projection_view_world)
+	current_rasterize_state.projection_view_world:GetMultiplied(current_rasterize_state.projection_matrix, current_rasterize_state.projection_view_world)
+	return current_rasterize_state.projection_view_world
 end
 
 local function update_slice_transform(clipmap, axis_name, slice, build_origin)
 	local slice_center = ((slice + 0.5) - clipmap.resolution * 0.5) * clipmap.voxel_size
-	local view_center = current_build_state.clipmap_origin
+	local view_center = current_rasterize_state.clipmap_origin
 	view_center.x = build_origin.x
 	view_center.y = build_origin.y
 	view_center.z = build_origin.z
@@ -436,15 +436,15 @@ local function update_slice_transform(clipmap, axis_name, slice, build_origin)
 		view_center.z = view_center.z + slice_center
 	end
 
-	current_build_state.view_matrix = Matrix44()
-	current_build_state.view_matrix:Translate(-view_center.x, -view_center.y, -view_center.z)
-	current_build_state.view_matrix:Multiply(AXIS_ROTATIONS[axis_name]:GetConjugated():GetMatrix())
-	current_build_state.projection_matrix = Matrix44()
+	current_rasterize_state.view_matrix = Matrix44()
+	current_rasterize_state.view_matrix:Translate(-view_center.x, -view_center.y, -view_center.z)
+	current_rasterize_state.view_matrix:Multiply(AXIS_ROTATIONS[axis_name]:GetConjugated():GetMatrix())
+	current_rasterize_state.projection_matrix = Matrix44()
 	-- the slab extends slightly past the voxel so faces that lie exactly on a
 	-- voxel boundary (floors at integer heights, walls on the grid) are
 	-- captured by the slices on both sides instead of being clipped by neither
 	local half_depth = math.max(clipmap.voxel_size * 0.55, 0.001)
-	current_build_state.projection_matrix:Ortho(
+	current_rasterize_state.projection_matrix:Ortho(
 		-clipmap.world_span * 0.5,
 		clipmap.world_span * 0.5,
 		-clipmap.world_span * 0.5,
@@ -455,7 +455,7 @@ local function update_slice_transform(clipmap, axis_name, slice, build_origin)
 	)
 end
 
-local function upload_voxel_build_constants(self)
+local function upload_rasterize_constants(self)
 	self:UploadConstants()
 end
 
@@ -656,15 +656,15 @@ end
 
 local function draw_voxel_slice_geometry(self, cmd, clipmap_index, clipmap, axis_name, slice, draw_list)
 	local build_origin = clipmap.build_origin or clipmap.origin
-	current_build_state.clipmap_index = clipmap_index
-	current_build_state.axis_index = get_axis_index(axis_name)
-	current_build_state.current_slice = slice
-	current_build_state.resolution = clipmap.resolution
-	current_build_state.voxel_size = clipmap.voxel_size
-	current_build_state.world_span = clipmap.world_span
-	current_build_state.clipmap_origin.x = build_origin.x
-	current_build_state.clipmap_origin.y = build_origin.y
-	current_build_state.clipmap_origin.z = build_origin.z
+	current_rasterize_state.clipmap_index = clipmap_index
+	current_rasterize_state.axis_index = get_axis_index(axis_name)
+	current_rasterize_state.current_slice = slice
+	current_rasterize_state.resolution = clipmap.resolution
+	current_rasterize_state.voxel_size = clipmap.voxel_size
+	current_rasterize_state.world_span = clipmap.world_span
+	current_rasterize_state.clipmap_origin.x = build_origin.x
+	current_rasterize_state.clipmap_origin.y = build_origin.y
+	current_rasterize_state.clipmap_origin.z = build_origin.z
 	update_slice_transform(clipmap, axis_name, slice, build_origin)
 	draw_list = draw_list or {}
 	local last_polygon3d = nil
@@ -681,7 +681,7 @@ local function draw_voxel_slice_geometry(self, cmd, clipmap_index, clipmap, axis
 		if entry.material ~= last_material then
 			render3d.SetMaterial(entry.material)
 			last_material = entry.material
-			upload_voxel_build_constants(self)
+			upload_rasterize_constants(self)
 		end
 
 		push_voxel_vertex_constants(self, cmd, entry.world_matrix)
@@ -793,22 +793,22 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 	cmd:EndRendering()
 end
 
-function voxel_build.GetProjectionViewWorldMatrix()
+function rasterize.GetProjectionViewWorldMatrix()
 	return get_voxel_projection_view_world_matrix()
 end
 
-function voxel_build.WriteDataBlock(block)
-	block.clipmap_index = current_build_state.clipmap_index
-	block.axis_index = current_build_state.axis_index
-	block.current_slice = current_build_state.current_slice
-	block.resolution = current_build_state.resolution
-	block.voxel_size = current_build_state.voxel_size
-	current_build_state.clipmap_origin:CopyToFloatPointer(block.clipmap_origin)
-	block.world_span = current_build_state.world_span
+function rasterize.WriteDataBlock(block)
+	block.clipmap_index = current_rasterize_state.clipmap_index
+	block.axis_index = current_rasterize_state.axis_index
+	block.current_slice = current_rasterize_state.current_slice
+	block.resolution = current_rasterize_state.resolution
+	block.voxel_size = current_rasterize_state.voxel_size
+	current_rasterize_state.clipmap_origin:CopyToFloatPointer(block.clipmap_origin)
+	block.world_span = current_rasterize_state.world_span
 	return block
 end
 
-function voxel_build.Draw(self, cmd)
+function rasterize.Draw(self, cmd)
 	local voxelizer = render3d.GetSceneVoxelizer()
 
 	if not voxelizer or not voxelizer.IsEnabled or not voxelizer:IsEnabled() then
@@ -934,4 +934,4 @@ function voxel_build.Draw(self, cmd)
 	voxelizer.frame_stats.voxel_entries = total_entries
 end
 
-return voxel_build
+return rasterize

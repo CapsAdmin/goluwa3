@@ -1,17 +1,17 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
-local voxel_build = import("goluwa/render3d/voxels/build.lua")
+local rasterize = import("goluwa/render3d/voxels/rasterize.lua")
 local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 return {
 	{
-		name = "voxel_build",
+		name = "voxel_rasterize",
 		ColorFormat = {
 			{"r8g8b8a8_unorm", {"color", "rgba"}},
 			{"r8g8b8a8_unorm", {"normal", "rgba"}},
 		},
 		dont_create_framebuffers = true,
 		on_draw = function(self, cmd)
-			voxel_build.Draw(self, cmd)
+			rasterize.Draw(self, cmd)
 		end,
 		vertex = {
 			bindings = {
@@ -30,7 +30,7 @@ return {
 				{
 					name = "vertex",
 					block = model_pipeline.GetTransformBlock(true),
-					write = model_pipeline.BuildTransformBlockWriter(true, voxel_build.GetProjectionViewWorldMatrix),
+					write = model_pipeline.BuildTransformBlockWriter(true, rasterize.GetProjectionViewWorldMatrix),
 				},
 			},
 			shader = [[
@@ -45,7 +45,7 @@ return {
 		fragment = {
 			uniform_buffers = {
 				{
-					name = "voxel_build_data",
+					name = "voxel_rasterize_data",
 					binding_index = 3,
 					block = {
 						{"clipmap_index", "int"},
@@ -57,7 +57,7 @@ return {
 						{"world_span", "float"},
 					},
 					write = function(self, block)
-						return voxel_build.WriteDataBlock(block)
+						return rasterize.WriteDataBlock(block)
 					end,
 				},
 				{

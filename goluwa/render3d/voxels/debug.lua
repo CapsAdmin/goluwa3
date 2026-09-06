@@ -1,3 +1,6 @@
+local ffi = require("ffi")
+local commands = import("goluwa/cli/commands.lua")
+local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -5,6 +8,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local input = import("goluwa/input.lua")
+local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local voxel_debug = library()
@@ -1036,5 +1040,389 @@ function voxel_debug.ToggleDumpWatch()
 		dump_voxel_debug_state(get_command_clipmap_index())
 	end
 end
+
+function voxel_debug.DumpGIState()
+	logf(
+		"[voxel_gi] enabled=%s active=%s occlusion=%s frame=%d clipmaps=%d\n",
+		tostring(voxel_gi.enabled),
+		tostring(voxel_gi.IsActive()),
+		tostring(voxel_gi.occlusion_enabled),
+		voxel_gi.frame,
+		voxel_gi.clipmap_count or 0
+	)
+
+	for i, cascade in ipairs(voxel_gi.cascades) do
+		logf(
+			"[voxel_gi] cascade %d spacing=%.2f origin=(%d %d %d) probe_base=%d\n",
+			i,
+			cascade.spacing,
+			cascade.grid_origin.x,
+			cascade.grid_origin.y,
+			cascade.grid_origin.z,
+			cascade.probe_base
+		)
+	end
+
+	for i, info in ipairs(voxel_gi.clip_info or {}) do
+		logf(
+			"[voxel_gi] clipmap %d valid=%s origin=(%.1f %.1f %.1f) voxel=%.2f span=%.1f res=%d\n",
+			i,
+			tostring(info.valid),
+			info.origin.x,
+			info.origin.y,
+			info.origin.z,
+			info.voxel_size or 0,
+			info.world_span or 0,
+			info.resolution or 0
+		)
+	end
+end
+
+local function half_to_float(h)
+	local sign = bit.band(bit.rshift(h, 15), 1)
+	local exponent = bit.band(bit.rshift(h, 10), 31)
+	local mantissa = bit.band(h, 1023)
+	local value
+
+	if exponent == 0 then
+		value = mantissa * 2 ^ -24
+	elseif exponent == 31 then
+		value = math.huge
+	else
+		value = (1 + mantissa / 1024) * 2 ^ (exponent - 15)
+	end
+
+	return sign == 1 and -value or value
+end
+
+-- Reads back a cascade's atlases and returns a function that decodes one
+-- probe: offset, enabled, mean radiance and the visibility mean toward a
+-- direction. Slow, for debugging only.
+function voxel_debug.ReadGIProbes(cascade_index)
+	local cascade = voxel_gi.cascades[cascade_index or 1]
+
+	if not cascade then return nil end
+
+	local irradiance = cascade.irradiance:Download()
+	local visibility = cascade.visibility:Download()
+	local info = cascade.info:Download()
+	local irr_pixels = ffi.cast("uint16_t*", irradiance.pixels)
+	local vis_pixels = ffi.cast("uint16_t*", visibility.pixels)
+	local info_pixels = ffi.cast("uint16_t*", info.pixels)
+	local tile = voxel_gi.IRRADIANCE_OCT_SIZE
+	local vis_tile = voxel_gi.VISIBILITY_OCT_SIZE
+	local counts = {voxel_gi.PROBE_COUNT_X, voxel_gi.PROBE_COUNT_Y, voxel_gi.PROBE_COUNT_Z}
+
+	local function oct_encode(x, y, z)
+		local l = math.abs(x) + math.abs(y) + math.abs(z)
+		x, y, z = x / l, y / l, z / l
+		local px, py = x, y
+
+		if z < 0 then
+			px = (1 - math.abs(y)) * (x >= 0 and 1 or -1)
+			py = (1 - math.abs(x)) * (y >= 0 and 1 or -1)
+		end
+
+		return px * 0.5 + 0.5, py * 0.5 + 0.5
+	end
+
+	return function(gx, gy, gz)
+		local sx, sy, sz = gx % counts[1], gy % counts[2], gz % counts[3]
+		local tile_x, tile_y = sx, sy * counts[3] + sz
+		local info_index = (tile_y * info.width + tile_x) * 4
+		local probe = {
+			grid = Vec3(gx, gy, gz),
+			position = Vec3(gx * cascade.spacing, gy * cascade.spacing, gz * cascade.spacing),
+			offset = Vec3(
+				half_to_float(info_pixels[info_index]),
+				half_to_float(info_pixels[info_index + 1]),
+				half_to_float(info_pixels[info_index + 2])
+			),
+			enabled = half_to_float(info_pixels[info_index + 3]) > 0.0,
+			backface_fraction = math.abs(
+				half_to_float(info_pixels[info_index + 3]) > 0 and
+					half_to_float(info_pixels[info_index + 3]) - 1 or
+					half_to_float(info_pixels[info_index + 3])
+			),
+		}
+		local r, g, b = 0, 0, 0
+
+		for ty = 0, tile - 1 do
+			for tx = 0, tile - 1 do
+				local index = ((tile_y * tile + ty) * irradiance.width + tile_x * tile + tx) * 4
+				r = r + half_to_float(irr_pixels[index])
+				g = g + half_to_float(irr_pixels[index + 1])
+				b = b + half_to_float(irr_pixels[index + 2])
+			end
+		end
+
+		probe.mean_radiance = Vec3(r / (tile * tile), g / (tile * tile), b / (tile * tile))
+
+		function probe.irradiance(x, y, z)
+			local u, v = oct_encode(x, y, z)
+			local tx = math.min(math.floor(u * tile), tile - 1)
+			local ty = math.min(math.floor(v * tile), tile - 1)
+			local index = ((tile_y * tile + ty) * irradiance.width + tile_x * tile + tx) * 4
+			return Vec3(
+				half_to_float(irr_pixels[index]),
+				half_to_float(irr_pixels[index + 1]),
+				half_to_float(irr_pixels[index + 2])
+			)
+		end
+
+		function probe.visibility(x, y, z)
+			local u, v = oct_encode(x, y, z)
+			local tx = math.min(math.floor(u * vis_tile), vis_tile - 1)
+			local ty = math.min(math.floor(v * vis_tile), vis_tile - 1)
+			local index = ((tile_y * vis_tile + ty) * visibility.width + tile_x * vis_tile + tx) * 2
+			return half_to_float(vis_pixels[index]), half_to_float(vis_pixels[index + 1])
+		end
+
+		return probe
+	end
+end
+
+-- Prints the resolved voxel color and normal around a world position
+-- (clipmap 1, a column of voxels along y). Debugging only.
+function voxel_debug.DumpGIVoxelColumn(position, half_height)
+	local info = voxel_gi.clip_info and voxel_gi.clip_info[1]
+	local resolved = voxel_gi.resolved[1]
+
+	if not info or not info.valid or not resolved then return end
+
+	local vs = info.voxel_size
+	local min_x = info.origin.x - info.world_span * 0.5
+	local min_y = info.origin.y - info.world_span * 0.5
+	local min_z = info.origin.z - info.world_span * 0.5
+	local vx = math.floor((position.x - min_x) / vs)
+	local vz = math.floor((position.z - min_z) / vs)
+	local y0 = math.floor((position.y - half_height - min_y) / vs)
+	local y1 = math.floor((position.y + half_height - min_y) / vs)
+	-- the resolved volume stores voxel (x, y, z) at pixel (x, y) of layer z
+	local color = resolved.texture:Download{base_array_layer = vz}
+	local normal = resolved.normal_texture:Download{base_array_layer = vz}
+	local cp = ffi.cast("uint16_t*", color.pixels)
+	local np = ffi.cast("uint8_t*", normal.pixels)
+	-- occupancy is the flattened 2d copy the lighting pass marches through
+	local occupancy = resolved.occupancy and resolved.occupancy:Download()
+	local op = occupancy and ffi.cast("uint8_t*", occupancy.pixels)
+	local tiles_x = resolved.tiles_x or 1
+
+	for vy = y0, y1 do
+		if vy >= 0 and vy < info.resolution then
+			local ci = (vy * color.width + vx) * 4
+			local ni = (vy * normal.width + vx) * 4
+			local occ = -1
+
+			if op then
+				local ox = (vz % tiles_x) * info.resolution + vx
+				local oy = math.floor(vz / tiles_x) * info.resolution + vy
+				occ = op[oy * occupancy.width + ox] / 255
+			end
+
+			logf(
+				"[voxel_gi] voxel (%d %d %d) y=[%.2f %.2f) occupancy=%.2f color=(%.2f %.2f %.2f a=%.2f) normal=(%.2f %.2f %.2f a=%.2f)\n",
+				vx,
+				vy,
+				vz,
+				min_y + vy * vs,
+				min_y + (vy + 1) * vs,
+				occ,
+				half_to_float(cp[ci]),
+				half_to_float(cp[ci + 1]),
+				half_to_float(cp[ci + 2]),
+				half_to_float(cp[ci + 3]),
+				np[ni] / 255 * 2 - 1,
+				np[ni + 1] / 255 * 2 - 1,
+				np[ni + 2] / 255 * 2 - 1,
+				np[ni + 3] / 255
+			)
+		end
+	end
+end
+
+function voxel_debug.DumpGIProbesNear(position, radius, cascade_index)
+	cascade_index = cascade_index or 1
+	local cascade = voxel_gi.cascades[cascade_index]
+	local read = voxel_debug.ReadGIProbes(cascade_index)
+
+	if not read then return end
+
+	local spacing = cascade.spacing
+	local origin = cascade.grid_origin
+	local counts = {voxel_gi.PROBE_COUNT_X, voxel_gi.PROBE_COUNT_Y, voxel_gi.PROBE_COUNT_Z}
+
+	for y = 0, counts[2] - 1 do
+		for z = 0, counts[3] - 1 do
+			for x = 0, counts[1] - 1 do
+				local gx, gy, gz = origin.x + x, origin.y + y, origin.z + z
+				local p = Vec3(gx * spacing, gy * spacing, gz * spacing)
+
+				if (p - position):GetLength() <= radius then
+					local probe = read(gx, gy, gz)
+					local up = probe.irradiance(0, 1, 0)
+					local down_mean = probe.visibility(0, -1, 0)
+					local x_mean = probe.visibility(1, 0, 0)
+					logf(
+						"[voxel_gi] probe (%d %d %d) pos=(%.1f %.1f %.1f) offset=(%.2f %.2f %.2f) enabled=%s backface=%.2f mean=(%.3f %.3f %.3f) up=(%.3f %.3f %.3f) vis_down=%.2f vis_x=%.2f\n",
+						gx,
+						gy,
+						gz,
+						p.x,
+						p.y,
+						p.z,
+						probe.offset.x,
+						probe.offset.y,
+						probe.offset.z,
+						tostring(probe.enabled),
+						probe.backface_fraction,
+						probe.mean_radiance.x,
+						probe.mean_radiance.y,
+						probe.mean_radiance.z,
+						up.x,
+						up.y,
+						up.z,
+						down_mean,
+						x_mean
+					)
+				end
+			end
+		end
+	end
+end
+
+-- Draws a small sphere per probe near the camera, colored by the probe's
+-- mean stored radiance. Disabled probes are drawn dark red.
+function voxel_debug.DrawGIDebugProbes()
+	if not voxel_gi.debug_probes or not voxel_gi.IsActive() then return end
+
+	local debug_draw = import("goluwa/debug_draw.lua")
+	local cascade_index = voxel_gi.debug_probes_cascade or 1
+	local cascade = voxel_gi.cascades[cascade_index]
+
+	if not cascade then return end
+
+	voxel_gi.debug_probe_frame = (voxel_gi.debug_probe_frame or 0) + 1
+
+	if voxel_gi.debug_probe_frame % 10 ~= 1 then return end
+
+	local irradiance = cascade.irradiance:Download()
+	local info = cascade.info:Download()
+	local irr_pixels = ffi.cast("uint16_t*", irradiance.pixels)
+	local info_pixels = ffi.cast("uint16_t*", info.pixels)
+	local tile = voxel_gi.IRRADIANCE_OCT_SIZE
+	local atlas_width = irradiance.width
+	local counts = {voxel_gi.PROBE_COUNT_X, voxel_gi.PROBE_COUNT_Y, voxel_gi.PROBE_COUNT_Z}
+	local origin = cascade.grid_origin
+	local spacing = cascade.spacing
+	local camera_position = render3d.GetRenderCamera():GetPosition()
+	local radius = voxel_gi.debug_probes_radius or (spacing * 8)
+	local exposure = voxel_gi.debug_probes_exposure or 1
+	local drawn = 0
+
+	for y = 0, counts[2] - 1 do
+		for z = 0, counts[3] - 1 do
+			for x = 0, counts[1] - 1 do
+				local gx, gy, gz = origin.x + x, origin.y + y, origin.z + z
+				local px, py, pz = gx * spacing, gy * spacing, gz * spacing
+				local dx, dy, dz = px - camera_position.x, py - camera_position.y, pz - camera_position.z
+
+				if dx * dx + dy * dy + dz * dz < radius * radius then
+					local sx, sy, sz = gx % counts[1], gy % counts[2], gz % counts[3]
+					local tile_x, tile_y = sx, sy * counts[3] + sz
+					local info_index = (tile_y * info.width + tile_x) * 4
+					local ox = half_to_float(info_pixels[info_index])
+					local oy = half_to_float(info_pixels[info_index + 1])
+					local oz = half_to_float(info_pixels[info_index + 2])
+					local enabled = half_to_float(info_pixels[info_index + 3]) > 0.0
+					local r, g, b = 0, 0, 0
+
+					for ty = 0, tile - 1 do
+						for tx = 0, tile - 1 do
+							local index = ((tile_y * tile + ty) * atlas_width + tile_x * tile + tx) * 4
+							r = r + half_to_float(irr_pixels[index])
+							g = g + half_to_float(irr_pixels[index + 1])
+							b = b + half_to_float(irr_pixels[index + 2])
+						end
+					end
+
+					local scale = exposure / (tile * tile)
+					local color = enabled and
+						Color(math.min(r * scale, 1), math.min(g * scale, 1), math.min(b * scale, 1), 1) or
+						Color(0.4, 0, 0, 1)
+					drawn = drawn + 1
+					debug_draw.DrawSphere{
+						id = "voxel_gi_probe_" .. cascade_index .. "_" .. sx .. "_" .. sy .. "_" .. sz,
+						position = Vec3(px + ox, py + oy, pz + oz),
+						radius = spacing * 0.08,
+						color = color,
+						emissive = color,
+						ignore_z = true,
+						translucent = true,
+						double_sided = true,
+						time = 2.0,
+					}
+				end
+			end
+		end
+	end
+
+	voxel_gi.debug_probes_drawn = drawn
+end
+
+function voxel_debug.SetGIDebugMode(mode)
+	voxel_gi.debug_mode = mode
+	logf("[voxel_gi] debug mode %d\n", mode)
+end
+
+function voxel_debug.SetGIProbeOverlay(enabled, cascade_index)
+	voxel_gi.debug_probes = enabled
+	voxel_gi.debug_probes_cascade = cascade_index
+	logf(
+		"[voxel_gi] probe overlay %s cascade %d\n",
+		enabled and "enabled" or "disabled",
+		cascade_index
+	)
+end
+
+event.AddListener("Draw3DForwardOverlay", "debug_voxel_visualizer", function()
+	voxel_debug.DrawForwardOverlay()
+end)
+
+event.AddListener("Draw2D", "debug_voxel_targets", function(cmd, dt)
+	voxel_debug.DrawHUD()
+end)
+
+event.AddListener("KeyInput", "debug_voxel_targets_toggle", function(key, press)
+	voxel_debug.HandleKeyInput(key, press)
+end)
+
+event.AddListener("Update", "debug_voxel_gi_probes", function()
+	voxel_debug.DrawGIDebugProbes()
+end)
+
+commands.Add("voxel_dump_state=number[1]", function(index)
+	voxel_debug.DumpState(index)
+end)
+
+commands.Add("voxel_dump_camera=number[1]", function(index)
+	voxel_debug.DumpCameraMapping(index)
+end)
+
+commands.Add("voxel_dump_watch", function()
+	voxel_debug.ToggleDumpWatch()
+end)
+
+commands.Add("voxel_gi_probes=boolean[true],number[1]", function(enabled, cascade_index)
+	voxel_debug.SetGIProbeOverlay(enabled, cascade_index)
+end)
+
+commands.Add("voxel_gi_dump", function()
+	voxel_debug.DumpGIState()
+end)
+
+commands.Add("voxel_gi_debug=number[1]", function(mode)
+	voxel_debug.SetGIDebugMode(mode)
+end)
 
 return voxel_debug
