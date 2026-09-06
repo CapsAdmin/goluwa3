@@ -48,7 +48,14 @@ voxel_gi.CASCADE_UPDATE_DIVISORS = {1, 2, 4, 4}
 voxel_gi.MAX_TRACE_STEPS = 128
 voxel_gi.IRRADIANCE_OCT_SIZE = 8
 voxel_gi.VISIBILITY_OCT_SIZE = 16
+-- Steady state hysteresis. A probe only blends this hard once it has enough
+-- updates behind it to be an average of that many samples: until then it
+-- blends at age/(age+1), which makes its first updates an exact running mean
+-- instead of an exponential crawl towards one. A fresh probe therefore shows
+-- the right amount of light on its first update rather than a fraction of it,
+-- and still ends up as stable as a constant HYSTERESIS once it has settled.
 voxel_gi.HYSTERESIS = 0.9
+voxel_gi.MAX_PROBE_AGE = 64
 -- A probe whose rays mostly start inside geometry is faded out, but the
 -- fraction is estimated from one randomly rotated 64 ray set, so the raw
 -- number jitters by several percent between updates. Instead of a threshold,
@@ -1086,6 +1093,7 @@ local function build_update_pipeline()
 			const float BACKFACE_HYSTERESIS = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_HYSTERESIS) .. [[;
 			const float BACKFACE_DISABLE = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_DISABLE) .. [[;
 			const float BACKFACE_ENABLE = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_ENABLE) .. [[;
+			const int MAX_PROBE_AGE = ]] .. voxel_gi.MAX_PROBE_AGE .. [[;
 
 			shared vec4 s_ray[RAYS_PER_PROBE];
 			shared vec3 s_dir[RAYS_PER_PROBE];
@@ -1304,6 +1312,8 @@ local function build_update_pipeline()
 				int meta_index = c * PROBES_PER_CASCADE + slot;
 				ivec4 meta = gi_probe_meta[meta_index];
 				bool history_valid = meta.xyz == g && meta.w != 0;
+				int age = history_valid ? meta.w : 0;
+				float hysteresis = min(gi_data.hysteresis, float(age) / float(age + 1));
 				int ray = int(gl_LocalInvocationID.x);
 
 				// probes inside geometry trace from a nearby free voxel
@@ -1344,30 +1354,35 @@ local function build_update_pipeline()
 				s_vis_dist[ray] = dist < 0.0 ? min(-dist * 0.2, max_dist) : min(dist, max_dist);
 				barrier();
 
-				// irradiance: one octahedral texel per thread
+				// irradiance: the octahedral texels spread over the threads,
+				// which is one each while the ray count matches the tile
 				ivec2 tile = voxel_gi_tile_origin(s, VOXEL_GI_IRRADIANCE_SIZE);
-				ivec2 texel = ivec2(ray % VOXEL_GI_IRRADIANCE_SIZE, ray / VOXEL_GI_IRRADIANCE_SIZE);
-				vec3 texel_dir = voxel_gi_oct_decode((vec2(texel) + 0.5) / float(VOXEL_GI_IRRADIANCE_SIZE));
-				vec3 sum = vec3(0.0);
-				float weight_sum = 0.0;
+				int irr_texel_count = VOXEL_GI_IRRADIANCE_SIZE * VOXEL_GI_IRRADIANCE_SIZE;
 
-				for (int r = 0; r < RAYS_PER_PROBE; r++) {
-					if (s_ray[r].a < 0.0) continue;
-					float w = max(dot(texel_dir, s_dir[r]), 0.0);
-					sum += s_ray[r].rgb * w;
-					weight_sum += w;
+				for (int k = ray; k < irr_texel_count; k += RAYS_PER_PROBE) {
+					ivec2 texel = ivec2(k % VOXEL_GI_IRRADIANCE_SIZE, k / VOXEL_GI_IRRADIANCE_SIZE);
+					vec3 texel_dir = voxel_gi_oct_decode((vec2(texel) + 0.5) / float(VOXEL_GI_IRRADIANCE_SIZE));
+					vec3 sum = vec3(0.0);
+					float weight_sum = 0.0;
+
+					for (int r = 0; r < RAYS_PER_PROBE; r++) {
+						if (s_ray[r].a < 0.0) continue;
+
+						float w = max(dot(texel_dir, s_dir[r]), 0.0);
+						sum += s_ray[r].rgb * w;
+						weight_sum += w;
+					}
+
+					vec3 result = weight_sum > 0.0 ? sum / weight_sum : vec3(0.0);
+					ivec2 coord = tile + texel;
+					vec4 previous = voxel_gi_fetch_irradiance(c, coord);
+
+					if (history_valid && previous.a > 0.0) {
+						result = mix(result, previous.rgb, hysteresis);
+					}
+
+					voxel_gi_store_irradiance(c, coord, vec4(result, enabled ? 1.0 : 0.0));
 				}
-
-				vec3 result = weight_sum > 0.0 ? sum / weight_sum : vec3(0.0);
-				ivec2 coord = tile + texel;
-				vec4 previous = voxel_gi_fetch_irradiance(c, coord);
-
-				if (history_valid && previous.a > 0.0) {
-					result = mix(result, previous.rgb, gi_data.hysteresis);
-				}
-
-				vec4 irradiance_value = vec4(result, enabled ? 1.0 : 0.0);
-				voxel_gi_store_irradiance(c, coord, irradiance_value);
 
 				// visibility: mean distance and mean squared distance
 				ivec2 vis_tile = voxel_gi_tile_origin(s, VOXEL_GI_VISIBILITY_SIZE);
@@ -1399,7 +1414,7 @@ local function build_update_pipeline()
 					ivec2 vcoord = vis_tile + vt;
 
 					if (history_valid) {
-						vis = mix(vis, voxel_gi_fetch_visibility(c, vcoord), gi_data.hysteresis);
+						vis = mix(vis, voxel_gi_fetch_visibility(c, vcoord), hysteresis);
 					}
 
 					voxel_gi_store_visibility(c, vcoord, vec4(vis, 0.0, 0.0));
@@ -1408,7 +1423,7 @@ local function build_update_pipeline()
 				// only the store thread needs the probe wide numbers below, so
 				// they stay out of the other 63 threads' way
 				if (ray == 0) {
-					gi_probe_meta[meta_index] = ivec4(g, 1);
+					gi_probe_meta[meta_index] = ivec4(g, min(age + 1, MAX_PROBE_AGE));
 					int backface_count = 0;
 
 					for (int r = 0; r < RAYS_PER_PROBE; r++) {
@@ -1431,7 +1446,7 @@ local function build_update_pipeline()
 					);
 
 					if (history_valid) {
-						validity = mix(validity, voxel_gi_fetch_info(c, info_coord).w, BACKFACE_HYSTERESIS);
+						validity = mix(validity, voxel_gi_fetch_info(c, info_coord).w, min(BACKFACE_HYSTERESIS, float(age) / float(age + 1)));
 					}
 
 					// relocation is a lookup in the voxel volume, not an
