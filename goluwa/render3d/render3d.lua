@@ -20,7 +20,7 @@ local system = import("goluwa/system.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
-local scene_voxelizer = import("goluwa/render3d/scene_voxelizer.lua")
+local scene_voxelizer = import("goluwa/render3d/voxels/scene_voxelizer.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Light = import("goluwa/entities/components/light.lua")
 local objects = import("goluwa/objects/objects.lua")
@@ -429,8 +429,7 @@ function render3d.CreatePipelineBundle(options)
 		{
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/ambient_occlusion.lua"),
-			import("goluwa/render3d/passes/voxel_build.lua"),
-			import("goluwa/render3d/passes/voxel_gi.lua"),
+			import("goluwa/render3d/voxels/render_pass.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			--import("goluwa/render3d/passes/lighting_simple.lua"),

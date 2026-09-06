@@ -2,13 +2,12 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
-local orientation = import("goluwa/render3d/orientation.lua")
-local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local voxel_build = library()
 local AXIS_ROTATIONS = {
 	x = Quat():SetAngles(Deg3(0, -90 + 180, 0)),
 	y = Quat():SetAngles(Deg3(90, 0 + 180, 0)),
@@ -794,7 +793,22 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 	cmd:EndRendering()
 end
 
-local function draw_voxel_build(self, cmd)
+function voxel_build.GetProjectionViewWorldMatrix()
+	return get_voxel_projection_view_world_matrix()
+end
+
+function voxel_build.WriteDataBlock(block)
+	block.clipmap_index = current_build_state.clipmap_index
+	block.axis_index = current_build_state.axis_index
+	block.current_slice = current_build_state.current_slice
+	block.resolution = current_build_state.resolution
+	block.voxel_size = current_build_state.voxel_size
+	current_build_state.clipmap_origin:CopyToFloatPointer(block.clipmap_origin)
+	block.world_span = current_build_state.world_span
+	return block
+end
+
+function voxel_build.Draw(self, cmd)
 	local voxelizer = render3d.GetSceneVoxelizer()
 
 	if not voxelizer or not voxelizer.IsEnabled or not voxelizer:IsEnabled() then
@@ -920,120 +934,4 @@ local function draw_voxel_build(self, cmd)
 	voxelizer.frame_stats.voxel_entries = total_entries
 end
 
-return {
-	{
-		name = "voxel_build",
-		ColorFormat = {
-			{"r8g8b8a8_unorm", {"color", "rgba"}},
-			{"r8g8b8a8_unorm", {"normal", "rgba"}},
-		},
-		dont_create_framebuffers = true,
-		on_draw = draw_voxel_build,
-		vertex = {
-			bindings = {
-				{
-					binding = 0,
-					stride = model_pipeline.GetVertexStride(),
-					input_rate = "vertex",
-					attributes = model_pipeline.GetVertexAttributesSubset({"position", "uv", "normal"}),
-				},
-			},
-			outputs = {
-				{"uv", "vec2"},
-				{"normal", "vec3"},
-			},
-			push_constants = {
-				{
-					name = "vertex",
-					block = model_pipeline.GetTransformBlock(true),
-					write = model_pipeline.BuildTransformBlockWriter(true, get_voxel_projection_view_world_matrix),
-				},
-			},
-			shader = [[
-				void main() {
-					vec3 local_position = in_position;
-					gl_Position = vertex.projection_view_world * vec4(local_position, 1.0);
-					out_uv = in_uv;
-					out_normal = normalize(mat3(vertex.world) * in_normal);
-				}
-			]],
-		},
-		fragment = {
-			uniform_buffers = {
-				{
-					name = "voxel_build_data",
-					binding_index = 3,
-					block = {
-						{"clipmap_index", "int"},
-						{"axis_index", "int"},
-						{"current_slice", "int"},
-						{"resolution", "int"},
-						{"voxel_size", "float"},
-						{"clipmap_origin", "vec3"},
-						{"world_span", "float"},
-					},
-					write = function(self, block)
-						block.clipmap_index = current_build_state.clipmap_index
-						block.axis_index = current_build_state.axis_index
-						block.current_slice = current_build_state.current_slice
-						block.resolution = current_build_state.resolution
-						block.voxel_size = current_build_state.voxel_size
-						current_build_state.clipmap_origin:CopyToFloatPointer(block.clipmap_origin)
-						block.world_span = current_build_state.world_span
-						return block
-					end,
-				},
-				{
-					name = "surface",
-					upload_scope = "frame_keyed",
-					upload_key = render3d.GetMaterialUploadKey,
-					block = model_pipeline.GetSurfaceMaterialBlock(),
-					write = model_pipeline.WriteSurfaceMaterialBlock,
-				},
-			},
-			shader = model_pipeline.BuildSurfaceSamplingGlsl("surface") .. [[
-			void main() {
-				vec4 surface_color = get_surface_color();
-				discard_surface_alpha(surface_color);
-				vec3 albedo = clamp(surface_color.rgb, vec3(0.0), vec3(1.0));
-				vec3 emissive = clamp(get_surface_emissive(albedo), vec3(0.0), vec3(1.0));
-				vec3 voxel_color = clamp(albedo + emissive, vec3(0.0), vec3(1.0));
-				// alpha >= 0.5 marks an occupied voxel, the range above 0.5
-				// encodes the emissive luminance (0..4) so voxel gi can re-emit it
-				float emissive_luma = dot(emissive, vec3(0.2126, 0.7152, 0.0722));
-				set_color(vec4(voxel_color, 0.5 + 0.5 * clamp(emissive_luma / 4.0, 0.0, 1.0)));
-				// the normal target is signed and additive: opposite faces that
-				// land in the same voxel (thin slabs) cancel to a zero normal,
-				// which voxel gi treats as two sided instead of a backface
-				vec3 n = normalize(in_normal);
-				set_normal(vec4(n, 1.0));
-			}
-			]],
-		},
-		CullMode = "none",
-		color_blend = {
-			attachments = {
-				{},
-				{
-					blend = true,
-					src_color_blend_factor = "one",
-					dst_color_blend_factor = "one",
-					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
-					dst_alpha_blend_factor = "one",
-					alpha_blend_op = "add",
-				},
-			},
-		},
-		DepthTest = false,
-		DepthWrite = false,
-		Blend = true,
-		SrcColorBlendFactor = "one",
-		DstColorBlendFactor = "one",
-		ColorBlendOp = "max",
-		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "one",
-		AlphaBlendOp = "max",
-		ColorWriteMask = "rgba",
-	},
-}
+return voxel_build

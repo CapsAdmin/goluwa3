@@ -1,6 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
-local VoxelGrid = import("goluwa/render3d/voxel_grid.lua")
+local VoxelGrid = import("goluwa/render3d/voxels/grid.lua")
 local scene_voxelizer = library()
 local AXES = {"x", "y", "z"}
 scene_voxelizer.DEFAULT_CLIPMAP_RESOLUTION = 128

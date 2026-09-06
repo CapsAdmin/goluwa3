@@ -20,7 +20,7 @@ local lightprobes = library()
 --
 -- The environment probe renders the sky only and provides the global
 -- specular environment plus the sky irradiance cubemap that diffuse lighting
--- falls back to outside the voxel gi volumes (see voxel_gi.lua, which owns
+-- falls back to outside the voxel gi volumes (see global_illumination.lua, which owns
 -- diffuse global illumination).
 --
 -- Reflection probes capture the scene into a prefiltered cubemap plus a
