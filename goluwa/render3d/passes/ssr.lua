@@ -1,7 +1,7 @@
 local assets = import("goluwa/assets.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local envprobe = import("goluwa/render3d/envprobe.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -42,7 +42,7 @@ return {
 					{"history_tex", "int"},
 					{"history_depth_tex", "int"},
 					{"frame_index", "int"},
-					lightprobes.GetProbeBlockLayout(),
+					envprobe.GetProbeBlockLayout(),
 					{"prev_view", "mat4"},
 					{"prev_projection", "mat4"},
 				},
@@ -71,7 +71,7 @@ return {
 						block.history_depth_tex = -1
 					end
 
-					lightprobes.WriteProbeBlock(self, block)
+					envprobe.WriteProbeBlock(self, block)
 
 					local prev_view = render3d.GetPreviousViewMatrix()
 					local prev_projection = render3d.GetPreviousProjectionMatrix()

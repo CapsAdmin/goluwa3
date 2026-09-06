@@ -29,7 +29,7 @@
 	Useful console commands: voxel_gi_debug (show gi irradiance only),
 	voxel_gi_probes (probe overlay), voxel_gi_occlusion (toggle the occlusion
 	march), voxel_gi_visibility (toggle the Chebyshev visibility test),
-	lightprobes_reflection_probes, lightprobes_dump, voxel_gi_invalidate.
+	envprobe_reflection_probes, envprobe_dump, voxel_gi_invalidate.
 
 	Run: USE_MOLTENVK=1 luajit glw --3d lua addons/examples/lua/examples/render3d/gi_reflections.lua
 ]]
@@ -37,7 +37,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local envprobe = import("goluwa/render3d/envprobe.lua")
 local shapes = import("lua/shapes.lua")
 
 local function mat(color, roughness, metallic)
@@ -99,7 +99,7 @@ do
 	box("cornell_roof_front", Vec3(cx, h, d / 4 + 1), Vec3(w, t, d / 2 - 2), white)
 	box("cornell_box", Vec3(cx - 2.5, 1.5, -2), Vec3(3, 3, 3), white)
 	sphere("cornell_sphere", Vec3(cx + 2.5, 1.5, 1.5), 1.5, white)
-	lightprobes.CreateReflectionProbe(Vec3(cx, h / 2, 0), 16, lightprobes.UPDATE_STATIC)
+	envprobe.CreateReflectionProbe(Vec3(cx, h / 2, 0), 16, envprobe.UPDATE_STATIC)
 end
 
 -- emissive tunnel, closed at both ends except a doorway on +z
@@ -148,7 +148,7 @@ do
 
 	sphere("stage_chrome", Vec3(cx, 2, 3), 2, mat(Color(0.95, 0.95, 0.95, 1), 0.02, 1))
 	sphere("stage_dielectric", Vec3(cx - 5, 1, 3), 1, mat(Color(0.9, 0.9, 0.9, 1), 0.15, 0))
-	lightprobes.CreateReflectionProbe(Vec3(cx, 3, 0), 20, lightprobes.UPDATE_STATIC)
+	envprobe.CreateReflectionProbe(Vec3(cx, 3, 0), 20, envprobe.UPDATE_STATIC)
 end
 
 -- multi-bounce colour bleed box: three saturated walls in a tight room, open

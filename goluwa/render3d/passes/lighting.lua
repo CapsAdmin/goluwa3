@@ -11,7 +11,7 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
-local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local envprobe = import("goluwa/render3d/envprobe.lua")
 local get_primary_sun = directional_shadows.GetPrimarySun
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
 local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
@@ -93,7 +93,7 @@ return {
 					atmosphere.GetBlockLayout(),
 					{"env_irradiance_tex", "int"},
 					voxel_gi.GetBlockLayout(),
-					lightprobes.GetProbeBlockLayout(),
+					envprobe.GetProbeBlockLayout(),
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_screen_tex", "int"},
@@ -126,7 +126,7 @@ return {
 					)
 					block.env_irradiance_tex = self:GetCubeMapTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 					voxel_gi.WriteBlock(self, block)
-					lightprobes.WriteProbeBlock(self, block)
+					envprobe.WriteProbeBlock(self, block)
 
 					if render3d.pipelines.ambient_occlusion_blur then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))

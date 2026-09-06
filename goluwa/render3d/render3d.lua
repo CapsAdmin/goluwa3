@@ -19,7 +19,7 @@ local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local system = import("goluwa/system.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
-local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_voxelizer = import("goluwa/render3d/voxels/scene_voxelizer.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Light = import("goluwa/entities/components/light.lua")
@@ -320,11 +320,11 @@ function render3d.ShouldUseLastFrameHistory()
 	return true
 end
 
-function render3d.ShouldUseLightProbes()
+function render3d.ShouldUseEnvProbes()
 	local context = render3d.GetActiveRenderContext()
 
-	if context and context.allow_lightprobes ~= nil then
-		return context.allow_lightprobes == true
+	if context and context.allow_envprobe ~= nil then
+		return context.allow_envprobe == true
 	end
 
 	return true
@@ -337,7 +337,7 @@ function render3d.ShouldUseProbeReflections()
 		return context.allow_probe_reflections == true
 	end
 
-	return render3d.ShouldUseLightProbes()
+	return render3d.ShouldUseEnvProbes()
 end
 
 function render3d.GetPreviousViewMatrix()

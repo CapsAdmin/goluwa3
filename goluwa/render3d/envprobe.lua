@@ -14,7 +14,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
-local lightprobes = library()
+local envprobe = library()
 
 local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()
@@ -36,48 +36,48 @@ local function get_primary_sun_direction()
 	return sun_dir
 end
 
-lightprobes.TYPE_ENVIRONMENT = "environment" -- Sky only, re-rendered when the sun moves
-lightprobes.TYPE_REFLECTION = "reflection" -- Renders geometry
-lightprobes.UPDATE_DYNAMIC = "dynamic" -- Re-captured continuously
-lightprobes.UPDATE_STATIC = "static" -- Captured once, and again when the sun moves
-lightprobes.UPDATE_MANUAL = "manual" -- Captured only when marked dirty
-lightprobes.ENVIRONMENT_SIZE = 512
-lightprobes.REFLECTION_SIZE = 128
-lightprobes.IRRADIANCE_SIZE = 32 -- Sky irradiance cubemap face size
-lightprobes.IRRADIANCE_SOURCE_SIZE = 16 -- Source mip face size the irradiance convolution integrates over
-lightprobes.REFLECTION_RADIUS = lightprobes.REFLECTION_RADIUS or 24
-lightprobes.REFLECTION_MIN_SPACING = lightprobes.REFLECTION_MIN_SPACING or 4
-lightprobes.FACES_PER_FRAME = lightprobes.FACES_PER_FRAME or 2
-lightprobes.DYNAMIC_INTERVAL = lightprobes.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
-lightprobes.SUN_CHANGE_DEGREES = lightprobes.SUN_CHANGE_DEGREES or 1
-lightprobes.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
-lightprobes.enabled = lightprobes.enabled ~= false
-lightprobes.reflection_probes_enabled = lightprobes.reflection_probes_enabled ~= false
-lightprobes.capture_pipeline_flags = lightprobes.capture_pipeline_flags or {
+envprobe.TYPE_ENVIRONMENT = "environment" -- Sky only, re-rendered when the sun moves
+envprobe.TYPE_REFLECTION = "reflection" -- Renders geometry
+envprobe.UPDATE_DYNAMIC = "dynamic" -- Re-captured continuously
+envprobe.UPDATE_STATIC = "static" -- Captured once, and again when the sun moves
+envprobe.UPDATE_MANUAL = "manual" -- Captured only when marked dirty
+envprobe.ENVIRONMENT_SIZE = 512
+envprobe.REFLECTION_SIZE = 128
+envprobe.IRRADIANCE_SIZE = 32 -- Sky irradiance cubemap face size
+envprobe.IRRADIANCE_SOURCE_SIZE = 16 -- Source mip face size the irradiance convolution integrates over
+envprobe.REFLECTION_RADIUS = envprobe.REFLECTION_RADIUS or 24
+envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
+envprobe.FACES_PER_FRAME = envprobe.FACES_PER_FRAME or 2
+envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
+envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
+envprobe.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
+envprobe.enabled = envprobe.enabled ~= false
+envprobe.reflection_probes_enabled = envprobe.reflection_probes_enabled ~= false
+envprobe.capture_pipeline_flags = envprobe.capture_pipeline_flags or {
 	ssr = false,
 	ocean = true,
 }
-lightprobes.auto_placement_enabled = lightprobes.auto_placement_enabled ~= false
-lightprobes.AUTO_PLACEMENT_SPACING = lightprobes.AUTO_PLACEMENT_SPACING or 48
-lightprobes.AUTO_PLACEMENT_RADIUS_CELLS = lightprobes.AUTO_PLACEMENT_RADIUS_CELLS or 2
-lightprobes.AUTO_PLACEMENT_INTERVAL = lightprobes.AUTO_PLACEMENT_INTERVAL or 1
-lightprobes.probes = lightprobes.probes or {}
-lightprobes.auto_grid = lightprobes.auto_grid or {} -- grid key -> auto-placed probe
-lightprobes.auto_last_update = lightprobes.auto_last_update or 0
-lightprobes.current_probe = lightprobes.current_probe or nil -- reflection probe currently being captured
-lightprobes.current_face = lightprobes.current_face or 0
-lightprobes.inv_projection_view = lightprobes.inv_projection_view or Matrix44()
-lightprobes.debug = lightprobes.debug or {}
-lightprobes.debug.draw_enabled = lightprobes.debug.draw_enabled == true
-lightprobes.debug.labels_enabled = lightprobes.debug.labels_enabled ~= false
-lightprobes.debug.focus_index = lightprobes.debug.focus_index or 0
-lightprobes.debug.show_environment = lightprobes.debug.show_environment == true
-lightprobes.debug.last_overlay_probe_count = lightprobes.debug.last_overlay_probe_count or 0
-lightprobes.debug.grid_enabled = lightprobes.debug.grid_enabled == true
-lightprobes.debug.grid_show_depth = lightprobes.debug.grid_show_depth == true
-lightprobes.debug.grid_tile_size = lightprobes.debug.grid_tile_size or 88
-lightprobes.debug.grid_margin = lightprobes.debug.grid_margin or 12
-lightprobes.debug.grid_limit = lightprobes.debug.grid_limit or 4
+envprobe.auto_placement_enabled = envprobe.auto_placement_enabled ~= false
+envprobe.AUTO_PLACEMENT_SPACING = envprobe.AUTO_PLACEMENT_SPACING or 48
+envprobe.AUTO_PLACEMENT_RADIUS_CELLS = envprobe.AUTO_PLACEMENT_RADIUS_CELLS or 2
+envprobe.AUTO_PLACEMENT_INTERVAL = envprobe.AUTO_PLACEMENT_INTERVAL or 1
+envprobe.probes = envprobe.probes or {}
+envprobe.auto_grid = envprobe.auto_grid or {} -- grid key -> auto-placed probe
+envprobe.auto_last_update = envprobe.auto_last_update or 0
+envprobe.current_probe = envprobe.current_probe or nil -- reflection probe currently being captured
+envprobe.current_face = envprobe.current_face or 0
+envprobe.inv_projection_view = envprobe.inv_projection_view or Matrix44()
+envprobe.debug = envprobe.debug or {}
+envprobe.debug.draw_enabled = envprobe.debug.draw_enabled == true
+envprobe.debug.labels_enabled = envprobe.debug.labels_enabled ~= false
+envprobe.debug.focus_index = envprobe.debug.focus_index or 0
+envprobe.debug.show_environment = envprobe.debug.show_environment == true
+envprobe.debug.last_overlay_probe_count = envprobe.debug.last_overlay_probe_count or 0
+envprobe.debug.grid_enabled = envprobe.debug.grid_enabled == true
+envprobe.debug.grid_show_depth = envprobe.debug.grid_show_depth == true
+envprobe.debug.grid_tile_size = envprobe.debug.grid_tile_size or 88
+envprobe.debug.grid_margin = envprobe.debug.grid_margin or 12
+envprobe.debug.grid_limit = envprobe.debug.grid_limit or 4
 -- Face rotation angles for cubemap rendering
 local face_angles = {
 	Deg3(0, -90 + 180, 0), -- +X
@@ -90,7 +90,7 @@ local face_angles = {
 local face_names = {"px", "nx", "py", "ny", "pz", "nz"}
 
 local function write_sky_vertex_constants(self, block)
-	lightprobes.inv_projection_view:CopyToFloatPointer(block.inv_projection_view)
+	envprobe.inv_projection_view:CopyToFloatPointer(block.inv_projection_view)
 	return block
 end
 
@@ -222,35 +222,35 @@ local function CreateProbeTextures(size, with_irradiance)
 	end
 
 	if with_irradiance then
-		probe.irradiance_cubemap = create_cubemap(lightprobes.IRRADIANCE_SIZE, "b10g11r11_ufloat_pack32", 1)
+		probe.irradiance_cubemap = create_cubemap(envprobe.IRRADIANCE_SIZE, "b10g11r11_ufloat_pack32", 1)
 		probe.irradiance_face_views = create_face_views(probe.irradiance_cubemap)
 	end
 
 	return probe
 end
 
-function lightprobes.CreateEnvironmentProbe(position)
-	local probe = CreateProbeTextures(lightprobes.ENVIRONMENT_SIZE, true)
-	probe.type = lightprobes.TYPE_ENVIRONMENT
-	probe.update_mode = lightprobes.UPDATE_DYNAMIC
+function envprobe.CreateEnvironmentProbe(position)
+	local probe = CreateProbeTextures(envprobe.ENVIRONMENT_SIZE, true)
+	probe.type = envprobe.TYPE_ENVIRONMENT
+	probe.update_mode = envprobe.UPDATE_DYNAMIC
 	probe.position = position or Vec3(0, 0, 0)
-	probe.size = lightprobes.ENVIRONMENT_SIZE
+	probe.size = envprobe.ENVIRONMENT_SIZE
 	probe.needs_update = true
 	probe.last_rendered = 0
-	lightprobes.environment_probe = probe
+	envprobe.environment_probe = probe
 	return probe
 end
 
-function lightprobes.CreateReflectionProbe(position, radius, update_mode)
-	local probe = CreateProbeTextures(lightprobes.REFLECTION_SIZE, false)
-	probe.type = lightprobes.TYPE_REFLECTION
-	probe.update_mode = update_mode or lightprobes.UPDATE_STATIC
+function envprobe.CreateReflectionProbe(position, radius, update_mode)
+	local probe = CreateProbeTextures(envprobe.REFLECTION_SIZE, false)
+	probe.type = envprobe.TYPE_REFLECTION
+	probe.update_mode = update_mode or envprobe.UPDATE_STATIC
 	probe.position = position:Copy()
-	probe.radius = radius or lightprobes.REFLECTION_RADIUS
-	probe.size = lightprobes.REFLECTION_SIZE
+	probe.radius = radius or envprobe.REFLECTION_RADIUS
+	probe.size = envprobe.REFLECTION_SIZE
 	probe.needs_update = true
 	probe.last_rendered = 0
-	table.insert(lightprobes.probes, probe)
+	table.insert(envprobe.probes, probe)
 	initialize_probe_layouts_now(probe)
 	return probe
 end
@@ -258,19 +258,19 @@ end
 local function remove_from_auto_grid(probe)
 	if not probe.auto_grid_key then return end
 
-	if lightprobes.auto_grid[probe.auto_grid_key] == probe then
-		lightprobes.auto_grid[probe.auto_grid_key] = nil
+	if envprobe.auto_grid[probe.auto_grid_key] == probe then
+		envprobe.auto_grid[probe.auto_grid_key] = nil
 	end
 end
 
-function lightprobes.RemoveReflectionProbe(probe)
-	for i, other in ipairs(lightprobes.probes) do
+function envprobe.RemoveReflectionProbe(probe)
+	for i, other in ipairs(envprobe.probes) do
 		if other == probe then
-			table.remove(lightprobes.probes, i)
+			table.remove(envprobe.probes, i)
 
-			if lightprobes.current_probe == probe then
-				lightprobes.current_probe = nil
-				lightprobes.current_face = 0
+			if envprobe.current_probe == probe then
+				envprobe.current_probe = nil
+				envprobe.current_face = 0
 			end
 
 			remove_from_auto_grid(probe)
@@ -282,23 +282,23 @@ function lightprobes.RemoveReflectionProbe(probe)
 	return false
 end
 
-function lightprobes.ClearReflectionProbes()
-	for _, probe in ipairs(lightprobes.probes) do
+function envprobe.ClearReflectionProbes()
+	for _, probe in ipairs(envprobe.probes) do
 		remove_probe_resources(probe)
 	end
 
-	lightprobes.probes = {}
-	lightprobes.auto_grid = {}
-	lightprobes.current_probe = nil
-	lightprobes.current_face = 0
-	lightprobes.ClearDebugOverlay()
+	envprobe.probes = {}
+	envprobe.auto_grid = {}
+	envprobe.current_probe = nil
+	envprobe.current_face = 0
+	envprobe.ClearDebugOverlay()
 end
 
-function lightprobes.FindNearestReflectionProbe(position, max_distance)
+function envprobe.FindNearestReflectionProbe(position, max_distance)
 	local nearest_probe
 	local nearest_distance = math.huge
 
-	for _, probe in ipairs(lightprobes.probes) do
+	for _, probe in ipairs(envprobe.probes) do
 		local distance = (probe.position - position):GetLength()
 
 		if distance < nearest_distance then
@@ -314,9 +314,9 @@ function lightprobes.FindNearestReflectionProbe(position, max_distance)
 	return nearest_probe, nearest_distance
 end
 
-function lightprobes.EnsureReflectionProbe(position, radius, update_mode, min_spacing)
-	min_spacing = min_spacing or lightprobes.REFLECTION_MIN_SPACING
-	local probe, distance = lightprobes.FindNearestReflectionProbe(position, min_spacing)
+function envprobe.EnsureReflectionProbe(position, radius, update_mode, min_spacing)
+	min_spacing = min_spacing or envprobe.REFLECTION_MIN_SPACING
+	local probe, distance = envprobe.FindNearestReflectionProbe(position, min_spacing)
 
 	if probe then
 		if radius and radius > (probe.radius or 0) then probe.radius = radius end
@@ -329,7 +329,7 @@ function lightprobes.EnsureReflectionProbe(position, radius, update_mode, min_sp
 		return probe, false, distance
 	end
 
-	return lightprobes.CreateReflectionProbe(position, radius, update_mode),
+	return envprobe.CreateReflectionProbe(position, radius, update_mode),
 	true,
 	distance
 end
@@ -338,16 +338,16 @@ local function auto_grid_key(cx, cy, cz)
 	return cx .. "," .. cy .. "," .. cz
 end
 
-function lightprobes.UpdateAutoPlacement(camera_position)
-	if not lightprobes.auto_placement_enabled then return end
+function envprobe.UpdateAutoPlacement(camera_position)
+	if not envprobe.auto_placement_enabled then return end
 
 	local now = system.GetTime()
 
-	if now - lightprobes.auto_last_update < lightprobes.AUTO_PLACEMENT_INTERVAL then return end
+	if now - envprobe.auto_last_update < envprobe.AUTO_PLACEMENT_INTERVAL then return end
 
-	lightprobes.auto_last_update = now
-	local spacing = lightprobes.AUTO_PLACEMENT_SPACING
-	local radius_cells = lightprobes.AUTO_PLACEMENT_RADIUS_CELLS
+	envprobe.auto_last_update = now
+	local spacing = envprobe.AUTO_PLACEMENT_SPACING
+	local radius_cells = envprobe.AUTO_PLACEMENT_RADIUS_CELLS
 	local cx = math.floor(camera_position.x / spacing + 0.5)
 	local cy = math.floor(camera_position.y / spacing + 0.5)
 	local cz = math.floor(camera_position.z / spacing + 0.5)
@@ -359,34 +359,34 @@ function lightprobes.UpdateAutoPlacement(camera_position)
 			local key = auto_grid_key(gx, cy, gz)
 			wanted[key] = true
 
-			if not lightprobes.auto_grid[key] then
+			if not envprobe.auto_grid[key] then
 				local position = Vec3(gx * spacing, cy * spacing, gz * spacing)
-				local probe = lightprobes.CreateReflectionProbe(position, spacing * 0.75, lightprobes.UPDATE_STATIC)
+				local probe = envprobe.CreateReflectionProbe(position, spacing * 0.75, envprobe.UPDATE_STATIC)
 				probe.auto = true
 				probe.auto_grid_key = key
-				lightprobes.auto_grid[key] = probe
+				envprobe.auto_grid[key] = probe
 			end
 		end
 	end
 
-	for key, probe in pairs(lightprobes.auto_grid) do
+	for key, probe in pairs(envprobe.auto_grid) do
 		if not wanted[key] then
-			lightprobes.RemoveReflectionProbe(probe)
-			lightprobes.auto_grid[key] = nil
+			envprobe.RemoveReflectionProbe(probe)
+			envprobe.auto_grid[key] = nil
 		end
 	end
 end
 
-function lightprobes.SetAutoPlacementEnabled(enabled)
-	lightprobes.auto_placement_enabled = enabled ~= false
+function envprobe.SetAutoPlacementEnabled(enabled)
+	envprobe.auto_placement_enabled = enabled ~= false
 
-	if not lightprobes.auto_placement_enabled then
-		for key, probe in pairs(lightprobes.auto_grid) do
-			lightprobes.RemoveReflectionProbe(probe)
-			lightprobes.auto_grid[key] = nil
+	if not envprobe.auto_placement_enabled then
+		for key, probe in pairs(envprobe.auto_grid) do
+			envprobe.RemoveReflectionProbe(probe)
+			envprobe.auto_grid[key] = nil
 		end
 	else
-		lightprobes.auto_last_update = 0
+		envprobe.auto_last_update = 0
 	end
 end
 
@@ -397,9 +397,9 @@ local function nearest_probe_comparator(a, b)
 		(b.position - nearest_probe_sort_position):GetLengthSquared()
 end
 
-function lightprobes.GetProbesNear(position, limit)
-	limit = limit or lightprobes.MAX_UPLOADED_PROBES
-	local probes = lightprobes.probes
+function envprobe.GetProbesNear(position, limit)
+	limit = limit or envprobe.MAX_UPLOADED_PROBES
+	local probes = envprobe.probes
 
 	if #probes <= limit then return probes end
 
@@ -420,16 +420,16 @@ function lightprobes.GetProbesNear(position, limit)
 	return sorted
 end
 
-function lightprobes.GetProbeBlockLayout()
+function envprobe.GetProbeBlockLayout()
 	return {
-		{"probe_color_textures", "int", lightprobes.MAX_UPLOADED_PROBES},
-		{"probe_depth_textures", "int", lightprobes.MAX_UPLOADED_PROBES},
-		{"probe_positions", "vec4", lightprobes.MAX_UPLOADED_PROBES},
+		{"probe_color_textures", "int", envprobe.MAX_UPLOADED_PROBES},
+		{"probe_depth_textures", "int", envprobe.MAX_UPLOADED_PROBES},
+		{"probe_positions", "vec4", envprobe.MAX_UPLOADED_PROBES},
 	}
 end
 
-function lightprobes.WriteProbeBlock(self, block, camera_position)
-	local max_probes = lightprobes.MAX_UPLOADED_PROBES
+function envprobe.WriteProbeBlock(self, block, camera_position)
+	local max_probes = envprobe.MAX_UPLOADED_PROBES
 
 	for i = 0, max_probes - 1 do
 		block.probe_color_textures[i] = -1
@@ -442,8 +442,8 @@ function lightprobes.WriteProbeBlock(self, block, camera_position)
 
 	if
 		not (
-			lightprobes.IsEnabled() and
-			lightprobes.AreReflectionProbesEnabled() and
+			envprobe.IsEnabled() and
+			envprobe.AreReflectionProbesEnabled() and
 			render3d.ShouldUseProbeReflections()
 		)
 	then
@@ -451,7 +451,7 @@ function lightprobes.WriteProbeBlock(self, block, camera_position)
 	end
 
 	camera_position = camera_position or render3d.GetRenderCamera():GetPosition()
-	local probes = lightprobes.GetProbesNear(camera_position, max_probes)
+	local probes = envprobe.GetProbesNear(camera_position, max_probes)
 
 	for i = 0, max_probes - 1 do
 		local probe = probes[i + 1]
@@ -468,7 +468,7 @@ function lightprobes.WriteProbeBlock(self, block, camera_position)
 			block.probe_positions[i][0] = probe.position.x
 			block.probe_positions[i][1] = probe.position.y
 			block.probe_positions[i][2] = probe.position.z
-			block.probe_positions[i][3] = probe.radius or lightprobes.REFLECTION_RADIUS
+			block.probe_positions[i][3] = probe.radius or envprobe.REFLECTION_RADIUS
 		end
 	end
 
@@ -484,7 +484,7 @@ local function get_reflection_probe(index)
 
 	if index < 1 then return nil end
 
-	return lightprobes.probes[index]
+	return envprobe.probes[index]
 end
 
 local function create_face_texture_wrapper(texture, view, debug_name)
@@ -520,37 +520,37 @@ local function get_probe_face_texture(probe, face_index, show_depth)
 	tex = create_face_texture_wrapper(
 		source_texture,
 		view,
-		string.format("lightprobe_%s_face_%s", cache_key, face_names[face_index + 1])
+		string.format("envprobe_%s_face_%s", cache_key, face_names[face_index + 1])
 	)
 	cache[face_index] = tex
 	return tex
 end
 
 local function get_probe_overlay_id(kind, index)
-	return string.format("lightprobe_debug_%s_%d", kind, index)
+	return string.format("envprobe_debug_%s_%d", kind, index)
 end
 
 local function should_draw_probe(index)
-	local focus_index = lightprobes.debug.focus_index or 0
+	local focus_index = envprobe.debug.focus_index or 0
 	return focus_index <= 0 or focus_index == index
 end
 
 local function get_probe_debug_color(index, probe)
-	if probe.type == lightprobes.TYPE_ENVIRONMENT then
+	if probe.type == envprobe.TYPE_ENVIRONMENT then
 		return Color(0.35, 0.65, 1.0, 0.16)
 	end
 
-	if probe == lightprobes.current_probe then
+	if probe == envprobe.current_probe then
 		return Color(1.0, 0.55, 0.2, 0.22)
 	end
 
 	if probe.needs_update then return Color(1.0, 0.86, 0.2, 0.18) end
 
-	if probe.update_mode == lightprobes.UPDATE_DYNAMIC then
+	if probe.update_mode == envprobe.UPDATE_DYNAMIC then
 		return Color(0.35, 1.0, 0.45, 0.18)
 	end
 
-	if probe.update_mode == lightprobes.UPDATE_MANUAL then
+	if probe.update_mode == envprobe.UPDATE_MANUAL then
 		return Color(0.95, 0.35, 1.0, 0.18)
 	end
 
@@ -562,7 +562,7 @@ local function build_probe_debug_lines(index, probe)
 	local now = system.GetTime()
 	local last_rendered = probe.last_rendered or 0
 	local age = last_rendered > 0 and (now - last_rendered) or nil
-	local role = probe.type == lightprobes.TYPE_ENVIRONMENT and "env" or ("probe " .. index)
+	local role = probe.type == envprobe.TYPE_ENVIRONMENT and "env" or ("probe " .. index)
 	lines[1] = string.format("%s %s", role, probe.update_mode or "unknown")
 	lines[2] = string.format(
 		"r %.1f size %d dirty %s",
@@ -571,8 +571,8 @@ local function build_probe_debug_lines(index, probe)
 		tostring(probe.needs_update == true)
 	)
 
-	if probe == lightprobes.current_probe then
-		lines[3] = string.format("capturing face %d", lightprobes.current_face)
+	if probe == envprobe.current_probe then
+		lines[3] = string.format("capturing face %d", envprobe.current_face)
 	elseif age then
 		lines[3] = string.format("last %.2fs ago", age)
 	else
@@ -582,7 +582,7 @@ local function build_probe_debug_lines(index, probe)
 	return lines
 end
 
-function lightprobes.ClearDebugOverlay()
+function envprobe.ClearDebugOverlay()
 	local debug_draw = import.loaded["goluwa/debug_draw.lua"]
 
 	if not debug_draw then return end
@@ -590,44 +590,44 @@ function lightprobes.ClearDebugOverlay()
 	debug_draw.Remove(get_probe_overlay_id("sphere", 0))
 	debug_draw.Remove(get_probe_overlay_id("text", 0))
 
-	for i = 1, math.max(lightprobes.debug.last_overlay_probe_count or 0, #lightprobes.probes) do
+	for i = 1, math.max(envprobe.debug.last_overlay_probe_count or 0, #envprobe.probes) do
 		debug_draw.Remove(get_probe_overlay_id("sphere", i))
 		debug_draw.Remove(get_probe_overlay_id("text", i))
 	end
 
-	lightprobes.debug.last_overlay_probe_count = #lightprobes.probes
+	envprobe.debug.last_overlay_probe_count = #envprobe.probes
 end
 
-function lightprobes.SetDebugDrawEnabled(enabled)
-	lightprobes.debug.draw_enabled = enabled == true
+function envprobe.SetDebugDrawEnabled(enabled)
+	envprobe.debug.draw_enabled = enabled == true
 
-	if not lightprobes.debug.draw_enabled then lightprobes.ClearDebugOverlay() end
+	if not envprobe.debug.draw_enabled then envprobe.ClearDebugOverlay() end
 end
 
-function lightprobes.SetDebugLabelsEnabled(enabled)
-	lightprobes.debug.labels_enabled = enabled ~= false
+function envprobe.SetDebugLabelsEnabled(enabled)
+	envprobe.debug.labels_enabled = enabled ~= false
 
-	if not lightprobes.debug.labels_enabled then
+	if not envprobe.debug.labels_enabled then
 		local debug_draw = import.loaded["goluwa/debug_draw.lua"]
 
 		if debug_draw then
 			debug_draw.Remove(get_probe_overlay_id("text", 0))
 
-			for i = 1, math.max(lightprobes.debug.last_overlay_probe_count or 0, #lightprobes.probes) do
+			for i = 1, math.max(envprobe.debug.last_overlay_probe_count or 0, #envprobe.probes) do
 				debug_draw.Remove(get_probe_overlay_id("text", i))
 			end
 		end
 	end
 end
 
-function lightprobes.SetDebugFocus(index)
-	lightprobes.debug.focus_index = math.max(math.floor(index or 0), 0)
+function envprobe.SetDebugFocus(index)
+	envprobe.debug.focus_index = math.max(math.floor(index or 0), 0)
 end
 
-function lightprobes.SetDebugShowEnvironment(enabled)
-	lightprobes.debug.show_environment = enabled == true
+function envprobe.SetDebugShowEnvironment(enabled)
+	envprobe.debug.show_environment = enabled == true
 
-	if not lightprobes.debug.show_environment then
+	if not envprobe.debug.show_environment then
 		local debug_draw = import.loaded["goluwa/debug_draw.lua"]
 
 		if debug_draw then
@@ -637,19 +637,19 @@ function lightprobes.SetDebugShowEnvironment(enabled)
 	end
 end
 
-function lightprobes.DrawDebugOverlay()
-	if not lightprobes.debug.draw_enabled then return end
+function envprobe.DrawDebugOverlay()
+	if not envprobe.debug.draw_enabled then return end
 
 	local debug_draw = get_debug_draw_module()
-	local probe_count = #lightprobes.probes
-	local previous_count = lightprobes.debug.last_overlay_probe_count or 0
+	local probe_count = #envprobe.probes
+	local previous_count = envprobe.debug.last_overlay_probe_count or 0
 
 	if
-		lightprobes.debug.show_environment and
-		lightprobes.environment_probe and
+		envprobe.debug.show_environment and
+		envprobe.environment_probe and
 		should_draw_probe(0)
 	then
-		local env_probe = lightprobes.environment_probe
+		local env_probe = envprobe.environment_probe
 		debug_draw.DrawSphere{
 			id = get_probe_overlay_id("sphere", 0),
 			position = env_probe.position,
@@ -661,7 +661,7 @@ function lightprobes.DrawDebugOverlay()
 			time = 0.25,
 		}
 
-		if lightprobes.debug.labels_enabled then
+		if envprobe.debug.labels_enabled then
 			debug_draw.DrawText{
 				id = get_probe_overlay_id("text", 0),
 				position = env_probe.position,
@@ -676,12 +676,12 @@ function lightprobes.DrawDebugOverlay()
 		debug_draw.Remove(get_probe_overlay_id("text", 0))
 	end
 
-	for i, probe in ipairs(lightprobes.probes) do
+	for i, probe in ipairs(envprobe.probes) do
 		if should_draw_probe(i) then
 			debug_draw.DrawSphere{
 				id = get_probe_overlay_id("sphere", i),
 				position = probe.position,
-				radius = probe.radius or lightprobes.REFLECTION_RADIUS,
+				radius = probe.radius or envprobe.REFLECTION_RADIUS,
 				color = get_probe_debug_color(i, probe),
 				ignore_z = true,
 				double_sided = true,
@@ -689,7 +689,7 @@ function lightprobes.DrawDebugOverlay()
 				time = 0.25,
 			}
 
-			if lightprobes.debug.labels_enabled then
+			if envprobe.debug.labels_enabled then
 				debug_draw.DrawText{
 					id = get_probe_overlay_id("text", i),
 					position = probe.position,
@@ -714,19 +714,19 @@ function lightprobes.DrawDebugOverlay()
 		end
 	end
 
-	lightprobes.debug.last_overlay_probe_count = probe_count
+	envprobe.debug.last_overlay_probe_count = probe_count
 end
 
-function lightprobes.SetDebugGridEnabled(enabled)
-	lightprobes.debug.grid_enabled = enabled == true
+function envprobe.SetDebugGridEnabled(enabled)
+	envprobe.debug.grid_enabled = enabled == true
 end
 
-function lightprobes.SetDebugGridShowDepth(enabled)
-	lightprobes.debug.grid_show_depth = enabled == true
+function envprobe.SetDebugGridShowDepth(enabled)
+	envprobe.debug.grid_show_depth = enabled == true
 end
 
 local function draw_probe_grid_tile(debug_draw, x, y, tile_size, probe, probe_index, face_index)
-	local texture = get_probe_face_texture(probe, face_index, lightprobes.debug.grid_show_depth)
+	local texture = get_probe_face_texture(probe, face_index, envprobe.debug.grid_show_depth)
 	render2d.SetColor(0.08, 0.08, 0.08, 0.92)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(x - 1, y - 1, tile_size + 2, tile_size + 2)
@@ -738,7 +738,7 @@ local function draw_probe_grid_tile(debug_draw, x, y, tile_size, probe, probe_in
 		{
 			string.format(
 				"%s  p%d f%s",
-				lightprobes.debug.grid_show_depth and "depth" or "src",
+				envprobe.debug.grid_show_depth and "depth" or "src",
 				probe_index,
 				face_names[face_index + 1]
 			),
@@ -753,23 +753,23 @@ local function draw_probe_grid_tile(debug_draw, x, y, tile_size, probe, probe_in
 	)
 end
 
-function lightprobes.DrawDebugGrid()
-	if not lightprobes.debug.grid_enabled then return end
+function envprobe.DrawDebugGrid()
+	if not envprobe.debug.grid_enabled then return end
 
 	local debug_draw = get_debug_draw_module()
-	local tile_size = math.max(math.floor(lightprobes.debug.grid_tile_size or 88), 32)
-	local margin = math.max(math.floor(lightprobes.debug.grid_margin or 12), 4)
+	local tile_size = math.max(math.floor(envprobe.debug.grid_tile_size or 88), 32)
+	local margin = math.max(math.floor(envprobe.debug.grid_margin or 12), 4)
 	local screen_w, screen_h = render2d.GetSize()
-	local visible_limit = math.max(math.floor(lightprobes.debug.grid_limit or 4), 1)
+	local visible_limit = math.max(math.floor(envprobe.debug.grid_limit or 4), 1)
 	local probes_to_draw = {}
-	local focus_index = lightprobes.debug.focus_index or 0
+	local focus_index = envprobe.debug.focus_index or 0
 
 	if focus_index > 0 then
 		local probe = get_reflection_probe(focus_index)
 
 		if probe then probes_to_draw[1] = {index = focus_index, probe = probe} end
 	else
-		for i, probe in ipairs(lightprobes.probes) do
+		for i, probe in ipairs(envprobe.probes) do
 			probes_to_draw[#probes_to_draw + 1] = {index = i, probe = probe}
 
 			if #probes_to_draw >= visible_limit then break end
@@ -778,7 +778,7 @@ function lightprobes.DrawDebugGrid()
 
 	if #probes_to_draw == 0 then
 		debug_draw.DrawTextBlock(
-			{"lightprobes grid", "no reflection probes"},
+			{"envprobe grid", "no reflection probes"},
 			margin,
 			margin,
 			{background_alpha = 0.6}
@@ -828,9 +828,9 @@ function lightprobes.DrawDebugGrid()
 		x = x + probe_block_w + margin
 	end
 
-	if focus_index <= 0 and #lightprobes.probes > #probes_to_draw then
+	if focus_index <= 0 and #envprobe.probes > #probes_to_draw then
 		debug_draw.DrawTextBlock(
-			{string.format("showing %d / %d probes", #probes_to_draw, #lightprobes.probes)},
+			{string.format("showing %d / %d probes", #probes_to_draw, #envprobe.probes)},
 			margin,
 			screen_h - 34,
 			{background_alpha = 0.55}
@@ -872,21 +872,21 @@ local function get_depth_face_stats(texture, face_index)
 	}
 end
 
-function lightprobes.DumpProbeFaces(index)
+function envprobe.DumpProbeFaces(index)
 	local probe = get_reflection_probe(index)
 
 	if not probe then
 		logf(
-			"[lightprobes] no reflection probe at index %s (have %d)\n",
+			"[envprobe] no reflection probe at index %s (have %d)\n",
 			tostring(index),
-			#lightprobes.probes
+			#envprobe.probes
 		)
 		return nil
 	end
 
 	if (probe.last_rendered or 0) == 0 then
 		logf(
-			"[lightprobes] probe %d has never rendered; face contents may still be undefined\n",
+			"[envprobe] probe %d has never rendered; face contents may still be undefined\n",
 			index
 		)
 	end
@@ -894,7 +894,7 @@ function lightprobes.DumpProbeFaces(index)
 	for face_index = 0, 5 do
 		local stats = get_depth_face_stats(probe.depth_cubemap, face_index)
 		logf(
-			"[lightprobes] probe=%d face=%s depth[min=%.3f avg=%.3f max=%.3f nonzero=%.2f%% geometry=%.2f%%]\n",
+			"[envprobe] probe=%d face=%s depth[min=%.3f avg=%.3f max=%.3f nonzero=%.2f%% geometry=%.2f%%]\n",
 			index,
 			face_names[face_index + 1],
 			stats.min_depth,
@@ -908,45 +908,45 @@ function lightprobes.DumpProbeFaces(index)
 	return true
 end
 
-function lightprobes.ExportProbeDepth(index)
+function envprobe.ExportProbeDepth(index)
 	local probe = get_reflection_probe(index)
 
 	if not probe then
 		logf(
-			"[lightprobes] no reflection probe at index %s (have %d)\n",
+			"[envprobe] no reflection probe at index %s (have %d)\n",
 			tostring(index),
-			#lightprobes.probes
+			#envprobe.probes
 		)
 		return nil
 	end
 
 	local fs = import("goluwa/filesystem/fs.lua")
-	local dir = "tmp/lightprobes/"
+	local dir = "tmp/envprobe/"
 	assert(fs.create_directory_recursive(dir))
 
 	for face_index = 0, 5 do
 		local path = string.format("%sprobe_%02d_depth_%s.png", dir, index, face_names[face_index + 1])
 		probe.depth_cubemap:Download{base_array_layer = face_index}:Save(path)
-		logf("[lightprobes] saved %s\n", path)
+		logf("[envprobe] saved %s\n", path)
 	end
 
 	return true
 end
 
-function lightprobes.Dump(limit)
-	limit = math.max(math.floor(limit or #lightprobes.probes), 0)
+function envprobe.Dump(limit)
+	limit = math.max(math.floor(limit or #envprobe.probes), 0)
 	logf(
-		"[lightprobes] enabled=%s reflection_probes=%s count=%d current_face=%d\n",
-		tostring(lightprobes.enabled == true),
-		tostring(lightprobes.reflection_probes_enabled == true),
-		#lightprobes.probes,
-		lightprobes.current_face or 0
+		"[envprobe] enabled=%s reflection_probes=%s count=%d current_face=%d\n",
+		tostring(envprobe.enabled == true),
+		tostring(envprobe.reflection_probes_enabled == true),
+		#envprobe.probes,
+		envprobe.current_face or 0
 	)
 
-	if lightprobes.environment_probe then
-		local probe = lightprobes.environment_probe
+	if envprobe.environment_probe then
+		local probe = envprobe.environment_probe
 		logf(
-			"[lightprobes] env pos=(%.1f %.1f %.1f) size=%d dirty=%s mode=%s\n",
+			"[envprobe] env pos=(%.1f %.1f %.1f) size=%d dirty=%s mode=%s\n",
 			probe.position.x,
 			probe.position.y,
 			probe.position.z,
@@ -956,14 +956,14 @@ function lightprobes.Dump(limit)
 		)
 	end
 
-	for i = 1, math.min(#lightprobes.probes, limit) do
-		local probe = lightprobes.probes[i]
+	for i = 1, math.min(#envprobe.probes, limit) do
+		local probe = envprobe.probes[i]
 		local last_rendered = probe.last_rendered or 0
 		local age_text = last_rendered > 0 and
 			string.format("%.2f", system.GetTime() - last_rendered) or
 			"never"
 		logf(
-			"[lightprobes] #%d pos=(%.1f %.1f %.1f) radius=%.1f size=%d dirty=%s mode=%s age=%s current=%s\n",
+			"[envprobe] #%d pos=(%.1f %.1f %.1f) radius=%.1f size=%d dirty=%s mode=%s age=%s current=%s\n",
 			i,
 			probe.position.x,
 			probe.position.y,
@@ -973,19 +973,19 @@ function lightprobes.Dump(limit)
 			tostring(probe.needs_update == true),
 			tostring(probe.update_mode),
 			age_text,
-			tostring(probe == lightprobes.current_probe)
+			tostring(probe == envprobe.current_probe)
 		)
 	end
 
-	if limit < #lightprobes.probes then
-		logf("[lightprobes] ... %d more probes omitted\n", #lightprobes.probes - limit)
+	if limit < #envprobe.probes then
+		logf("[envprobe] ... %d more probes omitted\n", #envprobe.probes - limit)
 	end
 end
 
-function lightprobes.MarkAllReflectionProbesDirty(update_mode)
+function envprobe.MarkAllReflectionProbesDirty(update_mode)
 	local marked = 0
 
-	for _, probe in ipairs(lightprobes.probes) do
+	for _, probe in ipairs(envprobe.probes) do
 		probe.needs_update = true
 
 		if update_mode and probe.update_mode ~= update_mode then
@@ -998,62 +998,62 @@ function lightprobes.MarkAllReflectionProbesDirty(update_mode)
 	return marked
 end
 
-function lightprobes.Initialize()
-	lightprobes.CreatePipelines()
+function envprobe.Initialize()
+	envprobe.CreatePipelines()
 
-	if lightprobes.environment_probe and HOTRELOAD then
-		remove_probe_resources(lightprobes.environment_probe)
-		lightprobes.environment_probe = nil
+	if envprobe.environment_probe and HOTRELOAD then
+		remove_probe_resources(envprobe.environment_probe)
+		envprobe.environment_probe = nil
 	end
 
-	if not lightprobes.environment_probe then
-		lightprobes.CreateEnvironmentProbe(Vec3(0, 0, 0))
+	if not envprobe.environment_probe then
+		envprobe.CreateEnvironmentProbe(Vec3(0, 0, 0))
 	end
 
-	if not lightprobes.camera then lightprobes.camera = Camera3D.New() end
+	if not envprobe.camera then envprobe.camera = Camera3D.New() end
 
-	lightprobes.camera:SetFOV(math.rad(90))
-	lightprobes.camera:SetViewport(Rect(0, 0, lightprobes.ENVIRONMENT_SIZE, lightprobes.ENVIRONMENT_SIZE))
-	lightprobes.camera:SetNearZ(0.1)
-	lightprobes.camera:SetFarZ(1000)
-	lightprobes.environment_probe.needs_update = true
-	render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap, lightprobes.environment_probe.irradiance_cubemap)
-	lightprobes.MarkAllReflectionProbesDirty()
-	lightprobes.InitializeCubemapLayouts()
+	envprobe.camera:SetFOV(math.rad(90))
+	envprobe.camera:SetViewport(Rect(0, 0, envprobe.ENVIRONMENT_SIZE, envprobe.ENVIRONMENT_SIZE))
+	envprobe.camera:SetNearZ(0.1)
+	envprobe.camera:SetFarZ(1000)
+	envprobe.environment_probe.needs_update = true
+	render3d.SetEnvironmentTexture(envprobe.environment_probe.cubemap, envprobe.environment_probe.irradiance_cubemap)
+	envprobe.MarkAllReflectionProbesDirty()
+	envprobe.InitializeCubemapLayouts()
 end
 
-event.AddListener("Render3DInitialized", "lightprobes", function()
-	lightprobes.Initialize()
+event.AddListener("Render3DInitialized", "envprobe", function()
+	envprobe.Initialize()
 end)
 
-event.AddListener("SpawnProbe", "lightprobes", function(position, radius, update_mode, min_spacing)
-	lightprobes.EnsureReflectionProbe(position, radius, update_mode or lightprobes.UPDATE_STATIC, min_spacing)
+event.AddListener("SpawnProbe", "envprobe", function(position, radius, update_mode, min_spacing)
+	envprobe.EnsureReflectionProbe(position, radius, update_mode or envprobe.UPDATE_STATIC, min_spacing)
 end)
 
-event.AddListener("Update", "lightprobes_debug_overlay", function()
-	lightprobes.DrawDebugOverlay()
+event.AddListener("Update", "envprobe_debug_overlay", function()
+	envprobe.DrawDebugOverlay()
 end)
 
-event.AddListener("Update", "lightprobes_auto_placement", function()
-	if not lightprobes.enabled or not lightprobes.reflection_probes_enabled then return end
+event.AddListener("Update", "envprobe_auto_placement", function()
+	if not envprobe.enabled or not envprobe.reflection_probes_enabled then return end
 
 	local camera = render3d.GetRenderCamera()
 
 	if not camera then return end
 
-	lightprobes.UpdateAutoPlacement(camera:GetPosition())
+	envprobe.UpdateAutoPlacement(camera:GetPosition())
 end)
 
-event.AddListener("Draw2D", "lightprobes_debug_grid", function()
-	lightprobes.DrawDebugGrid()
+event.AddListener("Draw2D", "envprobe_debug_grid", function()
+	envprobe.DrawDebugGrid()
 end)
 
-function lightprobes.InitializeCubemapLayouts()
+function envprobe.InitializeCubemapLayouts()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
-	initialize_probe_layouts(cmd, lightprobes.environment_probe)
+	initialize_probe_layouts(cmd, envprobe.environment_probe)
 
-	for _, probe in ipairs(lightprobes.probes) do
+	for _, probe in ipairs(envprobe.probes) do
 		initialize_probe_layouts(cmd, probe)
 	end
 
@@ -1091,7 +1091,7 @@ local fullscreen_direction_vertex = {
 	]],
 }
 
-function lightprobes.CreatePipelines()
+function envprobe.CreatePipelines()
 	local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 
 	for _, key in ipairs{
@@ -1101,22 +1101,22 @@ function lightprobes.CreatePipelines()
 		"capture_copy_pipeline",
 		"capture_depth_pipeline",
 	} do
-		local pipeline = lightprobes[key]
+		local pipeline = envprobe[key]
 
 		if pipeline then pipeline:Remove() end
 
-		lightprobes[key] = nil
+		envprobe[key] = nil
 	end
 
-	if lightprobes.capture_bundles then
-		for _, bundle in pairs(lightprobes.capture_bundles) do
+	if envprobe.capture_bundles then
+		for _, bundle in pairs(envprobe.capture_bundles) do
 			render3d.RemovePipelineBundle(bundle)
 		end
 
-		lightprobes.capture_bundles = nil
+		envprobe.capture_bundles = nil
 	end
 
-	lightprobes.sky_pipeline = EasyPipeline.New{
+	envprobe.sky_pipeline = EasyPipeline.New{
 		ColorFormat = {
 			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 			{"r32_sfloat", {"linear_depth", "r"}},
@@ -1141,8 +1141,8 @@ function lightprobes.CreatePipelines()
 						sun_direction:CopyToFloatPointer(block.sun_direction)
 						block.sun_direction[3] = 0
 						block.sun_intensity = sun and sun.Intensity or atmosphere.GetSunIntensity()
-						lightprobes.camera:GetPosition():CopyToFloatPointer(block.camera_position)
-						atmosphere.WriteBlock(self, block, lightprobes.camera:GetPosition(), sun_direction)
+						envprobe.camera:GetPosition():CopyToFloatPointer(block.camera_position)
+						atmosphere.WriteBlock(self, block, envprobe.camera:GetPosition(), sun_direction)
 						return block
 					end,
 				},
@@ -1182,7 +1182,7 @@ function lightprobes.CreatePipelines()
 		DepthTest = false,
 		DepthWrite = false,
 	}
-	lightprobes.capture_copy_pipeline = EasyPipeline.New{
+	envprobe.capture_copy_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		dont_create_framebuffers = true,
 		CullMode = "none",
@@ -1196,7 +1196,7 @@ function lightprobes.CreatePipelines()
 						{"source_tex", "int"},
 					},
 					write = function(self, block)
-						block.source_tex = self:GetTextureIndex(lightprobes.current_capture_source_texture)
+						block.source_tex = self:GetTextureIndex(envprobe.current_capture_source_texture)
 						return block
 					end,
 				},
@@ -1213,7 +1213,7 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
-	lightprobes.capture_depth_pipeline = EasyPipeline.New{
+	envprobe.capture_depth_pipeline = EasyPipeline.New{
 		ColorFormat = {{"r32_sfloat", {"linear_depth", "r"}}},
 		dont_create_framebuffers = true,
 		CullMode = "none",
@@ -1230,7 +1230,7 @@ function lightprobes.CreatePipelines()
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
-						block.depth_tex = self:GetTextureIndex(lightprobes.current_capture_depth_texture)
+						block.depth_tex = self:GetTextureIndex(envprobe.current_capture_depth_texture)
 						return block
 					end,
 				},
@@ -1257,7 +1257,7 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
-	lightprobes.prefilter_pipeline = EasyPipeline.New{
+	envprobe.prefilter_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		RasterizationSamples = "1",
 		CullMode = "none",
@@ -1274,8 +1274,8 @@ function lightprobes.CreatePipelines()
 						{"resolution", "float"},
 					},
 					write = function(self, block)
-						local probe = lightprobes.current_prefilter_probe
-						block.roughness = lightprobes.current_roughness or 0
+						local probe = envprobe.current_prefilter_probe
+						block.roughness = envprobe.current_roughness or 0
 						block.input_texture_index = self:GetCubeMapTextureIndex(probe.source_cubemap)
 						block.resolution = probe.size
 						return block
@@ -1342,7 +1342,7 @@ function lightprobes.CreatePipelines()
 			]],
 		},
 	}
-	lightprobes.irradiance_pipeline = EasyPipeline.New{
+	envprobe.irradiance_pipeline = EasyPipeline.New{
 		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 		RasterizationSamples = "1",
 		CullMode = "none",
@@ -1358,16 +1358,16 @@ function lightprobes.CreatePipelines()
 						{"source_lod", "float"},
 					},
 					write = function(self, block)
-						local probe = lightprobes.current_prefilter_probe
+						local probe = envprobe.current_prefilter_probe
 						block.input_texture_index = self:GetCubeMapTextureIndex(probe.source_cubemap)
-						block.source_lod = math.max(math.log(probe.size / lightprobes.IRRADIANCE_SOURCE_SIZE) / math.log(2), 0)
+						block.source_lod = math.max(math.log(probe.size / envprobe.IRRADIANCE_SOURCE_SIZE) / math.log(2), 0)
 						return block
 					end,
 				},
 			},
 			custom_declarations = [[
 				layout(location = 0) in vec3 in_direction;
-				const int IRRADIANCE_SOURCE_SIZE = ]] .. lightprobes.IRRADIANCE_SOURCE_SIZE .. [[;
+				const int IRRADIANCE_SOURCE_SIZE = ]] .. envprobe.IRRADIANCE_SOURCE_SIZE .. [[;
 			]],
 			shader = [[
 				vec3 get_cube_texel_direction(int face, vec2 uv) {
@@ -1410,9 +1410,9 @@ end
 
 local pvm_cached = Matrix44()
 
-function lightprobes.GetProjectionViewWorldMatrix()
-	render3d.GetWorldMatrix():GetMultiplied(lightprobes.camera:BuildViewMatrix(), pvm_cached)
-	pvm_cached:GetMultiplied(lightprobes.camera:BuildProjectionMatrix(), pvm_cached)
+function envprobe.GetProjectionViewWorldMatrix()
+	render3d.GetWorldMatrix():GetMultiplied(envprobe.camera:BuildViewMatrix(), pvm_cached)
+	pvm_cached:GetMultiplied(envprobe.camera:BuildProjectionMatrix(), pvm_cached)
 	return pvm_cached
 end
 
@@ -1437,8 +1437,8 @@ local function submit_probe_command_buffer(cmd, own_cmd)
 end
 
 local function get_probe_capture_bundle(size)
-	lightprobes.capture_bundles = lightprobes.capture_bundles or {}
-	local bundle = lightprobes.capture_bundles[size]
+	envprobe.capture_bundles = envprobe.capture_bundles or {}
+	local bundle = envprobe.capture_bundles[size]
 
 	if bundle then return bundle end
 
@@ -1453,19 +1453,19 @@ local function get_probe_capture_bundle(size)
 				name == "voxel_gi_upsample"
 		end,
 	}
-	lightprobes.capture_bundles[size] = bundle
+	envprobe.capture_bundles[size] = bundle
 	return bundle
 end
 
 local function get_probe_capture_context()
 	return {
 		debug_mode = 1,
-		allow_lightprobes = false,
+		allow_envprobe = false,
 		allow_probe_reflections = false,
 		allow_last_frame_history = false,
 		pipeline_flags = {
-			ssr = lightprobes.capture_pipeline_flags.ssr == true,
-			ocean = lightprobes.capture_pipeline_flags.ocean ~= false,
+			ssr = envprobe.capture_pipeline_flags.ssr == true,
+			ocean = envprobe.capture_pipeline_flags.ocean ~= false,
 		},
 	}
 end
@@ -1474,7 +1474,7 @@ local function get_probe_capture_source_texture(bundle)
 	local current_idx = system.GetFrameNumber() % 2 + 1
 
 	if
-		lightprobes.capture_pipeline_flags.ocean ~= false and
+		envprobe.capture_pipeline_flags.ocean ~= false and
 		bundle.pipelines.ocean and
 		bundle.pipelines.ocean.framebuffers
 	then
@@ -1495,22 +1495,22 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
-function lightprobes.HasSunDirectionChanged()
+function envprobe.HasSunDirectionChanged()
 	local sun = get_primary_sun(render3d.GetLights())
 
 	if not sun then return false end
 
 	local current_sun_dir = sun.Owner.transform:GetRotation():GetBackward()
 
-	if not lightprobes.last_sun_direction then
-		lightprobes.last_sun_direction = current_sun_dir:Copy()
+	if not envprobe.last_sun_direction then
+		envprobe.last_sun_direction = current_sun_dir:Copy()
 		return true
 	end
 
-	local cos_angle = current_sun_dir:GetDot(lightprobes.last_sun_direction)
+	local cos_angle = current_sun_dir:GetDot(envprobe.last_sun_direction)
 
-	if cos_angle < math.cos(math.rad(lightprobes.SUN_CHANGE_DEGREES)) then
-		lightprobes.last_sun_direction = current_sun_dir:Copy()
+	if cos_angle < math.cos(math.rad(envprobe.SUN_CHANGE_DEGREES)) then
+		envprobe.last_sun_direction = current_sun_dir:Copy()
 		return true
 	end
 
@@ -1562,34 +1562,34 @@ local function draw_fullscreen(cmd, pipeline, size)
 	cmd:Draw(3, 1, 0, 0)
 end
 
-function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
-	if not lightprobes.enabled then return end
+function envprobe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
+	if not envprobe.enabled then return end
 
-	if not lightprobes.sky_pipeline then return end
+	if not envprobe.sky_pipeline then return end
 
 	num_faces = num_faces or 1
 	render.PushCommandBuffer(cmd)
 	local SIZE = probe.size
-	lightprobes.camera:SetPosition(probe.position)
-	lightprobes.camera:SetViewport(Rect(0, 0, SIZE, SIZE))
+	envprobe.camera:SetPosition(probe.position)
+	envprobe.camera:SetViewport(Rect(0, 0, SIZE, SIZE))
 
 	for _ = 1, num_faces do
-		local face_idx = lightprobes.current_face
-		lightprobes.camera:SetAngles(face_angles[face_idx + 1])
-		local proj = lightprobes.camera:BuildProjectionMatrix()
-		local view = lightprobes.camera:BuildViewMatrix():Copy()
+		local face_idx = envprobe.current_face
+		envprobe.camera:SetAngles(face_angles[face_idx + 1])
+		local proj = envprobe.camera:BuildProjectionMatrix()
+		local view = envprobe.camera:BuildViewMatrix():Copy()
 		view.m30, view.m31, view.m32 = 0, 0, 0
 		local proj_view = view * proj
-		proj_view:GetInverse(lightprobes.inv_projection_view)
+		proj_view:GetInverse(envprobe.inv_projection_view)
 
 		if render_geometry then
 			local bundle = get_probe_capture_bundle(SIZE)
 			local capture_context = get_probe_capture_context()
-			render3d.PushCamera(lightprobes.camera)
+			render3d.PushCamera(envprobe.camera)
 			render3d.RunPipelineBundle(bundle, cmd, capture_context)
 			render3d.PopCamera()
-			lightprobes.current_capture_source_texture = get_probe_capture_source_texture(bundle)
-			lightprobes.current_capture_depth_texture = get_probe_capture_depth_texture(bundle)
+			envprobe.current_capture_source_texture = get_probe_capture_source_texture(bundle)
+			envprobe.current_capture_depth_texture = get_probe_capture_depth_texture(bundle)
 			transition_face(cmd, probe.source_cubemap, face_idx, true)
 			transition_face(cmd, probe.depth_cubemap, face_idx, true)
 			cmd:BeginRendering{
@@ -1604,7 +1604,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			draw_fullscreen(cmd, lightprobes.capture_copy_pipeline, SIZE)
+			draw_fullscreen(cmd, envprobe.capture_copy_pipeline, SIZE)
 			cmd:EndRendering()
 			cmd:BeginRendering{
 				color_attachments = {
@@ -1618,7 +1618,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			draw_fullscreen(cmd, lightprobes.capture_depth_pipeline, SIZE)
+			draw_fullscreen(cmd, envprobe.capture_depth_pipeline, SIZE)
 			cmd:EndRendering()
 		else
 			transition_face(cmd, probe.source_cubemap, face_idx, true)
@@ -1641,13 +1641,13 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			draw_fullscreen(cmd, lightprobes.sky_pipeline, SIZE)
+			draw_fullscreen(cmd, envprobe.sky_pipeline, SIZE)
 			cmd:EndRendering()
 		end
 
 		transition_face(cmd, probe.source_cubemap, face_idx, false)
 		transition_face(cmd, probe.depth_cubemap, face_idx, false)
-		lightprobes.current_face = (lightprobes.current_face + 1) % 6
+		envprobe.current_face = (envprobe.current_face + 1) % 6
 	end
 
 	render.PopCommandBuffer()
@@ -1655,12 +1655,12 @@ end
 
 local function render_cube_faces(cmd, pipeline, texture, face_views, size, mip_level)
 	for face = 0, 5 do
-		lightprobes.camera:SetAngles(face_angles[face + 1])
-		local proj = lightprobes.camera:BuildProjectionMatrix()
-		local view = lightprobes.camera:BuildViewMatrix():Copy()
+		envprobe.camera:SetAngles(face_angles[face + 1])
+		local proj = envprobe.camera:BuildProjectionMatrix()
+		local view = envprobe.camera:BuildViewMatrix():Copy()
 		view.m30, view.m31, view.m32 = 0, 0, 0
 		local proj_view = view * proj
-		proj_view:GetInverse(lightprobes.inv_projection_view)
+		proj_view:GetInverse(envprobe.inv_projection_view)
 		render.TransitionResourceTo(
 			texture,
 			"color_attachment_optimal",
@@ -1702,22 +1702,22 @@ local function render_cube_faces(cmd, pipeline, texture, face_views, size, mip_l
 	end
 end
 
-function lightprobes.PrefilterProbe(cmd, probe)
-	if not lightprobes.prefilter_pipeline then return end
+function envprobe.PrefilterProbe(cmd, probe)
+	if not envprobe.prefilter_pipeline then return end
 
 	render.PushCommandBuffer(cmd)
 	local SIZE = probe.size
 	local num_mips = probe.cubemap.mip_map_levels
-	lightprobes.current_prefilter_probe = probe
+	envprobe.current_prefilter_probe = probe
 	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
 	local roughest_mip = math.max(math.min(ibl.GetPrefilterMipCount(SIZE), num_mips) - 1, 1)
 
 	for m = 0, num_mips - 1 do
-		lightprobes.current_roughness = math.min(m / roughest_mip, 1)
+		envprobe.current_roughness = math.min(m / roughest_mip, 1)
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
 		render_cube_faces(
 			cmd,
-			lightprobes.prefilter_pipeline,
+			envprobe.prefilter_pipeline,
 			probe.cubemap,
 			probe.mip_face_views[m],
 			mip_size,
@@ -1728,10 +1728,10 @@ function lightprobes.PrefilterProbe(cmd, probe)
 	if probe.irradiance_cubemap then
 		render_cube_faces(
 			cmd,
-			lightprobes.irradiance_pipeline,
+			envprobe.irradiance_pipeline,
 			probe.irradiance_cubemap,
 			probe.irradiance_face_views,
-			lightprobes.IRRADIANCE_SIZE,
+			envprobe.IRRADIANCE_SIZE,
 			0
 		)
 	end
@@ -1739,88 +1739,88 @@ function lightprobes.PrefilterProbe(cmd, probe)
 	render.PopCommandBuffer()
 end
 
-function lightprobes.UpdateEnvironmentProbe(cmd, sun_changed)
-	if not lightprobes.environment_probe then return end
+function envprobe.UpdateEnvironmentProbe(cmd, sun_changed)
+	if not envprobe.environment_probe then return end
 
-	local env_probe = lightprobes.environment_probe
-	sun_changed = sun_changed == nil and lightprobes.HasSunDirectionChanged() or sun_changed
+	local env_probe = envprobe.environment_probe
+	sun_changed = sun_changed == nil and envprobe.HasSunDirectionChanged() or sun_changed
 
 	if not sun_changed and not env_probe.needs_update then return end
 
 	local own_cmd
 	cmd, own_cmd = acquire_probe_command_buffer(cmd)
-	local saved_face = lightprobes.current_face
-	lightprobes.current_face = 0
-	lightprobes.RenderProbeFaces(cmd, env_probe, 6, false)
-	lightprobes.PrefilterProbe(cmd, env_probe)
-	lightprobes.current_face = saved_face
+	local saved_face = envprobe.current_face
+	envprobe.current_face = 0
+	envprobe.RenderProbeFaces(cmd, env_probe, 6, false)
+	envprobe.PrefilterProbe(cmd, env_probe)
+	envprobe.current_face = saved_face
 	env_probe.needs_update = false
 	env_probe.last_rendered = system.GetTime()
 	submit_probe_command_buffer(cmd, own_cmd)
 end
 
-function lightprobes.GetProbes()
-	return lightprobes.probes
+function envprobe.GetProbes()
+	return envprobe.probes
 end
 
-function lightprobes.SetEnabled(enabled)
-	lightprobes.enabled = enabled
+function envprobe.SetEnabled(enabled)
+	envprobe.enabled = enabled
 end
 
-function lightprobes.IsEnabled()
-	return lightprobes.enabled
+function envprobe.IsEnabled()
+	return envprobe.enabled
 end
 
-function lightprobes.SetReflectionProbesEnabled(enabled)
+function envprobe.SetReflectionProbesEnabled(enabled)
 	local value = enabled ~= false
 
-	if lightprobes.reflection_probes_enabled == value then return end
+	if envprobe.reflection_probes_enabled == value then return end
 
-	lightprobes.reflection_probes_enabled = value
+	envprobe.reflection_probes_enabled = value
 
-	if value then lightprobes.MarkAllReflectionProbesDirty() end
+	if value then envprobe.MarkAllReflectionProbesDirty() end
 end
 
-function lightprobes.AreReflectionProbesEnabled()
-	return lightprobes.reflection_probes_enabled
+function envprobe.AreReflectionProbesEnabled()
+	return envprobe.reflection_probes_enabled
 end
 
-function lightprobes.SetStarsTexture(texture)
+function envprobe.SetStarsTexture(texture)
 	atmosphere.SetStarsTexture(texture)
 end
 
-function lightprobes.GetStarsTexture()
+function envprobe.GetStarsTexture()
 	return atmosphere.GetStarsTexture()
 end
 
 local function is_probe_in_list(probe)
-	for _, other in ipairs(lightprobes.probes) do
+	for _, other in ipairs(envprobe.probes) do
 		if other == probe then return true end
 	end
 
 	return false
 end
 local function select_probe_to_capture(now, camera_position)
-	local current = lightprobes.current_probe
+	local current = envprobe.current_probe
 
-	if current and lightprobes.current_face > 0 and is_probe_in_list(current) then
+	if current and envprobe.current_face > 0 and is_probe_in_list(current) then
 		return current
 	end
 
 	local best
 	local best_score = -math.huge
 
-	for _, probe in ipairs(lightprobes.probes) do
+	for _, probe in ipairs(envprobe.probes) do
 		local score
 
 		if probe.needs_update then
 			score = 1e9 - (probe.position - camera_position):GetLength()
 		elseif
-			probe.update_mode == lightprobes.UPDATE_DYNAMIC and
+			probe.update_mode == envprobe.UPDATE_DYNAMIC and
 			now - (
 				probe.last_rendered or
 				0
-			) >= lightprobes.DYNAMIC_INTERVAL
+			) >= envprobe.DYNAMIC_INTERVAL
 		then
 			score = (
 					now - (
@@ -1841,37 +1841,37 @@ local function select_probe_to_capture(now, camera_position)
 	return best
 end
 
-event.AddListener("PreRenderPass", "lightprobes_update", function()
-	if not lightprobes.enabled then return end
+event.AddListener("PreRenderPass", "envprobe_update", function()
+	if not envprobe.enabled then return end
 
-	if not lightprobes.sky_pipeline then return end
+	if not envprobe.sky_pipeline then return end
 
 	local cmd, own_cmd = acquire_probe_command_buffer()
-	local sun_changed = lightprobes.HasSunDirectionChanged()
+	local sun_changed = envprobe.HasSunDirectionChanged()
 
-	if sun_changed then lightprobes.MarkAllReflectionProbesDirty() end
+	if sun_changed then envprobe.MarkAllReflectionProbesDirty() end
 
-	lightprobes.UpdateEnvironmentProbe(cmd, sun_changed)
+	envprobe.UpdateEnvironmentProbe(cmd, sun_changed)
 
-	if lightprobes.reflection_probes_enabled and #lightprobes.probes > 0 then
+	if envprobe.reflection_probes_enabled and #envprobe.probes > 0 then
 		local now = system.GetTime()
 		local probe = select_probe_to_capture(now, render3d.GetRenderCamera():GetPosition())
 
 		if probe then
-			if probe ~= lightprobes.current_probe then
-				lightprobes.current_probe = probe
-				lightprobes.current_face = 0
+			if probe ~= envprobe.current_probe then
+				envprobe.current_probe = probe
+				envprobe.current_face = 0
 			end
 
-			local faces = math.max(math.floor(lightprobes.FACES_PER_FRAME), 1)
-			faces = math.min(faces, 6 - lightprobes.current_face)
-			lightprobes.RenderProbeFaces(cmd, probe, faces, true)
+			local faces = math.max(math.floor(envprobe.FACES_PER_FRAME), 1)
+			faces = math.min(faces, 6 - envprobe.current_face)
+			envprobe.RenderProbeFaces(cmd, probe, faces, true)
 
-			if lightprobes.current_face == 0 then
-				lightprobes.PrefilterProbe(cmd, probe)
+			if envprobe.current_face == 0 then
+				envprobe.PrefilterProbe(cmd, probe)
 				probe.needs_update = false
 				probe.last_rendered = now
-				lightprobes.current_probe = nil
+				envprobe.current_probe = nil
 			end
 		end
 	end
@@ -1879,28 +1879,28 @@ event.AddListener("PreRenderPass", "lightprobes_update", function()
 	submit_probe_command_buffer(cmd, own_cmd)
 end)
 
-commands.Add("lightprobes_dump=number|nil", function(limit)
-	lightprobes.Dump(limit)
+commands.Add("envprobe_dump=number|nil", function(limit)
+	envprobe.Dump(limit)
 end)
 
-commands.Add("lightprobes_reflection_probes=boolean[true]", function(enabled)
-	lightprobes.SetReflectionProbesEnabled(enabled)
-	logf("[lightprobes] reflection probes %s\n", enabled and "enabled" or "disabled")
+commands.Add("envprobe_reflection_probes=boolean[true]", function(enabled)
+	envprobe.SetReflectionProbesEnabled(enabled)
+	logf("[envprobe] reflection probes %s\n", enabled and "enabled" or "disabled")
 end)
 
-commands.Add("lightprobes_auto_placement=boolean[true]", function(enabled)
-	lightprobes.SetAutoPlacementEnabled(enabled)
-	logf("[lightprobes] auto placement %s\n", enabled and "enabled" or "disabled")
+commands.Add("envprobe_auto_placement=boolean[true]", function(enabled)
+	envprobe.SetAutoPlacementEnabled(enabled)
+	logf("[envprobe] auto placement %s\n", enabled and "enabled" or "disabled")
 end)
 
-commands.Add("lightprobes_spawn=number|nil,string|nil", function(radius, update_mode)
+commands.Add("envprobe_spawn=number|nil,string|nil", function(radius, update_mode)
 	if update_mode == "" then update_mode = nil end
 
 	local position = render3d.GetRenderCamera():GetPosition()
-	local probe, created = lightprobes.EnsureReflectionProbe(position, radius, update_mode or lightprobes.UPDATE_STATIC)
-	lightprobes.SetReflectionProbesEnabled(true)
+	local probe, created = envprobe.EnsureReflectionProbe(position, radius, update_mode or envprobe.UPDATE_STATIC)
+	envprobe.SetReflectionProbesEnabled(true)
 	logf(
-		"[lightprobes] %s reflection probe at (%.1f %.1f %.1f) radius %.1f\n",
+		"[envprobe] %s reflection probe at (%.1f %.1f %.1f) radius %.1f\n",
 		created and "spawned" or "reused",
 		probe.position.x,
 		probe.position.y,
@@ -1909,80 +1909,80 @@ commands.Add("lightprobes_spawn=number|nil,string|nil", function(radius, update_
 	)
 end)
 
-commands.Add("lightprobes_clear", function()
-	lightprobes.ClearReflectionProbes()
-	logf("[lightprobes] removed all reflection probes\n")
+commands.Add("envprobe_clear", function()
+	envprobe.ClearReflectionProbes()
+	logf("[envprobe] removed all reflection probes\n")
 end)
 
-commands.Add("lightprobes_debug_draw=boolean[true]", function(enabled)
-	lightprobes.SetDebugDrawEnabled(enabled)
-	logf("[lightprobes] debug overlay %s\n", enabled and "enabled" or "disabled")
+commands.Add("envprobe_debug_draw=boolean[true]", function(enabled)
+	envprobe.SetDebugDrawEnabled(enabled)
+	logf("[envprobe] debug overlay %s\n", enabled and "enabled" or "disabled")
 end)
 
-commands.Add("lightprobes_debug_labels=boolean[true]", function(enabled)
-	lightprobes.SetDebugLabelsEnabled(enabled)
-	logf("[lightprobes] debug labels %s\n", enabled and "enabled" or "disabled")
+commands.Add("envprobe_debug_labels=boolean[true]", function(enabled)
+	envprobe.SetDebugLabelsEnabled(enabled)
+	logf("[envprobe] debug labels %s\n", enabled and "enabled" or "disabled")
 end)
 
-commands.Add("lightprobes_debug_focus=number[0]", function(index)
+commands.Add("envprobe_debug_focus=number[0]", function(index)
 	index = math.max(math.floor(index or 0), 0)
 
 	if index > 0 and not get_reflection_probe(index) then
 		logf(
-			"[lightprobes] no reflection probe at index %d (have %d)\n",
+			"[envprobe] no reflection probe at index %d (have %d)\n",
 			index,
-			#lightprobes.probes
+			#envprobe.probes
 		)
 		return
 	end
 
-	lightprobes.SetDebugFocus(index)
+	envprobe.SetDebugFocus(index)
 
 	if index > 0 then
-		logf("[lightprobes] focusing probe %d\n", index)
+		logf("[envprobe] focusing probe %d\n", index)
 	else
-		logf("[lightprobes] focus cleared\n")
+		logf("[envprobe] focus cleared\n")
 	end
 end)
 
-commands.Add("lightprobes_debug_environment=boolean[true]", function(enabled)
-	lightprobes.SetDebugShowEnvironment(enabled)
-	logf("[lightprobes] environment overlay %s\n", enabled and "enabled" or "disabled")
+commands.Add("envprobe_debug_environment=boolean[true]", function(enabled)
+	envprobe.SetDebugShowEnvironment(enabled)
+	logf("[envprobe] environment overlay %s\n", enabled and "enabled" or "disabled")
 end)
 
-commands.Add("lightprobes_debug_grid=boolean[true]", function(enabled)
-	lightprobes.SetDebugGridEnabled(enabled)
-	logf("[lightprobes] debug grid %s\n", enabled and "enabled" or "disabled")
+commands.Add("envprobe_debug_grid=boolean[true]", function(enabled)
+	envprobe.SetDebugGridEnabled(enabled)
+	logf("[envprobe] debug grid %s\n", enabled and "enabled" or "disabled")
 end)
 
-commands.Add("lightprobes_debug_grid_depth=boolean[true]", function(enabled)
-	lightprobes.SetDebugGridShowDepth(enabled)
-	logf("[lightprobes] debug grid mode %s\n", enabled and "depth" or "source")
+commands.Add("envprobe_debug_grid_depth=boolean[true]", function(enabled)
+	envprobe.SetDebugGridShowDepth(enabled)
+	logf("[envprobe] debug grid mode %s\n", enabled and "depth" or "source")
 end)
 
-commands.Add("lightprobes_dump_faces=number", function(index)
-	lightprobes.DumpProbeFaces(index)
+commands.Add("envprobe_dump_faces=number", function(index)
+	envprobe.DumpProbeFaces(index)
 end)
 
-commands.Add("lightprobes_export_depth=number", function(index)
-	lightprobes.ExportProbeDepth(index)
+commands.Add("envprobe_export_depth=number", function(index)
+	envprobe.ExportProbeDepth(index)
 end)
 
-commands.Add("lightprobes_rebuild=string|nil", function(update_mode)
+commands.Add("envprobe_rebuild=string|nil", function(update_mode)
 	if update_mode == "" then update_mode = nil end
 
 	if update_mode then
 		assert(
-			update_mode == lightprobes.UPDATE_STATIC or
-				update_mode == lightprobes.UPDATE_DYNAMIC or
-				update_mode == lightprobes.UPDATE_MANUAL,
-			"lightprobes_rebuild expects static, dynamic, or manual"
+			update_mode == envprobe.UPDATE_STATIC or
+				update_mode == envprobe.UPDATE_DYNAMIC or
+				update_mode == envprobe.UPDATE_MANUAL,
+			"envprobe_rebuild expects static, dynamic, or manual"
 		)
 	end
 
-	local marked = lightprobes.MarkAllReflectionProbesDirty(update_mode)
+	local marked = envprobe.MarkAllReflectionProbesDirty(update_mode)
 	logf(
-		"[lightprobes] marked %d reflection probes dirty%s\n",
+		"[envprobe] marked %d reflection probes dirty%s\n",
 		marked,
 		update_mode and (" mode=" .. update_mode) or ""
 	)
@@ -1994,7 +1994,7 @@ if
 	render3d.pipelines and
 	render3d.pipelines.gbuffer
 then
-	lightprobes.Initialize()
+	envprobe.Initialize()
 end
 
-return lightprobes
+return envprobe

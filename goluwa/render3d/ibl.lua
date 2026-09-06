@@ -242,7 +242,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 end
 
 -- Samples reflection probes uploaded to uniform_name.probe_color_textures /
--- probe_depth_textures / probe_positions (see lightprobes.GetProbeBlockLayout
+-- probe_depth_textures / probe_positions (see envprobe.GetProbeBlockLayout
 -- / WriteProbeBlock) and blends them over global_env. Shared by ssr.lua
 -- (as its screen-space-miss fallback) and lighting.lua (so probes still
 -- contribute when the SSR pass itself is disabled).
