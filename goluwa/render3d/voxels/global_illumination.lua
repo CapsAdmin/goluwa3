@@ -41,6 +41,15 @@ voxel_gi.MAX_TRACE_STEPS = 128
 voxel_gi.IRRADIANCE_OCT_SIZE = 8
 voxel_gi.VISIBILITY_OCT_SIZE = 16
 voxel_gi.HYSTERESIS = 0.9
+-- A probe whose rays mostly start inside geometry is faded out, but the
+-- fraction is estimated from one randomly rotated 64 ray set, so the raw
+-- number jitters by several percent between updates. Instead of a threshold,
+-- which pops the probe's whole trilinear contribution in and out, the probe
+-- keeps a validity that ramps from 1 at BACKFACE_ENABLE to 0 at
+-- BACKFACE_DISABLE and is filtered over updates with BACKFACE_HYSTERESIS.
+voxel_gi.BACKFACE_HYSTERESIS = 0.85
+voxel_gi.BACKFACE_DISABLE = 0.25
+voxel_gi.BACKFACE_ENABLE = 0.1
 voxel_gi.enabled = voxel_gi.enabled ~= false
 -- march the voxel occupancy between each shaded point and its 8 probes,
 -- dropping probes behind walls before interpolation
@@ -462,7 +471,10 @@ end
 
 -- GLSL for sampling the probe grids. options.storage = true reads the
 -- atlases through the storage images bound by the update pass instead of
--- the bindless texture indices in the block.
+-- the bindless texture indices in the block. That path is the second bounce
+-- fed back into the probes, which is low frequency by the time it reaches a
+-- shaded pixel, so it always samples the octahedral maps with nearest
+-- filtering: four times fewer fetches per probe on the most expensive pass.
 function voxel_gi.GetGLSLCode(block_name, options)
 	options = options or {}
 	local fetch
@@ -508,7 +520,11 @@ function voxel_gi.GetGLSLCode(block_name, options)
 
 		const int VOXEL_GI_IRRADIANCE_SIZE = ]] .. voxel_gi.IRRADIANCE_OCT_SIZE .. [[;
 		const int VOXEL_GI_VISIBILITY_SIZE = ]] .. voxel_gi.VISIBILITY_OCT_SIZE .. [[;
-]] .. "#define VOXEL_GI_BILINEAR_IRRADIANCE " .. (voxel_gi.BILINEAR_IRRADIANCE and 1 or 0) .. "\n" .. "#define VOXEL_GI_BILINEAR_VISIBILITY " .. (voxel_gi.BILINEAR_VISIBILITY and 1 or 0) .. "\n" .. [[
+]] .. "#define VOXEL_GI_BILINEAR_IRRADIANCE " .. (
+		not options.storage and voxel_gi.BILINEAR_IRRADIANCE and 1 or 0
+	) .. "\n" .. "#define VOXEL_GI_BILINEAR_VISIBILITY " .. (
+		not options.storage and voxel_gi.BILINEAR_VISIBILITY and 1 or 0
+	) .. "\n" .. [[
 
 		vec2 voxel_gi_oct_encode(vec3 n) {
 			n /= (abs(n.x) + abs(n.y) + abs(n.z));
@@ -754,7 +770,9 @@ function voxel_gi.GetGLSLCode(block_name, options)
 				if (info.w <= 0.0) continue;
 				vec3 probe_pos = vec3(g) * spacing + info.xyz;
 				vec3 tri = mix(1.0 - alpha, alpha, vec3(offset));
-				float w = tri.x * tri.y * tri.z;
+				// info.w fades a probe out as more of its rays start inside
+				// geometry, rather than dropping it in one step
+				float w = tri.x * tri.y * tri.z * info.w;
 				vec3 to_probe = normalize(probe_pos - pos);
 				float wrap = (dot(to_probe, N) + 1.0) * 0.5;
 				w *= wrap * wrap + 0.2;
@@ -1036,9 +1054,15 @@ local function build_update_pipeline()
 
 			const int PROBES_PER_CASCADE = ]] .. PROBES_PER_CASCADE .. [[;
 			const int RAYS_PER_PROBE = ]] .. voxel_gi.RAYS_PER_PROBE .. [[;
+			const float BACKFACE_HYSTERESIS = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_HYSTERESIS) .. [[;
+			const float BACKFACE_DISABLE = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_DISABLE) .. [[;
+			const float BACKFACE_ENABLE = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_ENABLE) .. [[;
 
 			shared vec4 s_ray[RAYS_PER_PROBE];
 			shared vec3 s_dir[RAYS_PER_PROBE];
+			// the distance every visibility texel wants, clamped once instead
+			// of per texel: the gather below reads it 64 times per texel
+			shared float s_vis_dist[RAYS_PER_PROBE];
 			shared vec4 s_relocate[RAYS_PER_PROBE];
 			shared vec4 s_relocation;
 
@@ -1285,18 +1309,39 @@ local function build_update_pipeline()
 				}
 
 				radiance = clamp(radiance, vec3(0.0), vec3(65504.0));
+				float max_dist = spacing * 1.5;
 				s_ray[ray] = vec4(radiance, dist);
 				s_dir[ray] = dir;
+				s_vis_dist[ray] = dist < 0.0 ? min(-dist * 0.2, max_dist) : min(dist, max_dist);
 				barrier();
 
-				// a probe whose rays mostly start inside geometry is disabled
 				int backface_count = 0;
 
 				for (int r = 0; r < RAYS_PER_PROBE; r++) {
 					if (s_ray[r].a < 0.0) backface_count++;
 				}
 
-				if (backface_count * 4 > RAYS_PER_PROBE) enabled = false;
+				// How far this probe is trusted, from the fraction of its
+				// rays that started inside geometry. That fraction is a 64 ray
+				// estimate under a fresh random rotation every update, so
+				// thresholding it flips probes near a wall on and off between
+				// updates and pops their whole trilinear contribution in and
+				// out. A ramp, filtered over updates, fades them instead.
+				ivec2 info_coord = voxel_gi_tile_origin(s, 1);
+				float validity = clamp(
+					(BACKFACE_DISABLE - float(backface_count) / float(RAYS_PER_PROBE)) /
+					(BACKFACE_DISABLE - BACKFACE_ENABLE),
+					0.0,
+					1.0
+				);
+
+				if (history_valid) {
+					validity = mix(validity, voxel_gi_fetch_info(c, info_coord).w, BACKFACE_HYSTERESIS);
+				}
+
+				// relocation is a lookup in the voxel volume, not an estimate,
+				// so a probe with nowhere free to sit from is cut immediately
+				if (!enabled) validity = 0.0;
 
 				// irradiance: one octahedral texel per thread
 				ivec2 tile = voxel_gi_tile_origin(s, VOXEL_GI_IRRADIANCE_SIZE);
@@ -1324,7 +1369,6 @@ local function build_update_pipeline()
 				voxel_gi_store_irradiance(c, coord, irradiance_value);
 
 				// visibility: mean distance and mean squared distance
-				float max_dist = spacing * 1.5;
 				ivec2 vis_tile = voxel_gi_tile_origin(s, VOXEL_GI_VISIBILITY_SIZE);
 				int vis_texel_count = VOXEL_GI_VISIBILITY_SIZE * VOXEL_GI_VISIBILITY_SIZE;
 
@@ -1336,8 +1380,15 @@ local function build_update_pipeline()
 					float wsum = 0.0;
 
 					for (int r = 0; r < RAYS_PER_PROBE; r++) {
-						float w = pow(max(dot(vdir, s_dir[r]), 0.0), 50.0);
-						float d = s_ray[r].a < 0.0 ? min(-s_ray[r].a * 0.2, max_dist) : min(s_ray[r].a, max_dist);
+						// w^50 by squaring: pow() here runs 64 times per
+						// visibility texel and 256 texels share the probe
+						float w = max(dot(vdir, s_dir[r]), 0.0);
+						float w2 = w * w;
+						float w4 = w2 * w2;
+						float w8 = w4 * w4;
+						float w16 = w8 * w8;
+						w = w16 * w16 * w16 * w2;
+						float d = s_vis_dist[r];
 						m += d * w;
 						m2 += d * d * w;
 						wsum += w;
@@ -1355,12 +1406,9 @@ local function build_update_pipeline()
 
 				if (ray == 0) {
 					gi_probe_meta[meta_index] = ivec4(g, 1);
-					ivec2 info_coord = voxel_gi_tile_origin(s, 1);
-					// w > 0 enabled, the fraction above 1 (or below 0 when
-					// disabled) is the backface ray fraction for debugging
-					float backface_fraction = float(backface_count) / float(RAYS_PER_PROBE);
-					vec4 info = vec4(relocation.xyz, enabled ? 1.0 + backface_fraction : -backface_fraction - 0.001);
-					voxel_gi_store_info(c, info_coord, info);
+					// w is the filtered validity, which sampling folds into
+					// the probe's weight and the next update reads back
+					voxel_gi_store_info(c, info_coord, vec4(relocation.xyz, validity));
 				}
 			}
 		]],
@@ -1658,9 +1706,17 @@ local function update_cascade_origins(camera_position, camera_forward)
 	end
 end
 
+-- Shoemake's uniform random quaternion. Uniform euler angles are not a
+-- uniform rotation, they pile up around the poles, so the ray set the probes
+-- average over is biased towards those directions no matter how long they
+-- accumulate.
 local function random_rotation_matrix()
-	local q = Quat():SetAngles(Deg3(math.random() * 360, math.random() * 360, math.random() * 360))
-	return q:GetMatrix()
+	local u1, u2, u3 = math.random(), math.random(), math.random()
+	local r1 = math.sqrt(1 - u1)
+	local r2 = math.sqrt(u1)
+	local t1 = math.pi * 2 * u2
+	local t2 = math.pi * 2 * u3
+	return Quat(r1 * math.sin(t1), r1 * math.cos(t1), r2 * math.sin(t2), r2 * math.cos(t2)):GetMatrix()
 end
 
 function voxel_gi.Draw(cmd)

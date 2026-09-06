@@ -1139,11 +1139,7 @@ function voxel_debug.ReadGIProbes(cascade_index)
 				half_to_float(info_pixels[info_index + 2])
 			),
 			enabled = half_to_float(info_pixels[info_index + 3]) > 0.0,
-			backface_fraction = math.abs(
-				half_to_float(info_pixels[info_index + 3]) > 0 and
-					half_to_float(info_pixels[info_index + 3]) - 1 or
-					half_to_float(info_pixels[info_index + 3])
-			),
+			validity = half_to_float(info_pixels[info_index + 3]),
 		}
 		local r, g, b = 0, 0, 0
 
@@ -1264,7 +1260,7 @@ function voxel_debug.DumpGIProbesNear(position, radius, cascade_index)
 					local down_mean = probe.visibility(0, -1, 0)
 					local x_mean = probe.visibility(1, 0, 0)
 					logf(
-						"[voxel_gi] probe (%d %d %d) pos=(%.1f %.1f %.1f) offset=(%.2f %.2f %.2f) enabled=%s backface=%.2f mean=(%.3f %.3f %.3f) up=(%.3f %.3f %.3f) vis_down=%.2f vis_x=%.2f\n",
+						"[voxel_gi] probe (%d %d %d) pos=(%.1f %.1f %.1f) offset=(%.2f %.2f %.2f) enabled=%s validity=%.2f mean=(%.3f %.3f %.3f) up=(%.3f %.3f %.3f) vis_down=%.2f vis_x=%.2f\n",
 						gx,
 						gy,
 						gz,
@@ -1275,7 +1271,7 @@ function voxel_debug.DumpGIProbesNear(position, radius, cascade_index)
 						probe.offset.y,
 						probe.offset.z,
 						tostring(probe.enabled),
-						probe.backface_fraction,
+						probe.validity,
 						probe.mean_radiance.x,
 						probe.mean_radiance.y,
 						probe.mean_radiance.z,
