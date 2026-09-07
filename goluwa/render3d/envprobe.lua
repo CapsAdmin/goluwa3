@@ -49,16 +49,16 @@ envprobe.FACES_PER_FRAME = 1 -- anything higher causes invalid captures
 envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
 envprobe.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
-envprobe.enabled = envprobe.enabled ~= false
-envprobe.reflection_probes_enabled = envprobe.reflection_probes_enabled ~= false
+envprobe.enabled = true
+envprobe.reflection_probes_enabled = false
 envprobe.capture_pipeline_flags = envprobe.capture_pipeline_flags or {
 	ssr = false,
 	ocean = true,
 }
 envprobe.auto_placement_enabled = envprobe.auto_placement_enabled ~= false
-envprobe.AUTO_PLACEMENT_SPACING = 8
+envprobe.AUTO_PLACEMENT_SPACING = 24
 envprobe.AUTO_PLACEMENT_RADIUS_CELLS = 4
-envprobe.AUTO_PLACEMENT_MIN_RADIUS = 16
+envprobe.AUTO_PLACEMENT_MIN_RADIUS = 24
 envprobe.AUTO_PLACEMENT_TRACE_UP = 200 -- how far above camera height the ground trace starts
 envprobe.AUTO_PLACEMENT_TRACE_DOWN = 400 -- max distance the ground trace searches downward
 envprobe.AUTO_PLACEMENT_GROUND_CLEARANCE = 2 -- height above found ground to place the probe

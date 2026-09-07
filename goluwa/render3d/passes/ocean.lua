@@ -323,12 +323,6 @@ return {
 				return texture(TEXTURE(ocean_data.scene_tex), uv).rgb;
 			}
 
-			vec3 get_environment_color(vec3 dir, float lod) {
-				if (ocean_data.env_tex == -1) return vec3(0.0);
-				float max_mip = float(textureQueryLevels(TEXTURE(ocean_data.env_tex)) - 1);
-				return textureLod(TEXTURE(ocean_data.env_tex), dir_to_equirect_uv(dir), clamp(lod, 0.0, max_mip)).rgb;
-			}
-
 			const float SEA_PI = 3.14159265359;
 			const float SEA_HEIGHT = 0.6;
 			const float SEA_WAVE_AMOUNT = 1.0;
@@ -520,6 +514,12 @@ return {
 			]] .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_intensity") .. ibl.GetBRDFGLSLCode() .. [[
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
+
+			vec3 get_environment_color(vec3 dir, float lod) {
+				if (ocean_data.env_tex == -1) return vec3(0.0);
+				float max_mip = float(textureQueryLevels(TEXTURE(ocean_data.env_tex)) - 1);
+				return textureLod(TEXTURE(ocean_data.env_tex), dir_to_equirect_uv(dir), clamp(lod, 0.0, max_mip)).rgb;
+			}
 
 			]] .. ibl.GetReflectionGLSLCode("ocean_data") .. [[
 
