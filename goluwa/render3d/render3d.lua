@@ -1184,6 +1184,8 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 	local submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
 	local draw_call_count = 0
 	local active_batch_count = tonumber(active_batch_count_ptr[0])
+	local indirect_command_size = ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
+	local visible_instance_vertex_buffers = {output.visible_instance_vertex_buffer}
 
 	for active_index = 0, active_batch_count - 1 do
 		local batch_index = tonumber(active_batch_indices[active_index]) + 1
@@ -1196,10 +1198,10 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 			batch.mesh:DrawInstancedIndirect(
 				render.GetCommandBuffer(),
 				output.visible_batch_indirect_command_buffer,
-				(batch_index - 1) * ffi.sizeof(vk.VkDrawIndexedIndirectCommand),
-				{output.visible_instance_vertex_buffer},
+				(batch_index - 1) * indirect_command_size,
+				visible_instance_vertex_buffers,
 				1,
-				ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
+				indirect_command_size
 			)
 			drew_any = true
 			draw_call_count = draw_call_count + 1

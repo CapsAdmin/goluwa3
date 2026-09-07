@@ -695,6 +695,34 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 	return offset
 end
 
+local function get_vertex_animation_offset(self, vertex_animation_material, frame_index)
+	if
+		vertex_animation_material:GetWindAmplitude() > 0 or
+		vertex_animation_material:GetWindDetailAmplitude() > 0
+	then
+		model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
+		return self.vertex_animation_buffer:Upload(frame_index)
+	end
+
+	local cache = self.vertex_animation_upload_cache
+	local frame_number = system.GetFrameNumber()
+
+	if not cache or cache.frame ~= frame_number then
+		cache = {frame = frame_number}
+		self.vertex_animation_upload_cache = cache
+	end
+
+	local offset = cache[vertex_animation_material]
+
+	if not offset then
+		model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
+		offset = self.vertex_animation_buffer:Upload(frame_index)
+		cache[vertex_animation_material] = offset
+	end
+
+	return offset
+end
+
 local function build_shadow_pipeline_config(
 	format,
 	max_shadow_width,
@@ -1780,11 +1808,12 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 			material or
 			render3d.GetDefaultMaterial()
 		)
-	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
 	world_matrix:CopyToFloatPointer(push_constants.world)
 	local frame_index = render.GetCurrentFrame()
-	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
+	local vertex_animation_offset = get_vertex_animation_offset(self, vertex_animation_material, frame_index)
 	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
+	-- must be a fresh table each call: CommandBuffer:BindDescriptorSets fast-paths
+	-- on dynamic_offsets table identity and would skip rebinding a reused/mutated one
 	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
 
 	do
@@ -2005,10 +2034,11 @@ local function bind_instanced_shadow_constants(self, material, cascade_index)
 			material or
 			render3d.GetDefaultMaterial()
 		)
-	model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
 	local frame_index = render.GetCurrentFrame()
-	local vertex_animation_offset = self.vertex_animation_buffer:Upload(frame_index)
+	local vertex_animation_offset = get_vertex_animation_offset(self, vertex_animation_material, frame_index)
 	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
+	-- must be a fresh table each call: CommandBuffer:BindDescriptorSets fast-paths
+	-- on dynamic_offsets table identity and would skip rebinding a reused/mutated one
 	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
 	-- the pipeline is built for the largest cascade, binding it resets the
 	-- viewport to that size so it has to follow the cascade's own texture
@@ -2092,11 +2122,21 @@ local function collect_shadow_visible_entry(
 	end
 end
 
+local function batch_material_less_than(a, b)
+	return tostring(a.material) < tostring(b.material)
+end
+
 local function flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
 	local instanced_draws = 0
 	local fallback_draws = 0
 	local ordered_batches = submission_context.ordered_batches
 	local submission_stats = submission_context.submission_stats
+
+	-- group draws by material so consecutive binds are more likely to reuse the
+	-- previous pipeline/descriptor/dynamic-offset state (see descriptor_set_binding_matches
+	-- and GraphicsPipeline:Bind) instead of forcing a real rebind on every draw; draw order
+	-- doesn't matter here since these are depth-only shadow passes
+	table.sort(ordered_batches, batch_material_less_than)
 
 	for _, batch in ipairs(ordered_batches) do
 		if batch.count <= 1 then

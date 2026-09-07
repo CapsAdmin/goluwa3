@@ -195,14 +195,22 @@ function Mesh:BindInstanced(cmd, extra_vertex_buffers, binding_position)
 		return self:Bind(cmd, binding_position)
 	end
 
-	local buffers = {self.vertex_buffer:GetBuffer()}
+	local buffers = self.bind_instanced_buffers_cache or {}
+	self.bind_instanced_buffers_cache = buffers
+	buffers[1] = self.vertex_buffer:GetBuffer()
+	local count = 1
 
 	for _, extra in ipairs(extra_vertex_buffers) do
 		if extra and extra.vertex_buffer then extra = extra.vertex_buffer end
 
 		if extra and extra.GetBuffer then extra = extra:GetBuffer() end
 
-		buffers[#buffers + 1] = extra
+		count = count + 1
+		buffers[count] = extra
+	end
+
+	for i = #buffers, count + 1, -1 do
+		buffers[i] = nil
 	end
 
 	cmd:BindVertexBuffers(binding_position, buffers)

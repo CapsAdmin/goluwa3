@@ -67,9 +67,15 @@ do
 			end
 		end
 
+		-- NOTE: this table must be a fresh allocation each call, not reused/mutated -
+		-- CommandBuffer:BindDescriptorSets fast-paths on dynamic_offsets_ref identity
+		-- and would otherwise skip rebinding when only the contents changed.
 		local offsets = {}
 		local frame_index = render.GetCurrentFrame()
 		local frame_number = system.GetFrameNumber and system.GetFrameNumber() or 0
+		local record_upload = upload_probe.RecordUpload
+		local record_cache_access = upload_probe.RecordCacheAccess
+		local bytes_equal = self._BytesEqual
 
 		for i, name in ipairs(self.uniform_buffer_order) do
 			local info = self.uniform_buffer_types[name]
@@ -79,9 +85,9 @@ do
 				frame_index,
 				frame_number,
 				probe_enabled,
-				upload_probe.RecordUpload,
-				upload_probe.RecordCacheAccess,
-				self._BytesEqual
+				record_upload,
+				record_cache_access,
+				bytes_equal
 			)
 		end
 

@@ -2133,11 +2133,25 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	end
 
 	do
-		local signature = get_pipeline_signature(self, cmd)
-		local signature_id = get_signature_id(self, signature)
+		local rendering_state = cmd and cmd.rendering_state or nil
+		local signature_id
+
+		if
+			self.signature_cache_valid and
+			self.signature_cache_cmd == cmd and
+			self.signature_cache_rendering_state == rendering_state
+		then
+			signature_id = self.signature_cache_signature_id
+		else
+			signature_id = get_signature_id(self, get_pipeline_signature(self, cmd))
+			self.signature_cache_valid = true
+			self.signature_cache_cmd = cmd
+			self.signature_cache_rendering_state = rendering_state
+			self.signature_cache_signature_id = signature_id
+		end
 
 		if self.static_variant_dirty or self.current_signature_id ~= signature_id then
-			self:RebuildPipeline(self.overridden_state, signature)
+			self:RebuildPipeline(self.overridden_state, get_pipeline_signature(self, cmd))
 		elseif self.bind_state_dirty_regions then
 			local dirty_regions = self.bind_state_dirty_regions
 			local cache = self.bind_state_cache

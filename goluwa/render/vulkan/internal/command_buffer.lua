@@ -192,8 +192,9 @@ end
 local function keepalive(self, resource)
 	if not resource then return resource end
 
-	self.keepalive_resources = self.keepalive_resources or {}
-	table.insert(self.keepalive_resources, resource)
+	local resources = self.keepalive_resources or {}
+	self.keepalive_resources = resources
+	resources[#resources + 1] = resource
 	return resource
 end
 
