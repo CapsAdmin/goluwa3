@@ -44,7 +44,7 @@ envprobe.IRRADIANCE_SIZE = 32 -- Sky irradiance cubemap face size
 envprobe.IRRADIANCE_SOURCE_SIZE = 16 -- Source mip face size the irradiance convolution integrates over
 envprobe.REFLECTION_RADIUS = envprobe.REFLECTION_RADIUS or 24
 envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
-envprobe.FACES_PER_FRAME = envprobe.FACES_PER_FRAME or 2
+envprobe.FACES_PER_FRAME = 1 -- anything higher causes invalid captures
 envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
 envprobe.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
@@ -1162,7 +1162,6 @@ function envprobe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 			local capture_context = get_probe_capture_context()
 			render3d.PushCamera(envprobe.camera)
 			render3d.RunPipelineBundle(bundle, cmd, capture_context)
-			render3d.PopCamera()
 			envprobe.current_capture_source_texture = get_probe_capture_source_texture(bundle)
 			envprobe.current_capture_depth_texture = get_probe_capture_depth_texture(bundle)
 			transition_face(cmd, probe.source_cubemap, face_idx, true)
@@ -1195,6 +1194,7 @@ function envprobe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 			}
 			draw_fullscreen(cmd, envprobe.capture_depth_pipeline, SIZE)
 			cmd:EndRendering()
+			render3d.PopCamera()
 		else
 			transition_face(cmd, probe.source_cubemap, face_idx, true)
 			transition_face(cmd, probe.depth_cubemap, face_idx, true)
