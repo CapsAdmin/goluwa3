@@ -648,9 +648,10 @@ do
 		return self.pipeline:GetCubeMapTextureIndex(texture, 1)
 	end
 
-	-- Decoupled view/sampler bindless registry: GetViewIndex registers only the
-	-- image view (no sampler); GetSamplerIndex resolves a sampler config to an
-	-- independent index. Combine them in GLSL via TEXTURE_S(view_idx, sampler_idx).
+	function EasyPipeline:ReleaseTextureIndex(texture)
+		return self.pipeline:ReleaseTextureIndex(texture, 1)
+	end
+
 	function EasyPipeline:GetViewIndex(texture)
 		return self.pipeline:GetViewIndex(texture)
 	end

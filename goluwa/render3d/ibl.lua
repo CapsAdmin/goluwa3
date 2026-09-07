@@ -269,6 +269,12 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 				return normalize(vec3(-dir.x, dir.y, dir.z));
 			}
 
+			float probe_depth_hit_amount(int depth_tex, vec3 ray_dir, float ray_dist) {
+				vec2 uv = dir_to_equirect_uv(correct_probe_depth_lookup_dir(ray_dir));
+				float stored_depth = texture(TEXTURE(depth_tex), uv).r;
+				return ray_dist >= stored_depth ? 1.0 : 0.0;
+			}
+
 			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex, out float hit_confidence) {
 				const int MAX_MARCH_STEPS = 16;
 				const int MAX_BINARY_STEPS = 6;
@@ -293,42 +299,36 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 				float t_prev = 0.0;
 				float march_step = max(sphere_exit / float(MAX_MARCH_STEPS), sphere_radius * 0.02);
 				float t = min(march_step, sphere_exit);
-				float closest_depth_gap = 1e20;
-				float closest_gap_t = sphere_exit;
 
 				for (int i = 0; i < MAX_MARCH_STEPS; i++) {
 					vec3 ray_pos = ray_origin + R * t;
 					vec3 ray_dir = normalize(ray_pos);
 					float ray_dist = length(ray_pos);
-					float stored_depth = texture(TEXTURE(depth_tex), dir_to_equirect_uv(correct_probe_depth_lookup_dir(ray_dir))).r;
-					float depth_gap = max(stored_depth - ray_dist, 0.0);
+					float hit_amount = probe_depth_hit_amount(depth_tex, ray_dir, ray_dist);
 
-					if (depth_gap < closest_depth_gap) {
-						closest_depth_gap = depth_gap;
-						closest_gap_t = t;
-					}
-
-					if (ray_dist >= stored_depth) {
+					if (hit_amount >= 0.5) {
 						vec3 hit_pos = ray_pos;
 						float start_t = t_prev;
 						float end_t = t;
+						float final_hit_amount = hit_amount;
 
 						for (int j = 0; j < MAX_BINARY_STEPS; j++) {
 							float mid_t = (start_t + end_t) * 0.5;
 							vec3 mid_pos = ray_origin + R * mid_t;
 							vec3 mid_dir = normalize(mid_pos);
 							float mid_dist = length(mid_pos);
-							float mid_depth = texture(TEXTURE(depth_tex), dir_to_equirect_uv(correct_probe_depth_lookup_dir(mid_dir))).r;
+							float mid_hit_amount = probe_depth_hit_amount(depth_tex, mid_dir, mid_dist);
 
-							if (mid_dist >= mid_depth) {
+							if (mid_hit_amount >= 0.5) {
 								end_t = mid_t;
 								hit_pos = mid_pos;
+								final_hit_amount = mid_hit_amount;
 							} else {
 								start_t = mid_t;
 							}
 						}
 
-						hit_confidence = 1.0;
+						hit_confidence = final_hit_amount;
 						return normalize(hit_pos);
 					}
 
@@ -342,14 +342,7 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 				}
 
 				vec3 exit_pos = ray_origin + R * sphere_exit;
-				vec3 exit_normal = normalize(exit_pos);
-				float open_space_confidence = smoothstep(sphere_radius * 0.04, sphere_radius * 0.28, closest_depth_gap);
-				float exit_alignment = saturate(dot(exit_normal, R));
-				float directional_confidence = smoothstep(0.15, 0.65, exit_alignment);
-				float blocker_proximity = 1.0 - smoothstep(0.35, 0.9, closest_gap_t / max(sphere_exit, 1e-5));
-				float blocker_suppression = mix(1.0, 0.2, blocker_proximity);
-				float miss_confidence = open_space_confidence * directional_confidence * blocker_suppression;
-				hit_confidence = max(miss_confidence, 0.02);
+				hit_confidence = 0.0;
 				return normalize(exit_pos);
 			}
 
@@ -395,12 +388,11 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 							float probe_mip = roughness * probe_max_mip;
 							vec3 probe_sample = textureLod(TEXTURE(color_tex), dir_to_equirect_uv(correct_probe_color_lookup_dir(R)), probe_mip).rgb;
 							vec3 corrected_sample = textureLod(TEXTURE(color_tex), dir_to_equirect_uv(correct_probe_color_lookup_dir(reflected)), probe_mip).rgb;
-							float correction_confidence = smoothstep(0.15, 0.85, hit_confidence);
-							vec3 sample_color = mix(probe_sample, corrected_sample, correction_confidence);
+							vec3 sample_color = mix(probe_sample, corrected_sample, hit_confidence);
 							probes_env += sample_color * normalized_weight;
-							total_weight += weight * hit_confidence;
+							total_weight += weight;
 							normalized_weight_sum += normalized_weight;
-							max_weight = max(max_weight, weight * hit_confidence);
+							max_weight = max(max_weight, weight);
 						}
 					}
 				}

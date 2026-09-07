@@ -11,6 +11,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
+local trace = import("goluwa/physics/trace.lua")
 local envprobe = library()
 
 local function get_primary_sun(lights)
@@ -55,9 +56,13 @@ envprobe.capture_pipeline_flags = envprobe.capture_pipeline_flags or {
 	ocean = true,
 }
 envprobe.auto_placement_enabled = envprobe.auto_placement_enabled ~= false
-envprobe.AUTO_PLACEMENT_SPACING = envprobe.AUTO_PLACEMENT_SPACING or 48
-envprobe.AUTO_PLACEMENT_RADIUS_CELLS = envprobe.AUTO_PLACEMENT_RADIUS_CELLS or 2
-envprobe.AUTO_PLACEMENT_INTERVAL = envprobe.AUTO_PLACEMENT_INTERVAL or 1
+envprobe.AUTO_PLACEMENT_SPACING = 8
+envprobe.AUTO_PLACEMENT_RADIUS_CELLS = 4
+envprobe.AUTO_PLACEMENT_MIN_RADIUS = 16
+envprobe.AUTO_PLACEMENT_TRACE_UP = 200 -- how far above camera height the ground trace starts
+envprobe.AUTO_PLACEMENT_TRACE_DOWN = 400 -- max distance the ground trace searches downward
+envprobe.AUTO_PLACEMENT_GROUND_CLEARANCE = 2 -- height above found ground to place the probe
+envprobe.AUTO_PLACEMENT_INTERVAL = 1
 envprobe.probes = envprobe.probes or {}
 envprobe.auto_grid = envprobe.auto_grid or {} -- grid key -> auto-placed probe
 envprobe.auto_last_update = envprobe.auto_last_update or 0
@@ -196,12 +201,13 @@ local function remove_probe_resources(probe)
 	end
 end
 
-local function create_cubemap(size, format, mip_map_levels)
+local function create_cubemap(size, format, mip_map_levels, sampler)
 	return Texture.New{
 		width = size,
 		height = size,
 		format = format,
 		mip_map_levels = mip_map_levels,
+		sampler = sampler,
 		image = {
 			array_layers = 6,
 			flags = {"cube_compatible"},
@@ -230,12 +236,13 @@ local function create_face_views(texture, mip_level)
 	return views
 end
 
-local function create_equirect(width, height, format, mip_map_levels)
+local function create_equirect(width, height, format, mip_map_levels, sampler)
 	return Texture.New{
 		width = width,
 		height = height,
 		format = format,
 		mip_map_levels = mip_map_levels,
+		sampler = sampler,
 	}
 end
 
@@ -257,10 +264,12 @@ local function create_mip_views_2d(texture, mip_count)
 	return views
 end
 
+local DEPTH_SAMPLER = {min_filter = "linear", mag_filter = "linear"}
+
 local function CreateProbeTextures(size, with_irradiance)
 	local probe = {}
 	probe.source_cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
-	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1)
+	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1, DEPTH_SAMPLER)
 	probe.source_face_views = create_face_views(probe.source_cubemap)
 	probe.depth_face_views = create_face_views(probe.depth_cubemap)
 
@@ -277,7 +286,7 @@ local function CreateProbeTextures(size, with_irradiance)
 		probe.irradiance_equirect_view = create_2d_view(probe.irradiance_equirect)
 	else
 		local depth_w, depth_h = equirect_dims(size)
-		probe.depth_equirect = create_equirect(depth_w, depth_h, "r32_sfloat", 1)
+		probe.depth_equirect = create_equirect(depth_w, depth_h, "r32_sfloat", 1, DEPTH_SAMPLER)
 		probe.depth_equirect_view = create_2d_view(probe.depth_equirect)
 	end
 
@@ -388,8 +397,20 @@ function envprobe.EnsureReflectionProbe(position, radius, update_mode, min_spaci
 	distance
 end
 
-local function auto_grid_key(cx, cy, cz)
-	return cx .. "," .. cy .. "," .. cz
+local function auto_grid_key(cx, cz)
+	return cx .. "," .. cz
+end
+
+local down = Vec3(0, -1, 0)
+
+local function find_auto_placement_height(gx, gz, camera_y, spacing)
+	local origin = Vec3(gx * spacing, camera_y + envprobe.AUTO_PLACEMENT_TRACE_UP, gz * spacing)
+	local max_distance = envprobe.AUTO_PLACEMENT_TRACE_UP + envprobe.AUTO_PLACEMENT_TRACE_DOWN
+	local hit = trace.RayCast(origin, down, max_distance)
+
+	if hit then return hit.position.y + envprobe.AUTO_PLACEMENT_GROUND_CLEARANCE end
+
+	return math.floor(camera_y / spacing + 0.5) * spacing
 end
 
 function envprobe.UpdateAutoPlacement(camera_position)
@@ -403,19 +424,20 @@ function envprobe.UpdateAutoPlacement(camera_position)
 	local spacing = envprobe.AUTO_PLACEMENT_SPACING
 	local radius_cells = envprobe.AUTO_PLACEMENT_RADIUS_CELLS
 	local cx = math.floor(camera_position.x / spacing + 0.5)
-	local cy = math.floor(camera_position.y / spacing + 0.5)
 	local cz = math.floor(camera_position.z / spacing + 0.5)
 	local wanted = {}
 
 	for x = -radius_cells, radius_cells do
 		for z = -radius_cells, radius_cells do
 			local gx, gz = cx + x, cz + z
-			local key = auto_grid_key(gx, cy, gz)
+			local key = auto_grid_key(gx, gz)
 			wanted[key] = true
 
 			if not envprobe.auto_grid[key] then
-				local position = Vec3(gx * spacing, cy * spacing, gz * spacing)
-				local probe = envprobe.CreateReflectionProbe(position, spacing * 0.75, envprobe.UPDATE_STATIC)
+				local y = find_auto_placement_height(gx, gz, camera_position.y, spacing)
+				local position = Vec3(gx * spacing, y, gz * spacing)
+				local radius = math.max(spacing * 0.75, envprobe.AUTO_PLACEMENT_MIN_RADIUS)
+				local probe = envprobe.CreateReflectionProbe(position, radius, envprobe.UPDATE_STATIC)
 				probe.auto = true
 				probe.auto_grid_key = key
 				envprobe.auto_grid[key] = probe
@@ -1303,6 +1325,16 @@ function envprobe.PrefilterProbe(cmd, probe)
 	if probe.depth_equirect then
 		local w, h = equirect_dims(SIZE)
 		render_equirect(cmd, envprobe.equirect_depth_pipeline, probe.depth_equirect, probe.depth_equirect_view, w, h)
+	end
+
+	envprobe.prefilter_pipeline:ReleaseTextureIndex(probe.source_cubemap)
+
+	if probe.irradiance_equirect then
+		envprobe.irradiance_pipeline:ReleaseTextureIndex(probe.source_cubemap)
+	end
+
+	if probe.depth_equirect then
+		envprobe.equirect_depth_pipeline:ReleaseTextureIndex(probe.depth_cubemap)
 	end
 
 	render.PopCommandBuffer()

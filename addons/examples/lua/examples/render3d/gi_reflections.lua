@@ -8,9 +8,10 @@
 	  * Emissive tunnel (x 0): a closed tunnel the sun never enters, lit only
 	    by an orange emissive bar through voxel gi.
 	  * Reflection stage (x 14): metal spheres sweeping roughness on a polished
-	    floor between coloured walls, covered by a manual reflection probe. The
-	    chrome sphere at the far end mostly reflects things off screen, so it
-	    shows the probe rather than ssr.
+	    floor between coloured walls, covered by the auto-placed reflection
+	    probe grid (see envprobe_auto_placement). The chrome sphere at the far
+	    end mostly reflects things off screen, so it shows the probe rather
+	    than ssr.
 	  * Multi-bounce bleed box (x 34): magenta/orange/cyan walls in a tight
 	    room lit only through a roof gap, so the interior sphere and floor
 	    should pick up several bounces of mixed colour rather than one tint.
@@ -37,7 +38,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local envprobe = import("goluwa/render3d/envprobe.lua")
 local shapes = import("lua/shapes.lua")
 
 local function mat(color, roughness, metallic)
@@ -99,7 +99,6 @@ do
 	box("cornell_roof_front", Vec3(cx, h, d / 4 + 1), Vec3(w, t, d / 2 - 2), white)
 	box("cornell_box", Vec3(cx - 2.5, 1.5, -2), Vec3(3, 3, 3), white)
 	sphere("cornell_sphere", Vec3(cx + 2.5, 1.5, 1.5), 1.5, white)
-	envprobe.CreateReflectionProbe(Vec3(cx, h / 2, 0), 16, envprobe.UPDATE_STATIC)
 end
 
 -- emissive tunnel, closed at both ends except a doorway on +z
@@ -148,7 +147,6 @@ do
 
 	sphere("stage_chrome", Vec3(cx, 2, 3), 2, mat(Color(0.95, 0.95, 0.95, 1), 0.02, 1))
 	sphere("stage_dielectric", Vec3(cx - 5, 1, 3), 1, mat(Color(0.9, 0.9, 0.9, 1), 0.15, 0))
-	envprobe.CreateReflectionProbe(Vec3(cx, 3, 0), 20, envprobe.UPDATE_STATIC)
 end
 
 -- multi-bounce colour bleed box: three saturated walls in a tight room, open
