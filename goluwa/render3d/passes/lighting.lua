@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local radiance_cascades = import("goluwa/render3d/radiance_cascades.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -134,7 +135,17 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
-					if render3d.pipelines.voxel_gi_upsample then
+					if render3d.pipelines.radiance_cascades_resolve then
+						if render3d.pipelines.radiance_cascades_denoise then
+							block.gi_screen_tex = self:GetTextureIndex(render3d.pipelines.radiance_cascades_denoise:GetFramebuffer(1):GetAttachment(1))
+						else
+							block.gi_screen_tex = self:GetTextureIndex(
+								render3d.pipelines.radiance_cascades_resolve:GetFramebuffer(
+									radiance_cascades.GetResolveFramebufferIndex()
+								):GetAttachment(1)
+							)
+						end
+					elseif render3d.pipelines.voxel_gi_upsample then
 						block.gi_screen_tex = self:GetTextureIndex(render3d.pipelines.voxel_gi_upsample:GetFramebuffer(1):GetAttachment(1))
 					else
 						block.gi_screen_tex = -1

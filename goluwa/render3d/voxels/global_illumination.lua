@@ -183,6 +183,13 @@ function voxel_gi.RemoveResources()
 
 	voxel_gi.resolved = {}
 
+	if voxel_gi.fallback_volume then
+		voxel_gi.fallback_volume.sample_view:Remove()
+		voxel_gi.fallback_volume.sampler:Remove()
+		remove_texture(voxel_gi.fallback_volume.texture)
+		voxel_gi.fallback_volume = nil
+	end
+
 	if voxel_gi.metadata_buffer then
 		voxel_gi.metadata_buffer:Remove()
 		voxel_gi.metadata_buffer = nil
@@ -331,6 +338,46 @@ local function ensure_resolved_volume(clipmap_index, resolution)
 	voxel_gi.resolved[clipmap_index] = resolved
 	return resolved
 end
+
+local function ensure_fallback_volume()
+	if voxel_gi.fallback_volume then return voxel_gi.fallback_volume end
+
+	local texture, sample_view = create_volume(1, "r16g16b16a16_sfloat", "voxel gi fallback volume")
+	clear_and_initialize_textures({texture})
+	voxel_gi.fallback_volume = {
+		texture = texture,
+		sample_view = sample_view,
+		sampler = render.CreateSampler(texture:GetSamplerConfig()),
+	}
+	return voxel_gi.fallback_volume
+end
+
+function voxel_gi.GetMaxClipmapCount()
+	return MAX_CLIPMAPS
+end
+
+-- the resolved volumes are 2d array views, which the bindless texture array
+-- cannot hold, so passes that trace the clipmaps bind them directly
+function voxel_gi.GetVolumeDescriptor(index, normals)
+	local resolved = voxel_gi.resolved[index]
+	local info = voxel_gi.clip_info and voxel_gi.clip_info[index]
+
+	if resolved and info and info.valid then
+		return {
+			normals and resolved.normal_sample_view or resolved.sample_view,
+			resolved.sampler,
+		}
+	end
+
+	local fallback = ensure_fallback_volume()
+	return {fallback.sample_view, fallback.sampler}
+end
+
+function voxel_gi.GetClipmapInfo(index)
+	return voxel_gi.clip_info and voxel_gi.clip_info[index]
+end
+
+
 function voxel_gi.GetBlockLayout()
 	return {
 		{"gi_enabled", "int"},
@@ -1561,6 +1608,25 @@ local function resolve_clipmaps(cmd, voxelizer)
 	end
 end
 
+-- brings the clipmap volumes up to date for whoever traces them first this
+-- frame, the resolve itself is skipped when the clipmap content is unchanged
+function voxel_gi.EnsureResolvedClipmaps(cmd)
+	local voxelizer = render3d.GetSceneVoxelizer()
+
+	if not voxelizer or not voxelizer.IsEnabled() then return false end
+
+	ensure_pipelines()
+	resolve_clipmaps(cmd, voxelizer)
+
+	for i = 1, MAX_CLIPMAPS do
+		local info = voxel_gi.clip_info[i]
+
+		if info and info.valid then return true end
+	end
+
+	return false
+end
+
 local function update_cascade_origins(camera_position, camera_forward)
 	local fx, fz = camera_forward.x, camera_forward.z
 	local len = math.sqrt(fx * fx + fz * fz)
@@ -1598,17 +1664,8 @@ function voxel_gi.Draw(cmd)
 	if not voxelizer or not voxelizer.IsEnabled() then return end
 
 	ensure_cascade_resources()
-	ensure_pipelines()
-	resolve_clipmaps(cmd, voxelizer)
-	local any_clip = false
 
-	for i = 1, MAX_CLIPMAPS do
-		if voxel_gi.clip_info[i] and voxel_gi.clip_info[i].valid then
-			any_clip = true
-		end
-	end
-
-	if not any_clip then return end
+	if not voxel_gi.EnsureResolvedClipmaps(cmd) then return end
 
 	local camera = render3d.GetRenderCamera()
 	update_cascade_origins(camera:GetPosition(), camera:GetRotation():GetForward())
@@ -1716,6 +1773,11 @@ commands.Add("voxel_gi=boolean[true]", function(enabled)
 	logf("[voxel_gi] %s\n", enabled and "enabled" or "disabled")
 end)
 
+commands.Add("voxel_gi_debug=boolean[true]", function(enabled)
+	voxel_gi.debug_mode = enabled ~= false and 1 or 0
+	logf("[voxel_gi] gi only debug view %s\n", voxel_gi.debug_mode == 1 and "enabled" or "disabled")
+end)
+
 commands.Add("voxel_gi_occlusion=boolean[true]", function(enabled)
 	voxel_gi.occlusion_enabled = enabled ~= false
 	logf(
@@ -1790,6 +1852,11 @@ commands.Add("voxel_gi_quality=string[medium]", function(name)
 	voxel_gi.SetSampleQuality(name)
 	logf("[voxel_gi] sample quality %s, rebuilding pipelines\n", name)
 	render3d.Initialize()
+end)
+
+commands.Add("voxel_gi_probe_rate=number[1024]", function(count)
+	voxel_gi.PROBES_PER_FRAME = math.floor(count)
+	logf("[voxel_gi] %d probes per frame\n", voxel_gi.PROBES_PER_FRAME)
 end)
 
 commands.Add("voxel_gi_invalidate", function()

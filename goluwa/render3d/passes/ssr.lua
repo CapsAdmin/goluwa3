@@ -141,6 +141,25 @@ return {
 				return texelFetch(TEXTURE(ssr_data.depth_tex), clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1), 0).r;
 			}
 
+			bool fetch_surface_motion(vec2 uv, out vec2 prev_uv, out float prev_depth) {
+				if (ssr_data.velocity_tex != -1) {
+					vec3 motion = texture(TEXTURE(ssr_data.velocity_tex), uv).rgb;
+					prev_uv = uv - motion.xy;
+					prev_depth = motion.z;
+					return prev_depth > 1e-5;
+				}
+
+				vec3 world_pos = get_world_pos(uv, fetch_depth(uv));
+				vec4 prev_view_pos = ssr_data.prev_view * vec4(world_pos, 1.0);
+				vec4 prev_clip = ssr_data.prev_projection * prev_view_pos;
+
+				if (prev_clip.w <= 1e-5) return false;
+
+				prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
+				prev_depth = -prev_view_pos.z;
+				return true;
+			}
+
 			vec2 blue_noise(ivec2 pixel) {
 				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
 				vec2 xi = texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
@@ -154,7 +173,11 @@ return {
 				b = vec3(d, 1.0 - n.y * n.y * a, -n.y);
 			}
 
-			vec2 get_last_frame_uv(vec3 hit_view_pos) {
+			vec2 get_last_frame_uv(vec2 hit_uv, vec3 hit_view_pos) {
+				if (ssr_data.velocity_tex != -1) {
+					return hit_uv - texture(TEXTURE(ssr_data.velocity_tex), hit_uv).xy;
+				}
+
 				vec4 world_hit = ssr_data.inv_view * vec4(hit_view_pos, 1.0);
 				vec4 prev_clip = ssr_data.prev_projection * (ssr_data.prev_view * vec4(world_hit.xyz, 1.0));
 
@@ -246,7 +269,7 @@ return {
 								}
 
 								vec3 hit_vs = get_view_pos(uv, depth);
-								vec2 last_frame_uv = get_last_frame_uv(hit_vs);
+								vec2 last_frame_uv = get_last_frame_uv(uv, hit_vs);
 
 								if (last_frame_uv.x <= 0.0 || last_frame_uv.x >= 1.0 || last_frame_uv.y <= 0.0 || last_frame_uv.y >= 1.0) {
 									return vec4(0.0);
@@ -393,14 +416,12 @@ return {
 				vec4 result = filtered;
 
 				if (ssr_data.history_tex != -1) {
-					vec4 prev_view_pos = ssr_data.prev_view * vec4(world_pos, 1.0);
-					vec4 prev_clip = ssr_data.prev_projection * prev_view_pos;
+					vec2 prev_uv;
+					float prev_depth;
+					bool has_motion = fetch_surface_motion(uv, prev_uv, prev_depth);
 
-					if (prev_clip.w > 1e-5) {
-						vec2 prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
-
+					if (has_motion) {
 						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0) {
-							float prev_depth = -prev_view_pos.z;
 							float history_depth = texture(TEXTURE(ssr_data.history_depth_tex), prev_uv).r;
 
 							if (abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02) {

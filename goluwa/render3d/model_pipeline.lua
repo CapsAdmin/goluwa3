@@ -342,7 +342,7 @@ function model_pipeline.GetVertexAttributeLayoutSubset(names, binding_index)
 	return attributes
 end
 
-function model_pipeline.GetTransformBlock(include_projection_view_world)
+function model_pipeline.GetTransformBlock(include_projection_view_world, include_prev_world)
 	local block = {}
 
 	if include_projection_view_world ~= false then
@@ -350,10 +350,17 @@ function model_pipeline.GetTransformBlock(include_projection_view_world)
 	end
 
 	block[#block + 1] = {"world", "mat4"}
+
+	if include_prev_world then block[#block + 1] = {"prev_world", "mat4"} end
+
 	return block
 end
 
-function model_pipeline.BuildTransformBlockWriter(include_projection_view_world, get_projection_view_world_matrix)
+function model_pipeline.BuildTransformBlockWriter(
+	include_projection_view_world,
+	get_projection_view_world_matrix,
+	include_prev_world
+)
 	get_projection_view_world_matrix = get_projection_view_world_matrix or render3d.GetProjectionViewWorldMatrix
 	return function(self, block)
 		if include_projection_view_world ~= false then
@@ -361,6 +368,11 @@ function model_pipeline.BuildTransformBlockWriter(include_projection_view_world,
 		end
 
 		render3d.GetWorldMatrix():CopyToFloatPointer(block.world)
+
+		if include_prev_world then
+			render3d.GetPreviousWorldMatrix():CopyToFloatPointer(block.prev_world)
+		end
+
 		return block
 	end
 end
@@ -392,8 +404,18 @@ function model_pipeline.GetInstanceAttributes()
 	}
 end
 
+function model_pipeline.GetPreviousInstanceAttributes()
+	return {
+		{"instance_prev_world", "mat4"},
+	}
+end
+
 local function get_instance_world_expr()
 	return "mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
+end
+
+local function get_instance_prev_world_expr()
+	return "mat4(in_instance_prev_world_row_0, in_instance_prev_world_row_1, in_instance_prev_world_row_2, in_instance_prev_world_row_3)"
 end
 
 local function build_vertex_shader(options)
@@ -412,8 +434,17 @@ local function build_vertex_shader(options)
 	lines[#lines + 1] = "\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);"
 	lines[#lines + 1] = "\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);"
 
+	if options.velocity then
+		lines[#lines + 1] = "\tvec3 prev_world_position = (vertex.prev_world * vec4(in_position, 1.0)).xyz;"
+	end
+
 	if enable_vertex_animation then
 		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);"
+
+		if options.velocity then
+			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);"
+		end
+
 		lines[#lines + 1] = "\tif (dot(world_offset, world_offset) > 0.0) {"
 		lines[#lines + 1] = "\t\tlocal_position += inv_world_matrix3 * world_offset;"
 		lines[#lines + 1] = "\t\tworld_position += world_offset;"
@@ -431,6 +462,10 @@ local function build_vertex_shader(options)
 
 	if options.position ~= false then
 		lines[#lines + 1] = "\tout_position = world_position;"
+	end
+
+	if options.velocity then
+		lines[#lines + 1] = "\tout_prev_position = prev_world_position;"
 	end
 
 	if options.normal then lines[#lines + 1] = "\tout_normal = world_normal;" end
@@ -471,8 +506,20 @@ local function build_instanced_vertex_shader(options)
 	lines[#lines + 1] = "\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);"
 	lines[#lines + 1] = "\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);"
 
+	if options.velocity then
+		-- gpu culled static batches bind one buffer to both instance bindings, so
+		-- this is literally the same matrix and the subtraction cancels
+		lines[#lines + 1] = "\tmat4 instance_prev_world = " .. get_instance_prev_world_expr() .. ";"
+		lines[#lines + 1] = "\tvec3 prev_world_position = (instance_prev_world * vec4(in_position, 1.0)).xyz;"
+	end
+
 	if enable_vertex_animation then
 		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);"
+
+		if options.velocity then
+			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, world_tangent, in_uv, in_texture_blend, in_vertex_color);"
+		end
+
 		lines[#lines + 1] = "\tif (dot(world_offset, world_offset) > 0.0) {"
 		lines[#lines + 1] = "\t\tlocal_position += inv_world_matrix3 * world_offset;"
 		lines[#lines + 1] = "\t\tworld_position += world_offset;"
@@ -490,6 +537,10 @@ local function build_instanced_vertex_shader(options)
 
 	if options.position ~= false then
 		lines[#lines + 1] = "\tout_position = world_position;"
+	end
+
+	if options.velocity then
+		lines[#lines + 1] = "\tout_prev_position = prev_world_position;"
 	end
 
 	if options.normal then lines[#lines + 1] = "\tout_normal = world_normal;" end
@@ -531,6 +582,12 @@ local function get_vertex_stage_outputs(options)
 
 	if options.vertex_color then outputs[#outputs + 1] = {"vertex_color", "vec4"} end
 
+	-- appended rather than placed next to position, so that turning velocity on
+	-- does not renumber the outputs every other stage already agrees on
+	if options.velocity then
+		outputs[#outputs + 1] = {"prev_position", "vec3"}
+	end
+
 	return outputs
 end
 
@@ -542,8 +599,12 @@ function model_pipeline.CreateVertexStage(options)
 	local transform_buffers = {
 		{
 			name = options.transform_block_name or "vertex",
-			block = model_pipeline.GetTransformBlock(include_projection_view_world),
-			write = model_pipeline.BuildTransformBlockWriter(include_projection_view_world, options.get_projection_view_world_matrix),
+			block = model_pipeline.GetTransformBlock(include_projection_view_world, options.velocity),
+			write = model_pipeline.BuildTransformBlockWriter(
+				include_projection_view_world,
+				options.get_projection_view_world_matrix,
+				options.velocity
+			),
 		},
 	}
 	local animation_buffers = {}
@@ -574,6 +635,12 @@ function model_pipeline.CreateVertexStage(options)
 		[storage_key] = transform_buffers,
 		shader = build_vertex_shader(options),
 	}
+
+	if options.velocity then
+		local outputs = model_pipeline.GetVertexAttributes()
+		outputs[#outputs + 1] = {"prev_position", "vec3"}
+		stage.outputs = outputs
+	end
 
 	if storage_key == "uniform_buffers" then
 		for _, buffer in ipairs(extra_uniform_buffers) do
@@ -640,19 +707,29 @@ function model_pipeline.CreateInstancedVertexStage(options)
 			}
 	end
 
-	local stage = {
-		bindings = {
-			{
-				binding = options.binding_index or 0,
-				input_rate = "vertex",
-				attributes = model_pipeline.GetVertexAttributes(),
-			},
-			{
-				binding = options.instance_binding_index or 1,
-				input_rate = "instance",
-				attributes = model_pipeline.GetInstanceAttributes(),
-			},
+	local bindings = {
+		{
+			binding = options.binding_index or 0,
+			input_rate = "vertex",
+			attributes = model_pipeline.GetVertexAttributes(),
 		},
+		{
+			binding = options.instance_binding_index or 1,
+			input_rate = "instance",
+			attributes = model_pipeline.GetInstanceAttributes(),
+		},
+	}
+
+	if options.velocity then
+		bindings[#bindings + 1] = {
+			binding = options.prev_instance_binding_index or 2,
+			input_rate = "instance",
+			attributes = model_pipeline.GetPreviousInstanceAttributes(),
+		}
+	end
+
+	local stage = {
+		bindings = bindings,
 		outputs = get_vertex_stage_outputs(options),
 		shader = build_instanced_vertex_shader(options),
 	}
@@ -932,6 +1009,7 @@ end
 function model_pipeline.GetVertexAnimationUniformBufferDecl()
 	local fields = {
 		"float Time;",
+		"float PrevTime;",
 		"float WindAmplitude;",
 		"float WindFrequency;",
 		"float WindDetailAmplitude;",
@@ -958,6 +1036,7 @@ function model_pipeline.BuildVertexAnimationUniformDeclaration(block_name, bindi
 	binding_index = binding_index or 0
 	local fields = {
 		"\t\t\t\tfloat Time;",
+		"\t\t\t\tfloat PrevTime;",
 		"\t\t\t\tfloat WindAmplitude;",
 		"\t\t\t\tfloat WindFrequency;",
 		"\t\t\t\tfloat WindDetailAmplitude;",
@@ -994,6 +1073,7 @@ function model_pipeline.FillVertexAnimationData(block, material)
 	end
 
 	block.Time = system.GetElapsedTime()
+	block.PrevTime = render3d.GetPreviousElapsedTime()
 	block.WindFrequency = material:GetWindFrequency()
 	block.WindDetailFrequency = material:GetWindDetailFrequency()
 	block.WindPhaseScale = material:GetWindPhaseScale()
@@ -1031,6 +1111,7 @@ end
 function model_pipeline.GetVertexAnimationBlock()
 	local block = {
 		{"Time", "float"},
+		{"PrevTime", "float"},
 		{"WindAmplitude", "float"},
 		{"WindFrequency", "float"},
 		{"WindDetailAmplitude", "float"},
@@ -1140,7 +1221,7 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name, helper_world_matrix
 				return wind_dir * (rel_height * carrier_bend);
 			}
 
-			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec3 world_tangent, vec2 uv, float texture_blend, vec4 vertex_color) {
+			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec3 world_normal, vec3 world_tangent, vec2 uv, float texture_blend, vec4 vertex_color, float anim_time) {
 				if (!has_vertex_animation()) return vec3(0.0);
 
 				vec3 wind_dir = ]] .. block_name .. [[.WindDirection;
@@ -1165,15 +1246,15 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name, helper_world_matrix
 				float carrier_flexibility = flexibility * flexibility;
 				broad_bend *= mix(1.0, white_anchor, white_rgb);
 				float phase_offset = uv.x * 6.2831853;
-				float carrier_phase = ]] .. block_name .. [[.Time * (]] .. block_name .. [[.WindFrequency * 0.65);
+				float carrier_phase = anim_time * (]] .. block_name .. [[.WindFrequency * 0.65);
 				float carrier_wave = sin(carrier_phase);
-				float phase = ]] .. block_name .. [[.Time * ]] .. block_name .. [[.WindFrequency;
+				float phase = anim_time * ]] .. block_name .. [[.WindFrequency;
 				phase += dot(world_pos.xz, wind_dir.xz) * ]] .. block_name .. [[.WindPhaseScale;
 				phase += phase_offset;
 				float main_wave = sin(phase);
 
 				vec2 detail_dir = vec2(-wind_dir.z, wind_dir.x);
-				float detail_phase = ]] .. block_name .. [[.Time * (]] .. block_name .. [[.WindFrequency * ]] .. block_name .. [[.WindDetailFrequency);
+				float detail_phase = anim_time * (]] .. block_name .. [[.WindFrequency * ]] .. block_name .. [[.WindDetailFrequency);
 				detail_phase += dot(world_pos.xz, detail_dir) * (]] .. block_name .. [[.WindPhaseScale * 2.7);
 				detail_phase += phase_offset * 1.37;
 				float detail_wave = sin(detail_phase);
@@ -1189,6 +1270,14 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name, helper_world_matrix
 				offset += wind_dir * branch_bend;
 				offset += tangent_dir * edge_bend;
 				return offset;
+			}
+
+			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec3 world_tangent, vec2 uv, float texture_blend, vec4 vertex_color) {
+				return get_vertex_animation_offset_at_time(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color, ]] .. block_name .. [[.Time);
+			}
+
+			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec3 world_tangent, vec2 uv, float texture_blend, vec4 vertex_color) {
+				return get_vertex_animation_offset_at_time(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color, ]] .. block_name .. [[.PrevTime);
 			}
 
 			vec3 bend_vertex_animation_direction(vec3 direction, vec3 world_offset) {

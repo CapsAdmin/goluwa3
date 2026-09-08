@@ -4,15 +4,32 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local commands = import("goluwa/cli/commands.lua")
 local camera_block = {
 	name = "gbuffer_data",
 	binding_index = 3,
 	block = {
 		render3d.camera_block,
+		render3d.prev_camera_block,
 	},
-	write = render3d.WriteCameraBlock,
+	write = function(self, block)
+		render3d.WriteCameraBlock(self, block)
+		render3d.WritePreviousCameraBlock(self, block)
+		return block
+	end,
 	upload_scope = "frame",
 }
+
+commands.Add("velocity_buffer=boolean[true]", function(enabled)
+	render3d.SetVelocityEnabled(enabled)
+	logf(
+		"[gbuffer] velocity buffer %s, consumers %s\n",
+		enabled ~= false and "enabled" or "disabled",
+		enabled ~= false and
+		"follow moving surfaces" or
+		"reproject through the previous camera only"
+	)
+end)
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
 	local function BuildPBRSamplingGlsl(
@@ -312,6 +329,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			},
 			{"r16g16b16a16_sfloat", {"emissive", "rgb"}, {"transmission_blocking", "a"}},
 			{"r16_sfloat", {"transmission_blocking_raw", "r"}},
+			{"r16g16b16a16_sfloat", {"velocity", "rg"}, {"prev_view_depth", "b"}},
 		},
 		DepthFormat = "d32_sfloat",
 		fragment = {
@@ -622,6 +640,33 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						return vec3(0.0);
 					}
 
+					// both endpoints go through their own frame's camera, so a still
+					// object under a moving camera and a moving object under a still
+					// camera come out of the same subtraction. the divide by w is
+					// what makes it a screen offset rather than a world one
+					vec3 get_screen_velocity(vec3 world_pos, vec3 prev_world_pos) {
+						vec4 clip = gbuffer_data.projection * gbuffer_data.view * vec4(world_pos, 1.0);
+						vec4 prev_view_pos = gbuffer_data.prev_view * vec4(prev_world_pos, 1.0);
+						vec4 prev_clip = gbuffer_data.prev_projection * prev_view_pos;
+
+						// behind the eye either frame there is no honest offset to
+						// give, and a reprojection is better off treating the pixel
+						// as new than following a mirrored one
+						if (clip.w <= 0.0001 || prev_clip.w <= 0.0001) {
+							return vec3(0.0, 0.0, -prev_view_pos.z);
+						}
+
+						vec2 uv = (clip.xy / clip.w) * 0.5;
+						vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5;
+						return vec3(uv - prev_uv, -prev_view_pos.z);
+					}
+
+					void write_velocity(vec3 world_pos, vec3 prev_world_pos) {
+						vec3 motion = get_screen_velocity(world_pos, prev_world_pos);
+						set_velocity(motion.xy);
+						set_prev_view_depth(motion.z);
+					}
+
 					float get_ao(vec2 uv) {
 						if (aux_model.AmbientOcclusionTexture == -1) {
 							if (terrain_model.TerrainMaterialTexture != -1) {
@@ -658,6 +703,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			uv = true,
 			texture_blend = true,
 			vertex_color = true,
+			velocity = true,
 			include_projection_view_world = false,
 			camera_uniform_block_name = "gbuffer_data",
 			uniform_buffers = {
@@ -680,6 +726,7 @@ local function build_instanced_pass(fragment_shader)
 		uv = true,
 		texture_blend = true,
 		vertex_color = true,
+		velocity = true,
 		include_projection_view = false,
 		camera_uniform_block_name = "gbuffer_data",
 		uniform_buffers = {
@@ -779,6 +826,10 @@ local function build_ssdm_fragment_shader(displacement_var)
 			set_transmission_blocking(get_transmission_blocking(displacement.uv));
 			set_transmission_blocking_raw(get_transmission_blocking_raw(displacement.uv));
 			set_emissive(get_emissive(displacement.uv));
+			// the undisplaced position on both sides. parallax shifts the surface
+			// by the same amount in both frames when the view barely changed, so
+			// including it would mostly add noise to the offset
+			write_velocity(in_position, in_prev_position);
 			gl_FragDepth = has_heightmap() ? get_projected_depth(displacement.world_pos) : gl_FragCoord.z;
 		}
 	]]
@@ -821,6 +872,10 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 
 		void main() {
 			vec3 world_pos = interpolate_vec3(in_position[0], in_position[1], in_position[2]);
+			// carried across tessellation rather than recomputed, because the
+			// tessellated vertex has no local position to put through a previous
+			// transform, only the three corners that already have one
+			vec3 prev_world_pos = interpolate_vec3(in_prev_position[0], in_prev_position[1], in_prev_position[2]);
 			vec3 normal = normalize(interpolate_vec3(in_normal[0], in_normal[1], in_normal[2]));
 			vec3 displacement_normal = vec3(0.0, 1.0, 0.0);
 			vec3 tangent_xyz = normalize(interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz));
@@ -830,7 +885,12 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 			vec4 vertex_color = interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2]);
 
 			if (use_tessellated_displacement()) {
-				world_pos += displacement_normal * (get_height_centered_sample(uv) * displacement_model.HeightScale);
+				// the heightmap does not change between frames, so the same push
+				// applies to both endpoints. leaving it off the previous one would
+				// report the displacement itself as motion
+				vec3 displacement_offset = displacement_normal * (get_height_centered_sample(uv) * displacement_model.HeightScale);
+				world_pos += displacement_offset;
+				prev_world_pos += displacement_offset;
 			}
 
 			]]
@@ -847,6 +907,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 		str = str .. [[
 
 					out_position = world_pos;
+					out_prev_position = prev_world_pos;
 					out_normal = normal;
 					out_tangent = vec4(tangent_xyz, tangent_w >= 0.0 ? 1.0 : -1.0);
 					out_uv = uv;
@@ -875,6 +936,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 			set_transmission_blocking(get_transmission_blocking(in_uv));
 			set_transmission_blocking_raw(get_transmission_blocking_raw(in_uv));
 			set_emissive(get_emissive(in_uv));
+			write_velocity(in_position, in_prev_position);
 		}
 	]]
 	local fallback = build_base_pass(build_ssdm_fragment_shader("displacement_model"), false)
@@ -944,6 +1006,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 
 			void main() {
 				out_position[gl_InvocationID] = in_position[gl_InvocationID];
+				out_prev_position[gl_InvocationID] = in_prev_position[gl_InvocationID];
 				out_normal[gl_InvocationID] = in_normal[gl_InvocationID];
 				out_tangent[gl_InvocationID] = in_tangent[gl_InvocationID];
 				out_uv[gl_InvocationID] = in_uv[gl_InvocationID];
@@ -991,6 +1054,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 			{"uv", "vec2"},
 			{"texture_blend", "float"},
 			{"vertex_color", "vec4"},
+			{"prev_position", "vec3"},
 		},
 	}
 	pass_anim.tessellation_control = pass.tessellation_control
@@ -1027,6 +1091,7 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 			{"uv", "vec2"},
 			{"texture_blend", "float"},
 			{"vertex_color", "vec4"},
+			{"prev_position", "vec3"},
 		},
 	}
 	return {fallback, fallback_anim, instanced, pass, pass_anim}

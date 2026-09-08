@@ -1119,6 +1119,14 @@ function Visual:GetWorldMatrix()
 	return nil
 end
 
+function Visual:GetPreviousWorldMatrix()
+	if self.Owner and self.Owner.transform then
+		return self.Owner.transform:GetPreviousWorldMatrix()
+	end
+
+	return nil
+end
+
 function Visual:GetWorldMatrixInverse()
 	if self.Owner and self.Owner.transform then
 		return self.Owner.transform:GetWorldMatrixInverse()
@@ -2564,17 +2572,25 @@ function Visual:DrawEntriesForPass(ignore_z, upload_constants, render_entries)
 		if material_ignores_z(material) == ignore_z then
 			local transform = entry.transform
 			local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
+			local prev_world_matrix = transform and transform:GetPreviousWorldMatrix() or
+				self:GetPreviousWorldMatrix()
 
 			if world_matrix then
 				if
 					not ignore_z and
 					upload_constants == render3d.UploadGBufferConstants and
 					not self.using_conditional_rendering and
-					render3d.QueueGBufferInstance(entry.polygon3d, material, world_matrix, self:GetModelPath())
+					render3d.QueueGBufferInstance(
+						entry.polygon3d,
+						material,
+						world_matrix,
+						self:GetModelPath(),
+						prev_world_matrix
+					)
 				then
 					drew_any = true
 				else
-					render3d.SetWorldMatrix(world_matrix)
+					render3d.SetWorldMatrix(world_matrix, prev_world_matrix)
 					render3d.SetCurrentPolygon3D(entry.polygon3d)
 					render3d.SetMaterial(material)
 					upload_constants()
@@ -2596,16 +2612,24 @@ local function draw_geometry_entry(component, entry)
 
 	local transform = entry.transform
 	local world_matrix = transform and transform:GetWorldMatrix() or component:GetWorldMatrix()
+	local prev_world_matrix = transform and transform:GetPreviousWorldMatrix() or
+		component:GetPreviousWorldMatrix()
 
 	if not world_matrix then return false end
 
 	if
-		render3d.QueueGBufferInstance(entry.polygon3d, material, world_matrix, component:GetModelPath())
+		render3d.QueueGBufferInstance(
+			entry.polygon3d,
+			material,
+			world_matrix,
+			component:GetModelPath(),
+			prev_world_matrix
+		)
 	then
 		return true
 	end
 
-	render3d.SetWorldMatrix(world_matrix)
+	render3d.SetWorldMatrix(world_matrix, prev_world_matrix)
 	render3d.SetCurrentPolygon3D(entry.polygon3d)
 	render3d.SetMaterial(material)
 	render3d.UploadGBufferConstants()

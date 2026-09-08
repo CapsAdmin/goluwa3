@@ -245,6 +245,24 @@ function META:GetWorldMatrix()
 	return self.WorldMatrix
 end
 
+function META:GetPreviousWorldMatrix()
+	local world = self:GetWorldMatrix()
+	local frame = system.GetFrameNumber()
+
+	if self.RenderWorldMatrixFrame ~= frame then
+		if self.RenderWorldMatrixFrame == frame - 1 then
+			self.PreviousRenderWorldMatrix = self.RenderWorldMatrix
+		else
+			self.PreviousRenderWorldMatrix = nil
+		end
+
+		self.RenderWorldMatrix = world:Copy()
+		self.RenderWorldMatrixFrame = frame
+	end
+
+	return self.PreviousRenderWorldMatrix or world
+end
+
 function META:GetWorldMatrixInverse()
 	local frame = system.GetFrameNumber()
 	local dynamic = self:IsFrameDynamic()

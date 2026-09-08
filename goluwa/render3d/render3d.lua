@@ -259,6 +259,21 @@ function render3d.WriteCameraBlock(self, block)
 	return block
 end
 
+render3d.prev_camera_block = {
+	{"prev_view", "mat4"},
+	{"prev_projection", "mat4"},
+}
+
+function render3d.WritePreviousCameraBlock(self, block)
+	local camera = render3d.GetRenderCamera()
+	local view = render3d.GetPreviousViewMatrix() or camera:BuildViewMatrix()
+	local projection = render3d.GetPreviousProjectionMatrix() or
+		camera:BuildProjectionMatrix()
+	view:CopyToFloatPointer(block.prev_view)
+	projection:CopyToFloatPointer(block.prev_projection)
+	return block
+end
+
 render3d.common_block = {
 	{"time", "float"},
 }
@@ -268,12 +283,23 @@ function render3d.WriteCommonBlock(self, block)
 	return block
 end
 
+render3d.velocity_enabled = render3d.velocity_enabled ~= false
+
+function render3d.SetVelocityEnabled(enabled)
+	render3d.velocity_enabled = enabled ~= false
+end
+
+function render3d.IsVelocityEnabled()
+	return render3d.velocity_enabled
+end
+
 render3d.gbuffer_block = {
 	{"albedo_tex", "int"},
 	{"normal_tex", "int"},
 	{"mra_tex", "int"},
 	{"emissive_tex", "int"},
 	{"depth_tex", "int"},
+	{"velocity_tex", "int"},
 }
 
 function render3d.WriteGBufferBlock(self, block)
@@ -283,6 +309,9 @@ function render3d.WriteGBufferBlock(self, block)
 	block.mra_tex = self:GetTextureIndex(framebuffer:GetAttachment(3))
 	block.emissive_tex = self:GetTextureIndex(framebuffer:GetAttachment(4))
 	block.depth_tex = self:GetTextureIndex(framebuffer:GetDepthTexture())
+	block.velocity_tex = render3d.velocity_enabled and
+		self:GetTextureIndex(framebuffer:GetAttachment(6)) or
+		-1
 	return block
 end
 
@@ -429,7 +458,9 @@ function render3d.CreatePipelineBundle(options)
 		{
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/ambient_occlusion.lua"),
-			import("goluwa/render3d/voxels/render_pass.lua"),
+			import("goluwa/render3d/voxels/rasterize_pass.lua"),
+			--import("goluwa/render3d/voxels/render_pass.lua"),
+			import("goluwa/render3d/passes/radiance_cascades.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			--import("goluwa/render3d/passes/lighting_simple.lua"),
@@ -646,6 +677,7 @@ function render3d.ResetState()
 	render3d.camera = Camera3D.New()
 	render3d.camera_stack = {render3d.camera}
 	render3d.world_matrix = Matrix44()
+	render3d.prev_world_matrix = render3d.world_matrix
 	render3d.prev_view_matrix = Matrix44()
 	render3d.prev_projection_matrix = Matrix44()
 	render3d.current_material = render3d.GetDefaultMaterial()
@@ -680,6 +712,11 @@ function render3d.Draw(dt)
 	local render_camera = render3d.GetRenderCamera()
 	render3d.prev_view_matrix = render_camera:BuildViewMatrix():Copy()
 	render3d.prev_projection_matrix = render_camera:BuildProjectionMatrix():Copy()
+	render3d.prev_elapsed_time = system.GetElapsedTime()
+end
+
+function render3d.GetPreviousElapsedTime()
+	return render3d.prev_elapsed_time or system.GetElapsedTime()
 end
 
 function render3d.GetSceneVoxelizer()
@@ -817,6 +854,7 @@ local function get_or_create_gbuffer_instance_batch(mesh, material)
 		material_key = material_key,
 		material_key_kind = get_gbuffer_instance_material_key_kind(material),
 		world_matrices = {},
+		prev_world_matrices = {},
 		count = 0,
 	}
 	mesh_batches[material_key] = batch
@@ -832,7 +870,7 @@ local function find_gbuffer_instance_pending_entry(mesh, material)
 	return mesh_entries[get_gbuffer_instance_material_key(material)]
 end
 
-local function create_gbuffer_instance_pending_entry(mesh, material, polygon3d, world_matrix)
+local function create_gbuffer_instance_pending_entry(mesh, material, polygon3d, world_matrix, prev_world_matrix)
 	render3d.pending_gbuffer_instance_entries = render3d.pending_gbuffer_instance_entries or {}
 	render3d.queued_gbuffer_pending_entries = render3d.queued_gbuffer_pending_entries or {}
 	local mesh_entries = get_gbuffer_instance_material_batches(render3d.pending_gbuffer_instance_entries, mesh, true)
@@ -844,6 +882,7 @@ local function create_gbuffer_instance_pending_entry(mesh, material, polygon3d, 
 		material_key_kind = get_gbuffer_instance_material_key_kind(material),
 		first_polygon3d = polygon3d,
 		first_world_matrix = world_matrix,
+		first_prev_world_matrix = prev_world_matrix,
 	}
 	mesh_entries[material_key] = pending
 	render3d.queued_gbuffer_pending_entries[#render3d.queued_gbuffer_pending_entries + 1] = pending
@@ -878,20 +917,24 @@ local function clear_gbuffer_instance_pending_entry(pending)
 	pending.queue_index = nil
 end
 
-local function activate_gbuffer_instance_batch(batch, first_polygon3d, first_world_matrix)
+local function activate_gbuffer_instance_batch(batch, first_polygon3d, first_world_matrix, first_prev_world_matrix)
 	render3d.queued_gbuffer_instance_batches = render3d.queued_gbuffer_instance_batches or {}
 	render3d.queued_gbuffer_instance_batches[#render3d.queued_gbuffer_instance_batches + 1] = batch
 	batch.first_polygon3d = first_polygon3d
 	batch.first_world_matrix = first_world_matrix
+	batch.first_prev_world_matrix = first_prev_world_matrix
 	batch.count = 0
 	batch.world_matrices[1] = nil
 	batch.world_matrices[2] = nil
+	batch.prev_world_matrices[1] = nil
+	batch.prev_world_matrices[2] = nil
 	return batch
 end
 
-local function append_gbuffer_instance_world_matrix(batch, world_matrix)
+local function append_gbuffer_instance_world_matrix(batch, world_matrix, prev_world_matrix)
 	batch.count = batch.count + 1
 	batch.world_matrices[batch.count] = world_matrix
+	batch.prev_world_matrices[batch.count] = prev_world_matrix or world_matrix
 	return batch.count
 end
 
@@ -910,9 +953,16 @@ local function ensure_instance_buffer(batch, instance_count)
 
 	if batch.instance_buffer then batch.instance_buffer:Remove() end
 
+	if batch.prev_instance_buffer then batch.prev_instance_buffer:Remove() end
+
 	batch.instance_buffer = VertexBuffer.New(capacity, INSTANCE_MATRIX_ATTRIBUTES, "render3d gbuffer instances")
+	batch.prev_instance_buffer = VertexBuffer.New(
+		capacity,
+		INSTANCE_MATRIX_ATTRIBUTES,
+		"render3d gbuffer prev instances"
+	)
 	batch.instance_capacity = capacity
-	return batch.instance_buffer
+	return batch.instance_buffer, batch.prev_instance_buffer
 end
 
 function render3d.ResetQueuedGBufferInstances()
@@ -927,6 +977,7 @@ function render3d.ResetQueuedGBufferInstances()
 		batch.count = 0
 		batch.first_polygon3d = nil
 		batch.first_world_matrix = nil
+		batch.first_prev_world_matrix = nil
 		render3d.queued_gbuffer_instance_batches[i] = nil
 	end
 end
@@ -998,7 +1049,7 @@ function render3d.CanQueueGBufferInstance(polygon3d, material)
 	return true
 end
 
-function render3d.QueueGBufferInstance(polygon3d, material, world_matrix, model_path)
+function render3d.QueueGBufferInstance(polygon3d, material, world_matrix, model_path, prev_world_matrix)
 	local counters = render3d.GetLiveInstancingCounters()
 	counters.queue_attempts = counters.queue_attempts + 1
 
@@ -1011,7 +1062,7 @@ function render3d.QueueGBufferInstance(polygon3d, material, world_matrix, model_
 	local batch = find_gbuffer_instance_batch(mesh, material)
 
 	if batch and batch.count > 0 then
-		append_gbuffer_instance_world_matrix(batch, world_matrix)
+		append_gbuffer_instance_world_matrix(batch, world_matrix, prev_world_matrix)
 		counters.queued_instances = counters.queued_instances + 1
 		return true
 	end
@@ -1021,14 +1072,19 @@ function render3d.QueueGBufferInstance(polygon3d, material, world_matrix, model_
 	if pending then
 		clear_gbuffer_instance_pending_entry(pending)
 		batch = batch or get_or_create_gbuffer_instance_batch(mesh, material)
-		activate_gbuffer_instance_batch(batch, pending.first_polygon3d, pending.first_world_matrix)
-		append_gbuffer_instance_world_matrix(batch, pending.first_world_matrix)
-		append_gbuffer_instance_world_matrix(batch, world_matrix)
+		activate_gbuffer_instance_batch(
+			batch,
+			pending.first_polygon3d,
+			pending.first_world_matrix,
+			pending.first_prev_world_matrix
+		)
+		append_gbuffer_instance_world_matrix(batch, pending.first_world_matrix, pending.first_prev_world_matrix)
+		append_gbuffer_instance_world_matrix(batch, world_matrix, prev_world_matrix)
 		counters.queued_instances = counters.queued_instances + 1
 		return true
 	end
 
-	create_gbuffer_instance_pending_entry(mesh, material, polygon3d, world_matrix)
+	create_gbuffer_instance_pending_entry(mesh, material, polygon3d, world_matrix, prev_world_matrix)
 	counters.queued_batches = counters.queued_batches + 1
 	counters.queued_batches_by_material_key_kind[get_gbuffer_instance_material_key_kind(material)] = counters.queued_batches_by_material_key_kind[get_gbuffer_instance_material_key_kind(material)] + 1
 	counters.queued_instances = counters.queued_instances + 1
@@ -1057,8 +1113,6 @@ function render3d.UploadGBufferConstants()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
 	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
 	pipeline:UploadConstants()
-	-- UploadConstants binds the graphics pipeline and reapplies its cached
-	-- dynamic state, so override raster state after the bind for this draw.
 	cmd:SetPolygonMode(polygon_mode)
 	cmd:SetCullMode(cull_mode)
 end
@@ -1095,7 +1149,7 @@ function render3d.FlushQueuedGBufferInstances()
 				counters.flushed_instances = counters.flushed_instances + 1
 				counters.singleton_fallback_draws = counters.singleton_fallback_draws + 1
 				counters.singleton_fallback_draws_by_material_key_kind[pending.material_key_kind] = counters.singleton_fallback_draws_by_material_key_kind[pending.material_key_kind] + 1
-				render3d.SetWorldMatrix(pending.first_world_matrix)
+				render3d.SetWorldMatrix(pending.first_world_matrix, pending.first_prev_world_matrix)
 				render3d.SetCurrentPolygon3D(pending.first_polygon3d)
 				render3d.SetMaterial(pending.material)
 				render3d.UploadGBufferConstants()
@@ -1112,7 +1166,7 @@ function render3d.FlushQueuedGBufferInstances()
 			counters.flushed_instances = counters.flushed_instances + 1
 			counters.singleton_fallback_draws = counters.singleton_fallback_draws + 1
 			counters.singleton_fallback_draws_by_material_key_kind[batch.material_key_kind] = counters.singleton_fallback_draws_by_material_key_kind[batch.material_key_kind] + 1
-			render3d.SetWorldMatrix(batch.first_world_matrix)
+			render3d.SetWorldMatrix(batch.first_world_matrix, batch.first_prev_world_matrix)
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			render3d.SetMaterial(batch.material)
 			render3d.UploadGBufferConstants()
@@ -1122,18 +1176,28 @@ function render3d.FlushQueuedGBufferInstances()
 			counters.flushed_instances = counters.flushed_instances + batch.count
 			counters.instanced_draws = counters.instanced_draws + 1
 			counters.instanced_draws_by_material_key_kind[batch.material_key_kind] = counters.instanced_draws_by_material_key_kind[batch.material_key_kind] + 1
-			local instance_buffer = ensure_instance_buffer(batch, batch.count)
+			local instance_buffer, prev_instance_buffer = ensure_instance_buffer(batch, batch.count)
 			local ptr = ffi.cast("float *", instance_buffer.data)
+			local prev_ptr = ffi.cast("float *", prev_instance_buffer.data)
 
 			for instance_index = 1, batch.count do
 				batch.world_matrices[instance_index]:CopyToFloatPointer(ptr + (instance_index - 1) * 16)
+				batch.prev_world_matrices[instance_index]:CopyToFloatPointer(prev_ptr + (instance_index - 1) * 16)
 			end
 
 			instance_buffer.buffer:CopyData(instance_buffer.data, batch.count * instance_buffer.stride)
+			prev_instance_buffer.buffer:CopyData(
+				prev_instance_buffer.data,
+				batch.count * prev_instance_buffer.stride
+			)
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			render3d.SetMaterial(batch.material)
 			render3d.UploadInstancedGBufferConstants()
-			batch.mesh:DrawInstanced(render.GetCommandBuffer(), batch.count, {instance_buffer})
+			batch.mesh:DrawInstanced(
+				render.GetCommandBuffer(),
+				batch.count,
+				{instance_buffer, prev_instance_buffer}
+			)
 		end
 	end
 
@@ -1185,7 +1249,10 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 	local draw_call_count = 0
 	local active_batch_count = tonumber(active_batch_count_ptr[0])
 	local indirect_command_size = ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
-	local visible_instance_vertex_buffers = {output.visible_instance_vertex_buffer}
+	local visible_instance_vertex_buffers = {
+		output.visible_instance_vertex_buffer,
+		output.visible_instance_vertex_buffer,
+	}
 
 	for active_index = 0, active_batch_count - 1 do
 		local batch_index = tonumber(active_batch_indices[active_index]) + 1
@@ -1256,6 +1323,7 @@ do
 	render3d.camera = render3d.camera or Camera3D.New()
 	render3d.camera_stack = render3d.camera_stack or {render3d.camera}
 	render3d.world_matrix = render3d.world_matrix or Matrix44()
+	render3d.prev_world_matrix = render3d.prev_world_matrix or render3d.world_matrix
 	render3d.prev_view_matrix = render3d.prev_view_matrix or Matrix44()
 	render3d.prev_projection_matrix = render3d.prev_projection_matrix or Matrix44()
 
@@ -1298,12 +1366,17 @@ do
 		return render3d.camera
 	end
 
-	function render3d.SetWorldMatrix(world)
+	function render3d.SetWorldMatrix(world, prev_world)
 		render3d.world_matrix = world
+		render3d.prev_world_matrix = prev_world or world
 	end
 
 	function render3d.GetWorldMatrix()
 		return render3d.world_matrix
+	end
+
+	function render3d.GetPreviousWorldMatrix()
+		return render3d.prev_world_matrix or render3d.world_matrix
 	end
 
 	local pv_cached = Matrix44()

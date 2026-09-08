@@ -2,11 +2,12 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
+local commands = import("goluwa/cli/commands.lua")
 local scene_voxelizer = library()
 local AXES = {"x", "y", "z"}
 scene_voxelizer.DEFAULT_CLIPMAP_RESOLUTION = 128
 scene_voxelizer.DEFAULT_CLIPMAP_COUNT = 3
-scene_voxelizer.DEFAULT_BASE_VOXEL_SIZE = 0.5
+scene_voxelizer.DEFAULT_BASE_VOXEL_SIZE = 0.25
 scene_voxelizer.DEFAULT_CLIPMAP_SNAP_VOXEL_STRIDE = 1
 scene_voxelizer.DEFAULT_BUILD_SLICES_PER_FRAME = 12
 scene_voxelizer.DEFAULT_BACKGROUND_BUILD_SLICES_PER_FRAME = 24
@@ -957,6 +958,17 @@ function scene_voxelizer.ResetState(config)
 	return scene_voxelizer
 end
 
+-- the clipmaps have to resolve the gaps a scene's geometry leaves, so a model
+-- that is small in world units needs a smaller voxel than the default
+function scene_voxelizer.SetBaseVoxelSize(size)
+	scene_voxelizer.ResetState{
+		base_voxel_size = size,
+		base_resolution = scene_voxelizer.base_resolution,
+		clipmap_count = scene_voxelizer.clipmap_count,
+		enabled = scene_voxelizer.enabled,
+	}
+end
+
 function scene_voxelizer.SetEnabled(enabled)
 	scene_voxelizer.enabled = enabled and true or false
 end
@@ -1718,5 +1730,14 @@ function scene_voxelizer.Shutdown()
 		scene_voxelizer.scene_grid:Shutdown()
 	end
 end
+
+commands.Add("voxel_size=number[0.25]", function(size)
+	scene_voxelizer.SetBaseVoxelSize(size)
+	logf(
+		"[scene_voxelizer] base voxel size %f, finest clipmap spans %f\n",
+		size,
+		size * scene_voxelizer.base_resolution
+	)
+end)
 
 return scene_voxelizer.ResetState()
