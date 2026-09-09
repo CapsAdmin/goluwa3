@@ -2183,7 +2183,7 @@ local function wait_for_pending_culls()
 
 	for _, output in ipairs(gpu_culling.frame_buffers or {}) do
 		if output.cull_pending_serial then
-			output.cull_fence:Wait(true)
+			output.cull_fence:Wait()
 			queue:RetireFence(output.cull_fence)
 			output.cull_pending_serial = nil
 		end
@@ -2195,7 +2195,7 @@ function gpu_culling.WaitForCullsSamplingHiZ(hiz_buffer)
 
 	for _, output in ipairs(gpu_culling.frame_buffers or {}) do
 		if output.cull_pending_serial and output.sampled_hiz_buffer == hiz_buffer then
-			output.cull_fence:Wait(true)
+			output.cull_fence:Wait()
 			queue:RetireFence(output.cull_fence)
 			output.cull_pending_serial = nil
 		end

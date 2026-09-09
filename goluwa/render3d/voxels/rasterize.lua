@@ -200,7 +200,7 @@ local function submit_voxel_scroll_command_buffer(voxelizer, cmd)
 	local wait_count = 0
 
 	if queue:HasPendingSubmission(fence) then
-		fence:Wait(true)
+		fence:Wait()
 		queue:RetireFence(fence)
 		wait_count = 1
 	end

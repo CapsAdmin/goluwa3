@@ -1664,7 +1664,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			local queue = render.GetQueue()
 
 			if queue:HasPendingSubmission(self.fence) then
-				self.fence:Wait(true)
+				self.fence:Wait()
 				queue:RetireFence(self.fence)
 			end
 
@@ -1732,7 +1732,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		local queue = render.GetQueue()
 
 		if queue:HasPendingSubmission(self.fence) then
-			self.fence:Wait(true)
+			self.fence:Wait()
 			queue:RetireFence(self.fence)
 		end
 

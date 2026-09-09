@@ -59,21 +59,24 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 		return
 	end
 
-	local waitSemaphoreCount = imageAvailableSemaphore and 1 or 0
 	local waitStages = imageAvailableSemaphore and
 		ffi.new("uint32_t[1]", vulkan.vk.e.VkPipelineStageFlagBits("color_attachment_output")) or
 		nil
-	local submitInfo = vulkan.vk.s.SubmitInfo{
-		waitSemaphoreCount = waitSemaphoreCount,
-		pWaitSemaphores = imageAvailableSemaphore and imageAvailableSemaphore.ptr or nil,
-		pWaitDstStageMask = waitStages,
-		commandBufferCount = 1,
-		pCommandBuffers = commandBuffer.ptr,
-		signalSemaphoreCount = 1,
-		pSignalSemaphores = renderFinishedSemaphore.ptr,
-	}
 	vulkan.assert(
-		vulkan.lib.vkQueueSubmit(self.ptr[0], 1, submitInfo, inFlightFence.ptr[0]),
+		vulkan.lib.vkQueueSubmit(
+			self.ptr[0],
+			1,
+			vulkan.vk.s.SubmitInfo{
+				waitSemaphoreCount = imageAvailableSemaphore and 1 or 0,
+				pWaitSemaphores = imageAvailableSemaphore and imageAvailableSemaphore.ptr or nil,
+				pWaitDstStageMask = waitStages,
+				commandBufferCount = 1,
+				pCommandBuffers = commandBuffer.ptr,
+				signalSemaphoreCount = 1,
+				pSignalSemaphores = renderFinishedSemaphore.ptr,
+			},
+			inFlightFence.ptr[0]
+		),
 		"failed to submit queue"
 	)
 	self:TrackSubmission(commandBuffer, inFlightFence, {imageAvailableSemaphore, renderFinishedSemaphore})

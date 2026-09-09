@@ -1078,7 +1078,7 @@ function render.SubmitAndWait(cmd)
 
 	if RENDER_NOOP then return end
 
-	fence:Wait(true)
+	fence:Wait()
 	queue:RetireFence(fence)
 end
 

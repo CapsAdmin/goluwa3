@@ -421,7 +421,7 @@ function ImageRenderTarget:WaitForPreviousFrame()
 		local fence = self.in_flight_fences[next_frame]
 
 		if not RENDER_NOOP or self.vulkan_instance.queue:HasPendingSubmission(fence) then
-			fence:Wait(true) -- skip_reset = true
+			fence:Wait()
 		end
 
 		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[next_frame])
@@ -500,7 +500,10 @@ function ImageRenderTarget:BeginFrame()
 		local fence = self.in_flight_fences[frame_index]
 
 		if not RENDER_NOOP or self.vulkan_instance.queue:HasPendingSubmission(fence) then
-			fence:Wait(RENDER_NOOP)
+			fence:Wait()
+			if not RENDER_NOOP then
+				fence:Reset()
+			end
 		end
 
 		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[frame_index])
@@ -578,7 +581,7 @@ function ImageRenderTarget:EndFrame()
 
 		queue:SubmitNoWait(command_buffer, fence)
 
-		if not RENDER_NOOP then fence:Wait(true) end
+		if not RENDER_NOOP then fence:Wait() end
 
 		queue:RetireFence(fence)
 	else
@@ -650,7 +653,7 @@ function ImageRenderTarget:Capture()
 	local acquire_semaphore = self.image_available_semaphores and
 		self.image_available_semaphores[self.current_frame]
 	queue:SubmitFenced(cmd, acquire_semaphore, fence)
-	fence:Wait(true)
+	fence:Wait()
 	queue:RetireFence(fence)
 	local mapped = assert(staging:Map(), "capture: failed to map staging buffer")
 	local pixels = ffi.new("uint8_t[?]", byte_size)
