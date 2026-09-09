@@ -267,8 +267,7 @@ render3d.prev_camera_block = {
 function render3d.WritePreviousCameraBlock(self, block)
 	local camera = render3d.GetRenderCamera()
 	local view = render3d.GetPreviousViewMatrix() or camera:BuildViewMatrix()
-	local projection = render3d.GetPreviousProjectionMatrix() or
-		camera:BuildProjectionMatrix()
+	local projection = render3d.GetPreviousProjectionMatrix() or camera:BuildProjectionMatrix()
 	view:CopyToFloatPointer(block.prev_view)
 	projection:CopyToFloatPointer(block.prev_projection)
 	return block
@@ -298,6 +297,7 @@ render3d.gbuffer_block = {
 	{"normal_tex", "int"},
 	{"mra_tex", "int"},
 	{"emissive_tex", "int"},
+	{"transmission_tex", "int"},
 	{"depth_tex", "int"},
 	{"velocity_tex", "int"},
 }
@@ -308,6 +308,7 @@ function render3d.WriteGBufferBlock(self, block)
 	block.normal_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
 	block.mra_tex = self:GetTextureIndex(framebuffer:GetAttachment(3))
 	block.emissive_tex = self:GetTextureIndex(framebuffer:GetAttachment(4))
+	block.transmission_tex = self:GetTextureIndex(framebuffer:GetAttachment(5))
 	block.depth_tex = self:GetTextureIndex(framebuffer:GetDepthTexture())
 	block.velocity_tex = render3d.velocity_enabled and
 		self:GetTextureIndex(framebuffer:GetAttachment(6)) or
@@ -542,19 +543,30 @@ function render3d.Initialize(config)
 		if not render3d.pipelines.gbuffer then return end
 
 		render3d.GetSceneVoxelizer().Update(render3d.GetRenderCamera():GetPosition())
-		local ocean_waves_needed = render3d.IsOceanEnabled()
+		local ocean_needed = render3d.IsOceanEnabled()
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
-			local is_ocean_wave_pass = pipeline.name == "ocean_waves" or pipeline.name == "ocean_waves_near"
+			local is_ocean_pass = pipeline.name == "ocean" or
+				pipeline.name == "ocean_resolve" or
+				pipeline.name == "ocean_waves" or
+				pipeline.name == "ocean_waves_near"
 
 			if
 				pipeline.name ~= "blit" and
 				pipeline.draw_in_prerender and
 				not (
-					is_ocean_wave_pass and
-					not ocean_waves_needed
+					is_ocean_pass and
+					not ocean_needed
 				)
 			then
+				if is_ocean_pass and not pipeline.framebuffers then
+					pipeline:RecreateFramebuffers()
+
+					if not pipeline.config.FramebufferSize then
+						pipeline:AddGlobalEvent("WindowFramebufferResized")
+					end
+				end
+
 				pipeline:Draw()
 
 				if pipeline.name == "gbuffer" then
@@ -956,11 +968,7 @@ local function ensure_instance_buffer(batch, instance_count)
 	if batch.prev_instance_buffer then batch.prev_instance_buffer:Remove() end
 
 	batch.instance_buffer = VertexBuffer.New(capacity, INSTANCE_MATRIX_ATTRIBUTES, "render3d gbuffer instances")
-	batch.prev_instance_buffer = VertexBuffer.New(
-		capacity,
-		INSTANCE_MATRIX_ATTRIBUTES,
-		"render3d gbuffer prev instances"
-	)
+	batch.prev_instance_buffer = VertexBuffer.New(capacity, INSTANCE_MATRIX_ATTRIBUTES, "render3d gbuffer prev instances")
 	batch.instance_capacity = capacity
 	return batch.instance_buffer, batch.prev_instance_buffer
 end
@@ -1186,18 +1194,11 @@ function render3d.FlushQueuedGBufferInstances()
 			end
 
 			instance_buffer.buffer:CopyData(instance_buffer.data, batch.count * instance_buffer.stride)
-			prev_instance_buffer.buffer:CopyData(
-				prev_instance_buffer.data,
-				batch.count * prev_instance_buffer.stride
-			)
+			prev_instance_buffer.buffer:CopyData(prev_instance_buffer.data, batch.count * prev_instance_buffer.stride)
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			render3d.SetMaterial(batch.material)
 			render3d.UploadInstancedGBufferConstants()
-			batch.mesh:DrawInstanced(
-				render.GetCommandBuffer(),
-				batch.count,
-				{instance_buffer, prev_instance_buffer}
-			)
+			batch.mesh:DrawInstanced(render.GetCommandBuffer(), batch.count, {instance_buffer, prev_instance_buffer})
 		end
 	end
 

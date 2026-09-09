@@ -81,7 +81,7 @@ return {
 				);
 				in_uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
 				float depth = texelFetch(TEXTURE(gi_data.depth_tex), gbuffer_pos, 0).r;
-				vec3 N = texelFetch(TEXTURE(gi_data.normal_tex), gbuffer_pos, 0).xyz;
+				vec3 N = texelFetch(TEXTURE(gi_data.normal_tex), gbuffer_pos, 0).xyz * 2.0 - 1.0;
 				vec3 sky = sample_environment_irradiance(gi_data.env_irradiance_tex, N);
 
 				if (depth == 1.0 || gi_data.gi_enabled == 0) {

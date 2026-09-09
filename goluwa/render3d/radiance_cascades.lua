@@ -1,4 +1,3 @@
-
 local commands = import("goluwa/cli/commands.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -34,12 +33,12 @@ function radiance_cascades.GetDirectionCount(cascade)
 end
 
 function radiance_cascades.GetBaseInterval()
-	if radiance_cascades.BASE_INTERVAL then return radiance_cascades.BASE_INTERVAL end
+	if radiance_cascades.BASE_INTERVAL then
+		return radiance_cascades.BASE_INTERVAL
+	end
 
 	local info = voxel_gi.GetClipmapInfo(1)
-	return (
-		info and info.voxel_size or 0.5
-	) * radiance_cascades.INTERVAL_VOXELS
+	return (info and info.voxel_size or 0.5) * radiance_cascades.INTERVAL_VOXELS
 end
 
 function radiance_cascades.GetInterval(cascade)
@@ -156,7 +155,6 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 	block.rc_interval[3] = radiance_cascades.SKY_INTENSITY
 	block.rc_max_steps = radiance_cascades.MAX_TRACE_STEPS
 	block.rc_min_clipmap = math.min(cascade, math.max(clipmap_count - 1, 0))
-
 	local resolve = render3d.pipelines.radiance_cascades_resolve
 
 	if resolve then
@@ -184,7 +182,6 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 		render3d.GetRenderCamera():BuildProjectionMatrix()
 	prev_view:CopyToFloatPointer(block.rc_prev_view)
 	prev_projection:CopyToFloatPointer(block.rc_prev_projection)
-
 	block.rc_feedback_strength = radiance_cascades.FEEDBACK_STRENGTH
 	block.rc_world_bounce = radiance_cascades.WORLD_BOUNCE and
 		radiance_cascades.WORLD_BOUNCE_STRENGTH or
@@ -251,7 +248,7 @@ end
 
 function radiance_cascades.GetProbeGLSL(block_name)
 	return screen_reconstruct.GetWorldPosFromUVGLSL(block_name, {function_name = "rc_reconstruct_world_pos"}) .. (
-		[[
+			[[
 		bool rc_fetch_surface_motion(vec2 uv, float depth, out vec2 prev_uv, out float prev_depth) {
 			if (%s.velocity_tex != -1) {
 				vec3 motion = texture(TEXTURE(%s.velocity_tex), uv).rgb;
@@ -283,7 +280,7 @@ function radiance_cascades.GetProbeGLSL(block_name)
 		}
 
 		vec3 rc_probe_normal(vec2 uv) {
-			vec3 n = texture(TEXTURE(%s.normal_tex), uv).xyz;
+			vec3 n = texture(TEXTURE(%s.normal_tex), uv).xyz * 2.0 - 1.0;
 			float len = length(n);
 			return len > 1e-4 ? n / len : vec3(0.0, 1.0, 0.0);
 		}
@@ -292,17 +289,17 @@ function radiance_cascades.GetProbeGLSL(block_name)
 			return %s.projection[3][2] / (depth + %s.projection[2][2]);
 		}
 	]]
-	):format(
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name,
-		block_name
-	)
+		):format(
+			block_name,
+			block_name,
+			block_name,
+			block_name,
+			block_name,
+			block_name,
+			block_name,
+			block_name,
+			block_name
+		)
 end
 
 function radiance_cascades.GetTraceGLSL(block_name)
@@ -442,8 +439,8 @@ function radiance_cascades.GetTraceGLSL(block_name)
 		}
 
 ]] .. (
-		radiance_cascades.BACKEND == "bvh" and
-		[[
+			radiance_cascades.BACKEND == "bvh" and
+			[[
 		bool rc_trace_interval(vec3 origin, vec3 dir, float t_min, float t_max, out rc_hit hit) {
 			scene_bvh_hit traced;
 
@@ -466,12 +463,12 @@ function radiance_cascades.GetTraceGLSL(block_name)
 			return true;
 		}
 	]] or
-		[[
+			[[
 		bool rc_trace_interval(vec3 origin, vec3 dir, float t_min, float t_max, out rc_hit hit) {
 			return rc_trace_voxels(origin, dir, t_min, t_max, hit);
 		}
 	]]
-	) .. [[
+		) .. [[
 
 		vec3 rc_sky(vec3 dir) {
 			return textureLod(
@@ -534,8 +531,10 @@ function radiance_cascades.GetTraceGLSL(block_name)
 			vec3 N = hit.normal;
 			float voxel_size = rc_clip_voxel_size(max(hit.clipmap, 0));
 			vec3 surface_pos = hit.position + N * ]] .. (
-		radiance_cascades.BACKEND == "bvh" and "RC_BLOCK.rc_interval.z" or "(voxel_size * 0.5)"
-	) .. [[;
+			radiance_cascades.BACKEND == "bvh" and
+			"RC_BLOCK.rc_interval.z" or
+			"(voxel_size * 0.5)"
+		) .. [[;
 			vec3 L = normalize(RC_BLOCK.rc_sun_direction.xyz);
 			float NoL = max(dot(N, L), 0.0);
 			float shadow = 1.0;
@@ -562,11 +561,7 @@ function radiance_cascades.GetTraceGLSL(block_name)
 end
 
 function radiance_cascades.GetShadowGLSL(block_name)
-	return directional_shadows.GetSurfaceDirectionalShadowGLSL(
-		block_name,
-		"calculateShadow",
-		{use_receiver_plane_bias = false}
-	)
+	return directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, "calculateShadow", {use_receiver_plane_bias = false})
 end
 
 local function rebuild_pipelines()
@@ -632,7 +627,10 @@ commands.Add("radiance_cascades_world_bounce=number[1]", function(strength)
 	-- the probe update is a pass of its own, so turning the bounce on or off
 	-- changes the pass list rather than just a uniform
 	if was_on ~= radiance_cascades.WORLD_BOUNCE then
-		logf("[radiance_cascades] world bounce %s, rebuilding pipelines\n", strength > 0 and "on" or "off")
+		logf(
+			"[radiance_cascades] world bounce %s, rebuilding pipelines\n",
+			strength > 0 and "on" or "off"
+		)
 		rebuild_pipelines()
 	else
 		logf("[radiance_cascades] world bounce strength %f\n", strength)
@@ -656,7 +654,10 @@ end)
 
 commands.Add("radiance_cascades_count=number[6]", function(count)
 	radiance_cascades.CASCADE_COUNT = math.floor(count)
-	logf("[radiance_cascades] %d cascades, rebuilding pipelines\n", radiance_cascades.CASCADE_COUNT)
+	logf(
+		"[radiance_cascades] %d cascades, rebuilding pipelines\n",
+		radiance_cascades.CASCADE_COUNT
+	)
 	rebuild_pipelines()
 end)
 

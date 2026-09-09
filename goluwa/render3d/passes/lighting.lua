@@ -140,9 +140,7 @@ return {
 							block.gi_screen_tex = self:GetTextureIndex(render3d.pipelines.radiance_cascades_denoise:GetFramebuffer(1):GetAttachment(1))
 						else
 							block.gi_screen_tex = self:GetTextureIndex(
-								render3d.pipelines.radiance_cascades_resolve:GetFramebuffer(
-									radiance_cascades.GetResolveFramebufferIndex()
-								):GetAttachment(1)
+								render3d.pipelines.radiance_cascades_resolve:GetFramebuffer(radiance_cascades.GetResolveFramebufferIndex()):GetAttachment(1)
 							)
 						end
 					elseif render3d.pipelines.voxel_gi_upsample then
@@ -191,11 +189,11 @@ return {
 			}
 
 			vec3 get_normal() {
-				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
+				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz * 2.0 - 1.0;
 			}
 
 			float get_transmission_view_dependency() {
-				return texture(TEXTURE(lighting_data.normal_tex), in_uv).a;
+				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).g;
 			}
 
 			float get_metallic() {
@@ -222,7 +220,7 @@ return {
 			}
 
 			float get_transmission_blocking() {
-				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).a;
+				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).r;
 			}
 
 			vec3 get_transmission_color() {
@@ -608,7 +606,6 @@ return {
 				vec3 color = direct + indirect + emissive;
 				vec3 sunDir = get_primary_sun_direction();
 				float atmosphere_sun_visibility = 1.0;
-
 				if (
 					lighting_data.light_count > 0 &&
 					lighting_data.shadows.shadow_map_indices[0] >= 0 &&
@@ -616,7 +613,7 @@ return {
 				) {
 					atmosphere_sun_visibility = calculateShadow(world_pos, N, sunDir);
 				}
-
+		
 				color = apply_atmospheric_aerial_perspective(
 					color,
 					world_pos,
@@ -624,6 +621,8 @@ return {
 					lighting_data.camera_position.xyz,
 					atmosphere_sun_visibility
 				);
+
+			
 
 				if (lighting_data.gi_debug != 0) {
 					float debug_sky_visibility;

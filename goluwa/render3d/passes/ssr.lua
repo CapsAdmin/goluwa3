@@ -12,7 +12,7 @@ return {
 		ComputePass = true,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"ssr", "rgba"}},
-			{"r32_sfloat", {"ssr_depth", "r"}},
+			{"r16_sfloat", {"ssr_depth", "r"}},
 		},
 		framebuffer_count = 2,
 		scale = 0.5,
@@ -72,7 +72,6 @@ return {
 					end
 
 					envprobe.WriteProbeBlock(self, block)
-
 					local prev_view = render3d.GetPreviousViewMatrix()
 					local prev_projection = render3d.GetPreviousProjectionMatrix()
 
@@ -94,7 +93,7 @@ return {
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_ssr;
-			layout(set = 0, binding = 1, r32f) uniform writeonly image2D out_ssr_depth;
+			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_ssr_depth;
 		]],
 		shader = [[
 		]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
@@ -260,7 +259,7 @@ return {
 									}
 								}
 
-								vec3 hit_normal_vs = mat3(ssr_data.view) * texture(TEXTURE(ssr_data.normal_tex), uv).xyz;
+								vec3 hit_normal_vs = mat3(ssr_data.view) * (texture(TEXTURE(ssr_data.normal_tex), uv).xyz * 2.0 - 1.0);
 
 								if (dot(hit_normal_vs, R_vs) > 0.0) {
 									t_prev = t;
@@ -351,7 +350,7 @@ return {
 				float view_depth = 0.0;
 
 				if (depth < 1.0) {
-					N = texelFetch(TEXTURE(ssr_data.normal_tex), gbuffer_pos, 0).xyz;
+					N = texelFetch(TEXTURE(ssr_data.normal_tex), gbuffer_pos, 0).xyz * 2.0 - 1.0;
 					roughness = texelFetch(TEXTURE(ssr_data.mra_tex), gbuffer_pos, 0).g;
 					world_pos = get_world_pos(uv, depth);
 					vec3 pos_vs = (ssr_data.view * vec4(world_pos, 1.0)).xyz;

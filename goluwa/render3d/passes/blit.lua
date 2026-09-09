@@ -26,7 +26,7 @@ local bloom_merge_strength = 0.65
 local bloom_threshold = 1.25
 local bloom_knee = 0.75
 local compute_shader = [[
-	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+	layout(set = 0, binding = 0, r11f_g11f_b10f) uniform writeonly image2D out_color;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 	layout(set = 0, binding = 2) uniform sampler2D bloom_source_tex;
 	layout(set = 0, binding = 3) uniform sampler2D bloom_merge_tex;
@@ -137,7 +137,7 @@ local r = {
 	{
 		name = "blit_compute",
 		ComputePass = true,
-		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgb"}}},
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{

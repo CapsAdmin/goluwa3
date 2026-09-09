@@ -300,7 +300,7 @@ local function get_scroll_compute_pipeline(image_format)
 	return pipeline
 end
 
-local AXIS_TARGET_IMAGE_FORMATS = {"rgba8", "rgba16f"}
+local AXIS_TARGET_IMAGE_FORMATS = {"rgba8", "rgba8"}
 
 local function clear_axis_target(cmd, target)
 	transition_axis_target(
@@ -313,10 +313,10 @@ local function clear_axis_target(cmd, target)
 		"transfer_write"
 	)
 
-	for _, texture in ipairs(get_axis_target_textures(target)) do
+	for index, texture in ipairs(get_axis_target_textures(target)) do
 		cmd:ClearColorImage{
 			image = texture:GetImage(),
-			color = {0, 0, 0, 0},
+			color = index == 2 and {0.5, 0.5, 0.5, 0} or {0, 0, 0, 0},
 			base_array_layer = 0,
 			layer_count = texture:GetHeight(),
 		}
@@ -737,7 +737,7 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 			},
 			{
 				color_image_view = target.normal_layer_views[slice],
-				clear_color = {0, 0, 0, 0},
+				clear_color = {0.5, 0.5, 0.5, 0},
 				load_op = load_op,
 				store_op = "store",
 			},

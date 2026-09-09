@@ -77,7 +77,7 @@ return {
 				float emissive_luma = dot(emissive, vec3(0.2126, 0.7152, 0.0722));
 				set_color(vec4(voxel_color, 0.5 + 0.5 * clamp(emissive_luma / 4.0, 0.0, 1.0)));
 				vec3 n = normalize(in_normal);
-				set_normal(vec4(n, 1.0));
+				set_normal(vec4(n * 0.5 + 0.5, 0.25));
 			}
 			]],
 		},
@@ -87,10 +87,10 @@ return {
 				{},
 				{
 					blend = true,
-					src_color_blend_factor = "one",
-					dst_color_blend_factor = "one",
+					src_color_blend_factor = "src_alpha",
+					dst_color_blend_factor = "one_minus_src_alpha",
 					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
+					src_alpha_blend_factor = "zero",
 					dst_alpha_blend_factor = "one",
 					alpha_blend_op = "add",
 				},

@@ -231,6 +231,7 @@ return {
 			{"r32_sfloat", {"ocean_distance", "r"}},
 		},
 		framebuffer_count = 2,
+		dont_create_framebuffers = true,
 		fragment = {
 			uniform_buffers = {
 				{
@@ -795,6 +796,7 @@ return {
 		name = "ocean_resolve",
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,
+		dont_create_framebuffers = true,
 		fragment = {
 			uniform_buffers = {
 				{

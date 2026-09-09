@@ -26,8 +26,8 @@ commands.Add("velocity_buffer=boolean[true]", function(enabled)
 		"[gbuffer] velocity buffer %s, consumers %s\n",
 		enabled ~= false and "enabled" or "disabled",
 		enabled ~= false and
-		"follow moving surfaces" or
-		"reproject through the previous camera only"
+			"follow moving surfaces" or
+			"reproject through the previous camera only"
 	)
 end)
 
@@ -319,7 +319,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		end,
 		ColorFormat = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
-			{"r16g16b16a16_sfloat", {"normal", "rgb"}, {"transmission_view_dep", "a"}},
+			{"b10g11r11_ufloat_pack32", {"normal", "rgb"}},
 			{
 				"r8g8b8a8_unorm",
 				{"metallic", "r"},
@@ -327,8 +327,12 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 				{"ao", "b"},
 				{"subsurface", "a"},
 			},
-			{"r16g16b16a16_sfloat", {"emissive", "rgb"}, {"transmission_blocking", "a"}},
-			{"r16_sfloat", {"transmission_blocking_raw", "r"}},
+			{"b10g11r11_ufloat_pack32", {"emissive", "rgb"}},
+			{
+				"r8g8b8a8_unorm",
+				{"transmission_blocking", "r"},
+				{"transmission_view_dep", "g"},
+			},
 			{"r16g16b16a16_sfloat", {"velocity", "rg"}, {"prev_view_depth", "b"}},
 		},
 		DepthFormat = "d32_sfloat",
@@ -580,21 +584,6 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						return transmission_model.TransmissionColor.rgb * transmission_model.TransmissionColor.a;
 					}
 
-					float get_transmission_blocking_raw(vec2 uv) {
-						if (!Subsurface) return 0.0;
-
-						if (aux_model.RoughnessTexture != -1) {
-							return clamp(texture(TEXTURE(aux_model.RoughnessTexture), uv).a, 0.0, 1.0);
-						}
-
-						if (aux_model.OpacityTexture != -1) {
-							vec4 mask = texture(TEXTURE(aux_model.OpacityTexture), uv);
-							return clamp(max(max(mask.r, mask.g), max(mask.b, mask.a)), 0.0, 1.0);
-						}
-
-						return clamp(get_alpha_uv(uv), 0.0, 1.0);
-					}
-
 					float get_transmission_blocking(vec2 uv) {
 						if (!Subsurface) return 0.0;
 
@@ -817,14 +806,13 @@ local function build_ssdm_fragment_shader(displacement_var)
 
 			set_alpha(alpha);
 			set_albedo(get_albedo_world(displacement.uv, displacement.world_pos));
-			set_normal(get_normal(displacement.uv, tbn));
+			set_normal(get_normal(displacement.uv, tbn) * 0.5 + 0.5);
 			set_transmission_view_dep(get_transmission_view_dependency());
 			set_metallic(get_metallic(displacement.uv));
 			set_roughness(get_roughness(displacement.uv));
 			set_ao(get_ao(displacement.uv));
 			set_subsurface(get_subsurface(displacement.uv));
 			set_transmission_blocking(get_transmission_blocking(displacement.uv));
-			set_transmission_blocking_raw(get_transmission_blocking_raw(displacement.uv));
 			set_emissive(get_emissive(displacement.uv));
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so
@@ -927,14 +915,13 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 
 			set_alpha(alpha);
 			set_albedo(get_albedo_world(in_uv, in_position));
-			set_normal(get_normal(in_uv, tbn));
+			set_normal(get_normal(in_uv, tbn) * 0.5 + 0.5);
 			set_transmission_view_dep(get_transmission_view_dependency());
 			set_metallic(get_metallic(in_uv));
 			set_roughness(get_roughness(in_uv));
 			set_ao(get_ao(in_uv));
 			set_subsurface(get_subsurface(in_uv));
 			set_transmission_blocking(get_transmission_blocking(in_uv));
-			set_transmission_blocking_raw(get_transmission_blocking_raw(in_uv));
 			set_emissive(get_emissive(in_uv));
 			write_velocity(in_position, in_prev_position);
 		}
@@ -943,16 +930,21 @@ if render.GetDevice().physical_device:GetFeatures().tessellationShader == 1 then
 	local fallback_anim = build_base_pass(build_ssdm_fragment_shader("displacement_model"), true)
 	fallback_anim.name = "gbuffer_anim"
 	fallback_anim.draw_in_prerender = false
+	-- the variants render into the main gbuffer pass's render pass, so their
+	-- owned framebuffers would never be drawn into
+	fallback_anim.dont_create_framebuffers = true
 	local instanced = build_instanced_pass(build_ssdm_fragment_shader("displacement_model"))
 	local pass = build_base_pass(fragment, false)
 	pass.name = "gbuffer_tess"
 	pass.draw_in_prerender = false
+	pass.dont_create_framebuffers = true
 	pass.Topology = "patch_list"
 	pass.PatchControlPoints = 3
 	pass.FrontFace = orientation.FRONT_FACE
 	local pass_anim = build_base_pass(fragment, true)
 	pass_anim.name = "gbuffer_tess_anim"
 	pass_anim.draw_in_prerender = false
+	pass_anim.dont_create_framebuffers = true
 	pass_anim.Topology = "patch_list"
 	pass_anim.PatchControlPoints = 3
 	pass_anim.FrontFace = orientation.FRONT_FACE
@@ -1101,5 +1093,6 @@ local fallback = build_base_pass(build_ssdm_fragment_shader("displacement_model"
 local fallback_anim = build_base_pass(build_ssdm_fragment_shader("displacement_model"), true)
 fallback_anim.name = "gbuffer_anim"
 fallback_anim.draw_in_prerender = false
+fallback_anim.dont_create_framebuffers = true
 local instanced = build_instanced_pass(build_ssdm_fragment_shader("displacement_model"))
 return {fallback, fallback_anim, instanced}

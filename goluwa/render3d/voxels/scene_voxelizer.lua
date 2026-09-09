@@ -14,7 +14,6 @@ scene_voxelizer.DEFAULT_BACKGROUND_BUILD_SLICES_PER_FRAME = 24
 scene_voxelizer.DEFAULT_MOVING_MAX_ACTIVE_CLIPMAPS_PER_FRAME = 0
 scene_voxelizer.DEFAULT_SETTLED_MAX_ACTIVE_CLIPMAPS_PER_FRAME = 0
 scene_voxelizer.DEFAULT_PREFER_EXPOSED_DIRTY_SLICES = true
-
 local grid = {}
 
 local function copy_vec3(vec)
@@ -145,7 +144,7 @@ local function create_volume_target(owner_grid, clipmap, axis_name, group_config
 	end
 
 	local texture, sample_view, layer_views = create_layered_texture(resolution, target_name)
-	local normal_texture, normal_sample_view, normal_layer_views = create_layered_texture(resolution, target_name .. " normal", "r16g16b16a16_sfloat")
+	local normal_texture, normal_sample_view, normal_layer_views = create_layered_texture(resolution, target_name .. " normal", "r8g8b8a8_unorm")
 	return {
 		axis = axis_name,
 		texture = texture,

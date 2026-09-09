@@ -65,7 +65,7 @@ return {
 				}
 
 				vec3 get_normal() {
-					return texture(TEXTURE(lighting_simple.normal_tex), in_uv).xyz;
+					return texture(TEXTURE(lighting_simple.normal_tex), in_uv).xyz * 2.0 - 1.0;
 				}
 
 				float get_metallic() {

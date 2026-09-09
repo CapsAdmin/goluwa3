@@ -42,12 +42,12 @@ elseif MODE == "cascade" then
 		shadow_update_interval = 2,
 		cascade_count = 3,
 		cascade_formats = {
-			"d32_sfloat",
+			"d16_unorm",
 			"d16_unorm",
 			"d16_unorm",
 		},
 		cascade_sizes = {
-			Vec2() + 4096,
+			Vec2() + 2048,
 			Vec2() + 2048,
 			Vec2() + 2048,
 		},
@@ -63,6 +63,7 @@ elseif MODE == "cascade" then
 		max_shadow_distance = 2700,
 		inset_shadows = {
 			size = Vec2() + 4096,
+			cascade_formats = {"d16_unorm"},
 			distance = 16,
 			min_caster_texel_size = 1,
 			zoom_factor = 1.75,

@@ -727,7 +727,7 @@ local r = {
 			]] .. screen_reconstruct.GetWorldRayGLSL("fog_data") .. [[
 
 			vec3 get_normal() {
-				return texture(TEXTURE(fog_data.normal_tex), in_uv).xyz;
+				return texture(TEXTURE(fog_data.normal_tex), in_uv).xyz * 2.0 - 1.0;
 			}
 
 			bool get_fog_world_segment(vec3 ray_dir, float max_world_distance, out float fog_near_world, out float fog_length_world) {

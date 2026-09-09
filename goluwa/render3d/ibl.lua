@@ -212,7 +212,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				if (center_depth >= 1.0) return vec4(0.0);
 
 				float center_view_depth = reconstruct_ssr_view_depth(uv, center_depth);
-				vec3 center_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), pixel, 0).xyz;
+				vec3 center_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), pixel, 0).xyz * 2.0 - 1.0;
 				float center_roughness = texelFetch(TEXTURE(]] .. uniform_name .. [[.mra_tex), pixel, 0).g;
 				vec2 ssr_coord = uv * vec2(ssr_size) - 0.5;
 				ivec2 ssr_base = ivec2(floor(ssr_coord));
@@ -230,7 +230,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 
 					vec2 tap_uv = (vec2(tap_pixel) + 0.5) / vec2(gbuffer_size);
 					float tap_view_depth = reconstruct_ssr_view_depth(tap_uv, tap_depth);
-					vec3 tap_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), tap_pixel, 0).xyz;
+					vec3 tap_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), tap_pixel, 0).xyz * 2.0 - 1.0;
 					float tap_roughness = texelFetch(TEXTURE(]] .. uniform_name .. [[.mra_tex), tap_pixel, 0).g;
 					float bilinear_weight = (offset.x == 0 ? 1.0 - ssr_frac.x : ssr_frac.x) * (offset.y == 0 ? 1.0 - ssr_frac.y : ssr_frac.y);
 					float depth_weight = exp(-abs(tap_view_depth - center_view_depth) / max(abs(center_view_depth) * 0.03, 0.05));

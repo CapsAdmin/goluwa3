@@ -12,17 +12,19 @@ function post_source.GetRawSceneSourceTexture(self)
 		return render3d.pipelines.smaa_resolve:GetFramebuffer(current_idx):GetAttachment(1)
 	end
 
-	if
-		render3d.pipelines.ocean_resolve and
-		render3d.pipelines.ocean_resolve.framebuffers
-	then
-		local current_idx = system.GetFrameNumber() % 2 + 1
-		return render3d.pipelines.ocean_resolve:GetFramebuffer(current_idx):GetAttachment(1)
-	end
+	if render3d.IsOceanEnabled() then
+		if
+			render3d.pipelines.ocean_resolve and
+			render3d.pipelines.ocean_resolve.framebuffers
+		then
+			local current_idx = system.GetFrameNumber() % 2 + 1
+			return render3d.pipelines.ocean_resolve:GetFramebuffer(current_idx):GetAttachment(1)
+		end
 
-	if render3d.pipelines.ocean and render3d.pipelines.ocean.framebuffers then
-		local current_idx = system.GetFrameNumber() % 2 + 1
-		return render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1)
+		if render3d.pipelines.ocean and render3d.pipelines.ocean.framebuffers then
+			local current_idx = system.GetFrameNumber() % 2 + 1
+			return render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1)
+		end
 	end
 
 	if not render3d.pipelines.lighting then return nil end

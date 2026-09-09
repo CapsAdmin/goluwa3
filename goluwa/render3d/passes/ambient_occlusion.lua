@@ -23,7 +23,7 @@ return {
 		name = "ambient_occlusion",
 		ComputePass = true,
 		ColorFormat = {
-			{"r32_sfloat", {"color", "r"}},
+			{"r16_sfloat", {"color", "r"}},
 		},
 		framebuffer_count = 1,
 		scale = 0.5,
@@ -59,7 +59,7 @@ return {
 			},
 		},
 		custom_declarations = [[
-			layout(set = 0, binding = 0, r32f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 0, r16f) uniform writeonly image2D out_color;
 			]],
 		shader = [[
             vec2 in_uv;
@@ -82,7 +82,7 @@ return {
 			}
 
 			vec3 get_normal() {
-				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
+				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz * 2.0 - 1.0;
 			}
 
 			vec3 get_geometric_normal(vec2 uv, vec3 world_pos, float depth, vec3 shading_normal) {
@@ -252,7 +252,7 @@ return {
 		name = "ambient_occlusion_blur",
 		ComputePass = true,
 		ColorFormat = {
-			{"r32_sfloat", {"color", "r"}},
+			{"r16_sfloat", {"color", "r"}},
 		},
 		framebuffer_count = 1,
 		LocalSize = COMPUTE_LOCAL_SIZE,
@@ -291,7 +291,7 @@ return {
 			},
 		},
 		custom_declarations = [[
-			layout(set = 0, binding = 0, r32f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 0, r16f) uniform writeonly image2D out_color;
 			]],
 		shader = [[
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[

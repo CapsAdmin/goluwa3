@@ -17,7 +17,7 @@ voxel_gi.PROBE_COUNT_Y = 12
 voxel_gi.PROBE_COUNT_Z = 24
 voxel_gi.CASCADE_SPACINGS = {1, 2, 4, 8}
 voxel_gi.FORWARD_BIAS = 0.3
-voxel_gi.RAYS_PER_PROBE = 64 
+voxel_gi.RAYS_PER_PROBE = 64
 voxel_gi.PROBES_PER_FRAME = 1024
 voxel_gi.CASCADE_UPDATE_DIVISORS = {1, 2, 4, 4}
 voxel_gi.MAX_TRACE_STEPS = 128
@@ -61,9 +61,7 @@ end
 local function get_cascade_probes_per_frame(index)
 	return math.min(
 		math.max(
-			math.floor(
-				voxel_gi.PROBES_PER_FRAME / math.max(voxel_gi.CASCADE_UPDATE_DIVISORS[index] or 1, 1)
-			),
+			math.floor(voxel_gi.PROBES_PER_FRAME / math.max(voxel_gi.CASCADE_UPDATE_DIVISORS[index] or 1, 1)),
 			1
 		),
 		PROBES_PER_CASCADE
@@ -364,7 +362,9 @@ function voxel_gi.GetVolumeDescriptor(index, normals)
 
 	if resolved and info and info.valid then
 		return {
-			normals and resolved.normal_sample_view or resolved.sample_view,
+			normals and
+			resolved.normal_sample_view or
+			resolved.sample_view,
 			resolved.sampler,
 		}
 	end
@@ -376,7 +376,6 @@ end
 function voxel_gi.GetClipmapInfo(index)
 	return voxel_gi.clip_info and voxel_gi.clip_info[index]
 end
-
 
 function voxel_gi.GetBlockLayout()
 	return {
@@ -528,10 +527,16 @@ function voxel_gi.GetGLSLCode(block_name, options)
 		const int VOXEL_GI_IRRADIANCE_SIZE = ]] .. voxel_gi.IRRADIANCE_OCT_SIZE .. [[;
 		const int VOXEL_GI_VISIBILITY_SIZE = ]] .. voxel_gi.VISIBILITY_OCT_SIZE .. [[;
 ]] .. "#define VOXEL_GI_BILINEAR_IRRADIANCE " .. (
-		not options.storage and voxel_gi.BILINEAR_IRRADIANCE and 1 or 0
-	) .. "\n" .. "#define VOXEL_GI_BILINEAR_VISIBILITY " .. (
-		not options.storage and voxel_gi.BILINEAR_VISIBILITY and 1 or 0
-	) .. "\n" .. [[
+			not options.storage and
+			voxel_gi.BILINEAR_IRRADIANCE and
+			1 or
+			0
+		) .. "\n" .. "#define VOXEL_GI_BILINEAR_VISIBILITY " .. (
+			not options.storage and
+			voxel_gi.BILINEAR_VISIBILITY and
+			1 or
+			0
+		) .. "\n" .. [[
 
 		vec2 voxel_gi_oct_encode(vec3 n) {
 			n /= (abs(n.x) + abs(n.y) + abs(n.z));
@@ -642,10 +647,14 @@ function voxel_gi.GetGLSLCode(block_name, options)
 		}
 
 		const int VOXEL_GI_OCCLUSION_MAX_STEPS = ]] .. voxel_gi.OCCLUSION_MAX_STEPS .. [[;
-		const float VOXEL_GI_OCCLUSION_STEP_VOXELS = ]] .. ("%.4f"):format(voxel_gi.OCCLUSION_STEP_VOXELS) .. [[;
+		const float VOXEL_GI_OCCLUSION_STEP_VOXELS = ]] .. (
+			"%.4f"
+		):format(voxel_gi.OCCLUSION_STEP_VOXELS) .. [[;
 		const int VOXEL_GI_OCCLUSION_MAX_CASCADE = ]] .. voxel_gi.OCCLUSION_MAX_CASCADE .. [[;
 		const int VOXEL_GI_MAX_SAMPLE_CASCADES = ]] .. voxel_gi.MAX_SAMPLE_CASCADES .. [[;
-		const float VOXEL_GI_MIN_PROBE_WEIGHT = ]] .. ("%.6f"):format(voxel_gi.MIN_PROBE_WEIGHT) .. [[;
+		const float VOXEL_GI_MIN_PROBE_WEIGHT = ]] .. (
+			"%.6f"
+		):format(voxel_gi.MIN_PROBE_WEIGHT) .. [[;
 
 		bool voxel_gi_clip_contains(int k, vec3 p) {
 			vec4 params = VOXEL_GI_BLOCK.gi_clip_params[k];
@@ -1012,9 +1021,15 @@ local function build_update_pipeline()
 
 			const int PROBES_PER_CASCADE = ]] .. PROBES_PER_CASCADE .. [[;
 			const int RAYS_PER_PROBE = ]] .. voxel_gi.RAYS_PER_PROBE .. [[;
-			const float BACKFACE_HYSTERESIS = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_HYSTERESIS) .. [[;
-			const float BACKFACE_DISABLE = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_DISABLE) .. [[;
-			const float BACKFACE_ENABLE = ]] .. ("%.4f"):format(voxel_gi.BACKFACE_ENABLE) .. [[;
+			const float BACKFACE_HYSTERESIS = ]] .. (
+				"%.4f"
+			):format(voxel_gi.BACKFACE_HYSTERESIS) .. [[;
+			const float BACKFACE_DISABLE = ]] .. (
+				"%.4f"
+			):format(voxel_gi.BACKFACE_DISABLE) .. [[;
+			const float BACKFACE_ENABLE = ]] .. (
+				"%.4f"
+			):format(voxel_gi.BACKFACE_ENABLE) .. [[;
 			const int MAX_PROBE_AGE = ]] .. voxel_gi.MAX_PROBE_AGE .. [[;
 
 			shared vec4 s_ray[RAYS_PER_PROBE];
@@ -1446,9 +1461,9 @@ local function build_resolve_pipeline()
 				vec3 normal = vec3(0.0);
 				float contributors = 0.0;
 
-				if (sx.a >= 0.5) { color += sx.rgb; normal += texelFetch(normal_x, cx, 0).xyz; contributors += 1.0; }
-				if (sy.a >= 0.5) { color += sy.rgb; normal += texelFetch(normal_y, cy, 0).xyz; contributors += 1.0; }
-				if (sz.a >= 0.5) { color += sz.rgb; normal += texelFetch(normal_z, cz, 0).xyz; contributors += 1.0; }
+				if (sx.a >= 0.5) { color += sx.rgb; normal += texelFetch(normal_x, cx, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
+				if (sy.a >= 0.5) { color += sy.rgb; normal += texelFetch(normal_y, cy, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
+				if (sz.a >= 0.5) { color += sz.rgb; normal += texelFetch(normal_z, cz, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
 
 				if (contributors > 0.0) color /= contributors;
 
@@ -1775,7 +1790,10 @@ end)
 
 commands.Add("voxel_gi_debug=boolean[true]", function(enabled)
 	voxel_gi.debug_mode = enabled ~= false and 1 or 0
-	logf("[voxel_gi] gi only debug view %s\n", voxel_gi.debug_mode == 1 and "enabled" or "disabled")
+	logf(
+		"[voxel_gi] gi only debug view %s\n",
+		voxel_gi.debug_mode == 1 and "enabled" or "disabled"
+	)
 end)
 
 commands.Add("voxel_gi_occlusion=boolean[true]", function(enabled)

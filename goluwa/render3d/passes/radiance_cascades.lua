@@ -111,11 +111,17 @@ local function build_cascade_pass(cascade, is_top)
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_cascade;
 			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D upper_cascade_tex;
 		]] .. volume_declarations .. (
-			USE_BVH and scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) or ""
-		),
+				USE_BVH and
+				scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) or
+				""
+			),
 		shader = [[
 			const int RC_DIRECTIONS = ]] .. radiance_cascades.GetDirectionCount(cascade) .. [[;
-			#define RC_IS_TOP ]] .. (is_top and 1 or 0) .. [[
+			#define RC_IS_TOP ]] .. (
+				is_top and
+				1 or
+				0
+			) .. [[
 
 			#define saturate(x) clamp(x, 0.0, 1.0)
 
@@ -125,7 +131,11 @@ local function build_cascade_pass(cascade, is_top)
 			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
 			]] .. radiance_cascades.GetShadowGLSL("rc_data") .. [[
 			]] .. voxel_gi.GetGLSLCode("rc_data.gi") .. [[
-			]] .. (USE_BVH and scene_bvh.GetTraversalGLSL() or "") .. [[
+			]] .. (
+				USE_BVH and
+				scene_bvh.GetTraversalGLSL() or
+				""
+			) .. [[
 			]] .. radiance_cascades.GetTraceGLSL("rc_data") .. [[
 
 #if RC_IS_TOP == 0
@@ -222,7 +232,7 @@ local function build_resolve_pass()
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			-- the view depth this pixel resolved at, so next frame can tell
 			-- whether its reprojection landed on the same surface
-			{"r32_sfloat", {"gi_depth", "r"}},
+			{"r16_sfloat", {"gi_depth", "r"}},
 		},
 		framebuffer_count = 2,
 		LocalSize = COMPUTE_LOCAL_SIZE,
@@ -256,7 +266,7 @@ local function build_resolve_pass()
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			layout(set = 0, binding = ]] .. BINDING_RESOLVE_DEPTH .. [[, r32f) uniform writeonly image2D out_gi_depth;
+			layout(set = 0, binding = ]] .. BINDING_RESOLVE_DEPTH .. [[, r16f) uniform writeonly image2D out_gi_depth;
 			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D cascade_tex;
 		]],
 		shader = [[
