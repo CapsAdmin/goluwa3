@@ -25,7 +25,7 @@ function ibl.GetBRDFGLSLCode()
 			}
 
 			float V_SmithGGXCorrelated(float alpha, float NoV, float NoL) {
-				float a2 = alpha * alpha;
+				float a2 = max(alpha * alpha, 1e-3);
 				float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
 				float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
 				return 0.5 / (lambdaV + lambdaL);
