@@ -942,7 +942,7 @@ local function ensure_instance_buffer(batch, instance_count)
 	local capacity = batch.instance_capacity or 0
 
 	if capacity >= instance_count and batch.instance_buffer then
-		return batch.instance_buffer
+		return batch.instance_buffer, batch.prev_instance_buffer
 	end
 
 	capacity = math.max(4, capacity)
