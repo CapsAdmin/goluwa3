@@ -21,6 +21,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_voxelizer = import("goluwa/render3d/voxels/scene_voxelizer.lua")
+local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Light = import("goluwa/entities/components/light.lua")
 local objects = import("goluwa/objects/objects.lua")
@@ -542,6 +543,7 @@ function render3d.Initialize(config)
 	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
 
+		scene_bvh.EnsureBuilt()
 		render3d.GetSceneVoxelizer().Update(render3d.GetRenderCamera():GetPosition())
 		local ocean_needed = render3d.IsOceanEnabled()
 

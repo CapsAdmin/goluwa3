@@ -1,4 +1,3 @@
-
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local commands = import("goluwa/cli/commands.lua")
@@ -31,10 +30,23 @@ local BIN_COUNT = 12
 local MAX_LEAF_TRIANGLES = 4
 local MAX_DEPTH = 30
 scene_bvh.STACK_SIZE = 32
-scene_bvh.SETTLE_TIME = 0.5
+-- a visual's world aabb changes by more than this (world units) and the
+-- scene counts as changed
+scene_bvh.SIGNATURE_TOL = 0.005
+-- rebuild once the scene has been quiet for this long
+scene_bvh.REBUILD_SETTLE = 0.2
+-- while the scene keeps changing, a rebuild that took longer must not run so
+-- frequently that it becomes the dominant cost: the max wait scales with the
+-- last build's measured cpu time, clamped to this upper bound
+scene_bvh.REBUILD_HARD_MAX = 8.0
+-- but no later than this after the change started, so continuously
+-- animated geometry still gets periodic (albeit stale) rebuilds
+scene_bvh.REBUILD_MAX_WAIT = 1.0
+scene_bvh.LightCulling = scene_bvh.LightCulling ~= false
 scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
 scene_bvh.build_time = 0
+scene_bvh.version = 0
 
 function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
@@ -233,8 +245,7 @@ do
 			end
 
 			if l_count > 0 and right_count[b + 1] > 0 then
-				local cost = l_count * surface_area(l_min_x, l_min_y, l_min_z, l_max_x, l_max_y, l_max_z) +
-					right_count[b + 1] * right_area[b + 1]
+				local cost = l_count * surface_area(l_min_x, l_min_y, l_min_z, l_max_x, l_max_y, l_max_z) + right_count[b + 1] * right_area[b + 1]
 
 				if cost < best_cost then
 					best_cost = cost
@@ -470,7 +481,6 @@ do
 
 		if scene_bvh.triangle_buffer then scene_bvh.triangle_buffer:Remove() end
 
-
 		scene_bvh.node_buffer = render.CreateBuffer{
 			byte_size = node_count * NODE_BYTE_SIZE,
 			buffer_usage = {"storage_buffer"},
@@ -485,11 +495,14 @@ do
 			label = "scene_bvh_triangles",
 			data = ordered,
 		}
+		-- cpu copy of the nodes for the debug overlay and tools. aliases the
+		-- build scratch, it is replaced on the next build
+		scene_bvh.debug_nodes = nodes
+		scene_bvh.debug_node_count = node_count
 		scene_bvh.node_count = node_count
 		scene_bvh.triangle_count = written
 		scene_bvh.build_time = os.clock() - start_time
 		scene_bvh.source_count = #sources
-		scene_bvh.built_visual_count = #Visual.Instances
 		scene_bvh.bounds = {
 			nodes[0].bounds_min[0],
 			nodes[0].bounds_min[1],
@@ -511,6 +524,7 @@ do
 			scene_bvh.bounds[5],
 			scene_bvh.bounds[6]
 		)
+		scene_bvh.version = scene_bvh.version + 1
 	end
 end
 
@@ -542,29 +556,174 @@ local function ensure_placeholder_buffers()
 	}
 end
 
-function scene_bvh.EnsureBuilt()
+-- true when the visual set or any of its world aabbs differs from the last
+-- snapshot. steady state costs one aabb fetch and six comparisons per
+-- visual, additions and removals re-snapshot the whole set
+local function diff_visuals()
 	local count = #Visual.Instances
+	local signatures = scene_bvh.signatures
 
-	if scene_bvh.built_visual_count == count then return end
+	if not signatures or count ~= scene_bvh.signature_count then
+		local fresh = {}
 
-	if scene_bvh.pending_visual_count ~= count then
-		scene_bvh.pending_visual_count = count
-		scene_bvh.pending_since = system.GetElapsedTime()
+		for _, visual in ipairs(Visual.Instances) do
+			local aabb = visual:GetWorldAABB()
+
+			-- visuals without geometry contribute nothing to the bvh
+			if aabb then
+				fresh[visual] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+			end
+		end
+
+		scene_bvh.signatures = fresh
+		scene_bvh.signature_count = count
+		return true
+	end
+
+	local changed = false
+
+	for _, visual in ipairs(Visual.Instances) do
+		local aabb = visual:GetWorldAABB()
+		local sig = signatures[visual]
+
+		if not aabb then
+			if sig then
+				signatures[visual] = nil
+				changed = true
+			end
+
+			continue
+		end
+
+		if not sig then
+			-- equal count but a different visual: a swap happened
+			signatures[visual] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+			changed = true
+		elseif
+			math.abs(aabb.min_x - sig[1]) > scene_bvh.SIGNATURE_TOL or
+			math.abs(aabb.min_y - sig[2]) > scene_bvh.SIGNATURE_TOL or
+			math.abs(aabb.min_z - sig[3]) > scene_bvh.SIGNATURE_TOL or
+			math.abs(aabb.max_x - sig[4]) > scene_bvh.SIGNATURE_TOL or
+			math.abs(aabb.max_y - sig[5]) > scene_bvh.SIGNATURE_TOL or
+			math.abs(aabb.max_z - sig[6]) > scene_bvh.SIGNATURE_TOL
+		then
+			sig[1] = aabb.min_x
+			sig[2] = aabb.min_y
+			sig[3] = aabb.min_z
+			sig[4] = aabb.max_x
+			sig[5] = aabb.max_y
+			sig[6] = aabb.max_z
+			changed = true
+		end
+	end
+
+	return changed
+end
+
+-- lights are not part of the bvh geometry, but their transforms invalidate
+-- the light space data (culling maps, shadows). tracked so consumers and the
+-- debug overlay can see when the light set moved
+local function diff_lights()
+	local Light = import.loaded["goluwa/entities/components/light.lua"]
+
+	if not Light then return false end
+
+	local lights = Light.Instances
+	local signatures = scene_bvh.light_signatures or {}
+	local changed = false
+	local count = 0
+
+	for _, light in ipairs(lights) do
+		count = count + 1
+
+		if light.Owner then
+			local pos = light.Owner.transform:GetPosition()
+			local sig = signatures[light]
+
+			if
+				not sig or
+				math.abs(pos.x - sig[1]) > scene_bvh.SIGNATURE_TOL or
+				math.abs(pos.y - sig[2]) > scene_bvh.SIGNATURE_TOL or
+				math.abs(pos.z - sig[3]) > scene_bvh.SIGNATURE_TOL
+			then
+				signatures[light] = {pos.x, pos.y, pos.z}
+				changed = true
+			end
+		else
+			signatures[light] = nil
+		end
+	end
+
+	if changed then
+		scene_bvh.light_version = (scene_bvh.light_version or 0) + 1
+	end
+
+	scene_bvh.light_signatures = signatures
+	scene_bvh.light_count = count
+	return changed
+end
+
+-- called once per frame from the render update. diffs the visual aabbs and
+-- light positions against the last snapshot, and rebuilds the bvh once the
+-- scene has settled (or the change has been pending too long, so animated
+-- geometry does not starve the rebuild forever)
+function scene_bvh.EnsureBuilt()
+	-- several passes call this every frame (render3d pre-render pass and the
+	-- top radiance cascade); the per-visual aabb diff is not free, so the
+	-- full check runs at most once per frame
+	local frame = system.GetFrameNumber()
+
+	if scene_bvh.ensure_frame == frame then return end
+
+	scene_bvh.ensure_frame = frame
+
+	-- light changes bump the light version but never dirty the bvh: lights
+	-- are not bvh geometry, and consumers react to them directly (culling
+	-- maps re-trace on light movement, shadow maps re-render per frame)
+	diff_lights()
+	local changed = diff_visuals()
+
+	-- dirty is level triggered: it stays set until a build completes, a
+	-- change just refreshes the settle timer
+	if changed then
+		scene_bvh.last_change = system.GetElapsedTime()
+
+		if not scene_bvh.dirty_since then
+			scene_bvh.dirty_since = scene_bvh.last_change
+		end
+	end
+
+	if not scene_bvh.dirty_since then return end
+
+	if not scene_bvh.node_buffer then
 		ensure_placeholder_buffers()
 		return
 	end
 
-	if system.GetElapsedTime() - scene_bvh.pending_since < scene_bvh.SETTLE_TIME then
-		ensure_placeholder_buffers()
+	local now = system.GetElapsedTime()
+	local quiet_for = scene_bvh.last_change and (now - scene_bvh.last_change) or scene_bvh.REBUILD_SETTLE
+	-- while the scene keeps changing, rebuild at most every REBUILD_MAX_WAIT
+	-- seconds, scaled up with the last build's measured cpu time so the
+	-- rebuilds stay a small fraction of the frame budget on large scenes
+	local max_wait = math.min(
+		math.max(scene_bvh.REBUILD_MAX_WAIT, scene_bvh.build_time * 8),
+		scene_bvh.REBUILD_HARD_MAX
+	)
+
+	if quiet_for < scene_bvh.REBUILD_SETTLE and (now - scene_bvh.dirty_since) < max_wait then
 		return
 	end
 
+	scene_bvh.dirty_since = nil
 	scene_bvh.Build()
 end
 
 function scene_bvh.Invalidate()
-	scene_bvh.built_visual_count = nil
-	scene_bvh.pending_visual_count = nil
+	scene_bvh.signatures = nil
+	scene_bvh.signature_count = nil
+	scene_bvh.dirty_since = system.GetElapsedTime()
+	scene_bvh.last_change = scene_bvh.dirty_since
+	scene_bvh.version = scene_bvh.version + 1
 end
 
 function scene_bvh.BindBuffers(pipeline, descriptor_index, node_binding, triangle_binding)
@@ -743,11 +902,14 @@ end)
 
 commands.Add("scene_bvh_info", function()
 	logf(
-		"[scene_bvh] %d triangles, %d nodes, %d meshes, built in %.2fs\n",
+		"[scene_bvh] %d triangles, %d nodes, %d meshes, built in %.2fs, version %d, dirty %s, light_version %d\n",
 		scene_bvh.triangle_count,
 		scene_bvh.node_count,
 		scene_bvh.source_count or 0,
-		scene_bvh.build_time
+		scene_bvh.build_time,
+		scene_bvh.version,
+		scene_bvh.dirty_since and ("yes (%.2fs)"):format(system.GetElapsedTime() - scene_bvh.dirty_since) or "no",
+		scene_bvh.light_version or 0
 	)
 end)
 

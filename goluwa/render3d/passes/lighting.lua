@@ -13,6 +13,8 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
+local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local light_culling = import("goluwa/render3d/light_culling.lua")
 local get_primary_sun = directional_shadows.GetPrimarySun
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
 local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
@@ -20,6 +22,9 @@ local MAX_LIGHTS = scene_lights.MAX_LIGHTS
 local MAX_CASCADES = scene_lights.MAX_CASCADES
 local MAX_POINT_SHADOWS = scene_lights.MAX_POINT_SHADOWS
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
+local BINDING_OUTPUT = 0
+local BINDING_UNIFORM = 3
+local BINDING_OCCLUSION_MAP = 4
 
 local function sort_lights(a, b)
 	if a.last_update_frame ~= b.last_update_frame then
@@ -68,15 +73,26 @@ return {
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
-				binding_index = 0,
+				binding_index = BINDING_OUTPUT,
 				attachment = 1,
 				dst_stage = "fragment",
+			},
+		},
+		on_pre_draw = function(self, cmd)
+			light_culling.Draw(cmd)
+		end,
+		sampled_images = {
+			{
+				binding_index = BINDING_OCCLUSION_MAP,
+				get_texture = function()
+					return light_culling.GetOcclusionTexture()
+				end,
 			},
 		},
 		uniform_buffers = {
 			{
 				name = "lighting_data",
-				binding_index = 3,
+				binding_index = BINDING_UNIFORM,
 				block = {
 					render3d.camera_block,
 					{"lights", scene_lights.BuildLightsBlockLayout(), 128},
@@ -88,6 +104,7 @@ return {
 					{"blue_noise_tex", "int"},
 					render3d.last_frame_block,
 					render3d.common_block,
+					light_culling.GetBlockLayout(),
 					{"primary_sun_intensity", "float"},
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
@@ -112,6 +129,7 @@ return {
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)
 					render3d.WriteCommonBlock(self, block)
+					light_culling.WriteCullBlock(block, lights)
 					local primary_sun = get_primary_sun(lights)
 					get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
 					block.primary_sun_intensity = get_primary_sun_intensity(lights)
@@ -162,9 +180,12 @@ return {
 			},
 		},
 		custom_declarations = [[
-			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+			]] .. light_culling.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. [[
 			]],
-		shader = [[
+		shader = ("const int LIGHT_DEBUG_DIRECT = %d;\n"):format(
+			os.getenv("FOG_DEBUG") == "lighting" and 1 or 0
+		) .. [[
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
 			vec2 get_compute_uv() {
 				return get_screen_uv(get_screen_pos(), imageSize(out_color));
@@ -253,6 +274,8 @@ return {
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 			]] .. scene_lights.GetLightGLSLCode() .. [[
+
+			]] .. light_culling.GetSamplingGLSL("lighting_data") .. [[
 
 			const vec3 CASCADE_COLORS[4] = vec3[4](
 				vec3(1.0, 0.2, 0.2),
@@ -485,11 +508,14 @@ return {
 						type == 2
 					) {
 						shadow_factor = calculateLocalDirectionalShadow(world_pos, N, L);
-					} else if (type == 1) {
+					} else if (type == 1 || type == 3) {
 						int point_shadow_slot = getPointShadowSlot(i);
+
 						if (point_shadow_slot >= 0) {
 							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, N, L);
 						}
+
+						shadow_factor *= light_cull_shadow_factor(lighting_data.bvh_cull_slot[i], light.position.xyz, light.params.x, world_pos);
                     }
                     vec3 radiance = light.color.rgb * light.color.a * attenuation;
 					vec3 transmission = vec3(0.0);
@@ -602,6 +628,12 @@ return {
 				vec3 F0 = mix(vec3(0.04), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
+
+				if (LIGHT_DEBUG_DIRECT > 0) {
+					set_color(vec4(direct, 1.0));
+					return;
+				}
+
 				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
 				vec3 sunDir = get_primary_sun_direction();
