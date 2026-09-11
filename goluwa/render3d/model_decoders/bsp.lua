@@ -52,10 +52,10 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_MONSTERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
-local BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD = 0.0001
-local BSP_LIGHT_INTENSITY_SCALE = 50
+local BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD = 0.01
+local BSP_LIGHT_INTENSITY_SCALE = 25
 local BSP_LIGHT_MIN_RANGE = 0.25
-local BSP_LIGHT_MAX_RANGE = 400
+local BSP_LIGHT_MAX_RANGE = 10000
 
 local function build_bounds_from_vertices(vertices)
 	if not (vertices and vertices[1]) then return nil end
@@ -90,17 +90,39 @@ local function source_height_to_engine_y(height)
 	return height * steam.source2meters
 end
 
+local function set_transform(tr, info)
+	local rotation = Quat()
+	rotation:SetAngles(
+		Deg3(
+			info.pitch or info.angles and info.angles.x or 0,
+			info.angles and info.angles.y or 0,
+			info.angles and info.angles.z or 0
+		)
+	)
+	local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
+	tr:SetPosition(position)
+	tr:SetRotation(rotation)
+end
+
 local function convert_source_light_to_engine(info)
 	local source_brightness = math.max(info._light and info._light.brightness or 0, 0)
 	local unit_scale = steam.source2meters
 	local intensity = source_brightness * unit_scale * unit_scale * BSP_LIGHT_INTENSITY_SCALE
-	local range = math.sqrt(source_brightness / BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD) * unit_scale
+	local range
 
 	if info._zero_percent_distance and info._zero_percent_distance > 0 then
-		intensity = intensity * 0.5
+		-- the value the compiler computed for exactly this light
+		range = info._zero_percent_distance * unit_scale
+	elseif info._fifty_percent_distance and info._fifty_percent_distance > 0 then
+		-- the quadratic falloff reaches 50 percent at sqrt(0.5) of the
+		-- zero percent distance
+		range = info._fifty_percent_distance * math.sqrt(2) * unit_scale
+	else
+		range = math.sqrt(source_brightness / BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD) * unit_scale
 	end
 
-	return intensity, math.clamp(range, BSP_LIGHT_MIN_RANGE, BSP_LIGHT_MAX_RANGE)
+	return intensity,
+	math.clamp(range * 100, BSP_LIGHT_MIN_RANGE, BSP_LIGHT_MAX_RANGE)
 end
 
 local function get_model_lowest_point(model)
@@ -1346,24 +1368,15 @@ function steam.SpawnMapEntities(path, parent)
 					parent.light_group:SetName("lights")
 					local ent = Entity.New{Name = info.classname, Parent = parent.light_group}
 					local tr = ent:AddComponent("transform")
-					local position = source_pos_to_engine(info.origin)
-					tr:SetPosition(position)
+					set_transform(tr, info)
 					local light = ent:AddComponent("light")
 					-- Color is already in linear space from parsing
 					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
 					local intensity, range = convert_source_light_to_engine(info)
 
 					if info.classname == "light_spot" then
-						local pitch = tonumber(info.pitch) or (info.angles and info.angles.x) or 0
-						local yaw = info.angles and info.angles.y or 0
-						local roll = info.angles and (info.angles.r or info.angles.z) or 0
 						local inner_cone = math.clamp(tonumber(info._inner_cone) or 45, 0, 180)
 						local outer_cone = math.clamp(tonumber(info._cone) or inner_cone, inner_cone, 180)
-						local source_angles = Deg3(pitch, yaw, roll)
-						local engine_forward = source_angles:GetForward()
-						local rotation = Quat()
-						rotation:SetAngles((-engine_forward):GetAngles())
-						tr:SetRotation(rotation)
 						light:SetLightType("spot")
 						light:SetInnerCone(math.cos(math.rad(inner_cone)))
 						light:SetOuterCone(math.cos(math.rad(outer_cone)))
@@ -1397,12 +1410,8 @@ function steam.SpawnMapEntities(path, parent)
 						Entity.New{Name = info.classname, Parent = parent}
 					parent[info.classname .. "_group"]:SetName(info.classname)
 					local ent = Entity.New{Name = "prop", Parent = parent[info.classname .. "_group"]}
-					local rotation = Quat()
-					rotation:SetAngles(Deg3(info.angles.x, info.angles.y, info.angles.r))
-					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
 					local tr = ent:AddComponent("transform")
-					tr:SetPosition(position)
-					tr:SetRotation(rotation)
+					set_transform(tr, info)
 
 					if info.model_size_mult then
 						ent.transform:SetSize(info.model_size_mult)
