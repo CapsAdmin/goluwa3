@@ -1272,7 +1272,7 @@ function steam.LoadMap(path)
 
 		for _, data in ipairs(models) do
 			data.mesh:BuildTangents()
-			data.mesh:Upload(nil, true)
+			data.mesh:Upload(nil)
 			tasks.ReportProgress("creating meshes", #models)
 			tasks.Wait()
 		end

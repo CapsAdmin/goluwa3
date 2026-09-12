@@ -856,7 +856,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 						end
 
 						mesh:BuildBoundingBox()
-						mesh:Upload(indices, true)
+						mesh:Upload(indices)
 						mesh_callback(mesh, material)
 						list.insert(models, mesh)
 					end

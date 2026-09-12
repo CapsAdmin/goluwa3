@@ -122,15 +122,6 @@ function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count,
 	return self
 end
 
--- Content-addressed mesh cache for load-time decoders (gltf/mdl/cgf/bsp) that may build many
--- nominally-distinct meshes which turn out to be byte-identical (e.g. the same prop submesh, or
--- the same scattered foliage clump, baked as separate entries instead of a shared reference).
--- Weak-valued so a cached mesh is kept alive by nothing but its real owners (Polygon3D objects) -
--- once the last of those drops it, the Mesh is collected and freed exactly like any other mesh
--- in this engine (via the __gc -> :Remove() path in objects.lua), and the cache entry disappears
--- with it. Not wired into Mesh.New itself: callers on a hot per-frame path (debug_draw, gizmo)
--- must keep calling Mesh.New directly so they never pay hashing cost for content that will not
--- repeat.
 local mesh_content_cache = table.weak("v")
 
 local function mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count)

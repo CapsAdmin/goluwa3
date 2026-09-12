@@ -102,7 +102,7 @@ local VERTEX_ATTRIBUTES = {
 	},
 }
 
-function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, deduped)
+function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count)
 	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
 	for i = 0, vertex_count - 1 do
@@ -126,8 +126,7 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 	self.indices = nil
 
 	if Mesh then
-		local ctor = deduped and Mesh.NewDeduped or Mesh.New
-		self.mesh = ctor(
+		self.mesh = Mesh.NewDeduped(
 			VERTEX_ATTRIBUTES,
 			vertices,
 			indices,
@@ -137,7 +136,7 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 	end
 end
 
-function Polygon3D:Upload(indices, deduped)
+function Polygon3D:Upload(indices)
 	self.indices = indices
 
 	if indices and type(indices) == "table" then
@@ -237,14 +236,13 @@ function Polygon3D:Upload(indices, deduped)
 
 	-- Dedup needs the final content as cdata to hash it; converting up front here also lets
 	-- Mesh.New take the cheaper FromPointer path below instead of re-converting this same table
-	if deduped and indices then
+	if indices then
 		index_count = #indices
 		indices = IndexBuffer.IndicesToArray(indices, index_type)
 	end
 
 	if Mesh then
-		local ctor = deduped and Mesh.NewDeduped or Mesh.New
-		self.mesh = ctor(vertex_attributes, vertices, indices, index_type, index_count)
+		self.mesh = Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index_count)
 	end
 end
 
