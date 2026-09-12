@@ -131,6 +131,25 @@ ffi.cdef[[
         shaderc_compile_options_t options,
         int target,
         uint32_t version);
+
+    typedef enum {
+        shaderc_optimization_level_zero = 0,
+        shaderc_optimization_level_size = 1,
+        shaderc_optimization_level_performance = 2,
+    } shaderc_optimization_level;
+
+    void shaderc_compile_options_set_optimization_level(
+        shaderc_compile_options_t options,
+        shaderc_optimization_level opt_level);
+
+    void shaderc_compile_options_set_generate_debug_info(
+        shaderc_compile_options_t options,
+        bool generate_debug_info);
+
+    void shaderc_compile_options_add_compiler_argv(
+        shaderc_compile_options_t options,
+        const char* const argv[],
+        int argc);
 ]]
 
 local function initialize()
@@ -141,9 +160,10 @@ local function initialize()
 	if mod.compiler == nil then error("Failed to initialize shaderc compiler") end
 end
 
+local GLSLANG_VALIDATOR = "/nix/store/91da5134rid31ibqjhwpw6zxy1n84pck-glslang-16.2.0-bin/bin/glslangValidator"
+
 function mod.compile(source, shader_type, entry_point)
 	initialize()
-	-- Initialize shaderc
 	local options = lib.shaderc_compile_options_initialize()
 
 	if options == nil then
@@ -151,10 +171,7 @@ function mod.compile(source, shader_type, entry_point)
 		error("Failed to initialize shaderc compile options")
 	end
 
-	-- Set target environment to Vulkan 1.3
-	-- bit.bor(bit.lshift(1, 22), bit.lshift(3, 12)) is Vulkan 1.3
 	lib.shaderc_compile_options_set_target_env(options, 0, bit.bor(bit.lshift(1, 22), bit.lshift(3, 12)))
-	-- Determine shader kind
 	local shader_kind
 
 	if shader_type == "vertex" or shader_type == "vert" then
@@ -182,21 +199,24 @@ function mod.compile(source, shader_type, entry_point)
 	elseif shader_type == "mesh" or shader_type == "mesh_ext" then
 		shader_kind = ffi.C.shaderc_glsl_infer_from_source
 	else
-		-- Default to vertex shader if not specified or use as filename
 		shader_kind = ffi.C.shaderc_glsl_vertex_shader
 	end
 
-	-- Compile the GLSL shader to SPIR-V
+	local file_name = shader_type
+
+	if file_name and not file_name:find("/") and not file_name:find("%.") then
+		file_name = shader_type .. ".glsl"
+	end
+
 	local result = lib.shaderc_compile_into_spv(
 		mod.compiler,
 		source,
 		#source,
 		shader_kind,
-		shader_type or "shader.glsl", -- input file name (for error messages)
-		entry_point or "main", -- entry point
+		file_name or "shader.glsl",
+		entry_point or "main",
 		options
 	)
-	-- Check for compilation errors
 	local status = lib.shaderc_result_get_compilation_status(result)
 
 	if status ~= ffi.C.shaderc_compilation_status_success then
@@ -216,11 +236,67 @@ function mod.compile(source, shader_type, entry_point)
 
 	local spirv_size = lib.shaderc_result_get_length(result)
 	local spirv_data = lib.shaderc_result_get_bytes(result)
-	-- Copy the SPIR-V data before releasing the result
 	local spirv_copy = ffi.new("uint8_t[?]", spirv_size)
 	ffi.copy(spirv_copy, spirv_data, spirv_size)
 	lib.shaderc_result_release(result)
 	lib.shaderc_compile_options_release(options)
+	return spirv_copy, spirv_size
+end
+
+function mod.compile_debug(source, shader_type, entry_point)
+	local stage = "vert"
+
+	if shader_type == "fragment" or shader_type == "frag" then
+		stage = "frag"
+	elseif shader_type == "compute" or shader_type == "comp" then
+		stage = "comp"
+	elseif shader_type == "geometry" or shader_type == "geom" then
+		stage = "geom"
+	elseif
+		shader_type == "tessellation_control" or
+		shader_type == "tess_control" or
+		shader_type == "tesc"
+	then
+		stage = "tesc"
+	elseif
+		shader_type == "tessellation_evaluation" or
+		shader_type == "tess_evaluation" or
+		shader_type == "tese"
+	then
+		stage = "tese"
+	end
+
+	local fs = import("goluwa/filesystem/fs.lua")
+	local vfs = import("goluwa/vfs.lua")
+	local debug_dir = vfs.GetStorageDirectory("root") .. "storage/shader_debug/"
+	fs.create_directory_recursive(debug_dir)
+	local crypto = import("goluwa/crypto.lua")
+	local hash = string.format("%08x", tonumber(crypto.CRC32(stage .. "|" .. source)) or 0)
+	local src_name = stage .. "_" .. hash .. "." .. stage
+	local src_path = debug_dir .. src_name
+	local spv_path = debug_dir .. src_name .. ".spv"
+	fs.write_file(src_path, source)
+	local cmd = string.format(
+		"%s -V --target-env vulkan1.3 -gVS -Os -o %s %s 2>&1",
+		GLSLANG_VALIDATOR,
+		spv_path,
+		src_path
+	)
+	local handle = io.popen(cmd)
+	local output = handle:read("*a")
+	local ok = handle:close()
+
+	if not ok then error("glslangValidator failed:\n" .. output, 2) end
+
+	local f = io.open(spv_path, "rb")
+
+	if not f then error("glslangValidator: no output. " .. output, 2) end
+
+	local spirv_data = f:read("*a")
+	f:close()
+	local spirv_size = #spirv_data
+	local spirv_copy = ffi.new("uint8_t[?]", spirv_size)
+	ffi.copy(spirv_copy, spirv_data, spirv_size)
 	return spirv_copy, spirv_size
 end
 
