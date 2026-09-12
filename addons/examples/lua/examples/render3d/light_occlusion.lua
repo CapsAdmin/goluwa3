@@ -6,9 +6,9 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
-local light_culling = import("goluwa/render3d/light_culling.lua")
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local ffi = require("ffi")
-local mode = os.getenv("LIGHT_CULL_MODE") or "on"
+local mode = os.getenv("LIGHT_OCCLUSION_MODE") or "on"
 
 local function add_face(poly, a, b, c, d)
 	poly:AddVertex({pos = a})
@@ -61,7 +61,7 @@ end
 
 spawn_box("room", Vec3(-20, -10, -20), Vec3(20, 10, 20))
 spawn_point_light("center", Vec3(0, 0, 0), Color(1, 1, 1, 1), 8000, 10000)
-scene_bvh.LightCulling = (mode ~= "off")
+scene_bvh.LightOcclusion = (mode ~= "off")
 scene_bvh.Build()
 local camera = render3d.GetCamera()
 camera:SetPosition(Vec3(0, 1, 12))

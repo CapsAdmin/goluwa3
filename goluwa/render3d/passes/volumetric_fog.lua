@@ -6,7 +6,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
-local light_culling = import("goluwa/render3d/light_culling.lua")
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local assets = import("goluwa/assets.lua")
 local Texture = import("goluwa/render/texture.lua")
 local MAX_CASCADES = directional_shadows.MAX_CASCADES
@@ -273,7 +273,7 @@ local function build_scene_light_block_fields()
 		{"light_count", "int"},
 		{"shadows", scene_lights.BuildShadowsBlockLayout()},
 		atmosphere.GetBlockLayout(),
-		unpack(light_culling.GetBlockLayout()),
+		unpack(light_occlusion.GetBlockLayout()),
 	}
 end
 
@@ -298,10 +298,10 @@ local r = {
 					type = "combined_image_sampler",
 					binding_index = 0,
 					set_index = 2,
-					args = light_culling.GetOcclusionDescriptor,
+					args = light_occlusion.GetOcclusionDescriptor,
 				},
 			},
-			custom_declarations = light_culling.GetDeclarationGLSL(0, 2),
+			custom_declarations = light_occlusion.GetDeclarationGLSL(0, 2),
 			uniform_buffers = {
 				{
 					name = "froxel_data",
@@ -336,12 +336,12 @@ local r = {
 						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
 						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
 						write_atmosphere_block(self, block)
-						light_culling.WriteCullBlock(block, render3d.GetLights())
+						light_occlusion.WriteOcclusionBlock(block, render3d.GetLights())
 						return block
 					end,
 				},
 			},
-			shader = light_culling.GetSamplingGLSL("froxel_data") .. [[
+			shader = light_occlusion.GetSamplingGLSL("froxel_data") .. [[
 			const int VOLUMETRIC_FROXEL_SLICE_COUNT = ]] .. FROXEL_SLICE_COUNT .. [[;
 			const int VOLUMETRIC_SLICE_INTEGRATION_STEPS = 4;
 			const int VOLUMETRIC_LOCAL_LIGHT_LIMIT = 8;
@@ -598,9 +598,9 @@ local r = {
 
 					if (attenuation <= 0.0001) continue;
 
-					float cull_factor = light_cull_shadow_factor(froxel_data.bvh_cull_slot[i], light.position.xyz, light.params.x, world_pos);
+					float occlusion_factor = light_oct_shadow_factor(froxel_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
 
-					if (cull_factor <= 0.0) continue;
+					if (occlusion_factor <= 0.0) continue;
 
 					processed_local_lights++;
 
@@ -623,7 +623,7 @@ local r = {
 					float phase = type == 2
 						? 0.08 + 0.20 * pow(view_alignment, 2.0)
 						: 0.03 + 0.18 * pow(view_alignment, 6.0);
-					fog_light += light_color * attenuation * shadow_factor * cull_factor * phase;
+					fog_light += light_color * attenuation * shadow_factor * occlusion_factor * phase;
 				}
 
 				return fog_light;
@@ -709,10 +709,10 @@ local r = {
 					type = "combined_image_sampler",
 					binding_index = 0,
 					set_index = 2,
-					args = light_culling.GetOcclusionDescriptor,
+					args = light_occlusion.GetOcclusionDescriptor,
 				},
 			},
-			custom_declarations = light_culling.GetDeclarationGLSL(0, 2),
+			custom_declarations = light_occlusion.GetDeclarationGLSL(0, 2),
 			uniform_buffers = {
 				{
 					name = "fog_data",
@@ -733,14 +733,14 @@ local r = {
 						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
 						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
 						write_atmosphere_block(self, block)
-						light_culling.WriteCullBlock(block, render3d.GetLights())
+						light_occlusion.WriteOcclusionBlock(block, render3d.GetLights())
 						return block
 					end,
 				},
 			},
 			shader = (
 					"const int FOG_DEBUG_MODE = %d;\n"
-				):format(FOG_DEBUG_MODE) .. light_culling.GetSamplingGLSL("fog_data") .. [[
+				):format(FOG_DEBUG_MODE) .. light_occlusion.GetSamplingGLSL("fog_data") .. [[
 			]] .. scene_lights.GetLightGLSLCode() .. [[
 
 			int get_current_primary_sun_index() {
@@ -1065,16 +1065,16 @@ local r = {
 						shadow_factor = calculateLocalDirectionalFogShadow(world_pos, normal, L);
 					}
 
-					float cull_factor = light_cull_shadow_factor(fog_data.bvh_cull_slot[i], light.position.xyz, light.params.x, world_pos);
+					float occlusion_factor = light_oct_shadow_factor(fog_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
 
-					if (cull_factor <= 0.0) continue;
+					if (occlusion_factor <= 0.0) continue;
 
 					float NoL = max(dot(normal, L), 0.0);
 					float view_alignment = clamp(dot(ray_dir, L) * 0.5 + 0.5, 0.0, 1.0);
 					float phase = type == 2
 						? 0.22 + 0.32 * pow(view_alignment, 2.0)
 						: 0.15 + 0.35 * pow(view_alignment, 4.0);
-					fog_light += light_color * attenuation * shadow_factor * cull_factor * max(NoL * 0.5 + phase, 0.0) * view_scatter;
+					fog_light += light_color * attenuation * shadow_factor * occlusion_factor * max(NoL * 0.5 + phase, 0.0) * view_scatter;
 				}
 
 				return fog_light;

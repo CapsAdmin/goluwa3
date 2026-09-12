@@ -14,7 +14,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
-local light_culling = import("goluwa/render3d/light_culling.lua")
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local get_primary_sun = directional_shadows.GetPrimarySun
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
 local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
@@ -79,13 +79,13 @@ return {
 			},
 		},
 		on_pre_draw = function(self, cmd)
-			light_culling.Draw(cmd)
+			light_occlusion.Draw(cmd)
 		end,
 		sampled_images = {
 			{
 				binding_index = BINDING_OCCLUSION_MAP,
 				get_texture = function()
-					return light_culling.GetOcclusionTexture()
+					return light_occlusion.GetOcclusionTexture()
 				end,
 			},
 		},
@@ -104,7 +104,7 @@ return {
 					{"blue_noise_tex", "int"},
 					render3d.last_frame_block,
 					render3d.common_block,
-					light_culling.GetBlockLayout(),
+					light_occlusion.GetBlockLayout(),
 					{"primary_sun_intensity", "float"},
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
@@ -129,7 +129,7 @@ return {
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)
 					render3d.WriteCommonBlock(self, block)
-					light_culling.WriteCullBlock(block, lights)
+					light_occlusion.WriteOcclusionBlock(block, lights)
 					local primary_sun = get_primary_sun(lights)
 					get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
 					block.primary_sun_intensity = get_primary_sun_intensity(lights)
@@ -181,7 +181,7 @@ return {
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			]] .. light_culling.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. [[
+			]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. [[
 			]],
 		shader = ("const int LIGHT_DEBUG_DIRECT = %d;\n"):format(
 			os.getenv("FOG_DEBUG") == "lighting" and 1 or 0
@@ -275,7 +275,7 @@ return {
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 			]] .. scene_lights.GetLightGLSLCode() .. [[
 
-			]] .. light_culling.GetSamplingGLSL("lighting_data") .. [[
+			]] .. light_occlusion.GetSamplingGLSL("lighting_data") .. [[
 
 			const vec3 CASCADE_COLORS[4] = vec3[4](
 				vec3(1.0, 0.2, 0.2),
@@ -515,7 +515,7 @@ return {
 							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, N, L);
 						}
 
-						shadow_factor *= light_cull_shadow_factor(lighting_data.bvh_cull_slot[i], light.position.xyz, light.params.x, world_pos);
+						shadow_factor *= light_oct_shadow_factor(lighting_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
                     }
                     vec3 radiance = light.color.rgb * light.color.a * attenuation;
 					vec3 transmission = vec3(0.0);

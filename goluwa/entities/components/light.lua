@@ -137,7 +137,7 @@ Light:GetSet("InnerCone", 0.9)
 Light:GetSet("OuterCone", 0.8)
 Light:GetSet("Enabled", true)
 Light:GetSet("CastShadows", false)
-Light:GetSet("CullOcclusion", true)
+Light:GetSet("OcclusionMap", true)
 Light:GetSet("ShadowMap", nil)
 Light:EndStorable()
 

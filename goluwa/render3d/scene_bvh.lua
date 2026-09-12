@@ -42,7 +42,7 @@ scene_bvh.REBUILD_HARD_MAX = 8.0
 -- but no later than this after the change started, so continuously
 -- animated geometry still gets periodic (albeit stale) rebuilds
 scene_bvh.REBUILD_MAX_WAIT = 1.0
-scene_bvh.LightCulling = scene_bvh.LightCulling ~= false
+scene_bvh.LightOcclusion = scene_bvh.LightOcclusion ~= false
 scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
 scene_bvh.build_time = 0
@@ -621,7 +621,7 @@ local function diff_visuals()
 end
 
 -- lights are not part of the bvh geometry, but their transforms invalidate
--- the light space data (culling maps, shadows). tracked so consumers and the
+-- the light space data (occlusion maps, shadows). tracked so consumers and the
 -- debug overlay can see when the light set moved
 local function diff_lights()
 	local Light = import.loaded["goluwa/entities/components/light.lua"]
@@ -677,7 +677,7 @@ function scene_bvh.EnsureBuilt()
 
 	scene_bvh.ensure_frame = frame
 	-- light changes bump the light version but never dirty the bvh: lights
-	-- are not bvh geometry, and consumers react to them directly (culling
+	-- are not bvh geometry, and consumers react to them directly (occlusion
 	-- maps re-trace on light movement, shadow maps re-render per frame)
 	diff_lights()
 	local changed = diff_visuals()
