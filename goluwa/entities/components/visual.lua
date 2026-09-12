@@ -14,6 +14,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local test_helper = import("goluwa/test.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -665,6 +666,7 @@ local function rebuild_scene_acceleration()
 	local prev = visual.scene_acceleration
 	local prev_items = prev and prev.items
 	local prev_item_lookup = {}
+	local tolerance = visual.AABB_TOLERANCE
 
 	if prev_items then
 		for _, item in ipairs(prev_items) do
@@ -700,12 +702,12 @@ local function rebuild_scene_acceleration()
 			else
 				local prev_item = prev_item_lookup[component]
 				local aabb_changed = not prev_item or
-					prev_item.min_x ~= world_aabb.min_x or
-					prev_item.min_y ~= world_aabb.min_y or
-					prev_item.min_z ~= world_aabb.min_z or
-					prev_item.max_x ~= world_aabb.max_x or
-					prev_item.max_y ~= world_aabb.max_y or
-					prev_item.max_z ~= world_aabb.max_z
+					math.abs(prev_item.min_x - world_aabb.min_x) > tolerance or
+					math.abs(prev_item.min_y - world_aabb.min_y) > tolerance or
+					math.abs(prev_item.min_z - world_aabb.min_z) > tolerance or
+					math.abs(prev_item.max_x - world_aabb.max_x) > tolerance or
+					math.abs(prev_item.max_y - world_aabb.max_y) > tolerance or
+					math.abs(prev_item.max_z - world_aabb.max_z) > tolerance
 
 				if aabb_changed then static_dirty = true end
 
@@ -801,6 +803,7 @@ end
 
 local function ensure_scene_acceleration()
 	local acceleration = visual.scene_acceleration
+	visual.ScanWorldAABBs()
 
 	if
 		not acceleration or
@@ -938,6 +941,9 @@ function Visual:InvalidateRenderEntries()
 	mark_shadow_change(self)
 	refresh_forward_overlay_registry(self)
 	invalidate_scene_acceleration()
+	-- the triangle soup is baked from render entries, so a change in entry
+	-- topology invalidates it even when no transform moved
+	scene_bvh.Invalidate()
 end
 
 function Visual:InvalidateHierarchyState()
@@ -1169,6 +1175,19 @@ do
 	visual.noculling = false
 	visual.freeze_frustum_planes = false
 	visual.occlusion_culling_enabled = true
+	-- a world aabb has to move by more than this (world units) before the scan
+	-- marks the scene changed; shared by scene_bvh's rebuild throttle and the
+	-- scene acceleration's tree-rebuild decision
+	visual.AABB_TOLERANCE = 0.005
+	-- per-frame cap on tracked dirty boxes before giving up and invalidating
+	-- everything at once
+	visual.DIRTY_BOX_CAP = 4096
+	visual.aabb_signatures = nil
+	visual.aabb_signature_count = -1
+	visual.aabb_scan_frame = -1
+	visual.aabb_scan_changed = false
+	visual.AABB_CHANGED_BOXES = nil
+	visual.AABB_CHANGED_ALL = false
 	visual.shadow_debug_filter = nil
 	visual.shadow_debug_log = true
 	visual.shadow_debug_frame = -1
@@ -1738,6 +1757,115 @@ do
 		return gpu_culling.IsAnyVisibleEntryInRange(cull_result, entry_offset, entry_count)
 	end
 
+	-- single per-frame walk of every visual's world aabb. scene_bvh's rebuild
+	-- throttle and the scene acceleration's dirty marking both consume it, so
+	-- the instance list is walked once per frame instead of once per system,
+	-- and movement below AABB_TOLERANCE triggers no rebuilds at all
+	function visual.ScanWorldAABBs()
+		local frame = system.GetFrameNumber()
+
+		if visual.aabb_scan_frame == frame then return visual.aabb_scan_changed end
+
+		visual.aabb_scan_frame = frame
+		local count = #Visual.Instances
+		local signatures = visual.aabb_signatures
+
+		if not signatures or count ~= visual.aabb_signature_count then
+			local fresh = {}
+
+			for _, component in ipairs(Visual.Instances) do
+				local aabb = component:GetWorldAABB()
+
+				-- visuals without geometry contribute nothing
+				if aabb then
+					fresh[component] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+				end
+			end
+
+			visual.aabb_signatures = fresh
+			visual.aabb_signature_count = count
+			visual.aabb_scan_changed = true
+			visual.AABB_CHANGED_BOXES = nil
+			visual.AABB_CHANGED_ALL = true
+
+			if visual.scene_acceleration then
+				visual.scene_acceleration.dirty = true
+			end
+
+			return true
+		end
+
+		local tolerance = visual.AABB_TOLERANCE
+		local boxes = {}
+
+		for _, component in ipairs(Visual.Instances) do
+			local aabb = component:GetWorldAABB()
+			local sig = signatures[component]
+
+			if not aabb then
+				if sig then
+					signatures[component] = nil
+					boxes[#boxes + 1] = sig
+				end
+
+				continue
+			end
+
+			if not sig then
+				-- equal count but a different visual: a swap happened
+				signatures[component] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+				boxes[#boxes + 1] = signatures[component]
+
+				continue
+			end
+
+			if
+				math.abs(aabb.min_x - sig[1]) > tolerance or
+				math.abs(aabb.min_y - sig[2]) > tolerance or
+				math.abs(aabb.min_z - sig[3]) > tolerance or
+				math.abs(aabb.max_x - sig[4]) > tolerance or
+				math.abs(aabb.max_y - sig[5]) > tolerance or
+				math.abs(aabb.max_z - sig[6]) > tolerance
+			then
+				boxes[#boxes + 1] = {
+					math.min(sig[1], aabb.min_x),
+					math.min(sig[2], aabb.min_y),
+					math.min(sig[3], aabb.min_z),
+					math.max(sig[4], aabb.max_x),
+					math.max(sig[5], aabb.max_y),
+					math.max(sig[6], aabb.max_z),
+				}
+				sig[1] = aabb.min_x
+				sig[2] = aabb.min_y
+				sig[3] = aabb.min_z
+				sig[4] = aabb.max_x
+				sig[5] = aabb.max_y
+				sig[6] = aabb.max_z
+			end
+		end
+
+		local changed = #boxes > 0
+		visual.aabb_scan_changed = changed
+		visual.AABB_CHANGED_BOXES = changed and boxes or nil
+		visual.AABB_CHANGED_ALL = false
+
+		if changed and #boxes > visual.DIRTY_BOX_CAP then
+			visual.AABB_CHANGED_BOXES = nil
+			visual.AABB_CHANGED_ALL = true
+		end
+
+		if changed and visual.scene_acceleration then
+			visual.scene_acceleration.dirty = true
+		end
+
+		return changed
+	end
+
+	function visual.ResetWorldAABBSignatures()
+		visual.aabb_signatures = nil
+		visual.aabb_signature_count = -1
+	end
+
 	local function is_component_frustum_culled(component)
 		local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local camera = render3d.GetRenderCamera()
@@ -2124,7 +2252,10 @@ do
 		local acceleration = ensure_scene_acceleration()
 		local camera = render3d.GetRenderCamera()
 
-		if acceleration.visible_frame == current_frame and acceleration.visible_camera == camera then
+		if
+			acceleration.visible_frame == current_frame and
+			acceleration.visible_camera == camera
+		then
 			if
 				acceleration.visible_cull_result and
 				acceleration.visible_cull_result.visible_entry_indices_ready
@@ -2572,7 +2703,8 @@ function Visual:DrawEntriesForPass(ignore_z, upload_constants, render_entries)
 		if material_ignores_z(material) == ignore_z then
 			local transform = entry.transform
 			local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
-			local prev_world_matrix = transform and transform:GetPreviousWorldMatrix() or
+			local prev_world_matrix = transform and
+				transform:GetPreviousWorldMatrix() or
 				self:GetPreviousWorldMatrix()
 
 			if world_matrix then
@@ -2612,7 +2744,8 @@ local function draw_geometry_entry(component, entry)
 
 	local transform = entry.transform
 	local world_matrix = transform and transform:GetWorldMatrix() or component:GetWorldMatrix()
-	local prev_world_matrix = transform and transform:GetPreviousWorldMatrix() or
+	local prev_world_matrix = transform and
+		transform:GetPreviousWorldMatrix() or
 		component:GetPreviousWorldMatrix()
 
 	if not world_matrix then return false end

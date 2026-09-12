@@ -42,7 +42,6 @@ local VISUAL_FLAG_SHADOW_AABB_CULLABLE = 0x10
 local VISUAL_FLAG_SHADOW_NON_AABB = 0x20
 local ENTRY_FLAG_IGNORE_Z = 0x1
 local ENTRY_FLAG_HEIGHT_DISPLACEMENT = 0x2
-local NODE_FLAG_LEAF = 0x1
 local GPUCullVisualRecord = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -83,22 +82,6 @@ local GPUCullInstancedBatchRecord = ffi.typeof([[struct {
 	uint32_t index_count;
 	uint32_t reserved1;
 }]])
-local GPUCullNodeRecord = ffi.typeof([[struct {
-	float min_x;
-	float min_y;
-	float min_z;
-	float max_x;
-	float max_y;
-	float max_z;
-	float max_cull_distance;
-	uint32_t first;
-	uint32_t last;
-	uint32_t left_index;
-	uint32_t right_index;
-	uint32_t flags;
-	uint32_t max_shadow_change_version;
-	uint32_t reserved;
-}]])
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 -- Async culling needs more slots than the swapchain has frames: at any moment one slot
 -- is being culled into, one is published (its indirect commands are being drawn from),
@@ -109,11 +92,11 @@ local function get_cull_slot_count()
 	local frame_count = math.max(render.GetSwapchainImageCount() or 1, 1)
 	return frame_count, frame_count + ASYNC_SLOT_HEADROOM
 end
+
 local ZERO_UINT32 = ffi.new("uint32_t[1]", 0)
 
 function gpu_culling.Initialize()
 	render3d = import("goluwa/render3d/render3d.lua")
-
 	local hiz_descriptor_set_count = (math.max(render.GetSwapchainImageCount() or 1, 1) + 1) * 16
 
 	do -- main view hiz build pass
@@ -1419,41 +1402,6 @@ local function assign_component_entry_span(component, offset_field, count_field,
 	component[count_field] = entry_count
 end
 
-local function serialize_bvh_node(node, out_nodes)
-	if not node then return nil end
-
-	local node_index = #out_nodes + 1
-	out_nodes[node_index] = {
-		aabb = serialize_aabb(node.aabb),
-		first = node.first,
-		last = node.last,
-		max_cull_distance = node.max_cull_distance or 0,
-		max_shadow_change_version = node.max_shadow_change_version or 0,
-		left_index = nil,
-		right_index = nil,
-		is_leaf = node.first ~= nil,
-	}
-
-	if not node.first then
-		out_nodes[node_index].left_index = serialize_bvh_node(node.left, out_nodes)
-		out_nodes[node_index].right_index = serialize_bvh_node(node.right, out_nodes)
-	end
-
-	return node_index
-end
-
-local function serialize_bvh(tree)
-	if not (tree and tree.root) then return nil end
-
-	local nodes = {}
-	local root_index = serialize_bvh_node(tree.root, nodes)
-	return {
-		root_index = root_index,
-		node_count = #nodes,
-		nodes = nodes,
-	}
-end
-
 local function build_scene_dataset(acceleration)
 	if not acceleration then return nil end
 
@@ -1475,8 +1423,6 @@ local function build_scene_dataset(acceleration)
 		static_entry_count = 0,
 		dynamic_entry_count = 0,
 		shadow_entry_count = 0,
-		static_bvh = nil,
-		shadow_bvh = nil,
 		main_instanced_batches = {},
 		main_static_instance_count = 0,
 		main_static_instance_prefix_count = 0,
@@ -1617,9 +1563,6 @@ local function build_scene_dataset(acceleration)
 		dataset.non_aabb_shadow_visual_count = dataset.non_aabb_shadow_visual_count + 1
 		dataset.shadow_entry_count = dataset.shadow_entry_count + serialized.render_entry_count
 	end
-
-	dataset.static_bvh = serialize_bvh(acceleration.tree)
-	dataset.shadow_bvh = serialize_bvh(acceleration.shadow_tree)
 
 	do
 		local batches = {}
@@ -2056,36 +1999,6 @@ local function flatten_shadow_instanced_batch_upload(dataset)
 	}
 end
 
-local function flatten_bvh_upload(serialized_bvh)
-	local nodes = serialized_bvh and serialized_bvh.nodes or {}
-	local node_records = new_ffi_array(GPUCullNodeRecord, #nodes)
-
-	for node_index, node in ipairs(nodes) do
-		local node_record = node_records[node_index - 1]
-		set_record_aabb(node_record, "min_", "max_", node.aabb)
-		node_record.max_cull_distance = node.max_cull_distance or 0
-		node_record.first = node.first and (node.first - 1) or INVALID_INDEX
-		node_record.last = node.last and (node.last - 1) or INVALID_INDEX
-		node_record.left_index = node.left_index and (node.left_index - 1) or INVALID_INDEX
-		node_record.right_index = node.right_index and (node.right_index - 1) or INVALID_INDEX
-		node_record.flags = node.is_leaf and NODE_FLAG_LEAF or 0
-		node_record.max_shadow_change_version = node.max_shadow_change_version or 0
-	end
-
-	return {
-		node_records = node_records,
-		node_count = #nodes,
-		node_byte_size = math.max(#nodes, 1) * ffi.sizeof(GPUCullNodeRecord),
-		root_index = serialized_bvh and
-			serialized_bvh.root_index and
-			(
-				serialized_bvh.root_index - 1
-			)
-			or
-			INVALID_INDEX,
-	}
-end
-
 local function build_dataset_upload(dataset)
 	if not dataset then return nil end
 
@@ -2120,8 +2033,6 @@ local function build_dataset_upload(dataset)
 		main_instanced_batches = flatten_instanced_batch_upload(dataset),
 		shadow_instance_worlds = flatten_shadow_instance_world_upload(dataset),
 		shadow_instanced_batches = flatten_shadow_instanced_batch_upload(dataset),
-		static_bvh = flatten_bvh_upload(dataset.static_bvh),
-		shadow_bvh = flatten_bvh_upload(dataset.shadow_bvh),
 		layout = {
 			generation = dataset.generation,
 			main_visual_count = #main_visuals,
@@ -2133,10 +2044,6 @@ local function build_dataset_upload(dataset)
 			shadow_entry_count = dataset.shadow_entry_count or 0,
 			shadow_instanced_batch_count = #(dataset.shadow_instanced_batches or {}),
 			shadow_instance_count = dataset.shadow_instance_count or 0,
-			static_bvh_node_count = dataset.static_bvh and dataset.static_bvh.node_count or 0,
-			static_bvh_root_index = dataset.static_bvh and (dataset.static_bvh.root_index - 1) or INVALID_INDEX,
-			shadow_bvh_node_count = dataset.shadow_bvh and dataset.shadow_bvh.node_count or 0,
-			shadow_bvh_root_index = dataset.shadow_bvh and (dataset.shadow_bvh.root_index - 1) or INVALID_INDEX,
 		},
 	}
 end
@@ -2165,8 +2072,6 @@ local function clear_dataset_buffers()
 		remove_buffer(dataset_buffers.shadow_visual_buffer)
 		remove_buffer(dataset_buffers.shadow_entry_buffer)
 		remove_buffer(dataset_buffers.shadow_instanced_batch_buffer)
-		remove_buffer(dataset_buffers.static_bvh_node_buffer)
-		remove_buffer(dataset_buffers.shadow_bvh_node_buffer)
 	end
 
 	gpu_culling.dataset_buffers = nil
@@ -2423,18 +2328,6 @@ local function build_dataset_buffers(dataset)
 			{"storage_buffer"},
 			upload.shadow_instanced_batches.batch_records
 		),
-		static_bvh_node_buffer = create_buffer(
-			"gpu_culling_static_bvh_upload",
-			upload.static_bvh.node_byte_size,
-			{"storage_buffer"},
-			upload.static_bvh.node_records
-		),
-		shadow_bvh_node_buffer = create_buffer(
-			"gpu_culling_shadow_bvh_upload",
-			upload.shadow_bvh.node_byte_size,
-			{"storage_buffer"},
-			upload.shadow_bvh.node_records
-		),
 	}
 end
 
@@ -2503,14 +2396,6 @@ local function update_dataset_buffers_in_place(dataset, buffers)
 
 	if upload.shadow_instanced_batches.byte_size > 0 then
 		buffers.shadow_instanced_batch_buffer:CopyData(upload.shadow_instanced_batches.batch_records, upload.shadow_instanced_batches.byte_size)
-	end
-
-	if upload.static_bvh.node_byte_size > 0 then
-		buffers.static_bvh_node_buffer:CopyData(upload.static_bvh.node_records, upload.static_bvh.node_byte_size)
-	end
-
-	if upload.shadow_bvh.node_byte_size > 0 then
-		buffers.shadow_bvh_node_buffer:CopyData(upload.shadow_bvh.node_records, upload.shadow_bvh.node_byte_size)
 	end
 end
 
@@ -2936,7 +2821,6 @@ function gpu_culling.GetUploadTypes()
 	return {
 		visual_record = GPUCullVisualRecord,
 		entry_record = GPUCullEntryRecord,
-		node_record = GPUCullNodeRecord,
 		flags = {
 			visual_visible = VISUAL_FLAG_VISIBLE,
 			visual_cast_shadows = VISUAL_FLAG_CAST_SHADOWS,
@@ -2946,7 +2830,6 @@ function gpu_culling.GetUploadTypes()
 			visual_shadow_non_aabb = VISUAL_FLAG_SHADOW_NON_AABB,
 			entry_ignore_z = ENTRY_FLAG_IGNORE_Z,
 			entry_height_displacement = ENTRY_FLAG_HEIGHT_DISPLACEMENT,
-			node_leaf = NODE_FLAG_LEAF,
 		},
 		invalid_index = INVALID_INDEX,
 	}
@@ -3652,10 +3535,7 @@ function gpu_culling.IsAnyVisibleEntryInRange(cull_result, first_entry_index, en
 
 	if not entry_visibility_ptr then return false end
 
-	local last_entry_index = math.min(
-		first_entry_index + entry_count,
-		cull_result.entry_visibility_count or 0
-	) - 1
+	local last_entry_index = math.min(first_entry_index + entry_count, cull_result.entry_visibility_count or 0) - 1
 
 	for entry_index = first_entry_index, last_entry_index do
 		if entry_visibility_ptr[entry_index] ~= 0 then return true end

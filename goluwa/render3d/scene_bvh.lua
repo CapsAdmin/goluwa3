@@ -3,8 +3,10 @@ local render = import("goluwa/render/render.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local Visual = import("goluwa/entities/components/visual.lua")
 local scene_bvh = library()
+-- Pre-register to break import cycle: visual -> render3d -> scene_bvh -> visual
+import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
+local Visual = import("goluwa/entities/components/visual.lua")
 local NodeArray = ffi.typeof([[
 	struct {
 		uint32_t left_first;
@@ -31,9 +33,6 @@ local BIN_COUNT = 12
 local MAX_LEAF_TRIANGLES = 8
 local MAX_DEPTH = 30
 scene_bvh.STACK_SIZE = 32
--- a visual's world aabb changes by more than this (world units) and the
--- scene counts as changed
-scene_bvh.SIGNATURE_TOL = 0.005
 -- while the scene keeps changing, a rebuild that took longer must not run so
 -- frequently that it becomes the dominant cost: the max wait scales with the
 -- last build's measured cpu time, clamped to this upper bound
@@ -46,32 +45,10 @@ scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
 scene_bvh.build_time = 0
 scene_bvh.version = 0
--- transform invalidation events set changes_pending; EnsureBuilt promotes it
--- to transforms_dirty on the next frame, so all changes within a frame are
--- debounced into a single aabb diff one frame later
-scene_bvh.changes_pending = false
-scene_bvh.transforms_dirty = false
-scene_bvh.diff_runs = 0
--- world aabbs that changed while the tree was dirty. recorded by diff_visuals,
--- consumed by light occlusion when the version bumps, so it does not have to
--- rescan every visual's aabb on its own
+-- world aabbs that changed while the tree was dirty. recorded by the shared
+-- aabb scan in visual.lua, consumed by light occlusion when the version
+-- bumps, so it does not have to rescan every visual's aabb on its own
 scene_bvh.dirty_boxes = {}
-local DIRTY_BOX_CAP = 4096
-
-local function mark_dirty_box(box)
-	local dirty = scene_bvh.dirty_boxes
-
-	if dirty then
-		dirty[#dirty + 1] = box
-
-		if #dirty >= DIRTY_BOX_CAP then
-			-- a long dirty window with lots of moving geometry: stop tracking
-			-- per box and invalidate everything at once
-			scene_bvh.dirty_boxes = nil
-			scene_bvh.dirty_all = true
-		end
-	end
-end
 
 function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
@@ -581,83 +558,6 @@ local function ensure_placeholder_buffers()
 	}
 end
 
--- true when the visual set or any of its world aabbs differs from the last
--- snapshot. steady state costs one aabb fetch and six comparisons per
--- visual, additions and removals re-snapshot the whole set
-local function diff_visuals()
-	local count = #Visual.Instances
-	local signatures = scene_bvh.signatures
-
-	if not signatures or count ~= scene_bvh.signature_count then
-		local fresh = {}
-
-		for _, visual in ipairs(Visual.Instances) do
-			local aabb = visual:GetWorldAABB()
-
-			-- visuals without geometry contribute nothing to the bvh
-			if aabb then
-				fresh[visual] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
-			end
-		end
-
-		scene_bvh.signatures = fresh
-		scene_bvh.signature_count = count
-		-- the visual set itself changed, no per-box diff is available
-		scene_bvh.dirty_all = true
-		return true
-	end
-
-	local changed = false
-
-	for _, visual in ipairs(Visual.Instances) do
-		local aabb = visual:GetWorldAABB()
-		local sig = signatures[visual]
-
-		if not aabb then
-			if sig then
-				signatures[visual] = nil
-				mark_dirty_box(sig)
-				changed = true
-			end
-
-			continue
-		end
-
-		if not sig then
-			-- equal count but a different visual: a swap happened
-			local box = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
-			signatures[visual] = box
-			mark_dirty_box(box)
-			changed = true
-		elseif
-			math.abs(aabb.min_x - sig[1]) > scene_bvh.SIGNATURE_TOL or
-			math.abs(aabb.min_y - sig[2]) > scene_bvh.SIGNATURE_TOL or
-			math.abs(aabb.min_z - sig[3]) > scene_bvh.SIGNATURE_TOL or
-			math.abs(aabb.max_x - sig[4]) > scene_bvh.SIGNATURE_TOL or
-			math.abs(aabb.max_y - sig[5]) > scene_bvh.SIGNATURE_TOL or
-			math.abs(aabb.max_z - sig[6]) > scene_bvh.SIGNATURE_TOL
-		then
-			mark_dirty_box{
-				math.min(sig[1], aabb.min_x),
-				math.min(sig[2], aabb.min_y),
-				math.min(sig[3], aabb.min_z),
-				math.max(sig[4], aabb.max_x),
-				math.max(sig[5], aabb.max_y),
-				math.max(sig[6], aabb.max_z),
-			}
-			sig[1] = aabb.min_x
-			sig[2] = aabb.min_y
-			sig[3] = aabb.min_z
-			sig[4] = aabb.max_x
-			sig[5] = aabb.max_y
-			sig[6] = aabb.max_z
-			changed = true
-		end
-	end
-
-	return changed
-end
-
 -- lights are not part of the bvh geometry, but their transforms invalidate
 -- the light space data (occlusion maps, shadows). tracked so consumers and the
 -- debug overlay can see when the light set moved
@@ -670,6 +570,7 @@ local function diff_lights()
 	local signatures = scene_bvh.light_signatures or {}
 	local changed = false
 	local count = 0
+	local tolerance = Visual.Library.AABB_TOLERANCE
 
 	for _, light in ipairs(lights) do
 		count = count + 1
@@ -680,9 +581,9 @@ local function diff_lights()
 
 			if
 				not sig or
-				math.abs(pos.x - sig[1]) > scene_bvh.SIGNATURE_TOL or
-				math.abs(pos.y - sig[2]) > scene_bvh.SIGNATURE_TOL or
-				math.abs(pos.z - sig[3]) > scene_bvh.SIGNATURE_TOL
+				math.abs(pos.x - sig[1]) > tolerance or
+				math.abs(pos.y - sig[2]) > tolerance or
+				math.abs(pos.z - sig[3]) > tolerance
 			then
 				signatures[light] = {pos.x, pos.y, pos.z}
 				changed = true
@@ -701,37 +602,38 @@ local function diff_lights()
 	return changed
 end
 
-event.AddListener("OnTransformChanged", "scene_bvh", function()
-	scene_bvh.changes_pending = true
-end)
-
 function scene_bvh.EnsureBuilt()
 	local frame = system.GetFrameNumber()
 
 	if scene_bvh.ensure_frame == frame then return end
 
 	scene_bvh.ensure_frame = frame
+	local library = Visual.Library
+	local changed = library.ScanWorldAABBs()
+	diff_lights()
 
-	if scene_bvh.changes_pending then
-		scene_bvh.changes_pending = false
-		scene_bvh.transforms_dirty = true
-	end
+	if changed then
+		scene_bvh.last_change_frame = frame
 
-	local need_diff = not scene_bvh.signatures or
-		scene_bvh.transforms_dirty or
-		#Visual.Instances ~= scene_bvh.signature_count
+		if not scene_bvh.dirty_since then
+			scene_bvh.dirty_since = system.GetElapsedTime()
+		end
 
-	if need_diff then
-		scene_bvh.transforms_dirty = false
-		scene_bvh.diff_runs = scene_bvh.diff_runs + 1
-		diff_lights()
-		local changed = diff_visuals()
+		if library.AABB_CHANGED_ALL then
+			scene_bvh.dirty_all = true
+		elseif scene_bvh.dirty_boxes then
+			local boxes = library.AABB_CHANGED_BOXES or {}
+			local dirty = scene_bvh.dirty_boxes
 
-		if changed then
-			scene_bvh.last_change_frame = frame
+			for i = 1, #boxes do
+				dirty[#dirty + 1] = boxes[i]
+			end
 
-			if not scene_bvh.dirty_since then
-				scene_bvh.dirty_since = system.GetElapsedTime()
+			if #dirty >= library.DIRTY_BOX_CAP then
+				-- a long dirty window with lots of moving geometry: stop tracking
+				-- per box and invalidate everything at once
+				scene_bvh.dirty_boxes = nil
+				scene_bvh.dirty_all = true
 			end
 		end
 	end
@@ -757,9 +659,7 @@ function scene_bvh.EnsureBuilt()
 end
 
 function scene_bvh.Invalidate()
-	scene_bvh.signatures = nil
-	scene_bvh.signature_count = nil
-	scene_bvh.transforms_dirty = true
+	Visual.Library.ResetWorldAABBSignatures()
 	scene_bvh.dirty_since = system.GetElapsedTime()
 	scene_bvh.last_change_frame = -1
 	scene_bvh.version = scene_bvh.version + 1
@@ -941,7 +841,7 @@ end)
 
 commands.Add("scene_bvh_info", function()
 	logf(
-		"[scene_bvh] %d triangles, %d nodes, %d meshes, built in %.2fs, version %d, dirty %s, diffs %d, light_version %d\n",
+		"[scene_bvh] %d triangles, %d nodes, %d meshes, built in %.2fs, version %d, dirty %s, light_version %d\n",
 		scene_bvh.triangle_count,
 		scene_bvh.node_count,
 		scene_bvh.source_count or 0,
@@ -952,7 +852,6 @@ commands.Add("scene_bvh_info", function()
 				"yes (%.2fs)"
 			):format(system.GetElapsedTime() - scene_bvh.dirty_since) or
 			"no",
-		scene_bvh.diff_runs,
 		scene_bvh.light_version or 0
 	)
 end)
