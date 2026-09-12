@@ -592,6 +592,7 @@ function Device:WaitIdle()
 	if RENDER_NOOP then return end
 
 	vulkan.lib.vkDeviceWaitIdle(self.ptr[0])
+	self:FlushDeferredReleases(true)
 end
 
 function Device:SetObjectName(handle, object_type, name)

@@ -214,7 +214,7 @@ local function create_swapchain(self)
 		end
 	end
 
-	-- Windowed mode: recreate swapchain
+	local old_swapchain = self.swapchain
 	self.swapchain = SwapChain.New{
 		device = self.vulkan_instance.device,
 		surface = self.vulkan_instance.surface,
@@ -229,8 +229,11 @@ local function create_swapchain(self)
 		clipped = self.config.clipped,
 		image_usage = self.config.image_usage,
 		pre_transform = self.config.pre_transform,
-		old_swapchain = self.swapchain,
+		old_swapchain = old_swapchain,
 	}
+
+	if old_swapchain then old_swapchain:Remove() end
+
 	local textures = {}
 
 	for i, img in ipairs(self.swapchain:GetImages()) do
@@ -306,6 +309,24 @@ local function create_per_frame_resources(self)
 	-- Windowed mode: need resources per swapchain image
 	if self.command_buffers and #self.command_buffers == #self.textures then
 		return
+	end
+
+	if self.in_flight_fences then
+		for _, fence in ipairs(self.in_flight_fences) do
+			fence:Remove()
+		end
+	end
+
+	if self.image_available_semaphores then
+		for _, semaphore in ipairs(self.image_available_semaphores) do
+			semaphore:Remove()
+		end
+	end
+
+	if self.render_finished_semaphores then
+		for _, semaphore in ipairs(self.render_finished_semaphores) do
+			semaphore:Remove()
+		end
 	end
 
 	self.command_buffers = {}
@@ -501,9 +522,8 @@ function ImageRenderTarget:BeginFrame()
 
 		if not RENDER_NOOP or self.vulkan_instance.queue:HasPendingSubmission(fence) then
 			fence:Wait()
-			if not RENDER_NOOP then
-				fence:Reset()
-			end
+
+			if not RENDER_NOOP then fence:Reset() end
 		end
 
 		self.vulkan_instance.queue:RetireFence(self.in_flight_fences[frame_index])
@@ -689,14 +709,25 @@ function ImageRenderTarget:RebuildFramebuffers()
 		return
 	end
 
-	-- Wait for device to be idle
-	self.vulkan_instance.device:WaitIdle()
+	local device = self.vulkan_instance.device
+	device:WaitIdle()
+	device:FlushDeferredReleases(true)
 	self.surface_capabilities = self.vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
 
 	if self.config.width and self.config.height then
 		self.surface_capabilities.currentExtent.width = self.config.width
 		self.surface_capabilities.currentExtent.height = self.config.height
 	end
+
+	if self.textures then
+		for _, texture in ipairs(self.textures) do
+			texture:Remove()
+		end
+	end
+
+	if self.depth_texture then self.depth_texture:Remove() end
+
+	if self.msaa_image then self.msaa_image:Remove() end
 
 	choose_format(self)
 	create_swapchain(self)
