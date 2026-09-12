@@ -7,7 +7,6 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local system = import("goluwa/system.lua")
-local Visual = import("goluwa/entities/components/visual.lua")
 local light_occlusion = library()
 light_occlusion.oct_size = 64
 light_occlusion.subs = 4
@@ -148,22 +147,7 @@ local stamps = {}
 local move_frame = {}
 local geom_stale = {}
 local slot_at_z = {}
-local geom_box_count = {}
-local geom_box_coords = {}
 local geom_version = -1
-
-local function box_key(x0, y0, z0, x1, y1, z1)
-	return (
-		"%d|%d|%d|%d|%d|%d"
-	):format(
-		math.floor(x0 * 1000 + 0.5),
-		math.floor(y0 * 1000 + 0.5),
-		math.floor(z0 * 1000 + 0.5),
-		math.floor(x1 * 1000 + 0.5),
-		math.floor(y1 * 1000 + 0.5),
-		math.floor(z1 * 1000 + 0.5)
-	)
-end
 
 local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 	local dx = math.max(box[1] - px, 0, px - box[4])
@@ -172,64 +156,39 @@ local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 	return dx * dx + dy * dy + dz * dz <= radius_sq
 end
 
+-- consumes the boxes scene_bvh recorded while the tree was dirty and marks
+-- every light whose range overlaps one of them as stale
 local function process_geometry_change(lights)
 	local version = scene_bvh.version
 
 	if geom_version == version then return end
 
-	local box_count = {}
-	local box_coords = {}
-
-	for _, visual in ipairs(Visual.Instances) do
-		local aabb = visual:GetWorldAABB()
-
-		if
-			aabb and
-			aabb.min_x < aabb.max_x and
-			aabb.min_y < aabb.max_y and
-			aabb.min_z < aabb.max_z
-		then
-			local key = box_key(aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z)
-			box_count[key] = (box_count[key] or 0) + 1
-
-			if not box_coords[key] then
-				box_coords[key] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
-			end
-		end
-	end
-
-	local changed = {}
-
-	for key, count in pairs(box_count) do
-		local old = geom_box_count[key] or 0
-
-		if old ~= count then changed[#changed + 1] = box_coords[key] end
-	end
-
-	for key in pairs(geom_box_count) do
-		if not box_count[key] then changed[#changed + 1] = geom_box_coords[key] end
-	end
-
-	geom_box_count = box_count
-	geom_box_coords = box_coords
 	geom_version = version
+	local dirty_all = scene_bvh.dirty_all
+	local boxes = scene_bvh.dirty_boxes or {}
+	scene_bvh.dirty_all = false
+	scene_bvh.dirty_boxes = {}
 
-	if #changed > 0 then
-		for light_index = 1, math.min(#lights, MAX_LIGHTS) do
-			local light = lights[light_index]
+	for light_index = 1, math.min(#lights, MAX_LIGHTS) do
+		local light = lights[light_index]
 
-			if is_occlusion_light(light) then
+		if is_occlusion_light(light) then
+			local stale = dirty_all
+
+			if not stale then
 				local pos = light.Owner.transform:GetPosition()
 				local radius_sq = light.Range * light.Range
 
-				for i = 1, #changed do
-					if sphere_overlaps_box(pos.x, pos.y, pos.z, radius_sq, changed[i]) then
-						geom_stale[light_index] = true
+				for i = 1, #boxes do
+					if sphere_overlaps_box(pos.x, pos.y, pos.z, radius_sq, boxes[i]) then
+						stale = true
 
 						break
 					end
 				end
 			end
+
+			if stale then geom_stale[light_index] = true end
 		end
 	end
 end
@@ -380,7 +339,9 @@ light_occlusion.last_dispatches = 0
 function light_occlusion.Draw(cmd)
 	light_occlusion.last_dispatches = 0
 
-	if not (scene_bvh.IsReady() and scene_bvh.LightOcclusion ~= false) then return end
+	if not (scene_bvh.IsReady() and scene_bvh.LightOcclusion ~= false) then
+		return
+	end
 
 	local lights = render3d.GetLights()
 	local frame = system.GetFrameNumber()
@@ -517,10 +478,6 @@ function light_occlusion.Reset()
 		state[k] = nil
 	end
 
-	for k in pairs(stamps) do
-		stamps[k] = nil
-	end
-
 	for k in pairs(move_frame) do
 		move_frame[k] = nil
 	end
@@ -587,9 +544,16 @@ function light_occlusion.GetDeclarationGLSL(binding, set)
 	):format(set or 0, binding)
 end
 
+local map_sampler
+
 function light_occlusion.GetOcclusionDescriptor()
 	local texture = light_occlusion.GetOcclusionTexture()
-	return {texture:GetView(), texture.sampler or render.CreateSampler(MAP_SAMPLER_CONFIG)}
+
+	if not map_sampler then
+		map_sampler = render.CreateSampler(MAP_SAMPLER_CONFIG)
+	end
+
+	return {texture:GetView(), map_sampler}
 end
 
 function light_occlusion.GetBlockLayout()

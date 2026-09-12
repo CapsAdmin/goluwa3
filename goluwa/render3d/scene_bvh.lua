@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local commands = import("goluwa/cli/commands.lua")
+local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local scene_bvh = library()
@@ -33,8 +34,6 @@ scene_bvh.STACK_SIZE = 32
 -- a visual's world aabb changes by more than this (world units) and the
 -- scene counts as changed
 scene_bvh.SIGNATURE_TOL = 0.005
--- rebuild once the scene has been quiet for this long
-scene_bvh.REBUILD_SETTLE = 0.2
 -- while the scene keeps changing, a rebuild that took longer must not run so
 -- frequently that it becomes the dominant cost: the max wait scales with the
 -- last build's measured cpu time, clamped to this upper bound
@@ -47,6 +46,32 @@ scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
 scene_bvh.build_time = 0
 scene_bvh.version = 0
+-- transform invalidation events set changes_pending; EnsureBuilt promotes it
+-- to transforms_dirty on the next frame, so all changes within a frame are
+-- debounced into a single aabb diff one frame later
+scene_bvh.changes_pending = false
+scene_bvh.transforms_dirty = false
+scene_bvh.diff_runs = 0
+-- world aabbs that changed while the tree was dirty. recorded by diff_visuals,
+-- consumed by light occlusion when the version bumps, so it does not have to
+-- rescan every visual's aabb on its own
+scene_bvh.dirty_boxes = {}
+local DIRTY_BOX_CAP = 4096
+
+local function mark_dirty_box(box)
+	local dirty = scene_bvh.dirty_boxes
+
+	if dirty then
+		dirty[#dirty + 1] = box
+
+		if #dirty >= DIRTY_BOX_CAP then
+			-- a long dirty window with lots of moving geometry: stop tracking
+			-- per box and invalidate everything at once
+			scene_bvh.dirty_boxes = nil
+			scene_bvh.dirty_all = true
+		end
+	end
+end
 
 function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
@@ -577,6 +602,8 @@ local function diff_visuals()
 
 		scene_bvh.signatures = fresh
 		scene_bvh.signature_count = count
+		-- the visual set itself changed, no per-box diff is available
+		scene_bvh.dirty_all = true
 		return true
 	end
 
@@ -589,6 +616,7 @@ local function diff_visuals()
 		if not aabb then
 			if sig then
 				signatures[visual] = nil
+				mark_dirty_box(sig)
 				changed = true
 			end
 
@@ -597,7 +625,9 @@ local function diff_visuals()
 
 		if not sig then
 			-- equal count but a different visual: a swap happened
-			signatures[visual] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+			local box = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+			signatures[visual] = box
+			mark_dirty_box(box)
 			changed = true
 		elseif
 			math.abs(aabb.min_x - sig[1]) > scene_bvh.SIGNATURE_TOL or
@@ -607,6 +637,14 @@ local function diff_visuals()
 			math.abs(aabb.max_y - sig[5]) > scene_bvh.SIGNATURE_TOL or
 			math.abs(aabb.max_z - sig[6]) > scene_bvh.SIGNATURE_TOL
 		then
+			mark_dirty_box{
+				math.min(sig[1], aabb.min_x),
+				math.min(sig[2], aabb.min_y),
+				math.min(sig[3], aabb.min_z),
+				math.max(sig[4], aabb.max_x),
+				math.max(sig[5], aabb.max_y),
+				math.max(sig[6], aabb.max_z),
+			}
 			sig[1] = aabb.min_x
 			sig[2] = aabb.min_y
 			sig[3] = aabb.min_z
@@ -663,32 +701,38 @@ local function diff_lights()
 	return changed
 end
 
--- called once per frame from the render update. diffs the visual aabbs and
--- light positions against the last snapshot, and rebuilds the bvh once the
--- scene has settled (or the change has been pending too long, so animated
--- geometry does not starve the rebuild forever)
+event.AddListener("OnTransformChanged", "scene_bvh", function()
+	scene_bvh.changes_pending = true
+end)
+
 function scene_bvh.EnsureBuilt()
-	-- several passes call this every frame (render3d pre-render pass and the
-	-- top radiance cascade); the per-visual aabb diff is not free, so the
-	-- full check runs at most once per frame
 	local frame = system.GetFrameNumber()
 
 	if scene_bvh.ensure_frame == frame then return end
 
 	scene_bvh.ensure_frame = frame
-	-- light changes bump the light version but never dirty the bvh: lights
-	-- are not bvh geometry, and consumers react to them directly (occlusion
-	-- maps re-trace on light movement, shadow maps re-render per frame)
-	diff_lights()
-	local changed = diff_visuals()
 
-	-- dirty is level triggered: it stays set until a build completes, a
-	-- change just refreshes the settle timer
-	if changed then
-		scene_bvh.last_change = system.GetElapsedTime()
+	if scene_bvh.changes_pending then
+		scene_bvh.changes_pending = false
+		scene_bvh.transforms_dirty = true
+	end
 
-		if not scene_bvh.dirty_since then
-			scene_bvh.dirty_since = scene_bvh.last_change
+	local need_diff = not scene_bvh.signatures or
+		scene_bvh.transforms_dirty or
+		#Visual.Instances ~= scene_bvh.signature_count
+
+	if need_diff then
+		scene_bvh.transforms_dirty = false
+		scene_bvh.diff_runs = scene_bvh.diff_runs + 1
+		diff_lights()
+		local changed = diff_visuals()
+
+		if changed then
+			scene_bvh.last_change_frame = frame
+
+			if not scene_bvh.dirty_since then
+				scene_bvh.dirty_since = system.GetElapsedTime()
+			end
 		end
 	end
 
@@ -700,23 +744,13 @@ function scene_bvh.EnsureBuilt()
 	end
 
 	local now = system.GetElapsedTime()
-	local quiet_for = scene_bvh.last_change and
-		(
-			now - scene_bvh.last_change
-		)
-		or
-		scene_bvh.REBUILD_SETTLE
-	-- while the scene keeps changing, rebuild at most every REBUILD_MAX_WAIT
-	-- seconds, scaled up with the last build's measured cpu time so the
-	-- rebuilds stay a small fraction of the frame budget on large scenes
+	local settled = scene_bvh.last_change_frame ~= frame - 1
 	local max_wait = math.min(
 		math.max(scene_bvh.REBUILD_MAX_WAIT, scene_bvh.build_time * 8),
 		scene_bvh.REBUILD_HARD_MAX
 	)
 
-	if quiet_for < scene_bvh.REBUILD_SETTLE and (now - scene_bvh.dirty_since) < max_wait then
-		return
-	end
+	if not settled and (now - scene_bvh.dirty_since) < max_wait then return end
 
 	scene_bvh.dirty_since = nil
 	scene_bvh.Build()
@@ -725,8 +759,9 @@ end
 function scene_bvh.Invalidate()
 	scene_bvh.signatures = nil
 	scene_bvh.signature_count = nil
+	scene_bvh.transforms_dirty = true
 	scene_bvh.dirty_since = system.GetElapsedTime()
-	scene_bvh.last_change = scene_bvh.dirty_since
+	scene_bvh.last_change_frame = -1
 	scene_bvh.version = scene_bvh.version + 1
 end
 
@@ -906,7 +941,7 @@ end)
 
 commands.Add("scene_bvh_info", function()
 	logf(
-		"[scene_bvh] %d triangles, %d nodes, %d meshes, built in %.2fs, version %d, dirty %s, light_version %d\n",
+		"[scene_bvh] %d triangles, %d nodes, %d meshes, built in %.2fs, version %d, dirty %s, diffs %d, light_version %d\n",
 		scene_bvh.triangle_count,
 		scene_bvh.node_count,
 		scene_bvh.source_count or 0,
@@ -917,6 +952,7 @@ commands.Add("scene_bvh_info", function()
 				"yes (%.2fs)"
 			):format(system.GetElapsedTime() - scene_bvh.dirty_since) or
 			"no",
+		scene_bvh.diff_runs,
 		scene_bvh.light_version or 0
 	)
 end)

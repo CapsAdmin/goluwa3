@@ -1,4 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -78,6 +79,7 @@ function META:InvalidateMatrices()
 	self.ShouldUseInterpolatedPhysicsTransformCached = nil
 	self.IsFrameDynamicFrame = nil
 	self.IsFrameDynamicCached = nil
+	event.Call("OnTransformChanged", self)
 
 	if self.Owner and self.Owner.visual then
 		self.Owner.visual.WorldAABBCache = nil
