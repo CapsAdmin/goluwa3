@@ -6,10 +6,10 @@ local Visual = import("goluwa/entities/components/visual.lua")
 local scene_bvh = library()
 local NodeArray = ffi.typeof([[
 	struct {
-		float bounds_min[3];
 		uint32_t left_first;
-		float bounds_max[3];
 		uint32_t count;
+		float bounds_min[3];
+		float bounds_max[3];
 	}[?]
 ]])
 local TriangleArray = ffi.typeof([[
@@ -27,7 +27,7 @@ local UInt32Array = ffi.typeof("uint32_t[?]")
 local NODE_BYTE_SIZE = 32
 local TRIANGLE_BYTE_SIZE = 64
 local BIN_COUNT = 12
-local MAX_LEAF_TRIANGLES = 4
+local MAX_LEAF_TRIANGLES = 8
 local MAX_DEPTH = 30
 scene_bvh.STACK_SIZE = 32
 -- a visual's world aabb changes by more than this (world units) and the
@@ -676,7 +676,6 @@ function scene_bvh.EnsureBuilt()
 	if scene_bvh.ensure_frame == frame then return end
 
 	scene_bvh.ensure_frame = frame
-
 	-- light changes bump the light version but never dirty the bvh: lights
 	-- are not bvh geometry, and consumers react to them directly (culling
 	-- maps re-trace on light movement, shadow maps re-render per frame)
@@ -701,7 +700,12 @@ function scene_bvh.EnsureBuilt()
 	end
 
 	local now = system.GetElapsedTime()
-	local quiet_for = scene_bvh.last_change and (now - scene_bvh.last_change) or scene_bvh.REBUILD_SETTLE
+	local quiet_for = scene_bvh.last_change and
+		(
+			now - scene_bvh.last_change
+		)
+		or
+		scene_bvh.REBUILD_SETTLE
 	-- while the scene keeps changing, rebuild at most every REBUILD_MAX_WAIT
 	-- seconds, scaled up with the last build's measured cpu time so the
 	-- rebuilds stay a small fraction of the frame budget on large scenes
@@ -749,10 +753,10 @@ function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 	return (
 		[[
 		struct scene_bvh_node {
-			vec3 bounds_min;
 			uint left_first;
-			vec3 bounds_max;
 			uint count;
+			vec3 bounds_min;
+			vec3 bounds_max;
 		};
 
 		struct scene_bvh_triangle {
@@ -886,11 +890,11 @@ function scene_bvh.GetTraversalGLSL()
 
 			if (closest_triangle < 0) return false;
 
+			scene_bvh_triangle final_triangle = scene_bvh_triangles[closest_triangle];
 			hit.position = origin + dir * closest;
 			hit.distance = closest;
-			hit.emissive = scene_bvh_triangles[closest_triangle].emissive;
-			vec3 normal = scene_bvh_triangles[closest_triangle].normal;
-			hit.normal = dot(normal, dir) > 0.0 ? -normal : normal;
+			hit.emissive = final_triangle.emissive;
+			hit.normal = dot(final_triangle.normal, dir) > 0.0 ? -final_triangle.normal : final_triangle.normal;
 			return true;
 		}
 	]]
@@ -908,7 +912,11 @@ commands.Add("scene_bvh_info", function()
 		scene_bvh.source_count or 0,
 		scene_bvh.build_time,
 		scene_bvh.version,
-		scene_bvh.dirty_since and ("yes (%.2fs)"):format(system.GetElapsedTime() - scene_bvh.dirty_since) or "no",
+		scene_bvh.dirty_since and
+			(
+				"yes (%.2fs)"
+			):format(system.GetElapsedTime() - scene_bvh.dirty_since) or
+			"no",
 		scene_bvh.light_version or 0
 	)
 end)
