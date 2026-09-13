@@ -1185,9 +1185,17 @@ do
 	visual.aabb_signatures = nil
 	visual.aabb_signature_count = -1
 	visual.aabb_scan_frame = -1
+	-- set by OnTransformChanged; lets the scan skip its walk entirely on frames
+	-- where no transform invalidated
+	visual.aabb_changes_pending = false
 	visual.aabb_scan_changed = false
 	visual.AABB_CHANGED_BOXES = nil
+	visual.AABB_CHANGED_COMPONENTS = nil
 	visual.AABB_CHANGED_ALL = false
+
+	event.AddListener("OnTransformChanged", "visual_aabb_scan", function()
+		visual.aabb_changes_pending = true
+	end)
 	visual.shadow_debug_filter = nil
 	visual.shadow_debug_log = true
 	visual.shadow_debug_frame = -1
@@ -1770,6 +1778,18 @@ do
 		local count = #Visual.Instances
 		local signatures = visual.aabb_signatures
 
+		if not visual.aabb_changes_pending and signatures and count == visual.aabb_signature_count then
+			-- steady state: nothing invalidated since the last scan and the visual
+			-- set is intact, so report no change without walking the instances
+			visual.aabb_scan_changed = false
+			visual.AABB_CHANGED_BOXES = nil
+			visual.AABB_CHANGED_COMPONENTS = nil
+			visual.AABB_CHANGED_ALL = false
+			return false
+		end
+
+		visual.aabb_changes_pending = false
+
 		if not signatures or count ~= visual.aabb_signature_count then
 			local fresh = {}
 
@@ -1786,6 +1806,7 @@ do
 			visual.aabb_signature_count = count
 			visual.aabb_scan_changed = true
 			visual.AABB_CHANGED_BOXES = nil
+			visual.AABB_CHANGED_COMPONENTS = nil
 			visual.AABB_CHANGED_ALL = true
 
 			if visual.scene_acceleration then
@@ -1797,6 +1818,7 @@ do
 
 		local tolerance = visual.AABB_TOLERANCE
 		local boxes = {}
+		local components = {}
 
 		for _, component in ipairs(Visual.Instances) do
 			local aabb = component:GetWorldAABB()
@@ -1806,6 +1828,7 @@ do
 				if sig then
 					signatures[component] = nil
 					boxes[#boxes + 1] = sig
+					components[#components + 1] = component
 				end
 
 				continue
@@ -1815,6 +1838,7 @@ do
 				-- equal count but a different visual: a swap happened
 				signatures[component] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
 				boxes[#boxes + 1] = signatures[component]
+				components[#components + 1] = component
 
 				continue
 			end
@@ -1835,6 +1859,7 @@ do
 					math.max(sig[5], aabb.max_y),
 					math.max(sig[6], aabb.max_z),
 				}
+				components[#components + 1] = component
 				sig[1] = aabb.min_x
 				sig[2] = aabb.min_y
 				sig[3] = aabb.min_z
@@ -1847,6 +1872,7 @@ do
 		local changed = #boxes > 0
 		visual.aabb_scan_changed = changed
 		visual.AABB_CHANGED_BOXES = changed and boxes or nil
+		visual.AABB_CHANGED_COMPONENTS = changed and components or nil
 		visual.AABB_CHANGED_ALL = false
 
 		if changed and #boxes > visual.DIRTY_BOX_CAP then
