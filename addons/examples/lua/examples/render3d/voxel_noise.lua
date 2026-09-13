@@ -15,13 +15,12 @@ local Event = import("goluwa/event.lua")
 local System = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local shapes = import("lua/shapes.lua")
-
 local SPHERE_COUNT = 300
 local BOX_COUNT = 300
 local SPREAD = 60
-
 -- deterministic rng
 local seed = 12345678
+
 local function rand()
 	seed = (seed * 1664525 + 1013904223) % 4294967296
 	return seed / 4294967296
@@ -102,6 +101,7 @@ end
 local orbit_cam = render3d.GetCamera():Copy()
 orbit_cam:SetFOV(math.rad(60))
 render3d.SetRenderCamera(orbit_cam)
+
 Event.AddListener("Update", "voxel_noise_orbit", function()
 	local t = System.GetElapsedTime() * 0.25
 	local radius = 30

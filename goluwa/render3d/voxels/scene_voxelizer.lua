@@ -489,6 +489,7 @@ local function ensure_clipmap_state(self, index)
 		delta = Vec3(0, 0, 0),
 		dirty = true,
 		full_rebuild = true,
+		initial_build_anchored = false,
 		axis_full_rebuild = {x = true, y = true, z = true},
 		building_into_scroll = false,
 		has_valid_data = false,
@@ -1439,19 +1440,33 @@ function scene_voxelizer.Update(camera_position)
 		delta_z = round_delta_to_voxels(delta_z)
 		local origin_changed = delta_x ~= 0 or delta_y ~= 0 or delta_z ~= 0
 		clipmap.previous_origin = Vec3(target_origin.x, target_origin.y, target_origin.z)
+		local is_initial_build = clipmap.full_rebuild and clipmap.has_valid_data == false
+		local anchor_initial_build = is_initial_build and clipmap.initial_build_anchored
 
-		if not clipmap.build_scroll_ready and not full_rebuild_in_flight then
+		if
+			not clipmap.build_scroll_ready and
+			not full_rebuild_in_flight and
+			not anchor_initial_build
+		then
 			set_scene_build_origin(scene_voxelizer, clipmap, target_origin)
 		end
 
 		if
-			not clipmap.has_valid_data or
-			not (
-				clipmap.building_into_scroll or
-				origin_changed
+			(
+				not clipmap.has_valid_data or
+				not (
+					clipmap.building_into_scroll or
+					origin_changed
+				)
 			)
+			and
+			not anchor_initial_build
 		then
 			set_scene_origin(scene_voxelizer, clipmap, target_origin)
+		end
+
+		if is_initial_build and not clipmap.initial_build_anchored then
+			clipmap.initial_build_anchored = true
 		end
 
 		clipmap.delta.x = delta_x
@@ -1474,12 +1489,12 @@ function scene_voxelizer.Update(camera_position)
 				reset_pending_build_state(clipmap)
 			end
 
-			if origin_changed and not full_rebuild_in_flight then
+			if origin_changed and not full_rebuild_in_flight and not anchor_initial_build then
 				clipmap.building_into_scroll = clipmap.has_valid_data == true
 				mark_all_dirty_slices(clipmap)
 			end
 
-			if origin_changed and not full_rebuild_in_flight then
+			if origin_changed and not full_rebuild_in_flight and not anchor_initial_build then
 				reset_pending_build_state(clipmap)
 			end
 
