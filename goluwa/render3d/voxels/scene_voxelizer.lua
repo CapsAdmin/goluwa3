@@ -6,9 +6,10 @@ local commands = import("goluwa/cli/commands.lua")
 local scene_voxelizer = library()
 local AXES = {"x", "y", "z"}
 scene_voxelizer.DEFAULT_CLIPMAP_RESOLUTION = 128
-scene_voxelizer.DEFAULT_CLIPMAP_COUNT = 3
-scene_voxelizer.DEFAULT_BASE_VOXEL_SIZE = 0.25
+scene_voxelizer.DEFAULT_CLIPMAP_COUNT = 4
+scene_voxelizer.DEFAULT_BASE_VOXEL_SIZE = 0.5
 scene_voxelizer.DEFAULT_CLIPMAP_SNAP_VOXEL_STRIDE = 1
+scene_voxelizer.DEFAULT_OVERSCAN_VOXELS = 32
 scene_voxelizer.DEFAULT_BUILD_SLICES_PER_FRAME = 12
 scene_voxelizer.DEFAULT_BACKGROUND_BUILD_SLICES_PER_FRAME = 24
 scene_voxelizer.DEFAULT_MOVING_MAX_ACTIVE_CLIPMAPS_PER_FRAME = 0
@@ -401,6 +402,29 @@ local function build_snapped_origin(camera_position, voxel_size)
 		snap_axis(camera_position.y, voxel_size),
 		snap_axis(camera_position.z, voxel_size)
 	)
+end
+
+-- the clipmap volume keeps an overscan margin around the camera, so the
+-- origin only re-snaps (scrolling the volume and re-voxelizing the exposed
+-- slabs) once the camera has drifted further than the margin from the
+-- current anchor, instead of on every voxel of movement
+local function get_clipmap_resnap_target(clipmap, camera_position)
+	local snap_stride = clipmap.voxel_size * math.max(scene_voxelizer.clipmap_snap_voxel_stride or 1, 1)
+	local data_origin = (
+			clipmap.building_into_scroll or
+			clipmap.build_scroll_ready
+		)
+		and
+		clipmap.build_origin or
+		clipmap.origin
+	local max_drift = math.min((scene_voxelizer.overscan_voxels or 0) * clipmap.voxel_size, clipmap.world_span * 0.25)
+	local needs_resnap = not clipmap.has_valid_data or
+		math.abs(camera_position.x - data_origin.x) > max_drift or
+		math.abs(camera_position.y - data_origin.y) > max_drift or
+		math.abs(camera_position.z - data_origin.z) > max_drift
+	return needs_resnap and
+		build_snapped_origin(camera_position, snap_stride) or
+		data_origin
 end
 
 local function get_visual_library()
@@ -912,6 +936,7 @@ function scene_voxelizer.ResetState(config)
 	scene_voxelizer.base_voxel_size = config.base_voxel_size or scene_voxelizer.DEFAULT_BASE_VOXEL_SIZE
 	scene_voxelizer.clipmap_snap_voxel_stride = config.clipmap_snap_voxel_stride or
 		scene_voxelizer.DEFAULT_CLIPMAP_SNAP_VOXEL_STRIDE
+	scene_voxelizer.overscan_voxels = config.overscan_voxels or scene_voxelizer.DEFAULT_OVERSCAN_VOXELS
 	scene_voxelizer.build_slices_per_frame = config.build_slices_per_frame or scene_voxelizer.DEFAULT_BUILD_SLICES_PER_FRAME
 	scene_voxelizer.background_build_slices_per_frame = config.background_build_slices_per_frame or
 		scene_voxelizer.DEFAULT_BACKGROUND_BUILD_SLICES_PER_FRAME
@@ -965,6 +990,8 @@ function scene_voxelizer.SetBaseVoxelSize(size)
 		base_voxel_size = size,
 		base_resolution = scene_voxelizer.base_resolution,
 		clipmap_count = scene_voxelizer.clipmap_count,
+		clipmap_snap_voxel_stride = scene_voxelizer.clipmap_snap_voxel_stride,
+		overscan_voxels = scene_voxelizer.overscan_voxels,
 		enabled = scene_voxelizer.enabled,
 	}
 end
@@ -1426,9 +1453,7 @@ function scene_voxelizer.Update(camera_position)
 
 	for index = 1, scene_voxelizer.clipmap_count do
 		local clipmap = ensure_clipmap_state(scene_voxelizer, index)
-		local snap_stride = clipmap.voxel_size * math.max(scene_voxelizer.clipmap_snap_voxel_stride or 1, 1)
-		local snapped_origin = build_snapped_origin(camera_position, snap_stride)
-		local target_origin = snapped_origin
+		local target_origin = get_clipmap_resnap_target(clipmap, camera_position)
 		local full_rebuild_in_flight = clipmap.full_rebuild and clipmap.dirty and clipmap.has_valid_data == true
 		local previous_origin = clipmap.origin
 		local build_target_changed = not origins_match(clipmap.build_origin, target_origin)
@@ -1594,20 +1619,14 @@ function scene_voxelizer.MarkClipmapBuilt(index, axis_count, slice_count)
 	clipmap.last_handoff_rescheduled = false
 
 	if clipmap.building_into_scroll then
-		local snap_stride = clipmap.voxel_size * math.max(scene_voxelizer.clipmap_snap_voxel_stride or 1, 1)
-		local latest_origin = build_snapped_origin(scene_voxelizer.last_camera_position, snap_stride)
 		local build_origin = Vec3(clipmap.build_origin.x, clipmap.build_origin.y, clipmap.build_origin.z)
 		complete_target_content_version(clipmap, "build")
 		scene_voxelizer.CommitClipmapScroll(index)
-		clipmap = scene_voxelizer.GetClipmap(index)
+		local resnap_target = get_clipmap_resnap_target(clipmap, scene_voxelizer.last_camera_position)
 
-		if
-			latest_origin.x ~= build_origin.x or
-			latest_origin.y ~= build_origin.y or
-			latest_origin.z ~= build_origin.z
-		then
+		if not origins_match(resnap_target, build_origin) then
 			clipmap.last_handoff_rescheduled = true
-			schedule_incremental_scroll_rebuild(scene_voxelizer, clipmap, latest_origin)
+			schedule_incremental_scroll_rebuild(scene_voxelizer, clipmap, resnap_target)
 			return
 		end
 	else
@@ -1628,7 +1647,7 @@ function scene_voxelizer.GetClipmapDebugInfo(index)
 	if not clipmap then return nil end
 
 	local snap_stride = clipmap.voxel_size * math.max(scene_voxelizer.clipmap_snap_voxel_stride or 1, 1)
-	local latest_origin = build_snapped_origin(scene_voxelizer.last_camera_position, snap_stride)
+	local latest_origin = get_clipmap_resnap_target(clipmap, scene_voxelizer.last_camera_position)
 	local active_target = scene_voxelizer.GetClipmapAxisTarget(index, "x")
 	local build_target = scene_voxelizer.GetClipmapScrollTarget(index, "x")
 	local sampled_target = scene_voxelizer.GetClipmapLightingAxisTarget(index, "x")
@@ -1680,6 +1699,7 @@ function scene_voxelizer.GetClipmapDebugInfo(index)
 		voxel_size = clipmap.voxel_size,
 		world_span = clipmap.world_span,
 		snap_stride = snap_stride,
+		overscan_voxels = scene_voxelizer.overscan_voxels or 0,
 		camera_position = Vec3(
 			scene_voxelizer.last_camera_position.x,
 			scene_voxelizer.last_camera_position.y,
@@ -1751,6 +1771,15 @@ commands.Add("voxel_size=number[0.25]", function(size)
 		"[scene_voxelizer] base voxel size %f, finest clipmap spans %f\n",
 		size,
 		size * scene_voxelizer.base_resolution
+	)
+end)
+
+commands.Add("voxel_overscan=number[" .. tostring(scene_voxelizer.DEFAULT_OVERSCAN_VOXELS) .. "]", function(voxels)
+	scene_voxelizer.overscan_voxels = math.max(math.floor(voxels), 0)
+	logf(
+		"[scene_voxelizer] overscan margin %d voxels (%f m on the finest clipmap)\n",
+		scene_voxelizer.overscan_voxels,
+		scene_voxelizer.overscan_voxels * scene_voxelizer.base_voxel_size
 	)
 end)
 

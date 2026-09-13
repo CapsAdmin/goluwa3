@@ -1,5 +1,6 @@
 local T = import("test/environment.lua")
 T.SkipFile("disabled: long running and failing tests (85600db1)")
+
 do
 	return
 end
@@ -144,6 +145,7 @@ local function configure_test_voxelizer(config)
 		base_resolution = config.base_resolution or 16,
 		base_voxel_size = config.base_voxel_size or 1,
 		clipmap_snap_voxel_stride = config.clipmap_snap_voxel_stride or 1,
+		overscan_voxels = config.overscan_voxels or 0,
 		build_slices_per_frame = config.build_slices_per_frame or 64,
 		background_build_slices_per_frame = config.background_build_slices_per_frame or 64,
 	}
@@ -170,6 +172,7 @@ local function restore_default_voxelizer(voxelizer)
 		base_resolution = 128,
 		base_voxel_size = 1,
 		clipmap_snap_voxel_stride = 1,
+		overscan_voxels = 0,
 		build_slices_per_frame = 12,
 		background_build_slices_per_frame = 24,
 	}
