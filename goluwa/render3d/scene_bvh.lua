@@ -37,9 +37,6 @@ scene_bvh.STACK_SIZE = 32
 -- frequently that it becomes the dominant cost: the max wait scales with the
 -- last build's measured cpu time, clamped to this upper bound
 scene_bvh.REBUILD_HARD_MAX = 8.0
--- but no later than this after the change started, so continuously
--- animated geometry still gets periodic (albeit stale) rebuilds
-scene_bvh.REBUILD_MAX_WAIT = 1.0
 scene_bvh.LightOcclusion = scene_bvh.LightOcclusion ~= false
 scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
@@ -55,6 +52,13 @@ scene_bvh.dirty_components = {}
 -- per-visual local soup (mesh x entry-local matrix) and local child tree,
 -- cached across builds so a moved visual only re-transforms its own block
 scene_bvh.visual_cache = {}
+-- top tree layout from the last full sah (block_base per visual in block
+-- order). while the layout is unchanged and few aabbs moved, a build can
+-- keep the split structure and only re-derive node bounds bottom-up, which
+-- is much cheaper than re-running sah over every visual
+scene_bvh.top_layout = {}
+scene_bvh.top_node_count = 0
+scene_bvh.top_lazy_count = 0
 
 function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
@@ -341,6 +345,37 @@ do
 		build_sah(cfg, left_index + 1, first + left_count, count - left_count, depth + 1)
 	end
 
+	-- recompute top tree node bounds bottom-up without re-splitting. a top
+	-- internal node points into the top region and is the union of both
+	-- children; a top leaf points at a child root in the block region, whose
+	-- bounds already track the visual's current world aabb
+	local function rederive_top_node(index)
+		local nodes = scratch.nodes
+		local node = nodes[index]
+		local left = node.left_first
+
+		if left >= scene_bvh.top_node_count then
+			local c = nodes[left]
+			node.bounds_min[0] = c.bounds_min[0]
+			node.bounds_min[1] = c.bounds_min[1]
+			node.bounds_min[2] = c.bounds_min[2]
+			node.bounds_max[0] = c.bounds_max[0]
+			node.bounds_max[1] = c.bounds_max[1]
+			node.bounds_max[2] = c.bounds_max[2]
+		else
+			rederive_top_node(left)
+			rederive_top_node(left + 1)
+			local a = nodes[left]
+			local b = nodes[left + 1]
+			node.bounds_min[0] = a.bounds_min[0] < b.bounds_min[0] and a.bounds_min[0] or b.bounds_min[0]
+			node.bounds_min[1] = a.bounds_min[1] < b.bounds_min[1] and a.bounds_min[1] or b.bounds_min[1]
+			node.bounds_min[2] = a.bounds_min[2] < b.bounds_min[2] and a.bounds_min[2] or b.bounds_min[2]
+			node.bounds_max[0] = a.bounds_max[0] > b.bounds_max[0] and a.bounds_max[0] or b.bounds_max[0]
+			node.bounds_max[1] = a.bounds_max[1] > b.bounds_max[1] and a.bounds_max[1] or b.bounds_max[1]
+			node.bounds_max[2] = a.bounds_max[2] > b.bounds_max[2] and a.bounds_max[2] or b.bounds_max[2]
+		end
+	end
+
 	local tmp_v_inv = Matrix44()
 	local tmp_l = Matrix44()
 	local tmp_box = FloatArray(6)
@@ -606,43 +641,37 @@ do
 		transform_box(v, tmp_box, vc.world_aabb)
 	end
 
-	-- fraction of the scene's triangles belonging to visuals that changed
-	-- during the dirty window
-	local function compute_dirty_fraction(triangle_total)
-		local components = scene_bvh.dirty_components
+	-- persistent grow-only host-mapped buffer: the VkBuffer is created (or
+	-- grown) only when the current capacity is not enough, so the buffer
+	-- object and any descriptors pointing at it survive across builds. the
+	-- data itself is copied by the caller, possibly in partial ranges. the
+	-- second return value says whether the buffer is fresh (needs a full fill)
+	local function ensure_persistent_buffer(field, label, byte_size)
+		local buffer = scene_bvh[field]
 
-		if components == nil then return 1 end
+		if not buffer or buffer:GetSize() < byte_size then
+			if buffer then buffer:Remove() end
 
-		local dirty_tris = 0
-
-		for component in pairs(components) do
-			for _, entry in ipairs(component:GetRenderEntries()) do
-				local mesh = entry.polygon3d.mesh
-
-				if mesh then
-					local index_buffer = mesh.index_buffer
-					dirty_tris = dirty_tris + (
-							index_buffer and
-							math.floor(index_buffer:GetIndexCount() / 3) or
-							math.floor(mesh.vertex_buffer:GetVertexCount() / 3)
-						)
-				end
-			end
+			buffer = render.CreateBuffer{
+				byte_size = byte_size,
+				buffer_usage = {"storage_buffer"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = label,
+			}
+			scene_bvh[field] = buffer
+			return buffer, true
 		end
 
-		return triangle_total > 0 and dirty_tris / triangle_total or 0
+		return buffer, false
 	end
 
-	function scene_bvh.Build()
+	function scene_bvh.Build(force_full)
 		local start_time = os.clock()
-		local collect_time = 0
-		local transform_time = 0
-		local sah_time = 0
 		local cache = scene_bvh.visual_cache
 		local blocks = {}
 		local triangle_total = 0
-		local source_total = 0
 		local present = {}
+		local slow_count = 0
 
 		for _, visual in ipairs(Visual.Instances) do
 			local v = visual.Owner.transform:GetWorldMatrix()
@@ -756,11 +785,10 @@ do
 							slot.count = build_slot_local(slot)
 						end
 					end
-
-					transform_time = transform_time + (os.clock() - t0)
 				end
 
 				vc = vc or {}
+				vc.slow = not fast
 				vc.matrix = v
 				vc.slots = slots
 				vc.slot_count = slot_count
@@ -808,7 +836,6 @@ do
 						end
 
 						get_scratch(1, total, 1)
-						local t1 = os.clock()
 
 						for i = 0, total - 1 do
 							vc.order[i] = i
@@ -835,12 +862,12 @@ do
 							0
 						)
 						vc.node_count = cursor[1]
-						sah_time = sah_time + (os.clock() - t1)
 					end
 
 					blocks[#blocks + 1] = vc
 					triangle_total = triangle_total + vc.total
-					source_total = source_total + slot_count
+
+					if not fast then slow_count = slow_count + 1 end
 				end
 			end
 		end
@@ -851,6 +878,7 @@ do
 
 		local node_count = 0
 		local n = #blocks
+		local layout_same = false
 
 		if n == 0 then
 			get_scratch(1, 1, 1)
@@ -886,8 +914,6 @@ do
 			node_count = node_base
 			-- world bake for anything that moved (or baked with a different
 			-- layout) since the last bake
-			local t2 = os.clock()
-
 			for i = 1, n do
 				local vc = blocks[i]
 
@@ -898,131 +924,148 @@ do
 				end
 			end
 
-			transform_time = transform_time + (os.clock() - t2)
-			-- top level: SAH over the per-visual world aabbs. a leaf holds
-			-- one visual and points at (its child root, a dead sentinel
-			-- node), so the flat traversal descends into the child tree
-			local top_bounds = scratch.top_bounds
-			local top_centroids = scratch.top_centroids
-			local top_order = scratch.top_order
-
-			for i = 1, n do
-				local aabb = blocks[i].world_aabb
-				top_order[i - 1] = i - 1
-				top_bounds[(i - 1) * 6 + 0] = aabb[0]
-				top_bounds[(i - 1) * 6 + 1] = aabb[1]
-				top_bounds[(i - 1) * 6 + 2] = aabb[2]
-				top_bounds[(i - 1) * 6 + 3] = aabb[3]
-				top_bounds[(i - 1) * 6 + 4] = aabb[4]
-				top_bounds[(i - 1) * 6 + 5] = aabb[5]
-				top_centroids[(i - 1) * 3 + 0] = (aabb[0] + aabb[3]) / 2
-				top_centroids[(i - 1) * 3 + 1] = (aabb[1] + aabb[4]) / 2
-				top_centroids[(i - 1) * 3 + 2] = (aabb[2] + aabb[5]) / 2
-			end
-
-			local t3 = os.clock()
-			local cursor = {1}
-			build_sah(
-				{
-					order = top_order,
-					centroids = top_centroids,
-					bounds = top_bounds,
-					nodes = nodes,
-					cursor = cursor,
-					leaf_size = 1,
-					force_split = true,
-					leaf_writer = function(node, first, count)
-						node.count = 0
-						node.left_first = block_roots[first + 1]
-					end,
-				},
-				0,
-				0,
-				n,
-				0
-			)
-			sah_time = sah_time + (os.clock() - t3)
-
 			-- assemble blocks: world soup and child nodes memcpy, then the
-			-- sentinel that closes each block
+			-- sentinel that closes each block. this runs before the top step
+			-- because the lazy re-derivation reads the child roots from the
+			-- assembled node buffer. blocks that are fast and were already
+			-- assembled at this layout keep their scratch bytes
 			for i = 1, n do
 				local vc = blocks[i]
-				ffi.copy(tri_out + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
-				ffi.copy(nodes + vc.block_base, vc.child_world_nodes, vc.node_count * NODE_BYTE_SIZE)
-				local sentinel = nodes[vc.block_base + vc.node_count]
-				sentinel.left_first = 0
-				sentinel.count = 0
-				sentinel.bounds_min[0] = 1
-				sentinel.bounds_min[1] = 1
-				sentinel.bounds_min[2] = 1
-				sentinel.bounds_max[0] = -1
-				sentinel.bounds_max[1] = -1
-				sentinel.bounds_max[2] = -1
+
+				if vc.slow or vc.assembled_base ~= vc.block_base then
+					ffi.copy(tri_out + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
+					ffi.copy(nodes + vc.block_base, vc.child_world_nodes, vc.node_count * NODE_BYTE_SIZE)
+					local sentinel = nodes[vc.block_base + vc.node_count]
+					sentinel.left_first = 0
+					sentinel.count = 0
+					sentinel.bounds_min[0] = 1
+					sentinel.bounds_min[1] = 1
+					sentinel.bounds_min[2] = 1
+					sentinel.bounds_max[0] = -1
+					sentinel.bounds_max[1] = -1
+					sentinel.bounds_max[2] = -1
+					vc.assembled_base = vc.block_base
+				end
+			end
+
+			layout_same = #scene_bvh.top_layout == n
+
+			if layout_same then
+				for i = 1, n do
+					if scene_bvh.top_layout[i] ~= blocks[i].block_base then
+						layout_same = false
+
+						break
+					end
+				end
+			end
+
+			-- rebuilding the top tree runs sah over every visual aabb, the
+			-- dominant build cost. while the layout is unchanged and only a few
+			-- aabbs moved, keep the split structure from the last full build and
+			-- only re-derive the bounds; the structure re-optimizes itself
+			-- periodically (lazy cap) and on any layout change
+			local lazy_top = layout_same and
+				not force_full and
+				slow_count <= math.max(8, math.floor(n / 8))
+				and
+				scene_bvh.top_lazy_count < 120
+
+			if lazy_top then
+				rederive_top_node(0)
+				scene_bvh.top_lazy_count = scene_bvh.top_lazy_count + 1
+			else
+				-- top level: SAH over the per-visual world aabbs. a leaf holds
+				-- one visual and points at (its child root, a dead sentinel
+				-- node), so the flat traversal descends into the child tree
+				local top_bounds = scratch.top_bounds
+				local top_centroids = scratch.top_centroids
+				local top_order = scratch.top_order
+
+				for i = 1, n do
+					local aabb = blocks[i].world_aabb
+					top_order[i - 1] = i - 1
+					top_bounds[(i - 1) * 6 + 0] = aabb[0]
+					top_bounds[(i - 1) * 6 + 1] = aabb[1]
+					top_bounds[(i - 1) * 6 + 2] = aabb[2]
+					top_bounds[(i - 1) * 6 + 3] = aabb[3]
+					top_bounds[(i - 1) * 6 + 4] = aabb[4]
+					top_bounds[(i - 1) * 6 + 5] = aabb[5]
+					top_centroids[(i - 1) * 3 + 0] = (aabb[0] + aabb[3]) / 2
+					top_centroids[(i - 1) * 3 + 1] = (aabb[1] + aabb[4]) / 2
+					top_centroids[(i - 1) * 3 + 2] = (aabb[2] + aabb[5]) / 2
+				end
+
+				local cursor = {1}
+				build_sah(
+					{
+						order = top_order,
+						centroids = top_centroids,
+						bounds = top_bounds,
+						nodes = nodes,
+						cursor = cursor,
+						leaf_size = 1,
+						force_split = true,
+						leaf_writer = function(node, first, count)
+							node.count = 0
+							-- first is a sah position; the item at that position is
+							-- top_order[first] (sah reordered it in place), which is
+							-- the visual's 0-based index into the blocks
+							node.left_first = block_roots[top_order[first] + 1]
+						end,
+					},
+					0,
+					0,
+					n,
+					0
+				)
+				local layout = {}
+
+				for i = 1, n do
+					layout[i] = blocks[i].block_base
+				end
+
+				scene_bvh.top_layout = layout
+				scene_bvh.top_node_count = cursor[1]
+				scene_bvh.top_lazy_count = 0
 			end
 		end
 
-		local pre_upload = os.clock()
-		collect_time = pre_upload - start_time - transform_time - sah_time
-		local upload_time
+		local tri_bytes = math.max(triangle_total, 1) * TRIANGLE_BYTE_SIZE
+		local node_buffer, nodes_fresh = ensure_persistent_buffer("node_buffer", "scene_bvh_nodes", node_count * NODE_BYTE_SIZE)
+		local tri_buffer, tris_fresh = ensure_persistent_buffer("triangle_buffer", "scene_bvh_triangles", tri_bytes)
 
-		if scene_bvh.node_buffer then scene_bvh.node_buffer:Remove() end
+		if nodes_fresh or tris_fresh or not layout_same then
+			node_buffer:CopyData(scratch.nodes, node_count * NODE_BYTE_SIZE)
+			tri_buffer:CopyData(triangle_total > 0 and scratch.tri_out or empty_triangles, tri_bytes)
+		else
+			-- block ranges are stable, so only the top region and the
+			-- re-derived blocks changed; copy just those ranges
+			node_buffer:CopyData(scratch.nodes, scene_bvh.top_node_count * NODE_BYTE_SIZE)
 
-		if scene_bvh.triangle_buffer then scene_bvh.triangle_buffer:Remove() end
+			for i = 1, n do
+				local vc = blocks[i]
 
-		upload_time = os.clock()
-		scene_bvh.node_buffer = render.CreateBuffer{
-			byte_size = node_count * NODE_BYTE_SIZE,
-			buffer_usage = {"storage_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
-			label = "scene_bvh_nodes",
-			data = scratch.nodes,
-		}
-		scene_bvh.triangle_buffer = render.CreateBuffer{
-			byte_size = math.max(triangle_total, 1) * TRIANGLE_BYTE_SIZE,
-			buffer_usage = {"storage_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
-			label = "scene_bvh_triangles",
-			data = triangle_total > 0 and scratch.tri_out or empty_triangles,
-		}
-		upload_time = os.clock() - upload_time
+				if vc.slow then
+					node_buffer:CopyData(
+						scratch.nodes + vc.block_base,
+						(vc.node_count + 1) * NODE_BYTE_SIZE,
+						vc.block_base * NODE_BYTE_SIZE
+					)
+					tri_buffer:CopyData(vc.world_block, vc.total * TRIANGLE_BYTE_SIZE, vc.tri_base * TRIANGLE_BYTE_SIZE)
+				end
+			end
+		end
+
 		scene_bvh.debug_nodes = scratch.nodes
 		scene_bvh.debug_node_count = node_count
+		scene_bvh.debug_triangles = triangle_total > 0 and scratch.tri_out or nil
+		scene_bvh.debug_triangle_count = triangle_total
 		scene_bvh.node_count = node_count
 		scene_bvh.triangle_count = triangle_total
 		scene_bvh.build_time = os.clock() - start_time
-		scene_bvh.build_time_collect = collect_time
-		scene_bvh.build_time_transform = transform_time
-		scene_bvh.build_time_sah = sah_time
-		scene_bvh.build_time_upload = upload_time
-		scene_bvh.source_count = source_total
-		scene_bvh.dirty_triangle_fraction = compute_dirty_fraction(triangle_total)
+		scene_bvh.has_built = true
 		scene_bvh.dirty_components = {}
-		scene_bvh.bounds = {
-			scratch.nodes[0].bounds_min[0],
-			scratch.nodes[0].bounds_min[1],
-			scratch.nodes[0].bounds_min[2],
-			scratch.nodes[0].bounds_max[0],
-			scratch.nodes[0].bounds_max[1],
-			scratch.nodes[0].bounds_max[2],
-		}
-		logf(
-			"[scene_bvh] %d triangles from %d visuals into %d nodes in %.2fs (collect %.3f transform %.3f sah %.3f upload %.3f) dirty=%.2f, bounds (%.1f %.1f %.1f) to (%.1f %.1f %.1f)\n",
-			triangle_total,
-			source_total,
-			node_count,
-			scene_bvh.build_time,
-			collect_time,
-			transform_time,
-			sah_time,
-			upload_time,
-			scene_bvh.dirty_triangle_fraction or 0,
-			scene_bvh.bounds[1],
-			scene_bvh.bounds[2],
-			scene_bvh.bounds[3],
-			scene_bvh.bounds[4],
-			scene_bvh.bounds[5],
-			scene_bvh.bounds[6]
-		)
 		scene_bvh.version = scene_bvh.version + 1
 	end
 end
@@ -1119,26 +1162,30 @@ function scene_bvh.EnsureBuilt()
 		if library.AABB_CHANGED_ALL then
 			scene_bvh.dirty_all = true
 			scene_bvh.dirty_components = nil
-		elseif scene_bvh.dirty_components then
-			local comps = library.AABB_CHANGED_COMPONENTS or {}
-			local set = scene_bvh.dirty_components
+		else
+			if scene_bvh.dirty_components then
+				local comps = library.AABB_CHANGED_COMPONENTS or {}
+				local set = scene_bvh.dirty_components
 
-			for i = 1, #comps do
-				set[comps[i]] = true
-			end
-		elseif scene_bvh.dirty_boxes then
-			local boxes = library.AABB_CHANGED_BOXES or {}
-			local dirty = scene_bvh.dirty_boxes
-
-			for i = 1, #boxes do
-				dirty[#dirty + 1] = boxes[i]
+				for i = 1, #comps do
+					set[comps[i]] = true
+				end
 			end
 
-			if #dirty >= library.DIRTY_BOX_CAP then
-				-- a long dirty window with lots of moving geometry: stop tracking
-				-- per box and invalidate everything at once
-				scene_bvh.dirty_boxes = nil
-				scene_bvh.dirty_all = true
+			if scene_bvh.dirty_boxes then
+				local boxes = library.AABB_CHANGED_BOXES or {}
+				local dirty = scene_bvh.dirty_boxes
+
+				for i = 1, #boxes do
+					dirty[#dirty + 1] = boxes[i]
+				end
+
+				if #dirty >= library.DIRTY_BOX_CAP then
+					-- a long dirty window with lots of moving geometry: stop
+					-- tracking per box and invalidate everything at once
+					scene_bvh.dirty_boxes = nil
+					scene_bvh.dirty_all = true
+				end
 			end
 		end
 	end
@@ -1151,13 +1198,27 @@ function scene_bvh.EnsureBuilt()
 	end
 
 	local now = system.GetElapsedTime()
-	local settled = scene_bvh.last_change_frame ~= frame - 1
-	local max_wait = math.min(
-		math.max(scene_bvh.REBUILD_MAX_WAIT, scene_bvh.build_time * 8),
-		scene_bvh.REBUILD_HARD_MAX
-	)
+	-- settled means the scene has been quiet for a full frame: a same-frame
+	-- change (last_change_frame == frame) must not count as settled, or a
+	-- continuously moving scene would rebuild every frame. The first build is
+	-- never throttled so consumers do not wait on the empty placeholder.
+	local settled = not scene_bvh.has_built or scene_bvh.last_change_frame < frame - 1
+	-- cadence under continuous change: amortize the build to ~5% of a 16ms
+	-- frame (build_time * 20 at 60fps), floored so cheap scenes still update
+	-- interactively
+	local max_wait = math.min(math.max(0.02, scene_bvh.build_time * 20), scene_bvh.REBUILD_HARD_MAX)
 
-	if not settled and (now - scene_bvh.dirty_since) < max_wait then return end
+	-- a resnapshot (visuals added or removed) invalidates the layout entirely,
+	-- so it rebuilds now rather than waiting out the throttle
+	if
+		not settled and
+		not library.AABB_CHANGED_ALL and
+		(
+			now - scene_bvh.dirty_since
+		) < max_wait
+	then
+		return
+	end
 
 	scene_bvh.dirty_since = nil
 	scene_bvh.Build()
@@ -1165,7 +1226,13 @@ end
 
 function scene_bvh.Invalidate()
 	Visual.Library.ResetWorldAABBSignatures()
-	scene_bvh.dirty_since = system.GetElapsedTime()
+
+	-- keep the first change time so the wait window is not slid by every
+	-- subsequent transform change
+	if not scene_bvh.dirty_since then
+		scene_bvh.dirty_since = system.GetElapsedTime()
+	end
+
 	scene_bvh.last_change_frame = -1
 	scene_bvh.version = scene_bvh.version + 1
 end
@@ -1346,16 +1413,11 @@ end)
 
 commands.Add("scene_bvh_info", function()
 	logf(
-		"[scene_bvh] %d triangles, %d nodes, %d meshes, built in %.2fs (collect %.3f transform %.3f sah %.3f upload %.3f), dirty_frac %.2f, version %d, dirty %s, light_version %d\n",
+		"[scene_bvh] %d triangles, %d nodes, built in %.2fs, top_lazy %d, version %d, dirty %s, light_version %d\n",
 		scene_bvh.triangle_count,
 		scene_bvh.node_count,
-		scene_bvh.source_count or 0,
 		scene_bvh.build_time,
-		scene_bvh.build_time_collect or 0,
-		scene_bvh.build_time_transform or 0,
-		scene_bvh.build_time_sah or 0,
-		scene_bvh.build_time_upload or 0,
-		scene_bvh.dirty_triangle_fraction or 0,
+		scene_bvh.top_lazy_count or 0,
 		scene_bvh.version,
 		scene_bvh.dirty_since and
 			(
