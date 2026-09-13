@@ -135,7 +135,6 @@ Light:GetSet("Intensity", 1.0)
 Light:GetSet("Range", 200.0)
 Light:GetSet("InnerCone", 0.9)
 Light:GetSet("OuterCone", 0.8)
-Light:GetSet("Enabled", true)
 Light:GetSet("CastShadows", false)
 Light:GetSet("OcclusionMap", true)
 Light:GetSet("ShadowMap", nil)
@@ -365,6 +364,14 @@ end
 
 function Light:OnPreFrame(dt)
 	if not self:GetCastShadows() then return end
+
+	if self.LightType == "point" or self.LightType == "spot" then
+		local position = self.Owner.transform:GetPosition()
+
+		if not render3d.SphereInFrustum(position.x, position.y, position.z, self.Range) then
+			return
+		end
+	end
 
 	local config = self.CastShadows
 	local mode = config.shadow_update_mode

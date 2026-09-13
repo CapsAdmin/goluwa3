@@ -332,11 +332,12 @@ local r = {
 						block.froxel_resolution[1] = volumetric_froxels.height
 						block.current_slice = volumetric_froxels.current_slice or 0
 						block.slice_count = FROXEL_SLICE_COUNT
-						scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
-						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
-						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
+						local lights, light_instance_indices = scene_lights.GetVisibleLights()
+						scene_lights.WriteLightsBlock(block.lights, lights)
+						block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+						scene_lights.WriteShadowBlock(self, block.shadows, lights)
 						write_atmosphere_block(self, block)
-						light_occlusion.WriteOcclusionBlock(block, render3d.GetLights())
+						light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 						return block
 					end,
 				},
@@ -729,11 +730,12 @@ local r = {
 						render3d.WriteGBufferBlock(self, block)
 						get_raw_scene_source_texture(self, block, "source_tex")
 						write_ocean_distance_texture(self, block, "ocean_distance_tex")
-						scene_lights.WriteLightsBlock(block.lights, render3d.GetLights())
-						block.light_count = math.min(#render3d.GetLights(), scene_lights.MAX_LIGHTS)
-						scene_lights.WriteShadowBlock(self, block.shadows, render3d.GetLights())
+						local lights, light_instance_indices = scene_lights.GetVisibleLights()
+						scene_lights.WriteLightsBlock(block.lights, lights)
+						block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+						scene_lights.WriteShadowBlock(self, block.shadows, lights)
 						write_atmosphere_block(self, block)
-						light_occlusion.WriteOcclusionBlock(block, render3d.GetLights())
+						light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 						return block
 					end,
 				},

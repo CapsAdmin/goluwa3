@@ -85,54 +85,6 @@ local function get_map_size()
 	return light_occlusion.map_size or light_occlusion.oct_size
 end
 
-local frustum_planes = {}
-local frustum_frame = -1
-
-local function get_frustum_planes()
-	local frame = system.GetFrameNumber()
-
-	if frustum_frame == frame then return frustum_planes end
-
-	local m = render3d.GetProjectionViewMatrix()
-	local x0, x1, x2, x3 = m.m00, m.m10, m.m20, m.m30
-	local y0, y1, y2, y3 = m.m01, m.m11, m.m21, m.m31
-	local planes = frustum_planes
-	planes[0], planes[1], planes[2], planes[3] = m.m03 + x0, m.m13 + x1, m.m23 + x2, m.m33 + x3
-	planes[4], planes[5], planes[6], planes[7] = m.m03 - x0, m.m13 - x1, m.m23 - x2, m.m33 - x3
-	planes[8], planes[9], planes[10], planes[11] = m.m03 + y0, m.m13 + y1, m.m23 + y2, m.m33 + y3
-	planes[12], planes[13], planes[14], planes[15] = m.m03 - y0, m.m13 - y1, m.m23 - y2, m.m33 - y3
-	planes[16], planes[17], planes[18], planes[19] = m.m02, m.m12, m.m22, m.m32
-	planes[20], planes[21], planes[22], planes[23] = m.m03 - m.m02, m.m13 - m.m12, m.m23 - m.m22, m.m33 - m.m32
-
-	for i = 0, 20, 4 do
-		local a, b, c = planes[i], planes[i + 1], planes[i + 2]
-		local len = math.sqrt(a * a + b * b + c * c)
-
-		if len > 0 then
-			local inv_len = 1.0 / len
-			planes[i] = a * inv_len
-			planes[i + 1] = b * inv_len
-			planes[i + 2] = c * inv_len
-			planes[i + 3] = planes[i + 3] * inv_len
-		end
-	end
-
-	frustum_frame = frame
-	return planes
-end
-
-local function sphere_in_frustum(x, y, z, radius)
-	local planes = get_frustum_planes()
-
-	for i = 0, 20, 4 do
-		if planes[i] * x + planes[i + 1] * y + planes[i + 2] * z + planes[i + 3] < -radius then
-			return false
-		end
-	end
-
-	return true
-end
-
 local function is_occlusion_light(light)
 	return light ~= nil and
 		light.OcclusionMap ~= false and
@@ -360,7 +312,7 @@ function light_occlusion.Draw(cmd)
 		else
 			local pos = light.Owner.transform:GetPosition()
 
-			if sphere_in_frustum(pos.x, pos.y, pos.z, light.Range) then
+			if render3d.SphereInFrustum(pos.x, pos.y, pos.z, light.Range) then
 				local info = state[light_index]
 				local stamp = stamps[light_index] or 0
 				local mode = 0
@@ -518,7 +470,7 @@ function light_occlusion.GetDebugState()
 				dispatched = info and info.stamp_dispatched or 0,
 				pending = stamp > (info and info.stamp_dispatched or 0),
 				geom_stale = geom_stale[light_index] ~= nil,
-				in_frustum = sphere_in_frustum(pos.x, pos.y, pos.z, light.Range),
+				in_frustum = render3d.SphereInFrustum(pos.x, pos.y, pos.z, light.Range),
 			}
 		end
 	end
@@ -567,7 +519,10 @@ function light_occlusion.GetBlockLayout()
 	}
 end
 
-function light_occlusion.WriteOcclusionBlock(block, lights)
+-- lights is the packed visible light list from scene_lights.GetVisibleLights,
+-- instance_indices maps each packed slot back to its Light.Instances index,
+-- which is what the occlusion maps and their state are keyed by
+function light_occlusion.WriteOcclusionBlock(block, lights, instance_indices)
 	for i = 0, MAX_LIGHTS - 1 do
 		block.bvh_oct_slot[i] = -1
 	end
@@ -575,20 +530,14 @@ function light_occlusion.WriteOcclusionBlock(block, lights)
 	local active = 0
 
 	if scene_bvh.IsReady() and scene_bvh.LightOcclusion ~= false then
-		for light_index = 1, math.min(#lights, MAX_LIGHTS) do
-			local light = lights[light_index]
+		for packed_index = 1, #lights do
+			local light = lights[packed_index]
+			local light_index = instance_indices[packed_index]
+			local info = state[light_index]
 
-			if is_occlusion_light(light) then
-				local info = state[light_index]
-
-				if info and info.light == light then
-					local pos = light.Owner.transform:GetPosition()
-
-					if sphere_in_frustum(pos.x, pos.y, pos.z, light.Range) then
-						block.bvh_oct_slot[light_index - 1] = light_index - 1
-						active = 1
-					end
-				end
+			if info and info.light == light then
+				block.bvh_oct_slot[packed_index - 1] = light_index - 1
+				active = 1
 			end
 		end
 	end

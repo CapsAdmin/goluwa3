@@ -26,18 +26,6 @@ local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 
-local function sort_lights(a, b)
-	if a.last_update_frame ~= b.last_update_frame then
-		return a.last_update_frame > b.last_update_frame
-	end
-
-	if a.distance_score ~= b.distance_score then
-		return a.distance_score < b.distance_score
-	end
-
-	return a.light_index < b.light_index
-end
-
 local function write_shadow_block(self, shadow_block, lights)
 	return scene_lights.WriteShadowBlock(self, shadow_block, lights)
 end
@@ -118,7 +106,7 @@ return {
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					local lights = render3d.GetLights()
+					local lights, light_instance_indices = scene_lights.GetVisibleLights()
 					local light_count = math.min(#lights, MAX_LIGHTS)
 					block.light_count = light_count
 					write_lights_block(block.lights, lights)
@@ -129,7 +117,7 @@ return {
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)
 					render3d.WriteCommonBlock(self, block)
-					light_occlusion.WriteOcclusionBlock(block, lights)
+					light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 					local primary_sun = get_primary_sun(lights)
 					get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
 					block.primary_sun_intensity = get_primary_sun_intensity(lights)
@@ -183,9 +171,9 @@ return {
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. [[
 			]],
-		shader = ("const int LIGHT_DEBUG_DIRECT = %d;\n"):format(
-			os.getenv("FOG_DEBUG") == "lighting" and 1 or 0
-		) .. [[
+		shader = (
+				"const int LIGHT_DEBUG_DIRECT = %d;\n"
+			):format(os.getenv("FOG_DEBUG") == "lighting" and 1 or 0) .. [[
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
 			vec2 get_compute_uv() {
 				return get_screen_uv(get_screen_pos(), imageSize(out_color));

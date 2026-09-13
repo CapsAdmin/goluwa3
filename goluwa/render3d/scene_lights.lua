@@ -1,5 +1,6 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local system = import("goluwa/system.lua")
 local scene_lights = {}
 scene_lights.MAX_LIGHTS = 128
 scene_lights.MAX_CASCADES = directional_shadows.MAX_CASCADES
@@ -15,6 +16,53 @@ local function sort_lights(a, b)
 	end
 
 	return a.light_index < b.light_index
+end
+
+local function is_frustum_cullable(light)
+	local light_type = light.LightType
+	return light_type == "point" or light_type == "spot"
+end
+
+function scene_lights.IsLightVisible(light)
+	if not is_frustum_cullable(light) then return true end
+
+	local position = light.Owner.transform:GetPosition()
+	return render3d.SphereInFrustum(position.x, position.y, position.z, light.Range)
+end
+
+local visible_lights = {}
+local visible_instance_indices = {}
+local visible_frame = -1
+
+-- the lighting, fog and shadow submission all iterate this packed list so
+-- the fragment shaders only loop over lights that can reach a visible pixel
+function scene_lights.GetVisibleLights()
+	local frame = system.GetFrameNumber()
+
+	if visible_frame == frame then
+		return visible_lights, visible_instance_indices
+	end
+
+	local all = render3d.GetLights()
+	local count = 0
+
+	for i = 1, math.min(#all, scene_lights.MAX_LIGHTS) do
+		local light = all[i]
+
+		if scene_lights.IsLightVisible(light) then
+			count = count + 1
+			visible_lights[count] = light
+			visible_instance_indices[count] = i
+		end
+	end
+
+	for i = count + 1, #visible_lights do
+		visible_lights[i] = nil
+		visible_instance_indices[i] = nil
+	end
+
+	visible_frame = frame
+	return visible_lights, visible_instance_indices
 end
 
 function scene_lights.BuildLightsBlockLayout()
