@@ -781,10 +781,10 @@ function steam.LoadMap(path)
 					end
 
 					if version >= 8 then
-						lump.min_cpu_level = bsp_file:ReadUnsignedByte()
-						lump.max_cpu_level = bsp_file:ReadUnsignedByte()
-						lump.min_gpu_level = bsp_file:ReadUnsignedByte()
-						lump.max_gpu_level = bsp_file:ReadUnsignedByte()
+						lump.min_cpu_level = bsp_file:ReadU8()
+						lump.max_cpu_level = bsp_file:ReadU8()
+						lump.min_gpu_level = bsp_file:ReadU8()
+						lump.max_gpu_level = bsp_file:ReadU8()
 					end
 
 					if version >= 7 then lump.rendercolor = bsp_file:ReadByteColor() end
