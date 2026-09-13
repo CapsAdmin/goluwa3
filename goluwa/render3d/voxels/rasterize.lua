@@ -2,6 +2,7 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
+local Texture = import("goluwa/render/texture.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -687,6 +688,48 @@ local function slice_has_geometry(axis_name, slice, draw_list)
 	return bucket ~= nil and bucket[1] ~= nil
 end
 
+local voxel_depth_entries = {}
+
+local function get_voxel_depth_view(resolution, cmd)
+	local entry = voxel_depth_entries[resolution]
+
+	if not entry or not entry.texture:IsValid() then
+		entry = {
+			texture = Texture.New{
+				width = resolution,
+				height = resolution,
+				format = "d32_sfloat",
+				image = {
+					usage = {"depth_stencil_attachment"},
+					properties = "device_local",
+				},
+				view = {aspect = "depth"},
+			},
+			view = nil,
+			transitioned = false,
+		}
+		entry.view = entry.texture:GetView()
+		voxel_depth_entries[resolution] = entry
+	end
+
+	if not entry.transitioned then
+		render.TransitionResourceTo(
+			entry.texture,
+			"depth_attachment_optimal",
+			{
+				cmd = cmd,
+				srcStage = "bottom_of_pipe",
+				srcAccess = "memory_write",
+				dstStage = "early_fragment_tests",
+				dstAccess = "depth_stencil_attachment_write",
+			}
+		)
+		entry.transitioned = true
+	end
+
+	return entry.view
+end
+
 local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, current_clipmap)
 	local state = current_slice_draw_state
 	local cmd = state.cmd
@@ -725,6 +768,8 @@ local function draw_dirty_voxel_slice(axis_name, target, slice, dirty_range, cur
 		"clear" or
 		"load"
 	cmd:BeginRendering{
+		depth_image_view = get_voxel_depth_view(current_clipmap.resolution, cmd),
+		depth_layout = "depth_attachment_optimal",
 		color_attachments = {
 			{
 				color_image_view = target.layer_views[slice],
