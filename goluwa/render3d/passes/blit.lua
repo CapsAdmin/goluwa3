@@ -2,11 +2,114 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
+local system = import("goluwa/system.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 
 local function get_scene_source_texture()
 	return post_source.GetSceneSourceTexture({name = "blit_compute"})
 end
+
+local exposure_target_luma = 0.2
+local exposure_min = 0.1
+local exposure_max = 4.0
+local exposure_tau_darken = 0.2
+local exposure_tau_brighten = 1.5
+local last_exposure_time
+
+local function get_exposure_dt()
+	local t = system.GetElapsedTime()
+	local dt = last_exposure_time and (t - last_exposure_time) or 1 / 60
+	last_exposure_time = t
+	return math.clamp(dt, 0.0, 0.1)
+end
+
+local function get_exposure_feedback_attachment()
+	return system.GetFrameNumber() % 2 == 0 and 1 or 2
+end
+
+local function get_exposure_feedback_texture()
+	local pipeline = render3d.pipelines.exposure_feedback
+
+	if not pipeline or not pipeline.framebuffers then return nil end
+
+	return pipeline:GetFramebuffer():GetAttachment(get_exposure_feedback_attachment())
+end
+
+local exposure_feedback_shader = [[
+	layout(set = 0, binding = 0, r32f) uniform writeonly image2D out_exposure;
+	layout(set = 0, binding = 1) uniform sampler2D source_tex;
+	layout(set = 0, binding = 2) uniform sampler2D prev_exposure_tex;
+
+	void main() {
+		if (compute.has_source_tex == 0) return;
+
+		float prev = texture(prev_exposure_tex, vec2(0.5)).r;
+		if (prev < 0.05) prev = 1.0;
+		prev = clamp(prev, ]] .. string.format("%.3f", exposure_min) .. [[, ]] .. string.format("%.3f", exposure_max) .. [[);
+
+		float avg_log_luma = 0.0;
+		int samples = 0;
+
+		for (float y = 0.125; y < 1.0; y += 0.25) {
+			for (float x = 0.125; x < 1.0; x += 0.25) {
+				vec3 luma_col = texture(source_tex, vec2(x, y)).rgb;
+				avg_log_luma += log2(max(dot(luma_col, vec3(0.2126, 0.7152, 0.0722)), 0.0001));
+				samples++;
+			}
+		}
+
+		avg_log_luma /= float(samples);
+		float avg_luma = exp2(avg_log_luma);
+		float target = clamp(]] .. string.format("%.3f", exposure_target_luma) .. [[ / max(avg_luma, 0.001), ]] .. string.format("%.3f", exposure_min) .. [[, ]] .. string.format("%.3f", exposure_max) .. [[);
+		float tau = target > prev ? ]] .. string.format("%.3f", exposure_tau_darken) .. [[ : ]] .. string.format("%.3f", exposure_tau_brighten) .. [[;
+		float k = 1.0 - exp(-compute.dt / tau);
+		imageStore(out_exposure, ivec2(0, 0), vec4(prev + (target - prev) * k, 0.0, 0.0, 1.0));
+	}
+]]
+local exposure_feedback_pass = {
+	name = "exposure_feedback",
+	ComputePass = true,
+	ColorFormat = {
+		{"r32_sfloat", {"exposure", "r"}},
+		{"r32_sfloat", {"exposure_prev", "r"}},
+	},
+	FramebufferSize = {x = 1, y = 1},
+	framebuffer_count = 1,
+	LocalSize = {x = 1, y = 1, z = 1},
+	storage_images = {
+		{
+			binding_index = 0,
+			get_texture = function(self, fb)
+				return fb:GetAttachment(get_exposure_feedback_attachment())
+			end,
+			dst_stage = "compute",
+		},
+	},
+	sampled_images = {
+		{
+			binding_index = 1,
+			get_texture = function()
+				return post_source.GetSceneSourceTexture({name = "exposure_feedback"})
+			end,
+		},
+		{
+			binding_index = 2,
+			get_texture = function(self, fb)
+				return fb:GetAttachment(get_exposure_feedback_attachment() == 1 and 2 or 1)
+			end,
+		},
+	},
+	block = {
+		{"has_source_tex", "int"},
+		{"dt", "float"},
+	},
+	write = function(self, block)
+		block.has_source_tex = post_source.GetSceneSourceTexture({name = "exposure_feedback"}) and 1 or 0
+		block.dt = get_exposure_dt()
+		return block
+	end,
+	shader = exposure_feedback_shader,
+}
 
 local function get_bloom_source_texture()
 	if not render3d.pipelines.bloom_up2 then return nil end
@@ -30,6 +133,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 	layout(set = 0, binding = 2) uniform sampler2D bloom_source_tex;
 	layout(set = 0, binding = 3) uniform sampler2D bloom_merge_tex;
+	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
 	]] .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. [[
 
 	vec3 extract_bloom(vec3 bloom_input) {
@@ -89,23 +193,8 @@ local compute_shader = [[
 
 		float exposure = 1.0;
 
-		if (compute.has_source_tex != 0) {
-			float avg_log_luma = 0.0;
-			int samples = 0;
-
-			for (float y = 0.125; y < 1.0; y += 0.25) {
-				for (float x = 0.125; x < 1.0; x += 0.25) {
-					vec3 luma_col = texture(source_tex, vec2(x, y)).rgb;
-					avg_log_luma += log2(max(dot(luma_col, vec3(0.2126, 0.7152, 0.0722)), 0.0001));
-					samples++;
-				}
-			}
-
-			avg_log_luma /= float(samples);
-			float avg_luma = exp2(avg_log_luma);
-			float target_luma = 0.2;
-			exposure = target_luma / max(avg_luma, 0.001);
-			exposure = clamp(exposure, 0.1, 4.0);
+		if (compute.has_exposure_tex != 0) {
+			exposure = max(texture(exposure_tex, vec2(0.5)).r, 0.001);
 		}
 
 		float bloom_luma = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
@@ -134,6 +223,7 @@ local compute_shader = [[
 	}
 ]]
 local r = {
+	exposure_feedback_pass,
 	{
 		name = "blit_compute",
 		ComputePass = true,
@@ -159,6 +249,10 @@ local r = {
 				binding_index = 3,
 				get_texture = get_bloom_merge_texture,
 			},
+			{
+				binding_index = 4,
+				get_texture = get_exposure_feedback_texture,
+			},
 		},
 		block = {
 			{"has_source_tex", "int"},
@@ -167,12 +261,14 @@ local r = {
 			{"has_bloom_merge_tex", "int"},
 			{"requires_manual_gamma", "int"},
 			{"is_hdr", "int"},
+			{"has_exposure_tex", "int"},
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
 			block.is_debug_view = 0
 			block.has_bloom_source_tex = get_bloom_source_texture() and 1 or 0
 			block.has_bloom_merge_tex = get_bloom_merge_texture() and 1 or 0
+			block.has_exposure_tex = get_exposure_feedback_texture() and 1 or 0
 			block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
 			block.is_hdr = render.target:IsHDR() and 1 or 0
 			return block
