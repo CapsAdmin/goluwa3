@@ -9,25 +9,25 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local radiance_cascades = library()
 local MAX_CLIPMAPS = voxel_gi.GetMaxClipmapCount()
-radiance_cascades.BACKEND = radiance_cascades.BACKEND or "bvh"
-radiance_cascades.CASCADE_COUNT = radiance_cascades.CASCADE_COUNT or 6
-radiance_cascades.INTERVAL_VOXELS = radiance_cascades.INTERVAL_VOXELS or 2
+radiance_cascades.BACKEND = "bvh"
+radiance_cascades.CASCADE_COUNT = 6
+radiance_cascades.INTERVAL_VOXELS = 2
 radiance_cascades.INTERVAL_SCALE = 4
-radiance_cascades.DIRECTIONS_0 = radiance_cascades.DIRECTIONS_0 or 4
-radiance_cascades.SCREEN_SCALE = radiance_cascades.SCREEN_SCALE or 0.5
-radiance_cascades.JITTER = radiance_cascades.JITTER or 1
-radiance_cascades.MAX_TRACE_STEPS = radiance_cascades.MAX_TRACE_STEPS or 96
-radiance_cascades.NORMAL_BIAS = radiance_cascades.NORMAL_BIAS or 1.5
-radiance_cascades.BVH_NORMAL_BIAS = radiance_cascades.BVH_NORMAL_BIAS or 0.02
-radiance_cascades.SKY_INTENSITY = radiance_cascades.SKY_INTENSITY or 1
-radiance_cascades.FEEDBACK_STRENGTH = radiance_cascades.FEEDBACK_STRENGTH or 1
-radiance_cascades.TEMPORAL_BLEND = radiance_cascades.TEMPORAL_BLEND or 0.98
-radiance_cascades.DENOISE = radiance_cascades.DENOISE or 1
-radiance_cascades.DENOISE_RADIUS = radiance_cascades.DENOISE_RADIUS or 2
-radiance_cascades.DENOISE_STRIDE = radiance_cascades.DENOISE_STRIDE or 3
-radiance_cascades.WORLD_BOUNCE = radiance_cascades.WORLD_BOUNCE ~= false
-radiance_cascades.WORLD_BOUNCE_STRENGTH = radiance_cascades.WORLD_BOUNCE_STRENGTH or 1
-radiance_cascades.enabled = radiance_cascades.enabled ~= false
+radiance_cascades.DIRECTIONS_0 = 4
+radiance_cascades.SCREEN_SCALE = 0.25
+radiance_cascades.JITTER = 1
+radiance_cascades.MAX_TRACE_STEPS = 96
+radiance_cascades.NORMAL_BIAS = 1.5
+radiance_cascades.BVH_NORMAL_BIAS = 0.02
+radiance_cascades.SKY_INTENSITY = 1
+radiance_cascades.FEEDBACK_STRENGTH = 1
+radiance_cascades.TEMPORAL_BLEND = 0.98
+radiance_cascades.DENOISE = 1
+radiance_cascades.DENOISE_RADIUS = 2
+radiance_cascades.DENOISE_STRIDE = 3
+radiance_cascades.WORLD_BOUNCE = false
+radiance_cascades.WORLD_BOUNCE_STRENGTH = 1
+radiance_cascades.enabled = true
 
 function radiance_cascades.GetDirectionCount(cascade)
 	return radiance_cascades.DIRECTIONS_0 * (2 ^ cascade)
