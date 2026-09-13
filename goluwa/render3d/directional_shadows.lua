@@ -591,4 +591,31 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 		]]
 end
 
+function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
+	return (
+			[[
+		float calculateLocalDirectionalShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
+			int shadow_map_idx = ]] .. block_name .. [[.shadows.local_directional_shadow_map_index;
+
+			if (shadow_map_idx < 0) return 1.0;
+
+			vec3 proj_coords;
+
+			if (!projectShadowMap(
+				]] .. block_name .. [[.shadows.local_directional_light_space_matrix,
+				world_pos,
+				normal,
+				light_dir,
+				]] .. block_name .. [[.shadows.local_directional_shadow_texel_world_size,
+				proj_coords
+			)) {
+				return 1.0;
+			}
+
+			return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
+		}
+		]]
+		)
+end
+
 return directional_shadows

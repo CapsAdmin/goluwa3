@@ -2,6 +2,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local radiance_cascades = import("goluwa/render3d/radiance_cascades.lua")
 local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local MAX_CLIPMAPS = voxel_gi.GetMaxClipmapCount()
@@ -14,6 +15,7 @@ local BINDING_NORMAL_VOLUME_0 = BINDING_VOLUME_0 + MAX_CLIPMAPS
 local BINDING_BVH_NODES = BINDING_NORMAL_VOLUME_0 + MAX_CLIPMAPS
 local BINDING_BVH_TRIANGLES = BINDING_BVH_NODES + 1
 local BINDING_RESOLVE_DEPTH = BINDING_BVH_TRIANGLES + 1
+local BINDING_OCCLUSION_MAP = BINDING_BVH_TRIANGLES + 1
 local USE_BVH = radiance_cascades.BACKEND == "bvh"
 
 local function get_cascade_texture(cascade)
@@ -59,6 +61,18 @@ local function build_cascade_pass(cascade, is_top)
 	sampled_images[#sampled_images + 1] = {
 		binding_index = BINDING_CASCADE_SOURCE,
 		get_texture = get_cascade_texture(cascade + 1),
+	}
+	sampled_images[#sampled_images + 1] = {
+		binding_index = BINDING_OCCLUSION_MAP,
+		get_texture = function()
+			return light_occlusion.GetOcclusionTexture()
+		end,
+	}
+	sampled_images[#sampled_images + 1] = {
+		binding_index = BINDING_OCCLUSION_MAP,
+		get_texture = function()
+			return light_occlusion.GetOcclusionTexture()
+		end,
 	}
 	return {
 		name = "radiance_cascade_" .. cascade,
@@ -110,7 +124,7 @@ local function build_cascade_pass(cascade, is_top)
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_cascade;
 			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D upper_cascade_tex;
-		]] .. volume_declarations .. (
+		]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. "\n" .. volume_declarations .. (
 				USE_BVH and
 				scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) or
 				""
@@ -130,6 +144,7 @@ local function build_cascade_pass(cascade, is_top)
 			]] .. radiance_cascades.GetCommonGLSL() .. [[
 			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
 			]] .. radiance_cascades.GetShadowGLSL("rc_data") .. [[
+			]] .. radiance_cascades.GetLightGLSL("rc_data") .. [[
 			]] .. voxel_gi.GetGLSLCode("rc_data.gi") .. [[
 			]] .. (
 				USE_BVH and

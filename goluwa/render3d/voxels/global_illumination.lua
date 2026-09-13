@@ -7,6 +7,7 @@ local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -53,6 +54,7 @@ local BINDING_IRRADIANCE_0 = BINDING_NORMAL_VOLUME_0 + MAX_CLIPMAPS
 local BINDING_VISIBILITY_0 = BINDING_IRRADIANCE_0 + MAX_CASCADES
 local BINDING_INFO_0 = BINDING_VISIBILITY_0 + MAX_CASCADES
 local BINDING_METADATA = BINDING_INFO_0 + MAX_CASCADES
+local BINDING_OCCLUSION_MAP = BINDING_METADATA + 1
 
 function voxel_gi.GetProbesPerCascade()
 	return PROBES_PER_CASCADE
@@ -865,6 +867,7 @@ local function build_update_pipeline()
 	end
 
 	declarations[#declarations + 1] = "layout(std430, set = 0, binding = " .. BINDING_METADATA .. ") buffer GIProbeMetadata { ivec4 gi_probe_meta[]; };"
+	declarations[#declarations + 1] = light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP)
 
 	-- per cascade image selection for stores
 	for _, entry in ipairs{
@@ -942,13 +945,24 @@ local function build_update_pipeline()
 				return block
 			end,
 		},
+		sampled_images = {
+			{
+				binding_index = BINDING_OCCLUSION_MAP,
+				get_texture = function()
+					return light_occlusion.GetOcclusionTexture()
+				end,
+			},
+		},
 		uniform_buffers = {
 			{
 				name = "gi_data",
 				binding_index = BINDING_UNIFORM,
 				block = {
 					render3d.camera_block,
+					{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+					{"light_count", "int"},
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
+					light_occlusion.GetBlockLayout(),
 					{"sun_direction", "vec4"},
 					{"sun_radiance", "vec4"},
 					{"ray_rotation", "mat4"},
@@ -963,8 +977,11 @@ local function build_update_pipeline()
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					local lights = render3d.GetLights()
+					local lights, light_instance_indices = scene_lights.GetVisibleLights()
+					block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+					scene_lights.WriteLightsBlock(block.lights, lights)
 					scene_lights.WriteShadowBlock(self, block.shadows, lights)
+					light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 					local sun_dir = directional_shadows.GetPrimarySunDirection(lights)
 					local sun_color = directional_shadows.GetPrimarySunColor(lights)
 					local sun_intensity = directional_shadows.GetPrimarySunIntensity(lights)
@@ -1018,6 +1035,11 @@ local function build_update_pipeline()
 			]] .. ibl.GetBRDFGLSLCode() .. ibl.GetEnvironmentGLSLCode() .. [[
 			]] .. voxel_gi.GetGLSLCode("gi_data", {storage = true}) .. [[
 			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("gi_data", "calculateShadow", {use_receiver_plane_bias = false}) .. [[
+
+			]] .. scene_lights.GetLightGLSLCode() .. [[
+			]] .. directional_shadows.GetLocalDirectionalShadowGLSL("gi_data") .. [[
+			]] .. scene_lights.GetPointShadowGLSL("gi_data") .. [[
+			]] .. light_occlusion.GetSamplingGLSL("gi_data") .. [[
 
 			const int PROBES_PER_CASCADE = ]] .. PROBES_PER_CASCADE .. [[;
 			const int RAYS_PER_PROBE = ]] .. voxel_gi.RAYS_PER_PROBE .. [[;
@@ -1213,6 +1235,54 @@ local function build_update_pipeline()
 
 				vec3 albedo = clamp(voxel.rgb, vec3(0.0), vec3(1.0));
 				vec3 direct = gi_data.sun_radiance.rgb * (NoL * shadow / 3.14159265359);
+
+				for (int i = 0; i < gi_data.light_count; i++) {
+					lights_t light = gi_data.lights[i];
+					int light_type = get_light_type(light);
+
+					if (light_type == 0) continue;
+
+					vec3 light_to_surface;
+					float light_attenuation;
+
+					if (!get_light_vector_and_attenuation(light, surface_pos, light_to_surface, light_attenuation)) {
+						continue;
+					}
+
+					float light_NoL = max(dot(N, light_to_surface), 0.0);
+
+					if (light_NoL <= 0.0) continue;
+
+					float light_shadow = 1.0;
+
+					if (light_type == 2) {
+						if (
+							i == gi_data.shadows.local_directional_shadow_light_index &&
+							gi_data.shadows.local_directional_shadow_map_index >= 0
+						) {
+							light_shadow = calculateLocalDirectionalShadow(surface_pos, N, light_to_surface);
+						}
+					} else {
+						int point_shadow_slot = getPointShadowSlot(i);
+
+						if (point_shadow_slot >= 0) {
+							light_shadow = calculatePointShadow(point_shadow_slot, surface_pos, N, light_to_surface);
+						}
+
+						light_shadow *= light_oct_shadow_factor(
+							gi_data.bvh_oct_slot[i],
+							light.position.xyz,
+							light.params.x,
+							surface_pos
+						);
+					}
+
+					if (light_shadow > 0.0) {
+						direct += light.color.rgb * light.color.a * light_attenuation * light_shadow *
+							(light_NoL / 3.14159265359);
+					}
+				}
+
 				vec3 sky = sample_environment_irradiance(gi_data.env_irradiance_tex, N);
 				float unused_sky_visibility;
 				vec3 bounce = sample_voxel_gi_irradiance(surface_pos, N, N, sky, unused_sky_visibility);
@@ -1453,6 +1523,8 @@ local function build_resolve_pipeline()
 				ivec3 cx = ivec3(m - v.z, m - v.y, v.x);
 				ivec3 cy = ivec3(m - v.x, v.z, v.y);
 				ivec3 cz = ivec3(m - v.x, m - v.y, v.z);
+				const float OCCUPANCY_EPS = 4.0 / 255.0;
+				const float OCCUPANCY_THRESHOLD = 0.5 - OCCUPANCY_EPS;
 				vec4 sx = texelFetch(axis_x, cx, 0);
 				vec4 sy = texelFetch(axis_y, cy, 0);
 				vec4 sz = texelFetch(axis_z, cz, 0);
@@ -1461,16 +1533,15 @@ local function build_resolve_pipeline()
 				vec3 normal = vec3(0.0);
 				float contributors = 0.0;
 
-				if (sx.a >= 0.5) { color += sx.rgb; normal += texelFetch(normal_x, cx, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
-				if (sy.a >= 0.5) { color += sy.rgb; normal += texelFetch(normal_y, cy, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
-				if (sz.a >= 0.5) { color += sz.rgb; normal += texelFetch(normal_z, cz, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
+				if (sx.a >= OCCUPANCY_THRESHOLD) { color += sx.rgb; normal += texelFetch(normal_x, cx, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
+				if (sy.a >= OCCUPANCY_THRESHOLD) { color += sy.rgb; normal += texelFetch(normal_y, cy, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
+				if (sz.a >= OCCUPANCY_THRESHOLD) { color += sz.rgb; normal += texelFetch(normal_z, cz, 0).xyz * 2.0 - 1.0; contributors += 1.0; }
 
 				if (contributors > 0.0) color /= contributors;
 
 				float normal_length = length(normal);
 				normal = normal_length > 1e-3 ? normal / normal_length : vec3(0.0);
-				const float OCCUPANCY_EPS = 4.0 / 255.0;
-				bool occupied = occupancy >= 0.5 - OCCUPANCY_EPS;
+				bool occupied = occupancy >= OCCUPANCY_THRESHOLD;
 				float emissive_luma = occupied && occupancy > 0.5 + OCCUPANCY_EPS ? (occupancy - 0.5) * 8.0 : 0.0;
 				imageStore(out_volume, v, vec4(color, occupied ? 1.0 + emissive_luma : 0.0));
 				imageStore(out_normal, v, vec4(normal * 0.5 + 0.5, occupied ? 1.0 : 0.0));
@@ -1694,8 +1765,18 @@ function voxel_gi.Draw(cmd)
 		render.TransitionResourceToComputeStorage(cascade.info, {cmd = cmd, dstAccess = "shader_write"})
 	end
 
+	local oct_view, oct_sampler = table.unpack(light_occlusion.GetOcclusionDescriptor())
+
 	for i, cascade in ipairs(voxel_gi.cascades) do
 		local slot = get_descriptor_slot(i, voxel_gi.CASCADE_COUNT)
+		pipeline:UpdateDescriptorSet(
+			"combined_image_sampler",
+			slot,
+			BINDING_OCCLUSION_MAP,
+			0,
+			oct_view,
+			oct_sampler
+		)
 
 		for clip = 0, MAX_CLIPMAPS - 1 do
 			local resolved = voxel_gi.resolved[clip + 1]

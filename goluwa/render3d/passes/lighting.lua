@@ -287,88 +287,9 @@ return {
 
 			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_data", "calculateShadow", {use_receiver_plane_bias = false}) .. [[
 
-			int getPointShadowSlot(int light_index) {
-				for (int i = 0; i < lighting_data.shadows.point_shadow_count; i++) {
-					if (lighting_data.shadows.point_shadow_light_indices[i] == light_index) {
-						return i;
-					}
-				}
+			]] .. scene_lights.GetPointShadowGLSL("lighting_data") .. [[
 
-				return -1;
-			}
-
-			float samplePointShadowProjection(int shadow_map_idx, vec3 sample_dir, float current_depth, float bias, float filter_radius_texels) {
-				vec3 lookup_dir = normalize(vec3(-sample_dir.x, sample_dir.y, sample_dir.z));
-				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
-				float angular_radius = filter_radius_texels / max(face_size, 1.0);
-				vec3 up = abs(lookup_dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-				vec3 tangent = normalize(cross(up, lookup_dir));
-				vec3 bitangent = cross(lookup_dir, tangent);
-				float visibility = 0.0;
-				const vec2 POISSON_DISK[8] = vec2[8](
-					vec2(-0.326, -0.406),
-					vec2(-0.840, -0.074),
-					vec2(-0.696,  0.457),
-					vec2(-0.203,  0.621),
-					vec2( 0.962, -0.195),
-					vec2( 0.473, -0.480),
-					vec2( 0.519,  0.767),
-					vec2( 0.185, -0.893)
-				);
-
-				for (int i = 0; i < 8; i++) {
-					vec2 offset = POISSON_DISK[i] * angular_radius;
-					vec3 tap_dir = normalize(lookup_dir + tangent * offset.x + bitangent * offset.y);
-					float stored_depth = texture(CUBEMAP(shadow_map_idx), tap_dir).r;
-					visibility += current_depth - bias > stored_depth ? 0.0 : 1.0;
-				}
-
-				return visibility / 8.0;
-			}
-
-			float calculatePointShadow(int shadow_slot, vec3 world_pos, vec3 normal, vec3 light_dir) {
-				if (shadow_slot < 0 || shadow_slot >= lighting_data.shadows.point_shadow_count) return 1.0;
-
-				int shadow_map_idx = lighting_data.shadows.point_shadow_map_indices[shadow_slot];
-				if (shadow_map_idx < 0) return 1.0;
-
-				vec3 light_pos = lighting_data.shadows.point_shadow_positions[shadow_slot].xyz;
-				float far_plane = lighting_data.shadows.point_shadow_positions[shadow_slot].w;
-				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
-				float texel_world_size = far_plane / max(face_size, 1.0);
-				float normal_bias = max(texel_world_size * 2.0, 0.01);
-				float bias_val = normal_bias * max(1.0 - dot(normal, light_dir), 0.2);
-				vec3 offset_pos = world_pos + normal * bias_val;
-				vec3 light_to_surface = offset_pos - light_pos;
-				float light_distance = length(light_to_surface);
-
-				if (light_distance <= 0.0001 || light_distance >= far_plane) return 1.0;
-
-				vec3 sample_dir = light_to_surface / light_distance;
-				float current_depth = light_distance / max(far_plane, 0.0001);
-				float normalized_bias = max(bias_val / max(far_plane, 0.0001), 0.0005);
-				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
-			}
-
-			float calculateLocalDirectionalShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
-				int shadow_map_idx = lighting_data.shadows.local_directional_shadow_map_index;
-				if (shadow_map_idx < 0) return 1.0;
-
-				vec3 proj_coords;
-
-				if (!projectShadowMap(
-					lighting_data.shadows.local_directional_light_space_matrix,
-					world_pos,
-					normal,
-					light_dir,
-					lighting_data.shadows.local_directional_shadow_texel_world_size,
-					proj_coords
-				)) {
-					return 1.0;
-				}
-
-				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
-			}
+			]] .. directional_shadows.GetLocalDirectionalShadowGLSL("lighting_data") .. [[
 
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback) {
 				vec3 raw_R = reflect(-V, normal);

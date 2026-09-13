@@ -5,6 +5,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local radiance_cascades = library()
 local MAX_CLIPMAPS = voxel_gi.GetMaxClipmapCount()
@@ -70,7 +71,10 @@ function radiance_cascades.GetBlockLayout()
 	return {
 		render3d.camera_block,
 		render3d.gbuffer_block,
+		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+		{"light_count", "int"},
 		{"shadows", scene_lights.BuildShadowsBlockLayout()},
+		light_occlusion.GetBlockLayout(),
 		{"rc_sun_direction", "vec4"},
 		{"rc_sun_radiance", "vec4"},
 		{"rc_env_tex", "int"},
@@ -104,8 +108,11 @@ end
 function radiance_cascades.WriteBlock(self, block, cascade)
 	render3d.WriteCameraBlock(self, block)
 	render3d.WriteGBufferBlock(self, block)
-	local lights = render3d.GetLights()
+	local lights, light_instance_indices = scene_lights.GetVisibleLights()
+	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	scene_lights.WriteLightsBlock(block.lights, lights)
 	scene_lights.WriteShadowBlock(self, block.shadows, lights)
+	light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	local sun_color = directional_shadows.GetPrimarySunColor(lights)
 	local sun_intensity = directional_shadows.GetPrimarySunIntensity(lights)
@@ -545,6 +552,54 @@ function radiance_cascades.GetTraceGLSL(block_name)
 
 			vec3 albedo = clamp(hit.voxel.rgb, vec3(0.0), vec3(1.0));
 			vec3 direct = RC_BLOCK.rc_sun_radiance.rgb * (NoL * shadow / 3.14159265359);
+
+			for (int i = 0; i < RC_BLOCK.light_count; i++) {
+				lights_t light = RC_BLOCK.lights[i];
+				int light_type = get_light_type(light);
+
+				if (light_type == 0) continue;
+
+				vec3 light_to_surface;
+				float light_attenuation;
+
+				if (!get_light_vector_and_attenuation(light, surface_pos, light_to_surface, light_attenuation)) {
+					continue;
+				}
+
+				float light_NoL = max(dot(N, light_to_surface), 0.0);
+
+				if (light_NoL <= 0.0) continue;
+
+				float light_shadow = 1.0;
+
+				if (light_type == 2) {
+					if (
+						i == RC_BLOCK.shadows.local_directional_shadow_light_index &&
+						RC_BLOCK.shadows.local_directional_shadow_map_index >= 0
+					) {
+						light_shadow = calculateLocalDirectionalShadow(surface_pos, N, light_to_surface);
+					}
+				} else {
+					int point_shadow_slot = getPointShadowSlot(i);
+
+					if (point_shadow_slot >= 0) {
+						light_shadow = calculatePointShadow(point_shadow_slot, surface_pos, N, light_to_surface);
+					}
+
+					light_shadow *= light_oct_shadow_factor(
+						RC_BLOCK.bvh_oct_slot[i],
+						light.position.xyz,
+						light.params.x,
+						surface_pos
+					);
+				}
+
+				if (light_shadow > 0.0) {
+					direct += light.color.rgb * light.color.a * light_attenuation * light_shadow *
+						(light_NoL / 3.14159265359);
+				}
+			}
+
 			float confidence;
 			vec3 bounce = rc_feedback_irradiance(surface_pos, N, voxel_size, confidence);
 
@@ -562,6 +617,16 @@ end
 
 function radiance_cascades.GetShadowGLSL(block_name)
 	return directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, "calculateShadow", {use_receiver_plane_bias = false})
+end
+
+-- per-light direct light for traced hits: the sun is already shaded
+-- separately through rc_sun_radiance, so this only covers point, spot and
+-- local directional lights with their point shadow maps and octahedral
+-- occlusion maps
+function radiance_cascades.GetLightGLSL(block_name)
+	return (
+			scene_lights.GetLightGLSLCode() .. "\n" .. directional_shadows.GetLocalDirectionalShadowGLSL(block_name) .. "\n" .. scene_lights.GetPointShadowGLSL(block_name) .. "\n" .. light_occlusion.GetSamplingGLSL(block_name)
+		)
 end
 
 local function rebuild_pipelines()
