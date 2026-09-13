@@ -21,9 +21,10 @@ local sun = Entity.New{
 }
 atmosphere.SetSunIntensity(sun.light.Intensity)
 local MODE = "cascade"
+local shadow_config
 
 if MODE == "lispsm" then
-	sun.light:SetCastShadows{
+	shadow_config = {
 		size = Vec2() + 4096,
 		directional_projection_mode = "lispsm",
 		min_caster_texel_size = 4,
@@ -36,7 +37,7 @@ if MODE == "lispsm" then
 		far_plane = 2700,
 	}
 elseif MODE == "cascade" then
-	sun.light:SetCastShadows{
+	shadow_config = {
 		size = Vec2() + 2048,
 		min_caster_texel_size = 4,
 		shadow_update_interval = 2,
@@ -73,6 +74,8 @@ elseif MODE == "cascade" then
 	}
 end
 
+if shadow_config then sun.light:SetCastShadows(shadow_config) end
+
 event.AddListener("Update", "sun_orientation", function(dt)
 	if not sun or not sun:IsValid() or not sun.transform then return end
 
@@ -91,6 +94,22 @@ event.AddListener("Update", "sun_orientation", function(dt)
 	rot:Normalize()
 	sun.transform:SetRotation(rot)
 	local sunDir = -rot:GetForward()
+	local below_horizon = sunDir.y < 0
+
+	if below_horizon then
+		if sun.light:GetCastShadows() then
+			sun.light.BelowHorizon = true
+			sun.light:SetIntensity(0)
+			sun.light:SetCastShadows(false)
+		end
+	else
+		if not sun.light:GetCastShadows() then
+			sun.light.BelowHorizon = false
+			sun.light:SetIntensity(2)
+			sun.light:SetCastShadows(shadow_config)
+		end
+	end
+
 	atmosphere.SetSunIntensity(sun.light.Intensity)
 	local sunColor = atmosphere.GetSunColor(sunDir)
 	sun.light:SetColor(Color(sunColor:Unpack()))
