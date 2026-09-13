@@ -27,7 +27,6 @@ do
 		local pipeline_key = self.pipeline
 		local probe_enabled = upload_probe.IsEnabled()
 
-		-- Per-stage push constant uploads
 		for _, stage_name in ipairs(self.active_stages) do
 			local stage_blocks = self._per_stage_push_blocks[stage_name]
 
@@ -60,16 +59,17 @@ do
 					end
 				end
 
-				-- Push all blocks for this stage in one call
 				for _, entry in ipairs(stages_to_push) do
 					self.pipeline:PushConstants(cmd, {stage_name}, entry.offset, entry.data, entry.size)
 				end
 			end
 		end
 
-		-- NOTE: this table must be a fresh allocation each call, not reused/mutated -
-		-- CommandBuffer:BindDescriptorSets fast-paths on dynamic_offsets_ref identity
-		-- and would otherwise skip rebinding when only the contents changed.
+		self:UploadUniformsAndBind()
+	end
+
+	local function upload_uniform_offsets(self)
+		local probe_enabled = upload_probe.IsEnabled()
 		local offsets = {}
 		local frame_index = render.GetCurrentFrame()
 		local frame_number = system.GetFrameNumber and system.GetFrameNumber() or 0
@@ -91,16 +91,33 @@ do
 			)
 		end
 
-		self.dynamic_offsets = #offsets > 0 and offsets or nil
+		return #offsets > 0 and offsets or nil, frame_index
+	end
 
-		if self.dynamic_offsets then
-			self.pipeline:Bind(cmd, frame_index, self.dynamic_offsets)
+	function EasyPipelineGraphics:UploadUniformsAndBind()
+		local cmd = render.GetCommandBuffer()
+		local offsets, frame_index = upload_uniform_offsets(self)
+		self.dynamic_offsets = offsets
+
+		if offsets then self.pipeline:Bind(cmd, frame_index, offsets) end
+	end
+
+	function EasyPipelineGraphics:UploadUniformsRebindDescriptor()
+		local cmd = render.GetCommandBuffer()
+		local offsets, frame_index = upload_uniform_offsets(self)
+		self.dynamic_offsets = offsets
+		local pipeline = self.pipeline
+		local sets = pipeline.descriptor_sets and
+			(
+				pipeline.descriptor_sets[frame_index] or
+				pipeline.descriptor_sets[1]
+			)
+
+		if offsets and sets then
+			cmd:BindDescriptorSets("graphics", pipeline.pipeline_layout, sets, offsets)
 		end
 	end
 
-	-- Begin drawing to this pipeline's framebuffer
-	-- framebuffer: optional custom framebuffer to use (defaults to pipeline's framebuffer)
-	-- frame_index: optional frame index for ping-pong buffers (defaults to auto-calculated)
 	function EasyPipelineGraphics:BeginDraw(cmd, framebuffer, frame_index)
 		cmd = cmd or render.GetCommandBuffer()
 		local fb = resolve_draw_framebuffer(self, framebuffer, frame_index)
@@ -121,17 +138,12 @@ do
 		return fb
 	end
 
-	-- End drawing (must be paired with BeginDraw)
 	function EasyPipelineGraphics:EndDraw(cmd, framebuffer)
 		cmd = cmd or render.GetCommandBuffer()
 
 		if framebuffer then framebuffer:End(cmd) end
 	end
 
-	-- Complete draw call with automatic framebuffer handling
-	-- framebuffer: optional custom framebuffer to use
-	-- frame_index: optional frame index for ping-pong buffers
-	-- vertex_count: optional vertex count (defaults to 3 for fullscreen quad)
 	function EasyPipelineGraphics:Draw(cmd, framebuffer, frame_index, vertex_count)
 		cmd = cmd or render.GetCommandBuffer()
 		vertex_count = vertex_count or 3
@@ -147,7 +159,6 @@ do
 
 		if fb then fb:Begin(cmd) end
 
-		-- Reset viewport/scissor when drawing directly to the main target
 		if not fb then
 			local size = render.GetRenderImageSize()
 

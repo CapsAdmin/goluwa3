@@ -24,6 +24,7 @@ local current_rasterize_state = {
 	view_matrix = Matrix44(),
 	projection_matrix = Matrix44(),
 	projection_view_world = Matrix44(),
+	view_proj = Matrix44(),
 }
 local current_slice_draw_state = {
 	self = nil,
@@ -415,8 +416,7 @@ end
 
 local function get_voxel_projection_view_world_matrix()
 	local world_matrix = render3d.GetWorldMatrix()
-	world_matrix:GetMultiplied(current_rasterize_state.view_matrix, current_rasterize_state.projection_view_world)
-	current_rasterize_state.projection_view_world:GetMultiplied(current_rasterize_state.projection_matrix, current_rasterize_state.projection_view_world)
+	world_matrix:GetMultiplied(current_rasterize_state.view_proj, current_rasterize_state.projection_view_world)
 	return current_rasterize_state.projection_view_world
 end
 
@@ -449,10 +449,7 @@ local function update_slice_transform(clipmap, axis_name, slice, build_origin)
 		half_depth,
 		true
 	)
-end
-
-local function upload_rasterize_constants(self)
-	self:UploadConstants()
+	current_rasterize_state.view_matrix:GetMultiplied(current_rasterize_state.projection_matrix, current_rasterize_state.view_proj)
 end
 
 local function push_voxel_vertex_constants(self, cmd, world_matrix)
@@ -674,7 +671,7 @@ local function draw_voxel_slice_geometry(self, cmd, clipmap_index, clipmap, axis
 		if entry.material ~= last_material then
 			render3d.SetMaterial(entry.material)
 			last_material = entry.material
-			upload_rasterize_constants(self)
+			self:UploadUniformsRebindDescriptor()
 		end
 
 		push_voxel_vertex_constants(self, cmd, entry.world_matrix)
