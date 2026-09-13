@@ -74,10 +74,11 @@ function vulkan.GetAvailableLayers()
 	local out = {}
 
 	if layerCount[0] > 0 then
-		local availableLayers = VkLayerPropertiesArray(layerCount[0])
+		local count = layerCount[0]
+		local availableLayers = VkLayerPropertiesArray(count)
 		vulkan.lib.vkEnumerateInstanceLayerProperties(layerCount, availableLayers)
 
-		for i = 0, layerCount[0] - 1 do
+		for i = 0, count - 1 do
 			local layerName = ffi.string(availableLayers[i].layerName)
 			table.insert(out, layerName)
 		end
@@ -93,10 +94,11 @@ function vulkan.GetAvailableExtensions()
 	local out = {}
 
 	if extensionCount[0] > 0 then
-		local availableExtensions = VkExtensionPropertiesArray(extensionCount[0])
+		local count = extensionCount[0]
+		local availableExtensions = VkExtensionPropertiesArray(count)
 		vulkan.lib.vkEnumerateInstanceExtensionProperties(nil, extensionCount, availableExtensions)
 
-		for i = 0, extensionCount[0] - 1 do
+		for i = 0, count - 1 do
 			local extensionName = ffi.string(availableExtensions[i].extensionName)
 			table.insert(out, extensionName)
 		end

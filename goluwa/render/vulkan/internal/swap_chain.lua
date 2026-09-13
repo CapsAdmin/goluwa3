@@ -66,12 +66,13 @@ end
 function Swapchain:GetImages()
 	local imageCount = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, nil)
-	local swapchainImages = VkImageArray(imageCount[0])
+	local count = imageCount[0]
+	local swapchainImages = VkImageArray(count)
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, swapchainImages)
 	local Image = import("goluwa/render/vulkan/internal/image.lua")
 	local out = {}
 
-	for i = 0, imageCount[0] - 1 do
+	for i = 0, count - 1 do
 		local ptr = VkImageBox()
 		ptr[0] = swapchainImages[i]
 		out[i + 1] = Image:CreateObject{

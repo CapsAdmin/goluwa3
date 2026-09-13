@@ -230,14 +230,15 @@ function Instance:GetPhysicalDevices()
 
 	if deviceCount[0] == 0 then error("no physical devices found") end
 
-	local physicalDevices = VkPhysicalDeviceArray(deviceCount[0])
+	local count = deviceCount[0]
+	local physicalDevices = VkPhysicalDeviceArray(count)
 	vulkan.assert(
 		vulkan.lib.vkEnumeratePhysicalDevices(self.ptr[0], deviceCount, physicalDevices),
 		"failed to enumerate physical devices"
 	)
 	local out = {}
 
-	for i = 0, deviceCount[0] - 1 do
+	for i = 0, count - 1 do
 		out[i + 1] = PhysicalDevice.New(physicalDevices[i])
 	end
 

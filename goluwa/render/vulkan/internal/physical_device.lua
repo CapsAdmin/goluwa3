@@ -166,11 +166,12 @@ end
 function PhysicalDevice:GetAvailableDeviceExtensions()
 	local extensionCount = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkEnumerateDeviceExtensionProperties(self.ptr[0], nil, extensionCount, nil)
-	local availableExtensions = VkExtensionPropertiesArray(extensionCount[0])
+	local count = extensionCount[0]
+	local availableExtensions = VkExtensionPropertiesArray(count)
 	vulkan.lib.vkEnumerateDeviceExtensionProperties(self.ptr[0], nil, extensionCount, availableExtensions)
 	local out = {}
 
-	for i = 0, extensionCount[0] - 1 do
+	for i = 0, count - 1 do
 		table.insert(out, ffi.string(availableExtensions[i].extensionName))
 	end
 
