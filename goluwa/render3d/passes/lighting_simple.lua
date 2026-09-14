@@ -90,87 +90,7 @@ return {
 					return value * inversesqrt(len2);
 				}
 
-				int get_shadow_cascade_index(vec3 world_pos) {
-					float dist = -(lighting_simple.view * vec4(world_pos, 1.0)).z;
-
-					for (int i = 0; i < lighting_simple.shadows.cascade_count; i++) {
-						if (dist < lighting_simple.shadows.cascade_splits[i]) {
-							return i;
-						}
-					}
-
-					return lighting_simple.shadows.cascade_count - 1;
-				}
-
-				bool project_shadow_map(
-					mat4 light_space_matrix,
-					vec3 world_pos,
-					vec3 normal,
-					vec3 light_dir,
-					float texel_world_size,
-					out vec3 proj_coords
-				) {
-					float normal_bias = max(texel_world_size * 1.5, 0.0005);
-					float bias_val = normal_bias * max(1.0 - dot(normal, light_dir), 0.15);
-					vec3 offset_pos = world_pos + normal * bias_val;
-					vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
-					proj_coords = light_space_pos.xyz / light_space_pos.w;
-					proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
-					return !(
-						proj_coords.z > 1.0 ||
-						proj_coords.z < 0.0 ||
-						proj_coords.x < 0.0 ||
-						proj_coords.x > 1.0 ||
-						proj_coords.y < 0.0 ||
-						proj_coords.y > 1.0
-					);
-				}
-
-				float sample_simple_shadow(int shadow_map_idx, vec3 proj_coords, float bias) {
-					float shadow_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy).r;
-					return proj_coords.z - bias > shadow_depth ? 0.0 : 1.0;
-				}
-
-				float calculate_simple_shadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
-					if (lighting_simple.shadows.cascade_count <= 0) return 1.0;
-
-					float dist = -(lighting_simple.view * vec4(world_pos, 1.0)).z;
-					vec3 proj_coords;
-
-					if (
-						lighting_simple.shadows.inset_shadow_map_index >= 0 &&
-						dist < lighting_simple.shadows.inset_shadow_distance &&
-						project_shadow_map(
-							lighting_simple.shadows.inset_light_space_matrix,
-							world_pos,
-							normal,
-							light_dir,
-							lighting_simple.shadows.inset_shadow_texel_world_size,
-							proj_coords
-						)
-					) {
-						return sample_simple_shadow(lighting_simple.shadows.inset_shadow_map_index, proj_coords, 0.0005);
-					}
-
-					int cascade_idx = get_shadow_cascade_index(world_pos);
-					if (cascade_idx < 0) return 1.0;
-
-					int shadow_map_idx = lighting_simple.shadows.shadow_map_indices[cascade_idx];
-					if (shadow_map_idx < 0) return 1.0;
-
-					if (!project_shadow_map(
-						lighting_simple.shadows.light_space_matrices[cascade_idx],
-						world_pos,
-						normal,
-						light_dir,
-						lighting_simple.shadows.cascade_texel_world_sizes[cascade_idx],
-						proj_coords
-					)) {
-						return 1.0;
-					}
-
-					return sample_simple_shadow(shadow_map_idx, proj_coords, 0.0005);
-				}
+		]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_simple", "calculateShadow", {use_receiver_plane_bias = false}) .. [[
 
 				void main() {
 					float alpha = get_alpha();
@@ -192,7 +112,7 @@ return {
 					float roughness = get_roughness();
 					float metallic = get_metallic();
 					float NdotL = max(dot(N, L), 0.0);
-					float shadow = NdotL > 0.0 ? calculate_simple_shadow(world_pos, N, L) : 1.0;
+					float shadow = NdotL > 0.0 ? calculateShadow(world_pos, N, L) : 1.0;
 
 					vec3 ambient = albedo * (0.08 + ao * 0.22);
 					float diffuse_strength = mix(1.0, 0.75, metallic);
