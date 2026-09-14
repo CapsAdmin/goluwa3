@@ -12,6 +12,7 @@ local Color = import("goluwa/structs/color.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local event = import("goluwa/event.lua")
 local MAX_SHADOW_PASSES_PER_FRAME = 4
 local shadow_pass_budget_frame = -1
@@ -287,6 +288,33 @@ local function build_shadow_cascade_update_mask(self, shadow_map)
 	return mask
 end
 
+local scene_bounds_cache = {version = nil, aabb = nil}
+
+local function get_shadow_scene_world_aabb()
+	local library = Visual.Library
+	local casters = library and library.shadow_casters
+	local count = casters and #casters or 0
+
+	if count == 0 then return nil end
+
+	local version = library.shadow_change_version_counter or 0
+
+	if scene_bounds_cache.version == version then return scene_bounds_cache.aabb end
+
+	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+	for i = 1, count do
+		local box = casters[i]:GetWorldAABB()
+
+		if box then AABB.Expand(aabb, box) end
+	end
+
+	local result = aabb.min_x <= aabb.max_x and aabb or nil
+	scene_bounds_cache.version = version
+	scene_bounds_cache.aabb = result
+	return result
+end
+
 local function mark_shadow_update_progress(self, complete)
 	self.LastShadowUpdateFrame = system.GetFrameNumber()
 
@@ -511,6 +539,7 @@ function Light:SetCastShadows(config)
 			min_caster_texel_size = config.min_caster_texel_size,
 			sticky_cascade_index = cascade_count,
 			disable_vertex_animation_cascades = disable_vertex_animation_cascades,
+			scene_bounds_margin = config.scene_bounds_margin,
 			cascade_count = cascade_count,
 			cascade_split_lambda = config.cascade_split_lambda,
 			max_shadow_distance = config.max_shadow_distance or config.far_plane,
@@ -600,6 +629,7 @@ end
 function Light:RenderShadows()
 	if not self:GetCastShadows() then return true, false end
 
+	self.ShadowMap.scene_world_aabb = get_shadow_scene_world_aabb()
 	self:UpdateShadowMap(build_shadow_cascade_update_mask(self, self.ShadowMap))
 	event.Call("PrimeAllShadowMaterials", self.ShadowMap)
 

@@ -967,6 +967,9 @@ function ShadowMap.New(config)
 
 	self.cascade_split_lambda = config.cascade_split_lambda or 0.75 -- Blend between linear and logarithmic split
 	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
+	self.scene_world_aabb = nil -- when set, the cascade fit is clamped to the scene's world AABB extent
+	self.scene_bounds_margin = config.scene_bounds_margin or 16
+	self.current_shadow_distance = self.max_shadow_distance
 	self.min_caster_texel_size = config.min_caster_texel_size or 0
 	self.sticky_cascade_index = config.sticky_cascade_index
 	self.disable_vertex_animation_cascades = config.disable_vertex_animation_cascades or {}
@@ -1200,6 +1203,29 @@ function ShadowMap:CalculateCascadeSplits()
 	local cam = render3d.GetRenderCamera()
 	local view_near = cam:GetNearZ()
 	local view_far = math.min(cam:GetFarZ(), self.max_shadow_distance)
+	local scene_aabb = self.scene_world_aabb
+
+	if scene_aabb then
+		local pos = cam:GetPosition()
+		local dx = scene_aabb.max_x - pos.x
+		local d = scene_aabb.min_x - pos.x
+
+		if math.abs(d) > math.abs(dx) then dx = d end
+
+		local dy = scene_aabb.max_y - pos.y
+		d = scene_aabb.min_y - pos.y
+
+		if math.abs(d) > math.abs(dy) then dy = d end
+
+		local dz = scene_aabb.max_z - pos.z
+		d = scene_aabb.min_z - pos.z
+
+		if math.abs(d) > math.abs(dz) then dz = d end
+
+		view_far = math.min(view_far, math.sqrt(dx * dx + dy * dy + dz * dz) + self.scene_bounds_margin)
+	end
+
+	self.current_shadow_distance = view_far
 	local lambda = self.cascade_split_lambda
 	self.cascade_splits = {}
 	local n = self.cascade_count
@@ -1369,8 +1395,8 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		local receiver_depth_span = max_z - min_z
 		local texel_world_size = self.cascade[cascade_idx].texel_world_size
 		local far_margin = receiver_depth_span * 0.05 + texel_world_size * 4
-		local near_margin = math.max(receiver_depth_span * 0.5, self.max_shadow_distance * 0.5)
-		local cull_near_margin = math.max(receiver_depth_span * 4.0, self.max_shadow_distance * 2)
+		local near_margin = math.max(receiver_depth_span * 0.5, self.current_shadow_distance * 0.5)
+		local cull_near_margin = math.max(receiver_depth_span * 4.0, self.current_shadow_distance * 2)
 		local caster_min_z = min_z - far_margin
 		local caster_max_z = max_z + near_margin
 		local projection = Matrix44()
