@@ -80,29 +80,6 @@ local POINT_SHADOW_FACE_ANGLES = {
 	Deg3(0, 180 + 180, 0),
 }
 
-local function supports_tessellation()
-	local device = render.GetDevice and render.GetDevice()
-
-	if
-		not device or
-		not device.physical_device or
-		not device.physical_device.GetFeatures
-	then
-		return false
-	end
-
-	local features = device.physical_device:GetFeatures()
-	return features and features.tessellationShader == 1 or false
-end
-
-local function use_tessellated_shadow(material)
-	return supports_tessellation() and
-		material and
-		material:GetHeightTexture() and
-		material:GetHeightScale() > 0 and
-		material:GetTessellationFactor() > 1.0
-end
-
 local function get_shadow_material_texture_cache(self)
 	self.shadow_material_texture_cache = self.shadow_material_texture_cache or setmetatable({}, {__mode = "k"})
 	return self.shadow_material_texture_cache
@@ -179,7 +156,6 @@ local ShadowStateUniformDecl = [[
 		float alpha_cutoff;
 		float height_scale;
 		float height_center;
-		float tessellation_factor;
 	}
 ]]
 local SHADOW_PUSH_CONSTANT_GLSL = [[
@@ -200,7 +176,6 @@ local SHADOW_STATE_UNIFORM_GLSL = [[
 		float alpha_cutoff;
 		float height_scale;
 		float height_center;
-		float tessellation_factor;
 	} shadow_state;
 ]]
 local NO_SHADOW_STATE_MATERIAL = {}
@@ -248,27 +223,6 @@ local function get_shadow_geometry_descriptor_sets(self, bindless_texture_capaci
 		},
 	}
 	return descriptor_sets
-end
-
-local function get_shadow_tess_control_descriptor_sets(self, bindless_texture_capacity)
-	return {
-		{
-			type = "combined_image_sampler",
-			binding_index = 0,
-			count = bindless_texture_capacity,
-			set_index = 1,
-		},
-		{
-			type = "uniform_buffer_dynamic",
-			binding_index = 1,
-			args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
-		},
-		{
-			type = "uniform_buffer_dynamic",
-			binding_index = 2,
-			args = {self.shadow_state_buffer.buffer, self.shadow_state_buffer.aligned_size},
-		},
-	}
 end
 
 local function build_shadow_fragment_shader(bindless_texture_capacity, linear_depth_output)
@@ -499,127 +453,6 @@ local function build_shadow_instanced_vertex_stage(self, bindless_texture_capaci
 	}
 end
 
-local function build_shadow_tess_vertex_stage()
-	return {
-		type = "vertex",
-		code = [[
-					#version 450
-
-					layout(location = 0) in vec3 in_position;
-					layout(location = 1) in vec3 in_normal;
-					layout(location = 2) in vec2 in_uv;
-					layout(location = 3) in vec4 in_tangent;
-					layout(location = 4) in float in_texture_blend;
-					layout(location = 5) in vec4 in_vertex_color;
-
-					layout(location = 0) out vec3 out_position;
-					layout(location = 1) out vec3 out_normal;
-					layout(location = 2) out vec4 out_tangent;
-					layout(location = 3) out vec2 out_uv;
-					layout(location = 4) out float out_texture_blend;
-					layout(location = 5) out vec4 out_vertex_color;
-
-					void main() {
-						out_position = in_position;
-						out_normal = in_normal;
-						out_tangent = in_tangent;
-						out_uv = in_uv;
-						out_texture_blend = in_texture_blend;
-						out_vertex_color = in_vertex_color;
-						gl_Position = vec4(in_position, 1.0);
-					}
-				]],
-		bindings = {model_pipeline.GetVertexBufferBinding(0)},
-		attributes = model_pipeline.GetVertexAttributeLayout(0),
-	}
-end
-
-local function build_shadow_tess_control_stage(self, bindless_texture_capacity)
-	return {
-		type = "tessellation_control",
-		code = [[
-					#version 450
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(location = 0) in vec3 in_position[];
-					layout(location = 1) in vec3 in_normal[];
-					layout(location = 2) in vec4 in_tangent[];
-					layout(location = 3) in vec2 in_uv[];
-					layout(location = 4) in float in_texture_blend[];
-					layout(location = 5) in vec4 in_vertex_color[];
-
-					layout(location = 0) out vec3 out_position[];
-					layout(location = 1) out vec3 out_normal[];
-					layout(location = 2) out vec4 out_tangent[];
-					layout(location = 3) out vec2 out_uv[];
-					layout(location = 4) out float out_texture_blend[];
-					layout(location = 5) out vec4 out_vertex_color[];
-
-					]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
-
-					layout(vertices = 3) out;
-
-					void main() {
-						out_position[gl_InvocationID] = in_position[gl_InvocationID];
-						out_normal[gl_InvocationID] = in_normal[gl_InvocationID];
-						out_tangent[gl_InvocationID] = in_tangent[gl_InvocationID];
-						out_uv[gl_InvocationID] = in_uv[gl_InvocationID];
-						out_texture_blend[gl_InvocationID] = in_texture_blend[gl_InvocationID];
-						out_vertex_color[gl_InvocationID] = in_vertex_color[gl_InvocationID];
-						gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
-
-						if (gl_InvocationID == 0) {
-							float tess = clamp(shadow_state.tessellation_factor, 1.0, 64.0);
-							gl_TessLevelOuter[0] = tess;
-							gl_TessLevelOuter[1] = tess;
-							gl_TessLevelOuter[2] = tess;
-							gl_TessLevelInner[0] = tess;
-						}
-					}
-				]],
-		descriptor_sets = get_shadow_tess_control_descriptor_sets(self, bindless_texture_capacity),
-	}
-end
-
-local function build_shadow_tess_evaluation_stage(self, bindless_texture_capacity)
-	return {
-		type = "tessellation_evaluation",
-		code = [[
-					#version 450
-					#extension GL_EXT_nonuniform_qualifier : require
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(set = 1, binding = 0) uniform sampler2D textures[];
-
-					layout(location = 0) in vec3 in_position[];
-					layout(location = 1) in vec3 in_normal[];
-					layout(location = 2) in vec4 in_tangent[];
-					layout(location = 3) in vec2 in_uv[];
-					layout(location = 4) in float in_texture_blend[];
-					layout(location = 5) in vec4 in_vertex_color[];
-
-					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
-				]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
-
-				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
-					layout(triangles, equal_spacing, cw) in;
-					layout(location = 0) out vec2 out_uv;
-					layout(location = 1) out vec3 out_world_pos;
-
-				]] .. BuildShadowGeometryDeformationGlsl("vertex_animation", "shadow_state") .. model_pipeline.BuildTriangleInterpolationGlsl() .. build_shadow_projected_main(
-				"pc.world",
-				"interpolate_vec3(in_position[0], in_position[1], in_position[2])",
-				"interpolate_vec3(in_normal[0], in_normal[1], in_normal[2])",
-				"interpolate_vec3(in_tangent[0].xyz, in_tangent[1].xyz, in_tangent[2].xyz)",
-				"interpolate_vec2(in_uv[0], in_uv[1], in_uv[2])",
-				"interpolate_float(in_texture_blend[0], in_texture_blend[1], in_texture_blend[2])",
-				"interpolate_vec4(in_vertex_color[0], in_vertex_color[1], in_vertex_color[2])"
-			),
-		descriptor_sets = get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity),
-		push_constants = get_shadow_stage_push_constants(),
-	}
-end
-
 local function build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output)
 	return {
 		type = "fragment",
@@ -677,7 +510,6 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 		data.alpha_cutoff = material:GetAlphaCutoff()
 		data.height_scale = material:GetHeightScale()
 		data.height_center = material:GetHeightCenter()
-		data.tessellation_factor = material:GetTessellationFactor()
 	else
 		data.albedo_texture_index = 0
 		data.opacity_texture_index = -1
@@ -687,7 +519,6 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 		data.alpha_cutoff = 0.5
 		data.height_scale = 0.0
 		data.height_center = 0.5
-		data.tessellation_factor = 1.0
 	end
 
 	local offset = self.shadow_state_buffer:Upload(frame_index)
@@ -816,28 +647,7 @@ local function create_shadow_pipeline_variant(
 			color_format
 		)
 	)
-	local tess_pipeline = nil
-
-	if supports_tessellation() then
-		tess_pipeline = render.CreateGraphicsPipeline(
-			build_shadow_pipeline_config(
-				depth_format,
-				max_shadow_width,
-				max_shadow_height,
-				{
-					build_shadow_tess_vertex_stage(),
-					build_shadow_tess_control_stage(self, bindless_texture_capacity),
-					build_shadow_tess_evaluation_stage(self, bindless_texture_capacity),
-					build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output),
-				},
-				"patch_list",
-				3,
-				color_format
-			)
-		)
-	end
-
-	return pipeline, tess_pipeline
+	return pipeline
 end
 
 local function create_shadow_instanced_pipeline_variant(
@@ -865,20 +675,12 @@ local function create_shadow_instanced_pipeline_variant(
 	)
 end
 
-local function get_pipeline_for_cascade(self, material, cascade_index)
-	local uses_tessellation = use_tessellated_shadow(material)
-
-	if self.mode == "point" then
-		return uses_tessellation and self.tess_pipeline or self.pipeline,
-		uses_tessellation
-	end
+local function get_pipeline_for_cascade(self, cascade_index)
+	if self.mode == "point" then return self.pipeline end
 
 	local cascade = self.cascade[cascade_index]
 	local depth_format = cascade and cascade.format or self.format
-	return uses_tessellation and
-		self.tess_pipeline_variants[depth_format] or
-		self.pipeline_variants[depth_format],
-	uses_tessellation
+	return self.pipeline_variants[depth_format]
 end
 
 local function extract_frustum_planes(proj_view_matrix, out_planes)
@@ -1233,7 +1035,7 @@ function ShadowMap.New(config)
 			},
 		}
 		self.point_depth_buffer_ready = false
-		self.pipeline, self.tess_pipeline = create_shadow_pipeline_variant(
+		self.pipeline = create_shadow_pipeline_variant(
 			self,
 			self.format,
 			max_shadow_width,
@@ -1297,11 +1099,10 @@ function ShadowMap.New(config)
 		end
 
 		self.pipeline_variants = {}
-		self.tess_pipeline_variants = {}
 		self.instanced_pipeline_variants = {}
 
 		for depth_format in pairs(unique_formats) do
-			local pipeline, tess_pipeline = create_shadow_pipeline_variant(
+			self.pipeline_variants[depth_format] = create_shadow_pipeline_variant(
 				self,
 				depth_format,
 				max_shadow_width,
@@ -1310,8 +1111,6 @@ function ShadowMap.New(config)
 				false,
 				nil
 			)
-			self.pipeline_variants[depth_format] = pipeline
-			self.tess_pipeline_variants[depth_format] = tess_pipeline
 			self.instanced_pipeline_variants[depth_format] = create_shadow_instanced_pipeline_variant(
 				self,
 				depth_format,
@@ -1324,7 +1123,6 @@ function ShadowMap.New(config)
 		end
 
 		self.pipeline = self.pipeline_variants[self.format]
-		self.tess_pipeline = self.tess_pipeline_variants[self.format]
 		self.instanced_pipeline = self.instanced_pipeline_variants[self.format]
 	end
 
@@ -1663,10 +1461,6 @@ function ShadowMap:MarkCascadeRendered(cascade_index, shadow_volume_change_versi
 	cascade.last_rendered_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 end
 
-function ShadowMap:UsesTessellatedMaterial(material)
-	return use_tessellated_shadow(material)
-end
-
 -- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
 function ShadowMap:Begin(cascade_index, is_first_in_batch)
 	cascade_index = cascade_index or 1
@@ -1804,7 +1598,7 @@ end
 function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local push_constants = ShadowDrawPushConstants()
-	local pipeline, uses_tessellation = get_pipeline_for_cascade(self, material, cascade_index)
+	local pipeline = get_pipeline_for_cascade(self, cascade_index)
 	local texture_entry = nil
 
 	-- If material is provided, get its albedo texture index and flags for alpha testing
@@ -1842,12 +1636,7 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 
 	self.cmd:SetFrontFace(orientation.FRONT_FACE)
 	self.cmd:SetCullMode("none")
-
-	if uses_tessellation then
-		pipeline:PushConstants(self.cmd, {"tessellation_evaluation"}, 0, push_constants)
-	else
-		pipeline:PushConstants(self.cmd, {"vertex"}, 0, push_constants)
-	end
+	pipeline:PushConstants(self.cmd, {"vertex"}, 0, push_constants)
 end
 
 local function get_instanced_pipeline_for_cascade(self, cascade_index)
@@ -2092,12 +1881,11 @@ local function collect_shadow_visible_entry(
 	end
 
 	local material = component:GetResolvedMaterial(entry)
-	local _, uses_tessellation = get_pipeline_for_cascade(self, material, cascade_index)
 	local mesh = entry.polygon3d and entry.polygon3d.GetMesh and entry.polygon3d:GetMesh() or nil
 	local uses_vertex_animation = not self:ShouldDisableVertexAnimation(cascade_index) and
 		shadow_material_has_vertex_animation(material)
 
-	if mesh and not uses_tessellation and not uses_vertex_animation then
+	if mesh and not uses_vertex_animation then
 		local instanced_pipeline = get_instanced_pipeline_for_cascade(self, cascade_index)
 		local batch_key = tostring(instanced_pipeline) .. ":" .. tostring(mesh) .. ":" .. tostring(material and (material.upload_cache_key or material) or false)
 		local instanced_batches = submission_context.instanced_batches
@@ -2387,11 +2175,6 @@ function ShadowMap:PrimeMaterial(material)
 	if self.mode == "point" then
 		cache_shadow_material_texture_indices(self, material, self.pipeline)
 		cache_shadow_material_texture_indices(self, material, self.instanced_pipeline)
-
-		if self.tess_pipeline then
-			cache_shadow_material_texture_indices(self, material, self.tess_pipeline)
-		end
-
 		return
 	end
 
@@ -2400,12 +2183,6 @@ function ShadowMap:PrimeMaterial(material)
 	end
 
 	for _, pipeline in pairs(self.instanced_pipeline_variants or {}) do
-		if pipeline then
-			cache_shadow_material_texture_indices(self, material, pipeline)
-		end
-	end
-
-	for _, pipeline in pairs(self.tess_pipeline_variants or {}) do
 		if pipeline then
 			cache_shadow_material_texture_indices(self, material, pipeline)
 		end

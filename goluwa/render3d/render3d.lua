@@ -159,7 +159,6 @@ local function new_instancing_counters()
 			missing_args = 0,
 			missing_pipeline = 0,
 			wireframe = 0,
-			tessellated = 0,
 			vertex_animation = 0,
 			missing_mesh = 0,
 		},
@@ -195,7 +194,6 @@ local function reset_instancing_counters(target)
 	target.rejected.missing_args = 0
 	target.rejected.missing_pipeline = 0
 	target.rejected.wireframe = 0
-	target.rejected.tessellated = 0
 	target.rejected.vertex_animation = 0
 	target.rejected.missing_mesh = 0
 	return target
@@ -226,7 +224,6 @@ local function copy_instancing_counters(dst, src)
 	dst.rejected.missing_args = src.rejected.missing_args
 	dst.rejected.missing_pipeline = src.rejected.missing_pipeline
 	dst.rejected.wireframe = src.rejected.wireframe
-	dst.rejected.tessellated = src.rejected.tessellated
 	dst.rejected.vertex_animation = src.rejected.vertex_animation
 	dst.rejected.missing_mesh = src.rejected.missing_mesh
 	return dst
@@ -653,14 +650,6 @@ function render3d.Initialize(config)
 			end,
 		}
 		render_stats.RegisterField{
-			id = "r3d_inst_reject_tess",
-			label = "R3D INST RJ TESS",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_rejected_instancing_summary().tessellated
-			end,
-		}
-		render_stats.RegisterField{
 			id = "r3d_inst_reject_anim",
 			label = "R3D INST RJ ANIM",
 			group = "render3d_instancing",
@@ -736,14 +725,6 @@ end
 function render3d.GetSceneVoxelizer()
 	render3d.scene_voxelizer = render3d.scene_voxelizer or scene_voxelizer
 	return render3d.scene_voxelizer
-end
-
-local function use_tessellated_gbuffer(material)
-	return material and
-		material:GetHeightTexture() and
-		material:GetHeightScale() > 0 and
-		material:GetTessellationFactor() > 1.0 and
-		render3d.pipelines.gbuffer_tess
 end
 
 local function material_has_vertex_animation(material)
@@ -1011,7 +992,7 @@ end
 function render3d.GetRejectedInstancingAttempts(counters)
 	counters = counters or render3d.GetInstancingCounters()
 	local rejected = counters.rejected
-	return rejected.missing_args + rejected.missing_pipeline + rejected.wireframe + rejected.tessellated + rejected.vertex_animation + rejected.missing_mesh
+	return rejected.missing_args + rejected.missing_pipeline + rejected.wireframe + rejected.vertex_animation + rejected.missing_mesh
 end
 
 function render3d.GetInstancingRejectionSummary(counters)
@@ -1022,7 +1003,6 @@ function render3d.GetInstancingRejectionSummary(counters)
 		missing_args = rejected.missing_args,
 		missing_pipeline = rejected.missing_pipeline,
 		wireframe = rejected.wireframe,
-		tessellated = rejected.tessellated,
 		vertex_animation = rejected.vertex_animation,
 		missing_mesh = rejected.missing_mesh,
 	}
@@ -1043,11 +1023,6 @@ function render3d.CanQueueGBufferInstance(polygon3d, material)
 
 	if render3d.IsWireframeDebugMode() then
 		counters.rejected.wireframe = counters.rejected.wireframe + 1
-		return false
-	end
-
-	if use_tessellated_gbuffer(material) then
-		counters.rejected.tessellated = counters.rejected.tessellated + 1
 		return false
 	end
 
@@ -1107,18 +1082,7 @@ function render3d.UploadGBufferConstants()
 	local cmd = render.GetCommandBuffer()
 	local material = render3d.GetMaterial()
 	local animated = material_has_vertex_animation(material)
-	local pipeline = use_tessellated_gbuffer(material) and
-		(
-			animated and
-			render3d.pipelines.gbuffer_tess_anim or
-			render3d.pipelines.gbuffer_tess
-		)
-		or
-		(
-			animated and
-			render3d.pipelines.gbuffer_anim or
-			render3d.pipelines.gbuffer
-		)
+	local pipeline = animated and render3d.pipelines.gbuffer_anim or render3d.pipelines.gbuffer
 	local double_sided = material:GetDoubleSided()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
 	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"

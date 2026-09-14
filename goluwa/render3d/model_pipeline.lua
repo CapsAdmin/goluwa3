@@ -64,7 +64,6 @@ local PBR_DISPLACEMENT_FIELDS = {
 	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
 	{type = "float", name = "HeightCenter", getter = "GetHeightCenter"},
 	{type = "int", name = "HeightLayers", getter = "GetHeightLayers"},
-	{type = "float", name = "TessellationFactor", getter = "GetTessellationFactor"},
 }
 local PBR_TERRAIN_FIELDS = {
 	{
@@ -215,7 +214,6 @@ local PROBE_MATERIAL_FIELDS = {
 	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
 	{type = "float", name = "HeightCenter", getter = "GetHeightCenter"},
 	{type = "int", name = "HeightLayers", getter = "GetHeightLayers"},
-	{type = "float", name = "TessellationFactor", getter = "GetTessellationFactor"},
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 }
 
@@ -584,9 +582,7 @@ local function get_vertex_stage_outputs(options)
 
 	-- appended rather than placed next to position, so that turning velocity on
 	-- does not renumber the outputs every other stage already agrees on
-	if options.velocity then
-		outputs[#outputs + 1] = {"prev_position", "vec3"}
-	end
+	if options.velocity then outputs[#outputs + 1] = {"prev_position", "vec3"} end
 
 	return outputs
 end
@@ -1286,26 +1282,6 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name, helper_world_matrix
 				return normalize(direction + normalize(world_offset) * (offset_len * ]] .. block_name .. [[.WindNormalInfluence));
 			}
 	]]
-end
-
-function model_pipeline.BuildTriangleInterpolationGlsl()
-	return [[
-			vec3 interpolate_vec3(vec3 a, vec3 b, vec3 c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
-
-			vec2 interpolate_vec2(vec2 a, vec2 b, vec2 c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
-
-			vec4 interpolate_vec4(vec4 a, vec4 b, vec4 c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
-
-			float interpolate_float(float a, float b, float c) {
-				return a * gl_TessCoord.x + b * gl_TessCoord.y + c * gl_TessCoord.z;
-			}
-		]]
 end
 
 function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr)

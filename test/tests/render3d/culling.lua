@@ -656,9 +656,6 @@ T.Test3D("Graphics render3d shadow acceleration filters safe casters and preserv
 		IsWorldAABBTooSmall = function()
 			return false
 		end,
-		UsesTessellatedMaterial = function()
-			return false
-		end,
 	}
 	local visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
 	T(visible[inside.visual])["=="](true)
@@ -682,9 +679,6 @@ T.Test3D("Graphics render3d shadow acceleration invalidates after transform move
 			return world_aabb.min_x < 10
 		end,
 		IsWorldAABBTooSmall = function()
-			return false
-		end,
-		UsesTessellatedMaterial = function()
 			return false
 		end,
 	}
@@ -718,9 +712,6 @@ T.Test3D("Graphics render3d shadow visible render entries expand shadow-visible 
 		IsWorldAABBTooSmall = function()
 			return false
 		end,
-		UsesTessellatedMaterial = function()
-			return false
-		end,
 		GetCascadeWorldAABB = function()
 			return AABB(-10, -10, -20, 10, 10, 0)
 		end,
@@ -751,9 +742,6 @@ T.Test3D("Graphics render3d shadow visible list reuses stable cascades", functio
 			return world_aabb.min_x < 10
 		end,
 		IsWorldAABBTooSmall = function()
-			return false
-		end,
-		UsesTessellatedMaterial = function()
 			return false
 		end,
 		GetCascadeWorldAABB = function()
@@ -794,9 +782,6 @@ T.Test3D("Graphics render3d shadows ignore main-view occlusion", function(draw)
 			return true
 		end,
 		IsWorldAABBTooSmall = function()
-			return false
-		end,
-		UsesTessellatedMaterial = function()
 			return false
 		end,
 		GetCascadeWorldAABB = function()

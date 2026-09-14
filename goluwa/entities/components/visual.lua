@@ -1339,7 +1339,7 @@ do
 		)
 		print(
 			string.format(
-				"[main_gpu_culling_stats] visible=%d gpu_packed_entries=%d gpu_packed_draws=%d gpu_active_batches=%d/%d gpu_entries_per_draw=%.2f fallback_visible=%d fallback_submitted=%d cpu_instanced_draws=%d cpu_singleton_draws=%d queue_attempts=%d queued_instances=%d rejected_total=%d rejected_missing_args=%d rejected_missing_pipeline=%d rejected_wireframe=%d rejected_tessellated=%d rejected_vertex_animation=%d rejected_missing_mesh=%d",
+				"[main_gpu_culling_stats] visible=%d gpu_packed_entries=%d gpu_packed_draws=%d gpu_active_batches=%d/%d gpu_entries_per_draw=%.2f fallback_visible=%d fallback_submitted=%d cpu_instanced_draws=%d cpu_singleton_draws=%d queue_attempts=%d queued_instances=%d rejected_total=%d rejected_missing_args=%d rejected_missing_pipeline=%d rejected_wireframe=%d rejected_vertex_animation=%d rejected_missing_mesh=%d",
 				stats.visible_entry_count or 0,
 				stats.gpu_packed_entry_count or 0,
 				stats.gpu_packed_draw_calls or 0,
@@ -1356,7 +1356,6 @@ do
 				rejected.missing_args or 0,
 				rejected.missing_pipeline or 0,
 				rejected.wireframe or 0,
-				rejected.tessellated or 0,
 				rejected.vertex_animation or 0,
 				rejected.missing_mesh or 0
 			)
@@ -2094,25 +2093,20 @@ do
 		return out
 	end
 
-	local function get_shadow_sort_state(component, shadow_map)
+	local function get_shadow_sort_state(component)
 		local render_entries = component:GetRenderEntries()
 		local first_entry = render_entries[1]
 		local material = first_entry and component:GetResolvedMaterial(first_entry) or nil
 		local polygon3d = first_entry and first_entry.polygon3d or nil
-		return shadow_map:UsesTessellatedMaterial(material) and 1 or 0,
-		material and material:GetGUID() or "",
+		return material and material:GetGUID() or "",
 		polygon3d and polygon3d:GetGUID() or "",
 		component:GetModelPath() or "",
 		component:GetGUID()
 	end
 
-	local active_shadow_sort_map
-
 	local function compare_shadow_visible_components(a, b)
-		local a_pipeline, a_material, a_polygon, a_model, a_component = get_shadow_sort_state(a, active_shadow_sort_map)
-		local b_pipeline, b_material, b_polygon, b_model, b_component = get_shadow_sort_state(b, active_shadow_sort_map)
-
-		if a_pipeline ~= b_pipeline then return a_pipeline < b_pipeline end
+		local a_material, a_polygon, a_model, a_component = get_shadow_sort_state(a)
+		local b_material, b_polygon, b_model, b_component = get_shadow_sort_state(b)
 
 		if a_material ~= b_material then return a_material < b_material end
 
@@ -2123,10 +2117,8 @@ do
 		return a_component < b_component
 	end
 
-	local function sort_shadow_visible_components(out, shadow_map)
-		active_shadow_sort_map = shadow_map
+	local function sort_shadow_visible_components(out)
 		table.sort(out, compare_shadow_visible_components)
-		active_shadow_sort_map = nil
 		return out
 	end
 
@@ -2509,7 +2501,7 @@ do
 					append_shadow_visible_component(out, component, shadow_map, cascade_idx)
 				end
 
-				sort_shadow_visible_components(out, shadow_map)
+				sort_shadow_visible_components(out)
 				update_shadow_visible_list_cache(
 					cache,
 					query_aabb,
@@ -2531,7 +2523,7 @@ do
 			append_shadow_visible_component(out, component, shadow_map, cascade_idx, true)
 		end
 
-		sort_shadow_visible_components(out, shadow_map)
+		sort_shadow_visible_components(out)
 		update_shadow_visible_list_cache(
 			cache,
 			query_aabb,

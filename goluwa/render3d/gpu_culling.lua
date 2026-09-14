@@ -1269,20 +1269,8 @@ local function entry_has_height_displacement(material)
 		false
 end
 
-local function entry_uses_tessellated_displacement(material)
-	return material and
-		material.GetHeightTexture and
-		material:GetHeightTexture() and
-		material:GetHeightScale() > 0 and
-		material.GetTessellationFactor and
-		material:GetTessellationFactor() > 1.0 or
-		false
-end
-
 local function entry_can_use_gbuffer_instancing(entry, material)
-	if not material or entry_uses_tessellated_displacement(material) then
-		return false
-	end
+	if not material then return false end
 
 	if material.GetIgnoreZ and material:GetIgnoreZ() then return false end
 
