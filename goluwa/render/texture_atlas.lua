@@ -137,6 +137,7 @@ function META:Build()
 	if not dirty then return end
 
 	self.dirty_textures = {}
+	local removed_textures = {}
 
 	render.ExecuteCommand(function(cmd)
 		local transitioned_textures = {}
@@ -164,7 +165,7 @@ function META:Build()
 						elseif data.texture then
 							local other = data.texture
 							page.texture:CopyFrom(other, data.w, data.h, 0, 0, data.page_x, data.page_y)
-							data.texture:Remove()
+							removed_textures[#removed_textures + 1] = data.texture
 							data.uploaded = true
 						end
 					end
@@ -189,6 +190,10 @@ function META:Build()
 			end
 		end
 	end)
+
+	for _, texture in ipairs(removed_textures) do
+		texture:Remove()
+	end
 
 	self.dirty_textures = {}
 

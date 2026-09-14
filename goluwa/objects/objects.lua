@@ -51,7 +51,7 @@ do
 	}
 
 	function objects.Register(meta, skip_warning)
-		if not HOTERLOAD and not skip_warning then
+		if not HOTRELOAD and not skip_warning then
 			if objects.registered[meta.Type] then
 				wlog("objects already registered: " .. meta.Type, 2)
 			end

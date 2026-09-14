@@ -21,6 +21,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_voxelizer = import("goluwa/render3d/voxels/scene_voxelizer.lua")
+local global_illumination = import("goluwa/render3d/voxels/global_illumination.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Light = import("goluwa/entities/components/light.lua")
@@ -674,6 +675,27 @@ end
 
 function render3d.IsReady()
 	return render3d.ready == true
+end
+
+function render3d.Shutdown()
+	if render3d.main_pipeline_bundle then
+		render3d.RemovePipelineBundle(render3d.main_pipeline_bundle)
+		render3d.main_pipeline_bundle = nil
+	end
+
+	render3d.pipelines = {}
+	render3d.pipelines_i = {}
+	local voxelizer = render3d.GetSceneVoxelizer()
+
+	if voxelizer and voxelizer.Shutdown then voxelizer:Shutdown() end
+
+	if global_illumination.RemoveResources then
+		global_illumination.RemoveResources()
+	end
+
+	if gpu_culling.Shutdown then gpu_culling.Shutdown() end
+
+	render.GetDevice():WaitIdle()
 end
 
 function render3d.ResetState()

@@ -1030,6 +1030,7 @@ function Texture:OnRemove()
 
 	if fallback_texture == self then fallback_texture = nil end
 
+	if self.image and self.image.Remove then self.image:Remove() end
 	self.view = nil
 	self.image = nil
 	self.vulkan_info = nil

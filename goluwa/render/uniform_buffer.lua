@@ -103,6 +103,10 @@ function UniformBuffer.New(decl)
 	return self
 end
 
+function UniformBuffer:OnRemove()
+	if self.buffer and self.buffer.Remove then self.buffer:Remove() end
+end
+
 function UniformBuffer:GetData()
 	return self.data
 end

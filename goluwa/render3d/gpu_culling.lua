@@ -10,10 +10,9 @@ local vk = import("goluwa/bindings/vk.lua")
 local system = import("goluwa/system.lua")
 local render3d = nil
 local gpu_culling = library()
-gpu_culling.enabled = gpu_culling.enabled ~= false
-gpu_culling.async_main_view_enabled = gpu_culling.async_main_view_enabled ~= false
--- the async result is consumed one frame after it was culled, so the frustum is widened
--- slightly to hide pop-in from camera rotation. below 1 means wider.
+gpu_culling.generation = gpu_culling.generation or 0
+gpu_culling.enabled = true
+gpu_culling.async_main_view_enabled = true
 gpu_culling.async_frustum_scale = gpu_culling.async_frustum_scale or 0.96
 gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "hiz"
 gpu_culling.scene_acceleration = gpu_culling.scene_acceleration or nil
@@ -1031,6 +1030,44 @@ function gpu_culling.Initialize()
 	end
 end
 
+function gpu_culling.Shutdown()
+	if
+		gpu_culling.main_view_hiz_build_pass and
+		gpu_culling.main_view_hiz_build_pass.Remove
+	then
+		gpu_culling.main_view_hiz_build_pass:Remove()
+	end
+
+	gpu_culling.main_view_hiz_build_pass = nil
+
+	if
+		gpu_culling.main_view_hiz_reduce_pass and
+		gpu_culling.main_view_hiz_reduce_pass.Remove
+	then
+		gpu_culling.main_view_hiz_reduce_pass:Remove()
+	end
+
+	gpu_culling.main_view_hiz_reduce_pass = nil
+	local state = gpu_culling.main_view_hiz_state
+
+	if state and state.buffers then
+		for _, buffer in ipairs(state.buffers) do
+			if buffer and buffer.texture then buffer.texture:Remove() end
+		end
+	end
+
+	gpu_culling.main_view_hiz_state = nil
+
+	if
+		gpu_culling.shadow_view_aabb_cull_cmd and
+		gpu_culling.shadow_view_aabb_cull_cmd.Remove
+	then
+		gpu_culling.shadow_view_aabb_cull_cmd:Remove()
+	end
+
+	gpu_culling.shadow_view_aabb_cull_cmd = nil
+end
+
 local HIZ_BUFFER_COUNT = 2
 
 local function create_main_view_hiz_buffer(width, height, index)
@@ -1202,12 +1239,12 @@ function gpu_culling.PrepareMainViewHiZ(cmd)
 	state.write_index = (state.write_index % HIZ_BUFFER_COUNT) + 1
 end
 
--- The descriptor always needs a live image, so an unbuilt pyramid is still bound; the
--- shader only samples it when occlusion is enabled, which requires a built one.
 local function bind_main_view_hiz(pass, descriptor_slot, output, state, hiz_buffer)
 	hiz_buffer = hiz_buffer or state.buffers[1]
 
-	if output.last_hiz_view == hiz_buffer.view then return end
+	if output.last_hiz_view == hiz_buffer.view and output.last_hiz_pass == pass then
+		return
+	end
 
 	pass:UpdateDescriptorSet(
 		"combined_image_sampler",
@@ -1221,6 +1258,7 @@ local function bind_main_view_hiz(pass, descriptor_slot, output, state, hiz_buff
 		"general"
 	)
 	output.last_hiz_view = hiz_buffer.view
+	output.last_hiz_pass = pass
 end
 
 function gpu_culling.IsEnabled()
@@ -2204,6 +2242,8 @@ local function create_shadow_query_output(
 		ensure_shadow_query_output_descriptor_capacity(descriptor_slot) or
 		allocate_shadow_query_output_descriptor_slot()
 	return {
+		label_prefix = label_prefix,
+		generation = gpu_culling.generation,
 		descriptor_slot = descriptor_slot,
 		shadow_entry_capacity = shadow_entry_capacity,
 		shadow_instanced_batch_count = shadow_instanced_batch_count,
@@ -2290,6 +2330,29 @@ end
 
 function gpu_culling.RemoveShadowQueryOutput(output)
 	remove_shadow_query_output(output)
+end
+
+function gpu_culling.RecreateShadowQueryOutput(output)
+	if not output then return nil end
+
+	remove_shadow_query_output(output)
+	local fresh = create_shadow_query_output(
+		output.label_prefix,
+		output.shadow_entry_capacity,
+		output.shadow_instanced_batch_count,
+		output.shadow_instance_capacity,
+		output.descriptor_slot
+	)
+
+	for key, value in pairs(fresh) do
+		output[key] = value
+	end
+
+	output.last_hiz_view = nil
+	output.last_hiz_pass = nil
+	output.sampled_hiz_buffer = nil
+	output.cull_pending_serial = nil
+	return output
 end
 
 local function build_dataset_buffers(dataset)
@@ -3249,6 +3312,10 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 		)
 	then
 		return nil
+	end
+
+	if shadow_output.generation ~= gpu_culling.generation then
+		gpu_culling.RecreateShadowQueryOutput(shadow_output)
 	end
 
 	local visual_count = dataset_buffers.layout and dataset_buffers.layout.shadow_visual_count or 0

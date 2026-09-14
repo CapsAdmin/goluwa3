@@ -106,6 +106,19 @@ function Framebuffer.New(config)
 	return self
 end
 
+function Framebuffer:OnRemove()
+	for _, tex in ipairs(self.color_textures or {}) do
+		if tex and tex.Remove then tex:Remove() end
+	end
+	self.color_textures = nil
+	self.color_texture = nil
+
+	if self.depth_texture and self.depth_texture.Remove then
+		self.depth_texture:Remove()
+	end
+	self.depth_texture = nil
+end
+
 function Framebuffer:EnableDepth(format)
 	if self.depth_texture then return end
 
