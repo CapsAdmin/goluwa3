@@ -308,40 +308,9 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 	result_fn_name = result_fn_name or "calculateShadow"
 	options = options or {}
 	local normal_expr = options.normal_expr or "normal"
-	local use_receiver_plane_bias = options.use_receiver_plane_bias ~= false
 	local header = (
 			"\t\t\t#define DIRECTIONAL_SHADOW_BLOCK " .. block_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_FN " .. result_fn_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_NORMAL " .. normal_expr .. "\n\n"
 		)
-	local receiver_plane_bias_glsl
-
-	if use_receiver_plane_bias then
-		receiver_plane_bias_glsl = [[
-			float getShadowReceiverPlaneBias(vec2 uv, float current_depth, vec2 texel_size, float filter_radius_texels) {
-				vec2 uv_dx = dFdx(uv);
-				vec2 uv_dy = dFdy(uv);
-				float depth_dx = dFdx(current_depth);
-				float depth_dy = dFdy(current_depth);
-				float det = uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x;
-
-				if (abs(det) < 1e-8) {
-					return 0.0;
-				}
-
-				vec2 depth_grad_uv = vec2(
-					(depth_dx * uv_dy.y - depth_dy * uv_dx.y) / det,
-					(depth_dy * uv_dx.x - depth_dx * uv_dy.x) / det
-				);
-				return dot(abs(depth_grad_uv), texel_size * filter_radius_texels);
-			}
-		]]
-	else
-		receiver_plane_bias_glsl = [[
-			float getShadowReceiverPlaneBias(vec2 uv, float current_depth, vec2 texel_size, float filter_radius_texels) {
-				return 0.0;
-			}
-		]]
-	end
-
 	local body = shadowSearchBodyGLSL(
 		"DIRECTIONAL_SHADOW_BLOCK",
 		"sampleShadowCascade(%s, world_pos, normal, light_dir)",
@@ -351,7 +320,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 			const vec2 SHADOW_POISSON_DISK[12] = vec2[12](
 				]] .. POISSON_DISK_VALUES .. [[
 			);
-	]] .. receiver_plane_bias_glsl .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. [[
+	]] .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. [[
 
 			bool projectShadowMap(
 				mat4 light_space_matrix,
@@ -361,9 +330,6 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				float texel_world_size,
 				out vec3 proj_coords
 			) {
-				// world space biases scaled by the cascade texel size: a normal offset
-				// that grows with the grazing angle plus an offset toward the light that
-				// covers the depth slope across the pcf kernel.
 				vec3 offset_pos = world_pos;
 				float light_offset = texel_world_size;
 
@@ -372,10 +338,10 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
 					float tan_theta = min(sin_theta / max(cos_theta, 0.05), 4.0);
 					offset_pos += DIRECTIONAL_SHADOW_NORMAL * (texel_world_size * sin_theta);
-					light_offset += texel_world_size * 1.5 * tan_theta;
+					light_offset += texel_world_size * 0.5 * tan_theta;
 				}
 
-				offset_pos += light_dir * light_offset;
+				offset_pos += (light_dir * light_offset)*0.25;
 				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
 				proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
@@ -393,8 +359,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
 				vec2 texel_size = 1.0 / shadow_size;
 				float current_depth = proj_coords.z;
-				float receiver_bias = getShadowReceiverPlaneBias(proj_coords.xy, current_depth, texel_size, filter_radius_texels);
-				receiver_bias = max(receiver_bias, 0.00002);
+				float receiver_bias = 0;
 				float visibility = 0.0;
 
 				for (int i = 0; i < 12; ++i) {

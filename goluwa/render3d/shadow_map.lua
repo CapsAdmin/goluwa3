@@ -1091,8 +1091,8 @@ function ShadowMap.New(config)
 					aspect = "depth",
 				},
 				sampler = {
-					min_filter = "nearest",
-					mag_filter = "nearest",
+					min_filter = "linear",
+					mag_filter = "linear",
 					wrap_s = "clamp_to_border",
 					wrap_t = "clamp_to_border",
 					border_color = "float_opaque_white",

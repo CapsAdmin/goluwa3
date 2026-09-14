@@ -53,14 +53,14 @@ elseif MODE == "cascade" then
 			Vec2() + 2048,
 		},
 		cascade_zoom_factors = {
+			3,
 			1.5,
-			1,
 			1,
 		},
 		farthest_cascade_update_mode = "world_changed",
 		farthest_cascade_camera_position_threshold = 96,
 		farthest_cascade_disable_vertex_animation = true,
-		cascade_split_lambda = 0.75,
+		cascade_split_lambda = 0.5,
 		max_shadow_distance = 2700,
 		inset_shadows = {
 			size = Vec2() + 4096,

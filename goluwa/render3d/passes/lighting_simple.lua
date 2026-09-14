@@ -108,13 +108,12 @@ return {
 					vec3 L = safe_normalize(-lighting_simple.sun_direction.xyz, vec3(0.0, -1.0, 0.0));
 					vec3 sun_color = lighting_simple.sun_color.rgb;
 					float sun_intensity = lighting_simple.sun_color.a;
-					float ao = get_ao();
 					float roughness = get_roughness();
 					float metallic = get_metallic();
 					float NdotL = max(dot(N, L), 0.0);
-					float shadow = NdotL > 0.0 ? calculateShadow(world_pos, N, L) : 1.0;
+					float shadow = calculateShadow(world_pos, N, L);
 
-					vec3 ambient = albedo * (0.08 + ao * 0.22);
+					vec3 ambient = albedo * (shadow+0.1);
 					float diffuse_strength = mix(1.0, 0.75, metallic);
 					float roughness_softening = mix(1.0, 0.6, roughness);
 					vec3 direct = albedo * sun_color * (sun_intensity * NdotL * diffuse_strength * roughness_softening * shadow);
