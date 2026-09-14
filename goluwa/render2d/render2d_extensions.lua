@@ -267,12 +267,19 @@ local function get_font(font_name, size, weight)
 	if not font_cache[font_name][size] then font_cache[font_name][size] = {} end
 
 	if not font_cache[font_name][size][weight] then
-		font_cache[font_name][size][weight] = fonts.New{
-			Name = font_name,
+		local config = {
 			Size = size,
 			Weight = weight,
 			Mode = "msdf",
 		}
+
+		if font_name:ends_with(".ttf") then
+			config.Path = font_name
+		else
+			config.Name = font_name
+		end
+
+		font_cache[font_name][size][weight] = fonts.New(config)
 	end
 
 	return font_cache[font_name][size][weight]
