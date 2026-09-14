@@ -733,6 +733,8 @@ function gpu_culling.Initialize()
 				{"has_source_depth_texture", "int"},
 				{"occlusion_max_mip", "int"},
 				{"occlusion_depth_bias", "float"},
+				{"light_view", "mat4"},
+				{"min_caster_extent", "float"},
 			},
 			write = function(self, block)
 				block.visual_count = self.current_visual_count or 0
@@ -756,6 +758,15 @@ function gpu_culling.Initialize()
 				block.has_source_depth_texture = self.current_occlusion_depth_texture and 1 or 0
 				block.occlusion_max_mip = self.current_occlusion_max_mip or 0
 				block.occlusion_depth_bias = self.current_occlusion_depth_bias or 0.0015
+
+				if self.current_light_view then
+					self.current_light_view:CopyToFloatPointer(block.light_view)
+					block.min_caster_extent = self.current_min_caster_extent or 0.0
+				else
+					ffi.fill(block.light_view, ffi.sizeof("float") * 16, 0)
+					block.min_caster_extent = 0.0
+				end
+
 				return block
 			end,
 			shader = [[
@@ -963,6 +974,22 @@ function gpu_culling.Initialize()
 
 				if ((visual_record.flags & VISUAL_FLAG_CAST_SHADOWS) == 0u) return;
 				if (!overlaps_query(visual_record)) return;
+
+				// matches ShadowMap:IsWorldAABBTooSmall from the cpu fallback path:
+				// cull casters below the min texel size on both light axes
+				if (compute.min_caster_extent > 0.0) {
+					vec3 half_size = 0.5 * vec3(
+						visual_record.max_x - visual_record.min_x,
+						visual_record.max_y - visual_record.min_y,
+						visual_record.max_z - visual_record.min_z
+					);
+					mat3 light_rot = mat3(compute.light_view);
+					float extent_x = (abs(light_rot[0].x) * half_size.x + abs(light_rot[0].y) * half_size.y + abs(light_rot[0].z) * half_size.z) * 2.0;
+					float extent_y = (abs(light_rot[1].x) * half_size.x + abs(light_rot[1].y) * half_size.y + abs(light_rot[1].z) * half_size.z) * 2.0;
+
+					if (extent_x < compute.min_caster_extent && extent_y < compute.min_caster_extent) return;
+				}
+
 				if (!camera_inside_aabb && is_occluded(visual_record)) return;
 
 				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
@@ -1426,6 +1453,7 @@ local function build_scene_dataset(acceleration)
 		main_instanced_batches = {},
 		main_static_instance_count = 0,
 		main_static_instance_prefix_count = 0,
+		main_dynamic_world_change_version = 0,
 		shadow_instanced_batches = {},
 		shadow_instance_count = 0,
 		shadow_instance_world_change_version = 0,
@@ -1649,6 +1677,7 @@ local function build_scene_dataset(acceleration)
 					entry.static_matrix_index = dataset.main_static_instance_count
 					batch.max_count = batch.max_count + 1
 					dataset.main_static_instance_count = dataset.main_static_instance_count + 1
+					dataset.main_dynamic_world_change_version = math.max(dataset.main_dynamic_world_change_version, visual.shadow_change_version or 0)
 				end
 			end
 		end
@@ -2703,6 +2732,7 @@ local function upload_main_instance_worlds(output, dataset)
 	end
 
 	local world_matrices = output.main_instance_world_upload_data
+	local dynamic_change_version = dataset.main_dynamic_world_change_version or 0
 
 	if output.main_instance_world_upload_generation ~= generation then
 		local dataset_buffers = gpu_culling.dataset_buffers
@@ -2711,6 +2741,7 @@ local function upload_main_instance_worlds(output, dataset)
 			flatten_static_instance_world_upload(dataset)
 		ffi.copy(world_matrices, static_worlds.world_matrices, byte_count)
 		output.main_instance_world_upload_generation = generation
+		output.main_instance_world_upload_change_version = dynamic_change_version
 
 		for _, visual in ipairs(dataset.dynamic_visuals or {}) do
 			for _, entry in ipairs(visual.entries or {}) do
@@ -2736,6 +2767,10 @@ local function upload_main_instance_worlds(output, dataset)
 
 	if dynamic_count <= 0 then return end
 
+	if output.main_instance_world_upload_change_version == dynamic_change_version then
+		return
+	end
+
 	for _, visual in ipairs(dataset.dynamic_visuals or {}) do
 		for _, entry in ipairs(visual.entries or {}) do
 			if entry.static_matrix_index ~= nil then
@@ -2759,6 +2794,7 @@ local function upload_main_instance_worlds(output, dataset)
 		dynamic_count * 16 * float_size,
 		dynamic_start * 16 * float_size
 	)
+	output.main_instance_world_upload_change_version = dynamic_change_version
 end
 
 local function ensure_frame_buffers(dataset)
@@ -3205,7 +3241,8 @@ function gpu_culling.RunMainViewFrustumCulling(
 	return publish_latest_async_result(frame_buffers)
 end
 
-function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_index, include_visible_entry_indices)
+-- options: {light_view = Matrix44, min_caster_extent = number} for min-caster-texel culling
+function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_index, include_visible_entry_indices, options)
 	if not gpu_culling.shadow_view_aabb_cull_pass then return nil end
 
 	local dataset = gpu_culling.scene_dataset
@@ -3273,6 +3310,8 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 	pass.current_query_aabb = query_aabb
 	pass.current_camera_position = camera:GetPosition()
 	pass.current_view_projection = view_projection_matrix
+	pass.current_light_view = options and options.light_view or nil
+	pass.current_min_caster_extent = options and options.min_caster_extent or nil
 	pass:UpdateDescriptorSet(
 		"storage_buffer",
 		descriptor_slot,

@@ -349,6 +349,23 @@ local function ensure_shadow_gpu_cull_output(cache, shadow_map, cascade_idx)
 	return output
 end
 
+local function build_shadow_cull_options(shadow_map, cascade_idx)
+	if shadow_map.mode == "point" then return nil end
+
+	local cascade = shadow_map.cascade and shadow_map.cascade[cascade_idx]
+	local min_caster_texel_size = shadow_map.min_caster_texel_size or 0
+	local texel_world_size = cascade and cascade.texel_world_size or 0
+
+	if min_caster_texel_size <= 0 or texel_world_size <= 0 or not cascade.view_matrix then
+		return nil
+	end
+
+	return {
+		light_view = cascade.view_matrix,
+		min_caster_extent = min_caster_texel_size * texel_world_size,
+	}
+end
+
 local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visible_entry_indices)
 	local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
 	local camera_position = get_cull_camera_position()
@@ -387,8 +404,9 @@ local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visib
 	if gpu_culling.IsEnabled() and not visual.noculling and query_aabb then
 		local dataset = gpu_culling.GetSceneDataset()
 		local shadow_output = ensure_shadow_gpu_cull_output(cache, shadow_map, cascade_idx)
+		local cull_options = build_shadow_cull_options(shadow_map, cascade_idx)
 		local cull_result = dataset and
-			gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, nil, read_visible_entry_indices) or
+			gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, nil, read_visible_entry_indices, cull_options) or
 			nil
 
 		if cull_result then
@@ -554,8 +572,11 @@ end
 
 local function is_visual_dynamic(component)
 	local owner = component and component.Owner
+	local body = owner and owner.rigid_body
 
-	if owner and owner.rigid_body then return true end
+	-- a static rigid body never moves on its own, so its visual can be treated
+	-- as static for acceleration structures and instance uploads
+	if body then return body:IsKinematic() or body:IsDynamic() end
 
 	local transform = owner and owner.transform
 	return transform and transform.IsFrameDynamic and transform:IsFrameDynamic() or false
@@ -1196,6 +1217,7 @@ do
 	event.AddListener("OnTransformChanged", "visual_aabb_scan", function()
 		visual.aabb_changes_pending = true
 	end)
+
 	visual.shadow_debug_filter = nil
 	visual.shadow_debug_log = true
 	visual.shadow_debug_frame = -1
@@ -1496,23 +1518,43 @@ do
 		mark_shadow_change(component)
 	end
 
+	local function get_dynamic_shadow_aabb_cache()
+		visual.dynamic_shadow_aabb_cache = visual.dynamic_shadow_aabb_cache or setmetatable({}, {__mode = "k"})
+		return visual.dynamic_shadow_aabb_cache
+	end
+
+	local function get_cached_component_world_aabb(aabb_cache, component, version)
+		local cached = aabb_cache[component]
+
+		if not cached or cached.version ~= version then
+			cached = {version = version, aabb = component:GetWorldAABB()}
+			aabb_cache[component] = cached
+		end
+
+		return cached.aabb
+	end
+
 	function visual.GetShadowVolumeChangeVersion(query_aabb)
 		local acceleration = ensure_scene_acceleration()
 		local max_version = get_shadow_tree_volume_change_version(query_aabb)
+		local aabb_cache = get_dynamic_shadow_aabb_cache()
 
 		for _, component in ipairs(acceleration.dynamic_shadow_components or {}) do
-			local world_aabb = component:GetWorldAABB()
+			local version = component.shadow_change_version or 0
 
-			if is_aabb_intersecting(world_aabb, query_aabb) then
-				max_version = math.max(max_version, component.shadow_change_version or 0)
+			if
+				is_aabb_intersecting(get_cached_component_world_aabb(aabb_cache, component, version), query_aabb)
+			then
+				max_version = math.max(max_version, version)
 			end
 		end
 
 		for _, component in ipairs(acceleration.non_aabb_shadow_components or {}) do
-			local world_aabb = component:GetWorldAABB()
+			local version = component.shadow_change_version or 0
+			local world_aabb = get_cached_component_world_aabb(aabb_cache, component, version)
 
 			if not world_aabb or is_aabb_intersecting(world_aabb, query_aabb) then
-				max_version = math.max(max_version, component.shadow_change_version or 0)
+				max_version = math.max(max_version, version)
 			end
 		end
 
@@ -1778,7 +1820,11 @@ do
 		local count = #Visual.Instances
 		local signatures = visual.aabb_signatures
 
-		if not visual.aabb_changes_pending and signatures and count == visual.aabb_signature_count then
+		if
+			not visual.aabb_changes_pending and
+			signatures and
+			count == visual.aabb_signature_count
+		then
 			-- steady state: nothing invalidated since the last scan and the visual
 			-- set is intact, so report no change without walking the instances
 			visual.aabb_scan_changed = false

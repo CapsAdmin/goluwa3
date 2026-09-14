@@ -1018,6 +1018,7 @@ local function set_directional_cascade_state(
 	cascade.light_space_matrix = light_space_matrix
 	cascade.texel_world_size = texel_world_size
 	cascade.cull_aabb = cull_aabb
+	cascade.world_cull_aabb = build_world_aabb_from_local_aabb(cull_aabb, view:GetInverse())
 	update_cascade_frustum_planes(cascade)
 	self.cascade_splits[1] = range
 end
@@ -1360,7 +1361,7 @@ function ShadowMap:UpdatePointLightMatrices(light_position)
 		self.cascade[face].view_matrix = view
 		self.cascade[face].light_space_matrix = view * projection
 		self.cascade[face].texel_world_size = self.far_plane / math.max(self.size.w, self.size.h)
-		self.cascade[face].cull_aabb = AABB(
+		local cull_aabb = AABB(
 			light_position.x - self.far_plane,
 			light_position.y - self.far_plane,
 			light_position.z - self.far_plane,
@@ -1368,6 +1369,8 @@ function ShadowMap:UpdatePointLightMatrices(light_position)
 			light_position.y + self.far_plane,
 			light_position.z + self.far_plane
 		)
+		self.cascade[face].cull_aabb = cull_aabb
+		self.cascade[face].world_cull_aabb = build_world_aabb_from_local_aabb(cull_aabb, self.cascade[face].view_matrix:GetInverse())
 		update_cascade_frustum_planes(self.cascade[face])
 	end
 
@@ -1456,10 +1459,14 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 	self:CalculateCascadeSplits()
 
 	if TEMP_IDENTITY_CASCADE_OVERRIDE then
+		local identity_cull_aabb = AABB(-1000000, -1000000, -1000000, 1000000, 1000000, 1000000)
+		local identity = Matrix44()
+
 		for cascade_idx = 1, self.cascade_count do
 			self.cascade[cascade_idx].position = Vec3(0, 0, 0)
-			self.cascade[cascade_idx].view_matrix = Matrix44()
-			self.cascade[cascade_idx].cull_aabb = AABB(-1000000, -1000000, -1000000, 1000000, 1000000, 1000000)
+			self.cascade[cascade_idx].view_matrix = identity
+			self.cascade[cascade_idx].cull_aabb = identity_cull_aabb
+			self.cascade[cascade_idx].world_cull_aabb = identity_cull_aabb
 			self.cascade[cascade_idx].light_space_matrix = Matrix44()
 			update_cascade_frustum_planes(self.cascade[cascade_idx])
 		end
@@ -1574,7 +1581,9 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		cull_projection:Ortho(min_x, max_x, min_y, max_y, -(max_z + cull_near_margin), -caster_min_z, true)
 		self.cascade[cascade_idx].position = shadow_center
 		self.cascade[cascade_idx].view_matrix = view
-		self.cascade[cascade_idx].cull_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, max_z + cull_near_margin)
+		local cull_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, max_z + cull_near_margin)
+		self.cascade[cascade_idx].cull_aabb = cull_aabb
+		self.cascade[cascade_idx].world_cull_aabb = build_world_aabb_from_local_aabb(cull_aabb, view:GetInverse())
 		self.cascade[cascade_idx].projection_aabb = AABB(min_x, min_y, caster_min_z, max_x, max_y, caster_max_z)
 		self.cascade[cascade_idx].light_space_matrix = view * projection
 		extract_frustum_planes(view * cull_projection, self.cascade[cascade_idx].frustum_planes)
@@ -1590,6 +1599,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 			self.cascade[cascade_idx].position = first.position:Copy()
 			self.cascade[cascade_idx].view_matrix = first.view_matrix:Copy()
 			self.cascade[cascade_idx].cull_aabb = first.cull_aabb:Copy()
+			self.cascade[cascade_idx].world_cull_aabb = first.world_cull_aabb and first.world_cull_aabb:Copy()
 			self.cascade[cascade_idx].light_space_matrix = first.light_space_matrix:Copy()
 			update_cascade_frustum_planes(self.cascade[cascade_idx])
 		end
@@ -1631,7 +1641,11 @@ function ShadowMap:GetCascadeWorldAABB(cascade_index)
 		return nil
 	end
 
-	return build_world_aabb_from_local_aabb(cascade.cull_aabb, cascade.view_matrix:GetInverse())
+	if not cascade.world_cull_aabb then
+		cascade.world_cull_aabb = build_world_aabb_from_local_aabb(cascade.cull_aabb, cascade.view_matrix:GetInverse())
+	end
+
+	return cascade.world_cull_aabb
 end
 
 function ShadowMap:ShouldDisableVertexAnimation(cascade_index)
@@ -2131,7 +2145,6 @@ local function flush_shadow_instance_batches(self, submission_context, submitted
 	local fallback_draws = 0
 	local ordered_batches = submission_context.ordered_batches
 	local submission_stats = submission_context.submission_stats
-
 	-- group draws by material so consecutive binds are more likely to reuse the
 	-- previous pipeline/descriptor/dynamic-offset state (see descriptor_set_binding_matches
 	-- and GraphicsPipeline:Bind) instead of forcing a real rebind on every draw; draw order
