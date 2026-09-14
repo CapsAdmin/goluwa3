@@ -93,22 +93,3 @@ for i = 1, BOX_COUNT do
 	}
 	ent.transform:SetAngles(Deg3(0, rand() * 360, 0))
 end
-
--- orbit the camera around the scene center so the rasterize pass keeps
--- getting dirty slices from translation and rotation (forward bias).
--- the player controller drives the game camera every Update, so the orbit
--- runs on a render camera override, which is what the pipeline reads
-local orbit_cam = render3d.GetCamera():Copy()
-orbit_cam:SetFOV(math.rad(60))
-render3d.SetRenderCamera(orbit_cam)
-
-Event.AddListener("Update", "voxel_noise_orbit", function()
-	local t = System.GetElapsedTime() * 0.25
-	local radius = 30
-	local x = radius * math.cos(t)
-	local z = radius * math.sin(t)
-	local y = 8 + 4 * math.sin(t * 0.5)
-	orbit_cam:SetPosition(Vec3(x, y, z))
-	local pitch = -math.asin(y / math.sqrt(radius * radius + y * y))
-	orbit_cam:SetAngles(Ang3(pitch, t - math.pi * 0.5, 0))
-end)
