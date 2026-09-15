@@ -1234,6 +1234,7 @@ function ShadowMap.New(config)
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl())
 	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl)
+	self.expander = {}
 	self.light = config.light -- optional source entity whose transform the map follows
 	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
 	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
@@ -1414,6 +1415,10 @@ function ShadowMap.New(config)
 end
 
 function ShadowMap:OnRemove()
+	if self.expander.position_buffer then self.expander.position_buffer:Remove() end
+
+	if self.expander.expand_pipeline then self.expander.expand_pipeline:Remove() end
+
 	for i, map in ipairs(active_maps) do
 		if map == self then
 			table.remove(active_maps, i)
@@ -1859,7 +1864,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		-- expand the triangle soup once per batch so the outer cascades can
 		-- rasterize it as a single merged mesh
 		if self.mode ~= "point" and self.soup_cascade_from <= self.cascade_count then
-			local vertex_count = scene_bvh.ExpandPositions(self.cmd)
+			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
 
 			if vertex_count > 0 then
 				self.cmd:PipelineBarrier{
@@ -1867,7 +1872,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 					dstStage = "vertex_input",
 					bufferBarriers = {
 						{
-							buffer = scene_bvh.position_buffer,
+							buffer = position_buffer,
 							size = vertex_count * 12,
 							srcAccessMask = "shader_write",
 							dstAccessMask = "vertex_attribute_read",
@@ -2520,7 +2525,7 @@ function ShadowMap:DrawSoup(cascade_index)
 	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
 	self.cmd:SetScissor(0, 0, w, h)
 	self.cmd:SetCullMode("none")
-	self.cmd:BindVertexBuffers(0, {scene_bvh.position_buffer})
+	self.cmd:BindVertexBuffers(0, {self.expander.position_buffer})
 	local planes = cascade.frustum_planes
 	local blocks = scene_bvh.raster_blocks
 

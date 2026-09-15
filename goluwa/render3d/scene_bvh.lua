@@ -1433,32 +1433,30 @@ end)
 
 do
 	local EXPAND_LOCAL_SIZE = 256
-	scene_bvh.position_buffer = nil
-	scene_bvh.expand_pipeline = nil
 	scene_bvh.raster_blocks = {}
 
-	local function ensure_position_buffer(vertex_count)
+	local function ensure_position_buffer(state, vertex_count)
 		local byte_size = vertex_count * 12
 
-		if scene_bvh.position_buffer and scene_bvh.position_buffer:GetSize() >= byte_size then
-			return scene_bvh.position_buffer
+		if state.position_buffer and state.position_buffer:GetSize() >= byte_size then
+			return state.position_buffer
 		end
 
-		if scene_bvh.position_buffer then scene_bvh.position_buffer:Remove() end
+		if state.position_buffer then state.position_buffer:Remove() end
 
-		scene_bvh.position_buffer = render.CreateBuffer{
+		state.position_buffer = render.CreateBuffer{
 			byte_size = math.max(byte_size, 12),
 			buffer_usage = {"vertex_buffer", "storage_buffer"},
 			memory_property = {"device_local"},
 			label = "scene_bvh_raster_positions",
 		}
-		return scene_bvh.position_buffer
+		return state.position_buffer
 	end
 
-	local function ensure_expand_pipeline()
-		if scene_bvh.expand_pipeline then return scene_bvh.expand_pipeline end
+	local function ensure_expand_pipeline(state)
+		if state.expand_pipeline then return state.expand_pipeline end
 
-		scene_bvh.expand_pipeline = EasyPipeline.Compute{
+		state.expand_pipeline = EasyPipeline.Compute{
 			name = "scene_bvh_expand_positions",
 			dont_create_framebuffers = true,
 			DescriptorSetCount = 1,
@@ -1501,7 +1499,7 @@ do
 				}
 			]],
 		}
-		return scene_bvh.expand_pipeline
+		return state.expand_pipeline
 	end
 
 	-- per-visual draw ranges into the expanded position buffer, for cascade
@@ -1527,17 +1525,15 @@ do
 		scene_bvh.raster_blocks = out
 	end
 
-	-- expand the triangle soup into a plain world-space position vertex buffer
-	-- on cmd. returns the vertex count, or 0 when the tree is not ready
-	function scene_bvh.ExpandPositions(cmd)
-		if not scene_bvh.IsReady() then return 0 end
+	function scene_bvh.ExpandPositions(cmd, state)
+		if not scene_bvh.IsReady() then return 0, nil end
 
 		local vertex_count = scene_bvh.triangle_count * 3
 
-		if vertex_count <= 0 then return 0 end
+		if vertex_count <= 0 then return 0, nil end
 
-		local position_buffer = ensure_position_buffer(vertex_count)
-		local pipeline = ensure_expand_pipeline()
+		local position_buffer = ensure_position_buffer(state, vertex_count)
+		local pipeline = ensure_expand_pipeline(state)
 		local slot = 1
 		pipeline:UpdateDescriptorSet(
 			"storage_buffer",
@@ -1549,7 +1545,7 @@ do
 		)
 		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, vertex_count * 12)
 		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
-		return vertex_count
+		return vertex_count, position_buffer
 	end
 end
 
