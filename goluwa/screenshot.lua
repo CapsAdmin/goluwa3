@@ -12,22 +12,25 @@ local function setup_camera_override(camera)
 		error("Screenshot: camera option requires 3d rendering", 2)
 	end
 
-	local override = render3d.GetCamera():Copy()
+	local override
 
-	if camera.position then override:SetPosition(camera.position) end
+	if typex(camera) == "render3d_camera3d" then
+		override = camera:Copy()
+	else
+		override = render3d.GetCamera():Copy()
 
-	if camera.rotation then
-		local rotation = camera.rotation
-		local meta = getmetatable(rotation)
+		if camera.position then override:SetPosition(camera.position) end
 
-		if meta and meta.ClassName == "Ang3" then
-			rotation = Quat():SetAngles(rotation)
+		if camera.rotation then
+			if typex(camera.rotation) == "ang3" then
+				rotation = Quat():SetAngles(rotation)
+			end
+
+			override:SetRotation(rotation)
 		end
 
-		override:SetRotation(rotation)
+		if camera.fov then override:SetFOV(camera.fov) end
 	end
-
-	if camera.fov then override:SetFOV(camera.fov) end
 
 	render3d.SetRenderCamera(override)
 	return function()
