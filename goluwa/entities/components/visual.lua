@@ -3118,6 +3118,15 @@ function Visual:OnFirstCreated()
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
 		reset_shadow_draw_calls(shadow_map, cascade_idx)
 
+		if
+			shadow_map.UsesSoup and
+			shadow_map:UsesSoup(cascade_idx) and
+			scene_bvh.IsReady()
+		then
+			shadow_map:DrawSoup(cascade_idx)
+			return
+		end
+
 		if gpu_culling.IsEnabled() then
 			local track_shadow_debug = visual.shadow_debug_filter ~= nil
 			local entry_records, visible_entry_index_ptr, visible_entry_count, cull_result = visual.GetShadowVisibleGPUEntries(shadow_map, cascade_idx)

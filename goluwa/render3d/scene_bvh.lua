@@ -3,6 +3,7 @@ local render = import("goluwa/render/render.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_bvh = library()
 -- Pre-register to break import cycle: visual -> render3d -> scene_bvh -> visual
 import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
@@ -912,6 +913,7 @@ do
 			end
 
 			node_count = node_base
+
 			-- world bake for anything that moved (or baked with a different
 			-- layout) since the last bake
 			for i = 1, n do
@@ -1063,6 +1065,7 @@ do
 		scene_bvh.debug_triangle_count = triangle_total
 		scene_bvh.node_count = node_count
 		scene_bvh.triangle_count = triangle_total
+		scene_bvh.BuildRasterBlocks(blocks)
 		scene_bvh.build_time = os.clock() - start_time
 		scene_bvh.has_built = true
 		scene_bvh.dirty_components = {}
@@ -1427,5 +1430,127 @@ commands.Add("scene_bvh_info", function()
 		scene_bvh.light_version or 0
 	)
 end)
+
+do
+	local EXPAND_LOCAL_SIZE = 256
+	scene_bvh.position_buffer = nil
+	scene_bvh.expand_pipeline = nil
+	scene_bvh.raster_blocks = {}
+
+	local function ensure_position_buffer(vertex_count)
+		local byte_size = vertex_count * 12
+
+		if scene_bvh.position_buffer and scene_bvh.position_buffer:GetSize() >= byte_size then
+			return scene_bvh.position_buffer
+		end
+
+		if scene_bvh.position_buffer then scene_bvh.position_buffer:Remove() end
+
+		scene_bvh.position_buffer = render.CreateBuffer{
+			byte_size = math.max(byte_size, 12),
+			buffer_usage = {"vertex_buffer", "storage_buffer"},
+			memory_property = {"device_local"},
+			label = "scene_bvh_raster_positions",
+		}
+		return scene_bvh.position_buffer
+	end
+
+	local function ensure_expand_pipeline()
+		if scene_bvh.expand_pipeline then return scene_bvh.expand_pipeline end
+
+		scene_bvh.expand_pipeline = EasyPipeline.Compute{
+			name = "scene_bvh_expand_positions",
+			dont_create_framebuffers = true,
+			DescriptorSetCount = 1,
+			LocalSize = {EXPAND_LOCAL_SIZE, 1, 1},
+			storage_buffers = {{binding_index = 0}, {binding_index = 1}},
+			block = {
+				{"vertex_count", "int"},
+				write = function(self, block)
+					block.vertex_count = scene_bvh.triangle_count * 3
+					return block
+				end,
+			},
+			custom_declarations = [[
+				struct scene_bvh_triangle {
+					vec3 v0;
+					vec3 e1;
+					vec3 e2;
+					vec3 normal;
+					vec3 emissive;
+					float padding;
+				};
+				layout(scalar, set = 0, binding = 1) readonly buffer SceneBvhTri {
+					scene_bvh_triangle tris[];
+				};
+				layout(scalar, set = 0, binding = 0) buffer SceneBvhPos {
+					vec3 positions[];
+				};
+			]],
+			shader = [[
+				void main() {
+					uint vid = gl_GlobalInvocationID.x;
+					if (vid >= uint(compute.vertex_count)) return;
+					uint tri = vid / 3u;
+					scene_bvh_triangle t = tris[tri];
+					uint which = vid - tri * 3u;
+					vec3 p = t.v0;
+					if (which == 1u) p += t.e1;
+					else if (which == 2u) p += t.e2;
+					positions[vid] = p;
+				}
+			]],
+		}
+		return scene_bvh.expand_pipeline
+	end
+
+	-- per-visual draw ranges into the expanded position buffer, for cascade
+	-- frustum culling. tri_base/total are soup triangle indices, x3 for the
+	-- one-position-per-vertex layout
+	function scene_bvh.BuildRasterBlocks(blocks)
+		local out = {}
+
+		for i = 1, #blocks do
+			local vc = blocks[i]
+			out[#out + 1] = {
+				first_vertex = vc.tri_base * 3,
+				vertex_count = vc.total * 3,
+				min_x = vc.world_aabb[0],
+				min_y = vc.world_aabb[1],
+				min_z = vc.world_aabb[2],
+				max_x = vc.world_aabb[3],
+				max_y = vc.world_aabb[4],
+				max_z = vc.world_aabb[5],
+			}
+		end
+
+		scene_bvh.raster_blocks = out
+	end
+
+	-- expand the triangle soup into a plain world-space position vertex buffer
+	-- on cmd. returns the vertex count, or 0 when the tree is not ready
+	function scene_bvh.ExpandPositions(cmd)
+		if not scene_bvh.IsReady() then return 0 end
+
+		local vertex_count = scene_bvh.triangle_count * 3
+
+		if vertex_count <= 0 then return 0 end
+
+		local position_buffer = ensure_position_buffer(vertex_count)
+		local pipeline = ensure_expand_pipeline()
+		local slot = 1
+		pipeline:UpdateDescriptorSet(
+			"storage_buffer",
+			slot,
+			1,
+			0,
+			scene_bvh.triangle_buffer,
+			scene_bvh.triangle_buffer:GetSize()
+		)
+		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, vertex_count * 12)
+		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
+		return vertex_count
+	end
+end
 
 return scene_bvh

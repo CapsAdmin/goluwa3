@@ -3,6 +3,7 @@ local vk = import("goluwa/bindings/vk.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = nil
 local ShadowMapLispsm = import("goluwa/render3d/shadow_map_lispsm.lua")
+local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
@@ -937,6 +938,62 @@ local function quickselect_depth_value(values, target_index)
 	return nil
 end
 
+local SOUP_VERTEX_GLSL = [[
+		#version 450
+		#extension GL_EXT_scalar_block_layout : require
+
+		layout(location = 0) in vec3 in_position;
+		layout(scalar, binding = 0) uniform SoupLight_t {
+			mat4 light_space_matrix;
+		} soup_light;
+
+		void main() {
+			gl_Position = soup_light.light_space_matrix * vec4(in_position, 1.0);
+		}
+	]]
+local SOUP_FRAGMENT_GLSL = [[
+		#version 450
+
+		void main() {}
+	]]
+local SOUP_VERTEX_BINDING = {
+	binding = 0,
+	stride = 12,
+	input_rate = "vertex",
+}
+local SOUP_VERTEX_ATTRIBUTES = {
+	{binding = 0, location = 0, format = "r32g32b32_sfloat", offset = 0},
+}
+
+local function create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
+	return render.CreateGraphicsPipeline(
+		build_shadow_pipeline_config(
+			depth_format,
+			max_shadow_width,
+			max_shadow_height,
+			{
+				{
+					type = "vertex",
+					code = SOUP_VERTEX_GLSL,
+					bindings = {SOUP_VERTEX_BINDING},
+					attributes = SOUP_VERTEX_ATTRIBUTES,
+					descriptor_sets = {
+						{
+							type = "uniform_buffer_dynamic",
+							binding_index = 0,
+							args = {self.soup_light_buffer.buffer, self.soup_light_buffer.aligned_size},
+						},
+					},
+				},
+				{type = "fragment", code = SOUP_FRAGMENT_GLSL},
+			},
+			"triangle_list",
+			nil,
+			nil
+		)
+	)
+end
+
 function ShadowMap.New(config)
 	config = config or {}
 	local self = ShadowMap:CreateObject()
@@ -1103,6 +1160,9 @@ function ShadowMap.New(config)
 
 		self.pipeline_variants = {}
 		self.instanced_pipeline_variants = {}
+		self.soup_cascade_from = config.soup_cascade_from or 2
+		self.soup_light_buffer = UniformBuffer.New([[struct { float light_space_matrix[16]; }]])
+		self.soup_pipeline_variants = {}
 
 		for depth_format in pairs(unique_formats) do
 			self.pipeline_variants[depth_format] = create_shadow_pipeline_variant(
@@ -1123,10 +1183,12 @@ function ShadowMap.New(config)
 				false,
 				nil
 			)
+			self.soup_pipeline_variants[depth_format] = create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
 		end
 
 		self.pipeline = self.pipeline_variants[self.format]
 		self.instanced_pipeline = self.instanced_pipeline_variants[self.format]
+		self.soup_pipeline = self.soup_pipeline_variants[self.format]
 	end
 
 	-- Command buffer for shadow pass
@@ -1573,6 +1635,27 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		self.cmd:Reset()
 		self.cmd:Begin()
 		self.is_recording_cascades = true
+
+		-- expand the triangle soup once per batch so the outer cascades can
+		-- rasterize it as a single merged mesh
+		if self.mode ~= "point" and self.soup_cascade_from <= self.cascade_count then
+			local vertex_count = scene_bvh.ExpandPositions(self.cmd)
+
+			if vertex_count > 0 then
+				self.cmd:PipelineBarrier{
+					srcStage = "compute",
+					dstStage = "vertex_input",
+					bufferBarriers = {
+						{
+							buffer = scene_bvh.position_buffer,
+							size = vertex_count * 12,
+							srcAccessMask = "shader_write",
+							dstAccessMask = "vertex_attribute_read",
+						},
+					},
+				}
+			end
+		end
 	end
 
 	-- Transition depth texture to depth attachment optimal
@@ -2193,6 +2276,43 @@ function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, trac
 	result.instanced_draws = instanced_draws
 	result.fallback_draws = fallback_draws
 	return result
+end
+
+function ShadowMap:UsesSoup(cascade_index)
+	return self.mode ~= "point" and cascade_index >= self.soup_cascade_from
+end
+
+function ShadowMap:DrawSoup(cascade_index)
+	cascade_index = cascade_index or self.current_cascade
+	local cascade = self.cascade[cascade_index]
+
+	if not cascade then return end
+
+	local pipeline = self.soup_pipeline_variants[cascade.format] or self.soup_pipeline
+	local frame_index = render.GetCurrentFrame()
+	local data = self.soup_light_buffer:GetData()
+	data.light_space_matrix = cascade.light_space_matrix:GetFloatCopy()
+	local offset = self.soup_light_buffer:Upload(frame_index)
+	pipeline:Bind(self.cmd, frame_index, {offset})
+	local depth_texture = cascade.depth_texture
+	local w = depth_texture:GetWidth()
+	local h = depth_texture:GetHeight()
+	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
+	self.cmd:SetScissor(0, 0, w, h)
+	self.cmd:SetCullMode("none")
+	self.cmd:BindVertexBuffers(0, {scene_bvh.position_buffer})
+	local planes = cascade.frustum_planes
+	local blocks = scene_bvh.raster_blocks
+
+	if not (blocks and planes) then return end
+
+	for i = 1, #blocks do
+		local block = blocks[i]
+
+		if is_aabb_visible_frustum(block, planes) then
+			self.cmd:Draw(block.vertex_count, 1, block.first_vertex, 0)
+		end
+	end
 end
 
 function ShadowMap:PrimeMaterial(material)

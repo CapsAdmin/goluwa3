@@ -40,6 +40,7 @@ elseif MODE == "cascade" then
 		min_caster_texel_size = 4,
 		shadow_update_interval = 2,
 		cascade_count = 3,
+		soup_cascade_from = 2,
 		cascade_formats = {
 			"d16_unorm",
 			"d16_unorm",
