@@ -1,6 +1,5 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local traceback = import("goluwa/debug/traceback.lua")
 local timer = library()
 timer.timers = timer.timers or {}
 timer.MaxThinkerIterations = timer.MaxThinkerIterations or 128
@@ -272,5 +271,5 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 	end
 end
 
-event.AddListener("Update", "timers", timer.UpdateTimers, {on_error = traceback.OnError})
+event.AddListener("Update", "timers", timer.UpdateTimers)
 return timer

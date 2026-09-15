@@ -12,6 +12,8 @@ Goluwa is a game engine written entirely in LuaJIT and ffi, without any third pa
 # Running
 Use luajit installed on the system. `glw` is a lua script without a .lua extension that simply calls into `goluwa/main.lua` with the remaining arguments. Optional engine flags come first, then a command, followed by the command's arguments. `main.lua` sets up a default global environment globals, but scripts mostly uses import statements, ie `local Vec3 = import("goluwa/structs/vec3.lua")`
 
+- Use the --strict flag to prevent the engine from running forever after a lua error
+
 - The engine in --3d mode starts in about 2 seconds, --2d is less than one second, and --cli/--headless is instant. Therefore, using `timeout` for more than 20 seconds is most likely not needed.
 
 - If you need to write a temporary script to run, write it in `./tmp/`

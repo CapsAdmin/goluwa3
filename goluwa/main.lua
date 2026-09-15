@@ -49,6 +49,7 @@ commands.Add{
 		renderdoc = {type = "boolean", description = "Attach RenderDoc for debugging"},
 		["no-audio"] = {type = "boolean", description = "Disable audio"},
 		["no-physics"] = {type = "boolean", description = "Disable physics"},
+		["strict"] = {type = "boolean", description = "Exit on any error"},
 	},
 	callback = function(...)
 		local flags = select(select("#", ...), ...) -- flags is always last
@@ -119,6 +120,11 @@ commands.Add{
 				local path = screenshot_data:SaveWithoutAlpha()
 				logn("screenshot saved to ", path)
 			end)
+		end
+
+		if flags.strict then
+			local protected_call = import("goluwa/protected_call.lua")
+			protected_call.strict = true
 		end
 	end,
 }

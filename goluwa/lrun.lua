@@ -1,4 +1,5 @@
 local fs = import("goluwa/filesystem/fs.lua")
+local protected_call = import("goluwa/protected_call.lua")
 local lrun = library()
 lrun.environment = {}
 
@@ -55,7 +56,7 @@ function lrun.Run(code_or_path, config)
 end
 
 function lrun.Execute(code_or_path, config)
-	local ret = {xpcall(lrun.Run, debug.traceback, code_or_path, config)}
+	local ret = {protected_call.call(lrun.Run, code_or_path, config)}
 	local ok = list.remove(ret, 1)
 
 	if not ok then

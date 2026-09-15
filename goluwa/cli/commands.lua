@@ -2,6 +2,7 @@ local utf8 = import("goluwa/string/utf8.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
 local objects = import("goluwa/objects/objects.lua")
+local protected_call = import("goluwa/protected_call.lua")
 local commands = library()
 
 do
@@ -835,7 +836,7 @@ do -- commands
 
 	function commands.ExecuteCommandString(str)
 		local tr
-		local a, b, c = xpcall(
+		local a, b, c = protected_call.call_error_callback(
 			commands.RunCommandString,
 			function(msg)
 				msg = tostring(msg)
@@ -863,7 +864,7 @@ do -- commands
 
 	function commands.ExecuteCommandArguments(alias, args, simple)
 		local tr
-		local ok, ret, reason = xpcall(
+		local ok, ret, reason = protected_call.call_error_callback(
 			commands.RunCommandArguments,
 			function(msg)
 				msg = tostring(msg)
