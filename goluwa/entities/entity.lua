@@ -15,6 +15,7 @@ function Entity.GetValidComponents()
 			valid_components.light = import("goluwa/entities/components/light.lua")
 			valid_components.visual = import("goluwa/entities/components/visual.lua")
 			valid_components.visual_primitive = import("goluwa/entities/components/visual_primitive.lua")
+			valid_components.shadow_map = import("goluwa/entities/components/shadow_map.lua")
 		end
 	end
 

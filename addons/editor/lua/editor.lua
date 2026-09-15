@@ -104,6 +104,41 @@ return function(props)
 		set_selected_target(entity)
 	end
 
+	local function component_label(name)
+		local s = name:gsub("_", " ")
+		return s:sub(1, 1):upper() .. s:sub(2)
+	end
+
+	local function component_names(entity, present)
+		local names = {}
+
+		for name in pairs(entity:GetValidComponents()) do
+			if entity:HasComponent(name) == present then names[#names + 1] = name end
+		end
+
+		table.sort(names)
+		return names
+	end
+
+	local function build_component_items(entity, names, present)
+		local items = {}
+
+		for _, name in ipairs(names) do
+			items[#items + 1] = MenuItem{
+				Text = component_label(name),
+				OnClick = function()
+					if present then
+						entity:RemoveComponent(name)
+					else
+						entity:AddComponent(name)
+					end
+				end,
+			}
+		end
+
+		return items
+	end
+
 	local size = props.Size or Vec2(400, 540)
 	local world_size = Panel.World.transform:GetSize()
 
@@ -281,6 +316,15 @@ return function(props)
 
 						if not can_create_shapes and not can_remove then return false end
 
+						local add_names
+						local remove_names
+
+						if can_remove then
+							add_names = component_names(entity, false)
+							remove_names = component_names(entity, true)
+						end
+
+						local has_above_remove = can_create_shapes or (can_remove and (#add_names > 0 or #remove_names > 0))
 						Panel.OpenContextMenu(
 							{
 								OnClose = function(self)
@@ -304,8 +348,26 @@ return function(props)
 									end,
 								} or
 								nil,
-								can_create_shapes and
 								can_remove and
+								#add_names > 0 and
+								MenuItem{
+									Text = "Add Component",
+									Items = function()
+										return build_component_items(entity, add_names, false)
+									end,
+								} or
+								nil,
+								can_remove and
+								#remove_names > 0 and
+								MenuItem{
+									Text = "Remove Component",
+									Items = function()
+										return build_component_items(entity, remove_names, true)
+									end,
+								} or
+								nil,
+								can_remove and
+								has_above_remove and
 								MenuSpacer() or
 								nil,
 								can_remove and
