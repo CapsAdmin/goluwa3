@@ -5,6 +5,7 @@ local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local shapes = import("lua/shapes.lua")
 local ROOT_KEY = "point_light_faces_validation_scene"
 local BOX_MODEL_PATH = "models/box.lua"
@@ -73,7 +74,9 @@ local function spawn_point_light(parent, name, position, color, intensity, range
 	component:SetColor(color)
 	component:SetIntensity(intensity)
 	component:SetRange(range)
-	component:SetCastShadows{
+	ShadowMap.New{
+		mode = "point",
+		light = light,
 		size = Vec2() + 1024,
 		near_plane = 0.05,
 		far_plane = range,
@@ -146,11 +149,13 @@ local root = Entity.World:Ensure{
 root:RemoveChildren()
 
 for _, light in ipairs(render3d.GetLights()) do
-	if light.Owner ~= root and light:GetCastShadows() then
-		light:SetCastShadows(false)
-	end
+	if light.Owner ~= root then
+		for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
+			if shadow_map.light == light.Owner then shadow_map:SetEnabled(false) end
+		end
 
-	if light.Owner ~= root then light:SetIntensity(0) end
+		light:SetIntensity(0)
+	end
 end
 
 local floor_material = shapes.Material{Color = Color(0.18, 0.19, 0.21, 1), Roughness = 0.95, Metallic = 0}

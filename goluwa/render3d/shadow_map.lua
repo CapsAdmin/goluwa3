@@ -21,6 +21,9 @@ local Quat = import("goluwa/structs/quat.lua")
 local system = import("goluwa/system.lua")
 local objects = import("goluwa/objects/objects.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
+local event = import("goluwa/event.lua")
+local Visual = import("goluwa/entities/components/visual.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
@@ -994,6 +997,202 @@ local function create_soup_pipeline_variant(self, depth_format, max_shadow_width
 	)
 end
 
+-- Shadow maps drive their own shadow pass rendering from PreFrame, sharing a
+-- global per-frame pass budget across all active maps in registration order.
+local MAX_SHADOW_PASSES_PER_FRAME = 4
+local shadow_pass_budget_frame = -1
+local shadow_passes_used = 0
+local active_maps = {}
+
+local function reset_shadow_pass_budget()
+	local frame = system.GetFrameNumber()
+
+	if shadow_pass_budget_frame ~= frame then
+		shadow_pass_budget_frame = frame
+		shadow_passes_used = 0
+	end
+end
+
+local function consume_shadow_pass_budget(pass_count)
+	reset_shadow_pass_budget()
+	local remaining = math.max(MAX_SHADOW_PASSES_PER_FRAME - shadow_passes_used, 0)
+	local granted = math.min(pass_count, remaining)
+	shadow_passes_used = shadow_passes_used + granted
+	return granted
+end
+
+local function position_changed(a, b, epsilon)
+	if not a or not b then return true end
+
+	epsilon = epsilon or 0
+
+	if epsilon <= 0 then return a.x ~= b.x or a.y ~= b.y or a.z ~= b.z end
+
+	local dx = a.x - b.x
+	local dy = a.y - b.y
+	local dz = a.z - b.z
+	return dx * dx + dy * dy + dz * dz > epsilon * epsilon
+end
+
+local function rotation_changed(a, b, epsilon)
+	if not a or not b then return true end
+
+	epsilon = epsilon or 0
+
+	if epsilon <= 0 then
+		return a.x ~= b.x or a.y ~= b.y or a.z ~= b.z or a.w ~= b.w
+	end
+
+	return 1 - math.abs(a:Dot(b)) > epsilon
+end
+
+local scene_bounds_cache = {version = nil, aabb = nil}
+
+local function get_shadow_scene_world_aabb()
+	local library = Visual.Library
+	local casters = library and library.shadow_casters
+	local count = casters and #casters or 0
+
+	if count == 0 then return nil end
+
+	local version = library.shadow_change_version_counter or 0
+
+	if scene_bounds_cache.version == version then return scene_bounds_cache.aabb end
+
+	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+	for i = 1, count do
+		local box = casters[i]:GetWorldAABB()
+
+		if box then AABB.Expand(aabb, box) end
+	end
+
+	local result = aabb.min_x <= aabb.max_x and aabb or nil
+	scene_bounds_cache.version = version
+	scene_bounds_cache.aabb = result
+	return result
+end
+
+local function get_shadow_volume_change_version(shadow_map, cascade_idx)
+	local visual_library = Visual and Visual.Library
+
+	if not visual_library or not visual_library.GetShadowVolumeChangeVersion then
+		return nil
+	end
+
+	local world_aabb = shadow_map:GetCascadeWorldAABB(cascade_idx)
+
+	if not world_aabb then return nil end
+
+	return visual_library.GetShadowVolumeChangeVersion(world_aabb)
+end
+
+local function build_shadow_cascade_update_mask(self)
+	local policy = self.policy
+
+	if self.mode == "point" then return nil end
+
+	if policy.farthest_cascade_update_mode ~= "world_changed" then return nil end
+
+	local farthest_cascade_idx = self:GetCascadeCount()
+
+	if farthest_cascade_idx <= 1 then return nil end
+
+	local mask = {}
+
+	for i = 1, farthest_cascade_idx do
+		mask[i] = true
+	end
+
+	local farthest_cascade = self.cascade[farthest_cascade_idx]
+
+	if not farthest_cascade or not farthest_cascade.last_rendered_frame then
+		return mask
+	end
+
+	local light_rotation = self.light and self.light.transform and self.light.transform:GetRotation() or nil
+
+	if
+		rotation_changed(light_rotation, self.last_rotation, policy.shadow_rotation_epsilon or 0)
+	then
+		return mask
+	end
+
+	local camera = render3d.GetRenderCamera()
+	local camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
+	local camera_moved = position_changed(
+		camera_position,
+		farthest_cascade.last_camera_position,
+		policy.farthest_cascade_camera_position_threshold or 0
+	)
+	-- the cascade is fitted to the view frustum slice, so turning the camera
+	-- moves the slice out of the map just like walking does
+	local camera_forward = camera and camera:GetRotation():GetForward() or nil
+	local camera_turned = not camera_forward or
+		not farthest_cascade.last_camera_forward or
+		camera_forward:Dot(farthest_cascade.last_camera_forward) < math.cos(math.rad(policy.farthest_cascade_camera_rotation_threshold or 5))
+	local shadow_volume_change_version = get_shadow_volume_change_version(self, farthest_cascade_idx)
+	local world_changed = shadow_volume_change_version == nil or
+		shadow_volume_change_version > (
+			farthest_cascade.last_shadow_volume_change_version or
+			0
+		)
+
+	if not camera_moved and not camera_turned and not world_changed then
+		mask[farthest_cascade_idx] = false
+	end
+
+	return mask
+end
+
+local function render_shadow_map_batch(self, update_mask)
+	local start_index = self.next_cascade
+	local cascade_count = self:GetCascadeCount()
+
+	if start_index > cascade_count then start_index = 1 end
+
+	local eligible_indices = {}
+
+	for cascade_idx = start_index, cascade_count do
+		if not update_mask or update_mask[cascade_idx] ~= false then
+			eligible_indices[#eligible_indices + 1] = cascade_idx
+		end
+	end
+
+	if #eligible_indices == 0 then
+		self.next_cascade = 1
+		return true, false
+	end
+
+	local passes_to_render = consume_shadow_pass_budget(#eligible_indices)
+
+	if passes_to_render <= 0 then return false, false end
+
+	for i = 1, passes_to_render do
+		local cascade_idx = eligible_indices[i]
+		local shadow_cmd = self:Begin(cascade_idx, i == 1)
+		render.PushCommandBuffer(shadow_cmd)
+		event.Call("DrawAllShadows", self, cascade_idx)
+		render.PopCommandBuffer()
+		self:End(cascade_idx, i == passes_to_render)
+		local camera = render3d.GetRenderCamera()
+		self:MarkCascadeRendered(
+			cascade_idx,
+			get_shadow_volume_change_version(self, cascade_idx),
+			camera and camera:GetPosition() or nil,
+			camera and camera:GetRotation():GetForward() or nil
+		)
+	end
+
+	if passes_to_render >= #eligible_indices then
+		self.next_cascade = 1
+		return true, true
+	end
+
+	self.next_cascade = eligible_indices[passes_to_render] + 1
+	return false, true
+end
+
 function ShadowMap.New(config)
 	config = config or {}
 	local self = ShadowMap:CreateObject()
@@ -1035,6 +1234,19 @@ function ShadowMap.New(config)
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl())
 	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl)
+	self.light = config.light -- optional source entity whose transform the map follows
+	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
+	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
+	self.directional_rotation_flip = config.directional_rotation_flip
+	self.enabled = true
+	self.next_cascade = 1 -- shadow rendering progress
+	self.needs_completion = false
+	self.last_update_frame = nil
+	self.last_position = nil
+	self.last_rotation = nil
+	self.scene_version = nil
+	active_maps[#active_maps + 1] = self
+	self:AddGlobalEvent("PreFrame")
 	local cascade_sizes = config.cascade_sizes or {}
 	local max_shadow_width = self.size.w
 	local max_shadow_height = self.size.h
@@ -1202,6 +1414,14 @@ function ShadowMap.New(config)
 end
 
 function ShadowMap:OnRemove()
+	for i, map in ipairs(active_maps) do
+		if map == self then
+			table.remove(active_maps, i)
+
+			break
+		end
+	end
+
 	for _, cascade in ipairs(self.cascade or {}) do
 		if cascade.gpu_cull_output then
 			gpu_culling.RemoveShadowQueryOutput(cascade.gpu_cull_output)
@@ -2440,6 +2660,128 @@ function ShadowMap:GetCascadeSplits()
 	return self.cascade_splits
 end
 
+-- Source entity (with .transform) the map follows for position/rotation.
+function ShadowMap:SetLightSource(entity)
+	self.light = entity
+	self.last_position = nil
+	self.last_rotation = nil
+end
+
+function ShadowMap:SetUpdatePolicy(policy)
+	self.policy = policy or {}
+end
+
+function ShadowMap:SetRole(role)
+	self.role = role
+end
+
+function ShadowMap:SetEnabled(enabled)
+	self.enabled = enabled
+end
+
+function ShadowMap.GetActiveMaps()
+	return active_maps
+end
+
+function ShadowMap:OnPreFrame(dt)
+	if not self.enabled then return end
+
+	local policy = self.policy
+	local transform = self.light and self.light.transform
+	local mode = policy.shadow_update_mode
+
+	if mode == nil then
+		mode = self.mode == "sun" and "continuous" or "on_move"
+	end
+
+	local scene_version = Visual.Library and Visual.Library.shadow_change_version_counter or 0
+	local scene_dirty = self.scene_version ~= scene_version
+	local restart = false
+
+	if mode == "on_move" then
+		if transform then
+			restart = scene_dirty or
+				position_changed(
+					transform:GetPosition(),
+					self.last_position,
+					policy.shadow_position_epsilon or 0
+				) or
+				rotation_changed(
+					transform:GetRotation(),
+					self.last_rotation,
+					policy.shadow_rotation_epsilon or 0
+				)
+		else
+			restart = scene_dirty
+		end
+
+		if not (restart or self.needs_completion) then
+			self.scene_version = scene_version
+			return
+		end
+	else
+		local interval = policy.shadow_update_interval
+
+		if
+			interval and
+			interval > 1 and
+			self.last_update_frame and
+			system.GetFrameNumber() - self.last_update_frame < interval and
+			not self.needs_completion
+		then
+			self.scene_version = scene_version
+			return
+		end
+
+		restart = true
+	end
+
+	if self.mode == "point" and transform then
+		local position = transform:GetPosition()
+
+		if not render3d.SphereInFrustum(position.x, position.y, position.z, self.far_plane) then
+			return
+		end
+	end
+
+	if restart and not self.needs_completion then self.next_cascade = 1 end
+
+	self.scene_world_aabb = get_shadow_scene_world_aabb()
+	local update_mask = self.role == "cascades" and build_shadow_cascade_update_mask(self) or nil
+	self:UpdateMatrices(update_mask)
+	event.Call("PrimeAllShadowMaterials", self)
+	local complete, rendered = render_shadow_map_batch(self, update_mask)
+
+	if rendered then
+		self.last_update_frame = system.GetFrameNumber()
+		self.scene_version = scene_version
+		self.needs_completion = not complete
+
+		if complete and transform then
+			self.last_position = transform:GetPosition():Copy()
+			self.last_rotation = transform:GetRotation():Copy()
+		end
+	end
+end
+
+function ShadowMap:UpdateMatrices(update_mask)
+	local transform = self.light and self.light.transform
+	local position = transform and transform:GetPosition()
+	local rotation = transform and transform:GetRotation()
+
+	if self.mode == "point" then
+		self:UpdatePointLightMatrices(position)
+	elseif self.mode == "directional" then
+		local light_rotation = self.directional_rotation_flip and
+			rotation * Quat():SetAngles(Ang3(0, 180, 0))
+			or
+			rotation
+		self:UpdateLocalDirectionalLightMatrices(position, light_rotation, self.max_shadow_distance, self.ortho_size)
+	else
+		self:UpdateCascadeLightMatrices(rotation, update_mask)
+	end
+end
+
 -- Get number of cascades
 function ShadowMap:GetCascadeCount()
 	return self.cascade_count
@@ -2448,6 +2790,135 @@ end
 -- Get shadow map size
 function ShadowMap:GetSize()
 	return self.size
+end
+
+local function append_shadow_map_draws(shadow_map)
+	local draw_stats = Visual.GetShadowDrawCallStats and
+		Visual.GetShadowDrawCallStats(shadow_map) or
+		nil
+
+	if not draw_stats then return 0 end
+
+	local total = 0
+
+	for cascade_idx = 1, shadow_map:GetCascadeCount() do
+		total = total + (draw_stats[cascade_idx] or 0)
+	end
+
+	return total
+end
+
+local function count_pending_shadow_passes(shadow_map)
+	local next_cascade = shadow_map.next_cascade
+	local cascade_count = shadow_map:GetCascadeCount()
+
+	if next_cascade > cascade_count then return 0 end
+
+	return math.max(cascade_count - next_cascade + 1, 0)
+end
+
+local shadow_overlay_summary = {
+	frame = -1,
+	shadow_lights = 0,
+	shadow_maps = 0,
+	shadow_draws = 0,
+	pending_passes = 0,
+	active_passes = 0,
+	budget_used = 0,
+	budget_max = MAX_SHADOW_PASSES_PER_FRAME,
+}
+
+local function get_shadow_overlay_summary()
+	local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
+
+	if shadow_overlay_summary.frame == frame then return shadow_overlay_summary end
+
+	shadow_overlay_summary.frame = frame
+	shadow_overlay_summary.shadow_lights = 0
+	shadow_overlay_summary.shadow_maps = 0
+	shadow_overlay_summary.shadow_draws = 0
+	shadow_overlay_summary.pending_passes = 0
+	shadow_overlay_summary.active_passes = 0
+	shadow_overlay_summary.budget_used = shadow_pass_budget_frame == frame and shadow_passes_used or 0
+	shadow_overlay_summary.budget_max = MAX_SHADOW_PASSES_PER_FRAME
+	local seen_sources = {}
+
+	for _, shadow_map in ipairs(active_maps) do
+		if not shadow_map.enabled then goto continue end
+
+		if shadow_map.light and not seen_sources[shadow_map.light] then
+			seen_sources[shadow_map.light] = true
+			shadow_overlay_summary.shadow_lights = shadow_overlay_summary.shadow_lights + 1
+		end
+
+		shadow_overlay_summary.shadow_maps = shadow_overlay_summary.shadow_maps + 1
+		shadow_overlay_summary.shadow_draws = shadow_overlay_summary.shadow_draws + append_shadow_map_draws(shadow_map)
+
+		if shadow_map.needs_completion then
+			shadow_overlay_summary.pending_passes = shadow_overlay_summary.pending_passes + count_pending_shadow_passes(shadow_map)
+		end
+
+		for cascade_idx = 1, shadow_map:GetCascadeCount() do
+			local cascade = shadow_map.cascade and shadow_map.cascade[cascade_idx]
+
+			if cascade and cascade.last_rendered_frame == frame then
+				shadow_overlay_summary.active_passes = shadow_overlay_summary.active_passes + 1
+			end
+		end
+
+		::continue::
+	end
+
+	return shadow_overlay_summary
+end
+
+function ShadowMap:OnFirstCreated()
+	render_stats.RegisterGroup{
+		id = "render3d_shadows",
+		label = "RENDER3D SHADOWS",
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_lights",
+		label = "R3D SHADOW LIGHTS",
+		group = "render3d_shadows",
+		getter = function()
+			return get_shadow_overlay_summary().shadow_lights
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_maps",
+		label = "R3D SHADOW MAPS",
+		group = "render3d_shadows",
+		getter = function()
+			return get_shadow_overlay_summary().shadow_maps
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_draws",
+		label = "R3D SHADOW DRAWS",
+		group = "render3d_shadows",
+		getter = function()
+			return get_shadow_overlay_summary().shadow_draws
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_passes",
+		label = "R3D SHADOW PASSES",
+		group = "render3d_shadows",
+		getter = function()
+			local summary = get_shadow_overlay_summary()
+			return tostring(summary.active_passes) .. "/" .. tostring(summary.budget_used)
+		end,
+	}
+	render_stats.RegisterField{
+		id = "r3d_shadow_pending",
+		label = "R3D SHADOW PENDING",
+		group = "render3d_shadows",
+		getter = function()
+			local summary = get_shadow_overlay_summary()
+			return tostring(summary.pending_passes) .. "/" .. tostring(summary.budget_max)
+		end,
+	}
 end
 
 return ShadowMap:Register()

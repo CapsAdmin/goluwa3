@@ -4,6 +4,7 @@ local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local shapes = import("lua/shapes.lua")
 local ROOT_KEY = "ground_boxes_shadow_example_scene"
 local BOX_MODEL_PATH = "models/box.lua"
@@ -66,7 +67,9 @@ end
 local function disable_non_sun_lights(root)
 	for _, light in ipairs(render3d.GetLights()) do
 		if light.Owner ~= root and light.LightType ~= "sun" then
-			if light:GetCastShadows() then light:SetCastShadows(false) end
+			for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
+				if shadow_map.light == light.Owner then shadow_map:SetEnabled(false) end
+			end
 
 			light:SetIntensity(0)
 		end

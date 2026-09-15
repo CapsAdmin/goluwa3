@@ -5,6 +5,7 @@ local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local shapes = import("lua/shapes.lua")
 local ROOT_KEY = "local_light_shadows_validation_scene"
 local VALIDATION_MODE = rawget(_G, "LOCAL_LIGHT_SHADOWS_VALIDATION_MODE") or "combined"
@@ -173,11 +174,11 @@ local function spawn_directional_light(parent, position)
 	component:SetRange(300)
 	component:SetInnerCone(0.72)
 	component:SetOuterCone(0.42)
-	component:SetCastShadows{
+	ShadowMap.New{
+		mode = "directional",
+		light = light,
+		directional_rotation_flip = true,
 		size = Vec2() + 2048,
-		cascade_count = 1,
-		cascade_sizes = {Vec2() + 2048},
-		cascade_split_lambda = 1,
 		max_shadow_distance = 42,
 		ortho_size = 18,
 		near_plane = 0.1,
@@ -193,7 +194,9 @@ local function spawn_point_light(parent, name, position, color, intensity, range
 	component:SetColor(color)
 	component:SetIntensity(intensity)
 	component:SetRange(range)
-	component:SetCastShadows{
+	ShadowMap.New{
+		mode = "point",
+		light = light,
 		size = Vec2() + 1024,
 		near_plane = 0.05,
 		far_plane = range,
@@ -219,6 +222,12 @@ local root = Entity.World:Ensure{
 }
 root:RemoveChildren()
 
+local function disable_light_shadows(entity)
+	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
+		if shadow_map.light == entity then shadow_map:SetEnabled(false) end
+	end
+end
+
 for _, light in ipairs(render3d.GetLights()) do
 	if
 		light.Owner ~= root and
@@ -229,12 +238,11 @@ for _, light in ipairs(render3d.GetLights()) do
 	then
 		if light.LightType == "sun" then
 			if VALIDATION_MODE == "local_directional" then
-				if light:GetCastShadows() then light:SetCastShadows(false) end
-
+				disable_light_shadows(light.Owner)
 				light:SetIntensity(0)
 			end
 		else
-			if light:GetCastShadows() then light:SetCastShadows(false) end
+			disable_light_shadows(light.Owner)
 		end
 
 		if light.LightType == "directional" then light:SetIntensity(0) end
@@ -253,7 +261,7 @@ local cool_center = Vec3(48, 0, -12)
 local directional_light = spawn_directional_light(root, directional_center + Vec3(0, 12, 4))
 
 if VALIDATION_MODE == "sun" then
-	directional_light:SetCastShadows(false)
+	disable_light_shadows(directional_light.Owner)
 	directional_light:SetIntensity(0)
 end
 

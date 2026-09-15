@@ -1,6 +1,7 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local system = import("goluwa/system.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local scene_lights = {}
 scene_lights.MAX_LIGHTS = 128
 scene_lights.MAX_CASCADES = directional_shadows.MAX_CASCADES
@@ -218,32 +219,55 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 end
 
 local function write_sun_shadows(self, shadow_block, sun)
-	local shadow_map = sun:GetShadowMap()
-	local cascade_count = shadow_map:GetCascadeCount()
+	local cascade_slot = 1
+	local sun_entity = sun.Owner
 
-	for i = 1, cascade_count do
-		shadow_block.shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
-		shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[i - 1])
-		shadow_block.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
-		shadow_block.cascade_texel_world_sizes[i - 1] = shadow_map:GetCascadeTexelWorldSize(i)
+	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
+		if shadow_map.enabled and shadow_map.light == sun_entity then
+			if shadow_map.role == "inset" then
+				shadow_block.inset_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
+				shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
+				shadow_block.inset_shadow_distance = shadow_map:GetCascadeSplits()[1] or 0
+				shadow_block.inset_shadow_texel_world_size = shadow_map:GetCascadeTexelWorldSize(1)
+			else
+				for i = 1, shadow_map:GetCascadeCount() do
+					if cascade_slot > scene_lights.MAX_CASCADES then break end
+
+					shadow_block.shadow_map_indices[cascade_slot - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
+					shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[cascade_slot - 1])
+					shadow_block.cascade_splits[cascade_slot - 1] = shadow_map:GetCascadeSplits()[i] or -1
+					shadow_block.cascade_texel_world_sizes[cascade_slot - 1] = shadow_map:GetCascadeTexelWorldSize(i)
+					cascade_slot = cascade_slot + 1
+				end
+			end
+		end
 	end
 
-	shadow_block.cascade_count = cascade_count
-
-	if sun.InsetShadowMap then
-		shadow_block.inset_shadow_map_index = self:GetTextureIndex(sun.InsetShadowMap:GetDepthTexture(1))
-		sun.InsetShadowMap:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
-		shadow_block.inset_shadow_distance = sun.InsetShadowMap:GetCascadeSplits()[1] or 0
-		shadow_block.inset_shadow_texel_world_size = sun.InsetShadowMap:GetCascadeTexelWorldSize(1)
-	end
+	shadow_block.cascade_count = cascade_slot - 1
 end
 
 function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	local sun, sun_light_index = directional_shadows.GetPrimarySun(lights)
 	local directional = nil
+	local directional_map = nil
 	local directional_light_index = -1
 	local point_shadow_count = 0
 	local point_shadow_candidates = {}
+	local maps_by_light = {}
+
+	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
+		if shadow_map.enabled and shadow_map.light then
+			local list = maps_by_light[shadow_map.light]
+
+			if not list then
+				list = {}
+				maps_by_light[shadow_map.light] = list
+			end
+
+			list[#list + 1] = shadow_map
+		end
+	end
+
 	local camera = render3d.GetRenderCamera()
 	local camera_position = camera and camera:GetPosition()
 
@@ -280,26 +304,49 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	for light_index, light in ipairs(lights) do
 		if light_index > scene_lights.MAX_LIGHTS then break end
 
-		if not directional and light.LightType == "directional" and light:GetCastShadows() then
-			directional = light
-			directional_light_index = light_index - 1
-		elseif light.LightType == "point" and light:GetCastShadows() then
-			local position = light.Owner.transform:GetPosition()
-			local distance_score = 0
+		local light_maps = maps_by_light[light.Owner]
 
-			if camera_position then
-				local dx = position.x - camera_position.x
-				local dy = position.y - camera_position.y
-				local dz = position.z - camera_position.z
-				distance_score = dx * dx + dy * dy + dz * dz
+		if
+			not directional and
+			light.LightType == "directional" and
+			light_maps and
+			#light_maps > 0
+		then
+			for _, shadow_map in ipairs(light_maps) do
+				if shadow_map.mode == "directional" then
+					directional = light
+					directional_map = shadow_map
+					directional_light_index = light_index - 1
+
+					break
+				end
+			end
+		elseif light.LightType == "point" and light_maps then
+			for _, shadow_map in ipairs(light_maps) do
+				if shadow_map.mode ~= "point" then goto continue_light end
+
+				local position = light.Owner.transform:GetPosition()
+				local distance_score = 0
+
+				if camera_position then
+					local dx = position.x - camera_position.x
+					local dy = position.y - camera_position.y
+					local dz = position.z - camera_position.z
+					distance_score = dx * dx + dy * dy + dz * dz
+				end
+
+				point_shadow_candidates[#point_shadow_candidates + 1] = {
+					light = light,
+					shadow_map = shadow_map,
+					light_index = light_index - 1,
+					last_update_frame = shadow_map.last_update_frame or -1,
+					distance_score = distance_score,
+				}
+
+				break
 			end
 
-			point_shadow_candidates[#point_shadow_candidates + 1] = {
-				light = light,
-				light_index = light_index - 1,
-				last_update_frame = light.LastShadowUpdateFrame or -1,
-				distance_score = distance_score,
-			}
+			::continue_light::
 		end
 	end
 
@@ -308,28 +355,31 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	for i = 1, math.min(#point_shadow_candidates, scene_lights.MAX_POINT_SHADOWS) do
 		local candidate = point_shadow_candidates[i]
 		local light = candidate.light
-		local shadow_map = light:GetShadowMap()
+		local shadow_map = candidate.shadow_map
 		point_shadow_count = point_shadow_count + 1
 		shadow_block.point_shadow_map_indices[point_shadow_count - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture())
 		light.Owner.transform:GetPosition():CopyToFloatPointer(shadow_block.point_shadow_positions[point_shadow_count - 1])
 		shadow_block.point_shadow_positions[point_shadow_count - 1][3] = shadow_map:GetFarPlane()
 		shadow_block.point_shadow_light_indices[point_shadow_count - 1] = candidate.light_index
+
+		::continue::
 	end
 
 	shadow_block.point_shadow_count = point_shadow_count
 
-	if sun and not sun:GetCastShadows() then
-		sun = nil
-		sun_light_index = -1
-	end
-
 	if sun then
 		write_sun_shadows(self, shadow_block, sun)
-		shadow_block.directional_shadow_light_index = sun_light_index
+
+		if shadow_block.cascade_count == 0 then
+			sun = nil
+			sun_light_index = -1
+		else
+			shadow_block.directional_shadow_light_index = sun_light_index
+		end
 	end
 
-	if directional then
-		local shadow_map = directional:GetShadowMap()
+	if directional and directional_map then
+		local shadow_map = directional_map
 		shadow_block.local_directional_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
 		shadow_block.local_directional_shadow_light_index = directional_light_index
 		shadow_block.local_directional_shadow_texel_world_size = shadow_map:GetCascadeTexelWorldSize(1)

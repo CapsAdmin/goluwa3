@@ -3,6 +3,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local Texture = import("goluwa/render/texture.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local Visual = import("goluwa/entities/components/visual.lua").Library
@@ -181,9 +182,11 @@ local function draw_panel(shadow_map, cascade_index, x, y, size, color, title, e
 		),
 		(
 			"rendered %s frames ago"
-		):format(cascade.last_rendered_frame and
-			tostring(frame - cascade.last_rendered_frame) or
-			"never"),
+		):format(
+			cascade.last_rendered_frame and
+				tostring(frame - cascade.last_rendered_frame) or
+				"never"
+		),
 		(
 			"depth %.3f .. %.3f"
 		):format(preview.min_depth, preview.max_depth),
@@ -228,79 +231,91 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 
 	local sun = render3d.GetLights()[1]
 
-	if not sun or not sun:GetCastShadows() or not sun:GetShadowMap() then return end
+	if not sun then return end
 
-	local shadow_map = sun:GetShadowMap()
-	local config = sun.CastShadows
-	local cascade_count = shadow_map:GetCascadeCount()
-	local splits = shadow_map:GetCascadeSplits()
-	local cull_stats = Visual.GetShadowGPUCullingStats(shadow_map) or {}
+	local shadow_maps = {}
+
+	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
+		if shadow_map.enabled and shadow_map.light == sun.Owner then
+			shadow_maps[#shadow_maps + 1] = shadow_map
+		end
+	end
+
+	if #shadow_maps == 0 then return end
+
+	local policy = shadow_maps[1].policy
 	local size = 200
 	local margin = 12
 	local spacing = 14
 	local camera = render3d.GetRenderCamera()
-	local previous_split = 0
+	local panel_index = 0
 
-	for i = 1, cascade_count do
-		local cascade = shadow_map.cascade[i]
-		local stats = cull_stats[i] or {}
-		local extra = {
-			(
-				"batches %s/%s  fallback %s"
-			):format(
-				tostring(stats.gpu_active_batch_count or "?"),
-				tostring(stats.gpu_total_batch_count or "?"),
-				tostring(stats.fallback_visible_entry_count or "?")
-			),
-		}
+	for _, shadow_map in ipairs(shadow_maps) do
+		local is_inset = shadow_map.role == "inset"
+		local cascade_count = shadow_map:GetCascadeCount()
+		local splits = shadow_map:GetCascadeSplits()
+		local cull_stats = Visual.GetShadowGPUCullingStats(shadow_map) or {}
+		local previous_split = 0
 
-		if i == cascade_count and config.farthest_cascade_update_mode == "world_changed" then
-			local moved = cascade.last_camera_position and
-				camera and
-				camera:GetPosition():Distance(cascade.last_camera_position) or
-				0
-			local turned = 0
+		for i = 1, cascade_count do
+			panel_index = panel_index + 1
+			local cascade = shadow_map.cascade[i]
+			local stats = cull_stats[i] or {}
+			local extra = {
+				(
+					"batches %s/%s  fallback %s"
+				):format(
+					tostring(stats.gpu_active_batch_count or "?"),
+					tostring(stats.gpu_total_batch_count or "?"),
+					tostring(stats.fallback_visible_entry_count or "?")
+				),
+			}
 
-			if cascade.last_camera_forward and camera then
-				turned = math.deg(
-					math.acos(math.clamp(camera:GetRotation():GetForward():Dot(cascade.last_camera_forward), -1, 1))
-				)
+			if
+				not is_inset and
+				cascade_count > 1 and
+				i == cascade_count and
+				policy.farthest_cascade_update_mode == "world_changed"
+			then
+				local moved = cascade.last_camera_position and
+					camera and
+					camera:GetPosition():Distance(cascade.last_camera_position) or
+					0
+				local turned = 0
+
+				if cascade.last_camera_forward and camera then
+					turned = math.deg(
+						math.acos(math.clamp(camera:GetRotation():GetForward():Dot(cascade.last_camera_forward), -1, 1))
+					)
+				end
+
+				extra[#extra + 1] = (
+					"refit when moved %.0f/%d u"
+				):format(moved, policy.farthest_cascade_camera_position_threshold or 0)
+				extra[#extra + 1] = (
+					"or turned %.1f/%d deg or world changes"
+				):format(turned, policy.farthest_cascade_camera_rotation_threshold or 5)
 			end
 
-			extra[#extra + 1] = (
-				"refit when moved %.0f/%d u"
-			):format(moved, config.farthest_cascade_camera_position_threshold or 0)
-			extra[#extra + 1] = (
-				"or turned %.1f/%d deg or world changes"
-			):format(turned, config.farthest_cascade_camera_rotation_threshold or 5)
+			draw_panel(
+				shadow_map,
+				i,
+				margin + (panel_index - 1) * (250 + spacing + 16),
+				margin,
+				size,
+				is_inset and inset_color or cascade_colors[i] or Color(1, 1, 0, 1),
+				is_inset and
+					(
+						"Inset  0 .. %.0f"
+					):format(splits[i] or 0) or
+					(
+						"Cascade %d  %.0f .. %.0f"
+					):format(i, previous_split, splits[i] or 0),
+				extra,
+				"shadow_debug_map_" .. panel_index
+			)
+			previous_split = splits[i] or previous_split
 		end
-
-		draw_panel(
-			shadow_map,
-			i,
-			margin + (i - 1) * (250 + spacing + 16),
-			margin,
-			size,
-			cascade_colors[i] or Color(1, 1, 0, 1),
-			("Cascade %d  %.0f .. %.0f"):format(i, previous_split, splits[i] or 0),
-			extra,
-			"shadow_debug_cascade_" .. i
-		)
-		previous_split = splits[i] or previous_split
-	end
-
-	if sun.InsetShadowMap then
-		draw_panel(
-			sun.InsetShadowMap,
-			1,
-			margin + cascade_count * (250 + spacing + 16),
-			margin,
-			size,
-			inset_color,
-			("Inset  0 .. %.0f"):format(sun.InsetShadowMap:GetCascadeSplits()[1] or 0),
-			{},
-			"shadow_debug_inset"
-		)
 	end
 end)
 

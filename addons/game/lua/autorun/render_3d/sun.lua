@@ -6,6 +6,7 @@ local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local input = import("goluwa/input.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local sun = Entity.New{
 	Name = "sun",
 	transform = {
@@ -19,14 +20,19 @@ local sun = Entity.New{
 }
 atmosphere.SetSunIntensity(sun.light.Intensity)
 local MODE = "cascade"
-local shadow_config
+local shadow_maps = {}
+local shadow_policy = {
+	shadow_update_mode = "continuous",
+	shadow_update_interval = 2,
+}
 
 if MODE == "lispsm" then
-	shadow_config = {
+	shadow_maps[#shadow_maps + 1] = ShadowMap.New{
+		mode = "directional",
+		light = sun,
 		size = Vec2() + 4096,
 		directional_projection_mode = "lispsm",
 		min_caster_texel_size = 4,
-		shadow_update_interval = 2,
 		cascade_formats = {
 			"d32_sfloat",
 		},
@@ -35,12 +41,12 @@ if MODE == "lispsm" then
 		far_plane = 2700,
 	}
 elseif MODE == "cascade" then
-	shadow_config = {
+	shadow_maps[#shadow_maps + 1] = ShadowMap.New{
+		mode = "sun",
+		light = sun,
 		size = Vec2() + 2048,
 		min_caster_texel_size = 4,
-		shadow_update_interval = 2,
 		cascade_count = 3,
-		soup_cascade_from = 2,
 		cascade_formats = {
 			"d16_unorm",
 			"d16_unorm",
@@ -56,24 +62,44 @@ elseif MODE == "cascade" then
 			1.5,
 			1,
 		},
-		farthest_cascade_update_mode = "world_changed",
-		farthest_cascade_camera_position_threshold = 96,
-		farthest_cascade_disable_vertex_animation = true,
+		soup_cascade_from = 2,
+		disable_vertex_animation_cascades = {[3] = true},
 		cascade_split_lambda = 0.5,
 		max_shadow_distance = 2700,
-		inset_shadows = {
-			size = Vec2() + 4096,
-			cascade_formats = {"d16_unorm"},
-			distance = 16,
-			min_caster_texel_size = 1,
-			zoom_factor = 1.75,
-		},
 		near_plane = 1,
 		far_plane = 2700,
 	}
+	shadow_maps[#shadow_maps + 1] = ShadowMap.New{
+		mode = "sun",
+		light = sun,
+		size = Vec2() + 4096,
+		cascade_count = 1,
+		cascade_sizes = {Vec2() + 4096},
+		cascade_formats = {"d16_unorm"},
+		cascade_zoom_factors = {1.75},
+		min_caster_texel_size = 1,
+		cascade_split_lambda = 1,
+		max_shadow_distance = 16,
+		ortho_size = 50,
+		near_plane = 1,
+		far_plane = 16,
+		role = "inset",
+	}
+	shadow_policy.farthest_cascade_update_mode = "world_changed"
+	shadow_policy.farthest_cascade_camera_position_threshold = 96
 end
 
-if shadow_config then sun.light:SetCastShadows(shadow_config) end
+for _, shadow_map in ipairs(shadow_maps) do
+	shadow_map:SetUpdatePolicy(shadow_policy)
+end
+
+local function set_sun_shadows(enabled)
+	for _, shadow_map in ipairs(shadow_maps) do
+		shadow_map:SetEnabled(enabled)
+	end
+end
+
+set_sun_shadows(true)
 
 event.AddListener("Update", "sun_orientation", function(dt)
 	if not sun or not sun:IsValid() or not sun.transform then return end
@@ -96,16 +122,16 @@ event.AddListener("Update", "sun_orientation", function(dt)
 	local below_horizon = sunDir.y < 0
 
 	if below_horizon then
-		if sun.light:GetCastShadows() then
+		if sun.light.BelowHorizon ~= true then
 			sun.light.BelowHorizon = true
 			sun.light:SetIntensity(0)
-			sun.light:SetCastShadows(false)
+			set_sun_shadows(false)
 		end
 	else
-		if not sun.light:GetCastShadows() then
+		if sun.light.BelowHorizon ~= false then
 			sun.light.BelowHorizon = false
 			sun.light:SetIntensity(2)
-			sun.light:SetCastShadows(shadow_config)
+			set_sun_shadows(true)
 		end
 	end
 

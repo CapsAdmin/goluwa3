@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
 
@@ -78,26 +79,33 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 		shadow_block.inset_light_space_matrix[i] = 0
 	end
 
-	if not sun or not sun:GetCastShadows() then return end
+	if not sun then return end
 
-	local shadow_map = sun:GetShadowMap()
-	local cascade_count = shadow_map:GetCascadeCount()
+	local cascade_slot = 1
+	local sun_entity = sun.Owner
 
-	for i = 1, cascade_count do
-		shadow_block.shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
-		shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[i - 1])
-		shadow_block.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
-		shadow_block.cascade_texel_world_sizes[i - 1] = shadow_map:GetCascadeTexelWorldSize(i)
+	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
+		if shadow_map.enabled and shadow_map.light == sun_entity then
+			if shadow_map.role == "inset" then
+				shadow_block.inset_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
+				shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
+				shadow_block.inset_shadow_distance = shadow_map:GetCascadeSplits()[1] or 0
+				shadow_block.inset_shadow_texel_world_size = shadow_map:GetCascadeTexelWorldSize(1)
+			else
+				for i = 1, shadow_map:GetCascadeCount() do
+					if cascade_slot > directional_shadows.MAX_CASCADES then break end
+
+					shadow_block.shadow_map_indices[cascade_slot - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
+					shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[cascade_slot - 1])
+					shadow_block.cascade_splits[cascade_slot - 1] = shadow_map:GetCascadeSplits()[i] or -1
+					shadow_block.cascade_texel_world_sizes[cascade_slot - 1] = shadow_map:GetCascadeTexelWorldSize(i)
+					cascade_slot = cascade_slot + 1
+				end
+			end
+		end
 	end
 
-	shadow_block.cascade_count = cascade_count
-
-	if sun.InsetShadowMap then
-		shadow_block.inset_shadow_map_index = self:GetTextureIndex(sun.InsetShadowMap:GetDepthTexture(1))
-		sun.InsetShadowMap:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
-		shadow_block.inset_shadow_distance = sun.InsetShadowMap:GetCascadeSplits()[1] or 0
-		shadow_block.inset_shadow_texel_world_size = sun.InsetShadowMap:GetCascadeTexelWorldSize(1)
-	end
+	shadow_block.cascade_count = cascade_slot - 1
 end
 
 -- GLSL fragment builders shared by GetMediumDirectionalShadowGLSL and
