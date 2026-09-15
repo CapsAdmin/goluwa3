@@ -15,7 +15,6 @@ local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local system = import("goluwa/system.lua")
@@ -851,6 +850,32 @@ local function update_local_directional_orthographic(self, light_position, light
 	)
 end
 
+local function update_local_directional_perspective(self, light_position, light_rotation, range, fov)
+	local near = math.max(self.near_plane, 0.001)
+	local view = Matrix44()
+	view:Translate(-light_position.x, -light_position.y, -light_position.z)
+	view:Multiply(light_rotation:GetConjugated():GetMatrix())
+	view.m02 = -view.m02
+	view.m12 = -view.m12
+	view.m22 = -view.m22
+	view.m32 = -view.m32
+	local projection = Matrix44()
+	projection:Perspective(fov, near, range, 1)
+	local half_span = math.tan(fov * 0.5) * range
+	local texel_world_size = (math.tan(fov * 0.5) * range) / math.max(self.size.w, self.size.h)
+	local cascade = self.cascade[1]
+	set_directional_cascade_state(
+		self,
+		cascade,
+		light_position,
+		view,
+		view * projection,
+		texel_world_size,
+		AABB(-half_span, -half_span, -range, half_span, half_span, -near),
+		range
+	)
+end
+
 local function get_camera_shadow_corners(max_distance)
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	local cam = render3d.GetRenderCamera()
@@ -1239,6 +1264,8 @@ function ShadowMap.New(config)
 	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
 	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
 	self.directional_rotation_flip = config.directional_rotation_flip
+	self.projection = config.projection
+	self.perspective_fov = config.perspective_fov
 	self.enabled = true
 	self.next_cascade = 1 -- shadow rendering progress
 	self.needs_completion = false
@@ -1466,6 +1493,17 @@ function ShadowMap:UpdatePointLightMatrices(light_position)
 end
 
 function ShadowMap:UpdateLocalDirectionalLightMatrices(light_position, light_rotation, range, ortho_size)
+	if self.projection == "perspective" then
+		update_local_directional_perspective(
+			self,
+			light_position,
+			light_rotation,
+			range,
+			self.perspective_fov or math.rad(70)
+		)
+		return
+	end
+
 	if
 		self.directional_projection_mode ~= "orthographic" and
 		ShadowMapLispsm.UpdateLocalDirectional(
@@ -2778,7 +2816,7 @@ function ShadowMap:UpdateMatrices(update_mask)
 		self:UpdatePointLightMatrices(position)
 	elseif self.mode == "directional" then
 		local light_rotation = self.directional_rotation_flip and
-			rotation * Quat():SetAngles(Ang3(0, 180, 0))
+			rotation * Quat():SetAngles(Deg3(0, 180, 0))
 			or
 			rotation
 		self:UpdateLocalDirectionalLightMatrices(position, light_rotation, self.max_shadow_distance, self.ortho_size)

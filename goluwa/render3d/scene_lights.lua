@@ -140,6 +140,11 @@ function scene_lights.GetLightGLSLCode()
 					return true;
 				}
 
+				if (type == 2) {
+					L = normalize(light_dir);
+					return true;
+				}
+
 				if (type == 2 || type == 3) {
 					vec3 from_light = world_pos - light.position.xyz;
 					float dist = length(from_light);
@@ -154,8 +159,12 @@ function scene_lights.GetLightGLSLCode()
 					float inner_cone = clamp(light.params.y, -1.0, 1.0);
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
 					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, cone_dir));
-					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range);
-					L = type == 2 ? normalize(-light_dir) : normalize(light.position.xyz - world_pos);
+					//attenuation = cone_attenuation * get_light_distance_attenuation(dist, range);
+					if (type == 2) {
+						L = normalize(light_dir);
+					} else { 
+						L = normalize(light.position.xyz - world_pos);
+					}
 					return true;
 				}
 
