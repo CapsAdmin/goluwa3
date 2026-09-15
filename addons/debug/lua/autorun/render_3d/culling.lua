@@ -217,12 +217,3 @@ event.AddListener(
 	end,
 	{priority = -100}
 )
-
-event.AddListener("KeyInput", "culling_debug", function(key, press)
-	if not press then return end
-
-	if key == "f" then
-		visual.freeze_frustum_planes = not visual.freeze_frustum_planes
-		print("frustum planes frozen = ", visual.freeze_frustum_planes)
-	end
-end)
