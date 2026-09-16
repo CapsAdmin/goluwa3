@@ -201,10 +201,6 @@ do
 		return path .. "\0" .. type(sub_material) .. ":" .. tostring(sub_material)
 	end
 
-	local function get_cry_texture_cache_key(material_path, texture_path)
-		return tostring(material_path) .. "\0" .. tostring(texture_path)
-	end
-
 	local function get_vmt_cache_key(path)
 		local normalized = file_path.FixPathSlashes(assert(path, "missing VMT path")):lower()
 
@@ -411,24 +407,39 @@ do
 	end
 
 	local function resolve_cry_texture_path(material_path, texture_path)
-		local cache_key = get_cry_texture_cache_key(material_path, texture_path)
+		if type(texture_path) ~= "string" or texture_path == "" then return nil, {} end
+
+		local normalized = file_path.FixPathSlashes(texture_path)
+		local normalized_lower = normalized:lower()
+		local is_game_relative = normalized_lower:starts_with("objects/") or
+			normalized_lower:starts_with("textures/")
+		local game_root = resolve_cry_game_root(material_path)
+		local cache_key
+
+		if file_path.IsPathAbsolutePath(normalized) then
+			cache_key = "a\0" .. normalized
+		elseif is_game_relative then
+			cache_key = "g\0" .. (game_root or "") .. "\0" .. normalized
+		else
+			cache_key = "r\0" .. (
+					game_root or
+					""
+				) .. "\0" .. (
+					file_path.GetFolderFromPath(material_path) or
+					""
+				) .. "\0" .. normalized
+		end
+
 		local cached = cry_texture_path_cache[cache_key]
 
 		if cached then
 			return cached.resolved ~= false and cached.resolved or nil, cached.candidates
 		end
 
-		if type(texture_path) ~= "string" or texture_path == "" then return nil, {} end
-
-		local normalized = file_path.FixPathSlashes(texture_path)
-		local normalized_lower = normalized:lower()
 		local base = file_path.RemoveExtensionFromPath(normalized)
 		local original_basename = file_path.GetFileNameFromPath(normalized):lower()
 		local basename = file_path.GetFileNameFromPath(base .. ".dds"):lower()
 		local candidates = {}
-		local game_root = resolve_cry_game_root(material_path)
-		local is_game_relative = normalized_lower:starts_with("objects/") or
-			normalized_lower:starts_with("textures/")
 
 		local function add(path)
 			if path and path ~= "" then

@@ -34,10 +34,6 @@ local BIN_COUNT = 12
 local MAX_LEAF_TRIANGLES = 8
 local MAX_DEPTH = 30
 scene_bvh.STACK_SIZE = 32
--- while the scene keeps changing, a rebuild that took longer must not run so
--- frequently that it becomes the dominant cost: the max wait scales with the
--- last build's measured cpu time, clamped to this upper bound
-scene_bvh.REBUILD_HARD_MAX = 8.0
 scene_bvh.LightOcclusion = scene_bvh.LightOcclusion ~= false
 scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
@@ -1201,27 +1197,10 @@ function scene_bvh.EnsureBuilt()
 	end
 
 	local now = system.GetElapsedTime()
-	-- settled means the scene has been quiet for a full frame: a same-frame
-	-- change (last_change_frame == frame) must not count as settled, or a
-	-- continuously moving scene would rebuild every frame. The first build is
-	-- never throttled so consumers do not wait on the empty placeholder.
 	local settled = not scene_bvh.has_built or scene_bvh.last_change_frame < frame - 1
-	-- cadence under continuous change: amortize the build to ~5% of a 16ms
-	-- frame (build_time * 20 at 60fps), floored so cheap scenes still update
-	-- interactively
-	local max_wait = math.min(math.max(0.02, scene_bvh.build_time * 20), scene_bvh.REBUILD_HARD_MAX)
+	local max_wait = math.max(0.02, scene_bvh.build_time * 20)
 
-	-- a resnapshot (visuals added or removed) invalidates the layout entirely,
-	-- so it rebuilds now rather than waiting out the throttle
-	if
-		not settled and
-		not library.AABB_CHANGED_ALL and
-		(
-			now - scene_bvh.dirty_since
-		) < max_wait
-	then
-		return
-	end
+	if not settled and (now - scene_bvh.dirty_since) < max_wait then return end
 
 	scene_bvh.dirty_since = nil
 	scene_bvh.Build()

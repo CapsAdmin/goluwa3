@@ -833,15 +833,15 @@ local function decode_terrain_texture_tile(tile)
 	end
 
 	local rgba_buffer = ffi.new("uint8_t[?]", width * height * 4)
-	local src = 9
-	local dst = 0
+	local src = ffi.cast("const uint8_t *", data) + 8
+	local dst = ffi.cast("uint8_t *", rgba_buffer)
 
 	for _ = 1, width * height do
-		local b, g, r = data:byte(src, src + 2)
-		rgba_buffer[dst + 0] = r or 0
-		rgba_buffer[dst + 1] = g or 0
-		rgba_buffer[dst + 2] = b or 0
-		rgba_buffer[dst + 3] = 255
+		-- source is interleaved BGR, destination is RGBA
+		dst[0] = src[2]
+		dst[1] = src[1]
+		dst[2] = src[0]
+		dst[3] = 255
 		src = src + 3
 		dst = dst + 4
 	end
@@ -1424,22 +1424,39 @@ local function get_or_create_cry_albedo_texture(terrain)
 	local atlas_stride = atlas_width * 4
 
 	for _, tile in ipairs(terrain.tiles or {}) do
-		local _, width, height = assert(decode_terrain_texture_tile(tile))
+		local buffer, width, height = assert(decode_terrain_texture_tile(tile))
 		local dst_x = tile.x * tile_width * 4
 		local dst_y = tile.y * tile_height
+		local dst_base = atlas_ptr + dst_y * atlas_stride + dst_x
 
-		for row = 0, tile_height - 1 do
-			local v = tile_height > 1 and (row / (tile_height - 1)) or 0
-			local dst = atlas_ptr + ((dst_y + row) * atlas_stride) + dst_x
+		if width == tile_width and height == tile_height then
+			-- tile fills its slot exactly: straight copy, no resampling
+			for row = 0, tile_height - 1 do
+				ffi.copy(dst_base + row * atlas_stride, buffer + row * width * 4, width * 4)
+			end
+		else
+			local src_x = ffi.new("int[?]", tile_width)
+			local src_y = ffi.new("int[?]", tile_height)
 
 			for column = 0, tile_width - 1 do
-				local u = tile_width > 1 and (column / (tile_width - 1)) or 0
-				local r, g, b, a = sample_terrain_tile_rgba(tile, u, v)
-				local pixel = column * 4
-				dst[pixel + 0] = math.floor(r + 0.5)
-				dst[pixel + 1] = math.floor(g + 0.5)
-				dst[pixel + 2] = math.floor(b + 0.5)
-				dst[pixel + 3] = math.floor(a + 0.5)
+				src_x[column] = math.min(math.floor(column * (width - 1) / (tile_width - 1) + 0.5), width - 1)
+			end
+
+			for row = 0, tile_height - 1 do
+				src_y[row] = math.min(math.floor(row * (height - 1) / (tile_height - 1) + 0.5), height - 1)
+			end
+
+			for row = 0, tile_height - 1 do
+				local src_row = src_y[row] * width * 4
+				local dst = dst_base + row * atlas_stride
+
+				for column = 0, tile_width - 1 do
+					local src = src_row + src_x[column] * 4
+					dst[column * 4 + 0] = buffer[src + 0]
+					dst[column * 4 + 1] = buffer[src + 1]
+					dst[column * 4 + 2] = buffer[src + 2]
+					dst[column * 4 + 3] = buffer[src + 3]
+				end
 			end
 		end
 	end
@@ -1633,7 +1650,7 @@ function crylevel.ResolveLevelDirectory(steam, level)
 	return nil, "could not resolve Crysis level directory " .. tostring(level)
 end
 
-function crylevel.ResolveModelPath(steam, level_dir, model_path)
+local function resolve_model_path_impl(steam, level_dir, model_path)
 	local normalized = file_path.FixPathSlashes(model_path)
 	local candidates = {normalized}
 	local game = select(1, crylevel.FindCryGame(steam))
@@ -1679,6 +1696,19 @@ function crylevel.ResolveModelPath(steam, level_dir, model_path)
 	end
 
 	return normalized
+end
+
+local resolved_model_path_cache = {}
+
+function crylevel.ResolveModelPath(steam, level_dir, model_path)
+	local cache_key = (level_dir or "") .. "\0" .. model_path
+	local cached = resolved_model_path_cache[cache_key]
+
+	if cached then return cached end
+
+	local result = resolve_model_path_impl(steam, level_dir, model_path)
+	resolved_model_path_cache[cache_key] = result
+	return result
 end
 
 function crylevel.EnsureLevelMounts(steam, level_dir)
@@ -1835,7 +1865,7 @@ function crylevel.Apply(steam)
 
 		steam.active_cry_terrain_renderer = crylevel.SpawnTerrain(data, parent)
 
-		if true then
+		if not steam.cry_skip_models then
 			for _, entry in ipairs(data.entries) do
 				local transform_data = entry.transform_space == "editor_world" and
 					crylevel.ConvertCryEditorWorldMatrixToEngineTransform(entry.world_matrix) or
