@@ -286,6 +286,7 @@ local function build_resolve_pass()
 		]],
 		shader = [[
 			const int RC_DIRECTIONS = ]] .. radiance_cascades.GetDirectionCount(0) .. [[;
+			const float RC_EDGE_BORDER = ]] .. radiance_cascades.EDGE_BORDER .. [[;
 
 			#define saturate(x) clamp(x, 0.0, 1.0)
 
@@ -293,6 +294,29 @@ local function build_resolve_pass()
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 			]] .. radiance_cascades.GetCommonGLSL() .. [[
 			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
+
+			vec4 rc_edge_fallback(vec2 uv, vec4 fresh) {
+				if (rc_data.rc_history_tex < 0) return fresh;
+
+				ivec2 size = textureSize(TEXTURE(rc_data.rc_history_tex), 0);
+				vec2 px = uv * vec2(size);
+				float edge_dist = min(min(px.x, float(size.x) - px.x), min(px.y, float(size.y) - px.y));
+
+				if (edge_dist > RC_EDGE_BORDER) return fresh;
+
+				vec2 inward = px + sign(vec2(0.5) * vec2(size) - px) * (RC_EDGE_BORDER - edge_dist + 1.0);
+				vec2 inward_uv = inward / vec2(size);
+				float tap_depth = rc_probe_depth(inward_uv);
+
+				if (tap_depth == 1.0) return fresh;
+
+				float expected = rc_linear_depth(tap_depth);
+				float stored = texture(TEXTURE(rc_data.rc_history_depth_tex), inward_uv).r;
+
+				if (abs(stored - expected) > max(expected * 0.02, 0.05)) return fresh;
+
+				return texture(TEXTURE(rc_data.rc_history_tex), inward_uv);
+			}
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -392,6 +416,7 @@ local function build_resolve_pass()
 				);
 				vec2 prev_uv;
 				float expected;
+				bool history_valid = false;
 
 				if (rc_data.rc_history_tex >= 0 && rc_fetch_surface_motion(uv, depth, prev_uv, expected)) {
 					if (all(greaterThanEqual(prev_uv, vec2(0.0))) && all(lessThanEqual(prev_uv, vec2(1.0)))) {
@@ -400,8 +425,13 @@ local function build_resolve_pass()
 						if (abs(stored - expected) < max(expected * 0.02, 0.05)) {
 							vec4 history = texture(TEXTURE(rc_data.rc_history_tex), prev_uv);
 							resolved = mix(resolved, history, rc_data.rc_history_blend);
+							history_valid = true;
 						}
 					}
+				}
+
+				if (!history_valid) {
+					resolved = rc_edge_fallback(uv, resolved);
 				}
 
 				imageStore(out_color, pos, resolved);
