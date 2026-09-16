@@ -590,7 +590,7 @@ local function build_shadow_pipeline_config(
 		FrontFace = orientation.FRONT_FACE,
 		DepthBias = true,
 		DepthBiasConstantFactor = 0.5,
-		DepthBiasClamp = 0.01,
+		DepthBiasClamp = 0,
 		DepthBiasSlopeFactor = 1.25,
 		LogicOpEnabled = false,
 		LogicOp = "copy",

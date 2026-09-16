@@ -312,47 +312,57 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 		]]
 end
 
-function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_fn_name, options)
-	result_fn_name = result_fn_name or "calculateShadow"
-	options = options or {}
-	local normal_expr = options.normal_expr or "normal"
-	local header = (
-			"\t\t\t#define DIRECTIONAL_SHADOW_BLOCK " .. block_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_FN " .. result_fn_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_NORMAL " .. normal_expr .. "\n\n"
-		)
-	local body = shadowSearchBodyGLSL(
-		"DIRECTIONAL_SHADOW_BLOCK",
-		"sampleShadowCascade(%s, world_pos, normal, light_dir)",
-		"sampleInsetShadow(world_pos, normal, light_dir, %s)"
-	)
-	return header .. [[
-			const vec2 SHADOW_POISSON_DISK[12] = vec2[12](
-				]] .. POISSON_DISK_VALUES .. [[
-			);
-	]] .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. [[
-
+-- Receiver plane bias (see the shadowmap bias notes in the article this is
+-- based on): the receiving surface is assumed planar across the sampled
+-- texels, so the depth the surface has at each sampled texel center is
+-- extrapolated from the pixel's own depth using the surface slope in shadow
+-- UV space. The slope is the light projection's Jacobian (including the
+-- perspective divide) applied to the surface's screen space derivatives
+-- (dFdx/dFdy of world_pos) - only world_pos goes into the derivative
+-- builtins so the result stays continuous across cascade boundaries, where
+-- neighboring pixels may use different light matrices. The per-tap bias is
+-- clamped to be non-positive so a wrong slope (object edges, 2x2 blocks
+-- that cross a silhouette) can leak light but never add shadow.
+local SHADOW_PROJECTION_GLSL = [[
 			bool projectShadowMap(
 				mat4 light_space_matrix,
 				vec3 world_pos,
 				vec3 normal,
 				vec3 light_dir,
 				float texel_world_size,
-				out vec3 proj_coords
+				out vec3 proj_coords,
+				out vec2 dz_dUV
 			) {
-				vec3 offset_pos = world_pos;
-				float light_offset = texel_world_size;
-
-				if (dot(normal, normal) > 1e-6) {
-					float cos_theta = clamp(dot(DIRECTIONAL_SHADOW_NORMAL, light_dir), 0.0, 1.0);
-					float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
-					float tan_theta = min(sin_theta / max(cos_theta, 0.05), 4.0);
-					offset_pos += DIRECTIONAL_SHADOW_NORMAL * (texel_world_size * sin_theta);
-					light_offset += texel_world_size * 0.5 * tan_theta;
-				}
-
-				offset_pos += (light_dir * light_offset)*0.25;
-				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
+				vec4 light_space_pos = light_space_matrix * vec4(world_pos, 1.0);
 				proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
+
+				vec4 r0 = vec4(light_space_matrix[0].x, light_space_matrix[1].x, light_space_matrix[2].x, light_space_matrix[3].x);
+				vec4 r1 = vec4(light_space_matrix[0].y, light_space_matrix[1].y, light_space_matrix[2].y, light_space_matrix[3].y);
+				vec4 r2 = vec4(light_space_matrix[0].z, light_space_matrix[1].z, light_space_matrix[2].z, light_space_matrix[3].z);
+				vec4 r3 = vec4(light_space_matrix[0].w, light_space_matrix[1].w, light_space_matrix[2].w, light_space_matrix[3].w);
+				vec3 dWdx = dFdx(world_pos);
+				vec3 dWdy = dFdy(world_pos);
+				float w = light_space_pos.w;
+				float w2 = w * w;
+				float dudx = (dot(r0.xyz, dWdx) * w - light_space_pos.x * dot(r3.xyz, dWdx)) / w2 * 0.5;
+				float dvdx = (dot(r1.xyz, dWdx) * w - light_space_pos.y * dot(r3.xyz, dWdx)) / w2 * 0.5;
+				float dzdx = (dot(r2.xyz, dWdx) * w - light_space_pos.z * dot(r3.xyz, dWdx)) / w2;
+				float dudy = (dot(r0.xyz, dWdy) * w - light_space_pos.x * dot(r3.xyz, dWdy)) / w2 * 0.5;
+				float dvdy = (dot(r1.xyz, dWdy) * w - light_space_pos.y * dot(r3.xyz, dWdy)) / w2 * 0.5;
+				float dzdy = (dot(r2.xyz, dWdy) * w - light_space_pos.z * dot(r3.xyz, dWdy)) / w2;
+
+				float det = dudx * dvdy - dvdx * dudy;
+				if (abs(det) < 1e-12) {
+					dz_dUV = vec2(0.0);
+				} else {
+					float rcp_det = 1.0 / det;
+					dz_dUV = vec2(
+						(dvdy * dzdx - dvdx * dzdy) * rcp_det,
+						(dudx * dzdy - dudy * dzdx) * rcp_det
+					);
+				}
+
 				return !(
 					proj_coords.z > 1.0 ||
 					proj_coords.z < 0.0 ||
@@ -363,21 +373,54 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				);
 			}
 
-			float sampleShadowProjection(int shadow_map_idx, vec3 proj_coords, float filter_radius_texels) {
+			// Set to 1 to disable PCF filtering and compare a single tap at the
+			// pixel center, to rule out the tap pattern as an artifact source
+			#define SHADOW_DISABLE_PCF 0
+
+			float sampleShadowProjection(int shadow_map_idx, vec3 proj_coords, float filter_radius_texels, vec2 dz_dUV) {
 				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
 				vec2 texel_size = 1.0 / shadow_size;
 				float current_depth = proj_coords.z;
-				float receiver_bias = 0;
+#if SHADOW_DISABLE_PCF
+				vec2 tap_uv = proj_coords.xy;
+				float pcf_depth = texture(TEXTURE(shadow_map_idx), tap_uv).r;
+				vec2 distance_to_texel_center = (floor(tap_uv / texel_size) + 0.5) * texel_size - proj_coords.xy;
+				float tap_depth = current_depth + min(0.0, dot(distance_to_texel_center, dz_dUV)) - 0.0003;
+				return tap_depth > pcf_depth ? 0.0 : 1.0;
+#else
 				float visibility = 0.0;
 
 				for (int i = 0; i < 12; ++i) {
-					vec2 offset = SHADOW_POISSON_DISK[i] * filter_radius_texels * texel_size;
-					float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + offset).r;
-					visibility += current_depth - receiver_bias > pcf_depth ? 0.0 : 1.0;
+					vec2 tap_uv = proj_coords.xy + SHADOW_POISSON_DISK[i] * filter_radius_texels * texel_size;
+					float pcf_depth = texture(TEXTURE(shadow_map_idx), tap_uv).r;
+					// The stored depth corresponds to the center of the texel the tap
+					// reads, so the receiver depth must be extrapolated there before
+					// comparing. Clamping keeps the bias from adding shadow.
+					vec2 distance_to_texel_center = (floor(tap_uv / texel_size) + 0.5) * texel_size - proj_coords.xy;
+					float tap_depth = current_depth + min(0.0, dot(distance_to_texel_center, dz_dUV)) - 0.0003;
+					visibility += tap_depth > pcf_depth ? 0.0 : 1.0;
 				}
 
 				return visibility / 12.0;
+#endif
 			}
+	]]
+
+function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_fn_name)
+	result_fn_name = result_fn_name or "calculateShadow"
+	local header = (
+			"\t\t\t#define DIRECTIONAL_SHADOW_BLOCK " .. block_name .. "\n" .. "\t\t\t#define DIRECTIONAL_SHADOW_FN " .. result_fn_name .. "\n\n"
+		)
+	local body = shadowSearchBodyGLSL(
+		"DIRECTIONAL_SHADOW_BLOCK",
+		"sampleShadowCascade(%s, world_pos, normal, light_dir)",
+		"sampleInsetShadow(world_pos, normal, light_dir, %s)"
+	)
+	return header .. [[
+			const vec2 SHADOW_POISSON_DISK[12] = vec2[12](
+				]] .. POISSON_DISK_VALUES .. [[
+			);
+	]] .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
 
 			// returns -1.0 when the cascade does not cover the point
 			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
@@ -387,6 +430,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				if (shadow_map_idx < 0) return -1.0;
 
 				vec3 proj_coords;
+				vec2 dz_dUV;
 
 				if (!projectShadowMap(
 					DIRECTIONAL_SHADOW_BLOCK.shadows.light_space_matrices[cascade_idx],
@@ -394,12 +438,13 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					normal,
 					light_dir,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
-					proj_coords
+					proj_coords,
+					dz_dUV
 				)) {
 					return -1.0;
 				}
 
-				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
+				return sampleShadowProjection(shadow_map_idx, proj_coords, 1, dz_dUV);
 			}
 
 			bool sampleInsetShadow(vec3 world_pos, vec3 normal, vec3 light_dir, out float shadow) {
@@ -407,6 +452,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				if (DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index < 0) return false;
 
 				vec3 proj_coords;
+				vec2 dz_dUV;
 
 				if (!projectShadowMap(
 					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix,
@@ -414,12 +460,13 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					normal,
 					light_dir,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
-					proj_coords
+					proj_coords,
+					dz_dUV
 				)) {
 					return false;
 				}
 
-				shadow = sampleShadowProjection(DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index, proj_coords, 1.0);
+				shadow = sampleShadowProjection(DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index, proj_coords, 1, dz_dUV);
 				return true;
 			}
 
@@ -427,7 +474,6 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				]] .. body .. [[
 			}
 
-				#undef DIRECTIONAL_SHADOW_NORMAL
 				#undef DIRECTIONAL_SHADOW_FN
 				#undef DIRECTIONAL_SHADOW_BLOCK
 		]]
@@ -442,6 +488,7 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 			if (shadow_map_idx < 0) return 1.0;
 
 			vec3 proj_coords;
+			vec2 dz_dUV;
 
 			if (!projectShadowMap(
 				]] .. block_name .. [[.shadows.local_directional_light_space_matrix,
@@ -449,12 +496,13 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 				normal,
 				light_dir,
 				]] .. block_name .. [[.shadows.local_directional_shadow_texel_world_size,
-				proj_coords
+				proj_coords,
+				dz_dUV
 			)) {
 				return 1.0;
 			}
 
-			return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
+			return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35, dz_dUV);
 		}
 		]]
 		)

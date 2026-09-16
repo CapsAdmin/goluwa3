@@ -285,7 +285,7 @@ return {
 				return vec3(x, y, z) * 2.0 - 1.0;
 			}
 
-			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_data", "calculateShadow", {use_receiver_plane_bias = false}) .. [[
+			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_data", "calculateShadow") .. [[
 
 			]] .. scene_lights.GetPointShadowGLSL("lighting_data") .. [[
 

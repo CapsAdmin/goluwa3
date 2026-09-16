@@ -90,7 +90,7 @@ return {
 					return value * inversesqrt(len2);
 				}
 
-		]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_simple", "calculateShadow", {use_receiver_plane_bias = false}) .. [[
+		]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("lighting_simple", "calculateShadow") .. [[
 
 				void main() {
 					float alpha = get_alpha();

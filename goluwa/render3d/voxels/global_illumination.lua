@@ -1034,7 +1034,7 @@ local function build_update_pipeline()
 		shader = [[
 			]] .. ibl.GetBRDFGLSLCode() .. ibl.GetEnvironmentGLSLCode() .. [[
 			]] .. voxel_gi.GetGLSLCode("gi_data", {storage = true}) .. [[
-			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("gi_data", "calculateShadow", {use_receiver_plane_bias = false}) .. [[
+			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("gi_data", "calculateShadow") .. [[
 
 			]] .. scene_lights.GetLightGLSLCode() .. [[
 			]] .. directional_shadows.GetLocalDirectionalShadowGLSL("gi_data") .. [[

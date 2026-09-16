@@ -241,7 +241,7 @@ do
 		local shader_header = glsl_meta.build_shader_header(
 			bindless_texture_capacity,
 			bindless_cubemap_capacity,
-			nil,
+			{"#extension GL_NV_compute_shader_derivatives : require"},
 			bindless_view_capacity,
 			bindless_sampler_capacity
 		)

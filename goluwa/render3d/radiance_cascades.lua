@@ -616,7 +616,7 @@ function radiance_cascades.GetTraceGLSL(block_name)
 end
 
 function radiance_cascades.GetShadowGLSL(block_name)
-	return directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, "calculateShadow", {use_receiver_plane_bias = false})
+	return directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, "calculateShadow")
 end
 
 -- per-light direct light for traced hits: the sun is already shaded

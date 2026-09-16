@@ -781,7 +781,7 @@ local r = {
 			}
 
 			]] .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
-			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility", {normal_expr = "normalize(normal)"}) .. [[
+			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. [[
 
 
 			]] .. screen_reconstruct.GetWorldPosGLSL("fog_data") .. [[
@@ -1017,25 +1017,7 @@ local r = {
 				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
 			}
 
-			float calculateLocalDirectionalFogShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
-				int shadow_map_idx = fog_data.shadows.local_directional_shadow_map_index;
-				if (shadow_map_idx < 0) return 1.0;
-
-				vec3 proj_coords;
-
-				if (!projectShadowMap(
-					fog_data.shadows.local_directional_light_space_matrix,
-					world_pos,
-					normal,
-					light_dir,
-					fog_data.shadows.local_directional_shadow_texel_world_size,
-					proj_coords
-				)) {
-					return 1.0;
-				}
-
-				return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35);
-			}
+		]] .. directional_shadows.GetLocalDirectionalShadowGLSL("fog_data") .. [[
 
 			vec3 get_additional_scene_fog_light(vec3 ray_dir, vec3 world_pos, vec3 normal) {
 				vec3 fog_light = vec3(0.0);
@@ -1068,7 +1050,7 @@ local r = {
 						i == fog_data.shadows.local_directional_shadow_light_index &&
 						fog_data.shadows.local_directional_shadow_map_index >= 0
 					) {
-						shadow_factor = calculateLocalDirectionalFogShadow(world_pos, normal, L);
+						shadow_factor = calculateLocalDirectionalShadow(world_pos, normal, L);
 					}
 
 					float occlusion_factor = light_oct_shadow_factor(fog_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
