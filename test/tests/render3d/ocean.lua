@@ -36,8 +36,7 @@ T.Test3D("Render3D ocean level override changes visible waterline", function(dra
 		transform = {
 			Rotation = Quat():SetAngles(Deg3(35, 180, 0)),
 		},
-		light = {
-			LightType = "sun",
+		light_sun = {
 			Color = Color(1, 1, 1),
 			Intensity = 1,
 		},

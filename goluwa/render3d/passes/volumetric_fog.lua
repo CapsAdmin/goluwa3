@@ -554,6 +554,12 @@ local r = {
 				return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
 			}
 
+			float get_local_light_attenuation(float dist, float range) {
+				float ratio = dist / range;
+				float window = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
+				return window * window / max(dist * dist, 0.0025);
+			}
+
 			vec3 get_additional_volumetric_light(vec3 ray_dir, vec3 world_pos) {
 				vec3 fog_light = vec3(0.0);
 				int processed_local_lights = 0;
@@ -565,34 +571,32 @@ local r = {
 					if (processed_local_lights >= VOLUMETRIC_LOCAL_LIGHT_LIMIT) break;
 
 					vec3 light_color = light.color.rgb * light.color.a;
+					vec3 light_dir = normalize(light.direction.xyz);
+					vec3 from_light = world_pos - light.position.xyz;
+					float dist = length(from_light);
+					float range = max(light.params.x, 0.0001);
 					vec3 L = vec3(0.0);
 					float attenuation = 1.0;
 
 					if (type == 1) {
-						vec3 to_light = light.position.xyz - world_pos;
-						float dist = length(to_light);
-						float range = max(light.params.x, 0.0001);
 						if (dist <= 0.0001 || dist >= range) continue;
-						L = to_light / dist;
-						attenuation = 1.0 / max(dist * dist, 0.0025);
-					} else if (type == 2 || type == 3) {
-						vec3 light_dir = normalize(light.direction.xyz);
-						vec3 cone_axis = light_dir;
-						vec3 from_light = world_pos - light.position.xyz;
-						float dist = length(from_light);
-						float range = max(light.params.x, 0.0001);
+						L = -from_light / dist;
+						attenuation = get_local_light_attenuation(dist, range);
+					} else if (type == 2) {
 						if (dist <= 0.0001 || dist >= range) continue;
-
-						if (type == 2) {
-							L = normalize(-light_dir);
-						} else {
-							L = -from_light / dist;
-						}
-
+						// light_dir points back toward the source, so light travels
+						// along -light_dir and surfaces behind the light are not lit
+						float in_front = 1.0 - smoothstep(-0.1, 0.2, dot(from_light / dist, light_dir));
+						if (in_front <= 0.0) continue;
+						L = light_dir;
+						attenuation = in_front * get_local_light_attenuation(dist, range);
+					} else if (type == 3) {
+						if (dist <= 0.0001 || dist >= range) continue;
 						float inner_cone = clamp(light.params.y, -1.0, 1.0);
 						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
-						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, from_light / dist));
-						attenuation = cone_attenuation / max(dist * dist, 0.0025);
+						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, from_light / dist));
+						L = -from_light / dist;
+						attenuation = cone_attenuation * get_local_light_attenuation(dist, range);
 					} else {
 						continue;
 					}

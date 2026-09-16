@@ -1,23 +1,33 @@
 local objects = import("goluwa/objects/objects.lua")
-local Light = objects.CreateTemplate("light")
-import.loaded["goluwa/entities/components/light.lua"] = Light
 local Color = import("goluwa/structs/color.lua")
+local Light = objects.CreateTemplate("light")
+Light.instances = {}
+
 Light:StartStorable()
-Light:GetSet("LightType", "directional", {
-	enums = {"sun", "point", "directional", "spot"},
-})
 Light:GetSet("Color", Color(255, 255, 255))
 Light:GetSet("Intensity", 0, {validate = "number"})
-Light:GetSet("Range", 20, {validate = "number"})
-Light:GetSet("InnerCone", 10, {validate = "number"})
-Light:GetSet("OuterCone", 20, {validate = "number"})
 Light:GetSet("OcclusionMap", true)
 Light:EndStorable()
 
-function Light:SetLightType(light_type)
-	self.LightType = light_type
+-- all light components share this list so the render passes can iterate the
+-- whole light set in a single pass
+function Light:OnCreate()
+	list.insert(Light.instances, self)
+end
 
-	if light_type == "sun" then self:SetName("sun") end
+function Light:OnRemove()
+	local instances = Light.instances
+
+	for i, other in ipairs(instances) do
+		if other == self then
+			list.remove(instances, i)
+			break
+		end
+	end
+end
+
+function Light.GetInstances()
+	return Light.instances
 end
 
 return Light:Register()

@@ -6,7 +6,7 @@ local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()
 
 	for i, light in ipairs(lights) do
-		if light.LightType == "sun" then return light end
+		if light.Type == "light_sun" then return light end
 	end
 
 	return nil

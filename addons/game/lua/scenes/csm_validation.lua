@@ -31,7 +31,7 @@ local root = Entity.World:Ensure{
 root:RemoveChildren()
 
 for _, light in ipairs(render3d.GetLights()) do
-	if light.LightType == "sun" then
+	if light.Type == "light_sun" then
 		light.Owner.transform:SetRotation(Quat():SetAngles(Deg3(-35.264, 135, 0)))
 	end
 end

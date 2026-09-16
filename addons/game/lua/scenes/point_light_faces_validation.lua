@@ -3,6 +3,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local system = import("goluwa/system.lua")
+local timer = import("goluwa/timer.lua")
 local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
@@ -68,32 +70,33 @@ local function spawn_box(parent, name, position, size, material, rotation)
 end
 
 local function spawn_point_light(parent, name, position, color, intensity, range)
-	local light = create_entity(parent, name, position)
-	local component = light:AddComponent("light")
-	component:SetLightType("point")
-	component:SetColor(color)
-	component:SetIntensity(intensity)
-	component:SetRange(range)
-	ShadowMap.New{
-		mode = "point",
-		light = light,
-		size = Vec2() + 1024,
-		near_plane = 0.05,
-		far_plane = range,
-	}
+	local ent = create_entity(parent, name, position)
+	local light = ent:AddComponent("light_point")
+	light:SetColor(color)
+	light:SetIntensity(intensity)
+	light:SetRange(range)
+	light:SetOcclusionMap(false)
+	local shadow = ent:AddComponent("shadow_map_point")
+	shadow:SetSize(Vec2() + 1024)
+	shadow:SetNearPlane(0.05)
+	shadow:SetFarPlane(range)
 	return component
 end
 
 local function frame_camera()
-	local camera = render3d.GetCamera and render3d.GetCamera()
-
-	if not camera then return end
-
-	camera:SetPosition(Vec3(0, 18, 64) + SCENE_OFFSET)
-	camera:SetAngles(Deg3(-12, 180, 0))
+	local camera = render3d.GetCamera()
+	camera:SetPosition(Vec3(23.790546, 28.174023, 22.774307))
+	camera:SetRotation(Quat(-0.134459, 0.358074, 0.052192, 0.922486))
 	camera:SetFOV(math.rad(68))
-	camera:SetNearZ(0.05)
-	camera:SetFarZ(320)
+
+	Screenshot(
+		function(texture)
+			texture:Save("tmp/point_shadows.png")
+			print("saved to tmp/point_shadows.png")
+			system.ShutDown(0)
+		end,
+		{camera = camera, update_events = 50}
+	)
 end
 
 local function spawn_room(parent, center, half_size, floor_material, wall_material, ceiling_material)
@@ -180,7 +183,7 @@ spawn_point_light(
 	"point_light_faces_light",
 	light_position,
 	Color(1.0, 0.72, 0.44, 1.0),
-	26,
+	60,
 	200
 )
 spawn_box(
@@ -250,5 +253,4 @@ spawn_box(
 	room_center + Vec3(18, -8.5, 16),
 	Vec3(6.0, 5.0, 6.0),
 	floor_material
-)
-frame_camera()
+)--frame_camera()

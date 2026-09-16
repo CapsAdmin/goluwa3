@@ -148,8 +148,7 @@ end)
 T.Test3D("Graphics render3d culling acceleration returns only frustum and distance visible visuals", function()
 	local sun = Entity.New{
 		transform = {},
-		light = {
-			LightType = "sun",
+		light_sun = {
 			Color = Color(1, 1, 1),
 			Intensity = 1,
 		},
@@ -184,8 +183,7 @@ end)
 T.Test3D("Graphics render3d culling acceleration invalidates after transform moves", function()
 	local sun = Entity.New{
 		transform = {},
-		light = {
-			LightType = "sun",
+		light_sun = {
 			Color = Color(1, 1, 1),
 			Intensity = 1,
 		},

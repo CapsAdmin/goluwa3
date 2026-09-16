@@ -24,7 +24,7 @@ local scene_voxelizer = import("goluwa/render3d/voxels/scene_voxelizer.lua")
 local global_illumination = import("goluwa/render3d/voxels/global_illumination.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
-local Light = import("goluwa/entities/components/light.lua")
+local light_components = import("goluwa/entities/components/light.lua")
 local objects = import("goluwa/objects/objects.lua")
 local INSTANCE_MATRIX_ATTRIBUTES = {
 	{
@@ -1438,7 +1438,7 @@ do
 end
 
 function render3d.GetLights()
-	return Light.Instances
+	return light_components.GetInstances()
 end
 
 function render3d.SetMaterial(mat)

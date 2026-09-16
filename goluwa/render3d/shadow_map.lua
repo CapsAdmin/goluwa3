@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local vk = import("goluwa/bindings/vk.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = nil
-local ShadowMapLispsm = import("goluwa/render3d/shadow_map_lispsm.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
@@ -29,7 +28,6 @@ local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
-local DEFAULT_DIRECTIONAL_PROJECTION_MODE = ShadowMapLispsm.DEFAULT_DIRECTIONAL_PROJECTION_MODE
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local TEMP_IDENTITY_CASCADE_OVERRIDE = false
 local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
@@ -850,15 +848,14 @@ local function update_local_directional_orthographic(self, light_position, light
 	)
 end
 
+-- Renders the shadow from the light position itself, so the map matches the
+-- light's own inverse-square falloff and only covers the cone in front of
+-- the light.
 local function update_local_directional_perspective(self, light_position, light_rotation, range, fov)
 	local near = math.max(self.near_plane, 0.001)
 	local view = Matrix44()
 	view:Translate(-light_position.x, -light_position.y, -light_position.z)
 	view:Multiply(light_rotation:GetConjugated():GetMatrix())
-	view.m02 = -view.m02
-	view.m12 = -view.m12
-	view.m22 = -view.m22
-	view.m32 = -view.m32
 	local projection = Matrix44()
 	projection:Perspective(fov, near, range, 1)
 	local half_span = math.tan(fov * 0.5) * range
@@ -1022,29 +1019,13 @@ local function create_soup_pipeline_variant(self, depth_format, max_shadow_width
 	)
 end
 
--- Shadow maps drive their own shadow pass rendering from PreFrame, sharing a
--- global per-frame pass budget across all active maps in registration order.
+-- Shadow maps render their shadow passes from a single PreFrame coordinator
+-- that distributes the global per-frame pass budget round-robin across all
+-- active maps so one map cannot starve the others.
 local MAX_SHADOW_PASSES_PER_FRAME = 4
 local shadow_pass_budget_frame = -1
 local shadow_passes_used = 0
 local active_maps = {}
-
-local function reset_shadow_pass_budget()
-	local frame = system.GetFrameNumber()
-
-	if shadow_pass_budget_frame ~= frame then
-		shadow_pass_budget_frame = frame
-		shadow_passes_used = 0
-	end
-end
-
-local function consume_shadow_pass_budget(pass_count)
-	reset_shadow_pass_budget()
-	local remaining = math.max(MAX_SHADOW_PASSES_PER_FRAME - shadow_passes_used, 0)
-	local granted = math.min(pass_count, remaining)
-	shadow_passes_used = shadow_passes_used + granted
-	return granted
-end
 
 local function position_changed(a, b, epsilon)
 	if not a or not b then return true end
@@ -1170,52 +1151,19 @@ local function build_shadow_cascade_update_mask(self)
 	return mask
 end
 
-local function render_shadow_map_batch(self, update_mask)
-	local start_index = self.next_cascade
-	local cascade_count = self:GetCascadeCount()
-
-	if start_index > cascade_count then start_index = 1 end
-
-	local eligible_indices = {}
-
-	for cascade_idx = start_index, cascade_count do
-		if not update_mask or update_mask[cascade_idx] ~= false then
-			eligible_indices[#eligible_indices + 1] = cascade_idx
-		end
-	end
-
-	if #eligible_indices == 0 then
-		self.next_cascade = 1
-		return true, false
-	end
-
-	local passes_to_render = consume_shadow_pass_budget(#eligible_indices)
-
-	if passes_to_render <= 0 then return false, false end
-
-	for i = 1, passes_to_render do
-		local cascade_idx = eligible_indices[i]
-		local shadow_cmd = self:Begin(cascade_idx, i == 1)
-		render.PushCommandBuffer(shadow_cmd)
-		event.Call("DrawAllShadows", self, cascade_idx)
-		render.PopCommandBuffer()
-		self:End(cascade_idx, i == passes_to_render)
-		local camera = render3d.GetRenderCamera()
-		self:MarkCascadeRendered(
-			cascade_idx,
-			get_shadow_volume_change_version(self, cascade_idx),
-			camera and camera:GetPosition() or nil,
-			camera and camera:GetRotation():GetForward() or nil
-		)
-	end
-
-	if passes_to_render >= #eligible_indices then
-		self.next_cascade = 1
-		return true, true
-	end
-
-	self.next_cascade = eligible_indices[passes_to_render] + 1
-	return false, true
+local function render_shadow_map_pass(self, cascade_index, is_first_in_batch, is_last_in_batch)
+	local shadow_cmd = self:Begin(cascade_index, is_first_in_batch)
+	render.PushCommandBuffer(shadow_cmd)
+	event.Call("DrawAllShadows", self, cascade_index)
+	render.PopCommandBuffer()
+	self:End(cascade_index, is_last_in_batch)
+	local camera = render3d.GetRenderCamera()
+	self:MarkCascadeRendered(
+		cascade_index,
+		get_shadow_volume_change_version(self, cascade_index),
+		camera and camera:GetPosition() or nil,
+		camera and camera:GetRotation():GetForward() or nil
+	)
 end
 
 function ShadowMap.New(config)
@@ -1225,14 +1173,12 @@ function ShadowMap.New(config)
 	self.mode = config.mode or "directional"
 	self.size = normalize_shadow_size(config.size)
 	self.format = config.format or DEFAULT_FORMAT
-	self.directional_projection_mode = ShadowMapLispsm.NormalizeDirectionalProjectionMode(
-		config.directional_projection_mode or
-			(
-				self.mode == "directional" and
-				DEFAULT_DIRECTIONAL_PROJECTION_MODE or
-				"orthographic"
-			)
-	)
+	self.directional_projection_mode = config.directional_projection_mode or
+		(
+			self.mode == "directional" and
+			"perspective" or
+			"orthographic"
+		)
 	self.cascade_formats = config.cascade_formats
 	self.near_plane = config.near_plane or 0.1
 	self.far_plane = config.far_plane or 100.0
@@ -1240,7 +1186,14 @@ function ShadowMap.New(config)
 	self.point_color_format = config.point_color_format or DEFAULT_POINT_COLOR_FORMAT
 	self.point_light_position = Vec3(0, 0, 0)
 	-- Cascaded shadow map settings
-	self.cascade_count = config.cascade_count or (self.mode == "point" and 6 or DEFAULT_CASCADE_COUNT)
+	self.cascade_count = config.cascade_count or
+		(
+			self.mode == "point" and
+			6 or
+			self.mode == "directional" and
+			1 or
+			DEFAULT_CASCADE_COUNT
+		)
 
 	if self.mode ~= "point" then
 		assert(self.cascade_count <= 4, "shadow maps currently support up to 4 cascades")
@@ -1274,7 +1227,6 @@ function ShadowMap.New(config)
 	self.last_rotation = nil
 	self.scene_version = nil
 	active_maps[#active_maps + 1] = self
-	self:AddGlobalEvent("PreFrame")
 	local cascade_sizes = config.cascade_sizes or {}
 	local max_shadow_width = self.size.w
 	local max_shadow_height = self.size.h
@@ -1334,7 +1286,6 @@ function ShadowMap.New(config)
 				aspect = "depth",
 			},
 		}
-		self.point_depth_buffer_ready = false
 		self.pipeline = create_shadow_pipeline_variant(
 			self,
 			self.format,
@@ -1493,32 +1444,17 @@ function ShadowMap:UpdatePointLightMatrices(light_position)
 end
 
 function ShadowMap:UpdateLocalDirectionalLightMatrices(light_position, light_rotation, range, ortho_size)
-	if self.projection == "perspective" then
+	if self.directional_projection_mode == "orthographic" then
+		update_local_directional_orthographic(self, light_position, light_rotation, range, ortho_size)
+	else
 		update_local_directional_perspective(
 			self,
 			light_position,
 			light_rotation,
 			range,
-			self.perspective_fov or math.rad(70)
+			self.perspective_fov or math.rad(90)
 		)
-		return
 	end
-
-	if
-		self.directional_projection_mode ~= "orthographic" and
-		ShadowMapLispsm.UpdateLocalDirectional(
-			self,
-			light_position,
-			light_rotation,
-			range,
-			get_frustum_slice_corners,
-			set_directional_cascade_state
-		)
-	then
-		return
-	end
-
-	update_local_directional_orthographic(self, light_position, light_rotation, range, ortho_size)
 end
 
 -- Calculate cascade split distances using practical split scheme
@@ -1848,22 +1784,17 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 				level_count = 1,
 			}
 		)
-
-		if not self.point_depth_buffer_ready then
-			render.TransitionResourceTo(
-				self.point_depth_buffer,
-				"depth_attachment_optimal",
-				{
-					cmd = self.cmd,
-					srcStage = "top_of_pipe",
-					srcAccess = "none",
-					dstStage = "early_fragment_tests",
-					dstAccess = "depth_stencil_attachment_write",
-				}
-			)
-			self.point_depth_buffer_ready = true
-		end
-
+		render.TransitionResourceTo(
+			self.point_depth_buffer,
+			"depth_attachment_optimal",
+			{
+				cmd = self.cmd,
+				srcStage = "top_of_pipe",
+				srcAccess = "none",
+				dstStage = "early_fragment_tests",
+				dstAccess = "depth_stencil_attachment_write",
+			}
+		)
 		self.cmd:BeginRendering{
 			color_attachments = {
 				{
@@ -2624,11 +2555,7 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 		)
 		self.cascade[cascade_index].is_sampleable = true
 
-		if is_last_in_batch then
-			self.cmd:End()
-			self.is_recording_cascades = false
-			render.Submit(self.cmd, self.fence)
-		end
+		if is_last_in_batch then self:CloseBatch() end
 
 		return
 	end
@@ -2650,10 +2577,8 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 	self.cascade[cascade_index].is_sampleable = true
 
 	if is_last_in_batch then
-		self.cmd:End()
-		self.is_recording_cascades = false
 		-- Submit once after all cascades are recorded and let the next frame fence-gate reuse.
-		render.Submit(self.cmd, self.fence)
+		self:CloseBatch()
 	end
 end
 
@@ -2726,8 +2651,10 @@ function ShadowMap.GetActiveMaps()
 	return active_maps
 end
 
-function ShadowMap:OnPreFrame(dt)
-	if not self.enabled then return end
+-- Decides whether this map needs shadow passes this frame, updates its
+-- matrices, and returns the list of cascades eligible for rendering, or nil.
+function ShadowMap:PrepareFrameUpdate()
+	if not self.enabled then return nil end
 
 	local policy = self.policy
 	local transform = self.light and self.light.transform
@@ -2760,7 +2687,7 @@ function ShadowMap:OnPreFrame(dt)
 
 		if not (restart or self.needs_completion) then
 			self.scene_version = scene_version
-			return
+			return nil
 		end
 	else
 		local interval = policy.shadow_update_interval
@@ -2773,7 +2700,7 @@ function ShadowMap:OnPreFrame(dt)
 			not self.needs_completion
 		then
 			self.scene_version = scene_version
-			return
+			return nil
 		end
 
 		restart = true
@@ -2783,7 +2710,7 @@ function ShadowMap:OnPreFrame(dt)
 		local position = transform:GetPosition()
 
 		if not render3d.SphereInFrustum(position.x, position.y, position.z, self.far_plane) then
-			return
+			return nil
 		end
 	end
 
@@ -2793,17 +2720,122 @@ function ShadowMap:OnPreFrame(dt)
 	local update_mask = self.role == "cascades" and build_shadow_cascade_update_mask(self) or nil
 	self:UpdateMatrices(update_mask)
 	event.Call("PrimeAllShadowMaterials", self)
-	local complete, rendered = render_shadow_map_batch(self, update_mask)
+	local start_index = self.next_cascade
+	local cascade_count = self:GetCascadeCount()
 
+	if start_index > cascade_count then start_index = 1 end
+
+	local eligible_indices = {}
+
+	for cascade_idx = start_index, cascade_count do
+		if not update_mask or update_mask[cascade_idx] ~= false then
+			eligible_indices[#eligible_indices + 1] = cascade_idx
+		end
+	end
+
+	if #eligible_indices == 0 then
+		self.next_cascade = 1
+		return nil
+	end
+
+	return eligible_indices
+end
+
+function ShadowMap:FinishFrameUpdate(complete, rendered, rendered_cascades)
 	if rendered then
 		self.last_update_frame = system.GetFrameNumber()
-		self.scene_version = scene_version
+		self.scene_version = Visual.Library and Visual.Library.shadow_change_version_counter or 0
 		self.needs_completion = not complete
 
-		if complete and transform then
-			self.last_position = transform:GetPosition():Copy()
-			self.last_rotation = transform:GetRotation():Copy()
+		if complete then
+			self.next_cascade = 1
+
+			if self.light and self.light.transform then
+				self.last_position = self.light.transform:GetPosition():Copy()
+				self.last_rotation = self.light.transform:GetRotation():Copy()
+			end
+		else
+			self.next_cascade = self.next_cascade + (rendered_cascades or 0)
 		end
+	end
+end
+
+function ShadowMap:CloseBatch()
+	if not self.is_recording_cascades then return end
+
+	if self.mode == "point" then
+		render.TransitionResourceFrom(
+			self.point_depth_buffer,
+			"general",
+			{
+				cmd = self.cmd,
+				srcStage = "late_fragment_tests",
+				srcAccess = "depth_stencil_attachment_write",
+				dstStage = "compute",
+				dstAccess = "shader_write",
+			}
+		)
+	end
+
+	self.cmd:End()
+	self.is_recording_cascades = false
+	render.Submit(self.cmd, self.fence)
+end
+
+local function update_all_shadow_maps(dt)
+	shadow_pass_budget_frame = system.GetFrameNumber()
+	shadow_passes_used = 0
+	local pending = {}
+
+	for _, map in ipairs(active_maps) do
+		local eligible = map:PrepareFrameUpdate()
+
+		if eligible then
+			pending[#pending + 1] = {
+				map = map,
+				eligible = eligible,
+				next = 1,
+			}
+		end
+	end
+
+	if #pending > 0 then
+		local remaining = MAX_SHADOW_PASSES_PER_FRAME
+		local any_rendered = false
+
+		while remaining > 0 do
+			local progressed = false
+
+			for i = 1, #pending do
+				local p = pending[i]
+
+				if remaining > 0 and p.next <= #p.eligible then
+					local complete = p.next == #p.eligible
+					render_shadow_map_pass(
+						p.map,
+						p.eligible[p.next],
+						p.next == 1,
+						complete or remaining == 1
+					)
+					p.next = p.next + 1
+					remaining = remaining - 1
+					any_rendered = true
+					progressed = true
+				end
+			end
+
+			if not progressed then break end
+		end
+
+		for i = 1, #pending do
+			local p = pending[i]
+
+			if p.next > 1 and p.next <= #p.eligible then p.map:CloseBatch() end
+
+			p.map:FinishFrameUpdate(p.next > #p.eligible, any_rendered, p.next - 1)
+		end
+
+		shadow_passes_used = MAX_SHADOW_PASSES_PER_FRAME - remaining
 	end
 end
 
@@ -2819,7 +2851,7 @@ function ShadowMap:UpdateMatrices(update_mask)
 			rotation * Quat():SetAngles(Deg3(0, 180, 0))
 			or
 			rotation
-		self:UpdateLocalDirectionalLightMatrices(position, light_rotation, self.max_shadow_distance, self.ortho_size)
+		self:UpdateLocalDirectionalLightMatrices(position, light_rotation, self.far_plane, self.ortho_size)
 	else
 		self:UpdateCascadeLightMatrices(rotation, update_mask)
 	end
@@ -2964,4 +2996,5 @@ function ShadowMap:OnFirstCreated()
 	}
 end
 
+event.AddListener("PreFrame", "shadow_maps", update_all_shadow_maps)
 return ShadowMap:Register()

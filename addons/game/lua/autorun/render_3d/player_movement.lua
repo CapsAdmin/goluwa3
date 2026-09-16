@@ -38,8 +38,7 @@ system.GetWindow():SetMouseTrapped(true)
 local flashlight = Entity.New{
 	Name = "flashlight",
 	transform = {},
-	light = {
-		LightType = "directional",
+	light_directional = {
 		Intensity = 0,
 		Range = 60,
 	},
@@ -47,8 +46,6 @@ local flashlight = Entity.New{
 local flash_map = ShadowMap.New{
 	mode = "directional",
 	light = flashlight,
-	directional_rotation_flip = true,
-	projection = "perspective",
 	perspective_fov = math.rad(150),
 	size = Vec2() + 1024,
 	max_shadow_distance = 250,
@@ -67,7 +64,7 @@ event.AddListener("Update", "flashlight", function()
 
 	if f_down and not f_was_down then
 		flashlight_on = not flashlight_on
-		flashlight.light:SetIntensity(flashlight_on and 1 or 0)
+		flashlight.light_directional:SetIntensity(flashlight_on and 1 or 0)
 		flash_map:SetEnabled(flashlight_on)
 		print("flashlight ", flashlight_on)
 	end

@@ -1,0 +1,10 @@
+local objects = import("goluwa/objects/objects.lua")
+local Light = import("goluwa/entities/components/light.lua")
+local SpotLight = objects.CreateTemplate("light_spot")
+SpotLight.Base = Light
+SpotLight:StartStorable()
+SpotLight:GetSet("Range", 20, {validate = "number"})
+SpotLight:GetSet("InnerCone", 10, {validate = "number"})
+SpotLight:GetSet("OuterCone", 20, {validate = "number"})
+SpotLight:EndStorable()
+return SpotLight:Register()

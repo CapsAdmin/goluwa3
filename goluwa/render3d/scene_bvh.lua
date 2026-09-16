@@ -1105,11 +1105,11 @@ end
 -- the light space data (occlusion maps, shadows). tracked so consumers and the
 -- debug overlay can see when the light set moved
 local function diff_lights()
-	local Light = import.loaded["goluwa/entities/components/light.lua"]
+	local light = import.loaded["goluwa/entities/components/light.lua"]
 
-	if not Light then return false end
+	if not light then return false end
 
-	local lights = Light.Instances
+	local lights = light.GetInstances()
 	local signatures = scene_bvh.light_signatures or {}
 	local changed = false
 	local count = 0

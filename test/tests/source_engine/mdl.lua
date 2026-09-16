@@ -6,7 +6,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local transform = import("goluwa/entities/components/transform.lua")
-local light = import("goluwa/entities/components/light.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -33,8 +32,7 @@ T.Pending("mdl rendering", function(draw)
 		transform = {
 			Rotation = Quat(0.5, 0, 0, -1),
 		},
-		light = {
-			LightType = "sun",
+		light_sun = {
 			Color = Color(1, 1, 1),
 			Intensity = 10,
 		},

@@ -89,8 +89,8 @@ local function is_occlusion_light(light)
 	return light ~= nil and
 		light.OcclusionMap ~= false and
 		(
-			light.LightType == "point" or
-			light.LightType == "spot"
+			light.Type == "light_point" or
+			light.Type == "light_spot"
 		)
 end
 

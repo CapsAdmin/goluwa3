@@ -12,7 +12,6 @@ local Rect = import("goluwa/structs/rect.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Texture = import("goluwa/render/texture.lua")
 local transform = import("goluwa/entities/components/transform.lua")
-local light = import("goluwa/entities/components/light.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local width = 512
 local height = 512
@@ -56,8 +55,7 @@ T.Pending("Graphics Polygon3D environment map reflection colors", function(draw)
 			transform = {
 				Rotation = Quat(0, 0, 0, 1):Normalize(),
 			},
-			light = {
-				LightType = "sun",
+			light_sun = {
 				Color = Color(1, 1, 1),
 				Intensity = 0,
 			},

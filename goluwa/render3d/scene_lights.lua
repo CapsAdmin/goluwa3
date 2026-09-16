@@ -20,8 +20,8 @@ local function sort_lights(a, b)
 end
 
 local function is_frustum_cullable(light)
-	local light_type = light.LightType
-	return light_type == "point" or light_type == "spot"
+	local light_type = light.Type
+	return light_type == "light_point" or light_type == "light_spot"
 end
 
 function scene_lights.IsLightVisible(light)
@@ -141,11 +141,6 @@ function scene_lights.GetLightGLSLCode()
 				}
 
 				if (type == 2) {
-					L = normalize(light_dir);
-					return true;
-				}
-
-				if (type == 2 || type == 3) {
 					vec3 from_light = world_pos - light.position.xyz;
 					float dist = length(from_light);
 					float range = max(light.params.x, 0.0001);
@@ -154,17 +149,33 @@ function scene_lights.GetLightGLSLCode()
 						return false;
 					}
 
-					vec3 cone_axis = light_dir;
-					vec3 cone_dir = from_light / dist;
+					// light_dir points back toward the source, so light travels
+					// along -light_dir and surfaces behind the light are not lit
+					float in_front = 1.0 - smoothstep(-0.1, 0.2, dot(from_light / dist, light_dir));
+
+					if (in_front <= 0.0) {
+						return false;
+					}
+
+					L = light_dir;
+					attenuation = in_front * get_light_distance_attenuation(dist, range);
+					return true;
+				}
+
+				if (type == 3) {
+					vec3 from_light = world_pos - light.position.xyz;
+					float dist = length(from_light);
+					float range = max(light.params.x, 0.0001);
+
+					if (dist <= 0.0001 || dist >= range) {
+						return false;
+					}
+
 					float inner_cone = clamp(light.params.y, -1.0, 1.0);
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
-					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(cone_axis, cone_dir));
-					//attenuation = cone_attenuation * get_light_distance_attenuation(dist, range);
-					if (type == 2) {
-						L = normalize(light_dir);
-					} else { 
-						L = normalize(light.position.xyz - world_pos);
-					}
+					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, from_light / dist));
+					L = normalize(light.position.xyz - world_pos);
+					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range);
 					return true;
 				}
 
@@ -180,31 +191,40 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 
 		if light then
 			local rotation = light.Owner.transform:GetRotation()
-			local direction = light.LightType == "directional" and
+			local direction = light.Type == "light_directional" and
 				rotation:GetBackward() or
 				rotation:GetForward()
 			light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
 			direction:CopyToFloatPointer(data.direction)
 
-			if light.LightType == "sun" then
+			if light.Type == "light_sun" then
 				data.position[3] = 0
-			elseif light.LightType == "point" then
+				data.params[0] = 0
+				data.params[1] = 0
+				data.params[2] = 0
+			elseif light.Type == "light_point" then
 				data.position[3] = 1
-			elseif light.LightType == "directional" then
+				data.params[0] = light.Range
+				data.params[1] = 0
+				data.params[2] = 0
+			elseif light.Type == "light_directional" then
 				data.position[3] = 2
-			elseif light.LightType == "spot" then
+				data.params[0] = light.Range
+				data.params[1] = 0
+				data.params[2] = 0
+			elseif light.Type == "light_spot" then
 				data.position[3] = 3
+				data.params[0] = light.Range
+				data.params[1] = math.cos(math.rad(light.InnerCone))
+				data.params[2] = math.cos(math.rad(light.OuterCone))
 			else
-				error("Unknown light type: " .. tostring(light.LightType), 2)
+				error("Unknown light type: " .. tostring(light.Type), 2)
 			end
 
 			data.color[0] = light.Color.r
 			data.color[1] = light.Color.g
 			data.color[2] = light.Color.b
 			data.color[3] = light.Intensity
-			data.params[0] = light.Range
-			data.params[1] = light.InnerCone
-			data.params[2] = light.OuterCone
 			data.params[3] = 0
 		else
 			data.position[0] = 0
@@ -317,7 +337,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 
 		if
 			not directional and
-			light.LightType == "directional" and
+			light.Type == "light_directional" and
 			light_maps and
 			#light_maps > 0
 		then
@@ -330,7 +350,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 					break
 				end
 			end
-		elseif light.LightType == "point" and light_maps then
+		elseif light.Type == "light_point" and light_maps then
 			for _, shadow_map in ipairs(light_maps) do
 				if shadow_map.mode ~= "point" then goto continue_light end
 
@@ -365,8 +385,20 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 		local candidate = point_shadow_candidates[i]
 		local light = candidate.light
 		local shadow_map = candidate.shadow_map
+		local rendered = true
+
+		for face = 1, 6 do
+			if not shadow_map.cascade[face].is_sampleable then
+				rendered = false
+
+				break
+			end
+		end
+
+		if not rendered then goto continue end
+
 		point_shadow_count = point_shadow_count + 1
-		shadow_block.point_shadow_map_indices[point_shadow_count - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture())
+		shadow_block.point_shadow_map_indices[point_shadow_count - 1] = self:GetCubeMapTextureIndex(shadow_map:GetDepthTexture())
 		light.Owner.transform:GetPosition():CopyToFloatPointer(shadow_block.point_shadow_positions[point_shadow_count - 1])
 		shadow_block.point_shadow_positions[point_shadow_count - 1][3] = shadow_map:GetFarPlane()
 		shadow_block.point_shadow_light_indices[point_shadow_count - 1] = candidate.light_index
@@ -387,7 +419,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 		end
 	end
 
-	if directional and directional_map then
+	if directional and directional_map and directional_map.cascade[1].is_sampleable then
 		local shadow_map = directional_map
 		shadow_block.local_directional_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
 		shadow_block.local_directional_shadow_light_index = directional_light_index

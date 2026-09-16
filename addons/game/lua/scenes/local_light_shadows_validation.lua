@@ -167,13 +167,10 @@ local function spawn_directional_light(parent, position)
 		position or Vec3(0, 10, 0),
 		make_rotation(52, -18, 0)
 	)
-	local component = light:AddComponent("light")
-	component:SetLightType("directional")
+	local component = light:AddComponent("light_directional")
 	component:SetColor(Color(0.42, 0.72, 1.0, 1.0))
 	component:SetIntensity(1500.0)
 	component:SetRange(300)
-	component:SetInnerCone(0.72)
-	component:SetOuterCone(0.42)
 	ShadowMap.New{
 		mode = "directional",
 		light = light,
@@ -189,8 +186,7 @@ end
 
 local function spawn_point_light(parent, name, position, color, intensity, range)
 	local light = create_entity(parent, name, position)
-	local component = light:AddComponent("light")
-	component:SetLightType("point")
+	local component = light:AddComponent("light_point")
 	component:SetColor(color)
 	component:SetIntensity(intensity)
 	component:SetRange(range)
@@ -232,11 +228,11 @@ for _, light in ipairs(render3d.GetLights()) do
 	if
 		light.Owner ~= root and
 		(
-			light.LightType == "sun" or
-			light.LightType == "directional"
+			light.Type == "light_sun" or
+			light.Type == "light_directional"
 		)
 	then
-		if light.LightType == "sun" then
+		if light.Type == "light_sun" then
 			if VALIDATION_MODE == "local_directional" then
 				disable_light_shadows(light.Owner)
 				light:SetIntensity(0)
@@ -245,7 +241,7 @@ for _, light in ipairs(render3d.GetLights()) do
 			disable_light_shadows(light.Owner)
 		end
 
-		if light.LightType == "directional" then light:SetIntensity(0) end
+		if light.Type == "light_directional" then light:SetIntensity(0) end
 	end
 end
 

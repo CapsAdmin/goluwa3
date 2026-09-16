@@ -32,8 +32,7 @@ end
 T.Test3D("Graphics render3d instancing keeps distinct VMT materials out of a shared batch", function(draw)
 	local sun = Entity.New{
 		transform = {},
-		light = {
-			LightType = "sun",
+		light_sun = {
 			Color = Color(1, 1, 1),
 			Intensity = 1,
 		},

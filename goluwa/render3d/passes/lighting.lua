@@ -316,6 +316,7 @@ return {
 			}
 
 			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
+				if (lighting_data.ambient_occlusion_tex < 0) return 1.0;
 				return texture(TEXTURE(lighting_data.ambient_occlusion_tex), uv).r;
 			}
 

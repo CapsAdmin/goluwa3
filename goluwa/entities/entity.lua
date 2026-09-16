@@ -12,10 +12,15 @@ function Entity.GetValidComponents()
 		valid_components.transform = import("goluwa/entities/components/transform.lua")
 
 		if RENDER_3D then
-			valid_components.light = import("goluwa/entities/components/light.lua")
+			valid_components.light_sun = import("goluwa/entities/components/light_sun.lua")
+			valid_components.light_directional = import("goluwa/entities/components/light_directional.lua")
+			valid_components.light_point = import("goluwa/entities/components/light_point.lua")
+			valid_components.light_spot = import("goluwa/entities/components/light_spot.lua")
 			valid_components.visual = import("goluwa/entities/components/visual.lua")
 			valid_components.visual_primitive = import("goluwa/entities/components/visual_primitive.lua")
-			valid_components.shadow_map = import("goluwa/entities/components/shadow_map.lua")
+			valid_components.shadow_map_sun = import("goluwa/entities/components/shadow_map_sun.lua")
+			valid_components.shadow_map_directional = import("goluwa/entities/components/shadow_map_directional.lua")
+			valid_components.shadow_map_point = import("goluwa/entities/components/shadow_map_point.lua")
 		end
 	end
 

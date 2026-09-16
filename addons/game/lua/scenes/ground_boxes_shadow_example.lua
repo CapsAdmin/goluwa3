@@ -66,7 +66,7 @@ end
 
 local function disable_non_sun_lights(root)
 	for _, light in ipairs(render3d.GetLights()) do
-		if light.Owner ~= root and light.LightType ~= "sun" then
+		if light.Owner ~= root and light.Type ~= "light_sun" then
 			for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
 				if shadow_map.light == light.Owner then shadow_map:SetEnabled(false) end
 			end

@@ -1369,19 +1369,17 @@ function steam.SpawnMapEntities(path, parent)
 					local ent = Entity.New{Name = info.classname, Parent = parent.light_group}
 					local tr = ent:AddComponent("transform")
 					set_transform(tr, info)
-					local light = ent:AddComponent("light")
+					local is_spot = info.classname == "light_spot"
+					local light = ent:AddComponent(is_spot and "light_spot" or "light_point")
 					-- Color is already in linear space from parsing
 					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
 					local intensity, range = convert_source_light_to_engine(info)
 
-					if info.classname == "light_spot" then
+					if is_spot then
 						local inner_cone = math.clamp(tonumber(info._inner_cone) or 45, 0, 180)
 						local outer_cone = math.clamp(tonumber(info._cone) or inner_cone, inner_cone, 180)
-						light:SetLightType("spot")
-						light:SetInnerCone(math.cos(math.rad(inner_cone)))
-						light:SetOuterCone(math.cos(math.rad(outer_cone)))
-					else
-						light:SetLightType("point")
+						light:SetInnerCone(inner_cone)
+						light:SetOuterCone(outer_cone)
 					end
 
 					light:SetRange(range)

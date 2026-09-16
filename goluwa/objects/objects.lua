@@ -136,6 +136,7 @@ function objects.RebuildMetatables(what)
 			objects.invalidate_meta[type_name] = nil
 			local copy = {}
 			local objects_variables = {}
+			local storable_variables = {}
 			local component_set = {}
 			local cmp = {}
 
@@ -180,6 +181,14 @@ function objects.RebuildMetatables(what)
 								end
 							end
 
+							if k == "storable_variables" then
+								for _, sv in ipairs(val) do
+									if not list.has_value(storable_variables, sv) then
+										list.insert(storable_variables, sv)
+									end
+								end
+							end
+
 							if k == "ComponentSet" then
 								for _, cname in ipairs(val) do
 									if not list.has_value(component_set, cname) then
@@ -208,6 +217,14 @@ function objects.RebuildMetatables(what)
 					end
 				end
 
+				if k == "storable_variables" then
+					for _, sv in ipairs(v) do
+						if not list.has_value(storable_variables, sv) then
+							list.insert(storable_variables, sv)
+						end
+					end
+				end
+
 				if k == "ComponentSet" then
 					for _, cname in ipairs(v) do
 						if not list.has_value(component_set, cname) then
@@ -226,6 +243,11 @@ function objects.RebuildMetatables(what)
 			if next(component_set) then
 				copy.ComponentSet = component_set
 				meta.ComponentSet = component_set
+			end
+
+			if #storable_variables > 0 then
+				copy.storable_variables = storable_variables
+				meta.storable_variables = storable_variables
 			end
 
 			if next(cmp) then

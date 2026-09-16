@@ -9,7 +9,7 @@ function directional_shadows.GetPrimarySun(lights)
 	lights = lights or render3d.GetLights()
 
 	for i, light in ipairs(lights) do
-		if light.LightType == "sun" then return light, i - 1 end
+		if light.Type == "light_sun" then return light, i - 1 end
 	end
 
 	return nil, -1

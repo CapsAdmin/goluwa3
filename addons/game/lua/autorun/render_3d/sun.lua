@@ -12,13 +12,12 @@ local sun = Entity.New{
 	transform = {
 		Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
 	},
-	light = {
-		LightType = "sun",
+	light_sun = {
 		Color = Color(1.0, 0.98, 1),
 		Intensity = 2,
 	},
 }
-atmosphere.SetSunIntensity(sun.light.Intensity)
+atmosphere.SetSunIntensity(sun.light_sun.Intensity)
 local MODE = "cascade"
 local shadow_maps = {}
 local shadow_policy = {
@@ -122,20 +121,20 @@ event.AddListener("Update", "sun_orientation", function(dt)
 	local below_horizon = sunDir.y < 0
 
 	if below_horizon then
-		if sun.light.BelowHorizon ~= true then
-			sun.light.BelowHorizon = true
-			sun.light:SetIntensity(0)
+		if sun.light_sun.BelowHorizon ~= true then
+			sun.light_sun.BelowHorizon = true
+			sun.light_sun:SetIntensity(0)
 			set_sun_shadows(false)
 		end
 	else
-		if sun.light.BelowHorizon ~= false then
-			sun.light.BelowHorizon = false
-			sun.light:SetIntensity(2)
+		if sun.light_sun.BelowHorizon ~= false then
+			sun.light_sun.BelowHorizon = false
+			sun.light_sun:SetIntensity(2)
 			set_sun_shadows(true)
 		end
 	end
 
-	atmosphere.SetSunIntensity(sun.light.Intensity)
+	atmosphere.SetSunIntensity(sun.light_sun.Intensity)
 	local sunColor = atmosphere.GetSunColor(sunDir)
-	sun.light:SetColor(Color(sunColor:Unpack()))
+	sun.light_sun:SetColor(Color(sunColor:Unpack()))
 end)

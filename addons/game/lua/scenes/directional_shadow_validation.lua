@@ -107,23 +107,19 @@ end
 
 local function spawn_directional_light(parent, name, position, pitch, yaw, shadow_config)
 	local light = create_entity(parent, name, position, make_rotation(pitch, yaw, 0))
-	local component = light:AddComponent("light")
-	component:SetLightType("directional")
+	local component = light:AddComponent("light_directional")
 	component:SetColor(Color(1.0, 0.95, 0.85, 1.0))
 	component:SetIntensity(30.0)
 	component:SetRange(shadow_config.range)
-	component:SetInnerCone(1.0)
-	component:SetOuterCone(1.0)
 	ShadowMap.New{
 		mode = "directional",
 		light = light,
-		directional_rotation_flip = true,
 		size = shadow_config.size,
 		max_shadow_distance = shadow_config.range,
 		ortho_size = shadow_config.ortho_size,
 		near_plane = shadow_config.near_plane,
 		far_plane = shadow_config.range,
-		projection = shadow_config.projection,
+		directional_projection_mode = shadow_config.projection,
 		perspective_fov = shadow_config.perspective_fov,
 	}
 	return light
@@ -131,8 +127,7 @@ end
 
 local function spawn_point_light(parent, name, position, color, intensity, range)
 	local light = create_entity(parent, name, position)
-	local component = light:AddComponent("light")
-	component:SetLightType("point")
+	local component = light:AddComponent("light_point")
 	component:SetColor(color)
 	component:SetIntensity(intensity)
 	component:SetRange(range)

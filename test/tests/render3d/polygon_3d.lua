@@ -257,8 +257,7 @@ T.Test3D("Polygon3D", function(draw)
 			transform = {
 				Rotation = Quat(0, 0, 0, -1):Normalize(),
 			},
-			light = {
-				LightType = "sun",
+			light_sun = {
 				Color = Color(1, 1, 1),
 				Intensity = 1,
 			},

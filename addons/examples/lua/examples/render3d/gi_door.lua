@@ -90,7 +90,7 @@ shapes.Sphere{
 
 -- put the sun well below the horizon so the atmosphere goes dark with it
 for _, light in ipairs(render3d.GetLights()) do
-	if light.LightType == "sun" then
+	if light.Type == "light_sun" then
 		light.Owner.transform:SetRotation(QuatDeg3(75, 40, 0))
 	end
 end
