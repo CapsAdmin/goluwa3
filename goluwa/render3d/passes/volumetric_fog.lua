@@ -39,7 +39,6 @@ local volumetric_froxel_fallback = {
 	view = nil,
 	sampler = nil,
 }
-local write_scene_fog_shadow_block = directional_shadows.WriteFogShadowBlock
 
 local function destroy_volumetric_froxel_resources()
 	if volumetric_froxels.sample_view and volumetric_froxels.sample_view.Remove then

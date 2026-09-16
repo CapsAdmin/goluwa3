@@ -327,10 +327,9 @@ local SHADOW_PROJECTION_GLSL = [[
 			bool projectShadowMap(
 				mat4 light_space_matrix,
 				vec3 world_pos,
-				vec3 normal,
-				vec3 light_dir,
-				float texel_world_size,
 				out vec3 proj_coords,
+				out vec3 dproj_dx,
+				out vec3 dproj_dy,
 				out vec2 dz_dUV
 			) {
 				vec4 light_space_pos = light_space_matrix * vec4(world_pos, 1.0);
@@ -362,6 +361,8 @@ local SHADOW_PROJECTION_GLSL = [[
 						(dudx * dzdy - dudy * dzdx) * rcp_det
 					);
 				}
+				dproj_dx = vec3(dudx, dvdx, dzdx);
+				dproj_dy = vec3(dudy, dvdy, dzdy);
 
 				return !(
 					proj_coords.z > 1.0 ||
@@ -373,35 +374,113 @@ local SHADOW_PROJECTION_GLSL = [[
 				);
 			}
 
-			// Set to 1 to disable PCF filtering and compare a single tap at the
-			// pixel center, to rule out the tap pattern as an artifact source
+			// Set to 1 to disable all PCF filtering and compare a single tap at
+			// the pixel center, to rule out the tap pattern as an artifact source
 			#define SHADOW_DISABLE_PCF 0
 
-			float sampleShadowProjection(int shadow_map_idx, vec3 proj_coords, float filter_radius_texels, vec2 dz_dUV) {
+			// Screen space sub-tap offset in pixels (0.5 = 2x2 AA over one pixel)
+			#define SHADOW_SCREEN_TAP_PX 0.5
+
+			// Set to 1 to skip the screen space sub-pixel taps entirely and
+			// filter in light space only
+			#define SHADOW_DISABLE_SCREEN_PCF 0
+
+			// Set to 1 to replace the fixed 2x2 screen and light space grids
+			// with a single tap dithered across both filter regions
+			#define SHADOW_DITHER 1
+
+#if SHADOW_DITHER
+			// Per-pixel hash in [0,1)^2 derived from the light space UV so the
+			// shared GLSL needs no pixel coordinate builtin (gl_FragCoord is
+			// fragment only, gl_GlobalInvocationID is compute only)
+			vec2 shadow_dither_2d(vec2 p) {
+				vec3 a = fract(p.xyx * vec3(123.34, 456.65, 789.76));
+				a += dot(a, a.yzx + 34.5453);
+				return fract((a.xy + a.yz) * a.zy);
+			}
+#endif
+
+			float sampleShadowProjection(
+				int shadow_map_idx,
+				vec3 proj_coords,
+				vec3 dproj_dx,
+				vec3 dproj_dy,
+				float filter_radius_texels,
+				vec2 dz_dUV
+			) {
 				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
 				vec2 texel_size = 1.0 / shadow_size;
-				float current_depth = proj_coords.z;
 #if SHADOW_DISABLE_PCF
-				vec2 tap_uv = proj_coords.xy;
-				float pcf_depth = texture(TEXTURE(shadow_map_idx), tap_uv).r;
-				vec2 distance_to_texel_center = (floor(tap_uv / texel_size) + 0.5) * texel_size - proj_coords.xy;
-				float tap_depth = current_depth + min(0.0, dot(distance_to_texel_center, dz_dUV)) - 0.0003;
-				return tap_depth > pcf_depth ? 0.0 : 1.0;
+				float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy).r;
+				return proj_coords.z - 0.0003 > pcf_depth ? 0.0 : 1.0;
 #else
+#if SHADOW_DITHER
+				// Four stochastic taps: uniform offsets across the screen space
+				// and light space filter regions (which on average cover the same
+				// box as the deterministic 2x2 grids), each compared with a soft
+				// margin that fades with the depth distance from the edge so
+				// pixels far from the edge do not read as hard 0/1 speckles
+				vec2 p = proj_coords.xy;
+				// Fade width in shadow depth units, scaled to the receiver's
+				// depth change across the light space filter region
+				float fade = max(dot(abs(dz_dUV), texel_size) * filter_radius_texels, 1e-5);
 				float visibility = 0.0;
 
-				for (int i = 0; i < 12; ++i) {
-					vec2 tap_uv = proj_coords.xy + SHADOW_POISSON_DISK[i] * filter_radius_texels * texel_size;
+				for (int i = 0; i < 4; ++i) {
+					vec2 d = shadow_dither_2d(p + float(i) * 19.19);
+					vec2 e = shadow_dither_2d(p + float(i) * 19.19 + 37.7);
+					vec3 sub_proj = proj_coords;
+#if !SHADOW_DISABLE_SCREEN_PCF
+					sub_proj += SHADOW_SCREEN_TAP_PX * ((d.x - 0.5) * 2.0 * dproj_dx + (d.y - 0.5) * 2.0 * dproj_dy);
+#endif
+					vec2 tap_uv = sub_proj.xy + (e - 0.5) * 2.0 * filter_radius_texels * texel_size;
 					float pcf_depth = texture(TEXTURE(shadow_map_idx), tap_uv).r;
-					// The stored depth corresponds to the center of the texel the tap
-					// reads, so the receiver depth must be extrapolated there before
-					// comparing. Clamping keeps the bias from adding shadow.
-					vec2 distance_to_texel_center = (floor(tap_uv / texel_size) + 0.5) * texel_size - proj_coords.xy;
-					float tap_depth = current_depth + min(0.0, dot(distance_to_texel_center, dz_dUV)) - 0.0003;
-					visibility += tap_depth > pcf_depth ? 0.0 : 1.0;
+					float tap_depth = sub_proj.z + min(0.0, dot(tap_uv - sub_proj.xy, dz_dUV)) - 0.0003;
+					float margin = tap_depth - pcf_depth;
+					visibility += 1.0 - smoothstep(0.0, fade, margin);
 				}
 
-				return visibility / 12.0;
+				return visibility / 4.0;
+#else
+				float visibility = 0.0;
+#if SHADOW_DISABLE_SCREEN_PCF
+				// Light space 2x2 texel grid only, tapped at the pixel center
+				for (int j = 0; j < 2; ++j) {
+					for (int i = 0; i < 2; ++i) {
+						vec2 sign = vec2(i, j) * 2.0 - 1.0;
+						vec2 tap_uv = proj_coords.xy + sign * (0.5 * filter_radius_texels) * texel_size;
+						float pcf_depth = texture(TEXTURE(shadow_map_idx), tap_uv).r;
+						float tap_depth = proj_coords.z + min(0.0, dot(tap_uv - proj_coords.xy, dz_dUV)) - 0.0003;
+						visibility += tap_depth > pcf_depth ? 0.0 : 1.0;
+					}
+				}
+
+				return visibility / 4.0;
+#else
+				// 2x2 sub-pixel taps in screen space keep the primary filter
+				// resolution independent: the shadow edge is anti-aliased against
+				// the screen pixel grid instead of aliasing against the shadow
+				// map texel grid. Each sub-pixel additionally integrates a 2x2
+				// light space texel grid for the penumbra width.
+				for (int j = 0; j < 2; ++j) {
+					for (int i = 0; i < 2; ++i) {
+						vec2 sign = vec2(i, j) * 2.0 - 1.0;
+						// Linearize the light space projection at the sub-pixel
+						// position through the projection Jacobian
+						vec3 sub_proj = proj_coords + SHADOW_SCREEN_TAP_PX * (sign.x * dproj_dx + sign.y * dproj_dy);
+						vec2 tap_uv = sub_proj.xy + sign * (0.5 * filter_radius_texels) * texel_size;
+						// The receiver depth at the tap is the sub-pixel depth
+						// extrapolated along the receiver slope. Clamping keeps
+						// the bias from adding shadow.
+						float pcf_depth = texture(TEXTURE(shadow_map_idx), tap_uv).r;
+						float tap_depth = sub_proj.z + min(0.0, dot(tap_uv - sub_proj.xy, dz_dUV)) - 0.0003;
+						visibility += tap_depth > pcf_depth ? 0.0 : 1.0;
+					}
+				}
+
+				return visibility / 16.0;
+#endif
+#endif
 #endif
 			}
 	]]
@@ -416,11 +495,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 		"sampleShadowCascade(%s, world_pos, normal, light_dir)",
 		"sampleInsetShadow(world_pos, normal, light_dir, %s)"
 	)
-	return header .. [[
-			const vec2 SHADOW_POISSON_DISK[12] = vec2[12](
-				]] .. POISSON_DISK_VALUES .. [[
-			);
-	]] .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
+	return header .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
 
 			// returns -1.0 when the cascade does not cover the point
 			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
@@ -430,21 +505,22 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				if (shadow_map_idx < 0) return -1.0;
 
 				vec3 proj_coords;
+				vec3 dproj_dx;
+				vec3 dproj_dy;
 				vec2 dz_dUV;
 
 				if (!projectShadowMap(
 					DIRECTIONAL_SHADOW_BLOCK.shadows.light_space_matrices[cascade_idx],
 					world_pos,
-					normal,
-					light_dir,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
 					proj_coords,
+					dproj_dx,
+					dproj_dy,
 					dz_dUV
 				)) {
 					return -1.0;
 				}
 
-				return sampleShadowProjection(shadow_map_idx, proj_coords, 1, dz_dUV);
+				return sampleShadowProjection(DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[cascade_idx], proj_coords, dproj_dx, dproj_dy, 1, dz_dUV);
 			}
 
 			bool sampleInsetShadow(vec3 world_pos, vec3 normal, vec3 light_dir, out float shadow) {
@@ -452,21 +528,22 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				if (DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index < 0) return false;
 
 				vec3 proj_coords;
+				vec3 dproj_dx;
+				vec3 dproj_dy;
 				vec2 dz_dUV;
 
 				if (!projectShadowMap(
 					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix,
 					world_pos,
-					normal,
-					light_dir,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
 					proj_coords,
+					dproj_dx,
+					dproj_dy,
 					dz_dUV
 				)) {
 					return false;
 				}
 
-				shadow = sampleShadowProjection(DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index, proj_coords, 1, dz_dUV);
+				shadow = sampleShadowProjection(DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index, proj_coords, dproj_dx, dproj_dy, 1, dz_dUV);
 				return true;
 			}
 
@@ -488,21 +565,22 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 			if (shadow_map_idx < 0) return 1.0;
 
 			vec3 proj_coords;
+			vec3 dproj_dx;
+			vec3 dproj_dy;
 			vec2 dz_dUV;
 
 			if (!projectShadowMap(
 				]] .. block_name .. [[.shadows.local_directional_light_space_matrix,
 				world_pos,
-				normal,
-				light_dir,
-				]] .. block_name .. [[.shadows.local_directional_shadow_texel_world_size,
 				proj_coords,
+				dproj_dx,
+				dproj_dy,
 				dz_dUV
 			)) {
 				return 1.0;
 			}
 
-			return sampleShadowProjection(shadow_map_idx, proj_coords, 1.35, dz_dUV);
+			return sampleShadowProjection(shadow_map_idx, proj_coords, dproj_dx, dproj_dy, 2, dz_dUV);
 		}
 		]]
 		)
