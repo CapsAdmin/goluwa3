@@ -614,8 +614,8 @@ function crylevel.ParseVegetationMapData(data)
 	return crylevel.ParseVegetationMapDocument(document)
 end
 
-function crylevel.IsVegetationPrototypeSupportedFirstPass(prototype, terrain)
-	return prototype and (not objects.align_to_terrain or terrain ~= nil)
+function crylevel.IsVegetationPrototypeSupportedFirstPass(objects, terrain)
+	return objects and (not objects.align_to_terrain or terrain ~= nil)
 end
 
 function crylevel.DecodeVegetationYawFromRecord(data, offset)
