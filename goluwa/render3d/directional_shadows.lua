@@ -387,7 +387,7 @@ local SHADOW_PROJECTION_GLSL = [[
 
 			// Set to 1 to replace the fixed 2x2 screen and light space grids
 			// with a single tap dithered across both filter regions
-			#define SHADOW_DITHER 1
+			#define SHADOW_DITHER 0
 
 #if SHADOW_DITHER
 			// Per-pixel hash in [0,1)^2 derived from the light space UV so the
