@@ -285,6 +285,53 @@ local function write_atmosphere_block(self, block)
 	)
 end
 
+local function write_fog_common_block(self, block)
+	local lights, light_instance_indices = scene_lights.GetVisibleLights()
+	scene_lights.WriteLightsBlock(block.lights, lights)
+	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	scene_lights.WriteShadowBlock(self, block.shadows, lights)
+	write_atmosphere_block(self, block)
+	light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
+	return block
+end
+
+local function get_sun_helpers_glsl(data_block)
+	return (
+			[[
+	int get_current_primary_sun_index() {
+		for (int i = 0; i < ]] .. data_block .. [[.light_count; i++) {
+			if (get_light_type(]] .. data_block .. [[.lights[i]) == 0) {
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+	vec3 get_current_primary_sun_direction() {
+		int sun_index = get_current_primary_sun_index();
+
+		if (sun_index < 0) {
+			return vec3(0.0, 1.0, 0.0);
+		}
+
+		vec3 light_dir = ]] .. data_block .. [[.lights[sun_index].direction.xyz;
+
+		if (length(light_dir) < 1e-4) {
+			return vec3(0.0, 1.0, 0.0);
+		}
+
+		return normalize(-light_dir);
+	}
+
+	float get_current_primary_sun_intensity() {
+		int sun_index = get_current_primary_sun_index();
+		return sun_index < 0 ? 1.0 : ]] .. data_block .. [[.lights[sun_index].color.a;
+	}
+	]]
+		)
+end
+
 local r = {
 	{
 		name = "volumetric_froxel_build",
@@ -331,13 +378,7 @@ local r = {
 						block.froxel_resolution[1] = volumetric_froxels.height
 						block.current_slice = volumetric_froxels.current_slice or 0
 						block.slice_count = FROXEL_SLICE_COUNT
-						local lights, light_instance_indices = scene_lights.GetVisibleLights()
-						scene_lights.WriteLightsBlock(block.lights, lights)
-						block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-						scene_lights.WriteShadowBlock(self, block.shadows, lights)
-						write_atmosphere_block(self, block)
-						light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
-						return block
+						return write_fog_common_block(self, block)
 					end,
 				},
 			},
@@ -350,41 +391,7 @@ local r = {
 			const float DEBUG_GOD_RAY_SHADOW_CONTRAST = ]] .. DEBUG_GOD_RAY_SHADOW_CONTRAST .. [[;
 			const float DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = ]] .. DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE .. [[;
 
-			]] .. scene_lights.GetLightGLSLCode() .. [[
-
-			int get_current_primary_sun_index() {
-				for (int i = 0; i < froxel_data.light_count; i++) {
-					if (get_light_type(froxel_data.lights[i]) == 0) {
-						return i;
-					}
-				}
-
-				return -1;
-			}
-
-			vec3 get_current_primary_sun_direction() {
-				int sun_index = get_current_primary_sun_index();
-
-				if (sun_index < 0) {
-					return vec3(0.0, 1.0, 0.0);
-				}
-
-				vec3 light_dir = froxel_data.lights[sun_index].direction.xyz;
-
-				if (length(light_dir) < 1e-4) {
-					return vec3(0.0, 1.0, 0.0);
-				}
-
-				return normalize(-light_dir);
-			}
-
-			float get_current_primary_sun_intensity() {
-				int sun_index = get_current_primary_sun_index();
-				return sun_index < 0 ? 1.0 : froxel_data.lights[sun_index].color.a;
-			}
-
-			]] .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
-			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. [[
+			]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. [[
 
 			float get_slice_view_depth(float slice_index) {
 				float near_z = max(froxel_data.near_z, 0.001);
@@ -440,22 +447,6 @@ local r = {
 				return length(world_pos - froxel_data.camera_position.xyz);
 			}
 
-			bool get_fog_world_segment(vec3 ray_dir, float max_world_distance, out float fog_near_world, out float fog_length_world) {
-				vec3 fog_ray_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
-				float fog_near;
-				float fog_length;
-				float fog_distance_scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-				float max_fog_distance = max_world_distance > 0.0 ? max_world_distance * fog_distance_scale : -1.0;
-
-				if (!get_scenery_fog_segment_with_ground_clip(fog_ray_origin, ray_dir, max_fog_distance, false, fog_near, fog_length)) {
-					return false;
-				}
-
-				fog_near_world = fog_near / fog_distance_scale;
-				fog_length_world = fog_length / fog_distance_scale;
-				return true;
-			}
-
 			vec3 get_volumetric_scattering_light(vec3 ray_dir, vec3 sun_dir, float sun_visibility) {
 				float day_factor = smoothstep(-0.08, 0.2, sun_dir.y);
 				float horizon_visibility = get_fog_sun_horizon_visibility(sun_dir);
@@ -470,68 +461,6 @@ local r = {
 
 			float get_froxel_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 				return get_fog_sun_visibility(world_pos, sun_dir);
-			}
-
-			int getPointShadowSlot(int light_index) {
-				for (int i = 0; i < froxel_data.shadows.point_shadow_count; i++) {
-					if (froxel_data.shadows.point_shadow_light_indices[i] == light_index) {
-						return i;
-					}
-				}
-
-				return -1;
-			}
-
-			float samplePointShadowProjection(int shadow_map_idx, vec3 sample_dir, float current_depth, float bias, float filter_radius_texels) {
-				vec3 lookup_dir = normalize(vec3(-sample_dir.x, sample_dir.y, sample_dir.z));
-				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
-				float angular_radius = filter_radius_texels / max(face_size, 1.0);
-				vec3 up = abs(lookup_dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-				vec3 tangent = normalize(cross(up, lookup_dir));
-				vec3 bitangent = cross(lookup_dir, tangent);
-				float visibility = 0.0;
-				const vec2 POISSON_DISK[8] = vec2[8](
-					vec2(-0.326, -0.406),
-					vec2(-0.840, -0.074),
-					vec2(-0.696,  0.457),
-					vec2(-0.203,  0.621),
-					vec2( 0.962, -0.195),
-					vec2( 0.473, -0.480),
-					vec2( 0.519,  0.767),
-					vec2( 0.185, -0.893)
-				);
-
-				for (int i = 0; i < 8; i++) {
-					vec2 offset = POISSON_DISK[i] * angular_radius;
-					vec3 tap_dir = normalize(lookup_dir + tangent * offset.x + bitangent * offset.y);
-					float stored_depth = texture(CUBEMAP(shadow_map_idx), tap_dir).r;
-					visibility += current_depth - bias > stored_depth ? 0.0 : 1.0;
-				}
-
-				return visibility / 8.0;
-			}
-
-			float calculatePointMediumShadow(int shadow_slot, vec3 world_pos, vec3 light_dir_to_surface) {
-				if (shadow_slot < 0 || shadow_slot >= froxel_data.shadows.point_shadow_count) return 1.0;
-
-				int shadow_map_idx = froxel_data.shadows.point_shadow_map_indices[shadow_slot];
-				if (shadow_map_idx < 0) return 1.0;
-
-				vec3 light_pos = froxel_data.shadows.point_shadow_positions[shadow_slot].xyz;
-				float far_plane = froxel_data.shadows.point_shadow_positions[shadow_slot].w;
-				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
-				float texel_world_size = far_plane / max(face_size, 1.0);
-				float world_bias = max(texel_world_size * 1.5, 0.02);
-				vec3 offset_pos = world_pos + light_dir_to_surface * world_bias;
-				vec3 light_to_sample = offset_pos - light_pos;
-				float light_distance = length(light_to_sample);
-
-				if (light_distance <= 0.0001 || light_distance >= far_plane) return 1.0;
-
-				vec3 sample_dir = light_to_sample / light_distance;
-				float current_depth = light_distance / max(far_plane, 0.0001);
-				float normalized_bias = max(world_bias / max(far_plane, 0.0001), 0.0005);
-				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
 			}
 
 			float calculateLocalDirectionalMediumShadow(vec3 world_pos, vec3 light_dir) {
@@ -553,12 +482,6 @@ local r = {
 				return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
 			}
 
-			float get_local_light_attenuation(float dist, float range) {
-				float ratio = dist / range;
-				float window = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
-				return window * window / max(dist * dist, 0.0025);
-			}
-
 			vec3 get_additional_volumetric_light(vec3 ray_dir, vec3 world_pos) {
 				vec3 fog_light = vec3(0.0);
 				int processed_local_lights = 0;
@@ -570,33 +493,10 @@ local r = {
 					if (processed_local_lights >= VOLUMETRIC_LOCAL_LIGHT_LIMIT) break;
 
 					vec3 light_color = light.color.rgb * light.color.a;
-					vec3 light_dir = normalize(light.direction.xyz);
-					vec3 from_light = world_pos - light.position.xyz;
-					float dist = length(from_light);
-					float range = max(light.params.x, 0.0001);
 					vec3 L = vec3(0.0);
 					float attenuation = 1.0;
 
-					if (type == 1) {
-						if (dist <= 0.0001 || dist >= range) continue;
-						L = -from_light / dist;
-						attenuation = get_local_light_attenuation(dist, range);
-					} else if (type == 2) {
-						if (dist <= 0.0001 || dist >= range) continue;
-						// light_dir points back toward the source, so light travels
-						// along -light_dir and surfaces behind the light are not lit
-						float in_front = 1.0 - smoothstep(-0.1, 0.2, dot(from_light / dist, light_dir));
-						if (in_front <= 0.0) continue;
-						L = light_dir;
-						attenuation = in_front * get_local_light_attenuation(dist, range);
-					} else if (type == 3) {
-						if (dist <= 0.0001 || dist >= range) continue;
-						float inner_cone = clamp(light.params.y, -1.0, 1.0);
-						float outer_cone = clamp(light.params.z, -1.0, inner_cone);
-						float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, from_light / dist));
-						L = -from_light / dist;
-						attenuation = cone_attenuation * get_local_light_attenuation(dist, range);
-					} else {
+					if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation)) {
 						continue;
 					}
 
@@ -612,8 +512,11 @@ local r = {
 
 					if (type == 1) {
 						int point_shadow_slot = getPointShadowSlot(i);
+
+						// no surface normal in a froxel, so L doubles as the bias
+						// direction, leaving the minimum push toward the light
 						if (point_shadow_slot >= 0) {
-							shadow_factor = calculatePointMediumShadow(point_shadow_slot, world_pos, L);
+							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, L, L);
 						}
 					} else if (
 						type == 2 &&
@@ -733,54 +636,14 @@ local r = {
 						render3d.WriteGBufferBlock(self, block)
 						get_raw_scene_source_texture(self, block, "source_tex")
 						write_ocean_distance_texture(self, block, "ocean_distance_tex")
-						local lights, light_instance_indices = scene_lights.GetVisibleLights()
-						scene_lights.WriteLightsBlock(block.lights, lights)
-						block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-						scene_lights.WriteShadowBlock(self, block.shadows, lights)
-						write_atmosphere_block(self, block)
-						light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
-						return block
+						return write_fog_common_block(self, block)
 					end,
 				},
 			},
 			shader = (
 					"const int FOG_DEBUG_MODE = %d;\n"
 				):format(FOG_DEBUG_MODE) .. light_occlusion.GetSamplingGLSL("fog_data") .. [[
-			]] .. scene_lights.GetLightGLSLCode() .. [[
-
-			int get_current_primary_sun_index() {
-				for (int i = 0; i < fog_data.light_count; i++) {
-					if (get_light_type(fog_data.lights[i]) == 0) {
-						return i;
-					}
-				}
-
-				return -1;
-			}
-
-			vec3 get_current_primary_sun_direction() {
-				int sun_index = get_current_primary_sun_index();
-
-				if (sun_index < 0) {
-					return vec3(0.0, 1.0, 0.0);
-				}
-
-				vec3 light_dir = fog_data.lights[sun_index].direction.xyz;
-
-				if (length(light_dir) < 1e-4) {
-					return vec3(0.0, 1.0, 0.0);
-				}
-
-				return normalize(-light_dir);
-			}
-
-			float get_current_primary_sun_intensity() {
-				int sun_index = get_current_primary_sun_index();
-				return sun_index < 0 ? 1.0 : fog_data.lights[sun_index].color.a;
-			}
-
-			]] .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. [[
-			]] .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. [[
+			]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. [[
 
 
 			]] .. screen_reconstruct.GetWorldPosGLSL("fog_data") .. [[
@@ -953,70 +816,7 @@ local r = {
 				return exp(-scenery_fog_od * SCENERY_FOG_EXTINCTION);
 			}
 
-			int getPointShadowSlot(int light_index) {
-				for (int i = 0; i < fog_data.shadows.point_shadow_count; i++) {
-					if (fog_data.shadows.point_shadow_light_indices[i] == light_index) {
-						return i;
-					}
-				}
-
-				return -1;
-			}
-
-			float samplePointShadowProjection(int shadow_map_idx, vec3 sample_dir, float current_depth, float bias, float filter_radius_texels) {
-				vec3 lookup_dir = normalize(vec3(-sample_dir.x, sample_dir.y, sample_dir.z));
-				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
-				float angular_radius = filter_radius_texels / max(face_size, 1.0);
-				vec3 up = abs(lookup_dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-				vec3 tangent = normalize(cross(up, lookup_dir));
-				vec3 bitangent = cross(lookup_dir, tangent);
-				float visibility = 0.0;
-				const vec2 POISSON_DISK[8] = vec2[8](
-					vec2(-0.326, -0.406),
-					vec2(-0.840, -0.074),
-					vec2(-0.696,  0.457),
-					vec2(-0.203,  0.621),
-					vec2( 0.962, -0.195),
-					vec2( 0.473, -0.480),
-					vec2( 0.519,  0.767),
-					vec2( 0.185, -0.893)
-				);
-
-				for (int i = 0; i < 8; i++) {
-					vec2 offset = POISSON_DISK[i] * angular_radius;
-					vec3 tap_dir = normalize(lookup_dir + tangent * offset.x + bitangent * offset.y);
-					float stored_depth = texture(CUBEMAP(shadow_map_idx), tap_dir).r;
-					visibility += current_depth - bias > stored_depth ? 0.0 : 1.0;
-				}
-
-				return visibility / 8.0;
-			}
-
-			float calculatePointFogShadow(int shadow_slot, vec3 world_pos, vec3 normal, vec3 light_dir) {
-				if (shadow_slot < 0 || shadow_slot >= fog_data.shadows.point_shadow_count) return 1.0;
-
-				int shadow_map_idx = fog_data.shadows.point_shadow_map_indices[shadow_slot];
-				if (shadow_map_idx < 0) return 1.0;
-
-				vec3 light_pos = fog_data.shadows.point_shadow_positions[shadow_slot].xyz;
-				float far_plane = fog_data.shadows.point_shadow_positions[shadow_slot].w;
-				float face_size = float(textureSize(CUBEMAP(shadow_map_idx), 0).x);
-				float texel_world_size = far_plane / max(face_size, 1.0);
-				float normal_bias = max(texel_world_size * 2.0, 0.01);
-				float bias_val = normal_bias * max(1.0 - dot(normal, light_dir), 0.2);
-				vec3 offset_pos = world_pos + normal * bias_val;
-				vec3 light_to_surface = offset_pos - light_pos;
-				float light_distance = length(light_to_surface);
-
-				if (light_distance <= 0.0001 || light_distance >= far_plane) return 1.0;
-
-				vec3 sample_dir = light_to_surface / light_distance;
-				float current_depth = light_distance / max(far_plane, 0.0001);
-				float normalized_bias = max(bias_val / max(far_plane, 0.0001), 0.0005);
-				return samplePointShadowProjection(shadow_map_idx, sample_dir, current_depth, normalized_bias, 1.25);
-			}
-
-		]] .. directional_shadows.GetLocalDirectionalShadowGLSL("fog_data") .. [[
+		]] .. scene_lights.GetPointShadowGLSL("fog_data") .. directional_shadows.GetLocalDirectionalShadowGLSL("fog_data") .. [[
 
 			vec3 get_additional_scene_fog_light(vec3 ray_dir, vec3 world_pos, vec3 normal) {
 				vec3 fog_light = vec3(0.0);
@@ -1042,7 +842,7 @@ local r = {
 					if (type == 1) {
 						int point_shadow_slot = getPointShadowSlot(i);
 						if (point_shadow_slot >= 0) {
-							shadow_factor = calculatePointFogShadow(point_shadow_slot, world_pos, normal, L);
+							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, normal, L);
 						}
 					} else if (
 						type == 2 &&
