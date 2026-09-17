@@ -72,6 +72,43 @@ local function compare_sort_entry(a, b)
 	return a.value < b.value
 end
 
+local sort_scratch = {}
+
+local function sort_items_by_centroid(items, first, last, axis, get_centroid)
+	local count = last - first + 1
+
+	for i = 1, count do
+		local item = items[first + i - 1]
+		local cx, cy, cz = get_centroid(item)
+		local pair = sort_scratch[i]
+
+		if not pair then
+			pair = {}
+			sort_scratch[i] = pair
+		end
+
+		if axis == "x" then
+			pair.value = cx
+		elseif axis == "y" then
+			pair.value = cy
+		else
+			pair.value = cz
+		end
+
+		pair.item = item
+	end
+
+	for i = count + 1, #sort_scratch do
+		sort_scratch[i] = nil
+	end
+
+	table.sort(sort_scratch, compare_sort_entry)
+
+	for i = 1, count do
+		items[first + i - 1] = sort_scratch[i].item
+	end
+end
+
 local function build_node(items, first, last, get_bounds, get_centroid, leaf_item_count)
 	local bounds = bvh.CreateEmptyBounds()
 	local centroid_bounds = bvh.CreateEmptyBounds()
@@ -110,30 +147,7 @@ local function build_node(items, first, last, get_bounds, get_centroid, leaf_ite
 
 	if extent <= 0 then return {aabb = bounds, first = first, last = last} end
 
-	local slice = {}
-
-	for i = first, last do
-		local item = items[i]
-		local cx, cy, cz = get_centroid(item)
-		local value
-
-		if axis == "x" then
-			value = cx
-		elseif axis == "y" then
-			value = cy
-		else
-			value = cz
-		end
-
-		slice[#slice + 1] = {item = item, value = value}
-	end
-
-	table.sort(slice, compare_sort_entry)
-
-	for i = 1, #slice do
-		items[first + i - 1] = slice[i].item
-	end
-
+	sort_items_by_centroid(items, first, last, axis, get_centroid)
 	local mid = math.floor((first + last) / 2)
 	return {
 		aabb = bounds,

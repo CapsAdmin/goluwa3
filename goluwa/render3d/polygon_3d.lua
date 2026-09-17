@@ -12,6 +12,7 @@ function Polygon3D.New()
 	local self = Polygon3D:CreateObject()
 	self.Vertices = {}
 	self.i = 1
+	self.mesh = NULL
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 	return self
 end
@@ -43,8 +44,7 @@ function Polygon3D:Clear()
 end
 
 function Polygon3D:UnreferenceVertices()
-	if self.mesh then self.mesh = nil end
-
+	self.mesh = NULL
 	self:Clear()
 end
 
@@ -247,9 +247,11 @@ function Polygon3D:Upload(indices)
 end
 
 function Polygon3D:Draw()
-	if not self.mesh then return end
+	local mesh = self.mesh
 
-	self.mesh:Draw()
+	if not mesh:IsValid() then return end
+
+	mesh:Draw()
 end
 
 do -- helpers

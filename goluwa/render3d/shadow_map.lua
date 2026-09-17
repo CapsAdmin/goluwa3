@@ -2236,13 +2236,11 @@ local function flush_shadow_instance_batches(self, submission_context, submitted
 	local fallback_draws = 0
 	local ordered_batches = submission_context.ordered_batches
 	local submission_stats = submission_context.submission_stats
-	-- group draws by material so consecutive binds are more likely to reuse the
-	-- previous pipeline/descriptor/dynamic-offset state (see descriptor_set_binding_matches
-	-- and GraphicsPipeline:Bind) instead of forcing a real rebind on every draw; draw order
-	-- doesn't matter here since these are depth-only shadow passes
 	table.sort(ordered_batches, batch_material_less_than)
 
 	for _, batch in ipairs(ordered_batches) do
+		if not batch.mesh:IsValid() then continue end
+
 		if batch.count <= 1 then
 			local world_matrix = batch.world_matrices[1]
 			render3d.SetWorldMatrix(world_matrix)
@@ -2341,7 +2339,14 @@ function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index
 
 	local batches = dataset and dataset.shadow_instanced_batches or nil
 
-	if not (output and batches and batches[1]) then
+	if
+		not (
+			gpu_culling.IsCullResultCurrent(cull_result) and
+			output and
+			batches and
+			batches[1]
+		)
+	then
 		result.drew_any = false
 		result.submitted_entry_count = 0
 		result.draw_call_count = 0
@@ -2361,7 +2366,7 @@ function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index
 		local batch_index = tonumber(active_batch_indices[active_index]) + 1
 		local batch = batches[batch_index]
 
-		if batch then
+		if batch and batch.mesh:IsValid() then
 			render3d.SetWorldMatrix(batch.first_world_matrix)
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			bind_instanced_shadow_constants(self, batch.material, cascade_index)
@@ -2398,29 +2403,32 @@ function ShadowMap:DrawVisibleEntryIndices(
 	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 	local gpu_instanced_result = self:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index)
 	local gpu_instanced_drawn = gpu_instanced_result.drew_any
+	local cull_indices_current = gpu_culling.IsCullResultCurrent(cull_result)
 
-	for i = 0, (visible_entry_count or 0) - 1 do
-		local entry_index = tonumber(visible_entry_index_ptr[i])
-		local visible_entry = entry_records and entry_records[entry_index + 1] or nil
+	if cull_indices_current then
+		for i = 0, (visible_entry_count or 0) - 1 do
+			local entry_index = tonumber(visible_entry_index_ptr[i])
+			local visible_entry = entry_records and entry_records[entry_index + 1] or nil
 
-		if visible_entry and visible_entry.component and visible_entry.source_entry then
-			if gpu_instanced_drawn and visible_entry.instanced_batch_index ~= nil then
-				goto continue
+			if visible_entry and visible_entry.component and visible_entry.source_entry then
+				if gpu_instanced_drawn and visible_entry.instanced_batch_index ~= nil then
+					goto continue
+				end
+
+				collect_shadow_visible_entry(
+					self,
+					visible_entry.component,
+					visible_entry.source_entry,
+					cascade_index,
+					submission_context,
+					submission_stats,
+					submitted_by_component,
+					missing_world_matrix_components
+				)
 			end
 
-			collect_shadow_visible_entry(
-				self,
-				visible_entry.component,
-				visible_entry.source_entry,
-				cascade_index,
-				submission_context,
-				submission_stats,
-				submitted_by_component,
-				missing_world_matrix_components
-			)
+			::continue::
 		end
-
-		::continue::
 	end
 
 	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)

@@ -149,14 +149,26 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 	if key then
 		local cached = mesh_content_cache[key]
 
-		if cached then return cached end
+		if cached and not cached.IsNull then return cached end
 	end
 
 	local self = Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name)
 
-	if key then mesh_content_cache[key] = self end
+	if key then
+		self.content_key = key
+		mesh_content_cache[key] = self
+	end
 
 	return self
+end
+
+function Mesh:OnRemove()
+	local content_key = self.content_key
+
+	if content_key then
+		mesh_content_cache[content_key] = nil
+		self.content_key = nil
+	end
 end
 
 function Mesh:Bind(cmd, binding_position)

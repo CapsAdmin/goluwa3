@@ -2,6 +2,8 @@ local T = import("test/environment.lua")
 local ffi = require("ffi")
 local bit = require("bit")
 local vk = import("goluwa/bindings/vk.lua")
+local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -223,6 +225,32 @@ T.Test3D("Graphics render3d gpu culling scaffold tracks scene acceleration inval
 	T(gpu_culling.GetSceneAcceleration() ~= nil)["=="](true)
 	T(gpu_culling.GetSceneDataset() ~= nil)["=="](true)
 	T(gpu_culling.GetPublishedSceneAccelerationGeneration())["=="](gpu_culling.GetSceneAccelerationGeneration())
+	entity:Remove()
+end)
+
+T.Test3D("Graphics render3d gpu culling shadow culling re-entry keeps shadow items consistent", function()
+	configure_camera()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local entity = Entity.New({Name = "gpu_culling_shadow_reentry"})
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -6))
+	local visual = attach_visual(entity, polygon3d, material)
+	visual:SetCastShadows(false)
+	Visual.Library.InvalidateSceneAcceleration()
+	Visual.Library.GetVisibleVisuals()
+	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](0)
+	-- entering shadow culling with an unchanged static aabb must register the item
+	visual:SetCastShadows(true)
+	Visual.Library.GetVisibleVisuals()
+	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](1)
+	-- leaving and re-entering shadow culling reuses the stale back reference
+	visual:SetCastShadows(false)
+	Visual.Library.GetVisibleVisuals()
+	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](0)
+	visual:SetCastShadows(true)
+	Visual.Library.GetVisibleVisuals()
+	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](1)
 	entity:Remove()
 end)
 
@@ -466,10 +494,12 @@ T.Test3D("Graphics render3d gpu culling allocates per-frame buffers from dataset
 	T(dataset ~= nil)["=="](true)
 	T(frame_buffers ~= nil)["=="](true)
 	T(#frame_buffers >= 1)["=="](true)
-	T(frame_buffers[1].visible_entry_capacity)["=="](1)
-	T(frame_buffers[1].visible_index_buffer.size)["=="](ffi.sizeof("uint32_t"))
-	T(frame_buffers[1].indirect_command_buffer.size)["=="](ffi.sizeof(vk.VkDrawIndexedIndirectCommand))
-	T(frame_buffers[1].indirect_count_buffer.size)["=="](ffi.sizeof("uint32_t"))
+	-- buffers are sized from a grow-only capacity, so they may be larger
+	-- than the current dataset requires
+	T(frame_buffers[1].visible_entry_capacity >= dataset.structure_key.entry_count)["=="](true)
+	T(frame_buffers[1].visible_index_buffer.size >= ffi.sizeof("uint32_t"))["=="](true)
+	T(frame_buffers[1].indirect_command_buffer.size >= ffi.sizeof(vk.VkDrawIndexedIndirectCommand))["=="](true)
+	T(frame_buffers[1].indirect_count_buffer.size >= ffi.sizeof("uint32_t"))["=="](true)
 	entity:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
 	Visual.Library.GetVisibleVisuals()
@@ -567,6 +597,108 @@ T.Test3D("Graphics render3d gpu culling compute pass expands visible visuals int
 	T(visible_entry_indices[2])["=="](1)
 	visible:Remove()
 	hidden:Remove()
+	Visual.Library.InvalidateSceneAcceleration()
+end)
+
+T.Test3D("Graphics render3d gpu culling rejects cull results from a stale dataset generation", function()
+	local camera = configure_camera()
+	local polygon3d = build_cube_polygon()
+	local material = Material.New()
+	local front = Entity.New({Name = "gpu_culling_stale_front"})
+	front:AddComponent("transform")
+	front.transform:SetPosition(Vec3(0, 0, -6))
+	attach_visual(front, polygon3d, material)
+	Visual.Library.InvalidateSceneAcceleration()
+	Visual.Library.GetVisibleVisuals()
+	local dataset = gpu_culling.GetSceneDataset()
+	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
+	local result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
+	T(result ~= nil)["=="](true)
+	T(result.dataset_generation)["=="](dataset.generation)
+	T(gpu_culling.IsCullResultCurrent(result))["=="](true)
+	-- a scene change after the cull (a terrain tile build does exactly this)
+	-- republishes the dataset, so the result's entry/batch indices no longer
+	-- line up with the live lists
+	local second = Entity.New({Name = "gpu_culling_stale_second"})
+	second:AddComponent("transform")
+	second.transform:SetPosition(Vec3(2, 0, -6))
+	attach_visual(second, polygon3d, material)
+	Visual.Library.InvalidateSceneAcceleration()
+	Visual.Library.GetVisibleVisuals()
+	local new_dataset = gpu_culling.GetSceneDataset()
+	T(new_dataset.generation > dataset.generation)["=="](true)
+	-- cull results are reused per-slot objects, so re-stamp the result with
+	-- the pre-change generation to simulate a cached result that was
+	-- computed against the old dataset and never re-culled since
+	result.dataset_generation = dataset.generation
+	T(gpu_culling.IsCullResultCurrent(result))["=="](false)
+	local draw_result = render3d.DrawGPUCulledStaticInstanceBatches(result)
+	T(draw_result.drew_any == false)["=="](true)
+	second:Remove()
+	front:Remove()
+	Visual.Library.InvalidateSceneAcceleration()
+end)
+
+T.Test3D("Graphics render3d a deduped mesh stays valid across polygon release and reuse", function()
+	local Index16Array = ffi.typeof("uint16_t[?]")
+
+	local function build_terrain_polygon()
+		local samples = 5
+		local cells = samples - 1
+		local vertex_count = samples * samples + samples * 4
+		local index_count = cells * cells * 6 + cells * 4 * 6
+		local vertices = Polygon3D.VertexType(vertex_count)
+		local indices = Index16Array(index_count)
+
+		for i = 0, vertex_count - 1 do
+			vertices[i].position[0] = i
+			vertices[i].position[1] = (i % 7) * 0.25
+			vertices[i].position[2] = i * 2
+		end
+
+		local index = 0
+
+		for z = 0, cells - 1 do
+			for x = 0, cells - 1 do
+				local p00 = z * samples + x
+				indices[index] = p00
+				indices[index + 1] = p00 + 1
+				indices[index + 2] = p00 + samples
+				indices[index + 3] = p00
+				indices[index + 4] = p00 + 1 + samples
+				indices[index + 5] = p00 + 1
+				index = index + 6
+			end
+		end
+
+		local polygon = Polygon3D.New()
+		polygon:UploadVertexArray(vertices, vertex_count, indices, index_count)
+		return polygon
+	end
+
+	configure_camera()
+	local polygon_a = build_terrain_polygon()
+	local material = Material.New()
+	local owner = Entity.New({Name = "mesh_dedup_owner"})
+	owner:AddComponent("transform")
+	owner.transform:SetPosition(Vec3(0, 0, -6))
+	attach_visual(owner, polygon_a, material)
+	local mesh0 = polygon_a.mesh
+	T(mesh0 ~= nil and mesh0.Type == "render_mesh")["=="](true)
+	-- a second polygon with identical content shares the same mesh instance
+	local polygon_b = build_terrain_polygon()
+	T(polygon_b.mesh == mesh0)["=="](true)
+	-- retire polygon_a (as when a terrain tile is replaced). the shared mesh is
+	-- still held strongly by polygon_b, so it must survive the collector rather
+	-- than being reclaimed while a live polygon still uses it
+	polygon_a:UnreferenceVertices()
+	collectgarbage("collect")
+	collectgarbage("collect")
+	T(polygon_b.mesh == mesh0)["=="](true)
+	T(mesh0.Type == "render_mesh")["=="](true)
+	T(mesh0:IsValid())["=="](true)
+	T(mesh0.vertex_buffer ~= nil)["=="](true)
+	owner:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
 end)
 

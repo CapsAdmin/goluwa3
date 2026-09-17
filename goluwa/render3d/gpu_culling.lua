@@ -21,8 +21,8 @@ gpu_culling.frame_buffers = gpu_culling.frame_buffers or nil
 gpu_culling.scene_acceleration_dirty = gpu_culling.scene_acceleration_dirty ~= false
 gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation or 0
 gpu_culling.published_scene_acceleration_generation = gpu_culling.published_scene_acceleration_generation or 0
-gpu_culling.frame_buffers_structure_key = gpu_culling.frame_buffers_structure_key or nil
-gpu_culling.dataset_buffers_structure_key = gpu_culling.dataset_buffers_structure_key or nil
+gpu_culling.frame_buffers_capacity = gpu_culling.frame_buffers_capacity or nil
+gpu_culling.dataset_buffers_capacity = gpu_culling.dataset_buffers_capacity or nil
 gpu_culling.main_view_submission_serial = gpu_culling.main_view_submission_serial or 0
 local float16 = ffi.typeof("float[16]")
 local VALID_OCCLUSION_MODES = {
@@ -1383,7 +1383,7 @@ end
 
 local function serialize_render_entry(component, entry, entry_index, dynamic)
 	local material = component:GetResolvedMaterial(entry)
-	local _, index_buffer = ensure_entry_index_buffer(entry)
+	local mesh, index_buffer = ensure_entry_index_buffer(entry)
 	local world_matrix = entry.transform:GetWorldMatrix()
 	return {
 		component = component,
@@ -1395,6 +1395,9 @@ local function serialize_render_entry(component, entry, entry_index, dynamic)
 		has_height_displacement = entry_has_height_displacement(material),
 		gbuffer_instancing_eligible = entry_can_use_gbuffer_instancing(entry, material),
 		shadow_instancing_eligible = entry_can_use_shadow_instancing(entry, material),
+		batch_mesh = mesh,
+		batch_material = material,
+		batch_material_key = get_gbuffer_batch_material_key(material),
 		world_matrix = world_matrix,
 		instanced_batch_index = nil,
 		static_matrix_index = nil,
@@ -1455,6 +1458,60 @@ local function assign_component_entry_span(component, offset_field, count_field,
 	component[count_field] = entry_count
 end
 
+local function serialized_still_current(prev_serialized, component, aabb)
+	if
+		not prev_serialized or
+		prev_serialized.component ~= component or
+		not aabb or
+		not prev_serialized.world_aabb or
+		prev_serialized.visible ~= (
+			component.Visible == true
+		)
+		or
+		prev_serialized.cast_shadows ~= (
+			component.CastShadows == true
+		)
+		or
+		prev_serialized.use_occlusion_culling ~= (
+			component.UseOcclusionCulling == true
+		)
+	then
+		return false
+	end
+
+	local prev_aabb = prev_serialized.world_aabb
+
+	if
+		prev_aabb.min_x ~= aabb.min_x or
+		prev_aabb.min_y ~= aabb.min_y or
+		prev_aabb.min_z ~= aabb.min_z or
+		prev_aabb.max_x ~= aabb.max_x or
+		prev_aabb.max_y ~= aabb.max_y or
+		prev_aabb.max_z ~= aabb.max_z
+	then
+		return false
+	end
+
+	for _, entry in ipairs(prev_serialized.entries) do
+		local material = component:GetResolvedMaterial(entry.source_entry)
+
+		if
+			material ~= entry.batch_material or
+			(
+				material and
+				material.GetIgnoreZ and
+				material:GetIgnoreZ() or
+				false
+			) ~= entry.ignore_z or
+			entry_has_height_displacement(material) ~= entry.has_height_displacement
+		then
+			return false
+		end
+	end
+
+	return true
+end
+
 local function build_scene_dataset(acceleration)
 	if not acceleration then return nil end
 
@@ -1485,25 +1542,16 @@ local function build_scene_dataset(acceleration)
 		shadow_instance_world_change_version = 0,
 		total_visual_count = acceleration.visual_count or 0,
 	}
-	local prev_dataset = gpu_culling.scene_dataset
-	local prev_static_visuals = prev_dataset and prev_dataset.static_visuals
 
 	for i, item in ipairs(acceleration.items or {}) do
 		local component = item.component
 		local entry_offset = #dataset.main_entries
-		local prev_serialized = prev_static_visuals and prev_static_visuals[i]
 		local aabb = item.world_aabb
-		local reuse = prev_serialized and
-			prev_serialized.component == component and
-			aabb and
-			prev_serialized.world_aabb and
-			prev_serialized.world_aabb.min_x == aabb.min_x and
-			prev_serialized.world_aabb.min_y == aabb.min_y and
-			prev_serialized.world_aabb.min_z == aabb.min_z and
-			prev_serialized.world_aabb.max_x == aabb.max_x and
-			prev_serialized.world_aabb.max_y == aabb.max_y and
-			prev_serialized.world_aabb.max_z == aabb.max_z
-		local serialized = reuse and prev_serialized or serialize_component(component, false)
+		local prev_serialized = component.gpu_dataset_static_serialized
+		local serialized = serialized_still_current(prev_serialized, component, aabb) and
+			prev_serialized or
+			serialize_component(component, false)
+		component.gpu_dataset_static_serialized = serialized
 		dataset.static_visuals[i] = serialized
 		dataset.main_visuals[#dataset.main_visuals + 1] = serialized
 
@@ -1543,24 +1591,15 @@ local function build_scene_dataset(acceleration)
 		dataset.dynamic_entry_count = dataset.dynamic_entry_count + serialized.render_entry_count
 	end
 
-	local prev_shadow_static_visuals = prev_dataset and prev_dataset.shadow_static_visuals
-
 	for i, item in ipairs(acceleration.shadow_items or {}) do
 		local component = item.component
 		local entry_offset = #dataset.shadow_entries
-		local prev_serialized = prev_shadow_static_visuals and prev_shadow_static_visuals[i]
 		local aabb = item.world_aabb
-		local reuse = prev_serialized and
-			prev_serialized.component == component and
-			aabb and
-			prev_serialized.world_aabb and
-			prev_serialized.world_aabb.min_x == aabb.min_x and
-			prev_serialized.world_aabb.min_y == aabb.min_y and
-			prev_serialized.world_aabb.min_z == aabb.min_z and
-			prev_serialized.world_aabb.max_x == aabb.max_x and
-			prev_serialized.world_aabb.max_y == aabb.max_y and
-			prev_serialized.world_aabb.max_z == aabb.max_z
-		local serialized = reuse and prev_serialized or serialize_component(component, false)
+		local prev_serialized = component.gpu_dataset_shadow_serialized
+		local serialized = serialized_still_current(prev_serialized, component, aabb) and
+			prev_serialized or
+			serialize_component(component, false)
+		component.gpu_dataset_shadow_serialized = serialized
 		dataset.shadow_static_visuals[i] = serialized
 
 		for _, entry in ipairs(serialized.entries) do
@@ -1626,12 +1665,10 @@ local function build_scene_dataset(acceleration)
 			for _, entry in ipairs(visual.entries or {}) do
 				if entry.gbuffer_instancing_eligible and entry.world_matrix then
 					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() or nil
-					local material = entry.source_entry and
-						visual.component:GetResolvedMaterial(entry.source_entry) or
-						nil
+					local mesh = entry.batch_mesh
+					local material = entry.batch_material
 					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = get_gbuffer_batch_material_key(material)
+					local material_key = entry.batch_material_key
 					local batch = mesh_batches[material_key]
 
 					if not batch then
@@ -1677,12 +1714,10 @@ local function build_scene_dataset(acceleration)
 			for _, entry in ipairs(visual.entries or {}) do
 				if entry.gbuffer_instancing_eligible and entry.world_matrix then
 					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() or nil
-					local material = entry.source_entry and
-						visual.component:GetResolvedMaterial(entry.source_entry) or
-						nil
+					local mesh = entry.batch_mesh
+					local material = entry.batch_material
 					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = get_gbuffer_batch_material_key(material)
+					local material_key = entry.batch_material_key
 					local batch = mesh_batches[material_key]
 
 					if not batch then
@@ -1724,12 +1759,10 @@ local function build_scene_dataset(acceleration)
 			for _, entry in ipairs(visual.entries or {}) do
 				if entry.shadow_instancing_eligible then
 					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() or nil
-					local material = entry.source_entry and
-						visual.component:GetResolvedMaterial(entry.source_entry) or
-						nil
+					local mesh = entry.batch_mesh
+					local material = entry.batch_material
 					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = get_gbuffer_batch_material_key(material)
+					local material_key = entry.batch_material_key
 					local batch = mesh_batches[material_key]
 
 					if not batch then
@@ -1762,12 +1795,10 @@ local function build_scene_dataset(acceleration)
 			for _, entry in ipairs(visual.entries or {}) do
 				if entry.shadow_instancing_eligible then
 					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() or nil
-					local material = entry.source_entry and
-						visual.component:GetResolvedMaterial(entry.source_entry) or
-						nil
+					local mesh = entry.batch_mesh
+					local material = entry.batch_material
 					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = get_gbuffer_batch_material_key(material)
+					local material_key = entry.batch_material_key
 					local batch = mesh_batches[material_key]
 
 					if not batch then
@@ -2107,13 +2138,9 @@ local function remove_buffer(buffer)
 	if buffer and buffer.Remove then buffer:Remove() end
 end
 
-local function structure_key_matches(a, b)
-	if not a or not b then return false end
-
-	return a.entry_count == b.entry_count and
-		a.batch_count == b.batch_count and
-		a.instance_count == b.instance_count and
-		a.shadow_instance_count == b.shadow_instance_count
+local function grow_capacity(required, previous)
+	local grown = math.ceil((previous or 0) * 1.5)
+	return grown > required and grown or required
 end
 
 local function clear_dataset_buffers()
@@ -2131,7 +2158,7 @@ local function clear_dataset_buffers()
 
 	gpu_culling.dataset_buffers = nil
 	gpu_culling.dataset_buffers_generation = -1
-	gpu_culling.dataset_buffers_structure_key = nil
+	gpu_culling.dataset_buffers_capacity = nil
 end
 
 -- A slot's buffers are read by the gpu long after its cull finished: the draws that
@@ -2186,7 +2213,7 @@ local function clear_frame_buffers()
 	end
 
 	gpu_culling.frame_buffers = nil
-	gpu_culling.frame_buffers_structure_key = nil
+	gpu_culling.frame_buffers_capacity = nil
 	gpu_culling.async_slot_indices = nil
 	gpu_culling.published_async_slot = nil
 end
@@ -2199,6 +2226,19 @@ local function create_buffer(label, byte_size, usage, data)
 		label = label,
 		data = data,
 	}
+end
+
+local function create_buffer_with_data(label, byte_capacity, usage, data, data_byte_size)
+	local buffer = render.CreateBuffer{
+		byte_size = math.max(byte_capacity, 1),
+		buffer_usage = usage,
+		memory_property = {"host_visible", "host_coherent"},
+		label = label,
+	}
+
+	if data then buffer:CopyData(data, data_byte_size) end
+
+	return buffer
 end
 
 local function ensure_shadow_query_output_descriptor_capacity(descriptor_slot)
@@ -2355,7 +2395,7 @@ function gpu_culling.RecreateShadowQueryOutput(output)
 	return output
 end
 
-local function build_dataset_buffers(dataset)
+local function build_dataset_buffers(dataset, capacity)
 	if not dataset then return nil end
 
 	local device = render.GetDevice and render.GetDevice() or nil
@@ -2363,50 +2403,60 @@ local function build_dataset_buffers(dataset)
 	if not (device and device.IsValid and device:IsValid()) then return nil end
 
 	local upload = build_dataset_upload(dataset)
+	local entry_capacity = math.max(capacity.entry_count, 1)
+	local batch_capacity = math.max(capacity.batch_count, 1)
+	local instance_capacity = math.max(capacity.instance_count, 1)
 	return {
 		generation = dataset.generation,
 		layout = upload.layout,
-		main_visual_buffer = create_buffer(
+		main_visual_buffer = create_buffer_with_data(
 			"gpu_culling_main_visual_upload",
-			upload.main.visual_byte_size,
+			entry_capacity * ffi.sizeof(GPUCullVisualRecord),
 			{"storage_buffer"},
-			upload.main.visual_records
+			upload.main.visual_records,
+			upload.main.visual_byte_size
 		),
-		main_entry_buffer = create_buffer(
+		main_entry_buffer = create_buffer_with_data(
 			"gpu_culling_main_entry_upload",
-			upload.main.entry_byte_size,
+			entry_capacity * ffi.sizeof(GPUCullEntryRecord),
 			{"storage_buffer"},
-			upload.main.entry_records
+			upload.main.entry_records,
+			upload.main.entry_byte_size
 		),
-		main_static_instance_world_buffer = create_buffer(
+		main_static_instance_world_buffer = create_buffer_with_data(
 			"gpu_culling_main_static_instance_world_upload",
-			upload.main_static_instance_worlds.byte_size,
+			math.max(instance_capacity * 16, 16) * ffi.sizeof("float"),
 			{"storage_buffer"},
-			upload.main_static_instance_worlds.world_matrices
+			upload.main_static_instance_worlds.world_matrices,
+			upload.main_static_instance_worlds.byte_size
 		),
-		main_instanced_batch_buffer = create_buffer(
+		main_instanced_batch_buffer = create_buffer_with_data(
 			"gpu_culling_main_instanced_batch_upload",
-			upload.main_instanced_batches.byte_size,
+			batch_capacity * ffi.sizeof(GPUCullInstancedBatchRecord),
 			{"storage_buffer"},
-			upload.main_instanced_batches.batch_records
+			upload.main_instanced_batches.batch_records,
+			upload.main_instanced_batches.byte_size
 		),
-		shadow_visual_buffer = create_buffer(
+		shadow_visual_buffer = create_buffer_with_data(
 			"gpu_culling_shadow_visual_upload",
-			upload.shadow.visual_byte_size,
+			entry_capacity * ffi.sizeof(GPUCullVisualRecord),
 			{"storage_buffer"},
-			upload.shadow.visual_records
+			upload.shadow.visual_records,
+			upload.shadow.visual_byte_size
 		),
-		shadow_entry_buffer = create_buffer(
+		shadow_entry_buffer = create_buffer_with_data(
 			"gpu_culling_shadow_entry_upload",
-			upload.shadow.entry_byte_size,
+			entry_capacity * ffi.sizeof(GPUCullEntryRecord),
 			{"storage_buffer"},
-			upload.shadow.entry_records
+			upload.shadow.entry_records,
+			upload.shadow.entry_byte_size
 		),
-		shadow_instanced_batch_buffer = create_buffer(
+		shadow_instanced_batch_buffer = create_buffer_with_data(
 			"gpu_culling_shadow_instanced_batch_upload",
-			upload.shadow_instanced_batches.byte_size,
+			batch_capacity * ffi.sizeof(GPUCullInstancedBatchRecord),
 			{"storage_buffer"},
-			upload.shadow_instanced_batches.batch_records
+			upload.shadow_instanced_batches.batch_records,
+			upload.shadow_instanced_batches.byte_size
 		),
 	}
 end
@@ -2433,6 +2483,7 @@ local function update_cull_result(
 	visible_entry_indices_ready
 )
 	result.frame_index = frame_index
+	result.dataset_generation = nil
 	result.visible_count = visible_count
 	result.visible_indices = nil
 	result.visible_entry_count = visible_count
@@ -2485,9 +2536,16 @@ local function ensure_dataset_buffers(dataset)
 		return nil
 	end
 
+	local key = dataset.structure_key
+	local previous = gpu_culling.dataset_buffers_capacity
+
 	if
-		structure_key_matches(gpu_culling.dataset_buffers_structure_key, dataset.structure_key) and
-		gpu_culling.dataset_buffers
+		gpu_culling.dataset_buffers and
+		previous and
+		previous.entry_count >= key.entry_count and
+		previous.batch_count >= key.batch_count and
+		previous.instance_count >= key.instance_count and
+		previous.shadow_instance_count >= key.shadow_instance_count
 	then
 		if gpu_culling.dataset_buffers_generation ~= dataset.generation then
 			update_dataset_buffers_in_place(dataset, gpu_culling.dataset_buffers)
@@ -2497,14 +2555,20 @@ local function ensure_dataset_buffers(dataset)
 		return gpu_culling.dataset_buffers
 	end
 
+	local capacity = {
+		entry_count = grow_capacity(key.entry_count, previous and previous.entry_count),
+		batch_count = grow_capacity(key.batch_count, previous and previous.batch_count),
+		instance_count = grow_capacity(key.instance_count, previous and previous.instance_count),
+		shadow_instance_count = grow_capacity(key.shadow_instance_count, previous and previous.shadow_instance_count),
+	}
 	clear_dataset_buffers()
-	gpu_culling.dataset_buffers = build_dataset_buffers(dataset)
+	gpu_culling.dataset_buffers = build_dataset_buffers(dataset, capacity)
 	gpu_culling.dataset_buffers_generation = gpu_culling.dataset_buffers and dataset.generation or -1
-	gpu_culling.dataset_buffers_structure_key = gpu_culling.dataset_buffers and dataset.structure_key or nil
+	gpu_culling.dataset_buffers_capacity = gpu_culling.dataset_buffers and capacity or nil
 	return gpu_culling.dataset_buffers
 end
 
-local function build_frame_buffers(dataset)
+local function build_frame_buffers(dataset, capacity)
 	if not dataset then return nil end
 
 	local device = render.GetDevice()
@@ -2513,10 +2577,10 @@ local function build_frame_buffers(dataset)
 
 	local frame_count, async_slot_count = get_cull_slot_count()
 	local total_slot_count = frame_count + async_slot_count
-	local visible_entry_capacity = math.max((dataset.static_entry_count or 0) + (dataset.dynamic_entry_count or 0), 1)
-	local instanced_batch_count = math.max(#(dataset.main_instanced_batches or {}), 1)
-	local static_instance_capacity = math.max(dataset.main_static_instance_count or 0, 1)
-	local shadow_instance_capacity = math.max(dataset.shadow_instance_count or 0, 1)
+	local visible_entry_capacity = math.max(capacity.entry_count, 1)
+	local instanced_batch_count = math.max(capacity.batch_count, 1)
+	local static_instance_capacity = math.max(capacity.instance_count, 1)
+	local shadow_instance_capacity = math.max(capacity.shadow_instance_count, 1)
 	local frame_buffers = {}
 	local async_slot_indices = {}
 
@@ -2638,6 +2702,7 @@ local function collect_cull_result(output)
 	)
 	result.entry_visibility_ptr = ffi.cast("uint32_t*", output.entry_visibility_buffer:Map())
 	result.entry_visibility_count = output.entry_visibility_capacity
+	result.dataset_generation = output.cull_dataset_generation
 	return result
 end
 
@@ -2854,16 +2919,29 @@ local function ensure_frame_buffers(dataset)
 		return nil
 	end
 
+	local key = dataset.structure_key
+	local previous = gpu_culling.frame_buffers_capacity
+
 	if
-		structure_key_matches(gpu_culling.frame_buffers_structure_key, dataset.structure_key) and
-		gpu_culling.frame_buffers
+		gpu_culling.frame_buffers and
+		previous and
+		previous.entry_count >= key.entry_count and
+		previous.batch_count >= key.batch_count and
+		previous.instance_count >= key.instance_count and
+		previous.shadow_instance_count >= key.shadow_instance_count
 	then
 		return gpu_culling.frame_buffers
 	end
 
+	local capacity = {
+		entry_count = grow_capacity(key.entry_count, previous and previous.entry_count),
+		batch_count = grow_capacity(key.batch_count, previous and previous.batch_count),
+		instance_count = grow_capacity(key.instance_count, previous and previous.instance_count),
+		shadow_instance_count = grow_capacity(key.shadow_instance_count, previous and previous.shadow_instance_count),
+	}
 	clear_frame_buffers()
-	gpu_culling.frame_buffers = build_frame_buffers(dataset)
-	gpu_culling.frame_buffers_structure_key = gpu_culling.frame_buffers and dataset.structure_key or nil
+	gpu_culling.frame_buffers = build_frame_buffers(dataset, capacity)
+	gpu_culling.frame_buffers_capacity = gpu_culling.frame_buffers and capacity or nil
 	return gpu_culling.frame_buffers
 end
 
@@ -2890,6 +2968,18 @@ end
 
 function gpu_culling.GetSceneDataset()
 	return gpu_culling.scene_dataset
+end
+
+-- a cull result's visible indices point into the dataset that was current when
+-- the cull was dispatched. if the scene changed since (terrain streaming does
+-- this constantly), the indices no longer line up with the live dataset's
+-- entry/batch lists and must not be consumed
+function gpu_culling.IsCullResultCurrent(cull_result)
+	local dataset = gpu_culling.scene_dataset
+
+	if not dataset or not cull_result then return false end
+
+	return cull_result.dataset_generation == dataset.generation
 end
 
 function gpu_culling.GetFrameBuffers()
@@ -2934,6 +3024,7 @@ local function record_cull_dispatch(
 	read_visible_entry_indices
 )
 	local pass = gpu_culling.main_view_cull_pass
+	output.cull_dataset_generation = dataset.generation
 	local hiz_state = get_main_view_hiz_state()
 	local hiz_buffer = hiz_state.latest
 	local occlusion_enabled = gpu_culling.GetOcclusionMode() == "hiz" and hiz_buffer ~= nil
@@ -3237,6 +3328,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 			0,
 			true
 		)
+		gpu_culling.empty_main_view_cull_result.dataset_generation = dataset.generation
 		return gpu_culling.empty_main_view_cull_result
 	end
 
@@ -3269,9 +3361,6 @@ function gpu_culling.RunMainViewFrustumCulling(
 	stamp_published_slot_release(frame_buffers)
 	local output = acquire_async_slot(frame_buffers)
 
-	-- Every slot is either still culling or still being drawn from. Skipping the dispatch
-	-- reuses last frame's visibility for one more frame, which is invisible, and lets the
-	-- backlog drain instead of overwriting buffers the gpu is reading.
 	if output then
 		local cmd = record_cull_dispatch(
 			output,
@@ -3331,6 +3420,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 			0,
 			read_visible_entry_indices
 		)
+		gpu_culling.empty_shadow_view_cull_result.dataset_generation = dataset.generation
 		return gpu_culling.empty_shadow_view_cull_result
 	end
 
@@ -3340,9 +3430,6 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 
 	if not (output and descriptor_slot) then return nil end
 
-	-- casters hidden from the camera still throw shadows onto visible surfaces,
-	-- so the main view hi-z never applies to shadow casters. A pyramid is still bound
-	-- because the descriptor needs a valid image.
 	local hiz_state = get_main_view_hiz_state()
 	local camera = render3d.GetRenderCamera()
 	local view_projection_matrix = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()

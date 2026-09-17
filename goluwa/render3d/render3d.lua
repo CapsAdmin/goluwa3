@@ -1157,6 +1157,8 @@ function render3d.FlushQueuedGBufferInstances()
 	for i = 1, #render3d.queued_gbuffer_instance_batches do
 		local batch = render3d.queued_gbuffer_instance_batches[i]
 
+		if batch.count > 1 and not batch.mesh:IsValid() then continue end
+
 		if batch.count == 1 then
 			counters.flushed_batches = counters.flushed_batches + 1
 			counters.flushed_instances = counters.flushed_instances + 1
@@ -1221,7 +1223,14 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 	local output = frame_buffers and frame_buffers[cull_result.frame_index] or nil
 	local batches = dataset and dataset.main_instanced_batches or nil
 
-	if not (output and batches and batches[1]) then
+	if
+		not (
+			gpu_culling.IsCullResultCurrent(cull_result) and
+			output and
+			batches and
+			batches[1]
+		)
+	then
 		return {
 			drew_any = false,
 			submitted_entry_count = 0,
@@ -1247,7 +1256,7 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 		local batch_index = tonumber(active_batch_indices[active_index]) + 1
 		local batch = batches[batch_index]
 
-		if batch then
+		if batch and batch.mesh:IsValid() then
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			render3d.SetMaterial(batch.material)
 			render3d.UploadInstancedGBufferConstants()

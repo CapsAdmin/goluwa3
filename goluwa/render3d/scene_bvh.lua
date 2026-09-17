@@ -680,7 +680,7 @@ do
 			for _, entry in ipairs(visual:GetRenderEntries()) do
 				local mesh = entry.polygon3d.mesh
 
-				if mesh then
+				if mesh and mesh.Type ~= "null" then
 					local index_buffer = mesh.index_buffer
 					local count = index_buffer and
 						math.floor(index_buffer:GetIndexCount() / 3) or
@@ -1143,6 +1143,7 @@ end
 
 function scene_bvh.EnsureBuilt()
 	local frame = system.GetFrameNumber()
+	local now = system.GetElapsedTime()
 
 	if scene_bvh.ensure_frame == frame then return end
 
@@ -1153,6 +1154,7 @@ function scene_bvh.EnsureBuilt()
 
 	if changed then
 		scene_bvh.last_change_frame = frame
+		scene_bvh.last_change_time = now
 
 		if not scene_bvh.dirty_since then
 			scene_bvh.dirty_since = system.GetElapsedTime()
@@ -1196,11 +1198,16 @@ function scene_bvh.EnsureBuilt()
 		return
 	end
 
-	local now = system.GetElapsedTime()
-	local settled = not scene_bvh.has_built or scene_bvh.last_change_frame < frame - 1
+	local settled = (scene_bvh.last_change_frame or 0) < frame - 1
 	local max_wait = math.max(0.02, scene_bvh.build_time * 20)
 
-	if not settled and (now - scene_bvh.dirty_since) < max_wait then return end
+	if not scene_bvh.has_built then
+		local quiet_since = scene_bvh.last_change_time or scene_bvh.dirty_since
+
+		if not quiet_since or now - quiet_since < 5.0 then return end
+	elseif not settled and (now - scene_bvh.dirty_since) < max_wait then
+		return
+	end
 
 	scene_bvh.dirty_since = nil
 	scene_bvh.Build()

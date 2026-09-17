@@ -242,7 +242,7 @@ T.Test3D("Polygon3D", function(draw)
 		local poly = Polygon3D.New()
 		poly:Upload()
 		-- Should not create mesh with no vertices
-		T(poly.mesh)["=="](nil)
+		T(poly.mesh:IsValid())["=="](false)
 	end)
 
 	-- ============================================================================

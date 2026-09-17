@@ -231,6 +231,10 @@ local function can_reuse_shadow_gpu_cull_result(
 
 	if not query_aabb then return false end
 
+	if not gpu_culling.IsCullResultCurrent(cache.gpu_cull_result) then
+		return false
+	end
+
 	if cache.shadow_volume_change_version ~= shadow_volume_change_version then
 		return false
 	end
@@ -409,6 +413,10 @@ local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visib
 			gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, nil, read_visible_entry_indices, cull_options) or
 			nil
 
+		if cull_result and not gpu_culling.IsCullResultCurrent(cull_result) then
+			cull_result = nil
+		end
+
 		if cull_result then
 			cache.gpu_cull_result = cull_result
 			cache.gpu_cull_result_valid = true
@@ -583,9 +591,9 @@ local function is_visual_dynamic(component)
 end
 
 local function add_scene_acceleration_item(items, component, bounds)
-	if not bounds or bounds.min_x > bounds.max_x then return end
+	if not bounds or bounds.min_x > bounds.max_x then return nil end
 
-	items[#items + 1] = {
+	local item = {
 		component = component,
 		world_aabb = bounds,
 		cull_distance = component.CullDistance,
@@ -600,6 +608,8 @@ local function add_scene_acceleration_item(items, component, bounds)
 		centroid_y = (bounds.min_y + bounds.max_y) * 0.5,
 		centroid_z = (bounds.min_z + bounds.max_z) * 0.5,
 	}
+	items[#items + 1] = item
+	return item
 end
 
 local function get_scene_acceleration_item_bounds(item)
@@ -683,18 +693,25 @@ local function can_use_shadow_aabb_cull(component, render_entries)
 	return true
 end
 
+local function refresh_scene_acceleration_item(item, component)
+	item.cull_distance = component.CullDistance
+	item.shadow_change_version = component.shadow_change_version or 0
+end
+
+local function scene_acceleration_item_changed(prev_item, aabb, tolerance)
+	return not prev_item or
+		not aabb or
+		math.abs(prev_item.min_x - aabb.min_x) > tolerance or
+		math.abs(prev_item.min_y - aabb.min_y) > tolerance or
+		math.abs(prev_item.min_z - aabb.min_z) > tolerance or
+		math.abs(prev_item.max_x - aabb.max_x) > tolerance or
+		math.abs(prev_item.max_y - aabb.max_y) > tolerance or
+		math.abs(prev_item.max_z - aabb.max_z) > tolerance
+end
+
 local function rebuild_scene_acceleration()
 	local prev = visual.scene_acceleration
-	local prev_items = prev and prev.items
-	local prev_item_lookup = {}
 	local tolerance = visual.AABB_TOLERANCE
-
-	if prev_items then
-		for _, item in ipairs(prev_items) do
-			prev_item_lookup[item.component] = item
-		end
-	end
-
 	local items = {}
 	local dynamic_components = {}
 	local shadow_items = {}
@@ -721,24 +738,31 @@ local function rebuild_scene_acceleration()
 					end
 				end
 			else
-				local prev_item = prev_item_lookup[component]
-				local aabb_changed = not prev_item or
-					math.abs(prev_item.min_x - world_aabb.min_x) > tolerance or
-					math.abs(prev_item.min_y - world_aabb.min_y) > tolerance or
-					math.abs(prev_item.min_z - world_aabb.min_z) > tolerance or
-					math.abs(prev_item.max_x - world_aabb.max_x) > tolerance or
-					math.abs(prev_item.max_y - world_aabb.max_y) > tolerance or
-					math.abs(prev_item.max_z - world_aabb.max_z) > tolerance
+				local prev_item = component.scene_acceleration_item
+				local aabb_changed = scene_acceleration_item_changed(prev_item, world_aabb, tolerance)
 
 				if aabb_changed then static_dirty = true end
 
-				add_scene_acceleration_item(items, component, world_aabb)
+				if aabb_changed then
+					component.scene_acceleration_item = add_scene_acceleration_item(items, component, world_aabb)
+				else
+					refresh_scene_acceleration_item(prev_item, component)
+					items[#items + 1] = prev_item
+				end
 
 				if component.CastShadows then
 					if shadow_aabb_cull then
-						if aabb_changed then shadow_static_dirty = true end
+						local prev_shadow_item = component.scene_shadow_acceleration_item
+						local shadow_aabb_changed = scene_acceleration_item_changed(prev_shadow_item, world_aabb, tolerance)
 
-						add_scene_acceleration_item(shadow_items, component, world_aabb)
+						if shadow_aabb_changed then shadow_static_dirty = true end
+
+						if shadow_aabb_changed then
+							component.scene_shadow_acceleration_item = add_scene_acceleration_item(shadow_items, component, world_aabb)
+						else
+							refresh_scene_acceleration_item(prev_shadow_item, component)
+							shadow_items[#shadow_items + 1] = prev_shadow_item
+						end
 					else
 						non_aabb_shadow_components[#non_aabb_shadow_components + 1] = component
 					end
@@ -778,9 +802,9 @@ local function rebuild_scene_acceleration()
 			nil
 	end
 
-	visual.scene_acceleration.visual_count = #(Visual.Instances or {})
 	visual.scene_acceleration.static_item_count = #items
 	visual.scene_acceleration.shadow_static_item_count = #shadow_items
+	visual.scene_acceleration.visual_count = #(Visual.Instances or {})
 	visual.scene_acceleration.dirty = false
 	visual.scene_acceleration.visible_frame = nil
 	visual.scene_acceleration.visible_camera = nil
@@ -839,6 +863,11 @@ local function ensure_scene_acceleration()
 			gpu_culling.GetPublishedSceneAccelerationGeneration() ~= gpu_culling.GetSceneAccelerationGeneration()
 		)
 	then
+		-- at most one rebuild per frame: a publish clears the dirty flag and
+		-- stamps the published generation, so anything invalidated after the
+		-- publish is picked up by a later ensure in the same or next frame,
+		-- while the many ensure call sites that see an unchanged scene reuse
+		-- the published acceleration
 		return rebuild_scene_acceleration()
 	end
 
@@ -955,6 +984,8 @@ function Visual:InvalidateRenderEntries()
 	self.RenderEntriesDirty = true
 	self.HasIgnoreZRenderEntries = false
 	self.HasOpaqueRenderEntries = false
+	self.gpu_dataset_static_serialized = nil
+	self.gpu_dataset_shadow_serialized = nil
 	self.WorldAABBCache = nil
 	self.WorldAABBCacheMatrix = nil
 	self.WorldAABBCacheSource = nil
@@ -1785,13 +1816,15 @@ do
 		if
 			acceleration.visible_frame == frame and
 			acceleration.visible_camera == camera and
-			acceleration.visible_cull_result
+			acceleration.visible_cull_result and
+			gpu_culling.IsCullResultCurrent(acceleration.visible_cull_result)
 		then
 			cull_result = acceleration.visible_cull_result
 		elseif
 			acceleration.visible_gpu_cull_result_frame == frame and
 			acceleration.visible_gpu_cull_result_camera == camera and
-			acceleration.visible_gpu_cull_result
+			acceleration.visible_gpu_cull_result and
+			gpu_culling.IsCullResultCurrent(acceleration.visible_gpu_cull_result)
 		then
 			cull_result = acceleration.visible_gpu_cull_result
 		else
@@ -2281,6 +2314,7 @@ do
 			acceleration.visible_gpu_cull_result_frame == current_frame and
 			acceleration.visible_gpu_cull_result_camera == camera and
 			cached_result and
+			gpu_culling.IsCullResultCurrent(cached_result) and
 			(
 				not read_visible_entry_indices or
 				cached_result.visible_entry_indices_ready
@@ -2302,6 +2336,10 @@ do
 			read_visible_entry_indices
 		)
 
+		if cull_result and not gpu_culling.IsCullResultCurrent(cull_result) then
+			cull_result = nil
+		end
+
 		if cull_result then
 			acceleration.visible_gpu_cull_result = cull_result
 			acceleration.visible_gpu_cull_result_frame = current_frame
@@ -2322,7 +2360,8 @@ do
 		then
 			if
 				acceleration.visible_cull_result and
-				acceleration.visible_cull_result.visible_entry_indices_ready
+				acceleration.visible_cull_result.visible_entry_indices_ready and
+				gpu_culling.IsCullResultCurrent(acceleration.visible_cull_result)
 			then
 				local dataset = gpu_culling.GetSceneDataset()
 				local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(acceleration.visible_cull_result, true)
@@ -2393,7 +2432,12 @@ do
 		local cull_result = acceleration.visible_cull_result
 		acceleration.visible_render_entry_payloads = payloads
 
-		if dataset and cull_result and cull_result.visible_entry_indices_ready then
+		if
+			dataset and
+			cull_result and
+			cull_result.visible_entry_indices_ready and
+			gpu_culling.IsCullResultCurrent(cull_result)
+		then
 			local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
 
 			for i = 0, visible_entry_count - 1 do
