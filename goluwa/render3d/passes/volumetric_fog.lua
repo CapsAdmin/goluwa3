@@ -7,6 +7,7 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
+local radiance_cascades = import("goluwa/render3d/radiance_cascades.lua")
 local assets = import("goluwa/assets.lua")
 local Texture = import("goluwa/render/texture.lua")
 local MAX_CASCADES = directional_shadows.MAX_CASCADES
@@ -193,6 +194,22 @@ local function write_ocean_distance_texture(self, block, key)
 	end
 end
 
+local function write_gi_screen_texture(self, block, key)
+	if render3d.pipelines.radiance_cascades_resolve then
+		if render3d.pipelines.radiance_cascades_denoise then
+			block[key] = self:GetTextureIndex(render3d.pipelines.radiance_cascades_denoise:GetFramebuffer(1):GetAttachment(1))
+		else
+			block[key] = self:GetTextureIndex(
+				render3d.pipelines.radiance_cascades_resolve:GetFramebuffer(radiance_cascades.GetResolveFramebufferIndex()):GetAttachment(1)
+			)
+		end
+	elseif render3d.pipelines.voxel_gi_upsample then
+		block[key] = self:GetTextureIndex(render3d.pipelines.voxel_gi_upsample:GetFramebuffer(1):GetAttachment(1))
+	else
+		block[key] = -1
+	end
+end
+
 local function get_froxel_volume_descriptor()
 	local texture = ensure_volumetric_froxel_resources()
 
@@ -327,9 +344,9 @@ local function get_sun_helpers_glsl(data_block)
 		return normalize(-light_dir);
 	}
 
-	float get_current_primary_sun_intensity() {
+	float get_current_primary_sun_illuminance() {
 		int sun_index = get_current_primary_sun_index();
-		return sun_index < 0 ? 1.0 : ]] .. data_block .. [[.lights[sun_index].color.a;
+		return sun_index < 0 ? ]] .. string.format("%.17g", atmosphere.GetSunIlluminance()) .. [[ : ]] .. data_block .. [[.lights[sun_index].color.a;
 	}
 	]]
 		)
@@ -401,7 +418,7 @@ local r = {
 			const float DEBUG_GOD_RAY_SHADOW_CONTRAST = ]] .. DEBUG_GOD_RAY_SHADOW_CONTRAST .. [[;
 			const float DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = ]] .. DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE .. [[;
 
-			]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. [[
+			]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. [[
 
 			float get_slice_view_depth(float slice_index) {
 				float near_z = max(froxel_data.near_z, 0.001);
@@ -470,7 +487,7 @@ local r = {
 				vec3 sun_tint = mix(vec3(1.0, 0.6, 0.42), vec3(1.0, 0.97, 0.92), day_factor);
 				float shadow_visibility = pow(clamp(sun_visibility, 0.0, 1.0), DEBUG_GOD_RAY_SHADOW_CONTRAST);
 				float direct_visibility = horizon_visibility * shadow_visibility;
-				return sun_tint * (0.015 + 0.14 * forward_scatter) * direct_visibility * ATMOSPHERE_SUN_INTENSITY * DEBUG_GOD_RAY_BOOST * sun_facing_boost;
+				return sun_tint * (0.015 + 0.14 * forward_scatter) * direct_visibility * ATMOSPHERE_SUN_ILLUMINANCE * DEBUG_GOD_RAY_BOOST * sun_facing_boost;
 			}
 
 			float get_froxel_sun_visibility(vec3 world_pos, vec3 sun_dir) {
@@ -718,6 +735,7 @@ local r = {
 						render3d.gbuffer_block,
 						{"source_tex", "int"},
 						{"ocean_distance_tex", "int"},
+						{"gi_screen_tex", "int"},
 						unpack(build_scene_light_block_fields()),
 					},
 					write = function(self, block)
@@ -725,6 +743,7 @@ local r = {
 						render3d.WriteGBufferBlock(self, block)
 						get_raw_scene_source_texture(self, block, "source_tex")
 						write_ocean_distance_texture(self, block, "ocean_distance_tex")
+						write_gi_screen_texture(self, block, "gi_screen_tex")
 						return write_fog_common_block(self, block)
 					end,
 				},
@@ -732,7 +751,7 @@ local r = {
 			shader = (
 					"const int FOG_DEBUG_MODE = %d;\n"
 				):format(FOG_DEBUG_MODE) .. light_occlusion.GetSamplingGLSL("fog_data") .. [[
-			]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_intensity()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. [[
+			]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetSurfaceDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. [[
 
 
 			]] .. screen_reconstruct.GetWorldPosGLSL("fog_data") .. [[
@@ -740,6 +759,12 @@ local r = {
 
 			vec3 get_normal() {
 				return texture(TEXTURE(fog_data.normal_tex), in_uv).xyz * 2.0 - 1.0;
+			}
+
+			vec4 get_fog_gi() {
+				if (fog_data.gi_screen_tex < 0) return vec4(0.0, 0.0, 0.0, 1.0);
+				vec4 gi = texture(TEXTURE(fog_data.gi_screen_tex), in_uv);
+				return vec4(gi.rgb, clamp(gi.a, 0.0, 1.0));
 			}
 
 			bool get_fog_world_segment(vec3 ray_dir, float max_world_distance, out float fog_near_world, out float fog_length_world) {
@@ -985,17 +1010,22 @@ local r = {
 						sun_dir,
 						fog_data.camera_position.xyz,
 						-1.0,
-						sun_visibility
+						sun_visibility,
+						vec3(0.0),
+						1.0
 					);
 				} else {
 					float sun_visibility = get_fog_ray_sun_visibility(ray_dir, max_world_distance, sun_dir);
+					vec4 gi = get_fog_gi();
 
 					color = apply_scenery_fog(
 						scene.rgb,
 						world_pos,
 						sun_dir,
 						fog_data.camera_position.xyz,
-						sun_visibility
+						sun_visibility,
+						gi.rgb,
+						gi.a
 					);
 
 					vec3 additional_fog_light = vec3(0.0);

@@ -17,7 +17,7 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local get_primary_sun = directional_shadows.GetPrimarySun
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
-local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
+local get_primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance
 local MAX_LIGHTS = scene_lights.MAX_LIGHTS
 local MAX_CASCADES = scene_lights.MAX_CASCADES
 local MAX_POINT_SHADOWS = scene_lights.MAX_POINT_SHADOWS
@@ -93,7 +93,7 @@ return {
 					render3d.last_frame_block,
 					render3d.common_block,
 					light_occlusion.GetBlockLayout(),
-					{"primary_sun_intensity", "float"},
+					{"primary_sun_illuminance", "float"},
 					{"primary_sun_color", "vec4"},
 					{"primary_sun_direction", "vec4"},
 					atmosphere.GetBlockLayout(),
@@ -120,7 +120,7 @@ return {
 					light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 					local primary_sun = get_primary_sun(lights)
 					get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
-					block.primary_sun_intensity = get_primary_sun_intensity(lights)
+					block.primary_sun_illuminance = get_primary_sun_illuminance(lights)
 					block.primary_sun_color[0] = primary_sun and primary_sun.Color.x or 1
 					block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
 					block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
@@ -236,7 +236,7 @@ return {
 				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 			}
 
-			]] .. atmosphere.GetGLSLDefines("lighting_data", "lighting_data.primary_sun_intensity") .. atmosphere.GetGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLDefines("lighting_data", "lighting_data.primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. [[
 
 			const float SUN_ANGULAR_RADIUS_TAN = 0.0047;
 

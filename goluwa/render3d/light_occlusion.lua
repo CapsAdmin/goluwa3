@@ -129,7 +129,8 @@ local function process_geometry_change(lights)
 
 			if not stale then
 				local pos = light.Owner.transform:GetPosition()
-				local radius_sq = light.Range * light.Range
+				local range = light:GetEffectiveRange()
+				local radius_sq = range * range
 
 				for i = 1, #boxes do
 					if sphere_overlaps_box(pos.x, pos.y, pos.z, radius_sq, boxes[i]) then
@@ -176,7 +177,7 @@ local function build_trace_pipeline()
 
 						if is_occlusion_light(light) then
 							light.Owner.transform:GetPosition():CopyToFloatPointer(block.oct_positions[i])
-							block.oct_positions[i][3] = light.Range
+							block.oct_positions[i][3] = light:GetEffectiveRange()
 						else
 							block.oct_positions[i][0] = 0
 							block.oct_positions[i][1] = 0
@@ -311,8 +312,9 @@ function light_occlusion.Draw(cmd)
 			slot_at_z[light_index] = nil
 		else
 			local pos = light.Owner.transform:GetPosition()
+			local range = light:GetEffectiveRange()
 
-			if render3d.SphereInFrustum(pos.x, pos.y, pos.z, light.Range) then
+			if render3d.SphereInFrustum(pos.x, pos.y, pos.z, range) then
 				local info = state[light_index]
 				local stamp = stamps[light_index] or 0
 				local mode = 0
@@ -329,7 +331,7 @@ function light_occlusion.Draw(cmd)
 						if not pending then stamp = stamp + 1 end
 
 						mode = 2
-					elseif info.range < light.Range - 1e-4 then
+					elseif info.range < range - 1e-4 then
 						if not pending then stamp = stamp + 1 end
 
 						mode = 2
@@ -419,7 +421,7 @@ function light_occlusion.Draw(cmd)
 			x = pos.x,
 			y = pos.y,
 			z = pos.z,
-			range = light.Range,
+			range = light:GetEffectiveRange(),
 			stamp_dispatched = stamps[light_index],
 		}
 	end
@@ -459,18 +461,19 @@ function light_occlusion.GetDebugState()
 			local info = state[light_index]
 			local stamp = stamps[light_index] or 0
 			local pos = light.Owner.transform:GetPosition()
+			local range = light:GetEffectiveRange()
 			out.lights[#out.lights + 1] = {
 				index = light_index - 1,
 				name = light.Owner.Name or ("light" .. light_index),
 				x = pos.x,
 				y = pos.y,
 				z = pos.z,
-				range = light.Range,
+				range = range,
 				stamp = stamp,
 				dispatched = info and info.stamp_dispatched or 0,
 				pending = stamp > (info and info.stamp_dispatched or 0),
 				geom_stale = geom_stale[light_index] ~= nil,
-				in_frustum = render3d.SphereInFrustum(pos.x, pos.y, pos.z, light.Range),
+				in_frustum = render3d.SphereInFrustum(pos.x, pos.y, pos.z, range),
 			}
 		end
 	end

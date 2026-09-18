@@ -595,29 +595,33 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						return clamp(blocking, 0.0, 1.0);
 					}
 
+					const float EMISSIVE_REFERENCE_LUMINANCE = 2000.0;
+					const float EMISSIVE_MAX_LUMINANCE = 64512.0;
+
 					vec3 get_emissive(vec2 uv) {
 						if (Subsurface) {
 							return get_transmission_color();
 						}
+
+						vec3 emissive = vec3(0.0);
 
 						if (AlbedoAlphaIsEmissive) {
 							float mask = 1.0;
 							if (model.AlbedoTexture != -1) {
 								mask = texture(TEXTURE(model.AlbedoTexture), uv).a;
 							}
-							return get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+							emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 						} else if (aux_model.EmissiveTexture != -1) {
 							float mask = texture(TEXTURE(aux_model.EmissiveTexture), uv).r;
-							return get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+							emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 						} else if (aux_model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
 							float mask = texture(TEXTURE(aux_model.MetallicTexture), uv).a;
-							return get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
-						} else if (aux_model.EmissiveTexture != -1) {
-							vec3 emissive = texture(TEXTURE(aux_model.EmissiveTexture), uv).rgb;
-							return emissive * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+							emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+						} else {
+							return vec3(0.0);
 						}
 
-						return vec3(0.0);
+						return min(emissive * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 					}
 
 					// both endpoints go through their own frame's camera, so a still

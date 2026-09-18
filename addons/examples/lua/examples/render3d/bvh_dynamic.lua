@@ -78,7 +78,7 @@ local function light(name, position, range, color)
 	ent.transform:SetPosition(position)
 	local c = ent:AddComponent("light_point")
 	c:SetColor(color)
-	c:SetIntensity(5000)
+	c:SetLumen(5000)
 	c:SetRange(range)
 	return c
 end

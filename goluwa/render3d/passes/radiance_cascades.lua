@@ -286,7 +286,9 @@ local function build_resolve_pass()
 		]],
 		shader = [[
 			const int RC_DIRECTIONS = ]] .. radiance_cascades.GetDirectionCount(0) .. [[;
-			const float RC_EDGE_BORDER = ]] .. radiance_cascades.EDGE_BORDER .. [[;
+			const float RC_SEED_SEARCH_RADIUS = ]] .. radiance_cascades.SEED_SEARCH_RADIUS .. [[;
+			const float RC_SEED_BLEND = ]] .. radiance_cascades.SEED_BLEND .. [[;
+			const float RC_FIREFLY_CLAMP = ]] .. radiance_cascades.FIREFLY_CLAMP .. [[;
 
 			#define saturate(x) clamp(x, 0.0, 1.0)
 
@@ -295,27 +297,48 @@ local function build_resolve_pass()
 			]] .. radiance_cascades.GetCommonGLSL() .. [[
 			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
 
-			vec4 rc_edge_fallback(vec2 uv, vec4 fresh) {
-				if (rc_data.rc_history_tex < 0) return fresh;
+			float rc_luma(vec3 color) {
+				return dot(color, vec3(0.2126, 0.7152, 0.0722));
+			}
+
+			bool rc_spatial_reference(vec2 uv, float view_depth, out vec4 reference) {
+				reference = vec4(0.0);
+
+				if (rc_data.rc_history_tex < 0) return false;
 
 				ivec2 size = textureSize(TEXTURE(rc_data.rc_history_tex), 0);
-				vec2 px = uv * vec2(size);
-				float edge_dist = min(min(px.x, float(size.x) - px.x), min(px.y, float(size.y) - px.y));
+				vec2 texel_size = 1.0 / vec2(size);
+				float tolerance = max(view_depth * 0.02, 0.05);
+				vec4 total = vec4(0.0);
+				float valid = 0.0;
 
-				if (edge_dist > RC_EDGE_BORDER) return fresh;
+				for (int i = 0; i < 8; i++) {
+					float angle = (float(i) + 0.5) * (6.28318530718 / 8.0);
+					vec2 tap_uv = uv + vec2(cos(angle), sin(angle)) * RC_SEED_SEARCH_RADIUS * texel_size;
 
-				vec2 inward = px + sign(vec2(0.5) * vec2(size) - px) * (RC_EDGE_BORDER - edge_dist + 1.0);
-				vec2 inward_uv = inward / vec2(size);
-				float tap_depth = rc_probe_depth(inward_uv);
+					if (any(lessThan(tap_uv, vec2(0.0))) || any(greaterThan(tap_uv, vec2(1.0)))) continue;
 
-				if (tap_depth == 1.0) return fresh;
+					float stored = texture(TEXTURE(rc_data.rc_history_depth_tex), tap_uv).r;
 
-				float expected = rc_linear_depth(tap_depth);
-				float stored = texture(TEXTURE(rc_data.rc_history_depth_tex), inward_uv).r;
+					if (stored <= 0.0 || abs(stored - view_depth) > tolerance) continue;
 
-				if (abs(stored - expected) > max(expected * 0.02, 0.05)) return fresh;
+					total += texture(TEXTURE(rc_data.rc_history_tex), tap_uv);
+					valid += 1.0;
+				}
 
-				return texture(TEXTURE(rc_data.rc_history_tex), inward_uv);
+				if (valid <= 0.0) return false;
+
+				reference = total / valid;
+				return true;
+			}
+
+			vec4 rc_clamp_outlier(vec4 fresh, vec4 reference, vec3 sky) {
+				float limit = max(rc_luma(reference.rgb), rc_luma(sky)) * RC_FIREFLY_CLAMP;
+				float fresh_luma = rc_luma(fresh.rgb);
+
+				if (limit <= 0.0 || fresh_luma <= limit) return fresh;
+
+				return vec4(fresh.rgb * (limit / fresh_luma), fresh.a);
 			}
 
 			void main() {
@@ -416,6 +439,7 @@ local function build_resolve_pass()
 				);
 				vec2 prev_uv;
 				float expected;
+				vec4 history;
 				bool history_valid = false;
 
 				if (rc_data.rc_history_tex >= 0 && rc_fetch_surface_motion(uv, depth, prev_uv, expected)) {
@@ -423,15 +447,24 @@ local function build_resolve_pass()
 						float stored = texture(TEXTURE(rc_data.rc_history_depth_tex), prev_uv).r;
 
 						if (abs(stored - expected) < max(expected * 0.02, 0.05)) {
-							vec4 history = texture(TEXTURE(rc_data.rc_history_tex), prev_uv);
-							resolved = mix(resolved, history, rc_data.rc_history_blend);
+							history = texture(TEXTURE(rc_data.rc_history_tex), prev_uv);
 							history_valid = true;
 						}
 					}
 				}
 
-				if (!history_valid) {
-					resolved = rc_edge_fallback(uv, resolved);
+				if (history_valid) {
+					resolved = rc_clamp_outlier(resolved, history, sky);
+					resolved = mix(resolved, history, rc_data.rc_history_blend);
+				} else {
+					vec4 reference;
+
+					if (rc_spatial_reference(uv, view_depth, reference)) {
+						resolved = rc_clamp_outlier(resolved, reference, sky);
+						resolved = mix(resolved, reference, RC_SEED_BLEND);
+					} else {
+						resolved = rc_clamp_outlier(resolved, vec4(sky, 1.0), sky);
+					}
 				}
 
 				imageStore(out_color, pos, resolved);
@@ -446,22 +479,20 @@ local passes = {}
 -- the world space bounce reads voxel gi's probe cascades, and nothing else in
 -- the default pass list updates them any more, so radiance cascades has to
 -- drive the probe update itself
-if radiance_cascades.WORLD_BOUNCE then
-	passes[#passes + 1] = {
-		name = "radiance_cascades_probes",
-		ComputePass = true,
-		ColorFormat = {{"r8_unorm", {"dummy", "r"}}},
-		FramebufferSize = {x = 1, y = 1},
-		framebuffer_count = 1,
-		LocalSize = {x = 1, y = 1, z = 1},
-		shader = [[
-			void main() {}
-		]],
-		on_draw = function(self, cmd)
-			voxel_gi.Draw(cmd)
-		end,
-	}
-end
+passes[#passes + 1] = {
+	name = "radiance_cascades_probes",
+	ComputePass = true,
+	ColorFormat = {{"r8_unorm", {"dummy", "r"}}},
+	FramebufferSize = {x = 1, y = 1},
+	framebuffer_count = 1,
+	LocalSize = {x = 1, y = 1, z = 1},
+	shader = [[
+		void main() {}
+	]],
+	on_draw = function(self, cmd)
+		voxel_gi.Draw(cmd)
+	end,
+}
 
 -- cascades resolve from the longest interval down, each one merging the
 -- cascade above it, so the list has to run high to low

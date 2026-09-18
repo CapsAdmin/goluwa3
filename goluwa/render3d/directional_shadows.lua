@@ -25,13 +25,13 @@ function directional_shadows.GetPrimarySunDirection(lights)
 	return sun_dir
 end
 
-function directional_shadows.GetPrimarySunIntensity(lights)
+function directional_shadows.GetPrimarySunIlluminance(lights)
 	lights = lights or render3d.GetLights()
 	local sun = directional_shadows.GetPrimarySun(lights)
 
-	if sun and sun.Intensity ~= nil then return sun.Intensity end
+	if sun then return sun:GetPhotometricAmount() end
 
-	return atmosphere.GetSunIntensity()
+	return atmosphere.GetSunIlluminance()
 end
 
 function directional_shadows.GetPrimarySunColor(lights)

@@ -53,7 +53,7 @@ local function spawn_point_light(name, position, color, intensity, range)
 	ent.transform:SetPosition(position)
 	local c = ent:AddComponent("light_point")
 	c:SetColor(color)
-	c:SetIntensity(intensity)
+	c:SetLumen(intensity)
 	c:SetRange(range)
 	return c
 end

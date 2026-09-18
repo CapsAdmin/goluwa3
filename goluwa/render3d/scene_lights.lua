@@ -28,7 +28,7 @@ function scene_lights.IsLightVisible(light)
 	if not is_frustum_cullable(light) then return true end
 
 	local position = light.Owner.transform:GetPosition()
-	return render3d.SphereInFrustum(position.x, position.y, position.z, light.Range)
+	return render3d.SphereInFrustum(position.x, position.y, position.z, light:GetEffectiveRange())
 end
 
 local visible_lights = {}
@@ -136,7 +136,7 @@ function scene_lights.GetLightGLSLCode()
 					}
 
 					L = light_to_pos / dist;
-					attenuation = get_light_distance_attenuation(dist, range);
+					attenuation = get_light_distance_attenuation(dist, range) * light.params.w;
 					return true;
 				}
 
@@ -158,7 +158,7 @@ function scene_lights.GetLightGLSLCode()
 					}
 
 					L = light_dir;
-					attenuation = in_front * get_light_distance_attenuation(dist, range);
+					attenuation = in_front * get_light_distance_attenuation(dist, range) * light.params.w;
 					return true;
 				}
 
@@ -175,7 +175,7 @@ function scene_lights.GetLightGLSLCode()
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
 					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, from_light / dist));
 					L = normalize(light.position.xyz - world_pos);
-					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range);
+					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range) * light.params.w;
 					return true;
 				}
 
@@ -204,17 +204,17 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 				data.params[2] = 0
 			elseif light.Type == "light_point" then
 				data.position[3] = 1
-				data.params[0] = light.Range
+				data.params[0] = light:GetEffectiveRange()
 				data.params[1] = 0
 				data.params[2] = 0
 			elseif light.Type == "light_directional" then
 				data.position[3] = 2
-				data.params[0] = light.Range
+				data.params[0] = light:GetEffectiveRange()
 				data.params[1] = 0
 				data.params[2] = 0
 			elseif light.Type == "light_spot" then
 				data.position[3] = 3
-				data.params[0] = light.Range
+				data.params[0] = light:GetEffectiveRange()
 				data.params[1] = math.cos(math.rad(light.InnerCone))
 				data.params[2] = math.cos(math.rad(light.OuterCone))
 			else
@@ -224,8 +224,8 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 			data.color[0] = light.Color.r
 			data.color[1] = light.Color.g
 			data.color[2] = light.Color.b
-			data.color[3] = light.Intensity
-			data.params[3] = 0
+			data.color[3] = light:GetPhotometricAmount()
+			data.params[3] = light:GetInverseEmissionSolidAngle()
 		else
 			data.position[0] = 0
 			data.position[1] = 0

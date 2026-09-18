@@ -14,19 +14,21 @@ radiance_cascades.CASCADE_COUNT = 6
 radiance_cascades.INTERVAL_VOXELS = 2
 radiance_cascades.INTERVAL_SCALE = 4
 radiance_cascades.DIRECTIONS_0 = 4
-radiance_cascades.SCREEN_SCALE = 1
+radiance_cascades.SCREEN_SCALE = 0.25
 radiance_cascades.JITTER = 1
 radiance_cascades.MAX_TRACE_STEPS = 96
 radiance_cascades.NORMAL_BIAS = 1.5
 radiance_cascades.BVH_NORMAL_BIAS = 0.02
 radiance_cascades.SKY_INTENSITY = 1
-radiance_cascades.FEEDBACK_STRENGTH = 1
-radiance_cascades.TEMPORAL_BLEND = 0.98
+radiance_cascades.FEEDBACK_STRENGTH = 0.7
+radiance_cascades.TEMPORAL_TAU = 0.75
+radiance_cascades.TEMPORAL_BLEND_MIN = 0.1
 radiance_cascades.DENOISE = 1
 radiance_cascades.DENOISE_RADIUS = 2
 radiance_cascades.DENOISE_STRIDE = 3
-radiance_cascades.EDGE_BORDER = 32
-radiance_cascades.WORLD_BOUNCE = false
+radiance_cascades.SEED_SEARCH_RADIUS = 6
+radiance_cascades.SEED_BLEND = 0.75
+radiance_cascades.FIREFLY_CLAMP = 4
 radiance_cascades.WORLD_BOUNCE_STRENGTH = 1
 radiance_cascades.enabled = true
 
@@ -116,12 +118,12 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 	light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	local sun_color = directional_shadows.GetPrimarySunColor(lights)
-	local sun_intensity = directional_shadows.GetPrimarySunIntensity(lights)
+	local sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
 	sun_direction:CopyToFloatPointer(block.rc_sun_direction)
 	block.rc_sun_direction[3] = 0
-	block.rc_sun_radiance[0] = sun_color.x * sun_intensity
-	block.rc_sun_radiance[1] = sun_color.y * sun_intensity
-	block.rc_sun_radiance[2] = sun_color.z * sun_intensity
+	block.rc_sun_radiance[0] = sun_color.x * sun_illuminance
+	block.rc_sun_radiance[1] = sun_color.y * sun_illuminance
+	block.rc_sun_radiance[2] = sun_color.z * sun_illuminance
 	block.rc_sun_radiance[3] = 0
 	block.rc_env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 	block.rc_env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
@@ -182,7 +184,11 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 	end
 
 	block.rc_denoise = radiance_cascades.DENOISE
-	block.rc_history_blend = radiance_cascades.TEMPORAL_BLEND
+	block.rc_history_blend = math.clamp(
+		math.exp(-system.GetFrameTime() / math.max(radiance_cascades.TEMPORAL_TAU, 1e-4)),
+		radiance_cascades.TEMPORAL_BLEND_MIN,
+		0.99
+	)
 	block.rc_jitter = radiance_cascades.JITTER
 	block.rc_frame = system.GetFrameNumber() % 4096
 	local prev_view = render3d.GetPreviousViewMatrix() or render3d.GetRenderCamera():BuildViewMatrix()
@@ -191,9 +197,7 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 	prev_view:CopyToFloatPointer(block.rc_prev_view)
 	prev_projection:CopyToFloatPointer(block.rc_prev_projection)
 	block.rc_feedback_strength = radiance_cascades.FEEDBACK_STRENGTH
-	block.rc_world_bounce = radiance_cascades.WORLD_BOUNCE and
-		radiance_cascades.WORLD_BOUNCE_STRENGTH or
-		0
+	block.rc_world_bounce = radiance_cascades.WORLD_BOUNCE_STRENGTH
 	voxel_gi.WriteBlock(self, block.gi)
 	return block
 end
@@ -545,13 +549,15 @@ function radiance_cascades.GetTraceGLSL(block_name)
 		) .. [[;
 			vec3 L = normalize(RC_BLOCK.rc_sun_direction.xyz);
 			float NoL = max(dot(N, L), 0.0);
-			float shadow = 1.0;
+			float shadow = RC_BLOCK.shadows.shadow_map_indices[0] >= 0 ? 1.0 : 0.0;
 
 			if (NoL > 0.0 && RC_BLOCK.shadows.shadow_map_indices[0] >= 0) {
 				shadow = calculateShadow(surface_pos, N, L);
 			}
 
-			vec3 albedo = clamp(hit.voxel.rgb, vec3(0.0), vec3(1.0));
+			vec3 albedo = clamp(hit.voxel.rgb, vec3(0.0), vec3(]] .. (
+			"%.4f"
+		):format(voxel_gi.MAX_ALBEDO) .. [[));
 			vec3 direct = RC_BLOCK.rc_sun_radiance.rgb * (NoL * shadow / 3.14159265359);
 
 			for (int i = 0; i < RC_BLOCK.light_count; i++) {
@@ -602,13 +608,8 @@ function radiance_cascades.GetTraceGLSL(block_name)
 			}
 
 			float confidence;
-			vec3 bounce = rc_feedback_irradiance(surface_pos, N, voxel_size, confidence);
-
-			if (RC_BLOCK.rc_world_bounce > 0.0 && confidence < 1.0) {
-				bounce = mix(rc_world_bounce(surface_pos, N), bounce, confidence);
-			} else {
-				bounce *= confidence;
-			}
+			vec3 screen_bounce = rc_feedback_irradiance(surface_pos, N, voxel_size, confidence);
+			vec3 bounce = mix(rc_world_bounce(surface_pos, N), screen_bounce, confidence);
 			float emissive_luma = max(hit.voxel.a - 1.0, 0.0) * 4.0;
 			float luma = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
 			return albedo * (direct + bounce) + albedo * (emissive_luma / max(luma, 1e-3));
@@ -680,27 +681,17 @@ commands.Add("radiance_cascades_jitter=number[1]", function(strength)
 	logf("[radiance_cascades] direction jitter %f\n", radiance_cascades.JITTER)
 end)
 
-commands.Add("radiance_cascades_temporal=number[0.98]", function(blend)
-	radiance_cascades.TEMPORAL_BLEND = math.clamp(blend, 0, 0.99)
-	logf("[radiance_cascades] temporal blend %f\n", radiance_cascades.TEMPORAL_BLEND)
+commands.Add("radiance_cascades_temporal=number[0.25]", function(tau)
+	radiance_cascades.TEMPORAL_TAU = math.max(tau, 0.001)
+	logf("[radiance_cascades] temporal tau %f seconds\n", radiance_cascades.TEMPORAL_TAU)
 end)
 
 commands.Add("radiance_cascades_world_bounce=number[1]", function(strength)
-	local was_on = radiance_cascades.WORLD_BOUNCE
-	radiance_cascades.WORLD_BOUNCE_STRENGTH = strength
-	radiance_cascades.WORLD_BOUNCE = strength > 0
-
-	-- the probe update is a pass of its own, so turning the bounce on or off
-	-- changes the pass list rather than just a uniform
-	if was_on ~= radiance_cascades.WORLD_BOUNCE then
-		logf(
-			"[radiance_cascades] world bounce %s, rebuilding pipelines\n",
-			strength > 0 and "on" or "off"
-		)
-		rebuild_pipelines()
-	else
-		logf("[radiance_cascades] world bounce strength %f\n", strength)
-	end
+	radiance_cascades.WORLD_BOUNCE_STRENGTH = math.max(strength, 0)
+	logf(
+		"[radiance_cascades] world bounce strength %f\n",
+		radiance_cascades.WORLD_BOUNCE_STRENGTH
+	)
 end)
 
 commands.Add("radiance_cascades_backend=string[voxel]", function(backend)

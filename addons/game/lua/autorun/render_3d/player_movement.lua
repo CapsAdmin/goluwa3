@@ -35,11 +35,12 @@ local rig = Entity.New{
 rig.transform:SetPosition(cam:GetPosition():Copy())
 rig.player_input:SyncFromCamera(cam)
 system.GetWindow():SetMouseTrapped(true)
+local FLASHLIGHT_LUMEN = 1000
 local flashlight = Entity.New{
 	Name = "flashlight",
 	transform = {},
 	light_directional = {
-		Intensity = 0,
+		Lumen = 0,
 		Range = 60,
 	},
 }
@@ -64,7 +65,7 @@ event.AddListener("Update", "flashlight", function()
 
 	if f_down and not f_was_down then
 		flashlight_on = not flashlight_on
-		flashlight.light_directional:SetIntensity(flashlight_on and 1 or 0)
+		flashlight.light_directional:SetLumen(flashlight_on and FLASHLIGHT_LUMEN or 0)
 		flash_map:SetEnabled(flashlight_on)
 		print("flashlight ", flashlight_on)
 	end

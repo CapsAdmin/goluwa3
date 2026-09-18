@@ -71,7 +71,7 @@ local function disable_non_sun_lights(root)
 				if shadow_map.light == light.Owner then shadow_map:SetEnabled(false) end
 			end
 
-			light:SetIntensity(0)
+			light:SetPhotometricAmount(0)
 		end
 	end
 end

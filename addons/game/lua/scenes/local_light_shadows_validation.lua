@@ -169,7 +169,7 @@ local function spawn_directional_light(parent, position)
 	)
 	local component = light:AddComponent("light_directional")
 	component:SetColor(Color(0.42, 0.72, 1.0, 1.0))
-	component:SetIntensity(1500.0)
+	component:SetLumen(50000.0)
 	component:SetRange(300)
 	ShadowMap.New{
 		mode = "directional",
@@ -188,7 +188,7 @@ local function spawn_point_light(parent, name, position, color, intensity, range
 	local light = create_entity(parent, name, position)
 	local component = light:AddComponent("light_point")
 	component:SetColor(color)
-	component:SetIntensity(intensity)
+	component:SetLumen(intensity)
 	component:SetRange(range)
 	ShadowMap.New{
 		mode = "point",
@@ -235,13 +235,13 @@ for _, light in ipairs(render3d.GetLights()) do
 		if light.Type == "light_sun" then
 			if VALIDATION_MODE == "local_directional" then
 				disable_light_shadows(light.Owner)
-				light:SetIntensity(0)
+				light:SetPhotometricAmount(0)
 			end
 		else
 			disable_light_shadows(light.Owner)
 		end
 
-		if light.Type == "light_directional" then light:SetIntensity(0) end
+		if light.Type == "light_directional" then light:SetPhotometricAmount(0) end
 	end
 end
 
@@ -258,7 +258,7 @@ local directional_light = spawn_directional_light(root, directional_center + Vec
 
 if VALIDATION_MODE == "sun" then
 	disable_light_shadows(directional_light.Owner)
-	directional_light:SetIntensity(0)
+	directional_light:SetPhotometricAmount(0)
 end
 
 spawn_point_light(
@@ -266,7 +266,7 @@ spawn_point_light(
 	"local_shadow_point_warm",
 	warm_center + Vec3(0, 6.8, 0),
 	Color(1.0, 0.62, 0.34, 1.0),
-	22,
+	8000,
 	50
 )
 spawn_point_light(
@@ -274,7 +274,7 @@ spawn_point_light(
 	"local_shadow_point_cool",
 	cool_center + Vec3(0, 6.2, -2),
 	Color(0.42, 0.72, 1.0, 1.0),
-	20,
+	8000,
 	50
 )
 spawn_stage_floor(root, "directional_stage", directional_center, Vec3(30, 0, 28), floor_material)

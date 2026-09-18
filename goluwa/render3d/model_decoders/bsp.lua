@@ -1361,7 +1361,7 @@ function steam.SpawnMapEntities(path, parent)
 				--parent.world_params:SetSunAngles(Deg3(p or 0, y+180, 0))
 				--info._light.a = 1
 				--parent.world_params:SetSunColor(Color(info._light.r, info._light.g, info._light.b))
-				--parent.world_params:SetSunIntensity(1)
+				--parent.world_params:SetSunIlluminance(126000)
 				elseif info.classname:lower():find("light") and info._light then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent.light_group = parent.light_group or Entity.New{Name = "lights", Parent = parent}
@@ -1383,7 +1383,7 @@ function steam.SpawnMapEntities(path, parent)
 					end
 
 					light:SetRange(range)
-					light:SetIntensity(intensity)
+					light:SetLumen(intensity * light:GetEmissionSolidAngle())
 					--light:SetCastShadows{shadow_update_mode = "on_move"}
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then

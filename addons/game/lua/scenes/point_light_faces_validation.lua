@@ -73,7 +73,7 @@ local function spawn_point_light(parent, name, position, color, intensity, range
 	local ent = create_entity(parent, name, position)
 	local light = ent:AddComponent("light_point")
 	light:SetColor(color)
-	light:SetIntensity(intensity)
+	light:SetLumen(intensity)
 	light:SetRange(range)
 	light:SetOcclusionMap(false)
 	local shadow = ent:AddComponent("shadow_map_point")
@@ -157,7 +157,7 @@ for _, light in ipairs(render3d.GetLights()) do
 			if shadow_map.light == light.Owner then shadow_map:SetEnabled(false) end
 		end
 
-		light:SetIntensity(0)
+		light:SetPhotometricAmount(0)
 	end
 end
 
@@ -183,7 +183,7 @@ spawn_point_light(
 	"point_light_faces_light",
 	light_position,
 	Color(1.0, 0.72, 0.44, 1.0),
-	60,
+	50000,
 	200
 )
 spawn_box(

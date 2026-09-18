@@ -10,7 +10,7 @@ local WAVE_TEX_WORLD_HALF = 1024.0
 local WAVE_NEAR_WORLD_HALF = 64.0
 local WAVE_NEAR_REPEAT_WORLD_HALF = 64.0
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
-local get_primary_sun_intensity = directional_shadows.GetPrimarySunIntensity
+local get_primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance
 local get_primary_sun_color = directional_shadows.GetPrimarySunColor
 
 local function write_wave_precompute(self, block, wave_world_half)
@@ -249,7 +249,7 @@ return {
 						{"ssr_tex", "int"},
 						atmosphere.GetBlockLayout(),
 						{"sun_direction", "vec3"},
-						{"primary_sun_intensity", "float"},
+						{"primary_sun_illuminance", "float"},
 						{"primary_sun_color", "vec3"},
 						{"ocean_enabled", "int"},
 						{"ocean_level", "float"},
@@ -289,7 +289,7 @@ return {
 							get_primary_sun_direction()
 						)
 						get_primary_sun_direction():CopyToFloatPointer(block.sun_direction)
-						block.primary_sun_intensity = get_primary_sun_intensity()
+						block.primary_sun_illuminance = get_primary_sun_illuminance()
 						get_primary_sun_color():CopyToFloatPointer(block.primary_sun_color)
 						block.ocean_enabled = render3d.IsOceanEnabled() and 1 or 0
 						block.ocean_level = render3d.GetOceanLevel()
@@ -512,7 +512,7 @@ return {
 				return (1.0 - gg) / (pow(1.0 + gg - 2.0 * g * mu, 1.5) * 4.0 * SEA_PI);
 			}
 
-			]] .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_intensity") .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_illuminance") .. ibl.GetBRDFGLSLCode() .. [[
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
@@ -598,17 +598,20 @@ return {
 				vec3 base_color = apply_water_volume(refracted_scene, ambient_light, thickness);
 				vec3 color = mix(base_color, reflection_color, fresnel);
 				float no_l = max(dot(normal, sun_direction), 0.0);
-				vec3 sun_radiance = ocean_data.primary_sun_color * (no_l * sun_visibility * ocean_data.primary_sun_intensity);
+				vec3 sun_radiance = ocean_data.primary_sun_color * (no_l * sun_visibility * ocean_data.primary_sun_illuminance);
 				float sun_energy = max(max(sun_radiance.r, sun_radiance.g), sun_radiance.b);
 				float subsurface_amount = 1.0 * henyey_greenstein(mu, 0.5) * sun_energy;
 				vec3 water_scatter = 0.45 * vec3(0.18, 0.42, 0.7);
 				color += subsurface_amount * water_scatter * ocean_data.primary_sun_color * max(0.0, 1.0 + p.y - (ocean_data.ocean_level + 0.6 * SEA_HEIGHT));
 				vec3 half_dir = normalize(view_dir + sun_direction);
 				float no_h = max(dot(normal, half_dir), 0.0);
-				color += sun_radiance * (0.18 * fresnel * D_GGXAlpha(0.05, no_h) / SEA_PI);
+				const float SUN_ANGULAR_RADIUS_TAN = 0.0047;
+				float glint_alpha = min(0.05 + SUN_ANGULAR_RADIUS_TAN * 0.5, 1.0);
+				float glint_energy = (0.05 / glint_alpha) * (0.05 / glint_alpha);
+				color += sun_radiance * (0.18 * fresnel * D_GGXAlpha(glint_alpha, no_h) * glint_energy / SEA_PI);
 				float foam = smoothstep(0.18, 0.55, p.y - ocean_data.ocean_level) * smoothstep(0.65, 0.15, normal.y);
 				float shore_foam = smoothstep(2.0, 0.0, thickness) * max(0.0, normal.y);
-				vec3 foam_light = ambient_light * sun_radiance;
+				vec3 foam_light = ambient_light + sun_radiance / SEA_PI;
 				color += vec3(0.95, 0.98, 1.0) * (foam * 0.12 + shore_foam * 0.06) * foam_light;
 				return color;
 			}
@@ -781,9 +784,7 @@ return {
 					sun_direction,
 					ocean_data.camera_position.xyz
 				);
-
-
-				set_color(vec4(color, 1.0));
+				set_color(vec4(min(color, vec3(65504.0)), 1.0));
 				set_ocean_distance(ocean_t);
 			}
 		]],

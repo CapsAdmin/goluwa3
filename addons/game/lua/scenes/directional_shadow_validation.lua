@@ -109,7 +109,7 @@ local function spawn_directional_light(parent, name, position, pitch, yaw, shado
 	local light = create_entity(parent, name, position, make_rotation(pitch, yaw, 0))
 	local component = light:AddComponent("light_directional")
 	component:SetColor(Color(1.0, 0.95, 0.85, 1.0))
-	component:SetIntensity(30.0)
+	component:SetLumen(20000.0)
 	component:SetRange(shadow_config.range)
 	ShadowMap.New{
 		mode = "directional",
@@ -129,7 +129,7 @@ local function spawn_point_light(parent, name, position, color, intensity, range
 	local light = create_entity(parent, name, position)
 	local component = light:AddComponent("light_point")
 	component:SetColor(color)
-	component:SetIntensity(intensity)
+	component:SetLumen(intensity)
 	component:SetRange(range)
 	-- keep the low-res light occlusion mask out of this validation so the
 	-- shadow map path can be tested in isolation
@@ -156,7 +156,7 @@ for _, light in ipairs(render3d.GetLights()) do
 			if shadow_map.light == light.Owner then shadow_map:SetEnabled(false) end
 		end
 
-		light:SetIntensity(0)
+		light:SetPhotometricAmount(0)
 	end
 end
 
@@ -170,7 +170,7 @@ spawn_box(root, "floor", Vec3(0, -1, 8), Vec3(90, 2, 90), floor_material)
 
 if VALIDATION_MODE == "point" then
 	local point_position = Vec3(0, 11, 16)
-	spawn_point_light(root, "point_light", point_position, Color(1.0, 0.72, 0.44, 1.0), 30, 45)
+	spawn_point_light(root, "point_light", point_position, Color(1.0, 0.72, 0.44, 1.0), 20000, 45)
 	spawn_box(
 		root,
 		"point_occluder_1",

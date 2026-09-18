@@ -1,6 +1,7 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 
 local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()
@@ -46,7 +47,7 @@ return {
 						block.sun_color[0] = sun_color and sun_color.x or 1
 						block.sun_color[1] = sun_color and sun_color.y or 1
 						block.sun_color[2] = sun_color and sun_color.z or 1
-						block.sun_color[3] = sun and sun.Intensity or 1
+						block.sun_color[3] = sun and sun:GetPhotometricAmount() or atmosphere.GetSunIlluminance()
 						return block
 					end,
 				},
@@ -107,16 +108,18 @@ return {
 					vec3 world_pos = get_world_pos(depth);
 					vec3 L = safe_normalize(-lighting_simple.sun_direction.xyz, vec3(0.0, -1.0, 0.0));
 					vec3 sun_color = lighting_simple.sun_color.rgb;
-					float sun_intensity = lighting_simple.sun_color.a;
+					float sun_illuminance = lighting_simple.sun_color.a;
 					float roughness = get_roughness();
 					float metallic = get_metallic();
 					float NdotL = max(dot(N, L), 0.0);
 					float shadow = calculateShadow(world_pos, N, L);
 
-					vec3 ambient = albedo * (shadow+0.1);
+					const float INV_PI = 0.31830988618;
+					const float AMBIENT_SKY_FRACTION = 0.12;
+					vec3 ambient = albedo * (sun_illuminance * AMBIENT_SKY_FRACTION * INV_PI) * mix(0.35, 1.0, shadow);
 					float diffuse_strength = mix(1.0, 0.75, metallic);
 					float roughness_softening = mix(1.0, 0.6, roughness);
-					vec3 direct = albedo * sun_color * (sun_intensity * NdotL * diffuse_strength * roughness_softening * shadow);
+					vec3 direct = albedo * sun_color * (sun_illuminance * INV_PI * NdotL * diffuse_strength * roughness_softening * shadow);
 					vec3 color = ambient + direct + emissive;
 
 					set_color(vec4(color, alpha));

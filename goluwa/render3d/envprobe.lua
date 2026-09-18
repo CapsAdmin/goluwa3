@@ -694,7 +694,7 @@ function envprobe.CreatePipelines()
 					block = {
 						{"sun_direction", "vec4"},
 						{"camera_position", "vec4"},
-						{"sun_intensity", "float"},
+						{"sun_illuminance", "float"},
 						unpack(atmosphere.GetBlockLayout()),
 					},
 					write = function(self, block)
@@ -702,7 +702,7 @@ function envprobe.CreatePipelines()
 						local sun_direction = get_primary_sun_direction()
 						sun_direction:CopyToFloatPointer(block.sun_direction)
 						block.sun_direction[3] = 0
-						block.sun_intensity = sun and sun.Intensity or atmosphere.GetSunIntensity()
+						block.sun_illuminance = sun and sun:GetPhotometricAmount() or atmosphere.GetSunIlluminance()
 						envprobe.camera:GetPosition():CopyToFloatPointer(block.camera_position)
 						atmosphere.WriteBlock(self, block, envprobe.camera:GetPosition(), sun_direction)
 						return block
@@ -711,7 +711,7 @@ function envprobe.CreatePipelines()
 			},
 			custom_declarations = [[
 				layout(location = 0) in vec3 in_direction;
-				]] .. atmosphere.GetGLSLDefines("fragment", "fragment.sun_intensity") .. atmosphere.GetGLSLCode() .. [[
+				]] .. atmosphere.GetGLSLDefines("fragment", "fragment.sun_illuminance") .. atmosphere.GetGLSLCode() .. [[
 			]],
 			shader = [[
 				void main() {
@@ -732,7 +732,9 @@ function envprobe.CreatePipelines()
 						probe_sun_dir,
 						fragment.camera_position.xyz,
 						-1.0,
-						get_fog_sun_horizon_visibility(probe_sun_dir)
+						get_fog_sun_horizon_visibility(probe_sun_dir),
+						vec3(0.0),
+						1.0
 					);
 					sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
 					set_color(vec4(sky_color_output, 1.0));

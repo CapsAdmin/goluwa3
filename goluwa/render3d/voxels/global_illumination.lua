@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local commands = import("goluwa/cli/commands.lua")
+local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -24,11 +25,13 @@ voxel_gi.CASCADE_UPDATE_DIVISORS = {1, 2, 4, 4}
 voxel_gi.MAX_TRACE_STEPS = 128
 voxel_gi.IRRADIANCE_OCT_SIZE = 8
 voxel_gi.VISIBILITY_OCT_SIZE = 16
-voxel_gi.HYSTERESIS = 0.9
+voxel_gi.HYSTERESIS_TAU = 0.25
+voxel_gi.HYSTERESIS_MIN = 0.1
 voxel_gi.MAX_PROBE_AGE = 64
 voxel_gi.BACKFACE_HYSTERESIS = 0.85
 voxel_gi.BACKFACE_DISABLE = 0.25
 voxel_gi.BACKFACE_ENABLE = 0.1
+voxel_gi.MAX_ALBEDO = 0.9
 voxel_gi.enabled = voxel_gi.enabled ~= false
 voxel_gi.occlusion_enabled = voxel_gi.occlusion_enabled ~= false
 voxel_gi.OCCLUSION_MAX_STEPS = 24
@@ -68,6 +71,13 @@ local function get_cascade_probes_per_frame(index)
 		),
 		PROBES_PER_CASCADE
 	)
+end
+
+local function get_cascade_hysteresis(index)
+	local sweep_frames = math.ceil(PROBES_PER_CASCADE / get_cascade_probes_per_frame(index))
+	local interval = system.GetFrameTime() * sweep_frames
+	local retention = math.exp(-interval / math.max(voxel_gi.HYSTERESIS_TAU, 1e-4))
+	return math.clamp(retention, voxel_gi.HYSTERESIS_MIN, 0.99)
 end
 
 local function transition_array_to_shader_read(cmd, texture, layer_count, src_stage, src_access, dst_stage)
@@ -938,10 +948,12 @@ local function build_update_pipeline()
 			{"cascade", "int"},
 			{"probe_base", "int"},
 			{"min_clipmap", "int"},
+			{"hysteresis", "float"},
 			write = function(self, block)
 				block.cascade = voxel_gi.current_cascade - 1
 				block.probe_base = voxel_gi.cascades[voxel_gi.current_cascade].probe_base
 				block.min_clipmap = math.min(voxel_gi.current_cascade, voxel_gi.clipmap_count or 1) - 1
+				block.hysteresis = get_cascade_hysteresis(voxel_gi.current_cascade)
 				return block
 			end,
 		},
@@ -968,7 +980,6 @@ local function build_update_pipeline()
 					{"ray_rotation", "mat4"},
 					{"env_tex", "int"},
 					{"env_irradiance_tex", "int"},
-					{"hysteresis", "float"},
 					{"max_steps", "int"},
 					{"clipmap_count", "int"},
 					{"clip_origin", "vec4", MAX_CLIPMAPS},
@@ -984,17 +995,16 @@ local function build_update_pipeline()
 					light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 					local sun_dir = directional_shadows.GetPrimarySunDirection(lights)
 					local sun_color = directional_shadows.GetPrimarySunColor(lights)
-					local sun_intensity = directional_shadows.GetPrimarySunIntensity(lights)
+					local sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
 					sun_dir:CopyToFloatPointer(block.sun_direction)
 					block.sun_direction[3] = 0
-					block.sun_radiance[0] = sun_color.x * sun_intensity
-					block.sun_radiance[1] = sun_color.y * sun_intensity
-					block.sun_radiance[2] = sun_color.z * sun_intensity
+					block.sun_radiance[0] = sun_color.x * sun_illuminance
+					block.sun_radiance[1] = sun_color.y * sun_illuminance
+					block.sun_radiance[2] = sun_color.z * sun_illuminance
 					block.sun_radiance[3] = 0
 					voxel_gi.ray_rotation:CopyToFloatPointer(block.ray_rotation)
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
-					block.hysteresis = voxel_gi.HYSTERESIS
 					block.max_steps = voxel_gi.MAX_TRACE_STEPS
 					block.clipmap_count = voxel_gi.clipmap_count or 0
 
@@ -1053,6 +1063,9 @@ local function build_update_pipeline()
 				"%.4f"
 			):format(voxel_gi.BACKFACE_ENABLE) .. [[;
 			const int MAX_PROBE_AGE = ]] .. voxel_gi.MAX_PROBE_AGE .. [[;
+			const float MAX_ALBEDO = ]] .. (
+				"%.4f"
+			):format(voxel_gi.MAX_ALBEDO) .. [[;
 
 			shared vec4 s_ray[RAYS_PER_PROBE];
 			shared vec3 s_dir[RAYS_PER_PROBE];
@@ -1227,13 +1240,13 @@ local function build_update_pipeline()
 				vec3 surface_pos = hit_pos + N * vs * 0.5;
 				vec3 L = normalize(gi_data.sun_direction.xyz);
 				float NoL = max(dot(N, L), 0.0);
-				float shadow = 1.0;
+				float shadow = gi_data.shadows.shadow_map_indices[0] >= 0 ? 1.0 : 0.0;
 
 				if (NoL > 0.0 && gi_data.shadows.shadow_map_indices[0] >= 0) {
 					shadow = calculateShadow(surface_pos, N, L);
 				}
 
-				vec3 albedo = clamp(voxel.rgb, vec3(0.0), vec3(1.0));
+				vec3 albedo = clamp(voxel.rgb, vec3(0.0), vec3(MAX_ALBEDO));
 				vec3 direct = gi_data.sun_radiance.rgb * (NoL * shadow / 3.14159265359);
 
 				for (int i = 0; i < gi_data.light_count; i++) {
@@ -1304,7 +1317,7 @@ local function build_update_pipeline()
 				ivec4 meta = gi_probe_meta[meta_index];
 				bool history_valid = meta.xyz == g && meta.w != 0;
 				int age = history_valid ? meta.w : 0;
-				float hysteresis = min(gi_data.hysteresis, float(age) / float(age + 1));
+				float hysteresis = min(compute.hysteresis, float(age) / float(age + 1));
 				int ray = int(gl_LocalInvocationID.x);
 
 				vec4 relocation = relocate_probe(probe_pos, spacing);

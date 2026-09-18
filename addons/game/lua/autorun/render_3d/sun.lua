@@ -7,6 +7,8 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local input = import("goluwa/input.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+local SUN_TOA_ILLUMINANCE = 126000
+local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
 local sun = Entity.New{
 	Name = "sun",
 	transform = {
@@ -14,10 +16,10 @@ local sun = Entity.New{
 	},
 	light_sun = {
 		Color = Color(1.0, 0.98, 1),
-		Intensity = 2,
+		Lux = SUN_TOA_ILLUMINANCE,
 	},
 }
-atmosphere.SetSunIntensity(sun.light_sun.Intensity)
+atmosphere.SetSunIlluminance(SUN_TOA_ILLUMINANCE)
 local MODE = "cascade"
 local shadow_maps = {}
 local shadow_policy = {
@@ -44,7 +46,6 @@ elseif MODE == "cascade" then
 		mode = "sun",
 		light = sun,
 		size = Vec2() + 2048,
-		min_caster_texel_size = 4,
 		cascade_count = 3,
 		cascade_formats = {
 			"d16_unorm",
@@ -118,23 +119,8 @@ event.AddListener("Update", "sun_orientation", function(dt)
 	rot:Normalize()
 	sun.transform:SetRotation(rot)
 	local sunDir = -rot:GetForward()
-	local below_horizon = sunDir.y < 0
-
-	if below_horizon then
-		if sun.light_sun.BelowHorizon ~= true then
-			sun.light_sun.BelowHorizon = true
-			sun.light_sun:SetIntensity(0)
-			set_sun_shadows(false)
-		end
-	else
-		if sun.light_sun.BelowHorizon ~= false then
-			sun.light_sun.BelowHorizon = false
-			sun.light_sun:SetIntensity(2)
-			set_sun_shadows(true)
-		end
-	end
-
-	atmosphere.SetSunIntensity(sun.light_sun.Intensity)
 	local sunColor = atmosphere.GetSunColor(sunDir)
 	sun.light_sun:SetColor(Color(sunColor:Unpack()))
+	local transmittance = math.max(sunColor.x, math.max(sunColor.y, sunColor.z))
+	set_sun_shadows(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)
 end)

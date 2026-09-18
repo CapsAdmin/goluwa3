@@ -19,6 +19,7 @@ local SKY_VIEW_STEPS = 32
 local SKY_VIEW_TEXTURE_CACHE_LIMIT = 16
 local SKY_VIEW_POSITION_QUANTIZATION = 2
 local SKY_VIEW_DIRECTION_QUANTIZATION = 0.002
+local SKY_VIEW_ILLUMINANCE_QUANTIZATION = 1000
 local MULTI_SCATTER_LUT_SIZE = 32
 local RAYLEIGH_SCALE_HEIGHT = 8.0
 local MIE_SCALE_HEIGHT = 1.2
@@ -28,11 +29,11 @@ local RAYLEIGH_BETA = Vec3(0.0058, 0.0135, 0.0331)
 local MIE_BETA = 0.021
 local MIE_BETA_EXT = 0.021 * 1.1
 local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
-local DEFAULT_SUN_INTENSITY = 1.0
+local DEFAULT_SUN_ILLUMINANCE = 126000
 local SUN_RADIUS = 500.0
 local SUN_DISTANCE = 100000.0
 local DEBUG_DISABLE_SCENERY_FOG = false
-atmosphere.sun_intensity = atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
+atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 
 local function normalize_components(x, y, z)
 	local length = math.sqrt(x * x + y * y + z * z)
@@ -93,7 +94,7 @@ end
 local function get_sky_view_texture_key(cam_pos, sun_dir)
 	local camera = get_shader_camera_position(cam_pos)
 	local sun = get_normalized_sun_direction(sun_dir)
-	local sun_intensity = atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
+	local sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 	return string.format(
 		"%.1f:%.1f:%.1f|%.3f:%.3f:%.3f|%.3f",
 		quantize(camera.x, SKY_VIEW_POSITION_QUANTIZATION),
@@ -102,7 +103,7 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 		quantize(sun.x, SKY_VIEW_DIRECTION_QUANTIZATION),
 		quantize(sun.y, SKY_VIEW_DIRECTION_QUANTIZATION),
 		quantize(sun.z, SKY_VIEW_DIRECTION_QUANTIZATION),
-		quantize(sun_intensity, 0.01)
+		quantize(sun_illuminance, SKY_VIEW_ILLUMINANCE_QUANTIZATION)
 	)
 end
 
@@ -111,15 +112,15 @@ end
 	inside LUT bakes (constant indices) and inside render passes (uniform block
 	fields). Passes get them from atmosphere.GetGLSLDefines(uniform_name, ...).
 
-	ATMOSPHERE_SUN_INTENSITY                 sun irradiance at the top of the atmosphere
+	ATMOSPHERE_SUN_ILLUMINANCE               sun illuminance at the top of the atmosphere, in lux
 	ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX   2d LUT, u = cos(sun zenith), v = altitude
 	ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX   2d LUT, same parametrization, multiple scattering (Hillaire 2020)
 	ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX        2d LUT of the sky around the camera, rgb = in-scatter, a = transmittance
 	ATMOSPHERE_STARS_TEXTURE_INDEX           optional equirect star map
 
-	Distances are kilometers. Radiance is in units where a white Lambertian
-	surface lit head on by the sun without atmosphere reflects
-	ATMOSPHERE_SUN_INTENSITY / PI.
+	Distances are kilometers. Radiance is luminance in nits (cd/m2): a white
+	Lambertian surface lit head on by the sun without atmosphere reflects
+	ATMOSPHERE_SUN_ILLUMINANCE / PI.
 ]]
 local atmosphere_shared_glsl = [[
 	const float PI = 3.14159265359;
@@ -147,8 +148,8 @@ local atmosphere_shared_glsl = [[
 	const vec3 OZONE_BETA_ABS = vec3(0.00065, 0.00188, 0.000085);
 	const vec3 GROUND_ALBEDO = vec3(0.30, 0.27, 0.22);
 
-	#ifndef ATMOSPHERE_SUN_INTENSITY
-	#define ATMOSPHERE_SUN_INTENSITY 1.0
+	#ifndef ATMOSPHERE_SUN_ILLUMINANCE
+	#define ATMOSPHERE_SUN_ILLUMINANCE 126000.0
 	#endif
 	#ifndef ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX
 	#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX -1
@@ -247,10 +248,8 @@ local atmosphere_shared_glsl = [[
 
 	// Single scattering with the real phase functions plus the multiple
 	// scattering estimate from the LUT, marched from t_near to t_far along the
-	// ray. single_scatter_visibility.x scales the Rayleigh term and .y the Mie
-	// term (used to darken in-scatter along shadowed paths). Returns radiance
-	// and writes the view transmittance of the segment.
-	vec3 integrate_scattering(vec3 ray_origin, vec3 ray_dir, float t_near, float t_far, vec3 sun_dir, int steps, vec2 single_scatter_visibility, out vec3 view_transmittance) {
+	// ray. Returns radiance and writes the view transmittance of the segment.
+	vec3 integrate_scattering(vec3 ray_origin, vec3 ray_dir, float t_near, float t_far, vec3 sun_dir, int steps, vec2 single_scatter_visibility, float multi_scatter_visibility, out vec3 view_transmittance) {
 		float step_size = (t_far - t_near) / float(steps);
 		float rayleigh_od = 0.0;
 		float mie_od = 0.0;
@@ -272,12 +271,12 @@ local atmosphere_shared_glsl = [[
 			vec3 view_t = exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od));
 			vec3 sun_t = sample_transmittance_lut(sample_point, sun_dir);
 			vec3 single = (phase_r * density_r + vec3(phase_m * density_m)) * sun_t;
-			vec3 multi = sample_multi_scatter_lut(sample_point, sun_dir) * (RAYLEIGH_BETA * density_r + vec3(MIE_BETA * density_m));
+			vec3 multi = sample_multi_scatter_lut(sample_point, sun_dir) * (RAYLEIGH_BETA * density_r + vec3(MIE_BETA * density_m)) * multi_scatter_visibility;
 			total += (single + multi) * view_t * step_size;
 		}
 
 		view_transmittance = exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od));
-		return total * ATMOSPHERE_SUN_INTENSITY;
+		return total * ATMOSPHERE_SUN_ILLUMINANCE;
 	}
 
 	// Clips the ray to the atmosphere and the planet. Returns false when the
@@ -450,7 +449,7 @@ local multi_scatter_glsl = build_atmosphere_shader_prelude(
 local function build_sky_view_glsl(cam_pos, sun_dir)
 	local camera = get_shader_camera_position(cam_pos)
 	local sun = get_normalized_sun_direction(sun_dir)
-	local sun_intensity = atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
+	local sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 	return build_atmosphere_shader_prelude(
 		[[
 		const int SKY_VIEW_STEPS = ]] .. SKY_VIEW_STEPS .. [[;
@@ -478,11 +477,11 @@ local function build_sky_view_glsl(cam_pos, sun_dir)
 			if (!get_atmosphere_segment(ray_origin, ray_dir, t_near, t_far, hits_ground)) return vec4(0.0, 0.0, 0.0, 1.0);
 
 			vec3 view_transmittance;
-			vec3 scattered_light = integrate_scattering(ray_origin, ray_dir, t_near, t_far, SKY_VIEW_SUN_DIRECTION, SKY_VIEW_STEPS, vec2(1.0), view_transmittance);
+			vec3 scattered_light = integrate_scattering(ray_origin, ray_dir, t_near, t_far, SKY_VIEW_SUN_DIRECTION, SKY_VIEW_STEPS, vec2(1.0), 1.0, view_transmittance);
 			return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
 		}
 	]],
-		"#define ATMOSPHERE_SUN_INTENSITY " .. string.format("%.17g", sun_intensity) .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX 1\n"
+		"#define ATMOSPHERE_SUN_ILLUMINANCE " .. string.format("%.17g", sun_illuminance) .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX 1\n"
 	)
 end
 
@@ -513,7 +512,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		if (!get_atmosphere_segment(ray_origin, dir, t_near, t_far, hits_ground)) return vec4(0.0, 0.0, 0.0, 1.0);
 
 		vec3 view_transmittance;
-		vec3 scattered_light = integrate_scattering(ray_origin, dir, t_near, t_far, sun_dir, PRIMARY_STEPS, vec2(1.0), view_transmittance);
+		vec3 scattered_light = integrate_scattering(ray_origin, dir, t_near, t_far, sun_dir, PRIMARY_STEPS, vec2(1.0), 1.0, view_transmittance);
 		return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
 	}
 
@@ -578,7 +577,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec2 ground_hit = ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS);
 		vec3 ground_point = ray_origin + dir * max(ground_hit.x, 0.0);
 		vec3 ground_up = normalize(ground_point);
-		vec3 direct = ATMOSPHERE_SUN_INTENSITY * sample_transmittance_lut(ground_point, sun_dir) * max(dot(ground_up, sun_dir), 0.0);
+		vec3 direct = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ground_point, sun_dir) * max(dot(ground_up, sun_dir), 0.0);
 		vec3 sky = get_sky_irradiance(sun_dir, ray_origin);
 		return GROUND_ALBEDO / PI * (direct + sky);
 	}
@@ -668,17 +667,18 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	// ray (kept just above the horizon so the ground fill does not leak in)
 	// stands in for the light arriving from every direction, plus sunlight
 	// scattered toward the viewer with a forward peaked phase function.
-	vec3 get_scenery_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility) {
+	vec3 get_scenery_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
 		vec3 up = normalize(ray_origin);
 		float elevation = max(asin(clamp(dot(ray_dir, up), -1.0, 1.0)), 0.25);
 		vec3 horizontal = ray_dir - up * dot(ray_dir, up);
 		float horizontal_length = length(horizontal);
 		horizontal = horizontal_length > 1e-4 ? horizontal / horizontal_length : get_sky_view_forward(up, sun_dir);
 		vec3 sky_dir = normalize(horizontal * cos(elevation) + up * sin(elevation));
-		vec3 ambient = sample_sky_view_lut_from_origin(sky_dir, sun_dir, ray_origin).rgb;
+		vec3 sky_ambient = sample_sky_view_lut_from_origin(sky_dir, sun_dir, ray_origin).rgb;
+		vec3 ambient = mix(gi_irradiance, sky_ambient, clamp(sky_visibility, 0.0, 1.0));
 		vec3 sun_transmittance = sample_transmittance_lut(ray_origin, sun_dir);
 		float phase = henyey_greenstein_phase(dot(ray_dir, sun_dir), SCENERY_FOG_MIE_G);
-		vec3 direct = ATMOSPHERE_SUN_INTENSITY * sun_transmittance * phase * clamp(sun_visibility, 0.0, 1.0);
+		vec3 direct = ATMOSPHERE_SUN_ILLUMINANCE * sun_transmittance * phase * clamp(sun_visibility, 0.0, 1.0);
 		return ambient + direct;
 	}
 
@@ -689,7 +689,9 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		float fog_near,
 		float fog_length,
 		vec3 sun_dir,
-		float sun_visibility
+		float sun_visibility,
+		vec3 gi_irradiance,
+		float sky_visibility
 	) {
 		float step_size = fog_length / float(AERIAL_PERSPECTIVE_STEPS);
 		float scenery_fog_od = 0.0;
@@ -702,11 +704,11 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 		float scenery_fog_tau = scenery_fog_od * SCENERY_FOG_EXTINCTION;
 		vec3 fog_transmittance = exp(-vec3(scenery_fog_tau));
-		vec3 scenery_fog = get_scenery_fog_color(ray_origin, ray_dir, sun_dir, sun_visibility) * (1.0 - fog_transmittance);
+		vec3 scenery_fog = get_scenery_fog_color(ray_origin, ray_dir, sun_dir, sun_visibility, gi_irradiance, sky_visibility) * (1.0 - fog_transmittance);
 		return scene_color * fog_transmittance + scenery_fog;
 	}
 
-	vec3 apply_atmospheric_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility) {
+	vec3 apply_atmospheric_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, float sky_visibility) {
 		vec3 ray_origin;
 		vec3 ray_dir;
 		float atmosphere_near;
@@ -716,10 +718,6 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			return scene_color;
 		}
 
-		vec2 single_scatter_visibility = vec2(
-			mix(0.45, 1.0, clamp(sun_visibility, 0.0, 1.0)),
-			mix(0.12, 1.0, clamp(sun_visibility, 0.0, 1.0))
-		);
 		vec3 view_transmittance;
 		vec3 scattered_light = integrate_scattering(
 			ray_origin,
@@ -728,13 +726,14 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			atmosphere_near + segment_length,
 			sun_dir,
 			AERIAL_PERSPECTIVE_STEPS,
-			single_scatter_visibility,
+			vec2(clamp(sun_visibility, 0.0, 1.0)),
+			clamp(sky_visibility, 0.0, 1.0),
 			view_transmittance
 		);
 		return scene_color * view_transmittance + scattered_light;
 	}
 
-	vec3 apply_scenery_fog(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility) {
+	vec3 apply_scenery_fog(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
 		vec3 ray_origin;
 		vec3 ray_dir;
 		float atmosphere_near;
@@ -751,10 +750,10 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			return scene_color;
 		}
 
-		return apply_scenery_fog_segment(scene_color, ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility);
+		return apply_scenery_fog_segment(scene_color, ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
-	vec3 apply_scenery_fog_ray(vec3 scene_color, vec3 ray_dir, vec3 sun_dir, vec3 cam_pos, float max_distance, float sun_visibility) {
+	vec3 apply_scenery_fog_ray(vec3 scene_color, vec3 ray_dir, vec3 sun_dir, vec3 cam_pos, float max_distance, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 		float fog_near;
 		float fog_length;
@@ -763,12 +762,12 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			return scene_color;
 		}
 
-		return apply_scenery_fog_segment(scene_color, ray_origin, normalize(ray_dir), fog_near, fog_length, sun_dir, sun_visibility);
+		return apply_scenery_fog_segment(scene_color, ray_origin, normalize(ray_dir), fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
-	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility) {
-		scene_color = apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, sun_visibility);
-		return apply_scenery_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility);
+	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
+		scene_color = apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, sky_visibility);
+		return apply_scenery_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
 	vec3 get_sun_disc(vec3 dir, vec3 sun_dir, vec3 cam_pos) {
@@ -784,7 +783,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 radiance = vec3(16.0 * disk) + vec3(1.0, 0.95, 0.86) * (2.0 * corona_inner) + vec3(1.0, 0.98, 0.95) * corona_outer;
 		vec3 transmittance = sample_transmittance_lut(ray_origin, sun_dir);
 		float horizon_fade = smoothstep(-0.12, 0.04, sun_dir.y);
-		return radiance * ATMOSPHERE_SUN_INTENSITY * transmittance * horizon_fade;
+		return radiance * ATMOSPHERE_SUN_ILLUMINANCE * transmittance * horizon_fade;
 	}
 ]]
 )
@@ -880,17 +879,17 @@ local function destroy_all_sky_view_textures()
 	atmosphere.sky_view_texture_order = {}
 end
 
-function atmosphere.SetSunIntensity(intensity)
-	intensity = intensity or DEFAULT_SUN_INTENSITY
+function atmosphere.SetSunIlluminance(illuminance)
+	illuminance = illuminance or DEFAULT_SUN_ILLUMINANCE
 
-	if atmosphere.sun_intensity == intensity then return end
+	if atmosphere.sun_illuminance == illuminance then return end
 
-	atmosphere.sun_intensity = intensity
+	atmosphere.sun_illuminance = illuminance
 	destroy_all_sky_view_textures()
 end
 
-function atmosphere.GetSunIntensity()
-	return atmosphere.sun_intensity or DEFAULT_SUN_INTENSITY
+function atmosphere.GetSunIlluminance()
+	return atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 end
 
 local function create_sky_view_texture(cam_pos, sun_dir)
@@ -967,8 +966,8 @@ function atmosphere.WriteBlock(pipeline, block, cam_pos, sun_dir)
 	block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
 end
 
-function atmosphere.GetGLSLDefines(uniform_name, sun_intensity_expr)
-	return "#define ATMOSPHERE_SUN_INTENSITY " .. sun_intensity_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n"
+function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n"
 end
 
 function atmosphere.GetGLSLCode()
@@ -987,7 +986,7 @@ function atmosphere.GetSurfaceAerialPerspectiveGLSLCode(background_color_expr)
 		}
 
 		vec3 apply_surface_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos) {
-			return apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, 1.0);
+			return apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, 1.0, 1.0);
 		}
 	]]
 end
@@ -1025,7 +1024,6 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 					float u = atan(atmos_dir.z, atmos_dir.x) / (2.0 * PI) + 0.5;
 					float v = asin(clamp(atmos_dir.y, -1.0, 1.0)) / PI + 0.5;
 					space_color = texture(TEXTURE(ATMOSPHERE_STARS_TEXTURE_INDEX), vec2(u, -v)).rgb;
-					space_color = pow(space_color, vec3(10.0)) * 0.5;
 				} else {
 					space_color = get_stars(atmos_dir, atmos_sun_dir);
 				}

@@ -10,10 +10,15 @@ local function get_scene_source_texture()
 end
 
 local exposure_target_luma = 0.2
-local exposure_min = 0.1
-local exposure_max = 4.0
-local exposure_tau_darken = 0.2
-local exposure_tau_brighten = 1.5
+local exposure_min = 0.00001
+local exposure_max = 100.0
+local exposure_bootstrap = 0.0001
+local exposure_tau_light_adapt = 0.5
+local exposure_tau_dark_adapt = 1.5
+local log2 = math.log(2)
+local exposure_log_target_luma = math.log(exposure_target_luma) / log2
+local exposure_log_min = math.log(exposure_min) / log2
+local exposure_log_max = math.log(exposure_max) / log2
 local last_exposure_time
 
 local function get_exposure_dt()
@@ -44,8 +49,8 @@ local exposure_feedback_shader = [[
 		if (compute.has_source_tex == 0) return;
 
 		float prev = texture(prev_exposure_tex, vec2(0.5)).r;
-		if (prev < 0.05) prev = 1.0;
-		prev = clamp(prev, ]] .. string.format("%.3f", exposure_min) .. [[, ]] .. string.format("%.3f", exposure_max) .. [[);
+		if (!(prev > 0.0)) prev = ]] .. string.format("%.7g", exposure_bootstrap) .. [[;
+		prev = clamp(prev, ]] .. string.format("%.7g", exposure_min) .. [[, ]] .. string.format("%.7g", exposure_max) .. [[);
 
 		float avg_log_luma = 0.0;
 		int samples = 0;
@@ -59,11 +64,18 @@ local exposure_feedback_shader = [[
 		}
 
 		avg_log_luma /= float(samples);
-		float avg_luma = exp2(avg_log_luma);
-		float target = clamp(]] .. string.format("%.3f", exposure_target_luma) .. [[ / max(avg_luma, 0.001), ]] .. string.format("%.3f", exposure_min) .. [[, ]] .. string.format("%.3f", exposure_max) .. [[);
-		float tau = target > prev ? ]] .. string.format("%.3f", exposure_tau_darken) .. [[ : ]] .. string.format("%.3f", exposure_tau_brighten) .. [[;
+
+		float log_target = clamp(
+			]] .. string.format("%.7g", exposure_log_target_luma) .. [[ - avg_log_luma,
+			]] .. string.format("%.7g", exposure_log_min) .. [[,
+			]] .. string.format("%.7g", exposure_log_max) .. [[
+		);
+		float log_prev = log2(prev);
+		float tau = log_target > log_prev
+			? ]] .. string.format("%.7g", exposure_tau_dark_adapt) .. [[
+			: ]] .. string.format("%.7g", exposure_tau_light_adapt) .. [[;
 		float k = 1.0 - exp(-compute.dt / tau);
-		imageStore(out_exposure, ivec2(0, 0), vec4(prev + (target - prev) * k, 0.0, 0.0, 1.0));
+		imageStore(out_exposure, ivec2(0, 0), vec4(exp2(log_prev + (log_target - log_prev) * k), 0.0, 0.0, 1.0));
 	}
 ]]
 local exposure_feedback_pass = {
@@ -126,8 +138,10 @@ local function get_bloom_merge_texture()
 end
 
 local bloom_merge_strength = 0.65
-local bloom_threshold = 1.25
-local bloom_knee = 0.75
+local bloom_threshold = 1.1
+local bloom_knee = 0.6
+local bloom_veil_strength = 0.05
+local bloom_veil_soft_clip = 0.5
 local compute_shader = [[
 	layout(set = 0, binding = 0, r11f_g11f_b10f) uniform writeonly image2D out_color;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
@@ -136,12 +150,12 @@ local compute_shader = [[
 	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
 	]] .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. [[
 
-	vec3 extract_bloom(vec3 bloom_input) {
-		float brightness = dot(bloom_input, vec3(0.2126, 0.7152, 0.0722));
-		float soft = brightness - ]] .. string.format("%.3f", bloom_threshold) .. [[ + ]] .. string.format("%.3f", bloom_knee) .. [[;
-		soft = clamp(soft, 0.0, 2.0 * ]] .. string.format("%.3f", bloom_knee) .. [[);
-		soft = soft * soft / (4.0 * ]] .. string.format("%.3f", bloom_knee) .. [[ + 0.00001);
-		float contribution = max(soft, brightness - ]] .. string.format("%.3f", bloom_threshold) .. [[);
+	vec3 extract_bloom(vec3 bloom_input, float exposure) {
+		float brightness = dot(bloom_input, vec3(0.2126, 0.7152, 0.0722)) * exposure;
+		float soft = brightness - ]] .. string.format("%.7g", bloom_threshold) .. [[ + ]] .. string.format("%.7g", bloom_knee) .. [[;
+		soft = clamp(soft, 0.0, 2.0 * ]] .. string.format("%.7g", bloom_knee) .. [[);
+		soft = soft * soft / (4.0 * ]] .. string.format("%.7g", bloom_knee) .. [[ + 0.00001);
+		float contribution = max(soft, brightness - ]] .. string.format("%.7g", bloom_threshold) .. [[);
 		contribution /= max(brightness, 0.00001);
 		return bloom_input * contribution;
 	}
@@ -171,6 +185,16 @@ local compute_shader = [[
 			return;
 		}
 
+		float exposure = ]] .. string.format("%.7g", exposure_bootstrap) .. [[;
+
+		if (compute.has_exposure_tex != 0) {
+			exposure = clamp(
+				texture(exposure_tex, vec2(0.5)).r,
+				]] .. string.format("%.7g", exposure_min) .. [[,
+				]] .. string.format("%.7g", exposure_max) .. [[
+			);
+		}
+
 		vec3 bloom = vec3(0.0);
 
 		if (compute.has_bloom_source_tex != 0) {
@@ -187,37 +211,23 @@ local compute_shader = [[
 			bloom /= 16.0;
 
 			if (compute.has_bloom_merge_tex != 0) {
-				bloom += extract_bloom(texture(bloom_merge_tex, uv).rgb) * ]] .. string.format("%.3f", bloom_merge_strength) .. [[;
+				bloom += extract_bloom(texture(bloom_merge_tex, uv).rgb, exposure) * ]] .. string.format("%.7g", bloom_merge_strength) .. [[;
 			}
 		}
 
-		float exposure = 1.0;
-
-		if (compute.has_exposure_tex != 0) {
-			exposure = max(texture(exposure_tex, vec2(0.5)).r, 0.001);
-		}
-
-		float bloom_luma = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
-		float bloom_strength = 0.03;
-		float bloom_exposure_scale = clamp(1.0 / sqrt(max(exposure, 0.35)), 0.7, 1.25);
-		float bloom_soft_clip = 1.0 / (1.0 + bloom_luma * 0.35);
-		col += bloom * bloom_strength * bloom_exposure_scale * bloom_soft_clip;
+		float bloom_luma = dot(bloom, vec3(0.2126, 0.7152, 0.0722)) * exposure;
+		float bloom_soft_clip = 1.0 / (1.0 + bloom_luma * ]] .. string.format("%.7g", bloom_veil_soft_clip) .. [[);
+		col += bloom * ]] .. string.format("%.7g", bloom_veil_strength) .. [[ * bloom_soft_clip;
 
 		if (compute.is_hdr == 1) {
-			col = tonemap(pow(col * 1.5, vec3(0.8)), exposure) * 1.2;
+			col = tonemap_extended(col, exposure);
 		} else {
-			col = tonemap_lottes(col * exposure);
+			col = clamp(tonemap(col, exposure), 0.0, 1.0);
 		}
 
 		if (compute.requires_manual_gamma == 1) {
 			col = LinearToSRGB(col);
 		}
-
-		vec2 vignette_uv = uv * 2.0 - 1.0;
-		float aspect = float(textureSize(source_tex, 0).x) / float(textureSize(source_tex, 0).y);
-		vignette_uv.x *= aspect;
-		float vignette = smoothstep(4.0, 0.6, length(vignette_uv));
-		col *= vignette;
 
 		imageStore(out_color, pos, vec4(col, 1.0));
 	}
