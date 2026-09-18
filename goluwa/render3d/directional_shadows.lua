@@ -383,7 +383,7 @@ local SHADOW_PROJECTION_GLSL = [[
 
 			// Set to 1 to skip the screen space sub-pixel taps entirely and
 			// filter in light space only
-			#define SHADOW_DISABLE_SCREEN_PCF 0
+			#define SHADOW_DISABLE_SCREEN_PCF 1
 
 			// Set to 1 to replace the fixed 2x2 screen and light space grids
 			// with a single tap dithered across both filter regions
