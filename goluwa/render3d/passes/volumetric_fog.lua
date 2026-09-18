@@ -17,22 +17,33 @@ if os.getenv("FOG_DEBUG") == "froxel" then
 	FOG_DEBUG_MODE = 1
 elseif os.getenv("FOG_DEBUG") == "scenefog" then
 	FOG_DEBUG_MODE = 2
+elseif os.getenv("FOG_DEBUG") == "slices" then
+	FOG_DEBUG_MODE = 3
+elseif os.getenv("FOG_DEBUG") == "samples" then
+	FOG_DEBUG_MODE = 4
+elseif os.getenv("FOG_DEBUG") == "substeps" then
+	FOG_DEBUG_MODE = 5
 end
 
 local DEBUG_GOD_RAY_BOOST = 1.0
 local DEBUG_GOD_RAY_SUN_FACING_BOOST = 1
 local DEBUG_GOD_RAY_SHADOW_CONTRAST = 1.0
 local DEBUG_GOD_RAY_SCATTERING_DENSITY_SCALE = 1.0
-local FROXEL_TILE_SIZE = 32
-local FROXEL_SLICE_COUNT = 16
+local FROXEL_TILE_SIZE = 16
+local FROXEL_SLICE_COUNT = 12
+local FROXEL_INTEGRATION_STEPS = 8 -- sub-steps per slice; more = tighter light falloff integration
+local FROXEL_LIGHT_TAPS = 2 -- 1 = light at sub-step midpoint, 2 = two taps averaged
+local FROXEL_OCCLUSION_SOFTNESS = 0.15 -- 0 = hard BVH oct occlusion step, >0 = soft margin as fraction of occluder distance
+local FROXEL_NEAR_BREAK = 10.0 -- meters
+local FROXEL_NEAR_SLICE_RATIO = 0.6
 local volumetric_froxels = {
 	texture = nil,
-	sample_view = nil,
+	view = nil,
 	layer_views = nil,
+	sampler = nil,
 	width = 0,
 	height = 0,
 	current_slice = 0,
-	sampler = nil,
 }
 local volumetric_froxel_fallback = {
 	texture = nil,
@@ -41,8 +52,8 @@ local volumetric_froxel_fallback = {
 }
 
 local function destroy_volumetric_froxel_resources()
-	if volumetric_froxels.sample_view and volumetric_froxels.sample_view.Remove then
-		volumetric_froxels.sample_view:Remove()
+	if volumetric_froxels.view and volumetric_froxels.view.Remove then
+		volumetric_froxels.view:Remove()
 	end
 
 	if volumetric_froxels.layer_views then
@@ -51,7 +62,7 @@ local function destroy_volumetric_froxel_resources()
 		end
 	end
 
-	volumetric_froxels.sample_view = nil
+	volumetric_froxels.view = nil
 	volumetric_froxels.layer_views = nil
 
 	if volumetric_froxels.texture and volumetric_froxels.texture.Remove then
@@ -115,80 +126,62 @@ local function ensure_volumetric_froxel_resources()
 	local height = math.max(1, math.ceil(size.y / FROXEL_TILE_SIZE))
 
 	if
-		volumetric_froxels.texture and
-		volumetric_froxels.width == width and
-		volumetric_froxels.height == height
+		not volumetric_froxels.texture or
+		volumetric_froxels.width ~= width or
+		volumetric_froxels.height ~= height
 	then
-		return volumetric_froxels.texture
-	end
-
-	destroy_volumetric_froxel_resources()
-	local texture = Texture.New{
-		width = width,
-		height = height,
-		format = "r16g16b16a16_sfloat",
-		mip_map_levels = 1,
-		image = {
-			array_layers = FROXEL_SLICE_COUNT,
-			usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-		},
-		view = {
+		destroy_volumetric_froxel_resources()
+		volumetric_froxels.width = width
+		volumetric_froxels.height = height
+		local texture = Texture.New{
+			width = width,
+			height = height,
+			format = "r16g16b16a16_sfloat",
+			mip_map_levels = 1,
+			image = {
+				array_layers = FROXEL_SLICE_COUNT,
+				usage = {"color_attachment", "sampled"},
+			},
+			view = {
+				view_type = "2d_array",
+				layer_count = FROXEL_SLICE_COUNT,
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+				wrap_r = "clamp_to_edge",
+			},
+		}
+		texture:SetDebugName("render3d volumetric froxels")
+		volumetric_froxels.texture = texture
+		volumetric_froxels.view = texture:GetImage():CreateView{
 			view_type = "2d_array",
+			base_array_layer = 0,
 			layer_count = FROXEL_SLICE_COUNT,
-		},
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-			wrap_r = "clamp_to_edge",
-		},
-	}
-	texture:SetDebugName("render3d volumetric froxels")
-	volumetric_froxels.texture = texture
-	volumetric_froxels.sample_view = texture:GetImage():CreateView{
-		view_type = "2d_array",
-		base_array_layer = 0,
-		layer_count = FROXEL_SLICE_COUNT,
-		base_mip_level = 0,
-		level_count = 1,
-	}
-	volumetric_froxels.layer_views = {}
-	volumetric_froxels.width = width
-	volumetric_froxels.height = height
-
-	for slice = 0, FROXEL_SLICE_COUNT - 1 do
-		volumetric_froxels.layer_views[slice] = texture:GetImage():CreateView{
-			view_type = "2d",
-			base_array_layer = slice,
-			layer_count = 1,
 			base_mip_level = 0,
 			level_count = 1,
 		}
+		volumetric_froxels.sampler = render.CreateSampler(texture:GetSamplerConfig())
+		volumetric_froxels.layer_views = {}
 
-		if volumetric_froxels.layer_views[slice].SetDebugName then
-			volumetric_froxels.layer_views[slice]:SetDebugName("render3d volumetric froxels slice " .. tostring(slice))
+		for layer = 0, FROXEL_SLICE_COUNT - 1 do
+			volumetric_froxels.layer_views[layer] = texture:GetImage():CreateView{
+				view_type = "2d",
+				base_array_layer = layer,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+
+			if volumetric_froxels.layer_views[layer].SetDebugName then
+				volumetric_froxels.layer_views[layer]:SetDebugName("render3d volumetric froxels layer " .. tostring(layer))
+			end
 		end
 	end
 
-	volumetric_froxels.sampler = render.CreateSampler(texture:GetSamplerConfig())
-
-	-- Update the volumetric fog pipeline's descriptor set with the new resources
-	if render3d.pipelines and render3d.pipelines.volumetric_fog then
-		local pipeline = render3d.pipelines.volumetric_fog
-		local view = volumetric_froxels.sample_view
-		local sampler = volumetric_froxels.sampler
-
-		if not view then
-			_, view, sampler = ensure_volumetric_froxel_fallback_resources()
-		end
-
-		for frame_index = 1, pipeline:GetDescriptorSetCount() do
-			pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, 2, view, sampler)
-		end
-	end
-
-	return texture
+	return volumetric_froxels.texture
 end
 
 local function write_ocean_distance_texture(self, block, key)
@@ -200,6 +193,17 @@ local function write_ocean_distance_texture(self, block, key)
 	end
 end
 
+local function get_froxel_volume_descriptor()
+	local texture = ensure_volumetric_froxel_resources()
+
+	if texture and volumetric_froxels.view then
+		return {volumetric_froxels.view, volumetric_froxels.sampler}
+	end
+
+	local _, fallback_view, fallback_sampler = ensure_volumetric_froxel_fallback_resources()
+	return {fallback_view, fallback_sampler}
+end
+
 local function draw_volumetric_froxel_build(self, cmd)
 	if not ENABLE_VOLUMETRIC_FOG then return end
 
@@ -207,7 +211,6 @@ local function draw_volumetric_froxel_build(self, cmd)
 
 	if not texture then return end
 
-	local image = texture:GetImage()
 	render.TransitionResourceTo(
 		texture,
 		"color_attachment_optimal",
@@ -347,7 +350,8 @@ local r = {
 					args = light_occlusion.GetOcclusionDescriptor,
 				},
 			},
-			custom_declarations = light_occlusion.GetDeclarationGLSL(0, 2),
+			custom_declarations = light_occlusion.GetDeclarationGLSL(0, 2) .. [[
+			]],
 			uniform_buffers = {
 				{
 					name = "froxel_data",
@@ -382,10 +386,16 @@ local r = {
 					end,
 				},
 			},
-			shader = light_occlusion.GetSamplingGLSL("froxel_data") .. [[
+			shader = (
+					"const int FOG_DEBUG_MODE = %d;\n"
+				):format(FOG_DEBUG_MODE) .. light_occlusion.GetSamplingGLSL("froxel_data") .. [[
 			const int VOLUMETRIC_FROXEL_SLICE_COUNT = ]] .. FROXEL_SLICE_COUNT .. [[;
-			const int VOLUMETRIC_SLICE_INTEGRATION_STEPS = 4;
+			const int VOLUMETRIC_SLICE_INTEGRATION_STEPS = ]] .. FROXEL_INTEGRATION_STEPS .. [[;
 			const int VOLUMETRIC_LOCAL_LIGHT_LIMIT = 8;
+			const int FROXEL_LIGHT_TAPS = ]] .. FROXEL_LIGHT_TAPS .. [[;
+			const float FROXEL_OCCLUSION_SOFTNESS = ]] .. FROXEL_OCCLUSION_SOFTNESS .. [[;
+			const float FROXEL_NEAR_BREAK = ]] .. FROXEL_NEAR_BREAK .. [[;
+			const float FROXEL_NEAR_SLICE_RATIO = ]] .. FROXEL_NEAR_SLICE_RATIO .. [[;
 			const float DEBUG_GOD_RAY_BOOST = ]] .. DEBUG_GOD_RAY_BOOST .. [[;
 			const float DEBUG_GOD_RAY_SUN_FACING_BOOST = ]] .. DEBUG_GOD_RAY_SUN_FACING_BOOST .. [[;
 			const float DEBUG_GOD_RAY_SHADOW_CONTRAST = ]] .. DEBUG_GOD_RAY_SHADOW_CONTRAST .. [[;
@@ -397,7 +407,11 @@ local r = {
 				float near_z = max(froxel_data.near_z, 0.001);
 				float far_z = max(froxel_data.far_z, near_z + 0.001);
 				float u = clamp(slice_index / float(max(froxel_data.slice_count, 1)), 0.0, 1.0);
-				return near_z * pow(far_z / near_z, u);
+				float break_distance = max(min(FROXEL_NEAR_BREAK, far_z * 0.5), near_z * 1.01);
+				if (u <= FROXEL_NEAR_SLICE_RATIO) {
+					return near_z * pow(break_distance / near_z, u / FROXEL_NEAR_SLICE_RATIO);
+				}
+				return break_distance * pow(far_z / break_distance, (u - FROXEL_NEAR_SLICE_RATIO) / (1.0 - FROXEL_NEAR_SLICE_RATIO));
 			}
 
 			vec2 get_froxel_uv() {
@@ -482,6 +496,24 @@ local r = {
 				return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
 			}
 
+			float get_froxel_light_occlusion(int slot, vec3 light_pos, float range, vec3 world_pos) {
+				if (FROXEL_OCCLUSION_SOFTNESS <= 0.0) {
+					return light_oct_shadow_factor(slot, light_pos, range, world_pos);
+				}
+
+				if (slot < 0 || slot >= LIGHT_OCCL_MAX_SLOTS || froxel_data.bvh_oct_active == 0) return 1.0;
+
+				vec3 to_pos = world_pos - light_pos;
+				float dist = length(to_pos);
+				if (dist >= range) return 1.0;
+
+				float occl = light_oct_fetch(slot, to_pos / max(dist, 1e-5));
+				if (occl <= 0.0) return 1.0;
+
+				float margin = (dist - occl * (1.0 + froxel_data.bvh_oct_bias)) / max(occl * FROXEL_OCCLUSION_SOFTNESS, 1e-5);
+				return 1.0 - smoothstep(0.0, 1.0, margin);
+			}
+
 			vec3 get_additional_volumetric_light(vec3 ray_dir, vec3 world_pos) {
 				vec3 fog_light = vec3(0.0);
 				int processed_local_lights = 0;
@@ -502,7 +534,7 @@ local r = {
 
 					if (attenuation <= 0.0001) continue;
 
-					float occlusion_factor = light_oct_shadow_factor(froxel_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
+					float occlusion_factor = get_froxel_light_occlusion(froxel_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
 
 					if (occlusion_factor <= 0.0) continue;
 
@@ -513,8 +545,6 @@ local r = {
 					if (type == 1) {
 						int point_shadow_slot = getPointShadowSlot(i);
 
-						// no surface normal in a froxel, so L doubles as the bias
-						// direction, leaving the minimum push toward the light
 						if (point_shadow_slot >= 0) {
 							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, L, L);
 						}
@@ -556,6 +586,52 @@ local r = {
 				float slice_start_world = length(slice_start_world_pos - froxel_data.camera_position.xyz);
 				float slice_end_world = length(slice_end_world_pos - froxel_data.camera_position.xyz);
 
+				if (FOG_DEBUG_MODE == 4) {
+					float near_z = max(froxel_data.near_z, 0.001);
+					float far_z = max(froxel_data.far_z, near_z + 0.001);
+					float log_scale = 1.0 / log(far_z / near_z);
+					float slice_thickness = max(slice_end_world - slice_start_world, 1e-4);
+					float substep_width = slice_thickness / float(VOLUMETRIC_SLICE_INTEGRATION_STEPS);
+					vec3 world_center = get_world_pos_at_view_depth(0.5 * (slice_start_view + slice_end_view));
+					float sample_offset = abs(length(world_center - froxel_data.camera_position.xyz) - 0.5 * (slice_start_world + slice_end_world)) / slice_thickness;
+					set_color(
+						vec4(
+							float(froxel_data.current_slice) / max(float(froxel_data.slice_count), 1.0),
+							clamp(log(max(substep_width, 1e-4) / near_z) * log_scale, 0.0, 1.0),
+							clamp(sample_offset, 0.0, 1.0),
+							1.0
+						)
+					);
+					return;
+				}
+
+				if (FOG_DEBUG_MODE == 5) {
+					float sun_visibility_min = 1.0;
+					float sun_visibility_max = 0.0;
+					vec3 sun_center = vec3(0.0);
+					vec3 light_center = vec3(0.0);
+					for (int step = 0; step < VOLUMETRIC_SLICE_INTEGRATION_STEPS; step++) {
+						float step_u = (float(step) + 0.5) / float(VOLUMETRIC_SLICE_INTEGRATION_STEPS);
+						vec3 world_sample = get_world_pos_at_view_depth(mix(slice_start_view, slice_end_view, step_u));
+						float sun_visibility = get_froxel_sun_visibility(world_sample, sun_dir);
+						sun_visibility_min = min(sun_visibility_min, sun_visibility);
+						sun_visibility_max = max(sun_visibility_max, sun_visibility);
+						if (step == VOLUMETRIC_SLICE_INTEGRATION_STEPS / 2) {
+							sun_center = get_volumetric_scattering_light(ray_dir, sun_dir, sun_visibility);
+							light_center = get_additional_volumetric_light(ray_dir, world_sample);
+						}
+					}
+					set_color(
+						vec4(
+							length(sun_center),
+							length(light_center),
+							clamp(sun_visibility_max - sun_visibility_min, 0.0, 1.0),
+							1.0
+						)
+					);
+					return;
+				}
+
 				vec3 total_scattering = vec3(0.0);
 				float total_transmittance = 1.0;
 
@@ -592,9 +668,22 @@ local r = {
 						float segment_transmittance = exp(-tau);
 						float segment_scatter_amount = 1.0 - exp(-tau * 1);
 						float sun_visibility = get_froxel_sun_visibility(world_sample, sun_dir);
-						vec3 scattering_light = get_volumetric_scattering_light(ray_dir, sun_dir, sun_visibility);
-						scattering_light += get_additional_volumetric_light(ray_dir, world_sample);
-						total_scattering += total_transmittance * scattering_light * segment_scatter_amount;
+						vec3 sun_scattering_light = get_volumetric_scattering_light(ray_dir, sun_dir, sun_visibility);
+						vec3 scattering_light = sun_scattering_light;
+
+						if (FROXEL_LIGHT_TAPS <= 1) {
+							scattering_light += get_additional_volumetric_light(ray_dir, world_sample);
+						} else {
+							vec3 light_tap_a = get_world_pos_at_view_depth(mix(sub_slice_start_view, sub_slice_end_view, 1.0 / 3.0));
+							vec3 light_tap_b = get_world_pos_at_view_depth(mix(sub_slice_start_view, sub_slice_end_view, 2.0 / 3.0));
+							scattering_light += 0.5 * (
+								get_additional_volumetric_light(ray_dir, light_tap_a) +
+								get_additional_volumetric_light(ray_dir, light_tap_b)
+							);
+						}
+
+						float segment_weight = total_transmittance * segment_scatter_amount;
+						total_scattering += scattering_light * segment_weight;
 						total_transmittance *= segment_transmittance;
 					}
 				}
@@ -786,14 +875,6 @@ local r = {
 				return get_fog_sun_visibility(representative_world_pos, vec3(0.0), sun_dir);
 			}
 
-			float get_fog_geometry_sun_visibility(vec3 ray_dir, vec3 world_pos, float max_world_distance, vec3 sun_dir) {
-				if (get_fog_sun_horizon_visibility(sun_dir) <= 0.0001) {
-					return 0.0;
-				}
-
-				return get_fog_sun_visibility(world_pos, get_normal(), sun_dir);
-			}
-
 			float get_fog_transmittance(vec3 ray_dir, float max_world_distance) {
 				float fog_near_world;
 				float fog_length_world;
@@ -820,7 +901,6 @@ local r = {
 
 			vec3 get_additional_scene_fog_light(vec3 ray_dir, vec3 world_pos, vec3 normal) {
 				vec3 fog_light = vec3(0.0);
-				float view_scatter = 0.25 + 0.75 * pow(clamp(dot(-ray_dir, normalize(ray_dir)) * 0.5 + 0.5, 0.0, 1.0), 2.0);
 
 				for (int i = 0; i < fog_data.light_count; i++) {
 					lights_t light = fog_data.lights[i];
@@ -861,7 +941,7 @@ local r = {
 					float phase = type == 2
 						? 0.22 + 0.32 * pow(view_alignment, 2.0)
 						: 0.15 + 0.35 * pow(view_alignment, 4.0);
-					fog_light += light_color * attenuation * shadow_factor * occlusion_factor * max(NoL * 0.5 + phase, 0.0) * view_scatter;
+					fog_light += light_color * attenuation * shadow_factor * occlusion_factor * max(NoL * 0.5 + phase, 0.0) * 0.25;
 				}
 
 				return fog_light;
@@ -908,10 +988,7 @@ local r = {
 						sun_visibility
 					);
 				} else {
-					float geometry_sun_visibility = get_fog_geometry_sun_visibility(ray_dir, world_pos, max_world_distance, sun_dir);
-					float fog_shadow_weight = smoothstep(0.12, 0.45, fog_transmittance);
-					fog_shadow_weight *= fog_shadow_weight;
-					float sun_visibility = mix(1.0, geometry_sun_visibility, fog_shadow_weight);
+					float sun_visibility = get_fog_ray_sun_visibility(ray_dir, max_world_distance, sun_dir);
 
 					color = apply_scenery_fog(
 						scene.rgb,
@@ -950,16 +1027,7 @@ local r = {
 					type = "combined_image_sampler",
 					binding_index = 0,
 					set_index = 2,
-					args = function()
-						local texture = ensure_volumetric_froxel_resources()
-
-						if texture and volumetric_froxels.sample_view then
-							return {volumetric_froxels.sample_view, volumetric_froxels.sampler}
-						end
-
-						local _, fallback_view, fallback_sampler = ensure_volumetric_froxel_fallback_resources()
-						return {fallback_view, fallback_sampler}
-					end,
+					args = get_froxel_volume_descriptor,
 				},
 			},
 			uniform_buffers = {
@@ -976,6 +1044,7 @@ local r = {
 						{"far_z", "float"},
 						{"slice_count", "int"},
 						{"volume_enabled", "int"},
+						{"froxel_resolution", "vec2"},
 					},
 					write = function(self, block)
 						ensure_volumetric_froxel_resources()
@@ -988,6 +1057,8 @@ local r = {
 						block.far_z = render3d.GetRenderCamera():GetFarZ()
 						block.slice_count = FROXEL_SLICE_COUNT
 						block.volume_enabled = volumetric_froxels.texture and 1 or 0
+						block.froxel_resolution[0] = volumetric_froxels.width
+						block.froxel_resolution[1] = volumetric_froxels.height
 						return block
 					end,
 				},
@@ -998,23 +1069,36 @@ local r = {
 			shader = (
 					"const int FOG_DEBUG_MODE = %d;\n"
 				):format(FOG_DEBUG_MODE) .. [[
+			const float FROXEL_NEAR_BREAK = ]] .. FROXEL_NEAR_BREAK .. [[;
+			const float FROXEL_NEAR_SLICE_RATIO = ]] .. FROXEL_NEAR_SLICE_RATIO .. [[;
 
 			]] .. screen_reconstruct.GetWorldPosGLSL("volumetric_data") .. [[
 			]] .. screen_reconstruct.GetWorldRayGLSL("volumetric_data") .. [[
-
-			float get_slice_view_depth(float slice_index) {
-				float near_z = max(volumetric_data.near_z, 0.001);
-				float far_z = max(volumetric_data.far_z, near_z + 0.001);
-				float u = clamp(slice_index / float(max(volumetric_data.slice_count, 1)), 0.0, 1.0);
-				return near_z * pow(far_z / near_z, u);
-			}
 
 			float get_layer_index(float view_depth) {
 				float near_z = max(volumetric_data.near_z, 0.001);
 				float far_z = max(volumetric_data.far_z, near_z + 0.001);
 				float clamped_distance = clamp(view_depth, near_z, far_z);
-				float slice_u = log(clamped_distance / near_z) / log(far_z / near_z);
-				return slice_u * float(volumetric_data.slice_count);
+				float break_distance = max(min(FROXEL_NEAR_BREAK, far_z * 0.5), near_z * 1.01);
+				float slice_u;
+				float slice_offset;
+				float slice_scale;
+				if (clamped_distance <= break_distance) {
+					slice_u = log(clamped_distance / near_z) / log(break_distance / near_z);
+					slice_offset = 0.0;
+					slice_scale = FROXEL_NEAR_SLICE_RATIO;
+				} else {
+					slice_u = log(clamped_distance / break_distance) / log(far_z / break_distance);
+					slice_offset = FROXEL_NEAR_SLICE_RATIO;
+					slice_scale = 1.0 - FROXEL_NEAR_SLICE_RATIO;
+				}
+				return (slice_offset + slice_u * slice_scale) * float(volumetric_data.slice_count);
+			}
+
+			vec3 hsv2rgb(vec3 c) {
+				vec4 rgba = vec4(c.xyz, 1.0);
+				vec3 rgb = clamp(abs(mod(rgba.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+				return rgba.z + rgba.y * (rgb - 0.5) * (1.0 - abs(2.0 * rgba.z - 1.0));
 			}
 
 			void main() {
@@ -1064,7 +1148,7 @@ local r = {
 				float froxel_transmittance = clamp(froxel_volume_sample.a, 0.0, 1.0);
 				float effective_transmittance = is_sky ? 1.0 : froxel_transmittance;
 
-				if (FOG_DEBUG_MODE == 1) {
+				if (FOG_DEBUG_MODE == 1 || FOG_DEBUG_MODE == 4 || FOG_DEBUG_MODE == 5) {
 					set_color(vec4(froxel_scattering, 1.0));
 					return;
 				}
@@ -1074,6 +1158,18 @@ local r = {
 					? max(scene.rgb - raw_scene.rgb * scene_fog_transmittance, vec3(0.0))
 					: vec3(0.0);
 				vec3 color = raw_scene.rgb * (scene_fog_transmittance * effective_transmittance) + scene_fog_scattering + froxel_scattering;
+
+				if (FOG_DEBUG_MODE == 3) {
+					vec3 slice_band = hsv2rgb(vec3(base_layer / max(float(volumetric_data.slice_count), 1.0), 0.7, 1.0));
+					float slice_boundary = 1.0 - smoothstep(0.0, 0.06, layer_frac);
+					vec2 fuv = in_uv * max(volumetric_data.froxel_resolution, vec2(1.0));
+					vec2 grid = abs(fract(fuv - 0.5) - 0.5) / max(fuv, vec2(1.0));
+					float grid_line = 1.0 - clamp(min(grid.x, grid.y) * 12.0, 0.0, 1.0);
+					set_color(
+						vec4(mix(color, slice_band, 0.55) + vec3(grid_line * 0.3 + slice_boundary * 0.5), raw_scene.a)
+					);
+					return;
+				}
 
 				set_color(vec4(color, raw_scene.a));
 			}

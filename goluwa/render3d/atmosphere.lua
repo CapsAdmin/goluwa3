@@ -670,7 +670,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	// scattered toward the viewer with a forward peaked phase function.
 	vec3 get_scenery_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility) {
 		vec3 up = normalize(ray_origin);
-		float elevation = max(asin(clamp(dot(ray_dir, up), -1.0, 1.0)), 0.035);
+		float elevation = max(asin(clamp(dot(ray_dir, up), -1.0, 1.0)), 0.25);
 		vec3 horizontal = ray_dir - up * dot(ray_dir, up);
 		float horizontal_length = length(horizontal);
 		horizontal = horizontal_length > 1e-4 ? horizontal / horizontal_length : get_sky_view_forward(up, sun_dir);

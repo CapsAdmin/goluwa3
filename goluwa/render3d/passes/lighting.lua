@@ -546,25 +546,6 @@ return {
 
 				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
-				vec3 sunDir = get_primary_sun_direction();
-				float atmosphere_sun_visibility = 1.0;
-				if (
-					lighting_data.light_count > 0 &&
-					lighting_data.shadows.shadow_map_indices[0] >= 0 &&
-					lighting_data.shadows.directional_shadow_light_index >= 0
-				) {
-					atmosphere_sun_visibility = calculateShadow(world_pos, N, sunDir);
-				}
-		
-				color = apply_atmospheric_aerial_perspective(
-					color,
-					world_pos,
-					sunDir,
-					lighting_data.camera_position.xyz,
-					atmosphere_sun_visibility
-				);
-
-			
 
 				if (lighting_data.gi_debug != 0) {
 					float debug_sky_visibility;
