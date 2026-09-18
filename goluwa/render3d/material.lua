@@ -747,12 +747,13 @@ do
 		end
 
 		if vmt.selfillum == 1 then
-			local tint = vmt.selfillumtint -- TODO
-			self:SetAlbedoAlphaIsEmissive(true)
+			if vmt.selfillumtint then self:SetEmissiveMultiplier(vmt.selfillumtint) end
 
 			if vmt.selfillummask then
 				self:SetEmissiveTexture(LinearTexture(vmt.selfillummask))
 				self:SetAlbedoAlphaIsEmissive(false)
+			else
+				self:SetAlbedoAlphaIsEmissive(true)
 			end
 		end
 
