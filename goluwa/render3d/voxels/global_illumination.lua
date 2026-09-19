@@ -31,7 +31,6 @@ voxel_gi.MAX_PROBE_AGE = 64
 voxel_gi.BACKFACE_HYSTERESIS = 0.85
 voxel_gi.BACKFACE_DISABLE = 0.25
 voxel_gi.BACKFACE_ENABLE = 0.1
-voxel_gi.MAX_ALBEDO = 0.9
 voxel_gi.enabled = voxel_gi.enabled ~= false
 voxel_gi.occlusion_enabled = voxel_gi.occlusion_enabled ~= false
 voxel_gi.OCCLUSION_MAX_STEPS = 24
@@ -1063,9 +1062,6 @@ local function build_update_pipeline()
 				"%.4f"
 			):format(voxel_gi.BACKFACE_ENABLE) .. [[;
 			const int MAX_PROBE_AGE = ]] .. voxel_gi.MAX_PROBE_AGE .. [[;
-			const float MAX_ALBEDO = ]] .. (
-				"%.4f"
-			):format(voxel_gi.MAX_ALBEDO) .. [[;
 
 			shared vec4 s_ray[RAYS_PER_PROBE];
 			shared vec3 s_dir[RAYS_PER_PROBE];
@@ -1246,7 +1242,7 @@ local function build_update_pipeline()
 					shadow = calculateShadow(surface_pos, N, L);
 				}
 
-				vec3 albedo = clamp(voxel.rgb, vec3(0.0), vec3(MAX_ALBEDO));
+				vec3 albedo = voxel.rgb;
 				vec3 direct = gi_data.sun_radiance.rgb * (NoL * shadow / 3.14159265359);
 
 				for (int i = 0; i < gi_data.light_count; i++) {
@@ -1300,8 +1296,8 @@ local function build_update_pipeline()
 				float unused_sky_visibility;
 				vec3 bounce = sample_voxel_gi_irradiance(surface_pos, N, N, sky, unused_sky_visibility);
 				float emissive_luma = max(voxel.a - 1.0, 0.0) * 4.0;
-				vec3 emissive = voxel.rgb * (emissive_luma / max(luminance(voxel.rgb), 1e-3));
-				return albedo * (direct + bounce) + emissive;
+				float lit_scale = clamp((luminance(albedo) - emissive_luma) / max(luminance(albedo), 1e-3), 0.0, 1.0);
+				return albedo * lit_scale * (direct + bounce) + albedo * (1.0 - lit_scale);
 			}
 
 			void main() {

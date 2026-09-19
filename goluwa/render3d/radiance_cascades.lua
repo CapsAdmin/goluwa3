@@ -555,9 +555,7 @@ function radiance_cascades.GetTraceGLSL(block_name)
 				shadow = calculateShadow(surface_pos, N, L);
 			}
 
-			vec3 albedo = clamp(hit.voxel.rgb, vec3(0.0), vec3(]] .. (
-			"%.4f"
-		):format(voxel_gi.MAX_ALBEDO) .. [[));
+			vec3 albedo = hit.voxel.rgb;
 			vec3 direct = RC_BLOCK.rc_sun_radiance.rgb * (NoL * shadow / 3.14159265359);
 
 			for (int i = 0; i < RC_BLOCK.light_count; i++) {
