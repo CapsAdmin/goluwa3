@@ -1066,6 +1066,11 @@ do
 		scene_bvh.has_built = true
 		scene_bvh.dirty_components = {}
 		scene_bvh.version = scene_bvh.version + 1
+
+		if scene_bvh.triangle_count > 0 and not scene_bvh.readied then
+			event.Call("BVHSceneReady")
+			scene_bvh.readied = true
+		end
 	end
 end
 

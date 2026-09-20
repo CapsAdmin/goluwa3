@@ -146,7 +146,7 @@ local function clear_bvh_nodes()
 end
 
 local function draw_bvh_stats(x, y)
-	local ready = scene_bvh.IsReady and scene_bvh.IsReady() or false
+	local ready = scene_bvh.IsReady()
 	local node_count = scene_bvh.node_count or 0
 	local triangle_count = scene_bvh.triangle_count or 0
 	local build_time = scene_bvh.build_time or 0
