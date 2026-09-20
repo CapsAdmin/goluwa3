@@ -342,6 +342,7 @@ return {
 				vec2 dir_frac = dir_uv - vec2(dir_base);
 
 				vec4 total = vec4(0.0);
+				float total_weight = 0.0;
 
 				for (int y = 0; y < 2; y++) {
 					for (int x = 0; x < 2; x++) {
@@ -353,7 +354,12 @@ return {
 							(x == 0 ? 1.0 - dir_frac.x : dir_frac.x) *
 							(y == 0 ? 1.0 - dir_frac.y : dir_frac.y);
 						total += texelFetch(ssr_rc_cascade, dir * probe_grid + probe, 0) * weight;
+						total_weight += weight;
 					}
+				}
+
+				if (total_weight > 0.0) {
+					total /= total_weight;
 				}
 
 				return vec4(total.rgb, 1.0 - total.a);
