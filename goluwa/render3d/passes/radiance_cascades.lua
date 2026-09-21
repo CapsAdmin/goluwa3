@@ -5,6 +5,8 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
+local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
 local MAX_CLIPMAPS = voxel_gi.GetMaxClipmapCount()
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
@@ -16,7 +18,13 @@ local BINDING_BVH_NODES = BINDING_NORMAL_VOLUME_0 + MAX_CLIPMAPS
 local BINDING_BVH_TRIANGLES = BINDING_BVH_NODES + 1
 local BINDING_RESOLVE_DEPTH = BINDING_BVH_TRIANGLES + 1
 local BINDING_OCCLUSION_MAP = BINDING_BVH_TRIANGLES + 1
+local BINDING_FEEDBACK = BINDING_BVH_TRIANGLES + 2
 local USE_BVH = radiance_cascades.BACKEND == "bvh"
+
+local function probe_tex_size(cascade)
+	local p = radiance_cascades.GetProbesPerAxis(cascade)
+	return {x = p * p, y = p * radiance_cascades.DIRECTION_COUNT}
+end
 
 local function get_cascade_texture(cascade)
 	return function()
@@ -26,6 +34,57 @@ local function get_cascade_texture(cascade)
 
 		return pipeline:GetFramebuffer(1):GetAttachment(1)
 	end
+end
+
+-- persistent per-probe irradiance feedback buffer: the cascades' own second
+-- bounce. Rebuilt with the pass list whenever the probe grid changes; stale
+-- texels just re-converge.
+local feedback_tex = nil
+local FEEDBACK_PROBES = radiance_cascades.GetProbesPerAxis(0)
+
+local function get_feedback_texture()
+	if not feedback_tex then
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		local tex = Texture.New{
+			width = FEEDBACK_PROBES * FEEDBACK_PROBES,
+			height = FEEDBACK_PROBES,
+			format = "r16g16b16a16_sfloat",
+			mip_map_levels = 1,
+			image = {usage = {"storage", "sampled", "transfer_dst"}},
+			view = {view_type = "2d"},
+		}
+		tex:SetDebugName("rc bounce feedback")
+		render.TransitionResourceTo(
+			tex,
+			"transfer_dst_optimal",
+			{
+				cmd = cmd,
+				srcStage = "top_of_pipe",
+				srcAccess = "none",
+				dstStage = "transfer",
+				dstAccess = "transfer_write",
+			}
+		)
+		cmd:ClearColorImage{image = tex:GetImage(), color = {0, 0, 0, 0}}
+		render.TransitionResourceFrom(
+			tex,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "transfer",
+				srcAccess = "transfer_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+			}
+		)
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		cmd:Remove()
+		feedback_tex = tex
+	end
+
+	return feedback_tex
 end
 
 local function build_volume_bindings()
@@ -57,16 +116,12 @@ local function build_volume_bindings()
 end
 
 local function build_cascade_pass(cascade, is_top)
+	local upper_probes = radiance_cascades.GetProbesPerAxis(cascade + 1)
+	local upper_spacing = 2 * radiance_cascades.VOLUME_EXTENT / upper_probes
 	local sampled_images, volume_declarations = build_volume_bindings()
 	sampled_images[#sampled_images + 1] = {
 		binding_index = BINDING_CASCADE_SOURCE,
 		get_texture = get_cascade_texture(cascade + 1),
-	}
-	sampled_images[#sampled_images + 1] = {
-		binding_index = BINDING_OCCLUSION_MAP,
-		get_texture = function()
-			return light_occlusion.GetOcclusionTexture()
-		end,
 	}
 	sampled_images[#sampled_images + 1] = {
 		binding_index = BINDING_OCCLUSION_MAP,
@@ -80,15 +135,18 @@ local function build_cascade_pass(cascade, is_top)
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 		},
+		FramebufferSize = probe_tex_size(cascade),
 		framebuffer_count = 1,
-		scale = function()
-			return radiance_cascades.SCREEN_SCALE
-		end,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
 				binding_index = BINDING_OUTPUT,
 				attachment = 1,
+				dst_stage = "compute",
+			},
+			{
+				binding_index = BINDING_FEEDBACK,
+				get_texture = get_feedback_texture,
 				dst_stage = "compute",
 			},
 		},
@@ -109,10 +167,6 @@ local function build_cascade_pass(cascade, is_top)
 				end,
 			},
 		},
-		-- whichever cascade runs first pulls the clipmap volumes up to date,
-		-- the resolve itself no-ops when the voxel content has not changed.
-		-- the tree's descriptors are not part of the declarative binding path,
-		-- so every cascade has to point them at the current buffers itself
 		on_pre_draw = function(self, cmd, frame_index, descriptor_index)
 			if is_top then voxel_gi.EnsureResolvedClipmaps(cmd) end
 
@@ -124,15 +178,319 @@ local function build_cascade_pass(cascade, is_top)
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_cascade;
 			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D upper_cascade_tex;
+			layout(set = 0, binding = ]] .. BINDING_FEEDBACK .. [[, rgba16f) uniform readonly image2D rc_feedback_tex;
 		]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. "\n" .. volume_declarations .. (
 				USE_BVH and
 				scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) or
 				""
 			),
 		shader = [[
-			const int RC_DIRECTIONS = ]] .. radiance_cascades.GetDirectionCount(cascade) .. [[;
+			const int RC_CASCADE = ]] .. cascade .. [[;
 			#define RC_IS_TOP ]] .. (
 				is_top and
+				1 or
+				0
+			) .. [[
+
+			#define saturate(x) clamp(x, 0.0, 1.0)
+
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			]] .. ibl.GetEnvironmentGLSLCode() .. [[
+			]] .. radiance_cascades.GetCommonGLSL(radiance_cascades.GetProbesPerAxis(cascade)) .. [[
+
+			// the feedback grid is the cascade-0 probe lattice; it does not follow the
+			// per-cascade RC_PROBES_PER_AXIS/RC_SPACING, so it is derived here.
+			float rc_feedback_spacing() {
+				return 2.0 * RC_VOLUME_EXTENT / float(rc_data.rc_feedback_probes);
+			}
+
+			vec3 rc_feedback_grid_origin() {
+				float s = rc_feedback_spacing();
+				return floor((rc_data.camera_position.xyz - vec3(RC_VOLUME_EXTENT)) / s) * s;
+			}
+
+			// trilinear sample the previous frame's per-probe irradiance at a lit
+			// surface; weighted by per-probe validity so a fresh/teleported grid
+			// contributes nothing until it re-converges, and by how much of the
+			// surface each probe can see. note that neighbouring probes have no
+			// visibility between them, so this still diffuses light through thin
+			// geometry over a few frames -- hence rc_bounce defaulting to 0.
+			vec3 rc_feedback_at(vec3 pos, vec3 N) {
+				float s = rc_feedback_spacing();
+				int n = rc_data.rc_feedback_probes;
+				vec3 origin = rc_feedback_grid_origin();
+				vec3 local = (pos + N * (s * rc_data.rc_normal_bias) - origin) / s - 0.5;
+				ivec3 base = ivec3(floor(local));
+				vec3 frac = local - vec3(base);
+				vec3 acc = vec3(0.0);
+				float wsum = 0.0;
+				for (int z = 0; z < 2; z++)
+				for (int y = 0; y < 2; y++)
+				for (int x = 0; x < 2; x++) {
+					ivec3 p = clamp(base + ivec3(x, y, z), ivec3(0), ivec3(n - 1));
+					vec3 to_probe = origin + (vec3(p) + 0.5) * s - pos;
+					float probe_dist = length(to_probe);
+					float facing = probe_dist > 1e-4 ?
+						(dot(to_probe / probe_dist, N) + 1.0) * 0.5 :
+						1.0;
+					float w = (x == 0 ? 1.0 - frac.x : frac.x) *
+						(y == 0 ? 1.0 - frac.y : frac.y) *
+						(z == 0 ? 1.0 - frac.z : frac.z) *
+						facing * facing;
+					vec4 val = imageLoad(rc_feedback_tex, ivec2(p.x + n * p.y, p.z));
+					acc += val.rgb * w * val.a;
+					wsum += w * val.a;
+				}
+				return wsum > 1e-4 ? acc / wsum : vec3(0.0);
+			}
+
+			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
+			]] .. radiance_cascades.GetShadowGLSL("rc_data") .. [[
+			]] .. radiance_cascades.GetLightGLSL("rc_data") .. [[
+			]] .. voxel_gi.GetGLSLCode("rc_data.gi") .. [[
+			]] .. (
+				USE_BVH and
+				scene_bvh.GetTraversalGLSL() or
+				""
+			) .. [[
+			]] .. radiance_cascades.GetTraceGLSL("rc_data") .. [[
+
+			#if RC_IS_TOP
+			const float RC_MERGE_OVERLAP = 0.0;
+			#else
+			const int RC_UPPER_PROBES = ]] .. upper_probes .. [[;
+			const float RC_UPPER_SPACING = ]] .. upper_spacing .. [[;
+			const float RC_MERGE_OVERLAP = RC_UPPER_SPACING;
+			vec3 rc_upper_grid_origin() {
+				return floor((rc_data.camera_position.xyz - vec3(RC_VOLUME_EXTENT)) / RC_UPPER_SPACING) * RC_UPPER_SPACING;
+			}
+			#endif
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_cascade);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				// decode probe coords and direction from texel position
+				int py = pos.x / RC_PROBES_PER_AXIS;
+				int px = pos.x - py * RC_PROBES_PER_AXIS;
+				int dir_idx = pos.y % RC_DIRECTION_COUNT;
+				int pz = pos.y / RC_DIRECTION_COUNT;
+				ivec3 probe_xyz = ivec3(px, py, pz);
+				int probe_index = rc_probe_index(probe_xyz);
+
+				vec3 world_pos = rc_probe_world_pos(probe_xyz);
+				vec3 direction = rc_oct_decode(
+					(vec2(float(dir_idx % 4), float(dir_idx / 4)) + 0.5) / 4.0
+				);
+
+				if (rc_data.rc_enabled == 0) {
+					imageStore(out_cascade, pos, vec4(rc_sky(direction), 1.0));
+					return;
+				}
+
+				float interval_start = RC_CASCADE == 0 ? 0.0 : rc_interval_end(RC_CASCADE - 1);
+				float interval_end = rc_interval_end(RC_CASCADE);
+				rc_hit hit;
+				vec4 result;
+				// The upper cascade's ray for this direction starts at ITS probe, up to
+				// one upper spacing away from where this ray ends, and nothing ever
+				// traces that connecting gap. Overlap the two by tracing that far past
+				// the nominal end: anything in the gap terminates this ray instead of
+				// letting the coarse probe -- which may be outside the room -- hand its
+				// radiance over.
+				bool traced = rc_trace_interval(
+					world_pos,
+					direction,
+					interval_start,
+					interval_end + RC_MERGE_OVERLAP,
+					hit
+				);
+
+				if (!traced) {
+#if RC_IS_TOP
+					result = vec4(rc_sky(direction), 1.0);
+#else
+					// trilinear merge from the coarser upper cascade grid. the upper
+					// interval starts where this one ended, so sample the grid at the
+					// ray's end point, not at this probe: that keeps the merged ray
+					// continuous instead of teleporting it back to the probe centre,
+					// which is what lets a coarse probe outside a wall feed an interior
+					// probe
+					vec3 grid_pos = world_pos + direction * interval_end;
+					vec3 local_upper = (grid_pos - rc_upper_grid_origin()) / RC_UPPER_SPACING - 0.5;
+					ivec3 base_upper = ivec3(floor(local_upper));
+					vec3 frac_upper = local_upper - vec3(base_upper);
+					vec3 acc = vec3(0.0);
+					for (int z = 0; z < 2; z++)
+					for (int y = 0; y < 2; y++)
+					for (int x = 0; x < 2; x++) {
+						ivec3 p = clamp(base_upper + ivec3(x, y, z), ivec3(0), ivec3(RC_UPPER_PROBES - 1));
+						float w = (x == 0 ? 1.0 - frac_upper.x : frac_upper.x) *
+								  (y == 0 ? 1.0 - frac_upper.y : frac_upper.y) *
+								  (z == 0 ? 1.0 - frac_upper.z : frac_upper.z);
+						ivec2 tc = ivec2(p.x + RC_UPPER_PROBES * p.y, p.z * RC_DIRECTION_COUNT + dir_idx);
+						acc += texelFetch(upper_cascade_tex, tc, 0).rgb * w;
+					}
+					result = vec4(acc, 1.0);
+#endif
+				} else {
+					result = vec4(rc_shade_hit(hit), 0.0);
+					if (rc_data.rc_bounce > 0.0) {
+						// damped feedback: the surface reflects the surrounding
+						// irradiance the cascades accumulated last frame. this is the
+						// cascades' own second bounce, so it inherits their visibility
+						// instead of the voxel gi's
+						result.rgb += hit.voxel.rgb *
+							rc_feedback_at(hit.position, hit.normal) *
+							rc_data.rc_bounce;
+					}
+				}
+
+				imageStore(out_cascade, pos, min(result, vec4(65504.0)));
+			}
+		]],
+	}
+end
+
+local function build_bounce_pass()
+	local p0 = radiance_cascades.GetProbesPerAxis(0)
+	return {
+		name = "radiance_cascades_bounce",
+		ComputePass = true,
+		ColorFormat = {{"r8_unorm", {"dummy", "r"}}},
+		FramebufferSize = {x = p0 * p0, y = p0},
+		framebuffer_count = 1,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				attachment = 1,
+				dst_stage = "compute",
+			},
+			{
+				binding_index = BINDING_FEEDBACK,
+				get_texture = get_feedback_texture,
+				dst_stage = "compute",
+			},
+		},
+		sampled_images = {
+			{
+				binding_index = BINDING_CASCADE_SOURCE,
+				get_texture = get_cascade_texture(0),
+			},
+		},
+		uniform_buffers = {
+			{
+				name = "rc_data",
+				binding_index = BINDING_UNIFORM,
+				block = radiance_cascades.GetBlockLayout(),
+				write = function(self, block)
+					return radiance_cascades.WriteBlock(self, block, 0)
+				end,
+			},
+		},
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, r8) uniform writeonly image2D out_dummy;
+			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D cascade0_tex;
+			layout(set = 0, binding = ]] .. BINDING_FEEDBACK .. [[, rgba16f) uniform writeonly image2D rc_feedback_tex;
+		]],
+		shader = [[
+			const int RC_FB_DIR = ]] .. radiance_cascades.DIRECTION_COUNT .. [[;
+
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_dummy);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				// each texel is one cascade-0 probe; its RC_FB_DIR directions occupy
+				// the cascade0_tex rows [pz*RC_FB_DIR, pz*RC_FB_DIR + RC_FB_DIR)
+				int pz = pos.y;
+				vec3 sum = vec3(0.0);
+				for (int d = 0; d < RC_FB_DIR; d++) {
+					sum += texelFetch(cascade0_tex, ivec2(pos.x, pz * RC_FB_DIR + d), 0).rgb;
+				}
+
+				vec3 irradiance = sum / float(RC_FB_DIR);
+
+				// cleared buffer reads a=0 on the first frame (invalid); from then on
+				// a=1 marks the probe's feedback as converged enough to contribute
+				imageStore(rc_feedback_tex, pos, vec4(irradiance, 1.0));
+				imageStore(out_dummy, pos, vec4(0.0));
+			}
+		]],
+	}
+end
+
+local function build_resolve_pass()
+	local sampled_images, volume_declarations = build_volume_bindings()
+	sampled_images[#sampled_images + 1] = {
+		binding_index = BINDING_CASCADE_SOURCE,
+		get_texture = get_cascade_texture(0),
+	}
+	sampled_images[#sampled_images + 1] = {
+		binding_index = BINDING_OCCLUSION_MAP,
+		get_texture = function()
+			return light_occlusion.GetOcclusionTexture()
+		end,
+	}
+	return {
+		name = "radiance_cascades_resolve",
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+		},
+		framebuffer_count = 1,
+		scale = function()
+			return radiance_cascades.RESOLVE_SCALE
+		end,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				attachment = 1,
+				dst_stage = {"compute", "fragment"},
+			},
+		},
+		sampled_images = sampled_images,
+		storage_buffers = USE_BVH and
+			{
+				{binding_index = BINDING_BVH_NODES},
+				{binding_index = BINDING_BVH_TRIANGLES},
+			} or
+			nil,
+		uniform_buffers = {
+			{
+				name = "rc_data",
+				binding_index = BINDING_UNIFORM,
+				block = radiance_cascades.GetBlockLayout(),
+				write = function(self, block)
+					return radiance_cascades.WriteBlock(self, block, 0)
+				end,
+			},
+		},
+		on_pre_draw = function(self, cmd, frame_index, descriptor_index)
+			if USE_BVH then
+				scene_bvh.EnsureBuilt()
+				scene_bvh.BindBuffers(self, descriptor_index, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
+			end
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D cascade_tex;
+		]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. "\n" .. volume_declarations .. (
+				USE_BVH and
+				scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) or
+				""
+			),
+		shader = [[
+			const int RC_RESOLVE_DIRECTIONS = ]] .. radiance_cascades.DIRECTIONS_PER_AXIS .. [[;
+			#define RC_IS_BVH ]] .. (
+				USE_BVH and
 				1 or
 				0
 			) .. [[
@@ -153,192 +511,25 @@ local function build_cascade_pass(cascade, is_top)
 			) .. [[
 			]] .. radiance_cascades.GetTraceGLSL("rc_data") .. [[
 
-#if RC_IS_TOP == 0
-			vec4 rc_merge_upper(vec2 probe_uv, vec3 world_pos, ivec2 direction_texel) {
-				ivec2 upper_size = textureSize(upper_cascade_tex, 0);
-				ivec2 upper_grid = max(upper_size / (RC_DIRECTIONS * 2), ivec2(1));
-				vec2 upper_coord = probe_uv * vec2(upper_grid) - 0.5;
-				ivec2 base = ivec2(floor(upper_coord));
-				vec2 ratio = upper_coord - vec2(base);
-				ivec2 probe_coords[4];
-				vec3 probe_positions[4];
-
-				for (int i = 0; i < 4; i++) {
-					probe_coords[i] = clamp(base + rc_bilinear_offset(i), ivec2(0), upper_grid - 1);
-					vec2 uv = (vec2(probe_coords[i]) + 0.5) / vec2(upper_grid);
-					probe_positions[i] = rc_probe_world_pos(uv, rc_probe_depth(uv));
-				}
-
-				vec4 weights = rc_bilinear_weights(
-					rc_bilinear_3d_ratio(probe_positions, world_pos, ratio)
-				);
-				vec4 total = vec4(0.0);
-
-				for (int p = 0; p < 4; p++) {
-					if (weights[p] <= 0.0) continue;
-
-					for (int d = 0; d < 4; d++) {
-						ivec2 upper_direction = direction_texel * 2 + rc_bilinear_offset(d);
-						total += texelFetch(
-							upper_cascade_tex,
-							upper_direction * upper_grid + probe_coords[p],
-							0
-						) * (weights[p] * 0.25);
-					}
-				}
-
-				return total;
-			}
-#endif
-
-			void main() {
-				ivec2 texel = get_screen_pos();
-				ivec2 size = imageSize(out_cascade);
-
-				if (!is_screen_pos_in_bounds(texel, size)) return;
-
-				ivec2 probe_grid = max(size / RC_DIRECTIONS, ivec2(1));
-				ivec2 probe = texel % probe_grid;
-				ivec2 direction_texel = texel / probe_grid;
-
-				if (direction_texel.x >= RC_DIRECTIONS || direction_texel.y >= RC_DIRECTIONS) {
-					imageStore(out_cascade, texel, vec4(0.0));
-					return;
-				}
-
-				vec2 probe_uv = (vec2(probe) + 0.5) / vec2(probe_grid);
-				vec2 jitter = rc_direction_jitter(rc_data.rc_frame, rc_data.rc_jitter);
-				vec3 direction = rc_oct_decode(
-					(vec2(direction_texel) + 0.5 + jitter) / float(RC_DIRECTIONS)
-				);
-				float depth = rc_probe_depth(probe_uv);
-
-				if (rc_data.rc_enabled == 0 || depth == 1.0) {
-					imageStore(out_cascade, texel, vec4(rc_sky(direction), 1.0));
-					return;
-				}
-
-				vec3 world_pos = rc_probe_world_pos(probe_uv, depth);
-				vec3 origin = world_pos + rc_probe_normal(probe_uv) * rc_data.rc_interval.z;
-				rc_hit hit;
-				vec4 result;
-
-				if (rc_trace_interval(origin, direction, rc_data.rc_interval.x, rc_data.rc_interval.y, hit)) {
-					result = vec4(rc_shade_hit(hit), 0.0);
-				} else {
-#if RC_IS_TOP
-					result = vec4(rc_sky(direction), 1.0);
+			bool rc_occluded(vec3 from, vec3 N, vec3 probe_pos) {
+				// push the ray start off the surface along its normal; stable across
+				// frames unlike a radius-based self-hit skip, which flickers
+				vec3 origin = from + N * rc_data.rc_vismerge_bias;
+				vec3 delta = probe_pos - origin;
+				float dist = length(delta);
+				if (dist < 1e-3) return false;
+				vec3 dir = delta / dist;
+				float check_dist = rc_data.rc_vismerge_range * dist;
+				float eps = rc_data.rc_vismerge_bias * 0.5;
+#if RC_IS_BVH
+				scene_bvh_hit traced;
+				if (!scene_bvh_trace(origin, dir, 0.0, check_dist, traced)) return false;
+				return traced.distance > eps;
 #else
-					result = rc_merge_upper(probe_uv, world_pos, direction_texel);
+				rc_hit hit;
+				if (!rc_trace_voxels(origin, dir, 0.0, check_dist, hit)) return false;
+				return length(hit.position - origin) > eps;
 #endif
-				}
-
-				imageStore(out_cascade, texel, min(result, vec4(65504.0)));
-			}
-		]],
-	}
-end
-
-local function build_resolve_pass()
-	return {
-		name = "radiance_cascades_resolve",
-		ComputePass = true,
-		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			-- the view depth this pixel resolved at, so next frame can tell
-			-- whether its reprojection landed on the same surface
-			{"r16_sfloat", {"gi_depth", "r"}},
-		},
-		framebuffer_count = 2,
-		LocalSize = COMPUTE_LOCAL_SIZE,
-		storage_images = {
-			{
-				binding_index = BINDING_OUTPUT,
-				attachment = 1,
-				dst_stage = {"compute", "fragment"},
-			},
-			{
-				binding_index = BINDING_RESOLVE_DEPTH,
-				attachment = 2,
-				dst_stage = {"compute", "fragment"},
-			},
-		},
-		sampled_images = {
-			{
-				binding_index = BINDING_CASCADE_SOURCE,
-				get_texture = get_cascade_texture(0),
-			},
-		},
-		uniform_buffers = {
-			{
-				name = "rc_data",
-				binding_index = BINDING_UNIFORM,
-				block = radiance_cascades.GetBlockLayout(),
-				write = function(self, block)
-					return radiance_cascades.WriteBlock(self, block, 0)
-				end,
-			},
-		},
-		custom_declarations = [[
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			layout(set = 0, binding = ]] .. BINDING_RESOLVE_DEPTH .. [[, r16f) uniform writeonly image2D out_gi_depth;
-			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D cascade_tex;
-		]],
-		shader = [[
-			const int RC_DIRECTIONS = ]] .. radiance_cascades.GetDirectionCount(0) .. [[;
-			const float RC_SEED_SEARCH_RADIUS = ]] .. radiance_cascades.SEED_SEARCH_RADIUS .. [[;
-			const float RC_SEED_BLEND = ]] .. radiance_cascades.SEED_BLEND .. [[;
-			const float RC_FIREFLY_CLAMP = ]] .. radiance_cascades.FIREFLY_CLAMP .. [[;
-
-			#define saturate(x) clamp(x, 0.0, 1.0)
-
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
-			]] .. ibl.GetEnvironmentGLSLCode() .. [[
-			]] .. radiance_cascades.GetCommonGLSL() .. [[
-			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
-
-			float rc_luma(vec3 color) {
-				return dot(color, vec3(0.2126, 0.7152, 0.0722));
-			}
-
-			bool rc_spatial_reference(vec2 uv, float view_depth, out vec4 reference) {
-				reference = vec4(0.0);
-
-				if (rc_data.rc_history_tex < 0) return false;
-
-				ivec2 size = textureSize(TEXTURE(rc_data.rc_history_tex), 0);
-				vec2 texel_size = 1.0 / vec2(size);
-				float tolerance = max(view_depth * 0.02, 0.05);
-				vec4 total = vec4(0.0);
-				float valid = 0.0;
-
-				for (int i = 0; i < 8; i++) {
-					float angle = (float(i) + 0.5) * (6.28318530718 / 8.0);
-					vec2 tap_uv = uv + vec2(cos(angle), sin(angle)) * RC_SEED_SEARCH_RADIUS * texel_size;
-
-					if (any(lessThan(tap_uv, vec2(0.0))) || any(greaterThan(tap_uv, vec2(1.0)))) continue;
-
-					float stored = texture(TEXTURE(rc_data.rc_history_depth_tex), tap_uv).r;
-
-					if (stored <= 0.0 || abs(stored - view_depth) > tolerance) continue;
-
-					total += texture(TEXTURE(rc_data.rc_history_tex), tap_uv);
-					valid += 1.0;
-				}
-
-				if (valid <= 0.0) return false;
-
-				reference = total / valid;
-				return true;
-			}
-
-			vec4 rc_clamp_outlier(vec4 fresh, vec4 reference, vec3 sky) {
-				float limit = max(rc_luma(reference.rgb), rc_luma(sky)) * RC_FIREFLY_CLAMP;
-				float fresh_luma = rc_luma(fresh.rgb);
-
-				if (limit <= 0.0 || fresh_luma <= limit) return fresh;
-
-				return vec4(fresh.rgb * (limit / fresh_luma), fresh.a);
 			}
 
 			void main() {
@@ -349,136 +540,147 @@ local function build_resolve_pass()
 
 				vec2 uv = get_screen_uv(pos, size);
 				float depth = rc_probe_depth(uv);
-				vec3 N = rc_probe_normal(uv);
-				vec3 sky = sample_environment_irradiance(rc_data.rc_env_irradiance_tex, N) *
-					rc_data.rc_interval.w;
 
 				if (depth == 1.0 || rc_data.rc_enabled == 0) {
+					vec3 N = vec3(0.0, 1.0, 0.0);
+					vec3 sky = sample_environment_irradiance(rc_data.rc_env_irradiance_tex, N) *
+						rc_data.rc_sky_intensity;
 					imageStore(out_color, pos, vec4(sky, 1.0));
-					imageStore(out_gi_depth, pos, vec4(0.0));
 					return;
 				}
 
-				ivec2 cascade_size = textureSize(cascade_tex, 0);
-				ivec2 probe_grid = max(cascade_size / RC_DIRECTIONS, ivec2(1));
-				vec2 probe_coord = uv * vec2(probe_grid) - 0.5;
-				ivec2 base = ivec2(floor(probe_coord));
-				vec4 weights = rc_bilinear_weights(probe_coord - vec2(base));
-				ivec2 probe_coords[4];
-				vec4 probe_depths;
+				vec3 N = rc_probe_normal(uv);
+				vec3 world_pos = rc_reconstruct_world_pos(uv, depth);
+				vec3 sky = sample_environment_irradiance(rc_data.rc_env_irradiance_tex, N) *
+					rc_data.rc_sky_intensity;
 
-				for (int i = 0; i < 4; i++) {
-					probe_coords[i] = clamp(base + rc_bilinear_offset(i), ivec2(0), probe_grid - 1);
-					vec2 probe_uv = (vec2(probe_coords[i]) + 0.5) / vec2(probe_grid);
-					probe_depths[i] = rc_linear_depth(rc_probe_depth(probe_uv));
+				// gather at a point pushed off the surface along the normal, so the
+				// trilinear cell is the one in front of the wall rather than the one
+				// the wall itself occupies
+				vec3 sample_pos = world_pos + N * (RC_SPACING * rc_data.rc_normal_bias);
+
+				// trilinear in the cascade-0 probe grid. probe k sits at the cell
+				// centre (k + 0.5) * spacing, so the cube surrounding the sample
+				// starts at floor(local - 0.5)
+				vec3 local = (sample_pos - rc_grid_origin()) / RC_SPACING - 0.5;
+				ivec3 base = ivec3(floor(local));
+				vec3 frac = local - vec3(base);
+
+				ivec3 probe_p[8];
+				float probe_w[8];
+
+				for (int z = 0; z < 2; z++)
+				for (int y = 0; y < 2; y++)
+				for (int x = 0; x < 2; x++) {
+					int i = z * 4 + y * 2 + x;
+					probe_p[i] = clamp(base + ivec3(x, y, z), ivec3(0), ivec3(RC_PROBES_PER_AXIS - 1));
+					vec3 to_probe = rc_probe_world_pos(probe_p[i]) - world_pos;
+					float probe_dist = length(to_probe);
+					// a probe behind the shading surface only ever sees its back side,
+					// so it carries no light for this pixel. the smooth wrap keeps the
+					// weight continuous instead of popping at the horizon
+					float facing = probe_dist > 1e-4 ?
+						(dot(to_probe / probe_dist, N) + 1.0) * 0.5 :
+						1.0;
+					probe_w[i] = (x == 0 ? 1.0 - frac.x : frac.x) *
+						(y == 0 ? 1.0 - frac.y : frac.y) *
+						(z == 0 ? 1.0 - frac.z : frac.z) *
+						facing * facing;
 				}
 
-				float depth_span = max(max(probe_depths.x, probe_depths.y), max(probe_depths.z, probe_depths.w)) -
-					min(min(probe_depths.x, probe_depths.y), min(probe_depths.z, probe_depths.w));
-				float depth_average = dot(probe_depths, vec4(0.25));
+				if (rc_data.rc_resolve_nearest > 0.5) {
+					// diagnostic: use only the single nearest probe, no trilinear blend
+					int nearest = 0;
+					float nearest_d2 = 1e30;
+					for (int i = 0; i < 8; i++) {
+						vec3 delta = vec3(probe_p[i]) + 0.5 - local;
+						float d2 = dot(delta, delta);
+						if (d2 < nearest_d2) { nearest_d2 = d2; nearest = i; }
+					}
+					for (int i = 0; i < 8; i++) probe_w[i] = (i == nearest) ? 1.0 : 0.0;
+				}
 
-				float discontinuity = smoothstep(
-					0.02,
-					0.10,
-					depth_span / max(depth_average, 1e-4)
-				);
-				vec4 depth_weights = weights /
-					(abs(probe_depths - vec4(rc_linear_depth(depth))) + vec4(1e-4));
-				weights /= max(dot(weights, vec4(1.0)), 1e-6);
-				depth_weights /= max(dot(depth_weights, vec4(1.0)), 1e-6);
-				weights = mix(weights, depth_weights, discontinuity);
+				if (rc_data.rc_vismerge > 0.5 && rc_data.rc_resolve_nearest < 0.5) {
+					float gated_sum = 0.0;
+					float probe_gated[8];
+
+					for (int i = 0; i < 8; i++) {
+						probe_gated[i] = probe_w[i];
+
+						if (probe_w[i] > 0.0 && rc_occluded(world_pos, N, rc_probe_world_pos(probe_p[i]))) {
+							probe_gated[i] = 0.0;
+						}
+
+						gated_sum += probe_gated[i];
+					}
+
+					// only take the gated weights when something survived. an all-occluded
+					// pixel keeps the facing weights rather than falling back to the
+					// un-gated trilinear, which is exactly the leaking result
+					if (gated_sum > 1e-4) {
+						for (int i = 0; i < 8; i++) probe_w[i] = probe_gated[i];
+					}
+				}
+
+				// renormalize: zeroed probes must redistribute their weight to the
+				// visible ones instead of darkening the pixel
+				float weight_sum = 0.0;
+
+				for (int i = 0; i < 8; i++) weight_sum += probe_w[i];
+
+				if (weight_sum <= 1e-6) {
+					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 0.0));
+					return;
+				}
+
+				for (int i = 0; i < 8; i++) probe_w[i] /= weight_sum;
+
 				vec3 radiance = vec3(0.0);
 				float visibility = 0.0;
-				float total_weight = 0.0;
-				vec2 jitter = rc_direction_jitter(rc_data.rc_frame, rc_data.rc_jitter);
+				float cosine_sum = 0.0;
 
-				for (int p = 0; p < 4; p++) {
-					if (weights[p] <= 0.0) continue;
+				for (int d = 0; d < RC_RESOLVE_DIRECTIONS * RC_RESOLVE_DIRECTIONS; d++) {
+					vec3 L = rc_oct_decode(
+						(vec2(float(d % RC_RESOLVE_DIRECTIONS), float(d / RC_RESOLVE_DIRECTIONS)) + 0.5) /
+						float(RC_RESOLVE_DIRECTIONS)
+					);
+					float cosine = max(dot(N, L), 0.0);
 
-					vec3 probe_radiance = vec3(0.0);
-					float probe_visibility = 0.0;
-					float cosine_sum = 0.0;
+					if (cosine <= 0.0) continue;
 
-					for (int d = 0; d < RC_DIRECTIONS * RC_DIRECTIONS; d++) {
-						ivec2 direction_texel = ivec2(d % RC_DIRECTIONS, d / RC_DIRECTIONS);
-						vec3 L = rc_oct_decode(
-							(vec2(direction_texel) + 0.5 + jitter) / float(RC_DIRECTIONS)
-						);
-						float cosine = max(dot(N, L), 0.0);
+					vec3 acc = vec3(0.0);
+					float vis_acc = 0.0;
 
-						if (cosine <= 0.0) continue;
+					for (int i = 0; i < 8; i++) {
+						float w = probe_w[i];
 
-						vec4 interval = texelFetch(
-							cascade_tex,
-							direction_texel * probe_grid + probe_coords[p],
-							0
-						);
-						probe_radiance += interval.rgb * cosine;
-						probe_visibility += interval.a * cosine;
-						cosine_sum += cosine;
+						if (w <= 0.0) continue;
+
+						ivec2 tc = rc_texel_coord(probe_p[i], d);
+						vec4 val = texelFetch(cascade_tex, tc, 0);
+						acc += val.rgb * w;
+						vis_acc += val.a * w;
 					}
 
-					if (cosine_sum <= 1e-6) continue;
-
-					radiance += probe_radiance * (weights[p] / cosine_sum);
-					visibility += probe_visibility * (weights[p] / cosine_sum);
-					total_weight += weights[p];
+					radiance += acc * cosine;
+					visibility += vis_acc * cosine;
+					cosine_sum += cosine;
 				}
 
-				float view_depth = rc_linear_depth(depth);
-
-				if (total_weight <= 1e-6) {
+				if (cosine_sum <= 1e-6) {
 					imageStore(out_color, pos, vec4(sky, 1.0));
-					imageStore(out_gi_depth, pos, vec4(view_depth));
 					return;
 				}
 
-				vec4 resolved = vec4(
-					min(radiance / total_weight, vec3(65504.0)),
-					visibility / total_weight
-				);
-				vec2 prev_uv;
-				float expected;
-				vec4 history;
-				bool history_valid = false;
-
-				if (rc_data.rc_history_tex >= 0 && rc_fetch_surface_motion(uv, depth, prev_uv, expected)) {
-					if (all(greaterThanEqual(prev_uv, vec2(0.0))) && all(lessThanEqual(prev_uv, vec2(1.0)))) {
-						float stored = texture(TEXTURE(rc_data.rc_history_depth_tex), prev_uv).r;
-
-						if (abs(stored - expected) < max(expected * 0.02, 0.05)) {
-							history = texture(TEXTURE(rc_data.rc_history_tex), prev_uv);
-							history_valid = true;
-						}
-					}
-				}
-
-				if (history_valid) {
-					resolved = rc_clamp_outlier(resolved, history, sky);
-					resolved = mix(resolved, history, rc_data.rc_history_blend);
-				} else {
-					vec4 reference;
-
-					if (rc_spatial_reference(uv, view_depth, reference)) {
-						resolved = rc_clamp_outlier(resolved, reference, sky);
-						resolved = mix(resolved, reference, RC_SEED_BLEND);
-					} else {
-						resolved = rc_clamp_outlier(resolved, vec4(sky, 1.0), sky);
-					}
-				}
-
-				imageStore(out_color, pos, resolved);
-				imageStore(out_gi_depth, pos, vec4(view_depth));
+				radiance /= cosine_sum;
+				visibility /= cosine_sum;
+				imageStore(out_color, pos, vec4(min(radiance, vec3(65504.0)), visibility));
 			}
 		]],
 	}
 end
 
 local passes = {}
-
--- the world space bounce reads voxel gi's probe cascades, and nothing else in
--- the default pass list updates them any more, so radiance cascades has to
--- drive the probe update itself
 passes[#passes + 1] = {
 	name = "radiance_cascades_probes",
 	ComputePass = true,
@@ -494,12 +696,11 @@ passes[#passes + 1] = {
 	end,
 }
 
--- cascades resolve from the longest interval down, each one merging the
--- cascade above it, so the list has to run high to low
 for cascade = radiance_cascades.CASCADE_COUNT - 1, 0, -1 do
 	passes[#passes + 1] = build_cascade_pass(cascade, cascade == radiance_cascades.CASCADE_COUNT - 1)
 end
 
+passes[#passes + 1] = build_bounce_pass()
 passes[#passes + 1] = build_resolve_pass()
 passes[#passes + 1] = {
 	name = "radiance_cascades_denoise",
@@ -508,6 +709,9 @@ passes[#passes + 1] = {
 		{"r16g16b16a16_sfloat", {"color", "rgba"}},
 	},
 	framebuffer_count = 1,
+	scale = function()
+		return radiance_cascades.RESOLVE_SCALE
+	end,
 	LocalSize = COMPUTE_LOCAL_SIZE,
 	storage_images = {
 		{
@@ -524,7 +728,7 @@ passes[#passes + 1] = {
 
 				if not resolve then return nil end
 
-				return resolve:GetFramebuffer(radiance_cascades.GetResolveFramebufferIndex()):GetAttachment(1)
+				return resolve:GetFramebuffer(1):GetAttachment(1)
 			end,
 		},
 	},
@@ -576,7 +780,7 @@ passes[#passes + 1] = {
 					if (x == 0 && y == 0) continue;
 
 					ivec2 tap = clamp(pos + ivec2(x, y) * RC_DENOISE_STRIDE, ivec2(0), size - 1);
-					vec2 tap_uv = (vec2(tap) + 0.5) / vec2(size);
+					vec2 tap_uv = get_screen_uv(tap, size);
 					float tap_depth = rc_probe_depth(tap_uv);
 
 					if (tap_depth == 1.0) continue;

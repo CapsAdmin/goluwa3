@@ -22,7 +22,8 @@ local function setup_camera_override(camera)
 		if camera.position then override:SetPosition(camera.position) end
 
 		if camera.rotation then
-			if typex(camera.rotation) == "ang3" then
+			local rotation = camera.rotation
+			if typex(rotation) == "ang3" then
 				rotation = Quat():SetAngles(rotation)
 			end
 

@@ -124,7 +124,7 @@ return {
 			#define SSR_MIRROR_THRESHOLD 0.06
 			#define SSR_MAX_HIT_LUMINANCE 8.0
 			#define SSR_SPATIAL_NORMAL_POWER 32.0
-			#define SSR_RC_DIRECTIONS ]] .. radiance_cascades.GetDirectionCount(0) .. "\n" .. [[
+			#define SSR_RC_DIRECTIONS ]] .. radiance_cascades.DIRECTIONS_PER_AXIS .. "\n" .. [[
 			#define SSR_TILE_WIDTH ]] .. tostring(COMPUTE_LOCAL_SIZE.x) .. "\n" .. [[
 			#define SSR_TILE_HEIGHT ]] .. tostring(COMPUTE_LOCAL_SIZE.y) .. [[
 

@@ -103,6 +103,7 @@ return {
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_screen_tex", "int"},
+					{"leak_debug", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -162,6 +163,8 @@ return {
 					else
 						block.ssr_tex = -1
 					end
+
+					block.leak_debug = (_G.rc_leak_direct and 1 or 0)
 
 					return block
 				end,
@@ -539,7 +542,7 @@ return {
 				float NdotV = max(dot(N, V), 0.001);
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 
-				if (LIGHT_DEBUG_DIRECT > 0) {
+				if (LIGHT_DEBUG_DIRECT > 0 || lighting_data.leak_debug == 1) {
 					set_color(vec4(direct, 1.0));
 					return;
 				}

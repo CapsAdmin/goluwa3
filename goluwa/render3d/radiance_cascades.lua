@@ -11,38 +11,43 @@ local radiance_cascades = library()
 local MAX_CLIPMAPS = voxel_gi.GetMaxClipmapCount()
 radiance_cascades.BACKEND = "bvh"
 radiance_cascades.CASCADE_COUNT = 6
-radiance_cascades.INTERVAL_VOXELS = 2
 radiance_cascades.INTERVAL_SCALE = 4
-radiance_cascades.DIRECTIONS_0 = 4
-radiance_cascades.SCREEN_SCALE = 0.25
-radiance_cascades.JITTER = 1
+radiance_cascades.PROBES_PER_AXIS = 128
+radiance_cascades.DIRECTIONS_PER_AXIS = 4
+radiance_cascades.DIRECTION_COUNT = radiance_cascades.DIRECTIONS_PER_AXIS * radiance_cascades.DIRECTIONS_PER_AXIS
+radiance_cascades.VOLUME_EXTENT = 50.0
 radiance_cascades.MAX_TRACE_STEPS = 96
-radiance_cascades.NORMAL_BIAS = 1.5
 radiance_cascades.BVH_NORMAL_BIAS = 0.02
 radiance_cascades.SKY_INTENSITY = 1
-radiance_cascades.FEEDBACK_STRENGTH = 0.7
-radiance_cascades.TEMPORAL_TAU = 0.75
-radiance_cascades.TEMPORAL_BLEND_MIN = 0.1
 radiance_cascades.DENOISE = 1
 radiance_cascades.DENOISE_RADIUS = 2
 radiance_cascades.DENOISE_STRIDE = 3
-radiance_cascades.SEED_SEARCH_RADIUS = 6
-radiance_cascades.SEED_BLEND = 0.75
-radiance_cascades.FIREFLY_CLAMP = 4
-radiance_cascades.WORLD_BOUNCE_STRENGTH = 1
+-- Second bounce taken from the voxel gi. Off by default: the voxel gi's own
+-- probes read full daylight inside a sealed room, so tapping it here hands every
+-- cascade probe a leak the cascades cannot gate away. Turn it on for a brighter
+-- (but leaking) look until the voxel gi stops leaking on its own.
+radiance_cascades.WORLD_BOUNCE_STRENGTH = 0
+radiance_cascades.VISIBILITY_MERGE = true
+radiance_cascades.VISMERGE_BIAS = 0.001
+radiance_cascades.VISMERGE_RANGE = 1
+-- resolve gather offset along the surface normal, in probe spacings
+radiance_cascades.NORMAL_BIAS = 0.5
+radiance_cascades.BOUNCE = 0
+radiance_cascades.RESOLVE_SCALE = 1.0
 radiance_cascades.enabled = true
 
-function radiance_cascades.GetDirectionCount(cascade)
-	return radiance_cascades.DIRECTIONS_0 * (2 ^ cascade)
-end
-
+-- Cascade 0's rays have to reach at least as far as the next probe, otherwise
+-- almost all of them terminate in empty space and inherit the coarse cascades'
+-- radiance instead -- and those probes are far enough apart to sit on the other
+-- side of a wall, which is how a sealed room fills with outdoor light. Tying the
+-- interval to the probe spacing is the invariant the cascade hierarchy is built
+-- on; the diagonal of a probe cell is sqrt(3) spacings, so cover that.
 function radiance_cascades.GetBaseInterval()
 	if radiance_cascades.BASE_INTERVAL then
 		return radiance_cascades.BASE_INTERVAL
 	end
 
-	local info = voxel_gi.GetClipmapInfo(1)
-	return (info and info.voxel_size or 0.5) * radiance_cascades.INTERVAL_VOXELS
+	return radiance_cascades.GetProbeSpacing() * 2
 end
 
 function radiance_cascades.GetInterval(cascade)
@@ -52,6 +57,14 @@ function radiance_cascades.GetInterval(cascade)
 	if cascade == 0 then return 0, base end
 
 	return base * scale ^ (cascade - 1), base * scale ^ cascade
+end
+
+function radiance_cascades.GetProbesPerAxis(cascade)
+	return math.max(2, math.floor(radiance_cascades.PROBES_PER_AXIS / (2 ^ (cascade or 0))))
+end
+
+function radiance_cascades.GetProbeSpacing()
+	return 2 * radiance_cascades.VOLUME_EXTENT / radiance_cascades.GetProbesPerAxis(0)
 end
 
 function radiance_cascades.IsActive()
@@ -86,26 +99,23 @@ function radiance_cascades.GetBlockLayout()
 		{"rc_clipmap_count", "int"},
 		{"rc_clip_origin", "vec4", MAX_CLIPMAPS},
 		{"rc_clip_params", "vec4", MAX_CLIPMAPS},
-		{"rc_interval", "vec4"},
+		{"rc_base_interval", "float"},
+		{"rc_interval_scale", "float"},
 		{"rc_max_steps", "int"},
 		{"rc_min_clipmap", "int"},
-		{"rc_feedback_tex", "int"},
-		{"rc_feedback_strength", "float"},
+		{"rc_sky_intensity", "float"},
 		{"rc_world_bounce", "float"},
+		{"rc_vismerge", "float"},
+		{"rc_vismerge_bias", "float"},
+		{"rc_vismerge_range", "float"},
+		{"rc_normal_bias", "float"},
+		{"rc_resolve_nearest", "float"},
+		{"rc_bounce", "float"},
+		{"rc_feedback_probes", "int"},
 		{"rc_denoise", "float"},
-		{"rc_history_tex", "int"},
-		{"rc_history_depth_tex", "int"},
-		{"rc_history_blend", "float"},
-		{"rc_jitter", "float"},
 		{"rc_frame", "int"},
-		{"rc_prev_view", "mat4"},
-		{"rc_prev_projection", "mat4"},
 		{"gi", voxel_gi.GetBlockLayout()},
 	}
-end
-
-function radiance_cascades.GetResolveFramebufferIndex(offset)
-	return (system.GetFrameNumber() + (offset or 0)) % 2 + 1
 end
 
 function radiance_cascades.WriteBlock(self, block, cascade)
@@ -156,104 +166,73 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 	end
 
 	block.rc_clipmap_count = clipmap_count
-	local interval_start, interval_end = radiance_cascades.GetInterval(cascade)
-	block.rc_interval[0] = interval_start
-	block.rc_interval[1] = interval_end
-	block.rc_interval[2] = radiance_cascades.BACKEND == "bvh" and
-		radiance_cascades.BVH_NORMAL_BIAS or
-		radiance_cascades.NORMAL_BIAS * block.rc_clip_origin[0][3]
-	block.rc_interval[3] = radiance_cascades.SKY_INTENSITY
+	block.rc_base_interval = radiance_cascades.GetBaseInterval()
+	block.rc_interval_scale = radiance_cascades.INTERVAL_SCALE
 	block.rc_max_steps = radiance_cascades.MAX_TRACE_STEPS
 	block.rc_min_clipmap = math.min(cascade, math.max(clipmap_count - 1, 0))
-	local resolve = render3d.pipelines.radiance_cascades_resolve
-
-	if resolve then
-		local history = resolve:GetFramebuffer(radiance_cascades.GetResolveFramebufferIndex(1))
-		block.rc_feedback_tex = self:GetTextureIndex(history:GetAttachment(1))
-		block.rc_history_tex = self:GetTextureIndex(history:GetAttachment(1))
-		block.rc_history_depth_tex = self:GetTextureIndex(history:GetAttachment(2))
-	else
-		block.rc_feedback_tex = -1
-		block.rc_history_tex = -1
-		block.rc_history_depth_tex = -1
-	end
-
-	if not render3d.ShouldUseLastFrameHistory() then
-		block.rc_history_tex = -1
-		block.rc_history_depth_tex = -1
-	end
-
+	block.rc_sky_intensity = radiance_cascades.SKY_INTENSITY
 	block.rc_denoise = radiance_cascades.DENOISE
-	block.rc_history_blend = math.clamp(
-		math.exp(-system.GetFrameTime() / math.max(radiance_cascades.TEMPORAL_TAU, 1e-4)),
-		radiance_cascades.TEMPORAL_BLEND_MIN,
-		0.99
-	)
-	block.rc_jitter = radiance_cascades.JITTER
 	block.rc_frame = system.GetFrameNumber() % 4096
-	local prev_view = render3d.GetPreviousViewMatrix() or render3d.GetRenderCamera():BuildViewMatrix()
-	local prev_projection = render3d.GetPreviousProjectionMatrix() or
-		render3d.GetRenderCamera():BuildProjectionMatrix()
-	prev_view:CopyToFloatPointer(block.rc_prev_view)
-	prev_projection:CopyToFloatPointer(block.rc_prev_projection)
-	block.rc_feedback_strength = radiance_cascades.FEEDBACK_STRENGTH
 	block.rc_world_bounce = radiance_cascades.WORLD_BOUNCE_STRENGTH
+	block.rc_vismerge = radiance_cascades.VISIBILITY_MERGE and 1 or 0
+	block.rc_vismerge_bias = radiance_cascades.VISMERGE_BIAS
+	block.rc_vismerge_range = radiance_cascades.VISMERGE_RANGE
+	block.rc_normal_bias = radiance_cascades.NORMAL_BIAS
+	block.rc_resolve_nearest = (_G.rc_resolve_nearest and 1 or 0)
+	block.rc_bounce = radiance_cascades.BOUNCE
+	block.rc_feedback_probes = radiance_cascades.GetProbesPerAxis(0)
 	voxel_gi.WriteBlock(self, block.gi)
 	return block
 end
 
-function radiance_cascades.GetCommonGLSL()
+function radiance_cascades.GetCommonGLSL(probes_per_axis)
+	probes_per_axis = probes_per_axis or radiance_cascades.PROBES_PER_AXIS
 	return [[
 		vec3 rc_oct_decode(vec2 uv) {
 			vec2 p = uv * 2.0 - 1.0;
 			vec3 n = vec3(p.x, p.y, 1.0 - abs(p.x) - abs(p.y));
 
 			if (n.z < 0.0) {
-				n.xy = (1.0 - abs(n.yx)) * vec2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
+				n.xy = (1.0 - abs(n.yx)) * vec2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? -1.0 : 1.0);
 			}
 
 			return normalize(n);
 		}
 
-		vec2 rc_direction_jitter(int frame, float strength) {
-			if (strength <= 0.0) return vec2(0.0);
+		const int RC_PROBES_PER_AXIS = ]] .. probes_per_axis .. [[;
+		const int RC_DIRECTION_COUNT = ]] .. radiance_cascades.DIRECTION_COUNT .. [[;
+		const float RC_VOLUME_EXTENT = ]] .. radiance_cascades.VOLUME_EXTENT .. [[;
+		const float RC_SPACING = 2.0 * RC_VOLUME_EXTENT / float(RC_PROBES_PER_AXIS);
 
-			return (fract(vec2(0.7548776662, 0.5698402909) * float(frame)) - 0.5) * strength;
+		vec3 rc_grid_origin() {
+			return floor((rc_data.camera_position.xyz - vec3(RC_VOLUME_EXTENT)) / RC_SPACING) * RC_SPACING;
 		}
 
-		ivec2 rc_bilinear_offset(int index) {
-			return ivec2(index & 1, index >> 1);
+		float rc_interval_end(int c) {
+			return rc_data.rc_base_interval * pow(rc_data.rc_interval_scale, float(c));
 		}
 
-		vec4 rc_bilinear_weights(vec2 ratio) {
-			return vec4(
-				(1.0 - ratio.x) * (1.0 - ratio.y),
-				ratio.x * (1.0 - ratio.y),
-				(1.0 - ratio.x) * ratio.y,
-				ratio.x * ratio.y
+		vec3 rc_probe_world_pos(ivec3 probe_idx) {
+			return rc_grid_origin() + (vec3(probe_idx) + 0.5) * RC_SPACING;
+		}
+
+		int rc_probe_index(ivec3 probe_idx) {
+			return probe_idx.x + RC_PROBES_PER_AXIS * (probe_idx.y + RC_PROBES_PER_AXIS * probe_idx.z);
+		}
+
+		ivec3 rc_probe_coords(int index) {
+			return ivec3(
+				index % RC_PROBES_PER_AXIS,
+				(index / RC_PROBES_PER_AXIS) % RC_PROBES_PER_AXIS,
+				index / (RC_PROBES_PER_AXIS * RC_PROBES_PER_AXIS)
 			);
 		}
 
-		float rc_project_on_line(vec3 line_start, vec3 line_end, vec3 point) {
-			vec3 line = line_end - line_start;
-			float length_squared = dot(line, line);
-
-			if (length_squared < 1e-12) return 0.0;
-
-			return clamp(dot(point - line_start, line) / length_squared, 0.0, 1.0);
-		}
-
-		vec2 rc_bilinear_3d_ratio(vec3 probe_positions[4], vec3 point, vec2 ratio) {
-			for (int i = 0; i < 4; i++) {
-				vec3 mixed_y0 = mix(probe_positions[0], probe_positions[2], ratio.y);
-				vec3 mixed_y1 = mix(probe_positions[1], probe_positions[3], ratio.y);
-				ratio.x = rc_project_on_line(mixed_y0, mixed_y1, point);
-				vec3 mixed_x0 = mix(probe_positions[0], probe_positions[1], ratio.x);
-				vec3 mixed_x1 = mix(probe_positions[2], probe_positions[3], ratio.x);
-				ratio.y = rc_project_on_line(mixed_x0, mixed_x1, point);
-			}
-
-			return ratio;
+		ivec2 rc_texel_coord(ivec3 probe_idx, int dir_idx) {
+			return ivec2(
+				probe_idx.x + RC_PROBES_PER_AXIS * probe_idx.y,
+				probe_idx.z * RC_DIRECTION_COUNT + dir_idx
+			);
 		}
 	]]
 end
@@ -261,34 +240,8 @@ end
 function radiance_cascades.GetProbeGLSL(block_name)
 	return screen_reconstruct.GetWorldPosFromUVGLSL(block_name, {function_name = "rc_reconstruct_world_pos"}) .. (
 			[[
-		bool rc_fetch_surface_motion(vec2 uv, float depth, out vec2 prev_uv, out float prev_depth) {
-			if (%s.velocity_tex != -1) {
-				vec3 motion = texture(TEXTURE(%s.velocity_tex), uv).rgb;
-				prev_uv = uv - motion.xy;
-				prev_depth = motion.z;
-				return prev_depth > 0.0;
-			}
-
-			vec3 world_pos = rc_reconstruct_world_pos(uv, depth);
-			vec4 prev_view_pos = %s.rc_prev_view * vec4(world_pos, 1.0);
-			vec4 prev_clip = %s.rc_prev_projection * prev_view_pos;
-
-			if (prev_clip.w <= 0.0) return false;
-
-			prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
-			prev_depth = -prev_view_pos.z;
-			return true;
-		}
-
-		const float RC_PROBE_DEPTH_BIAS = 0.999;
-
 		float rc_probe_depth(vec2 uv) {
 			return texture(TEXTURE(%s.depth_tex), uv).r;
-		}
-
-		vec3 rc_probe_world_pos(vec2 uv, float depth) {
-			vec3 world_pos = rc_reconstruct_world_pos(uv, depth);
-			return mix(%s.camera_position.xyz, world_pos, RC_PROBE_DEPTH_BIAS);
 		}
 
 		vec3 rc_probe_normal(vec2 uv) {
@@ -301,17 +254,7 @@ function radiance_cascades.GetProbeGLSL(block_name)
 			return %s.projection[3][2] / (depth + %s.projection[2][2]);
 		}
 	]]
-		):format(
-			block_name,
-			block_name,
-			block_name,
-			block_name,
-			block_name,
-			block_name,
-			block_name,
-			block_name,
-			block_name
-		)
+		):format(block_name, block_name, block_name, block_name)
 end
 
 function radiance_cascades.GetTraceGLSL(block_name)
@@ -324,7 +267,7 @@ function radiance_cascades.GetTraceGLSL(block_name)
 	local fetch_normal = {}
 
 	for i = 0, MAX_CLIPMAPS - 1 do
-		fetch_normal[#fetch_normal + 1] = "\tif (c == " .. i .. ") return texelFetch(rc_normal_" .. i .. ", ivec3(v.xy, v.z), 0).xyz;"
+		fetch_normal[#fetch + 1] = "\tif (c == " .. i .. ") return texelFetch(rc_normal_" .. i .. ", ivec3(v.xy, v.z), 0).xyz;"
 	end
 
 	return [[
@@ -487,39 +430,7 @@ function radiance_cascades.GetTraceGLSL(block_name)
 				TEXTURE(RC_BLOCK.rc_env_tex),
 				dir_to_equirect_uv(correct_environment_lookup_dir(dir)),
 				1.0
-			).rgb * RC_BLOCK.rc_interval.w;
-		}
-
-		vec3 rc_feedback_irradiance(vec3 hit_pos, vec3 hit_normal, float voxel_size, out float confidence) {
-			confidence = 0.0;
-
-			if (RC_BLOCK.rc_feedback_tex < 0) return vec3(0.0);
-
-			vec4 clip = RC_BLOCK.projection * (RC_BLOCK.view * vec4(hit_pos, 1.0));
-
-			if (clip.w <= 0.0) return vec3(0.0);
-
-			vec2 uv = (clip.xy / clip.w) * 0.5 + 0.5;
-
-			if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
-
-			float depth = texture(TEXTURE(RC_BLOCK.depth_tex), uv).r;
-
-			if (depth == 1.0) return vec3(0.0);
-
-			vec3 seen = rc_reconstruct_world_pos(uv, depth);
-			float seen_view_z = -(RC_BLOCK.view * vec4(seen, 1.0)).z;
-			float hit_view_z = -(RC_BLOCK.view * vec4(hit_pos, 1.0)).z;
-
-			if (abs(seen_view_z - hit_view_z) > voxel_size) return vec3(0.0);
-
-			float agreement = smoothstep(0.0, 0.5, dot(rc_probe_normal(uv), hit_normal));
-
-			if (agreement <= 0.0) return vec3(0.0);
-
-			confidence = agreement;
-			return texture(TEXTURE(RC_BLOCK.rc_feedback_tex), uv).rgb *
-				RC_BLOCK.rc_feedback_strength;
+			).rgb * RC_BLOCK.rc_sky_intensity;
 		}
 
 		vec3 rc_world_bounce(vec3 pos, vec3 N) {
@@ -544,7 +455,7 @@ function radiance_cascades.GetTraceGLSL(block_name)
 			float voxel_size = rc_clip_voxel_size(max(hit.clipmap, 0));
 			vec3 surface_pos = hit.position + N * ]] .. (
 			radiance_cascades.BACKEND == "bvh" and
-			"RC_BLOCK.rc_interval.z" or
+			"0.02" or
 			"(voxel_size * 0.5)"
 		) .. [[;
 			vec3 L = normalize(RC_BLOCK.rc_sun_direction.xyz);
@@ -605,9 +516,7 @@ function radiance_cascades.GetTraceGLSL(block_name)
 				}
 			}
 
-			float confidence;
-			vec3 screen_bounce = rc_feedback_irradiance(surface_pos, N, voxel_size, confidence);
-			vec3 bounce = mix(rc_world_bounce(surface_pos, N), screen_bounce, confidence);
+			vec3 bounce = rc_world_bounce(surface_pos, N);
 			float emissive_luma = max(hit.voxel.a - 1.0, 0.0) * 4.0;
 			float luma = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
 			return albedo * (direct + bounce) + albedo * (emissive_luma / max(luma, 1e-3));
@@ -619,10 +528,6 @@ function radiance_cascades.GetShadowGLSL(block_name)
 	return directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, "calculateShadow")
 end
 
--- per-light direct light for traced hits: the sun is already shaded
--- separately through rc_sun_radiance, so this only covers point, spot and
--- local directional lights with their point shadow maps and octahedral
--- occlusion maps
 function radiance_cascades.GetLightGLSL(block_name)
 	return (
 			scene_lights.GetLightGLSLCode() .. "\n" .. directional_shadows.GetLocalDirectionalShadowGLSL(block_name) .. "\n" .. scene_lights.GetPointShadowGLSL(block_name) .. "\n" .. light_occlusion.GetSamplingGLSL(block_name)
@@ -651,37 +556,18 @@ commands.Add("radiance_cascades_interval=number[0]", function(length)
 	)
 end)
 
-commands.Add("radiance_cascades_bias=number[1.5]", function(bias)
-	radiance_cascades.NORMAL_BIAS = bias
-end)
-
-commands.Add("radiance_cascades_feedback=number[1]", function(strength)
-	radiance_cascades.FEEDBACK_STRENGTH = strength
+commands.Add("rc_sky=number[1]", function(intensity)
+	radiance_cascades.SKY_INTENSITY = intensity
+	logf("[radiance_cascades] sky intensity %f\n", intensity)
 end)
 
 commands.Add("radiance_cascades_steps=number[96]", function(steps)
 	radiance_cascades.MAX_TRACE_STEPS = math.floor(steps)
 end)
 
-commands.Add("radiance_cascades_scale=number[0.5]", function(scale)
-	radiance_cascades.SCREEN_SCALE = scale
-	logf("[radiance_cascades] screen scale %f, rebuilding pipelines\n", scale)
-	rebuild_pipelines()
-end)
-
 commands.Add("radiance_cascades_denoise=number[1]", function(strength)
 	radiance_cascades.DENOISE = strength
 	logf("[radiance_cascades] denoise %f\n", strength)
-end)
-
-commands.Add("radiance_cascades_jitter=number[1]", function(strength)
-	radiance_cascades.JITTER = math.clamp(strength, 0, 1)
-	logf("[radiance_cascades] direction jitter %f\n", radiance_cascades.JITTER)
-end)
-
-commands.Add("radiance_cascades_temporal=number[0.25]", function(tau)
-	radiance_cascades.TEMPORAL_TAU = math.max(tau, 0.001)
-	logf("[radiance_cascades] temporal tau %f seconds\n", radiance_cascades.TEMPORAL_TAU)
 end)
 
 commands.Add("radiance_cascades_world_bounce=number[1]", function(strength)
@@ -692,6 +578,34 @@ commands.Add("radiance_cascades_world_bounce=number[1]", function(strength)
 	)
 end)
 
+commands.Add("radiance_cascades_vismerge=boolean[true]", function(enabled)
+	radiance_cascades.VISIBILITY_MERGE = enabled ~= false
+	logf(
+		"[radiance_cascades] visibility merge %s\n",
+		radiance_cascades.VISIBILITY_MERGE and "on" or "off"
+	)
+end)
+
+commands.Add("radiance_cascades_vismerge_bias=number[0.001]", function(value)
+	radiance_cascades.VISMERGE_BIAS = math.max(value, 0)
+	logf("[radiance_cascades] vismerge bias %f\n", radiance_cascades.VISMERGE_BIAS)
+end)
+
+commands.Add("radiance_cascades_vismerge_range=number[0.5]", function(value)
+	radiance_cascades.VISMERGE_RANGE = math.clamp(value, 0.01, 1.0)
+	logf("[radiance_cascades] vismerge range %f\n", radiance_cascades.VISMERGE_RANGE)
+end)
+
+commands.Add("radiance_cascades_normal_bias=number[0.5]", function(value)
+	radiance_cascades.NORMAL_BIAS = math.max(value, 0)
+	logf("[radiance_cascades] normal bias %f spacings\n", radiance_cascades.NORMAL_BIAS)
+end)
+
+commands.Add("radiance_cascades_bounce=number[0]", function(value)
+	radiance_cascades.BOUNCE = math.clamp(value, 0.0, 0.95)
+	logf("[radiance_cascades] bounce feedback %f\n", radiance_cascades.BOUNCE)
+end)
+
 commands.Add("radiance_cascades_backend=string[voxel]", function(backend)
 	if backend ~= "voxel" and backend ~= "bvh" then
 		error("backend must be voxel or bvh", 2)
@@ -699,8 +613,6 @@ commands.Add("radiance_cascades_backend=string[voxel]", function(backend)
 
 	radiance_cascades.BACKEND = backend
 
-	-- switching backend by hand is an explicit request, so the tree is built
-	-- now rather than waiting for the scene to settle the way a load does
 	if backend == "bvh" then scene_bvh.Build() end
 
 	logf("[radiance_cascades] %s backend, rebuilding pipelines\n", backend)
@@ -709,9 +621,24 @@ end)
 
 commands.Add("radiance_cascades_count=number[6]", function(count)
 	radiance_cascades.CASCADE_COUNT = math.floor(count)
+	logf("[radiance_cascades] %d cascades, rebuilding pipelines\n", count)
+	rebuild_pipelines()
+end)
+
+commands.Add("radiance_cascades_probes=number[16]", function(count)
+	radiance_cascades.PROBES_PER_AXIS = math.clamp(math.floor(count), 4, 64)
 	logf(
-		"[radiance_cascades] %d cascades, rebuilding pipelines\n",
-		radiance_cascades.CASCADE_COUNT
+		"[radiance_cascades] %d probes per axis, rebuilding pipelines\n",
+		radiance_cascades.PROBES_PER_AXIS
+	)
+	rebuild_pipelines()
+end)
+
+commands.Add("radiance_cascades_extent=number[10]", function(extent)
+	radiance_cascades.VOLUME_EXTENT = math.max(extent, 1)
+	logf(
+		"[radiance_cascades] volume extent %f, rebuilding pipelines\n",
+		radiance_cascades.VOLUME_EXTENT
 	)
 	rebuild_pipelines()
 end)

@@ -86,7 +86,7 @@ local magenta = mat(Color(0.7, 0.1, 0.6, 1), 0.9)
 local orange = mat(Color(0.9, 0.4, 0.05, 1), 0.9)
 local cyan = mat(Color(0.05, 0.6, 0.65, 1), 0.9)
 -- ground, wide enough to run under every room including the new ones out at x 92
-box("ground", Vec3(20, -1, 0), Vec3(170, 2, 120), mat(Color(0.9, 0.9, 0.9, 1), 0.05, 1))
+box("ground", Vec3(20, -1, 0), Vec3(170, 2, 120), mat(Color(0.9, 0.9, 0.9, 1), 1, 1))
 
 -- cornell room, open towards +z, roof with a gap so the sun gets in
 do
@@ -174,19 +174,27 @@ do
 	local dark_cx = cx + pt / 2 + half / 2
 	box("partition_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), grey)
 	box("partition_wall", Vec3(cx, h / 2, 0), Vec3(pt, h, d), grey)
-
 	box("partition_lit_back", Vec3(lit_cx, h / 2, -d / 2), Vec3(half, h, t), white)
 	box("partition_lit_left", Vec3(lit_cx - half / 2, h / 2, 0), Vec3(t, h, d), white)
 	box("partition_lit_front", Vec3(lit_cx, h / 2, d / 2), Vec3(half, h, t), white)
-	box("partition_lit_roof_back", Vec3(lit_cx, h, -d / 4 - 1), Vec3(half, t, d / 2 - 2), white)
-	box("partition_lit_roof_front", Vec3(lit_cx, h, d / 4 + 1), Vec3(half, t, d / 2 - 2), white)
+	box(
+		"partition_lit_roof_back",
+		Vec3(lit_cx, h, -d / 4 - 1),
+		Vec3(half, t, d / 2 - 2),
+		white
+	)
+	box(
+		"partition_lit_roof_front",
+		Vec3(lit_cx, h, d / 4 + 1),
+		Vec3(half, t, d / 2 - 2),
+		white
+	)
 	box(
 		"partition_lamp",
 		Vec3(lit_cx + half / 2 - 0.15, h / 2, 0),
 		Vec3(0.1, h - 1, d - 2),
 		emissive_mat(Color(1, 0.9, 0.7, 1), 6)
 	)
-
 	box("partition_dark_back", Vec3(dark_cx, h / 2, -d / 2), Vec3(half, h, t), grey)
 	box("partition_dark_right", Vec3(dark_cx + half / 2, h / 2, 0), Vec3(t, h, d), grey)
 	box("partition_dark_front", Vec3(dark_cx, h / 2, d / 2), Vec3(half, h, t), grey)
@@ -214,8 +222,13 @@ do
 	box("hall_front_left", Vec3(cx - 3, 1.25, d / 2), Vec3(2, 2.5, t), white)
 	box("hall_front_right", Vec3(cx + 3, 1.25, d / 2), Vec3(2, 2.5, t), white)
 
-	for i, z in ipairs({-7, -2.5, 2, 6.5}) do
-		box("hall_pillar_" .. i, Vec3(cx + (i % 2 == 0 and 2 or -2), 1.5, z), Vec3(1, 3, 1), grey)
+	for i, z in ipairs{-7, -2.5, 2, 6.5} do
+		box(
+			"hall_pillar_" .. i,
+			Vec3(cx + (i % 2 == 0 and 2 or -2), 1.5, z),
+			Vec3(1, 3, 1),
+			grey
+		)
 	end
 end
 
@@ -226,13 +239,16 @@ do
 	local cx, w, d, t, hole, well = 92, 8, 8, 0.5, 2.5, 1.5
 	local floor1_h, floor2_h = 4, 4
 	local h2 = floor1_h + floor2_h
-
 	box("tower_floor1", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), grey)
 	box("tower_wall1_back", Vec3(cx, floor1_h / 2, -d / 2), Vec3(w, floor1_h, t), grey)
 	box("tower_wall1_front", Vec3(cx, floor1_h / 2, d / 2), Vec3(w, floor1_h, t), grey)
 	box("tower_wall1_left", Vec3(cx - w / 2, floor1_h / 2, 0), Vec3(t, floor1_h, d), grey)
-	box("tower_wall1_right", Vec3(cx + w / 2, floor1_h / 2, 0), Vec3(t, floor1_h, d), grey)
-
+	box(
+		"tower_wall1_right",
+		Vec3(cx + w / 2, floor1_h / 2, 0),
+		Vec3(t, floor1_h, d),
+		grey
+	)
 	-- mid slab, doubling as floor1's roof and floor2's floor, with a square
 	-- stairwell hole built from a frame of four boxes
 	local seg = (d - hole) / 2
@@ -241,12 +257,30 @@ do
 	box("tower_slab_front", Vec3(cx, floor1_h, off), Vec3(w, t, seg), grey)
 	box("tower_slab_left", Vec3(cx - off, floor1_h, 0), Vec3(seg, t, hole), grey)
 	box("tower_slab_right", Vec3(cx + off, floor1_h, 0), Vec3(seg, t, hole), grey)
-
-	box("tower_wall2_back", Vec3(cx, floor1_h + floor2_h / 2, -d / 2), Vec3(w, floor2_h, t), grey)
-	box("tower_wall2_front", Vec3(cx, floor1_h + floor2_h / 2, d / 2), Vec3(w, floor2_h, t), grey)
-	box("tower_wall2_left", Vec3(cx - w / 2, floor1_h + floor2_h / 2, 0), Vec3(t, floor2_h, d), grey)
-	box("tower_wall2_right", Vec3(cx + w / 2, floor1_h + floor2_h / 2, 0), Vec3(t, floor2_h, d), grey)
-
+	box(
+		"tower_wall2_back",
+		Vec3(cx, floor1_h + floor2_h / 2, -d / 2),
+		Vec3(w, floor2_h, t),
+		grey
+	)
+	box(
+		"tower_wall2_front",
+		Vec3(cx, floor1_h + floor2_h / 2, d / 2),
+		Vec3(w, floor2_h, t),
+		grey
+	)
+	box(
+		"tower_wall2_left",
+		Vec3(cx - w / 2, floor1_h + floor2_h / 2, 0),
+		Vec3(t, floor2_h, d),
+		grey
+	)
+	box(
+		"tower_wall2_right",
+		Vec3(cx + w / 2, floor1_h + floor2_h / 2, 0),
+		Vec3(t, floor2_h, d),
+		grey
+	)
 	-- roof, same frame technique but with a narrower light well
 	local seg2 = (d - well) / 2
 	local off2 = d / 2 - seg2 / 2
@@ -254,7 +288,6 @@ do
 	box("tower_roof_front", Vec3(cx, h2, off2), Vec3(w, t, seg2), grey)
 	box("tower_roof_left", Vec3(cx - off2, h2, 0), Vec3(seg2, t, well), grey)
 	box("tower_roof_right", Vec3(cx + off2, h2, 0), Vec3(seg2, t, well), grey)
-
 	sphere("tower_sphere1", Vec3(cx, 1.2, 0), 1, white)
 	sphere("tower_sphere2", Vec3(cx, floor1_h + 1.2, 0), 1, white)
 end
