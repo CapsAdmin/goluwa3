@@ -1,4 +1,5 @@
 local commands = import("goluwa/cli/commands.lua")
+local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
@@ -28,13 +29,69 @@ radiance_cascades.VISIBILITY_MERGE = true
 radiance_cascades.VISMERGE_BIAS = 0.001
 radiance_cascades.VISMERGE_RANGE = 1
 -- resolve gather offset along the surface normal, in probe spacings
-radiance_cascades.NORMAL_BIAS = 0.5
+radiance_cascades.NORMAL_BIAS = 0
+-- Per-pixel dither of the trilinear sample position, in probe cells.
+--
+-- Cascade 0's probes are 0.78 m apart, so the resolve reconstructs the GI by
+-- interpolating between them and you can see the lattice: trilinear is only C0,
+-- and the gradient break at every cell boundary reads as the smoothed-out boxes.
+-- Offsetting the lookup per pixel turns that structure into noise, which the
+-- temporal pass then averages back into a smooth field.
+--
+-- It has to vary per *pixel*, not per frame: a frame-uniform offset leaves the
+-- temporal pass's 3x3 min/max clamp box narrow, so the clamp re-pins history
+-- every frame and accumulation never happens. Neighbouring pixels carrying
+-- different offsets is what widens that box enough to let the blend work.
+--
+-- Half a cell, not a whole one. Measured on the cornell shot after a 3 s settle,
+-- a full cell more than doubles the converged noise floor (grain 0.30 -> 0.62)
+-- because a 0.9 blend only averages ~10 frames and the GI varies a lot across
+-- 0.78 m. Half a cell costs +20% (0.36) and still dithers the lattice. Raising
+-- radiance_cascades_temporal to 0.97 brings even a full cell down to 0.50, at
+-- the cost of more lag under motion.
+radiance_cascades.JITTER = 0
+-- Smoothstep the trilinear weights so the reconstruction is C1 across cell
+-- boundaries. Kills the same banding as the jitter without adding noise, but
+-- pulls values toward probe centres, which can read as blobs instead of boxes.
+radiance_cascades.SMOOTH_INTERP = false
+-- When the visibility gate rejects all eight probes, re-gather one cell along
+-- the normal instead of falling back on the rejected ones. Without it, any
+-- surface lying flush with a probe plane draws its light from the probe slab
+-- buried inside itself, which reads as a dark seam repeating every spacing.
+radiance_cascades.CELL_FALLBACK = true
+-- Surviving gather weight below which the cell counts as collapsed.
+--
+-- A healthy gather sums to roughly 0.25-1.0 (trilinear sums to 1, each term
+-- scaled by facing squared). At a wall lying flush with a probe plane the
+-- weight lands in the hundredths: not zero, so the old 1e-4 test never fired,
+-- but renormalizing by 0.02 amplifies whatever little survived by 50x. Treat
+-- that as collapsed and re-gather from the cell in front instead.
+radiance_cascades.COLLAPSE = 0.15
+-- Drop probes that sit inside solid geometry from the gather entirely.
+--
+-- The gather is a convex combination, so a buried probe holding even a
+-- quarter weight of near-zero radiance pulls the result below every real
+-- probe around it. No amount of down-weighting fixes a meaningless sample;
+-- it has to leave the set and let the others renormalize.
+radiance_cascades.PROBE_VALIDITY = false
+-- Push cascade-0 probes out of solid geometry, in probe cells of reach.
+--
+-- Recovers the sample that PROBE_VALIDITY merely deletes: a probe nudged just
+-- clear of a wall measures the light near that wall, which is what the gather
+-- wanted from that cell. 0 disables it.
+--
+-- Note the trilinear weights are still built from the nominal lattice, so
+-- displaced probes are interpolated as if they had not moved. DDGI accepts the
+-- same inconsistency; keeping the reach under half a cell bounds the error.
+radiance_cascades.RELOCATE = 1
+-- false colour the resolve instead of shading it. see radiance_cascades_debug
+radiance_cascades.DEBUG = 0
 radiance_cascades.BOUNCE = 1
 radiance_cascades.RESOLVE_SCALE = 1.0
 -- how much of the reprojected previous frame to keep. the resolve only gathers
 -- 16 directions from 8 probes, so the per-pixel estimate is grainy; accumulating
 -- it over frames is what buys the sample count back
-radiance_cascades.TEMPORAL = 0.9
+radiance_cascades.TEMPORAL = 0
 radiance_cascades.enabled = true
 
 -- The final resolved GI for the screen, taken from the last stage of the chain
@@ -139,6 +196,14 @@ function radiance_cascades.GetBlockLayout()
 		{"rc_vismerge_bias", "float"},
 		{"rc_vismerge_range", "float"},
 		{"rc_normal_bias", "float"},
+		{"rc_jitter", "float"},
+		{"rc_smooth_interp", "float"},
+		{"rc_cell_fallback", "float"},
+		{"rc_collapse", "float"},
+		{"rc_validity", "float"},
+		{"rc_relocate", "float"},
+		{"rc_debug", "int"},
+		{"rc_blue_noise_tex", "int"},
 		{"rc_bounce", "float"},
 		{"rc_feedback_probes", "int"},
 		{"rc_feedback_camera", "vec4"},
@@ -255,6 +320,14 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 	block.rc_vismerge_bias = radiance_cascades.VISMERGE_BIAS
 	block.rc_vismerge_range = radiance_cascades.VISMERGE_RANGE
 	block.rc_normal_bias = radiance_cascades.NORMAL_BIAS
+	block.rc_jitter = radiance_cascades.JITTER
+	block.rc_smooth_interp = radiance_cascades.SMOOTH_INTERP and 1 or 0
+	block.rc_cell_fallback = radiance_cascades.CELL_FALLBACK and 1 or 0
+	block.rc_collapse = radiance_cascades.COLLAPSE
+	block.rc_validity = radiance_cascades.PROBE_VALIDITY and 1 or 0
+	block.rc_relocate = radiance_cascades.RELOCATE
+	block.rc_debug = radiance_cascades.DEBUG or 0
+	block.rc_blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 	block.rc_bounce = radiance_cascades.BOUNCE
 	block.rc_feedback_probes = radiance_cascades.GetProbesPerAxis(0)
 
@@ -342,7 +415,10 @@ function radiance_cascades.GetProbeGLSL(block_name)
 		):format(block_name, block_name, block_name, block_name)
 end
 
-function radiance_cascades.GetTraceGLSL(block_name)
+-- Clipmap accessors and the occupancy query. Split out of GetTraceGLSL so a
+-- pass that only needs 'is this point solid' does not have to drag in the
+-- tracing code and its ibl, shadow, light and voxel-gi dependencies.
+function radiance_cascades.GetClipmapGLSL(block_name)
 	local fetch = {}
 
 	for i = 0, MAX_CLIPMAPS - 1 do
@@ -400,12 +476,34 @@ function radiance_cascades.GetTraceGLSL(block_name)
 			return len > 1e-3 ? n / len : vec3(0.0);
 		}
 
-		struct rc_hit {
-			vec3 position;
-			vec3 normal;
-			vec4 voxel;
-			int clipmap;
-		};
+		// Is this probe sitting inside solid geometry?
+		//
+		// Such a probe traced every one of its rays from inside a wall, so it
+		// holds near-zero radiance that means nothing. Down-weighting is not
+		// enough: the gather is a convex combination, so a quarter weight on
+		// a meaningless zero still drags the average below every real probe
+		// around it -- which is how you get a value darker than both of its
+		// neighbours between two lit probes. It has to leave the set.
+		//
+		// The clipmap occupancy answers this in one fetch, and the resolve
+		// already has the volumes bound for albedo.
+		bool rc_probe_in_geometry(vec3 p) {
+			int c = rc_find_clipmap(p, 0);
+
+			// outside every clipmap there is no evidence either way, and
+			// assuming solid there would blank the distant cascades
+			if (c < 0) return false;
+
+			float voxel_size = rc_clip_voxel_size(c);
+			vec3 min_corner = rc_clip_origin(c) - vec3(rc_clip_span(c) * 0.5);
+			ivec3 v = ivec3(floor((p - min_corner) / voxel_size));
+
+			if (any(lessThan(v, ivec3(0))) || any(greaterThanEqual(v, ivec3(rc_clip_resolution(c))))) {
+				return false;
+			}
+
+			return rc_fetch_voxel(c, v).a >= 0.5;
+		}
 
 		vec4 rc_sample_surface_voxel(vec3 p, vec3 n) {
 			for (int c = 0; c < RC_BLOCK.rc_clipmap_count; c++) {
@@ -429,6 +527,18 @@ function radiance_cascades.GetTraceGLSL(block_name)
 
 			return vec4(0.5, 0.5, 0.5, 1.0);
 		}
+
+	]]
+end
+
+function radiance_cascades.GetTraceGLSL(block_name)
+	return [[
+		struct rc_hit {
+			vec3 position;
+			vec3 normal;
+			vec4 voxel;
+			int clipmap;
+		};
 
 		bool rc_trace_voxels(vec3 origin, vec3 dir, float t_min, float t_max, out rc_hit hit) {
 			vec3 start = origin + dir * t_min;
@@ -674,9 +784,58 @@ commands.Add("radiance_cascades_vismerge_range=number[0.5]", function(value)
 	logf("[radiance_cascades] vismerge range %f\n", radiance_cascades.VISMERGE_RANGE)
 end)
 
-commands.Add("radiance_cascades_normal_bias=number[0.5]", function(value)
+commands.Add("radiance_cascades_normal_bias=number[0.15]", function(value)
 	radiance_cascades.NORMAL_BIAS = math.max(value, 0)
 	logf("[radiance_cascades] normal bias %f spacings\n", radiance_cascades.NORMAL_BIAS)
+end)
+
+commands.Add("radiance_cascades_jitter=number[0.5]", function(value)
+	radiance_cascades.JITTER = math.clamp(value, 0, 2)
+	logf("[radiance_cascades] resolve jitter %f cells\n", radiance_cascades.JITTER)
+end)
+
+-- 0 off, 1 surviving probe count (red = none), 2 pre-normalization weight,
+-- 3 cell position along the normal's dominant axis, 4 which fallback path ran,
+-- 5 share of the gather weight held by probes behind the surface
+commands.Add("radiance_cascades_debug=number[0]", function(value)
+	radiance_cascades.DEBUG = math.clamp(math.floor(value), 0, 5)
+	logf("[radiance_cascades] resolve debug view %d\n", radiance_cascades.DEBUG)
+end)
+
+commands.Add("radiance_cascades_relocate=number[1]", function(value)
+	radiance_cascades.RELOCATE = math.clamp(value, 0, 2)
+	logf("[radiance_cascades] probe relocation reach %f cells\n", radiance_cascades.RELOCATE)
+end)
+
+commands.Add("radiance_cascades_validity=boolean[true]", function(enabled)
+	radiance_cascades.PROBE_VALIDITY = enabled ~= false
+	logf(
+		"[radiance_cascades] probes inside geometry are %s\n",
+		radiance_cascades.PROBE_VALIDITY and "excluded from the gather" or "weighted normally"
+	)
+end)
+
+commands.Add("radiance_cascades_collapse=number[0.15]", function(value)
+	radiance_cascades.COLLAPSE = math.clamp(value, 0, 1)
+	logf("[radiance_cascades] collapse threshold %f\n", radiance_cascades.COLLAPSE)
+end)
+
+commands.Add("radiance_cascades_cell_fallback=boolean[true]", function(enabled)
+	radiance_cascades.CELL_FALLBACK = enabled ~= false
+	logf(
+		"[radiance_cascades] all-occluded pixels %s\n",
+		radiance_cascades.CELL_FALLBACK and
+		"re-gather one cell along the normal" or
+		"reuse the occluded probes"
+	)
+end)
+
+commands.Add("radiance_cascades_smooth_interp=boolean[true]", function(enabled)
+	radiance_cascades.SMOOTH_INTERP = enabled ~= false
+	logf(
+		"[radiance_cascades] trilinear weights %s\n",
+		radiance_cascades.SMOOTH_INTERP and "smoothstepped" or "linear"
+	)
 end)
 
 commands.Add("radiance_cascades_temporal=number[0.9]", function(value)

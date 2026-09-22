@@ -20,6 +20,7 @@ local BINDING_BVH_TRIANGLES = BINDING_BVH_NODES + 1
 local BINDING_RESOLVE_DEPTH = BINDING_BVH_TRIANGLES + 1
 local BINDING_OCCLUSION_MAP = BINDING_BVH_TRIANGLES + 1
 local BINDING_FEEDBACK = BINDING_BVH_TRIANGLES + 2
+local BINDING_RELOCATE = BINDING_BVH_TRIANGLES + 3
 -- temporal pass only uses 0 (colour out), 1 (uniform) and 2 (resolved gi)
 local BINDING_TEMPORAL_DEPTH = 3
 local USE_BVH = radiance_cascades.BACKEND == "bvh"
@@ -90,6 +91,68 @@ local function get_feedback_texture()
 	return feedback_tex
 end
 
+-- Per-probe displacement for cascade 0, rewritten in full every frame.
+--
+-- Unlike the feedback volume this holds no history: it is a pure function of
+-- the current geometry, so a scrolling lattice cannot make it stale. That is
+-- the whole reason it is recomputed rather than cached.
+local relocate_tex = nil
+
+local function get_relocate_texture()
+	if not relocate_tex then
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		local tex = Texture.New{
+			width = FEEDBACK_PROBES * FEEDBACK_PROBES,
+			height = FEEDBACK_PROBES,
+			format = "r16g16b16a16_sfloat",
+			mip_map_levels = 1,
+			image = {usage = {"storage", "sampled", "transfer_dst"}},
+			view = {view_type = "2d"},
+		}
+		tex:SetDebugName("rc probe relocation")
+		render.TransitionResourceTo(
+			tex,
+			"transfer_dst_optimal",
+			{
+				cmd = cmd,
+				srcStage = "top_of_pipe",
+				srcAccess = "none",
+				dstStage = "transfer",
+				dstAccess = "transfer_write",
+			}
+		)
+		cmd:ClearColorImage{image = tex:GetImage(), color = {0, 0, 0, 0}}
+		render.TransitionResourceFrom(
+			tex,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "transfer",
+				srcAccess = "transfer_write",
+				dstStage = "fragment_shader",
+				dstAccess = "shader_read",
+			}
+		)
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		cmd:Remove()
+		relocate_tex = tex
+	end
+
+	return relocate_tex
+end
+
+-- read side, shared by the cascade pass, the resolve and the feedback gather
+local RELOCATE_GLSL = [[
+	vec3 rc_probe_relocation(ivec3 idx) {
+		if (rc_data.rc_relocate <= 0.0) return vec3(0.0);
+
+		int n = rc_data.rc_feedback_probes;
+		return imageLoad(rc_relocate_tex, ivec2(idx.x + n * idx.y, idx.z)).xyz;
+	}
+]]
+
 local function build_volume_bindings()
 	local sampled_images = {}
 	local declarations = {}
@@ -116,6 +179,100 @@ local function build_volume_bindings()
 	end
 
 	return sampled_images, table.concat(declarations, "\n")
+end
+
+-- Push cascade-0 probes out of solid geometry.
+--
+-- A probe buried in a wall traces every ray from inside it, so it stores
+-- near-zero radiance. Excluding it from the gather removes the bad sample but
+-- leaves a hole; moving it just outside the surface gives back a sample that
+-- actually measures the light near that wall, which is what the resolve wanted
+-- from that cell in the first place.
+--
+-- Only cascade 0 is relocated. The coarser cascades are read by world position
+-- (see the merge in build_cascade_pass), so they stay on their nominal lattice
+-- and nothing downstream has to know.
+local function build_relocate_pass()
+	local p0 = radiance_cascades.GetProbesPerAxis(0)
+	local sampled_images, volume_declarations = build_volume_bindings()
+	return {
+		name = "radiance_cascades_relocate",
+		ComputePass = true,
+		ColorFormat = {{"r8_unorm", {"dummy", "r"}}},
+		FramebufferSize = {x = p0 * p0, y = p0},
+		framebuffer_count = 1,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				attachment = 1,
+				dst_stage = "compute",
+			},
+			{
+				binding_index = BINDING_RELOCATE,
+				get_texture = get_relocate_texture,
+				dst_stage = "compute",
+			},
+		},
+		sampled_images = sampled_images,
+		uniform_buffers = {
+			{
+				name = "rc_data",
+				binding_index = BINDING_UNIFORM,
+				block = radiance_cascades.GetBlockLayout(),
+				write = function(self, block)
+					return radiance_cascades.WriteBlock(self, block, 0)
+				end,
+			},
+		},
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, r8) uniform writeonly image2D out_dummy;
+			layout(set = 0, binding = ]] .. BINDING_RELOCATE .. [[, rgba16f) uniform writeonly image2D rc_relocate_tex;
+		]] .. volume_declarations,
+		shader = [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			]] .. radiance_cascades.GetCommonGLSL(p0) .. [[
+			]] .. radiance_cascades.GetClipmapGLSL("rc_data") .. [[
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_dummy);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				int py = pos.x / RC_PROBES_PER_AXIS;
+				int px = pos.x - py * RC_PROBES_PER_AXIS;
+				vec3 nominal = rc_probe_world_pos(ivec3(px, py, pos.y));
+				vec3 offset = vec3(0.0);
+
+				if (rc_data.rc_relocate > 0.0 && rc_probe_in_geometry(nominal)) {
+					// nearest open spot in a 3x3x3 neighbourhood. the step is
+					// kept under half a cell so a relocated probe never lands
+					// past its neighbour, which would fold the lattice over
+					float step_size = RC_SPACING * rc_data.rc_relocate * 0.5;
+					float best = 1e9;
+
+					for (int k = 0; k < 27; k++) {
+						ivec3 o = ivec3(k % 3, (k / 3) % 3, k / 9) - ivec3(1);
+
+						if (all(equal(o, ivec3(0)))) continue;
+
+						vec3 candidate = vec3(o) * step_size;
+						float d = length(candidate);
+
+						if (d >= best) continue;
+						if (rc_probe_in_geometry(nominal + candidate)) continue;
+
+						best = d;
+						offset = candidate;
+					}
+				}
+
+				imageStore(rc_relocate_tex, pos, vec4(offset, 1.0));
+				imageStore(out_dummy, pos, vec4(0.0));
+			}
+		]],
+	}
 end
 
 local function build_cascade_pass(cascade, is_top)
@@ -152,6 +309,11 @@ local function build_cascade_pass(cascade, is_top)
 				get_texture = get_feedback_texture,
 				dst_stage = "compute",
 			},
+				{
+				binding_index = BINDING_RELOCATE,
+				get_texture = get_relocate_texture,
+				dst_stage = "compute",
+			},
 		},
 		sampled_images = sampled_images,
 		storage_buffers = USE_BVH and
@@ -182,6 +344,7 @@ local function build_cascade_pass(cascade, is_top)
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_cascade;
 			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D upper_cascade_tex;
 			layout(set = 0, binding = ]] .. BINDING_FEEDBACK .. [[, rgba16f) uniform readonly image2D rc_feedback_tex;
+			layout(set = 0, binding = ]] .. BINDING_RELOCATE .. [[, rgba16f) uniform readonly image2D rc_relocate_tex;
 		]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. "\n" .. volume_declarations .. (
 				USE_BVH and
 				scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) or
@@ -200,6 +363,7 @@ local function build_cascade_pass(cascade, is_top)
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 			]] .. radiance_cascades.GetCommonGLSL(radiance_cascades.GetProbesPerAxis(cascade)) .. [[
+			]] .. RELOCATE_GLSL .. [[
 
 			// the feedback grid is the cascade-0 probe lattice; it does not follow the
 			// per-cascade RC_PROBES_PER_AXIS/RC_SPACING, so it is derived here.
@@ -238,7 +402,7 @@ local function build_cascade_pass(cascade, is_top)
 				for (int y = 0; y < 2; y++)
 				for (int x = 0; x < 2; x++) {
 					ivec3 p = clamp(base + ivec3(x, y, z), ivec3(0), ivec3(n - 1));
-					vec3 to_probe = origin + (vec3(p) + 0.5) * s - pos;
+					vec3 to_probe = origin + (vec3(p) + 0.5) * s + rc_probe_relocation(p) - pos;
 					float probe_dist = length(to_probe);
 					float facing = probe_dist > 1e-4 ?
 						(dot(to_probe / probe_dist, N) + 1.0) * 0.5 :
@@ -263,7 +427,7 @@ local function build_cascade_pass(cascade, is_top)
 				scene_bvh.GetTraversalGLSL() or
 				""
 			) .. [[
-			]] .. radiance_cascades.GetTraceGLSL("rc_data") .. [[
+			]] .. radiance_cascades.GetClipmapGLSL("rc_data") .. radiance_cascades.GetTraceGLSL("rc_data") .. [[
 
 			#if RC_IS_TOP
 			const float RC_MERGE_OVERLAP = 0.0;
@@ -291,6 +455,10 @@ local function build_cascade_pass(cascade, is_top)
 				int probe_index = rc_probe_index(probe_xyz);
 
 				vec3 world_pos = rc_probe_world_pos(probe_xyz);
+
+				// trace from where the probe actually sits, or its radiance would
+				// describe the nominal spot the resolve is no longer reading
+				if (RC_CASCADE == 0) world_pos += rc_probe_relocation(probe_xyz);
 				vec3 direction = rc_oct_decode(
 					(vec2(float(dir_idx % 4), float(dir_idx / 4)) + 0.5) / 4.0
 				);
@@ -657,6 +825,11 @@ local function build_resolve_pass()
 				attachment = 1,
 				dst_stage = {"compute", "fragment"},
 			},
+			{
+				binding_index = BINDING_RELOCATE,
+				get_texture = get_relocate_texture,
+				dst_stage = "compute",
+			},
 		},
 		sampled_images = sampled_images,
 		storage_buffers = USE_BVH and
@@ -684,6 +857,7 @@ local function build_resolve_pass()
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D cascade_tex;
+			layout(set = 0, binding = ]] .. BINDING_RELOCATE .. [[, rgba16f) uniform readonly image2D rc_relocate_tex;
 		]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. "\n" .. volume_declarations .. (
 				USE_BVH and
 				scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) or
@@ -702,6 +876,7 @@ local function build_resolve_pass()
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 			]] .. radiance_cascades.GetCommonGLSL() .. [[
+			]] .. RELOCATE_GLSL .. [[
 			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
 			]] .. radiance_cascades.GetShadowGLSL("rc_data") .. [[
 			]] .. radiance_cascades.GetLightGLSL("rc_data") .. [[
@@ -711,7 +886,7 @@ local function build_resolve_pass()
 				scene_bvh.GetTraversalGLSL() or
 				""
 			) .. [[
-			]] .. radiance_cascades.GetTraceGLSL("rc_data") .. [[
+			]] .. radiance_cascades.GetClipmapGLSL("rc_data") .. radiance_cascades.GetTraceGLSL("rc_data") .. [[
 
 			bool rc_occluded(vec3 from, vec3 N, vec3 probe_pos) {
 				// push the ray start off the surface along its normal; stable across
@@ -732,6 +907,96 @@ local function build_resolve_pass()
 				if (!rc_trace_voxels(origin, dir, 0.0, check_dist, hit)) return false;
 				return length(hit.position - origin) > eps;
 #endif
+			}
+
+			// Per-pixel, per-frame offset inside the probe cell.
+			//
+			// Only the trilinear weights see this: the per-probe gating below
+			// (rc_occluded and the facing wrap) is computed from world_pos, the
+			// real surface point. So jittering cannot walk the lookup through a
+			// wall the way the normal bias can -- it only changes which eight
+			// probes get blended and in what proportion.
+			vec3 rc_cell_jitter(ivec2 pos) {
+				if (rc_data.rc_jitter <= 0.0) return vec3(0.0);
+
+				// the noise texture is 64x64 with two usable channels, so a
+				// second lookup a prime offset away supplies the third axis
+				vec2 n0 = texelFetch(TEXTURE(rc_data.rc_blue_noise_tex), pos & 63, 0).rg;
+				float n1 = texelFetch(TEXTURE(rc_data.rc_blue_noise_tex), (pos + ivec2(37, 17)) & 63, 0).r;
+				// advancing every pixel by the same R3 increment each frame
+				// keeps the spatial distribution blue on every individual frame
+				// while walking each pixel across the cell over time
+				vec3 n = fract(
+					vec3(n0, n1) +
+					float(rc_data.rc_frame) * vec3(0.7548776662, 0.5698402910, 0.4301597090)
+				);
+				return (n - 0.5) * (RC_SPACING * rc_data.rc_jitter);
+			}
+
+			// Trilinear weights for the eight cascade-0 probes around sample_pos,
+			// with probes the surface cannot see zeroed when gate is set.
+			// Returns the surviving weight, before renormalization.
+			//
+			// sample_pos only picks the cell and the blend. Every rejection test
+			// uses world_pos, the true surface point, so moving the gather never
+			// moves what counts as visible.
+			float rc_gather_probes(
+				vec3 sample_pos,
+				vec3 world_pos,
+				vec3 N,
+				bool gate,
+				out ivec3 probe_p[8],
+				out float probe_w[8]
+			) {
+				// probe k sits at the cell centre (k + 0.5) * spacing, so the
+				// cube surrounding the sample starts at floor(local - 0.5)
+				vec3 local = (sample_pos - rc_grid_origin()) / RC_SPACING - 0.5;
+				ivec3 base = ivec3(floor(local));
+				vec3 frac = local - vec3(base);
+
+				// smoothstep makes the reconstruction C1 across cell boundaries.
+				// trilinear is only C0, and it is that gradient break -- not the
+				// probe spacing itself -- that the eye picks out as boxes
+				if (rc_data.rc_smooth_interp > 0.5) {
+					frac = frac * frac * (3.0 - 2.0 * frac);
+				}
+
+				float sum = 0.0;
+
+				for (int z = 0; z < 2; z++)
+				for (int y = 0; y < 2; y++)
+				for (int x = 0; x < 2; x++) {
+					int i = z * 4 + y * 2 + x;
+					probe_p[i] = clamp(base + ivec3(x, y, z), ivec3(0), ivec3(RC_PROBES_PER_AXIS - 1));
+					vec3 probe_pos = rc_probe_world_pos(probe_p[i]) + rc_probe_relocation(probe_p[i]);
+					vec3 to_probe = probe_pos - world_pos;
+					float probe_dist = length(to_probe);
+					// a probe behind the shading surface only ever sees its back side,
+					// so it carries no light for this pixel. the smooth wrap keeps the
+					// weight continuous instead of popping at the horizon
+					float facing = probe_dist > 1e-4 ?
+						(dot(to_probe / probe_dist, N) + 1.0) * 0.5 :
+						1.0;
+					float w = (x == 0 ? 1.0 - frac.x : frac.x) *
+						(y == 0 ? 1.0 - frac.y : frac.y) *
+						(z == 0 ? 1.0 - frac.z : frac.z) *
+						facing * facing;
+
+					// hard exclusion, before the visibility gate: a buried probe
+					// carries no information at any weight
+					if (w > 0.0 && rc_data.rc_validity > 0.5 && rc_probe_in_geometry(probe_pos)) {
+						w = 0.0;
+					}
+
+					if (gate && w > 0.0 && rc_occluded(world_pos, N, probe_pos)) {
+						w = 0.0;
+					}
+
+					probe_w[i] = w;
+					sum += w;
+				}
+
+				return sum;
 			}
 
 			void main() {
@@ -759,64 +1024,110 @@ local function build_resolve_pass()
 				// gather at a point pushed off the surface along the normal, so the
 				// trilinear cell is the one in front of the wall rather than the one
 				// the wall itself occupies
-				vec3 sample_pos = world_pos + N * (RC_SPACING * rc_data.rc_normal_bias);
-
-				// trilinear in the cascade-0 probe grid. probe k sits at the cell
-				// centre (k + 0.5) * spacing, so the cube surrounding the sample
-				// starts at floor(local - 0.5)
-				vec3 local = (sample_pos - rc_grid_origin()) / RC_SPACING - 0.5;
-				ivec3 base = ivec3(floor(local));
-				vec3 frac = local - vec3(base);
+				vec3 sample_pos = world_pos + N * (RC_SPACING * rc_data.rc_normal_bias) +
+					rc_cell_jitter(pos);
 
 				ivec3 probe_p[8];
 				float probe_w[8];
+				bool gate = rc_data.rc_vismerge > 0.5;
+				float weight_sum = rc_gather_probes(sample_pos, world_pos, N, gate, probe_p, probe_w);
+				float gathered_sum = weight_sum;
+				int fallback_path = 0;
 
-				for (int z = 0; z < 2; z++)
-				for (int y = 0; y < 2; y++)
-				for (int x = 0; x < 2; x++) {
-					int i = z * 4 + y * 2 + x;
-					probe_p[i] = clamp(base + ivec3(x, y, z), ivec3(0), ivec3(RC_PROBES_PER_AXIS - 1));
-					vec3 to_probe = rc_probe_world_pos(probe_p[i]) - world_pos;
-					float probe_dist = length(to_probe);
-					// a probe behind the shading surface only ever sees its back side,
-					// so it carries no light for this pixel. the smooth wrap keeps the
-					// weight continuous instead of popping at the horizon
-					float facing = probe_dist > 1e-4 ?
-						(dot(to_probe / probe_dist, N) + 1.0) * 0.5 :
-						1.0;
-					probe_w[i] = (x == 0 ? 1.0 - frac.x : frac.x) *
-						(y == 0 ? 1.0 - frac.y : frac.y) *
-						(z == 0 ? 1.0 - frac.z : frac.z) *
-						facing * facing;
+				if (weight_sum <= rc_data.rc_collapse) {
+					// Nothing around this point can see it. That is not rare: it
+					// is what happens wherever a wall lands flush with a probe
+					// plane. frac on the normal's axis goes to 0 or 1, the whole
+					// trilinear weight collapses onto the probe slab coplanar
+					// with the wall -- probes that traced from inside the
+					// geometry and are therefore dark -- and the visibility gate
+					// then correctly rejects every one of them.
+					//
+					// Reusing them anyway paints a dark seam along that plane,
+					// repeating every probe spacing and sliding as the geometry
+					// moves. Stepping the gather one cell along the normal lands
+					// in the cell in front of the wall, whose probes can
+					// actually see the surface.
+					if (rc_data.rc_cell_fallback > 0.5) {
+						vec3 ahead = world_pos + N * RC_SPACING;
+						weight_sum = rc_gather_probes(ahead, world_pos, N, gate, probe_p, probe_w);
+						fallback_path = 1;
+
+						// still nothing visible one cell out: take those probes
+						// ungated rather than going black. they are at least in
+						// front of the surface, which the collapsed slab was not
+						if (weight_sum <= rc_data.rc_collapse) {
+							weight_sum = rc_gather_probes(ahead, world_pos, N, false, probe_p, probe_w);
+							fallback_path = 2;
+						}
+					} else {
+						weight_sum = rc_gather_probes(sample_pos, world_pos, N, false, probe_p, probe_w);
+						fallback_path = 3;
+					}
 				}
 
-				if (rc_data.rc_vismerge > 0.5) {
-					float gated_sum = 0.0;
-					float probe_gated[8];
+				if (rc_data.rc_debug != 0) {
+					int survivors = 0;
 
-					for (int i = 0; i < 8; i++) {
-						probe_gated[i] = probe_w[i];
+					for (int i = 0; i < 8; i++) if (probe_w[i] > 0.0) survivors++;
 
-						if (probe_w[i] > 0.0 && rc_occluded(world_pos, N, rc_probe_world_pos(probe_p[i]))) {
-							probe_gated[i] = 0.0;
+					vec3 dbg = vec3(0.0);
+
+					if (rc_data.rc_debug == 1) {
+						// how many of the eight probes survived the visibility
+						// gate. red means none did
+						dbg = survivors == 0 ?
+							vec3(1.0, 0.0, 0.0) :
+							vec3(float(survivors) / 8.0);
+					} else if (rc_data.rc_debug == 2) {
+						// weight before renormalization. dark means the gather
+						// found almost nothing to stand on even if it did not
+						// collapse outright
+						dbg = vec3(clamp(gathered_sum, 0.0, 1.0));
+					} else if (rc_data.rc_debug == 3) {
+						// position within the probe cell along the normal's
+						// dominant axis. if the seams line up with 0 or 1 here,
+						// the lattice alignment is what drives them
+						vec3 l = (sample_pos - rc_grid_origin()) / RC_SPACING - 0.5;
+						vec3 f = l - floor(l);
+						vec3 a = abs(N);
+						float d = a.x > a.y && a.x > a.z ? f.x : (a.y > a.z ? f.y : f.z);
+						dbg = vec3(d);
+					} else if (rc_data.rc_debug == 5) {
+						// share of the gather weight sitting on probes behind the
+						// surface plane. trilinear is a convex combination, so a
+						// result darker than every nearby probe can only mean a
+						// dark contributor is in the mix -- this is how much of
+						// the average those buried probes are actually holding
+						float behind = 0.0;
+						float total = 0.0;
+
+						for (int i = 0; i < 8; i++) {
+							if (probe_w[i] <= 0.0) continue;
+
+							total += probe_w[i];
+
+							if (dot(rc_probe_world_pos(probe_p[i]) - world_pos, N) <= 0.0) {
+								behind += probe_w[i];
+							}
 						}
 
-						gated_sum += probe_gated[i];
+						dbg = total > 0.0 ? vec3(behind / total) : vec3(1.0, 0.0, 1.0);
+					} else if (rc_data.rc_debug == 4) {
+						// which path produced the result: grey none, red the
+						// one-cell step, yellow ungated, blue the legacy reuse
+						dbg = fallback_path == 0 ?
+							vec3(0.15) :
+							(
+								fallback_path == 1 ?
+								vec3(1.0, 0.0, 0.0) :
+								(fallback_path == 2 ? vec3(1.0, 1.0, 0.0) : vec3(0.0, 0.3, 1.0))
+							);
 					}
 
-					// only take the gated weights when something survived. an all-occluded
-					// pixel keeps the facing weights rather than falling back to the
-					// un-gated trilinear, which is exactly the leaking result
-					if (gated_sum > 1e-4) {
-						for (int i = 0; i < 8; i++) probe_w[i] = probe_gated[i];
-					}
+					imageStore(out_color, pos, vec4(dbg, 1.0));
+					return;
 				}
-
-				// renormalize: zeroed probes must redistribute their weight to the
-				// visible ones instead of darkening the pixel
-				float weight_sum = 0.0;
-
-				for (int i = 0; i < 8; i++) weight_sum += probe_w[i];
 
 				if (weight_sum <= 1e-6) {
 					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 0.0));
@@ -885,6 +1196,8 @@ passes[#passes + 1] = {
 		voxel_gi.Draw(cmd)
 	end,
 }
+
+passes[#passes + 1] = build_relocate_pass()
 
 for cascade = radiance_cascades.CASCADE_COUNT - 1, 0, -1 do
 	passes[#passes + 1] = build_cascade_pass(cascade, cascade == radiance_cascades.CASCADE_COUNT - 1)
