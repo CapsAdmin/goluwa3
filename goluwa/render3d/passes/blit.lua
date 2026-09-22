@@ -3,7 +3,21 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local system = import("goluwa/system.lua")
+local commands = import("goluwa/cli/commands.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
+
+-- 0 = automatic adaptation. any positive value pins the exposure there, which
+-- is what makes brightness comparable between screenshots taken at different
+-- places or across code changes.
+commands.Add("r_exposure_lock=number[0]", function(value)
+	render3d.exposure_lock = math.max(value, 0)
+	logf(
+		"[blit] exposure %s\n",
+		render3d.exposure_lock > 0 and
+			("locked at " .. render3d.exposure_lock) or
+			"auto"
+	)
+end)
 
 local function get_scene_source_texture()
 	return post_source.GetSceneSourceTexture({name = "blit_compute"})
@@ -47,6 +61,13 @@ local exposure_feedback_shader = [[
 
 	void main() {
 		if (compute.has_source_tex == 0) return;
+
+		// pinned exposure, for A/B captures where adaptation would otherwise
+		// rescale each shot and make absolute brightness incomparable
+		if (compute.lock > 0.0) {
+			imageStore(out_exposure, ivec2(0, 0), vec4(compute.lock, 0.0, 0.0, 1.0));
+			return;
+		}
 
 		float prev = texture(prev_exposure_tex, vec2(0.5)).r;
 		if (!(prev > 0.0)) prev = ]] .. string.format("%.7g", exposure_bootstrap) .. [[;
@@ -114,10 +135,12 @@ local exposure_feedback_pass = {
 	block = {
 		{"has_source_tex", "int"},
 		{"dt", "float"},
+		{"lock", "float"},
 	},
 	write = function(self, block)
 		block.has_source_tex = post_source.GetSceneSourceTexture({name = "exposure_feedback"}) and 1 or 0
 		block.dt = get_exposure_dt()
+		block.lock = render3d.exposure_lock or 0
 		return block
 	end,
 	shader = exposure_feedback_shader,

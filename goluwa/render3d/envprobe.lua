@@ -1046,9 +1046,7 @@ local function get_probe_capture_bundle(size)
 			return name:find("^gbuffer") ~= nil or
 				name == "ssr" or
 				name == "lighting" or
-				name == "ocean" or
-				name == "voxel_gi_irradiance" or
-				name == "voxel_gi_upsample"
+				name == "ocean"
 		end,
 	}
 	envprobe.capture_bundles[size] = bundle

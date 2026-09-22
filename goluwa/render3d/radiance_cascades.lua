@@ -22,19 +22,49 @@ radiance_cascades.SKY_INTENSITY = 1
 radiance_cascades.DENOISE = 1
 radiance_cascades.DENOISE_RADIUS = 2
 radiance_cascades.DENOISE_STRIDE = 3
--- Second bounce taken from the voxel gi. Off by default: the voxel gi's own
--- probes read full daylight inside a sealed room, so tapping it here hands every
--- cascade probe a leak the cascades cannot gate away. Turn it on for a brighter
--- (but leaking) look until the voxel gi stops leaking on its own.
-radiance_cascades.WORLD_BOUNCE_STRENGTH = 0
+-- Second bounce taken from the voxel gi's probe cascades.
+radiance_cascades.WORLD_BOUNCE_STRENGTH = 1
 radiance_cascades.VISIBILITY_MERGE = true
 radiance_cascades.VISMERGE_BIAS = 0.001
 radiance_cascades.VISMERGE_RANGE = 1
 -- resolve gather offset along the surface normal, in probe spacings
 radiance_cascades.NORMAL_BIAS = 0.5
-radiance_cascades.BOUNCE = 0
+radiance_cascades.BOUNCE = 1
 radiance_cascades.RESOLVE_SCALE = 1.0
+-- how much of the reprojected previous frame to keep. the resolve only gathers
+-- 16 directions from 8 probes, so the per-pixel estimate is grainy; accumulating
+-- it over frames is what buys the sample count back
+radiance_cascades.TEMPORAL = 0.9
 radiance_cascades.enabled = true
+
+-- The final resolved GI for the screen, taken from the last stage of the chain
+-- that actually exists: denoise, else temporal, else the raw resolve. Consumers
+-- used to reach into render3d.pipelines themselves and pick wrong when a stage
+-- was disabled -- one of them called a GetResolveFramebufferIndex that had never
+-- existed, which would have been a nil call the moment denoise was turned off.
+function radiance_cascades.GetScreenTexture()
+	local denoise = render3d.pipelines.radiance_cascades_denoise
+
+	if denoise then return denoise:GetFramebuffer(1):GetAttachment(1) end
+
+	local temporal = render3d.pipelines.radiance_cascades_temporal
+
+	if temporal then
+		return temporal:GetFramebuffer(radiance_cascades.GetTemporalFramebufferIndex()):GetAttachment(1)
+	end
+
+	local resolve = render3d.pipelines.radiance_cascades_resolve
+
+	if resolve then return resolve:GetFramebuffer(1):GetAttachment(1) end
+
+	return nil
+end
+
+-- the temporal pass ping-pongs two framebuffers, this is the one written (and
+-- therefore read by everything downstream) this frame
+function radiance_cascades.GetTemporalFramebufferIndex()
+	return system.GetFrameNumber() % 2 + 1
+end
 
 -- Cascade 0's rays have to reach at least as far as the next probe, otherwise
 -- almost all of them terminate in empty space and inherit the coarse cascades'
@@ -109,13 +139,60 @@ function radiance_cascades.GetBlockLayout()
 		{"rc_vismerge_bias", "float"},
 		{"rc_vismerge_range", "float"},
 		{"rc_normal_bias", "float"},
-		{"rc_resolve_nearest", "float"},
 		{"rc_bounce", "float"},
 		{"rc_feedback_probes", "int"},
+		{"rc_feedback_camera", "vec4"},
 		{"rc_denoise", "float"},
 		{"rc_frame", "int"},
 		{"gi", voxel_gi.GetBlockLayout()},
 	}
+end
+
+-- The feedback volume is a persistent texture indexed by a bare slot number:
+-- the bounce pass stores probe P at texel P and records no world position at
+-- all. The slot's world position is implied by the grid origin in force when it
+-- was written, so a reader using the *current* origin is reading a lattice that
+-- has moved out from under the data. The origin snaps to the camera every
+-- 0.78 m of travel, and each snap slides the whole cached field one cell
+-- sideways for a frame -- interior light visibly pushed out through the walls,
+-- then pulled back once the pass refills it.
+--
+-- So hand the shader the lattice the data was actually written on. Both origins
+-- are floor()*spacing, so the correction is a whole number of cells and the
+-- remap is exact -- no resampling, no blur.
+--
+-- What gets snapshotted is the very same camera_position the block already
+-- carries, rather than a camera accessor re-read here: the shader derives the
+-- lattice from that field, so anything else risks disagreeing with it, and a
+-- disagreement is worse than the bug being fixed -- the lookup lands outside the
+-- volume, most of the eight taps drop out, and acc/wsum renormalizes whatever
+-- survives back up to full brightness.
+local feedback_frame = nil
+local feedback_seeded = false
+local feedback_camera_current = {x = 0, y = 0, z = 0}
+local feedback_camera_previous = {x = 0, y = 0, z = 0}
+
+local function advance_feedback_camera(block)
+	local frame = system.GetFrameNumber()
+
+	if feedback_frame ~= frame then
+		feedback_frame = frame
+		feedback_camera_previous, feedback_camera_current = feedback_camera_current, feedback_camera_previous
+		feedback_camera_current.x = block.camera_position[0]
+		feedback_camera_current.y = block.camera_position[1]
+		feedback_camera_current.z = block.camera_position[2]
+
+		if not feedback_seeded then
+			-- nothing written yet, so there is no older lattice to correct back
+			-- to; the texture reads a = 0 on that first frame anyway
+			feedback_camera_previous.x = feedback_camera_current.x
+			feedback_camera_previous.y = feedback_camera_current.y
+			feedback_camera_previous.z = feedback_camera_current.z
+			feedback_seeded = true
+		end
+	end
+
+	return feedback_camera_previous
 end
 
 function radiance_cascades.WriteBlock(self, block, cascade)
@@ -178,9 +255,17 @@ function radiance_cascades.WriteBlock(self, block, cascade)
 	block.rc_vismerge_bias = radiance_cascades.VISMERGE_BIAS
 	block.rc_vismerge_range = radiance_cascades.VISMERGE_RANGE
 	block.rc_normal_bias = radiance_cascades.NORMAL_BIAS
-	block.rc_resolve_nearest = (_G.rc_resolve_nearest and 1 or 0)
 	block.rc_bounce = radiance_cascades.BOUNCE
 	block.rc_feedback_probes = radiance_cascades.GetProbesPerAxis(0)
+
+	do
+		local camera_position = advance_feedback_camera(block)
+		block.rc_feedback_camera[0] = camera_position.x
+		block.rc_feedback_camera[1] = camera_position.y
+		block.rc_feedback_camera[2] = camera_position.z
+		block.rc_feedback_camera[3] = 0
+	end
+
 	voxel_gi.WriteBlock(self, block.gi)
 	return block
 end
@@ -433,21 +518,14 @@ function radiance_cascades.GetTraceGLSL(block_name)
 			).rgb * RC_BLOCK.rc_sky_intensity;
 		}
 
+		// second bounce for a traced hit. goes through the same cascade
+		// compositing the lighting pass uses so the occlusion gating applies
+		// here too, with a black fallback: a hit outside every probe cascade
+		// contributes no bounce rather than inheriting the sky
 		vec3 rc_world_bounce(vec3 pos, vec3 N) {
-			int cascade_count = min(RC_BLOCK.gi.gi_cascade_count, VOXEL_GI_MAX_SAMPLE_CASCADES);
-
-			for (int c = 0; c < cascade_count; c++) {
-				vec3 bias_pos = pos + N * (voxel_gi_spacing(c) * 0.25);
-
-				if (voxel_gi_cascade_fade(c, bias_pos) <= 0.0) continue;
-
-				float weight;
-				vec3 irradiance = voxel_gi_sample_cascade(c, pos, bias_pos, N, false, weight);
-
-				if (weight > 1e-6) return irradiance * RC_BLOCK.rc_world_bounce;
-			}
-
-			return vec3(0.0);
+			float unused_sky_visibility;
+			return sample_voxel_gi_irradiance(pos, N, N, vec3(0.0), unused_sky_visibility) *
+				RC_BLOCK.rc_world_bounce;
 		}
 
 		vec3 rc_shade_hit(rc_hit hit) {
@@ -601,12 +679,17 @@ commands.Add("radiance_cascades_normal_bias=number[0.5]", function(value)
 	logf("[radiance_cascades] normal bias %f spacings\n", radiance_cascades.NORMAL_BIAS)
 end)
 
+commands.Add("radiance_cascades_temporal=number[0.9]", function(value)
+	radiance_cascades.TEMPORAL = math.clamp(value, 0, 0.98)
+	logf("[radiance_cascades] temporal blend %f\n", radiance_cascades.TEMPORAL)
+end)
+
 commands.Add("radiance_cascades_bounce=number[0]", function(value)
 	radiance_cascades.BOUNCE = math.clamp(value, 0.0, 0.95)
 	logf("[radiance_cascades] bounce feedback %f\n", radiance_cascades.BOUNCE)
 end)
 
-commands.Add("radiance_cascades_backend=string[voxel]", function(backend)
+commands.Add("radiance_cascades_backend=string[bvh]", function(backend)
 	if backend ~= "voxel" and backend ~= "bvh" then
 		error("backend must be voxel or bvh", 2)
 	end

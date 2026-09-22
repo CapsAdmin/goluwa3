@@ -381,13 +381,3 @@ commands.Add("rc_debug=boolean", function(enabled)
 	print("RC debug: " .. (show_rc_debug and "ON" or "OFF"))
 end)
 
-commands.Add("rc_leak_direct=boolean", function(enabled)
-	_G.rc_leak_direct = enabled ~= false
-	print("RC leak direct-only view: " .. (_G.rc_leak_direct and "ON" or "OFF"))
-end)
-
-commands.Add("rc_resolve_nearest=boolean", function(enabled)
-	_G.rc_resolve_nearest = enabled ~= false
-	print("RC resolve nearest-probe (no trilinear): " .. (_G.rc_resolve_nearest and "ON" or "OFF"))
-end)
-

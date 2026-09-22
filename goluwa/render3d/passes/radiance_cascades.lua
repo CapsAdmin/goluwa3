@@ -7,6 +7,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
+local system = import("goluwa/system.lua")
 local MAX_CLIPMAPS = voxel_gi.GetMaxClipmapCount()
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
@@ -19,6 +20,8 @@ local BINDING_BVH_TRIANGLES = BINDING_BVH_NODES + 1
 local BINDING_RESOLVE_DEPTH = BINDING_BVH_TRIANGLES + 1
 local BINDING_OCCLUSION_MAP = BINDING_BVH_TRIANGLES + 1
 local BINDING_FEEDBACK = BINDING_BVH_TRIANGLES + 2
+-- temporal pass only uses 0 (colour out), 1 (uniform) and 2 (resolved gi)
+local BINDING_TEMPORAL_DEPTH = 3
 local USE_BVH = radiance_cascades.BACKEND == "bvh"
 
 local function probe_tex_size(cascade)
@@ -204,9 +207,16 @@ local function build_cascade_pass(cascade, is_top)
 				return 2.0 * RC_VOLUME_EXTENT / float(rc_data.rc_feedback_probes);
 			}
 
+			// The lattice the feedback texture was written on, which is last
+			// frame's camera, not this one's. Using the current camera slid the
+			// whole cached field one cell sideways on every origin snap -- the
+			// texture stores probes by bare slot index and records no world
+			// position, so the mapping is only ever implied by the origin in
+			// force at write time. Same floor() as rc_grid_origin so the two
+			// lattices cannot drift apart. See advance_feedback_camera.
 			vec3 rc_feedback_grid_origin() {
 				float s = rc_feedback_spacing();
-				return floor((rc_data.camera_position.xyz - vec3(RC_VOLUME_EXTENT)) / s) * s;
+				return floor((rc_data.rc_feedback_camera.xyz - vec3(RC_VOLUME_EXTENT)) / s) * s;
 			}
 
 			// trilinear sample the previous frame's per-probe irradiance at a lit
@@ -426,6 +436,198 @@ local function build_bounce_pass()
 	}
 end
 
+-- Temporal accumulation for the resolved GI.
+--
+-- The resolve gathers 16 octahedral directions from 8 probes, which is a coarse
+-- cubature: the per-pixel result is stable but grainy, and it shifts whenever
+-- the trilinear cell or the visibility gating changes under camera motion. A
+-- spatial blur alone cannot fix that without smearing the GI across edges.
+-- Reprojecting the previous frame and blending gives the effective sample count
+-- the cubature is missing, and it also absorbs the one-frame spikes the probe
+-- cascades throw when their grid scrolls.
+local function build_temporal_pass()
+	return {
+		name = "radiance_cascades_temporal",
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16_sfloat", {"view_depth", "r"}},
+		},
+		framebuffer_count = 2,
+		scale = function()
+			return radiance_cascades.RESOLVE_SCALE
+		end,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				attachment = 1,
+				dst_stage = {"compute", "fragment"},
+			},
+			{
+				binding_index = BINDING_TEMPORAL_DEPTH,
+				attachment = 2,
+				dst_stage = {"compute", "fragment"},
+			},
+		},
+		sampled_images = {
+			{
+				binding_index = BINDING_CASCADE_SOURCE,
+				get_texture = function()
+					local resolve = render3d.pipelines.radiance_cascades_resolve
+
+					if not resolve then return nil end
+
+					return resolve:GetFramebuffer(1):GetAttachment(1)
+				end,
+			},
+		},
+		uniform_buffers = {
+			{
+				name = "rc_data",
+				binding_index = BINDING_UNIFORM,
+				block = {
+					render3d.camera_block,
+					render3d.gbuffer_block,
+					render3d.prev_camera_block,
+					{"history_tex", "int"},
+					{"history_depth_tex", "int"},
+					{"rc_temporal", "float"},
+				},
+				write = function(self, block)
+					render3d.WriteCameraBlock(self, block)
+					render3d.WriteGBufferBlock(self, block)
+					render3d.WritePreviousCameraBlock(self, block)
+					block.rc_temporal = radiance_cascades.TEMPORAL
+					local frame = system.GetFrameNumber()
+
+					-- a rebuilt framebuffer holds garbage until it has been
+					-- written once, so skip history for a frame after that
+					if self.rc_history_framebuffers ~= self.framebuffers then
+						self.rc_history_framebuffers = self.framebuffers
+						self.rc_history_reset_frame = frame
+					end
+
+					if render3d.ShouldUseLastFrameHistory() and frame > self.rc_history_reset_frame then
+						local history = self:GetFramebuffer((frame + 1) % 2 + 1)
+						block.history_tex = self:GetTextureIndex(history:GetAttachment(1))
+						block.history_depth_tex = self:GetTextureIndex(history:GetAttachment(2))
+					else
+						block.history_tex = -1
+						block.history_depth_tex = -1
+					end
+
+					return block
+				end,
+			},
+		},
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = ]] .. BINDING_TEMPORAL_DEPTH .. [[, r16f) uniform writeonly image2D out_view_depth;
+			layout(set = 0, binding = ]] .. BINDING_CASCADE_SOURCE .. [[) uniform sampler2D gi_tex;
+		]],
+		shader = [[
+			#define saturate(x) clamp(x, 0.0, 1.0)
+
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			]] .. radiance_cascades.GetProbeGLSL("rc_data") .. [[
+
+			// where this pixel's surface was on screen last frame. the velocity
+			// buffer handles moving geometry; the matrices cover a still scene
+			// with a moving camera, which is the common case here
+			bool reproject(vec2 uv, vec3 world_pos, out vec2 prev_uv, out float prev_depth) {
+				if (rc_data.velocity_tex != -1) {
+					vec3 motion = texture(TEXTURE(rc_data.velocity_tex), uv).rgb;
+					prev_uv = uv - motion.xy;
+					prev_depth = motion.z;
+					return prev_depth > 1e-5;
+				}
+
+				vec4 prev_view_pos = rc_data.prev_view * vec4(world_pos, 1.0);
+				vec4 prev_clip = rc_data.prev_projection * prev_view_pos;
+
+				if (prev_clip.w <= 1e-5) return false;
+
+				prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
+				prev_depth = -prev_view_pos.z;
+				return true;
+			}
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				vec4 current = texelFetch(gi_tex, pos, 0);
+				vec2 uv = get_screen_uv(pos, size);
+				float depth = rc_probe_depth(uv);
+
+				if (depth == 1.0 || rc_data.rc_temporal <= 0.0 || rc_data.history_tex == -1) {
+					imageStore(out_color, pos, current);
+					imageStore(out_view_depth, pos, vec4(depth == 1.0 ? 0.0 : rc_linear_depth(depth)));
+					return;
+				}
+
+				float view_depth = rc_linear_depth(depth);
+				vec3 N = rc_probe_normal(uv);
+				vec3 world_pos = rc_reconstruct_world_pos(uv, depth);
+
+				// Bounding box of the freshly resolved GI around this pixel. The
+				// history gets clamped into it, which is what stops the blend
+				// ghosting wherever the gather changes -- shadow edges, doorways,
+				// anything the camera reveals.
+				//
+				// A mean +- k*sigma box would be looser and cheaper, but with a
+				// 0.9 blend the history can then sit at the top of that box
+				// indefinitely and the whole image drifts brighter than the input
+				// it is supposed to be averaging. The min/max box cannot exceed
+				// what was actually resolved nearby, so it has no such fixed point.
+				vec3 lo = vec3(65504.0);
+				vec3 hi = vec3(0.0);
+
+				for (int y = -1; y <= 1; y++)
+				for (int x = -1; x <= 1; x++) {
+					ivec2 tap = clamp(pos + ivec2(x, y), ivec2(0), size - 1);
+					vec3 c = texelFetch(gi_tex, tap, 0).rgb;
+					lo = min(lo, c);
+					hi = max(hi, c);
+				}
+				vec2 prev_uv;
+				float prev_depth;
+				vec4 result = current;
+
+				if (
+					reproject(uv, world_pos, prev_uv, prev_depth) &&
+					all(greaterThan(prev_uv, vec2(0.0))) &&
+					all(lessThan(prev_uv, vec2(1.0)))
+				) {
+					float history_depth = texture(TEXTURE(rc_data.history_depth_tex), prev_uv).r;
+
+					// a history texel whose surface sat at a different distance is
+					// a different surface: taking it would drag light across the
+					// silhouette as the camera moves
+					if (
+						history_depth > 0.0 &&
+						abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02
+					) {
+						vec4 history = texture(TEXTURE(rc_data.history_tex), prev_uv);
+
+						if (!any(isnan(history))) {
+							history.rgb = clamp(history.rgb, lo, hi);
+							history.a = clamp(history.a, 0.0, 1.0);
+							result = mix(current, history, rc_data.rc_temporal);
+						}
+					}
+				}
+
+				imageStore(out_color, pos, result);
+				imageStore(out_view_depth, pos, vec4(view_depth));
+			}
+		]],
+	}
+end
+
 local function build_resolve_pass()
 	local sampled_images, volume_declarations = build_volume_bindings()
 	sampled_images[#sampled_images + 1] = {
@@ -588,19 +790,7 @@ local function build_resolve_pass()
 						facing * facing;
 				}
 
-				if (rc_data.rc_resolve_nearest > 0.5) {
-					// diagnostic: use only the single nearest probe, no trilinear blend
-					int nearest = 0;
-					float nearest_d2 = 1e30;
-					for (int i = 0; i < 8; i++) {
-						vec3 delta = vec3(probe_p[i]) + 0.5 - local;
-						float d2 = dot(delta, delta);
-						if (d2 < nearest_d2) { nearest_d2 = d2; nearest = i; }
-					}
-					for (int i = 0; i < 8; i++) probe_w[i] = (i == nearest) ? 1.0 : 0.0;
-				}
-
-				if (rc_data.rc_vismerge > 0.5 && rc_data.rc_resolve_nearest < 0.5) {
+				if (rc_data.rc_vismerge > 0.5) {
 					float gated_sum = 0.0;
 					float probe_gated[8];
 
@@ -702,6 +892,7 @@ end
 
 passes[#passes + 1] = build_bounce_pass()
 passes[#passes + 1] = build_resolve_pass()
+passes[#passes + 1] = build_temporal_pass()
 passes[#passes + 1] = {
 	name = "radiance_cascades_denoise",
 	ComputePass = true,
@@ -724,6 +915,13 @@ passes[#passes + 1] = {
 		{
 			binding_index = BINDING_CASCADE_SOURCE,
 			get_texture = function()
+				-- the temporally accumulated result, not the raw resolve
+				local temporal = render3d.pipelines.radiance_cascades_temporal
+
+				if temporal then
+					return temporal:GetFramebuffer(radiance_cascades.GetTemporalFramebufferIndex()):GetAttachment(1)
+				end
+
 				local resolve = render3d.pipelines.radiance_cascades_resolve
 
 				if not resolve then return nil end

@@ -98,12 +98,14 @@ return {
 					{"primary_sun_direction", "vec4"},
 					atmosphere.GetBlockLayout(),
 					{"env_irradiance_tex", "int"},
-					voxel_gi.GetBlockLayout(),
+					-- the lighting shader reads its GI from gi_screen_tex, not
+					-- from the probe cascades, so gi_debug is the only field of
+					-- the voxel gi block it ever touched
+					{"gi_debug", "int"},
 					envprobe.GetProbeBlockLayout(),
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_screen_tex", "int"},
-					{"leak_debug", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -133,7 +135,7 @@ return {
 						get_primary_sun_direction(lights)
 					)
 					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
-					voxel_gi.WriteBlock(self, block)
+					block.gi_debug = voxel_gi.debug_mode or 0
 					envprobe.WriteProbeBlock(self, block)
 
 					if render3d.pipelines.ambient_occlusion_blur then
@@ -142,19 +144,8 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
-					if render3d.pipelines.radiance_cascades_resolve then
-						if render3d.pipelines.radiance_cascades_denoise then
-							block.gi_screen_tex = self:GetTextureIndex(render3d.pipelines.radiance_cascades_denoise:GetFramebuffer(1):GetAttachment(1))
-						else
-							block.gi_screen_tex = self:GetTextureIndex(
-								render3d.pipelines.radiance_cascades_resolve:GetFramebuffer(radiance_cascades.GetResolveFramebufferIndex()):GetAttachment(1)
-							)
-						end
-					elseif render3d.pipelines.voxel_gi_upsample then
-						block.gi_screen_tex = self:GetTextureIndex(render3d.pipelines.voxel_gi_upsample:GetFramebuffer(1):GetAttachment(1))
-					else
-						block.gi_screen_tex = -1
-					end
+					local gi_texture = radiance_cascades.GetScreenTexture()
+					block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
 
 					if render3d.pipelines.ssr then
 						local current_idx = system.GetFrameNumber() % 2 + 1
@@ -163,8 +154,6 @@ return {
 					else
 						block.ssr_tex = -1
 					end
-
-					block.leak_debug = (_G.rc_leak_direct and 1 or 0)
 
 					return block
 				end,
@@ -542,7 +531,7 @@ return {
 				float NdotV = max(dot(N, V), 0.001);
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
 
-				if (LIGHT_DEBUG_DIRECT > 0 || lighting_data.leak_debug == 1) {
+				if (LIGHT_DEBUG_DIRECT > 0) {
 					set_color(vec4(direct, 1.0));
 					return;
 				}

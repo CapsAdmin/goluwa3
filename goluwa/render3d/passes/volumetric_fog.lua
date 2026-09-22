@@ -195,19 +195,8 @@ local function write_ocean_distance_texture(self, block, key)
 end
 
 local function write_gi_screen_texture(self, block, key)
-	if render3d.pipelines.radiance_cascades_resolve then
-		if render3d.pipelines.radiance_cascades_denoise then
-			block[key] = self:GetTextureIndex(render3d.pipelines.radiance_cascades_denoise:GetFramebuffer(1):GetAttachment(1))
-		else
-			block[key] = self:GetTextureIndex(
-				render3d.pipelines.radiance_cascades_resolve:GetFramebuffer(radiance_cascades.GetResolveFramebufferIndex()):GetAttachment(1)
-			)
-		end
-	elseif render3d.pipelines.voxel_gi_upsample then
-		block[key] = self:GetTextureIndex(render3d.pipelines.voxel_gi_upsample:GetFramebuffer(1):GetAttachment(1))
-	else
-		block[key] = -1
-	end
+	local texture = radiance_cascades.GetScreenTexture()
+	block[key] = texture and self:GetTextureIndex(texture) or -1
 end
 
 local function get_froxel_volume_descriptor()
