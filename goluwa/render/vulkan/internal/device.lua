@@ -840,7 +840,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		local handle = acceleration_structure and
 			acceleration_structure.ptr and
 			acceleration_structure.ptr[0]
-		self.acceleration_structure_handles[0] = handle and tonumber(ffi.cast("uint64_t", handle)) or 0
+		self.acceleration_structure_handles[0] = handle and ffi.cast("uint64_t", handle) or 0
 		descriptor_info = self.acceleration_structure_info_array
 	else
 		error("unsupported descriptor type: " .. tostring(type))
