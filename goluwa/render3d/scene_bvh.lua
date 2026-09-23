@@ -43,6 +43,8 @@ scene_bvh.version = 0
 -- aabb scan in visual.lua, consumed by light occlusion when the version
 -- bumps, so it does not have to rescan every visual's aabb on its own
 scene_bvh.dirty_boxes = {}
+-- blocks holding emissive triangles (see the end of a build)
+scene_bvh.emissive_blocks = {}
 -- visuals that changed while the tree was dirty. nil means a resnapshot
 -- happened (everything is dirty); an empty set means no tracked change yet
 scene_bvh.dirty_components = {}
@@ -617,9 +619,13 @@ do
 			dst.e2[0] = e2x
 			dst.e2[1] = e2y
 			dst.e2[2] = e2z
-			dst.normal[0] = src.normal[0]
-			dst.normal[1] = src.normal[1]
-			dst.normal[2] = src.normal[2]
+			local nx = e1y * e2z - e1z * e2y
+			local ny = e1z * e2x - e1x * e2z
+			local nz = e1x * e2y - e1y * e2x
+			local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+			dst.normal[0] = nx / length
+			dst.normal[1] = ny / length
+			dst.normal[2] = nz / length
 			dst.emissive[0] = slot.emissive_r
 			dst.emissive[1] = slot.emissive_g
 			dst.emissive[2] = slot.emissive_b
@@ -821,9 +827,13 @@ do
 				vc.slot_count = slot_count
 				cache[visual] = vc
 				local total = 0
+				vc.emissive = false
 
 				for i = 1, slot_count do
-					total = total + slots[i].count
+					local slot = slots[i]
+					total = total + slot.count
+
+					if slot.emissive_r + slot.emissive_g + slot.emissive_b > 0 then vc.emissive = true end
 				end
 
 				if total == 0 then
@@ -1087,8 +1097,16 @@ do
 
 		scene_bvh.debug_nodes = scratch.nodes
 		scene_bvh.debug_node_count = node_count
-		scene_bvh.debug_triangles = triangle_total > 0 and scratch.tri_out or nil
-		scene_bvh.debug_triangle_count = triangle_total
+		scene_bvh.triangles = triangle_total > 0 and scratch.tri_out or nil
+		-- blocks holding emissive triangles, for scanning emitters without
+		-- walking the whole soup
+		local emissive_blocks = {}
+
+		for i = 1, #blocks do
+			if blocks[i].emissive then emissive_blocks[#emissive_blocks + 1] = blocks[i] end
+		end
+
+		scene_bvh.emissive_blocks = emissive_blocks
 		scene_bvh.node_count = node_count
 		scene_bvh.triangle_count = triangle_total
 		scene_bvh.BuildRasterBlocks(blocks)

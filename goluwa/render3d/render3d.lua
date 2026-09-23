@@ -506,7 +506,7 @@ function render3d.CreatePipelineBundle(options)
 			--import("goluwa/render3d/passes/lighting_simple.lua"),
 			import("goluwa/render3d/passes/ocean.lua"),
 			import("goluwa/render3d/passes/forward_overlay.lua"),
-			import("goluwa/render3d/passes/volumetric_fog.lua"),
+			--import("goluwa/render3d/passes/volumetric_fog.lua"),
 			--import("goluwa/render3d/passes/smaa.lua"),
 			import("goluwa/render3d/passes/bloom.lua"),
 			import("goluwa/render3d/passes/blit.lua"),

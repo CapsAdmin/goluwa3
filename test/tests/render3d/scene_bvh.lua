@@ -106,7 +106,7 @@ T.Test3D("Graphics render3d scene bvh incremental build matches full rebuild", f
 
 	local function snapshot()
 		return ffi.string(scene_bvh.debug_nodes, scene_bvh.debug_node_count * 32),
-		ffi.string(scene_bvh.debug_triangles, scene_bvh.debug_triangle_count * TRI_BYTES)
+		ffi.string(scene_bvh.triangles, scene_bvh.triangle_count * TRI_BYTES)
 	end
 
 	-- cold build: the cache is empty, everything is derived from scratch and

@@ -36,15 +36,35 @@ ddgi.MIN_COVERAGE = 4
 ddgi.MAX_COVERAGE = 192
 ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
+-- Emissive surfaces light the probes only through emitter samples: per probe
+-- and frame, EMITTER_SAMPLES shadow rays to points on emissive triangles. A
+-- small or partly hidden emitter is rarely hit by the uniform rays, which
+-- made it flicker (and the brightest ray clamp mostly dropped it). Each sample
+-- draws EMITTER_CANDIDATES points in proportion to their triangle's power and
+-- keeps one by how much light it would bring the probe (resampled importance
+-- sampling), so samples aren't spent on faces turned away or far off.
+ddgi.EMITTER_SAMPLES = 32
+ddgi.EMITTER_CANDIDATES = 8
 -- octahedral tile sizes including the one texel border that makes bilinear
 -- sampling wrap correctly across the octahedron's edges
 ddgi.IRRADIANCE_TEXELS = 8
 ddgi.DISTANCE_TEXELS = 16
 ddgi.MAX_RAY_DISTANCE = 1000.0
-ddgi.HYSTERESIS = 0.97
--- a texel whose short term average grew or shrank by more than this factor
--- against its history catches up quickly
-ddgi.IRRADIANCE_THRESHOLD = 16.0
+-- How much of a probe texel's history survives a frame, given for 60 fps and
+-- scaled by the frame time, so light takes as long to settle at any frame
+-- rate. A texel whose per frame estimates jump around (a doorway that one or
+-- two rays see through) keeps HYSTERESIS, a steady one MIN_HYSTERESIS, which
+-- follows gradual changes (the sun moving) sooner. NOISE_RANGE is the mean
+-- relative deviation from the texel's average at which it counts as fully
+-- noisy. A probe that just scrolled in averages its frames evenly until it
+-- has had enough of them for the hysteresis to take over.
+ddgi.HYSTERESIS = 0.99
+ddgi.MIN_HYSTERESIS = 0.95
+ddgi.NOISE_RANGE = 0.25
+-- a texel whose every frame grew or shrank by more than this factor against
+-- its history, ADAPT_FRAMES frames in a row, catches up quickly
+ddgi.IRRADIANCE_THRESHOLD = 2.0
+ddgi.ADAPT_FRAMES = 6
 -- local lights are treated as spheres of this radius (in probe spacings) when
 -- lighting ray hits. A probe can't resolve a hot spot smaller than this, and a
 -- ray landing right next to a lamp would otherwise outweigh all the others
@@ -67,6 +87,13 @@ ddgi.PROBE_MAX_OFFSET = 0.45
 ddgi.SKY_INTENSITY = 1.0
 ddgi.RANDOM_ROTATION = true
 ddgi.RESOLVE_SCALE = 1.0
+-- The screen blends the 3x3x3 probes around a point with quadratic B-spline
+-- weights instead of the 2x2x2 around it trilinearly. Trilinear is only
+-- continuous, its slope jumps at every cell face, which draws the grid into
+-- light that falls off steeply (lamps at night). The B-spline's slope is
+-- continuous too, at the cost of a little extra blur and 27 probe lookups.
+-- Probe rays always use trilinear; their light is blurred into the probes.
+ddgi.SMOOTH_BLEND = true
 -- 0 off, 1 probe irradiance, 2 probe mean hit distance (see passes/ddgi.lua)
 ddgi.DEBUG_PROBES = 0
 -- brightness of the debug view's markers, which have no light of their own
@@ -85,7 +112,7 @@ function ddgi.GetProbeCount()
 end
 
 function ddgi.GetRayCount()
-	return ddgi.GetProbeCount() * ddgi.RAYS_PER_PROBE
+	return ddgi.GetProbeCount() * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES)
 end
 
 function ddgi.IsActive()
@@ -343,6 +370,12 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_P %d
 		#define DDGI_CASCADES %d
 		#define DDGI_RAYS %d
+		#define DDGI_EMITTER_SAMPLES %d
+		#define DDGI_EMITTER_CANDIDATES %d
+		// ddgi_emitter.triangle: the soup index, and the material's double sidedness
+		#define DDGI_EMITTER_DOUBLE_SIDED 0x80000000u
+		// a probe's uniform rays followed by its emitter samples
+		#define DDGI_RAY_STRIDE (DDGI_RAYS + DDGI_EMITTER_SAMPLES)
 		#define DDGI_IRRADIANCE_TEXELS %d
 		#define DDGI_DISTANCE_TEXELS %d
 		#define DDGI_MISS_DISTANCE %.1e
@@ -358,6 +391,8 @@ function ddgi.GetDefinesGLSL()
 		ddgi.PROBES_PER_AXIS,
 		ddgi.CASCADES,
 		ddgi.RAYS_PER_PROBE,
+		ddgi.EMITTER_SAMPLES,
+		ddgi.EMITTER_CANDIDATES,
 		ddgi.IRRADIANCE_TEXELS,
 		ddgi.DISTANCE_TEXELS,
 		ddgi.MISS_DISTANCE,
@@ -388,6 +423,69 @@ local MIN_WEIGHT = "0.05"
 -- around land on a slot whose stored coordinate no longer matches. A slot's
 -- linear index picks its tile; each cascade has P rows of P * P tiles in the
 -- atlases, finest on top, and uses as many as its probe count needs.
+function ddgi.GetEmitterDeclarationsGLSL(binding)
+	return (
+		[[
+		struct ddgi_emitter {
+			uint triangle;
+			// running sum of the emitters' power up to and including this one,
+			// normalized to 1
+			float cdf;
+		};
+
+		layout(set = 0, binding = %d) readonly buffer DDGIEmitters {
+			ddgi_emitter ddgi_emitters[];
+		};
+	]]
+	):format(binding)
+end
+
+-- Picking and placing an emitter sample, shared by the ray generation shader
+-- (which traces it) and the shade pass (which lights with it); both derive the
+-- same random numbers from the sample's ray index and the frame. Needs
+-- ddgi_emitters and scene_bvh_triangles.
+function ddgi.GetEmitterGLSL()
+	return [[
+		// pcg4d (Jarzynski and Olano 2020)
+		vec4 ddgi_emitter_random(uint index, uint frame, uint candidate) {
+			uvec4 v = uvec4(index, frame, candidate, 0x9E3779B9u) * 1664525u + 1013904223u;
+			v.x += v.y * v.w;
+			v.y += v.z * v.x;
+			v.z += v.x * v.y;
+			v.w += v.y * v.z;
+			v ^= v >> 16u;
+			v.x += v.y * v.w;
+			v.y += v.z * v.x;
+			v.z += v.x * v.y;
+			v.w += v.y * v.z;
+			return vec4(v >> 8u) / 16777216.0;
+		}
+
+		int ddgi_pick_emitter(float u, int count) {
+			int lo = 0;
+			int hi = count - 1;
+
+			while (lo < hi) {
+				int mid = (lo + hi) / 2;
+
+				if (ddgi_emitters[mid].cdf < u) {
+					lo = mid + 1;
+				} else {
+					hi = mid;
+				}
+			}
+
+			return lo;
+		}
+
+		vec3 ddgi_emitter_point(scene_bvh_triangle tri, vec2 u) {
+			if (u.x + u.y > 1.0) u = 1.0 - u;
+
+			return tri.v0 + tri.e1 * u.x + tri.e2 * u.y;
+		}
+	]]
+end
+
 function ddgi.GetCommonGLSL()
 	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. [[
 		ivec3 ddgi_volume_base(int c) {
@@ -425,7 +523,7 @@ function ddgi.GetCommonGLSL()
 
 		// a ray's texel in the shade pass output: one column block per cascade
 		ivec2 ddgi_ray_texel(uint ray, ivec3 slot, int c) {
-			return ivec2(int(ray) + DDGI_RAYS * c, ddgi_probe_index(slot, c));
+			return ivec2(int(ray) + DDGI_RAY_STRIDE * c, ddgi_probe_index(slot, c));
 		}
 
 		// the probe of this frame's volume that is stored in slot
@@ -468,6 +566,17 @@ function ddgi.GetCommonGLSL()
 			if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
 
 			return normalize(n);
+		}
+
+		// 12 bits per octahedral axis, small enough to sit exactly in a float
+		float ddgi_pack_direction(vec3 d) {
+			uvec2 q = uvec2((ddgi_oct_encode(d) * 0.5 + 0.5) * 4095.0 + 0.5);
+			return float(q.x | (q.y << 12u));
+		}
+
+		vec3 ddgi_unpack_direction(float packed) {
+			uint v = uint(packed);
+			return ddgi_oct_decode(vec2(v & 4095u, v >> 12u) / 4095.0 * 2.0 - 1.0);
 		}
 
 		// direction of texel (x, y) in a bordered octahedral tile; border texels
@@ -528,7 +637,7 @@ function ddgi.GetCommonGLSL()
 			return (ddgi_data.ddgi_reset_mask & (1 << c)) != 0;
 		}
 
-		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 V, out float weight) {
+		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 V, bool smooth_blend, out float weight) {
 			weight = 0.0;
 
 			if (ddgi_cascade_reset(c)) return vec4(0.0);
@@ -536,14 +645,19 @@ function ddgi.GetCommonGLSL()
 			float spacing = ddgi_spacing(c);
 			vec3 biased = P + (N * ddgi_data.ddgi_normal_bias + V * ddgi_data.ddgi_view_bias) * spacing;
 			vec3 grid = biased / spacing;
-			ivec3 base_world = ivec3(floor(grid));
-			vec3 alpha = grid - vec3(base_world);
+			int side = smooth_blend ? 3 : 2;
+			// the B-spline's lowest probe is one below the nearest
+			ivec3 base_world = smooth_blend ? ivec3(floor(grid + 0.5)) - 1 : ivec3(floor(grid));
+			vec3 alpha = grid - vec3(base_world) - (smooth_blend ? 1.0 : 0.0);
+			vec3 below = 0.5 * (0.5 - alpha) * (0.5 - alpha);
+			vec3 middle = 0.75 - alpha * alpha;
+			vec3 above = 0.5 * (0.5 + alpha) * (0.5 + alpha);
 			ivec3 volume_min = ddgi_volume_base(c);
 			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
 			vec4 sum = vec4(0.0);
 
-			for (int i = 0; i < 8; i++) {
-				ivec3 offset = ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
+			for (int i = 0; i < side * side * side; i++) {
+				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
 				ivec3 world = base_world + offset;
 
 				if (any(lessThan(world, volume_min)) || any(greaterThan(world, volume_max))) continue;
@@ -554,7 +668,7 @@ function ddgi.GetCommonGLSL()
 				if (!ddgi_probe_is_current(data, world) || data.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
 
 				vec3 probe_pos = data.xyz * spacing;
-				vec3 trilinear = mix(1.0 - alpha, alpha, vec3(offset));
+				vec3 kernel = smooth_blend ? mix(mix(below, middle, equal(offset, ivec3(1))), above, equal(offset, ivec3(2))) : mix(1.0 - alpha, alpha, vec3(offset));
 				vec3 to_probe = normalize(probe_pos - P);
 				float w = (dot(to_probe, N) + 1.0) * 0.5;
 				w = w * w + 0.2;
@@ -580,7 +694,7 @@ function ddgi.GetCommonGLSL()
 				// crush tiny weights so a barely visible probe cannot tint the result
 				if (w < 0.2) w *= w * w / 0.04;
 
-				w *= trilinear.x * trilinear.y * trilinear.z;
+				w *= kernel.x * kernel.y * kernel.z;
 				sum += texture(
 					TEXTURE(ddgi_data.ddgi_irradiance_tex),
 					ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS)
@@ -595,10 +709,11 @@ function ddgi.GetCommonGLSL()
 			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
 		}
 
-		// 1 deep inside cascade c, falling to 0 a cell before its edge where
-		// the biased lookup would start missing probes. An edge past the end of
+		// 1 deep inside cascade c, falling to 0 a cell (the B-spline reaches
+		// half a cell further) before its edge where the biased lookup would
+		// start missing probes. An edge past the end of
 		// the scene has nothing beyond it, so it does not fade.
-		float ddgi_cascade_blend(int c, vec3 P) {
+		float ddgi_cascade_blend(int c, vec3 P, bool smooth_blend) {
 			vec3 grid = P / ddgi_spacing(c) - vec3(ddgi_volume_base(c));
 			vec3 edge = min(grid, vec3(ddgi_volume_size(c) - 1) - grid);
 			int holds = int(ddgi_data.ddgi_cascade_size[c].w);
@@ -609,28 +724,28 @@ function ddgi.GetCommonGLSL()
 
 			if ((holds & 4) != 0) edge.z = 1e9;
 
-			return clamp((min(edge.x, min(edge.y, edge.z)) - 1.0) / ddgi_data.ddgi_cascade_blend, 0.0, 1.0);
+			return clamp((min(edge.x, min(edge.y, edge.z)) - (smooth_blend ? 1.5 : 1.0)) / ddgi_data.ddgi_cascade_blend, 0.0, 1.0);
 		}
 
 		// Irradiance at P with normal N, seen from direction V (towards the
 		// viewer). rgb = irradiance, a = sky visibility. weight is 0 when no
 		// probe could contribute.
-		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 V, out float weight) {
+		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 V, bool smooth_blend, out float weight) {
 			weight = 0.0;
 
 			int count = ddgi_data.ddgi_cascade_count;
 
 			for (int c = 0; c < count; c++) {
-				float fine = c == count - 1 ? 1.0 : ddgi_cascade_blend(c, P);
+				float fine = c == count - 1 ? 1.0 : ddgi_cascade_blend(c, P, smooth_blend);
 
 				if (fine <= 0.0) continue;
 
-				vec4 result = ddgi_sample_cascade(c, P, N, V, weight);
+				vec4 result = ddgi_sample_cascade(c, P, N, V, smooth_blend, weight);
 
 				if (fine >= 1.0) return result;
 
 				float coarse_weight;
-				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, V, coarse_weight);
+				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, V, smooth_blend, coarse_weight);
 
 				// fitted cascades are not always nested
 				if (coarse_weight <= 0.0) return result;
@@ -660,7 +775,10 @@ function ddgi.GetBlockLayout()
 		{"ddgi_sun_radiance", "vec4"},
 		{"ddgi_max_distance", "float"},
 		{"ddgi_hysteresis", "float"},
+		{"ddgi_min_hysteresis", "float"},
+		{"ddgi_noise_range", "float"},
 		{"ddgi_irradiance_threshold", "float"},
+		{"ddgi_adapt_frames", "float"},
 		{"ddgi_distance_exponent", "float"},
 		{"ddgi_normal_bias", "float"},
 		{"ddgi_view_bias", "float"},
@@ -673,6 +791,7 @@ function ddgi.GetBlockLayout()
 		{"ddgi_debug_scale", "float"},
 		{"ddgi_debug_probes", "int"},
 		{"ddgi_debug_cascade", "int"},
+		{"ddgi_smooth_blend", "int"},
 		{"ddgi_cascade_count", "int"},
 		-- bit c: cascade c's history is garbage
 		{"ddgi_reset_mask", "int"},
@@ -683,6 +802,10 @@ function ddgi.GetBlockLayout()
 		{"ddgi_irradiance_tex", "int"},
 		{"ddgi_distance_tex", "int"},
 		{"ddgi_probe_data_tex", "int"},
+		{"ddgi_emitter_count", "int"},
+		-- the summed power of all emitters
+		{"ddgi_emitter_weight", "float"},
+		{"ddgi_frame", "int"},
 	}
 end
 
@@ -704,7 +827,10 @@ function ddgi.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	local sun_color = directional_shadows.GetPrimarySunColor(lights)
-	local sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
+	-- A sun below the horizon would light the scene from underneath: the
+	-- underside of the ground, and so the probes below it, at full daylight.
+	-- Faded like the sky and fog do.
+	local sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights) * math.smoothstep(-0.08, 0.02, sun_direction.y)
 	sun_direction:CopyToFloatPointer(block.ddgi_sun_direction)
 	block.ddgi_sun_direction[3] = 0
 	block.ddgi_sun_radiance[0] = sun_color.x * sun_illuminance
@@ -729,8 +855,13 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_rotation[2] = state.rotation.z
 	block.ddgi_rotation[3] = state.rotation.w
 	block.ddgi_max_distance = ddgi.MAX_RAY_DISTANCE
-	block.ddgi_hysteresis = ddgi.HYSTERESIS
+	-- a hitch shouldn't throw the history away
+	local frames = math.min(system.GetFrameTime(), 0.1) * 60
+	block.ddgi_hysteresis = ddgi.HYSTERESIS ^ frames
+	block.ddgi_min_hysteresis = ddgi.MIN_HYSTERESIS ^ frames
+	block.ddgi_noise_range = ddgi.NOISE_RANGE
 	block.ddgi_irradiance_threshold = ddgi.IRRADIANCE_THRESHOLD
+	block.ddgi_adapt_frames = ddgi.ADAPT_FRAMES
 	block.ddgi_distance_exponent = ddgi.DISTANCE_EXPONENT
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
@@ -744,6 +875,7 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_debug_scale = ddgi.DEBUG_SCALE
 	block.ddgi_debug_probes = ddgi.DEBUG_PROBES
 	block.ddgi_debug_cascade = ddgi.DEBUG_CASCADE
+	block.ddgi_smooth_blend = ddgi.SMOOTH_BLEND and 1 or 0
 	block.ddgi_cascade_count = state.cascade_count
 	block.ddgi_reset_mask = state.reset_mask
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0
@@ -753,6 +885,10 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_irradiance_tex = pipeline_texture_index(self, "ddgi_irradiance")
 	block.ddgi_distance_tex = pipeline_texture_index(self, "ddgi_distance")
 	block.ddgi_probe_data_tex = pipeline_texture_index(self, "ddgi_probe_data")
+	local emitters = ddgi.GetEmitters()
+	block.ddgi_emitter_count = emitters.count
+	block.ddgi_emitter_weight = emitters.weight
+	block.ddgi_frame = state.frame
 	return block
 end
 
@@ -789,6 +925,93 @@ function ddgi.GetLightMaskBuffer()
 	end
 
 	return light_mask_buffer
+end
+
+-- Every emissive triangle of the scene soup, with the running sum of its
+-- power (area x emission luminance) for picking one in proportion to it.
+-- weight is the total power. Rescanned whenever the soup changes.
+do
+	local Emitter = ffi.typeof([[struct {
+		uint32_t triangle;
+		float cdf;
+	}]])
+	local EmitterArray = ffi.typeof("$[?]", Emitter)
+	local emitters = {array = EmitterArray(1), capacity = 1, count = 0, weight = 0, version = -1}
+	local buffers = {}
+	local buffer_versions = {}
+
+	function ddgi.GetEmitters()
+		if emitters.version == scene_bvh.version then return emitters end
+
+		local tris = scene_bvh.triangles
+		local count, weight = 0, 0
+
+		for _, block in ipairs(scene_bvh.emissive_blocks) do
+			for i = block.tri_base, block.tri_base + block.total - 1 do
+				local tri = tris[i]
+				local luminance = 0.2126 * tri.emissive[0] + 0.7152 * tri.emissive[1] + 0.0722 * tri.emissive[2]
+
+				if luminance > 0 then
+					local e1, e2 = tri.e1, tri.e2
+					local nx = e1[1] * e2[2] - e1[2] * e2[1]
+					local ny = e1[2] * e2[0] - e1[0] * e2[2]
+					local nz = e1[0] * e2[1] - e1[1] * e2[0]
+					weight = weight + 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz) * luminance
+
+					if count == emitters.capacity then
+						local array = EmitterArray(count * 2)
+						ffi.copy(array, emitters.array, count * ffi.sizeof(Emitter))
+						emitters.array = array
+						emitters.capacity = count * 2
+					end
+
+					emitters.array[count].triangle = scene_bvh.materials[tri.material + 1]:GetDoubleSided() and
+						i + 0x80000000 or
+						i
+					emitters.array[count].cdf = weight
+					count = count + 1
+				end
+			end
+		end
+
+		for i = 0, count - 1 do
+			emitters.array[i].cdf = emitters.array[i].cdf / weight
+		end
+
+		emitters.count = count
+		emitters.weight = weight
+		emitters.version = scene_bvh.version
+		return emitters
+	end
+
+	-- one host-visible copy per frame in flight
+	function ddgi.GetEmitterBuffer()
+		local emitters = ddgi.GetEmitters()
+		local frame = render.GetCurrentFrame()
+		local buffer = buffers[frame]
+		local bytes = math.max(emitters.count, 1) * ffi.sizeof(Emitter)
+
+		if not buffer or buffer:GetSize() < bytes then
+			if buffer then buffer:Remove() end
+
+			buffer = render.CreateBuffer{
+				byte_size = bytes * 2,
+				buffer_usage = {"storage_buffer"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "ddgi_emitters",
+				data = EmitterArray(math.max(emitters.count, 1) * 2),
+			}
+			buffers[frame] = buffer
+			buffer_versions[frame] = nil
+		end
+
+		if buffer_versions[frame] ~= emitters.version then
+			buffer:CopyData(emitters.array, bytes)
+			buffer_versions[frame] = emitters.version
+		end
+
+		return buffer
+	end
 end
 
 -- The per-material data the shade pass reads through the soup's material id,
@@ -849,7 +1072,10 @@ local RTParams = ffi.typeof(
 	float max_ray_distance;
 	float tmin;
 	int32_t light_count;
-	float padding;
+	int32_t emitter_count;
+	uint32_t frame;
+	float light_radius;
+	float padding[2];
 	float lights[%d][4];
 	float light_directions[%d][4];
 }]]
@@ -900,6 +1126,9 @@ function ddgi.WriteRTParams()
 	p.max_ray_distance = ddgi.MAX_RAY_DISTANCE
 	p.tmin = 0.0
 	p.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	p.emitter_count = ddgi.GetEmitters().count
+	p.frame = state.frame
+	p.light_radius = ddgi.LIGHT_RADIUS
 
 	-- the same lights in the same order as ddgi_data.lights
 	for i = 1, p.light_count do
@@ -928,7 +1157,8 @@ struct Payload
 local raygen_glsl = [[
 #version 460
 #extension GL_EXT_ray_tracing : require
-]] .. ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. [[
+#extension GL_EXT_scalar_block_layout : require
+]] .. ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_bvh.GetDeclarationsGLSL(7, 5) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
     // see ddgi_cascades and ddgi_cascade_size
@@ -939,6 +1169,10 @@ layout(set = 0, binding = 0) uniform Params
     float max_ray_distance;
     float tmin;
     int light_count;
+    int emitter_count;
+    uint frame;
+    // in spacings, see ddgi.LIGHT_RADIUS
+    float light_radius;
     // xyz = position, w = range (0 for the sun, which has its own ray)
     vec4 lights[DDGI_MAX_LIGHTS];
     // xyz = direction back towards a local directional light's source, w = 1
@@ -973,6 +1207,65 @@ void main()
     vec4 data = texelFetch(probe_data, ivec2(probe % (DDGI_P * DDGI_P), probe / (DDGI_P * DDGI_P) + DDGI_P * c), 0);
     bool current = data.w >= 1.0 && ivec3(round(data.xyz)) == world;
     vec3 origin = (current ? data.xyz : vec3(world)) * params.cascades[c].w;
+    uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
+    const uint shadow_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+
+    // An emitter sample. Candidates are drawn in proportion to their
+    // triangle's power, and one is kept with a probability proportional to
+    // the light it would bring unshadowed (facing / distance^2, inside the
+    // light radius flattened like the local lights), relative to the power
+    // it was drawn by, which leaves just that. Only the kept one is traced.
+    // Stores the candidates' summed weight and which one was kept (the shade
+    // pass rebuilds its point from the same random numbers), or a negative
+    // weight when it is blocked.
+    if (ray >= DDGI_RAYS) {
+        uvec2 result = uvec2(floatBitsToUint(-1.0), 0u);
+
+        if (params.emitter_count > 0) {
+            float radius = params.light_radius * params.cascades[c].w;
+            float weight_sum = 0.0;
+            uint kept = 0u;
+            int kept_emitter = 0;
+            vec3 kept_point = vec3(0.0);
+
+            for (uint j = 0u; j < uint(DDGI_EMITTER_CANDIDATES); j++) {
+                vec4 u = ddgi_emitter_random(index, params.frame, j);
+                int e = ddgi_pick_emitter(u.x, params.emitter_count);
+                uint triangle = ddgi_emitters[e].triangle;
+                scene_bvh_triangle tri = scene_bvh_triangles[triangle & ~DDGI_EMITTER_DOUBLE_SIDED];
+                vec3 point = ddgi_emitter_point(tri, u.yz);
+                vec3 to_point = point - origin;
+                float dist2 = dot(to_point, to_point);
+                // tri.normal points away from the visible side
+                float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
+
+                if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
+
+                float weight = max(facing, 0.0) / max(dist2, radius * radius);
+                weight_sum += weight;
+
+                if (weight > 0.0 && u.w * weight_sum < weight) {
+                    kept = j;
+                    kept_emitter = e;
+                    kept_point = point;
+                }
+            }
+
+            vec3 to_point = kept_point - origin;
+            float dist = length(to_point);
+
+            if (weight_sum > 0.0 && dist > DDGI_SHADOW_OFFSET) {
+                payload.hit_t = 1.0;
+                traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
+
+                if (payload.hit_t < 0.0) result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << 28u));
+            }
+        }
+
+        hits[index] = result;
+        return;
+    }
+
     vec3 dir = ddgi_ray_direction(ray, params.rotation);
     traceRayEXT(scene, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
@@ -985,7 +1278,6 @@ void main()
     // miss changes the payload.
     if (hit_t >= 0.0) {
         vec3 hit_pos = origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0);
-        const uint shadow_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
 
         if (params.sun_direction.w > 0.0) {
             payload.hit_t = 1.0;
@@ -1017,7 +1309,6 @@ void main()
         }
     }
 
-    uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAYS) + ray;
     hits[index] = uvec2(floatBitsToUint(hit_t), primitive);
     light_masks[index] = light_mask;
 }
@@ -1069,6 +1360,9 @@ function ddgi.GetRTPipeline()
 						{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
 						{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
 						{binding_index = 4, type = "storage_buffer", stageFlags = "all"},
+						{binding_index = 5, type = "storage_buffer", stageFlags = "all"},
+						{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
+						{binding_index = 7, type = "storage_buffer", stageFlags = "all"},
 					},
 				},
 			}
@@ -1082,12 +1376,24 @@ commands.Add("ddgi_reset", function()
 	ddgi.ResetHistory()
 end)
 
-commands.Add("ddgi_hysteresis=number[0.97]", function(value)
+commands.Add("ddgi_hysteresis=number[0.99]", function(value)
 	ddgi.HYSTERESIS = value
 end)
 
-commands.Add("ddgi_irradiance_threshold=number[16]", function(value)
+commands.Add("ddgi_min_hysteresis=number[0.95]", function(value)
+	ddgi.MIN_HYSTERESIS = value
+end)
+
+commands.Add("ddgi_noise_range=number[0.25]", function(value)
+	ddgi.NOISE_RANGE = value
+end)
+
+commands.Add("ddgi_irradiance_threshold=number[2]", function(value)
 	ddgi.IRRADIANCE_THRESHOLD = value
+end)
+
+commands.Add("ddgi_adapt_frames=number[6]", function(value)
+	ddgi.ADAPT_FRAMES = value
 end)
 
 commands.Add("ddgi_light_radius=number[0.1]", function(value)
@@ -1100,6 +1406,10 @@ end)
 
 commands.Add("ddgi_debug_scale=number[1]", function(value)
 	ddgi.DEBUG_SCALE = value
+end)
+
+commands.Add("ddgi_smooth_blend=boolean[true]", function(value)
+	ddgi.SMOOTH_BLEND = value
 end)
 
 commands.Add("ddgi_debug_cascade=number[0]", function(value)

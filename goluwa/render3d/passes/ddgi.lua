@@ -16,6 +16,8 @@ local BINDING_BVH_TRIANGLES = 4
 local BINDING_MATERIALS = 5
 local BINDING_LIGHT_MASKS = 6
 local BINDING_TREND = 7
+local BINDING_EMITTERS = 8
+local BINDING_STATE = 9
 
 local function data_uniform()
 	return {
@@ -60,6 +62,10 @@ local function pass_trace()
 			rt:UpdateDescriptorSet("uniform_buffer", desc, 0, 0, params, params:GetSize())
 			rt:UpdateDescriptorSet("storage_buffer", desc, 1, 0, hits, hits:GetSize())
 			rt:UpdateDescriptorSet("storage_buffer", desc, 4, 0, masks, masks:GetSize())
+			local emitters = ddgi.GetEmitterBuffer()
+			rt:UpdateDescriptorSet("storage_buffer", desc, 5, 0, scene_bvh.triangle_buffer, scene_bvh.triangle_buffer:GetSize())
+			rt:UpdateDescriptorSet("storage_buffer", desc, 6, 0, emitters, emitters:GetSize())
+			rt:UpdateDescriptorSet("storage_buffer", desc, 7, 0, scene_bvh.node_buffer, scene_bvh.node_buffer:GetSize())
 			rt:UpdateDescriptorSet("acceleration_structure_khr", desc, 2, 0, tlas)
 			local probe_data = render3d.pipelines.ddgi_probe_data:GetFramebuffer(1):GetAttachment(1)
 			rt:UpdateDescriptorSet(
@@ -84,7 +90,7 @@ local function pass_trace()
 					{buffer = masks, srcAccessMask = "shader_read", dstAccessMask = "shader_write"},
 				},
 			}
-			ddgi.GetRTPipeline():DispatchRays(cmd, ddgi.RAYS_PER_PROBE, P ^ 3, ddgi.GetFrameState().cascade_count, desc)
+			ddgi.GetRTPipeline():DispatchRays(cmd, ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES, P ^ 3, ddgi.GetFrameState().cascade_count, desc)
 			cmd:PipelineBarrier{
 				srcStage = "ray_tracing_shader_khr",
 				dstStage = "compute",
@@ -97,9 +103,10 @@ local function pass_trace()
 	}
 end
 
--- Radiance leaving each ray's hit towards its probe: direct light, emission
--- and last frame's probe irradiance at the hit (the infinite bounce). One
--- texel per ray, x = ray + rays per probe * cascade, y = probe slot (see
+-- Radiance leaving each ray's hit towards its probe: direct light and last
+-- frame's probe irradiance at the hit (the infinite bounce). Emission comes
+-- in through the emitter samples instead, which follow the uniform rays. One
+-- texel per ray, x = ray + ray stride * cascade, y = probe slot (see
 -- ddgi_ray_texel); a = hit distance, negative for a
 -- back face hit (the probe is probably inside geometry) and
 -- DDGI_MISS_DISTANCE for a miss.
@@ -108,7 +115,7 @@ local function pass_shade()
 		name = "ddgi_shade",
 		ComputePass = true,
 		ColorFormat = {{"r32g32b32a32_sfloat", {"ddgi_ray_radiance", "rgba"}}},
-		FramebufferSize = {x = ddgi.RAYS_PER_PROBE * CASCADES, y = P ^ 3},
+		FramebufferSize = {x = (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * CASCADES, y = P ^ 3},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
 		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = "compute"}},
@@ -118,16 +125,19 @@ local function pass_shade()
 			{binding_index = BINDING_BVH_TRIANGLES},
 			{binding_index = BINDING_MATERIALS},
 			{binding_index = BINDING_LIGHT_MASKS},
+			{binding_index = BINDING_EMITTERS},
 		},
 		uniform_buffers = {data_uniform()},
 		on_draw = function(self, cmd, fb, frame, desc)
 			self:UploadConstants()
-			self.pipeline:DispatchForSize(cmd, ddgi.RAYS_PER_PROBE * ddgi.GetFrameState().cascade_count, fb.height, 1, desc, self.dynamic_offsets)
+			self.pipeline:DispatchForSize(cmd, (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * ddgi.GetFrameState().cascade_count, fb.height, 1, desc, self.dynamic_offsets)
 		end,
 		on_pre_draw = function(self, cmd, frame, desc)
 			local hits = ddgi.GetRayHitBuffer()
 			local masks = ddgi.GetLightMaskBuffer()
 			local materials = ddgi.WriteMaterialBuffer(self)
+			local emitters = ddgi.GetEmitterBuffer()
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_RAY_HITS, 0, hits, hits:GetSize())
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_LIGHT_MASKS, 0, masks, masks:GetSize())
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_MATERIALS, 0, materials, materials:GetSize())
@@ -156,8 +166,23 @@ local function pass_shade()
 			layout(scalar, set = 0, binding = ]] .. BINDING_MATERIALS .. [[) readonly buffer DDGIMaterials {
 				ddgi_material ddgi_materials[];
 			};
-		]] .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES),
-		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. [[
+		]] .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
+		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. [[
+			// no uvs at a hit, so textured surfaces use the texture's average
+			// colour from its smallest mip
+			vec3 ddgi_albedo(ddgi_material material) {
+				vec3 albedo = material.albedo;
+
+				if (material.albedo_tex >= 0) {
+					albedo *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
+				}
+
+				return albedo;
+			}
+
+			vec3 ddgi_emission(scene_bvh_triangle tri, vec3 albedo) {
+				return min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+			}
 
 			// light_mask: see ddgi.GetLightMaskBuffer
 			vec3 ddgi_direct_light(vec3 P, vec3 N, bool sun_visible, uint light_mask, float radius) {
@@ -202,14 +227,42 @@ local function pass_shade()
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
-				uint ray = uint(pos.x % DDGI_RAYS);
-				int c = pos.x / DDGI_RAYS;
+				uint ray = uint(pos.x % DDGI_RAY_STRIDE);
+				int c = pos.x / DDGI_RAY_STRIDE;
 				int probe = pos.y;
 
 				if (probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				vec3 origin = ddgi_probe_origin(slot, c, ddgi_world_from_slot(slot, c));
+				uint hit_index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
+
+				// An emitter sample that got through (see the ray generation
+				// shader): its estimate of the irradiance, the kept point's
+				// radiance over the weight it was kept by (luminance, since the
+				// power it was drawn by divides out) times the candidates' mean
+				// weight. Over pi and the sample count like the uniform rays'
+				// estimate, with the direction packed into a; the update pass
+				// applies each texel's cosine.
+				if (ray >= uint(DDGI_RAYS)) {
+					uvec2 hit = ddgi_hits[hit_index];
+					float weight_sum = uintBitsToFloat(hit.x);
+					vec4 result = vec4(0.0);
+
+					if (ddgi_data.ddgi_rt_ready != 0 && weight_sum > 0.0) {
+						scene_bvh_triangle tri = scene_bvh_triangles[ddgi_emitters[hit.y & 0x0FFFFFFFu].triangle & ~DDGI_EMITTER_DOUBLE_SIDED];
+						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 28u);
+						vec3 dir = normalize(ddgi_emitter_point(tri, u.yz) - origin);
+						vec3 emission = ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material]));
+						float luminance = dot(tri.emissive, vec3(0.2126, 0.7152, 0.0722));
+						vec3 estimate = emission / luminance * ddgi_data.ddgi_emitter_weight * weight_sum / float(DDGI_EMITTER_CANDIDATES);
+						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
+					}
+
+					imageStore(out_ray, pos, result);
+					return;
+				}
+
 				vec3 dir = ddgi_ray(ray);
 
 				if (ddgi_data.ddgi_rt_ready == 0) {
@@ -217,7 +270,6 @@ local function pass_shade()
 					return;
 				}
 
-				uint hit_index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAYS) + ray;
 				uvec2 hit = ddgi_hits[hit_index];
 				float t = uintBitsToFloat(hit.x);
 
@@ -242,20 +294,13 @@ local function pass_shade()
 				}
 
 				vec3 P = origin + dir * t;
-				vec3 albedo = material.albedo;
-
-				// no uvs at the hit, so textured surfaces use the texture's
-				// average colour from its smallest mip
-				if (material.albedo_tex >= 0) {
-					albedo *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
-				}
-
+				vec3 albedo = ddgi_albedo(material);
 				vec3 surface = P + N * 0.02;
 				float light_radius = ddgi_data.ddgi_light_radius * ddgi_spacing(c);
-				vec3 radiance = albedo * ddgi_direct_light(surface, N, (hit.y & DDGI_SUN_VISIBLE_BIT) != 0u, ddgi_light_masks[hit_index], light_radius) + min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+				vec3 radiance = albedo * ddgi_direct_light(surface, N, (hit.y & DDGI_SUN_VISIBLE_BIT) != 0u, ddgi_light_masks[hit_index], light_radius);
 
 				float weight;
-				radiance += albedo * ddgi_sample_irradiance(P, N, -dir, weight).rgb;
+				radiance += albedo * ddgi_sample_irradiance(P, N, -dir, false, weight).rgb;
 
 				imageStore(out_ray, pos, vec4(radiance, t));
 			}
@@ -267,20 +312,35 @@ end
 -- probe with one invocation per tile texel; the probe's rays are staged in
 -- shared memory once instead of every texel refetching them.
 local function pass_update(name, texels, integrate)
-	local color_formats = {{"r16g16b16a16_sfloat", {name, "rgba"}}}
-	local storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = "compute"}}
+	-- x = frames the texel has been accumulated for, yz = left to the
+	-- integrate (the irradiance's mean luminance and noise)
+	local color_formats = {
+		{"r16g16b16a16_sfloat", {name, "rgba"}},
+		{"r16g16b16a16_sfloat", {name .. "_state", "rgba"}},
+	}
+	local storage_images = {
+		{binding_index = BINDING_OUTPUT, dst_stage = "compute"},
+		{
+			binding_index = BINDING_STATE,
+			get_texture = function(self, fb)
+				return fb:GetAttachment(2)
+			end,
+			dst_stage = "compute",
+		},
+	}
 	local declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D atlas;
+		layout(set = 0, binding = ]] .. BINDING_STATE .. [[, rgba16f) uniform image2D state_atlas;
 	]]
 
 	-- a short term average next to the atlas, to tell a real change in
 	-- lighting from a noisy frame
 	if integrate.trend then
-		color_formats[2] = {"r16g16b16a16_sfloat", {name .. "_trend", "rgba"}}
-		storage_images[2] = {
+		color_formats[3] = {"r16g16b16a16_sfloat", {name .. "_trend", "rgba"}}
+		storage_images[3] = {
 			binding_index = BINDING_TREND,
 			get_texture = function(self, fb)
-				return fb:GetAttachment(2)
+				return fb:GetAttachment(3)
 			end,
 			dst_stage = "compute",
 		}
@@ -355,17 +415,28 @@ local function pass_update(name, texels, integrate)
 				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && data.w - 1.0 <= ddgi_data.ddgi_backface_threshold;
 				vec4 previous = imageLoad(atlas, texel);
 
+				vec4 state = current ? imageLoad(state_atlas, texel) : vec4(0.0);
+
 				if (weight_sum <= 0.0) {
 					imageStore(atlas, texel, current ? previous : vec4(0.0));
+					imageStore(state_atlas, texel, state);
 					return;
 				}
 
 				vec4 result = sum / weight_sum;
-				float hysteresis = current ? ddgi_data.ddgi_hysteresis : 0.0;
+				]] .. (
+				integrate.result or
+				""
+			) .. [[
+				float hysteresis = ddgi_data.ddgi_hysteresis;
 				]] .. (
 				integrate.adapt or
 				""
 			) .. [[
+				// a texel with n frames behind it weighs the new one 1 / (n + 1)
+				hysteresis = min(hysteresis, state.x / (state.x + 1.0));
+				state.x = min(state.x + 1.0, 1024.0);
+				imageStore(state_atlas, texel, state);
 				imageStore(atlas, texel, mix(result, previous, hysteresis));
 			}
 		]],
@@ -412,22 +483,45 @@ local IRRADIANCE_INTEGRATE = {
 			sum.rgb -= brightest * (1.0 - second_luma / brightest_luma);
 		}
 	]],
-	-- a ratio, since irradiance is in physical units
-	-- A single frame is too noisy to judge a change by: a room lit through a
-	-- doorway gets 0, 1 or 2 rays through it per frame, which swings the frame
-	-- estimate by far more than any threshold. A short term average (the
-	-- trend, about 4 frames) smooths that out but still follows a light turning
-	-- on or off within a few frames; while it disagrees with the history by
-	-- more than the threshold, the history catches up quickly.
+	-- the emitter samples are already weighted estimates of their own
+	result = [[
+		for (int k = 0; k < DDGI_EMITTER_SAMPLES; k++) {
+			vec4 emitter = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(DDGI_RAYS + k), slot, c), 0);
+			result.rgb += emitter.rgb * max(0.0, dot(texel_dir, ddgi_unpack_direction(emitter.a)));
+		}
+	]],
+	-- A real change in lighting shows up in every frame, noise does not. A
+	-- probe that sees a lit room through a doorway gets 0, 1 or 2 rays through
+	-- it per frame, and at night its history is close to 0, so any one frame
+	-- (or a short average holding one) can be many times the history. Only
+	-- when ddgi.ADAPT_FRAMES frames in a row all differ from the history by
+	-- more than the threshold (a ratio, since irradiance is in physical
+	-- units), in the same direction, does the history jump to the trend, a
+	-- short term average of about 4 frames. The run length is kept, signed
+	-- by direction, in the trend's alpha.
+	--
+	-- Otherwise the hysteresis goes from the minimum for a texel whose frames
+	-- agree with its average to the maximum for one whose frames deviate from
+	-- it by NOISE_RANGE or more, both averaged over about as many frames as the
+	-- minimum hysteresis keeps.
 	trend = true,
 	adapt = [[
-		vec3 trend = current ? mix(result.rgb, imageLoad(trend_atlas, texel).rgb, 0.75) : result.rgb;
-		imageStore(trend_atlas, texel, vec4(trend, 0.0));
-		vec3 ratio = max(trend, vec3(1e-3)) / max(previous.rgb, vec3(1e-3));
-		ratio = max(ratio, 1.0 / ratio);
+		float luma = dot(result.rgb, vec3(0.2126, 0.7152, 0.0722));
+		float deviation = state.x > 0.0 ? min(abs(luma - state.y) / max(state.y, 1e-4), 4.0) : 1.0;
+		state.y = state.x > 0.0 ? mix(luma, state.y, ddgi_data.ddgi_min_hysteresis) : luma;
+		state.z = state.x > 0.0 ? mix(deviation, state.z, ddgi_data.ddgi_min_hysteresis) : deviation;
+		hysteresis = mix(ddgi_data.ddgi_min_hysteresis, ddgi_data.ddgi_hysteresis, clamp(state.z / ddgi_data.ddgi_noise_range, 0.0, 1.0));
 
-		if (max(ratio.r, max(ratio.g, ratio.b)) > ddgi_data.ddgi_irradiance_threshold) {
-			result.rgb = trend;
+		vec4 trend = current ? imageLoad(trend_atlas, texel) : vec4(result.rgb, 0.0);
+		trend.rgb = mix(result.rgb, trend.rgb, 0.75);
+		vec3 ratio = max(result.rgb, vec3(1e-3)) / max(previous.rgb, vec3(1e-3));
+		bool up = max(ratio.r, max(ratio.g, ratio.b)) > ddgi_data.ddgi_irradiance_threshold;
+		bool down = min(ratio.r, min(ratio.g, ratio.b)) < 1.0 / ddgi_data.ddgi_irradiance_threshold;
+		trend.a = up == down ? 0.0 : up ? max(trend.a, 0.0) + 1.0 : min(trend.a, 0.0) - 1.0;
+		imageStore(trend_atlas, texel, trend);
+
+		if (abs(trend.a) >= ddgi_data.ddgi_adapt_frames) {
+			result.rgb = trend.rgb;
 			hysteresis = min(hysteresis, 0.5);
 		}
 	]],
@@ -762,7 +856,7 @@ local function pass_resolve()
 				vec3 P = get_world_pos(uv, depth);
 				vec3 V = normalize(ddgi_data.camera_position - P);
 				float weight;
-				vec4 gi = ddgi_sample_irradiance(P, N, V, weight);
+				vec4 gi = ddgi_sample_irradiance(P, N, V, ddgi_data.ddgi_smooth_blend != 0, weight);
 
 				// outside the volume the sky is all there is to go on; inside it,
 				// no usable probe means the point is enclosed and gets nothing

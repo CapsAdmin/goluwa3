@@ -152,7 +152,7 @@ do
 
 			for ray = 0, ddgi.RAYS_PER_PROBE - 1 do
 				local _, dy = ddgi.GetRayDirection(ray, state.rotation)
-				local hit_t = hits[(probe * ddgi.RAYS_PER_PROBE + ray) * 2]
+				local hit_t = hits[(probe * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) + ray) * 2]
 
 				-- rays shallow enough to run off the 100 m floor's edge are skipped
 				if dy < -0.1 then
@@ -274,6 +274,83 @@ do
 			local inside = gi_average(Vec3(0, 3, -2))
 			T(inside > none)["=="](true)
 			T(outside - none <= inside * 0.02)["=="](true)
+		end)
+
+		for _, e in ipairs(created) do
+			if e:IsValid() then e:Remove() end
+		end
+
+		restore(original_backend)
+		polygon3d:Remove()
+
+		if not ok then error(err, 0) end
+	end)
+
+	-- A small emitter is rarely hit by the probes' uniform rays, and the
+	-- brightest ray clamp used to drop the few hits it got; the emitter
+	-- samples have to find it for it to light the room.
+	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
+		if not ddgi.RTSupported() then return end
+
+		local original_backend = render3d.gi_backend
+		local polygon3d = Polygon3D.New()
+		polygon3d:CreateCube(1)
+		polygon3d:BuildBoundingBox()
+		polygon3d:Upload()
+		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+		local created = {}
+		use_ddgi()
+		render3d.camera:SetPosition(Vec3(0, 3, 2))
+		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
+		add_slab(polygon3d, created, Vec3(-6, -3, -6), Vec3(6, 0, 6))
+		add_slab(polygon3d, created, Vec3(-6, 0, -6), Vec3(-3, 6, 6))
+		add_slab(polygon3d, created, Vec3(3, 0, -6), Vec3(6, 6, 6))
+		add_slab(polygon3d, created, Vec3(-3, 0, -6), Vec3(3, 6, -3))
+		add_slab(polygon3d, created, Vec3(-3, 0, 3), Vec3(3, 6, 6))
+		add_slab(polygon3d, created, Vec3(-6, 6, -6), Vec3(6, 9, 6))
+		-- a 10 cm cube
+		local emitter = Entity.New{Name = "ddgi_test_emitter"}
+		created[#created + 1] = emitter
+		emitter:AddComponent("transform")
+		emitter.transform:SetPosition(Vec3(0, 1.5, 2.3))
+		emitter.transform:SetScale(Vec3(0.05, 0.05, 0.05))
+		emitter:AddComponent("visual")
+		local p = Entity.New{Name = "ddgi_test_emitter_p", Parent = emitter}
+		p:AddComponent("transform")
+		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
+		p.visual_primitive:SetMaterial(
+			Material.New{
+				ColorMultiplier = Color(1, 1, 1, 1),
+				AlbedoAlphaIsEmissive = true,
+				EmissiveMultiplier = Color(1, 1, 1, 30),
+			}
+		)
+		emitter.visual:BuildAABB()
+
+		local function gi_average(position, draws)
+			emitter.transform:SetPosition(position)
+			scene_bvh.Build()
+			ddgi.ResetHistory()
+
+			for _ = 1, draws do
+				draw()
+			end
+
+			local r, g, b = gi_mean()
+			return r + g + b
+		end
+
+		local ok, err = pcall(function()
+			local outside = Vec3(0, 1.5, -1000)
+			gi_average(outside, 6)
+			local before = gi_average(outside, 3)
+			local lit = gi_average(Vec3(0, 1.5, 2.3), 3)
+			local emitters = ddgi.GetEmitters()
+			-- the cube's 12 triangles, 6 faces of 0.1 x 0.1 m at luminance 30
+			T(emitters.count)["=="](12)
+			T(emitters.weight)["~"](6 * 0.01 * 30, 1e-3)
+			local after = gi_average(outside, 3)
+			T(lit > math.max(before, after) * 3)["=="](true)
 		end)
 
 		for _, e in ipairs(created) do

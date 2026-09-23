@@ -61,6 +61,11 @@ function math.clamp(self, min, max)
 	return math.min(math.max(self, min), max)
 end
 
+function math.smoothstep(edge0, edge1, x)
+	local t = math.clamp((x - edge0) / (edge1 - edge0), 0, 1)
+	return t * t * (3 - 2 * t)
+end
+
 function math.sign(value)
 	return value < 0 and -1 or 1
 end

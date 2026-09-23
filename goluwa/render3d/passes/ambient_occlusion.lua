@@ -136,8 +136,9 @@ return {
 				const int Nd = 3; 
 				const int Ns = 6; 
 				const uint Nb = 32;
-				float thickness = 0.025; 
-				float bias = 0.2;
+				// how far behind its visible front an occluder is assumed to
+				// extend, in view space units
+				float thickness = 0.5;
 
 				float total_ao = 0.0;
 				float total_weight = 0.0;
@@ -177,24 +178,22 @@ return {
 							
 							vec3 v_f = sf - p;
 							float dist2 = dot(v_f, v_f);
-							
-							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
-							
-							float proj_T = dot(v_f, T_v);
-							float proj_V = dot(v_f, V);
-							
-							if (proj_V < bias) continue;
 
-							float theta_f = atan(proj_T, proj_V);
-							float theta_b = atan(proj_T, proj_V - thickness);
-							
+							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
+
+							// Angles from the view vector, signed by the side of
+							// the slice the sample is on (Therrien 2023). The
+							// back of the occluder is its front pushed away from
+							// the viewer by thickness; on a flat surface that
+							// lands below the horizon and occludes nothing.
+							// Taking the angles from atan of the in-slice
+							// components instead lets the back one, which points
+							// almost straight away from the viewer, flip sign
+							// on noise and cover the whole hemisphere.
+							float theta_f = side * acos(clamp(dot(v_f * inversesqrt(dist2), V), -1.0, 1.0));
+							float theta_b = side * acos(clamp(dot(normalize(v_f - V * thickness), V), -1.0, 1.0));
 							float diff_f = theta_f - theta_n;
-							if (diff_f > 3.14159) diff_f -= 6.28318;
-							if (diff_f < -3.14159) diff_f += 6.28318;
-							
 							float diff_b = theta_b - theta_n;
-							if (diff_b > 3.14159) diff_b -= 6.28318;
-							if (diff_b < -3.14159) diff_b += 6.28318;
 
 							float theta_min = clamp(min(diff_f, diff_b), -1.5708, 1.5708);
 							float theta_max = clamp(max(diff_f, diff_b), -1.5708, 1.5708);
