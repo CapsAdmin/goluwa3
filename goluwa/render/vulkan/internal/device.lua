@@ -829,7 +829,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		local acceleration_structure = ...
 
 		if not self.acceleration_structure_handles then
-			self.acceleration_structure_handles = ffi.new(ffi.typeof("$[1]", vulkan.vk.VkAccelerationStructureKHR))
+			self.acceleration_structure_handles = ffi.new("uint64_t[1]")
 			self.acceleration_structure_info_array = VkWriteAccelerationStructureKHR()
 			self.acceleration_structure_info_array.sType = 1000150007
 			self.acceleration_structure_info_array.pNext = nil
@@ -837,10 +837,10 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			self.acceleration_structure_info_array.pAccelerationStructures = self.acceleration_structure_handles
 		end
 
-		-- AS descriptors require the device address (vkGetAccelerationStructureDeviceAddressKHR),
-		-- not the create handle
-		local as_ref = acceleration_structure and acceleration_structure:Data() or nil
-		self.acceleration_structure_handles[0] = as_ref and ffi.cast(vulkan.vk.VkAccelerationStructureKHR, as_ref) or nil
+		local handle = acceleration_structure and
+			acceleration_structure.ptr and
+			acceleration_structure.ptr[0]
+		self.acceleration_structure_handles[0] = handle and tonumber(ffi.cast("uint64_t", handle)) or 0
 		descriptor_info = self.acceleration_structure_info_array
 	else
 		error("unsupported descriptor type: " .. tostring(type))

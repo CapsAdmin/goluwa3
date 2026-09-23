@@ -1466,7 +1466,7 @@ function CommandBuffer:PipelineBarrier(config)
 			bmb.dstQueueFamilyIndex = 0xFFFFFFFF
 			bmb.buffer = barrier.buffer.ptr[0]
 			bmb.offset = barrier.offset or 0
-			bmb.size = barrier.size or 0xFFFFFFFFFFFFFFFF
+			bmb.size = barrier.size or 0xFFFFFFFFFFFFFFFFULL
 		end
 	end
 

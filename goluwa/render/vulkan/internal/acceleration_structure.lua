@@ -9,12 +9,6 @@ local VkRangePointerArray = ffi.typeof("void*[?]")
 local VkRangePointerPtr = ffi.typeof("const $**", vulkan.vk.VkAccelerationStructureBuildRangeInfoKHR)
 local VkBuildInfoArray = ffi.typeof("$[1]", vulkan.vk.VkAccelerationStructureBuildGeometryInfoKHR)
 
-local function devaddr(address)
-	local u = ffi.new(vulkan.vk.VkDeviceOrHostAddressConstKHR)
-	u.deviceAddress = address
-	return u
-end
-
 local function scratchaddr(address)
 	local u = ffi.new(vulkan.vk.VkDeviceOrHostAddressKHR)
 	u.deviceAddress = address

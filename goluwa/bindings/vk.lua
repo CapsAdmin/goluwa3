@@ -20773,8 +20773,8 @@ ffi.metatype(
 mod.StdVideoH264ScalingLists = ffi.typeof([[struct {
 	uint16_t scaling_list_present_mask;
 	uint16_t use_default_scaling_matrix_mask;
-	uint8_t ScalingList4x4[16U][6U];
-	uint8_t ScalingList8x8[64U][6U];
+	uint8_t ScalingList4x4[6U][16U];
+	uint8_t ScalingList8x8[6U][64U];
 }]])
 ffi.metatype(
 	mod.StdVideoH264ScalingLists,
@@ -20975,12 +20975,12 @@ mod.StdVideoEncodeH264WeightTable = ffi.typeof(
 	uint8_t chroma_log2_weight_denom;
 	int8_t luma_weight_l0[32U];
 	int8_t luma_offset_l0[32U];
-	int8_t chroma_weight_l0[2U][32U];
-	int8_t chroma_offset_l0[2U][32U];
+	int8_t chroma_weight_l0[32U][2U];
+	int8_t chroma_offset_l0[32U][2U];
 	int8_t luma_weight_l1[32U];
 	int8_t luma_offset_l1[32U];
-	int8_t chroma_weight_l1[2U][32U];
-	int8_t chroma_offset_l1[2U][32U];
+	int8_t chroma_weight_l1[32U][2U];
+	int8_t chroma_offset_l1[32U][2U];
 }]],
 	mod.StdVideoEncodeH264WeightTableFlags
 )
@@ -22212,10 +22212,10 @@ ffi.metatype(
 	}
 )
 mod.StdVideoH265ScalingLists = ffi.typeof([[struct {
-	uint8_t ScalingList4x4[16U][6U];
-	uint8_t ScalingList8x8[64U][6U];
-	uint8_t ScalingList16x16[64U][6U];
-	uint8_t ScalingList32x32[64U][2U];
+	uint8_t ScalingList4x4[6U][16U];
+	uint8_t ScalingList8x8[6U][64U];
+	uint8_t ScalingList16x16[6U][64U];
+	uint8_t ScalingList32x32[2U][64U];
 	uint8_t ScalingListDCCoef16x16[6U];
 	uint8_t ScalingListDCCoef32x32[2U];
 }]])
@@ -22367,7 +22367,7 @@ ffi.metatype(
 	}
 )
 mod.StdVideoH265PredictorPaletteEntries = ffi.typeof([[struct {
-	uint16_t PredictorPaletteEntries[128U][3U];
+	uint16_t PredictorPaletteEntries[3U][128U];
 }]])
 ffi.metatype(
 	mod.StdVideoH265PredictorPaletteEntries,
@@ -22862,12 +22862,12 @@ mod.StdVideoEncodeH265WeightTable = ffi.typeof(
 	int8_t delta_chroma_log2_weight_denom;
 	int8_t delta_luma_weight_l0[15U];
 	int8_t luma_offset_l0[15U];
-	int8_t delta_chroma_weight_l0[2U][15U];
-	int8_t delta_chroma_offset_l0[2U][15U];
+	int8_t delta_chroma_weight_l0[15U][2U];
+	int8_t delta_chroma_offset_l0[15U][2U];
 	int8_t delta_luma_weight_l1[15U];
 	int8_t luma_offset_l1[15U];
-	int8_t delta_chroma_weight_l1[2U][15U];
-	int8_t delta_chroma_offset_l1[2U][15U];
+	int8_t delta_chroma_weight_l1[15U][2U];
+	int8_t delta_chroma_offset_l1[15U][2U];
 }]],
 	mod.StdVideoEncodeH265WeightTableFlags
 )
@@ -29157,7 +29157,7 @@ ffi.metatype(
 )
 mod.StdVideoAV1GlobalMotion = ffi.typeof([[struct {
 	uint8_t GmType[8U];
-	int32_t gm_params[6U][8U];
+	int32_t gm_params[8U][6U];
 }]])
 ffi.metatype(
 	mod.StdVideoAV1GlobalMotion,
@@ -30758,7 +30758,7 @@ mod.StdVideoVP9Segmentation = ffi.typeof(
 	uint8_t segmentation_tree_probs[7U];
 	uint8_t segmentation_pred_prob[3U];
 	uint8_t FeatureEnabled[8U];
-	int16_t FeatureData[4U][8U];
+	int16_t FeatureData[8U][4U];
 }]],
 	mod.StdVideoVP9SegmentationFlags
 )
@@ -36438,7 +36438,7 @@ ffi.metatype(
 	}
 )
 mod.VkTransformMatrixKHR = ffi.typeof([[struct {
-	float matrix[4][3];
+	float matrix[3][4];
 }]])
 ffi.metatype(
 	mod.VkTransformMatrixKHR,
@@ -52712,10 +52712,10 @@ mod.VkAccelerationStructureGeometryTrianglesDataKHR = ffi.typeof(
 	$ indexData;
 	$ transformData;
 }]],
-	mod.VkDeviceOrHostAddressConstKHR,
+	mod.VkDeviceAddress,
 	mod.VkDeviceSize,
-	mod.VkDeviceOrHostAddressConstKHR,
-	mod.VkDeviceOrHostAddressConstKHR
+	mod.VkDeviceAddress,
+	mod.VkDeviceAddress
 )
 ffi.metatype(
 	mod.VkAccelerationStructureGeometryTrianglesDataKHR,
@@ -52778,7 +52778,7 @@ mod.VkAccelerationStructureGeometryInstancesDataKHR = ffi.typeof(
 	$ data;
 }]],
 	mod.VkBool32,
-	mod.VkDeviceOrHostAddressConstKHR
+	mod.VkDeviceAddress
 )
 ffi.metatype(
 	mod.VkAccelerationStructureGeometryInstancesDataKHR,
