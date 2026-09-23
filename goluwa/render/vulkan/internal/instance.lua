@@ -48,13 +48,17 @@ do
 			local data = pCallbackData[0]
 			local type_flags = table_concat(VkDebugUtilsMessageTypeFlagBitsEXT(messageType), "|")
 			local severity_flags = table_concat(VkDebugUtilsMessageSeverityFlagBitsEXT(messageSeverity), "|")
-			local msg = ffi_string(data.pMessage)
-			
-			for _, pattern in ipairs(suppressed_warnings) do
-				if msg:find(pattern, nil, true) then return VK_FALSE end
-			end
+			if data.pMessage ~= nil then
+				local msg = ffi_string(data.pMessage)
+				
+				for _, pattern in ipairs(suppressed_warnings) do
+					if msg:find(pattern, nil, true) then return VK_FALSE end
+				end
 
-			io_write("\n[" .. severity_flags .. "] [" .. type_flags .. "]\n" .. msg)
+				io_write("\n[" .. severity_flags .. "] [" .. type_flags .. "]\n" .. msg)
+			else
+				io_write("\n[" .. severity_flags .. "] [" .. type_flags .. "]\nNULL .pMessage")
+			end
 
 			if pUserData ~= nil then
 				io_write("Lua stack trace:\n")
