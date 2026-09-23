@@ -18,6 +18,19 @@ local BINDING_LIGHT_MASKS = 6
 local BINDING_TREND = 7
 local BINDING_EMITTERS = 8
 local BINDING_STATE = 9
+local BINDING_SCENE = 10
+-- Probes are checked with ray queries against the scene (ddgi.VISIBILITY_RAYS),
+-- in the resolve and when shading ray hits, which would otherwise feed light
+-- leaked at a hit back into the probes.
+local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
+local SCENE_DESCRIPTOR = {{type = "acceleration_structure_khr", binding_index = BINDING_SCENE, stageFlags = "compute"}}
+local SCENE_GLSL = VISIBILITY_RAYS and
+	[[
+	#extension GL_EXT_ray_query : require
+	#define DDGI_VISIBILITY_RAYS
+	layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT ddgi_scene;
+]] or
+	""
 
 local function data_uniform()
 	return {
@@ -52,6 +65,7 @@ local function pass_trace()
 			scene_bvh.EnsureBuilt()
 			local tlas = ddgi.RTSupported() and scene_bvh.EnsureRTBuilt(cmd) or nil
 			state.rt_ready = tlas ~= nil
+			state.tlas = tlas or VISIBILITY_RAYS and scene_bvh.GetPlaceholderTLAS(cmd) or nil
 
 			if not tlas then return end
 
@@ -142,6 +156,10 @@ local function pass_shade()
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_LIGHT_MASKS, 0, masks, masks:GetSize())
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_MATERIALS, 0, materials, materials:GetSize())
 
+			if VISIBILITY_RAYS then
+				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
+			end
+
 			if scene_bvh.triangle_buffer then
 				scene_bvh.BindBuffers(self, desc, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
 			else
@@ -150,7 +168,8 @@ local function pass_shade()
 				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_BVH_TRIANGLES, 0, hits, hits:GetSize())
 			end
 		end,
-		custom_declarations = [[
+		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
+		custom_declarations = SCENE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform writeonly image2D out_ray;
 			layout(set = 0, binding = ]] .. BINDING_RAY_HITS .. [[) readonly buffer DDGIRayHits {
 				uvec2 ddgi_hits[];
@@ -833,8 +852,14 @@ local function pass_resolve()
 		end,
 		LocalSize = {x = 8, y = 8, z = 1},
 		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = {"compute", "fragment"}}},
+		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
 		uniform_buffers = {data_uniform()},
-		custom_declarations = [[
+		on_pre_draw = VISIBILITY_RAYS and
+			function(self, cmd, frame, desc)
+				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
+			end or
+			nil,
+		custom_declarations = SCENE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 		]],
 		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[

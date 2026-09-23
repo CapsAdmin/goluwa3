@@ -150,6 +150,7 @@ function VulkanInstance.New(surface_handle, display_handle)
 		"VK_KHR_acceleration_structure",
 		"VK_KHR_ray_tracing_pipeline",
 		"VK_KHR_ray_tracing_maintenance1",
+		"VK_KHR_ray_query",
 	}
 
 	if not is_headless then

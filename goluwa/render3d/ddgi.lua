@@ -94,6 +94,11 @@ ddgi.RESOLVE_SCALE = 1.0
 -- continuous too, at the cost of a little extra blur and 27 probe lookups.
 -- Probe rays always use trilinear; their light is blurred into the probes.
 ddgi.SMOOTH_BLEND = true
+-- Probes a point blends are checked with a ray from the point, and dropped
+-- when something is in the way (see ddgi_sample_cascade): 0 none, 1 relocated
+-- probes (which can come out of a wall on its far side), 2 all of them (walls
+-- thinner than the distance test can resolve). Needs ray queries.
+ddgi.VISIBILITY_RAYS = 2
 -- 0 off, 1 probe irradiance, 2 probe mean hit distance (see passes/ddgi.lua)
 ddgi.DEBUG_PROBES = 0
 -- brightness of the debug view's markers, which have no light of their own
@@ -668,6 +673,25 @@ function ddgi.GetCommonGLSL()
 				if (!ddgi_probe_is_current(data, world) || data.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
 
 				vec3 probe_pos = data.xyz * spacing;
+
+				#ifdef DDGI_VISIBILITY_RAYS
+				if (ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
+					vec3 origin = P + N * (0.02 * spacing);
+					vec3 to_probe = probe_pos - origin;
+					float len = length(to_probe);
+
+					// a ray query with a nan or zero direction is undefined
+					if (!(len > 1e-4)) continue;
+
+					rayQueryEXT query;
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, to_probe / len, len);
+
+					while (rayQueryProceedEXT(query)) {}
+
+					if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) continue;
+				}
+				#endif
+
 				vec3 kernel = smooth_blend ? mix(mix(below, middle, equal(offset, ivec3(1))), above, equal(offset, ivec3(2))) : mix(1.0 - alpha, alpha, vec3(offset));
 				vec3 to_probe = normalize(probe_pos - P);
 				float w = (dot(to_probe, N) + 1.0) * 0.5;
@@ -792,6 +816,7 @@ function ddgi.GetBlockLayout()
 		{"ddgi_debug_probes", "int"},
 		{"ddgi_debug_cascade", "int"},
 		{"ddgi_smooth_blend", "int"},
+		{"ddgi_visibility_rays", "int"},
 		{"ddgi_cascade_count", "int"},
 		-- bit c: cascade c's history is garbage
 		{"ddgi_reset_mask", "int"},
@@ -876,6 +901,7 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_debug_probes = ddgi.DEBUG_PROBES
 	block.ddgi_debug_cascade = ddgi.DEBUG_CASCADE
 	block.ddgi_smooth_blend = ddgi.SMOOTH_BLEND and 1 or 0
+	block.ddgi_visibility_rays = ddgi.VISIBILITY_RAYS
 	block.ddgi_cascade_count = state.cascade_count
 	block.ddgi_reset_mask = state.reset_mask
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0
@@ -1406,6 +1432,10 @@ end)
 
 commands.Add("ddgi_debug_scale=number[1]", function(value)
 	ddgi.DEBUG_SCALE = value
+end)
+
+commands.Add("ddgi_visibility_rays=number[2]", function(value)
+	ddgi.VISIBILITY_RAYS = value
 end)
 
 commands.Add("ddgi_smooth_blend=boolean[true]", function(value)

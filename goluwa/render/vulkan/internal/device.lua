@@ -30,6 +30,7 @@ local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.V
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
 local VkPhysicalDeviceRayTracingMaintenance1FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR)
+local VkPhysicalDeviceRayQueryFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayQueryFeaturesKHR)
 local VkDeviceQueueCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceQueueCreateInfo)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
 local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
@@ -403,6 +404,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 	local has_ray_tracing = table.has_value(available_extensions, "VK_KHR_ray_tracing_pipeline")
 	local ray_tracing_supported = false
+	local ray_query_supported = false
 
 	if has_ray_tracing then
 		local rt_features = physical_device:GetRayTracingPipelineFeatures()
@@ -444,6 +446,18 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 				}
 			)
 			pNextChain = acceleration_structure_features
+
+			if table.has_value(finalExtensions, "VK_KHR_ray_query") then
+				ray_query_supported = true
+				local ray_query_features = VkPhysicalDeviceRayQueryFeaturesBox(
+					vulkan.vk.s.PhysicalDeviceRayQueryFeaturesKHR{
+						sType = "physical_device_ray_query_features_khr",
+						pNext = pNextChain,
+						rayQuery = 1,
+					}
+				)
+				pNextChain = ray_query_features
+			end
 		end
 	end
 
@@ -491,6 +505,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		physical_device = physical_device,
 		extensions = finalExtensions,
 		ray_tracing_supported = ray_tracing_supported,
+		ray_query_supported = ray_query_supported,
 	}
 	device.vkSetDebugUtilsObjectNameEXT = device:TryGetExtension("vkSetDebugUtilsObjectNameEXT")
 	device.vkSetDebugUtilsObjectTagEXT = device:TryGetExtension("vkSetDebugUtilsObjectTagEXT")

@@ -566,8 +566,10 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 		end
 	end
 
-	table.insert(args, self:GetFallbackView())
-	table.insert(args, self:GetFallbackSampler())
+	-- after the count, not table.insert: a trailing nil (no resource yet)
+	-- must stay in its slot
+	args[count + 1] = self:GetFallbackView()
+	args[count + 2] = self:GetFallbackSampler()
 
 	if render.stats then render_stats.AddDescriptorWrites(1) end
 
@@ -575,7 +577,7 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 		descriptor_type,
 		self.descriptor_sets[index][set_index + 1],
 		binding_index,
-		unpack(args)
+		unpack(args, 1, count + 2)
 	)
 end
 

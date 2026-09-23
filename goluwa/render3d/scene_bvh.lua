@@ -1663,18 +1663,20 @@ do
 		return blas
 	end
 
-	local function build_tlas(cmd, blas)
+	-- blas nil builds a TLAS whose one instance is inactive (reference 0)
+	local function build_tlas(cmd, blas, field)
 		local instance = ffi.new(vulkan.vk.VkAccelerationStructureInstanceKHR)
 		instance.transform.matrix[0][0] = 1
 		instance.transform.matrix[1][1] = 1
 		instance.transform.matrix[2][2] = 1
 		instance.customAndMask = 0xFF000000
 		instance.sbrtAndFlags = INSTANCE_FACING_CULL_DISABLE
-		instance.accelerationStructureReference = blas:Data()
+		instance.accelerationStructureReference = blas and blas:Data() or 0
+		local instance_field = field .. "_instance_buffer"
 
-		if rt_state.instance_buffer then rt_state.instance_buffer:Remove() end
+		if rt_state[instance_field] then rt_state[instance_field]:Remove() end
 
-		rt_state.instance_buffer = render.CreateBuffer{
+		rt_state[instance_field] = render.CreateBuffer{
 			byte_size = ffi.sizeof(instance),
 			buffer_usage = {"shader_device_address", "acceleration_structure_build_input_read_only_khr"},
 			memory_property = {"host_visible", "device_local"},
@@ -1686,9 +1688,9 @@ do
 		geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES
 		local instances = geometry.geometry.instances
 		instances.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR
-		instances.data = rt_state.instance_buffer:GetDeviceAddress()
+		instances.data = rt_state[instance_field]:GetDeviceAddress()
 		local tlas = create_acceleration_structure(
-			"tlas",
+			field,
 			"top_level_khr",
 			{
 				type = "top_level_khr",
@@ -1737,10 +1739,11 @@ do
 				},
 			},
 		}
-		local tlas = build_tlas(cmd, blas)
+		local tlas = build_tlas(cmd, blas, "tlas")
+		-- compute shaders trace it with ray queries (ddgi)
 		cmd:PipelineBarrier{
 			srcStage = "acceleration_structure_build_khr",
-			dstStage = "ray_tracing_shader_khr",
+			dstStage = {"ray_tracing_shader_khr", "compute"},
 			bufferBarriers = {
 				{
 					buffer = rt_state.tlas_buffer,
@@ -1750,6 +1753,26 @@ do
 			},
 		}
 		rt_state.built_version = scene_bvh.version
+		return tlas
+	end
+
+	-- An empty TLAS, for descriptors that must hold a valid one before the
+	-- scene's first build (null descriptors need a feature many devices lack).
+	function scene_bvh.GetPlaceholderTLAS(cmd)
+		if rt_state.placeholder then return rt_state.placeholder end
+
+		local tlas = build_tlas(cmd, nil, "placeholder")
+		cmd:PipelineBarrier{
+			srcStage = "acceleration_structure_build_khr",
+			dstStage = {"ray_tracing_shader_khr", "compute"},
+			bufferBarriers = {
+				{
+					buffer = rt_state.placeholder_buffer,
+					srcAccessMask = "acceleration_structure_write_khr",
+					dstAccessMask = "acceleration_structure_read_khr",
+				},
+			},
+		}
 		return tlas
 	end
 end

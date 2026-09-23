@@ -579,7 +579,7 @@ local function build_shader_header(
 	bindless_view_capacity,
 	bindless_sampler_capacity
 )
-	local header = [=[#version 450
+	local header = [=[#version 460
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
