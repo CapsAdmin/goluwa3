@@ -17,6 +17,25 @@ local ddgi = library()
 ddgi.enabled = true
 ddgi.PROBES_PER_AXIS = 24
 ddgi.PROBE_SPACING = 2.0
+-- Nested volumes of the same P^3 probes, each twice the spacing of the one
+-- inside it, so the probes reach far while the view stays on the fine ones.
+-- A point is shaded by the finest cascade that holds it, fading into the next
+-- over CASCADE_BLEND cells before that cascade's edge.
+ddgi.CASCADES = 4
+ddgi.CASCADE_BLEND = 2.0
+-- The cascades are fitted to the scene's bounds. Each cascade has a budget of
+-- P^3 probes at its fixed spacing; an axis the scene is short along (the
+-- height of a flat level) only gets the probes that cover it plus a cell on
+-- each side, and the rest of the budget spreads the cascade further along the
+-- other axes. Coarse cascades are skipped while a finer one holds the whole
+-- scene, and each cascade stays over the scene instead of empty space around
+-- a camera that left it. The fitted region reaches at most MAX_COVERAGE
+-- metres from the camera (infinite terrain, a stray far away object) and at
+-- least MIN_COVERAGE metres from its centre to each side (a single small
+-- model). Changing an axis' probe count throws the cascade's history away.
+ddgi.MIN_COVERAGE = 4
+ddgi.MAX_COVERAGE = 192
+ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
 -- octahedral tile sizes including the one texel border that makes bilinear
 -- sampling wrap correctly across the octahedron's edges
@@ -53,11 +72,17 @@ ddgi.RESOLVE_SCALE = 1.0
 ddgi.DEBUG_PROBES = 0
 -- brightness of the debug view's markers, which have no light of their own
 ddgi.DEBUG_SCALE = 1.0
+-- the cascade whose probes the debug view draws
+ddgi.DEBUG_CASCADE = 0
 -- stored in a ray's distance slot when it missed everything
 ddgi.MISS_DISTANCE = 1e27
 
+function ddgi.GetCascadeSpacing(cascade)
+	return ddgi.PROBE_SPACING * 2 ^ cascade
+end
+
 function ddgi.GetProbeCount()
-	return ddgi.PROBES_PER_AXIS ^ 3
+	return ddgi.PROBES_PER_AXIS ^ 3 * ddgi.CASCADES
 end
 
 function ddgi.GetRayCount()
@@ -93,9 +118,11 @@ end
 do
 	local state = {
 		frame = -1,
-		volume_base = {x = 0, y = 0, z = 0},
+		cascades = {},
+		cascade_count = 0,
+		region = {},
 		rotation = {x = 0, y = 0, z = 0, w = 1},
-		reset = true,
+		reset_mask = 0,
 		rt_ready = false,
 	}
 
@@ -109,9 +136,84 @@ do
 		q.w = b * math.cos(u3)
 	end
 
-	-- Everything the passes of one frame must agree on: where the volume is,
-	-- how this frame's rays are rotated, and whether the probe history is
-	-- garbage (fresh atlases) and must be overwritten instead of blended.
+	-- one axis of the region the cascades are fitted to
+	local function fit_region(axis, camera, bounds_min, bounds_max)
+		local lo, hi = camera - ddgi.MIN_COVERAGE, camera + ddgi.MIN_COVERAGE
+
+		if bounds_min then
+			lo = math.max(bounds_min[axis], camera - ddgi.MAX_COVERAGE)
+			hi = math.min(bounds_max[axis], camera + ddgi.MAX_COVERAGE)
+
+			-- the scene lies entirely beyond MAX_COVERAGE
+			if hi < lo then lo, hi = camera - ddgi.MIN_COVERAGE, camera + ddgi.MIN_COVERAGE end
+		end
+
+		if hi - lo < ddgi.MIN_COVERAGE * 2 then
+			local mid = (lo + hi) / 2
+			lo, hi = mid - ddgi.MIN_COVERAGE, mid + ddgi.MIN_COVERAGE
+		end
+
+		return lo, hi
+	end
+
+	-- Probes a cascade needs along an axis to cover size metres at spacing:
+	-- the cells it spans (one more when it straddles cell boundaries) plus a
+	-- cell of padding on each side. The current count is kept while it is
+	-- enough and not much more, so a region that wobbles does not keep
+	-- resetting the cascade.
+	local function fit_need(size, spacing, current)
+		local need = math.ceil(size / spacing) + 4
+
+		if current and current >= need and current <= need + math.max(2, need * 0.25) then
+			return current
+		end
+
+		return need
+	end
+
+	-- Splits the P^3 budget over the axes: the axis that needs the fewest
+	-- probes takes what it needs (or its cube root share), the next the square
+	-- root of what is left, and the last the rest.
+	local function distribute(cascade)
+		local budget = ddgi.PROBES_PER_AXIS ^ 3
+		local a, b, c = "x", "y", "z"
+		local need = cascade.need
+
+		if need[a] > need[b] then a, b = b, a end
+
+		if need[b] > need[c] then b, c = c, b end
+
+		if need[a] > need[b] then a, b = b, a end
+
+		local n = math.max(math.min(need[a], math.floor(budget ^ (1 / 3) + 1e-6)), ddgi.MIN_PROBES_PER_AXIS)
+		cascade.size[a] = n
+		budget = math.floor(budget / n)
+		n = math.max(math.min(need[b], math.floor(math.sqrt(budget) + 1e-6)), ddgi.MIN_PROBES_PER_AXIS)
+		cascade.size[b] = n
+		budget = math.floor(budget / n)
+		cascade.size[c] = math.max(math.min(need[c], budget), ddgi.MIN_PROBES_PER_AXIS)
+	end
+
+	-- The lowest probe coordinate of a cascade with count probes along one
+	-- axis: centred on the region (padded by a cell) when it can hold all of
+	-- it, otherwise centred on the camera but kept inside the padded region.
+	-- The second result is whether it holds all of it.
+	local function fit_base(camera, lo, hi, spacing, count)
+		local lo_cell, hi_cell = math.floor(lo / spacing) - 1, math.ceil(hi / spacing) + 1
+
+		if hi_cell - lo_cell <= count - 1 then
+			return lo_cell - math.floor((count - 1 - (hi_cell - lo_cell)) / 2), true
+		end
+
+		return math.clamp(math.floor(camera / spacing) - math.floor(count / 2), lo_cell, hi_cell - (count - 1)),
+		false
+	end
+
+	-- Everything the passes of one frame must agree on: where each cascade is,
+	-- its probe counts and how many cascades are in use, how this frame's rays
+	-- are rotated, and which cascades' history is garbage (fresh atlases, a
+	-- cascade that was skipped, or one whose layout changed) and must be
+	-- overwritten instead of blended.
 	function ddgi.GetFrameState()
 		local frame = system.GetFrameNumber()
 
@@ -119,11 +221,76 @@ do
 
 		state.frame = frame
 		local position = render3d.GetRenderCamera():GetPosition()
-		local spacing = ddgi.PROBE_SPACING
-		local half = math.floor(ddgi.PROBES_PER_AXIS / 2)
-		state.volume_base.x = math.floor(position.x / spacing) - half
-		state.volume_base.y = math.floor(position.y / spacing) - half
-		state.volume_base.z = math.floor(position.z / spacing) - half
+		local bounds_min, bounds_max = scene_bvh.GetBounds()
+		local region = state.region
+		region.min_x, region.max_x = fit_region(0, position.x, bounds_min, bounds_max)
+		region.min_y, region.max_y = fit_region(1, position.y, bounds_min, bounds_max)
+		region.min_z, region.max_z = fit_region(2, position.z, bounds_min, bounds_max)
+		local irradiance = render3d.pipelines.ddgi_irradiance
+		local framebuffers = irradiance and irradiance.framebuffers
+		local reset_mask = 0
+
+		if ddgi.force_reset or framebuffers ~= state.history_framebuffers then
+			reset_mask = bit.lshift(1, ddgi.CASCADES) - 1
+		end
+
+		local count = ddgi.CASCADES
+
+		for c = 1, ddgi.CASCADES do
+			local spacing = ddgi.GetCascadeSpacing(c - 1)
+			local cascade = state.cascades[c] or {need = {}, size = {}}
+			local need, size = cascade.need, cascade.size
+			local old_x, old_y, old_z = size.x, size.y, size.z
+
+			-- a cube until the scene is built
+			if bounds_min then
+				need.x = fit_need(region.max_x - region.min_x, spacing, need.x)
+				need.y = fit_need(region.max_y - region.min_y, spacing, need.y)
+				need.z = fit_need(region.max_z - region.min_z, spacing, need.z)
+				distribute(cascade)
+			else
+				size.x, size.y, size.z = ddgi.PROBES_PER_AXIS, ddgi.PROBES_PER_AXIS, ddgi.PROBES_PER_AXIS
+			end
+
+			-- every probe of the cascade changed slot, or it comes back into use
+			-- holding whatever it had when it was dropped
+			if
+				c > state.cascade_count or
+				spacing ~= cascade.spacing or
+				size.x ~= old_x or
+				size.y ~= old_y or
+				size.z ~= old_z
+			then
+				reset_mask = bit.bor(reset_mask, bit.lshift(1, c - 1))
+			end
+
+			cascade.spacing = spacing
+			local holds_x, holds_y, holds_z
+			cascade.x, holds_x = fit_base(position.x, region.min_x, region.max_x, spacing, size.x)
+			cascade.y, holds_y = fit_base(position.y, region.min_y, region.max_y, spacing, size.y)
+			cascade.z, holds_z = fit_base(position.z, region.min_z, region.max_z, spacing, size.z)
+			-- only before the scene is built does a cube not know where it ends
+			cascade.holds = bounds_min and
+				(
+					(holds_x and 1 or 0) + (holds_y and 2 or 0) + (holds_z and 4 or 0)
+				) or
+				0
+			state.cascades[c] = cascade
+
+			-- the first cascade that holds the whole scene is the last one needed
+			if
+				bounds_min and
+				c < count and
+				size.x >= need.x and
+				size.y >= need.y and
+				size.z >= need.z
+			then
+				count = c
+			end
+		end
+
+		state.cascade_count = count
+		state.reset_mask = reset_mask
 
 		if ddgi.RANDOM_ROTATION then
 			random_rotation(state.rotation)
@@ -131,9 +298,6 @@ do
 			state.rotation.x, state.rotation.y, state.rotation.z, state.rotation.w = 0, 0, 0, 1
 		end
 
-		local irradiance = render3d.pipelines.ddgi_irradiance
-		local framebuffers = irradiance and irradiance.framebuffers
-		state.reset = ddgi.force_reset or framebuffers ~= state.history_framebuffers
 		state.history_framebuffers = framebuffers
 		state.rt_ready = false
 		ddgi.force_reset = false
@@ -163,6 +327,7 @@ function ddgi.GetDefinesGLSL()
 	return (
 		[[
 		#define DDGI_P %d
+		#define DDGI_CASCADES %d
 		#define DDGI_RAYS %d
 		#define DDGI_IRRADIANCE_TEXELS %d
 		#define DDGI_DISTANCE_TEXELS %d
@@ -172,10 +337,11 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_BACKFACE_SCALE 0.2
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
 		// as unsigned), so shift into the positive range before wrapping
-		#define DDGI_WRAP(v) (((v) + DDGI_P * 65536) %% DDGI_P)
+		#define DDGI_WRAP(v, n) (((v) + (n) * 65536) %% (n))
 	]]
 	):format(
 		ddgi.PROBES_PER_AXIS,
+		ddgi.CASCADES,
 		ddgi.RAYS_PER_PROBE,
 		ddgi.IRRADIANCE_TEXELS,
 		ddgi.DISTANCE_TEXELS,
@@ -196,41 +362,75 @@ function ddgi.GetRayDirectionGLSL()
 	]]
 end
 
--- Probe addressing. A probe is named by its integer world coordinate w (it
--- sits at w * spacing) and stored in slot w mod P, so when the volume scrolls
--- the probes that stay keep their slot and history; only the planes that
--- wrapped around land on a slot whose stored coordinate no longer matches.
+-- total probe weight below which a lookup is darkened rather than normalized
+local MIN_WEIGHT = "0.05"
+
+-- Probe addressing. A probe is named by its cascade c and integer world
+-- coordinate w (it sits at w * the cascade's spacing) and stored in slot
+-- w mod the cascade's probe count on each axis, so when a cascade scrolls the
+-- probes that stay keep their slot and history; only the planes that wrapped
+-- around land on a slot whose stored coordinate no longer matches. A slot's
+-- linear index picks its tile; each cascade has P rows of P * P tiles in the
+-- atlases, finest on top, and uses as many as its probe count needs.
 function ddgi.GetCommonGLSL()
 	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. [[
-		ivec3 ddgi_volume_base() {
-			return ivec3(ddgi_data.ddgi_volume_base.xyz);
+		ivec3 ddgi_volume_base(int c) {
+			return ivec3(ddgi_data.ddgi_cascades[c].xyz);
 		}
 
-		ivec3 ddgi_slot(ivec3 world) {
-			return DDGI_WRAP(world);
+		float ddgi_spacing(int c) {
+			return ddgi_data.ddgi_cascades[c].w;
 		}
 
-		int ddgi_probe_index(ivec3 slot) {
-			return slot.x + DDGI_P * (slot.y + DDGI_P * slot.z);
+		// probes along each axis
+		ivec3 ddgi_volume_size(int c) {
+			return ivec3(ddgi_data.ddgi_cascade_size[c].xyz);
 		}
 
-		ivec3 ddgi_slot_from_index(int index) {
-			return ivec3(index % DDGI_P, (index / DDGI_P) % DDGI_P, index / (DDGI_P * DDGI_P));
+		int ddgi_probe_count(int c) {
+			ivec3 n = ddgi_volume_size(c);
+			return n.x * n.y * n.z;
+		}
+
+		ivec3 ddgi_slot(ivec3 world, int c) {
+			return DDGI_WRAP(world, ddgi_volume_size(c));
+		}
+
+		// index of a slot within its cascade
+		int ddgi_probe_index(ivec3 slot, int c) {
+			ivec3 n = ddgi_volume_size(c);
+			return slot.x + n.x * (slot.y + n.y * slot.z);
+		}
+
+		ivec3 ddgi_slot_from_index(int index, int c) {
+			ivec3 n = ddgi_volume_size(c);
+			return ivec3(index % n.x, (index / n.x) % n.y, index / (n.x * n.y));
+		}
+
+		// a ray's texel in the shade pass output: one column block per cascade
+		ivec2 ddgi_ray_texel(uint ray, ivec3 slot, int c) {
+			return ivec2(int(ray) + DDGI_RAYS * c, ddgi_probe_index(slot, c));
 		}
 
 		// the probe of this frame's volume that is stored in slot
-		ivec3 ddgi_world_from_slot(ivec3 slot) {
-			ivec3 base = ddgi_volume_base();
-			return base + DDGI_WRAP(slot - ddgi_slot(base));
+		ivec3 ddgi_world_from_slot(ivec3 slot, int c) {
+			ivec3 base = ddgi_volume_base(c);
+			return base + DDGI_WRAP(slot - ddgi_slot(base, c), ddgi_volume_size(c));
 		}
 
-		ivec2 ddgi_tile(ivec3 slot) {
-			return ivec2(slot.x + DDGI_P * slot.y, slot.z);
+		ivec2 ddgi_tile_from_index(int index, int c) {
+			return ivec2(index % (DDGI_P * DDGI_P), index / (DDGI_P * DDGI_P) + DDGI_P * c);
 		}
 
+		ivec2 ddgi_tile(ivec3 slot, int c) {
+			return ddgi_tile_from_index(ddgi_probe_index(slot, c), c);
+		}
+
+		// inside the outermost cascade in use
 		bool ddgi_in_volume(vec3 P) {
-			vec3 grid = P / ddgi_data.ddgi_spacing - vec3(ddgi_volume_base());
-			return all(greaterThanEqual(grid, vec3(0.0))) && all(lessThanEqual(grid, vec3(DDGI_P - 1)));
+			int c = ddgi_data.ddgi_cascade_count - 1;
+			vec3 grid = P / ddgi_spacing(c) - vec3(ddgi_volume_base(c));
+			return all(greaterThanEqual(grid, vec3(0.0))) && all(lessThanEqual(grid, vec3(ddgi_volume_size(c) - 1)));
 		}
 
 		vec3 ddgi_ray(uint index) {
@@ -275,18 +475,18 @@ function ddgi.GetCommonGLSL()
 			return ddgi_oct_decode(uv * 2.0 - 1.0);
 		}
 
-		vec2 ddgi_atlas_uv(ivec3 slot, vec3 dir, int texels) {
-			vec2 atlas_size = vec2(DDGI_P * DDGI_P * texels, DDGI_P * texels);
+		vec2 ddgi_atlas_uv(ivec3 slot, int c, vec3 dir, int texels) {
+			vec2 atlas_size = vec2(DDGI_P * DDGI_P * texels, DDGI_P * DDGI_CASCADES * texels);
 			vec2 oct = ddgi_oct_encode(dir) * 0.5 + 0.5;
-			vec2 pixel = vec2(ddgi_tile(slot) * texels) + 1.0 + oct * float(texels - 2);
+			vec2 pixel = vec2(ddgi_tile(slot, c) * texels) + 1.0 + oct * float(texels - 2);
 			return pixel / atlas_size;
 		}
 
 		// xyz = world coordinate last written into the slot plus the probe's
 		// relocation offset in spacings (under 0.5, so rounding recovers the
 		// coordinate), w = 1 + back face ray fraction (0 when never written)
-		vec4 ddgi_probe_data(ivec3 slot) {
-			return texelFetch(TEXTURE(ddgi_data.ddgi_probe_data_tex), ddgi_tile(slot), 0);
+		vec4 ddgi_probe_data(ivec3 slot, int c) {
+			return texelFetch(TEXTURE(ddgi_data.ddgi_probe_data_tex), ddgi_tile(slot, c), 0);
 		}
 
 		bool ddgi_probe_is_current(vec4 data, ivec3 world) {
@@ -295,9 +495,9 @@ function ddgi.GetCommonGLSL()
 
 		// where the probe's rays start; one that just scrolled into its slot
 		// sits on its grid point
-		vec3 ddgi_probe_origin(ivec3 slot, ivec3 world) {
-			vec4 data = ddgi_probe_data(slot);
-			return (ddgi_probe_is_current(data, world) ? data.xyz : vec3(world)) * ddgi_data.ddgi_spacing;
+		vec3 ddgi_probe_origin(ivec3 slot, int c, ivec3 world) {
+			vec4 data = ddgi_probe_data(slot, c);
+			return (ddgi_probe_is_current(data, world) ? data.xyz : vec3(world)) * ddgi_spacing(c);
 		}
 
 		vec3 ddgi_sky(vec3 dir) {
@@ -308,19 +508,23 @@ function ddgi.GetCommonGLSL()
 			).rgb * ddgi_data.ddgi_sky_intensity;
 		}
 
-		// Irradiance at P with normal N, seen from direction V (towards the
-		// viewer). rgb = irradiance, a = sky visibility. weight is 0 when no
-		// probe could contribute.
-		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 V, out float weight) {
-			float spacing = ddgi_data.ddgi_spacing;
+		bool ddgi_cascade_reset(int c) {
+			return (ddgi_data.ddgi_reset_mask & (1 << c)) != 0;
+		}
+
+		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 V, out float weight) {
+			weight = 0.0;
+
+			if (ddgi_cascade_reset(c)) return vec4(0.0);
+
+			float spacing = ddgi_spacing(c);
 			vec3 biased = P + (N * ddgi_data.ddgi_normal_bias + V * ddgi_data.ddgi_view_bias) * spacing;
 			vec3 grid = biased / spacing;
 			ivec3 base_world = ivec3(floor(grid));
 			vec3 alpha = grid - vec3(base_world);
-			ivec3 volume_min = ddgi_volume_base();
-			ivec3 volume_max = volume_min + DDGI_P - 1;
+			ivec3 volume_min = ddgi_volume_base(c);
+			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
 			vec4 sum = vec4(0.0);
-			weight = 0.0;
 
 			for (int i = 0; i < 8; i++) {
 				ivec3 offset = ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
@@ -328,8 +532,8 @@ function ddgi.GetCommonGLSL()
 
 				if (any(lessThan(world, volume_min)) || any(greaterThan(world, volume_max))) continue;
 
-				ivec3 slot = ddgi_slot(world);
-				vec4 data = ddgi_probe_data(slot);
+				ivec3 slot = ddgi_slot(world, c);
+				vec4 data = ddgi_probe_data(slot, c);
 
 				if (!ddgi_probe_is_current(data, world) || data.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
 
@@ -343,7 +547,7 @@ function ddgi.GetCommonGLSL()
 				float dist = length(probe_to_point);
 				vec2 moments = texture(
 					TEXTURE(ddgi_data.ddgi_distance_tex),
-					ddgi_atlas_uv(slot, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS)
+					ddgi_atlas_uv(slot, c, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS)
 				).rg;
 				float chebyshev = 1.0;
 
@@ -363,12 +567,63 @@ function ddgi.GetCommonGLSL()
 				w *= trilinear.x * trilinear.y * trilinear.z;
 				sum += texture(
 					TEXTURE(ddgi_data.ddgi_irradiance_tex),
-					ddgi_atlas_uv(slot, N, DDGI_IRRADIANCE_TEXELS)
+					ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS)
 				) * w;
 				weight += w;
 			}
 
-			return weight > 0.0 ? sum / weight : vec4(0.0);
+			// When every probe is all but hidden (a point inside geometry, or
+			// on an edge where the reconstructed position slips behind a wall)
+			// dividing by the tiny total would blow up whichever hidden probe
+			// is least hidden, often one outside. Such points fade out instead.
+			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
+		}
+
+		// 1 deep inside cascade c, falling to 0 a cell before its edge where
+		// the biased lookup would start missing probes. An edge past the end of
+		// the scene has nothing beyond it, so it does not fade.
+		float ddgi_cascade_blend(int c, vec3 P) {
+			vec3 grid = P / ddgi_spacing(c) - vec3(ddgi_volume_base(c));
+			vec3 edge = min(grid, vec3(ddgi_volume_size(c) - 1) - grid);
+			int holds = int(ddgi_data.ddgi_cascade_size[c].w);
+
+			if ((holds & 1) != 0) edge.x = 1e9;
+
+			if ((holds & 2) != 0) edge.y = 1e9;
+
+			if ((holds & 4) != 0) edge.z = 1e9;
+
+			return clamp((min(edge.x, min(edge.y, edge.z)) - 1.0) / ddgi_data.ddgi_cascade_blend, 0.0, 1.0);
+		}
+
+		// Irradiance at P with normal N, seen from direction V (towards the
+		// viewer). rgb = irradiance, a = sky visibility. weight is 0 when no
+		// probe could contribute.
+		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 V, out float weight) {
+			weight = 0.0;
+
+			int count = ddgi_data.ddgi_cascade_count;
+
+			for (int c = 0; c < count; c++) {
+				float fine = c == count - 1 ? 1.0 : ddgi_cascade_blend(c, P);
+
+				if (fine <= 0.0) continue;
+
+				vec4 result = ddgi_sample_cascade(c, P, N, V, weight);
+
+				if (fine >= 1.0) return result;
+
+				float coarse_weight;
+				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, V, coarse_weight);
+
+				// fitted cascades are not always nested
+				if (coarse_weight <= 0.0) return result;
+
+				weight = mix(coarse_weight, weight, fine);
+				return mix(coarse, result, fine);
+			}
+
+			return vec4(0.0);
 		}
 	]]
 end
@@ -381,11 +636,14 @@ function ddgi.GetBlockLayout()
 		{"light_count", "int"},
 		{"shadows", scene_lights.BuildShadowsBlockLayout()},
 		light_occlusion.GetBlockLayout(),
-		{"ddgi_volume_base", "vec4"},
+		-- xyz = volume base (the lowest probe's world coordinate), w = spacing
+		{"ddgi_cascades", "vec4", ddgi.CASCADES},
+		-- xyz = probes along each axis, w = bits of the axes (1 x, 2 y, 4 z)
+		-- along which the cascade holds the whole scene
+		{"ddgi_cascade_size", "vec4", ddgi.CASCADES},
 		{"ddgi_rotation", "vec4"},
 		{"ddgi_sun_direction", "vec4"},
 		{"ddgi_sun_radiance", "vec4"},
-		{"ddgi_spacing", "float"},
 		{"ddgi_max_distance", "float"},
 		{"ddgi_hysteresis", "float"},
 		{"ddgi_irradiance_threshold", "float"},
@@ -397,9 +655,13 @@ function ddgi.GetBlockLayout()
 		{"ddgi_max_offset", "float"},
 		{"ddgi_sky_intensity", "float"},
 		{"ddgi_light_radius", "float"},
+		{"ddgi_cascade_blend", "float"},
 		{"ddgi_debug_scale", "float"},
 		{"ddgi_debug_probes", "int"},
-		{"ddgi_reset", "int"},
+		{"ddgi_debug_cascade", "int"},
+		{"ddgi_cascade_count", "int"},
+		-- bit c: cascade c's history is garbage
+		{"ddgi_reset_mask", "int"},
 		{"ddgi_rt_ready", "int"},
 		{"ddgi_env_tex", "int"},
 		{"ddgi_env_irradiance_tex", "int"},
@@ -435,15 +697,22 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_sun_radiance[1] = sun_color.y * sun_illuminance
 	block.ddgi_sun_radiance[2] = sun_color.z * sun_illuminance
 	block.ddgi_sun_radiance[3] = 0
-	block.ddgi_volume_base[0] = state.volume_base.x
-	block.ddgi_volume_base[1] = state.volume_base.y
-	block.ddgi_volume_base[2] = state.volume_base.z
-	block.ddgi_volume_base[3] = 0
+	for c = 1, ddgi.CASCADES do
+		local cascade = state.cascades[c]
+		block.ddgi_cascades[c - 1][0] = cascade.x
+		block.ddgi_cascades[c - 1][1] = cascade.y
+		block.ddgi_cascades[c - 1][2] = cascade.z
+		block.ddgi_cascades[c - 1][3] = cascade.spacing
+		block.ddgi_cascade_size[c - 1][0] = cascade.size.x
+		block.ddgi_cascade_size[c - 1][1] = cascade.size.y
+		block.ddgi_cascade_size[c - 1][2] = cascade.size.z
+		block.ddgi_cascade_size[c - 1][3] = cascade.holds
+	end
+
 	block.ddgi_rotation[0] = state.rotation.x
 	block.ddgi_rotation[1] = state.rotation.y
 	block.ddgi_rotation[2] = state.rotation.z
 	block.ddgi_rotation[3] = state.rotation.w
-	block.ddgi_spacing = ddgi.PROBE_SPACING
 	block.ddgi_max_distance = ddgi.MAX_RAY_DISTANCE
 	block.ddgi_hysteresis = ddgi.HYSTERESIS
 	block.ddgi_irradiance_threshold = ddgi.IRRADIANCE_THRESHOLD
@@ -451,13 +720,17 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
 	block.ddgi_backface_threshold = ddgi.BACKFACE_THRESHOLD
-	block.ddgi_relocation_distance = ddgi.RELOCATION and ddgi.RELOCATION_DISTANCE * ddgi.PROBE_SPACING or 0
+	-- in spacings, like the biases and the light radius
+	block.ddgi_relocation_distance = ddgi.RELOCATION and ddgi.RELOCATION_DISTANCE or 0
 	block.ddgi_max_offset = ddgi.RELOCATION and ddgi.PROBE_MAX_OFFSET or 0
 	block.ddgi_sky_intensity = ddgi.SKY_INTENSITY
-	block.ddgi_light_radius = ddgi.LIGHT_RADIUS * ddgi.PROBE_SPACING
+	block.ddgi_light_radius = ddgi.LIGHT_RADIUS
+	block.ddgi_cascade_blend = ddgi.CASCADE_BLEND
 	block.ddgi_debug_scale = ddgi.DEBUG_SCALE
 	block.ddgi_debug_probes = ddgi.DEBUG_PROBES
-	block.ddgi_reset = state.reset and 1 or 0
+	block.ddgi_debug_cascade = ddgi.DEBUG_CASCADE
+	block.ddgi_cascade_count = state.cascade_count
+	block.ddgi_reset_mask = state.reset_mask
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0
 	block.ddgi_env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 	block.ddgi_env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
@@ -533,15 +806,15 @@ end
 
 -- Ray generation parameters, one host-visible copy per frame in flight since
 -- the previous frame may still be tracing while this one is written.
-local RTParams = ffi.typeof([[struct {
-	int32_t volume_base[3];
-	float probe_spacing;
+local RTParams = ffi.typeof(([[struct {
+	float cascades[%d][4];
+	float size[%d][4];
 	float rotation[4];
 	float sun_direction[4];
 	float max_ray_distance;
 	float tmin;
 	float padding[2];
-}]])
+}]]):format(ddgi.CASCADES, ddgi.CASCADES))
 local RTParamsPointer = ffi.typeof("$*", RTParams)
 local rt_params = {}
 
@@ -562,10 +835,17 @@ function ddgi.WriteRTParams()
 
 	local state = ddgi.GetFrameState()
 	local p = ffi.cast(RTParamsPointer, buffer:Map(0, ffi.sizeof(RTParams)))
-	p.volume_base[0] = state.volume_base.x
-	p.volume_base[1] = state.volume_base.y
-	p.volume_base[2] = state.volume_base.z
-	p.probe_spacing = ddgi.PROBE_SPACING
+	for c = 1, ddgi.CASCADES do
+		local cascade = state.cascades[c]
+		p.cascades[c - 1][0] = cascade.x
+		p.cascades[c - 1][1] = cascade.y
+		p.cascades[c - 1][2] = cascade.z
+		p.cascades[c - 1][3] = cascade.spacing
+		p.size[c - 1][0] = cascade.size.x
+		p.size[c - 1][1] = cascade.size.y
+		p.size[c - 1][2] = cascade.size.z
+	end
+
 	p.rotation[0] = state.rotation.x
 	p.rotation[1] = state.rotation.y
 	p.rotation[2] = state.rotation.z
@@ -594,8 +874,9 @@ local raygen_glsl = [[
 ]] .. ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. [[
 layout(set = 0, binding = 0) uniform Params
 {
-    ivec3 volume_base;
-    float probe_spacing;
+    // see ddgi_cascades and ddgi_cascade_size
+    vec4 cascades[DDGI_CASCADES];
+    vec4 size[DDGI_CASCADES];
     vec4 rotation;
     vec4 sun_direction;
     float max_ray_distance;
@@ -614,11 +895,17 @@ void main()
 {
     uint ray = gl_LaunchIDEXT.x;
     int probe = int(gl_LaunchIDEXT.y);
-    ivec3 slot = ivec3(probe % DDGI_P, (probe / DDGI_P) % DDGI_P, probe / (DDGI_P * DDGI_P));
-    ivec3 world = params.volume_base + DDGI_WRAP(slot - DDGI_WRAP(params.volume_base));
-    vec4 data = texelFetch(probe_data, ivec2(slot.x + DDGI_P * slot.y, slot.z), 0);
+    int c = int(gl_LaunchIDEXT.z);
+    ivec3 n = ivec3(params.size[c].xyz);
+
+    if (probe >= n.x * n.y * n.z) return;
+
+    ivec3 base = ivec3(params.cascades[c].xyz);
+    ivec3 slot = ivec3(probe % n.x, (probe / n.x) % n.y, probe / (n.x * n.y));
+    ivec3 world = base + DDGI_WRAP(slot - DDGI_WRAP(base, n), n);
+    vec4 data = texelFetch(probe_data, ivec2(probe % (DDGI_P * DDGI_P), probe / (DDGI_P * DDGI_P) + DDGI_P * c), 0);
     bool current = data.w >= 1.0 && ivec3(round(data.xyz)) == world;
-    vec3 origin = (current ? data.xyz : vec3(world)) * params.probe_spacing;
+    vec3 origin = (current ? data.xyz : vec3(world)) * params.cascades[c].w;
     vec3 dir = ddgi_ray_direction(ray, params.rotation);
     traceRayEXT(scene, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
@@ -640,7 +927,7 @@ void main()
         if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
     }
 
-    hits[uint(probe) * uint(DDGI_RAYS) + ray] = uvec2(floatBitsToUint(hit_t), primitive);
+    hits[uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAYS) + ray] = uvec2(floatBitsToUint(hit_t), primitive);
 }
 ]]
 local closesthit_glsl = [[
@@ -720,6 +1007,58 @@ end)
 
 commands.Add("ddgi_debug_scale=number[1]", function(value)
 	ddgi.DEBUG_SCALE = value
+end)
+
+commands.Add("ddgi_debug_cascade=number[0]", function(value)
+	ddgi.DEBUG_CASCADE = value
+end)
+
+commands.Add("ddgi_info", function()
+	local state = ddgi.GetFrameState()
+	local region = state.region
+	logf(
+		"ddgi: %d of %d cascades in use, region %.1f..%.1f %.1f..%.1f %.1f..%.1f\n",
+		state.cascade_count,
+		ddgi.CASCADES,
+		region.min_x,
+		region.max_x,
+		region.min_y,
+		region.max_y,
+		region.min_z,
+		region.max_z
+	)
+
+	for c = 1, ddgi.CASCADES do
+		local cascade = state.cascades[c]
+		logf(
+			"  cascade %d%s: spacing %.2f, %d x %d x %d probes (%d), spans %.1f %.1f %.1f m from %.1f %.1f %.1f\n",
+			c - 1,
+			c > state.cascade_count and " (unused)" or "",
+			cascade.spacing,
+			cascade.size.x,
+			cascade.size.y,
+			cascade.size.z,
+			cascade.size.x * cascade.size.y * cascade.size.z,
+			cascade.spacing * (cascade.size.x - 1),
+			cascade.spacing * (cascade.size.y - 1),
+			cascade.spacing * (cascade.size.z - 1),
+			cascade.x * cascade.spacing,
+			cascade.y * cascade.spacing,
+			cascade.z * cascade.spacing
+		)
+	end
+end)
+
+commands.Add("ddgi_probe_spacing=number[2]", function(value)
+	ddgi.PROBE_SPACING = value
+end)
+
+commands.Add("ddgi_min_coverage=number[4]", function(value)
+	ddgi.MIN_COVERAGE = value
+end)
+
+commands.Add("ddgi_max_coverage=number[192]", function(value)
+	ddgi.MAX_COVERAGE = value
 end)
 
 commands.Add("ddgi_relocation=boolean[true]", function(value)

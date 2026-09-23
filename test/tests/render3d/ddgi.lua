@@ -143,11 +143,12 @@ do
 		local ok, err = pcall(function()
 			draw()
 			local state = ddgi.GetFrameState()
-			local P = ddgi.PROBES_PER_AXIS
 			local hits = ffi.cast("float*", ddgi.GetRayHitBuffer():Map(0, ddgi.GetRayHitBuffer():GetSize()))
-			-- the probe at world coordinate (0, 2, 0) sits this high above the floor
-			local height = 2 * ddgi.PROBE_SPACING
-			local probe = 0 + P * (2 + P * 0)
+			-- the probe at world coordinate (0, 2, 0) sits this high above the
+			-- floor; the probe counts per axis are fitted to the scene
+			local cascade = state.cascades[1]
+			local height = 2 * cascade.spacing
+			local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
 
 			for ray = 0, ddgi.RAYS_PER_PROBE - 1 do
 				local _, dy = ddgi.GetRayDirection(ray, state.rotation)

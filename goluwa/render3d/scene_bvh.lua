@@ -74,6 +74,15 @@ function scene_bvh.GetMaterialID(material)
 	return id
 end
 
+-- world bounds of everything in the tree (the root node's box) as two float
+-- arrays, nil while nothing with triangles has been built
+function scene_bvh.GetBounds()
+	if scene_bvh.triangle_count == 0 then return nil end
+
+	local root = scene_bvh.debug_nodes[0]
+	return root.bounds_min, root.bounds_max
+end
+
 function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
 end
