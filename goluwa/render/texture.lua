@@ -1565,6 +1565,31 @@ do
 		return r, g, b, a
 	end
 
+	do
+		local HalfPointer = ffi.typeof("uint16_t*")
+		local FloatPointer = ffi.typeof("float*")
+
+		-- rgba of an rgba float format as floats, unclamped
+		function TextureDownloaded:GetPixelFloat(x, y)
+			local index = (y * self.width + x) * 4
+
+			if self.format == "r32g32b32a32_sfloat" then
+				local p = ffi.cast(FloatPointer, self.pixels)
+				return p[index], p[index + 1], p[index + 2], p[index + 3]
+			end
+
+			if self.format == "r16g16b16a16_sfloat" then
+				local p = ffi.cast(HalfPointer, self.pixels)
+				return math.half2float(p[index]),
+				math.half2float(p[index + 1]),
+				math.half2float(p[index + 2]),
+				math.half2float(p[index + 3])
+			end
+
+			error("GetPixelFloat: unsupported format " .. tostring(self.format), 2)
+		end
+	end
+
 	function TextureDownloaded:ForEachPixel(func)
 		local width = self.width
 		local height = self.height

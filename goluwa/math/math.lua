@@ -124,3 +124,33 @@ function math.tostring(num)
 
 	return list.concat(t)
 end
+
+do
+	local ffi = require("ffi")
+	local bits = ffi.new("union { uint32_t u; float f; }")
+
+	function math.half2float(h)
+		local s = bit.band(bit.rshift(h, 15), 1)
+		local e = bit.band(bit.rshift(h, 10), 0x1f)
+		local m = bit.band(h, 0x3ff)
+
+		if e == 0 then
+			if m == 0 then return s == 1 and -0.0 or 0.0 end
+
+			while bit.band(m, 0x400) == 0 do
+				m = bit.lshift(m, 1)
+				e = e - 1
+			end
+
+			e = e + 1
+			m = bit.band(m, bit.bnot(0x400))
+		elseif e == 31 then
+			if m == 0 then return s == 1 and -math.huge or math.huge end
+
+			return 0 / 0
+		end
+
+		bits.u = bit.bor(bit.lshift(s, 31), bit.lshift(e + 127 - 15, 23), bit.lshift(m, 13))
+		return bits.f
+	end
+end

@@ -5,43 +5,10 @@ local deflate = import("goluwa/codecs/deflate.lua")
 local exr = library()
 exr.file_extensions = {"exr"}
 exr.magic_headers = {"v/1\1"}
-
-local function half_to_float(h)
-	local s = bit.band(bit.rshift(h, 15), 0x00000001)
-	local e = bit.band(bit.rshift(h, 10), 0x0000001f)
-	local m = bit.band(h, 0x000003ff)
-
-	if e == 0 then
-		if m == 0 then
-			return s == 1 and -0.0 or 0.0
-		else
-			while bit.band(m, 0x00000400) == 0 do
-				m = bit.lshift(m, 1)
-				e = e - 1
-			end
-
-			e = e + 1
-			m = bit.band(m, bit.bnot(0x00000400))
-		end
-	elseif e == 31 then
-		if m == 0 then
-			return s == 1 and -math.huge or math.huge
-		else
-			return 0 / 0
-		end
-	end
-
-	e = e + (127 - 15)
-	m = bit.lshift(m, 13)
-	local f_bits = bit.bor(bit.lshift(s, 31), bit.lshift(e, 23), m)
-	local f_ptr = ffi.new("uint32_t[1]", f_bits)
-	return ffi.cast("float*", f_ptr)[0]
-end
-
 local half_to_float_table = ffi.new("float[65536]")
 
 for i = 0, 65535 do
-	half_to_float_table[i] = half_to_float(i)
+	half_to_float_table[i] = math.half2float(i)
 end
 
 local function read_null_terminated_string(buffer)
