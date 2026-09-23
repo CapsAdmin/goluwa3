@@ -1592,6 +1592,12 @@ do
 				return p[index], p[index + 1], p[index + 2], p[index + 3]
 			end
 
+			if self.format == "r32g32_sfloat" then
+				local p = ffi.cast(FloatPointer, self.pixels)
+				index = (y * self.width + x) * 2
+				return p[index], p[index + 1], 0, 1
+			end
+
 			if self.format == "r16g16b16a16_sfloat" then
 				local p = ffi.cast(HalfPointer, self.pixels)
 				return math.half2float(p[index]),
@@ -1742,13 +1748,24 @@ do
 				if not without_alpha then pixel_buffer[i * bpp + 3] = 255 end
 			end
 		elseif format == "r32g32b32a32_sfloat" or format == "r16g16b16a16_sfloat" then
-			local fpixels = ffi.cast(format == "r32g32b32a32_sfloat" and "float*" or "uint16_t*", self.pixels)
-			local divisor = format == "r32g32b32a32_sfloat" and 1 or 65535
+			-- float colour is linear light (an scRGB swapchain included), so it
+			-- is sRGB encoded for the PNG; anything above 1 clips
+			local half = format == "r16g16b16a16_sfloat"
+			local fpixels = ffi.cast(half and "uint16_t*" or "float*", self.pixels)
 
 			for i = 0, w * h - 1 do
 				for c = 0, without_alpha and 2 or 3 do
-					local val = math.clamp(math.floor(fpixels[i * 4 + c] / divisor * 255), 0, 255)
-					pixel_buffer[i * bpp + c] = val
+					local v = fpixels[i * 4 + c]
+
+					if half then v = math.half2float(v) end
+
+					v = math.clamp(v, 0, 1)
+
+					if c < 3 then
+						v = v <= 0.0031308 and v * 12.92 or 1.055 * v ^ (1 / 2.4) - 0.055
+					end
+
+					pixel_buffer[i * bpp + c] = math.floor(v * 255 + 0.5)
 				end
 			end
 		elseif format == "r16g16b16a16_unorm" then

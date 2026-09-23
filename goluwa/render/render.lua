@@ -255,6 +255,7 @@ function render.Initialize(config)
 		local size = wnd:GetSize()
 		render.target = vulkan_instance:CreateWindowRenderTarget{
 			present_mode = "immediate_khr", --"fifo_khr",
+			enable_hdr = _G.HDR,
 			image_count = nil, -- Use default (minImageCount + 1)
 			--surface_format_index = 1,
 			composite_alpha = "opaque_khr",

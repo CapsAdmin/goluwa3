@@ -56,6 +56,34 @@ function Swapchain.New(config)
 	}
 end
 
+do
+	local HdrMetadata = ffi.typeof("$[1]", vulkan.vk.VkHdrMetadataEXT)
+
+	-- Describes the content to the compositor or display (VK_EXT_hdr_metadata)
+	-- so it can fit it to what the display can show. primaries are CIE xy
+	-- pairs {red, green, blue, white}, luminances in nits. Returns false when
+	-- the extension isn't enabled.
+	function Swapchain:SetHdrMetadata(t)
+		local set = self.device:TryGetExtension("vkSetHdrMetadataEXT")
+
+		if not set then return false end
+
+		local metadata = HdrMetadata()
+		local m = metadata[0]
+		m.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_HDR_METADATA_EXT
+		m.displayPrimaryRed.x, m.displayPrimaryRed.y = t.primaries[1][1], t.primaries[1][2]
+		m.displayPrimaryGreen.x, m.displayPrimaryGreen.y = t.primaries[2][1], t.primaries[2][2]
+		m.displayPrimaryBlue.x, m.displayPrimaryBlue.y = t.primaries[3][1], t.primaries[3][2]
+		m.whitePoint.x, m.whitePoint.y = t.primaries[4][1], t.primaries[4][2]
+		m.maxLuminance = t.max_luminance
+		m.minLuminance = t.min_luminance
+		m.maxContentLightLevel = t.max_content_light_level
+		m.maxFrameAverageLightLevel = t.max_frame_average_light_level
+		set(self.device.ptr[0], 1, self.ptr, metadata)
+		return true
+	end
+end
+
 function Swapchain:OnRemove()
 	if self.device:IsValid() then
 		self.device:WaitIdle()

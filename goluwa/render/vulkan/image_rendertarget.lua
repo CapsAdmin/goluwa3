@@ -81,36 +81,36 @@ local function choose_format(self)
 
 	if not chosen_format_index then
 		if self.config.enable_hdr then
-			-- Prioritize HDR formats
-			local preferred_hdr_formats = {
-				"r16g16b16a16_sfloat",
-				"a2b10g10r10_unorm_pack32",
-				"a2r10g10b10_unorm_pack32",
-			}
-			-- Only prefer explicit HDR output spaces here.
-			-- Some Linux compositors advertise extended_srgb_linear_ext even when
-			-- the desktop is still effectively SDR, which can make the image look
-			-- washed out if we auto-switch into the HDR path.
-			local preferred_color_spaces = {
-				"hdr10_st2084_ext",
-				"hdr10_hlg_ext",
-				"bt2020_linear_ext",
+			-- scRGB first: linear BT.709 where 1.0 is 80 nits and brighter goes
+			-- above 1, so everything that writes linear light to the swapchain
+			-- (render2d included) stays correct without knowing about HDR.
+			-- HDR10 (PQ encoded BT.2020) needs every writer to encode for it,
+			-- which only the 3D blit does. Some Linux compositors advertise
+			-- scRGB while the desktop is SDR and tonemap it down, which looks
+			-- washed out; that is why HDR is opt in.
+			local preferred = {
+				{"r16g16b16a16_sfloat", "extended_srgb_linear_ext"},
+				{"a2b10g10r10_unorm_pack32", "hdr10_st2084_ext"},
+				{"a2r10g10b10_unorm_pack32", "hdr10_st2084_ext"},
+				{"r16g16b16a16_sfloat", "hdr10_st2084_ext"},
 			}
 
-			for _, cs in ipairs(preferred_color_spaces) do
-				for _, fmt in ipairs(preferred_hdr_formats) do
-					for i, available in ipairs(self.surface_formats) do
-						if available.format == fmt and available.color_space == cs then
-							chosen_format_index = i
+			for _, pair in ipairs(preferred) do
+				for i, available in ipairs(self.surface_formats) do
+					if available.format == pair[1] and available.color_space == pair[2] then
+						chosen_format_index = i
 
-							break
-						end
+						break
 					end
-
-					if chosen_format_index then break end
 				end
 
 				if chosen_format_index then break end
+			end
+
+			if not chosen_format_index then
+				logf(
+					"[render] HDR requested but the surface offers no scRGB or HDR10 format, using SDR\n"
+				)
 			end
 		end
 
@@ -233,6 +233,11 @@ local function create_swapchain(self)
 	}
 
 	if old_swapchain then old_swapchain:Remove() end
+
+	-- metadata belongs to the swapchain, so a new one needs it again
+	if self.hdr_metadata and self:IsHDR() then
+		self.swapchain:SetHdrMetadata(self.hdr_metadata)
+	end
 
 	local textures = {}
 
@@ -406,18 +411,24 @@ function ImageRenderTarget:RequiresManualGamma()
 	return true
 end
 
+function ImageRenderTarget:GetColorSpace()
+	return self.surface_format and self.surface_format.color_space or "srgb_nonlinear_khr"
+end
+
+-- the two HDR outputs choose_format picks; see there
 function ImageRenderTarget:IsHDR()
-	-- Only return true if the actual display/surface supports HDR
-	-- The internal color_format being sfloat doesn't mean the display is HDR
-	if self.surface_format then
-		local cs = self.surface_format.color_space
+	local cs = self:GetColorSpace()
+	return cs == "extended_srgb_linear_ext" or cs == "hdr10_st2084_ext"
+end
 
-		if cs:find("hdr10") or cs:find("hlg") or cs:find("bt2020") then
-			return true
-		end
-	end
+-- see Swapchain:SetHdrMetadata; kept and reapplied when the swapchain is
+-- recreated. Returns whether the compositor or driver was told.
+function ImageRenderTarget:SetHDRMetadata(t)
+	self.hdr_metadata = t
 
-	return false
+	if not self.swapchain or not self:IsHDR() then return false end
+
+	return self.swapchain:SetHdrMetadata(t)
 end
 
 function ImageRenderTarget:GetImageView()

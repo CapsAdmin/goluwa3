@@ -50,6 +50,10 @@ commands.Add{
 		["no-audio"] = {type = "boolean", description = "Disable audio"},
 		["no-physics"] = {type = "boolean", description = "Disable physics"},
 		["strict"] = {type = "boolean", description = "Exit on any error"},
+		hdr = {
+			type = "boolean",
+			description = "Present to an HDR swapchain when the display supports one",
+		},
 	},
 	callback = function(...)
 		local flags = select(select("#", ...), ...) -- flags is always last
@@ -60,6 +64,7 @@ commands.Add{
 		_G.RENDER_2D = not flags.headless and not flags.cli and not flags.server
 		_G.RENDER_3D_SIMPLE = flags["3d-simple"]
 		_G.RENDER_3D = flags["3d"] or RENDER_3D_SIMPLE
+		_G.HDR = flags.hdr
 
 		if not flags["no-physics"] then
 			_G.PHYSICS = RENDER_3D or flags["physics"]

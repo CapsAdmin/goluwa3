@@ -156,6 +156,7 @@ function VulkanInstance.New(surface_handle, display_handle)
 		table.insert(requested_device_extensions, "VK_KHR_swapchain")
 		-- Requires VK_KHR_swapchain and VK_KHR_get_surface_capabilities2
 		table.insert(requested_device_extensions, "VK_KHR_shared_presentable_image") -- swapchain screenshots
+		table.insert(requested_device_extensions, "VK_EXT_hdr_metadata")
 	end
 
 	local device_extensions = {}

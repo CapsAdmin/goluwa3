@@ -52,6 +52,18 @@ function post_source.GetSceneSourceTexture(self)
 	return post_source.GetRawSceneSourceTexture(self)
 end
 
+-- The auto exposure multiplier (r) from passes/blit.lua. Its pass alternates
+-- between two attachments each frame; before it has run this frame, previous
+-- gives last frame's.
+function post_source.GetExposureTexture(previous)
+	local pipeline = render3d.pipelines.exposure_feedback
+
+	if not pipeline or not pipeline.framebuffers then return nil end
+
+	local current = system.GetFrameNumber() % 2 == 0 and 1 or 2
+	return pipeline:GetFramebuffer():GetAttachment(previous and 3 - current or current)
+end
+
 function post_source.WriteRawSceneSourceTexture(self, block, key)
 	local texture = post_source.GetRawSceneSourceTexture(self)
 
