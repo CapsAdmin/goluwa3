@@ -147,7 +147,10 @@ function Buffer:Map(offset, size)
 end
 
 function Buffer:Unmap()
-	return
+	if self.mapped_data then
+		vulkan.lib.vkUnmapMemory(self.device.ptr[0], self.memory.ptr[0])
+		self.mapped_data = nil
+	end
 end
 
 function Buffer:CopyData(src_data, size, offset)
