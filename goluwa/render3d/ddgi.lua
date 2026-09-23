@@ -6,7 +6,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
-local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local ddgi = library()
 -- Dynamic diffuse global illumination (Majercik et al. 2019) over hardware ray
 -- tracing. A camera-centred grid of probes each trace RAYS_PER_PROBE rays per
@@ -16,7 +15,7 @@ local ddgi = library()
 -- visibility test that keeps light from leaking through walls.
 ddgi.enabled = true
 ddgi.PROBES_PER_AXIS = 24
-ddgi.PROBE_SPACING = 2.0
+ddgi.PROBE_SPACING = 1.0
 -- Nested volumes of the same P^3 probes, each twice the spacing of the one
 -- inside it, so the probes reach far while the view stays on the fine ones.
 -- A point is shaded by the finest cascade that holds it, fading into the next
@@ -145,7 +144,9 @@ do
 			hi = math.min(bounds_max[axis], camera + ddgi.MAX_COVERAGE)
 
 			-- the scene lies entirely beyond MAX_COVERAGE
-			if hi < lo then lo, hi = camera - ddgi.MIN_COVERAGE, camera + ddgi.MIN_COVERAGE end
+			if hi < lo then
+				lo, hi = camera - ddgi.MIN_COVERAGE, camera + ddgi.MIN_COVERAGE
+			end
 		end
 
 		if hi - lo < ddgi.MIN_COVERAGE * 2 then
@@ -272,8 +273,21 @@ do
 			-- only before the scene is built does a cube not know where it ends
 			cascade.holds = bounds_min and
 				(
-					(holds_x and 1 or 0) + (holds_y and 2 or 0) + (holds_z and 4 or 0)
-				) or
+					(
+						holds_x and
+						1 or
+						0
+					) + (
+						holds_y and
+						2 or
+						0
+					) + (
+						holds_z and
+						4 or
+						0
+					)
+				)
+				or
 				0
 			state.cascades[c] = cascade
 
@@ -334,6 +348,7 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_MISS_DISTANCE %.1e
 		#define DDGI_SUN_VISIBLE_BIT 0x80000000u
 		#define DDGI_SHADOW_OFFSET 0.02
+		#define DDGI_MAX_LIGHTS %d
 		#define DDGI_BACKFACE_SCALE 0.2
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
 		// as unsigned), so shift into the positive range before wrapping
@@ -345,7 +360,8 @@ function ddgi.GetDefinesGLSL()
 		ddgi.RAYS_PER_PROBE,
 		ddgi.IRRADIANCE_TEXELS,
 		ddgi.DISTANCE_TEXELS,
-		ddgi.MISS_DISTANCE
+		ddgi.MISS_DISTANCE,
+		scene_lights.MAX_LIGHTS
 	)
 end
 
@@ -634,8 +650,6 @@ function ddgi.GetBlockLayout()
 		render3d.gbuffer_block,
 		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 		{"light_count", "int"},
-		{"shadows", scene_lights.BuildShadowsBlockLayout()},
-		light_occlusion.GetBlockLayout(),
 		-- xyz = volume base (the lowest probe's world coordinate), w = spacing
 		{"ddgi_cascades", "vec4", ddgi.CASCADES},
 		-- xyz = probes along each axis, w = bits of the axes (1 x, 2 y, 4 z)
@@ -683,11 +697,11 @@ function ddgi.WriteBlock(self, block)
 	local state = ddgi.GetFrameState()
 	render3d.WriteCameraBlock(self, block)
 	render3d.WriteGBufferBlock(self, block)
-	local lights, light_instance_indices = scene_lights.GetVisibleLights()
+	-- every light, not just those in view: probes see what the camera doesn't,
+	-- and the shadow rays make that safe
+	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	scene_lights.WriteLightsBlock(block.lights, lights)
-	scene_lights.WriteShadowBlock(self, block.shadows, lights)
-	light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	local sun_color = directional_shadows.GetPrimarySunColor(lights)
 	local sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
@@ -697,6 +711,7 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_sun_radiance[1] = sun_color.y * sun_illuminance
 	block.ddgi_sun_radiance[2] = sun_color.z * sun_illuminance
 	block.ddgi_sun_radiance[3] = 0
+
 	for c = 1, ddgi.CASCADES do
 		local cascade = state.cascades[c]
 		block.ddgi_cascades[c - 1][0] = cascade.x
@@ -758,6 +773,24 @@ function ddgi.GetRayHitBuffer()
 	return ray_hit_buffer
 end
 
+-- One uint per ray: bit i % 32 is cleared when light i reaches the hit but a
+-- shadow ray towards it is blocked. Lights sharing a bit darken each other
+-- only when both reach the same hit, which needs more than 32 lights.
+local light_mask_buffer = nil
+
+function ddgi.GetLightMaskBuffer()
+	if not light_mask_buffer then
+		light_mask_buffer = render.CreateBuffer{
+			byte_size = ddgi.GetRayCount() * 4,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"device_local"},
+			label = "ddgi_light_masks",
+		}
+	end
+
+	return light_mask_buffer
+end
+
 -- The per-material data the shade pass reads through the soup's material id,
 -- one host-visible copy per frame in flight.
 local Material = ffi.typeof([[struct {
@@ -806,15 +839,22 @@ end
 
 -- Ray generation parameters, one host-visible copy per frame in flight since
 -- the previous frame may still be tracing while this one is written.
-local RTParams = ffi.typeof(([[struct {
+local RTParams = ffi.typeof(
+	(
+		[[struct {
 	float cascades[%d][4];
 	float size[%d][4];
 	float rotation[4];
 	float sun_direction[4];
 	float max_ray_distance;
 	float tmin;
-	float padding[2];
-}]]):format(ddgi.CASCADES, ddgi.CASCADES))
+	int32_t light_count;
+	float padding;
+	float lights[%d][4];
+	float light_directions[%d][4];
+}]]
+	):format(ddgi.CASCADES, ddgi.CASCADES, scene_lights.MAX_LIGHTS, scene_lights.MAX_LIGHTS)
+)
 local RTParamsPointer = ffi.typeof("$*", RTParams)
 local rt_params = {}
 
@@ -835,6 +875,7 @@ function ddgi.WriteRTParams()
 
 	local state = ddgi.GetFrameState()
 	local p = ffi.cast(RTParamsPointer, buffer:Map(0, ffi.sizeof(RTParams)))
+
 	for c = 1, ddgi.CASCADES do
 		local cascade = state.cascades[c]
 		p.cascades[c - 1][0] = cascade.x
@@ -850,7 +891,7 @@ function ddgi.WriteRTParams()
 	p.rotation[1] = state.rotation.y
 	p.rotation[2] = state.rotation.z
 	p.rotation[3] = state.rotation.w
-	local lights = scene_lights.GetVisibleLights()
+	local lights = render3d.GetLights()
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	p.sun_direction[0] = sun_direction.x
 	p.sun_direction[1] = sun_direction.y
@@ -858,6 +899,22 @@ function ddgi.WriteRTParams()
 	p.sun_direction[3] = directional_shadows.GetPrimarySunIlluminance(lights) > 0 and 1 or 0
 	p.max_ray_distance = ddgi.MAX_RAY_DISTANCE
 	p.tmin = 0.0
+	p.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+
+	-- the same lights in the same order as ddgi_data.lights
+	for i = 1, p.light_count do
+		local light = lights[i]
+		light.Owner.transform:GetPosition():CopyToFloatPointer(p.lights[i - 1])
+		p.lights[i - 1][3] = light.Type == "light_sun" and 0 or light:GetEffectiveRange()
+
+		if light.Type == "light_directional" then
+			light.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(p.light_directions[i - 1])
+			p.light_directions[i - 1][3] = 1
+		else
+			p.light_directions[i - 1][3] = 0
+		end
+	end
+
 	return buffer
 end
 
@@ -881,10 +938,20 @@ layout(set = 0, binding = 0) uniform Params
     vec4 sun_direction;
     float max_ray_distance;
     float tmin;
+    int light_count;
+    // xyz = position, w = range (0 for the sun, which has its own ray)
+    vec4 lights[DDGI_MAX_LIGHTS];
+    // xyz = direction back towards a local directional light's source, w = 1
+    // for those; their light travels in parallel rather than from a point
+    vec4 light_directions[DDGI_MAX_LIGHTS];
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
 {
     uvec2 hits[];
+};
+layout(set = 0, binding = 4) writeonly buffer LightMasks
+{
+    uint light_masks[];
 };
 layout(set = 0, binding = 2) uniform accelerationStructureEXT scene;
 // see ddgi_probe_data
@@ -910,24 +977,49 @@ void main()
     traceRayEXT(scene, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
     uint primitive = payload.primitive;
+    uint light_mask = 0xFFFFFFFFu;
 
-    // Sun visibility from the hit, exact rather than from shadow cascades that
-    // only cover the view and let light into sealed rooms. The shadow ray
-    // skips the closest hit shader, so only a miss changes the payload.
-    if (hit_t >= 0.0 && params.sun_direction.w > 0.0) {
+    // Light visibility from the hit, exact rather than from shadow maps that
+    // only cover the view (or don't exist for a light) and let light into
+    // sealed rooms. The shadow rays skip the closest hit shader, so only a
+    // miss changes the payload.
+    if (hit_t >= 0.0) {
         vec3 hit_pos = origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0);
-        payload.hit_t = 1.0;
-        traceRayEXT(
-            scene,
-            gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
-            0xFF, 0, 0, 0,
-            hit_pos, 0.0, normalize(params.sun_direction.xyz), params.max_ray_distance, 0
-        );
+        const uint shadow_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
 
-        if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
+        if (params.sun_direction.w > 0.0) {
+            payload.hit_t = 1.0;
+            traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, hit_pos, 0.0, normalize(params.sun_direction.xyz), params.max_ray_distance, 0);
+
+            if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
+        }
+
+        for (int i = 0; i < params.light_count; i++) {
+            vec3 to_light = params.lights[i].xyz - hit_pos;
+            float dist = length(to_light);
+
+            if (dist >= params.lights[i].w || dist <= DDGI_SHADOW_OFFSET) continue;
+
+            vec3 L = to_light / dist;
+
+            if (params.light_directions[i].w > 0.0) {
+                L = params.light_directions[i].xyz;
+                dist = dot(to_light, L);
+
+                if (dist <= DDGI_SHADOW_OFFSET) continue;
+            }
+
+            payload.hit_t = 1.0;
+            // stops short of the light so a bulb mesh around it doesn't shadow it
+            traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, hit_pos, 0.0, L, dist - DDGI_SHADOW_OFFSET, 0);
+
+            if (payload.hit_t >= 0.0) light_mask &= ~(1u << uint(i & 31));
+        }
     }
 
-    hits[uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAYS) + ray] = uvec2(floatBitsToUint(hit_t), primitive);
+    uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAYS) + ray;
+    hits[index] = uvec2(floatBitsToUint(hit_t), primitive);
+    light_masks[index] = light_mask;
 }
 ]]
 local closesthit_glsl = [[
@@ -976,6 +1068,7 @@ function ddgi.GetRTPipeline()
 						{binding_index = 1, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
 						{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
+						{binding_index = 4, type = "storage_buffer", stageFlags = "all"},
 					},
 				},
 			}

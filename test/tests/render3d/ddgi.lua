@@ -224,6 +224,67 @@ do
 
 		if not ok then error(err, 0) end
 	end)
+
+	-- A point light outside the room. The inside of the far wall faces it
+	-- through the near wall, so lighting that hit without a shadow test lights
+	-- the room. The light is bright enough that the bit of sky the sealed room
+	-- still picks up is noise next to a leak.
+	T.Test3D("Graphics render3d ddgi point light outside a sealed room does not light it", function(draw)
+		if not ddgi.RTSupported() then return end
+
+		local original_backend = render3d.gi_backend
+		local polygon3d = Polygon3D.New()
+		polygon3d:CreateCube(1)
+		polygon3d:BuildBoundingBox()
+		polygon3d:Upload()
+		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+		local created = {}
+		use_ddgi()
+		render3d.camera:SetPosition(Vec3(0, 3, 2))
+		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
+		-- walls thicker than a probe cell, so no probe outside is close enough
+		-- to leak into the room's lookups
+		add_slab(polygon3d, created, Vec3(-6, -3, -6), Vec3(6, 0, 6))
+		add_slab(polygon3d, created, Vec3(-6, 0, -6), Vec3(-3, 6, 6))
+		add_slab(polygon3d, created, Vec3(3, 0, -6), Vec3(6, 6, 6))
+		add_slab(polygon3d, created, Vec3(-3, 0, -6), Vec3(3, 6, -3))
+		add_slab(polygon3d, created, Vec3(-3, 0, 3), Vec3(3, 6, 6))
+		add_slab(polygon3d, created, Vec3(-6, 6, -6), Vec3(6, 9, 6))
+		scene_bvh.Build()
+		local light = Entity.New{Name = "ddgi_test_light"}
+		created[#created + 1] = light
+		light:AddComponent("transform")
+		light:AddComponent("light_point"):SetLumen(2000000)
+
+		local function gi_average(position)
+			light.transform:SetPosition(position)
+			ddgi.ResetHistory()
+
+			for _ = 1, 4 do
+				draw()
+			end
+
+			local r, g, b = gi_mean()
+			return r + g + b
+		end
+
+		local ok, err = pcall(function()
+			local none = gi_average(Vec3(0, 3, -1000))
+			local outside = gi_average(Vec3(0, 3, -7))
+			local inside = gi_average(Vec3(0, 3, -2))
+			T(inside > none)["=="](true)
+			T(outside - none <= inside * 0.02)["=="](true)
+		end)
+
+		for _, e in ipairs(created) do
+			if e:IsValid() then e:Remove() end
+		end
+
+		restore(original_backend)
+		polygon3d:Remove()
+
+		if not ok then error(err, 0) end
+	end)
 end
 
 return T

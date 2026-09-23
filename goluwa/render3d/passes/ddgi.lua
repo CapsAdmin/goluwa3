@@ -2,8 +2,6 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
-local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
-local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
@@ -16,7 +14,7 @@ local BINDING_RAY_HITS = 2
 local BINDING_BVH_NODES = 3
 local BINDING_BVH_TRIANGLES = 4
 local BINDING_MATERIALS = 5
-local BINDING_OCCLUSION_MAP = 6
+local BINDING_LIGHT_MASKS = 6
 local BINDING_TREND = 7
 
 local function data_uniform()
@@ -58,8 +56,10 @@ local function pass_trace()
 			local rt = ddgi.GetRTPipeline()
 			local params = ddgi.WriteRTParams()
 			local hits = ddgi.GetRayHitBuffer()
+			local masks = ddgi.GetLightMaskBuffer()
 			rt:UpdateDescriptorSet("uniform_buffer", desc, 0, 0, params, params:GetSize())
 			rt:UpdateDescriptorSet("storage_buffer", desc, 1, 0, hits, hits:GetSize())
+			rt:UpdateDescriptorSet("storage_buffer", desc, 4, 0, masks, masks:GetSize())
 			rt:UpdateDescriptorSet("acceleration_structure_khr", desc, 2, 0, tlas)
 			local probe_data = render3d.pipelines.ddgi_probe_data:GetFramebuffer(1):GetAttachment(1)
 			rt:UpdateDescriptorSet(
@@ -75,16 +75,23 @@ local function pass_trace()
 			if not ddgi.GetFrameState().rt_ready then return end
 
 			local hits = ddgi.GetRayHitBuffer()
+			local masks = ddgi.GetLightMaskBuffer()
 			cmd:PipelineBarrier{
 				srcStage = "compute",
 				dstStage = "ray_tracing_shader_khr",
-				bufferBarriers = {{buffer = hits, srcAccessMask = "shader_read", dstAccessMask = "shader_write"}},
+				bufferBarriers = {
+					{buffer = hits, srcAccessMask = "shader_read", dstAccessMask = "shader_write"},
+					{buffer = masks, srcAccessMask = "shader_read", dstAccessMask = "shader_write"},
+				},
 			}
 			ddgi.GetRTPipeline():DispatchRays(cmd, ddgi.RAYS_PER_PROBE, P ^ 3, ddgi.GetFrameState().cascade_count, desc)
 			cmd:PipelineBarrier{
 				srcStage = "ray_tracing_shader_khr",
 				dstStage = "compute",
-				bufferBarriers = {{buffer = hits, srcAccessMask = "shader_write", dstAccessMask = "shader_read"}},
+				bufferBarriers = {
+					{buffer = hits, srcAccessMask = "shader_write", dstAccessMask = "shader_read"},
+					{buffer = masks, srcAccessMask = "shader_write", dstAccessMask = "shader_read"},
+				},
 			}
 		end,
 	}
@@ -110,14 +117,7 @@ local function pass_shade()
 			{binding_index = BINDING_BVH_NODES},
 			{binding_index = BINDING_BVH_TRIANGLES},
 			{binding_index = BINDING_MATERIALS},
-		},
-		sampled_images = {
-			{
-				binding_index = BINDING_OCCLUSION_MAP,
-				get_texture = function()
-					return light_occlusion.GetOcclusionTexture()
-				end,
-			},
+			{binding_index = BINDING_LIGHT_MASKS},
 		},
 		uniform_buffers = {data_uniform()},
 		on_draw = function(self, cmd, fb, frame, desc)
@@ -126,8 +126,10 @@ local function pass_shade()
 		end,
 		on_pre_draw = function(self, cmd, frame, desc)
 			local hits = ddgi.GetRayHitBuffer()
+			local masks = ddgi.GetLightMaskBuffer()
 			local materials = ddgi.WriteMaterialBuffer(self)
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_RAY_HITS, 0, hits, hits:GetSize())
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_LIGHT_MASKS, 0, masks, masks:GetSize())
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_MATERIALS, 0, materials, materials:GetSize())
 
 			if scene_bvh.triangle_buffer then
@@ -143,6 +145,9 @@ local function pass_shade()
 			layout(set = 0, binding = ]] .. BINDING_RAY_HITS .. [[) readonly buffer DDGIRayHits {
 				uvec2 ddgi_hits[];
 			};
+			layout(set = 0, binding = ]] .. BINDING_LIGHT_MASKS .. [[) readonly buffer DDGILightMasks {
+				uint ddgi_light_masks[];
+			};
 			struct ddgi_material {
 				vec3 albedo;
 				int albedo_tex;
@@ -151,10 +156,11 @@ local function pass_shade()
 			layout(scalar, set = 0, binding = ]] .. BINDING_MATERIALS .. [[) readonly buffer DDGIMaterials {
 				ddgi_material ddgi_materials[];
 			};
-		]] .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP),
-		shader = common_glsl() .. directional_shadows.GetSurfaceDirectionalShadowGLSL("ddgi_data", "calculateShadow") .. scene_lights.GetLightGLSLCode() .. directional_shadows.GetLocalDirectionalShadowGLSL("ddgi_data") .. scene_lights.GetPointShadowGLSL("ddgi_data") .. light_occlusion.GetSamplingGLSL("ddgi_data") .. [[
+		]] .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES),
+		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. [[
 
-			vec3 ddgi_direct_light(vec3 P, vec3 N, bool sun_visible, float radius) {
+			// light_mask: see ddgi.GetLightMaskBuffer
+			vec3 ddgi_direct_light(vec3 P, vec3 N, bool sun_visible, uint light_mask, float radius) {
 				vec3 L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 				float NoL = max(dot(N, L), 0.0);
 				vec3 direct = vec3(0.0);
@@ -178,30 +184,13 @@ local function pass_shade()
 
 					if (light_NoL <= 0.0) continue;
 
-					float shadow = 1.0;
-
-					if (light_type == 2) {
-						if (
-							i == ddgi_data.shadows.local_directional_shadow_light_index &&
-							ddgi_data.shadows.local_directional_shadow_map_index >= 0
-						) {
-							shadow = calculateLocalDirectionalShadow(P, N, light_to_surface);
-						}
-					} else {
-						int point_shadow_slot = getPointShadowSlot(i);
-
-						if (point_shadow_slot >= 0) {
-							shadow = calculatePointShadow(point_shadow_slot, P, N, light_to_surface);
-						}
-
-						shadow *= light_oct_shadow_factor(ddgi_data.bvh_oct_slot[i], light.position.xyz, light.params.x, P);
-					}
+					if ((light_mask & (1u << uint(i & 31))) == 0u) continue;
 
 					// flatten the 1/d^2 falloff inside the light radius
 					vec3 to_light = light.position.xyz - P;
 					float light_dist_sq = dot(to_light, to_light);
 					attenuation *= light_dist_sq / max(light_dist_sq, radius * radius);
-					direct += light.color.rgb * light.color.a * attenuation * shadow * (light_NoL / 3.14159265359);
+					direct += light.color.rgb * light.color.a * attenuation * (light_NoL / 3.14159265359);
 				}
 
 				return direct;
@@ -228,7 +217,8 @@ local function pass_shade()
 					return;
 				}
 
-				uvec2 hit = ddgi_hits[uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAYS) + ray];
+				uint hit_index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAYS) + ray;
+				uvec2 hit = ddgi_hits[hit_index];
 				float t = uintBitsToFloat(hit.x);
 
 				if (t < 0.0) {
@@ -262,7 +252,7 @@ local function pass_shade()
 
 				vec3 surface = P + N * 0.02;
 				float light_radius = ddgi_data.ddgi_light_radius * ddgi_spacing(c);
-				vec3 radiance = albedo * ddgi_direct_light(surface, N, (hit.y & DDGI_SUN_VISIBLE_BIT) != 0u, light_radius) + min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+				vec3 radiance = albedo * ddgi_direct_light(surface, N, (hit.y & DDGI_SUN_VISIBLE_BIT) != 0u, ddgi_light_masks[hit_index], light_radius) + min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 
 				float weight;
 				radiance += albedo * ddgi_sample_irradiance(P, N, -dir, weight).rgb;
