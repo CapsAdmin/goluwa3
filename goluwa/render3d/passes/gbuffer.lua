@@ -595,8 +595,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						return clamp(blocking, 0.0, 1.0);
 					}
 
-					const float EMISSIVE_REFERENCE_LUMINANCE = 2000.0;
-					const float EMISSIVE_MAX_LUMINANCE = 64512.0;
+					]] .. render3d.GetEmissiveGLSL() .. [[
 
 					vec3 get_emissive(vec2 uv) {
 						if (Subsurface) {

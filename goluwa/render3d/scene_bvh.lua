@@ -23,7 +23,7 @@ local TriangleArray = ffi.typeof([[
 		float e2[3];
 		float normal[3];
 		float emissive[3];
-		float padding;
+		uint32_t material;
 	}[?]
 ]])
 local FloatArray = ffi.typeof("float[?]")
@@ -56,6 +56,23 @@ scene_bvh.visual_cache = {}
 scene_bvh.top_layout = {}
 scene_bvh.top_node_count = 0
 scene_bvh.top_lazy_count = 0
+-- every material that has been part of a build, indexed by the per-triangle
+-- material id + 1. ids are never reused so a cached block keeps pointing at
+-- the right material across builds
+scene_bvh.materials = {}
+scene_bvh.material_ids = {}
+
+function scene_bvh.GetMaterialID(material)
+	local id = scene_bvh.material_ids[material]
+
+	if not id then
+		id = #scene_bvh.materials
+		scene_bvh.materials[id + 1] = material
+		scene_bvh.material_ids[material] = id
+	end
+
+	return id
+end
 
 function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
@@ -597,6 +614,7 @@ do
 			dst.emissive[0] = slot.emissive_r
 			dst.emissive[1] = slot.emissive_g
 			dst.emissive[2] = slot.emissive_b
+			dst.material = slot.material_id
 		end
 
 		local local_nodes = vc.child_nodes
@@ -700,12 +718,14 @@ do
 							emissive_b = multiplier.b * multiplier.a
 						end
 
+						local material_id = scene_bvh.GetMaterialID(material)
 						local e = entry.transform:GetWorldMatrix()
 						local prev = fast and vc.slots[slot_count + 1] or false
 						local slot = prev and
 							prev.entry == entry and
 							prev.count == count and
 							prev.matrix == e and
+							prev.material_id == material_id and
 							prev.emissive_r == emissive_r and
 							prev.emissive_g == emissive_g and
 							prev.emissive_b == emissive_b and
@@ -725,6 +745,7 @@ do
 						slot.emissive_r = emissive_r
 						slot.emissive_g = emissive_g
 						slot.emissive_b = emissive_b
+						slot.material_id = material_id
 						slot_count = slot_count + 1
 						slots[slot_count] = slot
 					end
@@ -1266,7 +1287,7 @@ function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 			vec3 e2;
 			vec3 normal;
 			vec3 emissive;
-			float padding;
+			uint material;
 		};
 
 		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHNodeBuffer {
@@ -1437,7 +1458,7 @@ do
 
 		state.position_buffer = render.CreateBuffer{
 			byte_size = math.max(byte_size, 12),
-			buffer_usage = {"vertex_buffer", "storage_buffer"},
+			buffer_usage = state.buffer_usage or {"vertex_buffer", "storage_buffer"},
 			memory_property = {"device_local"},
 			label = "scene_bvh_raster_positions",
 		}
@@ -1467,7 +1488,7 @@ do
 					vec3 e2;
 					vec3 normal;
 					vec3 emissive;
-					float padding;
+					uint material;
 				};
 				layout(scalar, set = 0, binding = 1) readonly buffer SceneBvhTri {
 					scene_bvh_triangle tris[];
@@ -1537,6 +1558,172 @@ do
 		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, vertex_count * 12)
 		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
 		return vertex_count, position_buffer
+	end
+
+	-- Hardware ray tracing backend over the same soup: one BLAS built from the
+	-- expanded positions (non-indexed, so gl_PrimitiveID is the soup triangle
+	-- index) and a TLAS holding a single identity instance of it. Rebuilt
+	-- whenever the version changes.
+	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+	local AccelerationStructure = import("goluwa/render/vulkan/internal/acceleration_structure.lua")
+	local VkRangeInfoArray = ffi.typeof("$[1]", vulkan.vk.VkAccelerationStructureBuildRangeInfoKHR)
+	local VK_GEOMETRY_TYPE_TRIANGLES = 0
+	local VK_GEOMETRY_TYPE_INSTANCES = 2
+	local VK_INDEX_TYPE_NONE = 1000165000
+	local BUILD_PREFER_FAST_TRACE = 4
+	local BUILD_PREFER_FAST_BUILD = 8
+	local INSTANCE_FACING_CULL_DISABLE = 0x01000000
+	local rt_state = {
+		buffer_usage = {
+			"vertex_buffer",
+			"storage_buffer",
+			"shader_device_address",
+			"acceleration_structure_build_input_read_only_khr",
+		},
+		built_version = -1,
+	}
+
+	local function make_range(primitive_count)
+		local ranges = VkRangeInfoArray()
+		ranges[0].primitiveCount = primitive_count
+		return ranges
+	end
+
+	local function create_acceleration_structure(field, type, build_info)
+		local storage_size, scratch_size = AccelerationStructure.QueryBuildSize(render.GetDevice(), build_info)
+
+		if rt_state[field] then rt_state[field]:Remove() end
+
+		if rt_state[field .. "_buffer"] then rt_state[field .. "_buffer"]:Remove() end
+
+		local buffer = render.CreateBuffer{
+			byte_size = storage_size,
+			buffer_usage = {"acceleration_structure_storage_khr", "shader_device_address"},
+			memory_property = {"device_local"},
+			label = "scene_bvh_" .. field,
+		}
+		local as = AccelerationStructure.New(render.GetDevice(), type, buffer)
+		as:EnsureScratch(scratch_size)
+		rt_state[field] = as
+		rt_state[field .. "_buffer"] = buffer
+		return as, buffer
+	end
+
+	local function build_blas(cmd, vertex_count, position_buffer)
+		local geometry = ffi.new(vulkan.vk.VkAccelerationStructureGeometryKHR)
+		geometry.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR
+		geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES
+		local triangles = geometry.geometry.triangles
+		triangles.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR
+		triangles.vertexFormat = vulkan.vk.e.VkFormat("r32g32b32_sfloat")
+		triangles.vertexData = position_buffer:GetDeviceAddress()
+		triangles.vertexStride = 12
+		triangles.maxVertex = vertex_count - 1
+		triangles.indexType = VK_INDEX_TYPE_NONE
+		local tri_count = vertex_count / 3
+		local blas = create_acceleration_structure(
+			"blas",
+			"bottom_level_khr",
+			{
+				type = "bottom_level_khr",
+				flags = BUILD_PREFER_FAST_BUILD,
+				geometryCount = 1,
+				pGeometries = geometry,
+				maxPrimitiveCount = tri_count,
+			}
+		)
+		blas:Build(cmd, 1, geometry, make_range(tri_count), BUILD_PREFER_FAST_BUILD)
+		return blas
+	end
+
+	local function build_tlas(cmd, blas)
+		local instance = ffi.new(vulkan.vk.VkAccelerationStructureInstanceKHR)
+		instance.transform.matrix[0][0] = 1
+		instance.transform.matrix[1][1] = 1
+		instance.transform.matrix[2][2] = 1
+		instance.customAndMask = 0xFF000000
+		instance.sbrtAndFlags = INSTANCE_FACING_CULL_DISABLE
+		instance.accelerationStructureReference = blas:Data()
+
+		if rt_state.instance_buffer then rt_state.instance_buffer:Remove() end
+
+		rt_state.instance_buffer = render.CreateBuffer{
+			byte_size = ffi.sizeof(instance),
+			buffer_usage = {"shader_device_address", "acceleration_structure_build_input_read_only_khr"},
+			memory_property = {"host_visible", "device_local"},
+			label = "scene_bvh_tlas_instance",
+			data = instance,
+		}
+		local geometry = ffi.new(vulkan.vk.VkAccelerationStructureGeometryKHR)
+		geometry.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR
+		geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES
+		local instances = geometry.geometry.instances
+		instances.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR
+		instances.data = rt_state.instance_buffer:GetDeviceAddress()
+		local tlas = create_acceleration_structure(
+			"tlas",
+			"top_level_khr",
+			{
+				type = "top_level_khr",
+				flags = BUILD_PREFER_FAST_TRACE,
+				geometryCount = 1,
+				pGeometries = geometry,
+				maxPrimitiveCount = 1,
+			}
+		)
+		tlas:Build(cmd, 1, geometry, make_range(1), BUILD_PREFER_FAST_TRACE)
+		return tlas
+	end
+
+	-- Returns the TLAS for the current soup, rebuilding it into cmd when the
+	-- soup changed. Must be recorded outside of a render pass.
+	function scene_bvh.EnsureRTBuilt(cmd)
+		if not render.GetDevice().ray_tracing_supported or not scene_bvh.IsReady() then
+			return nil
+		end
+
+		if rt_state.built_version == scene_bvh.version and rt_state.tlas then
+			return rt_state.tlas
+		end
+
+		local vertex_count, position_buffer = scene_bvh.ExpandPositions(cmd, rt_state)
+		cmd:PipelineBarrier{
+			srcStage = "compute",
+			dstStage = "acceleration_structure_build_khr",
+			bufferBarriers = {
+				{
+					buffer = position_buffer,
+					srcAccessMask = "shader_write",
+					dstAccessMask = "acceleration_structure_read_khr",
+				},
+			},
+		}
+		local blas = build_blas(cmd, vertex_count, position_buffer)
+		cmd:PipelineBarrier{
+			srcStage = "acceleration_structure_build_khr",
+			dstStage = "acceleration_structure_build_khr",
+			bufferBarriers = {
+				{
+					buffer = rt_state.blas_buffer,
+					srcAccessMask = "acceleration_structure_write_khr",
+					dstAccessMask = "acceleration_structure_read_khr",
+				},
+			},
+		}
+		local tlas = build_tlas(cmd, blas)
+		cmd:PipelineBarrier{
+			srcStage = "acceleration_structure_build_khr",
+			dstStage = "ray_tracing_shader_khr",
+			bufferBarriers = {
+				{
+					buffer = rt_state.tlas_buffer,
+					srcAccessMask = "acceleration_structure_write_khr",
+					dstAccessMask = "acceleration_structure_read_khr",
+				},
+			},
+		}
+		rt_state.built_version = scene_bvh.version
+		return tlas
 	end
 end
 

@@ -4,7 +4,6 @@ local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local radiance_cascades = import("goluwa/render3d/radiance_cascades.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -144,7 +143,8 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
-					local gi_texture = radiance_cascades.GetScreenTexture()
+					local gi_provider = render3d.GetGIProvider()
+					local gi_texture = gi_provider and gi_provider.GetScreenTexture() or nil
 					block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
 
 					if render3d.pipelines.ssr then
