@@ -15,6 +15,11 @@ local VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox = ffi.typeof("$[1]", v
 local VkPhysicalDeviceExtendedDynamicState2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT)
 local VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT)
 local VkPhysicalDeviceDynamicRenderingFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)
+local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
+local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
+local VkPhysicalDeviceRayTracingMaintenance1FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR)
+local VkPhysicalDeviceAccelerationStructurePropertiesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructurePropertiesKHR)
+local VkPhysicalDeviceRayTracingPipelinePropertiesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelinePropertiesKHR)
 
 function PhysicalDevice.New(ptr)
 	assert(type(ptr) == "cdata", "ptr must be a cdata VkPhysicalDevice")
@@ -286,6 +291,118 @@ function PhysicalDevice:GetVulkan12Features()
 	}
 	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], queryDeviceFeatures)
 	return vulkan12Features[0]
+end
+
+function PhysicalDevice:GetAccelerationStructureFeatures()
+	local features = VkPhysicalDeviceAccelerationStructureFeaturesBox(
+		vulkan.vk.s.PhysicalDeviceAccelerationStructureFeaturesKHR{
+			sType = "physical_device_acceleration_structure_features_khr",
+			pNext = nil,
+			accelerationStructure = 0,
+			accelerationStructureCaptureReplay = 0,
+			accelerationStructureIndirectBuild = 0,
+			accelerationStructureHostCommands = 0,
+			descriptorBindingAccelerationStructureUpdateAfterBind = 0,
+		}
+	)
+	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
+		sType = "physical_device_features_2",
+		pNext = features,
+		features = vulkan.vk.VkPhysicalDeviceFeatures(),
+	}
+	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], query)
+	return features[0]
+end
+
+function PhysicalDevice:GetRayTracingPipelineFeatures()
+	local features = VkPhysicalDeviceRayTracingPipelineFeaturesBox(
+		vulkan.vk.s.PhysicalDeviceRayTracingPipelineFeaturesKHR{
+			sType = "physical_device_ray_tracing_pipeline_features_khr",
+			pNext = nil,
+			rayTracingPipeline = 0,
+			rayTracingPipelineShaderGroupHandleCaptureReplay = 0,
+			rayTracingPipelineShaderGroupHandleCaptureReplayMixed = 0,
+			rayTracingPipelineTraceRaysIndirect = 0,
+			rayTraversalPrimitiveCulling = 0,
+		}
+	)
+	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
+		sType = "physical_device_features_2",
+		pNext = features,
+		features = vulkan.vk.VkPhysicalDeviceFeatures(),
+	}
+	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], query)
+	return features[0]
+end
+
+function PhysicalDevice:GetRayTracingMaintenance1Features()
+	local features = VkPhysicalDeviceRayTracingMaintenance1FeaturesBox(
+		vulkan.vk.s.PhysicalDeviceRayTracingMaintenance1FeaturesKHR{
+			sType = "physical_device_ray_tracing_maintenance_1_features_khr",
+			pNext = nil,
+			rayTracingMaintenance1 = 0,
+			rayTracingPipelineTraceRaysIndirect2 = 0,
+		}
+	)
+	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
+		sType = "physical_device_features_2",
+		pNext = features,
+		features = vulkan.vk.VkPhysicalDeviceFeatures(),
+	}
+	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], query)
+	return features[0]
+end
+
+function PhysicalDevice:GetAccelerationStructureProperties()
+	local properties = VkPhysicalDeviceAccelerationStructurePropertiesBox(
+		vulkan.vk.s.PhysicalDeviceAccelerationStructurePropertiesKHR{
+			sType = "physical_device_acceleration_structure_properties_khr",
+			pNext = nil,
+			maxGeometryCount = 0,
+			maxInstanceCount = 0,
+			maxPrimitiveCount = 0,
+			maxPerStageDescriptorAccelerationStructures = 0,
+			maxPerStageDescriptorUpdateAfterBindAccelerationStructures = 0,
+			maxDescriptorSetAccelerationStructures = 0,
+			maxDescriptorSetUpdateAfterBindAccelerationStructures = 0,
+			minAccelerationStructureScratchOffsetAlignment = 0,
+		}
+	)
+	vulkan.lib.vkGetPhysicalDeviceProperties2(
+		self.ptr[0],
+		vulkan.vk.s.PhysicalDeviceProperties2{
+			sType = "physical_device_properties_2",
+			pNext = properties,
+			properties = vulkan.vk.VkPhysicalDeviceProperties(),
+		}
+	)
+	return properties[0]
+end
+
+function PhysicalDevice:GetRayTracingPipelineProperties()
+	local properties = VkPhysicalDeviceRayTracingPipelinePropertiesBox(
+		vulkan.vk.s.PhysicalDeviceRayTracingPipelinePropertiesKHR{
+			sType = "physical_device_ray_tracing_pipeline_properties_khr",
+			pNext = nil,
+			shaderGroupHandleSize = 0,
+			maxRayRecursionDepth = 0,
+			maxShaderGroupStride = 0,
+			shaderGroupBaseAlignment = 0,
+			shaderGroupHandleCaptureReplaySize = 0,
+			maxRayDispatchInvocationCount = 0,
+			shaderGroupHandleAlignment = 0,
+			maxRayHitAttributeSize = 0,
+		}
+	)
+	vulkan.lib.vkGetPhysicalDeviceProperties2(
+		self.ptr[0],
+		vulkan.vk.s.PhysicalDeviceProperties2{
+			sType = "physical_device_properties_2",
+			pNext = properties,
+			properties = vulkan.vk.VkPhysicalDeviceProperties(),
+		}
+	)
+	return properties[0]
 end
 
 function PhysicalDevice:GetRobustness2Features()

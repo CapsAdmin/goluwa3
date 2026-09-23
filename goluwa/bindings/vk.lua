@@ -5691,7 +5691,7 @@ mod.VkDeviceQueueCreateInfo = ffi.typeof(
 	uint32_t queueCount;
 	const float* pQueuePriorities;
 }]],
-	mod.VkDeviceQueueCreateFlags
+	mod.VkQueueFlags
 )
 ffi.metatype(
 	mod.VkDeviceQueueCreateInfo,
@@ -36490,14 +36490,11 @@ mod.VkAabbPositionsNV = ffi.typeof([[$ ]], mod.VkAabbPositionsKHR)
 mod.VkAccelerationStructureInstanceKHR = ffi.typeof(
 	[[struct {
 	$ transform;
-	uint32_t instanceCustomIndex;
-	uint32_t mask;
-	uint32_t instanceShaderBindingTableRecordOffset;
-	$ flags;
+	uint32_t customAndMask;
+	uint32_t sbrtAndFlags;
 	uint64_t accelerationStructureReference;
 }]],
-	mod.VkTransformMatrixKHR,
-	mod.VkGeometryInstanceFlagsKHR
+	mod.VkTransformMatrixKHR
 )
 ffi.metatype(
 	mod.VkAccelerationStructureInstanceKHR,
@@ -36678,6 +36675,7 @@ ffi.cdef(
 	mod.VkDevice,
 	mod.VkPipeline
 )
+ffi.cdef([[size_t  vkGetRayTracingShaderGroupHandleSizeKHR($);]], mod.VkDevice)
 ffi.cdef(
 	[[uint32_t  vkGetRayTracingShaderGroupHandlesNV($ , $ , uint32_t , uint32_t , size_t , void*);]],
 	mod.VkDevice,
@@ -53269,7 +53267,7 @@ mod.PFN_vkGetAccelerationStructureDeviceAddressKHR = ffi.typeof(
 	mod.VkAccelerationStructureDeviceAddressInfoKHR
 )
 mod.PFN_vkCmdWriteAccelerationStructuresPropertiesKHR = ffi.typeof(
-	[[void (*)($ , uint32_t , const $*, uint32_t , $ , uint32_t )]],
+	[[void (*)($ , uint32_t , const $*, uint32_t , $ , uint32_t , void*)]],
 	mod.VkCommandBuffer,
 	mod.VkAccelerationStructureKHR,
 	mod.VkQueryPool
@@ -53453,6 +53451,7 @@ mod.VkRayTracingPipelineCreateInfoKHR = ffi.typeof(
 	uint32_t groupCount;
 	const $* pGroups;
 	uint32_t maxPipelineRayRecursionDepth;
+	uint32_t maxPipelineRayPayloadSize;
 	const $* pLibraryInfo;
 	const $* pLibraryInterface;
 	const $* pDynamicState;
@@ -53488,6 +53487,7 @@ ffi.metatype(
 			obj.groupCount = t.groupCount
 			obj.pGroups = t.pGroups
 			obj.maxPipelineRayRecursionDepth = t.maxPipelineRayRecursionDepth
+			obj.maxPipelineRayPayloadSize = t.maxPipelineRayPayloadSize
 			obj.pLibraryInfo = t.pLibraryInfo
 			obj.pLibraryInterface = t.pLibraryInterface
 			obj.pDynamicState = t.pDynamicState
@@ -53653,6 +53653,11 @@ ffi.cdef(
 )
 ffi.cdef(
 	[[uint32_t  vkGetRayTracingCaptureReplayShaderGroupHandlesKHR($ , $ , uint32_t , uint32_t , size_t , void*);]],
+	mod.VkDevice,
+	mod.VkPipeline
+)
+ffi.cdef(
+	[[uint32_t  vkGetRayTracingShaderGroupHandlesKHR($ , $ , uint32_t , uint32_t , size_t , void*);]],
 	mod.VkDevice,
 	mod.VkPipeline
 )
@@ -80492,6 +80497,7 @@ mod.s.RayTracingPipelineCreateInfoKHR = function(t)
 				groupCount = t.groupCount,
 				pGroups = t.pGroups,
 				maxPipelineRayRecursionDepth = t.maxPipelineRayRecursionDepth,
+				maxPipelineRayPayloadSize = t.maxPipelineRayPayloadSize,
 				pLibraryInfo = t.pLibraryInfo,
 				pLibraryInterface = t.pLibraryInterface,
 				pDynamicState = t.pDynamicState,

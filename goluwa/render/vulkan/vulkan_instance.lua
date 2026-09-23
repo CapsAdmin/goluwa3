@@ -146,6 +146,10 @@ function VulkanInstance.New(surface_handle, display_handle)
 		"VK_EXT_scalar_block_layout",
 		"VK_EXT_extended_dynamic_state",
 		"VK_EXT_extended_dynamic_state3",
+		"VK_KHR_deferred_host_operations",
+		"VK_KHR_acceleration_structure",
+		"VK_KHR_ray_tracing_pipeline",
+		"VK_KHR_ray_tracing_maintenance1",
 	}
 
 	if not is_headless then

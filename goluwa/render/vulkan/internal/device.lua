@@ -8,6 +8,12 @@ local ConstCharArray = ffi.typeof("$[?]", ffi.typeof("const char*"))
 local VkDescriptorBufferInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorBufferInfo)
 local VkDescriptorImageInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorImageInfo)
 local VkWriteDescriptorSetArray = ffi.typeof("$[?]", vulkan.vk.VkWriteDescriptorSet)
+local VkWriteAccelerationStructureKHR = ffi.typeof([[struct {
+	uint32_t sType;
+	void* pNext;
+	uint32_t accelerationStructureCount;
+	void* pAccelerationStructures;
+}]])
 local VkPhysicalDeviceMaintenance4FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceMaintenance4Features)
 local VkPhysicalDeviceSynchronization2FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceSynchronization2Features)
 local VkPhysicalDeviceVulkan11FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan11Features)
@@ -21,6 +27,9 @@ local VkPhysicalDeviceConditionalRenderingFeaturesEXTBox = ffi.typeof("$[1]", vu
 local VkPhysicalDeviceFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceFeatures)
 local VkPhysicalDeviceVulkan12FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan12Features)
 local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT)
+local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
+local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
+local VkPhysicalDeviceRayTracingMaintenance1FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR)
 local VkDeviceQueueCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceQueueCreateInfo)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
 local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
@@ -392,6 +401,52 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		pNextChain = demoteFeatures
 	end
 
+	local has_ray_tracing = table.has_value(available_extensions, "VK_KHR_ray_tracing_pipeline")
+	local ray_tracing_supported = false
+
+	if has_ray_tracing then
+		local rt_features = physical_device:GetRayTracingPipelineFeatures()
+		local as_features = physical_device:GetAccelerationStructureFeatures()
+
+		if rt_features.rayTracingPipeline == 1 and as_features.accelerationStructure == 1 then
+			ray_tracing_supported = true
+			table.insert(finalExtensions, "VK_KHR_ray_tracing_pipeline")
+			local ray_tracing_maintenance1 = VkPhysicalDeviceRayTracingMaintenance1FeaturesBox(
+				vulkan.vk.s.PhysicalDeviceRayTracingMaintenance1FeaturesKHR{
+					sType = "physical_device_ray_tracing_maintenance_1_features_khr",
+					pNext = pNextChain,
+					rayTracingMaintenance1 = 0,
+					rayTracingPipelineTraceRaysIndirect2 = 0,
+				}
+			)
+			pNextChain = ray_tracing_maintenance1
+			local ray_tracing_pipeline_features = VkPhysicalDeviceRayTracingPipelineFeaturesBox(
+				vulkan.vk.s.PhysicalDeviceRayTracingPipelineFeaturesKHR{
+					sType = "physical_device_ray_tracing_pipeline_features_khr",
+					pNext = pNextChain,
+					rayTracingPipeline = 1,
+					rayTracingPipelineShaderGroupHandleCaptureReplay = 0,
+					rayTracingPipelineShaderGroupHandleCaptureReplayMixed = 0,
+					rayTracingPipelineTraceRaysIndirect = 0,
+					rayTraversalPrimitiveCulling = 0,
+				}
+			)
+			pNextChain = ray_tracing_pipeline_features
+			local acceleration_structure_features = VkPhysicalDeviceAccelerationStructureFeaturesBox(
+				vulkan.vk.s.PhysicalDeviceAccelerationStructureFeaturesKHR{
+					sType = "physical_device_acceleration_structure_features_khr",
+					pNext = pNextChain,
+					accelerationStructure = 1,
+					accelerationStructureCaptureReplay = 0,
+					accelerationStructureIndirectBuild = 0,
+					accelerationStructureHostCommands = 0,
+					descriptorBindingAccelerationStructureUpdateAfterBind = 0,
+				}
+			)
+			pNextChain = acceleration_structure_features
+		end
+	end
+
 	local deviceExtensions = ConstCharArray(#finalExtensions)
 
 	for i, ext in ipairs(finalExtensions) do
@@ -435,6 +490,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		deferred_releases = {},
 		physical_device = physical_device,
 		extensions = finalExtensions,
+		ray_tracing_supported = ray_tracing_supported,
 	}
 	device.vkSetDebugUtilsObjectNameEXT = device:TryGetExtension("vkSetDebugUtilsObjectNameEXT")
 	device.vkSetDebugUtilsObjectTagEXT = device:TryGetExtension("vkSetDebugUtilsObjectTagEXT")
@@ -769,6 +825,23 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		info[0].imageLayout = vulkan.vk.e.VkImageLayout("undefined")
 		descriptor_info = info
 		pImageInfo = info
+	elseif type == "acceleration_structure_khr" then
+		local acceleration_structure = ...
+
+		if not self.acceleration_structure_handles then
+			self.acceleration_structure_handles = ffi.new(ffi.typeof("$[1]", vulkan.vk.VkAccelerationStructureKHR))
+			self.acceleration_structure_info_array = VkWriteAccelerationStructureKHR()
+			self.acceleration_structure_info_array.sType = 1000150007
+			self.acceleration_structure_info_array.pNext = nil
+			self.acceleration_structure_info_array.accelerationStructureCount = 1
+			self.acceleration_structure_info_array.pAccelerationStructures = self.acceleration_structure_handles
+		end
+
+		-- AS descriptors require the device address (vkGetAccelerationStructureDeviceAddressKHR),
+		-- not the create handle
+		local as_ref = acceleration_structure and acceleration_structure:Data() or nil
+		self.acceleration_structure_handles[0] = as_ref and ffi.cast(vulkan.vk.VkAccelerationStructureKHR, as_ref) or nil
+		descriptor_info = self.acceleration_structure_info_array
 	else
 		error("unsupported descriptor type: " .. tostring(type))
 	end
@@ -782,6 +855,13 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 	descriptorWrites[0].descriptorCount = 1
 	descriptorWrites[0].pBufferInfo = pBufferInfo
 	descriptorWrites[0].pImageInfo = pImageInfo
+
+	if type == "acceleration_structure_khr" then
+		descriptorWrites[0].pNext = self.acceleration_structure_info_array
+	else
+		descriptorWrites[0].pNext = nil
+	end
+
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
 end
 

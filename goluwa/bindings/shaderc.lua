@@ -93,6 +93,12 @@ ffi.cdef[[
         shaderc_glsl_tess_control_shader = 4,
         shaderc_glsl_tess_evaluation_shader = 5,
         shaderc_glsl_infer_from_source = 6,
+        shaderc_raygen_shader = 14,
+        shaderc_anyhit_shader = 15,
+        shaderc_closesthit_shader = 16,
+        shaderc_miss_shader = 17,
+        shaderc_intersection_shader = 18,
+        shaderc_callable_shader = 19,
         shaderc_glsl_task_shader = 31,
         shaderc_glsl_mesh_shader = 32,
     } shaderc_shader_kind;
@@ -194,6 +200,18 @@ function mod.compile(source, shader_type, entry_point)
 		shader_type == "tessellation_evaluation"
 	then
 		shader_kind = ffi.C.shaderc_glsl_tess_evaluation_shader
+	elseif shader_type == "raygeneration" or shader_type == "rgen" or shader_type == "rg" then
+		shader_kind = ffi.C.shaderc_raygen_shader
+	elseif shader_type == "anyhit" or shader_type == "ahit" then
+		shader_kind = ffi.C.shaderc_anyhit_shader
+	elseif shader_type == "closesthit" or shader_type == "chit" or shader_type == "ch" then
+		shader_kind = ffi.C.shaderc_closesthit_shader
+	elseif shader_type == "miss" or shader_type == "m" then
+		shader_kind = ffi.C.shaderc_miss_shader
+	elseif shader_type == "intersection" or shader_type == "rint" then
+		shader_kind = ffi.C.shaderc_intersection_shader
+	elseif shader_type == "callable" or shader_type == "rcall" then
+		shader_kind = ffi.C.shaderc_callable_shader
 	elseif shader_type == "task" or shader_type == "task_ext" then
 		shader_kind = ffi.C.shaderc_glsl_infer_from_source
 	elseif shader_type == "mesh" or shader_type == "mesh_ext" then

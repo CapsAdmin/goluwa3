@@ -98,6 +98,8 @@ local function get_or_create_cached_module(device, glsl, type)
 		type = type,
 		glsl = glsl,
 		ref_count = 0,
+		spirv = spirv_data,
+		spirv_size = spirv_size,
 	}
 	type_cache[glsl] = record
 	return record
@@ -107,6 +109,34 @@ function ShaderModule.New(device, glsl, type)
 	local record = get_or_create_cached_module(device, glsl, type)
 	record.ref_count = record.ref_count + 1
 	return ShaderModule:CreateObject{ptr = record.ptr, device = device, cache_record = record}
+end
+
+-- creates a shader module directly from precompiled SPIR-V bytes (used for the
+-- ray tracing stages, which the system shaderc cannot compile)
+function ShaderModule.FromSPIRV(device, spirv_data, spirv_size)
+	local ptr = VkShaderModuleBox()
+	vulkan.assert(
+		vulkan.lib.vkCreateShaderModule(
+			device.ptr[0],
+			vulkan.vk.s.ShaderModuleCreateInfo{
+				codeSize = spirv_size,
+				pCode = ffi.cast("const uint32_t*", spirv_data),
+				flags = 0,
+			},
+			nil,
+			ptr
+		),
+		"failed to create shader module from SPIR-V"
+	)
+	return ShaderModule:CreateObject{ptr = ptr, device = device}
+end
+
+function ShaderModule:Data()
+	local record = self.cache_record
+
+	if not record then return nil, 0 end
+
+	return record.spirv, record.spirv_size
 end
 
 function ShaderModule:OnRemove()
