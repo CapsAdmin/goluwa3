@@ -1,3 +1,4 @@
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
@@ -15,6 +16,7 @@ local BINDING_BVH_NODES = 3
 local BINDING_BVH_TRIANGLES = 4
 local BINDING_MATERIALS = 5
 local BINDING_OCCLUSION_MAP = 6
+local BINDING_TREND = 7
 
 local function data_uniform()
 	return {
@@ -58,6 +60,15 @@ local function pass_trace()
 			rt:UpdateDescriptorSet("uniform_buffer", desc, 0, 0, params, params:GetSize())
 			rt:UpdateDescriptorSet("storage_buffer", desc, 1, 0, hits, hits:GetSize())
 			rt:UpdateDescriptorSet("acceleration_structure_khr", desc, 2, 0, tlas)
+			local probe_data = render3d.pipelines.ddgi_probe_data:GetFramebuffer(1):GetAttachment(1)
+			rt:UpdateDescriptorSet(
+				"combined_image_sampler",
+				desc,
+				3,
+				0,
+				probe_data:GetView(),
+				render.CreateSampler(probe_data:GetSamplerConfig())
+			)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
 			if not ddgi.GetFrameState().rt_ready then return end
@@ -180,6 +191,11 @@ local function pass_shade()
 						shadow *= light_oct_shadow_factor(ddgi_data.bvh_oct_slot[i], light.position.xyz, light.params.x, P);
 					}
 
+					// flatten the 1/d^2 falloff inside the light radius
+					vec3 to_light = light.position.xyz - P;
+					float light_dist_sq = dot(to_light, to_light);
+					float radius = ddgi_data.ddgi_light_radius;
+					attenuation *= light_dist_sq / max(light_dist_sq, radius * radius);
 					direct += light.color.rgb * light.color.a * attenuation * shadow * (light_NoL / 3.14159265359);
 				}
 
@@ -194,8 +210,8 @@ local function pass_shade()
 
 				uint ray = uint(pos.x);
 				int probe = pos.y;
-				ivec3 world = ddgi_world_from_slot(ddgi_slot_from_index(probe));
-				vec3 origin = ddgi_probe_position(world);
+				ivec3 slot = ddgi_slot_from_index(probe);
+				vec3 origin = ddgi_probe_origin(slot, ddgi_world_from_slot(slot));
 				vec3 dir = ddgi_ray(ray);
 
 				if (ddgi_data.ddgi_rt_ready == 0) {
@@ -219,7 +235,7 @@ local function pass_shade()
 
 				if (dot(dir, N) > 0.0) {
 					if (material.double_sided == 0) {
-						imageStore(out_ray, pos, vec4(0.0, 0.0, 0.0, -0.2 * t));
+						imageStore(out_ray, pos, vec4(0.0, 0.0, 0.0, -DDGI_BACKFACE_SCALE * t));
 						return;
 					}
 
@@ -254,18 +270,38 @@ end
 -- probe with one invocation per tile texel; the probe's rays are staged in
 -- shared memory once instead of every texel refetching them.
 local function pass_update(name, texels, integrate)
+	local color_formats = {{"r16g16b16a16_sfloat", {name, "rgba"}}}
+	local storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = "compute"}}
+	local declarations = [[
+		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D atlas;
+	]]
+
+	-- a short term average next to the atlas, to tell a real change in
+	-- lighting from a noisy frame
+	if integrate.trend then
+		color_formats[2] = {"r16g16b16a16_sfloat", {name .. "_trend", "rgba"}}
+		storage_images[2] = {
+			binding_index = BINDING_TREND,
+			get_texture = function(self, fb)
+				return fb:GetAttachment(2)
+			end,
+			dst_stage = "compute",
+		}
+		declarations = declarations .. [[
+			layout(set = 0, binding = ]] .. BINDING_TREND .. [[, rgba16f) uniform image2D trend_atlas;
+		]]
+	end
+
 	return {
 		name = name,
 		ComputePass = true,
-		ColorFormat = {{"r16g16b16a16_sfloat", {name, "rgba"}}},
+		ColorFormat = color_formats,
 		FramebufferSize = {x = P * P * texels, y = P * texels},
 		framebuffer_count = 1,
 		LocalSize = {x = texels, y = texels, z = 1},
-		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = "compute"}},
+		storage_images = storage_images,
 		uniform_buffers = {data_uniform()},
-		custom_declarations = [[
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D atlas;
-		]],
+		custom_declarations = declarations,
 		shader = common_glsl() .. [[
 			#define TEXELS ]] .. texels .. [[
 
@@ -287,11 +323,20 @@ local function pass_update(name, texels, integrate)
 				vec3 texel_dir = ddgi_texel_direction(local, TEXELS);
 				vec4 sum = vec4(0.0);
 				float weight_sum = 0.0;
+				]] .. (
+				integrate.declare or
+				""
+			) .. [[
 
 				for (int r = 0; r < DDGI_RAYS; r++) {
 					vec4 ray = s_ray[r];
-					]] .. integrate .. [[
+					]] .. integrate.loop .. [[
 				}
+
+				]] .. (
+				integrate.finish or
+				""
+			) .. [[
 
 				ivec2 texel = tile * TEXELS + local;
 				ivec3 world = ddgi_world_from_slot(slot);
@@ -307,15 +352,7 @@ local function pass_update(name, texels, integrate)
 				vec4 result = sum / weight_sum;
 				float hysteresis = current ? ddgi_data.ddgi_hysteresis : 0.0;
 				]] .. (
-				name == "ddgi_irradiance" and
-				[[
-				// relative, since irradiance is in physical units
-				vec3 delta = abs(result.rgb - previous.rgb) / max(previous.rgb, vec3(1e-3));
-
-				if (max(delta.r, max(delta.g, delta.b)) > ddgi_data.ddgi_irradiance_threshold) {
-					hysteresis *= 0.75;
-				}
-				]] or
+				integrate.adapt or
 				""
 			) .. [[
 				imageStore(atlas, texel, mix(result, previous, hysteresis));
@@ -326,32 +363,91 @@ end
 
 -- Cosine weighted radiance; a = the cosine weighted fraction of rays that
 -- saw the sky. Back face hits carry no light and are left out.
-local IRRADIANCE_INTEGRATE = [[
-	if (ray.a < 0.0) continue;
+--
+-- A texel's frame estimate comes from a few dozen rays, so one ray landing on
+-- a small hot spot (right next to a lamp, say) can carry more light than all
+-- the others together and flash the whole probe. The brightest ray is clamped
+-- to the second brightest: a lone outlier then counts like a typical ray,
+-- while light that many rays see keeps its top two close and passes through.
+local IRRADIANCE_INTEGRATE = {
+	declare = [[
+		vec3 brightest = vec3(0.0);
+		float brightest_luma = 0.0;
+		float second_luma = 0.0;
+	]],
+	loop = [[
+		if (ray.a < 0.0) continue;
 
-	float w = max(0.0, dot(texel_dir, s_dir[r]));
+		float w = max(0.0, dot(texel_dir, s_dir[r]));
 
-	if (w <= 0.0) continue;
+		if (w <= 0.0) continue;
 
-	sum += vec4(ray.rgb, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? 1.0 : 0.0) * w;
-	weight_sum += w;
-]]
+		vec3 contribution = ray.rgb * w;
+		float luma = dot(contribution, vec3(0.2126, 0.7152, 0.0722));
+
+		if (luma > brightest_luma) {
+			second_luma = brightest_luma;
+			brightest_luma = luma;
+			brightest = contribution;
+		} else if (luma > second_luma) {
+			second_luma = luma;
+		}
+
+		sum += vec4(contribution, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? w : 0.0);
+		weight_sum += w;
+	]],
+	finish = [[
+		if (brightest_luma > 0.0) {
+			sum.rgb -= brightest * (1.0 - second_luma / brightest_luma);
+		}
+	]],
+	-- a ratio, since irradiance is in physical units
+	-- A single frame is too noisy to judge a change by: a room lit through a
+	-- doorway gets 0, 1 or 2 rays through it per frame, which swings the frame
+	-- estimate by far more than any threshold. A short term average (the
+	-- trend, about 4 frames) smooths that out but still follows a light turning
+	-- on or off within a few frames; while it disagrees with the history by
+	-- more than the threshold, the history catches up quickly.
+	trend = true,
+	adapt = [[
+		vec3 trend = current ? mix(result.rgb, imageLoad(trend_atlas, texel).rgb, 0.75) : result.rgb;
+		imageStore(trend_atlas, texel, vec4(trend, 0.0));
+		vec3 ratio = max(trend, vec3(1e-3)) / max(previous.rgb, vec3(1e-3));
+		ratio = max(ratio, 1.0 / ratio);
+
+		if (max(ratio.r, max(ratio.g, ratio.b)) > ddgi_data.ddgi_irradiance_threshold) {
+			result.rgb = trend;
+			hysteresis = min(hysteresis, 0.5);
+		}
+	]],
+}
 -- Mean and mean squared of the hit distance in a sharp lobe. Back face hits
 -- are kept (with their shortened distance) so the probe reads as occluded.
-local DISTANCE_INTEGRATE = [[
-	float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent);
+local DISTANCE_INTEGRATE = {
+	loop = [[
+		float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent);
 
-	if (w <= 0.0) continue;
+		if (w <= 0.0) continue;
 
-	float d = min(abs(ray.a), ddgi_data.ddgi_spacing * 1.5);
-	sum += vec4(d, d * d, 0.0, 0.0) * w;
-	weight_sum += w;
-]]
+		// long enough to reach across a cell to a probe relocated away from it
+		float d = min(abs(ray.a), ddgi_data.ddgi_spacing * 2.6);
+		sum += vec4(d, d * d, 0.0, 0.0) * w;
+		weight_sum += w;
+	]],
+}
 
--- Records which world probe each slot now holds and how many of its rays hit
--- back faces. Runs after the atlas updates, which read last frame's copy to
--- tell a probe that scrolled into a slot (history must be dropped) from one
--- that stayed.
+-- Records which world probe each slot now holds, how many of its rays hit
+-- back faces, and moves it (Majercik et al. 2021, probe relocation): out
+-- through the closest back face when it is inside geometry, away from
+-- surfaces that are too close, and back towards its grid point when there is
+-- room. The push away is averaged over every ray that hit too close. When
+-- those pushes mostly cancel the probe is squeezed between surfaces (a gap
+-- between furniture and a wall): there is nowhere better to go, and a probe
+-- that only sees two surfaces a hand's width away is no use for shading, so
+-- it stays put and is disabled like a probe inside geometry. The rays were traced from the old offset, so their distances are
+-- relative to it. Runs after the atlas updates, which read last frame's copy
+-- to tell a probe that scrolled into a slot (history must be dropped) from
+-- one that stayed.
 local function pass_probe_data()
 	return {
 		name = "ddgi_probe_data",
@@ -360,10 +456,15 @@ local function pass_probe_data()
 		FramebufferSize = {x = P * P, y = P},
 		framebuffer_count = 1,
 		LocalSize = {x = 8, y = 8, z = 1},
-		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = "compute"}},
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				dst_stage = {"compute", "ray_tracing_shader_khr"},
+			},
+		},
 		uniform_buffers = {data_uniform()},
 		custom_declarations = [[
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform writeonly image2D out_data;
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform image2D out_data;
 		]],
 		shader = common_glsl() .. [[
 			void main() {
@@ -373,14 +474,232 @@ local function pass_probe_data()
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
 				ivec3 slot = ivec3(pos.x % DDGI_P, pos.x / DDGI_P, pos.y);
+				ivec3 world = ddgi_world_from_slot(slot);
 				int probe = ddgi_probe_index(slot);
+				vec4 previous = imageLoad(out_data, pos);
+				float spacing = ddgi_data.ddgi_spacing;
+				vec3 offset = ddgi_probe_is_current(previous, world) ? (previous.xyz - vec3(world)) * spacing : vec3(0.0);
 				float backfaces = 0.0;
+				float closest_back = 1e30;
+				float closest_front = 1e30;
+				vec3 closest_back_dir = vec3(0.0);
+				float min_distance = ddgi_data.ddgi_relocation_distance;
+				vec3 push = vec3(0.0);
+				float close_rays = 0.0;
 
 				for (int r = 0; r < DDGI_RAYS; r++) {
-					if (texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ivec2(r, probe), 0).a < 0.0) backfaces += 1.0;
+					float a = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ivec2(r, probe), 0).a;
+
+					if (a < 0.0) {
+						backfaces += 1.0;
+						float d = -a / DDGI_BACKFACE_SCALE;
+
+						if (d < closest_back) {
+							closest_back = d;
+							closest_back_dir = ddgi_ray(uint(r));
+						}
+					} else {
+						closest_front = min(closest_front, a);
+
+						if (a < min_distance) {
+							push -= ddgi_ray(uint(r)) * (min_distance - a);
+							close_rays += 1.0;
+						}
+					}
 				}
 
-				imageStore(out_data, pos, vec4(vec3(ddgi_world_from_slot(slot)), 1.0 + backfaces / float(DDGI_RAYS)));
+				float backface_fraction = backfaces / float(DDGI_RAYS);
+				vec3 moved = offset;
+				bool cramped = false;
+
+				if (min_distance <= 0.0) {
+					moved = vec3(0.0);
+				} else if (backface_fraction > ddgi_data.ddgi_backface_threshold) {
+					moved += closest_back_dir * (closest_back + min_distance * 0.5);
+				} else if (close_rays > 0.0) {
+					push /= close_rays;
+					cramped = length(push) < (min_distance - closest_front) * 0.25;
+
+					// the set of rays that land too close changes with every
+					// frame's rotation; ignore the wobble that leaves behind
+					if (!cramped && length(push) > spacing * 0.01) moved += push;
+				} else if (closest_front > min_distance * 2.0 && dot(offset, offset) > 0.0) {
+					float back = min(closest_front - min_distance * 2.0, length(offset));
+					moved -= normalize(offset) * back;
+				}
+
+				if (all(lessThan(abs(moved), vec3(ddgi_data.ddgi_max_offset * spacing)))) offset = moved;
+
+				imageStore(out_data, pos, vec4(vec3(world) + offset / spacing, cramped ? 2.0 : 1.0 + backface_fraction));
+			}
+		]],
+	}
+end
+
+-- Debug view of the probes (ddgi_debug_probes): each probe is a sphere
+-- shaded with its irradiance (1) or mean hit distance (2) in the direction of
+-- the sphere's normal, drawn where its rays start. A relocated probe gets a
+-- line back to its grid point, and a disabled one (inside geometry) is tinted
+-- red. The lighting pass blends this over the image by its alpha.
+local function pass_probe_debug()
+	return {
+		name = "ddgi_probe_debug",
+		ComputePass = true,
+		ColorFormat = {{"r16g16b16a16_sfloat", {"ddgi_probe_debug", "rgba"}}},
+		framebuffer_count = 1,
+		LocalSize = {x = 8, y = 8, z = 1},
+		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = {"compute", "fragment"}}},
+		uniform_buffers = {data_uniform()},
+		on_draw = function(self, cmd, fb, frame, desc)
+			if ddgi.DEBUG_PROBES == 0 then return end
+
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(cmd, fb.width, fb.height, 1, desc, self.dynamic_offsets)
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+		]],
+		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+			vec2 in_uv;
+		]] .. screen_reconstruct.GetWorldRayGLSL("ddgi_data") .. [[
+
+			// Quilez's ray/capsule intersection, -1 on a miss
+			float ddgi_capsule(vec3 ro, vec3 rd, vec3 pa, vec3 pb, float r) {
+				vec3 ba = pb - pa;
+				vec3 oa = ro - pa;
+				float baba = dot(ba, ba);
+				float bard = dot(ba, rd);
+				float baoa = dot(ba, oa);
+				float a = baba - bard * bard;
+				float b = baba * dot(rd, oa) - baoa * bard;
+				float c = baba * dot(oa, oa) - baoa * baoa - r * r * baba;
+				float h = b * b - a * c;
+
+				if (h < 0.0 || a <= 0.0) return -1.0;
+
+				float t = (-b - sqrt(h)) / a;
+				float y = baoa + t * bard;
+				return y > 0.0 && y < baba ? t : -1.0;
+			}
+
+			float ddgi_sphere(vec3 ro, vec3 rd, vec3 center, float r) {
+				vec3 oc = ro - center;
+				float b = dot(oc, rd);
+				float h = b * b - dot(oc, oc) + r * r;
+				return h < 0.0 ? -1.0 : -b - sqrt(h);
+			}
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				in_uv = get_screen_uv(pos, size);
+				float depth = texture(TEXTURE(ddgi_data.depth_tex), in_uv).r;
+				vec3 O = ddgi_data.camera_position.xyz;
+				vec3 D = get_world_ray();
+				float spacing = ddgi_data.ddgi_spacing;
+				float best = depth >= 1.0 ? 1e9 : length(get_world_pos(in_uv, depth) - O);
+				float radius = spacing * 0.12;
+				// clip the ray to the volume, grown by a cell for the offsets
+				vec3 inv = 1.0 / (D + vec3(equal(D, vec3(0.0))) * 1e-7);
+				vec3 box_min = vec3(ddgi_volume_base() - 1) * spacing;
+				vec3 box_max = vec3(ddgi_volume_base() + DDGI_P) * spacing;
+				vec3 ta = (box_min - O) * inv;
+				vec3 tb = (box_max - O) * inv;
+				vec3 t_near = min(ta, tb);
+				vec3 t_far = max(ta, tb);
+				float t = max(max(t_near.x, max(t_near.y, t_near.z)), 0.0);
+				float t_exit = min(min(t_far.x, min(t_far.y, t_far.z)), best);
+				vec4 result = vec4(0.0);
+
+				if (t < t_exit) {
+					// walk the cells the ray crosses; a probe (offset under half a
+					// cell, plus its radius) stays inside the cells around its
+					// grid point, so testing each crossed cell's corners finds it
+					vec3 o = O / spacing;
+					vec3 d = D / spacing;
+					ivec3 cell = ivec3(floor(o + d * (t + 1e-4)));
+					ivec3 step_dir = ivec3(sign(D));
+					vec3 t_delta = abs(inv) * spacing;
+					vec3 t_next = (vec3(cell) + max(vec3(step_dir), vec3(0.0)) - o) / d;
+					ivec3 volume_min = ddgi_volume_base();
+					ivec3 volume_max = volume_min + DDGI_P - 1;
+					vec3 hit_color = vec3(0.0);
+
+					for (int i = 0; i < DDGI_P * 4 && t < min(t_exit, best); i++) {
+						for (int c = 0; c < 8; c++) {
+							ivec3 world = cell + ivec3(c & 1, (c >> 1) & 1, (c >> 2) & 1);
+
+							if (any(lessThan(world, volume_min)) || any(greaterThan(world, volume_max))) continue;
+
+							ivec3 slot = ddgi_slot(world);
+							vec4 data = ddgi_probe_data(slot);
+
+							if (!ddgi_probe_is_current(data, world)) continue;
+
+							vec3 center = data.xyz * spacing;
+							vec3 grid = vec3(world) * spacing;
+							bool disabled = data.w - 1.0 > ddgi_data.ddgi_backface_threshold;
+							float hit = ddgi_sphere(O, D, center, radius);
+
+							if (hit > 0.0 && hit < best) {
+								best = hit;
+								vec3 n = normalize(O + D * hit - center);
+
+								if (ddgi_data.ddgi_debug_probes == 2) {
+									float mean = texture(TEXTURE(ddgi_data.ddgi_distance_tex), ddgi_atlas_uv(slot, n, DDGI_DISTANCE_TEXELS)).r;
+									hit_color = vec3(mean / (spacing * 2.6)) * ddgi_data.ddgi_debug_scale;
+								} else {
+									hit_color = texture(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, n, DDGI_IRRADIANCE_TEXELS)).rgb;
+								}
+
+								if (disabled) hit_color = mix(hit_color, vec3(ddgi_data.ddgi_debug_scale, 0.0, 0.0), 0.7);
+							}
+
+							if (distance(center, grid) > radius) {
+								// as bright as the probe itself, so the markers
+								// hold up under any exposure
+								vec3 up = texture(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, vec3(0.0, 1.0, 0.0), DDGI_IRRADIANCE_TEXELS)).rgb;
+								vec3 marker = vec3(1.0, 0.6, 0.0) * max(dot(up, vec3(0.2126, 0.7152, 0.0722)), 1e-3) * 2.0 * ddgi_data.ddgi_debug_scale;
+								hit = ddgi_capsule(O, D, grid, center, radius * 0.15);
+
+								if (hit > 0.0 && hit < best) {
+									best = hit;
+									hit_color = marker;
+								}
+
+								hit = ddgi_sphere(O, D, grid, radius * 0.3);
+
+								if (hit > 0.0 && hit < best) {
+									best = hit;
+									hit_color = marker;
+								}
+							}
+						}
+
+						if (t_next.x < t_next.y && t_next.x < t_next.z) {
+							t = t_next.x;
+							t_next.x += t_delta.x;
+							cell.x += step_dir.x;
+						} else if (t_next.y < t_next.z) {
+							t = t_next.y;
+							t_next.y += t_delta.y;
+							cell.y += step_dir.y;
+						} else {
+							t = t_next.z;
+							t_next.z += t_delta.z;
+							cell.z += step_dir.z;
+						}
+					}
+
+					if (best < 1e9 && (depth >= 1.0 || best < length(get_world_pos(in_uv, depth) - O) - 1e-4)) {
+						result = vec4(hit_color, 1.0);
+					}
+				}
+
+				imageStore(out_color, pos, result);
 			}
 		]],
 	}
@@ -441,4 +760,5 @@ return {
 	pass_update("ddgi_distance", ddgi.DISTANCE_TEXELS, DISTANCE_INTEGRATE),
 	pass_probe_data(),
 	pass_resolve(),
+	pass_probe_debug(),
 }

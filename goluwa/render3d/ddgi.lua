@@ -24,9 +24,14 @@ ddgi.IRRADIANCE_TEXELS = 8
 ddgi.DISTANCE_TEXELS = 16
 ddgi.MAX_RAY_DISTANCE = 1000.0
 ddgi.HYSTERESIS = 0.97
--- a texel whose irradiance changed by more than this fraction adapts faster
--- this frame
-ddgi.IRRADIANCE_THRESHOLD = 1.0
+-- a texel whose short term average grew or shrank by more than this factor
+-- against its history catches up quickly
+ddgi.IRRADIANCE_THRESHOLD = 16.0
+-- local lights are treated as spheres of this radius (in probe spacings) when
+-- lighting ray hits. A probe can't resolve a hot spot smaller than this, and a
+-- ray landing right next to a lamp would otherwise outweigh all the others
+-- and light up the whole probe for a frame
+ddgi.LIGHT_RADIUS = 0.1
 -- sharpness of the cosine lobe the hit distances are averaged with
 ddgi.DISTANCE_EXPONENT = 50.0
 -- surface bias along the normal and towards the viewer, in probe spacings
@@ -34,9 +39,20 @@ ddgi.NORMAL_BIAS = 0.1
 ddgi.VIEW_BIAS = 0.3
 -- probes whose rays mostly hit back faces are inside geometry and are skipped
 ddgi.BACKFACE_THRESHOLD = 0.25
+-- Probes move off their grid point (by at most PROBE_MAX_OFFSET spacings) to
+-- get out of geometry they landed in and away from surfaces closer than
+-- RELOCATION_DISTANCE spacings. A probe inside a box would otherwise be
+-- disabled, and the probes that take over its corner may be behind a wall.
+ddgi.RELOCATION = true
+ddgi.RELOCATION_DISTANCE = 0.25
+ddgi.PROBE_MAX_OFFSET = 0.45
 ddgi.SKY_INTENSITY = 1.0
 ddgi.RANDOM_ROTATION = true
 ddgi.RESOLVE_SCALE = 1.0
+-- 0 off, 1 probe irradiance, 2 probe mean hit distance (see passes/ddgi.lua)
+ddgi.DEBUG_PROBES = 0
+-- brightness of the debug view's markers, which have no light of their own
+ddgi.DEBUG_SCALE = 1.0
 -- stored in a ray's distance slot when it missed everything
 ddgi.MISS_DISTANCE = 1e27
 
@@ -57,6 +73,13 @@ end
 function ddgi.GetScreenTexture()
 	local resolve = render3d.pipelines.ddgi_resolve
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(1) or nil
+end
+
+-- drawn over the lit image by the lighting pass; rgb = colour, a = coverage
+function ddgi.GetDebugOverlayTexture()
+	if ddgi.DEBUG_PROBES == 0 then return nil end
+
+	return render3d.pipelines.ddgi_probe_debug:GetFramebuffer(1):GetAttachment(1)
 end
 
 function ddgi.RTSupported()
@@ -146,6 +169,7 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_MISS_DISTANCE %.1e
 		#define DDGI_SUN_VISIBLE_BIT 0x80000000u
 		#define DDGI_SHADOW_OFFSET 0.02
+		#define DDGI_BACKFACE_SCALE 0.2
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
 		// as unsigned), so shift into the positive range before wrapping
 		#define DDGI_WRAP(v) (((v) + DDGI_P * 65536) %% DDGI_P)
@@ -204,10 +228,6 @@ function ddgi.GetCommonGLSL()
 			return ivec2(slot.x + DDGI_P * slot.y, slot.z);
 		}
 
-		vec3 ddgi_probe_position(ivec3 world) {
-			return vec3(world) * ddgi_data.ddgi_spacing;
-		}
-
 		bool ddgi_in_volume(vec3 P) {
 			vec3 grid = P / ddgi_data.ddgi_spacing - vec3(ddgi_volume_base());
 			return all(greaterThanEqual(grid, vec3(0.0))) && all(lessThanEqual(grid, vec3(DDGI_P - 1)));
@@ -262,14 +282,22 @@ function ddgi.GetCommonGLSL()
 			return pixel / atlas_size;
 		}
 
-		// xyz = world coordinate last written into the slot, w = 1 + back face
-		// ray fraction (0 when never written)
+		// xyz = world coordinate last written into the slot plus the probe's
+		// relocation offset in spacings (under 0.5, so rounding recovers the
+		// coordinate), w = 1 + back face ray fraction (0 when never written)
 		vec4 ddgi_probe_data(ivec3 slot) {
 			return texelFetch(TEXTURE(ddgi_data.ddgi_probe_data_tex), ddgi_tile(slot), 0);
 		}
 
 		bool ddgi_probe_is_current(vec4 data, ivec3 world) {
 			return data.w >= 1.0 && ivec3(round(data.xyz)) == world;
+		}
+
+		// where the probe's rays start; one that just scrolled into its slot
+		// sits on its grid point
+		vec3 ddgi_probe_origin(ivec3 slot, ivec3 world) {
+			vec4 data = ddgi_probe_data(slot);
+			return (ddgi_probe_is_current(data, world) ? data.xyz : vec3(world)) * ddgi_data.ddgi_spacing;
 		}
 
 		vec3 ddgi_sky(vec3 dir) {
@@ -305,7 +333,7 @@ function ddgi.GetCommonGLSL()
 
 				if (!ddgi_probe_is_current(data, world) || data.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
 
-				vec3 probe_pos = ddgi_probe_position(world);
+				vec3 probe_pos = data.xyz * spacing;
 				vec3 trilinear = mix(1.0 - alpha, alpha, vec3(offset));
 				vec3 to_probe = normalize(probe_pos - P);
 				float w = (dot(to_probe, N) + 1.0) * 0.5;
@@ -365,7 +393,12 @@ function ddgi.GetBlockLayout()
 		{"ddgi_normal_bias", "float"},
 		{"ddgi_view_bias", "float"},
 		{"ddgi_backface_threshold", "float"},
+		{"ddgi_relocation_distance", "float"},
+		{"ddgi_max_offset", "float"},
 		{"ddgi_sky_intensity", "float"},
+		{"ddgi_light_radius", "float"},
+		{"ddgi_debug_scale", "float"},
+		{"ddgi_debug_probes", "int"},
 		{"ddgi_reset", "int"},
 		{"ddgi_rt_ready", "int"},
 		{"ddgi_env_tex", "int"},
@@ -418,7 +451,12 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
 	block.ddgi_backface_threshold = ddgi.BACKFACE_THRESHOLD
+	block.ddgi_relocation_distance = ddgi.RELOCATION and ddgi.RELOCATION_DISTANCE * ddgi.PROBE_SPACING or 0
+	block.ddgi_max_offset = ddgi.RELOCATION and ddgi.PROBE_MAX_OFFSET or 0
 	block.ddgi_sky_intensity = ddgi.SKY_INTENSITY
+	block.ddgi_light_radius = ddgi.LIGHT_RADIUS * ddgi.PROBE_SPACING
+	block.ddgi_debug_scale = ddgi.DEBUG_SCALE
+	block.ddgi_debug_probes = ddgi.DEBUG_PROBES
 	block.ddgi_reset = state.reset and 1 or 0
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0
 	block.ddgi_env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
@@ -568,6 +606,8 @@ layout(set = 0, binding = 1) writeonly buffer Hits
     uvec2 hits[];
 };
 layout(set = 0, binding = 2) uniform accelerationStructureEXT scene;
+// see ddgi_probe_data
+layout(set = 0, binding = 3) uniform sampler2D probe_data;
 layout(location = 0) rayPayloadEXT Payload payload;
 
 void main()
@@ -576,7 +616,9 @@ void main()
     int probe = int(gl_LaunchIDEXT.y);
     ivec3 slot = ivec3(probe % DDGI_P, (probe / DDGI_P) % DDGI_P, probe / (DDGI_P * DDGI_P));
     ivec3 world = params.volume_base + DDGI_WRAP(slot - DDGI_WRAP(params.volume_base));
-    vec3 origin = vec3(world) * params.probe_spacing;
+    vec4 data = texelFetch(probe_data, ivec2(slot.x + DDGI_P * slot.y, slot.z), 0);
+    bool current = data.w >= 1.0 && ivec3(round(data.xyz)) == world;
+    vec3 origin = (current ? data.xyz : vec3(world)) * params.probe_spacing;
     vec3 dir = ddgi_ray_direction(ray, params.rotation);
     traceRayEXT(scene, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
@@ -646,6 +688,7 @@ function ddgi.GetRTPipeline()
 						{binding_index = 0, type = "uniform_buffer", stageFlags = "all"},
 						{binding_index = 1, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
+						{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
 					},
 				},
 			}
@@ -661,6 +704,26 @@ end)
 
 commands.Add("ddgi_hysteresis=number[0.97]", function(value)
 	ddgi.HYSTERESIS = value
+end)
+
+commands.Add("ddgi_irradiance_threshold=number[16]", function(value)
+	ddgi.IRRADIANCE_THRESHOLD = value
+end)
+
+commands.Add("ddgi_light_radius=number[0.1]", function(value)
+	ddgi.LIGHT_RADIUS = value
+end)
+
+commands.Add("ddgi_debug_probes=number[1]", function(value)
+	ddgi.DEBUG_PROBES = value
+end)
+
+commands.Add("ddgi_debug_scale=number[1]", function(value)
+	ddgi.DEBUG_SCALE = value
+end)
+
+commands.Add("ddgi_relocation=boolean[true]", function(value)
+	ddgi.RELOCATION = value
 end)
 
 return ddgi

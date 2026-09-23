@@ -1031,6 +1031,7 @@ function Texture:OnRemove()
 	if fallback_texture == self then fallback_texture = nil end
 
 	if self.image and self.image.Remove then self.image:Remove() end
+
 	self.view = nil
 	self.image = nil
 	self.vulkan_info = nil
@@ -1568,6 +1569,19 @@ do
 	do
 		local HalfPointer = ffi.typeof("uint16_t*")
 		local FloatPointer = ffi.typeof("float*")
+		local Uint32Pointer = ffi.typeof("uint32_t*")
+
+		-- unsigned small float with a 5 bit exponent and mantissa_bits of mantissa
+		local function ufloat(bits, mantissa_bits)
+			local mantissa = bits % 2 ^ mantissa_bits
+			local exponent = math.floor(bits / 2 ^ mantissa_bits)
+
+			if exponent == 0 then return mantissa / 2 ^ mantissa_bits * 2 ^ -14 end
+
+			if exponent == 31 then return mantissa == 0 and math.huge or 0 / 0 end
+
+			return 2 ^ (exponent - 15) * (1 + mantissa / 2 ^ mantissa_bits)
+		end
 
 		-- rgba of an rgba float format as floats, unclamped
 		function TextureDownloaded:GetPixelFloat(x, y)
@@ -1584,6 +1598,14 @@ do
 				math.half2float(p[index + 1]),
 				math.half2float(p[index + 2]),
 				math.half2float(p[index + 3])
+			end
+
+			if self.format == "b10g11r11_ufloat_pack32" then
+				local v = tonumber(ffi.cast(Uint32Pointer, self.pixels)[y * self.width + x])
+				return ufloat(bit.band(v, 0x7FF), 6),
+				ufloat(bit.band(bit.rshift(v, 11), 0x7FF), 6),
+				ufloat(bit.rshift(v, 22), 5),
+				1
 			end
 
 			error("GetPixelFloat: unsupported format " .. tostring(self.format), 2)

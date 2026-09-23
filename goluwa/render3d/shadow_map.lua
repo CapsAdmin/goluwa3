@@ -1699,7 +1699,8 @@ function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
 	if not cascade then return true end
 
 	if self.mode == "point" then
-		return world_aabb:IsOverlappedSphereInside(self.point_light_position, self.far_plane) and
+		-- world_aabb may be a plain bounds table (BVH nodes), not an AABB struct
+		return AABB.IsOverlappedSphereInside(world_aabb, self.point_light_position, self.far_plane) and
 			is_aabb_visible_frustum(world_aabb, cascade.frustum_planes)
 	end
 

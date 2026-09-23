@@ -12,6 +12,9 @@ local render3d = nil
 local gpu_culling = library()
 gpu_culling.generation = gpu_culling.generation or 0
 gpu_culling.enabled = true
+-- one descriptor set per shadow view: each face of a point shadow map and
+-- each sun cascade
+gpu_culling.MAX_SHADOW_QUERY_OUTPUTS = 512
 gpu_culling.async_main_view_enabled = true
 gpu_culling.async_frustum_scale = gpu_culling.async_frustum_scale or 0.96
 gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "hiz"
@@ -627,7 +630,7 @@ function gpu_culling.Initialize()
 
 	do -- view aabb cull pass
 		gpu_culling.shadow_view_aabb_cull_pass = EasyPipeline.Compute{
-			DescriptorSetCount = 64,
+			DescriptorSetCount = gpu_culling.MAX_SHADOW_QUERY_OUTPUTS,
 			name = "gpu_culling_shadow_view_aabb",
 			LocalSize = {x = 64, y = 1, z = 1},
 			descriptor_sets = {
@@ -2243,6 +2246,13 @@ end
 
 local function ensure_shadow_query_output_descriptor_capacity(descriptor_slot)
 	descriptor_slot = math.max(tonumber(descriptor_slot) or 1, 1)
+
+	if descriptor_slot > gpu_culling.MAX_SHADOW_QUERY_OUTPUTS then
+		error(
+			"gpu_culling: more than " .. gpu_culling.MAX_SHADOW_QUERY_OUTPUTS .. " shadow views (each point shadow face and sun cascade is one)",
+			2
+		)
+	end
 
 	if descriptor_slot > (gpu_culling.shadow_query_output_descriptor_count or 0) then
 		gpu_culling.shadow_query_output_descriptor_count = descriptor_slot

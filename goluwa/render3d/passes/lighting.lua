@@ -105,6 +105,7 @@ return {
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_screen_tex", "int"},
+					{"gi_overlay_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -146,6 +147,8 @@ return {
 					local gi_provider = render3d.GetGIProvider()
 					local gi_texture = gi_provider and gi_provider.GetScreenTexture() or nil
 					block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
+					local overlay = gi_provider and gi_provider.GetDebugOverlayTexture() or nil
+					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 
 					if render3d.pipelines.ssr then
 						local current_idx = system.GetFrameNumber() % 2 + 1
@@ -174,6 +177,11 @@ return {
 			vec2 in_uv;
 
 			void set_color(vec4 value) {
+				if (lighting_data.gi_overlay_tex >= 0) {
+					vec4 overlay = texture(TEXTURE(lighting_data.gi_overlay_tex), in_uv);
+					value.rgb = mix(value.rgb, overlay.rgb, overlay.a);
+				}
+
 				imageStore(out_color, get_screen_pos(), value);
 			}
 

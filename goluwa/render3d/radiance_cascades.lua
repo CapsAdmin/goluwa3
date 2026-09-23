@@ -99,6 +99,11 @@ radiance_cascades.enabled = true
 -- used to reach into render3d.pipelines themselves and pick wrong when a stage
 -- was disabled -- one of them called a GetResolveFramebufferIndex that had never
 -- existed, which would have been a nil call the moment denoise was turned off.
+-- the lighting pass blends this over the image; radiance cascades have none
+function radiance_cascades.GetDebugOverlayTexture()
+	return nil
+end
+
 function radiance_cascades.GetScreenTexture()
 	local denoise = render3d.pipelines.radiance_cascades_denoise
 
@@ -804,14 +809,19 @@ end)
 
 commands.Add("radiance_cascades_relocate=number[1]", function(value)
 	radiance_cascades.RELOCATE = math.clamp(value, 0, 2)
-	logf("[radiance_cascades] probe relocation reach %f cells\n", radiance_cascades.RELOCATE)
+	logf(
+		"[radiance_cascades] probe relocation reach %f cells\n",
+		radiance_cascades.RELOCATE
+	)
 end)
 
 commands.Add("radiance_cascades_validity=boolean[true]", function(enabled)
 	radiance_cascades.PROBE_VALIDITY = enabled ~= false
 	logf(
 		"[radiance_cascades] probes inside geometry are %s\n",
-		radiance_cascades.PROBE_VALIDITY and "excluded from the gather" or "weighted normally"
+		radiance_cascades.PROBE_VALIDITY and
+			"excluded from the gather" or
+			"weighted normally"
 	)
 end)
 
@@ -825,8 +835,8 @@ commands.Add("radiance_cascades_cell_fallback=boolean[true]", function(enabled)
 	logf(
 		"[radiance_cascades] all-occluded pixels %s\n",
 		radiance_cascades.CELL_FALLBACK and
-		"re-gather one cell along the normal" or
-		"reuse the occluded probes"
+			"re-gather one cell along the normal" or
+			"reuse the occluded probes"
 	)
 end)
 

@@ -350,7 +350,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 					break
 				end
 			end
-		elseif light.Type == "light_point" and light_maps then
+		elseif (light.Type == "light_point" or light.Type == "light_spot") and light_maps then
 			for _, shadow_map in ipairs(light_maps) do
 				if shadow_map.mode ~= "point" then goto continue_light end
 
