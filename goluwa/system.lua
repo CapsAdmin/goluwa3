@@ -27,17 +27,13 @@ end
 do
 	function system.ShutDown(code)
 		code = code or 0
-
-		if VERBOSE then logn("shutting down with code ", code) end
-
 		os.exitcode = code
 	end
 
 	local old = os.exit
 
 	function os.exit(code)
-		wlog("os.exit() called with code %i", code or 0, 2)
-	--system.ShutDown(code)
+		system.ShutDown(code)
 	end
 
 	function os.realexit(code)

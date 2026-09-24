@@ -297,5 +297,10 @@ crash_trace.Run(function()
 	end
 
 	event.Call("ShutDown")
+
+	if os.exitcode then
+		logn("exiting with code ", os.exitcode, " - ran for ", i, " frames")
+	end
+
 	os.realexit(os.exitcode)
 end)
