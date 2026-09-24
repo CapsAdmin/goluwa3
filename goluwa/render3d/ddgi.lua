@@ -783,12 +783,10 @@ function ddgi.GetCommonGLSL()
 	]]
 end
 
-function ddgi.GetBlockLayout()
+-- The fields ddgi_sample_irradiance needs, for passes that only read the
+-- probes (volumetric_fog.lua); GetBlockLayout adds what the DDGI passes need.
+function ddgi.GetProbeBlockLayout()
 	return {
-		render3d.camera_block,
-		render3d.gbuffer_block,
-		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
-		{"light_count", "int"},
 		-- xyz = volume base (the lowest probe's world coordinate), w = spacing
 		{"ddgi_cascades", "vec4", ddgi.CASCADES},
 		-- xyz = probes along each axis, w = bits of the axes (1 x, 2 y, 4 z)
@@ -834,6 +832,16 @@ function ddgi.GetBlockLayout()
 	}
 end
 
+function ddgi.GetBlockLayout()
+	return {
+		render3d.camera_block,
+		render3d.gbuffer_block,
+		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+		{"light_count", "int"},
+		unpack(ddgi.GetProbeBlockLayout()),
+	}
+end
+
 local function pipeline_texture_index(self, name)
 	local pipeline = render3d.pipelines[name]
 	return pipeline and
@@ -841,15 +849,9 @@ local function pipeline_texture_index(self, name)
 		-1
 end
 
-function ddgi.WriteBlock(self, block)
+function ddgi.WriteProbeBlock(self, block)
 	local state = ddgi.GetFrameState()
-	render3d.WriteCameraBlock(self, block)
-	render3d.WriteGBufferBlock(self, block)
-	-- every light, not just those in view: probes see what the camera doesn't,
-	-- and the shadow rays make that safe
 	local lights = render3d.GetLights()
-	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-	scene_lights.WriteLightsBlock(block.lights, lights)
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	local sun_color = directional_shadows.GetPrimarySunColor(lights)
 	-- A sun below the horizon would light the scene from underneath: the
@@ -916,6 +918,17 @@ function ddgi.WriteBlock(self, block)
 	block.ddgi_emitter_weight = emitters.weight
 	block.ddgi_frame = state.frame
 	return block
+end
+
+function ddgi.WriteBlock(self, block)
+	render3d.WriteCameraBlock(self, block)
+	render3d.WriteGBufferBlock(self, block)
+	-- every light, not just those in view: probes see what the camera doesn't,
+	-- and the shadow rays make that safe
+	local lights = render3d.GetLights()
+	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	scene_lights.WriteLightsBlock(block.lights, lights)
+	return ddgi.WriteProbeBlock(self, block)
 end
 
 -- One (hit distance, primitive id) pair per ray, written by the ray

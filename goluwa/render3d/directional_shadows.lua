@@ -214,15 +214,10 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 	)
 	return header .. getCascadeIndexGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK") .. [[
 
-			bool projectMediumShadowMap(
-				mat4 light_space_matrix,
-				vec3 world_pos,
-				vec3 light_dir,
-				float texel_world_size,
-				out vec3 proj_coords
-			) {
-				vec3 offset_pos = world_pos + light_dir * (texel_world_size * 2.0);
-				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
+			// no offset towards the light like a surface needs against acne: it
+			// would carry points near a wall through it into the light
+			bool projectMediumShadowMap(mat4 light_space_matrix, vec3 world_pos, out vec3 proj_coords) {
+				vec4 light_space_pos = light_space_matrix * vec4(world_pos, 1.0);
 				proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
 				return !(
@@ -247,7 +242,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 
 				for (int i = 0; i < 12; ++i) {
 					vec2 offset = POISSON_DISK[i] * filter_radius_texels * texel_size;
-					float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + offset).r;
+					float pcf_depth = textureLod(TEXTURE(shadow_map_idx), proj_coords.xy + offset, 0.0).r;
 					visibility += current_depth - receiver_bias > pcf_depth ? 0.0 : 1.0;
 				}
 
@@ -263,13 +258,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 
 				vec3 proj_coords;
 
-				if (!projectMediumShadowMap(
-					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.light_space_matrices[cascade_idx],
-					world_pos,
-					light_dir,
-					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
-					proj_coords
-				)) {
+				if (!projectMediumShadowMap(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.light_space_matrices[cascade_idx], world_pos, proj_coords)) {
 					return -1.0;
 				}
 
@@ -282,13 +271,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 				vec3 proj_coords;
 
 
-				if (!projectMediumShadowMap(
-					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix,
-					world_pos,
-					light_dir,
-					MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
-					proj_coords
-				)) {
+				if (!projectMediumShadowMap(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix, world_pos, proj_coords)) {
 					return false;
 				}
 				shadow = sampleMediumShadowProjection(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index, proj_coords, 1.0);

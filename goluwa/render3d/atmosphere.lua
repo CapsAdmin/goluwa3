@@ -1,6 +1,7 @@
 local atmosphere = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
+local commands = import("goluwa/cli/commands.lua")
 atmosphere.stars_texture = nil
 atmosphere.transmittance_texture = nil
 atmosphere.multi_scatter_texture = nil
@@ -34,6 +35,7 @@ local SUN_RADIUS = 500.0
 local SUN_DISTANCE = 100000.0
 local DEBUG_DISABLE_SCENERY_FOG = false
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
+atmosphere.fog_density = 0.5
 
 local function normalize_components(x, y, z)
 	local length = math.sqrt(x * x + y * y + z * z)
@@ -134,7 +136,6 @@ local atmosphere_shared_glsl = [[
 		"1.0"
 	) .. [[;
 	const float SCENERY_FOG_SCALE_HEIGHT = 0.28;
-	const float SCENERY_FOG_BASE_DENSITY = 0.5;
 	const float SCENERY_FOG_TOP_HEIGHT = 1.1;
 	const float SCENERY_FOG_TOP_SOFTNESS = 0.3;
 	const float SCENERY_FOG_EXTINCTION = 0.34;
@@ -162,6 +163,10 @@ local atmosphere_shared_glsl = [[
 	#endif
 	#ifndef ATMOSPHERE_STARS_TEXTURE_INDEX
 	#define ATMOSPHERE_STARS_TEXTURE_INDEX -1
+	#endif
+	// the low altitude fog's density at the ground (fog_density)
+	#ifndef ATMOSPHERE_FOG_DENSITY
+	#define ATMOSPHERE_FOG_DENSITY ]] .. string.format("%.6f\n", atmosphere.fog_density) .. [[
 	#endif
 
 	vec2 ray_sphere_intersect(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
@@ -204,7 +209,7 @@ local atmosphere_shared_glsl = [[
 			SCENERY_FOG_TOP_HEIGHT,
 			altitude
 		);
-		return SCENERY_FOG_BASE_DENSITY * base_density * top_fade;
+		return ATMOSPHERE_FOG_DENSITY * base_density * top_fade;
 	}
 
 	float rayleigh_phase(float mu) {
@@ -663,27 +668,33 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		);
 	}
 
-	// In-scattered radiance of the low altitude fog: the sky seen along the
-	// ray (kept just above the horizon so the ground fill does not leak in)
-	// stands in for the light arriving from every direction, plus sunlight
-	// scattered toward the viewer with a forward peaked phase function.
-	vec3 get_scenery_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
+	// Radiance of the sky light arriving at the low altitude fog from every
+	// direction: the sky seen along the ray, kept just above the horizon so the
+	// ground fill does not leak in.
+	vec3 get_scenery_fog_sky_ambient(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
 		vec3 up = normalize(ray_origin);
 		float elevation = max(asin(clamp(dot(ray_dir, up), -1.0, 1.0)), 0.25);
 		vec3 horizontal = ray_dir - up * dot(ray_dir, up);
 		float horizontal_length = length(horizontal);
 		horizontal = horizontal_length > 1e-4 ? horizontal / horizontal_length : get_sky_view_forward(up, sun_dir);
 		vec3 sky_dir = normalize(horizontal * cos(elevation) + up * sin(elevation));
-		vec3 sky_ambient = sample_sky_view_lut_from_origin(sky_dir, sun_dir, ray_origin).rgb;
-		vec3 ambient = mix(gi_irradiance, sky_ambient, clamp(sky_visibility, 0.0, 1.0));
-		vec3 sun_transmittance = sample_transmittance_lut(ray_origin, sun_dir);
-		float phase = henyey_greenstein_phase(dot(ray_dir, sun_dir), SCENERY_FOG_MIE_G);
-		vec3 direct = ATMOSPHERE_SUN_ILLUMINANCE * sun_transmittance * phase * clamp(sun_visibility, 0.0, 1.0);
-		return ambient + direct;
+		return sample_sky_view_lut_from_origin(sky_dir, sun_dir, ray_origin).rgb;
 	}
 
-	vec3 apply_scenery_fog_segment(
-		vec3 scene_color,
+	// Sunlight scattered toward the viewer by the fog, forward peaked.
+	vec3 get_scenery_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
+		return ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), SCENERY_FOG_MIE_G);
+	}
+
+	// In-scattered radiance of the low altitude fog. gi_irradiance stands in
+	// for the sky where the sky is hidden (sky_visibility).
+	vec3 get_scenery_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
+		vec3 ambient = mix(gi_irradiance / PI, get_scenery_fog_sky_ambient(ray_origin, ray_dir, sun_dir), clamp(sky_visibility, 0.0, 1.0));
+		return ambient + get_scenery_fog_sun(ray_origin, ray_dir, sun_dir) * clamp(sun_visibility, 0.0, 1.0);
+	}
+
+	// rgb = light the fog scatters toward the viewer along the segment, a = its transmittance
+	vec4 integrate_scenery_fog_segment(
 		vec3 ray_origin,
 		vec3 ray_dir,
 		float fog_near,
@@ -702,10 +713,24 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			scenery_fog_od += scenery_fog_density(sample_point) * step_size;
 		}
 
-		float scenery_fog_tau = scenery_fog_od * SCENERY_FOG_EXTINCTION;
-		vec3 fog_transmittance = exp(-vec3(scenery_fog_tau));
+		float fog_transmittance = exp(-scenery_fog_od * SCENERY_FOG_EXTINCTION);
 		vec3 scenery_fog = get_scenery_fog_color(ray_origin, ray_dir, sun_dir, sun_visibility, gi_irradiance, sky_visibility) * (1.0 - fog_transmittance);
-		return scene_color * fog_transmittance + scenery_fog;
+		return vec4(scenery_fog, fog_transmittance);
+	}
+
+	vec3 apply_scenery_fog_segment(
+		vec3 scene_color,
+		vec3 ray_origin,
+		vec3 ray_dir,
+		float fog_near,
+		float fog_length,
+		vec3 sun_dir,
+		float sun_visibility,
+		vec3 gi_irradiance,
+		float sky_visibility
+	) {
+		vec4 fog = integrate_scenery_fog_segment(ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
+		return scene_color * fog.a + fog.rgb;
 	}
 
 	vec3 apply_atmospheric_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, float sky_visibility) {
@@ -956,6 +981,7 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_multi_scatter_texture_index", "int"},
 		{"atmosphere_sky_view_texture_index", "int"},
 		{"atmosphere_stars_texture_index", "int"},
+		{"atmosphere_fog_density", "float"},
 	}
 end
 
@@ -964,10 +990,11 @@ function atmosphere.WriteBlock(pipeline, block, cam_pos, sun_dir)
 	block.atmosphere_multi_scatter_texture_index = pipeline:GetTextureIndex(atmosphere.GetMultiScatterTexture())
 	block.atmosphere_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sun_dir))
 	block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
+	block.atmosphere_fog_density = atmosphere.fog_density
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n"
 end
 
 function atmosphere.GetGLSLCode()
@@ -1075,5 +1102,9 @@ if HOTRELOAD then
 	destroy_multi_scatter_texture()
 	destroy_all_sky_view_textures()
 end
+
+commands.Add("fog_density=number[0.5]", function(value)
+	atmosphere.fog_density = value
+end)
 
 return atmosphere

@@ -33,20 +33,8 @@ function post_source.GetRawSceneSourceTexture(self)
 end
 
 function post_source.GetSceneSourceTexture(self)
-	if self.name == "scene_fog" then
-		return post_source.GetRawSceneSourceTexture(self)
-	end
-
-	if
-		self.name ~= "volumetric_fog" and
-		self.name ~= "scene_fog" and
-		render3d.pipelines.volumetric_fog
-	then
+	if self.name ~= "volumetric_fog" and render3d.pipelines.volumetric_fog then
 		return render3d.pipelines.volumetric_fog:GetFramebuffer():GetAttachment(1)
-	end
-
-	if self.name ~= "scene_fog" and render3d.pipelines.scene_fog then
-		return render3d.pipelines.scene_fog:GetFramebuffer():GetAttachment(1)
 	end
 
 	return post_source.GetRawSceneSourceTexture(self)
