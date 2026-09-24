@@ -526,7 +526,7 @@ function envprobe.WriteProbeBlock(self, block, camera_position)
 		return block
 	end
 
-	camera_position = camera_position or render3d.GetRenderCamera():GetPosition()
+	camera_position = camera_position or render3d.GetCamera():GetPosition()
 	local probes = envprobe.GetProbesNear(camera_position, max_probes)
 
 	for i = 0, max_probes - 1 do
@@ -602,7 +602,7 @@ end)
 event.AddListener("Update", "envprobe_auto_placement", function()
 	if not envprobe.enabled or not envprobe.reflection_probes_enabled then return end
 
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 
 	if not camera then return end
 
@@ -1456,7 +1456,7 @@ event.AddListener("PreRenderPass", "envprobe_update", function()
 
 	if envprobe.reflection_probes_enabled and #envprobe.probes > 0 then
 		local now = system.GetTime()
-		local probe = select_probe_to_capture(now, render3d.GetRenderCamera():GetPosition())
+		local probe = select_probe_to_capture(now, render3d.GetCamera():GetPosition())
 
 		if probe then
 			if probe ~= envprobe.current_probe then
@@ -1493,7 +1493,7 @@ end)
 commands.Add("envprobe_spawn=number|nil,string|nil", function(radius, update_mode)
 	if update_mode == "" then update_mode = nil end
 
-	local position = render3d.GetRenderCamera():GetPosition()
+	local position = render3d.GetCamera():GetPosition()
 	local probe, created = envprobe.EnsureReflectionProbe(position, radius, update_mode or envprobe.UPDATE_STATIC)
 	envprobe.SetReflectionProbesEnabled(true)
 	logf(

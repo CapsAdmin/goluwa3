@@ -58,9 +58,9 @@ local flashlight_on = false
 local f_was_down = false
 
 event.AddListener("Update", "flashlight", function()
-	local camera = render3d.GetCamera()
-	flashlight.transform:SetPosition(camera:GetPosition() + Vec3(0, -0.6, 0))
-	flashlight.transform:SetRotation(camera:GetRotation():Copy())
+	local view = rig.camera:GetView()
+	flashlight.transform:SetPosition(view:GetPosition() + Vec3(0, -0.6, 0))
+	flashlight.transform:SetRotation(view:GetRotation():Copy())
 	local f_down = input.IsKeyDown("f")
 
 	if f_down and not f_was_down then

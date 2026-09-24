@@ -247,7 +247,7 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 	local size = 200
 	local margin = 12
 	local spacing = 14
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	local panel_index = 0
 
 	for _, shadow_map in ipairs(shadow_maps) do

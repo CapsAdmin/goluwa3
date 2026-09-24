@@ -253,7 +253,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 		end
 	end
 
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	local camera_position = camera and camera:GetPosition()
 
 	for i = 0, scene_lights.MAX_CASCADES - 1 do

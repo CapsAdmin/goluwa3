@@ -258,7 +258,7 @@ do
 		if state.frame == frame then return state end
 
 		state.frame = frame
-		local position = render3d.GetRenderCamera():GetPosition()
+		local position = render3d.GetCamera():GetPosition()
 		local bounds_min, bounds_max = scene_bvh.GetBounds()
 		local region = state.region
 		region.min_x, region.max_x = fit_region(0, position.x, bounds_min, bounds_max)

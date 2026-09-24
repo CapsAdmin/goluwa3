@@ -133,7 +133,7 @@ light_grid.pass = {
 				local lights = render3d.GetLights()
 				scene_lights.WriteLightsBlock(block.lights, lights)
 				block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-				local camera = render3d.GetRenderCamera():GetPosition()
+				local camera = render3d.GetCamera():GetPosition()
 
 				for l = 0, light_grid.LEVELS - 1 do
 					local size = light_grid.CELL_SIZE * 2 ^ l

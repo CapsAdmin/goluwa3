@@ -1696,7 +1696,7 @@ do
 		end
 
 		local current_frame = system.GetFrameNumber()
-		local camera = render3d.GetRenderCamera()
+		local camera = render3d.GetCamera()
 		local view = camera:BuildViewMatrix()
 		local proj = camera:BuildProjectionMatrix()
 
@@ -1723,7 +1723,7 @@ do
 			return cached_cull_camera_position
 		end
 
-		local camera = render3d.GetRenderCamera()
+		local camera = render3d.GetCamera()
 		cached_cull_camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
 		cached_cull_camera_frame = current_frame
 		return cached_cull_camera_position
@@ -1984,7 +1984,7 @@ do
 
 	local function is_component_frustum_culled(component)
 		local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
-		local camera = render3d.GetRenderCamera()
+		local camera = render3d.GetCamera()
 		local gpu_visible = is_component_visible_in_main_gpu_lookup(component, frame, camera)
 
 		if gpu_visible ~= nil then return not gpu_visible end
@@ -2308,11 +2308,11 @@ do
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local read_visible_entry_indices = include_visible_entry_indices ~= false
 		local cached_result = acceleration.visible_gpu_cull_result
-		-- render3d.GetRenderCamera() can be a different camera within the same
+		-- render3d.GetCamera() can be a different camera within the same
 		-- real frame (e.g. a reflection probe capture pushes its own camera),
 		-- so the cache must be keyed on the camera too, not just the frame
 		-- number, or a probe's cull result gets handed back to the main view.
-		local camera = render3d.GetRenderCamera()
+		local camera = render3d.GetCamera()
 
 		-- gpu_culling.RunMainViewFrustumCulling dispatches into per-real-frame
 		-- GPU buffers shared by every caller that frame, regardless of which
@@ -2364,7 +2364,7 @@ do
 	function visual.GetVisibleVisuals()
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local acceleration = ensure_scene_acceleration()
-		local camera = render3d.GetRenderCamera()
+		local camera = render3d.GetCamera()
 
 		if
 			acceleration.visible_frame == current_frame and

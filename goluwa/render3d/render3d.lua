@@ -245,7 +245,7 @@ render3d.camera_block = {
 }
 
 function render3d.WriteCameraBlock(self, block)
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	local view = camera:BuildViewMatrix()
 	local projection = camera:BuildProjectionMatrix()
 	view:GetInverse():CopyToFloatPointer(block.inv_view)
@@ -265,7 +265,7 @@ render3d.prev_camera_block = {
 }
 
 function render3d.WritePreviousCameraBlock(self, block)
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	local view = render3d.GetPreviousViewMatrix() or camera:BuildViewMatrix()
 	local projection = render3d.GetPreviousProjectionMatrix() or camera:BuildProjectionMatrix()
 	view:CopyToFloatPointer(block.prev_view)
@@ -583,7 +583,7 @@ function render3d.Initialize(config)
 		if not render3d.pipelines.gbuffer then return end
 
 		scene_bvh.EnsureBuilt()
-		render3d.GetSceneVoxelizer().Update(render3d.GetRenderCamera():GetPosition())
+		render3d.GetSceneVoxelizer().Update(render3d.GetCamera():GetPosition())
 		local ocean_needed = render3d.IsOceanEnabled()
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
@@ -740,7 +740,8 @@ function render3d.Shutdown()
 end
 
 function render3d.ResetState()
-	render3d.camera = Camera3D.New()
+	render3d.main_camera = Camera3D.New()
+	render3d.camera = render3d.main_camera
 	render3d.camera_stack = {render3d.camera}
 	render3d.world_matrix = Matrix44()
 	render3d.prev_world_matrix = render3d.world_matrix
@@ -775,7 +776,7 @@ function render3d.Draw(dt)
 		if pipeline.post_draw then pipeline:post_draw(cmd, dt) end
 	end
 
-	local render_camera = render3d.GetRenderCamera()
+	local render_camera = render3d.GetCamera()
 	render3d.prev_view_matrix = render_camera:BuildViewMatrix():Copy()
 	render3d.prev_projection_matrix = render_camera:BuildProjectionMatrix():Copy()
 	render3d.prev_elapsed_time = system.GetElapsedTime()
@@ -1359,7 +1360,8 @@ function render3d.UploadForwardOverlayConstants()
 end
 
 do
-	render3d.camera = render3d.camera or Camera3D.New()
+	render3d.main_camera = render3d.main_camera or Camera3D.New()
+	render3d.camera = render3d.camera or render3d.main_camera
 	render3d.camera_stack = render3d.camera_stack or {render3d.camera}
 	render3d.world_matrix = render3d.world_matrix or Matrix44()
 	render3d.prev_world_matrix = render3d.prev_world_matrix or render3d.world_matrix
@@ -1370,9 +1372,10 @@ do
 		return render3d.camera
 	end
 
-	function render3d.SetCamera(camera)
-		render3d.camera = camera or Camera3D.New()
-		return render3d.camera
+	-- the camera the screen is rendered from, driven by the active view (see
+	-- view.lua); GetCamera is whichever camera is pushed while rendering
+	function render3d.GetMainCamera()
+		return render3d.main_camera
 	end
 
 	function render3d.PushCamera(camera)
@@ -1386,22 +1389,6 @@ do
 
 		if camera then render3d.camera = camera end
 
-		return render3d.camera
-	end
-
-	render3d.render_camera_override = false
-
-	function render3d.GetRenderCamera()
-		return render3d.render_camera_override or render3d.camera
-	end
-
-	function render3d.SetRenderCamera(camera)
-		render3d.render_camera_override = camera
-		return camera
-	end
-
-	function render3d.ClearRenderCamera()
-		render3d.render_camera_override = false
 		return render3d.camera
 	end
 
@@ -1424,7 +1411,7 @@ do
 	function render3d.GetProjectionViewMatrix()
 		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
 		-- Row-major: v * V * P
-		local camera = render3d.GetRenderCamera()
+		local camera = render3d.GetCamera()
 		camera:BuildViewMatrix():GetMultiplied(camera:BuildProjectionMatrix(), pv_cached)
 		return pv_cached
 	end
@@ -1432,7 +1419,7 @@ do
 	function render3d.GetProjectionViewWorldMatrix()
 		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
 		-- Row-major: v * W * V * P
-		local camera = render3d.GetRenderCamera()
+		local camera = render3d.GetCamera()
 		render3d.world_matrix:GetMultiplied(camera:BuildViewMatrix(), pvm_cached)
 		pvm_cached:GetMultiplied(camera:BuildProjectionMatrix(), pvm_cached)
 		return pvm_cached

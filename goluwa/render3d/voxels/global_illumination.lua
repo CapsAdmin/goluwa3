@@ -2074,7 +2074,7 @@ function voxel_gi.Draw(cmd)
 
 	if not voxel_gi.EnsureResolvedClipmaps(cmd) then return end
 
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	update_cascade_origins(camera:GetPosition(), camera:GetRotation():GetForward())
 	voxel_gi.ray_rotation = random_rotation_matrix()
 	voxel_gi.frame = voxel_gi.frame + 1

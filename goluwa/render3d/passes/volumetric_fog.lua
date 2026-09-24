@@ -155,7 +155,7 @@ local function write_lights_block(self, block)
 	atmosphere.WriteBlock(
 		self,
 		block,
-		render3d.GetRenderCamera():GetPosition(),
+		render3d.GetCamera():GetPosition(),
 		directional_shadows.GetPrimarySunDirection(render3d.GetLights())
 	)
 	return lights

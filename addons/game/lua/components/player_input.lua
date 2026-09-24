@@ -120,8 +120,8 @@ function META:GetUp()
 end
 
 function META:IsReceivingInput()
-	local camera = self.Owner and self.Owner.camera
-	return camera and camera.GetActive and camera:GetActive() or false
+	local camera = self.Owner.camera
+	return camera ~= nil and camera:IsRendered()
 end
 
 function META:GetSpeedMultiplier(crouching)

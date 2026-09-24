@@ -158,13 +158,13 @@ return {
 					if prev_view then
 						prev_view:CopyToFloatPointer(block.prev_view)
 					else
-						render3d.GetRenderCamera():BuildViewMatrix():CopyToFloatPointer(block.prev_view)
+						render3d.GetCamera():BuildViewMatrix():CopyToFloatPointer(block.prev_view)
 					end
 
 					if prev_projection then
 						prev_projection:CopyToFloatPointer(block.prev_projection)
 					else
-						render3d.GetRenderCamera():BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
+						render3d.GetCamera():BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
 					end
 
 					return block

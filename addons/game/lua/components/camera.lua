@@ -1,39 +1,39 @@
 local objects = import("goluwa/objects/objects.lua")
-local render3d = import("goluwa/render3d/render3d.lua")
+local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
-local camera_system = {}
 local META = objects.CreateTemplate("camera")
 META:GetSet("Active", false)
+META:GetSet("Priority", 0)
 META:GetSet("ViewOffset", Vec3(0, 0, 0))
-camera_system.active_camera = camera_system.active_camera or nil
 
-function META.GetActiveCameraComponent()
-	return camera_system.active_camera
+-- properties are applied before Initialize creates the view
+function META:SetActive(active)
+	self.Active = not not active
+
+	if not self.view then return end
+
+	if self.Active then self.view:Activate() else self.view:Deactivate() end
 end
 
-function META:SetActive(active)
-	active = not not active
+function META:SetPriority(priority)
+	self.Priority = priority
 
-	if self.Active == active then return end
-
-	self.Active = active
-
-	if active then
-		local current = camera_system.active_camera
-
-		if current and current ~= self and current:IsValid() then
-			current.Active = false
-		end
-
-		camera_system.active_camera = self
-	elseif camera_system.active_camera == self then
-		camera_system.active_camera = nil
-	end
+	if self.view then self.view:SetPriority(priority) end
 end
 
 function META:SetViewOffset(offset)
 	self.ViewOffset = offset and offset:Copy() or Vec3()
+end
+
+function META:GetView()
+	return self.view
+end
+
+-- whether this camera is the one being rendered, as opposed to active but
+-- overridden by a view with a higher priority
+function META:IsRendered()
+	return self.view:IsRendered()
 end
 
 function META:GetViewPosition()
@@ -54,34 +54,27 @@ end
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self:SetViewOffset(self.ViewOffset)
+	self.view = View.New{Priority = self.Priority}
 	self:AddGlobalEvent("Update", {priority = -100})
-
-	if self.Active then self:SetActive(true) end
+	self:SetActive(self.Active)
 end
 
 function META:OnUpdate()
-	if not self.Active then return end
-
-	local transform = self.Owner and self.Owner.transform
-
-	if not transform then return end
-
+	local transform = self.Owner.transform
+	local view = self.view
+	view:SetPosition(self:GetViewPosition())
 	local look = self.Owner.player_input
-	local cam = render3d.GetCamera()
-	cam:SetPosition(self:GetViewPosition())
 
-	if look and look.GetRotation then
-		cam:SetRotation(look:GetRotation():Copy())
-		cam:SetFOV(look:GetFOV())
-
-		if look.GetOrthoMode then cam:SetOrthoMode(look:GetOrthoMode()) end
+	if look then
+		view:SetRotation(look:GetRotation():Copy())
+		view:SetFOV(look:GetFOV())
 	else
-		cam:SetRotation(transform:GetRotation():Copy())
+		view:SetRotation(transform:GetRotation():Copy())
 	end
 end
 
 function META:OnRemove()
-	if camera_system.active_camera == self then camera_system.active_camera = nil end
+	self.view:Remove()
 end
 
 return META:Register()

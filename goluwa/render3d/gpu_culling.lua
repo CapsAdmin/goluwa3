@@ -3441,7 +3441,7 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 	if not (output and descriptor_slot) then return nil end
 
 	local hiz_state = get_main_view_hiz_state()
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	local view_projection_matrix = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
 	upload_shadow_instance_worlds(output, dataset)
 	shadow_output.shadow_visible_count_buffer:CopyData(ZERO_UINT32, UINT32_SIZE, 0)

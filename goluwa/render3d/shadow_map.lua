@@ -875,7 +875,7 @@ end
 
 local function get_camera_shadow_corners(max_distance)
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local cam = render3d.GetRenderCamera()
+	local cam = render3d.GetCamera()
 
 	if not cam then return nil end
 
@@ -1124,7 +1124,7 @@ local function build_shadow_cascade_update_mask(self)
 		return mask
 	end
 
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	local camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
 	local camera_moved = position_changed(
 		camera_position,
@@ -1157,7 +1157,7 @@ local function render_shadow_map_pass(self, cascade_index, is_first_in_batch, is
 	event.Call("DrawAllShadows", self, cascade_index)
 	render.PopCommandBuffer()
 	self:End(cascade_index, is_last_in_batch)
-	local camera = render3d.GetRenderCamera()
+	local camera = render3d.GetCamera()
 	self:MarkCascadeRendered(
 		cascade_index,
 		get_shadow_volume_change_version(self, cascade_index),
@@ -1461,7 +1461,7 @@ end
 -- Blends between logarithmic and linear split based on lambda parameter
 function ShadowMap:CalculateCascadeSplits()
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local cam = render3d.GetRenderCamera()
+	local cam = render3d.GetCamera()
 	local view_near = cam:GetNearZ()
 	local view_far = math.min(cam:GetFarZ(), self.max_shadow_distance)
 	local scene_aabb = self.scene_world_aabb
@@ -1540,7 +1540,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 	if self.mode == "point" then return end
 
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local cam = render3d.GetRenderCamera()
+	local cam = render3d.GetCamera()
 	self:CalculateCascadeSplits()
 
 	if TEMP_IDENTITY_CASCADE_OVERRIDE then

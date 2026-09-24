@@ -182,6 +182,8 @@ local function run_game()
 		)
 	end
 
+	if RENDER_3D then import("goluwa/render3d/shot.lua") end
+
 	if PHYSICS then import("goluwa/physics.lua").Initialize() end
 
 	if AUDIO then import("goluwa/audio.lua").Initialize() end

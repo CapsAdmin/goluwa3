@@ -4,6 +4,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
+local View = import("goluwa/render3d/view.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local KEY = 0.28
 -- exposure = 2^(LOG_EXPOSURE_AT_EV0 - ev): KEY / luminance, with luminance =
@@ -264,10 +265,12 @@ local exposure_feedback_pass = {
 	},
 	write = function(self, block)
 		local e = render3d.exposure
+		local view = View.GetActive()
+		local lock = view and view.ExposureLock or e.lock
 		block.dt = get_exposure_dt()
-		block.lock = e.lock and 1 or 0
-		block.lock_ev = e.lock or 0
-		block.compensation = e.compensation
+		block.lock = lock and 1 or 0
+		block.lock_ev = lock or 0
+		block.compensation = view and view.ExposureCompensation or e.compensation
 		block.adaptation = e.adaptation
 		block.reference_ev = e.reference_ev
 		block.min_ev = e.min_ev
@@ -621,8 +624,10 @@ local r = {
 			block.tonemapper = render3d.tonemapper
 			block.bloom_strength = render3d.bloom_strength
 			block.has_grid_tex = get_pipeline_texture("local_exposure_blur")() and 1 or 0
-			block.local_shadows = render3d.local_exposure.shadows
-			block.local_highlights = render3d.local_exposure.highlights
+			local view = View.GetActive()
+			local local_exposure = view and view.LocalExposure
+			block.local_shadows = local_exposure or render3d.local_exposure.shadows
+			block.local_highlights = local_exposure or render3d.local_exposure.highlights
 			block.local_max_stops = render3d.local_exposure.max_stops
 			return block
 		end,

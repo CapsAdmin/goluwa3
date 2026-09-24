@@ -1639,6 +1639,28 @@ do
 		end
 	end
 
+	-- mean absolute difference of the rgb channels (0-255) to another download
+	-- of the same size and 8 bit format
+	function TextureDownloaded:GetMeanDifference(other)
+		if self.bytes_per_pixel ~= 4 or self.format ~= other.format then
+			error("GetMeanDifference needs two downloads of the same 8 bit rgba/bgra format, got " .. self.format .. " and " .. other.format, 2)
+		end
+
+		if self.width ~= other.width or self.height ~= other.height then
+			error("GetMeanDifference needs two downloads of the same size", 2)
+		end
+
+		local a = self.pixels
+		local b = other.pixels
+		local sum = 0
+
+		for i = 0, self.width * self.height * 4 - 1, 4 do
+			sum = sum + math.abs(a[i] - b[i]) + math.abs(a[i + 1] - b[i + 1]) + math.abs(a[i + 2] - b[i + 2])
+		end
+
+		return sum / (self.width * self.height * 3)
+	end
+
 	function TextureDownloaded:GetTop5UniqueColors()
 		local top = {}
 		local color_count = {}

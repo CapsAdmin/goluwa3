@@ -26,7 +26,7 @@ local Text = import("goluwa/render2d/ui/elements/text.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-local CameraComponent = import("lua/components/camera.lua")
+local View = import("goluwa/render3d/view.lua")
 local camera = import("lua/camera.lua")
 local picker = import("lua/picker.lua")
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
@@ -526,14 +526,16 @@ return function(props)
 			)
 	end
 
+	local view = View.New{Priority = 10}:Activate()
+
 	function editor_window:OnUpdate(dt)
 		do
 			camera.SetBlockMovement(has_text_focus())
 			local gizmo_status = Gizmo.GetStatus()
 			camera.SetBlockDragging(is_ui_hovering() or gizmo_status.active_drag or gizmo_status.hovered_handle)
 			camera.Update(dt)
-			render3d.GetCamera():SetPosition(camera.GetPosition():Copy())
-			render3d.GetCamera():SetRotation(camera.GetRotation():Copy())
+			view:SetPosition(camera.GetPosition():Copy())
+			view:SetRotation(camera.GetRotation():Copy())
 		end
 
 		if pending_selection_sync then
@@ -555,6 +557,7 @@ return function(props)
 		function()
 			highlight.SetEntity()
 			Gizmo.Clear(editor_window)
+			view:Remove()
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
 		end,
 		"editor_gizmo_cleanup"

@@ -158,7 +158,7 @@ return {
 					atmosphere.WriteBlock(
 						self,
 						block,
-						render3d.GetRenderCamera():GetPosition(),
+						render3d.GetCamera():GetPosition(),
 						get_primary_sun_direction(lights)
 					)
 					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
