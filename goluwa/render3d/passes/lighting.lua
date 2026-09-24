@@ -14,6 +14,7 @@ local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
+local light_grid = import("goluwa/render3d/light_grid.lua")
 local get_primary_sun = directional_shadows.GetPrimarySun
 local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
 local get_primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance
@@ -24,6 +25,12 @@ local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
+local BINDING_LIGHT_GRID = 5
+local BINDING_SCENE = 6
+local RAY_QUERY = render.GetDevice().ray_query_supported
+-- how many texels of the cascade in use the sun's contact ray reaches, past
+-- the few its lookup offsets skip
+local SHADOW_CONTACT_TEXELS = 8
 
 local function write_shadow_block(self, shadow_block, lights)
 	return scene_lights.WriteShadowBlock(self, shadow_block, lights)
@@ -65,8 +72,29 @@ return {
 				dst_stage = "fragment",
 			},
 		},
-		on_pre_draw = function(self, cmd)
+		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
+		descriptor_sets = RAY_QUERY and
+			{
+				{
+					type = "acceleration_structure_khr",
+					binding_index = BINDING_SCENE,
+					stageFlags = "compute",
+				},
+			} or
+			nil,
+		on_pre_draw = function(self, cmd, frame, desc)
 			light_occlusion.Draw(cmd)
+			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+
+			if RAY_QUERY then
+				self:UpdateDescriptorSet(
+					"acceleration_structure_khr",
+					desc,
+					BINDING_SCENE,
+					0,
+					scene_bvh.EnsureRTBuilt(cmd) or scene_bvh.GetPlaceholderTLAS(cmd)
+				)
+			end
 		end,
 		sampled_images = {
 			{
@@ -82,7 +110,7 @@ return {
 				binding_index = BINDING_UNIFORM,
 				block = {
 					render3d.camera_block,
-					{"lights", scene_lights.BuildLightsBlockLayout(), 128},
+					{"lights", scene_lights.BuildLightsBlockLayout(), MAX_LIGHTS},
 					{"light_count", "int"},
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					render3d.gbuffer_block,
@@ -109,9 +137,8 @@ return {
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					local lights, light_instance_indices = scene_lights.GetVisibleLights()
-					local light_count = math.min(#lights, MAX_LIGHTS)
-					block.light_count = light_count
+					local lights = render3d.GetLights()
+					block.light_count = math.min(#lights, MAX_LIGHTS)
 					write_lights_block(block.lights, lights)
 					write_shadow_block(self, block.shadows, lights)
 					render3d.WriteGBufferBlock(self, block)
@@ -120,7 +147,7 @@ return {
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					render3d.WriteLastFrameBlock(self, block)
 					render3d.WriteCommonBlock(self, block)
-					light_occlusion.WriteOcclusionBlock(block, lights, light_instance_indices)
+					light_occlusion.WriteOcclusionBlock(block, lights)
 					local primary_sun = get_primary_sun(lights)
 					get_primary_sun_direction(lights):CopyToFloatPointer(block.primary_sun_direction)
 					block.primary_sun_illuminance = get_primary_sun_illuminance(lights)
@@ -164,8 +191,29 @@ return {
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. [[
-			]],
+			]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION_MAP) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. (
+				RAY_QUERY and
+				[[
+			#extension GL_EXT_ray_query : require
+			#define SHADOW_CONTACT_RAYS
+			#define SHADOW_CONTACT_TEXELS ]] .. string.format("%.1f", SHADOW_CONTACT_TEXELS) .. [[
+
+			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT shadow_scene;
+
+			float shadow_contact_visibility(vec3 world_pos, vec3 normal, vec3 light_dir, float reach) {
+				rayQueryEXT query;
+				// off the surface by more than depth reconstruction's error,
+				// which grows with distance like the cascades' texels
+				vec3 origin = world_pos + normal * (0.01 + 0.05 * reach);
+				rayQueryInitializeEXT(query, shadow_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, light_dir, reach);
+
+				while (rayQueryProceedEXT(query)) {}
+
+				return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+			}
+		]] or
+				""
+			),
 		shader = (
 				"const int LIGHT_DEBUG_DIRECT = %d;\n"
 			):format(os.getenv("FOG_DEBUG") == "lighting" and 1 or 0) .. [[
@@ -370,12 +418,19 @@ return {
 				out_specular = specular * specular_color;
 			}
 
-			vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 world_pos, vec3 V, vec3 N)
+			vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N)
 			{
 				vec3 Lo = vec3(0.0);
 				float subsurface_factor = subsurface;
 
-                for (int i = 0; i < lighting_data.light_count; i++) {
+				int light_cell = light_grid_cell(world_pos);
+
+				for (int w = 0; w < light_grid_words(lighting_data.light_count); w++) {
+				uint light_bits = light_grid_word(light_cell, w, lighting_data.light_count);
+
+				while (light_bits != 0u) {
+					int i = w * 32 + findLSB(light_bits);
+					light_bits &= light_bits - 1u;
                     lights_t light = lighting_data.lights[i];
 					int type = get_light_type(light);
 					vec3 L;
@@ -411,18 +466,18 @@ return {
 						lighting_data.shadows.shadow_map_indices[0] >= 0 &&
 						type == 0
 					) {
-                        shadow_factor = calculateShadow(world_pos, N, L);
+                        shadow_factor = calculateShadow(world_pos, geometric_N, L);
 					} else if (
 						i == lighting_data.shadows.local_directional_shadow_light_index &&
 						lighting_data.shadows.local_directional_shadow_map_index >= 0 &&
 						type == 2
 					) {
-						shadow_factor = calculateLocalDirectionalShadow(world_pos, N, L);
+						shadow_factor = calculateLocalDirectionalShadow(world_pos, geometric_N, L);
 					} else if (type == 1 || type == 3) {
 						int point_shadow_slot = getPointShadowSlot(i);
 
 						if (point_shadow_slot >= 0) {
-							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, N, L);
+							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, geometric_N, L);
 						}
 
 						shadow_factor *= light_oct_shadow_factor(lighting_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
@@ -451,6 +506,7 @@ return {
 					vec3 subsurface_light = subsurface_front + subsurface_spec + transmission;
 					Lo += mix(pbr_light, subsurface_light, subsurface_factor);
                 }
+				}
 
 				return Lo;				
 			}
@@ -496,6 +552,10 @@ return {
 
 			]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
 
+			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_at"}) .. [[
+
+			]] .. screen_reconstruct.GetGeometricNormalGLSL("lighting_data") .. [[
+
 			vec3 get_view_normal(vec3 world_pos) {
 				return normalize(lighting_data.camera_position.xyz - world_pos);
 			}
@@ -521,9 +581,12 @@ return {
 					return;
 				}
 
-				vec3 N = get_normal();
 				vec3 world_pos = get_world_pos(depth);
 				vec3 V = get_view_normal(world_pos);
+				// a normal map can turn a pixel away from the camera; shading it
+				// like that zeroes both the diffuse (fresnel -> 1) and the
+				// specular (grazing brdf) terms and leaves a black rim
+				vec3 N = bend_normal_to_view(get_normal(), V);
 
 
 				vec3 albedo = get_albedo();
@@ -537,7 +600,7 @@ return {
 				vec3 emissive = subsurface > 0.0 ? vec3(0.0) : get_emissive();
 				vec3 F0 = mix(vec3(0.04), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
-				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
+				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N, get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N));
 
 				if (LIGHT_DEBUG_DIRECT > 0) {
 					set_color(vec4(direct, 1.0));

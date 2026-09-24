@@ -154,6 +154,13 @@ function ibl.GetEnvironmentGLSLCode()
 				return normalize(vec3(-dir.x, dir.y, dir.z));
 			}
 
+			// a normal mapped normal can face away from the viewer, and reflecting
+			// about it would point into the surface. nudge it until it faces V
+			vec3 bend_normal_to_view(vec3 normal, vec3 V) {
+				float NoV = dot(normal, V);
+				return NoV < 0.01 ? normalize(normal + V * (0.01 - NoV)) : normal;
+			}
+
 			// Frostbite's fit of the direction the GGX lobe is centered on:
 			// rough surfaces reflect closer to the normal than the mirror direction.
 			vec3 get_specular_dominant_direction(vec3 reflection_dir, vec3 normal, float perceptual_roughness) {

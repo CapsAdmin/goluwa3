@@ -8,11 +8,19 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local system = import("goluwa/system.lua")
 local light_occlusion = library()
-light_occlusion.oct_size = 256
+-- Per light octahedral maps of the distance to the nearest hit, stored as
+-- the mean and mean square over a blurred neighbourhood of directions so a
+-- lookup can estimate how much of that neighbourhood hides a point
+-- (Chebyshev, like variance shadow maps). The blur trades accuracy for soft
+-- edges that don't show the map's low resolution.
+light_occlusion.oct_size = 128
 light_occlusion.subs = 1
 light_occlusion.bias = 0.01
-light_occlusion.blur = 0
-light_occlusion.softness = 0
+-- blur radius in texels
+light_occlusion.blur = 1.5
+-- how much of the Chebyshev bound's tail is cut off, against light bleeding
+-- through where occluders at different distances overlap
+light_occlusion.bleed_reduction = 0.5
 local LIGHT_OCCL_MAX_TRACES_PER_FRAME = 4
 local LIGHT_OCCL_RETRACE_INTERVAL = 4
 local LIGHT_OCCL_MOVE_TOLERANCE_SQ = 0.02 * 0.02
@@ -21,7 +29,8 @@ local BINDING_UNIFORM = 0
 local BINDING_MAP = 1
 local BINDING_BVH_NODES = 2
 local BINDING_BVH_TRIANGLES = 3
-local BINDING_VERSION = 4
+local BINDING_BLUR_SRC = 1
+local BINDING_BLUR_DST = 2
 
 local function octahedral_glsl()
 	return [[
@@ -57,19 +66,19 @@ local MAP_SAMPLER_CONFIG = {
 	wrap_r = "clamp_to_edge",
 }
 
-local function create_map_texture(size, format, debug_name, usage, sampler)
+local function create_map_texture(size, layers, debug_name, usage, sampler)
 	local texture = Texture.New{
 		width = size,
 		height = size,
-		format = format,
+		format = "r32g32_sfloat",
 		mip_map_levels = 1,
 		image = {
-			array_layers = MAX_LIGHTS,
+			array_layers = layers,
 			usage = usage,
 		},
 		view = {
 			view_type = "2d_array",
-			layer_count = MAX_LIGHTS,
+			layer_count = layers,
 		},
 		sampler = sampler,
 	}
@@ -109,11 +118,13 @@ local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 end
 
 -- consumes the boxes scene_bvh recorded while the tree was dirty and marks
--- every light whose range overlaps one of them as stale
+-- every light whose range overlaps one of them as stale. Invalidate bumps the
+-- version before the rebuild, so while one is pending the boxes wait for it,
+-- or the lights would be retraced against the old tree and never again.
 local function process_geometry_change(lights)
 	local version = scene_bvh.version
 
-	if geom_version == version then return end
+	if geom_version == version or scene_bvh.dirty_since then return end
 
 	geom_version = version
 	local dirty_all = scene_bvh.dirty_all
@@ -153,7 +164,6 @@ local function build_trace_pipeline()
 		LocalSize = {x = 8, y = 8, z = 1},
 		storage_images = {
 			{binding_index = BINDING_MAP},
-			{binding_index = BINDING_VERSION},
 		},
 		storage_buffers = {
 			{binding_index = BINDING_BVH_NODES},
@@ -165,8 +175,7 @@ local function build_trace_pipeline()
 				binding_index = BINDING_UNIFORM,
 				block = {
 					{"oct_positions", "vec4", MAX_LIGHTS},
-					{"slot_at_z", "int", MAX_LIGHTS},
-					{"occl_stamps", "int", MAX_LIGHTS},
+					{"slot_at_z", "int", LIGHT_OCCL_MAX_TRACES_PER_FRAME},
 					{"oct_size", "int"},
 				},
 				write = function(self, block)
@@ -184,9 +193,10 @@ local function build_trace_pipeline()
 							block.oct_positions[i][2] = 0
 							block.oct_positions[i][3] = 0
 						end
+					end
 
+					for i = 0, LIGHT_OCCL_MAX_TRACES_PER_FRAME - 1 do
 						block.slot_at_z[i] = slot_at_z[i + 1] or 0
-						block.occl_stamps[i] = stamps[i + 1] or 0
 					end
 
 					block.oct_size = get_map_size()
@@ -196,10 +206,9 @@ local function build_trace_pipeline()
 		},
 		custom_declarations = (
 				[[
-			layout(set = 0, binding = %d, r32f) uniform writeonly image2DArray light_oct_map;
-			layout(set = 0, binding = %d, r32ui) uniform uimage2DArray light_oct_version;
+			layout(set = 0, binding = %d, rg32f) uniform writeonly image2DArray light_oct_map;
 		]]
-			):format(BINDING_MAP, BINDING_VERSION) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES),
+			):format(BINDING_MAP) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES),
 		shader = (
 				[[
 			const float LIGHT_OCCL_T_MIN = 0.05;
@@ -214,42 +223,111 @@ local function build_trace_pipeline()
 				ivec2 p = ivec2(gl_GlobalInvocationID.xy);
 				int slot = oct_data.slot_at_z[gl_GlobalInvocationID.z];
 				vec4 light = oct_data.oct_positions[slot];
-				uint stamp = uint(oct_data.occl_stamps[slot]);
 				int size = oct_data.oct_size;
 
-				uint version = imageLoad(light_oct_version, ivec3(p, slot)).r;
+				if (p.x >= size || p.y >= size) return;
 
-				if (version >= stamp) return;
-
-				float fsize = float(size);
-				float dist = 0.0;
-				bool clear = false;
-
-				vec2 uv0 = vec2(p) / fsize;
-				vec2 uv_step = vec2(1.0) / (fsize * float(LIGHT_OCCL_SUBS));
+				// a ray that hits nothing counts as a hit at the range
+				vec2 moments = vec2(0.0);
+				vec2 uv0 = vec2(p) / float(size);
+				vec2 uv_step = vec2(1.0) / (float(size) * float(LIGHT_OCCL_SUBS));
 				scene_bvh_hit hit;
 
 				for (int sy = 0; sy < LIGHT_OCCL_SUBS; sy++) {
 					for (int sx = 0; sx < LIGHT_OCCL_SUBS; sx++) {
-						vec2 uv = uv0 + (vec2(sx, sy) + 0.5) * uv_step;
-						vec3 dir = light_oct_decode(uv);
-
-						if (scene_bvh_trace(light.xyz, dir, LIGHT_OCCL_T_MIN, light.w, hit)) {
-							dist = max(dist, hit.distance);
-						} else {
-							clear = true;
-							sy = LIGHT_OCCL_SUBS;
-						}
+						vec3 dir = light_oct_decode(uv0 + (vec2(sx, sy) + 0.5) * uv_step);
+						float dist = scene_bvh_trace(light.xyz, dir, LIGHT_OCCL_T_MIN, light.w, hit) ? hit.distance : light.w;
+						moments += vec2(dist, dist * dist);
 					}
 				}
 
-				if (clear) dist = light.w;
-
-				imageStore(light_oct_map, ivec3(p, slot), vec4(dist));
-				imageStore(light_oct_version, ivec3(p, slot), uvec4(stamp));
+				imageStore(light_oct_map, ivec3(p, slot), vec4(moments / float(LIGHT_OCCL_SUBS * LIGHT_OCCL_SUBS), 0.0, 0.0));
 			}
 		]]
 			),
+	}
+end
+
+-- One gaussian pass along x or y over the maps just traced: horizontal reads
+-- the light's layer and writes the scratch layer, vertical writes it back.
+-- A texel past an edge of the octahedral map is the one mirrored across that
+-- edge's midpoint, the direction the edge folds onto.
+local function build_blur_pipeline(horizontal)
+	return EasyPipeline.Compute{
+		name = horizontal and "light_occlusion_blur_x" or "light_occlusion_blur_y",
+		DescriptorSetCount = get_frame_span(),
+		LocalSize = {x = 8, y = 8, z = 1},
+		storage_images = {
+			{binding_index = BINDING_BLUR_SRC},
+			{binding_index = BINDING_BLUR_DST},
+		},
+		uniform_buffers = {
+			{
+				name = "blur_data",
+				binding_index = BINDING_UNIFORM,
+				block = {
+					{"slot_at_z", "int", LIGHT_OCCL_MAX_TRACES_PER_FRAME},
+					{"oct_size", "int"},
+					{"radius", "int"},
+				},
+				write = function(self, block)
+					for i = 0, LIGHT_OCCL_MAX_TRACES_PER_FRAME - 1 do
+						block.slot_at_z[i] = slot_at_z[i + 1] or 0
+					end
+
+					block.oct_size = get_map_size()
+					block.radius = math.ceil(light_occlusion.blur)
+					return block
+				end,
+			},
+		},
+		custom_declarations = ([[
+			layout(set = 0, binding = %d, rg32f) uniform readonly image2DArray blur_src;
+			layout(set = 0, binding = %d, rg32f) uniform writeonly image2DArray blur_dst;
+		]]):format(BINDING_BLUR_SRC, BINDING_BLUR_DST),
+		shader = [[
+			const bool HORIZONTAL = ]] .. tostring(horizontal) .. [[;
+			const float SIGMA = ]] .. string.format("%.4f", math.max(light_occlusion.blur, 0.5) * 0.5 + 0.25) .. [[;
+
+			ivec2 oct_wrap(ivec2 p, int n) {
+				if (p.x < 0) {
+					p = ivec2(-p.x - 1, n - 1 - p.y);
+				} else if (p.x >= n) {
+					p = ivec2(2 * n - 1 - p.x, n - 1 - p.y);
+				}
+
+				if (p.y < 0) {
+					p = ivec2(n - 1 - p.x, -p.y - 1);
+				} else if (p.y >= n) {
+					p = ivec2(n - 1 - p.x, 2 * n - 1 - p.y);
+				}
+
+				return p;
+			}
+
+			void main() {
+				ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+				int n = blur_data.oct_size;
+
+				if (p.x >= n || p.y >= n) return;
+
+				int z = int(gl_GlobalInvocationID.z);
+				int slot = blur_data.slot_at_z[z];
+				int src_layer = HORIZONTAL ? slot : z;
+				int dst_layer = HORIZONTAL ? z : slot;
+				ivec2 axis = HORIZONTAL ? ivec2(1, 0) : ivec2(0, 1);
+				vec2 sum = vec2(0.0);
+				float weight_sum = 0.0;
+
+				for (int i = -blur_data.radius; i <= blur_data.radius; i++) {
+					float w = exp(-float(i * i) / (2.0 * SIGMA * SIGMA));
+					sum += imageLoad(blur_src, ivec3(oct_wrap(p + axis * i, n), src_layer)).rg * w;
+					weight_sum += w;
+				}
+
+				imageStore(blur_dst, ivec3(p, dst_layer), vec4(sum / weight_sum, 0.0, 0.0));
+			}
+		]],
 	}
 end
 
@@ -258,16 +336,16 @@ local function ensure_map_texture()
 		local size = light_occlusion.oct_size
 		light_occlusion.map_texture = create_map_texture(
 			size,
-			"r32_sfloat",
+			MAX_LIGHTS,
 			"light_occlusion_map",
 			{"sampled", "storage", "transfer_src", "transfer_dst"},
 			MAP_SAMPLER_CONFIG
 		)
-		light_occlusion.version_texture = create_map_texture(
+		light_occlusion.scratch_texture = create_map_texture(
 			size,
-			"r32_uint",
-			"light_occlusion_version",
-			{"sampled", "storage", "transfer_src"},
+			LIGHT_OCCL_MAX_TRACES_PER_FRAME,
+			"light_occlusion_blur_scratch",
+			{"storage"},
 			nil
 		)
 		light_occlusion.map_size = size
@@ -279,6 +357,10 @@ local function ensure_resources()
 
 	if not light_occlusion.trace_pipeline then
 		light_occlusion.trace_pipeline = build_trace_pipeline()
+	end
+
+	if not light_occlusion.blur_pipelines then
+		light_occlusion.blur_pipelines = {build_blur_pipeline(true), build_blur_pipeline(false)}
 	end
 end
 
@@ -382,35 +464,83 @@ function light_occlusion.Draw(cmd)
 	ensure_resources()
 	local pipeline = light_occlusion.trace_pipeline
 	local map_texture = light_occlusion.map_texture
-	local version_texture = light_occlusion.version_texture
+	local scratch_texture = light_occlusion.scratch_texture
 	local slot = get_descriptor_slot()
 	render.TransitionResourceToComputeStorage(map_texture, {cmd = cmd, base_array_layer = 0, layer_count = MAX_LIGHTS})
-	render.TransitionResourceToComputeStorage(version_texture, {cmd = cmd, base_array_layer = 0, layer_count = MAX_LIGHTS})
+	render.TransitionResourceToComputeStorage(
+		scratch_texture,
+		{cmd = cmd, base_array_layer = 0, layer_count = LIGHT_OCCL_MAX_TRACES_PER_FRAME}
+	)
 	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_MAP, 0, map_texture:GetView())
-	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_VERSION, 0, version_texture:GetView())
 	scene_bvh.BindBuffers(pipeline, slot, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
 	pipeline:UploadConstants()
 	local size = get_map_size()
 	light_occlusion.last_dispatches = dirty_count
 	gpu_timing.BeginScope(cmd, "light_occlusion")
-	pipeline.pipeline:Dispatch(cmd, size, size, dirty_count, slot, pipeline.dynamic_offsets)
-	gpu_timing.EndScope(cmd, "light_occlusion")
+	pipeline.pipeline:Dispatch(
+		cmd,
+		math.ceil(size / 8),
+		math.ceil(size / 8),
+		dirty_count,
+		slot,
+		pipeline.dynamic_offsets
+	)
 
-	for _, texture in ipairs({map_texture, version_texture}) do
-		render.TransitionResourceFrom(
-			texture,
-			"shader_read_only_optimal",
-			{
-				cmd = cmd,
+	if light_occlusion.blur > 0 then
+		for pass = 1, 2 do
+			local blur = light_occlusion.blur_pipelines[pass]
+			local src, dst = map_texture, scratch_texture
+
+			if pass == 2 then src, dst = scratch_texture, map_texture end
+
+			cmd:PipelineBarrier{
 				srcStage = "compute",
-				srcAccess = "shader_write",
 				dstStage = "compute",
-				dstAccess = "shader_read",
-				base_array_layer = 0,
-				layer_count = MAX_LIGHTS,
+				imageBarriers = {
+					{
+						image = src:GetImage(),
+						oldLayout = "general",
+						newLayout = "general",
+						srcAccessMask = "shader_write",
+						dstAccessMask = "shader_read",
+					},
+					{
+						image = dst:GetImage(),
+						oldLayout = "general",
+						newLayout = "general",
+						srcAccessMask = "shader_read",
+						dstAccessMask = "shader_write",
+					},
+				},
 			}
-		)
+			blur:UpdateDescriptorSet("storage_image", slot, BINDING_BLUR_SRC, 0, src:GetView())
+			blur:UpdateDescriptorSet("storage_image", slot, BINDING_BLUR_DST, 0, dst:GetView())
+			blur:UploadConstants()
+			blur.pipeline:Dispatch(
+				cmd,
+				math.ceil(size / 8),
+				math.ceil(size / 8),
+				dirty_count,
+				slot,
+				blur.dynamic_offsets
+			)
+		end
 	end
+
+	gpu_timing.EndScope(cmd, "light_occlusion")
+	render.TransitionResourceFrom(
+		map_texture,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "compute",
+			srcAccess = "shader_write",
+			dstStage = "compute",
+			dstAccess = "shader_read",
+			base_array_layer = 0,
+			layer_count = MAX_LIGHTS,
+		}
+	)
 
 	for i = 1, dirty_count do
 		local light_index = slot_at_z[i] + 1
@@ -448,7 +578,7 @@ function light_occlusion.GetDebugState()
 		frame = system.GetFrameNumber(),
 		bias = light_occlusion.bias,
 		blur = light_occlusion.blur,
-		softness = light_occlusion.softness,
+		bleed_reduction = light_occlusion.bleed_reduction,
 		oct_size = get_map_size(),
 		max_traces = LIGHT_OCCL_MAX_TRACES_PER_FRAME,
 		lights = {},
@@ -486,11 +616,6 @@ function light_occlusion.GetOcclusionTexture()
 	return light_occlusion.map_texture
 end
 
-function light_occlusion.GetVersionTexture()
-	ensure_map_texture()
-	return light_occlusion.version_texture
-end
-
 function light_occlusion.GetDeclarationGLSL(binding, set)
 	return (
 		[[
@@ -517,15 +642,13 @@ function light_occlusion.GetBlockLayout()
 		{"bvh_oct_active", "int"},
 		{"bvh_oct_size", "int"},
 		{"bvh_oct_bias", "float"},
-		{"bvh_oct_blur", "float"},
-		{"bvh_oct_softness", "float"},
+		{"bvh_oct_bleed_reduction", "float"},
 	}
 end
 
--- lights is the packed visible light list from scene_lights.GetVisibleLights,
--- instance_indices maps each packed slot back to its Light.Instances index,
--- which is what the occlusion maps and their state are keyed by
-function light_occlusion.WriteOcclusionBlock(block, lights, instance_indices)
+-- lights is render3d.GetLights, which the occlusion maps and their state are
+-- keyed by
+function light_occlusion.WriteOcclusionBlock(block, lights)
 	for i = 0, MAX_LIGHTS - 1 do
 		block.bvh_oct_slot[i] = -1
 	end
@@ -533,13 +656,11 @@ function light_occlusion.WriteOcclusionBlock(block, lights, instance_indices)
 	local active = 0
 
 	if scene_bvh.IsReady() and scene_bvh.LightOcclusion ~= false then
-		for packed_index = 1, #lights do
-			local light = lights[packed_index]
-			local light_index = instance_indices[packed_index]
+		for light_index = 1, math.min(#lights, MAX_LIGHTS) do
 			local info = state[light_index]
 
-			if info and info.light == light then
-				block.bvh_oct_slot[packed_index - 1] = light_index - 1
+			if info and info.light == lights[light_index] then
+				block.bvh_oct_slot[light_index - 1] = light_index - 1
 				active = 1
 			end
 		end
@@ -548,8 +669,7 @@ function light_occlusion.WriteOcclusionBlock(block, lights, instance_indices)
 	block.bvh_oct_active = active
 	block.bvh_oct_size = get_map_size()
 	block.bvh_oct_bias = light_occlusion.bias
-	block.bvh_oct_blur = light_occlusion.blur
-	block.bvh_oct_softness = light_occlusion.softness
+	block.bvh_oct_bleed_reduction = light_occlusion.bleed_reduction
 end
 
 function light_occlusion.GetSamplingGLSL(data_block)
@@ -559,23 +679,6 @@ function light_occlusion.GetSamplingGLSL(data_block)
 
 		]] .. octahedral_glsl() .. [[
 
-		float light_oct_fetch(int slot, vec3 dir) {
-			vec2 uv = light_oct_encode(dir);
-
-			if (]] .. data_block .. [[.bvh_oct_blur <= 0.0) {
-				return texture(light_oct_map, vec3(uv, float(slot))).r;
-			}
-
-			vec2 o = vec2(]] .. data_block .. [[.bvh_oct_blur / float(]] .. data_block .. [[.bvh_oct_size));
-			return (
-				texture(light_oct_map, vec3(uv, float(slot))).r +
-				texture(light_oct_map, vec3(uv + vec2(o.x, 0.0), float(slot))).r +
-				texture(light_oct_map, vec3(uv - vec2(o.x, 0.0), float(slot))).r +
-				texture(light_oct_map, vec3(uv + vec2(0.0, o.y), float(slot))).r +
-				texture(light_oct_map, vec3(uv - vec2(0.0, o.y), float(slot))).r
-			) * 0.2;
-		}
-
 		float light_oct_shadow_factor(int slot, vec3 light_pos, float range, vec3 world_pos) {
 			if (slot < 0 || slot >= LIGHT_OCCL_MAX_SLOTS || ]] .. data_block .. [[.bvh_oct_active == 0) return 1.0;
 			vec3 to_pos = world_pos - light_pos;
@@ -583,37 +686,41 @@ function light_occlusion.GetSamplingGLSL(data_block)
 
 			if (dist >= range) return 1.0;
 
-			float occl = light_oct_fetch(slot, to_pos / max(dist, 1e-5));
+			vec2 moments = texture(light_oct_map, vec3(light_oct_encode(to_pos / max(dist, 1e-5)), float(slot))).rg;
 
-			// 0 means the texel was never traced (the map is zero initialized)
-			// and is assumed clear, it will be traced on the next dispatch
-			if (occl <= 0.0) return 1.0;
+			// 0 means the map was never traced (it is zero initialized) and is
+			// assumed clear, it will be traced on the next dispatch
+			if (moments.x <= 0.0) return 1.0;
 
-			if (]] .. data_block .. [[.bvh_oct_softness <= 0.0) {
-				return dist > occl + occl * ]] .. data_block .. [[.bvh_oct_bias ? 0.0 : 1.0;
-			}
+			float bias = ]] .. data_block .. [[.bvh_oct_bias;
+			float d = dist - moments.x * (1.0 + bias);
 
-			float margin = (dist - occl * (1.0 + ]] .. data_block .. [[.bvh_oct_bias)) /
-				max(occl * ]] .. data_block .. [[.bvh_oct_softness, 1e-5);
-			return 1.0 - smoothstep(0.0, 1.0, margin);
+			if (d <= 0.0) return 1.0;
+
+			float min_std = moments.x * bias;
+			float variance = max(moments.y - moments.x * moments.x, min_std * min_std);
+			float bleed = ]] .. data_block .. [[.bvh_oct_bleed_reduction;
+			return clamp((variance / (variance + d * d) - bleed) / (1.0 - bleed), 0.0, 1.0);
 		}
 	]]
 		)
 end
 
-commands.Add("light_occlusion_bias=number[0.045]", function(bias)
+commands.Add("light_occlusion_bias=number[0.01]", function(bias)
 	light_occlusion.bias = bias
 	logf("[light_occlusion] bias %g\n", bias)
 end)
 
-commands.Add("light_occlusion_blur=number[0]", function(blur)
+commands.Add("light_occlusion_blur=number[1.5]", function(blur)
 	light_occlusion.blur = math.max(0, blur)
+	light_occlusion.blur_pipelines = nil
+	light_occlusion.Reset()
 	logf("[light_occlusion] blur radius %.1f texels\n", light_occlusion.blur)
 end)
 
-commands.Add("light_occlusion_softness=number[0]", function(softness)
-	light_occlusion.softness = math.max(0, softness)
-	logf("[light_occlusion] softness margin %g\n", light_occlusion.softness)
+commands.Add("light_occlusion_bleed_reduction=number[0.5]", function(amount)
+	light_occlusion.bleed_reduction = math.clamp(amount, 0, 0.95)
+	logf("[light_occlusion] bleed reduction %g\n", light_occlusion.bleed_reduction)
 end)
 
 commands.Add("light_occlusion_subs=number[1]", function(subs)
@@ -627,7 +734,7 @@ commands.Add("light_occlusion_subs=number[1]", function(subs)
 	logf("[light_occlusion] sub rays per texel %d\n", light_occlusion.subs)
 end)
 
-commands.Add("light_occlusion_size=number[64]", function(size)
+commands.Add("light_occlusion_size=number[128]", function(size)
 	light_occlusion.oct_size = math.clamp(math.floor(size), 16, 256)
 	logf(
 		"[light_occlusion] octahedral map size %d%s\n",
@@ -639,12 +746,12 @@ end)
 commands.Add("lo_debug", function()
 	local debug_state = light_occlusion.GetDebugState()
 	logf(
-		"[light_occlusion] frame %d, %d occlusion lights, bias %g blur %g softness %g oct %d\n",
+		"[light_occlusion] frame %d, %d occlusion lights, bias %g blur %g bleed reduction %g oct %d\n",
 		debug_state.frame,
 		#debug_state.lights,
 		debug_state.bias,
 		debug_state.blur,
-		debug_state.softness,
+		debug_state.bleed_reduction,
 		debug_state.oct_size
 	)
 

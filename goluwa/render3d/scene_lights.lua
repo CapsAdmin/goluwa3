@@ -1,69 +1,18 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
-local system = import("goluwa/system.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local scene_lights = {}
-scene_lights.MAX_LIGHTS = 128
+scene_lights.MAX_LIGHTS = 256
 scene_lights.MAX_CASCADES = directional_shadows.MAX_CASCADES
-scene_lights.MAX_POINT_SHADOWS = 4
+scene_lights.MAX_POINT_SHADOWS = 32
 
+-- lights whose range reaches the camera first, then by how far their range is
 local function sort_lights(a, b)
-	if a.last_update_frame ~= b.last_update_frame then
-		return a.last_update_frame > b.last_update_frame
-	end
-
 	if a.distance_score ~= b.distance_score then
 		return a.distance_score < b.distance_score
 	end
 
 	return a.light_index < b.light_index
-end
-
-local function is_frustum_cullable(light)
-	local light_type = light.Type
-	return light_type == "light_point" or light_type == "light_spot"
-end
-
-function scene_lights.IsLightVisible(light)
-	if not is_frustum_cullable(light) then return true end
-
-	local position = light.Owner.transform:GetPosition()
-	return render3d.SphereInFrustum(position.x, position.y, position.z, light:GetEffectiveRange())
-end
-
-local visible_lights = {}
-local visible_instance_indices = {}
-local visible_frame = -1
-
--- the lighting, fog and shadow submission all iterate this packed list so
--- the fragment shaders only loop over lights that can reach a visible pixel
-function scene_lights.GetVisibleLights()
-	local frame = system.GetFrameNumber()
-
-	if visible_frame == frame then
-		return visible_lights, visible_instance_indices
-	end
-
-	local all = render3d.GetLights()
-	local count = 0
-
-	for i = 1, math.min(#all, scene_lights.MAX_LIGHTS) do
-		local light = all[i]
-
-		if scene_lights.IsLightVisible(light) then
-			count = count + 1
-			visible_lights[count] = light
-			visible_instance_indices[count] = i
-		end
-	end
-
-	for i = count + 1, #visible_lights do
-		visible_lights[i] = nil
-		visible_instance_indices[i] = nil
-	end
-
-	visible_frame = frame
-	return visible_lights, visible_instance_indices
 end
 
 function scene_lights.BuildLightsBlockLayout()
@@ -108,12 +57,18 @@ function scene_lights.GetLightGLSLCode()
 				return normalize(light.direction.xyz);
 			}
 
+			// the w of the direction is the light's source radius
+			float get_light_source_radius(lights_t light) {
+				return light.direction.w;
+			}
+
 			// Inverse square falloff that reaches exactly zero at the light's
-			// range instead of cutting off with a visible edge.
-			float get_light_distance_attenuation(float dist, float range) {
+			// range instead of cutting off with a visible edge. The source
+			// radius flattens it near the light: 1 / (d^2 + r^2).
+			float get_light_distance_attenuation(float dist, float range, float radius) {
 				float ratio = dist / range;
 				float window = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
-				return window * window / max(dist * dist, 0.0025);
+				return window * window / max(dist * dist + radius * radius, 0.0025);
 			}
 
 			bool get_light_vector_and_attenuation(lights_t light, vec3 world_pos, out vec3 L, out float attenuation) {
@@ -136,7 +91,7 @@ function scene_lights.GetLightGLSLCode()
 					}
 
 					L = light_to_pos / dist;
-					attenuation = get_light_distance_attenuation(dist, range) * light.params.w;
+					attenuation = get_light_distance_attenuation(dist, range, get_light_source_radius(light)) * light.params.w;
 					return true;
 				}
 
@@ -158,7 +113,7 @@ function scene_lights.GetLightGLSLCode()
 					}
 
 					L = light_dir;
-					attenuation = in_front * get_light_distance_attenuation(dist, range) * light.params.w;
+					attenuation = in_front * get_light_distance_attenuation(dist, range, get_light_source_radius(light)) * light.params.w;
 					return true;
 				}
 
@@ -175,7 +130,7 @@ function scene_lights.GetLightGLSLCode()
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
 					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, from_light / dist));
 					L = normalize(light.position.xyz - world_pos);
-					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range) * light.params.w;
+					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range, get_light_source_radius(light)) * light.params.w;
 					return true;
 				}
 
@@ -196,6 +151,7 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 				rotation:GetForward()
 			light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
 			direction:CopyToFloatPointer(data.direction)
+			data.direction[3] = light.SourceRadius
 
 			if light.Type == "light_sun" then
 				data.position[3] = 0
@@ -361,14 +317,13 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 					local dx = position.x - camera_position.x
 					local dy = position.y - camera_position.y
 					local dz = position.z - camera_position.z
-					distance_score = dx * dx + dy * dy + dz * dz
+					distance_score = math.max(math.sqrt(dx * dx + dy * dy + dz * dz) - shadow_map:GetFarPlane(), 0)
 				end
 
 				point_shadow_candidates[#point_shadow_candidates + 1] = {
 					light = light,
 					shadow_map = shadow_map,
 					light_index = light_index - 1,
-					last_update_frame = shadow_map.last_update_frame or -1,
 					distance_score = distance_score,
 				}
 

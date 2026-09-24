@@ -45,6 +45,11 @@ ddgi.RAYS_PER_PROBE = 128
 -- sampling), so samples aren't spent on faces turned away or far off.
 ddgi.EMITTER_SAMPLES = 32
 ddgi.EMITTER_CANDIDATES = 8
+-- A ray hit is lit by LIGHT_SAMPLES of the local lights in its light grid
+-- cell with a shadow ray each, not all of them: each picked in proportion to
+-- the light it would bring unshadowed and weighted back by that probability,
+-- so the probes' blending averages out the noise. At most 4.
+ddgi.LIGHT_SAMPLES = 2
 -- octahedral tile sizes including the one texel border that makes bilinear
 -- sampling wrap correctly across the octahedron's edges
 ddgi.IRRADIANCE_TEXELS = 8
@@ -386,7 +391,7 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_MISS_DISTANCE %.1e
 		#define DDGI_SUN_VISIBLE_BIT 0x80000000u
 		#define DDGI_SHADOW_OFFSET 0.02
-		#define DDGI_MAX_LIGHTS %d
+		#define DDGI_LIGHT_SAMPLES %d
 		#define DDGI_BACKFACE_SCALE 0.2
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
 		// as unsigned), so shift into the positive range before wrapping
@@ -401,7 +406,7 @@ function ddgi.GetDefinesGLSL()
 		ddgi.IRRADIANCE_TEXELS,
 		ddgi.DISTANCE_TEXELS,
 		ddgi.MISS_DISTANCE,
-		scene_lights.MAX_LIGHTS
+		ddgi.LIGHT_SAMPLES
 	)
 end
 
@@ -449,6 +454,42 @@ end
 -- (which traces it) and the shade pass (which lights with it); both derive the
 -- same random numbers from the sample's ray index and the frame. Needs
 -- ddgi_emitters and scene_bvh_triangles.
+-- The material buffer written by ddgi.WriteMaterialBuffer, indexed by a soup
+-- triangle's material id.
+function ddgi.GetMaterialDeclarationsGLSL(binding)
+	return [[
+		struct ddgi_material {
+			vec3 albedo;
+			int albedo_tex;
+			int double_sided;
+		};
+		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
+			ddgi_material ddgi_materials[];
+		};
+	]]
+end
+
+-- needs render3d.GetEmissiveGLSL
+function ddgi.GetMaterialGLSL()
+	return [[
+		// no uvs at a hit, so textured surfaces use the texture's average
+		// colour from its smallest mip
+		vec3 ddgi_albedo(ddgi_material material) {
+			vec3 albedo = material.albedo;
+
+			if (material.albedo_tex >= 0) {
+				albedo *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
+			}
+
+			return albedo;
+		}
+
+		vec3 ddgi_emission(scene_bvh_triangle tri, vec3 albedo) {
+			return min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+		}
+	]]
+end
+
 function ddgi.GetEmitterGLSL()
 	return [[
 		// pcg4d (Jarzynski and Olano 2020)
@@ -948,23 +989,6 @@ function ddgi.GetRayHitBuffer()
 	return ray_hit_buffer
 end
 
--- One uint per ray: bit i % 32 is cleared when light i reaches the hit but a
--- shadow ray towards it is blocked. Lights sharing a bit darken each other
--- only when both reach the same hit, which needs more than 32 lights.
-local light_mask_buffer = nil
-
-function ddgi.GetLightMaskBuffer()
-	if not light_mask_buffer then
-		light_mask_buffer = render.CreateBuffer{
-			byte_size = ddgi.GetRayCount() * 4,
-			buffer_usage = {"storage_buffer"},
-			memory_property = {"device_local"},
-			label = "ddgi_light_masks",
-		}
-	end
-
-	return light_mask_buffer
-end
 
 -- Every emissive triangle of the scene soup, with the running sum of its
 -- power (area x emission luminance) for picking one in proportion to it.
@@ -1053,8 +1077,9 @@ do
 	end
 end
 
--- The per-material data the shade pass reads through the soup's material id,
--- one host-visible copy per frame in flight.
+-- The per-material data read through the soup's material id, one
+-- host-visible copy per pipeline (texture indices are per pipeline) and frame
+-- in flight.
 local Material = ffi.typeof([[struct {
 	float albedo[3];
 	int32_t albedo_tex;
@@ -1063,12 +1088,14 @@ local Material = ffi.typeof([[struct {
 local MaterialArray = ffi.typeof("$[?]", Material)
 local MaterialPointer = ffi.typeof("$*", Material)
 local MATERIAL_SIZE = 20
-local material_buffers = {}
+local material_buffers = setmetatable({}, {__mode = "k"})
 
 function ddgi.WriteMaterialBuffer(self)
 	local frame = render.GetCurrentFrame()
 	local count = math.max(#scene_bvh.materials, 1)
-	local buffer = material_buffers[frame]
+	material_buffers[self] = material_buffers[self] or {}
+	local buffers = material_buffers[self]
+	local buffer = buffers[frame]
 
 	if not buffer or buffer:GetSize() < count * MATERIAL_SIZE then
 		if buffer then buffer:Remove() end
@@ -1080,7 +1107,7 @@ function ddgi.WriteMaterialBuffer(self)
 			label = "ddgi_materials",
 			data = MaterialArray(count * 2),
 		}
-		material_buffers[frame] = buffer
+		buffers[frame] = buffer
 	end
 
 	local out = ffi.cast(MaterialPointer, buffer:Map(0, buffer:GetSize()))
@@ -1110,15 +1137,11 @@ local RTParams = ffi.typeof(
 	float sun_direction[4];
 	float max_ray_distance;
 	float tmin;
-	int32_t light_count;
 	int32_t emitter_count;
 	uint32_t frame;
 	float light_radius;
-	float padding[2];
-	float lights[%d][4];
-	float light_directions[%d][4];
 }]]
-	):format(ddgi.CASCADES, ddgi.CASCADES, scene_lights.MAX_LIGHTS, scene_lights.MAX_LIGHTS)
+	):format(ddgi.CASCADES, ddgi.CASCADES)
 )
 local RTParamsPointer = ffi.typeof("$*", RTParams)
 local rt_params = {}
@@ -1164,25 +1187,9 @@ function ddgi.WriteRTParams()
 	p.sun_direction[3] = directional_shadows.GetPrimarySunIlluminance(lights) > 0 and 1 or 0
 	p.max_ray_distance = ddgi.MAX_RAY_DISTANCE
 	p.tmin = 0.0
-	p.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	p.emitter_count = ddgi.GetEmitters().count
 	p.frame = state.frame
 	p.light_radius = ddgi.LIGHT_RADIUS
-
-	-- the same lights in the same order as ddgi_data.lights
-	for i = 1, p.light_count do
-		local light = lights[i]
-		light.Owner.transform:GetPosition():CopyToFloatPointer(p.lights[i - 1])
-		p.lights[i - 1][3] = light.Type == "light_sun" and 0 or light:GetEffectiveRange()
-
-		if light.Type == "light_directional" then
-			light.Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(p.light_directions[i - 1])
-			p.light_directions[i - 1][3] = 1
-		else
-			p.light_directions[i - 1][3] = 0
-		end
-	end
-
 	return buffer
 end
 
@@ -1207,24 +1214,14 @@ layout(set = 0, binding = 0) uniform Params
     vec4 sun_direction;
     float max_ray_distance;
     float tmin;
-    int light_count;
     int emitter_count;
     uint frame;
     // in spacings, see ddgi.LIGHT_RADIUS
     float light_radius;
-    // xyz = position, w = range (0 for the sun, which has its own ray)
-    vec4 lights[DDGI_MAX_LIGHTS];
-    // xyz = direction back towards a local directional light's source, w = 1
-    // for those; their light travels in parallel rather than from a point
-    vec4 light_directions[DDGI_MAX_LIGHTS];
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
 {
     uvec2 hits[];
-};
-layout(set = 0, binding = 4) writeonly buffer LightMasks
-{
-    uint light_masks[];
 };
 layout(set = 0, binding = 2) uniform accelerationStructureEXT scene;
 // see ddgi_probe_data
@@ -1309,47 +1306,19 @@ void main()
     traceRayEXT(scene, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
     uint primitive = payload.primitive;
-    uint light_mask = 0xFFFFFFFFu;
 
-    // Light visibility from the hit, exact rather than from shadow maps that
-    // only cover the view (or don't exist for a light) and let light into
-    // sealed rooms. The shadow rays skip the closest hit shader, so only a
-    // miss changes the payload.
-    if (hit_t >= 0.0) {
-        vec3 hit_pos = origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0);
+    // The sun's visibility from the hit, exact rather than from shadow maps
+    // that only cover the view. The local lights get theirs in the shade pass
+    // (see ddgi_direct_light). The shadow rays skip the closest hit shader, so
+    // only a miss changes the payload.
+    if (hit_t >= 0.0 && params.sun_direction.w > 0.0) {
+        payload.hit_t = 1.0;
+        traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0), 0.0, normalize(params.sun_direction.xyz), params.max_ray_distance, 0);
 
-        if (params.sun_direction.w > 0.0) {
-            payload.hit_t = 1.0;
-            traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, hit_pos, 0.0, normalize(params.sun_direction.xyz), params.max_ray_distance, 0);
-
-            if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
-        }
-
-        for (int i = 0; i < params.light_count; i++) {
-            vec3 to_light = params.lights[i].xyz - hit_pos;
-            float dist = length(to_light);
-
-            if (dist >= params.lights[i].w || dist <= DDGI_SHADOW_OFFSET) continue;
-
-            vec3 L = to_light / dist;
-
-            if (params.light_directions[i].w > 0.0) {
-                L = params.light_directions[i].xyz;
-                dist = dot(to_light, L);
-
-                if (dist <= DDGI_SHADOW_OFFSET) continue;
-            }
-
-            payload.hit_t = 1.0;
-            // stops short of the light so a bulb mesh around it doesn't shadow it
-            traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, hit_pos, 0.0, L, dist - DDGI_SHADOW_OFFSET, 0);
-
-            if (payload.hit_t >= 0.0) light_mask &= ~(1u << uint(i & 31));
-        }
+        if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
     }
 
     hits[index] = uvec2(floatBitsToUint(hit_t), primitive);
-    light_masks[index] = light_mask;
 }
 ]]
 local closesthit_glsl = [[
@@ -1398,7 +1367,6 @@ function ddgi.GetRTPipeline()
 						{binding_index = 1, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
 						{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
-						{binding_index = 4, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 5, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 7, type = "storage_buffer", stageFlags = "all"},

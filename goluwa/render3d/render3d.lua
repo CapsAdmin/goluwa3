@@ -497,6 +497,7 @@ function render3d.CreatePipelineBundle(options)
 		import("goluwa/render3d/passes/radiance_cascades.lua")
 	local passes = options.passes or
 		{
+			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/ambient_occlusion.lua"),
 			import("goluwa/render3d/voxels/rasterize_pass.lua"),

@@ -57,6 +57,8 @@ scene_bvh.visual_cache = {}
 -- is much cheaper than re-running sah over every visual
 scene_bvh.top_layout = {}
 scene_bvh.top_node_count = 0
+-- top node index -> the block root it copies (see the top leaf writer)
+scene_bvh.top_leaf_roots = {}
 scene_bvh.top_lazy_count = 0
 -- every material that has been part of a build, indexed by the per-triangle
 -- material id + 1. ids are never reused so a cached block keeps pointing at
@@ -139,7 +141,7 @@ do
 	-- SAH over the items in the order[] range [first, first+count). Item i
 	-- holds its centroid at centroids[i*3] and its aabb at bounds[i*6]. Nodes
 	-- are written postorder into cfg.nodes; cfg.cursor tracks the next free
-	-- slot. Leaves are finalized by cfg.leaf_writer(node, first, count).
+	-- slot. Leaves are finalized by cfg.leaf_writer(node, first, count, node_index).
 	-- force_split turns failed splits into mid splits instead of leaves, for
 	-- trees whose leaves must hold exactly one item
 	local function build_sah(cfg, node_index, first, count, depth)
@@ -175,7 +177,7 @@ do
 		node.bounds_max[2] = max_z
 
 		if count <= cfg.leaf_size or (depth >= MAX_DEPTH and not cfg.force_split) then
-			cfg.leaf_writer(node, first, count)
+			cfg.leaf_writer(node, first, count, node_index)
 			return
 		end
 
@@ -332,7 +334,7 @@ do
 			and
 			not cfg.force_split
 		then
-			cfg.leaf_writer(node, first, count)
+			cfg.leaf_writer(node, first, count, node_index)
 			return
 		end
 
@@ -371,23 +373,18 @@ do
 	end
 
 	-- recompute top tree node bounds bottom-up without re-splitting. a top
-	-- internal node points into the top region and is the union of both
-	-- children; a top leaf points at a child root in the block region, whose
-	-- bounds already track the visual's current world aabb
+	-- internal node is the union of both children; a top leaf is a copy of a
+	-- block root, which already tracks the visual's current world aabb
 	local function rederive_top_node(index)
 		local nodes = scratch.nodes
 		local node = nodes[index]
-		local left = node.left_first
+		local root = scene_bvh.top_leaf_roots[index]
 
-		if left >= scene_bvh.top_node_count then
-			local c = nodes[left]
-			node.bounds_min[0] = c.bounds_min[0]
-			node.bounds_min[1] = c.bounds_min[1]
-			node.bounds_min[2] = c.bounds_min[2]
-			node.bounds_max[0] = c.bounds_max[0]
-			node.bounds_max[1] = c.bounds_max[1]
-			node.bounds_max[2] = c.bounds_max[2]
+		if root then
+			ffi.copy(nodes + index, nodes + root, NODE_BYTE_SIZE)
 		else
+			local left = node.left_first
+
 			rederive_top_node(left)
 			rederive_top_node(left + 1)
 			local a = nodes[left]
@@ -920,21 +917,23 @@ do
 		if n == 0 then
 			get_scratch(1, 1, 1)
 			local nodes = scratch.nodes
-			nodes[0].bounds_min[0] = 1
-			nodes[0].bounds_min[1] = 1
-			nodes[0].bounds_min[2] = 1
-			nodes[0].bounds_max[0] = -1
-			nodes[0].bounds_max[1] = -1
-			nodes[0].bounds_max[2] = -1
+			-- a count 0 node is an inner node, so the empty root must never be
+			-- entered: a point further away than any ray reaches
+			nodes[0].bounds_min[0] = -1e30
+			nodes[0].bounds_min[1] = -1e30
+			nodes[0].bounds_min[2] = -1e30
+			nodes[0].bounds_max[0] = -1e30
+			nodes[0].bounds_max[1] = -1e30
+			nodes[0].bounds_max[2] = -1e30
 			nodes[0].left_first = 0
 			nodes[0].count = 0
 			node_count = 1
 		else
 			local top_reserve = n * 2 - 1
-			get_scratch(top_reserve + triangle_total * 2 + n, math.max(triangle_total, 1), n)
+			get_scratch(top_reserve + triangle_total * 2, math.max(triangle_total, 1), n)
 			local nodes = scratch.nodes
 			local tri_out = scratch.tri_out
-			-- layout: [top reserve][visual 0 child nodes][sentinel]...
+			-- layout: [top reserve][visual 0 child nodes][visual 1 child nodes]...
 			local tri_base = 0
 			local node_base = top_reserve
 			local block_roots = {}
@@ -945,7 +944,7 @@ do
 				vc.block_base = node_base
 				block_roots[i] = node_base
 				tri_base = tri_base + vc.total
-				node_base = node_base + vc.node_count + 1
+				node_base = node_base + vc.node_count
 			end
 
 			node_count = node_base
@@ -962,10 +961,9 @@ do
 				end
 			end
 
-			-- assemble blocks: world soup and child nodes memcpy, then the
-			-- sentinel that closes each block. this runs before the top step
-			-- because the lazy re-derivation reads the child roots from the
-			-- assembled node buffer. blocks that are fast and were already
+			-- assemble blocks: world soup and child nodes memcpy. this runs
+			-- before the top step because top leaves copy the child roots from
+			-- the assembled node buffer. blocks that are fast and were already
 			-- assembled at this layout keep their scratch bytes
 			for i = 1, n do
 				local vc = blocks[i]
@@ -973,15 +971,6 @@ do
 				if vc.slow or vc.assembled_base ~= vc.block_base then
 					ffi.copy(tri_out + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
 					ffi.copy(nodes + vc.block_base, vc.child_world_nodes, vc.node_count * NODE_BYTE_SIZE)
-					local sentinel = nodes[vc.block_base + vc.node_count]
-					sentinel.left_first = 0
-					sentinel.count = 0
-					sentinel.bounds_min[0] = 1
-					sentinel.bounds_min[1] = 1
-					sentinel.bounds_min[2] = 1
-					sentinel.bounds_max[0] = -1
-					sentinel.bounds_max[1] = -1
-					sentinel.bounds_max[2] = -1
 					vc.assembled_base = vc.block_base
 				end
 			end
@@ -1013,9 +1002,9 @@ do
 				rederive_top_node(0)
 				scene_bvh.top_lazy_count = scene_bvh.top_lazy_count + 1
 			else
-				-- top level: SAH over the per-visual world aabbs. a leaf holds
-				-- one visual and points at (its child root, a dead sentinel
-				-- node), so the flat traversal descends into the child tree
+				-- top level: SAH over the per-visual world aabbs. a leaf is a copy
+				-- of one visual's child root, so traversal continues straight into
+				-- that visual's tree (or its triangles, for a one leaf tree)
 				local top_bounds = scratch.top_bounds
 				local top_centroids = scratch.top_centroids
 				local top_order = scratch.top_order
@@ -1035,6 +1024,7 @@ do
 				end
 
 				local cursor = {1}
+				local top_leaf_roots = {}
 				build_sah(
 					{
 						order = top_order,
@@ -1044,12 +1034,13 @@ do
 						cursor = cursor,
 						leaf_size = 1,
 						force_split = true,
-						leaf_writer = function(node, first, count)
-							node.count = 0
+						leaf_writer = function(node, first, count, node_index)
 							-- first is a sah position; the item at that position is
 							-- top_order[first] (sah reordered it in place), which is
 							-- the visual's 0-based index into the blocks
-							node.left_first = block_roots[top_order[first] + 1]
+							local root = block_roots[top_order[first] + 1]
+							ffi.copy(nodes + node_index, nodes + root, NODE_BYTE_SIZE)
+							top_leaf_roots[node_index] = root
 						end,
 					},
 					0,
@@ -1064,6 +1055,7 @@ do
 				end
 
 				scene_bvh.top_layout = layout
+				scene_bvh.top_leaf_roots = top_leaf_roots
 				scene_bvh.top_node_count = cursor[1]
 				scene_bvh.top_lazy_count = 0
 			end
@@ -1087,7 +1079,7 @@ do
 				if vc.slow then
 					node_buffer:CopyData(
 						scratch.nodes + vc.block_base,
-						(vc.node_count + 1) * NODE_BYTE_SIZE,
+						vc.node_count * NODE_BYTE_SIZE,
 						vc.block_base * NODE_BYTE_SIZE
 					)
 					tri_buffer:CopyData(vc.world_block, vc.total * TRIANGLE_BYTE_SIZE, vc.tri_base * TRIANGLE_BYTE_SIZE)
@@ -1266,8 +1258,8 @@ function scene_bvh.EnsureBuilt()
 	scene_bvh.Build()
 end
 
-function scene_bvh.Invalidate()
-	Visual.Library.ResetWorldAABBSignatures()
+function scene_bvh.Invalidate(component)
+	Visual.Library.ForgetWorldAABB(component)
 
 	-- keep the first change time so the wait window is not slid by every
 	-- subsequent transform change
@@ -1298,6 +1290,27 @@ function scene_bvh.BindBuffers(pipeline, descriptor_index, node_binding, triangl
 	)
 end
 
+-- the triangle soup alone, for shaders that only look up hits (by the ray
+-- query's primitive index, which is the soup index)
+function scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
+	return (
+		[[
+		struct scene_bvh_triangle {
+			vec3 v0;
+			vec3 e1;
+			vec3 e2;
+			vec3 normal;
+			vec3 emissive;
+			uint material;
+		};
+
+		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHTriangleBuffer {
+			scene_bvh_triangle scene_bvh_triangles[];
+		};
+	]]
+	):format(triangle_binding)
+end
+
 function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 	return (
 		[[
@@ -1308,24 +1321,11 @@ function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 			vec3 bounds_max;
 		};
 
-		struct scene_bvh_triangle {
-			vec3 v0;
-			vec3 e1;
-			vec3 e2;
-			vec3 normal;
-			vec3 emissive;
-			uint material;
-		};
-
 		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHNodeBuffer {
 			scene_bvh_node scene_bvh_nodes[];
 		};
-
-		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHTriangleBuffer {
-			scene_bvh_triangle scene_bvh_triangles[];
-		};
 	]]
-	):format(node_binding, triangle_binding)
+	):format(node_binding) .. scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
 end
 
 function scene_bvh.GetTraversalGLSL()
@@ -1498,7 +1498,9 @@ do
 		state.expand_pipeline = EasyPipeline.Compute{
 			name = "scene_bvh_expand_positions",
 			dont_create_framebuffers = true,
-			DescriptorSetCount = 1,
+			-- one per frame in flight: a rebuild on the next frame mustn't
+			-- rewrite the set a pending command buffer still uses
+			DescriptorSetCount = render.GetSwapchainImageCount(),
 			LocalSize = {EXPAND_LOCAL_SIZE, 1, 1},
 			storage_buffers = {{binding_index = 0}, {binding_index = 1}},
 			block = {
@@ -1573,7 +1575,7 @@ do
 
 		local position_buffer = ensure_position_buffer(state, vertex_count)
 		local pipeline = ensure_expand_pipeline(state)
-		local slot = 1
+		local slot = math.max(render.GetCurrentFrame(), 1)
 		pipeline:UpdateDescriptorSet(
 			"storage_buffer",
 			slot,

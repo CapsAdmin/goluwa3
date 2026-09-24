@@ -42,6 +42,12 @@
 	    in a corner, a wall washer) that make tight, intense hot spots.
 	  * Lamp posts (z -30): point lights on poles between the rows, outdoors.
 
+	Spiky caves (z 100, x -40 / 0 / 40): closed double sided noisy shells full of
+	stalactites, floating so only the sun reaches their outside. Fly into
+	them; any sunlight inside leaked through the shell. Unlit, a centre point
+	light with its occlusion map, and a centre point light with a cube shadow
+	map.
+
 	Useful console commands: voxel_gi_debug (show gi irradiance only),
 	voxel_gi_probes (probe overlay), voxel_gi_occlusion (toggle the occlusion
 	march), voxel_gi_visibility (toggle the Chebyshev visibility test),
@@ -446,7 +452,7 @@ do
 	point_light("neighbours_lamp", Vec3(cx - pt / 2 - 0.3, 2, cz - 1), warm, 1500, 12)
 end
 
--- corridor: six ceiling lamps along 32 m, more than get a shadow slot at once
+-- corridor: six ceiling lamps along 32 m
 do
 	local cx, cz, len, w, h, t = 80, -60, 32, 3, 3, 0.4
 	box("corridor_floor", Vec3(cx, 0.05, cz), Vec3(len, 0.1, w), white)
@@ -483,6 +489,146 @@ end
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
+end
+
+-- spiky caves (z 100): closed double sided noisy shells with stalactites and
+-- stalagmites, floating high enough that only the sun reaches
+-- their outside. Fly into them. The sun has no business inside, so any sun
+-- light on the spikes is leaking through the shell. Left is unlit, the middle
+-- has a point light at the centre with its occlusion map, the right one a
+-- point light with a cube shadow map instead.
+do
+	local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+	local RADIUS, RINGS, SEGMENTS, SPIKES = 14, 64, 128, 70
+
+	local function noise(x, y, z)
+		return (
+				math.sin(x * 1.7 + y * 0.3 + 1.3) * math.sin(y * 2.3 - z * 0.7 + 0.4) * math.sin(z * 1.9 + x * 0.5 + 2.1) +
+				0.5 * math.sin(x * 4.1 - z * 3.3 + 0.7) * math.sin(y * 3.7 + x * 2.9) +
+				0.25 * math.sin(z * 8.3 + y * 7.1 - 1.1) * math.sin(x * 9.7 - y * 5.3)
+			)
+	end
+
+	-- spikes hang from the upper half and grow from the lower half, each a
+	-- narrow cone pulling the shell toward the centre
+	local spikes = {}
+	local seed = 1
+
+	local function random()
+		seed = (seed * 16807) % 2147483647
+		return seed / 2147483647
+	end
+
+	for i = 1, SPIKES do
+		local up = i % 3 ~= 0
+		local y = up and 0.35 + random() * 0.6 or -(0.3 + random() * 0.6)
+		local a = random() * math.pi * 2
+		local r = math.sqrt(1 - y * y)
+		spikes[i] = {
+			dir = Vec3(math.cos(a) * r, y, math.sin(a) * r),
+			width = math.rad(2 + random() * 4),
+			length = RADIUS * (0.2 + random() * (up and 0.55 or 0.35)),
+		}
+	end
+
+	local function build(poly)
+		local positions = {}
+
+		for ring = 0, RINGS do
+			local theta = ring / RINGS * math.pi
+
+			for seg = 0, SEGMENTS do
+				local phi = seg / SEGMENTS * math.pi * 2
+				local dir = Vec3(math.sin(theta) * math.cos(phi), math.cos(theta), math.sin(theta) * math.sin(phi))
+				local r = RADIUS * (1 + 0.08 * noise(dir.x * 3, dir.y * 3, dir.z * 3))
+
+				for _, spike in ipairs(spikes) do
+					local angle = math.acos(math.clamp(dir:Dot(spike.dir), -1, 1))
+
+					if angle < spike.width then
+						local t = 1 - angle / spike.width
+						r = math.min(r, RADIUS - spike.length * t * t)
+					end
+				end
+
+				positions[#positions + 1] = dir * r
+			end
+		end
+
+		local stride = SEGMENTS + 1
+		local indices = {}
+
+		for ring = 0, RINGS - 1 do
+			for seg = 0, SEGMENTS - 1 do
+				local a = ring * stride + seg + 1
+				local b = a + stride
+				-- wound so the inside is the front face
+				indices[#indices + 1] = a
+				indices[#indices + 1] = a + 1
+				indices[#indices + 1] = b
+				indices[#indices + 1] = a + 1
+				indices[#indices + 1] = b + 1
+				indices[#indices + 1] = b
+			end
+		end
+
+		-- smooth normals: area weighted face normals summed per vertex. The
+		-- visible side winds clockwise, so cross(e1, e2) points away from it
+		local normals = {}
+
+		for i = 1, #positions do
+			normals[i] = Vec3(0, 0, 0)
+		end
+
+		for i = 1, #indices, 3 do
+			local ia, ib, ic = indices[i], indices[i + 1], indices[i + 2]
+			local pa = positions[ia]
+			local n = (positions[ic] - pa):Cross(positions[ib] - pa)
+			normals[ia] = normals[ia] + n
+			normals[ib] = normals[ib] + n
+			normals[ic] = normals[ic] + n
+		end
+
+		for i = 1, #positions do
+			-- the poles get zero from their degenerate triangles
+			local n = normals[i]
+			normals[i] = n:GetLength() > 0 and n:GetNormalized() or -positions[i]:GetNormalized()
+		end
+
+		for i = 1, #indices do
+			poly:AddVertex{pos = positions[indices[i]], normal = normals[indices[i]]}
+		end
+
+		return poly
+	end
+
+	local rock = shapes.Material{Color = Color(0.35, 0.55, 0.6, 1), Roughness = 0.8, Metallic = 0, DoubleSided = true}
+	local cave_polygon = build(Polygon3D.New())
+
+	for i, x in ipairs{-40, 0, 40} do
+		local center = Vec3(x, RADIUS + 6, 100)
+		shapes.Polygon{
+			Name = "cave_" .. i,
+			Position = center,
+			Material = rock,
+			Polygon = cave_polygon,
+			CollisionShape = false,
+			Collision = false,
+			RigidBody = false,
+		}
+
+		if i == 2 then
+			local light_ent = Entity.New{Name = "cave_light_2"}
+			light_ent:AddComponent("transform")
+			light_ent.transform:SetPosition(center)
+			local light = light_ent:AddComponent("light_point")
+			light:SetColor(warm)
+			light:SetLumen(8000)
+			light:SetRange(RADIUS * 1.5)
+		elseif i == 3 then
+			point_light("cave_light_3", center, warm, 8000, RADIUS * 1.5)
+		end
+	end
 end
 
 -- start in front of the scene looking at all three areas

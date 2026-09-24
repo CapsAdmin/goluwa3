@@ -6,6 +6,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
+local light_grid = import("goluwa/render3d/light_grid.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
@@ -39,6 +40,7 @@ local BINDING_OCCLUSION = 3
 local BINDING_FROXEL = 4
 local BINDING_SCATTER = 5
 local BINDING_RAW = 6
+local BINDING_LIGHT_GRID = 7
 local froxels = {width = 0, height = 0, current = 1}
 
 local function ensure_froxel_resources()
@@ -48,7 +50,7 @@ local function ensure_froxel_resources()
 
 	if froxels.width == width and froxels.height == height then return froxels end
 
-	for _, key in ipairs({"raw", "scatter1", "scatter2", "integrated"}) do
+	for _, key in ipairs{"raw", "scatter1", "scatter2", "integrated"} do
 		if froxels[key] then froxels[key]:Remove() end
 
 		froxels[key] = Texture.New{
@@ -85,7 +87,8 @@ local function scatter_texture(index)
 end
 
 -- slice coordinate s (slice k spans [k, k + 1)) <-> view depth in meters
-local SLICE_GLSL = ([[
+local SLICE_GLSL = (
+	[[
 	const float FROXEL_SLICES = %d.0;
 	const float FROXEL_FAR = %.1f;
 	const float FROXEL_DEPTH_KNEE = %.1f;
@@ -97,7 +100,17 @@ local SLICE_GLSL = ([[
 	float froxel_slice_coord(float depth) {
 		return FROXEL_SLICES * log(1.0 + depth / FROXEL_DEPTH_KNEE) / log(1.0 + FROXEL_FAR / FROXEL_DEPTH_KNEE);
 	}
-]]):format(FROXEL_SLICES, FROXEL_FAR, FROXEL_DEPTH_KNEE)
+
+	// how deep a froxel's point may go in front of a surface at surface_depth:
+	// half a slice short of it. Right against the surface the sun's shadow
+	// map can't tell the point from the surface, so points in front of a wall
+	// facing away from the sun would be lit by the light on its other side.
+	float froxel_surface_limit(float surface_depth) {
+		float s = froxel_slice_coord(surface_depth);
+		return max(surface_depth - max(0.5 * (froxel_slice_depth(s + 1.0) - froxel_slice_depth(s)), 0.05), 0.0);
+	}
+]]
+):format(FROXEL_SLICES, FROXEL_FAR, FROXEL_DEPTH_KNEE)
 
 local function get_view_dir_glsl(block)
 	return [[
@@ -135,7 +148,7 @@ local function get_sun_helpers_glsl(data_block)
 end
 
 local function write_lights_block(self, block)
-	local lights, light_instance_indices = scene_lights.GetVisibleLights()
+	local lights = render3d.GetLights()
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	scene_lights.WriteShadowBlock(self, block.shadows, lights)
@@ -145,7 +158,7 @@ local function write_lights_block(self, block)
 		render3d.GetRenderCamera():GetPosition(),
 		directional_shadows.GetPrimarySunDirection(render3d.GetLights())
 	)
-	return lights, light_instance_indices
+	return lights
 end
 
 local function write_gi_screen_texture(self, block, key)
@@ -178,7 +191,10 @@ local scatter_pass = {
 		},
 	},
 	sampled_images = {
-		{binding_index = BINDING_OCCLUSION, get_descriptor = light_occlusion.GetOcclusionDescriptor},
+		{
+			binding_index = BINDING_OCCLUSION,
+			get_descriptor = light_occlusion.GetOcclusionDescriptor,
+		},
 	},
 	uniform_buffers = {
 		{
@@ -186,7 +202,9 @@ local scatter_pass = {
 			binding_index = BINDING_DDGI,
 			block = ddgi.GetProbeBlockLayout(),
 			write = function(self, block)
-				if render3d.pipelines.ddgi_resolve then return ddgi.WriteProbeBlock(self, block) end
+				if render3d.pipelines.ddgi_resolve then
+					return ddgi.WriteProbeBlock(self, block)
+				end
 
 				block.ddgi_cascade_count = 0
 				return block
@@ -219,8 +237,10 @@ local scatter_pass = {
 			end,
 		},
 	},
-	on_pre_draw = function(self)
+	storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
+	on_pre_draw = function(self, cmd, frame, desc)
 		ensure_froxel_resources()
+		light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
 		self:UploadConstants()
@@ -228,7 +248,7 @@ local scatter_pass = {
 	end,
 	custom_declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
-	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0),
+	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
 	shader = [[
 		#define saturate(x) clamp(x, 0.0, 1.0)
 	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. SLICE_GLSL .. get_view_dir_glsl("froxel_data") .. [[
@@ -260,7 +280,14 @@ local scatter_pass = {
 			vec3 result = vec3(0.0);
 			int processed = 0;
 
-			for (int i = 0; i < froxel_data.light_count && processed < ]] .. LOCAL_LIGHT_LIMIT .. [[; i++) {
+			int light_cell = light_grid_cell(world_pos);
+
+			for (int w = 0; w < light_grid_words(froxel_data.light_count) && processed < ]] .. LOCAL_LIGHT_LIMIT .. [[; w++) {
+			uint light_bits = light_grid_word(light_cell, w, froxel_data.light_count);
+
+			while (light_bits != 0u && processed < ]] .. LOCAL_LIGHT_LIMIT .. [[) {
+				int i = w * 32 + findLSB(light_bits);
+				light_bits &= light_bits - 1u;
 				lights_t light = froxel_data.lights[i];
 				int type = get_light_type(light);
 
@@ -287,6 +314,7 @@ local scatter_pass = {
 				}
 
 				result += light.color.rgb * light.color.a * attenuation * shadow * occlusion * henyey_greenstein_phase(dot(ray_dir, L), SCENERY_FOG_MIE_G);
+			}
 			}
 
 			return result;
@@ -325,8 +353,8 @@ local scatter_pass = {
 			vec4 surface = froxel_data.inv_projection * vec4(uv * 2.0 - 1.0, textureLod(TEXTURE(froxel_data.depth_tex), uv, 0.0).r, 1.0);
 			// No pixel sees a point behind the surface at its uv, but a froxel
 			// reaching past a wall would bring the light on its other side to
-			// the pixels in front of it. Such points are lit where the wall is.
-			float depth = min(froxel_slice_depth(float(id.z) + 0.5 + jitter.z), max(-surface.z / surface.w - 0.05, 0.0));
+			// the pixels in front of it. Such points are lit in front of the wall.
+			float depth = min(froxel_slice_depth(float(id.z) + 0.5 + jitter.z), froxel_surface_limit(-surface.z / surface.w));
 			vec3 view_dir = get_view_dir(uv);
 			vec3 world_pos = (froxel_data.inv_view * vec4(view_dir * depth, 1.0)).xyz;
 			// not from world_pos, which can land on the camera
@@ -402,7 +430,12 @@ local temporal_pass = {
 				render3d.WriteGBufferBlock(self, block)
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
-				block.history = froxels.history_valid and FROXEL_HISTORY ^ (math.min(system.GetFrameTime(), 0.1) * 60) or 0
+				block.history = froxels.history_valid and
+					FROXEL_HISTORY ^ (
+						math.min(system.GetFrameTime(), 0.1) * 60
+					)
+					or
+					0
 				return block
 			end,
 		},
@@ -449,7 +482,7 @@ local temporal_pass = {
 			// (through a doorway) with very different light
 			vec2 uv = (vec2(id.xy) + 0.5) / froxel_data.froxel_size;
 			vec4 surface = froxel_data.inv_projection * vec4(uv * 2.0 - 1.0, textureLod(TEXTURE(froxel_data.depth_tex), uv, 0.0).r, 1.0);
-			float depth = min(froxel_slice_depth(float(id.z) + 0.5), max(-surface.z / surface.w - 0.05, 0.0));
+			float depth = min(froxel_slice_depth(float(id.z) + 0.5), froxel_surface_limit(-surface.z / surface.w));
 			vec3 center = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
 			vec4 clip = froxel_data.prev_projection * froxel_data.prev_view * vec4(center, 1.0);
 			vec3 previous = vec3(clip.xy / clip.w * 0.5 + 0.5, froxel_slice_coord(clip.w) / FROXEL_SLICES);

@@ -1225,7 +1225,7 @@ function ShadowMap.New(config)
 	self.last_update_frame = nil
 	self.last_position = nil
 	self.last_rotation = nil
-	self.scene_version = nil
+	self.geometry_dirty = true
 	active_maps[#active_maps + 1] = self
 	local cascade_sizes = config.cascade_sizes or {}
 	local max_shadow_width = self.size.w
@@ -1831,9 +1831,14 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		self.cmd:Begin()
 		self.is_recording_cascades = true
 
-		-- expand the triangle soup once per batch so the outer cascades can
-		-- rasterize it as a single merged mesh
-		if self.mode ~= "point" and self.soup_cascade_from <= self.cascade_count then
+		-- expand the triangle soup so the outer cascades can rasterize it as a
+		-- single merged mesh, only when the soup changed
+		if
+			self.mode ~= "point" and
+			self.soup_cascade_from <= self.cascade_count and
+			self.expander.version ~= scene_bvh.version
+		then
+			self.expander.version = scene_bvh.version
 			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
 
 			if vertex_count > 0 then
@@ -2509,13 +2514,25 @@ function ShadowMap:DrawSoup(cascade_index)
 
 	if not (blocks and planes) then return end
 
+	-- the blocks are laid out back to back in the soup, so runs of visible
+	-- blocks are drawn as one range
+	local first, count = 0, 0
+
 	for i = 1, #blocks do
 		local block = blocks[i]
 
 		if is_aabb_visible_frustum(block, planes) then
-			self.cmd:Draw(block.vertex_count, 1, block.first_vertex, 0)
+			if count > 0 and first + count == block.first_vertex then
+				count = count + block.vertex_count
+			else
+				if count > 0 then self.cmd:Draw(count, 1, first, 0) end
+
+				first, count = block.first_vertex, block.vertex_count
+			end
 		end
 	end
+
+	if count > 0 then self.cmd:Draw(count, 1, first, 0) end
 end
 
 function ShadowMap:PrimeMaterial(material)
@@ -2660,6 +2677,34 @@ function ShadowMap.GetActiveMaps()
 	return active_maps
 end
 
+-- true when a visual's world aabb changed this frame (union of before and
+-- after) somewhere this map can see. point maps only care about their sphere,
+-- so moving geometry across the room does not rerender every light
+local function geometry_changed_for(self, transform)
+	local library = Visual.Library
+
+	if not library.aabb_scan_changed then return false end
+
+	if library.AABB_CHANGED_ALL or self.mode ~= "point" or not transform then
+		return true
+	end
+
+	local pos = transform:GetPosition()
+	local radius_sq = self.far_plane * self.far_plane
+	local boxes = library.AABB_CHANGED_BOXES
+
+	for i = 1, #boxes do
+		local box = boxes[i]
+		local dx = math.max(box[1] - pos.x, 0, pos.x - box[4])
+		local dy = math.max(box[2] - pos.y, 0, pos.y - box[5])
+		local dz = math.max(box[3] - pos.z, 0, pos.z - box[6])
+
+		if dx * dx + dy * dy + dz * dz <= radius_sq then return true end
+	end
+
+	return false
+end
+
 -- Decides whether this map needs shadow passes this frame, updates its
 -- matrices, and returns the list of cascades eligible for rendering, or nil.
 function ShadowMap:PrepareFrameUpdate()
@@ -2673,13 +2718,17 @@ function ShadowMap:PrepareFrameUpdate()
 		mode = self.mode == "sun" and "continuous" or "on_move"
 	end
 
-	local scene_version = Visual.Library and Visual.Library.shadow_change_version_counter or 0
-	local scene_dirty = self.scene_version ~= scene_version
 	local restart = false
 
 	if mode == "on_move" then
+		-- sticky until a full render starts, so a change seen while the light is
+		-- off screen or mid-render is not lost
+		if geometry_changed_for(self, transform) then self.geometry_dirty = true end
+
+		restart = self.geometry_dirty
+
 		if transform then
-			restart = scene_dirty or
+			restart = restart or
 				position_changed(
 					transform:GetPosition(),
 					self.last_position,
@@ -2690,14 +2739,9 @@ function ShadowMap:PrepareFrameUpdate()
 					self.last_rotation,
 					policy.shadow_rotation_epsilon or 0
 				)
-		else
-			restart = scene_dirty
 		end
 
-		if not (restart or self.needs_completion) then
-			self.scene_version = scene_version
-			return nil
-		end
+		if not (restart or self.needs_completion) then return nil end
 	else
 		local interval = policy.shadow_update_interval
 
@@ -2708,7 +2752,6 @@ function ShadowMap:PrepareFrameUpdate()
 			system.GetFrameNumber() - self.last_update_frame < interval and
 			not self.needs_completion
 		then
-			self.scene_version = scene_version
 			return nil
 		end
 
@@ -2723,7 +2766,12 @@ function ShadowMap:PrepareFrameUpdate()
 		end
 	end
 
-	if restart and not self.needs_completion then self.next_cascade = 1 end
+	-- a change seen mid-render keeps geometry_dirty set, so the next full render
+	-- picks it up once this one completes
+	if restart and not self.needs_completion then
+		self.next_cascade = 1
+		self.geometry_dirty = false
+	end
 
 	self.scene_world_aabb = get_shadow_scene_world_aabb()
 	local update_mask = self.role == "cascades" and build_shadow_cascade_update_mask(self) or nil
@@ -2753,7 +2801,6 @@ end
 function ShadowMap:FinishFrameUpdate(complete, rendered, rendered_cascades)
 	if rendered then
 		self.last_update_frame = system.GetFrameNumber()
-		self.scene_version = Visual.Library and Visual.Library.shadow_change_version_counter or 0
 		self.needs_completion = not complete
 
 		if complete then
@@ -2795,6 +2842,7 @@ local function update_all_shadow_maps(dt)
 	shadow_pass_budget_frame = system.GetFrameNumber()
 	shadow_passes_used = 0
 	local pending = {}
+	Visual.Library.ScanWorldAABBs()
 
 	for _, map in ipairs(active_maps) do
 		local eligible = map:PrepareFrameUpdate()

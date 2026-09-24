@@ -976,6 +976,7 @@ end
 function Visual:SetCastShadows(enabled)
 	objects.CommitProperty(self, "CastShadows", enabled)
 	mark_shadow_change(self)
+	visual.ForgetWorldAABB(self)
 	refresh_shadow_registry(self)
 	invalidate_scene_acceleration()
 end
@@ -995,7 +996,7 @@ function Visual:InvalidateRenderEntries()
 	invalidate_scene_acceleration()
 	-- the triangle soup is baked from render entries, so a change in entry
 	-- topology invalidates it even when no transform moved
-	scene_bvh.Invalidate()
+	scene_bvh.Invalidate(self)
 end
 
 function Visual:InvalidateHierarchyState()
@@ -1237,6 +1238,7 @@ do
 	visual.aabb_signatures = nil
 	visual.aabb_signature_count = -1
 	visual.aabb_scan_frame = -1
+	visual.aabb_forgotten_boxes = {}
 	-- set by OnTransformChanged; lets the scan skip its walk entirely on frames
 	-- where no transform invalidated
 	visual.aabb_changes_pending = false
@@ -1868,7 +1870,7 @@ do
 
 		visual.aabb_changes_pending = false
 
-		if not signatures or count ~= visual.aabb_signature_count then
+		if not signatures then
 			local fresh = {}
 
 			for _, component in ipairs(Visual.Instances) do
@@ -1895,7 +1897,9 @@ do
 		end
 
 		local tolerance = visual.AABB_TOLERANCE
-		local boxes = {}
+		local boxes = visual.aabb_forgotten_boxes
+		visual.aabb_forgotten_boxes = {}
+		visual.aabb_signature_count = count
 		local components = {}
 
 		for _, component in ipairs(Visual.Instances) do
@@ -1965,9 +1969,17 @@ do
 		return changed
 	end
 
-	function visual.ResetWorldAABBSignatures()
-		visual.aabb_signatures = nil
-		visual.aabb_signature_count = -1
+	-- drops a visual's signature so the next scan reports its old box and, if
+	-- it still has geometry, its new one
+	function visual.ForgetWorldAABB(component)
+		local signatures = visual.aabb_signatures
+		visual.aabb_changes_pending = true
+
+		if not signatures or not signatures[component] then return end
+
+		local list = visual.aabb_forgotten_boxes
+		list[#list + 1] = signatures[component]
+		signatures[component] = nil
 	end
 
 	local function is_component_frustum_culled(component)

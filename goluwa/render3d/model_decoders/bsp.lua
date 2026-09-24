@@ -15,6 +15,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
+local commands = import("goluwa/cli/commands.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local transform = import("goluwa/entities/components/transform.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local brush_hull = import("goluwa/physics/brush_hull.lua")
@@ -52,10 +54,7 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_MONSTERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
-local BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD = 0.01
-local BSP_LIGHT_INTENSITY_SCALE = 25
-local BSP_LIGHT_MIN_RANGE = 0.25
-local BSP_LIGHT_MAX_RANGE = 10000
+local BSP_LIGHT_INTENSITY_SCALE = 0.0025
 
 local function build_bounds_from_vertices(vertices)
 	if not (vertices and vertices[1]) then return nil end
@@ -104,25 +103,101 @@ local function set_transform(tr, info)
 	tr:SetRotation(rotation)
 end
 
-local function convert_source_light_to_engine(info)
-	local source_brightness = math.max(info._light and info._light.brightness or 0, 0)
-	local unit_scale = steam.source2meters
-	local intensity = source_brightness * unit_scale * unit_scale * BSP_LIGHT_INTENSITY_SCALE
-	local range
+-- vrad lights a surface d units away with brightness / (c + l*d + q*d^2)
+-- (SetLightFalloffParams). Without _fifty_percent_distance it scales the
+-- brightness by c + 100*l + 100^2*q, so a light is as bright as its brightness
+-- 100 units away whatever its attenuation. With it, c, l and q are fitted
+-- through 1 at 0, 2 at _fifty_percent_distance and 256 at
+-- _zero_percent_distance. The engine's lights fall off with
+-- 1 / (d^2 + r^2), so the intensity (candela) and source radius r are fitted
+-- to vrad's falloff at FIT_NEAR and FIT_FAR units, then scaled to metres and
+-- to the engine's light units by BSP_LIGHT_INTENSITY_SCALE. That's exact for
+-- constant + quadratic attenuation and within about 2x between 25 and 1600
+-- units for linear ones, which vrad's fitted falloffs mostly are.
+--
+-- The range is left to the light's brightness (Light:GetEffectiveRange)
+-- unless _hardfalloff fades the light out at _zero_percent_distance.
+local convert_source_light_to_engine
 
-	if info._zero_percent_distance and info._zero_percent_distance > 0 then
-		-- the value the compiler computed for exactly this light
-		range = info._zero_percent_distance * unit_scale
-	elseif info._fifty_percent_distance and info._fifty_percent_distance > 0 then
-		-- the quadratic falloff reaches 50 percent at sqrt(0.5) of the
-		-- zero percent distance
-		range = info._fifty_percent_distance * math.sqrt(2) * unit_scale
-	else
-		range = math.sqrt(source_brightness / BSP_LIGHT_DYNAMIC_CUTOFF_THRESHOLD) * unit_scale
+do
+	local FIT_NEAR = 100
+	local FIT_FAR = 800
+
+	-- vrad's SolveInverseQuadratic: a*x^2 + b*x + c through the three points
+	local function solve_quadratic(x1, y1, x2, y2, x3, y3)
+		local det = (x1 - x2) * (x1 - x3) * (x2 - x3)
+		local a = (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2)) / det
+		local b = (x3 * x3 * (y1 - y2) + x1 * x1 * (y2 - y3) + x2 * x2 * (y3 - y1)) / det
+		local c = (
+				x1 * x3 * (
+					x3 - x1
+				) * y2 + x2 * x2 * (
+					x3 * y1 - x1 * y3
+				) + x2 * (
+					x1 * x1 * y3 - x3 * x3 * y1
+				)
+			) / det
+		return a, b, c
 	end
 
-	return intensity,
-	math.clamp(range * 100, BSP_LIGHT_MIN_RANGE, BSP_LIGHT_MAX_RANGE)
+	-- vrad's SolveInverseQuadraticMonotonic, for 1 at 0, 2 at d50, 256 at d0:
+	-- moves the middle point towards the line between the ends until the
+	-- curve rises
+	local function solve_fifty_percent(d50, d0)
+		local a, b, c
+
+		for i = 0, 20 do
+			local t = i / 20
+			a, b, c = solve_quadratic(0, 1, d50, (1 - t) * 2 + t * (1 + 255 * d50 / d0), d0, 256)
+
+			if 2 * a + b >= 0 then break end
+		end
+
+		local scale = 2 / (c + d50 * (b + d50 * a))
+		return c * scale, b * scale, a * scale
+	end
+
+	function convert_source_light_to_engine(info)
+		local light = info._lightHDR or info._light
+		local brightness = light.brightness * (info._lightscaleHDR or 1)
+		local d50 = tonumber(info._fifty_percent_distance) or 0
+		local d0 = tonumber(info._zero_percent_distance) or 0
+		local c, l, q
+
+		if d50 > 0 then
+			if d0 < d50 then d0 = 2 * d50 end
+
+			c, l, q = solve_fifty_percent(d50, d0)
+		else
+			c = math.max(tonumber(info._constant_attn) or 0, 0)
+			l = math.max(tonumber(info._linear_attn) or 0, 0)
+			q = math.max(tonumber(info._quadratic_attn) or 0, 0)
+
+			if c + l + q == 0 then c = 1 end
+
+			brightness = brightness * (c + 100 * l + 100 ^ 2 * q)
+		end
+
+		local near = brightness / (c + l * FIT_NEAR + q * FIT_NEAR ^ 2)
+		local far = brightness / (c + l * FIT_FAR + q * FIT_FAR ^ 2)
+		-- only constant attenuation doesn't fall off at all in vrad, so it
+		-- stays flat out to FIT_FAR instead
+		local radius_sq = near > far and
+			math.max((far * FIT_FAR ^ 2 - near * FIT_NEAR ^ 2) / (near - far), 0) or
+			FIT_FAR ^ 2
+		local range = 0
+
+		if d50 > 0 and tonumber(info._hardfalloff) == 1 then
+			range = d0 * steam.source2meters
+		end
+
+		return Color(light.r, light.g, light.b, 1),
+		near * (
+				FIT_NEAR ^ 2 + radius_sq
+			) * steam.source2meters ^ 2 * BSP_LIGHT_INTENSITY_SCALE,
+		range,
+		math.sqrt(radius_sq) * steam.source2meters
+	end
 end
 
 local function get_model_lowest_point(model)
@@ -676,16 +751,32 @@ function steam.LoadMap(path)
 			for k, v in vdf:gmatch([["(.-)" "(.-)"]]) do
 				if k == "angles" then
 					v = Ang3(unpack_numbers(v))
-				elseif k == "_light" or k == "_ambient" then
-					-- Source _light format: "R G B brightness" where R,G,B are 0-255 sRGB, brightness is intensity
-					local r, g, b, brightness = unpack_numbers(v)
-					-- Convert sRGB (0-255) to linear (0-1) using gamma 2.2 approximation
-					v = {
-						r = ((r or 0) / 255) ^ 2.2,
-						g = ((g or 0) / 255) ^ 2.2,
-						b = ((b or 0) / 255) ^ 2.2,
-						brightness = brightness or 300,
-					}
+				elseif k == "_light" or k == "_lightHDR" or k == "_ambient" or k == "_ambientHDR" then
+					-- "R G B brightness" with R G B in 0-255 gamma 2.2, read like
+					-- vrad's LightForString: one value is grey, no brightness is
+					-- 255, and eight values carry the HDR ones after the LDR ones.
+					-- A negative value (the "-1 -1 -1 1" default of _lightHDR)
+					-- means unset.
+					local r, g, b, brightness, r_hdr, g_hdr, b_hdr, brightness_hdr = unpack_numbers(v)
+
+					if brightness_hdr then
+						r, g, b, brightness = r_hdr, g_hdr, b_hdr, brightness_hdr
+					end
+
+					g = g or r
+					b = b or r
+					brightness = brightness or 255
+
+					if not r or r < 0 or g < 0 or b < 0 or brightness < 0 then
+						v = false
+					else
+						v = {
+							r = (r / 255) ^ 2.2,
+							g = (g / 255) ^ 2.2,
+							b = (b / 255) ^ 2.2,
+							brightness = brightness,
+						}
+					end
 				elseif k:find("color", nil, true) then
 					v = Color.FromBytes(unpack_numbers(v))
 				elseif
@@ -1362,7 +1453,7 @@ function steam.SpawnMapEntities(path, parent)
 				--info._light.a = 1
 				--parent.world_params:SetSunColor(Color(info._light.r, info._light.g, info._light.b))
 				--parent.world_params:SetSunIlluminance(126000)
-				elseif info.classname:lower():find("light") and info._light then
+				elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent.light_group = parent.light_group or Entity.New{Name = "lights", Parent = parent}
 					parent.light_group:SetName("lights")
@@ -1371,21 +1462,34 @@ function steam.SpawnMapEntities(path, parent)
 					set_transform(tr, info)
 					local is_spot = info.classname == "light_spot"
 					local light = ent:AddComponent(is_spot and "light_spot" or "light_point")
-					-- Color is already in linear space from parsing
-					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
-					local intensity, range = convert_source_light_to_engine(info)
+					local color, intensity, range, source_radius = convert_source_light_to_engine(info)
+					light:SetColor(color)
 
 					if is_spot then
-						local inner_cone = math.clamp(tonumber(info._inner_cone) or 45, 0, 180)
-						local outer_cone = math.clamp(tonumber(info._cone) or inner_cone, inner_cone, 180)
+						-- like vrad's ParseLightSpot, 0 counts as unset
+						local inner_cone = math.clamp((tonumber(info._inner_cone) or 0) > 0 and info._inner_cone or 10, 0, 180)
+						local outer_cone = math.clamp((tonumber(info._cone) or 0) > 0 and info._cone or inner_cone, inner_cone, 180)
+						local exponent = tonumber(info._exponent) or 0
+
+						-- vrad also scales the whole cone by cos(angle)^_exponent.
+						-- The engine's cone is a smoothstep, so it's narrowed around
+						-- the angle whose cap has the same flux, 1 - cos = 1 / (n + 1)
+						if exponent > 1 then
+							local mid = math.deg(math.acos(exponent / (exponent + 1)))
+							inner_cone = math.min(inner_cone, mid * 0.5)
+							outer_cone = math.max(math.min(outer_cone, mid * 1.5), inner_cone)
+						end
+
 						light:SetInnerCone(inner_cone)
 						light:SetOuterCone(outer_cone)
 					end
 
 					light:SetRange(range)
+					light:SetSourceRadius(source_radius)
 					light:SetLumen(intensity * light:GetEmissionSolidAngle())
 					--light:SetCastShadows{shadow_update_mode = "on_move"}
 					ent.spawned_from_bsp = true
+					ent.bsp_info = info
 				elseif info.classname == "env_fog_controller" then
 
 				--parent.world_params:SetFogColor(Color(info.fogcolor.r, info.fogcolor.g, info.fogcolor.b, info.fogcolor.a * (info.fogmaxdensity or 1)/4))
@@ -1511,3 +1615,49 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 end)
 
 event.AddListener("PreLoad3DModel", "bsp_mount_games", steam.MountGamesFromMapPath)
+
+-- every light spawned from a map: the entity's keys as the map has them, then
+-- what the engine made of them
+commands.Add("bsp_dump_lights", function()
+	local lines = {}
+
+	for _, light in ipairs(render3d.GetLights()) do
+		local ent = light.Owner
+
+		if ent.spawned_from_bsp then
+			local pos = ent.transform:GetPosition()
+			local raw = {}
+
+			for k, v in ent.bsp_info.vdf:gmatch([["(.-)" "(.-)"]]) do
+				if k ~= "classname" and k ~= "origin" and k ~= "hammerid" then
+					raw[#raw + 1] = k .. "=" .. v
+				end
+			end
+
+			lines[#lines + 1] = string.format(
+				"%s #%d at %.2f %.2f %.2f\n  bsp: %s\n  engine: color %.3f %.3f %.3f  lumen %.4g  candela %.4g  range %g  source radius %.2f  effective range %.2f%s",
+				ent.bsp_info.classname,
+				#lines + 1,
+				pos.x,
+				pos.y,
+				pos.z,
+				table.concat(raw, "  "),
+				light.Color.r,
+				light.Color.g,
+				light.Color.b,
+				light.Lumen,
+				light.Lumen * light:GetInverseEmissionSolidAngle(),
+				light.Range,
+				light.SourceRadius,
+				light:GetEffectiveRange(),
+				light.Type == "light_spot" and
+					string.format("  cone %g..%g", light.InnerCone, light.OuterCone) or
+					""
+			)
+		end
+	end
+
+	local path = "./storage/logs/bsp_lights.txt"
+	fs.write_file(path, table.concat(lines, "\n") .. "\n")
+	logf("%d bsp lights written to %s\n", #lines, path)
+end)
