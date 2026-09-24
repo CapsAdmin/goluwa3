@@ -32,24 +32,33 @@ do
 	function META:BuildProjectionMatrix()
 		if self.ProjectionMatrix then return self.ProjectionMatrix end
 
-		self.ProjectionMatrix = Matrix44()
+		local projection = Matrix44()
 
 		if self.OrthoMode then
 			local half_height = self.OrthoHalfHeight
 			local aspect = self.Viewport.w / self.Viewport.h
 			local half_width = half_height * aspect
-			self.ProjectionMatrix:Ortho(-half_width, half_width, half_height, -half_height, -32000 * 2, 32000)
+			projection:Ortho(-half_width, half_width, half_height, -half_height, -32000 * 2, 32000)
 		else
-			self.ProjectionMatrix:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
+			projection:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
 		end
 
-		if self.Jitter.x ~= 0 or self.Jitter.y ~= 0 then
-			local jitter_matrix = Matrix44()
-			jitter_matrix:Translate(self.Jitter.x * 2 / self.Viewport.w, self.Jitter.y * 2 / self.Viewport.h, 0)
-			self.ProjectionMatrix:Multiply(jitter_matrix)
-		end
-
+		-- Jitter is in pixels, applied after the projection so it shifts the
+		-- whole image by that much regardless of depth
+		self.UnjitteredProjectionMatrix = projection
+		self.JitterMatrix = Matrix44():Translate(self.Jitter.x * 2 / self.Viewport.w, self.Jitter.y * 2 / self.Viewport.h, 0)
+		self.ProjectionMatrix = projection:GetMultiplied(self.JitterMatrix)
 		return self.ProjectionMatrix
+	end
+
+	function META:BuildUnjitteredProjectionMatrix()
+		self:BuildProjectionMatrix()
+		return self.UnjitteredProjectionMatrix
+	end
+
+	function META:GetJitterMatrix()
+		self:BuildProjectionMatrix()
+		return self.JitterMatrix
 	end
 end
 

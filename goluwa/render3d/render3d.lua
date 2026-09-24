@@ -8,6 +8,7 @@ local event = import("goluwa/event.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -39,6 +40,7 @@ local NO_MODEL_PATH_KEY = {}
 
 local function decorate_pipeline_instance(pipeline, config)
 	pipeline.name = config.name
+	pipeline.pre_render = config.pre_render
 	pipeline.post_draw = config.post_draw
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
 	return pipeline
@@ -413,14 +415,21 @@ function render3d.GetPreviousViewMatrix()
 	return render3d.prev_view_matrix
 end
 
-function render3d.GetPreviousProjectionMatrix()
-	local context = render3d.GetActiveRenderContext()
+do
+	local jittered = Matrix44()
 
-	if context and context.prev_projection_matrix ~= nil then
-		return context.prev_projection_matrix
+	-- prev_projection_matrix is stored without jitter. It is handed out with
+	-- this frame's jitter applied, so reprojecting through it and the current
+	-- projection cancels the jitter and leaves only the motion
+	function render3d.GetPreviousProjectionMatrix()
+		local context = render3d.GetActiveRenderContext()
+
+		if context and context.prev_projection_matrix ~= nil then
+			return context.prev_projection_matrix
+		end
+
+		return render3d.prev_projection_matrix:GetMultiplied(render3d.GetCamera():GetJitterMatrix(), jittered)
 	end
-
-	return render3d.prev_projection_matrix
 end
 
 function render3d.IsPipelineEnabled(name)
@@ -508,7 +517,7 @@ function render3d.CreatePipelineBundle(options)
 			import("goluwa/render3d/passes/ocean.lua"),
 			import("goluwa/render3d/passes/forward_overlay.lua"),
 			import("goluwa/render3d/passes/volumetric_fog.lua"),
-			--import("goluwa/render3d/passes/smaa.lua"),
+			import("goluwa/render3d/passes/taa.lua"),
 			import("goluwa/render3d/passes/bloom.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		}
@@ -578,6 +587,7 @@ function render3d.Initialize(config)
 	render3d.pipelines_i = render3d.main_pipeline_bundle.pipelines_i
 	local size = render.GetRenderImageSize()
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
+	render3d.GetMainCamera():SetJitter(Vec2(0, 0))
 
 	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
@@ -778,7 +788,7 @@ function render3d.Draw(dt)
 
 	local render_camera = render3d.GetCamera()
 	render3d.prev_view_matrix = render_camera:BuildViewMatrix():Copy()
-	render3d.prev_projection_matrix = render_camera:BuildProjectionMatrix():Copy()
+	render3d.prev_projection_matrix = render_camera:BuildUnjitteredProjectionMatrix():Copy()
 	render3d.prev_elapsed_time = system.GetElapsedTime()
 end
 

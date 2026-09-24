@@ -3,15 +3,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = {}
 
 function post_source.GetRawSceneSourceTexture(self)
-	if
-		render3d.use_smaa_resolve and
-		render3d.pipelines.smaa_resolve and
-		render3d.pipelines.smaa_resolve.framebuffers
-	then
-		local current_idx = system.GetFrameNumber() % 2 + 1
-		return render3d.pipelines.smaa_resolve:GetFramebuffer(current_idx):GetAttachment(1)
-	end
-
 	if render3d.IsOceanEnabled() then
 		if
 			render3d.pipelines.ocean_resolve and
@@ -32,7 +23,13 @@ function post_source.GetRawSceneSourceTexture(self)
 	return render3d.pipelines.lighting:GetFramebuffer(1):GetAttachment(1)
 end
 
+-- the scene as the passes after self see it: taa resolves the fogged scene,
+-- and everything after taa reads its output
 function post_source.GetSceneSourceTexture(self)
+	if self.name ~= "taa" and render3d.pipelines.taa then
+		return render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+	end
+
 	if self.name ~= "volumetric_fog" and render3d.pipelines.volumetric_fog then
 		return render3d.pipelines.volumetric_fog:GetFramebuffer():GetAttachment(1)
 	end

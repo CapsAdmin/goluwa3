@@ -834,8 +834,8 @@ return {
 							block.history_ocean_tex = self:GetTextureIndex(render3d.pipelines.ocean_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
 						end
 
-						local prev_view = render3d.prev_view_matrix
-						local prev_projection = render3d.prev_projection_matrix
+						local prev_view = render3d.GetPreviousViewMatrix()
+						local prev_projection = render3d.GetPreviousProjectionMatrix()
 
 						if prev_view then
 							prev_view:CopyToFloatPointer(block.prev_view)
