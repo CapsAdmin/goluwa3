@@ -93,13 +93,18 @@ for _, shadow_map in ipairs(shadow_maps) do
 	shadow_map:SetUpdatePolicy(shadow_policy)
 end
 
-local function set_sun_shadows(enabled)
+local function update_sun(rot)
+	rot:Normalize()
+	sun.transform:SetRotation(rot)
+	local sunDir = -rot:GetForward()
+	local sunColor = atmosphere.GetSunColor(sunDir)
+	sun.light_sun:SetColor(Color(sunColor:Unpack()))
+	local transmittance = math.max(sunColor.x, math.max(sunColor.y, sunColor.z))
+
 	for _, shadow_map in ipairs(shadow_maps) do
-		shadow_map:SetEnabled(enabled)
+		shadow_map:SetEnabled(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)
 	end
 end
-
-set_sun_shadows(true)
 
 event.AddListener("Update", "sun_orientation", function(dt)
 	if not sun or not sun:IsValid() or not sun.transform then return end
@@ -114,13 +119,9 @@ event.AddListener("Update", "sun_orientation", function(dt)
 		rot:RotatePitch(dt)
 	elseif input.IsKeyDown("l") then
 		rot:RotatePitch(-dt)
+	else
+		return
 	end
 
-	rot:Normalize()
-	sun.transform:SetRotation(rot)
-	local sunDir = -rot:GetForward()
-	local sunColor = atmosphere.GetSunColor(sunDir)
-	sun.light_sun:SetColor(Color(sunColor:Unpack()))
-	local transmittance = math.max(sunColor.x, math.max(sunColor.y, sunColor.z))
-	set_sun_shadows(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)
+	update_sun(rot)
 end)
