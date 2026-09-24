@@ -32,6 +32,7 @@ local MATERIAL_TEXTURE_GETTERS = {
 	"GetAlbedo2Texture",
 	"GetNormal2Texture",
 	"GetBlendTexture",
+	"GetDetailTexture",
 	"GetMetallicTexture",
 	"GetRoughnessTexture",
 }

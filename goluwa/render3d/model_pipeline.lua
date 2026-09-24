@@ -30,12 +30,17 @@ local PBR_COLOR_FIELDS = {
 local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
+	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 }
 local PBR_DETAIL_FIELDS = {
 	{type = "texture", name = "Albedo2Texture", getter = "GetAlbedo2Texture"},
 	{type = "texture", name = "Normal2Texture", getter = "GetNormal2Texture"},
 	{type = "texture", name = "BlendTexture", getter = "GetBlendTexture"},
+	{type = "texture", name = "DetailTexture", getter = "GetDetailTexture"},
+	{type = "vec2", name = "DetailTiling", getter = "GetDetailTiling"},
+	{type = "float", name = "DetailBumpScale", getter = "GetDetailBumpScale"},
+	{type = "float", name = "DetailBlendAmount", getter = "GetDetailBlendAmount"},
 }
 local PBR_AUX_FIELDS = {
 	{
@@ -783,7 +788,7 @@ local function build_material_block_writer(name, field_defs)
 	for _, def in ipairs(field_defs) do
 		if def.type == "texture" then
 			lines[#lines + 1] = string.format("\tblock.%s = self:GetTextureIndex(material:%s())", def.name, def.getter)
-		elseif def.type == "vec3" or def.type == "vec4" then
+		elseif def.type == "vec2" or def.type == "vec3" or def.type == "vec4" then
 			lines[#lines + 1] = string.format("\tmaterial:%s():CopyToFloatPointer(block.%s)", def.getter, def.name)
 		else
 			lines[#lines + 1] = string.format("\tblock.%s = material:%s()", def.name, def.getter)
@@ -935,6 +940,7 @@ function model_pipeline.GetPBRFactorUploadKey()
 
 	local has_default_scalars = material:GetMetallicMultiplier() == 1.0 and
 		material:GetRoughnessMultiplier() == 1.0 and
+		material:GetSpecularMultiplier() == 1.0 and
 		material:GetAlphaCutoff() == 0.5
 
 	if has_default_scalars then return NO_PBR_FACTOR_KEY end
@@ -972,7 +978,8 @@ function model_pipeline.GetPBRDetailUploadKey()
 	if
 		material:GetAlbedo2Texture() == nil and
 		material:GetNormal2Texture() == nil and
-		material:GetBlendTexture() == nil
+		material:GetBlendTexture() == nil and
+		material:GetDetailTexture() == nil
 	then
 		return NO_PBR_DETAIL_KEY
 	end

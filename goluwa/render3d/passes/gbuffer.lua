@@ -74,12 +74,9 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 					return in_texture_blend;
 				}
 
-				float blend = in_texture_blend;
-				vec2 blend_data = texture(TEXTURE(]] .. detail_var .. [[.BlendTexture), uv).rg;
-				float minb = blend_data.r;
-				float maxb = blend_data.g;
-				blend = clamp((blend - minb) / (maxb - minb + 0.001), 0.0, 1.0);
-				return blend;
+				// source blendmodulate: g is the transition center, r its half width
+				vec2 modulate = texture(TEXTURE(]] .. detail_var .. [[.BlendTexture), uv).rg;
+				return smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), in_texture_blend);
 			}
 
 			float get_texture_blend() {
@@ -270,6 +267,12 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 					}
 				}
 
+				if (]] .. detail_var .. [[.DetailTexture != -1) {
+					vec2 detail_uv = uv * ]] .. detail_var .. [[.DetailTiling;
+					float detail = texture(TEXTURE(]] .. detail_var .. [[.DetailTexture), detail_uv).a + texture(TEXTURE(]] .. detail_var .. [[.DetailTexture), detail_uv * 2.0).a;
+					rgb1 = mix(rgb1, rgb1 * detail, ]] .. detail_var .. [[.DetailBlendAmount);
+				}
+
 				return rgb1 * ]] .. color_var .. [[.ColorMultiplier.rgb;
 			}
 
@@ -323,6 +326,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 				"r8g8b8a8_unorm",
 				{"transmission_blocking", "r"},
 				{"transmission_view_dep", "g"},
+				{"specular", "b"},
 			},
 			{"r16g16b16a16_sfloat", {"velocity", "rg"}, {"prev_view_depth", "b"}},
 		},
@@ -449,39 +453,42 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						return normalize(vec3(left - right, down - up, max(displacement_model.HeightScale, 0.0001)));
 					}
 
-					vec3 get_normal_map(vec2 uv) {
-						if (model.NormalTexture == -1) {
-							if (has_heightmap()) {
-								return get_height_normal_tangent(uv);
-							}
-
-							return vec3(0.0, 0.0, 1.0);
-						}
-
-						vec2 normal_xy1 = texture(TEXTURE(model.NormalTexture), uv).xy * 2.0 - 1.0;
+					vec3 decode_normal_map(vec2 xy) {
+						xy = xy * 2.0 - 1.0;
 
 						if (ReverseXZNormalMap) {
-							normal_xy1 = -normal_xy1;
+							xy = -xy;
 						}
 
-						vec3 rgb1 = vec3(normal_xy1, sqrt(max(1.0 - dot(normal_xy1, normal_xy1), 0.0)));
+						return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+					}
+
+					vec3 get_normal_map(vec2 uv) {
+						vec3 N = vec3(0.0, 0.0, 1.0);
+
+						if (model.NormalTexture != -1) {
+							N = decode_normal_map(texture(TEXTURE(model.NormalTexture), uv).xy);
+						} else if (has_heightmap()) {
+							N = get_height_normal_tangent(uv);
+						}
 
 						if (detail_model.Normal2Texture != -1) {
 							float blend = get_texture_blend_uv(uv);
 
 							if (blend != 0) {
-								vec2 normal_xy2 = texture(TEXTURE(detail_model.Normal2Texture), uv).xy * 2.0 - 1.0;
-
-								if (ReverseXZNormalMap) {
-									normal_xy2 = -normal_xy2;
-								}
-
-								vec3 rgb2 = vec3(normal_xy2, sqrt(max(1.0 - dot(normal_xy2, normal_xy2), 0.0)));
-								rgb1 = normalize(mix(rgb1, rgb2, blend));
+								N = normalize(mix(N, decode_normal_map(texture(TEXTURE(detail_model.Normal2Texture), uv).xy), blend));
 							}
 						}
 
-						return normalize(rgb1);
+						// crysis detail bump: two octaves centered on 0.5 offset the normal's slope
+						if (detail_model.DetailTexture != -1) {
+							vec2 detail_uv = uv * detail_model.DetailTiling;
+							vec2 detail = texture(TEXTURE(detail_model.DetailTexture), detail_uv).xy + texture(TEXTURE(detail_model.DetailTexture), detail_uv * 2.0).xy;
+							detail = (detail - 1.0) * detail_model.DetailBumpScale;
+							N.xy += ReverseXZNormalMap ? -detail : detail;
+						}
+
+						return normalize(N);
 					}
 
 					vec3 get_combined_normal(vec2 uv, mat3 tbn) {
@@ -650,6 +657,11 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						set_prev_view_depth(motion.z);
 					}
 
+					// half the multiplier, so 1 lands mid range and 2 still fits the unorm target
+					float get_specular() {
+						return clamp(factor_model.SpecularMultiplier * 0.5, 0.0, 1.0);
+					}
+
 					float get_ao(vec2 uv) {
 						if (aux_model.AmbientOcclusionTexture == -1) {
 							if (terrain_model.TerrainMaterialTexture != -1) {
@@ -805,6 +817,7 @@ local function build_ssdm_fragment_shader(displacement_var)
 			set_metallic(get_metallic(displacement.uv));
 			set_roughness(get_roughness(displacement.uv));
 			set_ao(get_ao(displacement.uv));
+			set_specular(get_specular());
 			set_subsurface(get_subsurface(displacement.uv));
 			set_transmission_blocking(get_transmission_blocking(displacement.uv));
 			set_emissive(get_emissive(displacement.uv));

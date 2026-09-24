@@ -4,6 +4,7 @@ local tasks = import("goluwa/tasks.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Color = import("goluwa/structs/color.lua")
 local objects = import("goluwa/objects/objects.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Material = objects.CreateTemplate("render3d_material")
 -- textures
@@ -17,6 +18,7 @@ Material:GetSet("EmissiveTexture", nil, {type = "render_texture"})
 Material:GetSet("Albedo2Texture", nil, {type = "render_texture"})
 Material:GetSet("Normal2Texture", nil, {type = "render_texture"})
 Material:GetSet("BlendTexture", nil, {type = "render_texture"})
+Material:GetSet("DetailTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainMaterialTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer1Texture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer2Texture", nil, {type = "render_texture"})
@@ -38,11 +40,17 @@ Material:GetSet("TerrainLayerRoughness", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
 Material:GetSet("RoughnessMultiplier", 1.0)
+-- scales the dielectric reflectance (F0 0.04), 0 to 2
+Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("NormalMapMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
 Material:GetSet("HeightScale", 0.0)
 Material:GetSet("HeightCenter", 0.0)
 Material:GetSet("HeightLayers", 24)
+-- crysis style detail map: rg offsets the normal, alpha multiplies albedo
+Material:GetSet("DetailTiling", Vec2(1.0, 1.0))
+Material:GetSet("DetailBumpScale", 1.0)
+Material:GetSet("DetailBlendAmount", 0.0)
 Material:GetSet("TransmissionColor", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TransmissionViewDependency", 0.5)
 Material:GetSet("TransmissionBlocking", 1.0)
@@ -534,6 +542,14 @@ do
 		return Texture.GetFallback()
 	end
 
+	-- %DETAIL_BUMP_MAPPING bit of each shader's GenMask, from Shaders/<shader>.ext
+	local DETAIL_BUMP_MAPPING_MASKS = {
+		Illum = 0x4000,
+		Metal = 0x8000,
+		Vegetation = 0x20000,
+		Cloth = 0x40000,
+	}
+
 	local function apply_cry_material_node(self, material_node, material_path)
 		if not material_node then return self end
 
@@ -588,6 +604,26 @@ do
 			end
 		end
 
+		-- without the detail bump bit, crysis only uses the detail map in a legacy color modulate pass
+		local detail_bump_mapping = material_node.attrs and
+			DETAIL_BUMP_MAPPING_MASKS[material_node.attrs.Shader] and
+			bit.band(
+				tonumber(material_node.attrs.GenMask) or 0,
+				DETAIL_BUMP_MAPPING_MASKS[material_node.attrs.Shader]
+			) ~= 0
+
+		if detail_bump_mapping then
+			local params = self.cry_public_params
+			self:SetDetailTiling(
+				Vec2(
+					tonumber(params.DetailBumpTillingU) or 1,
+					tonumber(params.DetailBumpTillingV) or 1
+				)
+			)
+			self:SetDetailBumpScale(tonumber(params.DetailBumpScale) or 1)
+			self:SetDetailBlendAmount(tonumber(params.DetailBlendAmount) or 0)
+		end
+
 		local textures = find_child_by_tag(material_node, "Textures")
 
 		for texture_node in iter_children_by_tag(textures, "Texture") do
@@ -628,8 +664,8 @@ do
 						get_missing_cry_texture(material_path, attrs, candidates)
 				)
 				self:SetInvertRoughnessTexture(false)
-			elseif attrs.Map == "Detail" then
-				self:SetNormal2Texture(
+			elseif attrs.Map == "Detail" and detail_bump_mapping then
+				self:SetDetailTexture(
 					resolved and
 						LinearTexture(resolved) or
 						get_missing_cry_texture(material_path, attrs, candidates)
@@ -745,6 +781,9 @@ do
 
 			if vmt.invertphongmask == 1 then self:SetInvertRoughnessTexture(false) end
 		end
+
+		-- source only reflects light off materials that ask for an envmap or phong
+		if not vmt.envmap and vmt.phong ~= 1 then self:SetSpecularMultiplier(0) end
 
 		if vmt.selfillum == 1 then
 			if vmt.selfillumtint then self:SetEmissiveMultiplier(vmt.selfillumtint) end
@@ -1273,7 +1312,7 @@ do
 				counts.detail_blend = counts.detail_blend + 1
 			end
 
-			if material:GetNormal2Texture() ~= nil then
+			if material:GetNormal2Texture() ~= nil or material:GetDetailTexture() ~= nil then
 				counts.detail_normal = counts.detail_normal + 1
 			end
 

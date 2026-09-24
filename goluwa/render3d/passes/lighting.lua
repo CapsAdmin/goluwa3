@@ -253,6 +253,11 @@ return {
 				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).g;
 			}
 
+			// the gbuffer holds SpecularMultiplier * 0.5; a multiplier of 1 is F0 0.04
+			float get_dielectric_f0() {
+				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).b * 0.08;
+			}
+
 			float get_metallic() {
 				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
 				return mra.r;
@@ -598,7 +603,7 @@ return {
 				vec3 transmission_color = get_transmission_color();
 				float transmission_view_dependency = get_transmission_view_dependency();
 				vec3 emissive = subsurface > 0.0 ? vec3(0.0) : get_emissive();
-				vec3 F0 = mix(vec3(0.04), albedo, metallic);
+				vec3 F0 = mix(vec3(get_dielectric_f0()), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N, get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N));
 
