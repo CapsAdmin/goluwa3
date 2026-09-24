@@ -28,17 +28,8 @@ local Entity = import("goluwa/entities/entity.lua")
 local utility = import("goluwa/utility.lua")
 local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
-local scale = 1 / 0.0254
-local skyboxes = {
-	["gm_construct"] = {AABB(-400, -400, 255, 400, 400, 320) * scale, 0.0035},
-	["gm_construct_remaster"] = {AABB(-400, -400, 255, 400, 400, 320) * scale, 0.003},
-	["gm_flatgrass"] = {AABB(-400, -400, -430, 400, 400, -360) * scale, 0.003},
-	["gm_bluehills_test3"] = {AABB(130, 130, 340, 340, 320, 380) * scale, 0},
-	["gm_atomic"] = {AABB(-210, -210, 40, 210, 210, 210) * scale, 0},
-	["de_bank"] = {AABB(115, -74, -77, 261, 64, -28) * scale, 0.003},
-	["rp_hometown1999"] = {AABB(78, -61, -1, 98, -45, 5) * scale, 0.003},
-	["gm_freespace_13"] = {AABB(-500, -500, 200, 500, 500, 600) * scale, 0},
-}
+-- how far past the world's bounds, in metres, the 3D skybox is cut away
+local SKY_CUT_MARGIN = 0.5
 local BSP_LUMP_PLANES = 2
 local BSP_CONTENTS_SOLID = 0x1
 local BSP_CONTENTS_WINDOW = 0x2
@@ -668,15 +659,6 @@ function steam.LoadMap(path)
 	]])
 
 	do
-		local info = skyboxes[path:match(".+/(.+)%.bsp")]
-
-		if info then
-			header.sky_aabb = info[1]
-			header.sky_scale = info[2]
-		end
-	end
-
-	do
 		local struct = [[
 			int	fileofs;	// offset into file (bytes)
 			int	filelen;	// length of lump (bytes)
@@ -794,10 +776,7 @@ function steam.LoadMap(path)
 			ent.vdf = vdf
 			ent.classname = ent.classname or "unknown"
 
-			if header.sky_aabb and ent.classname == "sky_camera" then
-				header.sky_origin = ent.origin
-				header.sky_scale = header.sky_scale + ent.scale
-			end
+			if ent.classname == "sky_camera" then header.sky_camera = ent end
 
 			entities[i] = ent
 			i = i + 1
@@ -839,9 +818,10 @@ function steam.LoadMap(path)
 				local leafs = {}
 
 				for i = 1, count do
-					leafs[i] = bsp_file:ReadI16()
+					leafs[i] = bsp_file:ReadU16()
 				end
 
+				header.static_prop_leafs = leafs
 				count = bsp_file:ReadI32()
 				local lump_size = ((filelen + fileofs) - bsp_file:GetPosition()) / count
 
@@ -1137,21 +1117,182 @@ function steam.LoadMap(path)
 		int numfaces;
 	]]
 	)
+	-- The 3D skybox is a sealed room somewhere in the map that Source draws
+	-- scaled up by sky_camera's scale around sky_camera's origin. vbsp gives
+	-- every sealed region its own area, so the skybox is the area sky_camera
+	-- is in plus the areas areaportals join to it, and anything in those
+	-- areas is moved out into the world.
+	local sky_origin, sky_scale, sky_cut_min, sky_cut_max, is_sky_face
 
-	--for i = 1, #header.brushes do
-	--	local brush = header.brushes[i]
-	--end
-	local function sky_to_world(pos)
-		if header.sky_aabb:IsPointInside(pos) then
-			return (pos - header.sky_origin) * header.sky_scale, header.sky_scale
+	if header.sky_camera then
+		local nodes = read_lump_data(
+			"reading nodes",
+			bsp_file,
+			header,
+			6,
+			32,
+			function()
+				local node = {bsp_file:ReadI32(), bsp_file:ReadI32(), bsp_file:ReadI32()}
+				bsp_file:Advance(20)
+				return node
+			end
+		)
+		local leaf_size = header.lumps[11].version == 0 and 56 or 32
+		local leafs = read_lump_data(
+			"reading leafs",
+			bsp_file,
+			header,
+			11,
+			leaf_size,
+			function()
+				local contents = bsp_file:ReadI32()
+				bsp_file:Advance(2)
+				-- the low 9 bits of a bitfield, the rest are flags
+				local area = bit.band(bsp_file:ReadU16(), 0x1FF)
+				local mins = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
+				local maxs = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
+				bsp_file:Advance(leaf_size - 20)
+				return {contents = contents, area = area, mins = mins, maxs = maxs}
+			end
+		)
+		local areas = read_lump_data(
+				"reading areas",
+				bsp_file,
+				header,
+				21,
+				8,
+				"int numareaportals; int firstareaportal;"
+			) or
+			{}
+		local areaportals = read_lump_data(
+				"reading areaportals",
+				bsp_file,
+				header,
+				22,
+				12,
+				function()
+					bsp_file:Advance(2)
+					local other_area = bsp_file:ReadU16()
+					bsp_file:Advance(8)
+					return other_area
+				end
+			) or
+			{}
+		local headnode = header.models[1].headnode
+
+		local function point_leaf(pos)
+			local node = headnode
+
+			while node >= 0 do
+				local n = nodes[node + 1]
+				local plane = header.planes[n[1] + 1]
+				node = plane.normal:Dot(pos) >= plane.dist and n[2] or n[3]
+			end
+
+			return leafs[-node]
 		end
 
-		return pos
-	end
+		local sky_areas = {}
 
-	if header.sky_aabb then
-		for _, v in ipairs(header.entities) do
-			if v.origin then v.origin, v.model_size_mult = sky_to_world(v.origin) end
+		do
+			local stack = {point_leaf(header.sky_camera.origin).area}
+
+			while stack[1] do
+				local area = list.remove(stack)
+
+				if not sky_areas[area] then
+					sky_areas[area] = true
+					local info = areas[area + 1]
+
+					if info then
+						for i = 1, info.numareaportals do
+							list.insert(stack, areaportals[info.firstareaportal + i])
+						end
+					end
+				end
+			end
+		end
+
+		-- a face lies on the boundary between leafs, so look just in front of
+		-- it, or behind it when that's solid. A displacement's face is its base
+		-- face.
+		function is_sky_face(face)
+			local center = Vec3()
+
+			for j = 1, face.numedges do
+				local surfedge = header.surfedges[face.firstedge + j]
+				center = center + header.vertices[1 + header.edges[1 + math.abs(surfedge)][surfedge < 0 and
+					2 or
+					1]]
+			end
+
+			center = center / face.numedges
+			local normal = header.planes[face.planenum + 1].normal
+
+			if face.side ~= 0 then normal = normal * -1 end
+
+			local leaf = point_leaf(center + normal)
+
+			if bit.band(leaf.contents, BSP_CONTENTS_SOLID) ~= 0 then
+				leaf = point_leaf(center - normal)
+			end
+
+			return sky_areas[leaf.area] == true
+		end
+
+		sky_origin = header.sky_camera.origin
+		sky_scale = header.sky_camera.scale
+
+		-- Source draws the skybox behind the world, so its walls and ground
+		-- that end up in the world's place never show there. Here they would,
+		-- in doorways out to the skybox for example, so everything in the
+		-- skybox within the world's bounds is cut away.
+		do
+			local world_min = Vec3(math.huge, math.huge, math.huge)
+			local world_max = Vec3(-math.huge, -math.huge, -math.huge)
+
+			for _, leaf in ipairs(leafs) do
+				if
+					bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 and
+					leaf.area ~= 0 and
+					not sky_areas[leaf.area]
+				then
+					for _, axis in ipairs({"x", "y", "z"}) do
+						world_min[axis] = math.min(world_min[axis], leaf.mins[axis])
+						world_max[axis] = math.max(world_max[axis], leaf.maxs[axis])
+					end
+				end
+			end
+
+			local margin = SKY_CUT_MARGIN / steam.source2meters
+			sky_cut_min = (world_min - Vec3(margin, margin, margin)) / sky_scale + sky_origin
+			sky_cut_max = (world_max + Vec3(margin, margin, margin)) / sky_scale + sky_origin
+			print("SKYCHECK cut", world_min, world_max, sky_cut_min, sky_cut_max)
+		end
+
+		for _, ent in ipairs(header.entities) do
+			if ent.origin then
+				local in_sky = false
+
+				-- a static prop's origin is often inside the ground, but it
+				-- knows which leafs it touches
+				if ent.classname == "static_entity" and ent.leaf_count > 0 then
+					for i = 1, ent.leaf_count do
+						if sky_areas[leafs[header.static_prop_leafs[ent.first_leaf + i] + 1].area] then
+							in_sky = true
+
+							break
+						end
+					end
+				else
+					in_sky = sky_areas[point_leaf(ent.origin).area] == true
+				end
+
+				if in_sky then
+					ent.origin = (ent.origin - sky_origin) * sky_scale
+					ent.model_size_mult = sky_scale
+				end
+			end
 		end
 	end
 
@@ -1161,21 +1302,19 @@ function steam.LoadMap(path)
 	header.ocean_level = nil
 
 	do
-		local function add_vertex(model, texinfo, texdata, pos, blend)
+		local function add_vertex(model, texinfo, texdata, in_sky, pos, blend)
 			local a = texinfo.textureVecs
 
 			if blend then blend = blend / 255 else blend = 0 end
 
 			blend = math.clamp(blend, 0, 1)
-			local uv_scale
+			local uv = Vec2(
+				(a[1] * pos.x + a[2] * pos.y + a[3] * pos.z + a[4]) / texdata.width,
+				(a[5] * pos.x + a[6] * pos.y + a[7] * pos.z + a[8]) / texdata.height
+			)
 
-			if header.sky_aabb then
-				pos, uv_scale = sky_to_world(pos)
+			if in_sky then pos = (pos - sky_origin) * sky_scale end
 
-				if uv_scale then uv_scale = 1 / uv_scale end
-			end
-
-			uv_scale = uv_scale or 1
 			local vertex = {
 				-- Convert from Source Z-up to engine Y-up
 				-- Source: X=forward, Y=left, Z=up
@@ -1183,16 +1322,68 @@ function steam.LoadMap(path)
 				-- Transformation: engine(x, y, z) = source(-y, z, -x) * scale
 				pos = Vec3(-pos.y, pos.z, -pos.x) * steam.source2meters,
 				texture_blend = blend,
-				uv = Vec2(
-					uv_scale * (a[1] * pos.x + a[2] * pos.y + a[3] * pos.z + a[4]) / texdata.width,
-					uv_scale * (a[5] * pos.x + a[6] * pos.y + a[7] * pos.z + a[8]) / texdata.height
-				),
+				uv = uv,
 			}
 
 			if model.AddVertex then
 				model:AddVertex(vertex)
 			else
 				list.insert(model, vertex)
+			end
+		end
+
+		-- adds what's outside the skybox cut of a convex polygon of
+		-- {pos = pos, blend = blend} vertices
+		local add_sky_polygon
+
+		do
+			-- the parts of a polygon below and above an axis aligned plane
+			local function split_polygon(polygon, axis, value)
+				local below, above = {}, {}
+				local prev = polygon[#polygon]
+				local prev_d = prev.pos[axis] - value
+
+				for _, vertex in ipairs(polygon) do
+					local d = vertex.pos[axis] - value
+
+					if (prev_d < 0) ~= (d < 0) then
+						local t = prev_d / (prev_d - d)
+						local mid = {
+							pos = prev.pos + (vertex.pos - prev.pos) * t,
+							blend = prev.blend + (vertex.blend - prev.blend) * t,
+						}
+						list.insert(below, mid)
+						list.insert(above, mid)
+					end
+
+					list.insert(d < 0 and below or above, vertex)
+					prev, prev_d = vertex, d
+				end
+
+				return below, above
+			end
+
+			local function add_polygon(mesh, texinfo, texdata, polygon)
+				for i = 2, #polygon - 1 do
+					add_vertex(mesh, texinfo, texdata, true, polygon[1].pos, polygon[1].blend)
+					add_vertex(mesh, texinfo, texdata, true, polygon[i].pos, polygon[i].blend)
+					add_vertex(mesh, texinfo, texdata, true, polygon[i + 1].pos, polygon[i + 1].blend)
+				end
+			end
+
+			function add_sky_polygon(mesh, texinfo, texdata, polygon)
+				for _, axis in ipairs({"x", "y", "z"}) do
+					local outside
+					outside, polygon = split_polygon(polygon, axis, sky_cut_min[axis])
+					add_polygon(mesh, texinfo, texdata, outside)
+
+					if not polygon[3] then return end
+
+					polygon, outside = split_polygon(polygon, axis, sky_cut_max[axis])
+					add_polygon(mesh, texinfo, texdata, outside)
+
+					if not polygon[3] then return end
+				end
 			end
 		end
 
@@ -1217,6 +1408,7 @@ function steam.LoadMap(path)
 		for _, model in ipairs(header.models) do
 			for i = 1, model.numfaces do
 				local face = header.faces[model.firstface + i]
+				local in_sky = is_sky_face and is_sky_face(face)
 				local texinfo = header.texinfos[1 + face.texinfo]
 				local texdata = texinfo and header.texdatas[1 + texinfo.texdata]
 				local texname = header.texdatastringdata[1 + texdata.nameStringTableID]
@@ -1229,6 +1421,10 @@ function steam.LoadMap(path)
 						local source_height = get_face_first_source_height(header, face)
 
 						if source_height ~= nil then
+							if in_sky then
+								source_height = (source_height - sky_origin.z) * sky_scale
+							end
+
 							header.ocean_level = source_height_to_engine_y(source_height)
 						end
 					end
@@ -1254,7 +1450,19 @@ function steam.LoadMap(path)
 				do
 					local mesh = meshes[texname].mesh
 
-					if face.dispinfo == -1 then
+					if face.dispinfo == -1 and in_sky then
+						local polygon = {}
+
+						for j = 1, face.numedges do
+							local surfedge = header.surfedges[face.firstedge + j]
+							polygon[j] = {
+								pos = header.vertices[1 + header.edges[1 + math.abs(surfedge)][surfedge < 0 and 2 or 1]],
+								blend = 0,
+							}
+						end
+
+						add_sky_polygon(mesh, texinfo, texdata, polygon)
+					elseif face.dispinfo == -1 then
 						local first, previous
 
 						for j = 1, face.numedges do
@@ -1268,9 +1476,9 @@ function steam.LoadMap(path)
 									local b = header.vertices[previous]
 									local c = header.vertices[current]
 									-- CW winding (matches coordinate transform from Source)
-									add_vertex(mesh, texinfo, texdata, a)
-									add_vertex(mesh, texinfo, texdata, b)
-									add_vertex(mesh, texinfo, texdata, c)
+									add_vertex(mesh, texinfo, texdata, false, a)
+									add_vertex(mesh, texinfo, texdata, false, b)
+									add_vertex(mesh, texinfo, texdata, false, c)
 								end
 							elseif j == 1 then
 								first = current
@@ -1290,15 +1498,36 @@ function steam.LoadMap(path)
 								local c, c_blend = lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
 								local d, d_blend = lerp_corners(dims, corners, start_corner, info, x + 1, y)
 
-								do
+								if in_sky then
+									add_sky_polygon(
+										mesh,
+										texinfo,
+										texdata,
+										{
+											{pos = a, blend = a_blend},
+											{pos = c, blend = c_blend},
+											{pos = b, blend = b_blend},
+										}
+									)
+									add_sky_polygon(
+										mesh,
+										texinfo,
+										texdata,
+										{
+											{pos = c, blend = c_blend},
+											{pos = d, blend = d_blend},
+											{pos = b, blend = b_blend},
+										}
+									)
+								else
 									-- CW winding (matches coordinate transform from Source)
-									add_vertex(mesh, texinfo, texdata, a, a_blend)
-									add_vertex(mesh, texinfo, texdata, c, c_blend)
-									add_vertex(mesh, texinfo, texdata, b, b_blend)
+									add_vertex(mesh, texinfo, texdata, false, a, a_blend)
+									add_vertex(mesh, texinfo, texdata, false, c, c_blend)
+									add_vertex(mesh, texinfo, texdata, false, b, b_blend)
 									-- 
-									add_vertex(mesh, texinfo, texdata, c, c_blend)
-									add_vertex(mesh, texinfo, texdata, d, d_blend)
-									add_vertex(mesh, texinfo, texdata, b, b_blend)
+									add_vertex(mesh, texinfo, texdata, false, c, c_blend)
+									add_vertex(mesh, texinfo, texdata, false, d, d_blend)
+									add_vertex(mesh, texinfo, texdata, false, b, b_blend)
 								end
 							end
 						end
@@ -1385,6 +1614,7 @@ function steam.LoadMap(path)
 	if ocean_level == nil then ocean_level = header.lowest_point or 0 end
 
 	render3d.SetOceanLevel(ocean_level - 2)
+	render3d.SetOceanEnabled(true)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,
