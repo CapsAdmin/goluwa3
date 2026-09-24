@@ -35,19 +35,19 @@ local rig = Entity.New{
 rig.transform:SetPosition(cam:GetPosition():Copy())
 rig.player_input:SyncFromCamera(cam)
 system.GetWindow():SetMouseTrapped(true)
-local FLASHLIGHT_LUMEN = 1000
+local FLASHLIGHT_LUMEN = 3
 local flashlight = Entity.New{
 	Name = "flashlight",
 	transform = {},
-	light_directional = {
+	light_spot = {
 		Lumen = 0,
-		Range = 60,
+		OcclusionMap = false,
 	},
 }
 local flash_map = ShadowMap.New{
 	mode = "directional",
 	light = flashlight,
-	perspective_fov = math.rad(150),
+	perspective_fov = math.rad(60),
 	size = Vec2() + 1024,
 	max_shadow_distance = 250,
 	near_plane = 0.1,
@@ -65,9 +65,8 @@ event.AddListener("Update", "flashlight", function()
 
 	if f_down and not f_was_down then
 		flashlight_on = not flashlight_on
-		flashlight.light_directional:SetLumen(flashlight_on and FLASHLIGHT_LUMEN or 0)
+		flashlight.light_spot:SetLumen(flashlight_on and FLASHLIGHT_LUMEN or 0)
 		flash_map:SetEnabled(flashlight_on)
-		print("flashlight ", flashlight_on)
 	end
 
 	f_was_down = f_down
