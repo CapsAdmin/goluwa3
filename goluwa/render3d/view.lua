@@ -2,6 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = objects.CreateTemplate("render3d_view")
+local commands = import("goluwa/cli/commands.lua")
 local active = {}
 local activation_serial = 0
 local camera_setters = {}
@@ -108,5 +109,15 @@ event.AddListener(
 	end,
 	{priority = 100}
 )
+
+commands.Add("copyview", function()
+	local clipboard = import("goluwa/bindings/clipboard.lua")
+	local cam = active[1]
+	local str = ""
+	str = str .. "pos = " .. tostring(cam.Position) .. "\n"
+	str = str .. "ang = " .. tostring(cam.Rotation:GetAngles()) .. "\n"
+	str = str .. "fov = " .. tostring(cam.FOV) .. "\n"
+	clipboard.Set(str)
+end)
 
 return View:Register()
