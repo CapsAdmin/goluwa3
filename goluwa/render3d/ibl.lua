@@ -224,7 +224,9 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				vec2 ssr_coord = uv * vec2(ssr_size) - 0.5;
 				ivec2 ssr_base = ivec2(floor(ssr_coord));
 				vec2 ssr_frac = ssr_coord - vec2(ssr_base);
-				vec4 accum = vec4(0.0);
+				vec3 color_accum = vec3(0.0);
+				float color_weight = 0.0;
+				float alpha_accum = 0.0;
 				float total_weight = 0.0;
 
 				for (int i = 0; i < 4; i++) {
@@ -244,14 +246,17 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 					float normal_weight = pow(max(dot(center_normal, tap_normal), 0.0), 16.0);
 					float roughness_weight = 1.0 - clamp(abs(tap_roughness - center_roughness) * 8.0, 0.0, 1.0);
 					float weight = bilinear_weight * (depth_weight * normal_weight * roughness_weight + 1e-4);
-					accum += texelFetch(TEXTURE(]] .. uniform_name .. [[.ssr_tex), ssr_pos, 0) * weight;
+					vec4 tap = texelFetch(TEXTURE(]] .. uniform_name .. [[.ssr_tex), ssr_pos, 0);
+					// a tap's colour only counts as much as its ray found something
+					color_accum += tap.rgb * (weight * tap.a);
+					color_weight += weight * tap.a;
+					alpha_accum += tap.a * weight;
 					total_weight += weight;
 				}
 
-				if (total_weight <= 1e-6) return texture(TEXTURE(]] .. uniform_name .. [[.ssr_tex), uv);
+				if (color_weight <= 1e-6) return vec4(0.0);
 
-				vec4 filtered = accum / total_weight;
-				return vec4(filtered.rgb, clamp(filtered.a, 0.0, 1.0));
+				return vec4(color_accum / color_weight, clamp(alpha_accum / total_weight, 0.0, 1.0));
 			}
 
 			vec3 combine_reflections(vec3 env_reflection, vec4 ssr_reflection, float ssr_weight) {
@@ -262,9 +267,7 @@ end
 
 -- Samples reflection probes uploaded to uniform_name.probe_color_textures /
 -- probe_depth_textures / probe_positions (see envprobe.GetProbeBlockLayout
--- / WriteProbeBlock) and blends them over global_env. Shared by ssr.lua
--- (as its screen-space-miss fallback) and lighting.lua (so probes still
--- contribute when the SSR pass itself is disabled).
+-- / WriteProbeBlock) and blends them over global_env.
 function ibl.GetProbeReflectionGLSLCode(uniform_name)
 	uniform_name = uniform_name or "lighting_data"
 	return [[

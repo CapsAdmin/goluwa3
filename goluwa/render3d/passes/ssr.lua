@@ -1,7 +1,7 @@
 local assets = import("goluwa/assets.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
+local post_source = import("goluwa/render3d/post_source.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local envprobe = import("goluwa/render3d/envprobe.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -112,11 +112,11 @@ return {
 					render3d.gbuffer_block,
 					render3d.last_frame_block,
 					{"blue_noise_tex", "int"},
+					{"exposure_tex", "int"},
 					{"env_tex", "int"},
 					{"history_tex", "int"},
 					{"history_depth_tex", "int"},
 					{"frame_index", "int"},
-					envprobe.GetProbeBlockLayout(),
 					{"prev_view", "mat4"},
 					{"prev_projection", "mat4"},
 					{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
@@ -128,6 +128,8 @@ return {
 					render3d.WriteLastFrameBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					local exposure = post_source.GetExposureTexture(true)
+					block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
 					local frame = system.GetFrameNumber()
 					block.frame_index = frame
 
@@ -147,7 +149,6 @@ return {
 						block.history_depth_tex = -1
 					end
 
-					envprobe.WriteProbeBlock(self, block)
 					-- every light: a reflected ray sees what the camera doesn't
 					local lights = render3d.GetLights()
 					block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
@@ -213,18 +214,17 @@ return {
 				ddgi.GetMaterialGLSL() or
 				""
 			) .. [[
-		]] .. ibl.GetProbeReflectionGLSLCode("ssr_data") .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("ssr_data", {world_pos_function = "get_world_pos"}) .. [[
 			#define SSR_MAX_STEPS 48
 			#define SSR_BINARY_STEPS 6
 			#define SSR_STRIDE 2.0
 			#define SSR_MAX_DISTANCE 80.0
-			#define SSR_ROUGHNESS_CUTOFF 0.75
 			// where lighting stops using ssr (get_ssr_blend_weight)
-			#define SSR_RT_ROUGHNESS_CUTOFF 0.45
+			#define SSR_ROUGHNESS_CUTOFF 0.45
 			#define SSR_RT_MAX_DISTANCE 1000.0
 			#define SSR_MIRROR_THRESHOLD 0.06
+			// times white on screen, under last frame's exposure
 			#define SSR_MAX_HIT_LUMINANCE 8.0
 			#define SSR_SPATIAL_NORMAL_POWER 32.0
 			#define SSR_RC_DIRECTIONS ]] .. radiance_cascades.DIRECTIONS_PER_AXIS .. "\n" .. [[
@@ -240,6 +240,7 @@ return {
 			vec2 gbuffer_ratio;
 			vec4 inv_projection_row_z;
 			vec4 inv_projection_row_w;
+			float max_hit_luminance;
 
 			float luminance(vec3 color) {
 				return dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -316,14 +317,6 @@ return {
 
 				prev_clip /= prev_clip.w;
 				return prev_clip.xy * 0.5 + 0.5;
-			}
-
-			vec3 get_probe_environment_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				normal = bend_normal_to_view(normal, V);
-				vec3 raw_R = reflect(-V, normal);
-				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
-				vec3 global_env = sample_environment_specular(ssr_data.env_tex, R, normal, roughness);
-				return blend_probe_reflections(global_env, R, roughness, world_pos);
 			}
 
 			vec4 trace_ssr_direction(vec3 pos_vs, vec3 R_vs, float roughness, float jitter) {
@@ -414,9 +407,7 @@ return {
 								if (roughness > SSR_MIRROR_THRESHOLD) {
 									float hit_luma = luminance(hit_color);
 
-									if (hit_luma > SSR_MAX_HIT_LUMINANCE) {
-										hit_color *= SSR_MAX_HIT_LUMINANCE / hit_luma;
-									}
+									if (hit_luma > max_hit_luminance) hit_color *= max_hit_luminance / hit_luma;
 								}
 
 								return vec4(hit_color, edge_fade * dist_fade * thick_conf);
@@ -594,14 +585,14 @@ return {
 				#ifdef SSR_RAY_QUERY
 				// what the screen doesn't hold (off screen, behind something or
 				// facing the camera) is traced; faded screen hits blend into it
-				if (ddgi_data.ddgi_rt_ready != 0 && roughness < SSR_RT_ROUGHNESS_CUTOFF && hit.a < 0.999) {
+				if (ddgi_data.ddgi_rt_ready != 0 && hit.a < 0.999) {
 					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
 					vec3 traced = trace_scene_reflection(origin, R_world, N, V, roughness);
 
 					if (roughness > SSR_MIRROR_THRESHOLD) {
 						float traced_luma = luminance(traced);
 
-						if (traced_luma > SSR_MAX_HIT_LUMINANCE) traced *= SSR_MAX_HIT_LUMINANCE / traced_luma;
+						if (traced_luma > max_hit_luminance) traced *= max_hit_luminance / traced_luma;
 					}
 
 					return vec4(mix(traced, hit.rgb, hit.a), 1.0);
@@ -610,15 +601,8 @@ return {
 
 				if (hit.a > 0.0) return hit;
 
-				vec4 cascade = sample_cascade_reflection(pixel_uv, R_world);
-
-				if (cascade.a > 0.0) {
-					vec3 probe_reflection = get_probe_environment_reflection(N, roughness, V, world_pos);
-					return vec4(mix(probe_reflection, cascade.rgb, cascade.a), cascade.a);
-				}
-
-				vec3 fallback_reflection = get_probe_environment_reflection(N, roughness, V, world_pos);
-				return vec4(fallback_reflection, 0.0);
+				// lighting fills the rest with its sky visibility aware environment
+				return sample_cascade_reflection(pixel_uv, R_world);
 			}
 
 			void main() {
@@ -629,6 +613,7 @@ return {
 				mat4 inv_projection = ssr_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
+				max_hit_luminance = ssr_data.exposure_tex != -1 ? SSR_MAX_HIT_LUMINANCE / max(texture(TEXTURE(ssr_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 				ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
 				bool in_bounds = is_screen_pos_in_bounds(pos, ssr_size);
 				ivec2 gbuffer_pos = min(ivec2((vec2(pos) + 0.5) * gbuffer_ratio), gbuffer_size - 1);
@@ -642,7 +627,8 @@ return {
 
 				if (depth < 1.0) {
 					N = texelFetch(TEXTURE(ssr_data.normal_tex), gbuffer_pos, 0).xyz * 2.0 - 1.0;
-					roughness = texelFetch(TEXTURE(ssr_data.mra_tex), gbuffer_pos, 0).g;
+					// the gbuffer stores ggx alpha
+					roughness = sqrt(texelFetch(TEXTURE(ssr_data.mra_tex), gbuffer_pos, 0).g);
 					world_pos = get_world_pos(uv, depth);
 					vec3 pos_vs = (ssr_data.view * vec4(world_pos, 1.0)).xyz;
 					view_depth = -pos_vs.z;
@@ -664,9 +650,10 @@ return {
 					return;
 				}
 
-				vec4 accum = vec4(0.0);
 				vec3 moment1 = vec3(0.0);
 				vec3 moment2 = vec3(0.0);
+				float alpha_accum = 0.0;
+				float color_weight = 0.0;
 				float total_weight = 0.0;
 
 				for (int y = -1; y <= 1; y++) {
@@ -686,9 +673,12 @@ return {
 						if (weight <= 0.0001) continue;
 
 						vec4 sample_value = ssr_tile[tile_pos.y][tile_pos.x];
-						accum += sample_value * weight;
-						moment1 += sample_value.rgb * weight;
-						moment2 += sample_value.rgb * sample_value.rgb * weight;
+						// rgb only counts as much as the sample found something
+						float sample_color_weight = weight * sample_value.a;
+						moment1 += sample_value.rgb * sample_color_weight;
+						moment2 += sample_value.rgb * sample_value.rgb * sample_color_weight;
+						color_weight += sample_color_weight;
+						alpha_accum += sample_value.a * weight;
 						total_weight += weight;
 					}
 				}
@@ -697,10 +687,10 @@ return {
 				vec3 mean = current.rgb;
 				vec3 deviation = vec3(0.0);
 
-				if (total_weight > 0.0001) {
-					mean = moment1 / total_weight;
-					deviation = sqrt(max(moment2 / total_weight - mean * mean, vec3(0.0)));
-					filtered = mix(current, accum / total_weight, smoothstep(0.02, 0.15, roughness));
+				if (color_weight > 0.0001) {
+					mean = moment1 / color_weight;
+					deviation = sqrt(max(moment2 / color_weight - mean * mean, vec3(0.0)));
+					filtered = mix(current, vec4(mean, alpha_accum / total_weight), smoothstep(0.02, 0.15, roughness));
 				}
 
 				vec4 result = filtered;
