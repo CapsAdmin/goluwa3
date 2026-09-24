@@ -4,12 +4,13 @@ local tasks = import("goluwa/tasks.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Color = import("goluwa/structs/color.lua")
 local objects = import("goluwa/objects/objects.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Material = objects.CreateTemplate("render3d_material")
 -- textures
 Material:StartStorable()
-Material:GetSet("AlbedoTexture", nil, {type = "render_texture"})
+Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "DetectGrass"})
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("HeightTexture", nil, {type = "render_texture"})
 Material:GetSet("MetallicRoughnessTexture", nil, {type = "render_texture"})
@@ -61,6 +62,11 @@ Material:GetSet("WindDetailFrequency", 3.0)
 Material:GetSet("WindPhaseScale", 0.15)
 Material:GetSet("WindNormalInfluence", 0.35)
 Material:GetSet("WindDirection", Vec3(1.0, 0.0, 0.35))
+-- grass
+Material:GetSet("GrassDensity", 300.0)
+Material:GetSet("GrassHeight", 0.2)
+Material:GetSet("GrassHeightVariance", 4)
+Material:GetSet("GrassWidth", 0.02)
 -- other
 Material:GetSet("AlphaCutoff", 0.5)
 Material:GetSet("IgnoreZ", false)
@@ -78,6 +84,7 @@ Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Subsurface", false, {callback = "InvalidateFlags"})
+Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:EndStorable()
 
 function Material.New(config)
@@ -145,6 +152,7 @@ local FLAGS = {
 	"AlbedoAlphaIsEmissive",
 	"DoubleSided",
 	"Subsurface",
+	"Grass",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -153,7 +161,11 @@ for i, flag_name in ipairs(FLAGS) do
 	end
 end
 
+-- bumped whenever any material's flags change
+Material.flags_generation = 0
+
 function Material:InvalidateFlags()
+	Material.flags_generation = Material.flags_generation + 1
 	local flags = 0
 
 	for i, flag_name in ipairs(FLAGS) do
@@ -163,6 +175,26 @@ function Material:InvalidateFlags()
 	end
 
 	self.Flags = flags
+end
+
+Material:GetSet("Name", "", {callback = "DetectGrass"})
+
+-- for now any material or albedo texture with grass in its file name grows
+-- grass. only the file name, since map folders like gm_flatgrass would match
+-- every material in the map
+function Material:DetectGrass()
+	local texture = self.AlbedoTexture
+
+	if
+		file_path.GetFileNameFromPath(self.Name):lower():find("grass", 1, true) or
+		(
+			texture and
+			texture.config.path and
+			file_path.GetFileNameFromPath(texture.config.path):lower():find("grass", 1, true)
+		)
+	then
+		self:SetGrass(true)
+	end
 end
 
 function Material:GetDebugFlagMap()
@@ -196,7 +228,6 @@ end
 do
 	local steam = import("goluwa/steam/steam.lua")
 	local vfs = import("goluwa/vfs.lua")
-	local file_path = import("goluwa/filesystem/path.lua")
 	local xml = import("goluwa/codecs/xml.lua")
 	local cry_mtl_document_cache = {}
 	local cry_mtl_material_cache = {}
@@ -1129,6 +1160,7 @@ do
 		end
 
 		local self = Material.New()
+		self:SetName(path .. (sub_material and ("/" .. sub_material) or ""))
 		self.cry_mtl_path = path
 		self.upload_cache_key = cache_key
 		local document = cry_mtl_document_cache[path]
@@ -1215,7 +1247,7 @@ do
 		end
 
 		local self = Material.New()
-		--self:SetName(path)
+		self:SetName(path)
 		self.vmt_path = cache_key -- Store path for debugging
 		self.upload_cache_key = cache_key
 		vmt_material_cache[cache_key] = self

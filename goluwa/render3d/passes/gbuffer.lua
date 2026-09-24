@@ -4,6 +4,7 @@ local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local commands = import("goluwa/cli/commands.lua")
+local grass = import("goluwa/render3d/grass.lua")
 local camera_block = {
 	name = "gbuffer_data",
 	binding_index = 3,
@@ -305,11 +306,18 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 
 	return {
 		name = "gbuffer",
+		-- compute has to run before the gbuffer begins rendering. a bundle
+		-- without the grass pass (env probes) draws no grass
+		on_pre_draw = function(self, cmd)
+			if render3d.pipelines.grass then grass.Scatter(cmd) end
+		end,
 		on_draw = function(self, cmd)
 			render3d.ResetQueuedGBufferInstances()
 			event.Call("PreDraw3D", dt)
 			event.Call("Draw3DGeometry", dt)
 			render3d.FlushQueuedGBufferInstances()
+
+			if render3d.pipelines.grass then grass.Draw(render3d.pipelines.grass, cmd) end
 		end,
 		ColorFormat = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
@@ -836,4 +844,4 @@ fallback_anim.name = "gbuffer_anim"
 fallback_anim.draw_in_prerender = false
 fallback_anim.dont_create_framebuffers = true
 local instanced = build_instanced_pass(build_ssdm_fragment_shader("displacement_model"))
-return {fallback, fallback_anim, instanced}
+return {fallback, fallback_anim, instanced, grass.BuildDrawPass(fallback)}

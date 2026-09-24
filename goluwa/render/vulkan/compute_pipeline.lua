@@ -321,6 +321,11 @@ function ComputePipeline:Dispatch(cmd, group_count_x, group_count_y, group_count
 	cmd:Dispatch(group_count_x or 1, group_count_y or 1, group_count_z or 1)
 end
 
+function ComputePipeline:DispatchIndirect(cmd, buffer, offset, frame_index, dynamic_offsets)
+	self:Bind(cmd, frame_index, dynamic_offsets)
+	cmd:DispatchIndirect(buffer, offset)
+end
+
 function ComputePipeline:DispatchForSize(cmd, width, height, depth, frame_index, dynamic_offsets)
 	local ls = self.local_size
 	local gx = math.ceil((width or 1) / math.max(ls.x, 1))

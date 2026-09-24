@@ -592,6 +592,10 @@ function render3d.Initialize(config)
 	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
 
+		for _, pipeline in ipairs(render3d.pipelines_i) do
+			if pipeline.pre_render then pipeline:pre_render() end
+		end
+
 		scene_bvh.EnsureBuilt()
 		render3d.GetSceneVoxelizer().Update(render3d.GetCamera():GetPosition())
 		local ocean_needed = render3d.IsOceanEnabled()

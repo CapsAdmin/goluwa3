@@ -1326,6 +1326,11 @@ function CommandBuffer:Dispatch(groupCountX, groupCountY, groupCountZ)
 	vulkan.lib.vkCmdDispatch(self.ptr[0], groupCountX or 1, groupCountY or 1, groupCountZ or 1)
 end
 
+function CommandBuffer:DispatchIndirect(buffer, offset)
+	keepalive(self, buffer)
+	vulkan.lib.vkCmdDispatchIndirect(self.ptr[0], buffer.ptr[0], offset or 0)
+end
+
 local format_to_aspect = {}
 
 if true then

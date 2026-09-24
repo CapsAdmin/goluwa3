@@ -62,6 +62,20 @@ do
 		render.PopCommandBuffer()
 	end
 
+	function EasyPipelineCompute:DispatchIndirect(cmd, buffer, offset, frame_index)
+		cmd = cmd or render.GetCommandBuffer()
+		render.PushCommandBuffer(cmd)
+		self:UploadConstants()
+		self.pipeline:DispatchIndirect(
+			cmd,
+			buffer,
+			offset,
+			frame_index or self._descriptor_slot,
+			self.dynamic_offsets
+		)
+		render.PopCommandBuffer()
+	end
+
 	function EasyPipelineCompute:DispatchForSize(cmd, width, height, depth, frame_index, dynamic_offsets)
 		if not self.pipeline or not self.pipeline.DispatchForSize then
 			error("EasyPipeline:DispatchForSize is only available for compute pipelines", 2)

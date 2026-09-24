@@ -443,6 +443,14 @@ return {
 					if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation)) {
 						continue;
 					}
+					// light reaches a thin translucent surface from either side, so
+					// its shadow is looked up on the side facing the light, and bent
+					// towards the light so edge on doesn't read as facing away
+					vec3 shadow_N = geometric_N;
+
+					if (subsurface > 0.0) {
+						shadow_N = normalize((dot(geometric_N, L) < 0.0 ? -geometric_N : geometric_N) + L);
+					}
                     vec3 H = normalize(V + L);
                     float NoL = saturate(dot(N, L));
                     float NoH = saturate(dot(N, H));
@@ -471,18 +479,18 @@ return {
 						lighting_data.shadows.shadow_map_indices[0] >= 0 &&
 						type == 0
 					) {
-                        shadow_factor = calculateShadow(world_pos, geometric_N, L);
+                        shadow_factor = calculateShadow(world_pos, shadow_N, L);
 					} else if (
 						i == lighting_data.shadows.local_directional_shadow_light_index &&
 						lighting_data.shadows.local_directional_shadow_map_index >= 0 &&
 						type == 2
 					) {
-						shadow_factor = calculateLocalDirectionalShadow(world_pos, geometric_N, L);
+						shadow_factor = calculateLocalDirectionalShadow(world_pos, shadow_N, L);
 					} else if (type == 1 || type == 3) {
 						int point_shadow_slot = getPointShadowSlot(i);
 
 						if (point_shadow_slot >= 0) {
-							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, geometric_N, L);
+							shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, shadow_N, L);
 						}
 
 						shadow_factor *= light_oct_shadow_factor(lighting_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
@@ -526,7 +534,8 @@ return {
 				vec3 gi_irradiance = get_gi_irradiance(N, sky_visibility);
 				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, gi_irradiance);
 				float ambient_front_amount = blocking_detail;
-				vec3 ambient_transmission_tint = mix(vec3(1.0), transmission_color * albedo, blocking_detail);
+				// the same tint as direct light passing through
+				vec3 ambient_transmission_tint = mix(transmission_color, transmission_color * albedo, blocking_detail);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * get_ao();
 
 				vec3 irradiance = gi_irradiance;

@@ -137,8 +137,12 @@ return {
 				const int Ns = 6; 
 				const uint Nb = 32;
 				// how far behind its visible front an occluder is assumed to
-				// extend, in view space units
+				// extend, in view space units. thin translucent surfaces
+				// (subsurface, like leaves and grass blades) barely extend at
+				// all, or a field of blades would black out the ground between
+				// them
 				float thickness = 0.5;
+				float thin_thickness = 0.03;
 
 				float total_ao = 0.0;
 				float total_weight = 0.0;
@@ -181,6 +185,8 @@ return {
 
 							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
 
+							float sample_thickness = texture(TEXTURE(lighting_data.mra_tex), sample_uv).a > 0.0 ? thin_thickness : thickness;
+
 							// Angles from the view vector, signed by the side of
 							// the slice the sample is on (Therrien 2023). The
 							// back of the occluder is its front pushed away from
@@ -191,7 +197,7 @@ return {
 							// almost straight away from the viewer, flip sign
 							// on noise and cover the whole hemisphere.
 							float theta_f = side * acos(clamp(dot(v_f * inversesqrt(dist2), V), -1.0, 1.0));
-							float theta_b = side * acos(clamp(dot(normalize(v_f - V * thickness), V), -1.0, 1.0));
+							float theta_b = side * acos(clamp(dot(normalize(v_f - V * sample_thickness), V), -1.0, 1.0));
 							float diff_f = theta_f - theta_n;
 							float diff_b = theta_b - theta_n;
 
