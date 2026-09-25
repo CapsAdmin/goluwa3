@@ -4,7 +4,6 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
-local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local cgf = {}
@@ -319,23 +318,28 @@ function cgf.ReadNodeChunk(file, chunk)
 		is_group_member = file:ReadByte() ~= 0,
 	}
 	file:Advance(2)
-	file:Advance(16 * 4)
-	node.position = read_vec3(file)
-	node.rotation = Quat(file:ReadFloat(), file:ReadFloat(), file:ReadFloat(), file:ReadFloat())
-	node.scale = read_vec3(file)
+	-- like CryEngine, use tm as a 3x4 and ignore the pos/rot/scale fields after it
+	-- the unused 4th column is stored as zeros and the translation is in centimeters
+	local tm = {}
+
+	for i = 1, 16 do
+		tm[i] = file:ReadFloat()
+	end
+
+	tm[4] = 0
+	tm[8] = 0
+	tm[12] = 0
+	tm[13] = tm[13] * 0.01
+	tm[14] = tm[14] * 0.01
+	tm[15] = tm[15] * 0.01
+	tm[16] = 1
+	node.local_transform = Matrix44(unpack(tm))
+	file:Advance((3 + 4 + 3) * 4)
 	node.position_controller_id = file:ReadI32()
 	node.rotation_controller_id = file:ReadI32()
 	node.scale_controller_id = file:ReadI32()
 	file:PopPosition()
 	return node
-end
-
-function cgf.BuildNodeLocalTransform(node)
-	local matrix = Matrix44()
-	matrix:SetRotation(node.rotation or Quat(0, 0, 0, 1))
-	matrix:Scale(node.scale.x, node.scale.y, node.scale.z)
-	matrix:SetTranslation(node.position.x, node.position.y, node.position.z)
-	return matrix
 end
 
 function cgf.GetNodeWorldTransform(nodes_by_id, node_id, cache, visiting)
@@ -348,7 +352,7 @@ function cgf.GetNodeWorldTransform(nodes_by_id, node_id, cache, visiting)
 	if visiting[node_id] then error("cgf node cycle at " .. tostring(node_id)) end
 
 	local node = assert(nodes_by_id[node_id], "unknown cgf node " .. tostring(node_id))
-	local local_transform = cgf.BuildNodeLocalTransform(node)
+	local local_transform = node.local_transform
 	visiting[node_id] = true
 
 	if node.parent_id and node.parent_id > -1 and nodes_by_id[node.parent_id] then

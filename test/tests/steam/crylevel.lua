@@ -2,6 +2,7 @@ local T = import("test/environment.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local crylevel = import("goluwa/steam/crylevel.lua")
+local xml = import("goluwa/codecs/xml.lua")
 local ffi = require("ffi")
 
 local function pack_u32_le(value)
@@ -36,22 +37,34 @@ local function build_engine_matrix(transform)
 	return matrix
 end
 
+local empty_libraries = {prefabs = {}, archetypes = {}}
+
+local function get_basis(transform)
+	local basis = Matrix44():SetRotation(transform.rotation)
+	return basis:TransformVector(Vec3(1, 0, 0)),
+	basis:TransformVector(Vec3(0, 1, 0)),
+	basis:TransformVector(Vec3(0, 0, -1))
+end
+
 T.Test("Cry level parser flattens group transforms for visual cgf objects", function()
-	local entries = assert(
-		crylevel.ParseLayerData([[
+	local entries = crylevel.ExtractVisualObjects(
+		assert(
+			crylevel.ParseLayerData([[
 <ObjectLayer>
 	<Layer Name="natural" Hidden="0">
 		<LayerObjects>
-			<Object Type="Group" Name="group" Pos="10,20,30" Rotate="0,0,0,1" Scale="2,3,4">
+			<Object Type="Group" Name="group" Pos="10,20,30" Rotate="1,0,0,0" Scale="2,3,4">
 				<Objects>
-					<Object Type="Brush" Name="rock" Pos="1,2,3" Rotate="0,0,0,1" Scale="5,6,7" Prefab="objects/natural/rocks/test_rock.cgf" />
+					<Object Type="Brush" Name="rock" Pos="1,2,3" Rotate="1,0,0,0" Scale="5,6,7" Prefab="objects/natural/rocks/test_rock.cgf" />
 					<Object Type="AIPoint" Name="skip_me" Pos="9,9,9" />
 				</Objects>
 			</Object>
 		</LayerObjects>
 	</Layer>
 </ObjectLayer>
-		]])
+			]])
+		),
+		empty_libraries
 	)
 	T(#entries)["=="](1)
 	T(entries[1].name)["=="]("rock")
@@ -109,21 +122,24 @@ T.Test("Cry level parser reads editor terrain metadata from level archive xml", 
 	T(editor_level.tile_resolution)["=="](512)
 end)
 
-T.Test("Cry level parser reads visual objects from editor level xml fallback", function()
-	local entries = assert(
-		crylevel.ParseEditorVisualObjectsData([[
+T.Test("Cry level parser reads visual objects from editor level xml", function()
+	local entries = crylevel.ExtractVisualObjects(
+		assert(
+			crylevel.ParseEditorObjectsData([[
 <Level HeightmapWidth="2048" HeightmapHeight="2048">
 	<ObjectLayers>
 		<Layer Name="Main" Hidden="0" />
 		<Layer Name="HiddenStuff" Hidden="1" />
 	</ObjectLayers>
 	<Objects NumObjects="3">
-		<Object Type="Brush" Layer="Main" Name="crate" Pos="1,2,3" Rotate="0,0,0,1" Scale="1,1,1" Prefab="Objects\library\props\crate.cgf" />
-		<Object Type="GeomEntity" Layer="Main" Name="tower" Pos="4,5,6" Rotate="0,0,0,1" Scale="1,1,1" Geometry="objects/structures/tower.cgf" />
-		<Object Type="Brush" Layer="HiddenStuff" Name="skip_me" Pos="7,8,9" Rotate="0,0,0,1" Scale="1,1,1" Prefab="objects/hidden/skip.cgf" />
+		<Object Type="Brush" Layer="Main" Name="crate" Pos="1,2,3" Rotate="1,0,0,0" Scale="1,1,1" Prefab="Objects\library\props\crate.cgf" />
+		<Object Type="GeomEntity" Layer="Main" Name="tower" Pos="4,5,6" Rotate="1,0,0,0" Scale="1,1,1" Geometry="objects/structures/tower.cgf" />
+		<Object Type="Brush" Layer="HiddenStuff" Name="skip_me" Pos="7,8,9" Rotate="1,0,0,0" Scale="1,1,1" Prefab="objects/hidden/skip.cgf" />
 	</Objects>
 </Level>
-		]])
+			]])
+		),
+		empty_libraries
 	)
 	T(#entries)["=="](2)
 	T(entries[1].name)["=="]("crate")
@@ -132,25 +148,84 @@ T.Test("Cry level parser reads visual objects from editor level xml fallback", f
 	T(entries[2].model_path)["=="]("objects/structures/tower.cgf")
 end)
 
-T.Test("Cry editor object quaternions reorder fence quarter-turn into horizontal yaw", function()
-	local attrs = {
-		Pos = "1967,2682,203",
-		Rotate = "0.70710659,0,0,0.70710695",
-		Scale = "1,1,1",
+T.Test("Cry quaternions are w first and cry yaw maps to engine yaw", function()
+	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(crylevel.BuildCryLocalMatrix{Pos = "1967,2682,203", Rotate = "0.70710659,0,0,0.70710695"})
+	local right, up, forward = get_basis(transform)
+	T((transform.position - Vec3(1967, 203, -2682)):GetLength())["~"](0, 0.001)
+	-- cry +x rotated 90 degrees around cry +z is cry +y, which is engine -z
+	T((right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.001)
+	T((up - Vec3(0, 1, 0)):GetLength())["~"](0, 0.001)
+	T((forward - Vec3(-1, 0, 0)):GetLength())["~"](0, 0.001)
+end)
+
+T.Test("Cry 180 degree yaw converts to a valid rotation", function()
+	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(crylevel.BuildCryLocalMatrix({Rotate = "8.9406967e-008,0,0,1"}))
+	local right, up = get_basis(transform)
+	T((right - Vec3(-1, 0, 0)):GetLength())["~"](0, 0.001)
+	T((up - Vec3(0, 1, 0)):GetLength())["~"](0, 0.001)
+end)
+
+T.Test("Cry negative scale is kept as a mirrored scale", function()
+	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(crylevel.BuildCryLocalMatrix({Scale = "-2,1,1"}))
+	local right, up = get_basis(transform)
+	T(transform.scale.x)["~"](-2, 0.001)
+	T((right - Vec3(1, 0, 0)):GetLength())["~"](0, 0.001)
+	T((up - Vec3(0, 1, 0)):GetLength())["~"](0, 0.001)
+end)
+
+T.Test("Cry prefabs, archetypes, entity models, parents and hidden groups", function()
+	local libraries = {
+		prefabs = {
+			["{P}"] = assert(
+				xml.Decode([[
+<Prefab Name="thing" Id="{P}">
+	<Objects>
+		<Object Type="Brush" Name="prefab_child" Pos="1,0,0" Prefab="objects/prefab_child.cgf" />
+	</Objects>
+</Prefab>
+			]])
+			).children[1],
+		},
+		archetypes = {["{A}"] = {object_Model = "objects/archetype.cgf"}},
 	}
-	local standard = crylevel.ConvertCryWorldMatrixToEngineTransform(crylevel.BuildCryLocalMatrix(attrs))
-	local editor_transform = crylevel.ConvertCryEditorWorldMatrixToEngineTransform(crylevel.BuildCryEditorLocalMatrix(attrs))
-	local standard_angles = standard.rotation:GetAngles()
-	local editor_angles = editor_transform.rotation:GetAngles()
-	local editor_world = crylevel.BuildCryEditorLocalMatrix(attrs)
-	local expected_origin = crylevel.CryLevelWorldVec3ToEngine(editor_world:TransformVector(Vec3(0, 0, 0)))
-	T((editor_transform.position - expected_origin):GetLength())["~"](0, 0.0001)
-	T(math.abs(math.abs(standard_angles.x) - math.pi / 2) < 0.001)["=="](true)
-	T(math.abs(editor_angles.x) < 0.001)["=="](true)
-	T(math.abs(editor_angles.y) < 0.001)["=="](true)
-	T(editor_transform.scale.x)["~"](1, 0.0001)
-	T(editor_transform.scale.y)["~"](1, 0.0001)
-	T(editor_transform.scale.z)["~"](1, 0.0001)
+	local entries = crylevel.ExtractVisualObjects(
+		assert(
+			crylevel.ParseEditorObjectsData([[
+<Level>
+	<Objects>
+		<Object Type="Brush" Id="{CHILD}" Parent="{ROOT}" Name="child" Pos="0,1,0" Prefab="objects/child.cgf" />
+		<Object Type="Brush" Id="{ROOT}" Name="root" Pos="100,0,0" Rotate="0.70710678,0,0,0.70710678" Prefab="objects/root.cgf" />
+		<Object Type="Prefab" Name="prefab" Pos="0,0,50" PrefabGUID="{P}" />
+		<Object Type="EntityArchetype" Name="archetype" Prototype="{A}" Pos="0,0,0" />
+		<Object Type="Entity" Name="entity" EntityClass="BasicEntity" Pos="0,0,0">
+			<Properties object_Model="objects/entity.cgf" />
+		</Object>
+		<Object Type="Group" Name="hidden_group" Hidden="1" Pos="0,0,0">
+			<Objects>
+				<Object Type="Brush" Name="hidden_child" Prefab="objects/hidden.cgf" />
+			</Objects>
+		</Object>
+	</Objects>
+</Level>
+			]])
+		),
+		libraries
+	)
+	local by_name = {}
+
+	for _, entry in ipairs(entries) do
+		by_name[entry.name] = entry
+	end
+
+	T(#entries)["=="](5)
+	T(by_name.hidden_child)["=="](nil)
+	T(by_name.archetype.model_path)["=="]("objects/archetype.cgf")
+	T(by_name.entity.model_path)["=="]("objects/entity.cgf")
+	-- child is at local +y of a root yawed 90 degrees, so it ends up at cry -x of the root
+	local child = crylevel.ConvertCryWorldMatrixToEngineTransform(by_name.child.world_matrix)
+	T((child.position - Vec3(99, 0, 0)):GetLength())["~"](0, 0.001)
+	local prefab_child = crylevel.ConvertCryWorldMatrixToEngineTransform(by_name.prefab_child.world_matrix)
+	T((prefab_child.position - Vec3(1, 50, 0)):GetLength())["~"](0, 0.001)
 end)
 
 T.Test("Cry level parser reads vegetation prototypes from editor xml", function()
@@ -207,9 +282,9 @@ T.Test("Cry level parser reads first-pass vegetation instances from fixed record
 	T(entries[1].position.z)["~"](236.1796875, 0.001)
 	T(entries[1].scale)["~"](0.8685, 0.0001)
 	local transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[1])
-	T(transform.position.x)["~"](1903.96875, 0.001)
+	T(transform.position.x)["~"](1548.375, 0.001)
 	T(transform.position.y)["~"](236.1796875, 0.001)
-	T(transform.position.z)["~"](-1548.375, 0.001)
+	T(transform.position.z)["~"](-1903.96875, 0.001)
 	T(transform.scale.x)["~"](0.8685, 0.0001)
 	T(transform.scale.y)["~"](0.8685, 0.0001)
 	T(transform.scale.z)["~"](0.8685, 0.0001)
@@ -218,11 +293,11 @@ T.Test("Cry level parser reads first-pass vegetation instances from fixed record
 	T(entries[2].yaw)["~"](math.pi / 2, 0.001)
 	T(entries[2].yaw_strength > 120)["=="](true)
 	local random_transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[2])
-	T(random_transform.position.x)["~"](200, 0.001)
+	T(random_transform.position.x)["~"](100, 0.001)
 	T(random_transform.position.y)["~"](300, 0.001)
-	T(random_transform.position.z)["~"](-100, 0.001)
-	local angles = random_transform.rotation:GetAngles()
-	T(angles.y)["~"](0, 0.001)
+	T(random_transform.position.z)["~"](-200, 0.001)
+	local random_right = get_basis(random_transform)
+	T((random_right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.001)
 	T(entries[3].prototype_id)["=="](56)
 	T(entries[3].terrain_normal ~= nil)["=="](true)
 	local aligned_transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[3])

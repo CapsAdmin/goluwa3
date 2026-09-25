@@ -135,18 +135,10 @@ local function parse_vec3(str, default_x, default_y, default_z)
 	return Vec3(x or default_x or 0, y or default_y or 0, z or default_z or 0)
 end
 
+-- CryEngine serializes quaternions as "w,x,y,z"
 local function parse_quat(str)
-	local x, y, z, w = unpack_csv_numbers(str)
+	local w, x, y, z = unpack_csv_numbers(str)
 	local rotation = Quat(x or 0, y or 0, z or 0, w or 1)
-
-	if rotation:GetLength() <= 0.000001 then return Quat(0, 0, 0, 1) end
-
-	return rotation:GetNormalized()
-end
-
-local function parse_editor_quat(str)
-	local x, y, z, w = unpack_csv_numbers(str)
-	local rotation = Quat(y or 0, z or 0, x or 0, w or 1)
 
 	if rotation:GetLength() <= 0.000001 then return Quat(0, 0, 0, 1) end
 
@@ -219,44 +211,19 @@ function crylevel.CryVec3ToEngine(vec)
 	return Vec3(vec.x, vec.z, -vec.y)
 end
 
-function crylevel.CryLevelWorldVec3ToEngine(vec)
-	return Vec3(vec.y, vec.z, -vec.x)
-end
-
 function crylevel.BuildCryLocalMatrix(attrs)
 	local matrix = Matrix44()
 	local position = parse_vec3(attrs.Pos, 0, 0, 0)
-	local rotation = parse_quat(attrs.Rotate)
 	local scale = parse_vec3(attrs.Scale, 1, 1, 1)
 	matrix:Identity()
-	matrix:SetRotation(rotation)
-
-	if scale.x ~= 1 or scale.y ~= 1 or scale.z ~= 1 then
-		matrix:Scale(scale.x, scale.y, scale.z)
-	end
-
+	matrix:SetRotation(parse_quat(attrs.Rotate))
+	matrix:Scale(scale.x, scale.y, scale.z)
 	matrix:SetTranslation(position.x, position.y, position.z)
 	return matrix
 end
 
-function crylevel.BuildCryEditorLocalMatrix(attrs)
-	local matrix = Matrix44()
-	local position = parse_vec3(attrs.Pos, 0, 0, 0)
-	local rotation = parse_editor_quat(attrs.Rotate)
-	local scale = parse_vec3(attrs.Scale, 1, 1, 1)
-	matrix:Identity()
-	matrix:SetRotation(rotation)
-
-	if scale.x ~= 1 or scale.y ~= 1 or scale.z ~= 1 then
-		matrix:Scale(scale.x, scale.y, scale.z)
-	end
-
-	matrix:SetTranslation(position.x, position.y, position.z)
-	return matrix
-end
-
-function crylevel.ComposeCryWorldMatrix(parent_world, attrs, build_local_matrix)
-	local local_matrix = (build_local_matrix or crylevel.BuildCryLocalMatrix)(attrs)
+function crylevel.ComposeCryWorldMatrix(parent_world, attrs)
+	local local_matrix = crylevel.BuildCryLocalMatrix(attrs)
 
 	if parent_world then return local_matrix * parent_world end
 
@@ -271,12 +238,16 @@ function crylevel.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 	local scale_x = cry_x:GetLength()
 	local scale_y = cry_y:GetLength()
 	local scale_z = cry_z:GetLength()
-	local right = scale_x > 0.000001 and crylevel.CryVec3ToEngine(cry_x / scale_x) or Vec3(1, 0, 0)
+
+	-- a mirrored basis cannot be expressed as a rotation, so move the mirror into the x scale
+	if cry_x:GetCross(cry_y):GetDot(cry_z) < 0 then scale_x = -scale_x end
+
+	local right = math.abs(scale_x) > 0.000001 and
+		crylevel.CryVec3ToEngine(cry_x / scale_x) or
+		Vec3(1, 0, 0)
 	local up = scale_z > 0.000001 and crylevel.CryVec3ToEngine(cry_z / scale_z) or Vec3(0, 1, 0)
 	local back = scale_y > 0.000001 and
-		(
-			-crylevel.CryVec3ToEngine(cry_y / scale_y)
-		)
+		-crylevel.CryVec3ToEngine(cry_y / scale_y)
 		or
 		Vec3(0, 0, 1)
 	local rotation_matrix = Matrix44()
@@ -294,123 +265,185 @@ function crylevel.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 		position = crylevel.CryVec3ToEngine(origin),
 		rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
 		scale = Vec3(
-			scale_x > 0.000001 and scale_x or 1,
+			math.abs(scale_x) > 0.000001 and scale_x or 1,
 			scale_z > 0.000001 and scale_z or 1,
 			scale_y > 0.000001 and scale_y or 1
 		),
 	}
 end
 
-function crylevel.ConvertCryEditorWorldMatrixToEngineTransform(world_matrix)
-	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(world_matrix)
-	transform.rotation = (transform.rotation * Quat():SetAngles(Ang3(0, -math.pi / 2, 0))):GetNormalized()
-	transform.position = crylevel.CryLevelWorldVec3ToEngine(world_matrix:TransformVector(Vec3(0, 0, 0)))
-	return transform
-end
-
 function crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
-	local yaw = entry.yaw or 0
-	local rotation
+	-- yaw is a rotation around cry +z, which maps to engine +y with the same handedness
+	local rotation = Quat(0, 0, 0, 1):Rotate(entry.yaw or 0, 0, 1, 0)
 
-	if entry.terrain_normal and entry.terrain_normal:GetLength() > 0.000001 then
+	if entry.terrain_normal then
 		local up = entry.terrain_normal:GetNormalized()
-		local flat_forward = Quat():SetAngles(Ang3(0, yaw - math.pi / 2, 0)):GetForward()
-		local projected_forward = flat_forward - up * flat_forward:GetDot(up)
+		local axis = Vec3(0, 1, 0):GetCross(up)
+		local sin = axis:GetLength()
 
-		if projected_forward:GetLength() <= 0.000001 then
-			projected_forward = Vec3(0, 0, -1) - up * Vec3(0, 0, -1):GetDot(up)
+		if sin > 0.000001 then
+			rotation = Quat(0, 0, 0, 1):Rotate(math.atan2(sin, up.y), axis.x, axis.y, axis.z) * rotation
 		end
-
-		projected_forward = projected_forward:GetNormalized()
-		local back = (-projected_forward):GetNormalized()
-		local right = up:GetCross(back)
-
-		if right:GetLength() <= 0.000001 then
-			right = Vec3(1, 0, 0)
-		else
-			right = right:GetNormalized()
-		end
-
-		back = right:GetCross(up):GetNormalized()
-		local rotation_matrix = Matrix44()
-		rotation_matrix:Identity()
-		rotation_matrix.m00 = right.x
-		rotation_matrix.m01 = right.y
-		rotation_matrix.m02 = right.z
-		rotation_matrix.m10 = up.x
-		rotation_matrix.m11 = up.y
-		rotation_matrix.m12 = up.z
-		rotation_matrix.m20 = back.x
-		rotation_matrix.m21 = back.y
-		rotation_matrix.m22 = back.z
-		rotation = rotation_matrix:GetRotation(Quat()):GetNormalized()
-	else
-		rotation = (Quat():SetAngles(Ang3(0, yaw - math.pi / 2, 0))):GetNormalized()
 	end
 
 	return {
-		position = crylevel.CryLevelWorldVec3ToEngine(entry.position),
-		rotation = rotation,
+		position = crylevel.CryVec3ToEngine(entry.position),
+		rotation = rotation:GetNormalized(),
 		scale = Vec3(entry.scale, entry.scale, entry.scale),
 	}
 end
 
-function crylevel.GetVisualGeometryPath(attrs)
-	local path
-	local object_type = attrs.Type
-
-	if object_type == "Brush" then
-		path = attrs.Prefab
-	elseif object_type == "GeomEntity" then
-		path = attrs.Geometry
+do
+	local function get_model_property(properties)
+		return properties and (properties.object_Model or properties.fileModel)
 	end
 
-	if type(path) ~= "string" or path == "" then return nil end
+	function crylevel.GetVisualGeometryPath(node, libraries)
+		local attrs = node.attrs or {}
+		local object_type = attrs.Type
+		local path
 
-	path = file_path.FixPathSlashes(path)
+		if object_type == "Brush" then
+			path = attrs.Prefab
+		elseif object_type == "GeomEntity" then
+			path = attrs.Geometry
+		elseif object_type == "EntityArchetype" then
+			path = get_model_property(libraries.archetypes[attrs.Prototype])
+		else
+			local properties = find_child_by_tag(node, "Properties")
+			path = get_model_property(properties and properties.attrs)
+		end
 
-	if not path:lower():ends_with(".cgf") then return nil end
+		if type(path) ~= "string" or path == "" then return nil end
 
-	return path
+		path = file_path.FixPathSlashes(path)
+
+		if not path:lower():ends_with(".cgf") then return nil end
+
+		return path
+	end
 end
 
 function crylevel.IsObjectHidden(attrs)
 	return attrs.Hidden == "1" or attrs.HiddenInGame == "1"
 end
 
-function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, build_local_matrix)
-	out = out or {}
-
-	if not node then return out end
-
+function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, libraries)
 	local attrs = node.attrs or {}
+
+	if crylevel.IsObjectHidden(attrs) then return out end
+
 	local object_type = attrs.Type
-	local world_matrix = crylevel.ComposeCryWorldMatrix(parent_world, attrs, build_local_matrix)
+	local world_matrix = crylevel.ComposeCryWorldMatrix(parent_world, attrs)
+	local children
 
 	if object_type == "Group" then
-		local objects = find_child_by_tag(node, "Objects")
+		children = find_child_by_tag(node, "Objects")
+	elseif object_type == "Prefab" then
+		local prefab = libraries.prefabs[attrs.PrefabGUID]
 
-		for child in iter_children_by_tag(objects, "Object") do
-			crylevel.ExtractVisualObjectsFromNode(child, world_matrix, out, build_local_matrix)
+		if not prefab then
+			wlog(
+				"missing cry prefab %s (%s)",
+				tostring(attrs.PrefabName),
+				tostring(attrs.PrefabGUID)
+			)
+			return out
+		end
+
+		children = find_child_by_tag(prefab, "Objects")
+	end
+
+	if children then
+		for child in iter_children_by_tag(children, "Object") do
+			crylevel.ExtractVisualObjectsFromNode(child, world_matrix, out, libraries)
 		end
 
 		return out
 	end
 
-	if not crylevel.IsObjectHidden(attrs) then
-		local model_path = crylevel.GetVisualGeometryPath(attrs)
+	local model_path = crylevel.GetVisualGeometryPath(node, libraries)
 
-		if model_path then
-			out[#out + 1] = {
-				name = attrs.Name or file_path.GetFileNameFromPath(model_path),
-				model_path = model_path,
-				type = object_type,
-				world_matrix = world_matrix,
-			}
-		end
+	if model_path then
+		out[#out + 1] = {
+			name = attrs.Name or file_path.GetFileNameFromPath(model_path),
+			model_path = model_path,
+			type = object_type,
+			world_matrix = world_matrix,
+		}
 	end
 
 	return out
+end
+
+-- top level objects can be attached to another object with Parent="{guid}", possibly in another layer
+function crylevel.ExtractVisualObjects(nodes, libraries)
+	local by_id = {}
+	local world_matrices = {}
+	local out = {}
+
+	for _, node in ipairs(nodes) do
+		if node.attrs.Id then by_id[node.attrs.Id] = node end
+	end
+
+	local function get_world_matrix(node, depth)
+		local world = world_matrices[node]
+
+		if world then return world end
+
+		local parent = node.attrs.Parent and by_id[node.attrs.Parent]
+		world = crylevel.ComposeCryWorldMatrix(parent and depth < 32 and get_world_matrix(parent, depth + 1) or nil, node.attrs)
+		world_matrices[node] = world
+		return world
+	end
+
+	for _, node in ipairs(nodes) do
+		local parent = node.attrs.Parent and by_id[node.attrs.Parent]
+		crylevel.ExtractVisualObjectsFromNode(node, parent and get_world_matrix(parent, 0) or nil, out, libraries)
+	end
+
+	return out
+end
+
+-- prefab and entity archetype libraries are shared by all levels
+function crylevel.LoadLibraries()
+	local libraries = {prefabs = {}, archetypes = {}}
+
+	for _, file_name in ipairs(vfs.Find("Prefabs/") or {}) do
+		if file_name:lower():ends_with(".xml") then
+			local ok, document = pcall(xml.Decode, assert(vfs.Read("Prefabs/" .. file_name)))
+			local root = ok and document and document.children and document.children[1]
+
+			if root then
+				for prefab in iter_children_by_tag(root, "Prefab") do
+					if prefab.attrs.Id then libraries.prefabs[prefab.attrs.Id] = prefab end
+				end
+			else
+				wlog("failed to parse cry prefab library %s: %s", file_name, tostring(document))
+			end
+		end
+	end
+
+	for _, file_name in ipairs(vfs.Find("Libs/EntityArchetypes/") or {}) do
+		if file_name:lower():ends_with(".xml") then
+			local ok, document = pcall(xml.Decode, assert(vfs.Read("Libs/EntityArchetypes/" .. file_name)))
+			local root = ok and document and document.children and document.children[1]
+
+			if root then
+				for prototype in iter_children_by_tag(root, "EntityPrototype") do
+					local properties = find_child_by_tag(prototype, "Properties")
+
+					if prototype.attrs.Id and properties then
+						libraries.archetypes[prototype.attrs.Id] = properties.attrs
+					end
+				end
+			else
+				wlog("failed to parse cry archetype library %s: %s", file_name, tostring(document))
+			end
+		end
+	end
+
+	return libraries
 end
 
 function crylevel.ParseLayerDocument(document)
@@ -423,7 +456,7 @@ function crylevel.ParseLayerDocument(document)
 	if layer_attrs.Hidden == "1" or not layer_objects then return out end
 
 	for node in iter_children_by_tag(layer_objects, "Object") do
-		crylevel.ExtractVisualObjectsFromNode(node, nil, out)
+		out[#out + 1] = node
 	end
 
 	return out
@@ -439,7 +472,7 @@ function crylevel.ParseLayerData(data)
 	return crylevel.ParseLayerDocument(document)
 end
 
-function crylevel.ParseEditorVisualObjectsDocument(document)
+function crylevel.ParseEditorObjectsDocument(document)
 	local root = document and document.children and document.children[1]
 	local missions = root and find_child_by_tag(root, "Missions") or nil
 	local current_mission_name = missions and missions.attrs and missions.attrs.Current or nil
@@ -479,22 +512,20 @@ function crylevel.ParseEditorVisualObjectsDocument(document)
 	for node in iter_children_by_tag(objects, "Object") do
 		local attrs = node.attrs or {}
 
-		if not hidden_layers[attrs.Layer] then
-			crylevel.ExtractVisualObjectsFromNode(node, nil, out, crylevel.BuildCryEditorLocalMatrix)
-		end
+		if not hidden_layers[attrs.Layer] then out[#out + 1] = node end
 	end
 
 	return out
 end
 
-function crylevel.ParseEditorVisualObjectsData(data)
+function crylevel.ParseEditorObjectsData(data)
 	local ok, document = pcall(xml.Decode, data)
 
 	if not ok or not document then
 		return nil, document or "unable to parse editor level xml"
 	end
 
-	return crylevel.ParseEditorVisualObjectsDocument(document)
+	return crylevel.ParseEditorObjectsDocument(document)
 end
 
 function crylevel.ParseLevelDataDocument(document)
@@ -680,14 +711,13 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 			local terrain_normal
 
 			if prototype.align_to_terrain and terrain then
-				local engine_position = crylevel.CryLevelWorldVec3ToEngine(position)
+				local engine_position = crylevel.CryVec3ToEngine(position)
 				terrain_normal = sample_terrain_normal_at_world(terrain, engine_position.x, engine_position.z)
 			end
 
 			entries[#entries + 1] = {
 				name = string.format("vegetation_%d_%d", prototype_id, index + 1),
 				model_path = prototype.model_path,
-				transform_space = "vegetation_world",
 				prototype_id = prototype_id,
 				position = position,
 				scale = read_f32_le(data, offset + 12) or 1,
@@ -1196,8 +1226,8 @@ end
 
 local function get_terrain_world_uv(terrain, world_x, world_z)
 	local world_size = math.max(terrain.world_size or 0, 1)
-	return math.clamp(world_x / world_size, 0, 1),
-	math.clamp((-world_z) / world_size, 0, 1)
+	return math.clamp((-world_z) / world_size, 0, 1),
+	math.clamp(world_x / world_size, 0, 1)
 end
 
 local function sample_terrain_height_raw(terrain, sample_x, sample_y)
@@ -1268,8 +1298,8 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 
 	if width <= 0 or height <= 0 then return 0 end
 
-	local sample_x = world_x * (terrain.height_world_to_sample_x or 0)
-	local sample_y = (-world_z) * (terrain.height_world_to_sample_y or 0)
+	local sample_x = (-world_z) * (terrain.height_world_to_sample_x or 0)
+	local sample_y = world_x * (terrain.height_world_to_sample_y or 0)
 	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
@@ -1309,8 +1339,8 @@ end
 
 local function sample_terrain_albedo_at_world(terrain, world_x, world_z)
 	local tile_world_size = terrain.albedo_tile_world_size or math.max(terrain.tile_world_size or 0, 1)
-	local tile_x = math.floor(world_x * (terrain.albedo_world_to_tile_x or (1 / tile_world_size)))
-	local tile_y = math.floor((-world_z) * (terrain.albedo_world_to_tile_y or (1 / tile_world_size)))
+	local tile_x = math.floor((-world_z) * (terrain.albedo_world_to_tile_x or (1 / tile_world_size)))
+	local tile_y = math.floor(world_x * (terrain.albedo_world_to_tile_y or (1 / tile_world_size)))
 
 	if tile_x < 0 then
 		tile_x = 0
@@ -1329,8 +1359,8 @@ local function sample_terrain_albedo_at_world(terrain, world_x, world_z)
 
 	if not tile then return 127, 127, 127, 255 end
 
-	local local_x = world_x - tile_x * tile_world_size
-	local local_y = (-world_z) - tile_y * tile_world_size
+	local local_x = (-world_z) - tile_x * tile_world_size
+	local local_y = world_x - tile_y * tile_world_size
 	return sample_terrain_tile_rgba(tile, local_x / tile_world_size, local_y / tile_world_size)
 end
 
@@ -1377,8 +1407,8 @@ end
 local function sample_terrain_surface_slot_at_world(terrain, world_x, world_z)
 	if not terrain.surface_slot_data then return 0 end
 
-	local sample_x = world_x * (terrain.surface_slot_world_to_sample_x or 0)
-	local sample_y = (-world_z) * (terrain.surface_slot_world_to_sample_y or 0)
+	local sample_x = (-world_z) * (terrain.surface_slot_world_to_sample_x or 0)
+	local sample_y = world_x * (terrain.surface_slot_world_to_sample_y or 0)
 	return get_terrain_surface_slot_sample(terrain, sample_x, sample_y)
 end
 
@@ -1556,7 +1586,8 @@ local function build_cry_terrain_source(terrain)
 		HeightGLSL = string.format(
 			[[
 			vec2 cry_terrain_uv(vec2 world) {
-				return clamp(vec2(world.x / %.6f, -world.y / %.6f), vec2(0.0), vec2(1.0));
+				// texture columns run along cry +y (engine -z), rows along cry +x (engine +x)
+				return clamp(vec2(-world.y / %.6f, world.x / %.6f), vec2(0.0), vec2(1.0));
 			}
 
 			float terrain_height(vec2 world) {
@@ -1755,7 +1786,7 @@ function crylevel.Apply(steam)
 			return steam.loaded_cry_levels[level_dir]
 		end
 
-		local entries = {}
+		local nodes = {}
 		local layers_dir = level_dir .. "Layers/"
 
 		for _, file_name in ipairs(vfs.Find(layers_dir) or {}) do
@@ -1764,13 +1795,10 @@ function crylevel.Apply(steam)
 				local data, read_err = vfs.Read(path)
 
 				if data then
-					local layer_entries, parse_err = crylevel.ParseLayerData(data)
+					local layer_nodes, parse_err = crylevel.ParseLayerData(data)
 
-					if layer_entries then
-						for _, entry in ipairs(layer_entries) do
-							entry.model_path = crylevel.ResolveModelPath(steam, level_dir, entry.model_path)
-							entries[#entries + 1] = entry
-						end
+					if layer_nodes then
+						list.extend(nodes, layer_nodes)
 					else
 						wlog("failed to parse cry layer " .. tostring(path) .. ": " .. tostring(parse_err))
 					end
@@ -1780,41 +1808,41 @@ function crylevel.Apply(steam)
 			end
 		end
 
-		if not entries[1] then
-			local level_name = level_dir:match("/([^/]+)/$") or ""
-			local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
-			local editor_level_data, editor_level_err = vfs.Read(editor_level_path)
+		-- objects in external layers live in the .lyr files, everything else is in the editor xml
+		local level_name = level_dir:match("/([^/]+)/$") or ""
+		local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
+		local editor_level_data, editor_level_err = vfs.Read(editor_level_path)
 
-			if editor_level_data then
-				local editor_entries, parse_err = crylevel.ParseEditorVisualObjectsData(editor_level_data)
+		if editor_level_data then
+			local editor_nodes, parse_err = crylevel.ParseEditorObjectsData(editor_level_data)
 
-				if editor_entries then
-					for _, entry in ipairs(editor_entries) do
-						entry.transform_space = "editor_world"
-						entry.model_path = crylevel.ResolveModelPath(steam, level_dir, entry.model_path)
-						entries[#entries + 1] = entry
-					end
-				else
-					wlog(
-						"failed to parse cry editor level objects %s: %s",
-						tostring(editor_level_path),
-						tostring(parse_err)
-					)
-				end
-			elseif editor_level_err then
+			if editor_nodes then
+				list.extend(nodes, editor_nodes)
+			else
 				wlog(
-					"failed to read cry editor level objects %s: %s",
+					"failed to parse cry editor level objects %s: %s",
 					tostring(editor_level_path),
-					tostring(editor_level_err)
+					tostring(parse_err)
 				)
 			end
+		elseif editor_level_err then
+			wlog(
+				"failed to read cry editor level objects %s: %s",
+				tostring(editor_level_path),
+				tostring(editor_level_err)
+			)
+		end
+
+		steam.cry_libraries = steam.cry_libraries or crylevel.LoadLibraries()
+		local entries = crylevel.ExtractVisualObjects(nodes, steam.cry_libraries)
+
+		for _, entry in ipairs(entries) do
+			entry.model_path = crylevel.ResolveModelPath(steam, level_dir, entry.model_path)
 		end
 
 		local terrain = select(1, crylevel.LoadTerrainData(steam, level_dir))
 		local vegetation_entries = {}
-		local level_name = level_dir:match("/([^/]+)/$") or ""
-		local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
-		local vegetation_map_data = vfs.Read(editor_level_path)
+		local vegetation_map_data = editor_level_data
 
 		if vegetation_map_data then
 			local prototypes, vegetation_map_err = crylevel.ParseVegetationMapData(vegetation_map_data)
@@ -1867,9 +1895,7 @@ function crylevel.Apply(steam)
 
 		if not steam.cry_skip_models then
 			for _, entry in ipairs(data.entries) do
-				local transform_data = entry.transform_space == "editor_world" and
-					crylevel.ConvertCryEditorWorldMatrixToEngineTransform(entry.world_matrix) or
-					crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
+				local transform_data = crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
 				local entity = Entity.New{Name = entry.name or "cry_object", Parent = parent}
 				local transform = entity:AddComponent("transform")
 				entity:AddComponent("visual")

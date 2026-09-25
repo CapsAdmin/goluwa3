@@ -7,4 +7,4 @@ steam.SetCryLevel(
 )
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(190)
-PLAYER_RIG.transform:SetPosition(Vec3(2475, 232, -2040))
+PLAYER_RIG.transform:SetPosition(Vec3(2040, 232, -2475))

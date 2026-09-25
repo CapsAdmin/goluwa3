@@ -5,7 +5,7 @@ local vfs = import("goluwa/vfs.lua")
 local cgf = import("goluwa/render3d/model_decoders/cgf.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local ffi = require("ffi")
-local Quat = import("goluwa/structs/quat.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
 local function write_u32(parts, value)
@@ -94,11 +94,16 @@ local function build_node_chunk_body(name, object_id, parent_id, material_id, po
 	write_i32(node_body, material_id)
 	node_body[#node_body + 1] = string.char(0, 0, 0, 0)
 
-	for i = 1, 16 do
-		write_f32(node_body, (i == 1 or i == 6 or i == 11 or i == 16) and 1 or 0)
+	for i = 1, 12 do
+		write_f32(node_body, (i == 1 or i == 6 or i == 11) and 1 or 0)
 	end
 
-	write_vec3(node_body, position[1], position[2], position[3])
+	-- tm translation is stored in centimeters
+	write_vec3(node_body, position[1] * 100, position[2] * 100, position[3] * 100)
+	-- files store the unused 4th column as zeros
+	write_f32(node_body, 0)
+	-- the obsolete pos field, which the loader ignores
+	write_vec3(node_body, 12345, 12345, 12345)
 	write_f32(node_body, 0)
 	write_f32(node_body, 0)
 	write_f32(node_body, 0)
@@ -365,16 +370,12 @@ T.Test("CGF node world transforms compose parent and local translation", functio
 		[1] = {
 			id = 1,
 			parent_id = -1,
-			position = Vec3(10, 0, 0),
-			rotation = Quat(0, 0, 0, 1),
-			scale = Vec3(1, 1, 1),
+			local_transform = Matrix44():Identity():SetTranslation(10, 0, 0),
 		},
 		[2] = {
 			id = 2,
 			parent_id = 1,
-			position = Vec3(1, 2, 3),
-			rotation = Quat(0, 0, 0, 1),
-			scale = Vec3(1, 1, 1),
+			local_transform = Matrix44():Identity():SetTranslation(1, 2, 3),
 		},
 	}
 	local world = cgf.GetNodeWorldTransform(nodes, 2)
