@@ -1248,8 +1248,9 @@ function scene_bvh.EnsureBuilt()
 
 	if not scene_bvh.has_built then
 		local quiet_since = scene_bvh.last_change_time or scene_bvh.dirty_since
-
-		if not quiet_since or now - quiet_since < 5.0 then return end
+		if (not quiet_since or now - quiet_since < 5.0) and now - scene_bvh.dirty_since < 10.0 then
+			return
+		end
 	elseif not settled and (now - scene_bvh.dirty_since) < max_wait then
 		return
 	end
